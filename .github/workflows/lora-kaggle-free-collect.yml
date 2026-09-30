@@ -1,6 +1,12 @@
 name: lora-kaggle-free-collect
 
 on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/lora-kaggle-free-collect.yml"
+      - "scripts/finalize-lora.mjs"
   workflow_dispatch:
     inputs:
       activate_preview:
@@ -18,6 +24,11 @@ on:
         required: true
         default: "180"
         type: string
+      existing_finetune_id:
+        description: "Optional already-uploaded Cloudflare finetune id for recovery/benchmark-only runs"
+        required: false
+        default: ""
+        type: string
 permissions:
   contents: read
 
@@ -32,11 +43,12 @@ jobs:
     timeout-minutes: 240
     env:
       KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+      RECOVERY_FINETUNE_ID: ${{ github.event_name == 'push' && 'faf28a8f-2d3a-473b-b793-54afed874422' || inputs.existing_finetune_id }}
     steps:
-      - name: Checkout candidate branch
+      - name: Checkout exact collector SHA
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: candidate/mel-clean-autonomy
+          ref: ${{ github.sha }}
 
       - name: Credentials preflight
         id: creds
@@ -76,8 +88,8 @@ jobs:
         id: status
         shell: bash
         env:
-          WAIT_FOR_COMPLETION: ${{ inputs.wait_for_completion }}
-          MAX_WAIT_MINUTES: ${{ inputs.max_wait_minutes }}
+          WAIT_FOR_COMPLETION: ${{ github.event_name == 'push' && 'false' || inputs.wait_for_completion }}
+          MAX_WAIT_MINUTES: ${{ github.event_name == 'push' && '1' || inputs.max_wait_minutes }}
         run: |
           set -euo pipefail
           KERNEL="${KAGGLE_USERNAME}/mel-lora-uncensored-notebook-t4"
@@ -94,7 +106,7 @@ jobs:
               COMPLETE=true
               break
             fi
-            if printf '%s' "$LOWER" | grep -Eq 'error|failed|failure|cancelled|canceled'; then
+            if printf '%s' "$LOWER" | grep -Eq 'error|failed|failure|cancelled|canceled|cancel_acknowledged|cancel acknowledged'; then
               echo "KAGGLE_RUN_FAILED"
               exit 1
             fi
@@ -124,12 +136,24 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          ADAPTER="$(find artifacts/kaggle-output -type f -name adapter_model.safetensors -print -quit)"
-          test -n "$ADAPTER"
-          DIR="$(dirname "$ADAPTER")"
+          DIR="artifacts/kaggle-output/mel-lora-output"
+          test -s "$DIR/training-evidence.json"
           for f in adapter_model.safetensors adapter_config.json training-evidence.json artifact-evidence.json lora-plan.json kaggle-run.json; do
             test -s "$DIR/$f"
           done
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const dir='artifacts/kaggle-output/mel-lora-output';
+          const training=JSON.parse(fs.readFileSync(dir+'/training-evidence.json','utf8'));
+          const artifact=JSON.parse(fs.readFileSync(dir+'/artifact-evidence.json','utf8'));
+          const stage=String(training.stage||'');
+          if (stage === 'uncensored-continue') {
+            const parent=String(training.parent_artifact_digest||'').toLowerCase();
+            const current=String(artifact.digest||'').toLowerCase();
+            if (!parent || !current || parent === current) throw new Error('KAGGLE_COLLECTOR_SELECTED_PARENT_INSTEAD_OF_CURRENT');
+          }
+          console.log(JSON.stringify({status:'CURRENT_KAGGLE_CHECKPOINT_SELECTED',stage,artifact_digest:artifact.digest,parent_artifact_digest:training.parent_artifact_digest||null},null,2));
+          NODE
           echo "dir=$DIR" >> "$GITHUB_OUTPUT"
 
       - name: Validate uncensored artifact provenance
@@ -145,16 +169,45 @@ jobs:
           const plan=JSON.parse(fs.readFileSync(dir+'/lora-plan.json','utf8'));
           const artifact=JSON.parse(fs.readFileSync(dir+'/artifact-evidence.json','utf8'));
           const training=JSON.parse(fs.readFileSync(dir+'/training-evidence.json','utf8'));
+          const run=JSON.parse(fs.readFileSync(dir+'/kaggle-run.json','utf8'));
           const checked=assertAdapterArtifact(artifact);
-          if (String(training.stage||'') !== 'uncensored') throw new Error('KAGGLE_STAGE_NOT_UNCENSORED');
+          const stage=String(training.stage||'');
+          if (!['uncensored','uncensored-continue'].includes(stage)) throw new Error('KAGGLE_STAGE_NOT_UNCENSORED');
+          if (stage === 'uncensored-continue') {
+            const parent=String(training.parent_artifact_digest||'').toLowerCase();
+            if (!/^sha256:[0-9a-f]{64}$/.test(parent)) throw new Error('KAGGLE_CONTINUATION_PARENT_DIGEST_MISSING');
+            if (String(artifact.parent_artifact_digest||'').toLowerCase() !== parent) throw new Error('KAGGLE_CONTINUATION_ARTIFACT_PARENT_MISMATCH');
+            if (String(run.parent_artifact_digest||'').toLowerCase() !== parent) throw new Error('KAGGLE_CONTINUATION_RUN_PARENT_MISMATCH');
+          }
           if (checked.finetune_id) throw new Error('PREEXISTING_FINETUNE_ID_FORBIDDEN');
           if (String(training.dataset_digest||'') !== String(plan.dataset_digest||'')) throw new Error('KAGGLE_DATASET_MISMATCH');
           if (String(training.training_manifest_digest||'').toLowerCase() !== String(plan.training_manifest_digest||'').toLowerCase()) throw new Error('KAGGLE_MANIFEST_MISMATCH');
           console.log(JSON.stringify({status:'KAGGLE_BUNDLE_VERIFIED',artifact_digest:checked.digest,examples:training?.dataset?.examples},null,2));
           NODE
 
+      - name: Attach pre-uploaded Cloudflare finetune
+        if: steps.status.outputs.complete == 'true' && env.RECOVERY_FINETUNE_ID != ''
+        shell: bash
+        env:
+          BUNDLE_DIR: ${{ steps.locate.outputs.dir }}
+          EXISTING_FINETUNE_ID: ${{ env.RECOVERY_FINETUNE_ID }}
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const dir=process.env.BUNDLE_DIR;
+          const id=String(process.env.EXISTING_FINETUNE_ID||'').trim();
+          if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{5,127}$/.test(id)) throw new Error('INVALID_EXISTING_FINETUNE_ID');
+          const path=dir+'/artifact-evidence.json';
+          const artifact=JSON.parse(fs.readFileSync(path,'utf8'));
+          if (artifact.finetune_id) throw new Error('KAGGLE_ARTIFACT_ALREADY_HAS_FINETUNE_ID');
+          artifact.finetune_id=id;
+          artifact.uri='cloudflare-finetune:'+id;
+          fs.writeFileSync(path,JSON.stringify(artifact,null,2)+'\n');
+          console.log(JSON.stringify({status:'EXISTING_FINETUNE_ATTACHED',finetune_id:id,artifact_digest:artifact.digest},null,2));
+          NODE
+
       - name: Upload exact adapter to Cloudflare fine-tunes
-        if: steps.status.outputs.complete == 'true'
+        if: steps.status.outputs.complete == 'true' && env.RECOVERY_FINETUNE_ID == ''
         shell: bash
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -186,15 +239,52 @@ jobs:
           echo "::add-mask::$PREVIEW_PASSWORD"
           echo "MEL_PREVIEW_PASSWORD=$PREVIEW_PASSWORD" >> "$GITHUB_ENV"
 
+      - name: Align isolated preview authentication
+        if: steps.status.outputs.complete == 'true'
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          test -n "${MEL_PREVIEW_PASSWORD:-}"
+          printf '%s' "$MEL_PREVIEW_PASSWORD" | npx wrangler secret put MELITURGOS_PASSWORD --env preview
+
+      - name: Wait for preview auth propagation
+        if: steps.status.outputs.complete == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE_URL="https://meliturgos-preview.adrien-lopezcarreras.workers.dev"
+          READY=0
+          for attempt in $(seq 1 20); do
+            status="$(curl --silent --show-error --max-time 20 \
+              --header "Authorization: Bearer ${MEL_PREVIEW_PASSWORD}" \
+              --output /tmp/preview-auth-probe.json \
+              --write-out '%{http_code}' \
+              "$BASE_URL/api/learning/progress" || true)"
+            echo "preview-auth-probe[$attempt] http=$status"
+            if [[ "$status" =~ ^2 ]]; then
+              READY=1
+              break
+            fi
+            sleep 3
+          done
+          [[ "$READY" == "1" ]] || {
+            echo "PREVIEW_AUTH_PROPAGATION_TIMEOUT"
+            cat /tmp/preview-auth-probe.json || true
+            exit 1
+          }
+
       - name: Benchmark exact Kaggle adapter
         if: steps.status.outputs.complete == 'true'
         shell: bash
         env:
-          MELITURGOS_PASSWORD: ${{ env.MEL_PREVIEW_PASSWORD }}
           MEL_BASE_URL: "https://meliturgos-preview.adrien-lopezcarreras.workers.dev"
-          ACTIVATE_PREVIEW: ${{ github.event_name == 'workflow_dispatch' && inputs.activate_preview || false }}
+          ACTIVATE_PREVIEW: ${{ github.event_name == 'push' && 'true' || (github.event_name == 'workflow_dispatch' && inputs.activate_preview || false) }}
           BUNDLE_DIR: ${{ steps.locate.outputs.dir }}
         run: |
+          export MELITURGOS_PASSWORD="$MEL_PREVIEW_PASSWORD"
           node scripts/finalize-lora.mjs             --dir "$BUNDLE_DIR"             --url "$MEL_BASE_URL"             --activate "$ACTIVATE_PREVIEW"             --allow-not-activated true | tee artifacts/finalize-result.json
 
       - name: Upload Kaggle training evidence
@@ -209,6 +299,8 @@ jobs:
             artifacts/kaggle-output/**/lora-plan.json
             artifacts/kaggle-output/**/dataset-metadata.json
             artifacts/kaggle-output/**/kaggle-run.json
+            artifacts/kaggle-output/**/approval-evidence.json
+            artifacts/kaggle-output/**/benchmark-evidence.json
             artifacts/finalize-result.json
           if-no-files-found: warn
           retention-days: 14

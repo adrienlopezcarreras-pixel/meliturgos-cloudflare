@@ -6,7 +6,7 @@ import { prepareApprovedImplementationProposal } from '../src/evolution/autonomy
 const HEAD_SHA = '1111111111111111111111111111111111111111';
 const NEW_HEAD_SHA = '2222222222222222222222222222222222222222';
 
-function fixture({ headSequence = [HEAD_SHA] } = {}) {
+function fixture({ headSequence = [HEAD_SHA], headUnavailable = false } = {}) {
   const repository = new D1DevJobRepository(null, { memoryStore: new Map() });
   const aiCalls = [];
   let headReads = 0;
@@ -24,6 +24,7 @@ function fixture({ headSequence = [HEAD_SHA] } = {}) {
   const fetchImpl = async (url) => {
     const target = String(url);
     if (target.includes('/commits/candidate%2Faugmentio-core')) {
+      if (headUnavailable) return new Response('head unavailable', { status: 503 });
       const sha = headSequence[Math.min(headReads, headSequence.length - 1)];
       headReads += 1;
       return Response.json({ sha });
@@ -173,6 +174,22 @@ test('legacy READY proposal without consolidation metadata is regenerated instea
   assert.ok(f.aiCalls.length >= 2);
 });
 
+test('planner continues from the exact Teacher-approved SHA when branch head APIs are temporarily unavailable', async () => {
+  const f = fixture({ headUnavailable: true });
+  const job = await approvedJob(f.repository);
+  const proposal = await prepareApprovedImplementationProposal({
+    env: f.env,
+    repository: f.repository,
+    job,
+    fetchImpl: f.fetchImpl,
+  });
+  assert.equal(proposal.status, 'READY');
+  assert.equal(proposal.candidate_sha, HEAD_SHA);
+  assert.ok(proposal.inspected_files.length >= 1);
+  assert.ok(f.aiCalls.length >= 2);
+  assert.equal(f.getHeadReads(), 0);
+});
+
 test('planner fails closed if candidate head moves during code inspection', async () => {
   const f = fixture({ headSequence: [HEAD_SHA, NEW_HEAD_SHA] });
   const job = await approvedJob(f.repository);
@@ -217,17 +234,64 @@ test('planner refuses a Teacher approval for another candidate branch', async ()
   assert.equal(f.getHeadReads(), 0);
 });
 
-test('planner rejects a multi-AI answer that omits the consolidation and quality contract', async () => {
+test('planner selects a lower-ranked quality-compliant candidate when the top answer is incomplete', async () => {
+  const f = fixture();
+  const job = await approvedJob(f.repository);
+  let call = 0;
+  f.env.AI.run = async (model) => {
+    f.aiCalls.push(model);
+    call += 1;
+    if (call === 1) {
+      return { response: 'FICHIERS: x\nCHANGEMENTS: y\nTESTS: z\nRISQUES: faibles\nROLLBACK: revert\nCRITERES_DE_FIN: CI verte' };
+    }
+    return { response: 'FICHIERS: src/evolution/autonomy-runtime.js\nCHANGEMENTS: minimal\nREUTILISATION: étendre l’existant\nTESTS: node --test\nRISQUES: faibles\nROLLBACK: revert\nCRITERES_DE_FIN: CI verte' };
+  };
+  const proposal = await prepareApprovedImplementationProposal({ env: f.env, repository: f.repository, job, fetchImpl: f.fetchImpl });
+  assert.equal(proposal.status, 'READY');
+  assert.match(proposal.selected.text, /REUTILISATION:/);
+  assert.equal(f.aiCalls.length, 2);
+});
+
+test('planner runs a bounded repair pass when every initial multi-AI candidate misses the quality contract', async () => {
+  const f = fixture();
+  const job = await approvedJob(f.repository);
+  let call = 0;
+  f.env.AI.run = async (model) => {
+    f.aiCalls.push(model);
+    call += 1;
+    if (call <= 2) {
+      return { response: 'FICHIERS: x\nCHANGEMENTS: y\nTESTS: z\nRISQUES: faibles\nROLLBACK: revert\nCRITERES_DE_FIN: CI verte' };
+    }
+    return { response: 'FICHIERS: src/evolution/autonomy-runtime.js\nCHANGEMENTS: minimal\nREUTILISATION: étendre l’existant\nTESTS: node --test\nRISQUES: faibles\nROLLBACK: revert\nCRITERES_DE_FIN: CI verte' };
+  };
+  const proposal = await prepareApprovedImplementationProposal({ env: f.env, repository: f.repository, job, fetchImpl: f.fetchImpl });
+  assert.equal(proposal.status, 'READY');
+  assert.equal(proposal.consolidation.quality_repair_attempted, true);
+  assert.match(proposal.selected.text, /REUTILISATION:/);
+  assert.ok(f.aiCalls.length >= 3);
+});
+
+test('planner deterministically completes missing governance sections after bounded AI repair attempts', async () => {
   const f = fixture();
   const job = await approvedJob(f.repository);
   f.env.AI.run = async (model) => {
     f.aiCalls.push(model);
     return { response: 'FICHIERS: x\nCHANGEMENTS: y\nTESTS: z\nRISQUES: faibles\nROLLBACK: revert\nCRITERES_DE_FIN: CI verte' };
   };
-  await assert.rejects(
-    () => prepareApprovedImplementationProposal({ env: f.env, repository: f.repository, job, fetchImpl: f.fetchImpl }),
-    (error) => error?.code === 'IMPLEMENTATION_QUALITY_CONTRACT_MISSING' && error?.missing_sections?.includes('REUTILISATION'),
-  );
+  const proposal = await prepareApprovedImplementationProposal({
+    env: f.env,
+    repository: f.repository,
+    job,
+    fetchImpl: f.fetchImpl,
+  });
+  assert.equal(proposal.status, 'READY');
+  assert.equal(proposal.consolidation.quality_repair_attempted, true);
+  assert.equal(proposal.consolidation.quality_scaffold_applied, true);
+  assert.equal(proposal.selected.provider, 'mel');
+  assert.equal(proposal.selected.model, 'deterministic-quality-scaffold-v1');
+  assert.match(proposal.selected.text, /REUTILISATION:/);
+  assert.match(proposal.selected.text, /ROLLBACK:\s*revert/i);
+  assert.match(proposal.selected.text, /CRITERES_DE_FIN:\s*CI verte/i);
 });
 
 test('planner refuses work without an exact correlated Teacher approval', async () => {

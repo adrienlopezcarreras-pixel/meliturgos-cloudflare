@@ -1,0 +1,23 @@
+{
+  "roadmap_item": "GEN2-11",
+  "status": "DONE_VERIFIED",
+  "certified_at": "2026-09-26",
+  "base_main_sha": "ad1f3d589a6821572f8df86b54ba9ffb1747e4e8",
+  "canonical_module": "src/memory/knowledge-graph.js",
+  "historical_commit": "0221384747c09ed59f66c032c534a4c82fcf2745",
+  "targeted_test": "tests/gen2/gen2-11-knowledge-graph-contract.test.mjs",
+  "invariants": [
+    "typed entities require source and bounded confidence",
+    "relations require subject relation object source and bounded confidence",
+    "queries preserve entity and relation provenance",
+    "supersession records an explicit replacement relation"
+  ],
+  "exclusions": [
+    "Android",
+    "APK",
+    "MEL MINI",
+    "firmware",
+    "BLE",
+    "mobile UI"
+  ]
+}

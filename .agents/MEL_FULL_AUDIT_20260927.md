@@ -1,0 +1,358 @@
+# MEL — Audit complet technique, produit et expérience — 27 septembre 2026
+
+Date de l’audit : 2026-09-27.
+Portée : état canonique de MEL, travail réalisé sur la semaine du 21 au 27 septembre 2026, cohérence dépôt/roadmap/release, frontières de preuve et expérience réutilisable.
+Base de réconciliation avant fusion du présent audit : `main` au SHA `a342834729c11f4f2c083f0ed36ff6ea62d1500a`. Dernière release production entièrement verte observée : `f3d75ea94af8df09a4b797b65adba52537d9294e`, run `36325378964`.
+Règle : toute affirmation d’état futur doit être revalidée contre `main`, la roadmap et les runs GitHub courants.
+
+## 1. Verdict général
+
+MEL est dans un état techniquement très avancé et largement vérifié, mais la roadmap n’est pas encore totalement fermée.
+
+État canonique observé dans `src/roadmap/master-roadmap.js` :
+- 125 items au total ;
+- 117 `DONE_VERIFIED` ;
+- 7 `BLOCKED_HUMAN` ;
+- 1 `DONE` : `MEL-EVOL-06` LoRA, encore sous responsabilité d’un autre chantier et non promu artificiellement en `DONE_VERIFIED`.
+
+Le lot Android `GEN2-58` est bien passé en `DONE_VERIFIED`.
+Les éléments humains restent explicitement humains ; aucun test backend ne doit les transformer en faux vert.
+
+La production est désormais entièrement certifiée sur le SHA `f3d75ea94af8df09a4b797b65adba52537d9294e` : le run canonique `36325378964` a réussi le déploiement exact-SHA, toute la preuve post-déploiement/autonomie et la vérification HTTP finale.
+
+## 2. Discipline de vérité et niveaux de preuve
+
+L’audit conserve cinq niveaux distincts :
+1. code présent ;
+2. test/CI ;
+3. preview isolée ;
+4. production exact-SHA ;
+5. preuve appareil physique réelle.
+
+Un niveau ne vaut jamais automatiquement le suivant.
+
+Le travail de la semaine a confirmé plusieurs faux positifs possibles :
+- un workflow global rouge peut contenir un déploiement production exact-SHA réellement réussi ;
+- un APK compilé et signé n’est pas une preuve que l’audio réel du terminal fonctionne ;
+- un BLE connecté n’est pas une preuve d’échange voix complet ;
+- une source mémoire importée peut être exhaustive pour les messages éligibles tout en restant incomplète pour les pièces jointes ;
+- une sauvegarde persistée n’est utile que si la restauration ou le binding de release est explicitement prouvé.
+
+## 3. Conversation, contexte et continuité
+
+Les fondations conversationnelles sont `DONE_VERIFIED` :
+- Conversation Service ;
+- archivage exhaustif des messages ;
+- file de messages pendant la réflexion ;
+- contexte long avec compression et préservation des décisions ;
+- open loops persistants et reprenables ;
+- interpréteur de contexte pré-LLM.
+
+La preuve de contexte long en production a exercé une conversation réelle de plus de 65 000 caractères, une omission effective sous budget, la conservation d’un ancrage décisionnel et du tour courant exact, sans renvoyer de contenu privé.
+
+Le principe à conserver est : compression ≠ oubli des décisions. La réduction du contexte doit préserver les invariants utiles, pas seulement raccourcir le texte.
+
+## 4. Mémoire et archives
+
+La mémoire MEL est structurée autour d’une séparation entre archive, candidats mémoire, mémoire cognitive, provenance et retrieval.
+
+Les éléments `DONE_VERIFIED` couvrent notamment :
+- Memory 2.0 ;
+- contradictions, provenance et temporalité ;
+- Knowledge Graph ;
+- Timeline ;
+- Projects/Decisions ;
+- Personal Search/RAG ;
+- import contexte ChatGPT ;
+- Memory Compiler ;
+- synchronisation continue ;
+- export portable ;
+- récupération archive ;
+- pont archive -> mémoire opérationnelle ;
+- recherche hybride ;
+- apprentissage avec provenance ;
+- rappel historique difficile ;
+- reconstruction mémoire après panne.
+
+L’export mémoire a déjà prouvé des milliers d’enregistrements avec checksums par collection et checksum global.
+
+`MEL-MEM-05` reste correctement `BLOCKED_HUMAN` : le backfill des messages éligibles est terminé, mais la source importée ne contient pas toutes les pièces jointes/descripteurs nécessaires. Le système ne doit jamais inventer cette preuve.
+
+## 5. Capability Bus, code et outils
+
+Le Capability Bus central est `DONE_VERIFIED`.
+MEL sait lire et rechercher son propre code via des capacités dédiées, avec preuve production.
+Le self-check expose branche et SHA réellement déployés et doit échouer fermé en cas de mismatch.
+
+Le Plugin SDK, MCP, versioning API et les mécanismes de release restent couverts par tests et preuves de production.
+
+Principe retenu : une capacité n’est réelle que si le chemin runtime réellement utilisé la traverse. Une abstraction présente dans le dépôt n’est pas une preuve d’usage.
+
+## 6. Council, multi-IA et auto-évolution
+
+Le Model Council et les critiques multi-modèles sont vérifiés avec modèles distincts, synthèse MEL séparée, provenance et zéro coût fail-closed.
+
+Le Teacher handoff a été exercé réellement.
+GEN2-42 a nécessité plusieurs corrections de sémantique d’état :
+- distinguer `WAITING_TEACHER`, progression post-Teacher, état idle et ancien échec retryable ;
+- conserver les anciens FAILED retryable dans l’observabilité sans les confondre avec du travail encore bloquant ;
+- ne considérer un état post-Teacher comme sain qu’avec provenance Teacher durable ;
+- conserver `QUEUED`, FAILED non retryable ou absence de provenance comme blockers.
+
+Le wrapper release a été aligné sur le même contrat que le planner afin d’éviter deux définitions contradictoires de « travail actif ».
+
+L’auto-évolution reste supervisée : Council, Teacher, exact-SHA, tests, benchmark et aucune mutation production autonome.
+
+## 7. Work, tâches et automatisations
+
+Le Work Engine persistant, le planning DAG, les agents/automations, l’Event Bus, les notifications et les actions destructives avec confirmation explicite sont `DONE_VERIFIED`.
+
+La semaine a confirmé une règle de gouvernance applicable aux tâches éditoriales comme techniques :
+- runs manuels et automatiques doivent utiliser le même état canonique ;
+- les compteurs ne doivent pas diverger ;
+- une tâche fermée n’est pas relancée artificiellement ;
+- les slots sont réalloués au chantier suivant sans réinitialiser l’état du projet dépriorisé.
+
+## 8. Connecteurs et web
+
+Le Connector SDK est vérifié.
+Le web/research est vérifié en production avec source officielle, provenance et gate de qualité.
+
+Restent `BLOCKED_HUMAN` :
+- `GEN2-33` Gmail/Google : client OAuth réel + secrets + probes ;
+- `GEN2-34` Outlook/Microsoft : app Microsoft + secrets + probes ;
+- `GEN2-35` OneDrive/SharePoint : consentements/app réelle + probes ;
+- `GEN2-36` : partie GitHub/Cloudflare déjà prouvée ; Vercel reste sans cible/token réel ;
+- `MEL-CONN-03` Yahoo/Ymail + Roundcube/IMAP-SMTP : identifiants/config réels requis.
+
+WordPress public/privé a été prouvé avec séparation d’auth.
+
+## 9. Android / GEN2-58
+
+Android 0.6.43 a été reconstruit sur la candidate sans fusionner l’historique divergent.
+Les preuves incluent :
+- contrats source/API ;
+- tests unitaires ;
+- APK debug ;
+- package ;
+- signature persistante ;
+- release installable ;
+- émulateur Android ;
+- tests Compose instrumentés ;
+- captures UI.
+
+Le lot a été promu vers `main` par une PR ciblée construite depuis le `main` courant, plutôt que par fusion globale de la candidate fortement divergente.
+
+Une régression temporaire de `native-chat.js` a montré pourquoi il faut préserver les durcissements plus récents de `main` et ne réappliquer que le delta nécessaire.
+
+Les observations physiques Android/MINI restent séparées de la CI : transcription/reflection sans réponse, bourdonnement audio, crash/déconnexion et problèmes d’appairage ont été des symptômes réels de certains essais et ne doivent pas être effacés rétroactivement par un APK vert.
+
+## 10. MINI et matériel
+
+Le protocole terminal est traité comme un contrat versionné, avec appairage, jeton appareil, heartbeat, chat, voix, téléchargement/OTA et récupération locale.
+
+Les travaux MINI sont un chantier actif distinct. La PR historique active `#221` reste hors du nettoyage de cette page.
+Les nombreuses branches MINI historiques ne doivent pas être supprimées ou réécrites sans preuve qu’elles sont supersédées et sans coordination avec la page propriétaire.
+
+Règle générale : firmware compilé, flash réussi, BLE connecté, audio intelligible et stabilité longue durée sont des preuves différentes.
+
+## 11. Windows Companion
+
+La semaine a fourni une preuve réelle de stress Windows Companion :
+- 42 commandes terminales exercées ;
+- 39 succès attendus ;
+- 3 refus de sécurité attendus ;
+- 26 captures ;
+- zéro échec d’invariant dans cette campagne.
+
+Les correctifs DPI et commandes système ont été traités séparément. Le matériel réel reste une surface de preuve distincte des tests GitHub.
+
+## 12. Backup, restore et Provider Escape
+
+Le backup a subi plusieurs durcissements :
+- tri D1 déterministe ;
+- post-vérification compacte ;
+- suppression des doubles lectures R2 inutiles ;
+- liaison d’un snapshot vérifié récent à un nouveau SHA de release ;
+- table `release_backup_bindings` avec hash de binding ;
+- restore readiness capable de vérifier un release binding sans relire le payload R2.
+
+Un ancien Provider Escape refaisait une vérification complète et causait Cloudflare CPU 1102/HTTP 503.
+Une première correction a remplacé cette répétition par une preuve persistée.
+L’introduction ultérieure de `RELEASE_BOUND_VERIFIED_BACKUP` a révélé un second décalage : Provider Escape exigeait encore que le SHA historique du snapshot soit identique au nouveau SHA de release.
+Le correctif #590 aligne Provider Escape sur `evaluateRestoreReadiness()`, exige un binding cryptographiquement valide, sélectionne le snapshot exact et maintient la vérification d’intégrité, sans `R2.get()`.
+
+Principe : une preuve de release lourde doit réutiliser une preuve persistée cryptographiquement liée plutôt que refaire un calcul identique jusqu’à dépasser le budget Worker.
+
+## 13. ShardVault
+
+ShardVault n’est plus `PAUSED_FOR_ROADMAP`.
+
+La réactivation finale a été intégrée par la PR #598 : `MEL_SHARDVAULT_ENABLED=true`, autonomie réactivée et pause roadmap désactivée dans la politique de release. Le workflow canonique exige de nouveau la preuve externe **7/7** avant de considérer cette étape finale comme validée en production.
+
+Au moment de la réactivation, la production n’exposait encore que **3/7 endpoints externes actifs**. L’analyse a montré que les tentatives bornées réutilisaient le même candidat validé au lieu d’appliquer correctement `probe_offset` au pool caché.
+
+La PR #600 corrige ce point en appliquant `probe_offset` aux endpoints validés mis en cache, sans changer la cible 7/7. Après correction du test de régression lui-même, `shardvault-ci` est entièrement vert sur le SHA de branche `2044190265c76ff8f150f1cf6ca5ee550ac2ac38`, puis #600 a été fusionnée dans `main` au SHA `41be13b2321e8e30a2750ff0252f2a9a4782453d`.
+
+État de preuve à ce stade :
+- réactivation de la politique ShardVault : **faite** (#598) ;
+- correctif de rotation `probe_offset` : **fusionné et CI verte** (#600) ;
+- preuve production exacte du nouveau SHA et atteinte réelle **7/7** : **à revalider par le workflow de release** ;
+- reconstruction/external code proof : à considérer acquise uniquement si le run de release exact-SHA la confirme.
+
+Principe : ne jamais confondre correctif fusionné + CI verte avec preuve live 7/7. Le statut final dépend de la release exacte et de l’état runtime observé après déploiement.
+
+## 14. LoRA / MEL-EVOL-06
+
+`MEL-EVOL-06` reste `DONE`, pas `DONE_VERIFIED`.
+Le pipeline, les checkpoints et les CI ont fortement progressé, mais la clôture dépend de la preuve finale et du benchmark canonique.
+
+Ce chantier appartient à une autre page. Cet audit n’a ni modifié ni relancé l’entraînement LoRA.
+
+La PR active `#540` reste donc hors périmètre de nettoyage.
+
+## 15. Production éditoriale / magazine
+
+La semaine a fait émerger un contrat éditorial strict :
+- repartir de la source canonique d’origine ;
+- page 02 « Note au lecteur » comme référence graphique ;
+- ne jamais utiliser une page rejetée comme base suivante ;
+- préserver header/footer existants lorsqu’ils sont déjà validés ;
+- corriger uniquement le corps si c’est la seule zone fautive ;
+- une page à la fois ;
+- audit indépendant avant passage à la suivante ;
+- conserver dans l’audit le texte correspondant à chaque page validée.
+
+Les médias authentiques sont préférés lorsqu’ils sont disponibles et utilisables.
+Les doublons silencieux sont interdits.
+Une reconstitution générée doit rester identifiée comme reconstitution, jamais comme archive authentique.
+
+## 16. Livres, corpus long et orchestration des tâches
+
+Les ouvrages sont pilotés par un corpus canonique et des états explicites :
+- planifié ;
+- rédaction ;
+- audit/révision ;
+- `CLOSED_VERIFIED`.
+
+Les audits spécialisés peuvent être parallèles, mais convergent sur un seul manuscrit canonique.
+La densification doit apporter contexte, événements, causalité, sources et structure, pas du remplissage.
+Fait, interprétation et hypothèse restent séparés.
+Les incertitudes ne sont pas effacées pour rendre le texte artificiellement affirmatif.
+
+Après fermeture vérifiée, les slots sont réaffectés au projet suivant ; le projet fermé n’est pas réécrit par inertie.
+
+## 17. Expérience et apprentissage MEL
+
+Le mécanisme canonique est vérifié :
+`src/learning/development-experience-pack.js`
+→ `BOOTSTRAP_CORRECTIONS`
+→ `LearningEngine.corrections()`
+→ `LearningEngine.trainingBundle()`.
+
+Le handoff daté `.agents/WEEKLY_HANDOFF_20260927.md` conserve la chronologie.
+Le pack XP conserve les règles généralisables.
+La PR #589 ajoute la couverture toutes-pages : magazine, provenance média, validation page-par-page, écriture longue, machine d’état du corpus et réallocation des tâches.
+
+Cette séparation est importante :
+- la chronologie datée dit ce qui s’est passé ;
+- l’XP canonique dit ce que MEL doit réutiliser ;
+- ni l’une ni l’autre ne doit transformer un ancien état en vérité actuelle sans revalidation.
+
+## 18. Hygiène Git et réconciliation
+
+La garde `canonical-branch-unicity` a été corrigée pour surveiller les branches réellement actives plutôt que toutes les refs historiques.
+
+Les PR Android #237 et #532 ont été fermées comme supersédées.
+La PR backup #571 a été fermée comme supersédée.
+La PR GEN2-42 #587 a été fermée comme supersédée par #588.
+
+Le dépôt conserve au moins 400 branches historiques dans les premières pages de l’inventaire GitHub. Beaucoup correspondent à des correctifs déjà fusionnés ou supersédés.
+Le connecteur GitHub utilisé pour cet audit ne fournit pas d’opération de suppression de branche. Par conséquent :
+- les PR obsolètes peuvent être fermées ;
+- les refs actives peuvent être réconciliées ;
+- les branches appartenant à LoRA/MINI/autres pages sont préservées ;
+- l’absence de suppression physique des vieilles refs est documentée et ne doit pas être présentée comme un nettoyage terminé.
+
+La garde canonique ne dépend plus de cette accumulation historique, ce qui évite de désactiver la sécurité pour contourner du bruit Git.
+
+## 19. PR encore actives au moment de l’audit
+
+À l’instant de l’inventaire final :
+- #597 : présent lot d’audit/expérience ;
+- #540 : LoRA, autre chantier ;
+- #221 : MINI, autre chantier.
+
+#586 a été fermée comme doublon exact de #592. #592 est désormais fusionnée. #595 a fermé le mismatch recovery de production. #596 est également fusionnée et remplace la recherche du snapshot release-bound dans une fenêtre de 100 lignes par une résolution exacte par identifiant.
+Les PR d’autres pages ne sont pas fermées au nom du nettoyage global.
+
+## 20. Blockers humains restants
+
+Les sept items `BLOCKED_HUMAN` observés sont :
+- MEL-MEM-05 ;
+- GEN2-33 ;
+- GEN2-34 ;
+- GEN2-35 ;
+- GEN2-36 ;
+- MEL-CONN-03 ;
+- GEN2-42.
+
+Attention : GEN2-42 a désormais des preuves techniques et release très avancées ; son statut roadmap doit être mis à jour uniquement par la page/lot propriétaire avec l’évidence exacte requise, jamais simplement parce que le wrapper release est devenu vert.
+
+## 21. Actions de clôture
+
+Ordre de clôture après la release verte :
+1. réconcilier/fermer les PR obsolètes restantes sans toucher à LoRA/MINI ;
+2. fusionner et certifier le présent audit/pack d'expérience hebdomadaire ;
+3. recompiler l'état roadmap et conserver les sept BLOCKED_HUMAN comme actions réellement humaines ;
+4. traiter #592 seulement si son delta reste nécessaire et compatible avec le main courant ;
+5. ShardVault a désormais été réactivé (#598) et son correctif de rotation bornée fusionné (#600) ; exécuter maintenant la release exacte du `main` courant et exiger la preuve live 7/7 + reconstruction ;
+6. une fois cette preuve obtenue, produire le checkpoint final et réconcilier l’audit avec le SHA réellement déployé.
+
+## 22. Conclusion d’audit
+
+Les principaux problèmes rencontrés cette semaine ne provenaient pas d’un manque massif de fonctionnalités, mais de frontières de vérité :
+- branche candidate divergente ;
+- test obsolète par rapport au contrat réel ;
+- preuve post-déploiement confondue avec déploiement ;
+- snapshot historique confondu avec binding de release ;
+- état Teacher ancien confondu avec blocker actif ;
+- CI logicielle confondue avec preuve physique ;
+- production éditoriale corrigée depuis une mauvaise base ;
+- tâche automatique confondue avec état canonique du projet.
+
+Les corrections apportées convergent vers la même architecture de gouvernance : une source canonique, des états explicites, des preuves liées au SHA, des transitions fail-closed, des lots minimaux, une provenance conservée et une XP dédupliquée réellement chargée par MEL.
+
+
+## 23. Clôture release exacte — SHA f3d75ea94af8df09a4b797b65adba52537d9294e
+
+La cause finale du rouge précédent était `RECOVERY_DRILL_PERSISTED_RUNTIME_SHA_MISMATCH` : le recovery drill comparait naïvement le SHA historique du snapshot au SHA courant malgré l'existence d'un release binding vérifié.
+
+La PR #595 a conservé le fail-closed tout en rendant la preuve correcte :
+- binding `deployed_sha` = SHA de release courant ;
+- `snapshot_id` exact ;
+- intégrité SHA-256 exacte ;
+- `snapshot_deployed_sha` exact ;
+- tout mismatch reste refusé.
+
+Le workflow canonique `deploy-cloudflare-release` run `36325378964` est **SUCCESS** de bout en bout. Les étapes `Deploy exact approved SHA to production`, `Prepare and prove production autonomy launch evidence` et `Verify production HTTP` sont toutes **SUCCESS**.
+
+La roadmap lue sur ce SHA contient exactement 125 items : 117 `DONE_VERIFIED`, 1 `DONE` (`MEL-EVOL-06`) et 7 `BLOCKED_HUMAN`, sans `PARTIAL`, `IN_PROGRESS` ni `PLANNED`.
+
+L'expérience hebdomadaire est chargée par le chemin canonique `DEVELOPMENT_EXPERIENCE_PACK -> BOOTSTRAP_CORRECTIONS -> LearningEngine.corrections()/trainingBundle()`. Le handoff hebdomadaire conserve la chronologie détaillée ; les XP distillent les règles réutilisables.
+
+
+### Complément recovery #596 et planner #592
+
+Après la première release totalement verte `f3d75ea9...`, deux consolidations fonctionnelles supplémentaires ont été intégrées sur `main` :
+- #596 : résolution exacte du snapshot release-bound par `snapshot_id`, validation du SHA historique de restauration et suppression du risque de faux mismatch lorsque plus de 100 sauvegardes récentes existent ;
+- #592 : scaffold déterministe des sections de gouvernance manquantes d’un plan GEN2-42 après tentatives IA bornées, tout en conservant les invariants fail-closed, la non-activation production et le diff minimal.
+
+Ces deux fusions portent le `main` de réconciliation à `a342834729c11f4f2c083f0ed36ff6ea62d1500a`. Elles n’autorisent aucune promotion artificielle des sept `BLOCKED_HUMAN` et ne modifient pas le chantier LoRA ni MINI.
+
+
+## 24. Réconciliation post-audit — ShardVault #598 / #600
+
+L’état historique `PAUSED_FOR_ROADMAP` présent dans la première version de cet audit est désormais obsolète. La séquence réelle de clôture est : #598 réactive ShardVault, #599 durcit le Dev Bridge, puis #600 corrige la rotation des candidats validés lors des tentatives bornées. Le `main` courant après #600 est `41be13b2321e8e30a2750ff0252f2a9a4782453d`.
+
+Le CI ShardVault du correctif #600 est totalement vert (`shardvault-targeted` + `shardvault-full-suite`). Cette réussite valide le code et la régression associée, mais ne constitue pas à elle seule la preuve que la production a déjà atteint 7/7. Cette dernière reste liée au déploiement exact-SHA et au contrôle runtime de la release correspondante.

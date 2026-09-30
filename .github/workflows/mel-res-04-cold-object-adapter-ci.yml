@@ -1,0 +1,38 @@
+name: mel-res-04-cold-object-adapter-ci
+
+on:
+  push:
+    branches:
+      - 'roadmap/mel-res-04-*'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'src/resilience/cold-standby-object-adapter.js'
+      - 'src/resilience/cold-standby.js'
+      - 'tests/gen2/cold-standby-object-adapter.test.mjs'
+      - '.github/workflows/mel-res-04-cold-object-adapter-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Targeted MEL-RES-04 tests
+        run: node --test tests/gen2/cold-standby.test.mjs tests/gen2/cold-standby-object-adapter.test.mjs
+      - run: npm run check
+      - name: Full test suite
+        run: |
+          git switch -c candidate/mel-res-04-ci
+          npm test
+      - run: node scripts/runtime-security-gate.mjs

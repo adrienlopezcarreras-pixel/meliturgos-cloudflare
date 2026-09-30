@@ -11,10 +11,23 @@ const MAX_CHANGE_CHARS = 200_000;
 const ALLOWED_TESTS = new Set(['test', 'test:mel', 'test:integration', 'test:acceptance', 'test:smoke', 'test:mvp', 'test:routes']);
 const DENIED_PATH = /(^|\/)(?:\.git|node_modules|\.wrangler|\.env(?:\.|$)|dev\.vars|secrets?|credentials?)(?:\/|$)|(?:^|[._/-])(?:token|password|api[_-]?key|private[_-]?key)(?:[._/-]|$)/i;
 const ALLOWED_TEXT_PATH = /^(?:src|tests|scripts|docs|migrations|\.github)\/[A-Za-z0-9_./-]+\.(?:js|mjs|cjs|ts|tsx|jsx|json|md|txt|yml|yaml|toml|css|html|sql|sh|ps1)$|^(?:package\.json|wrangler\.jsonc)$/;
+const SAFE_INSPECTION_TEXT_PATH = /^[A-Za-z0-9_./-]+\.(?:js|mjs|cjs|ts|tsx|jsx|json|md|txt|yml|yaml|toml|css|html|sql|sh|ps1)$/;
 
 function bounded(value, max) {
   const text = String(value ?? '');
   return text.length > max ? text.slice(0, max) : text;
+}
+
+function mentorFailureCode(error, fallback = 'MENTOR_PROVIDER_FAILED') {
+  const rawCode = String(error?.code || '').trim().toUpperCase();
+  if (/^[A-Z0-9_]{1,80}$/.test(rawCode)) return rawCode;
+  const message = String(error?.message || '');
+  if (/MENTOR_PATH_DENIED/i.test(message)) return 'MENTOR_PATH_DENIED';
+  if (/MENTOR_INVALID_CHANGE/i.test(message)) return 'MENTOR_INVALID_CHANGE';
+  if (/MENTOR_JSON_REQUIRED/i.test(message)) return 'MENTOR_JSON_REQUIRED';
+  if (/JSON|Unexpected token|Expected property name|unterminated/i.test(message)) return 'MENTOR_JSON_INVALID';
+  if (/timeout/i.test(message)) return 'MENTOR_PROVIDER_TIMEOUT';
+  return fallback;
 }
 
 function evidenceObject(row) {
@@ -24,10 +37,30 @@ function evidenceObject(row) {
   try { return JSON.parse(value); } catch { return {}; }
 }
 
-function safePath(path) {
+function normalizedRepositoryPath(path) {
   const value = String(path || '').trim().replace(/\\/g, '/');
-  if (!value || value.startsWith('/') || value.includes('..') || DENIED_PATH.test(value) || !ALLOWED_TEXT_PATH.test(value)) {
+  if (!value || value.startsWith('/') || value.includes('..') || DENIED_PATH.test(value)) {
     const error = new Error(`MENTOR_PATH_DENIED:${value || 'empty'}`);
+    error.code = 'MENTOR_PATH_DENIED';
+    throw error;
+  }
+  return value;
+}
+
+function safeInspectionPath(path) {
+  const value = normalizedRepositoryPath(path);
+  if (!SAFE_INSPECTION_TEXT_PATH.test(value)) {
+    const error = new Error(`MENTOR_PATH_DENIED:${value}`);
+    error.code = 'MENTOR_PATH_DENIED';
+    throw error;
+  }
+  return value;
+}
+
+function safePath(path) {
+  const value = normalizedRepositoryPath(path);
+  if (!ALLOWED_TEXT_PATH.test(value)) {
+    const error = new Error(`MENTOR_PATH_DENIED:${value}`);
     error.code = 'MENTOR_PATH_DENIED';
     throw error;
   }
@@ -49,7 +82,7 @@ function normalizeInspectedFiles(files = []) {
   const out = [];
   for (const item of Array.isArray(files) ? files : []) {
     if (out.length >= MAX_FILES || total >= MAX_TOTAL_SOURCE_CHARS) break;
-    const path = safePath(item?.path);
+    const path = safeInspectionPath(item?.path);
     const remaining = MAX_TOTAL_SOURCE_CHARS - total;
     const content = bounded(item?.content ?? item?.result?.content ?? '', Math.min(MAX_FILE_CHARS, remaining));
     total += content.length;
@@ -94,6 +127,27 @@ function scoreProposal(proposal) {
 
 function sourceBlock(files) {
   return files.map(file => `\n===== FILE ${file.path} =====\n${file.content}\n===== END ${file.path} =====`).join('\n');
+}
+
+function buildRepairPrompt({ goal, files, raw, failure, mode }) {
+  return [
+    'Tu répares UNE réponse de code Mentor MELITURGOS qui a échoué à la validation structurée.',
+    `MODE: ${mode === 'repair' ? 'RÉPARATION APRÈS TEST' : 'IMPLÉMENTATION'}.`,
+    'Réponds UNIQUEMENT avec un objet JSON valide, sans markdown ni commentaire.',
+    'Structure obligatoire:',
+    '{"summary":"...","changes":[{"path":"src/...","content":"CONTENU COMPLET DU FICHIER","reason":"..."}],"tests":["test:smoke"],"confidence":0.0,"lessons":["..."],"risks":["..."]}',
+    'changes doit contenir au moins un fichier texte sûr déjà inspecté ou un fichier nouveau strictement nécessaire dans les chemins autorisés.',
+    'Chaque change.content doit être le CONTENU COMPLET final du fichier. Aucun diff, aucun placeholder, aucune ellipse.',
+    'Ne crée aucun secret, credential, token, .env, node_modules ou fichier hors dépôt.',
+    'Ne prétends jamais qu’un test a réussi; propose seulement des tests autorisés.',
+    'Reste strictement dans l’objectif et réutilise les composants existants avant toute création.',
+    `OBJECTIF: ${bounded(goal, 12_000)}`,
+    `ERREUR_DE_VALIDATION: ${bounded(failure || 'INVALID_PROPOSAL', 500)}`,
+    'RÉPONSE_INVALIDE_À_RÉPARER:',
+    bounded(raw || '', 20_000),
+    'SOURCES_INSPECTÉES:',
+    sourceBlock(files),
+  ].join('\n');
 }
 
 function buildPrompt({ role, goal, files, lessons, experiences, previousAttempts, mode }) {
@@ -185,25 +239,77 @@ export class MentorEngine {
 
     const proposals = [];
     const failures = [];
+    const repairInputs = [];
     settled.forEach((result, index) => {
       const provider = providers[index];
       if (result.status === 'rejected') {
-        failures.push({ provider: provider.id, error: bounded(result.reason?.code || result.reason?.message || 'PROVIDER_FAILED', 300) });
+        const failure = mentorFailureCode(result.reason);
+        failures.push({ provider: provider.id, error: failure, stage: 'initial' });
+        repairInputs.push({ provider, raw: '', failure });
         return;
       }
+      const raw = result.value?.text ?? result.value;
       try {
-        const proposal = normalizeProposal(result.value?.text ?? result.value, result.value?.provenance || { provider: provider.providerId, model: provider.modelId });
-        proposals.push({ ...proposal, provider_id: provider.id, score: scoreProposal(proposal) });
+        const proposal = normalizeProposal(raw, result.value?.provenance || { provider: provider.providerId, model: provider.modelId });
+        proposals.push({ ...proposal, provider_id: provider.id, score: scoreProposal(proposal), repaired: false });
       } catch (error) {
-        failures.push({ provider: provider.id, error: bounded(error?.code || error?.message || 'INVALID_PROPOSAL', 300) });
+        const failure = mentorFailureCode(error, 'MENTOR_PROPOSAL_INVALID');
+        failures.push({ provider: provider.id, error: failure, stage: 'initial' });
+        repairInputs.push({ provider, raw: bounded(raw, 20_000), failure });
       }
     });
+
+    let repairAttempted = false;
+    let repairValidProposals = 0;
+    if (!proposals.length && repairInputs.length) {
+      repairAttempted = true;
+      const active = learned.activeAdapter;
+      const repaired = await Promise.allSettled(repairInputs.map(({ provider, raw, failure }) => {
+        const lora = active?.base_model === provider.modelId ? active?.adapter?.id : null;
+        return provider.invoke({
+          input: buildRepairPrompt({ goal: objective, files, raw, failure, mode }),
+          context: {
+            purpose: 'mel-autonomous-development-structured-repair',
+            job_id: jobId || null,
+            mode,
+            inference_settings: learned.inference,
+            ...(lora ? { lora } : {}),
+          },
+        });
+      }));
+      repaired.forEach((result, index) => {
+        const { provider } = repairInputs[index];
+        if (result.status === 'rejected') {
+          failures.push({
+            provider: provider.id,
+            error: mentorFailureCode(result.reason, 'MENTOR_PROVIDER_REPAIR_FAILED'),
+            stage: 'repair',
+          });
+          return;
+        }
+        try {
+          const proposal = normalizeProposal(
+            result.value?.text ?? result.value,
+            result.value?.provenance || { provider: provider.providerId, model: provider.modelId },
+          );
+          proposals.push({ ...proposal, provider_id: provider.id, score: scoreProposal(proposal), repaired: true });
+          repairValidProposals += 1;
+        } catch (error) {
+          failures.push({
+            provider: provider.id,
+            error: mentorFailureCode(error, 'MENTOR_REPAIRED_PROPOSAL_INVALID'),
+            stage: 'repair',
+          });
+        }
+      });
+    }
 
     if (!proposals.length) {
       const error = new Error('MENTOR_NO_VALID_CODE_PROPOSAL');
       error.code = 'MENTOR_NO_VALID_CODE_PROPOSAL';
       error.status = 502;
       error.failures = failures;
+      error.repair_attempted = repairAttempted;
       throw error;
     }
 
@@ -251,6 +357,9 @@ export class MentorEngine {
         valid_proposals: proposals.length,
         rejected_proposals: failures,
         selected_provider: best.provider_id,
+        structured_repair_attempted: repairAttempted,
+        structured_repair_valid_proposals: repairValidProposals,
+        selected_from_repair: best.repaired === true,
       },
       learning: {
         memory_context_count: remembered.length,

@@ -74,6 +74,12 @@ test('ephemeral release smoke auth is restricted to exact verification routes an
   for (const [method,path,body] of [
     ['POST','/api/chat', { text: 'lis src/index.js dans ton code' }],
     ['POST','/api/gen2/capabilities/execute', { id:'echo', input:{ value:'release-observability-smoke' } }],
+    ['POST','/api/gen2/connections/google/test', { connector_id:'gmail' }],
+    ['POST','/api/gen2/connections/microsoft/test', { connector_id:'microsoft-mail' }],
+    ['POST','/api/gen2/connections/yahoo/test', { connector_id:'yahoo-mail' }],
+    ['POST','/api/gen2/connections/yahoo-imap/test', {}],
+    ['POST','/api/gen2/connections/roundcube/test', {}],
+    ['POST','/api/gen2/connections/vercel/test', {}],
   ]) {
     const request = new Request('https://meliturgos.test' + path, {
       method,

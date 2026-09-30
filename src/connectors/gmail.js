@@ -8,8 +8,16 @@ export const definition = Object.freeze({
     "GMAIL_ACCESS_TOKEN"
   ],
   "capabilities": [
-    "gmail.messages.read"
-  ]
+    "gmail.messages.search",
+    "gmail.messages.read",
+    "gmail.drafts.create",
+    "gmail.messages.send"
+  ],
+  "oauth_scopes": {
+    "read": "https://www.googleapis.com/auth/gmail.readonly",
+    "draft": "https://www.googleapis.com/auth/gmail.compose",
+    "send": "https://www.googleapis.com/auth/gmail.send"
+  }
 });
-// TODO implement bounded read adapter via CapabilityBus; OAuth grant is external.
+// Runtime execution is registered through CapabilityBus. Mutations require exact owner approval.
 export const createConnector = options => new Connector(definition,options);

@@ -116,6 +116,145 @@ test('paired Windows device can fetch its companion with device auth and owner c
   }finally{DB.close();}
 });
 
+test('Windows heartbeats merge telemetry instead of erasing richer engine metadata',async()=>{
+  const DB=sqliteD1();
+  try{
+    const env={DB,MELITURGOS_USER:'adrien',MELITURGOS_PASSWORD:'test'};
+    const codeRes=await maybeHandleComputerApi(ownerRequest('/api/computer/v1/pair-code','POST',{}),env);
+    const code=(await codeRes.json()).code;
+    const pairRes=await maybeHandleComputerApi(new Request('https://mel.test/api/computer/v1/pair',{
+      method:'POST',headers:{'content-type':'application/json'},
+      body:JSON.stringify({pair_code:code,computer_id:'pc-heartbeat'})
+    }),env);
+    const paired=await pairRes.json();
+    const headers={authorization:'Bearer '+paired.token,'x-mel-computer-id':'pc-heartbeat','content-type':'application/json'};
+
+    let response=await maybeHandleComputerApi(new Request('https://mel.test/api/computer/v1/heartbeat',{
+      method:'POST',headers,
+      body:JSON.stringify({version:'2.3.2',hostname:'PC',user:'adrien',screen:{x:0,y:0,width:2560,height:1440}})
+    }),env);
+    assert.equal(response.status,200);
+
+    response=await maybeHandleComputerApi(new Request('https://mel.test/api/computer/v1/heartbeat',{
+      method:'POST',headers,
+      body:JSON.stringify({engine_version:'1.2.0',active_window:'MEL_INPUT_READY'})
+    }),env);
+    assert.equal(response.status,200);
+
+    const row=await DB.prepare('SELECT metadata FROM computer_devices WHERE id=?').bind('pc-heartbeat').first();
+    const metadata=JSON.parse(row.metadata);
+    assert.equal(metadata.version,'2.3.2');
+    assert.equal(metadata.engine_version,'1.2.0');
+    assert.equal(metadata.hostname,'PC');
+    assert.equal(metadata.screen.width,2560);
+    assert.equal(metadata.screen.height,1440);
+    assert.equal(metadata.active_window,'MEL_INPUT_READY');
+  }finally{DB.close();}
+});
+
+test('paired Windows device can read MINI and Android companion status without owner password',async()=>{
+  const DB=sqliteD1();
+  try{
+    const env={DB,MELITURGOS_USER:'adrien',MELITURGOS_PASSWORD:'test'};
+    await DB.prepare('CREATE TABLE device_tokens(device_id TEXT PRIMARY KEY,model TEXT,last_seen_at INTEGER,revoked_at INTEGER)').run();
+    await DB.prepare('CREATE TABLE device_status(device_id TEXT PRIMARY KEY,payload_json TEXT,updated_at INTEGER)').run();
+    await DB.prepare('CREATE TABLE android_device_tokens(device_id TEXT PRIMARY KEY,token_hash TEXT,name TEXT,app_version TEXT,created_at INTEGER,last_seen_at INTEGER,revoked_at INTEGER)').run();
+    await DB.prepare('CREATE TABLE android_device_status(device_id TEXT PRIMARY KEY,payload_json TEXT,updated_at INTEGER)').run();
+    const now=Date.now();
+    await DB.prepare('INSERT INTO device_tokens(device_id,model,last_seen_at,revoked_at) VALUES(?,?,?,NULL)')
+      .bind('mini-1','waveshare-terminal',now).run();
+    await DB.prepare('INSERT INTO device_status(device_id,payload_json,updated_at) VALUES(?,?,?)')
+      .bind('mini-1',JSON.stringify({name:'MEL MINI',phase:'ONLINE',camera:true,microphone:true,speaker:true,battery:82}),now).run();
+    await DB.prepare('INSERT INTO android_device_tokens(device_id,token_hash,name,app_version,created_at,last_seen_at,revoked_at) VALUES(?,?,?,?,?,?,NULL)')
+      .bind('android-1','hash','Téléphone MEL','0.6.24',now-20*60*1000,now-20*60*1000).run();
+    await DB.prepare('INSERT INTO android_device_status(device_id,payload_json,updated_at) VALUES(?,?,?)')
+      .bind('android-1',JSON.stringify({phase:'ONLINE',battery:61,charging:true,network:'wifi'}),now).run();
+    await DB.prepare('INSERT INTO android_device_tokens(device_id,token_hash,name,app_version,created_at,last_seen_at,revoked_at) VALUES(?,?,?,?,?,?,NULL)')
+      .bind('android-old','hash-old','Ancien Android','0.6.10',now-86400000,now-86400000).run();
+    await DB.prepare('INSERT INTO android_device_status(device_id,payload_json,updated_at) VALUES(?,?,?)')
+      .bind('android-old',JSON.stringify({phase:'ONLINE',battery:20}),now-86400000).run();
+
+    const codeRes=await maybeHandleComputerApi(ownerRequest('/api/computer/v1/pair-code','POST',{}),env);
+    const code=(await codeRes.json()).code;
+    const pairRes=await maybeHandleComputerApi(new Request('https://mel.test/api/computer/v1/pair',{
+      method:'POST',headers:{'content-type':'application/json'},
+      body:JSON.stringify({pair_code:code,computer_id:'pc-device-list'})
+    }),env);
+    const paired=await pairRes.json();
+    const response=await maybeHandleComputerApi(new Request('https://mel.test/api/computer/v1/companions',{headers:{
+      authorization:'Bearer '+paired.token,
+      'x-mel-computer-id':'pc-device-list'
+    }}),env);
+    assert.equal(response.status,200);
+    const payload=await response.json();
+    assert.equal(payload.devices.length,2);
+    const mini=payload.devices.find(device=>device.kind==='mini');
+    const android=payload.devices.find(device=>device.kind==='android');
+    assert.equal(mini.name,'MEL MINI');
+    assert.equal(mini.camera,true);
+    assert.equal(mini.live_stream,false);
+    assert.equal(android.name,'Téléphone MEL');
+    assert.equal(android.online,true);
+    assert.equal(android.firmware,'0.6.24');
+    assert.equal(android.battery,61);
+    assert.equal(android.charging,true);
+    assert.equal(android.live_stream,false);
+    assert.equal(payload.devices.filter(device=>device.kind==='android').length,1);
+    assert.equal(payload.devices.some(device=>device.device_id==='android-old'),false);
+  }finally{DB.close();}
+});
+
+test('Windows desktop v2 keeps tray UI, headless engine, and packaged EXE contracts',async()=>{
+  const desktop=await readFile(new URL('../windows-companion/MEL-Companion.cs',import.meta.url),'utf8');
+  const companion=await readFile(new URL('../assets/MEL-Computer-Companion.ps1',import.meta.url),'utf8');
+  const build=await readFile(new URL('../scripts/build-windows-release.ps1',import.meta.url),'utf8');
+  const sign=await readFile(new URL('../scripts/sign-windows-release.ps1',import.meta.url),'utf8');
+  const verify=await readFile(new URL('../scripts/verify-windows-release.ps1',import.meta.url),'utf8');
+
+  assert.match(desktop,/NotifyIcon/);
+  assert.match(desktop,/MEL-Companion\.exe/);
+  assert.match(desktop,/MEL_COMPANION_HEADLESS/);
+  assert.match(desktop,/MEL_COMPANION_PARENT_PID/);
+  assert.match(desktop,/SetProcessDpiAwarenessContext/);
+  assert.match(desktop,/"screen",screen/);
+  assert.match(desktop,/--self-test/);
+  assert.match(desktop,/self-test\.json/);
+  assert.match(desktop,/\/api\/computer\/v1\/companions/);
+  assert.match(desktop,/Lancer MEL Companion avec Windows/);
+  assert.match(desktop,/RÉAPPAIRER/);
+  assert.match(desktop,/DÉSINSTALLER/);
+  assert.match(desktop,/RegisterHotKey/);
+  assert.match(desktop,/UnregisterHotKey/);
+  assert.match(desktop,/Ctrl\+Alt\+M/);
+  assert.match(desktop,/WM_HOTKEY/);
+  assert.match(desktop,/class PermissionsForm/);
+  assert.match(desktop,/AUTORISATIONS LOCALES/);
+  assert.match(desktop,/SavePermissions/);
+  assert.match(desktop,/RestartCompanion/);
+  assert.match(desktop,/allowed_app_count/);
+  assert.match(desktop,/allowed_path_count/);
+  assert.match(companion,/MEL_COMPANION_HEADLESS/);
+  assert.match(companion,/MEL_COMPANION_PARENT_PID/);
+  assert.match(companion,/SetProcessDpiAwarenessContext/);
+  assert.match(companion,/engine_version/);
+  assert.match(companion,/function Ensure-ShutdownEnvironment/);
+  assert.match(companion,/\[Environment\]::SetEnvironmentVariable/);
+  assert.match(companion,/function Invoke-ShutdownCommand/);
+  assert.match(companion,/POWER_SCHEDULE_FAILED/);
+  assert.match(companion,/& \$exe @arguments/);
+  assert.match(companion,/\$LASTEXITCODE/);
+  assert.match(companion,/Close-ForegroundFile/);
+  assert.match(companion,/FILE_NOT_FOREGROUND/);
+  assert.match(companion,/SendKeys\]::SendWait\("\%\{F4\}"\)/);
+  assert.match(build,/MEL-Companion\.exe/);
+  assert.match(build,/unicodeEscape/);
+  assert.match(build,/asciiDesktop/);
+  assert.match(build,/Text\.Encoding\]::ASCII/);
+  assert.match(build,/System\.Web\.Extensions\.dll/);
+  assert.match(sign,/Filter \*\.exe/);
+  assert.match(verify,/WINDOWS_DESKTOP_EXE_MISSING/);
+});
+
 test('Windows installer clears owner password before token-based companion download',async()=>{
   const setup=await readFile(new URL('../dist/MEL-Computer-Setup.ps1',import.meta.url),'utf8');
   assert.match(setup,/\/api\/computer\/v1\/pair-code/);

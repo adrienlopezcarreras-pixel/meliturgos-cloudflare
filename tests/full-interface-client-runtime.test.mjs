@@ -26,11 +26,110 @@ test('full interface keeps capabilities while avoiding eager heavy hidden-panel 
   assert.match(runtime, /async function loadRoadmapData\(force=false\)/);
   assert.match(runtime, /async function loadPanel\(name,force=false\)/);
   assert.match(runtime, /lora:\(\)=>loadFreeLoraStatus\(\)/);
-  assert.match(runtime, /async function loadDashboardSummary\(\)/);
-  assert.match(runtime, /Promise\.allSettled\(\[loadDashboardSummary\(\),loadAutonomy\(\)\]\)/);
+  assert.match(runtime, /async function loadDashboardSummary\(refreshHealth=false\)/);
+  assert.match(runtime, /dashboard-summary\?refresh='\+\(refreshHealth\?'1':'0'\)/);
+  assert.match(runtime, /Promise\.allSettled\(\[loadDashboardSummary\(false\),loadAutonomy\(\)\]\)/);
+  assert.match(runtime, /loadDashboardSummary\(true\)/, 'overview must refresh real provider health after fast initial render');
   assert.doesNotMatch(runtime, /async function boot\(\)\{[^}]*loadFreeLoraStatus\(\)/);
   const boot = runtime.match(/async function boot\(\)\{[\s\S]*?\n\}/)?.[0] || '';
   assert.doesNotMatch(boot, /codeCheck\(/, 'code self-check must stay manual for fast boot');
   assert.match(runtime, /document\.createDocumentFragment\(\)/);
   assert.match(html, /content-visibility:auto/);
+});
+
+
+test('full interface exposes persistent Gmail Yahoo and Roundcube controls while Microsoft is consolidated in Pipedream', async () => {
+  const response = await onRequestGet();
+  const html = await response.text();
+  assert.match(html, /data-view="connections"/);
+  assert.match(html, /data-panel="connections"/);
+  assert.match(html, />Gmail</);
+  assert.match(html, />Yahoo \/ Ymail</);
+  assert.match(html, />Roundcube</);
+  assert.match(html, /id="gmailConnect"/);
+  assert.match(html, /id="yahooUsername"/);
+  assert.match(html, /id="yahooAppPassword"/);
+  assert.match(html, /id="yahooSave"/);
+  assert.match(html, /imap\.mail\.yahoo\.com/);
+  assert.match(html, /smtp\.mail\.yahoo\.com/);
+  assert.match(html, /roundcubeSave/);
+  assert.match(html, /roundcubeTest/);
+  assert.doesNotMatch(html, /id="outlookConnect"/);
+  assert.doesNotMatch(html, /id="oneDriveConnect"/);
+  assert.doesNotMatch(html, /id="sharePointConnect"/);
+  assert.doesNotMatch(html, /id="microsoftAppSave"/);
+  assert.match(html, /Pipedream Connect/);
+  assert.match(html, /data-pd-connect="microsoft_outlook"/);
+  assert.match(html, /data-pd-connect="microsoft_onedrive"/);
+  assert.match(html, /data-pd-connect="sharepoint"/);
+  assert.match(html, /data-pd-connect="imap"/);
+  assert.match(html, /id="yahooPipedream"/);
+  assert.match(html, /CONNECTÉ DURABLEMENT/);
+  assert.match(html, /initialView=new URLSearchParams\(location\.search\)\.get\('view'\)/);
+});
+
+
+test('full interface exposes Vercel connection controls and bounded redeploy actions', async () => {
+  const response = await onRequestGet();
+  const html = await response.text();
+  assert.match(html, />Vercel</);
+  assert.match(html, /id="vercelToken"/);
+  assert.match(html, /id="vercelTeamId"/);
+  assert.match(html, /id="vercelProjectId"/);
+  assert.match(html, /id="vercelProjectName"/);
+  assert.match(html, /id="vercelSave"/);
+  assert.match(html, /id="vercelTest"/);
+  assert.match(html, /id="vercelDeploymentSelect"/);
+  assert.match(html, /id="vercelRedeployPreview"/);
+  assert.match(html, /id="vercelRedeployProduction"/);
+  assert.match(html, /x-mel-approve-capability/);
+  assert.match(html, /vercel\.deployments\.redeploy/);
+});
+
+
+test('capability health UI uses real refreshes instead of presenting startup defaults as final health', async () => {
+  const response = await onRequestGet();
+  const html = await response.text();
+  const match = html.match(/<script>([\s\S]*?)<\/script>/);
+  assert.ok(match);
+  const runtime = match[1];
+  assert.match(html, /État réel vérifié automatiquement/);
+  assert.match(runtime, /skills:\(\)=>loadSkills\(true\)/);
+  assert.match(runtime, /chat:\(\)=>loadChatCapabilities\(true\)/);
+  assert.match(runtime, /\/api\/gen2\/capabilities\?refresh=1/);
+  assert.match(runtime, /loadDashboardSummary\(true\)/);
+});
+
+test('full interface exposes encrypted Pipedream Connect bridge and roadmap app buttons', async () => {
+  const response = await onRequestGet();
+  const html = await response.text();
+  assert.match(html, />Pipedream Connect</);
+  assert.match(html, /id="pipedreamProjectId"/);
+  assert.match(html, /id="pipedreamClientId"/);
+  assert.match(html, /id="pipedreamClientSecret"/);
+  assert.match(html, /id="pipedreamEnvironment"/);
+  assert.match(html, /id="pipedreamSave"/);
+  assert.match(html, /id="pipedreamTest"/);
+  assert.match(html, /id="pipedreamPrimaryState"/);
+  assert.match(html, /connectionApi\('pipedream','accounts'\)/);
+  assert.match(html, /data-pd-connect="microsoft_outlook"/);
+  assert.match(html, /data-pd-connect="microsoft_onedrive"/);
+  assert.match(html, /data-pd-connect="sharepoint"/);
+  assert.match(html, /data-pd-connect="imap"/);
+  assert.match(html, /data-pd-connect="lemlist"/);
+  assert.match(html, /data-pd-connect="google_drive"/);
+  assert.match(html, /data-pd-connect="google_calendar"/);
+  assert.match(html, /data-pd-connect="dropbox"/);
+  assert.match(html, /connectionApi\('pipedream','link'\)/);
+  assert.match(html, /window\.location\.href=d\.connect_link_url/);
+  assert.match(html, /Microsoft : /);
+  assert.match(html, /DONE_VERIFIED · PIPEDREAM IMAP/);
+});
+
+test('LoRA interface exposes the current collector status instead of only a stale training run', async () => {
+  const response = await onRequestGet();
+  const html = await response.text();
+  assert.match(html, /id="freeCollectorState"/);
+  assert.match(html, /collector_workflow/);
+  assert.match(html, /Collector Kaggle à jour/);
 });

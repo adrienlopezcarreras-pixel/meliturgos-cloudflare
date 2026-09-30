@@ -73,14 +73,16 @@ function assertTeacherApprovedBranch(config, bridge) {
   return approvedBranch;
 }
 
-function codeReader(env, fetchImpl) {
+function codeReader(env, fetchImpl, bridge) {
   const config = codeConfig(env);
+  const pinnedSha = approvedCandidateSha(bridge);
   return {
     config,
     reader: createGitHubCodeReader({
       repository: config.repository,
       branch: config.branch,
       token: String(env?.MEL_GITHUB_TOKEN || ''),
+      pinnedSha,
       fetchImpl,
     }),
   };
@@ -113,6 +115,21 @@ function assertTeacherApprovedHead(head, bridge) {
   return approvedSha;
 }
 
+async function readApprovedHead(reader, bridge, { movedCode = 'TEACHER_APPROVAL_CANDIDATE_SHA_STALE' } = {}) {
+  try {
+    const head = await reader.head();
+    assertTeacherApprovedHead(head, bridge);
+    return head;
+  } catch (error) {
+    if (error?.code !== 'CODE_HEAD_PIN_MISMATCH') throw error;
+    const wrapped = new Error(movedCode);
+    wrapped.code = movedCode;
+    wrapped.approved_candidate_sha = approvedCandidateSha(bridge);
+    wrapped.current_candidate_sha = String(error?.observed_sha || '').toLowerCase() || null;
+    throw wrapped;
+  }
+}
+
 function assertPlanQualityContract(value) {
   const text = String(value || '');
   const missing = QUALITY_SECTIONS.filter(([, pattern]) => !pattern.test(text)).map(([name]) => name);
@@ -126,10 +143,9 @@ function assertPlanQualityContract(value) {
 }
 
 async function collectCodeContext(env, job, bridge, { fetchImpl = fetch } = {}) {
-  const { config, reader } = codeReader(env, fetchImpl);
+  const { config, reader } = codeReader(env, fetchImpl, bridge);
   assertTeacherApprovedBranch(config, bridge);
-  const headBefore = await reader.head();
-  assertTeacherApprovedHead(headBefore, bridge);
+  const headBefore = await readApprovedHead(reader, bridge);
   const roadmapId = String(job?.optional_context?.roadmap_id || '').trim();
   if (!roadmapId) {
     throw Object.assign(new Error('IMPLEMENTATION_ROADMAP_ID_REQUIRED'), { code: 'IMPLEMENTATION_ROADMAP_ID_REQUIRED' });
@@ -179,11 +195,10 @@ async function collectCodeContext(env, job, bridge, { fetchImpl = fetch } = {}) 
     } catch {}
   }
   if (!files.length) throw Object.assign(new Error('APPROVED_IMPLEMENTATION_CODE_CONTEXT_REQUIRED'), { code: 'APPROVED_IMPLEMENTATION_CODE_CONTEXT_REQUIRED' });
-  const headAfter = await reader.head();
+  const headAfter = await readApprovedHead(reader, bridge, { movedCode: 'CANDIDATE_HEAD_CHANGED_DURING_INSPECTION' });
   if (headBefore.sha !== headAfter.sha) {
     throw Object.assign(new Error('CANDIDATE_HEAD_CHANGED_DURING_INSPECTION'), { code: 'CANDIDATE_HEAD_CHANGED_DURING_INSPECTION' });
   }
-  assertTeacherApprovedHead(headAfter, bridge);
   return { ...config, candidate_sha: headAfter.sha, files, reuse_search: reuseSearch };
 }
 
@@ -193,16 +208,75 @@ async function reusableProposal(env, existing, bridge, { fetchImpl = fetch } = {
   if (!SHA40.test(String(existing?.candidate_sha || ''))) return null;
   if (existing?.consolidation?.policy !== 'SINGLE_CANONICAL_CANDIDATE') return null;
   const approvedSha = approvedCandidateSha(bridge);
-  const { config, reader } = codeReader(env, fetchImpl);
+  const { config, reader } = codeReader(env, fetchImpl, bridge);
   assertTeacherApprovedBranch(config, bridge);
   if (String(existing.candidate_branch || '') !== config.branch) return null;
   if (String(existing?.consolidation?.canonical_branch || '') !== config.branch) return null;
   if (!Array.isArray(existing.providers_attempted) || existing.providers_attempted.length < 2) return null;
 
-  const head = await reader.head();
-  assertTeacherApprovedHead(head, bridge);
+  const head = await readApprovedHead(reader, bridge);
   if (String(existing.candidate_sha).toLowerCase() !== approvedSha) return null;
   return { ...existing, reused: true };
+}
+
+function qualityRepairPrompt(job, bridge, code, candidates, missingSections = []) {
+  const excerpts = (Array.isArray(candidates) ? candidates : [])
+    .slice(0, 2)
+    .map((candidate, index) => [
+      `CANDIDAT_${index + 1}_PROVIDER: ${String(candidate?.provider || '')}`,
+      String(candidate?.text || '').slice(0, 5000),
+    ].join('\n'))
+    .join('\n\n');
+  return [
+    'Tu répares un plan d\'implémentation MELITURGOS déjà approuvé par le Teacher.',
+    'Ne change pas l’objectif, ne déploie rien, ne crée aucune seconde branche candidate.',
+    'Fusionne uniquement les éléments utiles des candidats ci-dessous et rends un plan strictement conforme.',
+    'Réponds obligatoirement avec exactement ces sections non vides: FICHIERS, CHANGEMENTS, REUTILISATION, TESTS, RISQUES, ROLLBACK, CRITERES_DE_FIN.',
+    `SECTIONS_MANQUANTES_DETECTEES: ${Array.isArray(missingSections) && missingSections.length ? missingSections.join(', ') : 'inconnues'}`,
+    `OBJECTIF: ${String(job?.goal || '').slice(0, 2500)}`,
+    `ROADMAP_ID: ${String(job?.optional_context?.roadmap_id || '')}`,
+    `TEACHER_FEEDBACK: ${String(bridge?.review?.feedback || '').slice(0, 2500)}`,
+    `BRANCHE_CANDIDATE_CANONIQUE: ${code.branch}`,
+    `SHA_CANDIDAT_INSPECTE: ${code.candidate_sha}`,
+    'CANDIDATS_A_REPARER:',
+    excerpts || 'aucun texte exploitable',
+  ].join('\n');
+}
+
+function deterministicQualityScaffold(job, code, candidates = []) {
+  const source = (Array.isArray(candidates) ? candidates : [])
+    .map(candidate => String(candidate?.text || '').trim())
+    .find(text => text.length >= 40);
+  if (!source) {
+    const error = new Error('IMPLEMENTATION_QUALITY_CONTRACT_MISSING');
+    error.code = 'IMPLEMENTATION_QUALITY_CONTRACT_MISSING';
+    error.missing_sections = QUALITY_SECTIONS.map(([name]) => name);
+    throw error;
+  }
+
+  const files = (Array.isArray(code?.files) ? code.files : [])
+    .map(file => String(file?.path || '').trim())
+    .filter(Boolean)
+    .slice(0, MAX_FILES);
+  const reuse = (Array.isArray(code?.reuse_search?.matches) ? code.reuse_search.matches : [])
+    .map(match => String(match?.path || '').trim())
+    .filter(Boolean)
+    .slice(0, MAX_FILES);
+  const defaults = {
+    FICHIERS: files.join(', ') || 'Conserver le périmètre des fichiers déjà inspectés.',
+    CHANGEMENTS: 'Appliquer uniquement le plus petit diff réversible nécessaire à l’objectif approuvé, sur la branche candidate canonique.',
+    REUTILISATION: `Étendre en priorité les composants existants déjà inspectés${reuse.length ? ': ' + reuse.join(', ') : ''}; ne pas créer de module parallèle dupliquant une capacité existante.`,
+    TESTS: 'Exécuter les tests ciblés des composants modifiés puis la suite complète; arrêter le cycle si une régression apparaît.',
+    RISQUES: 'Régression fonctionnelle, duplication de capacité, dérive du périmètre approuvé ou changement du SHA candidat; rester fail-closed dans chacun de ces cas.',
+    ROLLBACK: 'Revert du commit candidat uniquement; aucune activation production automatique depuis ce plan.',
+    CRITERES_DE_FIN: `SHA candidat approuvé inchangé, diff minimal, tests ciblés et suite complète verts, preuves persistées pour ${String(job?.optional_context?.roadmap_id || 'le travail approuvé')}.`,
+  };
+
+  let text = source;
+  for (const [name, pattern] of QUALITY_SECTIONS) {
+    if (!pattern.test(text)) text += `\n${name}: ${defaults[name]}`;
+  }
+  return assertPlanQualityContract(text);
 }
 
 function planningPrompt(job, bridge, code) {
@@ -268,8 +342,73 @@ export async function prepareApprovedImplementationProposal({ env, repository, j
   if (!Array.isArray(fanout.providersAttempted) || fanout.providersAttempted.length < 2) {
     throw Object.assign(new Error('IMPLEMENTATION_MULTI_AI_NOT_PROVEN'), { code: 'IMPLEMENTATION_MULTI_AI_NOT_PROVEN' });
   }
-  if (!fanout.best?.text) throw Object.assign(new Error('IMPLEMENTATION_PROPOSAL_EMPTY'), { code: 'IMPLEMENTATION_PROPOSAL_EMPTY' });
-  const selectedText = assertPlanQualityContract(fanout.best.text);
+  const rankedCandidates = Array.isArray(fanout.candidates) && fanout.candidates.length
+    ? fanout.candidates
+    : (fanout.best ? [fanout.best] : []);
+  if (!rankedCandidates.length) throw Object.assign(new Error('IMPLEMENTATION_PROPOSAL_EMPTY'), { code: 'IMPLEMENTATION_PROPOSAL_EMPTY' });
+
+  let selectedCandidate = null;
+  let selectedText = '';
+  let qualityError = null;
+  for (const candidate of rankedCandidates) {
+    try {
+      selectedText = assertPlanQualityContract(candidate?.text);
+      selectedCandidate = candidate;
+      break;
+    } catch (error) {
+      if (error?.code !== 'IMPLEMENTATION_QUALITY_CONTRACT_MISSING') throw error;
+      qualityError = error;
+    }
+  }
+  let repairFanout = null;
+  if (!selectedCandidate) {
+    repairFanout = await augmentio.fanOut({
+      capability: 'CODE',
+      input: qualityRepairPrompt(current, bridge, code, rankedCandidates, qualityError?.missing_sections || []),
+      context: {
+        purpose: 'MEL_APPROVED_IMPLEMENTATION_PLAN_REPAIR',
+        job_id: current.id,
+        request_id: bridge.request.request_id,
+        roadmap_id: current.optional_context?.roadmap_id || null,
+        candidate_branch: code.branch,
+        candidate_sha: code.candidate_sha,
+        consolidation_policy: 'SINGLE_CANONICAL_CANDIDATE',
+      },
+      maxCandidates: 2,
+    });
+    const repairedCandidates = Array.isArray(repairFanout?.candidates) && repairFanout.candidates.length
+      ? repairFanout.candidates
+      : (repairFanout?.best ? [repairFanout.best] : []);
+    for (const candidate of repairedCandidates) {
+      try {
+        selectedText = assertPlanQualityContract(candidate?.text);
+        selectedCandidate = candidate;
+        break;
+      } catch (error) {
+        if (error?.code !== 'IMPLEMENTATION_QUALITY_CONTRACT_MISSING') throw error;
+        qualityError = error;
+      }
+    }
+  }
+  let qualityScaffoldApplied = false;
+  if (!selectedCandidate) {
+    const scaffoldCandidates = [
+      ...rankedCandidates,
+      ...((Array.isArray(repairFanout?.candidates) ? repairFanout.candidates : [])),
+    ];
+    selectedText = deterministicQualityScaffold(current, code, scaffoldCandidates);
+    selectedCandidate = {
+      provider: 'mel',
+      model: 'deterministic-quality-scaffold-v1',
+      text: selectedText,
+    };
+    qualityScaffoldApplied = true;
+  }
+
+  const allProvidersAttempted = [...new Set([
+    ...(Array.isArray(fanout.providersAttempted) ? fanout.providersAttempted : []),
+    ...(Array.isArray(repairFanout?.providersAttempted) ? repairFanout.providersAttempted : []),
+  ])];
 
   const proposal = {
     status: 'READY',
@@ -281,12 +420,14 @@ export async function prepareApprovedImplementationProposal({ env, repository, j
     candidate_sha: code.candidate_sha,
     roadmap_id: current.optional_context?.roadmap_id || null,
     inspected_files: code.files.map((file) => ({ path: file.path, sha: file.sha || '' })),
-    providers_attempted: fanout.providersAttempted.slice(0, 8),
+    providers_attempted: allProvidersAttempted.slice(0, 8),
     consolidation: {
       policy: 'SINGLE_CANONICAL_CANDIDATE',
       canonical_branch: code.branch,
       alternate_candidate_allowed: false,
       duplicate_module_allowed: false,
+      quality_repair_attempted: Boolean(repairFanout),
+      quality_scaffold_applied: qualityScaffoldApplied,
       reuse_search: {
         query: code.reuse_search.query,
         searched_files: code.reuse_search.searched_files,
@@ -294,11 +435,11 @@ export async function prepareApprovedImplementationProposal({ env, repository, j
       },
     },
     selected: {
-      provider: fanout.best.provider,
-      model: fanout.best.model,
+      provider: selectedCandidate.provider,
+      model: selectedCandidate.model,
       text: String(selectedText).slice(0, MAX_PLAN_TEXT),
     },
-    alternatives: fanout.candidates.slice(1, 3).map((candidate) => ({
+    alternatives: rankedCandidates.filter((candidate) => candidate !== selectedCandidate).slice(0, 2).map((candidate) => ({
       provider: candidate.provider,
       model: candidate.model,
       text: String(candidate.text || '').slice(0, 4000),

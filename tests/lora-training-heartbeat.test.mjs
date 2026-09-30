@@ -67,7 +67,7 @@ test('LoRA heartbeat dispatches cycle zero only when no checkpoint exists', asyn
   assert.equal(result.parent_release_tag, '');
   assert.equal(result.resumed_from_checkpoint, false);
   assert.equal(result.shard_size, 750);
-  assert.equal(result.max_cycles, 1000);
+  assert.equal(result.max_cycles, 100);
 
   const dispatch = seen.find((row) => row.href.endsWith('/dispatches'));
   assert.ok(dispatch);
@@ -77,7 +77,7 @@ test('LoRA heartbeat dispatches cycle zero only when no checkpoint exists', asyn
     cycle: '0',
     parent_release_tag: '',
     shard_size: '750',
-    max_cycles: '1000',
+    max_cycles: '100',
     benchmark_preview: 'false',
   });
 });
@@ -212,13 +212,31 @@ test('LoRA heartbeat respects its cadence between supervision windows', async ()
   assert.equal(result.interval_minutes, 15);
 });
 
-
-test('canonical Kaggle collector is dispatch-only and cannot create scheduled/push wait queues', async () => {
+test('canonical Kaggle collector allows scoped main-push recovery and remains bounded', async () => {
   const source = await readFile(new URL('../.github/workflows/lora-kaggle-free-collect.yml', import.meta.url), 'utf8');
   const triggerBlock = source.slice(source.indexOf('on:'), source.indexOf('permissions:'));
   assert.match(triggerBlock, /workflow_dispatch:/);
-  assert.doesNotMatch(triggerBlock, /\n\s*push:/);
+  assert.match(triggerBlock, /\n\s*push:/);
+  assert.match(triggerBlock, /branches:\s*\n\s*- main/);
+  assert.match(triggerBlock, /\.github\/workflows\/lora-kaggle-free-collect\.yml/);
+  assert.match(triggerBlock, /scripts\/finalize-lora\.mjs/);
   assert.doesNotMatch(triggerBlock, /\n\s*schedule:/);
-  assert.match(source, /WAIT_FOR_COMPLETION:\s*\$\{\{ inputs\.wait_for_completion \}\}/);
-  assert.match(source, /MAX_WAIT_MINUTES:\s*\$\{\{ inputs\.max_wait_minutes \}\}/);
+  assert.match(source, /WAIT_FOR_COMPLETION:\s*\$\{\{ github\.event_name == 'push' && 'false' \|\| inputs\.wait_for_completion \}\}/);
+  assert.match(source, /MAX_WAIT_MINUTES:\s*\$\{\{ github\.event_name == 'push' && '1' \|\| inputs\.max_wait_minutes \}\}/);
+  assert.match(source, /cancel_acknowledged\|cancel acknowledged/);
+});
+
+test('canonical Kaggle GPU workflow allows multi-step QLoRA runtime', async () => {
+  const source = await readFile(new URL('../.github/workflows/lora-kaggle-free-gpu.yml', import.meta.url), 'utf8');
+  assert.match(source, /kaggle kernels push[\s\S]*-t 10800/);
+  assert.doesNotMatch(source, /kaggle kernels push[\s\S]*-t 120(?:\s|$)/);
+});
+
+test('canonical Kaggle GPU workflow retries one transient cancellation and then fails closed', async () => {
+  const source = await readFile(new URL('../.github/workflows/lora-kaggle-free-gpu.yml', import.meta.url), 'utf8');
+  assert.match(source, /CANCEL_RETRY_USED=0/);
+  assert.match(source, /cancel_acknowledged\|cancel acknowledged/);
+  assert.match(source, /Retrying the same immutable cycle once/);
+  assert.match(source, /CANCEL_RETRY_USED=1/);
+  assert.match(source, /Kaggle GPU run cancelled twice/);
 });

@@ -82,10 +82,10 @@ test('Cloudflare reads only Workers inventory and deployment metadata, never sou
     fetchImpl: async (url, init) => {
       seen.push({ url: String(url), authorization: init.headers.authorization });
       if (String(url).endsWith('/deployments')) {
-        return json({ success: true, result: [
+        return json({ success: true, result: { deployments: [
           { id: 'd1', created_on: '2026-09-22T00:00:00Z', source: 'api', strategy: 'percentage', versions: [{ version_id: 'v1', percentage: 100 }] },
           { id: 'd2' },
-        ] });
+        ] } });
       }
       return json({ success: true, result: [
         { id: 'meliturgos', modified_on: '2026-09-22T00:00:00Z', compatibility_date: '2026-09-04' },
@@ -109,6 +109,92 @@ test('Cloudflare reads only Workers inventory and deployment metadata, never sou
     () => bus.execute('cloudflare.deployments.read', { script: '../secrets' }, owner),
     /CLOUDFLARE_SCRIPT_INVALID/
   );
+});
+
+test('Cloudflare failures expose only sanitized HTTP and Cloudflare numeric error codes', async () => {
+  const bus = new CapabilityBus();
+  registerPlatformReadCapabilities(bus, {
+    env: { CLOUDFLARE_API_TOKEN: 'cf-secret', CLOUDFLARE_ACCOUNT_ID: 'account123' },
+    fetchImpl: async () => json({ errors: [{ code: 10000, message: 'secret upstream message' }] }, 503),
+  });
+
+  let caught;
+  try {
+    await bus.execute('cloudflare.workers.read', { limit: 1 }, owner);
+  } catch (error) {
+    caught = error;
+  }
+  assert.ok(caught);
+  assert.match(caught.code, /CLOUDFLARE_WORKERS_READ_FAILED_HTTP_503_CF_10000/);
+  assert.equal(String(caught.code).includes('secret upstream message'), false);
+  assert.equal(String(caught.code).includes('cf-secret'), false);
+});
+
+test('Cloudflare workers read uses durable relay enqueue and readback without direct Cloudflare fetch', async () => {
+  const jobs = new Map();
+  const relay = {
+    transport: 'd1-cloudflare-api-relay',
+    health: async () => ({ online:true, status:'ONLINE' }),
+    enqueue: async ({ operation, input }) => {
+      assert.equal(operation, 'workers.list');
+      const job = { id:'cf-relay-test-1', status:'QUEUED', operation, input };
+      jobs.set(job.id, job);
+      return job;
+    },
+    get: async id => jobs.get(id) || null,
+  };
+  const bus = new CapabilityBus();
+  registerPlatformReadCapabilities(bus, {
+    env: {},
+    cloudflareRelayStore: relay,
+    fetchImpl: async () => { throw new Error('DIRECT_FETCH_MUST_NOT_RUN'); },
+  });
+
+  const queued = await bus.execute('cloudflare.workers.read', { limit:2 }, owner);
+  assert.equal(queued.pending, true);
+  assert.equal(queued.relay_job_id, 'cf-relay-test-1');
+  jobs.set('cf-relay-test-1', {
+    ...jobs.get('cf-relay-test-1'),
+    status:'COMPLETE',
+    result:{ provider:'cloudflare', transport:'github-actions-relay', scripts:[{id:'meliturgos'}], count:1 },
+  });
+  const completed = await bus.execute('cloudflare.workers.read', { relay_job_id:'cf-relay-test-1' }, owner);
+  assert.equal(completed.count, 1);
+  assert.equal(completed.scripts[0].id, 'meliturgos');
+  assert.equal(completed.transport, 'github-actions-relay');
+});
+
+test('Cloudflare deployments read uses durable relay enqueue and readback', async () => {
+  const jobs = new Map();
+  const relay = {
+    transport: 'd1-cloudflare-api-relay',
+    health: async () => ({ online:true, status:'ONLINE' }),
+    enqueue: async ({ operation, input }) => {
+      assert.equal(operation, 'deployments.list');
+      assert.equal(input.script, 'meliturgos');
+      const job = { id:'cf-relay-deployments-1', status:'QUEUED', operation, input };
+      jobs.set(job.id, job);
+      return job;
+    },
+    get: async id => jobs.get(id) || null,
+  };
+  const bus = new CapabilityBus();
+  registerPlatformReadCapabilities(bus, {
+    env: {},
+    cloudflareRelayStore: relay,
+    fetchImpl: async () => { throw new Error('DIRECT_FETCH_MUST_NOT_RUN'); },
+  });
+  const queued = await bus.execute('cloudflare.deployments.read', { script:'meliturgos', limit:2 }, owner);
+  assert.equal(queued.pending, true);
+  jobs.set('cf-relay-deployments-1', {
+    ...jobs.get('cf-relay-deployments-1'),
+    status:'COMPLETE',
+    result:{ provider:'cloudflare', transport:'github-actions-relay', script:'meliturgos', deployments:[{id:'dep-1'}], count:1 },
+  });
+  const completed = await bus.execute('cloudflare.deployments.read', { relay_job_id:'cf-relay-deployments-1' }, owner);
+  assert.equal(completed.count, 1);
+  assert.equal(completed.deployments[0].id, 'dep-1');
+  assert.equal(completed.transport, 'github-actions-relay');
 });
 
 test('Vercel project and deployment reads preserve team scoping and bounded output', async () => {
@@ -138,7 +224,8 @@ test('Vercel project and deployment reads preserve team scoping and bounded outp
   assert.equal(deployments.count, 1);
   const projectCalls=seen.filter(call => /^https:\/\/api\.vercel\.com\/v9\/projects\?/.test(call.url));
   const deploymentCall=seen.find(call => /^https:\/\/api\.vercel\.com\/v6\/deployments\?/.test(call.url));
-  assert.ok(projectCalls.length >= 2);
+  assert.ok(projectCalls.length >= 1);
+  assert.equal(seen.filter(call => call.url === 'https://api.vercel.com/v2/user').length >= 2, true);
   assert.equal(projectCalls.every(call => /teamId=team_123/.test(call.url)), true);
   assert.ok(deploymentCall);
   assert.match(deploymentCall.url, /projectId=prj_1/);
@@ -190,4 +277,31 @@ test('platform read healthchecks turn working GitHub reads healthy and explain u
   assert.equal(cloudflare.health_detail, 'CLOUDFLARE_RUNTIME_CREDENTIALS_NOT_CONFIGURED');
   assert.equal(vercel.health, 'UNAVAILABLE');
   assert.equal(vercel.health_detail, 'VERCEL_RUNTIME_CREDENTIALS_NOT_CONFIGURED');
+});
+
+
+test('Vercel reads accept encrypted runtime resolver when env token is absent', async () => {
+  const seen = [];
+  const bus = new CapabilityBus();
+  registerPlatformReadCapabilities(bus, {
+    env: {},
+    resolveVercelConfig: async () => ({
+      token: 'vault-vercel-token',
+      team_id: 'team_vault',
+      project_id: 'prj_vault',
+      project_name: 'mel-vault',
+    }),
+    fetchImpl: async (url, init) => {
+      seen.push({ url: String(url), authorization: init.headers.authorization });
+      return json({ projects: [{ id: 'prj_vault', name: 'mel-vault' }] });
+    },
+  });
+  const result = await bus.execute('vercel.projects.read', { limit: 1 }, owner);
+  assert.equal(result.count, 1);
+  assert.equal(result.projects[0].id, 'prj_vault');
+  const projectCall = seen.find(call => /^https:\/\/api\.vercel\.com\/v9\/projects\?/.test(call.url));
+  assert.ok(projectCall);
+  assert.match(projectCall.url, /teamId=team_vault/);
+  assert.equal(seen.every(call => call.authorization === 'Bearer vault-vercel-token'), true);
+  assert.equal(JSON.stringify(result).includes('vault-vercel-token'), false);
 });

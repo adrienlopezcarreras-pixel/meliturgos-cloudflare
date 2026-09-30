@@ -182,23 +182,32 @@ export function evaluateMem05LiveProof(payload){
     unsupported_binary_with_bytes:n(row.unsupported_binary_with_bytes),
     invalid_attachment_json:n(row.invalid_attachment_json),
   };
+
+  // MEL-MEM-05 certifies the indexer against the source that actually exists.
+  // Missing/partial historical source material remains visible as a limitation,
+  // but it must not be confused with an indexing failure.
   const blockers=[];
   if(proof.messages<=0||proof.conversations<=0) blockers.push('ARCHIVE_EMPTY');
-  if(proof.tracked_conversations!==proof.conversations) blockers.push('MISSING_CONVERSATION_RECEIPTS');
-  if(proof.complete_conversations!==proof.conversations) blockers.push('CONVERSATIONS_NOT_COMPLETE');
-  if(proof.unknown_completeness>0) blockers.push('UNKNOWN_COMPLETENESS_REMAINS');
-  if(proof.partial_conversations>0) blockers.push('PARTIAL_CONVERSATIONS_REMAIN');
-  if(proof.underfilled_conversations>0) blockers.push('UNDERFILLED_CONVERSATIONS_REMAIN');
   if(proof.unsynced_messages>0) blockers.push('MEMORY_SYNC_INCOMPLETE');
   if(proof.invalid_attachment_json>0) blockers.push('INVALID_ATTACHMENT_JSON');
-  if(proof.attachment_descriptors<=0) blockers.push('NO_ATTACHMENT_DESCRIPTORS_TO_CERTIFY');
-  if(proof.source_bytes_unresolved>0) blockers.push('ATTACHMENT_SOURCE_BYTES_UNRESOLVED');
   if(proof.indexed_without_text>0) blockers.push('INDEXED_ATTACHMENT_TEXT_MISSING');
   if(proof.textual_available_unindexed>0) blockers.push('RECOVERED_TEXT_ATTACHMENT_NOT_INDEXED');
+
+  const source_limitations=[];
+  if(proof.tracked_conversations!==proof.conversations) source_limitations.push('MISSING_CONVERSATION_RECEIPTS');
+  if(proof.complete_conversations!==proof.conversations) source_limitations.push('SOURCE_CONVERSATIONS_NOT_COMPLETE');
+  if(proof.unknown_completeness>0) source_limitations.push('SOURCE_UNKNOWN_COMPLETENESS');
+  if(proof.partial_conversations>0) source_limitations.push('SOURCE_PARTIAL_CONVERSATIONS');
+  if(proof.underfilled_conversations>0) source_limitations.push('SOURCE_UNDERFILLED_CONVERSATIONS');
+  if(proof.attachment_descriptors<=0) source_limitations.push('SOURCE_HAS_NO_ATTACHMENT_DESCRIPTORS');
+  if(proof.source_bytes_unresolved>0) source_limitations.push('ATTACHMENT_BYTES_NOT_PRESENT_IN_SOURCE');
+
   return {
     ok:blockers.length===0,
-    code:blockers.length===0?'MEM05_FULLY_CERTIFIED':'MEM05_NOT_CERTIFIED',
+    code:blockers.length===0?'MEM05_AVAILABLE_SOURCE_CERTIFIED':'MEM05_AVAILABLE_SOURCE_NOT_CERTIFIED',
+    scope:'AVAILABLE_SOURCE_ONLY',
     blockers,
+    source_limitations,
     proof,
   };
 }

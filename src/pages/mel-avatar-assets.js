@@ -1,3 +1,4 @@
+import { getMelVisualIdentity } from './avatar-identity.js';
 const THEME_ROUTES = Object.freeze({
   classic: '/assets/avatars/mel-classic.webp',
   granada: '/assets/avatars/mel-granada.webp',
@@ -18,4 +19,12 @@ export function getMelAvatarRoute(theme = 'classic') {
 // can never pull multi-megabyte base64 payloads back into the Worker bundle.
 export function serveMelAvatar() {
   return null;
+}
+
+
+export function getMelAvatarPresentation(theme = 'futuristic') {
+  return Object.freeze({
+    route: getMelAvatarRoute(theme),
+    identity: getMelVisualIdentity(theme),
+  });
 }

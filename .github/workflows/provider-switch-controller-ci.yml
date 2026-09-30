@@ -1,0 +1,51 @@
+name: provider-switch-controller-ci
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - src/portability/provider-switch-controller.js
+      - src/portability/technical-sovereignty.js
+      - src/portability/technical-sovereignty-inventory.js
+      - src/augmentio/http-chat-adapter.js
+      - src/augmentio/default-pool.js
+      - src/portability/source-control-adapter.js
+      - src/portability/runtime-provider-adapter.js
+      - src/evaluation/dependency-longevity-watch.js
+      - src/evaluation/dependency-longevity-watch-runtime.js
+      - src/index.js
+      - tests/gen2/provider-switch-controller.test.mjs
+      - tests/gen2/technical-sovereignty.test.mjs
+      - tests/gen2/technical-sovereignty-inventory.test.mjs
+      - tests/augmentio-http-chat-adapter.test.mjs
+      - tests/gen2/source-control-adapter.test.mjs tests/gen2/runtime-provider-adapter.test.mjs
+      - tests/gen2/runtime-provider-adapter.test.mjs
+      - tests/gen2/dependency-longevity-watch.test.mjs
+      - tests/gen2/dependency-longevity-runtime-wiring.test.mjs
+      - .github/workflows/provider-switch-controller-ci.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: node --check src/portability/provider-switch-controller.js
+      - run: node --check src/portability/technical-sovereignty.js
+      - run: node --check src/augmentio/http-chat-adapter.js
+      - run: node --check src/portability/source-control-adapter.js
+      - run: node --check src/portability/runtime-provider-adapter.js
+      - run: node --check src/evaluation/dependency-longevity-watch.js
+      - run: node --check src/evaluation/dependency-longevity-watch-runtime.js
+      - run: node --test tests/gen2/provider-switch-controller.test.mjs tests/gen2/technical-sovereignty.test.mjs tests/gen2/technical-sovereignty-inventory.test.mjs tests/augmentio-http-chat-adapter.test.mjs tests/gen2/source-control-adapter.test.mjs tests/gen2/dependency-longevity-watch.test.mjs tests/gen2/dependency-longevity-runtime-wiring.test.mjs
+      - run: node scripts/runtime-security-gate.mjs

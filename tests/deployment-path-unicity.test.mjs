@@ -6,7 +6,8 @@ import path from 'node:path';
 const WORKFLOWS = path.join(process.cwd(), '.github', 'workflows');
 const CANONICAL = 'deploy-cloudflare-release.yml';
 const GUARD = 'canonical-branch-unicity.yml';
-const DEPLOY_PATTERN = /cloudflare\/wrangler-action|(^|\s)(npx\s+|pnpm\s+exec\s+)?wrangler\s+(deploy|publish)|npm\s+run\s+deploy|workers\/scripts/im;
+const DEPLOY_PATTERN = /cloudflare\/wrangler-action|(^|\s)(npx\s+|pnpm\s+exec\s+)?wrangler\s+(deploy|publish)|npm\s+run\s+deploy/im;
+const RAW_CLOUDFLARE_MUTATION_PATTERN = /--request\s+(POST|PUT|PATCH|DELETE)(?:[^\n]*\\\n){0,20}[^\n]*https:\/\/api\.cloudflare\.com\/client\/v4\/accounts\/[^\s"'\\]+\/workers\/scripts/i;
 
 function isIsolatedPreview(name, source) {
   if (name === 'deploy-candidate-preview.yml') return source.includes('--env preview');
@@ -22,7 +23,8 @@ test('only the canonical release workflow can mutate Cloudflare production', asy
   for (const name of files) {
     if (name === CANONICAL || name === GUARD) continue;
     const source = await readFile(path.join(WORKFLOWS, name), 'utf8');
-    if (DEPLOY_PATTERN.test(source) && !isIsolatedPreview(name, source)) violations.push(name);
+    const mutatesProduction = DEPLOY_PATTERN.test(source) || RAW_CLOUDFLARE_MUTATION_PATTERN.test(source);
+    if (mutatesProduction && !isIsolatedPreview(name, source)) violations.push(name);
   }
   assert.deepEqual(violations, [], 'parallel production deployment paths are forbidden');
 });
@@ -34,13 +36,23 @@ test('canonical production release requires human approval and exact immutable i
   assert.match(source, /release\/\*/);
   assert.match(source, /expected_sha/);
   assert.match(source, /test "\$RELEASE_SHA" = "\$EXPECTED_SHA"/);
-  assert.match(source, /git fetch origin main --depth=1/);
-  assert.match(source, /test "\$SOURCE_SHA" = "\$EXPECTED_SHA"/);
+  assert.match(source, /git fetch origin main/);
+  assert.match(source, /git merge-base --is-ancestor "\$EXPECTED_SHA" "\$SOURCE_SHA"/);
+  assert.match(source, /git rev-list --count "\$EXPECTED_SHA\.\.\$SOURCE_SHA"/);
+  assert.match(source, /test "\$MAIN_ADVANCE_COUNT" -le 25/);
+  assert.match(source, /for PAUSE_ATTEMPT in \$\(seq 1 12\); do/);
   assert.match(source, /--data '\{"phase":"pause"\}'/);
+  assert.match(source, /test "\$PAUSE_READY" = "1"/);
   assert.match(source, /for BACKUP_ATTEMPT in \$\(seq 1 3\); do/);
   assert.match(source, /--data '\{"phase":"backup"\}'/);
   assert.match(source, /timeout-minutes: 45/);
-  assert.match(source, /for CODE_SYNC_ATTEMPT in \$\(seq 1 12\); do/);
+  assert.match(source, /CODE_SYNC_MAX_ATTEMPTS=32/);
+  assert.match(source, /CODE_SYNC_MAX_STALL=12/);
+  assert.match(source, /for CODE_SYNC_ATTEMPT in \$\(seq 1 "\$CODE_SYNC_MAX_ATTEMPTS"\); do/);
+  assert.match(source, /PRODUCTION_CODE_SYNC_FINAL_NOT_COMPLETE/);
+  assert.match(source, /PRODUCTION_CODE_SYNC_FINAL_NOT_COPIED/);
+  assert.match(source, /PRODUCTION_CODE_SYNC_SUCCESSFUL_ENDPOINTS_LT_7/);
+  assert.match(source, /PRODUCTION_CODE_SYNC_ROUNDTRIP_NOT_VERIFIED/);
   assert.match(source, /CODE_SYNC_CODE="\$\(curl --silent --show-error --max-time 170 \\\n\s+--header "x-mel-launch-bootstrap: \$\{BOOTSTRAP_TOKEN\}"/);
   assert.match(source, /--data '\{"phase":"code-sync"\}'/);
   assert.match(source, /for attempt in \$\(seq 1 8\); do/);

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { formatVerifiedSelfStateResponse, formatVerifiedCapabilityAuditResponse, formatCommunicationAuditResponse } from '../src/api/response-grounding.js';
+import { formatVerifiedSelfStateResponse, formatVerifiedCapabilityAuditResponse, formatCommunicationAuditResponse, formatVerifiedAutonomyActivityResponse, formatVerifiedDevBridgeStatusResponse } from '../src/api/response-grounding.js';
 
 test('verified self-state response states evidence and preserves observation boundaries', () => {
   const text = formatVerifiedSelfStateResponse({
@@ -76,3 +76,110 @@ test('communication audit formatter reports concrete detected patterns', () => {
   assert.match(text, /Réponse sans rapport/);
   assert.match(text, /borné/i);
 });
+
+
+test('autonomy activity formatter reports live MAX/jobs/ledger and rejects archive-style claims', () => {
+  const text = formatVerifiedAutonomyActivityResponse({
+    ok:true,
+    observed_at:'2026-09-29T18:00:00.000Z',
+    source:'production_d1',
+    control:{ paused:false, max_autonomy:true },
+    counts:{ supervised_total:3, by_status:{TEACHER_APPROVED:1,COMPLETED:2} },
+    recent_jobs:[{
+      job_id:'mel-ui-06',
+      status:'TEACHER_APPROVED',
+      roadmap_id:'MEL-UI-06',
+      goal:'Clipboard direct',
+      teacher_verdict:'APPROVE_PLAN',
+      owner_override:true,
+      bridge_preparation_status:'READY',
+    }],
+    recent_events:[{
+      seq:42,
+      evolution_id:'mel-ui-06',
+      stage:'JOB_UPDATED',
+      status:'TEACHER_APPROVED',
+      source_sha:'a'.repeat(40),
+    }],
+  }, { fallback:'stale Ligier memory' });
+
+  assert.match(text, /MAX est actif/);
+  assert.match(text, /mel-ui-06/);
+  assert.match(text, /Teacher=APPROVE_PLAN \+ override MAX/);
+  assert.match(text, /bridge=READY/);
+  assert.match(text, /Derniers événements du ledger/);
+  assert.match(text, /#42/);
+  assert.doesNotMatch(text, /Ligier/);
+  assert.match(text, /n’utilise pas une ancienne conversation/i);
+});
+
+
+test('Dev Bridge formatter reports live polling truth instead of asking for confirmation', () => {
+  const text = formatVerifiedDevBridgeStatusResponse({
+    ok:true,
+    observed_at:'2026-09-30T06:30:00.000Z',
+    source:'production_d1',
+    local_bridge:{bridge_id:'primary',status:'ONLINE',age_ms:120000,online_60s:false},
+    autonomy_lease:{bridge_id:'runtime-lease:autonomy-heartbeat',status:'RELEASED',age_ms:0},
+    counts:{ready:1,claimed:0,repair_required:0,ready_for_review:0},
+    ready_packages:[{
+      job_id:'mel-autonomy-mel-ui-06-1',
+      status:'TEACHER_APPROVED',
+      teacher_verdict:'APPROVE_PLAN',
+      owner_override:true,
+      bridge_preparation_status:'READY',
+      candidate_branch:'candidate/mel-clean-autonomy',
+    }],
+    claimed_jobs:[],
+    repair_jobs:[],
+    review_jobs:[],
+    local_polling_effective:false,
+  }, { fallback:'Tu confirmes que je vérifie ?' });
+
+  assert.match(text, /Bridge local primary : OFFLINE/);
+  assert.match(text, /Polling local effectif maintenant : non/);
+  assert.match(text, /mel-autonomy-mel-ui-06-1/);
+  assert.match(text, /poller local ne consomme pas actuellement/i);
+  assert.doesNotMatch(text, /Tu confirmes/);
+  assert.match(text, /je ne te demande pas de confirmer/i);
+});
+
+test('persistent capability stress formatter exposes job progress then final per-capability report', () => {
+  const running = formatVerifiedCapabilityAuditResponse({
+    persistent:true,
+    job_id:'cap-stress-123',
+    status:'RUNNING',
+    progress:{done:12,total:80,pass:1,current_capability:'echo'},
+    summary:{phase:'RUNNING'},
+  });
+  assert.match(running, /cap-stress-123/);
+  assert.match(running, /RUNNING/);
+  assert.match(running, /12\/80/);
+  assert.match(running, /echo/);
+
+  const complete = formatVerifiedCapabilityAuditResponse({
+    persistent:true,
+    job_id:'cap-stress-123',
+    status:'COMPLETE_WITH_FAILURES',
+    progress:{done:2,total:2,pass:2,current_capability:null},
+    summary:{
+      remaining_runtime_failures:['bad.capability'],
+      blocked_count:1,
+    },
+    report:{
+      total:2,
+      deep:true,
+      counts:{EXISTANT_ET_TESTE:1,EXISTANT_MAIS_ECHEC_RUNTIME:1},
+      capabilities:[
+        {id:'echo',category:'diagnostic',truth_status:'EXISTANT_ET_TESTE'},
+        {id:'bad.capability',category:'diagnostic',truth_status:'EXISTANT_MAIS_ECHEC_RUNTIME'},
+      ],
+    },
+  });
+  assert.match(complete, /COMPLETE_WITH_FAILURES/);
+  assert.match(complete, /bad\.capability/);
+  assert.match(complete, /Testées maintenant : 1/);
+  assert.match(complete, /Partielles ou en échec runtime : 1/);
+  assert.match(complete, /Capacités non auto-exécutées par garde-fou : 1/);
+});
+

@@ -1,0 +1,115 @@
+name: owner-max-autorelease
+
+on:
+  workflow_dispatch:
+    inputs:
+      job_id:
+        description: Verified MEL development job id
+        required: true
+        type: string
+      candidate_branch:
+        description: Canonical candidate branch
+        required: true
+        default: candidate/mel-clean-autonomy
+        type: string
+      candidate_sha:
+        description: Exact verified candidate SHA
+        required: true
+        type: string
+      ci_run_id:
+        description: Exact successful full-candidate-ci run id
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: owner-max-autorelease
+  cancel-in-progress: false
+
+jobs:
+  promote:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      JOB_ID: ${{ inputs.job_id }}
+      CANDIDATE_BRANCH: ${{ inputs.candidate_branch }}
+      CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+      CI_RUN_ID: ${{ inputs.ci_run_id }}
+      RELEASE_BRANCH: release/max-autonomy
+    steps:
+      - name: Validate bounded MAX release inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$CANDIDATE_BRANCH" = "candidate/mel-clean-autonomy"
+          [[ "$CANDIDATE_SHA" =~ ^[0-9a-fA-F]{40}$ ]]
+          [[ "$CI_RUN_ID" =~ ^[0-9]+$ ]]
+          [[ "$JOB_ID" =~ ^[A-Za-z0-9_.:-]+$ ]]
+
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          ref: main
+
+      - name: Verify exact candidate and exact successful CI
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git fetch origin "refs/heads/$CANDIDATE_BRANCH:refs/remotes/origin/$CANDIDATE_BRANCH" main
+          test "$(git rev-parse "origin/$CANDIDATE_BRANCH")" = "$CANDIDATE_SHA"
+
+          curl -fsS             -H "Authorization: Bearer $GH_TOKEN"             -H "Accept: application/vnd.github+json"             -H "X-GitHub-Api-Version: 2022-11-28"             "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/runs/$CI_RUN_ID" > candidate-ci.json
+          node - <<'NODE'
+          const d=require('./candidate-ci.json');
+          if(d?.name!=='full-candidate-ci') throw new Error('MAX_AUTORELEASE_CI_NAME_INVALID');
+          if(String(d?.head_sha||'').toLowerCase()!==String(process.env.CANDIDATE_SHA||'').toLowerCase()) throw new Error('MAX_AUTORELEASE_CI_SHA_MISMATCH');
+          if(String(d?.head_branch||'')!==String(process.env.CANDIDATE_BRANCH||'')) throw new Error('MAX_AUTORELEASE_CI_BRANCH_MISMATCH');
+          if(d?.status!=='completed'||d?.conclusion!=='success') throw new Error('MAX_AUTORELEASE_CI_NOT_GREEN');
+          NODE
+
+      - name: Require safe fast-forward from current main
+        shell: bash
+        run: |
+          set -euo pipefail
+          MAIN_SHA="$(git rev-parse origin/main)"
+          if ! git merge-base --is-ancestor "$MAIN_SHA" "$CANDIDATE_SHA"; then
+            echo "MAX_AUTORELEASE_MAIN_DIVERGED: current main is not an ancestor of candidate."
+            exit 41
+          fi
+          echo "MAX_AUTORELEASE_MAIN_BEFORE=$MAIN_SHA" >> "$GITHUB_ENV"
+
+      - name: Promote exact candidate without force-updating main
+        shell: bash
+        run: |
+          set -euo pipefail
+          git push origin "$CANDIDATE_SHA:refs/heads/main"
+          test "$(git ls-remote origin refs/heads/main | cut -f1)" = "$CANDIDATE_SHA"
+          git push --force origin "$CANDIDATE_SHA:refs/heads/$RELEASE_BRANCH"
+          test "$(git ls-remote origin "refs/heads/$RELEASE_BRANCH" | cut -f1)" = "$CANDIDATE_SHA"
+
+      - name: Dispatch canonical production release in MAX mode
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          node - <<'NODE' > dispatch.json
+          process.stdout.write(JSON.stringify({
+            ref:'main',
+            inputs:{
+              release_branch:process.env.RELEASE_BRANCH,
+              expected_sha:process.env.CANDIDATE_SHA,
+              approval:'DEPLOY_APPROVED',
+              owner_max_autorelease:true
+            }
+          }));
+          NODE
+          code="$(curl --silent --show-error --max-time 30             --request POST             --header "Authorization: Bearer $GH_TOKEN"             --header "Accept: application/vnd.github+json"             --header "X-GitHub-Api-Version: 2022-11-28"             --header "Content-Type: application/json"             --data-binary @dispatch.json             --output dispatch-response.txt             --write-out '%{http_code}'             "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/workflows/deploy-cloudflare-release.yml/dispatches")"
+          test "$code" = "204"
+          echo "MAX autonomous production release accepted for $CANDIDATE_SHA"

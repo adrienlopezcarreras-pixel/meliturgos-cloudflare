@@ -1,0 +1,43 @@
+name: gen2-39-guarded-agent-work-ci
+
+on:
+  push:
+    branches:
+      - 'roadmap/gen2-39-*'
+      - 'candidate/gen2-39-*'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'src/agents/guarded-work-runner.js'
+      - 'tests/gen2/guarded-agent-work-runner.test.mjs'
+      - '.github/workflows/gen2-39-guarded-agent-work-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.head_ref || github.ref_name }}
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install exact lockfile
+        run: npm ci
+      - name: Targeted GEN2-39 tests
+        run: node --test tests/gen2/guarded-agent-work-runner.test.mjs
+      - name: Syntax
+        run: npm run check
+      - name: Normalize branch for candidate-only integration tests
+        run: git switch -c candidate/gen2-39-ci
+      - name: Full test suite
+        run: npm test
+      - name: Runtime dependency security gate
+        run: node scripts/runtime-security-gate.mjs

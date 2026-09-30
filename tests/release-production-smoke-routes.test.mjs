@@ -1,13 +1,37 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import worker from '../src/index.js';
+import { isReleaseSmokeRequest } from '../src/core/security.js';
+import { createVerifiedBackupService } from '../src/backup/backup-service.js';
 
 const TOKEN = 's'.repeat(64);
 const SHA = 'b'.repeat(40);
 const BRANCH = 'release/mel-hardware-v0.1.0';
 
-function db() {
+function db(backupSnapshot = null, backupMetadata = null) {
   const auditRows = [];
+  const backupObjectKey = backupMetadata?.objectKey
+    || (backupSnapshot ? `backups/system/${backupSnapshot.id}.json` : null);
+  const backupRow = backupMetadata
+    ? {
+        id: String(backupMetadata.id || ''),
+        object_key: backupObjectKey,
+        metadata_json: JSON.stringify(backupMetadata),
+        created_at: Date.parse(String(backupMetadata.createdAt || '')),
+      }
+    : backupSnapshot
+      ? {
+          id: backupSnapshot.id,
+          object_key: backupObjectKey,
+          metadata_json: JSON.stringify({
+            createdAt: backupSnapshot.createdAt,
+            integritySha256: backupSnapshot.integritySha256,
+            sourceCount: backupSnapshot.sourceCount,
+            verified: backupSnapshot.verified === true,
+          }),
+          created_at: Date.parse(backupSnapshot.createdAt),
+        }
+      : null;
   return {
     prepare(sql) {
       return {
@@ -15,9 +39,15 @@ function db() {
         bind(...params) { this.params = params; return this; },
         async first() {
           if (/COUNT\(\*\)/i.test(String(sql))) return { count: 3 };
+          if (backupRow && /SELECT\s+object_key\s+FROM\s+backup_objects\s+WHERE\s+id=/i.test(String(sql))) {
+            return String(this.params[0] || '') === backupRow.id ? { object_key: backupObjectKey } : null;
+          }
           return null;
         },
         async all() {
+          if (backupRow && /FROM\s+backup_objects/i.test(String(sql))) {
+            return { results: [structuredClone(backupRow)] };
+          }
           if (/FROM\s+audit_logs/i.test(String(sql))) {
             const since = Number(this.params[0]) || 0;
             const limit = Number(this.params[1]) || 200;
@@ -83,6 +113,90 @@ function env() {
   };
 }
 
+async function recoveryEnv() {
+  let snapshot = null;
+  const storage = {
+    async put(value) { snapshot = structuredClone(value); },
+    async get() { return snapshot ? structuredClone(snapshot) : null; },
+    async list() { return snapshot ? [structuredClone(snapshot)] : []; },
+  };
+  const service = createVerifiedBackupService({
+    storage,
+    now: () => '2026-09-25T12:00:00.000Z',
+    sources: {
+      database: async () => ({
+        type: 'MEL_D1_LOGICAL_EXPORT_V1',
+        tableCount: 1,
+        tables: [{ name: 'memories', schema: 'CREATE TABLE memories(id TEXT)', rowCount: 1, rows: [{ id: 'm1' }] }],
+      }),
+      r2_inventory: async () => ({ type: 'MEL_R2_INVENTORY_V1', objectCount: 0, objects: [] }),
+      runtime: async () => ({
+        type: 'MEL_RUNTIME_DESCRIPTOR_V1',
+        appVersion: '0.2.5',
+        dbSchemaVersion: 7,
+        worker: 'meliturgos',
+        deployedGitSha: SHA,
+        deployedGitBranch: BRANCH,
+        runtimeEnvironment: 'production',
+      }),
+    },
+  });
+  await service.create({ id: 'release-recovery-smoke' });
+  const runtimeEnv = env();
+  runtimeEnv.DB = db(snapshot);
+  runtimeEnv.MEDIA_BUCKET = {
+    async get(key) {
+      if (key !== `backups/system/${snapshot.id}.json`) return null;
+      return { async text() { return JSON.stringify(snapshot); } };
+    },
+    async put() {},
+    async delete() {},
+  };
+  return runtimeEnv;
+}
+
+
+function compactEncryptedRecoveryEnv() {
+  const id = 'release-recovery-encrypted-smoke';
+  const metadata = {
+    id,
+    objectKey: `backups/system/${id}.enc.json`,
+    createdAt: '2026-09-27T12:10:00.000Z',
+    integritySha256: 'd'.repeat(64),
+    sourceCount: 3,
+    verified: true,
+    encrypted: true,
+    encryptionSchema: 'MEL_ENCRYPTED_BACKUP_V1',
+    encryptionAlgorithm: 'AES-GCM-256',
+    encryptionKeyId: 'release-smoke-key',
+    restoreVerified: true,
+    restoreCode: 'RESTORE_CANDIDATE_VERIFIED',
+    restoreIntegritySha256: 'd'.repeat(64),
+    restoreDeployedGitSha: SHA,
+    restoreTableCount: 2,
+    restoreRowCount: 3,
+    restoreR2ObjectCount: 1,
+  };
+  const runtimeEnv = env();
+  runtimeEnv.DB = db(null, metadata);
+  runtimeEnv.MEL_BACKUP_ENCRYPTION_KEY_ID = 'release-smoke-key';
+  runtimeEnv.MEL_BACKUP_ENCRYPTION_KEY_B64 = Buffer.alloc(32, 7).toString('base64');
+  const calls = { head:0, get:0 };
+  runtimeEnv.MEDIA_BUCKET = {
+    async head(key) {
+      calls.head += 1;
+      return key === metadata.objectKey ? { key, size:4096 } : null;
+    },
+    async get() {
+      calls.get += 1;
+      throw new Error('FULL_BACKUP_READ_FORBIDDEN_IN_RELEASE_SMOKE');
+    },
+    async put() {},
+    async delete() {},
+  };
+  return { runtimeEnv, calls };
+}
+
 function smokeRequest(path, method = 'GET', init = {}) {
   return new Request('https://mel.test' + path, {
     method,
@@ -94,6 +208,21 @@ function smokeRequest(path, method = 'GET', init = {}) {
     body: init.body,
   });
 }
+
+test('release smoke auth permits only the sanitized connection proof routes added for Pipedream diagnostics', () => {
+  const runtimeEnv = env();
+  for (const [method,path] of [
+    ['GET','/api/gen2/connections/google/status'],
+    ['GET','/api/gen2/connections/pipedream/accounts'],
+    ['POST','/api/gen2/connections/pipedream/test'],
+  ]) {
+    assert.equal(isReleaseSmokeRequest(smokeRequest(path, method), runtimeEnv), true, method+' '+path);
+  }
+  assert.equal(
+    isReleaseSmokeRequest(smokeRequest('/api/gen2/connections/pipedream/save', 'POST'), runtimeEnv),
+    false,
+  );
+});
 
 test('MEL-REL-03 release token verifies self-code through the real Worker route', async () => {
   const response = await worker.fetch(smokeRequest('/api/gen2/code/self-check'), env(), {});
@@ -135,6 +264,15 @@ test('MEL-REL-03 release token verifies Professor and canonical browser runtime 
   assert.match(js, /toggleVoice/);
 });
 
+test('release token can read the sanitized capability inventory used by platform proof', async () => {
+  const response = await worker.fetch(smokeRequest('/api/gen2/capabilities'), env(), {});
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.ok, true);
+  assert.ok(Array.isArray(body.capabilities));
+  assert.equal(body.health_refreshed, false);
+});
+
 test('MEL-REL-03 release token runs only echo then exposes persisted observability metrics', async () => {
   const runtimeEnv = env();
   const echo = await worker.fetch(
@@ -161,7 +299,124 @@ test('MEL-REL-03 release token runs only echo then exposes persisted observabili
   assert.ok(body.dashboard.components.some(row => row.id === 'runtime_observability'));
 });
 
-test('MEL-REL-03 release token cannot use the generic capability route for anything except echo', async () => {
+test('GEN2-48 release token runs the isolated recovery drill but never activates production', async () => {
+  const runtimeEnv = await recoveryEnv();
+  const response = await worker.fetch(
+    smokeRequest('/api/gen2/capabilities/execute', 'POST', {
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ id:'resilience.recovery.drill.latest', input:{ approved:true } }),
+    }),
+    runtimeEnv,
+    {},
+  );
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.ok, true);
+  assert.equal(body.capability, 'resilience.recovery.drill.latest');
+  assert.equal(body.result.ok, true);
+  assert.equal(body.result.state, 'PASSED');
+  assert.equal(body.result.restore_candidate_verified, true);
+  assert.equal(body.result.production_access_used, false);
+  assert.equal(body.result.activation_performed, false);
+  assert.equal(body.result.teardown_completed, true);
+  assert.equal(body.result.reconstructed_tables, 1);
+});
+
+
+test('GEN2-48 release token reuses exact persisted encrypted evidence without reading the full R2 snapshot', async () => {
+  const { runtimeEnv, calls } = compactEncryptedRecoveryEnv();
+  const response = await worker.fetch(
+    smokeRequest('/api/gen2/capabilities/execute', 'POST', {
+      headers: { 'content-type':'application/json' },
+      body: JSON.stringify({ id:'resilience.recovery.drill.latest', input:{ approved:true } }),
+    }),
+    runtimeEnv,
+    {},
+  );
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.ok, true);
+  assert.equal(body.result.state, 'PASSED');
+  assert.equal(body.result.restore_candidate_verified, true);
+  assert.equal(body.result.persisted_evidence_reused, true);
+  assert.equal(body.result.backup_object_present, true);
+  assert.equal(body.result.backup_object_bytes, 4096);
+  assert.equal(body.result.reconstructed_tables, 2);
+  assert.equal(body.result.reconstructed_rows, 3);
+  assert.equal(body.result.deployed_sha, SHA);
+  assert.equal(body.result.production_access_used, false);
+  assert.equal(body.result.activation_performed, false);
+  assert.equal(body.result.teardown_completed, true);
+  assert.equal(calls.head, 1);
+  assert.equal(calls.get, 0);
+});
+
+test('GEN2-37 release token proves high-provenance official web research and rejects broader scope', async () => {
+  const runtimeEnv = env();
+  runtimeEnv.MEL_WEB_MIN_INTERVAL_MS = 0;
+  runtimeEnv.MEL_WEB_FETCH = async url => {
+    assert.equal(String(url), 'https://developers.cloudflare.com/workers/');
+    return new Response('<html><head><title>Cloudflare Workers docs</title><meta name="description" content="Official Cloudflare Workers documentation and platform guidance."></head><body>Workers documentation</body></html>', {
+      status: 200,
+      headers: { 'content-type': 'text/html; charset=utf-8' },
+    });
+  };
+
+  const good = await worker.fetch(
+    smokeRequest('/api/gen2/web/research', 'POST', {
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        query: 'Cloudflare Workers official documentation',
+        maxDepth: 2,
+        seed_urls: ['https://developers.cloudflare.com/workers/'],
+      }),
+    }),
+    runtimeEnv,
+    {},
+  );
+  assert.equal(good.status, 200);
+  const body = await good.json();
+  assert.equal(body.ok, true);
+  assert.equal(body.research.discovery.official_sources_loaded, 1);
+  assert.equal(body.research.quality_summary.bands.HIGH_PROVENANCE, 1);
+  assert.equal(body.research.quality_summary.bands.DISCOVERY_ONLY, 0);
+  assert.equal(body.research.sources[0].source_kind, 'OFFICIAL_SEED');
+  assert.equal(body.research.sources[0].quality.band, 'HIGH_PROVENANCE');
+  assert.ok(body.research.sources[0].quality.score >= 80);
+  assert.ok(body.research.sources[0].provenance.source_id);
+  assert.ok(body.research.sources[0].provenance.fetched_at);
+
+  const denied = await worker.fetch(
+    smokeRequest('/api/gen2/web/research', 'POST', {
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        query: 'anything else',
+        maxDepth: 2,
+        seed_urls: ['https://example.com/'],
+      }),
+    }),
+    runtimeEnv,
+    {},
+  );
+  assert.equal(denied.status, 403);
+  const deniedBody = await denied.json();
+  assert.equal(deniedBody.code, 'RELEASE_SMOKE_RESEARCH_SCOPE_DENIED');
+});
+
+test('GEN2-51 release token proves canonical semantic API metadata', async () => {
+  const response = await worker.fetch(
+    smokeRequest('/api/v1/version', 'GET'),
+    env(),
+    {},
+  );
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get('x-mel-api-version'), 'v1');
+  assert.equal(response.headers.get('x-mel-api-route-status'), 'canonical');
+  const body = await response.json();
+  assert.equal(body.current_version, 'v1');
+});
+
+test('MEL-REL-03 release token cannot use the generic capability route outside the bounded smoke allowlist', async () => {
   const response = await worker.fetch(
     smokeRequest('/api/gen2/capabilities/execute', 'POST', {
       headers: { 'content-type': 'application/json' },
@@ -173,5 +428,77 @@ test('MEL-REL-03 release token cannot use the generic capability route for anyth
   assert.equal(response.status, 403);
   const body = await response.json();
   assert.equal(body.code, 'RELEASE_SMOKE_CAPABILITY_DENIED');
-  assert.deepEqual(body.allowed_capabilities, ['echo']);
+  assert.deepEqual(body.allowed_capabilities, ['echo', 'resilience.recovery.drill.latest', 'memory.export', 'memory.export.verify', 'system.integrity', 'system.maturity', 'timeline.list', 'project.list', 'event.list', 'skill.list', 'work.plan.get', 'work.plan.save', 'work.plan.generate', 'work.plan', 'model.council', 'cloudflare.workers.read', 'cloudflare.deployments.read', 'cloudflare.deployments.create', 'github.actions.workflow.dispatch', 'github.actions.workflow.dispatch.status', 'browser.execute', 'capability.audit', 'capability.audit.status']);
+});
+
+
+test('GEN2-12/13/40 release token can prove only read-only durable state capabilities', async () => {
+  const runtimeEnv = env();
+  for (const id of ['timeline.list','project.list','event.list']) {
+    const response = await worker.fetch(
+      smokeRequest('/api/gen2/capabilities/execute', 'POST', {
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ id, input:{ limit:5 } }),
+      }),
+      runtimeEnv,
+      {},
+    );
+    assert.equal(response.status, 200, id);
+    const body = await response.json();
+    assert.equal(body.ok, true, id);
+    assert.equal(body.capability, id, id);
+    assert.ok(Array.isArray(body.result), id);
+  }
+});
+
+test('MEL-EVOL-05 release token can prove only read-only Skill Registry access', async () => {
+  const response = await worker.fetch(
+    smokeRequest('/api/gen2/capabilities/execute', 'POST', {
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ id:'skill.list', input:{ active_only:true } }),
+    }),
+    env(),
+    {},
+  );
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.ok, true);
+  assert.equal(body.capability, 'skill.list');
+  assert.ok(Array.isArray(body.result));
+});
+
+test('MEL-MEM-03 release token can export and verify memory without opening arbitrary capabilities', async () => {
+  const runtimeEnv = env();
+
+  const exportedResponse = await worker.fetch(
+    smokeRequest('/api/gen2/capabilities/execute', 'POST', {
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ id:'memory.export', input:{} }),
+    }),
+    runtimeEnv,
+    {},
+  );
+  assert.equal(exportedResponse.status, 200);
+  const exportedBody = await exportedResponse.json();
+  assert.equal(exportedBody.ok, true);
+  assert.equal(exportedBody.capability, 'memory.export');
+  assert.equal(exportedBody.result.format, 'meliturgos-memory-export');
+  assert.equal(exportedBody.result.schema_version, '1.0.0');
+  assert.equal(exportedBody.result.manifest.checksum_algorithm, 'SHA-256');
+  assert.match(exportedBody.result.manifest.export_sha256, /^[a-f0-9]{64}$/);
+
+  const verifyResponse = await worker.fetch(
+    smokeRequest('/api/gen2/capabilities/execute', 'POST', {
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ id:'memory.export.verify', input:exportedBody.result }),
+    }),
+    runtimeEnv,
+    {},
+  );
+  assert.equal(verifyResponse.status, 200);
+  const verifyBody = await verifyResponse.json();
+  assert.equal(verifyBody.ok, true);
+  assert.equal(verifyBody.capability, 'memory.export.verify');
+  assert.equal(verifyBody.result.ok, true);
+  assert.deepEqual(verifyBody.result.failures, []);
 });

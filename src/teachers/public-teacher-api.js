@@ -232,6 +232,9 @@ function safeLaunchReadiness(readiness) {
     shardvault: {
       ok: readiness?.shardvault?.ok === true,
       status: readiness?.shardvault?.status || null,
+      paused: readiness?.shardvault?.paused === true,
+      temporary: readiness?.shardvault?.temporary === true,
+      resume_condition: readiness?.shardvault?.resume_condition || null,
       recoverable: readiness?.shardvault?.recoverable === true,
       active_external_count: Number(readiness?.shardvault?.active_external_count || 0),
       external_code_status: readiness?.shardvault?.external_code_status || null,

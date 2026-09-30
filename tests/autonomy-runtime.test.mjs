@@ -1,17 +1,27 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { D1DevJobRepository } from '../src/dev/d1-dev-job-repository.js';
-import { runAutonomyRuntimeTick } from '../src/evolution/autonomy-runtime.js';
+import { runAutonomyRuntimeTick as runAutonomyRuntimeTickRaw, prepareAutonomyTeacherRequest } from '../src/evolution/autonomy-runtime.js';
 import { selectNextAutonomyItem } from '../src/evolution/autonomy-supervisor.js';
+import { completeTeacherCouncil } from './helpers/teacher-review-fixtures.mjs';
 
 process.env.MEL_TEST_VERIFIED_ZERO_COST_PROVIDERS = '1';
 
 const CANDIDATE_HEAD_SHA = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
 const NEW_CANDIDATE_HEAD_SHA = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
 const THIRD_CANDIDATE_HEAD_SHA = 'cccccccccccccccccccccccccccccccccccccccc';
-const FIRST_AUTONOMY_ID = selectNextAutonomyItem()?.id;
-const SECOND_AUTONOMY_ID = selectNextAutonomyItem({ completedIds: [FIRST_AUTONOMY_ID] })?.id;
-const THIRD_AUTONOMY_ID = selectNextAutonomyItem({ completedIds: [FIRST_AUTONOMY_ID, SECOND_AUTONOMY_ID] })?.id;
+const TEST_ROADMAP = Object.freeze([
+  { id: 'TEST-AUTONOMY-01', title: 'Synthetic autonomy item 1', status: 'IN_PROGRESS', next: 'test', priority: 'P0' },
+  { id: 'TEST-AUTONOMY-02', title: 'Synthetic autonomy item 2', status: 'PARTIAL', next: 'test', priority: 'P0' },
+  { id: 'TEST-AUTONOMY-03', title: 'Synthetic autonomy item 3', status: 'PLANNED', next: 'test', priority: 'P0' },
+]);
+const FIRST_AUTONOMY_ID = selectNextAutonomyItem({ roadmap: TEST_ROADMAP })?.id;
+const SECOND_AUTONOMY_ID = selectNextAutonomyItem({ roadmap: TEST_ROADMAP, completedIds: [FIRST_AUTONOMY_ID] })?.id;
+const THIRD_AUTONOMY_ID = selectNextAutonomyItem({ roadmap: TEST_ROADMAP, completedIds: [FIRST_AUTONOMY_ID, SECOND_AUTONOMY_ID] })?.id;
+
+async function runAutonomyRuntimeTick(env, options = {}) {
+  return runAutonomyRuntimeTickRaw(env, { ...options, roadmap: TEST_ROADMAP });
+}
 
 function runtimeFixture() {
   let replies = '';
@@ -27,6 +37,8 @@ function runtimeFixture() {
     if (target.includes('teacher-bridge/replies.jsonl')) return new Response(replies, { status: 200 });
     if (target.includes('teacher-bridge/completions.jsonl')) return new Response(completions, { status: 200 });
     if (target.includes('/commits/candidate%2Fmel-clean-autonomy')) return Response.json({ sha: candidateHead });
+    const exactCommitMatch = target.match(/\/commits\/([0-9a-f]{40})$/i);
+    if (exactCommitMatch) return Response.json({ sha: exactCommitMatch[1].toLowerCase() });
     const ciRunMatch = target.match(/\/actions\/runs\/(\d+)/);
     if (ciRunMatch && ciHeads.has(Number(ciRunMatch[1]))) {
       return Response.json({
@@ -92,6 +104,83 @@ test('cloud autonomy heartbeat creates P0 work, runs live Council, inspects cand
   assert.ok(fixture.aiCalls.length >= aiCallCount + 2, 'the next compatible work item must run its own Council');
   const stillWaiting = await fixture.repository.get(first.job.id);
   assert.equal(stillWaiting.status, 'WAITING_TEACHER', 'the original Teacher request must remain tracked while MEL advances');
+});
+
+test('Teacher inspection stays bound to captured candidate snapshot when branch moves concurrently', async () => {
+  const fixture = runtimeFixture();
+  let headReads = 0;
+  const movingFetch = async (url, options) => {
+    const target = String(url);
+    if (target.includes('/git/ref/heads/candidate/mel-clean-autonomy')) {
+      headReads += 1;
+      return Response.json({ object: { sha: headReads === 1 ? CANDIDATE_HEAD_SHA : NEW_CANDIDATE_HEAD_SHA } });
+    }
+    return fixture.fetchImpl(url, options);
+  };
+
+  const result = await runAutonomyRuntimeTick(fixture.env, {
+    fetchImpl: movingFetch,
+    repository: fixture.repository,
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.job.status, 'WAITING_TEACHER');
+  const stored = await fixture.repository.get(result.job.id);
+  assert.equal(stored.result_json.teacher_bridge.request.candidate.sha, CANDIDATE_HEAD_SHA);
+  assert.equal(stored.result_json.teacher_bridge.request.provenance.candidate_sha, CANDIDATE_HEAD_SHA);
+  assert.ok(
+    fixture.fetchCalls.some((url) => url.includes('?ref=' + CANDIDATE_HEAD_SHA)),
+    'inspection reads must use the immutable captured candidate SHA',
+  );
+});
+
+test('production Teacher inspection follows candidate HEAD when deployed main SHA differs', async () => {
+  const fixture = runtimeFixture();
+  const deployedMainSha = 'dddddddddddddddddddddddddddddddddddddddd';
+  fixture.env.MEL_RUNTIME_ENV = 'production';
+  fixture.env.MEL_DEPLOYED_GIT_BRANCH = 'release/main-dddddddd';
+  fixture.env.MEL_DEPLOYED_GIT_SHA = deployedMainSha;
+
+  const result = await runAutonomyRuntimeTick(fixture.env, {
+    fetchImpl: fixture.fetchImpl,
+    repository: fixture.repository,
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.job.status, 'WAITING_TEACHER');
+  assert.equal(result.teacher.status, 'WAITING_TEACHER');
+  const stored = await fixture.repository.get(result.job.id);
+  assert.equal(stored.result_json.teacher_bridge.request.candidate.sha, CANDIDATE_HEAD_SHA);
+  assert.equal(stored.result_json.teacher_bridge.request.provenance.candidate_sha, CANDIDATE_HEAD_SHA);
+  assert.equal(
+    fixture.fetchCalls.some((url) => url.includes('/commits/' + deployedMainSha)),
+    false,
+    'production candidate inspection must not pin candidate reads to the deployed main SHA',
+  );
+});
+
+test('manual main preview inspects the exact deployed SHA while preserving canonical candidate governance', async () => {
+  const fixture = runtimeFixture();
+  fixture.env.MEL_PREVIEW_ISOLATED = 'true';
+  fixture.env.MEL_RUNTIME_ENV = 'preview';
+  fixture.env.MEL_DEPLOYED_GIT_BRANCH = 'main';
+  fixture.env.MEL_DEPLOYED_GIT_SHA = CANDIDATE_HEAD_SHA;
+
+  const result = await runAutonomyRuntimeTick(fixture.env, {
+    fetchImpl: fixture.fetchImpl,
+    repository: fixture.repository,
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.job.status, 'WAITING_TEACHER');
+  assert.equal(result.teacher.status, 'WAITING_TEACHER');
+  const stored = await fixture.repository.get(result.job.id);
+  assert.equal(stored.result_json.teacher_bridge.request.candidate.branch, 'candidate/mel-clean-autonomy');
+  assert.equal(stored.result_json.teacher_bridge.request.candidate.sha, CANDIDATE_HEAD_SHA);
+  assert.ok(
+    fixture.fetchCalls.some((url) => url.includes(`/commits/${CANDIDATE_HEAD_SHA}`)),
+    'manual main preview must verify the immutable deployed SHA instead of requiring candidate branch HEAD to equal it',
+  );
 });
 
 test('cloud autonomy heartbeat consumes the matching canonical GitHub Teacher reply and resumes the same job', async () => {
@@ -411,4 +500,68 @@ test('cloud autonomy heartbeat rejects divergent canonical and Teacher candidate
     () => runAutonomyRuntimeTick(fixture.env, { fetchImpl: fixture.fetchImpl, repository: fixture.repository }),
     (error) => error?.code === 'AUTONOMY_CANDIDATE_BRANCH_DIVERGENCE',
   );
+});
+
+test('GEN2-42 minimal inspection skips code search and caps file reads before Teacher handoff', async () => {
+  const candidateSha = 'c'.repeat(40);
+  const repo = new D1DevJobRepository(null, { memoryStore: new Map() });
+  const created = await repo.create({
+    id: `minimal-inspection-${crypto.randomUUID()}`,
+    requested_by: 'mel-autonomy',
+    goal: 'Bound GEN2-42 Teacher inspection',
+    optional_context: {
+      roadmap_id: 'GEN2-42',
+      source: 'ecosystem-watch',
+      inspection_paths: [
+        'src/evaluation/capability-watch-runtime.js',
+        'src/evolution/autonomy-runtime-core.js',
+        'src/roadmap/master-roadmap.js',
+        'src/index.js',
+      ],
+    },
+  });
+  const job = await repo.update(created.id, {
+    status: 'COUNCIL_COMPLETE',
+    plan_json: {
+      preflight: {
+        stage: 'AI_STATE_OF_PLAY_COMPLETE',
+        council: completeTeacherCouncil({ targetSha: candidateSha }),
+      },
+    },
+  });
+
+  const calls = [];
+  const fetchImpl = async (url) => {
+    const target = String(url);
+    calls.push(target);
+    if (target.includes('/git/ref/heads/')) return Response.json({ object: { sha: candidateSha } });
+    if (target.includes('/branches/')) return Response.json({ commit: { sha: candidateSha } });
+    if (target.includes('/contents/')) {
+      return Response.json({
+        path: decodeURIComponent(target.split('/contents/')[1].split('?')[0]),
+        sha: 'd'.repeat(40),
+        content: Buffer.from('export const ok = true;').toString('base64'),
+        encoding: 'base64',
+      });
+    }
+    if (target.includes('/search/code')) throw new Error('minimal inspection must not search code');
+    return new Response('not found', { status: 404 });
+  };
+
+  const state = await prepareAutonomyTeacherRequest({
+    env: {
+      MEL_GITHUB_REPOSITORY: 'owner/repo',
+      MEL_GITHUB_BRANCH: 'candidate/mel-clean-autonomy',
+      MEL_TEACHER_BRANCH: 'candidate/mel-clean-autonomy',
+    },
+    repository: repo,
+    job,
+    fetchImpl,
+    minimalInspection: true,
+  });
+
+  assert.equal(state.status, 'WAITING_TEACHER');
+  assert.match(state.request.request_id, /.+/);
+  assert.equal(calls.some(url => url.includes('/search/code')), false);
+  assert.ok(calls.filter(url => url.includes('/contents/')).length <= 3);
 });

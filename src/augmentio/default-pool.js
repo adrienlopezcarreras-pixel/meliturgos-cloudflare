@@ -3,6 +3,7 @@ import { createWorkersAIAdapter } from './workers-ai-adapter.js';
 import { ZERO_EURO_POLICY } from './zero-euro-governor.js';
 import { standardRegistry } from '../models/ModelRegistry.js';
 import { workersAiRuntimeZeroCostProvenance } from './workers-ai-zero-cost-proof.js';
+import { createHttpChatAdapter, parseHttpChatProviderDescriptors } from './http-chat-adapter.js';
 
 function testOnlyVerifiedFreeProvenance({ adapterId, modelId }) {
   // CI/unit tests use mocked providers and make no external billable calls.
@@ -48,6 +49,18 @@ export function createDefaultAugmentioPool(env, { registry = standardRegistry } 
         concurrency: model.concurrency || 2,
       });
     });
+
+  const externalDescriptors = parseHttpChatProviderDescriptors(env);
+  for (const descriptor of externalDescriptors) {
+    try {
+      adapters.push(createHttpChatAdapter({
+        env,
+        ...descriptor,
+      }));
+    } catch {
+      // A malformed optional provider never breaks the core Workers AI pool.
+    }
+  }
 
   return new ProviderPool(adapters);
 }

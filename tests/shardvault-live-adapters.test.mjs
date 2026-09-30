@@ -262,3 +262,15 @@ test('code sync prefers representative proof metadata and timing over legacy reg
   assert.match(autonomous,/REPRESENTATIVE_DEADLINE_EXCEEDED/);
   assert.match(autonomous,/deadline_ms:deadline/);
 });
+
+
+test('active durable code targets can self-qualify through the exact live roundtrip when size proof cache is missing', () => {
+  assert.match(runtime,/activeCodeTargets=await readActiveExternalEndpoints\(env\)/);
+  assert.match(runtime,/uniqueExternalCandidates\(env,activeCodeTargets\)/);
+  assert.match(runtime,/state\.active_roundtrip_fallback_used=true/);
+  assert.match(runtime,/const roundtrip=await downloadFragment\(env,e,d\)/);
+  assert.match(runtime,/CODE_FRAGMENT_ROUNDTRIP_MISMATCH/);
+  assert.match(runtime,/representativeVerifiedAt:new Date\(\)\.toISOString\(\)/);
+  assert.match(runtime,/evidenceVerification:'representative_full_fragment_roundtrip'/);
+  assert.match(runtime,/rememberValidatedExternalEndpoints\(env,\[provenEndpoint\]\)/);
+});

@@ -199,3 +199,49 @@ test('MEL-RES-04 controller activation requires both exact request approval and 
   );
   assert.equal(audits.at(-1).status, 'ACTIVATION_DENIED');
 });
+
+
+test('MEL-RES-04 allows unattended EMERGENCY_MAX activation only with all emergency gates', () => {
+  const allowed = evaluateColdStandby({
+    ...ready,
+    activation: {
+      requested: true,
+      mode: 'EMERGENCY_MAX',
+      max_autonomy: true,
+      emergency: true,
+      target_prevalidated: true,
+      owner_reachable: false,
+    },
+  });
+  assert.equal(allowed.state, COLD_STANDBY_STATE.ACTIVATION_AUTHORIZED);
+  assert.equal(allowed.activation_allowed, true);
+
+  for (const activation of [
+    { requested:true, mode:'EMERGENCY_MAX', max_autonomy:false, emergency:true, target_prevalidated:true, owner_reachable:false },
+    { requested:true, mode:'EMERGENCY_MAX', max_autonomy:true, emergency:false, target_prevalidated:true, owner_reachable:false },
+    { requested:true, mode:'EMERGENCY_MAX', max_autonomy:true, emergency:true, target_prevalidated:false, owner_reachable:false },
+    { requested:true, mode:'EMERGENCY_MAX', max_autonomy:true, emergency:true, target_prevalidated:true, owner_reachable:true },
+  ]) {
+    const denied=evaluateColdStandby({...ready,activation});
+    assert.equal(denied.state,COLD_STANDBY_STATE.DENIED);
+    assert.deepEqual(denied.failures,['EMERGENCY_MAX_GATE_REQUIRED']);
+  }
+});
+
+test('MEL-RES-04 emergency plan advertises automatic activation only for EMERGENCY_MAX', () => {
+  const plan=createColdStandbyPlan({
+    ...ready,
+    activation:{
+      requested:true,
+      mode:'EMERGENCY_MAX',
+      max_autonomy:true,
+      emergency:true,
+      target_prevalidated:true,
+      owner_reachable:false,
+    },
+  });
+  assert.equal(plan.activation_mode,'EMERGENCY_MAX');
+  assert.equal(plan.policy.automatic_activation,true);
+  assert.equal(plan.policy.emergency_autonomous_activation_only,true);
+  assert.equal(plan.policy.owner_halt_always_wins,true);
+});

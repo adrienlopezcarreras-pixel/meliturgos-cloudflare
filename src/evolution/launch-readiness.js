@@ -2,11 +2,15 @@ import { migrate } from '../persistence/migrations.js';
 import { createVerifiedBackupService, verifySnapshot } from '../backup/backup-service.js';
 import {
   createR2D1BackupStorage,
+  createReleaseBackupBinding,
+  readReleaseBackupBinding,
+  DEFAULT_RELEASE_BACKUP_MAX_AGE_MS,
   exportD1SystemState,
   exportR2Inventory,
   runScheduledSystemBackup,
 } from '../backup/system-backup-runtime.js';
 import { verifyRestoreCandidate } from '../backup/restore-service.js';
+import { createEnvBackupEncryptionCodec } from '../backup/encrypted-backup-storage.js';
 import { getShardVaultStatus, syncShardVaultCodeExternally } from '../continuity/shardvault-runtime.js';
 import { D1DevJobRepository } from '../dev/d1-dev-job-repository.js';
 import {
@@ -34,6 +38,16 @@ function runtimeCandidateSha(env = {}) {
 function isPreview(env = {}) {
   return String(env?.MEL_PREVIEW_ISOLATED || '').toLowerCase() === 'true'
     || String(env?.MEL_RUNTIME_ENV || '').toLowerCase() === 'preview';
+}
+
+function shardVaultRoadmapPaused(env = {}) {
+  if (String(env?.MEL_SHARDVAULT_ROADMAP_PAUSED || '').toLowerCase() === 'true') return true;
+  try {
+    return typeof MEL_SHARDVAULT_ROADMAP_PAUSED !== 'undefined'
+      && String(MEL_SHARDVAULT_ROADMAP_PAUSED || '').toLowerCase() === 'true';
+  } catch {
+    return false;
+  }
 }
 
 function roadmapId(job) {
@@ -152,29 +166,128 @@ export async function evaluateRestoreReadiness(env) {
   }
 
   try {
-    const storage = createR2D1BackupStorage({ db: env.DB, bucket: env.MEDIA_BUCKET });
-    const latest = (await storage.list({ limit: 1 }))[0] || null;
-    if (!latest?.id) return { ok: false, status: 'NO_VERIFIED_SYSTEM_BACKUP' };
-    const snapshot = await storage.get(latest.id);
-    const integrity = await verifySnapshot(snapshot);
-    if (!integrity?.ok) return { ok: false, status: 'SYSTEM_BACKUP_INTEGRITY_FAILED', code: integrity?.code || null, snapshot_id: latest.id };
-    const restore = await verifyRestoreCandidate(snapshot);
+    const encryptionKeyId = String(env?.MEL_BACKUP_ENCRYPTION_KEY_ID || '').trim();
+    const encryptionKey = String(env?.MEL_BACKUP_ENCRYPTION_KEY_B64 || '').trim();
+    const encryptionRequested = Boolean(encryptionKeyId || encryptionKey);
+    const encryptionCodec = encryptionRequested ? createEnvBackupEncryptionCodec(env) : null;
+    const storage = createR2D1BackupStorage({ db: env.DB, bucket: env.MEDIA_BUCKET, encryptionCodec });
+    const candidates = await storage.list({ limit: 100 });
+    if (!candidates.length) return { ok: false, status: 'NO_VERIFIED_SYSTEM_BACKUP' };
+
     const deployedSha = runtimeCandidateSha(env);
-    const backupSha = String(restore?.runtime?.deployedGitSha || '').toLowerCase();
-    const shaMatches = Boolean(deployedSha) && backupSha === deployedSha;
-    const ok = restore.ok === true && shaMatches;
+    const proofBound = (row) => {
+      const proofIntegrity = String(row?.restoreIntegritySha256 || '').toLowerCase();
+      const snapshotIntegrity = String(row?.integritySha256 || '').toLowerCase();
+      return Boolean(row?.id)
+        && row?.verified === true
+        && row?.restoreVerified === true
+        && /^[a-f0-9]{64}$/i.test(proofIntegrity)
+        && proofIntegrity === snapshotIntegrity;
+    };
+
+    const exact = candidates.find(row => proofBound(row)
+      && Boolean(deployedSha)
+      && String(row?.restoreDeployedGitSha || '').toLowerCase() === deployedSha) || null;
+
+    let selected = exact;
+    let releaseBinding = null;
+    let releaseBound = false;
+
+    if (!selected && deployedSha) {
+      const binding = await readReleaseBackupBinding(env, deployedSha);
+      if (binding?.ok === true) {
+        const maxAgeRequested = Number(env?.MEL_RELEASE_BACKUP_MAX_AGE_MS ?? DEFAULT_RELEASE_BACKUP_MAX_AGE_MS);
+        const maxAge = Number.isFinite(maxAgeRequested) && maxAgeRequested > 0
+          ? Math.max(15 * 60 * 1000, Math.min(48 * 60 * 60 * 1000, maxAgeRequested))
+          : DEFAULT_RELEASE_BACKUP_MAX_AGE_MS;
+        const nowMs = Date.now();
+        const boundSnapshot = candidates.find(row => proofBound(row)
+          && String(row?.id || '') === String(binding.snapshot_id || '')
+          && String(row?.integritySha256 || '').toLowerCase() === String(binding.snapshot_integrity_sha256 || '').toLowerCase()) || null;
+        const createdMs = Date.parse(boundSnapshot?.createdAt || '');
+        const boundSnapshotSha = String(boundSnapshot?.restoreDeployedGitSha || '').toLowerCase();
+        const bindingSnapshotSha = String(binding?.snapshot_deployed_sha || '').toLowerCase();
+        const ageOk = Boolean(boundSnapshot)
+          && /^[a-f0-9]{40}$/.test(boundSnapshotSha)
+          && bindingSnapshotSha === boundSnapshotSha
+          && Number.isFinite(createdMs)
+          && createdMs <= nowMs
+          && nowMs - createdMs <= maxAge
+          && String(binding.snapshot_created_at || '') === String(boundSnapshot?.createdAt || '');
+
+        if (ageOk) {
+          selected = boundSnapshot;
+          releaseBinding = binding;
+          releaseBound = true;
+        }
+      }
+    }
+
+    const latest = candidates[0] || null;
+    if (!selected) {
+      const latestProofSha = String(latest?.restoreDeployedGitSha || '').toLowerCase();
+      const latestProofBound = proofBound(latest);
+      return {
+        ok: false,
+        status: latestProofBound ? 'SYSTEM_BACKUP_DEPLOYED_SHA_MISMATCH' : 'SYSTEM_BACKUP_RESTORE_PROOF_MISSING',
+        snapshot_id: latest?.id || null,
+        created_at: latest?.createdAt || null,
+        integritySha256: latest?.integritySha256 || null,
+        deployed_sha: deployedSha || null,
+        backup_deployed_sha: latestProofSha || null,
+        snapshot_deployed_sha: latestProofSha || null,
+        sha_matches: false,
+        proof_bound: latestProofBound,
+      };
+    }
+
+    const snapshotProofSha = String(selected.restoreDeployedGitSha || '').toLowerCase();
+    const shaMatches = Boolean(deployedSha)
+      && (snapshotProofSha === deployedSha || (releaseBound && releaseBinding?.deployed_sha === deployedSha));
+    const packageBoundSha = releaseBound ? deployedSha : snapshotProofSha;
+
     return {
-      ok,
-      status: ok
-        ? 'LATEST_SYSTEM_BACKUP_RESTORE_VERIFIED'
-        : (restore.ok === true ? 'SYSTEM_BACKUP_DEPLOYED_SHA_MISMATCH' : 'LATEST_SYSTEM_BACKUP_RESTORE_FAILED'),
-      snapshot_id: latest.id,
-      created_at: latest.createdAt || null,
-      integritySha256: latest.integritySha256 || snapshot?.integritySha256 || null,
+      ok: shaMatches,
+      status: shaMatches
+        ? (releaseBound
+            ? 'RELEASE_BOUND_SYSTEM_BACKUP_RESTORE_PROOF_VERIFIED'
+            : 'LATEST_SYSTEM_BACKUP_RESTORE_PROOF_VERIFIED')
+        : 'SYSTEM_BACKUP_DEPLOYED_SHA_MISMATCH',
+      snapshot_id: selected.id,
+      created_at: selected.createdAt || null,
+      integritySha256: selected.integritySha256 || null,
       deployed_sha: deployedSha || null,
-      backup_deployed_sha: backupSha || null,
+      backup_deployed_sha: packageBoundSha || null,
+      snapshot_deployed_sha: snapshotProofSha || null,
       sha_matches: shaMatches,
-      restore,
+      proof_bound: true,
+      release_binding: releaseBound ? {
+        ok: true,
+        schema: releaseBinding.schema,
+        deployed_sha: releaseBinding.deployed_sha,
+        binding_sha256: releaseBinding.binding_sha256,
+        bound_at: releaseBinding.bound_at,
+      } : null,
+      restore: {
+        ok: true,
+        code: selected.restoreCode || 'RESTORE_CANDIDATE_VERIFIED',
+        snapshot_id: selected.id,
+        integritySha256: selected.restoreIntegritySha256,
+        database: {
+          tableCount: Number(selected.restoreTableCount || 0),
+          rowCount: Number(selected.restoreRowCount || 0),
+        },
+        r2: {
+          objectCount: Number(selected.restoreR2ObjectCount || 0),
+        },
+        runtime: {
+          deployedGitSha: snapshotProofSha || null,
+          releaseBoundGitSha: releaseBound ? deployedSha : null,
+        },
+        proof_source: releaseBound
+          ? 'verified-backup-persist+release-binding'
+          : 'verified-backup-persist',
+      },
     };
   } catch (error) {
     return { ok: false, status: 'RESTORE_READINESS_ERROR', code: String(error?.code || error?.message || error) };
@@ -182,6 +295,22 @@ export async function evaluateRestoreReadiness(env) {
 }
 
 export async function evaluateShardVaultLaunchReadiness(env) {
+  if (shardVaultRoadmapPaused(env)) {
+    return {
+      ok: true,
+      status: 'PAUSED_FOR_ROADMAP',
+      paused: true,
+      enabled: false,
+      recoverable: false,
+      active_external_count: 0,
+      external_code_status: 'PAUSED_FOR_ROADMAP',
+      external_code_endpoints: 0,
+      target_count: 7,
+      temporary: true,
+      resume_condition: 'ROADMAP_COMPLETE',
+    };
+  }
+
   if (isPreview(env)) {
     // The isolated preview workflow executes the destructive/live Internet
     // ShardVault probe after autonomy bootstrap. Do not make that probe depend
@@ -315,11 +444,24 @@ export function summarizeAutonomyLaunchCodeSync(value) {
     endpoints: Array.isArray(external?.endpoints) ? external.endpoints.slice(0, 14) : [],
     successful_endpoints: Array.isArray(external?.successful_endpoints) ? external.successful_endpoints.slice(0, 14) : [],
     attempted_endpoints: Array.isArray(external?.attempted_endpoints) ? external.attempted_endpoints.slice(0, 28) : [],
+    completed_shards: Number(external?.completed_shards ?? external?.progress?.completed ?? 0),
+    pending_shards: Number(external?.pending_shards ?? 0),
+    progress: {
+      completed: Number(external?.progress?.completed ?? external?.completed_shards ?? 0),
+      target: Number(external?.progress?.target ?? external?.target_count ?? value?.target_count ?? 7),
+    },
+    reason: external?.reason || null,
+    next_retry_at: external?.next_retry_at || null,
+    code_pool_exhaustions: Number(external?.code_pool_exhaustions || 0),
+    code_pool_refreshes: Number(external?.code_pool_refreshes || 0),
     failures: Array.isArray(external?.failures)
       ? external.failures.slice(0, 24).map(row => ({
           shard_index: Number(row?.shard_index),
           endpoint_id: row?.endpoint_id || null,
           error: String(row?.error || '').slice(0, 160),
+          retryable: row?.retryable === true,
+          permanent: row?.permanent === true,
+          retry_after_at: row?.retry_after_at || null,
         }))
       : [],
     verified_roundtrip: external?.verified_roundtrip === true,
@@ -330,7 +472,44 @@ export function summarizeAutonomyLaunchCodeSync(value) {
 export async function prepareAutonomyLaunchBackup(env) {
   if (isPreview(env)) return { ok: true, status: 'SKIPPED_PREVIEW' };
   try {
-    const backup = await runScheduledSystemBackup(env, { intervalMs: 15 * 60 * 1000, force: true });
+    const existing = await evaluateRestoreReadiness(env);
+    if (existing?.ok === true) {
+      return {
+        ok: true,
+        status: existing.status === 'RELEASE_BOUND_SYSTEM_BACKUP_RESTORE_PROOF_VERIFIED'
+          ? 'REUSED_RELEASE_BOUND_VERIFIED_BACKUP'
+          : 'REUSED_VERIFIED_SHA_BOUND_BACKUP',
+        id: existing.snapshot_id || null,
+        integritySha256: existing.integritySha256 || null,
+        deployedSha: existing.backup_deployed_sha || null,
+      };
+    }
+
+    const binding = await createReleaseBackupBinding(env);
+    if (binding?.ok === true) {
+      const rebound = await evaluateRestoreReadiness(env);
+      if (rebound?.ok === true) {
+        return {
+          ok: true,
+          status: 'RELEASE_BOUND_VERIFIED_BACKUP',
+          id: rebound.snapshot_id || binding.snapshot_id || null,
+          integritySha256: rebound.integritySha256 || binding.snapshot_integrity_sha256 || null,
+          deployedSha: rebound.backup_deployed_sha || binding.deployed_sha || null,
+          snapshotDeployedSha: rebound.snapshot_deployed_sha || binding.snapshot_deployed_sha || null,
+          bindingSha256: binding.binding_sha256 || null,
+        };
+      }
+    }
+
+    // If no recent verified snapshot exists, retain the original fail-closed
+    // full-backup path. Small deployments can still create a fresh snapshot;
+    // large deployments will remain NO_GO until the scheduled maintenance
+    // backup produces one.
+    const backup = await runScheduledSystemBackup(env, {
+      intervalMs: 15 * 60 * 1000,
+      force: true,
+      compactPostPersistVerify: true,
+    });
     return {
       ok: backup?.ok === true,
       status: backup?.status || 'BACKUP_PREPARED',
@@ -349,6 +528,22 @@ export async function prepareAutonomyLaunchBackup(env) {
 }
 
 export async function prepareAutonomyLaunchCodeSync(env) {
+  if (shardVaultRoadmapPaused(env)) {
+    return {
+      ok: true,
+      complete: true,
+      status: 'PAUSED_FOR_ROADMAP',
+      code_sync: {
+        ok: true,
+        complete: true,
+        paused: true,
+        status: 'PAUSED_FOR_ROADMAP',
+        target_count: 7,
+        endpoints: [],
+        successful_endpoints: [],
+      },
+    };
+  }
   if (isPreview(env)) return { ok: true, complete: true, status: 'SKIPPED_PREVIEW', code_sync: null };
   try {
     const raw = await syncShardVaultCodeExternally(env);
@@ -373,6 +568,24 @@ export async function prepareAutonomyLaunchCodeSync(env) {
 export async function prepareAutonomyLaunch(env, {
   repository = null,
 } = {}) {
+  const existingReadiness = await getAutonomyLaunchReadiness(env, { repository });
+  if (existingReadiness?.launch_ready === true) {
+    return {
+      ok: true,
+      status: 'LAUNCH_EVIDENCE_REUSED',
+      backup: {
+        ok: true,
+        status: 'REUSED_VERIFIED_SHA_BOUND_BACKUP',
+        id: existingReadiness?.restore?.snapshot_id || null,
+        integritySha256: existingReadiness?.restore?.integritySha256 || null,
+      },
+      code_sync: existingReadiness?.shardvault?.status === 'PAUSED_FOR_ROADMAP'
+        ? { ok: true, complete: true, paused: true, status: 'PAUSED_FOR_ROADMAP', target_count: 7, endpoints: [], successful_endpoints: [] }
+        : null,
+      readiness: existingReadiness,
+    };
+  }
+
   const backup = await prepareAutonomyLaunchBackup(env);
   if (backup?.ok !== true) {
     return {

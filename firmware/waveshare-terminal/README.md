@@ -17,3 +17,8 @@ Le démarrage matériel doit rester prioritaire : un périphérique optionnel in
 ## Validation physique connue
 
 La carte réelle a validé le démarrage ESP-IDF 5.4.2, l'écran/tactile, l'AXP2101, l'ES8311, le Wi-Fi 2,4 GHz et une capture OV5640 320x480. Le chemin réel du bouton tactile MEL a été injecté 24 fois via `LV_EVENT_CLICKED`, avec ouverture/fermeture complète de la vue d’appairage à chaque cycle. La carte réelle a terminé `UI STRESS PASS` sans watchdog ni redémarrage, avec ~8,10 Mo de heap libre. Ces preuves doivent être reconfirmées sur tout firmware candidat final avant publication.
+
+
+## Stockage média interne
+
+À partir de MINI 0.4.16, les ressources téléchargées et les cartes multimédias rendues sont enregistrées dans la partition FAT interne `storage`, montée sur `/melstore` avec wear levelling. Le démarrage exécute un auto-test lecture/écriture et publie l’état ainsi que l’espace libre dans le heartbeat. Cette fonction ne dépend pas d’une carte microSD.

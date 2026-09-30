@@ -16,7 +16,14 @@ function request(audio=new Blob(['audio'],{type:'audio/webm'})){
 test('canonical voice transcription uses one authenticated Workers AI route', async()=>{
   const response=await handleVoiceTranscription(request(),{
     MELITURGOS_USER:'adrien',MELITURGOS_PASSWORD:'test',
-    AI:{async run(model){assert.equal(model,'@cf/openai/whisper-large-v3-turbo');return{text:'bonjour depuis le micro'}}}
+    AI:{async run(model,input){
+      assert.equal(model,'@cf/openai/whisper-large-v3-turbo');
+      assert.equal(typeof input.audio,'string');
+      assert.ok(input.audio.length>0);
+      assert.equal(input.task,'transcribe');
+      assert.equal(input.language,'fr');
+      return{transcription_info:{text:'bonjour depuis le micro'}};
+    }}
   });
   assert.equal(response.status,200);
   assert.deepEqual(await response.json(),{ok:true,text:'bonjour depuis le micro',language:'fr',model:'@cf/openai/whisper-large-v3-turbo',stored:false,archive_via:'chat',input_source:'voice-server-transcription'});

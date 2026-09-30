@@ -36,12 +36,13 @@ import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
+import java.io.InputStream
 import java.net.HttpURLConnection
 import java.net.InetAddress
 import java.net.URL
+import java.util.TimeZone
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
-import java.util.TimeZone
 import java.util.UUID
 import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.ConcurrentHashMap
@@ -79,6 +80,9 @@ class MelBleBridgeService : Service() {
 
         const val ACTION_RESTART = "fr.veriteinterdite.mel.action.RESTART_MINI_BRIDGE"
         val bridgeState = MutableStateFlow("OFF")
+        val miniLinkReady = MutableStateFlow(false)
+        val internetReady = MutableStateFlow(false)
+        val miniPairingComplete = MutableStateFlow(false)
         val wakeProfileRevision = MutableStateFlow(0)
     }
 
@@ -116,6 +120,10 @@ class MelBleBridgeService : Service() {
         wakeLock = getSystemService(PowerManager::class.java)
             ?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "MEL:BleBridge")
             ?.apply { acquire() }
+        miniLinkReady.value = false
+        internetReady.value = false
+        miniPairingComplete.value = getSharedPreferences("mel_mobile_bridge", MODE_PRIVATE)
+            .getBoolean("mini_pairing_complete", false)
         bridgeState.value = "D├ëMARRAGE"
         startForeground(
             NOTIFICATION_ID,
@@ -132,6 +140,8 @@ class MelBleBridgeService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_RESTART) {
+            miniLinkReady.value = false
+            internetReady.value = false
             bridgeState.value = "RECONNEXION MINI…"
             stopAdvertising()
             runCatching { gattServer?.close() }
@@ -155,12 +165,24 @@ class MelBleBridgeService : Service() {
         stopAdvertising()
         runCatching { gattServer?.close() }
         gattServer = null
+        miniLinkReady.value = false
+        internetReady.value = false
         bridgeState.value = "OFF"
         if (wakeLock?.isHeld == true) wakeLock?.release()
         wakeLock = null
         executor.shutdownNow()
         diagExecutor.shutdownNow()
         super.onDestroy()
+    }
+
+    private fun rememberMiniPairingComplete() {
+        if (miniPairingComplete.value) return
+        miniPairingComplete.value = true
+        getSharedPreferences("mel_mobile_bridge", MODE_PRIVATE)
+            .edit()
+            .putBoolean("mini_pairing_complete", true)
+            .apply()
+        Log.i(TAG, "MINI pairing persisted; future reconnects are automatic")
     }
 
     private fun hasBluetoothPermissions(): Boolean {
@@ -296,12 +318,16 @@ class MelBleBridgeService : Service() {
             if (newState == BluetoothGatt.STATE_CONNECTED) {
                 connectedAtMs[device.address] = System.currentTimeMillis()
                 subscribed[device.address] = false
+                miniLinkReady.value = false
+                internetReady.value = false
                 bridgeState.value = "MINI LI├ëE ┬À INITIALISATION CANAL"
                 publishBleDiagnostic(status, newState, null)
             } else {
                 val started = connectedAtMs.remove(device.address)
                 val duration = started?.let { System.currentTimeMillis() - it }
                 publishBleDiagnostic(status, newState, duration)
+                miniLinkReady.value = false
+                internetReady.value = false
                 bridgeState.value = if (adapter?.isEnabled == true) "PR├èT" else "BLUETOOTH OFF"
                 requests.remove(device.address)
                 mtus.remove(device.address)
@@ -340,9 +366,13 @@ class MelBleBridgeService : Service() {
                 descriptor.value = value.copyOf()
                 val enabled = value.contentEquals(BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE)
                 subscribed[device.address] = enabled
+                miniLinkReady.value = enabled
+                if (!enabled) internetReady.value = false
                 if (enabled) {
                     bridgeState.value = "MINI CONNECT├ëE ┬À RELAIS PR├èT"
                     Log.i(TAG, "MINI BLE response channel ready ${device.address}")
+                } else {
+                    bridgeState.value = "MINI LI├ëE ┬À CANAL INACTIF"
                 }
             }
         }
@@ -471,6 +501,133 @@ class MelBleBridgeService : Service() {
         executor.execute { relay(device, request) }
     }
 
+    private fun readFully(input: InputStream, target: ByteArray, length: Int = target.size): Boolean {
+        var offset = 0
+        while (offset < length) {
+            val count = input.read(target, offset, length - offset)
+            if (count < 0) return false
+            if (count == 0) continue
+            offset += count
+        }
+        return true
+    }
+
+    private fun le16(bytes: ByteArray, offset: Int): Int =
+        (bytes[offset].toInt() and 0xff) or ((bytes[offset + 1].toInt() and 0xff) shl 8)
+
+    private fun le32(bytes: ByteArray, offset: Int): Long =
+        (bytes[offset].toLong() and 0xffL) or
+            ((bytes[offset + 1].toLong() and 0xffL) shl 8) or
+            ((bytes[offset + 2].toLong() and 0xffL) shl 16) or
+            ((bytes[offset + 3].toLong() and 0xffL) shl 24)
+
+    private fun skipFully(input: InputStream, count: Long): Boolean {
+        var remaining = count
+        val scratch = ByteArray(256)
+        while (remaining > 0) {
+            val take = minOf(scratch.size.toLong(), remaining).toInt()
+            val n = input.read(scratch, 0, take)
+            if (n < 0) return false
+            if (n == 0) continue
+            remaining -= n
+        }
+        return true
+    }
+
+    private fun readWav48kPcmDataSize(input: InputStream): Long? {
+        val riff = ByteArray(12)
+        if (!readFully(input, riff)) return null
+        if (!riff.copyOfRange(0, 4).contentEquals("RIFF".toByteArray()) ||
+            !riff.copyOfRange(8, 12).contentEquals("WAVE".toByteArray())) return null
+
+        var haveFmt = false
+        repeat(12) {
+            val header = ByteArray(8)
+            if (!readFully(input, header)) return null
+            val size = le32(header, 4)
+            val id = header.copyOfRange(0, 4).toString(Charsets.US_ASCII)
+            val padded = (size and 1L) != 0L
+
+            if (id == "fmt ") {
+                if (size < 16L || size > 64L) return null
+                val fmt = ByteArray(size.toInt())
+                if (!readFully(input, fmt)) return null
+                if (padded && !skipFully(input, 1)) return null
+                val format = le16(fmt, 0)
+                val channels = le16(fmt, 2)
+                val rate = le32(fmt, 4)
+                val bits = le16(fmt, 14)
+                if (format != 1 || channels != 1 || rate != 48000L || bits != 16) return null
+                haveFmt = true
+            } else if (id == "data") {
+                if (!haveFmt || size <= 0L || padded || size > 48000L * 2L * 180L) return null
+                return size
+            } else {
+                if (size > 4096L || !skipFully(input, size + if (padded) 1L else 0L)) return null
+            }
+        }
+        return null
+    }
+
+    private fun relayTtsWav48kTo16k(
+        device: BluetoothDevice,
+        requestId: Int,
+        status: Int,
+        input: InputStream
+    ): Boolean {
+        val dataBytes = readWav48kPcmDataSize(input) ?: return false
+        val samples48k = dataBytes / 2L
+        val samples16k = (samples48k + 2L) / 3L
+        val outputBytes = samples16k * 2L
+        val meta = JSONObject()
+            .put("status", status)
+            .put("contentType", "application/octet-stream")
+            .put("length", outputBytes)
+            .put("audioFormat", "pcm-s16le")
+            .put("audioRate", 16000)
+            .put("audioChannels", 1)
+        if (!sendJsonFrame(device, OP_RESPONSE_BEGIN, requestId, meta)) return false
+
+        val mtu = mtus[device.address] ?: 247
+        val maxPayload = (mtu - 8).coerceIn(12, 500)
+        val inputBuffer = ByteArray(maxPayload * 3)
+        val outputBuffer = ByteArray(maxPayload)
+        var remaining = dataBytes
+        var pendingLow: Byte? = null
+        var samplePhase = 0
+
+        while (remaining > 0) {
+            val want = minOf(inputBuffer.size.toLong(), remaining).toInt()
+            val count = input.read(inputBuffer, 0, want)
+            if (count < 0) return false
+            if (count == 0) continue
+            remaining -= count
+
+            var src = 0
+            var dst = 0
+            if (pendingLow != null) {
+                if (samplePhase == 0 && dst + 2 <= outputBuffer.size) {
+                    outputBuffer[dst++] = pendingLow!!
+                    outputBuffer[dst++] = inputBuffer[0]
+                }
+                samplePhase = (samplePhase + 1) % 3
+                pendingLow = null
+                src = 1
+            }
+            while (src + 1 < count) {
+                if (samplePhase == 0 && dst + 2 <= outputBuffer.size) {
+                    outputBuffer[dst++] = inputBuffer[src]
+                    outputBuffer[dst++] = inputBuffer[src + 1]
+                }
+                samplePhase = (samplePhase + 1) % 3
+                src += 2
+            }
+            if (src < count) pendingLow = inputBuffer[src]
+            if (dst > 0 && !sendFrame(device, packet(OP_RESPONSE_BODY, requestId, outputBuffer.copyOf(dst)))) return false
+        }
+        return pendingLow == null
+    }
+
     private fun relay(device: BluetoothDevice, request: PendingRequest) {
         // The MINI uses /manifest only as its first authenticated liveness check.
         // Serving this tiny manifest locally avoids blocking the BLE link on the
@@ -551,33 +708,9 @@ class MelBleBridgeService : Service() {
             return
         }
 
-        if (request.method == "GET" && request.path == "/api/device/v1/manifest") {
-            val nowMs = System.currentTimeMillis()
-            val zone = TimeZone.getDefault()
-            val body = JSONObject()
-                .put("ok", true)
-                .put("device_id", request.deviceId)
-                .put("protocol_version", "1.0")
-                .put("bridge", "android")
-                .put("bridge_version", BuildConfig.VERSION_NAME)
-                .put("epoch_ms", nowMs)
-                .put("utc_offset_seconds", zone.getOffset(nowMs) / 1000)
-                .put("timezone", zone.id)
-                .put("firmware", JSONObject().put("available", false))
-                .toString()
-                .toByteArray(Charsets.UTF_8)
-            bridgeState.value = "MINI CONNECTÉE · INTERNET OK"
-            Log.i(TAG, "MEL relay local manifest -> 200")
-            val meta = JSONObject()
-                .put("status", 200)
-                .put("contentType", "application/json")
-                .put("length", body.size)
-            if (!sendJsonFrame(device, OP_RESPONSE_BEGIN, request.id, meta)) return
-            if (!sendBodyFrames(device, request.id, body)) return
-            sendFrame(device, packet(OP_RESPONSE_END, request.id, byteArrayOf()))
-            return
-        }
-
+        // Manifest requests must reach the real MEL backend. BLE connectivity alone
+        // is not proof of Internet access; returning a local 200 here made MINI
+        // believe it was online even when the phone could not reach MEL.
         val connection = runCatching {
             val url = URL(BuildConfig.MEL_BASE_URL.trimEnd('/') + request.path)
             (url.openConnection() as HttpURLConnection).apply {
@@ -604,6 +737,7 @@ class MelBleBridgeService : Service() {
                 }
             }
         }.getOrElse {
+            internetReady.value = false
             bridgeState.value = "MINI CONNECT├ëE ┬À INTERNET ERREUR"
             Log.e(TAG, "MEL relay open failed ${request.method} ${request.path}", it)
             sendError(device, request.id, "NETWORK_OPEN")
@@ -612,73 +746,54 @@ class MelBleBridgeService : Service() {
 
         try {
             val status = connection.responseCode
-            bridgeState.value = "MINI CONNECT├ëE ┬À INTERNET OK"
+            val success = status in 200..299
+            if (success && (
+                    request.path == "/api/device/v1/pair" ||
+                    (request.path.startsWith("/api/device/v1/") && request.token.isNotEmpty())
+                )
+            ) {
+                rememberMiniPairingComplete()
+            }
+            internetReady.value = miniLinkReady.value && success
+            bridgeState.value = if (internetReady.value) "MINI CONNECTÉE · INTERNET OK" else "MINI CONNECTÉE · MEL HTTP $status"
             Log.i(TAG, "MEL relay HTTP ${request.method} ${request.path} -> $status")
             val contentType = connection.contentType ?: "application/octet-stream"
-            val rawContentLength = connection.contentLengthLong.coerceAtLeast(-1L)
+            val stream = if (status in 200..299) connection.inputStream else connection.errorStream
             val downsampleTts = status in 200..299 && request.path == "/api/device/v1/voice/tts"
-            val contentLength = if (downsampleTts && rawContentLength >= 0L) rawContentLength / 3L else rawContentLength
+
+            if (downsampleTts && stream != null) {
+                val ok = stream.use { input -> relayTtsWav48kTo16k(device, request.id, status, input) }
+                if (!ok) {
+                    Log.e(TAG, "MEL relay TTS WAV parse/downsample failed")
+                    sendError(device, request.id, "TTS_WAV")
+                    return
+                }
+                sendFrame(device, packet(OP_RESPONSE_END, request.id, byteArrayOf()))
+                return
+            }
+
+            val rawContentLength = connection.contentLengthLong.coerceAtLeast(-1L)
             val meta = JSONObject()
                 .put("status", status)
                 .put("contentType", contentType)
-                .put("length", contentLength)
-            if (downsampleTts) {
-                meta.put("audioFormat", "pcm-s16le")
-                meta.put("audioRate", 16000)
-                meta.put("audioChannels", 1)
-            }
+                .put("length", rawContentLength)
             if (!sendJsonFrame(device, OP_RESPONSE_BEGIN, request.id, meta)) return
-            val stream = if (status in 200..299) connection.inputStream else connection.errorStream
             if (stream != null) {
                 stream.use { input ->
                     val mtu = mtus[device.address] ?: 247
                     val maxPayload = (mtu - 8).coerceIn(12, 500)
-                    if (downsampleTts) {
-                        // Server TTS is PCM S16LE mono 48 kHz. Reduce to 16 kHz for BLE.
-                        // MINI upsamples x3 before feeding its 48 kHz codec.
-                        val inputBuffer = ByteArray(maxPayload * 3)
-                        val outputBuffer = ByteArray(maxPayload)
-                        var pendingLowByte: Byte? = null
-                        var samplePhase = 0
-                        while (true) {
-                            val count = input.read(inputBuffer)
-                            if (count < 0) break
-                            if (count == 0) continue
-                            var src = 0
-                            var dst = 0
-                            if (pendingLowByte != null && count > 0) {
-                                if (samplePhase == 0 && dst + 2 <= outputBuffer.size) {
-                                    outputBuffer[dst++] = pendingLowByte!!
-                                    outputBuffer[dst++] = inputBuffer[0]
-                                }
-                                samplePhase = (samplePhase + 1) % 3
-                                pendingLowByte = null
-                                src = 1
-                            }
-                            while (src + 1 < count) {
-                                if (samplePhase == 0 && dst + 2 <= outputBuffer.size) {
-                                    outputBuffer[dst++] = inputBuffer[src]
-                                    outputBuffer[dst++] = inputBuffer[src + 1]
-                                }
-                                samplePhase = (samplePhase + 1) % 3
-                                src += 2
-                            }
-                            if (src < count) pendingLowByte = inputBuffer[src]
-                            if (dst > 0 && !sendFrame(device, packet(OP_RESPONSE_BODY, request.id, outputBuffer.copyOf(dst)))) return
-                        }
-                    } else {
-                        val buffer = ByteArray(maxPayload)
-                        while (true) {
-                            val count = input.read(buffer)
-                            if (count < 0) break
-                            if (count == 0) continue
-                            if (!sendFrame(device, packet(OP_RESPONSE_BODY, request.id, buffer.copyOf(count)))) return
-                        }
+                    val buffer = ByteArray(maxPayload)
+                    while (true) {
+                        val count = input.read(buffer)
+                        if (count < 0) break
+                        if (count == 0) continue
+                        if (!sendFrame(device, packet(OP_RESPONSE_BODY, request.id, buffer.copyOf(count)))) return
                     }
                 }
             }
             sendFrame(device, packet(OP_RESPONSE_END, request.id, byteArrayOf()))
         } catch (error: Throwable) {
+            internetReady.value = false
             bridgeState.value = "MINI CONNECT├ëE ┬À INTERNET ERREUR"
             Log.e(TAG, "Relay failed ${request.method} ${request.path}", error)
             sendError(device, request.id, "NETWORK_READ")

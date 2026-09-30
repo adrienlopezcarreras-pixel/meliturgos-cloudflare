@@ -117,6 +117,27 @@ Cette leçon est matérialisée dans `src/learning/runtime-operating-experience.
 Preuves principales : commits `04f6f5b`, `162914d`, `f464c50`, `01937da`, `4c213f4`, `f5f294b`, `77ddbfa`, `6c5d917`, `fe8ba9c`; runs `35691866943`, `35693911802`, `35705522236`, `35708004479`.
 
 
+## Expérience 2026-09-26 — OAuth multi-fournisseurs
+
+- `oauth-authorization-only-scopes-20260926` — séparer les scopes métier exigibles des scopes demandés uniquement pendant l’autorisation (ex. `offline_access`, `openid`) afin de rester fail-closed sans rejeter à tort un token valide.
+
+
+
+## Expériences 2026-09-27 — promotion, branches et release
+
+- `bootstrap-divergent-candidate-targeted-promotion-20260927` — quand une candidate historique est fortement divergente, reconstruire le lot validé sur une branche fraîche depuis le `main` courant au lieu de fusionner/forcer tout l’historique.
+- `bootstrap-preserve-newer-main-hardening-20260927` — sur les fichiers partagés, préserver les durcissements plus récents de `main` et ne réappliquer que le delta réellement manquant du lot.
+- `bootstrap-active-pr-branch-unicity-20260927` — définir les branches actives par les PR réellement ouvertes, fermer les branches/PR supersédées et conserver des exceptions de lab strictement bornées.
+- `bootstrap-deploy-success-vs-postproof-failure-20260927` — distinguer l’étape de mutation production réussie d’une preuve post-déploiement incomplète ; annoncer séparément ces deux vérités.
+- `bootstrap-shardvault-explicit-pause-release-respect-20260927` — propager et respecter `PAUSED_FOR_ROADMAP` sans réactivation implicite, tout en maintenant les autres preuves de résilience indépendantes.
+
+- `bootstrap-release-proof-persisted-evidence-cpu-budget-20260927` — réutiliser une preuve persistée SHA/intégrité/restauration pour les gates bornés au lieu de répéter une vérification R2 lourde qui dépasse le budget Worker.
+- `bootstrap-retryable-handoff-release-semantics-20260927` — conserver les FAILED retryable dans l historique/diagnostic sans les compter comme blockers actifs, tout en gardant les vrais états non prouvés fail-closed.
+- `bootstrap-weekly-development-state-20260927` — charger un bilan technique daté multi-pages du 21–27 septembre et imposer une relecture de main/roadmap/runs avant toute affirmation d état actuel.
+
+Preuves principales : PR `#566`, SHA production `c8e65fe1dc8e5cd0e4bf1a80e001195d4164dab3`, runs `36302234698`, `36301800118` et `36302365325`.
+
+
 ## Règle de déduplication
 
 Avant d’ajouter une XP, comparer son comportement `after` avec cet index et le corpus. Une différence de vocabulaire ne justifie pas une nouvelle leçon si la préférence comportementale est déjà couverte.
@@ -125,6 +146,21 @@ Avant d’ajouter une XP, comparer son comportement `after` avec cet index et le
 
 Le corpus couvre : architecture, coûts, sécurité, contexte/intention, tests, CI, diagnostics, contrats Teacher, mémoire d’apprentissage, Benchmark/LoRA, auto-évolution, détection de gaps, multi-agent/multi-IA, roadmap, reprise, déploiement, canary/rollback, capacités réelles, providers, Dev Bridge, observabilité, UI partagée, gouvernance de preuve, readiness zéro-euro runtime, checkpoint XP systématique et ingénierie de protocoles matériels versionnés.
 
-Total bootstrap statique actuel : **72 leçons canoniques réparties entre historique, pack développement, réconciliation et LoRA**, auxquelles s’ajoute le corpus Expert PLUS de **10 000 cycles de guidance**.
+Total bootstrap statique actuel : **84 leçons canoniques réparties entre historique, pack développement, réconciliation et LoRA**, auxquelles s’ajoute le corpus Expert PLUS de **10 000 cycles de guidance**.
 
 Le nombre de leçons canoniques **n’a pas de plafond fonctionnel** : 50 reste uniquement le seuil minimal de readiness LoRA. Toute nouvelle leçon validée et dédupliquée s’ajoute au corpus complet ; les fenêtres de contexte runtime peuvent rester bornées pour la performance sans supprimer ni exclure les leçons stockées.
+
+
+## Expériences toutes-pages — semaine du 21 au 27 septembre 2026
+
+- `bootstrap-editorial-master-source-preservation-20260927` — source maître immuable; préserver header/footer déjà validés; corriger seulement la zone fautive.
+- `bootstrap-editorial-page-gated-validation-20260927` — une page à la fois; audit indépendant; FAIL reste sur la même page; PASS avant la suivante.
+- `bootstrap-editorial-authentic-media-provenance-20260927` — provenance réelle, pas de doublons silencieux, reality/historical check, reconstitution explicitement identifiée.
+- `bootstrap-longform-canonical-state-machine-20260927` — corpus canonique et états explicites jusqu à CLOSED_VERIFIED; réallocation après clôture.
+- `bootstrap-longform-provenance-uncertainty-separation-20260927` — densifier sans invention; distinguer fait, interprétation et hypothèse; auditer provenance/doublons.
+- `bootstrap-automation-slot-reallocation-canonical-state-20260927` — runs manuels/automatiques unifiés; slots réaffectés sans réinitialiser la vérité des projets.
+
+Chronologie technique et éditoriale datée : `.agents/WEEKLY_HANDOFF_20260927.md`.
+
+- `bootstrap-encrypted-backup-consumer-codec-parity-20260927` — un recovery drill ou autre consommateur d un backup chiffré doit résoudre le même codec canonique; config partielle fail-closed.
+- `bootstrap-release-bound-recovery-drill-20260927` — un snapshot historique ne vaut pour une release plus récente que via un binding exact vérifié; le snapshot lié doit être retrouvé par identifiant exact, pas seulement dans une fenêtre récente; tout mismatch SHA/snapshot/intégrité reste fail-closed.

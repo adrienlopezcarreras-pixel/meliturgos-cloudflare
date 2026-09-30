@@ -58,9 +58,28 @@ function uniquePaths(proposal) {
 
 async function inspectSources(env, proposal, { fetchImpl = fetch } = {}) {
   const { repository, branch } = codeConfig(env, proposal);
-  const reader = createGitHubCodeReader({ repository, branch, token: String(env?.MEL_GITHUB_TOKEN || ''), fetchImpl });
-  const headBefore = await reader.head();
-  if (!SHA40.test(String(headBefore?.sha || '')) || String(headBefore.sha).toLowerCase() !== String(proposal.candidate_sha).toLowerCase()) {
+  const approvedSha = String(proposal.candidate_sha || '').toLowerCase();
+  const reader = createGitHubCodeReader({
+    repository,
+    branch,
+    token: String(env?.MEL_GITHUB_TOKEN || ''),
+    pinnedSha: approvedSha,
+    fetchImpl,
+  });
+  let headBefore;
+  try {
+    headBefore = await reader.head();
+  } catch (error) {
+    if (error?.code === 'CODE_HEAD_PIN_MISMATCH') {
+      throw Object.assign(new Error('BRIDGE_PREPARATION_CANDIDATE_STALE'), {
+        code: 'BRIDGE_PREPARATION_CANDIDATE_STALE',
+        expected_sha: approvedSha,
+        observed_sha: String(error?.observed_sha || '').toLowerCase() || null,
+      });
+    }
+    throw error;
+  }
+  if (!SHA40.test(String(headBefore?.sha || '')) || String(headBefore.sha).toLowerCase() !== approvedSha) {
     throw Object.assign(new Error('BRIDGE_PREPARATION_CANDIDATE_STALE'), { code: 'BRIDGE_PREPARATION_CANDIDATE_STALE' });
   }
 
@@ -73,7 +92,19 @@ async function inspectSources(env, proposal, { fetchImpl = fetch } = {}) {
   }
   if (!files.length) throw Object.assign(new Error('BRIDGE_PREPARATION_SOURCE_REQUIRED'), { code: 'BRIDGE_PREPARATION_SOURCE_REQUIRED' });
 
-  const headAfter = await reader.head();
+  let headAfter;
+  try {
+    headAfter = await reader.head();
+  } catch (error) {
+    if (error?.code === 'CODE_HEAD_PIN_MISMATCH') {
+      throw Object.assign(new Error('CANDIDATE_HEAD_CHANGED_DURING_INSPECTION'), {
+        code: 'CANDIDATE_HEAD_CHANGED_DURING_INSPECTION',
+        expected_sha: approvedSha,
+        observed_sha: String(error?.observed_sha || '').toLowerCase() || null,
+      });
+    }
+    throw error;
+  }
   if (String(headAfter?.sha || '').toLowerCase() !== String(headBefore.sha).toLowerCase()) {
     throw Object.assign(new Error('CANDIDATE_HEAD_CHANGED_DURING_INSPECTION'), { code: 'CANDIDATE_HEAD_CHANGED_DURING_INSPECTION' });
   }

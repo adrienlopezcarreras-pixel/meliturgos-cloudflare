@@ -1,5 +1,0 @@
-GEN2-42 post-reconciliation probe
-teacher_transport_commit=1ef492d322a686ebab0275ef0a307b213378e6d2
-expected_job=ecosystem-watch-c3bfaf443b1287cf885033ecd760bc94
-expected_completion_sha=7b68211addd42baaa891a06532ea56833b0dba04
-purpose=trigger runtime-teacher-smoke after scheduled autonomy reconciliation

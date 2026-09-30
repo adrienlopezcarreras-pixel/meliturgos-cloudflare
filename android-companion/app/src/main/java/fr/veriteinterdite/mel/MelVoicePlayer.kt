@@ -10,6 +10,7 @@ import android.os.Handler
 import android.os.Looper
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
+import android.util.Log
 import java.io.File
 import java.util.Locale
 import java.util.UUID
@@ -74,17 +75,20 @@ object MelVoicePlayer {
                         }
                         val frenchVoice = tts.voices
                             ?.filter { it.locale?.language.equals("fr", ignoreCase = true) }
-                            ?.minByOrNull { voice ->
-                                val locale = voice.locale
-                                when {
-                                    locale?.country.equals("FR", ignoreCase = true) && !voice.isNetworkConnectionRequired -> 0
-                                    locale?.country.equals("FR", ignoreCase = true) -> 1
-                                    !voice.isNetworkConnectionRequired -> 2
-                                    else -> 3
-                                }
+                            ?.maxByOrNull { voice ->
+                                var score = voice.quality * 10 - voice.latency
+                                if (voice.locale?.country.equals("FR", ignoreCase = true)) score += 10_000
+                                if (!voice.isNetworkConnectionRequired) score += 50
+                                score
                             }
-                        if (frenchVoice != null) tts.voice = frenchVoice
-                        tts.setSpeechRate(1.02f)
+                        if (frenchVoice != null) {
+                            tts.voice = frenchVoice
+                            Log.i(
+                                "MelVoicePlayer",
+                                "Selected French TTS voice=${frenchVoice.name} quality=${frenchVoice.quality} latency=${frenchVoice.latency} network=${frenchVoice.isNetworkConnectionRequired}"
+                            )
+                        }
+                        tts.setSpeechRate(0.96f)
                         tts.setPitch(1.0f)
                         tts.setAudioAttributes(
                             AudioAttributes.Builder()
@@ -177,8 +181,25 @@ object MelVoicePlayer {
         return durationMs
     }
 
+    private fun isLikelyMp3(bytes: ByteArray): Boolean {
+        if (bytes.size < 4) return false
+        if (bytes[0] == 'I'.code.toByte() &&
+            bytes[1] == 'D'.code.toByte() &&
+            bytes[2] == '3'.code.toByte()
+        ) return true
+
+        val last = minOf(bytes.size - 1, 4096)
+        for (i in 0 until last) {
+            val b0 = bytes[i].toInt() and 0xff
+            val b1 = bytes[i + 1].toInt() and 0xff
+            if (b0 == 0xff && (b1 and 0xe0) == 0xe0 && (b1 and 0x06) != 0) return true
+        }
+        return false
+    }
+
     fun playMp3(context: Context, bytes: ByteArray): Long {
         require(bytes.isNotEmpty()) { "TTS_AUDIO_EMPTY" }
+        require(isLikelyMp3(bytes)) { "TTS_AUDIO_FORMAT_INVALID" }
         val startedAt = System.currentTimeMillis()
         val file = File.createTempFile("mel-voice-", ".mp3", context.cacheDir)
         file.writeBytes(bytes)

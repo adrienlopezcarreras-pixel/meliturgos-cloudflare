@@ -1,0 +1,39 @@
+name: MEL-RES-05 encrypted backup CI
+
+on:
+  pull_request:
+    paths:
+      - "src/backup/**"
+      - "src/resilience/**"
+      - "tests/encrypted-backup-storage.test.mjs"
+      - "tests/backup-system-runtime.test.mjs"
+      - "tests/backup-verified-snapshot.test.mjs"
+      - "tests/restore-service.test.mjs"
+      - ".github/workflows/mel-res-05-encrypted-backup-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  encrypted-backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: "22"
+          cache: npm
+      - name: Install exact lockfile
+        run: npm ci
+      - name: Repository syntax
+        run: npm run check
+      - name: Encrypted backup and restore tests
+        run: node --test tests/encrypted-backup-storage.test.mjs tests/backup-system-runtime.test.mjs tests/backup-verified-snapshot.test.mjs tests/restore-service.test.mjs tests/gen2/recovery-drill.test.mjs
+      - name: Normalize branch for candidate-only integration tests
+        run: git checkout -B candidate/mel-res-05-encrypted-backup-ci "$(git rev-parse HEAD)"
+      - name: Full regression suite
+        run: npm test
+      - name: Runtime dependency security gate
+        run: node scripts/runtime-security-gate.mjs

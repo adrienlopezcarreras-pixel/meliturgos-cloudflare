@@ -1,0 +1,921 @@
+import { createD1OAuthVaults } from '../connectors/d1-oauth-vault.js';
+import { createGoogleOAuthRuntime } from '../connectors/google-oauth-runtime.js';
+import { createMailOAuthRuntime } from '../connectors/mail-oauth-runtime.js';
+import { createVercelConfigResolver, saveVercelConnectionConfig } from '../connectors/vercel-config.js';
+
+const PROVIDERS = new Set(['google','microsoft','yahoo','yahoo-imap','roundcube','vercel','pipedream']);
+const OAUTH_APP_KEYS = Object.freeze({
+  google: Object.freeze({ id: 'oauth-app-google', clientIdEnv: 'GOOGLE_OAUTH_CLIENT_ID', clientSecretEnv: 'GOOGLE_OAUTH_CLIENT_SECRET' }),
+  microsoft: Object.freeze({ id: 'oauth-app-microsoft', clientIdEnv: 'MICROSOFT_OAUTH_CLIENT_ID', clientSecretEnv: 'MICROSOFT_OAUTH_CLIENT_SECRET' }),
+  yahoo: Object.freeze({ id: 'oauth-app-yahoo', clientIdEnv: 'YAHOO_OAUTH_CLIENT_ID', clientSecretEnv: 'YAHOO_OAUTH_CLIENT_SECRET' }),
+});
+const PROVIDER_CONNECTORS = Object.freeze({
+  google: Object.freeze(['gmail','google-calendar','google-tasks']),
+  microsoft: Object.freeze(['microsoft-mail','microsoft-onedrive','microsoft-sharepoint']),
+  yahoo: Object.freeze(['yahoo-mail']),
+});
+
+function clean(value, max = 2000) {
+  return String(value ?? '').trim().slice(0, max);
+}
+
+function json(body, status = 200) {
+  return Response.json(body, { status, headers: { 'cache-control': 'no-store' } });
+}
+
+function owner(env = {}) {
+  return clean(env.MELITURGOS_USER || 'owner', 200) || 'owner';
+}
+
+function appKey(provider) {
+  const cfg = OAUTH_APP_KEYS[provider];
+  if (!cfg) {
+    const error = new Error('OAUTH_APP_PROVIDER_UNSUPPORTED');
+    error.code = 'OAUTH_APP_PROVIDER_UNSUPPORTED';
+    error.status = 404;
+    throw error;
+  }
+  return cfg;
+}
+
+function isHost(value) {
+  const host = clean(value, 255);
+  return Boolean(host) && /^[a-z0-9.-]+$/i.test(host) && !host.startsWith('.') && !host.endsWith('.');
+}
+
+function port(value, fallback) {
+  const n = Number(value ?? fallback);
+  if (!Number.isInteger(n) || n < 1 || n > 65535) return null;
+  return n;
+}
+
+function b64Utf8(value) {
+  const bytes = new TextEncoder().encode(String(value ?? ''));
+  let binary = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) {
+    binary += String.fromCharCode(...bytes.subarray(i, Math.min(bytes.length, i + 0x8000)));
+  }
+  return btoa(binary);
+}
+
+function quotedImap(value) {
+  return '"' + String(value ?? '').replaceAll('\\', '\\\\').replaceAll('"', '\\"') + '"';
+}
+
+async function timeoutRead(reader, matcher, timeoutMs = 9000) {
+  const decoder = new TextDecoder();
+  let text = '';
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const left = Math.max(1, deadline - Date.now());
+    let timer;
+    const next = await Promise.race([
+      reader.read(),
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(Object.assign(new Error('MAIL_SOCKET_TIMEOUT'), { code: 'MAIL_SOCKET_TIMEOUT' })), left);
+      }),
+    ]).finally(() => clearTimeout(timer));
+    if (next.done) break;
+    text += decoder.decode(next.value, { stream: true });
+    if (matcher(text)) return text;
+    if (text.length > 64_000) break;
+  }
+  const error = new Error('MAIL_SOCKET_RESPONSE_INCOMPLETE');
+  error.code = 'MAIL_SOCKET_RESPONSE_INCOMPLETE';
+  throw error;
+}
+
+async function writeLine(writer, value) {
+  await writer.write(new TextEncoder().encode(String(value) + '\r\n'));
+}
+
+async function directSocket(hostname, socketPort, security = 'tls') {
+  const mod = await import('cloudflare:sockets');
+  return mod.connect(
+    { hostname, port: socketPort },
+    { secureTransport: security === 'starttls' ? 'starttls' : 'on', allowHalfOpen: false },
+  );
+}
+
+async function imapAuthProbe(config) {
+  let socket = await directSocket(config.imap_host, config.imap_port, config.imap_security);
+  let reader = socket.readable.getReader();
+  let writer = socket.writable.getWriter();
+  try {
+    const greeting = await timeoutRead(reader, text => /(?:^|\r\n)\*\s+(?:OK|PREAUTH)\b/i.test(text));
+    if (!/(?:^|\r\n)\*\s+(?:OK|PREAUTH)\b/i.test(greeting)) throw Object.assign(new Error('IMAP_GREETING_REJECTED'), { code: 'IMAP_GREETING_REJECTED' });
+
+    if (config.imap_security === 'starttls') {
+      await writeLine(writer, 'A0 STARTTLS');
+      const tlsReady = await timeoutRead(reader, text => /(?:^|\r\n)A0\s+(?:OK|NO|BAD)\b/i.test(text));
+      if (!/(?:^|\r\n)A0\s+OK\b/i.test(tlsReady)) throw Object.assign(new Error('IMAP_STARTTLS_REJECTED'), { code: 'IMAP_STARTTLS_REJECTED' });
+      reader.releaseLock();
+      writer.releaseLock();
+      socket = socket.startTls();
+      reader = socket.readable.getReader();
+      writer = socket.writable.getWriter();
+    }
+
+    await writeLine(writer, 'A1 LOGIN ' + quotedImap(config.username) + ' ' + quotedImap(config.password));
+    const login = await timeoutRead(reader, text => /(?:^|\r\n)A1\s+(?:OK|NO|BAD)\b/i.test(text));
+    if (!/(?:^|\r\n)A1\s+OK\b/i.test(login)) throw Object.assign(new Error('IMAP_AUTH_REJECTED'), { code: 'IMAP_AUTH_REJECTED' });
+    await writeLine(writer, 'A2 LOGOUT').catch(() => {});
+    return { ok: true, protocol: 'IMAP', host: config.imap_host, port: config.imap_port };
+  } finally {
+    try { reader.releaseLock(); } catch {}
+    try { await writer.close(); } catch {}
+    try { socket.close(); } catch {}
+  }
+}
+
+async function smtpReadCode(reader, code) {
+  const expected = String(code);
+  return timeoutRead(reader, text => {
+    if (new RegExp('(?:^|\\r\\n)' + expected + ' ').test(text)) return true;
+    const failure = text.match(/(?:^|\\r\\n)([45]\\d\\d) [^\\r\\n]*/);
+    if (!failure) return false;
+    const authStep = expected === '235' || expected === '334';
+    const error = new Error(authStep ? 'SMTP_AUTH_REJECTED' : 'SMTP_COMMAND_REJECTED');
+    error.code = authStep ? 'SMTP_AUTH_REJECTED' : 'SMTP_COMMAND_REJECTED';
+    error.status = authStep ? 409 : 502;
+    throw error;
+  });
+}
+
+async function smtpAuthProbe(config) {
+  let socket = await directSocket(config.smtp_host, config.smtp_port, config.smtp_security);
+  let reader = socket.readable.getReader();
+  let writer = socket.writable.getWriter();
+  try {
+    await smtpReadCode(reader, 220);
+    await writeLine(writer, 'EHLO meliturgos.local');
+    await smtpReadCode(reader, 250);
+
+    if (config.smtp_security === 'starttls') {
+      await writeLine(writer, 'STARTTLS');
+      await smtpReadCode(reader, 220);
+      reader.releaseLock();
+      writer.releaseLock();
+      socket = socket.startTls();
+      reader = socket.readable.getReader();
+      writer = socket.writable.getWriter();
+      await writeLine(writer, 'EHLO meliturgos.local');
+      await smtpReadCode(reader, 250);
+    }
+
+    await writeLine(writer, 'AUTH LOGIN');
+    await smtpReadCode(reader, 334);
+    await writeLine(writer, b64Utf8(config.username));
+    await smtpReadCode(reader, 334);
+    await writeLine(writer, b64Utf8(config.password));
+    await smtpReadCode(reader, 235);
+    await writeLine(writer, 'QUIT').catch(() => {});
+    return { ok: true, protocol: 'SMTP', host: config.smtp_host, port: config.smtp_port };
+  } finally {
+    try { reader.releaseLock(); } catch {}
+    try { await writer.close(); } catch {}
+    try { socket.close(); } catch {}
+  }
+}
+
+function mailProbeError(prefix, error) {
+  const raw = clean(error?.code || error?.message || 'MAIL_PROBE_FAILED', 120).replace(/[^A-Z0-9_]/gi, '_').toUpperCase();
+  const wrapped = new Error(prefix + '_' + raw);
+  wrapped.code = prefix + '_' + raw;
+  wrapped.status = Number(error?.status) || 502;
+  return wrapped;
+}
+
+export async function probeYahooDirect(config, probes = {}) {
+  const imapProbe = probes.imapProbe || imapAuthProbe;
+  const smtpProbe = probes.smtpProbe || smtpAuthProbe;
+  let imap;
+  try {
+    imap = await imapProbe(config);
+  } catch (error) {
+    throw mailProbeError('YAHOO_IMAP', error);
+  }
+
+  let smtpConfig = config;
+  let smtp;
+  try {
+    smtp = await smtpProbe(smtpConfig);
+  } catch (error) {
+    const code = clean(error?.code || error?.message, 120);
+    if (code === 'SMTP_AUTH_REJECTED') throw mailProbeError('YAHOO_SMTP', error);
+    smtpConfig = { ...config, smtp_port: 587, smtp_security: 'starttls' };
+    try {
+      smtp = await smtpProbe(smtpConfig);
+    } catch (fallbackError) {
+      throw mailProbeError('YAHOO_SMTP', fallbackError);
+    }
+  }
+
+  return {
+    imap,
+    smtp,
+    smtp_port: Number(smtpConfig.smtp_port) || 465,
+    smtp_security: smtpConfig.smtp_security === 'starttls' ? 'starttls' : 'tls',
+  };
+}
+
+async function loadStoredAppConfig(env, provider, contextOwner) {
+  const cfg = appKey(provider);
+  const vaults = createD1OAuthVaults(env);
+  return vaults.tokenVault.get({ owner: contextOwner, connector_id: cfg.id });
+}
+
+export async function resolveConnectionOAuthEnv(env = {}, provider, contextOwner = owner(env)) {
+  const cfg = appKey(provider);
+  const base = { ...env };
+  if (clean(base[cfg.clientIdEnv], 1000) && clean(base[cfg.clientSecretEnv], 2000)) return base;
+  const stored = await loadStoredAppConfig(env, provider, contextOwner).catch(() => null);
+  if (!clean(base[cfg.clientIdEnv], 1000) && clean(stored?.client_id, 1000)) base[cfg.clientIdEnv] = clean(stored.client_id, 1000);
+  if (!clean(base[cfg.clientSecretEnv], 2000) && clean(stored?.client_secret, 2000)) base[cfg.clientSecretEnv] = clean(stored.client_secret, 2000);
+  return base;
+}
+
+async function oauthStatus(env, provider, contextOwner) {
+  const cfg = appKey(provider);
+  const resolved = await resolveConnectionOAuthEnv(env, provider, contextOwner);
+  const appConfigured = Boolean(clean(resolved[cfg.clientIdEnv], 1000) && clean(resolved[cfg.clientSecretEnv], 2000));
+  const runtime = provider === 'google'
+    ? createGoogleOAuthRuntime({ env: resolved })
+    : createMailOAuthRuntime({ providerId: provider, env: resolved });
+  const connectors = {};
+  for (const connectorId of PROVIDER_CONNECTORS[provider]) {
+    connectors[connectorId] = await runtime.status(connectorId, { owner: contextOwner });
+  }
+  return {
+    provider,
+    app_configured: appConfigured,
+    client_id_present: Boolean(clean(resolved[cfg.clientIdEnv], 1000)),
+    client_secret_present: Boolean(clean(resolved[cfg.clientSecretEnv], 2000)),
+    connectors,
+  };
+}
+
+async function testOAuthConnector(env, provider, connectorId, contextOwner, signal) {
+  const resolved = await resolveConnectionOAuthEnv(env, provider, contextOwner);
+  const context = { owner: contextOwner, signal };
+  let token = '';
+  let url = '';
+  if (provider === 'google') {
+    token = await createGoogleOAuthRuntime({ env: resolved }).accessTokenResolver(connectorId, context);
+    if (connectorId === 'gmail') url = 'https://gmail.googleapis.com/gmail/v1/users/me/profile';
+    else if (connectorId === 'google-calendar') url = 'https://www.googleapis.com/calendar/v3/calendars/primary/events?maxResults=1&singleEvents=true';
+    else if (connectorId === 'google-tasks') url = 'https://tasks.googleapis.com/tasks/v1/users/@me/lists?maxResults=1';
+  } else if (provider === 'microsoft') {
+    token = await createMailOAuthRuntime({ providerId: 'microsoft', env: resolved }).accessTokenResolver(connectorId, context);
+    if (connectorId === 'microsoft-mail') url = 'https://graph.microsoft.com/v1.0/me/messages?$top=1&$select=id';
+    else if (connectorId === 'microsoft-onedrive') url = 'https://graph.microsoft.com/v1.0/me/drive/root?$select=id,name';
+    else if (connectorId === 'microsoft-sharepoint') url = 'https://graph.microsoft.com/v1.0/sites/root?$select=id,name';
+  } else if (provider === 'yahoo' && connectorId === 'yahoo-mail') {
+    token = await createMailOAuthRuntime({ providerId: 'yahoo', env: resolved }).accessTokenResolver(connectorId, context);
+    url = 'https://api.login.yahoo.com/openid/v1/userinfo';
+  }
+  if (!token || !url) {
+    const error = new Error('CONNECTION_TOKEN_NOT_AVAILABLE');
+    error.code = 'CONNECTION_TOKEN_NOT_AVAILABLE';
+    error.status = 409;
+    throw error;
+  }
+  const response = await fetch(url, {
+    headers: { authorization: 'Bearer ' + token, accept: 'application/json' },
+    redirect: 'manual',
+    signal: signal || AbortSignal.timeout(12_000),
+  });
+  if (!response.ok) {
+    await response.body?.cancel?.();
+    const error = new Error('CONNECTION_LIVE_PROBE_FAILED');
+    error.code = 'CONNECTION_LIVE_PROBE_FAILED';
+    error.status = response.status === 401 || response.status === 403 ? 409 : 502;
+    throw error;
+  }
+  await response.body?.cancel?.();
+  return { ok: true, provider, connector_id: connectorId, live_probe: true };
+}
+
+async function roundcubeStatus(env, contextOwner) {
+  const vaults = createD1OAuthVaults(env);
+  const stored = await vaults.tokenVault.get({ owner: contextOwner, connector_id: 'generic-imap-smtp' });
+  if (!stored) return { provider: 'roundcube', configured: false, stored_securely: true };
+  return {
+    provider: 'roundcube',
+    configured: true,
+    stored_securely: true,
+    imap_host: clean(stored.imap_host, 255),
+    imap_port: Number(stored.imap_port) || 993,
+    imap_security: stored.imap_security === 'starttls' ? 'starttls' : 'tls',
+    smtp_host: clean(stored.smtp_host, 255),
+    smtp_port: Number(stored.smtp_port) || 465,
+    smtp_security: stored.smtp_security === 'starttls' ? 'starttls' : 'tls',
+    username: clean(stored.username, 320),
+    password_present: Boolean(clean(stored.password, 4000)),
+  };
+}
+
+async function saveRoundcube(env, contextOwner, body) {
+  const imapHost = clean(body.imap_host, 255);
+  const smtpHost = clean(body.smtp_host, 255);
+  const username = clean(body.username, 320);
+  const password = clean(body.password, 4000);
+  const imapPort = port(body.imap_port, 993);
+  const smtpPort = port(body.smtp_port, 465);
+  const imapSecurity = body.imap_security === 'starttls' ? 'starttls' : 'tls';
+  const smtpSecurity = body.smtp_security === 'starttls' ? 'starttls' : 'tls';
+  if (!isHost(imapHost) || !isHost(smtpHost) || !username || !password || !imapPort || !smtpPort) {
+    const error = new Error('ROUNDCUBE_CONFIGURATION_INVALID');
+    error.code = 'ROUNDCUBE_CONFIGURATION_INVALID';
+    error.status = 400;
+    throw error;
+  }
+  const vaults = createD1OAuthVaults(env);
+  await vaults.tokenVault.put({
+    owner: contextOwner,
+    connector_id: 'generic-imap-smtp',
+    token_set: {
+      kind: 'imap-smtp-credentials',
+      imap_host: imapHost,
+      imap_port: imapPort,
+      imap_security: imapSecurity,
+      smtp_host: smtpHost,
+      smtp_port: smtpPort,
+      smtp_security: smtpSecurity,
+      username,
+      password,
+      updated_at: Date.now(),
+    },
+  });
+  return roundcubeStatus(env, contextOwner);
+}
+
+async function yahooDirectStatus(env, contextOwner) {
+  const vaults = createD1OAuthVaults(env);
+  const stored = await vaults.tokenVault.get({ owner: contextOwner, connector_id: 'yahoo-imap-smtp' });
+  if (!stored) {
+    return {
+      provider: 'yahoo-imap',
+      configured: false,
+      stored_securely: true,
+      imap_host: 'imap.mail.yahoo.com',
+      imap_port: 993,
+      imap_security: 'tls',
+      smtp_host: 'smtp.mail.yahoo.com',
+      smtp_port: 465,
+      smtp_security: 'tls',
+    };
+  }
+  return {
+    provider: 'yahoo-imap',
+    configured: true,
+    stored_securely: true,
+    imap_host: 'imap.mail.yahoo.com',
+    imap_port: 993,
+    imap_security: 'tls',
+    smtp_host: 'smtp.mail.yahoo.com',
+    smtp_port: Number(stored.smtp_port) || 465,
+    smtp_security: stored.smtp_security === 'starttls' ? 'starttls' : 'tls',
+    username: clean(stored.username, 320),
+    password_present: Boolean(clean(stored.password, 4000)),
+  };
+}
+
+async function saveYahooDirect(env, contextOwner, body) {
+  const username = clean(body.username, 320);
+  const password = clean(body.password, 4000);
+  if (!username || !password || !username.includes('@')) {
+    const error = new Error('YAHOO_IMAP_CONFIGURATION_INVALID');
+    error.code = 'YAHOO_IMAP_CONFIGURATION_INVALID';
+    error.status = 400;
+    throw error;
+  }
+  const vaults = createD1OAuthVaults(env);
+  await vaults.tokenVault.put({
+    owner: contextOwner,
+    connector_id: 'yahoo-imap-smtp',
+    token_set: {
+      kind: 'imap-smtp-credentials',
+      provider: 'yahoo',
+      imap_host: 'imap.mail.yahoo.com',
+      imap_port: 993,
+      imap_security: 'tls',
+      smtp_host: 'smtp.mail.yahoo.com',
+      smtp_port: 465,
+      smtp_security: 'tls',
+      username,
+      password,
+      updated_at: Date.now(),
+    },
+  });
+  return yahooDirectStatus(env, contextOwner);
+}
+
+
+const PIPEDREAM_CONFIG_ID = 'pipedream-connect-config';
+const PIPEDREAM_ALLOWED_APPS = Object.freeze(new Set([
+  'microsoft_outlook',
+  'microsoft_onedrive',
+  'sharepoint',
+  'imap',
+  'lemlist',
+  'google_drive',
+  'google_calendar',
+  'dropbox',
+]));
+
+async function pipedreamStoredConfig(env, contextOwner) {
+  const vaults = createD1OAuthVaults(env);
+  return vaults.tokenVault.get({ owner: contextOwner, connector_id: PIPEDREAM_CONFIG_ID });
+}
+
+async function pipedreamStatus(env, contextOwner) {
+  const stored = await pipedreamStoredConfig(env, contextOwner).catch(() => null);
+  return {
+    provider: 'pipedream',
+    configured: Boolean(stored?.project_id && stored?.client_id && stored?.client_secret),
+    stored_securely: true,
+    project_id: clean(stored?.project_id, 300) || null,
+    client_id_present: Boolean(clean(stored?.client_id, 1000)),
+    client_secret_present: Boolean(clean(stored?.client_secret, 2000)),
+    environment: stored?.environment === 'development' ? 'development' : 'production',
+    external_user_id: contextOwner,
+    supported_apps: [...PIPEDREAM_ALLOWED_APPS],
+  };
+}
+
+async function savePipedreamConfig(env, contextOwner, body) {
+  const projectId = clean(body.project_id, 300);
+  const clientId = clean(body.client_id, 1000);
+  const clientSecret = clean(body.client_secret, 2000);
+  const environment = body.environment === 'development' ? 'development' : 'production';
+  if (!/^proj_[A-Za-z0-9_-]+$/.test(projectId) || !clientId || !clientSecret) {
+    const error = new Error('PIPEDREAM_CONFIGURATION_INVALID');
+    error.code = 'PIPEDREAM_CONFIGURATION_INVALID';
+    error.status = 400;
+    throw error;
+  }
+  const vaults = createD1OAuthVaults(env);
+  await vaults.tokenVault.put({
+    owner: contextOwner,
+    connector_id: PIPEDREAM_CONFIG_ID,
+    token_set: {
+      kind: 'pipedream-connect-credentials',
+      project_id: projectId,
+      client_id: clientId,
+      client_secret: clientSecret,
+      environment,
+      updated_at: Date.now(),
+    },
+  });
+  return pipedreamStatus(env, contextOwner);
+}
+
+async function pipedreamJson(fetcher, url, init, code) {
+  let response;
+  try {
+    response = await fetcher(url, {
+      ...init,
+      redirect: 'manual',
+      signal: init?.signal || AbortSignal.timeout(12_000),
+    });
+  } catch {
+    const error = new Error(code);
+    error.code = code;
+    error.status = 503;
+    throw error;
+  }
+  const text = await response.text().catch(() => '');
+  let body = {};
+  if (text) {
+    try { body = JSON.parse(text); }
+    catch {
+      const error = new Error(code + '_INVALID_RESPONSE');
+      error.code = code + '_INVALID_RESPONSE';
+      error.status = 502;
+      throw error;
+    }
+  }
+  if (!response.ok) {
+    const error = new Error(code);
+    error.code = code;
+    error.status = response.status === 401 || response.status === 403 ? 409 : 502;
+    throw error;
+  }
+  return body;
+}
+
+export async function pipedreamAccessToken(config, options = {}) {
+  const fetcher = options.fetcher || fetch;
+  const projectId = clean(config?.project_id, 300);
+  const environment = config?.environment === 'development' ? 'development' : 'production';
+  const form = new URLSearchParams();
+  form.set('grant_type', 'client_credentials');
+  form.set('client_id', clean(config?.client_id, 1000));
+  form.set('client_secret', clean(config?.client_secret, 2000));
+  form.set('project_id', projectId);
+  form.set('environment', environment);
+  const body = await pipedreamJson(fetcher, 'https://api.pipedream.com/v1/oauth/token', {
+    method: 'POST',
+    headers: { 'content-type': 'application/x-www-form-urlencoded', accept: 'application/json' },
+    body: form.toString(),
+    signal: options.signal,
+  }, 'PIPEDREAM_AUTH_FAILED');
+  const accessToken = clean(body?.access_token, 10000);
+  if (!accessToken) {
+    const error = new Error('PIPEDREAM_ACCESS_TOKEN_MISSING');
+    error.code = 'PIPEDREAM_ACCESS_TOKEN_MISSING';
+    error.status = 502;
+    throw error;
+  }
+  return accessToken;
+}
+
+export async function testPipedreamCredentials(config, options = {}) {
+  const fetcher = options.fetcher || fetch;
+  const token = await pipedreamAccessToken(config, { fetcher, signal: options.signal });
+  const projectId = clean(config?.project_id, 300);
+  const environment = config?.environment === 'development' ? 'development' : 'production';
+  const checks = {};
+  for (const app of ['microsoft_outlook', 'microsoft_onedrive']) {
+    const url = 'https://api.pipedream.com/v1/connect/' + encodeURIComponent(projectId)
+      + '/components?app=' + encodeURIComponent(app) + '&component_type=action';
+    const body = await pipedreamJson(fetcher, url, {
+      method: 'GET',
+      headers: {
+        authorization: 'Bearer ' + token,
+        accept: 'application/json',
+        'x-pd-environment': environment,
+      },
+      signal: options.signal,
+    }, 'PIPEDREAM_PROJECT_TEST_FAILED');
+    const components = Array.isArray(body?.data) ? body.data
+      : Array.isArray(body?.components) ? body.components
+        : Array.isArray(body) ? body : [];
+    checks[app] = { reachable: true, component_count: components.length };
+  }
+  return {
+    ok: true,
+    provider: 'pipedream',
+    authenticated: true,
+    project_id: projectId,
+    environment,
+    apps: checks,
+  };
+}
+
+async function createPipedreamUserToken(stored, contextOwner, requestUrl, signal, app = '') {
+  const environment = stored.environment === 'development' ? 'development' : 'production';
+  const accessToken = await pipedreamAccessToken(stored, { signal });
+  const success = new URL('/professor', requestUrl.origin);
+  success.searchParams.set('view', 'connections');
+  success.searchParams.set('pd', 'connected');
+  if (app) success.searchParams.set('app', app);
+  const failure = new URL('/professor', requestUrl.origin);
+  failure.searchParams.set('view', 'connections');
+  failure.searchParams.set('pd', 'error');
+  if (app) failure.searchParams.set('app', app);
+
+  const tokenBody = await pipedreamJson(fetch, 'https://api.pipedream.com/v1/connect/' + encodeURIComponent(stored.project_id) + '/tokens', {
+    method: 'POST',
+    headers: {
+      authorization: 'Bearer ' + accessToken,
+      'content-type': 'application/json',
+      accept: 'application/json',
+      'x-pd-environment': environment,
+    },
+    body: JSON.stringify({
+      external_user_id: contextOwner,
+      external_id: contextOwner,
+      allowed_origins: [requestUrl.origin],
+      success_redirect_uri: success.toString(),
+      error_redirect_uri: failure.toString(),
+    }),
+    signal,
+  }, 'PIPEDREAM_CONNECT_TOKEN_FAILED');
+  const connectToken = clean(tokenBody?.token, 1000);
+  if (!connectToken) {
+    const error = new Error('PIPEDREAM_CONNECT_TOKEN_MISSING');
+    error.code = 'PIPEDREAM_CONNECT_TOKEN_MISSING';
+    error.status = 502;
+    throw error;
+  }
+  return { tokenBody, connectToken, environment };
+}
+
+async function createPipedreamConnectLink(env, contextOwner, body, requestUrl, signal) {
+  const stored = await pipedreamStoredConfig(env, contextOwner);
+  if (!stored?.project_id || !stored?.client_id || !stored?.client_secret) {
+    const error = new Error('PIPEDREAM_NOT_CONFIGURED');
+    error.code = 'PIPEDREAM_NOT_CONFIGURED';
+    error.status = 409;
+    throw error;
+  }
+  const app = clean(body?.app, 120);
+  if (!PIPEDREAM_ALLOWED_APPS.has(app)) {
+    const error = new Error('PIPEDREAM_APP_UNSUPPORTED');
+    error.code = 'PIPEDREAM_APP_UNSUPPORTED';
+    error.status = 400;
+    throw error;
+  }
+  const { tokenBody } = await createPipedreamUserToken(stored, contextOwner, requestUrl, signal, app);
+  const rawLink = clean(tokenBody?.connect_link_url || tokenBody?.connectLinkUrl, 4000);
+  if (!rawLink) {
+    const error = new Error('PIPEDREAM_CONNECT_LINK_MISSING');
+    error.code = 'PIPEDREAM_CONNECT_LINK_MISSING';
+    error.status = 502;
+    throw error;
+  }
+  let link;
+  try {
+    link = new URL(rawLink);
+  } catch {
+    const error = new Error('PIPEDREAM_CONNECT_LINK_INVALID');
+    error.code = 'PIPEDREAM_CONNECT_LINK_INVALID';
+    error.status = 502;
+    throw error;
+  }
+  link.searchParams.set('app', app);
+  return {
+    ok: true,
+    provider: 'pipedream',
+    app,
+    connect_link_url: link.toString(),
+    expires_at: clean(tokenBody?.expires_at || tokenBody?.expiresAt, 200) || null,
+  };
+}
+
+export async function pipedreamAccountStatus(config, contextOwner, options = {}) {
+  const fetcher = options.fetcher || fetch;
+  const environment = config?.environment === 'development' ? 'development' : 'production';
+  const projectId = clean(config?.project_id, 300);
+  const accessToken = await pipedreamAccessToken(config, { fetcher, signal: options.signal });
+  const params = new URLSearchParams({ external_user_id: contextOwner, limit: '100' });
+  const body = await pipedreamJson(fetcher, 'https://api.pipedream.com/v1/connect/' + encodeURIComponent(projectId) + '/accounts?' + params.toString(), {
+    method: 'GET',
+    headers: {
+      authorization: 'Bearer ' + accessToken,
+      accept: 'application/json',
+      'x-pd-environment': environment,
+    },
+    signal: options.signal,
+  }, 'PIPEDREAM_ACCOUNTS_FAILED');
+  const rows = Array.isArray(body?.data) ? body.data : [];
+  const accounts = rows.map(row => ({
+    id: clean(row?.id, 300),
+    app: clean(row?.app?.name_slug || row?.app?.nameSlug || row?.app, 160),
+    name: clean(row?.name || row?.external_id, 300),
+    healthy: row?.healthy !== false && row?.dead !== true && !row?.error,
+  })).filter(row => row.id && row.app);
+  return {
+    ok: true,
+    provider: 'pipedream',
+    project_id: projectId,
+    accounts,
+    connected_apps: [...new Set(accounts.filter(row => row.healthy).map(row => row.app))],
+  };
+}
+
+async function pipedreamAccounts(env, contextOwner, requestUrl, signal) {
+  const stored = await pipedreamStoredConfig(env, contextOwner);
+  if (!stored?.project_id || !stored?.client_id || !stored?.client_secret) {
+    const error = new Error('PIPEDREAM_NOT_CONFIGURED');
+    error.code = 'PIPEDREAM_NOT_CONFIGURED';
+    error.status = 409;
+    throw error;
+  }
+  return pipedreamAccountStatus(stored, contextOwner, { signal });
+}
+
+async function vercelStatus(env, contextOwner) {
+  const cfg = await createVercelConfigResolver(env)(contextOwner);
+  return {
+    provider: 'vercel',
+    configured: Boolean(cfg.token),
+    token_present: Boolean(cfg.token),
+    team_id: clean(cfg.team_id, 200) || null,
+    project_id: clean(cfg.project_id, 200) || null,
+    project_name: clean(cfg.project_name, 200) || null,
+    target_configured: Boolean(cfg.project_id && cfg.project_name),
+    stored_securely: true,
+    source: cfg.source || null,
+  };
+}
+
+async function vercelJson(url, token, signal, code) {
+  let response;
+  try {
+    response = await fetch(url, {
+      headers: { authorization: 'Bearer ' + token, accept: 'application/json' },
+      redirect: 'manual',
+      signal: signal || AbortSignal.timeout(12_000),
+    });
+  } catch {
+    const error = new Error(code);
+    error.code = code;
+    error.status = 503;
+    throw error;
+  }
+  if (!response.ok) {
+    await response.body?.cancel?.();
+    const error = new Error(response.status === 401 || response.status === 403 ? code + '_AUTH' : code);
+    error.code = response.status === 401 || response.status === 403 ? code + '_AUTH' : code;
+    error.status = response.status === 401 || response.status === 403 ? 409 : 502;
+    throw error;
+  }
+  try {
+    return await response.json();
+  } catch {
+    const error = new Error(code + '_INVALID_RESPONSE');
+    error.code = code + '_INVALID_RESPONSE';
+    error.status = 502;
+    throw error;
+  }
+}
+
+async function testVercelConnection(env, contextOwner, signal) {
+  const cfg = await createVercelConfigResolver(env)(contextOwner);
+  if (!cfg.token) {
+    const error = new Error('VERCEL_TOKEN_REQUIRED');
+    error.code = 'VERCEL_TOKEN_REQUIRED';
+    error.status = 409;
+    throw error;
+  }
+  const user = await vercelJson('https://api.vercel.com/v2/user', cfg.token, signal, 'VERCEL_AUTH_TEST_FAILED');
+  const params = new URLSearchParams({ limit: '50' });
+  if (cfg.team_id) params.set('teamId', cfg.team_id);
+  const projectsBody = await vercelJson('https://api.vercel.com/v9/projects?' + params.toString(), cfg.token, signal, 'VERCEL_PROJECTS_TEST_FAILED');
+  const projects = (Array.isArray(projectsBody?.projects) ? projectsBody.projects : []).slice(0, 50).map(row => ({
+    id: clean(row?.id, 200),
+    name: clean(row?.name, 200),
+    framework: clean(row?.framework, 100),
+    updated_at: Number(row?.updatedAt || 0),
+  })).filter(row => row.id && row.name);
+
+  let project = projects.find(row => row.id === cfg.project_id)
+    || projects.find(row => row.name === cfg.project_name)
+    || null;
+  if (!project && projects.length === 1) project = projects[0];
+
+  let deployments = [];
+  if (project?.id) {
+    const dp = new URLSearchParams({ projectId: project.id, limit: '10' });
+    if (cfg.team_id) dp.set('teamId', cfg.team_id);
+    const deploymentsBody = await vercelJson('https://api.vercel.com/v6/deployments?' + dp.toString(), cfg.token, signal, 'VERCEL_DEPLOYMENTS_TEST_FAILED');
+    deployments = (Array.isArray(deploymentsBody?.deployments) ? deploymentsBody.deployments : []).slice(0, 10).map(row => ({
+      id: clean(row?.uid || row?.id, 200),
+      name: clean(row?.name, 200),
+      url: clean(row?.url, 500),
+      state: clean(row?.state || row?.readyState, 80),
+      target: clean(row?.target, 80),
+      created_at: Number(row?.createdAt || row?.created || 0),
+    })).filter(row => row.id);
+  }
+
+  return {
+    ok: true,
+    provider: 'vercel',
+    authenticated: Boolean(user?.user?.id),
+    user_id_present: Boolean(user?.user?.id),
+    configured_project: project,
+    projects,
+    project_count: projects.length,
+    deployments,
+    deployment_count: deployments.length,
+    target_ready: Boolean(project?.id && project?.name),
+  };
+}
+
+async function saveOAuthApp(env, provider, contextOwner, body) {
+  const clientId = clean(body.client_id, 1000);
+  const clientSecret = clean(body.client_secret, 2000);
+  if (!clientId || !clientSecret) {
+    const error = new Error('OAUTH_APP_CREDENTIALS_REQUIRED');
+    error.code = 'OAUTH_APP_CREDENTIALS_REQUIRED';
+    error.status = 400;
+    throw error;
+  }
+  const cfg = appKey(provider);
+  const vaults = createD1OAuthVaults(env);
+  await vaults.tokenVault.put({
+    owner: contextOwner,
+    connector_id: cfg.id,
+    token_set: {
+      kind: 'oauth-app-credentials',
+      provider,
+      client_id: clientId,
+      client_secret: clientSecret,
+      updated_at: Date.now(),
+    },
+  });
+  return oauthStatus(env, provider, contextOwner);
+}
+
+async function bodyObject(request) {
+  if (!(request.headers.get('content-type') || '').includes('application/json')) return {};
+  const value = await request.json().catch(() => ({}));
+  return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+}
+
+export async function maybeHandleConnectionSettingsApi(request, env = {}, url = new URL(request.url)) {
+  const match = url.pathname.match(/^\/api\/gen2\/connections\/(google|microsoft|yahoo|yahoo-imap|roundcube|vercel|pipedream)\/(status|save|test|link|accounts)$/);
+  if (!match) return null;
+  const provider = match[1];
+  const action = match[2];
+  if (!PROVIDERS.has(provider)) return json({ ok: false, code: 'CONNECTION_PROVIDER_UNSUPPORTED' }, 404);
+  const contextOwner = owner(env);
+
+  try {
+    if (action === 'status') {
+      if (request.method !== 'GET') return json({ ok: false, code: 'METHOD_NOT_ALLOWED' }, 405);
+      const result = provider === 'roundcube'
+        ? await roundcubeStatus(env, contextOwner)
+        : provider === 'yahoo-imap'
+          ? await yahooDirectStatus(env, contextOwner)
+          : provider === 'vercel'
+            ? await vercelStatus(env, contextOwner)
+            : provider === 'pipedream'
+              ? await pipedreamStatus(env, contextOwner)
+              : await oauthStatus(env, provider, contextOwner);
+      return json({ ok: true, ...result });
+    }
+
+    if (action === 'save') {
+      if (request.method !== 'POST') return json({ ok: false, code: 'METHOD_NOT_ALLOWED' }, 405);
+      const body = await bodyObject(request);
+      const result = provider === 'roundcube'
+        ? await saveRoundcube(env, contextOwner, body)
+        : provider === 'yahoo-imap'
+          ? await saveYahooDirect(env, contextOwner, body)
+          : provider === 'vercel'
+            ? await saveVercelConnectionConfig(env, body, contextOwner)
+            : provider === 'pipedream'
+              ? await savePipedreamConfig(env, contextOwner, body)
+              : await saveOAuthApp(env, provider, contextOwner, body);
+      return json({ ok: true, ...result });
+    }
+
+    if (action === 'link') {
+      if (request.method !== 'POST') return json({ ok: false, code: 'METHOD_NOT_ALLOWED' }, 405);
+      if (provider !== 'pipedream') return json({ ok: false, code: 'CONNECTION_ACTION_UNSUPPORTED' }, 404);
+      const body = await bodyObject(request);
+      return json(await createPipedreamConnectLink(env, contextOwner, body, url, request.signal));
+    }
+
+    if (action === 'accounts') {
+      if (request.method !== 'GET') return json({ ok: false, code: 'METHOD_NOT_ALLOWED' }, 405);
+      if (provider !== 'pipedream') return json({ ok: false, code: 'CONNECTION_ACTION_UNSUPPORTED' }, 404);
+      return json(await pipedreamAccounts(env, contextOwner, url, request.signal));
+    }
+
+    if (action === 'test') {
+      if (request.method !== 'POST') return json({ ok: false, code: 'METHOD_NOT_ALLOWED' }, 405);
+      if (provider === 'roundcube') {
+        const vaults = createD1OAuthVaults(env);
+        const stored = await vaults.tokenVault.get({ owner: contextOwner, connector_id: 'generic-imap-smtp' });
+        if (!stored) return json({ ok: false, code: 'ROUNDCUBE_NOT_CONFIGURED' }, 409);
+        const [imap, smtp] = await Promise.all([imapAuthProbe(stored), smtpAuthProbe(stored)]);
+        return json({ ok: true, provider, imap, smtp, persistent: true });
+      }
+      if (provider === 'yahoo-imap') {
+        const vaults = createD1OAuthVaults(env);
+        const stored = await vaults.tokenVault.get({ owner: contextOwner, connector_id: 'yahoo-imap-smtp' });
+        if (!stored) return json({ ok: false, code: 'YAHOO_IMAP_NOT_CONFIGURED' }, 409);
+        const result = await probeYahooDirect(stored);
+        if (Number(stored.smtp_port) !== result.smtp_port || stored.smtp_security !== result.smtp_security) {
+          await vaults.tokenVault.put({
+            owner: contextOwner,
+            connector_id: 'yahoo-imap-smtp',
+            token_set: {
+              ...stored,
+              smtp_port: result.smtp_port,
+              smtp_security: result.smtp_security,
+              updated_at: Date.now(),
+            },
+          });
+        }
+        return json({ ok: true, provider, imap: result.imap, smtp: result.smtp, persistent: true, smtp_fallback: result.smtp_port === 587 });
+      }
+      if (provider === 'vercel') {
+        return json(await testVercelConnection(env, contextOwner, request.signal));
+      }
+      if (provider === 'pipedream') {
+        const stored = await pipedreamStoredConfig(env, contextOwner);
+        if (!stored) return json({ ok: false, code: 'PIPEDREAM_NOT_CONFIGURED' }, 409);
+        return json(await testPipedreamCredentials(stored, { signal: request.signal }));
+      }
+      const body = await bodyObject(request);
+      const connectorId = clean(body.connector_id, 160);
+      if (!PROVIDER_CONNECTORS[provider]?.includes(connectorId)) return json({ ok: false, code: 'CONNECTION_CONNECTOR_UNSUPPORTED' }, 404);
+      return json(await testOAuthConnector(env, provider, connectorId, contextOwner, request.signal));
+    }
+
+    return json({ ok: false, code: 'NOT_FOUND' }, 404);
+  } catch (error) {
+    return json({
+      ok: false,
+      error: clean(error?.code || error?.message || 'CONNECTION_OPERATION_FAILED', 160),
+      code: clean(error?.code || 'CONNECTION_OPERATION_FAILED', 160),
+    }, Number(error?.status) || 500);
+  }
+}

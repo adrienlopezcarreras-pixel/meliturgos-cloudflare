@@ -6,7 +6,9 @@ import {
   exportD1SystemState,
   exportR2Inventory,
   createR2D1BackupStorage,
+  createSystemBackupService,
   runScheduledSystemBackup,
+  systemBackupSources,
 } from '../src/backup/system-backup-runtime.js';
 
 function d1ExportMock() {
@@ -17,14 +19,14 @@ function d1ExportMock() {
   return {
     prepare(sql) {
       if (sql.includes('sqlite_master')) return { async all(){ return {results:[{name:'alpha',sql:'CREATE TABLE alpha'},{name:'beta',sql:'CREATE TABLE beta'}]}; } };
-      const match = sql.match(/FROM "([^"]+)" LIMIT (\?|1)/);
+      const match = sql.match(/FROM "([^"]+)" ORDER BY rowid LIMIT (\?|1)/);
       if (!match) throw new Error(`unexpected sql ${sql}`);
       const table = match[1];
       return {
         bind(...args) {
           return {
             async all() {
-              const source = tables[table] || [];
+              const source = [...(tables[table] || [])].sort((a,b)=>Number(a.id||0)-Number(b.id||0));
               if (sql.includes('LIMIT 1 OFFSET')) return { results: source.slice(args[0], args[0] + 1) };
               const [limit, offset] = args;
               return { results: source.slice(offset, offset + limit) };
@@ -45,6 +47,15 @@ test('GEN2-47 exports all discovered D1 tables deterministically', async () => {
 });
 
 
+
+test('GEN2-47 deterministic D1 ordering is delegated to SQLite instead of Worker JSON sorting', async () => {
+  const source = await readFile(new URL('../src/backup/system-backup-runtime.js', import.meta.url), 'utf8');
+  assert.match(source, /SELECT \* FROM \$\{quoteIdentifier\(name\)\} ORDER BY rowid LIMIT \? OFFSET \?/);
+  assert.match(source, /SELECT \* FROM \$\{quoteIdentifier\(name\)\} ORDER BY rowid LIMIT 1 OFFSET \?/);
+  assert.doesNotMatch(source, /deterministicRows/);
+  assert.doesNotMatch(source, /stableStringify\(row\)/);
+});
+
 test('GEN2-47 skips Cloudflare internal D1 tables that are visible but unreadable', async () => {
   const reads = [];
   const db = {
@@ -55,7 +66,7 @@ test('GEN2-47 skips Cloudflare internal D1 tables that are visible but unreadabl
           {name:'mel_state',sql:'CREATE TABLE mel_state'},
         ]}; } };
       }
-      const match = sql.match(/FROM "([^"]+)" LIMIT (\?|1)/);
+      const match = sql.match(/FROM "([^"]+)" ORDER BY rowid LIMIT (\?|1)/);
       if (!match) throw new Error('unexpected sql '+sql);
       const table = match[1];
       reads.push(table);
@@ -197,10 +208,24 @@ test('GEN2-47 is wired to the canonical scheduled entry and roadmap source', asy
   ]);
   assert.match(entry, /backup\/system-backup-runtime\.js/);
   assert.match(entry, /runScheduledSystemBackup/);
-  assert.match(roadmap, /GEN2-47[\s\S]*Snapshots D1 complets \+ inventaire R2 automatisés et vérifiés/);
-  assert.match(roadmap, /GEN2-47[\s\S]*copie des octets R2, chiffrement et drill de restauration/);
+  assert.match(roadmap, /item\('GEN2-47', 'Backups \/ export système', 'DONE(?:_VERIFIED)?'/);
+  assert.match(roadmap, /GEN2-47[\s\S]*(octets R2|R2)[\s\S]*(restore|restauration)/i);
 });
 
+
+test('GEN2-47 production backup runs on an isolated daily cron with bounded release grace', async () => {
+  const [entry, wrangler, binder] = await Promise.all([
+    readFile(new URL('../src/professor-live-learning-entry.js', import.meta.url), 'utf8'),
+    readFile(new URL('../wrangler.jsonc', import.meta.url), 'utf8'),
+    readFile(new URL('../release-tools/predeploy-backup-binder/worker.js', import.meta.url), 'utf8'),
+  ]);
+  assert.match(entry, /cron === '43 2 \* \* \*'/);
+  assert.match(entry, /dedicated daily snapshot/);
+  assert.doesNotMatch(entry, /hourly maintenance snapshot skipped/);
+  assert.match(wrangler, /"43 2 \* \* \*"/);
+  assert.match(wrangler, /"MEL_RELEASE_BACKUP_MAX_AGE_MS": "172800000"/);
+  assert.match(binder, /const MAX_AGE_MS=48\*60\*60\*1000;/);
+});
 
 test('GEN2-47 forced scheduled backup ignores a current snapshot for a new release SHA', async () => {
   let creates=0;
@@ -220,4 +245,47 @@ test('GEN2-47 forced scheduled backup ignores a current snapshot for a new relea
   });
   assert.equal(result.status,'CREATED_VERIFIED');
   assert.equal(creates,1);
+});
+
+
+test('GEN2-47 scheduled backup encryption fails closed on partial key configuration', () => {
+  const env = {
+    DB:{prepare(){ return {}; }},
+    MEDIA_BUCKET:{put(){},get(){},delete(){}},
+    MEL_BACKUP_ENCRYPTION_KEY_ID:'scheduled-key',
+  };
+  assert.throws(
+    () => createSystemBackupService(env),
+    error => error?.code === 'BACKUP_ENCRYPTION_CONFIG_INCOMPLETE' && error?.status === 503,
+  );
+});
+
+test('GEN2-47 scheduled backup service accepts complete AES-GCM configuration', () => {
+  const keyBytes = Uint8Array.from({length:32}, (_, index) => index + 1);
+  const env = {
+    DB:{prepare(){ return {}; }},
+    MEDIA_BUCKET:{put(){},get(){},delete(){}},
+    MEL_BACKUP_ENCRYPTION_KEY_ID:'scheduled-key',
+    MEL_BACKUP_ENCRYPTION_KEY_B64:btoa(String.fromCharCode(...keyBytes)),
+  };
+  const service = createSystemBackupService(env);
+  assert.equal(typeof service.create,'function');
+  assert.equal(typeof service.verify,'function');
+  assert.equal(typeof service.list,'function');
+});
+
+
+test('GEN2-47 R2 byte-copy source is opt-in and never silently enabled', () => {
+  const base = {
+    DB: { prepare(){} },
+    MEDIA_BUCKET: { list(){}, get(){}, put(){}, delete(){} },
+  };
+  const disabled = systemBackupSources(base);
+  assert.equal(Object.hasOwn(disabled, 'r2_objects'), false);
+
+  const enabled = systemBackupSources({
+    ...base,
+    MEL_SYSTEM_BACKUP_COPY_R2_BYTES: 'true',
+  });
+  assert.equal(typeof enabled.r2_objects, 'function');
 });

@@ -1,0 +1,62 @@
+name: gen2-38-planning-ci
+
+on:
+  pull_request:
+    paths:
+      - 'src/work/planning-engine.js'
+      - 'src/work/d1-planning-store.js'
+      - 'src/work/ai-planning-engine.js'
+      - 'src/capabilities/work-capabilities.js'
+      - 'src/roadmap/master-roadmap.js'
+      - 'tests/work-planning-engine.test.mjs'
+      - 'tests/work-planning-persistence.test.mjs'
+      - 'tests/work-ai-planning.test.mjs'
+      - '.github/workflows/gen2-38-planning-ci.yml'
+  push:
+    branches:
+      - 'roadmap/gen2-38-planning-reconciled-20260925'
+
+permissions:
+  contents: read
+
+jobs:
+  planning-targeted:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: node scripts/runtime-security-gate.mjs
+      - name: Planning syntax
+        run: >
+          node --check src/work/planning-engine.js &&
+          node --check src/work/d1-planning-store.js &&
+          node --check src/work/ai-planning-engine.js &&
+          node --check src/capabilities/work-capabilities.js
+      - name: Planning targeted tests
+        run: >
+          node --test
+          tests/work-planning-engine.test.mjs
+          tests/work-planning-persistence.test.mjs
+          tests/work-ai-planning.test.mjs
+          tests/work-persistent-capabilities.test.mjs
+          tests/work-dag-state.test.mjs
+
+  planning-full-suite:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    needs: planning-targeted
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm run check
+      - run: git switch -c candidate/gen2-38-planning-ci
+      - run: npm test

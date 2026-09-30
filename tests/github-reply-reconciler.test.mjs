@@ -113,6 +113,8 @@ test('stale WAITING_TEACHER is requeued on candidate SHA drift even when Teacher
     requested_by: 'mel-autonomy',
     goal: 'Do not remain blocked behind a stale Teacher request',
   });
+  const persistedPreflight = { council: completeTeacherCouncil(), source: 'prior-council-proof' };
+  await repo.update(job.id, { plan_json: { preflight: persistedPreflight } });
   const request = makeRequest(job.id);
   await queueRuntimeTeacherRequest(repo, job.id, request);
 
@@ -152,4 +154,38 @@ test('stale WAITING_TEACHER is requeued on candidate SHA drift even when Teacher
   assert.equal(recovered.result_json.teacher_bridge_history.at(-1).stale_reason, 'CANDIDATE_SHA_DRIFT');
   assert.equal(recovered.plan_json.revision.reason, 'TEACHER_REQUEST_STALE_SHA');
   assert.equal(recovered.plan_json.revision.current_candidate_sha, NEW_CANDIDATE_SHA);
+  assert.equal(recovered.plan_json.revision.reuse_council_preflight, true);
+  assert.deepEqual(recovered.plan_json.preflight, persistedPreflight);
+});
+
+test('stale SHA recovery does not fabricate Council preflight when none existed', async () => {
+  const repo = new D1DevJobRepository(null, { memoryStore: new Map() });
+  const job = await repo.create({
+    id: `reconcile-stale-unprepared-${crypto.randomUUID()}`,
+    requested_by: 'mel-autonomy',
+    goal: 'Remain fail closed without prior Council evidence',
+  });
+  const request = makeRequest(job.id);
+  await queueRuntimeTeacherRequest(repo, job.id, request);
+
+  const fetchImpl = async (url) => {
+    if (String(url).includes('/branches/')) return Response.json({ commit: { sha: NEW_CANDIDATE_SHA } });
+    return new Response('', { status: 200 });
+  };
+
+  await reconcileRuntimeTeacherReplies({
+    repository: repo,
+    env: {
+      MEL_GITHUB_REPOSITORY: 'owner/repo',
+      MEL_GITHUB_BRANCH: TEST_CANDIDATE_BRANCH,
+      MEL_TEACHER_BRANCH: TEST_CANDIDATE_BRANCH,
+      MEL_TEACHER_TRANSPORT_BRANCH: 'teacher-bridge/runtime',
+    },
+    fetchImpl,
+  });
+
+  const recovered = await repo.get(job.id);
+  assert.equal(recovered.status, 'QUEUED');
+  assert.equal(recovered.plan_json?.preflight, undefined);
+  assert.equal(recovered.plan_json.revision.reuse_council_preflight, false);
 });

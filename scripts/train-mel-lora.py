@@ -58,6 +58,9 @@ def load_and_validate_plan(path: Path, *, dataset_digest: str, examples: int, ar
         "dropout": args.dropout,
         "learning_rate": args.learning_rate,
         "epochs": int(args.epochs),
+        "max_steps": int(args.max_steps),
+        "max_length": int(args.max_length),
+        "gradient_accumulation_steps": int(args.gradient_accumulation_steps),
         "quantization": "none",
         "target_modules": TARGET_MODULES,
         "seed": args.seed,
@@ -213,6 +216,16 @@ def main() -> int:
         args=args,
     )
 
+    def emit_runtime_stage(stage: str, **payload) -> None:
+        record = {
+            "schema": "mel.lora-runtime-stage.v1",
+            "stage": stage,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            **payload,
+        }
+        print("MEL_TRAINING_STAGE " + json.dumps(record, ensure_ascii=False, sort_keys=True), flush=True)
+
+    emit_runtime_stage("DEPENDENCIES_IMPORT_START")
     try:
         import torch
         import bitsandbytes
@@ -237,16 +250,20 @@ def main() -> int:
             "peft, accelerate, bitsandbytes and safetensors"
         ) from exc
 
+    emit_runtime_stage("DEPENDENCIES_IMPORT_DONE")
     require_gpu(torch, args.allow_cpu)
     set_seed(args.seed)
     cuda = bool(torch.cuda.is_available())
     bf16 = bool(cuda and torch.cuda.is_bf16_supported())
     compute_dtype = torch.bfloat16 if bf16 else (torch.float16 if cuda else torch.float32)
 
+    emit_runtime_stage("TOKENIZER_LOAD_START")
     tokenizer = AutoTokenizer.from_pretrained(model_load_source, use_fast=True, local_files_only=bool(args.base_model_path))
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
+    emit_runtime_stage("TOKENIZER_LOAD_DONE")
 
+    emit_runtime_stage("MODEL_LOAD_START", cuda=cuda, cuda_device_count=(torch.cuda.device_count() if cuda else 0), training_device="cuda:0" if cuda else "cpu")
     if cuda:
         quantization_config = BitsAndBytesConfig(
             load_in_4bit=True,
@@ -258,7 +275,7 @@ def main() -> int:
             model_load_source,
             quantization_config=quantization_config,
             torch_dtype=compute_dtype,
-            device_map="auto",
+            device_map={"": 0},
             local_files_only=bool(args.base_model_path),
         )
         model = prepare_model_for_kbit_training(
@@ -275,6 +292,7 @@ def main() -> int:
         model.gradient_checkpointing_enable()
         training_mode = "cpu-fp32-debug"
 
+    emit_runtime_stage("MODEL_LOAD_DONE", gpu=(torch.cuda.get_device_name(0) if cuda else None), cuda_device_count=(torch.cuda.device_count() if cuda else 0), training_device="cuda:0" if cuda else "cpu")
     model.config.use_cache = False
     config = LoraConfig(
         r=args.rank,
@@ -339,8 +357,10 @@ def main() -> int:
         tokenized["labels"] = list(tokenized["input_ids"])
         return tokenized
 
+    emit_runtime_stage("DATASET_TOKENIZE_START", examples=len(rows), max_length=args.max_length)
     raw_dataset = Dataset.from_list(rows)
     ds = raw_dataset.map(render, remove_columns=raw_dataset.column_names)
+    emit_runtime_stage("DATASET_TOKENIZE_DONE", examples=len(rows))
     output_dir.mkdir(parents=True, exist_ok=True)
 
     training_args = TrainingArguments(
@@ -363,7 +383,24 @@ def main() -> int:
         bf16=bf16,
         remove_unused_columns=False,
     )
-    collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False)
+    def collator(features):
+        batch = tokenizer.pad(
+            [{k: v for k, v in feature.items() if k != "labels"} for feature in features],
+            padding=True,
+            return_tensors="pt",
+        )
+        max_len = int(batch["input_ids"].shape[1])
+        padded_labels = []
+        for feature in features:
+            labels = list(feature["labels"])
+            pad_len = max_len - len(labels)
+            if tokenizer.padding_side == "left":
+                labels = ([-100] * pad_len) + labels
+            else:
+                labels = labels + ([-100] * pad_len)
+            padded_labels.append(labels)
+        batch["labels"] = torch.tensor(padded_labels, dtype=torch.long)
+        return batch
 
     training_started_path = output_dir / "training-started.json"
     training_progress_path = output_dir / "training-progress.jsonl"
@@ -420,6 +457,7 @@ def main() -> int:
             )
             return control
 
+    emit_runtime_stage("TRAINER_BUILD_START", max_steps=args.max_steps, gradient_accumulation_steps=args.gradient_accumulation_steps)
     trainer = Trainer(
         model=model,
         args=training_args,
@@ -428,6 +466,7 @@ def main() -> int:
         callbacks=[MelTrainingProgressCallback()],
     )
 
+    emit_runtime_stage("TRAINER_READY")
     training_started = {
         "schema": "mel.lora-training-started.v1",
         "status": "TRAINING_STARTED",
@@ -454,8 +493,11 @@ def main() -> int:
     train_result = trainer.train(
         resume_from_checkpoint=args.resume_from_checkpoint or None
     )
+    emit_runtime_stage("TRAINING_LOOP_DONE", global_step=int(getattr(train_result, "global_step", 0) or 0))
+    emit_runtime_stage("SAVE_ADAPTER_START")
     model.save_pretrained(output_dir, safe_serialization=True)
     tokenizer.save_pretrained(output_dir)
+    emit_runtime_stage("SAVE_ADAPTER_DONE")
 
     adapter_model = output_dir / "adapter_model.safetensors"
     adapter_config = output_dir / "adapter_config.json"

@@ -1,278 +1,258 @@
-import { requireValue } from '../core/contracts.js';
-import { createWorkDag } from '../work/work-dag.js';
+import { DomainError, requireValue } from '../core/contracts.js';
+import { PERMISSION_TIERS } from '../automations/agent-automation-policy.js';
 
-const ACTIVE = 'ACTIVE';
-const DISABLED = 'DISABLED';
-const VALID_STATUSES = new Set([ACTIVE, DISABLED]);
-const VALID_KINDS = new Set(['TASK', 'AUGMENTIO', 'TEACHER']);
+const TIER_RANK = Object.freeze({
+  [PERMISSION_TIERS.READ]: 0,
+  [PERMISSION_TIERS.SAFE_WRITE]: 1,
+  [PERMISSION_TIERS.SENSITIVE]: 2,
+  [PERMISSION_TIERS.DESTRUCTIVE]: 3,
+});
 
-const isRecord = value => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
-const nonEmptyString = value => typeof value === 'string' && value.trim().length > 0;
-const clone = value => structuredClone(value);
-
-function stable(value) {
-  if (Array.isArray(value)) return value.map(stable);
-  if (!isRecord(value)) return value;
-  return Object.fromEntries(Object.keys(value).sort().map(key => [key, stable(value[key])]));
+function agentError(code, status = 500) {
+  return new DomainError(code, status);
 }
 
-function stableJson(value) {
-  return JSON.stringify(stable(value));
+function text(value) {
+  return String(value ?? '').trim();
 }
 
-function normalizeStep(step, index) {
-  requireValue(isRecord(step), 'AGENT_STEP_INVALID', 400);
-  const id = nonEmptyString(step.id) ? step.id.trim() : `step-${index + 1}`;
-  const kind = String(step.kind || 'TASK').toUpperCase();
-  requireValue(VALID_KINDS.has(kind), 'AGENT_STEP_KIND_INVALID', 400);
-  const dependsOn = Array.isArray(step.depends_on)
-    ? step.depends_on.map(value => {
-        requireValue(nonEmptyString(value), 'AGENT_STEP_DEPENDENCY_INVALID', 400);
-        return value.trim();
-      })
-    : [];
+function record(value) {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
 
-  const payload = isRecord(step.payload) ? clone(step.payload) : {};
-  if (kind === 'TASK') {
-    const capability = step.capability ?? payload.capability;
-    requireValue(nonEmptyString(capability), 'AGENT_STEP_CAPABILITY_REQUIRED', 400);
-    payload.capability = capability.trim();
-  }
-  if (kind === 'AUGMENTIO') {
-    const capability = step.capability ?? payload.capability ?? 'council.state-of-play';
-    requireValue(nonEmptyString(capability), 'AGENT_STEP_CAPABILITY_REQUIRED', 400);
-    payload.capability = capability.trim();
-  }
-  if (kind === 'TEACHER') {
-    const request = step.request ?? payload.request;
-    requireValue(isRecord(request) && nonEmptyString(request.request_id), 'AGENT_TEACHER_REQUEST_REQUIRED', 400);
-    payload.request = clone(request);
-  }
-  if (step.input !== undefined) payload.input = clone(step.input);
-  if (step.use_run_input !== undefined) {
-    requireValue(typeof step.use_run_input === 'boolean', 'AGENT_STEP_RUN_INPUT_INVALID', 400);
-    payload.use_run_input = step.use_run_input;
-  }
+function strings(value, code, { min = 0, max = 128 } = {}) {
+  requireValue(Array.isArray(value) && value.length >= min && value.length <= max, code, 400);
+  const rows = value.map(item => {
+    const normalized = text(item);
+    requireValue(normalized.length > 0 && normalized.length <= 160, code, 400);
+    return normalized;
+  });
+  requireValue(new Set(rows).size === rows.length, code + '_DUPLICATE', 400);
+  return rows.sort((a,b) => a.localeCompare(b));
+}
+
+function ownerFrom(context = {}) {
+  const owner = text(context.owner);
+  requireValue(owner, 'AGENT_OWNER_REQUIRED', 401);
+  return owner;
+}
+
+export function agentDescriptor(input = {}) {
+  requireValue(record(input), 'AGENT_INVALID', 400);
+  const id = text(input.agent_id ?? input.id);
+  const name = text(input.name);
+  const role = text(input.role);
+  requireValue(id && /^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,159}$/.test(id), 'AGENT_ID_INVALID', 400);
+  requireValue(name && name.length <= 200, 'AGENT_NAME_INVALID', 400);
+  requireValue(role && role.length <= 500, 'AGENT_ROLE_INVALID', 400);
+  requireValue(Object.hasOwn(TIER_RANK, input.permission_ceiling), 'AGENT_PERMISSION_CEILING_INVALID', 400);
+  requireValue(input.enabled === undefined || typeof input.enabled === 'boolean', 'AGENT_ENABLED_INVALID', 400);
+  requireValue(input.metadata === undefined || record(input.metadata), 'AGENT_METADATA_INVALID', 400);
 
   return {
-    id,
-    kind,
-    depends_on: dependsOn,
-    idempotent: step.idempotent === true,
-    payload,
+    agent_id: id,
+    name,
+    role,
+    capabilities: strings(input.capabilities ?? [], 'AGENT_CAPABILITIES_INVALID', { min: 1 }),
+    permission_ceiling: input.permission_ceiling,
+    enabled: input.enabled ?? true,
+    metadata: structuredClone(input.metadata || {}),
   };
 }
 
-export function normalizeAgentDefinition(input = {}) {
-  requireValue(isRecord(input), 'AGENT_DEFINITION_INVALID', 400);
-  requireValue(nonEmptyString(input.id), 'AGENT_ID_REQUIRED', 400);
-  requireValue(nonEmptyString(input.version), 'AGENT_VERSION_REQUIRED', 400);
-  requireValue(Array.isArray(input.steps) && input.steps.length > 0 && input.steps.length <= 64, 'AGENT_STEPS_REQUIRED', 400);
-  const steps = input.steps.map(normalizeStep);
-  const ids = steps.map(step => step.id);
-  requireValue(new Set(ids).size === ids.length, 'AGENT_STEP_ID_DUPLICATE', 400);
-
-  // Reuse the canonical Work DAG validator for dependency/cycle checks.
-  createWorkDag({
-    id: 'agent-definition-validation',
-    jobId: `agent:${input.id.trim()}`,
-    goal: input.goal || input.description || input.name || input.id,
-    nodes: steps,
-  });
-
-  const requiredCapabilities = [...new Set(
-    steps
-      .filter(step => step.kind !== 'TEACHER')
-      .map(step => step.payload.capability)
-      .filter(Boolean),
-  )].sort();
-
-  return Object.freeze({
-    id: input.id.trim(),
-    version: input.version.trim(),
-    name: nonEmptyString(input.name) ? input.name.trim() : input.id.trim(),
-    description: typeof input.description === 'string' ? input.description.trim().slice(0, 2000) : '',
-    goal: typeof input.goal === 'string' ? input.goal.trim().slice(0, 4000) : '',
-    steps: Object.freeze(steps.map(step => Object.freeze(clone(step)))),
-    required_capabilities: Object.freeze(requiredCapabilities),
-    metadata: isRecord(input.metadata) ? Object.freeze(clone(input.metadata)) : Object.freeze({}),
-  });
-}
-
-function rowToRecord(row) {
-  requireValue(row, 'AGENT_NOT_FOUND', 404);
-  let definition;
+function rowToAgent(row) {
+  if (!row) return null;
+  let capabilities;
+  let metadata;
   try {
-    definition = JSON.parse(row.definition_json);
+    capabilities = JSON.parse(row.capabilities_json);
+    metadata = JSON.parse(row.metadata_json || '{}');
   } catch {
-    requireValue(false, 'AGENT_DEFINITION_CORRUPT', 500);
+    throw agentError('AGENT_RECORD_CORRUPT', 500);
   }
-  const normalized = normalizeAgentDefinition(definition);
-  requireValue(VALID_STATUSES.has(row.status), 'AGENT_STATUS_CORRUPT', 500);
-  return Object.freeze({
-    ...clone(normalized),
-    status: row.status,
+  return {
+    owner: row.owner,
+    agent_id: row.agent_id,
+    name: row.name,
+    role: row.role,
+    capabilities,
+    permission_ceiling: row.permission_ceiling,
+    enabled: Boolean(row.enabled),
+    metadata,
     created_at: Number(row.created_at),
     updated_at: Number(row.updated_at),
-  });
-}
-
-export function createInMemoryAgentRegistryAdapter({ now = () => Date.now() } = {}) {
-  const records = new Map();
-
-  return Object.freeze({
-    async register(input = {}) {
-      const definition = normalizeAgentDefinition(input.definition ?? input);
-      const current = records.get(definition.id);
-      if (current && current.version === definition.version) {
-        requireValue(stableJson(current.definition) === stableJson(definition), 'AGENT_VERSION_CONFLICT', 409);
-        if (current.status === ACTIVE) return rowToRecord({
-          definition_json: stableJson(current.definition),
-          status: current.status,
-          created_at: current.created_at,
-          updated_at: current.updated_at,
-        });
-      }
-      const timestamp = now();
-      const record = {
-        definition,
-        version: definition.version,
-        status: ACTIVE,
-        created_at: current?.created_at ?? timestamp,
-        updated_at: timestamp,
-      };
-      records.set(definition.id, record);
-      return rowToRecord({
-        definition_json: stableJson(definition),
-        status: record.status,
-        created_at: record.created_at,
-        updated_at: record.updated_at,
-      });
-    },
-    async get(input = {}) {
-      const id = typeof input === 'string' ? input : input.agent_id ?? input.id;
-      requireValue(nonEmptyString(id), 'AGENT_ID_REQUIRED', 400);
-      const row = records.get(id.trim());
-      requireValue(row, 'AGENT_NOT_FOUND', 404);
-      return rowToRecord({
-        definition_json: stableJson(row.definition),
-        status: row.status,
-        created_at: row.created_at,
-        updated_at: row.updated_at,
-      });
-    },
-    async list() {
-      return [...records.values()]
-        .sort((a, b) => a.definition.id.localeCompare(b.definition.id))
-        .map(row => rowToRecord({
-          definition_json: stableJson(row.definition),
-          status: row.status,
-          created_at: row.created_at,
-          updated_at: row.updated_at,
-        }));
-    },
-    async disable(input = {}) {
-      const id = typeof input === 'string' ? input : input.agent_id ?? input.id;
-      requireValue(nonEmptyString(id), 'AGENT_ID_REQUIRED', 400);
-      const row = records.get(id.trim());
-      requireValue(row, 'AGENT_NOT_FOUND', 404);
-      row.status = DISABLED;
-      row.updated_at = now();
-      return rowToRecord({
-        definition_json: stableJson(row.definition),
-        status: row.status,
-        created_at: row.created_at,
-        updated_at: row.updated_at,
-      });
-    },
-  });
-}
-
-export function createD1AgentRegistryAdapter(db, { now = () => Date.now() } = {}) {
-  requireValue(db && typeof db.prepare === 'function', 'AGENT_REGISTRY_D1_REQUIRED', 500);
-  let ready = null;
-  const init = async () => {
-    if (!ready) {
-      ready = db.prepare(`CREATE TABLE IF NOT EXISTS agent_definitions (
-        id TEXT PRIMARY KEY,
-        version TEXT NOT NULL,
-        status TEXT NOT NULL,
-        definition_json TEXT NOT NULL,
-        created_at INTEGER NOT NULL,
-        updated_at INTEGER NOT NULL
-      )`).run();
-    }
-    await ready;
   };
+}
 
-  async function getRow(id) {
-    await init();
-    return db.prepare('SELECT * FROM agent_definitions WHERE id=?').bind(id).first();
+export class D1AgentRegistryAdapter {
+  constructor(db, { now = () => Date.now() } = {}) {
+    if (!db) throw agentError('AGENT_DB_REQUIRED', 503);
+    this.db = db;
+    this.now = now;
+    this._ready = false;
   }
 
-  return Object.freeze({
-    async register(input = {}) {
-      await init();
-      const definition = normalizeAgentDefinition(input.definition ?? input);
-      const existing = await getRow(definition.id);
-      if (existing && String(existing.version) === definition.version) {
-        const current = rowToRecord(existing);
-        requireValue(
-          stableJson(normalizeAgentDefinition(current)) === stableJson(definition),
-          'AGENT_VERSION_CONFLICT',
-          409,
-        );
-        if (existing.status === ACTIVE) return current;
-      }
+  async ready() {
+    if (this._ready) return this;
+    await this.db.prepare(`CREATE TABLE IF NOT EXISTS mel_agents (
+      owner TEXT NOT NULL,
+      agent_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      role TEXT NOT NULL,
+      capabilities_json TEXT NOT NULL,
+      permission_ceiling TEXT NOT NULL,
+      enabled INTEGER NOT NULL,
+      metadata_json TEXT NOT NULL DEFAULT '{}',
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      PRIMARY KEY(owner, agent_id)
+    )`).run();
+    await this.db.prepare('CREATE INDEX IF NOT EXISTS idx_mel_agents_enabled ON mel_agents(owner,enabled,agent_id)').run();
+    this._ready = true;
+    return this;
+  }
 
-      const timestamp = now();
-      await db.prepare(`INSERT INTO agent_definitions(id,version,status,definition_json,created_at,updated_at)
-        VALUES(?,?,?,?,?,?)
-        ON CONFLICT(id) DO UPDATE SET
-          version=excluded.version,
-          status=excluded.status,
-          definition_json=excluded.definition_json,
-          updated_at=excluded.updated_at`)
-        .bind(
-          definition.id,
-          definition.version,
-          ACTIVE,
-          stableJson(definition),
-          existing ? Number(existing.created_at) : timestamp,
-          timestamp,
-        ).run();
-      return rowToRecord(await getRow(definition.id));
-    },
+  async register(input, context = {}) {
+    await this.ready();
+    const owner = ownerFrom(context);
+    const agent = agentDescriptor(input);
+    const existing = await this.db.prepare(
+      'SELECT * FROM mel_agents WHERE owner=? AND agent_id=?'
+    ).bind(owner, agent.agent_id).first();
+    requireValue(!existing, 'AGENT_EXISTS', 409);
+    const at = this.now();
 
-    async get(input = {}) {
-      const id = typeof input === 'string' ? input : input.agent_id ?? input.id;
-      requireValue(nonEmptyString(id), 'AGENT_ID_REQUIRED', 400);
-      return rowToRecord(await getRow(id.trim()));
-    },
+    try {
+      await this.db.prepare(`INSERT INTO mel_agents(
+        owner,agent_id,name,role,capabilities_json,permission_ceiling,
+        enabled,metadata_json,created_at,updated_at
+      ) VALUES(?,?,?,?,?,?,?,?,?,?)`).bind(
+        owner,
+        agent.agent_id,
+        agent.name,
+        agent.role,
+        JSON.stringify(agent.capabilities),
+        agent.permission_ceiling,
+        agent.enabled ? 1 : 0,
+        JSON.stringify(agent.metadata),
+        at,
+        at,
+      ).run();
+    } catch (error) {
+      const raced = await this.db.prepare(
+        'SELECT * FROM mel_agents WHERE owner=? AND agent_id=?'
+      ).bind(owner, agent.agent_id).first();
+      if (raced) throw agentError('AGENT_EXISTS', 409);
+      throw error;
+    }
+    return this.get({ agent_id: agent.agent_id }, context);
+  }
 
-    async list(input = {}) {
-      await init();
-      const status = input.status;
-      requireValue(status === undefined || VALID_STATUSES.has(status), 'AGENT_STATUS_INVALID', 400);
-      const limit = input.limit ?? 100;
-      requireValue(Number.isInteger(limit) && limit > 0 && limit <= 500, 'AGENT_LIMIT_INVALID', 400);
-      const query = status === undefined
-        ? db.prepare('SELECT * FROM agent_definitions ORDER BY id ASC LIMIT ?').bind(limit)
-        : db.prepare('SELECT * FROM agent_definitions WHERE status=? ORDER BY id ASC LIMIT ?').bind(status, limit);
-      return ((await query.all()).results || []).map(rowToRecord);
-    },
+  async get(input = {}, context = {}) {
+    await this.ready();
+    const owner = ownerFrom(context);
+    const id = text(input.agent_id ?? input.id);
+    requireValue(id, 'AGENT_ID_INVALID', 400);
+    const row = await this.db.prepare(
+      'SELECT * FROM mel_agents WHERE owner=? AND agent_id=?'
+    ).bind(owner, id).first();
+    requireValue(row, 'AGENT_NOT_FOUND', 404);
+    return rowToAgent(row);
+  }
 
-    async disable(input = {}) {
-      const id = typeof input === 'string' ? input : input.agent_id ?? input.id;
-      requireValue(nonEmptyString(id), 'AGENT_ID_REQUIRED', 400);
-      const current = await getRow(id.trim());
-      requireValue(current, 'AGENT_NOT_FOUND', 404);
-      await db.prepare('UPDATE agent_definitions SET status=?,updated_at=? WHERE id=?')
-        .bind(DISABLED, now(), id.trim())
-        .run();
-      return rowToRecord(await getRow(id.trim()));
-    },
-  });
+  async list(input = {}, context = {}) {
+    await this.ready();
+    const owner = ownerFrom(context);
+    requireValue(input && typeof input === 'object' && !Array.isArray(input), 'AGENT_LIST_INVALID', 400);
+    requireValue(input.enabled === undefined || typeof input.enabled === 'boolean', 'AGENT_ENABLED_INVALID', 400);
+    const limit = input.limit ?? 100;
+    requireValue(Number.isInteger(limit) && limit > 0 && limit <= 500, 'AGENT_LIST_LIMIT_INVALID', 400);
+
+    const result = input.enabled === undefined
+      ? await this.db.prepare(
+          'SELECT * FROM mel_agents WHERE owner=? ORDER BY agent_id ASC LIMIT ?'
+        ).bind(owner, limit).all()
+      : await this.db.prepare(
+          'SELECT * FROM mel_agents WHERE owner=? AND enabled=? ORDER BY agent_id ASC LIMIT ?'
+        ).bind(owner, input.enabled ? 1 : 0, limit).all();
+    return (result.results || []).map(rowToAgent);
+  }
+
+  async disable(input = {}, context = {}) {
+    await this.ready();
+    const owner = ownerFrom(context);
+    const id = text(input.agent_id ?? input.id);
+    requireValue(id, 'AGENT_ID_INVALID', 400);
+    const current = await this.get({ agent_id: id }, context);
+    if (!current.enabled) return current;
+    const at = this.now();
+    const changed = await this.db.prepare(
+      'UPDATE mel_agents SET enabled=0,updated_at=? WHERE owner=? AND agent_id=? AND enabled=1'
+    ).bind(at, owner, id).run();
+    requireValue(Boolean(changed?.meta?.changes), 'AGENT_DISABLE_RACE_LOST', 409);
+    return this.get({ agent_id: id }, context);
+  }
 }
 
-export const AGENT_STATUSES = Object.freeze({ ACTIVE, DISABLED });
+export class AgentAutomationGuard {
+  constructor({ agentRegistry, policy }) {
+    if (!agentRegistry || typeof agentRegistry.get !== 'function') throw new Error('AGENT_GUARD_REGISTRY_REQUIRED');
+    if (!policy
+      || typeof policy.authorizeRun !== 'function'
+      || typeof policy.completeRun !== 'function'
+      || typeof policy.failRun !== 'function'
+      || typeof policy.getRun !== 'function') {
+      throw new Error('AGENT_GUARD_POLICY_REQUIRED');
+    }
+    this.agentRegistry = agentRegistry;
+    this.policy = policy;
+  }
+
+  async authorizeRun(input, context = {}) {
+    const owner = ownerFrom(context);
+    requireValue(record(input), 'AUTOMATION_RUN_INVALID', 400);
+    const policy = input.policy;
+    requireValue(record(policy), 'AUTOMATION_POLICY_INVALID', 400);
+    const agent = await this.agentRegistry.get({ agent_id: policy.agent_id }, context);
+    requireValue(agent.enabled, 'AUTOMATION_AGENT_DISABLED', 409);
+
+    const required = strings(policy.required_capabilities ?? [], 'AUTOMATION_REQUIRED_CAPABILITIES_INVALID', { min: 1 });
+    const agentCaps = new Set(agent.capabilities);
+    requireValue(required.every(capability => agentCaps.has(capability)), 'AUTOMATION_AGENT_CAPABILITY_DENIED', 403);
+    requireValue(
+      Object.hasOwn(TIER_RANK, policy.permission_tier)
+        && TIER_RANK[policy.permission_tier] <= TIER_RANK[agent.permission_ceiling],
+      'AUTOMATION_AGENT_TIER_DENIED',
+      403,
+    );
+
+    return this.policy.authorizeRun({
+      ...input,
+      owner,
+      policy: {
+        ...policy,
+        agent_id: agent.agent_id,
+        required_capabilities: required,
+      },
+    });
+  }
+
+  async completeRun(input, context = {}) {
+    return this.#ownerScopedTerminal('completeRun', input, context);
+  }
+
+  async failRun(input, context = {}) {
+    return this.#ownerScopedTerminal('failRun', input, context);
+  }
+
+  async #ownerScopedTerminal(method, input, context) {
+    const owner = ownerFrom(context);
+    const run = await this.policy.getRun({ run_id: input?.run_id });
+    requireValue(run.owner === owner, 'AUTOMATION_RUN_OWNER_MISMATCH', 403);
+    return this.policy[method](input);
+  }
+}
+
+export function createD1AgentRegistryAdapter(db, options = {}) {
+  return new D1AgentRegistryAdapter(db, options);
+}

@@ -63,97 +63,7 @@ export function createPluginRuntime(options = {}) {
   const now = typeof options.now === 'function' ? options.now : () => Date.now();
   const logger = options.logger || null;
   const timeline = options.timeline || options.emit || null;
-  const registry = options.registry || null;
   const counters = { installed: 0, errors: 0, permission_denied: 0 };
-
-  if (registry) {
-    requireValue(
-      typeof registry.register === 'function'
-        && typeof registry.get === 'function'
-        && typeof registry.disable === 'function',
-      'PLUGIN_REGISTRY_INVALID',
-      500,
-    );
-  }
-
-  function durableEvidence(manifest, context = {}) {
-    if (!registry || context.pluginPersistence === false) return null;
-    requireValue(
-      typeof context.pluginArtifactHash === 'string' && context.pluginArtifactHash.trim(),
-      'PLUGIN_ARTIFACT_HASH_REQUIRED',
-      400,
-    );
-    requireValue(
-      context.pluginProofs && typeof context.pluginProofs === 'object' && !Array.isArray(context.pluginProofs),
-      'PLUGIN_PROOFS_REQUIRED',
-      400,
-    );
-    return {
-      manifest,
-      artifact_hash: context.pluginArtifactHash.trim(),
-      proofs: structuredClone(context.pluginProofs),
-    };
-  }
-
-  async function getDurableVersion(manifest) {
-    if (!registry) return null;
-    try {
-      return await registry.get({ plugin_id: manifest.id, version: manifest.version });
-    } catch (error) {
-      if (error?.code === 'PLUGIN_REGISTRY_VERSION_NOT_FOUND' || error?.code === 'PLUGIN_REGISTRY_NOT_FOUND') return null;
-      throw error;
-    }
-  }
-
-  async function prepareDurableActivation(manifest, base) {
-    if (!base) return null;
-
-    let current = await getDurableVersion(manifest);
-    if (!current) {
-      current = await registry.register({ ...base, proofs: {}, status: 'DISCOVERED' });
-    }
-
-    if (current.status === ACTIVE) {
-      throw new DomainError('PLUGIN_DURABLE_ALREADY_ACTIVE', 409);
-    }
-    if (current.status === 'FAILED' || current.status === 'ROLLED_BACK') {
-      current = await registry.register({ ...base, proofs: {}, status: 'DISCOVERED' });
-    }
-    if (current.status === 'DISABLED') {
-      current = await registry.register({ ...base, proofs: {}, status: 'CANDIDATE' });
-    }
-    if (current.status === 'DISCOVERED') {
-      current = await registry.register({ ...base, proofs: {}, status: 'VALIDATED' });
-    }
-    if (current.status === 'VALIDATED') {
-      current = await registry.register({ ...base, proofs: {}, status: 'CANDIDATE' });
-    }
-    if (current.status === 'CANDIDATE') {
-      current = await registry.register({ ...base, status: 'TESTED' });
-    }
-
-    requireValue(current.status === 'TESTED', 'PLUGIN_DURABLE_NOT_TESTED', 409);
-    return base;
-  }
-
-  async function markDurableFailed(base) {
-    if (!registry || !base) return;
-    try {
-      const current = await registry.get({
-        plugin_id: base.manifest.id,
-        version: base.manifest.version,
-      });
-      if (current?.status !== ACTIVE && current?.status !== FAILED) {
-        await registry.register({ ...base, status: FAILED });
-      }
-    } catch (error) {
-      logger?.warn?.('plugin.registry.failure-state.failed', {
-        plugin_id: base.manifest.id,
-        version: base.manifest.version,
-        error: error?.code || error?.message || String(error),
-      });
-    }
-  }
 
   async function emit(type, record, payload = {}) {
     const event = Object.freeze({
@@ -214,80 +124,6 @@ export function createPluginRuntime(options = {}) {
     });
   }
 
-  async function restore(plugin, context = {}) {
-    requireValue(registry, 'PLUGIN_REGISTRY_REQUIRED_FOR_RESTORE', 500);
-    const { manifest, capabilities } = contract(plugin);
-    const existing = records.get(manifest.id);
-    requireValue(!existing || existing.status !== ACTIVE, 'PLUGIN_ALREADY_ACTIVE', 409);
-
-    const record = {
-      manifest,
-      capabilities,
-      plugin,
-      durable: true,
-      status: 'RESTORING',
-      registered_at: now(),
-      updated_at: now(),
-      error: null,
-    };
-    records.set(manifest.id, record);
-
-    try {
-      requireValue(
-        typeof context.pluginArtifactHash === 'string' && context.pluginArtifactHash.trim(),
-        'PLUGIN_ARTIFACT_HASH_REQUIRED',
-        400,
-      );
-      const ctx = activationContext(record, context);
-      const durableVersion = await registry.get({
-        plugin_id: manifest.id,
-        version: manifest.version,
-      });
-      const durableRoot = await registry.get({ plugin_id: manifest.id });
-      requireValue(durableVersion.status === ACTIVE, 'PLUGIN_RESTORE_VERSION_NOT_ACTIVE', 409);
-      requireValue(durableRoot.active_version === manifest.version, 'PLUGIN_RESTORE_POINTER_MISMATCH', 409);
-      requireValue(
-        durableVersion.artifact_hash === context.pluginArtifactHash.trim(),
-        'PLUGIN_RESTORE_ARTIFACT_MISMATCH',
-        409,
-      );
-
-      await emit('restoring', record);
-      await plugin.activate(ctx);
-      record.status = ACTIVE;
-      record.updated_at = now();
-      counters.installed += 1;
-      await emit('restored', record);
-      return publicRecord(record);
-    } catch (error) {
-      try {
-        const durableVersion = await registry.get({
-          plugin_id: manifest.id,
-          version: manifest.version,
-        });
-        if (durableVersion?.status === ACTIVE) {
-          await registry.disable({
-            plugin_id: manifest.id,
-            version: manifest.version,
-          });
-        }
-      } catch (registryError) {
-        logger?.warn?.('plugin.restore.disable-durable.failed', {
-          plugin_id: manifest.id,
-          version: manifest.version,
-          error: registryError?.code || registryError?.message || String(registryError),
-        });
-      }
-
-      record.status = FAILED;
-      record.updated_at = now();
-      record.error = error?.code || error?.message || String(error);
-      counters.errors += 1;
-      await emit('restore_failed', record, { error: record.error });
-      return publicRecord(record);
-    }
-  }
-
   async function register(plugin, context = {}) {
     const { manifest, capabilities } = contract(plugin);
     const existing = records.get(manifest.id);
@@ -297,7 +133,6 @@ export function createPluginRuntime(options = {}) {
       manifest,
       capabilities,
       plugin,
-      durable: false,
       status: 'CANDIDATE',
       registered_at: now(),
       updated_at: now(),
@@ -305,48 +140,16 @@ export function createPluginRuntime(options = {}) {
     };
     records.set(manifest.id, record);
 
-    let ctx = null;
-    let durable = null;
-    let activated = false;
     try {
-      ctx = activationContext(record, context);
-      durable = durableEvidence(manifest, context);
-      record.durable = Boolean(durable);
-      await prepareDurableActivation(manifest, durable);
+      const ctx = activationContext(record, context);
       await emit('registering', record);
       await plugin.activate(ctx);
-      activated = true;
-
-      if (registry && durable) {
-        await registry.register({
-          ...durable,
-          status: ACTIVE,
-          proofs: {
-            ...durable.proofs,
-            activation: true,
-            version: manifest.version,
-          },
-        });
-      }
-
       record.status = ACTIVE;
       record.updated_at = now();
       counters.installed += 1;
       await emit('activated', record);
       return publicRecord(record);
     } catch (error) {
-      if (activated && ctx) {
-        try {
-          await plugin.deactivate(ctx);
-        } catch (rollbackError) {
-          logger?.error?.('plugin.activation.rollback.failed', {
-            plugin_id: manifest.id,
-            version: manifest.version,
-            error: rollbackError?.code || rollbackError?.message || String(rollbackError),
-          });
-        }
-      }
-      await markDurableFailed(durable);
       record.status = FAILED;
       record.updated_at = now();
       record.error = error?.code || error?.message || String(error);
@@ -392,12 +195,6 @@ export function createPluginRuntime(options = {}) {
     if (record.status !== ACTIVE) return publicRecord(record);
     try {
       await record.plugin.deactivate(activationContext(record, context));
-      if (registry && record.durable) {
-        await registry.disable({
-          plugin_id: record.manifest.id,
-          version: record.manifest.version,
-        });
-      }
       record.status = 'DISABLED';
       record.updated_at = now();
       await emit('deactivated', record);
@@ -436,7 +233,6 @@ export function createPluginRuntime(options = {}) {
   return Object.freeze({
     register,
     registerAll,
-    restore,
     deactivate,
     execute,
     get(id) { return publicRecord(records.get(id)); },

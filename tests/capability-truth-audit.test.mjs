@@ -38,12 +38,15 @@ test('capability.audit can prove itself through a bounded non-recursive smoke sa
   registerCapabilityAuditCapability(bus);
   const report = await auditRuntimeCapabilities({ bus }, { deep: true });
   const row = report.capabilities.find(item => item.id === 'capability.audit');
-  assert.equal(report.total, 1);
+  const statusRow = report.capabilities.find(item => item.id === 'capability.audit.status');
+  assert.equal(report.total, 2);
   assert.equal(row.tested_now, true);
   assert.equal(row.auto_execution_blocked, null);
   assert.equal(row.truth_status, 'EXISTANT_ET_TESTE');
   assert.equal(row.execution.ok, true);
   assert.equal(row.execution.result_type, 'object');
+  assert.equal(statusRow.tested_now, false);
+  assert.equal(statusRow.truth_status, 'BLOCKED_EXTERNAL');
 });
 
 test('shared truth classifier never promotes healthy registration to tested proof', () => {
@@ -87,6 +90,34 @@ test('deep audit executes bounded LOW-risk samples and reports failures instead 
   assert.equal(medium.tested_now, false);
   assert.equal(medium.auto_execution_blocked, 'RISK_NOT_LOW');
   assert.equal(medium.truth_status, 'EXISTANT_NON_TESTE');
+});
+
+test('deep audit times out one hung LOW-risk smoke and continues with later capabilities', async () => {
+  const records = [
+    { id:'hung', name:'Hung', category:'test', provider:'test', risk:'LOW', enabled:true, health:'HEALTHY' },
+    { id:'after', name:'After', category:'test', provider:'test', risk:'LOW', enabled:true, health:'HEALTHY' },
+  ];
+  const fake = {
+    bus: {
+      list: () => records,
+      execute: async (id) => {
+        if (id === 'hung') return new Promise(() => {});
+        return { ok:true };
+      },
+    },
+  };
+  const progress = [];
+  const report = await auditRuntimeCapabilities(fake, {
+    deep:true,
+    samples:{ hung:{}, after:{} },
+    executionTimeoutMs:50,
+    onProgress: async ({ row }) => progress.push(row.id),
+  });
+  assert.equal(report.total, 2);
+  assert.equal(report.capabilities[0].truth_status, 'EXISTANT_MAIS_ECHEC_RUNTIME');
+  assert.equal(report.capabilities[0].execution.code, 'CAPABILITY_AUDIT_EXECUTION_TIMEOUT');
+  assert.equal(report.capabilities[1].truth_status, 'EXISTANT_ET_TESTE');
+  assert.deepEqual(progress, ['hung','after']);
 });
 
 test('deep audit explains every local reason that prevents bounded automatic execution', async () => {

@@ -6,7 +6,7 @@
  * The HTTP contract stays here, while execution crosses CapabilityBus.
  */
 
-import { requireAuth } from "../core/security.js";
+import { requireAuth, isReleaseSmokeRequest } from "../core/security.js";
 import { json } from "../core/http.js";
 import { ClientError } from "../core/errors.js";
 import { createGen2Runtime } from "../core/orchestrator/gen2-runtime.js";
@@ -19,11 +19,12 @@ function busContext(env) {
   };
 }
 
-async function executeResearch(env, { query, domains = null, depth = 1 }) {
+async function executeResearch(env, { query, domains = null, depth = 1, seedUrls = null }) {
   const runtime = createGen2Runtime({ env });
   return runtime.bus.execute("web.research", {
     query,
     ...(Array.isArray(domains) && domains.length ? { domains } : {}),
+    ...(Array.isArray(seedUrls) && seedUrls.length ? { seed_urls: seedUrls } : {}),
     depth,
   }, busContext(env));
 }
@@ -44,9 +45,21 @@ async function handleResearch(request, env) {
     const domains = body.domains
       ? String(body.domains).split(",").map(d => d.trim()).filter(Boolean).slice(0, 3)
       : null;
+    const seedUrls = Array.isArray(body.seed_urls)
+      ? body.seed_urls.map(url => String(url || "").trim()).filter(Boolean).slice(0, 6)
+      : null;
+
+    if (isReleaseSmokeRequest(request, env)) {
+      const allowedSeed = 'https://developers.cloudflare.com/workers/';
+      const exactSeed = Array.isArray(seedUrls) && seedUrls.length === 1 && seedUrls[0] === allowedSeed;
+      const exactQuery = query === 'Cloudflare Workers official documentation';
+      if (!exactSeed || !exactQuery || depth !== 2 || domains) {
+        throw new ClientError("Release research smoke scope denied", "RELEASE_SMOKE_RESEARCH_SCOPE_DENIED", 403);
+      }
+    }
 
     try {
-      const result = await executeResearch(env, { query, domains, depth });
+      const result = await executeResearch(env, { query, domains, depth, seedUrls });
       result.retrieved_at = new Date().toISOString();
       return json({
         ok: true,

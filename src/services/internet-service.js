@@ -1,5 +1,8 @@
 import { fetchWebContent, validateUrl } from '../devices/web-capability.js';
-import { normalizeResearchDomains, sourceEvidenceMetadata, summarizeResearchEvidence, urlMatchesResearchDomains } from '../research/source-quality.js';
+import {
+  rankWebSources,
+  summarizeWebSourceQuality,
+} from '../search/web-source-quality.js';
 
 /**
  * InternetService — bounded web research with provenance, rate limiting and safe fetches.
@@ -36,14 +39,17 @@ class InternetService {
       content: html,
       title: this.extractTitle(html, url),
       snippet: this.extractSnippet(html),
+      image_url: this.extractImageUrl(html, url),
       source_kind: kind,
       provenance: typeof page === 'object' ? {
         source_id: page.source_id,
         fetched_at: page.timestamp,
+        requested_url: page.requested_url || fallbackUrl,
+        final_url: page.url || fallbackUrl,
+        redirect_count: Number(page.redirect_count || 0),
+        redirect_chain: Array.isArray(page.redirect_chain) ? [...page.redirect_chain] : [page.url || fallbackUrl],
         content_type: page.content_type,
-        content_sha256: page.content_sha256,
         fetch_duration_ms: page.fetch_duration_ms,
-        redirect_count: page.redirect_count,
         truncated: page.truncated,
       } : null,
     };
@@ -90,14 +96,13 @@ class InternetService {
     return links;
   }
 
-  normalizeSeedUrls(seedUrls, limit = 6, domains = []) {
+  normalizeSeedUrls(seedUrls, limit = 6) {
     const out = [];
     const seen = new Set();
     for (const raw of Array.isArray(seedUrls) ? seedUrls : []) {
       const validation = validateUrl(String(raw || '').trim());
       if (!validation.valid) continue;
       const url = validation.url.href;
-      if (!urlMatchesResearchDomains(url, domains)) continue;
       if (seen.has(url)) continue;
       seen.add(url);
       out.push(url);
@@ -111,8 +116,7 @@ class InternetService {
     const querySanitized = String(query || '').trim();
     if (!querySanitized) throw new Error('INVALID_QUERY');
     const depth = Math.max(1, Math.min(3, Number(maxDepth) || 1));
-    const domainFilters = normalizeResearchDomains(domains);
-    const officialSeedUrls = this.normalizeSeedUrls(seedUrls, 6, domainFilters);
+    const officialSeedUrls = this.normalizeSeedUrls(seedUrls, 6);
     const officialSources = [];
     for (const url of officialSeedUrls) {
       try {
@@ -124,13 +128,15 @@ class InternetService {
       }
     }
 
-    const domainClause = domainFilters.length
-      ? domainFilters.map(domain => `site:${domain}`).join(' OR ')
-      : '';
-    const discoveryQuery = domainClause ? `${querySanitized} (${domainClause})` : querySanitized;
     const searchUrls = [];
-    if (depth >= 1) searchUrls.push(`https://www.google.com/search?q=${encodeURIComponent(discoveryQuery)}`);
-    if (depth >= 2) searchUrls.push(`https://duckduckgo.com/html/?q=${encodeURIComponent(discoveryQuery)}`);
+    if (depth >= 1) searchUrls.push(`https://www.google.com/search?q=${encodeURIComponent(querySanitized)}`);
+    if (depth >= 2) searchUrls.push(`https://duckduckgo.com/html/?q=${encodeURIComponent(querySanitized)}`);
+    if (depth >= 3 && Array.isArray(domains)) {
+      for (const domain of domains.slice(0, 3)) {
+        const clean = String(domain || '').trim();
+        if (clean) searchUrls.push(`https://${clean}/search?q=${encodeURIComponent(querySanitized)}`);
+      }
+    }
 
     const searchResults = officialSources.length ? [] : await Promise.all(searchUrls.slice(0, 3).map(async url => {
       try {
@@ -151,7 +157,6 @@ class InternetService {
     if (depth >= 2) {
       for (const index of searchIndexes) {
         for (const url of this.extractCandidateLinks(index.content, index.url, 12)) {
-          if (!urlMatchesResearchDomains(url, domainFilters)) continue;
           if (seen.has(url)) continue;
           seen.add(url);
           discovered.push(url);
@@ -173,19 +178,20 @@ class InternetService {
       }
     }
 
-    const rawSources = officialSources.length ? officialSources : (directSources.length ? directSources : searchIndexes);
-    const sources = rawSources.map(source => ({
-      ...source,
-      evidence: sourceEvidenceMetadata(source),
-    }));
+    const rawSources = officialSources.length
+      ? officialSources
+      : (directSources.length ? directSources : searchIndexes);
+    const sources = rankWebSources(rawSources, {
+      preferredDomains: Array.isArray(domains) ? domains : [],
+    });
+    const qualitySummary = summarizeWebSourceQuality(sources);
     return {
       query: querySanitized,
       sources,
       citations_count: sources.length,
+      quality_summary: qualitySummary,
       depth,
-      evidence: summarizeResearchEvidence(sources, { domains: domainFilters }),
       discovery: {
-        domain_filters: [...domainFilters],
         official_seed_urls: officialSeedUrls,
         official_sources_loaded: officialSources.length,
         search_indexes: searchIndexes.map(source => ({
@@ -197,7 +203,7 @@ class InternetService {
         direct_sources_loaded: directSources.length,
       },
       citation: this.buildCitation(sources),
-      summary: this.summarizeSources(sources),
+      summary: this.summarizeSources(sources, qualitySummary),
       provenance: {
         source_id: this.sourceId,
         timestamp: new Date().toISOString(),
@@ -211,11 +217,7 @@ class InternetService {
     if (String(url).length > 500) throw new Error('URL too long');
     try {
       const fetchImpl = typeof this.env?.MEL_WEB_FETCH === 'function' ? this.env.MEL_WEB_FETCH : fetch;
-      return await fetchWebContent(this.sourceId, url, {
-        fetchImpl,
-        dnsResolver: typeof this.env?.MEL_WEB_DNS_RESOLVE === 'function' ? this.env.MEL_WEB_DNS_RESOLVE : null,
-        requireDnsValidation: this.env?.MEL_WEB_REQUIRE_DNS_VALIDATION === true,
-      });
+      return await fetchWebContent(this.sourceId, url, { fetchImpl });
     } catch (e) {
       throw new Error(`fetchPage(${url}) failed: ${e.message}`);
     }
@@ -225,6 +227,26 @@ class InternetService {
     const match = String(html).match(/<title[^>]*>([^<]*)<\/title>/i);
     if (match?.[1]) return match[1].trim();
     try { return new URL(url).hostname; } catch { return 'Unknown'; }
+  }
+
+  extractImageUrl(html, baseUrl) {
+    const source = String(html || '');
+    const patterns = [
+      /<meta[^>]+property=["']og:image(?::secure_url)?["'][^>]*content=["']([^"']+)["']/i,
+      /<meta[^>]+content=["']([^"']+)["'][^>]*property=["']og:image(?::secure_url)?["']/i,
+      /<meta[^>]+name=["']twitter:image(?::src)?["'][^>]*content=["']([^"']+)["']/i,
+      /<meta[^>]+content=["']([^"']+)["'][^>]*name=["']twitter:image(?::src)?["']/i,
+    ];
+    for (const pattern of patterns) {
+      const match = source.match(pattern);
+      if (!match?.[1]) continue;
+      try {
+        const candidate = new URL(match[1].trim(), baseUrl);
+        if (candidate.protocol !== 'https:' || candidate.username || candidate.password) continue;
+        return candidate.href.slice(0, 1200);
+      } catch {}
+    }
+    return '';
   }
 
   extractSnippet(html) {
@@ -237,15 +259,21 @@ class InternetService {
 
   buildCitation(sources) {
     return sources.map((source, i) => {
-      const label = source?.evidence?.discovery_only ? 'DISCOVERY INDEX' : 'DIRECT SOURCE';
-      return `[${i + 1}] [${label}] ${source.title}\nURL: ${source.url}\nSnippet: ${source.snippet.slice(0, 200)}`;
+      const quality = source?.quality || {};
+      const qualityLine = quality.band
+        ? `Evidence quality: ${quality.band} (${quality.score}/100; provenance heuristic, not truth score)\n`
+        : '';
+      return `[${i + 1}] ${source.title}\nURL: ${source.url}\n${qualityLine}Snippet: ${source.snippet.slice(0, 200)}`;
     }).join('\n\n');
   }
 
-  summarizeSources(sources) {
+  summarizeSources(sources, qualitySummary = null) {
     if (!sources.length) return 'No sources found or all sources failed to load.';
     const titles = [...new Set(sources.map(source => source.title))];
-    return `Found ${sources.length} relevant sources covering: ${titles.slice(0, 5).join(', ') || 'multiple topics'}.`;
+    const quality = qualitySummary
+      ? ` Provenance mix: ${qualitySummary.bands.HIGH_PROVENANCE} high-provenance, ${qualitySummary.bands.DIRECT_EVIDENCE} direct-evidence, ${qualitySummary.bands.DISCOVERY_ONLY} discovery-only.`
+      : '';
+    return `Found ${sources.length} relevant sources covering: ${titles.slice(0, 5).join(', ') || 'multiple topics'}.${quality}`;
   }
 }
 

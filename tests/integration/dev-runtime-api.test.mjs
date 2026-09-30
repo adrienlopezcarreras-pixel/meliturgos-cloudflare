@@ -137,3 +137,62 @@ test('runtime without D1 fails closed instead of simulating persistent jobs', as
   const body = await response.json();
   assert.equal(body.code, 'DEV_RUNTIME_DB_REQUIRED');
 });
+
+
+test('bridge autonomy tick delegates to canonical runtime under bridge auth', async () => {
+  const repository = new D1DevJobRepository(null, { memoryStore: new Map() });
+  let calls = 0;
+  const response = await devRuntime(
+    new Request('http://x/api/dev-bridge/autonomy/tick', {
+      method: 'POST',
+      headers: auth,
+      body: '{}',
+    }),
+    env,
+    {
+      repository,
+      runAutonomyTick: async (_env, options) => {
+        calls += 1;
+        assert.equal(options.repository, repository);
+        return {
+          ok: true,
+          status: 'ACTIVE',
+          advanced: true,
+          completions: {
+            completed: [{ job_id: 'ecosystem-watch-fixture', candidate_sha: 'a'.repeat(40), ci_run_id: 123 }],
+            rejected: [],
+          },
+        };
+      },
+    },
+  );
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(calls, 1);
+  assert.equal(body.ok, true);
+  assert.equal(body.tick.status, 'ACTIVE');
+  assert.equal(body.tick.completions.completed[0].job_id, 'ecosystem-watch-fixture');
+});
+
+test('bridge autonomy tick still requires bridge authentication', async () => {
+  const repository = new D1DevJobRepository(null, { memoryStore: new Map() });
+  let calls = 0;
+  const response = await devRuntime(
+    new Request('http://x/api/dev-bridge/autonomy/tick', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: '{}',
+    }),
+    env,
+    {
+      repository,
+      runAutonomyTick: async () => {
+        calls += 1;
+        return { ok: true };
+      },
+    },
+  );
+  assert.equal(response.status, 401);
+  assert.equal(calls, 0);
+  assert.equal((await response.json()).code, 'BRIDGE_AUTH_REQUIRED');
+});

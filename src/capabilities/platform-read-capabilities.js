@@ -1,3 +1,4 @@
+import { D1CloudflareApiRelayStore } from '../platform/cloudflare-api-relay.js';
 const GITHUB_API = 'https://api.github.com';
 const CLOUDFLARE_API = 'https://api.cloudflare.com/client/v4';
 const VERCEL_API = 'https://api.vercel.com';
@@ -59,16 +60,28 @@ async function requestJson(fetchImpl, url, { token = '', code = 'PLATFORM_READ_F
       redirect: 'error',
       signal: AbortSignal.timeout(8000),
     });
-  } catch {
-    throw capabilityError(code, 503);
+  } catch (error) {
+    const name = String(error?.name || 'FETCH_FAILED').replace(/[^A-Za-z0-9_]/g, '_').toUpperCase().slice(0, 40);
+    throw capabilityError(code + '_FETCH_' + name, 503);
   }
+
+  let parsed = null;
+  try {
+    parsed = await response.clone().json();
+  } catch {}
 
   if (!response?.ok) {
-    if (response?.status === 401 || response?.status === 403) throw capabilityError(code + '_AUTH', 403);
-    if (response?.status === 429) throw capabilityError(code + '_RATE_LIMITED', 503);
-    throw capabilityError(code, response?.status >= 400 && response?.status < 600 ? response.status : 502);
+    const cfCodes = Array.isArray(parsed?.errors)
+      ? parsed.errors.map(row => Number(row?.code || 0)).filter(Boolean).slice(0, 4)
+      : [];
+    const detail = '_HTTP_' + String(Number(response?.status || 0) || 0)
+      + (cfCodes.length ? '_CF_' + cfCodes.join('_') : '');
+    if (response?.status === 401 || response?.status === 403) throw capabilityError(code + '_AUTH' + detail, 403);
+    if (response?.status === 429) throw capabilityError(code + '_RATE_LIMITED' + detail, 503);
+    throw capabilityError(code + detail, response?.status >= 400 && response?.status < 600 ? response.status : 502);
   }
 
+  if (parsed) return parsed;
   try {
     return await response.json();
   } catch {
@@ -120,13 +133,23 @@ function deploymentRow(row = {}) {
   };
 }
 
-export function registerPlatformReadCapabilities(bus, { env = {}, fetchImpl = fetch, repository = '' } = {}) {
+export function registerPlatformReadCapabilities(bus, { env = {}, fetchImpl = fetch, repository = '', resolveVercelConfig = null, cloudflareRelayStore = null } = {}) {
   const githubRepository = repository || env.MEL_GITHUB_REPOSITORY || '';
   const githubToken = String(env.MEL_GITHUB_TOKEN || '').trim();
   const cloudflareToken = String(env.CLOUDFLARE_API_TOKEN || '').trim();
   const cloudflareAccountId = String(env.CLOUDFLARE_ACCOUNT_ID || '').trim();
-  const vercelToken = String(env.VERCEL_TOKEN || '').trim();
-  const vercelTeamId = String(env.VERCEL_TEAM_ID || '').trim();
+  const cloudflareRelay = cloudflareRelayStore || (env?.DB && typeof env.DB.prepare === 'function'
+    ? new D1CloudflareApiRelayStore(env.DB)
+    : null);
+  const staticVercelToken = String(env.VERCEL_TOKEN || '').trim();
+  const staticVercelTeamId = String(env.VERCEL_TEAM_ID || '').trim();
+  const getVercelConfig = async () => {
+    const dynamic = typeof resolveVercelConfig === 'function' ? await resolveVercelConfig() : null;
+    return {
+      token: String(dynamic?.token || staticVercelToken || '').trim(),
+      teamId: String(dynamic?.team_id || staticVercelTeamId || '').trim(),
+    };
+  };
 
   bus.discover({
     id: 'github.repository.read',
@@ -221,30 +244,58 @@ export function registerPlatformReadCapabilities(bus, { env = {}, fetchImpl = fe
     id: 'cloudflare.workers.read',
     name: 'Cloudflare Workers list',
     category: 'development',
-    version: '1.0.0',
+    version: '1.1.0',
     provider: 'cloudflare',
-    description: 'Reads a bounded inventory of Worker scripts for the configured Cloudflare account. It never downloads source or secrets.',
+    description: 'Reads a bounded inventory of Worker scripts. In production it uses the durable GitHub Actions Cloudflare relay because Workers cannot reliably call Cloudflare-owned API IPs directly.',
     input_schema: {
       type: 'object',
-      properties: { limit: { type: 'integer', minimum: 1, maximum: MAX_LIST } },
+      properties: {
+        limit: { type: 'integer', minimum: 1, maximum: MAX_LIST },
+        relay_job_id: { type: 'string', minLength: 1, maxLength: 200 },
+      },
       additionalProperties: false,
     },
     output_schema: { type: 'object', additionalProperties: true },
     risk: 'LOW',
     permissions: [],
-    health: configured(env, 'CLOUDFLARE_API_TOKEN', 'CLOUDFLARE_ACCOUNT_ID') ? 'DEGRADED' : 'UNAVAILABLE',
+    health: cloudflareRelay || configured(env, 'CLOUDFLARE_API_TOKEN', 'CLOUDFLARE_ACCOUNT_ID') ? 'DEGRADED' : 'UNAVAILABLE',
     enabled: true,
-    healthcheck: async () => probeHealth(
-      () => requestJson(fetchImpl, `${CLOUDFLARE_API}/accounts/${encodeURIComponent(safeResource(cloudflareAccountId, 'CLOUDFLARE_ACCOUNT_ID_INVALID', 64))}/workers/scripts`, {
-        token: cloudflareToken,
-        code: 'CLOUDFLARE_WORKERS_READ_FAILED',
-      }),
-      cloudflareToken && cloudflareAccountId ? '' : 'CLOUDFLARE_RUNTIME_CREDENTIALS_NOT_CONFIGURED',
-    ),
+    healthcheck: async () => {
+      if (cloudflareRelay) {
+        try {
+          const health = await cloudflareRelay.health();
+          return health.online
+            ? { status: 'HEALTHY' }
+            : { status: 'DEGRADED', reason: 'CLOUDFLARE_API_RELAY_OFFLINE' };
+        } catch (error) {
+          return healthFailure(error);
+        }
+      }
+      return probeHealth(
+        () => requestJson(fetchImpl, `${CLOUDFLARE_API}/accounts/${encodeURIComponent(safeResource(cloudflareAccountId, 'CLOUDFLARE_ACCOUNT_ID_INVALID', 64))}/workers/scripts`, {
+          token: cloudflareToken,
+          code: 'CLOUDFLARE_WORKERS_READ_FAILED',
+        }),
+        cloudflareToken && cloudflareAccountId ? '' : 'CLOUDFLARE_RUNTIME_CREDENTIALS_NOT_CONFIGURED',
+      );
+    },
   }, async input => {
+    const count = limit(input.limit);
+    if (cloudflareRelay) {
+      const jobId = String(input.relay_job_id || '').trim();
+      if (jobId) {
+        if (!/^cf-relay-[A-Za-z0-9-]+$/.test(jobId)) throw capabilityError('CLOUDFLARE_RELAY_JOB_ID_INVALID', 400);
+        const job = await cloudflareRelay.get(jobId);
+        if (!job) throw capabilityError('CLOUDFLARE_RELAY_JOB_NOT_FOUND', 404);
+        if (job.status === 'FAILED') throw capabilityError(job.error || 'CLOUDFLARE_RELAY_JOB_FAILED', 502);
+        if (job.status === 'COMPLETE') return job.result || { provider:'cloudflare', scripts:[], count:0 };
+        return { provider:'cloudflare', transport:cloudflareRelay.transport, pending:true, relay_job_id:job.id, status:job.status };
+      }
+      const job = await cloudflareRelay.enqueue({ operation:'workers.list', input:{ limit:count } });
+      return { provider:'cloudflare', transport:cloudflareRelay.transport, pending:true, relay_job_id:job.id, status:job.status };
+    }
     if (!cloudflareToken || !cloudflareAccountId) throw capabilityError('CLOUDFLARE_AUTH_REQUIRED', 503);
     const accountId = safeResource(cloudflareAccountId, 'CLOUDFLARE_ACCOUNT_ID_INVALID', 64);
-    const count = limit(input.limit);
     const body = await requestJson(fetchImpl, `${CLOUDFLARE_API}/accounts/${encodeURIComponent(accountId)}/workers/scripts`, {
       token: cloudflareToken,
       code: 'CLOUDFLARE_WORKERS_READ_FAILED',
@@ -265,41 +316,67 @@ export function registerPlatformReadCapabilities(bus, { env = {}, fetchImpl = fe
     id: 'cloudflare.deployments.read',
     name: 'Cloudflare Worker deployments',
     category: 'development',
-    version: '1.0.0',
+    version: '1.1.0',
     provider: 'cloudflare',
-    description: 'Reads bounded deployment metadata for one named Worker script in the configured Cloudflare account.',
+    description: 'Reads bounded deployment metadata for one Worker. In production it uses the durable GitHub Actions Cloudflare relay.',
     input_schema: {
       type: 'object',
       properties: {
         script: { type: 'string', minLength: 1, maxLength: 128 },
         limit: { type: 'integer', minimum: 1, maximum: MAX_LIST },
+        relay_job_id: { type: 'string', minLength: 1, maxLength: 200 },
       },
-      required: ['script'],
       additionalProperties: false,
     },
     output_schema: { type: 'object', additionalProperties: true },
     risk: 'LOW',
     permissions: [],
-    health: configured(env, 'CLOUDFLARE_API_TOKEN', 'CLOUDFLARE_ACCOUNT_ID') ? 'DEGRADED' : 'UNAVAILABLE',
+    health: cloudflareRelay || configured(env, 'CLOUDFLARE_API_TOKEN', 'CLOUDFLARE_ACCOUNT_ID') ? 'DEGRADED' : 'UNAVAILABLE',
     enabled: true,
-    healthcheck: async () => probeHealth(
-      () => requestJson(fetchImpl, `${CLOUDFLARE_API}/accounts/${encodeURIComponent(safeResource(cloudflareAccountId, 'CLOUDFLARE_ACCOUNT_ID_INVALID', 64))}/workers/scripts`, {
-        token: cloudflareToken,
-        code: 'CLOUDFLARE_WORKERS_READ_FAILED',
-      }),
-      cloudflareToken && cloudflareAccountId ? '' : 'CLOUDFLARE_RUNTIME_CREDENTIALS_NOT_CONFIGURED',
-    ),
+    healthcheck: async () => {
+      if (cloudflareRelay) {
+        try {
+          const health = await cloudflareRelay.health();
+          return health.online
+            ? { status: 'HEALTHY' }
+            : { status: 'DEGRADED', reason: 'CLOUDFLARE_API_RELAY_OFFLINE' };
+        } catch (error) {
+          return healthFailure(error);
+        }
+      }
+      return probeHealth(
+        () => requestJson(fetchImpl, `${CLOUDFLARE_API}/accounts/${encodeURIComponent(safeResource(cloudflareAccountId, 'CLOUDFLARE_ACCOUNT_ID_INVALID', 64))}/workers/scripts`, {
+          token: cloudflareToken,
+          code: 'CLOUDFLARE_WORKERS_READ_FAILED',
+        }),
+        cloudflareToken && cloudflareAccountId ? '' : 'CLOUDFLARE_RUNTIME_CREDENTIALS_NOT_CONFIGURED',
+      );
+    },
   }, async input => {
+    const count = limit(input.limit);
+    if (cloudflareRelay) {
+      const jobId = String(input.relay_job_id || '').trim();
+      if (jobId) {
+        if (!/^cf-relay-[A-Za-z0-9-]+$/.test(jobId)) throw capabilityError('CLOUDFLARE_RELAY_JOB_ID_INVALID', 400);
+        const job = await cloudflareRelay.get(jobId);
+        if (!job) throw capabilityError('CLOUDFLARE_RELAY_JOB_NOT_FOUND', 404);
+        if (job.status === 'FAILED') throw capabilityError(job.error || 'CLOUDFLARE_RELAY_JOB_FAILED', 502);
+        if (job.status === 'COMPLETE') return job.result || { provider:'cloudflare', deployments:[], count:0 };
+        return { provider:'cloudflare', transport:cloudflareRelay.transport, pending:true, relay_job_id:job.id, status:job.status };
+      }
+      const script = safeResource(input.script, 'CLOUDFLARE_SCRIPT_INVALID', 128);
+      const job = await cloudflareRelay.enqueue({ operation:'deployments.list', input:{ script, limit:count } });
+      return { provider:'cloudflare', transport:cloudflareRelay.transport, pending:true, relay_job_id:job.id, status:job.status };
+    }
     if (!cloudflareToken || !cloudflareAccountId) throw capabilityError('CLOUDFLARE_AUTH_REQUIRED', 503);
     const accountId = safeResource(cloudflareAccountId, 'CLOUDFLARE_ACCOUNT_ID_INVALID', 64);
     const script = safeResource(input.script, 'CLOUDFLARE_SCRIPT_INVALID', 128);
-    const count = limit(input.limit);
     const body = await requestJson(fetchImpl, `${CLOUDFLARE_API}/accounts/${encodeURIComponent(accountId)}/workers/scripts/${encodeURIComponent(script)}/deployments`, {
       token: cloudflareToken,
       code: 'CLOUDFLARE_DEPLOYMENTS_READ_FAILED',
     });
     if (body?.success === false) throw capabilityError('CLOUDFLARE_DEPLOYMENTS_READ_FAILED', 502);
-    const deployments = (Array.isArray(body?.result) ? body.result : []).slice(0, count).map(row => ({
+    const deployments = (Array.isArray(body?.result?.deployments) ? body.result.deployments : []).slice(0, count).map(row => ({
       id: String(row.id || ''),
       created_on: String(row.created_on || ''),
       source: String(row.source || ''),
@@ -327,26 +404,26 @@ export function registerPlatformReadCapabilities(bus, { env = {}, fetchImpl = fe
     output_schema: { type: 'object', additionalProperties: true },
     risk: 'LOW',
     permissions: [],
-    health: configured(env, 'VERCEL_TOKEN') ? 'DEGRADED' : 'UNAVAILABLE',
+    health: staticVercelToken || typeof resolveVercelConfig === 'function' ? 'DEGRADED' : 'UNAVAILABLE',
     enabled: true,
-    healthcheck: async () => probeHealth(
-      () => {
-        const params = new URLSearchParams({ limit: '1' });
-        if (vercelTeamId) params.set('teamId', vercelTeamId);
-        return requestJson(fetchImpl, `${VERCEL_API}/v9/projects?${params.toString()}`, {
-          token: vercelToken,
-          code: 'VERCEL_PROJECTS_READ_FAILED',
-        });
-      },
-      vercelToken ? '' : 'VERCEL_RUNTIME_CREDENTIALS_NOT_CONFIGURED',
-    ),
+    healthcheck: async () => {
+      const cfg = await getVercelConfig();
+      return probeHealth(
+        () => requestJson(fetchImpl, `${VERCEL_API}/v2/user`, {
+          token: cfg.token,
+          code: 'VERCEL_ACCOUNT_HEALTH_FAILED',
+        }),
+        cfg.token ? '' : 'VERCEL_RUNTIME_CREDENTIALS_NOT_CONFIGURED',
+      );
+    },
   }, async input => {
-    if (!vercelToken) throw capabilityError('VERCEL_AUTH_REQUIRED', 503);
+    const cfg = await getVercelConfig();
+    if (!cfg.token) throw capabilityError('VERCEL_AUTH_REQUIRED', 503);
     const count = limit(input.limit);
     const params = new URLSearchParams({ limit: String(count) });
-    if (vercelTeamId) params.set('teamId', vercelTeamId);
+    if (cfg.teamId) params.set('teamId', cfg.teamId);
     const body = await requestJson(fetchImpl, `${VERCEL_API}/v9/projects?${params.toString()}`, {
-      token: vercelToken,
+      token: cfg.token,
       code: 'VERCEL_PROJECTS_READ_FAILED',
     });
     const projects = (Array.isArray(body?.projects) ? body.projects : []).slice(0, count).map(projectRow);
@@ -372,27 +449,27 @@ export function registerPlatformReadCapabilities(bus, { env = {}, fetchImpl = fe
     output_schema: { type: 'object', additionalProperties: true },
     risk: 'LOW',
     permissions: [],
-    health: configured(env, 'VERCEL_TOKEN') ? 'DEGRADED' : 'UNAVAILABLE',
+    health: staticVercelToken || typeof resolveVercelConfig === 'function' ? 'DEGRADED' : 'UNAVAILABLE',
     enabled: true,
-    healthcheck: async () => probeHealth(
-      () => {
-        const params = new URLSearchParams({ limit: '1' });
-        if (vercelTeamId) params.set('teamId', vercelTeamId);
-        return requestJson(fetchImpl, `${VERCEL_API}/v9/projects?${params.toString()}`, {
-          token: vercelToken,
-          code: 'VERCEL_PROJECTS_READ_FAILED',
-        });
-      },
-      vercelToken ? '' : 'VERCEL_RUNTIME_CREDENTIALS_NOT_CONFIGURED',
-    ),
+    healthcheck: async () => {
+      const cfg = await getVercelConfig();
+      return probeHealth(
+        () => requestJson(fetchImpl, `${VERCEL_API}/v2/user`, {
+          token: cfg.token,
+          code: 'VERCEL_ACCOUNT_HEALTH_FAILED',
+        }),
+        cfg.token ? '' : 'VERCEL_RUNTIME_CREDENTIALS_NOT_CONFIGURED',
+      );
+    },
   }, async input => {
-    if (!vercelToken) throw capabilityError('VERCEL_AUTH_REQUIRED', 503);
+    const cfg = await getVercelConfig();
+    if (!cfg.token) throw capabilityError('VERCEL_AUTH_REQUIRED', 503);
     const projectId = safeResource(input.projectId, 'VERCEL_PROJECT_ID_INVALID', 200);
     const count = limit(input.limit);
     const params = new URLSearchParams({ projectId, limit: String(count) });
-    if (vercelTeamId) params.set('teamId', vercelTeamId);
+    if (cfg.teamId) params.set('teamId', cfg.teamId);
     const body = await requestJson(fetchImpl, `${VERCEL_API}/v6/deployments?${params.toString()}`, {
-      token: vercelToken,
+      token: cfg.token,
       code: 'VERCEL_DEPLOYMENTS_READ_FAILED',
     });
     const deployments = (Array.isArray(body?.deployments) ? body.deployments : []).slice(0, count).map(deploymentRow);

@@ -87,3 +87,19 @@ test('owner-chat becomes claimable only after the same correlated Teacher approv
   assert.equal(claimed?.id, approved.id);
   assert.equal(claimed?.status, 'CLAIMED');
 });
+
+
+test('cloud fallback can atomically claim one exact prepared job without stealing another', async () => {
+  const repository = new D1DevJobRepository(null, { memoryStore: new Map() });
+  const first = await prepareApprovedBridgeJob(repository, { id: 'mel-approved-first', requestedBy: 'mel-autonomy' });
+  const second = await prepareApprovedBridgeJob(repository, { id: 'mel-approved-second', requestedBy: 'mel-autonomy' });
+
+  const claimed = await repository.claimPrepared(second.id);
+  assert.equal(claimed?.id, second.id);
+  assert.equal(claimed?.status, 'CLAIMED');
+  assert.equal((await repository.get(first.id))?.status, 'TEACHER_APPROVED');
+
+  const duplicate = await repository.claimPrepared(second.id);
+  assert.equal(duplicate, null, 'the same prepared package must never be claimed twice');
+  assert.equal((await repository.get(first.id))?.status, 'TEACHER_APPROVED');
+});

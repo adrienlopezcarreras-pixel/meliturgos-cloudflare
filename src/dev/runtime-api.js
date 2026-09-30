@@ -121,7 +121,7 @@ async function mirrorTeacherImmediately({ env, repo, job, state, fetchImpl = fet
   return { status: 'SKIPPED_UNSUPERVISED_REQUESTER', requested_by: job.requested_by || null };
 }
 
-export function devRuntime(request, env, { repository = null, bridgeRepository = null } = {}) {
+export function devRuntime(request, env, { repository = null, bridgeRepository = null, roadmap = null, runAutonomyTick = runAutonomyRuntimeTick } = {}) {
   const url = new URL(request.url);
   const path = url.pathname;
   if (!path.startsWith('/api/professor/dev') && !path.startsWith('/api/dev-bridge')) return null;
@@ -147,14 +147,14 @@ export function devRuntime(request, env, { repository = null, bridgeRepository =
         capabilities: [
           'code.status', 'code.tree', 'code.search', 'code.read', 'code.diff',
           'dev.plan', 'dev.create_candidate', 'dev.apply_change', 'dev.test',
-          'dev.report', 'dev.rollback', 'dev.commit', 'dev.autonomy.next',
+          'dev.report', 'dev.rollback', 'dev.commit', 'dev.autonomy.next', 'dev.autonomy.tick',
           'dev.council.preflight', 'dev.teacher.request', 'dev.teacher.reply',
         ],
       });
     }
 
     if (path === '/api/professor/dev/autonomy/status' && request.method === 'GET') {
-      const supervisor = new AutonomySupervisor({ repository: repo });
+      const supervisor = new AutonomySupervisor({ repository: repo, ...(roadmap ? { roadmap } : {}) });
       const state = await supervisor.state();
       return Response.json({
         ok: true,
@@ -193,9 +193,21 @@ export function devRuntime(request, env, { repository = null, bridgeRepository =
     }
 
     if (path === '/api/dev-bridge/autonomy/next' && request.method === 'POST') {
-      const supervisor = new AutonomySupervisor({ repository: repo });
+      const supervisor = new AutonomySupervisor({ repository: repo, ...(roadmap ? { roadmap } : {}) });
       const result = await supervisor.ensureNextJob();
       return Response.json({ ok: true, ...result });
+    }
+
+    if (path === '/api/dev-bridge/autonomy/tick' && request.method === 'POST') {
+      const tick = await runAutonomyTick(env, {
+        repository: repo,
+        fetchImpl: fetch,
+        ...(roadmap ? { roadmap } : {}),
+      });
+      return Response.json({
+        ok: tick?.ok !== false,
+        tick,
+      }, { headers: { 'cache-control': 'no-store' } });
     }
 
     if (path === '/api/dev-bridge/council' && request.method === 'POST') {
@@ -278,8 +290,16 @@ export function devRuntime(request, env, { repository = null, bridgeRepository =
     }
 
     if (path === '/api/dev-bridge/claim' && request.method === 'POST') {
-      const job = await repo.claim();
-      if (!job) return Response.json({ job: null });
+      const requestedJobId = String(body?.job_id || '').trim();
+      const job = requestedJobId && typeof repo.claimPrepared === 'function'
+        ? await repo.claimPrepared(requestedJobId)
+        : await repo.claim();
+      if (!job) {
+        return Response.json(
+          { job: null, code: requestedJobId ? 'BRIDGE_EXACT_JOB_NOT_CLAIMABLE' : 'BRIDGE_NO_CLAIMABLE_JOB' },
+          { status: requestedJobId ? 409 : 200 },
+        );
+      }
       if (job?.result_json?.bridge_preparation?.status === 'READY') {
         return Response.json(job);
       }

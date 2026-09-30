@@ -36,7 +36,9 @@ test('Professor boot is lightweight and live refresh is visibility-aware', async
   const source = await read('src/pages/full-interface-v2.js');
   const boot = source.match(/async function boot\(\)\{[\s\S]*?\n\}/)?.[0] || '';
   assert.doesNotMatch(boot,/codeCheck\(/);
-  assert.match(boot,/loadDashboardSummary\(\)/);
+  assert.match(boot,/loadDashboardSummary\(false\)/);
+  assert.match(boot,/loadDashboardSummary\(true\)/, 'real capability health refresh must run after the fast initial render');
+  assert.doesNotMatch(boot,/await loadDashboardSummary\(true\)/, 'real health refresh must stay non-blocking on the hot path');
   assert.doesNotMatch(boot,/loadCapabilitySummary\(\)|loadRoadmapSummary\(\)/);
   assert.match(source,/if\(document\.hidden\)return/);
   assert.match(source,/active==='roadmap'/);
@@ -51,17 +53,19 @@ test('normal mode is keyboard accessible, voice-discoverable and runtime is vers
   assert.match(html,/class="mic-hint"/);
   assert.match(html,/↩ Reprendre le dernier échange/);
   assert.match(html,/class="window empty-chat"/);
-  assert.match(html,/normal-runtime\.js\?v=7/);
+  assert.match(html,/normal-runtime\.js\?v=8/);
   assert.match(NORMAL_RUNTIME_SOURCE,/drop\.addEventListener\('keydown'/);
   assert.match(NORMAL_RUNTIME_SOURCE,/navigator\.serviceWorker\.register\('\/sw\.js'/);
 });
 
 test('service worker caches only static resources, persists revalidation and leaves private HTML to the network', () => {
-  assert.match(SERVICE_WORKER_SOURCE,/meliturgos-static-v7/);
+  assert.match(SERVICE_WORKER_SOURCE,/meliturgos-static-v8/);
   assert.match(SERVICE_WORKER_SOURCE,/staleWhileRevalidate/);
   assert.match(SERVICE_WORKER_SOURCE,/event\.waitUntil\(update/);
   assert.match(SERVICE_WORKER_SOURCE,/url\.pathname\.startsWith\('\/assets\/'\)/);
   assert.match(SERVICE_WORKER_SOURCE,/request\.mode==='navigate'.*return/);
+  assert.match(SERVICE_WORKER_SOURCE,/const PRECACHE=\['\/normal-runtime\.js','\/assets\/avatars\/mel-full\.webp/);
+  assert.doesNotMatch(SERVICE_WORKER_SOURCE,/PRECACHE=.*['"]\/(?:mvp|professor|api\/)/);
   assert.doesNotMatch(SERVICE_WORKER_SOURCE,/cache\.add\('\/'\)|FALLBACK='\/'/);
 });
 
@@ -116,11 +120,11 @@ test('MEL techno avatar is the canonical favicon in normal and Professor modes',
   for (const html of [normal, professor]) {
     assert.ok(html.includes('rel="icon" type="image/webp" sizes="any" href="/assets/avatars/mel-full.webp?v=mel-techno-20260924"'));
     assert.ok(html.includes('rel="apple-touch-icon" href="/assets/avatars/mel-full.webp?v=mel-techno-20260924"'));
-    assert.equal(html.includes('/assets/avatars/mel-full.webp?v=mel-techno-20260924'), true);
+    assert.equal(html.includes('mel-full.webp?v=mel-techno-20260924'), true);
   }
 });
 
-test('Professor skills surface uses cached health on open and forces a real refresh only on explicit request', async () => {
+test('Professor skills surface refreshes real health on open and on explicit request', async () => {
   const html = await (await renderProfessor()).text();
   assert.match(html, /id="skillsHealthy"/);
   assert.match(html, /id="skillsProtected"/);
@@ -129,6 +133,7 @@ test('Professor skills surface uses cached health on open and forces a real refr
   assert.match(html, /id="skillsFailed"/);
   assert.match(html, /id="skillsProviderSummary"/);
   assert.ok(html.includes('loadCapabilitiesData(force)'));
+  assert.ok(html.includes("skills:()=>loadSkills(true)"));
   assert.ok(html.includes("loadSkills(true)"));
   assert.ok(html.includes('health_detail'));
   assert.ok(html.includes('NON CONFIGURÉ'));

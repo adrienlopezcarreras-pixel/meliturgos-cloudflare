@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -12,6 +13,10 @@ from pathlib import Path
 TARGET_SHA = "__MEL_GIT_SHA__"
 CYCLE = int("__MEL_CYCLE__")
 SHARD_SIZE = int("__MEL_SHARD_SIZE__")
+CYCLE_MAX_STEPS = int("__MEL_MAX_STEPS__")
+SMOKE_ONLY = "__MEL_SMOKE_ONLY__".lower() == "true"
+CYCLE_MAX_LENGTH = 512
+CYCLE_GRAD_ACCUM = 8
 
 WORK = Path("/kaggle/working")
 INPUT = Path("/kaggle/input")
@@ -285,16 +290,57 @@ def ensure_dependencies():
         )
 
 def extract_parent(payload: Path) -> str | None:
-    archive = payload / "parent-bundle.tar.gz"
-    if not archive.is_file():
-        return None
+    payload_meta_path = _payload_file(payload, "payload.json")
+    payload_meta = {}
+    if payload_meta_path and payload_meta_path.is_file():
+        payload_meta = json.loads(payload_meta_path.read_text(encoding="utf-8"))
+    parent_expected = bool(str(payload_meta.get("parent_release_tag") or "").strip())
+
+    archive = _payload_file(payload, "parent-bundle.tar.gz")
+    expanded_candidates = [
+        payload / "parent-bundle",
+        *sorted(p for p in payload.rglob("parent-bundle") if p.is_dir()),
+    ]
+    expanded = next((p for p in expanded_candidates if (p / "artifact-evidence.json").is_file()), None)
+
     PARENT.mkdir(parents=True, exist_ok=True)
-    with tarfile.open(archive, "r:gz") as tar:
-        tar.extractall(PARENT)
-    artifact = json.loads((PARENT / "artifact-evidence.json").read_text(encoding="utf-8"))
+    if archive and archive.is_file():
+        with tarfile.open(archive, "r:gz") as tar:
+            tar.extractall(PARENT)
+    elif expanded is not None:
+        for source in expanded.rglob("*"):
+            if not source.is_file():
+                continue
+            target = PARENT / source.relative_to(expanded)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source, target)
+    elif parent_expected:
+        available = sorted(str(p.relative_to(payload)) for p in payload.rglob("*") if p.is_file())[:200]
+        print(json.dumps({
+            "parent_release_tag": payload_meta.get("parent_release_tag"),
+            "available_payload_files": available,
+        }, indent=2), flush=True)
+        raise SystemExit("KAGGLE_PARENT_REQUIRED_BUT_MISSING")
+    else:
+        return None
+
+    artifact_path = PARENT / "artifact-evidence.json"
+    weights_path = PARENT / "adapter_model.safetensors"
+    config_path = PARENT / "adapter_config.json"
+    if not artifact_path.is_file() or not weights_path.is_file() or not config_path.is_file():
+        raise SystemExit("KAGGLE_PARENT_ARTIFACT_INCOMPLETE")
+    artifact = json.loads(artifact_path.read_text(encoding="utf-8"))
     digest = str(artifact.get("digest") or "").lower()
     if not digest.startswith("sha256:"):
         raise SystemExit("KAGGLE_PARENT_DIGEST_INVALID")
+    if sha256_file(weights_path) != digest:
+        raise SystemExit("KAGGLE_PARENT_DIGEST_MISMATCH")
+    print(json.dumps({
+        "status": "PARENT_ADAPTER_READY",
+        "parent_release_tag": payload_meta.get("parent_release_tag"),
+        "parent_artifact_digest": digest,
+        "source": "archive" if archive and archive.is_file() else "expanded-directory",
+    }), flush=True)
     return digest
 
 def count_lines(path: Path) -> int:
@@ -302,6 +348,7 @@ def count_lines(path: Path) -> int:
         return sum(1 for line in fh if line.strip())
 
 def main():
+    os.environ["CUDA_VISIBLE_DEVICES"] = "0"
     if TARGET_SHA.startswith("__"):
         raise SystemExit("MEL_GIT_SHA_NOT_INJECTED")
     payload = prepare_payload()
@@ -332,6 +379,9 @@ def main():
         "--output", plan,
         "--id", f"mel-kaggle-uncensored-c{CYCLE:03d}-{TARGET_SHA[:12]}",
         "--epochs", "1",
+        "--max-steps", str(CYCLE_MAX_STEPS),
+        "--max-length", str(CYCLE_MAX_LENGTH),
+        "--gradient-accumulation-steps", str(CYCLE_GRAD_ACCUM),
         "--rank", "8",
         "--alpha", "16",
         "--dropout", "0.05",
@@ -349,16 +399,23 @@ def main():
         "--base-model-path", base_model,
         "--stage", stage,
         "--epochs", "1",
-        "--max-length", "512",
-        "--gradient-accumulation-steps", "8",
+        "--max-steps", str(CYCLE_MAX_STEPS),
+        "--max-length", str(CYCLE_MAX_LENGTH),
+        "--gradient-accumulation-steps", str(CYCLE_GRAD_ACCUM),
         "--save-steps", "1000000",
         "--seed", "42",
     ]
     if parent_digest:
         cmd += ["--parent-adapter-dir", PARENT, "--parent-artifact-digest", parent_digest]
+    print(json.dumps({"status":"TRAINING_COMMAND_START","max_steps":CYCLE_MAX_STEPS,"max_length":CYCLE_MAX_LENGTH,"gradient_accumulation_steps":CYCLE_GRAD_ACCUM}), flush=True)
     run(cmd)
+    print(json.dumps({"status":"TRAINING_COMMAND_DONE","global_smoke":SMOKE_ONLY,"max_steps":CYCLE_MAX_STEPS}), flush=True)
+    if SMOKE_ONLY:
+        print(json.dumps({"status":"KAGGLE_SINGLE_STEP_SMOKE_PASSED","max_steps":CYCLE_MAX_STEPS}), flush=True)
+        return
 
     impact_path = OUTPUT / "local-impact-benchmark.json"
+    print(json.dumps({"status":"LOCAL_IMPACT_START"}), flush=True)
     run([
         sys.executable, SCRIPTS / "run-local-lora-impact.py",
         "--base-model-path", base_model,
@@ -366,6 +423,7 @@ def main():
         "--output", impact_path,
     ])
     impact = json.loads(impact_path.read_text(encoding="utf-8"))
+    print(json.dumps({"status":"LOCAL_IMPACT_DONE","next_stage":impact.get("next_stage")}), flush=True)
 
     shutil.copy2(SHARD_META, OUTPUT / "shard-metadata.json")
     dataset_meta = {
@@ -398,6 +456,9 @@ def main():
         "cycle": CYCLE,
         "stage": stage,
         "shard_size": SHARD_SIZE,
+        "max_steps": CYCLE_MAX_STEPS,
+        "max_length": CYCLE_MAX_LENGTH,
+        "gradient_accumulation_steps": CYCLE_GRAD_ACCUM,
         "artifact_digest": artifact["digest"],
         "parent_artifact_digest": parent_digest,
         "train_loss": training.get("training_metrics", {}).get("train_loss"),

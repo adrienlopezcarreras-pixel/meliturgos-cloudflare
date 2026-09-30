@@ -1,6 +1,6 @@
 import { runAutonomyRuntimeTick as runCoreAutonomyRuntimeTick } from './autonomy-runtime-core.js';
 import { getAutonomyControl } from './autonomy-control.js';
-import { AutonomySupervisor } from './autonomy-supervisor.js';
+import { AutonomySupervisor, selectActionableAutonomyJob } from './autonomy-supervisor.js';
 import { D1DevJobRepository } from '../dev/d1-dev-job-repository.js';
 import { applyOwnerMaxApproval } from '../teachers/owner-max-approval.js';
 import { mirrorRuntimeTeacherRequestToGitHub } from '../teachers/github-request-mirror.js';
@@ -9,6 +9,7 @@ import { recoverPassiveRuntimeStates } from './passive-state-recovery.js';
 import { retireObsoleteQueueJobs } from './queue-hygiene.js';
 import { tryAcquireAutonomyRuntimeLease, releaseAutonomyRuntimeLease } from './autonomy-runtime-lease.js';
 import { createZeroCostBenchmarkEvaluator } from '../learning/operator-actions.js';
+import { reconcileRuntimeCompletions } from '../teachers/github-completion-reconciler.js';
 
 export * from './autonomy-runtime-core.js';
 
@@ -53,6 +54,33 @@ function launchApprovalValid(env, control, options = {}) {
     };
   }
   return { ok: true, enforced: true, deployed_sha: sha, approved_sha: sha };
+}
+
+export async function reconcileVerifiedCompletionsBehindLaunchGate(env = {}, options = {}) {
+  const repository = options.repository || (env?.DB ? new D1DevJobRepository(env.DB) : null);
+  if (!repository) {
+    return { ok: true, skipped: true, reason: 'COMPLETION_REPOSITORY_UNAVAILABLE', completed: [], rejected: [] };
+  }
+  const benchmarkRuntime = resolveRuntimeBenchmarkEvaluator(env, options);
+  const reconcile = typeof options.completionReconciler === 'function'
+    ? options.completionReconciler
+    : reconcileRuntimeCompletions;
+  try {
+    return await reconcile({
+      repository,
+      env,
+      fetchImpl: options.fetchImpl || fetch,
+      benchmarkEvaluator: benchmarkRuntime.evaluator,
+      benchmarkModelId: benchmarkRuntime.model_id,
+    });
+  } catch (error) {
+    return {
+      ok: false,
+      error: String(error?.code || error?.message || 'COMPLETION_RECONCILE_FAILED').slice(0, 180),
+      completed: [],
+      rejected: [],
+    };
+  }
 }
 
 export function resolveRuntimeBenchmarkEvaluator(env = {}, options = {}) {
@@ -126,9 +154,9 @@ async function hasActiveRuntimeWork(repository) {
   return jobs.some((job) => supervised(job) && ACTIVE_RUNTIME_STATES.has(String(job?.status || '').toUpperCase()));
 }
 
-async function ensureNextRuntimeJob(repository) {
+async function ensureNextRuntimeJob(repository, roadmap = null) {
   try {
-    const supervisor = new AutonomySupervisor({ repository });
+    const supervisor = new AutonomySupervisor({ repository, ...(roadmap ? { roadmap } : {}) });
     const ensured = await supervisor.ensureNextJob();
     return {
       created: ensured?.created === true,
@@ -165,7 +193,10 @@ function preservePreEnsureCreation(result, preEnsure) {
 
 async function recordCoreRuntimeFailure(repository, error, { maxAttempts = 3 } = {}) {
   const jobs = await repository.list();
-  const candidate = jobs
+  const schedulerSelected = selectActionableAutonomyJob(
+    jobs.filter(job => ACTIONABLE_FAILURE_STATES.has(String(job?.status || '').toUpperCase()))
+  );
+  const candidate = schedulerSelected || jobs
     .filter(supervised)
     .filter(job => ACTIONABLE_FAILURE_STATES.has(String(job?.status || '').toUpperCase()))
     .sort(failureCandidateSort)[0] || null;
@@ -347,7 +378,7 @@ async function runAutonomyRuntimeTickUnlocked(env, options = {}, knownControl = 
   };
   try {
     if (!(await hasActiveRuntimeWork(repository))) {
-      preEnsure = await ensureNextRuntimeJob(repository);
+      preEnsure = await ensureNextRuntimeJob(repository, options.roadmap || null);
     }
   } catch (error) {
     preEnsure = {
@@ -365,6 +396,7 @@ async function runAutonomyRuntimeTickUnlocked(env, options = {}, knownControl = 
     repository,
     benchmarkEvaluator: benchmarkRuntime.evaluator,
     benchmarkModelId: benchmarkRuntime.model_id,
+    maxAutonomy: control.max_autonomy === true,
   };
   const first = preservePreEnsureCreation(await runCoreResilient(env, coreOptions, repository), preEnsure);
 
@@ -460,7 +492,7 @@ async function runAutonomyRuntimeTickUnlocked(env, options = {}, knownControl = 
     owner_max_applied: true,
     owner_max_sweep: ownerMaxSweep,
     owner_max_bypassed_stage: 'WAITING_TEACHER',
-    production_release_allowed: false,
+    production_release_allowed: control.max_autonomy === true,
   };
 }
 
@@ -547,6 +579,7 @@ export async function runAutonomyRuntimeTick(env, options = {}) {
 
   const launchApproval = launchApprovalValid(env, control, options);
   if (!launchApproval.ok) {
+    const passiveCompletions = await reconcileVerifiedCompletionsBehindLaunchGate(env, options);
     return {
       ok: false,
       status: launchApproval.code,
@@ -554,6 +587,7 @@ export async function runAutonomyRuntimeTick(env, options = {}) {
       candidate_branch: env?.MEL_GITHUB_BRANCH || CANONICAL_CANDIDATE_BRANCH,
       control,
       launch_gate: launchApproval,
+      passive_completions: passiveCompletions,
     };
   }
 

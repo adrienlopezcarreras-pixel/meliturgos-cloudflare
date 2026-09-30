@@ -1,0 +1,28 @@
+name: mel-conn-01-wordpress-public-ci
+
+on:
+  pull_request:
+    paths:
+      - 'src/connectors/wordpress.js'
+      - 'src/connectors/registry.js'
+      - 'tests/wordpress-public-connector.test.mjs'
+      - 'tests/connectors-security.test.mjs'
+      - '.github/workflows/mel-conn-01-wordpress-public-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  wordpress-public-isolation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: node --check src/connectors/wordpress.js
+      - run: node --test tests/wordpress-public-connector.test.mjs tests/connectors-security.test.mjs

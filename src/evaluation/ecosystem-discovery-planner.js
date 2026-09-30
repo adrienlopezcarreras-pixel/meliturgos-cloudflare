@@ -91,18 +91,9 @@ function evidenceFor(result = {}) {
   };
 }
 
-function explicitlyTargetsBlockedCapability(hint, gap) {
-  const requested = keyOf(hint);
-  const best = keyOf(gap?.best_match?.id);
-  if (!requested || !best) return false;
-  return requested === best || requested === best.replace(/^media\./, '');
-}
-
-function actionForGap(gap, hint) {
+function actionForGap(gap) {
   if (gap.classification === 'MATCHED_AVAILABLE') return 'REUSE_EXISTING';
-  if (gap.classification === 'MATCHED_BUT_BLOCKED') {
-    return explicitlyTargetsBlockedCapability(hint, gap) ? 'UNBLOCK_EXISTING' : 'REVIEW_EXISTING';
-  }
+  if (gap.classification === 'MATCHED_BUT_BLOCKED') return 'UNBLOCK_EXISTING';
   if (gap.classification === 'AMBIGUOUS') return 'REVIEW_EXISTING';
   return 'PROPOSE_EXTENSION';
 }
@@ -140,7 +131,7 @@ export function planEcosystemDiscoveries({ watchResult = {}, catalog = {}, capab
       }
 
       const gap = detectCapabilityGap({ goal: hint, capabilities, threshold: 1 });
-      const action = actionForGap(gap, hint);
+      const action = actionForGap(gap);
       const kind = proposalKind(hint, target);
       let proposal = null;
       if (action === 'PROPOSE_EXTENSION') {
@@ -157,9 +148,6 @@ export function planEcosystemDiscoveries({ watchResult = {}, catalog = {}, capab
         classification: gap.classification,
         confidence: gap.confidence,
         action,
-        blocking_review_reason: gap.classification === 'MATCHED_BUT_BLOCKED' && action === 'REVIEW_EXISTING'
-          ? 'BLOCKED_MATCH_REQUIRES_EXPLICIT_CAPABILITY_SIGNAL'
-          : null,
         optimization_action: action === 'REUSE_EXISTING' ? 'COMPARE_EXISTING_WITH_ALTERNATIVE' : null,
         best_match: gap.best_match,
         roadmap_matches: roadmapMatches(hint, target, evidence),
@@ -399,11 +387,36 @@ const ACTIVE_JOB_STATUSES = new Set([
   'READY_FOR_REVIEW',
 ]);
 
+function staleTeacherRequeue(job = {}) {
+  const status = String(job?.status || '').toUpperCase();
+  if (status !== 'QUEUED') return null;
+  const plan = job?.plan_json || {};
+  const result = job?.result_json || {};
+  const reason = String(plan?.revision?.reason || '').toUpperCase();
+  const previousRequestId = String(plan?.revision?.previous_request_id || '').trim();
+  if (reason !== 'TEACHER_REQUEST_STALE_SHA' || !previousRequestId) return null;
+  if (result?.teacher_bridge?.request?.request_id || result?.teacher_bridge?.review?.request_id) return null;
+  if (plan?.preflight?.council) return null;
+  const history = Array.isArray(result?.teacher_bridge_history) ? result.teacher_bridge_history : [];
+  const stale = [...history].reverse().find(entry => {
+    const state = String(entry?.status || '').toUpperCase();
+    const requestId = String(
+      entry?.review?.request_id
+      || entry?.request?.request_id
+      || entry?.request_id
+      || ''
+    ).trim();
+    return state === 'STALE' && requestId === previousRequestId;
+  }) || null;
+  return stale ? { reason, previous_request_id: previousRequestId } : null;
+}
+
 function jobHandoffSnapshot(job, before = {}, now = Date.now()) {
   const status = String(job?.status || '').toUpperCase() || 'UNKNOWN';
   const teacher = job?.result_json?.teacher_bridge || {};
   const lastTeacher = job?.result_json?.last_teacher_review || {};
   const completion = job?.result_json?.autonomy_completion || {};
+  const staleRequeue = staleTeacherRequeue(job);
   const teacherReject = status === 'FAILED'
     && (String(job?.error || '').toUpperCase() === 'TEACHER_REJECT'
       || String(job?.result_json?.autonomy_block_reason || '').toUpperCase() === 'TEACHER_REJECT');
@@ -413,28 +426,34 @@ function jobHandoffSnapshot(job, before = {}, now = Date.now()) {
     ...before,
     status,
     job_id: String(job?.id || before?.job_id || '') || null,
-    teacher_request_id: String(
+    teacher_request_id: staleRequeue ? null : (String(
       teacher?.request?.request_id
       || teacher?.review?.request_id
       || completion?.request_id
       || lastTeacher?.request_id
       || before?.teacher_request_id
       || ''
-    ) || null,
-    teacher_verdict: String(teacher?.review?.verdict || lastTeacher?.verdict || before?.teacher_verdict || '') || null,
-    candidate_sha: String(
+    ) || null),
+    teacher_verdict: staleRequeue ? null : (String(teacher?.review?.verdict || lastTeacher?.verdict || before?.teacher_verdict || '') || null),
+    candidate_sha: staleRequeue ? null : (String(
       completion?.candidate_sha
       || teacher?.request?.provenance?.candidate_sha
       || teacher?.request?.candidate?.sha
       || before?.candidate_sha
       || ''
-    ) || null,
+    ) || null),
     ci_run_id: Number(completion?.ci?.run_id || before?.ci_run_id || 0) || null,
     completion_verified: completion?.status === 'VERIFIED',
     closed,
-    retryable,
-    code: status === 'FAILED' ? String(job?.error || before?.code || '').slice(0, 180) || null : null,
-    terminal_reason: teacherReject ? 'TEACHER_REJECT' : (status === 'COMPLETED' ? 'VERIFIED_COMPLETION' : null),
+    retryable: staleRequeue ? true : retryable,
+    code: status === 'FAILED'
+      ? String(job?.error || before?.code || '').slice(0, 180) || null
+      : (staleRequeue ? 'TEACHER_REQUEST_STALE_SHA' : null),
+    terminal_reason: teacherReject
+      ? 'TEACHER_REJECT'
+      : (status === 'COMPLETED'
+        ? 'VERIFIED_COMPLETION'
+        : (staleRequeue ? 'STALE_TEACHER_REQUEST_REQUEUED' : null)),
     job_updated_at: Number(job?.updated_at || 0) || null,
     reconciled_at: now,
   };

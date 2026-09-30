@@ -3,7 +3,7 @@ name: MEL-MEM-05 attachment live proof
 on:
   push:
     branches:
-      - candidate/mel-clean-autonomy
+      - main
     paths:
       - "scripts/prove-mel-mem-05-live.mjs"
       - "tests/mel-mem-05-live-proof.test.mjs"
@@ -25,8 +25,8 @@ jobs:
           cache: npm
       - name: Install exact lockfile
         run: npm ci
-      - name: Validate MEM-MEM-05 proof contract
-        run: node --test tests/mel-mem-05-live-proof.test.mjs
+      - name: Validate MEL-MEM-05 contracts
+        run: node --test tests/mel-mem-05-live-proof.test.mjs tests/mel-mem-05-memory-backfill.test.mjs tests/chatgpt-archive-importer.test.mjs
 
   production-live-proof:
     runs-on: ubuntu-latest
@@ -54,7 +54,7 @@ jobs:
           if [ -s mel-mem-05-live-proof.json ]; then
             cat mel-mem-05-live-proof.json
             {
-              echo '### MEL-MEM-05 production attachment proof'
+              echo '### MEL-MEM-05 production available-source proof'
               echo
               echo '```json'
               cat mel-mem-05-live-proof.json

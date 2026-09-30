@@ -1,6 +1,10 @@
 #!/usr/bin/env node
-import { readFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import path from 'node:path';
+
+const execFileAsync = promisify(execFile);
 
 function argsMap(argv) {
   const out = new Map();
@@ -34,17 +38,52 @@ async function main() {
   ]);
   if (!artifact.finetune_id) throw new Error('LORA_FINETUNE_ID_REQUIRED_BEFORE_BENCHMARK');
 
-  const response = await fetch(baseUrl + '/api/learning/lora/benchmark', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${password}`,
-      'content-type': 'application/json',
-    },
-    body: JSON.stringify({ plan, artifact, approval, activate }),
-  });
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok || data?.ok === false) {
-    throw new Error(data?.detail || data?.error || `HTTP_${response.status}`);
+  // The canonical LoRA benchmark can legitimately run for more than five
+  // minutes. Node's built-in fetch/undici path can terminate a response that
+  // has not produced headers within its transport timeout, so use curl here
+  // with an explicit bounded 20-minute request window.
+  const requestPath = path.join(dir, '.benchmark-request.json');
+  await writeFile(requestPath, JSON.stringify({ plan, artifact, approval, activate }), 'utf8');
+  let stdout;
+  try {
+    ({ stdout } = await execFileAsync('curl', [
+      '--silent',
+      '--show-error',
+      '--max-time', '1200',
+      '--connect-timeout', '30',
+      '--request', 'POST',
+      '--header', `Authorization: Bearer ${password}`,
+      '--header', 'content-type: application/json',
+      '--data-binary', `@${requestPath}`,
+      '--write-out', '\\n__MEL_HTTP_STATUS__:%{http_code}',
+      baseUrl + '/api/learning/lora/benchmark',
+    ], {
+      maxBuffer: 64 * 1024 * 1024,
+      timeout: 1_230_000,
+    }));
+  } catch (error) {
+    throw new Error(`LORA_BENCHMARK_TRANSPORT_FAILED: ${String(error?.message || error)}`);
+  }
+
+  const marker = '\n__MEL_HTTP_STATUS__:';
+  const markerIndex = stdout.lastIndexOf(marker);
+  if (markerIndex < 0) throw new Error('LORA_BENCHMARK_HTTP_STATUS_MISSING');
+  const rawBody = stdout.slice(0, markerIndex);
+  const httpStatus = Number(stdout.slice(markerIndex + marker.length).trim());
+  const responseOk = Number.isInteger(httpStatus) && httpStatus >= 200 && httpStatus < 300;
+  let data = {};
+  try { data = JSON.parse(rawBody || '{}'); } catch {}
+
+  const evidencePath = path.join(dir, 'benchmark-evidence.json');
+  await writeFile(evidencePath, JSON.stringify({
+    schema: 'mel.lora-canonical-benchmark-evidence.v1',
+    measured_at: new Date().toISOString(),
+    http_status: httpStatus,
+    response_ok: responseOk,
+    data,
+  }, null, 2) + '\n', 'utf8');
+  if (!responseOk || data?.ok === false) {
+    throw new Error(data?.detail || data?.error || `HTTP_${httpStatus}`);
   }
 
   const summary = {
@@ -63,6 +102,13 @@ async function main() {
     canonical_gate_passed: data?.canonical_gate_passed === true,
     activation_blocker: data?.activation_blocker || null,
     impact: data?.impact?.comparison || null,
+    benchmark_evidence_file: evidencePath,
+    baseline_case_errors: Array.isArray(data?.baseline?.cases)
+      ? data.baseline.cases.filter((row) => row?.error).map((row) => ({ id: row.id, error: row.error }))
+      : [],
+    candidate_case_errors: Array.isArray(data?.candidate?.cases)
+      ? data.candidate.cases.filter((row) => row?.error).map((row) => ({ id: row.id, error: row.error }))
+      : [],
   };
   process.stdout.write(JSON.stringify(summary, null, 2) + '\n');
   if (!summary.activated && !allowNotActivated) process.exitCode = 2;

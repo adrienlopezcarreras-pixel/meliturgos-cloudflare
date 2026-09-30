@@ -19,7 +19,7 @@ test('natural chat web request executes web.research and injects sourced evidenc
     MEL_WEB_FETCH: async (url) => {
       webCalls.push(String(url));
       if (String(url).startsWith('https://www.google.com/search?')) {
-        return new Response('<html><head><title>Google results</title><meta name="description" content="SOURCE GOOGLE ACTUELLE"></head><body>Résultats publics</body></html>', {
+        return new Response('<html><head><title>Google results</title><meta name="description" content="SOURCE GOOGLE ACTUELLE"><meta property="og:image" content="https://images.example/cloudflare.jpg"></head><body>Résultats publics</body></html>', {
           status: 200,
           headers: { 'content-type': 'text/html; charset=utf-8' },
         });
@@ -52,6 +52,11 @@ test('natural chat web request executes web.research and injects sourced evidenc
 
   assert.equal(response.status, 200, JSON.stringify(data));
   assert.equal(data.text, 'Voici les informations publiques trouvées.');
+  assert.equal(data.display?.type, 'web_sources');
+  assert.equal(data.display?.items?.length, 2);
+  assert.match(data.display?.primary_url || '', /^https:\/\//);
+  assert.ok(data.display.items.every(item => typeof item.title === 'string' && typeof item.url === 'string'));
+  assert.equal(data.display.items[0].image_url, 'https://images.example/cloudflare.jpg');
   assert.equal(aiCalls.length, 1, 'explicit deterministic web intent must not spend an extra semantic-classifier call');
   assert.equal(webCalls.length, 2);
   assert.ok(webCalls.some(url => url.startsWith('https://www.google.com/search?')));
@@ -96,6 +101,7 @@ test('private connected-data wording is not silently rerouted to public web rese
   const data = await response.json();
 
   assert.equal(response.status, 200, JSON.stringify(data));
+  assert.equal(data.display, null);
   assert.equal(webCalls.length, 0);
   assert.equal(aiCalls.length, 1);
   const system = aiCalls[0].messages.find(message => message.role === 'system')?.content || '';

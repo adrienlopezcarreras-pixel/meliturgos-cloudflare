@@ -15,8 +15,12 @@ test('deployed scheduler keeps minute work separate from hourly maintenance', as
 
   assert.match(wrangler, /"\* \* \* \* \*"/);
   assert.match(wrangler, /"17 \* \* \* \*"/);
+  assert.match(wrangler, /"43 2 \* \* \*"/);
   assert.match(index, /cron === '17 \* \* \* \*'/);
-  assert.match(professor, /controller\?\.cron \|\| ''\) !== '17 \* \* \* \*'/);
+  assert.match(professor, /if \(cron === '43 2 \* \* \*'\)/);
+  assert.match(professor, /runScheduledSystemBackup\(env, \{ now \}\)/);
+  assert.match(professor, /if \(cron !== '17 \* \* \* \*'\) return/);
+  assert.doesNotMatch(professor, /hourly maintenance snapshot skipped/);
   assert.doesNotMatch(professor, /%\s*15\s*===\s*0/);
 });
 

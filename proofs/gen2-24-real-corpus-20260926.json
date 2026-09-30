@@ -1,0 +1,47 @@
+{
+  "schema": "mel.gen2-24-real-corpus-proof/v1",
+  "date": "2026-09-26",
+  "device_class": "physical-windows-pc",
+  "device_name": "DESKTOP-0S87KA9",
+  "source": "real local user corpus; filenames/content intentionally omitted",
+  "runtime": "src/media/document-runtime.js",
+  "files": [
+    {
+      "kind": "pdf",
+      "size_bytes": 153132,
+      "parser": "pdf-parse@1.1.1",
+      "text_chars": 7377,
+      "chunk_count": 2,
+      "ok": true
+    },
+    {
+      "kind": "docx",
+      "size_bytes": 37420,
+      "parser": "mammoth@1.9.1",
+      "text_chars": 1403,
+      "chunk_count": 1,
+      "ok": true
+    },
+    {
+      "kind": "text/csv",
+      "size_bytes": 25757,
+      "parser": "builtin-text",
+      "text_chars": 25456,
+      "chunk_count": 7,
+      "ok": true
+    },
+    {
+      "kind": "text/txt",
+      "size_bytes": 12196,
+      "parser": "builtin-text",
+      "text_chars": 11891,
+      "chunk_count": 4,
+      "ok": true
+    }
+  ],
+  "total_files": 4,
+  "total_chunks": 14,
+  "all_extract_and_index_ok": true,
+  "process_exit_code": 0,
+  "privacy": "No filenames, contents, document hashes, or personal metadata retained."
+}

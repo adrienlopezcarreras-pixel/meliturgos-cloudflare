@@ -42,7 +42,7 @@ test('normal MEL surface remains available and loads the external canonical cont
   assert.match(html, /<title>MEL<\/title>/);
   assert.match(html, /id="melAvatar"/);
   assert.match(html, /id="full"/);
-  assert.match(html, /<script src="\/normal-runtime\.js\?v=7" defer><\/script>/);
+  assert.match(html, /<script src="\/normal-runtime\.js\?v=8" defer><\/script>/);
   assert.doesNotMatch(html, /id="mel-normal-v3-runtime"/);
   assert.match(html, /data-mel-theme-choice="classic"/);
   assert.match(html, /data-mel-avatar="\/assets\/avatars\/mel-classic\.webp"/);

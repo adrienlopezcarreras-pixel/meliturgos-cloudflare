@@ -89,9 +89,42 @@ function extendActiveEndpoints(current,candidates,limit=7,maxPerOperator=2,maxPe
   }
   return out;
 }
-async function enrichAutonomous(env,c,requiredBytes){
+function shardVaultWriteFailureEndpoint(error){
+  const message=String(error?.error||error?.message||error||'');
+  const match=message.match(/(?:^|\b)WRITE_(.+)_([1-5][0-9]{2})(?:\b|$)/);
+  return match?.[1]||null;
+}
+function rotateActiveEndpointsForWriteFailure(current=[],staged=[],error,{limit=7,maxPerOperator=2,maxPerProvider=2}={}){
+  const failedEndpointId=shardVaultWriteFailureEndpoint(error);
+  if(!failedEndpointId)return {failedEndpointId:null,endpoints:[...(staged||[])],changed:false};
+  const survivors=(current||[]).filter(e=>String(e?.id||'')!==failedEndpointId);
+  const replacements=(staged||[]).filter(e=>String(e?.id||'')!==failedEndpointId);
+  const endpoints=extendActiveEndpoints(survivors,replacements,limit,maxPerOperator,maxPerProvider);
+  const beforeIds=(current||[]).map(e=>String(e?.id||''));
+  const afterIds=endpoints.map(e=>String(e?.id||''));
+  return {
+    failedEndpointId,
+    endpoints,
+    changed:beforeIds.length!==afterIds.length||beforeIds.some((id,index)=>id!==afterIds[index]),
+  };
+}
+function excludeShardVaultEndpoints(c,endpointIds=[]){
+  const values=Array.isArray(endpointIds)
+    ? endpointIds
+    : (endpointIds&&typeof endpointIds[Symbol.iterator]==='function'?[...endpointIds]:[]);
+  const excluded=new Set(values.map(value=>String(value||'')).filter(Boolean));
+  if(!excluded.size)return c;
+  return {
+    ...c,
+    allEndpoints:(c.allEndpoints||[]).filter(e=>!excluded.has(String(e?.id||''))),
+    endpoints:(c.endpoints||[]).filter(e=>!excluded.has(String(e?.id||''))),
+  };
+}
+async function enrichAutonomous(env,c,requiredBytes,{excludeEndpointIds=[]}={}){
+  const excluded=new Set((excludeEndpointIds||[]).map(value=>String(value||'')).filter(Boolean));
+  c=excludeShardVaultEndpoints(c,excluded);
   let active=[];
-  try{active=await readActiveExternalEndpoints(env);}catch{}
+  try{active=(await readActiveExternalEndpoints(env)).filter(e=>!excluded.has(String(e?.id||'')));}catch{}
   const activeBoosted=active.map((e,i)=>({...e,score:1000000-i,activeRegistry:true}));
   if(String(env?.MEL_SHARDVAULT_AUTONOMOUS||'true')!=='true'){
     return {config:activeBoosted.length?mergeAutonomous(c,{selected:activeBoosted},env):c,report:null};
@@ -100,8 +133,8 @@ async function enrichAutonomous(env,c,requiredBytes){
     const report=await discoverAutonomousRepositories(env,{masterKey:c.master,vaultId:c.vaultId,requiredBytes,selectionCount:c.n});
     const by=new Map();
     for(const e of activeBoosted)by.set(e.id,e);
-    for(const e of (report?.selected||[]))if(!by.has(e.id))by.set(e.id,e);
-    report.selected=[...by.values()];
+    for(const e of (report?.selected||[]))if(!excluded.has(String(e?.id||''))&&!by.has(e.id))by.set(e.id,e);
+    report.selected=[...by.values()].filter(e=>!excluded.has(String(e?.id||'')));
     const preferred=await readPreferredEndpoint(env);
     if(preferred?.endpoint_id&&Array.isArray(report?.selected)){
       report.selected=report.selected.map(e=>String(e?.id||'')===preferred.endpoint_id?{...e,score:(Number(e.score)||0)+100000,preferred:true}:e);
@@ -969,6 +1002,51 @@ export async function verifyShardVaultCodeReconstruction(env,{dropIndexes=[]}={}
   return {...result,repository:read.id.repository,sha:read.id.sha,manifest_key:read.id.manifestKey};
 }
 
+export async function getVerifiedShardVaultCodeArchive(env){
+  const verified=await verifyShardVaultCodeReconstruction(env);
+  if(verified?.ok!==true||verified?.status!=='CODE_RECONSTRUCTION_VERIFIED'){
+    return {ok:false,status:'CODE_ARCHIVE_EXTERNAL_RECONSTRUCTION_REQUIRED',verification:verified};
+  }
+  const key=String(verified.archive_key||'').trim();
+  if(!key||!env?.MEDIA_BUCKET?.get){
+    return {ok:false,status:'CODE_ARCHIVE_LOCAL_SOURCE_UNAVAILABLE',verification:verified};
+  }
+  const object=await env.MEDIA_BUCKET.get(key);
+  if(!object)return {ok:false,status:'CODE_ARCHIVE_LOCAL_SOURCE_MISSING',archive_key:key,verification:verified};
+  const archiveBytes=new Uint8Array(await object.arrayBuffer());
+  const digest=await sha256Hex(archiveBytes);
+  if(digest!==String(verified.sha256||'').toLowerCase()){
+    return {
+      ok:false,
+      status:'CODE_ARCHIVE_LOCAL_EXTERNAL_HASH_MISMATCH',
+      archive_key:key,
+      local_sha256:digest,
+      external_sha256:verified.sha256||null,
+    };
+  }
+  if(archiveBytes.length!==Number(verified.reconstructed_bytes||archiveBytes.length)){
+    return {
+      ok:false,
+      status:'CODE_ARCHIVE_LOCAL_EXTERNAL_SIZE_MISMATCH',
+      archive_key:key,
+      local_bytes:archiveBytes.length,
+      external_bytes:Number(verified.reconstructed_bytes)||null,
+    };
+  }
+  return {
+    ok:true,
+    status:'CODE_ARCHIVE_READY_FOR_COMPANION',
+    repository:verified.repository,
+    source_sha:verified.git_sha||verified.sha,
+    sha256:digest,
+    bytes:archiveBytes,
+    byte_length:archiveBytes.length,
+    archive_key:key,
+    external_reconstruction_verified:true,
+    independent_of_local_archive:verified.independent_of_local_archive===true,
+  };
+}
+
 async function readCodeSyncState(env,id){
   if(!env?.MEDIA_BUCKET?.get)return null;
   try{
@@ -1087,14 +1165,27 @@ async function ensureExternalCodeArchive(env,c,codeBackup){
       await clearCodeSyncState(env,id,state);
       return {...codeBackup,external:{status:'CODE_SYNC_SHARD_INVALID',target_count:goal,restart_required:true,shard_index:i}};
     }
-    let validated=[],codeCandidates=[];
+    let validated=[],codeCandidates=[],activeCodeTargets=[];
     try{validated=await readValidatedExternalEndpoints(env,shard.length);}catch{}
     try{codeCandidates=await readCodeCandidateEndpoints(env);}catch{}
+    try{activeCodeTargets=await readActiveExternalEndpoints(env);}catch{}
     const used=new Set(descriptors.map(x=>x.endpointId));
     const buildCandidates=(extra=[])=>{
       const failed=new Set(Array.isArray(state.failed_endpoint_ids)?state.failed_endpoint_ids:[]);
-      const ranked=rankExternalCodeCandidates(env,[...validated,...extra,...codeCandidates],shard.length)
+      let ranked=rankExternalCodeCandidates(env,[...validated,...extra,...codeCandidates,...activeCodeTargets],shard.length)
         .filter(e=>!used.has(e.id)&&!failed.has(e.id)&&codeTargetAvailableNow(state,e));
+      if(!ranked.length){
+        ranked=uniqueExternalCandidates(env,activeCodeTargets)
+          .filter(e=>endpointMeetsDurability(env,e)&&!used.has(e.id)&&!failed.has(e.id)&&codeTargetAvailableNow(state,e))
+          .sort((a,b)=>{
+            const partsA=Math.max(1,Math.ceil(shard.length/fragmentChunkLimit(a)));
+            const partsB=Math.max(1,Math.ceil(shard.length/fragmentChunkLimit(b)));
+            const latencyA=Number(a?.probeLatencyMs)>0?Number(a.probeLatencyMs):Number.MAX_SAFE_INTEGER;
+            const latencyB=Number(b?.probeLatencyMs)>0?Number(b.probeLatencyMs):Number.MAX_SAFE_INTEGER;
+            return partsA-partsB||latencyA-latencyB||String(a.id).localeCompare(String(b.id));
+          });
+        if(ranked.length)state.active_roundtrip_fallback_used=true;
+      }
       return prioritizeExternalCodeCandidates(ranked,state);
     };
     let candidates=buildCandidates();
@@ -1212,7 +1303,7 @@ async function ensureExternalCodeArchive(env,c,codeBackup){
     verified_roundtrip:true,created_at:manifest.createdAt
   }};
 }
-export async function runShardVaultCycle(env,{force=false,skipExternalCode=false}={}){
+export async function runShardVaultCycle(env,{force=false,skipExternalCode=false,excludeEndpointIds=[]}={}){
   if(String(env?.MEL_SHARDVAULT_ENABLED||'false')!=='true')return {ok:true,enabled:false,skipped:true,reason:'DISABLED'};
   let c;
   try{c=await config(env);}catch(error){return {ok:false,enabled:true,skipped:true,reason:'CONFIG_INVALID',error:String(error?.message||error)};}
@@ -1226,14 +1317,14 @@ export async function runShardVaultCycle(env,{force=false,skipExternalCode=false
       try{health=await checkAndRepair(env,c,last);}
       catch(error){
         health={snapshotId:last.snapshotId,healthy:false,fatal:String(error?.message||error)};
-        const enriched=await enrichAutonomous(env,c,last.shardSize||0);c=enriched.config;autonomous=enriched.report;
+        const enriched=await enrichAutonomous(env,c,last.shardSize||0,{excludeEndpointIds});c=enriched.config;autonomous=enriched.report;
         if(c.allEndpoints.length){try{health=await checkAndRepair(env,c,last);}catch(error2){health={snapshotId:last.snapshotId,healthy:false,fatal:String(error2?.message||error2)};}}
       }
     }
     if(!force&&last&&Number.isFinite(age)&&age<c.intervalMs)return {ok:health?.healthy!==false,enabled:true,skipped:true,reason:'INTERVAL_NOT_DUE',latest_snapshot:last.snapshotId,age_ms:age,health,autonomous,diversity:diversity(c.endpoints),storage_mode:c.storageMode,degraded:c.degraded,code_backup:codeBackup};
     const payload=await buildShardVaultMemoryPayload(env,{limit:Number(env.MEL_SHARDVAULT_EXPORT_LIMIT)||10000});
     payload.code_survival=codeBackup;
-    const estimated=Math.max(256,Math.ceil((utf8(JSON.stringify(payload)).length+16)/c.k)),enriched=await enrichAutonomous(env,c,estimated);
+    const estimated=Math.max(256,Math.ceil((utf8(JSON.stringify(payload)).length+16)/c.k)),enriched=await enrichAutonomous(env,c,estimated,{excludeEndpointIds});
     c=enriched.config;autonomous=enriched.report;
     if(!c.endpoints.length)throw new Error('NO_STORAGE_ENDPOINTS_AVAILABLE');
     if(!skipExternalCode){
@@ -1281,6 +1372,7 @@ export async function syncShardVaultCodeExternally(env){
 
 export const __shardvaultTest = Object.freeze({
   encode, decode, selectEndpoints, diversity, extendActiveEndpoints, externalEndpointsFromSnapshot,
+  shardVaultWriteFailureEndpoint, rotateActiveEndpointsForWriteFailure, excludeShardVaultEndpoints,
   rankExternalCodeCandidates, assignDistinctExternalTargets, byteArraysEqual, reconstructExternalCodeArchive,
   codeTargetFailureClass, codeTargetRetryDelayMs, codeTargetAvailableNow, prioritizeExternalCodeCandidates,
   recordCodeTargetFailure, clearCodeTargetFailure, codeFragmentDeadlineMs
@@ -1450,6 +1542,62 @@ async function stageActiveExternalEndpoints(env,c,last,candidates=[]){
   if(next.length!==actual.length||next.some((e,i)=>e.id!==actual[i]?.id))await writeActiveExternalEndpoints(env,next);
   return next;
 }
+async function retryActivationAfterWriteFailure(env,{c,last,activeBefore=[],staged=[],activationCycle=null,skipExternalCode=true}={}){
+  const maxOp=Math.max(1,Number(env?.MEL_WATCH_MAX_PER_OPERATOR)||2);
+  const maxProv=Math.max(1,Number(env?.MEL_WATCH_MAX_PER_PROVIDER)||2);
+  const rotation=rotateActiveEndpointsForWriteFailure(activeBefore,staged,activationCycle?.error||activationCycle,{
+    limit:Math.min(7,c?.n||7),
+    maxPerOperator:maxOp,
+    maxPerProvider:maxProv,
+  });
+  if(!rotation.failedEndpointId||!rotation.changed){
+    return {recovered:false,failed_endpoint_id:rotation.failedEndpointId||null,cycle:activationCycle,active:activeBefore,last};
+  }
+
+  await writeActiveExternalEndpoints(env,rotation.endpoints);
+  let retryCycle;
+  try{
+    retryCycle=await runShardVaultCycle(env,{
+      force:true,
+      skipExternalCode,
+      excludeEndpointIds:[rotation.failedEndpointId],
+    });
+  }catch(error){
+    retryCycle={ok:false,error:String(error?.message||error)};
+  }
+
+  if(retryCycle?.ok){
+    const rowsAfter=await inventoryRows(env,c);
+    const latestAfter=latestSnapshot(rowsAfter);
+    const active=await reconcileActiveExternalEndpoints(env,c,latestAfter);
+    return {
+      recovered:true,
+      failed_endpoint_id:rotation.failedEndpointId,
+      active,
+      last:latestAfter,
+      cycle:{
+        ...retryCycle,
+        recovered_write_failure:true,
+        replaced_endpoint_id:rotation.failedEndpointId,
+        initial_error:String(activationCycle?.error||''),
+      },
+    };
+  }
+
+  await writeActiveExternalEndpoints(env,activeBefore);
+  return {
+    recovered:false,
+    failed_endpoint_id:rotation.failedEndpointId,
+    active:activeBefore,
+    last,
+    cycle:{
+      ...retryCycle,
+      recovered_write_failure:false,
+      replaced_endpoint_id:rotation.failedEndpointId,
+      initial_error:String(activationCycle?.error||''),
+    },
+  };
+}
 async function readDiscoveryStatus(env){
   if(!env?.MEDIA_BUCKET?.get)return null;
   try{
@@ -1592,7 +1740,7 @@ export async function activateValidatedShardVaultEndpoint(env,endpointId){
   return {ok:true,status:'ACTIVATED',endpoint_id:id,used_fragments:used,snapshot_id:latest.snapshotId,active_external_count:actual.length,active_endpoint_ids:actual.map(e=>e.id),staged_endpoint_ids:staged.map(e=>e.id),code_sync,cycle};
 }
 
-export async function searchAutonomousShardVaultRepositories(env,{maxNewEndpoints=7,probeLimit=null,probeOffset=0}={}){
+export async function searchAutonomousShardVaultRepositories(env,{maxNewEndpoints=7,probeLimit=null,probeOffset=0,knownCandidatesOnly=false}={}){
   let c;
   try{c=await config(env);}catch(error){
     const result={ok:false,error:String(error?.message||error),status:'CONFIG_INVALID',searched_at:new Date().toISOString()};
@@ -1636,9 +1784,11 @@ export async function searchAutonomousShardVaultRepositories(env,{maxNewEndpoint
 
     if(boundedMode&&active.length<targetCount){
       const activeIds=new Set(active.map(e=>e.id));
-      const validated=(await readValidatedExternalEndpoints(env,requiredBytes))
-        .filter(e=>!activeIds.has(e.id))
-        .slice(0,boundedMaxNew);
+      const validatedPool=(await readValidatedExternalEndpoints(env,requiredBytes))
+        .filter(e=>!activeIds.has(e.id));
+      const validatedOffset=Math.max(0,Math.trunc(Number(probeOffset)||0));
+      const validated=validatedPool
+        .slice(validatedOffset,validatedOffset+boundedMaxNew);
       if(validated.length){
         const staged=await stageActiveExternalEndpoints(env,c,last,validated);
         if(staged.length>active.length){
@@ -1650,8 +1800,13 @@ export async function searchAutonomousShardVaultRepositories(env,{maxNewEndpoint
             last=latestAfter;
             cached_staged=Math.max(0,active.length-activeBefore.length);
           }else{
-            await writeActiveExternalEndpoints(env,activeBefore);
-            active=activeBefore;
+            const recovered=await retryActivationAfterWriteFailure(env,{
+              c,last,activeBefore,staged,activationCycle:activation_cycle,skipExternalCode:true,
+            });
+            activation_cycle=recovered.cycle;
+            active=recovered.active;
+            last=recovered.last;
+            if(recovered.recovered)cached_staged=Math.max(0,active.length-activeBefore.length);
           }
         }
       }
@@ -1666,7 +1821,8 @@ export async function searchAutonomousShardVaultRepositories(env,{maxNewEndpoint
         : targetCount;
       report=await discoverAutonomousRepositories(env,{
         masterKey:c.master,vaultId:c.vaultId,requiredBytes,
-        selectionCount:selectionTarget,probeLimit,probeOffset
+        selectionCount:selectionTarget,probeLimit,probeOffset,
+        internetDiscovery:knownCandidatesOnly!==true
       });
       await rememberValidatedExternalEndpoints(env,[...(report.qualified||[]),...(report.selected||[])]);
       await rememberCodeCandidateEndpoints(env,[...(report.qualified||[]),...(report.selected||[]),...(report.eligible||[])]);
@@ -1680,8 +1836,12 @@ export async function searchAutonomousShardVaultRepositories(env,{maxNewEndpoint
           active=await reconcileActiveExternalEndpoints(env,c,latestAfter);
           last=latestAfter;
         }else{
-          await writeActiveExternalEndpoints(env,activeBeforeDiscovery);
-          active=activeBeforeDiscovery;
+          const recovered=await retryActivationAfterWriteFailure(env,{
+            c,last,activeBefore:activeBeforeDiscovery,staged,activationCycle:activation_cycle,skipExternalCode:true,
+          });
+          activation_cycle=recovered.cycle;
+          active=recovered.active;
+          last=recovered.last;
         }
       }
     }
@@ -1732,6 +1892,7 @@ export async function searchAutonomousShardVaultRepositories(env,{maxNewEndpoint
       continue_searching:active.length<targetCount,
       search_mode:'MAINTAIN_7_EXTERNAL',
       search_strategy:boundedMode?'INCREMENTAL_BOUNDED':'FULL_REVALIDATION',
+      known_candidates_only:knownCandidatesOnly===true,
       activation_cycle
     };
     if(result.target_reached){

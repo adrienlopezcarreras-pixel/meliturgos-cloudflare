@@ -76,6 +76,7 @@ function executionReadyRank(job) {
   // queue of CLAIMED/QUEUED owner requests cannot starve an approved internal
   // roadmap implementation forever. Owner priority is still preserved when
   // both jobs are equally implementation-ready.
+  if (status === 'REPAIR_REQUIRED') return -1;
   if (status === 'TEACHER_APPROVED') return 0;
   if (status === 'READY_FOR_REVIEW' && job?.result_json?.dev_bridge?.needs_repair === true) return 0;
   return 1;
@@ -117,6 +118,13 @@ function compareActiveJobs(left, right) {
     || a.requester - b.requester
     || a.createdAt - b.createdAt
     || String(left?.id || '').localeCompare(String(right?.id || ''));
+}
+
+export function selectActionableAutonomyJob(jobs = []) {
+  return (Array.isArray(jobs) ? jobs : [])
+    .filter(isSupervisedAutonomyJob)
+    .filter((job) => !isPassiveRuntimeJob(job))
+    .sort(compareActiveJobs)[0] || null;
 }
 
 export function selectNextAutonomyItem({ roadmap = flattenRoadmap(), completedIds = [], blockedIds = [] } = {}) {
@@ -199,10 +207,7 @@ export class AutonomySupervisor {
 
   async ensureNextJob() {
     const current = await this.state();
-    const actionable = current.active
-      .filter(isSupervisedAutonomyJob)
-      .filter((job) => !isPassiveRuntimeJob(job))
-      .sort(compareActiveJobs)[0];
+    const actionable = selectActionableAutonomyJob(current.active);
     if (actionable) return { created: false, job: actionable, next: current.next };
 
     // Teacher, Bridge execution and CI/review are validation/execution lanes,

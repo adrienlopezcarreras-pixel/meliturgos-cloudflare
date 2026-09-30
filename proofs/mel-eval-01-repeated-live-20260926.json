@@ -1,0 +1,25 @@
+{
+  "schema": "mel.mel-eval-01-repeated-live-proof/v1",
+  "date": "2026-09-26",
+  "workflow": "mel-eval-01-stable-watch-ci",
+  "runs": [
+    {
+      "run_id": 36235746767,
+      "head_sha": "f3c0403926425a5ef91dd4e460d6c1ea5bce13eb",
+      "conclusion": "success"
+    },
+    {
+      "run_id": 36235762652,
+      "head_sha": "289f3713f4bc43911de9641536a8b7fb27085cb7",
+      "conclusion": "success"
+    }
+  ],
+  "required_steps": [
+    "Targeted MEL-EVAL-01 tests",
+    "Syntax",
+    "Full test suite",
+    "Runtime dependency security gate"
+  ],
+  "all_required_steps_green": true,
+  "consecutive_live_executions": 2
+}

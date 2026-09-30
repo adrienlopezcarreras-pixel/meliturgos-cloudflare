@@ -8,6 +8,8 @@ import {
 } from './ecosystem-watch-catalog.js';
 import { planEcosystemDiscoveries, mergeEcosystemDiscoveryLedger, selectEcosystemDiscoveryCandidate, buildEcosystemDiscoveryCandidate, markEcosystemDiscoveryOwnerDecision, markEcosystemDiscoveryHandoff, reconcileEcosystemDiscoveryHandoffs } from './ecosystem-discovery-planner.js';
 import { enqueueSupervisedDevelopmentRequest } from '../evolution/owner-development-queue.js';
+import { prepareAutonomyTeacherRequest } from '../evolution/autonomy-runtime.js';
+import { mirrorRuntimeTeacherRequestToGitHub } from '../teachers/github-request-mirror.js';
 import { D1DevJobRepository } from '../dev/d1-dev-job-repository.js';
 
 const WATCH_ID = 'ecosystem-canonical';
@@ -111,13 +113,22 @@ async function ensureStore(env, id = WATCH_ID) {
   };
 }
 
-async function reconcileDiscoveryJobs(env, ledger, { repository = null, now = Date.now() } = {}) {
+export async function reconcileDiscoveryJobs(env, ledger, {
+  repository = null,
+  now = Date.now(),
+  fetchImpl = fetch,
+  resumeTeacherRequest = prepareAutonomyTeacherRequest,
+  mirrorTeacherRequest = mirrorRuntimeTeacherRequestToGitHub,
+  resumeQueued = true,
+  resumeCouncilComplete = resumeQueued,
+  resumePreparedQueued = false,
+} = {}) {
   const jobIds = [...new Set(
     (Array.isArray(ledger?.items) ? ledger.items : [])
       .map(item => String(item?.handoff?.job_id || ''))
       .filter(Boolean)
   )];
-  if (!jobIds.length) return { changed: false, ledger };
+  if (!jobIds.length) return { changed: false, ledger, resumed: null };
   const repo = repository || new D1DevJobRepository(env?.DB);
   const jobs = [];
   for (const id of jobIds.slice(0, 50)) {
@@ -128,7 +139,65 @@ async function reconcileDiscoveryJobs(env, ledger, { repository = null, now = Da
       // Keep the last known handoff state if D1 is temporarily unavailable.
     }
   }
-  return reconcileEcosystemDiscoveryHandoffs(ledger, jobs, now);
+
+  let resumed = null;
+  const resumable = jobs
+    .filter(job => job?.requested_by === 'mel-autonomy')
+    .filter(job => String(job?.optional_context?.source || '') === 'ecosystem-watch')
+    .filter(job => {
+      const status = String(job?.status || '').toUpperCase();
+      if (status === 'COUNCIL_COMPLETE') return resumeQueued || resumeCouncilComplete;
+      if (status !== 'QUEUED') return false;
+      if (resumeQueued) return true;
+      if (!resumePreparedQueued) return false;
+      // A release proof may complete a Teacher handoff for a QUEUED job only
+      // when Council evidence is already durably persisted. prepareAutonomyTeacherRequest()
+      // will then reuse plan_json.preflight and cannot start a fresh Council cycle.
+      return Boolean(job?.plan_json?.preflight?.council);
+    })
+    .sort((a, b) => Number(a?.created_at || 0) - Number(b?.created_at || 0) || String(a?.id || '').localeCompare(String(b?.id || '')))[0] || null;
+
+  if (resumable) {
+    try {
+      const teacher = await resumeTeacherRequest({ env, repository: repo, job: resumable, fetchImpl, minimalInspection: true });
+      const latest = await repo.get(resumable.id);
+      if (latest) {
+        const index = jobs.findIndex(job => job.id === latest.id);
+        if (index >= 0) jobs[index] = latest;
+        else jobs.push(latest);
+      }
+
+      let mirror = null;
+      if (latest
+        && String(latest.status || '').toUpperCase() === 'WAITING_TEACHER'
+        && latest?.result_json?.teacher_bridge) {
+        mirror = await mirrorTeacherRequest({
+          env,
+          job: latest,
+          state: latest.result_json.teacher_bridge,
+          fetchImpl,
+        });
+      }
+
+      resumed = {
+        job_id: resumable.id,
+        status: latest?.status || resumable.status || null,
+        teacher_request_id: teacher?.request?.request_id
+          || latest?.result_json?.teacher_bridge?.request?.request_id
+          || null,
+        mirror_status: mirror?.status || null,
+      };
+    } catch (error) {
+      resumed = {
+        job_id: resumable.id,
+        status: 'RESUME_FAILED',
+        code: String(error?.code || error?.message || 'ECOSYSTEM_HANDOFF_RESUME_FAILED').slice(0, 180),
+      };
+    }
+  }
+
+  const reconciled = reconcileEcosystemDiscoveryHandoffs(ledger, jobs, now);
+  return { ...reconciled, resumed };
 }
 
 function watchEvaluator(env) {
@@ -307,6 +376,141 @@ async function queueDiscoveryCandidate(env, candidate, {
   };
 }
 
+export async function proveEcosystemTeacherHandoff(
+  env,
+  {
+    now = Date.now(),
+    developmentRepository = null,
+    fetchImpl = fetch,
+    resumeTeacherRequest = prepareAutonomyTeacherRequest,
+    mirrorTeacherRequest = mirrorRuntimeTeacherRequestToGitHub,
+  } = {},
+) {
+  const discoveryStore = await ensureStore(env, DISCOVERY_ID);
+  let ledger = await discoveryStore.load();
+  const reconciled = await reconcileDiscoveryJobs(env, ledger, {
+    repository: developmentRepository,
+    now,
+    fetchImpl,
+    resumeTeacherRequest,
+    mirrorTeacherRequest,
+    // Production proof never starts a fresh QUEUED Council cycle. It may,
+    // however, finish a handoff when Council evidence is already persisted,
+    // whether the durable job currently reports COUNCIL_COMPLETE or was
+    // conservatively re-queued after that completed Council phase.
+    // This remains bounded/idempotent and keeps deployment/approval false.
+    resumeQueued: false,
+    resumeCouncilComplete: true,
+    resumePreparedQueued: true,
+  });
+  if (reconciled.changed) {
+    ledger = reconciled.ledger;
+    await discoveryStore.save(ledger);
+  } else {
+    ledger = reconciled.ledger;
+  }
+
+  const rawOpen = (Array.isArray(ledger?.items) ? ledger.items : [])
+    .map(item => ({
+      fingerprint: item?.fingerprint || null,
+      handoff: item?.handoff || null,
+    }))
+    .filter(item => item.handoff && item.handoff.closed !== true);
+
+  // A retryable FAILED handoff is deliberately released by handoffOwnsDiscovery()
+  // so the next watch can retry/rebuild it. Keep it observable, but do not let
+  // stale retryable failures block a release proof forever.
+  const releasedRetryableFailures = rawOpen.filter(item =>
+    String(item.handoff.status || '').toUpperCase() === 'FAILED'
+      && item.handoff.retryable === true
+  );
+  // A Teacher request explicitly invalidated because its candidate SHA became
+  // stale is no longer an active Teacher proof. If the canonical dev job has
+  // already been durably re-queued, with the stale request removed from the
+  // current handoff and marked retryable by reconciliation, keep it observable
+  // but do not let that invalidated historical request block an unrelated
+  // production release forever. Ordinary QUEUED jobs remain blocking.
+  const releasedStaleTeacherRequeues = rawOpen.filter(item =>
+    String(item.handoff.status || '').toUpperCase() === 'QUEUED'
+      && item.handoff.retryable === true
+      && String(item.handoff.code || '').toUpperCase() === 'TEACHER_REQUEST_STALE_SHA'
+      && !String(item.handoff.teacher_request_id || '').trim()
+  );
+  const releasedNonBlocking = new Set([
+    ...releasedRetryableFailures,
+    ...releasedStaleTeacherRequeues,
+  ]);
+  const open = rawOpen.filter(item => !releasedNonBlocking.has(item));
+
+  const active = open
+    .filter(item => String(item.handoff.status || '').toUpperCase() === 'WAITING_TEACHER')
+    .filter(item => String(item.handoff.teacher_request_id || '').trim());
+
+  const teacherProgressStatuses = new Set(['WAITING_TEACHER','TEACHER_APPROVED','CLAIMED','READY_FOR_REVIEW']);
+  const teacherProven = open.filter(item => {
+    const status = String(item.handoff.status || '').toUpperCase();
+    return teacherProgressStatuses.has(status)
+      && Boolean(String(item.handoff.teacher_request_id || '').trim());
+  });
+  const blockedOpen = open.filter(item => !teacherProven.includes(item));
+  const handoff = active[0]?.handoff || teacherProven[0]?.handoff || null;
+  const idleVerified = open.length === 0;
+  const progressVerified = open.length > 0 && blockedOpen.length === 0;
+  const ok = idleVerified || progressVerified;
+  return {
+    ok,
+    status: active.length > 0
+      ? 'GEN2_42_TEACHER_HANDOFF_READY'
+      : progressVerified
+        ? 'GEN2_42_TEACHER_HANDOFF_PROGRESS_VERIFIED'
+        : idleVerified
+          ? 'GEN2_42_TEACHER_HANDOFF_IDLE_VERIFIED'
+          : 'GEN2_42_TEACHER_HANDOFF_NOT_READY',
+    resumed: reconciled.resumed || null,
+    idle_verified: idleVerified,
+    progress_verified: progressVerified,
+    open_handoff_count: open.length,
+    active_teacher_handoff_count: active.length,
+    teacher_proven_handoff_count: teacherProven.length,
+    blocked_open_handoff_count: blockedOpen.length,
+    released_retryable_failure_count: releasedRetryableFailures.length,
+    released_retryable_failures: releasedRetryableFailures.slice(0, 20).map(item => ({
+      fingerprint: item.fingerprint,
+      status: String(item.handoff.status || '').toUpperCase() || null,
+      job_id: item.handoff.job_id || null,
+      teacher_request_id: item.handoff.teacher_request_id || null,
+      candidate_sha: item.handoff.candidate_sha || null,
+      code: item.handoff.code || null,
+    })),
+    released_stale_teacher_requeue_count: releasedStaleTeacherRequeues.length,
+    released_stale_teacher_requeues: releasedStaleTeacherRequeues.slice(0, 20).map(item => ({
+      fingerprint: item.fingerprint,
+      status: String(item.handoff.status || '').toUpperCase() || null,
+      job_id: item.handoff.job_id || null,
+      teacher_request_id: item.handoff.teacher_request_id || null,
+      candidate_sha: item.handoff.candidate_sha || null,
+      retryable: item.handoff.retryable === true,
+      code: item.handoff.code || null,
+      terminal_reason: item.handoff.terminal_reason || null,
+    })),
+    open_handoffs: open.slice(0, 20).map(item => ({
+      fingerprint: item.fingerprint,
+      status: String(item.handoff.status || '').toUpperCase() || null,
+      job_id: item.handoff.job_id || null,
+      teacher_request_id: item.handoff.teacher_request_id || null,
+      teacher_verdict: item.handoff.teacher_verdict || null,
+      candidate_sha: item.handoff.candidate_sha || null,
+      retryable: item.handoff.retryable === true,
+      code: item.handoff.code || null,
+    })),
+    job_id: handoff?.job_id || null,
+    teacher_request_id: handoff?.teacher_request_id || null,
+    candidate_sha: handoff?.candidate_sha || null,
+    production_activation_allowed: false,
+    auto_approval_allowed: false,
+  };
+}
+
 export async function runEcosystemCapabilityWatch(
   env,
   {
@@ -340,6 +544,7 @@ export async function runEcosystemCapabilityWatch(
   const reconciled = await reconcileDiscoveryJobs(env, discoveryLedger, {
     repository: developmentRepository,
     now,
+    fetchImpl,
   });
   if (reconciled.changed) {
     discoveryLedger = reconciled.ledger;
@@ -424,6 +629,7 @@ export async function applyEcosystemProposalDecision(
   const reconciled = await reconcileDiscoveryJobs(env, ledger, {
     repository: developmentRepository,
     now,
+    fetchImpl,
   });
   if (reconciled.changed) ledger = reconciled.ledger;
 

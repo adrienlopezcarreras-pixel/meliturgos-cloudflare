@@ -6,6 +6,14 @@ import { getAutonomyReadiness } from './autonomy-readiness.js';
 import { getAutonomyControl, setAutonomyControl, setOwnerMaxAutonomy } from './autonomy-control.js';
 import { AUTONOMY_RUNTIME_CRON } from './autonomy-schedule.js';
 import { getAutonomyLaunchReadiness, prepareAutonomyLaunch } from './launch-readiness.js';
+import { D1AlternativeRegistryStore } from '../portability/d1-alternative-registry-store.js';
+import { sovereigntyCoverageFromRegistry } from '../portability/prevalidated-alternative-registry.js';
+import { liveTechnicalSovereigntyReport } from '../portability/technical-sovereignty-live.js';
+import { planSovereigntyGapClosure } from '../portability/sovereignty-gap-planner.js';
+import { SovereigntyCandidateStore } from '../portability/sovereignty-candidate-store.js';
+import { parseHttpChatProviderDescriptors } from '../augmentio/http-chat-adapter.js';
+import { evaluateCandidateReadiness, readinessRequirementsForDescriptor } from '../portability/sovereignty-candidate-readiness.js';
+import { localSovereigntyProfile } from '../portability/local-sovereignty-profile.js';
 
 const TERMINAL = new Set(['COMPLETED', 'COMMITTED', 'CANCELLED', 'FAILED']);
 const CANONICAL_CANDIDATE_BRANCH = 'candidate/mel-clean-autonomy';
@@ -58,9 +66,9 @@ function safeRoadmapItem(item) {
   };
 }
 
-export async function getAutonomyState(env, { repository = null, autonomyControlState = null } = {}) {
+export async function getAutonomyState(env, { repository = null, autonomyControlState = null, roadmap = null } = {}) {
   const repo = repository || new D1DevJobRepository(env.DB);
-  const supervisor = new AutonomySupervisor({ repository: repo });
+  const supervisor = new AutonomySupervisor({ repository: repo, ...(roadmap ? { roadmap } : {}) });
   const [state, readiness, control] = await Promise.all([
     supervisor.state(),
     getAutonomyReadiness({ repository: repo }),
@@ -103,7 +111,7 @@ export async function getAutonomyState(env, { repository = null, autonomyControl
   };
 }
 
-export async function maybeHandleAutonomyApi(request, env, { repository = null, fetchImpl = fetch, autonomyControlState = null } = {}) {
+export async function maybeHandleAutonomyApi(request, env, { repository = null, fetchImpl = fetch, autonomyControlState = null, roadmap = null } = {}) {
   const url = new URL(request.url);
   const isPublicControl = url.pathname === '/api/gen2/autonomy/control';
   const isState = url.pathname === '/api/gen2/autonomy/state' || url.pathname === '/api/gen2/autonomy/status';
@@ -113,7 +121,8 @@ export async function maybeHandleAutonomyApi(request, env, { repository = null, 
   const isMax = url.pathname === '/api/gen2/autonomy/max' || url.pathname === '/api/gen2/autonomy/owner-max';
   const isLaunchReadiness = url.pathname === '/api/gen2/autonomy/launch-readiness';
   const isLaunchPrepare = url.pathname === '/api/gen2/autonomy/launch-prepare';
-  if (!isPublicControl && !isState && !isTick && !isPause && !isResume && !isMax && !isLaunchReadiness && !isLaunchPrepare) return null;
+  const isSovereignty = url.pathname === '/api/gen2/autonomy/sovereignty';
+  if (!isPublicControl && !isState && !isTick && !isPause && !isResume && !isMax && !isLaunchReadiness && !isLaunchPrepare && !isSovereignty) return null;
 
   if (isPublicControl) {
     if (request.method !== 'GET') return Response.json({ ok: false, code: 'METHOD_NOT_ALLOWED' }, { status: 405, headers: { allow: 'GET' } });
@@ -133,7 +142,121 @@ export async function maybeHandleAutonomyApi(request, env, { repository = null, 
 
   if (isState) {
     if (request.method !== 'GET') return Response.json({ ok: false, code: 'METHOD_NOT_ALLOWED' }, { status: 405, headers: { allow: 'GET' } });
-    return Response.json(await getAutonomyState(env, { repository, autonomyControlState }), { headers: { 'cache-control': 'no-store' } });
+    return Response.json(await getAutonomyState(env, { repository, autonomyControlState, roadmap }), { headers: { 'cache-control': 'no-store' } });
+  }
+
+  if (isSovereignty) {
+    if (request.method !== 'GET') return Response.json({ ok: false, code: 'METHOD_NOT_ALLOWED' }, { status: 405, headers: { allow: 'GET' } });
+    const store = new D1AlternativeRegistryStore(env.DB);
+    const registry = await store.load();
+    const coverage = sovereigntyCoverageFromRegistry(registry);
+    const architecture = liveTechnicalSovereigntyReport(registry, {
+      maxAutonomy: (await getAutonomyControl(env.DB, { memoryState: autonomyControlState })).max_autonomy === true,
+    });
+    let sovereigntyWatchReport = null;
+    try {
+      const watchRow = await env.DB.prepare('SELECT state_json FROM capability_watch_state WHERE id=?')
+        .bind('sovereignty-replacement-watch').first();
+      sovereigntyWatchReport = watchRow?.state_json ? JSON.parse(watchRow.state_json)?.report || null : null;
+    } catch {}
+    const gapPlan = planSovereigntyGapClosure({
+      registry,
+      watchReport: sovereigntyWatchReport,
+    });
+    const candidateStore = new SovereigntyCandidateStore(env.DB);
+    const candidateRows = await candidateStore.list({ limit: 100 });
+    const configuredAiReadiness = parseHttpChatProviderDescriptors(env).map((descriptor) => {
+      const portableDescriptor = {
+        id: descriptor.id,
+        provider: descriptor.providerId,
+        credential_ref: descriptor.secretEnv || null,
+        added_cost_eur: descriptor.estimatedCost,
+        cost_provenance: descriptor.costProvenance,
+      };
+      const requirements = readinessRequirementsForDescriptor('ai', portableDescriptor);
+      const readiness = evaluateCandidateReadiness(
+        { layer: 'ai', id: descriptor.id },
+        {
+          env,
+          descriptor: portableDescriptor,
+          requiredConfig: requirements.required_config,
+          requiredSecrets: requirements.required_secrets,
+        }
+      );
+      return {
+        id: descriptor.id,
+        provider: descriptor.providerId,
+        model: descriptor.modelId,
+        ready_for_live_test: readiness.ready_for_live_test,
+        blocking_reason: readiness.blocking_reason,
+        zero_cost_verified: readiness.zero_cost_verified,
+        credential_refs: readiness.secret_refs,
+        missing_credentials: readiness.missing_secrets,
+        low_refusal_candidate: descriptor.lowRefusal === true,
+        secret_values_exposed: false,
+      };
+    });
+
+    const candidateSummary = {
+      total: candidateRows.length,
+      unverified: candidateRows.filter(row => row.status === 'UNVERIFIED').length,
+      testing: candidateRows.filter(row => row.status === 'TESTING').length,
+      prevalidated: candidateRows.filter(row => row.status === 'PREVALIDATED').length,
+      blocked: candidateRows.filter(row => row.status === 'BLOCKED').length,
+      rejected: candidateRows.filter(row => row.status === 'REJECTED').length,
+      configured_ai_readiness: configuredAiReadiness,
+      top: candidateRows
+        .filter(row => row.status !== 'REJECTED')
+        .sort((a,b) => Number(b.seen_count||0)-Number(a.seen_count||0) || Number(b.last_seen_at||0)-Number(a.last_seen_at||0))
+        .slice(0,20)
+        .map(row => ({
+          layer: row.layer,
+          id: row.id,
+          provider_hint: row.provider_hint,
+          status: row.status,
+          seen_count: row.seen_count,
+          last_seen_at: row.last_seen_at,
+        })),
+    };
+
+    let localDevice = null;
+    try {
+      const row = await env.DB.prepare(`SELECT id,name,platform,halted,last_seen_at
+        FROM computer_devices WHERE platform='windows'
+        ORDER BY last_seen_at DESC LIMIT 1`).first();
+      if (row) {
+        localDevice = {
+          id: row.id,
+          name: row.name,
+          platform: row.platform,
+          halted: Number(row.halted) === 1,
+          last_seen_at: Number(row.last_seen_at || 0),
+          online: Number(row.halted) !== 1 && Date.now() - Number(row.last_seen_at || 0) < 20000,
+        };
+      }
+    } catch {}
+    const localSovereignty = localSovereigntyProfile({
+      registry,
+      device: localDevice,
+    });
+    return Response.json({
+      ok: true,
+      status: 'TECHNICAL_SOVEREIGNTY_STATUS',
+      fully_sovereign: coverage.fully_covered === true && architecture.fully_sovereign === true,
+      alternative_coverage: coverage,
+      architecture_contract: {
+        fully_sovereign: architecture.fully_sovereign,
+        ready_layer_count: architecture.ready_layer_count,
+        layer_count: architecture.layer_count,
+        ready_layers: architecture.ready_layers,
+        blocked_layers: architecture.blocked_layers,
+      },
+      registry_count: registry.all.length,
+      gap_plan: gapPlan,
+      replacement_candidates: candidateSummary,
+      local_sovereignty: localSovereignty,
+      generated_at: new Date().toISOString(),
+    }, { headers: { 'cache-control': 'no-store' } });
   }
 
   if (isLaunchReadiness) {
@@ -161,7 +284,7 @@ export async function maybeHandleAutonomyApi(request, env, { repository = null, 
       reason: body?.reason || 'owner-emergency-stop',
       memoryState: autonomyControlState,
     });
-    const state = await getAutonomyState(env, { repository: repo, autonomyControlState });
+    const state = await getAutonomyState(env, { repository: repo, autonomyControlState, roadmap });
     return Response.json({ ok: true, control, state }, { headers: { 'cache-control': 'no-store' } });
   }
 
@@ -183,7 +306,7 @@ export async function maybeHandleAutonomyApi(request, env, { repository = null, 
       launch_gate_digest: prepared.readiness.gate_digest,
       memoryState: autonomyControlState,
     });
-    const state = await getAutonomyState(env, { repository: repo, autonomyControlState });
+    const state = await getAutonomyState(env, { repository: repo, autonomyControlState, roadmap });
     return Response.json({ ok: true, launch: prepared, control, state }, { headers: { 'cache-control': 'no-store' } });
   }
 
@@ -213,13 +336,13 @@ export async function maybeHandleAutonomyApi(request, env, { repository = null, 
     });
     let tick = null;
     if (enabled) {
-      tick = await runAutonomyRuntimeTick(env, { repository: repo, fetchImpl, autonomyControlState });
+      tick = await runAutonomyRuntimeTick(env, { repository: repo, fetchImpl, autonomyControlState, roadmap });
     }
-    const state = await getAutonomyState(env, { repository: repo, autonomyControlState });
+    const state = await getAutonomyState(env, { repository: repo, autonomyControlState, roadmap });
     return Response.json({ ok: true, launch: prepared, control, tick, state }, { headers: { 'cache-control': 'no-store' } });
   }
 
-  const tick = await runAutonomyRuntimeTick(env, { repository: repo, fetchImpl, autonomyControlState });
-  const state = await getAutonomyState(env, { repository: repo });
+  const tick = await runAutonomyRuntimeTick(env, { repository: repo, fetchImpl, autonomyControlState, roadmap });
+  const state = await getAutonomyState(env, { repository: repo, autonomyControlState, roadmap });
   return Response.json({ ok: true, tick, state }, { headers: { 'cache-control': 'no-store' } });
 }

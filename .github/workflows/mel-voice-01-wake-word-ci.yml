@@ -1,0 +1,43 @@
+name: mel-voice-01-wake-word-ci
+
+on:
+  pull_request:
+    paths:
+      - 'src/pages/wake-word-runtime.js'
+      - 'src/pages/mvp-runtime.js'
+      - 'tests/gen2/mel-voice-wake.test.mjs'
+      - '.github/workflows/mel-voice-01-wake-word-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  wake-word-targeted:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: node scripts/runtime-security-gate.mjs
+      - run: node --check src/pages/wake-word-runtime.js
+      - run: node --check src/pages/mvp-runtime.js
+      - run: node --test tests/gen2/mel-voice-wake.test.mjs
+
+  wake-word-full-suite:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    needs: wake-word-targeted
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm run check
+      - run: git switch -c candidate/mel-voice-01-ci
+      - run: npm test

@@ -10,3 +10,11 @@ test('LoRA trainer preserves source content and turn order when native chat temp
   assert.ok(source.includes('chunks.append(f"[{role.upper()}]\\n{content}\\n")'), 'fallback must wrap roles without rewriting content');
   assert.ok(!source.includes('content = content.strip()'), 'fallback must not trim source text');
 });
+
+test('LoRA status endpoint reads the latest collector across current branches', async () => {
+  const source = await readFile(new URL('../src/professor-live-learning-entry.js', import.meta.url), 'utf8');
+  assert.match(source, /FREE_LORA_COLLECTOR_WORKFLOW = 'lora-kaggle-free-collect\.yml'/);
+  assert.match(source, /collector_workflow:/);
+  assert.match(source, /actions\/workflows\/\$\{workflowName\}\/runs\?per_page=10/);
+  assert.doesNotMatch(source, /runs\?branch=candidate%2Fmel-clean-autonomy&per_page=1/);
+});

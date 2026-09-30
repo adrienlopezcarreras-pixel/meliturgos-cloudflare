@@ -1,0 +1,41 @@
+name: self-healing-controlled-ci
+
+on:
+  pull_request:
+    paths:
+      - 'src/evolution/self-healing.js'
+      - 'tests/gen2/self-healing-controlled.test.mjs'
+      - '.github/workflows/self-healing-controlled-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  self-healing-targeted:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: node scripts/runtime-security-gate.mjs
+      - run: node --check src/evolution/self-healing.js
+      - run: node --test tests/gen2/self-healing-controlled.test.mjs
+
+  self-healing-full-suite:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    needs: self-healing-targeted
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm run check
+      - run: git switch -c candidate/self-healing-controlled-ci
+      - run: npm test

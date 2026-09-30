@@ -157,6 +157,31 @@ test('a failed bridge test invalidates the old package and creates one repair pa
   assert.equal(calls.length, 2);
 });
 
+test('bridge preparation continues from the exact approved SHA when GitHub HEAD APIs are unavailable', async () => {
+  const repository = await approvedRepository();
+  const calls = [];
+  const outageFetch = async (url) => {
+    const target = String(url);
+    if (target.startsWith('https://api.github.com/')) return new Response('temporarily unavailable', { status: 503 });
+    if (target.includes('/src/example.js')) return new Response('export const ready = false;\n', { status: 200, headers: { etag: 'example-etag' } });
+    return new Response('not found', { status: 404 });
+  };
+  const result = await prepareApprovedBridgePackage({
+    env: { MEL_GITHUB_REPOSITORY: 'owner/repo', MEL_TEACHER_BRANCH: BRANCH },
+    repository,
+    job: await repository.get('bridge-prep-job'),
+    fetchImpl: outageFetch,
+    mentorEngine: mentorEngine(calls),
+  });
+  assert.equal(result.status, 'READY');
+  assert.equal(result.candidate_sha, SHA);
+  assert.deepEqual(result.files, ['src/example.js']);
+  const stored = await repository.get('bridge-prep-job');
+  assert.equal(stored.files_json.length, 1);
+  assert.match(stored.files_json[0].content, /ready = true/);
+  assert.equal(calls.length, 1);
+});
+
 test('bridge preparation fails closed on stale candidate or missing Teacher approval', async () => {
   const repository = await approvedRepository();
   const job = await repository.get('bridge-prep-job');

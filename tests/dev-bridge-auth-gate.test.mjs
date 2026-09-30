@@ -34,9 +34,21 @@ test('dev bridge rejects missing, malformed and incorrect bearer credentials', a
   }
 });
 
-test('dev bridge accepts only the exact configured bearer token', () => {
+test('dev bridge accepts only the exact configured local bearer token', () => {
   const response = authorizeDevBridge(request('Bearer correct-secret'), { MEL_DEV_BRIDGE_TOKEN: 'correct-secret' });
   assert.equal(response, null);
+});
+
+test('dev bridge accepts a separate ephemeral cloud bearer token without changing the local token', async () => {
+  const env = {
+    MEL_DEV_BRIDGE_TOKEN: 'local-secret',
+    MEL_CLOUD_BRIDGE_TOKEN: 'cloud-secret',
+  };
+  assert.equal(authorizeDevBridge(request('Bearer cloud-secret'), env), null);
+  assert.equal(authorizeDevBridge(request('Bearer local-secret'), env), null);
+  const denied = authorizeDevBridge(request('Bearer other-secret'), env);
+  assert.equal(denied.status, 401);
+  assert.equal((await body(denied)).code, 'BRIDGE_AUTH_REQUIRED');
 });
 
 test('deployed entrypoint gates every internal Dev Bridge route before delegation', async () => {

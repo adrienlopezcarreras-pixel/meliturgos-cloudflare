@@ -1,0 +1,31 @@
+{
+  "schema": "mel.roadmap.production-proof/v1",
+  "date": "2026-09-26",
+  "deployment_run_id": 36237663912,
+  "exact_sha": "3f7011412d148ca02921a42265b8e28550accdf2",
+  "deployment_conclusion": "success",
+  "proofs": {
+    "MEL-CONTEXT-02": {
+      "status": "MEL_CONTEXT_02_REAL_LONG_CONVERSATION_VERIFIED",
+      "real_production_history": true,
+      "threshold_chars_gt": 65000,
+      "actual_budget_omission_required": true,
+      "decision_anchor_preserved": true,
+      "current_turn_preserved_exactly": true,
+      "private_content_returned": false
+    },
+    "MEL-RES-03": {
+      "status": "MEL_RES_03_PRODUCTION_MANIFEST_VERIFIED",
+      "latest_backup_content_verified": true,
+      "provider_neutral_manifest": true,
+      "layers": [
+        "ai",
+        "storage",
+        "runtime"
+      ],
+      "ready_to_escape": true,
+      "automatic_activation": false,
+      "owner_approval_required": true
+    }
+  }
+}

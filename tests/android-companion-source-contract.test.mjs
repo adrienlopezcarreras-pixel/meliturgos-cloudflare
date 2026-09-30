@@ -415,9 +415,9 @@ test('Android Complete mode exposes an authenticated self diagnostic',async()=>{
   const vm=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelViewModel.kt',root),'utf8');
   const api=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelApiClient.kt',root),'utf8');
   const build=await readFile(new URL('app/build.gradle.kts',root),'utf8');
-  assert.match(build,/versionCode = 52/);
-  assert.match(build,/versionName = "0\.6\.43-pair-controls"/);
-  assert.match(api,/APP_VERSION = "0\.6\.43-pair-controls"/);
+  assert.match(build,/versionCode = 57/);
+  assert.match(build,/versionName = "0\.6\.48-truthful-mini-link"/);
+  assert.match(api,/APP_VERSION = "0\.6\.48-truthful-mini-link"/);
   assert.match(vm,/val diagnosticReport: String\? = null/);
   assert.match(vm,/fun runDiagnostics\(\)/);
   assert.match(vm,/client\.heartbeat\(sdkInt = Build\.VERSION\.SDK_INT\)/);
@@ -438,9 +438,9 @@ test('Android device validation probes are authenticated and bounded',async()=>{
   const build=await readFile(new URL('app/build.gradle.kts',root),'utf8');
   const api=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelApiClient.kt',root),'utf8');
 
-  assert.match(build,/versionCode = 52/);
-  assert.match(build,/versionName = "0\.6\.43-pair-controls"/);
-  assert.match(api,/APP_VERSION = "0\.6\.43-pair-controls"/);
+  assert.match(build,/versionCode = 57/);
+  assert.match(build,/versionName = "0\.6\.48-truthful-mini-link"/);
+  assert.match(api,/APP_VERSION = "0\.6\.48-truthful-mini-link"/);
 
   assert.match(activity,/private const val MAX_FILE_BYTES = 25_000_000/);
   assert.match(activity,/private fun readUriBounded\(uri: Uri\): ByteArray/);
@@ -472,9 +472,9 @@ test('real mic and file successes feed the diagnostic report',async()=>{
   const build=await readFile(new URL('app/build.gradle.kts',root),'utf8');
   const api=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelApiClient.kt',root),'utf8');
 
-  assert.match(build,/versionCode = 52/);
-  assert.match(build,/versionName = "0\.6\.43-pair-controls"/);
-  assert.match(api,/APP_VERSION = "0\.6\.43-pair-controls"/);
+  assert.match(build,/versionCode = 57/);
+  assert.match(build,/versionName = "0\.6\.48-truthful-mini-link"/);
+  assert.match(api,/APP_VERSION = "0\.6\.48-truthful-mini-link"/);
 
   const voice=vm.slice(vm.indexOf('fun sendVoice('),vm.indexOf('fun sendFile('));
   assert.match(voice,/appendDiagnosticLine\("Micro réel: OK"\)/);
@@ -491,9 +491,9 @@ test('Android dark UI keeps readable content contrast',async()=>{
   const build=await readFile(new URL('app/build.gradle.kts',root),'utf8');
   const api=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelApiClient.kt',root),'utf8');
 
-  assert.match(build,/versionCode = 52/);
-  assert.match(build,/versionName = "0\.6\.43-pair-controls"/);
-  assert.match(api,/APP_VERSION = "0\.6\.43-pair-controls"/);
+  assert.match(build,/versionCode = 57/);
+  assert.match(build,/versionName = "0\.6\.48-truthful-mini-link"/);
+  assert.match(api,/APP_VERSION = "0\.6\.48-truthful-mini-link"/);
 
   assert.match(activity,/contentColor = MelInk/);
   assert.match(activity,/CardDefaults\.cardColors\(containerColor = MelPanel, contentColor = MelInk\)/);
@@ -514,6 +514,15 @@ test('Android MINI mobile shell keeps settings-driven native navigation and comp
   const bridge=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelBleBridgeService.kt',root),'utf8');
   const screenshotTest=await readFile(new URL('app/src/androidTest/java/fr/veriteinterdite/mel/MelUiHarnessScreenshotTest.kt',root),'utf8');
 
+  assert.match(activity,/MelBleBridgeService\.miniLinkReady\.collectAsStateWithLifecycle\(\)/);
+  assert.match(activity,/MelBleBridgeService\.internetReady\.collectAsStateWithLifecycle\(\)/);
+  assert.match(activity,/MelBleBridgeService\.miniPairingComplete\.collectAsStateWithLifecycle\(\)/);
+  assert.match(activity,/APPAIRAGE ENREGISTRÉ/);
+  assert.match(activity,/reconnecte automatiquement/);
+  assert.match(activity,/mini-pair-recovery-toggle/);
+  assert.match(activity,/CODE MANUEL DE SECOURS/);
+  assert.doesNotMatch(activity,/GÉNÉRER LE CODE D’APPAIRAGE/);
+  assert.doesNotMatch(activity,/val bleReady = bridgeState\.contains\("MINI CONNECTÉE"\)/);
   assert.match(activity,/enum class MobileSection/);
   assert.match(activity,/MEL\("MEL"\)/);
   assert.match(activity,/KEYBOARD\("Clavier"\)/);
@@ -533,8 +542,9 @@ test('Android MINI mobile shell keeps settings-driven native navigation and comp
   assert.doesNotMatch(activity,/Intent\(Intent\.ACTION_VIEW,\s*Uri\.parse\("https?:/);
   assert.doesNotMatch(activity,/CODE MINI/);
   assert.doesNotMatch(activity,/GÉNÉRER LE CODE MINI/);
-  assert.match(bridge,/request\.path == "\/api\/device\/v1\/manifest"/);
-  assert.match(bridge,/MEL relay local manifest -> 200/);
+  assert.doesNotMatch(bridge,/MEL relay local manifest -> 200/);
+  assert.doesNotMatch(bridge,/request\.method == "GET" && request\.path == "\/api\/device\/v1\/manifest"/);
+  assert.match(bridge,/URL\(BuildConfig\.MEL_BASE_URL\.trimEnd\('\/'\) \+ request\.path\)/);
   assert.match(bridge,/request\.path == "\/api\/device\/v1\/render\/card"/);
   assert.match(bridge,/renderMiniCardMimg\(/);
   assert.match(bridge,/payload\.optString\("image_url", ""\)/);
@@ -544,12 +554,24 @@ test('Android MINI mobile shell keeps settings-driven native navigation and comp
   assert.match(bridge,/protocol\.equals\("https", ignoreCase = true\)/);
   assert.match(bridge,/BitmapFactory\.decodeByteArray/);
   assert.match(bridge,/rgb565/);
+  assert.match(bridge,/val miniLinkReady = MutableStateFlow\(false\)/);
+  assert.match(bridge,/val internetReady = MutableStateFlow\(false\)/);
+  assert.match(bridge,/val miniPairingComplete = MutableStateFlow\(false\)/);
+  assert.match(bridge,/mini_pairing_complete/);
+  assert.match(bridge,/rememberMiniPairingComplete\(\)/);
+  assert.match(bridge,/request\.path == "\/api\/device\/v1\/pair"/);
+  assert.match(bridge,/request\.token\.isNotEmpty\(\)/);
+  assert.match(bridge,/miniLinkReady\.value = enabled/);
+  assert.match(bridge,/val success = status in 200\.\.299/);
+  assert.match(bridge,/internetReady\.value = miniLinkReady\.value && success/);
+  assert.match(bridge,/status in 200\.\.299/);
   assert.match(bridge,/MINI CONNECTÉE · INTERNET OK/);
+  assert.match(bridge,/MINI CONNECTÉE · MEL HTTP \$status/);
 });
 
 
 
-test('Android 0.6.15 keeps critical interaction state truthful and stable',async()=>{
+test('Android 0.6.48 keeps critical interaction state truthful and stable',async()=>{
   const activity=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MainActivity.kt',root),'utf8');
   const vm=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelViewModel.kt',root),'utf8');
   assert.doesNotMatch(activity,/LaunchedEffect\(state\.messages\.size\)/);
@@ -573,7 +595,7 @@ test('Android 0.6.15 keeps critical interaction state truthful and stable',async
   assert.match(vm,/fun setMode\(mode: MelMode\) \{\s*if \(_state\.value\.busy\) return/);
 });
 
-test('Android 0.6.15 exposes native keyboard camera companion and tools surfaces',async()=>{
+test('Android 0.6.48 exposes native keyboard camera companion and tools surfaces',async()=>{
   const activity=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MainActivity.kt',root),'utf8');
   const api=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelApiClient.kt',root),'utf8');
   const vm=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelViewModel.kt',root),'utf8');
@@ -595,7 +617,7 @@ test('Android 0.6.15 exposes native keyboard camera companion and tools surfaces
   assert.doesNotMatch(activity,/Intent\(Intent\.ACTION_VIEW,\s*Uri\.parse\("https?:/);
 });
 
-test('Android 0.6.15 plays the same Luna PCM voice contract as MINI for chat and microphone replies',async()=>{
+test('Android 0.6.48 keeps French system TTS primary with server fallback',async()=>{
   const api=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelApiClient.kt',root),'utf8');
   const vm=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelViewModel.kt',root),'utf8');
   const activity=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MainActivity.kt',root),'utf8');
@@ -618,12 +640,14 @@ test('Android 0.6.15 plays the same Luna PCM voice contract as MINI for chat and
   assert.match(vm,/MelVoicePlayer\.playMp3\(appContext, audio\)/);
   assert.match(vm,/MelVoicePlayer\.playSystemFrench\(appContext, answer\)/);
   assert.match(vm,/status = "MEL parle…"/);
-  assert.match(vm,/Audio MEL: OK · Android fr-FR/);
-  assert.match(vm,/Audio MEL: secours Luna MP3/);
+  assert.match(vm,/Audio MEL: meilleure voix Android fr-FR/);
+  assert.match(vm,/Audio MEL: secours serveur/);
   assert.match(player,/TextToSpeech/);
   assert.match(player,/Locale\.FRANCE/);
   assert.match(player,/splitForTts\(text, maxChunk\)/);
   assert.match(player,/MelPlaybackInterruptedException/);
+  assert.match(player,/isLikelyMp3\(bytes: ByteArray\)/);
+  assert.match(player,/TTS_AUDIO_FORMAT_INVALID/);
   assert.match(player,/coerceIn\(20L, 240L\)/);
   assert.doesNotMatch(player,/coerceIn\(10L, 60L\)/);
   assert.match(vm,/fun interruptSpeechForBargeIn\(\)/);

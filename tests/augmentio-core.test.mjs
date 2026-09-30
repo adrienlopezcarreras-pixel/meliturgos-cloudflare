@@ -5,6 +5,7 @@ import { ZeroEuroGovernor, ZERO_EURO_POLICY } from '../src/augmentio/zero-euro-g
 import { ParallelScheduler } from '../src/augmentio/parallel-scheduler.js';
 import { ResultTournament } from '../src/augmentio/result-tournament.js';
 import { Augmentio } from '../src/augmentio/augmentio.js';
+import { standardRegistry } from '../src/models/ModelRegistry.js';
 
 function verifiedFree(id, { provider = '', model = '', authority = 'augmentio-test-suite' } = {}) {
   const authorization = {
@@ -160,4 +161,12 @@ test('augmentio fans out, tolerates failure, ranks, caches, and skips paid, unkn
   const second = await augmentio.fanOut({ input: 'solve this', maxCandidates: 8 });
   assert.equal(second.cacheHit, true);
   assert.equal(calls, 3, 'cache should prevent repeat calls');
+});
+
+
+test('GLM 4.7 Flash is available as the highest-priority CODE model', () => {
+  const codeModels = standardRegistry.modelsByCapability('CODE');
+  assert.equal(codeModels[0]?.id, '@cf/zai-org/glm-4.7-flash');
+  assert.ok(codeModels.some((model) => model.id === '@cf/meta/llama-3.3-70b-instruct-fp8-fast'));
+  assert.ok(codeModels.some((model) => model.id === '@cf/google/gemma-3-12b-it'));
 });

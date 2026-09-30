@@ -10,6 +10,11 @@ import { handleNativeChat } from "./api/native-chat.js";
 import { maybeHandlePublicTeacherBridge } from "./teachers/public-teacher-api.js";
 import { runAutonomyMaintenance, runAutonomyRuntimeTick } from "./evolution/autonomy-runtime.js";
 import { runEcosystemCapabilityWatch } from "./evaluation/capability-watch-runtime.js";
+import { runDependencyLongevityWatchRuntime } from "./evaluation/dependency-longevity-watch-runtime.js";
+import { runSovereigntyReplacementWatchRuntime } from "./evaluation/sovereignty-watch-runtime.js";
+import { runConfiguredAiCandidateValidationRuntime } from "./portability/configured-ai-candidate-validation-runtime.js";
+import { runCompanionSourceControlPrevalidationRuntime } from "./portability/companion-source-control-prevalidation-runtime.js";
+import { runCompanionInfrastructurePrevalidationRuntime } from "./portability/companion-infrastructure-prevalidation-runtime.js";
 import { maybeHandleAutonomyApi } from "./evolution/autonomy-api.js";
 import { maybeHandleReleaseLaunchBootstrap } from "./evolution/release-launch-bootstrap.js";
 import { runLoraTrainingHeartbeat } from "./learning/lora-training-heartbeat.js";
@@ -26,6 +31,18 @@ import { resolveApiVersionRequest, decorateApiVersionResponse, unsupportedApiVer
 
 function deployedWatchSourceSha() {
   return typeof MEL_DEPLOYED_GIT_SHA !== 'undefined' ? String(MEL_DEPLOYED_GIT_SHA || '') || null : null;
+}
+
+export async function runOpenLoopResumeTick(env = {}) {
+  if (!env?.DB || !String(env.MELITURGOS_USER || '').trim()) {
+    return { ok: true, skipped: true, reason: 'OPEN_LOOP_RUNTIME_NOT_CONFIGURED' };
+  }
+  const runtime = createGen2Runtime({ env });
+  return runtime.bus.execute('openloop.resume', { limit: 5, retryDelayMs: 60000 }, {
+    owner: String(env.MELITURGOS_USER).trim(),
+    permissions: [],
+    requestId: crypto.randomUUID(),
+  });
 }
 
 function isArchivePayload(value) {
@@ -346,7 +363,7 @@ async function maybeHandleChatGPTArchive(request, env) {
   try {
     const runtime = createGen2Runtime({ env });
     const capabilityId = preview ? 'chatgpt.archive.preview' : 'chatgpt.archive.import';
-    const result = await runtime.bus.execute(capabilityId, { archive }, busContext(env, request));
+    const result = await runtime.bus.execute(capabilityId, { archive, confirm_full_export: body.confirm_full_export === true }, busContext(env, request));
     return Response.json(result, { status: result.ok === false ? 207 : 200, headers: { 'cache-control': 'no-store' } });
   } catch (error) {
     return apiError(error, 'CHATGPT_ARCHIVE_IMPORT_FAILED');
@@ -434,7 +451,10 @@ async function fetchResolvedRequest(request, env, ctx) {
         ? await injectEvolutionPreflightCapability(request, env)
         : request;
       if (path === '/api/chat') {
-        return await handleNativeChat(preparedRequest, withChatAiDefaults(env));
+        const chatOptions = typeof ctx?.waitUntil === 'function'
+          ? { waitUntil: promise => ctx.waitUntil(promise) }
+          : {};
+        return await handleNativeChat(preparedRequest, withChatAiDefaults(env), chatOptions);
       }
 
       const response = await router.fetch(preparedRequest, env, ctx);
@@ -488,6 +508,53 @@ export default {
             console.error('[MEL watch] hourly ecosystem watch failed:', error?.code || error?.message || error);
             return null;
           }),
+          runDependencyLongevityWatchRuntime(env).then((result) => {
+            if (result?.status === 'EMERGENCY') {
+              console.error('[MEL longevity] critical dependency emergency detected.');
+            } else if (result?.status === 'MIGRATION_REQUIRED') {
+              console.error('[MEL longevity] dependency migration required.');
+            }
+            return result;
+          }).catch((error) => {
+            console.error('[MEL longevity] dependency watch failed:', error?.code || error?.message || error);
+            return null;
+          }),
+          runSovereigntyReplacementWatchRuntime(env).then((result) => {
+            if (result?.status === 'DEGRADED') {
+              console.error('[MEL sovereignty watch] replacement discovery degraded.');
+            }
+            return result;
+          }).catch((error) => {
+            console.error('[MEL sovereignty watch] replacement discovery failed:', error?.code || error?.message || error);
+            return null;
+          }),
+          runConfiguredAiCandidateValidationRuntime(env).then((result) => {
+            if (result?.status === 'DEGRADED') {
+              console.error('[MEL sovereignty] configured AI candidate validation blocked.');
+            }
+            return result;
+          }).catch((error) => {
+            console.error('[MEL sovereignty] configured AI candidate validation failed:', error?.code || error?.message || error);
+            return null;
+          }),
+          runCompanionSourceControlPrevalidationRuntime(env).then((result) => {
+            if (result?.status === 'BLOCKED') {
+              console.error('[MEL sovereignty] local Git prevalidation blocked.');
+            }
+            return result;
+          }).catch((error) => {
+            console.error('[MEL sovereignty] local Git prevalidation failed:', error?.code || error?.message || error);
+            return null;
+          }),
+          runCompanionInfrastructurePrevalidationRuntime(env).then((result) => {
+            if (result?.status === 'BLOCKED') {
+              console.error('[MEL sovereignty] local infrastructure prevalidation blocked.');
+            }
+            return result;
+          }).catch((error) => {
+            console.error('[MEL sovereignty] local infrastructure prevalidation failed:', error?.code || error?.message || error);
+            return null;
+          }),
           runShardVaultCycle(env).then((result) => {
             if (result?.ok === false) console.error('[MEL ShardVault] cycle reported:', result.reason || result.error || 'NOT_OK');
             return result;
@@ -506,6 +573,10 @@ export default {
       : [
           runAutonomyRuntimeTick(env).catch((error) => {
             console.error('[MEL autonomy] scheduled tick failed:', error?.code || error?.message || error);
+            return null;
+          }),
+          runOpenLoopResumeTick(env).catch((error) => {
+            console.error('[MEL open loops] scheduled resume failed:', error?.code || error?.message || error);
             return null;
           }),
           runLoraTrainingHeartbeat(env).then((result) => {

@@ -8,6 +8,7 @@ import {
 import { runCapabilityWatch } from '../../src/evaluation/capability-watch.js';
 import { planEcosystemDiscoveries, mergeEcosystemDiscoveryLedger, selectEcosystemDiscoveryCandidate, markEcosystemDiscoveryOwnerDecision, markEcosystemDiscoveryHandoff, reconcileEcosystemDiscoveryHandoffs } from '../../src/evaluation/ecosystem-discovery-planner.js';
 import { createGen2Runtime } from '../../src/core/orchestrator/gen2-runtime.js';
+import { reconcileDiscoveryJobs } from '../../src/evaluation/capability-watch-runtime.js';
 
 test('ecosystem watch catalog is unique and covers AI, tooling and creative arts', () => {
   const catalog = getEcosystemWatchCatalog();
@@ -82,40 +83,6 @@ test('sourced creative watch observations reuse canonical media capabilities bef
   assert.equal(artHistory.action, 'PROPOSE_EXTENSION');
   assert.equal(artHistory.suggested_kind, 'module');
   assert.equal(artHistory.proposal.activation_allowed, false);
-});
-
-test('generic image signal cannot auto-unblock a specific blocked media operation', () => {
-  const runtime = createGen2Runtime({ env: {} });
-  const plan = planEcosystemDiscoveries({
-    catalog: {
-      targets: [{
-        id: 'generic-image-watch',
-        metadata: { label: 'Generic image news', category: 'ai-platform', capabilities: ['image'] },
-      }],
-    },
-    capabilities: runtime.bus.list(),
-    watchResult: {
-      status: 'RAN',
-      results: [{
-        id: 'generic-image-watch',
-        evidence: {
-          status: 'OBSERVED',
-          summary: 'Official platform mentions image capabilities without an executable integration.',
-          citations_count: 2,
-          sources: [{ title: 'Official changelog', url: 'https://example.com/image' }],
-          detected_capabilities: ['image'],
-        },
-      }],
-    },
-  });
-
-  assert.equal(plan.items.length, 1);
-  const image = plan.items[0];
-  assert.equal(image.classification, 'MATCHED_BUT_BLOCKED');
-  assert.equal(image.best_match.id, 'media.image.analyze');
-  assert.equal(image.action, 'REVIEW_EXISTING');
-  assert.equal(image.blocking_review_reason, 'BLOCKED_MATCH_REQUIRES_EXPLICIT_CAPABILITY_SIGNAL');
-  assert.equal(selectEcosystemDiscoveryCandidate({ items: plan.items }), null);
 });
 
 test('ecosystem discovery planner proposes tooling as plugin and ledger deduplicates across runs', () => {
@@ -503,4 +470,215 @@ test('owner decisions persist and rejected or deferred proposals are skipped by 
   }, 200);
   assert.equal(deferred.items[0].owner_decision.status, 'DEFERRED');
   assert.equal(selectEcosystemDiscoveryCandidate(deferred), null);
+});
+
+
+test('GEN2-42 resumes at most one requeued ecosystem handoff and refreshes Teacher metadata', async () => {
+  const jobs = new Map([
+    ['job-oldest', {
+      id: 'job-oldest',
+      status: 'QUEUED',
+      requested_by: 'mel-autonomy',
+      created_at: 10,
+      optional_context: { source: 'ecosystem-watch', roadmap_id: 'GEN2-42' },
+      result_json: {},
+    }],
+    ['job-newer', {
+      id: 'job-newer',
+      status: 'QUEUED',
+      requested_by: 'mel-autonomy',
+      created_at: 20,
+      optional_context: { source: 'ecosystem-watch', roadmap_id: 'GEN2-42' },
+      result_json: {},
+    }],
+  ]);
+  const repository = {
+    async get(id) { return jobs.get(id) || null; },
+  };
+  const ledger = {
+    items: [
+      {
+        fingerprint: 'capability:image.generate',
+        handoff: {
+          job_id: 'job-oldest',
+          status: 'QUEUED',
+          teacher_request_id: 'req-stale',
+          candidate_sha: 'a'.repeat(40),
+          attempts: 2,
+        },
+      },
+      {
+        fingerprint: 'capability:video.generate',
+        handoff: {
+          job_id: 'job-newer',
+          status: 'QUEUED',
+          attempts: 1,
+        },
+      },
+    ],
+  };
+
+  const resumedIds = [];
+  const mirroredIds = [];
+  const result = await reconcileDiscoveryJobs({}, ledger, {
+    repository,
+    now: 500,
+    resumeTeacherRequest: async ({ job, minimalInspection }) => {
+      assert.equal(minimalInspection, true);
+      resumedIds.push(job.id);
+      const fresh = {
+        ...job,
+        status: 'WAITING_TEACHER',
+        updated_at: 450,
+        result_json: {
+          teacher_bridge: {
+            status: 'WAITING_TEACHER',
+            request: {
+              request_id: 'req-fresh',
+              provenance: { candidate_sha: 'b'.repeat(40) },
+            },
+          },
+        },
+      };
+      jobs.set(job.id, fresh);
+      return fresh.result_json.teacher_bridge;
+    },
+    mirrorTeacherRequest: async ({ job }) => {
+      mirroredIds.push(job.id);
+      return { status: 'MIRRORED' };
+    },
+  });
+
+  assert.deepEqual(resumedIds, ['job-oldest']);
+  assert.deepEqual(mirroredIds, ['job-oldest']);
+  assert.equal(result.resumed.job_id, 'job-oldest');
+  assert.equal(result.resumed.status, 'WAITING_TEACHER');
+  assert.equal(result.resumed.teacher_request_id, 'req-fresh');
+  assert.equal(result.resumed.mirror_status, 'MIRRORED');
+
+  const oldest = result.ledger.items.find(item => item.handoff.job_id === 'job-oldest').handoff;
+  assert.equal(oldest.status, 'WAITING_TEACHER');
+  assert.equal(oldest.teacher_request_id, 'req-fresh');
+  assert.equal(oldest.candidate_sha, 'b'.repeat(40));
+  assert.equal(oldest.attempts, 2);
+
+  const newer = result.ledger.items.find(item => item.handoff.job_id === 'job-newer').handoff;
+  assert.equal(newer.status, 'QUEUED');
+  assert.equal(newer.attempts, 1);
+});
+
+
+test('GEN2-42 maps vision discovery to the existing canonical image analysis capability', () => {
+  const runtime = createGen2Runtime({ env: {} });
+  const plan = planEcosystemDiscoveries({
+    catalog: {
+      targets: [{
+        id: 'vision-watch',
+        metadata: { label: 'Vision', category: 'ai-platform', capabilities: ['vision'] },
+      }],
+    },
+    capabilities: runtime.bus.list(),
+    watchResult: {
+      status: 'RAN',
+      results: [{
+        id: 'vision-watch',
+        evidence: {
+          status: 'OBSERVED',
+          citations_count: 1,
+          sources: [{ title: 'Official', url: 'https://example.com/vision' }],
+          detected_capabilities: ['vision'],
+        },
+      }],
+    },
+  });
+  const vision = plan.items.find(item => item.capability_hint === 'vision');
+  assert.ok(vision);
+  assert.equal(vision.action, 'UNBLOCK_EXISTING');
+  assert.equal(vision.best_match.id, 'media.image.analyze');
+});
+
+
+test('GEN2-42 reconciliation clears only a durably invalidated stale Teacher request from the active handoff', () => {
+  const ledger={
+    items:[{
+      fingerprint:'capability:video.generate',
+      handoff:{
+        job_id:'job-stale-teacher',
+        status:'QUEUED',
+        teacher_request_id:'req-stale',
+        candidate_sha:'a'.repeat(40),
+        attempts:2,
+        closed:false,
+      },
+    }],
+  };
+  const reconciled=reconcileEcosystemDiscoveryHandoffs(ledger,[{
+    id:'job-stale-teacher',
+    status:'QUEUED',
+    updated_at:123,
+    plan_json:{
+      revision:{
+        reason:'TEACHER_REQUEST_STALE_SHA',
+        previous_request_id:'req-stale',
+      },
+    },
+    result_json:{
+      teacher_bridge_history:[{
+        status:'STALE',
+        request:{request_id:'req-stale'},
+      }],
+    },
+  }],200);
+
+  assert.equal(reconciled.changed,true);
+  const handoff=reconciled.ledger.items[0].handoff;
+  assert.equal(handoff.status,'QUEUED');
+  assert.equal(handoff.teacher_request_id,null);
+  assert.equal(handoff.teacher_verdict,null);
+  assert.equal(handoff.candidate_sha,null);
+  assert.equal(handoff.closed,false);
+  assert.equal(handoff.retryable,true);
+  assert.equal(handoff.code,'TEACHER_REQUEST_STALE_SHA');
+  assert.equal(handoff.terminal_reason,'STALE_TEACHER_REQUEST_REQUEUED');
+  assert.equal(handoff.attempts,2);
+});
+
+test('GEN2-42 reconciliation keeps a QUEUED Teacher handoff blocking when stale history is not proven', () => {
+  const ledger={
+    items:[{
+      fingerprint:'capability:video.generate',
+      handoff:{
+        job_id:'job-unproven-stale',
+        status:'QUEUED',
+        teacher_request_id:'req-old',
+        candidate_sha:'b'.repeat(40),
+        attempts:1,
+        closed:false,
+      },
+    }],
+  };
+  const reconciled=reconcileEcosystemDiscoveryHandoffs(ledger,[{
+    id:'job-unproven-stale',
+    status:'QUEUED',
+    updated_at:321,
+    plan_json:{
+      revision:{
+        reason:'TEACHER_REQUEST_STALE_SHA',
+        previous_request_id:'req-old',
+      },
+    },
+    result_json:{
+      teacher_bridge_history:[{
+        status:'STALE',
+        request:{request_id:'different-request'},
+      }],
+    },
+  }],400);
+
+  const handoff=reconciled.ledger.items[0].handoff;
+  assert.equal(handoff.teacher_request_id,'req-old');
+  assert.equal(handoff.candidate_sha,'b'.repeat(40));
+  assert.equal(handoff.retryable,false);
+  assert.equal(handoff.code,null);
+  assert.equal(handoff.terminal_reason,null);
 });

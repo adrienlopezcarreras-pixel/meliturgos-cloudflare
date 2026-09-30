@@ -100,6 +100,8 @@ export async function auditRuntimeCapabilities(runtime, {
   context = {},
   samples = SAFE_SAMPLES,
   zeroCostCapabilityIds = [],
+  onProgress = null,
+  executionTimeoutMs = 15_000,
 } = {}) {
   if (!runtime?.bus) throw new TypeError('CAPABILITY_BUS_REQUIRED');
 
@@ -125,7 +127,9 @@ export async function auditRuntimeCapabilities(runtime, {
   }
 
   const rows = [];
-  for (const record of records) {
+  const progress = typeof onProgress === 'function' ? onProgress : null;
+  for (let index = 0; index < records.length; index += 1) {
+    const record = records[index];
     let execution = null;
     let contract = null;
     if (typeof runtime.bus.contract === 'function') {
@@ -153,17 +157,27 @@ export async function auditRuntimeCapabilities(runtime, {
       && costApproved;
     if (executable) {
       try {
-        const result = await runtime.bus.execute(record.id, sample, {
-          owner: context.owner || 'capability-audit',
-          permissions: context.permissions || [],
-          requestId: context.requestId || crypto.randomUUID(),
-        });
+        const timeoutMs = Math.max(50, Math.min(60_000, Number(executionTimeoutMs) || 15_000));
+        let timer;
+        const result = await Promise.race([
+          runtime.bus.execute(record.id, sample, {
+            owner: context.owner || 'capability-audit',
+            permissions: context.permissions || [],
+            requestId: context.requestId || crypto.randomUUID(),
+          }),
+          new Promise((_, reject) => {
+            timer = setTimeout(() => reject(Object.assign(
+              new Error('CAPABILITY_AUDIT_EXECUTION_TIMEOUT'),
+              { code: 'CAPABILITY_AUDIT_EXECUTION_TIMEOUT' },
+            )), timeoutMs);
+          }),
+        ]).finally(() => clearTimeout(timer));
         execution = { ok: true, result_type: Array.isArray(result) ? 'array' : typeof result };
       } catch (error) {
         execution = { ok: false, code: String(error?.code || error?.message || 'CAPABILITY_FAILED') };
       }
     }
-    rows.push({
+    const row = {
       id: record.id,
       name: record.name,
       category: record.category,
@@ -178,7 +192,9 @@ export async function auditRuntimeCapabilities(runtime, {
       auto_execution_blocked: blockedReason,
       execution,
       truth_status: classifyCapabilityTruth(record, execution),
-    });
+    };
+    rows.push(row);
+    if (progress) await progress({ index: index + 1, total: records.length, row });
   }
 
   const counts = rows.reduce((acc, row) => {

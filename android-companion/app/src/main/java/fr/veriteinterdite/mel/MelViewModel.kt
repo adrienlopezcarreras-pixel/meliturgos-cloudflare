@@ -271,18 +271,17 @@ class MelViewModel(
         if (!diagnosticIntent) return null
 
         val bridge = MelBleBridgeService.bridgeState.value
+        val linked = MelBleBridgeService.miniLinkReady.value
+        val internet = MelBleBridgeService.internetReady.value
         return when {
-            bridge.contains("INTERNET OK", ignoreCase = true) ->
-                "Oui. Je vois la MINI, elle est connectée en Bluetooth et son relais Internet fonctionne."
-            bridge.contains("INTERNET ERREUR", ignoreCase = true) ->
-                "Oui. Je vois la MINI en Bluetooth, mais son accès Internet est actuellement en erreur."
-            bridge.contains("MINI CONNECTÉE", ignoreCase = true) ||
-                bridge.contains("MINI LIÉE", ignoreCase = true) ->
-                "Oui. Je vois la MINI en Bluetooth. Le lien local est actif, mais Internet n'est pas encore confirmé."
+            linked && internet ->
+                "Oui. Je vois la MINI, son canal Bluetooth réel est actif et son relais Internet fonctionne."
+            linked ->
+                "Oui. Le canal Bluetooth réel de la MINI est actif, mais Internet n'est pas encore confirmé."
             bridge.contains("BLUETOOTH OFF", ignoreCase = true) ->
                 "Non. Le Bluetooth du téléphone est coupé, donc je ne peux pas voir la MINI pour le moment."
             else ->
-                "Je ne vois pas encore la MINI comme connectée. État Bluetooth actuel : $bridge."
+                "Non. Je ne vois pas actuellement de canal Bluetooth MINI actif. État : $bridge."
         }
     }
 
@@ -473,7 +472,7 @@ class MelViewModel(
                 status = "MEL connectée · mode ${mode.label}",
                 error = null
             )
-            appendDiagnosticLine("Audio MEL: OK · Android fr-FR")
+            appendDiagnosticLine("Audio MEL: meilleure voix Android fr-FR")
             return
         } catch (error: MelPlaybackInterruptedException) {
             _state.value = _state.value.copy(
@@ -489,13 +488,14 @@ class MelViewModel(
             MelVoicePlayer.stop()
         }
 
+        // Last-resort compatibility path only. Luna is not the preferred French voice.
         try {
             val audio = client.tts(answer, speaker = "luna", format = "mp3")
             if (audio.isEmpty()) throw MelApiException("TTS_AUDIO_EMPTY", 502)
             _state.value = _state.value.copy(
                 busy = true,
                 speaking = true,
-                status = "MEL parle…",
+                status = "MEL parle · secours…",
                 error = null
             )
             MelVoicePlayer.playMp3(appContext, audio)
@@ -505,7 +505,7 @@ class MelViewModel(
                 status = "MEL connectée · mode ${mode.label}",
                 error = null
             )
-            appendDiagnosticLine("Audio MEL: secours Luna MP3")
+            appendDiagnosticLine("Audio MEL: secours serveur")
         } catch (fallbackError: MelPlaybackInterruptedException) {
             _state.value = _state.value.copy(
                 busy = false,
@@ -513,7 +513,7 @@ class MelViewModel(
                 status = "Je t’écoute…",
                 error = null
             )
-            appendDiagnosticLine("Audio MEL: interruption volontaire pendant secours MP3")
+            appendDiagnosticLine("Audio MEL: interruption volontaire pendant secours")
             return
         } catch (fallbackError: Throwable) {
             MelVoicePlayer.stop()

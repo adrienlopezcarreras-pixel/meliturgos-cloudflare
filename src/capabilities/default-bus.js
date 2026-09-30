@@ -3,20 +3,29 @@ import { registerGitHubCodeCapabilities } from './github-code-capabilities.js';
 import { registerPlatformReadCapabilities } from './platform-read-capabilities.js';
 import { registerPlatformControlCapabilities } from './platform-control-capabilities.js';
 import { registerWorkCapabilities } from './work-capabilities.js';
+import { registerOpenLoopCapabilities } from './open-loop-capabilities.js';
+import { registerPlanningCapabilities } from './planning-capabilities.js';
+import { registerEventBusCapabilities } from './event-bus-capabilities.js';
+import { registerSkillRegistryCapabilities } from './skill-registry-capabilities.js';
 import { registerBrowserRuntimeCapabilities } from './browser-runtime-capabilities.js';
 import { registerComputerRuntimeCapabilities } from './computer-runtime-capabilities.js';
+import { registerGoogleWorkspaceCapabilities } from './google-workspace-capabilities.js';
 import { registerCreativeMediaCapabilities } from './creative-media-capabilities.js';
 import { createDefaultAugmentioPool } from '../augmentio/default-pool.js';
 import { Augmentio } from '../augmentio/augmentio.js';
 import { inspectZeroCostProviderReadiness } from '../augmentio/zero-cost-readiness.js';
 import { RAGService } from '../search/rag-service.js';
 import { getRoadmapPayload } from '../roadmap/master-roadmap.js';
+import { getHumanActionsRequired } from '../roadmap/human-actions-required.js';
 import { normalizeChatGPTArchive } from '../persistence/chatgpt-archive-importer.js';
 import { createConversationService } from '../conversations/conversation-service.js';
 import { runAugmentioStateOfPlay } from '../teachers/augmentio-council.js';
 import { runModelCouncil } from '../models/model-council.js';
 import { prepareDevelopmentRequest } from '../evolution/development-preflight.js';
 import { enqueueOwnerDevelopmentRequest } from '../evolution/owner-development-queue.js';
+import { createProviderEscapeCapsule, providerEscapeSummary } from '../portability/provider-escape-capsule.js';
+import { auditDataIntegrity } from '../diagnostics/data-integrity.js';
+import { auditFinalMaturity } from '../diagnostics/final-maturity-audit.js';
 
 const DEFAULT_REPOSITORY = 'adrienlopezcarreras-pixel/meliturgos-cloudflare';
 const DEFAULT_BRANCH = 'candidate/mel-clean-autonomy';
@@ -107,7 +116,7 @@ function zeroCostHealth(runtimeEnv, minimum = 1) {
 }
 
 /** Safe capability bus used by MEL's Gen2 runtime. Only real executable handlers are registered. */
-export function createDefaultCapabilityBus({ audit, env, repository, branch, token, fetchImpl } = {}) {
+export function createDefaultCapabilityBus({ audit, env, repository, branch, token, fetchImpl, googleAccessTokenResolver = null, vercelConfigResolver = null } = {}) {
   const runtimeEnv = env || {};
   const bus = new CapabilityBus({ audit });
 
@@ -138,11 +147,18 @@ export function createDefaultCapabilityBus({ audit, env, repository, branch, tok
     env: runtimeEnv,
     repository: githubRepository,
     fetchImpl: platformFetch,
+    resolveVercelConfig: typeof vercelConfigResolver === 'function' ? vercelConfigResolver : null,
   });
   registerPlatformControlCapabilities(bus, {
     env: runtimeEnv,
     repository: githubRepository,
     fetchImpl: platformFetch,
+    resolveVercelConfig: typeof vercelConfigResolver === 'function' ? vercelConfigResolver : null,
+  });
+  registerGoogleWorkspaceCapabilities(bus, {
+    env: runtimeEnv,
+    fetchImpl: platformFetch,
+    resolveAccessToken: typeof googleAccessTokenResolver === 'function' ? googleAccessTokenResolver : null,
   });
 
   bus.discover({
@@ -248,12 +264,59 @@ export function createDefaultCapabilityBus({ audit, env, repository, branch, tok
   });
 
   bus.discover({
+    id: 'portability.escape.plan',
+    name: 'Provider Escape Capsule',
+    category: 'portability',
+    version: '1.0.0',
+    provider: 'mel',
+    description: 'Builds a plan-only provider escape capsule for AI, storage and runtime from a validated provider-neutral manifest. It never activates or migrates a provider.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        manifest: { type: 'object', additionalProperties: true },
+        layers: { type: 'object', additionalProperties: true },
+        generated_at: { type: 'string', minLength: 1, maxLength: 80 },
+        source: { type: 'object', additionalProperties: true },
+      },
+      required: ['manifest','layers'],
+      additionalProperties: false,
+    },
+    output_schema: { type: 'object', additionalProperties: true },
+    risk: 'LOW',
+    permissions: [],
+    health: 'HEALTHY',
+    enabled: true,
+  }, async input => {
+    const capsule = createProviderEscapeCapsule({
+      manifest: input.manifest,
+      layers: input.layers,
+      generated_at: input.generated_at,
+      source: input.source || {},
+    });
+    return {
+      ok: true,
+      capsule,
+      summary: providerEscapeSummary(capsule),
+      execution_started: false,
+      activation_allowed: false,
+    };
+  });
+
+  bus.discover({
     id: 'roadmap.read', name: 'Feuille de route MEL', category: 'planning', version: '1.0.0', provider: 'core',
     description: 'Returns the complete product roadmap and truthful implementation statuses.',
     input_schema: { type: 'object', additionalProperties: false },
     output_schema: { type: 'object', additionalProperties: true },
     risk: 'LOW', permissions: [], health: 'HEALTHY', enabled: true
   }, async () => getRoadmapPayload());
+
+  bus.discover({
+    id: 'roadmap.human-actions-required', name: 'Actions humaines requises', category: 'planning', version: '1.0.0', provider: 'core',
+    description: 'Returns only roadmap items explicitly marked BLOCKED_HUMAN, without inferring extra owner actions.',
+    input_schema: { type: 'object', additionalProperties: false },
+    output_schema: { type: 'object', additionalProperties: true },
+    risk: 'LOW', permissions: [], health: 'HEALTHY', enabled: true
+  }, async () => getHumanActionsRequired());
 
   bus.discover({
     id: 'system.bindings', name: 'Diagnostic des bindings', category: 'diagnostic', version: '1.0.0', provider: 'core',
@@ -264,12 +327,37 @@ export function createDefaultCapabilityBus({ audit, env, repository, branch, tok
   }, async () => ({
     ai: Boolean(runtimeEnv.AI), db: Boolean(runtimeEnv.DB), media_bucket: Boolean(runtimeEnv.MEDIA_BUCKET),
     github_repository: githubRepository, github_branch: githubBranch,
-    github_control_configured: Boolean(runtimeEnv.MEL_GITHUB_TOKEN && runtimeEnv.MEL_GITHUB_WRITABLE_WORKFLOWS),
+    github_control_configured: Boolean(runtimeEnv.MEL_GITHUB_WRITABLE_WORKFLOWS && (runtimeEnv.MEL_GITHUB_TOKEN || runtimeEnv.DB)),
+    github_control_mode: runtimeEnv.MEL_GITHUB_TOKEN
+      ? 'direct-token'
+      : (runtimeEnv.DB && runtimeEnv.MEL_GITHUB_WRITABLE_WORKFLOWS ? 'd1-actions-relay' : 'unconfigured'),
     cloudflare_control_configured: Boolean(runtimeEnv.CLOUDFLARE_API_TOKEN && runtimeEnv.CLOUDFLARE_ACCOUNT_ID && runtimeEnv.MEL_CLOUDFLARE_SCRIPT),
     vercel_control_configured: Boolean(runtimeEnv.VERCEL_TOKEN && runtimeEnv.MEL_VERCEL_PROJECT_ID && runtimeEnv.MEL_VERCEL_PROJECT_NAME),
     owner_configured: Boolean(runtimeEnv.MELITURGOS_USER),
     browser_companion: Boolean(runtimeEnv.MEL_BROWSER_COMPANION?.fetch),
   }));
+
+  bus.discover({
+    id: 'system.integrity', name: 'Audit intégrité des données', category: 'diagnostic', version: '1.0.0', provider: 'core',
+    description: 'Runs a bounded read-only D1 integrity audit covering schema version, orphan references, malformed JSON and simple timestamp inconsistencies without repairing or exposing user content.',
+    input_schema: { type: 'object', additionalProperties: false },
+    output_schema: { type: 'object', additionalProperties: true },
+    risk: 'LOW', permissions: [], health: runtimeEnv.DB ? 'HEALTHY' : 'UNAVAILABLE', enabled: true
+  }, async () => {
+    if (!runtimeEnv.DB) throw capabilityError('DB_BINDING_MISSING');
+    return auditDataIntegrity(runtimeEnv.DB);
+  });
+
+  bus.discover({
+    id: 'system.maturity', name: 'Audit maturité finale', category: 'diagnostic', version: '1.0.0', provider: 'core',
+    description: 'Composes read-only D1 integrity, CapabilityBus contract validation and roadmap structural validation without executing tools or making network calls.',
+    input_schema: { type: 'object', additionalProperties: false },
+    output_schema: { type: 'object', additionalProperties: true },
+    risk: 'LOW', permissions: [], health: runtimeEnv.DB ? 'HEALTHY' : 'UNAVAILABLE', enabled: true
+  }, async () => {
+    if (!runtimeEnv.DB) throw capabilityError('DB_BINDING_MISSING');
+    return auditFinalMaturity({ bus, db: runtimeEnv.DB });
+  });
 
   bus.discover({
     id: 'rag.search', name: 'Recherche mémoire RAG', category: 'memory', version: '1.0.0', provider: 'core',
@@ -338,5 +426,9 @@ export function createDefaultCapabilityBus({ audit, env, repository, branch, tok
   });
   registerComputerRuntimeCapabilities(bus, { db: runtimeEnv.DB });
   registerWorkCapabilities(bus, { db: runtimeEnv.DB });
+  registerOpenLoopCapabilities(bus, { env: runtimeEnv });
+  registerPlanningCapabilities(bus, { db: runtimeEnv.DB });
+  registerEventBusCapabilities(bus, { db: runtimeEnv.DB });
+  registerSkillRegistryCapabilities(bus, { env: runtimeEnv });
   return bus;
 }

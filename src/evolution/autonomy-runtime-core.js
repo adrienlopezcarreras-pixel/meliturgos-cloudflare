@@ -27,6 +27,8 @@ const INSPECTION_FILES = [
   'src/teachers/github-completion-reconciler.js',
 ];
 
+export const MAX_OWNER_MAX_REPAIR_ATTEMPTS = 8;
+
 const STALE_TEACHER_APPROVAL_CODES = new Set([
   'TEACHER_APPROVAL_CANDIDATE_SHA_STALE',
   'TEACHER_APPROVAL_CANDIDATE_SHA_REQUIRED',
@@ -103,21 +105,50 @@ async function persistBridgePreparationDiagnostic(repository, jobId, diagnostic)
   const latest = await repository.get(jobId);
   if (!latest) return null;
   const result = latest.result_json && typeof latest.result_json === 'object' ? { ...latest.result_json } : {};
+  const failures = Array.isArray(diagnostic?.failures)
+    ? diagnostic.failures.slice(0, 8).map((row) => ({
+        stage: String(row?.stage || '').slice(0, 24),
+        code: safeDiagnosticCode({ code: row?.error || row?.code }, 'MENTOR_PROPOSAL_REJECTED'),
+      }))
+    : [];
   result.bridge_preparation_diagnostic = {
     status: diagnostic.status === 'READY' ? 'READY' : 'NOT_READY',
     code: diagnostic.status === 'READY' ? null : safeDiagnosticCode({ code: diagnostic.code }, 'BRIDGE_PREPARATION_FAILED'),
+    mentor_failure_codes: failures,
     observed_at: new Date().toISOString(),
   };
   return repository.update(jobId, { result_json: result });
 }
 
-function deployedInspectionSha() {
+function deployedInspectionSha(env = {}) {
+  const direct = String(env?.MEL_DEPLOYED_GIT_SHA || '').trim();
+  if (/^[0-9a-f]{40}$/i.test(direct)) return direct.toLowerCase();
   try {
     const value = typeof MEL_DEPLOYED_GIT_SHA !== 'undefined' ? String(MEL_DEPLOYED_GIT_SHA || '').trim() : '';
     return /^[0-9a-f]{40}$/i.test(value) ? value.toLowerCase() : '';
   } catch {
     return '';
   }
+}
+
+function deployedInspectionBranch(env = {}) {
+  const direct = String(env?.MEL_DEPLOYED_GIT_BRANCH || '').trim();
+  if (direct) return direct;
+  try {
+    return typeof MEL_DEPLOYED_GIT_BRANCH !== 'undefined' ? String(MEL_DEPLOYED_GIT_BRANCH || '').trim() : '';
+  } catch {
+    return '';
+  }
+}
+
+export function resolveAutonomyInspectionRef(env = {}, canonicalBranch = '') {
+  const branch = String(canonicalBranch || '').trim();
+  const pinnedSha = deployedInspectionSha(env);
+  const deployedBranch = deployedInspectionBranch(env);
+  const isolatedPreview = String(env?.MEL_PREVIEW_ISOLATED || '').toLowerCase() === 'true'
+    || String(env?.MEL_RUNTIME_ENV || '').toLowerCase() === 'preview';
+  if (isolatedPreview && deployedBranch === 'main' && pinnedSha) return pinnedSha;
+  return branch;
 }
 
 function codeConfig(env = {}) {
@@ -153,24 +184,45 @@ function requestedInspectionQueries(job) {
   return [...new Set(values.map(value => String(value || '').trim().slice(0, 240)).filter(Boolean))].slice(0, 10);
 }
 
-async function inspectCandidateCode(env, job, { fetchImpl = fetch } = {}) {
+async function inspectCandidateCode(env, job, { fetchImpl = fetch, minimal = false } = {}) {
   const { repository, branch } = codeConfig(env);
-  const pinnedSha = deployedInspectionSha();
-  const reader = createGitHubCodeReader({
+  const deployedSha = deployedInspectionSha(env);
+  const inspectionRef = resolveAutonomyInspectionRef(env, branch);
+  // A production deployment SHA describes main/release state, not the mutable
+  // candidate branch. Pin only when inspectionRef itself is that immutable SHA
+  // (isolated preview). Normal production candidate inspection is protected by
+  // headBefore/headAfter equality instead of requiring candidate HEAD == main.
+  const pinnedSha = /^[0-9a-f]{40}$/i.test(String(inspectionRef || ''))
+    && String(inspectionRef).toLowerCase() === String(deployedSha || '').toLowerCase()
+    ? deployedSha
+    : '';
+  const liveReader = createGitHubCodeReader({
     repository,
-    branch,
+    branch: inspectionRef,
     token: String(env?.MEL_GITHUB_TOKEN || ''),
     pinnedSha,
     fetchImpl,
   });
-  const headBefore = await reader.head();
+  const headBefore = await liveReader.head();
   if (!/^[0-9a-f]{40}$/i.test(String(headBefore?.sha || ''))) {
     throw Object.assign(new Error('AUTONOMY_CANDIDATE_HEAD_INVALID'), { code: 'AUTONOMY_CANDIDATE_HEAD_INVALID' });
   }
+  // Inspect an immutable snapshot captured at the start. Concurrent candidate
+  // commits may advance the branch, but they cannot change the evidence under
+  // review. Later approval/implementation stages still reject stale SHAs.
+  const snapshotSha = String(headBefore.sha).toLowerCase();
+  const snapshotReader = createGitHubCodeReader({
+    repository,
+    branch: snapshotSha,
+    token: String(env?.MEL_GITHUB_TOKEN || ''),
+    pinnedSha: snapshotSha,
+    fetchImpl,
+  });
   const evidence = [];
-  for (const query of requestedInspectionQueries(job)) {
+  const inspectionQueries = minimal ? [] : requestedInspectionQueries(job);
+  for (const query of inspectionQueries) {
     try {
-      const search = await reader.search({ query });
+      const search = await snapshotReader.search({ query });
       evidence.push({
         kind: 'CODE_SEARCH',
         query,
@@ -183,10 +235,17 @@ async function inspectCandidateCode(env, job, { fetchImpl = fetch } = {}) {
     }
   }
 
-  const inspectionFiles = [...new Set([...INSPECTION_FILES, ...requestedInspectionPaths(job)])];
+  const requestedPaths = requestedInspectionPaths(job);
+  const inspectionFiles = minimal
+    ? [...new Set([
+        ...requestedPaths,
+        'src/evaluation/capability-watch-runtime.js',
+        'src/roadmap/master-roadmap.js',
+      ])].slice(0, 3)
+    : [...new Set([...INSPECTION_FILES, ...requestedPaths])];
   for (const path of inspectionFiles) {
     try {
-      const file = await reader.read(path);
+      const file = await snapshotReader.read(path);
       evidence.push({
         kind: 'CODE_READ',
         path: file.path,
@@ -204,23 +263,28 @@ async function inspectCandidateCode(env, job, { fetchImpl = fetch } = {}) {
   if (!successful.length) {
     throw Object.assign(new Error('AUTONOMY_CODE_INSPECTION_FAILED'), { code: 'AUTONOMY_CODE_INSPECTION_FAILED' });
   }
-  const headAfter = await reader.head();
-  if (!/^[0-9a-f]{40}$/i.test(String(headAfter?.sha || ''))) {
-    throw Object.assign(new Error('AUTONOMY_CANDIDATE_HEAD_INVALID'), { code: 'AUTONOMY_CANDIDATE_HEAD_INVALID' });
+  let headAfter = null;
+  try {
+    headAfter = await liveReader.head();
+  } catch {
+    // The immutable snapshot remains valid evidence even if a later freshness
+    // probe is temporarily unavailable. Approval remains bound to snapshotSha.
   }
-  if (String(headBefore.sha).toLowerCase() !== String(headAfter.sha).toLowerCase()) {
-    throw Object.assign(new Error('CANDIDATE_HEAD_CHANGED_DURING_INSPECTION'), { code: 'CANDIDATE_HEAD_CHANGED_DURING_INSPECTION' });
-  }
+  const headAfterSha = /^[0-9a-f]{40}$/i.test(String(headAfter?.sha || ''))
+    ? String(headAfter.sha).toLowerCase()
+    : null;
   return {
     status: 'COMPLETE',
-    candidate_sha: headAfter.sha,
-    candidate_sha_source: headAfter.source || headBefore.source || null,
-    candidate_remote_verified: headAfter.remote_verified === true || headBefore.remote_verified === true,
+    candidate_sha: snapshotSha,
+    candidate_sha_source: headBefore.source || null,
+    candidate_remote_verified: headBefore.remote_verified === true,
+    candidate_head_after: headAfterSha,
+    candidate_head_changed_during_inspection: Boolean(headAfterSha && headAfterSha !== snapshotSha),
     evidence,
   };
 }
 
-export async function prepareAutonomyTeacherRequest({ env, repository, job, fetchImpl = fetch } = {}) {
+export async function prepareAutonomyTeacherRequest({ env, repository, job, fetchImpl = fetch, minimalInspection = false } = {}) {
   if (!repository || !job) throw Object.assign(new Error('AUTONOMY_RUNTIME_INPUT_REQUIRED'), { code: 'AUTONOMY_RUNTIME_INPUT_REQUIRED' });
   let current = await repository.get(job.id);
   if (!current) throw Object.assign(new Error('JOB_NOT_FOUND'), { code: 'JOB_NOT_FOUND' });
@@ -251,7 +315,7 @@ export async function prepareAutonomyTeacherRequest({ env, repository, job, fetc
     current = await repository.update(current.id, { plan_json: plan, status: 'COUNCIL_COMPLETE' });
   }
 
-  const inspection = await inspectCandidateCode(env, current, { fetchImpl });
+  const inspection = await inspectCandidateCode(env, current, { fetchImpl, minimal: minimalInspection });
   const { repository: repoName, branch } = codeConfig(env);
   const request = createTeacherReviewRequest({
     goal: current.goal,
@@ -315,7 +379,7 @@ export async function prepareAutonomyTeacherRequest({ env, repository, job, fetc
  * cycle instead of planning against unreviewed code. Production is never
  * committed or deployed here.
  */
-export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repository = null, benchmarkEvaluator = null, benchmarkModelId = '' } = {}) {
+export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repository = null, benchmarkEvaluator = null, benchmarkModelId = '', roadmap = null, maxAutonomy = false } = {}) {
   const jobRepository = repository || new D1DevJobRepository(env.DB);
   const reconciliation = await reconcileRuntimeTeacherReplies({ repository: jobRepository, env, fetchImpl }).catch((error) => ({
     ok: false,
@@ -330,7 +394,7 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
     rejected: [],
   }));
 
-  const supervisor = new AutonomySupervisor({ repository: jobRepository });
+  const supervisor = new AutonomySupervisor({ repository: jobRepository, ...(roadmap ? { roadmap } : {}) });
   const ensured = await supervisor.ensureNextJob();
   let job = ensured.job;
   let teacher = null;
@@ -354,20 +418,94 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
     }
   }
 
-  // A local candidate whose tests failed stays inside the same approved goal.
-  // Reopen only the implementation stage; never bypass or replace the existing
-  // correlated Teacher approval, and never widen the original objective.
-  if (job && String(job.status || '').toUpperCase() === 'READY_FOR_REVIEW' && job.result_json?.dev_bridge?.needs_repair === true) {
+  // A repair result stays inside the same approved goal. Distinguish an
+  // implementation/test failure from an executor failure that happened before
+  // tests ran: the latter should retry the exact approved package instead of
+  // regenerating code unnecessarily.
+  const jobStatus = String(job?.status || '').toUpperCase();
+  const repairRequested = job && (
+    jobStatus === 'REPAIR_REQUIRED'
+    || (jobStatus === 'READY_FOR_REVIEW' && job.result_json?.dev_bridge?.needs_repair === true)
+  );
+  if (repairRequested) {
     const teacherState = job.result_json?.teacher_bridge;
     if (teacherState?.status === 'ANSWERED' && teacherState?.review?.verdict === 'APPROVE_PLAN' && teacherState?.review?.development_allowed === true) {
       const result = job.result_json && typeof job.result_json === 'object' ? { ...job.result_json } : {};
-      result.repair_cycle = {
-        status: 'REQUESTED',
-        source: 'DEV_BRIDGE_TEST_FAILURE',
-        failed_result_received_at: job.result_json.dev_bridge.received_at || null,
-        requested_at: new Date().toISOString(),
-      };
-      job = await jobRepository.update(job.id, { status: 'TEACHER_APPROVED', result_json: result });
+      const previousAttempts = Number(result?.repair_cycle?.attempts || result?.runtime_retry?.attempts || 0);
+      const nextAttempt = previousAttempts + 1;
+      const failedTests = (Array.isArray(result?.dev_bridge?.tests) ? result.dev_bridge.tests : [])
+        .filter((row) => row?.passed !== true)
+        .slice(0, 8)
+        .map((row) => ({
+          name: String(row?.name || row?.command || '').slice(0, 200),
+          command: String(row?.command || '').slice(0, 100),
+          exit_code: Number(row?.exit_code || 0),
+          error: String(row?.error || '').slice(0, 300),
+          stdout: String(row?.stdout || '').slice(0, 2000),
+          stderr: String(row?.stderr || '').slice(0, 2000),
+        }));
+      const executorFailure = jobStatus === 'REPAIR_REQUIRED' && failedTests.length === 0;
+      const failureSource = executorFailure ? 'DEV_BRIDGE_EXECUTOR_FAILURE' : 'DEV_BRIDGE_TEST_FAILURE';
+
+      if (maxAutonomy === true && nextAttempt > MAX_OWNER_MAX_REPAIR_ATTEMPTS) {
+        result.repair_cycle = {
+          ...(result.repair_cycle || {}),
+          status: 'EXHAUSTED',
+          source: failureSource,
+          attempts: previousAttempts,
+          max_attempts: MAX_OWNER_MAX_REPAIR_ATTEMPTS,
+          failed_tests: failedTests,
+          exhausted_at: new Date().toISOString(),
+        };
+        result.runtime_retry = {
+          attempts: previousAttempts,
+          max_attempts: MAX_OWNER_MAX_REPAIR_ATTEMPTS,
+          last_error: String(result?.dev_bridge?.error || result?.dev_bridge?.diff_summary || failureSource).slice(0, 300),
+          exhausted: true,
+          updated_at: new Date().toISOString(),
+        };
+        result.autonomy_blocked = true;
+        result.autonomy_block_reason = 'MAX_REPAIR_ATTEMPTS_EXHAUSTED';
+        job = await jobRepository.update(job.id, {
+          status: 'FAILED',
+          result_json: result,
+          error: 'MAX_REPAIR_ATTEMPTS_EXHAUSTED',
+        });
+      } else {
+        const requestedAt = new Date().toISOString();
+        result.repair_cycle = {
+          status: 'REQUESTED',
+          source: maxAutonomy === true
+            ? (executorFailure ? 'OWNER_MAX_EXECUTOR_FAILURE' : 'OWNER_MAX_TEST_FAILURE')
+            : failureSource,
+          attempts: nextAttempt,
+          max_attempts: maxAutonomy === true ? MAX_OWNER_MAX_REPAIR_ATTEMPTS : null,
+          failed_tests: failedTests,
+          failed_result_received_at: job.result_json?.dev_bridge?.received_at || null,
+          requested_at: requestedAt,
+        };
+        result.runtime_retry = {
+          attempts: nextAttempt,
+          max_attempts: maxAutonomy === true ? MAX_OWNER_MAX_REPAIR_ATTEMPTS : null,
+          last_error: String(result?.dev_bridge?.error || result?.dev_bridge?.diff_summary || failureSource).slice(0, 300),
+          executor_retry: executorFailure,
+          updated_at: requestedAt,
+        };
+
+        if (!executorFailure) {
+          // A failed test invalidates the generated implementation/package.
+          delete result.implementation_proposal;
+          delete result.bridge_package;
+          delete result.bridge_preparation;
+        }
+        // An executor-only failure keeps the exact approved package intact so
+        // the corrected bridge can retry it atomically on the next heartbeat.
+        job = await jobRepository.update(job.id, {
+          status: 'TEACHER_APPROVED',
+          result_json: result,
+          error: null,
+        });
+      }
     }
   }
 
@@ -430,6 +568,7 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
         bridgePreparation = {
           status: 'NOT_READY',
           code: safeDiagnosticCode(error, 'BRIDGE_PREPARATION_FAILED'),
+          failures: Array.isArray(error?.failures) ? error.failures : [],
         };
         await persistBridgePreparationDiagnostic(jobRepository, job.id, bridgePreparation);
         job = await jobRepository.get(job.id);

@@ -87,6 +87,54 @@ function boundedText(value, max = 7000) {
   return String(value || '').trim().slice(0, max);
 }
 
+function stableDigest(value) {
+  const text = JSON.stringify(value);
+  let hash = 2166136261;
+  for (let i = 0; i < text.length; i += 1) {
+    hash ^= text.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return `fnv1a-${(hash >>> 0).toString(16).padStart(8, '0')}`;
+}
+
+function critiqueRows(report) {
+  return (report?.responses || []).map((row, index) => {
+    const answer = row?.answer || {};
+    return Object.freeze({
+      index: index + 1,
+      member_id: row?.member || null,
+      role: answer.role || null,
+      role_label: answer.role_label || null,
+      assigned_provider_id: answer.assigned_provider_id || null,
+      responding_provider_id: answer.provider_id || null,
+      provider_fallback_used: answer.provider_fallback_used === true,
+      provider_attempts: Array.isArray(answer.provider_attempts) ? [...answer.provider_attempts] : [],
+      provider: answer.provenance?.provider || null,
+      model: answer.provenance?.model || null,
+      content: boundedText(answer.content),
+    });
+  });
+}
+
+function critiqueEvidence(report) {
+  const rows = critiqueRows(report);
+  const assigned = [...new Set(rows.map(row => row.assigned_provider_id).filter(Boolean))];
+  const responding = [...new Set(rows.map(row => row.responding_provider_id).filter(Boolean))];
+  const roles = [...new Set(rows.map(row => row.role).filter(Boolean))];
+  return Object.freeze({
+    review_count: rows.length,
+    required_role_count: REQUIRED_COUNCIL_ROLE_IDS.length,
+    role_coverage: roles,
+    all_required_roles_present: REQUIRED_COUNCIL_ROLE_IDS.every(role => roles.includes(role)),
+    unique_assigned_providers: assigned,
+    unique_responding_providers: responding,
+    provider_reuse: rows.length > assigned.length,
+    fallback_reviews: rows.filter(row => row.provider_fallback_used).length,
+    critiques_digest: stableDigest(rows),
+    critiques: Object.freeze(rows),
+  });
+}
+
 function fallbackOrder(preferred, eligible) {
   return [preferred, ...eligible.filter(provider => provider.id !== preferred.id)];
 }
@@ -148,18 +196,11 @@ async function invokeRoleWithFallback({ assignment, eligible, input, governor })
 }
 
 function synthesisPrompt({ goal, context, report }) {
-  const independent = (report.responses || []).map((row, index) => {
-    const answer = row?.answer || {};
-    return {
-      index: index + 1,
-      member: row?.member || null,
-      role: answer.role || null,
-      provider: answer.provenance?.provider || answer.provider_id || null,
-      model: answer.provenance?.model || null,
-      content: boundedText(answer.content),
-    };
-  });
-  return [
+  const independent = critiqueRows(report);
+  const inputDigest = stableDigest(independent);
+  return {
+    inputDigest,
+    text: [
     'Tu es MEL, coordinatrice du Council multi-IA de MELITURGOS.',
     'Les avis ci-dessous ont été produits indépendamment. Ne les fusionne pas aveuglément.',
     'Identifie les accords, désaccords, hypothèses non prouvées et risques.',
@@ -168,13 +209,16 @@ function synthesisPrompt({ goal, context, report }) {
     'OBJECTIF:', goal,
     'CONTEXTE:', JSON.stringify(context || {}),
     'AVIS INDÉPENDANTS:', JSON.stringify(independent),
+    `CRITIQUES_DIGEST: ${inputDigest}`,
     'Produis une SYNTHÈSE MEL avec: CONSENSUS, DÉSACCORDS, DÉCISION RECOMMANDÉE, PLAN MINIMAL, TESTS, RISQUES, QUESTIONS POUR LE TEACHER.'
-  ].join('\n');
+  ].join('\n'),
+  };
 }
 
 async function synthesizeWithFallback({ eligible, goal, context, report, governor }) {
   const attempted = [];
-  const input = synthesisPrompt({ goal, context, report });
+  const prompt = synthesisPrompt({ goal, context, report });
+  const input = prompt.text;
   for (const provider of eligible) {
     attempted.push(provider.id);
     try {
@@ -192,6 +236,7 @@ async function synthesizeWithFallback({ eligible, goal, context, report, governo
         provenance: result?.provenance || { provider: provider.providerId, model: provider.modelId },
         text,
         attempted,
+        input_digest: prompt.inputDigest,
       };
     } catch {
       // Try the next provider only if it still passes the same zero-euro gate.
@@ -204,6 +249,7 @@ async function synthesizeWithFallback({ eligible, goal, context, report, governo
     provenance: null,
     text: '',
     attempted,
+    input_digest: prompt.inputDigest,
   };
 }
 
@@ -275,6 +321,7 @@ export async function runAugmentioStateOfPlay({ env, goal, context = {}, minResp
     throw error;
   }
 
+  const critique_provenance = critiqueEvidence(report);
   const synthesis = await synthesizeWithFallback({ eligible, goal, context: councilContext, report, governor });
   if (synthesis.status !== 'COMPLETE' || !boundedText(synthesis.text, 12000)) {
     const error = new Error('COUNCIL_MEL_SYNTHESIS_REQUIRED');
@@ -313,6 +360,18 @@ export async function runAugmentioStateOfPlay({ env, goal, context = {}, minResp
     required_roles_succeeded: [...succeededRoles].filter(roleId => REQUIRED_COUNCIL_ROLE_IDS.includes(roleId)),
     required_roles_missing: missingRequiredRoles,
     all_required_roles_satisfied: true,
+    independent_critiques: critique_provenance.critiques,
+    critique_provenance: {
+      review_count: critique_provenance.review_count,
+      required_role_count: critique_provenance.required_role_count,
+      role_coverage: critique_provenance.role_coverage,
+      all_required_roles_present: critique_provenance.all_required_roles_present,
+      unique_assigned_providers: critique_provenance.unique_assigned_providers,
+      unique_responding_providers: critique_provenance.unique_responding_providers,
+      provider_reuse: critique_provenance.provider_reuse,
+      fallback_reviews: critique_provenance.fallback_reviews,
+      critiques_digest: critique_provenance.critiques_digest,
+    },
     synthesis,
     council_ready_for_teacher: true,
     teacher_required: true,

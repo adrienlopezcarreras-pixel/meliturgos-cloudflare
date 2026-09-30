@@ -30,17 +30,18 @@ test('release smoke can prepare ShardVault only on exact status/search paths',()
 test('release workflow expands active ShardVault registry before launch bootstrap without lowering 7x gate',async()=>{
   const source=await readFile(new URL('../.github/workflows/deploy-cloudflare-release.yml',import.meta.url),'utf8');
   const search=source.indexOf('/api/gen2/shardvault/search');
-  const bootstrap=source.indexOf('/api/internal/release-launch-bootstrap');
+  const bootstrap=source.indexOf('/api/internal/release-launch-bootstrap',search);
   assert.ok(search>0);
   assert.ok(bootstrap>search);
   assert.match(source,/for SHARD_STATUS_ATTEMPT in \$\(seq 1 12\)/);
   assert.match(source,/SHARD_STATUS_READY=0/);
   assert.match(source,/ShardVault status propagation attempt/);
   assert.match(source,/exit 46/);
-  assert.match(source,/seq 1 8/);
+  assert.match(source,/seq 1 17/);
   assert.match(source,/max_new_endpoints\\":1/);
   assert.match(source,/probe_limit\\":1/);
   assert.match(source,/probe_offset/);
+  assert.match(source,/known_candidates_only\\\":true/);
   assert.match(source,/--max-time 175/);
   assert.match(source,/active_external_registry/);
   assert.match(source,/active<7/);
@@ -54,4 +55,41 @@ test('unbounded ShardVault search keeps full live revalidation even with seven a
   const source=await readFile(new URL('../src/continuity/shardvault-runtime.js',import.meta.url),'utf8');
   assert.match(source,/if\(\(!boundedMode\|\|active\.length<targetCount\)&&remainingBudget>0\)\{/);
   assert.match(source,/search_strategy:boundedMode\?'INCREMENTAL_BOUNDED':'FULL_REVALIDATION'/);
+});
+
+
+test('temporary dev-light release accepts explicit PAUSED_FOR_ROADMAP code-sync without weakening normal 7x proof',async()=>{
+  const [source,readiness]=await Promise.all([
+    readFile(new URL('../.github/workflows/deploy-cloudflare-release.yml',import.meta.url),'utf8'),
+    readFile(new URL('../src/evolution/launch-readiness.js',import.meta.url),'utf8'),
+  ]);
+  assert.match(source,/status==='PAUSED_FOR_ROADMAP'/);
+  assert.match(source,/process\.env\.MEL_ROADMAP_SHARDVAULT_PAUSED!=='true'/);
+  assert.match(source,/--define "MEL_SHARDVAULT_ROADMAP_PAUSED:'\$\{MEL_ROADMAP_SHARDVAULT_PAUSED\}'"/);
+  assert.match(readiness,/typeof MEL_SHARDVAULT_ROADMAP_PAUSED !== 'undefined'/);
+  assert.match(readiness,/env\?\.MEL_SHARDVAULT_ROADMAP_PAUSED/);
+  assert.match(source,/PRODUCTION_CODE_SYNC_UNEXPECTED_PAUSE/);
+  assert.match(source,/PRODUCTION_CODE_SYNC_PAUSE_NOT_EXPLICIT/);
+  assert.match(source,/status!=='COPIED'/);
+  assert.match(source,/PRODUCTION_CODE_SYNC_TARGET_LT_7/);
+  assert.match(source,/PRODUCTION_CODE_SYNC_SUCCESSFUL_ENDPOINTS_LT_7/);
+  assert.match(source,/PRODUCTION_CODE_SYNC_ROUNDTRIP_NOT_VERIFIED/);
+});
+
+
+test('ShardVault roadmap pause is either closed out or explicitly temporary dev-light only',async()=>{
+  const [workflow,wrangler]=await Promise.all([
+    readFile(new URL('../.github/workflows/deploy-cloudflare-release.yml',import.meta.url),'utf8'),
+    readFile(new URL('../wrangler.jsonc',import.meta.url),'utf8'),
+  ]);
+  const pausedInRelease=/MEL_ROADMAP_SHARDVAULT_PAUSED:\s*'true'/.test(workflow);
+  if(pausedInRelease){
+    assert.match(workflow,/TEMPORARY DEV-LIGHT MODE/);
+    assert.match(workflow,/MUST be restored to 'false' before final validation\/closure/);
+  }else{
+    assert.match(workflow,/MEL_ROADMAP_SHARDVAULT_PAUSED:\s*'false'/);
+  }
+  const paused=[...wrangler.matchAll(/"MEL_SHARDVAULT_ROADMAP_PAUSED"\s*:\s*"([^"]+)"/g)].map(m=>m[1]);
+  assert.ok(paused.length>=2,'production and preview ShardVault pause vars must both be explicit');
+  assert.deepEqual([...new Set(paused)],['false'],'runtime ShardVault remains enabled; only the intermediate release proof may be paused');
 });

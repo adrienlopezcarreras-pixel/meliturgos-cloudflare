@@ -218,6 +218,7 @@ export async function handleShardVaultStatus(request,env){
       maxNewEndpoints:body?.max_new_endpoints,
       probeLimit:body?.probe_limit,
       probeOffset:body?.probe_offset,
+      knownCandidatesOnly:body?.known_candidates_only===true,
     });
     return Response.json(result,{status:result.ok?200:503,headers:{'cache-control':'no-store'}});
   }

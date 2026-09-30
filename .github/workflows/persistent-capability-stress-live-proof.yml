@@ -1,0 +1,116 @@
+name: persistent-capability-stress-live-proof
+
+on:
+  workflow_dispatch:
+    inputs:
+      expected_sha:
+        description: "Exact deployed SHA to prove; defaults to current ref"
+        required: false
+        type: string
+  workflow_call:
+    inputs:
+      expected_sha:
+        required: true
+        type: string
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/persistent-capability-stress-live-proof.yml'
+      - 'scripts/persistent-capability-stress-live-proof.mjs'
+      - 'tests/gen2/persistent-capability-stress.test.mjs'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mel-launch-bootstrap-token
+  cancel-in-progress: false
+
+jobs:
+  contract:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: node --check scripts/persistent-capability-stress-live-proof.mjs
+      - run: node --test tests/gen2/persistent-capability-stress.test.mjs tests/release-production-smoke-routes.test.mjs
+
+  production-proof:
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ inputs.expected_sha || github.sha }}
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install exact lockfile
+        run: npm ci
+
+      - name: Contract tests
+        run: node --test tests/gen2/persistent-capability-stress.test.mjs tests/release-production-smoke-routes.test.mjs
+
+      - name: Resolve authorized Cloudflare account
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          curl --silent --show-error --fail \
+            --header "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+            "https://api.cloudflare.com/client/v4/accounts?per_page=50" \
+            > cloudflare-accounts.json
+          ACCOUNT_ID="$(node - <<'NODE'
+          const fs=require('fs');
+          const d=JSON.parse(fs.readFileSync('cloudflare-accounts.json','utf8'));
+          if(d?.success!==true || !Array.isArray(d?.result) || d.result.length<1) process.exit(2);
+          if(!d.result[0]?.id) process.exit(3);
+          process.stdout.write(String(d.result[0].id));
+          NODE
+          )"
+          echo "CLOUDFLARE_ACCOUNT_ID=${ACCOUNT_ID}" >> "$GITHUB_ENV"
+
+      - name: Prove persistent global capability stress in production
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          EXPECTED_SHA: ${{ inputs.expected_sha || github.sha }}
+        run: |
+          set -euo pipefail
+          TOKEN="$(openssl rand -hex 32)"
+          echo "::add-mask::${TOKEN}"
+
+          cleanup() {
+            set +e
+            printf 'y\n' | npx wrangler secret delete MEL_LAUNCH_BOOTSTRAP_TOKEN --env="" >/tmp/persistent-stress-secret-delete.log 2>&1 || true
+          }
+          trap cleanup EXIT
+
+          printf '%s' "${TOKEN}" | npx wrangler secret put MEL_LAUNCH_BOOTSTRAP_TOKEN --env=""
+          MEL_PROOF_TOKEN="${TOKEN}" node scripts/persistent-capability-stress-live-proof.mjs
+
+          cleanup
+          trap - EXIT
+
+      - name: Upload sanitized persistent stress proof
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: persistent-capability-stress-live-proof-${{ inputs.expected_sha || github.sha }}
+          path: |
+            persistent-capability-stress-live-proof.json
+            stress-start.json
+            stress-status.json
+          if-no-files-found: warn
+          retention-days: 30

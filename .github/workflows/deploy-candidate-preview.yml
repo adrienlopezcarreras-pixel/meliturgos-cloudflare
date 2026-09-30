@@ -30,11 +30,25 @@ jobs:
       - name: Install exact lockfile
         run: npm ci
 
-      - name: Verify canonical candidate branch
+      - name: Verify approved preview source
         shell: bash
         run: |
-          test "${GITHUB_REF_NAME}" = "candidate/mel-clean-autonomy"
+          if [ "${GITHUB_EVENT_NAME}" = "push" ]; then
+            test "${GITHUB_REF_NAME}" = "candidate/mel-clean-autonomy"
+          else
+            case "${GITHUB_REF_NAME}" in
+              main|candidate/mel-clean-autonomy) ;;
+              *) echo "Manual preview is restricted to main or the canonical candidate branch"; exit 2 ;;
+            esac
+          fi
           echo "Preparing isolated preview for ${GITHUB_SHA} from ${GITHUB_REF_NAME}"
+
+      - name: Preserve candidate-only local test assumptions on manual main preview
+        if: github.event_name == 'workflow_dispatch' && github.ref_name == 'main'
+        shell: bash
+        run: |
+          git switch -c "candidate/manual-main-preview-${GITHUB_RUN_ID}"
+          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
 
       - name: Syntax gate
         run: npm run check

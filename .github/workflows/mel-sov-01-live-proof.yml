@@ -1,0 +1,135 @@
+name: mel-sov-01-live-proof
+
+on:
+  workflow_dispatch:
+    inputs:
+      expected_sha:
+        description: "Exact deployed SHA to prove; defaults to current ref"
+        required: false
+        type: string
+  workflow_call:
+    inputs:
+      expected_sha:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mel-launch-bootstrap-token
+  cancel-in-progress: false
+
+jobs:
+  production-proof:
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ inputs.expected_sha || github.sha }}
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install exact lockfile
+        run: npm ci
+      - name: Contract tests
+        run: node --test tests/release-launch-bootstrap.test.mjs tests/gen2/technical-sovereignty-live.test.mjs tests/gen2/prevalidated-alternative-registry.test.mjs
+
+      - name: Resolve authorized Cloudflare account
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          curl --silent --show-error --fail \
+            --header "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+            "https://api.cloudflare.com/client/v4/accounts?per_page=50" \
+            > cloudflare-accounts.json
+          ACCOUNT_ID="$(node - <<'NODE'
+          const fs=require('fs');
+          const d=JSON.parse(fs.readFileSync('cloudflare-accounts.json','utf8'));
+          if(d?.success!==true || !Array.isArray(d?.result) || d.result.length<1) process.exit(2);
+          const row=d.result[0];
+          if(!row?.id) process.exit(3);
+          process.stdout.write(String(row.id));
+          NODE
+          )"
+          echo "CLOUDFLARE_ACCOUNT_ID=${ACCOUNT_ID}" >> "$GITHUB_ENV"
+
+      - name: Prove MEL-SOV-01 from production Worker binding
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          EXPECTED_SHA: ${{ inputs.expected_sha || github.sha }}
+        run: |
+          set -euo pipefail
+          BASE_URL="https://meliturgos.adrien-lopezcarreras.workers.dev"
+          TOKEN="$(openssl rand -hex 32)"
+          echo "::add-mask::${TOKEN}"
+
+          cleanup() {
+            set +e
+            printf 'y\n' | npx wrangler secret delete MEL_LAUNCH_BOOTSTRAP_TOKEN --env="" >/tmp/mel-sov-secret-delete.log 2>&1 || true
+          }
+          trap cleanup EXIT
+
+          printf '%s' "${TOKEN}" | npx wrangler secret put MEL_LAUNCH_BOOTSTRAP_TOKEN --env=""
+
+          READY=0
+          for ATTEMPT in $(seq 1 12); do
+            CODE="$(curl --silent --show-error --max-time 300 \
+              --header "x-mel-launch-bootstrap: ${TOKEN}" \
+              --header "content-type: application/json" \
+              --data '{"phase":"sovereignty-proof"}' \
+              --output mel-sov-01-live-proof.json \
+              --write-out '%{http_code}' \
+              "${BASE_URL}/api/internal/release-launch-bootstrap" || true)"
+            if [ "${CODE}" = "200" ] || [ "${CODE}" = "409" ]; then
+              READY=1
+              break
+            fi
+            sleep 2
+          done
+          test "${READY}" = "1"
+
+          node - <<'NODE'
+          const fs=require('fs');
+          const d=JSON.parse(fs.readFileSync('mel-sov-01-live-proof.json','utf8'));
+          const expected=String(process.env.EXPECTED_SHA||'').toLowerCase();
+          if(d?.ok!==true) throw new Error('MEL_SOV_01_PROOF_NOT_OK');
+          if(d?.secret_values_exposed!==false) throw new Error('MEL_SOV_01_SECRET_HYGIENE_FAILED');
+          if(d?.autonomy_started!==false) throw new Error('MEL_SOV_01_PROOF_STARTED_AUTONOMY');
+          if(expected && String(d?.deployed_sha||'').toLowerCase()!==expected) {
+            throw new Error('MEL_SOV_01_DEPLOYED_SHA_MISMATCH');
+          }
+          console.log(JSON.stringify({
+            status:d.status,
+            done_verified_eligible:d.done_verified_eligible===true,
+            fully_covered:d.fully_covered===true,
+            architecture_fully_sovereign:d.architecture_fully_sovereign===true,
+            ai_low_refusal_ready:d.ai_low_refusal_ready===true,
+            ready_layer_count:Number(d.ready_layer_count||0),
+            layer_count:Number(d.layer_count||0),
+            covered_layers:d.covered_layers||[],
+            uncovered_layers:d.uncovered_layers||[],
+            blocked_layers:d.blocked_layers||[],
+            registry_count:Number(d.registry_count||0),
+            deployed_sha:d.deployed_sha||null,
+          },null,2));
+          if(d?.done_verified_eligible!==true) process.exit(1);
+          NODE
+
+          cleanup
+          trap - EXIT
+
+      - name: Upload sanitized MEL-SOV-01 proof
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: mel-sov-01-live-proof-${{ inputs.expected_sha || github.sha }}
+          path: mel-sov-01-live-proof.json
+          if-no-files-found: warn
+          retention-days: 30

@@ -1,5 +1,6 @@
 import {
   MASTER_ROADMAP,
+  ROADMAP_REGISTRY_REVISION,
   ROADMAP_STATUSES,
   flattenRoadmap,
   roadmapSummary,
@@ -40,6 +41,27 @@ function countBy(rows, key) {
     out[value] = (out[value] || 0) + 1;
   }
   return out;
+}
+
+function canonical(value) {
+  if (Array.isArray(value)) return value.map(canonical);
+  if (!value || typeof value !== 'object') return value;
+  const out = {};
+  for (const key of Object.keys(value).sort()) {
+    const child = value[key];
+    if (child !== undefined) out[key] = canonical(child);
+  }
+  return out;
+}
+
+function matrixFingerprint(value) {
+  const text = JSON.stringify(canonical(value));
+  let hash = 2166136261;
+  for (let i = 0; i < text.length; i += 1) {
+    hash ^= text.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return `fnv1a-${(hash >>> 0).toString(16).padStart(8, '0')}`;
 }
 
 function buildRow(row) {
@@ -94,24 +116,41 @@ export function generateCompletionMatrix({ generatedAt = null } = {}) {
   const baseSummary = roadmapSummary();
   const blocked = rows.filter(row => row.blocked);
   const actionable = rows.filter(row => row.actionable);
+  const verified = rows.filter(row => row.status === ROADMAP_STATUSES.VERIFIED);
+  const humanActionsRequired = rows.filter(row => row.status === ROADMAP_STATUSES.BLOCKED_HUMAN);
+  const externalBlockers = rows.filter(row => row.status === ROADMAP_STATUSES.BLOCKED_EXTERNAL);
+  const core = {
+    registry_revision: ROADMAP_REGISTRY_REVISION,
+    total: rows.length,
+    complete: rows.filter(row => row.complete).length,
+    verified: verified.length,
+    blocked: blocked.length,
+    actionable: actionable.length,
+    percent_complete: percentage(rows.filter(row => row.complete).length, rows.length),
+    percent_verified: percentage(verified.length, rows.length),
+    by_status: Object.freeze({ ...countBy(rows, 'status') }),
+    by_priority: Object.freeze({ ...countBy(rows, 'priority') }),
+  };
 
   const matrix = {
     schema: COMPLETION_MATRIX_SCHEMA,
     generated_at: normalizeGeneratedAt(generatedAt),
     source: 'src/roadmap/master-roadmap.js',
+    registry_revision: ROADMAP_REGISTRY_REVISION,
+    matrix_fingerprint: matrixFingerprint({
+      ...core,
+      phases,
+      rows,
+    }),
     summary: Object.freeze({
-      total: rows.length,
-      complete: rows.filter(row => row.complete).length,
-      blocked: blocked.length,
-      actionable: actionable.length,
-      percent_complete: percentage(rows.filter(row => row.complete).length, rows.length),
-      by_status: Object.freeze({ ...countBy(rows, 'status') }),
-      by_priority: Object.freeze({ ...countBy(rows, 'priority') }),
+      ...core,
       registry_percent_complete: baseSummary.percent_complete,
     }),
     phases: Object.freeze(phases),
     rows: Object.freeze(rows),
     blockers: Object.freeze(blocked),
+    human_actions_required: Object.freeze(humanActionsRequired),
+    external_blockers: Object.freeze(externalBlockers),
     next_work: Object.freeze(
       actionable
         .slice()
@@ -148,6 +187,8 @@ export function completionMatrixToMarkdown(matrix = generateCompletionMatrix()) 
     '',
     `Progress: **${matrix.summary.complete}/${matrix.summary.total} (${matrix.summary.percent_complete}%)**`,
     `Blocked: **${matrix.summary.blocked}** · Actionable: **${matrix.summary.actionable}**`,
+    `Verified: **${matrix.summary.verified}/${matrix.summary.total} (${matrix.summary.percent_verified}%)**`,
+    `Registry revision: \`${matrix.registry_revision}\` · Fingerprint: \`${matrix.matrix_fingerprint}\``,
     '',
     '## Phases',
     '',
@@ -157,6 +198,26 @@ export function completionMatrixToMarkdown(matrix = generateCompletionMatrix()) 
 
   for (const phase of matrix.phases) {
     lines.push(`| ${escapeCell(`${phase.id} — ${phase.title}`)} | ${phase.total} | ${phase.complete} | ${phase.percent_complete}% | ${phase.blocked} | ${phase.actionable} |`);
+  }
+
+  lines.push(
+    '',
+    '## Human actions required',
+    '',
+  );
+  if (!matrix.human_actions_required.length) lines.push('None.');
+  else for (const row of matrix.human_actions_required) {
+    lines.push(`- **${escapeCell(row.id)}** — ${escapeCell(row.title)}: ${escapeCell(row.next || 'Action required')}`);
+  }
+
+  lines.push(
+    '',
+    '## External blockers',
+    '',
+  );
+  if (!matrix.external_blockers.length) lines.push('None.');
+  else for (const row of matrix.external_blockers) {
+    lines.push(`- **${escapeCell(row.id)}** — ${escapeCell(row.title)}: ${escapeCell(row.next || 'External dependency')}`);
   }
 
   lines.push(

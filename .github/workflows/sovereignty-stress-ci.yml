@@ -1,0 +1,57 @@
+name: sovereignty-stress-ci
+
+# TEMPORARY DEV-LIGHT MODE: heavy sovereignty stress is manual until final validation.
+# Re-enable automatic main/path trigger before final closure.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  stress:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install exact lockfile
+        run: npm ci
+      - name: Syntax gate
+        run: |
+          node --check src/portability/provider-switch-controller.js
+          node --check src/portability/emergency-sovereignty-failover.js
+          node --check src/continuity/sovereign-regeneration-bundle.js
+          node --check src/evaluation/dependency-longevity-watch.js
+          node --check src/evaluation/sovereignty-watch-catalog.js
+          node --check src/evaluation/sovereignty-watch-runtime.js
+          node --check src/portability/prevalidated-alternative-registry.js
+          node --check src/portability/alternative-revalidation.js
+          node --check src/portability/d1-alternative-registry-store.js
+          node --check src/evolution/autonomy-api.js
+          node --check src/resilience/cold-standby.js
+          node --check src/portability/ai-alternative-prevalidator.js
+          node --check src/portability/ai-low-refusal-probe.js
+          node --check src/portability/ai-alternative-prevalidation-runtime.js
+          node --check src/portability/source-control-reseed.js
+      - name: Runtime dependency security gate
+        run: node scripts/runtime-security-gate.mjs
+      - name: Companion PowerShell parse gate
+        shell: pwsh
+        run: |
+          $files = @(
+            'assets/MEL-Computer-Companion.ps1',
+            'dist/MEL-Computer-Companion.ps1'
+          )
+          foreach ($file in $files) {
+            $tokens=$null; $errors=$null
+            [void][System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $file),[ref]$tokens,[ref]$errors)
+            if ($errors.Count -gt 0) { $e=$errors[0]; throw "POWERSHELL_PARSE_FAILED:${file}:line=$($e.Extent.StartLineNumber):col=$($e.Extent.StartColumnNumber):text=$($e.Extent.Text):$($e.Message)" }
+          }
+      - name: Sovereignty stress
+        run: node --test tests/gen2/sovereignty-stress.test.mjs tests/gen2/sovereign-regeneration-stress.test.mjs tests/gen2/prevalidated-alternative-registry.test.mjs tests/gen2/dependency-longevity-watch.test.mjs tests/gen2/d1-alternative-registry-store.test.mjs tests/gen2/alternative-revalidation.test.mjs tests/gen2/autonomy-sovereignty-status.test.mjs tests/gen2/technical-sovereignty-live.test.mjs tests/gen2/ai-alternative-prevalidator.test.mjs tests/gen2/ai-alternative-prevalidation-runtime.test.mjs tests/gen2/cold-standby.test.mjs tests/gen2/source-control-reseed.test.mjs tests/gen2/ai-low-refusal-probe.test.mjs tests/gen2/runtime-alternative-prevalidator.test.mjs tests/gen2/object-storage-adapter.test.mjs tests/gen2/database-adapter.test.mjs tests/gen2/ci-provider-adapter.test.mjs tests/gen2/secret-store-adapter.test.mjs tests/gen2/scheduler-adapter.test.mjs tests/gen2/observability-adapter.test.mjs tests/gen2/infrastructure-alternative-prevalidator.test.mjs tests/gen2/sovereignty-watch-runtime-wiring.test.mjs tests/gen2/sovereignty-watch-candidates.test.mjs tests/gen2/sovereignty-gap-planner.test.mjs tests/augmentio-http-chat-adapter.test.mjs tests/gen2/sovereignty-candidate-store.test.mjs tests/gen2/sovereignty-candidate-validator.test.mjs tests/gen2/sovereignty-candidate-readiness.test.mjs tests/gen2/configured-ai-candidate-sync.test.mjs tests/gen2/companion-source-control-adapter.test.mjs tests/gen2/companion-ci-provider-adapter.test.mjs tests/gen2/companion-scheduler-observability.test.mjs tests/gen2/companion-storage-database.test.mjs tests/gen2/companion-runtime-secrets.test.mjs tests/gen2/companion-git-sovereignty-runtime.test.mjs tests/gen2/local-sovereignty-profile.test.mjs tests/gen2/local-sovereignty-command-wiring.test.mjs tests/gen2/companion-sovereignty-runtime-wiring.test.mjs tests/gen2/companion-powershell-storage.test.mjs tests/gen2/companion-storage-prevalidation-runtime.test.mjs tests/gen2/companion-local-services-prevalidation-runtime.test.mjs tests/gen2/companion-powershell-database.test.mjs tests/gen2/companion-powershell-ci.test.mjs
+      - name: Existing ShardVault reconstruction stress
+        run: node --test tests/shardvault-reconstruction-stress.test.mjs

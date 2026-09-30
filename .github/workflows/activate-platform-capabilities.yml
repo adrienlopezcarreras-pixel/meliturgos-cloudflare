@@ -1,0 +1,410 @@
+name: activate-platform-capabilities
+
+on:
+  workflow_dispatch:
+    inputs:
+      expected_sha:
+        description: "Exact deployed SHA to prove; defaults to current ref"
+        required: false
+        type: string
+  workflow_call:
+    inputs:
+      expected_sha:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: write
+
+concurrency:
+  group: mel-launch-bootstrap-token
+  cancel-in-progress: false
+
+jobs:
+  activate-and-prove:
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      MEL_GITHUB_TOKEN: ${{ secrets.MEL_GITHUB_TOKEN || secrets.GITHUB_PAT || secrets.GH_PAT || secrets.GH_TOKEN }}
+      EXPECTED_SHA: ${{ inputs.expected_sha || github.sha }}
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ inputs.expected_sha || github.sha }}
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install exact lockfile
+        run: npm ci
+
+      - name: Provision real runtime platform credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${CLOUDFLARE_API_TOKEN:-}"
+          test -n "${CLOUDFLARE_ACCOUNT_ID:-}"
+
+          printf '%s' "${CLOUDFLARE_API_TOKEN}" | npx wrangler secret put CLOUDFLARE_API_TOKEN --env=""
+          printf '%s' "${CLOUDFLARE_ACCOUNT_ID}" | npx wrangler secret put CLOUDFLARE_ACCOUNT_ID --env=""
+
+          if [ -n "${MEL_GITHUB_TOKEN:-}" ]; then
+            printf '%s' "${MEL_GITHUB_TOKEN}" | npx wrangler secret put MEL_GITHUB_TOKEN --env=""
+            echo "GITHUB_RUNTIME_CREDENTIAL=CONFIGURED" >> "${GITHUB_ENV}"
+          else
+            echo "GITHUB_RUNTIME_CREDENTIAL=RELAY" >> "${GITHUB_ENV}"
+          fi
+
+      - name: Prove real production platform capabilities
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          BASE_URL="https://meliturgos.adrien-lopezcarreras.workers.dev"
+          TOKEN="$(openssl rand -hex 32)"
+          echo "::add-mask::${TOKEN}"
+
+          cleanup() {
+            set +e
+            printf 'y\n' | npx wrangler secret delete MEL_LAUNCH_BOOTSTRAP_TOKEN --env="" >/tmp/platform-proof-secret-delete.log 2>&1 || true
+          }
+          trap cleanup EXIT
+
+          printf '%s' "${TOKEN}" | npx wrangler secret put MEL_LAUNCH_BOOTSTRAP_TOKEN --env=""
+
+          api_get() {
+            local path="$1"
+            local out="$2"
+            curl --silent --show-error --fail-with-body --max-time 60               --header "x-mel-release-smoke: 1"               --header "x-mel-launch-bootstrap: ${TOKEN}"               "${BASE_URL}${path}" > "${out}"
+          }
+
+          capability() {
+            local id="$1"
+            local input="$2"
+            local out="$3"
+            local approval="${4:-}"
+            local payload
+            payload="$(node -e 'const id=process.argv[1],input=JSON.parse(process.argv[2]);process.stdout.write(JSON.stringify({id,input}))' "${id}" "${input}")"
+            local -a headers=(
+              --header "x-mel-release-smoke: 1"
+              --header "x-mel-launch-bootstrap: ${TOKEN}"
+              --header "content-type: application/json"
+            )
+            if [ -n "${approval}" ]; then
+              headers+=(--header "x-mel-approve-capability: ${approval}")
+            fi
+
+            local code=""
+            for attempt in $(seq 1 15); do
+              code="$(curl --silent --show-error --max-time 75                 "${headers[@]}"                 --data "${payload}"                 --output "${out}"                 --write-out '%{http_code}'                 "${BASE_URL}/api/gen2/capabilities/execute" || true)"
+              if [ "${code}" = "200" ]; then
+                node -e 'const d=require("./"+process.argv[1]);if(d?.ok!==true)process.exit(2);' "${out}"
+                return 0
+              fi
+              if [ "${code}" = "401" ]; then
+                echo "Capability ${id} release-token propagation attempt ${attempt}/15 returned HTTP 401."
+                sleep 2
+                continue
+              fi
+              break
+            done
+
+            node -e 'const fs=require("fs");let d={};try{d=JSON.parse(fs.readFileSync(process.argv[1],"utf8"))}catch{};console.log(JSON.stringify({capability:process.argv[2],http:Number(process.argv[3]||0),code:d?.code||d?.error||"UNKNOWN"},null,2));' "${out}" "${id}" "${code}"
+            return 1
+          }
+
+          if [ "${GITHUB_RUNTIME_CREDENTIAL:-RELAY}" = "RELAY" ]; then
+            printf '%s' '{"ref":"main"}' > github-relay-dispatch.json
+            RELAY_CODE="$(curl --silent --show-error --max-time 30 \
+              --request POST \
+              --header "Authorization: Bearer ${GH_TOKEN}" \
+              --header "Accept: application/vnd.github+json" \
+              --header "X-GitHub-Api-Version: 2022-11-28" \
+              --header "Content-Type: application/json" \
+              --data-binary @github-relay-dispatch.json \
+              --output github-relay-dispatch-response.txt \
+              --write-out '%{http_code}' \
+              "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/github-action-relay.yml/dispatches")"
+            test "${RELAY_CODE}" = "204"
+          fi
+
+          # Diagnose the exact Cloudflare credential independently of the Worker
+          # without exposing token material or upstream message bodies.
+          CF_VERIFY_CODE="$(curl --silent --show-error --max-time 30             --header "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}"             --output /tmp/cloudflare-token-verify.json             --write-out '%{http_code}'             "https://api.cloudflare.com/client/v4/user/tokens/verify" || true)"
+          CF_WORKERS_CODE="$(curl --silent --show-error --max-time 30             --header "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}"             --output /tmp/cloudflare-workers-direct.json             --write-out '%{http_code}'             "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/scripts" || true)"
+          CF_VERIFY_CODE="${CF_VERIFY_CODE}" CF_WORKERS_CODE="${CF_WORKERS_CODE}" node - <<'NODE'
+          const fs=require('fs');
+          function read(path){try{return JSON.parse(fs.readFileSync(path,'utf8'))}catch{return {}}}
+          const verify=read('/tmp/cloudflare-token-verify.json');
+          const workers=read('/tmp/cloudflare-workers-direct.json');
+          const errorCodes=(body)=>Array.isArray(body?.errors)?body.errors.map(x=>Number(x?.code||0)).filter(Boolean).slice(0,8):[];
+          console.log(JSON.stringify({
+            cloudflare_direct_diagnostic:{
+              token_verify_http:Number(process.env.CF_VERIFY_CODE||0),
+              token_active:verify?.success===true && String(verify?.result?.status||'')==='active',
+              workers_list_http:Number(process.env.CF_WORKERS_CODE||0),
+              workers_list_success:workers?.success===true,
+              error_codes:errorCodes(workers),
+            }
+          },null,2));
+          NODE
+          if [ "${CF_VERIFY_CODE}" != "200" ] || [ "${CF_WORKERS_CODE}" != "200" ]; then
+            echo "Cloudflare direct credential proof failed before Worker capability execution."
+          fi
+
+          # Wait only for the temporary bootstrap secret to propagate. This is
+          # transport/auth readiness, not a capability-health verdict.
+          BOOTSTRAP_READY=0
+          for attempt in $(seq 1 15); do
+            if api_get "/api/gen2/capabilities" capabilities-bootstrap.json 2>/tmp/platform-bootstrap.err; then
+              BOOTSTRAP_READY=1
+              break
+            fi
+            sleep 2
+          done
+          test "${BOOTSTRAP_READY}" = "1"
+
+          # Capability health is diagnostic here, not the proof gate. The live
+          # operations below are stronger evidence and fail closed individually.
+          api_get "/api/gen2/capabilities?refresh=1" capabilities-before.json || true
+          if [ -f capabilities-before.json ]; then
+            node - <<'NODE'
+          const d=require('./capabilities-before.json');
+          const wanted=[
+            'cloudflare.workers.read',
+            'cloudflare.deployments.read',
+            'cloudflare.deployments.create',
+            'github.actions.workflow.dispatch',
+          ];
+          const rows=new Map((d.capabilities||[]).map(x=>[x.id,x]));
+          console.log(JSON.stringify({
+            preflight_health:Object.fromEntries(wanted.map(id=>[id,{
+              health:rows.get(id)?.health||null,
+              detail:rows.get(id)?.health_detail||null,
+            }])),
+          },null,2));
+          NODE
+          fi
+
+          capability cloudflare.workers.read '{"limit":10}' cloudflare-workers.json
+          CF_WORKERS_RELAY_JOB_ID="$(node -e 'const d=require("./cloudflare-workers.json");process.stdout.write(String(d?.result?.relay_job_id||""))')"
+          if [ -n "${CF_WORKERS_RELAY_JOB_ID}" ]; then
+            test "${CF_WORKERS_RELAY_JOB_ID#cf-relay-}" != "${CF_WORKERS_RELAY_JOB_ID}"
+            printf '%s' '{"ref":"main"}' > cloudflare-relay-dispatch.json
+            CF_RELAY_CODE="$(curl --silent --show-error --max-time 30 \
+              --request POST \
+              --header "Authorization: Bearer ${GH_TOKEN}" \
+              --header "Accept: application/vnd.github+json" \
+              --header "X-GitHub-Api-Version: 2022-11-28" \
+              --header "Content-Type: application/json" \
+              --data-binary @cloudflare-relay-dispatch.json \
+              --output cloudflare-relay-dispatch-response.txt \
+              --write-out '%{http_code}' \
+              "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/cloudflare-api-relay.yml/dispatches")"
+            test "${CF_RELAY_CODE}" = "204"
+
+            CF_WORKERS_DONE=0
+            for ATTEMPT in $(seq 1 40); do
+              CF_STATUS_INPUT="$(CF_WORKERS_RELAY_JOB_ID="${CF_WORKERS_RELAY_JOB_ID}" node -e 'process.stdout.write(JSON.stringify({relay_job_id:process.env.CF_WORKERS_RELAY_JOB_ID}))')"
+              capability cloudflare.workers.read "${CF_STATUS_INPUT}" cloudflare-workers-status.json
+              CF_PENDING="$(node -e 'const d=require("./cloudflare-workers-status.json");process.stdout.write(d?.result?.pending===true?"1":"0")')"
+              if [ "${CF_PENDING}" = "0" ]; then
+                cp cloudflare-workers-status.json cloudflare-workers.json
+                CF_WORKERS_DONE=1
+                break
+              fi
+              sleep 2
+            done
+            test "${CF_WORKERS_DONE}" = "1"
+            node -e 'const d=require("./cloudflare-workers.json");if(!Array.isArray(d?.result?.scripts))process.exit(2);console.log("cloudflare.workers.read relay proof: "+JSON.stringify({transport:d?.result?.transport||null,count:d?.result?.count||0}))'
+          fi
+
+          capability cloudflare.deployments.read '{"script":"meliturgos","limit":20}' cloudflare-deployments.json
+          CF_DEPLOYMENTS_RELAY_JOB_ID="$(node -e 'const d=require("./cloudflare-deployments.json");process.stdout.write(String(d?.result?.relay_job_id||""))')"
+          if [ -n "${CF_DEPLOYMENTS_RELAY_JOB_ID}" ]; then
+            printf '%s' '{"ref":"main"}' > cloudflare-relay-dispatch.json
+            CF_RELAY_CODE="$(curl --silent --show-error --max-time 30 --request POST --header "Authorization: Bearer ${GH_TOKEN}" --header "Accept: application/vnd.github+json" --header "X-GitHub-Api-Version: 2022-11-28" --header "Content-Type: application/json" --data-binary @cloudflare-relay-dispatch.json --output cloudflare-relay-dispatch-response.txt --write-out '%{http_code}' "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/cloudflare-api-relay.yml/dispatches")"
+            test "${CF_RELAY_CODE}" = "204"
+            CF_DEPLOYMENTS_DONE=0
+            for ATTEMPT in $(seq 1 40); do
+              CF_STATUS_INPUT="$(CF_DEPLOYMENTS_RELAY_JOB_ID="${CF_DEPLOYMENTS_RELAY_JOB_ID}" node -e 'process.stdout.write(JSON.stringify({relay_job_id:process.env.CF_DEPLOYMENTS_RELAY_JOB_ID}))')"
+              capability cloudflare.deployments.read "${CF_STATUS_INPUT}" cloudflare-deployments-status.json
+              CF_PENDING="$(node -e 'const d=require("./cloudflare-deployments-status.json");process.stdout.write(d?.result?.pending===true?"1":"0")')"
+              if [ "${CF_PENDING}" = "0" ]; then
+                cp cloudflare-deployments-status.json cloudflare-deployments.json
+                CF_DEPLOYMENTS_DONE=1
+                break
+              fi
+              sleep 2
+            done
+            test "${CF_DEPLOYMENTS_DONE}" = "1"
+            node -e 'const d=require("./cloudflare-deployments.json");if(!Array.isArray(d?.result?.deployments))process.exit(2);console.log("cloudflare.deployments.read relay proof: "+JSON.stringify({transport:d?.result?.transport||null,count:d?.result?.count||0}))'
+          fi
+
+          ACTIVE_VERSION="$(node - <<'NODE'
+          const d=require('./cloudflare-deployments.json');
+          const deployments=d?.result?.deployments||[];
+          let id='';
+          for(const deployment of deployments){
+            const versions=Array.isArray(deployment?.versions)?deployment.versions:[];
+            if(versions.length===1 && Number(versions[0]?.percentage)===100 && versions[0]?.version_id){
+              id=String(versions[0].version_id);
+              break;
+            }
+          }
+          if(!id) throw new Error('ACTIVE_CLOUDFLARE_VERSION_NOT_FOUND');
+          process.stdout.write(id);
+          NODE
+          )"
+
+          capability             cloudflare.deployments.create             "{\"versions\":[{\"version_id\":\"${ACTIVE_VERSION}\",\"percentage\":100}],\"message\":\"MEL real capability proof — same active version\"}"             cloudflare-create.json             cloudflare.deployments.create
+
+          CF_CREATE_RELAY_JOB_ID="$(node -e 'const d=require("./cloudflare-create.json");process.stdout.write(String(d?.result?.relay_job_id||""))')"
+          if [ -n "${CF_CREATE_RELAY_JOB_ID}" ]; then
+            test "${CF_CREATE_RELAY_JOB_ID#cf-relay-}" != "${CF_CREATE_RELAY_JOB_ID}"
+            printf '%s' '{"ref":"main"}' > cloudflare-relay-dispatch.json
+            CF_RELAY_CODE="$(curl --silent --show-error --max-time 30 \
+              --request POST \
+              --header "Authorization: Bearer ${GH_TOKEN}" \
+              --header "Accept: application/vnd.github+json" \
+              --header "X-GitHub-Api-Version: 2022-11-28" \
+              --header "Content-Type: application/json" \
+              --data-binary @cloudflare-relay-dispatch.json \
+              --output cloudflare-relay-dispatch-response.txt \
+              --write-out '%{http_code}' \
+              "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/cloudflare-api-relay.yml/dispatches")"
+            test "${CF_RELAY_CODE}" = "204"
+            CF_CREATE_DONE=0
+            for ATTEMPT in $(seq 1 40); do
+              CF_CREATE_STATUS_INPUT="$(CF_CREATE_RELAY_JOB_ID="${CF_CREATE_RELAY_JOB_ID}" node -e 'process.stdout.write(JSON.stringify({relay_job_id:process.env.CF_CREATE_RELAY_JOB_ID}))')"
+              capability cloudflare.deployments.create "${CF_CREATE_STATUS_INPUT}" cloudflare-create-status.json cloudflare.deployments.create
+              CF_CREATE_PENDING="$(node -e 'const d=require("./cloudflare-create-status.json");process.stdout.write(d?.result?.pending===true?"1":"0")')"
+              if [ "${CF_CREATE_PENDING}" = "0" ]; then
+                cp cloudflare-create-status.json cloudflare-create.json
+                CF_CREATE_DONE=1
+                break
+              fi
+              sleep 2
+            done
+            test "${CF_CREATE_DONE}" = "1"
+          fi
+          node -e 'const d=require("./cloudflare-create.json");const dep=d?.result?.deployment;if(!dep?.id||!Array.isArray(dep?.versions)||dep.versions.length<1)process.exit(2);console.log("cloudflare.deployments.create relay proof: "+JSON.stringify({transport:d?.result?.transport||"direct-cloudflare-api",deployment_id:dep.id,versions:dep.versions.length}))'
+
+          GITHUB_PROOF=false
+          GITHUB_BLOCKER=""
+          capability             github.actions.workflow.dispatch             '{"workflow":"gen2-36-provider-write-smoke.yml","ref":"main"}'             github-dispatch.json             github.actions.workflow.dispatch
+
+          GITHUB_TRANSPORT="$(node -e 'const d=require("./github-dispatch.json");process.stdout.write(String(d?.result?.transport||""))')"
+          if [ "${GITHUB_TRANSPORT}" = "d1-github-actions-relay" ] || [ "${GITHUB_TRANSPORT}" = "r2-github-actions-relay" ]; then
+            GITHUB_RELAY_JOB_ID="$(node -e 'const d=require("./github-dispatch.json");const id=String(d?.result?.relay_job_id||"");if(!/^gh-relay-/.test(id))process.exit(2);process.stdout.write(id)')"
+            printf '%s' '{"ref":"main"}' > github-relay-dispatch.json
+            RELAY_CODE="$(curl --silent --show-error --max-time 30 \
+              --request POST \
+              --header "Authorization: Bearer ${GH_TOKEN}" \
+              --header "Accept: application/vnd.github+json" \
+              --header "X-GitHub-Api-Version: 2022-11-28" \
+              --header "Content-Type: application/json" \
+              --data-binary @github-relay-dispatch.json \
+              --output github-relay-dispatch-response.txt \
+              --write-out '%{http_code}' \
+              "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/github-action-relay.yml/dispatches")"
+            test "${RELAY_CODE}" = "204"
+
+            RELAY_DONE=0
+            for ATTEMPT in $(seq 1 40); do
+              STATUS_INPUT="$(GITHUB_RELAY_JOB_ID="${GITHUB_RELAY_JOB_ID}" node -e 'process.stdout.write(JSON.stringify({job_id:process.env.GITHUB_RELAY_JOB_ID}))')"
+              capability github.actions.workflow.dispatch.status "${STATUS_INPUT}" github-dispatch-status.json
+              RELAY_STATUS="$(node -e 'const d=require("./github-dispatch-status.json");process.stdout.write(String(d?.result?.status||""))')"
+              if [ "${RELAY_STATUS}" = "DISPATCHED" ]; then
+                RELAY_DONE=1
+                break
+              fi
+              if [ "${RELAY_STATUS}" = "FAILED" ]; then
+                cat github-dispatch-status.json
+                exit 18
+              fi
+              sleep 2
+            done
+            test "${RELAY_DONE}" = "1"
+            GITHUB_PROOF=true
+          elif [ "${GITHUB_TRANSPORT}" = "direct-github-api" ]; then
+            GITHUB_PROOF=true
+          else
+            GITHUB_BLOCKER="GITHUB_CONTROL_TRANSPORT_UNPROVEN"
+          fi
+
+          api_get "/api/gen2/capabilities?refresh=1" capabilities-after.json
+
+          node - <<'NODE'
+          const fs=require('fs');
+          const caps=require('./capabilities-after.json').capabilities||[];
+          const rows=new Map(caps.map(x=>[x.id,x]));
+          const cloudflareIds=[
+            'cloudflare.workers.read',
+            'cloudflare.deployments.read',
+            'cloudflare.deployments.create',
+          ];
+          // Health remains recorded for diagnostics. Success of the three live
+          // Cloudflare capability calls above is the actual fail-closed proof.
+          const healthy=new Set(['HEALTHY','PROTECTED']);
+          const remainingMel=caps
+            .filter(x=>x.provider==='mel' && !healthy.has(String(x.health||'').toUpperCase()))
+            .map(x=>({id:x.id,health:x.health,detail:x.health_detail||null}));
+          const ghMode=String(process.env.GITHUB_RUNTIME_CREDENTIAL||'RELAY');
+          const gh=rows.get('github.actions.workflow.dispatch')||null;
+          let dispatch=null;
+          let dispatchStatus=null;
+          try{dispatch=require('./github-dispatch.json')?.result||null;}catch{}
+          try{dispatchStatus=require('./github-dispatch-status.json')?.result||null;}catch{}
+          const proof={
+            schema:'mel.real-platform-capabilities-proof/v1',
+            source_sha:process.env.EXPECTED_SHA||null,
+            generated_at:new Date().toISOString(),
+            cloudflare:{
+              real_runtime_credentials:true,
+              workers_read:true,
+              deployments_read:true,
+              same_version_deployment_write:true,
+              capabilities:cloudflareIds.map(id=>({id,health:rows.get(id)?.health||null})),
+            },
+            github:{
+              control_mode:ghMode==='CONFIGURED'?'direct-token':(dispatch?.transport==='r2-github-actions-relay'?'r2-actions-relay':'d1-actions-relay'),
+              runtime_credential_configured:ghMode==='CONFIGURED',
+              workflow_dispatch_executed:dispatch?.accepted===true && (dispatch?.transport==='direct-github-api' || dispatchStatus?.status==='DISPATCHED'),
+              transport:dispatch?.transport||null,
+              relay_job_id:dispatch?.relay_job_id||null,
+              relay_status:dispatchStatus?.status||null,
+              health:gh?.health||null,
+              blocker:null,
+            },
+            remaining_mel:remainingMel,
+            secret_values_exposed:false,
+          };
+          fs.writeFileSync('platform-capabilities-proof.json',JSON.stringify(proof,null,2));
+          console.log(JSON.stringify(proof,null,2));
+          NODE
+
+          cleanup
+          trap - EXIT
+
+          if [ "${GITHUB_PROOF}" != "true" ]; then
+            echo "GitHub runtime control proof failed."
+            exit 17
+          fi
+
+      - name: Upload sanitized real capability proof
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: real-platform-capabilities-${{ inputs.expected_sha || github.sha }}
+          path: platform-capabilities-proof.json
+          if-no-files-found: warn
+          retention-days: 14

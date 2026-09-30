@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { inferenceGenerationOptions, runNativeInference, loadCognitiveMemory } from '../src/api/native-chat.js';
+import { inferenceGenerationOptions, runNativeInference, loadCognitiveMemory, compactInferenceMessages } from '../src/api/native-chat.js';
 
 test('promoted inference generation settings reach the direct AI payload', async () => {
   const calls = [];
@@ -30,4 +30,26 @@ test('memory_results bounds the cognitive-memory retrieval count', async () => {
   const env = { DB: { prepare(sql) { return { bind() { return this; }, async run() { return { success: true }; }, async all() { return sql.includes('SELECT * FROM memories') ? { results: rows } : { results: [] }; } }; } } };
   const retrieved = await loadCognitiveMemory(env, 5);
   assert.equal(retrieved.count, 5);
+});
+
+
+test('compact inference fallback preserves current turn and bounds oversized context', () => {
+  const messages = [
+    { role: 'system', content: 'S'.repeat(60000) + 'SYSTEM_TAIL' },
+    ...Array.from({ length: 12 }, (_, i) => ({ role: i % 2 ? 'assistant' : 'user', content: `history-${i}-` + 'H'.repeat(4000) })),
+    { role: 'user', content: 'CURRENT_USER_MESSAGE' },
+  ];
+  const compact = compactInferenceMessages(messages, {
+    systemChars: 12000,
+    historyChars: 6000,
+    maxHistoryMessages: 4,
+  });
+  assert.equal(compact[0].role, 'system');
+  assert.ok(compact[0].content.length <= 12000);
+  assert.match(compact[0].content, /SYSTEM_TAIL$/);
+  assert.equal(compact.at(-1).role, 'user');
+  assert.equal(compact.at(-1).content, 'CURRENT_USER_MESSAGE');
+  assert.ok(compact.length <= 6);
+  const historyChars = compact.slice(1, -1).reduce((sum, row) => sum + row.content.length, 0);
+  assert.ok(historyChars <= 6000);
 });

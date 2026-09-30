@@ -20,7 +20,7 @@ function delegatedButtonAttrs(html) {
     .map(match => match[1])
     .filter(attrs => !/\bid=["']/.test(attrs))
     .map(attrs => {
-      const match = attrs.match(/\b(data-(?:jump|pc-app|pc-key|view|mode))=["'][^"']+["']/);
+      const match = attrs.match(/\b(data-(?:jump|pc-app|pc-key|view|mode|pd-connect))=["'][^"']+["']/);
       return match?.[1] || null;
     });
 }
@@ -58,7 +58,7 @@ test('normal page exposes only controls that are wired by the canonical normal r
     /id="fileInput"/,
     /id="send"/,
     /id="full"/,
-    /src="\/normal-runtime\.js\?v=7"/,
+    /src="\/normal-runtime\.js\?v=8"/,
   ], 'normal UI');
 
   expectAll(NORMAL_RUNTIME_SOURCE, [
@@ -168,9 +168,11 @@ test('all anonymous canonical buttons use a declared delegated control family', 
   assert.ok(families.has('data-pc-app'));
   assert.ok(families.has('data-pc-key'));
   assert.ok(families.has('data-mode'));
+  assert.ok(families.has('data-pd-connect'));
   assert.match(source, /qsa\('#nav button\[data-view\]'\)\.forEach\(b=>b\.onclick=/);
   assert.match(source, /qsa\('\[data-jump\]'\)\.forEach\(b=>b\.onclick=/);
   assert.match(source, /qsa\('\[data-pc-app\]'\)\.forEach\(b=>b\.onclick=/);
   assert.match(source, /qsa\('\[data-pc-key\]'\)\.forEach\(b=>b\.onclick=/);
   assert.match(source, /modeTabs\.forEach\(tab=>tab\.onclick=/);
+  assert.match(source, /qsa\('\[data-pd-connect\]'\)\.forEach/);
 });

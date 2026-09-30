@@ -27,17 +27,29 @@ async function cfJson(url, init) {
 
 async function uploadAsset({ accountId, token, finetuneId, dir, filename }) {
   const bytes = await readFile(path.join(dir, filename));
-  const form = new FormData();
-  form.append('file_name', filename);
-  form.append('file', new Blob([bytes]), filename);
-  await cfJson(
-    `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/finetunes/${encodeURIComponent(finetuneId)}/finetune-assets/`,
-    {
+
+  async function postAsset(url) {
+    const form = new FormData();
+    form.append('file_name', filename);
+    form.append('file', new Blob([bytes]), filename);
+    return cfJson(url, {
       method: 'POST',
       headers: { Authorization: `Bearer ${token}` },
       body: form,
-    },
-  );
+    });
+  }
+
+  const base = `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/finetunes/${encodeURIComponent(finetuneId)}/finetune-assets`;
+  try {
+    // Cloudflare's current LoRA upload example documents the asset route
+    // with a trailing slash. Prefer that exact form.
+    await postAsset(`${base}/`);
+  } catch (error) {
+    // Keep a bounded compatibility fallback in case the API gateway
+    // normalizes the non-trailing-slash variant differently.
+    if (!/route not found|HTTP_404/i.test(String(error?.message || error))) throw error;
+    await postAsset(base);
+  }
 }
 
 async function main() {

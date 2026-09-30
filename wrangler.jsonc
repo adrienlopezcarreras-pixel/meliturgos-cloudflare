@@ -3,6 +3,7 @@
   "name": "meliturgos",
   "main": "src/visual-final-entry.js",
   "compatibility_date": "2026-09-04",
+  "compatibility_flags": ["global_fetch_strictly_public"],
   "workers_dev": true,
   "assets": {
     "directory": "./dist"
@@ -16,12 +17,19 @@
   "triggers": {
     "crons": [
       "* * * * *",
-      "17 * * * *"
+      "17 * * * *",
+      "43 2 * * *"
     ]
   },
   "ai": {
     "binding": "AI"
   },
+  "services": [
+    {
+      "binding": "MEL_BROWSER_COMPANION",
+      "service": "mel-browser-companion"
+    }
+  ],
   "r2_buckets": [
     {
       "binding": "MEDIA_BUCKET",
@@ -42,6 +50,7 @@
     "MEL_GITHUB_BRANCH": "candidate/mel-clean-autonomy",
     "MEL_GITHUB_WRITABLE_WORKFLOWS": "gen2-36-provider-write-smoke.yml",
     "MEL_CLOUDFLARE_SCRIPT": "meliturgos",
+    "MEL_PUBLIC_ORIGIN": "https://meliturgos.adrien-lopezcarreras.workers.dev",
     "MEL_TEACHER_BRANCH": "candidate/mel-clean-autonomy",
     "MEL_TEACHER_TRANSPORT_BRANCH": "teacher-bridge/runtime",
     "MEL_TEACHER_REPLIES_URL": "https://raw.githubusercontent.com/adrienlopezcarreras-pixel/meliturgos-cloudflare/refs/heads/teacher-bridge/runtime/teacher-bridge/replies.jsonl",
@@ -52,15 +61,19 @@
     "MEL_LORA_KAGGLE_SHARD_SIZE": "750",
     "MEL_LORA_KAGGLE_MAX_CYCLES": "1000",
     "MEL_LORA_KAGGLE_WORKFLOW": "lora-kaggle-free-gpu.yml",
+    "MEL_OWNER_PERSONAL_AGENT": "true",
+    "CAPABILITY_PERMISSIONS": "browser.control",
     "MEL_SHARDVAULT_ENABLED": "true",
     "MEL_VAULT_ID": "mel-primary",
     "MEL_DATA_SHARDS": "4",
     "MEL_TOTAL_SHARDS": "7",
+    "MEL_SHARDVAULT_ROADMAP_PAUSED": "false",
     "MEL_SHARDVAULT_INTERVAL_HOURS": "24",
     "MEL_SHARDVAULT_EXPORT_LIMIT": "10000",
+    "MEL_RELEASE_BACKUP_MAX_AGE_MS": "172800000",
     "MEL_WATCH_MAX_PER_OPERATOR": "2",
     "MEL_WATCH_MAX_PER_PROVIDER": "2",
-    "MEL_SHARDVAULT_AUTONOMOUS": "true",
+    "MEL_SHARDVAULT_AUTONOMOUS": "false",
     "MEL_AUTONOMOUS_POLICY_MAX_AGE_DAYS": "180",
     "MEL_AUTONOMOUS_PROBE_LIMIT": "20",
     "MEL_AUTONOMOUS_REPOSITORIES_JSON": "[]",
@@ -91,6 +104,7 @@
         "MEL_GITHUB_BRANCH": "candidate/mel-clean-autonomy",
         "MEL_GITHUB_WRITABLE_WORKFLOWS": "gen2-36-provider-write-smoke.yml",
         "MEL_CLOUDFLARE_SCRIPT": "meliturgos",
+        "MEL_PUBLIC_ORIGIN": "https://meliturgos.adrien-lopezcarreras.workers.dev",
         "MEL_TEACHER_BRANCH": "candidate/mel-clean-autonomy",
         "MEL_TEACHER_TRANSPORT_BRANCH": "teacher-bridge/runtime",
         "MEL_TEACHER_REPLIES_URL": "https://raw.githubusercontent.com/adrienlopezcarreras-pixel/meliturgos-cloudflare/refs/heads/teacher-bridge/runtime/teacher-bridge/replies.jsonl",
@@ -104,15 +118,17 @@
         "MEL_LORA_KAGGLE_SHARD_SIZE": "750",
         "MEL_LORA_KAGGLE_MAX_CYCLES": "1000",
         "MEL_LORA_KAGGLE_WORKFLOW": "lora-kaggle-free-gpu.yml",
+        "MEL_OWNER_PERSONAL_AGENT": "true",
         "MEL_SHARDVAULT_ENABLED": "true",
         "MEL_VAULT_ID": "mel-primary",
         "MEL_DATA_SHARDS": "4",
         "MEL_TOTAL_SHARDS": "7",
-        "MEL_SHARDVAULT_INTERVAL_HOURS": "24",
+        "MEL_SHARDVAULT_ROADMAP_PAUSED": "false",
+    "MEL_SHARDVAULT_INTERVAL_HOURS": "24",
         "MEL_SHARDVAULT_EXPORT_LIMIT": "10000",
         "MEL_WATCH_MAX_PER_OPERATOR": "2",
         "MEL_WATCH_MAX_PER_PROVIDER": "2",
-        "MEL_SHARDVAULT_AUTONOMOUS": "true",
+        "MEL_SHARDVAULT_AUTONOMOUS": "false",
         "MEL_AUTONOMOUS_POLICY_MAX_AGE_DAYS": "180",
         "MEL_AUTONOMOUS_PROBE_LIMIT": "20",
         "MEL_AUTONOMOUS_REPOSITORIES_JSON": "[]",
