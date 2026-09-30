@@ -103,11 +103,26 @@ async function sha256Hex(value) {
   return [...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, '0')).join('');
 }
 
+async function readBootstrapChallengeObject(bucket, key) {
+  if (!bucket || typeof bucket.get !== 'function') return null;
+  const object = await bucket.get(key);
+  if (!object) return null;
+  try {
+    if (typeof object.json === 'function') return await object.json();
+    if (typeof object.text === 'function') return JSON.parse(await object.text());
+  } catch {}
+  return null;
+}
+
 export async function consumeBootstrapChallenge(env, supplied, scope, { now = Date.now() } = {}) {
   const token = String(supplied || '');
   if (token.length < 32 || !env?.DB || typeof env.DB.prepare !== 'function') return false;
   const normalizedScope = String(scope || '').trim().slice(0, 120);
   if (!normalizedScope) return false;
+
+  const hash = await sha256Hex(token);
+
+  // Compatibility path for challenges written directly into D1.
   await env.DB.prepare(`CREATE TABLE IF NOT EXISTS mel_bootstrap_challenges (
     token_hash TEXT PRIMARY KEY,
     scope TEXT NOT NULL,
@@ -115,14 +130,40 @@ export async function consumeBootstrapChallenge(env, supplied, scope, { now = Da
     consumed_at INTEGER,
     created_at INTEGER NOT NULL
   )`).run();
-  const hash = await sha256Hex(token);
-  const result = await env.DB.prepare(`UPDATE mel_bootstrap_challenges
+  const direct = await env.DB.prepare(`UPDATE mel_bootstrap_challenges
     SET consumed_at=?
     WHERE token_hash=? AND scope=? AND consumed_at IS NULL AND expires_at>=?`)
     .bind(now, hash, normalizedScope, now)
     .run();
-  const changes = Number(result?.meta?.changes ?? result?.changes ?? 0);
-  return changes > 0;
+  const directChanges = Number(direct?.meta?.changes ?? direct?.changes ?? 0);
+  if (directChanges > 0) return true;
+
+  // Production path: Actions provisions the random challenge in R2 using the
+  // already-proven R2 credential. D1 remains the atomic replay ledger.
+  if (!env?.MEDIA_BUCKET || typeof env.MEDIA_BUCKET.get !== 'function') return false;
+  const key = `bootstrap-challenges/${normalizedScope}/${hash}.json`;
+  const challenge = await readBootstrapChallengeObject(env.MEDIA_BUCKET, key);
+  if (!challenge) return false;
+  if (String(challenge?.token_hash || '') !== hash) return false;
+  if (String(challenge?.scope || '') !== normalizedScope) return false;
+  if (Number(challenge?.expires_at || 0) < now) return false;
+
+  await env.DB.prepare(`CREATE TABLE IF NOT EXISTS mel_bootstrap_challenge_consumptions (
+    token_hash TEXT PRIMARY KEY,
+    scope TEXT NOT NULL,
+    consumed_at INTEGER NOT NULL
+  )`).run();
+  const consumed = await env.DB.prepare(`INSERT OR IGNORE INTO mel_bootstrap_challenge_consumptions
+    (token_hash,scope,consumed_at) VALUES(?,?,?)`)
+    .bind(hash, normalizedScope, now)
+    .run();
+  const consumedChanges = Number(consumed?.meta?.changes ?? consumed?.changes ?? 0);
+  if (consumedChanges < 1) return false;
+
+  if (typeof env.MEDIA_BUCKET.delete === 'function') {
+    try { await env.MEDIA_BUCKET.delete(key); } catch {}
+  }
+  return true;
 }
 
 async function internalConnectionCall(connectionHandler, env, provider, action, { method = 'GET', body = null } = {}) {
