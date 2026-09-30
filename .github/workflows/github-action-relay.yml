@@ -1,0 +1,81 @@
+name: github-action-relay
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '*/5 * * * *'
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/github-action-relay.yml'
+      - 'scripts/github-action-relay-runner.mjs'
+      - 'src/platform/github-action-relay.js'
+      - 'src/api/github-action-relay-api.js'
+      - 'src/capabilities/platform-control-capabilities.js'
+      - 'src/router.js'
+      - 'tests/gen2/github-action-relay.test.mjs'
+
+permissions:
+  contents: read
+  actions: write
+
+concurrency:
+  group: github-action-relay
+  cancel-in-progress: false
+
+jobs:
+  contract:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm run check
+      - run: node --test tests/gen2/github-action-relay.test.mjs tests/platform-control-capabilities.test.mjs
+
+  relay:
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      GITHUB_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: main
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '22'
+          cache: npm
+
+      - run: npm ci
+
+      - name: Install ephemeral relay credential
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${CLOUDFLARE_API_TOKEN:-}"
+          test -n "${CLOUDFLARE_ACCOUNT_ID:-}"
+          RELAY_TOKEN="$(openssl rand -hex 32)"
+          echo "::add-mask::${RELAY_TOKEN}"
+          printf '%s' "${RELAY_TOKEN}" | npx wrangler secret put MEL_GITHUB_RELAY_TOKEN --env=""
+          echo "MEL_GITHUB_RELAY_TOKEN=${RELAY_TOKEN}" >> "$GITHUB_ENV"
+
+      - name: Heartbeat, claim and dispatch queued GitHub actions
+        run: node scripts/github-action-relay-runner.mjs
+
+      - name: Remove ephemeral relay credential
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          printf 'y\n' | npx wrangler secret delete MEL_GITHUB_RELAY_TOKEN --env="" >/tmp/github-relay-secret-delete.log 2>&1
+          exit 0
