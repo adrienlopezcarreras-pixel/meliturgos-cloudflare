@@ -41,8 +41,8 @@ jobs:
         run: npm ci
       - name: Syntax gate
         run: npm run check
-      - name: Dev Bridge runtime contract
-        run: node --test tests/integration/dev-runtime-api.test.mjs
+      - name: Dev Bridge and bootstrap runtime contracts
+        run: node --test tests/integration/dev-runtime-api.test.mjs tests/release-launch-bootstrap.test.mjs
 
   tick:
     if: github.event_name != 'pull_request'
