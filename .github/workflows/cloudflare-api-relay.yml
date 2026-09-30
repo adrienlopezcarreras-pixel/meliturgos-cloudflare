@@ -41,3 +41,51 @@ jobs:
           cat /tmp/cloudflare-relay-heartbeat.json
           test "$CODE" = "200"
           node -e 'const d=require("/tmp/cloudflare-relay-heartbeat.json");if(d?.ok!==true||d?.status!=="ONLINE")process.exit(2)'
+
+      - name: Refresh sanitized Workers inventory snapshot
+        shell: bash
+        env:
+          BASE_URL: https://meliturgos.adrien-lopezcarreras.workers.dev
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          test -n "${CLOUDFLARE_API_TOKEN:-}"
+          test -n "${CLOUDFLARE_ACCOUNT_ID:-}"
+          CF_CODE="$(curl --silent --show-error --max-time 30 \
+            --header "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+            --output /tmp/cloudflare-workers-raw.json \
+            --write-out '%{http_code}' \
+            "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/scripts" || true)"
+          test "${CF_CODE}" = "200"
+          GITHUB_RUN_ID="${GITHUB_RUN_ID}" node - <<'NODE'
+          const fs=require('fs');
+          const body=JSON.parse(fs.readFileSync('/tmp/cloudflare-workers-raw.json','utf8'));
+          if(body?.success!==true||!Array.isArray(body?.result)) process.exit(2);
+          const clean=(v,n)=>String(v??'').trim().slice(0,n);
+          const workers=body.result.slice(0,100).map(row=>({
+            id:clean(row?.id,160),
+            created_on:clean(row?.created_on,80),
+            modified_on:clean(row?.modified_on,80),
+            compatibility_date:clean(row?.compatibility_date,32),
+            usage_model:clean(row?.usage_model,80),
+            last_deployed_from:clean(row?.last_deployed_from,120),
+          })).filter(row=>row.id);
+          fs.writeFileSync('/tmp/cloudflare-workers-snapshot-payload.json',JSON.stringify({
+            workers,
+            collected_at:Date.now(),
+            run_id:Number(process.env.GITHUB_RUN_ID||0)||null,
+          }));
+          console.log(JSON.stringify({ok:true,workers_count:workers.length}));
+          NODE
+          SNAP_CODE="$(curl --silent --show-error --max-time 30 \
+            --header "x-mel-github-oidc: ${MEL_CLOUDFLARE_RELAY_OIDC}" \
+            --header "content-type: application/json" \
+            --data-binary @/tmp/cloudflare-workers-snapshot-payload.json \
+            --output /tmp/cloudflare-workers-snapshot-response.json \
+            --write-out '%{http_code}' \
+            "${BASE_URL}/api/internal/cloudflare-api-relay/workers-snapshot")"
+          cat /tmp/cloudflare-workers-snapshot-response.json
+          test "${SNAP_CODE}" = "200"
+          node -e 'const d=require("/tmp/cloudflare-workers-snapshot-response.json");if(d?.ok!==true||d?.snapshot!=="workers")process.exit(2)'
+
