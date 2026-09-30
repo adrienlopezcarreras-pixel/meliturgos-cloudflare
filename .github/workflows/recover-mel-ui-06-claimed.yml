@@ -1,0 +1,97 @@
+name: One-time recover MEL-UI-06 claimed job
+
+on:
+  push:
+    branches:
+      - ops/recover-mel-ui-06-claimed-20260930
+    paths:
+      - .github/workflows/recover-mel-ui-06-claimed.yml
+
+permissions:
+  contents: read
+
+jobs:
+  recover:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+
+      - name: Install ephemeral recovery token
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          TOKEN="$(openssl rand -hex 32)"
+          echo "::add-mask::${TOKEN}"
+          echo "MEL_CLOUD_BRIDGE_TOKEN=${TOKEN}" >> "$GITHUB_ENV"
+          printf '%s' "${TOKEN}" | npx wrangler secret put MEL_CLOUD_BRIDGE_TOKEN --env=""
+
+      - name: Return orphaned claim to repair queue
+        shell: bash
+        run: |
+          set -euo pipefail
+          node - <<'NODE'
+          const fs=require('fs');
+          const body={
+            job_id:'mel-autonomy-mel-ui-06-1',
+            status:'REPAIR_REQUIRED',
+            candidate_branch:'candidate/mel-clean-autonomy',
+            tests_json:[],
+            diff_summary:'RECOVER_ORPHANED_CLAIM_FROM_GITHUB_RUN_36657377285',
+            needs_repair:true,
+            error:null,
+            result_json:{
+              status:'REPAIR_REQUIRED',
+              needs_repair:true,
+              tests:[],
+              mode:'ONE_TIME_CLAIM_RECOVERY',
+              orphaned_run_id:36657377285,
+              reason:'BRIDGE_RESULT_AUTH_FAILED_AFTER_CLAIM'
+            }
+          };
+          fs.writeFileSync('recovery-request.json',JSON.stringify(body));
+          NODE
+          READY=0
+          for ATTEMPT in $(seq 1 12); do
+            CODE="$(curl --silent --show-error --max-time 45               --request POST               --header "Authorization: Bearer $MEL_CLOUD_BRIDGE_TOKEN"               --header "Content-Type: application/json"               --data-binary @recovery-request.json               --output recovery-response.json               --write-out '%{http_code}'               "https://meliturgos.adrien-lopezcarreras.workers.dev/api/dev-bridge/result" || true)"
+            if [ "$CODE" = "200" ]; then READY=1; break; fi
+            echo "Recovery result attempt $ATTEMPT/12 returned HTTP $CODE."
+            test ! -s recovery-response.json || cat recovery-response.json
+            sleep 2
+          done
+          test "$READY" = "1"
+          node - <<'NODE'
+          const d=require('./recovery-response.json');
+          if(String(d?.status||'').toUpperCase()!=='REPAIR_REQUIRED') {
+            throw new Error('RECOVERY_STATUS_NOT_REPAIR_REQUIRED');
+          }
+          console.log('MEL-UI-06 orphaned claim recovered to REPAIR_REQUIRED.');
+          NODE
+
+      - name: Remove ephemeral recovery token
+        if: always()
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set +e
+          printf 'y\n' | npx wrangler secret delete MEL_CLOUD_BRIDGE_TOKEN --env="" >/tmp/recovery-token-delete.log 2>&1
+          exit 0
+
+      - name: Upload recovery evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: mel-ui-06-claim-recovery-${{ github.run_id }}
+          path: recovery-response.json
+          if-no-files-found: warn
+          retention-days: 7
