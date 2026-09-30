@@ -101,7 +101,7 @@ test('Cloudflare reads only Workers inventory and deployment metadata, never sou
   assert.equal(workers.scripts[0].id, 'meliturgos');
   assert.equal(deployments.count, 1);
   assert.equal(deployments.deployments[0].id, 'd1');
-  assert.equal(seen.some(call => call.url === 'https://api.cloudflare.com/client/v4/accounts/account123/workers/workers'), true);
+  assert.equal(seen.some(call => call.url === 'https://api.cloudflare.com/client/v4/accounts/account123/workers/scripts'), true);
   assert.equal(seen.some(call => call.url === 'https://api.cloudflare.com/client/v4/accounts/account123/workers/scripts/meliturgos/deployments'), true);
   assert.equal(seen.every(call => call.authorization === 'Bearer cf-secret'), true);
   assert.equal(JSON.stringify({ workers, deployments }).includes('cf-secret'), false);
@@ -109,6 +109,25 @@ test('Cloudflare reads only Workers inventory and deployment metadata, never sou
     () => bus.execute('cloudflare.deployments.read', { script: '../secrets' }, owner),
     /CLOUDFLARE_SCRIPT_INVALID/
   );
+});
+
+test('Cloudflare failures expose only sanitized HTTP and Cloudflare numeric error codes', async () => {
+  const bus = new CapabilityBus();
+  registerPlatformReadCapabilities(bus, {
+    env: { CLOUDFLARE_API_TOKEN: 'cf-secret', CLOUDFLARE_ACCOUNT_ID: 'account123' },
+    fetchImpl: async () => json({ errors: [{ code: 10000, message: 'secret upstream message' }] }, 503),
+  });
+
+  let caught;
+  try {
+    await bus.execute('cloudflare.workers.read', { limit: 1 }, owner);
+  } catch (error) {
+    caught = error;
+  }
+  assert.ok(caught);
+  assert.match(caught.code, /CLOUDFLARE_WORKERS_READ_FAILED_HTTP_503_CF_10000/);
+  assert.equal(String(caught.code).includes('secret upstream message'), false);
+  assert.equal(String(caught.code).includes('cf-secret'), false);
 });
 
 test('Vercel project and deployment reads preserve team scoping and bounded output', async () => {
