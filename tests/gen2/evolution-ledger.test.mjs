@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { D1EvolutionLedger, LEDGER_GENESIS } from '../../src/evolution/evolution-ledger.js';
+import { D1EvolutionLedger, LEDGER_GENESIS, evolutionLedgerEntryHash } from '../../src/evolution/evolution-ledger.js';
 import { D1DevJobRepository } from '../../src/dev/d1-dev-job-repository.js';
 import { CapabilityBus } from '../../src/capabilities/capability-bus.js';
 import { registerEvolutionLedgerCapabilities } from '../../src/capabilities/evolution-ledger-capabilities.js';
@@ -160,3 +160,60 @@ test('read-only CapabilityBus ledger endpoints expose entries and chain verifica
     db.close();
   }
 });
+
+test('evolution ledger verifies more than the former 2000-row ceiling in bounded pages', async () => {
+  const db = sqliteD1();
+  try {
+    const ledger = new D1EvolutionLedger(db);
+    await ledger.ensure();
+    let previousHash = LEDGER_GENESIS;
+    const total = 2005;
+    for (let index = 1; index <= total; index += 1) {
+      const row = {
+        event_id: `bulk-event-${index}`,
+        evolution_id: 'bulk-proof',
+        stage: 'JOB_UPDATED',
+        status: 'RUNNING',
+        actor: 'test',
+        source_sha: 'b'.repeat(40),
+        branch: 'candidate/bulk-proof',
+        evidence: { index },
+        occurred_at: 10000 + index,
+        previous_hash: previousHash,
+      };
+      const entryHash = await evolutionLedgerEntryHash(row);
+      await db.prepare(`INSERT INTO evolution_ledger(
+        event_id,evolution_id,stage,status,actor,source_sha,branch,
+        evidence_json,occurred_at,previous_hash,entry_hash
+      ) VALUES(?,?,?,?,?,?,?,?,?,?,?)`).bind(
+        row.event_id,
+        row.evolution_id,
+        row.stage,
+        row.status,
+        row.actor,
+        row.source_sha,
+        row.branch,
+        JSON.stringify(row.evidence),
+        row.occurred_at,
+        row.previous_hash,
+        entryHash,
+      ).run();
+      previousHash = entryHash;
+    }
+
+    const verification = await ledger.verify({ page_size: 127 });
+    assert.equal(verification.ok, true);
+    assert.equal(verification.count, total);
+    assert.equal(verification.verified, total);
+    assert.equal(verification.head_hash, previousHash);
+
+    const deliberatelyBounded = await ledger.verify({ limit: 2000, page_size: 127 });
+    assert.equal(deliberatelyBounded.ok, false);
+    assert.equal(deliberatelyBounded.code, 'EVOLUTION_LEDGER_VERIFY_LIMIT_EXCEEDED');
+    assert.equal(deliberatelyBounded.count, total);
+    assert.equal(deliberatelyBounded.verified, 0);
+  } finally {
+    db.close();
+  }
+});
+

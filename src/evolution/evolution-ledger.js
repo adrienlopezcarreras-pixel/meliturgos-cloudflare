@@ -241,50 +241,91 @@ export class D1EvolutionLedger {
     return (result?.results || []).map(rowToPublic);
   }
 
-  async verify({ limit = MAX_LIST_LIMIT } = {}) {
+  async verify({ limit = null, page_size = 500 } = {}) {
     await this.ensure();
     const countRow = await this.db.prepare('SELECT COUNT(*) AS count FROM evolution_ledger').first();
     const count = Number(countRow?.count || 0);
-    if (count > MAX_LIST_LIMIT || count > Number(limit || MAX_LIST_LIMIT)) {
+    const explicitLimit = limit == null ? null : Math.max(0, Math.trunc(Number(limit) || 0));
+    if (explicitLimit != null && count > explicitLimit) {
       return Object.freeze({
         ok: false,
         code: 'EVOLUTION_LEDGER_VERIFY_LIMIT_EXCEEDED',
         count,
         verified: 0,
+        head_hash: null,
         failures: Object.freeze([]),
       });
     }
 
-    const rows = await this.list({ limit: Math.max(1, count || 1) });
+    const pageSize = Math.max(1, Math.min(MAX_LIST_LIMIT, Math.trunc(Number(page_size) || 500)));
     const failures = [];
     let previousHash = LEDGER_GENESIS;
-    for (const row of rows) {
-      if (row.previous_hash !== previousHash) {
+    let lastSeq = 0;
+    let verified = 0;
+
+    while (verified < count) {
+      const result = await this.db.prepare(
+        'SELECT * FROM evolution_ledger WHERE seq>? ORDER BY seq ASC LIMIT ?'
+      ).bind(lastSeq, pageSize).all();
+      const rows = (result?.results || []).map(rowToPublic);
+      if (!rows.length) {
         failures.push({
-          seq: row.seq,
-          code: 'PREVIOUS_HASH_MISMATCH',
-          expected: previousHash,
-          actual: row.previous_hash,
+          seq: lastSeq,
+          code: 'ROW_COUNT_MISMATCH',
+          expected: count,
+          actual: verified,
         });
+        break;
       }
-      const expectedHash = await evolutionLedgerEntryHash(row);
-      if (expectedHash !== row.entry_hash) {
-        failures.push({
-          seq: row.seq,
-          code: 'ENTRY_HASH_MISMATCH',
-          expected: expectedHash,
-          actual: row.entry_hash,
-        });
+
+      for (const row of rows) {
+        if (row.seq <= lastSeq) {
+          failures.push({
+            seq: row.seq,
+            code: 'SEQUENCE_NOT_STRICTLY_INCREASING',
+            expected_greater_than: lastSeq,
+            actual: row.seq,
+          });
+          continue;
+        }
+        if (row.previous_hash !== previousHash) {
+          failures.push({
+            seq: row.seq,
+            code: 'PREVIOUS_HASH_MISMATCH',
+            expected: previousHash,
+            actual: row.previous_hash,
+          });
+        }
+        const expectedHash = await evolutionLedgerEntryHash(row);
+        if (expectedHash !== row.entry_hash) {
+          failures.push({
+            seq: row.seq,
+            code: 'ENTRY_HASH_MISMATCH',
+            expected: expectedHash,
+            actual: row.entry_hash,
+          });
+        }
+        previousHash = row.entry_hash;
+        lastSeq = row.seq;
+        verified += 1;
       }
-      previousHash = row.entry_hash;
+    }
+
+    if (verified !== count && !failures.some(row => row.code === 'ROW_COUNT_MISMATCH')) {
+      failures.push({
+        seq: lastSeq,
+        code: 'ROW_COUNT_MISMATCH',
+        expected: count,
+        actual: verified,
+      });
     }
 
     return Object.freeze({
       ok: failures.length === 0,
       code: failures.length ? 'EVOLUTION_LEDGER_INTEGRITY_FAILED' : 'EVOLUTION_LEDGER_VERIFIED',
       count,
-      verified: rows.length,
-      head_hash: rows.length ? rows[rows.length - 1].entry_hash : LEDGER_GENESIS,
+      verified,
+      head_hash: verified ? previousHash : LEDGER_GENESIS,
       failures: Object.freeze(failures),
     });
   }
