@@ -295,6 +295,51 @@ function clip(value, limit = 220) {
 
 export function formatVerifiedCapabilityAuditResponse(audit, { fallback = '' } = {}) {
   if (!audit || typeof audit !== 'object') return String(fallback || '').trim();
+
+  if (audit.persistent === true) {
+    const status = String(audit.status || 'UNKNOWN').toUpperCase();
+    const progress = audit.progress && typeof audit.progress === 'object' ? audit.progress : {};
+    const done = Number(progress.done || 0);
+    const total = Number(progress.total || 0);
+    const pass = Number(progress.pass || 1);
+    const current = String(progress.current_capability || '').trim();
+    const jobId = String(audit.job_id || audit.id || '').trim();
+    const prefix = [
+      'Stress test global persistant : ' + status + '.',
+      jobId ? 'job_id=' + jobId + '.' : '',
+      total > 0 ? 'Progression : ' + done + '/' + total + ' (passe ' + pass + ')' + (current ? ', capacité en cours : ' + current : '') + '.' : '',
+    ].filter(Boolean);
+
+    if (status === 'FAILED') {
+      prefix.push('Erreur : ' + String(audit.error || 'CAPABILITY_STRESS_FAILED') + '.');
+      return prefix.join('\n');
+    }
+
+    const terminal = ['COMPLETE','COMPLETE_WITH_FAILURES'].includes(status);
+    if (!terminal || !audit.report || typeof audit.report !== 'object') {
+      const retryCount = Number(audit?.summary?.retryable_failures || 0);
+      if (status === 'RETRYING' && retryCount > 0) {
+        prefix.push('Une seconde passe reteste automatiquement ' + retryCount + ' échec(s) LOW-risk réellement retestable(s).');
+      }
+      return prefix.join('\n');
+    }
+
+    const detailed = formatVerifiedCapabilityAuditResponse(
+      { ...audit.report, persistent: false },
+      { fallback }
+    );
+    const remaining = Array.isArray(audit?.summary?.remaining_runtime_failures)
+      ? audit.summary.remaining_runtime_failures
+      : [];
+    if (status === 'COMPLETE_WITH_FAILURES' && remaining.length) {
+      prefix.push('Échecs runtime restant après retry : ' + remaining.slice(0, 20).join(', ') + '.');
+    }
+    if (Number(audit?.summary?.blocked_count || 0) > 0) {
+      prefix.push('Capacités non auto-exécutées par garde-fou : ' + Number(audit.summary.blocked_count) + '.');
+    }
+    return [prefix.join('\n'), detailed].filter(Boolean).join('\n');
+  }
+
   const rows = Array.isArray(audit.capabilities) ? audit.capabilities : [];
   const counts = audit.counts && typeof audit.counts === 'object' ? audit.counts : {};
   const tested = rows.filter(r => r?.truth_status === 'EXISTANT_ET_TESTE');

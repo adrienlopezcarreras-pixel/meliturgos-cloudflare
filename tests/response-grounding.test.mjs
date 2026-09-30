@@ -143,3 +143,43 @@ test('Dev Bridge formatter reports live polling truth instead of asking for conf
   assert.doesNotMatch(text, /Tu confirmes/);
   assert.match(text, /je ne te demande pas de confirmer/i);
 });
+
+test('persistent capability stress formatter exposes job progress then final per-capability report', () => {
+  const running = formatVerifiedCapabilityAuditResponse({
+    persistent:true,
+    job_id:'cap-stress-123',
+    status:'RUNNING',
+    progress:{done:12,total:80,pass:1,current_capability:'echo'},
+    summary:{phase:'RUNNING'},
+  });
+  assert.match(running, /cap-stress-123/);
+  assert.match(running, /RUNNING/);
+  assert.match(running, /12\/80/);
+  assert.match(running, /echo/);
+
+  const complete = formatVerifiedCapabilityAuditResponse({
+    persistent:true,
+    job_id:'cap-stress-123',
+    status:'COMPLETE_WITH_FAILURES',
+    progress:{done:2,total:2,pass:2,current_capability:null},
+    summary:{
+      remaining_runtime_failures:['bad.capability'],
+      blocked_count:1,
+    },
+    report:{
+      total:2,
+      deep:true,
+      counts:{EXISTANT_ET_TESTE:1,EXISTANT_MAIS_ECHEC_RUNTIME:1},
+      capabilities:[
+        {id:'echo',category:'diagnostic',truth_status:'EXISTANT_ET_TESTE'},
+        {id:'bad.capability',category:'diagnostic',truth_status:'EXISTANT_MAIS_ECHEC_RUNTIME'},
+      ],
+    },
+  });
+  assert.match(complete, /COMPLETE_WITH_FAILURES/);
+  assert.match(complete, /bad\.capability/);
+  assert.match(complete, /Testées maintenant : 1/);
+  assert.match(complete, /Partielles ou en échec runtime : 1/);
+  assert.match(complete, /Capacités non auto-exécutées par garde-fou : 1/);
+});
+

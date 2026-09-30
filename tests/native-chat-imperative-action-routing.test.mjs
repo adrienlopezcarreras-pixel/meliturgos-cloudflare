@@ -39,3 +39,26 @@ for (const prompt of [
     });
   });
 }
+
+for (const prompt of [
+  'où en est le stress test ?',
+  'statut du stress-test global',
+  'donne moi le rapport du stress test',
+]) {
+  test('routes persistent global stress status request: ' + prompt, () => {
+    assert.deepEqual(inferNativeExecutionCapability(prompt), {
+      id: 'capability.audit.status',
+      input: {},
+      execution_intent: 'GLOBAL_CAPABILITY_STRESS_STATUS',
+    });
+  });
+}
+
+test('routes one exact persistent stress job id when present', () => {
+  assert.deepEqual(inferNativeExecutionCapability('statut du stress test cap-stress-12345678-1234-1234-1234-123456789abc'), {
+    id: 'capability.audit.status',
+    input: { job_id: 'cap-stress-12345678-1234-1234-1234-123456789abc' },
+    execution_intent: 'GLOBAL_CAPABILITY_STRESS_STATUS',
+  });
+});
+
