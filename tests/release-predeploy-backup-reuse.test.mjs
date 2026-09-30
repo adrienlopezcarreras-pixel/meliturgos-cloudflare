@@ -19,17 +19,20 @@ test('canonical release proves a recent restore-verified backup through the ephe
   assert.doesNotMatch(block, /MEL_LAUNCH_BOOTSTRAP_TOKEN/);
 });
 
-test('real platform capability proof runs automatically after a successful canonical release', async () => {
-  const source = await readFile(new URL('../.github/workflows/activate-platform-capabilities.yml', import.meta.url), 'utf8');
-  assert.match(source, /workflows: \["deploy-cloudflare-release"\]/);
-  assert.match(source, /github\.event\.workflow_run\.conclusion == 'success'/);
-  assert.doesNotMatch(source, /github\.event\.workflow_run\.head_branch == 'release\/mel-hardware-v0\.1\.0'/);
-  assert.match(source, /cloudflare\.workers\.read/);
-  assert.match(source, /cloudflare\.deployments\.read/);
-  assert.match(source, /cloudflare\.deployments\.create/);
-  assert.match(source, /github\.actions\.workflow\.dispatch/);
-  assert.match(source, /secrets\.MEL_GITHUB_TOKEN \|\| secrets\.GITHUB_PAT \|\| secrets\.GH_PAT \|\| secrets\.GH_TOKEN/);
-  assert.doesNotMatch(source, /secrets\.GITHUB_TOKEN/);
+test('post-release proof suite runs automatically after a successful canonical release and calls platform proof first', async () => {
+  const suite = await readFile(new URL('../.github/workflows/post-release-proof-suite.yml', import.meta.url), 'utf8');
+  const platform = await readFile(new URL('../.github/workflows/activate-platform-capabilities.yml', import.meta.url), 'utf8');
+  assert.match(suite, /workflows: \["deploy-cloudflare-release"\]/);
+  assert.match(suite, /github\.event\.workflow_run\.conclusion == 'success'/);
+  assert.match(suite, /uses: \.\/\.github\/workflows\/activate-platform-capabilities\.yml/);
+  assert.match(platform, /workflow_call:/);
+  assert.doesNotMatch(platform, /workflows: \["deploy-cloudflare-release"\]/);
+  assert.match(platform, /cloudflare\.workers\.read/);
+  assert.match(platform, /cloudflare\.deployments\.read/);
+  assert.match(platform, /cloudflare\.deployments\.create/);
+  assert.match(platform, /github\.actions\.workflow\.dispatch/);
+  assert.match(platform, /secrets\.MEL_GITHUB_TOKEN \|\| secrets\.GITHUB_PAT \|\| secrets\.GH_PAT \|\| secrets\.GH_TOKEN/);
+  assert.doesNotMatch(platform, /secrets\.GITHUB_TOKEN/);
 });
 
 
