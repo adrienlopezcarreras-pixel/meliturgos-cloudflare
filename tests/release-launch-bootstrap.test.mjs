@@ -622,6 +622,65 @@ test('release bootstrap proves long-context compression on a real-shaped archive
 });
 
 
+test('GEN2-42 R2 bootstrap challenge uses D1 as an atomic replay ledger', async () => {
+  const DB=sqliteD1();
+  const objects=new Map();
+  const bucket={
+    async put(key,value){ objects.set(String(key),String(value)); },
+    async get(key){
+      const value=objects.get(String(key));
+      if(value==null)return null;
+      return {
+        async text(){return value;},
+        async json(){return JSON.parse(value);},
+      };
+    },
+    async delete(key){objects.delete(String(key));},
+  };
+  const token='r'.repeat(64);
+  const bytes=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(token));
+  const hash=[...new Uint8Array(bytes)].map(byte=>byte.toString(16).padStart(2,'0')).join('');
+  const now=Date.now();
+  const key='bootstrap-challenges/gen2-42-runtime-tick/'+hash+'.json';
+  await bucket.put(key,JSON.stringify({
+    schema:'mel.gen2-42-bootstrap-challenge/v2',
+    token_hash:hash,
+    scope:'gen2-42-runtime-tick',
+    expires_at:now+60000,
+    created_at:now,
+  }));
+  try {
+    let ticks=0;
+    const request=()=>new Request('https://mel.test/api/internal/release-launch-bootstrap',{
+      method:'POST',
+      headers:{'x-mel-gen2-42-bootstrap':token,'content-type':'application/json'},
+      body:JSON.stringify({phase:'gen2-42-runtime-tick'}),
+    });
+    const env={DB,MEDIA_BUCKET:bucket};
+    const first=await maybeHandleReleaseLaunchBootstrap(request(),env,{
+      runAutonomyTick:async()=>{ticks+=1;return{ok:true,status:'ACTIVE',advanced:false,control:{paused:false,max_autonomy:true}};},
+    });
+    assert.equal(first.status,200);
+    assert.equal(ticks,1);
+    assert.equal(objects.has(key),false);
+
+    // Even if the R2 challenge is maliciously/restored later, D1 blocks replay.
+    await bucket.put(key,JSON.stringify({
+      token_hash:hash,
+      scope:'gen2-42-runtime-tick',
+      expires_at:now+60000,
+    }));
+    const replay=await maybeHandleReleaseLaunchBootstrap(request(),env,{
+      runAutonomyTick:async()=>{ticks+=1;return{ok:true};},
+    });
+    assert.equal(replay.status,401);
+    assert.equal(ticks,1);
+  } finally {
+    DB.close();
+  }
+});
+
+
 test('GEN2-42 D1 bootstrap challenge is scoped, expiring and one-shot', async () => {
   const DB=sqliteD1();
   const token='z'.repeat(64);
