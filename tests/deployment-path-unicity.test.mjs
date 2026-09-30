@@ -7,7 +7,10 @@ const WORKFLOWS = path.join(process.cwd(), '.github', 'workflows');
 const CANONICAL = 'deploy-cloudflare-release.yml';
 const GUARD = 'canonical-branch-unicity.yml';
 const DEPLOY_PATTERN = /cloudflare\/wrangler-action|(^|\s)(npx\s+|pnpm\s+exec\s+)?wrangler\s+(deploy|publish)|npm\s+run\s+deploy/im;
-const RAW_CLOUDFLARE_MUTATION_PATTERN = /--request\s+(POST|PUT|PATCH|DELETE)[\s\S]{0,2000}https:\/\/api\.cloudflare\.com\/client\/v4\/accounts\/[^\s"'\\]+\/workers\/scripts/i;
+const RAW_CLOUDFLARE_MUTATION_PATTERN = new RegExp(
+  String.raw`--request\\s+(POST|PUT|PATCH|DELETE)(?:[^\\n]*\\\\\\n){0,20}[^\\n]*https:\\/\\/api\\.cloudflare\\.com\\/client\\/v4\\/accounts\\/[^\\s"'\\\\]+\\/workers\\/scripts`,
+  'i',
+);
 
 function isIsolatedPreview(name, source) {
   if (name === 'deploy-candidate-preview.yml') return source.includes('--env preview');
