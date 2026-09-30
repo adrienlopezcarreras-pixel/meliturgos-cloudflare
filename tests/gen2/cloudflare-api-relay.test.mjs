@@ -37,3 +37,14 @@ test('Cloudflare relay runner reads deployment list from documented result.deplo
   assert.match(deploymentBranch, /Array\.isArray\(body\?\.result\?\.deployments\)\?body\.result\.deployments/);
   assert.doesNotMatch(deploymentBranch, /Array\.isArray\(body\?\.result\)\?body\.result:\[\]/);
 });
+
+
+test('Cloudflare relay deployment create is bounded, non-force and verifies the created deployment', async () => {
+  const source = await readFile(new URL('../../scripts/cloudflare-api-relay-runner.mjs', import.meta.url), 'utf8');
+  const createBranch = source.slice(source.indexOf("job.operation==='deployments.create'"));
+  assert.match(createBranch, /method:'POST'/);
+  assert.match(createBranch, /strategy:'percentage'/);
+  assert.match(createBranch, /workers\/message/);
+  assert.match(createBranch, /await cf\(path\+'\/'\+encodeURIComponent\(deploymentId\)\)/);
+  assert.doesNotMatch(createBranch, /force\s*:/);
+});
