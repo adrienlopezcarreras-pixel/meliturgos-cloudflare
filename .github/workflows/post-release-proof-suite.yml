@@ -1,0 +1,94 @@
+name: post-release-proof-suite
+
+on:
+  workflow_run:
+    workflows: ["deploy-cloudflare-release"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      expected_sha:
+        description: "Exact release SHA to prove; defaults to current main"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  resolve:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-24.04
+    outputs:
+      expected_sha: ${{ steps.sha.outputs.expected_sha }}
+    steps:
+      - id: sha
+        shell: bash
+        env:
+          EVENT_SHA: ${{ github.event.workflow_run.head_sha }}
+          INPUT_SHA: ${{ inputs.expected_sha }}
+          FALLBACK_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          SHA="${INPUT_SHA:-${EVENT_SHA:-${FALLBACK_SHA}}}"
+          [[ "${SHA}" =~ ^[0-9a-fA-F]{40}$ ]]
+          echo "expected_sha=${SHA,,}" >> "$GITHUB_OUTPUT"
+
+  platform:
+    needs: resolve
+    uses: ./.github/workflows/activate-platform-capabilities.yml
+    with:
+      expected_sha: ${{ needs.resolve.outputs.expected_sha }}
+    secrets: inherit
+
+  persistent-stress:
+    needs: [resolve, platform]
+    if: always() && needs.resolve.result == 'success'
+    uses: ./.github/workflows/persistent-capability-stress-live-proof.yml
+    with:
+      expected_sha: ${{ needs.resolve.outputs.expected_sha }}
+    secrets: inherit
+
+  connections:
+    needs: [resolve, persistent-stress]
+    if: always() && needs.resolve.result == 'success'
+    uses: ./.github/workflows/live-connections-production-proof.yml
+    with:
+      expected_sha: ${{ needs.resolve.outputs.expected_sha }}
+    secrets: inherit
+
+  sovereignty:
+    needs: [resolve, connections]
+    if: always() && needs.resolve.result == 'success'
+    uses: ./.github/workflows/mel-sov-01-live-proof.yml
+    with:
+      expected_sha: ${{ needs.resolve.outputs.expected_sha }}
+    secrets: inherit
+
+  summary:
+    needs: [resolve, platform, persistent-stress, connections, sovereignty]
+    if: always()
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Report exact post-release proof outcomes
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ needs.resolve.outputs.expected_sha }}
+          PLATFORM: ${{ needs.platform.result }}
+          STRESS: ${{ needs.persistent-stress.result }}
+          CONNECTIONS: ${{ needs.connections.result }}
+          SOVEREIGNTY: ${{ needs.sovereignty.result }}
+        run: |
+          set -euo pipefail
+          node - <<'NODE'
+          const proof={
+            schema:'mel.post-release-proof-suite/v1',
+            expected_sha:process.env.EXPECTED_SHA||null,
+            platform:process.env.PLATFORM||'unknown',
+            persistent_stress:process.env.STRESS||'unknown',
+            connections:process.env.CONNECTIONS||'unknown',
+            sovereignty:process.env.SOVEREIGNTY||'unknown',
+          };
+          console.log(JSON.stringify(proof,null,2));
+          const values=[proof.platform,proof.persistent_stress,proof.connections,proof.sovereignty];
+          if(values.some(value=>value!=='success')) process.exit(1);
+          NODE
