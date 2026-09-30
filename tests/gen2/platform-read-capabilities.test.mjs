@@ -101,7 +101,7 @@ test('Cloudflare reads only Workers inventory and deployment metadata, never sou
   assert.equal(workers.scripts[0].id, 'meliturgos');
   assert.equal(deployments.count, 1);
   assert.equal(deployments.deployments[0].id, 'd1');
-  assert.equal(seen.some(call => call.url === 'https://api.cloudflare.com/client/v4/accounts/account123/workers/scripts'), true);
+  assert.equal(seen.some(call => call.url === 'https://api.cloudflare.com/client/v4/accounts/account123/workers/workers'), true);
   assert.equal(seen.some(call => call.url === 'https://api.cloudflare.com/client/v4/accounts/account123/workers/scripts/meliturgos/deployments'), true);
   assert.equal(seen.every(call => call.authorization === 'Bearer cf-secret'), true);
   assert.equal(JSON.stringify({ workers, deployments }).includes('cf-secret'), false);
