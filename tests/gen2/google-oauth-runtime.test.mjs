@@ -249,7 +249,7 @@ test('OAuth revoke API requires exact explicit approval and never leaks token ma
 test('router propagates request-scoped capability approvals into CapabilityBus context', async () => {
   const source = await readFile(new URL('../../src/router.js', import.meta.url), 'utf8');
   assert.match(source, /approvedCapabilitiesFromRequest\(request\)/);
-  assert.match(source, /capabilityContext\(env, request\)/);
+  assert.match(source, /capabilityContext\(env, request, ctx\)/);
   assert.match(source, /maybeHandleGoogleOAuthApi\(request, env, url\)/);
 });
 
