@@ -7,6 +7,7 @@ import { CapabilityBus } from '../../src/capabilities/capability-bus.js';
 import { registerPlatformControlCapabilities } from '../../src/capabilities/platform-control-capabilities.js';
 import { D1GitHubActionRelayStore } from '../../src/platform/github-action-relay.js';
 import { githubActionRelayApi } from '../../src/api/github-action-relay-api.js';
+import { classifyHttpAuthSurface } from '../../src/security/http-auth-policy.js';
 
 const TOKEN = 'r'.repeat(64);
 const WORKFLOW = 'gen2-36-provider-write-smoke.yml';
@@ -210,4 +211,12 @@ test('router bypasses API version auth for the scoped GitHub relay endpoint', as
   const versionIndex = source.indexOf("const resolution = resolveApiVersionRequest(request, { handler: 'router' });");
   assert.ok(relayIndex >= 0);
   assert.ok(versionIndex > relayIndex);
+});
+
+
+test('HTTP auth policy delegates the scoped GitHub relay endpoint to its OIDC handler', () => {
+  const policy = classifyHttpAuthSurface(
+    new Request('https://mel.test/api/internal/github-action-relay/heartbeat', { method: 'POST' }),
+  );
+  assert.equal(policy.kind, 'DELEGATED_STRONG_AUTH');
 });
