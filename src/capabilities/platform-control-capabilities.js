@@ -464,7 +464,6 @@ export function registerPlatformControlCapabilities(bus, { env = {}, fetchImpl =
         })) : [],
       },
     };
-  }
   });
 
   bus.discover({
