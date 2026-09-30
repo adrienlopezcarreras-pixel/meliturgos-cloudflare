@@ -6,9 +6,14 @@ on:
       job_id:
         description: "Exact dev_jobs id whose READY bridge package must be applied"
         required: true
+      chain_depth:
+        description: "Bounded event-driven autonomy chain depth"
+        required: false
+        default: "0"
 
 permissions:
   contents: write
+  actions: write
 
 concurrency:
   group: gen2-42-cloud-bridge
@@ -154,6 +159,7 @@ jobs:
           echo "already_satisfied=true" >> "$GITHUB_OUTPUT"
 
       - name: Report already-satisfied reconciliation
+        id: report_satisfied
         if: steps.claim.outputs.claimed == 'true' && steps.reconcile.outputs.already_satisfied == 'true'
         shell: bash
         env:
@@ -272,6 +278,7 @@ jobs:
           echo "no_changes=false" >> "$GITHUB_OUTPUT"
 
       - name: Report cloud bridge result to production D1
+        id: report_result
         if: always() && steps.claim.outputs.claimed == 'true' && steps.reconcile.outputs.already_satisfied != 'true'
         shell: bash
         env:
@@ -325,6 +332,25 @@ jobs:
             cat /tmp/cloud-bridge-token-delete.log || true
           fi
           exit 0
+
+      - name: Continue autonomy after persisted bridge result
+        if: always() && steps.claim.outputs.claimed == 'true' && (steps.report_satisfied.outcome == 'success' || steps.report_result.outcome == 'success')
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CHAIN_DEPTH: ${{ inputs.chain_depth || '0' }}
+        run: |
+          set -euo pipefail
+          [[ "$CHAIN_DEPTH" =~ ^[0-9]+$ ]]
+          if [ "$CHAIN_DEPTH" -ge 20 ]; then
+            echo "AUTONOMY_CHAIN_LIMIT_REACHED depth=$CHAIN_DEPTH"
+            exit 0
+          fi
+          NEXT_DEPTH="$((CHAIN_DEPTH + 1))"
+          NEXT_DEPTH="$NEXT_DEPTH" node -e "process.stdout.write(JSON.stringify({ref:'main',inputs:{chain_depth:process.env.NEXT_DEPTH}}))" > autonomy-next-dispatch.json
+          CODE="$(curl --silent --show-error --max-time 30             --request POST             --header "Authorization: Bearer $GH_TOKEN"             --header "Accept: application/vnd.github+json"             --header "X-GitHub-Api-Version: 2022-11-28"             --header "Content-Type: application/json"             --data-binary @autonomy-next-dispatch.json             --output autonomy-next-dispatch-response.txt             --write-out '%{http_code}'             "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/workflows/gen2-42-runtime-tick.yml/dispatches")"
+          test "$CODE" = "204"
+          echo "AUTONOMY_CHAIN_CONTINUED_AFTER_BRIDGE depth=$NEXT_DEPTH"
 
       - name: Upload sanitized apply evidence
         if: always()
