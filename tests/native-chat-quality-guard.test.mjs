@@ -26,7 +26,7 @@ test('elliptical turn without any reliable anchor asks a deterministic clarifica
   }
 });
 
-test('native chat blocks a severe off-topic generation and records the quality incident', async () => {
+test('native chat records heuristic off-topic generation without destructively replacing it', async () => {
   const DB=sqliteD1();
   try {
     const service=createConversationService({DB});
@@ -54,10 +54,10 @@ test('native chat blocks a severe off-topic generation and records the quality i
     const response=await handleNativeChat(request('continue'),env,{authorized:true});
     const data=await response.json();
     assert.equal(response.status,200);
-    assert.equal(data.response_quality?.guarded,true);
+    assert.equal(data.response_quality?.guarded,false);
     assert.ok(data.response_quality?.issue_codes?.includes('POSSIBLE_OFF_TOPIC'));
-    assert.match(data.text,/reste uniquement sur ce périmètre/i);
-    assert.doesNotMatch(data.text,/abeilles vivent/i);
+    assert.match(data.text,/abeilles vivent/i);
+    assert.doesNotMatch(data.text,/reste uniquement sur ce périmètre/i);
     const count=await DB.prepare('SELECT COUNT(*) n FROM mel_response_quality_events').first();
     assert.equal(Number(count.n),1);
   } finally {
