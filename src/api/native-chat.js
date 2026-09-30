@@ -133,6 +133,17 @@ export function inferNativeExecutionCapability(text) {
     };
   }
 
+  const stressStatus = /\b(?:statut|progression|rapport|resultat|resultats|ou\s+en\s+est|ou\s+en\s+sont).*\b(?:stress\s*test|stresstest|stress-test|audit\s+global)\b/.test(normalized)
+    || /\b(?:stress\s*test|stresstest|stress-test|audit\s+global).*\b(?:statut|progression|rapport|resultat|resultats|termine|fini)\b/.test(normalized);
+  if (stressStatus) {
+    const jobMatch = value.match(/\bcap-stress-[a-f0-9-]{20,}\b/i);
+    return {
+      id: 'capability.audit.status',
+      input: jobMatch ? { job_id: jobMatch[0] } : {},
+      execution_intent: 'GLOBAL_CAPABILITY_STRESS_STATUS',
+    };
+  }
+
   const globalStress = /\b(?:stress\s*test|stresstest|stress-test|audit(?:e|er)?\s+(?:global|complet|toutes?\s+(?:tes|les)\s+capacites)|test(?:e|er)?\s+toutes?\s+(?:tes|les)\s+capacites|verifi(?:e|er)\s+que\s+tout\s+fonctionne|verifi(?:e|er)\s+toutes?\s+(?:tes|les)\s+capacites)\b/.test(normalized);
   if (!globalStress) return null;
 
@@ -557,12 +568,13 @@ export function createNativeModelRouter(env, inferenceSettings = null, activeAda
   });
 }
 
-function nativeCapabilityContext(env, request = null) {
+function nativeCapabilityContext(env, request = null, options = {}) {
   return {
     owner: env.MELITURGOS_USER || 'owner',
     permissions: runtimeCapabilityPermissions(env),
     approvedCapabilities: approvedCapabilitiesFromRequest(request),
     requestId: crypto.randomUUID(),
+    ...(typeof options?.waitUntil === 'function' ? { waitUntil: options.waitUntil } : {}),
   };
 }
 
@@ -740,7 +752,7 @@ export async function handleNativeChat(request, env, options = {}) {
 
   if (capability?.id) {
     try {
-      const result = await runtime.bus.execute(String(capability.id), capability.input || {}, nativeCapabilityContext(env, request));
+      const result = await runtime.bus.execute(String(capability.id), capability.input || {}, nativeCapabilityContext(env, request, options));
       toolResults.push({ capability: capability.id, status: 'SUCCEEDED', result: summarizeToolResult(result) });
       capabilitiesUsed.push(capability.id);
     } catch (error) {
@@ -860,7 +872,7 @@ export async function handleNativeChat(request, env, options = {}) {
   const devBridgeStatusObserved = toolResults.find((row) => row.capability === 'autonomy.bridge.status' && row.status === 'SUCCEEDED')?.result || null;
   const autonomyActivityObserved = toolResults.find((row) => row.capability === 'autonomy.activity' && row.status === 'SUCCEEDED')?.result || null;
   const selfStateObserved = toolResults.find((row) => row.capability === 'self.state' && row.status === 'SUCCEEDED')?.result || null;
-  const capabilityAuditObserved = toolResults.find((row) => row.capability === 'capability.audit' && row.status === 'SUCCEEDED')?.result || null;
+  const capabilityAuditObserved = toolResults.find((row) => ['capability.audit','capability.audit.status'].includes(row.capability) && row.status === 'SUCCEEDED')?.result || null;
   const communicationAuditObserved = toolResults.find((row) => row.capability === 'conversation.audit' && row.status === 'SUCCEEDED')?.result || null;
 
   const system = [
@@ -1048,7 +1060,7 @@ export async function handleNativeChat(request, env, options = {}) {
     toolResults,
     recent,
   });
-  const qualityGuardedResponseText = (autonomyActivityObserved || devBridgeStatusObserved)
+  const qualityGuardedResponseText = (autonomyActivityObserved || devBridgeStatusObserved || capabilityAuditObserved)
     ? evidenceAlignedResponseText
     : enforceResponseQuality({
         responseText: evidenceAlignedResponseText,

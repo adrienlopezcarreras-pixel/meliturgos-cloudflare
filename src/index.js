@@ -451,7 +451,10 @@ async function fetchResolvedRequest(request, env, ctx) {
         ? await injectEvolutionPreflightCapability(request, env)
         : request;
       if (path === '/api/chat') {
-        return await handleNativeChat(preparedRequest, withChatAiDefaults(env));
+        const chatOptions = typeof ctx?.waitUntil === 'function'
+          ? { waitUntil: promise => ctx.waitUntil(promise) }
+          : {};
+        return await handleNativeChat(preparedRequest, withChatAiDefaults(env), chatOptions);
       }
 
       const response = await router.fetch(preparedRequest, env, ctx);
