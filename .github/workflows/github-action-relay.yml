@@ -46,7 +46,7 @@ jobs:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       GITHUB_TOKEN: ${{ github.token }}
-      MEL_D1_DATABASE_ID: 6d502448-8780-4cf0-8c82-863cccb2e1cd
+      MEL_R2_BUCKET: meliturgos-private-media
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
