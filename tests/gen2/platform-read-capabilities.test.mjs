@@ -74,22 +74,25 @@ test('GitHub metadata and Actions runs are limited to the configured repository'
   assert.equal(JSON.stringify({ repo, runs }).includes('github-secret'), false);
 });
 
-test('Cloudflare reads only Workers inventory and deployment metadata, never source or secrets', async () => {
+test('Cloudflare Workers inventory comes from the fresh relay snapshot while deployments stay direct for now', async () => {
   const seen = [];
   const bus = new CapabilityBus();
   registerPlatformReadCapabilities(bus, {
     env: { CLOUDFLARE_API_TOKEN: 'cf-secret', CLOUDFLARE_ACCOUNT_ID: 'account123' },
-    fetchImpl: async (url, init) => {
-      seen.push({ url: String(url), authorization: init.headers.authorization });
-      if (String(url).endsWith('/deployments')) {
-        return json({ success: true, result: [
-          { id: 'd1', created_on: '2026-09-22T00:00:00Z', source: 'api', strategy: 'percentage', versions: [{ version_id: 'v1', percentage: 100 }] },
-          { id: 'd2' },
-        ] });
-      }
-      return json({ success: true, result: [
+    resolveCloudflareWorkersSnapshot: async () => ({
+      fresh: true,
+      collected_at: 1790797000000,
+      source_run_id: 12345,
+      workers: [
         { id: 'meliturgos', modified_on: '2026-09-22T00:00:00Z', compatibility_date: '2026-09-04' },
         { id: 'other' },
+      ],
+    }),
+    fetchImpl: async (url, init) => {
+      seen.push({ url: String(url), authorization: init.headers.authorization });
+      return json({ success: true, result: [
+        { id: 'd1', created_on: '2026-09-22T00:00:00Z', source: 'api', strategy: 'percentage', versions: [{ version_id: 'v1', percentage: 100 }] },
+        { id: 'd2' },
       ] });
     },
   });
@@ -99,9 +102,11 @@ test('Cloudflare reads only Workers inventory and deployment metadata, never sou
 
   assert.equal(workers.count, 1);
   assert.equal(workers.scripts[0].id, 'meliturgos');
+  assert.equal(workers.transport, 'github-actions-relay-snapshot');
+  assert.equal(workers.source_run_id, 12345);
   assert.equal(deployments.count, 1);
   assert.equal(deployments.deployments[0].id, 'd1');
-  assert.equal(seen.some(call => call.url === 'https://api.cloudflare.com/client/v4/accounts/account123/workers/scripts'), true);
+  assert.equal(seen.some(call => call.url === 'https://api.cloudflare.com/client/v4/accounts/account123/workers/scripts'), false);
   assert.equal(seen.some(call => call.url === 'https://api.cloudflare.com/client/v4/accounts/account123/workers/scripts/meliturgos/deployments'), true);
   assert.equal(seen.every(call => call.authorization === 'Bearer cf-secret'), true);
   assert.equal(JSON.stringify({ workers, deployments }).includes('cf-secret'), false);
@@ -111,7 +116,23 @@ test('Cloudflare reads only Workers inventory and deployment metadata, never sou
   );
 });
 
-test('Cloudflare failures expose only sanitized HTTP and Cloudflare numeric error codes', async () => {
+test('Cloudflare Workers relay fails closed on stale snapshots', async () => {
+  const bus = new CapabilityBus();
+  registerPlatformReadCapabilities(bus, {
+    env: {},
+    resolveCloudflareWorkersSnapshot: async () => ({
+      fresh: false,
+      collected_at: 1,
+      workers: [{ id: 'meliturgos' }],
+    }),
+  });
+  await assert.rejects(
+    () => bus.execute('cloudflare.workers.read', { limit: 1 }, owner),
+    /CLOUDFLARE_WORKERS_RELAY_SNAPSHOT_STALE/
+  );
+});
+
+test('Cloudflare direct deployment failures expose only sanitized HTTP and numeric error codes', async () => {
   const bus = new CapabilityBus();
   registerPlatformReadCapabilities(bus, {
     env: { CLOUDFLARE_API_TOKEN: 'cf-secret', CLOUDFLARE_ACCOUNT_ID: 'account123' },
@@ -120,12 +141,12 @@ test('Cloudflare failures expose only sanitized HTTP and Cloudflare numeric erro
 
   let caught;
   try {
-    await bus.execute('cloudflare.workers.read', { limit: 1 }, owner);
+    await bus.execute('cloudflare.deployments.read', { script: 'meliturgos', limit: 1 }, owner);
   } catch (error) {
     caught = error;
   }
   assert.ok(caught);
-  assert.match(caught.code, /CLOUDFLARE_WORKERS_READ_FAILED_HTTP_503_CF_10000/);
+  assert.match(caught.code, /CLOUDFLARE_DEPLOYMENTS_READ_FAILED_HTTP_503_CF_10000/);
   assert.equal(String(caught.code).includes('secret upstream message'), false);
   assert.equal(String(caught.code).includes('cf-secret'), false);
 });
@@ -206,7 +227,7 @@ test('platform read healthchecks turn working GitHub reads healthy and explain u
   assert.equal(github.health, 'HEALTHY');
   assert.equal(githubRuns.health, 'HEALTHY');
   assert.equal(cloudflare.health, 'UNAVAILABLE');
-  assert.equal(cloudflare.health_detail, 'CLOUDFLARE_RUNTIME_CREDENTIALS_NOT_CONFIGURED');
+  assert.equal(cloudflare.health_detail, 'CLOUDFLARE_WORKERS_RELAY_NOT_CONFIGURED');
   assert.equal(vercel.health, 'UNAVAILABLE');
   assert.equal(vercel.health_detail, 'VERCEL_RUNTIME_CREDENTIALS_NOT_CONFIGURED');
 });
