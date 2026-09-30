@@ -38,12 +38,15 @@ test('capability.audit can prove itself through a bounded non-recursive smoke sa
   registerCapabilityAuditCapability(bus);
   const report = await auditRuntimeCapabilities({ bus }, { deep: true });
   const row = report.capabilities.find(item => item.id === 'capability.audit');
-  assert.equal(report.total, 1);
+  const statusRow = report.capabilities.find(item => item.id === 'capability.audit.status');
+  assert.equal(report.total, 2);
   assert.equal(row.tested_now, true);
   assert.equal(row.auto_execution_blocked, null);
   assert.equal(row.truth_status, 'EXISTANT_ET_TESTE');
   assert.equal(row.execution.ok, true);
   assert.equal(row.execution.result_type, 'object');
+  assert.equal(statusRow.tested_now, false);
+  assert.equal(statusRow.truth_status, 'BLOCKED_EXTERNAL');
 });
 
 test('shared truth classifier never promotes healthy registration to tested proof', () => {
