@@ -47,15 +47,18 @@ const RELEASE_SMOKE_CAPABILITY_ALLOWLIST = Object.freeze([
   "cloudflare.deployments.create",
   "github.actions.workflow.dispatch",
   "browser.execute",
+  "capability.audit",
+  "capability.audit.status",
 ]);
 
-function capabilityContext(env, request = null) {
+function capabilityContext(env, request = null, ctx = null) {
   return {
     owner: env.MELITURGOS_USER || "owner",
     permissions: runtimeCapabilityPermissions(env),
     approvedCapabilities: request ? approvedCapabilitiesFromRequest(request) : [],
     releaseSmoke: request ? isReleaseSmokeRequest(request, env) : false,
-    requestId: crypto.randomUUID()
+    requestId: crypto.randomUUID(),
+    waitUntil: typeof ctx?.waitUntil === "function" ? promise => ctx.waitUntil(promise) : undefined,
   };
 }
 
@@ -73,7 +76,7 @@ async function codeSelfCheck(env) {
   };
 }
 
-async function handleConversationApi(request, env, url = new URL(request.url)) {
+async function handleConversationApi(request, env, url = new URL(request.url), ctx = null) {
   const path = url.pathname;
 
   if (path.startsWith("/api/gen2/oauth/")) {
@@ -241,7 +244,7 @@ async function handleConversationApi(request, env, url = new URL(request.url)) {
       }, 403);
     }
     const runtime = createGen2Runtime({ env });
-    const result = await runtime.bus.execute(String(body.id), body.input || {}, capabilityContext(env, request));
+    const result = await runtime.bus.execute(String(body.id), body.input || {}, capabilityContext(env, request, ctx));
     return json({ ok: true, capability: body.id, result });
   }
 
@@ -397,7 +400,7 @@ async function routeResolvedRequest(request, env, ctx) {
 
     if (url.pathname.startsWith("/api/gen2/")) {
       try {
-        const response = await handleConversationApi(request, env, url);
+        const response = await handleConversationApi(request, env, url, ctx);
         if (response) return response;
       } catch (e) {
         return json({ error: e.message, code: e.code || "INTERNAL_ERROR" }, e.status || 500);
