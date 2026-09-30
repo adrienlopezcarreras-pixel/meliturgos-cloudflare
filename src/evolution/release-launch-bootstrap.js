@@ -27,6 +27,7 @@ import { liveTechnicalSovereigntyReport } from '../portability/technical-soverei
 import { runConfiguredAiCandidateValidationRuntime } from '../portability/configured-ai-candidate-validation-runtime.js';
 import { runCompanionSourceControlPrevalidationRuntime } from '../portability/companion-source-control-prevalidation-runtime.js';
 import { runCompanionInfrastructurePrevalidationRuntime } from '../portability/companion-infrastructure-prevalidation-runtime.js';
+import { authorizeGitHubActionsOidcRequest } from '../security/github-actions-oidc.js';
 
 const PATH = '/api/internal/release-launch-bootstrap';
 const PHASES = new Set(['all', 'identity', 'pause', 'backup', 'code-sync', 'readiness', 'sovereignty-proof', 'skill-registry-proof', 'plugin-sdk-proof', 'evolution-ledger-proof', 'agent-automation-proof', 'provider-escape-proof', 'long-context-proof', 'capability-watch-proof', 'connection-proof', 'gen2-42-runtime-tick', 'gen2-42-owner-max']);
@@ -293,7 +294,13 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
   const gen2ChallengeAuthorized = phase === 'gen2-42-runtime-tick'
     ? await consumeBootstrapChallenge(env, gen2Supplied, 'gen2-42-runtime-tick')
     : false;
-  const gen2Authorized = gen2SecretAuthorized || gen2ChallengeAuthorized;
+  const gen2Oidc = phase === 'gen2-42-runtime-tick'
+    ? await authorizeGitHubActionsOidcRequest(request, env, {
+        allowedWorkflows: ['gen2-42-runtime-tick.yml'],
+        allowedEvents: ['schedule', 'workflow_dispatch'],
+      })
+    : { ok: false };
+  const gen2Authorized = gen2SecretAuthorized || gen2ChallengeAuthorized || gen2Oidc.ok === true;
   if (!primaryAuthorized && !gen2Authorized) {
     return Response.json({ ok: false, code: 'BOOTSTRAP_AUTH_REQUIRED' }, { status: 401, headers: { 'cache-control': 'no-store' } });
   }
