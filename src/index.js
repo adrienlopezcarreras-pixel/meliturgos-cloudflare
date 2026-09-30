@@ -20,6 +20,7 @@ import { maybeHandleReleaseLaunchBootstrap } from "./evolution/release-launch-bo
 import { runLoraTrainingHeartbeat } from "./learning/lora-training-heartbeat.js";
 import { handleVoiceTranscription } from "./api/voice-transcribe.js";
 import { handleFileUpload } from "./api/file-upload.js";
+import { runExpiredMediaCleanup } from "./media/media-vault-cleanup.js";
 import { readLastSafeWorkJob, writeLastSafeWorkJob } from "./dev/dev-bridge-state-store.js";
 import { getChatGPTImportStatus, recordChatGPTCollectorCoverage } from "./persistence/chatgpt-archive-importer.js";
 import { maybeHandleWaveshareTerminalApi } from "./devices/waveshare-terminal-api.js";
@@ -502,6 +503,10 @@ export default {
       ? [
           runAutonomyMaintenance(env).catch((error) => {
             console.error('[MEL autonomy] hourly maintenance failed:', error?.code || error?.message || error);
+            return null;
+          }),
+          runExpiredMediaCleanup(env).catch((error) => {
+            console.error('[MEL MediaVault] expired media cleanup failed:', error?.code || error?.message || error);
             return null;
           }),
           runEcosystemCapabilityWatch(env, { sourceSha: deployedWatchSourceSha() }).catch((error) => {
