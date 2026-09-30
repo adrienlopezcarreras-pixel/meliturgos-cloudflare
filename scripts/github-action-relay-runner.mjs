@@ -19,13 +19,14 @@ function r2Base() {
 }
 
 async function putObject(key, value) {
+  const form = new FormData();
+  form.append('body', new Blob([JSON.stringify(value)], { type: 'application/json' }), 'relay.json');
   const response = await fetch(`${r2Base()}/${keyPath(key)}`, {
     method: 'PUT',
     headers: {
       authorization: `Bearer ${CF_TOKEN}`,
-      'content-type': 'application/json',
     },
-    body: JSON.stringify(value),
+    body: form,
     signal: AbortSignal.timeout(60_000),
   });
   const text = await response.text();
