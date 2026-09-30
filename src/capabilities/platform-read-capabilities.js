@@ -316,35 +316,61 @@ export function registerPlatformReadCapabilities(bus, { env = {}, fetchImpl = fe
     id: 'cloudflare.deployments.read',
     name: 'Cloudflare Worker deployments',
     category: 'development',
-    version: '1.0.0',
+    version: '1.1.0',
     provider: 'cloudflare',
-    description: 'Reads bounded deployment metadata for one named Worker script in the configured Cloudflare account.',
+    description: 'Reads bounded deployment metadata for one Worker. In production it uses the durable GitHub Actions Cloudflare relay.',
     input_schema: {
       type: 'object',
       properties: {
         script: { type: 'string', minLength: 1, maxLength: 128 },
         limit: { type: 'integer', minimum: 1, maximum: MAX_LIST },
+        relay_job_id: { type: 'string', minLength: 1, maxLength: 200 },
       },
-      required: ['script'],
       additionalProperties: false,
     },
     output_schema: { type: 'object', additionalProperties: true },
     risk: 'LOW',
     permissions: [],
-    health: configured(env, 'CLOUDFLARE_API_TOKEN', 'CLOUDFLARE_ACCOUNT_ID') ? 'DEGRADED' : 'UNAVAILABLE',
+    health: cloudflareRelay || configured(env, 'CLOUDFLARE_API_TOKEN', 'CLOUDFLARE_ACCOUNT_ID') ? 'DEGRADED' : 'UNAVAILABLE',
     enabled: true,
-    healthcheck: async () => probeHealth(
-      () => requestJson(fetchImpl, `${CLOUDFLARE_API}/accounts/${encodeURIComponent(safeResource(cloudflareAccountId, 'CLOUDFLARE_ACCOUNT_ID_INVALID', 64))}/workers/scripts`, {
-        token: cloudflareToken,
-        code: 'CLOUDFLARE_WORKERS_READ_FAILED',
-      }),
-      cloudflareToken && cloudflareAccountId ? '' : 'CLOUDFLARE_RUNTIME_CREDENTIALS_NOT_CONFIGURED',
-    ),
+    healthcheck: async () => {
+      if (cloudflareRelay) {
+        try {
+          const health = await cloudflareRelay.health();
+          return health.online
+            ? { status: 'HEALTHY' }
+            : { status: 'DEGRADED', reason: 'CLOUDFLARE_API_RELAY_OFFLINE' };
+        } catch (error) {
+          return healthFailure(error);
+        }
+      }
+      return probeHealth(
+        () => requestJson(fetchImpl, `${CLOUDFLARE_API}/accounts/${encodeURIComponent(safeResource(cloudflareAccountId, 'CLOUDFLARE_ACCOUNT_ID_INVALID', 64))}/workers/scripts`, {
+          token: cloudflareToken,
+          code: 'CLOUDFLARE_WORKERS_READ_FAILED',
+        }),
+        cloudflareToken && cloudflareAccountId ? '' : 'CLOUDFLARE_RUNTIME_CREDENTIALS_NOT_CONFIGURED',
+      );
+    },
   }, async input => {
+    const count = limit(input.limit);
+    if (cloudflareRelay) {
+      const jobId = String(input.relay_job_id || '').trim();
+      if (jobId) {
+        if (!/^cf-relay-[A-Za-z0-9-]+$/.test(jobId)) throw capabilityError('CLOUDFLARE_RELAY_JOB_ID_INVALID', 400);
+        const job = await cloudflareRelay.get(jobId);
+        if (!job) throw capabilityError('CLOUDFLARE_RELAY_JOB_NOT_FOUND', 404);
+        if (job.status === 'FAILED') throw capabilityError(job.error || 'CLOUDFLARE_RELAY_JOB_FAILED', 502);
+        if (job.status === 'COMPLETE') return job.result || { provider:'cloudflare', deployments:[], count:0 };
+        return { provider:'cloudflare', transport:cloudflareRelay.transport, pending:true, relay_job_id:job.id, status:job.status };
+      }
+      const script = safeResource(input.script, 'CLOUDFLARE_SCRIPT_INVALID', 128);
+      const job = await cloudflareRelay.enqueue({ operation:'deployments.list', input:{ script, limit:count } });
+      return { provider:'cloudflare', transport:cloudflareRelay.transport, pending:true, relay_job_id:job.id, status:job.status };
+    }
     if (!cloudflareToken || !cloudflareAccountId) throw capabilityError('CLOUDFLARE_AUTH_REQUIRED', 503);
     const accountId = safeResource(cloudflareAccountId, 'CLOUDFLARE_ACCOUNT_ID_INVALID', 64);
     const script = safeResource(input.script, 'CLOUDFLARE_SCRIPT_INVALID', 128);
-    const count = limit(input.limit);
     const body = await requestJson(fetchImpl, `${CLOUDFLARE_API}/accounts/${encodeURIComponent(accountId)}/workers/scripts/${encodeURIComponent(script)}/deployments`, {
       token: cloudflareToken,
       code: 'CLOUDFLARE_DEPLOYMENTS_READ_FAILED',
