@@ -32,3 +32,11 @@ test('post-release parent grants actions write required by called platform proof
   const source = await readFile(new URL('../../.github/workflows/post-release-proof-suite.yml', import.meta.url), 'utf8');
   assert.match(source, /permissions:\n\s+contents: read\n\s+actions: write/);
 });
+
+
+test('reusable production jobs do not require event_name workflow_call', async () => {
+  for (const name of workflows) {
+    const source = await readFile(new URL('../../.github/workflows/' + name, import.meta.url), 'utf8');
+    assert.doesNotMatch(source, /github\.event_name\s*==\s*['"]workflow_call['"]/, name);
+  }
+});
