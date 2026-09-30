@@ -133,14 +133,14 @@ function deploymentRow(row = {}) {
   };
 }
 
-export function registerPlatformReadCapabilities(bus, { env = {}, fetchImpl = fetch, repository = '', resolveVercelConfig = null } = {}) {
+export function registerPlatformReadCapabilities(bus, { env = {}, fetchImpl = fetch, repository = '', resolveVercelConfig = null, cloudflareRelayStore = null } = {}) {
   const githubRepository = repository || env.MEL_GITHUB_REPOSITORY || '';
   const githubToken = String(env.MEL_GITHUB_TOKEN || '').trim();
   const cloudflareToken = String(env.CLOUDFLARE_API_TOKEN || '').trim();
   const cloudflareAccountId = String(env.CLOUDFLARE_ACCOUNT_ID || '').trim();
-  const cloudflareRelay = env?.DB && typeof env.DB.prepare === 'function'
+  const cloudflareRelay = cloudflareRelayStore || (env?.DB && typeof env.DB.prepare === 'function'
     ? new D1CloudflareApiRelayStore(env.DB)
-    : null;
+    : null);
   const staticVercelToken = String(env.VERCEL_TOKEN || '').trim();
   const staticVercelTeamId = String(env.VERCEL_TEAM_ID || '').trim();
   const getVercelConfig = async () => {
