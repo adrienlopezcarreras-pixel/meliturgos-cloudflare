@@ -267,6 +267,37 @@ jobs:
 
           capability             cloudflare.deployments.create             "{\"versions\":[{\"version_id\":\"${ACTIVE_VERSION}\",\"percentage\":100}],\"message\":\"MEL real capability proof — same active version\"}"             cloudflare-create.json             cloudflare.deployments.create
 
+          CF_CREATE_RELAY_JOB_ID="$(node -e 'const d=require("./cloudflare-create.json");process.stdout.write(String(d?.result?.relay_job_id||""))')"
+          if [ -n "${CF_CREATE_RELAY_JOB_ID}" ]; then
+            test "${CF_CREATE_RELAY_JOB_ID#cf-relay-}" != "${CF_CREATE_RELAY_JOB_ID}"
+            printf '%s' '{"ref":"main"}' > cloudflare-relay-dispatch.json
+            CF_RELAY_CODE="$(curl --silent --show-error --max-time 30 \
+              --request POST \
+              --header "Authorization: Bearer ${GH_TOKEN}" \
+              --header "Accept: application/vnd.github+json" \
+              --header "X-GitHub-Api-Version: 2022-11-28" \
+              --header "Content-Type: application/json" \
+              --data-binary @cloudflare-relay-dispatch.json \
+              --output cloudflare-relay-dispatch-response.txt \
+              --write-out '%{http_code}' \
+              "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/cloudflare-api-relay.yml/dispatches")"
+            test "${CF_RELAY_CODE}" = "204"
+            CF_CREATE_DONE=0
+            for ATTEMPT in $(seq 1 40); do
+              CF_CREATE_STATUS_INPUT="$(CF_CREATE_RELAY_JOB_ID="${CF_CREATE_RELAY_JOB_ID}" node -e 'process.stdout.write(JSON.stringify({relay_job_id:process.env.CF_CREATE_RELAY_JOB_ID}))')"
+              capability cloudflare.deployments.create "${CF_CREATE_STATUS_INPUT}" cloudflare-create-status.json cloudflare.deployments.create
+              CF_CREATE_PENDING="$(node -e 'const d=require("./cloudflare-create-status.json");process.stdout.write(d?.result?.pending===true?"1":"0")')"
+              if [ "${CF_CREATE_PENDING}" = "0" ]; then
+                cp cloudflare-create-status.json cloudflare-create.json
+                CF_CREATE_DONE=1
+                break
+              fi
+              sleep 2
+            done
+            test "${CF_CREATE_DONE}" = "1"
+          fi
+          node -e 'const d=require("./cloudflare-create.json");const dep=d?.result?.deployment;if(!dep?.id||!Array.isArray(dep?.versions)||dep.versions.length<1)process.exit(2);console.log("cloudflare.deployments.create relay proof: "+JSON.stringify({transport:d?.result?.transport||"direct-cloudflare-api",deployment_id:dep.id,versions:dep.versions.length}))'
+
           GITHUB_PROOF=false
           GITHUB_BLOCKER=""
           capability             github.actions.workflow.dispatch             '{"workflow":"gen2-36-provider-write-smoke.yml","ref":"main"}'             github-dispatch.json             github.actions.workflow.dispatch

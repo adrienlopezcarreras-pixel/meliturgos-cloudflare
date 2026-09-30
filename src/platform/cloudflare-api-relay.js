@@ -64,7 +64,7 @@ export class D1CloudflareApiRelayStore {
   }
   async enqueue({ operation, input={}, id=`cf-relay-${crypto.randomUUID()}`, now=Date.now() }={}) {
     await this.init();
-    if (!['workers.list','deployments.list'].includes(String(operation))) throw relayError('CLOUDFLARE_RELAY_OPERATION_NOT_ALLOWED',400);
+    if (!['workers.list','deployments.list','deployments.create'].includes(String(operation))) throw relayError('CLOUDFLARE_RELAY_OPERATION_NOT_ALLOWED',400);
     await this.db.prepare(`INSERT INTO cloudflare_api_relay_jobs
       (id,status,operation,input_json,result_json,error,created_at,updated_at,claimed_at,completed_at)
       VALUES(?,?,?,?,?,?,?,?,?,?)`)
