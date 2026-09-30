@@ -91,6 +91,8 @@ jobs:
             local input="$2"
             local out="$3"
             local approval="${4:-}"
+            local payload
+            payload="$(node -e 'const id=process.argv[1],input=JSON.parse(process.argv[2]);process.stdout.write(JSON.stringify({id,input}))' "${id}" "${input}")"
             local -a headers=(
               --header "x-mel-release-smoke: 1"
               --header "x-mel-launch-bootstrap: ${TOKEN}"
@@ -99,8 +101,24 @@ jobs:
             if [ -n "${approval}" ]; then
               headers+=(--header "x-mel-approve-capability: ${approval}")
             fi
-            curl --silent --show-error --fail-with-body --max-time 75               "${headers[@]}"               --data "$(node -e 'const id=process.argv[1],input=JSON.parse(process.argv[2]);process.stdout.write(JSON.stringify({id,input}))' "${id}" "${input}")"               "${BASE_URL}/api/gen2/capabilities/execute" > "${out}"
-            node -e 'const d=require("./"+process.argv[1]);if(d?.ok!==true)throw new Error("CAPABILITY_PROOF_NOT_OK:"+process.argv[2]);' "${out}" "${id}"
+
+            local code=""
+            for attempt in $(seq 1 15); do
+              code="$(curl --silent --show-error --max-time 75                 "${headers[@]}"                 --data "${payload}"                 --output "${out}"                 --write-out '%{http_code}'                 "${BASE_URL}/api/gen2/capabilities/execute" || true)"
+              if [ "${code}" = "200" ]; then
+                node -e 'const d=require("./"+process.argv[1]);if(d?.ok!==true)process.exit(2);' "${out}"
+                return 0
+              fi
+              if [ "${code}" = "401" ]; then
+                echo "Capability ${id} release-token propagation attempt ${attempt}/15 returned HTTP 401."
+                sleep 2
+                continue
+              fi
+              break
+            done
+
+            node -e 'const fs=require("fs");let d={};try{d=JSON.parse(fs.readFileSync(process.argv[1],"utf8"))}catch{};console.log(JSON.stringify({capability:process.argv[2],http:Number(process.argv[3]||0),code:d?.code||d?.error||"UNKNOWN"},null,2));' "${out}" "${id}" "${code}"
+            return 1
           }
 
           if [ "${GITHUB_RUNTIME_CREDENTIAL:-RELAY}" = "RELAY" ]; then
@@ -116,6 +134,30 @@ jobs:
               --write-out '%{http_code}' \
               "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/github-action-relay.yml/dispatches")"
             test "${RELAY_CODE}" = "204"
+          fi
+
+          # Diagnose the exact Cloudflare credential independently of the Worker
+          # without exposing token material or upstream message bodies.
+          CF_VERIFY_CODE="$(curl --silent --show-error --max-time 30             --header "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}"             --output /tmp/cloudflare-token-verify.json             --write-out '%{http_code}'             "https://api.cloudflare.com/client/v4/user/tokens/verify" || true)"
+          CF_WORKERS_CODE="$(curl --silent --show-error --max-time 30             --header "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}"             --output /tmp/cloudflare-workers-direct.json             --write-out '%{http_code}'             "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/scripts" || true)"
+          CF_VERIFY_CODE="${CF_VERIFY_CODE}" CF_WORKERS_CODE="${CF_WORKERS_CODE}" node - <<'NODE'
+          const fs=require('fs');
+          function read(path){try{return JSON.parse(fs.readFileSync(path,'utf8'))}catch{return {}}}
+          const verify=read('/tmp/cloudflare-token-verify.json');
+          const workers=read('/tmp/cloudflare-workers-direct.json');
+          const errorCodes=(body)=>Array.isArray(body?.errors)?body.errors.map(x=>Number(x?.code||0)).filter(Boolean).slice(0,8):[];
+          console.log(JSON.stringify({
+            cloudflare_direct_diagnostic:{
+              token_verify_http:Number(process.env.CF_VERIFY_CODE||0),
+              token_active:verify?.success===true && String(verify?.result?.status||'')==='active',
+              workers_list_http:Number(process.env.CF_WORKERS_CODE||0),
+              workers_list_success:workers?.success===true,
+              error_codes:errorCodes(workers),
+            }
+          },null,2));
+          NODE
+          if [ "${CF_VERIFY_CODE}" != "200" ] || [ "${CF_WORKERS_CODE}" != "200" ]; then
+            echo "Cloudflare direct credential proof failed before Worker capability execution."
           fi
 
           # Wait only for the temporary bootstrap secret to propagate. This is
