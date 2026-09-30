@@ -1753,6 +1753,118 @@ jobs:
           cleanup_browser_secret
           trap - EXIT
 
+      - name: Capture sanitized production sovereignty status
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          BASE_URL="https://meliturgos.adrien-lopezcarreras.workers.dev"
+          SOV_TOKEN="$(openssl rand -hex 32)"
+          echo "::add-mask::${SOV_TOKEN}"
+
+          cleanup_sov_secret() {
+            set +e
+            printf 'y\n' | npx wrangler secret delete MEL_LAUNCH_BOOTSTRAP_TOKEN --env="" >/tmp/mel-sov-secret-delete.log 2>&1 || true
+            set -e
+          }
+          trap cleanup_sov_secret EXIT
+
+          printf '%s' "${SOV_TOKEN}" | npx wrangler secret put MEL_LAUNCH_BOOTSTRAP_TOKEN --env=""
+
+          SOV_READY=0
+          for ATTEMPT in $(seq 1 12); do
+            SOV_CODE="$(curl --silent --show-error --max-time 60 \
+              --header "x-mel-release-smoke: 1" \
+              --header "x-mel-launch-bootstrap: ${SOV_TOKEN}" \
+              --output production-sovereignty-status.json \
+              --write-out '%{http_code}' \
+              "${BASE_URL}/api/gen2/autonomy/sovereignty" || true)"
+            if [ "${SOV_CODE}" = "200" ]; then
+              SOV_READY=1
+              break
+            fi
+            echo "Sovereignty status proof attempt ${ATTEMPT}/12 returned HTTP ${SOV_CODE}."
+            if [ -s production-sovereignty-status.json ]; then
+              node -e 'const fs=require("fs");let d={};try{d=JSON.parse(fs.readFileSync("production-sovereignty-status.json","utf8"))}catch{};console.log(JSON.stringify({ok:d?.ok===true,status:d?.status||null,code:d?.code||d?.error||null}))'
+            fi
+            sleep 2
+          done
+          test "${SOV_READY}" = "1"
+
+          node - <<'NODE'
+          const fs=require('fs');
+          const d=JSON.parse(fs.readFileSync('production-sovereignty-status.json','utf8'));
+          if(d?.ok!==true || d?.status!=='TECHNICAL_SOVEREIGNTY_STATUS') {
+            throw new Error('PRODUCTION_SOVEREIGNTY_STATUS_INVALID');
+          }
+          const coverage=d?.alternative_coverage||{};
+          const architecture=d?.architecture_contract||{};
+          const gap=d?.gap_plan||{};
+          const candidates=d?.replacement_candidates||{};
+          const blocked=(Array.isArray(gap?.blocked_layers)?gap.blocked_layers:[]).map(row=>({
+            layer:String(row?.layer||''),
+            status:String(row?.status||''),
+            blocking_reason:row?.blocking_reason||null,
+            live_alternative_count:Array.isArray(row?.live_alternatives)?row.live_alternatives.length:0,
+            configured_alternative_count:Array.isArray(row?.configured_alternatives)?row.configured_alternatives.length:0,
+            candidate_hint_count:Array.isArray(row?.candidate_hints)?row.candidate_hints.length:0,
+            next_action:row?.next_action||null,
+          }));
+          const proof={
+            schema:'mel.sovereignty-production-status/v1',
+            source_sha:process.env.EXPECTED_SHA||null,
+            fully_sovereign:d?.fully_sovereign===true,
+            covered_layers:Array.isArray(coverage?.covered_layers)?coverage.covered_layers:[],
+            uncovered_layers:Array.isArray(coverage?.uncovered_layers)?coverage.uncovered_layers:[],
+            ready_layer_count:Number(architecture?.ready_layer_count||0),
+            layer_count:Number(architecture?.layer_count||0),
+            blocked_layers:blocked,
+            next_layer:gap?.next_layer||null,
+            next_action:gap?.next_action||null,
+            registry_count:Number(d?.registry_count||0),
+            replacement_candidates:{
+              total:Number(candidates?.total||0),
+              prevalidated:Number(candidates?.prevalidated||0),
+              blocked:Number(candidates?.blocked||0),
+              unverified:Number(candidates?.unverified||0),
+              testing:Number(candidates?.testing||0),
+            },
+            secret_values_exposed:false,
+            generated_at:d?.generated_at||new Date().toISOString(),
+          };
+          if(!/^[0-9a-f]{40}$/i.test(String(proof.source_sha||''))) throw new Error('PRODUCTION_SOVEREIGNTY_SOURCE_SHA_INVALID');
+          if(proof.secret_values_exposed!==false) throw new Error('PRODUCTION_SOVEREIGNTY_SECRET_SANITIZATION_FAILED');
+          fs.writeFileSync('production-sovereignty-proof.json',JSON.stringify(proof,null,2));
+          console.log(JSON.stringify(proof,null,2));
+          NODE
+
+          rm -f production-sovereignty-status.json
+          cleanup_sov_secret
+          trap - EXIT
+
+          if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+            node - <<'NODE' >> "$GITHUB_STEP_SUMMARY"
+          const d=require('./production-sovereignty-proof.json');
+          console.log('### MEL technical sovereignty');
+          console.log('');
+          console.log('- Fully sovereign: **'+(d.fully_sovereign?'YES':'NO')+'**');
+          console.log('- Covered layers: '+d.covered_layers.length+'/'+d.layer_count);
+          console.log('- Next layer: '+(d.next_layer||'none'));
+          console.log('- Next action: '+(d.next_action||'MAINTAIN_REVALIDATION'));
+          console.log('- Secret values exposed: **no**');
+          NODE
+          fi
+
+      - name: Upload sanitized production sovereignty proof
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: sovereignty-production-proof-${{ env.EXPECTED_SHA }}
+          path: production-sovereignty-proof.json
+          if-no-files-found: error
+          retention-days: 14
+
       - name: Re-enable MAX 100% after verified autonomous release
         if: success() && env.OWNER_MAX_AUTORELEASE == 'true'
         shell: bash
