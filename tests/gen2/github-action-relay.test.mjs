@@ -191,10 +191,14 @@ test('internal GitHub relay API accepts durable Dev Bridge auth and rejects unre
 
 
 
-test('relay workflow uses Wrangler D1 credentials and no missing Dev Bridge secret', async () => {
+test('relay workflow uses GitHub Actions OIDC and no Cloudflare/Dev Bridge transport credential', async () => {
   const source = await readFile(new URL('../../.github/workflows/github-action-relay.yml', import.meta.url), 'utf8');
-  assert.match(source, /CLOUDFLARE_API_TOKEN:\s*\$\{\{ secrets\.CLOUDFLARE_API_TOKEN \}\}/);
-  assert.match(source, /CLOUDFLARE_ACCOUNT_ID:\s*\$\{\{ secrets\.CLOUDFLARE_ACCOUNT_ID \}\}/);
+  assert.match(source, /id-token:\s*write/);
+  assert.match(source, /ACTIONS_ID_TOKEN_REQUEST_URL/);
+  assert.match(source, /audience=meliturgos-worker/);
+  assert.match(source, /MEL_GITHUB_OIDC_TOKEN/);
+  assert.doesNotMatch(source, /CLOUDFLARE_API_TOKEN/);
+  assert.doesNotMatch(source, /CLOUDFLARE_ACCOUNT_ID/);
   assert.doesNotMatch(source, /MEL_DEV_BRIDGE_TOKEN:\s*\$\{\{ secrets\.MEL_DEV_BRIDGE_TOKEN \}\}/);
   assert.doesNotMatch(source, /MEL_R2_BUCKET/);
 });

@@ -1,5 +1,6 @@
 import { D1GitHubActionRelayStore } from '../platform/github-action-relay.js';
 import { authorizeDevBridge } from '../core/dev-bridge-auth.js';
+import { authorizeGitHubActionsOidcRequest } from '../security/github-actions-oidc.js';
 
 function withoutTerminalNewline(value) {
   return String(value ?? '').replace(/[\r\n]+$/g, '');
@@ -30,11 +31,23 @@ function denied() {
 export function githubActionRelayApi(request, env) {
   const url = new URL(request.url);
   if (!url.pathname.startsWith('/api/internal/github-action-relay/')) return null;
-  const bridgeDenied = authorizeDevBridge(request, env);
-  if (bridgeDenied && !authorized(request, env)) return denied();
-  if (!env?.DB) return Response.json({ ok: false, code: 'GITHUB_RELAY_DB_REQUIRED' }, { status: 503 });
 
   return (async () => {
+    const bridgeDenied = authorizeDevBridge(request, env);
+    let oidc = { ok: false };
+    if (bridgeDenied && !authorized(request, env)) {
+      oidc = await authorizeGitHubActionsOidcRequest(request, env, {
+        allowedWorkflows: ['github-action-relay.yml'],
+        allowedEvents: ['schedule', 'workflow_dispatch'],
+      });
+      if (!oidc.ok) {
+        return Response.json({ ok: false, code: oidc.code || 'GITHUB_RELAY_AUTH_REQUIRED' }, {
+          status: oidc.status || 401,
+          headers: { 'cache-control': 'no-store' },
+        });
+      }
+    }
+    if (!env?.DB) return Response.json({ ok: false, code: 'GITHUB_RELAY_DB_REQUIRED' }, { status: 503 });
     const store = new D1GitHubActionRelayStore(env.DB);
     const body = await request.json().catch(() => ({}));
 
