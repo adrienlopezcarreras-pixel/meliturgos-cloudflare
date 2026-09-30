@@ -499,7 +499,6 @@ export function registerPlatformControlCapabilities(bus, { env = {}, fetchImpl =
 
   return Object.freeze([
     'github.actions.workflow.dispatch',
-    'github.actions.workflow.dispatch.status',
     'cloudflare.deployments.create',
     'vercel.deployments.redeploy',
   ]);
