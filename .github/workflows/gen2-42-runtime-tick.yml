@@ -57,11 +57,12 @@ jobs:
           cache: npm
       - name: Install exact lockfile
         run: npm ci
-      - name: Create ephemeral bootstrap token and run bounded GEN2-42 action
+      - name: Create one-shot D1 bootstrap challenge and run bounded GEN2-42 action
         shell: bash
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          MEL_D1_DATABASE_ID: 6d502448-8780-4cf0-8c82-863cccb2e1cd
         run: |
           set -euo pipefail
           BASE_URL="https://meliturgos.adrien-lopezcarreras.workers.dev"
@@ -72,45 +73,30 @@ jobs:
           fi
           case "$MODE" in
             tick) PHASE="gen2-42-runtime-tick" ;;
-            owner-max) PHASE="gen2-42-owner-max" ;;
+            owner-max) echo "owner-max remains on the owner-authorized release path"; exit 64 ;;
             *) echo "Unsupported GEN2-42 ops mode: $MODE"; exit 64 ;;
           esac
           echo "GEN2-42 bounded mode: $MODE"
           BOOTSTRAP_TOKEN="$(openssl rand -hex 32)"
           echo "::add-mask::${BOOTSTRAP_TOKEN}"
-          cleanup_secret() {
-            set +e
-            printf 'y\n' | npx wrangler secret delete MEL_GEN2_42_BOOTSTRAP_TOKEN --env="" >/tmp/gen2-42-bootstrap-delete.log 2>&1
-            set -e
-          }
-          trap cleanup_secret EXIT
-          printf '%s' "$BOOTSTRAP_TOKEN" | npx wrangler secret put MEL_GEN2_42_BOOTSTRAP_TOKEN --env=""
+          MEL_GEN2_42_CHALLENGE_TOKEN="$BOOTSTRAP_TOKEN" node scripts/create-gen2-42-bootstrap-challenge.mjs
 
-          READY=0
-          for ATTEMPT in $(seq 1 12); do
-            printf '{"phase":"%s"}' "$PHASE" > tick-request.json
-            CODE="$(curl -sS --max-time 180 \
-              -o tick-response.raw.json \
-              -w '%{http_code}' \
-              -X POST "$BASE_URL/api/internal/release-launch-bootstrap" \
-              -H "x-mel-gen2-42-bootstrap: $BOOTSTRAP_TOKEN" \
-              -H 'Content-Type: application/json' \
-              --data-binary @tick-request.json || true)"
-            if [ "$CODE" = "200" ]; then
-              TICK_STATUS="$(node -e "const fs=require('fs');const x=JSON.parse(fs.readFileSync('tick-response.raw.json','utf8'));process.stdout.write(String(x.tick_status||''))" 2>/dev/null || true)"
-              if [ "$TICK_STATUS" = "SKIPPED_LEASE_BUSY" ]; then
-                echo "GEN2-42 lease busy on attempt $ATTEMPT/12; retrying after a bounded wait."
-                sleep 8
-                continue
-              fi
-              READY=1
-              break
-            fi
+          printf '{"phase":"%s"}' "$PHASE" > tick-request.json
+          CODE="$(curl -sS --max-time 180 \
+            -o tick-response.raw.json \
+            -w '%{http_code}' \
+            -X POST "$BASE_URL/api/internal/release-launch-bootstrap" \
+            -H "x-mel-gen2-42-bootstrap: $BOOTSTRAP_TOKEN" \
+            -H 'Content-Type: application/json' \
+            --data-binary @tick-request.json || true)"
+          if [ "$CODE" != "200" ]; then
             if [ -s tick-response.raw.json ]; then cat tick-response.raw.json; fi
-            sleep 2
-          done
-          test "$READY" = "1"
-
+            exit 65
+          fi
+          TICK_STATUS="$(node -e "const fs=require('fs');const x=JSON.parse(fs.readFileSync('tick-response.raw.json','utf8'));process.stdout.write(String(x.tick_status||''))" 2>/dev/null || true)"
+          if [ "$TICK_STATUS" = "SKIPPED_LEASE_BUSY" ]; then
+            echo "GEN2-42 lease busy; one-shot challenge consumed correctly. The next event/scheduled tick will retry."
+          fi
       - name: Build sanitized tick proof
         shell: bash
         run: |
