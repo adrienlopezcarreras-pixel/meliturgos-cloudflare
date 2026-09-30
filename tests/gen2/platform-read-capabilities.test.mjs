@@ -164,6 +164,39 @@ test('Cloudflare workers read uses durable relay enqueue and readback without di
   assert.equal(completed.transport, 'github-actions-relay');
 });
 
+test('Cloudflare deployments read uses durable relay enqueue and readback', async () => {
+  const jobs = new Map();
+  const relay = {
+    transport: 'd1-cloudflare-api-relay',
+    health: async () => ({ online:true, status:'ONLINE' }),
+    enqueue: async ({ operation, input }) => {
+      assert.equal(operation, 'deployments.list');
+      assert.equal(input.script, 'meliturgos');
+      const job = { id:'cf-relay-deployments-1', status:'QUEUED', operation, input };
+      jobs.set(job.id, job);
+      return job;
+    },
+    get: async id => jobs.get(id) || null,
+  };
+  const bus = new CapabilityBus();
+  registerPlatformReadCapabilities(bus, {
+    env: {},
+    cloudflareRelayStore: relay,
+    fetchImpl: async () => { throw new Error('DIRECT_FETCH_MUST_NOT_RUN'); },
+  });
+  const queued = await bus.execute('cloudflare.deployments.read', { script:'meliturgos', limit:2 }, owner);
+  assert.equal(queued.pending, true);
+  jobs.set('cf-relay-deployments-1', {
+    ...jobs.get('cf-relay-deployments-1'),
+    status:'COMPLETE',
+    result:{ provider:'cloudflare', transport:'github-actions-relay', script:'meliturgos', deployments:[{id:'dep-1'}], count:1 },
+  });
+  const completed = await bus.execute('cloudflare.deployments.read', { relay_job_id:'cf-relay-deployments-1' }, owner);
+  assert.equal(completed.count, 1);
+  assert.equal(completed.deployments[0].id, 'dep-1');
+  assert.equal(completed.transport, 'github-actions-relay');
+});
+
 test('Vercel project and deployment reads preserve team scoping and bounded output', async () => {
   const seen = [];
   const bus = new CapabilityBus();
