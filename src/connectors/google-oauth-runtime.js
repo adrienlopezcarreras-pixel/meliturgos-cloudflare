@@ -23,6 +23,11 @@ const MANIFESTS = Object.freeze({
       optional: Object.freeze([
         'https://www.googleapis.com/auth/gmail.compose',
         'https://www.googleapis.com/auth/gmail.send',
+        // The single Google connect button intentionally grants the read-only
+        // suite scopes too, so Calendar and Tasks can reuse the same durable
+        // Google grant instead of requiring impossible connector-local tokens.
+        'https://www.googleapis.com/auth/calendar.events.readonly',
+        'https://www.googleapis.com/auth/tasks.readonly',
       ]),
     }),
   }),
