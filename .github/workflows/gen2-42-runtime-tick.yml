@@ -1,6 +1,8 @@
 name: GEN2-42 authenticated runtime tick
 
 on:
+  schedule:
+    - cron: '17 * * * *'
   workflow_dispatch:
     inputs:
       chain_depth:
