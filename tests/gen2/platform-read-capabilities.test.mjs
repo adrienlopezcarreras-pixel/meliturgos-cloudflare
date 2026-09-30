@@ -130,6 +130,40 @@ test('Cloudflare failures expose only sanitized HTTP and Cloudflare numeric erro
   assert.equal(String(caught.code).includes('cf-secret'), false);
 });
 
+test('Cloudflare workers read uses durable relay enqueue and readback without direct Cloudflare fetch', async () => {
+  const jobs = new Map();
+  const relay = {
+    transport: 'd1-cloudflare-api-relay',
+    health: async () => ({ online:true, status:'ONLINE' }),
+    enqueue: async ({ operation, input }) => {
+      assert.equal(operation, 'workers.list');
+      const job = { id:'cf-relay-test-1', status:'QUEUED', operation, input };
+      jobs.set(job.id, job);
+      return job;
+    },
+    get: async id => jobs.get(id) || null,
+  };
+  const bus = new CapabilityBus();
+  registerPlatformReadCapabilities(bus, {
+    env: {},
+    cloudflareRelayStore: relay,
+    fetchImpl: async () => { throw new Error('DIRECT_FETCH_MUST_NOT_RUN'); },
+  });
+
+  const queued = await bus.execute('cloudflare.workers.read', { limit:2 }, owner);
+  assert.equal(queued.pending, true);
+  assert.equal(queued.relay_job_id, 'cf-relay-test-1');
+  jobs.set('cf-relay-test-1', {
+    ...jobs.get('cf-relay-test-1'),
+    status:'COMPLETE',
+    result:{ provider:'cloudflare', transport:'github-actions-relay', scripts:[{id:'meliturgos'}], count:1 },
+  });
+  const completed = await bus.execute('cloudflare.workers.read', { relay_job_id:'cf-relay-test-1' }, owner);
+  assert.equal(completed.count, 1);
+  assert.equal(completed.scripts[0].id, 'meliturgos');
+  assert.equal(completed.transport, 'github-actions-relay');
+});
+
 test('Vercel project and deployment reads preserve team scoping and bounded output', async () => {
   const seen = [];
   const bus = new CapabilityBus();
