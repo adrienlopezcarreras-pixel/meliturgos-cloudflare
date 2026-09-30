@@ -224,7 +224,8 @@ test('Vercel project and deployment reads preserve team scoping and bounded outp
   assert.equal(deployments.count, 1);
   const projectCalls=seen.filter(call => /^https:\/\/api\.vercel\.com\/v9\/projects\?/.test(call.url));
   const deploymentCall=seen.find(call => /^https:\/\/api\.vercel\.com\/v6\/deployments\?/.test(call.url));
-  assert.ok(projectCalls.length >= 2);
+  assert.ok(projectCalls.length >= 1);
+  assert.equal(seen.filter(call => call.url === 'https://api.vercel.com/v2/user').length >= 2, true);
   assert.equal(projectCalls.every(call => /teamId=team_123/.test(call.url)), true);
   assert.ok(deploymentCall);
   assert.match(deploymentCall.url, /projectId=prj_1/);
@@ -298,7 +299,9 @@ test('Vercel reads accept encrypted runtime resolver when env token is absent', 
   const result = await bus.execute('vercel.projects.read', { limit: 1 }, owner);
   assert.equal(result.count, 1);
   assert.equal(result.projects[0].id, 'prj_vault');
-  assert.match(seen[0].url, /teamId=team_vault/);
-  assert.equal(seen[0].authorization, 'Bearer vault-vercel-token');
+  const projectCall = seen.find(call => /^https:\/\/api\.vercel\.com\/v9\/projects\?/.test(call.url));
+  assert.ok(projectCall);
+  assert.match(projectCall.url, /teamId=team_vault/);
+  assert.equal(seen.every(call => call.authorization === 'Bearer vault-vercel-token'), true);
   assert.equal(JSON.stringify(result).includes('vault-vercel-token'), false);
 });
