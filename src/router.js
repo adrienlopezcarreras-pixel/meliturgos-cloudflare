@@ -47,6 +47,7 @@ const RELEASE_SMOKE_CAPABILITY_ALLOWLIST = Object.freeze([
   "cloudflare.deployments.read",
   "cloudflare.deployments.create",
   "github.actions.workflow.dispatch",
+  "github.actions.workflow.dispatch.status",
   "browser.execute",
   "capability.audit",
   "capability.audit.status",
