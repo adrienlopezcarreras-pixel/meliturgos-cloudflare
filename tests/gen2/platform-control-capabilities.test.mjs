@@ -209,6 +209,57 @@ test('Cloudflare deployment control is locked to configured Worker, existing UUI
   );
 });
 
+test('Cloudflare deployment control uses durable relay enqueue and approved readback in production mode', async () => {
+  const jobs = new Map();
+  const relay = {
+    transport: 'd1-cloudflare-api-relay',
+    health: async () => ({ online:true, status:'ONLINE' }),
+    enqueue: async ({ operation, input }) => {
+      assert.equal(operation, 'deployments.create');
+      assert.equal(input.script, 'meliturgos');
+      assert.equal(input.versions[0].percentage, 100);
+      const job = { id:'cf-relay-create-test-1', status:'QUEUED', operation, input };
+      jobs.set(job.id, job);
+      return job;
+    },
+    get: async id => jobs.get(id) || null,
+  };
+  const bus = new CapabilityBus();
+  registerPlatformControlCapabilities(bus, {
+    env: { MEL_CLOUDFLARE_SCRIPT:'meliturgos' },
+    cloudflareRelayStore: relay,
+    fetchImpl: async () => { throw new Error('DIRECT_CLOUDFLARE_FETCH_MUST_NOT_RUN'); },
+  });
+
+  const input = {
+    versions: [{ version_id:'11111111-1111-4111-8111-111111111111', percentage:100 }],
+    message:'relay proof',
+  };
+  const queued = await bus.execute('cloudflare.deployments.create', input, approved('cloudflare.deployments.create'));
+  assert.equal(queued.pending, true);
+  assert.equal(queued.relay_job_id, 'cf-relay-create-test-1');
+
+  jobs.set('cf-relay-create-test-1', {
+    ...jobs.get('cf-relay-create-test-1'),
+    status:'COMPLETE',
+    result:{
+      provider:'cloudflare',
+      transport:'github-actions-relay',
+      script:'meliturgos',
+      deployment:{
+        id:'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        versions:[{version_id:'11111111-1111-4111-8111-111111111111',percentage:100}],
+      },
+    },
+  });
+  const completed = await bus.execute('cloudflare.deployments.create', {
+    ...input,
+    relay_job_id:'cf-relay-create-test-1',
+  }, approved('cloudflare.deployments.create'));
+  assert.equal(completed.transport, 'github-actions-relay');
+  assert.equal(completed.deployment.id, 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa');
+});
+
 test('Vercel redeploy is locked to configured project and cannot upload arbitrary files or project settings', async () => {
   const seen = [];
   const bus = new CapabilityBus();
