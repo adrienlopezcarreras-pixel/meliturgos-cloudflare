@@ -59,6 +59,8 @@ jobs:
 
       - name: Prove real production platform capabilities
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           BASE_URL="https://meliturgos.adrien-lopezcarreras.workers.dev"
