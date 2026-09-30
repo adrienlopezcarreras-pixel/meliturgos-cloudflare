@@ -9,6 +9,7 @@ const DELEGATED_PREFIXES = Object.freeze([
   '/api/device/v1/',
   '/api/computer/v1/',
   '/api/android/v1/',
+  '/api/internal/github-action-relay/',
 ]);
 const DELEGATED_EXACT = Object.freeze(new Set([
   '/api/internal/release-launch-bootstrap',
