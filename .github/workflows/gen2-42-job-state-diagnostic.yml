@@ -1,5 +1,5 @@
 name: gen2-42-job-state-diagnostic
-# refresh_seq: 19
+# refresh_seq: 20
 
 on:
   push:
