@@ -59,16 +59,28 @@ async function requestJson(fetchImpl, url, { token = '', code = 'PLATFORM_READ_F
       redirect: 'error',
       signal: AbortSignal.timeout(8000),
     });
-  } catch {
-    throw capabilityError(code, 503);
+  } catch (error) {
+    const name = String(error?.name || 'FETCH_FAILED').replace(/[^A-Za-z0-9_]/g, '_').toUpperCase().slice(0, 40);
+    throw capabilityError(code + '_FETCH_' + name, 503);
   }
+
+  let parsed = null;
+  try {
+    parsed = await response.clone().json();
+  } catch {}
 
   if (!response?.ok) {
-    if (response?.status === 401 || response?.status === 403) throw capabilityError(code + '_AUTH', 403);
-    if (response?.status === 429) throw capabilityError(code + '_RATE_LIMITED', 503);
-    throw capabilityError(code, response?.status >= 400 && response?.status < 600 ? response.status : 502);
+    const cfCodes = Array.isArray(parsed?.errors)
+      ? parsed.errors.map(row => Number(row?.code || 0)).filter(Boolean).slice(0, 4)
+      : [];
+    const detail = '_HTTP_' + String(Number(response?.status || 0) || 0)
+      + (cfCodes.length ? '_CF_' + cfCodes.join('_') : '');
+    if (response?.status === 401 || response?.status === 403) throw capabilityError(code + '_AUTH' + detail, 403);
+    if (response?.status === 429) throw capabilityError(code + '_RATE_LIMITED' + detail, 503);
+    throw capabilityError(code + detail, response?.status >= 400 && response?.status < 600 ? response.status : 502);
   }
 
+  if (parsed) return parsed;
   try {
     return await response.json();
   } catch {
@@ -242,7 +254,7 @@ export function registerPlatformReadCapabilities(bus, { env = {}, fetchImpl = fe
     health: configured(env, 'CLOUDFLARE_API_TOKEN', 'CLOUDFLARE_ACCOUNT_ID') ? 'DEGRADED' : 'UNAVAILABLE',
     enabled: true,
     healthcheck: async () => probeHealth(
-      () => requestJson(fetchImpl, `${CLOUDFLARE_API}/accounts/${encodeURIComponent(safeResource(cloudflareAccountId, 'CLOUDFLARE_ACCOUNT_ID_INVALID', 64))}/workers/workers`, {
+      () => requestJson(fetchImpl, `${CLOUDFLARE_API}/accounts/${encodeURIComponent(safeResource(cloudflareAccountId, 'CLOUDFLARE_ACCOUNT_ID_INVALID', 64))}/workers/scripts`, {
         token: cloudflareToken,
         code: 'CLOUDFLARE_WORKERS_READ_FAILED',
       }),
@@ -252,7 +264,7 @@ export function registerPlatformReadCapabilities(bus, { env = {}, fetchImpl = fe
     if (!cloudflareToken || !cloudflareAccountId) throw capabilityError('CLOUDFLARE_AUTH_REQUIRED', 503);
     const accountId = safeResource(cloudflareAccountId, 'CLOUDFLARE_ACCOUNT_ID_INVALID', 64);
     const count = limit(input.limit);
-    const body = await requestJson(fetchImpl, `${CLOUDFLARE_API}/accounts/${encodeURIComponent(accountId)}/workers/workers`, {
+    const body = await requestJson(fetchImpl, `${CLOUDFLARE_API}/accounts/${encodeURIComponent(accountId)}/workers/scripts`, {
       token: cloudflareToken,
       code: 'CLOUDFLARE_WORKERS_READ_FAILED',
     });
@@ -290,7 +302,7 @@ export function registerPlatformReadCapabilities(bus, { env = {}, fetchImpl = fe
     health: configured(env, 'CLOUDFLARE_API_TOKEN', 'CLOUDFLARE_ACCOUNT_ID') ? 'DEGRADED' : 'UNAVAILABLE',
     enabled: true,
     healthcheck: async () => probeHealth(
-      () => requestJson(fetchImpl, `${CLOUDFLARE_API}/accounts/${encodeURIComponent(safeResource(cloudflareAccountId, 'CLOUDFLARE_ACCOUNT_ID_INVALID', 64))}/workers/workers`, {
+      () => requestJson(fetchImpl, `${CLOUDFLARE_API}/accounts/${encodeURIComponent(safeResource(cloudflareAccountId, 'CLOUDFLARE_ACCOUNT_ID_INVALID', 64))}/workers/scripts`, {
         token: cloudflareToken,
         code: 'CLOUDFLARE_WORKERS_READ_FAILED',
       }),

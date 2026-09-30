@@ -139,7 +139,7 @@ jobs:
           # Diagnose the exact Cloudflare credential independently of the Worker
           # without exposing token material or upstream message bodies.
           CF_VERIFY_CODE="$(curl --silent --show-error --max-time 30             --header "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}"             --output /tmp/cloudflare-token-verify.json             --write-out '%{http_code}'             "https://api.cloudflare.com/client/v4/user/tokens/verify" || true)"
-          CF_WORKERS_CODE="$(curl --silent --show-error --max-time 30             --header "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}"             --output /tmp/cloudflare-workers-direct.json             --write-out '%{http_code}'             "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/workers" || true)"
+          CF_WORKERS_CODE="$(curl --silent --show-error --max-time 30             --header "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}"             --output /tmp/cloudflare-workers-direct.json             --write-out '%{http_code}'             "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/scripts" || true)"
           CF_VERIFY_CODE="${CF_VERIFY_CODE}" CF_WORKERS_CODE="${CF_WORKERS_CODE}" node - <<'NODE'
           const fs=require('fs');
           function read(path){try{return JSON.parse(fs.readFileSync(path,'utf8'))}catch{return {}}}
