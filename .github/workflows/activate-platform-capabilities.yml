@@ -59,6 +59,8 @@ jobs:
 
       - name: Prove real production platform capabilities
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           BASE_URL="https://meliturgos.adrien-lopezcarreras.workers.dev"
@@ -158,7 +160,7 @@ jobs:
           capability             github.actions.workflow.dispatch             '{"workflow":"gen2-36-provider-write-smoke.yml","ref":"main"}'             github-dispatch.json             github.actions.workflow.dispatch
 
           GITHUB_TRANSPORT="$(node -e 'const d=require("./github-dispatch.json");process.stdout.write(String(d?.result?.transport||""))')"
-          if [ "${GITHUB_TRANSPORT}" = "d1-github-actions-relay" ]; then
+          if [ "${GITHUB_TRANSPORT}" = "d1-github-actions-relay" ] || [ "${GITHUB_TRANSPORT}" = "r2-github-actions-relay" ]; then
             GITHUB_RELAY_JOB_ID="$(node -e 'const d=require("./github-dispatch.json");const id=String(d?.result?.relay_job_id||"");if(!/^gh-relay-/.test(id))process.exit(2);process.stdout.write(id)')"
             printf '%s' '{"ref":"main"}' > github-relay-dispatch.json
             RELAY_CODE="$(curl --silent --show-error --max-time 30 \
@@ -234,7 +236,7 @@ jobs:
               capabilities:cloudflareIds.map(id=>({id,health:rows.get(id)?.health||null})),
             },
             github:{
-              control_mode:ghMode==='CONFIGURED'?'direct-token':'d1-actions-relay',
+              control_mode:ghMode==='CONFIGURED'?'direct-token':(dispatch?.transport==='r2-github-actions-relay'?'r2-actions-relay':'d1-actions-relay'),
               runtime_credential_configured:ghMode==='CONFIGURED',
               workflow_dispatch_executed:dispatch?.accepted===true && (dispatch?.transport==='direct-github-api' || dispatchStatus?.status==='DISPATCHED'),
               transport:dispatch?.transport||null,

@@ -33,6 +33,7 @@ export class D1GitHubActionRelayStore {
     if (!db || typeof db.prepare !== 'function') throw relayError('GITHUB_RELAY_DB_REQUIRED', 503);
     this.db = db;
     this.ready = null;
+    this.transport = 'd1-github-actions-relay';
   }
 
   async init() {

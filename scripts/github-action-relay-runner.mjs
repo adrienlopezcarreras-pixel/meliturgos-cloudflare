@@ -1,108 +1,135 @@
 const CF_TOKEN = String(process.env.CLOUDFLARE_API_TOKEN || '');
 const ACCOUNT_ID = String(process.env.CLOUDFLARE_ACCOUNT_ID || '');
-const DATABASE_ID = String(process.env.MEL_D1_DATABASE_ID || '');
+const BUCKET = String(process.env.MEL_R2_BUCKET || 'meliturgos-private-media');
 const GH_TOKEN = String(process.env.GITHUB_TOKEN || process.env.GH_TOKEN || '');
 const REPOSITORY = String(process.env.GITHUB_REPOSITORY || '');
 const RUN_ID = Number(process.env.GITHUB_RUN_ID || 0);
+const PREFIX = 'github-action-relay';
 
 function assert(condition, code) {
   if (!condition) throw Object.assign(new Error(code), { code });
 }
 
-async function d1(sql, params = []) {
-  const response = await fetch(`https://api.cloudflare.com/client/v4/accounts/${ACCOUNT_ID}/d1/database/${DATABASE_ID}/query`, {
-    method: 'POST',
+function keyPath(key) {
+  return String(key || '').split('/').map(segment => encodeURIComponent(segment)).join('/');
+}
+
+function r2Base() {
+  return `https://api.cloudflare.com/client/v4/accounts/${ACCOUNT_ID}/r2/buckets/${encodeURIComponent(BUCKET)}/objects`;
+}
+
+async function putObject(key, value) {
+  const form = new FormData();
+  form.append('body', new Blob([JSON.stringify(value)], { type: 'application/json' }), 'relay.json');
+  const response = await fetch(`${r2Base()}/${keyPath(key)}`, {
+    method: 'PUT',
     headers: {
       authorization: `Bearer ${CF_TOKEN}`,
-      'content-type': 'application/json',
     },
-    body: JSON.stringify({ sql, params }),
+    body: form,
     signal: AbortSignal.timeout(60_000),
   });
   const text = await response.text();
   let body = {};
   try { body = text ? JSON.parse(text) : {}; } catch {}
   if (!response.ok || body?.success !== true) {
-    throw Object.assign(new Error('GITHUB_RELAY_D1_QUERY_FAILED'), {
-      code: 'GITHUB_RELAY_D1_QUERY_FAILED',
+    const code = body?.errors?.[0]?.code || body?.error?.code || null;
+    throw Object.assign(new Error('GITHUB_RELAY_R2_PUT_FAILED'), {
+      code: 'GITHUB_RELAY_R2_PUT_FAILED',
+      status: response.status,
+      provider_code: code,
+    });
+  }
+}
+
+async function getObject(key) {
+  const response = await fetch(`${r2Base()}/${keyPath(key)}`, {
+    method: 'GET',
+    headers: { authorization: `Bearer ${CF_TOKEN}` },
+    signal: AbortSignal.timeout(60_000),
+  });
+  if (response.status === 404) return null;
+  if (!response.ok) {
+    throw Object.assign(new Error('GITHUB_RELAY_R2_GET_FAILED'), {
+      code: 'GITHUB_RELAY_R2_GET_FAILED',
       status: response.status,
     });
   }
-  const result = Array.isArray(body.result) ? body.result[0] : body.result;
-  if (result?.success === false) throw new Error('GITHUB_RELAY_D1_STATEMENT_FAILED');
-  return {
-    rows: Array.isArray(result?.results) ? result.results : [],
-    meta: result?.meta || {},
-  };
+  const text = await response.text();
+  try { return JSON.parse(text); } catch { throw new Error('GITHUB_RELAY_R2_OBJECT_INVALID'); }
 }
 
-async function ensureSchema() {
-  await d1(`CREATE TABLE IF NOT EXISTS github_action_relay_jobs (
-    id TEXT PRIMARY KEY,
-    status TEXT NOT NULL,
-    workflow TEXT NOT NULL,
-    ref TEXT NOT NULL,
-    inputs_json TEXT NOT NULL DEFAULT '{}',
-    result_json TEXT,
-    error TEXT,
-    created_at INTEGER NOT NULL,
-    updated_at INTEGER NOT NULL,
-    claimed_at INTEGER,
-    completed_at INTEGER
-  )`);
-  await d1(`CREATE INDEX IF NOT EXISTS idx_github_action_relay_jobs_status_created
-    ON github_action_relay_jobs(status, created_at)`);
-  await d1(`CREATE TABLE IF NOT EXISTS github_action_relay_state (
-    id TEXT PRIMARY KEY,
-    status TEXT NOT NULL,
-    last_seen_at INTEGER NOT NULL,
-    metadata_json TEXT NOT NULL DEFAULT '{}'
-  )`);
+async function listObjects(prefix) {
+  const url = new URL(r2Base());
+  url.searchParams.set('prefix', prefix);
+  url.searchParams.set('limit', '100');
+  const response = await fetch(url, {
+    headers: { authorization: `Bearer ${CF_TOKEN}` },
+    signal: AbortSignal.timeout(60_000),
+  });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok || body?.success !== true) {
+    const code = body?.errors?.[0]?.code || body?.error?.code || null;
+    throw Object.assign(new Error('GITHUB_RELAY_R2_LIST_FAILED'), {
+      code: 'GITHUB_RELAY_R2_LIST_FAILED',
+      status: response.status,
+      provider_code: code,
+    });
+  }
+  const rows = Array.isArray(body?.result?.objects)
+    ? body.result.objects
+    : Array.isArray(body?.result)
+      ? body.result
+      : [];
+  return rows.map(row => String(row?.key || '')).filter(Boolean);
 }
 
 async function heartbeat() {
-  const now = Date.now();
-  const metadata = JSON.stringify({ run_id: RUN_ID || null, repository: REPOSITORY, source: 'github-actions-d1-direct' });
-  await d1(`INSERT INTO github_action_relay_state(id,status,last_seen_at,metadata_json)
-    VALUES('primary','ONLINE',?,?)
-    ON CONFLICT(id) DO UPDATE SET status=excluded.status,last_seen_at=excluded.last_seen_at,metadata_json=excluded.metadata_json`,
-    [now, metadata]);
+  await putObject(`${PREFIX}/state.json`, {
+    status: 'ONLINE',
+    last_seen_at: Date.now(),
+    metadata: {
+      run_id: RUN_ID || null,
+      repository: REPOSITORY,
+      source: 'github-actions-r2-direct',
+    },
+  });
 }
 
 async function claimOne() {
-  const selected = await d1(`SELECT id,workflow,ref,inputs_json FROM github_action_relay_jobs
-    WHERE status='QUEUED' ORDER BY created_at ASC LIMIT 1`);
-  const row = selected.rows[0];
-  if (!row?.id) return null;
+  const keys = await listObjects(`${PREFIX}/jobs/`);
+  const candidates = [];
+  for (const key of keys.slice(0, 100)) {
+    const job = await getObject(key);
+    if (job?.status === 'QUEUED' && /^gh-relay-[A-Za-z0-9-]+$/.test(String(job?.id || ''))) {
+      candidates.push({ key, job });
+    }
+  }
+  candidates.sort((a, b) => Number(a.job.created_at || 0) - Number(b.job.created_at || 0));
+  const selected = candidates[0];
+  if (!selected) return null;
   const now = Date.now();
-  const updated = await d1(`UPDATE github_action_relay_jobs
-    SET status='CLAIMED',claimed_at=?,updated_at=?
-    WHERE id=? AND status='QUEUED'`,
-    [now, now, row.id]);
-  if (Number(updated.meta?.changes || 0) < 1) return null;
-  let inputs = {};
-  try { inputs = JSON.parse(String(row.inputs_json || '{}')); } catch {}
-  return {
-    id: String(row.id),
-    workflow: String(row.workflow),
-    ref: String(row.ref),
-    inputs: inputs && typeof inputs === 'object' && !Array.isArray(inputs) ? inputs : {},
+  const job = {
+    ...selected.job,
+    status: 'CLAIMED',
+    claimed_at: now,
+    updated_at: now,
   };
+  await putObject(selected.key, job);
+  return { key: selected.key, job };
 }
 
-async function complete(job, status, result = null, error = null) {
+async function complete(claimed, status, result = null, error = null) {
   const now = Date.now();
-  await d1(`UPDATE github_action_relay_jobs
-    SET status=?,result_json=?,error=?,updated_at=?,completed_at=?
-    WHERE id=? AND status='CLAIMED'`,
-    [
-      status,
-      result == null ? null : JSON.stringify(result),
-      error ? String(error).slice(0, 500) : null,
-      now,
-      now,
-      job.id,
-    ]);
+  const job = {
+    ...claimed.job,
+    status,
+    result,
+    error: error ? String(error).slice(0, 500) : null,
+    updated_at: now,
+    completed_at: now,
+  };
+  await putObject(claimed.key, job);
 }
 
 async function dispatch(job) {
@@ -135,42 +162,41 @@ async function dispatch(job) {
     ref: job.ref,
     dispatched_at: new Date().toISOString(),
     relay_run_id: RUN_ID || null,
-    transport: 'github-actions-d1-direct',
+    transport: 'github-actions-r2-direct',
   };
 }
 
 async function main() {
   assert(CF_TOKEN.length >= 20, 'CLOUDFLARE_API_TOKEN_REQUIRED');
   assert(ACCOUNT_ID.length >= 20, 'CLOUDFLARE_ACCOUNT_ID_REQUIRED');
-  assert(/^[0-9a-f-]{36}$/i.test(DATABASE_ID), 'MEL_D1_DATABASE_ID_REQUIRED');
+  assert(BUCKET.length >= 3, 'MEL_R2_BUCKET_REQUIRED');
   assert(GH_TOKEN.length >= 20, 'GITHUB_ACTION_TOKEN_REQUIRED');
   assert(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(REPOSITORY), 'GITHUB_RELAY_REPOSITORY_INVALID');
 
-  await ensureSchema();
   await heartbeat();
 
   let processed = 0;
   let dispatched = 0;
   let failed = 0;
   for (let index = 0; index < 5; index += 1) {
-    const job = await claimOne();
-    if (!job) break;
+    const claimed = await claimOne();
+    if (!claimed) break;
     processed += 1;
     try {
-      const result = await dispatch(job);
-      await complete(job, 'DISPATCHED', result, null);
+      const result = await dispatch(claimed.job);
+      await complete(claimed, 'DISPATCHED', result, null);
       dispatched += 1;
-      console.log(`GitHub relay dispatched ${job.id} -> ${job.workflow}@${job.ref}`);
+      console.log(`GitHub relay dispatched ${claimed.job.id} -> ${claimed.job.workflow}@${claimed.job.ref}`);
     } catch (error) {
       failed += 1;
-      await complete(job, 'FAILED', {
+      await complete(claimed, 'FAILED', {
         http_status: Number(error?.status || 0) || null,
         repository: REPOSITORY,
-        workflow: job.workflow,
-        ref: job.ref,
+        workflow: claimed.job.workflow,
+        ref: claimed.job.ref,
         relay_run_id: RUN_ID || null,
       }, String(error?.code || error?.message || 'GITHUB_RELAY_DISPATCH_FAILED'));
-      console.error(`GitHub relay failed ${job.id}: ${String(error?.code || error?.message || error)}`);
+      console.error(`GitHub relay failed ${claimed.job.id}: ${String(error?.code || error?.message || error)}`);
     }
   }
 
@@ -179,6 +205,10 @@ async function main() {
 }
 
 main().catch(error => {
-  console.error(String(error?.code || error?.message || error));
+  console.error(JSON.stringify({
+    code: String(error?.code || error?.message || error),
+    status: Number(error?.status || 0) || null,
+    provider_code: error?.provider_code || null,
+  }));
   process.exit(1);
 });
