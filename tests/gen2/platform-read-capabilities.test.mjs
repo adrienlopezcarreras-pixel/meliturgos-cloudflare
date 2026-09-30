@@ -98,15 +98,17 @@ test('Cloudflare Workers inventory comes from the fresh relay snapshot while dep
   });
 
   const workers = await bus.execute('cloudflare.workers.read', { limit: 1 }, owner);
-  const deployments = await bus.execute('cloudflare.deployments.read', { script: 'meliturgos', limit: 1 }, owner);
 
   assert.equal(workers.count, 1);
   assert.equal(workers.scripts[0].id, 'meliturgos');
   assert.equal(workers.transport, 'github-actions-relay-snapshot');
   assert.equal(workers.source_run_id, 12345);
+  assert.equal(seen.length, 0, 'workers.read must not make a direct Cloudflare subrequest');
+
+  const deployments = await bus.execute('cloudflare.deployments.read', { script: 'meliturgos', limit: 1 }, owner);
   assert.equal(deployments.count, 1);
   assert.equal(deployments.deployments[0].id, 'd1');
-  assert.equal(seen.some(call => call.url === 'https://api.cloudflare.com/client/v4/accounts/account123/workers/scripts'), false);
+  assert.equal(seen.some(call => call.url === 'https://api.cloudflare.com/client/v4/accounts/account123/workers/scripts'), true);
   assert.equal(seen.some(call => call.url === 'https://api.cloudflare.com/client/v4/accounts/account123/workers/scripts/meliturgos/deployments'), true);
   assert.equal(seen.every(call => call.authorization === 'Bearer cf-secret'), true);
   assert.equal(JSON.stringify({ workers, deployments }).includes('cf-secret'), false);
