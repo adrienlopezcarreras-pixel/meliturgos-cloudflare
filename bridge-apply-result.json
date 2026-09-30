@@ -8,5 +8,6 @@
       "passed": true,
       "exit_code": 0
     }
-  ]
+  ],
+  "mode": "GITHUB_CLOUD_BRIDGE"
 }
