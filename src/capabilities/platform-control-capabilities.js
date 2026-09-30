@@ -1,5 +1,4 @@
 import { D1GitHubActionRelayStore } from '../platform/github-action-relay.js';
-import { R2GitHubActionRelayStore } from '../platform/github-action-r2-relay.js';
 
 const GITHUB_API = 'https://api.github.com';
 const CLOUDFLARE_API = 'https://api.cloudflare.com/client/v4';
@@ -171,11 +170,9 @@ export function registerPlatformControlCapabilities(bus, { env = {}, fetchImpl =
   const githubRepository = repository || env.MEL_GITHUB_REPOSITORY || '';
   const githubToken = String(env.MEL_GITHUB_TOKEN || '').trim();
   const githubWorkflows = parseAllowlist(env.MEL_GITHUB_WRITABLE_WORKFLOWS);
-  const githubRelay = env?.MEDIA_BUCKET && typeof env.MEDIA_BUCKET.put === 'function' && typeof env.MEDIA_BUCKET.get === 'function'
-    ? new R2GitHubActionRelayStore(env.MEDIA_BUCKET)
-    : env?.DB && typeof env.DB.prepare === 'function'
-      ? new D1GitHubActionRelayStore(env.DB)
-      : null;
+  const githubRelay = env?.DB && typeof env.DB.prepare === 'function'
+    ? new D1GitHubActionRelayStore(env.DB)
+    : null;
   const githubRelayConfigured = Boolean(githubRepository && githubWorkflows.length && githubRelay);
 
   const cloudflareToken = String(env.CLOUDFLARE_API_TOKEN || '').trim();
@@ -204,7 +201,7 @@ export function registerPlatformControlCapabilities(bus, { env = {}, fetchImpl =
     category: 'development',
     version: '1.0.0',
     provider: 'github',
-    description: 'Triggers one explicitly allowlisted workflow in the configured MELITURGOS repository. Uses a direct GitHub credential when configured, otherwise a durable R2/D1-backed GitHub Actions relay. Requires exact owner approval.',
+    description: 'Triggers one explicitly allowlisted workflow in the configured MELITURGOS repository. Uses a direct GitHub credential when configured, otherwise a durable D1-backed GitHub Actions relay consumed through the authenticated Dev Bridge. Requires exact owner approval.',
     input_schema: {
       type: 'object',
       properties: {
