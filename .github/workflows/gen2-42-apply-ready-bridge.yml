@@ -180,7 +180,15 @@ jobs:
             result_json:result
           }));
           NODE
-          curl --fail-with-body --silent --show-error --max-time 45             --request POST             --header "Authorization: Bearer $MEL_CLOUD_BRIDGE_TOKEN"             --header "Content-Type: application/json"             --data-binary @bridge-result-request.json             "https://meliturgos.adrien-lopezcarreras.workers.dev/api/dev-bridge/result" > bridge-result-response.json
+          REPORT_READY=0
+          for ATTEMPT in $(seq 1 12); do
+            CODE="$(curl --silent --show-error --max-time 45               --request POST               --header "Authorization: Bearer $MEL_CLOUD_BRIDGE_TOKEN"               --header "Content-Type: application/json"               --data-binary @bridge-result-request.json               --output bridge-result-response.json               --write-out '%{http_code}'               "https://meliturgos.adrien-lopezcarreras.workers.dev/api/dev-bridge/result" || true)"
+            if [ "$CODE" = "200" ]; then REPORT_READY=1; break; fi
+            echo "Cloud bridge result propagation attempt $ATTEMPT/12 returned HTTP $CODE."
+            test ! -s bridge-result-response.json || cat bridge-result-response.json
+            sleep 2
+          done
+          test "$REPORT_READY" = "1"
 
       - name: Checkout exact approved candidate
         if: steps.claim.outputs.claimed == 'true' && steps.reconcile.outputs.already_satisfied != 'true'
@@ -262,7 +270,38 @@ jobs:
           git config user.name "MEL Cloud Dev Bridge"
           git config user.email "mel-cloud-bridge@localhost"
           git add --all
-          git diff --cached --check
+          set +e
+          HYGIENE_OUTPUT="$(git diff --cached --check 2>&1)"
+          HYGIENE_CODE=$?
+          set -e
+          if [ "$HYGIENE_CODE" -ne 0 ]; then
+            printf '%s\n' "$HYGIENE_OUTPUT"
+            HYGIENE_OUTPUT="$HYGIENE_OUTPUT" node - <<'NODE'
+          const fs=require('fs');
+          const current=fs.existsSync('bridge-apply-result.json')?JSON.parse(fs.readFileSync('bridge-apply-result.json','utf8')):{tests:[]};
+          const tests=Array.isArray(current.tests)?[...current.tests]:[];
+          tests.push({
+            name:'candidate hygiene',
+            command:'git.diff.cached.check',
+            passed:false,
+            exit_code:2,
+            error:'CANDIDATE_HYGIENE_FAILED',
+            stderr:String(process.env.HYGIENE_OUTPUT||'').slice(0,4000)
+          });
+          fs.writeFileSync('bridge-apply-result.json',JSON.stringify({
+            ...current,
+            status:'REPAIR_REQUIRED',
+            needs_repair:true,
+            tests
+          },null,2));
+          NODE
+            echo "candidate_ready=false" >> "$GITHUB_OUTPUT"
+            echo "candidate_sha=$CANDIDATE_SHA" >> "$GITHUB_OUTPUT"
+            echo "candidate_branch=$CANDIDATE_BRANCH" >> "$GITHUB_OUTPUT"
+            echo "no_changes=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "candidate_ready=true" >> "$GITHUB_OUTPUT"
           if [ -z "$(git diff --cached --name-only)" ]; then
             NEW_SHA="$(git rev-parse HEAD)"
             echo "candidate_sha=$NEW_SHA" >> "$GITHUB_OUTPUT"
@@ -285,6 +324,7 @@ jobs:
           JOB_ID: ${{ inputs.job_id }}
           TESTS_PASSED: ${{ steps.tests.outputs.tests_passed }}
           COMMIT_OUTCOME: ${{ steps.commit.outcome }}
+          CANDIDATE_READY: ${{ steps.commit.outputs.candidate_ready }}
           NEW_SHA: ${{ steps.commit.outputs.candidate_sha }}
         run: |
           set -euo pipefail
@@ -294,7 +334,14 @@ jobs:
           const base=fs.existsSync('bridge-apply-result.json')?JSON.parse(fs.readFileSync('bridge-apply-result.json','utf8')):{tests:[]};
           const testsPassed=process.env.TESTS_PASSED==='true';
           const commitOk=process.env.COMMIT_OUTCOME==='success';
-          const status=!testsPassed?'REPAIR_REQUIRED':commitOk?'READY_FOR_REVIEW':'FAILED';
+          const candidateReady=process.env.CANDIDATE_READY==='true';
+          const status=!testsPassed
+            ? 'REPAIR_REQUIRED'
+            : commitOk && !candidateReady
+              ? 'REPAIR_REQUIRED'
+              : commitOk && candidateReady
+                ? 'READY_FOR_REVIEW'
+                : 'FAILED';
           const sha=String(process.env.NEW_SHA||job?.result_json?.bridge_preparation?.candidate_sha||'');
           const result={
             ...base,
@@ -316,7 +363,56 @@ jobs:
             result_json:result
           }));
           NODE
-          curl --fail-with-body --silent --show-error --max-time 45             --request POST             --header "Authorization: Bearer $MEL_CLOUD_BRIDGE_TOKEN"             --header "Content-Type: application/json"             --data-binary @bridge-result-request.json             "https://meliturgos.adrien-lopezcarreras.workers.dev/api/dev-bridge/result" > bridge-result-response.json
+          REPORT_READY=0
+          for ATTEMPT in $(seq 1 12); do
+            CODE="$(curl --silent --show-error --max-time 45               --request POST               --header "Authorization: Bearer $MEL_CLOUD_BRIDGE_TOKEN"               --header "Content-Type: application/json"               --data-binary @bridge-result-request.json               --output bridge-result-response.json               --write-out '%{http_code}'               "https://meliturgos.adrien-lopezcarreras.workers.dev/api/dev-bridge/result" || true)"
+            if [ "$CODE" = "200" ]; then REPORT_READY=1; break; fi
+            echo "Cloud bridge result propagation attempt $ATTEMPT/12 returned HTTP $CODE."
+            test ! -s bridge-result-response.json || cat bridge-result-response.json
+            sleep 2
+          done
+          test "$REPORT_READY" = "1"
+
+      - name: Persist claimed bridge failure before exit
+        id: report_emergency
+        if: always() && steps.claim.outputs.claimed == 'true' && steps.report_satisfied.outcome != 'success' && steps.report_result.outcome != 'success'
+        shell: bash
+        run: |
+          set -euo pipefail
+          node - <<'NODE'
+          const fs=require('fs');
+          const job=JSON.parse(fs.readFileSync(process.env.BRIDGE_JOB_FILE,'utf8'));
+          const result=fs.existsSync('bridge-apply-result.json')
+            ? JSON.parse(fs.readFileSync('bridge-apply-result.json','utf8'))
+            : {status:'REPAIR_REQUIRED',needs_repair:true,tests:[],mode:'GITHUB_CLOUD_BRIDGE_EMERGENCY'};
+          const normalized={
+            ...result,
+            status:'REPAIR_REQUIRED',
+            needs_repair:true,
+            mode:result.mode||'GITHUB_CLOUD_BRIDGE_EMERGENCY',
+            github_run_id:Number(process.env.GITHUB_RUN_ID||0),
+            github_run_attempt:Number(process.env.GITHUB_RUN_ATTEMPT||0)
+          };
+          fs.writeFileSync('bridge-apply-result.json',JSON.stringify(normalized,null,2));
+          fs.writeFileSync('bridge-result-request.json',JSON.stringify({
+            job_id:job.id,
+            status:'REPAIR_REQUIRED',
+            candidate_branch:job?.result_json?.bridge_preparation?.candidate_branch||null,
+            tests_json:Array.isArray(normalized.tests)?normalized.tests:[],
+            diff_summary:'EMERGENCY_REPAIR_REQUIRED:GITHUB_RUN_'+String(process.env.GITHUB_RUN_ID||'0'),
+            needs_repair:true,
+            error:null,
+            result_json:normalized
+          }));
+          NODE
+          REPORT_READY=0
+          for ATTEMPT in $(seq 1 12); do
+            CODE="$(curl --silent --show-error --max-time 45               --request POST               --header "Authorization: Bearer $MEL_CLOUD_BRIDGE_TOKEN"               --header "Content-Type: application/json"               --data-binary @bridge-result-request.json               --output bridge-result-response.json               --write-out '%{http_code}'               "https://meliturgos.adrien-lopezcarreras.workers.dev/api/dev-bridge/result" || true)"
+            if [ "$CODE" = "200" ]; then REPORT_READY=1; break; fi
+            echo "Emergency bridge result attempt $ATTEMPT/12 returned HTTP $CODE."
+            sleep 2
+          done
+          test "$REPORT_READY" = "1"
 
       - name: Remove ephemeral cloud bridge token
         if: always()
@@ -334,7 +430,7 @@ jobs:
           exit 0
 
       - name: Continue autonomy after persisted bridge result
-        if: always() && steps.claim.outputs.claimed == 'true' && (steps.report_satisfied.outcome == 'success' || steps.report_result.outcome == 'success')
+        if: always() && steps.claim.outputs.claimed == 'true' && (steps.report_satisfied.outcome == 'success' || steps.report_result.outcome == 'success' || steps.report_emergency.outcome == 'success')
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
