@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { NORMAL_RUNTIME_SOURCE } from '../src/pages/mvp-runtime.js';
 import { onRequestGet as renderFullInterface } from '../src/pages/full-interface-v2.js';
+import { renderMvpInterfaceV3 } from '../src/pages/mvp-interface-v3.js';
 
 test('normal chat accepts clipboard files without hijacking text-only paste', () => {
   assert.match(NORMAL_RUNTIME_SOURCE, /function filesFromTransfer\(dt\)/);
