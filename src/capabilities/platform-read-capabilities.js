@@ -291,8 +291,6 @@ export function registerPlatformReadCapabilities(bus, { env = {}, fetchImpl = fe
         if (job.status === 'COMPLETE') return job.result || { provider:'cloudflare', scripts:[], count:0 };
         return { provider:'cloudflare', transport:cloudflareRelay.transport, pending:true, relay_job_id:job.id, status:job.status };
       }
-      const health = await cloudflareRelay.health();
-      if (!health.online) throw capabilityError('CLOUDFLARE_API_RELAY_OFFLINE', 503);
       const job = await cloudflareRelay.enqueue({ operation:'workers.list', input:{ limit:count } });
       return { provider:'cloudflare', transport:cloudflareRelay.transport, pending:true, relay_job_id:job.id, status:job.status };
     }
