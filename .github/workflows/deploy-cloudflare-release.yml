@@ -26,7 +26,7 @@ on:
 
 permissions:
   contents: read
-  actions: read
+  actions: write
 
 concurrency:
   group: mel-launch-bootstrap-token
@@ -1772,6 +1772,18 @@ jobs:
           node -e 'const d=require("./owner-max-autorelease.json");if(d?.ok!==true||d?.max_autonomy!==true||d?.paused===true)throw new Error("OWNER_MAX_AUTORELEASE_RESTART_FAILED");console.log("MAX 100% restored after verified release.")'
           cleanup_max_secret
           trap - EXIT
+
+      - name: Kick event-driven autonomy after MAX release
+        if: success() && env.OWNER_MAX_AUTORELEASE == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          node -e "process.stdout.write(JSON.stringify({ref:'main',inputs:{chain_depth:'0'}}))" > autonomy-release-dispatch.json
+          CODE="$(curl --silent --show-error --max-time 30             --request POST             --header "Authorization: Bearer $GH_TOKEN"             --header "Accept: application/vnd.github+json"             --header "X-GitHub-Api-Version: 2022-11-28"             --header "Content-Type: application/json"             --data-binary @autonomy-release-dispatch.json             --output autonomy-release-dispatch-response.txt             --write-out '%{http_code}'             "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/workflows/gen2-42-runtime-tick.yml/dispatches")"
+          test "$CODE" = "204"
+          echo "AUTONOMY_CHAIN_KICKED_AFTER_RELEASE"
 
       - name: Automatic rollback on failed production verification
         if: failure()
