@@ -911,3 +911,33 @@ test('GEN2-42 runtime tick exposes a READY package for cloud fallback when local
     DB.close();
   }
 });
+
+
+test('GEN2-42 runtime tick uses a dedicated bootstrap token without opening other release phases', async () => {
+  const dedicated='g'.repeat(64);
+  const env={MEL_GEN2_42_BOOTSTRAP_TOKEN:dedicated};
+  const request=phase=>new Request('https://mel.test/api/internal/release-launch-bootstrap',{
+    method:'POST',
+    headers:{'x-mel-gen2-42-bootstrap':dedicated,'content-type':'application/json'},
+    body:JSON.stringify({phase}),
+  });
+  const tick=await maybeHandleReleaseLaunchBootstrap(request('gen2-42-runtime-tick'),env,{
+    runAutonomyTick:async()=>({
+      ok:true,
+      status:'IDLE',
+      advanced:false,
+      paused:false,
+      control:{paused:false,max_autonomy:true},
+      completions:{completed:[],rejected:[]},
+    }),
+  });
+  assert.equal(tick.status,200);
+  const tickBody=await tick.json();
+  assert.equal(tickBody.ok,true);
+  assert.equal(tickBody.phase,'gen2-42-runtime-tick');
+  assert.equal(tickBody.max_autonomy,true);
+
+  const denied=await maybeHandleReleaseLaunchBootstrap(request('identity'),env);
+  assert.equal(denied.status,403);
+  assert.equal((await denied.json()).code,'BOOTSTRAP_SCOPE_DENIED');
+});

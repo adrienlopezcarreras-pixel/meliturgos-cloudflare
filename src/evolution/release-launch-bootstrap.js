@@ -211,13 +211,20 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
 
   const expected = String(env?.MEL_LAUNCH_BOOTSTRAP_TOKEN || '');
   const supplied = String(request.headers.get('x-mel-launch-bootstrap') || '');
-  if (!equalToken(expected, supplied)) {
+  const gen2Expected = String(env?.MEL_GEN2_42_BOOTSTRAP_TOKEN || '');
+  const gen2Supplied = String(request.headers.get('x-mel-gen2-42-bootstrap') || '');
+  const primaryAuthorized = equalToken(expected, supplied);
+  const gen2Authorized = equalToken(gen2Expected, gen2Supplied);
+  if (!primaryAuthorized && !gen2Authorized) {
     return Response.json({ ok: false, code: 'BOOTSTRAP_AUTH_REQUIRED' }, { status: 401, headers: { 'cache-control': 'no-store' } });
   }
 
   const phase = await requestPhase(request);
   if (!phase) {
     return Response.json({ ok: false, code: 'BOOTSTRAP_PHASE_INVALID' }, { status: 400, headers: { 'cache-control': 'no-store' } });
+  }
+  if (gen2Authorized && !primaryAuthorized && phase !== 'gen2-42-runtime-tick') {
+    return Response.json({ ok: false, code: 'BOOTSTRAP_SCOPE_DENIED' }, { status: 403, headers: { 'cache-control': 'no-store' } });
   }
 
   if (phase === 'identity') {
