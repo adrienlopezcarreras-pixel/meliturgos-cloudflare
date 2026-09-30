@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { handleFileUpload } from '../src/api/file-upload.js';
+import { handleFileUpload, expiredMediaKeys } from '../src/api/file-upload.js';
 
 const auth='Basic '+Buffer.from('adrien:test').toString('base64');
 function request(name,type,data){
@@ -67,4 +67,15 @@ test('media retention configuration is clamped and only advertised for persisted
   assert.equal(body.stored,false);
   assert.equal(body.expires_at,null);
   assert.equal(body.ttl_seconds,null);
+});
+
+
+test('expired media selection only returns objects whose declared retention elapsed', ()=>{
+  const now=Date.parse('2026-09-30T22:00:00Z');
+  const keys=expiredMediaKeys([
+    {key:'uploads/old.bin',customMetadata:{expiresAt:'2026-09-30T21:59:59Z'}},
+    {key:'uploads/future.bin',customMetadata:{expiresAt:'2026-10-01T00:00:00Z'}},
+    {key:'uploads/legacy.bin',customMetadata:{}},
+  ],now);
+  assert.deepEqual(keys,['uploads/old.bin']);
 });
