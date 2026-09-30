@@ -264,19 +264,19 @@ async function pauseAutonomyForRelease(db){
   };
 }
 
-export async function preparePredeployRelease(env){
+export async function preparePredeployRelease(env,{nowMs=Date.now()}={}){
   if(!env?.DB||!env?.MEDIA_BUCKET) return {ok:false,status:'PREDEPLOY_BINDINGS_REQUIRED'};
   const autonomy=await pauseAutonomyForRelease(env.DB);
   const result=await env.DB.prepare(
     "SELECT id,object_key,metadata_json,created_at FROM backup_objects WHERE object_key LIKE 'backups/system/%' ORDER BY created_at DESC LIMIT 100"
   ).all();
   const rows=result?.results||[];
-  const candidate=selectVerifiedCandidate(rows);
+  const candidate=selectVerifiedCandidate(rows,{nowMs});
   if(!candidate) return {
     ok:false,
     status:'NO_RECENT_VERIFIED_ENCRYPTED_BACKUP',
     autonomy,
-    diagnostics:diagnoseCandidates(rows),
+    diagnostics:diagnoseCandidates(rows,{nowMs}),
   };
   const object=await env.MEDIA_BUCKET.head(candidate.objectKey);
   if(!object||Number(object?.size||0)<=0){

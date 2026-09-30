@@ -138,7 +138,7 @@ test('predeploy prepare pauses autonomy and proves a real restore backup without
     },
   };
   const MEDIA_BUCKET={async head(key){return key===rows[0].object_key?{size:4096}:null;}};
-  const result=await preparePredeployRelease({DB,MEDIA_BUCKET});
+  const result=await preparePredeployRelease({DB,MEDIA_BUCKET},{nowMs:now});
   assert.equal(result.ok,true);
   assert.equal(result.status,'PREDEPLOY_RELEASE_PREPARED');
   assert.equal(result.autonomy.paused,true);
