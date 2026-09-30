@@ -1,3 +1,4 @@
+import { D1CloudflareApiRelayStore } from '../platform/cloudflare-api-relay.js';
 const GITHUB_API = 'https://api.github.com';
 const CLOUDFLARE_API = 'https://api.cloudflare.com/client/v4';
 const VERCEL_API = 'https://api.vercel.com';
@@ -137,6 +138,9 @@ export function registerPlatformReadCapabilities(bus, { env = {}, fetchImpl = fe
   const githubToken = String(env.MEL_GITHUB_TOKEN || '').trim();
   const cloudflareToken = String(env.CLOUDFLARE_API_TOKEN || '').trim();
   const cloudflareAccountId = String(env.CLOUDFLARE_ACCOUNT_ID || '').trim();
+  const cloudflareRelay = env?.DB && typeof env.DB.prepare === 'function'
+    ? new D1CloudflareApiRelayStore(env.DB)
+    : null;
   const staticVercelToken = String(env.VERCEL_TOKEN || '').trim();
   const staticVercelTeamId = String(env.VERCEL_TEAM_ID || '').trim();
   const getVercelConfig = async () => {
@@ -240,30 +244,60 @@ export function registerPlatformReadCapabilities(bus, { env = {}, fetchImpl = fe
     id: 'cloudflare.workers.read',
     name: 'Cloudflare Workers list',
     category: 'development',
-    version: '1.0.0',
+    version: '1.1.0',
     provider: 'cloudflare',
-    description: 'Reads a bounded inventory of Worker scripts for the configured Cloudflare account. It never downloads source or secrets.',
+    description: 'Reads a bounded inventory of Worker scripts. In production it uses the durable GitHub Actions Cloudflare relay because Workers cannot reliably call Cloudflare-owned API IPs directly.',
     input_schema: {
       type: 'object',
-      properties: { limit: { type: 'integer', minimum: 1, maximum: MAX_LIST } },
+      properties: {
+        limit: { type: 'integer', minimum: 1, maximum: MAX_LIST },
+        relay_job_id: { type: 'string', minLength: 1, maxLength: 200 },
+      },
       additionalProperties: false,
     },
     output_schema: { type: 'object', additionalProperties: true },
     risk: 'LOW',
     permissions: [],
-    health: configured(env, 'CLOUDFLARE_API_TOKEN', 'CLOUDFLARE_ACCOUNT_ID') ? 'DEGRADED' : 'UNAVAILABLE',
+    health: cloudflareRelay || configured(env, 'CLOUDFLARE_API_TOKEN', 'CLOUDFLARE_ACCOUNT_ID') ? 'DEGRADED' : 'UNAVAILABLE',
     enabled: true,
-    healthcheck: async () => probeHealth(
-      () => requestJson(fetchImpl, `${CLOUDFLARE_API}/accounts/${encodeURIComponent(safeResource(cloudflareAccountId, 'CLOUDFLARE_ACCOUNT_ID_INVALID', 64))}/workers/scripts`, {
-        token: cloudflareToken,
-        code: 'CLOUDFLARE_WORKERS_READ_FAILED',
-      }),
-      cloudflareToken && cloudflareAccountId ? '' : 'CLOUDFLARE_RUNTIME_CREDENTIALS_NOT_CONFIGURED',
-    ),
+    healthcheck: async () => {
+      if (cloudflareRelay) {
+        try {
+          const health = await cloudflareRelay.health();
+          return health.online
+            ? { status: 'HEALTHY' }
+            : { status: 'DEGRADED', reason: 'CLOUDFLARE_API_RELAY_OFFLINE' };
+        } catch (error) {
+          return healthFailure(error);
+        }
+      }
+      return probeHealth(
+        () => requestJson(fetchImpl, `${CLOUDFLARE_API}/accounts/${encodeURIComponent(safeResource(cloudflareAccountId, 'CLOUDFLARE_ACCOUNT_ID_INVALID', 64))}/workers/scripts`, {
+          token: cloudflareToken,
+          code: 'CLOUDFLARE_WORKERS_READ_FAILED',
+        }),
+        cloudflareToken && cloudflareAccountId ? '' : 'CLOUDFLARE_RUNTIME_CREDENTIALS_NOT_CONFIGURED',
+      );
+    },
   }, async input => {
+    const count = limit(input.limit);
+    if (cloudflareRelay) {
+      const jobId = String(input.relay_job_id || '').trim();
+      if (jobId) {
+        if (!/^cf-relay-[A-Za-z0-9-]+$/.test(jobId)) throw capabilityError('CLOUDFLARE_RELAY_JOB_ID_INVALID', 400);
+        const job = await cloudflareRelay.get(jobId);
+        if (!job) throw capabilityError('CLOUDFLARE_RELAY_JOB_NOT_FOUND', 404);
+        if (job.status === 'FAILED') throw capabilityError(job.error || 'CLOUDFLARE_RELAY_JOB_FAILED', 502);
+        if (job.status === 'COMPLETE') return job.result || { provider:'cloudflare', scripts:[], count:0 };
+        return { provider:'cloudflare', transport:cloudflareRelay.transport, pending:true, relay_job_id:job.id, status:job.status };
+      }
+      const health = await cloudflareRelay.health();
+      if (!health.online) throw capabilityError('CLOUDFLARE_API_RELAY_OFFLINE', 503);
+      const job = await cloudflareRelay.enqueue({ operation:'workers.list', input:{ limit:count } });
+      return { provider:'cloudflare', transport:cloudflareRelay.transport, pending:true, relay_job_id:job.id, status:job.status };
+    }
     if (!cloudflareToken || !cloudflareAccountId) throw capabilityError('CLOUDFLARE_AUTH_REQUIRED', 503);
     const accountId = safeResource(cloudflareAccountId, 'CLOUDFLARE_ACCOUNT_ID_INVALID', 64);
-    const count = limit(input.limit);
     const body = await requestJson(fetchImpl, `${CLOUDFLARE_API}/accounts/${encodeURIComponent(accountId)}/workers/scripts`, {
       token: cloudflareToken,
       code: 'CLOUDFLARE_WORKERS_READ_FAILED',
