@@ -1,3 +1,5 @@
+import { D1GitHubActionRelayStore } from '../platform/github-action-relay.js';
+
 const GITHUB_API = 'https://api.github.com';
 const CLOUDFLARE_API = 'https://api.cloudflare.com/client/v4';
 const VERCEL_API = 'https://api.vercel.com';
@@ -168,6 +170,10 @@ export function registerPlatformControlCapabilities(bus, { env = {}, fetchImpl =
   const githubRepository = repository || env.MEL_GITHUB_REPOSITORY || '';
   const githubToken = String(env.MEL_GITHUB_TOKEN || '').trim();
   const githubWorkflows = parseAllowlist(env.MEL_GITHUB_WRITABLE_WORKFLOWS);
+  const githubRelay = env?.DB && typeof env.DB.prepare === 'function'
+    ? new D1GitHubActionRelayStore(env.DB)
+    : null;
+  const githubRelayConfigured = Boolean(githubRepository && githubWorkflows.length && githubRelay);
 
   const cloudflareToken = String(env.CLOUDFLARE_API_TOKEN || '').trim();
   const cloudflareAccountId = String(env.CLOUDFLARE_ACCOUNT_ID || '').trim();
@@ -195,7 +201,7 @@ export function registerPlatformControlCapabilities(bus, { env = {}, fetchImpl =
     category: 'development',
     version: '1.0.0',
     provider: 'github',
-    description: 'Triggers one explicitly allowlisted workflow in the configured MELITURGOS repository. Requires exact owner approval.',
+    description: 'Triggers one explicitly allowlisted workflow in the configured MELITURGOS repository. Uses a direct GitHub credential when configured, otherwise a durable D1-backed GitHub Actions relay. Requires exact owner approval.',
     input_schema: {
       type: 'object',
       properties: {
@@ -210,30 +216,65 @@ export function registerPlatformControlCapabilities(bus, { env = {}, fetchImpl =
     risk: 'HIGH',
     permissions: [],
     approval: { required: true, scope: 'github.actions.workflow.dispatch', reason: 'GITHUB_WORKFLOW_MUTATION' },
-    health: githubRepository && githubToken && githubWorkflows.length ? 'DEGRADED' : 'UNAVAILABLE',
-    healthcheck: async () => probeHealth(
-      () => requestJson(
-        fetchImpl,
-        `${GITHUB_API}/repos/${repositoryPath(githubRepository)}/actions/workflows/${encodeURIComponent(safeWorkflow(githubWorkflows[0]))}`,
-        {
-          token: githubToken,
-          method: 'GET',
-          code: 'GITHUB_WORKFLOW_CONTROL_HEALTH_FAILED',
-          headers: {
-            accept: 'application/vnd.github+json',
-            'x-github-api-version': '2026-03-10',
-          },
-        },
-      ),
-      githubRepository && githubToken && githubWorkflows.length ? '' : 'GITHUB_CONTROL_NOT_CONFIGURED',
-    ),
+    health: githubRepository && githubWorkflows.length && (githubToken || githubRelayConfigured) ? 'DEGRADED' : 'UNAVAILABLE',
+    healthcheck: async () => {
+      if (githubRepository && githubToken && githubWorkflows.length) {
+        return probeHealth(
+          () => requestJson(
+            fetchImpl,
+            `${GITHUB_API}/repos/${repositoryPath(githubRepository)}/actions/workflows/${encodeURIComponent(safeWorkflow(githubWorkflows[0]))}`,
+            {
+              token: githubToken,
+              method: 'GET',
+              code: 'GITHUB_WORKFLOW_CONTROL_HEALTH_FAILED',
+              headers: {
+                accept: 'application/vnd.github+json',
+                'x-github-api-version': '2026-03-10',
+              },
+            },
+          ),
+        );
+      }
+      if (githubRelayConfigured) {
+        try {
+          const health = await githubRelay.health();
+          return health.online
+            ? { status: 'HEALTHY' }
+            : { status: 'DEGRADED', reason: 'GITHUB_ACTION_RELAY_OFFLINE' };
+        } catch (error) {
+          return healthFailure(error);
+        }
+      }
+      return { status: 'UNAVAILABLE', reason: 'GITHUB_CONTROL_NOT_CONFIGURED' };
+    },
     enabled: true,
   }, async input => {
-    if (!githubToken || !githubRepository || !githubWorkflows.length) throw capabilityError('GITHUB_CONTROL_NOT_CONFIGURED', 503);
+    if (!githubRepository || !githubWorkflows.length) throw capabilityError('GITHUB_CONTROL_NOT_CONFIGURED', 503);
     const workflow = safeWorkflow(input.workflow);
     if (!githubWorkflows.includes(workflow)) throw capabilityError('GITHUB_WORKFLOW_NOT_ALLOWED', 403);
     const ref = safeRef(input.ref);
     const inputs = normalizeWorkflowInputs(input.inputs);
+
+    if (!githubToken && githubRelayConfigured) {
+      const health = await githubRelay.health();
+      if (!health.online) throw capabilityError('GITHUB_ACTION_RELAY_OFFLINE', 503);
+      const job = await githubRelay.enqueue({ workflow, ref, inputs });
+      return {
+        provider: 'github',
+        repository: githubRepository,
+        workflow,
+        ref,
+        accepted: true,
+        status: job.status,
+        transport: 'd1-github-actions-relay',
+        relay_job_id: job.id,
+        workflow_run_id: 0,
+        run_url: '',
+        html_url: '',
+      };
+    }
+
+    if (!githubToken) throw capabilityError('GITHUB_CONTROL_NOT_CONFIGURED', 503);
     const repoPath = repositoryPath(githubRepository);
     const body = await requestJson(
       fetchImpl,
@@ -254,10 +295,42 @@ export function registerPlatformControlCapabilities(bus, { env = {}, fetchImpl =
       workflow,
       ref,
       accepted: true,
+      status: 'DISPATCHED',
+      transport: 'direct-github-api',
+      relay_job_id: null,
       workflow_run_id: Number(body?.workflow_run_id || 0),
       run_url: String(body?.run_url || ''),
       html_url: String(body?.html_url || ''),
     };
+  });
+
+  bus.discover({
+    id: 'github.actions.workflow.dispatch.status',
+    name: 'GitHub workflow dispatch status',
+    category: 'development',
+    version: '1.0.0',
+    provider: 'github',
+    description: 'Reads the durable status of one GitHub Actions relay dispatch without mutating GitHub.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        job_id: { type: 'string', minLength: 1, maxLength: 200 },
+      },
+      required: ['job_id'],
+      additionalProperties: false,
+    },
+    output_schema: { type: 'object', additionalProperties: true },
+    risk: 'LOW',
+    permissions: [],
+    health: githubRelayConfigured ? 'HEALTHY' : 'UNAVAILABLE',
+    enabled: true,
+  }, async input => {
+    if (!githubRelayConfigured) throw capabilityError('GITHUB_ACTION_RELAY_NOT_CONFIGURED', 503);
+    const jobId = required(input.job_id, 'GITHUB_RELAY_JOB_ID_REQUIRED', 200);
+    if (!/^gh-relay-[A-Za-z0-9-]+$/.test(jobId)) throw capabilityError('GITHUB_RELAY_JOB_ID_INVALID', 400);
+    const job = await githubRelay.get(jobId);
+    if (!job) throw capabilityError('GITHUB_RELAY_JOB_NOT_FOUND', 404);
+    return job;
   });
 
   bus.discover({
@@ -426,6 +499,7 @@ export function registerPlatformControlCapabilities(bus, { env = {}, fetchImpl =
 
   return Object.freeze([
     'github.actions.workflow.dispatch',
+    'github.actions.workflow.dispatch.status',
     'cloudflare.deployments.create',
     'vercel.deployments.redeploy',
   ]);
