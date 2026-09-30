@@ -96,6 +96,35 @@ function equalToken(expected, supplied) {
   return a.length >= 32 && a.length === b.length && diff === 0;
 }
 
+
+async function sha256Hex(value) {
+  const bytes = new TextEncoder().encode(String(value || ''));
+  const digest = await crypto.subtle.digest('SHA-256', bytes);
+  return [...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, '0')).join('');
+}
+
+export async function consumeBootstrapChallenge(env, supplied, scope, { now = Date.now() } = {}) {
+  const token = String(supplied || '');
+  if (token.length < 32 || !env?.DB || typeof env.DB.prepare !== 'function') return false;
+  const normalizedScope = String(scope || '').trim().slice(0, 120);
+  if (!normalizedScope) return false;
+  await env.DB.prepare(`CREATE TABLE IF NOT EXISTS mel_bootstrap_challenges (
+    token_hash TEXT PRIMARY KEY,
+    scope TEXT NOT NULL,
+    expires_at INTEGER NOT NULL,
+    consumed_at INTEGER,
+    created_at INTEGER NOT NULL
+  )`).run();
+  const hash = await sha256Hex(token);
+  const result = await env.DB.prepare(`UPDATE mel_bootstrap_challenges
+    SET consumed_at=?
+    WHERE token_hash=? AND scope=? AND consumed_at IS NULL AND expires_at>=?`)
+    .bind(now, hash, normalizedScope, now)
+    .run();
+  const changes = Number(result?.meta?.changes ?? result?.changes ?? 0);
+  return changes > 0;
+}
+
 async function internalConnectionCall(connectionHandler, env, provider, action, { method = 'GET', body = null } = {}) {
   const url = new URL('https://mel.internal/api/gen2/connections/' + provider + '/' + action);
   const request = new Request(url.toString(), {
@@ -209,19 +238,23 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
     return Response.json({ ok: false, code: 'METHOD_NOT_ALLOWED' }, { status: 405, headers: { allow: 'POST', 'cache-control': 'no-store' } });
   }
 
+  const phase = await requestPhase(request);
+  if (!phase) {
+    return Response.json({ ok: false, code: 'BOOTSTRAP_PHASE_INVALID' }, { status: 400, headers: { 'cache-control': 'no-store' } });
+  }
+
   const expected = String(env?.MEL_LAUNCH_BOOTSTRAP_TOKEN || '');
   const supplied = String(request.headers.get('x-mel-launch-bootstrap') || '');
   const gen2Expected = String(env?.MEL_GEN2_42_BOOTSTRAP_TOKEN || '');
   const gen2Supplied = String(request.headers.get('x-mel-gen2-42-bootstrap') || '');
   const primaryAuthorized = equalToken(expected, supplied);
-  const gen2Authorized = equalToken(gen2Expected, gen2Supplied);
+  const gen2SecretAuthorized = equalToken(gen2Expected, gen2Supplied);
+  const gen2ChallengeAuthorized = phase === 'gen2-42-runtime-tick'
+    ? await consumeBootstrapChallenge(env, gen2Supplied, 'gen2-42-runtime-tick')
+    : false;
+  const gen2Authorized = gen2SecretAuthorized || gen2ChallengeAuthorized;
   if (!primaryAuthorized && !gen2Authorized) {
     return Response.json({ ok: false, code: 'BOOTSTRAP_AUTH_REQUIRED' }, { status: 401, headers: { 'cache-control': 'no-store' } });
-  }
-
-  const phase = await requestPhase(request);
-  if (!phase) {
-    return Response.json({ ok: false, code: 'BOOTSTRAP_PHASE_INVALID' }, { status: 400, headers: { 'cache-control': 'no-store' } });
   }
   if (gen2Authorized && !primaryAuthorized && phase !== 'gen2-42-runtime-tick') {
     return Response.json({ ok: false, code: 'BOOTSTRAP_SCOPE_DENIED' }, { status: 403, headers: { 'cache-control': 'no-store' } });
