@@ -5,6 +5,12 @@ on:
   workflow_run:
     workflows: ["deploy-cloudflare-release"]
     types: [completed]
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/persistent-capability-stress-live-proof.yml'
+      - 'scripts/persistent-capability-stress-live-proof.mjs'
+      - 'tests/gen2/persistent-capability-stress.test.mjs'
 
 permissions:
   contents: read
@@ -14,8 +20,22 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  contract:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: node --check scripts/persistent-capability-stress-live-proof.mjs
+      - run: node --test tests/gen2/persistent-capability-stress.test.mjs tests/release-production-smoke-routes.test.mjs
+
   production-proof:
-    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
     runs-on: ubuntu-24.04
     timeout-minutes: 12
     steps:
@@ -61,7 +81,6 @@ jobs:
           EXPECTED_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
         run: |
           set -euo pipefail
-          BASE_URL="https://meliturgos.adrien-lopezcarreras.workers.dev"
           TOKEN="$(openssl rand -hex 32)"
           echo "::add-mask::${TOKEN}"
 
@@ -72,119 +91,7 @@ jobs:
           trap cleanup EXIT
 
           printf '%s' "${TOKEN}" | npx wrangler secret put MEL_LAUNCH_BOOTSTRAP_TOKEN --env=""
-
-          call_capability() {
-            local payload="$1"
-            local output="$2"
-            curl --silent --show-error --max-time 90 \
-              --request POST \
-              --header "x-mel-release-smoke: 1" \
-              --header "x-mel-launch-bootstrap: ${TOKEN}" \
-              --header "content-type: application/json" \
-              --data "${payload}" \
-              --output "${output}" \
-              --write-out '%{http_code}' \
-              "${BASE_URL}/api/gen2/capabilities/execute"
-          }
-
-          STARTED=0
-          for ATTEMPT in $(seq 1 15); do
-            CODE="$(call_capability '{"id":"capability.audit","input":{"deep":true}}' stress-start.json || true)"
-            if [ "${CODE}" = "200" ]; then
-              STARTED=1
-              break
-            fi
-            echo "Persistent stress auth/propagation attempt ${ATTEMPT}/15 returned HTTP ${CODE}."
-            sleep 2
-          done
-          test "${STARTED}" = "1"
-
-          JOB_ID="$(node - <<'NODE'
-          const d=require('./stress-start.json');
-          if(d?.ok!==true || d?.capability!=='capability.audit') throw new Error('CAPABILITY_STRESS_START_NOT_OK');
-          const r=d?.result||{};
-          if(r?.persistent!==true) throw new Error('CAPABILITY_STRESS_NOT_PERSISTENT');
-          if(!/^cap-stress-/.test(String(r?.job_id||''))) throw new Error('CAPABILITY_STRESS_JOB_ID_MISSING');
-          if(!['RUNNING','QUEUED','RETRYING'].includes(String(r?.status||''))) throw new Error('CAPABILITY_STRESS_NOT_ASYNC');
-          process.stdout.write(String(r.job_id));
-          NODE
-          )"
-          echo "CAPABILITY_STRESS_JOB_ID=${JOB_ID}" >> "$GITHUB_ENV"
-
-          TERMINAL=0
-          LAST_DONE=0
-          for ATTEMPT in $(seq 1 60); do
-            PAYLOAD="$(JOB_ID="${JOB_ID}" node -e 'process.stdout.write(JSON.stringify({id:"capability.audit.status",input:{job_id:process.env.JOB_ID}}))')"
-            CODE="$(call_capability "${PAYLOAD}" stress-status.json || true)"
-            if [ "${CODE}" != "200" ]; then
-              echo "Stress status attempt ${ATTEMPT}/60 returned HTTP ${CODE}."
-              sleep 2
-              continue
-            fi
-
-            READ="$(node - <<'NODE'
-            const d=require('./stress-status.json');
-            const r=d?.result||{};
-            if(d?.ok!==true || d?.capability!=='capability.audit.status') process.exit(2);
-            if(r?.persistent!==true || String(r?.job_id||'')!==String(process.env.CAPABILITY_STRESS_JOB_ID||'')) process.exit(3);
-            const done=Number(r?.progress?.done||0);
-            const total=Number(r?.progress?.total||0);
-            const status=String(r?.status||'');
-            process.stdout.write(status+'|'+done+'|'+total);
-            NODE
-            )"
-            STATUS="${READ%%|*}"
-            REST="${READ#*|}"
-            DONE="${REST%%|*}"
-            TOTAL="${REST##*|}"
-            if [ "${DONE}" -lt "${LAST_DONE}" ]; then
-              echo "Persistent progress regressed from ${LAST_DONE} to ${DONE}."
-              exit 9
-            fi
-            LAST_DONE="${DONE}"
-            echo "Persistent stress ${JOB_ID}: status=${STATUS} progress=${DONE}/${TOTAL}"
-
-            if [ "${STATUS}" = "COMPLETE" ] || [ "${STATUS}" = "COMPLETE_WITH_FAILURES" ] || [ "${STATUS}" = "FAILED" ]; then
-              TERMINAL=1
-              break
-            fi
-            sleep 2
-          done
-          test "${TERMINAL}" = "1"
-
-          node - <<'NODE'
-          const fs=require('fs');
-          const d=require('./stress-status.json');
-          const r=d?.result||{};
-          const terminal=String(r.status||'');
-          if(terminal==='FAILED') throw new Error('CAPABILITY_STRESS_JOB_FAILED:'+String(r.error||'UNKNOWN'));
-          if(!['COMPLETE','COMPLETE_WITH_FAILURES'].includes(terminal)) throw new Error('CAPABILITY_STRESS_NOT_TERMINAL');
-          const done=Number(r?.progress?.done||0);
-          const total=Number(r?.progress?.total||0);
-          if(total<1 || done!==total) throw new Error('CAPABILITY_STRESS_PROGRESS_INCOMPLETE');
-          if(r?.report?.persistent!==true || String(r?.report?.job_id||'')!==String(r?.job_id||'')) {
-            throw new Error('CAPABILITY_STRESS_REPORT_NOT_DURABLE');
-          }
-          const proof={
-            schema:'mel.persistent-capability-stress-live-proof/v1',
-            deployed_sha:process.env.EXPECTED_SHA||null,
-            job_id:r.job_id,
-            status:r.status,
-            progress:r.progress,
-            counts:r?.report?.counts||{},
-            contracts:r?.report?.contracts||{},
-            retry_pass:r?.report?.retry_pass===true,
-            remaining_runtime_failures:Array.isArray(r?.summary?.remaining_runtime_failures)
-              ? r.summary.remaining_runtime_failures.slice(0,100)
-              : [],
-            blocked_count:Number(r?.summary?.blocked_count||0),
-            completed_at:r.completed_at||r?.report?.completed_at||null,
-            persistent:true,
-            secret_values_exposed:false,
-          };
-          fs.writeFileSync('persistent-capability-stress-live-proof.json',JSON.stringify(proof,null,2));
-          console.log(JSON.stringify(proof,null,2));
-          NODE
+          MEL_PROOF_TOKEN="${TOKEN}" node scripts/persistent-capability-stress-live-proof.mjs
 
           cleanup
           trap - EXIT
