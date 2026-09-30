@@ -77,6 +77,8 @@ function fixture() {
             'https://www.googleapis.com/auth/gmail.readonly',
             'https://www.googleapis.com/auth/gmail.compose',
             'https://www.googleapis.com/auth/gmail.send',
+            'https://www.googleapis.com/auth/calendar.events.readonly',
+            'https://www.googleapis.com/auth/tasks.readonly',
           ].join(' '),
         });
       }
@@ -89,6 +91,8 @@ function fixture() {
             'https://www.googleapis.com/auth/gmail.readonly',
             'https://www.googleapis.com/auth/gmail.compose',
             'https://www.googleapis.com/auth/gmail.send',
+            'https://www.googleapis.com/auth/calendar.events.readonly',
+            'https://www.googleapis.com/auth/tasks.readonly',
           ].join(' '),
         });
       }
@@ -122,9 +126,11 @@ test('Google OAuth begin uses fixed Google endpoints, PKCE and exact connector c
   assert.equal(url.searchParams.get('prompt'), 'consent');
   assert.equal(url.searchParams.get('include_granted_scopes'), 'true');
   assert.deepEqual(result.scopes, [
+    'https://www.googleapis.com/auth/calendar.events.readonly',
     'https://www.googleapis.com/auth/gmail.compose',
     'https://www.googleapis.com/auth/gmail.readonly',
     'https://www.googleapis.com/auth/gmail.send',
+    'https://www.googleapis.com/auth/tasks.readonly',
   ]);
 });
 
