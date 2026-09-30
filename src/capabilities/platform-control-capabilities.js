@@ -1,4 +1,5 @@
 import { D1GitHubActionRelayStore } from '../platform/github-action-relay.js';
+import { D1CloudflareApiRelayStore } from '../platform/cloudflare-api-relay.js';
 
 const GITHUB_API = 'https://api.github.com';
 const CLOUDFLARE_API = 'https://api.cloudflare.com/client/v4';
@@ -164,7 +165,7 @@ function deploymentRow(row = {}) {
   };
 }
 
-export function registerPlatformControlCapabilities(bus, { env = {}, fetchImpl = fetch, repository = '', resolveVercelConfig = null } = {}) {
+export function registerPlatformControlCapabilities(bus, { env = {}, fetchImpl = fetch, repository = '', resolveVercelConfig = null, cloudflareRelayStore = null } = {}) {
   if (!bus || typeof bus.discover !== 'function') throw new TypeError('CAPABILITY_BUS_REQUIRED');
 
   const githubRepository = repository || env.MEL_GITHUB_REPOSITORY || '';
@@ -178,6 +179,10 @@ export function registerPlatformControlCapabilities(bus, { env = {}, fetchImpl =
   const cloudflareToken = String(env.CLOUDFLARE_API_TOKEN || '').trim();
   const cloudflareAccountId = String(env.CLOUDFLARE_ACCOUNT_ID || '').trim();
   const cloudflareScript = String(env.MEL_CLOUDFLARE_SCRIPT || '').trim();
+  const cloudflareRelay = cloudflareRelayStore || (env?.DB && typeof env.DB.prepare === 'function'
+    ? new D1CloudflareApiRelayStore(env.DB)
+    : null);
+  const cloudflareRelayConfigured = Boolean(cloudflareScript && cloudflareRelay);
 
   const staticVercel = Object.freeze({
     token: String(env.VERCEL_TOKEN || '').trim(),
@@ -337,9 +342,9 @@ export function registerPlatformControlCapabilities(bus, { env = {}, fetchImpl =
     id: 'cloudflare.deployments.create',
     name: 'Cloudflare Worker deployment control',
     category: 'development',
-    version: '1.0.0',
+    version: '1.1.0',
     provider: 'cloudflare',
-    description: 'Creates a percentage deployment for the single configured Worker using existing version IDs. No source upload, force rollback, or arbitrary Worker target is allowed.',
+    description: 'Creates a percentage deployment for the single configured Worker using existing version IDs. In production the approved mutation is executed by the durable GitHub Actions Cloudflare relay, then verified with a GET before completion. No source upload, force rollback, or arbitrary Worker target is allowed.',
     input_schema: {
       type: 'object',
       properties: {
@@ -358,34 +363,74 @@ export function registerPlatformControlCapabilities(bus, { env = {}, fetchImpl =
           },
         },
         message: { type: 'string', minLength: 0, maxLength: 500 },
+        relay_job_id: { type: 'string', minLength: 1, maxLength: 200 },
       },
-      required: ['versions'],
       additionalProperties: false,
     },
     output_schema: { type: 'object', additionalProperties: true },
     risk: 'HIGH',
     permissions: [],
     approval: { required: true, scope: 'cloudflare.deployments.create', reason: 'CLOUDFLARE_DEPLOYMENT_MUTATION' },
-    health: configured(env, 'CLOUDFLARE_API_TOKEN', 'CLOUDFLARE_ACCOUNT_ID', 'MEL_CLOUDFLARE_SCRIPT') ? 'DEGRADED' : 'UNAVAILABLE',
-    healthcheck: async () => probeHealth(
-      () => requestJson(
-        fetchImpl,
-        `${CLOUDFLARE_API}/accounts/${encodeURIComponent(safeResource(cloudflareAccountId, 'CLOUDFLARE_ACCOUNT_ID_INVALID', 64))}/workers/scripts/${encodeURIComponent(safeResource(cloudflareScript, 'CLOUDFLARE_SCRIPT_INVALID', 128))}/deployments`,
-        {
-          token: cloudflareToken,
-          method: 'GET',
-          code: 'CLOUDFLARE_DEPLOYMENT_CONTROL_HEALTH_FAILED',
-        },
-      ),
-      cloudflareToken && cloudflareAccountId && cloudflareScript ? '' : 'CLOUDFLARE_CONTROL_NOT_CONFIGURED',
-    ),
+    health: cloudflareRelayConfigured || configured(env, 'CLOUDFLARE_API_TOKEN', 'CLOUDFLARE_ACCOUNT_ID', 'MEL_CLOUDFLARE_SCRIPT') ? 'DEGRADED' : 'UNAVAILABLE',
+    healthcheck: async () => {
+      if (cloudflareRelayConfigured) {
+        try {
+          const health = await cloudflareRelay.health();
+          return health.online
+            ? { status: 'HEALTHY' }
+            : { status: 'DEGRADED', reason: 'CLOUDFLARE_API_RELAY_OFFLINE' };
+        } catch (error) {
+          return healthFailure(error);
+        }
+      }
+      return probeHealth(
+        () => requestJson(
+          fetchImpl,
+          `${CLOUDFLARE_API}/accounts/${encodeURIComponent(safeResource(cloudflareAccountId, 'CLOUDFLARE_ACCOUNT_ID_INVALID', 64))}/workers/scripts/${encodeURIComponent(safeResource(cloudflareScript, 'CLOUDFLARE_SCRIPT_INVALID', 128))}/deployments`,
+          {
+            token: cloudflareToken,
+            method: 'GET',
+            code: 'CLOUDFLARE_DEPLOYMENT_CONTROL_HEALTH_FAILED',
+          },
+        ),
+        cloudflareToken && cloudflareAccountId && cloudflareScript ? '' : 'CLOUDFLARE_CONTROL_NOT_CONFIGURED',
+      );
+    },
     enabled: true,
   }, async input => {
-    if (!cloudflareToken || !cloudflareAccountId || !cloudflareScript) throw capabilityError('CLOUDFLARE_CONTROL_NOT_CONFIGURED', 503);
-    const accountId = safeResource(cloudflareAccountId, 'CLOUDFLARE_ACCOUNT_ID_INVALID', 64);
+    const relayJobId = String(input.relay_job_id || '').trim();
+    if (cloudflareRelayConfigured && relayJobId) {
+      if (!/^cf-relay-[A-Za-z0-9-]+$/.test(relayJobId)) throw capabilityError('CLOUDFLARE_RELAY_JOB_ID_INVALID', 400);
+      const job = await cloudflareRelay.get(relayJobId);
+      if (!job) throw capabilityError('CLOUDFLARE_RELAY_JOB_NOT_FOUND', 404);
+      if (job.operation !== 'deployments.create') throw capabilityError('CLOUDFLARE_RELAY_JOB_OPERATION_MISMATCH', 400);
+      if (job.status === 'FAILED') throw capabilityError(job.error || 'CLOUDFLARE_RELAY_JOB_FAILED', 502);
+      if (job.status === 'COMPLETE') return job.result || { provider:'cloudflare', transport:'github-actions-relay', script:cloudflareScript, deployment:null };
+      return { provider:'cloudflare', transport:cloudflareRelay.transport, pending:true, relay_job_id:job.id, status:job.status };
+    }
+
     const script = safeResource(cloudflareScript, 'CLOUDFLARE_SCRIPT_INVALID', 128);
     const versions = normalizeVersions(input.versions);
     const message = String(input.message || '').trim().slice(0, 500);
+
+    if (cloudflareRelayConfigured) {
+      const job = await cloudflareRelay.enqueue({
+        operation:'deployments.create',
+        input:{ script, versions, message },
+      });
+      return {
+        provider:'cloudflare',
+        script,
+        accepted:true,
+        pending:true,
+        status:job.status,
+        transport:cloudflareRelay.transport,
+        relay_job_id:job.id,
+      };
+    }
+
+    if (!cloudflareToken || !cloudflareAccountId || !cloudflareScript) throw capabilityError('CLOUDFLARE_CONTROL_NOT_CONFIGURED', 503);
+    const accountId = safeResource(cloudflareAccountId, 'CLOUDFLARE_ACCOUNT_ID_INVALID', 64);
     const body = await requestJson(
       fetchImpl,
       `${CLOUDFLARE_API}/accounts/${encodeURIComponent(accountId)}/workers/scripts/${encodeURIComponent(script)}/deployments`,
