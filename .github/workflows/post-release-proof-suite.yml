@@ -10,13 +10,32 @@ on:
         description: "Exact release SHA to prove; defaults to current main"
         required: false
         type: string
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/post-release-proof-suite.yml'
+      - 'tests/gen2/post-release-proof-suite.test.mjs'
 
 permissions:
   contents: read
+  actions: write
 
 jobs:
+  contract:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: node --test tests/gen2/post-release-proof-suite.test.mjs
+
   resolve:
-    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
     runs-on: ubuntu-24.04
     outputs:
       expected_sha: ${{ steps.sha.outputs.expected_sha }}
@@ -66,7 +85,7 @@ jobs:
 
   summary:
     needs: [resolve, platform, persistent-stress, connections, sovereignty]
-    if: always()
+    if: always() && github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
     steps:
       - name: Report exact post-release proof outcomes
