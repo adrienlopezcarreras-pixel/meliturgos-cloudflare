@@ -1,4 +1,5 @@
 import { D1GitHubActionRelayStore } from '../platform/github-action-relay.js';
+import { authorizeDevBridge } from '../core/dev-bridge-auth.js';
 
 function withoutTerminalNewline(value) {
   return String(value ?? '').replace(/[\r\n]+$/g, '');
@@ -29,7 +30,8 @@ function denied() {
 export function githubActionRelayApi(request, env) {
   const url = new URL(request.url);
   if (!url.pathname.startsWith('/api/internal/github-action-relay/')) return null;
-  if (!authorized(request, env)) return denied();
+  const bridgeDenied = authorizeDevBridge(request, env);
+  if (bridgeDenied && !authorized(request, env)) return denied();
   if (!env?.DB) return Response.json({ ok: false, code: 'GITHUB_RELAY_DB_REQUIRED' }, { status: 503 });
 
   return (async () => {
