@@ -622,6 +622,84 @@ test('release bootstrap proves long-context compression on a real-shaped archive
 });
 
 
+test('GEN2-42 D1 bootstrap challenge is scoped, expiring and one-shot', async () => {
+  const DB=sqliteD1();
+  const token='z'.repeat(64);
+  const hashBytes=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(token));
+  const tokenHash=[...new Uint8Array(hashBytes)].map(byte=>byte.toString(16).padStart(2,'0')).join('');
+  const now=Date.now();
+  try {
+    await DB.prepare(`CREATE TABLE mel_bootstrap_challenges (
+      token_hash TEXT PRIMARY KEY,
+      scope TEXT NOT NULL,
+      expires_at INTEGER NOT NULL,
+      consumed_at INTEGER,
+      created_at INTEGER NOT NULL
+    )`).run();
+    await DB.prepare('INSERT INTO mel_bootstrap_challenges(token_hash,scope,expires_at,consumed_at,created_at) VALUES(?,?,?,?,?)')
+      .bind(tokenHash,'gen2-42-runtime-tick',now+60000,null,now).run();
+
+    let ticks=0;
+    const request=()=>new Request('https://mel.test/api/internal/release-launch-bootstrap',{
+      method:'POST',
+      headers:{'x-mel-gen2-42-bootstrap':token,'content-type':'application/json'},
+      body:JSON.stringify({phase:'gen2-42-runtime-tick'}),
+    });
+    const first=await maybeHandleReleaseLaunchBootstrap(request(),{DB},{
+      runAutonomyTick:async()=>{ticks+=1;return{ok:true,status:'ACTIVE',advanced:false,control:{paused:false,max_autonomy:true}};},
+    });
+    assert.equal(first.status,200);
+    assert.equal((await first.json()).status,'GEN2_42_RUNTIME_TICK_EXECUTED');
+    assert.equal(ticks,1);
+
+    const replay=await maybeHandleReleaseLaunchBootstrap(request(),{DB},{
+      runAutonomyTick:async()=>{ticks+=1;return{ok:true};},
+    });
+    assert.equal(replay.status,401);
+    assert.equal((await replay.json()).code,'BOOTSTRAP_AUTH_REQUIRED');
+    assert.equal(ticks,1);
+
+    const row=await DB.prepare('SELECT consumed_at FROM mel_bootstrap_challenges WHERE token_hash=?').bind(tokenHash).first();
+    assert.ok(Number(row.consumed_at)>=now);
+  } finally {
+    DB.close();
+  }
+});
+
+test('GEN2-42 D1 bootstrap challenge rejects wrong scope and expired tokens', async () => {
+  for (const [scope,expiresDelta] of [['wrong-scope',60000],['gen2-42-runtime-tick',-1]]) {
+    const DB=sqliteD1();
+    const token=(scope==='wrong-scope'?'x':'y').repeat(64);
+    const hashBytes=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(token));
+    const tokenHash=[...new Uint8Array(hashBytes)].map(byte=>byte.toString(16).padStart(2,'0')).join('');
+    const now=Date.now();
+    try {
+      await DB.prepare(`CREATE TABLE mel_bootstrap_challenges (
+        token_hash TEXT PRIMARY KEY,
+        scope TEXT NOT NULL,
+        expires_at INTEGER NOT NULL,
+        consumed_at INTEGER,
+        created_at INTEGER NOT NULL
+      )`).run();
+      await DB.prepare('INSERT INTO mel_bootstrap_challenges(token_hash,scope,expires_at,consumed_at,created_at) VALUES(?,?,?,?,?)')
+        .bind(tokenHash,scope,now+expiresDelta,null,now).run();
+      const response=await maybeHandleReleaseLaunchBootstrap(
+        new Request('https://mel.test/api/internal/release-launch-bootstrap',{
+          method:'POST',
+          headers:{'x-mel-gen2-42-bootstrap':token,'content-type':'application/json'},
+          body:JSON.stringify({phase:'gen2-42-runtime-tick'}),
+        }),
+        {DB},
+        {runAutonomyTick:async()=>{throw new Error('must not run');}},
+      );
+      assert.equal(response.status,401);
+    } finally {
+      DB.close();
+    }
+  }
+});
+
+
 test('GEN2-42 runtime tick phase preserves autonomy control and delegates to canonical runtime', async () => {
   let controlCalls=0;
   let tickCalls=0;
