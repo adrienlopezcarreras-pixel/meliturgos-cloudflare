@@ -82,10 +82,10 @@ test('Cloudflare reads only Workers inventory and deployment metadata, never sou
     fetchImpl: async (url, init) => {
       seen.push({ url: String(url), authorization: init.headers.authorization });
       if (String(url).endsWith('/deployments')) {
-        return json({ success: true, result: [
+        return json({ success: true, result: { deployments: [
           { id: 'd1', created_on: '2026-09-22T00:00:00Z', source: 'api', strategy: 'percentage', versions: [{ version_id: 'v1', percentage: 100 }] },
           { id: 'd2' },
-        ] });
+        ] } });
       }
       return json({ success: true, result: [
         { id: 'meliturgos', modified_on: '2026-09-22T00:00:00Z', compatibility_date: '2026-09-04' },

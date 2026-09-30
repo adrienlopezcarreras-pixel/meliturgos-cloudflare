@@ -376,7 +376,7 @@ export function registerPlatformReadCapabilities(bus, { env = {}, fetchImpl = fe
       code: 'CLOUDFLARE_DEPLOYMENTS_READ_FAILED',
     });
     if (body?.success === false) throw capabilityError('CLOUDFLARE_DEPLOYMENTS_READ_FAILED', 502);
-    const deployments = (Array.isArray(body?.result) ? body.result : []).slice(0, count).map(row => ({
+    const deployments = (Array.isArray(body?.result?.deployments) ? body.result.deployments : []).slice(0, count).map(row => ({
       id: String(row.id || ''),
       created_on: String(row.created_on || ''),
       source: String(row.source || ''),
