@@ -327,8 +327,12 @@ export function createDefaultCapabilityBus({ audit, env, repository, branch, tok
   }, async () => ({
     ai: Boolean(runtimeEnv.AI), db: Boolean(runtimeEnv.DB), media_bucket: Boolean(runtimeEnv.MEDIA_BUCKET),
     github_repository: githubRepository, github_branch: githubBranch,
-    github_control_configured: Boolean(runtimeEnv.MEL_GITHUB_WRITABLE_WORKFLOWS && (runtimeEnv.MEL_GITHUB_TOKEN || runtimeEnv.DB)),
-    github_control_mode: runtimeEnv.MEL_GITHUB_TOKEN ? 'direct-token' : (runtimeEnv.DB && runtimeEnv.MEL_GITHUB_WRITABLE_WORKFLOWS ? 'd1-actions-relay' : 'unconfigured'),
+    github_control_configured: Boolean(runtimeEnv.MEL_GITHUB_WRITABLE_WORKFLOWS && (runtimeEnv.MEL_GITHUB_TOKEN || runtimeEnv.MEDIA_BUCKET || runtimeEnv.DB)),
+    github_control_mode: runtimeEnv.MEL_GITHUB_TOKEN
+      ? 'direct-token'
+      : (runtimeEnv.MEDIA_BUCKET && runtimeEnv.MEL_GITHUB_WRITABLE_WORKFLOWS
+        ? 'r2-actions-relay'
+        : (runtimeEnv.DB && runtimeEnv.MEL_GITHUB_WRITABLE_WORKFLOWS ? 'd1-actions-relay' : 'unconfigured')),
     cloudflare_control_configured: Boolean(runtimeEnv.CLOUDFLARE_API_TOKEN && runtimeEnv.CLOUDFLARE_ACCOUNT_ID && runtimeEnv.MEL_CLOUDFLARE_SCRIPT),
     vercel_control_configured: Boolean(runtimeEnv.VERCEL_TOKEN && runtimeEnv.MEL_VERCEL_PROJECT_ID && runtimeEnv.MEL_VERCEL_PROJECT_NAME),
     owner_configured: Boolean(runtimeEnv.MELITURGOS_USER),
