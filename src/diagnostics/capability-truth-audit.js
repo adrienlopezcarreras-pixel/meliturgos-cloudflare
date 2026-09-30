@@ -101,6 +101,7 @@ export async function auditRuntimeCapabilities(runtime, {
   samples = SAFE_SAMPLES,
   zeroCostCapabilityIds = [],
   onProgress = null,
+  executionTimeoutMs = 15_000,
 } = {}) {
   if (!runtime?.bus) throw new TypeError('CAPABILITY_BUS_REQUIRED');
 
@@ -156,11 +157,21 @@ export async function auditRuntimeCapabilities(runtime, {
       && costApproved;
     if (executable) {
       try {
-        const result = await runtime.bus.execute(record.id, sample, {
-          owner: context.owner || 'capability-audit',
-          permissions: context.permissions || [],
-          requestId: context.requestId || crypto.randomUUID(),
-        });
+        const timeoutMs = Math.max(50, Math.min(60_000, Number(executionTimeoutMs) || 15_000));
+        let timer;
+        const result = await Promise.race([
+          runtime.bus.execute(record.id, sample, {
+            owner: context.owner || 'capability-audit',
+            permissions: context.permissions || [],
+            requestId: context.requestId || crypto.randomUUID(),
+          }),
+          new Promise((_, reject) => {
+            timer = setTimeout(() => reject(Object.assign(
+              new Error('CAPABILITY_AUDIT_EXECUTION_TIMEOUT'),
+              { code: 'CAPABILITY_AUDIT_EXECUTION_TIMEOUT' },
+            )), timeoutMs);
+          }),
+        ]).finally(() => clearTimeout(timer));
         execution = { ok: true, result_type: Array.isArray(result) ? 'array' : typeof result };
       } catch (error) {
         execution = { ok: false, code: String(error?.code || error?.message || 'CAPABILITY_FAILED') };
