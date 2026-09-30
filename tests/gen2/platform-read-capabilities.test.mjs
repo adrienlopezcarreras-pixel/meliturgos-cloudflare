@@ -233,6 +233,36 @@ test('Vercel project and deployment reads preserve team scoping and bounded outp
   assert.equal(JSON.stringify({ projects, deployments }).includes('vercel-secret'), false);
 });
 
+test('Vercel read health uses encrypted account auth even when project inventory is empty', async () => {
+  const seen = [];
+  const bus = new CapabilityBus();
+  registerPlatformReadCapabilities(bus, {
+    env: {},
+    resolveVercelConfig: async () => ({
+      token: 'vault-vercel-token',
+      team_id: '',
+      project_id: '',
+      project_name: '',
+    }),
+    fetchImpl: async (url, init) => {
+      seen.push({ url: String(url), authorization: init.headers.authorization });
+      if (String(url).endsWith('/v2/user')) return json({ user: { id: 'usr_1' } });
+      if (String(url).includes('/v9/projects')) return json({ projects: [] });
+      throw new Error('UNEXPECTED_VERCEL_URL');
+    },
+  });
+
+  const projectsHealth = await bus.refreshHealth('vercel.projects.read');
+  const deploymentsHealth = await bus.refreshHealth('vercel.deployments.read');
+  assert.equal(projectsHealth.health, 'HEALTHY');
+  assert.equal(deploymentsHealth.health, 'HEALTHY');
+  assert.equal(seen.filter(call => call.url === 'https://api.vercel.com/v2/user').length, 2);
+  assert.equal(seen.every(call => call.authorization === 'Bearer vault-vercel-token'), true);
+
+  const projects = await bus.execute('vercel.projects.read', { limit: 1 }, owner);
+  assert.equal(projects.count, 0);
+});
+
 test('Cloudflare and Vercel fail closed when credentials are absent and upstream errors never echo bodies', async () => {
   const bus = new CapabilityBus();
   registerPlatformReadCapabilities(bus, {
