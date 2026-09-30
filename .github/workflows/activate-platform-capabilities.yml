@@ -297,7 +297,7 @@ jobs:
             done
             test "${CF_CREATE_DONE}" = "1"
           fi
-          node -e 'const d=require("./cloudflare-create.json");const dep=d?.result?.deployment;if(!dep?.id)process.exit(2);if(!Array.isArray(dep?.versions)||!dep.versions.some(v=>String(v?.version_id||"")===process.env.ACTIVE_VERSION&&Number(v?.percentage)===100))process.exit(3);console.log("cloudflare.deployments.create relay proof: "+JSON.stringify({transport:d?.result?.transport||null,deployment_id:dep.id}))' ACTIVE_VERSION="${ACTIVE_VERSION}"
+          ACTIVE_VERSION="${ACTIVE_VERSION}" node -e 'const d=require("./cloudflare-create.json");const dep=d?.result?.deployment;if(!dep?.id)process.exit(2);if(!Array.isArray(dep?.versions)||!dep.versions.some(v=>String(v?.version_id||"")===process.env.ACTIVE_VERSION&&Number(v?.percentage)===100))process.exit(3);console.log("cloudflare.deployments.create relay proof: "+JSON.stringify({transport:d?.result?.transport||null,deployment_id:dep.id}))'
 
           GITHUB_PROOF=false
           GITHUB_BLOCKER=""
