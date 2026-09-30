@@ -248,6 +248,15 @@ test('MEL-REL-03 release token verifies Professor and canonical browser runtime 
   assert.match(js, /toggleVoice/);
 });
 
+test('release token can read the sanitized capability inventory used by platform proof', async () => {
+  const response = await worker.fetch(smokeRequest('/api/gen2/capabilities'), env(), {});
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.ok, true);
+  assert.ok(Array.isArray(body.capabilities));
+  assert.equal(body.health_refreshed, false);
+});
+
 test('MEL-REL-03 release token runs only echo then exposes persisted observability metrics', async () => {
   const runtimeEnv = env();
   const echo = await worker.fetch(
