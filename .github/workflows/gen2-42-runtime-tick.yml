@@ -80,11 +80,11 @@ jobs:
           echo "::add-mask::${BOOTSTRAP_TOKEN}"
           cleanup_secret() {
             set +e
-            printf 'y\n' | npx wrangler secret delete MEL_LAUNCH_BOOTSTRAP_TOKEN --env="" >/tmp/gen2-42-bootstrap-delete.log 2>&1
+            printf 'y\n' | npx wrangler secret delete MEL_GEN2_42_BOOTSTRAP_TOKEN --env="" >/tmp/gen2-42-bootstrap-delete.log 2>&1
             set -e
           }
           trap cleanup_secret EXIT
-          printf '%s' "$BOOTSTRAP_TOKEN" | npx wrangler secret put MEL_LAUNCH_BOOTSTRAP_TOKEN --env=""
+          printf '%s' "$BOOTSTRAP_TOKEN" | npx wrangler secret put MEL_GEN2_42_BOOTSTRAP_TOKEN --env=""
 
           READY=0
           for ATTEMPT in $(seq 1 12); do
@@ -93,7 +93,7 @@ jobs:
               -o tick-response.raw.json \
               -w '%{http_code}' \
               -X POST "$BASE_URL/api/internal/release-launch-bootstrap" \
-              -H "x-mel-launch-bootstrap: $BOOTSTRAP_TOKEN" \
+              -H "x-mel-gen2-42-bootstrap: $BOOTSTRAP_TOKEN" \
               -H 'Content-Type: application/json' \
               --data-binary @tick-request.json || true)"
             if [ "$CODE" = "200" ]; then
