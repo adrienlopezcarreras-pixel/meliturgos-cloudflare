@@ -202,3 +202,12 @@ test('relay workflow uses GitHub Actions OIDC and no Cloudflare/Dev Bridge trans
   assert.doesNotMatch(source, /MEL_DEV_BRIDGE_TOKEN:\s*\$\{\{ secrets\.MEL_DEV_BRIDGE_TOKEN \}\}/);
   assert.doesNotMatch(source, /MEL_R2_BUCKET/);
 });
+
+
+test('router bypasses API version auth for the scoped GitHub relay endpoint', async () => {
+  const source = await readFile(new URL('../../src/router.js', import.meta.url), 'utf8');
+  const relayIndex = source.indexOf("rawUrl.pathname.startsWith('/api/internal/github-action-relay/')");
+  const versionIndex = source.indexOf("const resolution = resolveApiVersionRequest(request, { handler: 'router' });");
+  assert.ok(relayIndex >= 0);
+  assert.ok(versionIndex > relayIndex);
+});

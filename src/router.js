@@ -419,6 +419,12 @@ async function routeResolvedRequest(request, env, ctx) {
 
 export default {
   async fetch(request, env, ctx) {
+    const rawUrl = new URL(request.url);
+    if (rawUrl.pathname.startsWith('/api/internal/github-action-relay/')) {
+      const relayResponse = githubActionRelayApi(request, env);
+      if (relayResponse) return await relayResponse;
+    }
+
     const resolution = resolveApiVersionRequest(request, { handler: 'router' });
 
     if (resolution.unsupported) {
