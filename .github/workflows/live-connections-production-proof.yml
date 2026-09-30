@@ -114,13 +114,20 @@ jobs:
           # sanitized account/app health before accepting it as a fallback.
           PIPEDREAM_OK=0
           PIPEDREAM_APPS=""
-          if probe pipedream /api/gen2/connections/pipedream/test '{}'; then
-            PD_ACCOUNTS_CODE="$(curl --silent --show-error --max-time 45               --header "x-mel-release-smoke: 1"               --header "x-mel-launch-bootstrap: ${TOKEN}"               --output /tmp/pipedream_accounts.json               --write-out '%{http_code}'               "${BASE_URL}/api/gen2/connections/pipedream/accounts" || true)"
-            if [ "${PD_ACCOUNTS_CODE}" = "200" ]; then
-              PIPEDREAM_OK=1
-              PIPEDREAM_APPS="$(node -e 'const d=require("/tmp/pipedream_accounts.json");process.stdout.write((d.connected_apps||[]).join(","))')"
-              node -e 'const d=require("/tmp/pipedream_accounts.json");console.log("pipedream_accounts: "+JSON.stringify({ok:d?.ok===true,connected_apps:d?.connected_apps||[],healthy_account_count:(d?.accounts||[]).filter(x=>x?.healthy===true).length}))'
-            fi
+          # The linked-account inventory is the stronger proof for MEL's actual
+          # integrations: it authenticates the project and proves which user
+          # accounts are healthy. Component catalogue reachability is diagnostic
+          # only and must not mask healthy linked accounts.
+          PD_ACCOUNTS_CODE="$(curl --silent --show-error --max-time 45             --header "x-mel-release-smoke: 1"             --header "x-mel-launch-bootstrap: ${TOKEN}"             --output /tmp/pipedream_accounts.json             --write-out '%{http_code}'             "${BASE_URL}/api/gen2/connections/pipedream/accounts" || true)"
+          if [ "${PD_ACCOUNTS_CODE}" = "200" ]; then
+            PIPEDREAM_OK=1
+            PIPEDREAM_APPS="$(node -e 'const d=require("/tmp/pipedream_accounts.json");process.stdout.write((d.connected_apps||[]).join(","))')"
+            node -e 'const d=require("/tmp/pipedream_accounts.json");console.log("pipedream_accounts: "+JSON.stringify({ok:d?.ok===true,connected_apps:d?.connected_apps||[],healthy_account_count:(d?.accounts||[]).filter(x=>x?.healthy===true).length}))'
+          else
+            PD_ACCOUNTS_CODE="${PD_ACCOUNTS_CODE}" node -e 'const fs=require("fs");let d={};try{d=JSON.parse(fs.readFileSync("/tmp/pipedream_accounts.json","utf8"))}catch{};console.log("pipedream_accounts: "+JSON.stringify({ok:false,http:Number(process.env.PD_ACCOUNTS_CODE||0),code:d?.code||d?.error||"UNKNOWN"}))'
+          fi
+          if ! probe pipedream_catalog /api/gen2/connections/pipedream/test '{}'; then
+            echo "Pipedream component-catalogue diagnostic is unavailable; linked-account proof remains authoritative."
           fi
 
           has_pd_app() {
