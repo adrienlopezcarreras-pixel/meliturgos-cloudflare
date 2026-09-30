@@ -4,8 +4,10 @@ import { readFile } from 'node:fs/promises';
 
 test('release smoke can read only the sanitized sovereignty status route', async () => {
   const security=await readFile(new URL('../../src/core/security.js',import.meta.url),'utf8');
-  assert.match(security,/\['GET', new Set\(\[[^\]]*'\/api\/gen2\/autonomy\/sovereignty'/);
-  assert.doesNotMatch(security,/\['POST', new Set\(\[[^\]]*'\/api\/gen2\/autonomy\/sovereignty'/);
+  const getBlock=security.split("['GET', new Set([")[1]?.split("])],")[0]||'';
+  const postBlock=security.split("['POST', new Set([")[1]?.split("])],")[0]||'';
+  assert.match(getBlock,/\/api\/gen2\/autonomy\/sovereignty/);
+  assert.doesNotMatch(postBlock,/\/api\/gen2\/autonomy\/sovereignty/);
 });
 
 test('release captures sanitized exact-SHA sovereignty evidence without requiring false maturity', async () => {
