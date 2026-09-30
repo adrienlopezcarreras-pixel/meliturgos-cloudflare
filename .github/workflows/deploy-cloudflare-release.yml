@@ -1183,12 +1183,11 @@ jobs:
           console.log('Production GEN2-51 semantic API proof passed.');
           NODE
 
-          # MEL-COUNCIL-02: deep provider proof is intentionally non-blocking while dev-light mode is active.
+          # MEL-COUNCIL-02: deep provider proof is non-blocking while dev-light mode is active.
           if [ "${MEL_RELEASE_DEEP_AI_PROOFS_PAUSED:-false}" = "true" ]; then
             echo '{"ok":true,"skipped":true,"reason":"DEV_LIGHT_EXTERNAL_AI_PROOFS_PAUSED"}' > production-mel-council-02.json
             echo "MEL-COUNCIL-02 deep production proof paused for active roadmap development."
           else
-            # MEL-COUNCIL-02: execute the actual zero-added-cost Council and prove independent critiques + MEL synthesis.
             COUNCIL_CODE="$(curl --silent --show-error --max-time 120 \
               --header "x-mel-release-smoke: 1" \
               --header "x-mel-launch-bootstrap: ${BOOTSTRAP_TOKEN}" \
@@ -1197,27 +1196,12 @@ jobs:
               --output production-mel-council-02.json \
               --write-out '%{http_code}' \
               "${BASE_URL}/api/gen2/capabilities/execute")"
-            if [ "$COUNCIL_CODE" != "200" ]; then
+            if [ "${COUNCIL_CODE}" != "200" ]; then
               echo "MEL-COUNCIL-02 production Council returned HTTP ${COUNCIL_CODE}."
               test ! -s production-mel-council-02.json || cat production-mel-council-02.json
               exit 52
             fi
-            node - <<'NODE'
-            const fs=require('fs');
-            const body=JSON.parse(fs.readFileSync('production-mel-council-02.json','utf8'));
-            const r=body?.result||{};
-            if(body?.ok!==true || body?.capability!=='model.council') throw new Error('MEL_COUNCIL_02_CAPABILITY_NOT_OK');
-            if(!Array.isArray(r.critiques) || r.critiques.length<2) throw new Error('MEL_COUNCIL_02_INDEPENDENT_CRITIQUES_MISSING');
-            if(Number(r.independent_response_count||0)<2 || Number(r.unique_model_count||0)<2) throw new Error('MEL_COUNCIL_02_UNIQUENESS_FAILED');
-            if(r?.synthesis?.status!=='COMPLETE' || !String(r?.synthesis?.text||'').trim()) throw new Error('MEL_COUNCIL_02_SYNTHESIS_FAILED');
-            for(const c of r.critiques){
-              if(!c?.identity || !c?.provenance?.provider || !c?.provenance?.model) throw new Error('MEL_COUNCIL_02_PROVENANCE_MISSING');
-              if(c?.cost?.allowed!==true || c?.cost?.policy!=='MEL_ZERO_EURO_V1') throw new Error('MEL_COUNCIL_02_ZERO_COST_PROOF_FAILED');
-            }
-            console.log('Production MEL-COUNCIL-02 independent critique + synthesis proof passed.');
-            NODE
-  
-  
+            node -e 'const fs=require("fs");const body=JSON.parse(fs.readFileSync("production-mel-council-02.json","utf8"));const r=body?.result||{};if(body?.ok!==true||body?.capability!=="model.council")throw new Error("MEL_COUNCIL_02_CAPABILITY_NOT_OK");if(!Array.isArray(r.critiques)||r.critiques.length<2)throw new Error("MEL_COUNCIL_02_INDEPENDENT_CRITIQUES_MISSING");if(Number(r.independent_response_count||0)<2||Number(r.unique_model_count||0)<2)throw new Error("MEL_COUNCIL_02_UNIQUENESS_FAILED");if(r?.synthesis?.status!=="COMPLETE"||!String(r?.synthesis?.text||"").trim())throw new Error("MEL_COUNCIL_02_SYNTHESIS_FAILED");for(const c of r.critiques){if(!c?.identity||!c?.provenance?.provider||!c?.provenance?.model)throw new Error("MEL_COUNCIL_02_PROVENANCE_MISSING");if(c?.cost?.allowed!==true||c?.cost?.policy!=="MEL_ZERO_EURO_V1")throw new Error("MEL_COUNCIL_02_ZERO_COST_PROOF_FAILED");}console.log("Production MEL-COUNCIL-02 independent critique + synthesis proof passed.")'
           fi
 
           # GEN2-38: prove pure planning, zero-cost provider planning, and durable D1 Goal/Task persistence.
