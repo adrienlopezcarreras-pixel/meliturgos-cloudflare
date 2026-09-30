@@ -86,7 +86,7 @@ test('active chat route and model context use native MEL manual and experience p
     readFile(new URL('../src/router.js', import.meta.url), 'utf8'),
     readFile(new URL('../src/api/native-chat.js', import.meta.url), 'utf8'),
   ]);
-  assert.match(index, /handleNativeChat\(preparedRequest, withChatAiDefaults\(env\)\)/);
+  assert.match(index, /handleNativeChat\(preparedRequest, withChatAiDefaults\(env\), chatOptions\)/);
   assert.doesNotMatch(router, /handleNativeChat\(/);
   assert.doesNotMatch(router, /legacyHandler\.fetch\(/);
   assert.match(native, /loadOperationalExperience\(env, text\)/);
