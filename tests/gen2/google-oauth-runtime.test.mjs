@@ -126,11 +126,9 @@ test('Google OAuth begin uses fixed Google endpoints, PKCE and exact connector c
   assert.equal(url.searchParams.get('prompt'), 'consent');
   assert.equal(url.searchParams.get('include_granted_scopes'), 'true');
   assert.deepEqual(result.scopes, [
-    'https://www.googleapis.com/auth/calendar.events.readonly',
     'https://www.googleapis.com/auth/gmail.compose',
     'https://www.googleapis.com/auth/gmail.readonly',
     'https://www.googleapis.com/auth/gmail.send',
-    'https://www.googleapis.com/auth/tasks.readonly',
   ]);
 });
 
@@ -235,6 +233,26 @@ test('Google access-token resolver reuses another Google token only when target 
     await runtime.accessTokenResolver('google-calendar', { owner: 'adrien' }),
     '',
   );
+});
+
+test('Gmail full-access API requests the shared Google suite read scopes', async () => {
+  const f = fixture();
+  const request = new Request('https://mel.example/api/gen2/oauth/google/gmail/begin', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ full_access: true }),
+  });
+  const response = await maybeHandleGoogleOAuthApi(request, env(), new URL(request.url), { runtime: f.runtime });
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.ok, true);
+  assert.deepEqual(body.scopes, [
+    'https://www.googleapis.com/auth/calendar.events.readonly',
+    'https://www.googleapis.com/auth/gmail.compose',
+    'https://www.googleapis.com/auth/gmail.readonly',
+    'https://www.googleapis.com/auth/gmail.send',
+    'https://www.googleapis.com/auth/tasks.readonly',
+  ]);
 });
 
 test('Google OAuth API full-access begin requests declared optional scopes and never accepts arbitrary connector', async () => {
