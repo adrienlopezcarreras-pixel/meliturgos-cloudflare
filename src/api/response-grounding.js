@@ -183,6 +183,63 @@ export function formatVerifiedSelfStateResponse(state, question = '', { fallback
 }
 
 
+export function formatVerifiedDevBridgeStatusResponse(state, { fallback = '' } = {}) {
+  if (!state || typeof state !== 'object' || state.ok !== true) return String(fallback || '').trim();
+  const bridge = state.local_bridge && typeof state.local_bridge === 'object' ? state.local_bridge : {};
+  const lease = state.autonomy_lease && typeof state.autonomy_lease === 'object' ? state.autonomy_lease : null;
+  const counts = state.counts && typeof state.counts === 'object' ? state.counts : {};
+  const ready = Array.isArray(state.ready_packages) ? state.ready_packages : [];
+  const claimed = Array.isArray(state.claimed_jobs) ? state.claimed_jobs : [];
+  const repair = Array.isArray(state.repair_jobs) ? state.repair_jobs : [];
+  const review = Array.isArray(state.review_jobs) ? state.review_jobs : [];
+  const ageSeconds = bridge.age_ms == null ? null : Math.round(Number(bridge.age_ms || 0) / 1000);
+  const localOnline = state.local_polling_effective === true;
+  const lines = [
+    `Je viens de vérifier le Dev Bridge réel dans la D1${state.observed_at ? ` au ${String(state.observed_at)}` : ''}.`,
+    `- Bridge local primary : ${localOnline ? 'ONLINE' : 'OFFLINE'}${bridge.status ? ` (état enregistré ${String(bridge.status)})` : ''}${ageSeconds != null ? ` ; dernier heartbeat il y a ~${ageSeconds} s` : ' ; aucun heartbeat exploitable'}.`,
+    `- Polling local effectif maintenant : ${localOnline ? 'oui' : 'non'}.`,
+    `- Packages : READY=${Number(counts.ready || 0)}, CLAIMED=${Number(counts.claimed || 0)}, REPAIR_REQUIRED=${Number(counts.repair_required || 0)}, READY_FOR_REVIEW=${Number(counts.ready_for_review || 0)}.`,
+  ];
+  if (lease) {
+    const leaseAge = lease.age_ms == null ? null : Math.round(Number(lease.age_ms || 0) / 1000);
+    lines.push(`- Lease autonomie : ${String(lease.status || 'UNKNOWN')}${leaseAge != null ? ` ; âge ~${leaseAge} s` : ''}.`);
+  }
+  const describe = (row) => {
+    const proof = [];
+    if (row.teacher_verdict) proof.push(`Teacher=${row.teacher_verdict}${row.owner_override ? '+MAX' : ''}`);
+    if (row.bridge_preparation_status) proof.push(`bridge=${row.bridge_preparation_status}`);
+    if (row.dev_bridge_status) proof.push(`result=${row.dev_bridge_status}`);
+    if (row.candidate_branch) proof.push(`branch=${row.candidate_branch}`);
+    return `${row.job_id} — ${row.status}${proof.length ? ` ; ${proof.join(' ; ')}` : ''}`;
+  };
+  if (ready.length) {
+    lines.push('Packages READY visibles :');
+    for (const row of ready.slice(0, 8)) lines.push(`- ${describe(row)}`);
+  }
+  if (claimed.length) {
+    lines.push('Jobs actuellement CLAIMED :');
+    for (const row of claimed.slice(0, 5)) lines.push(`- ${describe(row)}`);
+  }
+  if (repair.length) {
+    lines.push('Jobs en réparation :');
+    for (const row of repair.slice(0, 5)) lines.push(`- ${describe(row)}`);
+  }
+  if (review.length) {
+    lines.push('Jobs prêts pour review :');
+    for (const row of review.slice(0, 5)) lines.push(`- ${describe(row)}`);
+  }
+  if (!localOnline && ready.length) {
+    lines.push('Conclusion : le poller local ne consomme pas actuellement ces packages READY ; il faut donc le fallback cloud ou remettre le Dev Bridge local réellement en ligne.');
+  } else if (localOnline && ready.length) {
+    lines.push('Conclusion : le poller local est vivant et des packages READY existent ; ils doivent être claimés par le bridge sur un prochain cycle.');
+  } else if (!ready.length) {
+    lines.push('Conclusion : aucun package READY n’attend actuellement un claim local.');
+  }
+  lines.push('Cette réponse vient de l’état runtime observé maintenant ; je ne te demande pas de confirmer une vérification que je peux exécuter moi-même.');
+  return lines.join('\n');
+}
+
+
 export function formatVerifiedAutonomyActivityResponse(activity, { fallback = '' } = {}) {
   if (!activity || typeof activity !== 'object' || activity.ok !== true) return String(fallback || '').trim();
   const control = activity.control && typeof activity.control === 'object' ? activity.control : {};

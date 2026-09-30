@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { formatVerifiedSelfStateResponse, formatVerifiedCapabilityAuditResponse, formatCommunicationAuditResponse, formatVerifiedAutonomyActivityResponse } from '../src/api/response-grounding.js';
+import { formatVerifiedSelfStateResponse, formatVerifiedCapabilityAuditResponse, formatCommunicationAuditResponse, formatVerifiedAutonomyActivityResponse, formatVerifiedDevBridgeStatusResponse } from '../src/api/response-grounding.js';
 
 test('verified self-state response states evidence and preserves observation boundaries', () => {
   const text = formatVerifiedSelfStateResponse({
@@ -111,4 +111,35 @@ test('autonomy activity formatter reports live MAX/jobs/ledger and rejects archi
   assert.match(text, /#42/);
   assert.doesNotMatch(text, /Ligier/);
   assert.match(text, /n’utilise pas une ancienne conversation/i);
+});
+
+
+test('Dev Bridge formatter reports live polling truth instead of asking for confirmation', () => {
+  const text = formatVerifiedDevBridgeStatusResponse({
+    ok:true,
+    observed_at:'2026-09-30T06:30:00.000Z',
+    source:'production_d1',
+    local_bridge:{bridge_id:'primary',status:'ONLINE',age_ms:120000,online_60s:false},
+    autonomy_lease:{bridge_id:'runtime-lease:autonomy-heartbeat',status:'RELEASED',age_ms:0},
+    counts:{ready:1,claimed:0,repair_required:0,ready_for_review:0},
+    ready_packages:[{
+      job_id:'mel-autonomy-mel-ui-06-1',
+      status:'TEACHER_APPROVED',
+      teacher_verdict:'APPROVE_PLAN',
+      owner_override:true,
+      bridge_preparation_status:'READY',
+      candidate_branch:'candidate/mel-clean-autonomy',
+    }],
+    claimed_jobs:[],
+    repair_jobs:[],
+    review_jobs:[],
+    local_polling_effective:false,
+  }, { fallback:'Tu confirmes que je vérifie ?' });
+
+  assert.match(text, /Bridge local primary : OFFLINE/);
+  assert.match(text, /Polling local effectif maintenant : non/);
+  assert.match(text, /mel-autonomy-mel-ui-06-1/);
+  assert.match(text, /poller local ne consomme pas actuellement/i);
+  assert.doesNotMatch(text, /Tu confirmes/);
+  assert.match(text, /je ne te demande pas de confirmer/i);
 });

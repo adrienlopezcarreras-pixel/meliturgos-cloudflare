@@ -16,7 +16,7 @@ import { MentorMemoryRepository } from '../learning/mentor-memory.js';
 import { MEL_RUNTIME_OPERATING_EXPERIENCE } from '../learning/runtime-operating-experience.js';
 import { stripInternalCounters } from './chat-sanitization.js';
 import { formatPersonalProfileRecall, retrieveContext, retrievePersonalProfileContext } from '../core/orchestrator/conversation-context.js';
-import { formatVerifiedSelfStateResponse, formatVerifiedCapabilityAuditResponse, formatCommunicationAuditResponse, formatVerifiedAutonomyActivityResponse } from './response-grounding.js';
+import { formatVerifiedSelfStateResponse, formatVerifiedCapabilityAuditResponse, formatCommunicationAuditResponse, formatVerifiedAutonomyActivityResponse, formatVerifiedDevBridgeStatusResponse } from './response-grounding.js';
 import { buildResponseQualityInstruction, finalizeEvidenceAlignedResponse, inferResponseMode } from './response-quality.js';
 import { buildConversationFocusInstruction, deriveConversationFocus } from './conversation-focus.js';
 import { loadConversationFocusState, saveConversationFocusState } from './conversation-focus-store.js';
@@ -122,6 +122,16 @@ export function inferNativeExecutionCapability(text) {
   const value = String(text || '').trim();
   if (!value) return null;
   const normalized = value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+
+  const bridgeSubject = /\b(?:dev\s*bridge|bridge\s+local|poller|packages?\s+ready|paquets?\s+ready)\b/.test(normalized);
+  const bridgeAction = /\b(?:verifi(?:e|er)|inspect(?:e|er)|controle(?:r)?|etat|statut|poll(?:e|er)?|consomm(?:e|er)|claim(?:e|er)?)\b/.test(normalized);
+  if (bridgeSubject && bridgeAction) {
+    return {
+      id: 'autonomy.bridge.status',
+      input: { limit: 20 },
+      execution_intent: 'DEV_BRIDGE_LIVE_INSPECTION',
+    };
+  }
 
   const globalStress = /\b(?:stress\s*test|stresstest|stress-test|audit(?:e|er)?\s+(?:global|complet|toutes?\s+(?:tes|les)\s+capacites)|test(?:e|er)?\s+toutes?\s+(?:tes|les)\s+capacites|verifi(?:e|er)\s+que\s+tout\s+fonctionne|verifi(?:e|er)\s+toutes?\s+(?:tes|les)\s+capacites)\b/.test(normalized);
   if (!globalStress) return null;
@@ -847,6 +857,7 @@ export async function handleNativeChat(request, env, options = {}) {
   const codeAccess = codeAccessTruth(capabilityManifest);
   const operatingManual = buildMelOperatingManualPrompt({ capabilityManifest, experience: operationalExperience });
   const developmentQueued = toolResults.find((row) => row.capability === 'evolution.enqueue' && row.status === 'SUCCEEDED')?.result || null;
+  const devBridgeStatusObserved = toolResults.find((row) => row.capability === 'autonomy.bridge.status' && row.status === 'SUCCEEDED')?.result || null;
   const autonomyActivityObserved = toolResults.find((row) => row.capability === 'autonomy.activity' && row.status === 'SUCCEEDED')?.result || null;
   const selfStateObserved = toolResults.find((row) => row.capability === 'self.state' && row.status === 'SUCCEEDED')?.result || null;
   const capabilityAuditObserved = toolResults.find((row) => row.capability === 'capability.audit' && row.status === 'SUCCEEDED')?.result || null;
@@ -1012,9 +1023,11 @@ export async function handleNativeChat(request, env, options = {}) {
   const modelResponseText = stripInternalCounters(ai.text);
   const groundedResponseText = communicationAuditObserved
     ? formatCommunicationAuditResponse(communicationAuditObserved, { fallback: modelResponseText })
-    : autonomyActivityObserved
-      ? formatVerifiedAutonomyActivityResponse(autonomyActivityObserved, { fallback: modelResponseText })
-      : capabilityAuditObserved
+    : devBridgeStatusObserved
+      ? formatVerifiedDevBridgeStatusResponse(devBridgeStatusObserved, { fallback: modelResponseText })
+      : autonomyActivityObserved
+        ? formatVerifiedAutonomyActivityResponse(autonomyActivityObserved, { fallback: modelResponseText })
+        : capabilityAuditObserved
         ? formatVerifiedCapabilityAuditResponse(capabilityAuditObserved, { fallback: modelResponseText })
         : selfStateObserved
         ? formatVerifiedSelfStateResponse(selfStateObserved, text, { fallback: modelResponseText })
@@ -1035,7 +1048,7 @@ export async function handleNativeChat(request, env, options = {}) {
     toolResults,
     recent,
   });
-  const qualityGuardedResponseText = autonomyActivityObserved
+  const qualityGuardedResponseText = (autonomyActivityObserved || devBridgeStatusObserved)
     ? evidenceAlignedResponseText
     : enforceResponseQuality({
         responseText: evidenceAlignedResponseText,
@@ -1083,6 +1096,8 @@ export async function handleNativeChat(request, env, options = {}) {
         }
       : communicationAuditObserved
         ? { mode: 'deterministic-communication-audit', source: 'conversation.audit', observed_at: communicationAuditObserved.audited_at || null }
+      : devBridgeStatusObserved
+        ? { mode: 'deterministic-dev-bridge-status', source: 'autonomy.bridge.status', observed_at: devBridgeStatusObserved.observed_at || null }
       : autonomyActivityObserved
         ? { mode: 'deterministic-autonomy-activity', source: 'autonomy.activity', observed_at: autonomyActivityObserved.observed_at || null }
       : capabilityAuditObserved
