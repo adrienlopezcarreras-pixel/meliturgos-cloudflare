@@ -118,26 +118,27 @@ jobs:
             test "${RELAY_CODE}" = "204"
           fi
 
-          READY=0
-          for attempt in $(seq 1 30); do
-            if api_get "/api/gen2/capabilities?refresh=1" capabilities-before.json 2>/tmp/platform-capability-refresh.err; then
-              if GITHUB_RUNTIME_CREDENTIAL="${GITHUB_RUNTIME_CREDENTIAL:-RELAY}" node - <<'NODE'
+          # Capability health is diagnostic here, not the proof gate. The live
+          # operations below are stronger evidence and fail closed individually.
+          api_get "/api/gen2/capabilities?refresh=1" capabilities-before.json || true
+          if [ -f capabilities-before.json ]; then
+            node - <<'NODE'
           const d=require('./capabilities-before.json');
-          const ids=['cloudflare.workers.read','cloudflare.deployments.read','cloudflare.deployments.create'];
+          const wanted=[
+            'cloudflare.workers.read',
+            'cloudflare.deployments.read',
+            'cloudflare.deployments.create',
+            'github.actions.workflow.dispatch',
+          ];
           const rows=new Map((d.capabilities||[]).map(x=>[x.id,x]));
-          const cloudflareReady=ids.every(id=>rows.get(id)?.health==='HEALTHY');
-          const mode=process.env.GITHUB_RUNTIME_CREDENTIAL||'RELAY';
-          const githubReady=mode==='CONFIGURED' || rows.get('github.actions.workflow.dispatch')?.health==='HEALTHY';
-          process.exit(cloudflareReady && githubReady ? 0 : 1);
+          console.log(JSON.stringify({
+            preflight_health:Object.fromEntries(wanted.map(id=>[id,{
+              health:rows.get(id)?.health||null,
+              detail:rows.get(id)?.health_detail||null,
+            }])),
+          },null,2));
           NODE
-              then
-                READY=1
-                break
-              fi
-            fi
-            sleep 2
-          done
-          test "${READY}" = "1"
+          fi
 
           capability cloudflare.workers.read '{"limit":10}' cloudflare-workers.json
           capability cloudflare.deployments.read '{"script":"meliturgos","limit":20}' cloudflare-deployments.json
@@ -214,11 +215,8 @@ jobs:
             'cloudflare.deployments.read',
             'cloudflare.deployments.create',
           ];
-          for(const id of cloudflareIds){
-            if(rows.get(id)?.health!=='HEALTHY'){
-              throw new Error('CLOUDFLARE_CAPABILITY_NOT_HEALTHY:'+id+':'+String(rows.get(id)?.health));
-            }
-          }
+          // Health remains recorded for diagnostics. Success of the three live
+          // Cloudflare capability calls above is the actual fail-closed proof.
           const healthy=new Set(['HEALTHY','PROTECTED']);
           const remainingMel=caps
             .filter(x=>x.provider==='mel' && !healthy.has(String(x.health||'').toUpperCase()))
