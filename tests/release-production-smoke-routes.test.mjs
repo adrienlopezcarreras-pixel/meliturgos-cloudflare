@@ -214,6 +214,7 @@ test('release smoke auth permits only the sanitized connection proof routes adde
   for (const [method,path] of [
     ['GET','/api/gen2/connections/google/status'],
     ['GET','/api/gen2/connections/pipedream/accounts'],
+    ['GET','/api/gen2/autonomy/sovereignty'],
     ['POST','/api/gen2/connections/pipedream/test'],
   ]) {
     assert.equal(isReleaseSmokeRequest(smokeRequest(path, method), runtimeEnv), true, method+' '+path);
