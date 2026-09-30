@@ -33,6 +33,7 @@ test('Cloudflare API relay ignores unrelated routes', async () => {
 
 test('Cloudflare relay runner reads deployment list from documented result.deployments shape', async () => {
   const source = await readFile(new URL('../../scripts/cloudflare-api-relay-runner.mjs', import.meta.url), 'utf8');
-  assert.match(source, /Array\.isArray\(body\?\.result\?\.deployments\)\?body\.result\.deployments/);
-  assert.doesNotMatch(source, /Array\.isArray\(body\?\.result\)\?body\.result:\[\]\)\.slice\(0,limit\)\.map\(row=>\(\{/);
+  const deploymentBranch = source.slice(source.indexOf("job.operation==='deployments.list'"));
+  assert.match(deploymentBranch, /Array\.isArray\(body\?\.result\?\.deployments\)\?body\.result\.deployments/);
+  assert.doesNotMatch(deploymentBranch, /Array\.isArray\(body\?\.result\)\?body\.result:\[\]/);
 });
