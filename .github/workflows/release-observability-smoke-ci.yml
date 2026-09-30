@@ -10,6 +10,7 @@ on:
       - 'tests/operator-auth.test.mjs'
       - 'tests/release-production-smoke-routes.test.mjs'
       - '.github/workflows/release-observability-smoke-ci.yml'
+      - 'scripts/check-release-proof-shell.mjs'
   push:
     branches:
       - 'fix/release-observability-smoke'
@@ -34,7 +35,8 @@ jobs:
       - name: Syntax
         run: >
           node --check src/core/security.js &&
-          node --check src/router.js
+          node --check src/router.js &&
+          node scripts/check-release-proof-shell.mjs
       - name: Targeted release observability tests
         run: >
           node --test
