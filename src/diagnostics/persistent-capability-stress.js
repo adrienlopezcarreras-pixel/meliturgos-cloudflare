@@ -1,6 +1,6 @@
 import { auditRuntimeCapabilities, SAFE_SAMPLES } from './capability-truth-audit.js';
 
-const ACTIVE_STATUSES = new Set(['QUEUED', 'RUNNING', 'RETRYING']);
+const STALE_RUN_MS = 90000;
 
 function stressError(code) {
   return Object.assign(new Error(code), { code });
@@ -285,16 +285,21 @@ export async function startPersistentCapabilityStress({ bus, db, context = {} } 
   if (!bus) throw stressError('CAPABILITY_STRESS_BUS_REQUIRED');
   const store = new D1CapabilityStressStore(db);
   const active = await store.latestActive();
-  if (active) return { ...active, reused: true };
+  const now = Date.now();
 
-  const total = bus.list().length;
-  const job = await store.create({ total });
+  if (active && now - Number(active.updated_at || 0) <= STALE_RUN_MS) {
+    return { ...active, reused: true, resumed: false };
+  }
+
+  const job = active || await store.create({ total: bus.list().length });
   const promise = executePersistentStress({ bus, store, job, context });
+  const resumed = Boolean(active);
   if (typeof context.waitUntil === 'function') {
     context.waitUntil(promise);
-    return { ...job, status: 'RUNNING', reused: false };
+    return { ...job, status: 'RUNNING', reused: resumed, resumed };
   }
-  return promise;
+  const completed = await promise;
+  return { ...completed, reused: resumed, resumed };
 }
 
 export async function readPersistentCapabilityStress({ db, jobId = null } = {}) {
