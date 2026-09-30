@@ -22,6 +22,9 @@ on:
       - ops/gen2-42-runtime-tick
     paths:
       - .ops/gen2-42-runtime-tick-trigger.txt
+      - src/security/github-actions-oidc.js
+      - tests/gen2/github-actions-oidc.test.mjs
+      - tests/gen2/runtime-tick-lease-retry-contract.test.mjs
 
 permissions:
   contents: read
@@ -43,7 +46,7 @@ jobs:
       - name: Syntax gate
         run: npm run check
       - name: Dev Bridge and bootstrap runtime contracts
-        run: node --test tests/integration/dev-runtime-api.test.mjs tests/release-launch-bootstrap.test.mjs
+        run: node --test tests/gen2/github-actions-oidc.test.mjs tests/integration/dev-runtime-api.test.mjs tests/release-launch-bootstrap.test.mjs tests/gen2/runtime-tick-lease-retry-contract.test.mjs
 
   tick:
     if: github.event_name != 'pull_request'
