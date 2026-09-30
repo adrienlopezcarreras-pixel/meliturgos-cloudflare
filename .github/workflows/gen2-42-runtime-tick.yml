@@ -57,37 +57,42 @@ jobs:
           cache: npm
       - name: Install exact lockfile
         run: npm ci
-      - name: Run bounded GEN2-42 action through durable Dev Bridge
+      - name: Create one-shot D1 bootstrap challenge and run bounded GEN2-42 action
         shell: bash
         env:
-          MEL_DEV_BRIDGE_TOKEN: ${{ secrets.MEL_DEV_BRIDGE_TOKEN }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           set -euo pipefail
           BASE_URL="https://meliturgos.adrien-lopezcarreras.workers.dev"
-          test -n "${MEL_DEV_BRIDGE_TOKEN:-}"
           MODE="tick"
           if [ -f .ops/gen2-42-runtime-tick-trigger.txt ]; then
             REQUESTED_MODE="$(awk -F= '$1=="mode"{print $2}' .ops/gen2-42-runtime-tick-trigger.txt | tail -n1 | tr -d '\r' || true)"
             if [ -n "$REQUESTED_MODE" ]; then MODE="$REQUESTED_MODE"; fi
           fi
           case "$MODE" in
-            tick) ;;
+            tick) PHASE="gen2-42-runtime-tick" ;;
             owner-max) echo "owner-max remains on the owner-authorized release path"; exit 64 ;;
             *) echo "Unsupported GEN2-42 ops mode: $MODE"; exit 64 ;;
           esac
           echo "GEN2-42 bounded mode: $MODE"
+          BOOTSTRAP_TOKEN="$(openssl rand -hex 32)"
+          echo "::add-mask::${BOOTSTRAP_TOKEN}"
+          MEL_GEN2_42_CHALLENGE_TOKEN="$BOOTSTRAP_TOKEN" node scripts/create-gen2-42-bootstrap-challenge.mjs
+
+          printf '{"phase":"%s"}' "$PHASE" > tick-request.json
           CODE="$(curl -sS --max-time 180 \
             -o tick-response.raw.json \
             -w '%{http_code}' \
-            -X POST "$BASE_URL/api/dev-bridge/autonomy/tick" \
-            -H "Authorization: Bearer $MEL_DEV_BRIDGE_TOKEN" \
+            -X POST "$BASE_URL/api/internal/release-launch-bootstrap" \
+            -H "x-mel-gen2-42-bootstrap: $BOOTSTRAP_TOKEN" \
             -H 'Content-Type: application/json' \
-            --data '{}' || true)"
+            --data-binary @tick-request.json || true)"
           if [ "$CODE" != "200" ]; then
             if [ -s tick-response.raw.json ]; then cat tick-response.raw.json; fi
             exit 65
           fi
-          node -e "const fs=require('fs');const x=JSON.parse(fs.readFileSync('tick-response.raw.json','utf8'));if(x?.ok!==true||!x?.tick)process.exit(2)"
+          node -e "const fs=require('fs');const x=JSON.parse(fs.readFileSync('tick-response.raw.json','utf8'));if(x?.ok!==true)process.exit(2)"
       - name: Build sanitized tick proof
         shell: bash
         run: |
@@ -95,31 +100,23 @@ jobs:
           node - <<'NODE'
           const fs=require('fs');
           const body=JSON.parse(fs.readFileSync('tick-response.raw.json','utf8'));
-          const tick=body?.tick||{};
-          const completions=tick?.completions||tick?.passive_completions||{};
-          const completed=Array.isArray(completions?.completed)?completions.completed:[];
-          const rejected=Array.isArray(completions?.rejected)?completions.rejected:[];
-          const prep=tick?.bridge_preparation||null;
-          const job=tick?.job||null;
-          const normalizedJob=job?{...job,job_id:job?.job_id||job?.id||null}:null;
-          const bridgeReady=prep?.status==='READY' && Boolean(normalizedJob?.job_id);
           const safe={
-            schema:'mel.gen2-42-authenticated-runtime-tick/v4',
-            ok:body?.ok===true && tick?.ok!==false,
-            status:'GEN2_42_RUNTIME_TICK_EXECUTED',
-            phase:'dev-bridge-autonomy-tick',
-            tick_status:tick?.status||null,
-            advanced:tick?.advanced===true,
-            paused:tick?.control?.paused===true,
-            max_autonomy:tick?.control?.max_autonomy===true,
-            launch_approved_sha:tick?.control?.launch_approved_sha||null,
-            control_unchanged_by_bootstrap:true,
-            owner_authorized_bootstrap:false,
-            bridge_preparation_ready:bridgeReady,
-            bridge_job:normalizedJob,
-            bridge_executor:tick?.bridge_executor||null,
-            completed,
-            rejected,
+            schema:'mel.gen2-42-authenticated-runtime-tick/v5',
+            ok:body?.ok===true,
+            status:body?.status||null,
+            phase:body?.phase||null,
+            tick_status:body?.tick_status||null,
+            advanced:body?.advanced===true,
+            paused:body?.paused===true,
+            max_autonomy:body?.max_autonomy===true,
+            launch_approved_sha:body?.launch_approved_sha||null,
+            control_unchanged_by_bootstrap:body?.control_unchanged_by_bootstrap===true,
+            owner_authorized_bootstrap:body?.owner_authorized_bootstrap===true,
+            bridge_preparation_ready:body?.bridge_preparation_ready===true,
+            bridge_job:body?.bridge_job||null,
+            bridge_executor:body?.bridge_executor||null,
+            completed:Array.isArray(body?.completed)?body.completed:[],
+            rejected:Array.isArray(body?.rejected)?body.rejected:[],
           };
           fs.writeFileSync('gen2-42-runtime-tick-proof.json',JSON.stringify(safe,null,2));
           console.log(JSON.stringify(safe,null,2));
