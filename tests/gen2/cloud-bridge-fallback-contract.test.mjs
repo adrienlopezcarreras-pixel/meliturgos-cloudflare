@@ -35,3 +35,23 @@ test('cloud bridge keeps runtime payloads outside the Git worktree before candid
   assert.doesNotMatch(source, /--output bridge-job\.json/);
   assert.doesNotMatch(source, /readFileSync\(['"]bridge-job\.json/);
 });
+
+
+test('cloud bridge persists candidate hygiene failures instead of crashing the claimed job', async () => {
+  const source = await readFile(new URL('../../.github/workflows/gen2-42-apply-ready-bridge.yml', import.meta.url), 'utf8');
+  assert.match(source, /candidate hygiene/);
+  assert.match(source, /git\.diff\.cached\.check/);
+  assert.match(source, /CANDIDATE_HYGIENE_FAILED/);
+  assert.match(source, /candidate_ready=false/);
+  assert.match(source, /status:'REPAIR_REQUIRED'/);
+});
+
+test('cloud bridge retries transient D1 result authorization and has an emergency claimed-job report', async () => {
+  const source = await readFile(new URL('../../.github/workflows/gen2-42-apply-ready-bridge.yml', import.meta.url), 'utf8');
+  assert.match(source, /Cloud bridge result propagation attempt/);
+  assert.match(source, /Persist claimed bridge failure before exit/);
+  assert.match(source, /id: report_emergency/);
+  assert.match(source, /Emergency bridge result attempt/);
+  assert.match(source, /steps\.report_emergency\.outcome == 'success'/);
+  assert.match(source, /REPORT_READY=0/);
+});
