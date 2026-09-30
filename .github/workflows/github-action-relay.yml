@@ -14,6 +14,8 @@ on:
       - 'src/capabilities/platform-control-capabilities.js'
       - 'src/router.js'
       - 'tests/gen2/github-action-relay.test.mjs'
+      - 'src/security/github-actions-oidc.js'
+      - 'tests/gen2/github-actions-oidc.test.mjs'
 
 permissions:
   contents: read
@@ -37,7 +39,7 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run check
-      - run: node --test tests/gen2/github-action-relay.test.mjs tests/gen2/platform-control-capabilities.test.mjs
+      - run: node --test tests/gen2/github-actions-oidc.test.mjs tests/gen2/github-action-relay.test.mjs tests/gen2/platform-control-capabilities.test.mjs
 
   relay:
     if: github.event_name != 'pull_request'
