@@ -2,9 +2,16 @@ name: activate-platform-capabilities
 
 on:
   workflow_dispatch:
-  workflow_run:
-    workflows: ["deploy-cloudflare-release"]
-    types: [completed]
+    inputs:
+      expected_sha:
+        description: "Exact release SHA to prove; defaults to workflow SHA"
+        required: false
+        type: string
+  workflow_call:
+    inputs:
+      expected_sha:
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -15,21 +22,18 @@ concurrency:
 
 jobs:
   activate-and-prove:
-    if: >
-      github.event_name == 'workflow_dispatch' ||
-      github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 20
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       MEL_GITHUB_TOKEN: ${{ secrets.MEL_GITHUB_TOKEN || secrets.GITHUB_PAT || secrets.GH_PAT || secrets.GH_TOKEN }}
-      EXPECTED_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+      EXPECTED_SHA: ${{ inputs.expected_sha || github.sha }}
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          ref: ${{ inputs.expected_sha || github.sha }}
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
         with:
@@ -96,7 +100,7 @@ jobs:
           }
 
           READY=0
-          for attempt in $(seq 1 15); do
+          for attempt in $(seq 1 45); do
             if api_get "/api/gen2/capabilities?refresh=1" capabilities-before.json 2>/tmp/platform-capability-refresh.err; then
               if node - <<'NODE'
           const d=require('./capabilities-before.json');
@@ -109,7 +113,8 @@ jobs:
                 break
               fi
             fi
-            sleep 2
+            echo "Platform capability propagation attempt ${attempt}/45 is not ready yet."
+            sleep 3
           done
           test "${READY}" = "1"
 
@@ -201,7 +206,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: real-platform-capabilities-${{ github.event.workflow_run.head_sha || github.sha }}
+          name: real-platform-capabilities-${{ inputs.expected_sha || github.sha }}
           path: platform-capabilities-proof.json
           if-no-files-found: warn
           retention-days: 14
