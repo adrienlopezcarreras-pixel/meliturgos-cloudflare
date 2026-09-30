@@ -26,3 +26,9 @@ test('post-release suite sequences platform, stress, connections and sovereignty
   assert.match(source, /sovereignty:\n[\s\S]*needs: \[resolve, connections\][\s\S]*if: always\(\)/);
   assert.match(source, /summary:\n[\s\S]*needs: \[resolve, platform, persistent-stress, connections, sovereignty\]/);
 });
+
+
+test('post-release parent grants actions write required by called platform proof', async () => {
+  const source = await readFile(new URL('../../.github/workflows/post-release-proof-suite.yml', import.meta.url), 'utf8');
+  assert.match(source, /permissions:\n\s+contents: read\n\s+actions: write/);
+});
