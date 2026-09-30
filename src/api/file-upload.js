@@ -1,6 +1,18 @@
 import { requireAuth } from '../core/security.js';
 
 const MAX_FILE_BYTES = 25_000_000;
+const DEFAULT_MEDIA_TTL_SECONDS = 7 * 24 * 60 * 60;
+
+async function sha256Hex(bytes) {
+  const digest = await crypto.subtle.digest('SHA-256', bytes);
+  return [...new Uint8Array(digest)].map(value => value.toString(16).padStart(2, '0')).join('');
+}
+
+function mediaTtlSeconds(env) {
+  const configured = Number(env?.MEL_MEDIA_TTL_SECONDS);
+  if (!Number.isFinite(configured) || configured <= 0) return DEFAULT_MEDIA_TTL_SECONDS;
+  return Math.max(300, Math.min(30 * 24 * 60 * 60, Math.floor(configured)));
+}
 
 function safeName(value) {
   return String(value || 'file')
@@ -125,14 +137,24 @@ export async function handleFileUpload(request, env, options = {}) {
   const name = safeName(file.name);
   const mime = String(file.type || 'application/octet-stream').slice(0, 160);
   const bytes = new Uint8Array(await file.arrayBuffer());
+  const sha256 = await sha256Hex(bytes);
   const id = crypto.randomUUID();
+  const createdAt = new Date();
+  const ttlSeconds = mediaTtlSeconds(env);
+  const expiresAt = new Date(createdAt.getTime() + ttlSeconds * 1000);
   const key = `uploads/${new Date().toISOString().slice(0,10)}/${id}-${name}`;
   let stored = false;
 
   if (env?.MEDIA_BUCKET && typeof env.MEDIA_BUCKET.put === 'function') {
     await env.MEDIA_BUCKET.put(key, bytes, {
       httpMetadata: { contentType:mime },
-      customMetadata: { originalName:name, owner:String(env.MELITURGOS_USER || 'owner') },
+      customMetadata: {
+        originalName:name,
+        owner:String(env.MELITURGOS_USER || 'owner'),
+        sha256,
+        createdAt:createdAt.toISOString(),
+        expiresAt:expiresAt.toISOString(),
+      },
     });
     stored = true;
   }
@@ -155,7 +177,10 @@ export async function handleFileUpload(request, env, options = {}) {
   }
 
   return Response.json({
-    ok:true,id,name,size,type:mime,stored,private:true,key:stored?key:null,url:null,
+    ok:true,id,name,size,type:mime,sha256,stored,private:true,key:stored?key:null,url:null,
+    created_at:createdAt.toISOString(),
+    expires_at:stored?expiresAt.toISOString():null,
+    ttl_seconds:stored?ttlSeconds:null,
     preview_text,
     analysis_status: analysis_status || (stored ? 'STORED_PRIVATE' : 'RECEIVED_NOT_PERSISTED'),
     analysis_provider,
