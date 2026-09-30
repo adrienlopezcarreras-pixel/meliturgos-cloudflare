@@ -2,9 +2,16 @@ name: persistent-capability-stress-live-proof
 
 on:
   workflow_dispatch:
-  workflow_run:
-    workflows: ["deploy-cloudflare-release"]
-    types: [completed]
+    inputs:
+      expected_sha:
+        description: "Exact release SHA to prove; defaults to workflow SHA"
+        required: false
+        type: string
+  workflow_call:
+    inputs:
+      expected_sha:
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -15,13 +22,12 @@ concurrency:
 
 jobs:
   production-proof:
-    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-24.04
     timeout-minutes: 12
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          ref: ${{ inputs.expected_sha || github.sha }}
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
         with:
@@ -58,7 +64,7 @@ jobs:
         shell: bash
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          EXPECTED_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+          EXPECTED_SHA: ${{ inputs.expected_sha || github.sha }}
         run: |
           set -euo pipefail
           BASE_URL="https://meliturgos.adrien-lopezcarreras.workers.dev"
@@ -193,7 +199,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: persistent-capability-stress-live-proof-${{ github.event.workflow_run.head_sha || github.sha }}
+          name: persistent-capability-stress-live-proof-${{ inputs.expected_sha || github.sha }}
           path: |
             persistent-capability-stress-live-proof.json
             stress-start.json
