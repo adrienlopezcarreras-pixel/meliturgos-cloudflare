@@ -7,7 +7,7 @@ import {
   persistResponseQualityEvent,
 } from '../src/api/response-quality-audit.js';
 
-test('quality audit catches a clearly off-topic answer and blocks it from being sent unchanged', () => {
+test('quality audit records a clearly off-topic heuristic without replacing the generated answer', () => {
   const focus = {
     anchor:'améliore la cohérence des réponses de MEL et sa connaissance de ses capacités',
     excluded_topics:['shardvault'],
@@ -26,8 +26,7 @@ test('quality audit catches a clearly off-topic answer and blocks it from being 
     focus,
     assessment,
   });
-  assert.match(guarded, /reste uniquement sur ce périmètre/i);
-  assert.doesNotMatch(guarded, /abeilles produisent/i);
+  assert.equal(guarded, 'Les abeilles produisent du miel et vivent dans une ruche.');
 });
 
 test('quality audit catches action on an explicitly excluded topic', () => {
@@ -107,4 +106,18 @@ test('status-only follow-up uses the strict drift threshold from the resolved ac
     },
   });
   assert.ok(assessment.issues.some(row=>row.code==='POSSIBLE_OFF_TOPIC'));
+});
+
+
+test('quality guard still blocks an action on an explicitly excluded topic', () => {
+  const responseText = "Je travaille sur ShardVault et j'ai corrigé sa reconstruction.";
+  const focus = {
+    anchor:'améliore la communication de MEL',
+    excluded_topics:['shardvault'],
+    needs_clarification:false,
+  };
+  const assessment = assessResponseQuality({ userText:'avance', responseText, focus });
+  const guarded = enforceResponseQuality({ responseText, userText:'avance', focus, assessment });
+  assert.notEqual(guarded, responseText);
+  assert.match(guarded, /explicitement exclu/i);
 });
