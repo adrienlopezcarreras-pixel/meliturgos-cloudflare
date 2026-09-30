@@ -20,7 +20,7 @@ test('full chat exposes picker and clipboard file ingestion through the same upl
   assert.match(html, /chatInput'\)\.addEventListener\('paste'/);
   assert.match(html, /if\(!files\.length\)return;e\.preventDefault\(\);uploadChatFiles\(files,'clipboard'\)/);
   assert.match(html, /\/api\/files\/upload/);
-  assert.match(html, /input_source:source/);
+  assert.match(html, /input_source:staged\[0\]\?\.source\|\|source/);
 });
 
 
@@ -28,7 +28,7 @@ test('full chat stages uploaded attachments and allows removal before explicit s
   const response = await renderFullInterface();
   const html = await response.text();
   assert.match(html, /id="chatAttachments"/);
-  assert.match(html, /const pendingChatFiles=[]/);
+  assert.match(html, /const pendingChatFiles=\[\]/);
   assert.match(html, /pendingChatFiles\.push/);
   assert.match(html, /pendingChatFiles\.splice\(index,1\)/);
   assert.match(html, /Retirer /);
@@ -38,7 +38,7 @@ test('full chat stages uploaded attachments and allows removal before explicit s
 
 
 test('normal chat stages uploaded attachments and allows removal before explicit send', async () => {
-  const response = renderMvpInterfaceV3();
+  const response = await renderMvpInterfaceV3();
   const html = await response.text();
   assert.match(html, /id="attachments"/);
   assert.match(NORMAL_RUNTIME_SOURCE, /pendingFiles=\[\]/);
