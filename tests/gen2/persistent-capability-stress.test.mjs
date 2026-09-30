@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import { sqliteD1 } from '../helpers/sqlite-d1.mjs';
 import {
   readPersistentCapabilityStress,
@@ -92,4 +93,14 @@ test('persistent capability stress can continue through waitUntil and expose liv
   } finally {
     db.close();
   }
+});
+
+
+test('generic capability route forwards Worker waitUntil and release smoke exposes only stress start/status', async () => {
+  const router = await readFile(new URL('../../src/router.js', import.meta.url), 'utf8');
+  assert.match(router, /"capability\.audit"/);
+  assert.match(router, /"capability\.audit\.status"/);
+  assert.match(router, /waitUntil:\s*typeof ctx\?\.waitUntil === "function"/);
+  assert.match(router, /handleConversationApi\(request, env, url, ctx\)/);
+  assert.match(router, /capabilityContext\(env, request, ctx\)/);
 });
