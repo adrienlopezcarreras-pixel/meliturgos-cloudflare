@@ -216,10 +216,17 @@ jobs:
             const body=String(item?.content??'');
             if(!rel||path.posix.isAbsolute(rel)||rel.includes('..')||isSensitivePath(rel)) throw new Error('APPLY_PATH_DENIED:'+rel);
             if(body.length>200000) throw new Error('APPLY_CONTENT_TOO_LARGE:'+rel);
+            const trailingMatches=body.match(/[ \t]+(?=\r?\n|$)/g)||[];
+            const normalizedBody=trailingMatches.length
+              ? body.replace(/[ \t]+(?=\r?\n|$)/g,'')
+              : body;
+            if(trailingMatches.length){
+              console.log('CANDIDATE_TRAILING_WHITESPACE_NORMALIZED path='+rel+' occurrences='+trailingMatches.length);
+            }
             const target=path.resolve(process.cwd(),rel);
             if(!target.startsWith(process.cwd()+path.sep)) throw new Error('APPLY_OUTSIDE_REPO:'+rel);
             await fs.mkdir(path.dirname(target),{recursive:true});
-            await fs.writeFile(target,body,'utf8');
+            await fs.writeFile(target,normalizedBody,'utf8');
           }
           NODE
           git diff --check
