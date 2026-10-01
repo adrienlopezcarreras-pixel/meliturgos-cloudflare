@@ -57,16 +57,7 @@ export async function runCompanionSourceControlPrevalidationRuntime(env,{
     return{ok:true,skipped:true,reason:'INTERVAL_NOT_DUE',next_due_at:last+intervalMs};
   }
 
-  let device;
-  try{device=await latestOnlineWindows(env.DB,{now});}catch{}
-  if(!device){
-    await saveState(env.DB,{last_run_at:now,status:'WAITING_FOR_COMPANION'});
-    return{ok:true,skipped:true,reason:'COMPANION_OFFLINE'};
-  }
-
   const candidateStore=new SovereigntyCandidateStore(env.DB);
-  const registryStore=new D1AlternativeRegistryStore(env.DB);
-
   await candidateStore.upsertFromWatch({
     results:[{
       layer:'source_control',
@@ -79,6 +70,19 @@ export async function runCompanionSourceControlPrevalidationRuntime(env,{
       }],
     }],
   },{now});
+
+  let device;
+  try{device=await latestOnlineWindows(env.DB,{now});}catch{}
+  if(!device){
+    await saveState(env.DB,{
+      last_run_at:now,
+      status:'WAITING_FOR_COMPANION',
+      candidate_count:1,
+    });
+    return{ok:true,skipped:true,reason:'COMPANION_OFFLINE',candidate_count:1};
+  }
+
+  const registryStore=new D1AlternativeRegistryStore(env.DB);
 
   const execute=createCompanionSovereigntyExecutor(env,{
     deviceId:device.id,
