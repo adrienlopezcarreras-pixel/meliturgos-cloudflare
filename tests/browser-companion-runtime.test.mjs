@@ -54,6 +54,7 @@ test('page executor performs navigation and bounded text read without leaking ty
         async click() { calls.push(['click', selector]); },
         async fill(text) { calls.push(['fill', selector, text.length]); },
         async evaluate() { calls.push(['submit', selector]); },
+        async setInputFiles(file) { calls.push(['upload', selector, file.name, file.mimeType, file.buffer.byteLength]); },
       };
     },
     mouse: { async wheel(x, y) { calls.push(['wheel', x, y]); } },
@@ -87,6 +88,36 @@ test('page executor performs navigation and bounded text read without leaking ty
   }, ['https://example.com']);
   assert.equal(typed.characters, 13);
   assert.equal(JSON.stringify(typed).includes('private-value'), false);
+});
+
+test('page executor uploads bounded inline file content without echoing file bytes', async () => {
+  const calls=[];
+  const page={
+    url:()=> 'https://example.com/',
+    locator(selector){
+      return {
+        async setInputFiles(file){calls.push({selector,file});},
+      };
+    },
+  };
+  const result=await executeBrowserStep(page,{
+    id:'upload',
+    action:'browser.upload-file',
+    selector:'#file',
+    file_name:'proof.txt',
+    mime_type:'text/plain',
+    file_text:'private-proof-content',
+  },['https://example.com']);
+  assert.equal(result.kind,'upload');
+  assert.equal(result.file_name,'proof.txt');
+  assert.equal(result.mime_type,'text/plain');
+  assert.equal(result.bytes,21);
+  assert.equal(calls.length,1);
+  assert.equal(calls[0].selector,'#file');
+  assert.equal(calls[0].file.name,'proof.txt');
+  assert.equal(calls[0].file.mimeType,'text/plain');
+  assert.equal(calls[0].file.buffer.toString('utf8'),'private-proof-content');
+  assert.equal(JSON.stringify(result).includes('private-proof-content'),false);
 });
 
 test('page executor rejects missing selectors for interactive actions', async () => {
