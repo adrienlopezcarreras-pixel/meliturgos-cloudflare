@@ -539,6 +539,15 @@ export async function runMelSelfAuditSupervisor(env = {}, {
       compactPostPersistVerify: true,
       now: () => iso(current),
     })));
+    results.push(await capture('monthly-isolated-recovery-drill', async () => {
+      const value = await bus.execute('resilience.recovery.drill.latest', { approved: true }, context);
+      return {
+        ...value,
+        status: value?.ok === true && value?.production_access_used === false && value?.activation_performed === false
+          ? 'RECOVERY_DRILL_PASSED'
+          : 'RECOVERY_DRILL_FAILED',
+      };
+    }));
     results.push(await capture('source-control-alternative-drill', async () => (deps.runCompanionSourceControlPrevalidationRuntime || runCompanionSourceControlPrevalidationRuntime)(env, { force: true, now: current })));
     results.push(await capture('infrastructure-alternative-drill', async () => (deps.runCompanionInfrastructurePrevalidationRuntime || runCompanionInfrastructurePrevalidationRuntime)(env, { force: true, now: current })));
   }
