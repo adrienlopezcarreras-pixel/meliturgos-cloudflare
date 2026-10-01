@@ -932,7 +932,6 @@ test('connection proof promotes only connectors that pass real live probes and k
     });
     if(url.pathname.endsWith('/vercel/test')) return Response.json({ok:true,authenticated:true,target_ready:true,deployment_count:1});
     if(url.pathname.endsWith('/yahoo-imap/test')) return Response.json({ok:false,code:'YAHOO_IMAP_IMAP_AUTH_REJECTED'},{status:409});
-    if(url.pathname.endsWith('/roundcube/test')) return Response.json({ok:true,persistent:true});
     return Response.json({ok:false,code:'UNEXPECTED'},{status:404});
   };
   const response=await maybeHandleReleaseLaunchBootstrap(
