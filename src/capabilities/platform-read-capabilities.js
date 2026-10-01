@@ -1,4 +1,5 @@
 import { D1CloudflareApiRelayStore } from '../platform/cloudflare-api-relay.js';
+import { D1GitHubActionRelayStore } from '../platform/github-action-relay.js';
 const GITHUB_API = 'https://api.github.com';
 const CLOUDFLARE_API = 'https://api.cloudflare.com/client/v4';
 const VERCEL_API = 'https://api.vercel.com';
@@ -147,13 +148,16 @@ function deploymentRow(row = {}) {
   };
 }
 
-export function registerPlatformReadCapabilities(bus, { env = {}, fetchImpl = fetch, repository = '', resolveVercelConfig = null, cloudflareRelayStore = null } = {}) {
+export function registerPlatformReadCapabilities(bus, { env = {}, fetchImpl = fetch, repository = '', resolveVercelConfig = null, cloudflareRelayStore = null, githubRelayStore = null } = {}) {
   const githubRepository = repository || env.MEL_GITHUB_REPOSITORY || '';
   const githubToken = String(env.MEL_GITHUB_TOKEN || '').trim();
   const cloudflareToken = String(env.CLOUDFLARE_API_TOKEN || '').trim();
   const cloudflareAccountId = String(env.CLOUDFLARE_ACCOUNT_ID || '').trim();
   const cloudflareRelay = cloudflareRelayStore || (env?.DB && typeof env.DB.prepare === 'function'
     ? new D1CloudflareApiRelayStore(env.DB)
+    : null);
+  const githubRelay = githubRelayStore || (env?.DB && typeof env.DB.prepare === 'function'
+    ? new D1GitHubActionRelayStore(env.DB)
     : null);
   const staticVercelToken = String(env.VERCEL_TOKEN || '').trim();
   const staticVercelTeamId = String(env.VERCEL_TEAM_ID || '').trim();
@@ -163,6 +167,61 @@ export function registerPlatformReadCapabilities(bus, { env = {}, fetchImpl = fe
       token: String(dynamic?.token || staticVercelToken || '').trim(),
       teamId: String(dynamic?.team_id || staticVercelTeamId || '').trim(),
     };
+  };
+  const githubRelaySnapshot = async () => {
+    if (!githubRelay) return null;
+    const health = await githubRelay.health();
+    const metadata = health?.metadata && typeof health.metadata === 'object' ? health.metadata : {};
+    const sameRepository = String(metadata.repository || '') === githubRepository;
+    if (!health?.online || !sameRepository) return null;
+    return {
+      repository: metadata.repository_metadata && typeof metadata.repository_metadata === 'object'
+        ? metadata.repository_metadata
+        : null,
+      runs: Array.isArray(metadata.actions_runs) ? metadata.actions_runs : null,
+      snapshot_at: String(metadata.snapshot_at || ''),
+      transport: githubRelay.transport || 'd1-github-actions-relay',
+    };
+  };
+
+  const githubRepositoryBody = async () => {
+    if (!githubToken && githubRelay) {
+      const snapshot = await githubRelaySnapshot().catch(() => null);
+      if (snapshot?.repository) return { body:snapshot.repository, transport:snapshot.transport, snapshot_at:snapshot.snapshot_at };
+    }
+    try {
+      const body = await requestJson(fetchImpl, `${GITHUB_API}/repos/${repositoryPath(githubRepository)}`, {
+        token: githubToken,
+        code: 'GITHUB_REPOSITORY_READ_FAILED',
+      });
+      return { body, transport:'direct-github-api', snapshot_at:null };
+    } catch (error) {
+      const snapshot = await githubRelaySnapshot().catch(() => null);
+      if (snapshot?.repository) return { body:snapshot.repository, transport:snapshot.transport, snapshot_at:snapshot.snapshot_at };
+      throw error;
+    }
+  };
+
+  const githubRunsBody = async (count) => {
+    if (!githubToken && githubRelay) {
+      const snapshot = await githubRelaySnapshot().catch(() => null);
+      if (Array.isArray(snapshot?.runs)) {
+        return { body:{ workflow_runs:snapshot.runs.slice(0, count) }, transport:snapshot.transport, snapshot_at:snapshot.snapshot_at };
+      }
+    }
+    try {
+      const body = await requestJson(fetchImpl, `${GITHUB_API}/repos/${repositoryPath(githubRepository)}/actions/runs?per_page=${count}`, {
+        token: githubToken,
+        code: 'GITHUB_ACTIONS_READ_FAILED',
+      });
+      return { body, transport:'direct-github-api', snapshot_at:null };
+    } catch (error) {
+      const snapshot = await githubRelaySnapshot().catch(() => null);
+      if (Array.isArray(snapshot?.runs)) {
+        return { body:{ workflow_runs:snapshot.runs.slice(0, count) }, transport:snapshot.transport, snapshot_at:snapshot.snapshot_at };
+      }
+      throw error;
+    }
   };
 
   bus.discover({
@@ -179,21 +238,16 @@ export function registerPlatformReadCapabilities(bus, { env = {}, fetchImpl = fe
     health: githubRepository ? 'DEGRADED' : 'UNAVAILABLE',
     enabled: true,
     healthcheck: async () => probeHealth(
-      () => requestJson(fetchImpl, `${GITHUB_API}/repos/${repositoryPath(githubRepository)}`, {
-        token: githubToken,
-        code: 'GITHUB_REPOSITORY_READ_FAILED',
-      }),
+      () => githubRepositoryBody(),
       githubRepository ? '' : 'GITHUB_REPOSITORY_NOT_CONFIGURED',
     ),
   }, async () => {
-    const repoPath = repositoryPath(githubRepository);
-    const body = await requestJson(fetchImpl, `${GITHUB_API}/repos/${repoPath}`, {
-      token: githubToken,
-      code: 'GITHUB_REPOSITORY_READ_FAILED',
-    });
+    const { body, transport, snapshot_at } = await githubRepositoryBody();
     return {
       provider: 'github',
       repository: githubRepository,
+      transport,
+      snapshot_at,
       id: Number(body.id || 0),
       name: String(body.name || ''),
       full_name: String(body.full_name || githubRepository),
@@ -225,19 +279,12 @@ export function registerPlatformReadCapabilities(bus, { env = {}, fetchImpl = fe
     health: githubRepository ? 'DEGRADED' : 'UNAVAILABLE',
     enabled: true,
     healthcheck: async () => probeHealth(
-      () => requestJson(fetchImpl, `${GITHUB_API}/repos/${repositoryPath(githubRepository)}/actions/runs?per_page=1`, {
-        token: githubToken,
-        code: 'GITHUB_ACTIONS_READ_FAILED',
-      }),
+      () => githubRunsBody(1),
       githubRepository ? '' : 'GITHUB_REPOSITORY_NOT_CONFIGURED',
     ),
   }, async input => {
     const count = limit(input.limit);
-    const repoPath = repositoryPath(githubRepository);
-    const body = await requestJson(fetchImpl, `${GITHUB_API}/repos/${repoPath}/actions/runs?per_page=${count}`, {
-      token: githubToken,
-      code: 'GITHUB_ACTIONS_READ_FAILED',
-    });
+    const { body, transport, snapshot_at } = await githubRunsBody(count);
     const runs = (Array.isArray(body.workflow_runs) ? body.workflow_runs : []).slice(0, count).map(row => ({
       id: Number(row.id || 0),
       name: String(row.name || ''),
@@ -251,7 +298,7 @@ export function registerPlatformReadCapabilities(bus, { env = {}, fetchImpl = fe
       updated_at: String(row.updated_at || ''),
       html_url: String(row.html_url || ''),
     }));
-    return { provider: 'github', repository: githubRepository, runs, count: runs.length };
+    return { provider: 'github', repository: githubRepository, transport, snapshot_at, runs, count: runs.length };
   });
 
   bus.discover({

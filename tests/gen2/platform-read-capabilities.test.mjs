@@ -331,3 +331,84 @@ test('platform reads stay healthy when AbortSignal.timeout is unavailable in the
     else delete AbortSignal.timeout;
   }
 });
+
+
+test('GitHub read capabilities use a fresh Actions relay snapshot when direct Worker fetch is unavailable', async () => {
+  let directCalls=0;
+  const relay={
+    transport:'d1-github-actions-relay',
+    async health(){
+      return {
+        online:true,
+        status:'ONLINE',
+        metadata:{
+          repository:'owner/repo',
+          snapshot_at:'2026-10-01T07:00:00.000Z',
+          repository_metadata:{
+            id:42,
+            name:'repo',
+            full_name:'owner/repo',
+            private:true,
+            archived:false,
+            disabled:false,
+            visibility:'private',
+            default_branch:'main',
+            pushed_at:'2026-10-01T06:59:00Z',
+            updated_at:'2026-10-01T06:59:30Z',
+          },
+          actions_runs:[
+            {id:101,name:'ci',event:'push',status:'completed',conclusion:'success',head_branch:'main',head_sha:'a'.repeat(40),run_number:7,created_at:'2026-10-01T06:58:00Z',updated_at:'2026-10-01T06:59:00Z',html_url:'https://github.com/owner/repo/actions/runs/101'},
+            {id:102,name:'deploy',event:'push',status:'completed',conclusion:'success',head_branch:'main',head_sha:'b'.repeat(40),run_number:8,created_at:'2026-10-01T06:59:00Z',updated_at:'2026-10-01T07:00:00Z',html_url:'https://github.com/owner/repo/actions/runs/102'},
+          ],
+        },
+      };
+    },
+  };
+
+  const bus=new CapabilityBus();
+  registerPlatformReadCapabilities(bus,{
+    env:{ MEL_GITHUB_REPOSITORY:'owner/repo' },
+    githubRelayStore:relay,
+    fetchImpl:async()=>{directCalls+=1;throw new TypeError('direct Worker GitHub fetch unavailable');},
+  });
+
+  const repoHealth=await bus.refreshHealth('github.repository.read');
+  const runsHealth=await bus.refreshHealth('github.actions.runs.read');
+  assert.equal(repoHealth.health,'HEALTHY');
+  assert.equal(runsHealth.health,'HEALTHY');
+
+  const repo=await bus.execute('github.repository.read',{},owner);
+  const runs=await bus.execute('github.actions.runs.read',{limit:1},owner);
+  assert.equal(repo.full_name,'owner/repo');
+  assert.equal(repo.transport,'d1-github-actions-relay');
+  assert.equal(repo.snapshot_at,'2026-10-01T07:00:00.000Z');
+  assert.equal(runs.count,1);
+  assert.equal(runs.runs[0].id,101);
+  assert.equal(runs.transport,'d1-github-actions-relay');
+  assert.equal(directCalls,0);
+});
+
+test('GitHub read relay snapshot is rejected when it belongs to another repository', async () => {
+  const relay={
+    transport:'d1-github-actions-relay',
+    async health(){
+      return {
+        online:true,
+        metadata:{
+          repository:'other/repo',
+          repository_metadata:{id:1,full_name:'other/repo'},
+          actions_runs:[],
+        },
+      };
+    },
+  };
+  const bus=new CapabilityBus();
+  registerPlatformReadCapabilities(bus,{
+    env:{ MEL_GITHUB_REPOSITORY:'owner/repo' },
+    githubRelayStore:relay,
+    fetchImpl:async()=>{throw new TypeError('direct failed');},
+  });
+  const health=await bus.refreshHealth('github.repository.read');
+  assert.equal(health.health,'DEGRADED');
+  assert.equal(health.health_detail,'GITHUB_REPOSITORY_READ_FAILED_FETCH_TYPEERROR');
+});

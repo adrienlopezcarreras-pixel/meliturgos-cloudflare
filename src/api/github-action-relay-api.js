@@ -28,6 +28,43 @@ function denied() {
   });
 }
 
+function clean(value, max = 500) {
+  return String(value ?? '').trim().slice(0, max);
+}
+
+function sanitizeRepositoryMetadata(value, repository) {
+  if (!value || typeof value !== 'object') return null;
+  return {
+    id: Number(value.id || 0),
+    name: clean(value.name, 200),
+    full_name: clean(value.full_name || repository, 240),
+    private: Boolean(value.private),
+    archived: Boolean(value.archived),
+    disabled: Boolean(value.disabled),
+    visibility: clean(value.visibility, 40),
+    default_branch: clean(value.default_branch, 160),
+    pushed_at: clean(value.pushed_at, 80),
+    updated_at: clean(value.updated_at, 80),
+  };
+}
+
+function sanitizeActionRuns(value) {
+  const rows = Array.isArray(value) ? value : [];
+  return rows.slice(0, 50).map(row => ({
+    id: Number(row?.id || 0),
+    name: clean(row?.name, 220),
+    event: clean(row?.event, 80),
+    status: clean(row?.status, 80),
+    conclusion: clean(row?.conclusion, 80),
+    head_branch: clean(row?.head_branch, 220),
+    head_sha: clean(row?.head_sha, 64),
+    run_number: Number(row?.run_number || 0),
+    created_at: clean(row?.created_at, 80),
+    updated_at: clean(row?.updated_at, 80),
+    html_url: clean(row?.html_url, 1000),
+  })).filter(row => row.id > 0);
+}
+
 export function githubActionRelayApi(request, env) {
   const url = new URL(request.url);
   if (!url.pathname.startsWith('/api/internal/github-action-relay/')) return null;
@@ -56,8 +93,11 @@ export function githubActionRelayApi(request, env) {
         status: 'ONLINE',
         metadata: {
           run_id: Number(body?.run_id || 0) || null,
-          repository: String(body?.repository || '').slice(0, 200) || null,
+          repository: clean(body?.repository, 200) || null,
           source: 'github-actions',
+          repository_metadata: sanitizeRepositoryMetadata(body?.repository_metadata, body?.repository),
+          actions_runs: sanitizeActionRuns(body?.actions_runs),
+          snapshot_at: clean(body?.snapshot_at, 80) || null,
         },
       });
       return Response.json({ ok: true, health }, { headers: { 'cache-control': 'no-store' } });

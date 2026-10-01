@@ -220,3 +220,56 @@ test('HTTP auth policy delegates the scoped GitHub relay endpoint to its OIDC ha
   );
   assert.equal(policy.kind, 'DELEGATED_STRONG_AUTH');
 });
+
+
+test('relay heartbeat stores only sanitized bounded GitHub read snapshot metadata', async () => {
+  const db=sqliteD1();
+  try {
+    const env={DB:db,MEL_DEV_BRIDGE_TOKEN:TOKEN};
+    const heartbeat=await githubActionRelayApi(
+      new Request('https://mel.test/api/internal/github-action-relay/heartbeat',{
+        method:'POST',
+        headers:{authorization:'Bearer '+TOKEN,'content-type':'application/json'},
+        body:JSON.stringify({
+          run_id:77,
+          repository:'owner/repo',
+          repository_metadata:{
+            id:42,name:'repo',full_name:'owner/repo',private:true,archived:false,disabled:false,
+            visibility:'private',default_branch:'main',pushed_at:'2026-10-01T07:00:00Z',updated_at:'2026-10-01T07:01:00Z',
+            token:'must-not-persist',
+          },
+          actions_runs:Array.from({length:60},(_,i)=>({
+            id:i+1,name:'ci',event:'push',status:'completed',conclusion:'success',head_branch:'main',
+            head_sha:'a'.repeat(40),run_number:i+1,created_at:'2026-10-01T07:00:00Z',updated_at:'2026-10-01T07:01:00Z',
+            html_url:'https://github.com/owner/repo/actions/runs/'+(i+1),secret:'must-not-persist',
+          })),
+          snapshot_at:'2026-10-01T07:02:00.000Z',
+          arbitrary_secret:'must-not-persist',
+        }),
+      }),
+      env,
+    );
+    assert.equal(heartbeat.status,200);
+    const health=await new D1GitHubActionRelayStore(db).health();
+    assert.equal(health.metadata.repository,'owner/repo');
+    assert.equal(health.metadata.repository_metadata.full_name,'owner/repo');
+    assert.equal(health.metadata.actions_runs.length,50);
+    assert.equal(health.metadata.snapshot_at,'2026-10-01T07:02:00.000Z');
+    const serialized=JSON.stringify(health.metadata);
+    assert.equal(serialized.includes('must-not-persist'),false);
+    assert.equal(serialized.includes('arbitrary_secret'),false);
+  } finally {
+    db.close();
+  }
+});
+
+
+test('relay runner publishes repository metadata and recent Actions runs with each heartbeat', async () => {
+  const source=await readFile(new URL('../../scripts/github-action-relay-runner.mjs',import.meta.url),'utf8');
+  assert.match(source,/async function readSnapshot\(\)/);
+  assert.match(source,/\/repos\/\$\{REPOSITORY\}\/actions\/runs\?per_page=50/);
+  assert.match(source,/repository_metadata/);
+  assert.match(source,/actions_runs/);
+  assert.match(source,/snapshot_at/);
+  assert.match(source,/\/api\/internal\/github-action-relay\/heartbeat/);
+});
