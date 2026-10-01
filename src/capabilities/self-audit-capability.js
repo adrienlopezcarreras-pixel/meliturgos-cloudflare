@@ -49,6 +49,7 @@ export function registerSelfAuditCapabilities(bus, env = {}) {
       bus,
       forceLevel: level,
       maxLevel: level,
+      repairEnabled: context?.releaseSmoke !== true,
       waitUntil: typeof context?.waitUntil === 'function' ? context.waitUntil : null,
     });
   });
