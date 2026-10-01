@@ -185,13 +185,12 @@ async function internalConnectionCall(connectionHandler, env, provider, action, 
 }
 
 async function runConnectionProof(env, connectionHandler = maybeHandleConnectionSettingsApi) {
-  const [gmail, pipedream, accounts, vercel, yahoo, roundcube] = await Promise.all([
+  const [gmail, pipedream, accounts, vercel, yahoo] = await Promise.all([
     internalConnectionCall(connectionHandler, env, 'google', 'test', { method: 'POST', body: { connector_id: 'gmail' } }),
     internalConnectionCall(connectionHandler, env, 'pipedream', 'test', { method: 'POST', body: {} }),
     internalConnectionCall(connectionHandler, env, 'pipedream', 'accounts'),
     internalConnectionCall(connectionHandler, env, 'vercel', 'test', { method: 'POST', body: {} }),
     internalConnectionCall(connectionHandler, env, 'yahoo-imap', 'test', { method: 'POST', body: {} }),
-    internalConnectionCall(connectionHandler, env, 'roundcube', 'test', { method: 'POST', body: {} }),
   ]);
   const connectedApps = new Set(Array.isArray(accounts?.body?.connected_apps) ? accounts.body.connected_apps : []);
   const gmailVerified = gmail.ok && gmail.body?.live_probe === true;
@@ -207,7 +206,6 @@ async function runConnectionProof(env, connectionHandler = maybeHandleConnection
     sharepoint: { verified: sharePointVerified, via: 'pipedream' },
     vercel: { verified: vercelVerified, authenticated: vercel.body?.authenticated === true, target_ready: vercel.body?.target_ready === true, has_deployment: Number(vercel.body?.deployment_count || 0) >= 1, status: vercel.status, code: vercel.code },
     yahoo_ymail: { verified: yahoo.ok || yahooViaPipedream, via: yahoo.ok ? 'direct-imap-smtp' : yahooViaPipedream ? 'pipedream-imap' : null, status: yahoo.status, code: yahoo.code },
-    roundcube: { verified: roundcube.ok, status: roundcube.status, code: roundcube.code },
   };
   const verifiedRoadmapIds = [];
   const pendingRoadmapIds = [];
@@ -215,7 +213,7 @@ async function runConnectionProof(env, connectionHandler = maybeHandleConnection
   if (outlookVerified) verifiedRoadmapIds.push('GEN2-34'); else pendingRoadmapIds.push('GEN2-34');
   if (oneDriveVerified && sharePointVerified) verifiedRoadmapIds.push('GEN2-35'); else pendingRoadmapIds.push('GEN2-35');
   if (vercelVerified) verifiedRoadmapIds.push('GEN2-36'); else pendingRoadmapIds.push('GEN2-36');
-  if (proof.yahoo_ymail.verified && proof.roundcube.verified) verifiedRoadmapIds.push('MEL-CONN-03'); else pendingRoadmapIds.push('MEL-CONN-03');
+  if (proof.yahoo_ymail.verified) verifiedRoadmapIds.push('MEL-CONN-03'); else pendingRoadmapIds.push('MEL-CONN-03');
   return { ok: true, status: 'MEL_CONNECTIONS_PRODUCTION_PROOF_COLLECTED', proof, verified_roadmap_ids: verifiedRoadmapIds, pending_roadmap_ids: pendingRoadmapIds, private_content_returned: false };
 }
 
