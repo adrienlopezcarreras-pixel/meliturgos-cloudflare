@@ -107,7 +107,7 @@ jobs:
           const d=require('./self-check.json');
           const expected=String(process.env.EXPECTED_SHA||'').toLowerCase();
           if(d?.ok!==true || d?.capability!=='code.read') throw new Error('EXACT_SHA_SELF_CHECK_NOT_OK');
-          if(String(d?.sha||'').toLowerCase()!==expected) throw new Error('EXACT_SHA_SELF_CHECK_MISMATCH');
+          if(String(d?.deployed_sha||'').toLowerCase()!==expected) throw new Error('EXACT_SHA_SELF_CHECK_MISMATCH');
           NODE
 
           COUNCIL_CODE="$(curl --silent --show-error --max-time 120             --header "x-mel-release-smoke: 1"             --header "x-mel-launch-bootstrap: ${TOKEN}"             --header "content-type: application/json"             --data '{"id":"model.council","input":{"request":{"kind":"OWNER_NEGATIVE_FEEDBACK_RECOVERY","original_request":"Vérifie l intégrité du code MEL.","failed_response":"Je n ai pas exécuté la vérification.","owner_feedback":"tu n y arrives pas","instruction":"Analyse l échec et propose une correction concrète sans contourner les garde-fous."},"capability":"GENERAL","maxCandidates":2,"timeoutMs":30000}}'             --output council-live.json             --write-out '%{http_code}'             "${BASE_URL}/api/gen2/capabilities/execute" || true)"
@@ -175,7 +175,7 @@ jobs:
           const proof={
             schema:'mel.council-rich-ui-production-proof/v1',
             source_sha:process.env.EXPECTED_SHA,
-            exact_sha_runtime:self?.sha===process.env.EXPECTED_SHA,
+            exact_sha_runtime:self?.deployed_sha===process.env.EXPECTED_SHA,
             council_recovery_contract_tests:true,
             council_live:{
               status:cr?.status||null,

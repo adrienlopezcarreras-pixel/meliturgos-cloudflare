@@ -173,6 +173,7 @@ export async function auditRuntimeCapabilities(runtime, {
       && sample !== undefined
       && costApproved;
     if (executable) {
+      const executionStartedAt = Date.now();
       try {
         const timeoutMs = Math.max(50, Math.min(60_000, Number(executionTimeoutMs) || 15_000));
         let timer;
@@ -189,9 +190,17 @@ export async function auditRuntimeCapabilities(runtime, {
             )), timeoutMs);
           }),
         ]).finally(() => clearTimeout(timer));
-        execution = { ok: true, result_type: Array.isArray(result) ? 'array' : typeof result };
+        execution = {
+          ok: true,
+          result_type: Array.isArray(result) ? 'array' : typeof result,
+          duration_ms: Math.max(0, Date.now() - executionStartedAt),
+        };
       } catch (error) {
-        execution = { ok: false, code: String(error?.code || error?.message || 'CAPABILITY_FAILED') };
+        execution = {
+          ok: false,
+          code: String(error?.code || error?.message || 'CAPABILITY_FAILED'),
+          duration_ms: Math.max(0, Date.now() - executionStartedAt),
+        };
       }
     }
     const row = {

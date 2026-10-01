@@ -1592,6 +1592,8 @@ jobs:
           if(self?.ok!==true || self?.capability!=='code.read') throw new Error('PRODUCTION_SELF_CODE_NOT_OK');
           if(self?.path!=='src/router.js') throw new Error('PRODUCTION_SELF_CODE_PATH_MISMATCH');
           if(String(self?.branch||'')!==String(process.env.RELEASE_BRANCH||'')) throw new Error('PRODUCTION_SELF_CODE_BRANCH_MISMATCH');
+          if(String(self?.deployed_sha||'').toLowerCase()!==String(process.env.EXPECTED_SHA||'').toLowerCase()) throw new Error('PRODUCTION_SELF_DEPLOYED_SHA_MISMATCH');
+          if(self?.exact_deployment_identity_known!==true) throw new Error('PRODUCTION_SELF_DEPLOYED_IDENTITY_UNKNOWN');
           if(Number(self?.bytes||0)<100) throw new Error('PRODUCTION_SELF_CODE_EMPTY');
 
           if(memory?.ok!==true || memory?.db_bound!==true || memory?.status!=='ONLINE') throw new Error('PRODUCTION_MEMORY_NOT_ONLINE');

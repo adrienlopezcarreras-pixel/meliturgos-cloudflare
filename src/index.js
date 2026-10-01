@@ -18,6 +18,7 @@ import { runCompanionInfrastructurePrevalidationRuntime } from "./portability/co
 import { maybeHandleAutonomyApi } from "./evolution/autonomy-api.js";
 import { maybeHandleReleaseLaunchBootstrap } from "./evolution/release-launch-bootstrap.js";
 import { runLoraTrainingHeartbeat } from "./learning/lora-training-heartbeat.js";
+import { runMelSelfAuditSupervisor } from "./diagnostics/self-audit-supervisor.js";
 import { handleVoiceTranscription } from "./api/voice-transcribe.js";
 import { handleFileUpload } from "./api/file-upload.js";
 import { runExpiredMediaCleanup } from "./media/media-vault-cleanup.js";
@@ -498,8 +499,30 @@ export default {
   async scheduled(controller, env, ctx) {
     const cron = String(controller?.cron || '');
     const maintenanceCron = cron === '17 * * * *';
+    const dailySelfAuditCron = cron === '43 2 * * *';
+    const auditWaitUntil = typeof ctx?.waitUntil === 'function' ? promise => ctx.waitUntil(promise) : null;
+    const runSelfAudit = maxLevel => {
+      const runtime = createGen2Runtime({ env });
+      return runMelSelfAuditSupervisor(env, {
+        bus: runtime.bus,
+        maxLevel,
+        waitUntil: auditWaitUntil,
+      });
+    };
 
-    const tasks = maintenanceCron
+    const tasks = dailySelfAuditCron
+      ? [
+          runSelfAudit('MONTHLY').then((result) => {
+            if (result?.status === 'SELF_AUDIT_DEGRADED') {
+              console.error('[MEL self-audit] daily supervisor detected anomalies.');
+            }
+            return result;
+          }).catch((error) => {
+            console.error('[MEL self-audit] daily supervisor failed:', error?.code || error?.message || error);
+            return null;
+          }),
+        ]
+      : maintenanceCron
       ? [
           runAutonomyMaintenance(env).catch((error) => {
             console.error('[MEL autonomy] hourly maintenance failed:', error?.code || error?.message || error);
@@ -572,6 +595,15 @@ export default {
             return result;
           }).catch((error) => {
             console.error('[MEL ShardVault] hourly Internet discovery failed:', error?.code || error?.message || error);
+            return null;
+          }),
+          runSelfAudit('HEARTBEAT').then((result) => {
+            if (result?.status === 'SELF_AUDIT_DEGRADED') {
+              console.error('[MEL self-audit] hourly heartbeat detected anomalies.');
+            }
+            return result;
+          }).catch((error) => {
+            console.error('[MEL self-audit] hourly heartbeat failed:', error?.code || error?.message || error);
             return null;
           }),
         ]
