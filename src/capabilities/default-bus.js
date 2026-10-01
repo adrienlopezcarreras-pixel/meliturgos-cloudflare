@@ -3,6 +3,7 @@ import { registerGitHubCodeCapabilities } from './github-code-capabilities.js';
 import { registerPlatformReadCapabilities } from './platform-read-capabilities.js';
 import { registerPlatformControlCapabilities } from './platform-control-capabilities.js';
 import { registerWorkCapabilities } from './work-capabilities.js';
+import { registerPresentationCapabilities } from '../presentation/presentation-skill.js';
 import { registerOpenLoopCapabilities } from './open-loop-capabilities.js';
 import { registerPlanningCapabilities } from './planning-capabilities.js';
 import { registerEventBusCapabilities } from './event-bus-capabilities.js';
@@ -160,6 +161,8 @@ export function createDefaultCapabilityBus({ audit, env, repository, branch, tok
     fetchImpl: platformFetch,
     resolveAccessToken: typeof googleAccessTokenResolver === 'function' ? googleAccessTokenResolver : null,
   });
+
+  registerPresentationCapabilities(bus);
 
   bus.discover({
     id: 'augmentio.fanout', name: '.augmentio multi-AI', category: 'orchestration', version: '0.3.0', provider: 'mel',
