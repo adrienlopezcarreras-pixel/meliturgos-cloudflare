@@ -116,6 +116,7 @@ test('full interface exposes encrypted Pipedream Connect bridge and roadmap app 
   assert.match(html, /data-pd-connect="lemlist"/);
   assert.match(html, /data-pd-connect="google_drive"/);
   assert.match(html, /data-pd-connect="google_calendar"/);
+  assert.match(html, /data-pd-connect="google_tasks"/);
   assert.match(html, /data-pd-connect="dropbox"/);
   assert.match(html, /connectionApi\('pipedream','link'\)/);
   assert.match(html, /window\.location\.href=d\.connect_link_url/);
