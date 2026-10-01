@@ -102,41 +102,13 @@ test('OAuth app credentials are encrypted at rest and never returned by status',
   assert.equal(state.connectors['google-tasks'].authorized, false);
 });
 
-test('Roundcube IMAP/SMTP password is encrypted and status returns only non-secret metadata', async () => {
+
+
+test('Roundcube connection surface is retired', async () => {
   const runtimeEnv = env();
-  const response = await call('/api/gen2/connections/roundcube/save', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({
-      imap_host: 'imap.example.test',
-      imap_port: 993,
-      imap_security: 'tls',
-      smtp_host: 'smtp.example.test',
-      smtp_port: 465,
-      smtp_security: 'tls',
-      username: 'mail@example.test',
-      password: 'roundcube-password-secret',
-    }),
-  }, runtimeEnv);
-  assert.equal(response.status, 200);
-  const body = await response.json();
-  assert.equal(body.configured, true);
-  assert.equal(body.password_present, true);
-  assert.equal(body.password, undefined);
-  assert.equal(JSON.stringify(body).includes('roundcube-password-secret'), false);
-
-  const raw = JSON.stringify([...runtimeEnv.DB.tokens.values()]);
-  assert.equal(raw.includes('roundcube-password-secret'), false);
-  assert.equal(raw.includes('mail@example.test'), false);
-
-  const status = await call('/api/gen2/connections/roundcube/status', { method: 'GET' }, runtimeEnv);
-  const state = await status.json();
-  assert.equal(state.configured, true);
-  assert.equal(state.username, 'mail@example.test');
-  assert.equal(state.password_present, true);
-  assert.equal(state.password, undefined);
+  const response = await call('/api/gen2/connections/roundcube/status', { method: 'GET' }, runtimeEnv);
+  assert.equal(response, null);
 });
-
 
 test('Vercel token is encrypted at rest and status never returns it', async () => {
   const runtimeEnv = env();
