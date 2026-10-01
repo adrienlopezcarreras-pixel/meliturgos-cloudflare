@@ -52,6 +52,8 @@ const RELEASE_SMOKE_CAPABILITY_ALLOWLIST = Object.freeze([
   "browser.execute",
   "capability.audit",
   "capability.audit.status",
+  "self.audit.status",
+  "self.audit.run",
 ]);
 
 function capabilityContext(env, request = null, ctx = null) {
