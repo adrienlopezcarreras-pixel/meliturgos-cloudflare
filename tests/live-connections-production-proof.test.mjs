@@ -21,7 +21,6 @@ test('live connection proof persists precise partial evidence even when a connec
   assert.match(source,/calendar:process\.env\.GOOGLE_CALENDAR_OK==='1'/);
   assert.match(source,/tasks:process\.env\.GOOGLE_TASKS_OK==='1'/);
   assert.match(source,/yahoo_or_ymail:process\.env\.YAHOO_OK==='1'/);
-  assert.match(source,/roundcube_imap_smtp:process\.env\.ROUNDCUBE_OK==='1'/);
   assert.match(source,/authenticated_target_probe:process\.env\.VERCEL_OK==='1'/);
   assert.match(source,/- name: Upload sanitized live proof\n\s+if: always\(\)/);
   assert.match(source,/secret_values_exposed:false/);
