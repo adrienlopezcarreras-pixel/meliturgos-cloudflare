@@ -13,6 +13,7 @@ import { buildMelOperatingManualPrompt } from '../identity/mel-operating-manual.
 import { classifyCapabilityTruth, declaredImplementationStatus } from '../diagnostics/capability-truth-audit.js';
 import { LearningEngine } from '../learning/learning-engine.js';
 import { MentorMemoryRepository } from '../learning/mentor-memory.js';
+import { recordLearningXpCheckpoint } from '../learning/xp-journal.js';
 import { MEL_RUNTIME_OPERATING_EXPERIENCE } from '../learning/runtime-operating-experience.js';
 import { stripInternalCounters } from './chat-sanitization.js';
 import { formatPersonalProfileRecall, retrieveContext, retrievePersonalProfileContext } from '../core/orchestrator/conversation-context.js';
@@ -439,9 +440,10 @@ async function persistCouncilRecoveryXp(env, {
     });
     experienceSaved=true;
   } catch {}
+  let xpCheckpoint=null;
   try {
     const engine=new LearningEngine({memory});
-    await engine.recordCorrection({
+    const correction=await engine.recordCorrection({
       source:'council-recovery',
       domain:failedCapabilities.length?'task-recovery':'response-recovery',
       task:String(userText || '').slice(0,4000),
@@ -455,8 +457,28 @@ async function persistCouncilRecoveryXp(env, {
       quality:0.9,
     });
     correctionSaved=true;
+    try {
+      const report=await engine.report();
+      xpCheckpoint=await recordLearningXpCheckpoint({
+        memory,
+        report,
+        reason:'Successful native-chat Council recovery validated by response-quality runtime.',
+        artifacts:[
+          'mentor:correction:'+String(correction?.id || 'council-recovery'),
+          'runtime:model.council:SUCCEEDED',
+          'runtime:response-quality:PASS',
+        ],
+        source_sha:String(env?.MEL_RELEASE_SHA || env?.SOURCE_SHA || '').trim() || null,
+      });
+    } catch {}
   } catch {}
-  return { saved:experienceSaved, correction_saved:correctionSaved, xp_gain:(experienceSaved||correctionSaved)?1:0 };
+  return {
+    saved:experienceSaved,
+    correction_saved:correctionSaved,
+    xp_gain:Number(xpCheckpoint?.xp_delta || 0),
+    xp_after:Number.isFinite(Number(xpCheckpoint?.xp_after)) ? Number(xpCheckpoint.xp_after) : null,
+    xp_awarded:xpCheckpoint?.awarded === true,
+  };
 }
 
 export function buildCompanionDisplay(toolResults = []) {
@@ -1372,6 +1394,8 @@ export async function handleNativeChat(request, env, options = {}) {
       experience_saved:councilXp.saved === true,
       correction_saved:councilXp.correction_saved === true,
       xp_gain:Number(councilXp.xp_gain || 0),
+      xp_after:councilXp.xp_after ?? null,
+      xp_awarded:councilXp.xp_awarded === true,
     },
     response_focus: {
       elliptical: conversationFocus.elliptical === true,
