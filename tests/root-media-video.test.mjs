@@ -17,6 +17,7 @@ test('normal UI offers one generic multi-file drop surface without pretending lo
 
 test('binary upload stays private and uses R2 only when the binding exists', async()=>{
   let puts=0;
+  let storedBytes=null;
   const form=new FormData();
   form.append('file',new Blob(['binary'],{type:'application/octet-stream'}),'archive.xyz');
   const request=new Request('https://mel.test/api/files/upload',{
@@ -24,12 +25,15 @@ test('binary upload stays private and uses R2 only when the binding exists', asy
     headers:{authorization:'Basic '+Buffer.from('adrien:test').toString('base64')},
     body:form
   });
-  const response=await handleFileUpload(request,{...MEDIA_ENV,MELITURGOS_USER:'adrien',MELITURGOS_PASSWORD:'test',MEDIA_BUCKET:{async put(){puts++;}}
+  const response=await handleFileUpload(request,{...MEDIA_ENV,MELITURGOS_USER:'adrien',MELITURGOS_PASSWORD:'test',MEDIA_BUCKET:{async put(_key,bytes){puts++;storedBytes=new Uint8Array(bytes);}}
   });
   assert.equal(response.status,200);
   const body=await response.json();
   assert.equal(body.private,true);
   assert.equal(body.stored,true);
+  assert.equal(body.stored_encrypted,true);
+  assert.equal(body.encryption.algorithm,'AES-GCM-256');
+  assert.notEqual(new TextDecoder().decode(storedBytes),'binary');
   assert.equal(body.url,null);
   assert.equal(puts,1);
 });
