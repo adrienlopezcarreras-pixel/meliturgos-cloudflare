@@ -65,9 +65,23 @@ function capabilityContext(env, request = null, ctx = null) {
   };
 }
 
+function deployedCodeIdentity(env = {}) {
+  const branch = typeof MEL_DEPLOYED_GIT_BRANCH !== "undefined"
+    ? String(MEL_DEPLOYED_GIT_BRANCH || "").trim()
+    : String(env?.MEL_DEPLOYED_GIT_BRANCH || "").trim();
+  const sha = typeof MEL_DEPLOYED_GIT_SHA !== "undefined"
+    ? String(MEL_DEPLOYED_GIT_SHA || "").trim().toLowerCase()
+    : String(env?.MEL_DEPLOYED_GIT_SHA || "").trim().toLowerCase();
+  return {
+    branch: branch || null,
+    sha: /^[0-9a-f]{40}$/.test(sha) ? sha : null,
+  };
+}
+
 async function codeSelfCheck(env) {
   const runtime = createGen2Runtime({ env });
   const result = await runtime.bus.execute("code.read", { path: "src/router.js" }, capabilityContext(env));
+  const deployed = deployedCodeIdentity(env);
   return {
     ok: true,
     capability: "code.read",
@@ -75,6 +89,9 @@ async function codeSelfCheck(env) {
     branch: result.branch,
     path: result.path,
     sha: result.sha,
+    deployed_branch: deployed.branch,
+    deployed_sha: deployed.sha,
+    exact_deployment_identity_known: Boolean(deployed.branch && deployed.sha),
     bytes: typeof result.content === "string" ? result.content.length : 0
   };
 }
