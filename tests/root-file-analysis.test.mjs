@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { handleFileUpload, expiredMediaKeys } from '../src/api/file-upload.js';
 
+const MEDIA_KEY_B64=Buffer.alloc(32,7).toString('base64');
+const MEDIA_ENV={MEL_MEDIA_ENCRYPTION_KEY_ID:'media-v1',MEL_MEDIA_ENCRYPTION_KEY_B64:MEDIA_KEY_B64};
 const auth='Basic '+Buffer.from('adrien:test').toString('base64');
 function request(name,type,data){
   const form=new FormData();
@@ -38,7 +40,7 @@ test('private media upload exposes SHA-256 and bounded retention metadata', asyn
   let storedMetadata=null;
   const response=await handleFileUpload(
     request('evidence.bin','application/octet-stream',new Uint8Array([1,2,3,4])),
-    {
+    {...MEDIA_ENV,{
       MELITURGOS_USER:'adrien',
       MELITURGOS_PASSWORD:'test',
       MEL_MEDIA_TTL_SECONDS:'3600',
