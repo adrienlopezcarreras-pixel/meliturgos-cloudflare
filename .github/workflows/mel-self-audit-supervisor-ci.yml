@@ -1,0 +1,47 @@
+name: mel-self-audit-supervisor-ci
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/diagnostics/self-audit-supervisor.js'
+      - 'src/capabilities/self-audit-capability.js'
+      - 'src/capabilities/default-bus.js'
+      - 'src/index.js'
+      - 'src/roadmap/master-roadmap.js'
+      - 'wrangler.jsonc'
+      - 'tests/gen2/self-audit-supervisor.test.mjs'
+      - '.github/workflows/mel-self-audit-supervisor-ci.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'src/diagnostics/self-audit-supervisor.js'
+      - 'src/capabilities/self-audit-capability.js'
+      - 'src/capabilities/default-bus.js'
+      - 'src/index.js'
+      - 'src/roadmap/master-roadmap.js'
+      - 'wrangler.jsonc'
+      - 'tests/gen2/self-audit-supervisor.test.mjs'
+      - '.github/workflows/mel-self-audit-supervisor-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  self-audit-contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Syntax gate
+        run: npm run check
+      - name: Self-audit supervisor tests
+        run: node --test tests/gen2/self-audit-supervisor.test.mjs
+      - name: Related resilience contracts
+        run: |
+          node --test             tests/gen2/persistent-capability-stress.test.mjs             tests/lora-training-heartbeat.test.mjs             tests/gen2/sovereignty-candidate-validator.test.mjs             tests/resilience-survival.test.mjs
