@@ -33,6 +33,12 @@ function safeError(error) {
   return clean(error?.code || error?.message || error || 'SELF_AUDIT_FAILED', 180);
 }
 
+function nonNegativeNumberOrNull(value) {
+  if (value === null || value === undefined || value === '') return null;
+  const n = Number(value);
+  return Number.isFinite(n) && n >= 0 ? n : null;
+}
+
 function resolvedCadence(env = {}) {
   const hour = 60 * 60 * 1000;
   const bounded = (value, fallback, min, max) => {
@@ -260,9 +266,8 @@ export function buildCapabilityHealthLedger(previous = {}, capabilities = [], st
     const lastTestedAt = tested ? stressAt : Number(prior.last_tested_at || 0);
     const lastSuccessAt = tested && executionOk === true ? stressAt : Number(prior.last_test_success_at || 0);
     const lastFailureAt = tested && executionOk === false ? stressAt : Number(prior.last_test_failure_at || 0);
-    const latency = tested && Number.isFinite(Number(evidence?.execution?.duration_ms))
-      ? Math.max(0, Number(evidence.execution.duration_ms))
-      : (Number.isFinite(Number(prior.latency_ms)) ? Number(prior.latency_ms) : null);
+    const measuredLatency = tested ? nonNegativeNumberOrNull(evidence?.execution?.duration_ms) : null;
+    const latency = measuredLatency ?? nonNegativeNumberOrNull(prior.latency_ms);
     const lastError = tested && executionOk === false
       ? clean(evidence?.execution?.code || 'CAPABILITY_RUNTIME_FAILED', 180)
       : tested && executionOk === true
@@ -271,6 +276,7 @@ export function buildCapabilityHealthLedger(previous = {}, capabilities = [], st
     const usage = usageEvidence?.[id] && typeof usageEvidence[id] === 'object'
       ? usageEvidence[id]
       : {};
+    const hasUsage = Number(usage.last_execution_at || 0) > 0;
 
     next[id] = {
       id,
@@ -298,14 +304,14 @@ export function buildCapabilityHealthLedger(previous = {}, capabilities = [], st
         ? (clean(evidence?.auto_execution_blocked || '', 180) || null)
         : (clean(prior.auto_execution_blocked || '', 180) || null),
       stress_job_id: tested ? stressJobId : (prior.stress_job_id || null),
-      last_execution_at: Number(usage.last_execution_at || prior.last_execution_at || 0) || null,
-      last_execution_status: clean(usage.last_execution_status || prior.last_execution_status || '', 40) || null,
-      last_execution_duration_ms: Number.isFinite(Number(usage.last_execution_duration_ms))
-        ? Number(usage.last_execution_duration_ms)
-        : (Number.isFinite(Number(prior.last_execution_duration_ms)) ? Number(prior.last_execution_duration_ms) : null),
-      last_execution_success_at: Number(usage.last_execution_success_at || prior.last_execution_success_at || 0) || null,
-      last_execution_failure_at: Number(usage.last_execution_failure_at || prior.last_execution_failure_at || 0) || null,
-      last_execution_error: clean(usage.last_execution_error || prior.last_execution_error || '', 180) || null,
+      last_execution_at: Number((hasUsage ? usage.last_execution_at : prior.last_execution_at) || 0) || null,
+      last_execution_status: clean(hasUsage ? usage.last_execution_status : prior.last_execution_status, 40) || null,
+      last_execution_duration_ms: hasUsage
+        ? nonNegativeNumberOrNull(usage.last_execution_duration_ms)
+        : nonNegativeNumberOrNull(prior.last_execution_duration_ms),
+      last_execution_success_at: Number((hasUsage ? usage.last_execution_success_at : prior.last_execution_success_at) || 0) || null,
+      last_execution_failure_at: Number((hasUsage ? usage.last_execution_failure_at : prior.last_execution_failure_at) || 0) || null,
+      last_execution_error: clean(hasUsage ? usage.last_execution_error : prior.last_execution_error, 180) || null,
       stale_test: !lastTestedAt || current - lastTestedAt > Math.max(60_000, Number(weeklyMs) || MEL_SELF_AUDIT_CADENCE_MS.WEEKLY),
     };
   }
