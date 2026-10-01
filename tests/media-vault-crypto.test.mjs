@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import {
   MEDIA_VAULT_SCHEMA,
   MEDIA_VAULT_ALGORITHM,
@@ -57,4 +58,15 @@ test('persisted media fails closed when encryption secret is absent', () => {
     ()=>createEnvMediaVaultCodec({MEL_MEDIA_ENCRYPTION_KEY_ID:'media-v1'}),
     error=>error?.code==='MEDIA_VAULT_KEY_REQUIRED' && error?.status===503,
   );
+});
+
+
+test('production release provisions a domain-separated Media Vault Worker secret', async () => {
+  const source=await readFile(new URL('../.github/workflows/deploy-cloudflare-release.yml',import.meta.url),'utf8');
+  assert.match(source,/Configure encrypted Media Vault key/);
+  assert.match(source,/crypto\.hkdfSync\(/);
+  assert.match(source,/MEL_MEDIA_VAULT_V1/);
+  assert.match(source,/wrangler secret put MEL_MEDIA_ENCRYPTION_KEY_B64/);
+  assert.match(source,/wrangler secret put MEL_MEDIA_ENCRYPTION_KEY_ID/);
+  assert.doesNotMatch(source,/echo "\$\{MEDIA_KEY_B64\}"/);
 });
