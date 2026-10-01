@@ -90,3 +90,20 @@ test('unsupported binaries remain private uploads without pretending they were u
   assert.equal(body.analysis_status,'STORED_PRIVATE');
   assert.equal(body.stored,true);
 });
+
+
+test('private R2 persistence fails closed instead of storing plaintext when Media Vault key is absent', async () => {
+  let puts=0;
+  const env={
+    MEDIA_BUCKET:{async put(){puts+=1;}},
+  };
+  const file=new File([new Uint8Array([9,8,7,6])],'private.bin',{type:'application/octet-stream'});
+  const response=await handleFileUpload(uploadRequest(file),env,{authorized:true});
+  const body=await response.json();
+
+  assert.equal(response.status,503);
+  assert.equal(body.ok,false);
+  assert.equal(body.code,'MEDIA_VAULT_KEY_ID_REQUIRED');
+  assert.equal(body.stored,false);
+  assert.equal(puts,0);
+});
