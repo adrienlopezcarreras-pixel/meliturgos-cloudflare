@@ -34,6 +34,12 @@ test('Council recovery triggers on admitted inability and failed tools but not o
     toolResults:[],
   }),false);
   assert.equal(shouldEscalateNativeChatToCouncil({
+    userText:'regarde mes données privées',
+    responseText:'Je traite la demande sans prétendre avoir consulté le web public.',
+    assessment:{issues:[{code:'LOW_RELEVANCE',severity:'high'}]},
+    toolResults:[],
+  }),false);
+  assert.equal(shouldEscalateNativeChatToCouncil({
     userText:'reste hors de ce sujet',
     responseText:'réponse',
     assessment:{issues:[{code:'EXCLUDED_SCOPE_ACTION',severity:'high'}]},
