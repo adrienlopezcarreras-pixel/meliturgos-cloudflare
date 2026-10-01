@@ -54,10 +54,13 @@ test('page executor performs navigation and bounded text read without leaking ty
         async click() { calls.push(['click', selector]); },
         async fill(text) { calls.push(['fill', selector, text.length]); },
         async evaluate() { calls.push(['submit', selector]); },
+        async setInputFiles(file) { calls.push(['upload', selector, file.name, file.mimeType, file.buffer.byteLength]); },
       };
     },
     mouse: { async wheel(x, y) { calls.push(['wheel', x, y]); } },
     async screenshot() { return Buffer.from('jpeg'); },
+    async setExtraHTTPHeaders(headers) { calls.push(['headers',Object.keys(headers).sort()]); },
+    async waitForTimeout(ms) { calls.push(['wait',ms]); },
     async waitForLoadState() {},
     async waitForEvent() {
       return {
@@ -87,6 +90,82 @@ test('page executor performs navigation and bounded text read without leaking ty
   }, ['https://example.com']);
   assert.equal(typed.characters, 13);
   assert.equal(JSON.stringify(typed).includes('private-value'), false);
+});
+
+test('page executor uploads bounded inline file content without echoing file bytes', async () => {
+  const calls=[];
+  const page={
+    url:()=> 'https://example.com/',
+    locator(selector){
+      return {
+        async setInputFiles(file){calls.push({selector,file});},
+      };
+    },
+  };
+  const result=await executeBrowserStep(page,{
+    id:'upload',
+    action:'browser.upload-file',
+    selector:'#file',
+    file_name:'proof.txt',
+    mime_type:'text/plain',
+    file_text:'private-proof-content',
+  },['https://example.com']);
+  assert.equal(result.kind,'upload');
+  assert.equal(result.file_name,'proof.txt');
+  assert.equal(result.mime_type,'text/plain');
+  assert.equal(result.bytes,21);
+  assert.equal(calls.length,1);
+  assert.equal(calls[0].selector,'#file');
+  assert.equal(calls[0].file.name,'proof.txt');
+  assert.equal(calls[0].file.mimeType,'text/plain');
+  assert.equal(calls[0].file.buffer.toString('utf8'),'private-proof-content');
+  assert.equal(JSON.stringify(result).includes('private-proof-content'),false);
+});
+
+test('page executor applies only normalized request headers and waits for expected text', async () => {
+  const calls=[];
+  let reads=0;
+  const page={
+    url:()=> 'https://example.com/',
+    async setExtraHTTPHeaders(headers){calls.push(['headers',headers]);},
+    async waitForTimeout(ms){calls.push(['wait',ms]);},
+    locator(selector){
+      return {
+        async innerText(){
+          reads+=1;
+          calls.push(['read',selector,reads]);
+          return reads<2?'uploading':'proof.txt ready';
+        },
+      };
+    },
+  };
+
+  const headerResult=await executeBrowserStep(page,{
+    id:'headers',
+    action:'browser.set-headers',
+    headers:{
+      'x-mel-release-smoke':'1',
+      'x-mel-launch-bootstrap':'secret-token',
+      'x-unsafe':'drop-me',
+    },
+  },['https://example.com']);
+  assert.deepEqual(headerResult.header_names,['x-mel-release-smoke','x-mel-launch-bootstrap']);
+  assert.equal(JSON.stringify(headerResult).includes('secret-token'),false);
+  assert.deepEqual(calls[0][1],{
+    'x-mel-release-smoke':'1',
+    'x-mel-launch-bootstrap':'secret-token',
+  });
+
+  const waitResult=await executeBrowserStep(page,{
+    id:'wait',
+    action:'browser.wait-text',
+    selector:'#attachments',
+    text:'proof.txt',
+  },['https://example.com']);
+  assert.equal(waitResult.kind,'wait');
+  assert.equal(waitResult.matched,true);
+  assert.ok(reads>=2);
+  assert.equal(JSON.stringify(waitResult).includes('proof.txt'),false);
 });
 
 test('page executor rejects missing selectors for interactive actions', async () => {

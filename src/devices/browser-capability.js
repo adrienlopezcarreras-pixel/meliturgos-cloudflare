@@ -17,6 +17,9 @@ export const BROWSER_ACTIONS = Object.freeze({
   TYPE: 'browser.type',
   SUBMIT: 'browser.submit',
   DOWNLOAD: 'browser.download',
+  UPLOAD_FILE: 'browser.upload-file',
+  SET_HEADERS: 'browser.set-headers',
+  WAIT_TEXT: 'browser.wait-text',
 });
 
 const ACTION_RISK = new Map([
@@ -28,6 +31,9 @@ const ACTION_RISK = new Map([
   [BROWSER_ACTIONS.TYPE, BROWSER_RISK.SENSITIVE],
   [BROWSER_ACTIONS.SUBMIT, BROWSER_RISK.SENSITIVE],
   [BROWSER_ACTIONS.DOWNLOAD, BROWSER_RISK.SENSITIVE],
+  [BROWSER_ACTIONS.UPLOAD_FILE, BROWSER_RISK.SENSITIVE],
+  [BROWSER_ACTIONS.SET_HEADERS, BROWSER_RISK.SENSITIVE],
+  [BROWSER_ACTIONS.WAIT_TEXT, BROWSER_RISK.OBSERVE],
 ]);
 
 const RAW_ACTIONS = new Set([
@@ -45,6 +51,11 @@ const MAX_ID = 200;
 const MAX_URL = 4096;
 const MAX_SELECTOR = 1000;
 const MAX_TEXT = 8192;
+const MAX_FILE_NAME = 200;
+const MAX_MIME_TYPE = 120;
+const MAX_FILE_TEXT = 16384;
+const MAX_HEADER_VALUE = 2048;
+const ALLOWED_BROWSER_HEADERS = new Set(['authorization','x-mel-release-smoke','x-mel-launch-bootstrap']);
 
 function boundedText(value, max = MAX_ID) {
   return typeof value === 'string' ? value.trim().slice(0, max) : '';
@@ -85,6 +96,18 @@ function uniqueCapabilities(value) {
   return [...new Set(value.map(item => boundedText(item, 160)).filter(Boolean))].slice(0, 64);
 }
 
+function normalizeHeaders(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  const out = {};
+  for (const [rawName, rawValue] of Object.entries(value)) {
+    const name = String(rawName || '').trim().toLowerCase();
+    if (!ALLOWED_BROWSER_HEADERS.has(name)) continue;
+    const val = typeof rawValue === 'string' ? rawValue.trim().slice(0, MAX_HEADER_VALUE) : '';
+    if (val) out[name] = val;
+  }
+  return out;
+}
+
 function actionNeedsUrl(action) {
   return action === BROWSER_ACTIONS.NAVIGATE;
 }
@@ -115,6 +138,10 @@ export function normalizeBrowserRequest(input = {}) {
       url_supplied: Boolean(rawUrl),
       selector: boundedText(step?.selector, MAX_SELECTOR),
       text: typeof step?.text === 'string' ? step.text.slice(0, MAX_TEXT) : '',
+      file_name: boundedText(step?.file_name, MAX_FILE_NAME),
+      mime_type: boundedText(step?.mime_type, MAX_MIME_TYPE),
+      file_text: typeof step?.file_text === 'string' ? step.file_text.slice(0, MAX_FILE_TEXT) : '',
+      headers: normalizeHeaders(step?.headers),
       delta_x: numeric(step?.delta_x),
       delta_y: numeric(step?.delta_y),
     };

@@ -7,6 +7,7 @@ export const MAX_READ_TEXT = 64000;
 export const MAX_SCREENSHOT_BYTES = 80000;
 
 const ACTIONS = new Set(Object.values(BROWSER_ACTIONS));
+const ALLOWED_REQUEST_HEADERS = new Set(['authorization','x-mel-release-smoke','x-mel-launch-bootstrap']);
 
 function clean(value, max = 200) {
   return typeof value === 'string' ? value.trim().slice(0, max) : '';
@@ -44,6 +45,18 @@ export function allowedDomainsFromOrigins(origins) {
   const normalized = normalizeAllowedOrigins(origins);
   if (normalized.length === 0) throw companionError('BROWSER_ALLOWED_ORIGINS_REQUIRED', 400);
   return normalized.map(origin => new URL(origin).hostname.toLowerCase());
+}
+
+function normalizeRequestHeaders(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  const out = {};
+  for (const [rawName, rawValue] of Object.entries(value)) {
+    const name = String(rawName || '').trim().toLowerCase();
+    if (!ALLOWED_REQUEST_HEADERS.has(name)) continue;
+    const val = typeof rawValue === 'string' ? rawValue.trim().slice(0, 2048) : '';
+    if (val) out[name] = val;
+  }
+  return out;
 }
 
 export function normalizeCompanionPayload(payload = {}) {
@@ -90,6 +103,10 @@ export function normalizeCompanionPayload(payload = {}) {
       url,
       selector: clean(step.selector, 1000),
       text: typeof step.text === 'string' ? step.text.slice(0, 8192) : '',
+      file_name: clean(step.file_name, 200),
+      mime_type: clean(step.mime_type, 120),
+      file_text: typeof step.file_text === 'string' ? step.file_text.slice(0, 16384) : '',
+      headers: normalizeRequestHeaders(step.headers),
       delta_x: Number.isFinite(Number(step.delta_x)) ? Number(step.delta_x) : 0,
       delta_y: Number.isFinite(Number(step.delta_y)) ? Number(step.delta_y) : 0,
     },
@@ -240,6 +257,68 @@ export async function executeBrowserStep(page, step, allowedOrigins) {
         url: clean(download?.url?.(), 4096),
         failure: clean(await download?.failure?.(), 1000) || null,
       };
+    }
+
+    case BROWSER_ACTIONS.UPLOAD_FILE: {
+      const selector = requireSelector(step);
+      assertCurrentOrigin(page, allowedOrigins);
+      const fileName = clean(step.file_name, 200);
+      const mimeType = clean(step.mime_type, 120) || 'text/plain';
+      if (!fileName || !step.file_text) throw companionError('BROWSER_UPLOAD_FILE_REQUIRED', 400);
+      const bytes = Buffer.from(step.file_text, 'utf8');
+      if (bytes.byteLength > 16384) throw companionError('BROWSER_UPLOAD_FILE_TOO_LARGE', 413);
+      await page.locator(selector).setInputFiles({
+        name: fileName,
+        mimeType,
+        buffer: bytes,
+      }, { timeout: ACTION_TIMEOUT_MS });
+      return {
+        kind: 'upload',
+        action: step.action,
+        selector,
+        file_name: fileName,
+        mime_type: mimeType,
+        bytes: bytes.byteLength,
+        url: String(page.url?.() || ''),
+      };
+    }
+
+    case BROWSER_ACTIONS.SET_HEADERS: {
+      const headers = normalizeRequestHeaders(step.headers);
+      if (!Object.keys(headers).length) throw companionError('BROWSER_HEADERS_REQUIRED', 400);
+      await page.setExtraHTTPHeaders(headers);
+      return {
+        kind: 'interaction',
+        action: step.action,
+        header_names: Object.keys(headers),
+        url: String(page.url?.() || ''),
+      };
+    }
+
+    case BROWSER_ACTIONS.WAIT_TEXT: {
+      const selector = requireSelector(step);
+      const expected = String(step.text || '');
+      if (!expected) throw companionError('BROWSER_WAIT_TEXT_REQUIRED', 400);
+      assertCurrentOrigin(page, allowedOrigins);
+      const locator = page.locator(selector);
+      const deadline = Date.now() + ACTION_TIMEOUT_MS;
+      let value = '';
+      while (Date.now() < deadline) {
+        try { value = String(await locator.innerText({ timeout: 1000 })); } catch {}
+        if (value.includes(expected)) {
+          return {
+            kind: 'wait',
+            action: step.action,
+            selector,
+            matched: true,
+            characters: value.length,
+            url: String(page.url?.() || ''),
+          };
+        }
+        if (typeof page.waitForTimeout === 'function') await page.waitForTimeout(120);
+        else await new Promise(resolve => setTimeout(resolve, 120));
+      }
+      throw companionError('BROWSER_TEXT_NOT_FOUND', 408);
     }
 
     default:

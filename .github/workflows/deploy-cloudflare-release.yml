@@ -1753,6 +1753,100 @@ jobs:
           cleanup_browser_secret
           trap - EXIT
 
+      - name: Prove MEL-FILE-01 in real production browser
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          BASE_URL="https://meliturgos.adrien-lopezcarreras.workers.dev"
+          FILE_TOKEN="$(openssl rand -hex 32)"
+          FILE_SESSION_ID="release-file-proof-${EXPECTED_SHA:0:12}"
+          export FILE_TOKEN FILE_SESSION_ID EXPECTED_SHA
+          echo "::add-mask::${FILE_TOKEN}"
+
+          cleanup_file_secret() {
+            set +e
+            printf 'y\n' | npx wrangler secret delete MEL_LAUNCH_BOOTSTRAP_TOKEN --env="" >/tmp/mel-file-secret-delete.log 2>&1 || true
+            set -e
+          }
+          trap cleanup_file_secret EXIT
+          printf '%s' "${FILE_TOKEN}" | npx wrangler secret put MEL_LAUNCH_BOOTSTRAP_TOKEN --env=""
+
+          FILE_READY=0
+          for ATTEMPT in $(seq 1 12); do
+            FILE_BODY="$(node - <<'NODE'
+          const session=process.env.FILE_SESSION_ID;
+          const token=process.env.FILE_TOKEN;
+          const sha=process.env.EXPECTED_SHA;
+          const origin='https://meliturgos.adrien-lopezcarreras.workers.dev';
+          const approvals=[
+            {approved:true,session_id:session,step_id:'set-release-auth',action:'browser.set-headers'},
+            {approved:true,session_id:session,step_id:'upload-normal',action:'browser.upload-file'},
+            {approved:true,session_id:session,step_id:'upload-full',action:'browser.upload-file'},
+          ];
+          const steps=[
+            {id:'set-release-auth',action:'browser.set-headers',headers:{'x-mel-release-smoke':'1','x-mel-launch-bootstrap':token}},
+            {id:'navigate-normal',action:'browser.navigate',url:origin+'/'},
+            {id:'upload-normal',action:'browser.upload-file',selector:'#fileInput',file_name:'mel-file-normal-proof.txt',mime_type:'text/plain',file_text:'MEL_FILE_NORMAL_PROOF_'+sha},
+            {id:'wait-normal',action:'browser.wait-text',selector:'#attachments',text:'mel-file-normal-proof.txt'},
+            {id:'navigate-full',action:'browser.navigate',url:origin+'/professor'},
+            {id:'upload-full',action:'browser.upload-file',selector:'#chatFileInput',file_name:'mel-file-full-proof.txt',mime_type:'text/plain',file_text:'MEL_FILE_FULL_PROOF_'+sha},
+            {id:'wait-full',action:'browser.wait-text',selector:'#chatAttachments',text:'mel-file-full-proof.txt'},
+          ];
+          process.stdout.write(JSON.stringify({id:'browser.execute',input:{session_id:session,device:{id:'cloudflare-browser',capabilities:['browser.control']},sandbox:{allowed_origins:[origin],max_steps:7},approvals,steps}}));
+          NODE
+          )"
+            FILE_CODE="$(curl --silent --show-error --max-time 120 \
+              --header "x-mel-release-smoke: 1" \
+              --header "x-mel-launch-bootstrap: ${FILE_TOKEN}" \
+              --header "content-type: application/json" \
+              --data "${FILE_BODY}" \
+              --output production-file-browser-proof.json \
+              --write-out '%{http_code}' \
+              "${BASE_URL}/api/gen2/capabilities/execute" || true)"
+            if [ "${FILE_CODE}" = "200" ]; then FILE_READY=1; break; fi
+            echo "MEL-FILE-01 browser proof attempt ${ATTEMPT}/12 returned HTTP ${FILE_CODE}."
+            test ! -s production-file-browser-proof.json || cat production-file-browser-proof.json
+            sleep 3
+          done
+          test "${FILE_READY}" = "1"
+
+          node - <<'NODE'
+          const d=require('./production-file-browser-proof.json');
+          const r=d?.result||{};
+          if(d?.ok!==true || d?.capability!=='browser.execute') throw new Error('MEL_FILE_BROWSER_CAPABILITY_NOT_OK');
+          if(r?.ok!==true || Number(r?.steps_completed||0)!==7) throw new Error('MEL_FILE_BROWSER_EXECUTION_INCOMPLETE');
+          const out=id=>(r.outputs||[]).find(x=>x?.step_id===id)?.output||{};
+          if(out('upload-normal').kind!=='upload' || out('upload-normal').file_name!=='mel-file-normal-proof.txt') throw new Error('MEL_FILE_NORMAL_UPLOAD_MISSING');
+          if(out('wait-normal').kind!=='wait' || out('wait-normal').matched!==true) throw new Error('MEL_FILE_NORMAL_STAGE_MISSING');
+          if(out('upload-full').kind!=='upload' || out('upload-full').file_name!=='mel-file-full-proof.txt') throw new Error('MEL_FILE_FULL_UPLOAD_MISSING');
+          if(out('wait-full').kind!=='wait' || out('wait-full').matched!==true) throw new Error('MEL_FILE_FULL_STAGE_MISSING');
+          const proof={
+            schema:'mel.file-browser-production-proof/v1',
+            source_sha:process.env.EXPECTED_SHA,
+            normal:{upload:true,staged:true},
+            full:{upload:true,staged:true},
+            browser_execute:true,
+            secret_values_exposed:false,
+          };
+          require('fs').writeFileSync('mel-file-browser-production-proof.json',JSON.stringify(proof,null,2));
+          console.log(JSON.stringify(proof,null,2));
+          NODE
+
+          rm -f production-file-browser-proof.json
+          cleanup_file_secret
+          trap - EXIT
+
+      - name: Upload MEL-FILE-01 production proof
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: mel-file-browser-production-proof-${{ env.EXPECTED_SHA }}
+          path: mel-file-browser-production-proof.json
+          if-no-files-found: error
+          retention-days: 14
+
       - name: Capture sanitized production sovereignty status
         shell: bash
         env:

@@ -225,6 +225,14 @@ test('release smoke auth permits only the sanitized connection proof routes adde
   );
 });
 
+test('MEL-FILE-01 release smoke permits only the bounded UI and upload proof routes', () => {
+  const runtimeEnv=env();
+  assert.equal(isReleaseSmokeRequest(smokeRequest('/', 'GET'), runtimeEnv), true);
+  assert.equal(isReleaseSmokeRequest(smokeRequest('/professor', 'GET'), runtimeEnv), true);
+  assert.equal(isReleaseSmokeRequest(smokeRequest('/api/files/upload', 'POST'), runtimeEnv), true);
+  assert.equal(isReleaseSmokeRequest(smokeRequest('/api/files/delete', 'POST'), runtimeEnv), false);
+});
+
 test('MEL-REL-03 release token verifies self-code through the real Worker route', async () => {
   const response = await worker.fetch(smokeRequest('/api/gen2/code/self-check'), env(), {});
   assert.equal(response.status, 200);

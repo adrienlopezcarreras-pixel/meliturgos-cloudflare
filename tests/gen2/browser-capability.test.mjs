@@ -24,6 +24,9 @@ test('classifies browser actions conservatively', () => {
   assert.equal(classifyBrowserAction(BROWSER_ACTIONS.READ_TEXT), BROWSER_RISK.OBSERVE);
   assert.equal(classifyBrowserAction(BROWSER_ACTIONS.CLICK), BROWSER_RISK.INTERACT);
   assert.equal(classifyBrowserAction(BROWSER_ACTIONS.TYPE), BROWSER_RISK.SENSITIVE);
+  assert.equal(classifyBrowserAction(BROWSER_ACTIONS.UPLOAD_FILE), BROWSER_RISK.SENSITIVE);
+  assert.equal(classifyBrowserAction(BROWSER_ACTIONS.SET_HEADERS), BROWSER_RISK.SENSITIVE);
+  assert.equal(classifyBrowserAction(BROWSER_ACTIONS.WAIT_TEXT), BROWSER_RISK.OBSERVE);
   assert.equal(classifyBrowserAction('javascript.eval'), BROWSER_RISK.DENY);
   assert.equal(classifyBrowserAction('unknown.action'), BROWSER_RISK.DENY);
 });
@@ -78,6 +81,65 @@ test('requires exact approval for sensitive browser actions', () => {
     approvals: [{ approved: true, session_id: 'session-1', step_id: 'type-1', action: BROWSER_ACTIONS.TYPE }],
   });
   assert.equal(approved.allowed, true);
+});
+
+test('file upload requires exact approval and bounds inline file content', () => {
+  const request = {
+    ...baseRequest(),
+    steps: [{
+      id: 'upload-1',
+      action: BROWSER_ACTIONS.UPLOAD_FILE,
+      selector: '#file',
+      file_name: 'proof.txt',
+      mime_type: 'text/plain',
+      file_text: 'proof-content',
+    }],
+  };
+  const denied = evaluateBrowserPlan(request);
+  assert.equal(denied.allowed, false);
+  assert.equal(denied.reason, 'EXPLICIT_STEP_APPROVAL_REQUIRED');
+
+  const approved = evaluateBrowserPlan({
+    ...request,
+    approvals: [{ approved:true, session_id:'session-1', step_id:'upload-1', action:BROWSER_ACTIONS.UPLOAD_FILE }],
+  });
+  assert.equal(approved.allowed, true);
+  assert.equal(approved.request.steps[0].file_name, 'proof.txt');
+  assert.equal(approved.request.steps[0].file_text, 'proof-content');
+
+  const bounded = normalizeBrowserRequest({
+    ...request,
+    steps: [{ ...request.steps[0], file_text:'x'.repeat(20000) }],
+  });
+  assert.equal(bounded.steps[0].file_text.length, 16384);
+});
+
+test('browser header action is approval-gated and strips unapproved header names', () => {
+  const request = {
+    ...baseRequest(),
+    steps: [{
+      id:'headers-1',
+      action:BROWSER_ACTIONS.SET_HEADERS,
+      headers:{
+        'x-mel-release-smoke':'1',
+        'x-mel-launch-bootstrap':'token-value',
+        'x-unsafe-header':'must-drop',
+      },
+    }],
+  };
+  const denied=evaluateBrowserPlan(request);
+  assert.equal(denied.allowed,false);
+  assert.equal(denied.reason,'EXPLICIT_STEP_APPROVAL_REQUIRED');
+
+  const approved=evaluateBrowserPlan({
+    ...request,
+    approvals:[{approved:true,session_id:'session-1',step_id:'headers-1',action:BROWSER_ACTIONS.SET_HEADERS}],
+  });
+  assert.equal(approved.allowed,true);
+  assert.deepEqual(approved.request.steps[0].headers,{
+    'x-mel-release-smoke':'1',
+    'x-mel-launch-bootstrap':'token-value',
+  });
 });
 
 test('owner halt and missing device capability always win', () => {
