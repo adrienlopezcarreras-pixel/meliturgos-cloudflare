@@ -89,7 +89,8 @@ test('active chat route and model context use native MEL manual and experience p
   assert.match(index, /handleNativeChat\(preparedRequest, withChatAiDefaults\(env\), chatOptions\)/);
   assert.doesNotMatch(router, /handleNativeChat\(/);
   assert.doesNotMatch(router, /legacyHandler\.fetch\(/);
-  assert.match(native, /loadOperationalExperience\(env, text\)/);
+  assert.match(native, /const activeTaskText = negativeFeedbackRecovery\?\.original_request \|\| text/);
+  assert.match(native, /loadOperationalExperience\(env, activeTaskText\)/);
   assert.match(native, /buildMelOperatingManualPrompt/);
   assert.match(native, /VÉRITÉ ACCÈS CODE/);
   assert.match(native, /TUTOIEMENT ABSOLU AVEC ADRIEN/);
