@@ -29,7 +29,9 @@ test('runtime has one canonical scheduler topology with maintenance separated fr
   assert.equal((index.match(/runEcosystemCapabilityWatch\(env,/g) || []).length, 1);
   assert.equal((index.match(/runLoraTrainingHeartbeat\(env\)/g) || []).length, 1);
   assert.match(index, /const maintenanceCron = cron === '17 \* \* \* \*'/);
-  assert.match(index, /const tasks = maintenanceCron\s*\? \[/);
+  assert.match(index, /const dailySelfAuditCron = cron === '43 2 \* \* \*'/);
+  assert.match(index, /const tasks = dailySelfAuditCron\s*\? \[/);
+  assert.match(index, /:\s*maintenanceCron\s*\? \[/);
   assert.match(index, /:\s*\[\s*runAutonomyRuntimeTick/);
 
   for (const [name,source] of Object.entries({visual,preview,ui,learning})) {

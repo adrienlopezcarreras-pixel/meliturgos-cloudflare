@@ -61,7 +61,6 @@ const RELEASE_SMOKE_ALLOWLIST = Object.freeze(new Map([
     '/api/gen2/connections/microsoft/test',
     '/api/gen2/connections/yahoo/test',
     '/api/gen2/connections/yahoo-imap/test',
-    '/api/gen2/connections/roundcube/test',
     '/api/gen2/connections/vercel/test',
     '/api/gen2/connections/pipedream/test',
     '/api/files/upload',

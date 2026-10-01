@@ -38,22 +38,19 @@ test('full interface keeps capabilities while avoiding eager heavy hidden-panel 
 });
 
 
-test('full interface exposes persistent Gmail Yahoo and Roundcube controls while Microsoft is consolidated in Pipedream', async () => {
+test('full interface exposes persistent Gmail and Yahoo controls while Microsoft is consolidated in Pipedream', async () => {
   const response = await onRequestGet();
   const html = await response.text();
   assert.match(html, /data-view="connections"/);
   assert.match(html, /data-panel="connections"/);
   assert.match(html, />Gmail</);
   assert.match(html, />Yahoo \/ Ymail</);
-  assert.match(html, />Roundcube</);
   assert.match(html, /id="gmailConnect"/);
   assert.match(html, /id="yahooUsername"/);
   assert.match(html, /id="yahooAppPassword"/);
   assert.match(html, /id="yahooSave"/);
   assert.match(html, /imap\.mail\.yahoo\.com/);
   assert.match(html, /smtp\.mail\.yahoo\.com/);
-  assert.match(html, /roundcubeSave/);
-  assert.match(html, /roundcubeTest/);
   assert.doesNotMatch(html, /id="outlookConnect"/);
   assert.doesNotMatch(html, /id="oneDriveConnect"/);
   assert.doesNotMatch(html, /id="sharePointConnect"/);

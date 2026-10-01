@@ -298,6 +298,10 @@ export const MIGRATIONS = [
     await db.prepare(`CREATE INDEX IF NOT EXISTS idx_release_backup_bindings_bound_at
       ON release_backup_bindings(bound_at DESC)`).run();
   }},
+  { version: 15, name: 'retire_direct_mail_connector', run: async db => {
+    await db.prepare("DELETE FROM mel_oauth_tokens WHERE connector_id='generic-imap-smtp'").run();
+    await db.prepare("DELETE FROM mel_oauth_transactions WHERE connector_id='generic-imap-smtp'").run();
+  }},
 ];
 
 export async function migrate(db, targetVersion = DB_SCHEMA_VERSION) {

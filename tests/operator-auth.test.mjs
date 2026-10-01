@@ -78,7 +78,6 @@ test('ephemeral release smoke auth is restricted to exact verification routes an
     ['POST','/api/gen2/connections/microsoft/test', { connector_id:'microsoft-mail' }],
     ['POST','/api/gen2/connections/yahoo/test', { connector_id:'yahoo-mail' }],
     ['POST','/api/gen2/connections/yahoo-imap/test', {}],
-    ['POST','/api/gen2/connections/roundcube/test', {}],
     ['POST','/api/gen2/connections/vercel/test', {}],
   ]) {
     const request = new Request('https://meliturgos.test' + path, {

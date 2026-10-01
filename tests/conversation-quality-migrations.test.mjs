@@ -8,8 +8,8 @@ test('canonical migration provisions persistent conversation focus and response 
   const DB=sqliteD1();
   try {
     const result=await migrate(DB);
-    assert.equal(DB_SCHEMA_VERSION,14);
-    assert.equal(result.currentVersion,14);
+    assert.equal(DB_SCHEMA_VERSION,15);
+    assert.equal(result.currentVersion,DB_SCHEMA_VERSION);
     const focus=await DB.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='conversation_focus_state'").first();
     const quality=await DB.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='mel_response_quality_events'").first();
     assert.equal(focus?.name,'conversation_focus_state');
@@ -28,7 +28,7 @@ test('migration v8 is idempotent', async () => {
   try {
     await migrate(DB);
     const second=await migrate(DB);
-    assert.equal(second.currentVersion,14);
+    assert.equal(second.currentVersion,DB_SCHEMA_VERSION);
     const rows=await DB.prepare('SELECT version,name FROM schema_migrations WHERE version=8').all();
     assert.equal(rows.results.length,1);
     assert.equal(rows.results[0].name,'conversation_focus_and_response_quality');
@@ -77,8 +77,8 @@ test('migration v11 provisions Collector coverage state and remains idempotent',
   try {
     const first=await migrate(DB);
     const second=await migrate(DB);
-    assert.equal(first.currentVersion,14);
-    assert.equal(second.currentVersion,14);
+    assert.equal(first.currentVersion,DB_SCHEMA_VERSION);
+    assert.equal(second.currentVersion,DB_SCHEMA_VERSION);
     const table=await DB.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='chatgpt_collector_coverage'").first();
     assert.equal(table?.name,'chatgpt_collector_coverage');
     const rows=await DB.prepare('SELECT version,name FROM schema_migrations WHERE version=11').all();
@@ -95,8 +95,8 @@ test('migration v12 provisions memory candidates for live exchange sync and rema
   try {
     const first=await migrate(DB);
     const second=await migrate(DB);
-    assert.equal(first.currentVersion,14);
-    assert.equal(second.currentVersion,14);
+    assert.equal(first.currentVersion,DB_SCHEMA_VERSION);
+    assert.equal(second.currentVersion,DB_SCHEMA_VERSION);
     const table=await DB.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='memory_candidates'").first();
     assert.equal(table?.name,'memory_candidates');
     const rows=await DB.prepare('SELECT version,name FROM schema_migrations WHERE version=12').all();
@@ -117,8 +117,8 @@ test('migration v13 provisions canonical encrypted OAuth vault and remains idemp
   try {
     const first=await migrate(DB);
     const second=await migrate(DB);
-    assert.equal(first.currentVersion,14);
-    assert.equal(second.currentVersion,14);
+    assert.equal(first.currentVersion,DB_SCHEMA_VERSION);
+    assert.equal(second.currentVersion,DB_SCHEMA_VERSION);
     for (const name of ['mel_oauth_transactions','mel_oauth_tokens']) {
       const row=await DB.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?").bind(name).first();
       assert.equal(row?.name,name);
@@ -139,8 +139,8 @@ test('migration v14 provisions release backup bindings and remains idempotent', 
   try {
     const first=await migrate(DB);
     const second=await migrate(DB);
-    assert.equal(first.currentVersion,14);
-    assert.equal(second.currentVersion,14);
+    assert.equal(first.currentVersion,DB_SCHEMA_VERSION);
+    assert.equal(second.currentVersion,DB_SCHEMA_VERSION);
     const table=await DB.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='release_backup_bindings'").first();
     assert.equal(table?.name,'release_backup_bindings');
     const rows=await DB.prepare('SELECT version,name FROM schema_migrations WHERE version=14').all();
@@ -148,6 +148,28 @@ test('migration v14 provisions release backup bindings and remains idempotent', 
     assert.equal(rows.results[0].name,'release_backup_bindings');
     const index=await DB.prepare("SELECT name FROM sqlite_master WHERE type='index' AND name='idx_release_backup_bindings_bound_at'").first();
     assert.equal(index?.name,'idx_release_backup_bindings_bound_at');
+  } finally {
+    DB.close();
+  }
+});
+
+
+test('migration v15 removes retired direct-mail credentials and transactions', async () => {
+  const DB=sqliteD1();
+  try {
+    await migrate(DB,14);
+    await DB.prepare("INSERT INTO mel_oauth_tokens(owner,connector_id,envelope_json,updated_at) VALUES(?,?,?,?)")
+      .bind('owner','generic-imap-smtp','{}',1).run();
+    await DB.prepare("INSERT INTO mel_oauth_transactions(owner,connector_id,state_sha256,envelope_json,expires_at,created_at) VALUES(?,?,?,?,?,?)")
+      .bind('owner','generic-imap-smtp','state','{}',2,1).run();
+    const result=await migrate(DB);
+    assert.equal(result.currentVersion,DB_SCHEMA_VERSION);
+    const token=await DB.prepare("SELECT connector_id FROM mel_oauth_tokens WHERE connector_id='generic-imap-smtp'").first();
+    const tx=await DB.prepare("SELECT connector_id FROM mel_oauth_transactions WHERE connector_id='generic-imap-smtp'").first();
+    assert.equal(token,null);
+    assert.equal(tx,null);
+    const row=await DB.prepare('SELECT name FROM schema_migrations WHERE version=15').first();
+    assert.equal(row?.name,'retire_direct_mail_connector');
   } finally {
     DB.close();
   }
