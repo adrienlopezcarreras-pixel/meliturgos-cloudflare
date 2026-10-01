@@ -515,7 +515,12 @@ export async function runMelSelfAuditSupervisor(env = {}, {
       const value = await bus.execute('system.integrity', {}, context);
       return { ...value, status: value?.ok === false ? 'INTEGRITY_FAILED' : 'INTEGRITY_OK' };
     }));
-    results.push(await capture('lora-heartbeat', async () => (deps.runLoraTrainingHeartbeat || runLoraTrainingHeartbeat)(env, { force: true, now: () => current })));
+    results.push(await capture('lora-heartbeat', async () => {
+      const value = await (deps.runLoraTrainingHeartbeat || runLoraTrainingHeartbeat)(env, { force: true, now: () => current });
+      const status = String(value?.status || '');
+      const unavailable = ['DISABLED','SKIPPED_NO_GITHUB_TOKEN','HEARTBEAT_ERROR'].includes(status);
+      return { ...value, ok: !unavailable };
+    }));
     results.push(await capture('ecosystem-watch', async () => (deps.runEcosystemCapabilityWatch || runEcosystemCapabilityWatch)(env, { force: true, sourceSha: clean(env.MEL_DEPLOYED_GIT_SHA, 80) || null })));
     results.push(await capture('dependency-longevity', async () => (deps.runDependencyLongevityWatchRuntime || runDependencyLongevityWatchRuntime)(env, { force: true, now: current })));
     results.push(await capture('sovereignty-watch', async () => (deps.runSovereigntyReplacementWatchRuntime || runSovereigntyReplacementWatchRuntime)(env, { force: true, now: current })));
@@ -548,8 +553,14 @@ export async function runMelSelfAuditSupervisor(env = {}, {
           : 'RECOVERY_DRILL_FAILED',
       };
     }));
-    results.push(await capture('source-control-alternative-drill', async () => (deps.runCompanionSourceControlPrevalidationRuntime || runCompanionSourceControlPrevalidationRuntime)(env, { force: true, now: current })));
-    results.push(await capture('infrastructure-alternative-drill', async () => (deps.runCompanionInfrastructurePrevalidationRuntime || runCompanionInfrastructurePrevalidationRuntime)(env, { force: true, now: current })));
+    results.push(await capture('source-control-alternative-drill', async () => {
+      const value = await (deps.runCompanionSourceControlPrevalidationRuntime || runCompanionSourceControlPrevalidationRuntime)(env, { force: true, now: current });
+      return { ...value, ok: value?.reason !== 'COMPANION_OFFLINE' && value?.ok !== false };
+    }));
+    results.push(await capture('infrastructure-alternative-drill', async () => {
+      const value = await (deps.runCompanionInfrastructurePrevalidationRuntime || runCompanionInfrastructurePrevalidationRuntime)(env, { force: true, now: current });
+      return { ...value, ok: value?.reason !== 'COMPANION_OFFLINE' && value?.ok !== false };
+    }));
   }
 
   const failureStreaks = updateFailureStreaks(state.failure_streaks, results);
