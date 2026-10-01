@@ -1,6 +1,9 @@
 name: live-connections-production-proof
 
 on:
+  workflow_run:
+    workflows: ["deploy-cloudflare-release"]
+    types: [completed]
   workflow_dispatch:
     inputs:
       expected_sha:
@@ -16,18 +19,21 @@ on:
 permissions:
   contents: read
 
+env:
+  LIVE_PROOF_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.expected_sha || github.sha }}
+
 concurrency:
   group: mel-launch-bootstrap-token
   cancel-in-progress: false
 
 jobs:
   production-proof:
-    if: github.event_name != 'pull_request'
+    if: github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'release/mel-hardware-v0.1.0')
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: ${{ inputs.expected_sha || github.sha }}
+          ref: ${{ env.LIVE_PROOF_SHA }}
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
         with:
           node-version: 22
@@ -40,11 +46,11 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          EXPECTED_SHA: ${{ inputs.expected_sha || github.sha }}
+          EXPECTED_SHA: ${{ env.LIVE_PROOF_SHA }}
         run: |
           set -euo pipefail
           BASE_URL="https://meliturgos.adrien-lopezcarreras.workers.dev"
-          EXPECTED_SHA="${{ inputs.expected_sha || github.sha }}"
+          EXPECTED_SHA="${{ env.LIVE_PROOF_SHA }}"
           TOKEN="$(openssl rand -hex 32)"
           echo "::add-mask::${TOKEN}"
 
@@ -201,7 +207,7 @@ jobs:
       - name: Upload sanitized live proof
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: live-connections-production-proof-${{ inputs.expected_sha || github.sha }}
+          name: live-connections-production-proof-${{ env.LIVE_PROOF_SHA }}
           path: live-connections-proof.json
           if-no-files-found: error
           retention-days: 14
