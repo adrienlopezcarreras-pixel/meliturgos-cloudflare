@@ -39,6 +39,12 @@ export function registerSelfAuditCapabilities(bus, env = {}) {
   }, async (input, context = {}) => {
     const { runMelSelfAuditSupervisor } = await import('../diagnostics/self-audit-supervisor.js');
     const level = String(input?.level || 'DAILY').toUpperCase();
+    if (context?.releaseSmoke === true && level !== 'HEARTBEAT') {
+      const error = new Error('SELF_AUDIT_RELEASE_SMOKE_HEARTBEAT_ONLY');
+      error.code = 'SELF_AUDIT_RELEASE_SMOKE_HEARTBEAT_ONLY';
+      error.status = 403;
+      throw error;
+    }
     return runMelSelfAuditSupervisor(env, {
       bus,
       forceLevel: level,
