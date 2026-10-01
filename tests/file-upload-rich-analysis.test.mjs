@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { handleFileUpload } from '../src/api/file-upload.js';
 
+const MEDIA_KEY_B64=Buffer.alloc(32,7).toString('base64');
+const MEDIA_ENV={MEL_MEDIA_ENCRYPTION_KEY_ID:'media-v1',MEL_MEDIA_ENCRYPTION_KEY_B64:MEDIA_KEY_B64};
 function uploadRequest(file) {
   const form = new FormData();
   form.append('file', file);
@@ -77,9 +79,7 @@ test('image analysis runs with fresh Workers Free fail-not-bill proof and asks f
 
 test('unsupported binaries remain private uploads without pretending they were understood', async () => {
   let calls = 0;
-  const env = {
-    AI:{ async toMarkdown(){ calls += 1; return { format:'text', data:'unexpected' }; } },
-    MEDIA_BUCKET:{ async put(){ return undefined; } },
+  const env = {...MEDIA_ENV,AI:{ async toMarkdown(){ calls += 1; return { format:'text', data:'unexpected' }; } },MEDIA_BUCKET:{ async put(){ return undefined; } },
   };
   const file = new File([new Uint8Array([1,2,3,4])], 'archive.bin', { type:'application/octet-stream' });
   const response = await handleFileUpload(uploadRequest(file), env, { authorized:true });
