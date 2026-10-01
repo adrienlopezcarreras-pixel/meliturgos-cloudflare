@@ -13,6 +13,7 @@ import { buildMelOperatingManualPrompt } from '../identity/mel-operating-manual.
 import { classifyCapabilityTruth, declaredImplementationStatus } from '../diagnostics/capability-truth-audit.js';
 import { LearningEngine } from '../learning/learning-engine.js';
 import { MentorMemoryRepository } from '../learning/mentor-memory.js';
+import { recordLearningXpCheckpoint } from '../learning/xp-journal.js';
 import { MEL_RUNTIME_OPERATING_EXPERIENCE } from '../learning/runtime-operating-experience.js';
 import { stripInternalCounters } from './chat-sanitization.js';
 import { formatPersonalProfileRecall, retrieveContext, retrievePersonalProfileContext } from '../core/orchestrator/conversation-context.js';
@@ -23,6 +24,7 @@ import { loadConversationFocusState, saveConversationFocusState } from './conver
 import { assessResponseQuality, enforceResponseQuality, persistResponseQualityEvent } from './response-quality-audit.js';
 import { inferKnowledgeCapability } from './knowledge-intent.js';
 import { inferCurrentFactVerificationPolicy, hasAuthoritativeCurrentFactEvidence, currentFactReliabilityInstruction } from './current-fact-reliability.js';
+import { buildPresentationInstruction } from '../presentation/presentation-skill.js';
 
 export function inferChatGPTHistoryCapability(text) {
   const value = String(text || '').trim();
@@ -404,6 +406,167 @@ function summarizeToolResult(result) {
       return value;
     }));
   } catch { return { error: 'TOOL_RESULT_SERIALIZATION_FAILED' }; }
+}
+
+function responseAdmitsUncertainty(value) {
+  return /\b(?:je\s+ne\s+sais\s+pas|je\s+n['’]?ai\s+pas\s+la\s+r[ée]ponse|je\s+ne\s+peux\s+pas\s+(?:r[ée]pondre|faire|ex[ée]cuter|lancer)|je\s+n['’]?arrive\s+pas\s+[àa]|impossible\s+pour\s+moi|aucun\s+chemin\s+d['’]?action|je\s+ne\s+sais\s+pas\s+comment)\b/i.test(String(value || ''));
+}
+
+function actionLikeRequest(value) {
+  return /\b(?:fais|faire|lance|lancer|ex[ée]cute|ex[ée]cuter|envoie|envoyer|ouvre|ouvrir|cr[ée]e|cr[ée]er|modifie|modifier|corrige|corriger|r[ée]pare|r[ée]parer|d[ée]ploie|d[ée]ployer|teste|tester|v[ée]rifie|v[ée]rifier|mets?\s+[àa]\s+jour|continue|avance)\b/i.test(String(value || ''));
+}
+
+export function shouldEscalateNativeChatToCouncil({
+  userText = '',
+  responseText = '',
+  assessment = null,
+  toolResults = [],
+  developmentQueued = null,
+} = {}) {
+  if (developmentQueued) return false;
+  const issues = Array.isArray(assessment?.issues) ? assessment.issues : [];
+  if (issues.some(issue => issue?.code === 'EXCLUDED_SCOPE_ACTION')) return false;
+  const severe = issues.some(issue => issue?.severity === 'high');
+  const failedTools = (Array.isArray(toolResults) ? toolResults : []).filter(row => row?.status === 'FAILED');
+  if (failedTools.length) return true;
+  if (severe) return true;
+  if (responseAdmitsUncertainty(responseText)) return true;
+  return actionLikeRequest(userText) && !String(responseText || '').trim();
+}
+
+function councilRecoveryPrompt({ userText, responseText, assessment, toolResults, capabilityManifest }) {
+  const failed = (Array.isArray(toolResults) ? toolResults : [])
+    .filter(row => row?.status === 'FAILED')
+    .map(row => ({ capability:String(row.capability || ''), error:String(row.error || 'CAPABILITY_FAILED') }))
+    .slice(0, 8);
+  const issues = (Array.isArray(assessment?.issues) ? assessment.issues : [])
+    .map(row => ({ code:String(row?.code || ''), severity:String(row?.severity || '') }))
+    .slice(0, 12);
+  const available = (Array.isArray(capabilityManifest) ? capabilityManifest : [])
+    .filter(row => row?.enabled !== false && !['BLOCKED','BLOCKED_EXTERNAL','NOT_IMPLEMENTED','STUB'].includes(String(row?.status || '').toUpperCase()))
+    .map(row => ({ id:String(row.id || ''), status:String(row.status || ''), health:String(row.health || '') }))
+    .slice(0, 147);
+  return [
+    'MISSION DE RÉCUPÉRATION MEL.',
+    'La réponse ou le lancement de tâche courant n est pas suffisamment fiable.',
+    'Analyse la demande, les échecs réels et les capacités disponibles.',
+    'Explique à MEL comment répondre utilement ou comment poursuivre la tâche sans inventer une exécution.',
+    'Si une capacité existante peut réellement aider, cite son ID exact. Si aucune ne convient, dis qu un travail d évolution est nécessaire.',
+    'Ne transforme jamais une erreur transitoire en incapacité générale et ne prétends jamais qu une action a réussi sans preuve.',
+    'DEMANDE UTILISATEUR:',
+    String(userText || '').slice(0, 8000),
+    'RÉPONSE INITIALE:',
+    String(responseText || '').slice(0, 8000),
+    'PROBLÈMES QUALITÉ:',
+    JSON.stringify(issues),
+    'OUTILS EN ÉCHEC:',
+    JSON.stringify(failed),
+    'CAPACITÉS DISPONIBLES:',
+    JSON.stringify(available),
+  ].join('\n');
+}
+
+async function runCouncilRecovery({ runtime, env, userText, responseText, assessment, toolResults, capabilityManifest }) {
+  try {
+    const result = await runtime.bus.execute('model.council', {
+      request: { prompt: councilRecoveryPrompt({ userText, responseText, assessment, toolResults, capabilityManifest }) },
+      capability: 'REASONING',
+      maxCandidates: 4,
+      timeoutMs: 30_000,
+    }, nativeCapabilityContext(env));
+    const guidance = String(result?.synthesis?.text || '').trim();
+    if (!guidance) return { attempted:true, succeeded:false, code:'COUNCIL_RECOVERY_EMPTY' };
+    return {
+      attempted:true,
+      succeeded:true,
+      guidance,
+      status:String(result?.status || ''),
+      independent_response_count:Number(result?.independent_response_count || 0),
+      provider_failure_count:Number(result?.provider_failure_count || 0),
+    };
+  } catch (error) {
+    return {
+      attempted:true,
+      succeeded:false,
+      code:String(error?.code || error?.message || 'COUNCIL_RECOVERY_FAILED').slice(0, 180),
+    };
+  }
+}
+
+async function persistCouncilRecoveryXp(env, {
+  userText,
+  before,
+  after,
+  council,
+  initialAssessment,
+  recoveredAssessment,
+  toolResults,
+} = {}) {
+  if (!env?.DB || !council?.succeeded || recoveredAssessment?.ok !== true) return { saved:false, correction_saved:false, xp_gain:0 };
+  if (secretLike(userText) || secretLike(before) || secretLike(after)) return { saved:false, correction_saved:false, xp_gain:0, reason:'SECRET_LIKE_CONTENT' };
+  const issueCodes=(Array.isArray(initialAssessment?.issues)?initialAssessment.issues:[]).map(row=>String(row?.code||'')).filter(Boolean).slice(0,12);
+  const failedCapabilities=(Array.isArray(toolResults)?toolResults:[]).filter(row=>row?.status==='FAILED').map(row=>String(row?.capability||'')).filter(Boolean).slice(0,12);
+  const memory=new MentorMemoryRepository(env.DB);
+  let experienceSaved=false;
+  let correctionSaved=false;
+  try {
+    await memory.acquireExperience({
+      fingerprint:['COUNCIL_RECOVERY',...issueCodes,...failedCapabilities].join('|') || 'COUNCIL_RECOVERY|GENERAL',
+      goal:String(userText || '').slice(0,4000),
+      source_type:'COUNCIL_RECOVERY',
+      lesson:'Quand MEL ne sait pas répondre ou exécuter de façon fiable dans ce contexte, déclencher le Model Council, exploiter sa synthèse comme stratégie de récupération, puis ne conserver la reprise que si le contrôle qualité repasse au vert.',
+      evidence:{
+        council_status:council.status || null,
+        independent_response_count:council.independent_response_count || 0,
+        provider_failure_count:council.provider_failure_count || 0,
+        initial_issue_codes:issueCodes,
+        failed_capabilities:failedCapabilities,
+        recovered_quality_ok:true,
+      },
+      score:0.9,
+      tags:['council','recovery','runtime-xp','response-quality',failedCapabilities.length?'task-recovery':'answer-recovery'],
+    });
+    experienceSaved=true;
+  } catch {}
+  let xpCheckpoint=null;
+  try {
+    const engine=new LearningEngine({memory});
+    const correction=await engine.recordCorrection({
+      source:'council-recovery',
+      domain:failedCapabilities.length?'task-recovery':'response-recovery',
+      task:String(userText || '').slice(0,4000),
+      input:String(userText || '').slice(0,12000),
+      before:String(before || '').slice(0,12000) || '[EMPTY_RESPONSE]',
+      after:String(after || '').slice(0,12000),
+      rationale:'Le Model Council a fourni une stratégie de récupération; la réponse reconstruite a repassé le contrôle qualité runtime.',
+      tests:['model.council:SUCCEEDED','response-quality:PASS'],
+      tags:['council','recovery','runtime-xp'],
+      validated:true,
+      quality:0.9,
+    });
+    correctionSaved=true;
+    try {
+      const report=await engine.report();
+      xpCheckpoint=await recordLearningXpCheckpoint({
+        memory,
+        report,
+        reason:'Successful native-chat Council recovery validated by response-quality runtime.',
+        artifacts:[
+          'mentor:correction:'+String(correction?.id || 'council-recovery'),
+          'runtime:model.council:SUCCEEDED',
+          'runtime:response-quality:PASS',
+        ],
+        source_sha:String(env?.MEL_RELEASE_SHA || env?.SOURCE_SHA || '').trim() || null,
+      });
+    } catch {}
+  } catch {}
+  return {
+    saved:experienceSaved,
+    correction_saved:correctionSaved,
+    xp_gain:Number(xpCheckpoint?.xp_delta || 0),
+    xp_after:Number.isFinite(Number(xpCheckpoint?.xp_after)) ? Number(xpCheckpoint.xp_after) : null,
+    xp_awarded:xpCheckpoint?.awarded === true,
+  };
 }
 
 export function buildCompanionDisplay(toolResults = []) {
@@ -1033,6 +1196,7 @@ export async function handleNativeChat(request, env, options = {}) {
     conversationFocusInstruction,
     operatingManual,
     currentFactReliabilityInstruction(currentFactVerification),
+    buildPresentationInstruction(activeTaskText,{voiceReply}),
     themeInstruction,
     voiceReply
       ? 'MODE VOCAL MOBILE : réponds immédiatement avec 1 à 3 phrases courtes, naturelles et directement prononçables. Va à l’essentiel, sans listes longues, sans préambule et sans dépasser environ 350 caractères sauf nécessité absolue.'
@@ -1217,22 +1381,114 @@ export async function handleNativeChat(request, env, options = {}) {
     toolResults,
     recent,
   });
+  let automaticCouncilRecovery = { attempted:false, succeeded:false };
+  let automaticCouncilAccepted = false;
+  let automaticRecoveredAssessment = null;
+  let qualityCandidateText = evidenceAlignedResponseText;
+
+  if (!negativeFeedbackRecovery && shouldEscalateNativeChatToCouncil({
+    userText:activeTaskText,
+    responseText:evidenceAlignedResponseText,
+    assessment:initialQualityAssessment,
+    toolResults,
+    developmentQueued,
+  })) {
+    automaticCouncilRecovery = await runCouncilRecovery({
+      runtime,
+      env,
+      userText:activeTaskText,
+      responseText:evidenceAlignedResponseText,
+      assessment:initialQualityAssessment,
+      toolResults,
+      capabilityManifest,
+    });
+    if (automaticCouncilRecovery.succeeded) {
+      try {
+        const recoveryMessages = [
+          ...messages,
+          { role:'assistant', content:evidenceAlignedResponseText },
+          {
+            role:'system',
+            content:[
+              'RÉCUPÉRATION COUNCIL : la première tentative était insuffisante.',
+              'Utilise la synthèse du Council comme conseil, pas comme preuve.',
+              'Réponds maintenant à la demande active de façon directement utile.',
+              'Si une action a échoué, conserve son code exact et ne prétends pas qu elle a réussi.',
+              'Si le Council identifie une capacité existante mais qu elle n a pas été exécutée dans cette requête, présente-la comme prochaine action possible, jamais comme action déjà faite.',
+              'SYNTHÈSE COUNCIL:',
+              automaticCouncilRecovery.guidance,
+            ].join('\n'),
+          },
+          { role:'user', content:activeTaskText },
+        ];
+        const recoveredAi = await runNativeInference({
+          env,
+          messages:recoveryMessages,
+          text:activeTaskText,
+          parallel:false,
+          maxCandidates:1,
+          inferenceSettings:effectiveInferenceSettings,
+          activeAdapter,
+          runtime,
+          taskOverride:'REASONING',
+        });
+        const recoveredRaw = stripInternalCounters(recoveredAi.text);
+        const recoveredAligned = finalizeEvidenceAlignedResponse({
+          text:recoveredRaw,
+          userText:activeTaskText,
+          codeAccess,
+          toolResults,
+          developmentQueued,
+        });
+        const candidateAssessment = assessResponseQuality({
+          userText:activeTaskText,
+          responseText:recoveredAligned,
+          focus:conversationFocus,
+          codeAccess,
+          developmentQueued,
+          toolResults,
+          recent,
+        });
+        if (candidateAssessment.ok === true) {
+          ai = { ...recoveredAi, council_recovered:true };
+          qualityCandidateText = recoveredAligned;
+          automaticRecoveredAssessment = candidateAssessment;
+          automaticCouncilAccepted = true;
+        }
+      } catch (error) {
+        automaticCouncilRecovery.recovery_error = String(error?.code || error?.message || 'COUNCIL_RECOVERY_INFERENCE_FAILED').slice(0,180);
+      }
+    }
+  }
+
+  const effectiveQualityAssessment = automaticRecoveredAssessment || initialQualityAssessment;
   const qualityGuardedResponseText = (autonomyActivityObserved || devBridgeStatusObserved || capabilityAuditObserved)
-    ? evidenceAlignedResponseText
+    ? qualityCandidateText
     : enforceResponseQuality({
-        responseText: evidenceAlignedResponseText,
-        userText: activeTaskText,
-        focus: conversationFocus,
-        assessment: initialQualityAssessment,
+        responseText:qualityCandidateText,
+        userText:activeTaskText,
+        focus:conversationFocus,
+        assessment:effectiveQualityAssessment,
       });
   const responseText = qualityGuardedResponseText;
-  const responseGuarded = responseText !== evidenceAlignedResponseText;
+  const responseGuarded = responseText !== qualityCandidateText;
+  const automaticCouncilXp = automaticCouncilAccepted
+    ? await persistCouncilRecoveryXp(env, {
+        userText:activeTaskText,
+        before:evidenceAlignedResponseText,
+        after:responseText,
+        council:automaticCouncilRecovery,
+        initialAssessment:initialQualityAssessment,
+        recoveredAssessment:effectiveQualityAssessment,
+        toolResults,
+      })
+    : { saved:false, correction_saved:false, xp_gain:0 };
   const qualityEventSaved = releaseSmoke ? false : await persistResponseQualityEvent(env, {
     conversationId,
-    userText: text,
+    userText:text,
     responseText,
-    focus: conversationFocus,
-    assessment: initialQualityAssessment,
+    focus:conversationFocus,
+    assessment:effectiveQualityAssessment,
   });
 
   let councilRecoveryLearningSaved = false;
@@ -1272,7 +1528,7 @@ export async function handleNativeChat(request, env, options = {}) {
   if (service) {
     try {
       await service.archiveMessage({ conversationId, deviceId, role: 'user', content: text, capabilitiesUsed: capabilitiesUsed.length ? capabilitiesUsed : null, timestamp: Date.now(), provenance: userProvenance, metadata: userMetadata });
-      await service.archiveMessage({ conversationId, deviceId, role: 'assistant', content: responseText, model: ai.model, capabilitiesUsed: capabilitiesUsed.length ? capabilitiesUsed : null, timestamp: Date.now() + 1, provenance: ai.augmentio_used ? 'native-chat:augmentio' : 'native-chat' });
+      await service.archiveMessage({ conversationId, deviceId, role: 'assistant', content: responseText, model: ai.model, capabilitiesUsed: capabilitiesUsed.length ? capabilitiesUsed : null, timestamp: Date.now() + 1, provenance: automaticCouncilAccepted ? 'native-chat:council-recovery' : (ai.augmentio_used ? 'native-chat:augmentio' : 'native-chat'), metadata: automaticCouncilAccepted ? { council_recovery:true, xp_gain:Number(automaticCouncilXp.xp_gain || 0) } : {} });
       archiveSaved = true;
     } catch { archiveSaved = false; }
   }
@@ -1309,21 +1565,38 @@ export async function handleNativeChat(request, env, options = {}) {
           : null,
     response_mode: inferResponseMode(activeTaskText),
     response_quality: {
-      ok: initialQualityAssessment.ok === true,
+      ok: effectiveQualityAssessment.ok === true,
       guarded: responseGuarded,
-      issue_codes: (initialQualityAssessment.issues || []).map(row => row.code).slice(0,12),
-      relevance: initialQualityAssessment.relevance || null,
+      issue_codes: (effectiveQualityAssessment.issues || []).map(row => row.code).slice(0,12),
+      initial_issue_codes: (initialQualityAssessment.issues || []).map(row => row.code).slice(0,12),
+      relevance: effectiveQualityAssessment.relevance || null,
       event_saved: qualityEventSaved === true,
     },
-    council_recovery: negativeFeedbackRecovery ? {
-      triggered: true,
-      trigger: negativeFeedbackRecovery.trigger,
-      council_status: toolResults.find(row => row.capability === 'model.council')?.status || 'NOT_RUN',
-      retry_capability: councilRecoveryRetry?.capability || null,
-      retry_status: councilRecoveryRetry?.status || null,
-      learning_observation_saved: councilRecoveryLearningSaved,
-      learning_validated: false,
-      xp_awarded: false,
+    council_recovery: automaticCouncilRecovery.attempted ? {
+      mode:'automatic-quality-recovery',
+      attempted:true,
+      succeeded:automaticCouncilRecovery.succeeded === true,
+      accepted:automaticCouncilAccepted === true,
+      status:automaticCouncilRecovery.status || null,
+      independent_response_count:Number(automaticCouncilRecovery.independent_response_count || 0),
+      provider_failure_count:Number(automaticCouncilRecovery.provider_failure_count || 0),
+      code:automaticCouncilRecovery.code || null,
+      recovery_error:automaticCouncilRecovery.recovery_error || null,
+      experience_saved:automaticCouncilXp.saved === true,
+      correction_saved:automaticCouncilXp.correction_saved === true,
+      xp_gain:Number(automaticCouncilXp.xp_gain || 0),
+      xp_after:automaticCouncilXp.xp_after ?? null,
+      xp_awarded:automaticCouncilXp.xp_awarded === true,
+    } : negativeFeedbackRecovery ? {
+      mode:'owner-negative-feedback',
+      triggered:true,
+      trigger:negativeFeedbackRecovery.trigger,
+      council_status:toolResults.find(row => row.capability === 'model.council')?.status || 'NOT_RUN',
+      retry_capability:councilRecoveryRetry?.capability || null,
+      retry_status:councilRecoveryRetry?.status || null,
+      learning_observation_saved:councilRecoveryLearningSaved,
+      learning_validated:false,
+      xp_awarded:false,
     } : null,
     response_focus: {
       elliptical: conversationFocus.elliptical === true,
