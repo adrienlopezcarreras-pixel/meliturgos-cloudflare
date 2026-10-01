@@ -45,6 +45,8 @@ test('capability.audit can prove itself through a bounded non-recursive smoke sa
   assert.equal(row.truth_status, 'EXISTANT_ET_TESTE');
   assert.equal(row.execution.ok, true);
   assert.equal(row.execution.result_type, 'object');
+  assert.ok(Number.isFinite(row.execution.duration_ms));
+  assert.ok(row.execution.duration_ms >= 0);
   assert.equal(statusRow.tested_now, false);
   assert.equal(statusRow.truth_status, 'BLOCKED_EXTERNAL');
 });
@@ -87,6 +89,8 @@ test('deep audit executes bounded LOW-risk samples and reports failures instead 
   assert.equal(bad.auto_execution_blocked, null);
   assert.equal(bad.truth_status, 'EXISTANT_MAIS_ECHEC_RUNTIME');
   assert.equal(bad.execution.code, 'EXPECTED_FAILURE');
+  assert.ok(Number.isFinite(ok.execution.duration_ms));
+  assert.ok(Number.isFinite(bad.execution.duration_ms));
   assert.equal(medium.tested_now, false);
   assert.equal(medium.auto_execution_blocked, 'RISK_NOT_LOW');
   assert.equal(medium.truth_status, 'EXISTANT_NON_TESTE');
