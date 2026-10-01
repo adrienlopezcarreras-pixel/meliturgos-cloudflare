@@ -33,6 +33,20 @@ function safeError(error) {
   return clean(error?.code || error?.message || error || 'SELF_AUDIT_FAILED', 180);
 }
 
+function resolvedCadence(env = {}) {
+  const hour = 60 * 60 * 1000;
+  const bounded = (value, fallback, min, max) => {
+    const n = Number(value);
+    return Number.isFinite(n) ? Math.max(min, Math.min(max, n)) : fallback;
+  };
+  return Object.freeze({
+    HEARTBEAT: bounded(env?.MEL_SELF_AUDIT_HEARTBEAT_MS, MEL_SELF_AUDIT_CADENCE_MS.HEARTBEAT, 15 * 60 * 1000, 6 * hour),
+    DAILY: bounded(env?.MEL_SELF_AUDIT_DAILY_MS, MEL_SELF_AUDIT_CADENCE_MS.DAILY, 6 * hour, 48 * hour),
+    WEEKLY: bounded(env?.MEL_SELF_AUDIT_WEEKLY_MS, MEL_SELF_AUDIT_CADENCE_MS.WEEKLY, 3 * 24 * hour, 14 * 24 * hour),
+    MONTHLY: bounded(env?.MEL_SELF_AUDIT_MONTHLY_MS, MEL_SELF_AUDIT_CADENCE_MS.MONTHLY, 14 * 24 * hour, 60 * 24 * hour),
+  });
+}
+
 function nowMs(value = Date.now()) {
   const n = value instanceof Date ? value.getTime() : Number(value);
   return Number.isFinite(n) ? n : Date.now();
@@ -317,7 +331,7 @@ export async function readMelSelfAuditStatus(env, { stateStore = null } = {}) {
   return {
     ok: true,
     status: 'SELF_AUDIT_STATUS',
-    cadence_ms: MEL_SELF_AUDIT_CADENCE_MS,
+    cadence_ms: resolvedCadence(env),
     state,
     latest_stress: stress ? {
       job_id: stress.job_id || stress.id || null,
@@ -344,7 +358,8 @@ export async function runMelSelfAuditSupervisor(env = {}, {
   const current = nowMs(now);
   const store = stateStore || new D1SelfAuditStateStore(env.DB);
   const state = await store.load();
-  const due = dueSelfAuditLevels(state, current, { maxLevel, forceLevel });
+  const cadence = resolvedCadence(env);
+  const due = dueSelfAuditLevels(state, current, { maxLevel, forceLevel, cadence });
   if (!due.length) {
     return { ok: true, skipped: true, status: 'SELF_AUDIT_NOT_DUE', next: state.last_report || null };
   }
@@ -485,6 +500,7 @@ export async function runMelSelfAuditSupervisor(env = {}, {
     council,
     repair,
     sovereignty,
+    cadence_ms: cadence,
     policy: {
       hourly_lightweight_heartbeat: true,
       daily_health_and_watch: true,
