@@ -147,16 +147,34 @@ export async function handleFileUpload(request, env, options = {}) {
   let stored = false;
 
   if (env?.MEDIA_BUCKET && typeof env.MEDIA_BUCKET.put === 'function') {
-    await env.MEDIA_BUCKET.put(key, bytes, {
-      httpMetadata: { contentType:mime },
-      customMetadata: {
-        originalName:name,
+    let sealed;
+    try {
+      const codec = createEnvMediaVaultCodec(env);
+      sealed = await codec.seal(bytes, {
+        schema:'MEL_MEDIA_UPLOAD_AAD_V1',
+        id,
         owner:String(env.MELITURGOS_USER || 'owner'),
-        sha256,
-        createdAt:createdAt.toISOString(),
-        expiresAt:expiresAt.toISOString(),
-      },
-    });
+        original_name:name,
+        mime,
+        plaintext_sha256:sha256,
+      });
+      await env.MEDIA_BUCKET.put(key, sealed.ciphertext, {
+        httpMetadata: { contentType:'application/octet-stream' },
+        customMetadata: {
+          originalName:name,
+          originalMime:mime,
+          owner:String(env.MELITURGOS_USER || 'owner'),
+          sha256,
+          createdAt:createdAt.toISOString(),
+          expiresAt:expiresAt.toISOString(),
+          ...sealed.metadata,
+        },
+      });
+    } catch (error) {
+      const code = String(error?.code || 'MEDIA_VAULT_ENCRYPTION_FAILED').slice(0,120);
+      const status = Number(error?.status) >= 400 && Number(error?.status) <= 599 ? Number(error.status) : 503;
+      return Response.json({ ok:false, code, stored:false, private:true }, { status, headers:{'cache-control':'no-store'} });
+    }
     stored = true;
   }
 
