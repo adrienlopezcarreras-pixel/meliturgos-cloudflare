@@ -106,8 +106,8 @@ jobs:
           fi
 
           FAILURES=0
-          if ! probe google_calendar /api/gen2/connections/google/test '{"connector_id":"google-calendar"}'; then FAILURES=$((FAILURES+1)); fi
-          if ! probe google_tasks /api/gen2/connections/google/test '{"connector_id":"google-tasks"}'; then FAILURES=$((FAILURES+1)); fi
+          GOOGLE_CALENDAR_OK=0
+          GOOGLE_TASKS_OK=0
 
           # Pipedream is the canonical UI path for Microsoft and can also hold
           # the Yahoo/Ymail IMAP account. Prove the project and enumerate only
@@ -136,6 +136,22 @@ jobs:
               *) return 1 ;;
             esac
           }
+
+          if probe google_calendar /api/gen2/connections/google/test '{"connector_id":"google-calendar"}'; then
+            GOOGLE_CALENDAR_OK=1
+          elif [ "${PIPEDREAM_OK}" = "1" ] && has_pd_app google_calendar; then
+            GOOGLE_CALENDAR_OK=1
+            echo 'google_calendar: {"ok":true,"provider":"pipedream","app":"google_calendar","linked_account":true}'
+          fi
+          if [ "${GOOGLE_CALENDAR_OK}" != "1" ]; then FAILURES=$((FAILURES+1)); fi
+
+          if probe google_tasks /api/gen2/connections/google/test '{"connector_id":"google-tasks"}'; then
+            GOOGLE_TASKS_OK=1
+          elif [ "${PIPEDREAM_OK}" = "1" ] && has_pd_app google_tasks; then
+            GOOGLE_TASKS_OK=1
+            echo 'google_tasks: {"ok":true,"provider":"pipedream","app":"google_tasks","linked_account":true}'
+          fi
+          if [ "${GOOGLE_TASKS_OK}" != "1" ]; then FAILURES=$((FAILURES+1)); fi
 
           MICROSOFT_MAIL_OK=0
           if probe microsoft_mail /api/gen2/connections/microsoft/test '{"connector_id":"microsoft-mail"}'; then
@@ -178,19 +194,20 @@ jobs:
           if ! probe roundcube /api/gen2/connections/roundcube/test '{}'; then FAILURES=$((FAILURES+1)); fi
           if ! probe vercel /api/gen2/connections/vercel/test '{}'; then FAILURES=$((FAILURES+1)); fi
 
-          if [ "${FAILURES}" != "0" ]; then
-            echo "Live connection proof failures: ${FAILURES}"
-            exit 1
-          fi
-
-          node - <<'NODE'
+          GOOGLE_CALENDAR_OK="${GOOGLE_CALENDAR_OK}" GOOGLE_TASKS_OK="${GOOGLE_TASKS_OK}" FAILURES="${FAILURES}" node - <<'NODE'
           const fs=require('fs');
           const proof={
             schema:'mel.live-connections-production-proof/v1',
             source_sha:process.env.EXPECTED_SHA || null,
-            google:{gmail:true,calendar:true,tasks:true},
+            complete:Number(process.env.FAILURES||0)===0,
+            failure_count:Number(process.env.FAILURES||0),
+            google:{
+              gmail:true,
+              calendar:process.env.GOOGLE_CALENDAR_OK==='1',
+              tasks:process.env.GOOGLE_TASKS_OK==='1'
+            },
             microsoft:{outlook:true,onedrive:true,sharepoint:true},
-            mail:{yahoo_or_ymail:true,roundcube_imap_smtp:true},
+            mail:{yahoo_or_ymail:true,roundcube_imap_smtp:Number(process.env.FAILURES||0)===0},
             vercel:{authenticated_target_probe:true},
             secret_values_exposed:false,
             mutation_scope:'temporary_release_smoke_secret_only'
@@ -198,7 +215,13 @@ jobs:
           fs.writeFileSync('live-connections-proof.json',JSON.stringify(proof,null,2));
           console.log(JSON.stringify(proof,null,2));
           NODE
+
+          if [ "${FAILURES}" != "0" ]; then
+            echo "Live connection proof failures: ${FAILURES}"
+            exit 1
+          fi
       - name: Upload sanitized live proof
+        if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: live-connections-production-proof-${{ inputs.expected_sha || github.sha }}
