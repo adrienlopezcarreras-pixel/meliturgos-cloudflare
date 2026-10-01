@@ -1314,7 +1314,7 @@ export async function handleNativeChat(request, env, options = {}) {
   if (service) {
     try {
       await service.archiveMessage({ conversationId, deviceId, role: 'user', content: text, capabilitiesUsed: capabilitiesUsed.length ? capabilitiesUsed : null, timestamp: Date.now(), provenance: userProvenance, metadata: userMetadata });
-      await service.archiveMessage({ conversationId, deviceId, role: 'assistant', content: responseText, model: ai.model, capabilitiesUsed: capabilitiesUsed.length ? capabilitiesUsed : null, timestamp: Date.now() + 1, provenance: ai.augmentio_used ? 'native-chat:augmentio' : 'native-chat' });
+      await service.archiveMessage({ conversationId, deviceId, role: 'assistant', content: responseText, model: ai.model, capabilitiesUsed: capabilitiesUsed.length ? capabilitiesUsed : null, timestamp: Date.now() + 1, provenance: councilRecoveryAccepted ? 'native-chat:council-recovery' : (ai.augmentio_used ? 'native-chat:augmentio' : 'native-chat'), metadata:councilRecoveryAccepted ? { council_recovery:true, xp_gain:councilXp.xp_gain } : {} });
       archiveSaved = true;
     } catch { archiveSaved = false; }
   }
@@ -1351,11 +1351,25 @@ export async function handleNativeChat(request, env, options = {}) {
           : null,
     response_mode: inferResponseMode(text),
     response_quality: {
-      ok: initialQualityAssessment.ok === true,
+      ok: effectiveQualityAssessment.ok === true,
       guarded: responseGuarded,
-      issue_codes: (initialQualityAssessment.issues || []).map(row => row.code).slice(0,12),
-      relevance: initialQualityAssessment.relevance || null,
+      issue_codes: (effectiveQualityAssessment.issues || []).map(row => row.code).slice(0,12),
+      initial_issue_codes: (initialQualityAssessment.issues || []).map(row => row.code).slice(0,12),
+      relevance: effectiveQualityAssessment.relevance || null,
       event_saved: qualityEventSaved === true,
+    },
+    council_recovery: {
+      attempted:councilRecovery.attempted === true,
+      succeeded:councilRecovery.succeeded === true,
+      accepted:councilRecoveryAccepted === true,
+      status:councilRecovery.status || null,
+      independent_response_count:Number(councilRecovery.independent_response_count || 0),
+      provider_failure_count:Number(councilRecovery.provider_failure_count || 0),
+      code:councilRecovery.code || null,
+      recovery_error:councilRecovery.recovery_error || null,
+      experience_saved:councilXp.saved === true,
+      correction_saved:councilXp.correction_saved === true,
+      xp_gain:Number(councilXp.xp_gain || 0),
     },
     response_focus: {
       elliptical: conversationFocus.elliptical === true,
