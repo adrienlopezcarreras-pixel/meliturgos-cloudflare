@@ -294,6 +294,30 @@ export function registerWorkCapabilities(bus, { db } = {}) {
     },
     output_schema: { type: 'object', additionalProperties: true },
     risk: 'LOW', permissions: [], health: 'DEGRADED', enabled: true,
+    healthcheck: async () => {
+      try {
+        const fanout = await bus.refreshHealth('augmentio.fanout');
+        const state = String(fanout?.health || '').toUpperCase();
+        if (fanout?.enabled === true && (state === 'HEALTHY' || state === 'PROTECTED')) {
+          return { status: 'HEALTHY' };
+        }
+        return {
+          status: 'DEGRADED',
+          reason: state === 'UNAVAILABLE'
+            ? 'AUGMENTIO_FANOUT_UNAVAILABLE'
+            : state === 'DEGRADED'
+              ? 'AUGMENTIO_FANOUT_DEGRADED'
+              : fanout?.enabled === false
+                ? 'AUGMENTIO_FANOUT_DISABLED'
+                : 'AUGMENTIO_FANOUT_NOT_READY',
+        };
+      } catch (error) {
+        return {
+          status: 'DEGRADED',
+          reason: String(error?.code || error?.message || 'AUGMENTIO_FANOUT_HEALTH_FAILED').slice(0, 180),
+        };
+      }
+    },
   }, async (input, context) => {
     const constraintSize = JSON.stringify(input.constraints || []).length;
     const catalogBudget = Math.max(2200, Math.min(5200, 9000 - String(input.goal || '').length - constraintSize));
