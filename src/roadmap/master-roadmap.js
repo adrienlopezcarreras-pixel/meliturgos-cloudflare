@@ -8,7 +8,7 @@ export const ROADMAP_STATUSES = Object.freeze({
   BLOCKED_EXTERNAL: 'BLOCKED_EXTERNAL'
 });
 
-export const ROADMAP_REGISTRY_REVISION = '2026-10-01.03';
+export const ROADMAP_REGISTRY_REVISION = '2026-10-01.04';
 
 const phase = (id, title, items) => ({ id, title, items });
 const item = (id, title, status, next = '', priority = 'P2') => ({ id, title, status, next, priority });
@@ -180,7 +180,8 @@ export const MASTER_ROADMAP = Object.freeze([
     item('GEN2-42', 'Capability Watch + veille multi-IA/plugins/arts', 'DONE_VERIFIED', 'Clôture vérifiée le 27/09/2026. Live proof 36356438136: proof_status=COMPLETE, 36 cycles de veille, 11 découvertes sourcées, 4 handoffs et 1 complétion vérifiée. Job vision ecosystem-watch-c3bfaf443b1287cf885033ecd760bc94: status=COMPLETED, autonomy_completion.status=VERIFIED, candidate_sha=7b68211addd42baaa891a06532ea56833b0dba04, ci_run_id=36352974858. Owner MAX activé par run borné 36355981436; production MAX_AUTONOMY avec launch_approved_sha=4d885505f662cd607ccde0e4c4d601a1ca83797c. Release 36355727994 verte jusqu au HTTP final.', 'P1'),
     item('GEN2-43', 'Model Watch / découverte', 'DONE_VERIFIED', 'Preuves: PR #28; merge ceec81a6edb11d378dcb686c9495c0a01d86baea; 5/5 tests ciblés; autorisation fail-closed, seuils score/latence/coût et isolation des erreurs par modèle', 'P1'),
     item('MEL-EVAL-01', 'Suites de benchmark conversation / code / recherche / mémoire', 'DONE_VERIFIED', 'Certification répétée acquise le 26/09/2026: deux exécutions live consécutives du workflow mel-eval-01-stable-watch-ci (runs 36235746767 et 36235762652) entièrement vertes, incluant tests MEL-EVAL ciblés, syntaxe, full test suite et runtime dependency security gate. Preuve: proofs/mel-eval-01-repeated-live-20260926.json.', 'P1'),
-    item('MEL-EVAL-03', 'Qualité mesurée avant/après évolution', 'DONE_VERIFIED', 'Gate fail-closed avant/après déjà intégré: seuil global et par domaine, erreurs répétées, identité/digest/couverture du benchmark, provenance SHA et artefacts obligatoires. Revalidé sur main actuel: syntaxe globale + tests ciblés Actions 35639804455.', 'P0')
+    item('MEL-EVAL-03', 'Qualité mesurée avant/après évolution', 'DONE_VERIFIED', 'Gate fail-closed avant/après déjà intégré: seuil global et par domaine, erreurs répétées, identité/digest/couverture du benchmark, provenance SHA et artefacts obligatoires. Revalidé sur main actuel: syntaxe globale + tests ciblés Actions 35639804455.', 'P0'),
+    item('MEL-AUDIT-01', 'Self-Audit Supervisor autonome: heartbeat, audit quotidien, stress hebdomadaire et exercice de survie mensuel', 'DONE', 'Implémentation du 01/10/2026: état D1 persistant, heartbeat léger horaire, refresh santé/intégrité/LoRA/veille quotidien, stress CapabilityBus complet durable hebdomadaire, backup vérifié + prévalidation souveraineté non destructive mensuelle, détection des échecs récurrents, Council automatique puis handoff de réparation candidate-only sous MAX avec déduplication. Passage DONE_VERIFIED réservé à une preuve production exact-SHA montrant scheduler actif, rapport persistant et stress hebdomadaire réellement lancé.', 'P0')
   ]),
 
   phase('P14', 'Interface et expérience', [
