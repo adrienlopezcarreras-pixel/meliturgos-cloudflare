@@ -27,6 +27,7 @@ import { liveTechnicalSovereigntyReport } from '../portability/technical-soverei
 import { runConfiguredAiCandidateValidationRuntime } from '../portability/configured-ai-candidate-validation-runtime.js';
 import { runCompanionSourceControlPrevalidationRuntime } from '../portability/companion-source-control-prevalidation-runtime.js';
 import { runCompanionInfrastructurePrevalidationRuntime } from '../portability/companion-infrastructure-prevalidation-runtime.js';
+import { runGoogleDriveBackupRestorePrevalidationRuntime } from '../portability/google-drive-backup-restore-prevalidation-runtime.js';
 import { authorizeGitHubActionsOidcRequest } from '../security/github-actions-oidc.js';
 
 const PATH = '/api/internal/release-launch-bootstrap';
@@ -362,6 +363,8 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
       runCompanionSourceControlPrevalidationRuntime(runtimeEnv, { ...options, sourceSha: deployedSha }));
     await runRefresh('infrastructure', (runtimeEnv, options) =>
       runCompanionInfrastructurePrevalidationRuntime(runtimeEnv, { ...options, sourceSha: deployedSha }));
+    await runRefresh('backup_restore', (runtimeEnv, options) =>
+      runGoogleDriveBackupRestorePrevalidationRuntime(runtimeEnv, { ...options, sourceSha: deployedSha }));
     const store = new D1AlternativeRegistryStore(env.DB);
     const registry = await store.load();
     const coverage = sovereigntyCoverageFromRegistry(registry, { now });
