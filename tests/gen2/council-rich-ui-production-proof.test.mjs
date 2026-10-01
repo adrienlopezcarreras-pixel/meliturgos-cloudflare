@@ -4,9 +4,11 @@ import fs from 'node:fs';
 
 const workflow = fs.readFileSync('.github/workflows/council-rich-ui-production-proof.yml','utf8');
 
-test('production proof is tied to successful deploy workflow and exact SHA', () => {
-  assert.match(workflow, /workflows:\s*\["deploy-cloudflare-release"\]/);
-  assert.match(workflow, /github\.event\.workflow_run\.head_sha/);
+test('production proof is reusable and tied to an explicit exact SHA', () => {
+  assert.match(workflow, /workflow_call:/);
+  assert.match(workflow, /expected_sha:/);
+  assert.match(workflow, /INPUT_SHA:\s*\$\{\{ inputs\.expected_sha \}\}/);
+  assert.match(workflow, /ref:\s*\$\{\{ needs\.resolve\.outputs\.expected_sha \}\}/);
   assert.match(workflow, /EXACT_SHA_SELF_CHECK_MISMATCH/);
   assert.match(workflow, /d\?\.deployed_sha/);
   assert.match(workflow, /tests\/native-chat-negative-feedback-council\.test\.mjs/);
