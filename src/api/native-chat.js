@@ -23,6 +23,7 @@ import { loadConversationFocusState, saveConversationFocusState } from './conver
 import { assessResponseQuality, enforceResponseQuality, persistResponseQualityEvent } from './response-quality-audit.js';
 import { inferKnowledgeCapability } from './knowledge-intent.js';
 import { inferCurrentFactVerificationPolicy, hasAuthoritativeCurrentFactEvidence, currentFactReliabilityInstruction } from './current-fact-reliability.js';
+import { buildPresentationInstruction } from '../presentation/presentation-skill.js';
 
 export function inferChatGPTHistoryCapability(text) {
   const value = String(text || '').trim();
@@ -1021,6 +1022,7 @@ export async function handleNativeChat(request, env, options = {}) {
     conversationFocusInstruction,
     operatingManual,
     currentFactReliabilityInstruction(currentFactVerification),
+    buildPresentationInstruction(text,{voiceReply}),
     themeInstruction,
     voiceReply
       ? 'MODE VOCAL MOBILE : réponds immédiatement avec 1 à 3 phrases courtes, naturelles et directement prononçables. Va à l’essentiel, sans listes longues, sans préambule et sans dépasser environ 350 caractères sauf nécessité absolue.'
