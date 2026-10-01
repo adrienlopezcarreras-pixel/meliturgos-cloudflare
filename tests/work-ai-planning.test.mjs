@@ -286,3 +286,32 @@ test('work.plan.generate falls back to AI capability selection and synthesizes s
   assert.match(calls[2].input,/IDS_AUTORISES:/);
   assert.match(calls[2].input,/echo/);
 });
+
+
+test('work.plan.generate health follows the real Augmentio fanout readiness',async()=>{
+  const healthyBus=new CapabilityBus();
+  healthyBus.discover({
+    id:'augmentio.fanout',name:'Fixture fanout',category:'test',version:'1.0.0',provider:'fixture',
+    description:'healthy fixture',
+    input_schema:{type:'object',properties:{input:{type:'string'}},required:['input'],additionalProperties:true},
+    output_schema:{type:'object',additionalProperties:true},
+    risk:'LOW',permissions:[],health:'HEALTHY',enabled:true,
+  },async()=>({candidates:[],failures:0}));
+  registerWorkCapabilities(healthyBus,{});
+  const healthy=await healthyBus.refreshHealth('work.plan.generate');
+  assert.equal(healthy.health,'HEALTHY');
+  assert.equal(healthy.health_detail,undefined);
+
+  const unavailableBus=new CapabilityBus();
+  unavailableBus.discover({
+    id:'augmentio.fanout',name:'Fixture fanout',category:'test',version:'1.0.0',provider:'fixture',
+    description:'unavailable fixture',
+    input_schema:{type:'object',properties:{input:{type:'string'}},required:['input'],additionalProperties:true},
+    output_schema:{type:'object',additionalProperties:true},
+    risk:'LOW',permissions:[],health:'UNAVAILABLE',enabled:true,
+  },async()=>({candidates:[],failures:0}));
+  registerWorkCapabilities(unavailableBus,{});
+  const degraded=await unavailableBus.refreshHealth('work.plan.generate');
+  assert.equal(degraded.health,'DEGRADED');
+  assert.equal(degraded.health_detail,'AUGMENTIO_FANOUT_UNAVAILABLE');
+});
