@@ -1,5 +1,3 @@
-import { readMelSelfAuditStatus, runMelSelfAuditSupervisor } from '../diagnostics/self-audit-supervisor.js';
-
 export function registerSelfAuditCapabilities(bus, env = {}) {
   bus.discover({
     id: 'self.audit.status',
@@ -14,7 +12,10 @@ export function registerSelfAuditCapabilities(bus, env = {}) {
     permissions: [],
     health: env?.DB ? 'HEALTHY' : 'UNAVAILABLE',
     enabled: true,
-  }, async () => readMelSelfAuditStatus(env));
+  }, async () => {
+    const { readMelSelfAuditStatus } = await import('../diagnostics/self-audit-supervisor.js');
+    return readMelSelfAuditStatus(env);
+  });
 
   bus.discover({
     id: 'self.audit.run',
@@ -35,10 +36,14 @@ export function registerSelfAuditCapabilities(bus, env = {}) {
     permissions: [],
     health: env?.DB ? 'HEALTHY' : 'UNAVAILABLE',
     enabled: true,
-  }, async (input, context = {}) => runMelSelfAuditSupervisor(env, {
-    bus,
-    forceLevel: String(input?.level || 'DAILY').toUpperCase(),
-    maxLevel: String(input?.level || 'DAILY').toUpperCase(),
-    waitUntil: typeof context?.waitUntil === 'function' ? context.waitUntil : null,
-  }));
+  }, async (input, context = {}) => {
+    const { runMelSelfAuditSupervisor } = await import('../diagnostics/self-audit-supervisor.js');
+    const level = String(input?.level || 'DAILY').toUpperCase();
+    return runMelSelfAuditSupervisor(env, {
+      bus,
+      forceLevel: level,
+      maxLevel: level,
+      waitUntil: typeof context?.waitUntil === 'function' ? context.waitUntil : null,
+    });
+  });
 }
