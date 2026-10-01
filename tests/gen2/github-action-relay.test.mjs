@@ -262,3 +262,14 @@ test('relay heartbeat stores only sanitized bounded GitHub read snapshot metadat
     db.close();
   }
 });
+
+
+test('relay runner publishes repository metadata and recent Actions runs with each heartbeat', async () => {
+  const source=await readFile(new URL('../../scripts/github-action-relay-runner.mjs',import.meta.url),'utf8');
+  assert.match(source,/async function readSnapshot\(\)/);
+  assert.match(source,/\/repos\/\$\{REPOSITORY\}\/actions\/runs\?per_page=50/);
+  assert.match(source,/repository_metadata/);
+  assert.match(source,/actions_runs/);
+  assert.match(source,/snapshot_at/);
+  assert.match(source,/\/api\/internal\/github-action-relay\/heartbeat/);
+});
