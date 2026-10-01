@@ -117,6 +117,7 @@ jobs:
             uncovered_layers:d.uncovered_layers||[],
             blocked_layers:d.blocked_layers||[],
             registry_count:Number(d.registry_count||0),
+            prevalidation_refresh:d.prevalidation_refresh||{},
             deployed_sha:d.deployed_sha||null,
           },null,2));
           if(d?.done_verified_eligible!==true) process.exit(1);
