@@ -426,10 +426,11 @@ export function shouldEscalateNativeChatToCouncil({
   if (developmentQueued) return false;
   const issues = Array.isArray(assessment?.issues) ? assessment.issues : [];
   if (issues.some(issue => issue?.code === 'EXCLUDED_SCOPE_ACTION')) return false;
-  const severe = issues.some(issue => issue?.severity === 'high');
   const failedTools = (Array.isArray(toolResults) ? toolResults : []).filter(row => row?.status === 'FAILED');
   if (failedTools.length) return true;
-  if (severe) return true;
+  // Response-quality issues alone are handled by the normal quality guard.
+  // Council is reserved for operational failure or explicit inability so
+  // protected/private requests do not fan out into unnecessary model calls.
   if (responseAdmitsUncertainty(responseText)) return true;
   return actionLikeRequest(userText) && !String(responseText || '').trim();
 }
