@@ -5,6 +5,7 @@ import {
   MEL_SELF_AUDIT_CADENCE_MS,
   buildCapabilityHealthLedger,
   capabilityLedgerSummary,
+  capabilityUsageEvidenceFromAuditRows,
   dueSelfAuditLevels,
   persistentStressFailures,
   runMelSelfAuditSupervisor,
@@ -95,6 +96,43 @@ test('self-audit cadence escalates from hourly to daily, weekly and monthly', ()
 });
 
 
+
+test('CapabilityBus audit history distinguishes real executions from stress-test evidence', () => {
+  const rows = [
+    {
+      timestamp:3000,
+      details_json:JSON.stringify({ capability:'alpha', status:'SUCCEEDED', duration_ms:12 }),
+    },
+    {
+      timestamp:2500,
+      details_json:JSON.stringify({ capability:'beta', status:'FAILED', duration_ms:21, error_code:'BETA_DOWN' }),
+    },
+    {
+      timestamp:2000,
+      details_json:JSON.stringify({ capability:'alpha', status:'FAILED', duration_ms:33, error_code:'OLD_ALPHA_FAILURE' }),
+    },
+    {
+      timestamp:1000,
+      details_json:JSON.stringify({ capability:'beta', status:'SUCCEEDED', duration_ms:8 }),
+    },
+    {
+      timestamp:900,
+      details_json:JSON.stringify({ capability:'ignored', status:'STARTED' }),
+    },
+  ];
+  const evidence = capabilityUsageEvidenceFromAuditRows(rows);
+  assert.equal(evidence.alpha.last_execution_at, 3000);
+  assert.equal(evidence.alpha.last_execution_status, 'SUCCEEDED');
+  assert.equal(evidence.alpha.last_execution_duration_ms, 12);
+  assert.equal(evidence.alpha.last_execution_error, null);
+  assert.equal(evidence.alpha.last_execution_success_at, 3000);
+  assert.equal(evidence.alpha.last_execution_failure_at, 2000);
+  assert.equal(evidence.beta.last_execution_status, 'FAILED');
+  assert.equal(evidence.beta.last_execution_error, 'BETA_DOWN');
+  assert.equal(evidence.beta.last_execution_success_at, 1000);
+  assert.equal(evidence.ignored, undefined);
+});
+
 test('capability health ledger persists provider, tests, failure evidence, latency and next check', () => {
   const now = Date.UTC(2026, 9, 8, 12, 0, 0);
   const stressAt = now - 60_000;
@@ -118,16 +156,44 @@ test('capability health ledger persists provider, tests, failure evidence, laten
         },
       ],
     },
-  }, { now, heartbeatMs:3_600_000, weeklyMs:604_800_000 });
+  }, {
+    now,
+    heartbeatMs:3_600_000,
+    weeklyMs:604_800_000,
+    usageEvidence:{
+      'healthy.cap':{
+        last_execution_at:now-10_000,
+        last_execution_status:'SUCCEEDED',
+        last_execution_duration_ms:7,
+        last_execution_success_at:now-10_000,
+        last_execution_failure_at:0,
+        last_execution_error:null,
+      },
+      'broken.cap':{
+        last_execution_at:now-5_000,
+        last_execution_status:'FAILED',
+        last_execution_duration_ms:14,
+        last_execution_success_at:0,
+        last_execution_failure_at:now-5_000,
+        last_execution_error:'LIVE_BROKEN',
+      },
+    },
+  });
 
   assert.equal(ledger['healthy.cap'].provider, 'core');
   assert.equal(ledger['healthy.cap'].last_test_success_at, stressAt);
   assert.equal(ledger['healthy.cap'].latency_ms, 17);
   assert.equal(ledger['healthy.cap'].next_check_at, now + 3_600_000);
+  assert.equal(ledger['healthy.cap'].last_execution_status, 'SUCCEEDED');
+  assert.equal(ledger['healthy.cap'].last_execution_duration_ms, 7);
+  assert.equal(ledger['healthy.cap'].last_execution_error, null);
   assert.equal(ledger['healthy.cap'].stale_test, false);
   assert.equal(ledger['broken.cap'].last_test_failure_at, stressAt);
   assert.equal(ledger['broken.cap'].last_error, 'BROKEN_RUNTIME');
   assert.equal(ledger['broken.cap'].latency_ms, 29);
+  assert.equal(ledger['broken.cap'].last_execution_status, 'FAILED');
+  assert.equal(ledger['broken.cap'].last_execution_error, 'LIVE_BROKEN');
+  assert.equal(ledger['broken.cap'].last_execution_duration_ms, 14);
 
   assert.deepEqual(capabilityLedgerSummary(ledger), {
     total:2,
