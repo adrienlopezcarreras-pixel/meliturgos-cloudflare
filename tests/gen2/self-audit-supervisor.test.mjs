@@ -60,6 +60,13 @@ function fakeBus(overrides = {}) {
       if (id === 'system.integrity') return { ok: true };
       if (id === 'system.maturity') return { ok: true };
       if (id === 'capability.audit') return { job_id: 'cap-stress-weekly', status: 'RUNNING' };
+      if (id === 'resilience.recovery.drill.latest') return {
+        ok:true,
+        state:'PASSED',
+        production_access_used:false,
+        activation_performed:false,
+        teardown_completed:true,
+      };
       if (id === 'model.council') return {
         status: 'COMPLETE',
         independent_response_count: 2,
@@ -250,6 +257,10 @@ test('monthly drill creates verified backup without destructive restore policy',
   assert.equal(backups, 1);
   assert.equal(result.report.policy.monthly_non_destructive_survival_drill, true);
   assert.equal(result.report.policy.destructive_production_restore, false);
+  const recovery = result.report.tasks['monthly-isolated-recovery-drill'];
+  assert.equal(recovery.ok, true);
+  assert.equal(recovery.status, 'RECOVERY_DRILL_PASSED');
+  assert.ok(result.report.capability_health.total > 0);
 });
 
 test('Worker scheduler routes 02:43 daily cron to the self-audit supervisor and keeps hourly heartbeat', () => {
