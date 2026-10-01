@@ -208,3 +208,49 @@ test('browser.execute propagates companion failure status through the Capability
     requestId: 'r-companion-failed',
   }), { code: 'BROWSER_ENGINE_FAILED', status: 502 });
 });
+
+
+test('browser.execute contract accepts approved release headers and bounded in-memory file uploads', async () => {
+  const binding = fakeBinding();
+  const bus = new CapabilityBus();
+  registerBrowserRuntimeCapabilities(bus, { binding });
+  const session='release-file-contract';
+  const input={
+    session_id:session,
+    device:{ id:'browser-1', capabilities:['browser.control'] },
+    sandbox:{ allowed_origins:['https://example.com'], max_steps:3 },
+    approvals:[
+      { approved:true, session_id:session, step_id:'headers', action:BROWSER_ACTIONS.SET_HEADERS },
+      { approved:true, session_id:session, step_id:'upload', action:BROWSER_ACTIONS.UPLOAD_FILE },
+    ],
+    steps:[
+      {
+        id:'headers',
+        action:BROWSER_ACTIONS.SET_HEADERS,
+        headers:{ 'x-mel-release-smoke':'1', 'x-mel-launch-bootstrap':'token-value' },
+      },
+      { id:'nav', action:BROWSER_ACTIONS.NAVIGATE, url:'https://example.com/' },
+      {
+        id:'upload',
+        action:BROWSER_ACTIONS.UPLOAD_FILE,
+        selector:'#fileInput',
+        file_name:'proof.txt',
+        mime_type:'text/plain',
+        file_text:'MEL_FILE_PROOF',
+      },
+    ],
+  };
+
+  const result=await bus.execute('browser.execute',input,{
+    owner:'owner',
+    permissions:['browser.control'],
+    requestId:'release-file-contract',
+  });
+  assert.equal(result.ok,true);
+  assert.equal(result.steps_completed,3);
+  const posts=binding.calls.filter(row=>row.path==='/v1/browser/perform').map(row=>row.payload.step);
+  assert.equal(posts[0].headers['x-mel-release-smoke'],'1');
+  assert.equal(posts[2].file_name,'proof.txt');
+  assert.equal(posts[2].mime_type,'text/plain');
+  assert.equal(posts[2].file_text,'MEL_FILE_PROOF');
+});
