@@ -8,7 +8,7 @@ export const ROADMAP_STATUSES = Object.freeze({
   BLOCKED_EXTERNAL: 'BLOCKED_EXTERNAL'
 });
 
-export const ROADMAP_REGISTRY_REVISION = '2026-10-01.01';
+export const ROADMAP_REGISTRY_REVISION = '2026-10-01.02';
 
 const phase = (id, title, items) => ({ id, title, items });
 const item = (id, title, status, next = '', priority = 'P2') => ({ id, title, status, next, priority });
@@ -86,6 +86,7 @@ export const MASTER_ROADMAP = Object.freeze([
     item('MEL-COUNCIL-02', 'Critiques indépendantes + synthèse MEL', 'DONE_VERIFIED', 'Production certifiée sur SHA 53774b4dfbac645e250e518c62254365d4bfd3c8 par run 36193962224: Council réel avec au moins deux critiques indépendantes, modèles distincts, provenance complète, coût ajouté zéro sous MEL_ZERO_EURO_V1 et synthèse MEL séparée complète.', 'P1'),
     item('MEL-COUNCIL-03', 'Teacher escalation vers ChatGPT/autres IA', 'DONE_VERIFIED', 'Round-trip Teacher externe reel verifie le 2026-09-26: handoff production lie au SHA exact lu via Teacher Bridge, reponse ChatGPT NEEDS_CHANGES ecrite sur teacher-bridge/runtime (commit 4ceccc7b) sans mutation du candidat, puis maintenance runtime observée requeueant le handoff stale et ramenant pending_count/waiting_teacher_count a 0. Le canal, la provenance, le digest SHA et le fail-closed ont donc ete exerces de bout en bout.', 'P0'),
     item('MEL-COUNCIL-04', 'Apprentissage du meilleur modèle selon la tâche', 'DONE_VERIFIED', 'Implémentation fusionnée par PR #367: preuves D1 persistantes modèle/tâche, ordre appris des candidats, ingestion qualité des benchmarks et fallback statique; le choix explicite utilisateur reste autoritatif. Inclus dans le main exact déployé e749551d6c2786c225d5194a5a3556e4f47c84fd. Certification finale: présent sur le SHA exact 02709095088bf71567350b1b4f4465231440d448, full-suite CI verte avant fusion et déploiement Cloudflare release 36232449914 vert avec preuve identite SHA, autonomie production et HTTP final.', 'P1'),
+    item('MEL-COUNCIL-05', 'Récupération automatique après feedback négatif propriétaire', 'IN_PROGRESS', 'Branche fix/owner-negative-feedback-council-recovery: détecter « non / tu n’y arrives pas / ça ne marche pas », lancer model.council avec la demande et la réponse précédentes, retenter automatiquement uniquement les capacités non destructives sûres, enregistrer la correction comme observation non validée et conserver XP=0 tant qu’une validation indépendante n’existe pas. Passer DONE_VERIFIED après CI complète + preuve runtime production.', 'P0'),
   ]),
 
   phase('P06', 'Module Lab, évolution et apprentissage', [
