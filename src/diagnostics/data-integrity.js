@@ -2,7 +2,7 @@ import { DB_SCHEMA_VERSION } from '../core/config.js';
 import { MIGRATIONS } from '../persistence/migrations.js';
 
 const MAX_SAMPLES = 10;
-const REQUIRED_TABLE_CONTRACT_VERSION = 14;
+const REQUIRED_TABLE_CONTRACT_VERSION = 15;
 const REQUIRED_MIGRATION_TABLES = Object.freeze([
   'schema_migrations',
   'conversations',
