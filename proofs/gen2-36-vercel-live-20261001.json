@@ -1,0 +1,28 @@
+{
+  "schema": "mel.gen2-36-vercel-live-proof/v1",
+  "generated_at": "2026-10-01T09:21:00Z",
+  "source_sha": "268694b406ec598447255195008e209f555d90f6",
+  "team_slug": "adrienlopezcarreras-1395",
+  "project": "meliturgos-cloudflare",
+  "project_visible": true,
+  "production_deployment": {
+    "deployment_id": "dpl_6bzpP49u4FrjSkbJksvYhsi2FccY",
+    "state": "READY",
+    "ready_state": "READY",
+    "target": "production",
+    "github_ref": "main",
+    "github_sha": "268694b406ec598447255195008e209f555d90f6",
+    "alias_error": null
+  },
+  "release_pointer_deployment": {
+    "deployment_id": "dpl_As9wnQt5KVR6zZP2GFfFwCYfLGXg",
+    "state": "READY",
+    "ready_state": "READY",
+    "target": null,
+    "github_ref": "release/mel-hardware-v0.1.0",
+    "github_sha": "268694b406ec598447255195008e209f555d90f6",
+    "alias_error": null
+  },
+  "secret_values_exposed": false,
+  "evidence_origin": "Vercel connected app live read"
+}
