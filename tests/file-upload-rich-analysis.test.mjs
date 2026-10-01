@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { handleFileUpload } from '../src/api/file-upload.js';
 
+const MEDIA_KEY_B64=Buffer.alloc(32,7).toString('base64');
+const MEDIA_ENV={MEL_MEDIA_ENCRYPTION_KEY_ID:'media-v1',MEL_MEDIA_ENCRYPTION_KEY_B64:MEDIA_KEY_B64};
 function uploadRequest(file) {
   const form = new FormData();
   form.append('file', file);
@@ -77,9 +79,7 @@ test('image analysis runs with fresh Workers Free fail-not-bill proof and asks f
 
 test('unsupported binaries remain private uploads without pretending they were understood', async () => {
   let calls = 0;
-  const env = {
-    AI:{ async toMarkdown(){ calls += 1; return { format:'text', data:'unexpected' }; } },
-    MEDIA_BUCKET:{ async put(){ return undefined; } },
+  const env = {...MEDIA_ENV,AI:{ async toMarkdown(){ calls += 1; return { format:'text', data:'unexpected' }; } },MEDIA_BUCKET:{ async put(){ return undefined; } },
   };
   const file = new File([new Uint8Array([1,2,3,4])], 'archive.bin', { type:'application/octet-stream' });
   const response = await handleFileUpload(uploadRequest(file), env, { authorized:true });
@@ -89,4 +89,21 @@ test('unsupported binaries remain private uploads without pretending they were u
   assert.equal(body.preview_text,null);
   assert.equal(body.analysis_status,'STORED_PRIVATE');
   assert.equal(body.stored,true);
+});
+
+
+test('private R2 persistence fails closed instead of storing plaintext when Media Vault key is absent', async () => {
+  let puts=0;
+  const env={
+    MEDIA_BUCKET:{async put(){puts+=1;}},
+  };
+  const file=new File([new Uint8Array([9,8,7,6])],'private.bin',{type:'application/octet-stream'});
+  const response=await handleFileUpload(uploadRequest(file),env,{authorized:true});
+  const body=await response.json();
+
+  assert.equal(response.status,503);
+  assert.equal(body.ok,false);
+  assert.equal(body.code,'MEDIA_VAULT_KEY_ID_REQUIRED');
+  assert.equal(body.stored,false);
+  assert.equal(puts,0);
 });

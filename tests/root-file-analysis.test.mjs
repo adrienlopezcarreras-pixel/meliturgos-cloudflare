@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { handleFileUpload, expiredMediaKeys } from '../src/api/file-upload.js';
 
+const MEDIA_KEY_B64=Buffer.alloc(32,7).toString('base64');
+const MEDIA_ENV={MEL_MEDIA_ENCRYPTION_KEY_ID:'media-v1',MEL_MEDIA_ENCRYPTION_KEY_B64:MEDIA_KEY_B64};
 const auth='Basic '+Buffer.from('adrien:test').toString('base64');
 function request(name,type,data){
   const form=new FormData();
@@ -36,14 +38,19 @@ test('oversized files fail closed', async()=>{
 
 test('private media upload exposes SHA-256 and bounded retention metadata', async()=>{
   let storedMetadata=null;
+  let storedBytes=null;
   const response=await handleFileUpload(
     request('evidence.bin','application/octet-stream',new Uint8Array([1,2,3,4])),
     {
+      ...MEDIA_ENV,
       MELITURGOS_USER:'adrien',
       MELITURGOS_PASSWORD:'test',
       MEL_MEDIA_TTL_SECONDS:'3600',
       MEDIA_BUCKET:{
-        async put(_key,_bytes,options){ storedMetadata=options?.customMetadata||null; }
+        async put(_key,bytes,options){
+          storedBytes=new Uint8Array(bytes);
+          storedMetadata=options?.customMetadata||null;
+        }
       }
     }
   );
@@ -51,10 +58,15 @@ test('private media upload exposes SHA-256 and bounded retention metadata', asyn
   const body=await response.json();
   assert.match(body.sha256,/^[0-9a-f]{64}$/);
   assert.equal(body.stored,true);
+  assert.equal(body.stored_encrypted,true);
+  assert.equal(body.encryption.algorithm,'AES-GCM-256');
+  assert.notDeepEqual([...storedBytes],[1,2,3,4]);
   assert.equal(body.ttl_seconds,3600);
   assert.ok(Date.parse(body.expires_at)>Date.parse(body.created_at));
   assert.equal(storedMetadata.sha256,body.sha256);
   assert.equal(storedMetadata.expiresAt,body.expires_at);
+  assert.equal(storedMetadata.mediaAlgorithm,'AES-GCM-256');
+  assert.match(storedMetadata.ciphertextSha256,/^[0-9a-f]{64}$/);
 });
 
 test('media retention configuration is clamped and only advertised for persisted uploads', async()=>{

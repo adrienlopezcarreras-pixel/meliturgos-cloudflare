@@ -1,4 +1,5 @@
 import { requireAuth } from '../core/security.js';
+import { createEnvMediaVaultCodec } from '../media/media-vault-crypto.js';
 
 const MAX_FILE_BYTES = 25_000_000;
 const DEFAULT_MEDIA_TTL_SECONDS = 7 * 24 * 60 * 60;
@@ -144,18 +145,42 @@ export async function handleFileUpload(request, env, options = {}) {
   const expiresAt = new Date(createdAt.getTime() + ttlSeconds * 1000);
   const key = `uploads/${new Date().toISOString().slice(0,10)}/${id}-${name}`;
   let stored = false;
+  let storedEncryption = null;
 
   if (env?.MEDIA_BUCKET && typeof env.MEDIA_BUCKET.put === 'function') {
-    await env.MEDIA_BUCKET.put(key, bytes, {
-      httpMetadata: { contentType:mime },
-      customMetadata: {
-        originalName:name,
+    let sealed;
+    try {
+      const codec = createEnvMediaVaultCodec(env);
+      sealed = await codec.seal(bytes, {
+        schema:'MEL_MEDIA_UPLOAD_AAD_V1',
+        id,
         owner:String(env.MELITURGOS_USER || 'owner'),
-        sha256,
-        createdAt:createdAt.toISOString(),
-        expiresAt:expiresAt.toISOString(),
-      },
-    });
+        original_name:name,
+        mime,
+        plaintext_sha256:sha256,
+      });
+      await env.MEDIA_BUCKET.put(key, sealed.ciphertext, {
+        httpMetadata: { contentType:'application/octet-stream' },
+        customMetadata: {
+          originalName:name,
+          originalMime:mime,
+          owner:String(env.MELITURGOS_USER || 'owner'),
+          sha256,
+          createdAt:createdAt.toISOString(),
+          expiresAt:expiresAt.toISOString(),
+          ...sealed.metadata,
+        },
+      });
+      storedEncryption = {
+        schema:String(sealed.metadata.mediaSchema || ''),
+        algorithm:String(sealed.metadata.mediaAlgorithm || ''),
+        key_id:String(sealed.metadata.mediaKeyId || ''),
+      };
+    } catch (error) {
+      const code = String(error?.code || 'MEDIA_VAULT_ENCRYPTION_FAILED').slice(0,120);
+      const status = Number(error?.status) >= 400 && Number(error?.status) <= 599 ? Number(error.status) : 503;
+      return Response.json({ ok:false, code, stored:false, private:true }, { status, headers:{'cache-control':'no-store'} });
+    }
     stored = true;
   }
 
@@ -177,7 +202,8 @@ export async function handleFileUpload(request, env, options = {}) {
   }
 
   return Response.json({
-    ok:true,id,name,size,type:mime,sha256,stored,private:true,key:stored?key:null,url:null,
+    ok:true,id,name,size,type:mime,sha256,stored,stored_encrypted:Boolean(stored&&storedEncryption),private:true,key:stored?key:null,url:null,
+    encryption:storedEncryption,
     created_at:createdAt.toISOString(),
     expires_at:stored?expiresAt.toISOString():null,
     ttl_seconds:stored?ttlSeconds:null,
