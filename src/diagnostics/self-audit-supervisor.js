@@ -172,6 +172,63 @@ export function persistentStressFailures(job) {
     .slice(0, 40);
 }
 
+export function capabilityUsageEvidenceFromAuditRows(rows = []) {
+  const evidence = {};
+  for (const row of Array.isArray(rows) ? rows : []) {
+    let details = row?.details_json;
+    if (typeof details === 'string') {
+      try { details = JSON.parse(details); } catch { details = null; }
+    }
+    if (!details || typeof details !== 'object') continue;
+    const id = clean(details.capability, 160);
+    const status = clean(details.status, 40).toUpperCase();
+    const at = Number(row?.timestamp || row?.created_at || 0);
+    if (!id || !['SUCCEEDED','FAILED'].includes(status) || !Number.isFinite(at) || at <= 0) continue;
+    const current = evidence[id] || {
+      last_execution_at: 0,
+      last_execution_status: null,
+      last_execution_duration_ms: null,
+      last_execution_success_at: 0,
+      last_execution_failure_at: 0,
+      last_execution_error: null,
+    };
+    const duration = Number(details.duration_ms);
+    if (at > Number(current.last_execution_at || 0)) {
+      current.last_execution_at = at;
+      current.last_execution_status = status;
+      current.last_execution_duration_ms = Number.isFinite(duration) && duration >= 0 ? duration : null;
+      current.last_execution_error = status === 'FAILED'
+        ? (clean(details.error_code || '', 180) || null)
+        : null;
+    }
+    if (status === 'SUCCEEDED' && at > Number(current.last_execution_success_at || 0)) {
+      current.last_execution_success_at = at;
+    }
+    if (status === 'FAILED' && at > Number(current.last_execution_failure_at || 0)) {
+      current.last_execution_failure_at = at;
+      if (at >= Number(current.last_execution_at || 0)) {
+        current.last_execution_error = clean(details.error_code || '', 180) || 'CAPABILITY_FAILED';
+      }
+    }
+    evidence[id] = current;
+  }
+  return evidence;
+}
+
+async function readCapabilityUsageEvidence(env, { limit = 3000 } = {}) {
+  if (!env?.DB?.prepare) return {};
+  try {
+    const rows = await env.DB.prepare(`SELECT timestamp,created_at,details_json
+      FROM audit_logs
+      WHERE action='capability_bus'
+      ORDER BY timestamp DESC
+      LIMIT ?`).bind(Math.max(100, Math.min(10000, Number(limit) || 3000))).all();
+    return capabilityUsageEvidenceFromAuditRows(rows?.results || []);
+  } catch {
+    return {};
+  }
+}
+
 function stressEvidenceAt(job) {
   const value = Number(job?.completed_at || job?.report?.completed_at || job?.updated_at || 0);
   return Number.isFinite(value) && value > 0 ? value : 0;
@@ -181,6 +238,7 @@ export function buildCapabilityHealthLedger(previous = {}, capabilities = [], st
   now = Date.now(),
   heartbeatMs = MEL_SELF_AUDIT_CADENCE_MS.HEARTBEAT,
   weeklyMs = MEL_SELF_AUDIT_CADENCE_MS.WEEKLY,
+  usageEvidence = {},
 } = {}) {
   const current = nowMs(now);
   const stressAt = stressEvidenceAt(stressJob);
@@ -210,6 +268,9 @@ export function buildCapabilityHealthLedger(previous = {}, capabilities = [], st
       : tested && executionOk === true
         ? null
         : (clean(prior.last_error || '', 180) || null);
+    const usage = usageEvidence?.[id] && typeof usageEvidence[id] === 'object'
+      ? usageEvidence[id]
+      : {};
 
     next[id] = {
       id,
@@ -237,6 +298,14 @@ export function buildCapabilityHealthLedger(previous = {}, capabilities = [], st
         ? (clean(evidence?.auto_execution_blocked || '', 180) || null)
         : (clean(prior.auto_execution_blocked || '', 180) || null),
       stress_job_id: tested ? stressJobId : (prior.stress_job_id || null),
+      last_execution_at: Number(usage.last_execution_at || prior.last_execution_at || 0) || null,
+      last_execution_status: clean(usage.last_execution_status || prior.last_execution_status || '', 40) || null,
+      last_execution_duration_ms: Number.isFinite(Number(usage.last_execution_duration_ms))
+        ? Number(usage.last_execution_duration_ms)
+        : (Number.isFinite(Number(prior.last_execution_duration_ms)) ? Number(prior.last_execution_duration_ms) : null),
+      last_execution_success_at: Number(usage.last_execution_success_at || prior.last_execution_success_at || 0) || null,
+      last_execution_failure_at: Number(usage.last_execution_failure_at || prior.last_execution_failure_at || 0) || null,
+      last_execution_error: clean(usage.last_execution_error || prior.last_execution_error || '', 180) || null,
       stale_test: !lastTestedAt || current - lastTestedAt > Math.max(60_000, Number(weeklyMs) || MEL_SELF_AUDIT_CADENCE_MS.WEEKLY),
     };
   }
@@ -488,6 +557,9 @@ export async function runMelSelfAuditSupervisor(env = {}, {
     ? await deps.readLatestStress()
     : await readLatestStress(env);
   const previousStressFailures = persistentStressFailures(previousStress);
+  const usageEvidence = deps.readCapabilityUsageEvidence
+    ? await deps.readCapabilityUsageEvidence()
+    : await readCapabilityUsageEvidence(env);
   const results = [];
 
   if (due.includes('HEARTBEAT')) {
@@ -616,6 +688,7 @@ export async function runMelSelfAuditSupervisor(env = {}, {
       now: current,
       heartbeatMs: cadence.HEARTBEAT,
       weeklyMs: cadence.WEEKLY,
+      usageEvidence,
     },
   );
   const capabilityHealth = capabilityLedgerSummary(capabilityLedger);
