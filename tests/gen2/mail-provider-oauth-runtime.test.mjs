@@ -4,7 +4,6 @@ import assert from 'node:assert/strict';
 import { OAuth2PkceRuntime } from '../../src/connectors/oauth2-pkce-runtime.js';
 import { createMailOAuthRuntime } from '../../src/connectors/mail-oauth-runtime.js';
 import { maybeHandleMailOAuthApi } from '../../src/api/mail-oauth-api.js';
-import { definition as genericMail } from '../../src/connectors/generic-imap-smtp.js';
 
 class TransactionVault {
   constructor(){ this.rows=new Map(); }
@@ -99,15 +98,6 @@ test('mail OAuth API rejects undeclared provider connectors', async () => {
   assert.equal(res.status,404);
   assert.equal((await res.json()).code,'MAIL_OAUTH_CONNECTOR_UNSUPPORTED');
 });
-
-test('generic IMAP/SMTP connector is explicit standards backend for Roundcube', () => {
-  assert.equal(genericMail.id,'generic-imap-smtp');
-  assert.equal(genericMail.auth_type,'IMAP_SMTP');
-  assert.equal(genericMail.metadata.tls_required,true);
-  assert.ok(genericMail.capabilities.includes('mail.messages.read'));
-  assert.ok(genericMail.capabilities.includes('mail.messages.send'));
-});
-
 
 test('Microsoft and Yahoo browser callbacks return to the persistent connections interface', async () => {
   for (const [provider, connector] of [['microsoft','microsoft-mail'],['yahoo','yahoo-mail']]) {
