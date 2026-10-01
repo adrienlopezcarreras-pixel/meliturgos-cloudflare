@@ -1,4 +1,5 @@
 import { requireAuth } from '../core/security.js';
+import { createEnvMediaVaultCodec } from '../media/media-vault-crypto.js';
 
 const MAX_FILE_BYTES = 25_000_000;
 const DEFAULT_MEDIA_TTL_SECONDS = 7 * 24 * 60 * 60;
