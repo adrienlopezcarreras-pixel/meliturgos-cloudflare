@@ -8,6 +8,61 @@ function assert(condition, code) {
   if (!condition) throw Object.assign(new Error(code), { code });
 }
 
+async function githubJson(path) {
+  const response = await fetch('https://api.github.com' + path, {
+    headers: {
+      authorization: `Bearer ${GH_TOKEN}`,
+      accept: 'application/vnd.github+json',
+      'x-github-api-version': '2022-11-28',
+      'user-agent': 'meliturgos-github-action-relay',
+    },
+    signal: AbortSignal.timeout(60_000),
+  });
+  const text = await response.text();
+  let data = {};
+  try { data = text ? JSON.parse(text) : {}; } catch {}
+  if (!response.ok) {
+    throw Object.assign(new Error('GITHUB_RELAY_READ_FAILED'), {
+      code: 'GITHUB_RELAY_READ_FAILED',
+      status: response.status,
+    });
+  }
+  return data;
+}
+
+async function readSnapshot() {
+  const repo = await githubJson(`/repos/${REPOSITORY}`);
+  const runs = await githubJson(`/repos/${REPOSITORY}/actions/runs?per_page=50`);
+  return {
+    repository_metadata: {
+      id: Number(repo?.id || 0),
+      name: String(repo?.name || ''),
+      full_name: String(repo?.full_name || REPOSITORY),
+      private: Boolean(repo?.private),
+      archived: Boolean(repo?.archived),
+      disabled: Boolean(repo?.disabled),
+      visibility: String(repo?.visibility || ''),
+      default_branch: String(repo?.default_branch || ''),
+      pushed_at: String(repo?.pushed_at || ''),
+      updated_at: String(repo?.updated_at || ''),
+    },
+    actions_runs: (Array.isArray(runs?.workflow_runs) ? runs.workflow_runs : []).slice(0, 50).map(row => ({
+      id: Number(row?.id || 0),
+      name: String(row?.name || ''),
+      event: String(row?.event || ''),
+      status: String(row?.status || ''),
+      conclusion: String(row?.conclusion || ''),
+      head_branch: String(row?.head_branch || ''),
+      head_sha: String(row?.head_sha || ''),
+      run_number: Number(row?.run_number || 0),
+      created_at: String(row?.created_at || ''),
+      updated_at: String(row?.updated_at || ''),
+      html_url: String(row?.html_url || ''),
+    })),
+    snapshot_at: new Date().toISOString(),
+  };
+}
+
 async function worker(path, body = {}) {
   const response = await fetch(BASE_URL + path, {
     method: 'POST',
@@ -69,9 +124,17 @@ async function main() {
   assert(GH_TOKEN.length >= 20, 'GITHUB_ACTION_TOKEN_REQUIRED');
   assert(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(REPOSITORY), 'GITHUB_RELAY_REPOSITORY_INVALID');
 
+  let snapshot = { repository_metadata:null, actions_runs:[], snapshot_at:new Date().toISOString() };
+  try {
+    snapshot = await readSnapshot();
+  } catch (error) {
+    console.error(`GitHub relay read snapshot degraded: ${String(error?.code || error?.message || error)}`);
+  }
+
   await worker('/api/internal/github-action-relay/heartbeat', {
     run_id: RUN_ID,
     repository: REPOSITORY,
+    ...snapshot,
   });
 
   let processed = 0;
