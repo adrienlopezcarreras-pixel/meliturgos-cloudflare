@@ -25,3 +25,12 @@ test('live connection proof persists precise partial evidence even when a connec
   assert.match(source,/- name: Upload sanitized live proof\n\s+if: always\(\)/);
   assert.match(source,/secret_values_exposed:false/);
 });
+
+
+test('live connection proof retries only transient Pipedream bootstrap authorization propagation',async()=>{
+  const source=await readFile(workflowUrl,'utf8');
+  assert.match(source,/for attempt in \$\(seq 1 12\); do[\s\S]*pipedream\/accounts/);
+  assert.match(source,/PD_ERROR_CODE=.*AUTH_REQUIRED|PD_ERROR_CODE=.*UNKNOWN/);
+  assert.match(source,/\[ "\$\{PD_ACCOUNTS_CODE\}" = "401" \].*\[ "\$\{PD_ERROR_CODE\}" = "AUTH_REQUIRED" \]/);
+  assert.match(source,/sleep 2[\s\S]*continue/);
+});
