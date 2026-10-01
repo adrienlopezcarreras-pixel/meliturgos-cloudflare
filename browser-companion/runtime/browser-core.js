@@ -90,6 +90,9 @@ export function normalizeCompanionPayload(payload = {}) {
       url,
       selector: clean(step.selector, 1000),
       text: typeof step.text === 'string' ? step.text.slice(0, 8192) : '',
+      file_name: clean(step.file_name, 200),
+      mime_type: clean(step.mime_type, 120),
+      file_text: typeof step.file_text === 'string' ? step.file_text.slice(0, 16384) : '',
       delta_x: Number.isFinite(Number(step.delta_x)) ? Number(step.delta_x) : 0,
       delta_y: Number.isFinite(Number(step.delta_y)) ? Number(step.delta_y) : 0,
     },
@@ -239,6 +242,30 @@ export async function executeBrowserStep(page, step, allowedOrigins) {
         suggested_filename: clean(download?.suggestedFilename?.(), 1000),
         url: clean(download?.url?.(), 4096),
         failure: clean(await download?.failure?.(), 1000) || null,
+      };
+    }
+
+    case BROWSER_ACTIONS.UPLOAD_FILE: {
+      const selector = requireSelector(step);
+      assertCurrentOrigin(page, allowedOrigins);
+      const fileName = clean(step.file_name, 200);
+      const mimeType = clean(step.mime_type, 120) || 'text/plain';
+      if (!fileName || !step.file_text) throw companionError('BROWSER_UPLOAD_FILE_REQUIRED', 400);
+      const bytes = Buffer.from(step.file_text, 'utf8');
+      if (bytes.byteLength > 16384) throw companionError('BROWSER_UPLOAD_FILE_TOO_LARGE', 413);
+      await page.locator(selector).setInputFiles({
+        name: fileName,
+        mimeType,
+        buffer: bytes,
+      }, { timeout: ACTION_TIMEOUT_MS });
+      return {
+        kind: 'upload',
+        action: step.action,
+        selector,
+        file_name: fileName,
+        mime_type: mimeType,
+        bytes: bytes.byteLength,
+        url: String(page.url?.() || ''),
       };
     }
 
