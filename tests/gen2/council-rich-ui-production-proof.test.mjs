@@ -17,7 +17,7 @@ test('production proof is reusable and tied to an explicit exact SHA', () => {
 test('production proof exercises live Model Council with negative-feedback recovery context', () => {
   assert.match(workflow, /"id":"model\.council"/);
   assert.match(workflow, /OWNER_NEGATIVE_FEEDBACK_RECOVERY/);
-  assert.match(workflow, /COUNCIL_LIVE_INDEPENDENCE_MISSING/);
+  assert.match(workflow, /independent_response_count/);
   assert.match(workflow, /synthesis_status/);
 });
 
