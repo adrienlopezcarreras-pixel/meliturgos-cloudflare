@@ -62,6 +62,8 @@ function defaultState() {
     last_runs: Object.fromEntries(MEL_SELF_AUDIT_LEVELS.map(level => [level, 0])),
     failure_streaks: {},
     repair_fingerprints: [],
+    capability_ledger: {},
+    survival_ledger: {},
     last_report: null,
     updated_at: 0,
   };
@@ -103,6 +105,12 @@ export class D1SelfAuditStateStore {
         repair_fingerprints: Array.isArray(parsed?.repair_fingerprints)
           ? parsed.repair_fingerprints.slice(-MAX_REPAIR_HISTORY)
           : [],
+        capability_ledger: parsed?.capability_ledger && typeof parsed.capability_ledger === 'object'
+          ? parsed.capability_ledger
+          : {},
+        survival_ledger: parsed?.survival_ledger && typeof parsed.survival_ledger === 'object'
+          ? parsed.survival_ledger
+          : {},
         updated_at: Number(row.updated_at || parsed?.updated_at || 0),
       };
     } catch {
@@ -162,6 +170,91 @@ export function persistentStressFailures(job) {
     }))
     .filter(row => row.id)
     .slice(0, 40);
+}
+
+function stressEvidenceAt(job) {
+  const value = Number(job?.completed_at || job?.report?.completed_at || job?.updated_at || 0);
+  return Number.isFinite(value) && value > 0 ? value : 0;
+}
+
+export function buildCapabilityHealthLedger(previous = {}, capabilities = [], stressJob = null, {
+  now = Date.now(),
+  heartbeatMs = MEL_SELF_AUDIT_CADENCE_MS.HEARTBEAT,
+  weeklyMs = MEL_SELF_AUDIT_CADENCE_MS.WEEKLY,
+} = {}) {
+  const current = nowMs(now);
+  const stressAt = stressEvidenceAt(stressJob);
+  const stressJobId = clean(stressJob?.job_id || stressJob?.id || '', 200) || null;
+  const stressRows = new Map(
+    (Array.isArray(stressJob?.report?.capabilities) ? stressJob.report.capabilities : [])
+      .map(row => [clean(row?.id, 160), row])
+      .filter(([id]) => Boolean(id)),
+  );
+  const next = {};
+
+  for (const capability of Array.isArray(capabilities) ? capabilities : []) {
+    const id = clean(capability?.id, 160);
+    if (!id) continue;
+    const prior = previous?.[id] && typeof previous[id] === 'object' ? previous[id] : {};
+    const evidence = stressRows.get(id) || null;
+    const tested = evidence?.tested_now === true && Boolean(evidence?.execution) && stressAt > 0;
+    const executionOk = tested ? evidence.execution?.ok === true : null;
+    const lastTestedAt = tested ? stressAt : Number(prior.last_tested_at || 0);
+    const lastSuccessAt = tested && executionOk === true ? stressAt : Number(prior.last_test_success_at || 0);
+    const lastFailureAt = tested && executionOk === false ? stressAt : Number(prior.last_test_failure_at || 0);
+    const latency = tested && Number.isFinite(Number(evidence?.execution?.duration_ms))
+      ? Math.max(0, Number(evidence.execution.duration_ms))
+      : (Number.isFinite(Number(prior.latency_ms)) ? Number(prior.latency_ms) : null);
+    const lastError = tested && executionOk === false
+      ? clean(evidence?.execution?.code || 'CAPABILITY_RUNTIME_FAILED', 180)
+      : tested && executionOk === true
+        ? null
+        : (clean(prior.last_error || '', 180) || null);
+
+    next[id] = {
+      id,
+      name: clean(capability?.name, 240) || null,
+      category: clean(capability?.category, 120) || null,
+      provider: clean(capability?.provider, 160) || null,
+      risk: clean(capability?.risk, 40) || null,
+      enabled: capability?.enabled !== false,
+      health: clean(capability?.health || 'UNKNOWN', 80).toUpperCase(),
+      health_detail: clean(capability?.health_detail || '', 240) || null,
+      last_checked_at: current,
+      next_check_at: current + Math.max(60_000, Number(heartbeatMs) || MEL_SELF_AUDIT_CADENCE_MS.HEARTBEAT),
+      last_tested_at: lastTestedAt || null,
+      last_test_success_at: lastSuccessAt || null,
+      last_test_failure_at: lastFailureAt || null,
+      last_error: lastError,
+      latency_ms: latency,
+      truth_status: clean(evidence?.truth_status || prior.truth_status || '', 100) || null,
+      contract_valid: evidence?.contract_valid === true
+        ? true
+        : evidence?.contract_valid === false
+          ? false
+          : (prior.contract_valid ?? null),
+      auto_execution_blocked: evidence
+        ? (clean(evidence?.auto_execution_blocked || '', 180) || null)
+        : (clean(prior.auto_execution_blocked || '', 180) || null),
+      stress_job_id: tested ? stressJobId : (prior.stress_job_id || null),
+      stale_test: !lastTestedAt || current - lastTestedAt > Math.max(60_000, Number(weeklyMs) || MEL_SELF_AUDIT_CADENCE_MS.WEEKLY),
+    };
+  }
+
+  return next;
+}
+
+export function capabilityLedgerSummary(ledger = {}) {
+  const rows = Object.values(ledger || {});
+  return {
+    total: rows.length,
+    healthy: rows.filter(row => row.enabled === true && row.health === 'HEALTHY').length,
+    degraded: rows.filter(row => row.health === 'DEGRADED').length,
+    unavailable: rows.filter(row => row.enabled === false || row.health === 'UNAVAILABLE').length,
+    stale_tests: rows.filter(row => row.stale_test === true).length,
+    last_test_failures: rows.filter(row => Boolean(row.last_test_failure_at)
+      && Number(row.last_test_failure_at) >= Number(row.last_test_success_at || 0)).length,
+  };
 }
 
 function compactTaskResult(value) {
@@ -237,6 +330,19 @@ async function currentSovereignty(env, maxAutonomy = false) {
         ? report.blocked_layers.map(row => ({ id: clean(row?.id, 80), blockers: Array.isArray(row?.blockers) ? row.blockers.slice(0, 10) : [] }))
         : [],
       registry_count: Array.isArray(registry?.all) ? registry.all.length : 0,
+      layers: Object.fromEntries(Object.entries(report?.layers || {}).map(([id, row]) => [id, {
+        id,
+        ready: row?.ready === true,
+        current_adapter: clean(row?.current_adapter || '', 200) || null,
+        alternative_adapters: Array.isArray(row?.alternative_adapters) ? row.alternative_adapters.slice(0, 20) : [],
+        rollback_verified: row?.capabilities?.rollback === true,
+        export_verified: row?.capabilities?.export === true,
+        import_verified: row?.capabilities?.import === true,
+        isolated_test_verified: row?.capabilities?.isolated_test === true,
+        activate_verified: row?.capabilities?.activate === true,
+        smoke_verified: row?.capabilities?.smoke === true,
+        blockers: Array.isArray(row?.blockers) ? row.blockers.slice(0, 12) : [],
+      }])),
     };
   } catch (error) {
     return { error: safeError(error), fully_sovereign: false, ready_layer_count: 0, layer_count: 10, blocked_layers: [], registry_count: 0 };
@@ -479,6 +585,25 @@ export async function runMelSelfAuditSupervisor(env = {}, {
   const lastRuns = { ...(state.last_runs || {}) };
   for (const level of due) lastRuns[level] = current;
 
+  const capabilityLedger = buildCapabilityHealthLedger(
+    state.capability_ledger || {},
+    bus.list(),
+    previousStress,
+    {
+      now: current,
+      heartbeatMs: cadence.HEARTBEAT,
+      weeklyMs: cadence.WEEKLY,
+    },
+  );
+  const capabilityHealth = capabilityLedgerSummary(capabilityLedger);
+  const survivalLedger = sovereignty?.layers
+    ? Object.fromEntries(Object.entries(sovereignty.layers).map(([id, row]) => [id, {
+        ...row,
+        last_checked_at: current,
+        next_check_at: current + cadence.MONTHLY,
+      }]))
+    : (state.survival_ledger || {});
+
   const report = {
     schema: 'mel.self-audit-report/v1',
     generated_at: iso(current),
@@ -486,6 +611,12 @@ export async function runMelSelfAuditSupervisor(env = {}, {
     max_autonomy: control?.max_autonomy === true,
     paused: control?.paused === true,
     capability_count: bus.list().length,
+    capability_health: capabilityHealth,
+    survival_health: {
+      layer_count: Object.keys(survivalLedger).length,
+      ready_layers: Object.values(survivalLedger).filter(row => row?.ready === true).length,
+      rollback_verified_layers: Object.values(survivalLedger).filter(row => row?.rollback_verified === true).length,
+    },
     task_count: results.length,
     task_failure_count: taskFailures.length,
     tasks: Object.fromEntries(results.map(row => [row.name, row.compact])),
@@ -522,6 +653,8 @@ export async function runMelSelfAuditSupervisor(env = {}, {
     last_runs: lastRuns,
     failure_streaks: failureStreaks,
     repair_fingerprints: repairFingerprints,
+    capability_ledger: capabilityLedger,
+    survival_ledger: survivalLedger,
     last_report: report,
   });
 
