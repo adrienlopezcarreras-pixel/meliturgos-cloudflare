@@ -19,9 +19,13 @@ function compactProgressRow(row) {
     tested_now: row?.tested_now === true,
     auto_execution_blocked: row?.auto_execution_blocked || null,
     execution: row?.execution?.ok === true
-      ? { ok: true }
+      ? { ok: true, duration_ms: Math.max(0, Number(row.execution.duration_ms || 0)) }
       : row?.execution
-        ? { ok: false, code: String(row.execution.code || 'CAPABILITY_FAILED').slice(0, 180) }
+        ? {
+            ok: false,
+            code: String(row.execution.code || 'CAPABILITY_FAILED').slice(0, 180),
+            duration_ms: Math.max(0, Number(row.execution.duration_ms || 0)),
+          }
         : null,
   };
 }
