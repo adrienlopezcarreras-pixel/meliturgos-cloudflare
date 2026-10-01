@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import {
   MEL_SELF_AUDIT_CADENCE_MS,
+  buildCapabilityHealthLedger,
+  capabilityLedgerSummary,
   dueSelfAuditLevels,
   persistentStressFailures,
   runMelSelfAuditSupervisor,
@@ -83,6 +85,51 @@ test('self-audit cadence escalates from hourly to daily, weekly and monthly', ()
   assert.deepEqual(dueSelfAuditLevels(state, now), ['HEARTBEAT','DAILY','WEEKLY','MONTHLY']);
   assert.deepEqual(dueSelfAuditLevels(state, now, { maxLevel: 'HEARTBEAT' }), ['HEARTBEAT']);
   assert.deepEqual(dueSelfAuditLevels(state, now, { maxLevel: 'WEEKLY', forceLevel: 'WEEKLY' }), ['HEARTBEAT','DAILY','WEEKLY']);
+});
+
+
+test('capability health ledger persists provider, tests, failure evidence, latency and next check', () => {
+  const now = Date.UTC(2026, 9, 8, 12, 0, 0);
+  const stressAt = now - 60_000;
+  const ledger = buildCapabilityHealthLedger({}, [
+    { id:'healthy.cap', name:'Healthy', category:'test', provider:'core', risk:'LOW', enabled:true, health:'HEALTHY' },
+    { id:'broken.cap', name:'Broken', category:'test', provider:'external', risk:'LOW', enabled:true, health:'DEGRADED' },
+  ], {
+    job_id:'cap-stress-ledger',
+    completed_at:stressAt,
+    report:{
+      capabilities:[
+        {
+          id:'healthy.cap', tested_now:true, truth_status:'EXISTANT_ET_TESTE',
+          contract_valid:true, auto_execution_blocked:null,
+          execution:{ok:true,duration_ms:17},
+        },
+        {
+          id:'broken.cap', tested_now:true, truth_status:'EXISTANT_MAIS_ECHEC_RUNTIME',
+          contract_valid:true, auto_execution_blocked:null,
+          execution:{ok:false,code:'BROKEN_RUNTIME',duration_ms:29},
+        },
+      ],
+    },
+  }, { now, heartbeatMs:3_600_000, weeklyMs:604_800_000 });
+
+  assert.equal(ledger['healthy.cap'].provider, 'core');
+  assert.equal(ledger['healthy.cap'].last_test_success_at, stressAt);
+  assert.equal(ledger['healthy.cap'].latency_ms, 17);
+  assert.equal(ledger['healthy.cap'].next_check_at, now + 3_600_000);
+  assert.equal(ledger['healthy.cap'].stale_test, false);
+  assert.equal(ledger['broken.cap'].last_test_failure_at, stressAt);
+  assert.equal(ledger['broken.cap'].last_error, 'BROKEN_RUNTIME');
+  assert.equal(ledger['broken.cap'].latency_ms, 29);
+
+  assert.deepEqual(capabilityLedgerSummary(ledger), {
+    total:2,
+    healthy:1,
+    degraded:1,
+    unavailable:0,
+    stale_tests:0,
+    last_test_failures:1,
+  });
 });
 
 test('persistent stress failures expose only real runtime failures', () => {
