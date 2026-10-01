@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   inferResponseMode,
+  inferPresentationMode,
   buildResponseQualityInstruction,
   finalizeEvidenceAlignedResponse,
 } from '../src/api/response-quality.js';
@@ -21,6 +22,26 @@ test('quality instruction forces answer-first evidence-oriented communication', 
   assert.match(prompt,/ne dis jamais « c’est fait »/i);
   assert.match(prompt,/VERROU DE SUJET/);
   assert.match(prompt,/échanges récents de la même conversation/i);
+});
+
+
+test('presentation mode stays compact for short answers and becomes structured for reports', () => {
+  assert.equal(inferPresentationMode("c'est bon ?"), 'compact');
+  assert.equal(inferPresentationMode('oui ou non ?'), 'natural');
+  assert.equal(inferPresentationMode('fais un audit complet et une roadmap des étapes restantes'), 'structured');
+  assert.equal(inferPresentationMode('compare ces options dans un tableau'), 'structured');
+});
+
+test('quality instruction teaches structured Markdown without raw HTML', () => {
+  const structured=buildResponseQualityInstruction('fais un audit complet avec les étapes et un tableau comparatif');
+  assert.match(structured,/presentation=structured/);
+  assert.match(structured,/titres ##/i);
+  assert.match(structured,/tableaux seulement/i);
+  assert.match(structured,/N’émets jamais de HTML brut/i);
+
+  const compact=buildResponseQualityInstruction('maj');
+  assert.match(compact,/presentation=compact/);
+  assert.match(compact,/n’ajoute pas de titre, tableau ou section décorative/i);
 });
 
 test('code-access contradiction is repaired when runtime proves access', () => {
