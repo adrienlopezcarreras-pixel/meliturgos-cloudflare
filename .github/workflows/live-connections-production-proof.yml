@@ -118,7 +118,19 @@ jobs:
           # integrations: it authenticates the project and proves which user
           # accounts are healthy. Component catalogue reachability is diagnostic
           # only and must not mask healthy linked accounts.
-          PD_ACCOUNTS_CODE="$(curl --silent --show-error --max-time 45             --header "x-mel-release-smoke: 1"             --header "x-mel-launch-bootstrap: ${TOKEN}"             --output /tmp/pipedream_accounts.json             --write-out '%{http_code}'             "${BASE_URL}/api/gen2/connections/pipedream/accounts" || true)"
+          PD_ACCOUNTS_CODE="000"
+          for attempt in $(seq 1 12); do
+            PD_ACCOUNTS_CODE="$(curl --silent --show-error --max-time 45               --header "x-mel-release-smoke: 1"               --header "x-mel-launch-bootstrap: ${TOKEN}"               --output /tmp/pipedream_accounts.json               --write-out '%{http_code}'               "${BASE_URL}/api/gen2/connections/pipedream/accounts" || true)"
+            if [ "${PD_ACCOUNTS_CODE}" = "200" ]; then
+              break
+            fi
+            PD_ERROR_CODE="$(node -e 'const fs=require("fs");let d={};try{d=JSON.parse(fs.readFileSync("/tmp/pipedream_accounts.json","utf8"))}catch{};process.stdout.write(String(d?.code||d?.error||"UNKNOWN"))')"
+            if [ "${PD_ACCOUNTS_CODE}" = "401" ] && [ "${PD_ERROR_CODE}" = "AUTH_REQUIRED" ]; then
+              sleep 2
+              continue
+            fi
+            break
+          done
           if [ "${PD_ACCOUNTS_CODE}" = "200" ]; then
             PIPEDREAM_OK=1
             PIPEDREAM_APPS="$(node -e 'const d=require("/tmp/pipedream_accounts.json");process.stdout.write((d.connected_apps||[]).join(","))')"
