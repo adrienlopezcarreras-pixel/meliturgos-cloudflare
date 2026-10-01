@@ -136,29 +136,25 @@ jobs:
             test "${RELAY_CODE}" = "204"
           fi
 
-          # Diagnose the exact Cloudflare credential independently of the Worker
-          # without exposing token material or upstream message bodies.
-          CF_VERIFY_CODE="$(curl --silent --show-error --max-time 30             --header "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}"             --output /tmp/cloudflare-token-verify.json             --write-out '%{http_code}'             "https://api.cloudflare.com/client/v4/user/tokens/verify" || true)"
-          CF_WORKERS_CODE="$(curl --silent --show-error --max-time 30             --header "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}"             --output /tmp/cloudflare-workers-direct.json             --write-out '%{http_code}'             "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/scripts" || true)"
-          CF_VERIFY_CODE="${CF_VERIFY_CODE}" CF_WORKERS_CODE="${CF_WORKERS_CODE}" node - <<'NODE'
+          # Diagnose token validity only. Production deployment mutation and direct
+          # Workers script control remain owned by deploy-cloudflare-release.yml.
+          CF_VERIFY_CODE="$(curl --silent --show-error --max-time 30 \
+            --header "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+            --output /tmp/cloudflare-token-verify.json \
+            --write-out '%{http_code}' \
+            "https://api.cloudflare.com/client/v4/user/tokens/verify" || true)"
+          CF_VERIFY_CODE="${CF_VERIFY_CODE}" node - <<'NODE'
           const fs=require('fs');
-          function read(path){try{return JSON.parse(fs.readFileSync(path,'utf8'))}catch{return {}}}
-          const verify=read('/tmp/cloudflare-token-verify.json');
-          const workers=read('/tmp/cloudflare-workers-direct.json');
-          const errorCodes=(body)=>Array.isArray(body?.errors)?body.errors.map(x=>Number(x?.code||0)).filter(Boolean).slice(0,8):[];
+          let verify={};
+          try{verify=JSON.parse(fs.readFileSync('/tmp/cloudflare-token-verify.json','utf8'))}catch{}
           console.log(JSON.stringify({
-            cloudflare_direct_diagnostic:{
+            cloudflare_credential_diagnostic:{
               token_verify_http:Number(process.env.CF_VERIFY_CODE||0),
               token_active:verify?.success===true && String(verify?.result?.status||'')==='active',
-              workers_list_http:Number(process.env.CF_WORKERS_CODE||0),
-              workers_list_success:workers?.success===true,
-              error_codes:errorCodes(workers),
             }
           },null,2));
           NODE
-          if [ "${CF_VERIFY_CODE}" != "200" ] || [ "${CF_WORKERS_CODE}" != "200" ]; then
-            echo "Cloudflare direct credential proof failed before Worker capability execution."
-          fi
+          test "${CF_VERIFY_CODE}" = "200"
 
           # Wait only for the temporary bootstrap secret to propagate. This is
           # transport/auth readiness, not a capability-health verdict.
@@ -249,54 +245,8 @@ jobs:
             node -e 'const d=require("./cloudflare-deployments.json");if(!Array.isArray(d?.result?.deployments))process.exit(2);console.log("cloudflare.deployments.read relay proof: "+JSON.stringify({transport:d?.result?.transport||null,count:d?.result?.count||0}))'
           fi
 
-          ACTIVE_VERSION="$(node - <<'NODE'
-          const d=require('./cloudflare-deployments.json');
-          const deployments=d?.result?.deployments||[];
-          let id='';
-          for(const deployment of deployments){
-            const versions=Array.isArray(deployment?.versions)?deployment.versions:[];
-            if(versions.length===1 && Number(versions[0]?.percentage)===100 && versions[0]?.version_id){
-              id=String(versions[0].version_id);
-              break;
-            }
-          }
-          if(!id) throw new Error('ACTIVE_CLOUDFLARE_VERSION_NOT_FOUND');
-          process.stdout.write(id);
-          NODE
-          )"
-
-          capability             cloudflare.deployments.create             "{\"versions\":[{\"version_id\":\"${ACTIVE_VERSION}\",\"percentage\":100}],\"message\":\"MEL real capability proof — same active version\"}"             cloudflare-create.json             cloudflare.deployments.create
-
-          CF_CREATE_RELAY_JOB_ID="$(node -e 'const d=require("./cloudflare-create.json");process.stdout.write(String(d?.result?.relay_job_id||""))')"
-          if [ -n "${CF_CREATE_RELAY_JOB_ID}" ]; then
-            test "${CF_CREATE_RELAY_JOB_ID#cf-relay-}" != "${CF_CREATE_RELAY_JOB_ID}"
-            printf '%s' '{"ref":"main"}' > cloudflare-relay-dispatch.json
-            CF_RELAY_CODE="$(curl --silent --show-error --max-time 30 \
-              --request POST \
-              --header "Authorization: Bearer ${GH_TOKEN}" \
-              --header "Accept: application/vnd.github+json" \
-              --header "X-GitHub-Api-Version: 2022-11-28" \
-              --header "Content-Type: application/json" \
-              --data-binary @cloudflare-relay-dispatch.json \
-              --output cloudflare-relay-dispatch-response.txt \
-              --write-out '%{http_code}' \
-              "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/cloudflare-api-relay.yml/dispatches")"
-            test "${CF_RELAY_CODE}" = "204"
-            CF_CREATE_DONE=0
-            for ATTEMPT in $(seq 1 40); do
-              CF_CREATE_STATUS_INPUT="$(CF_CREATE_RELAY_JOB_ID="${CF_CREATE_RELAY_JOB_ID}" node -e 'process.stdout.write(JSON.stringify({relay_job_id:process.env.CF_CREATE_RELAY_JOB_ID}))')"
-              capability cloudflare.deployments.create "${CF_CREATE_STATUS_INPUT}" cloudflare-create-status.json cloudflare.deployments.create
-              CF_CREATE_PENDING="$(node -e 'const d=require("./cloudflare-create-status.json");process.stdout.write(d?.result?.pending===true?"1":"0")')"
-              if [ "${CF_CREATE_PENDING}" = "0" ]; then
-                cp cloudflare-create-status.json cloudflare-create.json
-                CF_CREATE_DONE=1
-                break
-              fi
-              sleep 2
-            done
-            test "${CF_CREATE_DONE}" = "1"
-          fi
-          node -e 'const d=require("./cloudflare-create.json");const dep=d?.result?.deployment;if(!dep?.id||!Array.isArray(dep?.versions)||dep.versions.length<1)process.exit(2);console.log("cloudflare.deployments.create relay proof: "+JSON.stringify({transport:d?.result?.transport||"direct-cloudflare-api",deployment_id:dep.id,versions:dep.versions.length}))'
+          # cloudflare.deployments.create is intentionally not invoked here:
+          # the canonical release workflow is the sole production deployment mutator.
 
           GITHUB_PROOF=false
           GITHUB_BLOCKER=""
@@ -350,7 +300,6 @@ jobs:
           const cloudflareIds=[
             'cloudflare.workers.read',
             'cloudflare.deployments.read',
-            'cloudflare.deployments.create',
           ];
           // Health remains recorded for diagnostics. Success of the three live
           // Cloudflare capability calls above is the actual fail-closed proof.
@@ -372,7 +321,8 @@ jobs:
               real_runtime_credentials:true,
               workers_read:true,
               deployments_read:true,
-              same_version_deployment_write:true,
+              same_version_deployment_write:false,
+              deployment_mutation_owner:'deploy-cloudflare-release.yml',
               capabilities:cloudflareIds.map(id=>({id,health:rows.get(id)?.health||null})),
             },
             github:{
