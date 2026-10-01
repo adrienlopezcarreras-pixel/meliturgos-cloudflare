@@ -18,6 +18,18 @@ const browserStepSchema = {
     url: { type: 'string', minLength: 0, maxLength: 4096 },
     selector: { type: 'string', minLength: 0, maxLength: 1000 },
     text: { type: 'string', minLength: 0, maxLength: 8192 },
+    file_name: { type: 'string', minLength: 0, maxLength: 200 },
+    mime_type: { type: 'string', minLength: 0, maxLength: 120 },
+    file_text: { type: 'string', minLength: 0, maxLength: 16384 },
+    headers: {
+      type: 'object',
+      properties: {
+        authorization: { type: 'string', minLength: 1, maxLength: 2048 },
+        'x-mel-release-smoke': { type: 'string', minLength: 1, maxLength: 2048 },
+        'x-mel-launch-bootstrap': { type: 'string', minLength: 1, maxLength: 2048 },
+      },
+      additionalProperties: false,
+    },
     delta_x: { type: 'number' },
     delta_y: { type: 'number' },
   },
