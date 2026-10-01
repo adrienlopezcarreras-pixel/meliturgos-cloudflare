@@ -64,6 +64,7 @@ const RELEASE_SMOKE_ALLOWLIST = Object.freeze(new Map([
     '/api/gen2/connections/roundcube/test',
     '/api/gen2/connections/vercel/test',
     '/api/gen2/connections/pipedream/test',
+    '/api/files/upload',
   ])],
   ['GET', new Set([
     '/api/v1/version',
@@ -79,6 +80,7 @@ const RELEASE_SMOKE_ALLOWLIST = Object.freeze(new Map([
     '/api/gen2/shardvault/status',
     '/api/gen2/import/chatgpt-status',
     '/api/memory/status',
+    '/',
     '/professor',
     '/normal-runtime.js',
   ])],
