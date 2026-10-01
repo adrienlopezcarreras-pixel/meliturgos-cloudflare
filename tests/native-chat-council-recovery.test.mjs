@@ -40,6 +40,12 @@ test('Council recovery triggers on admitted inability and failed tools but not o
     toolResults:[],
   }),false);
   assert.equal(shouldEscalateNativeChatToCouncil({
+    userText:'Regarde mes mails Gmail et trouve les derniers messages reçus',
+    responseText:'Je ne peux pas consulter ce compte dans cette requête.',
+    assessment:{issues:[]},
+    toolResults:[{capability:'gmail.read',status:'FAILED',error:'CONNECTION_TOKEN_NOT_AVAILABLE'}],
+  }),false);
+  assert.equal(shouldEscalateNativeChatToCouncil({
     userText:'reste hors de ce sujet',
     responseText:'réponse',
     assessment:{issues:[{code:'EXCLUDED_SCOPE_ACTION',severity:'high'}]},
