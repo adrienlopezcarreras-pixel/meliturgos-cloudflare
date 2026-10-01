@@ -192,6 +192,7 @@ async function executePersistentStress({ bus, store, job, context = {} }) {
     const first = await auditRuntimeCapabilities({ bus }, {
       deep: true,
       context: executionContext(context),
+      executionTimeoutMs: 4_000,
       onProgress: async ({ index, total, row }) => {
         observed[index - 1] = compactProgressRow(row);
         if (index === total || row?.tested_now === true || index % 5 === 0) {
@@ -226,6 +227,7 @@ async function executePersistentStress({ bus, store, job, context = {} }) {
       const retry = await auditRuntimeCapabilities({ bus }, {
         deep: true,
         context: executionContext(context),
+        executionTimeoutMs: 4_000,
         samples: retrySamples,
         onProgress: async ({ index, total, row }) => {
           if (index === total || row?.tested_now === true || index % 10 === 0) {

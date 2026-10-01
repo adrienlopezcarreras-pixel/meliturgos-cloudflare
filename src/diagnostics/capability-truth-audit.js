@@ -113,15 +113,32 @@ export async function auditRuntimeCapabilities(runtime, {
 
   let records = runtime.bus.list();
   if (typeof runtime.bus.refreshHealth === 'function') {
-    const refreshed = [];
-    for (const record of records) {
-      const costSensitive = COST_SENSITIVE_CAPABILITIES.has(record.id);
-      if (costSensitive && !provenZeroCost.has(record.id)) {
-        refreshed.push(record);
-        continue;
-      }
-      try { refreshed.push(await runtime.bus.refreshHealth(record.id)); }
-      catch { refreshed.push(record); }
+    const healthTimeoutMs = 4_000;
+    const healthConcurrency = 8;
+    const refreshed = new Array(records.length);
+    for (let offset = 0; offset < records.length; offset += healthConcurrency) {
+      await Promise.all(records.slice(offset, offset + healthConcurrency).map(async (record, localIndex) => {
+        const index = offset + localIndex;
+        const costSensitive = COST_SENSITIVE_CAPABILITIES.has(record.id);
+        if (costSensitive && !provenZeroCost.has(record.id)) {
+          refreshed[index] = record;
+          return;
+        }
+        let timer;
+        try {
+          refreshed[index] = await Promise.race([
+            runtime.bus.refreshHealth(record.id),
+            new Promise((_, reject) => {
+              timer = setTimeout(() => reject(Object.assign(
+                new Error('CAPABILITY_AUDIT_HEALTH_TIMEOUT'),
+                { code: 'CAPABILITY_AUDIT_HEALTH_TIMEOUT' },
+              )), healthTimeoutMs);
+            }),
+          ]).finally(() => clearTimeout(timer));
+        } catch {
+          refreshed[index] = record;
+        }
+      }));
     }
     records = refreshed;
   }

@@ -278,3 +278,39 @@ test('deep audit proves contract of MEDIUM/HIGH capabilities without executing s
   }
   assert.equal(executions, 0);
 });
+
+
+test('deep audit bounds and parallelizes health refresh while preserving capability order', async () => {
+  const records = Array.from({ length: 10 }, (_, index) => ({
+    id:'health-'+index,
+    name:'Health '+index,
+    category:'test',
+    provider:'test',
+    risk:'LOW',
+    enabled:true,
+    health:'DEGRADED',
+  }));
+  let active=0;
+  let peak=0;
+  const refreshed=[];
+  const bus={
+    list:()=>records,
+    async refreshHealth(id){
+      active += 1;
+      peak=Math.max(peak,active);
+      refreshed.push(id);
+      await new Promise(resolve=>setTimeout(resolve,10));
+      active -= 1;
+      return { ...records.find(row=>row.id===id), health:'HEALTHY' };
+    },
+    contract:()=>({valid:true}),
+    execute:async()=>({ok:true}),
+  };
+  const report=await auditRuntimeCapabilities({bus},{deep:true,samples:{}});
+  assert.equal(report.total,10);
+  assert.deepEqual(report.capabilities.map(row=>row.id),records.map(row=>row.id));
+  assert.equal(report.capabilities.every(row=>row.health==='HEALTHY'),true);
+  assert.ok(peak>1,'health refresh should run concurrently');
+  assert.ok(peak<=8,'health refresh concurrency must stay bounded');
+  assert.equal(refreshed.length,10);
+});
