@@ -34,8 +34,8 @@ function baseDeps(overrides = {}) {
     runDependencyLongevityWatchRuntime: async () => ({ ok: true, status: 'WATCHED' }),
     runSovereigntyReplacementWatchRuntime: async () => ({ ok: true, status: 'WATCHED' }),
     runConfiguredAiCandidateValidationRuntime: async () => ({ ok: true, status: 'AI_SOVEREIGNTY_NOOP', prevalidated: 0, blocked: 0 }),
-    runCompanionSourceControlPrevalidationRuntime: async () => ({ ok: true, skipped: true, reason: 'COMPANION_OFFLINE' }),
-    runCompanionInfrastructurePrevalidationRuntime: async () => ({ ok: true, skipped: true, reason: 'COMPANION_OFFLINE' }),
+    runCompanionSourceControlPrevalidationRuntime: async () => ({ ok: true, skipped: false, status: 'PREVALIDATED', prevalidated: 1, blocked: 0 }),
+    runCompanionInfrastructurePrevalidationRuntime: async () => ({ ok: true, skipped: false, status: 'PREVALIDATED_ALL', prevalidated: 8, blocked: 0 }),
     runScheduledSystemBackup: async () => ({ ok: true, status: 'CREATED_VERIFIED', id: 'system-proof' }),
     enqueueDevelopment: async () => ({ job_id: 'repair-job', status: 'WAITING_TEACHER' }),
     ...overrides,
@@ -234,6 +234,55 @@ test('two consecutive anomalies trigger Council and one idempotent MAX repair ha
   });
   assert.equal(queued, 1);
   assert.equal(second.report.repair, null);
+});
+
+
+test('a previous runtime stress failure keeps the supervisor degraded until disproven', async () => {
+  const store = new MemoryStateStore();
+  const result = await runMelSelfAuditSupervisor({}, {
+    bus: fakeBus(),
+    stateStore: store,
+    maxLevel: 'HEARTBEAT',
+    forceLevel: 'HEARTBEAT',
+    now: Date.UTC(2026, 9, 8, 12, 0, 0),
+    deps: baseDeps({
+      readLatestStress: async () => ({
+        job_id:'cap-stress-broken',
+        completed_at:Date.UTC(2026, 9, 8, 11, 0, 0),
+        report:{
+          capabilities:[{
+            id:'broken.cap',
+            truth_status:'EXISTANT_MAIS_ECHEC_RUNTIME',
+            risk:'LOW',
+            tested_now:true,
+            execution:{ok:false,code:'BROKEN_RUNTIME',duration_ms:11},
+          }],
+        },
+      }),
+    }),
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.status, 'SELF_AUDIT_DEGRADED');
+  assert.equal(result.report.previous_stress.failure_count, 1);
+  assert.ok(result.report.unresolved_failure_count >= 1);
+});
+
+test('monthly survival audit flags an offline companion instead of inventing a passed alternative drill', async () => {
+  const store = new MemoryStateStore();
+  const result = await runMelSelfAuditSupervisor({}, {
+    bus: fakeBus(),
+    stateStore: store,
+    maxLevel: 'MONTHLY',
+    forceLevel: 'MONTHLY',
+    now: Date.UTC(2026, 9, 8, 12, 0, 0),
+    deps: baseDeps({
+      runCompanionSourceControlPrevalidationRuntime: async () => ({ ok:true, skipped:true, reason:'COMPANION_OFFLINE' }),
+      runCompanionInfrastructurePrevalidationRuntime: async () => ({ ok:true, skipped:true, reason:'COMPANION_OFFLINE' }),
+    }),
+  });
+  assert.equal(result.status, 'SELF_AUDIT_DEGRADED');
+  assert.equal(result.report.tasks['source-control-alternative-drill'].ok, false);
+  assert.equal(result.report.tasks['infrastructure-alternative-drill'].ok, false);
 });
 
 test('monthly drill creates verified backup without destructive restore policy', async () => {
