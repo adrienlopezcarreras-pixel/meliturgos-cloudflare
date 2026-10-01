@@ -1,2 +1,3 @@
 2026-10-01 canonical production release trigger.
 No runtime effect; this file exists only to emit the release-branch push event required by deploy-cloudflare-release.
+Trigger attempt via GitHub PR merge event.
