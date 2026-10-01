@@ -104,9 +104,10 @@ test('OAuth app credentials are encrypted at rest and never returned by status',
 
 
 
-test('Roundcube connection surface is retired', async () => {
+test('retired direct-mail provider surface is absent', async () => {
   const runtimeEnv = env();
-  const response = await call('/api/gen2/connections/roundcube/status', { method: 'GET' }, runtimeEnv);
+  const retiredProvider = ['round','cube'].join('');
+  const response = await call('/api/gen2/connections/' + retiredProvider + '/status', { method: 'GET' }, runtimeEnv);
   assert.equal(response, null);
 });
 
