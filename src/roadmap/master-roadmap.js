@@ -8,7 +8,7 @@ export const ROADMAP_STATUSES = Object.freeze({
   BLOCKED_EXTERNAL: 'BLOCKED_EXTERNAL'
 });
 
-export const ROADMAP_REGISTRY_REVISION = '2026-10-01.04';
+export const ROADMAP_REGISTRY_REVISION = '2026-10-01.05';
 
 const phase = (id, title, items) => ({ id, title, items });
 const item = (id, title, status, next = '', priority = 'P2') => ({ id, title, status, next, priority });
@@ -120,7 +120,7 @@ export const MASTER_ROADMAP = Object.freeze([
     item('GEN2-36', 'GitHub / Cloudflare / Vercel', 'DONE', 'Développement terminé et déployé: GitHub/Cloudflare déjà prouvés, centre Vercel chiffré fusionné par PR #629 puis déployé sur SHA ffc4312be3ebe1f3184d12f15243c1a176b60c9b avec release 36350142056 entièrement verte. Aucun projet/équipe Vercel réel n est actuellement visible; vérification Vercel réelle et redéploiement approuvé à faire ultérieurement avant passage en DONE_VERIFIED.', 'P0'),
     item('GEN2-37', 'Web / recherche', 'DONE_VERIFIED', 'Production vérifiée: release 36150649958 sur SHA 231b83e5009bf86af538d802f12e46b339252c70 a exécuté le vrai endpoint /api/gen2/web/research avec seed officiel Cloudflare, scope release strict, provenance complète et marqueur GEN2-37 PRODUCTION_VERIFIED.', 'P1'),
     item('MEL-CONN-01', 'WordPress Vérité Interdite', 'DONE_VERIFIED', 'Production certifiée le 26/09/2026: correctif public auth #470 fusionné puis déployé sur SHA f33f161dd4b1639e5b32490bfe4dfba05b5c370c par run 36233051273. Preuve depuis PC Windows réel DESKTOP-0S87KA9: GET /public/wordpress-chat = HTTP 200 sans owner auth, tandis que / et /manifest.webmanifest restent HTTP 401; séparation public/privé confirmée en production.', 'P3'),
-    item('MEL-CONN-03', 'Mail multi-fournisseurs Yahoo/Ymail + Roundcube/IMAP-SMTP', 'DONE', 'Développement terminé: OAuth Yahoo/Ymail PKCE, stockage chiffré, connecteur Roundcube IMAP/SMTP et probes intégrés. Preuve production fraîche post-release 36824481419 sur SHA 9f845d033eb6d691f7da974f5a59b49ad80fa208: Yahoo/Ymail natif indisponible mais fallback Pipedream IMAP lié et sain prouvé; Roundcube reste ROUNDCUBE_NOT_CONFIGURED. Passage en DONE_VERIFIED interdit tant que Roundcube n est pas réellement configuré et testé.', 'P1'),
+    item('MEL-CONN-03', 'Mail Yahoo/Ymail', 'DONE', 'Périmètre réduit par décision owner le 01/10/2026: le connecteur direct de webmail standards-based a été retiré du produit, de l UI, de l API, des tests, des preuves et de la configuration persistée. Yahoo/Ymail reste pris en charge via OAuth natif, IMAP/SMTP Yahoo dédié et fallback Pipedream IMAP. Une preuve production fraîche sur le SHA de retrait est requise avant DONE_VERIFIED.', 'P1'),
     item('MEL-CONN-02', 'Catalogue de connecteurs installables', 'DONE_VERIFIED', 'Catalogue installable livré par PR #41 puis release #43: découverte déterministe, manifestes versionnés, permissions/scopes déclarés, installation fail-closed et tests dédiés. Présent dans le main exact actuellement déployé. Certification finale: présent sur le SHA exact 02709095088bf71567350b1b4f4465231440d448, full-suite CI verte avant fusion et déploiement Cloudflare release 36232449914 vert avec preuve identite SHA, autonomie production et HTTP final.', 'P2')
   ]),
 
