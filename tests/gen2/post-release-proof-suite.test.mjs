@@ -7,6 +7,7 @@ const workflows = [
   'persistent-capability-stress-live-proof.yml',
   'live-connections-production-proof.yml',
   'mel-sov-01-live-proof.yml',
+  'council-rich-ui-production-proof.yml',
 ];
 
 test('post-release production proofs are reusable and no longer race on workflow_run', async () => {
@@ -14,17 +15,22 @@ test('post-release production proofs are reusable and no longer race on workflow
     const source = await readFile(new URL('../../.github/workflows/' + name, import.meta.url), 'utf8');
     assert.match(source, /workflow_call:/, name);
     assert.doesNotMatch(source, /workflows:\s*\["deploy-cloudflare-release"\]/, name);
-    assert.match(source, /inputs\.expected_sha \|\| github\.sha/, name);
+    const directSha = /inputs\.expected_sha \|\| github\.sha/.test(source);
+    const envResolvedSha = /INPUT_SHA:\s*\$\{\{ inputs\.expected_sha \}\}/.test(source)
+      && /FALLBACK_SHA:\s*\$\{\{ github\.sha \}\}/.test(source)
+      && /SHA="\$\{INPUT_SHA:-\$\{FALLBACK_SHA\}\}"/.test(source);
+    assert.equal(directSha || envResolvedSha, true, name);
   }
 });
 
-test('post-release suite sequences platform, stress, connections and sovereignty even after a red proof', async () => {
+test('post-release suite sequences platform, stress, Council rich UI, connections and sovereignty even after a red proof', async () => {
   const source = await readFile(new URL('../../.github/workflows/post-release-proof-suite.yml', import.meta.url), 'utf8');
   assert.match(source, /platform:\n[\s\S]*uses: \.\/\.github\/workflows\/activate-platform-capabilities\.yml/);
   assert.match(source, /persistent-stress:\n[\s\S]*needs: \[resolve, platform\][\s\S]*if: always\(\)/);
-  assert.match(source, /connections:\n[\s\S]*needs: \[resolve, persistent-stress\][\s\S]*if: always\(\)/);
+  assert.match(source, /council-rich-ui:\n[\s\S]*needs: \[resolve, persistent-stress\][\s\S]*if: always\(\)/);
+  assert.match(source, /connections:\n[\s\S]*needs: \[resolve, council-rich-ui\][\s\S]*if: always\(\)/);
   assert.match(source, /sovereignty:\n[\s\S]*needs: \[resolve, connections\][\s\S]*if: always\(\)/);
-  assert.match(source, /summary:\n[\s\S]*needs: \[resolve, platform, persistent-stress, connections, sovereignty\]/);
+  assert.match(source, /summary:\n[\s\S]*needs: \[resolve, platform, persistent-stress, council-rich-ui, connections, sovereignty\]/);
 });
 
 
