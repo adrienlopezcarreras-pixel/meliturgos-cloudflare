@@ -16,6 +16,9 @@ test('MEL operating manual keeps identity, experience and post-pass invariants e
   assert.ok(MEL_OPERATING_MANUAL.responseQuality.some(x => /statuts opérationnels/i.test(x)));
   assert.ok(MEL_OPERATING_MANUAL.responseQuality.some(x => /Maintenir un sujet actif/i.test(x)));
   assert.ok(MEL_OPERATING_MANUAL.responseQuality.some(x => /contexte récent/i.test(x)));
+  assert.ok(MEL_OPERATING_MANUAL.responseQuality.some(x => /Markdown structuré/i.test(x)));
+  assert.ok(MEL_OPERATING_MANUAL.responseQuality.some(x => /ne jamais produire de HTML brut/i.test(x)));
+  assert.ok(MEL_OPERATING_MANUAL.responseQuality.some(x => /tableaux aux informations réellement comparables/i.test(x)));
 
   const prompt = buildMelOperatingManualPrompt({
     capabilityManifest: [{ id:'code.read', status:'EXISTANT_NON_TESTE', health:'HEALTHY', enabled:true, provider:'core', risk:'LOW', permissions:['repo.read'], tested_now:false }],
