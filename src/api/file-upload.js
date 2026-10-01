@@ -145,6 +145,7 @@ export async function handleFileUpload(request, env, options = {}) {
   const expiresAt = new Date(createdAt.getTime() + ttlSeconds * 1000);
   const key = `uploads/${new Date().toISOString().slice(0,10)}/${id}-${name}`;
   let stored = false;
+  let storedEncryption = null;
 
   if (env?.MEDIA_BUCKET && typeof env.MEDIA_BUCKET.put === 'function') {
     let sealed;
@@ -170,6 +171,11 @@ export async function handleFileUpload(request, env, options = {}) {
           ...sealed.metadata,
         },
       });
+      storedEncryption = {
+        schema:String(sealed.metadata.mediaSchema || ''),
+        algorithm:String(sealed.metadata.mediaAlgorithm || ''),
+        key_id:String(sealed.metadata.mediaKeyId || ''),
+      };
     } catch (error) {
       const code = String(error?.code || 'MEDIA_VAULT_ENCRYPTION_FAILED').slice(0,120);
       const status = Number(error?.status) >= 400 && Number(error?.status) <= 599 ? Number(error.status) : 503;
@@ -196,7 +202,8 @@ export async function handleFileUpload(request, env, options = {}) {
   }
 
   return Response.json({
-    ok:true,id,name,size,type:mime,sha256,stored,private:true,key:stored?key:null,url:null,
+    ok:true,id,name,size,type:mime,sha256,stored,stored_encrypted:Boolean(stored&&storedEncryption),private:true,key:stored?key:null,url:null,
+    encryption:storedEncryption,
     created_at:createdAt.toISOString(),
     expires_at:stored?expiresAt.toISOString():null,
     ttl_seconds:stored?ttlSeconds:null,
