@@ -12,6 +12,7 @@ on:
       - 'src/platform/github-action-relay.js'
       - 'src/api/github-action-relay-api.js'
       - 'src/capabilities/platform-control-capabilities.js'
+      - 'src/capabilities/platform-read-capabilities.js'
       - 'src/router.js'
       - 'tests/gen2/github-action-relay.test.mjs'
       - 'src/security/github-actions-oidc.js'
