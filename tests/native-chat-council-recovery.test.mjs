@@ -76,15 +76,18 @@ test('successful Council recovery persists reusable runtime XP and a learned cor
     assert.equal(body.council_recovery.accepted,true);
     assert.equal(body.council_recovery.experience_saved,true);
     assert.equal(body.council_recovery.correction_saved,true);
-    assert.equal(body.council_recovery.xp_gain,1);
+    assert.ok(body.council_recovery.xp_gain>0);
+    assert.equal(body.council_recovery.xp_awarded,true);
+    assert.ok(Number(body.council_recovery.xp_after)>=body.council_recovery.xp_gain);
     assert.match(body.text,/réparer ce test précis/i);
     assert.ok(calls.some(row=>row.joined.includes('MISSION DE RÉCUPÉRATION MEL.')));
     assert.ok(calls.some(row=>row.joined.includes('RÉCUPÉRATION COUNCIL')));
 
-    const rows=await DB.prepare("SELECT kind,outcome,tags_json FROM mentor_lessons WHERE kind IN ('EXPERIENCE','TEACHER_CORRECTION')").all();
+    const rows=await DB.prepare("SELECT kind,outcome,tags_json FROM mentor_lessons WHERE kind IN ('EXPERIENCE','TEACHER_CORRECTION','LEARNING_XP_CHECKPOINT')").all();
     const kinds=(rows.results||[]).map(row=>row.kind);
     assert.ok(kinds.includes('EXPERIENCE'));
     assert.ok(kinds.includes('TEACHER_CORRECTION'));
+    assert.ok(kinds.includes('LEARNING_XP_CHECKPOINT'));
   }finally{
     if(previous==null) delete process.env.MEL_TEST_VERIFIED_ZERO_COST_PROVIDERS;
     else process.env.MEL_TEST_VERIFIED_ZERO_COST_PROVIDERS=previous;
