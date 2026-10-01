@@ -1200,22 +1200,114 @@ export async function handleNativeChat(request, env, options = {}) {
     toolResults,
     recent,
   });
+
+  let councilRecovery = { attempted:false, succeeded:false };
+  let councilRecoveryAccepted = false;
+  let recoveredQualityAssessment = null;
+  let qualityCandidateText = evidenceAlignedResponseText;
+  if (shouldEscalateNativeChatToCouncil({
+    userText:text,
+    responseText:evidenceAlignedResponseText,
+    assessment:initialQualityAssessment,
+    toolResults,
+    developmentQueued,
+  })) {
+    councilRecovery = await runCouncilRecovery({
+      runtime,
+      env,
+      userText:text,
+      responseText:evidenceAlignedResponseText,
+      assessment:initialQualityAssessment,
+      toolResults,
+      capabilityManifest,
+    });
+    if (councilRecovery.succeeded) {
+      try {
+        const recoveryMessages = [
+          ...messages,
+          { role:'assistant', content:evidenceAlignedResponseText },
+          {
+            role:'system',
+            content:[
+              'RÉCUPÉRATION COUNCIL : la première tentative était insuffisante.',
+              'Utilise la synthèse du Council comme conseil, pas comme preuve.',
+              'Réponds maintenant à la demande initiale de façon directement utile.',
+              'Si une action a échoué, conserve son code exact et ne prétends pas qu elle a réussi.',
+              'Si le Council identifie une capacité existante mais qu elle n a pas été exécutée dans cette requête, présente-la comme prochaine action possible, jamais comme action déjà faite.',
+              'SYNTHÈSE COUNCIL:',
+              councilRecovery.guidance,
+            ].join('\n'),
+          },
+          { role:'user', content:text },
+        ];
+        const recoveredAi = await runNativeInference({
+          env,
+          messages:recoveryMessages,
+          text,
+          parallel:false,
+          maxCandidates:1,
+          inferenceSettings:effectiveInferenceSettings,
+          activeAdapter,
+          runtime,
+          taskOverride:'REASONING',
+        });
+        const recoveredRaw = stripInternalCounters(recoveredAi.text);
+        const recoveredAligned = finalizeEvidenceAlignedResponse({
+          text:recoveredRaw,
+          userText:text,
+          codeAccess,
+          toolResults,
+          developmentQueued,
+        });
+        const candidateAssessment = assessResponseQuality({
+          userText:text,
+          responseText:recoveredAligned,
+          focus:conversationFocus,
+          codeAccess,
+          developmentQueued,
+          toolResults,
+          recent,
+        });
+        if (candidateAssessment.ok === true) {
+          ai = { ...recoveredAi, council_recovered:true };
+          qualityCandidateText = recoveredAligned;
+          recoveredQualityAssessment = candidateAssessment;
+          councilRecoveryAccepted = true;
+        }
+      } catch (error) {
+        councilRecovery.recovery_error = String(error?.code || error?.message || 'COUNCIL_RECOVERY_INFERENCE_FAILED').slice(0,180);
+      }
+    }
+  }
+
+  const effectiveQualityAssessment = recoveredQualityAssessment || initialQualityAssessment;
   const qualityGuardedResponseText = (autonomyActivityObserved || devBridgeStatusObserved || capabilityAuditObserved)
-    ? evidenceAlignedResponseText
+    ? qualityCandidateText
     : enforceResponseQuality({
-        responseText: evidenceAlignedResponseText,
-        userText: text,
-        focus: conversationFocus,
-        assessment: initialQualityAssessment,
+        responseText:qualityCandidateText,
+        userText:text,
+        focus:conversationFocus,
+        assessment:effectiveQualityAssessment,
       });
   const responseText = qualityGuardedResponseText;
-  const responseGuarded = responseText !== evidenceAlignedResponseText;
+  const responseGuarded = responseText !== qualityCandidateText;
+  const councilXp = councilRecoveryAccepted
+    ? await persistCouncilRecoveryXp(env, {
+        userText:text,
+        before:evidenceAlignedResponseText,
+        after:responseText,
+        council:councilRecovery,
+        initialAssessment:initialQualityAssessment,
+        recoveredAssessment:effectiveQualityAssessment,
+        toolResults,
+      })
+    : { saved:false, correction_saved:false, xp_gain:0 };
   const qualityEventSaved = releaseSmoke ? false : await persistResponseQualityEvent(env, {
     conversationId,
-    userText: text,
+    userText:text,
     responseText,
-    focus: conversationFocus,
-    assessment: initialQualityAssessment,
+    focus:conversationFocus,
+    assessment:effectiveQualityAssessment,
   });
 
   let archiveSaved = false;
