@@ -416,6 +416,10 @@ function actionLikeRequest(value) {
   return /\b(?:fais|faire|lance|lancer|ex[ée]cute|ex[ée]cuter|envoie|envoyer|ouvre|ouvrir|cr[ée]e|cr[ée]er|modifie|modifier|corrige|corriger|r[ée]pare|r[ée]parer|d[ée]ploie|d[ée]ployer|teste|tester|v[ée]rifie|v[ée]rifier|mets?\s+[àa]\s+jour|continue|avance)\b/i.test(String(value || ''));
 }
 
+function privateConnectedDataRequest(value) {
+  return /\b(?:mes\s+(?:mails?|emails?|fichiers?|documents?|photos?|messages?|contacts?|calendriers?|agendas?)|gmail|outlook|onedrive|google\s+drive|sharepoint|mon\s+(?:gmail|outlook|drive|agenda|calendrier)|ma\s+(?:bo[iî]te\s+mail|messagerie))\b/i.test(String(value || ''));
+}
+
 export function shouldEscalateNativeChatToCouncil({
   userText = '',
   responseText = '',
@@ -424,6 +428,10 @@ export function shouldEscalateNativeChatToCouncil({
   developmentQueued = null,
 } = {}) {
   if (developmentQueued) return false;
+  // Private connected-data requests stay on the dedicated connector path.
+  // Do not fan them out to Council models merely because a connector is absent
+  // or unavailable; the normal fail-closed response remains authoritative.
+  if (privateConnectedDataRequest(userText)) return false;
   const issues = Array.isArray(assessment?.issues) ? assessment.issues : [];
   if (issues.some(issue => issue?.code === 'EXCLUDED_SCOPE_ACTION')) return false;
   const failedTools = (Array.isArray(toolResults) ? toolResults : []).filter(row => row?.status === 'FAILED');
