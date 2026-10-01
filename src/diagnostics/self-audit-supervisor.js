@@ -183,7 +183,10 @@ function compactTaskResult(value) {
 async function capture(name, fn) {
   try {
     const value = await fn();
-    const failed = value?.ok === false || /(?:ERROR|FAILED|BLOCKED)$/i.test(String(value?.status || ''));
+    const status = String(value?.status || '');
+    const failed = value?.ok === false
+      || /(?:ERROR|FAILED|BLOCKED|EMERGENCY|MIGRATION_REQUIRED)$/i.test(status)
+      || status === 'DEGRADED';
     return { name, ok: !failed, value, compact: compactTaskResult(value), error: failed ? clean(value?.error || value?.code || value?.status, 180) : null };
   } catch (error) {
     return { name, ok: false, value: null, compact: { ok: false, error: safeError(error) }, error: safeError(error) };
