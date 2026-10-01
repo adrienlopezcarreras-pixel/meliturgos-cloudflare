@@ -8,6 +8,7 @@ test('production proof is tied to successful deploy workflow and exact SHA', () 
   assert.match(workflow, /workflows:\s*\["deploy-cloudflare-release"\]/);
   assert.match(workflow, /github\.event\.workflow_run\.head_sha/);
   assert.match(workflow, /EXACT_SHA_SELF_CHECK_MISMATCH/);
+  assert.match(workflow, /d\?\.deployed_sha/);
   assert.match(workflow, /tests\/native-chat-negative-feedback-council\.test\.mjs/);
 });
 
