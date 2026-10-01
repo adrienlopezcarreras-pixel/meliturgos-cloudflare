@@ -601,6 +601,8 @@ export async function runMelSelfAuditSupervisor(env = {}, {
     ? await currentSovereignty(env, control?.max_autonomy === true)
     : null;
   const taskFailures = results.filter(row => row.ok !== true).map(row => ({ name: row.name, error: row.error || row.compact?.error || 'FAILED' }));
+  const unresolvedFailureCount = taskFailures.length + previousStressFailures.length + recurring.length;
+  const auditDegraded = unresolvedFailureCount > 0;
 
   const lastRuns = { ...(state.last_runs || {}) };
   for (const level of due) lastRuns[level] = current;
@@ -639,6 +641,7 @@ export async function runMelSelfAuditSupervisor(env = {}, {
     },
     task_count: results.length,
     task_failure_count: taskFailures.length,
+    unresolved_failure_count: unresolvedFailureCount,
     tasks: Object.fromEntries(results.map(row => [row.name, row.compact])),
     previous_stress: previousStress ? {
       job_id: previousStress.job_id || previousStress.id || null,
@@ -679,9 +682,9 @@ export async function runMelSelfAuditSupervisor(env = {}, {
   });
 
   return {
-    ok: taskFailures.length === 0,
+    ok: !auditDegraded,
     skipped: false,
-    status: taskFailures.length ? 'SELF_AUDIT_DEGRADED' : 'SELF_AUDIT_OK',
+    status: auditDegraded ? 'SELF_AUDIT_DEGRADED' : 'SELF_AUDIT_OK',
     report,
   };
 }
