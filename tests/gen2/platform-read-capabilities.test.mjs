@@ -305,3 +305,29 @@ test('Vercel reads accept encrypted runtime resolver when env token is absent', 
   assert.equal(seen.every(call => call.authorization === 'Bearer vault-vercel-token'), true);
   assert.equal(JSON.stringify(result).includes('vault-vercel-token'), false);
 });
+
+
+test('platform reads stay healthy when AbortSignal.timeout is unavailable in the runtime', async () => {
+  const descriptor=Object.getOwnPropertyDescriptor(AbortSignal,'timeout');
+  Object.defineProperty(AbortSignal,'timeout',{
+    configurable:true,
+    value:()=>{ throw new TypeError('AbortSignal.timeout unsupported'); },
+  });
+  try {
+    const bus=new CapabilityBus();
+    registerPlatformReadCapabilities(bus,{
+      env:{ MEL_GITHUB_REPOSITORY:'owner/repo' },
+      fetchImpl:async url => {
+        if(String(url).includes('/actions/runs')) return json({ workflow_runs:[] });
+        return json({ id:42, name:'repo', full_name:'owner/repo', default_branch:'main' });
+      },
+    });
+    const repoHealth=await bus.refreshHealth('github.repository.read');
+    const runsHealth=await bus.refreshHealth('github.actions.runs.read');
+    assert.equal(repoHealth.health,'HEALTHY');
+    assert.equal(runsHealth.health,'HEALTHY');
+  } finally {
+    if(descriptor) Object.defineProperty(AbortSignal,'timeout',descriptor);
+    else delete AbortSignal.timeout;
+  }
+});

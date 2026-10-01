@@ -50,19 +50,33 @@ function bearer(token) {
   };
 }
 
+function createRequestTimeout(ms = 8000) {
+  const Controller = globalThis?.AbortController;
+  if (typeof Controller !== 'function') return { signal:null, cleanup:()=>{} };
+  const controller = new Controller();
+  const timer = setTimeout(() => controller.abort(), ms);
+  return {
+    signal: controller.signal,
+    cleanup: () => clearTimeout(timer),
+  };
+}
+
 async function requestJson(fetchImpl, url, { token = '', code = 'PLATFORM_READ_FAILED' } = {}) {
   const headers = token ? bearer(token) : { accept: 'application/json', 'user-agent': USER_AGENT };
+  const timeout = createRequestTimeout(8000);
   let response;
   try {
     response = await fetchImpl(url, {
       method: 'GET',
       headers,
       redirect: 'error',
-      signal: AbortSignal.timeout(8000),
+      ...(timeout.signal ? { signal:timeout.signal } : {}),
     });
   } catch (error) {
     const name = String(error?.name || 'FETCH_FAILED').replace(/[^A-Za-z0-9_]/g, '_').toUpperCase().slice(0, 40);
     throw capabilityError(code + '_FETCH_' + name, 503);
+  } finally {
+    timeout.cleanup();
   }
 
   let parsed = null;
