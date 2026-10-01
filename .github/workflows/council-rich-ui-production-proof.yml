@@ -1,0 +1,206 @@
+name: council-rich-ui-production-proof
+
+on:
+  workflow_run:
+    workflows: ["deploy-cloudflare-release"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      expected_sha:
+        description: "Exact deployed SHA to prove; defaults to current main"
+        required: false
+        type: string
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/council-rich-ui-production-proof.yml'
+      - 'tests/gen2/council-rich-ui-production-proof.test.mjs'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mel-launch-bootstrap-token
+  cancel-in-progress: false
+
+jobs:
+  contract:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: node --test tests/gen2/council-rich-ui-production-proof.test.mjs
+
+  resolve:
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
+    runs-on: ubuntu-24.04
+    outputs:
+      expected_sha: ${{ steps.sha.outputs.expected_sha }}
+    steps:
+      - id: sha
+        shell: bash
+        env:
+          EVENT_SHA: ${{ github.event.workflow_run.head_sha }}
+          INPUT_SHA: ${{ inputs.expected_sha }}
+          FALLBACK_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          SHA="${INPUT_SHA:-${EVENT_SHA:-${FALLBACK_SHA}}}"
+          [[ "${SHA}" =~ ^[0-9a-fA-F]{40}$ ]]
+          echo "expected_sha=${SHA,,}" >> "$GITHUB_OUTPUT"
+
+  production-proof:
+    needs: resolve
+    if: needs.resolve.result == 'success'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ needs.resolve.outputs.expected_sha }}
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install exact lockfile
+        run: npm ci
+      - name: Re-run exact-SHA Council recovery and rich-renderer contracts
+        run: |
+          node --test             tests/native-chat-negative-feedback-council.test.mjs             tests/chat-rich-renderer.test.mjs             tests/response-quality.test.mjs
+
+      - name: Prove Council recovery dependencies and rich rendering in production
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          EXPECTED_SHA: ${{ needs.resolve.outputs.expected_sha }}
+        run: |
+          set -euo pipefail
+          BASE_URL="https://meliturgos.adrien-lopezcarreras.workers.dev"
+          TOKEN="$(openssl rand -hex 32)"
+          SESSION="council-rich-ui-${EXPECTED_SHA:0:12}"
+          export TOKEN SESSION EXPECTED_SHA
+          echo "::add-mask::${TOKEN}"
+
+          cleanup() {
+            set +e
+            printf 'y\n' | npx wrangler secret delete MEL_LAUNCH_BOOTSTRAP_TOKEN --env="" >/tmp/council-rich-ui-secret-delete.log 2>&1 || true
+          }
+          trap cleanup EXIT
+          printf '%s' "${TOKEN}" | npx wrangler secret put MEL_LAUNCH_BOOTSTRAP_TOKEN --env=""
+
+          READY=0
+          for ATTEMPT in $(seq 1 12); do
+            CODE="$(curl --silent --show-error --max-time 45               --header "x-mel-release-smoke: 1"               --header "x-mel-launch-bootstrap: ${TOKEN}"               --output self-check.json               --write-out '%{http_code}'               "${BASE_URL}/api/gen2/code/self-check" || true)"
+            if [ "${CODE}" = "200" ]; then READY=1; break; fi
+            sleep 2
+          done
+          test "${READY}" = "1"
+
+          node - <<'NODE'
+          const d=require('./self-check.json');
+          const expected=String(process.env.EXPECTED_SHA||'').toLowerCase();
+          if(d?.ok!==true || d?.capability!=='code.read') throw new Error('EXACT_SHA_SELF_CHECK_NOT_OK');
+          if(String(d?.sha||'').toLowerCase()!==expected) throw new Error('EXACT_SHA_SELF_CHECK_MISMATCH');
+          NODE
+
+          COUNCIL_CODE="$(curl --silent --show-error --max-time 120             --header "x-mel-release-smoke: 1"             --header "x-mel-launch-bootstrap: ${TOKEN}"             --header "content-type: application/json"             --data '{"id":"model.council","input":{"request":{"kind":"OWNER_NEGATIVE_FEEDBACK_RECOVERY","original_request":"Vérifie l intégrité du code MEL.","failed_response":"Je n ai pas exécuté la vérification.","owner_feedback":"tu n y arrives pas","instruction":"Analyse l échec et propose une correction concrète sans contourner les garde-fous."},"capability":"GENERAL","maxCandidates":2,"timeoutMs":30000}}'             --output council-live.json             --write-out '%{http_code}'             "${BASE_URL}/api/gen2/capabilities/execute" || true)"
+          test "${COUNCIL_CODE}" = "200"
+
+          node - <<'NODE'
+          const d=require('./council-live.json');
+          const r=d?.result||{};
+          if(d?.ok!==true || d?.capability!=='model.council') throw new Error('COUNCIL_LIVE_NOT_OK');
+          if(r?.status!=='COMPLETE') throw new Error('COUNCIL_LIVE_NOT_COMPLETE');
+          if(Number(r?.independent_response_count||0)<2) throw new Error('COUNCIL_LIVE_INDEPENDENCE_MISSING');
+          if(r?.synthesis?.status!=='COMPLETE') throw new Error('COUNCIL_LIVE_SYNTHESIS_MISSING');
+          NODE
+
+          BODY="$(node - <<'NODE'
+          const session=process.env.SESSION;
+          const token=process.env.TOKEN;
+          const origin='https://meliturgos.adrien-lopezcarreras.workers.dev';
+          const approvals=[
+            {approved:true,session_id:session,step_id:'set-auth',action:'browser.set-headers'},
+            {approved:true,session_id:session,step_id:'type-normal',action:'browser.type'},
+            {approved:true,session_id:session,step_id:'type-full',action:'browser.type'},
+          ];
+          const steps=[
+            {id:'set-auth',action:'browser.set-headers',headers:{'x-mel-release-smoke':'1','x-mel-launch-bootstrap':token}},
+            {id:'navigate-normal',action:'browser.navigate',url:origin+'/'},
+            {id:'type-normal',action:'browser.type',selector:'#promptInput',text:'Lis src/router.js'},
+            {id:'send-normal',action:'browser.click',selector:'#send'},
+            {id:'wait-normal',action:'browser.wait-text',selector:'#messages',text:'RELEASE_CODE_SMOKE_OK'},
+            {id:'read-normal-rich',action:'browser.read-text',selector:'#messages .msg.mel > div[data-rich-rendered="true"]'},
+            {id:'navigate-full',action:'browser.navigate',url:origin+'/professor'},
+            {id:'open-full-chat',action:'browser.click',selector:'.nav button[data-view="chat"]'},
+            {id:'type-full',action:'browser.type',selector:'#chatInput',text:'Lis src/router.js'},
+            {id:'send-full',action:'browser.click',selector:'#chatSend'},
+            {id:'wait-full',action:'browser.wait-text',selector:'#chatlog',text:'RELEASE_CODE_SMOKE_OK'},
+            {id:'read-full-rich',action:'browser.read-text',selector:'#chatlog .msg.mel[data-rich-rendered="true"]:last-child'},
+          ];
+          process.stdout.write(JSON.stringify({id:'browser.execute',input:{
+            session_id:session,
+            device:{id:'cloudflare-browser',capabilities:['browser.control']},
+            sandbox:{allowed_origins:[origin],max_steps:steps.length},
+            approvals,
+            steps,
+          }}));
+          NODE
+          )"
+
+          BROWSER_CODE="$(curl --silent --show-error --max-time 150             --header "x-mel-release-smoke: 1"             --header "x-mel-launch-bootstrap: ${TOKEN}"             --header "content-type: application/json"             --data "${BODY}"             --output rich-ui-browser.json             --write-out '%{http_code}'             "${BASE_URL}/api/gen2/capabilities/execute" || true)"
+          test "${BROWSER_CODE}" = "200"
+
+          node - <<'NODE'
+          const fs=require('fs');
+          const browser=require('./rich-ui-browser.json');
+          const council=require('./council-live.json');
+          const self=require('./self-check.json');
+          const r=browser?.result||{};
+          if(browser?.ok!==true || browser?.capability!=='browser.execute') throw new Error('RICH_UI_BROWSER_NOT_OK');
+          if(r?.ok!==true || Number(r?.steps_completed||0)!==12) throw new Error('RICH_UI_BROWSER_INCOMPLETE');
+          const output=id=>(r.outputs||[]).find(x=>x?.step_id===id)?.output||{};
+          const normal=output('read-normal-rich');
+          const full=output('read-full-rich');
+          if(normal?.kind!=='text' || !String(normal?.text||'').includes('RELEASE_CODE_SMOKE_OK')) throw new Error('NORMAL_RICH_RENDER_NOT_PROVED');
+          if(full?.kind!=='text' || !String(full?.text||'').includes('RELEASE_CODE_SMOKE_OK')) throw new Error('FULL_RICH_RENDER_NOT_PROVED');
+          const cr=council?.result||{};
+          const proof={
+            schema:'mel.council-rich-ui-production-proof/v1',
+            source_sha:process.env.EXPECTED_SHA,
+            exact_sha_runtime:self?.sha===process.env.EXPECTED_SHA,
+            council_recovery_contract_tests:true,
+            council_live:{
+              status:cr?.status||null,
+              independent_response_count:Number(cr?.independent_response_count||0),
+              unique_model_count:Number(cr?.unique_model_count||0),
+              synthesis_status:cr?.synthesis?.status||null,
+            },
+            rich_ui:{
+              normal:{rendered:true,marker:'RELEASE_CODE_SMOKE_OK'},
+              full:{rendered:true,marker:'RELEASE_CODE_SMOKE_OK'},
+            },
+            secret_values_exposed:false,
+          };
+          fs.writeFileSync('council-rich-ui-production-proof.json',JSON.stringify(proof,null,2));
+          console.log(JSON.stringify(proof,null,2));
+          NODE
+
+          cleanup
+          trap - EXIT
+
+      - name: Upload sanitized Council + rich UI proof
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: council-rich-ui-production-proof-${{ needs.resolve.outputs.expected_sha }}
+          path: council-rich-ui-production-proof.json
+          if-no-files-found: warn
+          retention-days: 30
