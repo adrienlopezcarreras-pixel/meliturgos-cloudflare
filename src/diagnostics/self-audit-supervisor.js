@@ -459,6 +459,7 @@ export async function runMelSelfAuditSupervisor(env = {}, {
   maxLevel = 'MONTHLY',
   forceLevel = null,
   stateStore = null,
+  repairEnabled = true,
   deps = {},
 } = {}) {
   if (!env?.DB && !stateStore) return { ok: true, skipped: true, status: 'SELF_AUDIT_DB_UNAVAILABLE' };
@@ -575,7 +576,7 @@ export async function runMelSelfAuditSupervisor(env = {}, {
   let council = null;
   let repair = null;
   let repairFingerprints = Array.isArray(state.repair_fingerprints) ? [...state.repair_fingerprints] : [];
-  if (repairNeeded && fingerprint && !repairFingerprints.includes(fingerprint)) {
+  if (repairEnabled !== false && repairNeeded && fingerprint && !repairFingerprints.includes(fingerprint)) {
     council = await runCouncilRepairAnalysis(bus, context, {
       stress_job_id: previousStress?.job_id || previousStress?.id || null,
       capability_failures: previousStressFailures,
@@ -665,6 +666,7 @@ export async function runMelSelfAuditSupervisor(env = {}, {
       monthly_non_destructive_survival_drill: true,
       destructive_production_restore: false,
       repair_requires_max_autonomy: true,
+      repair_enabled: repairEnabled !== false,
       council_before_repair: true,
       zero_added_cost: true,
       owner_shutdown_always_wins: true,
