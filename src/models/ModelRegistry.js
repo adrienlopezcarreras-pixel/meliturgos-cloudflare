@@ -47,7 +47,8 @@ export class ModelRegistry {
 // Configured IDs only. Availability deliberately remains UNKNOWN until a real successful call.
 export const standardRegistry = new ModelRegistry([
   { id: '@cf/zai-org/glm-4.7-flash', capabilities: ['GENERAL', 'FAST', 'STEERABLE', 'CODE', 'FALLBACK'], priority: 30, cost: 0 },
+  { id: '@cf/moonshotai/kimi-k2.7-code', capabilities: ['GENERAL', 'REASONING', 'STEERABLE', 'CODE', 'FALLBACK'], priority: 25, cost: 0 },
   { id: '@cf/meta/llama-3.3-70b-instruct-fp8-fast', capabilities: ['GENERAL', 'REASONING', 'CODE', 'FALLBACK'], priority: 20, cost: 0 },
-  { id: '@cf/google/gemma-3-12b-it', capabilities: ['GENERAL', 'CODE', 'FALLBACK'], priority: 10, cost: 0 },
+  { id: '@cf/google/gemma-3-12b-it', capabilities: ['GENERAL', 'CODE', 'FALLBACK'], priority: 10, cost: 0, enabled: false, health: 'UNAVAILABLE' },
   { id: 'ninjachat-default', provider: 'ninjachat', model_id: 'ninjachat-default', capabilities: ['GENERAL', 'REASONING', 'STEERABLE', 'FALLBACK'], priority: -100, cost: null, health: 'UNKNOWN', enabled: true, role_general: true, role_reasoning: true, role_steerable: true, fallback_final: true },
 ]);

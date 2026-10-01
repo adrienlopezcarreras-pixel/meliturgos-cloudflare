@@ -164,9 +164,10 @@ test('augmentio fans out, tolerates failure, ranks, caches, and skips paid, unkn
 });
 
 
-test('GLM 4.7 Flash is available as the highest-priority CODE model', () => {
+test('Council CODE registry keeps GLM first with accessible Kimi and Llama fallbacks', () => {
   const codeModels = standardRegistry.modelsByCapability('CODE');
   assert.equal(codeModels[0]?.id, '@cf/zai-org/glm-4.7-flash');
+  assert.ok(codeModels.some((model) => model.id === '@cf/moonshotai/kimi-k2.7-code'));
   assert.ok(codeModels.some((model) => model.id === '@cf/meta/llama-3.3-70b-instruct-fp8-fast'));
-  assert.ok(codeModels.some((model) => model.id === '@cf/google/gemma-3-12b-it'));
+  assert.equal(codeModels.some((model) => model.id === '@cf/google/gemma-3-12b-it'), false);
 });

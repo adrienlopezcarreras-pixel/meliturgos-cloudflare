@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { ProviderPool } from '../../src/augmentio/provider-pool.js';
 import { ZERO_EURO_POLICY } from '../../src/augmentio/zero-euro-governor.js';
 import { runModelCouncil } from '../../src/models/model-council.js';
+import { standardRegistry } from '../../src/models/ModelRegistry.js';
 import { createDefaultCapabilityBus } from '../../src/capabilities/default-bus.js';
 import router from '../../src/router.js';
 
@@ -503,4 +504,15 @@ test('transient provider critique failure is retried once without reducing Counc
   assert.equal(new Set(result.critiques.map(row=>row.identity)).size,2);
   assert.equal(flakyAttempts,2);
   assert.equal(result.provider_failure_count,0);
+});
+
+
+test('production Council registry prefers accessible Kimi fallback and excludes unavailable Gemma', () => {
+  const models = standardRegistry.list();
+  const kimi = models.find(row => row.id === '@cf/moonshotai/kimi-k2.7-code');
+  const gemma = models.find(row => row.id === '@cf/google/gemma-3-12b-it');
+  assert.equal(kimi?.enabled, true);
+  assert.ok((kimi?.capabilities || []).includes('GENERAL'));
+  assert.equal(gemma?.enabled, false);
+  assert.equal(gemma?.health, 'UNAVAILABLE');
 });
