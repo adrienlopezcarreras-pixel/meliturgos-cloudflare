@@ -421,6 +421,7 @@ const PIPEDREAM_ALLOWED_APPS = Object.freeze(new Set([
   'lemlist',
   'google_drive',
   'google_calendar',
+  'google_tasks',
   'dropbox',
 ]));
 
