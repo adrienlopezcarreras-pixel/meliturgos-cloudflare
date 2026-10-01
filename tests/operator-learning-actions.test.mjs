@@ -72,7 +72,7 @@ test('operator benchmark executes model cases and persists measured evidence', a
 test('operator benchmark honors only a configured model that is explicitly zero-cost', async () => {
   const models = [];
   const engine = { async recordBenchmark(value) { return value; } };
-  const configuredModel = '@cf/google/gemma-3-12b-it';
+  const configuredModel = '@cf/moonshotai/kimi-k2.7-code';
   const result = await runOperatorBenchmark(
     {
       AI: { async run(model) { models.push(model); return { response: 'ok' }; } },
