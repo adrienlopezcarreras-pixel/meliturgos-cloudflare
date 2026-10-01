@@ -8,10 +8,10 @@ on:
     paths:
       - src/api/connection-settings-api.js
       - src/connectors/mail-oauth-runtime.js
-      - src/connectors/generic-imap-smtp.js
       - src/connectors/yahoo-mail.js
       - tests/gen2/mail-provider-oauth-runtime.test.mjs
       - tests/gen2/connection-settings-api.test.mjs
+      - tests/gen2/retired-mail-provider.test.mjs
       - .github/workflows/mel-conn-03-mail-provider-proof.yml
 
 permissions:
@@ -28,11 +28,12 @@ jobs:
           cache: npm
       - name: Install exact lockfile
         run: npm ci
-      - name: Run Yahoo and Roundcube connection contract tests
+      - name: Run Yahoo/Ymail and retired-provider contracts
         run: |
           node --test \
             tests/gen2/mail-provider-oauth-runtime.test.mjs \
-            tests/gen2/connection-settings-api.test.mjs
+            tests/gen2/connection-settings-api.test.mjs \
+            tests/gen2/retired-mail-provider.test.mjs
 
   production-proof:
     if: github.event_name == 'workflow_dispatch'
@@ -56,7 +57,7 @@ jobs:
           set -euo pipefail
           npx wrangler secret list --format json > worker-secrets.raw.json
 
-      - name: Read sanitized Yahoo and Roundcube vault metadata
+      - name: Read sanitized Yahoo vault metadata
         shell: bash
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -68,13 +69,13 @@ jobs:
             > oauth-table.raw.json
           if grep -q 'mel_oauth_tokens' oauth-table.raw.json; then
             npx wrangler d1 execute DB --remote --json \
-              --command "SELECT connector_id,COUNT(*) AS token_rows,MAX(updated_at) AS updated_at FROM mel_oauth_tokens WHERE connector_id IN ('oauth-app-yahoo','yahoo-mail','generic-imap-smtp') GROUP BY connector_id ORDER BY connector_id" \
+              --command "SELECT connector_id,COUNT(*) AS token_rows,MAX(updated_at) AS updated_at FROM mel_oauth_tokens WHERE connector_id IN ('oauth-app-yahoo','yahoo-mail','yahoo-imap-smtp') GROUP BY connector_id ORDER BY connector_id" \
               > mail-provider-token-metadata.raw.json
           else
             printf '[]\n' > mail-provider-token-metadata.raw.json
           fi
 
-      - name: Build sanitized MEL-CONN-03 proof
+      - name: Build sanitized MEL-CONN-03 Yahoo/Ymail proof
         shell: bash
         run: |
           set -euo pipefail
@@ -123,77 +124,49 @@ jobs:
               if row.get('connector_id')
           }
 
-          secret_presence = {
-              name: name in secret_names
-              for name in (
-                  'YAHOO_OAUTH_CLIENT_ID',
-                  'YAHOO_OAUTH_CLIENT_SECRET',
-                  'MEL_OAUTH_ENCRYPTION_KEY_ID',
-                  'MEL_OAUTH_ENCRYPTION_KEY_B64',
-              )
-          }
-
           vault_table_present = any(str(row.get('name') or '') == 'mel_oauth_tokens' for row in table_rows)
           vault_crypto_ready = (
-              secret_presence['MEL_OAUTH_ENCRYPTION_KEY_ID']
-              and secret_presence['MEL_OAUTH_ENCRYPTION_KEY_B64']
+              'MEL_OAUTH_ENCRYPTION_KEY_ID' in secret_names
+              and 'MEL_OAUTH_ENCRYPTION_KEY_B64' in secret_names
           )
           yahoo_app_env_ready = (
-              secret_presence['YAHOO_OAUTH_CLIENT_ID']
-              and secret_presence['YAHOO_OAUTH_CLIENT_SECRET']
+              'YAHOO_OAUTH_CLIENT_ID' in secret_names
+              and 'YAHOO_OAUTH_CLIENT_SECRET' in secret_names
           )
           yahoo_app_vault_present = rows.get('oauth-app-yahoo', {}).get('present', False)
           yahoo_app_ready = yahoo_app_env_ready or yahoo_app_vault_present
-          yahoo_token_present = rows.get('yahoo-mail', {}).get('present', False)
-          roundcube_config_present = rows.get('generic-imap-smtp', {}).get('present', False)
+          yahoo_oauth_token_present = rows.get('yahoo-mail', {}).get('present', False)
+          yahoo_imap_token_present = rows.get('yahoo-imap-smtp', {}).get('present', False)
 
           if not vault_crypto_ready:
               yahoo_status = 'BLOCKED_CONFIGURATION_OAUTH_VAULT_KEY_MISSING'
-              roundcube_status = 'BLOCKED_CONFIGURATION_OAUTH_VAULT_KEY_MISSING'
           elif not vault_table_present:
               yahoo_status = 'BLOCKED_CONFIGURATION_OAUTH_VAULT_TABLE_MISSING'
-              roundcube_status = 'BLOCKED_CONFIGURATION_OAUTH_VAULT_TABLE_MISSING'
+          elif yahoo_oauth_token_present or yahoo_imap_token_present:
+              yahoo_status = 'READY_FOR_LIVE_YAHOO_PROBE'
+          elif yahoo_app_ready:
+              yahoo_status = 'BLOCKED_HUMAN_YAHOO_CONSENT_INCOMPLETE'
           else:
-              if not yahoo_app_ready:
-                  yahoo_status = 'BLOCKED_HUMAN_YAHOO_APP_CREDENTIALS_MISSING'
-              elif not yahoo_token_present:
-                  yahoo_status = 'BLOCKED_HUMAN_YAHOO_CONSENT_INCOMPLETE'
-              else:
-                  yahoo_status = 'READY_FOR_LIVE_YAHOO_API_PROBE'
-
-              if not roundcube_config_present:
-                  roundcube_status = 'BLOCKED_HUMAN_ROUNDCUBE_CONFIGURATION_MISSING'
-              else:
-                  roundcube_status = 'READY_FOR_LIVE_ROUNDCUBE_IMAP_SMTP_PROBE'
-
-          ready = (
-              yahoo_status == 'READY_FOR_LIVE_YAHOO_API_PROBE'
-              and roundcube_status == 'READY_FOR_LIVE_ROUNDCUBE_IMAP_SMTP_PROBE'
-          )
-          overall_status = 'READY_FOR_LIVE_PROVIDER_PROBES' if ready else 'BLOCKED_HUMAN_OR_CONFIGURATION'
+              yahoo_status = 'BLOCKED_HUMAN_YAHOO_CONFIGURATION_MISSING'
 
           proof = {
-              'schema': 'mel.mel-conn-03-mail-provider-proof/v1',
+              'schema': 'mel.mel-conn-03-mail-provider-proof/v2',
               'generated_at': datetime.now(timezone.utc).isoformat(),
               'source_sha': os.environ.get('GITHUB_SHA'),
-              'status': overall_status,
+              'status': yahoo_status,
               'vault_crypto_ready': vault_crypto_ready,
               'vault_table_present': vault_table_present,
               'yahoo': {
                   'status': yahoo_status,
                   'app_env_ready': yahoo_app_env_ready,
                   'app_vault_present': yahoo_app_vault_present,
-                  'app_ready': yahoo_app_ready,
-                  'oauth_token_present': yahoo_token_present,
-              },
-              'roundcube': {
-                  'status': roundcube_status,
-                  'config_present': roundcube_config_present,
+                  'oauth_token_present': yahoo_oauth_token_present,
+                  'imap_token_present': yahoo_imap_token_present,
               },
               'metadata': {
                   'oauth_app_yahoo': rows.get('oauth-app-yahoo', {'present': False, 'updated_at': None}),
                   'yahoo_mail': rows.get('yahoo-mail', {'present': False, 'updated_at': None}),
-                  'generic_imap_smtp': rows.get('generic-imap-smtp', {'present': False, 'updated_at': None}),
+                  'yahoo_imap_smtp': rows.get('yahoo-imap-smtp', {'present': False, 'updated_at': None}),
               },
               'rules': {
                   'secret_values_exposed': False,
@@ -214,10 +187,8 @@ jobs:
           summary = os.environ.get('GITHUB_STEP_SUMMARY')
           if summary:
               with open(summary, 'a', encoding='utf-8') as h:
-                  h.write('### MEL-CONN-03 Yahoo / Roundcube proof\n\n')
-                  h.write(f'- Overall: **{overall_status}**\n')
-                  h.write(f'- Yahoo: **{yahoo_status}**\n')
-                  h.write(f'- Roundcube: **{roundcube_status}**\n')
+                  h.write('### MEL-CONN-03 Yahoo/Ymail proof\n\n')
+                  h.write(f'- Yahoo/Ymail: **{yahoo_status}**\n')
                   h.write(f'- OAuth vault crypto ready: {vault_crypto_ready}\n')
                   h.write(f'- OAuth vault table present: {vault_table_present}\n')
           PY
