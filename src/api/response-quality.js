@@ -13,8 +13,18 @@ export function inferResponseMode(userText) {
   return 'standard';
 }
 
+export function inferPresentationMode(userText) {
+  const text=cleanText(userText);
+  const responseMode=inferResponseMode(text);
+  if(responseMode==='compact_status'||responseMode==='direct_answer') return 'compact';
+  const structured=/\b(?:audit|rapport|roadmap|feuille\s+de\s+route|état\s+des\s+lieux|etat\s+des\s+lieux|compare|comparaison|tableau|liste|étapes?|etapes?|plan|synthèse|synthese|détaill[ée]|detaille|complet|structure|organise)\b/i.test(text)
+    || text.length>=420;
+  return structured?'structured':'natural';
+}
+
 export function buildResponseQualityInstruction(userText) {
   const mode=inferResponseMode(userText);
+  const presentationMode=inferPresentationMode(userText);
   const modeRule=mode==='compact_status'
     ? 'MODE COMPACT_STATUS : réponds par le statut/conclusion dans la première phrase, puis 1 à 3 phrases utiles. Ne récite pas tout l’historique ni tous les sous-systèmes.'
     : mode==='direct_answer'
@@ -22,10 +32,17 @@ export function buildResponseQualityInstruction(userText) {
       : mode==='explanatory'
         ? 'MODE EXPLICATIF : commence par l’idée centrale, puis explique causes, mécanisme et conséquence sans digression inutile.'
         : 'MODE STANDARD : réponse naturelle, directe et proportionnée à la demande.';
+  const presentationRule=presentationMode==='compact'
+    ? 'PRÉSENTATION COMPACTE : réponse courte en prose naturelle; n’ajoute pas de titre, tableau ou section décorative sans nécessité.'
+    : presentationMode==='structured'
+      ? 'PRÉSENTATION STRUCTURÉE : utilise le Markdown lisible quand il aide réellement : titres ## pour séparer les grandes sections, **gras** pour les repères importants, listes pour les éléments parallèles, listes numérotées pour une séquence, tableaux seulement pour une vraie comparaison, > pour une citation utile et blocs de code clôturés pour du code. Garde des paragraphes courts. N’émets jamais de HTML brut.'
+      : 'PRÉSENTATION NATURELLE : privilégie des paragraphes courts; utilise une liste ou du gras seulement si cela améliore nettement la lecture. Ne force ni titre ni tableau. N’émets jamais de HTML brut.';
   return [
     '[MEL_RESPONSE_QUALITY]',
     `mode=${mode}`,
+    `presentation=${presentationMode}`,
     modeRule,
+    presentationRule,
     'La première phrase doit répondre à la demande actuelle, pas commenter la méthode de réponse.',
     'VERROU DE SUJET : reste sur le sujet et le niveau demandés dans le dernier message. Ne saute pas vers un ancien chantier, un autre module, une autre branche ou une autre interprétation simplement parce qu’ils existent dans l’historique.',
     'Si le message est elliptique (ex. « continue », « fais-le », « et maintenant ? »), résous d’abord son référent depuis les échanges récents de la même conversation; n’utilise une mémoire plus ancienne que si le référent récent ne suffit pas.',
