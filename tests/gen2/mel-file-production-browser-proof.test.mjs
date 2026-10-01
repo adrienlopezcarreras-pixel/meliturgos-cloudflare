@@ -17,12 +17,10 @@ test('release workflow proves Normal and Full MEL file staging in a real browser
   assert.match(workflow,/Upload MEL-FILE-01 production proof/);
 });
 
-test('live connection proof follows a successful exact release automatically', async () => {
-  const workflow=await readFile(new URL('../../.github/workflows/live-connections-production-proof.yml',import.meta.url),'utf8');
-  assert.match(workflow,/workflow_run:/);
-  assert.match(workflow,/workflows: \["deploy-cloudflare-release"\]/);
-  assert.match(workflow,/github\.event\.workflow_run\.conclusion == 'success'/);
-  assert.match(workflow,/github\.event\.workflow_run\.head_branch == 'release\/mel-hardware-v0\.1\.0'/);
-  assert.match(workflow,/LIVE_PROOF_SHA:/);
-  assert.match(workflow,/github\.event\.workflow_run\.head_sha/);
+test('canonical post-release suite runs the reusable live connection proof after deploy', async () => {
+  const parent=await readFile(new URL('../../.github/workflows/post-release-proof-suite.yml',import.meta.url),'utf8');
+  assert.match(parent,/workflow_run:/);
+  assert.match(parent,/workflows:\s*\["deploy-cloudflare-release"\]/);
+  assert.match(parent,/connections:\n[\s\S]*uses: \.\/\.github\/workflows\/live-connections-production-proof\.yml/);
+  assert.match(parent,/expected_sha:\s*\$\{\{\s*needs\.resolve\.outputs\.expected_sha\s*\}\}/);
 });
