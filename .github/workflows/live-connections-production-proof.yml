@@ -191,10 +191,21 @@ jobs:
           fi
           if [ "${YAHOO_OK}" != "1" ]; then FAILURES=$((FAILURES+1)); fi
 
-          if ! probe roundcube /api/gen2/connections/roundcube/test '{}'; then FAILURES=$((FAILURES+1)); fi
-          if ! probe vercel /api/gen2/connections/vercel/test '{}'; then FAILURES=$((FAILURES+1)); fi
+          ROUNDCUBE_OK=0
+          if probe roundcube /api/gen2/connections/roundcube/test '{}'; then
+            ROUNDCUBE_OK=1
+          else
+            FAILURES=$((FAILURES+1))
+          fi
 
-          GOOGLE_CALENDAR_OK="${GOOGLE_CALENDAR_OK}" GOOGLE_TASKS_OK="${GOOGLE_TASKS_OK}" FAILURES="${FAILURES}" node - <<'NODE'
+          VERCEL_OK=0
+          if probe vercel /api/gen2/connections/vercel/test '{}'; then
+            VERCEL_OK=1
+          else
+            FAILURES=$((FAILURES+1))
+          fi
+
+          GOOGLE_CALENDAR_OK="${GOOGLE_CALENDAR_OK}" GOOGLE_TASKS_OK="${GOOGLE_TASKS_OK}" YAHOO_OK="${YAHOO_OK}" ROUNDCUBE_OK="${ROUNDCUBE_OK}" VERCEL_OK="${VERCEL_OK}" FAILURES="${FAILURES}" node - <<'NODE'
           const fs=require('fs');
           const proof={
             schema:'mel.live-connections-production-proof/v1',
@@ -207,8 +218,11 @@ jobs:
               tasks:process.env.GOOGLE_TASKS_OK==='1'
             },
             microsoft:{outlook:true,onedrive:true,sharepoint:true},
-            mail:{yahoo_or_ymail:true,roundcube_imap_smtp:Number(process.env.FAILURES||0)===0},
-            vercel:{authenticated_target_probe:true},
+            mail:{
+              yahoo_or_ymail:process.env.YAHOO_OK==='1',
+              roundcube_imap_smtp:process.env.ROUNDCUBE_OK==='1'
+            },
+            vercel:{authenticated_target_probe:process.env.VERCEL_OK==='1'},
             secret_values_exposed:false,
             mutation_scope:'temporary_release_smoke_secret_only'
           };
