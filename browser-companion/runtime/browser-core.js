@@ -7,7 +7,7 @@ export const MAX_READ_TEXT = 64000;
 export const MAX_SCREENSHOT_BYTES = 80000;
 
 const ACTIONS = new Set(Object.values(BROWSER_ACTIONS));
-const ALLOWED_REQUEST_HEADERS = new Set(['authorization','x-mel-release-smoke','x-mel-launch-bootstrap']);
+const ALLOWED_REQUEST_HEADERS = new Set(['authorization','x-mel-release-smoke','x-mel-launch-bootstrap','x-mel-parallel-proof']);
 
 function clean(value, max = 200) {
   return typeof value === 'string' ? value.trim().slice(0, max) : '';
