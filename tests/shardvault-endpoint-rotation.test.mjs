@@ -215,6 +215,9 @@ test('bounded discovery retry is wired to replace a failed active endpoint witho
   assert.match(workflow, /PRODUCTION_SHARDVAULT_ACTIVE_EXTERNAL_LT_7/);
   assert.match(workflow, /PRODUCTION_SHARDVAULT_EXTERNAL_LT_7/);
   assert.doesNotMatch(workflow, /active_external_count\|\|0\)<[0-6]/);
+  assert.match(runtime, /await writeCodeSyncState\(env,id,state\);[\s\S]{0,1400}discoverAutonomousRepositories\(env,/);
+  assert.match(runtime, /selectionCount:1,/);
+  assert.match(runtime, /probeLimit:2,/);
 });
 
 
