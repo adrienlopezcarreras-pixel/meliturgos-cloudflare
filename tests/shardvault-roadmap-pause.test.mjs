@@ -7,11 +7,13 @@ import { __launchBootstrapTest } from '../src/evolution/release-launch-bootstrap
 test('roadmap closeout reactivates ShardVault external replication while autonomous discovery stays bounded', async () => {
   const wrangler = JSON.parse(await readFile(new URL('../wrangler.jsonc', import.meta.url), 'utf8'));
   assert.equal(wrangler.vars.MEL_SHARDVAULT_ENABLED, 'true');
-  assert.equal(wrangler.vars.MEL_SHARDVAULT_AUTONOMOUS, 'false');
+  assert.equal(wrangler.vars.MEL_SHARDVAULT_AUTONOMOUS, 'true');
   assert.equal(wrangler.vars.MEL_SHARDVAULT_ROADMAP_PAUSED, 'false');
+  assert.equal(wrangler.vars.MEL_AUTONOMOUS_PROBE_LIMIT, '20');
   assert.equal(wrangler.env.preview.vars.MEL_SHARDVAULT_ENABLED, 'true');
-  assert.equal(wrangler.env.preview.vars.MEL_SHARDVAULT_AUTONOMOUS, 'false');
+  assert.equal(wrangler.env.preview.vars.MEL_SHARDVAULT_AUTONOMOUS, 'true');
   assert.equal(wrangler.env.preview.vars.MEL_SHARDVAULT_ROADMAP_PAUSED, 'false');
+  assert.equal(wrangler.env.preview.vars.MEL_AUTONOMOUS_PROBE_LIMIT, '20');
 });
 
 test('release workflow preserves external ShardVault 7x proof and only permits an explicit temporary dev-light pause', async () => {
