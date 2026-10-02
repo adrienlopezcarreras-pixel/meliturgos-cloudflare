@@ -751,7 +751,19 @@ async function testVercelConnection(env, contextOwner, signal) {
   let project = projects.find(row => row.id === cfg.project_id)
     || projects.find(row => row.name === cfg.project_name)
     || null;
+  if (!project) {
+    const repositoryProjectName = clean(env.MEL_GITHUB_REPOSITORY, 300).split('/').filter(Boolean).at(-1) || '';
+    if (repositoryProjectName) project = projects.find(row => row.name === repositoryProjectName) || null;
+  }
   if (!project && projects.length === 1) project = projects[0];
+
+  if (project?.id && project?.name && (!cfg.project_id || !cfg.project_name)) {
+    await saveVercelConnectionConfig(env, {
+      team_id: cfg.team_id,
+      project_id: project.id,
+      project_name: project.name,
+    }, contextOwner);
+  }
 
   let deployments = [];
   if (project?.id) {
