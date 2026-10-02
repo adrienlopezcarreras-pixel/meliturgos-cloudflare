@@ -281,3 +281,11 @@ test('active durable code targets can self-qualify through the exact live roundt
   assert.match(runtime,/evidenceVerification:'representative_full_fragment_roundtrip'/);
   assert.match(runtime,/rememberValidatedExternalEndpoints\(env,\[provenEndpoint\]\)/);
 });
+
+
+test('eligible code candidates enter self-qualification even with zero qualified discovery results', () => {
+  assert.match(runtime,/const eligible=\[\.\.\.\(discoveryRefresh\?\.eligible\|\|\[\]\)\]/);
+  assert.match(runtime,/if\(fresh\.length\|\|eligible\.length\)/);
+  assert.match(runtime,/rememberCodeCandidateEndpoints\(env,\[\.\.\.fresh,\.\.\.eligible\]\)/);
+  assert.match(runtime,/candidates=buildCandidates\(\[\.\.\.fresh,\.\.\.eligible\]\)/);
+});
