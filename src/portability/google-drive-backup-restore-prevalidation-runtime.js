@@ -370,6 +370,7 @@ export async function runGoogleDriveBackupRestorePrevalidationRuntime(env={},{
   candidateStore=null,
   registryStore=null,
   loadBackup=loadLatestEncryptedSystemBackup,
+  resolvePipedreamDrive=pipedreamDriveContext,
 }={}){
   const candidates=candidateStore||(env?.DB?new SovereigntyCandidateStore(env.DB):null);
   const registry=registryStore||(env?.DB?new D1AlternativeRegistryStore(env.DB):null);
@@ -395,7 +396,7 @@ export async function runGoogleDriveBackupRestorePrevalidationRuntime(env={},{
       }
       const encryptionReady=clean(env.MEL_BACKUP_ENCRYPTION_KEY_ID)&&clean(env.MEL_BACKUP_ENCRYPTION_KEY_B64);
       const directReady=Boolean(clean(env.GOOGLE_DRIVE_ACCESS_TOKEN)&&encryptionReady);
-      const pd=directReady?null:await pipedreamDriveContext(env,{fetchImpl});
+      const pd=directReady?null:await resolvePipedreamDrive(env,{fetchImpl});
       const d=descriptor({pipedream:Boolean(pd)});
       const adapter=Object.freeze({id:d.adapter_id,provider:d.provider});
       if(!encryptionReady||(!directReady&&!pd))return{descriptor:d,adapter,env,prevalidated:false,proof:null};
