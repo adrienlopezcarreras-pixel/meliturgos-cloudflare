@@ -251,6 +251,27 @@ const DOCUMENTED_CANDIDATES = Object.freeze([
     evidenceUrls:['https://pastebox.ai/api','https://pastebox.ai/pricing']
   },
   {
+    id:'pst-rs-abhicracker-public',
+    adapter:'pst_rs_b64',
+    urlTemplate:'https://pst.rs.abhicracker.com/?mel_object={objectId}',
+    method:'POST',
+    maxObjectBytes:1048576,
+    operatorDomain:'pst.rs.abhicracker.com',
+    providerId:'pst-rs-abhicracker',
+    jurisdiction:'UNKNOWN',
+    expectedRetentionDays:365,
+    retentionModel:'fixed',
+    authMode:'none',
+    anonymousWriteDeclared:true,
+    publicReadDeclared:true,
+    automationAllowedDeclared:true,
+    freeDeclared:true,
+    writeProbeAllowed:true,
+    evidenceMode:'documented_api',
+    evidenceReviewedAt:'2026-10-02T00:00:00.000Z',
+    evidenceUrls:['https://pst.rs.abhicracker.com/']
+  },
+  {
     id:'paste-c-net-public',
     adapter:'paste_c_net',
     urlTemplate:'https://paste.c-net.org/?mel_object={objectId}',
@@ -1067,6 +1088,21 @@ async function candidateWrite(c,url,payload,objectId,env){
     const raw=await r.text();
     return {readUrl:responseRemoteUrl(raw,r.headers,endpoint)};
   }
+  if(c.adapter==='pst_rs_b64'){
+    const endpoint=fixedApiUrl(url);
+    const r=await fetchTimed(endpoint,{method:'POST',headers:{
+      'content-type':'text/plain; charset=utf-8',
+      'accept':'application/json',
+      'x-paste-ttl':'1y',
+      'x-paste-title':objectId,
+      'user-agent':'MEL-ShardVault/1.0'
+    },body:b64u(payload)},15000);
+    if(!r.ok)throw new Error('WRITE_HTTP_'+r.status);
+    const data=await r.json().catch(()=>null);
+    const id=String(data?.id||'').trim();
+    if(!id)throw new Error('WRITE_REMOTE_ID_MISSING');
+    return {readUrl:publicHttps('https://pst.rs.abhicracker.com/raw/'+encodeURIComponent(id),'PST_RS_READ').toString()};
+  }
   if(c.adapter==='pastehtml_b64'){
     const endpoint=fixedApiUrl(url);
     const body='<pre data-mel-shard="1">'+b64u(payload)+'</pre>';
@@ -1181,7 +1217,7 @@ async function candidateReadBytes(c,url){
     if(!code)throw new Error('READ_CONTENT_MISSING');
     return unb64u(code);
   }
-  if(['pastebin_ai_b64','dpaste_b64','dpaste_org_b64','onec3_b64','msk_paste_b64','pastebox_b64','fileditch_b64'].includes(c.adapter)){
+  if(['pastebin_ai_b64','dpaste_b64','dpaste_org_b64','onec3_b64','msk_paste_b64','pastebox_b64','fileditch_b64','pst_rs_b64'].includes(c.adapter)){
     const r=await fetchTimed(url,{method:'GET',headers:{'accept':'text/plain,application/json','user-agent':'MEL-ShardVault/1.0'}},12000);
     if(!r.ok)throw new Error('READ_HTTP_'+r.status);
     const text=String(await r.text()).trim();
