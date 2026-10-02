@@ -14,11 +14,24 @@ test('live connection proof accepts a healthy Pipedream Google Calendar fallback
   assert.match(source,/if \[ "\$\{GOOGLE_TASKS_OK\}" != "1" \]; then FAILURES=\$\(\(FAILURES\+1\)\); fi/);
 });
 
+test('live connection proof separates bootstrap auth readiness from connector health',async()=>{
+  const source=await readFile(workflowUrl,'utf8');
+  assert.match(source,/connections-self-check\.json/);
+  assert.match(source,/GOOGLE_GMAIL_OK=0/);
+  assert.match(source,/if probe google_gmail/);
+  assert.match(source,/gmail:process\.env\.GOOGLE_GMAIL_OK==='1'/);
+  assert.doesNotMatch(source,/test "\$\{READY\}" = "1"[\s\S]{0,400}probe google_gmail/);
+});
+
 test('live connection proof persists precise partial evidence even when a connector remains unavailable',async()=>{
   const source=await readFile(workflowUrl,'utf8');
   assert.match(source,/complete:Number\(process\.env\.FAILURES\|\|0\)===0/);
   assert.match(source,/failure_count:Number\(process\.env\.FAILURES\|\|0\)/);
+  assert.match(source,/gmail:process\.env\.GOOGLE_GMAIL_OK==='1'/);
   assert.match(source,/calendar:process\.env\.GOOGLE_CALENDAR_OK==='1'/);
+  assert.match(source,/outlook:process\.env\.MICROSOFT_MAIL_OK==='1'/);
+  assert.match(source,/onedrive:process\.env\.MICROSOFT_ONEDRIVE_OK==='1'/);
+  assert.match(source,/sharepoint:process\.env\.MICROSOFT_SHAREPOINT_OK==='1'/);
   assert.match(source,/tasks:process\.env\.GOOGLE_TASKS_OK==='1'/);
   assert.match(source,/yahoo_or_ymail:process\.env\.YAHOO_OK==='1'/);
   assert.match(source,/authenticated_target_probe:process\.env\.VERCEL_OK==='1'/);
