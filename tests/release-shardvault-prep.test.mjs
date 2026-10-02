@@ -96,3 +96,12 @@ test('ShardVault roadmap pause is either closed out or explicitly temporary dev-
   assert.ok(paused.length>=2,'production and preview ShardVault pause vars must both be explicit');
   assert.deepEqual([...new Set(paused)],['false'],'runtime ShardVault remains enabled; only the intermediate release proof may be paused');
 });
+
+
+test('final ShardVault status tolerates bounded secret propagation',async()=>{
+  const source=await readFile(new URL('../.github/workflows/deploy-cloudflare-release.yml',import.meta.url),'utf8');
+  assert.match(source,/SHARD_FINAL_READY=0/);
+  assert.match(source,/for SHARD_FINAL_ATTEMPT in \$\(seq 1 12\)/);
+  assert.match(source,/ShardVault final status propagation attempt/);
+  assert.match(source,/test "\$SHARD_FINAL_READY" = "1"/);
+});
