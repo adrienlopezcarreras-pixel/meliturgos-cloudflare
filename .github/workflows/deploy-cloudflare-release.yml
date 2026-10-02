@@ -507,7 +507,7 @@ jobs:
             models:[
               '@cf/zai-org/glm-4.7-flash',
               '@cf/meta/llama-3.3-70b-instruct-fp8-fast',
-              '@cf/google/gemma-3-12b-it',
+              '@cf/moonshotai/kimi-k2.7-code',
             ],
             verified_at:new Date(now).toISOString(),
             expires_at:new Date(now+30*60*1000).toISOString(),
