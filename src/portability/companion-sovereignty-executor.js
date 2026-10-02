@@ -92,7 +92,7 @@ export function createCompanionSovereigntyExecutor(env,{
     ) VALUES(?,?,?,?,?,?)`)
       .bind(commandId,device.id,sessionId,JSON.stringify(plan),'PENDING',now).run();
 
-    const deadline=Date.now()+Math.max(1000,Math.min(60000,Number(timeoutMs)||12000));
+    const deadline=Date.now()+Math.max(1000,Math.min(120000,Number(timeoutMs)||12000));
     while(Date.now()<deadline){
       const row=await env.DB.prepare(`SELECT status,result_json,error_code
         FROM computer_commands WHERE id=? AND device_id=? LIMIT 1`)
