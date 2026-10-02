@@ -1364,7 +1364,7 @@ function choose(candidates,count,maxPerOperator,maxPerProvider){
   return selected;
 }
 
-export async function discoverAutonomousRepositories(env,{masterKey,vaultId,requiredBytes=0,selectionCount=7,probeLimit:requestedProbeLimit=null,probeOffset=0,internetDiscovery=true}={}){
+export async function discoverAutonomousRepositories(env,{masterKey,vaultId,requiredBytes=0,selectionCount=7,probeLimit:requestedProbeLimit=null,probeOffset=0,internetDiscovery=true,excludeEndpointIds=[]}={}){
   const master=bytes(masterKey);if(master.length<32)throw new Error('AUTONOMOUS_MASTER_KEY_INVALID');
   const loaded=await loadCandidates(env,master,String(vaultId),{internetDiscovery});
   const selectionTarget=Math.max(1,Math.min(7,Math.trunc(Number(selectionCount)||7)));
@@ -1377,8 +1377,12 @@ export async function discoverAutonomousRepositories(env,{masterKey,vaultId,requ
   const maxPerOperator=Math.max(1,Number(env?.MEL_WATCH_MAX_PER_OPERATOR)||2);
   const maxPerProvider=Math.max(1,Number(env?.MEL_WATCH_MAX_PER_PROVIDER)||2);
   const minRetentionDays=Math.max(1,Number(env?.MEL_AUTONOMOUS_MIN_RETENTION_DAYS)||90);
+  const excluded=new Set((Array.isArray(excludeEndpointIds)?excludeEndpointIds:[]).map(x=>String(x||'').trim()).filter(Boolean));
   const eligibleRows=[],rejected=[...loaded.rejected];
-  for(const c of loaded.candidates){const e=eligible(c,{requiredBytes,policyMaxAgeDays,minRetentionDays});if(e.ok)eligibleRows.push(c);else rejected.push({source:c.source,id:c.id,reason:e.reasons.join(',')});}
+  for(const c of loaded.candidates){
+    if(excluded.has(c.id)){rejected.push({source:c.source,id:c.id,reason:'EXCLUDED_ENDPOINT'});continue;}
+    const e=eligible(c,{requiredBytes,policyMaxAgeDays,minRetentionDays});if(e.ok)eligibleRows.push(c);else rejected.push({source:c.source,id:c.id,reason:e.reasons.join(',')});
+  }
   const probed=[];
   for(const c of eligibleRows.slice(boundedProbeOffset,boundedProbeOffset+probeLimit)){try{probed.push(await probe(c,requiredBytes,policyMaxAgeDays,env));}catch(error){rejected.push({source:c.source,id:c.id,reason:String(error?.message||error)});}}
   const representativeProofs=await readRepresentativeProofs(env);
