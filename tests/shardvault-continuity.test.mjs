@@ -121,13 +121,9 @@ const retryCandidate={
   maxBytes:1048576,operatorDomain:'retry.example',providerId:'retry',
   expectedRetentionDays:365
 };
+retryState.endpoint_failures['retry-a'].retry_after_at='2999-01-01T00:00:00.000Z';
 assert.equal(
   __shardvaultTest.roundtripCodeFallbackCandidates({},[retryCandidate],[],retryState,new Set(),65536).length,
-  0
-);
-assert.equal(
-  __shardvaultTest.roundtripCodeFallbackCandidates({},[retryCandidate],[],retryState,new Set(),65536)
-    .length,
   0
 );
 retryState.endpoint_failures['retry-a'].retry_after_at=new Date(0).toISOString();
