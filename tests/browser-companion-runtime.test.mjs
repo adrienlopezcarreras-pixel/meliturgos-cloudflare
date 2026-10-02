@@ -146,14 +146,16 @@ test('page executor applies only normalized request headers and waits for expect
     headers:{
       'x-mel-release-smoke':'1',
       'x-mel-launch-bootstrap':'secret-token',
+      'x-mel-parallel-proof':'parallel-proof-token',
       'x-unsafe':'drop-me',
     },
   },['https://example.com']);
-  assert.deepEqual(headerResult.header_names,['x-mel-release-smoke','x-mel-launch-bootstrap']);
+  assert.deepEqual(headerResult.header_names,['x-mel-release-smoke','x-mel-launch-bootstrap','x-mel-parallel-proof']);
   assert.equal(JSON.stringify(headerResult).includes('secret-token'),false);
   assert.deepEqual(calls[0][1],{
     'x-mel-release-smoke':'1',
     'x-mel-launch-bootstrap':'secret-token',
+    'x-mel-parallel-proof':'parallel-proof-token',
   });
 
   const waitResult=await executeBrowserStep(page,{
