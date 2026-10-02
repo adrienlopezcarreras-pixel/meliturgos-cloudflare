@@ -5,6 +5,7 @@ import { readFile } from 'node:fs/promises';
 const files = [
   '../../src/portability/companion-source-control-prevalidation-runtime.js',
   '../../src/portability/companion-infrastructure-prevalidation-runtime.js',
+  '../../src/portability/companion-local-services-prevalidation-runtime.js',
   '../../src/portability/companion-sovereignty-executor.js',
   '../../src/devices/computer-companion-api.js',
 ];
