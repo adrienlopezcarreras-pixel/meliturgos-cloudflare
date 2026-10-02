@@ -396,6 +396,55 @@ test('Vercel redeploy accepts encrypted runtime resolver when env target is abse
 });
 
 
+test('Vercel redeploy infers the MEL project from the configured repository when target metadata is missing', async () => {
+  const seen = [];
+  const bus = new CapabilityBus();
+  registerPlatformControlCapabilities(bus, {
+    env: {
+      MEL_GITHUB_REPOSITORY: 'owner/meliturgos-cloudflare',
+      VERCEL_TOKEN: 'vercel-secret',
+      VERCEL_TEAM_ID: 'team_123',
+    },
+    resolveVercelConfig: async () => ({
+      token: 'vercel-secret',
+      team_id: 'team_123',
+      project_id: '',
+      project_name: '',
+    }),
+    fetchImpl: async (url, init = {}) => {
+      seen.push({ url: String(url), init });
+      if (String(url).includes('/v9/projects?')) {
+        return json({ projects: [
+          { id: 'prj_other', name: 'other-project' },
+          { id: 'prj_mel', name: 'meliturgos-cloudflare' },
+        ] });
+      }
+      if ((init.method || 'GET') === 'POST') {
+        return json({ uid: 'dpl_new', name: 'meliturgos-cloudflare', readyState: 'QUEUED' });
+      }
+      return json({});
+    },
+  });
+
+  const health = await bus.refreshHealth('vercel.deployments.redeploy');
+  assert.equal(health.health, 'HEALTHY');
+
+  const result = await bus.execute('vercel.deployments.redeploy', {
+    deploymentId: 'dpl_existing',
+    target: 'preview',
+  }, approved('vercel.deployments.redeploy'));
+
+  assert.equal(result.project_id, 'prj_mel');
+  assert.equal(result.project_name, 'meliturgos-cloudflare');
+  const post = seen.find(call => (call.init?.method || 'GET') === 'POST');
+  assert.ok(post);
+  assert.deepEqual(JSON.parse(post.init.body), {
+    name: 'meliturgos-cloudflare',
+    project: 'prj_mel',
+    deploymentId: 'dpl_existing',
+  });
+});
+
 test('platform control healthchecks prove real provider access and keep missing credentials unavailable', async () => {
   const configured = new CapabilityBus();
   registerPlatformControlCapabilities(configured, {
