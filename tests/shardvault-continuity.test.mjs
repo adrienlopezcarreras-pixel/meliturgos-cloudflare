@@ -111,7 +111,7 @@ const firstRetry = __shardvaultTest.recordCodeTargetFailure(
   1000
 );
 assert.equal(firstRetry.retryable, true);
-assert.equal(retryState.failed_endpoint_ids.includes('retry-a'), false);
+assert.equal(retryState.failed_endpoint_ids.includes('retry-a'), true);
 assert.equal(__shardvaultTest.codeTargetAvailableNow(retryState,{id:'retry-a'},1001), false);
 assert.equal(__shardvaultTest.codeTargetAvailableNow(retryState,{id:'retry-a'},7000), true);
 assert.equal(__shardvaultTest.codeTargetRetryDelayMs(1), 5000);
