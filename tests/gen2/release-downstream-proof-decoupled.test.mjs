@@ -36,6 +36,18 @@ test('sovereignty proof binds exact SHA through code self-check instead of requi
   assert.match(statusBlock,/TECHNICAL_SOVEREIGNTY_STATUS/);
 });
 
+test('decoupled sovereignty proof refreshes every bounded prevalidation domain before final status', async () => {
+  const workflow=await readFile(new URL('../../.github/workflows/release-downstream-proof-decoupled.yml',import.meta.url),'utf8');
+  assert.match(workflow,/for TARGET in ai ai_local source_control infrastructure backup_restore/);
+  assert.match(workflow,/release-launch-bootstrap\?refresh=\$\{TARGET\}/);
+  assert.match(workflow,/MEL_SOV_01_REFRESH_STEP_VERIFIED/);
+  assert.match(workflow,/MEL_SOV_01_REFRESH_SAFETY_FAILED/);
+  const refresh=workflow.indexOf('for TARGET in ai ai_local source_control infrastructure backup_restore');
+  const status=workflow.indexOf('output sovereignty.json');
+  const finalProof=workflow.indexOf('output mel-sov-01.json');
+  assert.ok(refresh>0&&status>refresh&&finalProof>status,'sovereignty refreshes must run before status and final proof');
+});
+
 test('release installs exact-SHA immutable proof token and dispatches downstream proof before ShardVault launch evidence', async () => {
   const workflow=await readFile(new URL('../../.github/workflows/deploy-cloudflare-release.yml',import.meta.url),'utf8');
   assert.match(workflow,/MEL_PARALLEL_PROOF_TOKEN:parallelProofToken/);
