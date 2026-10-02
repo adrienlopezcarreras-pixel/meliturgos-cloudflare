@@ -7,6 +7,7 @@ import { createAlternativeRegistry } from '../../src/portability/prevalidated-al
 import {
   GOOGLE_DRIVE_BACKUP_RESTORE_CANDIDATE_ID,
   proveGoogleDriveBackupRestoreAlternative,
+  provePipedreamDriveBackupRestoreAlternative,
   runGoogleDriveBackupRestorePrevalidationRuntime,
 } from '../../src/portability/google-drive-backup-restore-prevalidation-runtime.js';
 
@@ -152,6 +153,101 @@ test('MEL-SOV-01 copies encrypted backup to Drive, verifies readback, restore an
   assert.equal(proof.ciphertext_sha256,proof.readback_sha256);
   assert.match(proof.ciphertext_sha256,/^[0-9a-f]{64}$/);
   assert.ok(drive.calls.some(row=>row.method==='DELETE'));
+});
+
+test('MEL-SOV-01 can prove encrypted backup/restore through the existing Pipedream Google Drive account',async()=>{
+  const snapshot=await snapshotFixture();
+  const env=envFixture();
+  delete env.GOOGLE_DRIVE_ACCESS_TOKEN;
+  const codec=createBackupEncryptionCodec({keyBytes:env.keyBytes,keyId:env.MEL_BACKUP_ENCRYPTION_KEY_ID});
+  const encryptedText=JSON.stringify(await codec.seal(snapshot));
+  const calls=[];
+  const bytes=[...new TextEncoder().encode(encryptedText)];
+  const fetchImpl=async(url,init={})=>{
+    calls.push({url:String(url),body:JSON.parse(String(init.body||'{}'))});
+    const body=JSON.parse(String(init.body||'{}'));
+    if(body.id==='google_drive-create-text-file'){
+      return Response.json({exports:{$return_value:{id:'pd-drive-backup-1',name:'backup.enc.json'}}});
+    }
+    if(body.id==='google_drive-download-file'){
+      return Response.json({exports:{$return_value:{content:{type:'Buffer',data:bytes}}}});
+    }
+    if(body.id==='google_drive-delete-file'){
+      return Response.json({exports:{$return_value:{success:true,fileId:'pd-drive-backup-1'}}});
+    }
+    return Response.json({error:'unexpected'},{status:500});
+  };
+  const context={
+    owner:'adrien',
+    config:{project_id:'proj_demo123',environment:'production'},
+    account_id:'apn_drive',
+    access_token:'server-token',
+  };
+
+  const proof=await provePipedreamDriveBackupRestoreAlternative({
+    env,
+    backup:{snapshot_id:snapshot.id,encrypted_text:encryptedText},
+    fetchImpl,
+    sourceSha:env.MEL_DEPLOYED_GIT_SHA,
+    now:Date.parse('2026-10-01T20:47:30.000Z'),
+    context,
+  });
+
+  assert.equal(proof.ok,true);
+  assert.equal(proof.provider,'google-drive-via-pipedream');
+  assert.equal(proof.readback_verified,true);
+  assert.equal(proof.restore_verified,true);
+  assert.equal(proof.rollback_verified,true);
+  assert.equal(proof.ciphertext_sha256,proof.readback_sha256);
+  assert.deepEqual(calls.map(row=>row.body.id),[
+    'google_drive-create-text-file',
+    'google_drive-download-file',
+    'google_drive-delete-file',
+  ]);
+  assert.deepEqual(calls[0].body.configured_props.google_drive,{authProvisionId:'apn_drive'});
+  assert.equal(calls[1].body.configured_props.getBufferResponse,true);
+  assert.equal(calls[1].body.configured_props.mimeType,'text/plain');
+});
+
+test('MEL-SOV-01 runtime uses Pipedream Drive when direct token is absent but linked Drive is healthy',async()=>{
+  const snapshot=await snapshotFixture();
+  const env=envFixture();
+  delete env.GOOGLE_DRIVE_ACCESS_TOKEN;
+  const codec=createBackupEncryptionCodec({keyBytes:env.keyBytes,keyId:env.MEL_BACKUP_ENCRYPTION_KEY_ID});
+  const encryptedText=JSON.stringify(await codec.seal(snapshot));
+  const bytes=[...new TextEncoder().encode(encryptedText)];
+  const s=stores();
+  const fetchImpl=async(_url,init={})=>{
+    const body=JSON.parse(String(init.body||'{}'));
+    if(body.id==='google_drive-create-text-file')return Response.json({exports:{$return_value:{id:'pd-drive-runtime-1'}}});
+    if(body.id==='google_drive-download-file')return Response.json({exports:{$return_value:{content:{type:'Buffer',data:bytes}}}});
+    if(body.id==='google_drive-delete-file')return Response.json({exports:{$return_value:{success:true,fileId:'pd-drive-runtime-1'}}});
+    return Response.json({error:'unexpected'},{status:500});
+  };
+
+  const result=await runGoogleDriveBackupRestorePrevalidationRuntime(env,{
+    now:Date.parse('2026-10-01T20:48:30.000Z'),
+    force:true,
+    sourceSha:env.MEL_DEPLOYED_GIT_SHA,
+    fetchImpl,
+    candidateStore:s.candidateStore,
+    registryStore:s.registryStore,
+    loadBackup:async()=>({snapshot_id:snapshot.id,encrypted_text:encryptedText}),
+    resolvePipedreamDrive:async()=>({
+      owner:'adrien',
+      config:{project_id:'proj_demo123',environment:'production'},
+      account_id:'apn_drive',
+      access_token:'server-token',
+    }),
+  });
+
+  assert.equal(result.prevalidated,1);
+  assert.equal(result.blocked,0);
+  assert.equal(result.proof.provider,'google-drive-via-pipedream');
+  const row=s.registryStore.registry.layers.backup_restore.find(item=>item.id===GOOGLE_DRIVE_BACKUP_RESTORE_CANDIDATE_ID);
+  assert.ok(row);
+  assert.equal(row.prevalidated,true);
+  assert.equal(row.provider,'google-drive-via-pipedream');
 });
 
 test('MEL-SOV-01 runtime persists fresh backup_restore alternative through canonical validator',async()=>{
