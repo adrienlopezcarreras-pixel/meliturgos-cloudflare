@@ -13,6 +13,16 @@ test('self-audit production proof runs only after a successful production releas
   assert.match(workflow, /deployed_sha/);
 });
 
+test('self-audit proof can be rerun for one exact deployed SHA and retries bootstrap propagation', () => {
+  assert.match(workflow, /workflow_dispatch:/);
+  assert.match(workflow, /expected_sha:/);
+  assert.match(workflow, /github\.event_name == 'workflow_dispatch'/);
+  assert.match(workflow, /Self-audit run propagation attempt/);
+  assert.match(workflow, /Self-audit status propagation attempt/);
+  assert.match(workflow, /RUN_READY/);
+  assert.match(workflow, /STATUS_READY/);
+});
+
 test('release smoke exposes self-audit proof surface but caps it to HEARTBEAT', () => {
   assert.match(router, /"self\.audit\.status"/);
   assert.match(router, /"self\.audit\.run"/);
