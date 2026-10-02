@@ -35,3 +35,12 @@ test('temporary production bootstrap secret is always cleaned up', () => {
   assert.match(workflow, /wrangler secret delete MEL_LAUNCH_BOOTSTRAP_TOKEN/);
   assert.match(workflow, /secret_values_exposed:false/);
 });
+
+
+test('production proof tolerates only bounded transient bootstrap auth propagation', () => {
+  assert.match(workflow, /for ATTEMPT in \$\(seq 1 12\)/);
+  assert.match(workflow, /COUNCIL_ERROR_CODE/);
+  assert.match(workflow, /BROWSER_ERROR_CODE/);
+  assert.match(workflow, /AUTH_REQUIRED/);
+  assert.match(workflow, /sleep 2/);
+});
