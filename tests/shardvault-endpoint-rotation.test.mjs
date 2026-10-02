@@ -100,6 +100,24 @@ test('ShardVault backs off an HTTP 429 target, then allows it to re-enter the po
   assert.equal(__shardvaultTest.codeTargetAvailableNow(state,target,Date.parse(failure.retry_after_at)+1), true);
 });
 
+test('ShardVault retries transient Cloudflare 520-526 provider errors instead of permanently quarantining them', () => {
+  for(const status of [520,521,522,523,524,525,526]){
+    const state={ endpoint_failures:{}, failed_endpoint_ids:[] };
+    const target=endpoint('edge-transient-'+status);
+    const failedAt=Date.parse('2026-10-02T15:00:00Z');
+    const failure=__shardvaultTest.recordCodeTargetFailure(
+      state,
+      target,
+      new Error('WRITE_'+target.id+'_'+status),
+      failedAt,
+    );
+    assert.equal(failure.retryable,true,'HTTP '+status+' should retry');
+    assert.equal(failure.permanent,false,'HTTP '+status+' must not be permanent');
+    assert.deepEqual(state.failed_endpoint_ids,[]);
+    assert.ok(Date.parse(failure.retry_after_at)>failedAt);
+  }
+});
+
 test('ShardVault refreshes discovery once every ready code target has already been attempted', () => {
   const candidates=[endpoint('msk-paste-public'),endpoint('telegraph-public')];
   assert.equal(
