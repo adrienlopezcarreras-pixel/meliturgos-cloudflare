@@ -45,7 +45,9 @@ test('canonical production release requires human approval and exact immutable i
   assert.match(source, /test "\$PAUSE_READY" = "1"/);
   assert.match(source, /for BACKUP_ATTEMPT in \$\(seq 1 3\); do/);
   assert.match(source, /--data '\{"phase":"backup"\}'/);
-  assert.match(source, /timeout-minutes: 45/);
+  const timeout=/timeout-minutes:\s*(\d+)/.exec(source);
+  assert.ok(timeout,'canonical release timeout must be explicit');
+  assert.ok(Number(timeout[1])>=75,'canonical release timeout must cover bounded ShardVault retry windows');
   assert.match(source, /CODE_SYNC_MAX_ATTEMPTS=32/);
   assert.match(source, /CODE_SYNC_MAX_STALL=12/);
   assert.match(source, /for CODE_SYNC_ATTEMPT in \$\(seq 1 "\$CODE_SYNC_MAX_ATTEMPTS"\); do/);
