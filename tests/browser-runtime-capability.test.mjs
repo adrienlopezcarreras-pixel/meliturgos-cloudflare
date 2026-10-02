@@ -227,7 +227,7 @@ test('browser.execute contract accepts approved release headers and bounded in-m
       {
         id:'headers',
         action:BROWSER_ACTIONS.SET_HEADERS,
-        headers:{ 'x-mel-release-smoke':'1', 'x-mel-launch-bootstrap':'token-value' },
+        headers:{ 'x-mel-release-smoke':'1', 'x-mel-launch-bootstrap':'token-value', 'x-mel-parallel-proof':'immutable-proof-token' },
       },
       { id:'nav', action:BROWSER_ACTIONS.NAVIGATE, url:'https://example.com/' },
       {
@@ -250,6 +250,7 @@ test('browser.execute contract accepts approved release headers and bounded in-m
   assert.equal(result.steps_completed,3);
   const posts=binding.calls.filter(row=>row.path==='/v1/browser/perform').map(row=>row.payload.step);
   assert.equal(posts[0].headers['x-mel-release-smoke'],'1');
+  assert.equal(posts[0].headers['x-mel-parallel-proof'],'immutable-proof-token');
   assert.equal(posts[2].file_name,'proof.txt');
   assert.equal(posts[2].mime_type,'text/plain');
   assert.equal(posts[2].file_text,'MEL_FILE_PROOF');
