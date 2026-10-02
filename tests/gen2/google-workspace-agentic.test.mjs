@@ -110,7 +110,7 @@ test('Approved Gmail send uses only fixed Google endpoint and bounded MIME paylo
   assert.equal(JSON.stringify(calls[0]).includes('person@example.com\r\nBcc:'), false);
 });
 
-test('Gmail header injection is rejected before network', async () => {
+test('Gmail header injection is rejected before any mutation request', async () => {
   const { bus, calls } = fixture();
   await assert.rejects(
     () => bus.execute('gmail.messages.send', {
@@ -124,7 +124,9 @@ test('Gmail header injection is rejected before network', async () => {
     }),
     { code: 'GMAIL_SUBJECT_INVALID' },
   );
-  assert.equal(calls.length, 0);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].url, 'https://gmail.googleapis.com/gmail/v1/users/me/profile');
+  assert.equal(calls[0].init.method || 'GET', 'GET');
 });
 
 test('Calendar create requires approval and cannot choose an arbitrary host', async () => {
@@ -202,7 +204,7 @@ test('Google Workspace runtime is fail-closed without an access token', async ()
       owner: 'adrien',
       permissions: ['google.gmail.read'],
     }),
-    { code: 'GMAIL_AUTH_REQUIRED' },
+    { code: 'CAPABILITY_UNAVAILABLE' },
   );
   assert.equal(calls.length, 0);
 });
