@@ -63,10 +63,14 @@ test('persisted media fails closed when encryption secret is absent', () => {
 
 test('production release provisions a domain-separated Media Vault Worker secret', async () => {
   const source=await readFile(new URL('../.github/workflows/deploy-cloudflare-release.yml',import.meta.url),'utf8');
-  assert.match(source,/Configure encrypted Media Vault key/);
+  assert.match(source,/Prepare encrypted Media Vault secrets for exact deployment/);
   assert.match(source,/crypto\.hkdfSync\(/);
   assert.match(source,/MEL_MEDIA_VAULT_V1/);
-  assert.match(source,/wrangler secret put MEL_MEDIA_ENCRYPTION_KEY_B64/);
-  assert.match(source,/wrangler secret put MEL_MEDIA_ENCRYPTION_KEY_ID/);
+  assert.match(source,/media-vault-release-secrets\.json/);
+  assert.match(source,/--secrets-file media-vault-release-secrets\.json/);
+  assert.match(source,/MEL_MEDIA_ENCRYPTION_KEY_B64:String\(process\.env\.MEDIA_KEY_B64/);
+  assert.match(source,/MEL_MEDIA_ENCRYPTION_KEY_ID:String\(process\.env\.MEDIA_KEY_ID/);
+  assert.doesNotMatch(source,/wrangler secret put MEL_MEDIA_ENCRYPTION_KEY_B64/);
+  assert.doesNotMatch(source,/wrangler secret put MEL_MEDIA_ENCRYPTION_KEY_ID/);
   assert.doesNotMatch(source,/echo "\$\{MEDIA_KEY_B64\}"/);
 });
