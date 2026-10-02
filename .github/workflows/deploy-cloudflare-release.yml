@@ -517,9 +517,10 @@ jobs:
               workers_free_reference_value:20000,
             },
             models:[
-              '@cf/zai-org/glm-4.7-flash',
               '@cf/meta/llama-3.3-70b-instruct-fp8-fast',
-              '@cf/moonshotai/kimi-k2.7-code',
+              '@cf/google/gemma-4-26b-a4b-it',
+              '@cf/nvidia/nemotron-3-120b-a12b',
+              '@cf/zai-org/glm-4.7-flash',
             ],
             verified_at:new Date(now).toISOString(),
             expires_at:new Date(now+30*60*1000).toISOString(),
