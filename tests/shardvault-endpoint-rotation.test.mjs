@@ -82,6 +82,21 @@ test('ShardVault endpoint exclusion removes a failed target from both selected a
   assert.equal(config.allEndpoints.length, 3, 'input config remains immutable');
 });
 
+test('ShardVault quarantines an HTTP 429 code target for the current sync so the pool rotates', () => {
+  const state = { endpoint_failures: {}, failed_endpoint_ids: [] };
+  const target = endpoint('msk-paste-public');
+  const failure = __shardvaultTest.recordCodeTargetFailure(
+    state,
+    target,
+    new Error('WRITE_msk-paste-public_429'),
+    Date.parse('2026-10-02T08:00:00Z'),
+  );
+
+  assert.equal(failure.retryable, true);
+  assert.equal(failure.permanent, false);
+  assert.deepEqual(state.failed_endpoint_ids, ['msk-paste-public']);
+});
+
 test('bounded discovery retry is wired to replace a failed active endpoint without lowering 7x target', async () => {
   const runtime = await readFile(new URL('../src/continuity/shardvault-runtime.js', import.meta.url), 'utf8');
   const workflow = await readFile(new URL('../.github/workflows/deploy-cloudflare-release.yml', import.meta.url), 'utf8');
