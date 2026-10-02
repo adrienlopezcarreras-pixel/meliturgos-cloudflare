@@ -263,3 +263,49 @@ test('Windows installer clears owner password before token-based companion downl
   assert.match(setup,/Authorization\s*=\s*"Bearer \$\(\[string\]\$pair\.token\)"/);
   assert.match(setup,/X-MEL-Computer-ID/);
 });
+
+
+test('Windows command engine heartbeat is independently fresh from the desktop UI heartbeat',async()=>{
+  const DB=sqliteD1();
+  try{
+    const env={DB,MELITURGOS_USER:'adrien',MELITURGOS_PASSWORD:'test'};
+    const codeRes=await maybeHandleComputerApi(ownerRequest('/api/computer/v1/pair-code','POST',{}),env);
+    const code=(await codeRes.json()).code;
+    const pairRes=await maybeHandleComputerApi(new Request('https://mel.test/api/computer/v1/pair',{
+      method:'POST',headers:{'content-type':'application/json'},
+      body:JSON.stringify({pair_code:code,computer_id:'pc-engine-heartbeat'})
+    }),env);
+    const paired=await pairRes.json();
+    const headers={authorization:'Bearer '+paired.token,'x-mel-computer-id':'pc-engine-heartbeat','content-type':'application/json'};
+
+    let response=await maybeHandleComputerApi(new Request('https://mel.test/api/computer/v1/heartbeat',{
+      method:'POST',headers,body:JSON.stringify({version:'2.3.7'})
+    }),env);
+    let payload=await response.json();
+    assert.equal(payload.ok,true);
+    assert.equal(payload.engine_online,false);
+
+    const engineHeartbeatAt=Date.now();
+    response=await maybeHandleComputerApi(new Request('https://mel.test/api/computer/v1/heartbeat',{
+      method:'POST',headers,
+      body:JSON.stringify({engine_version:'1.3.0',engine_heartbeat_at:engineHeartbeatAt,active_window:'MEL_TEST'})
+    }),env);
+    payload=await response.json();
+    assert.equal(payload.engine_online,true);
+    assert.equal(payload.engine_version,'1.3.0');
+    assert.equal(payload.engine_last_seen_at,engineHeartbeatAt);
+  }finally{DB.close();}
+});
+
+test('Windows Companion 2.3.7 watchdogs the engine and implements local runtime sovereignty',async()=>{
+  const desktop=await readFile(new URL('../windows-companion/MEL-Companion.cs',import.meta.url),'utf8');
+  const companion=await readFile(new URL('../assets/MEL-Computer-Companion.ps1',import.meta.url),'utf8');
+  assert.match(desktop,/Version = "2\.3\.7"/);
+  assert.match(desktop,/EnsureCompanion/);
+  assert.match(desktop,/CompanionRunning/);
+  assert.match(companion,/\$Version = "1\.3\.0"/);
+  assert.match(companion,/engine_heartbeat_at/);
+  assert.match(companion,/function Perform-SovereigntyRuntime/);
+  assert.match(companion,/sovereignty\.runtime\./);
+  assert.match(companion,/SOVEREIGNTY_RUNTIME_SOURCE_SHA_MISMATCH/);
+});
