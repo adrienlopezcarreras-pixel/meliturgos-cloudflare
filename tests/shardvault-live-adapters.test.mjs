@@ -51,6 +51,21 @@ test('ShardVault provider adapters reflect current official API contracts', () =
   assert.match(autonomous,/c\.authMode==='none'\|\|c\.authMode==='ephemeral_account_token'/);
 });
 
+test('dpaste.com v2 uses the documented multipart contract and never falls back to the legacy API path', () => {
+  for (const source of [autonomous, runtime]) {
+    const start=source.indexOf("adapter==='dpaste_b64'");
+    assert.ok(start>=0);
+    const end=source.indexOf("if(",start+30);
+    const body=source.slice(start,end>start?end:start+2200);
+    assert.match(body,/new FormData\(\)/);
+    assert.match(body,/form\.append\('content',b64u\(payload\)\)/);
+    assert.match(body,/form\.append\('expiry_days','365'\)/);
+    assert.doesNotMatch(body,/application\/x-www-form-urlencoded/);
+    assert.doesNotMatch(body,/https:\/\/dpaste\.com\/api\/['"]/);
+  }
+  assert.match(autonomous,/https:\/\/dpaste\.com\/api\/v2\//);
+});
+
 test('paste.gg anonymous adapter uses text-safe base64url because anonymous binary content is forbidden', () => {
   assert.match(autonomous,/format:'text',value:b64u\(payload\)/);
   assert.match(runtime,/format:'text',value:b64u\(payload\)/);
