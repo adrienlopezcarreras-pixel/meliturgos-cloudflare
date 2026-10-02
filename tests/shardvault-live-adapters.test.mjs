@@ -42,11 +42,15 @@ test('ShardVault provider adapters reflect current official API contracts', () =
   assert.match(autonomous,/api\.telegra\.ph\/createPage/);
   assert.match(autonomous,/adapter:'pastehtml_b64'/);
   assert.match(autonomous,/pastehtml\.dev\/api\/pastes/);
+  assert.match(autonomous,/id:'pst-rs-abhicracker-public'/);
+  assert.match(autonomous,/adapter:'pst_rs_b64'/);
+  assert.match(autonomous,/pst\.rs\.abhicracker\.com/);
+  assert.match(autonomous,/x-paste-ttl':'1y'/);
   assert.match(autonomous,/c\.authMode==='none'\|\|c\.authMode==='ephemeral_account_token'/);
 });
 
 test('snapshot runtime can write and read every repaired adapter selected by discovery', () => {
-  for (const adapter of ['zero_x0_binary','dpaste_org_b64','dpaste_b64','pastemyst_b64','onec3_b64','paste_c_net','fileditch_b64','pastegg_b64','markdownpaste_b64','udrop_dev_b64','waifuvault_b64','telegraph_b64','pastehtml_b64']) {
+  for (const adapter of ['zero_x0_binary','dpaste_org_b64','dpaste_b64','pastemyst_b64','onec3_b64','paste_c_net','fileditch_b64','pastegg_b64','markdownpaste_b64','udrop_dev_b64','waifuvault_b64','telegraph_b64','pastehtml_b64','pst_rs_b64']) {
     assert.ok(runtime.includes(`e.adapter==='${adapter}'`) || runtime.includes(`'${adapter}'`), adapter);
   }
   assert.match(runtime,/zero_x0_binary/);
@@ -68,6 +72,9 @@ test('snapshot runtime can write and read every repaired adapter selected by dis
   assert.match(runtime,/TELEGRAPH_CONTENT_MISSING/);
   assert.match(runtime,/pastehtml_b64/);
   assert.match(runtime,/PASTEHTML_CONTENT_MISSING/);
+  assert.match(runtime,/pst_rs_b64/);
+  assert.match(runtime,/pst\.rs\.abhicracker\.com\/raw\//);
+  assert.match(runtime,/x-paste-ttl':'1y'/);
 });
 
 

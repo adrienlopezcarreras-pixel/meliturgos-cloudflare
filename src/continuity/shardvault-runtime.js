@@ -393,6 +393,20 @@ async function upload(env,e,objectId,payload){
     if(!r.ok)throw new Error(`WRITE_${e.id}_${r.status}`);
     return {remoteUrl:responseRemoteUrl(await r.text(),r.headers,endpoint)};
   }
+  if(e.adapter==='pst_rs_b64'){
+    const endpoint=fixedApiUrl(u);
+    const r=await fetchTimed(endpoint,{method:'POST',headers:{
+      'content-type':'text/plain; charset=utf-8',
+      'accept':'application/json',
+      'x-paste-ttl':'1y',
+      'x-paste-title':objectId,
+      'user-agent':'MEL-ShardVault/1.0'
+    },body:b64u(payload)},15000);
+    if(!r.ok)throw new Error(`WRITE_${e.id}_${r.status}`);
+    const data=await r.json().catch(()=>null),id=String(data?.id||'').trim();
+    if(!id)throw new Error(`WRITE_${e.id}_REMOTE_ID_MISSING`);
+    return {remoteUrl:'https://pst.rs.abhicracker.com/raw/'+encodeURIComponent(id)};
+  }
   if(e.adapter==='pastehtml_b64'){
     const endpoint=fixedApiUrl(u);
     const body='<pre data-mel-shard="1">'+b64u(payload)+'</pre>';
@@ -520,7 +534,7 @@ async function download(env,e,objectId,descriptor=null){
     if(!code)throw new Error(`READ_${e.id}_CONTENT_MISSING`);
     return unb64u(code);
   }
-  if(['pastebin_ai_b64','dpaste_b64','dpaste_org_b64','onec3_b64','msk_paste_b64','pastebox_b64','fileditch_b64'].includes(e.adapter)){
+  if(['pastebin_ai_b64','dpaste_b64','dpaste_org_b64','onec3_b64','msk_paste_b64','pastebox_b64','fileditch_b64','pst_rs_b64'].includes(e.adapter)){
     if(!remote)throw new Error(`READ_${e.id}_REMOTE_URL_MISSING`);
     const readTimeout=e.adapter==='pastebox_b64'?30000:15000;
     const r=await fetchTimed(publicUrl(remote,`READ_${e.id}_REMOTE`),{method:'GET',headers:{'accept':'text/plain,application/json','user-agent':'MEL-ShardVault/1.0'}},readTimeout);
@@ -610,7 +624,7 @@ async function download(env,e,objectId,descriptor=null){
   if(!r.ok)throw new Error(`READ_${e.id}_${r.status}`);
   return new Uint8Array(await r.arrayBuffer());
 }
-const BASE64_WRAPPED_ADAPTERS=new Set(['pastebin_ai_b64','dpaste_b64','dpaste_org_b64','pastemyst_b64','onec3_b64','msk_paste_b64','pastebox_b64','pastehtml_b64','fileditch_b64','pastegg_b64','markdownpaste_b64','udrop_dev_b64','waifuvault_b64','telegraph_b64']);
+const BASE64_WRAPPED_ADAPTERS=new Set(['pastebin_ai_b64','dpaste_b64','dpaste_org_b64','pastemyst_b64','onec3_b64','msk_paste_b64','pastebox_b64','pastehtml_b64','fileditch_b64','pastegg_b64','markdownpaste_b64','udrop_dev_b64','waifuvault_b64','telegraph_b64','pst_rs_b64']);
 function fragmentChunkLimit(e){
   const max=Math.max(256,Number(e?.maxBytes)||256);
   if(e?.backend==='r2'||e?.backend==='d1')return max;
