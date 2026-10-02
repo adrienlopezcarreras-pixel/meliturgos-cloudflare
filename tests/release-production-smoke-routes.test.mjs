@@ -5,6 +5,7 @@ import { isReleaseSmokeRequest } from '../src/core/security.js';
 import { createVerifiedBackupService } from '../src/backup/backup-service.js';
 
 const TOKEN = 's'.repeat(64);
+const PARALLEL_TOKEN = 'p'.repeat(64);
 const SHA = 'b'.repeat(40);
 const BRANCH = 'release/mel-hardware-v0.1.0';
 
@@ -106,6 +107,7 @@ function env() {
     MELITURGOS_USER: 'owner',
     MELITURGOS_PASSWORD: 'owner-password',
     MEL_LAUNCH_BOOTSTRAP_TOKEN: TOKEN,
+    MEL_PARALLEL_PROOF_TOKEN: PARALLEL_TOKEN,
     MEL_DEPLOYED_GIT_BRANCH: BRANCH,
     MEL_DEPLOYED_GIT_SHA: SHA,
     MEL_GITHUB_FETCH: githubFetch,
@@ -209,6 +211,18 @@ function smokeRequest(path, method = 'GET', init = {}) {
   });
 }
 
+function parallelSmokeRequest(path, method = 'GET', init = {}) {
+  return new Request('https://mel.test' + path, {
+    method,
+    headers: {
+      'x-mel-release-smoke': '1',
+      'x-mel-parallel-proof': PARALLEL_TOKEN,
+      ...(init.headers || {}),
+    },
+    body: init.body,
+  });
+}
+
 test('release smoke auth permits only the sanitized connection proof routes added for Pipedream diagnostics', () => {
   const runtimeEnv = env();
   for (const [method,path] of [
@@ -223,6 +237,31 @@ test('release smoke auth permits only the sanitized connection proof routes adde
     isReleaseSmokeRequest(smokeRequest('/api/gen2/connections/pipedream/save', 'POST'), runtimeEnv),
     false,
   );
+});
+
+test('parallel proof auth permits only bounded read-only connection diagnostics', () => {
+  const runtimeEnv = env();
+  for (const [method,path] of [
+    ['POST','/api/gen2/connections/google/test'],
+    ['POST','/api/gen2/connections/microsoft/test'],
+    ['POST','/api/gen2/connections/yahoo/test'],
+    ['POST','/api/gen2/connections/yahoo-imap/test'],
+    ['POST','/api/gen2/connections/vercel/test'],
+    ['POST','/api/gen2/connections/pipedream/test'],
+    ['GET','/api/gen2/connections/google/status'],
+    ['GET','/api/gen2/connections/pipedream/accounts'],
+  ]) {
+    assert.equal(isReleaseSmokeRequest(parallelSmokeRequest(path, method), runtimeEnv), true, method+' '+path);
+  }
+
+  for (const [method,path] of [
+    ['POST','/api/gen2/connections/google/save'],
+    ['POST','/api/gen2/connections/vercel/save'],
+    ['POST','/api/gen2/connections/pipedream/save'],
+    ['POST','/api/files/upload'],
+  ]) {
+    assert.equal(isReleaseSmokeRequest(parallelSmokeRequest(path, method), runtimeEnv), false, method+' '+path);
+  }
 });
 
 test('MEL-FILE-01 release smoke permits only the bounded UI and upload proof routes', () => {
