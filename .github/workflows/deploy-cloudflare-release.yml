@@ -43,10 +43,10 @@ jobs:
       OWNER_MAX_AUTORELEASE: ${{ github.event_name == 'push' && 'true' || (inputs.owner_max_autorelease && 'true' || 'false') }}
       # TEMPORARY DEV-LIGHT MODE: skip repeated external ShardVault 7/7/code-sync proof.
       # MUST be restored to 'false' before final validation/closure.
-      MEL_ROADMAP_SHARDVAULT_PAUSED: 'true'
+      MEL_ROADMAP_SHARDVAULT_PAUSED: 'false'
       # TEMPORARY DEV-LIGHT MODE: keep external/deep AI proofs out of the blocking release path.
       # MUST be restored to 'false' before final roadmap closure.
-      MEL_RELEASE_DEEP_AI_PROOFS_PAUSED: 'true'
+      MEL_RELEASE_DEEP_AI_PROOFS_PAUSED: 'false'
     steps:
       - name: Require explicit production approval
         shell: bash
