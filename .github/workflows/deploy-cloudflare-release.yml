@@ -534,6 +534,8 @@ jobs:
               '@cf/google/gemma-4-26b-a4b-it',
               '@cf/nvidia/nemotron-3-120b-a12b',
               '@cf/zai-org/glm-4.7-flash',
+              '@cf/black-forest-labs/flux-1-schnell',
+              '@cf/deepgram/aura-1',
             ],
             verified_at:new Date(now).toISOString(),
             expires_at:new Date(now+30*60*1000).toISOString(),
