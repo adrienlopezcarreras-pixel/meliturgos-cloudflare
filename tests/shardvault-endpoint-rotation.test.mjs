@@ -100,6 +100,22 @@ test('ShardVault backs off an HTTP 429 target, then allows it to re-enter the po
   assert.equal(__shardvaultTest.codeTargetAvailableNow(state,target,Date.parse(failure.retry_after_at)+1), true);
 });
 
+test('ShardVault refreshes discovery once every ready code target has already been attempted', () => {
+  const candidates=[endpoint('msk-paste-public'),endpoint('telegraph-public')];
+  assert.equal(
+    __shardvaultTest.codeTargetDiscoveryRefreshNeeded(candidates,{attempted_endpoints:['msk-paste-public']}),
+    false,
+  );
+  assert.equal(
+    __shardvaultTest.codeTargetDiscoveryRefreshNeeded(candidates,{attempted_endpoints:['msk-paste-public','telegraph-public']}),
+    true,
+  );
+  assert.equal(
+    __shardvaultTest.codeTargetDiscoveryRefreshNeeded([],{attempted_endpoints:[]}),
+    true,
+  );
+});
+
 test('bounded discovery retry is wired to replace a failed active endpoint without lowering 7x target', async () => {
   const runtime = await readFile(new URL('../src/continuity/shardvault-runtime.js', import.meta.url), 'utf8');
   const workflow = await readFile(new URL('../.github/workflows/deploy-cloudflare-release.yml', import.meta.url), 'utf8');
