@@ -275,6 +275,13 @@ test('code sync prefers representative proof metadata and timing over legacy reg
 });
 
 
+test('retryable code targets are not permanently quarantined or dequalified', () => {
+  assert.match(runtime,/if\(classification\.permanent\)failed\.add\(id\)/);
+  assert.match(runtime,/else failed\.delete\(id\)/);
+  assert.match(runtime,/if\(failureState\.permanent===true\)await invalidateCodeTargetQualification/);
+  assert.match(runtime,/codeTargetAvailableNow\(state,e\)/);
+});
+
 test('active durable code targets can self-qualify through the exact live roundtrip when size proof cache is missing', () => {
   assert.match(runtime,/activeCodeTargets=await readActiveExternalEndpoints\(env\)/);
   assert.match(runtime,/roundtripCodeFallbackCandidates\(env,codeCandidates,activeCodeTargets,state,used,shard\.length\)/);
