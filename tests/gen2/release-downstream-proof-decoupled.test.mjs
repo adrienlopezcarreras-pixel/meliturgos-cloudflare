@@ -27,6 +27,14 @@ test('decoupled MEL-FILE proof serializes browser pressure and retries only tran
   assert.match(workflow,/Non-retryable MEL-FILE browser proof status/);
 });
 
+test('decoupled browser proof retries bounded transient failures before gating MEL-FILE', async () => {
+  const workflow=await readFile(new URL('../../.github/workflows/release-downstream-proof-decoupled.yml',import.meta.url),'utf8');
+  assert.match(workflow,/BROWSER_READY=0/);
+  assert.match(workflow,/for ATTEMPT in \$\(seq 1 6\)/);
+  assert.match(workflow,/Transient browser\.execute proof status/);
+  assert.match(workflow,/Non-retryable browser\.execute proof status/);
+});
+
 test('sovereignty proof binds exact SHA through code self-check instead of requiring duplicate SHA metadata', async () => {
   const workflow=await readFile(new URL('../../.github/workflows/release-downstream-proof-decoupled.yml',import.meta.url),'utf8');
   assert.match(workflow,/sovereignty-sha-status\.json/);
