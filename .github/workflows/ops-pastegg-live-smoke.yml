@@ -23,7 +23,7 @@ jobs:
           process.stdout.write(JSON.stringify({
             name:'mel-shardvault-live-smoke',
             visibility:'unlisted',
-            files:[{name:'shard.bin',content:{format:'base64',content:process.env.PAYLOAD_B64}}]
+            files:[{name:'shard.bin',content:{format:'base64',value:process.env.PAYLOAD_B64}}]
           }));
           NODE
           )"
