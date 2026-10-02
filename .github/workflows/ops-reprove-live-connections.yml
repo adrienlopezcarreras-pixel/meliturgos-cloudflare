@@ -1,0 +1,16 @@
+name: ops-reprove-live-connections
+
+on:
+  push:
+    branches:
+      - ops/reprove-live-connections-20261002
+
+permissions:
+  contents: read
+
+jobs:
+  connections:
+    uses: ./.github/workflows/live-connections-production-proof.yml
+    with:
+      expected_sha: 8ef356e5ecd0cbac7226a00ab392eb293b5c75a7
+    secrets: inherit
