@@ -34,9 +34,11 @@ test('canonical ModelRouter executes through the selected registry model',async(
 
 test('standard registry keeps current zero-cost model catalog',()=>{
   const ids=new Set(standardRegistry.getAll().map(model=>model.id));
-  assert.ok(ids.has('@cf/zai-org/glm-4.7-flash'));
   assert.ok(ids.has('@cf/meta/llama-3.3-70b-instruct-fp8-fast'));
-  assert.ok(ids.has('@cf/google/gemma-3-12b-it'));
+  assert.ok(ids.has('@cf/google/gemma-4-26b-a4b-it'));
+  assert.ok(ids.has('@cf/nvidia/nemotron-3-120b-a12b'));
+  assert.ok(ids.has('@cf/zai-org/glm-4.7-flash'));
+  assert.equal(ids.has('@cf/moonshotai/kimi-k2.7-code'),false);
   assert.ok(ids.has('ninjachat-default'));
-  assert.equal(standardRegistry.get('@cf/zai-org/glm-4.7-flash').cost,0);
+  assert.equal(standardRegistry.get('@cf/meta/llama-3.3-70b-instruct-fp8-fast').cost,0);
 });
