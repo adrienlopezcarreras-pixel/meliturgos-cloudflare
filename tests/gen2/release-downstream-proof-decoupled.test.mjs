@@ -19,6 +19,23 @@ test('decoupled downstream proof never deploys, rolls back, toggles MAX, or muta
   assert.doesNotMatch(workflow,/max[_ -]?autonomy|MAX 100/i);
 });
 
+test('decoupled MEL-FILE proof serializes browser pressure and retries only transient statuses', async () => {
+  const workflow=await readFile(new URL('../../.github/workflows/release-downstream-proof-decoupled.yml',import.meta.url),'utf8');
+  assert.match(workflow,/file:\n\s+needs: browser/);
+  assert.match(workflow,/for ATTEMPT in \$\(seq 1 8\)/);
+  assert.match(workflow,/409\|429\|500\|502\|503\|504/);
+  assert.match(workflow,/Non-retryable MEL-FILE browser proof status/);
+});
+
+test('sovereignty proof binds exact SHA through code self-check instead of requiring duplicate SHA metadata', async () => {
+  const workflow=await readFile(new URL('../../.github/workflows/release-downstream-proof-decoupled.yml',import.meta.url),'utf8');
+  assert.match(workflow,/sovereignty-sha-status\.json/);
+  assert.match(workflow,/api\/gen2\/code\/self-check/);
+  const statusBlock=workflow.split("output sovereignty.json")[1]?.split("SOV_CODE=")[0]||'';
+  assert.doesNotMatch(statusBlock,/d\?\.deployed_sha/);
+  assert.match(statusBlock,/TECHNICAL_SOVEREIGNTY_STATUS/);
+});
+
 test('release installs exact-SHA immutable proof token and dispatches downstream proof before ShardVault launch evidence', async () => {
   const workflow=await readFile(new URL('../../.github/workflows/deploy-cloudflare-release.yml',import.meta.url),'utf8');
   assert.match(workflow,/MEL_PARALLEL_PROOF_TOKEN:parallelProofToken/);
