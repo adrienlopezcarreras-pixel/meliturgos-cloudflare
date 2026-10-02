@@ -997,6 +997,8 @@ export async function maybeHandleConnectionSettingsApi(request, env = {}, url = 
       ok: false,
       error: clean(error?.code || error?.message || 'CONNECTION_OPERATION_FAILED', 160),
       code: clean(error?.code || 'CONNECTION_OPERATION_FAILED', 160),
+      ...(Number.isFinite(Number(error?.upstream_status)) ? { upstream_status: Number(error.upstream_status) } : {}),
+      ...(clean(error?.action_required, 160) ? { action_required: clean(error.action_required, 160) } : {}),
     }, Number(error?.status) || 500);
   }
 }
