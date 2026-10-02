@@ -31,7 +31,7 @@ jobs:
       - name: Install exact lockfile
         run: npm ci
 
-      - name: Manually drive ShardVault code-sync to 7/7
+      - name: Manually deploy exact SHA and drive ShardVault code-sync to 7/7
         shell: bash
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -39,17 +39,55 @@ jobs:
         run: |
           set -euo pipefail
           BASE_URL="https://meliturgos.adrien-lopezcarreras.workers.dev"
+          EXPECTED_SHA="c38e5f7142bdd583f868d1de290d5866f825365b"
+          RELEASE_BRANCH="release/mel-hardware-v0.1.0"
+          CRITICAL_BYTES=1005582
           TOKEN="$(openssl rand -hex 32)"
           echo "::add-mask::${TOKEN}"
+          NEED_ROLLBACK=1
+          PREVIOUS_VERSION_ID=""
+
+          capture_previous() {
+            curl -fsS               -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}"               -H "Content-Type: application/json"               "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/scripts/meliturgos/deployments"               > manual-predeploy-deployments.json
+            PREVIOUS_VERSION_ID="$(node - <<'NODE'
+          const fs=require('fs');
+          const raw=JSON.parse(fs.readFileSync('manual-predeploy-deployments.json','utf8'));
+          if(raw?.success===false) throw new Error('MANUAL_PREDEPLOY_DEPLOYMENTS_READ_FAILED');
+          const root=raw?.result ?? raw;
+          const deployments=Array.isArray(root)?root:(Array.isArray(root?.deployments)?root.deployments:[root]);
+          for(const deployment of deployments){
+            const versions=Array.isArray(deployment?.versions)?deployment.versions:[];
+            if(versions.length===1 && Number(versions[0]?.percentage)===100 && versions[0]?.version_id){
+              process.stdout.write(String(versions[0].version_id));
+              process.exit(0);
+            }
+          }
+          throw new Error('MANUAL_PREVIOUS_STABLE_VERSION_NOT_FOUND');
+          NODE
+            )"
+            test -n "${PREVIOUS_VERSION_ID}"
+            echo "Captured previous stable Cloudflare version."
+          }
 
           cleanup() {
             set +e
             set +o pipefail
             printf 'y\n' | npx wrangler secret delete MEL_LAUNCH_BOOTSTRAP_TOKEN --env="" >/tmp/manual-shardvault-secret-delete.log 2>&1 || true
+            if [ "${NEED_ROLLBACK:-1}" = "1" ] && [ -n "${PREVIOUS_VERSION_ID:-}" ]; then
+              cat > /tmp/manual-rollback.json <<JSON
+          {"strategy":"percentage","versions":[{"version_id":"${PREVIOUS_VERSION_ID}","percentage":100}],"annotations":{"workers/message":"MEL manual ShardVault rollback after failed code-sync"}}
+          JSON
+              ROLLBACK_CODE="$(curl --silent --show-error --max-time 30                 --request POST                 --header "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}"                 --header "Content-Type: application/json"                 --data-binary @/tmp/manual-rollback.json                 --output /tmp/manual-rollback-response.json                 --write-out '%{http_code}'                 "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/scripts/meliturgos/deployments" || true)"
+              echo "Manual rollback HTTP ${ROLLBACK_CODE}"
+            fi
             set -o pipefail
             set -e
           }
           trap cleanup EXIT
+
+          capture_previous
+
+          npx wrangler deploy             --define "MEL_DEPLOYED_GIT_SHA:'${EXPECTED_SHA}'"             --define "MEL_DEPLOYED_GIT_BRANCH:'${RELEASE_BRANCH}'"             --define "MEL_CRITICAL_CODE_BUNDLE_BYTES:${CRITICAL_BYTES}"             --define "MEL_SHARDVAULT_ROADMAP_PAUSED:'false'"
 
           printf '%s' "${TOKEN}" | npx wrangler secret put MEL_LAUNCH_BOOTSTRAP_TOKEN --env=""
 
@@ -107,7 +145,7 @@ jobs:
             next_retry_at:s?.next_retry_at||null,
             code_pool_exhaustions:Number(s?.code_pool_exhaustions||0),
             code_pool_refreshes:Number(s?.code_pool_refreshes||0),
-            failures:(s?.failures||[]).slice(-8)
+            failures:(s?.failures||[]).slice(-10)
           },null,2));
           NODE
 
@@ -124,7 +162,7 @@ jobs:
               fi
 
               if [ "${STATUS}" = "RETRY_TARGETS" ] && [ "${NEXT_RETRY}" != "-" ]; then
-                WAIT="$(NEXT_RETRY="${NEXT_RETRY}" node -e 'const t=Date.parse(process.env.NEXT_RETRY||""); const d=Number.isFinite(t)?Math.ceil((t-Date.now())/1000):2; process.stdout.write(String(Math.max(2,Math.min(20,d))))')"
+                WAIT="$(NEXT_RETRY="${NEXT_RETRY}" node -e 'const t=Date.parse(process.env.NEXT_RETRY||""); const d=Number.isFinite(t)?Math.ceil((t-Date.now())/1000):2; process.stdout.write(String(Math.max(2,Math.min(30,d))))')"
               fi
               echo "Manual code-sync ${ATTEMPT}/60: ${COMPLETED}/${TARGET}, status=${STATUS}, stall=${STALL}, wait=${WAIT}s"
             else
@@ -161,3 +199,6 @@ jobs:
             verified_roundtrip:s.verified_roundtrip
           },null,2));
           NODE
+
+          NEED_ROLLBACK=0
+          echo "Manual 7/7 succeeded; keeping exact c38e5f deployment active."
