@@ -35,3 +35,13 @@ test('bounded release scan can skip broad Internet discovery while normal discov
   assert.match(discovery,/internetDiscovery!==false/);
   assert.match(page,/knownCandidatesOnly:body\?\.known_candidates_only===true/);
 });
+
+
+test('code-sync discovery excludes endpoints already used or quarantined', () => {
+  const runtime=fs.readFileSync(new URL('../src/continuity/shardvault-runtime.js',import.meta.url),'utf8');
+  const discovery=fs.readFileSync(new URL('../src/continuity/autonomous-repositories.js',import.meta.url),'utf8');
+  assert.match(runtime,/excludeEndpointIds:\[\.\.\.used,\.\.\.\(state\.failed_endpoint_ids\|\|\[\]\)\]/);
+  assert.match(discovery,/excludeEndpointIds=\[\]/);
+  assert.match(discovery,/EXCLUDED_ENDPOINT/);
+  assert.match(discovery,/excluded\.has\(c\.id\)/);
+});
