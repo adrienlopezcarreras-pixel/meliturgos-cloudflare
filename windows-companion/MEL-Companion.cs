@@ -14,7 +14,7 @@ using System.Web.Script.Serialization;
 static class MelApp
 {
     public const string DefaultServer = "https://meliturgos.adrien-lopezcarreras.workers.dev";
-    public const string Version = "2.3.6";
+    public const string Version = "2.3.7";
     public static readonly string MelDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "MEL");
     public static readonly string ConfigPath = Path.Combine(MelDir, "computer.json");
     public static readonly string InstalledExe = Path.Combine(MelDir, "MEL-Companion.exe");
@@ -311,6 +311,19 @@ static class MelApp
         catch { }
     }
 
+    public static bool CompanionRunning()
+    {
+        try { return CompanionProcess != null && !CompanionProcess.HasExited; }
+        catch { return false; }
+    }
+
+    public static void EnsureCompanion()
+    {
+        if (CompanionRunning()) return;
+        CompanionProcess = null;
+        StartCompanion();
+    }
+
     static Dictionary<string,string> DeviceHeaders()
     {
         var h = new Dictionary<string,string>();
@@ -331,7 +344,12 @@ static class MelApp
                 {"version",Version},{"hostname",Environment.MachineName},{"user",Environment.UserName},{"screen",screen}
             });
             var o = Obj(Http(Server + "/api/computer/v1/heartbeat", "POST", body, DeviceHeaders()));
-            object ok; return o.TryGetValue("ok", out ok) && Convert.ToBoolean(ok);
+            object ok;
+            var serverOk = o.TryGetValue("ok", out ok) && Convert.ToBoolean(ok);
+            object engineOnline;
+            if (o.TryGetValue("engine_online", out engineOnline) && engineOnline != null)
+                return serverOk && Convert.ToBoolean(engineOnline);
+            return serverOk && CompanionRunning();
         }
         catch { return false; }
     }
@@ -716,6 +734,7 @@ class MainForm : Form
 
     void RefreshAll()
     {
+        MelApp.EnsureCompanion();
         var ok=MelApp.Heartbeat(); state.Text=ok?"● Connecté à MEL":"● Reconnexion…"; state.ForeColor=ok?MelApp.Green:MelApp.Red;
         MelApp.Tray.Text=ok?"MEL Companion — connecté":"MEL Companion — reconnexion";
         devicePanel.Controls.Clear(); var devices=MelApp.Devices();
