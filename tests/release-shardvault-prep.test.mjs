@@ -108,6 +108,13 @@ test('release code-sync waits for future retry windows without consuming the no-
   assert.doesNotMatch(source,/\$CODE_SYNC_STATUS" = "RETRY_TARGETS".*Math\.min\(15,delta\)/s);
 });
 
+test('release job timeout is long enough for bounded ShardVault retry windows',async()=>{
+  const source=await readFile(new URL('../.github/workflows/deploy-cloudflare-release.yml',import.meta.url),'utf8');
+  const match=/jobs:\s*\n\s*deploy:[\s\S]*?timeout-minutes:\s*(\d+)/.exec(source);
+  assert.ok(match,'deploy timeout must be explicit');
+  assert.ok(Number(match[1])>=75,'deploy timeout must cover bounded ShardVault retry windows');
+});
+
 test('final ShardVault status tolerates bounded secret propagation',async()=>{
   const source=await readFile(new URL('../.github/workflows/deploy-cloudflare-release.yml',import.meta.url),'utf8');
   assert.match(source,/SHARD_FINAL_READY=0/);
