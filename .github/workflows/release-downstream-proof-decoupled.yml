@@ -263,6 +263,25 @@ jobs:
           test "${SHA_CODE}" = "200"
           TARGET_SHA="${TARGET_SHA}" node -e 'const d=require("./sovereignty-sha-status.json");const actual=String(d?.deployed_sha||d?.sha||"").toLowerCase();if(actual!==String(process.env.TARGET_SHA).toLowerCase())throw new Error("DEPLOYED_SHA_MISMATCH:"+actual)'
 
+          # Populate every bounded sovereignty prevalidation domain before reading
+          # the final 10-layer registry. Each refresh is isolated in its own
+          # Worker request to preserve the CPU-splitting invariant from MEL-SOV-01.
+          for TARGET in ai ai_local source_control infrastructure backup_restore; do
+            REFRESH_CODE="$(curl --silent --show-error --max-time 75 \
+              --header "x-mel-parallel-proof: ${TOKEN}" \
+              --header "content-type: application/json" \
+              --data '{"phase":"sovereignty-proof"}' \
+              --output "sovereignty-refresh-${TARGET}.json" --write-out '%{http_code}' \
+              "${BASE_URL}/api/internal/release-launch-bootstrap?refresh=${TARGET}" || true)"
+            test "${REFRESH_CODE}" = "200"
+            TARGET="${TARGET}" node - <<'NODE'
+          const d=require('./sovereignty-refresh-'+process.env.TARGET+'.json');
+          if(d?.ok!==true || d?.status!=='MEL_SOV_01_REFRESH_STEP_VERIFIED') throw new Error('MEL_SOV_01_REFRESH_FAILED:'+process.env.TARGET);
+          if(d?.refresh_target!==process.env.TARGET) throw new Error('MEL_SOV_01_REFRESH_TARGET_MISMATCH');
+          if(d?.secret_values_exposed!==false || d?.autonomy_started!==false) throw new Error('MEL_SOV_01_REFRESH_SAFETY_FAILED');
+          NODE
+          done
+
           CODE="$(curl --silent --show-error --max-time 60 \
             --header "x-mel-release-smoke: 1" \
             --header "x-mel-parallel-proof: ${TOKEN}" \
