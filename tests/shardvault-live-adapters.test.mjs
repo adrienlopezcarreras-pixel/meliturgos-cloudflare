@@ -282,6 +282,13 @@ test('retryable code targets are not permanently quarantined or dequalified', ()
   assert.match(runtime,/codeTargetAvailableNow\(state,e\)/);
 });
 
+test('code sync discovers replacements after all currently ready retry targets were attempted', () => {
+  assert.match(runtime,/const retryCycleExhausted=candidates\.length>0&&codeTargetDiscoveryRefreshNeeded\(candidates,state\)/);
+  assert.match(runtime,/if\(!candidates\.length\|\|retryCycleExhausted\)/);
+  assert.match(runtime,/retryCycleExhausted\?\(state\.attempted_endpoints\|\|\[\]\):\[\]/);
+  assert.match(runtime,/excludeEndpointIds:refreshExclusions/);
+});
+
 test('active durable code targets can self-qualify through the exact live roundtrip when size proof cache is missing', () => {
   assert.match(runtime,/activeCodeTargets=await readActiveExternalEndpoints\(env\)/);
   assert.match(runtime,/roundtripCodeFallbackCandidates\(env,codeCandidates,activeCodeTargets,state,used,shard\.length\)/);
