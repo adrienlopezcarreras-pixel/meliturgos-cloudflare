@@ -421,11 +421,24 @@ jobs:
           export MEDIA_KEY_B64 MEDIA_KEY_ID
           node - <<'NODE'
           const fs=require('fs');
+          const crypto=require('crypto');
+          const source=Buffer.from(String(process.env.MEL_BACKUP_ENCRYPTION_KEY_B64||''),'base64');
+          const expectedSha=String(process.env.EXPECTED_SHA||'').toLowerCase();
+          if(source.length!==32) throw new Error('PARALLEL_PROOF_SOURCE_KEY_MUST_BE_32_BYTES');
+          if(!/^[0-9a-f]{40}$/.test(expectedSha)) throw new Error('PARALLEL_PROOF_EXPECTED_SHA_INVALID');
+          const parallelProofToken=Buffer.from(crypto.hkdfSync(
+            'sha256',
+            source,
+            Buffer.from('meliturgos-parallel-proof-salt-v1','utf8'),
+            Buffer.from('MEL_PARALLEL_PROOF_V1:'+expectedSha,'utf8'),
+            32,
+          )).toString('base64url');
           const payload={
             MEL_MEDIA_ENCRYPTION_KEY_B64:String(process.env.MEDIA_KEY_B64||''),
             MEL_MEDIA_ENCRYPTION_KEY_ID:String(process.env.MEDIA_KEY_ID||''),
+            MEL_PARALLEL_PROOF_TOKEN:parallelProofToken,
           };
-          if(!payload.MEL_MEDIA_ENCRYPTION_KEY_B64 || !payload.MEL_MEDIA_ENCRYPTION_KEY_ID) {
+          if(!payload.MEL_MEDIA_ENCRYPTION_KEY_B64 || !payload.MEL_MEDIA_ENCRYPTION_KEY_ID || !payload.MEL_PARALLEL_PROOF_TOKEN) {
             throw new Error('MEDIA_VAULT_RELEASE_SECRETS_MISSING');
           }
           fs.writeFileSync('media-vault-release-secrets.json',JSON.stringify(payload),{mode:0o600});
@@ -541,6 +554,28 @@ jobs:
           PROOF_JSON="$(cat workers-ai-zero-cost-proof.json)"
           printf '%s' "${PROOF_JSON}" | npx wrangler secret put MEL_WORKERS_AI_ZERO_COST_PROOF_JSON --env=""
           echo "Workers AI zero-cost proof refreshed fail-closed from Cloudflare account entitlements."
+
+      - name: Dispatch decoupled downstream production proofs
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          DISPATCH_CODE="$(curl --silent --show-error --max-time 30 \
+            --request POST \
+            --header "Authorization: Bearer ${GITHUB_TOKEN}" \
+            --header "Accept: application/vnd.github+json" \
+            --header "X-GitHub-Api-Version: 2022-11-28" \
+            --data "$(node -e 'process.stdout.write(JSON.stringify({ref:"main",inputs:{expected_sha:process.env.EXPECTED_SHA}}))')" \
+            --output /tmp/downstream-proof-dispatch.json \
+            --write-out '%{http_code}' \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/release-downstream-proof-decoupled.yml/dispatches" || true)"
+          if [ "${DISPATCH_CODE}" != "204" ]; then
+            echo "Decoupled downstream proof dispatch returned HTTP ${DISPATCH_CODE}."
+            test ! -s /tmp/downstream-proof-dispatch.json || cat /tmp/downstream-proof-dispatch.json
+            exit 53
+          fi
+          echo "Decoupled downstream proofs dispatched for exact SHA ${EXPECTED_SHA}; release continues independently."
 
       - name: Prepare and prove production autonomy launch evidence
         shell: bash
