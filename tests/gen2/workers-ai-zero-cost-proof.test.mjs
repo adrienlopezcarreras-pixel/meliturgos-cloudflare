@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 
 import { createDefaultAugmentioPool } from '../../src/augmentio/default-pool.js';
 import { ZeroEuroGovernor } from '../../src/augmentio/zero-euro-governor.js';
@@ -148,4 +149,13 @@ test('default provider pool remains blocked when no runtime proof is configured'
   } finally {
     if (previous !== undefined) process.env.MEL_TEST_VERIFIED_ZERO_COST_PROVIDERS = previous;
   }
+});
+
+
+test('release zero-cost proof authorizes the accessible Council fallback pool', async () => {
+  const workflow = await readFile(new URL('../../.github/workflows/deploy-cloudflare-release.yml', import.meta.url), 'utf8');
+  assert.match(workflow, /@cf\/moonshotai\/kimi-k2\.7-code/);
+  assert.match(workflow, /@cf\/zai-org\/glm-4\.7-flash/);
+  assert.match(workflow, /@cf\/meta\/llama-3\.3-70b-instruct-fp8-fast/);
+  assert.doesNotMatch(workflow, /@cf\/google\/gemma-3-12b-it/);
 });
