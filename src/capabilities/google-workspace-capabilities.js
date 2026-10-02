@@ -175,6 +175,28 @@ async function tokenFor(resolveAccessToken, connectorId, context) {
   return token;
 }
 
+function workspaceHealthcheck(resolveAccessToken, fetchImpl, env, connectorId, { protectedAction = false } = {}) {
+  const owner = String(env?.MELITURGOS_USER || 'owner').trim() || 'owner';
+  const probe = connectorId === 'gmail'
+    ? GMAIL_API + '/profile'
+    : connectorId === 'google-calendar'
+      ? CALENDAR_API + '/calendars/primary'
+      : TASKS_API + '/users/@me/lists?maxResults=1';
+  const prefix = connectorId.toUpperCase().replaceAll('-', '_') + '_HEALTH';
+  return async () => {
+    try {
+      const token = await tokenFor(resolveAccessToken, connectorId, { owner });
+      await requestJson(fetchImpl, token, probe, { method: 'GET', code: prefix + '_FAILED' });
+      return { status: protectedAction ? 'PROTECTED' : 'HEALTHY' };
+    } catch (cause) {
+      const code = String(cause?.code || cause?.message || prefix + '_FAILED').slice(0, 180);
+      const http = Number(cause?.status || 0);
+      const unavailable = http === 401 || http === 403 || /AUTH_REQUIRED|_AUTH$/.test(code);
+      return { status: unavailable ? 'UNAVAILABLE' : 'DEGRADED', reason: code };
+    }
+  };
+}
+
 const objectOutput = { type: 'object', additionalProperties: true };
 
 export function registerGoogleWorkspaceCapabilities(bus, { env = {}, fetchImpl = fetch, resolveAccessToken = null } = {}) {
@@ -201,6 +223,7 @@ export function registerGoogleWorkspaceCapabilities(bus, { env = {}, fetchImpl =
     risk: 'LOW',
     permissions: ['google.gmail.read'],
     health: 'DEGRADED',
+    healthcheck: workspaceHealthcheck(resolveToken, fetchImpl, env, 'gmail'),
     enabled: true,
   }, async (input, context) => {
     const token = await tokenFor(resolveToken, 'gmail', context);
@@ -231,6 +254,7 @@ export function registerGoogleWorkspaceCapabilities(bus, { env = {}, fetchImpl =
     risk: 'LOW',
     permissions: ['google.gmail.read'],
     health: 'DEGRADED',
+    healthcheck: workspaceHealthcheck(resolveToken, fetchImpl, env, 'gmail'),
     enabled: true,
   }, async (input, context) => {
     const token = await tokenFor(resolveToken, 'gmail', context);
@@ -269,6 +293,7 @@ export function registerGoogleWorkspaceCapabilities(bus, { env = {}, fetchImpl =
       permissions: [draft ? 'google.gmail.draft' : 'google.gmail.send'],
       approval: { required: true, scope: approvalScope, reason: draft ? 'GMAIL_DRAFT_MUTATION' : 'GMAIL_SEND_MUTATION' },
       health: 'DEGRADED',
+    healthcheck: workspaceHealthcheck(resolveToken, fetchImpl, env, 'gmail', { protectedAction: true }),
       enabled: true,
     }, async (input, context) => {
       const token = await tokenFor(resolveToken, 'gmail', context);
@@ -312,6 +337,7 @@ export function registerGoogleWorkspaceCapabilities(bus, { env = {}, fetchImpl =
     risk: 'LOW',
     permissions: ['google.calendar.read'],
     health: 'DEGRADED',
+    healthcheck: workspaceHealthcheck(resolveToken, fetchImpl, env, 'google-calendar'),
     enabled: true,
   }, async (input, context) => {
     const token = await tokenFor(resolveToken, 'google-calendar', context);
@@ -362,6 +388,7 @@ export function registerGoogleWorkspaceCapabilities(bus, { env = {}, fetchImpl =
       permissions: [spec.permission],
       approval: { required: true, scope: spec.id, reason: 'CALENDAR_EVENT_MUTATION' },
       health: 'DEGRADED',
+    healthcheck: workspaceHealthcheck(resolveToken, fetchImpl, env, 'google-calendar', { protectedAction: true }),
       enabled: true,
     }, async (input, context) => {
       const token = await tokenFor(resolveToken, 'google-calendar', context);
@@ -401,6 +428,7 @@ export function registerGoogleWorkspaceCapabilities(bus, { env = {}, fetchImpl =
     risk: 'LOW',
     permissions: ['google.tasks.read'],
     health: 'DEGRADED',
+    healthcheck: workspaceHealthcheck(resolveToken, fetchImpl, env, 'google-tasks'),
     enabled: true,
   }, async (input, context) => {
     const token = await tokenFor(resolveToken, 'google-tasks', context);
@@ -431,6 +459,7 @@ export function registerGoogleWorkspaceCapabilities(bus, { env = {}, fetchImpl =
     risk: 'LOW',
     permissions: ['google.tasks.read'],
     health: 'DEGRADED',
+    healthcheck: workspaceHealthcheck(resolveToken, fetchImpl, env, 'google-tasks'),
     enabled: true,
   }, async (input, context) => {
     const token = await tokenFor(resolveToken, 'google-tasks', context);
@@ -474,6 +503,7 @@ export function registerGoogleWorkspaceCapabilities(bus, { env = {}, fetchImpl =
       permissions: [spec.permission],
       approval: { required: true, scope: spec.id, reason: 'GOOGLE_TASK_MUTATION' },
       health: 'DEGRADED',
+    healthcheck: workspaceHealthcheck(resolveToken, fetchImpl, env, 'google-tasks', { protectedAction: true }),
       enabled: true,
     }, async (input, context) => {
       const token = await tokenFor(resolveToken, 'google-tasks', context);
