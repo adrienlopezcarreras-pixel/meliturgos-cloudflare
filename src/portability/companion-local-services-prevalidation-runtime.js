@@ -55,7 +55,7 @@ async function saveState(db,state){
     ON CONFLICT(id) DO UPDATE SET state_json=excluded.state_json,updated_at=excluded.updated_at`)
     .bind(STATE_ID,JSON.stringify(state),Date.now()).run();
 }
-async function onlineWindows(db,{now=Date.now(),onlineWithinMs=15000}={}){
+async function onlineWindows(db,{now=Date.now(),onlineWithinMs=35000}={}){
   return db.prepare(`SELECT id,last_seen_at,halted,platform FROM computer_devices
     WHERE lower(platform)='windows' AND halted=0 AND last_seen_at>=?
     ORDER BY last_seen_at DESC LIMIT 1`).bind(now-onlineWithinMs).first();
