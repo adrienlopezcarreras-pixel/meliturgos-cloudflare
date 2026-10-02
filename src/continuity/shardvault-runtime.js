@@ -832,9 +832,10 @@ function recordCodeTargetFailure(state,endpoint,error,now=Date.now()){
     count,last_error:classification.message,last_at:new Date(now).toISOString(),
     retryable:classification.retryable,permanent:classification.permanent,retry_after_at:retryAfter
   }};
-  if(classification.permanent){
-    state.failed_endpoint_ids=[...new Set([...(state.failed_endpoint_ids||[]),id])];
-  }
+  // Quarantine every failed endpoint for the lifetime of this code-sync state.
+  // Retryable failures such as HTTP 429 must rotate to a different target
+  // instead of becoming eligible again after backoff and stalling at 6/7.
+  state.failed_endpoint_ids=[...new Set([...(state.failed_endpoint_ids||[]),id])];
   return state.endpoint_failures[id];
 }
 function clearCodeTargetFailure(state,endpointId){
