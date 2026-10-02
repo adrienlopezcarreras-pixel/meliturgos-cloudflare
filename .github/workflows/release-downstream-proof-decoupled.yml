@@ -118,14 +118,31 @@ jobs:
           SESSION="decoupled-browser-${TARGET_SHA:0:12}"
           export SESSION
           BODY="$(node -e 'process.stdout.write(JSON.stringify({id:"browser.execute",input:{session_id:process.env.SESSION,device:{id:"cloudflare-browser",capabilities:["browser.control"]},sandbox:{allowed_origins:["https://meliturgos.adrien-lopezcarreras.workers.dev"],max_steps:2},approvals:[],steps:[{id:"navigate",action:"browser.navigate",url:"https://meliturgos.adrien-lopezcarreras.workers.dev/about"},{id:"read",action:"browser.read-text",selector:"body"}]}}))')"
-          CODE="$(curl --silent --show-error --max-time 90 \
-            --header "x-mel-release-smoke: 1" \
-            --header "x-mel-parallel-proof: ${TOKEN}" \
-            --header "content-type: application/json" \
-            --data "${BODY}" \
-            --output browser-proof.json --write-out '%{http_code}' \
-            "${BASE_URL}/api/gen2/capabilities/execute" || true)"
-          test "${CODE}" = "200"
+          BROWSER_READY=0
+          for ATTEMPT in $(seq 1 6); do
+            CODE="$(curl --silent --show-error --max-time 90 \
+              --header "x-mel-release-smoke: 1" \
+              --header "x-mel-parallel-proof: ${TOKEN}" \
+              --header "content-type: application/json" \
+              --data "${BODY}" \
+              --output browser-proof.json --write-out '%{http_code}' \
+              "${BASE_URL}/api/gen2/capabilities/execute" || true)"
+            if [ "${CODE}" = "200" ]; then BROWSER_READY=1; break; fi
+            case "${CODE}" in
+              409|429|500|502|503|504)
+                echo "Transient browser.execute proof status ${CODE}; retry ${ATTEMPT}/6."
+                sleep $((ATTEMPT * 2))
+                ;;
+              *)
+                echo "Non-retryable browser.execute proof status ${CODE}."
+                if [ -s browser-proof.json ]; then
+                  node -e 'const fs=require("fs");let d={};try{d=JSON.parse(fs.readFileSync("browser-proof.json","utf8"))}catch{};console.log(JSON.stringify({ok:d?.ok===true,error:d?.error||d?.code||d?.status||"UNKNOWN"}))'
+                fi
+                exit 30
+                ;;
+            esac
+          done
+          test "${BROWSER_READY}" = "1"
           TARGET_SHA="${TARGET_SHA}" node - <<'NODE'
           const fs=require('fs'),d=require('./browser-proof.json'),r=d?.result||{};
           if(d?.ok!==true||d?.capability!=='browser.execute'||r?.ok!==true||Number(r?.steps_completed||0)!==2) throw new Error('BROWSER_PROOF_FAILED');
