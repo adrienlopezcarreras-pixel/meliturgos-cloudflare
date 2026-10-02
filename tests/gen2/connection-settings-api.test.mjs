@@ -142,6 +142,63 @@ test('Vercel token is encrypted at rest and status never returns it', async () =
   assert.equal(state.token, undefined);
 });
 
+test('Vercel live test infers and persists the MEL repository project target', async () => {
+  const runtimeEnv = {
+    ...env(),
+    MEL_GITHUB_REPOSITORY: 'owner/meliturgos-cloudflare',
+  };
+  const saved = await call('/api/gen2/connections/vercel/save', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      token: 'vercel-secret-token-value',
+      team_id: 'team_123',
+    }),
+  }, runtimeEnv);
+  assert.equal(saved.status, 200);
+
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async url => {
+    const value = String(url);
+    if (value === 'https://api.vercel.com/v2/user') {
+      return Response.json({ user: { id: 'usr_123' } });
+    }
+    if (/^https:\/\/api\.vercel\.com\/v9\/projects\?/.test(value)) {
+      return Response.json({ projects: [
+        { id: 'prj_other', name: 'other-project' },
+        { id: 'prj_mel', name: 'meliturgos-cloudflare' },
+      ] });
+    }
+    if (/^https:\/\/api\.vercel\.com\/v6\/deployments\?/.test(value)) {
+      return Response.json({ deployments: [] });
+    }
+    throw new Error('UNEXPECTED_FETCH:' + value);
+  };
+
+  try {
+    const tested = await call('/api/gen2/connections/vercel/test', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: '{}',
+    }, runtimeEnv);
+    assert.equal(tested.status, 200);
+    const proof = await tested.json();
+    assert.equal(proof.authenticated, true);
+    assert.equal(proof.configured_project.id, 'prj_mel');
+    assert.equal(proof.configured_project.name, 'meliturgos-cloudflare');
+    assert.equal(proof.target_ready, true);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  const status = await call('/api/gen2/connections/vercel/status', { method: 'GET' }, runtimeEnv);
+  const state = await status.json();
+  assert.equal(state.target_configured, true);
+  assert.equal(state.project_id, 'prj_mel');
+  assert.equal(state.project_name, 'meliturgos-cloudflare');
+  assert.equal(state.token, undefined);
+});
+
 test('Yahoo/Ymail app password is encrypted and uses fixed IMAP/SMTP endpoints', async () => {
   const runtimeEnv = env();
   const response = await call('/api/gen2/connections/yahoo-imap/save', {
