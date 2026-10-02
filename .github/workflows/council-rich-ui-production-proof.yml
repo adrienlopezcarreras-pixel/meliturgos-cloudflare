@@ -184,12 +184,26 @@ jobs:
             if [ "${BROWSER_CODE}" = "200" ]; then
               break
             fi
-            BROWSER_ERROR_CODE="$(node -e 'const fs=require("fs");let d={};try{d=JSON.parse(fs.readFileSync("rich-ui-browser.json","utf8"))}catch{};process.stdout.write(String(d?.code||d?.error||"UNKNOWN"))')"
+            BROWSER_ERROR_CODE="$(node -e 'const fs=require("fs");let d={};try{d=JSON.parse(fs.readFileSync("rich-ui-browser.json","utf8"))}catch{};process.stdout.write(String(d?.code||d?.error||d?.status||"UNKNOWN"))')"
             if [ "${BROWSER_CODE}" = "401" ] && [ "${BROWSER_ERROR_CODE}" = "AUTH_REQUIRED" ]; then
+              echo "Rich UI browser proof auth is still propagating; retry ${ATTEMPT}/12."
               sleep 2
               continue
             fi
-            break
+            case "${BROWSER_CODE}" in
+              409|429|500|502|503|504)
+                echo "Transient rich UI browser proof status ${BROWSER_CODE} (${BROWSER_ERROR_CODE}); retry ${ATTEMPT}/12."
+                sleep $((ATTEMPT < 8 ? ATTEMPT * 2 : 15))
+                continue
+                ;;
+              *)
+                echo "Non-retryable rich UI browser proof status ${BROWSER_CODE} (${BROWSER_ERROR_CODE})."
+                if [ -s rich-ui-browser.json ]; then
+                  node -e 'const fs=require("fs");let d={};try{d=JSON.parse(fs.readFileSync("rich-ui-browser.json","utf8"))}catch{};console.log(JSON.stringify({ok:d?.ok===true,code:d?.code||d?.error||d?.status||"UNKNOWN"}))'
+                fi
+                exit 31
+                ;;
+            esac
           done
           test "${BROWSER_CODE}" = "200"
 
