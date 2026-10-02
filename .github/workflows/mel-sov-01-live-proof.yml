@@ -38,62 +38,72 @@ jobs:
       - name: Contract tests
         run: node --test tests/release-launch-bootstrap.test.mjs tests/gen2/technical-sovereignty-live.test.mjs tests/gen2/prevalidated-alternative-registry.test.mjs
 
-      - name: Resolve authorized Cloudflare account
-        shell: bash
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-        run: |
-          set -euo pipefail
-          curl --silent --show-error --fail \
-            --header "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
-            "https://api.cloudflare.com/client/v4/accounts?per_page=50" \
-            > cloudflare-accounts.json
-          ACCOUNT_ID="$(node - <<'NODE'
-          const fs=require('fs');
-          const d=JSON.parse(fs.readFileSync('cloudflare-accounts.json','utf8'));
-          if(d?.success!==true || !Array.isArray(d?.result) || d.result.length<1) process.exit(2);
-          const row=d.result[0];
-          if(!row?.id) process.exit(3);
-          process.stdout.write(String(row.id));
-          NODE
-          )"
-          echo "CLOUDFLARE_ACCOUNT_ID=${ACCOUNT_ID}" >> "$GITHUB_ENV"
-
       - name: Prove MEL-SOV-01 from production Worker binding
         shell: bash
         env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          PROOF_KEY_B64: ${{ secrets.MEL_BACKUP_ENCRYPTION_KEY_B64 }}
           EXPECTED_SHA: ${{ inputs.expected_sha || github.sha }}
         run: |
           set -euo pipefail
           BASE_URL="https://meliturgos.adrien-lopezcarreras.workers.dev"
-          TOKEN="$(openssl rand -hex 32)"
+          TOKEN="$(PROOF_KEY_B64="${PROOF_KEY_B64}" TARGET_SHA="${EXPECTED_SHA}" node - <<'NODE'
+          const crypto=require('crypto');
+          const source=Buffer.from(String(process.env.PROOF_KEY_B64||''),'base64');
+          const sha=String(process.env.TARGET_SHA||'').toLowerCase();
+          if(source.length!==32||!/^[0-9a-f]{40}$/.test(sha)) throw new Error('PARALLEL_PROOF_DERIVATION_INVALID');
+          process.stdout.write(Buffer.from(crypto.hkdfSync(
+            'sha256',
+            source,
+            Buffer.from('meliturgos-parallel-proof-salt-v1'),
+            Buffer.from('MEL_PARALLEL_PROOF_V1:'+sha),
+            32,
+          )).toString('base64url'));
+          NODE
+          )"
           echo "::add-mask::${TOKEN}"
 
-          cleanup() {
-            set +e
-            printf 'y\n' | npx wrangler secret delete MEL_LAUNCH_BOOTSTRAP_TOKEN --env="" >/tmp/mel-sov-secret-delete.log 2>&1 || true
-          }
-          trap cleanup EXIT
-
-          printf '%s' "${TOKEN}" | npx wrangler secret put MEL_LAUNCH_BOOTSTRAP_TOKEN --env=""
-
-          READY=0
-          for ATTEMPT in $(seq 1 12); do
-            CODE="$(curl --silent --show-error --max-time 300 \
-              --header "x-mel-launch-bootstrap: ${TOKEN}" \
+          # Refresh each expensive sovereignty prevalidation domain in its own
+          # Worker request so no single request can consume the full CPU budget.
+          for TARGET in ai ai_local source_control infrastructure backup_restore; do
+            CODE="$(curl --silent --show-error --max-time 75 \
+              --header "x-mel-parallel-proof: ${TOKEN}" \
               --header "content-type: application/json" \
               --data '{"phase":"sovereignty-proof"}' \
-              --output mel-sov-01-live-proof.json \
+              --output "mel-sov-refresh-${TARGET}.json" \
               --write-out '%{http_code}' \
-              "${BASE_URL}/api/internal/release-launch-bootstrap" || true)"
-            if [ "${CODE}" = "200" ] || [ "${CODE}" = "409" ]; then
-              READY=1
-              break
-            fi
-            sleep 2
+              "${BASE_URL}/api/internal/release-launch-bootstrap?refresh=${TARGET}" || true)"
+            test "${CODE}" = "200"
+            TARGET="${TARGET}" node - <<'NODE'
+          const d=require('./mel-sov-refresh-'+process.env.TARGET+'.json');
+          if(d?.ok!==true || d?.status!=='MEL_SOV_01_REFRESH_STEP_VERIFIED') throw new Error('MEL_SOV_01_REFRESH_FAILED:'+process.env.TARGET);
+          if(d?.refresh_target!==process.env.TARGET) throw new Error('MEL_SOV_01_REFRESH_TARGET_MISMATCH');
+          if(d?.secret_values_exposed!==false || d?.autonomy_started!==false) throw new Error('MEL_SOV_01_REFRESH_SAFETY_FAILED');
+          NODE
           done
-          test "${READY}" = "1"
+
+          CODE="$(curl --silent --show-error --max-time 60 \
+            --header "x-mel-parallel-proof: ${TOKEN}" \
+            --header "content-type: application/json" \
+            --data '{"phase":"sovereignty-proof"}' \
+            --output mel-sov-01-live-proof.json \
+            --write-out '%{http_code}' \
+            "${BASE_URL}/api/internal/release-launch-bootstrap" || true)"
+          if [ "${CODE}" != "200" ] && [ "${CODE}" != "409" ]; then
+            echo "Final MEL-SOV-01 status returned HTTP ${CODE}."
+            exit 31
+          fi
+
+          node - <<'NODE'
+          const fs=require('fs');
+          const d=JSON.parse(fs.readFileSync('mel-sov-01-live-proof.json','utf8'));
+          const refresh={};
+          for(const id of ['ai','ai_local','source_control','infrastructure','backup_restore']){
+            const row=JSON.parse(fs.readFileSync('mel-sov-refresh-'+id+'.json','utf8'));
+            refresh[id]=row?.refresh||null;
+          }
+          d.prevalidation_refresh=refresh;
+          fs.writeFileSync('mel-sov-01-live-proof.json',JSON.stringify(d,null,2));
+          NODE
 
           node - <<'NODE'
           const fs=require('fs');
@@ -123,8 +133,6 @@ jobs:
           if(d?.done_verified_eligible!==true) process.exit(1);
           NODE
 
-          cleanup
-          trap - EXIT
 
       - name: Upload sanitized MEL-SOV-01 proof
         if: always()
