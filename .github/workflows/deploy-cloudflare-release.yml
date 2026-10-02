@@ -43,7 +43,7 @@ jobs:
       OWNER_MAX_AUTORELEASE: ${{ github.event_name == 'push' && 'true' || (inputs.owner_max_autorelease && 'true' || 'false') }}
       # TEMPORARY DEV-LIGHT MODE: ShardVault 7/7/code-sync proof paused to finish downstream release validation.
       # MUST be restored to 'false' before final validation/closure.
-      MEL_ROADMAP_SHARDVAULT_PAUSED: 'true'
+      MEL_ROADMAP_SHARDVAULT_PAUSED: 'false'
       # TEMPORARY DEV-LIGHT MODE: keep external/deep AI proofs out of the blocking release path.
       # MUST be restored to 'false' before final roadmap closure.
       MEL_RELEASE_DEEP_AI_PROOFS_PAUSED: 'false'
@@ -602,11 +602,18 @@ jobs:
             SHARD_READY=0
             for SHARD_ATTEMPT in $(seq 1 17); do
               SHARD_OFFSET=$((SHARD_ATTEMPT - 1))
+              SHARD_KNOWN_ONLY=true
+              SHARD_PROBE_LIMIT=1
+              if [ "$SHARD_ATTEMPT" -gt 7 ]; then
+                SHARD_KNOWN_ONLY=false
+                SHARD_PROBE_LIMIT=2
+                echo "ShardVault known pool exhausted; enabling live Internet discovery on attempt ${SHARD_ATTEMPT}."
+              fi
               SHARD_SEARCH_CODE="$(curl --silent --show-error --max-time 175 \
                 --header "x-mel-release-smoke: 1" \
                 --header "x-mel-launch-bootstrap: ${BOOTSTRAP_TOKEN}" \
                 --header "content-type: application/json" \
-                --data "{\"max_new_endpoints\":1,\"probe_limit\":1,\"probe_offset\":${SHARD_OFFSET},\"known_candidates_only\":true}" \
+                --data "{\"max_new_endpoints\":1,\"probe_limit\":${SHARD_PROBE_LIMIT},\"probe_offset\":${SHARD_OFFSET},\"known_candidates_only\":${SHARD_KNOWN_ONLY}}" \
                 --output production-shardvault-search.json \
                 --write-out '%{http_code}' \
                 "${BASE_URL}/api/gen2/shardvault/search" || true)"
