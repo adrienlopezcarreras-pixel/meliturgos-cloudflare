@@ -290,6 +290,10 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
   const gen2Expected = String(env?.MEL_GEN2_42_BOOTSTRAP_TOKEN || '');
   const gen2Supplied = String(request.headers.get('x-mel-gen2-42-bootstrap') || '');
   const primaryAuthorized = equalToken(expected, supplied);
+  const parallelExpected = String(env?.MEL_PARALLEL_PROOF_TOKEN || '');
+  const parallelSupplied = String(request.headers.get('x-mel-parallel-proof') || '');
+  const parallelAuthorized = equalToken(parallelExpected, parallelSupplied);
+  const parallelProofPhase = phase === 'identity' || phase === 'sovereignty-proof';
   const gen2SecretAuthorized = equalToken(gen2Expected, gen2Supplied);
   const gen2ChallengeAuthorized = phase === 'gen2-42-runtime-tick'
     ? await consumeBootstrapChallenge(env, gen2Supplied, 'gen2-42-runtime-tick')
@@ -301,8 +305,11 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
       })
     : { ok: false };
   const gen2Authorized = gen2SecretAuthorized || gen2ChallengeAuthorized || gen2Oidc.ok === true;
-  if (!primaryAuthorized && !gen2Authorized) {
+  if (!primaryAuthorized && !gen2Authorized && !parallelAuthorized) {
     return Response.json({ ok: false, code: 'BOOTSTRAP_AUTH_REQUIRED' }, { status: 401, headers: { 'cache-control': 'no-store' } });
+  }
+  if (parallelAuthorized && !primaryAuthorized && !gen2Authorized && !parallelProofPhase) {
+    return Response.json({ ok: false, code: 'BOOTSTRAP_SCOPE_DENIED' }, { status: 403, headers: { 'cache-control': 'no-store' } });
   }
   if (gen2Authorized && !primaryAuthorized && phase !== 'gen2-42-runtime-tick') {
     return Response.json({ ok: false, code: 'BOOTSTRAP_SCOPE_DENIED' }, { status: 403, headers: { 'cache-control': 'no-store' } });

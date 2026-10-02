@@ -1077,3 +1077,28 @@ test('GEN2-42 runtime tick uses a dedicated bootstrap token without opening othe
   assert.equal(denied.status,403);
   assert.equal((await denied.json()).code,'BOOTSTRAP_SCOPE_DENIED');
 });
+
+
+test('parallel production proof token can read exact identity but cannot mutate launch state', async () => {
+  const parallelToken='p'.repeat(64);
+  const sha='e'.repeat(40);
+  const env={MEL_PARALLEL_PROOF_TOKEN:parallelToken,MEL_DEPLOYED_GIT_SHA:sha,DB:{}};
+  const call=phase=>maybeHandleReleaseLaunchBootstrap(
+    new Request('https://mel.test/api/internal/release-launch-bootstrap',{
+      method:'POST',
+      headers:{'x-mel-parallel-proof':parallelToken,'content-type':'application/json'},
+      body:JSON.stringify({phase}),
+    }),
+    env,
+  );
+
+  const identity=await call('identity');
+  assert.equal(identity.status,200);
+  const body=await identity.json();
+  assert.equal(body.deployed_sha,sha);
+  assert.equal(body.autonomy_started,false);
+
+  const denied=await call('pause');
+  assert.equal(denied.status,403);
+  assert.equal((await denied.json()).code,'BOOTSTRAP_SCOPE_DENIED');
+});
