@@ -2,9 +2,12 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  MAX_INLINE_TRANSCRIPTION_BYTES,
   WORKERS_AI_IMAGE_MODEL,
+  WORKERS_AI_TRANSCRIPTION_MODEL,
   WORKERS_AI_TTS_MODEL,
   createWorkersAiZeroCostMediaCapabilities,
+  transcribeAudioBytes,
 } from '../src/media/workers-ai-media-capabilities.js';
 import {
   WORKERS_AI_ZERO_COST_PROOF_SCHEMA,
@@ -135,4 +138,46 @@ test('Aura TTS uses raw Workers AI response and stores only encrypted private au
   assert.equal(f.writes.length, 1);
   assert.equal(f.writes[0].options.customMetadata.originalMime, 'audio/mpeg');
   assert.notDeepEqual(f.writes[0].value, mp3);
+});
+
+test('Whisper transcription is exact-model and exposes bounded text only with fresh zero-cost proof', async () => {
+  const audio = Uint8Array.from([82,73,70,70,1,2,3,4]);
+  const f = fixture({
+    proofJson: proof([WORKERS_AI_TRANSCRIPTION_MODEL]),
+    run: async (model, input) => {
+      assert.equal(model, WORKERS_AI_TRANSCRIPTION_MODEL);
+      assert.deepEqual(Buffer.from(input.audio, 'base64'), Buffer.from(audio));
+      assert.equal(input.task, 'transcribe');
+      assert.equal(input.language, 'fr');
+      assert.equal(input.vad_filter, true);
+      return { text: 'Bonjour depuis MEL.', word_count: 3 };
+    },
+  });
+  const adapters = createWorkersAiZeroCostMediaCapabilities(f.env);
+  assert.equal(typeof adapters['media.audio.transcribe'], 'function');
+
+  const result = await adapters['media.audio.transcribe']({
+    audio_base64: Buffer.from(audio).toString('base64'),
+    language: 'fr',
+    vad_filter: true,
+  });
+  assert.equal(result.ok, true);
+  assert.equal(result.zero_added_cost, true);
+  assert.equal(result.model, WORKERS_AI_TRANSCRIPTION_MODEL);
+  assert.equal(result.text, 'Bonjour depuis MEL.');
+  assert.equal(result.word_count, 3);
+  assert.equal(result.artifact, undefined);
+  assert.equal(f.calls(), 1);
+});
+
+test('Whisper inline transcription fails before AI when audio requires chunking', async () => {
+  const f = fixture({
+    proofJson: proof([WORKERS_AI_TRANSCRIPTION_MODEL]),
+    run: async () => { throw new Error('AI_SHOULD_NOT_RUN'); },
+  });
+  await assert.rejects(
+    () => transcribeAudioBytes(f.env, new Uint8Array(MAX_INLINE_TRANSCRIPTION_BYTES + 1)),
+    { code: 'AUDIO_TRANSCRIPTION_REQUIRES_CHUNKING', status: 413 },
+  );
+  assert.equal(f.calls(), 0);
 });
