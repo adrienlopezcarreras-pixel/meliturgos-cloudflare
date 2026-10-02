@@ -21,6 +21,12 @@ test('production proof exercises live Model Council with negative-feedback recov
   assert.match(workflow, /synthesis_status/);
 });
 
+test('production Council proof uses the same bounded three-model budget already validated by release', () => {
+  assert.match(workflow, /"maxCandidates":3,"timeoutMs":60000/);
+  assert.match(workflow, /COUNCIL_MAX_ATTEMPTS=4/);
+  assert.match(workflow, /--max-time 130/);
+});
+
 test('production proof verifies rich renderer in Normal and Full browser surfaces', () => {
   assert.match(workflow, /#promptInput/);
   assert.match(workflow, /#messages \.msg\.mel > div\[data-rich-rendered="true"\]/);
