@@ -27,6 +27,7 @@ const browserStepSchema = {
         authorization: { type: 'string', minLength: 1, maxLength: 2048 },
         'x-mel-release-smoke': { type: 'string', minLength: 1, maxLength: 2048 },
         'x-mel-launch-bootstrap': { type: 'string', minLength: 1, maxLength: 2048 },
+        'x-mel-parallel-proof': { type: 'string', minLength: 1, maxLength: 2048 },
       },
       additionalProperties: false,
     },
