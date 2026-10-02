@@ -56,9 +56,16 @@ async function saveState(db,state){
     .bind(STATE_ID,JSON.stringify(state),Date.now()).run();
 }
 async function onlineWindows(db,{now=Date.now(),onlineWithinMs=35000}={}){
-  return db.prepare(`SELECT id,last_seen_at,halted,platform FROM computer_devices
+  const rows=await db.prepare(`SELECT id,last_seen_at,halted,platform,metadata FROM computer_devices
     WHERE lower(platform)='windows' AND halted=0 AND last_seen_at>=?
-    ORDER BY last_seen_at DESC LIMIT 1`).bind(now-onlineWithinMs).first();
+    ORDER BY last_seen_at DESC LIMIT 5`).bind(now-onlineWithinMs).all();
+  return (rows?.results||[]).find(row=>{
+    try{
+      const metadata=JSON.parse(row.metadata||'{}');
+      const engineHeartbeatAt=Number(metadata.engine_heartbeat_at||0);
+      return engineHeartbeatAt>0&&now-engineHeartbeatAt<onlineWithinMs;
+    }catch{return false;}
+  })||null;
 }
 async function markCandidate(store,spec,{now,status='UNVERIFIED',metadata={}}={}){
   await store.upsertFromWatch({results:[{
