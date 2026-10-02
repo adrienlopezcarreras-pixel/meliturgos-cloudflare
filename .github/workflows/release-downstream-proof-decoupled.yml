@@ -1,0 +1,240 @@
+name: release-downstream-proof-decoupled
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/release-downstream-proof-decoupled.yml'
+  workflow_dispatch:
+    inputs:
+      expected_sha:
+        description: "Exact deployed release SHA to prove"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  TARGET_SHA: ${{ inputs.expected_sha || '83a7c7936a592729bcd33e72d5f84de675679c51' }}
+  BASE_URL: https://meliturgos.adrien-lopezcarreras.workers.dev
+
+jobs:
+  http:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Verify production HTTP transport
+        shell: bash
+        run: |
+          set -euo pipefail
+          CODE="$(curl --silent --show-error --location --retry 5 --retry-all-errors --retry-delay 3 --max-time 30             --output production-root.html --write-out '%{http_code}' "${BASE_URL}")"
+          case "$CODE" in
+            2??|3??|401) ;;
+            *) echo "Unexpected production HTTP status: $CODE"; exit 22 ;;
+          esac
+          TARGET_SHA="${TARGET_SHA}" CODE="$CODE" node - <<'NODE'
+          const fs=require('fs');
+          fs.writeFileSync('http-production-proof.json',JSON.stringify({
+            schema:'mel.release-downstream-http-proof/v1',
+            target_sha:process.env.TARGET_SHA,
+            http_status:Number(process.env.CODE),
+            transport_ok:true,
+            exact_sha_verified:false,
+            note:'Exact SHA is verified by the protected production jobs before capability proofs.'
+          },null,2));
+          NODE
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: downstream-http-proof-${{ env.TARGET_SHA }}
+          path: http-production-proof.json
+          if-no-files-found: error
+          retention-days: 14
+
+  browser:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    concurrency:
+      group: mel-launch-bootstrap-token
+      cancel-in-progress: false
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Prove exact deployed SHA and browser.execute
+        shell: bash
+        run: |
+          set -euo pipefail
+          TOKEN="$(openssl rand -hex 32)"
+          SESSION="decoupled-browser-${TARGET_SHA:0:12}"
+          echo "::add-mask::${TOKEN}"
+          cleanup(){ set +e; printf 'y\n' | npx wrangler secret delete MEL_LAUNCH_BOOTSTRAP_TOKEN --env="" >/tmp/browser-secret-delete.log 2>&1 || true; }
+          trap cleanup EXIT
+          printf '%s' "${TOKEN}" | npx wrangler secret put MEL_LAUNCH_BOOTSTRAP_TOKEN --env=""
+
+          READY=0
+          for ATTEMPT in $(seq 1 12); do
+            CODE="$(curl --silent --show-error --max-time 60               --header "x-mel-release-smoke: 1"               --header "x-mel-launch-bootstrap: ${TOKEN}"               --output sha-status.json --write-out '%{http_code}'               "${BASE_URL}/api/gen2/autonomy/sovereignty" || true)"
+            if [ "$CODE" = "200" ]; then READY=1; break; fi
+            sleep 2
+          done
+          test "$READY" = "1"
+          TARGET_SHA="${TARGET_SHA}" node - <<'NODE'
+          const d=require('./sha-status.json');
+          const expected=String(process.env.TARGET_SHA).toLowerCase();
+          const actual=String(d?.deployed_sha||'').toLowerCase();
+          if(actual!==expected) throw new Error('DEPLOYED_SHA_MISMATCH:'+actual+':'+expected);
+          console.log('Exact deployed SHA verified: '+actual);
+          NODE
+
+          export SESSION
+          BODY="$(node -e 'process.stdout.write(JSON.stringify({id:"browser.execute",input:{session_id:process.env.SESSION,device:{id:"cloudflare-browser",capabilities:["browser.control"]},sandbox:{allowed_origins:["https://meliturgos.adrien-lopezcarreras.workers.dev"],max_steps:2},approvals:[],steps:[{id:"navigate",action:"browser.navigate",url:"https://meliturgos.adrien-lopezcarreras.workers.dev/about"},{id:"read",action:"browser.read-text",selector:"body"}]}}))')"
+          CODE="$(curl --silent --show-error --max-time 90             --header "x-mel-release-smoke: 1"             --header "x-mel-launch-bootstrap: ${TOKEN}"             --header "content-type: application/json"             --data "${BODY}"             --output browser-proof.json --write-out '%{http_code}'             "${BASE_URL}/api/gen2/capabilities/execute" || true)"
+          test "$CODE" = "200"
+          TARGET_SHA="${TARGET_SHA}" node - <<'NODE'
+          const fs=require('fs'),d=require('./browser-proof.json'),r=d?.result||{};
+          if(d?.ok!==true||d?.capability!=='browser.execute'||r?.ok!==true||Number(r?.steps_completed||0)!==2) throw new Error('BROWSER_PROOF_FAILED');
+          const read=(r.outputs||[]).find(x=>x?.step_id==='read')?.output;
+          if(read?.kind!=='text'||!String(read?.text||'').includes('Assistant personnel connecté')) throw new Error('BROWSER_TEXT_MISSING');
+          fs.writeFileSync('browser-production-proof.json',JSON.stringify({schema:'mel.decoupled-browser-proof/v1',source_sha:process.env.TARGET_SHA,browser_execute:true,secret_values_exposed:false},null,2));
+          NODE
+          cleanup
+          trap - EXIT
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: downstream-browser-proof-${{ env.TARGET_SHA }}
+          path: browser-production-proof.json
+          if-no-files-found: error
+          retention-days: 14
+
+  file:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    concurrency:
+      group: mel-launch-bootstrap-token
+      cancel-in-progress: false
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Prove exact deployed SHA and MEL-FILE-01
+        shell: bash
+        run: |
+          set -euo pipefail
+          TOKEN="$(openssl rand -hex 32)"
+          SESSION="decoupled-file-${TARGET_SHA:0:12}"
+          export TOKEN SESSION TARGET_SHA
+          echo "::add-mask::${TOKEN}"
+          cleanup(){ set +e; printf 'y\n' | npx wrangler secret delete MEL_LAUNCH_BOOTSTRAP_TOKEN --env="" >/tmp/file-secret-delete.log 2>&1 || true; }
+          trap cleanup EXIT
+          printf '%s' "${TOKEN}" | npx wrangler secret put MEL_LAUNCH_BOOTSTRAP_TOKEN --env=""
+
+          READY=0
+          for ATTEMPT in $(seq 1 12); do
+            CODE="$(curl --silent --show-error --max-time 60 --header "x-mel-release-smoke: 1" --header "x-mel-launch-bootstrap: ${TOKEN}" --output sha-status.json --write-out '%{http_code}' "${BASE_URL}/api/gen2/autonomy/sovereignty" || true)"
+            if [ "$CODE" = "200" ]; then READY=1; break; fi
+            sleep 2
+          done
+          test "$READY" = "1"
+          node -e 'const d=require("./sha-status.json");if(String(d?.deployed_sha||"").toLowerCase()!==String(process.env.TARGET_SHA).toLowerCase())throw new Error("DEPLOYED_SHA_MISMATCH")'
+
+          BODY="$(node - <<'NODE'
+          const origin='https://meliturgos.adrien-lopezcarreras.workers.dev';
+          const s=process.env.SESSION,t=process.env.TOKEN,sha=process.env.TARGET_SHA;
+          process.stdout.write(JSON.stringify({id:'browser.execute',input:{session_id:s,device:{id:'cloudflare-browser',capabilities:['browser.control']},sandbox:{allowed_origins:[origin],max_steps:7},approvals:[
+            {approved:true,session_id:s,step_id:'headers',action:'browser.set-headers'},
+            {approved:true,session_id:s,step_id:'upload-normal',action:'browser.upload-file'},
+            {approved:true,session_id:s,step_id:'upload-full',action:'browser.upload-file'}
+          ],steps:[
+            {id:'headers',action:'browser.set-headers',headers:{'x-mel-release-smoke':'1','x-mel-launch-bootstrap':t}},
+            {id:'normal',action:'browser.navigate',url:origin+'/'},
+            {id:'upload-normal',action:'browser.upload-file',selector:'#fileInput',file_name:'mel-file-normal-proof.txt',mime_type:'text/plain',file_text:'MEL_FILE_NORMAL_PROOF_'+sha},
+            {id:'wait-normal',action:'browser.wait-text',selector:'#attachments',text:'mel-file-normal-proof.txt'},
+            {id:'full',action:'browser.navigate',url:origin+'/professor'},
+            {id:'upload-full',action:'browser.upload-file',selector:'#chatFileInput',file_name:'mel-file-full-proof.txt',mime_type:'text/plain',file_text:'MEL_FILE_FULL_PROOF_'+sha},
+            {id:'wait-full',action:'browser.wait-text',selector:'#chatAttachments',text:'mel-file-full-proof.txt'}
+          ]}}));
+          NODE
+          )"
+          CODE="$(curl --silent --show-error --max-time 120 --header "x-mel-release-smoke: 1" --header "x-mel-launch-bootstrap: ${TOKEN}" --header "content-type: application/json" --data "${BODY}" --output file-proof.json --write-out '%{http_code}' "${BASE_URL}/api/gen2/capabilities/execute" || true)"
+          test "$CODE" = "200"
+          node - <<'NODE'
+          const fs=require('fs'),d=require('./file-proof.json'),r=d?.result||{},out=id=>(r.outputs||[]).find(x=>x?.step_id===id)?.output||{};
+          if(d?.ok!==true||r?.ok!==true||Number(r?.steps_completed||0)!==7)throw new Error('MEL_FILE_PROOF_FAILED');
+          if(out('upload-normal').kind!=='upload'||out('wait-normal').matched!==true||out('upload-full').kind!=='upload'||out('wait-full').matched!==true)throw new Error('MEL_FILE_STAGING_FAILED');
+          fs.writeFileSync('mel-file-browser-production-proof.json',JSON.stringify({schema:'mel.file-browser-production-proof/v1',source_sha:process.env.TARGET_SHA,normal:{upload:true,staged:true},full:{upload:true,staged:true},browser_execute:true,secret_values_exposed:false},null,2));
+          NODE
+          cleanup
+          trap - EXIT
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: downstream-file-proof-${{ env.TARGET_SHA }}
+          path: mel-file-browser-production-proof.json
+          if-no-files-found: error
+          retention-days: 14
+
+  sovereignty:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    concurrency:
+      group: mel-launch-bootstrap-token
+      cancel-in-progress: false
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_SHA }}
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Capture exact-SHA sovereignty status
+        shell: bash
+        run: |
+          set -euo pipefail
+          TOKEN="$(openssl rand -hex 32)"
+          echo "::add-mask::${TOKEN}"
+          cleanup(){ set +e; printf 'y\n' | npx wrangler secret delete MEL_LAUNCH_BOOTSTRAP_TOKEN --env="" >/tmp/sov-secret-delete.log 2>&1 || true; }
+          trap cleanup EXIT
+          printf '%s' "${TOKEN}" | npx wrangler secret put MEL_LAUNCH_BOOTSTRAP_TOKEN --env=""
+          READY=0
+          for ATTEMPT in $(seq 1 12); do
+            CODE="$(curl --silent --show-error --max-time 60 --header "x-mel-release-smoke: 1" --header "x-mel-launch-bootstrap: ${TOKEN}" --output sovereignty.json --write-out '%{http_code}' "${BASE_URL}/api/gen2/autonomy/sovereignty" || true)"
+            if [ "$CODE" = "200" ]; then READY=1; break; fi
+            sleep 2
+          done
+          test "$READY" = "1"
+          TARGET_SHA="${TARGET_SHA}" node - <<'NODE'
+          const fs=require('fs'),d=require('./sovereignty.json'),expected=String(process.env.TARGET_SHA).toLowerCase(),actual=String(d?.deployed_sha||'').toLowerCase();
+          if(d?.ok!==true||d?.status!=='TECHNICAL_SOVEREIGNTY_STATUS')throw new Error('SOVEREIGNTY_STATUS_INVALID');
+          if(actual!==expected)throw new Error('DEPLOYED_SHA_MISMATCH:'+actual+':'+expected);
+          const proof={schema:'mel.decoupled-sovereignty-proof/v1',source_sha:expected,fully_sovereign:d?.fully_sovereign===true,covered_layers:d?.alternative_coverage?.covered_layers||[],uncovered_layers:d?.alternative_coverage?.uncovered_layers||[],ready_layer_count:Number(d?.architecture_contract?.ready_layer_count||0),layer_count:Number(d?.architecture_contract?.layer_count||0),registry_count:Number(d?.registry_count||0),secret_values_exposed:false};
+          fs.writeFileSync('sovereignty-production-proof.json',JSON.stringify(proof,null,2));
+          NODE
+          cleanup
+          trap - EXIT
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: downstream-sovereignty-proof-${{ env.TARGET_SHA }}
+          path: sovereignty-production-proof.json
+          if-no-files-found: error
+          retention-days: 14
