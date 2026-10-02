@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { maybeHandleConnectionSettingsApi, probeYahooDirect, pipedreamAccessToken, pipedreamAccountStatus, testPipedreamCredentials } from '../../src/api/connection-settings-api.js';
+import { maybeHandleConnectionSettingsApi, probeYahooDirect, pipedreamAccessToken, pipedreamAccountStatus, testPipedreamCredentials, testPipedreamGoogleTasksRead } from '../../src/api/connection-settings-api.js';
 
 function compact(sql) {
   return String(sql).replace(/\s+/g, ' ').trim();
@@ -363,4 +363,69 @@ test('Pipedream account status uses the server access token and filters by MEL e
   assert.match(accountsCall.url, /external_user_id=adrien/);
   assert.equal(accountsCall.init.headers.authorization, 'Bearer server-token');
   assert.equal(accountsCall.init.headers['x-pd-environment'], 'production');
+});
+
+
+test('Pipedream Google Tasks proof executes the read-only List Task Lists action without returning private content', async () => {
+  const calls = [];
+  const result = await testPipedreamGoogleTasksRead({
+    project_id: 'proj_demo123',
+    client_id: 'client-id',
+    client_secret: 'client-secret',
+    environment: 'production',
+  }, 'adrien', {
+    fetcher: async (url, init) => {
+      calls.push({ url: String(url), init });
+      if (String(url).endsWith('/v1/oauth/token')) {
+        return Response.json({ access_token: 'server-token', token_type: 'Bearer', expires_in: 3600 });
+      }
+      if (String(url).includes('/accounts?')) {
+        return Response.json({
+          data: [
+            { id: 'apn_tasks', name: 'Google Tasks', healthy: true, dead: false, app: { name_slug: 'google_tasks' } },
+          ],
+        });
+      }
+      if (String(url).endsWith('/actions/run')) {
+        return Response.json({ exports: { taskLists: [{ id: 'private-list-id', title: 'Private title' }] } });
+      }
+      return Response.json({}, { status: 404 });
+    },
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.action_id, 'google_tasks-list-task-lists');
+  assert.equal(result.live_action, true);
+  assert.equal(result.read_only, true);
+  assert.equal(result.account_connected, true);
+  assert.equal(result.private_content_returned, false);
+  assert.equal(JSON.stringify(result).includes('private-list-id'), false);
+  assert.equal(JSON.stringify(result).includes('Private title'), false);
+
+  const run = calls.find(call => call.url.endsWith('/actions/run'));
+  assert.ok(run);
+  assert.equal(run.init.method, 'POST');
+  assert.equal(run.init.headers.authorization, 'Bearer server-token');
+  const body = JSON.parse(run.init.body);
+  assert.equal(body.external_user_id, 'adrien');
+  assert.equal(body.id, 'google_tasks-list-task-lists');
+  assert.deepEqual(body.configured_props.google_tasks, { authProvisionId: 'apn_tasks' });
+});
+
+test('Pipedream Google Tasks proof fails closed without a healthy linked account', async () => {
+  await assert.rejects(
+    testPipedreamGoogleTasksRead({
+      project_id: 'proj_demo123',
+      client_id: 'client-id',
+      client_secret: 'client-secret',
+      environment: 'production',
+    }, 'adrien', {
+      fetcher: async (url) => {
+        if (String(url).endsWith('/v1/oauth/token')) return Response.json({ access_token: 'server-token' });
+        if (String(url).includes('/accounts?')) return Response.json({ data: [] });
+        throw new Error('ACTION_MUST_NOT_RUN');
+      },
+    }),
+    error => error?.code === 'PIPEDREAM_GOOGLE_TASKS_ACCOUNT_REQUIRED',
+  );
 });
