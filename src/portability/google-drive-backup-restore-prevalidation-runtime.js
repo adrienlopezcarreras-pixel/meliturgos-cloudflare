@@ -114,9 +114,9 @@ async function provePipedreamDriveBackupRestoreAlternative({
 
   const created=await pipedreamRunAction({
     config:pd.config,owner:pd.owner,accessToken:pd.access_token,fetchImpl,
-    actionId:'google_drive-create-file-from-text',
+    actionId:'google_drive-create-text-file',
     configuredProps:{
-      googleDrive:auth,
+      google_drive:auth,
       name,
       content:backup.encrypted_text,
       mimeType:'text/plain',
@@ -130,7 +130,7 @@ async function provePipedreamDriveBackupRestoreAlternative({
     config:pd.config,owner:pd.owner,accessToken:pd.access_token,fetchImpl,
     actionId:'google_drive-download-file',
     configuredProps:{
-      googleDrive:auth,
+      google_drive:auth,
       fileId,
       mimeType:'text/plain',
       getBufferResponse:true,
@@ -151,7 +151,7 @@ async function provePipedreamDriveBackupRestoreAlternative({
   const rollback=await pipedreamRunAction({
     config:pd.config,owner:pd.owner,accessToken:pd.access_token,fetchImpl,
     actionId:'google_drive-delete-file',
-    configuredProps:{googleDrive:auth,fileId},
+    configuredProps:{google_drive:auth,fileId},
   });
   const rollbackValue=actionReturn(rollback)||{};
   if(rollbackValue?.success!==true&&clean(rollbackValue?.fileId,300)!==fileId){
