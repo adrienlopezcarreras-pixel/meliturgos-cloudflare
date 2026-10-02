@@ -860,16 +860,13 @@ function recordCodeTargetFailure(state,endpoint,error,now=Date.now()){
   // this code-sync cycle so one flaky provider cannot monopolize the last shard.
   const failed=new Set(Array.isArray(state.failed_endpoint_ids)?state.failed_endpoint_ids:[]);
   const cycleQuarantine=new Set(Array.isArray(state.cycle_quarantined_endpoint_ids)?state.cycle_quarantined_endpoint_ids:[]);
-  if(classification.permanent){
-    failed.add(id);
-    cycleQuarantine.delete(id);
-  }else{
-    failed.delete(id);
-    if(classification.retryable&&count>=2){
-      cycleQuarantine.add(id);
-      state.last_code_pool_refresh_at=null;
-      state.code_pool_refresh_forced=true;
-    }
+  if(classification.permanent)failed.add(id);
+  else failed.delete(id);
+  if(classification.permanent)cycleQuarantine.delete(id);
+  else if(classification.retryable&&count>=2){
+    cycleQuarantine.add(id);
+    state.last_code_pool_refresh_at=null;
+    state.code_pool_refresh_forced=true;
   }
   state.failed_endpoint_ids=[...failed];
   state.cycle_quarantined_endpoint_ids=[...cycleQuarantine];
