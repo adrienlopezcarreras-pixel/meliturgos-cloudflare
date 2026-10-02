@@ -665,6 +665,7 @@ export async function testPipedreamGoogleTasksRead(config, contextOwner, options
       id: actionId,
       configured_props: {
         google_tasks: { authProvisionId: account.id },
+        maxResults: 1,
       },
     }),
     signal: options.signal,

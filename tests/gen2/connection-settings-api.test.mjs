@@ -410,6 +410,7 @@ test('Pipedream Google Tasks proof executes the read-only List Task Lists action
   assert.equal(body.external_user_id, 'adrien');
   assert.equal(body.id, 'google_tasks-list-task-lists');
   assert.deepEqual(body.configured_props.google_tasks, { authProvisionId: 'apn_tasks' });
+  assert.equal(body.configured_props.maxResults, 1);
 });
 
 test('Pipedream Google Tasks proof fails closed without a healthy linked account', async () => {
