@@ -85,6 +85,19 @@ const RELEASE_SMOKE_ALLOWLIST = Object.freeze(new Map([
   ])],
 ]));
 
+const PARALLEL_PROOF_ALLOWLIST = Object.freeze(new Map([
+  ['POST', new Set([
+    '/api/gen2/capabilities/execute',
+  ])],
+  ['GET', new Set([
+    '/api/gen2/code/self-check',
+    '/api/gen2/autonomy/sovereignty',
+    '/',
+    '/professor',
+    '/normal-runtime.js',
+  ])],
+]));
+
 export function isReleaseSmokeRequest(request, env) {
   const url = new URL(request.url);
   const method = String(request.method || 'GET').toUpperCase();
@@ -93,7 +106,16 @@ export function isReleaseSmokeRequest(request, env) {
   if (request.headers.get('x-mel-release-smoke') !== '1') return false;
   const expected = withoutTerminalNewline(env?.MEL_LAUNCH_BOOTSTRAP_TOKEN || '');
   const supplied = withoutTerminalNewline(request.headers.get('x-mel-launch-bootstrap') || '');
-  return expected.length >= 32 && supplied.length === expected.length && safeEqual(supplied, expected);
+  const primaryAuthorized = expected.length >= 32 && supplied.length === expected.length && safeEqual(supplied, expected);
+  if (primaryAuthorized) return true;
+
+  const parallelExpected = withoutTerminalNewline(env?.MEL_PARALLEL_PROOF_TOKEN || '');
+  const parallelSupplied = withoutTerminalNewline(request.headers.get('x-mel-parallel-proof') || '');
+  const parallelAuthorized = parallelExpected.length >= 32
+    && parallelSupplied.length === parallelExpected.length
+    && safeEqual(parallelSupplied, parallelExpected);
+  if (!parallelAuthorized) return false;
+  return PARALLEL_PROOF_ALLOWLIST.get(method)?.has(url.pathname) === true;
 }
 
 function decodeBasicPayload(encoded) {
