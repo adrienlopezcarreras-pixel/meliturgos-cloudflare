@@ -103,12 +103,12 @@ export class CapabilityBus {
       requireValue(record.enabled, 'CAPABILITY_DISABLED', 409);
       authorize(record.permissions,context);
       assertCapabilityApproval(record, context);
+      validate(input,record.input_schema);
       if (entry.healthcheck) {
         await this.refreshHealth(id);
         record = this.describe(id);
       }
       requireValue(record.health !== 'UNAVAILABLE', 'CAPABILITY_UNAVAILABLE', 503);
-      validate(input,record.input_schema);
     } catch (error) {
       await this.audit({
         ...event,
