@@ -58,6 +58,10 @@ function b64Utf8(value) {
   return btoa(binary);
 }
 
+function b64UrlUtf8(value) {
+  return b64Utf8(value).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/g, '');
+}
+
 function quotedImap(value) {
   return '"' + String(value ?? '').replaceAll('\\', '\\\\').replaceAll('"', '\\"') + '"';
 }
@@ -652,31 +656,61 @@ export async function testPipedreamGoogleTasksRead(config, contextOwner, options
 
   const accessToken = await pipedreamAccessToken(config, { fetcher, signal: options.signal });
   const actionId = 'google_tasks-list-task-lists';
-  await pipedreamJson(fetcher, 'https://api.pipedream.com/v1/connect/' + encodeURIComponent(projectId) + '/actions/run', {
-    method: 'POST',
-    headers: {
-      authorization: 'Bearer ' + accessToken,
-      'content-type': 'application/json',
-      accept: 'application/json',
-      'x-pd-environment': environment,
-    },
-    body: JSON.stringify({
-      external_user_id: contextOwner,
-      id: actionId,
-      configured_props: {
-        google_tasks: { authProvisionId: account.id },
-        maxResults: 1,
+  let transport = 'action';
+  try {
+    await pipedreamJson(fetcher, 'https://api.pipedream.com/v1/connect/' + encodeURIComponent(projectId) + '/actions/run', {
+      method: 'POST',
+      headers: {
+        authorization: 'Bearer ' + accessToken,
+        'content-type': 'application/json',
+        accept: 'application/json',
+        'x-pd-environment': environment,
       },
-    }),
-    signal: options.signal,
-  }, 'PIPEDREAM_GOOGLE_TASKS_READ_FAILED');
+      body: JSON.stringify({
+        external_user_id: contextOwner,
+        id: actionId,
+        configured_props: {
+          google_tasks: { authProvisionId: account.id },
+          maxResults: 1,
+        },
+      }),
+      signal: options.signal,
+    }, 'PIPEDREAM_GOOGLE_TASKS_READ_FAILED');
+  } catch {
+    // The pre-built action can temporarily reject a healthy managed account
+    // even though the Connect API proxy can still authenticate it. Prove a
+    // real read-only Google Tasks request through the same linked account.
+    const target = 'https://tasks.googleapis.com/tasks/v1/users/@me/lists?maxResults=1';
+    const params = new URLSearchParams({
+      external_user_id: contextOwner,
+      account_id: account.id,
+    });
+    await pipedreamJson(
+      fetcher,
+      'https://api.pipedream.com/v1/connect/' + encodeURIComponent(projectId)
+        + '/proxy/' + b64UrlUtf8(target) + '?' + params.toString(),
+      {
+        method: 'GET',
+        headers: {
+          authorization: 'Bearer ' + accessToken,
+          accept: 'application/json',
+          'x-pd-environment': environment,
+        },
+        signal: options.signal,
+      },
+      'PIPEDREAM_GOOGLE_TASKS_PROXY_READ_FAILED',
+    );
+    transport = 'proxy';
+  }
 
   return {
     ok: true,
     provider: 'pipedream',
     app: 'google_tasks',
     action_id: actionId,
-    live_action: true,
+    transport,
+    live_action: transport === 'action',
+    live_proxy: transport === 'proxy',
     read_only: true,
     account_connected: true,
     private_content_returned: false,
