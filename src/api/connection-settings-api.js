@@ -259,6 +259,39 @@ async function oauthStatus(env, provider, contextOwner) {
   };
 }
 
+export function classifyOAuthProbeFailure({ provider, connectorId, status, body } = {}) {
+  const upstreamStatus = Number(status) || 0;
+  const serialized = (() => {
+    try { return JSON.stringify(body || {}).toLowerCase(); }
+    catch { return ''; }
+  })();
+  let code = 'CONNECTION_LIVE_PROBE_FAILED';
+  let actionRequired = null;
+
+  if (provider === 'google' && connectorId === 'google-tasks') {
+    if (upstreamStatus === 401) {
+      code = 'GOOGLE_TASKS_REAUTH_REQUIRED';
+      actionRequired = 'RECONNECT_GOOGLE';
+    } else if (upstreamStatus === 403 && /(accessnotconfigured|service_disabled|has not been used in project|api[^a-z0-9]+(?:is )?disabled)/i.test(serialized)) {
+      code = 'GOOGLE_TASKS_API_NOT_ENABLED';
+      actionRequired = 'ENABLE_GOOGLE_TASKS_API';
+    } else if (upstreamStatus === 403 && /(insufficientpermissions|insufficient[^a-z0-9]+(?:authentication )?scopes|access_token_scope_insufficient)/i.test(serialized)) {
+      code = 'GOOGLE_TASKS_RECONSENT_REQUIRED';
+      actionRequired = 'RECONNECT_GOOGLE_WITH_TASKS_SCOPE';
+    } else if (upstreamStatus === 403) {
+      code = 'GOOGLE_TASKS_ACCESS_FORBIDDEN';
+      actionRequired = 'VERIFY_GOOGLE_TASKS_API_AND_CONSENT';
+    }
+  }
+
+  return Object.freeze({
+    code,
+    status: upstreamStatus === 401 || upstreamStatus === 403 ? 409 : 502,
+    upstream_status: upstreamStatus || null,
+    action_required: actionRequired,
+  });
+}
+
 async function testOAuthConnector(env, provider, connectorId, contextOwner, signal) {
   const resolved = await resolveConnectionOAuthEnv(env, provider, contextOwner);
   const context = { owner: contextOwner, signal };
@@ -290,10 +323,23 @@ async function testOAuthConnector(env, provider, connectorId, contextOwner, sign
     signal: signal || AbortSignal.timeout(12_000),
   });
   if (!response.ok) {
-    await response.body?.cancel?.();
-    const error = new Error('CONNECTION_LIVE_PROBE_FAILED');
-    error.code = 'CONNECTION_LIVE_PROBE_FAILED';
-    error.status = response.status === 401 || response.status === 403 ? 409 : 502;
+    const text = await response.text().catch(() => '');
+    let providerBody = {};
+    if (text) {
+      try { providerBody = JSON.parse(text); }
+      catch { providerBody = {}; }
+    }
+    const failure = classifyOAuthProbeFailure({
+      provider,
+      connectorId,
+      status: response.status,
+      body: providerBody,
+    });
+    const error = new Error(failure.code);
+    error.code = failure.code;
+    error.status = failure.status;
+    error.upstream_status = failure.upstream_status;
+    error.action_required = failure.action_required;
     throw error;
   }
   await response.body?.cancel?.();
