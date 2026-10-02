@@ -835,6 +835,11 @@ function prioritizeExternalCodeCandidates(candidates,state){
     String(a.id).localeCompare(String(b.id))
   );
 }
+function codeTargetDiscoveryRefreshNeeded(candidates,state){
+  if(!Array.isArray(candidates)||candidates.length===0)return true;
+  const attempted=new Set(Array.isArray(state?.attempted_endpoints)?state.attempted_endpoints:[]);
+  return candidates.every(endpoint=>attempted.has(endpoint.id));
+}
 function recordCodeTargetFailure(state,endpoint,error,now=Date.now()){
   const id=String(endpoint?.id||'').trim();
   if(!id)throw new Error('CODE_TARGET_ID_REQUIRED');
@@ -1216,8 +1221,10 @@ async function ensureExternalCodeArchive(env,c,codeBackup){
       return prioritizeExternalCodeCandidates(ranked,state);
     };
     let candidates=buildCandidates();
-    if(!candidates.length){
-      state.code_pool_exhaustions=(Number(state.code_pool_exhaustions)||0)+1;
+    const retryCycleExhausted=candidates.length>0&&codeTargetDiscoveryRefreshNeeded(candidates,state);
+    if(!candidates.length||retryCycleExhausted){
+      if(!candidates.length)state.code_pool_exhaustions=(Number(state.code_pool_exhaustions)||0)+1;
+      if(retryCycleExhausted)state.code_pool_retry_cycles=(Number(state.code_pool_retry_cycles)||0)+1;
       const now=Date.now(),lastRefresh=Date.parse(String(state.last_code_pool_refresh_at||''));
       const refreshDue=!Number.isFinite(lastRefresh)||now-lastRefresh>=60000;
       let discoveryRefresh=null;
@@ -1225,12 +1232,17 @@ async function ensureExternalCodeArchive(env,c,codeBackup){
         state.last_code_pool_refresh_at=new Date(now).toISOString();
         state.code_pool_refreshes=(Number(state.code_pool_refreshes)||0)+1;
         try{
+          const refreshExclusions=[...new Set([
+            ...used,
+            ...(state.failed_endpoint_ids||[]),
+            ...(retryCycleExhausted?(state.attempted_endpoints||[]):[])
+          ])];
           discoveryRefresh=await discoverAutonomousRepositories(env,{
             masterKey:c.master,
             vaultId:c.vaultId,
             requiredBytes:shard.length,
             selectionCount:goal,
-            excludeEndpointIds:[...used,...(state.failed_endpoint_ids||[])]
+            excludeEndpointIds:refreshExclusions
           });
           const fresh=[...(discoveryRefresh?.qualified||[]),...(discoveryRefresh?.selected||[])];
           const codeCandidateSeeds=[...fresh,...(discoveryRefresh?.eligible||[])];
@@ -1407,7 +1419,7 @@ export const __shardvaultTest = Object.freeze({
   shardVaultWriteFailureEndpoint, rotateActiveEndpointsForWriteFailure, excludeShardVaultEndpoints,
   rankExternalCodeCandidates, assignDistinctExternalTargets, byteArraysEqual, reconstructExternalCodeArchive,
   codeTargetFailureClass, codeTargetRetryDelayMs, codeTargetAvailableNow, prioritizeExternalCodeCandidates,
-  recordCodeTargetFailure, clearCodeTargetFailure, roundtripCodeFallbackCandidates, codeFragmentDeadlineMs
+  codeTargetDiscoveryRefreshNeeded, recordCodeTargetFailure, clearCodeTargetFailure, roundtripCodeFallbackCandidates, codeFragmentDeadlineMs
 });
 
 
