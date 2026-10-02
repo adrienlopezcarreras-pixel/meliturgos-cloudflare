@@ -536,6 +536,7 @@ jobs:
               '@cf/zai-org/glm-4.7-flash',
               '@cf/black-forest-labs/flux-1-schnell',
               '@cf/deepgram/aura-1',
+              '@cf/openai/whisper-large-v3-turbo',
             ],
             verified_at:new Date(now).toISOString(),
             expires_at:new Date(now+30*60*1000).toISOString(),
