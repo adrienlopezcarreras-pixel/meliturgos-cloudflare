@@ -20,7 +20,7 @@ test('ShardVault provider adapters reflect current official API contracts', () =
   assert.match(autonomous,/page\+'\/raw\/'/);
   assert.match(autonomous,/https:\/\/paste\.myst\.rs\/api\/v2\/paste\?mel_object=/);
   assert.match(autonomous,/language:'Plain Text'/);
-  assert.match(autonomous,/expiry_days:'365'/);
+  assert.match(autonomous,/form\.append\('expiry_days','365'\)/);
   assert.match(autonomous,/https:\/\/dpaste\.com\/api\//);
   assert.match(autonomous,/form\.append\('content',b64u\(payload\)\)/);
   assert.match(autonomous,/adapter:'fileditch_b64'/);
