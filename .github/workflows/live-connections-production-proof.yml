@@ -160,8 +160,10 @@ jobs:
           if probe google_tasks /api/gen2/connections/google/test '{"connector_id":"google-tasks"}'; then
             GOOGLE_TASKS_OK=1
           elif [ "${PIPEDREAM_OK}" = "1" ] && has_pd_app google_tasks; then
-            GOOGLE_TASKS_OK=1
-            echo 'google_tasks: {"ok":true,"provider":"pipedream","app":"google_tasks","linked_account":true}'
+            if probe google_tasks_pipedream_read /api/gen2/connections/pipedream/test '{"probe":"google_tasks_read"}'; then
+              GOOGLE_TASKS_OK=1
+              echo 'google_tasks: {"ok":true,"provider":"pipedream","app":"google_tasks","linked_account":true,"live_read_action":true,"private_content_returned":false}'
+            fi
           fi
           if [ "${GOOGLE_TASKS_OK}" != "1" ]; then FAILURES=$((FAILURES+1)); fi
 

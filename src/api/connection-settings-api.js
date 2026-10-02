@@ -634,6 +634,54 @@ async function pipedreamAccounts(env, contextOwner, requestUrl, signal) {
   return pipedreamAccountStatus(stored, contextOwner, { signal });
 }
 
+export async function testPipedreamGoogleTasksRead(config, contextOwner, options = {}) {
+  const fetcher = options.fetcher || fetch;
+  const environment = config?.environment === 'development' ? 'development' : 'production';
+  const projectId = clean(config?.project_id, 300);
+  const accounts = await pipedreamAccountStatus(config, contextOwner, {
+    fetcher,
+    signal: options.signal,
+  });
+  const account = accounts.accounts.find(row => row.app === 'google_tasks' && row.healthy === true);
+  if (!account?.id) {
+    const error = new Error('PIPEDREAM_GOOGLE_TASKS_ACCOUNT_REQUIRED');
+    error.code = 'PIPEDREAM_GOOGLE_TASKS_ACCOUNT_REQUIRED';
+    error.status = 409;
+    throw error;
+  }
+
+  const accessToken = await pipedreamAccessToken(config, { fetcher, signal: options.signal });
+  const actionId = 'google_tasks-list-task-lists';
+  await pipedreamJson(fetcher, 'https://api.pipedream.com/v1/connect/' + encodeURIComponent(projectId) + '/actions/run', {
+    method: 'POST',
+    headers: {
+      authorization: 'Bearer ' + accessToken,
+      'content-type': 'application/json',
+      accept: 'application/json',
+      'x-pd-environment': environment,
+    },
+    body: JSON.stringify({
+      external_user_id: contextOwner,
+      id: actionId,
+      configured_props: {
+        google_tasks: { authProvisionId: account.id },
+      },
+    }),
+    signal: options.signal,
+  }, 'PIPEDREAM_GOOGLE_TASKS_READ_FAILED');
+
+  return {
+    ok: true,
+    provider: 'pipedream',
+    app: 'google_tasks',
+    action_id: actionId,
+    live_action: true,
+    read_only: true,
+    account_connected: true,
+    private_content_returned: false,
+  };
+}
+
 async function vercelStatus(env, contextOwner) {
   const cfg = await createVercelConfigResolver(env)(contextOwner);
   return {
@@ -838,6 +886,10 @@ export async function maybeHandleConnectionSettingsApi(request, env = {}, url = 
       if (provider === 'pipedream') {
         const stored = await pipedreamStoredConfig(env, contextOwner);
         if (!stored) return json({ ok: false, code: 'PIPEDREAM_NOT_CONFIGURED' }, 409);
+        const body = await bodyObject(request);
+        if (clean(body?.probe, 120) === 'google_tasks_read') {
+          return json(await testPipedreamGoogleTasksRead(stored, contextOwner, { signal: request.signal }));
+        }
         return json(await testPipedreamCredentials(stored, { signal: request.signal }));
       }
       const body = await bodyObject(request);
