@@ -275,6 +275,7 @@ async function heartbeat(request,env,a){
  const patch={};
  if(b.version!==undefined)patch.version=b.version||null;
  if(b.engine_version!==undefined)patch.engine_version=b.engine_version||null;
+ if(b.engine_heartbeat_at!==undefined&&Number.isFinite(Number(b.engine_heartbeat_at)))patch.engine_heartbeat_at=Number(b.engine_heartbeat_at);
  if(b.hostname!==undefined)patch.hostname=b.hostname||null;
  if(b.user!==undefined)patch.user=b.user||null;
  if(b.screen&&typeof b.screen==="object")patch.screen=b.screen;
@@ -282,7 +283,15 @@ async function heartbeat(request,env,a){
  metadata={...metadata,...patch};
  const now=Date.now();
  await env.DB.prepare("UPDATE computer_devices SET last_seen_at=?,metadata=? WHERE id=?").bind(now,JSON.stringify(metadata),a.device.id).run();
- return json({ok:true,server_time:now})
+ const engineHeartbeatAt=Number(metadata.engine_heartbeat_at||0);
+ const engineOnline=engineHeartbeatAt>0&&now-engineHeartbeatAt<35000;
+ return json({
+   ok:true,
+   server_time:now,
+   engine_online:engineOnline,
+   engine_version:safe(metadata.engine_version,80)||null,
+   engine_last_seen_at:engineHeartbeatAt||null
+ })
 }
 async function claim(env,a){if(a.device.halted)return json({ok:true,halted:true,command:null});const r=await env.DB.prepare("SELECT * FROM computer_commands WHERE device_id=? AND status=? ORDER BY created_at ASC LIMIT 1").bind(a.device.id,"PENDING").first();if(!r)return json({ok:true,halted:false,command:null});await env.DB.prepare("UPDATE computer_commands SET status=?,claimed_at=? WHERE id=? AND status=?").bind("RUNNING",Date.now(),r.id,"PENDING").run();return json({ok:true,halted:false,command:{id:r.id,session_id:r.session_id,plan:parse(r.plan_json,{})}})}
 async function result(request,env,a){const b=await request.json().catch(()=>({}));const id=safe(b.command_id);await env.DB.prepare("UPDATE computer_commands SET status=?,finished_at=?,result_json=?,error_code=? WHERE id=? AND device_id=?").bind(b.ok===true?"SUCCEEDED":"FAILED",Date.now(),JSON.stringify(b.result??null),b.error_code?safe(b.error_code):null,id,a.device.id).run();return json({ok:true})}
