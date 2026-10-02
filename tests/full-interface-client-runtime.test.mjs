@@ -38,7 +38,7 @@ test('full interface keeps capabilities while avoiding eager heavy hidden-panel 
 });
 
 
-test('full interface exposes persistent Gmail and Yahoo controls while Microsoft is consolidated in Pipedream', async () => {
+test('full interface exposes Gmail plus Yahoo/Ymail through Pipedream while Microsoft remains consolidated there', async () => {
   const response = await onRequestGet();
   const html = await response.text();
   assert.match(html, /data-view="connections"/);
@@ -46,11 +46,11 @@ test('full interface exposes persistent Gmail and Yahoo controls while Microsoft
   assert.match(html, />Gmail</);
   assert.match(html, />Yahoo \/ Ymail</);
   assert.match(html, /id="gmailConnect"/);
-  assert.match(html, /id="yahooUsername"/);
-  assert.match(html, /id="yahooAppPassword"/);
-  assert.match(html, /id="yahooSave"/);
-  assert.match(html, /imap\.mail\.yahoo\.com/);
-  assert.match(html, /smtp\.mail\.yahoo\.com/);
+  assert.doesNotMatch(html, /id="yahooUsername"/);
+  assert.doesNotMatch(html, /id="yahooAppPassword"/);
+  assert.doesNotMatch(html, /id="yahooSave"/);
+  assert.doesNotMatch(html, /imap\.mail\.yahoo\.com/);
+  assert.doesNotMatch(html, /smtp\.mail\.yahoo\.com/);
   assert.doesNotMatch(html, /id="outlookConnect"/);
   assert.doesNotMatch(html, /id="oneDriveConnect"/);
   assert.doesNotMatch(html, /id="sharePointConnect"/);
@@ -61,7 +61,7 @@ test('full interface exposes persistent Gmail and Yahoo controls while Microsoft
   assert.match(html, /data-pd-connect="sharepoint"/);
   assert.match(html, /data-pd-connect="imap"/);
   assert.match(html, /id="yahooPipedream"/);
-  assert.match(html, /CONNECTÉ DURABLEMENT/);
+  assert.match(html, /Gérer Yahoo\/Ymail via Pipedream/);
   assert.match(html, /initialView=new URLSearchParams\(location\.search\)\.get\('view'\)/);
 });
 
