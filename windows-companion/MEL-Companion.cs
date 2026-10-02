@@ -28,6 +28,7 @@ static class MelApp
     public static string Server;
     public static string ComputerId;
     public static Process CompanionProcess;
+    public static DateTime LastEngineRefreshUtc = DateTime.MinValue;
     public static NotifyIcon Tray;
     public static HotKeyWindow HotKey;
     public const string HotKeyLabel = "Ctrl+Alt+M";
@@ -164,6 +165,86 @@ static class MelApp
             }
             throw;
         }
+    }
+
+    static string Sha256Hex(byte[] bytes)
+    {
+        using (var sha = SHA256.Create())
+        {
+            var hash = sha.ComputeHash(bytes);
+            return BitConverter.ToString(hash).Replace("-", "").ToLowerInvariant();
+        }
+    }
+
+    static bool ValidatePowerShellFile(string path)
+    {
+        try
+        {
+            var safe = path.Replace("'", "''");
+            var psi = new ProcessStartInfo("powershell.exe");
+            psi.Arguments = "-NoProfile -NonInteractive -ExecutionPolicy Bypass -Command \"$tokens=$null;$errors=$null;[void][System.Management.Automation.Language.Parser]::ParseFile('" + safe + "',[ref]$tokens,[ref]$errors);if($errors.Count -gt 0){exit 41}\"";
+            psi.UseShellExecute = false;
+            psi.CreateNoWindow = true;
+            psi.WindowStyle = ProcessWindowStyle.Hidden;
+            using (var process = Process.Start(psi))
+            {
+                if (process == null) return false;
+                if (!process.WaitForExit(10000))
+                {
+                    try { process.Kill(); } catch { }
+                    return false;
+                }
+                return process.ExitCode == 0;
+            }
+        }
+        catch { return false; }
+    }
+
+    public static bool MaybeRefreshCompanionEngine(bool force)
+    {
+        try
+        {
+            var now = DateTime.UtcNow;
+            if (!force && LastEngineRefreshUtc != DateTime.MinValue &&
+                now.Subtract(LastEngineRefreshUtc).TotalMinutes < 10) return false;
+            LastEngineRefreshUtc = now;
+            if (Server == null || Server.Length == 0 || Token == null || Token.Length < 20 || ComputerId == null || ComputerId.Length == 0)
+                return false;
+
+            var latest = Http(Server + "/api/computer/v1/companion", "GET", null, DeviceHeaders());
+            if (string.IsNullOrWhiteSpace(latest) || latest.Length < 10000) return false;
+            if (!latest.Contains("function Send-Heartbeat") || !latest.Contains("function Perform-Step")) return false;
+
+            var latestBytes = new UTF8Encoding(false).GetBytes(latest);
+            var latestHash = Sha256Hex(latestBytes);
+            var currentHash = File.Exists(CompanionPath) ? Sha256Hex(File.ReadAllBytes(CompanionPath)) : "";
+            if (string.Equals(latestHash, currentHash, StringComparison.OrdinalIgnoreCase)) return false;
+
+            Directory.CreateDirectory(MelDir);
+            var temp = CompanionPath + ".update-" + Guid.NewGuid().ToString("N") + ".ps1";
+            var backup = CompanionPath + ".previous";
+            File.WriteAllBytes(temp, latestBytes);
+            if (!ValidatePowerShellFile(temp))
+            {
+                try { File.Delete(temp); } catch { }
+                return false;
+            }
+
+            if (File.Exists(CompanionPath))
+            {
+                try { if (File.Exists(backup)) File.Delete(backup); } catch { }
+                File.Replace(temp, CompanionPath, backup, true);
+                try { if (File.Exists(backup)) File.Delete(backup); } catch { }
+            }
+            else
+            {
+                File.Move(temp, CompanionPath);
+            }
+
+            RestartCompanion();
+            return true;
+        }
+        catch { return false; }
     }
 
     static Dictionary<string, object> Obj(string json) { return Json.Deserialize<Dictionary<string, object>>(json); }
@@ -735,6 +816,7 @@ class MainForm : Form
     void RefreshAll()
     {
         MelApp.EnsureCompanion();
+        MelApp.MaybeRefreshCompanionEngine(false);
         var ok=MelApp.Heartbeat(); state.Text=ok?"● Connecté à MEL":"● Reconnexion…"; state.ForeColor=ok?MelApp.Green:MelApp.Red;
         MelApp.Tray.Text=ok?"MEL Companion — connecté":"MEL Companion — reconnexion";
         devicePanel.Controls.Clear(); var devices=MelApp.Devices();
@@ -783,7 +865,7 @@ class Program
         {
             var setup=new SetupForm(); if(setup.ShowDialog()!=DialogResult.OK || !MelApp.LoadConfig()) return;
         }
-        MelApp.InstallFiles(MelApp.StartupEnabled()); MelApp.StartCompanion(); MelApp.BuildTray();
+        MelApp.InstallFiles(MelApp.StartupEnabled()); MelApp.StartCompanion(); MelApp.MaybeRefreshCompanionEngine(true); MelApp.BuildTray();
         MelApp.HotKey=new HotKeyWindow();
         MelApp.Main=new MainForm(); if(!background) MelApp.Main.Show(); Application.Run();
         try { if (MelApp.HotKey != null) MelApp.HotKey.Dispose(); } catch { }

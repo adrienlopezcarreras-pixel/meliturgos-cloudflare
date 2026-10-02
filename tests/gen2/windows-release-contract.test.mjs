@@ -52,3 +52,18 @@ test('GEN2-59 workflow packages on windows-latest and requires exact SHA for man
   assert.match(workflow, /actions\/upload-artifact@/);
   assert.doesNotMatch(workflow, /android-companion/);
 });
+
+
+test('native Windows Companion refreshes only its authenticated MEL engine with atomic syntax-checked replacement', async () => {
+  const source = await read('windows-companion/MEL-Companion.cs');
+  assert.match(source, /\/api\/computer\/v1\/companion/);
+  assert.match(source, /DeviceHeaders\(\)/);
+  assert.match(source, /MaybeRefreshCompanionEngine/);
+  assert.match(source, /TotalMinutes < 10/);
+  assert.match(source, /System\.Management\.Automation\.Language\.Parser/);
+  assert.match(source, /ValidatePowerShellFile/);
+  assert.match(source, /File\.Replace\(temp, CompanionPath, backup, true\)/);
+  assert.match(source, /Sha256Hex/);
+  assert.match(source, /RestartCompanion\(\)/);
+  assert.doesNotMatch(source, /powershell\.exe.*Invoke-WebRequest/si);
+});
