@@ -13,6 +13,7 @@ import { runEcosystemCapabilityWatch } from "./evaluation/capability-watch-runti
 import { runDependencyLongevityWatchRuntime } from "./evaluation/dependency-longevity-watch-runtime.js";
 import { runSovereigntyReplacementWatchRuntime } from "./evaluation/sovereignty-watch-runtime.js";
 import { runConfiguredAiCandidateValidationRuntime } from "./portability/configured-ai-candidate-validation-runtime.js";
+import { runCompanionAiPrevalidationRuntime } from "./portability/companion-ai-prevalidation-runtime.js";
 import { runCompanionSourceControlPrevalidationRuntime } from "./portability/companion-source-control-prevalidation-runtime.js";
 import { runCompanionInfrastructurePrevalidationRuntime } from "./portability/companion-infrastructure-prevalidation-runtime.js";
 import { maybeHandleAutonomyApi } from "./evolution/autonomy-api.js";
@@ -563,6 +564,15 @@ export default {
             return result;
           }).catch((error) => {
             console.error('[MEL sovereignty] configured AI candidate validation failed:', error?.code || error?.message || error);
+            return null;
+          }),
+          runCompanionAiPrevalidationRuntime(env, { sourceSha: deployedWatchSourceSha() }).then((result) => {
+            if (result?.status === 'LOCAL_AI_SOVEREIGNTY_BLOCKED') {
+              console.error('[MEL sovereignty] local AI prevalidation blocked.');
+            }
+            return result;
+          }).catch((error) => {
+            console.error('[MEL sovereignty] local AI prevalidation failed:', error?.code || error?.message || error);
             return null;
           }),
           runCompanionSourceControlPrevalidationRuntime(env).then((result) => {
