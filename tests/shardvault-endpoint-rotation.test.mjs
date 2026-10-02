@@ -100,6 +100,76 @@ test('ShardVault backs off an HTTP 429 target, then allows it to re-enter the po
   assert.equal(__shardvaultTest.codeTargetAvailableNow(state,target,Date.parse(failure.retry_after_at)+1), true);
 });
 
+test('ShardVault quarantines a repeatedly failing transient endpoint for the current code-sync and forces pool refresh', () => {
+  const state = { endpoint_failures: {}, failed_endpoint_ids: [], cycle_quarantined_endpoint_ids: [], code_pool_refresh_forced: false };
+  const target = endpoint('msk-paste-public');
+  const failedAt = Date.parse('2026-10-02T17:20:00Z');
+
+  const first = __shardvaultTest.recordCodeTargetFailure(
+    state,
+    target,
+    new Error('WRITE_msk-paste-public_429'),
+    failedAt,
+  );
+  assert.equal(first.retryable, true);
+  assert.deepEqual(state.cycle_quarantined_endpoint_ids, []);
+  assert.equal(state.code_pool_refresh_forced, false);
+
+  const second = __shardvaultTest.recordCodeTargetFailure(
+    state,
+    target,
+    new Error('WRITE_msk-paste-public_429'),
+    failedAt + 1000,
+  );
+  assert.equal(second.retryable, true);
+  assert.deepEqual(state.failed_endpoint_ids, [], 'transient endpoint is not permanently quarantined');
+  assert.deepEqual(state.cycle_quarantined_endpoint_ids, ['msk-paste-public']);
+  assert.equal(state.code_pool_refresh_forced, true);
+  assert.equal(
+    __shardvaultTest.codeTargetAvailableNow(state, target, Date.parse(second.retry_after_at) + 10 * 60 * 1000),
+    false,
+    'cycle quarantine prevents the flaky target from re-entering this sync even after backoff',
+  );
+
+  __shardvaultTest.clearCodeTargetFailure(state, target.id);
+  assert.deepEqual(state.cycle_quarantined_endpoint_ids, []);
+  assert.equal(__shardvaultTest.codeTargetAvailableNow(state, target, failedAt + 60 * 60 * 1000), true);
+});
+
+test('ShardVault excludes cycle-quarantined providers from roundtrip fallback candidates', () => {
+  const env = { MEL_AUTONOMOUS_MIN_RETENTION_DAYS: '90' };
+  const flaky = {
+    id: 'msk-paste-public',
+    adapter: 'dpaste_b64',
+    urlTemplate: 'https://example.test/api/',
+    maxBytes: 700000,
+    expectedRetentionDays: 365,
+    retentionModel: 'fixed',
+  };
+  const replacement = {
+    id: 'replacement-public',
+    adapter: 'dpaste_b64',
+    urlTemplate: 'https://replacement.example.test/api/',
+    maxBytes: 700000,
+    expectedRetentionDays: 365,
+    retentionModel: 'fixed',
+  };
+  const state = {
+    failed_endpoint_ids: [],
+    cycle_quarantined_endpoint_ids: ['msk-paste-public'],
+    endpoint_failures: {},
+  };
+  const candidates = __shardvaultTest.roundtripCodeFallbackCandidates(
+    env,
+    [flaky, replacement],
+    [],
+    state,
+    new Set(),
+    250000,
+  );
+  assert.deepEqual(candidates.map(row => row.id), ['replacement-public']);
+});
+
 test('ShardVault retries transient Cloudflare 520-526 provider errors instead of permanently quarantining them', () => {
   for(const status of [520,521,522,523,524,525,526]){
     const state={ endpoint_failures:{}, failed_endpoint_ids:[] };
