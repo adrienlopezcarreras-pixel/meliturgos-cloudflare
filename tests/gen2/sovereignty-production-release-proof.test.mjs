@@ -38,6 +38,10 @@ test('MEL-SOV-01 live proof splits heavy refreshes and uses immutable exact-SHA 
   assert.match(workflow,/MEL_SOV_01_REFRESH_STEP_VERIFIED/);
   assert.match(workflow,/--max-time 75/);
   assert.match(workflow,/--max-time 60/);
+  assert.match(workflow,/for ATTEMPT in \$\(seq 1 6\)/);
+  assert.match(workflow,/409\|429\|500\|502\|503\|504/);
+  assert.match(workflow,/MEL_SOV_01_REFRESH_FAILED/);
+  assert.match(workflow,/refresh_error:/);
   assert.doesNotMatch(workflow,/wrangler secret put/);
   assert.doesNotMatch(workflow,/wrangler secret delete/);
   assert.doesNotMatch(workflow,/MEL_LAUNCH_BOOTSTRAP_TOKEN/);
