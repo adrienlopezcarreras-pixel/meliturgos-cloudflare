@@ -13,6 +13,7 @@ import { registerBrowserRuntimeCapabilities } from './browser-runtime-capabiliti
 import { registerComputerRuntimeCapabilities } from './computer-runtime-capabilities.js';
 import { registerGoogleWorkspaceCapabilities } from './google-workspace-capabilities.js';
 import { registerCreativeMediaCapabilities } from './creative-media-capabilities.js';
+import { createWorkersAiZeroCostMediaCapabilities } from '../media/workers-ai-media-capabilities.js';
 import { createDefaultAugmentioPool } from '../augmentio/default-pool.js';
 import { Augmentio } from '../augmentio/augmentio.js';
 import { inspectZeroCostProviderReadiness } from '../augmentio/zero-cost-readiness.js';
@@ -422,7 +423,15 @@ export function createDefaultCapabilityBus({ audit, env, repository, branch, tok
     risk: 'LOW', permissions: [], health: 'HEALTHY', enabled: true
   }, async input => ({ ok: true, preview: true, ...normalizeChatGPTArchive(input.archive ?? input).summary }));
 
-  registerCreativeMediaCapabilities(bus, { env: runtimeEnv });
+  const builtInZeroCostMedia = createWorkersAiZeroCostMediaCapabilities(runtimeEnv);
+  const mediaEnv = {
+    ...runtimeEnv,
+    MEL_MEDIA_CAPABILITIES: {
+      ...builtInZeroCostMedia,
+      ...(runtimeEnv.MEL_MEDIA_CAPABILITIES || {}),
+    },
+  };
+  registerCreativeMediaCapabilities(bus, { env: mediaEnv });
   registerBrowserRuntimeCapabilities(bus, {
     binding: runtimeEnv.MEL_BROWSER_COMPANION,
     endpoint: runtimeEnv.MEL_BROWSER_COMPANION_ENDPOINT,
