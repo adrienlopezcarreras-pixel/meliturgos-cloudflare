@@ -28,15 +28,16 @@ jobs:
           set -euo pipefail
           {
             echo '=== CANDIDATES ==='
-            npx wrangler d1 execute meliturgos-memory --remote --json --command "SELECT layer,candidate_id,status,metadata_json,last_seen_at FROM mel_sovereignty_candidates ORDER BY last_seen_at DESC LIMIT 40;"
+            npx wrangler d1 execute meliturgos-memory --remote --command "SELECT layer,candidate_id,status,metadata_json,last_seen_at FROM mel_sovereignty_candidates ORDER BY last_seen_at DESC LIMIT 40;"
             echo '=== RUNTIME STATE ==='
-            npx wrangler d1 execute meliturgos-memory --remote --json --command "SELECT id,state_json,updated_at FROM mel_sovereignty_runtime_state WHERE id LIKE 'companion-%' OR id LIKE 'configured-ai-%' ORDER BY updated_at DESC;"
+            npx wrangler d1 execute meliturgos-memory --remote --command "SELECT id,state_json,updated_at FROM mel_sovereignty_runtime_state WHERE id LIKE 'companion-%' OR id LIKE 'configured-ai-%' ORDER BY updated_at DESC;"
             echo '=== WINDOWS DEVICE ==='
-            npx wrangler d1 execute meliturgos-memory --remote --json --command "SELECT id,platform,halted,last_seen_at,metadata FROM computer_devices WHERE lower(platform)='windows' ORDER BY last_seen_at DESC LIMIT 3;"
+            npx wrangler d1 execute meliturgos-memory --remote --command "SELECT id,platform,halted,last_seen_at,metadata FROM computer_devices WHERE lower(platform)='windows' ORDER BY last_seen_at DESC LIMIT 3;"
             echo '=== RECENT SOV COMMANDS ==='
-            npx wrangler d1 execute meliturgos-memory --remote --json --command "SELECT id,status,error_code,created_at,finished_at,result_json,plan_json FROM computer_commands WHERE plan_json LIKE '%sovereignty.%' ORDER BY created_at DESC LIMIT 50;"
-          } > sov-companion-live-readonly.txt
+            npx wrangler d1 execute meliturgos-memory --remote --command "SELECT id,status,error_code,created_at,finished_at,result_json,plan_json FROM computer_commands WHERE plan_json LIKE '%sovereignty.%' ORDER BY created_at DESC LIMIT 50;"
+          } > sov-companion-live-readonly.txt 2>&1 || true
           cat sov-companion-live-readonly.txt
+          test -s sov-companion-live-readonly.txt
       - uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08
         with:
           name: sov-companion-live-readonly
