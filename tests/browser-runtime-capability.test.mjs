@@ -86,7 +86,7 @@ test('browser.execute requires bus permission and exact controller gates', async
     permissions: [],
     requestId: 'r-denied',
   }), { code: 'PERMISSION_DENIED' });
-  assert.equal(binding.calls.length, before + 1); // healthcheck only; no perform POST
+  assert.equal(binding.calls.length, before); // no provider call before permission gate
 
   const result = await bus.execute('browser.execute', request(), {
     owner: 'owner',
