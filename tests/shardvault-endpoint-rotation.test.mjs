@@ -109,3 +109,60 @@ test('bounded discovery retry is wired to replace a failed active endpoint witho
   assert.match(workflow, /PRODUCTION_SHARDVAULT_EXTERNAL_LT_7/);
   assert.doesNotMatch(workflow, /active_external_count\|\|0\)<[0-6]/);
 });
+
+
+test('ShardVault can self-qualify a fresh durable code candidate through the exact shard roundtrip', () => {
+  const env = { MEL_AUTONOMOUS_MIN_RETENTION_DAYS: '90' };
+  const fresh = {
+    id: 'fresh-code-target',
+    adapter: 'dpaste_b64',
+    urlTemplate: 'https://example.test/api/',
+    maxBytes: 700000,
+    expectedRetentionDays: 365,
+    retentionModel: 'fixed',
+    probeLatencyMs: 25,
+  };
+  const active = {
+    id: 'used-active-target',
+    adapter: 'dpaste_b64',
+    urlTemplate: 'https://active.example.test/api/',
+    maxBytes: 700000,
+    expectedRetentionDays: 365,
+    retentionModel: 'fixed',
+    probeLatencyMs: 10,
+  };
+  const state = { failed_endpoint_ids: [], endpoint_failures: {} };
+  const candidates = __shardvaultTest.roundtripCodeFallbackCandidates(
+    env,
+    [fresh],
+    [active],
+    state,
+    new Set(['used-active-target']),
+    250000,
+  );
+
+  assert.deepEqual(candidates.map(row => row.id), ['fresh-code-target']);
+});
+
+test('ShardVault roundtrip fallback still excludes quarantined discovered candidates', () => {
+  const env = { MEL_AUTONOMOUS_MIN_RETENTION_DAYS: '90' };
+  const failed = {
+    id: 'failed-fresh-target',
+    adapter: 'dpaste_b64',
+    urlTemplate: 'https://failed.example.test/api/',
+    maxBytes: 700000,
+    expectedRetentionDays: 365,
+    retentionModel: 'fixed',
+  };
+  const state = { failed_endpoint_ids: ['failed-fresh-target'], endpoint_failures: {} };
+  const candidates = __shardvaultTest.roundtripCodeFallbackCandidates(
+    env,
+    [failed],
+    [],
+    state,
+    new Set(),
+    250000,
+  );
+
+  assert.deepEqual(candidates, []);
+});
