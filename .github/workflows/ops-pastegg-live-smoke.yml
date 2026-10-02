@@ -28,13 +28,21 @@ jobs:
           NODE
           )"
           CODE="$(curl --silent --show-error --max-time 30             --request POST             --header 'Content-Type: application/json'             --header 'Accept: application/json'             --data "$BODY"             --output /tmp/create.json             --write-out '%{http_code}'             https://api.paste.gg/v1/pastes)"
-          test "$CODE" = "201"
+          if [ "$CODE" != "201" ]; then
+            echo "paste.gg create HTTP $CODE"
+            node -e 'const fs=require("fs"); const raw=fs.readFileSync("/tmp/create.json","utf8"); try{const d=JSON.parse(raw); console.log(JSON.stringify({status:d?.status||null,error:d?.error||null,message:d?.message||null},null,2));}catch{console.log(raw.slice(0,500));}' || true
+            exit 31
+          fi
           ID="$(node -e 'const d=require("/tmp/create.json");process.stdout.write(String(d?.result?.id||""))')"
           KEY="$(node -e 'const d=require("/tmp/create.json");process.stdout.write(String(d?.result?.deletion_key||""))')"
           test -n "$ID"
           test -n "$KEY"
           GET_CODE="$(curl --silent --show-error --max-time 30             --header 'Accept: application/json'             --output /tmp/read.json             --write-out '%{http_code}'             "https://api.paste.gg/v1/pastes/$ID?full=true")"
-          test "$GET_CODE" = "200"
+          if [ "$GET_CODE" != "200" ]; then
+            echo "paste.gg read HTTP $GET_CODE"
+            node -e 'const fs=require("fs"); const raw=fs.readFileSync("/tmp/read.json","utf8"); try{const d=JSON.parse(raw); console.log(JSON.stringify({status:d?.status||null,error:d?.error||null,message:d?.message||null},null,2));}catch{console.log(raw.slice(0,500));}' || true
+            exit 32
+          fi
           EXPECTED="$B64" node - <<'NODE'
           const d=require('/tmp/read.json');
           const c=d?.result?.files?.[0]?.content;
