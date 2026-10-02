@@ -822,7 +822,10 @@ function codeTargetRetryDelayMs(count,error=null){
   return Math.max(exponential,telegraphFloodWaitMs(error));
 }
 function codeTargetAvailableNow(state,endpoint,now=Date.now()){
-  const failure=state?.endpoint_failures?.[endpoint?.id];
+  const id=String(endpoint?.id||'').trim();
+  const cycleQuarantine=new Set(Array.isArray(state?.cycle_quarantined_endpoint_ids)?state.cycle_quarantined_endpoint_ids:[]);
+  if(id&&cycleQuarantine.has(id))return false;
+  const failure=state?.endpoint_failures?.[id];
   if(!failure)return true;
   if(failure.permanent===true)return false;
   const retryAt=Date.parse(String(failure.retry_after_at||''));
@@ -851,13 +854,25 @@ function recordCodeTargetFailure(state,endpoint,error,now=Date.now()){
     count,last_error:classification.message,last_at:new Date(now).toISOString(),
     retryable:classification.retryable,permanent:classification.permanent,retry_after_at:retryAfter
   }};
-  // Permanently quarantine only non-retryable contract/provider failures.
-  // Transient failures (429/5xx/timeouts) rotate away immediately through
-  // retry_after_at, then become eligible again after bounded backoff.
+
+  // Permanent failures stay quarantined across the current code-sync.
+  // Repeated transient failures (429/5xx/timeouts) are quarantined only for
+  // this code-sync cycle so one flaky provider cannot monopolize the last shard.
   const failed=new Set(Array.isArray(state.failed_endpoint_ids)?state.failed_endpoint_ids:[]);
-  if(classification.permanent)failed.add(id);
-  else failed.delete(id);
+  const cycleQuarantine=new Set(Array.isArray(state.cycle_quarantined_endpoint_ids)?state.cycle_quarantined_endpoint_ids:[]);
+  if(classification.permanent){
+    failed.add(id);
+    cycleQuarantine.delete(id);
+  }else{
+    failed.delete(id);
+    if(classification.retryable&&count>=2){
+      cycleQuarantine.add(id);
+      state.last_code_pool_refresh_at=null;
+      state.code_pool_refresh_forced=true;
+    }
+  }
   state.failed_endpoint_ids=[...failed];
+  state.cycle_quarantined_endpoint_ids=[...cycleQuarantine];
   return state.endpoint_failures[id];
 }
 function clearCodeTargetFailure(state,endpointId){
@@ -867,9 +882,13 @@ function clearCodeTargetFailure(state,endpointId){
     const next={...state.endpoint_failures};delete next[id];state.endpoint_failures=next;
   }
   state.failed_endpoint_ids=(state.failed_endpoint_ids||[]).filter(value=>value!==id);
+  state.cycle_quarantined_endpoint_ids=(state.cycle_quarantined_endpoint_ids||[]).filter(value=>value!==id);
 }
 function roundtripCodeFallbackCandidates(env,codeCandidates,activeCodeTargets,state,used,requiredBytes){
-  const failed=new Set(Array.isArray(state?.failed_endpoint_ids)?state.failed_endpoint_ids:[]);
+  const failed=new Set([
+    ...(Array.isArray(state?.failed_endpoint_ids)?state.failed_endpoint_ids:[]),
+    ...(Array.isArray(state?.cycle_quarantined_endpoint_ids)?state.cycle_quarantined_endpoint_ids:[]),
+  ]);
   const usedIds=used instanceof Set?used:new Set(Array.isArray(used)?used:[]);
   return uniqueExternalCandidates(env,[...(codeCandidates||[]),...(activeCodeTargets||[])])
     .filter(e=>endpointMeetsDurability(env,e)&&!usedIds.has(e.id)&&!failed.has(e.id)&&codeTargetAvailableNow(state,e))
@@ -1171,8 +1190,8 @@ async function ensureExternalCodeArchive(env,c,codeBackup){
       createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),
       totalShards:n,dataShards:k,shardSize:size,iv:b64u(iv),archiveBytes:plain.length,sha256:archiveSha256,
       ciphertextLength:cipher.length,shards:[],temp_shard_keys:tempShardKeys,
-      failures:[],attempted_endpoints:[],failed_endpoint_ids:[],endpoint_failures:{},
-      code_pool_exhaustions:0,code_pool_refreshes:0,last_code_pool_refresh_at:null
+      failures:[],attempted_endpoints:[],failed_endpoint_ids:[],cycle_quarantined_endpoint_ids:[],endpoint_failures:{},
+      code_pool_exhaustions:0,code_pool_refreshes:0,code_pool_refresh_forced:false,last_code_pool_refresh_at:null
     };
     await writeCodeSyncState(env,id,state);
     return {...codeBackup,external:codeSyncExternalView(state,goal,'COPYING',{
@@ -1207,7 +1226,10 @@ async function ensureExternalCodeArchive(env,c,codeBackup){
     try{activeCodeTargets=await readActiveExternalEndpoints(env);}catch{}
     const used=new Set(descriptors.map(x=>x.endpointId));
     const buildCandidates=(extra=[])=>{
-      const failed=new Set(Array.isArray(state.failed_endpoint_ids)?state.failed_endpoint_ids:[]);
+      const failed=new Set([
+        ...(Array.isArray(state.failed_endpoint_ids)?state.failed_endpoint_ids:[]),
+        ...(Array.isArray(state.cycle_quarantined_endpoint_ids)?state.cycle_quarantined_endpoint_ids:[]),
+      ]);
       let ranked=rankExternalCodeCandidates(env,[...validated,...extra,...codeCandidates,...activeCodeTargets],shard.length)
         .filter(e=>!used.has(e.id)&&!failed.has(e.id)&&codeTargetAvailableNow(state,e));
       if(!ranked.length){
@@ -1226,15 +1248,18 @@ async function ensureExternalCodeArchive(env,c,codeBackup){
       if(!candidates.length)state.code_pool_exhaustions=(Number(state.code_pool_exhaustions)||0)+1;
       if(retryCycleExhausted)state.code_pool_retry_cycles=(Number(state.code_pool_retry_cycles)||0)+1;
       const now=Date.now(),lastRefresh=Date.parse(String(state.last_code_pool_refresh_at||''));
-      const refreshDue=!Number.isFinite(lastRefresh)||now-lastRefresh>=60000;
+      const forcedRefresh=state.code_pool_refresh_forced===true;
+      const refreshDue=forcedRefresh||!Number.isFinite(lastRefresh)||now-lastRefresh>=60000;
       let discoveryRefresh=null;
       if(refreshDue&&String(env?.MEL_SHARDVAULT_AUTONOMOUS||'true')==='true'){
         state.last_code_pool_refresh_at=new Date(now).toISOString();
+        state.code_pool_refresh_forced=false;
         state.code_pool_refreshes=(Number(state.code_pool_refreshes)||0)+1;
         try{
           const refreshExclusions=[...new Set([
             ...used,
             ...(state.failed_endpoint_ids||[]),
+            ...(state.cycle_quarantined_endpoint_ids||[]),
             ...(retryCycleExhausted?(state.attempted_endpoints||[]):[])
           ])];
           discoveryRefresh=await discoverAutonomousRepositories(env,{
