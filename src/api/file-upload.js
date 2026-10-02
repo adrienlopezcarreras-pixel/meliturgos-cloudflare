@@ -1,5 +1,10 @@
 import { requireAuth } from '../core/security.js';
 import { createEnvMediaVaultCodec } from '../media/media-vault-crypto.js';
+import {
+  MAX_INLINE_TRANSCRIPTION_BYTES,
+  WORKERS_AI_TRANSCRIPTION_MODEL,
+  transcribeAudioBytes,
+} from '../media/workers-ai-media-capabilities.js';
 
 const MAX_FILE_BYTES = 25_000_000;
 const DEFAULT_MEDIA_TTL_SECONDS = 7 * 24 * 60 * 60;
@@ -53,6 +58,11 @@ function isImageLike(type, name) {
   return /^image\//i.test(type) || ['jpeg','jpg','png','webp','svg','gif','bmp'].includes(extension(name));
 }
 
+function isAudioLike(type, name) {
+  return /^audio\//i.test(type)
+    || ['mp3','wav','m4a','aac','ogg','oga','opus','webm','flac','mp4'].includes(extension(name));
+}
+
 function isRichConversionCandidate(type, name) {
   return RICH_CONVERSION_MIMES.has(String(type || '').toLowerCase())
     || RICH_CONVERSION_EXTENSIONS.has(extension(name));
@@ -77,6 +87,37 @@ function normalizeMarkdownConversionResult(value) {
   if (String(row.format || '').toLowerCase() === 'error') return null;
   const data = String(row.data || '').trim();
   return data ? data.slice(0, 120_000) : null;
+}
+
+async function transcribeUploadedAudio({ env, bytes, name, mime }) {
+  if (!isAudioLike(mime, name)) return { preview_text:null, analysis_status:null, analysis_provider:null };
+  if (bytes.byteLength > MAX_INLINE_TRANSCRIPTION_BYTES) {
+    return {
+      preview_text:null,
+      analysis_status:'AUDIO_TRANSCRIPTION_REQUIRES_CHUNKING',
+      analysis_provider:null,
+    };
+  }
+  try {
+    const result = await transcribeAudioBytes(env, bytes, {});
+    return {
+      preview_text:String(result?.text || '').slice(0, 120_000) || null,
+      analysis_status:result?.text ? 'AUDIO_TRANSCRIBED' : 'AUDIO_TRANSCRIPTION_EMPTY',
+      analysis_provider:result?.text ? WORKERS_AI_TRANSCRIPTION_MODEL : null,
+    };
+  } catch (error) {
+    const code = String(error?.code || '');
+    if (code === 'WORKERS_AI_ZERO_COST_PROOF_REQUIRED') {
+      return { preview_text:null, analysis_status:'AUDIO_TRANSCRIPTION_ZERO_COST_PROOF_REQUIRED', analysis_provider:null };
+    }
+    if (code === 'AI_BINDING_MISSING') {
+      return { preview_text:null, analysis_status:'AUDIO_TRANSCRIPTION_UNAVAILABLE', analysis_provider:null };
+    }
+    if (code === 'AUDIO_TRANSCRIPTION_REQUIRES_CHUNKING') {
+      return { preview_text:null, analysis_status:'AUDIO_TRANSCRIPTION_REQUIRES_CHUNKING', analysis_provider:null };
+    }
+    return { preview_text:null, analysis_status:'AUDIO_TRANSCRIPTION_FAILED', analysis_provider:null };
+  }
 }
 
 async function convertRichFile({ env, bytes, name, mime }) {
@@ -194,7 +235,14 @@ export async function handleFileUpload(request, env, options = {}) {
     } catch {}
   }
 
-  if (preview_text === null) {
+  if (preview_text === null && isAudioLike(mime, name)) {
+    const audio = await transcribeUploadedAudio({ env, bytes, name, mime });
+    preview_text = audio.preview_text;
+    analysis_status = audio.analysis_status;
+    analysis_provider = audio.analysis_provider || null;
+  }
+
+  if (preview_text === null && !isAudioLike(mime, name)) {
     const rich = await convertRichFile({ env, bytes, name, mime });
     preview_text = rich.preview_text;
     analysis_status = rich.analysis_status;
