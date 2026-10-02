@@ -470,6 +470,57 @@ test('Pipedream Google Tasks proof executes the read-only List Task Lists action
   assert.equal(body.configured_props.maxResults, 1);
 });
 
+test('Pipedream Google Tasks proof falls back to the read-only Connect proxy when the action rejects the linked account', async () => {
+  const calls = [];
+  const result = await testPipedreamGoogleTasksRead({
+    project_id: 'proj_demo123',
+    client_id: 'client-id',
+    client_secret: 'client-secret',
+    environment: 'production',
+  }, 'adrien', {
+    fetcher: async (url, init = {}) => {
+      calls.push({ url: String(url), init });
+      if (String(url).endsWith('/v1/oauth/token')) {
+        return Response.json({ access_token: 'server-token', token_type: 'Bearer', expires_in: 3600 });
+      }
+      if (String(url).includes('/accounts?')) {
+        return Response.json({
+          data: [
+            { id: 'apn_tasks', name: 'Google Tasks', healthy: true, dead: false, app: { name_slug: 'google_tasks' } },
+          ],
+        });
+      }
+      if (String(url).endsWith('/actions/run')) {
+        return Response.json({ error: 'managed action rejected account' }, { status: 409 });
+      }
+      if (String(url).includes('/proxy/')) {
+        return Response.json({ items: [{ id: 'private-list-id', title: 'Private title' }] });
+      }
+      return Response.json({}, { status: 404 });
+    },
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.transport, 'proxy');
+  assert.equal(result.live_action, false);
+  assert.equal(result.live_proxy, true);
+  assert.equal(result.read_only, true);
+  assert.equal(result.private_content_returned, false);
+  assert.equal(JSON.stringify(result).includes('private-list-id'), false);
+  assert.equal(JSON.stringify(result).includes('Private title'), false);
+
+  const proxy = calls.find(call => call.url.includes('/proxy/'));
+  assert.ok(proxy);
+  assert.equal(proxy.init.method, 'GET');
+  assert.equal(proxy.init.headers.authorization, 'Bearer server-token');
+  assert.match(proxy.url, /external_user_id=adrien/);
+  assert.match(proxy.url, /account_id=apn_tasks/);
+  const encoded = proxy.url.split('/proxy/')[1].split('?')[0];
+  const padded = encoded.replaceAll('-', '+').replaceAll('_', '/') + '='.repeat((4 - encoded.length % 4) % 4);
+  const decoded = atob(padded);
+  assert.equal(decoded, 'https://tasks.googleapis.com/tasks/v1/users/@me/lists?maxResults=1');
+});
+
 test('Pipedream Google Tasks proof fails closed without a healthy linked account', async () => {
   await assert.rejects(
     testPipedreamGoogleTasksRead({
