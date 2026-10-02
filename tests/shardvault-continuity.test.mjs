@@ -111,11 +111,27 @@ const firstRetry = __shardvaultTest.recordCodeTargetFailure(
   1000
 );
 assert.equal(firstRetry.retryable, true);
-assert.equal(retryState.failed_endpoint_ids.includes('retry-a'), true);
+assert.equal(retryState.failed_endpoint_ids.includes('retry-a'), false);
 assert.equal(__shardvaultTest.codeTargetAvailableNow(retryState,{id:'retry-a'},1001), false);
 assert.equal(__shardvaultTest.codeTargetAvailableNow(retryState,{id:'retry-a'},7000), true);
 assert.equal(__shardvaultTest.codeTargetRetryDelayMs(1), 5000);
 assert.equal(__shardvaultTest.codeTargetRetryDelayMs(8), 120000);
+const retryCandidate={
+  id:'retry-a',urlTemplate:'https://retry.example/{objectId}',method:'POST',
+  maxBytes:1048576,operatorDomain:'retry.example',providerId:'retry',
+  expectedRetentionDays:365
+};
+retryState.endpoint_failures['retry-a'].retry_after_at='2999-01-01T00:00:00.000Z';
+assert.equal(
+  __shardvaultTest.roundtripCodeFallbackCandidates({},[retryCandidate],[],retryState,new Set(),65536).length,
+  0
+);
+retryState.endpoint_failures['retry-a'].retry_after_at=new Date(0).toISOString();
+assert.deepEqual(
+  __shardvaultTest.roundtripCodeFallbackCandidates({},[retryCandidate],[],retryState,new Set(),65536)
+    .map(x=>x.id),
+  ['retry-a']
+);
 
 const permanentState = { attempted_endpoints:[], failed_endpoint_ids:[], endpoint_failures:{} };
 const permanentFailure = __shardvaultTest.recordCodeTargetFailure(

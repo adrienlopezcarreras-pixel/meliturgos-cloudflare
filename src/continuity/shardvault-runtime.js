@@ -846,10 +846,13 @@ function recordCodeTargetFailure(state,endpoint,error,now=Date.now()){
     count,last_error:classification.message,last_at:new Date(now).toISOString(),
     retryable:classification.retryable,permanent:classification.permanent,retry_after_at:retryAfter
   }};
-  // Quarantine every failed endpoint for the lifetime of this code-sync state.
-  // Retryable failures such as HTTP 429 must rotate to a different target
-  // instead of becoming eligible again after backoff and stalling at 6/7.
-  state.failed_endpoint_ids=[...new Set([...(state.failed_endpoint_ids||[]),id])];
+  // Permanently quarantine only non-retryable contract/provider failures.
+  // Transient failures (429/5xx/timeouts) rotate away immediately through
+  // retry_after_at, then become eligible again after bounded backoff.
+  const failed=new Set(Array.isArray(state.failed_endpoint_ids)?state.failed_endpoint_ids:[]);
+  if(classification.permanent)failed.add(id);
+  else failed.delete(id);
+  state.failed_endpoint_ids=[...failed];
   return state.endpoint_failures[id];
 }
 function clearCodeTargetFailure(state,endpointId){
@@ -1289,7 +1292,7 @@ async function ensureExternalCodeArchive(env,c,codeBackup){
       try{await rememberValidatedExternalEndpoints(env,[provenEndpoint]);}catch{}
     }catch(error){
       const failureState=recordCodeTargetFailure(state,e,error,Date.now());
-      await invalidateCodeTargetQualification(env,e.id).catch(()=>false);
+      if(failureState.permanent===true)await invalidateCodeTargetQualification(env,e.id).catch(()=>false);
       state.failures=[...(state.failures||[]),{
         shard_index:i,endpoint_id:e.id,error:String(error?.message||error),at:new Date().toISOString(),
         retryable:failureState.retryable===true,permanent:failureState.permanent===true,retry_after_at:failureState.retry_after_at||null,
