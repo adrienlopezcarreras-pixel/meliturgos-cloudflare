@@ -1,0 +1,163 @@
+name: manual-shardvault-code-sync
+
+on:
+  push:
+    branches:
+      - 'manual/shardvault-code-sync-20261002'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mel-launch-bootstrap-token
+  cancel-in-progress: true
+
+jobs:
+  code-sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout current production source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: c38e5f7142bdd583f868d1de290d5866f825365b
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install exact lockfile
+        run: npm ci
+
+      - name: Manually drive ShardVault code-sync to 7/7
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          BASE_URL="https://meliturgos.adrien-lopezcarreras.workers.dev"
+          TOKEN="$(openssl rand -hex 32)"
+          echo "::add-mask::${TOKEN}"
+
+          cleanup() {
+            set +e
+            set +o pipefail
+            printf 'y\n' | npx wrangler secret delete MEL_LAUNCH_BOOTSTRAP_TOKEN --env="" >/tmp/manual-shardvault-secret-delete.log 2>&1 || true
+            set -o pipefail
+            set -e
+          }
+          trap cleanup EXIT
+
+          printf '%s' "${TOKEN}" | npx wrangler secret put MEL_LAUNCH_BOOTSTRAP_TOKEN --env=""
+
+          AUTH_READY=0
+          for ATTEMPT in $(seq 1 15); do
+            CODE="$(curl --silent --show-error --max-time 45               --header "x-mel-release-smoke: 1"               --header "x-mel-launch-bootstrap: ${TOKEN}"               --output manual-shardvault-status.json               --write-out '%{http_code}'               "${BASE_URL}/api/gen2/shardvault/status" || true)"
+            if [ "${CODE}" = "200" ]; then
+              AUTH_READY=1
+              break
+            fi
+            echo "Bootstrap propagation ${ATTEMPT}/15 -> HTTP ${CODE}"
+            sleep 2
+          done
+          test "${AUTH_READY}" = "1"
+
+          node - <<'NODE'
+          const d=require('./manual-shardvault-status.json');
+          const active=Array.isArray(d?.active_external_registry)?d.active_external_registry.length:0;
+          console.log(JSON.stringify({active_external_registry:active,code_survival:d?.code_survival||null},null,2));
+          NODE
+
+          READY=0
+          LAST=-1
+          STALL=0
+          for ATTEMPT in $(seq 1 60); do
+            CODE="$(curl --silent --show-error --max-time 175               --header "x-mel-launch-bootstrap: ${TOKEN}"               --header "content-type: application/json"               --data '{"phase":"code-sync"}'               --output manual-code-sync.json               --write-out '%{http_code}'               "${BASE_URL}/api/internal/release-launch-bootstrap" || true)"
+
+            WAIT=2
+            if [ "${CODE}" = "200" ]; then
+              STATE="$(node - <<'NODE'
+          const d=require('./manual-code-sync.json');
+          const s=d?.code_sync||{};
+          const completed=Number(s?.progress?.completed ?? s?.completed_shards ?? 0);
+          const target=Number(s?.progress?.target ?? s?.target_count ?? 7);
+          const next=String(s?.next_retry_at||'');
+          process.stdout.write([
+            d?.complete===true?'1':'0',
+            String(s?.status||d?.status||'UNKNOWN'),
+            Number.isFinite(completed)?String(completed):'0',
+            Number.isFinite(target)?String(target):'7',
+            next||'-'
+          ].join('|'));
+          NODE
+              )"
+              IFS='|' read -r COMPLETE STATUS COMPLETED TARGET NEXT_RETRY <<< "${STATE}"
+              node - <<'NODE'
+          const d=require('./manual-code-sync.json');
+          const s=d?.code_sync||{};
+          console.log(JSON.stringify({
+            status:s?.status||d?.status||null,
+            complete:d?.complete===true,
+            progress:s?.progress||null,
+            successful_endpoints:s?.successful_endpoints||[],
+            attempted_endpoints:s?.attempted_endpoints||[],
+            next_retry_at:s?.next_retry_at||null,
+            code_pool_exhaustions:Number(s?.code_pool_exhaustions||0),
+            code_pool_refreshes:Number(s?.code_pool_refreshes||0),
+            failures:(s?.failures||[]).slice(-8)
+          },null,2));
+          NODE
+
+              if [ "${COMPLETE}" = "1" ]; then
+                READY=1
+                break
+              fi
+
+              if [ "${COMPLETED}" -gt "${LAST}" ]; then
+                LAST="${COMPLETED}"
+                STALL=0
+              else
+                STALL=$((STALL + 1))
+              fi
+
+              if [ "${STATUS}" = "RETRY_TARGETS" ] && [ "${NEXT_RETRY}" != "-" ]; then
+                WAIT="$(NEXT_RETRY="${NEXT_RETRY}" node -e 'const t=Date.parse(process.env.NEXT_RETRY||""); const d=Number.isFinite(t)?Math.ceil((t-Date.now())/1000):2; process.stdout.write(String(Math.max(2,Math.min(20,d))))')"
+              fi
+              echo "Manual code-sync ${ATTEMPT}/60: ${COMPLETED}/${TARGET}, status=${STATUS}, stall=${STALL}, wait=${WAIT}s"
+            else
+              STALL=$((STALL + 1))
+              echo "Manual code-sync ${ATTEMPT}/60 -> HTTP ${CODE}, stall=${STALL}"
+              test ! -s manual-code-sync.json || cat manual-code-sync.json
+            fi
+
+            if [ "${STALL}" -ge 30 ]; then
+              echo "Manual code-sync stopped after 30 no-progress iterations."
+              break
+            fi
+            sleep "${WAIT}"
+          done
+
+          if [ "${READY}" != "1" ]; then
+            echo "MANUAL_SHARDVAULT_CODE_SYNC_NOT_COMPLETE"
+            test ! -s manual-code-sync.json || cat manual-code-sync.json
+            exit 48
+          fi
+
+          node - <<'NODE'
+          const d=require('./manual-code-sync.json');
+          const s=d?.code_sync||{};
+          if(d?.ok!==true||d?.complete!==true) throw new Error('MANUAL_CODE_SYNC_NOT_COMPLETE');
+          if(String(s?.status||d?.status||'')!=='COPIED') throw new Error('MANUAL_CODE_SYNC_NOT_COPIED');
+          if(Number((s?.successful_endpoints||[]).length)<7) throw new Error('MANUAL_CODE_SYNC_ENDPOINTS_LT_7');
+          if(s?.verified_roundtrip!==true) throw new Error('MANUAL_CODE_SYNC_ROUNDTRIP_NOT_VERIFIED');
+          console.log('MANUAL_SHARDVAULT_CODE_SYNC_7_OF_7_VERIFIED');
+          console.log(JSON.stringify({
+            successful_endpoints:s.successful_endpoints,
+            attempted_endpoints:s.attempted_endpoints,
+            progress:s.progress,
+            verified_roundtrip:s.verified_roundtrip
+          },null,2));
+          NODE
