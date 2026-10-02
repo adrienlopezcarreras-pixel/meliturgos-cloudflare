@@ -56,6 +56,17 @@ test('decoupled sovereignty proof refreshes every bounded prevalidation domain b
   assert.ok(refresh>0&&status>refresh&&finalProof>status,'sovereignty refreshes must run before status and final proof');
 });
 
+test('decoupled sovereignty refreshes retry only bounded transient pressure and preserve a sanitized failure artifact', async () => {
+  const workflow=await readFile(new URL('../../.github/workflows/release-downstream-proof-decoupled.yml',import.meta.url),'utf8');
+  assert.match(workflow,/REFRESH_READY=0/);
+  assert.match(workflow,/for ATTEMPT in \$\(seq 1 6\)/);
+  assert.match(workflow,/409\|429\|500\|502\|503\|504/);
+  assert.match(workflow,/Transient decoupled SOV refresh/);
+  assert.match(workflow,/Non-retryable decoupled SOV refresh/);
+  assert.match(workflow,/status:'MEL_SOV_01_REFRESH_FAILED'/);
+  assert.match(workflow,/secret_values_exposed:false/);
+});
+
 test('release installs exact-SHA immutable proof token and dispatches downstream proof before ShardVault launch evidence', async () => {
   const workflow=await readFile(new URL('../../.github/workflows/deploy-cloudflare-release.yml',import.meta.url),'utf8');
   assert.match(workflow,/MEL_PARALLEL_PROOF_TOKEN:parallelProofToken/);
