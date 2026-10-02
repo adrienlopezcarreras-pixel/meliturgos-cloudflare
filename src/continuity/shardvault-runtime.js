@@ -1230,12 +1230,19 @@ async function ensureExternalCodeArchive(env,c,codeBackup){
             excludeEndpointIds:[...used,...(state.failed_endpoint_ids||[])]
           });
           const fresh=[...(discoveryRefresh?.qualified||[]),...(discoveryRefresh?.selected||[])];
+          const eligible=[...(discoveryRefresh?.eligible||[])];
           if(fresh.length){
             await rememberValidatedExternalEndpoints(env,fresh).catch(()=>[]);
-            await rememberCodeCandidateEndpoints(env,[...fresh,...(discoveryRefresh?.eligible||[])]).catch(()=>[]);
+          }
+          // Eligible durable targets must enter the code-candidate pool even
+          // when representative qualification produced zero results. The
+          // exact code-shard write/read/hash round-trip below is the final
+          // qualification and must be able to break that circular gate.
+          if(fresh.length||eligible.length){
+            await rememberCodeCandidateEndpoints(env,[...fresh,...eligible]).catch(()=>[]);
             try{validated=await readValidatedExternalEndpoints(env,shard.length);}catch{}
             try{codeCandidates=await readCodeCandidateEndpoints(env);}catch{}
-            candidates=buildCandidates(fresh);
+            candidates=buildCandidates([...fresh,...eligible]);
           }
         }catch(error){
           discoveryRefresh={error:String(error?.message||error),qualified:[],selected:[]};
