@@ -101,15 +101,16 @@ test('Approved Gmail send uses only fixed Google endpoint and bounded MIME paylo
   });
 
   assert.equal(result.message_id, 'm-sent');
-  assert.equal(calls.length, 1);
-  assert.equal(calls[0].url, 'https://gmail.googleapis.com/gmail/v1/users/me/messages/send');
-  assert.equal(calls[0].init.method, 'POST');
-  const payload = JSON.parse(calls[0].init.body);
+  const sendCall = calls.find(call => call.url === 'https://gmail.googleapis.com/gmail/v1/users/me/messages/send');
+  assert.ok(sendCall);
+  assert.equal(sendCall.init.method, 'POST');
+  assert.equal(calls.some(call => call.url === 'https://gmail.googleapis.com/gmail/v1/users/me/profile'), true);
+  const payload = JSON.parse(sendCall.init.body);
   assert.match(payload.raw, /^[A-Za-z0-9_-]+$/);
   assert.equal(JSON.stringify(calls[0]).includes('person@example.com\r\nBcc:'), false);
 });
 
-test('Gmail header injection is rejected before network', async () => {
+test('Gmail header injection is rejected before any mutation request', async () => {
   const { bus, calls } = fixture();
   await assert.rejects(
     () => bus.execute('gmail.messages.send', {
@@ -123,7 +124,9 @@ test('Gmail header injection is rejected before network', async () => {
     }),
     { code: 'GMAIL_SUBJECT_INVALID' },
   );
-  assert.equal(calls.length, 0);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].url, 'https://gmail.googleapis.com/gmail/v1/users/me/profile');
+  assert.equal(calls[0].init.method || 'GET', 'GET');
 });
 
 test('Calendar create requires approval and cannot choose an arbitrary host', async () => {
@@ -150,7 +153,9 @@ test('Calendar create requires approval and cannot choose an arbitrary host', as
     approvedCapabilities: ['calendar.events.create'],
   });
   assert.equal(result.event_id, 'event-1');
-  assert.equal(calls[0].url, 'https://www.googleapis.com/calendar/v3/calendars/primary/events');
+  const createCall = calls.find(call => call.url === 'https://www.googleapis.com/calendar/v3/calendars/primary/events' && call.init.method === 'POST');
+  assert.ok(createCall);
+  assert.equal(calls.some(call => call.url === 'https://www.googleapis.com/calendar/v3/calendars/primary'), true);
 });
 
 test('Google Tasks create/delete are separately permissioned and approval gated', async () => {
@@ -165,7 +170,9 @@ test('Google Tasks create/delete are separately permissioned and approval gated'
     approvedCapabilities: ['tasks.tasks.create'],
   });
   assert.equal(created.task_id, 'task-1');
-  assert.equal(calls[0].url, 'https://tasks.googleapis.com/tasks/v1/lists/list-1/tasks');
+  const createCall = calls.find(call => call.url === 'https://tasks.googleapis.com/tasks/v1/lists/list-1/tasks' && call.init.method === 'POST');
+  assert.ok(createCall);
+  assert.equal(calls.some(call => call.url === 'https://tasks.googleapis.com/tasks/v1/users/@me/lists?maxResults=1'), true);
 
   await assert.rejects(
     () => bus.execute('tasks.tasks.delete', {
@@ -197,8 +204,43 @@ test('Google Workspace runtime is fail-closed without an access token', async ()
       owner: 'adrien',
       permissions: ['google.gmail.read'],
     }),
-    { code: 'GMAIL_AUTH_REQUIRED' },
+    { code: 'CAPABILITY_UNAVAILABLE' },
   );
+  assert.equal(calls.length, 0);
+});
+
+test('Google Workspace refresh health turns reads healthy and approval-gated mutations protected', async () => {
+  const { bus, calls } = fixture();
+  const readIds = [
+    'gmail.messages.search',
+    'gmail.messages.read',
+    'calendar.events.read',
+    'tasks.tasklists.read',
+    'tasks.tasks.read',
+  ];
+  const protectedIds = [
+    'gmail.drafts.create',
+    'gmail.messages.send',
+    'calendar.events.create',
+    'calendar.events.update',
+    'calendar.events.delete',
+    'tasks.tasks.create',
+    'tasks.tasks.update',
+    'tasks.tasks.delete',
+  ];
+
+  for (const id of readIds) assert.equal((await bus.refreshHealth(id)).health, 'HEALTHY', id);
+  for (const id of protectedIds) assert.equal((await bus.refreshHealth(id)).health, 'PROTECTED', id);
+
+  assert.equal(calls.every(call => (call.init?.method || 'GET') === 'GET'), true);
+  assert.equal(calls.some(call => call.url.includes('/messages/send')), false);
+});
+
+test('Google Workspace refresh health is unavailable when no durable grant exists', async () => {
+  const { bus, calls } = fixture({ token: '' });
+  const row = await bus.refreshHealth('tasks.tasklists.read');
+  assert.equal(row.health, 'UNAVAILABLE');
+  assert.match(row.health_detail, /GOOGLE_TASKS_AUTH_REQUIRED/);
   assert.equal(calls.length, 0);
 });
 

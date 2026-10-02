@@ -22,7 +22,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: mel-launch-bootstrap-token
+  group: mel-live-connections-proof
   cancel-in-progress: false
 
 jobs:
@@ -56,23 +56,27 @@ jobs:
       - name: Prove live production connections
         shell: bash
         env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          PROOF_KEY_B64: ${{ secrets.MEL_BACKUP_ENCRYPTION_KEY_B64 }}
           EXPECTED_SHA: ${{ inputs.expected_sha || github.sha }}
         run: |
           set -euo pipefail
           BASE_URL="https://meliturgos.adrien-lopezcarreras.workers.dev"
           EXPECTED_SHA="${{ inputs.expected_sha || github.sha }}"
-          TOKEN="$(openssl rand -hex 32)"
+          TOKEN="$(PROOF_KEY_B64="${PROOF_KEY_B64}" TARGET_SHA="${EXPECTED_SHA}" node - <<'NODE'
+          const crypto=require('crypto');
+          const source=Buffer.from(String(process.env.PROOF_KEY_B64||''),'base64');
+          const sha=String(process.env.TARGET_SHA||'').toLowerCase();
+          if(source.length!==32||!/^[0-9a-f]{40}$/.test(sha)) throw new Error('PARALLEL_PROOF_DERIVATION_INVALID');
+          process.stdout.write(Buffer.from(crypto.hkdfSync(
+            'sha256',
+            source,
+            Buffer.from('meliturgos-parallel-proof-salt-v1'),
+            Buffer.from('MEL_PARALLEL_PROOF_V1:'+sha),
+            32,
+          )).toString('base64url'));
+          NODE
+          )"
           echo "::add-mask::${TOKEN}"
-
-          cleanup() {
-            set +e
-            printf 'y\n' | npx wrangler secret delete MEL_LAUNCH_BOOTSTRAP_TOKEN --env="" >/tmp/live-connections-secret-delete.log 2>&1 || true
-          }
-          trap cleanup EXIT
-
-          printf '%s' "${TOKEN}" | npx wrangler secret put MEL_LAUNCH_BOOTSTRAP_TOKEN --env=""
 
           probe() {
             local name="$1"
@@ -80,7 +84,7 @@ jobs:
             local body="$3"
             local out="/tmp/${name}.json"
             local code
-            code="$(curl --silent --show-error --max-time 45               --header "x-mel-release-smoke: 1"               --header "x-mel-launch-bootstrap: ${TOKEN}"               --header "content-type: application/json"               --data "${body}"               --output "${out}"               --write-out '%{http_code}'               "${BASE_URL}${path}" || true)"
+            code="$(curl --silent --show-error --max-time 45               --header "x-mel-release-smoke: 1"               --header "x-mel-parallel-proof: ${TOKEN}"               --header "content-type: application/json"               --data "${body}"               --output "${out}"               --write-out '%{http_code}'               "${BASE_URL}${path}" || true)"
             if [ "${code}" != "200" ]; then
               node -e 'const fs=require("fs");let d={};try{d=JSON.parse(fs.readFileSync(process.argv[1],"utf8"))}catch{};console.log(process.argv[2]+": "+JSON.stringify({ok:false,http:Number(process.argv[3]),code:d?.code||d?.error||"UNKNOWN"}))' "${out}" "${name}" "${code}"
               return 1
@@ -88,12 +92,12 @@ jobs:
             node -e 'const fs=require("fs");const d=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));if(d?.ok!==true)process.exit(2);console.log(process.argv[2]+": "+JSON.stringify({ok:true,provider:d?.provider||null,connector_id:d?.connector_id||null,live_probe:d?.live_probe===true,persistent:d?.persistent===true,authenticated:d?.authenticated===true,project_found:d?.project_found===true,project_count:Number(d?.project_count||0),deployment_count:Number(d?.deployment_count||0)}))' "${out}" "${name}"
           }
 
-          # Prove only bootstrap-secret propagation here. Connector health is
-          # evaluated independently below so one broken account never hides the
-          # status of every other connection.
+          # Prove exact-SHA immutable parallel-proof authentication here.
+          # Connector health is evaluated independently below so one broken
+          # account never hides the status of every other connection.
           READY=0
           for attempt in $(seq 1 12); do
-            READY_CODE="$(curl --silent --show-error --max-time 45               --header "x-mel-release-smoke: 1"               --header "x-mel-launch-bootstrap: ${TOKEN}"               --output /tmp/connections-self-check.json               --write-out '%{http_code}'               "${BASE_URL}/api/gen2/code/self-check" || true)"
+            READY_CODE="$(curl --silent --show-error --max-time 45               --header "x-mel-release-smoke: 1"               --header "x-mel-parallel-proof: ${TOKEN}"               --output /tmp/connections-self-check.json               --write-out '%{http_code}'               "${BASE_URL}/api/gen2/code/self-check" || true)"
             if [ "${READY_CODE}" = "200" ]; then
               READY=1
               break
@@ -104,7 +108,7 @@ jobs:
 
           # Print only sanitized OAuth state (authorization/scopes/refreshability)
           # so a missing consent scope can be distinguished from a code defect.
-          GOOGLE_STATUS_CODE="$(curl --silent --show-error --max-time 30             --header "x-mel-release-smoke: 1"             --header "x-mel-launch-bootstrap: ${TOKEN}"             --output /tmp/google_status.json             --write-out '%{http_code}'             "${BASE_URL}/api/gen2/connections/google/status" || true)"
+          GOOGLE_STATUS_CODE="$(curl --silent --show-error --max-time 30             --header "x-mel-release-smoke: 1"             --header "x-mel-parallel-proof: ${TOKEN}"             --output /tmp/google_status.json             --write-out '%{http_code}'             "${BASE_URL}/api/gen2/connections/google/status" || true)"
           if [ "${GOOGLE_STATUS_CODE}" = "200" ]; then
             node - <<'NODE'
           const fs=require('fs');
@@ -151,7 +155,7 @@ jobs:
           # only and must not mask healthy linked accounts.
           PD_ACCOUNTS_CODE="000"
           for attempt in $(seq 1 12); do
-            PD_ACCOUNTS_CODE="$(curl --silent --show-error --max-time 45               --header "x-mel-release-smoke: 1"               --header "x-mel-launch-bootstrap: ${TOKEN}"               --output /tmp/pipedream_accounts.json               --write-out '%{http_code}'               "${BASE_URL}/api/gen2/connections/pipedream/accounts" || true)"
+            PD_ACCOUNTS_CODE="$(curl --silent --show-error --max-time 45               --header "x-mel-release-smoke: 1"               --header "x-mel-parallel-proof: ${TOKEN}"               --output /tmp/pipedream_accounts.json               --write-out '%{http_code}'               "${BASE_URL}/api/gen2/connections/pipedream/accounts" || true)"
             if [ "${PD_ACCOUNTS_CODE}" = "200" ]; then
               break
             fi
@@ -260,7 +264,7 @@ jobs:
             },
             vercel:{authenticated_target_probe:process.env.VERCEL_OK==='1'},
             secret_values_exposed:false,
-            mutation_scope:'temporary_release_smoke_secret_only'
+            mutation_scope:'read_only_parallel_proof_auth'
           };
           fs.writeFileSync('live-connections-proof.json',JSON.stringify(proof,null,2));
           console.log(JSON.stringify(proof,null,2));

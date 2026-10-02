@@ -36,14 +36,18 @@ test('production proof verifies rich renderer in Normal and Full browser surface
   assert.match(workflow, /RELEASE_CODE_SMOKE_OK/);
 });
 
-test('temporary production bootstrap secret is always cleaned up', () => {
-  assert.match(workflow, /trap cleanup EXIT/);
-  assert.match(workflow, /wrangler secret delete MEL_LAUNCH_BOOTSTRAP_TOKEN/);
+test('production proof uses immutable exact-SHA proof auth and never mutates Worker secrets', () => {
+  assert.match(workflow, /MEL_BACKUP_ENCRYPTION_KEY_B64/);
+  assert.match(workflow, /MEL_PARALLEL_PROOF_V1:/);
+  assert.match(workflow, /x-mel-parallel-proof/);
+  assert.doesNotMatch(workflow, /wrangler secret put/);
+  assert.doesNotMatch(workflow, /wrangler secret delete/);
+  assert.doesNotMatch(workflow, /MEL_LAUNCH_BOOTSTRAP_TOKEN/);
   assert.match(workflow, /secret_values_exposed:false/);
 });
 
 
-test('production proof tolerates only bounded transient bootstrap auth propagation', () => {
+test('production proof tolerates only bounded transient proof-auth propagation', () => {
   assert.match(workflow, /for ATTEMPT in \$\(seq 1 12\)/);
   assert.match(workflow, /COUNCIL_ERROR_CODE/);
   assert.match(workflow, /BROWSER_ERROR_CODE/);

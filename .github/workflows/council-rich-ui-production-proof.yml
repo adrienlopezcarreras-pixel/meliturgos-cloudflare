@@ -78,27 +78,32 @@ jobs:
       - name: Prove Council recovery dependencies and rich rendering in production
         shell: bash
         env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          PROOF_KEY_B64: ${{ secrets.MEL_BACKUP_ENCRYPTION_KEY_B64 }}
           EXPECTED_SHA: ${{ needs.resolve.outputs.expected_sha }}
         run: |
           set -euo pipefail
           BASE_URL="https://meliturgos.adrien-lopezcarreras.workers.dev"
-          TOKEN="$(openssl rand -hex 32)"
+          TOKEN="$(PROOF_KEY_B64="${PROOF_KEY_B64}" TARGET_SHA="${EXPECTED_SHA}" node - <<'NODE'
+          const crypto=require('crypto');
+          const source=Buffer.from(String(process.env.PROOF_KEY_B64||''),'base64');
+          const sha=String(process.env.TARGET_SHA||'').toLowerCase();
+          if(source.length!==32||!/^[0-9a-f]{40}$/.test(sha)) throw new Error('PARALLEL_PROOF_DERIVATION_INVALID');
+          process.stdout.write(Buffer.from(crypto.hkdfSync(
+            'sha256',
+            source,
+            Buffer.from('meliturgos-parallel-proof-salt-v1'),
+            Buffer.from('MEL_PARALLEL_PROOF_V1:'+sha),
+            32,
+          )).toString('base64url'));
+          NODE
+          )"
           SESSION="council-rich-ui-${EXPECTED_SHA:0:12}"
           export TOKEN SESSION EXPECTED_SHA
           echo "::add-mask::${TOKEN}"
 
-          cleanup() {
-            set +e
-            printf 'y\n' | npx wrangler secret delete MEL_LAUNCH_BOOTSTRAP_TOKEN --env="" >/tmp/council-rich-ui-secret-delete.log 2>&1 || true
-          }
-          trap cleanup EXIT
-          printf '%s' "${TOKEN}" | npx wrangler secret put MEL_LAUNCH_BOOTSTRAP_TOKEN --env=""
-
           READY=0
           for ATTEMPT in $(seq 1 12); do
-            CODE="$(curl --silent --show-error --max-time 45               --header "x-mel-release-smoke: 1"               --header "x-mel-launch-bootstrap: ${TOKEN}"               --output self-check.json               --write-out '%{http_code}'               "${BASE_URL}/api/gen2/code/self-check" || true)"
+            CODE="$(curl --silent --show-error --max-time 45               --header "x-mel-release-smoke: 1"               --header "x-mel-parallel-proof: ${TOKEN}"               --output self-check.json               --write-out '%{http_code}'               "${BASE_URL}/api/gen2/code/self-check" || true)"
             if [ "${CODE}" = "200" ]; then READY=1; break; fi
             sleep 2
           done
@@ -114,7 +119,7 @@ jobs:
           COUNCIL_READY=0
           COUNCIL_MAX_ATTEMPTS=4
           for ATTEMPT in $(seq 1 "${COUNCIL_MAX_ATTEMPTS}"); do
-            COUNCIL_CODE="$(curl --silent --show-error --max-time 130               --header "x-mel-release-smoke: 1"               --header "x-mel-launch-bootstrap: ${TOKEN}"               --header "content-type: application/json"               --data '{"id":"model.council","input":{"request":{"kind":"OWNER_NEGATIVE_FEEDBACK_RECOVERY","original_request":"Vérifie l intégrité du code MEL.","failed_response":"Je n ai pas exécuté la vérification.","owner_feedback":"tu n y arrives pas","instruction":"Analyse l échec et propose une correction concrète sans contourner les garde-fous."},"capability":"GENERAL","maxCandidates":3,"timeoutMs":60000}}'               --output council-live.json               --write-out '%{http_code}'               "${BASE_URL}/api/gen2/capabilities/execute" || true)"
+            COUNCIL_CODE="$(curl --silent --show-error --max-time 130               --header "x-mel-release-smoke: 1"               --header "x-mel-parallel-proof: ${TOKEN}"               --header "content-type: application/json"               --data '{"id":"model.council","input":{"request":{"kind":"OWNER_NEGATIVE_FEEDBACK_RECOVERY","original_request":"Vérifie l intégrité du code MEL.","failed_response":"Je n ai pas exécuté la vérification.","owner_feedback":"tu n y arrives pas","instruction":"Analyse l échec et propose une correction concrète sans contourner les garde-fous."},"capability":"GENERAL","maxCandidates":3,"timeoutMs":60000}}'               --output council-live.json               --write-out '%{http_code}'               "${BASE_URL}/api/gen2/capabilities/execute" || true)"
             if [ "${COUNCIL_CODE}" = "200" ] && node - <<'NODE'
           const d=require('./council-live.json');
           const r=d?.result||{};
@@ -150,7 +155,7 @@ jobs:
             {approved:true,session_id:session,step_id:'type-full',action:'browser.type'},
           ];
           const steps=[
-            {id:'set-auth',action:'browser.set-headers',headers:{'x-mel-release-smoke':'1','x-mel-launch-bootstrap':token}},
+            {id:'set-auth',action:'browser.set-headers',headers:{'x-mel-release-smoke':'1','x-mel-parallel-proof':token}},
             {id:'navigate-normal',action:'browser.navigate',url:origin+'/'},
             {id:'type-normal',action:'browser.type',selector:'#promptInput',text:'Lis src/router.js'},
             {id:'send-normal',action:'browser.click',selector:'#send'},
@@ -175,7 +180,7 @@ jobs:
 
           BROWSER_CODE="000"
           for ATTEMPT in $(seq 1 12); do
-            BROWSER_CODE="$(curl --silent --show-error --max-time 150             --header "x-mel-release-smoke: 1"             --header "x-mel-launch-bootstrap: ${TOKEN}"             --header "content-type: application/json"             --data "${BODY}"             --output rich-ui-browser.json             --write-out '%{http_code}'             "${BASE_URL}/api/gen2/capabilities/execute" || true)"
+            BROWSER_CODE="$(curl --silent --show-error --max-time 150             --header "x-mel-release-smoke: 1"             --header "x-mel-parallel-proof: ${TOKEN}"             --header "content-type: application/json"             --data "${BODY}"             --output rich-ui-browser.json             --write-out '%{http_code}'             "${BASE_URL}/api/gen2/capabilities/execute" || true)"
             if [ "${BROWSER_CODE}" = "200" ]; then
               break
             fi
@@ -222,9 +227,6 @@ jobs:
           fs.writeFileSync('council-rich-ui-production-proof.json',JSON.stringify(proof,null,2));
           console.log(JSON.stringify(proof,null,2));
           NODE
-
-          cleanup
-          trap - EXIT
 
       - name: Upload sanitized Council + rich UI proof
         if: always()

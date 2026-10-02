@@ -14,7 +14,7 @@ test('live connection proof accepts a healthy Pipedream Google Calendar fallback
   assert.match(source,/if \[ "\$\{GOOGLE_TASKS_OK\}" != "1" \]; then FAILURES=\$\(\(FAILURES\+1\)\); fi/);
 });
 
-test('live connection proof separates bootstrap auth readiness from connector health',async()=>{
+test('live connection proof separates immutable proof auth readiness from connector health',async()=>{
   const source=await readFile(workflowUrl,'utf8');
   assert.match(source,/connections-self-check\.json/);
   assert.match(source,/GOOGLE_GMAIL_OK=0/);
@@ -40,7 +40,7 @@ test('live connection proof persists precise partial evidence even when a connec
 });
 
 
-test('live connection proof retries only transient Pipedream bootstrap authorization propagation',async()=>{
+test('live connection proof retries only transient Pipedream proof authorization propagation',async()=>{
   const source=await readFile(workflowUrl,'utf8');
   assert.match(source,/for attempt in \$\(seq 1 12\); do[\s\S]*pipedream\/accounts/);
   assert.match(source,/PD_ERROR_CODE=.*AUTH_REQUIRED|PD_ERROR_CODE=.*UNKNOWN/);
@@ -48,6 +48,17 @@ test('live connection proof retries only transient Pipedream bootstrap authoriza
   assert.match(source,/sleep 2[\s\S]*continue/);
 });
 
+
+test('live connection proof uses exact-SHA immutable proof auth and never mutates Worker secrets',async()=>{
+  const source=await readFile(workflowUrl,'utf8');
+  assert.match(source,/MEL_BACKUP_ENCRYPTION_KEY_B64/);
+  assert.match(source,/MEL_PARALLEL_PROOF_V1:/);
+  assert.match(source,/x-mel-parallel-proof/);
+  assert.doesNotMatch(source,/MEL_LAUNCH_BOOTSTRAP_TOKEN/);
+  assert.doesNotMatch(source,/wrangler secret put/);
+  assert.doesNotMatch(source,/wrangler secret delete/);
+  assert.match(source,/mutation_scope:'read_only_parallel_proof_auth'/);
+});
 
 test('Yahoo/Ymail production proof uses Pipedream account health without direct IMAP probing',async()=>{
   const source=await readFile(new URL('../.github/workflows/live-connections-production-proof.yml',import.meta.url),'utf8');
