@@ -3,11 +3,14 @@ import { createEnvMediaVaultCodec } from './media-vault-crypto.js';
 
 export const WORKERS_AI_IMAGE_MODEL = '@cf/black-forest-labs/flux-1-schnell';
 export const WORKERS_AI_TTS_MODEL = '@cf/deepgram/aura-1';
+export const WORKERS_AI_TRANSCRIPTION_MODEL = '@cf/openai/whisper-large-v3-turbo';
 
 const IMAGE_ADAPTER_ID = 'workers-ai.media.image.flux-1-schnell';
 const TTS_ADAPTER_ID = 'workers-ai.media.audio.aura-1';
+const TRANSCRIPTION_ADAPTER_ID = 'workers-ai.media.audio.whisper-large-v3-turbo';
 const MAX_IMAGE_BYTES = 20_000_000;
 const MAX_AUDIO_BYTES = 20_000_000;
+export const MAX_INLINE_TRANSCRIPTION_BYTES = 8_000_000;
 const DEFAULT_MEDIA_TTL_SECONDS = 7 * 24 * 60 * 60;
 const AURA_SPEAKERS = new Set([
   'angus','asteria','arcas','orion','orpheus','athena','luna',
@@ -35,6 +38,36 @@ function base64Bytes(value) {
   } catch {
     throw mediaError('WORKERS_AI_MEDIA_BASE64_INVALID', 502);
   }
+}
+
+function bytesBase64(bytesInput) {
+  const bytes = bytesInput instanceof Uint8Array ? bytesInput : new Uint8Array(bytesInput || []);
+  let binary = '';
+  const chunkSize = 0x8000;
+  for (let offset = 0; offset < bytes.byteLength; offset += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(offset, Math.min(bytes.byteLength, offset + chunkSize)));
+  }
+  return btoa(binary);
+}
+
+function normalizeTranscriptionResult(value) {
+  const text = clean(
+    value?.text
+      ?? value?.transcription_info?.text
+      ?? value?.result?.text
+      ?? value?.result?.transcription_info?.text,
+    120_000,
+  );
+  const wordCount = Number(
+    value?.word_count
+      ?? value?.transcription_info?.word_count
+      ?? value?.result?.word_count
+      ?? value?.result?.transcription_info?.word_count,
+  );
+  return Object.freeze({
+    text,
+    word_count: Number.isFinite(wordCount) && wordCount >= 0 ? wordCount : null,
+  });
 }
 
 async function sha256Hex(bytes) {
@@ -214,6 +247,57 @@ async function audioSynthesize(env, input = {}) {
   });
 }
 
+export async function transcribeAudioBytes(env, bytesInput, options = {}) {
+  const provenance = freshZeroCostProof(env, TRANSCRIPTION_ADAPTER_ID, WORKERS_AI_TRANSCRIPTION_MODEL);
+  if (!provenance) throw mediaError('WORKERS_AI_ZERO_COST_PROOF_REQUIRED');
+  if (!env?.AI?.run) throw mediaError('AI_BINDING_MISSING');
+
+  const bytes = bytesInput instanceof Uint8Array ? bytesInput : new Uint8Array(bytesInput || []);
+  if (!bytes.byteLength) throw mediaError('AUDIO_INPUT_REQUIRED', 400);
+  if (bytes.byteLength > MAX_INLINE_TRANSCRIPTION_BYTES) {
+    throw mediaError('AUDIO_TRANSCRIPTION_REQUIRES_CHUNKING', 413);
+  }
+  const language = clean(options.language, 16).toLowerCase();
+  const task = clean(options.task || 'transcribe', 16).toLowerCase() === 'translate'
+    ? 'translate'
+    : 'transcribe';
+  const result = await env.AI.run(WORKERS_AI_TRANSCRIPTION_MODEL, {
+    audio: bytesBase64(bytes),
+    task,
+    ...(language ? { language } : {}),
+    vad_filter: options.vad_filter === true,
+  });
+  const normalized = normalizeTranscriptionResult(result);
+  if (!normalized.text) throw mediaError('WORKERS_AI_TRANSCRIPTION_EMPTY', 502);
+  return Object.freeze({
+    ok: true,
+    schema: 'mel.workers-ai-media/v1',
+    capability: 'media.audio.transcribe',
+    provider: 'workers-ai',
+    model: WORKERS_AI_TRANSCRIPTION_MODEL,
+    zero_added_cost: true,
+    text: normalized.text,
+    word_count: normalized.word_count,
+    provenance,
+  });
+}
+
+async function audioTranscribe(env, input = {}) {
+  let bytes = null;
+  if (input?.bytes instanceof Uint8Array) bytes = input.bytes;
+  else if (input?.bytes instanceof ArrayBuffer) bytes = new Uint8Array(input.bytes);
+  else {
+    const encoded = clean(input?.audio_base64 ?? input?.audio, 16_000_000);
+    if (encoded) bytes = base64Bytes(encoded);
+  }
+  if (!bytes?.byteLength) throw mediaError('AUDIO_INPUT_REQUIRED', 400);
+  return transcribeAudioBytes(env, bytes, {
+    language: input?.language,
+    task: input?.task,
+    vad_filter: input?.vad_filter,
+  });
+}
+
 /**
  * Returns only adapters that are executable at zero added cost right now.
  * Missing/stale proof or Media Vault configuration leaves the capability
@@ -226,6 +310,9 @@ export function createWorkersAiZeroCostMediaCapabilities(env = {}) {
   }
   if (adapterReady(env, TTS_ADAPTER_ID, WORKERS_AI_TTS_MODEL)) {
     adapters['media.audio.synthesize'] = input => audioSynthesize(env, input);
+  }
+  if (env?.AI?.run && freshZeroCostProof(env, TRANSCRIPTION_ADAPTER_ID, WORKERS_AI_TRANSCRIPTION_MODEL)) {
+    adapters['media.audio.transcribe'] = input => audioTranscribe(env, input);
   }
   return Object.freeze(adapters);
 }
