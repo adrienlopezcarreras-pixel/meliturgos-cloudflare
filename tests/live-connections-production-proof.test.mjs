@@ -34,3 +34,11 @@ test('live connection proof retries only transient Pipedream bootstrap authoriza
   assert.match(source,/\[ "\$\{PD_ACCOUNTS_CODE\}" = "401" \].*\[ "\$\{PD_ERROR_CODE\}" = "AUTH_REQUIRED" \]/);
   assert.match(source,/sleep 2[\s\S]*continue/);
 });
+
+
+test('Yahoo/Ymail production proof uses Pipedream account health without direct IMAP probing',async()=>{
+  const source=await readFile(new URL('../.github/workflows/live-connections-production-proof.yml',import.meta.url),'utf8');
+  assert.doesNotMatch(source,/probe yahoo_imap \/api\/gen2\/connections\/yahoo-imap\/test/);
+  assert.match(source,/has_pd_app imap/);
+  assert.match(source,/direct_imap_probe\":false/);
+});

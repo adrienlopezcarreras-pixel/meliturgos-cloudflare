@@ -197,11 +197,9 @@ jobs:
           YAHOO_OK=0
           if probe yahoo_oauth /api/gen2/connections/yahoo/test '{"connector_id":"yahoo-mail"}'; then
             YAHOO_OK=1
-          elif probe yahoo_imap /api/gen2/connections/yahoo-imap/test '{}'; then
-            YAHOO_OK=1
           elif [ "${PIPEDREAM_OK}" = "1" ] && has_pd_app imap; then
             YAHOO_OK=1
-            echo 'yahoo_imap: {"ok":true,"provider":"pipedream","app":"imap","linked_account":true}'
+            echo 'yahoo_ymail: {"ok":true,"provider":"pipedream","app":"imap","linked_account":true,"direct_imap_probe":false}'
           fi
           if [ "${YAHOO_OK}" != "1" ]; then FAILURES=$((FAILURES+1)); fi
 
