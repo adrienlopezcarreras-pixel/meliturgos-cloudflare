@@ -1435,8 +1435,8 @@ function Sovereignty-RuntimeServiceRoot([string]$service) {
   $base = Join-Path (Sovereignty-Root) "runtime"
   [IO.Directory]::CreateDirectory($base) | Out-Null
   $root = [IO.Path]::GetFullPath((Join-Path $base $name))
-  $baseFull = [IO.Path]::GetFullPath($base).TrimEnd("\")
-  if (-not $root.StartsWith($baseFull + "\",[StringComparison]::OrdinalIgnoreCase)) { throw "SOVEREIGNTY_RUNTIME_PATH_INVALID" }
+  $baseFull = [IO.Path]::GetFullPath($base).TrimEnd([IO.Path]::DirectorySeparatorChar)
+  if (-not $root.StartsWith($baseFull + [IO.Path]::DirectorySeparatorChar,[StringComparison]::OrdinalIgnoreCase)) { throw "SOVEREIGNTY_RUNTIME_PATH_INVALID" }
   [IO.Directory]::CreateDirectory($root) | Out-Null
   return $root
 }
