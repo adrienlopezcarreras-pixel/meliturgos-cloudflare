@@ -1495,12 +1495,14 @@ function Perform-SovereigntyRuntime([string]$operation,$payload) {
       if ($null -eq $plan) { throw "SOVEREIGNTY_RUNTIME_PLAN_NOT_FOUND" }
       if ([string]$plan.source_sha -ne $sha) { throw "SOVEREIGNTY_RUNTIME_PLAN_SHA_MISMATCH" }
       $prior = Read-SovereigntyRuntimeJson $activePath
+      $priorActiveId = $null
+      if ($null -ne $prior) { $priorActiveId = [string]$prior.candidate_id }
       $candidateId = "cand-" + [guid]::NewGuid().ToString("N")
       Write-SovereigntyRuntimeJson (Sovereignty-RuntimeCandidatePath $root $candidateId) @{
         candidate_id=$candidateId
         source_sha=$sha
         repository=[string]$plan.repository
-        prior_active_id=if($null -ne $prior){[string]$prior.candidate_id}else{$null}
+        prior_active_id=$priorActiveId
         deployed_at=(Get-Date).ToUniversalTime().ToString("o")
         status="CANDIDATE"
       }
@@ -1540,7 +1542,9 @@ function Perform-SovereigntyRuntime([string]$operation,$payload) {
         $prior = Read-SovereigntyRuntimeJson $priorPath
         if ($null -ne $prior) {
           Write-SovereigntyRuntimeJson $activePath @{candidate_id=$priorId;source_sha=[string]$prior.source_sha;restored_at=(Get-Date).ToUniversalTime().ToString("o")}
-        } elseif (Test-Path -LiteralPath $activePath) { Remove-Item -LiteralPath $activePath -Force }
+        } elseif (Test-Path -LiteralPath $activePath) {
+          Remove-Item -LiteralPath $activePath -Force
+        }
       } elseif (Test-Path -LiteralPath $activePath) {
         Remove-Item -LiteralPath $activePath -Force
       }
