@@ -37,10 +37,14 @@ test('bounded release scan can skip broad Internet discovery while normal discov
 });
 
 
-test('code-sync discovery excludes endpoints already used or quarantined', () => {
+test('code-sync discovery excludes used, quarantined and exhausted retry-cycle endpoints', () => {
   const runtime=fs.readFileSync(new URL('../src/continuity/shardvault-runtime.js',import.meta.url),'utf8');
   const discovery=fs.readFileSync(new URL('../src/continuity/autonomous-repositories.js',import.meta.url),'utf8');
-  assert.match(runtime,/excludeEndpointIds:\[\.\.\.used,\.\.\.\(state\.failed_endpoint_ids\|\|\[\]\)\]/);
+  assert.match(runtime,/const refreshExclusions=\[\.\.\.new Set\(\[/);
+  assert.match(runtime,/\.\.\.used/);
+  assert.match(runtime,/\.\.\.\(state\.failed_endpoint_ids\|\|\[\]\)/);
+  assert.match(runtime,/retryCycleExhausted\?\(state\.attempted_endpoints\|\|\[\]\):\[\]/);
+  assert.match(runtime,/excludeEndpointIds:refreshExclusions/);
   assert.match(discovery,/excludeEndpointIds=\[\]/);
   assert.match(discovery,/EXCLUDED_ENDPOINT/);
   assert.match(discovery,/excluded\.has\(c\.id\)/);
