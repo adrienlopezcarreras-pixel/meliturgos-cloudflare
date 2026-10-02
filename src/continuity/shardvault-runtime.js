@@ -1209,7 +1209,11 @@ async function ensureExternalCodeArchive(env,c,codeBackup){
         state.code_pool_refreshes=(Number(state.code_pool_refreshes)||0)+1;
         try{
           discoveryRefresh=await discoverAutonomousRepositories(env,{
-            masterKey:c.master,vaultId:c.vaultId,requiredBytes:shard.length,selectionCount:goal
+            masterKey:c.master,
+            vaultId:c.vaultId,
+            requiredBytes:shard.length,
+            selectionCount:goal,
+            excludeEndpointIds:[...used,...(state.failed_endpoint_ids||[])]
           });
           const fresh=[...(discoveryRefresh?.qualified||[]),...(discoveryRefresh?.selected||[])];
           if(fresh.length){
