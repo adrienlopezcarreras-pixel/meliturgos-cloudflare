@@ -96,12 +96,18 @@ export class CapabilityBus {
     };
     let record;
     try {
-      if (entry.healthcheck) await this.refreshHealth(id);
+      // Security gates run before any provider/network health probe. This keeps
+      // denied or approval-gated actions side-effect free even when a
+      // capability has a live healthcheck.
       record = this.describe(id);
       requireValue(record.enabled, 'CAPABILITY_DISABLED', 409);
-      requireValue(record.health !== 'UNAVAILABLE', 'CAPABILITY_UNAVAILABLE', 503);
       authorize(record.permissions,context);
       assertCapabilityApproval(record, context);
+      if (entry.healthcheck) {
+        await this.refreshHealth(id);
+        record = this.describe(id);
+      }
+      requireValue(record.health !== 'UNAVAILABLE', 'CAPABILITY_UNAVAILABLE', 503);
       validate(input,record.input_schema);
     } catch (error) {
       await this.audit({
