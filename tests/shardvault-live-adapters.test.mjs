@@ -46,6 +46,8 @@ test('ShardVault provider adapters reflect current official API contracts', () =
   assert.match(autonomous,/adapter:'pst_rs_b64'/);
   assert.match(autonomous,/pst\.rs\.abhicracker\.com/);
   assert.match(autonomous,/x-paste-ttl':'1y'/);
+  assert.match(autonomous,/content-type':'application\\/octet-stream'/);
+  assert.match(runtime,/content-type':'application\\/octet-stream'/);
   assert.match(autonomous,/c\.authMode==='none'\|\|c\.authMode==='ephemeral_account_token'/);
 });
 
@@ -188,6 +190,8 @@ test('code replication uses resumable RS 4-of-7 shards with one external shard p
   assert.ok(runtime.includes("rememberCodeCandidateEndpoints(env,[...(report.qualified||[]),...(report.selected||[]),...(report.eligible||[])])"));
   assert.match(runtime,/CODE_CANDIDATES_KEY/);
   assert.match(body,/readCodeCandidateEndpoints/);
+  assert.match(body,/const codeCandidateSeeds=\[\.\.\.fresh,\.\.\.\(discoveryRefresh\?\.eligible\|\|\[\]\)\]/);
+  assert.match(body,/if\(codeCandidateSeeds\.length\)await rememberCodeCandidateEndpoints\(env,codeCandidateSeeds\)/);
   assert.match(body,/const provenEndpoint=\{\.\.\.e,/);
   assert.match(body,/rememberValidatedExternalEndpoints\(env,\[provenEndpoint\]\)/);
   assert.match(body,/NO_READY_VALIDATED_CODE_TARGETS/);
