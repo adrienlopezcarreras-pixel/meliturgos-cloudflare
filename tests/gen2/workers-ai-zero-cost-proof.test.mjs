@@ -154,8 +154,9 @@ test('default provider pool remains blocked when no runtime proof is configured'
 
 test('release zero-cost proof authorizes the accessible Council fallback pool', async () => {
   const workflow = await readFile(new URL('../../.github/workflows/deploy-cloudflare-release.yml', import.meta.url), 'utf8');
-  assert.match(workflow, /@cf\/moonshotai\/kimi-k2\.7-code/);
-  assert.match(workflow, /@cf\/zai-org\/glm-4\.7-flash/);
   assert.match(workflow, /@cf\/meta\/llama-3\.3-70b-instruct-fp8-fast/);
-  assert.doesNotMatch(workflow, /@cf\/google\/gemma-3-12b-it/);
+  assert.match(workflow, /@cf\/google\/gemma-4-26b-a4b-it/);
+  assert.match(workflow, /@cf\/nvidia\/nemotron-3-120b-a12b/);
+  assert.match(workflow, /@cf\/zai-org\/glm-4\.7-flash/);
+  assert.doesNotMatch(workflow, /@cf\/moonshotai\/kimi-k2\.7-code/);
 });
