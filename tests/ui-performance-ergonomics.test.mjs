@@ -129,6 +129,7 @@ test('Professor skills surface refreshes real health on open and on explicit req
   assert.match(html, /id="skillsHealthy"/);
   assert.match(html, /id="skillsProtected"/);
   assert.match(html, /id="skillsDegraded"/);
+  assert.match(html, /id="skillsWaiting"/);
   assert.match(html, /id="skillsUnavailable"/);
   assert.match(html, /id="skillsFailed"/);
   assert.match(html, /id="skillsProviderSummary"/);
@@ -136,6 +137,7 @@ test('Professor skills surface refreshes real health on open and on explicit req
   assert.ok(html.includes("skills:()=>loadSkills(true)"));
   assert.ok(html.includes("loadSkills(true)"));
   assert.ok(html.includes('health_detail'));
+  assert.ok(html.includes('EN ATTENTE PC'));
   assert.ok(html.includes('NON CONFIGURÉ'));
 });
 
@@ -145,6 +147,8 @@ test('Professor capability health semantics distinguish protected, degraded, non
   assert.match(html, /\.tag\.protected,\.tag\.info/);
   assert.match(html, /\.tag\.neutral/);
   assert.match(html, /raw==='PROTECTED'\?'protected'/);
+  assert.match(html, /id\.startsWith\('computer\.'\)/);
+  assert.match(html, /label:'EN ATTENTE PC'/);
   assert.match(html, /\['UNAVAILABLE','OFFLINE','DISABLED'\]\.includes\(raw\)\?'neutral'/);
   assert.match(router, /const capabilities = refresh \? await runtime\.bus\.refreshHealthAll\(\) : runtime\.bus\.list\(\);/);
   assert.match(router, /const protectedStates = new Set\(\["PROTECTED"\]\)/);
