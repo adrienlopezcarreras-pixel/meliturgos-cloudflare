@@ -1373,10 +1373,101 @@ function Perform-SovereigntyRuntime([string]$operation,$payload) {
   }
 }
 
+
+function Get-SovereigntyLocalAiState {
+  $base = "http://127.0.0.1:11434"
+  try {
+    $tags = Invoke-RestMethod -Uri ($base + "/api/tags") -Method "GET" -TimeoutSec 5 -ErrorAction Stop
+  } catch {
+    throw "SOVEREIGNTY_AI_LOCAL_ENGINE_UNAVAILABLE"
+  }
+  $models = @()
+  foreach ($row in @($tags.models)) {
+    $name = ([string]$row.name).Trim()
+    if (-not [string]::IsNullOrWhiteSpace($name)) { $models += ,$name }
+  }
+  if ($models.Count -lt 1) { throw "SOVEREIGNTY_AI_LOCAL_MODEL_MISSING" }
+  $requested = ([string]$env:MEL_LOCAL_AI_MODEL).Trim()
+  $model = $null
+  if (-not [string]::IsNullOrWhiteSpace($requested)) {
+    $model = $models | Where-Object { [string]$_ -eq $requested } | Select-Object -First 1
+    if ([string]::IsNullOrWhiteSpace([string]$model)) { throw "SOVEREIGNTY_AI_MODEL_NOT_INSTALLED" }
+  } else {
+    $model = [string]$models[0]
+  }
+  return @{ endpoint=$base; model=[string]$model; installed_models=$models }
+}
+
+function Perform-SovereigntyAi([string]$operation,$payload) {
+  $state = Get-SovereigntyLocalAiState
+  switch ($operation) {
+    "health" {
+      return @{
+        action="sovereignty.ai.health"
+        backend="ollama-localhost"
+        ready=$true
+        model=[string]$state.model
+        installed_model_count=@($state.installed_models).Count
+        network_scope="localhost-only"
+      }
+    }
+    "invoke" {
+      $messages = @()
+      $totalChars = 0
+      foreach ($raw in @($payload.messages)) {
+        $role = ([string]$raw.role).Trim().ToLowerInvariant()
+        if (@("system","user","assistant") -notcontains $role) { throw "SOVEREIGNTY_AI_ROLE_INVALID" }
+        $content = [string]$raw.content
+        if ($content.Length -gt 12000) { throw "SOVEREIGNTY_AI_MESSAGE_TOO_LARGE" }
+        $totalChars += $content.Length
+        if ($totalChars -gt 32000) { throw "SOVEREIGNTY_AI_INPUT_TOO_LARGE" }
+        $messages += ,@{ role=$role; content=$content }
+      }
+      if ($messages.Count -lt 1) { throw "SOVEREIGNTY_AI_INPUT_REQUIRED" }
+      $requestedModel = ([string]$payload.model).Trim()
+      if (-not [string]::IsNullOrWhiteSpace($requestedModel) -and $requestedModel -ne [string]$state.model) {
+        throw "SOVEREIGNTY_AI_MODEL_NOT_ALLOWED"
+      }
+      $temperature = 0.0
+      try { $temperature = [double]$payload.temperature } catch {}
+      $temperature = [Math]::Max(0.0,[Math]::Min(2.0,$temperature))
+      $maxTokens = 180
+      try { $maxTokens = [int]$payload.max_tokens } catch {}
+      $maxTokens = [Math]::Max(1,[Math]::Min(512,$maxTokens))
+      $body = @{
+        model=[string]$state.model
+        messages=$messages
+        stream=$false
+        options=@{ temperature=$temperature; num_predict=$maxTokens }
+      } | ConvertTo-Json -Depth 10 -Compress
+      try {
+        $response = Invoke-RestMethod -Uri ($state.endpoint + "/api/chat") -Method "POST" -ContentType "application/json" -Body $body -TimeoutSec 90 -ErrorAction Stop
+      } catch {
+        throw "SOVEREIGNTY_AI_LOCAL_INVOKE_FAILED"
+      }
+      $text = ([string]$response.message.content).Trim()
+      if ([string]::IsNullOrWhiteSpace($text)) { throw "SOVEREIGNTY_AI_LOCAL_EMPTY_RESPONSE" }
+      if ($text.Length -gt 32000) { $text = $text.Substring(0,32000) }
+      return @{
+        action="sovereignty.ai.invoke"
+        backend="ollama-localhost"
+        model=[string]$state.model
+        text=$text
+        network_scope="localhost-only"
+      }
+    }
+    default { throw "SOVEREIGNTY_AI_OPERATION_NOT_SUPPORTED" }
+  }
+}
+
 function Perform-Step($step, [string]$commandId, [string]$planSchema="") {
   $action = [string]$step.action
   if ($action.StartsWith("sovereignty.")) {
     if ($planSchema -ne "mel.sovereignty.local-command/v1") { throw "SOVEREIGNTY_COMMAND_SCHEMA_REQUIRED" }
+    if ($action.StartsWith("sovereignty.ai.")) {
+      $op = $action.Substring("sovereignty.ai.".Length)
+      return Perform-SovereigntyAi $op $step.payload
+    }
     if ($action.StartsWith("sovereignty.runtime.")) {
       $op = $action.Substring("sovereignty.runtime.".Length)
       return Perform-SovereigntyRuntime $op $step.payload
