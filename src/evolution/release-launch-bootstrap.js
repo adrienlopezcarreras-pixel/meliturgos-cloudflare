@@ -25,6 +25,7 @@ import { D1AlternativeRegistryStore } from '../portability/d1-alternative-regist
 import { sovereigntyCoverageFromRegistry } from '../portability/prevalidated-alternative-registry.js';
 import { liveTechnicalSovereigntyReport } from '../portability/technical-sovereignty-live.js';
 import { runConfiguredAiCandidateValidationRuntime } from '../portability/configured-ai-candidate-validation-runtime.js';
+import { runCompanionAiPrevalidationRuntime } from '../portability/companion-ai-prevalidation-runtime.js';
 import { runCompanionSourceControlPrevalidationRuntime } from '../portability/companion-source-control-prevalidation-runtime.js';
 import { runCompanionInfrastructurePrevalidationRuntime } from '../portability/companion-infrastructure-prevalidation-runtime.js';
 import { runGoogleDriveBackupRestorePrevalidationRuntime } from '../portability/google-drive-backup-restore-prevalidation-runtime.js';
@@ -359,6 +360,8 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
       }
     };
     await runRefresh('ai', runConfiguredAiCandidateValidationRuntime);
+    await runRefresh('ai_local', (runtimeEnv, options) =>
+      runCompanionAiPrevalidationRuntime(runtimeEnv, { ...options, sourceSha: deployedSha }));
     await runRefresh('source_control', (runtimeEnv, options) =>
       runCompanionSourceControlPrevalidationRuntime(runtimeEnv, { ...options, sourceSha: deployedSha }));
     await runRefresh('infrastructure', (runtimeEnv, options) =>
