@@ -1176,7 +1176,11 @@ async function ensureExternalCodeArchive(env,c,codeBackup){
       let ranked=rankExternalCodeCandidates(env,[...validated,...extra,...codeCandidates,...activeCodeTargets],shard.length)
         .filter(e=>!used.has(e.id)&&!failed.has(e.id)&&codeTargetAvailableNow(state,e));
       if(!ranked.length){
-        ranked=uniqueExternalCandidates(env,activeCodeTargets)
+        // A freshly discovered durable code candidate may not have a cached
+        // representative proof yet. The code-sync write/read/hash round-trip
+        // below is itself the exact representative proof, so allow these
+        // candidates to self-qualify instead of creating a circular gate.
+        ranked=uniqueExternalCandidates(env,[...codeCandidates,...activeCodeTargets])
           .filter(e=>endpointMeetsDurability(env,e)&&!used.has(e.id)&&!failed.has(e.id)&&codeTargetAvailableNow(state,e))
           .sort((a,b)=>{
             const partsA=Math.max(1,Math.ceil(shard.length/fragmentChunkLimit(a)));
@@ -1185,7 +1189,7 @@ async function ensureExternalCodeArchive(env,c,codeBackup){
             const latencyB=Number(b?.probeLatencyMs)>0?Number(b.probeLatencyMs):Number.MAX_SAFE_INTEGER;
             return partsA-partsB||latencyA-latencyB||String(a.id).localeCompare(String(b.id));
           });
-        if(ranked.length)state.active_roundtrip_fallback_used=true;
+        if(ranked.length)state.candidate_roundtrip_fallback_used=true;
       }
       return prioritizeExternalCodeCandidates(ranked,state);
     };
