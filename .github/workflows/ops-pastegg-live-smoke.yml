@@ -18,12 +18,12 @@ jobs:
         run: |
           set -euo pipefail
           PAYLOAD="MEL_SHARDVAULT_PASTEGG_$(date +%s)"
-          B64="$(printf '%s' "$PAYLOAD" | base64 -w0)"
-          BODY="$(PAYLOAD_B64="$B64" node - <<'NODE'
+          B64URL="$(printf '%s' "$PAYLOAD" | base64 -w0 | tr '+/' '-_' | tr -d '=')"
+          BODY="$(PAYLOAD_B64URL="$B64URL" node - <<'NODE'
           process.stdout.write(JSON.stringify({
             name:'mel-shardvault-live-smoke',
             visibility:'unlisted',
-            files:[{name:'shard.bin',content:{format:'base64',value:process.env.PAYLOAD_B64}}]
+            files:[{name:'shard.txt',content:{format:'text',value:process.env.PAYLOAD_B64URL}}]
           }));
           NODE
           )"
@@ -43,10 +43,10 @@ jobs:
             node -e 'const fs=require("fs"); const raw=fs.readFileSync("/tmp/read.json","utf8"); try{const d=JSON.parse(raw); console.log(JSON.stringify({status:d?.status||null,error:d?.error||null,message:d?.message||null},null,2));}catch{console.log(raw.slice(0,500));}' || true
             exit 32
           fi
-          EXPECTED="$B64" node - <<'NODE'
+          EXPECTED="$B64URL" node - <<'NODE'
           const d=require('/tmp/read.json');
           const c=d?.result?.files?.[0]?.content;
-          if(c?.format!=='base64')throw new Error('PASTEGG_FORMAT_MISMATCH');
+          if(c?.format!=='text')throw new Error('PASTEGG_FORMAT_MISMATCH');
           const encoded=String(c?.content??c?.value??'');
           if(encoded!==process.env.EXPECTED)throw new Error('PASTEGG_ROUNDTRIP_MISMATCH');
           console.log('PASTEGG_LIVE_ROUNDTRIP_OK');
