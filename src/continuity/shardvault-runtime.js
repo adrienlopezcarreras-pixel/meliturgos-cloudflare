@@ -1252,6 +1252,10 @@ async function ensureExternalCodeArchive(env,c,codeBackup){
         state.last_code_pool_refresh_at=new Date(now).toISOString();
         state.code_pool_refresh_forced=false;
         state.code_pool_refreshes=(Number(state.code_pool_refreshes)||0)+1;
+        // Persist the refresh lease before external probing. If the caller times
+        // out, the next code-sync call must not restart the same expensive scan.
+        state.updatedAt=new Date(now).toISOString();
+        await writeCodeSyncState(env,id,state);
         try{
           const refreshExclusions=[...new Set([
             ...used,
@@ -1259,11 +1263,14 @@ async function ensureExternalCodeArchive(env,c,codeBackup){
             ...(state.cycle_quarantined_endpoint_ids||[]),
             ...(retryCycleExhausted?(state.attempted_endpoints||[]):[])
           ])];
+          // This path is replacing the one currently missing shard, not
+          // requalifying the entire 7-target pool.
           discoveryRefresh=await discoverAutonomousRepositories(env,{
             masterKey:c.master,
             vaultId:c.vaultId,
             requiredBytes:shard.length,
-            selectionCount:goal,
+            selectionCount:1,
+            probeLimit:2,
             excludeEndpointIds:refreshExclusions
           });
           const fresh=[...(discoveryRefresh?.qualified||[]),...(discoveryRefresh?.selected||[])];
