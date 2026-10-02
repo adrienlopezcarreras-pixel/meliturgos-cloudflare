@@ -93,7 +93,7 @@ export async function runCompanionSourceControlPrevalidationRuntime(env,{
 
   const execute=createCompanionSovereigntyExecutor(env,{
     deviceId:device.id,
-    timeoutMs:Number(env?.MEL_LOCAL_SOVEREIGNTY_COMMAND_TIMEOUT_MS)||20000,
+    timeoutMs:Number(env?.MEL_LOCAL_SOVEREIGNTY_COMMAND_TIMEOUT_MS)||90000,
   });
 
   const validation=await validateSovereigntyCandidates({
