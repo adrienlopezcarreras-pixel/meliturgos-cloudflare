@@ -26,7 +26,9 @@ const MANIFESTS = Object.freeze({
         // The single Google connect button intentionally grants the read-only
         // suite scopes too, so Calendar and Tasks can reuse the same durable
         // Google grant instead of requiring impossible connector-local tokens.
+        'https://www.googleapis.com/auth/calendar.events.readonly',
         'https://www.googleapis.com/auth/calendar.events',
+        'https://www.googleapis.com/auth/tasks.readonly',
         'https://www.googleapis.com/auth/tasks',
       ]),
     }),
