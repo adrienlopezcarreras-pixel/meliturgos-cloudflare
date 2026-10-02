@@ -77,8 +77,8 @@ function fixture() {
             'https://www.googleapis.com/auth/gmail.readonly',
             'https://www.googleapis.com/auth/gmail.compose',
             'https://www.googleapis.com/auth/gmail.send',
-            'https://www.googleapis.com/auth/calendar.events',
-            'https://www.googleapis.com/auth/tasks',
+            'https://www.googleapis.com/auth/calendar.events.readonly',
+            'https://www.googleapis.com/auth/tasks.readonly',
           ].join(' '),
         });
       }
@@ -165,6 +165,32 @@ test('Google OAuth callback stores tokens in vault but returns only safe status'
   assert.equal(JSON.stringify(status).includes('refresh-secret'), false);
 });
 
+test('Google refresh accepts the shared read-only Calendar and Tasks scopes already present in an existing Gmail grant', async () => {
+  const { runtime, vaults } = fixture();
+  await vaults.tokenVault.put({
+    owner: 'adrien',
+    connector_id: 'gmail',
+    token_set: {
+      access_token: 'expired-access',
+      refresh_token: 'refresh-secret-1',
+      token_type: 'Bearer',
+      scopes: [
+        'https://www.googleapis.com/auth/gmail.readonly',
+        'https://www.googleapis.com/auth/gmail.compose',
+        'https://www.googleapis.com/auth/gmail.send',
+        'https://www.googleapis.com/auth/calendar.events.readonly',
+        'https://www.googleapis.com/auth/tasks.readonly',
+      ],
+      expires_at: Date.now() - 1,
+    },
+  });
+  const token = await runtime.accessTokenResolver('gmail', { owner: 'adrien' });
+  assert.equal(token, 'access-secret-2');
+  const stored = await vaults.tokenVault.get({ owner: 'adrien', connector_id: 'gmail' });
+  assert.equal(stored.scopes.includes('https://www.googleapis.com/auth/calendar.events.readonly'), true);
+  assert.equal(stored.scopes.includes('https://www.googleapis.com/auth/tasks.readonly'), true);
+});
+
 test('Google access-token resolver automatically refreshes an expiring token', async () => {
   const { runtime, vaults, calls } = fixture();
   await vaults.tokenVault.put({
@@ -248,10 +274,12 @@ test('Gmail full-access API requests the shared Google suite read/write scopes',
   assert.equal(body.ok, true);
   assert.deepEqual(body.scopes, [
     'https://www.googleapis.com/auth/calendar.events',
+    'https://www.googleapis.com/auth/calendar.events.readonly',
     'https://www.googleapis.com/auth/gmail.compose',
     'https://www.googleapis.com/auth/gmail.readonly',
     'https://www.googleapis.com/auth/gmail.send',
     'https://www.googleapis.com/auth/tasks',
+    'https://www.googleapis.com/auth/tasks.readonly',
   ]);
 });
 
