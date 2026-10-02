@@ -83,8 +83,7 @@ test('GEN2-36 mutation handlers are never reached without exact owner approval',
       error => error?.code === 'EXPLICIT_APPROVAL_REQUIRED',
     );
   }
-  assert.equal(calls.length, 3);
-  assert.equal(calls.every(call => call.method === 'GET'), true);
+  assert.equal(calls.length, 0);
 });
 
 test('GitHub workflow dispatch is repository-fixed, workflow-allowlisted and body-bounded', async () => {
