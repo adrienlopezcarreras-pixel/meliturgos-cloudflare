@@ -112,8 +112,9 @@ jobs:
           NODE
 
           COUNCIL_READY=0
-          for ATTEMPT in $(seq 1 12); do
-            COUNCIL_CODE="$(curl --silent --show-error --max-time 150               --header "x-mel-release-smoke: 1"               --header "x-mel-launch-bootstrap: ${TOKEN}"               --header "content-type: application/json"               --data '{"id":"model.council","input":{"request":{"kind":"OWNER_NEGATIVE_FEEDBACK_RECOVERY","original_request":"Vérifie l intégrité du code MEL.","failed_response":"Je n ai pas exécuté la vérification.","owner_feedback":"tu n y arrives pas","instruction":"Analyse l échec et propose une correction concrète sans contourner les garde-fous."},"capability":"GENERAL","maxCandidates":4,"timeoutMs":45000}}'               --output council-live.json               --write-out '%{http_code}'               "${BASE_URL}/api/gen2/capabilities/execute" || true)"
+          COUNCIL_MAX_ATTEMPTS=4
+          for ATTEMPT in $(seq 1 "${COUNCIL_MAX_ATTEMPTS}"); do
+            COUNCIL_CODE="$(curl --silent --show-error --max-time 130               --header "x-mel-release-smoke: 1"               --header "x-mel-launch-bootstrap: ${TOKEN}"               --header "content-type: application/json"               --data '{"id":"model.council","input":{"request":{"kind":"OWNER_NEGATIVE_FEEDBACK_RECOVERY","original_request":"Vérifie l intégrité du code MEL.","failed_response":"Je n ai pas exécuté la vérification.","owner_feedback":"tu n y arrives pas","instruction":"Analyse l échec et propose une correction concrète sans contourner les garde-fous."},"capability":"GENERAL","maxCandidates":3,"timeoutMs":60000}}'               --output council-live.json               --write-out '%{http_code}'               "${BASE_URL}/api/gen2/capabilities/execute" || true)"
             if [ "${COUNCIL_CODE}" = "200" ] && node - <<'NODE'
           const d=require('./council-live.json');
           const r=d?.result||{};
@@ -129,7 +130,7 @@ jobs:
               break
             fi
             COUNCIL_ERROR_CODE="$(node -e 'const fs=require("fs");let d={};try{d=JSON.parse(fs.readFileSync("council-live.json","utf8"))}catch{};process.stdout.write(String(d?.code||d?.error||"UNKNOWN"))')"
-            echo "Council live proof attempt ${ATTEMPT}/12 incomplete (HTTP ${COUNCIL_CODE}, ${COUNCIL_ERROR_CODE})." >&2
+            echo "Council live proof attempt ${ATTEMPT}/${COUNCIL_MAX_ATTEMPTS} incomplete (HTTP ${COUNCIL_CODE}, ${COUNCIL_ERROR_CODE})." >&2
             if [ "${COUNCIL_CODE}" = "401" ] && [ "${COUNCIL_ERROR_CODE}" = "AUTH_REQUIRED" ]; then
               sleep 2
               continue
