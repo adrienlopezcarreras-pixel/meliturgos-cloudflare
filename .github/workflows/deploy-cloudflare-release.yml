@@ -636,13 +636,25 @@ jobs:
             test "$SHARD_READY" = "1"
           fi
 
-          SHARD_FINAL_CODE="$(curl --silent --show-error --max-time 60 \
-            --header "x-mel-release-smoke: 1" \
-            --header "x-mel-launch-bootstrap: ${BOOTSTRAP_TOKEN}" \
-            --output production-shardvault-final.json \
-            --write-out '%{http_code}' \
-            "${BASE_URL}/api/gen2/shardvault/status")"
-          test "$SHARD_FINAL_CODE" = "200"
+          SHARD_FINAL_READY=0
+          for SHARD_FINAL_ATTEMPT in $(seq 1 12); do
+            SHARD_FINAL_CODE="$(curl --silent --show-error --max-time 60 \
+              --header "x-mel-release-smoke: 1" \
+              --header "x-mel-launch-bootstrap: ${BOOTSTRAP_TOKEN}" \
+              --output production-shardvault-final.json \
+              --write-out '%{http_code}' \
+              "${BASE_URL}/api/gen2/shardvault/status" || true)"
+            if [ "$SHARD_FINAL_CODE" = "200" ]; then
+              SHARD_FINAL_READY=1
+              break
+            fi
+            echo "ShardVault final status propagation attempt ${SHARD_FINAL_ATTEMPT}/12 returned HTTP ${SHARD_FINAL_CODE}."
+            if [ -s production-shardvault-final.json ]; then
+              cat production-shardvault-final.json
+            fi
+            sleep 2
+          done
+          test "$SHARD_FINAL_READY" = "1"
           node -e 'const d=require("./production-shardvault-final.json"); const active=Array.isArray(d?.active_external_registry)?d.active_external_registry.length:0; if(active<7) throw new Error("PRODUCTION_SHARDVAULT_ACTIVE_EXTERNAL_LT_7:"+active); if(d?.health?.recoverable!==true) throw new Error("PRODUCTION_SHARDVAULT_NOT_RECOVERABLE"); console.log("ShardVault active external registry verified: "+active+"/7");'
           fi
 
