@@ -30,7 +30,7 @@ function Unprotect-Text([string]$value) {
 $Token = Unprotect-Text $config.token_protected
 $Server = ([string]$config.server_url).TrimEnd("/")
 $ComputerId = [string]$config.computer_id
-$Version = "1.2.0"
+$Version = "1.3.0"
 $Headless = $env:MEL_COMPANION_HEADLESS -eq "1"
 $ParentPid = 0
 [void][int]::TryParse([string]$env:MEL_COMPANION_PARENT_PID,[ref]$ParentPid)
@@ -216,6 +216,7 @@ function Send-Heartbeat {
   $bounds = [System.Windows.Forms.SystemInformation]::VirtualScreen
   $body = @{
     engine_version = $Version
+    engine_heartbeat_at = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
     hostname = $env:COMPUTERNAME
     user = $env:USERNAME
     screen = @{ x=$bounds.X; y=$bounds.Y; width=$bounds.Width; height=$bounds.Height }
@@ -1265,6 +1266,291 @@ function Perform-SovereigntySecrets([string]$operation,$payload) {
       return @{ action="sovereignty.secrets.delete_ref"; ref=$ref; deleted=$true }
     }
     default { throw "SOVEREIGNTY_SECRETS_OPERATION_NOT_SUPPORTED" }
+  }
+}
+
+
+function Assert-SovereigntyRuntimeName([string]$value,[string]$code) {
+  $name = ([string]$value).Trim()
+  if ($name -notmatch '^[A-Za-z0-9_.-]{1,180}
+  $action = [string]$step.action
+  if ($action.StartsWith("sovereignty.")) {
+    if ($planSchema -ne "mel.sovereignty.local-command/v1") { throw "SOVEREIGNTY_COMMAND_SCHEMA_REQUIRED" }
+    if ($action.StartsWith("sovereignty.runtime.")) {
+      $op = $action.Substring("sovereignty.runtime.".Length)
+      return Perform-SovereigntyRuntime $op $step.payload
+    }
+    if ($action.StartsWith("sovereignty.source_control.")) {
+      $op = $action.Substring("sovereignty.source_control.".Length)
+      return Perform-SovereigntySourceControl $op $step.payload
+    }
+    if ($action.StartsWith("sovereignty.ci.")) {
+      $op = $action.Substring("sovereignty.ci.".Length)
+      return Perform-SovereigntyCi $op $step.payload
+    }
+    if ($action.StartsWith("sovereignty.storage.")) {
+      $op = $action.Substring("sovereignty.storage.".Length)
+      return Perform-SovereigntyStorage $op $step.payload
+    }
+    if ($action.StartsWith("sovereignty.database.")) {
+      $op = $action.Substring("sovereignty.database.".Length)
+      return Perform-SovereigntyDatabase $op $step.payload
+    }
+    if ($action.StartsWith("sovereignty.observability.")) {
+      $op = $action.Substring("sovereignty.observability.".Length)
+      return Perform-SovereigntyObservability $op $step.payload
+    }
+    if ($action.StartsWith("sovereignty.scheduler.")) {
+      $op = $action.Substring("sovereignty.scheduler.".Length)
+      return Perform-SovereigntyScheduler $op $step.payload
+    }
+    if ($action.StartsWith("sovereignty.secrets.")) {
+      $op = $action.Substring("sovereignty.secrets.".Length)
+      return Perform-SovereigntySecrets $op $step.payload
+    }
+    throw "SOVEREIGNTY_ACTION_NOT_SUPPORTED"
+  }
+  $action = [string]$step.action
+  switch ($action) {
+    "screen.capture" {
+      $shot = Upload-Screenshot $commandId
+      return @{ action=$action; screenshot_key=$shot.key; view_url=$shot.view_url }
+    }
+    "cursor.move" {
+      if (-not [MelNative]::SetCursorPos([int]$step.x, [int]$step.y)) { throw "CURSOR_MOVE_FAILED" }
+      return @{ action=$action; x=[int]$step.x; y=[int]$step.y }
+    }
+    "pointer.click" {
+      [MelNative]::mouse_event($MOUSE_LEFTDOWN,0,0,0,[UIntPtr]::Zero)
+      Start-Sleep -Milliseconds 35
+      [MelNative]::mouse_event($MOUSE_LEFTUP,0,0,0,[UIntPtr]::Zero)
+      return @{ action=$action }
+    }
+    "pointer.scroll" {
+      $delta = [int]$step.delta_y
+      if ($delta -eq 0) { $delta = -120 }
+      [MelNative]::mouse_event($MOUSE_WHEEL,0,0,$delta,[UIntPtr]::Zero)
+      return @{ action=$action; delta_y=$delta }
+    }
+    "keyboard.press" {
+      [System.Windows.Forms.SendKeys]::SendWait((Key-Token ([string]$step.key)))
+      return @{ action=$action; key=[string]$step.key }
+    }
+    "keyboard.type" {
+      Type-Text ([string]$step.text)
+      return @{ action=$action; chars=([string]$step.text).Length }
+    }
+    "app.open" {
+      $exe = Resolve-App ([string]$step.app)
+      Start-Process $exe
+      return @{ action=$action; app=[string]$step.app }
+    }
+    "app.close" {
+      $count = Close-AppGracefully ([string]$step.app)
+      return @{ action=$action; app=[string]$step.app; windows_requested_close=$count }
+    }
+    "file.open" {
+      $path = Resolve-AllowedPath ([string]$step.path)
+      if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "FILE_NOT_FOUND" }
+      Start-Process -FilePath $path
+      return @{ action=$action; path=$path }
+    }
+    "file.close" {
+      $closed = Close-ForegroundFile ([string]$step.path)
+      return @{ action=$action; path=$closed.path; active_window=$closed.active_window }
+    }
+    "clipboard.read" {
+      $v = ""
+      try { $v = [string](Get-Clipboard -Raw -ErrorAction Stop) } catch {}
+      if ($v.Length -gt 4096) { $v = $v.Substring(0,4096) }
+      return @{ action=$action; text=$v }
+    }
+    "clipboard.write" {
+      Set-Clipboard -Value ([string]$step.text)
+      return @{ action=$action; chars=([string]$step.text).Length }
+    }
+    "power.off" {
+      return Invoke-ShutdownCommand $action
+    }
+    "power.restart" {
+      return Invoke-ShutdownCommand $action
+    }
+    default { throw "ACTION_NOT_SUPPORTED" }
+  }
+}
+
+function Process-Command($command) {
+  $outputs = @()
+  try {
+    foreach ($step in @($command.plan.steps)) {
+      $outputs += ,(Perform-Step $step ([string]$command.id) ([string]$command.plan.schema))
+    }
+    $body = @{ command_id=$command.id; ok=$true; result=@{ outputs=$outputs; active_window=(Active-Window) } }
+    [void](Invoke-MelJson -Path "/api/computer/v1/result" -Method "POST" -Body $body)
+  } catch {
+    $code = [string]$_.Exception.Message
+    $body = @{ command_id=$command.id; ok=$false; error_code=$code; result=@{ outputs=$outputs } }
+    try { [void](Invoke-MelJson -Path "/api/computer/v1/result" -Method "POST" -Body $body) } catch {}
+  }
+}
+
+$trayResources = $null
+if (-not $Headless) { $trayResources = New-MelTrayIcon }
+$lastHeartbeat = Get-Date "2000-01-01"
+while (-not $script:MelExitRequested) {
+  if ($Headless -and $ParentPid -gt 0 -and -not (Get-Process -Id $ParentPid -ErrorAction SilentlyContinue)) { break }
+  if (-not $Headless) { [System.Windows.Forms.Application]::DoEvents() }
+  try {
+    if (((Get-Date) - $lastHeartbeat).TotalSeconds -ge 10) {
+      Send-Heartbeat
+      $lastHeartbeat = Get-Date
+    }
+    $reply = Invoke-MelJson -Path "/api/computer/v1/commands" -Method "GET"
+    if ($reply.halted -eq $true) {
+      Start-Sleep -Seconds 2
+      continue
+    }
+    if ($null -ne $reply.command) {
+      Process-Command $reply.command
+      continue
+    }
+  } catch {
+    Start-Sleep -Seconds 3
+  }
+  Start-Sleep -Milliseconds 1200
+}
+if ($trayResources) {
+  try { $trayResources.notify.Visible = $false } catch {}
+  try { $trayResources.notify.Dispose() } catch {}
+  try { $trayResources.menu.Dispose() } catch {}
+  try { $trayResources.icon.Dispose() } catch {}
+  try { $trayResources.bitmap.Dispose() } catch {}
+}
+) { throw $code }
+  return $name
+}
+
+function Sovereignty-RuntimeServiceRoot([string]$service) {
+  $name = Assert-SovereigntyRuntimeName $service "SOVEREIGNTY_RUNTIME_SERVICE_INVALID"
+  $base = Join-Path (Sovereignty-Root) "runtime"
+  [IO.Directory]::CreateDirectory($base) | Out-Null
+  $root = [IO.Path]::GetFullPath((Join-Path $base $name))
+  $baseFull = [IO.Path]::GetFullPath($base).TrimEnd("\")
+  if (-not $root.StartsWith($baseFull + "\",[StringComparison]::OrdinalIgnoreCase)) { throw "SOVEREIGNTY_RUNTIME_PATH_INVALID" }
+  [IO.Directory]::CreateDirectory($root) | Out-Null
+  return $root
+}
+
+function Read-SovereigntyRuntimeJson([string]$path) {
+  if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { return $null }
+  try { return Get-Content -Raw -Encoding UTF8 -LiteralPath $path | ConvertFrom-Json }
+  catch { throw "SOVEREIGNTY_RUNTIME_STATE_CORRUPT" }
+}
+
+function Write-SovereigntyRuntimeJson([string]$path,$value) {
+  $json = $value | ConvertTo-Json -Depth 12
+  [IO.File]::WriteAllText($path,$json,[Text.UTF8Encoding]::new($false))
+}
+
+function Sovereignty-RuntimeCandidatePath([string]$root,[string]$candidateId) {
+  $id = Assert-SovereigntyRuntimeName $candidateId "SOVEREIGNTY_RUNTIME_CANDIDATE_INVALID"
+  return Join-Path $root ("candidate-" + $id + ".json")
+}
+
+function Perform-SovereigntyRuntime([string]$operation,$payload) {
+  $service = [string]$payload.service
+  $root = Sovereignty-RuntimeServiceRoot $service
+  $activePath = Join-Path $root "active.json"
+
+  switch ($operation) {
+    "health" {
+      return @{
+        action="sovereignty.runtime.health"
+        runtime="windows-powershell-local"
+        powershell_version=[string]$PSVersionTable.PSVersion
+        root_ready=(Test-Path -LiteralPath $root)
+      }
+    }
+    "prepare" {
+      $sha = ([string]$payload.source_sha).Trim().ToLowerInvariant()
+      if (-not (Test-SovereigntyHex $sha 40)) { throw "SOVEREIGNTY_RUNTIME_SOURCE_SHA_INVALID" }
+      $repository = ([string]$payload.artifact.ref).Trim()
+      if ([string]::IsNullOrWhiteSpace($repository)) { $repository = "meliturgos-cloudflare" }
+      $provenance = Read-SovereigntySourceProvenance $repository
+      if ([string]$provenance.source_sha -ne $sha) { throw "SOVEREIGNTY_RUNTIME_SOURCE_SHA_MISMATCH" }
+      $planId = "plan-" + [guid]::NewGuid().ToString("N")
+      Write-SovereigntyRuntimeJson (Join-Path $root ($planId + ".json")) @{
+        plan_id=$planId
+        source_sha=$sha
+        repository=$repository
+        prepared_at=(Get-Date).ToUniversalTime().ToString("o")
+      }
+      return @{ action="sovereignty.runtime.prepare"; plan_id=$planId; source_sha=$sha }
+    }
+    "deploy_candidate" {
+      $sha = ([string]$payload.source_sha).Trim().ToLowerInvariant()
+      if (-not (Test-SovereigntyHex $sha 40)) { throw "SOVEREIGNTY_RUNTIME_SOURCE_SHA_INVALID" }
+      $planId = Assert-SovereigntyRuntimeName ([string]$payload.prepared.plan_id) "SOVEREIGNTY_RUNTIME_PLAN_INVALID"
+      $plan = Read-SovereigntyRuntimeJson (Join-Path $root ($planId + ".json"))
+      if ($null -eq $plan) { throw "SOVEREIGNTY_RUNTIME_PLAN_NOT_FOUND" }
+      if ([string]$plan.source_sha -ne $sha) { throw "SOVEREIGNTY_RUNTIME_PLAN_SHA_MISMATCH" }
+      $prior = Read-SovereigntyRuntimeJson $activePath
+      $candidateId = "cand-" + [guid]::NewGuid().ToString("N")
+      Write-SovereigntyRuntimeJson (Sovereignty-RuntimeCandidatePath $root $candidateId) @{
+        candidate_id=$candidateId
+        source_sha=$sha
+        repository=[string]$plan.repository
+        prior_active_id=if($null -ne $prior){[string]$prior.candidate_id}else{$null}
+        deployed_at=(Get-Date).ToUniversalTime().ToString("o")
+        status="CANDIDATE"
+      }
+      return @{ action="sovereignty.runtime.deploy_candidate"; candidate_id=$candidateId; source_sha=$sha }
+    }
+    "smoke" {
+      $candidateId = Assert-SovereigntyRuntimeName ([string]$payload.candidate_id) "SOVEREIGNTY_RUNTIME_CANDIDATE_INVALID"
+      $sha = ([string]$payload.source_sha).Trim().ToLowerInvariant()
+      $candidate = Read-SovereigntyRuntimeJson (Sovereignty-RuntimeCandidatePath $root $candidateId)
+      if ($null -eq $candidate) { throw "SOVEREIGNTY_RUNTIME_CANDIDATE_NOT_FOUND" }
+      if ([string]$candidate.source_sha -ne $sha) { throw "SOVEREIGNTY_RUNTIME_CANDIDATE_SHA_MISMATCH" }
+      $provenance = Read-SovereigntySourceProvenance ([string]$candidate.repository)
+      if ([string]$provenance.source_sha -ne $sha) { throw "SOVEREIGNTY_RUNTIME_PROVENANCE_MISMATCH" }
+      return @{ action="sovereignty.runtime.smoke"; candidate_id=$candidateId; passed=$true; details=@{source_sha=$sha; isolated=$true} }
+    }
+    "promote" {
+      $candidateId = Assert-SovereigntyRuntimeName ([string]$payload.candidate_id) "SOVEREIGNTY_RUNTIME_CANDIDATE_INVALID"
+      $sha = ([string]$payload.source_sha).Trim().ToLowerInvariant()
+      $candidatePath = Sovereignty-RuntimeCandidatePath $root $candidateId
+      $candidate = Read-SovereigntyRuntimeJson $candidatePath
+      if ($null -eq $candidate) { throw "SOVEREIGNTY_RUNTIME_CANDIDATE_NOT_FOUND" }
+      if ([string]$candidate.source_sha -ne $sha) { throw "SOVEREIGNTY_RUNTIME_CANDIDATE_SHA_MISMATCH" }
+      $candidate.status = "ACTIVE"
+      $candidate.promoted_at = (Get-Date).ToUniversalTime().ToString("o")
+      Write-SovereigntyRuntimeJson $candidatePath $candidate
+      Write-SovereigntyRuntimeJson $activePath @{candidate_id=$candidateId;source_sha=$sha;promoted_at=$candidate.promoted_at}
+      return @{ action="sovereignty.runtime.promote"; candidate_id=$candidateId; promoted=$true; release_id=("local-" + $candidateId) }
+    }
+    "rollback" {
+      $candidateId = Assert-SovereigntyRuntimeName ([string]$payload.candidate_id) "SOVEREIGNTY_RUNTIME_CANDIDATE_INVALID"
+      $candidatePath = Sovereignty-RuntimeCandidatePath $root $candidateId
+      $candidate = Read-SovereigntyRuntimeJson $candidatePath
+      if ($null -eq $candidate) { throw "SOVEREIGNTY_RUNTIME_CANDIDATE_NOT_FOUND" }
+      $priorId = ([string]$candidate.prior_active_id).Trim()
+      if (-not [string]::IsNullOrWhiteSpace($priorId)) {
+        $priorPath = Sovereignty-RuntimeCandidatePath $root $priorId
+        $prior = Read-SovereigntyRuntimeJson $priorPath
+        if ($null -ne $prior) {
+          Write-SovereigntyRuntimeJson $activePath @{candidate_id=$priorId;source_sha=[string]$prior.source_sha;restored_at=(Get-Date).ToUniversalTime().ToString("o")}
+        } elseif (Test-Path -LiteralPath $activePath) { Remove-Item -LiteralPath $activePath -Force }
+      } elseif (Test-Path -LiteralPath $activePath) {
+        Remove-Item -LiteralPath $activePath -Force
+      }
+      $candidate.status = "ROLLED_BACK"
+      $candidate.rollback_reason = [string]$payload.reason
+      $candidate.rolled_back_at = (Get-Date).ToUniversalTime().ToString("o")
+      Write-SovereigntyRuntimeJson $candidatePath $candidate
+      return @{ action="sovereignty.runtime.rollback"; candidate_id=$candidateId; rolled_back=$true }
+    }
+    default { throw "SOVEREIGNTY_RUNTIME_OPERATION_NOT_SUPPORTED" }
   }
 }
 
