@@ -26,8 +26,8 @@ const MANIFESTS = Object.freeze({
         // The single Google connect button intentionally grants the read-only
         // suite scopes too, so Calendar and Tasks can reuse the same durable
         // Google grant instead of requiring impossible connector-local tokens.
-        'https://www.googleapis.com/auth/calendar.events.readonly',
-        'https://www.googleapis.com/auth/tasks.readonly',
+        'https://www.googleapis.com/auth/calendar.events',
+        'https://www.googleapis.com/auth/tasks',
       ]),
     }),
   }),
@@ -103,7 +103,11 @@ function tokenHasRequiredScopes(tokenSet, connectorId) {
       ? tokenSet.scopes.map(scope => clean(scope, 500)).filter(Boolean)
       : [],
   );
-  return required.every(scope => granted.has(scope));
+  const impliedByBroaderGrant = new Map([
+    ['https://www.googleapis.com/auth/calendar.events.readonly', 'https://www.googleapis.com/auth/calendar.events'],
+    ['https://www.googleapis.com/auth/tasks.readonly', 'https://www.googleapis.com/auth/tasks'],
+  ]);
+  return required.every(scope => granted.has(scope) || granted.has(impliedByBroaderGrant.get(scope)));
 }
 
 async function reusableGoogleToken(tokenVault, owner, connectorId) {

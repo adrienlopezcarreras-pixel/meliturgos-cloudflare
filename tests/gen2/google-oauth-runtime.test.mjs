@@ -77,8 +77,8 @@ function fixture() {
             'https://www.googleapis.com/auth/gmail.readonly',
             'https://www.googleapis.com/auth/gmail.compose',
             'https://www.googleapis.com/auth/gmail.send',
-            'https://www.googleapis.com/auth/calendar.events.readonly',
-            'https://www.googleapis.com/auth/tasks.readonly',
+            'https://www.googleapis.com/auth/calendar.events',
+            'https://www.googleapis.com/auth/tasks',
           ].join(' '),
         });
       }
@@ -91,8 +91,8 @@ function fixture() {
             'https://www.googleapis.com/auth/gmail.readonly',
             'https://www.googleapis.com/auth/gmail.compose',
             'https://www.googleapis.com/auth/gmail.send',
-            'https://www.googleapis.com/auth/calendar.events.readonly',
-            'https://www.googleapis.com/auth/tasks.readonly',
+            'https://www.googleapis.com/auth/calendar.events',
+            'https://www.googleapis.com/auth/tasks',
           ].join(' '),
         });
       }
@@ -202,8 +202,8 @@ test('Google access-token resolver reuses another Google token only when target 
       token_type: 'Bearer',
       scopes: [
         'https://www.googleapis.com/auth/gmail.readonly',
-        'https://www.googleapis.com/auth/calendar.events.readonly',
-        'https://www.googleapis.com/auth/tasks.readonly',
+        'https://www.googleapis.com/auth/calendar.events',
+        'https://www.googleapis.com/auth/tasks',
       ],
       expires_at: Date.now() + 300_000,
     },
@@ -235,7 +235,7 @@ test('Google access-token resolver reuses another Google token only when target 
   );
 });
 
-test('Gmail full-access API requests the shared Google suite read scopes', async () => {
+test('Gmail full-access API requests the shared Google suite read/write scopes', async () => {
   const f = fixture();
   const request = new Request('https://mel.example/api/gen2/oauth/google/gmail/begin', {
     method: 'POST',
@@ -247,11 +247,11 @@ test('Gmail full-access API requests the shared Google suite read scopes', async
   const body = await response.json();
   assert.equal(body.ok, true);
   assert.deepEqual(body.scopes, [
-    'https://www.googleapis.com/auth/calendar.events.readonly',
+    'https://www.googleapis.com/auth/calendar.events',
     'https://www.googleapis.com/auth/gmail.compose',
     'https://www.googleapis.com/auth/gmail.readonly',
     'https://www.googleapis.com/auth/gmail.send',
-    'https://www.googleapis.com/auth/tasks.readonly',
+    'https://www.googleapis.com/auth/tasks',
   ]);
 });
 
