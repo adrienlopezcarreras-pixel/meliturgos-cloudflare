@@ -41,7 +41,7 @@ jobs:
       EXPECTED_SHA: ${{ github.event_name == 'workflow_dispatch' && inputs.expected_sha || github.sha }}
       APPROVAL: ${{ github.event_name == 'workflow_dispatch' && inputs.approval || 'DEPLOY_APPROVED' }}
       OWNER_MAX_AUTORELEASE: ${{ github.event_name == 'push' && 'true' || (inputs.owner_max_autorelease && 'true' || 'false') }}
-      # TEMPORARY DEV-LIGHT MODE: skip repeated external ShardVault 7/7/code-sync proof.
+      # TEMPORARY DEV-LIGHT MODE: ShardVault 7/7/code-sync proof paused to finish downstream release validation.
       # MUST be restored to 'false' before final validation/closure.
       MEL_ROADMAP_SHARDVAULT_PAUSED: 'true'
       # TEMPORARY DEV-LIGHT MODE: keep external/deep AI proofs out of the blocking release path.
