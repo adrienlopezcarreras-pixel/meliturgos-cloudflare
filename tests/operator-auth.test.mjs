@@ -157,10 +157,18 @@ test('parallel production proof token is immutable, narrow and cannot use broad 
   for (const [method,path] of [
     ['GET','/api/gen2/code/self-check'],
     ['GET','/api/gen2/autonomy/sovereignty'],
+    ['GET','/api/gen2/connections/google/status'],
+    ['GET','/api/gen2/connections/pipedream/accounts'],
     ['GET','/'],
     ['GET','/professor'],
     ['GET','/normal-runtime.js'],
     ['POST','/api/gen2/capabilities/execute'],
+    ['POST','/api/gen2/connections/google/test'],
+    ['POST','/api/gen2/connections/microsoft/test'],
+    ['POST','/api/gen2/connections/yahoo/test'],
+    ['POST','/api/gen2/connections/yahoo-imap/test'],
+    ['POST','/api/gen2/connections/vercel/test'],
+    ['POST','/api/gen2/connections/pipedream/test'],
   ]) {
     assert.equal(isReleaseSmokeRequest(request(path, method), env), true, method + ' ' + path);
     assert.equal(authorized(request(path, method), env), true, method + ' ' + path);
@@ -171,7 +179,9 @@ test('parallel production proof token is immutable, narrow and cannot use broad 
     ['POST','/api/files/upload'],
     ['GET','/api/gen2/readiness'],
     ['GET','/api/memory/status'],
-    ['POST','/api/gen2/connections/google/test'],
+    ['POST','/api/gen2/connections/google/save'],
+    ['POST','/api/gen2/connections/vercel/save'],
+    ['POST','/api/gen2/connections/pipedream/save'],
   ]) {
     assert.equal(isReleaseSmokeRequest(request(path, method), env), false, method + ' ' + path);
     assert.equal(authorized(request(path, method), env), false, method + ' ' + path);
