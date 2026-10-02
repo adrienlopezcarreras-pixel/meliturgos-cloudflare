@@ -1117,7 +1117,7 @@ async function candidateWrite(c,url,payload,objectId,env){
     const body={
       name:objectId,
       visibility:'unlisted',
-      files:[{name:'shard.bin',content:{format:'base64',value:b64(payload)}}]
+      files:[{name:'shard.txt',content:{format:'text',value:b64u(payload)}}]
     };
     const r=await fetchTimed(endpoint,{method:'POST',headers:{'content-type':'application/json','accept':'application/json','user-agent':'MEL-ShardVault/1.0'},body:JSON.stringify(body)},15000);
     if(!r.ok)throw new Error('WRITE_HTTP_'+r.status);

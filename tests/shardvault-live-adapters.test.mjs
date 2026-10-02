@@ -29,7 +29,7 @@ test('ShardVault provider adapters reflect current official API contracts', () =
   assert.match(autonomous,/adapter:'pastegg_b64'/);
   assert.match(autonomous,/api\.paste\.gg\/v1\/pastes/);
   assert.match(autonomous,/PASTEGG_CONTENT_MISSING[\s\S]*content\?\.format[\s\S]*unb64u\(encoded\)[\s\S]*unb64\(encoded\)/);
-  assert.match(autonomous,/format:'base64',value:b64\(payload\)/);
+  assert.match(autonomous,/format:'text',value:b64u\(payload\)/);
   assert.match(autonomous,/adapter:'markdownpaste_b64'/);
   assert.match(autonomous,/markdownpasteit\.vercel\.app\/api\/paste/);
   assert.doesNotMatch(autonomous,/expires_in:0/);
@@ -51,6 +51,13 @@ test('ShardVault provider adapters reflect current official API contracts', () =
   assert.match(autonomous,/c\.authMode==='none'\|\|c\.authMode==='ephemeral_account_token'/);
 });
 
+test('paste.gg anonymous adapter uses text-safe base64url because anonymous binary content is forbidden', () => {
+  assert.match(autonomous,/format:'text',value:b64u\(payload\)/);
+  assert.match(runtime,/format:'text',value:b64u\(payload\)/);
+  assert.match(autonomous,/format:'text',value:b64u\(payload\)/);
+  assert.match(runtime,/format:'text',value:b64u\(payload\)/);
+});
+
 test('snapshot runtime can write and read every repaired adapter selected by discovery', () => {
   for (const adapter of ['zero_x0_binary','dpaste_org_b64','dpaste_b64','pastemyst_b64','onec3_b64','paste_c_net','fileditch_b64','pastegg_b64','markdownpaste_b64','udrop_dev_b64','waifuvault_b64','telegraph_b64','pastehtml_b64','pst_rs_b64']) {
     assert.ok(runtime.includes(`e.adapter==='${adapter}'`) || runtime.includes(`'${adapter}'`), adapter);
@@ -64,7 +71,7 @@ test('snapshot runtime can write and read every repaired adapter selected by dis
   assert.match(runtime,/user-agent':'curl\/8\.0 MEL-ShardVault\/1\.0'/);
   assert.match(runtime,/fileditch_b64/);
   assert.match(runtime,/api\.paste\.gg\/v1\/pastes\//);
-  assert.match(runtime,/format:'base64',value:b64\(payload\)/);
+  assert.match(runtime,/format:'text',value:b64u\(payload\)/);
   assert.match(runtime,/PASTEGG_CONTENT_MISSING[\s\S]*content\?\.format[\s\S]*unb64u\(encoded\)[\s\S]*unb64\(encoded\)/);
   assert.match(runtime,/markdownpasteit\.vercel\.app\/api\/paste\//);
   assert.match(runtime,/udrop_dev_b64/);
