@@ -30,7 +30,7 @@ function Unprotect-Text([string]$value) {
 $Token = Unprotect-Text $config.token_protected
 $Server = ([string]$config.server_url).TrimEnd("/")
 $ComputerId = [string]$config.computer_id
-$Version = "1.2.0"
+$Version = "1.3.0"
 $Headless = $env:MEL_COMPANION_HEADLESS -eq "1"
 $ParentPid = 0
 [void][int]::TryParse([string]$env:MEL_COMPANION_PARENT_PID,[ref]$ParentPid)
@@ -216,6 +216,7 @@ function Send-Heartbeat {
   $bounds = [System.Windows.Forms.SystemInformation]::VirtualScreen
   $body = @{
     engine_version = $Version
+    engine_heartbeat_at = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
     hostname = $env:COMPUTERNAME
     user = $env:USERNAME
     screen = @{ x=$bounds.X; y=$bounds.Y; width=$bounds.Width; height=$bounds.Height }
@@ -1268,10 +1269,118 @@ function Perform-SovereigntySecrets([string]$operation,$payload) {
   }
 }
 
+
+function Assert-SovereigntyRuntimeName([string]$value,[string]$code) {
+  $name = ([string]$value).Trim()
+  if ($name -notmatch '^[A-Za-z0-9_.-]{1,180}$') { throw $code }
+  return $name
+}
+
+function Sovereignty-RuntimeServiceRoot([string]$service) {
+  $name = Assert-SovereigntyRuntimeName $service "SOVEREIGNTY_RUNTIME_SERVICE_INVALID"
+  $base = Join-Path (Sovereignty-Root) "runtime"
+  [IO.Directory]::CreateDirectory($base) | Out-Null
+  $root = [IO.Path]::GetFullPath((Join-Path $base $name))
+  $baseFull = [IO.Path]::GetFullPath($base).TrimEnd([IO.Path]::DirectorySeparatorChar)
+  if (-not $root.StartsWith($baseFull + [IO.Path]::DirectorySeparatorChar,[StringComparison]::OrdinalIgnoreCase)) { throw "SOVEREIGNTY_RUNTIME_PATH_INVALID" }
+  [IO.Directory]::CreateDirectory($root) | Out-Null
+  return $root
+}
+
+function Read-SovereigntyRuntimeJson([string]$path) {
+  if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { return $null }
+  try { return Get-Content -Raw -Encoding UTF8 -LiteralPath $path | ConvertFrom-Json }
+  catch { throw "SOVEREIGNTY_RUNTIME_STATE_CORRUPT" }
+}
+
+function Write-SovereigntyRuntimeJson([string]$path,$value) {
+  [IO.File]::WriteAllText($path,($value | ConvertTo-Json -Depth 12),[Text.UTF8Encoding]::new($false))
+}
+
+function Sovereignty-RuntimeCandidatePath([string]$root,[string]$candidateId) {
+  $id = Assert-SovereigntyRuntimeName $candidateId "SOVEREIGNTY_RUNTIME_CANDIDATE_INVALID"
+  return Join-Path $root ("candidate-" + $id + ".json")
+}
+
+function Perform-SovereigntyRuntime([string]$operation,$payload) {
+  $root = Sovereignty-RuntimeServiceRoot ([string]$payload.service)
+  $activePath = Join-Path $root "active.json"
+  switch ($operation) {
+    "health" {
+      return @{ action="sovereignty.runtime.health"; runtime="windows-powershell-local"; powershell_version=[string]$PSVersionTable.PSVersion; root_ready=$true }
+    }
+    "prepare" {
+      $sha = ([string]$payload.source_sha).Trim().ToLowerInvariant()
+      if (-not (Test-SovereigntyHex $sha 40)) { throw "SOVEREIGNTY_RUNTIME_SOURCE_SHA_INVALID" }
+      $repository = ([string]$payload.artifact.ref).Trim()
+      if ([string]::IsNullOrWhiteSpace($repository)) { $repository = "meliturgos-cloudflare" }
+      $provenance = Read-SovereigntySourceProvenance $repository
+      if ([string]$provenance.source_sha -ne $sha) { throw "SOVEREIGNTY_RUNTIME_SOURCE_SHA_MISMATCH" }
+      $planId = "plan-" + [guid]::NewGuid().ToString("N")
+      Write-SovereigntyRuntimeJson (Join-Path $root ($planId + ".json")) @{ plan_id=$planId; source_sha=$sha; repository=$repository }
+      return @{ action="sovereignty.runtime.prepare"; plan_id=$planId; source_sha=$sha }
+    }
+    "deploy_candidate" {
+      $sha = ([string]$payload.source_sha).Trim().ToLowerInvariant()
+      $planId = Assert-SovereigntyRuntimeName ([string]$payload.prepared.plan_id) "SOVEREIGNTY_RUNTIME_PLAN_INVALID"
+      $plan = Read-SovereigntyRuntimeJson (Join-Path $root ($planId + ".json"))
+      if ($null -eq $plan) { throw "SOVEREIGNTY_RUNTIME_PLAN_NOT_FOUND" }
+      if ([string]$plan.source_sha -ne $sha) { throw "SOVEREIGNTY_RUNTIME_PLAN_SHA_MISMATCH" }
+      $prior = Read-SovereigntyRuntimeJson $activePath
+      $priorId = $null
+      if ($null -ne $prior) { $priorId = [string]$prior.candidate_id }
+      $candidateId = "cand-" + [guid]::NewGuid().ToString("N")
+      Write-SovereigntyRuntimeJson (Sovereignty-RuntimeCandidatePath $root $candidateId) @{ candidate_id=$candidateId; source_sha=$sha; repository=[string]$plan.repository; prior_active_id=$priorId; status="CANDIDATE" }
+      return @{ action="sovereignty.runtime.deploy_candidate"; candidate_id=$candidateId; source_sha=$sha }
+    }
+    "smoke" {
+      $candidateId = Assert-SovereigntyRuntimeName ([string]$payload.candidate_id) "SOVEREIGNTY_RUNTIME_CANDIDATE_INVALID"
+      $sha = ([string]$payload.source_sha).Trim().ToLowerInvariant()
+      $candidate = Read-SovereigntyRuntimeJson (Sovereignty-RuntimeCandidatePath $root $candidateId)
+      if ($null -eq $candidate) { throw "SOVEREIGNTY_RUNTIME_CANDIDATE_NOT_FOUND" }
+      if ([string]$candidate.source_sha -ne $sha) { throw "SOVEREIGNTY_RUNTIME_CANDIDATE_SHA_MISMATCH" }
+      $provenance = Read-SovereigntySourceProvenance ([string]$candidate.repository)
+      if ([string]$provenance.source_sha -ne $sha) { throw "SOVEREIGNTY_RUNTIME_PROVENANCE_MISMATCH" }
+      return @{ action="sovereignty.runtime.smoke"; candidate_id=$candidateId; passed=$true }
+    }
+    "promote" {
+      $candidateId = Assert-SovereigntyRuntimeName ([string]$payload.candidate_id) "SOVEREIGNTY_RUNTIME_CANDIDATE_INVALID"
+      $sha = ([string]$payload.source_sha).Trim().ToLowerInvariant()
+      $path = Sovereignty-RuntimeCandidatePath $root $candidateId
+      $candidate = Read-SovereigntyRuntimeJson $path
+      if ($null -eq $candidate) { throw "SOVEREIGNTY_RUNTIME_CANDIDATE_NOT_FOUND" }
+      if ([string]$candidate.source_sha -ne $sha) { throw "SOVEREIGNTY_RUNTIME_CANDIDATE_SHA_MISMATCH" }
+      $candidate.status = "ACTIVE"
+      Write-SovereigntyRuntimeJson $path $candidate
+      Write-SovereigntyRuntimeJson $activePath @{ candidate_id=$candidateId; source_sha=$sha }
+      return @{ action="sovereignty.runtime.promote"; candidate_id=$candidateId; promoted=$true; release_id=("local-" + $candidateId) }
+    }
+    "rollback" {
+      $candidateId = Assert-SovereigntyRuntimeName ([string]$payload.candidate_id) "SOVEREIGNTY_RUNTIME_CANDIDATE_INVALID"
+      $path = Sovereignty-RuntimeCandidatePath $root $candidateId
+      $candidate = Read-SovereigntyRuntimeJson $path
+      if ($null -eq $candidate) { throw "SOVEREIGNTY_RUNTIME_CANDIDATE_NOT_FOUND" }
+      $priorId = ([string]$candidate.prior_active_id).Trim()
+      if (-not [string]::IsNullOrWhiteSpace($priorId)) {
+        $prior = Read-SovereigntyRuntimeJson (Sovereignty-RuntimeCandidatePath $root $priorId)
+        if ($null -ne $prior) { Write-SovereigntyRuntimeJson $activePath @{ candidate_id=$priorId; source_sha=[string]$prior.source_sha } }
+      } elseif (Test-Path -LiteralPath $activePath) { Remove-Item -LiteralPath $activePath -Force }
+      $candidate.status = "ROLLED_BACK"
+      Write-SovereigntyRuntimeJson $path $candidate
+      return @{ action="sovereignty.runtime.rollback"; candidate_id=$candidateId; rolled_back=$true }
+    }
+    default { throw "SOVEREIGNTY_RUNTIME_OPERATION_NOT_SUPPORTED" }
+  }
+}
+
 function Perform-Step($step, [string]$commandId, [string]$planSchema="") {
   $action = [string]$step.action
   if ($action.StartsWith("sovereignty.")) {
     if ($planSchema -ne "mel.sovereignty.local-command/v1") { throw "SOVEREIGNTY_COMMAND_SCHEMA_REQUIRED" }
+    if ($action.StartsWith("sovereignty.runtime.")) {
+      $op = $action.Substring("sovereignty.runtime.".Length)
+      return Perform-SovereigntyRuntime $op $step.payload
+    }
     if ($action.StartsWith("sovereignty.source_control.")) {
       $op = $action.Substring("sovereignty.source_control.".Length)
       return Perform-SovereigntySourceControl $op $step.payload

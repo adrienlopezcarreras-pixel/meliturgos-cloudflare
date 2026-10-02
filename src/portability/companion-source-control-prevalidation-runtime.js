@@ -32,11 +32,18 @@ async function saveState(db,state){
 }
 
 async function latestOnlineWindows(db,{now=Date.now(),onlineWithinMs=35000}={}){
-  return db.prepare(`SELECT id,last_seen_at,halted,platform
+  const rows=await db.prepare(`SELECT id,last_seen_at,halted,platform,metadata
     FROM computer_devices
     WHERE lower(platform)='windows' AND halted=0 AND last_seen_at>=?
-    ORDER BY last_seen_at DESC LIMIT 1`)
-    .bind(now-onlineWithinMs).first();
+    ORDER BY last_seen_at DESC LIMIT 5`)
+    .bind(now-onlineWithinMs).all();
+  return (rows?.results||[]).find(row=>{
+    try{
+      const metadata=JSON.parse(row.metadata||'{}');
+      const engineHeartbeatAt=Number(metadata.engine_heartbeat_at||0);
+      return engineHeartbeatAt>0&&now-engineHeartbeatAt<onlineWithinMs;
+    }catch{return false;}
+  })||null;
 }
 
 export async function runCompanionSourceControlPrevalidationRuntime(env,{
@@ -86,7 +93,7 @@ export async function runCompanionSourceControlPrevalidationRuntime(env,{
 
   const execute=createCompanionSovereigntyExecutor(env,{
     deviceId:device.id,
-    timeoutMs:Number(env?.MEL_LOCAL_SOVEREIGNTY_COMMAND_TIMEOUT_MS)||20000,
+    timeoutMs:Number(env?.MEL_LOCAL_SOVEREIGNTY_COMMAND_TIMEOUT_MS)||90000,
   });
 
   const validation=await validateSovereigntyCandidates({
