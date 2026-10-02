@@ -1,0 +1,48 @@
+name: ops-pastegg-live-smoke
+
+on:
+  push:
+    branches:
+      - fix/shardvault-pastegg-base64-contract
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Live anonymous paste.gg roundtrip
+        shell: bash
+        run: |
+          set -euo pipefail
+          PAYLOAD="MEL_SHARDVAULT_PASTEGG_$(date +%s)"
+          B64="$(printf '%s' "$PAYLOAD" | base64 -w0)"
+          BODY="$(PAYLOAD_B64="$B64" node - <<'NODE'
+          process.stdout.write(JSON.stringify({
+            name:'mel-shardvault-live-smoke',
+            visibility:'unlisted',
+            files:[{name:'shard.bin',content:{format:'base64',content:process.env.PAYLOAD_B64}}]
+          }));
+          NODE
+          )"
+          CODE="$(curl --silent --show-error --max-time 30             --request POST             --header 'Content-Type: application/json'             --header 'Accept: application/json'             --data "$BODY"             --output /tmp/create.json             --write-out '%{http_code}'             https://api.paste.gg/v1/pastes)"
+          test "$CODE" = "201"
+          ID="$(node -e 'const d=require("/tmp/create.json");process.stdout.write(String(d?.result?.id||""))')"
+          KEY="$(node -e 'const d=require("/tmp/create.json");process.stdout.write(String(d?.result?.deletion_key||""))')"
+          test -n "$ID"
+          test -n "$KEY"
+          GET_CODE="$(curl --silent --show-error --max-time 30             --header 'Accept: application/json'             --output /tmp/read.json             --write-out '%{http_code}'             "https://api.paste.gg/v1/pastes/$ID?full=true")"
+          test "$GET_CODE" = "200"
+          EXPECTED="$B64" node - <<'NODE'
+          const d=require('/tmp/read.json');
+          const c=d?.result?.files?.[0]?.content;
+          if(c?.format!=='base64')throw new Error('PASTEGG_FORMAT_MISMATCH');
+          const encoded=String(c?.content??c?.value??'');
+          if(encoded!==process.env.EXPECTED)throw new Error('PASTEGG_ROUNDTRIP_MISMATCH');
+          console.log('PASTEGG_LIVE_ROUNDTRIP_OK');
+          NODE
+          DELETE_CODE="$(curl --silent --show-error --max-time 30             --request DELETE             --header "Authorization: Key $KEY"             --output /tmp/delete.txt             --write-out '%{http_code}'             "https://api.paste.gg/v1/pastes/$ID")"
+          test "$DELETE_CODE" = "204"
+          echo "PASTEGG_LIVE_DELETE_OK"
