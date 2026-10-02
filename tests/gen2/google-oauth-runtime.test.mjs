@@ -243,6 +243,11 @@ test('Google access-token resolver reuses another Google token only when target 
     await runtime.accessTokenResolver('google-tasks', { owner: 'adrien' }),
     'shared-google-access',
   );
+  const tasksStatus = await runtime.status('google-tasks', { owner: 'adrien' });
+  assert.equal(tasksStatus.authorized, true);
+  assert.equal(tasksStatus.token_source, 'shared_google_grant');
+  assert.equal(tasksStatus.scopes.includes('https://www.googleapis.com/auth/tasks'), true);
+  assert.equal(JSON.stringify(tasksStatus).includes('shared-google-access'), false);
 
   await vaults.tokenVault.put({
     owner: 'adrien',

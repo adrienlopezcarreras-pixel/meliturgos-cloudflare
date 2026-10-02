@@ -14,6 +14,12 @@ test('live connection proof accepts a healthy Pipedream Google Calendar fallback
   assert.match(source,/if \[ "\$\{GOOGLE_TASKS_OK\}" != "1" \]; then FAILURES=\$\(\(FAILURES\+1\)\); fi/);
 });
 
+test('live connection proof logs only sanitized actionable connector diagnostics',async()=>{
+  const source=await readFile(new URL('../.github/workflows/live-connections-production-proof.yml',import.meta.url),'utf8');
+  assert.match(source,/upstream_status:Number\(d\?\.upstream_status\|\|0\)\|\|null/);
+  assert.match(source,/action_required:d\?\.action_required\|\|null/);
+});
+
 test('live connection proof separates immutable proof auth readiness from connector health',async()=>{
   const source=await readFile(workflowUrl,'utf8');
   assert.match(source,/connections-self-check\.json/);

@@ -1,7 +1,35 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { maybeHandleConnectionSettingsApi, probeYahooDirect, pipedreamAccessToken, pipedreamAccountStatus, testPipedreamCredentials, testPipedreamGoogleTasksRead } from '../../src/api/connection-settings-api.js';
+import { classifyOAuthProbeFailure, maybeHandleConnectionSettingsApi, probeYahooDirect, pipedreamAccessToken, pipedreamAccountStatus, testPipedreamCredentials, testPipedreamGoogleTasksRead } from '../../src/api/connection-settings-api.js';
+
+test('Google Tasks live probe failures become actionable without exposing provider payloads', () => {
+  const disabled = classifyOAuthProbeFailure({
+    provider: 'google',
+    connectorId: 'google-tasks',
+    status: 403,
+    body: { error: { message: 'Google Tasks API has not been used in project 123 before or it is disabled.' } },
+  });
+  assert.deepEqual(disabled, {
+    code: 'GOOGLE_TASKS_API_NOT_ENABLED',
+    status: 409,
+    upstream_status: 403,
+    action_required: 'ENABLE_GOOGLE_TASKS_API',
+  });
+
+  const scope = classifyOAuthProbeFailure({
+    provider: 'google',
+    connectorId: 'google-tasks',
+    status: 403,
+    body: { error: { status: 'PERMISSION_DENIED', message: 'Request had insufficient authentication scopes.' } },
+  });
+  assert.equal(scope.code, 'GOOGLE_TASKS_RECONSENT_REQUIRED');
+  assert.equal(scope.action_required, 'RECONNECT_GOOGLE_WITH_TASKS_SCOPE');
+
+  const serialized = JSON.stringify(scope);
+  assert.equal(serialized.includes('project 123'), false);
+  assert.equal(serialized.includes('Request had'), false);
+});
 
 function compact(sql) {
   return String(sql).replace(/\s+/g, ' ').trim();

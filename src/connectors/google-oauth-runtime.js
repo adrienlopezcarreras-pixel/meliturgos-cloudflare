@@ -232,10 +232,17 @@ export function createGoogleOAuthRuntime({ env = {}, fetcher = fetch, vaults = n
     connectorManifest(id);
     const owner = clean(context.owner, 200);
     requireValue(owner, 'OAUTH_OWNER_REQUIRED', 401);
-    const tokenSet = await durableVaults.tokenVault.get({ owner, connector_id: id });
+    const directTokenSet = await durableVaults.tokenVault.get({ owner, connector_id: id });
+    const reusableTokenSet = directTokenSet?.access_token
+      ? null
+      : await reusableGoogleToken(durableVaults.tokenVault, owner, id);
+    const tokenSet = directTokenSet?.access_token ? directTokenSet : reusableTokenSet;
     return Object.freeze({
       connector_id: id,
       authorized: Boolean(tokenSet?.access_token),
+      token_source: directTokenSet?.access_token
+        ? 'connector'
+        : reusableTokenSet?.access_token ? 'shared_google_grant' : 'none',
       scopes: Array.isArray(tokenSet?.scopes) ? [...tokenSet.scopes] : [],
       expires_at: Number.isFinite(Number(tokenSet?.expires_at)) ? Number(tokenSet.expires_at) : null,
       refreshable: Boolean(tokenSet?.refresh_token),
