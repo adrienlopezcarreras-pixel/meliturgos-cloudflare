@@ -396,7 +396,7 @@ async function upload(env,e,objectId,payload){
   if(e.adapter==='pst_rs_b64'){
     const endpoint=fixedApiUrl(u);
     const r=await fetchTimed(endpoint,{method:'POST',headers:{
-      'content-type':'text/plain; charset=utf-8',
+      'content-type':'application/octet-stream',
       'accept':'application/json',
       'x-paste-ttl':'1y',
       'x-paste-title':objectId,
@@ -1230,9 +1230,10 @@ async function ensureExternalCodeArchive(env,c,codeBackup){
             excludeEndpointIds:[...used,...(state.failed_endpoint_ids||[])]
           });
           const fresh=[...(discoveryRefresh?.qualified||[]),...(discoveryRefresh?.selected||[])];
-          if(fresh.length){
-            await rememberValidatedExternalEndpoints(env,fresh).catch(()=>[]);
-            await rememberCodeCandidateEndpoints(env,[...fresh,...(discoveryRefresh?.eligible||[])]).catch(()=>[]);
+          const codeCandidateSeeds=[...fresh,...(discoveryRefresh?.eligible||[])];
+          if(fresh.length)await rememberValidatedExternalEndpoints(env,fresh).catch(()=>[]);
+          if(codeCandidateSeeds.length)await rememberCodeCandidateEndpoints(env,codeCandidateSeeds).catch(()=>[]);
+          if(fresh.length||codeCandidateSeeds.length){
             try{validated=await readValidatedExternalEndpoints(env,shard.length);}catch{}
             try{codeCandidates=await readCodeCandidateEndpoints(env);}catch{}
             candidates=buildCandidates(fresh);

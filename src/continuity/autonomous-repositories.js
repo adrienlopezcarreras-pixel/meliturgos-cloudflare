@@ -1091,7 +1091,7 @@ async function candidateWrite(c,url,payload,objectId,env){
   if(c.adapter==='pst_rs_b64'){
     const endpoint=fixedApiUrl(url);
     const r=await fetchTimed(endpoint,{method:'POST',headers:{
-      'content-type':'text/plain; charset=utf-8',
+      'content-type':'application/octet-stream',
       'accept':'application/json',
       'x-paste-ttl':'1y',
       'x-paste-title':objectId,
