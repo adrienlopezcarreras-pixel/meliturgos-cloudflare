@@ -70,10 +70,13 @@ jobs:
             node -e 'const fs=require("fs");const d=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));if(d?.ok!==true)process.exit(2);console.log(process.argv[2]+": "+JSON.stringify({ok:true,provider:d?.provider||null,connector_id:d?.connector_id||null,live_probe:d?.live_probe===true,persistent:d?.persistent===true,authenticated:d?.authenticated===true,project_found:d?.project_found===true,project_count:Number(d?.project_count||0),deployment_count:Number(d?.deployment_count||0)}))' "${out}" "${name}"
           }
 
-          # Bound retry only for temporary bootstrap-secret propagation.
+          # Prove only bootstrap-secret propagation here. Connector health is
+          # evaluated independently below so one broken account never hides the
+          # status of every other connection.
           READY=0
           for attempt in $(seq 1 12); do
-            if probe google_gmail /api/gen2/connections/google/test '{"connector_id":"gmail"}'; then
+            READY_CODE="$(curl --silent --show-error --max-time 45               --header "x-mel-release-smoke: 1"               --header "x-mel-launch-bootstrap: ${TOKEN}"               --output /tmp/connections-self-check.json               --write-out '%{http_code}'               "${BASE_URL}/api/gen2/code/self-check" || true)"
+            if [ "${READY_CODE}" = "200" ]; then
               READY=1
               break
             fi
@@ -106,8 +109,18 @@ jobs:
           fi
 
           FAILURES=0
+          GOOGLE_GMAIL_OK=0
           GOOGLE_CALENDAR_OK=0
           GOOGLE_TASKS_OK=0
+          MICROSOFT_MAIL_OK=0
+          MICROSOFT_ONEDRIVE_OK=0
+          MICROSOFT_SHAREPOINT_OK=0
+
+          if probe google_gmail /api/gen2/connections/google/test '{"connector_id":"gmail"}'; then
+            GOOGLE_GMAIL_OK=1
+          else
+            FAILURES=$((FAILURES+1))
+          fi
 
           # Pipedream is the canonical UI path for Microsoft and can also hold
           # the Yahoo/Ymail IMAP account. Prove the project and enumerate only
@@ -167,7 +180,6 @@ jobs:
           fi
           if [ "${GOOGLE_TASKS_OK}" != "1" ]; then FAILURES=$((FAILURES+1)); fi
 
-          MICROSOFT_MAIL_OK=0
           if probe microsoft_mail /api/gen2/connections/microsoft/test '{"connector_id":"microsoft-mail"}'; then
             MICROSOFT_MAIL_OK=1
           elif [ "${PIPEDREAM_OK}" = "1" ] && has_pd_app microsoft_outlook; then
@@ -176,7 +188,6 @@ jobs:
           fi
           if [ "${MICROSOFT_MAIL_OK}" != "1" ]; then FAILURES=$((FAILURES+1)); fi
 
-          MICROSOFT_ONEDRIVE_OK=0
           if probe microsoft_onedrive /api/gen2/connections/microsoft/test '{"connector_id":"microsoft-onedrive"}'; then
             MICROSOFT_ONEDRIVE_OK=1
           elif [ "${PIPEDREAM_OK}" = "1" ] && has_pd_app microsoft_onedrive; then
@@ -185,7 +196,6 @@ jobs:
           fi
           if [ "${MICROSOFT_ONEDRIVE_OK}" != "1" ]; then FAILURES=$((FAILURES+1)); fi
 
-          MICROSOFT_SHAREPOINT_OK=0
           if probe microsoft_sharepoint /api/gen2/connections/microsoft/test '{"connector_id":"microsoft-sharepoint"}'; then
             MICROSOFT_SHAREPOINT_OK=1
           elif [ "${PIPEDREAM_OK}" = "1" ] && has_pd_app sharepoint; then
@@ -210,7 +220,7 @@ jobs:
             FAILURES=$((FAILURES+1))
           fi
 
-          GOOGLE_CALENDAR_OK="${GOOGLE_CALENDAR_OK}" GOOGLE_TASKS_OK="${GOOGLE_TASKS_OK}" YAHOO_OK="${YAHOO_OK}" VERCEL_OK="${VERCEL_OK}" FAILURES="${FAILURES}" node - <<'NODE'
+          GOOGLE_GMAIL_OK="${GOOGLE_GMAIL_OK}" GOOGLE_CALENDAR_OK="${GOOGLE_CALENDAR_OK}" GOOGLE_TASKS_OK="${GOOGLE_TASKS_OK}" MICROSOFT_MAIL_OK="${MICROSOFT_MAIL_OK}" MICROSOFT_ONEDRIVE_OK="${MICROSOFT_ONEDRIVE_OK}" MICROSOFT_SHAREPOINT_OK="${MICROSOFT_SHAREPOINT_OK}" YAHOO_OK="${YAHOO_OK}" VERCEL_OK="${VERCEL_OK}" FAILURES="${FAILURES}" node - <<'NODE'
           const fs=require('fs');
           const proof={
             schema:'mel.live-connections-production-proof/v1',
@@ -218,11 +228,15 @@ jobs:
             complete:Number(process.env.FAILURES||0)===0,
             failure_count:Number(process.env.FAILURES||0),
             google:{
-              gmail:true,
+              gmail:process.env.GOOGLE_GMAIL_OK==='1',
               calendar:process.env.GOOGLE_CALENDAR_OK==='1',
               tasks:process.env.GOOGLE_TASKS_OK==='1'
             },
-            microsoft:{outlook:true,onedrive:true,sharepoint:true},
+            microsoft:{
+              outlook:process.env.MICROSOFT_MAIL_OK==='1',
+              onedrive:process.env.MICROSOFT_ONEDRIVE_OK==='1',
+              sharepoint:process.env.MICROSOFT_SHAREPOINT_OK==='1'
+            },
             mail:{
               yahoo_or_ymail:process.env.YAHOO_OK==='1'
             },
