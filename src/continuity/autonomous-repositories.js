@@ -1046,13 +1046,10 @@ async function candidateWrite(c,url,payload,objectId,env){
     return {readUrl:responseRemoteUrl(raw,r.headers,endpoint)};
   }
   if(c.adapter==='dpaste_b64'){
-    const current=fixedApiUrl(url),body=new URLSearchParams({content:b64u(payload),expiry_days:'365'});
-    let r=await fetchTimed(current,{method:'POST',headers:{'content-type':'application/x-www-form-urlencoded','user-agent':'MEL-ShardVault/1.0','accept':'text/plain'},body:body.toString()},15000);
-    let endpoint=current;
-    if(r.status===400||r.status===404||r.status===405){
-      endpoint='https://dpaste.com/api/';
-      r=await fetchTimed(endpoint,{method:'POST',headers:{'content-type':'application/x-www-form-urlencoded','user-agent':'MEL-ShardVault/1.0','accept':'text/plain'},body:body.toString()},15000);
-    }
+    const endpoint=fixedApiUrl(url),form=new FormData();
+    form.append('content',b64u(payload));
+    form.append('expiry_days','365');
+    const r=await fetchTimed(endpoint,{method:'POST',headers:{'user-agent':'MEL-ShardVault/1.0','accept':'text/plain'},body:form},15000);
     if(!r.ok)throw new Error('WRITE_HTTP_'+r.status);
     const raw=await r.text(),page=responseRemoteUrl(raw,r.headers,endpoint);
     return {readUrl:page.endsWith('.txt')?page:page.replace(/\/$/,'')+'.txt'};
