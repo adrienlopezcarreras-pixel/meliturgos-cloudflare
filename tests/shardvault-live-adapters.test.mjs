@@ -46,8 +46,8 @@ test('ShardVault provider adapters reflect current official API contracts', () =
   assert.match(autonomous,/adapter:'pst_rs_b64'/);
   assert.match(autonomous,/pst\.rs\.abhicracker\.com/);
   assert.match(autonomous,/x-paste-ttl':'1y'/);
-  assert.match(autonomous,/content-type':'application\\/octet-stream'/);
-  assert.match(runtime,/content-type':'application\\/octet-stream'/);
+  assert.match(autonomous,/content-type':'application\/octet-stream'/);
+  assert.match(runtime,/content-type':'application\/octet-stream'/);
   assert.match(autonomous,/c\.authMode==='none'\|\|c\.authMode==='ephemeral_account_token'/);
 });
 
