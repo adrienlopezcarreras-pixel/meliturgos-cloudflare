@@ -266,7 +266,7 @@ test('code sync prefers representative proof metadata and timing over legacy reg
 
 test('active durable code targets can self-qualify through the exact live roundtrip when size proof cache is missing', () => {
   assert.match(runtime,/activeCodeTargets=await readActiveExternalEndpoints\(env\)/);
-  assert.match(runtime,/uniqueExternalCandidates\(env,activeCodeTargets\)/);
+  assert.match(runtime,/roundtripCodeFallbackCandidates\(env,codeCandidates,activeCodeTargets,state,used,shard\.length\)/);
   assert.match(runtime,/state\.active_roundtrip_fallback_used=true/);
   assert.match(runtime,/const roundtrip=await downloadFragment\(env,e,d\)/);
   assert.match(runtime,/CODE_FRAGMENT_ROUNDTRIP_MISMATCH/);
