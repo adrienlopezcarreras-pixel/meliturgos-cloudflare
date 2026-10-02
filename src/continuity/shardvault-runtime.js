@@ -813,7 +813,7 @@ function rankExternalCodeCandidates(env,endpoints,requiredBytes){
 }
 function codeTargetFailureClass(error){
   const message=String(error?.message||error||'').toUpperCase();
-  const retryable=/(?:DEADLINE|TIMEOUT|ABORT|FETCH|NETWORK|FLOOD|RATE[_ -]?LIMIT|_408\b|_425\b|_429\b|_500\b|_502\b|_503\b|_504\b)/.test(message);
+  const retryable=/(?:DEADLINE|TIMEOUT|ABORT|FETCH|NETWORK|FLOOD|RATE[_ -]?LIMIT|_408\b|_425\b|_429\b|_500\b|_502\b|_503\b|_504\b|_520\b|_521\b|_522\b|_523\b|_524\b|_525\b|_526\b)/.test(message);
   return {message,retryable,permanent:!retryable};
 }
 function codeTargetRetryDelayMs(count,error=null){

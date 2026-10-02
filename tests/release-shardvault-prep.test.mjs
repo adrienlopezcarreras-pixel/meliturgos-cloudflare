@@ -98,6 +98,16 @@ test('ShardVault roadmap pause is either closed out or explicitly temporary dev-
 });
 
 
+test('release code-sync waits for future retry windows without consuming the no-progress stall budget',async()=>{
+  const source=await readFile(new URL('../.github/workflows/deploy-cloudflare-release.yml',import.meta.url),'utf8');
+  assert.match(source,/futureRetryAt=failuresList/);
+  assert.match(source,/retryable===true&&row\?\.permanent!==true/);
+  assert.match(source,/CODE_SYNC_WAITING_FOR_RETRY=1/);
+  assert.match(source,/no-progress stall is not consumed/);
+  assert.match(source,/Math\.min\(90,delta\+1\)/);
+  assert.doesNotMatch(source,/\$CODE_SYNC_STATUS" = "RETRY_TARGETS".*Math\.min\(15,delta\)/s);
+});
+
 test('final ShardVault status tolerates bounded secret propagation',async()=>{
   const source=await readFile(new URL('../.github/workflows/deploy-cloudflare-release.yml',import.meta.url),'utf8');
   assert.match(source,/SHARD_FINAL_READY=0/);

@@ -897,8 +897,17 @@ jobs:
           const s=d?.code_sync||{};
           const completed=Number(s?.progress?.completed ?? s?.completed_shards ?? 0);
           const target=Number(s?.progress?.target ?? s?.target_count ?? 7);
-          const next=String(s?.next_retry_at||'');
-          const failures=Array.isArray(s?.failures)?s.failures.length:0;
+          const failuresList=Array.isArray(s?.failures)?s.failures:[];
+          const explicitNext=String(s?.next_retry_at||'').trim();
+          const futureRetryAt=failuresList
+            .filter(row=>row?.retryable===true&&row?.permanent!==true)
+            .map(row=>String(row?.retry_after_at||'').trim())
+            .filter(Boolean)
+            .map(value=>({value,ms:Date.parse(value)}))
+            .filter(row=>Number.isFinite(row.ms)&&row.ms>Date.now())
+            .sort((a,b)=>a.ms-b.ms)[0]?.value||'';
+          const next=explicitNext||futureRetryAt;
+          const failures=failuresList.length;
           process.stdout.write([
             d?.complete===true?'1':'0',
             String(s?.status||d?.status||'UNKNOWN'),
@@ -915,16 +924,23 @@ jobs:
                 CODE_SYNC_READY=1
                 break
               fi
+              CODE_SYNC_WAITING_FOR_RETRY=0
+              if [ "$CODE_SYNC_NEXT_RETRY" != "-" ]; then
+                CODE_SYNC_RETRY_DELTA="$(NEXT_RETRY="$CODE_SYNC_NEXT_RETRY" node -e 'const t=Date.parse(process.env.NEXT_RETRY||""); const delta=Number.isFinite(t)?Math.ceil((t-Date.now())/1000):0; process.stdout.write(String(Math.max(0,delta)))')"
+                if [ "$CODE_SYNC_RETRY_DELTA" -gt 0 ]; then
+                  CODE_SYNC_WAITING_FOR_RETRY=1
+                  CODE_SYNC_WAIT="$(node -e 'const delta=Number(process.argv[1]||0); process.stdout.write(String(Math.max(2,Math.min(90,delta+1))))' "$CODE_SYNC_RETRY_DELTA")"
+                fi
+              fi
               if [ "$CODE_SYNC_COMPLETED" -gt "$CODE_SYNC_LAST_COMPLETED" ]; then
                 CODE_SYNC_LAST_COMPLETED="$CODE_SYNC_COMPLETED"
                 CODE_SYNC_STALL=0
+              elif [ "$CODE_SYNC_WAITING_FOR_RETRY" = "1" ]; then
+                echo "ShardVault is waiting for retry window ${CODE_SYNC_NEXT_RETRY}; no-progress stall is not consumed."
               else
                 CODE_SYNC_STALL=$((CODE_SYNC_STALL + 1))
               fi
-              if [ "$CODE_SYNC_STATUS" = "RETRY_TARGETS" ] && [ "$CODE_SYNC_NEXT_RETRY" != "-" ]; then
-                CODE_SYNC_WAIT="$(NEXT_RETRY="$CODE_SYNC_NEXT_RETRY" node -e 'const t=Date.parse(process.env.NEXT_RETRY||""); const delta=Number.isFinite(t)?Math.ceil((t-Date.now())/1000):2; process.stdout.write(String(Math.max(2,Math.min(15,delta))))')"
-              fi
-              echo "Launch code-sync phase ${CODE_SYNC_ATTEMPT}/${CODE_SYNC_MAX_ATTEMPTS}: ${CODE_SYNC_COMPLETED}/${CODE_SYNC_TARGET}, status=${CODE_SYNC_STATUS}, stall=${CODE_SYNC_STALL}/${CODE_SYNC_MAX_STALL}."
+              echo "Launch code-sync phase ${CODE_SYNC_ATTEMPT}/${CODE_SYNC_MAX_ATTEMPTS}: ${CODE_SYNC_COMPLETED}/${CODE_SYNC_TARGET}, status=${CODE_SYNC_STATUS}, stall=${CODE_SYNC_STALL}/${CODE_SYNC_MAX_STALL}, wait=${CODE_SYNC_WAIT}s."
             else
               CODE_SYNC_STALL=$((CODE_SYNC_STALL + 1))
               echo "Launch code-sync phase attempt ${CODE_SYNC_ATTEMPT}/${CODE_SYNC_MAX_ATTEMPTS} returned HTTP ${CODE_SYNC_CODE}; stall=${CODE_SYNC_STALL}/${CODE_SYNC_MAX_STALL}."
