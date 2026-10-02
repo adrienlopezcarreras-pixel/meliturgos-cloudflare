@@ -1461,15 +1461,9 @@ function Perform-SovereigntyRuntime([string]$operation,$payload) {
   $service = [string]$payload.service
   $root = Sovereignty-RuntimeServiceRoot $service
   $activePath = Join-Path $root "active.json"
-
   switch ($operation) {
     "health" {
-      return @{
-        action="sovereignty.runtime.health"
-        runtime="windows-powershell-local"
-        powershell_version=[string]$PSVersionTable.PSVersion
-        root_ready=(Test-Path -LiteralPath $root)
-      }
+      return @{ action="sovereignty.runtime.health"; runtime="windows-powershell-local"; powershell_version=[string]$PSVersionTable.PSVersion; root_ready=(Test-Path -LiteralPath $root) }
     }
     "prepare" {
       $sha = ([string]$payload.source_sha).Trim().ToLowerInvariant()
@@ -1479,12 +1473,7 @@ function Perform-SovereigntyRuntime([string]$operation,$payload) {
       $provenance = Read-SovereigntySourceProvenance $repository
       if ([string]$provenance.source_sha -ne $sha) { throw "SOVEREIGNTY_RUNTIME_SOURCE_SHA_MISMATCH" }
       $planId = "plan-" + [guid]::NewGuid().ToString("N")
-      Write-SovereigntyRuntimeJson (Join-Path $root ($planId + ".json")) @{
-        plan_id=$planId
-        source_sha=$sha
-        repository=$repository
-        prepared_at=(Get-Date).ToUniversalTime().ToString("o")
-      }
+      Write-SovereigntyRuntimeJson (Join-Path $root ($planId + ".json")) @{ plan_id=$planId; source_sha=$sha; repository=$repository; prepared_at=(Get-Date).ToUniversalTime().ToString("o") }
       return @{ action="sovereignty.runtime.prepare"; plan_id=$planId; source_sha=$sha }
     }
     "deploy_candidate" {
@@ -1499,12 +1488,7 @@ function Perform-SovereigntyRuntime([string]$operation,$payload) {
       if ($null -ne $prior) { $priorActiveId = [string]$prior.candidate_id }
       $candidateId = "cand-" + [guid]::NewGuid().ToString("N")
       Write-SovereigntyRuntimeJson (Sovereignty-RuntimeCandidatePath $root $candidateId) @{
-        candidate_id=$candidateId
-        source_sha=$sha
-        repository=[string]$plan.repository
-        prior_active_id=$priorActiveId
-        deployed_at=(Get-Date).ToUniversalTime().ToString("o")
-        status="CANDIDATE"
+        candidate_id=$candidateId; source_sha=$sha; repository=[string]$plan.repository; prior_active_id=$priorActiveId; deployed_at=(Get-Date).ToUniversalTime().ToString("o"); status="CANDIDATE"
       }
       return @{ action="sovereignty.runtime.deploy_candidate"; candidate_id=$candidateId; source_sha=$sha }
     }
@@ -1542,12 +1526,8 @@ function Perform-SovereigntyRuntime([string]$operation,$payload) {
         $prior = Read-SovereigntyRuntimeJson $priorPath
         if ($null -ne $prior) {
           Write-SovereigntyRuntimeJson $activePath @{candidate_id=$priorId;source_sha=[string]$prior.source_sha;restored_at=(Get-Date).ToUniversalTime().ToString("o")}
-        } elseif (Test-Path -LiteralPath $activePath) {
-          Remove-Item -LiteralPath $activePath -Force
-        }
-      } elseif (Test-Path -LiteralPath $activePath) {
-        Remove-Item -LiteralPath $activePath -Force
-      }
+        } elseif (Test-Path -LiteralPath $activePath) { Remove-Item -LiteralPath $activePath -Force }
+      } elseif (Test-Path -LiteralPath $activePath) { Remove-Item -LiteralPath $activePath -Force }
       $candidate.status = "ROLLED_BACK"
       $candidate.rollback_reason = [string]$payload.reason
       $candidate.rolled_back_at = (Get-Date).ToUniversalTime().ToString("o")
