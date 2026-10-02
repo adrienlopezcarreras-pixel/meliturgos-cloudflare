@@ -846,6 +846,19 @@ function clearCodeTargetFailure(state,endpointId){
   }
   state.failed_endpoint_ids=(state.failed_endpoint_ids||[]).filter(value=>value!==id);
 }
+function roundtripCodeFallbackCandidates(env,codeCandidates,activeCodeTargets,state,used,requiredBytes){
+  const failed=new Set(Array.isArray(state?.failed_endpoint_ids)?state.failed_endpoint_ids:[]);
+  const usedIds=used instanceof Set?used:new Set(Array.isArray(used)?used:[]);
+  return uniqueExternalCandidates(env,[...(codeCandidates||[]),...(activeCodeTargets||[])])
+    .filter(e=>endpointMeetsDurability(env,e)&&!usedIds.has(e.id)&&!failed.has(e.id)&&codeTargetAvailableNow(state,e))
+    .sort((a,b)=>{
+      const partsA=Math.max(1,Math.ceil(requiredBytes/fragmentChunkLimit(a)));
+      const partsB=Math.max(1,Math.ceil(requiredBytes/fragmentChunkLimit(b)));
+      const latencyA=Number(a?.probeLatencyMs)>0?Number(a.probeLatencyMs):Number.MAX_SAFE_INTEGER;
+      const latencyB=Number(b?.probeLatencyMs)>0?Number(b.probeLatencyMs):Number.MAX_SAFE_INTEGER;
+      return partsA-partsB||latencyA-latencyB||String(a.id).localeCompare(String(b.id));
+    });
+}
 async function assignDistinctExternalTargets(items,candidates,copyFn,{maxConcurrency=items.length}={}){
   const assignments=Array(items.length).fill(null),failures=[],attempted=[];
   const concurrency=Math.max(1,Math.min(items.length||1,Number(maxConcurrency)||1));
@@ -1176,16 +1189,12 @@ async function ensureExternalCodeArchive(env,c,codeBackup){
       let ranked=rankExternalCodeCandidates(env,[...validated,...extra,...codeCandidates,...activeCodeTargets],shard.length)
         .filter(e=>!used.has(e.id)&&!failed.has(e.id)&&codeTargetAvailableNow(state,e));
       if(!ranked.length){
-        ranked=uniqueExternalCandidates(env,activeCodeTargets)
-          .filter(e=>endpointMeetsDurability(env,e)&&!used.has(e.id)&&!failed.has(e.id)&&codeTargetAvailableNow(state,e))
-          .sort((a,b)=>{
-            const partsA=Math.max(1,Math.ceil(shard.length/fragmentChunkLimit(a)));
-            const partsB=Math.max(1,Math.ceil(shard.length/fragmentChunkLimit(b)));
-            const latencyA=Number(a?.probeLatencyMs)>0?Number(a.probeLatencyMs):Number.MAX_SAFE_INTEGER;
-            const latencyB=Number(b?.probeLatencyMs)>0?Number(b.probeLatencyMs):Number.MAX_SAFE_INTEGER;
-            return partsA-partsB||latencyA-latencyB||String(a.id).localeCompare(String(b.id));
-          });
-        if(ranked.length)state.active_roundtrip_fallback_used=true;
+        // A freshly discovered durable code candidate may not have a cached
+        // representative proof yet. The code-sync write/read/hash round-trip
+        // below is itself the exact representative proof, so allow these
+        // candidates to self-qualify instead of creating a circular gate.
+        ranked=roundtripCodeFallbackCandidates(env,codeCandidates,activeCodeTargets,state,used,shard.length);
+        if(ranked.length)state.candidate_roundtrip_fallback_used=true;
       }
       return prioritizeExternalCodeCandidates(ranked,state);
     };
@@ -1376,7 +1385,7 @@ export const __shardvaultTest = Object.freeze({
   shardVaultWriteFailureEndpoint, rotateActiveEndpointsForWriteFailure, excludeShardVaultEndpoints,
   rankExternalCodeCandidates, assignDistinctExternalTargets, byteArraysEqual, reconstructExternalCodeArchive,
   codeTargetFailureClass, codeTargetRetryDelayMs, codeTargetAvailableNow, prioritizeExternalCodeCandidates,
-  recordCodeTargetFailure, clearCodeTargetFailure, codeFragmentDeadlineMs
+  recordCodeTargetFailure, clearCodeTargetFailure, roundtripCodeFallbackCandidates, codeFragmentDeadlineMs
 });
 
 
