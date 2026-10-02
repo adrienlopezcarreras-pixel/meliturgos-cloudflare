@@ -1,0 +1,53 @@
+name: ops-check-mel-companion-online
+
+on:
+  push:
+    branches:
+      - ops/check-mel-companion-online-20261002
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 14005bff196ae79a52f5a14366d13fb989acfe53
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Check MEL native Companion heartbeat
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx wrangler d1 execute meliturgos-memory --remote --json --command "SELECT name,platform,last_seen_at,metadata,halted FROM computer_devices WHERE lower(platform)='windows' ORDER BY last_seen_at DESC LIMIT 5" > /tmp/mel-companion.json
+          node - <<'NODE'
+          const fs=require('fs');
+          const raw=JSON.parse(fs.readFileSync('/tmp/mel-companion.json','utf8'));
+          const rows=(Array.isArray(raw)?raw:[]).flatMap(x=>Array.isArray(x?.results)?x.results:[]);
+          const now=Date.now();
+          const out=rows.map(row=>{
+            let meta={}; try{meta=JSON.parse(row.metadata||'{}')}catch{}
+            const last=Number(row.last_seen_at||0);
+            const engine=Number(meta.engine_heartbeat_at||0);
+            return {
+              name:String(row.name||'MEL Companion').slice(0,80),
+              platform:String(row.platform||''),
+              halted:Number(row.halted||0)===1,
+              last_seen_age_ms:last>0?Math.max(0,now-last):null,
+              engine_heartbeat_age_ms:engine>0?Math.max(0,now-engine):null,
+              mel_native_online:last>0&&now-last<35000&&engine>0&&now-engine<35000&&Number(row.halted||0)!==1,
+              version:String(meta.version||'').slice(0,80)||null,
+            };
+          });
+          console.log(JSON.stringify({checked_at:new Date(now).toISOString(),devices:out},null,2));
+          if(!out.some(x=>x.mel_native_online))process.exit(42);
+          NODE
