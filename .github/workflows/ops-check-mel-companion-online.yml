@@ -28,11 +28,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          npx wrangler d1 execute meliturgos-memory --remote --json --command "SELECT name,platform,last_seen_at,metadata,halted FROM computer_devices WHERE lower(platform)='windows' ORDER BY last_seen_at DESC LIMIT 5" > /tmp/mel-companion.json
+          curl --silent --show-error --fail-with-body --max-time 30             --request POST             --header "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}"             --header "Content-Type: application/json"             --data '{"sql":"SELECT name,platform,last_seen_at,metadata,halted FROM computer_devices WHERE lower(platform)=? ORDER BY last_seen_at DESC LIMIT 5","params":["windows"]}'             --output /tmp/mel-companion.json             "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/d1/database/6d502448-8780-4cf0-8c82-863cccb2e1cd/query"
           node - <<'NODE'
           const fs=require('fs');
           const raw=JSON.parse(fs.readFileSync('/tmp/mel-companion.json','utf8'));
-          const rows=(Array.isArray(raw)?raw:[]).flatMap(x=>Array.isArray(x?.results)?x.results:[]);
+          if(raw?.success!==true)throw new Error('D1_COMPANION_QUERY_FAILED');
+          const rows=(Array.isArray(raw?.result)?raw.result:[]).flatMap(x=>Array.isArray(x?.results)?x.results:[]);
           const now=Date.now();
           const out=rows.map(row=>{
             let meta={}; try{meta=JSON.parse(row.metadata||'{}')}catch{}
