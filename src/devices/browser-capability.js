@@ -55,7 +55,7 @@ const MAX_FILE_NAME = 200;
 const MAX_MIME_TYPE = 120;
 const MAX_FILE_TEXT = 16384;
 const MAX_HEADER_VALUE = 2048;
-const ALLOWED_BROWSER_HEADERS = new Set(['authorization','x-mel-release-smoke','x-mel-launch-bootstrap']);
+const ALLOWED_BROWSER_HEADERS = new Set(['authorization','x-mel-release-smoke','x-mel-launch-bootstrap','x-mel-parallel-proof']);
 
 function boundedText(value, max = MAX_ID) {
   return typeof value === 'string' ? value.trim().slice(0, max) : '';
