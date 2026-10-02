@@ -16,16 +16,26 @@ async function ensureTables(db){
   )`).run();
 }
 
+function engineHeartbeatFresh(row,{now=Date.now(),onlineWithinMs=35000}={}){
+  if(!row||Number(row.halted)===1||String(row.platform||'').toLowerCase()!=='windows')return false;
+  if(now-Number(row.last_seen_at||0)>=onlineWithinMs)return false;
+  try{
+    const metadata=JSON.parse(row.metadata||'{}');
+    const engineHeartbeatAt=Number(metadata.engine_heartbeat_at||0);
+    return engineHeartbeatAt>0&&now-engineHeartbeatAt<onlineWithinMs;
+  }catch{return false;}
+}
+
 async function chooseDevice(db,{deviceId=null,now=Date.now(),onlineWithinMs=35000}={}){
   if(deviceId){
     const row=await db.prepare("SELECT * FROM computer_devices WHERE id=? LIMIT 1").bind(clean(deviceId,200)).first();
-    if(!row)return null;
-    return row;
+    return engineHeartbeatFresh(row,{now,onlineWithinMs})?row:null;
   }
-  return db.prepare(`SELECT * FROM computer_devices
+  const rows=await db.prepare(`SELECT * FROM computer_devices
     WHERE lower(platform)='windows' AND halted=0 AND last_seen_at>=?
-    ORDER BY last_seen_at DESC LIMIT 1`)
-    .bind(now-onlineWithinMs).first();
+    ORDER BY last_seen_at DESC LIMIT 5`)
+    .bind(now-onlineWithinMs).all();
+  return (rows?.results||[]).find(row=>engineHeartbeatFresh(row,{now,onlineWithinMs}))||null;
 }
 
 function parseJson(v,fallback=null){
