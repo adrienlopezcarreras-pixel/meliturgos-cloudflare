@@ -366,15 +366,47 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
         };
       }
     };
-    await runRefresh('ai', runConfiguredAiCandidateValidationRuntime);
-    await runRefresh('ai_local', (runtimeEnv, options) =>
-      runCompanionAiPrevalidationRuntime(runtimeEnv, { ...options, sourceSha: deployedSha }));
-    await runRefresh('source_control', (runtimeEnv, options) =>
-      runCompanionSourceControlPrevalidationRuntime(runtimeEnv, { ...options, sourceSha: deployedSha }));
-    await runRefresh('infrastructure', (runtimeEnv, options) =>
-      runCompanionInfrastructurePrevalidationRuntime(runtimeEnv, { ...options, sourceSha: deployedSha }));
-    await runRefresh('backup_restore', (runtimeEnv, options) =>
-      runGoogleDriveBackupRestorePrevalidationRuntime(runtimeEnv, { ...options, sourceSha: deployedSha }));
+    const refreshers = {
+      ai: runConfiguredAiCandidateValidationRuntime,
+      ai_local: (runtimeEnv, options) =>
+        runCompanionAiPrevalidationRuntime(runtimeEnv, { ...options, sourceSha: deployedSha }),
+      source_control: (runtimeEnv, options) =>
+        runCompanionSourceControlPrevalidationRuntime(runtimeEnv, { ...options, sourceSha: deployedSha }),
+      infrastructure: (runtimeEnv, options) =>
+        runCompanionInfrastructurePrevalidationRuntime(runtimeEnv, { ...options, sourceSha: deployedSha }),
+      backup_restore: (runtimeEnv, options) =>
+        runGoogleDriveBackupRestorePrevalidationRuntime(runtimeEnv, { ...options, sourceSha: deployedSha }),
+    };
+    const requestedRefresh = String(url.searchParams.get('refresh') || '').trim().toLowerCase();
+    if (requestedRefresh) {
+      const refresher = refreshers[requestedRefresh];
+      if (!refresher) {
+        return Response.json({
+          ok: false,
+          code: 'MEL_SOV_01_REFRESH_TARGET_INVALID',
+          phase,
+          allowed_refresh_targets: Object.keys(refreshers),
+          autonomy_started: false,
+        }, { status: 400, headers: { 'cache-control': 'no-store' } });
+      }
+      await runRefresh(requestedRefresh, refresher);
+      const row = refresh[requestedRefresh];
+      return Response.json({
+        ok: row?.ok !== false,
+        status: row?.ok !== false ? 'MEL_SOV_01_REFRESH_STEP_VERIFIED' : 'MEL_SOV_01_REFRESH_STEP_FAILED',
+        phase,
+        refresh_target: requestedRefresh,
+        refresh: row,
+        deployed_sha: deployedSha || null,
+        secret_values_exposed: false,
+        autonomy_started: false,
+        owner_launch_required: true,
+      }, { status: row?.ok !== false ? 200 : 409, headers: { 'cache-control': 'no-store' } });
+    }
+
+    // The final proof is deliberately lightweight: all expensive live
+    // prevalidation refreshes are executed as separate bounded requests above.
+    // Coverage still rejects stale/incomplete registry evidence.
     const store = new D1AlternativeRegistryStore(env.DB);
     const registry = await store.load();
     const coverage = sovereigntyCoverageFromRegistry(registry, { now });

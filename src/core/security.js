@@ -88,9 +88,20 @@ const RELEASE_SMOKE_ALLOWLIST = Object.freeze(new Map([
 const PARALLEL_PROOF_ALLOWLIST = Object.freeze(new Map([
   ['POST', new Set([
     '/api/gen2/capabilities/execute',
+    // Read-only/diagnostic connector probes used by the exact-SHA
+    // post-release proof. Configuration mutation routes such as /save are
+    // intentionally excluded.
+    '/api/gen2/connections/google/test',
+    '/api/gen2/connections/microsoft/test',
+    '/api/gen2/connections/yahoo/test',
+    '/api/gen2/connections/yahoo-imap/test',
+    '/api/gen2/connections/vercel/test',
+    '/api/gen2/connections/pipedream/test',
   ])],
   ['GET', new Set([
     '/api/gen2/code/self-check',
+    '/api/gen2/connections/google/status',
+    '/api/gen2/connections/pipedream/accounts',
     '/api/gen2/autonomy/sovereignty',
     '/',
     '/professor',

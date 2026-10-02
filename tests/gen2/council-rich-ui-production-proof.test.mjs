@@ -21,10 +21,11 @@ test('production proof exercises live Model Council with negative-feedback recov
   assert.match(workflow, /synthesis_status/);
 });
 
-test('production Council proof uses the same bounded three-model budget already validated by release', () => {
-  assert.match(workflow, /"maxCandidates":3,"timeoutMs":60000/);
-  assert.match(workflow, /COUNCIL_MAX_ATTEMPTS=4/);
-  assert.match(workflow, /--max-time 130/);
+test('production Council proof uses all four authorized zero-cost models with a bounded latency budget', () => {
+  assert.match(workflow, /"maxCandidates":4,"timeoutMs":12000/);
+  assert.match(workflow, /COUNCIL_MAX_ATTEMPTS=2/);
+  assert.match(workflow, /--max-time 90/);
+  assert.match(workflow, /independent_response_count\|\|0\)>=2/);
 });
 
 test('production proof verifies rich renderer in Normal and Full browser surfaces', () => {

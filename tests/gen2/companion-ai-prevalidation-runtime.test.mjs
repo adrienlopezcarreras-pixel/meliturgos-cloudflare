@@ -116,7 +116,9 @@ test('local sovereignty whitelist and PowerShell companion expose only bounded l
 test('production sovereignty proof and hourly maintenance both refresh local AI evidence',async()=>{
   const bootstrap=await readFile(new URL('../../src/evolution/release-launch-bootstrap.js',import.meta.url),'utf8');
   assert.match(bootstrap,/runCompanionAiPrevalidationRuntime/);
-  assert.match(bootstrap,/runRefresh\('ai_local'/);
+  assert.match(bootstrap,/ai_local:\s*\(runtimeEnv, options\)/);
+  assert.match(bootstrap,/const requestedRefresh = String\(url\.searchParams\.get\('refresh'\)/);
+  assert.match(bootstrap,/await runRefresh\(requestedRefresh, refresher\)/);
   assert.match(bootstrap,/sourceSha:\s*deployedSha/);
 
   const index=await readFile(new URL('../../src/index.js',import.meta.url),'utf8');

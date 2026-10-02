@@ -130,6 +130,9 @@ test('default connected Council uses the configured Workers AI adapter path', as
   assert.equal(calls.length, 3);
   assert.ok(calls.every(row => row.model.startsWith('@cf/')));
   assert.ok(calls.every(row => Array.isArray(row.payload.messages) && row.payload.messages.length > 0));
+  assert.equal(calls.filter(row => row.payload.max_tokens === 384).length, 2);
+  assert.equal(calls.filter(row => row.payload.max_tokens === 512).length, 1);
+  assert.ok(calls.every(row => Number(row.payload.max_tokens || 0) <= 512));
 });
 
 test('Model Council is registered in the production CapabilityBus and executes through Workers AI adapters', async () => {

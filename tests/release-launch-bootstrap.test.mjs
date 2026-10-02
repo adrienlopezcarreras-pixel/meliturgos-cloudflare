@@ -998,16 +998,30 @@ test('release bootstrap sovereignty proof reads only sanitized 10-layer status a
   assert.equal(body.done_verified_eligible,true);
   assert.equal(body.ready_layer_count,10);
   assert.equal(body.registry_count,10);
-  assert.equal(typeof body.prevalidation_refresh,'object');
-  assert.ok(body.prevalidation_refresh.ai);
-  assert.ok(body.prevalidation_refresh.source_control);
-  assert.ok(body.prevalidation_refresh.infrastructure);
+  assert.deepEqual(body.prevalidation_refresh,{});
   assert.equal(body.ai_low_refusal_ready,true);
   assert.equal(body.secret_values_exposed,false);
   assert.equal(body.autonomy_started,false);
   DB.close();
 });
 
+
+test('release bootstrap sovereignty refresh rejects unknown targets without running autonomy', async () => {
+  const response=await maybeHandleReleaseLaunchBootstrap(
+    new Request('https://mel.test/api/internal/release-launch-bootstrap?refresh=unknown-layer',{
+      method:'POST',
+      headers:{'x-mel-launch-bootstrap':TOKEN,'content-type':'application/json'},
+      body:JSON.stringify({phase:'sovereignty-proof'}),
+    }),
+    {MEL_LAUNCH_BOOTSTRAP_TOKEN:TOKEN,DB:sqliteD1()},
+    {setControl:async()=>{throw new Error('refresh proof must not touch autonomy control');}},
+  );
+  assert.equal(response.status,400);
+  const body=await response.json();
+  assert.equal(body.code,'MEL_SOV_01_REFRESH_TARGET_INVALID');
+  assert.deepEqual(body.allowed_refresh_targets,['ai','ai_local','source_control','infrastructure','backup_restore']);
+  assert.equal(body.autonomy_started,false);
+});
 
 test('GEN2-42 runtime tick exposes a READY package for cloud fallback when local bridge is stale', async () => {
   const DB=sqliteD1();

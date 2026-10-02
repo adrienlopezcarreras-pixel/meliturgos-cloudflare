@@ -26,3 +26,19 @@ test('release captures sanitized exact-SHA sovereignty evidence without requirin
   assert.match(workflow,/path: production-sovereignty-proof\.json/);
   assert.doesNotMatch(workflow,/if\s*\(d\?\.fully_sovereign!==true\)/);
 });
+
+
+test('MEL-SOV-01 live proof splits heavy refreshes and uses immutable exact-SHA auth', async () => {
+  const workflow=await readFile(new URL('../../.github/workflows/mel-sov-01-live-proof.yml',import.meta.url),'utf8');
+  assert.match(workflow,/MEL_BACKUP_ENCRYPTION_KEY_B64/);
+  assert.match(workflow,/MEL_PARALLEL_PROOF_V1:/);
+  assert.match(workflow,/x-mel-parallel-proof/);
+  assert.match(workflow,/for TARGET in ai ai_local source_control infrastructure backup_restore/);
+  assert.match(workflow,/release-launch-bootstrap\?refresh=\$\{TARGET\}/);
+  assert.match(workflow,/MEL_SOV_01_REFRESH_STEP_VERIFIED/);
+  assert.match(workflow,/--max-time 75/);
+  assert.match(workflow,/--max-time 60/);
+  assert.doesNotMatch(workflow,/wrangler secret put/);
+  assert.doesNotMatch(workflow,/wrangler secret delete/);
+  assert.doesNotMatch(workflow,/MEL_LAUNCH_BOOTSTRAP_TOKEN/);
+});

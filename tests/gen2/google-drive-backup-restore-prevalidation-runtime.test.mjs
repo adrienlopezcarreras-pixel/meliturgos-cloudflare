@@ -312,6 +312,7 @@ test('release sovereignty proof refreshes backup_restore before reading coverage
   const {readFile}=await import('node:fs/promises');
   const source=await readFile(new URL('../../src/evolution/release-launch-bootstrap.js',import.meta.url),'utf8');
   assert.match(source,/runGoogleDriveBackupRestorePrevalidationRuntime/);
-  assert.match(source,/runRefresh\('backup_restore'/);
+  assert.match(source,/backup_restore:\s*\(runtimeEnv, options\)/);
+  assert.match(source,/await runRefresh\(requestedRefresh, refresher\)/);
   assert.match(source,/sourceSha:\s*deployedSha/);
 });
