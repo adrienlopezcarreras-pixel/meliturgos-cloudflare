@@ -135,3 +135,47 @@ test('release smoke token shorter than 32 characters is never accepted', () => {
     MEL_LAUNCH_BOOTSTRAP_TOKEN:token,
   }), false);
 });
+
+
+test('parallel production proof token is immutable, narrow and cannot use broad release-smoke routes', () => {
+  const token = 'p'.repeat(64);
+  const env = {
+    MELITURGOS_USER: 'adrien',
+    MELITURGOS_PASSWORD: 'owner-password',
+    MEL_PARALLEL_PROOF_TOKEN: token,
+  };
+  const request = (path, method='GET', supplied=token) => new Request('https://meliturgos.test' + path, {
+    method,
+    headers: {
+      'x-mel-release-smoke':'1',
+      'x-mel-parallel-proof': supplied,
+      ...(method === 'POST' ? {'content-type':'application/json'} : {}),
+    },
+    ...(method === 'POST' ? {body:'{}'} : {}),
+  });
+
+  for (const [method,path] of [
+    ['GET','/api/gen2/code/self-check'],
+    ['GET','/api/gen2/autonomy/sovereignty'],
+    ['GET','/'],
+    ['GET','/professor'],
+    ['GET','/normal-runtime.js'],
+    ['POST','/api/gen2/capabilities/execute'],
+  ]) {
+    assert.equal(isReleaseSmokeRequest(request(path, method), env), true, method + ' ' + path);
+    assert.equal(authorized(request(path, method), env), true, method + ' ' + path);
+  }
+
+  for (const [method,path] of [
+    ['POST','/api/chat'],
+    ['POST','/api/files/upload'],
+    ['GET','/api/gen2/readiness'],
+    ['GET','/api/memory/status'],
+    ['POST','/api/gen2/connections/google/test'],
+  ]) {
+    assert.equal(isReleaseSmokeRequest(request(path, method), env), false, method + ' ' + path);
+    assert.equal(authorized(request(path, method), env), false, method + ' ' + path);
+  }
+
+  assert.equal(isReleaseSmokeRequest(request('/api/gen2/code/self-check','GET','x'.repeat(64)), env), false);
+});
