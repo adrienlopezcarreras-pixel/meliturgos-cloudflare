@@ -145,6 +145,7 @@ jobs:
           retention-days: 14
 
   file:
+    needs: browser
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     env:
@@ -191,13 +192,30 @@ jobs:
           ]}}));
           NODE
           )"
-          CODE="$(curl --silent --show-error --max-time 120 \
-            --header "x-mel-release-smoke: 1" \
-            --header "x-mel-parallel-proof: ${TOKEN}" \
-            --header "content-type: application/json" \
-            --data "${BODY}" --output file-proof.json --write-out '%{http_code}' \
-            "${BASE_URL}/api/gen2/capabilities/execute" || true)"
-          test "${CODE}" = "200"
+          FILE_READY=0
+          for ATTEMPT in $(seq 1 8); do
+            CODE="$(curl --silent --show-error --max-time 120 \
+              --header "x-mel-release-smoke: 1" \
+              --header "x-mel-parallel-proof: ${TOKEN}" \
+              --header "content-type: application/json" \
+              --data "${BODY}" --output file-proof.json --write-out '%{http_code}' \
+              "${BASE_URL}/api/gen2/capabilities/execute" || true)"
+            if [ "${CODE}" = "200" ]; then FILE_READY=1; break; fi
+            case "${CODE}" in
+              409|429|500|502|503|504)
+                echo "Transient MEL-FILE browser proof status ${CODE}; retry ${ATTEMPT}/8."
+                sleep $((ATTEMPT * 2))
+                ;;
+              *)
+                echo "Non-retryable MEL-FILE browser proof status ${CODE}."
+                if [ -s file-proof.json ]; then
+                  node -e 'const fs=require("fs");let d={};try{d=JSON.parse(fs.readFileSync("file-proof.json","utf8"))}catch{};console.log(JSON.stringify({ok:d?.ok===true,error:d?.error||d?.code||d?.status||"UNKNOWN"}))'
+                fi
+                exit 31
+                ;;
+            esac
+          done
+          test "${FILE_READY}" = "1"
           node - <<'NODE'
           const fs=require('fs'),d=require('./file-proof.json'),r=d?.result||{},out=id=>(r.outputs||[]).find(x=>x?.step_id===id)?.output||{};
           if(d?.ok!==true||r?.ok!==true||Number(r?.steps_completed||0)!==7)throw new Error('MEL_FILE_PROOF_FAILED');
@@ -237,6 +255,14 @@ jobs:
           )"
           echo "::add-mask::${TOKEN}"
 
+          SHA_CODE="$(curl --silent --show-error --max-time 45 \
+            --header "x-mel-release-smoke: 1" \
+            --header "x-mel-parallel-proof: ${TOKEN}" \
+            --output sovereignty-sha-status.json --write-out '%{http_code}' \
+            "${BASE_URL}/api/gen2/code/self-check" || true)"
+          test "${SHA_CODE}" = "200"
+          TARGET_SHA="${TARGET_SHA}" node -e 'const d=require("./sovereignty-sha-status.json");const actual=String(d?.deployed_sha||d?.sha||"").toLowerCase();if(actual!==String(process.env.TARGET_SHA).toLowerCase())throw new Error("DEPLOYED_SHA_MISMATCH:"+actual)'
+
           CODE="$(curl --silent --show-error --max-time 60 \
             --header "x-mel-release-smoke: 1" \
             --header "x-mel-parallel-proof: ${TOKEN}" \
@@ -244,9 +270,8 @@ jobs:
             "${BASE_URL}/api/gen2/autonomy/sovereignty" || true)"
           test "${CODE}" = "200"
           TARGET_SHA="${TARGET_SHA}" node - <<'NODE'
-          const fs=require('fs'),d=require('./sovereignty.json'),expected=String(process.env.TARGET_SHA).toLowerCase(),actual=String(d?.deployed_sha||'').toLowerCase();
+          const fs=require('fs'),d=require('./sovereignty.json'),expected=String(process.env.TARGET_SHA).toLowerCase();
           if(d?.ok!==true||d?.status!=='TECHNICAL_SOVEREIGNTY_STATUS')throw new Error('SOVEREIGNTY_STATUS_INVALID');
-          if(actual!==expected)throw new Error('DEPLOYED_SHA_MISMATCH:'+actual+':'+expected);
           fs.writeFileSync('sovereignty-production-status.json',JSON.stringify({
             schema:'mel.decoupled-sovereignty-status/v2',source_sha:expected,
             fully_sovereign:d?.fully_sovereign===true,
