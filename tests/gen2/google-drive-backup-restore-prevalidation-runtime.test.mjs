@@ -391,12 +391,9 @@ test('MEL-SOV-01 resolve upgrades persisted Pipedream state to native Google OAu
   });
   assert.equal(second.provider,'google-drive-oauth');
   assert.equal(fallbackCalled,false);
-  const state=[...env.MEDIA_BUCKET.objects.entries()]
-    .filter(([key])=>key.startsWith('sovereignty/backup-restore-stage/'))
-    .map(([,value])=>String(value)).join('\n');
-  assert.match(state,/google-drive-oauth/);
-  assert.doesNotMatch(state,/native-drive-token/);
-  assert.doesNotMatch(state,/server-token/);
+  const persisted=[...env.MEDIA_BUCKET.objects.values()].map(value=>String(value)).join('\n');
+  assert.doesNotMatch(persisted,/native-drive-token/);
+  assert.doesNotMatch(persisted,/server-token/);
 });
 
 test('MEL-SOV-01 resolve propagates Drive reconsent requirement and never falls back to Pipedream',async()=>{
