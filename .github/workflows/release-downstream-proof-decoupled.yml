@@ -219,7 +219,7 @@ jobs:
               "${BASE_URL}/api/gen2/capabilities/execute" || true)"
             if [ "${CODE}" = "200" ]; then FILE_READY=1; break; fi
             case "${CODE}" in
-              409|429|500|502|503|504)
+              408|409|429|500|502|503|504)
                 echo "Transient MEL-FILE browser proof status ${CODE}; retry ${ATTEMPT}/8."
                 sleep $((ATTEMPT * 2))
                 ;;
