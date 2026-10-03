@@ -284,6 +284,22 @@ export function classifyOAuthProbeFailure({ provider, connectorId, status, body 
     }
   }
 
+  if (provider === 'google' && connectorId === 'google-drive') {
+    if (upstreamStatus === 401) {
+      code = 'GOOGLE_DRIVE_REAUTH_REQUIRED';
+      actionRequired = 'RECONNECT_GOOGLE';
+    } else if (upstreamStatus === 403 && /(accessnotconfigured|service_disabled|has not been used in project|api[^a-z0-9]+(?:is )?disabled)/i.test(serialized)) {
+      code = 'GOOGLE_DRIVE_API_NOT_ENABLED';
+      actionRequired = 'ENABLE_GOOGLE_DRIVE_API';
+    } else if (upstreamStatus === 403 && /(insufficientpermissions|insufficient[^a-z0-9]+(?:authentication )?scopes|access_token_scope_insufficient)/i.test(serialized)) {
+      code = 'GOOGLE_DRIVE_RECONSENT_REQUIRED';
+      actionRequired = 'RECONNECT_GOOGLE_WITH_DRIVE_SCOPE';
+    } else if (upstreamStatus === 403) {
+      code = 'GOOGLE_DRIVE_ACCESS_FORBIDDEN';
+      actionRequired = 'VERIFY_GOOGLE_DRIVE_API_AND_CONSENT';
+    }
+  }
+
   return Object.freeze({
     code,
     status: upstreamStatus === 401 || upstreamStatus === 403 ? 409 : 502,
