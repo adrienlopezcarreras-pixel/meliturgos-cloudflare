@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 
 import { createVerifiedBackupService } from '../../src/backup/backup-service.js';
 import { createBackupEncryptionCodec } from '../../src/backup/encrypted-backup-storage.js';
