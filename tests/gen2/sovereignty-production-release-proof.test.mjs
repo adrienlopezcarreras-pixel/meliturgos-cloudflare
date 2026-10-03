@@ -28,6 +28,14 @@ test('release captures sanitized exact-SHA sovereignty evidence without requirin
 });
 
 
+test('MEL-SOV-01 streamed Drive prepare preserves a fixed byte length without buffering the backup', async () => {
+  const runtime=await readFile(new URL('../../src/portability/google-drive-backup-restore-prevalidation-runtime.js',import.meta.url),'utf8');
+  assert.match(runtime,/globalThis\.FixedLengthStream/);
+  assert.match(runtime,/byteLength:backup\.byte_length/);
+  assert.match(runtime,/body\.pipeTo\(fixed\.writable\)/);
+  assert.doesNotMatch(runtime,/await backup\.body\.arrayBuffer\(\)/);
+});
+
 test('MEL-SOV-01 live proof splits heavy refreshes and uses immutable exact-SHA auth', async () => {
   const workflow=await readFile(new URL('../../.github/workflows/mel-sov-01-live-proof.yml',import.meta.url),'utf8');
   assert.match(workflow,/MEL_BACKUP_ENCRYPTION_KEY_B64/);
