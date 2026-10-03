@@ -283,56 +283,73 @@ jobs:
           # Populate every bounded sovereignty prevalidation domain before reading
           # the final 10-layer registry. Each refresh is isolated in its own
           # Worker request to preserve the CPU-splitting invariant from MEL-SOV-01.
-          for TARGET in ai ai_local source_control infrastructure backup_restore; do
-            REFRESH_CODE="000"
-            REFRESH_READY=0
+          refresh_sov_target() {
+            local TARGET="$1"
+            local STEP="${2:-}"
+            local KEY="${TARGET}"
+            local QUERY="refresh=${TARGET}"
+            if [ -n "${STEP}" ]; then
+              KEY="${TARGET}-${STEP}"
+              QUERY="${QUERY}&step=${STEP}"
+            fi
+            local REFRESH_CODE="000"
+            local REFRESH_READY=0
             for ATTEMPT in $(seq 1 6); do
               REFRESH_CODE="$(curl --silent --show-error --max-time 75 \
                 --header "x-mel-parallel-proof: ${TOKEN}" \
                 --header "content-type: application/json" \
                 --data '{"phase":"sovereignty-proof"}' \
-                --output "sovereignty-refresh-${TARGET}.json" --write-out '%{http_code}' \
-                "${BASE_URL}/api/internal/release-launch-bootstrap?refresh=${TARGET}" || true)"
+                --output "sovereignty-refresh-${KEY}.json" --write-out '%{http_code}' \
+                "${BASE_URL}/api/internal/release-launch-bootstrap?${QUERY}" || true)"
               if [ "${REFRESH_CODE}" = "200" ]; then
                 REFRESH_READY=1
                 break
               fi
-              REFRESH_ERROR="$(TARGET="${TARGET}" node -e 'const fs=require("fs");let d={};try{d=JSON.parse(fs.readFileSync("sovereignty-refresh-"+process.env.TARGET+".json","utf8"))}catch{};process.stdout.write(String(d?.code||d?.error||d?.status||"UNKNOWN").slice(0,160))')"
+              REFRESH_ERROR="$(KEY="${KEY}" node -e 'const fs=require("fs");let d={};try{d=JSON.parse(fs.readFileSync("sovereignty-refresh-"+process.env.KEY+".json","utf8"))}catch{};process.stdout.write(String(d?.code||d?.error||d?.status||"UNKNOWN").slice(0,160))')"
               case "${REFRESH_CODE}" in
                 409|429|500|502|503|504)
-                  echo "Transient decoupled SOV refresh ${TARGET} status ${REFRESH_CODE} (${REFRESH_ERROR}); retry ${ATTEMPT}/6."
+                  echo "Transient decoupled SOV refresh ${KEY} status ${REFRESH_CODE} (${REFRESH_ERROR}); retry ${ATTEMPT}/6."
                   sleep $((ATTEMPT * 2))
                   ;;
                 *)
-                  echo "Non-retryable decoupled SOV refresh ${TARGET} status ${REFRESH_CODE} (${REFRESH_ERROR})."
+                  echo "Non-retryable decoupled SOV refresh ${KEY} status ${REFRESH_CODE} (${REFRESH_ERROR})."
                   break
                   ;;
               esac
             done
             if [ "${REFRESH_READY}" != "1" ]; then
-              TARGET="${TARGET}" REFRESH_CODE="${REFRESH_CODE}" TARGET_SHA="${TARGET_SHA}" node - <<'NODE'
+              TARGET="${TARGET}" STEP="${STEP}" KEY="${KEY}" REFRESH_CODE="${REFRESH_CODE}" TARGET_SHA="${TARGET_SHA}" node - <<'NODE'
           const fs=require('fs');
           let d={};
-          try{d=JSON.parse(fs.readFileSync('./sovereignty-refresh-'+process.env.TARGET+'.json','utf8'))}catch{}
+          try{d=JSON.parse(fs.readFileSync('./sovereignty-refresh-'+process.env.KEY+'.json','utf8'))}catch{}
           fs.writeFileSync('sovereignty-production-status.json',JSON.stringify({
-            schema:'mel.decoupled-sovereignty-status/v2',
+            schema:'mel.decoupled-sovereignty-status/v3',
             source_sha:String(process.env.TARGET_SHA||'').toLowerCase(),
             status:'MEL_SOV_01_REFRESH_FAILED',
             refresh_target:process.env.TARGET,
+            refresh_step:process.env.STEP||null,
             http_status:Number(process.env.REFRESH_CODE||0),
             refresh_error:String(d?.code||d?.error||d?.status||'UNKNOWN').slice(0,160),
             exact_sha_verified:true,
             secret_values_exposed:false,
           },null,2));
           NODE
-              exit 31
+              return 31
             fi
-            TARGET="${TARGET}" node - <<'NODE'
-          const d=require('./sovereignty-refresh-'+process.env.TARGET+'.json');
-          if(d?.ok!==true || d?.status!=='MEL_SOV_01_REFRESH_STEP_VERIFIED') throw new Error('MEL_SOV_01_REFRESH_FAILED:'+process.env.TARGET);
+            TARGET="${TARGET}" STEP="${STEP}" KEY="${KEY}" node - <<'NODE'
+          const d=require('./sovereignty-refresh-'+process.env.KEY+'.json');
+          if(d?.ok!==true || d?.status!=='MEL_SOV_01_REFRESH_STEP_VERIFIED') throw new Error('MEL_SOV_01_REFRESH_FAILED:'+process.env.KEY);
           if(d?.refresh_target!==process.env.TARGET) throw new Error('MEL_SOV_01_REFRESH_TARGET_MISMATCH');
+          if(process.env.STEP && d?.refresh_step!==process.env.STEP) throw new Error('MEL_SOV_01_REFRESH_STEP_MISMATCH');
           if(d?.secret_values_exposed!==false || d?.autonomy_started!==false) throw new Error('MEL_SOV_01_REFRESH_SAFETY_FAILED');
           NODE
+          }
+
+          for TARGET in ai ai_local source_control infrastructure; do
+            refresh_sov_target "${TARGET}" || exit $?
+          done
+          for STEP in prepare readback rollback finalize; do
+            refresh_sov_target "backup_restore" "${STEP}" || exit $?
           done
 
           CODE="$(curl --silent --show-error --max-time 60 \
