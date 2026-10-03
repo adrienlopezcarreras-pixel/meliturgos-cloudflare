@@ -83,7 +83,7 @@ async function pipedreamRunAction({config,owner,accessToken,actionId,configuredP
   return body;
 }
 
-async function pipedreamDriveContext(env,{fetchImpl=fetch}={}){
+async function pipedreamDriveContext(env,{fetchImpl=fetch,accountId=null}={}){
   if(!env?.DB)return null;
   const owner=clean(env.MELITURGOS_USER||'owner',200)||'owner';
   let config;
@@ -93,6 +93,8 @@ async function pipedreamDriveContext(env,{fetchImpl=fetch}={}){
   if(!config?.project_id||!config?.client_id||!config?.client_secret)return null;
   const accessToken=await pipedreamAccessToken(config,{fetcher:fetchImpl}).catch(()=>null);
   if(!accessToken)return null;
+  const knownAccountId=clean(accountId,300);
+  if(knownAccountId)return{owner,config,account_id:knownAccountId,access_token:accessToken};
   const accounts=await pipedreamAccountStatus(config,owner,{fetcher:fetchImpl,accessToken}).catch(()=>null);
   const account=accounts?.accounts?.find(row=>row.app==='google_drive'&&row.healthy===true);
   if(!account?.id)return null;
@@ -131,29 +133,68 @@ async function pipedreamDriveProxyResponse({pd,target,method='GET',headers={},bo
   return response;
 }
 
-async function pipedreamDriveProxyUpload({pd,name,content,folderId=null,mimeType='application/json',fetchImpl=fetch}){
-  const boundary='mel_sov_pd_'+crypto.randomUUID().replaceAll('-','');
+async function pipedreamDriveProxyCreateFile({pd,name,folderId=null,mimeType='application/json',fetchImpl=fetch}){
   const metadata={name,mimeType,appProperties:{mel_role:'sovereignty-backup-restore'}};
   if(folderId)metadata.parents=[folderId];
-  const body=[
-    '--'+boundary+'\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n'+JSON.stringify(metadata)+'\r\n',
-    '--'+boundary+'\r\nContent-Type: '+mimeType+'\r\n\r\n'+String(content??'')+'\r\n',
-    '--'+boundary+'--',
-  ].join('');
-  const target='https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,createdTime';
+  const target='https://www.googleapis.com/drive/v3/files?fields=id,name,createdTime';
   const response=await pipedreamDriveProxyResponse({
-    pd,target,method:'POST',headers:{'content-type':'multipart/related; boundary='+boundary},body,fetchImpl,
+    pd,target,method:'POST',
+    headers:{'content-type':'application/json; charset=utf-8'},
+    body:JSON.stringify(metadata),fetchImpl,
   });
   const payload=await response.json().catch(()=>null);
   if(!payload?.id)fail('SOV_BACKUP_PIPEDREAM_FILE_ID_MISSING',502);
   return{id:clean(payload.id,300),name:clean(payload.name,300)||name};
 }
 
-async function pipedreamDriveProxyRead({pd,fileId,fetchImpl=fetch,allowNotFound=false}){
+async function pipedreamDriveProxyWriteMedia({pd,fileId,body,mimeType='application/json',fetchImpl=fetch}){
+  const target='https://www.googleapis.com/upload/drive/v3/files/'+encodeURIComponent(fileId)
+    +'?uploadType=media&fields=id,name';
+  const response=await pipedreamDriveProxyResponse({
+    pd,target,method:'PATCH',headers:{'content-type':mimeType},body,fetchImpl,
+  });
+  const payload=await response.json().catch(()=>null);
+  if(!payload?.id)fail('SOV_BACKUP_PIPEDREAM_MEDIA_UPLOAD_FAILED',502);
+  return{id:clean(payload.id,300),name:clean(payload.name,300)||null};
+}
+
+async function pipedreamDriveProxyUpload({pd,name,content,folderId=null,mimeType='application/json',fetchImpl=fetch}){
+  const created=await pipedreamDriveProxyCreateFile({pd,name,folderId,mimeType,fetchImpl});
+  try{
+    const written=await pipedreamDriveProxyWriteMedia({
+      pd,fileId:created.id,body:String(content??''),mimeType,fetchImpl,
+    });
+    return{id:created.id,name:written.name||created.name||name};
+  }catch(error){
+    await pipedreamDriveProxyDelete({pd,fileId:created.id,fetchImpl}).catch(()=>{});
+    throw error;
+  }
+}
+
+async function pipedreamDriveProxyUploadBody({pd,name,body,folderId=null,mimeType='application/json',fetchImpl=fetch}){
+  const created=await pipedreamDriveProxyCreateFile({pd,name,folderId,mimeType,fetchImpl});
+  try{
+    const written=await pipedreamDriveProxyWriteMedia({
+      pd,fileId:created.id,body,mimeType,fetchImpl,
+    });
+    return{id:created.id,name:written.name||created.name||name};
+  }catch(error){
+    await pipedreamDriveProxyDelete({pd,fileId:created.id,fetchImpl}).catch(()=>{});
+    throw error;
+  }
+}
+
+async function pipedreamDriveProxyReadBytes({pd,fileId,fetchImpl=fetch,allowNotFound=false}){
   const target='https://www.googleapis.com/drive/v3/files/'+encodeURIComponent(fileId)+'?alt=media';
   const response=await pipedreamDriveProxyResponse({pd,target,fetchImpl,allowNotFound});
   if(allowNotFound&&response.status===404)return null;
-  return response.text();
+  return new Uint8Array(await response.arrayBuffer());
+}
+
+async function pipedreamDriveProxyRead({pd,fileId,fetchImpl=fetch,allowNotFound=false}){
+  const bytes=await pipedreamDriveProxyReadBytes({pd,fileId,fetchImpl,allowNotFound});
+  if(bytes===null)return null;
+  return new TextDecoder().decode(bytes);
 }
 
 async function pipedreamDriveProxyDelete({pd,fileId,fetchImpl=fetch}){
