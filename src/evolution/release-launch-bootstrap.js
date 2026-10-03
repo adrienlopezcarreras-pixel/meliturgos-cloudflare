@@ -445,6 +445,18 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
         };
       }
     };
+    const requestedRefresh = String(url.searchParams.get('refresh') || '').trim().toLowerCase();
+    const requestedRefreshStep = String(url.searchParams.get('step') || '').trim().toLowerCase();
+    const backupRestoreSteps = new Set(['prepare','readback','rollback','finalize']);
+    if (requestedRefresh === 'backup_restore' && requestedRefreshStep && !backupRestoreSteps.has(requestedRefreshStep)) {
+      return Response.json({
+        ok: false,
+        code: 'MEL_SOV_01_BACKUP_RESTORE_STEP_INVALID',
+        phase,
+        allowed_refresh_steps: [...backupRestoreSteps],
+        autonomy_started: false,
+      }, { status: 400, headers: { 'cache-control': 'no-store' } });
+    }
     const refreshers = {
       ai: runConfiguredAiCandidateValidationRuntime,
       ai_local: (runtimeEnv, options) =>
@@ -454,9 +466,12 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
       infrastructure: (runtimeEnv, options) =>
         runCompanionInfrastructurePrevalidationRuntime(runtimeEnv, { ...options, sourceSha: deployedSha }),
       backup_restore: (runtimeEnv, options) =>
-        runGoogleDriveBackupRestorePrevalidationRuntime(runtimeEnv, { ...options, sourceSha: deployedSha }),
+        runGoogleDriveBackupRestorePrevalidationRuntime(runtimeEnv, {
+          ...options,
+          sourceSha: deployedSha,
+          stage: requestedRefreshStep || 'all',
+        }),
     };
-    const requestedRefresh = String(url.searchParams.get('refresh') || '').trim().toLowerCase();
     if (requestedRefresh) {
       const refresher = refreshers[requestedRefresh];
       if (!refresher) {
@@ -475,6 +490,7 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
         status: row?.ok !== false ? 'MEL_SOV_01_REFRESH_STEP_VERIFIED' : 'MEL_SOV_01_REFRESH_STEP_FAILED',
         phase,
         refresh_target: requestedRefresh,
+        refresh_step: requestedRefresh === 'backup_restore' ? (requestedRefreshStep || 'all') : null,
         refresh: row,
         deployed_sha: deployedSha || null,
         secret_values_exposed: false,
