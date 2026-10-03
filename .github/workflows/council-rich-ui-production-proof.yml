@@ -191,7 +191,7 @@ jobs:
               continue
             fi
             case "${BROWSER_CODE}" in
-              409|429|500|502|503|504)
+              408|409|429|500|502|503|504)
                 echo "Transient rich UI browser proof status ${BROWSER_CODE} (${BROWSER_ERROR_CODE}); retry ${ATTEMPT}/12."
                 sleep $((ATTEMPT < 8 ? ATTEMPT * 2 : 15))
                 continue

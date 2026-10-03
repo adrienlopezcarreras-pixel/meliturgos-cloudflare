@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  ACTION_TIMEOUT_MS,
+  WAIT_TEXT_TIMEOUT_MS,
   allowedDomainsFromOrigins,
   executeBrowserStep,
   normalizeCompanionPayload,
@@ -21,6 +23,12 @@ function payload(step = {}) {
     },
   };
 }
+
+test('wait-text has a longer bounded budget than ordinary browser actions', () => {
+  assert.equal(ACTION_TIMEOUT_MS,7000);
+  assert.equal(WAIT_TEXT_TIMEOUT_MS,20000);
+  assert.ok(WAIT_TEXT_TIMEOUT_MS>ACTION_TIMEOUT_MS);
+});
 
 test('companion normalizes exact HTTPS origins and guardrail hostnames', () => {
   const normalized = normalizeCompanionPayload(payload());

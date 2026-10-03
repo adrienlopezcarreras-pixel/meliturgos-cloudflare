@@ -189,6 +189,26 @@ jobs:
           test "${CODE}" = "200"
           TARGET_SHA="${TARGET_SHA}" node -e 'const d=require("./sha-status.json");const actual=String(d?.deployed_sha||d?.sha||"").toLowerCase();if(actual!==String(process.env.TARGET_SHA).toLowerCase())throw new Error("DEPLOYED_SHA_MISMATCH:"+actual)'
 
+          RELEASE_READY=0
+          for ATTEMPT in $(seq 1 60); do
+            READY_CODE="$(curl --silent --show-error --max-time 30 \
+              --output launch-readiness.json --write-out '%{http_code}' \
+              "${BASE_URL}/api/teacher/launch-readiness" || true)"
+            if [ "${READY_CODE}" = "200" ] && TARGET_SHA="${TARGET_SHA}" node - <<'NODE'
+          const d=require('./launch-readiness.json');
+          const expected=String(process.env.TARGET_SHA||'').toLowerCase();
+          const actual=String(d?.candidate_sha||'').toLowerCase();
+          process.exit(d?.launch_ready===true && d?.status==='GO_FOR_SUPERVISED_AUTONOMY' && actual===expected ? 0 : 1);
+          NODE
+            then
+              RELEASE_READY=1
+              break
+            fi
+            echo "MEL-FILE proof waiting for exact-SHA release readiness; attempt ${ATTEMPT}/60."
+            sleep 10
+          done
+          test "${RELEASE_READY}" = "1"
+
           SESSION="decoupled-file-${TARGET_SHA:0:12}"
           export TOKEN SESSION TARGET_SHA
           BODY="$(node - <<'NODE'
