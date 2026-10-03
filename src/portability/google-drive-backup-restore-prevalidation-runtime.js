@@ -91,11 +91,25 @@ async function nativeGoogleDriveContext(env,{fetchImpl=fetch}={}){
     const resolved=await resolveConnectionOAuthEnv(env,'google',owner);
     const runtime=createGoogleOAuthRuntime({env:resolved,fetcher:fetchImpl});
     const status=await runtime.status('google-drive',{owner});
-    if(status?.authorized!==true)return null;
+    if(status?.authorized!==true){
+      // A pre-existing Google grant created before Drive support was added must
+      // be re-consented with drive.file. Do not silently fall back to the
+      // known-broken Pipedream Drive write path in that case.
+      const peers=await Promise.all(
+        ['gmail','google-calendar','google-tasks'].map(id=>runtime.status(id,{owner}).catch(()=>null)),
+      );
+      if(peers.some(row=>row?.authorized===true)){
+        fail('SOV_BACKUP_GOOGLE_DRIVE_RECONSENT_REQUIRED',409);
+      }
+      return null;
+    }
     const token=await runtime.accessTokenResolver('google-drive',{owner});
-    if(!token)return null;
+    if(!token)fail('SOV_BACKUP_GOOGLE_DRIVE_RECONSENT_REQUIRED',409);
     return{owner,token,provider:'google-drive-oauth',token_source:status.token_source||'unknown'};
-  }catch{return null;}
+  }catch(error){
+    if(error?.code==='SOV_BACKUP_GOOGLE_DRIVE_RECONSENT_REQUIRED')throw error;
+    return null;
+  }
 }
 
 async function pipedreamDriveContext(env,{fetchImpl=fetch,accountId=null}={}){
@@ -762,14 +776,19 @@ async function runPipedreamBackupRestoreStage(env,{
   let state=await readBackupRestoreStage(env,source_sha);
 
   if(stage==='resolve'){
-    if(state?.resolved===true&&state?.source_sha===source_sha&&state?.provider){
+    const native=await resolveNativeDrive(env,{fetchImpl});
+    if(
+      state?.resolved===true&&state?.source_sha===source_sha&&state?.provider
+      && !(native&&state.provider!=='google-drive-oauth')
+    ){
+      if(state.provider==='google-drive-oauth'&&!native)fail('SOV_BACKUP_GOOGLE_DRIVE_RECONSENT_REQUIRED',409);
       return{ok:true,skipped:false,status:'BACKUP_RESTORE_STAGE_RESOLVED',stage,provider:state.provider,secret_values_exposed:false};
     }
-    const native=await resolveNativeDrive(env,{fetchImpl});
     const pd=native?null:await resolvePipedreamDrive(env,{fetchImpl});
     if(!native&&!pd)fail('SOV_BACKUP_GOOGLE_DRIVE_AUTH_REQUIRED',409);
+    const switchingToNative=Boolean(native&&state?.provider&&state.provider!=='google-drive-oauth');
     state={
-      ...(state?.source_sha===source_sha?state:{}),
+      ...(state?.source_sha===source_sha&&!switchingToNative?state:{}),
       schema:'mel.sov-backup-restore-stage/v3',
       source_sha,
       provider:native?'google-drive-oauth':'google-drive-via-pipedream',
@@ -926,7 +945,10 @@ async function runPipedreamBackupRestoreStage(env,{
     candidateStore,registryStore,env,now,limit:1,
     resolveCandidate:async candidate=>{
       if(candidate.layer!=='backup_restore'||candidate.id!==GOOGLE_DRIVE_BACKUP_RESTORE_CANDIDATE_ID)return{descriptor:null,adapter:null};
-      const d=descriptor({pipedream:state.provider==='google-drive-via-pipedream'});
+      const d=descriptor({
+        pipedream:state.provider==='google-drive-via-pipedream',
+        nativeOauth:state.provider==='google-drive-oauth',
+      });
       return{descriptor:d,adapter:Object.freeze({id:d.adapter_id,provider:d.provider}),env,prevalidated:true,proof};
     },
   });
@@ -945,14 +967,16 @@ async function runPipedreamBackupRestoreStage(env,{
   };
 }
 
-function descriptor({pipedream=false}={}){
+function descriptor({pipedream=false,nativeOauth=false}={}){
   return{
     id:GOOGLE_DRIVE_BACKUP_RESTORE_CANDIDATE_ID,
-    provider:pipedream?'google-drive-via-pipedream':'google-drive',
+    provider:pipedream?'google-drive-via-pipedream':nativeOauth?'google-drive-oauth':'google-drive',
     adapter_id:'google-drive-backup-restore-v1',
     added_cost_eur:0,
     required_config_refs:['MEL_BACKUP_ENCRYPTION_KEY_ID'],
-    required_secret_refs:pipedream?['MEL_BACKUP_ENCRYPTION_KEY_B64']:['GOOGLE_DRIVE_ACCESS_TOKEN','MEL_BACKUP_ENCRYPTION_KEY_B64'],
+    required_secret_refs:pipedream||nativeOauth
+      ? ['MEL_BACKUP_ENCRYPTION_KEY_B64']
+      : ['GOOGLE_DRIVE_ACCESS_TOKEN','MEL_BACKUP_ENCRYPTION_KEY_B64'],
     cost_provenance:{
       verified:true,
       addedCost:0,
@@ -996,6 +1020,7 @@ export async function runGoogleDriveBackupRestorePrevalidationRuntime(env={},{
   loadBackup=loadLatestEncryptedSystemBackup,
   loadBackupSource=loadLatestEncryptedSystemBackupSource,
   resolvePipedreamDrive=pipedreamDriveContext,
+  resolveNativeDrive=nativeGoogleDriveContext,
   stage='all',
 }={}){
   const candidates=candidateStore||(env?.DB?new SovereigntyCandidateStore(env.DB):null);
@@ -1012,7 +1037,7 @@ export async function runGoogleDriveBackupRestorePrevalidationRuntime(env={},{
   if(stage!=='all'){
     return runPipedreamBackupRestoreStage(env,{
       stage,sourceSha:sourceSha||env.MEL_DEPLOYED_GIT_SHA,now,fetchImpl,loadBackupSource,
-      resolvePipedreamDrive,candidateStore:scopedStore,registryStore:registry,
+      resolvePipedreamDrive,resolveNativeDrive,candidateStore:scopedStore,registryStore:registry,
     });
   }
 
