@@ -26,7 +26,8 @@ test('ShardVault provider adapters reflect current official API contracts', () =
   assert.match(autonomous,/application\/x-www-form-urlencoded/);
   assert.match(autonomous,/adapter:'fileditch_b64'/);
   assert.match(autonomous,/filename=\{objectId\}\.txt/);
-  assert.match(autonomous,/x-uuid':'1'/);
+  assert.match(autonomous,/adapter:'paste_c_net'/);
+  assert.match(autonomous,/method:'POST'/);
   assert.match(autonomous,/adapter:'pastegg_b64'/);
   assert.match(autonomous,/api\.paste\.gg\/v1\/pastes/);
   assert.match(autonomous,/PASTEGG_CONTENT_MISSING[\s\S]*content\?\.format[\s\S]*unb64u\(encoded\)[\s\S]*unb64\(encoded\)/);
