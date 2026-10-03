@@ -70,7 +70,7 @@ function driveFetchFixture(encryptedText){
   let postCount=0;
   const fetchImpl=async(url,init={})=>{
     const method=init.method||'GET';
-    calls.push({url:String(url),method});
+    calls.push({url:String(url),method,redirect:init.redirect||null});
     if(method==='POST'&&String(url).includes('/upload/drive/v3/files')){
       postCount+=1;
       return Response.json({
@@ -155,6 +155,7 @@ test('MEL-SOV-01 copies encrypted backup to Drive, verifies readback, restore an
   assert.equal(proof.ciphertext_sha256,proof.readback_sha256);
   assert.match(proof.ciphertext_sha256,/^[0-9a-f]{64}$/);
   assert.ok(drive.calls.some(row=>row.method==='DELETE'));
+  assert.ok(drive.calls.filter(row=>row.method==='GET').every(row=>row.redirect==='follow'));
 });
 
 function pipedreamDriveProxyFixture(encryptedText,{backupId='pd-drive-backup-1'}={}){
@@ -535,6 +536,14 @@ test('release sovereignty proof refreshes backup_restore before reading coverage
   assert.match(source,/new Set\(\['resolve','prepare','readback','rollback','finalize'\]\)/);
 });
 
+
+test('MEL-SOV-01 native Drive readback follows media redirects and emits bounded read failure codes',async()=>{
+  const source=await readFile(new URL('../../src/portability/google-drive-backup-restore-prevalidation-runtime.js',import.meta.url),'utf8');
+  assert.match(source,/redirect:'follow'/);
+  assert.match(source,/SOV_BACKUP_DRIVE_READ_TIMEOUT/);
+  assert.match(source,/SOV_BACKUP_DRIVE_READ_NETWORK_FAILED/);
+  assert.match(source,/SOV_BACKUP_DRIVE_READ_BODY_FAILED/);
+});
 
 test('MEL-SOV-01 Drive proxy forwards upstream headers with Pipedream proxy prefix and respects proxy timeout',async()=>{
   const source=await readFile(new URL('../../src/portability/google-drive-backup-restore-prevalidation-runtime.js',import.meta.url),'utf8');
