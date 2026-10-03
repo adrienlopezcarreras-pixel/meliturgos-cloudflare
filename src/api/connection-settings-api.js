@@ -646,7 +646,8 @@ export async function pipedreamAccountStatus(config, contextOwner, options = {})
   const fetcher = options.fetcher || fetch;
   const environment = config?.environment === 'development' ? 'development' : 'production';
   const projectId = clean(config?.project_id, 300);
-  const accessToken = await pipedreamAccessToken(config, { fetcher, signal: options.signal });
+  const accessToken = clean(options.accessToken, 10000)
+    || await pipedreamAccessToken(config, { fetcher, signal: options.signal });
   const params = new URLSearchParams({ external_user_id: contextOwner, limit: '100' });
   const body = await pipedreamJson(fetcher, 'https://api.pipedream.com/v1/connect/' + encodeURIComponent(projectId) + '/accounts?' + params.toString(), {
     method: 'GET',
