@@ -1,5 +1,6 @@
 import { buildShardVaultMemoryPayload } from './shardvault-memory-export.js';
 import { discoverAutonomousRepositories, invalidateRepresentativeProof } from './autonomous-repositories.js';
+import { D1GitHubActionRelayStore } from '../platform/github-action-relay.js';
 
 const te = new TextEncoder();
 const HOUR = 60 * 60 * 1000;
@@ -297,8 +298,72 @@ async function telegraphAccessToken(env,seed='melshardvault'){
   await writeTelegraphAccessToken(env,token);
   return token;
 }
+const GITHUB_CODE_MIRROR_ID='github-actions-code-mirror';
+const GITHUB_CODE_MIRROR_WORKFLOW='shardvault-github-code-mirror.yml';
+const GITHUB_CODE_MIRROR_BRANCH='shardvault-mirror';
+
+function configuredWritableWorkflows(env){
+  return String(env?.MEL_GITHUB_WRITABLE_WORKFLOWS||'').split(',').map(x=>x.trim()).filter(Boolean);
+}
+function githubCodeMirrorEndpoint(env,id,requiredBytes=0){
+  if(!id?.repository||!id?.sha||!env?.DB?.prepare||!env?.MEDIA_BUCKET?.put||!env?.MEDIA_BUCKET?.get)return null;
+  if(!configuredWritableWorkflows(env).includes(GITHUB_CODE_MIRROR_WORKFLOW))return null;
+  const maxBytes=8*1024*1024;
+  if(Math.max(0,Number(requiredBytes)||0)>maxBytes)return null;
+  const urlTemplate='https://raw.githubusercontent.com/'+id.repository+'/refs/heads/'+GITHUB_CODE_MIRROR_BRANCH+'/shardvault-code/'+id.sha+'/{objectId}.bin';
+  return normalizeEndpoint({
+    id:GITHUB_CODE_MIRROR_ID,adapter:'github_actions_code_mirror',urlTemplate,method:'PUT',maxBytes,
+    operatorDomain:'raw.githubusercontent.com',providerId:'github',jurisdiction:'UNKNOWN',
+    score:100,confidence:100,autonomous:true,authMode:'d1_actions_relay',
+    evidenceMode:'runtime_relay_roundtrip',evidenceVerification:'exact_code_fragment_roundtrip',
+    expectedRetentionDays:3650,retentionModel:'git_persistent',
+  },0);
+}
+function githubMirrorStagingKey(id,objectId){
+  return 'shardvault/github-code-mirror-staging/'+id.repository.replace('/','__')+'/'+id.sha+'/'+objectId+'.bin';
+}
+function githubMirrorPendingKey(id,objectId){
+  return 'shardvault/github-code-mirror-pending/'+id.repository.replace('/','__')+'/'+id.sha+'/'+objectId+'.json';
+}
+async function readJsonObject(bucket,key){
+  if(!bucket?.get)return null;
+  try{const body=await bucket.get(key);return body?JSON.parse(await body.text()):null;}catch{return null;}
+}
+async function githubCodeMirrorUpload(env,e,objectId,payload){
+  const id=deployedCodeIdentity(env);
+  if(!id)throw Object.assign(new Error('GITHUB_CODE_MIRROR_IDENTITY_UNAVAILABLE'),{code:'GITHUB_CODE_MIRROR_IDENTITY_UNAVAILABLE'});
+  const remoteUrl=publicUrl(e.urlTemplate.replaceAll('{objectId}',encodeURIComponent(objectId)),'WRITE_'+e.id+'_REMOTE').toString();
+  try{
+    const existing=await fetchTimed(remoteUrl,{method:'GET',headers:{'accept':'application/octet-stream','cache-control':'no-cache'}},15000);
+    if(existing.ok){const got=new Uint8Array(await existing.arrayBuffer());if(byteArraysEqual(got,payload))return {remoteUrl};}
+  }catch{}
+  const pendingKey=githubMirrorPendingKey(id,objectId);
+  const stagingKey=githubMirrorStagingKey(id,objectId);
+  let pending=await readJsonObject(env.MEDIA_BUCKET,pendingKey);
+  const relay=new D1GitHubActionRelayStore(env.DB);
+  if(pending?.relay_job_id){
+    const job=await relay.get(pending.relay_job_id).catch(()=>null);
+    if(job?.status==='FAILED'){await env.MEDIA_BUCKET.delete(pendingKey).catch(()=>{});pending=null;}
+    else{
+      throw Object.assign(new Error('GITHUB_CODE_MIRROR_PENDING'),{
+        code:'GITHUB_CODE_MIRROR_PENDING',relayJobId:String(pending.relay_job_id),
+        relayStatus:String(job?.status||'QUEUED'),remoteUrl,
+      });
+    }
+  }
+  const digest=await sha256Hex(payload);
+  await env.MEDIA_BUCKET.put(stagingKey,payload,{httpMetadata:{contentType:'application/octet-stream'},customMetadata:{git_sha:id.sha,object_id:objectId,sha256:digest,kind:'github-code-mirror-staging'}});
+  const mirrorPath='shardvault-code/'+id.sha+'/'+objectId+'.bin';
+  const job=await relay.enqueue({workflow:GITHUB_CODE_MIRROR_WORKFLOW,ref:'main',inputs:{
+    r2_key:stagingKey,mirror_path:mirrorPath,expected_sha256:digest,byte_length:String(payload.length),
+  }});
+  pending={relay_job_id:job.id,staging_key:stagingKey,mirror_path:mirrorPath,expected_sha256:digest,byte_length:payload.length,remote_url:remoteUrl,created_at:new Date().toISOString()};
+  await env.MEDIA_BUCKET.put(pendingKey,JSON.stringify(pending),{httpMetadata:{contentType:'application/json'}});
+  throw Object.assign(new Error('GITHUB_CODE_MIRROR_PENDING'),{code:'GITHUB_CODE_MIRROR_PENDING',relayJobId:job.id,relayStatus:job.status,remoteUrl});
+}
 async function upload(env,e,objectId,payload){
   if(payload.length>e.maxBytes)throw new Error(`ENDPOINT_${e.id}_MAX_BYTES`);
+  if(e.adapter==='github_actions_code_mirror')return githubCodeMirrorUpload(env,e,objectId,payload);
   if(e.backend==='r2'){
     if(!env?.MEDIA_BUCKET?.put)throw new Error('R2_BINDING_UNAVAILABLE');
     await env.MEDIA_BUCKET.put(String(e.keyPrefix||'shardvault/objects/')+objectId,payload,{httpMetadata:{contentType:'application/octet-stream'}});
@@ -535,6 +600,12 @@ async function download(env,e,objectId,descriptor=null){
     return payload;
   }
   const remote=descriptor?.remoteUrl;
+  if(e.adapter==='github_actions_code_mirror'){
+    if(!remote)throw new Error(`READ_${e.id}_REMOTE_URL_MISSING`);
+    const r=await fetchTimed(publicUrl(remote,`READ_${e.id}_REMOTE`),{method:'GET',headers:{'accept':'application/octet-stream','cache-control':'no-cache'}},20000);
+    if(!r.ok)throw new Error(`READ_${e.id}_${r.status}`);
+    return new Uint8Array(await r.arrayBuffer());
+  }
   if(e.adapter==='pastemyst_b64'){
     if(!remote)throw new Error(`READ_${e.id}_REMOTE_URL_MISSING`);
     const r=await fetchTimed(publicUrl(remote,`READ_${e.id}_REMOTE`),{method:'GET',headers:{'accept':'application/json'}},15000);
@@ -1249,6 +1320,12 @@ async function ensureExternalCodeArchive(env,c,codeBackup){
       return prioritizeExternalCodeCandidates(ranked,state);
     };
     let candidates=buildCandidates();
+    if(i===goal-1){
+      const githubMirror=githubCodeMirrorEndpoint(env,id,shard.length);
+      if(githubMirror&&!used.has(githubMirror.id)&&codeTargetAvailableNow(state,githubMirror)){
+        candidates=[githubMirror,...candidates.filter(endpoint=>endpoint.id!==githubMirror.id)];
+      }
+    }
     const retryCycleExhausted=candidates.length>0&&codeTargetDiscoveryRefreshNeeded(candidates,state);
     if(!candidates.length||retryCycleExhausted){
       if(!candidates.length)state.code_pool_exhaustions=(Number(state.code_pool_exhaustions)||0)+1;
@@ -1319,7 +1396,9 @@ async function ensureExternalCodeArchive(env,c,codeBackup){
     try{
       const shardKey=await hkdf(c.master,utf8(state.snapshotId),utf8('MEL-ShardVault/v1/code-shard-mac'));
       const descriptor=await withCodeReplicaDeadline(async()=>{
-        const objectId='code-'+id.sha.slice(0,12)+'-shard-'+String(i).padStart(2,'0')+'-'+rid(6);
+        const objectId=e.adapter==='github_actions_code_mirror'
+          ? 'code-'+id.sha.slice(0,12)+'-shard-'+String(i).padStart(2,'0')+'-github'
+          : 'code-'+id.sha.slice(0,12)+'-shard-'+String(i).padStart(2,'0')+'-'+rid(6);
         const locator=await uploadFragment(env,e,objectId,shard);
         const d={
           index:i,endpointId:e.id,endpoint:endpointSnapshot(e),
@@ -1341,6 +1420,19 @@ async function ensureExternalCodeArchive(env,c,codeBackup){
       };
       try{await rememberValidatedExternalEndpoints(env,[provenEndpoint]);}catch{}
     }catch(error){
+      if(error?.code==='GITHUB_CODE_MIRROR_PENDING'){
+        const retryAt=new Date(Date.now()+8000).toISOString();
+        state.github_code_mirror_pending={
+          endpoint_id:e.id,relay_job_id:error.relayJobId||null,relay_status:error.relayStatus||null,
+          remote_url:error.remoteUrl||null,retry_after_at:retryAt,
+        };
+        state.updatedAt=new Date().toISOString();
+        await writeCodeSyncState(env,id,state);
+        return {...codeBackup,external:codeSyncExternalView(state,goal,'RETRY_TARGETS',{
+          reason:'GITHUB_CODE_MIRROR_PENDING',relay_pending:true,relay_job_id:error.relayJobId||null,
+          relay_status:error.relayStatus||null,next_retry_at:retryAt,
+        })};
+      }
       const failureState=recordCodeTargetFailure(state,e,error,Date.now());
       if(failureState.permanent===true)await invalidateCodeTargetQualification(env,e.id).catch(()=>false);
       state.failures=[...(state.failures||[]),{
