@@ -24,3 +24,19 @@ test('canonical post-release suite runs the reusable live connection proof after
   assert.match(parent,/connections:\n[\s\S]*uses: \.\/\.github\/workflows\/live-connections-production-proof\.yml/);
   assert.match(parent,/expected_sha:\s*\$\{\{\s*needs\.resolve\.outputs\.expected_sha\s*\}\}/);
 });
+
+
+test('parallel proof can stage only an exact-SHA bounded MEL-FILE upload', async () => {
+  const security=await readFile(new URL('../../src/core/security.js',import.meta.url),'utf8');
+  const upload=await readFile(new URL('../../src/api/file-upload.js',import.meta.url),'utf8');
+  const parallel=security.split('const PARALLEL_PROOF_ALLOWLIST')[1]?.split('export function isReleaseSmokeRequest')[0]||'';
+  assert.match(parallel,/\/api\/files\/upload/);
+  assert.match(upload,/parallelProofUpload/);
+  assert.match(upload,/mel-file-\(normal\|full\)-proof\\\.txt/);
+  assert.match(upload,/bytes\.byteLength > 16_384/);
+  assert.match(upload,/MEL_FILE_\(NORMAL\|FULL\)_PROOF_/);
+  assert.match(upload,/proofMatch\[2\]\.toLowerCase\(\) !== deployedSha/);
+  assert.match(upload,/parallelProofUpload \? 300 : mediaTtlSeconds\(env\)/);
+  assert.match(upload,/MEL_FILE_PROOF_UPLOAD_REJECTED/);
+  assert.match(upload,/MEL_FILE_PROOF_PAYLOAD_INVALID/);
+});
