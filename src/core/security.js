@@ -107,6 +107,9 @@ const PARALLEL_PROOF_ALLOWLIST = Object.freeze(new Map([
   ])],
   ['GET', new Set([
     '/api/gen2/code/self-check',
+    // Read-only CapabilityBus inventory/health refresh for exact-SHA
+    // downstream diagnostics. It returns bounded capability metadata only.
+    '/api/gen2/capabilities',
     '/api/gen2/connections/google/status',
     '/api/gen2/connections/pipedream/accounts',
     '/api/gen2/autonomy/sovereignty',
