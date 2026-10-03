@@ -23,6 +23,8 @@ test('GitHub code mirror remains fail-closed until public byte-for-byte roundtri
   assert.match(runtime,/relay_pending:true/);
   assert.match(runtime,/downloadFragment\(env,e,d\)/);
   assert.match(runtime,/CODE_FRAGMENT_ROUNDTRIP_MISMATCH/);
+  const cacheBusts=[...runtime.matchAll(/searchParams\.set\('mel_verify'/g)];
+  assert.ok(cacheBusts.length>=2,'both pre-check and final mirror read must bypass stale raw GitHub cache');
 });
 
 test('GitHub mirror workflow is tightly bounded and proves the public raw object',()=>{
