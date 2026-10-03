@@ -46,6 +46,7 @@ jobs:
           }
           export default {
             async fetch(){
+              try {
               const username='mel-shardvault-'+crypto.randomUUID().replaceAll('-','').slice(0,12);
               const reg=await fetch('https://lmfiles.com/api/v1/accounts/register',{
                 method:'POST',
@@ -92,6 +93,9 @@ jobs:
                 cleanup.ok=del.ok;
               }
               return Response.json({registration,upload,read,cleanup,expected_bytes:payload.length},{headers:{'cache-control':'no-store'}});
+              } catch(error) {
+                return Response.json({probe_exception:String(error?.message||error).slice(0,240)},{status:200,headers:{'cache-control':'no-store'}});
+              }
             }
           };
           EOF
@@ -110,8 +114,9 @@ jobs:
           set -euo pipefail
           URL="https://${WORKER_NAME}.adrien-lopezcarreras.workers.dev/"
           CODE="$(curl --silent --show-error --max-time 180 --output lmfiles-cloudflare-probe.json --write-out '%{http_code}' "${URL}" || true)"
+          echo "probe_http=${CODE}"
+          test ! -s lmfiles-cloudflare-probe.json || cat lmfiles-cloudflare-probe.json
           test "${CODE}" = "200"
-          cat lmfiles-cloudflare-probe.json
           node - <<'NODE'
           const d=require('./lmfiles-cloudflare-probe.json');
           if(d?.registration?.ok!==true||d?.registration?.key_received!==true)process.exit(21);
