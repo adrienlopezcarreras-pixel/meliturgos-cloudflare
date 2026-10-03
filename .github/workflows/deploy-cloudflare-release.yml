@@ -560,7 +560,7 @@ jobs:
               '@cf/openai/whisper-large-v3-turbo',
             ],
             verified_at:new Date(now).toISOString(),
-            expires_at:new Date(now+30*60*1000).toISOString(),
+            expires_at:new Date(now+60*60*1000).toISOString(),
           };
           fs.writeFileSync('workers-ai-zero-cost-proof.json',JSON.stringify(proof));
           fs.writeFileSync('workers-ai-zero-cost-evidence.json',JSON.stringify({
