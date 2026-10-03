@@ -35,6 +35,9 @@ test('GitHub mirror workflow is tightly bounded and proves the public raw object
   assert.match(mirrorWorkflow,/sha256sum mirror-fragment\.bin/);
   assert.match(mirrorWorkflow,/\/contents\/\$\{MIRROR_PATH\}/);
   assert.match(mirrorWorkflow,/raw\.githubusercontent\.com/);
+  assert.match(mirrorWorkflow,/PUBLISHED_COMMIT_SHA/);
+  assert.match(mirrorWorkflow,/raw\.githubusercontent\.com\/\$\{GITHUB_REPOSITORY\}\/\$\{PUBLISHED_COMMIT_SHA\}/);
+  assert.match(mirrorWorkflow,/for ATTEMPT in \$\(seq 1 30\)/);
   assert.match(mirrorWorkflow,/SHARDVAULT_GITHUB_CODE_MIRROR_ROUNDTRIP_VERIFIED/);
 });
 
