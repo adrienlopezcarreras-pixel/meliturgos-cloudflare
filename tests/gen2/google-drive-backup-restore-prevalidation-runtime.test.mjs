@@ -403,4 +403,5 @@ test('release sovereignty proof refreshes backup_restore before reading coverage
   assert.match(source,/backup_restore:\s*\(runtimeEnv, options\)/);
   assert.match(source,/await runRefresh\(requestedRefresh, refresher\)/);
   assert.match(source,/sourceSha:\s*deployedSha/);
+  assert.match(source,/new Set\(\['resolve','prepare','readback','rollback','finalize'\]\)/);
 });
