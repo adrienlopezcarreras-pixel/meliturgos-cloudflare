@@ -206,7 +206,7 @@ async function pipedreamDriveActionUploadUrl({pd,name,fileUrl,mimeType='applicat
     config:pd.config,owner:pd.owner,accessToken:pd.access_token,
     actionId:'google_drive-upload-file',
     configuredProps:{
-      googleDrive:{authProvisionId:pd.account_id},
+      google_drive:{authProvisionId:pd.account_id},
       filePath:fileUrl,
       name,
       mimeType,
@@ -224,7 +224,7 @@ async function pipedreamDriveActionCreateText({pd,name,content,fetchImpl=fetch})
     config:pd.config,owner:pd.owner,accessToken:pd.access_token,
     actionId:'google_drive-create-file-from-text',
     configuredProps:{
-      googleDrive:{authProvisionId:pd.account_id},
+      google_drive:{authProvisionId:pd.account_id},
       name,content:String(content??''),mimeType:'text/plain',
     },
     fetchImpl,
@@ -239,7 +239,7 @@ async function pipedreamDriveActionDelete({pd,fileId,fetchImpl=fetch}){
     config:pd.config,owner:pd.owner,accessToken:pd.access_token,
     actionId:'google_drive-delete-file',
     configuredProps:{
-      googleDrive:{authProvisionId:pd.account_id},
+      google_drive:{authProvisionId:pd.account_id},
       fileId,
     },
     fetchImpl,

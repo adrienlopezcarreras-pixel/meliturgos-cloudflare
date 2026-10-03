@@ -172,7 +172,7 @@ function pipedreamDriveProxyFixture(encryptedText,{backupId='pd-drive-backup-1'}
       const payload=JSON.parse(String(init.body||'{}'));
       calls.push({target:'action:'+String(payload.id||''),method,body_kind:'action'});
       if(payload.id==='google_drive-upload-file'){
-        assert.deepEqual(payload.configured_props.googleDrive,{authProvisionId:'apn_drive'});
+        assert.deepEqual(payload.configured_props.google_drive,{authProvisionId:'apn_drive'});
         assert.match(String(payload.configured_props.filePath||''),/^https:\/\/mel\.example\/api\/internal\/sov-backup-download\?/);
         return Response.json({exports:{$return_value:{id:backupId,name:'backup.enc.json'}}});
       }
