@@ -48,12 +48,12 @@ test('sovereignty proof binds exact SHA through code self-check instead of requi
 test('decoupled sovereignty proof refreshes every bounded prevalidation domain before final status', async () => {
   const workflow=await readFile(new URL('../../.github/workflows/release-downstream-proof-decoupled.yml',import.meta.url),'utf8');
   assert.match(workflow,/for TARGET in ai ai_local source_control infrastructure/);
-  assert.match(workflow,/for STEP in prepare readback rollback finalize/);
+  assert.match(workflow,/for STEP in resolve prepare readback rollback finalize/);
   assert.match(workflow,/release-launch-bootstrap\?\$\{QUERY\}/);
   assert.match(workflow,/MEL_SOV_01_REFRESH_STEP_VERIFIED/);
   assert.match(workflow,/MEL_SOV_01_REFRESH_SAFETY_FAILED/);
   const refresh=workflow.indexOf('for TARGET in ai ai_local source_control infrastructure; do');
-  const backupStages=workflow.indexOf('for STEP in prepare readback rollback finalize; do');
+  const backupStages=workflow.indexOf('for STEP in resolve prepare readback rollback finalize; do');
   const status=workflow.indexOf('output sovereignty.json');
   const finalProof=workflow.indexOf('output mel-sov-01.json');
   assert.ok(refresh>0&&backupStages>refresh&&status>backupStages&&finalProof>status,'bounded sovereignty refreshes and all backup stages must run before status and final proof');

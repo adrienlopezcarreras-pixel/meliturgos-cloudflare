@@ -158,7 +158,7 @@ test('MEL-SOV-01 copies encrypted backup to Drive, verifies readback, restore an
 function pipedreamDriveProxyFixture(encryptedText,{backupId='pd-drive-backup-1'}={}){
   const calls=[];
   const deleted=new Set();
-  let uploads=0;
+  let creations=0;
   const decodeTarget=url=>{
     const match=String(url).match(/\/proxy\/([^?]+)/);
     if(!match)return'';
@@ -167,11 +167,16 @@ function pipedreamDriveProxyFixture(encryptedText,{backupId='pd-drive-backup-1'}
   const fetchImpl=async(url,init={})=>{
     const method=init.method||'GET';
     const target=decodeTarget(url);
-    calls.push({target,method,body:String(init.body||'')});
-    if(method==='POST'&&target.includes('/upload/drive/v3/files')){
-      uploads+=1;
-      const id=uploads===1?backupId:'pd-drive-rollback-'+uploads;
-      return Response.json({id,name:uploads===1?'backup.enc.json':'rollback.json'});
+    calls.push({target,method,body_kind:init.body?.constructor?.name||typeof init.body});
+    if(method==='POST'&&target.includes('/drive/v3/files?fields=')){
+      creations+=1;
+      const id=creations===1?backupId:'pd-drive-rollback-'+creations;
+      return Response.json({id,name:creations===1?'backup.enc.json':'rollback.json'});
+    }
+    if(method==='PATCH'&&target.includes('/upload/drive/v3/files/')){
+      const match=target.match(/\/files\/([^?]+)/);
+      const id=match?.[1]||'';
+      return Response.json({id,name:id===backupId?'backup.enc.json':'rollback.json'});
     }
     if(method==='GET'&&target.includes('/files/'+backupId+'?alt=media')){
       return new Response(encryptedText,{status:200,headers:{'content-type':'application/json'}});
@@ -191,16 +196,24 @@ function pipedreamDriveProxyFixture(encryptedText,{backupId='pd-drive-backup-1'}
   return{fetchImpl,calls};
 }
 
-function stagedBucket(){
-  const objects=new Map();
+function stagedBucket(initial={}){
+  const objects=new Map(Object.entries(initial));
+  const objectFor=value=>{
+    const bytes=value instanceof Uint8Array?value:new TextEncoder().encode(String(value));
+    return{
+      size:bytes.byteLength,
+      body:new Blob([bytes]).stream(),
+      async arrayBuffer(){return bytes.slice().buffer;},
+      async text(){return new TextDecoder().decode(bytes);},
+    };
+  };
   return{
     objects,
-    async get(key){
-      if(!objects.has(key))return null;
-      const value=objects.get(key);
-      return{text:async()=>value};
+    async get(key){return objects.has(key)?objectFor(objects.get(key)):null;},
+    async put(key,value){
+      if(value instanceof Uint8Array)objects.set(key,value.slice());
+      else objects.set(key,String(value));
     },
-    async put(key,value){objects.set(key,String(value));},
   };
 }
 
@@ -234,9 +247,10 @@ test('MEL-SOV-01 can prove encrypted backup/restore through the existing Pipedre
   assert.equal(proof.rollback_verified,true);
   assert.equal(proof.ciphertext_sha256,proof.readback_sha256);
   assert.match(proof.evidence_ref,/pipedream-proxy-file/);
-  assert.deepEqual(proxy.calls.map(row=>row.method),['POST','GET','POST','DELETE','GET']);
-  assert.ok(proxy.calls[0].target.includes('upload/drive/v3/files'));
-  assert.ok(proxy.calls[1].target.includes('/drive/v3/files/pd-drive-backup-1?alt=media'));
+  assert.deepEqual(proxy.calls.map(row=>row.method),['POST','PATCH','GET','POST','PATCH','DELETE','GET']);
+  assert.ok(proxy.calls[0].target.includes('/drive/v3/files?fields='));
+  assert.ok(proxy.calls[1].target.includes('/upload/drive/v3/files/pd-drive-backup-1?uploadType=media'));
+  assert.ok(proxy.calls[2].target.includes('/drive/v3/files/pd-drive-backup-1?alt=media'));
   assert.doesNotMatch(JSON.stringify(proxy.calls),/server-token/);
 });
 
@@ -274,13 +288,14 @@ test('MEL-SOV-01 runtime uses Pipedream Drive raw proxy when direct token is abs
   assert.equal(row.provider,'google-drive-via-pipedream');
 });
 
-test('MEL-SOV-01 staged Pipedream proof persists only bounded non-secret state across four Worker requests',async()=>{
+test('MEL-SOV-01 staged Pipedream proof persists only bounded non-secret state across five Worker requests',async()=>{
   const snapshot=await snapshotFixture();
   const env=envFixture();
   delete env.GOOGLE_DRIVE_ACCESS_TOKEN;
-  env.MEDIA_BUCKET=stagedBucket();
   const codec=createBackupEncryptionCodec({keyBytes:env.keyBytes,keyId:env.MEL_BACKUP_ENCRYPTION_KEY_ID});
   const encryptedText=JSON.stringify(await codec.seal(snapshot));
+  const sourceKey='backups/system/test.enc.json';
+  env.MEDIA_BUCKET=stagedBucket({[sourceKey]:encryptedText});
   const s=stores();
   const proxy=pipedreamDriveProxyFixture(encryptedText,{backupId:'pd-drive-staged-1'});
   const context=async()=>({
@@ -295,15 +310,17 @@ test('MEL-SOV-01 staged Pipedream proof persists only bounded non-secret state a
     fetchImpl:proxy.fetchImpl,
     candidateStore:s.candidateStore,
     registryStore:s.registryStore,
-    loadBackup:async()=>({snapshot_id:snapshot.id,object_key:'backups/system/test.enc.json',encrypted_text:encryptedText}),
+    loadBackupSource:async()=>({snapshot_id:snapshot.id,object_key:sourceKey,byte_length:new TextEncoder().encode(encryptedText).byteLength,body:new Blob([encryptedText]).stream()}),
     resolvePipedreamDrive:context,
   };
 
+  const resolve=await runGoogleDriveBackupRestorePrevalidationRuntime(env,{...common,stage:'resolve',now:Date.parse('2026-10-01T20:49:50.000Z')});
   const prepare=await runGoogleDriveBackupRestorePrevalidationRuntime(env,{...common,stage:'prepare',now:Date.parse('2026-10-01T20:50:00.000Z')});
   const readback=await runGoogleDriveBackupRestorePrevalidationRuntime(env,{...common,stage:'readback',now:Date.parse('2026-10-01T20:50:10.000Z')});
   const rollback=await runGoogleDriveBackupRestorePrevalidationRuntime(env,{...common,stage:'rollback',now:Date.parse('2026-10-01T20:50:20.000Z')});
   const finalize=await runGoogleDriveBackupRestorePrevalidationRuntime(env,{...common,stage:'finalize',now:Date.parse('2026-10-01T20:50:30.000Z')});
 
+  assert.equal(resolve.status,'BACKUP_RESTORE_STAGE_RESOLVED');
   assert.equal(prepare.status,'BACKUP_RESTORE_STAGE_PREPARED');
   assert.equal(readback.status,'BACKUP_RESTORE_STAGE_READBACK_VERIFIED');
   assert.equal(rollback.status,'BACKUP_RESTORE_STAGE_ROLLBACK_VERIFIED');
@@ -311,7 +328,7 @@ test('MEL-SOV-01 staged Pipedream proof persists only bounded non-secret state a
   assert.equal(finalize.proof.readback_verified,true);
   assert.equal(finalize.proof.restore_verified,true);
   assert.equal(finalize.proof.rollback_verified,true);
-  const state=[...env.MEDIA_BUCKET.objects.values()].join('\n');
+  const state=[...env.MEDIA_BUCKET.objects.entries()].filter(([key])=>key.startsWith('sovereignty/')).map(([,value])=>String(value)).join('\n');
   assert.doesNotMatch(state,/server-token/);
   assert.doesNotMatch(state,/client_secret/i);
   assert.doesNotMatch(state,/access_token/i);
@@ -386,4 +403,5 @@ test('release sovereignty proof refreshes backup_restore before reading coverage
   assert.match(source,/backup_restore:\s*\(runtimeEnv, options\)/);
   assert.match(source,/await runRefresh\(requestedRefresh, refresher\)/);
   assert.match(source,/sourceSha:\s*deployedSha/);
+  assert.match(source,/new Set\(\['resolve','prepare','readback','rollback','finalize'\]\)/);
 });
