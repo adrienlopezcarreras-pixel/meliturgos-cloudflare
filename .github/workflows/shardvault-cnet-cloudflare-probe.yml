@@ -86,10 +86,11 @@ jobs:
               for(let i=0;i<payload.length;i++)payload[i]=i%251;
               const expected=await sha256(payload);
               const variants=[
-                {name:'post-octet',method:'POST',headers:{'content-type':'application/octet-stream','accept':'text/plain, */*','user-agent':'MEL-ShardVault/1.0'}},
-                {name:'post-curl',method:'POST',headers:{'content-type':'application/octet-stream','accept':'*/*','user-agent':'curl/8.0'}},
-                {name:'put-curl',method:'PUT',headers:{'content-type':'application/octet-stream','accept':'*/*','user-agent':'curl/8.0'}},
-                {name:'put-json',method:'PUT',headers:{'content-type':'application/octet-stream','accept':'application/json, */*','user-agent':'curl/8.0'}},
+                {name:'post-form',method:'POST',headers:{'content-type':'application/x-www-form-urlencoded','accept':'text/plain, */*'}},
+                {name:'post-form-mel',method:'POST',headers:{'content-type':'application/x-www-form-urlencoded','accept':'text/plain, */*','user-agent':'MEL-ShardVault/1.0'}},
+                {name:'post-no-content-type',method:'POST',headers:{'accept':'text/plain, */*'}},
+                {name:'put-plain',method:'PUT',headers:{'accept':'text/plain, */*'}},
+                {name:'put-mel',method:'PUT',headers:{'accept':'text/plain, */*','user-agent':'MEL-ShardVault/1.0'}},
               ];
               const results=[];
               for(const variant of variants)results.push(await uploadVariant(payload,variant));
