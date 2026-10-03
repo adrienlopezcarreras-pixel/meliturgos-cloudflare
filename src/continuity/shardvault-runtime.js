@@ -354,10 +354,18 @@ async function upload(env,e,objectId,payload){
     return {remoteUrl:responseRemoteUrl(await r.text(),r.headers,endpoint)};
   }
   if(e.adapter==='dpaste_b64'){
-    const endpoint=fixedApiUrl(u),form=new FormData();
-    form.append('content',b64u(payload));
-    form.append('expiry_days','365');
-    const r=await fetchTimed(endpoint,{method:'POST',headers:{'user-agent':'MEL-ShardVault/1.0','accept':'text/plain'},body:form},15000);
+    const endpoint=fixedApiUrl(u);
+    const body=new URLSearchParams({
+      content:b64u(payload),
+      title:objectId,
+      syntax:'text',
+      expiry_days:'365',
+    });
+    const r=await fetchTimed(endpoint,{method:'POST',headers:{
+      'content-type':'application/x-www-form-urlencoded',
+      'user-agent':'MEL-ShardVault/1.0',
+      'accept':'text/plain',
+    },body:body.toString()},15000);
     if(!r.ok)throw new Error(`WRITE_${e.id}_${r.status}`);
     const page=responseRemoteUrl(await r.text(),r.headers,endpoint);
     return {remoteUrl:page.endsWith('.txt')?page:page.replace(/\/$/,'')+'.txt'};
@@ -474,7 +482,11 @@ async function upload(env,e,objectId,payload){
   }
   if(e.adapter==='paste_c_net'){
     const endpoint=fixedApiUrl(u);
-    const r=await fetchTimed(endpoint,{method:'PUT',headers:{'content-type':'application/octet-stream','accept':'application/json, */*','x-uuid':'1','user-agent':'curl/8.0 MEL-ShardVault/1.0'},body:payload},15000);
+    const r=await fetchTimed(endpoint,{method:'POST',headers:{
+      'content-type':'application/octet-stream',
+      'accept':'text/plain, */*',
+      'user-agent':'MEL-ShardVault/1.0',
+    },body:payload},15000);
     if(!r.ok)throw new Error(`WRITE_${e.id}_${r.status}`);
     return {remoteUrl:responseRemoteUrl(await r.text(),r.headers,endpoint)};
   }
