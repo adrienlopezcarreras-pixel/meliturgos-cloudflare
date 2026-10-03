@@ -93,5 +93,8 @@ test('parallel proof auth is narrower than the normal release-smoke token', asyn
   assert.match(block,/api\/gen2\/code\/self-check/);
   assert.match(block,/api\/gen2\/autonomy\/sovereignty/);
   assert.doesNotMatch(block,/api\/chat/);
-  assert.doesNotMatch(block,/api\/files\/upload/);
+  assert.match(block,/api\/files\/upload/);
+  const upload=await readFile(new URL('../../src/api/file-upload.js',import.meta.url),'utf8');
+  assert.match(upload,/MEL_FILE_PROOF_UPLOAD_REJECTED/);
+  assert.match(upload,/MEL_FILE_PROOF_PAYLOAD_INVALID/);
 });
