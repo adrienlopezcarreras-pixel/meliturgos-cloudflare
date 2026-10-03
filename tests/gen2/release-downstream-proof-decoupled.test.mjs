@@ -23,7 +23,7 @@ test('decoupled MEL-FILE proof serializes browser pressure and retries only tran
   const workflow=await readFile(new URL('../../.github/workflows/release-downstream-proof-decoupled.yml',import.meta.url),'utf8');
   assert.match(workflow,/file:\n\s+needs: browser/);
   assert.match(workflow,/for ATTEMPT in \$\(seq 1 8\)/);
-  assert.match(workflow,/409\|429\|500\|502\|503\|504/);
+  assert.match(workflow,/408\|409\|429\|500\|502\|503\|504/);
   assert.match(workflow,/Non-retryable MEL-FILE browser proof status/);
 });
 
