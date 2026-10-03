@@ -134,6 +134,7 @@ jobs:
           GOOGLE_GMAIL_OK=0
           GOOGLE_CALENDAR_OK=0
           GOOGLE_TASKS_OK=0
+          GOOGLE_DRIVE_OK=0
           MICROSOFT_MAIL_OK=0
           MICROSOFT_ONEDRIVE_OK=0
           MICROSOFT_SHAREPOINT_OK=0
@@ -202,6 +203,14 @@ jobs:
           fi
           if [ "${GOOGLE_TASKS_OK}" != "1" ]; then FAILURES=$((FAILURES+1)); fi
 
+          # Native Drive is a hard dependency of MEL-SOV-01 backup/restore.
+          # Prove the actual Google Drive API target instead of inferring health
+          # from OAuth scopes alone.
+          if probe google_drive /api/gen2/connections/google/test '{"connector_id":"google-drive"}'; then
+            GOOGLE_DRIVE_OK=1
+          fi
+          if [ "${GOOGLE_DRIVE_OK}" != "1" ]; then FAILURES=$((FAILURES+1)); fi
+
           if probe microsoft_mail /api/gen2/connections/microsoft/test '{"connector_id":"microsoft-mail"}'; then
             MICROSOFT_MAIL_OK=1
           elif [ "${PIPEDREAM_OK}" = "1" ] && has_pd_app microsoft_outlook; then
@@ -242,7 +251,7 @@ jobs:
             FAILURES=$((FAILURES+1))
           fi
 
-          GOOGLE_GMAIL_OK="${GOOGLE_GMAIL_OK}" GOOGLE_CALENDAR_OK="${GOOGLE_CALENDAR_OK}" GOOGLE_TASKS_OK="${GOOGLE_TASKS_OK}" MICROSOFT_MAIL_OK="${MICROSOFT_MAIL_OK}" MICROSOFT_ONEDRIVE_OK="${MICROSOFT_ONEDRIVE_OK}" MICROSOFT_SHAREPOINT_OK="${MICROSOFT_SHAREPOINT_OK}" YAHOO_OK="${YAHOO_OK}" VERCEL_OK="${VERCEL_OK}" FAILURES="${FAILURES}" node - <<'NODE'
+          GOOGLE_GMAIL_OK="${GOOGLE_GMAIL_OK}" GOOGLE_CALENDAR_OK="${GOOGLE_CALENDAR_OK}" GOOGLE_TASKS_OK="${GOOGLE_TASKS_OK}" GOOGLE_DRIVE_OK="${GOOGLE_DRIVE_OK}" MICROSOFT_MAIL_OK="${MICROSOFT_MAIL_OK}" MICROSOFT_ONEDRIVE_OK="${MICROSOFT_ONEDRIVE_OK}" MICROSOFT_SHAREPOINT_OK="${MICROSOFT_SHAREPOINT_OK}" YAHOO_OK="${YAHOO_OK}" VERCEL_OK="${VERCEL_OK}" FAILURES="${FAILURES}" node - <<'NODE'
           const fs=require('fs');
           const proof={
             schema:'mel.live-connections-production-proof/v1',
@@ -252,7 +261,8 @@ jobs:
             google:{
               gmail:process.env.GOOGLE_GMAIL_OK==='1',
               calendar:process.env.GOOGLE_CALENDAR_OK==='1',
-              tasks:process.env.GOOGLE_TASKS_OK==='1'
+              tasks:process.env.GOOGLE_TASKS_OK==='1',
+              drive:process.env.GOOGLE_DRIVE_OK==='1'
             },
             microsoft:{
               outlook:process.env.MICROSOFT_MAIL_OK==='1',

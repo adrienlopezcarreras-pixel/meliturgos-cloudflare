@@ -378,6 +378,54 @@ test('MEL-SOV-01 resolve replaces stale Pipedream stage state with native Google
   assert.equal(JSON.stringify(persisted).includes('native-drive-token'),false);
 });
 
+test('MEL-SOV-01 classifies disabled Google Drive API without leaking provider messages',async()=>{
+  const env=envFixture();
+  delete env.GOOGLE_DRIVE_ACCESS_TOKEN;
+  env.MEDIA_BUCKET=stagedBucket();
+  const storesFixture=stores();
+  const key='sovereignty/backup-restore-prevalidation/'+env.MEL_DEPLOYED_GIT_SHA+'.json';
+  await env.MEDIA_BUCKET.put(key,JSON.stringify({
+    schema:'mel.sov-backup-restore-stage/v4',
+    source_sha:env.MEL_DEPLOYED_GIT_SHA,
+    provider:'google-drive-oauth',
+    resolved:true,
+    secret_values_exposed:false,
+  }));
+
+  await assert.rejects(
+    runGoogleDriveBackupRestorePrevalidationRuntime(env,{
+      force:true,
+      sourceSha:env.MEL_DEPLOYED_GIT_SHA,
+      stage:'prepare',
+      candidateStore:storesFixture.candidateStore,
+      registryStore:storesFixture.registryStore,
+      resolveNativeDrive:async()=>({
+        owner:'adrien',
+        token:'native-drive-token',
+        provider:'google-drive-oauth',
+        token_source:'shared_google_grant',
+      }),
+      loadBackupSource:async()=>({
+        snapshot_id:'snapshot-api-disabled',
+        object_key:'backups/system/snapshot-api-disabled.enc.json',
+        byte_length:32,
+        body:new Blob(['encrypted']).stream(),
+      }),
+      fetchImpl:async()=>Response.json({
+        error:{
+          code:403,
+          status:'PERMISSION_DENIED',
+          errors:[{reason:'accessNotConfigured'}],
+          details:[{reason:'SERVICE_DISABLED'}],
+          message:'sensitive provider message must not escape',
+        },
+      },{status:403}),
+    }),
+    error=>error?.code==='SOV_BACKUP_GOOGLE_DRIVE_API_DISABLED'
+      && !String(error?.code||'').includes('sensitive provider message'),
+  );
+});
+
 test('MEL-SOV-01 finalize accepts a completed native OAuth proof without legacy GOOGLE_DRIVE_ACCESS_TOKEN',async()=>{
   const env=envFixture();
   delete env.GOOGLE_DRIVE_ACCESS_TOKEN;

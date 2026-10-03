@@ -460,6 +460,29 @@ async function provePipedreamDriveBackupRestoreAlternative({
   });
 }
 
+function driveFailureCode(prefix,response,payload={}){
+  const reasons=new Set();
+  const error=payload?.error||{};
+  if(error?.status)reasons.add(clean(error.status,120));
+  for(const row of Array.isArray(error?.errors)?error.errors:[]){
+    if(row?.reason)reasons.add(clean(row.reason,120));
+  }
+  for(const row of Array.isArray(error?.details)?error.details:[]){
+    if(row?.reason)reasons.add(clean(row.reason,120));
+  }
+  const normalized=[...reasons].map(value=>String(value).toUpperCase());
+  if(response?.status===403&&normalized.some(value=>value==='SERVICE_DISABLED'||value==='ACCESSNOTCONFIGURED')){
+    return'SOV_BACKUP_GOOGLE_DRIVE_API_DISABLED';
+  }
+  if(response?.status===403&&normalized.some(value=>value.includes('INSUFFICIENT')||value==='PERMISSION_DENIED')){
+    return'SOV_BACKUP_GOOGLE_DRIVE_PERMISSION_DENIED';
+  }
+  if(response?.status===403&&normalized.some(value=>value.includes('QUOTA'))){
+    return'SOV_BACKUP_GOOGLE_DRIVE_QUOTA_EXCEEDED';
+  }
+  return prefix+':'+String(response?.status||0);
+}
+
 async function driveCreateMetadata({token,name,folderId=null,fetchImpl=fetch}){
   const metadata={name,mimeType:'application/json',appProperties:{mel_role:'sovereignty-backup-restore'}};
   if(folderId)metadata.parents=[folderId];
@@ -471,7 +494,7 @@ async function driveCreateMetadata({token,name,folderId=null,fetchImpl=fetch}){
     signal:AbortSignal.timeout(20000),
   });
   const payload=await response.json().catch(()=>({}));
-  if(!response.ok||!payload?.id)fail(`SOV_BACKUP_DRIVE_CREATE_FAILED:${response.status}`,502);
+  if(!response.ok||!payload?.id)fail(driveFailureCode('SOV_BACKUP_DRIVE_CREATE_FAILED',response,payload),502);
   return{id:clean(payload.id,300),name:clean(payload.name,300)||name};
 }
 
@@ -496,7 +519,7 @@ async function driveWriteMedia({token,fileId,body,byteLength=0,fetchImpl=fetch})
       },
     );
     const payload=await response.json().catch(()=>({}));
-    if(!response.ok||!payload?.id)fail(`SOV_BACKUP_DRIVE_MEDIA_UPLOAD_FAILED:${response.status}`,502);
+    if(!response.ok||!payload?.id)fail(driveFailureCode('SOV_BACKUP_DRIVE_MEDIA_UPLOAD_FAILED',response,payload),502);
     if(pump)await pump;
     return{id:clean(payload.id,300),name:clean(payload.name,300)||null};
   }catch(error){
@@ -534,7 +557,7 @@ async function driveUpload({token,name,content,folderId=null,fetchImpl=fetch}){
     signal:AbortSignal.timeout(20000),
   });
   const payload=await response.json().catch(()=>({}));
-  if(!response.ok||!payload?.id)fail(`SOV_BACKUP_DRIVE_UPLOAD_FAILED:${response.status}`,502);
+  if(!response.ok||!payload?.id)fail(driveFailureCode('SOV_BACKUP_DRIVE_UPLOAD_FAILED',response,payload),502);
   return{id:clean(payload.id,300),name:clean(payload.name,300)||name,created_time:clean(payload.createdTime,100)||null};
 }
 
