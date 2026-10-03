@@ -78,10 +78,31 @@ jobs:
           git fetch origin main
           SOURCE_SHA="$(git rev-parse FETCH_HEAD)"
           if [ "$SOURCE_SHA" != "$EXPECTED_SHA" ]; then
-            git merge-base --is-ancestor "$EXPECTED_SHA" "$SOURCE_SHA"
-            MAIN_ADVANCE_COUNT="$(git rev-list --count "$EXPECTED_SHA..$SOURCE_SHA")"
+            CANONICAL_MAIN_SHA=""
+            if git merge-base --is-ancestor "$EXPECTED_SHA" "$SOURCE_SHA"; then
+              CANONICAL_MAIN_SHA="$EXPECTED_SHA"
+            else
+              read -r COMMIT_SHA PARENT_ONE PARENT_TWO EXTRA_PARENT <<<"$(git rev-list --parents -n 1 "$EXPECTED_SHA")"
+              test "$COMMIT_SHA" = "$EXPECTED_SHA"
+              test -n "${PARENT_ONE:-}"
+              test -n "${PARENT_TWO:-}"
+              test -z "${EXTRA_PARENT:-}"
+              RELEASE_TREE="$(git rev-parse "$EXPECTED_SHA^{tree}")"
+              for PARENT_SHA in "$PARENT_ONE" "$PARENT_TWO"; do
+                if git merge-base --is-ancestor "$PARENT_SHA" "$SOURCE_SHA"; then
+                  PARENT_TREE="$(git rev-parse "$PARENT_SHA^{tree}")"
+                  if [ "$RELEASE_TREE" = "$PARENT_TREE" ]; then
+                    test -z "$CANONICAL_MAIN_SHA"
+                    CANONICAL_MAIN_SHA="$PARENT_SHA"
+                  fi
+                fi
+              done
+              test -n "$CANONICAL_MAIN_SHA"
+              echo "Release merge SHA matches canonical main parent tree exactly: ${CANONICAL_MAIN_SHA}"
+            fi
+            MAIN_ADVANCE_COUNT="$(git rev-list --count "$CANONICAL_MAIN_SHA..$SOURCE_SHA")"
             test "$MAIN_ADVANCE_COUNT" -le 25
-            echo "main advanced by ${MAIN_ADVANCE_COUNT} commit(s) after release trigger; exact release SHA remains in canonical main history."
+            echo "main advanced by ${MAIN_ADVANCE_COUNT} commit(s) after canonical release content; exact release content remains in main history."
           fi
           echo "Exact release identity verified against canonical main history: $EXPECTED_SHA"
 
