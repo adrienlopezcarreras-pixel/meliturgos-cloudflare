@@ -443,7 +443,11 @@ async function routeResolvedRequest(request, env, ctx) {
         const response = await handleConversationApi(request, env, url, ctx);
         if (response) return response;
       } catch (e) {
-        return json({ error: e.message, code: e.code || "INTERNAL_ERROR" }, e.status || 500);
+        return json({
+          error: e.message,
+          code: e.code || "INTERNAL_ERROR",
+          ...(e?.step_id ? { failed_step_id: String(e.step_id).slice(0, 200) } : {}),
+        }, e.status || 500);
       }
     }
 

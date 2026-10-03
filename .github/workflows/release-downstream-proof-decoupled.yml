@@ -353,14 +353,14 @@ jobs:
               408|409|429|500|502|503|504)
                 echo "Transient MEL-FILE browser proof status ${CODE}; retry ${ATTEMPT}/8."
                 if [ -s file-proof.json ]; then
-                  node -e 'const fs=require("fs");let d={};try{d=JSON.parse(fs.readFileSync("file-proof.json","utf8"))}catch{};console.log(JSON.stringify({ok:d?.ok===true,error:d?.error||d?.code||d?.status||"UNKNOWN"}))'
+                  node -e 'const fs=require("fs");let d={};try{d=JSON.parse(fs.readFileSync("file-proof.json","utf8"))}catch{};console.log(JSON.stringify({ok:d?.ok===true,error:d?.error||d?.code||d?.status||"UNKNOWN",failed_step_id:d?.failed_step_id||null}))'
                 fi
                 sleep $((ATTEMPT * 2))
                 ;;
               *)
                 echo "Non-retryable MEL-FILE browser proof status ${CODE}."
                 if [ -s file-proof.json ]; then
-                  node -e 'const fs=require("fs");let d={};try{d=JSON.parse(fs.readFileSync("file-proof.json","utf8"))}catch{};console.log(JSON.stringify({ok:d?.ok===true,error:d?.error||d?.code||d?.status||"UNKNOWN"}))'
+                  node -e 'const fs=require("fs");let d={};try{d=JSON.parse(fs.readFileSync("file-proof.json","utf8"))}catch{};console.log(JSON.stringify({ok:d?.ok===true,error:d?.error||d?.code||d?.status||"UNKNOWN",failed_step_id:d?.failed_step_id||null}))'
                 fi
                 exit 31
                 ;;
