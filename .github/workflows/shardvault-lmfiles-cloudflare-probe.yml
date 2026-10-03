@@ -1,0 +1,136 @@
+name: shardvault-lmfiles-cloudflare-probe
+
+on:
+  push:
+    branches:
+      - 'probe/cnet-cloudflare-roundtrip'
+    paths:
+      - '.github/workflows/shardvault-lmfiles-cloudflare-probe.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install exact lockfile
+        run: npm ci
+      - name: Deploy ephemeral lmfiles Cloudflare probe
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .tmp/lmfiles-probe
+          WORKER_NAME="mel-lmf-probe-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          echo "WORKER_NAME=${WORKER_NAME}" >> "$GITHUB_ENV"
+          cat > .tmp/lmfiles-probe/worker.mjs <<'EOF'
+          function hex(buffer){
+            return [...new Uint8Array(buffer)].map(b=>b.toString(16).padStart(2,'0')).join('');
+          }
+          async function sha256(bytes){
+            return hex(await crypto.subtle.digest('SHA-256',bytes));
+          }
+          async function asJson(r){
+            const text=await r.text();
+            try{return {json:JSON.parse(text),text};}catch{return {json:null,text};}
+          }
+          export default {
+            async fetch(){
+              const username='mel-shardvault-'+crypto.randomUUID().replaceAll('-','').slice(0,12);
+              const reg=await fetch('https://lmfiles.com/api/v1/accounts/register',{
+                method:'POST',
+                headers:{'content-type':'application/json','accept':'application/json','user-agent':'MEL-ShardVault/1.0'},
+                body:JSON.stringify({username}),
+              });
+              const regBody=await asJson(reg);
+              const apiKey=String(regBody.json?.api_key||'').trim();
+              const registration={status:reg.status,ok:reg.ok,key_received:apiKey.length>10,account_received:Boolean(regBody.json?.account_id),error:regBody.json?.error||regBody.json?.detail||null};
+              if(!reg.ok||!apiKey){
+                return Response.json({registration},{status:200,headers:{'cache-control':'no-store'}});
+              }
+
+              const payload=new Uint8Array(253011);
+              for(let i=0;i<payload.length;i++)payload[i]=i%251;
+              const expected=await sha256(payload);
+              const form=new FormData();
+              form.append('file',new Blob([payload],{type:'application/octet-stream'}),'mel-shardvault-probe.dat');
+              const up=await fetch('https://lmfiles.com/api/v1/files/upload',{
+                method:'POST',
+                headers:{'x-api-key':apiKey,'accept':'application/json','user-agent':'MEL-ShardVault/1.0'},
+                body:form,
+              });
+              const upBody=await asJson(up);
+              const fileId=String(upBody.json?.file_id||upBody.json?.id||'').trim();
+              const publicUrl=String(upBody.json?.url||upBody.json?.download_url||(fileId?'https://lmfiles.com/f/'+fileId:'')).trim();
+              const upload={status:up.status,ok:up.ok,file_id_received:Boolean(fileId),url_received:Boolean(publicUrl),error:upBody.json?.error||upBody.json?.detail||null};
+
+              let read={status:0,ok:false,bytes:0,sha_match:false};
+              if(publicUrl){
+                const rr=await fetch(publicUrl,{method:'GET',headers:{'accept':'*/*','user-agent':'MEL-ShardVault/1.0'},redirect:'follow'});
+                const bytes=new Uint8Array(await rr.arrayBuffer());
+                read={status:rr.status,ok:rr.ok,bytes:bytes.length,sha_match:rr.ok&&(await sha256(bytes))===expected,content_type:rr.headers.get('content-type')||null};
+              }
+
+              let cleanup={attempted:false,status:null,ok:null};
+              if(fileId){
+                cleanup.attempted=true;
+                const del=await fetch('https://lmfiles.com/api/v1/files/'+encodeURIComponent(fileId),{
+                  method:'DELETE',
+                  headers:{'x-api-key':apiKey,'accept':'application/json','user-agent':'MEL-ShardVault/1.0'},
+                });
+                cleanup.status=del.status;
+                cleanup.ok=del.ok;
+              }
+              return Response.json({registration,upload,read,cleanup,expected_bytes:payload.length},{headers:{'cache-control':'no-store'}});
+            }
+          };
+          EOF
+          cat > .tmp/lmfiles-probe/wrangler.jsonc <<EOF
+          {
+            "name": "${WORKER_NAME}",
+            "main": "worker.mjs",
+            "compatibility_date": "2026-10-03",
+            "workers_dev": true
+          }
+          EOF
+          npx wrangler deploy --config .tmp/lmfiles-probe/wrangler.jsonc
+      - name: Execute lmfiles Cloudflare round-trip
+        shell: bash
+        run: |
+          set -euo pipefail
+          URL="https://${WORKER_NAME}.adrien-lopezcarreras.workers.dev/"
+          CODE="$(curl --silent --show-error --max-time 180 --output lmfiles-cloudflare-probe.json --write-out '%{http_code}' "${URL}" || true)"
+          test "${CODE}" = "200"
+          cat lmfiles-cloudflare-probe.json
+          node - <<'NODE'
+          const d=require('./lmfiles-cloudflare-probe.json');
+          if(d?.registration?.ok!==true||d?.registration?.key_received!==true)process.exit(21);
+          if(d?.upload?.ok!==true||d?.upload?.url_received!==true)process.exit(22);
+          if(d?.read?.ok!==true||d?.read?.bytes!==253011||d?.read?.sha_match!==true)process.exit(23);
+          console.log('LMFILES_CLOUDFLARE_ROUNDTRIP_VERIFIED');
+          NODE
+      - name: Delete ephemeral probe worker
+        if: always()
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        shell: bash
+        run: |
+          set +e
+          curl --silent --show-error --max-time 30 \
+            --request DELETE \
+            --header "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+            --output /tmp/lmfiles-probe-delete.json \
+            --write-out '%{http_code}' \
+            "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/scripts/${WORKER_NAME}"
+          echo
