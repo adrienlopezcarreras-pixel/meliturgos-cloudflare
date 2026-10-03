@@ -209,6 +209,7 @@ function show(name){
   if(alias?.mode)setUnifiedMode(alias.mode).catch(()=>{});
 }
 qsa('#nav button[data-view]').forEach(b=>b.onclick=()=>show(b.dataset.view));qsa('[data-jump]').forEach(b=>b.onclick=()=>show(b.dataset.jump));
+const initialView=new URL(location.href).searchParams.get('view');if(initialView)show(initialView);
 const modeTabs=qsa('#melUnifiedTabs [data-mode]');
 modeTabs.forEach(tab=>tab.onclick=()=>setUnifiedMode(tab.dataset.mode));
 const mobileMoreNav=qs('#mobileMoreNav');if(mobileMoreNav)mobileMoreNav.onclick=()=>{const menu=qs('#mobileMoreMenu');if(!menu)return;menu.hidden=!menu.hidden;mobileMoreNav.setAttribute('aria-expanded',String(!menu.hidden));};
