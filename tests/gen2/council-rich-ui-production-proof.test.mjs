@@ -67,6 +67,20 @@ test('rich UI proof enters the full chat deterministically before typing', () =>
   assert.match(full, /new URLSearchParams\(location\.search\)\.get\('view'\)/);
 });
 
+test('Full rich UI wait preserves the same BrowserSession instead of renavigating on timeout', () => {
+  assert.match(workflow, /SESSION="council-rich-ui-\$\{EXPECTED_SHA:0:12\}-\$\{GITHUB_RUN_ID\}-\$\{GITHUB_RUN_ATTEMPT\}"/);
+  assert.match(workflow, /rich-ui-send\.json/);
+  assert.match(workflow, /rich-ui-wait-full\.json/);
+  assert.match(workflow, /rich-ui-read-full\.json/);
+  assert.match(workflow, /retry \$\{ATTEMPT\}\/8 without navigation/);
+  assert.match(workflow, /Number\(sendResult\?\.steps_completed\|\|0\\)!==10|Number\(sendResult\?\.steps_completed\|\|0\)!==10/);
+  assert.match(workflow, /Number\(waitResult\?\.steps_completed\|\|0\)!==1/);
+  assert.match(workflow, /Number\(readResult\?\.steps_completed\|\|0\)!==1/);
+  const sendPhase=workflow.split('BROWSER_SEND_BODY=')[1]?.split('WAIT_FULL_BODY=')[0]||'';
+  assert.doesNotMatch(sendPhase, /id:'wait-full'/);
+  assert.match(sendPhase, /id:'send-full'/);
+});
+
 test('rich UI browser proof retries bounded transient runtime pressure instead of failing one-shot', () => {
   assert.match(workflow, /408\|409\|429\|500\|502\|503\|504/);
   assert.match(workflow, /Transient rich UI browser proof status/);
