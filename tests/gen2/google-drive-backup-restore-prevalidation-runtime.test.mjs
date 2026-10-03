@@ -338,6 +338,87 @@ test('MEL-SOV-01 staged release proof requires native Google Drive OAuth and nev
   assert.doesNotMatch(persisted,/server-token|access_token|client_secret/i);
 });
 
+test('MEL-SOV-01 resolve replaces stale Pipedream stage state with native Google OAuth',async()=>{
+  const env=envFixture();
+  delete env.GOOGLE_DRIVE_ACCESS_TOKEN;
+  env.MEDIA_BUCKET=stagedBucket();
+  const s=stores();
+  const key='sovereignty/backup-restore-prevalidation/'+env.MEL_DEPLOYED_GIT_SHA+'.json';
+  await env.MEDIA_BUCKET.put(key,JSON.stringify({
+    schema:'mel.sov-backup-restore-stage/v3',
+    source_sha:env.MEL_DEPLOYED_GIT_SHA,
+    provider:'google-drive-via-pipedream',
+    pd_account_id:'apn_drive',
+    pd_project_id:'proj_demo123',
+    pd_environment:'production',
+    resolved:true,
+    secret_values_exposed:false,
+  }));
+  let pipedreamCalled=false;
+  const result=await runGoogleDriveBackupRestorePrevalidationRuntime(env,{
+    force:true,
+    sourceSha:env.MEL_DEPLOYED_GIT_SHA,
+    stage:'resolve',
+    candidateStore:s.candidateStore,
+    registryStore:s.registryStore,
+    resolveNativeDrive:async()=>({
+      owner:'adrien',
+      token:'native-drive-token',
+      provider:'google-drive-oauth',
+      token_source:'shared_google_grant',
+    }),
+    resolvePipedreamDrive:async()=>{pipedreamCalled=true;return null;},
+  });
+  assert.equal(result.provider,'google-drive-oauth');
+  assert.equal(pipedreamCalled,false);
+  const persisted=JSON.parse(String(env.MEDIA_BUCKET.objects.get(key)));
+  assert.equal(persisted.provider,'google-drive-oauth');
+  assert.equal(persisted.pd_account_id,null);
+  assert.equal(persisted.pd_project_id,null);
+  assert.equal(JSON.stringify(persisted).includes('native-drive-token'),false);
+});
+
+test('MEL-SOV-01 finalize accepts a completed native OAuth proof without legacy GOOGLE_DRIVE_ACCESS_TOKEN',async()=>{
+  const env=envFixture();
+  delete env.GOOGLE_DRIVE_ACCESS_TOKEN;
+  env.MEDIA_BUCKET=stagedBucket();
+  const s=stores();
+  const key='sovereignty/backup-restore-prevalidation/'+env.MEL_DEPLOYED_GIT_SHA+'.json';
+  await env.MEDIA_BUCKET.put(key,JSON.stringify({
+    schema:'mel.sov-backup-restore-stage/v4',
+    source_sha:env.MEL_DEPLOYED_GIT_SHA,
+    provider:'google-drive-oauth',
+    resolved:true,
+    prepared:true,
+    snapshot_id:'snapshot-native-oauth',
+    source_object_key:'backups/system/native.enc.json',
+    source_byte_length:321,
+    drive_file_id:'drive-native-1',
+    drive_name:'native.enc.json',
+    ciphertext_sha256:'a'.repeat(64),
+    readback_sha256:'a'.repeat(64),
+    readback_verified:true,
+    restore_verified:true,
+    restore_code:'RESTORE_CANDIDATE_VERIFIED',
+    rollback_verified:true,
+    secret_values_exposed:false,
+  }));
+
+  const result=await runGoogleDriveBackupRestorePrevalidationRuntime(env,{
+    force:true,
+    sourceSha:env.MEL_DEPLOYED_GIT_SHA,
+    stage:'finalize',
+    candidateStore:s.candidateStore,
+    registryStore:s.registryStore,
+  });
+  assert.equal(result.status,'BACKUP_RESTORE_SOVEREIGNTY_ADVANCED');
+  assert.equal(result.prevalidated,1);
+  assert.equal(result.proof.provider,'google-drive-oauth');
+  const row=s.registryStore.registry.layers.backup_restore.find(item=>item.id===GOOGLE_DRIVE_BACKUP_RESTORE_CANDIDATE_ID);
+  assert.equal(row.prevalidated,true);
+  assert.equal(row.provider,'google-drive-oauth');
+});
+
 test('MEL-SOV-01 runtime persists fresh backup_restore alternative through canonical validator',async()=>{
   const snapshot=await snapshotFixture();
   const env=envFixture();
