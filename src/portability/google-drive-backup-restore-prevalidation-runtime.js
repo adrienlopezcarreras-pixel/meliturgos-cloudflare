@@ -79,7 +79,14 @@ async function pipedreamRunAction({config,owner,accessToken,actionId,configuredP
   const text=await response.text().catch(()=>'');
   let body={};
   try{body=text?JSON.parse(text):{};}catch{fail('SOV_BACKUP_PIPEDREAM_INVALID_RESPONSE',502);}
-  if(!response.ok)fail('SOV_BACKUP_PIPEDREAM_ACTION_FAILED:'+response.status,502);
+  if(!response.ok){
+    const error=new Error('SOV_BACKUP_PIPEDREAM_ACTION_FAILED:'+response.status);
+    error.code='SOV_BACKUP_PIPEDREAM_ACTION_FAILED:'+response.status;
+    error.status=502;
+    error.upstream_status=Number(response.status)||null;
+    error.action_id=clean(actionId,160);
+    throw error;
+  }
   return body;
 }
 
@@ -729,9 +736,37 @@ async function runPipedreamBackupRestoreStage(env,{
     const ticket=await createSovBackupDownloadTicket(env,{
       objectKey:backup.object_key,sourceSha:source_sha,byteLength:backup.byte_length,now,
     });
-    const created=await pipedreamDriveActionUploadUrl({
-      pd,name,fileUrl:ticket.url,mimeType:'application/json',fetchImpl,
-    });
+    let created;
+    try{
+      created=await pipedreamDriveActionUploadUrl({
+        pd,name,fileUrl:ticket.url,mimeType:'application/json',fetchImpl,
+      });
+    }catch(error){
+      if(Number(error?.upstream_status)!==403)throw error;
+      // Distinguish an account-level Drive write refusal from an Upload File /
+      // source-fetch refusal. The probe contains no backup data and is deleted
+      // immediately if creation succeeds.
+      let probe=null;
+      try{
+        probe=await pipedreamDriveActionCreateText({
+          pd,
+          name:`MEL-SOV-01-write-probe-${crypto.randomUUID()}.txt`,
+          content:JSON.stringify({schema:'mel.sov-drive-write-probe/v1',source_sha}),
+          fetchImpl,
+        });
+      }catch(probeError){
+        if(Number(probeError?.upstream_status)===403){
+          fail('SOV_BACKUP_PIPEDREAM_DRIVE_WRITE_FORBIDDEN',409);
+        }
+        throw probeError;
+      }
+      try{
+        await pipedreamDriveActionDelete({pd,fileId:probe.id,fetchImpl});
+      }catch{
+        fail('SOV_BACKUP_PIPEDREAM_WRITE_PROBE_CLEANUP_FAILED',502);
+      }
+      fail('SOV_BACKUP_PIPEDREAM_UPLOAD_SOURCE_REJECTED',409);
+    }
     Object.assign(state,{
       snapshot_id:backup.snapshot_id,
       source_object_key:backup.object_key,
