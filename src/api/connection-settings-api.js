@@ -497,6 +497,7 @@ async function pipedreamJson(fetcher, url, init, code) {
     const error = new Error(code);
     error.code = code;
     error.status = response.status === 401 || response.status === 403 ? 409 : 502;
+    error.upstream_status = Number(response.status) || null;
     throw error;
   }
   return body;
