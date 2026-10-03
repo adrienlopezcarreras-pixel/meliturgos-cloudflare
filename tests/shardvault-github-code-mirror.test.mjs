@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
+import { summarizeAutonomyLaunchCodeSync } from '../src/evolution/launch-readiness.js';
 
 const runtime=await readFile(new URL('../src/continuity/shardvault-runtime.js',import.meta.url),'utf8');
 const mirrorWorkflow=await readFile(new URL('../.github/workflows/shardvault-github-code-mirror.yml',import.meta.url),'utf8');
@@ -43,4 +44,25 @@ test('runtime allowlist and release loop can expedite only the mirror relay work
   assert.match(releaseWorkflow,/CODE_SYNC_RELAY_PENDING/);
   assert.match(releaseWorkflow,/actions\/workflows\/github-action-relay\.yml\/dispatches/);
   assert.match(releaseWorkflow,/Dispatched GitHub Action Relay for ShardVault mirror job/);
+});
+
+
+test('launch code-sync summary preserves mirror relay metadata needed by release dispatcher',()=>{
+  const summary=summarizeAutonomyLaunchCodeSync({
+    ok:true,
+    external:{
+      status:'RETRY_TARGETS',
+      reason:'GITHUB_CODE_MIRROR_PENDING',
+      target_count:7,
+      completed_shards:6,
+      pending_shards:1,
+      relay_pending:true,
+      relay_job_id:'relay-123',
+      relay_status:'QUEUED',
+    },
+  });
+  assert.equal(summary.relay_pending,true);
+  assert.equal(summary.relay_job_id,'relay-123');
+  assert.equal(summary.relay_status,'QUEUED');
+  assert.equal(summary.reason,'GITHUB_CODE_MIRROR_PENDING');
 });
