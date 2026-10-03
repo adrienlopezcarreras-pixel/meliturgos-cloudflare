@@ -52,7 +52,7 @@ test('final normal response uses the clean eight-background pack without a secon
   }
 
   assert.match(html, /data-visual-owner="mel-normal-v3"/);
-  assert.match(html, /src="\/normal-runtime\.js\?v=8"/);
+  assert.match(html, /src="\/normal-runtime\.js\?v=9"/);
   assert.doesNotMatch(html, /id="mel-normal-canonical-runtime"/);
   assert.doesNotMatch(html, /id="mel-normal-canonical-visuals"/);
   assert.doesNotMatch(html, /mel-theme-avatar-runtime/);
