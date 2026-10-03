@@ -1,0 +1,153 @@
+name: shardvault-fileditch-pstrs-cloudflare-probe
+
+on:
+  push:
+    branches:
+      - 'probe/cnet-cloudflare-roundtrip'
+    paths:
+      - '.github/workflows/shardvault-fileditch-pstrs-cloudflare-probe.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install exact lockfile
+        run: npm ci
+      - name: Deploy exact-size provider probe
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .tmp/provider-probe
+          WORKER_NAME="mel-sv-provider-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          echo "WORKER_NAME=${WORKER_NAME}" >> "$GITHUB_ENV"
+          cat > .tmp/provider-probe/worker.mjs <<'EOF'
+          function hex(buffer){return [...new Uint8Array(buffer)].map(b=>b.toString(16).padStart(2,'0')).join('');}
+          async function sha256(bytes){return hex(await crypto.subtle.digest('SHA-256',bytes));}
+          async function fetchTimed(url,options={},ms=45000){
+            const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),ms);
+            const started=Date.now();
+            try{
+              const response=await fetch(url,{...options,signal:controller.signal});
+              return {response,elapsed_ms:Date.now()-started};
+            } finally { clearTimeout(timer); }
+          }
+          async function readBytes(url,expected,headers={}){
+            try{
+              const {response:r,elapsed_ms}=await fetchTimed(url,{method:'GET',headers:{'accept':'application/octet-stream, */*','user-agent':'MEL-ShardVault/1.0',...headers},redirect:'follow'},30000);
+              const b=new Uint8Array(await r.arrayBuffer());
+              return {status:r.status,ok:r.ok,bytes:b.length,sha_match:r.ok&&(await sha256(b))===expected,elapsed_ms,content_type:r.headers.get('content-type')||null};
+            }catch(error){return {status:0,ok:false,error:String(error?.name||error?.message||error).slice(0,180)};}
+          }
+          async function fileditch(payload,expected){
+            const name='mel-shard-'+crypto.randomUUID().slice(0,12)+'.bin';
+            try{
+              const {response:r,elapsed_ms}=await fetchTimed('https://new.fileditch.com/upload.php?filename='+encodeURIComponent(name),{
+                method:'PUT',
+                headers:{'content-type':'application/octet-stream','accept':'application/json','user-agent':'MEL-ShardVault/1.0'},
+                body:payload,
+              },45000);
+              const raw=await r.text();
+              let d=null;try{d=JSON.parse(raw)}catch{}
+              const url=String(d?.url||'').trim();
+              const read=url?await readBytes(url,expected):null;
+              let status_api=null;
+              if(url){
+                try{
+                  const u=new URL(url);
+                  const sr=await fetch(u.origin+'/api'+u.pathname,{headers:{'accept':'application/json','user-agent':'MEL-ShardVault/1.0'}});
+                  const sd=await sr.json().catch(()=>null);
+                  status_api={http_status:sr.status,status:sd?.status??null,size:Number(sd?.size||0)};
+                }catch(error){status_api={error:String(error?.message||error).slice(0,160)};}
+              }
+              return {status:r.status,ok:r.ok,elapsed_ms,url_present:Boolean(url),response_error:d?.error||null,read,status_api};
+            }catch(error){return {status:0,ok:false,error:String(error?.name||error?.message||error).slice(0,180)};}
+          }
+          async function pstrs(payload,expected){
+            try{
+              const {response:r,elapsed_ms}=await fetchTimed('https://paster.abhicracker.com/',{
+                method:'POST',
+                headers:{
+                  'content-type':'application/octet-stream',
+                  'accept':'application/json',
+                  'x-paste-ttl':'1y',
+                  'x-paste-title':'mel-shardvault-probe',
+                  'user-agent':'MEL-ShardVault/1.0',
+                },
+                body:payload,
+              },45000);
+              const raw=await r.text();
+              let d=null;try{d=JSON.parse(raw)}catch{}
+              const id=String(d?.id||'').trim();
+              const base=String(d?.url||'https://paster.abhicracker.com').replace(/\/$/,'');
+              const rawUrl=id?('https://paster.abhicracker.com/raw/'+encodeURIComponent(id)):'';
+              const read=rawUrl?await readBytes(rawUrl,expected):null;
+              return {status:r.status,ok:r.ok,elapsed_ms,id_present:Boolean(id),url_present:Boolean(d?.url),expires_present:Boolean(d?.expires_at),body_preview:r.ok?null:raw.slice(0,240),read};
+            }catch(error){return {status:0,ok:false,error:String(error?.name||error?.message||error).slice(0,180)};}
+          }
+          export default {
+            async fetch(){
+              const payload=new Uint8Array(253011);
+              crypto.getRandomValues(payload.subarray(0,65536));
+              for(let offset=65536;offset<payload.length;offset+=65536){
+                const end=Math.min(payload.length,offset+65536);
+                crypto.getRandomValues(payload.subarray(offset,end));
+              }
+              const expected=await sha256(payload);
+              return Response.json({
+                payload_bytes:payload.length,
+                fileditch:await fileditch(payload,expected),
+                pstrs:await pstrs(payload,expected),
+              },{headers:{'cache-control':'no-store'}});
+            }
+          };
+          EOF
+          cat > .tmp/provider-probe/wrangler.jsonc <<EOF
+          {"name":"${WORKER_NAME}","main":"worker.mjs","compatibility_date":"2026-10-03","workers_dev":true}
+          EOF
+          npx wrangler deploy --config .tmp/provider-probe/wrangler.jsonc
+      - name: Execute exact-size provider round-trip
+        shell: bash
+        run: |
+          set -euo pipefail
+          URL="https://${WORKER_NAME}.adrien-lopezcarreras.workers.dev/"
+          READY=0
+          for ATTEMPT in $(seq 1 15); do
+            CODE="$(curl --silent --show-error --max-time 180 --output provider-probe.json --write-out '%{http_code}' "${URL}" || true)"
+            echo "probe_attempt=${ATTEMPT} http=${CODE}"
+            if [ "${CODE}" = "200" ]; then READY=1; break; fi
+            sleep 2
+          done
+          test ! -s provider-probe.json || cat provider-probe.json
+          test "${READY}" = "1"
+          node - <<'NODE'
+          const d=require('./provider-probe.json');
+          const ok=row=>row?.ok===true&&row?.read?.ok===true&&row?.read?.bytes===253011&&row?.read?.sha_match===true;
+          console.log(JSON.stringify({fileditch_verified:ok(d.fileditch),pstrs_verified:ok(d.pstrs)},null,2));
+          if(!ok(d.fileditch)&&!ok(d.pstrs))process.exit(31);
+          NODE
+      - name: Delete probe worker
+        if: always()
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        shell: bash
+        run: |
+          set +e
+          curl --silent --show-error --max-time 30 --request DELETE \
+            --header "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+            --output /tmp/provider-delete.json --write-out '%{http_code}' \
+            "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/scripts/${WORKER_NAME}"
+          echo
