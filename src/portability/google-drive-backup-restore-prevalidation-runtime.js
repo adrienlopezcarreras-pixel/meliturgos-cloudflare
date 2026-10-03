@@ -105,6 +105,150 @@ function b64UrlAscii(value){
   return btoa(String(value||'')).replaceAll('+','-').replaceAll('/','_').replace(/=+$/g,'');
 }
 
+const SOV_BACKUP_DOWNLOAD_PATH='/api/internal/sov-backup-download';
+const SOV_BACKUP_DOWNLOAD_TTL_MS=120000;
+
+function randomHex(bytes=32){
+  const value=new Uint8Array(bytes);
+  crypto.getRandomValues(value);
+  return [...value].map(byte=>byte.toString(16).padStart(2,'0')).join('');
+}
+
+async function createSovBackupDownloadTicket(env,{objectKey,sourceSha,byteLength=0,now=Date.now()}={}){
+  if(!env?.MEDIA_BUCKET?.put)fail('SOV_BACKUP_R2_REQUIRED',503);
+  const origin=clean(env.MEL_PUBLIC_ORIGIN,1000).replace(/\/$/,'');
+  if(!/^https:\/\//i.test(origin))fail('SOV_BACKUP_PUBLIC_ORIGIN_REQUIRED',503);
+  const source_sha=clean(sourceSha,80).toLowerCase();
+  if(!/^[a-f0-9]{40}$/.test(source_sha))fail('SOV_BACKUP_SOURCE_SHA_REQUIRED',409);
+  const object_key=clean(objectKey,500);
+  if(!object_key.startsWith('backups/system/'))fail('SOV_BACKUP_OBJECT_KEY_INVALID',409);
+  const token=randomHex(32);
+  const token_hash=await sha256Hex(token);
+  const expires_at=Number(now)+SOV_BACKUP_DOWNLOAD_TTL_MS;
+  await env.MEDIA_BUCKET.put(
+    'sovereignty/download-tickets/'+token_hash+'.json',
+    JSON.stringify({
+      schema:'mel.sov-backup-download-ticket/v1',
+      token_hash,source_sha,object_key,
+      byte_length:Number(byteLength||0),
+      expires_at,
+    }),
+    {httpMetadata:{contentType:'application/json'}},
+  );
+  return{
+    url:origin+SOV_BACKUP_DOWNLOAD_PATH+'?token='+encodeURIComponent(token)+'&sha='+encodeURIComponent(source_sha),
+    token_hash,expires_at,
+  };
+}
+
+async function consumeSovBackupDownloadTicket(env,tokenHash,sourceSha,{now=Date.now(),consume=true}={}){
+  if(!env?.MEDIA_BUCKET?.get)fail('SOV_BACKUP_R2_REQUIRED',503);
+  const ticketObject=await env.MEDIA_BUCKET.get('sovereignty/download-tickets/'+tokenHash+'.json');
+  if(!ticketObject)fail('SOV_BACKUP_DOWNLOAD_TICKET_NOT_FOUND',404);
+  let ticket;
+  try{ticket=JSON.parse(await ticketObject.text());}
+  catch{fail('SOV_BACKUP_DOWNLOAD_TICKET_INVALID',409);}
+  if(ticket?.schema!=='mel.sov-backup-download-ticket/v1')fail('SOV_BACKUP_DOWNLOAD_TICKET_INVALID',409);
+  if(ticket?.token_hash!==tokenHash||ticket?.source_sha!==sourceSha)fail('SOV_BACKUP_DOWNLOAD_TICKET_MISMATCH',403);
+  if(Number(ticket?.expires_at||0)<Number(now))fail('SOV_BACKUP_DOWNLOAD_TICKET_EXPIRED',410);
+  if(consume){
+    if(!env?.DB?.prepare)fail('SOV_BACKUP_DB_REQUIRED',503);
+    await env.DB.prepare(`CREATE TABLE IF NOT EXISTS mel_sov_download_consumptions (
+      token_hash TEXT PRIMARY KEY,
+      source_sha TEXT NOT NULL,
+      consumed_at INTEGER NOT NULL
+    )`).run();
+    const result=await env.DB.prepare(`INSERT OR IGNORE INTO mel_sov_download_consumptions
+      (token_hash,source_sha,consumed_at) VALUES(?,?,?)`)
+      .bind(tokenHash,sourceSha,Number(now)).run();
+    const changes=Number(result?.meta?.changes??result?.changes??0);
+    if(changes<1)fail('SOV_BACKUP_DOWNLOAD_TICKET_CONSUMED',410);
+  }
+  return ticket;
+}
+
+export async function maybeHandleSovBackupDownload(request,env,{now=Date.now()}={}){
+  const url=new URL(request.url);
+  if(url.pathname!==SOV_BACKUP_DOWNLOAD_PATH)return null;
+  if(!['GET','HEAD'].includes(request.method)){
+    return Response.json({ok:false,code:'METHOD_NOT_ALLOWED'},{status:405,headers:{allow:'GET, HEAD','cache-control':'no-store'}});
+  }
+  const token=clean(url.searchParams.get('token'),200);
+  const sourceSha=clean(url.searchParams.get('sha'),80).toLowerCase();
+  if(!/^[a-f0-9]{64}$/.test(token)||!/^[a-f0-9]{40}$/.test(sourceSha)){
+    return Response.json({ok:false,code:'SOV_BACKUP_DOWNLOAD_TOKEN_INVALID'},{status:403,headers:{'cache-control':'no-store'}});
+  }
+  try{
+    const tokenHash=await sha256Hex(token);
+    const ticket=await consumeSovBackupDownloadTicket(env,tokenHash,sourceSha,{now,consume:request.method==='GET'});
+    const object=await env.MEDIA_BUCKET.get(ticket.object_key);
+    if(!object)return Response.json({ok:false,code:'SOV_BACKUP_R2_OBJECT_MISSING'},{status:404,headers:{'cache-control':'no-store'}});
+    const size=Number(object.size||ticket.byte_length||0);
+    const headers=new Headers({
+      'content-type':'application/json',
+      'content-disposition':'attachment; filename="mel-sovereignty-backup.enc.json"',
+      'cache-control':'private, no-store, max-age=0',
+      'x-content-type-options':'nosniff',
+    });
+    if(Number.isSafeInteger(size)&&size>0)headers.set('content-length',String(size));
+    if(request.method==='HEAD')return new Response(null,{status:200,headers});
+    return new Response(object.body||await object.arrayBuffer(),{status:200,headers});
+  }catch(error){
+    return Response.json(
+      {ok:false,code:String(error?.code||'SOV_BACKUP_DOWNLOAD_FAILED').slice(0,120)},
+      {status:Number(error?.status||500),headers:{'cache-control':'no-store'}},
+    );
+  }
+}
+
+async function pipedreamDriveActionUploadUrl({pd,name,fileUrl,mimeType='application/json',fetchImpl=fetch}){
+  const body=await pipedreamRunAction({
+    config:pd.config,owner:pd.owner,accessToken:pd.access_token,
+    actionId:'google_drive-upload-file',
+    configuredProps:{
+      googleDrive:{authProvisionId:pd.account_id},
+      filePath:fileUrl,
+      name,
+      mimeType,
+    },
+    fetchImpl,
+  });
+  const id=driveFileId(body);
+  if(!id)fail('SOV_BACKUP_PIPEDREAM_FILE_ID_MISSING',502);
+  const result=actionReturn(body)||{};
+  return{id,name:clean(result?.name,300)||name};
+}
+
+async function pipedreamDriveActionCreateText({pd,name,content,fetchImpl=fetch}){
+  const body=await pipedreamRunAction({
+    config:pd.config,owner:pd.owner,accessToken:pd.access_token,
+    actionId:'google_drive-create-file-from-text',
+    configuredProps:{
+      googleDrive:{authProvisionId:pd.account_id},
+      name,content:String(content??''),mimeType:'text/plain',
+    },
+    fetchImpl,
+  });
+  const id=driveFileId(body);
+  if(!id)fail('SOV_BACKUP_PIPEDREAM_FILE_ID_MISSING',502);
+  return{id,name};
+}
+
+async function pipedreamDriveActionDelete({pd,fileId,fetchImpl=fetch}){
+  const body=await pipedreamRunAction({
+    config:pd.config,owner:pd.owner,accessToken:pd.access_token,
+    actionId:'google_drive-delete-file',
+    configuredProps:{
+      googleDrive:{authProvisionId:pd.account_id},
+      fileId,
+    },
+    fetchImpl,
+  });
+  const result=actionReturn(body)||{};
+  if(result?.success!==true)fail('SOV_BACKUP_PIPEDREAM_DELETE_FAILED',502);
+  return true;
+}
+
 function pipedreamDriveProxyUrl(pd,target){
   const params=new URLSearchParams({external_user_id:pd.owner,account_id:pd.account_id});
   return 'https://api.pipedream.com/v1/connect/'+encodeURIComponent(pd.config.project_id)
@@ -580,11 +724,13 @@ async function runPipedreamBackupRestoreStage(env,{
       return{ok:true,skipped:false,status:'BACKUP_RESTORE_STAGE_PREPARED',stage,provider:state.provider,snapshot_id:state.snapshot_id,secret_values_exposed:false};
     }
     const backup=await loadBackupSource(env);
-    if(!backup?.snapshot_id||!backup?.object_key||!backup?.body)fail('SOV_BACKUP_SOURCE_REQUIRED',409);
+    if(!backup?.snapshot_id||!backup?.object_key)fail('SOV_BACKUP_SOURCE_REQUIRED',409);
     const name=`MEL-SOV-01-${backup.snapshot_id}-${source_sha.slice(0,12)}.enc.json`;
-    const created=await pipedreamDriveProxyUploadBody({
-      pd,name,body:backup.body,byteLength:backup.byte_length,
-      folderId:driveFolder(env),mimeType:'application/json',fetchImpl,
+    const ticket=await createSovBackupDownloadTicket(env,{
+      objectKey:backup.object_key,sourceSha:source_sha,byteLength:backup.byte_length,now,
+    });
+    const created=await pipedreamDriveActionUploadUrl({
+      pd,name,fileUrl:ticket.url,mimeType:'application/json',fetchImpl,
     });
     Object.assign(state,{
       snapshot_id:backup.snapshot_id,
@@ -645,13 +791,13 @@ async function runPipedreamBackupRestoreStage(env,{
     if(state.rollback_verified===true){
       return{ok:true,skipped:false,status:'BACKUP_RESTORE_STAGE_ROLLBACK_VERIFIED',stage,provider:state.provider,snapshot_id:state.snapshot_id,secret_values_exposed:false};
     }
-    const probe=await pipedreamDriveProxyUpload({
+    const probe=await pipedreamDriveActionCreateText({
       pd,
-      name:`MEL-SOV-01-rollback-probe-${crypto.randomUUID()}.json`,
+      name:`MEL-SOV-01-rollback-probe-${crypto.randomUUID()}.txt`,
       content:JSON.stringify({schema:'mel.sov-backup-rollback-probe/v1',source_sha}),
-      folderId:driveFolder(env),mimeType:'application/json',fetchImpl,
+      fetchImpl,
     });
-    await pipedreamDriveProxyDelete({pd,fileId:probe.id,fetchImpl});
+    await pipedreamDriveActionDelete({pd,fileId:probe.id,fetchImpl});
     const afterDelete=await pipedreamDriveProxyRead({pd,fileId:probe.id,fetchImpl,allowNotFound:true});
     if(afterDelete!==null)fail('SOV_BACKUP_PIPEDREAM_ROLLBACK_NOT_CONFIRMED',409);
     Object.assign(state,{rollback_verified:true,rollback_verified_at:new Date(now).toISOString(),updated_at:new Date(now).toISOString()});
