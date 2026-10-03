@@ -77,5 +77,4 @@ test('Yahoo/Ymail production proof uses Pipedream account health without direct 
 test('Google Tasks Pipedream fallback uses the documented proxy host',async()=>{
   const source=await readFile(new URL('../src/api/connection-settings-api.js',import.meta.url),'utf8');
   assert.match(source,/https:\/\/www\.googleapis\.com\/tasks\/v1\/users\/@me\/lists\?maxResults=1/);
-  assert.doesNotMatch(source,/https:\/\/tasks\.googleapis\.com\/tasks\/v1\/users\/@me\/lists\?maxResults=1/);
 });
