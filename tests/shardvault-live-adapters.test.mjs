@@ -20,12 +20,14 @@ test('ShardVault provider adapters reflect current official API contracts', () =
   assert.match(autonomous,/page\+'\/raw\/'/);
   assert.match(autonomous,/https:\/\/paste\.myst\.rs\/api\/v2\/paste\?mel_object=/);
   assert.match(autonomous,/language:'Plain Text'/);
-  assert.match(autonomous,/form\.append\('expiry_days','365'\)/);
+  assert.match(autonomous,/expiry_days:'365'/);
   assert.match(autonomous,/https:\/\/dpaste\.com\/api\//);
-  assert.match(autonomous,/form\.append\('content',b64u\(payload\)\)/);
+  assert.match(autonomous,/content:b64u\(payload\)/);
+  assert.match(autonomous,/application\/x-www-form-urlencoded/);
   assert.match(autonomous,/adapter:'fileditch_b64'/);
   assert.match(autonomous,/filename=\{objectId\}\.txt/);
-  assert.match(autonomous,/x-uuid':'1'/);
+  assert.match(autonomous,/adapter:'paste_c_net'/);
+  assert.match(autonomous,/method:'POST'/);
   assert.match(autonomous,/adapter:'pastegg_b64'/);
   assert.match(autonomous,/api\.paste\.gg\/v1\/pastes/);
   assert.match(autonomous,/PASTEGG_CONTENT_MISSING[\s\S]*content\?\.format[\s\S]*unb64u\(encoded\)[\s\S]*unb64\(encoded\)/);
@@ -51,16 +53,20 @@ test('ShardVault provider adapters reflect current official API contracts', () =
   assert.match(autonomous,/c\.authMode==='none'\|\|c\.authMode==='ephemeral_account_token'/);
 });
 
-test('dpaste.com v2 uses the documented multipart contract and never falls back to the legacy API path', () => {
+test('dpaste.com v2 uses the official urlencoded form contract and never falls back to the legacy API path', () => {
   for (const source of [autonomous, runtime]) {
     const start=source.indexOf("adapter==='dpaste_b64'");
     assert.ok(start>=0);
     const end=source.indexOf("if(",start+30);
-    const body=source.slice(start,end>start?end:start+2200);
-    assert.match(body,/new FormData\(\)/);
-    assert.match(body,/form\.append\('content',b64u\(payload\)\)/);
-    assert.match(body,/form\.append\('expiry_days','365'\)/);
-    assert.doesNotMatch(body,/application\/x-www-form-urlencoded/);
+    const body=source.slice(start,end>start?end:start+2600);
+    assert.match(body,/new URLSearchParams\(/);
+    assert.match(body,/content:b64u\(payload\)/);
+    assert.match(body,/title:objectId/);
+    assert.match(body,/syntax:'text'/);
+    assert.match(body,/expiry_days:'365'/);
+    assert.match(body,/application\/x-www-form-urlencoded/);
+    assert.match(body,/body:body\.toString\(\)/);
+    assert.doesNotMatch(body,/new FormData\(\)/);
     assert.doesNotMatch(body,/https:\/\/dpaste\.com\/api\/['"]/);
   }
   assert.match(autonomous,/https:\/\/dpaste\.com\/api\/v2\//);
@@ -71,6 +77,20 @@ test('paste.gg anonymous adapter uses text-safe base64url because anonymous bina
   assert.match(runtime,/format:'text',value:b64u\(payload\)/);
   assert.match(autonomous,/format:'text',value:b64u\(payload\)/);
   assert.match(runtime,/format:'text',value:b64u\(payload\)/);
+});
+
+test('paste.c-net adapter uses the documented direct binary POST without synthetic UUID headers', () => {
+  for (const source of [autonomous, runtime]) {
+    const start=source.indexOf("adapter==='paste_c_net'");
+    assert.ok(start>=0);
+    const end=source.indexOf("if(",start+30);
+    const body=source.slice(start,end>start?end:start+2200);
+    assert.match(body,/method:'POST'/);
+    assert.match(body,/content-type':'application\/octet-stream'/);
+    assert.match(body,/accept':'text\/plain, \*\/\*'/);
+    assert.doesNotMatch(body,/x-uuid/);
+    assert.doesNotMatch(body,/method:'PUT'/);
+  }
 });
 
 test('snapshot runtime can write and read every repaired adapter selected by discovery', () => {
