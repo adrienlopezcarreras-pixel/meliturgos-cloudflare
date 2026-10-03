@@ -569,6 +569,7 @@ export async function runGoogleDriveBackupRestorePrevalidationRuntime(env={},{
   registryStore=null,
   loadBackup=loadLatestEncryptedSystemBackup,
   resolvePipedreamDrive=pipedreamDriveContext,
+  stage='all',
 }={}){
   const candidates=candidateStore||(env?.DB?new SovereigntyCandidateStore(env.DB):null);
   const registry=registryStore||(env?.DB?new D1AlternativeRegistryStore(env.DB):null);
@@ -580,6 +581,13 @@ export async function runGoogleDriveBackupRestorePrevalidationRuntime(env={},{
       .filter(row=>row.id===GOOGLE_DRIVE_BACKUP_RESTORE_CANDIDATE_ID),
     setStatus:args=>candidates.setStatus(args),
   };
+
+  if(stage!=='all'){
+    return runPipedreamBackupRestoreStage(env,{
+      stage,sourceSha:sourceSha||env.MEL_DEPLOYED_GIT_SHA,now,fetchImpl,loadBackup,
+      resolvePipedreamDrive,candidateStore:scopedStore,registryStore:registry,
+    });
+  }
 
   let proof=null;
   const validation=await validateSovereigntyCandidates({
