@@ -1,0 +1,155 @@
+name: shardvault-dpaste-cloudflare-probe
+
+on:
+  push:
+    branches:
+      - 'probe/cnet-cloudflare-roundtrip'
+    paths:
+      - '.github/workflows/shardvault-dpaste-cloudflare-probe.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install exact lockfile
+        run: npm ci
+      - name: Deploy dpaste Cloudflare probe
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .tmp/dpaste-probe
+          WORKER_NAME="mel-dpaste-probe-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          echo "WORKER_NAME=${WORKER_NAME}" >> "$GITHUB_ENV"
+          cat > .tmp/dpaste-probe/worker.mjs <<'EOF'
+          function b64u(v){
+            let s='';
+            for(let i=0;i<v.length;i+=0x8000)s+=String.fromCharCode(...v.subarray(i,i+0x8000));
+            return btoa(s).replaceAll('+','-').replaceAll('/','_').replaceAll('=','');
+          }
+          function hex(buffer){return [...new Uint8Array(buffer)].map(b=>b.toString(16).padStart(2,'0')).join('');}
+          async function sha256(bytes){return hex(await crypto.subtle.digest('SHA-256',bytes));}
+          async function timedFetch(url,options={},ms=60000){
+            const controller=new AbortController();
+            const timer=setTimeout(()=>controller.abort(),ms);
+            const started=Date.now();
+            try{
+              const r=await fetch(url,{...options,signal:controller.signal});
+              return {response:r,elapsed_ms:Date.now()-started};
+            }finally{clearTimeout(timer);}
+          }
+          async function readTextB64(url,expected){
+            try{
+              const {response:r,elapsed_ms}=await timedFetch(url,{method:'GET',headers:{'accept':'text/plain','user-agent':'MEL-ShardVault/1.0'}},30000);
+              const text=String(await r.text()).trim();
+              let decoded=null;
+              try{
+                const n=text.replaceAll('-','+').replaceAll('_','/');
+                const raw=atob(n+'='.repeat((4-n.length%4)%4));
+                decoded=Uint8Array.from(raw,c=>c.charCodeAt(0));
+              }catch{}
+              return {status:r.status,ok:r.ok,chars:text.length,bytes:decoded?.length||0,sha_match:Boolean(decoded)&&await sha256(decoded)===expected,elapsed_ms};
+            }catch(error){return {status:0,ok:false,error:String(error?.name||error?.message||error).slice(0,160)};}
+          }
+          async function probeCom(encoded,expected,{expiry='365',title=true}={}){
+            const form=new FormData();
+            form.append('content',encoded);
+            if(expiry)form.append('expiry_days',expiry);
+            if(title)form.append('title','mel-shardvault-probe');
+            try{
+              const {response:r,elapsed_ms}=await timedFetch('https://dpaste.com/api/v2/',{
+                method:'POST',
+                headers:{'accept':'text/plain','user-agent':'MEL-ShardVault/1.0'},
+                body:form,
+              },45000);
+              const raw=await r.text();
+              const location=String(r.headers.get('location')||raw||'').trim();
+              const page=/^https:\/\//.test(location)?location:null;
+              const read=page?await readTextB64(page.replace(/\/$/,'')+'.txt',expected):null;
+              return {status:r.status,ok:r.ok,elapsed_ms,location_present:Boolean(page),body_preview:r.ok?null:raw.slice(0,300),expires:r.headers.get('expires')||null,read};
+            }catch(error){
+              return {status:0,ok:false,error:String(error?.name||error?.message||error).slice(0,180)};
+            }
+          }
+          async function probeOrg(encoded,expected,timeoutMs){
+            const form=new FormData();
+            form.append('format','url');
+            form.append('content',encoded);
+            form.append('lexer','_text');
+            form.append('expires','never');
+            try{
+              const {response:r,elapsed_ms}=await timedFetch('https://text.dpaste.org/api/',{
+                method:'POST',
+                headers:{'accept':'text/plain','user-agent':'MEL-ShardVault/1.0'},
+                body:form,
+              },timeoutMs);
+              const raw=await r.text();
+              const page=String(raw||'').trim();
+              const read=/^https:\/\//.test(page)?await readTextB64(page.replace(/\/$/,'')+'/raw/',expected):null;
+              return {timeout_ms:timeoutMs,status:r.status,ok:r.ok,elapsed_ms,url_present:/^https:\/\//.test(page),body_preview:r.ok?null:raw.slice(0,300),read};
+            }catch(error){
+              return {timeout_ms:timeoutMs,status:0,ok:false,error:String(error?.name||error?.message||error).slice(0,180)};
+            }
+          }
+          export default {
+            async fetch(){
+              const payload=new Uint8Array(253011);
+              for(let i=0;i<payload.length;i++)payload[i]=i%251;
+              const expected=await sha256(payload);
+              const encoded=b64u(payload);
+              const result={
+                payload_bytes:payload.length,
+                encoded_chars:encoded.length,
+                dpaste_com_default:await probeCom(encoded,expected,{expiry:null,title:false}),
+                dpaste_com_365:await probeCom(encoded,expected,{expiry:'365',title:false}),
+                dpaste_com_365_title:await probeCom(encoded,expected,{expiry:'365',title:true}),
+                dpaste_org_20s:await probeOrg(encoded,expected,20000),
+                dpaste_org_60s:await probeOrg(encoded,expected,60000),
+              };
+              return Response.json(result,{headers:{'cache-control':'no-store'}});
+            }
+          };
+          EOF
+          cat > .tmp/dpaste-probe/wrangler.jsonc <<EOF
+          {"name":"${WORKER_NAME}","main":"worker.mjs","compatibility_date":"2026-10-03","workers_dev":true}
+          EOF
+          npx wrangler deploy --config .tmp/dpaste-probe/wrangler.jsonc
+      - name: Execute exact-size dpaste round-trip
+        shell: bash
+        run: |
+          set -euo pipefail
+          URL="https://${WORKER_NAME}.adrien-lopezcarreras.workers.dev/"
+          READY=0
+          for ATTEMPT in $(seq 1 15); do
+            CODE="$(curl --silent --show-error --max-time 240 --output dpaste-cloudflare-probe.json --write-out '%{http_code}' "${URL}" || true)"
+            echo "probe_attempt=${ATTEMPT} http=${CODE}"
+            if [ "${CODE}" = "200" ]; then READY=1; break; fi
+            sleep 2
+          done
+          test ! -s dpaste-cloudflare-probe.json || cat dpaste-cloudflare-probe.json
+          test "${READY}" = "1"
+      - name: Delete probe worker
+        if: always()
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        shell: bash
+        run: |
+          set +e
+          curl --silent --show-error --max-time 30 --request DELETE \
+            --header "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+            --output /tmp/dpaste-delete.json --write-out '%{http_code}' \
+            "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/scripts/${WORKER_NAME}"
+          echo
