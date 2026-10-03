@@ -379,6 +379,82 @@ test('MEL-SOV-01 resolve replaces stale Pipedream stage state with native Google
   assert.equal(JSON.stringify(persisted).includes('native-drive-token'),false);
 });
 
+test('MEL-SOV-01 staged prepare persists source ciphertext hash so readback does not reload the R2 source',async()=>{
+  const snapshot=await snapshotFixture();
+  const env=envFixture();
+  delete env.GOOGLE_DRIVE_ACCESS_TOKEN;
+  const codec=createBackupEncryptionCodec({keyBytes:env.keyBytes,keyId:env.MEL_BACKUP_ENCRYPTION_KEY_ID});
+  const encryptedText=JSON.stringify(await codec.seal(snapshot));
+  const sourceKey='backups/system/staged-memory-split.enc.json';
+  const stageKey='sovereignty/backup-restore-prevalidation/'+env.MEL_DEPLOYED_GIT_SHA+'.json';
+  const bucket=stagedBucket({
+    [sourceKey]:encryptedText,
+    [stageKey]:JSON.stringify({
+      schema:'mel.sov-backup-restore-stage/v4',
+      source_sha:env.MEL_DEPLOYED_GIT_SHA,
+      provider:'google-drive-oauth',
+      resolved:true,
+      secret_values_exposed:false,
+    }),
+  });
+  let sourceReads=0;
+  const baseGet=bucket.get.bind(bucket);
+  bucket.get=async key=>{
+    if(key===sourceKey)sourceReads+=1;
+    return baseGet(key);
+  };
+  env.MEDIA_BUCKET=bucket;
+  const driveBytes=encryptedText;
+  const fetchImpl=async(url,init={})=>{
+    const method=init.method||'GET';
+    const value=String(url);
+    if(method==='POST'&&value.includes('/drive/v3/files?fields=')){
+      return Response.json({id:'drive-staged-1',name:'staged.enc.json',createdTime:'2026-10-03T18:00:00.000Z'});
+    }
+    if(method==='PATCH'&&value.includes('/upload/drive/v3/files/drive-staged-1?')){
+      return Response.json({id:'drive-staged-1',name:'staged.enc.json'});
+    }
+    if(method==='GET'&&value.includes('/drive/v3/files/drive-staged-1?alt=media')){
+      return new Response(driveBytes,{status:200,headers:{'content-type':'application/json'}});
+    }
+    return new Response('unexpected',{status:500});
+  };
+  const native=async()=>({owner:'adrien',token:'native-drive-token',provider:'google-drive-oauth',token_source:'shared_google_grant'});
+  const shared={
+    force:true,
+    sourceSha:env.MEL_DEPLOYED_GIT_SHA,
+    resolveNativeDrive:native,
+    fetchImpl,
+    candidateStore:stores().candidateStore,
+    registryStore:stores().registryStore,
+  };
+
+  const prepared=await runGoogleDriveBackupRestorePrevalidationRuntime(env,{
+    ...shared,
+    stage:'prepare',
+    loadBackupSource:async()=>({
+      snapshot_id:snapshot.id,
+      object_key:sourceKey,
+      byte_length:new TextEncoder().encode(encryptedText).byteLength,
+      body:new Blob([encryptedText]).stream(),
+    }),
+  });
+  assert.equal(prepared.status,'BACKUP_RESTORE_STAGE_PREPARED');
+  const persistedAfterPrepare=JSON.parse(String(bucket.objects.get(stageKey)));
+  assert.match(persistedAfterPrepare.ciphertext_sha256,/^[0-9a-f]{64}$/);
+  assert.equal(sourceReads,1);
+
+  const readback=await runGoogleDriveBackupRestorePrevalidationRuntime(env,{
+    ...shared,
+    stage:'readback',
+  });
+  assert.equal(readback.status,'BACKUP_RESTORE_STAGE_READBACK_VERIFIED');
+  assert.equal(sourceReads,1,'readback must reuse persisted source hash instead of reloading the R2 source');
+  const persistedAfterReadback=JSON.parse(String(bucket.objects.get(stageKey)));
+  assert.equal(persistedAfterReadback.readback_sha256,persistedAfterReadback.ciphertext_sha256);
+  assert.equal(persistedAfterReadback.restore_verified,true);
+});
+
 test('MEL-SOV-01 classifies disabled Google Drive API without leaking provider messages',async()=>{
   const env=envFixture();
   delete env.GOOGLE_DRIVE_ACCESS_TOKEN;
