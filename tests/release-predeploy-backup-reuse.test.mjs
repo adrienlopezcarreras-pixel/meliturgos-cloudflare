@@ -7,7 +7,9 @@ test('canonical release proves a recent restore-verified backup through the ephe
   const start = source.indexOf('      - name: Create verified pre-deploy production backup');
   const end = source.indexOf('      - name: Install pinned Browser Rendering adapter', start);
   const block = source.slice(start, end);
-  assert.match(block, /mel-predeploy-backup-binder/);
+  assert.match(block, /mel-pdb-\$\{GITHUB_RUN_ID\}-\$\{GITHUB_RUN_ATTEMPT\}/);
+  assert.match(block, /\/health/);
+  assert.match(block, /BINDER_STABLE_PROBES/);
   assert.match(block, /\/prepare/);
   assert.match(block, /restore_candidate_verified/);
   assert.match(block, /backup_object_present/);

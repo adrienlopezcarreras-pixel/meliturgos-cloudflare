@@ -359,9 +359,19 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           set -euo pipefail
-          BINDER_NAME="mel-predeploy-backup-binder"
-          BINDER_CONFIG="release-tools/predeploy-backup-binder/wrangler.jsonc"
-          BINDER_URL="https://mel-predeploy-backup-binder.adrien-lopezcarreras.workers.dev"
+          BINDER_NAME="mel-pdb-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          BINDER_CONFIG="release-tools/predeploy-backup-binder/wrangler.run.jsonc"
+          BINDER_URL="https://${BINDER_NAME}.adrien-lopezcarreras.workers.dev"
+          export BINDER_NAME
+          node - <<'NODE'
+          const fs=require('fs');
+          const source='release-tools/predeploy-backup-binder/wrangler.jsonc';
+          const target='release-tools/predeploy-backup-binder/wrangler.run.jsonc';
+          const config=JSON.parse(fs.readFileSync(source,'utf8'));
+          config.name=process.env.BINDER_NAME;
+          fs.writeFileSync(target,JSON.stringify(config,null,2));
+          NODE
+
           BINDER_TOKEN="$(openssl rand -hex 32)"
           echo "::add-mask::${BINDER_TOKEN}"
           BINDER_CREATED=0
@@ -369,23 +379,70 @@ jobs:
           cleanup_binder() {
             set +e
             if [ "${BINDER_CREATED:-0}" = "1" ]; then
-              curl --silent --show-error --max-time 30 \
-                --request DELETE \
-                --header "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
-                --output /tmp/predeploy-binder-delete.json \
-                "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/scripts/${BINDER_NAME}" \
-                >/dev/null 2>&1 || true
+              DELETE_OK=0
+              for CLEANUP_ATTEMPT in $(seq 1 5); do
+                DELETE_CODE="$(curl --silent --show-error --max-time 30 \
+                  --request DELETE \
+                  --header "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+                  --output /tmp/predeploy-binder-delete.json \
+                  --write-out '%{http_code}' \
+                  "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/scripts/${BINDER_NAME}" || true)"
+                if [ "${DELETE_CODE}" = "200" ] || [ "${DELETE_CODE}" = "404" ]; then
+                  DELETE_OK=1
+                  BINDER_CREATED=0
+                  break
+                fi
+                sleep 2
+              done
+              if [ "${DELETE_OK}" != "1" ]; then
+                test ! -s /tmp/predeploy-binder-delete.json || cat /tmp/predeploy-binder-delete.json
+                set -e
+                return 1
+              fi
             fi
             set -e
+            return 0
           }
-          trap cleanup_binder EXIT
+          trap 'cleanup_binder || true' EXIT
 
           npx wrangler deploy --config "${BINDER_CONFIG}" >/tmp/predeploy-binder-deploy.log
           BINDER_CREATED=1
           printf '%s' "${BINDER_TOKEN}" | npx wrangler secret put MEL_PREDEPLOY_BINDER_TOKEN --config "${BINDER_CONFIG}" >/tmp/predeploy-binder-secret.log
 
+          BINDER_READY=0
+          BINDER_STABLE_PROBES=0
+          for READY_ATTEMPT in $(seq 1 24); do
+            READY_CODE="$(curl --silent --show-error --max-time 30 \
+              --header "x-mel-predeploy-binder: ${BINDER_TOKEN}" \
+              --output /tmp/predeploy-binder-ready.json \
+              --write-out '%{http_code}' \
+              "${BINDER_URL}/health" || true)"
+            if [ "${READY_CODE}" = "200" ] && node - <<'NODE'
+          const fs=require('fs');
+          const d=JSON.parse(fs.readFileSync('/tmp/predeploy-binder-ready.json','utf8'));
+          if(d?.ok!==true||d?.status!=='BINDER_READY') process.exit(1);
+          NODE
+            then
+              BINDER_STABLE_PROBES=$((BINDER_STABLE_PROBES + 1))
+              echo "Ephemeral backup binder stable probe ${BINDER_STABLE_PROBES}/3 passed."
+              if [ "${BINDER_STABLE_PROBES}" -ge 3 ]; then
+                BINDER_READY=1
+                break
+              fi
+              sleep 1
+              continue
+            fi
+            BINDER_STABLE_PROBES=0
+            echo "Ephemeral backup binder readiness attempt ${READY_ATTEMPT}/24 returned HTTP ${READY_CODE}."
+            sleep 2
+          done
+          if [ "${BINDER_READY}" != "1" ]; then
+            test ! -s /tmp/predeploy-binder-ready.json || cat /tmp/predeploy-binder-ready.json
+            exit 53
+          fi
+
           PREPARED=0
-          for ATTEMPT in $(seq 1 12); do
+          for ATTEMPT in $(seq 1 4); do
             CODE="$(curl --silent --show-error --max-time 45 \
               --request POST \
               --header "x-mel-predeploy-binder: ${BINDER_TOKEN}" \
@@ -410,25 +467,20 @@ jobs:
               PREPARED=1
               break
             fi
-            echo "Pre-deploy binder prepare attempt ${ATTEMPT}/12 returned HTTP ${CODE}."
+            echo "Pre-deploy binder prepare attempt ${ATTEMPT}/4 returned HTTP ${CODE}."
             test ! -s predeploy-backup.json || cat predeploy-backup.json
+            if [ "${CODE}" = "409" ]; then break; fi
             sleep 2
           done
-          test "${PREPARED}" = "1"
+          if [ "${PREPARED}" != "1" ]; then
+            exit 54
+          fi
           echo "Verified pre-deploy backup and D1 autonomy pause are ready."
 
-          DELETE_OK=0
-          for ATTEMPT in $(seq 1 5); do
-            DELETE_CODE="$(curl --silent --show-error --max-time 30 \
-              --request DELETE \
-              --header "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
-              --output /tmp/predeploy-binder-delete.json \
-              --write-out '%{http_code}' \
-              "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/scripts/${BINDER_NAME}" || true)"
-            if [ "${DELETE_CODE}" = "200" ] || [ "${DELETE_CODE}" = "404" ]; then DELETE_OK=1; break; fi
-            sleep 2
-          done
-          test "${DELETE_OK}" = "1"
+          if ! cleanup_binder; then
+            echo "Ephemeral backup binder cleanup failed; release remains blocked."
+            exit 55
+          fi
           BINDER_CREATED=0
           touch predeploy-backup-verified.marker
           trap - EXIT
