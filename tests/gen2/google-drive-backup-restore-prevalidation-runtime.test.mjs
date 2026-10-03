@@ -405,3 +405,11 @@ test('release sovereignty proof refreshes backup_restore before reading coverage
   assert.match(source,/sourceSha:\s*deployedSha/);
   assert.match(source,/new Set\(\['resolve','prepare','readback','rollback','finalize'\]\)/);
 });
+
+
+test('MEL-SOV-01 Drive proxy forwards upstream headers with Pipedream proxy prefix and respects proxy timeout',async()=>{
+  const source=await readFile(new URL('../../src/portability/google-drive-backup-restore-prevalidation-runtime.js',import.meta.url),'utf8');
+  assert.match(source,/'x-pd-proxy-accept':'application\/json, text\/plain, \*\/\*'/);
+  assert.match(source,/proxyHeaders\['x-pd-proxy-'\+normalized\]=String\(value\)/);
+  assert.match(source,/AbortSignal\.timeout\(30_000\)/);
+});
