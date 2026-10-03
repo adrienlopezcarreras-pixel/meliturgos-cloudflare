@@ -31,6 +31,35 @@ test('Google Tasks live probe failures become actionable without exposing provid
   assert.equal(serialized.includes('Request had'), false);
 });
 
+test('Google Drive live probe failures become actionable without exposing provider payloads', () => {
+  const disabled = classifyOAuthProbeFailure({
+    provider: 'google',
+    connectorId: 'google-drive',
+    status: 403,
+    body: { error: { message: 'Google Drive API has not been used in project 456 before or it is disabled.' } },
+  });
+  assert.deepEqual(disabled, {
+    code: 'GOOGLE_DRIVE_API_NOT_ENABLED',
+    status: 409,
+    upstream_status: 403,
+    action_required: 'ENABLE_GOOGLE_DRIVE_API',
+  });
+
+  const scope = classifyOAuthProbeFailure({
+    provider: 'google',
+    connectorId: 'google-drive',
+    status: 403,
+    body: { error: { status: 'PERMISSION_DENIED', message: 'Request had insufficient authentication scopes.' } },
+  });
+  assert.equal(scope.code, 'GOOGLE_DRIVE_RECONSENT_REQUIRED');
+  assert.equal(scope.action_required, 'RECONNECT_GOOGLE_WITH_DRIVE_SCOPE');
+
+  const serialized = JSON.stringify(disabled) + JSON.stringify(scope);
+  assert.equal(serialized.includes('project 456'), false);
+  assert.equal(serialized.includes('Request had'), false);
+});
+
+
 function compact(sql) {
   return String(sql).replace(/\s+/g, ' ').trim();
 }

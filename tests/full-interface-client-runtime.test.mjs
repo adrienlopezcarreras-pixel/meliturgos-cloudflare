@@ -14,6 +14,19 @@ test('full interface emits parseable browser runtime and keeps core navigation b
   assert.match(match[1], /Sauvegardes réelles[\s\S]*\\n/, 'ShardVault status output newline must remain escaped in browser JS');
 });
 
+test('canonical Full chat ships and uses the shared safe rich renderer', async () => {
+  const response = await onRequestGet();
+  const html = await response.text();
+  const match = html.match(/<script>([\s\S]*?)<\/script>/);
+  assert.ok(match);
+  assert.match(html, /\.mel-rich-table-wrap/);
+  assert.match(match[1], /window\.melRenderRichText=renderRichText/);
+  assert.match(match[1], /role==='mel'&&typeof melRenderRichText==='function'/);
+  assert.match(match[1], /melRenderRichText\(d,String\(text\?\?''\)\)/);
+  assert.match(match[1], /target\.dataset\.richRendered='true'/);
+});
+
+
 
 test('full interface keeps capabilities while avoiding eager heavy hidden-panel loading', async () => {
   const response = await onRequestGet();

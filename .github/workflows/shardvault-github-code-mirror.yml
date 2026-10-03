@@ -154,13 +154,17 @@ jobs:
             -H 'X-GitHub-Api-Version: 2022-11-28' -H 'Content-Type: application/json' \
             --data-binary @/tmp/mirror-put.json "$API" || true)"
           test "$PUT_CODE" = "200" -o "$PUT_CODE" = "201"
+          PUBLISHED_COMMIT_SHA="$(node -e 'const d=require("/tmp/mirror-put-response.json");process.stdout.write(String(d?.commit?.sha||""))')"
+          [[ "$PUBLISHED_COMMIT_SHA" =~ ^[0-9a-f]{40}$ ]]
+          echo "PUBLISHED_COMMIT_SHA=$PUBLISHED_COMMIT_SHA" >> "$GITHUB_ENV"
       - name: Prove public raw round-trip
         shell: bash
         run: |
           set -euo pipefail
-          RAW_URL="https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/refs/heads/${MIRROR_BRANCH}/${MIRROR_PATH}"
+          [[ "${PUBLISHED_COMMIT_SHA:-}" =~ ^[0-9a-f]{40}$ ]]
+          RAW_URL="https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/${PUBLISHED_COMMIT_SHA}/${MIRROR_PATH}"
           VERIFIED=0
-          for ATTEMPT in $(seq 1 15); do
+          for ATTEMPT in $(seq 1 30); do
             CODE="$(curl -sS --max-time 30 -o mirror-public.bin -w '%{http_code}' -H 'Cache-Control: no-cache' "${RAW_URL}?run=${GITHUB_RUN_ID}-${ATTEMPT}" || true)"
             if [ "$CODE" = "200" ]; then
               GOT_BYTES="$(wc -c < mirror-public.bin | tr -d ' ')"

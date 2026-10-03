@@ -70,7 +70,7 @@ function driveFetchFixture(encryptedText){
   let postCount=0;
   const fetchImpl=async(url,init={})=>{
     const method=init.method||'GET';
-    calls.push({url:String(url),method});
+    calls.push({url:String(url),method,redirect:init.redirect||null});
     if(method==='POST'&&String(url).includes('/upload/drive/v3/files')){
       postCount+=1;
       return Response.json({
@@ -155,6 +155,7 @@ test('MEL-SOV-01 copies encrypted backup to Drive, verifies readback, restore an
   assert.equal(proof.ciphertext_sha256,proof.readback_sha256);
   assert.match(proof.ciphertext_sha256,/^[0-9a-f]{64}$/);
   assert.ok(drive.calls.some(row=>row.method==='DELETE'));
+  assert.ok(drive.calls.filter(row=>row.method==='GET').every(row=>row.redirect==='follow'));
 });
 
 function pipedreamDriveProxyFixture(encryptedText,{backupId='pd-drive-backup-1'}={}){
@@ -378,6 +379,54 @@ test('MEL-SOV-01 resolve replaces stale Pipedream stage state with native Google
   assert.equal(JSON.stringify(persisted).includes('native-drive-token'),false);
 });
 
+test('MEL-SOV-01 classifies disabled Google Drive API without leaking provider messages',async()=>{
+  const env=envFixture();
+  delete env.GOOGLE_DRIVE_ACCESS_TOKEN;
+  env.MEDIA_BUCKET=stagedBucket();
+  const storesFixture=stores();
+  const key='sovereignty/backup-restore-prevalidation/'+env.MEL_DEPLOYED_GIT_SHA+'.json';
+  await env.MEDIA_BUCKET.put(key,JSON.stringify({
+    schema:'mel.sov-backup-restore-stage/v4',
+    source_sha:env.MEL_DEPLOYED_GIT_SHA,
+    provider:'google-drive-oauth',
+    resolved:true,
+    secret_values_exposed:false,
+  }));
+
+  await assert.rejects(
+    runGoogleDriveBackupRestorePrevalidationRuntime(env,{
+      force:true,
+      sourceSha:env.MEL_DEPLOYED_GIT_SHA,
+      stage:'prepare',
+      candidateStore:storesFixture.candidateStore,
+      registryStore:storesFixture.registryStore,
+      resolveNativeDrive:async()=>({
+        owner:'adrien',
+        token:'native-drive-token',
+        provider:'google-drive-oauth',
+        token_source:'shared_google_grant',
+      }),
+      loadBackupSource:async()=>({
+        snapshot_id:'snapshot-api-disabled',
+        object_key:'backups/system/snapshot-api-disabled.enc.json',
+        byte_length:32,
+        body:new Blob(['encrypted']).stream(),
+      }),
+      fetchImpl:async()=>Response.json({
+        error:{
+          code:403,
+          status:'PERMISSION_DENIED',
+          errors:[{reason:'accessNotConfigured'}],
+          details:[{reason:'SERVICE_DISABLED'}],
+          message:'sensitive provider message must not escape',
+        },
+      },{status:403}),
+    }),
+    error=>error?.code==='SOV_BACKUP_GOOGLE_DRIVE_API_DISABLED'
+      && !String(error?.code||'').includes('sensitive provider message'),
+  );
+});
+
 test('MEL-SOV-01 finalize accepts a completed native OAuth proof without legacy GOOGLE_DRIVE_ACCESS_TOKEN',async()=>{
   const env=envFixture();
   delete env.GOOGLE_DRIVE_ACCESS_TOKEN;
@@ -487,6 +536,14 @@ test('release sovereignty proof refreshes backup_restore before reading coverage
   assert.match(source,/new Set\(\['resolve','prepare','readback','rollback','finalize'\]\)/);
 });
 
+
+test('MEL-SOV-01 native Drive readback follows media redirects and emits bounded read failure codes',async()=>{
+  const source=await readFile(new URL('../../src/portability/google-drive-backup-restore-prevalidation-runtime.js',import.meta.url),'utf8');
+  assert.match(source,/redirect:'follow'/);
+  assert.match(source,/SOV_BACKUP_DRIVE_READ_TIMEOUT/);
+  assert.match(source,/SOV_BACKUP_DRIVE_READ_NETWORK_FAILED/);
+  assert.match(source,/SOV_BACKUP_DRIVE_READ_BODY_FAILED/);
+});
 
 test('MEL-SOV-01 Drive proxy forwards upstream headers with Pipedream proxy prefix and respects proxy timeout',async()=>{
   const source=await readFile(new URL('../../src/portability/google-drive-backup-restore-prevalidation-runtime.js',import.meta.url),'utf8');

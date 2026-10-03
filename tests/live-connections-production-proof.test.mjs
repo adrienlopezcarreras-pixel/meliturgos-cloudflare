@@ -39,6 +39,9 @@ test('live connection proof persists precise partial evidence even when a connec
   assert.match(source,/onedrive:process\.env\.MICROSOFT_ONEDRIVE_OK==='1'/);
   assert.match(source,/sharepoint:process\.env\.MICROSOFT_SHAREPOINT_OK==='1'/);
   assert.match(source,/tasks:process\.env\.GOOGLE_TASKS_OK==='1'/);
+  assert.match(source,/GOOGLE_DRIVE_OK=0/);
+  assert.match(source,/connector_id":"google-drive"/);
+  assert.match(source,/drive:process\.env\.GOOGLE_DRIVE_OK==='1'/);
   assert.match(source,/yahoo_or_ymail:process\.env\.YAHOO_OK==='1'/);
   assert.match(source,/authenticated_target_probe:process\.env\.VERCEL_OK==='1'/);
   assert.match(source,/- name: Upload sanitized live proof\n\s+if: always\(\)/);

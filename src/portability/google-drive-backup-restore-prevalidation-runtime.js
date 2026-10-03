@@ -460,6 +460,29 @@ async function provePipedreamDriveBackupRestoreAlternative({
   });
 }
 
+function driveFailureCode(prefix,response,payload={}){
+  const reasons=new Set();
+  const error=payload?.error||{};
+  if(error?.status)reasons.add(clean(error.status,120));
+  for(const row of Array.isArray(error?.errors)?error.errors:[]){
+    if(row?.reason)reasons.add(clean(row.reason,120));
+  }
+  for(const row of Array.isArray(error?.details)?error.details:[]){
+    if(row?.reason)reasons.add(clean(row.reason,120));
+  }
+  const normalized=[...reasons].map(value=>String(value).toUpperCase());
+  if(response?.status===403&&normalized.some(value=>value==='SERVICE_DISABLED'||value==='ACCESSNOTCONFIGURED')){
+    return'SOV_BACKUP_GOOGLE_DRIVE_API_DISABLED';
+  }
+  if(response?.status===403&&normalized.some(value=>value.includes('INSUFFICIENT')||value==='PERMISSION_DENIED')){
+    return'SOV_BACKUP_GOOGLE_DRIVE_PERMISSION_DENIED';
+  }
+  if(response?.status===403&&normalized.some(value=>value.includes('QUOTA'))){
+    return'SOV_BACKUP_GOOGLE_DRIVE_QUOTA_EXCEEDED';
+  }
+  return prefix+':'+String(response?.status||0);
+}
+
 async function driveCreateMetadata({token,name,folderId=null,fetchImpl=fetch}){
   const metadata={name,mimeType:'application/json',appProperties:{mel_role:'sovereignty-backup-restore'}};
   if(folderId)metadata.parents=[folderId];
@@ -471,7 +494,7 @@ async function driveCreateMetadata({token,name,folderId=null,fetchImpl=fetch}){
     signal:AbortSignal.timeout(20000),
   });
   const payload=await response.json().catch(()=>({}));
-  if(!response.ok||!payload?.id)fail(`SOV_BACKUP_DRIVE_CREATE_FAILED:${response.status}`,502);
+  if(!response.ok||!payload?.id)fail(driveFailureCode('SOV_BACKUP_DRIVE_CREATE_FAILED',response,payload),502);
   return{id:clean(payload.id,300),name:clean(payload.name,300)||name};
 }
 
@@ -496,7 +519,7 @@ async function driveWriteMedia({token,fileId,body,byteLength=0,fetchImpl=fetch})
       },
     );
     const payload=await response.json().catch(()=>({}));
-    if(!response.ok||!payload?.id)fail(`SOV_BACKUP_DRIVE_MEDIA_UPLOAD_FAILED:${response.status}`,502);
+    if(!response.ok||!payload?.id)fail(driveFailureCode('SOV_BACKUP_DRIVE_MEDIA_UPLOAD_FAILED',response,payload),502);
     if(pump)await pump;
     return{id:clean(payload.id,300),name:clean(payload.name,300)||null};
   }catch(error){
@@ -506,15 +529,30 @@ async function driveWriteMedia({token,fileId,body,byteLength=0,fetchImpl=fetch})
 }
 
 async function driveReadBytes({token,fileId,fetchImpl=fetch,allowNotFound=false}){
-  const response=await fetchImpl(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?alt=media`,{
-    method:'GET',
-    headers:{authorization:`Bearer ${token}`},
-    redirect:'manual',
-    signal:AbortSignal.timeout(30000),
-  });
+  let response;
+  try{
+    response=await fetchImpl(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?alt=media`,{
+      method:'GET',
+      headers:{authorization:`Bearer ${token}`},
+      redirect:'follow',
+      signal:AbortSignal.timeout(30000),
+    });
+  }catch(error){
+    const name=clean(error?.name,120).toUpperCase();
+    if(name==='TIMEOUTERROR'||name==='ABORTERROR')fail('SOV_BACKUP_DRIVE_READ_TIMEOUT',503);
+    fail('SOV_BACKUP_DRIVE_READ_NETWORK_FAILED',503);
+  }
   if(allowNotFound&&response.status===404)return null;
-  if(!response.ok)fail(`SOV_BACKUP_DRIVE_READ_FAILED:${response.status}`,502);
-  return new Uint8Array(await response.arrayBuffer());
+  if(!response.ok){
+    const payload=await response.clone().json().catch(()=>({}));
+    fail(driveFailureCode('SOV_BACKUP_DRIVE_READ_FAILED',response,payload),502);
+  }
+  try{return new Uint8Array(await response.arrayBuffer());}
+  catch(error){
+    const name=clean(error?.name,120).toUpperCase();
+    if(name==='TIMEOUTERROR'||name==='ABORTERROR')fail('SOV_BACKUP_DRIVE_READ_BODY_TIMEOUT',503);
+    fail('SOV_BACKUP_DRIVE_READ_BODY_FAILED',503);
+  }
 }
 
 async function driveUpload({token,name,content,folderId=null,fetchImpl=fetch}){
@@ -534,20 +572,35 @@ async function driveUpload({token,name,content,folderId=null,fetchImpl=fetch}){
     signal:AbortSignal.timeout(20000),
   });
   const payload=await response.json().catch(()=>({}));
-  if(!response.ok||!payload?.id)fail(`SOV_BACKUP_DRIVE_UPLOAD_FAILED:${response.status}`,502);
+  if(!response.ok||!payload?.id)fail(driveFailureCode('SOV_BACKUP_DRIVE_UPLOAD_FAILED',response,payload),502);
   return{id:clean(payload.id,300),name:clean(payload.name,300)||name,created_time:clean(payload.createdTime,100)||null};
 }
 
 async function driveRead({token,fileId,fetchImpl=fetch,allowNotFound=false}){
-  const response=await fetchImpl(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?alt=media`,{
-    method:'GET',
-    headers:{authorization:`Bearer ${token}`},
-    redirect:'manual',
-    signal:AbortSignal.timeout(20000),
-  });
+  let response;
+  try{
+    response=await fetchImpl(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?alt=media`,{
+      method:'GET',
+      headers:{authorization:`Bearer ${token}`},
+      redirect:'follow',
+      signal:AbortSignal.timeout(30000),
+    });
+  }catch(error){
+    const name=clean(error?.name,120).toUpperCase();
+    if(name==='TIMEOUTERROR'||name==='ABORTERROR')fail('SOV_BACKUP_DRIVE_READ_TIMEOUT',503);
+    fail('SOV_BACKUP_DRIVE_READ_NETWORK_FAILED',503);
+  }
   if(allowNotFound&&response.status===404)return null;
-  if(!response.ok)fail(`SOV_BACKUP_DRIVE_READ_FAILED:${response.status}`,502);
-  return response.text();
+  if(!response.ok){
+    const payload=await response.clone().json().catch(()=>({}));
+    fail(driveFailureCode('SOV_BACKUP_DRIVE_READ_FAILED',response,payload),502);
+  }
+  try{return await response.text();}
+  catch(error){
+    const name=clean(error?.name,120).toUpperCase();
+    if(name==='TIMEOUTERROR'||name==='ABORTERROR')fail('SOV_BACKUP_DRIVE_READ_BODY_TIMEOUT',503);
+    fail('SOV_BACKUP_DRIVE_READ_BODY_FAILED',503);
+  }
 }
 
 async function driveDelete({token,fileId,fetchImpl=fetch}){
