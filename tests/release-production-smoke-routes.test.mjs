@@ -248,6 +248,7 @@ test('parallel proof auth permits only bounded read-only connection diagnostics'
     ['POST','/api/gen2/connections/yahoo-imap/test'],
     ['POST','/api/gen2/connections/vercel/test'],
     ['POST','/api/gen2/connections/pipedream/test'],
+    ['POST','/api/files/upload'],
     ['GET','/api/gen2/connections/google/status'],
     ['GET','/api/gen2/connections/pipedream/accounts'],
   ]) {
@@ -258,7 +259,6 @@ test('parallel proof auth permits only bounded read-only connection diagnostics'
     ['POST','/api/gen2/connections/google/save'],
     ['POST','/api/gen2/connections/vercel/save'],
     ['POST','/api/gen2/connections/pipedream/save'],
-    ['POST','/api/files/upload'],
   ]) {
     assert.equal(isReleaseSmokeRequest(parallelSmokeRequest(path, method), runtimeEnv), false, method+' '+path);
   }
@@ -549,4 +549,20 @@ test('MEL-MEM-03 release token can export and verify memory without opening arbi
   assert.equal(verifyBody.capability, 'memory.export.verify');
   assert.equal(verifyBody.result.ok, true);
   assert.deepEqual(verifyBody.result.failures, []);
+});
+
+
+test('parallel proof upload route rejects arbitrary file content at the handler boundary', async () => {
+  const runtimeEnv=env();
+  runtimeEnv.MEDIA_BUCKET={
+    async put(){ throw new Error('ARBITRARY_PARALLEL_UPLOAD_MUST_NOT_REACH_STORAGE'); },
+  };
+  runtimeEnv.MEL_MEDIA_ENCRYPTION_KEY_ID='test-media-key';
+  runtimeEnv.MEL_MEDIA_ENCRYPTION_KEY_B64=Buffer.alloc(32,5).toString('base64');
+  const form=new FormData();
+  form.append('file',new File(['arbitrary-data'],'not-a-proof.txt',{type:'text/plain'}));
+  const response=await worker.fetch(parallelSmokeRequest('/api/files/upload','POST',{body:form}),runtimeEnv,{});
+  assert.equal(response.status,403);
+  const body=await response.json();
+  assert.equal(body.code,'MEL_FILE_PROOF_UPLOAD_REJECTED');
 });
