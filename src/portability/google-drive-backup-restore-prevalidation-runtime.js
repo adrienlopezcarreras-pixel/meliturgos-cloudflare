@@ -762,7 +762,13 @@ async function runPipedreamBackupRestoreStage(env,{
   let state=await readBackupRestoreStage(env,source_sha);
 
   if(stage==='resolve'){
-    if(state?.resolved===true&&state?.source_sha===source_sha&&state?.provider){
+    if(
+      state?.resolved===true
+      && state?.source_sha===source_sha
+      && state?.provider==='google-drive-oauth'
+    ){
+      const native=await resolveNativeDrive(env,{fetchImpl});
+      if(!native)fail('SOV_BACKUP_GOOGLE_DRIVE_RECONSENT_REQUIRED',409);
       return{ok:true,skipped:false,status:'BACKUP_RESTORE_STAGE_RESOLVED',stage,provider:state.provider,secret_values_exposed:false};
     }
     const native=await resolveNativeDrive(env,{fetchImpl});
@@ -771,8 +777,13 @@ async function runPipedreamBackupRestoreStage(env,{
     // production, so silently falling back would only hide a missing drive.file
     // consent behind a transport error.
     if(!native)fail('SOV_BACKUP_GOOGLE_DRIVE_RECONSENT_REQUIRED',409);
+    const switchingProvider=Boolean(
+      state?.source_sha===source_sha
+      && state?.provider
+      && state.provider!=='google-drive-oauth'
+    );
     state={
-      ...(state?.source_sha===source_sha?state:{}),
+      ...(state?.source_sha===source_sha&&!switchingProvider?state:{}),
       schema:'mel.sov-backup-restore-stage/v4',
       source_sha,
       provider:'google-drive-oauth',
@@ -924,7 +935,10 @@ async function runPipedreamBackupRestoreStage(env,{
     candidateStore,registryStore,env,now,limit:1,
     resolveCandidate:async candidate=>{
       if(candidate.layer!=='backup_restore'||candidate.id!==GOOGLE_DRIVE_BACKUP_RESTORE_CANDIDATE_ID)return{descriptor:null,adapter:null};
-      const d=descriptor({pipedream:state.provider==='google-drive-via-pipedream'});
+      const d=descriptor({
+        pipedream:state.provider==='google-drive-via-pipedream',
+        nativeOauth:state.provider==='google-drive-oauth',
+      });
       return{descriptor:d,adapter:Object.freeze({id:d.adapter_id,provider:d.provider}),env,prevalidated:true,proof};
     },
   });
@@ -943,14 +957,16 @@ async function runPipedreamBackupRestoreStage(env,{
   };
 }
 
-function descriptor({pipedream=false}={}){
+function descriptor({pipedream=false,nativeOauth=false}={}){
   return{
     id:GOOGLE_DRIVE_BACKUP_RESTORE_CANDIDATE_ID,
-    provider:pipedream?'google-drive-via-pipedream':'google-drive',
+    provider:pipedream?'google-drive-via-pipedream':nativeOauth?'google-drive-oauth':'google-drive',
     adapter_id:'google-drive-backup-restore-v1',
     added_cost_eur:0,
     required_config_refs:['MEL_BACKUP_ENCRYPTION_KEY_ID'],
-    required_secret_refs:pipedream?['MEL_BACKUP_ENCRYPTION_KEY_B64']:['GOOGLE_DRIVE_ACCESS_TOKEN','MEL_BACKUP_ENCRYPTION_KEY_B64'],
+    required_secret_refs:pipedream||nativeOauth
+      ? ['MEL_BACKUP_ENCRYPTION_KEY_B64']
+      : ['GOOGLE_DRIVE_ACCESS_TOKEN','MEL_BACKUP_ENCRYPTION_KEY_B64'],
     cost_provenance:{
       verified:true,
       addedCost:0,
@@ -994,6 +1010,7 @@ export async function runGoogleDriveBackupRestorePrevalidationRuntime(env={},{
   loadBackup=loadLatestEncryptedSystemBackup,
   loadBackupSource=loadLatestEncryptedSystemBackupSource,
   resolvePipedreamDrive=pipedreamDriveContext,
+  resolveNativeDrive=nativeGoogleDriveContext,
   stage='all',
 }={}){
   const candidates=candidateStore||(env?.DB?new SovereigntyCandidateStore(env.DB):null);
@@ -1010,7 +1027,7 @@ export async function runGoogleDriveBackupRestorePrevalidationRuntime(env={},{
   if(stage!=='all'){
     return runPipedreamBackupRestoreStage(env,{
       stage,sourceSha:sourceSha||env.MEL_DEPLOYED_GIT_SHA,now,fetchImpl,loadBackupSource,
-      resolvePipedreamDrive,candidateStore:scopedStore,registryStore:registry,
+      resolvePipedreamDrive,resolveNativeDrive,candidateStore:scopedStore,registryStore:registry,
     });
   }
 
