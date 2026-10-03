@@ -70,10 +70,16 @@ jobs:
         run: |
           set -euo pipefail
           URL="https://${WORKER_NAME}.adrien-lopezcarreras.workers.dev/"
-          CODE="$(curl --silent --show-error --max-time 120 --output pbca-probe.json --write-out '%{http_code}' "${URL}" || true)"
-          echo "probe_http=${CODE}"
+          READY=0
+          CODE="000"
+          for ATTEMPT in $(seq 1 15); do
+            CODE="$(curl --silent --show-error --max-time 120 --output pbca-probe.json --write-out '%{http_code}' "${URL}" || true)"
+            echo "probe_attempt=${ATTEMPT} http=${CODE}"
+            if [ "${CODE}" = "200" ]; then READY=1; break; fi
+            sleep 2
+          done
           test ! -s pbca-probe.json || cat pbca-probe.json
-          test "${CODE}" = "200"
+          test "${READY}" = "1"
       - name: Delete probe worker
         if: always()
         env:
