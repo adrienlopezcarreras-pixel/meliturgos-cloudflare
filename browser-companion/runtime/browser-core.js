@@ -3,6 +3,7 @@ import { BROWSER_ACTIONS, BROWSER_CAPABILITY_SCHEMA } from '../../src/devices/br
 export const BROWSER_COMPANION_SCHEMA = 'mel.devices.browser-companion.v1';
 export const MAX_COMPANION_ORIGINS = 50;
 export const ACTION_TIMEOUT_MS = 7000;
+export const WAIT_TEXT_TIMEOUT_MS = 20000;
 export const MAX_READ_TEXT = 64000;
 export const MAX_SCREENSHOT_BYTES = 80000;
 
@@ -301,7 +302,7 @@ export async function executeBrowserStep(page, step, allowedOrigins) {
       if (!expected) throw companionError('BROWSER_WAIT_TEXT_REQUIRED', 400);
       assertCurrentOrigin(page, allowedOrigins);
       const locator = page.locator(selector);
-      const deadline = Date.now() + ACTION_TIMEOUT_MS;
+      const deadline = Date.now() + WAIT_TEXT_TIMEOUT_MS;
       let value = '';
       while (Date.now() < deadline) {
         try { value = String(await locator.innerText({ timeout: 1000 })); } catch {}
