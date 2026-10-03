@@ -352,6 +352,101 @@ test('MEL-SOV-01 staged Pipedream proof persists only bounded non-secret state a
   assert.equal(row.proof.source_sha,env.MEL_DEPLOYED_GIT_SHA);
 });
 
+
+test('MEL-SOV-01 classifies an Upload File 403 as account-level Drive write forbidden when a tiny create probe is also forbidden',async()=>{
+  const snapshot=await snapshotFixture();
+  const env=envFixture();
+  delete env.GOOGLE_DRIVE_ACCESS_TOKEN;
+  const codec=createBackupEncryptionCodec({keyBytes:env.keyBytes,keyId:env.MEL_BACKUP_ENCRYPTION_KEY_ID});
+  const encryptedText=JSON.stringify(await codec.seal(snapshot));
+  const sourceKey='backups/system/write-forbidden.enc.json';
+  env.MEDIA_BUCKET=stagedBucket({[sourceKey]:encryptedText});
+  const s=stores();
+  const actionIds=[];
+  const fetchImpl=async(url,init={})=>{
+    if(!String(url).endsWith('/actions/run'))return Response.json({error:'unexpected'},{status:500});
+    const payload=JSON.parse(String(init.body||'{}'));
+    actionIds.push(payload.id);
+    if(payload.id==='google_drive-upload-file')return Response.json({error:'forbidden'},{status:403});
+    if(payload.id==='google_drive-create-file-from-text')return Response.json({error:'forbidden'},{status:403});
+    return Response.json({error:'unexpected-action'},{status:500});
+  };
+  const resolvePipedreamDrive=async()=>({
+    owner:'adrien',
+    config:{project_id:'proj_demo123',environment:'production'},
+    account_id:'apn_drive',
+    access_token:'server-token',
+  });
+  const common={
+    force:true,sourceSha:env.MEL_DEPLOYED_GIT_SHA,fetchImpl,
+    candidateStore:s.candidateStore,registryStore:s.registryStore,
+    loadBackupSource:async()=>({
+      snapshot_id:snapshot.id,object_key:sourceKey,
+      byte_length:new TextEncoder().encode(encryptedText).byteLength,
+      body:new Blob([encryptedText]).stream(),
+    }),
+    resolvePipedreamDrive,
+  };
+  await runGoogleDriveBackupRestorePrevalidationRuntime(env,{...common,stage:'resolve'});
+  await assert.rejects(
+    runGoogleDriveBackupRestorePrevalidationRuntime(env,{...common,stage:'prepare'}),
+    error=>error?.code==='SOV_BACKUP_PIPEDREAM_DRIVE_WRITE_FORBIDDEN'&&error?.status===409,
+  );
+  assert.deepEqual(actionIds,['google_drive-upload-file','google_drive-create-file-from-text']);
+});
+
+test('MEL-SOV-01 distinguishes Upload File source rejection when a tiny Drive write probe succeeds and is cleaned up',async()=>{
+  const snapshot=await snapshotFixture();
+  const env=envFixture();
+  delete env.GOOGLE_DRIVE_ACCESS_TOKEN;
+  const codec=createBackupEncryptionCodec({keyBytes:env.keyBytes,keyId:env.MEL_BACKUP_ENCRYPTION_KEY_ID});
+  const encryptedText=JSON.stringify(await codec.seal(snapshot));
+  const sourceKey='backups/system/source-rejected.enc.json';
+  env.MEDIA_BUCKET=stagedBucket({[sourceKey]:encryptedText});
+  const s=stores();
+  const actionIds=[];
+  const fetchImpl=async(url,init={})=>{
+    if(!String(url).endsWith('/actions/run'))return Response.json({error:'unexpected'},{status:500});
+    const payload=JSON.parse(String(init.body||'{}'));
+    actionIds.push(payload.id);
+    if(payload.id==='google_drive-upload-file')return Response.json({error:'forbidden'},{status:403});
+    if(payload.id==='google_drive-create-file-from-text'){
+      return Response.json({exports:{$return_value:{id:'write-probe-1',name:'probe.txt'}}});
+    }
+    if(payload.id==='google_drive-delete-file'){
+      assert.equal(payload.configured_props.fileId,'write-probe-1');
+      return Response.json({exports:{$return_value:{success:true,fileId:'write-probe-1'}}});
+    }
+    return Response.json({error:'unexpected-action'},{status:500});
+  };
+  const resolvePipedreamDrive=async()=>({
+    owner:'adrien',
+    config:{project_id:'proj_demo123',environment:'production'},
+    account_id:'apn_drive',
+    access_token:'server-token',
+  });
+  const common={
+    force:true,sourceSha:env.MEL_DEPLOYED_GIT_SHA,fetchImpl,
+    candidateStore:s.candidateStore,registryStore:s.registryStore,
+    loadBackupSource:async()=>({
+      snapshot_id:snapshot.id,object_key:sourceKey,
+      byte_length:new TextEncoder().encode(encryptedText).byteLength,
+      body:new Blob([encryptedText]).stream(),
+    }),
+    resolvePipedreamDrive,
+  };
+  await runGoogleDriveBackupRestorePrevalidationRuntime(env,{...common,stage:'resolve'});
+  await assert.rejects(
+    runGoogleDriveBackupRestorePrevalidationRuntime(env,{...common,stage:'prepare'}),
+    error=>error?.code==='SOV_BACKUP_PIPEDREAM_UPLOAD_SOURCE_REJECTED'&&error?.status===409,
+  );
+  assert.deepEqual(actionIds,[
+    'google_drive-upload-file',
+    'google_drive-create-file-from-text',
+    'google_drive-delete-file',
+  ]);
+});
+
 test('MEL-SOV-01 runtime persists fresh backup_restore alternative through canonical validator',async()=>{
   const snapshot=await snapshotFixture();
   const env=envFixture();
