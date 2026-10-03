@@ -217,6 +217,41 @@ test('Google access-token resolver automatically refreshes an expiring token', a
   }), true);
 });
 
+test('Google Drive refreshes an expired shared Gmail grant instead of requiring re-consent', async () => {
+  const { runtime, vaults, calls } = fixture();
+  await vaults.tokenVault.put({
+    owner: 'adrien',
+    connector_id: 'gmail',
+    token_set: {
+      access_token: 'expired-shared-access',
+      refresh_token: 'shared-google-refresh',
+      token_type: 'Bearer',
+      scopes: [
+        'https://www.googleapis.com/auth/gmail.readonly',
+        'https://www.googleapis.com/auth/drive.file',
+      ],
+      expires_at: Date.now() - 1,
+    },
+  });
+
+  const status = await runtime.status('google-drive', { owner: 'adrien' });
+  assert.equal(status.authorized, true);
+  assert.equal(status.refreshable, true);
+  assert.equal(status.token_source, 'shared_google_grant');
+
+  const token = await runtime.accessTokenResolver('google-drive', { owner: 'adrien' });
+  assert.equal(token, 'access-secret-2');
+  assert.equal(calls.some(call => {
+    if (call.url !== 'https://oauth2.googleapis.com/token') return false;
+    const form = new URLSearchParams(String(call.init.body || ''));
+    return form.get('grant_type') === 'refresh_token';
+  }), true);
+
+  const stored = await vaults.tokenVault.get({ owner: 'adrien', connector_id: 'gmail' });
+  assert.equal(stored.refresh_token, 'shared-google-refresh');
+  assert.equal(stored.scopes.includes('https://www.googleapis.com/auth/drive.file'), true);
+});
+
 test('Google access-token resolver reuses another Google token only when target required scopes are granted', async () => {
   const { runtime, vaults } = fixture();
   await vaults.tokenVault.put({
