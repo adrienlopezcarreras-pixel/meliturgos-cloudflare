@@ -34,6 +34,7 @@ test('decoupled MEL-FILE proof gates browser pressure on exact-SHA release readi
   assert.match(fileBlock,/for ATTEMPT in \$\(seq 1 8\)/);
   assert.match(fileBlock,/408\|409\|429\|500\|502\|503\|504/);
   assert.match(fileBlock,/Non-retryable MEL-FILE browser proof status/);
+  assert.match(fileBlock,/failed_step_id/);
 });
 
 test('decoupled browser proof retries bounded transient failures before gating MEL-FILE', async () => {
