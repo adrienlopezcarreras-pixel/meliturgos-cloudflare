@@ -1,0 +1,145 @@
+name: shardvault-cnet-cloudflare-probe
+
+on:
+  push:
+    branches:
+      - 'probe/cnet-cloudflare-roundtrip'
+    paths:
+      - '.github/workflows/shardvault-cnet-cloudflare-probe.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install exact lockfile
+        run: npm ci
+      - name: Deploy ephemeral Cloudflare egress probe
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .tmp/cnet-probe
+          WORKER_NAME="mel-cnet-probe-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          echo "WORKER_NAME=${WORKER_NAME}" >> "$GITHUB_ENV"
+          cat > .tmp/cnet-probe/worker.mjs <<'EOF'
+          function hex(buffer){
+            return [...new Uint8Array(buffer)].map(b=>b.toString(16).padStart(2,'0')).join('');
+          }
+          async function sha256(bytes){
+            return hex(await crypto.subtle.digest('SHA-256',bytes));
+          }
+          function cleanUrl(raw){
+            const text=String(raw||'').trim();
+            try{
+              const parsed=JSON.parse(text);
+              const candidate=parsed?.direct_url||parsed?.url||parsed?.link||'';
+              if(candidate)return String(candidate).trim();
+            }catch{}
+            return text.split(/\s+/).find(x=>/^https:\/\//i.test(x))||'';
+          }
+          async function readVariant(url,name,headers={}){
+            try{
+              const r=await fetch(url,{method:'GET',headers,redirect:'follow'});
+              const bytes=new Uint8Array(await r.arrayBuffer());
+              return {name,status:r.status,ok:r.ok,bytes:bytes.length,sha256:r.ok?await sha256(bytes):null,content_type:r.headers.get('content-type')||null};
+            }catch(error){
+              return {name,status:0,ok:false,error:String(error?.message||error).slice(0,180)};
+            }
+          }
+          async function uploadVariant(payload,variant){
+            try{
+              const r=await fetch('https://paste.c-net.org/',{
+                method:variant.method,
+                headers:variant.headers,
+                body:payload,
+                redirect:'follow',
+              });
+              const raw=await r.text();
+              const url=cleanUrl(raw);
+              const reads=[];
+              if(url){
+                reads.push(await readVariant(url,'plain',{}));
+                reads.push(await readVariant(url,'mel-ua',{'accept':'application/octet-stream, */*','user-agent':'MEL-ShardVault/1.0'}));
+                reads.push(await readVariant(url,'curl-ua',{'accept':'*/*','user-agent':'curl/8.0'}));
+                reads.push(await readVariant(url,'browser-ua',{'accept':'*/*','user-agent':'Mozilla/5.0'}));
+              }
+              return {name:variant.name,method:variant.method,upload_status:r.status,upload_ok:r.ok,returned_url:url||null,response_preview:raw.slice(0,220),reads};
+            }catch(error){
+              return {name:variant.name,method:variant.method,upload_status:0,upload_ok:false,error:String(error?.message||error).slice(0,180),reads:[]};
+            }
+          }
+          export default {
+            async fetch(){
+              const payload=new Uint8Array(253011);
+              for(let i=0;i<payload.length;i++)payload[i]=i%251;
+              const expected=await sha256(payload);
+              const variants=[
+                {name:'post-octet',method:'POST',headers:{'content-type':'application/octet-stream','accept':'text/plain, */*','user-agent':'MEL-ShardVault/1.0'}},
+                {name:'post-curl',method:'POST',headers:{'content-type':'application/octet-stream','accept':'*/*','user-agent':'curl/8.0'}},
+                {name:'put-curl',method:'PUT',headers:{'content-type':'application/octet-stream','accept':'*/*','user-agent':'curl/8.0'}},
+                {name:'put-json',method:'PUT',headers:{'content-type':'application/octet-stream','accept':'application/json, */*','user-agent':'curl/8.0'}},
+              ];
+              const results=[];
+              for(const variant of variants)results.push(await uploadVariant(payload,variant));
+              return Response.json({expected_bytes:payload.length,expected_sha256:expected,results},{headers:{'cache-control':'no-store'}});
+            }
+          };
+          EOF
+          cat > .tmp/cnet-probe/wrangler.jsonc <<EOF
+          {
+            "name": "${WORKER_NAME}",
+            "main": "worker.mjs",
+            "compatibility_date": "2026-10-03",
+            "workers_dev": true
+          }
+          EOF
+          npx wrangler deploy --config .tmp/cnet-probe/wrangler.jsonc
+      - name: Execute Cloudflare round-trip probe
+        shell: bash
+        run: |
+          set -euo pipefail
+          URL="https://${WORKER_NAME}.adrien-lopezcarreras.workers.dev/"
+          READY=0
+          for ATTEMPT in $(seq 1 12); do
+            CODE="$(curl --silent --show-error --max-time 180 --output cnet-cloudflare-probe.json --write-out '%{http_code}' "${URL}" || true)"
+            if [ "${CODE}" = "200" ]; then READY=1; break; fi
+            sleep 2
+          done
+          test "${READY}" = "1"
+          cat cnet-cloudflare-probe.json
+          node - <<'NODE'
+          const d=require('./cnet-cloudflare-probe.json');
+          const expected=d.expected_sha256;
+          const summary=(d.results||[]).map(r=>({
+            name:r.name,upload_status:r.upload_status,upload_ok:r.upload_ok,returned_url:r.returned_url,
+            reads:(r.reads||[]).map(x=>({name:x.name,status:x.status,ok:x.ok,bytes:x.bytes,sha_match:x.sha256===expected}))
+          }));
+          console.log(JSON.stringify(summary,null,2));
+          NODE
+      - name: Delete ephemeral probe worker
+        if: always()
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        shell: bash
+        run: |
+          set +e
+          curl --silent --show-error --max-time 30 \
+            --request DELETE \
+            --header "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+            --output /tmp/cnet-probe-delete.json \
+            --write-out '%{http_code}' \
+            "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/scripts/${WORKER_NAME}"
+          echo
