@@ -30,6 +30,8 @@ const MANIFESTS = Object.freeze({
         'https://www.googleapis.com/auth/calendar.events',
         'https://www.googleapis.com/auth/tasks.readonly',
         'https://www.googleapis.com/auth/tasks',
+        // Minimal Drive scope for MEL-created sovereignty backup files.
+        'https://www.googleapis.com/auth/drive.file',
       ]),
     }),
   }),
@@ -64,6 +66,23 @@ const MANIFESTS = Object.freeze({
     scopes: Object.freeze({
       required: Object.freeze(['https://www.googleapis.com/auth/tasks.readonly']),
       optional: Object.freeze(['https://www.googleapis.com/auth/tasks']),
+    }),
+  }),
+  'google-drive': Object.freeze({
+    id: 'google-drive',
+    name: 'Google Drive',
+    version: '1.0.0',
+    auth: 'oauth2',
+    capabilities: Object.freeze([
+      'drive.files.create',
+      'drive.files.read',
+      'drive.files.delete',
+    ]),
+    scopes: Object.freeze({
+      // drive.file is intentionally narrower than full Drive access: MEL can
+      // create/read/delete only files created/opened by this app.
+      required: Object.freeze(['https://www.googleapis.com/auth/drive.file']),
+      optional: Object.freeze([]),
     }),
   }),
 });
