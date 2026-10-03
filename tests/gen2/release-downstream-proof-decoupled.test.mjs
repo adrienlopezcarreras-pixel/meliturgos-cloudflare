@@ -13,6 +13,9 @@ test('decoupled downstream proof never deploys, rolls back, toggles MAX, or muta
   assert.match(workflow,/mel-file-browser-production-proof/);
   assert.match(workflow,/sovereignty-proof/);
   assert.match(workflow,/MEL_SOV_01_DONE_VERIFIED_ELIGIBLE/);
+  assert.match(workflow,/Capture exact-SHA CapabilityBus health/);
+  assert.match(workflow,/capability-health\.json/);
+  assert.match(workflow,/api\/gen2\/capabilities\?refresh=1/);
   assert.doesNotMatch(workflow,/wrangler\s+(?:deploy|secret|versions)/);
   assert.doesNotMatch(workflow,/MEL_LAUNCH_BOOTSTRAP_TOKEN/);
   assert.doesNotMatch(workflow,/release-rollback-restore|automatic rollback|wrangler\s+rollback|deployments?[^\n]{0,80}rollback/i);
@@ -104,6 +107,7 @@ test('parallel proof auth is narrower than the normal release-smoke token', asyn
   const block=security.split('const PARALLEL_PROOF_ALLOWLIST')[1]?.split('export function isReleaseSmokeRequest')[0]||'';
   assert.match(block,/api\/gen2\/capabilities\/execute/);
   assert.match(block,/api\/gen2\/code\/self-check/);
+  assert.match(block,/api\/gen2\/capabilities/);
   assert.match(block,/api\/gen2\/autonomy\/sovereignty/);
   assert.match(block,/api\/chat/);
   assert.equal([...block.matchAll(/'([^']+)'/g)].some(([,route])=>route.includes('/connections/')&&route.endsWith('/save')),false);
@@ -114,4 +118,18 @@ test('parallel proof auth is narrower than the normal release-smoke token', asyn
   const upload=await readFile(new URL('../../src/api/file-upload.js',import.meta.url),'utf8');
   assert.match(upload,/MEL_FILE_PROOF_UPLOAD_REJECTED/);
   assert.match(upload,/MEL_FILE_PROOF_PAYLOAD_INVALID/);
+});
+
+
+test('decoupled capability health proof is read-only, sanitized, and grouped by provider', async () => {
+  const workflow=await readFile(new URL('../../.github/workflows/release-downstream-proof-decoupled.yml',import.meta.url),'utf8');
+  const block=workflow.split('\n  capabilities:\n')[1]?.split('\n  browser:\n')[0]||'';
+  assert.match(block,/api\/gen2\/capabilities\?refresh=1/);
+  assert.match(block,/source_sha/);
+  assert.match(block,/by_provider/);
+  assert.match(block,/by_health/);
+  assert.match(block,/health_detail/);
+  assert.match(block,/secret_values_exposed:false/);
+  assert.doesNotMatch(block,/MEL_LAUNCH_BOOTSTRAP_TOKEN/);
+  assert.doesNotMatch(block,/wrangler\s+(?:deploy|secret|versions)/);
 });
