@@ -128,6 +128,7 @@ test('OAuth app credentials are encrypted at rest and never returned by status',
   assert.equal(state.connectors.gmail.authorized, false);
   assert.equal(state.connectors['google-calendar'].authorized, false);
   assert.equal(state.connectors['google-tasks'].authorized, false);
+  assert.equal(state.connectors['google-drive'].authorized, false);
 });
 
 
