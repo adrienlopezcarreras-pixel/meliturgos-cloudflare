@@ -122,3 +122,20 @@ test('final ShardVault status tolerates bounded secret propagation',async()=>{
   assert.match(source,/ShardVault final status propagation attempt/);
   assert.match(source,/test "\$SHARD_FINAL_READY" = "1"/);
 });
+
+test('release rollback restores only the captured autonomy state through exact-SHA OIDC flow',async()=>{
+  const source=await readFile(new URL('../.github/workflows/deploy-cloudflare-release.yml',import.meta.url),'utf8');
+  assert.match(source,/id-token:\s*write/);
+  assert.match(source,/Capture pre-deploy autonomy control/);
+  assert.match(source,/\/api\/gen2\/autonomy\/control/);
+  assert.match(source,/PREVIOUS_DEPLOYED_SHA/);
+  assert.match(source,/PREVIOUS_AUTONOMY_PAUSED/);
+  assert.match(source,/PREVIOUS_MAX_AUTONOMY/);
+  assert.match(source,/release-rollback-restore/);
+  assert.match(source,/x-mel-github-oidc/);
+  assert.match(source,/audience=meliturgos-worker/);
+  assert.match(source,/waiting for exact stable SHA propagation/);
+  const rollback=source.split('Automatic rollback on failed production verification')[1]||'';
+  assert.doesNotMatch(rollback,/wrangler secret put/);
+  assert.match(rollback,/if \[ "\$\{PREVIOUS_AUTONOMY_PAUSED\}" = "true" \] && \[ "\$\{PREVIOUS_MAX_AUTONOMY\}" = "false" \]/);
+});
