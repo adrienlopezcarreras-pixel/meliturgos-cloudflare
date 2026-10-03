@@ -452,6 +452,9 @@ export function summarizeAutonomyLaunchCodeSync(value) {
     },
     reason: external?.reason || null,
     next_retry_at: external?.next_retry_at || null,
+    relay_pending: external?.relay_pending === true,
+    relay_job_id: external?.relay_job_id || null,
+    relay_status: external?.relay_status || null,
     code_pool_exhaustions: Number(external?.code_pool_exhaustions || 0),
     code_pool_refreshes: Number(external?.code_pool_refreshes || 0),
     failures: Array.isArray(external?.failures)
