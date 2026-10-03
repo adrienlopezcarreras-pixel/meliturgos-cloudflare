@@ -185,7 +185,10 @@ jobs:
 
   file:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    # The file proof can wait up to 10 minutes for exact-SHA readiness before
+    # eight bounded 120-second browser attempts. 15 minutes could kill a valid
+    # run before its final retry, as happened in downstream #16.
+    timeout-minutes: 30
     env:
       PROOF_KEY_B64: ${{ secrets.MEL_BACKUP_ENCRYPTION_KEY_B64 }}
     steps:
@@ -284,6 +287,9 @@ jobs:
             case "${CODE}" in
               408|409|429|500|502|503|504)
                 echo "Transient MEL-FILE browser proof status ${CODE}; retry ${ATTEMPT}/8."
+                if [ -s file-proof.json ]; then
+                  node -e 'const fs=require("fs");let d={};try{d=JSON.parse(fs.readFileSync("file-proof.json","utf8"))}catch{};console.log(JSON.stringify({ok:d?.ok===true,error:d?.error||d?.code||d?.status||"UNKNOWN"}))'
+                fi
                 sleep $((ATTEMPT * 2))
                 ;;
               *)
