@@ -352,6 +352,87 @@ test('MEL-SOV-01 staged Pipedream proof persists only bounded non-secret state a
   assert.equal(row.proof.source_sha,env.MEL_DEPLOYED_GIT_SHA);
 });
 
+test('MEL-SOV-01 resolve upgrades persisted Pipedream state to native Google OAuth when drive.file becomes available',async()=>{
+  const env=envFixture();
+  delete env.GOOGLE_DRIVE_ACCESS_TOKEN;
+  env.MEDIA_BUCKET=stagedBucket();
+  const s=stores();
+  const pd=async()=>({
+    owner:'adrien',
+    config:{project_id:'proj_demo123',environment:'production'},
+    account_id:'apn_drive',
+    access_token:'server-token',
+  });
+  const common={
+    force:true,
+    sourceSha:env.MEL_DEPLOYED_GIT_SHA,
+    candidateStore:s.candidateStore,
+    registryStore:s.registryStore,
+    resolvePipedreamDrive:pd,
+  };
+
+  const first=await runGoogleDriveBackupRestorePrevalidationRuntime(env,{
+    ...common,
+    stage:'resolve',
+    resolveNativeDrive:async()=>null,
+    now:Date.parse('2026-10-01T20:49:40.000Z'),
+  });
+  assert.equal(first.provider,'google-drive-via-pipedream');
+
+  let fallbackCalled=false;
+  const second=await runGoogleDriveBackupRestorePrevalidationRuntime(env,{
+    ...common,
+    stage:'resolve',
+    resolveNativeDrive:async()=>({
+      owner:'adrien',token:'native-drive-token',provider:'google-drive-oauth',token_source:'shared_google_grant',
+    }),
+    resolvePipedreamDrive:async()=>{fallbackCalled=true;return pd();},
+    now:Date.parse('2026-10-01T20:49:45.000Z'),
+  });
+  assert.equal(second.provider,'google-drive-oauth');
+  assert.equal(fallbackCalled,false);
+  const state=[...env.MEDIA_BUCKET.objects.entries()]
+    .filter(([key])=>key.startsWith('sovereignty/backup-restore-stage/'))
+    .map(([,value])=>String(value)).join('\n');
+  assert.match(state,/google-drive-oauth/);
+  assert.doesNotMatch(state,/native-drive-token/);
+  assert.doesNotMatch(state,/server-token/);
+});
+
+test('MEL-SOV-01 resolve propagates Drive reconsent requirement and never falls back to Pipedream',async()=>{
+  const env=envFixture();
+  env.MEDIA_BUCKET=stagedBucket();
+  const s=stores();
+  let fallbackCalled=false;
+  await assert.rejects(
+    runGoogleDriveBackupRestorePrevalidationRuntime(env,{
+      force:true,
+      sourceSha:env.MEL_DEPLOYED_GIT_SHA,
+      stage:'resolve',
+      candidateStore:s.candidateStore,
+      registryStore:s.registryStore,
+      resolveNativeDrive:async()=>{
+        const error=new Error('SOV_BACKUP_GOOGLE_DRIVE_RECONSENT_REQUIRED');
+        error.code='SOV_BACKUP_GOOGLE_DRIVE_RECONSENT_REQUIRED';
+        error.status=409;
+        throw error;
+      },
+      resolvePipedreamDrive:async()=>{fallbackCalled=true;return null;},
+    }),
+    error=>error?.code==='SOV_BACKUP_GOOGLE_DRIVE_RECONSENT_REQUIRED',
+  );
+  assert.equal(fallbackCalled,false);
+});
+
+test('MEL-SOV-01 native OAuth contract detects legacy Google grants and does not require a static Drive token after proof',async()=>{
+  const {readFile}=await import('node:fs/promises');
+  const source=await readFile(new URL('../../src/portability/google-drive-backup-restore-prevalidation-runtime.js',import.meta.url),'utf8');
+  assert.match(source,/\['gmail','google-calendar','google-tasks'\]/);
+  assert.match(source,/SOV_BACKUP_GOOGLE_DRIVE_RECONSENT_REQUIRED/);
+  assert.match(source,/nativeOauth:state\.provider==='google-drive-oauth'/);
+  assert.match(source,/pipedream\|\|nativeOauth\s*\? \['MEL_BACKUP_ENCRYPTION_KEY_B64'\]/);
+});
+
 test('MEL-SOV-01 runtime persists fresh backup_restore alternative through canonical validator',async()=>{
   const snapshot=await snapshotFixture();
   const env=envFixture();
