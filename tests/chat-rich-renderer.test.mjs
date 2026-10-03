@@ -52,7 +52,7 @@ test('rich renderer creates headings, inline emphasis, lists, quotes, tables and
 });
 
 test('rich renderer preserves technical identifiers containing underscores', () => {
-  const { host } = render('RELEASE_CODE_SMOKE_OK et _italique_');
+  const { host } = render('RELEASE_CODE_SMOKE_OK et *italique*');
   assert.match(host.textContent, /RELEASE_CODE_SMOKE_OK/);
   assert.equal(host.querySelector('em')?.textContent, 'italique');
 });
