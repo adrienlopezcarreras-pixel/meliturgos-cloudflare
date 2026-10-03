@@ -728,7 +728,7 @@ export async function testPipedreamGoogleTasksRead(config, contextOwner, options
     // The pre-built action can temporarily reject a healthy managed account
     // even though the Connect API proxy can still authenticate it. Prove a
     // real read-only Google Tasks request through the same linked account.
-    const target = 'https://tasks.googleapis.com/tasks/v1/users/@me/lists?maxResults=1';
+    const target = 'https://www.googleapis.com/tasks/v1/users/@me/lists?maxResults=1';
     const params = new URLSearchParams({
       external_user_id: contextOwner,
       account_id: account.id,
