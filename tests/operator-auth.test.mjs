@@ -162,6 +162,7 @@ test('parallel production proof token is immutable, narrow and cannot use broad 
     ['GET','/'],
     ['GET','/professor'],
     ['GET','/normal-runtime.js'],
+    ['POST','/api/chat'],
     ['POST','/api/gen2/capabilities/execute'],
     ['POST','/api/gen2/connections/google/test'],
     ['POST','/api/gen2/connections/microsoft/test'],
@@ -176,7 +177,6 @@ test('parallel production proof token is immutable, narrow and cannot use broad 
   }
 
   for (const [method,path] of [
-    ['POST','/api/chat'],
     ['GET','/api/gen2/readiness'],
     ['GET','/api/memory/status'],
     ['POST','/api/gen2/connections/google/save'],
