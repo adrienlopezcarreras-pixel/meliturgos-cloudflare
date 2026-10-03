@@ -14,6 +14,7 @@ const DELEGATED_PREFIXES = Object.freeze([
 ]);
 const DELEGATED_EXACT = Object.freeze(new Set([
   '/api/internal/release-launch-bootstrap',
+  '/api/internal/sov-backup-download',
 ]));
 
 function methodOf(request) {
