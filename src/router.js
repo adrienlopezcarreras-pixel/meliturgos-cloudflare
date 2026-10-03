@@ -18,6 +18,8 @@ import { handlePublicWordPressChat, publicWordPressChatCors } from "./api/public
 import { renderPublicWordPressChatPage } from "./pages/public-wordpress-chat-page.js";
 import { renderPrivacyPolicyPage } from "./pages/privacy-policy.js";
 import { renderPublicMelHomePage } from "./pages/public-mel-home.js";
+import { renderFidesGuestPage } from "./pages/fides-guest-page.js";
+import { handlePublicFidesChat } from "./api/public-fides-chat.js";
 import { NORMAL_RUNTIME_SOURCE } from "./pages/mvp-runtime.js";
 import { devRuntime } from "./dev/runtime-api.js";
 import { githubActionRelayApi } from "./api/github-action-relay-api.js";
@@ -388,6 +390,18 @@ async function routeResolvedRequest(request, env, ctx) {
     if (request.method === "GET" && url.pathname === "/public/wordpress-chat") return new Response(renderPublicWordPressChatPage(), { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "public, max-age=300", "content-security-policy": "default-src 'self'; connect-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; frame-ancestors https://verite-interdite.fr" } });
     if (url.pathname === "/api/public/wordpress/chat" && request.method === "OPTIONS") return publicWordPressChatCors(request);
     if (url.pathname === "/api/public/wordpress/chat" && request.method === "POST") return handlePublicWordPressChat(request, env);
+    if (request.method === "GET" && (url.pathname === "/fides" || url.pathname === "/fides/invite" || url.pathname === "/guest/fides")) {
+      return new Response(renderFidesGuestPage(), {
+        headers: {
+          "content-type": "text/html; charset=utf-8",
+          "cache-control": "public, max-age=120",
+          "content-security-policy": "default-src 'self'; connect-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src 'self' data:; frame-ancestors 'none'",
+          "x-content-type-options": "nosniff",
+          "referrer-policy": "no-referrer",
+        }
+      });
+    }
+    if (url.pathname === "/api/public/fides/chat" && request.method === "POST") return handlePublicFidesChat(request, env);
 
     const auth = requireAuth(request, env);
     if (!auth.ok) return auth.response;
