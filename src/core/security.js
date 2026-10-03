@@ -97,6 +97,9 @@ const PARALLEL_PROOF_ALLOWLIST = Object.freeze(new Map([
     '/api/gen2/connections/yahoo-imap/test',
     '/api/gen2/connections/vercel/test',
     '/api/gen2/connections/pipedream/test',
+    // Exact-SHA MEL-FILE proof uses this route only under additional
+    // payload/name/size restrictions enforced inside handleFileUpload.
+    '/api/files/upload',
   ])],
   ['GET', new Set([
     '/api/gen2/code/self-check',
