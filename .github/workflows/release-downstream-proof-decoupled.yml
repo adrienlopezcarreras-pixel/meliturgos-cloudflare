@@ -107,13 +107,35 @@ jobs:
           NODE
           )"
           echo "::add-mask::${TOKEN}"
-          CODE="$(curl --silent --show-error --max-time 45 \
-            --header "x-mel-release-smoke: 1" \
-            --header "x-mel-parallel-proof: ${TOKEN}" \
-            --output sha-status.json --write-out '%{http_code}' \
-            "${BASE_URL}/api/gen2/code/self-check" || true)"
-          test "${CODE}" = "200"
-          TARGET_SHA="${TARGET_SHA}" node -e 'const d=require("./sha-status.json");const actual=String(d?.deployed_sha||d?.sha||"").toLowerCase();if(actual!==String(process.env.TARGET_SHA).toLowerCase())throw new Error("DEPLOYED_SHA_MISMATCH:"+actual)'
+          SHA_READY=0
+          for ATTEMPT in $(seq 1 12); do
+            CODE="$(curl --silent --show-error --max-time 45 \
+              --header "x-mel-release-smoke: 1" \
+              --header "x-mel-parallel-proof: ${TOKEN}" \
+              --output sha-status.json --write-out '%{http_code}' \
+              "${BASE_URL}/api/gen2/code/self-check" || true)"
+            if [ "${CODE}" = "200" ] && TARGET_SHA="${TARGET_SHA}" node - <<'NODE'
+          const fs=require('fs');
+          let d={}; try{d=JSON.parse(fs.readFileSync('sha-status.json','utf8'))}catch{}
+          const actual=String(d?.deployed_sha||d?.sha||'').toLowerCase();
+          process.exit(actual===String(process.env.TARGET_SHA||'').toLowerCase()?0:1);
+          NODE
+            then
+              SHA_READY=1
+              break
+            fi
+            case "${CODE}" in
+              000|200|401|408|409|429|500|502|503|504)
+                echo "Exact-SHA identity still propagating (HTTP ${CODE}); retry ${ATTEMPT}/12."
+                sleep $((ATTEMPT < 4 ? ATTEMPT : 4))
+                ;;
+              *)
+                echo "Non-retryable exact-SHA identity status ${CODE}."
+                exit 29
+                ;;
+            esac
+          done
+          test "${SHA_READY}" = "1"
 
           SESSION="decoupled-browser-${TARGET_SHA:0:12}"
           export SESSION
@@ -162,7 +184,6 @@ jobs:
           retention-days: 14
 
   file:
-    needs: browser
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     env:
@@ -181,13 +202,35 @@ jobs:
           NODE
           )"
           echo "::add-mask::${TOKEN}"
-          CODE="$(curl --silent --show-error --max-time 45 \
-            --header "x-mel-release-smoke: 1" \
-            --header "x-mel-parallel-proof: ${TOKEN}" \
-            --output sha-status.json --write-out '%{http_code}' \
-            "${BASE_URL}/api/gen2/code/self-check" || true)"
-          test "${CODE}" = "200"
-          TARGET_SHA="${TARGET_SHA}" node -e 'const d=require("./sha-status.json");const actual=String(d?.deployed_sha||d?.sha||"").toLowerCase();if(actual!==String(process.env.TARGET_SHA).toLowerCase())throw new Error("DEPLOYED_SHA_MISMATCH:"+actual)'
+          SHA_READY=0
+          for ATTEMPT in $(seq 1 12); do
+            CODE="$(curl --silent --show-error --max-time 45 \
+              --header "x-mel-release-smoke: 1" \
+              --header "x-mel-parallel-proof: ${TOKEN}" \
+              --output sha-status.json --write-out '%{http_code}' \
+              "${BASE_URL}/api/gen2/code/self-check" || true)"
+            if [ "${CODE}" = "200" ] && TARGET_SHA="${TARGET_SHA}" node - <<'NODE'
+          const fs=require('fs');
+          let d={}; try{d=JSON.parse(fs.readFileSync('sha-status.json','utf8'))}catch{}
+          const actual=String(d?.deployed_sha||d?.sha||'').toLowerCase();
+          process.exit(actual===String(process.env.TARGET_SHA||'').toLowerCase()?0:1);
+          NODE
+            then
+              SHA_READY=1
+              break
+            fi
+            case "${CODE}" in
+              000|200|401|408|409|429|500|502|503|504)
+                echo "Exact-SHA identity still propagating (HTTP ${CODE}); retry ${ATTEMPT}/12."
+                sleep $((ATTEMPT < 4 ? ATTEMPT : 4))
+                ;;
+              *)
+                echo "Non-retryable exact-SHA identity status ${CODE}."
+                exit 29
+                ;;
+            esac
+          done
+          test "${SHA_READY}" = "1"
 
           RELEASE_READY=0
           for ATTEMPT in $(seq 1 60); do
@@ -292,13 +335,35 @@ jobs:
           )"
           echo "::add-mask::${TOKEN}"
 
-          SHA_CODE="$(curl --silent --show-error --max-time 45 \
-            --header "x-mel-release-smoke: 1" \
-            --header "x-mel-parallel-proof: ${TOKEN}" \
-            --output sovereignty-sha-status.json --write-out '%{http_code}' \
-            "${BASE_URL}/api/gen2/code/self-check" || true)"
-          test "${SHA_CODE}" = "200"
-          TARGET_SHA="${TARGET_SHA}" node -e 'const d=require("./sovereignty-sha-status.json");const actual=String(d?.deployed_sha||d?.sha||"").toLowerCase();if(actual!==String(process.env.TARGET_SHA).toLowerCase())throw new Error("DEPLOYED_SHA_MISMATCH:"+actual)'
+          SHA_READY=0
+          for ATTEMPT in $(seq 1 12); do
+            SHA_CODE="$(curl --silent --show-error --max-time 45 \
+              --header "x-mel-release-smoke: 1" \
+              --header "x-mel-parallel-proof: ${TOKEN}" \
+              --output sovereignty-sha-status.json --write-out '%{http_code}' \
+              "${BASE_URL}/api/gen2/code/self-check" || true)"
+            if [ "${SHA_CODE}" = "200" ] && TARGET_SHA="${TARGET_SHA}" node - <<'NODE'
+          const fs=require('fs');
+          let d={}; try{d=JSON.parse(fs.readFileSync('sovereignty-sha-status.json','utf8'))}catch{}
+          const actual=String(d?.deployed_sha||d?.sha||'').toLowerCase();
+          process.exit(actual===String(process.env.TARGET_SHA||'').toLowerCase()?0:1);
+          NODE
+            then
+              SHA_READY=1
+              break
+            fi
+            case "${SHA_CODE}" in
+              000|200|401|408|409|429|500|502|503|504)
+                echo "Exact-SHA SOV identity still propagating (HTTP ${SHA_CODE}); retry ${ATTEMPT}/12."
+                sleep $((ATTEMPT < 4 ? ATTEMPT : 4))
+                ;;
+              *)
+                echo "Non-retryable SOV identity status ${SHA_CODE}."
+                exit 29
+                ;;
+            esac
+          done
+          test "${SHA_READY}" = "1"
 
           # Populate every bounded sovereignty prevalidation domain before reading
           # the final 10-layer registry. Each refresh is isolated in its own
