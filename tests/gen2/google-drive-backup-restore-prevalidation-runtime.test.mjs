@@ -302,54 +302,40 @@ test('MEL-SOV-01 runtime uses Pipedream Drive raw proxy when direct token is abs
   assert.equal(row.provider,'google-drive-via-pipedream');
 });
 
-test('MEL-SOV-01 staged Pipedream proof persists only bounded non-secret state across five Worker requests',async()=>{
-  const snapshot=await snapshotFixture();
+test('MEL-SOV-01 staged release proof requires native Google Drive OAuth and never falls back to Pipedream writes',async()=>{
   const env=envFixture();
   delete env.GOOGLE_DRIVE_ACCESS_TOKEN;
-  const codec=createBackupEncryptionCodec({keyBytes:env.keyBytes,keyId:env.MEL_BACKUP_ENCRYPTION_KEY_ID});
-  const encryptedText=JSON.stringify(await codec.seal(snapshot));
-  const sourceKey='backups/system/test.enc.json';
-  env.MEDIA_BUCKET=stagedBucket({[sourceKey]:encryptedText});
+  env.MEDIA_BUCKET=stagedBucket();
   const s=stores();
-  const proxy=pipedreamDriveProxyFixture(encryptedText,{backupId:'pd-drive-staged-1'});
-  const context=async()=>({
-    owner:'adrien',
-    config:{project_id:'proj_demo123',environment:'production'},
-    account_id:'apn_drive',
-    access_token:'server-token',
-  });
-  const common={
-    force:true,
-    sourceSha:env.MEL_DEPLOYED_GIT_SHA,
-    fetchImpl:proxy.fetchImpl,
-    candidateStore:s.candidateStore,
-    registryStore:s.registryStore,
-    loadBackupSource:async()=>({snapshot_id:snapshot.id,object_key:sourceKey,byte_length:new TextEncoder().encode(encryptedText).byteLength,body:new Blob([encryptedText]).stream()}),
-    resolvePipedreamDrive:context,
-  };
+  let pipedreamResolved=false;
+  let backupLoaded=false;
 
-  const resolve=await runGoogleDriveBackupRestorePrevalidationRuntime(env,{...common,stage:'resolve',now:Date.parse('2026-10-01T20:49:50.000Z')});
-  const prepare=await runGoogleDriveBackupRestorePrevalidationRuntime(env,{...common,stage:'prepare',now:Date.parse('2026-10-01T20:50:00.000Z')});
-  const readback=await runGoogleDriveBackupRestorePrevalidationRuntime(env,{...common,stage:'readback',now:Date.parse('2026-10-01T20:50:10.000Z')});
-  const rollback=await runGoogleDriveBackupRestorePrevalidationRuntime(env,{...common,stage:'rollback',now:Date.parse('2026-10-01T20:50:20.000Z')});
-  const finalize=await runGoogleDriveBackupRestorePrevalidationRuntime(env,{...common,stage:'finalize',now:Date.parse('2026-10-01T20:50:30.000Z')});
+  await assert.rejects(
+    runGoogleDriveBackupRestorePrevalidationRuntime(env,{
+      force:true,
+      sourceSha:env.MEL_DEPLOYED_GIT_SHA,
+      candidateStore:s.candidateStore,
+      registryStore:s.registryStore,
+      stage:'resolve',
+      resolveNativeDrive:async()=>null,
+      resolvePipedreamDrive:async()=>{
+        pipedreamResolved=true;
+        return{
+          owner:'adrien',
+          config:{project_id:'proj_demo123',environment:'production'},
+          account_id:'apn_drive',
+          access_token:'server-token',
+        };
+      },
+      loadBackupSource:async()=>{backupLoaded=true;throw new Error('backup must not be loaded');},
+    }),
+    error=>error?.code==='SOV_BACKUP_GOOGLE_DRIVE_RECONSENT_REQUIRED'&&error?.status===409,
+  );
 
-  assert.equal(resolve.status,'BACKUP_RESTORE_STAGE_RESOLVED');
-  assert.equal(prepare.status,'BACKUP_RESTORE_STAGE_PREPARED');
-  assert.equal(readback.status,'BACKUP_RESTORE_STAGE_READBACK_VERIFIED');
-  assert.equal(rollback.status,'BACKUP_RESTORE_STAGE_ROLLBACK_VERIFIED');
-  assert.equal(finalize.prevalidated,1);
-  assert.equal(finalize.proof.readback_verified,true);
-  assert.equal(finalize.proof.restore_verified,true);
-  assert.equal(finalize.proof.rollback_verified,true);
-  const state=[...env.MEDIA_BUCKET.objects.entries()].filter(([key])=>key.startsWith('sovereignty/')).map(([,value])=>String(value)).join('\n');
-  assert.doesNotMatch(state,/server-token/);
-  assert.doesNotMatch(state,/client_secret/i);
-  assert.doesNotMatch(state,/access_token/i);
-  assert.doesNotMatch(state,new RegExp(encryptedText.slice(0,40).replace(/[.*+?^$()|[\]{}\\]/g,'\\$&')));
-  const row=s.registryStore.registry.layers.backup_restore.find(item=>item.id===GOOGLE_DRIVE_BACKUP_RESTORE_CANDIDATE_ID);
-  assert.equal(row.prevalidated,true);
-  assert.equal(row.proof.source_sha,env.MEL_DEPLOYED_GIT_SHA);
+  assert.equal(pipedreamResolved,false);
+  assert.equal(backupLoaded,false);
+  const persisted=[...env.MEDIA_BUCKET.objects.values()].map(String).join('\n');
+  assert.doesNotMatch(persisted,/server-token|access_token|client_secret/i);
 });
 
 test('MEL-SOV-01 runtime persists fresh backup_restore alternative through canonical validator',async()=>{

@@ -70,6 +70,8 @@ test('decoupled sovereignty refreshes retry only bounded transient pressure and 
   assert.match(workflow,/for ATTEMPT in \$\(seq 1 6\)/);
   assert.match(workflow,/BOOTSTRAP_AUTH_REQUIRED/);
   assert.match(workflow,/Decoupled SOV proof auth is still propagating/);
+  assert.match(workflow,/SOV_BACKUP_GOOGLE_DRIVE_RECONSENT_REQUIRED/);
+  assert.match(workflow,/Google Drive OAuth re-consent is required/);
   assert.match(workflow,/409\|429\|500\|502\|503\|504/);
   assert.match(workflow,/Transient decoupled SOV refresh/);
   assert.match(workflow,/Non-retryable decoupled SOV refresh/);
