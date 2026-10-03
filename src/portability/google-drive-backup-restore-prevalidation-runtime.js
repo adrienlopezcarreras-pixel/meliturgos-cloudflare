@@ -529,15 +529,30 @@ async function driveWriteMedia({token,fileId,body,byteLength=0,fetchImpl=fetch})
 }
 
 async function driveReadBytes({token,fileId,fetchImpl=fetch,allowNotFound=false}){
-  const response=await fetchImpl(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?alt=media`,{
-    method:'GET',
-    headers:{authorization:`Bearer ${token}`},
-    redirect:'manual',
-    signal:AbortSignal.timeout(30000),
-  });
+  let response;
+  try{
+    response=await fetchImpl(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?alt=media`,{
+      method:'GET',
+      headers:{authorization:`Bearer ${token}`},
+      redirect:'follow',
+      signal:AbortSignal.timeout(30000),
+    });
+  }catch(error){
+    const name=clean(error?.name,120).toUpperCase();
+    if(name==='TIMEOUTERROR'||name==='ABORTERROR')fail('SOV_BACKUP_DRIVE_READ_TIMEOUT',503);
+    fail('SOV_BACKUP_DRIVE_READ_NETWORK_FAILED',503);
+  }
   if(allowNotFound&&response.status===404)return null;
-  if(!response.ok)fail(`SOV_BACKUP_DRIVE_READ_FAILED:${response.status}`,502);
-  return new Uint8Array(await response.arrayBuffer());
+  if(!response.ok){
+    const payload=await response.clone().json().catch(()=>({}));
+    fail(driveFailureCode('SOV_BACKUP_DRIVE_READ_FAILED',response,payload),502);
+  }
+  try{return new Uint8Array(await response.arrayBuffer());}
+  catch(error){
+    const name=clean(error?.name,120).toUpperCase();
+    if(name==='TIMEOUTERROR'||name==='ABORTERROR')fail('SOV_BACKUP_DRIVE_READ_BODY_TIMEOUT',503);
+    fail('SOV_BACKUP_DRIVE_READ_BODY_FAILED',503);
+  }
 }
 
 async function driveUpload({token,name,content,folderId=null,fetchImpl=fetch}){
@@ -562,15 +577,30 @@ async function driveUpload({token,name,content,folderId=null,fetchImpl=fetch}){
 }
 
 async function driveRead({token,fileId,fetchImpl=fetch,allowNotFound=false}){
-  const response=await fetchImpl(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?alt=media`,{
-    method:'GET',
-    headers:{authorization:`Bearer ${token}`},
-    redirect:'manual',
-    signal:AbortSignal.timeout(20000),
-  });
+  let response;
+  try{
+    response=await fetchImpl(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?alt=media`,{
+      method:'GET',
+      headers:{authorization:`Bearer ${token}`},
+      redirect:'follow',
+      signal:AbortSignal.timeout(30000),
+    });
+  }catch(error){
+    const name=clean(error?.name,120).toUpperCase();
+    if(name==='TIMEOUTERROR'||name==='ABORTERROR')fail('SOV_BACKUP_DRIVE_READ_TIMEOUT',503);
+    fail('SOV_BACKUP_DRIVE_READ_NETWORK_FAILED',503);
+  }
   if(allowNotFound&&response.status===404)return null;
-  if(!response.ok)fail(`SOV_BACKUP_DRIVE_READ_FAILED:${response.status}`,502);
-  return response.text();
+  if(!response.ok){
+    const payload=await response.clone().json().catch(()=>({}));
+    fail(driveFailureCode('SOV_BACKUP_DRIVE_READ_FAILED',response,payload),502);
+  }
+  try{return await response.text();}
+  catch(error){
+    const name=clean(error?.name,120).toUpperCase();
+    if(name==='TIMEOUTERROR'||name==='ABORTERROR')fail('SOV_BACKUP_DRIVE_READ_BODY_TIMEOUT',503);
+    fail('SOV_BACKUP_DRIVE_READ_BODY_FAILED',503);
+  }
 }
 
 async function driveDelete({token,fileId,fetchImpl=fetch}){
