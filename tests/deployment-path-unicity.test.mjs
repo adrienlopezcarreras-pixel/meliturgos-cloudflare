@@ -38,7 +38,11 @@ test('canonical production release requires human approval and exact immutable i
   assert.match(source, /test "\$RELEASE_SHA" = "\$EXPECTED_SHA"/);
   assert.match(source, /git fetch origin main/);
   assert.match(source, /git merge-base --is-ancestor "\$EXPECTED_SHA" "\$SOURCE_SHA"/);
-  assert.match(source, /git rev-list --count "\$EXPECTED_SHA\.\.\$SOURCE_SHA"/);
+  assert.match(source, /git rev-list --parents -n 1 "\$EXPECTED_SHA"/);
+  assert.match(source, /RELEASE_TREE="\$\(git rev-parse "\$EXPECTED_SHA\^\{tree\}"\)"/);
+  assert.match(source, /PARENT_TREE="\$\(git rev-parse "\$PARENT_SHA\^\{tree\}"\)"/);
+  assert.match(source, /test -n "\$CANONICAL_MAIN_SHA"/);
+  assert.match(source, /git rev-list --count "\$CANONICAL_MAIN_SHA\.\.\$SOURCE_SHA"/);
   assert.match(source, /test "\$MAIN_ADVANCE_COUNT" -le 25/);
   assert.match(source, /for PAUSE_ATTEMPT in \$\(seq 1 12\); do/);
   assert.match(source, /--data '\{"phase":"pause"\}'/);
