@@ -33,7 +33,10 @@ test('MEL-SOV-01 live proof splits heavy refreshes and uses immutable exact-SHA 
   assert.match(workflow,/MEL_BACKUP_ENCRYPTION_KEY_B64/);
   assert.match(workflow,/MEL_PARALLEL_PROOF_V1:/);
   assert.match(workflow,/x-mel-parallel-proof/);
-  assert.match(workflow,/for TARGET in ai ai_local source_control infrastructure backup_restore/);
+  assert.match(workflow,/for TARGET in ai ai_local source_control infrastructure/);
+  assert.match(workflow,/for STEP in prepare readback rollback finalize/);
+  assert.match(workflow,/refresh=\\$\\{TARGET\\}/);
+  assert.match(workflow,/step=\\$\\{STEP\\}/);
   assert.match(workflow,/release-launch-bootstrap\?refresh=\$\{TARGET\}/);
   assert.match(workflow,/MEL_SOV_01_REFRESH_STEP_VERIFIED/);
   assert.match(workflow,/--max-time 75/);
