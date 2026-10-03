@@ -892,13 +892,18 @@ async function runPipedreamBackupRestoreStage(env,{
         pd,name,fileUrl:ticket.url,mimeType:'application/json',fetchImpl,
       });
     }
+    const sourceBytes=await readR2ObjectBytes(env,backup.object_key);
+    if(Number(backup.byte_length||0)>0&&sourceBytes.byteLength!==Number(backup.byte_length)){
+      fail('SOV_BACKUP_SOURCE_LENGTH_MISMATCH',409);
+    }
+    const ciphertext_sha256=await sha256Hex(sourceBytes);
     Object.assign(state,{
       snapshot_id:backup.snapshot_id,
       source_object_key:backup.object_key,
       source_byte_length:Number(backup.byte_length||0),
       drive_file_id:created.id,
       drive_name:created.name||name,
-      ciphertext_sha256:null,
+      ciphertext_sha256,
       prepared:true,
       readback_verified:false,
       restore_verified:false,
@@ -918,11 +923,8 @@ async function runPipedreamBackupRestoreStage(env,{
     if(state.readback_verified===true&&state.restore_verified===true){
       return{ok:true,skipped:false,status:'BACKUP_RESTORE_STAGE_READBACK_VERIFIED',stage,provider:state.provider,snapshot_id:state.snapshot_id,secret_values_exposed:false};
     }
-    const sourceBytes=await readR2ObjectBytes(env,state.source_object_key);
-    if(Number(state.source_byte_length||0)>0&&sourceBytes.byteLength!==Number(state.source_byte_length)){
-      fail('SOV_BACKUP_SOURCE_LENGTH_MISMATCH',409);
-    }
-    const ciphertext_sha256=await sha256Hex(sourceBytes);
+    const ciphertext_sha256=clean(state.ciphertext_sha256,80).toLowerCase();
+    if(!/^[a-f0-9]{64}$/.test(ciphertext_sha256))fail('SOV_BACKUP_SOURCE_CIPHERTEXT_SHA_REQUIRED',409);
     const readbackBytes=native
       ? await driveReadBytes({token:native.token,fileId:state.drive_file_id,fetchImpl})
       : await pipedreamDriveProxyReadBytes({pd,fileId:state.drive_file_id,fetchImpl});
