@@ -1,6 +1,15 @@
 name: shardvault-github-code-mirror
 
 on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/shardvault-github-code-mirror.yml'
+      - 'src/continuity/shardvault-runtime.js'
+      - 'src/platform/github-action-relay.js'
+      - 'tests/shardvault-github-code-mirror.test.mjs'
+      - 'wrangler.jsonc'
+      - '.github/workflows/deploy-cloudflare-release.yml'
   workflow_dispatch:
     inputs:
       r2_key:
@@ -21,14 +30,30 @@ on:
         type: string
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: shardvault-github-code-mirror-${{ inputs.mirror_path }}
   cancel-in-progress: false
 
 jobs:
+  contract:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: node --test tests/shardvault-github-code-mirror.test.mjs
+
   mirror:
+    if: github.event_name == 'workflow_dispatch'
+    permissions:
+      contents: write
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     env:
