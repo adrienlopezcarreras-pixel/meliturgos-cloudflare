@@ -930,6 +930,41 @@ test('release rollback restore is OIDC-scoped, exact-SHA bound and restores MAX 
   assert.equal(controls[0].source,'release-rollback-restore');
   assert.equal(controls[0].launch_approved_sha,sha);
   assert.equal(controls[0].launch_gate_digest,digest);
+  assert.equal(body.restore_sha,sha);
+});
+
+test('release rollback restore can stage the previous stable SHA while the candidate is still deployed', async () => {
+  const candidate='8'.repeat(40);
+  const previous='7'.repeat(40);
+  const digest='b'.repeat(64);
+  const controls=[];
+  const response=await maybeHandleReleaseLaunchBootstrap(
+    new Request('https://mel.test/api/internal/release-launch-bootstrap?expected_sha='+candidate+'&restore_sha='+previous+'&paused=false&max=true',{
+      method:'POST',
+      headers:{'x-mel-github-oidc':'fixture-oidc','content-type':'application/json'},
+      body:JSON.stringify({phase:'release-rollback-restore'}),
+    }),
+    {MEL_DEPLOYED_GIT_SHA:candidate,DB:{prepare(){}}},
+    {
+      authorizeOidc:async()=>({ok:true}),
+      prepare:async()=>({ok:true,status:'LAUNCH_EVIDENCE_READY',readiness:{
+        ok:true,status:'GO_FOR_SUPERVISED_AUTONOMY',launch_ready:true,
+        candidate_sha:candidate,evaluated_at:'2026-10-04T00:00:00.000Z',gate_digest:digest,
+        blockers:[],gates:{verified_restore_dry_run:true},
+      }}),
+      setControl:async(_db,input)=>{controls.push(input);return input;},
+    },
+  );
+  assert.equal(response.status,200);
+  const body=await response.json();
+  assert.equal(body.deployed_sha,candidate);
+  assert.equal(body.restore_sha,previous);
+  assert.equal(body.launch_approved_sha,previous);
+  assert.equal(body.paused,false);
+  assert.equal(body.max_autonomy,true);
+  assert.equal(controls.length,1);
+  assert.equal(controls[0].launch_approved_sha,previous);
+  assert.equal(controls[0].launch_gate_digest,null);
 });
 
 test('release rollback restore refuses SHA mismatch before touching readiness or control', async () => {
