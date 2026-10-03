@@ -87,6 +87,10 @@ const RELEASE_SMOKE_ALLOWLIST = Object.freeze(new Map([
 
 const PARALLEL_PROOF_ALLOWLIST = Object.freeze(new Map([
   ['POST', new Set([
+    // Browser-rendered post-release proof needs the deterministic native-chat
+    // smoke path. handleNativeChat keeps release-smoke requests constrained to
+    // inferred code.read/code.search and ignores injected body capabilities.
+    '/api/chat',
     '/api/gen2/capabilities/execute',
     // Read-only/diagnostic connector probes used by the exact-SHA
     // post-release proof. Configuration mutation routes such as /save are
