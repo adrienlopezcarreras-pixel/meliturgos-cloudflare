@@ -18,6 +18,7 @@ import { runCompanionSourceControlPrevalidationRuntime } from "./portability/com
 import { runCompanionInfrastructurePrevalidationRuntime } from "./portability/companion-infrastructure-prevalidation-runtime.js";
 import { maybeHandleAutonomyApi } from "./evolution/autonomy-api.js";
 import { maybeHandleReleaseLaunchBootstrap } from "./evolution/release-launch-bootstrap.js";
+import { maybeHandleSovBackupDownload } from "./portability/google-drive-backup-restore-prevalidation-runtime.js";
 import { runLoraTrainingHeartbeat } from "./learning/lora-training-heartbeat.js";
 import { runMelSelfAuditSupervisor } from "./diagnostics/self-audit-supervisor.js";
 import { handleVoiceTranscription } from "./api/voice-transcribe.js";
@@ -408,6 +409,11 @@ async function fetchResolvedRequest(request, env, ctx) {
       if (path === '/api/internal/release-launch-bootstrap') {
         const releaseBootstrapResponse = await maybeHandleReleaseLaunchBootstrap(request, env);
         if (releaseBootstrapResponse) return releaseBootstrapResponse;
+      }
+
+      if (path === '/api/internal/sov-backup-download') {
+        const sovBackupDownloadResponse = await maybeHandleSovBackupDownload(request, env);
+        if (sovBackupDownloadResponse) return sovBackupDownloadResponse;
       }
 
       if (path.startsWith('/api/teacher/')) {
