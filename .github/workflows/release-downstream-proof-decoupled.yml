@@ -94,7 +94,7 @@ jobs:
     env:
       TARGET_SHA: ${{ inputs.expected_sha }}
       BASE_URL: https://meliturgos.adrien-lopezcarreras.workers.dev
-      PROOF_KEY_B64: ${{ secrets.MEL_PARALLEL_PROOF_KEY_B64 }}
+      PROOF_KEY_B64: ${{ secrets.MEL_BACKUP_ENCRYPTION_KEY_B64 }}
     steps:
       - name: Capture exact-SHA CapabilityBus health
         shell: bash

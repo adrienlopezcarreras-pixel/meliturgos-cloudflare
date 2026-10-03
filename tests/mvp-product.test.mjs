@@ -42,10 +42,12 @@ test('normal MEL surface remains available and loads the external canonical cont
   assert.match(html, /<title>MEL<\/title>/);
   assert.match(html, /id="melAvatar"/);
   assert.match(html, /id="full"/);
-  assert.match(html, /<script src="\/normal-runtime\.js\?v=8" defer><\/script>/);
+  assert.match(html, /<script src="\/normal-runtime\.js\?v=9" defer><\/script>/);
   assert.doesNotMatch(html, /id="mel-normal-v3-runtime"/);
   assert.match(html, /data-mel-theme-choice="classic"/);
   assert.match(html, /data-mel-avatar="\/assets\/avatars\/mel-classic\.webp"/);
+  const routerSource = await readFile(new URL('../src/router.js', import.meta.url), 'utf8');
+  assert.match(routerSource, /normal-runtime\.js[\s\S]{0,260}cache-control": "no-store, no-cache, must-revalidate"/);
   assert.doesNotThrow(() => new Function(NORMAL_RUNTIME_SOURCE));
   assert.match(NORMAL_RUNTIME_SOURCE, /full\.addEventListener\('click'/);
   assert.match(NORMAL_RUNTIME_SOURCE, /themeTrigger\.addEventListener\('click'/);
