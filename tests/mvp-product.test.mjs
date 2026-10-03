@@ -84,7 +84,7 @@ test('canonical Professor keeps chat in the same control surface and sends throu
 
 test('canonical Professor renders chat text safely and exposes explicit error state', async () => {
   const html = await canonicalProfessorHtml();
-  assert.match(html, /d\.textContent=text/);
+  assert.match(html, /role==='mel'&&typeof melRenderRichText==='function'/);
   assert.match(html, /addMsg\('mel','Erreur : '\+e\.message\)/);
   assert.match(html, /qs\('#chatSend'\)\.disabled=false/);
   assert.doesNotMatch(html, /chatlog[^\n]{0,200}innerHTML\s*=\s*text/);
