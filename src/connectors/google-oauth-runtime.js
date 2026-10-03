@@ -136,8 +136,13 @@ async function reusableGoogleToken(tokenVault, owner, connectorId) {
     const candidate = await tokenVault.get({ owner, connector_id: candidateId });
     if (!candidate?.access_token || !tokenHasRequiredScopes(candidate, connectorId)) continue;
     const expiresAt = Number(candidate.expires_at);
-    if (Number.isFinite(expiresAt) && expiresAt <= Date.now() + 60_000) continue;
-    return candidate;
+    const expiring = Number.isFinite(expiresAt) && expiresAt <= Date.now() + 60_000;
+    if (expiring && !candidate.refresh_token) continue;
+    return Object.freeze({
+      source_connector_id: candidateId,
+      token_set: candidate,
+      expiring,
+    });
   }
   return null;
 }
@@ -231,8 +236,18 @@ export function createGoogleOAuthRuntime({ env = {}, fetcher = fetch, vaults = n
     requireValue(owner, 'OAUTH_OWNER_REQUIRED', 401);
     let tokenSet = await durableVaults.tokenVault.get({ owner, connector_id: id });
     if (!tokenSet?.access_token) {
-      tokenSet = await reusableGoogleToken(durableVaults.tokenVault, owner, id);
-      return clean(tokenSet?.access_token, 20000);
+      const reusable = await reusableGoogleToken(durableVaults.tokenVault, owner, id);
+      if (!reusable) return '';
+      if (reusable.expiring) {
+        await oauth.refresh({ connector_id: reusable.source_connector_id }, context);
+        tokenSet = await durableVaults.tokenVault.get({
+          owner,
+          connector_id: reusable.source_connector_id,
+        });
+        if (!tokenSet?.access_token || !tokenHasRequiredScopes(tokenSet, id)) return '';
+        return clean(tokenSet.access_token, 20000);
+      }
+      return clean(reusable.token_set?.access_token, 20000);
     }
     const expiresAt = Number(tokenSet.expires_at);
     const shouldRefresh = Number.isFinite(expiresAt)
@@ -251,16 +266,16 @@ export function createGoogleOAuthRuntime({ env = {}, fetcher = fetch, vaults = n
     const owner = clean(context.owner, 200);
     requireValue(owner, 'OAUTH_OWNER_REQUIRED', 401);
     const directTokenSet = await durableVaults.tokenVault.get({ owner, connector_id: id });
-    const reusableTokenSet = directTokenSet?.access_token
+    const reusable = directTokenSet?.access_token
       ? null
       : await reusableGoogleToken(durableVaults.tokenVault, owner, id);
-    const tokenSet = directTokenSet?.access_token ? directTokenSet : reusableTokenSet;
+    const tokenSet = directTokenSet?.access_token ? directTokenSet : reusable?.token_set;
     return Object.freeze({
       connector_id: id,
       authorized: Boolean(tokenSet?.access_token),
       token_source: directTokenSet?.access_token
         ? 'connector'
-        : reusableTokenSet?.access_token ? 'shared_google_grant' : 'none',
+        : reusable?.token_set?.access_token ? 'shared_google_grant' : 'none',
       scopes: Array.isArray(tokenSet?.scopes) ? [...tokenSet.scopes] : [],
       expires_at: Number.isFinite(Number(tokenSet?.expires_at)) ? Number(tokenSet.expires_at) : null,
       refreshable: Boolean(tokenSet?.refresh_token),
