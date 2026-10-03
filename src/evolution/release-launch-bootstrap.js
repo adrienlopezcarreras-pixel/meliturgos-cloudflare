@@ -485,18 +485,34 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
       }
       await runRefresh(requestedRefresh, refresher);
       const row = refresh[requestedRefresh];
+      const requiresConcreteLiveProof = requestedRefresh === 'source_control'
+        || requestedRefresh === 'infrastructure'
+        || requestedRefresh === 'backup_restore';
+      const requiresPrevalidatedResult = requestedRefresh === 'source_control'
+        || requestedRefresh === 'infrastructure'
+        || (requestedRefresh === 'backup_restore' && (!requestedRefreshStep || requestedRefreshStep === 'finalize'));
+      const verifiedRefresh = row?.ok !== false
+        && (!requiresConcreteLiveProof || row?.skipped !== true)
+        && (!requiresPrevalidatedResult || Number(row?.prevalidated || 0) > 0);
+      const verifiedRow = {
+        ...row,
+        verified: verifiedRefresh,
+        verification_reason: verifiedRefresh
+          ? null
+          : row?.reason || (row?.skipped === true ? 'LIVE_PROOF_SKIPPED' : 'LIVE_PREVALIDATION_REQUIRED'),
+      };
       return Response.json({
-        ok: row?.ok !== false,
-        status: row?.ok !== false ? 'MEL_SOV_01_REFRESH_STEP_VERIFIED' : 'MEL_SOV_01_REFRESH_STEP_FAILED',
+        ok: verifiedRefresh,
+        status: verifiedRefresh ? 'MEL_SOV_01_REFRESH_STEP_VERIFIED' : 'MEL_SOV_01_REFRESH_STEP_FAILED',
         phase,
         refresh_target: requestedRefresh,
         refresh_step: requestedRefresh === 'backup_restore' ? (requestedRefreshStep || 'all') : null,
-        refresh: row,
+        refresh: verifiedRow,
         deployed_sha: deployedSha || null,
         secret_values_exposed: false,
         autonomy_started: false,
         owner_launch_required: true,
-      }, { status: row?.ok !== false ? 200 : 409, headers: { 'cache-control': 'no-store' } });
+      }, { status: verifiedRefresh ? 200 : 409, headers: { 'cache-control': 'no-store' } });
     }
 
     // The final proof is deliberately lightweight: all expensive live
