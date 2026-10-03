@@ -495,8 +495,8 @@ test('Pipedream Google Tasks proof executes the read-only List Task Lists action
   const body = JSON.parse(run.init.body);
   assert.equal(body.external_user_id, 'adrien');
   assert.equal(body.id, 'google_tasks-list-task-lists');
-  assert.deepEqual(body.configured_props.google_tasks, { authProvisionId: 'apn_tasks' });
-  assert.equal('app' in body.configured_props, false);
+  assert.deepEqual(body.configured_props.app, { authProvisionId: 'apn_tasks' });
+  assert.equal('google_tasks' in body.configured_props, false);
   assert.equal(body.configured_props.maxResults, 1);
 });
 
