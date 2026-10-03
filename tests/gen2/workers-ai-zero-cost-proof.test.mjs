@@ -162,4 +162,5 @@ test('release zero-cost proof authorizes the accessible Council fallback pool', 
   assert.match(workflow, /@cf\/deepgram\/aura-1/);
   assert.match(workflow, /@cf\/openai\/whisper-large-v3-turbo/);
   assert.doesNotMatch(workflow, /@cf\/moonshotai\/kimi-k2\.7-code/);
+  assert.match(workflow, /expires_at:new Date\(now\+60\*60\*1000\)\.toISOString\(\)/);
 });
