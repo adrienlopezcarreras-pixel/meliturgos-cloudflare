@@ -56,6 +56,18 @@ test('canonical release waits on bounded ShardVault progress instead of a fixed 
 });
 
 
+test('exact production deploy synchronizes the canonical backup encryption key identity', async () => {
+  const source = await readFile(new URL('../.github/workflows/deploy-cloudflare-release.yml', import.meta.url), 'utf8');
+  const prepare = source.indexOf('      - name: Prepare encrypted Media Vault secrets for exact deployment');
+  const deploy = source.indexOf('      - name: Deploy exact approved SHA to production', prepare);
+  const block = source.slice(prepare, deploy);
+  assert.ok(prepare >= 0 && deploy > prepare, 'release crypto preparation must precede exact deploy');
+  assert.match(block, /MEL_BACKUP_ENCRYPTION_KEY_B64:String\(process\.env\.MEL_BACKUP_ENCRYPTION_KEY_B64/);
+  assert.match(block, /MEL_BACKUP_ENCRYPTION_KEY_ID:String\(process\.env\.MEL_BACKUP_ENCRYPTION_KEY_ID/);
+  assert.match(block, /RELEASE_CRYPTO_SECRETS_MISSING/);
+  assert.match(source.slice(deploy, source.indexOf('      - name: Refresh production Workers AI zero-cost proof', deploy)), /--secrets-file media-vault-release-secrets\.json/);
+});
+
 test('Workers AI zero-cost proof refresh runs after exact production deploy and before autonomy proof', async () => {
   const source = await readFile(new URL('../.github/workflows/deploy-cloudflare-release.yml', import.meta.url), 'utf8');
   const deploy = source.indexOf('      - name: Deploy exact approved SHA to production');
