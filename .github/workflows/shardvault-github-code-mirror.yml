@@ -1,0 +1,148 @@
+name: shardvault-github-code-mirror
+
+on:
+  workflow_dispatch:
+    inputs:
+      r2_key:
+        description: Private R2 staging key for one encrypted ShardVault code fragment
+        required: true
+        type: string
+      mirror_path:
+        description: Bounded path on shardvault-mirror branch
+        required: true
+        type: string
+      expected_sha256:
+        description: Expected SHA-256 of the exact fragment
+        required: true
+        type: string
+      byte_length:
+        description: Exact fragment byte length
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: shardvault-github-code-mirror-${{ inputs.mirror_path }}
+  cancel-in-progress: false
+
+jobs:
+  mirror:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      R2_KEY: ${{ inputs.r2_key }}
+      MIRROR_PATH: ${{ inputs.mirror_path }}
+      EXPECTED_SHA256: ${{ inputs.expected_sha256 }}
+      BYTE_LENGTH: ${{ inputs.byte_length }}
+      MIRROR_BRANCH: shardvault-mirror
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: main
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install exact lockfile
+        run: npm ci
+      - name: Validate bounded mirror request
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$R2_KEY" =~ ^shardvault/github-code-mirror-staging/[A-Za-z0-9_.-]+__[A-Za-z0-9_.-]+/[0-9a-f]{40}/code-[0-9a-f]{12}-shard-[0-9]{2}-github\.bin$ ]]
+          [[ "$MIRROR_PATH" =~ ^shardvault-code/[0-9a-f]{40}/code-[0-9a-f]{12}-shard-[0-9]{2}-github\.bin$ ]]
+          [[ "$EXPECTED_SHA256" =~ ^[0-9a-f]{64}$ ]]
+          [[ "$BYTE_LENGTH" =~ ^[0-9]+$ ]]
+          test "$BYTE_LENGTH" -ge 65536
+          test "$BYTE_LENGTH" -le 8388608
+          R2_SHA="$(printf '%s' "$R2_KEY" | awk -F/ '{print $(NF-1)}')"
+          MIRROR_SHA="$(printf '%s' "$MIRROR_PATH" | awk -F/ '{print $2}')"
+          test "$R2_SHA" = "$MIRROR_SHA"
+      - name: Fetch exact fragment from private R2
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx wrangler r2 object get "meliturgos-private-media/${R2_KEY}" --file mirror-fragment.bin --remote
+          test -s mirror-fragment.bin
+          ACTUAL_BYTES="$(wc -c < mirror-fragment.bin | tr -d ' ')"
+          ACTUAL_SHA="$(sha256sum mirror-fragment.bin | awk '{print $1}')"
+          test "$ACTUAL_BYTES" = "$BYTE_LENGTH"
+          test "$ACTUAL_SHA" = "$EXPECTED_SHA256"
+      - name: Ensure dedicated mirror branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          CODE="$(curl -sS --max-time 30 -o /tmp/mirror-ref.json -w '%{http_code}' \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H 'Accept: application/vnd.github+json' \
+            -H 'X-GitHub-Api-Version: 2022-11-28' \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/git/ref/heads/${MIRROR_BRANCH}" || true)"
+          if [ "$CODE" = "200" ]; then exit 0; fi
+          test "$CODE" = "404"
+          MAIN_SHA="$(curl -fsS --max-time 30 \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H 'Accept: application/vnd.github+json' \
+            -H 'X-GitHub-Api-Version: 2022-11-28' \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/git/ref/heads/main" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const j=JSON.parse(s);process.stdout.write(String(j?.object?.sha||""))})')"
+          [[ "$MAIN_SHA" =~ ^[0-9a-f]{40}$ ]]
+          BODY="$(MAIN_SHA="$MAIN_SHA" node -e 'process.stdout.write(JSON.stringify({ref:"refs/heads/shardvault-mirror",sha:process.env.MAIN_SHA}))')"
+          CREATE_CODE="$(curl -sS --max-time 30 -o /tmp/mirror-create.json -w '%{http_code}' -X POST \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H 'Accept: application/vnd.github+json' \
+            -H 'X-GitHub-Api-Version: 2022-11-28' \
+            -H 'Content-Type: application/json' --data "$BODY" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/git/refs" || true)"
+          test "$CREATE_CODE" = "201" -o "$CREATE_CODE" = "422"
+      - name: Publish exact fragment to mirror branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          API="https://api.github.com/repos/${GITHUB_REPOSITORY}/contents/${MIRROR_PATH}"
+          EXISTING_CODE="$(curl -sS --max-time 30 -o /tmp/mirror-existing.json -w '%{http_code}' \
+            -H "Authorization: Bearer ${GH_TOKEN}" -H 'Accept: application/vnd.github+json' \
+            -H 'X-GitHub-Api-Version: 2022-11-28' "${API}?ref=${MIRROR_BRANCH}" || true)"
+          EXISTING_SHA=""
+          if [ "$EXISTING_CODE" = "200" ]; then
+            EXISTING_SHA="$(node -e 'const d=require("/tmp/mirror-existing.json");process.stdout.write(String(d?.sha||""))')"
+          else
+            test "$EXISTING_CODE" = "404"
+          fi
+          export EXISTING_SHA
+          node - <<'NODE'
+          const fs=require('fs');
+          const content=fs.readFileSync('mirror-fragment.bin').toString('base64');
+          const body={message:'ShardVault exact encrypted code fragment',content,branch:process.env.MIRROR_BRANCH};
+          if(process.env.EXISTING_SHA)body.sha=process.env.EXISTING_SHA;
+          fs.writeFileSync('/tmp/mirror-put.json',JSON.stringify(body));
+          NODE
+          PUT_CODE="$(curl -sS --max-time 60 -o /tmp/mirror-put-response.json -w '%{http_code}' -X PUT \
+            -H "Authorization: Bearer ${GH_TOKEN}" -H 'Accept: application/vnd.github+json' \
+            -H 'X-GitHub-Api-Version: 2022-11-28' -H 'Content-Type: application/json' \
+            --data-binary @/tmp/mirror-put.json "$API" || true)"
+          test "$PUT_CODE" = "200" -o "$PUT_CODE" = "201"
+      - name: Prove public raw round-trip
+        shell: bash
+        run: |
+          set -euo pipefail
+          RAW_URL="https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/refs/heads/${MIRROR_BRANCH}/${MIRROR_PATH}"
+          VERIFIED=0
+          for ATTEMPT in $(seq 1 15); do
+            CODE="$(curl -sS --max-time 30 -o mirror-public.bin -w '%{http_code}' -H 'Cache-Control: no-cache' "${RAW_URL}?run=${GITHUB_RUN_ID}-${ATTEMPT}" || true)"
+            if [ "$CODE" = "200" ]; then
+              GOT_BYTES="$(wc -c < mirror-public.bin | tr -d ' ')"
+              GOT_SHA="$(sha256sum mirror-public.bin | awk '{print $1}')"
+              if [ "$GOT_BYTES" = "$BYTE_LENGTH" ] && [ "$GOT_SHA" = "$EXPECTED_SHA256" ]; then VERIFIED=1; break; fi
+            fi
+            sleep 2
+          done
+          test "$VERIFIED" = "1"
+          echo "SHARDVAULT_GITHUB_CODE_MIRROR_ROUNDTRIP_VERIFIED path=${MIRROR_PATH}"
