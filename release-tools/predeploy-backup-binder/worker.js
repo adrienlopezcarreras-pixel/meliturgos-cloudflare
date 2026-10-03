@@ -304,13 +304,17 @@ export async function preparePredeployRelease(env,{nowMs=Date.now()}={}){
 export default {
   async fetch(request,env){
     const url=new URL(request.url);
-    if(!['/bind','/prepare'].includes(url.pathname)) return new Response('Not Found',{status:404});
-    if(request.method!=='POST') return new Response('Method Not Allowed',{status:405,headers:{allow:'POST'}});
+    if(!['/bind','/prepare','/health'].includes(url.pathname)) return new Response('Not Found',{status:404});
     const supplied=request.headers.get('x-mel-predeploy-binder')||'';
     const expected=String(env?.MEL_PREDEPLOY_BINDER_TOKEN||'');
     if(!expected||!(await equalToken(supplied,expected))){
       return Response.json({ok:false,status:'BINDER_AUTH_REQUIRED'},{status:401,headers:{'cache-control':'no-store'}});
     }
+    if(url.pathname==='/health'){
+      if(request.method!=='GET') return new Response('Method Not Allowed',{status:405,headers:{allow:'GET'}});
+      return Response.json({ok:true,status:'BINDER_READY'},{status:200,headers:{'cache-control':'no-store'}});
+    }
+    if(request.method!=='POST') return new Response('Method Not Allowed',{status:405,headers:{allow:'POST'}});
     try{
       if(url.pathname==='/prepare'){
         const result=await preparePredeployRelease(env);
