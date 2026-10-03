@@ -67,43 +67,52 @@ jobs:
           # Runtime pressure can make one isolated refresh transiently fail, so
           # retry only bounded transient statuses and preserve a sanitized
           # diagnostic artifact instead of losing the whole proof.
-          for TARGET in ai ai_local source_control infrastructure backup_restore; do
-            CODE="000"
-            REFRESH_READY=0
+          refresh_sov_target() {
+            local TARGET="$1"
+            local STEP="${2:-}"
+            local KEY="${TARGET}"
+            local QUERY="refresh=${TARGET}"
+            if [ -n "${STEP}" ]; then
+              KEY="${TARGET}-${STEP}"
+              QUERY="${QUERY}&step=${STEP}"
+            fi
+            local CODE="000"
+            local REFRESH_READY=0
             for ATTEMPT in $(seq 1 6); do
               CODE="$(curl --silent --show-error --max-time 75 \
                 --header "x-mel-parallel-proof: ${TOKEN}" \
                 --header "content-type: application/json" \
                 --data '{"phase":"sovereignty-proof"}' \
-                --output "mel-sov-refresh-${TARGET}.json" \
+                --output "mel-sov-refresh-${KEY}.json" \
                 --write-out '%{http_code}' \
-                "${BASE_URL}/api/internal/release-launch-bootstrap?refresh=${TARGET}" || true)"
+                "${BASE_URL}/api/internal/release-launch-bootstrap?${QUERY}" || true)"
               if [ "${CODE}" = "200" ]; then
                 REFRESH_READY=1
                 break
               fi
-              REFRESH_ERROR_CODE="$(TARGET="${TARGET}" node -e 'const fs=require("fs");let d={};try{d=JSON.parse(fs.readFileSync("mel-sov-refresh-"+process.env.TARGET+".json","utf8"))}catch{};process.stdout.write(String(d?.code||d?.error||d?.status||"UNKNOWN"))')"
+              REFRESH_ERROR_CODE="$(KEY="${KEY}" node -e 'const fs=require("fs");let d={};try{d=JSON.parse(fs.readFileSync("mel-sov-refresh-"+process.env.KEY+".json","utf8"))}catch{};process.stdout.write(String(d?.code||d?.error||d?.status||"UNKNOWN"))')"
               case "${CODE}" in
                 409|429|500|502|503|504)
-                  echo "Transient MEL-SOV-01 refresh ${TARGET} status ${CODE} (${REFRESH_ERROR_CODE}); retry ${ATTEMPT}/6."
+                  echo "Transient MEL-SOV-01 refresh ${KEY} status ${CODE} (${REFRESH_ERROR_CODE}); retry ${ATTEMPT}/6."
                   sleep $((ATTEMPT * 2))
                   ;;
                 *)
-                  echo "Non-retryable MEL-SOV-01 refresh ${TARGET} status ${CODE} (${REFRESH_ERROR_CODE})."
+                  echo "Non-retryable MEL-SOV-01 refresh ${KEY} status ${CODE} (${REFRESH_ERROR_CODE})."
                   break
                   ;;
               esac
             done
             if [ "${REFRESH_READY}" != "1" ]; then
-              TARGET="${TARGET}" CODE="${CODE}" EXPECTED_SHA="${EXPECTED_SHA}" node - <<'NODE'
+              TARGET="${TARGET}" STEP="${STEP}" KEY="${KEY}" CODE="${CODE}" EXPECTED_SHA="${EXPECTED_SHA}" node - <<'NODE'
           const fs=require('fs');
           let row={};
-          try{row=JSON.parse(fs.readFileSync('./mel-sov-refresh-'+process.env.TARGET+'.json','utf8'))}catch{}
+          try{row=JSON.parse(fs.readFileSync('./mel-sov-refresh-'+process.env.KEY+'.json','utf8'))}catch{}
           const proof={
             ok:false,
             status:'MEL_SOV_01_REFRESH_FAILED',
             source_sha:process.env.EXPECTED_SHA||null,
             refresh_target:process.env.TARGET,
+            refresh_step:process.env.STEP||null,
             http_status:Number(process.env.CODE||0),
             refresh_error:String(row?.code||row?.error||row?.status||'UNKNOWN').slice(0,160),
             secret_values_exposed:false,
@@ -112,14 +121,22 @@ jobs:
           fs.writeFileSync('mel-sov-01-live-proof.json',JSON.stringify(proof,null,2));
           console.log(JSON.stringify(proof));
           NODE
-              exit 31
+              return 31
             fi
-            TARGET="${TARGET}" node - <<'NODE'
-          const d=require('./mel-sov-refresh-'+process.env.TARGET+'.json');
-          if(d?.ok!==true || d?.status!=='MEL_SOV_01_REFRESH_STEP_VERIFIED') throw new Error('MEL_SOV_01_REFRESH_FAILED:'+process.env.TARGET);
+            TARGET="${TARGET}" STEP="${STEP}" KEY="${KEY}" node - <<'NODE'
+          const d=require('./mel-sov-refresh-'+process.env.KEY+'.json');
+          if(d?.ok!==true || d?.status!=='MEL_SOV_01_REFRESH_STEP_VERIFIED') throw new Error('MEL_SOV_01_REFRESH_FAILED:'+process.env.KEY);
           if(d?.refresh_target!==process.env.TARGET) throw new Error('MEL_SOV_01_REFRESH_TARGET_MISMATCH');
+          if(process.env.STEP && d?.refresh_step!==process.env.STEP) throw new Error('MEL_SOV_01_REFRESH_STEP_MISMATCH');
           if(d?.secret_values_exposed!==false || d?.autonomy_started!==false) throw new Error('MEL_SOV_01_REFRESH_SAFETY_FAILED');
           NODE
+          }
+
+          for TARGET in ai ai_local source_control infrastructure; do
+            refresh_sov_target "${TARGET}" || exit $?
+          done
+          for STEP in prepare readback rollback finalize; do
+            refresh_sov_target "backup_restore" "${STEP}" || exit $?
           done
 
           CODE="$(curl --silent --show-error --max-time 60 \
