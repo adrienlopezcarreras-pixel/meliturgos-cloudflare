@@ -348,7 +348,7 @@ jobs:
           for TARGET in ai ai_local source_control infrastructure; do
             refresh_sov_target "${TARGET}" || exit $?
           done
-          for STEP in prepare readback rollback finalize; do
+          for STEP in resolve prepare readback rollback finalize; do
             refresh_sov_target "backup_restore" "${STEP}" || exit $?
           done
 
