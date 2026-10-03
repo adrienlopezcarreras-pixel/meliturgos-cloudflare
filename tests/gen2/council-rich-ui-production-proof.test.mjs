@@ -35,6 +35,8 @@ test('production proof verifies rich renderer in Normal and Full browser surface
   assert.match(workflow, /#chatInput/);
   assert.match(workflow, /#chatlog \.msg\.mel\[data-rich-rendered="true"\]:last-child/);
   assert.match(workflow, /RELEASE_CODE_SMOKE_OK/);
+  assert.match(workflow, /lis src\/index\.js dans ton code/);
+  assert.doesNotMatch(workflow, /Lis src\/router\.js/);
 });
 
 test('production proof uses immutable exact-SHA proof auth and never mutates Worker secrets', () => {

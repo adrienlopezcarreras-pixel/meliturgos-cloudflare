@@ -14,7 +14,7 @@ export const CHAT_RICH_RENDERER_SOURCE = String.raw`
 
   function appendInline(parent,value){
     const source=String(value??'');
-    const token=/(\[[^\]\n]+\]\((?:https?:\/\/)[^)\s]+\)|https?:\/\/[^\s<]+|\*\*[^*\n]+\*\*|__[^_\n]+__|\x60[^\x60\n]+\x60|~~[^~\n]+~~|\*[^*\n]+\*|_[^_\n]+_)/g;
+    const token=/(\[[^\]\n]+\]\((?:https?:\/\/)[^)\s]+\)|https?:\/\/[^\s<]+|\*\*[^*\n]+\*\*|__[^_\n]+__|\x60[^\x60\n]+\x60|~~[^~\n]+~~|\*[^*\n]+\*)/g;
     let cursor=0,match;
     while((match=token.exec(source))){
       if(match.index>cursor)appendText(parent,source.slice(cursor,match.index));
@@ -43,9 +43,9 @@ export const CHAT_RICH_RENDERER_SOURCE = String.raw`
         const code=document.createElement('code');code.textContent=raw.slice(1,-1);parent.appendChild(code);
       }else if(raw.startsWith('~~')&&raw.endsWith('~~')){
         const del=document.createElement('del');del.textContent=raw.slice(2,-2);parent.appendChild(del);
-      }else if((raw.startsWith('*')&&raw.endsWith('*'))||(raw.startsWith('_')&&raw.endsWith('_'))){
+      }else if(raw.startsWith('*')&&raw.endsWith('*')){
         const em=document.createElement('em');em.textContent=raw.slice(1,-1);parent.appendChild(em);
-      }else appendText(parent,raw);
+}else appendText(parent,raw);
       cursor=match.index+raw.length;
     }
     if(cursor<source.length)appendText(parent,source.slice(cursor));
