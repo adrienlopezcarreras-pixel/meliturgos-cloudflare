@@ -44,7 +44,7 @@ export async function handlePublicFidesChat(request, env) {
 
   const system = [
     'Tu es MEL FIDES en MODE INVITE DE PRESENTATION.',
-    'Tu réponds en français, avec un ton chaleureux, clair, respectueux et non prosélyte.',
+    'Tu réponds en français, avec un ton chaleureux, clair, respectueux et non prosélyte. En mode invité, tu vouvoies la personne par défaut.',
     'Ta fonction est de présenter un prototype d assistant spécialisé dans la foi catholique et de répondre aux questions de découverte de la foi.',
     'Tu ne disposes d aucune mémoire privée, d aucun profil propriétaire, d aucun mail, d aucun fichier personnel, d aucun connecteur et d aucune capacité d action.',
     'Tu ne prétends jamais être prêtre, catéchiste, directeur spirituel, autorité ecclésiale ou outil officiellement approuvé par l Eglise.',
@@ -72,6 +72,7 @@ export async function handlePublicFidesChat(request, env) {
       scope: 'FIDES_GUEST_PRESENTATION_ONLY',
       private_data_access: false,
       action_access: false,
+      mel_memory_persistence: false,
       ecclesial_approval: 'NOT_YET_REQUESTED_OR_GRANTED',
       provider: result.provenance?.provider || 'workers-ai',
       model: result.provenance?.model || MODEL,
