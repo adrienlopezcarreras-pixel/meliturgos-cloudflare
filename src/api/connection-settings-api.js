@@ -10,7 +10,7 @@ const OAUTH_APP_KEYS = Object.freeze({
   yahoo: Object.freeze({ id: 'oauth-app-yahoo', clientIdEnv: 'YAHOO_OAUTH_CLIENT_ID', clientSecretEnv: 'YAHOO_OAUTH_CLIENT_SECRET' }),
 });
 const PROVIDER_CONNECTORS = Object.freeze({
-  google: Object.freeze(['gmail','google-calendar','google-tasks']),
+  google: Object.freeze(['gmail','google-calendar','google-tasks','google-drive']),
   microsoft: Object.freeze(['microsoft-mail','microsoft-onedrive','microsoft-sharepoint']),
   yahoo: Object.freeze(['yahoo-mail']),
 });
@@ -302,6 +302,7 @@ async function testOAuthConnector(env, provider, connectorId, contextOwner, sign
     if (connectorId === 'gmail') url = 'https://gmail.googleapis.com/gmail/v1/users/me/profile';
     else if (connectorId === 'google-calendar') url = 'https://www.googleapis.com/calendar/v3/calendars/primary/events?maxResults=1&singleEvents=true';
     else if (connectorId === 'google-tasks') url = 'https://tasks.googleapis.com/tasks/v1/users/@me/lists?maxResults=1';
+    else if (connectorId === 'google-drive') url = 'https://www.googleapis.com/drive/v3/files?pageSize=1&fields=files(id)';
   } else if (provider === 'microsoft') {
     token = await createMailOAuthRuntime({ providerId: 'microsoft', env: resolved }).accessTokenResolver(connectorId, context);
     if (connectorId === 'microsoft-mail') url = 'https://graph.microsoft.com/v1.0/me/messages?$top=1&$select=id';

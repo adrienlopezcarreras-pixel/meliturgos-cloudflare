@@ -230,6 +230,7 @@ test('Google access-token resolver reuses another Google token only when target 
         'https://www.googleapis.com/auth/gmail.readonly',
         'https://www.googleapis.com/auth/calendar.events',
         'https://www.googleapis.com/auth/tasks',
+        'https://www.googleapis.com/auth/drive.file',
       ],
       expires_at: Date.now() + 300_000,
     },
@@ -241,6 +242,10 @@ test('Google access-token resolver reuses another Google token only when target 
   );
   assert.equal(
     await runtime.accessTokenResolver('google-tasks', { owner: 'adrien' }),
+    'shared-google-access',
+  );
+  assert.equal(
+    await runtime.accessTokenResolver('google-drive', { owner: 'adrien' }),
     'shared-google-access',
   );
   const tasksStatus = await runtime.status('google-tasks', { owner: 'adrien' });
@@ -280,6 +285,7 @@ test('Gmail full-access API requests the shared Google suite read/write scopes',
   assert.deepEqual(body.scopes, [
     'https://www.googleapis.com/auth/calendar.events',
     'https://www.googleapis.com/auth/calendar.events.readonly',
+    'https://www.googleapis.com/auth/drive.file',
     'https://www.googleapis.com/auth/gmail.compose',
     'https://www.googleapis.com/auth/gmail.readonly',
     'https://www.googleapis.com/auth/gmail.send',
