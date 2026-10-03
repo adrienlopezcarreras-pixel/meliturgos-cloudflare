@@ -61,6 +61,8 @@ test('production proof tolerates only bounded transient proof-auth propagation',
 test('rich UI browser proof retries bounded transient runtime pressure instead of failing one-shot', () => {
   assert.match(workflow, /408\|409\|429\|500\|502\|503\|504/);
   assert.match(workflow, /Transient rich UI browser proof status/);
+  assert.match(workflow, /BROWSER_FAILED_STEP_ID/);
+  assert.match(workflow, /failed_step_id/);
   assert.match(workflow, /Non-retryable rich UI browser proof status/);
   assert.match(workflow, /ATTEMPT < 8 \? ATTEMPT \* 2 : 15/);
 });

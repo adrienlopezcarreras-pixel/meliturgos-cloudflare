@@ -112,11 +112,13 @@ function actionNeedsUrl(action) {
   return action === BROWSER_ACTIONS.NAVIGATE;
 }
 
-function browserError(code, status = 500) {
+function browserError(code, status = 500, stepId = '') {
   const error = new Error(code);
   error.name = 'BrowserCapabilityError';
   error.code = code;
   if (Number.isInteger(status)) error.status = status;
+  const safeStepId = boundedText(stepId, MAX_ID);
+  if (safeStepId) error.step_id = safeStepId;
   return error;
 }
 
@@ -263,7 +265,7 @@ export function createBrowserController({ adapter, authorize = async () => false
           const status = Number.isInteger(error?.status) ? error.status : 502;
           outputs.push({ step_id: step.id, ok: false, code });
           await audit(makeAudit(plan, 'FAILED', code, outputs));
-          throw browserError(code, status);
+          throw browserError(code, status, step.id);
         }
       }
 

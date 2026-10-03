@@ -88,6 +88,71 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  capabilities:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      TARGET_SHA: ${{ inputs.expected_sha }}
+      BASE_URL: https://meliturgos.adrien-lopezcarreras.workers.dev
+      PROOF_KEY_B64: ${{ secrets.MEL_PARALLEL_PROOF_KEY_B64 }}
+    steps:
+      - name: Capture exact-SHA CapabilityBus health
+        shell: bash
+        run: |
+          set -euo pipefail
+          TOKEN="$(PROOF_KEY_B64="${PROOF_KEY_B64}" TARGET_SHA="${TARGET_SHA}" node - <<'NODE'
+          const crypto=require('crypto');
+          const source=Buffer.from(String(process.env.PROOF_KEY_B64||''),'base64');
+          const sha=String(process.env.TARGET_SHA||'').toLowerCase();
+          if(source.length!==32||!/^[0-9a-f]{40}$/.test(sha)) throw new Error('PARALLEL_PROOF_DERIVATION_INVALID');
+          process.stdout.write(Buffer.from(crypto.hkdfSync('sha256',source,Buffer.from('meliturgos-parallel-proof-salt-v1'),Buffer.from('MEL_PARALLEL_PROOF_V1:'+sha),32)).toString('base64url'));
+          NODE
+          )"
+          echo "::add-mask::${TOKEN}"
+          CODE="$(curl --silent --show-error --max-time 120             --header "x-mel-release-smoke: 1"             --header "x-mel-parallel-proof: ${TOKEN}"             --output capability-health-raw.json --write-out '%{http_code}'             "${BASE_URL}/api/gen2/capabilities?refresh=1" || true)"
+          test "${CODE}" = "200"
+          TARGET_SHA="${TARGET_SHA}" node - <<'NODE'
+          const fs=require('fs');
+          const d=JSON.parse(fs.readFileSync('capability-health-raw.json','utf8'));
+          const caps=Array.isArray(d?.capabilities)?d.capabilities:[];
+          if(!caps.length) throw new Error('CAPABILITY_HEALTH_EMPTY');
+          const rows=caps.map(row=>({
+            id:String(row?.id||'').slice(0,180),
+            provider:String(row?.provider||'core').slice(0,80),
+            health:String(row?.health||'UNKNOWN').toUpperCase().slice(0,80),
+            enabled:row?.enabled!==false,
+            health_detail:String(row?.health_detail||'').slice(0,240),
+          }));
+          const by_provider={};
+          const by_health={};
+          for(const row of rows){
+            by_provider[row.provider]??={total:0,usable:0,states:{}};
+            by_provider[row.provider].total++;
+            by_provider[row.provider].states[row.health]=(by_provider[row.provider].states[row.health]||0)+1;
+            if(row.enabled&&!['UNAVAILABLE','OFFLINE','BLOCKED','DISABLED','ERROR','FAILED','FAIL','DOWN','UNHEALTHY','BROKEN'].includes(row.health))by_provider[row.provider].usable++;
+            by_health[row.health]=(by_health[row.health]||0)+1;
+          }
+          const sanitized={
+            schema:'mel.downstream-capability-health/v1',
+            source_sha:String(process.env.TARGET_SHA||'').toLowerCase(),
+            total:rows.length,
+            by_health,
+            by_provider,
+            capabilities:rows,
+            secret_values_exposed:false,
+          };
+          fs.writeFileSync('capability-health.json',JSON.stringify(sanitized,null,2));
+          if((by_health.ERROR||0)+(by_health.FAILED||0)+(by_health.FAIL||0)+(by_health.DOWN||0)+(by_health.UNHEALTHY||0)+(by_health.BROKEN||0)>0){
+            throw new Error('CAPABILITY_HEALTH_HAS_FAILURES');
+          }
+          NODE
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: downstream-capability-health-${{ inputs.expected_sha }}
+          path: capability-health.json
+          if-no-files-found: error
+          retention-days: 14
+
   browser:
     runs-on: ubuntu-24.04
     timeout-minutes: 12
@@ -288,14 +353,14 @@ jobs:
               408|409|429|500|502|503|504)
                 echo "Transient MEL-FILE browser proof status ${CODE}; retry ${ATTEMPT}/8."
                 if [ -s file-proof.json ]; then
-                  node -e 'const fs=require("fs");let d={};try{d=JSON.parse(fs.readFileSync("file-proof.json","utf8"))}catch{};console.log(JSON.stringify({ok:d?.ok===true,error:d?.error||d?.code||d?.status||"UNKNOWN"}))'
+                  node -e 'const fs=require("fs");let d={};try{d=JSON.parse(fs.readFileSync("file-proof.json","utf8"))}catch{};console.log(JSON.stringify({ok:d?.ok===true,error:d?.error||d?.code||d?.status||"UNKNOWN",failed_step_id:d?.failed_step_id||null}))'
                 fi
                 sleep $((ATTEMPT * 2))
                 ;;
               *)
                 echo "Non-retryable MEL-FILE browser proof status ${CODE}."
                 if [ -s file-proof.json ]; then
-                  node -e 'const fs=require("fs");let d={};try{d=JSON.parse(fs.readFileSync("file-proof.json","utf8"))}catch{};console.log(JSON.stringify({ok:d?.ok===true,error:d?.error||d?.code||d?.status||"UNKNOWN"}))'
+                  node -e 'const fs=require("fs");let d={};try{d=JSON.parse(fs.readFileSync("file-proof.json","utf8"))}catch{};console.log(JSON.stringify({ok:d?.ok===true,error:d?.error||d?.code||d?.status||"UNKNOWN",failed_step_id:d?.failed_step_id||null}))'
                 fi
                 exit 31
                 ;;
