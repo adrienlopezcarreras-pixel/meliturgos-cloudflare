@@ -59,6 +59,7 @@ function envFixture(){
     MEL_BACKUP_ENCRYPTION_KEY_ID:'test-key-1',
     MEL_BACKUP_ENCRYPTION_KEY_B64:Buffer.from(keyBytes).toString('base64'),
     MEL_DEPLOYED_GIT_SHA:'b'.repeat(40),
+    MEL_PUBLIC_ORIGIN:'https://mel.example',
     keyBytes,
   };
 }
@@ -167,6 +168,24 @@ function pipedreamDriveProxyFixture(encryptedText,{backupId='pd-drive-backup-1'}
   };
   const fetchImpl=async(url,init={})=>{
     const method=init.method||'GET';
+    if(String(url).endsWith('/actions/run')){
+      const payload=JSON.parse(String(init.body||'{}'));
+      calls.push({target:'action:'+String(payload.id||''),method,body_kind:'action'});
+      if(payload.id==='google_drive-upload-file'){
+        assert.deepEqual(payload.configured_props.googleDrive,{authProvisionId:'apn_drive'});
+        assert.match(String(payload.configured_props.filePath||''),/^https:\/\/mel\.example\/api\/internal\/sov-backup-download\?/);
+        return Response.json({exports:{$return_value:{id:backupId,name:'backup.enc.json'}}});
+      }
+      if(payload.id==='google_drive-create-file-from-text'){
+        creations+=1;
+        return Response.json({exports:{$return_value:{id:'pd-drive-rollback-'+creations,name:'rollback.txt'}}});
+      }
+      if(payload.id==='google_drive-delete-file'){
+        deleted.add(String(payload.configured_props.fileId||''));
+        return Response.json({exports:{$return_value:{success:true,fileId:payload.configured_props.fileId}}});
+      }
+      return Response.json({error:'unexpected-action'},{status:500});
+    }
     const target=decodeTarget(url);
     calls.push({target,method,body_kind:init.body?.constructor?.name||typeof init.body});
     if(method==='POST'&&target.includes('/upload/drive/v3/files?uploadType=media')){
