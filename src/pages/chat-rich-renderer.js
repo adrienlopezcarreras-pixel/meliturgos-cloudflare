@@ -14,7 +14,7 @@ export const CHAT_RICH_RENDERER_SOURCE = String.raw`
 
   function appendInline(parent,value){
     const source=String(value??'');
-    const token=/(\[[^\]\n]+\]\((?:https?:\/\/)[^)\s]+\)|https?:\/\/[^\s<]+|\*\*[^*\n]+\*\*|__[^_\n]+__|\x60[^\x60\n]+\x60|~~[^~\n]+~~|\*[^*\n]+\*|_[^_\n]+_)/g;
+    const token=/(\[[^\]\n]+\]\((?:https?:\/\/)[^)\s]+\)|https?:\/\/[^\s<]+|\*\*[^*\n]+\*\*|__[^_\n]+__|\x60[^\x60\n]+\x60|~~[^~\n]+~~|\*[^*\n]+\*)/g;
     let cursor=0,match;
     while((match=token.exec(source))){
       if(match.index>cursor)appendText(parent,source.slice(cursor,match.index));
@@ -45,13 +45,7 @@ export const CHAT_RICH_RENDERER_SOURCE = String.raw`
         const del=document.createElement('del');del.textContent=raw.slice(2,-2);parent.appendChild(del);
       }else if(raw.startsWith('*')&&raw.endsWith('*')){
         const em=document.createElement('em');em.textContent=raw.slice(1,-1);parent.appendChild(em);
-      }else if(raw.startsWith('_')&&raw.endsWith('_')){
-        const prev=source[match.index-1]||'',next=source[match.index+raw.length]||'';
-        // Keep technical identifiers intact: MARKER_WITH_UNDERSCORES must not
-        // lose characters just because "_segment_" resembles emphasis.
-        if(/[A-Za-z0-9]/.test(prev)||/[A-Za-z0-9]/.test(next))appendText(parent,raw);
-        else{const em=document.createElement('em');em.textContent=raw.slice(1,-1);parent.appendChild(em)}
-      }else appendText(parent,raw);
+}else appendText(parent,raw);
       cursor=match.index+raw.length;
     }
     if(cursor<source.length)appendText(parent,source.slice(cursor));
