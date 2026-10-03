@@ -37,6 +37,14 @@ test('GEN2-60 derives every matrix row from the canonical roadmap exactly once',
   }
 });
 
+test('GEN2-60 treats only DONE_VERIFIED as complete', () => {
+  const matrix = generateCompletionMatrix();
+  assert.equal(matrix.rows.some(row => row.status === 'DONE'), false);
+  assert.ok(matrix.rows.filter(row => row.complete).every(row => row.status === 'DONE_VERIFIED'));
+  assert.equal(matrix.summary.complete, matrix.summary.verified);
+  assert.equal(matrix.summary.percent_complete, matrix.summary.percent_verified);
+});
+
 test('GEN2-60 summary and phase totals reconcile with the registry', () => {
   const matrix = generateCompletionMatrix();
   const summary = roadmapSummary();

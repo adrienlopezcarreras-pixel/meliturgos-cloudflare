@@ -15,26 +15,26 @@ Waiting for user confirmation; but looking for independent progress opportunitie
   - Ready? ✅ YES (service worker can be local development only)
 
 ### P1 - Executable Modules
-- **Gen2-45 Audit Persistence** (DONE): Tests pass, needs integration
+- **Gen2-45 Audit Persistence** (PARTIAL — verification required): Tests pass, needs integration
   - Files: `src/audit/audit-service.js`, tests exist
-  - Status: DONE but could be wired up
+  - Status: PARTIAL — implementation exists but verification is still required
   - Dependency: Low
   - Ready? ✅ YES (wiring needed)
 
-- **Gen2-09 Memory 2.0** (DONE): Service exists, tests pass
+- **Gen2-09 Memory 2.0** (PARTIAL — verification required): Service exists, tests pass
   - Files: `worker.js` memories, `src/memory/`
-  - Status: Done
+  - Status: PARTIAL — verification required
   - Ready? ✅ YES (integration ready)
 
 ### P2 - Internet Real (Original Plan)
-- **Gen2-25 RAG Search** (DONE): Tests pass, endpoint exists
+- **Gen2-25 RAG Search** (PARTIAL — verification required): Tests pass, endpoint exists
   - Files: `src/search/rag-service.js`, `/api/gen2/rag/search`
-  - Status: Complete
+  - Status: PARTIAL — verification required
   - Ready? ✅ YES (POST MVP)
 
-- **Gen2-29 Device Bus** (DONE): Sync endpoint exists
+- **Gen2-29 Device Bus** (PARTIAL — verification required): Sync endpoint exists
   - Files: `worker.js` syncDevice, `device_bus.test`
-  - Status: Complete (needs real clients)
+  - Status: PARTIAL — real-client verification required
   - Ready? ⚠️ YES (local only testing)
 
 - **Gen2-37 Web Research Connector** (PARTIAL): Need API evaluation
