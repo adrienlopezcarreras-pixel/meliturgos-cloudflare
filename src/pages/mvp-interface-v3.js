@@ -37,6 +37,6 @@ html,body{margin:0;min-height:100%;font-family:var(--font);color:var(--text)}bod
  <section class="window empty-chat" aria-label="Conversation avec MEL"><div id="messages"><div class="empty" id="empty">Écris ci-dessous pour commencer.</div></div><div class="composer"><textarea id="promptInput" aria-label="Message à MEL" maxlength="100000" autofocus placeholder="Écris ou colle un long prompt… Entrée pour envoyer · Maj+Entrée pour une nouvelle ligne."></textarea><div class="previous-row"><span id="previousMessage" class="previous-link" role="link" tabindex="0">↩ Reprendre le dernier échange</span></div><div class="meta-row"><span>Prompts longs Gen2 activés</span><span id="charCount">0 / 100 000</span></div><div class="drop" id="drop" role="button" tabindex="0" aria-label="Ajouter des fichiers">Glisse un fichier ici ou clique pour le choisir<input id="fileInput" type="file" multiple aria-label="Ajouter des fichiers"></div><div id="attachments" class="attachments" aria-live="polite"></div><button class="send" id="send" type="button">Envoyer</button><div id="status" role="status" aria-live="polite"></div></div></section>
  <button class="full" id="full" type="button">Mode complet</button>
 </main>
-<script src="/normal-runtime.js?v=8" defer></script></body></html>`;
+<script src="/normal-runtime.js?v=9" defer></script></body></html>`;
   return new Response(body,{headers:{'content-type':'text/html; charset=utf-8','cache-control':'no-store, no-cache, must-revalidate'}});
 }
