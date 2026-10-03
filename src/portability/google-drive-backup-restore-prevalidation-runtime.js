@@ -332,6 +332,49 @@ export async function loadLatestEncryptedSystemBackup(env={}){
   return{snapshot_id:clean(row.id,160),object_key:clean(row.object_key,500),encrypted_text,envelope};
 }
 
+export async function loadLatestEncryptedSystemBackupSource(env={}){
+  if(!env?.DB?.prepare)fail('SOV_BACKUP_DB_REQUIRED',503);
+  if(!env?.MEDIA_BUCKET?.get)fail('SOV_BACKUP_R2_REQUIRED',503);
+  const row=await env.DB.prepare(
+    "SELECT id,object_key,metadata_json,created_at FROM backup_objects WHERE object_key LIKE 'backups/system/%.enc.json' ORDER BY created_at DESC LIMIT 1"
+  ).first();
+  if(!row?.id||!row?.object_key)fail('SOV_BACKUP_ENCRYPTED_SNAPSHOT_REQUIRED',409);
+  let metadata={};
+  try{metadata=JSON.parse(row.metadata_json||'{}');}catch{}
+  if(metadata.encrypted!==true||metadata.verified!==true||metadata.restoreVerified!==true){
+    fail('SOV_BACKUP_VERIFIED_ENCRYPTED_SNAPSHOT_REQUIRED',409);
+  }
+  const object=await env.MEDIA_BUCKET.get(row.object_key);
+  if(!object)fail('SOV_BACKUP_R2_OBJECT_MISSING',409);
+  let body=object.body||null;
+  let byte_length=Number(object.size||0);
+  if(!body&&typeof object.arrayBuffer==='function'){
+    const bytes=new Uint8Array(await object.arrayBuffer());
+    body=bytes;
+    byte_length=bytes.byteLength;
+  }else if(!body&&typeof object.text==='function'){
+    const text=await object.text();
+    body=text;
+    byte_length=new TextEncoder().encode(text).byteLength;
+  }
+  if(!body)fail('SOV_BACKUP_R2_BODY_MISSING',409);
+  return{
+    snapshot_id:clean(row.id,160),
+    object_key:clean(row.object_key,500),
+    byte_length:Number.isFinite(byte_length)&&byte_length>=0?byte_length:0,
+    body,
+  };
+}
+
+async function readR2ObjectBytes(env,key){
+  if(!env?.MEDIA_BUCKET?.get)fail('SOV_BACKUP_R2_REQUIRED',503);
+  const object=await env.MEDIA_BUCKET.get(key);
+  if(!object)fail('SOV_BACKUP_R2_OBJECT_MISSING',409);
+  if(typeof object.arrayBuffer==='function')return new Uint8Array(await object.arrayBuffer());
+  if(typeof object.text==='function')return new TextEncoder().encode(await object.text());
+  fail('SOV_BACKUP_R2_BODY_MISSING',409);
+}
+
 export { provePipedreamDriveBackupRestoreAlternative };
 
 export async function proveGoogleDriveBackupRestoreAlternative({
