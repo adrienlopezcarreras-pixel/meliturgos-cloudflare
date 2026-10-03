@@ -58,6 +58,16 @@ test('production proof tolerates only bounded transient proof-auth propagation',
   assert.match(workflow, /sleep 2/);
 });
 
+test('rich UI proof enters the full chat deterministically before typing', async () => {
+  const workflow=await readFile(new URL('../../.github/workflows/council-rich-ui-production-proof.yml',import.meta.url),'utf8');
+  const full=await readFile(new URL('../../src/pages/full-interface-v2.js',import.meta.url),'utf8');
+  assert.match(workflow, /\/professor\?view=chat/);
+  assert.match(workflow, /id:'wait-full-chat'[\s\S]{0,120}#viewTitle[\s\S]{0,80}Conversation/);
+  assert.match(workflow, /\.view\.active\[data-panel="chat"\] #chatInput/);
+  assert.doesNotMatch(workflow, /id:'open-full-chat'/);
+  assert.match(full, /searchParams\.get\('view'\);if\(initialView\)show\(initialView\)/);
+});
+
 test('rich UI browser proof retries bounded transient runtime pressure instead of failing one-shot', () => {
   assert.match(workflow, /408\|409\|429\|500\|502\|503\|504/);
   assert.match(workflow, /Transient rich UI browser proof status/);
