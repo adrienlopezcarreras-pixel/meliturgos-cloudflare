@@ -602,6 +602,8 @@ jobs:
           echo "Decoupled downstream proofs dispatched for exact SHA ${EXPECTED_SHA}; release continues independently."
 
       - name: Prepare and prove production autonomy launch evidence
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
@@ -938,6 +940,7 @@ jobs:
           CODE_SYNC_READY=0
           CODE_SYNC_LAST_COMPLETED=-1
           CODE_SYNC_STALL=0
+          CODE_SYNC_LAST_RELAY_JOB=""
           CODE_SYNC_MAX_ATTEMPTS=32
           CODE_SYNC_MAX_STALL=12
           for CODE_SYNC_ATTEMPT in $(seq 1 "$CODE_SYNC_MAX_ATTEMPTS"); do
@@ -978,12 +981,34 @@ jobs:
           NODE
               )"
               IFS='|' read -r CODE_SYNC_COMPLETE CODE_SYNC_STATUS CODE_SYNC_COMPLETED CODE_SYNC_TARGET CODE_SYNC_NEXT_RETRY CODE_SYNC_FAILURES <<< "$CODE_SYNC_STATE"
-              node -e 'const d=require("./production-launch-code-sync.json"); const s=d?.code_sync||{}; console.log(JSON.stringify({status:s?.status||d?.status||null,complete:d?.complete===true,progress:s?.progress||null,pending_shards:Number(s?.pending_shards||0),reason:s?.reason||null,next_retry_at:s?.next_retry_at||null,code_pool_exhaustions:Number(s?.code_pool_exhaustions||0),code_pool_refreshes:Number(s?.code_pool_refreshes||0),failure_count:Array.isArray(s?.failures)?s.failures.length:0},null,2));'
+              node -e 'const d=require("./production-launch-code-sync.json"); const s=d?.code_sync||{}; console.log(JSON.stringify({status:s?.status||d?.status||null,complete:d?.complete===true,progress:s?.progress||null,pending_shards:Number(s?.pending_shards||0),reason:s?.reason||null,next_retry_at:s?.next_retry_at||null,relay_pending:s?.relay_pending===true,relay_job_id:s?.relay_job_id||null,relay_status:s?.relay_status||null,code_pool_exhaustions:Number(s?.code_pool_exhaustions||0),code_pool_refreshes:Number(s?.code_pool_refreshes||0),failure_count:Array.isArray(s?.failures)?s.failures.length:0},null,2));'
               if [ "$CODE_SYNC_COMPLETE" = "1" ]; then
                 CODE_SYNC_READY=1
                 break
               fi
               CODE_SYNC_WAITING_FOR_RETRY=0
+              CODE_SYNC_RELAY_PENDING="$(node -p "require('./production-launch-code-sync.json')?.code_sync?.relay_pending===true?'1':'0'")"
+              CODE_SYNC_RELAY_JOB_ID="$(node -p "String(require('./production-launch-code-sync.json')?.code_sync?.relay_job_id||'')")"
+              if [ "$CODE_SYNC_RELAY_PENDING" = "1" ]; then
+                CODE_SYNC_WAITING_FOR_RETRY=1
+                CODE_SYNC_WAIT=8
+                if [ -n "$CODE_SYNC_RELAY_JOB_ID" ] && [ "$CODE_SYNC_RELAY_JOB_ID" != "$CODE_SYNC_LAST_RELAY_JOB" ]; then
+                  printf '%s' '{"ref":"main"}' > github-relay-dispatch.json
+                  RELAY_DISPATCH_CODE="$(curl --silent --show-error --max-time 30 \
+                    --request POST \
+                    --header "Authorization: Bearer ${GITHUB_TOKEN}" \
+                    --header "Accept: application/vnd.github+json" \
+                    --header "X-GitHub-Api-Version: 2022-11-28" \
+                    --header "Content-Type: application/json" \
+                    --data-binary @github-relay-dispatch.json \
+                    --output github-relay-dispatch-response.txt \
+                    --write-out '%{http_code}' \
+                    "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/github-action-relay.yml/dispatches" || true)"
+                  test "$RELAY_DISPATCH_CODE" = "204"
+                  CODE_SYNC_LAST_RELAY_JOB="$CODE_SYNC_RELAY_JOB_ID"
+                  echo "Dispatched GitHub Action Relay for ShardVault mirror job ${CODE_SYNC_RELAY_JOB_ID}."
+                fi
+              fi
               if [ "$CODE_SYNC_NEXT_RETRY" != "-" ]; then
                 CODE_SYNC_RETRY_DELTA="$(NEXT_RETRY="$CODE_SYNC_NEXT_RETRY" node -e 'const t=Date.parse(process.env.NEXT_RETRY||""); const delta=Number.isFinite(t)?Math.ceil((t-Date.now())/1000):0; process.stdout.write(String(Math.max(0,delta)))')"
                 if [ "$CODE_SYNC_RETRY_DELTA" -gt 0 ]; then
