@@ -91,12 +91,74 @@ async function pipedreamDriveContext(env,{fetchImpl=fetch}={}){
     config=await createD1OAuthVaults(env).tokenVault.get({owner,connector_id:PIPEDREAM_CONFIG_ID});
   }catch{return null;}
   if(!config?.project_id||!config?.client_id||!config?.client_secret)return null;
-  const accounts=await pipedreamAccountStatus(config,owner,{fetcher:fetchImpl}).catch(()=>null);
-  const account=accounts?.accounts?.find(row=>row.app==='google_drive'&&row.healthy===true);
-  if(!account?.id)return null;
   const accessToken=await pipedreamAccessToken(config,{fetcher:fetchImpl}).catch(()=>null);
   if(!accessToken)return null;
+  const accounts=await pipedreamAccountStatus(config,owner,{fetcher:fetchImpl,accessToken}).catch(()=>null);
+  const account=accounts?.accounts?.find(row=>row.app==='google_drive'&&row.healthy===true);
+  if(!account?.id)return null;
   return{owner,config,account_id:account.id,access_token:accessToken};
+}
+
+function b64UrlAscii(value){
+  return btoa(String(value||'')).replaceAll('+','-').replaceAll('/','_').replace(/=+$/g,'');
+}
+
+function pipedreamDriveProxyUrl(pd,target){
+  const params=new URLSearchParams({external_user_id:pd.owner,account_id:pd.account_id});
+  return 'https://api.pipedream.com/v1/connect/'+encodeURIComponent(pd.config.project_id)
+    +'/proxy/'+b64UrlAscii(target)+'?'+params.toString();
+}
+
+async function pipedreamDriveProxyResponse({pd,target,method='GET',headers={},body=null,fetchImpl=fetch,allowNotFound=false}){
+  const environment=pd.config?.environment==='development'?'development':'production';
+  let response;
+  try{
+    response=await fetchImpl(pipedreamDriveProxyUrl(pd,target),{
+      method,
+      headers:{
+        authorization:'Bearer '+pd.access_token,
+        accept:'application/json, text/plain, */*',
+        'x-pd-environment':environment,
+        ...headers,
+      },
+      ...(body!==null?{body}:{}),
+      redirect:'manual',
+      signal:AbortSignal.timeout(45_000),
+    });
+  }catch{fail('SOV_BACKUP_PIPEDREAM_PROXY_UNAVAILABLE',503);}
+  if(allowNotFound&&response.status===404)return response;
+  if(!response.ok)fail('SOV_BACKUP_PIPEDREAM_PROXY_FAILED:'+response.status,502);
+  return response;
+}
+
+async function pipedreamDriveProxyUpload({pd,name,content,folderId=null,mimeType='application/json',fetchImpl=fetch}){
+  const boundary='mel_sov_pd_'+crypto.randomUUID().replaceAll('-','');
+  const metadata={name,mimeType,appProperties:{mel_role:'sovereignty-backup-restore'}};
+  if(folderId)metadata.parents=[folderId];
+  const body=[
+    '--'+boundary+'\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n'+JSON.stringify(metadata)+'\r\n',
+    '--'+boundary+'\r\nContent-Type: '+mimeType+'\r\n\r\n'+String(content??'')+'\r\n',
+    '--'+boundary+'--',
+  ].join('');
+  const target='https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,createdTime';
+  const response=await pipedreamDriveProxyResponse({
+    pd,target,method:'POST',headers:{'content-type':'multipart/related; boundary='+boundary},body,fetchImpl,
+  });
+  const payload=await response.json().catch(()=>null);
+  if(!payload?.id)fail('SOV_BACKUP_PIPEDREAM_FILE_ID_MISSING',502);
+  return{id:clean(payload.id,300),name:clean(payload.name,300)||name};
+}
+
+async function pipedreamDriveProxyRead({pd,fileId,fetchImpl=fetch,allowNotFound=false}){
+  const target='https://www.googleapis.com/drive/v3/files/'+encodeURIComponent(fileId)+'?alt=media';
+  const response=await pipedreamDriveProxyResponse({pd,target,fetchImpl,allowNotFound});
+  if(allowNotFound&&response.status===404)return null;
+  return response.text();
+}
+
+async function pipedreamDriveProxyDelete({pd,fileId,fetchImpl=fetch}){
+  const target='https://www.googleapis.com/drive/v3/files/'+encodeURIComponent(fileId);
+  await pipedreamDriveProxyResponse({pd,target,method:'DELETE',fetchImpl,allowNotFound:true});
 }
 
 async function provePipedreamDriveBackupRestoreAlternative({
@@ -110,33 +172,12 @@ async function provePipedreamDriveBackupRestoreAlternative({
 
   const ciphertext_sha256=await sha256Hex(backup.encrypted_text);
   const name=`MEL-SOV-01-${backup.snapshot_id}-${source_sha.slice(0,12)}.enc.json`;
-  const auth={authProvisionId:pd.account_id};
-
-  const created=await pipedreamRunAction({
-    config:pd.config,owner:pd.owner,accessToken:pd.access_token,fetchImpl,
-    actionId:'google_drive-create-text-file',
-    configuredProps:{
-      google_drive:auth,
-      name,
-      content:backup.encrypted_text,
-      mimeType:'text/plain',
-      ...(driveFolder(env)?{parentId:driveFolder(env)}:{}),
-    },
+  const created=await pipedreamDriveProxyUpload({
+    pd,name,content:backup.encrypted_text,folderId:driveFolder(env),mimeType:'application/json',fetchImpl,
   });
-  const fileId=driveFileId(created);
-  if(!fileId)fail('SOV_BACKUP_PIPEDREAM_FILE_ID_MISSING',502);
+  const fileId=created.id;
 
-  const downloaded=await pipedreamRunAction({
-    config:pd.config,owner:pd.owner,accessToken:pd.access_token,fetchImpl,
-    actionId:'google_drive-download-file',
-    configuredProps:{
-      google_drive:auth,
-      fileId,
-      mimeType:'text/plain',
-      getBufferResponse:true,
-    },
-  });
-  const readback=bufferText(downloaded);
+  const readback=await pipedreamDriveProxyRead({pd,fileId,fetchImpl});
   const readback_sha256=await sha256Hex(readback);
   if(readback_sha256!==ciphertext_sha256)fail('SOV_BACKUP_DRIVE_READBACK_INTEGRITY_MISMATCH',409);
 
@@ -148,15 +189,17 @@ async function provePipedreamDriveBackupRestoreAlternative({
   if(restore?.ok!==true)fail(restore?.code||'SOV_BACKUP_RESTORE_DRILL_FAILED',409);
   if(String(snapshot.id||'')!==String(backup.snapshot_id||''))fail('SOV_BACKUP_RESTORE_SNAPSHOT_MISMATCH',409);
 
-  const rollback=await pipedreamRunAction({
-    config:pd.config,owner:pd.owner,accessToken:pd.access_token,fetchImpl,
-    actionId:'google_drive-delete-file',
-    configuredProps:{google_drive:auth,fileId},
+  const rollbackProbe=await pipedreamDriveProxyUpload({
+    pd,
+    name:`MEL-SOV-01-rollback-probe-${crypto.randomUUID()}.json`,
+    content:JSON.stringify({schema:'mel.sov-backup-rollback-probe/v1',source_sha}),
+    folderId:driveFolder(env),
+    mimeType:'application/json',
+    fetchImpl,
   });
-  const rollbackValue=actionReturn(rollback)||{};
-  if(rollbackValue?.success!==true&&clean(rollbackValue?.fileId,300)!==fileId){
-    fail('SOV_BACKUP_PIPEDREAM_ROLLBACK_NOT_CONFIRMED',409);
-  }
+  await pipedreamDriveProxyDelete({pd,fileId:rollbackProbe.id,fetchImpl});
+  const afterDelete=await pipedreamDriveProxyRead({pd,fileId:rollbackProbe.id,fetchImpl,allowNotFound:true});
+  if(afterDelete!==null)fail('SOV_BACKUP_PIPEDREAM_ROLLBACK_NOT_CONFIRMED',409);
 
   return Object.freeze({
     ok:true,
@@ -164,7 +207,7 @@ async function provePipedreamDriveBackupRestoreAlternative({
     provider:'google-drive-via-pipedream',
     snapshot_id:backup.snapshot_id,
     drive_file_id:fileId,
-    drive_name:name,
+    drive_name:created.name||name,
     ciphertext_sha256,
     readback_sha256,
     encrypted:true,
@@ -179,7 +222,7 @@ async function provePipedreamDriveBackupRestoreAlternative({
     production_mutation:false,
     source_sha,
     verified_at:new Date(now).toISOString(),
-    evidence_ref:`google-drive:pipedream-file:${fileId};sha256:${readback_sha256};snapshot:${backup.snapshot_id}`,
+    evidence_ref:`google-drive:pipedream-proxy-file:${fileId};sha256:${readback_sha256};snapshot:${backup.snapshot_id}`,
     secret_values_exposed:false,
   });
 }
