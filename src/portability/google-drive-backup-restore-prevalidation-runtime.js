@@ -167,23 +167,32 @@ async function pipedreamDriveProxyWriteMedia({pd,fileId,body,mimeType='applicati
   return{id:clean(payload.id,300),name:clean(payload.name,300)||null};
 }
 
+async function pipedreamDriveProxyCreateMedia({
+  pd,name,body,mimeType='application/json',fetchImpl=fetch,
+}){
+  // Create content in one media upload instead of creating an empty Drive file
+  // and PATCHing its media afterwards. The latter is rejected by the current
+  // Pipedream Google Drive proxy with HTTP 403 in production.
+  const target='https://www.googleapis.com/upload/drive/v3/files?uploadType=media&fields=id,name,createdTime';
+  const response=await pipedreamDriveProxyResponse({
+    pd,target,method:'POST',headers:{'content-type':mimeType},body,fetchImpl,
+  });
+  const payload=await response.json().catch(()=>null);
+  if(!payload?.id)fail('SOV_BACKUP_PIPEDREAM_MEDIA_UPLOAD_FAILED',502);
+  return{id:clean(payload.id,300),name:clean(payload.name,300)||name};
+}
+
 async function pipedreamDriveProxyUpload({pd,name,content,folderId=null,mimeType='application/json',fetchImpl=fetch}){
-  const created=await pipedreamDriveProxyCreateFile({pd,name,folderId,mimeType,fetchImpl});
-  try{
-    const written=await pipedreamDriveProxyWriteMedia({
-      pd,fileId:created.id,body:String(content??''),mimeType,fetchImpl,
-    });
-    return{id:created.id,name:written.name||created.name||name};
-  }catch(error){
-    await pipedreamDriveProxyDelete({pd,fileId:created.id,fetchImpl}).catch(()=>{});
-    throw error;
-  }
+  void folderId;
+  return pipedreamDriveProxyCreateMedia({
+    pd,name,body:String(content??''),mimeType,fetchImpl,
+  });
 }
 
 async function pipedreamDriveProxyUploadBody({
   pd,name,body,byteLength=0,folderId=null,mimeType='application/json',fetchImpl=fetch,
 }){
-  const created=await pipedreamDriveProxyCreateFile({pd,name,folderId,mimeType,fetchImpl});
+  void folderId;
   let uploadBody=body;
   let pump=null;
   const length=Number(byteLength||0);
@@ -197,14 +206,13 @@ async function pipedreamDriveProxyUploadBody({
     uploadBody=fixed.readable;
   }
   try{
-    const written=await pipedreamDriveProxyWriteMedia({
-      pd,fileId:created.id,body:uploadBody,mimeType,fetchImpl,
+    const created=await pipedreamDriveProxyCreateMedia({
+      pd,name,body:uploadBody,mimeType,fetchImpl,
     });
     if(pump)await pump;
-    return{id:created.id,name:written.name||created.name||name};
+    return created;
   }catch(error){
     if(pump)await pump.catch(()=>{});
-    await pipedreamDriveProxyDelete({pd,fileId:created.id,fetchImpl}).catch(()=>{});
     throw error;
   }
 }
