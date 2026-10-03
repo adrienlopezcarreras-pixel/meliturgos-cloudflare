@@ -15,7 +15,7 @@ test('decoupled downstream proof never deploys, rolls back, toggles MAX, or muta
   assert.match(workflow,/MEL_SOV_01_DONE_VERIFIED_ELIGIBLE/);
   assert.doesNotMatch(workflow,/wrangler\s+(?:deploy|secret|versions)/);
   assert.doesNotMatch(workflow,/MEL_LAUNCH_BOOTSTRAP_TOKEN/);
-  assert.doesNotMatch(workflow,/rollback/i);
+  assert.doesNotMatch(workflow,/release-rollback-restore|automatic rollback|wrangler\s+rollback|deployments?[^\n]{0,80}rollback/i);
   assert.doesNotMatch(workflow,/max[_ -]?autonomy|MAX 100/i);
 });
 
@@ -52,10 +52,11 @@ test('decoupled sovereignty proof refreshes every bounded prevalidation domain b
   assert.match(workflow,/release-launch-bootstrap\?\$\{QUERY\}/);
   assert.match(workflow,/MEL_SOV_01_REFRESH_STEP_VERIFIED/);
   assert.match(workflow,/MEL_SOV_01_REFRESH_SAFETY_FAILED/);
-  const refresh=workflow.indexOf('for TARGET in ai ai_local source_control infrastructure backup_restore');
+  const refresh=workflow.indexOf('for TARGET in ai ai_local source_control infrastructure; do');
+  const backupStages=workflow.indexOf('for STEP in prepare readback rollback finalize; do');
   const status=workflow.indexOf('output sovereignty.json');
   const finalProof=workflow.indexOf('output mel-sov-01.json');
-  assert.ok(refresh>0&&status>refresh&&finalProof>status,'sovereignty refreshes must run before status and final proof');
+  assert.ok(refresh>0&&backupStages>refresh&&status>backupStages&&finalProof>status,'bounded sovereignty refreshes and all backup stages must run before status and final proof');
 });
 
 test('decoupled sovereignty refreshes retry only bounded transient pressure and preserve a sanitized failure artifact', async () => {
