@@ -21,10 +21,11 @@ test('decoupled downstream proof never deploys, rolls back, toggles MAX, or muta
 
 test('decoupled MEL-FILE proof serializes browser pressure and retries only transient statuses', async () => {
   const workflow=await readFile(new URL('../../.github/workflows/release-downstream-proof-decoupled.yml',import.meta.url),'utf8');
-  assert.match(workflow,/file:\n\s+needs: browser/);
-  assert.match(workflow,/for ATTEMPT in \$\(seq 1 8\)/);
-  assert.match(workflow,/408\|409\|429\|500\|502\|503\|504/);
-  assert.match(workflow,/Non-retryable MEL-FILE browser proof status/);
+  const fileBlock=workflow.split('\n  file:\n')[1]?.split('\n  sovereignty:\n')[0]||'';
+  assert.match(fileBlock,/needs: browser/);
+  assert.match(fileBlock,/for ATTEMPT in \$\(seq 1 8\)/);
+  assert.match(fileBlock,/408\|409\|429\|500\|502\|503\|504/);
+  assert.match(fileBlock,/Non-retryable MEL-FILE browser proof status/);
 });
 
 test('decoupled browser proof retries bounded transient failures before gating MEL-FILE', async () => {
