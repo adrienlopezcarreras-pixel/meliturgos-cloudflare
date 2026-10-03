@@ -114,18 +114,27 @@ function pipedreamDriveProxyUrl(pd,target){
 async function pipedreamDriveProxyResponse({pd,target,method='GET',headers={},body=null,fetchImpl=fetch,allowNotFound=false}){
   const environment=pd.config?.environment==='development'?'development':'production';
   let response;
+  const proxyHeaders={
+    authorization:'Bearer '+pd.access_token,
+    accept:'application/json, text/plain, */*',
+    'x-pd-environment':environment,
+    'x-pd-proxy-accept':'application/json, text/plain, */*',
+  };
+  for(const [key,value] of Object.entries(headers||{})){
+    const normalized=clean(key,100).toLowerCase();
+    if(!normalized||value===null||value===undefined)continue;
+    // Pipedream consumes normal request headers itself. Only x-pd-proxy-*
+    // headers are guaranteed to be forwarded to Google Drive.
+    proxyHeaders[normalized]=String(value);
+    proxyHeaders['x-pd-proxy-'+normalized]=String(value);
+  }
   try{
     response=await fetchImpl(pipedreamDriveProxyUrl(pd,target),{
       method,
-      headers:{
-        authorization:'Bearer '+pd.access_token,
-        accept:'application/json, text/plain, */*',
-        'x-pd-environment':environment,
-        ...headers,
-      },
+      headers:proxyHeaders,
       ...(body!==null?{body}:{}),
       redirect:'manual',
-      signal:AbortSignal.timeout(45_000),
+      signal:AbortSignal.timeout(30_000),
     });
   }catch{fail('SOV_BACKUP_PIPEDREAM_PROXY_UNAVAILABLE',503);}
   if(allowNotFound&&response.status===404)return response;

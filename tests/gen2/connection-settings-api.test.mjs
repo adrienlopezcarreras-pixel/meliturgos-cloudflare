@@ -546,7 +546,7 @@ test('Pipedream Google Tasks proof falls back to the read-only Connect proxy whe
   const encoded = proxy.url.split('/proxy/')[1].split('?')[0];
   const padded = encoded.replaceAll('-', '+').replaceAll('_', '/') + '='.repeat((4 - encoded.length % 4) % 4);
   const decoded = atob(padded);
-  assert.equal(decoded, 'https://tasks.googleapis.com/tasks/v1/users/@me/lists?maxResults=1');
+  assert.equal(decoded, 'https://www.googleapis.com/tasks/v1/users/@me/lists?maxResults=1');
 });
 
 test('Pipedream Google Tasks fallback preserves only sanitized upstream status on failure', async () => {
