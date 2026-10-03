@@ -396,6 +396,10 @@ jobs:
                 sleep 2
                 continue
               fi
+              if [ "${REFRESH_ERROR}" = "SOV_BACKUP_GOOGLE_DRIVE_RECONSENT_REQUIRED" ]; then
+                echo "Google Drive OAuth re-consent is required for ${KEY}; this is not transient."
+                break
+              fi
               case "${REFRESH_CODE}" in
                 409|429|500|502|503|504)
                   echo "Transient decoupled SOV refresh ${KEY} status ${REFRESH_CODE} (${REFRESH_ERROR}); retry ${ATTEMPT}/6."
