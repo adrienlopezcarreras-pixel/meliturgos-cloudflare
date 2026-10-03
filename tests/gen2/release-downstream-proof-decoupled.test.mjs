@@ -47,8 +47,9 @@ test('sovereignty proof binds exact SHA through code self-check instead of requi
 
 test('decoupled sovereignty proof refreshes every bounded prevalidation domain before final status', async () => {
   const workflow=await readFile(new URL('../../.github/workflows/release-downstream-proof-decoupled.yml',import.meta.url),'utf8');
-  assert.match(workflow,/for TARGET in ai ai_local source_control infrastructure backup_restore/);
-  assert.match(workflow,/release-launch-bootstrap\?refresh=\$\{TARGET\}/);
+  assert.match(workflow,/for TARGET in ai ai_local source_control infrastructure/);
+  assert.match(workflow,/for STEP in prepare readback rollback finalize/);
+  assert.match(workflow,/release-launch-bootstrap\?\$\{QUERY\}/);
   assert.match(workflow,/MEL_SOV_01_REFRESH_STEP_VERIFIED/);
   assert.match(workflow,/MEL_SOV_01_REFRESH_SAFETY_FAILED/);
   const refresh=workflow.indexOf('for TARGET in ai ai_local source_control infrastructure backup_restore');
