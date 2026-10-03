@@ -23,6 +23,11 @@ test('decoupled MEL-FILE proof serializes browser pressure and retries only tran
   const workflow=await readFile(new URL('../../.github/workflows/release-downstream-proof-decoupled.yml',import.meta.url),'utf8');
   const fileBlock=workflow.split('\n  file:\n')[1]?.split('\n  sovereignty:\n')[0]||'';
   assert.match(fileBlock,/needs: browser/);
+  assert.match(fileBlock,/api\/teacher\/launch-readiness/);
+  assert.match(fileBlock,/GO_FOR_SUPERVISED_AUTONOMY/);
+  assert.match(fileBlock,/candidate_sha/);
+  assert.match(fileBlock,/for ATTEMPT in \$\(seq 1 60\)/);
+  assert.ok(fileBlock.indexOf('GO_FOR_SUPERVISED_AUTONOMY')<fileBlock.indexOf('SESSION="decoupled-file-'),'release readiness must gate MEL-FILE browser pressure');
   assert.match(fileBlock,/for ATTEMPT in \$\(seq 1 8\)/);
   assert.match(fileBlock,/408\|409\|429\|500\|502\|503\|504/);
   assert.match(fileBlock,/Non-retryable MEL-FILE browser proof status/);
