@@ -145,7 +145,9 @@ test('predeploy refresh creates the backup on the GitHub runner and keeps the Wo
 
   const binderEnd = source.indexOf('      - name: Install pinned Browser Rendering adapter', binder);
   const binderBlock = source.slice(binder, binderEnd);
-  assert.match(binderBlock, /mel-predeploy-backup-binder/);
+  assert.match(binderBlock, /mel-pdb-\$\{GITHUB_RUN_ID\}-\$\{GITHUB_RUN_ATTEMPT\}/);
+  assert.match(binderBlock, /\/health/);
+  assert.match(binderBlock, /BINDER_STABLE_PROBES/);
   assert.match(binderBlock, /\/prepare/);
   assert.match(binderBlock, /predeploy-backup-verified\.marker/);
   assert.doesNotMatch(binderBlock, /MEL_LAUNCH_BOOTSTRAP_TOKEN/);
