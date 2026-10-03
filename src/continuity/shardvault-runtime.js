@@ -334,7 +334,9 @@ async function githubCodeMirrorUpload(env,e,objectId,payload){
   if(!id)throw Object.assign(new Error('GITHUB_CODE_MIRROR_IDENTITY_UNAVAILABLE'),{code:'GITHUB_CODE_MIRROR_IDENTITY_UNAVAILABLE'});
   const remoteUrl=publicUrl(e.urlTemplate.replaceAll('{objectId}',encodeURIComponent(objectId)),'WRITE_'+e.id+'_REMOTE').toString();
   try{
-    const existing=await fetchTimed(remoteUrl,{method:'GET',headers:{'accept':'application/octet-stream','cache-control':'no-cache'}},15000);
+    const verifyUrl=new URL(remoteUrl);
+    verifyUrl.searchParams.set('mel_verify',String(Date.now()));
+    const existing=await fetchTimed(verifyUrl,{method:'GET',headers:{'accept':'application/octet-stream','cache-control':'no-cache'}},15000);
     if(existing.ok){const got=new Uint8Array(await existing.arrayBuffer());if(byteArraysEqual(got,payload))return {remoteUrl};}
   }catch{}
   const pendingKey=githubMirrorPendingKey(id,objectId);
@@ -602,7 +604,9 @@ async function download(env,e,objectId,descriptor=null){
   const remote=descriptor?.remoteUrl;
   if(e.adapter==='github_actions_code_mirror'){
     if(!remote)throw new Error(`READ_${e.id}_REMOTE_URL_MISSING`);
-    const r=await fetchTimed(publicUrl(remote,`READ_${e.id}_REMOTE`),{method:'GET',headers:{'accept':'application/octet-stream','cache-control':'no-cache'}},20000);
+    const readUrl=publicUrl(remote,`READ_${e.id}_REMOTE`);
+    readUrl.searchParams.set('mel_verify',String(Date.now()));
+    const r=await fetchTimed(readUrl,{method:'GET',headers:{'accept':'application/octet-stream','cache-control':'no-cache'}},20000);
     if(!r.ok)throw new Error(`READ_${e.id}_${r.status}`);
     return new Uint8Array(await r.arrayBuffer());
   }
