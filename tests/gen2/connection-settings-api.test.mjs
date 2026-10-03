@@ -549,6 +549,35 @@ test('Pipedream Google Tasks proof falls back to the read-only Connect proxy whe
   assert.equal(decoded, 'https://tasks.googleapis.com/tasks/v1/users/@me/lists?maxResults=1');
 });
 
+test('Pipedream Google Tasks fallback preserves only sanitized upstream status on failure', async () => {
+  await assert.rejects(
+    testPipedreamGoogleTasksRead({
+      project_id: 'proj_demo123',
+      client_id: 'client-id',
+      client_secret: 'client-secret',
+      environment: 'production',
+    }, 'adrien', {
+      fetcher: async (url) => {
+        if (String(url).endsWith('/v1/oauth/token')) return Response.json({ access_token: 'server-token' });
+        if (String(url).includes('/accounts?')) {
+          return Response.json({
+            data: [{ id: 'apn_tasks', healthy: true, app: { name_slug: 'google_tasks' } }],
+          });
+        }
+        if (String(url).endsWith('/actions/run')) return Response.json({ private: 'do-not-surface' }, { status: 409 });
+        if (String(url).includes('/proxy/')) return Response.json({ private: 'do-not-surface' }, { status: 403 });
+        return Response.json({}, { status: 404 });
+      },
+    }),
+    error => {
+      assert.equal(error.code, 'PIPEDREAM_GOOGLE_TASKS_PROXY_READ_FAILED');
+      assert.equal(error.upstream_status, 403);
+      assert.equal(String(error.message).includes('do-not-surface'), false);
+      return true;
+    },
+  );
+});
+
 test('Pipedream Google Tasks proof fails closed without a healthy linked account', async () => {
   await assert.rejects(
     testPipedreamGoogleTasksRead({

@@ -90,7 +90,7 @@ jobs:
                 REFRESH_READY=1
                 break
               fi
-              REFRESH_ERROR_CODE="$(KEY="${KEY}" node -e 'const fs=require("fs");let d={};try{d=JSON.parse(fs.readFileSync("mel-sov-refresh-"+process.env.KEY+".json","utf8"))}catch{};process.stdout.write(String(d?.code||d?.error||d?.status||"UNKNOWN"))')"
+              REFRESH_ERROR_CODE="$(KEY="${KEY}" node -e 'const fs=require("fs");let d={};try{d=JSON.parse(fs.readFileSync("mel-sov-refresh-"+process.env.KEY+".json","utf8"))}catch{};process.stdout.write(String(d?.refresh?.reason||d?.code||d?.error||d?.status||"UNKNOWN"))')"
               case "${CODE}" in
                 409|429|500|502|503|504)
                   echo "Transient MEL-SOV-01 refresh ${KEY} status ${CODE} (${REFRESH_ERROR_CODE}); retry ${ATTEMPT}/6."

@@ -171,14 +171,30 @@ async function pipedreamDriveProxyUpload({pd,name,content,folderId=null,mimeType
   }
 }
 
-async function pipedreamDriveProxyUploadBody({pd,name,body,folderId=null,mimeType='application/json',fetchImpl=fetch}){
+async function pipedreamDriveProxyUploadBody({
+  pd,name,body,byteLength=0,folderId=null,mimeType='application/json',fetchImpl=fetch,
+}){
   const created=await pipedreamDriveProxyCreateFile({pd,name,folderId,mimeType,fetchImpl});
+  let uploadBody=body;
+  let pump=null;
+  const length=Number(byteLength||0);
+  if(
+    Number.isSafeInteger(length)&&length>0
+    && typeof globalThis.FixedLengthStream==='function'
+    && body&&typeof body.pipeTo==='function'
+  ){
+    const fixed=new globalThis.FixedLengthStream(length);
+    pump=body.pipeTo(fixed.writable);
+    uploadBody=fixed.readable;
+  }
   try{
     const written=await pipedreamDriveProxyWriteMedia({
-      pd,fileId:created.id,body,mimeType,fetchImpl,
+      pd,fileId:created.id,body:uploadBody,mimeType,fetchImpl,
     });
+    if(pump)await pump;
     return{id:created.id,name:written.name||created.name||name};
   }catch(error){
+    if(pump)await pump.catch(()=>{});
     await pipedreamDriveProxyDelete({pd,fileId:created.id,fetchImpl}).catch(()=>{});
     throw error;
   }
@@ -550,7 +566,8 @@ async function runPipedreamBackupRestoreStage(env,{
     if(!backup?.snapshot_id||!backup?.object_key||!backup?.body)fail('SOV_BACKUP_SOURCE_REQUIRED',409);
     const name=`MEL-SOV-01-${backup.snapshot_id}-${source_sha.slice(0,12)}.enc.json`;
     const created=await pipedreamDriveProxyUploadBody({
-      pd,name,body:backup.body,folderId:driveFolder(env),mimeType:'application/json',fetchImpl,
+      pd,name,body:backup.body,byteLength:backup.byte_length,
+      folderId:driveFolder(env),mimeType:'application/json',fetchImpl,
     });
     Object.assign(state,{
       snapshot_id:backup.snapshot_id,
