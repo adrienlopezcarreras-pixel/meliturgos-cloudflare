@@ -93,7 +93,7 @@ test('parallel proof auth is narrower than the normal release-smoke token', asyn
   assert.match(block,/api\/gen2\/code\/self-check/);
   assert.match(block,/api\/gen2\/autonomy\/sovereignty/);
   assert.match(block,/api\/chat/);
-  assert.doesNotMatch(block,/'\\/api\\/gen2\\/connections\\/[^']+\\/save'/);
+  assert.equal([...block.matchAll(/'([^']+)'/g)].some(([,route])=>route.includes('/connections/')&&route.endsWith('/save')),false);
   assert.match(block,/api\/files\/upload/);
   const nativeChat=await readFile(new URL('../../src/api/native-chat.js',import.meta.url),'utf8');
   assert.match(nativeChat,/const capability = releaseSmoke\s*\? inferredCapability/);
