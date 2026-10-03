@@ -243,6 +243,10 @@ test('Google access-token resolver reuses another Google token only when target 
     await runtime.accessTokenResolver('google-tasks', { owner: 'adrien' }),
     'shared-google-access',
   );
+  assert.equal(
+    await runtime.accessTokenResolver('google-drive', { owner: 'adrien' }),
+    '',
+  );
   const tasksStatus = await runtime.status('google-tasks', { owner: 'adrien' });
   assert.equal(tasksStatus.authorized, true);
   assert.equal(tasksStatus.token_source, 'shared_google_grant');
@@ -266,6 +270,36 @@ test('Google access-token resolver reuses another Google token only when target 
   );
 });
 
+test('Google Drive OAuth uses only the minimal drive.file scope and can reuse an explicitly scoped shared grant', async () => {
+  const { runtime, vaults } = fixture();
+  const manifest = runtime.manifest('google-drive');
+  assert.deepEqual(manifest.scopes.required, ['https://www.googleapis.com/auth/drive.file']);
+  assert.deepEqual(manifest.scopes.optional, []);
+
+  await vaults.tokenVault.put({
+    owner: 'adrien',
+    connector_id: 'gmail',
+    token_set: {
+      access_token: 'shared-drive-access',
+      token_type: 'Bearer',
+      scopes: [
+        'https://www.googleapis.com/auth/gmail.readonly',
+        'https://www.googleapis.com/auth/drive.file',
+      ],
+      expires_at: Date.now() + 300_000,
+    },
+  });
+
+  assert.equal(
+    await runtime.accessTokenResolver('google-drive', { owner: 'adrien' }),
+    'shared-drive-access',
+  );
+  const status = await runtime.status('google-drive', { owner: 'adrien' });
+  assert.equal(status.authorized, true);
+  assert.equal(status.token_source, 'shared_google_grant');
+  assert.equal(JSON.stringify(status).includes('shared-drive-access'), false);
+});
+
 test('Gmail full-access API requests the shared Google suite read/write scopes', async () => {
   const f = fixture();
   const request = new Request('https://mel.example/api/gen2/oauth/google/gmail/begin', {
@@ -282,6 +316,7 @@ test('Gmail full-access API requests the shared Google suite read/write scopes',
     'https://www.googleapis.com/auth/calendar.events.readonly',
     'https://www.googleapis.com/auth/gmail.compose',
     'https://www.googleapis.com/auth/gmail.readonly',
+    'https://www.googleapis.com/auth/drive.file',
     'https://www.googleapis.com/auth/gmail.send',
     'https://www.googleapis.com/auth/tasks',
     'https://www.googleapis.com/auth/tasks.readonly',
