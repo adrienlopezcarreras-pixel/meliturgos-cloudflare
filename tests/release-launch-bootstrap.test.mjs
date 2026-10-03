@@ -894,6 +894,95 @@ test('GEN2-42 owner MAX bootstrap approves only the gated SHA then runs one cano
   assert.equal(controls[0].launch_gate_digest,digest);
 });
 
+test('release rollback restore is OIDC-scoped, exact-SHA bound and restores MAX only after readiness', async () => {
+  const sha='9'.repeat(40);
+  const digest='a'.repeat(64);
+  const controls=[];
+  const oidc=[];
+  const response=await maybeHandleReleaseLaunchBootstrap(
+    new Request('https://mel.test/api/internal/release-launch-bootstrap?expected_sha='+sha+'&paused=false&max=true',{
+      method:'POST',
+      headers:{'x-mel-github-oidc':'fixture-oidc','content-type':'application/json'},
+      body:JSON.stringify({phase:'release-rollback-restore'}),
+    }),
+    {MEL_DEPLOYED_GIT_SHA:sha,DB:{prepare(){}}},
+    {
+      authorizeOidc:async(_request,_env,options)=>{oidc.push(options);return {ok:true};},
+      prepare:async()=>({ok:true,status:'LAUNCH_EVIDENCE_READY',readiness:{
+        ok:true,status:'GO_FOR_SUPERVISED_AUTONOMY',launch_ready:true,
+        candidate_sha:sha,evaluated_at:'2026-10-03T05:00:00.000Z',gate_digest:digest,
+        blockers:[],gates:{verified_restore_dry_run:true},
+      }}),
+      setControl:async(_db,input)=>{controls.push(input);return input;},
+    },
+  );
+  assert.equal(response.status,200);
+  const body=await response.json();
+  assert.equal(body.status,'RELEASE_ROLLBACK_AUTONOMY_RESTORED');
+  assert.equal(body.deployed_sha,sha);
+  assert.equal(body.paused,false);
+  assert.equal(body.max_autonomy,true);
+  assert.equal(body.launch_approved_sha,sha);
+  assert.equal(body.oidc_authorized,true);
+  assert.deepEqual(oidc[0].allowedWorkflows,['deploy-cloudflare-release.yml']);
+  assert.deepEqual(oidc[0].allowedEvents,['push','workflow_dispatch']);
+  assert.equal(controls.length,1);
+  assert.equal(controls[0].source,'release-rollback-restore');
+  assert.equal(controls[0].launch_approved_sha,sha);
+  assert.equal(controls[0].launch_gate_digest,digest);
+});
+
+test('release rollback restore refuses SHA mismatch before touching readiness or control', async () => {
+  const deployed='1'.repeat(40),expected='2'.repeat(40);
+  let prepareCalls=0,controlCalls=0;
+  const response=await maybeHandleReleaseLaunchBootstrap(
+    new Request('https://mel.test/api/internal/release-launch-bootstrap?expected_sha='+expected+'&paused=false&max=true',{
+      method:'POST',
+      headers:{'x-mel-github-oidc':'fixture-oidc','content-type':'application/json'},
+      body:JSON.stringify({phase:'release-rollback-restore'}),
+    }),
+    {MEL_DEPLOYED_GIT_SHA:deployed,DB:{prepare(){}}},
+    {
+      authorizeOidc:async()=>({ok:true}),
+      prepare:async()=>{prepareCalls+=1;throw new Error('must not run');},
+      setControl:async()=>{controlCalls+=1;throw new Error('must not run');},
+    },
+  );
+  assert.equal(response.status,409);
+  const body=await response.json();
+  assert.equal(body.code,'ROLLBACK_RESTORE_SHA_MISMATCH');
+  assert.equal(body.deployed_sha,deployed);
+  assert.equal(body.expected_sha,expected);
+  assert.equal(prepareCalls,0);
+  assert.equal(controlCalls,0);
+});
+
+test('release rollback restore can preserve an already-paused stable release without reopening readiness', async () => {
+  const sha='3'.repeat(40);
+  let prepareCalls=0;
+  const controls=[];
+  const response=await maybeHandleReleaseLaunchBootstrap(
+    new Request('https://mel.test/api/internal/release-launch-bootstrap?expected_sha='+sha+'&paused=true&max=false',{
+      method:'POST',
+      headers:{'x-mel-github-oidc':'fixture-oidc','content-type':'application/json'},
+      body:JSON.stringify({phase:'release-rollback-restore'}),
+    }),
+    {MEL_DEPLOYED_GIT_SHA:sha,DB:{prepare(){}}},
+    {
+      authorizeOidc:async()=>({ok:true}),
+      prepare:async()=>{prepareCalls+=1;throw new Error('paused restore must not prepare');},
+      setControl:async(_db,input)=>{controls.push(input);return input;},
+    },
+  );
+  assert.equal(response.status,200);
+  const body=await response.json();
+  assert.equal(body.paused,true);
+  assert.equal(body.max_autonomy,false);
+  assert.equal(prepareCalls,0);
+  assert.equal(controls.length,1);
+  assert.equal(controls[0].launch_approved_sha,null);
+});
+
 test('release identity phase returns exact deployed SHA without touching autonomy or providers', async () => {
   const sha='4'.repeat(40);
   const response=await maybeHandleReleaseLaunchBootstrap(

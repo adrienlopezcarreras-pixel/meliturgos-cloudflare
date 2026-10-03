@@ -32,7 +32,7 @@ import { runGoogleDriveBackupRestorePrevalidationRuntime } from '../portability/
 import { authorizeGitHubActionsOidcRequest } from '../security/github-actions-oidc.js';
 
 const PATH = '/api/internal/release-launch-bootstrap';
-const PHASES = new Set(['all', 'identity', 'pause', 'backup', 'code-sync', 'readiness', 'sovereignty-proof', 'skill-registry-proof', 'plugin-sdk-proof', 'evolution-ledger-proof', 'agent-automation-proof', 'provider-escape-proof', 'long-context-proof', 'capability-watch-proof', 'connection-proof', 'gen2-42-runtime-tick', 'gen2-42-owner-max']);
+const PHASES = new Set(['all', 'identity', 'pause', 'backup', 'code-sync', 'readiness', 'sovereignty-proof', 'skill-registry-proof', 'plugin-sdk-proof', 'evolution-ledger-proof', 'agent-automation-proof', 'provider-escape-proof', 'long-context-proof', 'capability-watch-proof', 'connection-proof', 'gen2-42-runtime-tick', 'gen2-42-owner-max', 'release-rollback-restore']);
 
 function exactDeployedSha(env = {}) {
   const direct = String(env?.MEL_DEPLOYED_GIT_SHA || '').trim().toLowerCase();
@@ -273,6 +273,7 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
   proveCapabilityWatch = proveEcosystemTeacherHandoff,
   runAutonomyTick = runAutonomyRuntimeTick,
   connectionHandler = maybeHandleConnectionSettingsApi,
+  authorizeOidc = authorizeGitHubActionsOidcRequest,
 } = {}) {
   const url = new URL(request.url);
   if (url.pathname !== PATH) return null;
@@ -299,20 +300,98 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
     ? await consumeBootstrapChallenge(env, gen2Supplied, 'gen2-42-runtime-tick')
     : false;
   const gen2Oidc = phase === 'gen2-42-runtime-tick'
-    ? await authorizeGitHubActionsOidcRequest(request, env, {
+    ? await authorizeOidc(request, env, {
         allowedWorkflows: ['gen2-42-runtime-tick.yml'],
         allowedEvents: ['schedule', 'workflow_dispatch'],
       })
     : { ok: false };
+  const rollbackOidc = phase === 'release-rollback-restore'
+    ? await authorizeOidc(request, env, {
+        allowedWorkflows: ['deploy-cloudflare-release.yml'],
+        allowedEvents: ['push', 'workflow_dispatch'],
+      })
+    : { ok: false };
   const gen2Authorized = gen2SecretAuthorized || gen2ChallengeAuthorized || gen2Oidc.ok === true;
-  if (!primaryAuthorized && !gen2Authorized && !parallelAuthorized) {
+  const rollbackAuthorized = rollbackOidc.ok === true;
+  if (!primaryAuthorized && !gen2Authorized && !parallelAuthorized && !rollbackAuthorized) {
     return Response.json({ ok: false, code: 'BOOTSTRAP_AUTH_REQUIRED' }, { status: 401, headers: { 'cache-control': 'no-store' } });
   }
-  if (parallelAuthorized && !primaryAuthorized && !gen2Authorized && !parallelProofPhase) {
+  if (parallelAuthorized && !primaryAuthorized && !gen2Authorized && !rollbackAuthorized && !parallelProofPhase) {
     return Response.json({ ok: false, code: 'BOOTSTRAP_SCOPE_DENIED' }, { status: 403, headers: { 'cache-control': 'no-store' } });
   }
   if (gen2Authorized && !primaryAuthorized && phase !== 'gen2-42-runtime-tick') {
     return Response.json({ ok: false, code: 'BOOTSTRAP_SCOPE_DENIED' }, { status: 403, headers: { 'cache-control': 'no-store' } });
+  }
+  if (rollbackAuthorized && !primaryAuthorized && phase !== 'release-rollback-restore') {
+    return Response.json({ ok: false, code: 'BOOTSTRAP_SCOPE_DENIED' }, { status: 403, headers: { 'cache-control': 'no-store' } });
+  }
+
+  if (phase === 'release-rollback-restore') {
+    const deployedSha = exactDeployedSha(env);
+    const expectedSha = String(url.searchParams.get('expected_sha') || '').trim().toLowerCase();
+    const pausedRaw = String(url.searchParams.get('paused') || '').trim().toLowerCase();
+    const maxRaw = String(url.searchParams.get('max') || '').trim().toLowerCase();
+    if (!/^[0-9a-f]{40}$/.test(expectedSha) || !['true','false'].includes(pausedRaw) || !['true','false'].includes(maxRaw)) {
+      return Response.json({ ok: false, code: 'ROLLBACK_RESTORE_INPUT_INVALID', phase }, { status: 400, headers: { 'cache-control': 'no-store' } });
+    }
+    const restorePaused = pausedRaw === 'true';
+    const restoreMax = maxRaw === 'true';
+    if (restorePaused && restoreMax) {
+      return Response.json({ ok: false, code: 'ROLLBACK_RESTORE_STATE_INVALID', phase }, { status: 400, headers: { 'cache-control': 'no-store' } });
+    }
+    if (!deployedSha || deployedSha !== expectedSha) {
+      return Response.json({
+        ok: false,
+        code: 'ROLLBACK_RESTORE_SHA_MISMATCH',
+        phase,
+        deployed_sha: deployedSha || null,
+        expected_sha: expectedSha,
+      }, { status: 409, headers: { 'cache-control': 'no-store' } });
+    }
+    if (!env?.DB || typeof env.DB.prepare !== 'function') {
+      return Response.json({ ok: false, code: 'D1_NOT_BOUND', phase }, { status: 503, headers: { 'cache-control': 'no-store' } });
+    }
+
+    let launch = { sha: null, at: null, digest: null };
+    if (!restorePaused) {
+      const prepared = await prepare(env);
+      const readiness = safeReadiness(prepared?.readiness);
+      const approvedSha = String(prepared?.readiness?.candidate_sha || readiness.candidate_sha || '').trim().toLowerCase();
+      if (prepared?.ok !== true || readiness.launch_ready !== true || approvedSha !== deployedSha) {
+        return Response.json({
+          ok: false,
+          code: 'ROLLBACK_RESTORE_LAUNCH_GATE_BLOCKED',
+          phase,
+          deployed_sha: deployedSha,
+          readiness,
+        }, { status: 409, headers: { 'cache-control': 'no-store' } });
+      }
+      launch = {
+        sha: approvedSha,
+        at: prepared?.readiness?.evaluated_at || new Date().toISOString(),
+        digest: preparednessDigest(prepared?.readiness) || readiness.gate_digest || null,
+      };
+    }
+
+    const control = await setControl(env.DB, {
+      paused: restorePaused,
+      max_autonomy: restoreMax,
+      source: 'release-rollback-restore',
+      reason: 'restore-predeploy-autonomy-state',
+      launch_approved_sha: launch.sha,
+      launch_approved_at: launch.at,
+      launch_gate_digest: launch.digest,
+    });
+    return Response.json({
+      ok: true,
+      status: 'RELEASE_ROLLBACK_AUTONOMY_RESTORED',
+      phase,
+      deployed_sha: deployedSha,
+      paused: control?.paused === true,
+      max_autonomy: control?.max_autonomy === true,
+      launch_approved_sha: control?.launch_approved_sha || null,
+      oidc_authorized: rollbackAuthorized,
+    }, { headers: { 'cache-control': 'no-store' } });
   }
 
   if (phase === 'identity') {

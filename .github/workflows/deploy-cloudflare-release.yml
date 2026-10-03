@@ -27,6 +27,7 @@ on:
 permissions:
   contents: read
   actions: write
+  id-token: write
 
 concurrency:
   group: mel-launch-bootstrap-token
@@ -168,6 +169,7 @@ jobs:
           )"
           [[ "${CURRENT_PRODUCTION_SHA}" =~ ^[0-9a-f]{40}$ ]]
           echo "Current canonical production release SHA: ${CURRENT_PRODUCTION_SHA}"
+          echo "PREVIOUS_DEPLOYED_SHA=${CURRENT_PRODUCTION_SHA}" >> "$GITHUB_ENV"
 
           REFRESH_NAME="mel-pd-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           REFRESH_CONFIG="release-tools/predeploy-backup-refresh/wrangler.run.jsonc"
@@ -309,6 +311,25 @@ jobs:
           )"
           test -n "$PREVIOUS_VERSION_ID"
           echo "PREVIOUS_CLOUDFLARE_VERSION_ID=$PREVIOUS_VERSION_ID" >> "$GITHUB_ENV"
+
+      - name: Capture pre-deploy autonomy control
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE_URL="https://meliturgos.adrien-lopezcarreras.workers.dev"
+          CODE="$(curl --silent --show-error --max-time 30             --output predeploy-autonomy-control.json             --write-out '%{http_code}'             "${BASE_URL}/api/gen2/autonomy/control" || true)"
+          test "${CODE}" = "200"
+          node - <<'NODE'
+          const fs=require('fs');
+          const d=JSON.parse(fs.readFileSync('predeploy-autonomy-control.json','utf8'));
+          if(d?.ok!==true) throw new Error('PREDEPLOY_AUTONOMY_CONTROL_NOT_OK');
+          if(typeof d?.paused!=='boolean' || typeof d?.max_autonomy!=='boolean') throw new Error('PREDEPLOY_AUTONOMY_CONTROL_INVALID');
+          if(d.paused===true && d.max_autonomy===true) throw new Error('PREDEPLOY_AUTONOMY_CONTROL_CONTRADICTORY');
+          fs.appendFileSync(process.env.GITHUB_ENV,
+            'PREVIOUS_AUTONOMY_PAUSED='+String(d.paused===true)+'\n'
+            +'PREVIOUS_MAX_AUTONOMY='+String(d.max_autonomy===true)+'\n');
+          console.log(JSON.stringify({paused:d.paused===true,max_autonomy:d.max_autonomy===true,status:d.status||null}));
+          NODE
 
       - name: Create verified pre-deploy production backup
         shell: bash
@@ -2157,3 +2178,38 @@ jobs:
             exit 49
           fi
           node -e 'const d=require("./rollback-response.json");if(d?.success!==true)throw new Error("AUTOMATIC_ROLLBACK_FAILED");console.log("Automatic rollback accepted to previous stable Cloudflare version.")'
+
+          test -n "${PREVIOUS_DEPLOYED_SHA:-}"
+          test -n "${PREVIOUS_AUTONOMY_PAUSED:-}"
+          test -n "${PREVIOUS_MAX_AUTONOMY:-}"
+
+          if [ "${PREVIOUS_AUTONOMY_PAUSED}" = "true" ] && [ "${PREVIOUS_MAX_AUTONOMY}" = "false" ]; then
+            echo "Previous production was already paused; rollback control restoration is intentionally unnecessary."
+            exit 0
+          fi
+
+          OIDC_RESPONSE="$(curl --silent --show-error --fail --max-time 30             --header "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}"             "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=meliturgos-worker")"
+          OIDC_TOKEN="$(printf '%s' "${OIDC_RESPONSE}" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const j=JSON.parse(s);if(!j.value)process.exit(2);process.stdout.write(j.value)})')"
+          echo "::add-mask::${OIDC_TOKEN}"
+
+          RESTORE_READY=0
+          for RESTORE_ATTEMPT in $(seq 1 18); do
+            RESTORE_CODE="$(curl --silent --show-error --max-time 90               --request POST               --header "x-mel-github-oidc: ${OIDC_TOKEN}"               --header "content-type: application/json"               --data '{"phase":"release-rollback-restore"}'               --output rollback-autonomy-restore.json               --write-out '%{http_code}'               "https://meliturgos.adrien-lopezcarreras.workers.dev/api/internal/release-launch-bootstrap?expected_sha=${PREVIOUS_DEPLOYED_SHA}&paused=${PREVIOUS_AUTONOMY_PAUSED}&max=${PREVIOUS_MAX_AUTONOMY}" || true)"
+            if [ "${RESTORE_CODE}" = "200" ] &&               PREVIOUS_DEPLOYED_SHA="${PREVIOUS_DEPLOYED_SHA}"               PREVIOUS_AUTONOMY_PAUSED="${PREVIOUS_AUTONOMY_PAUSED}"               PREVIOUS_MAX_AUTONOMY="${PREVIOUS_MAX_AUTONOMY}"               node - <<'NODE'
+          const d=require('./rollback-autonomy-restore.json');
+          const expected=String(process.env.PREVIOUS_DEPLOYED_SHA||'').toLowerCase();
+          const paused=String(process.env.PREVIOUS_AUTONOMY_PAUSED)==='true';
+          const max=String(process.env.PREVIOUS_MAX_AUTONOMY)==='true';
+          if(d?.ok!==true || d?.status!=='RELEASE_ROLLBACK_AUTONOMY_RESTORED') process.exit(1);
+          if(String(d?.deployed_sha||'').toLowerCase()!==expected) process.exit(1);
+          if(d?.paused!==paused || d?.max_autonomy!==max) process.exit(1);
+          NODE
+            then
+              RESTORE_READY=1
+              break
+            fi
+            echo "Rollback autonomy restore attempt ${RESTORE_ATTEMPT}/18 returned HTTP ${RESTORE_CODE}; waiting for exact stable SHA propagation."
+            sleep 3
+          done
+          test "${RESTORE_READY}" = "1"
+          echo "Previous autonomy control restored after exact-SHA rollback."
