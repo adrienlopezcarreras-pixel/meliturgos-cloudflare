@@ -329,13 +329,18 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
   if (phase === 'release-rollback-restore') {
     const deployedSha = exactDeployedSha(env);
     const expectedSha = String(url.searchParams.get('expected_sha') || '').trim().toLowerCase();
+    const restoreShaRaw = String(url.searchParams.get('restore_sha') || '').trim().toLowerCase();
     const pausedRaw = String(url.searchParams.get('paused') || '').trim().toLowerCase();
     const maxRaw = String(url.searchParams.get('max') || '').trim().toLowerCase();
-    if (!/^[0-9a-f]{40}$/.test(expectedSha) || !['true','false'].includes(pausedRaw) || !['true','false'].includes(maxRaw)) {
+    if (!/^[0-9a-f]{40}$/.test(expectedSha)
+      || (restoreShaRaw && !/^[0-9a-f]{40}$/.test(restoreShaRaw))
+      || !['true','false'].includes(pausedRaw)
+      || !['true','false'].includes(maxRaw)) {
       return Response.json({ ok: false, code: 'ROLLBACK_RESTORE_INPUT_INVALID', phase }, { status: 400, headers: { 'cache-control': 'no-store' } });
     }
     const restorePaused = pausedRaw === 'true';
     const restoreMax = maxRaw === 'true';
+    const restoreSha = restoreShaRaw || expectedSha;
     if (restorePaused && restoreMax) {
       return Response.json({ ok: false, code: 'ROLLBACK_RESTORE_STATE_INVALID', phase }, { status: 400, headers: { 'cache-control': 'no-store' } });
     }
@@ -367,9 +372,11 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
         }, { status: 409, headers: { 'cache-control': 'no-store' } });
       }
       launch = {
-        sha: approvedSha,
+        sha: restoreSha,
         at: prepared?.readiness?.evaluated_at || new Date().toISOString(),
-        digest: preparednessDigest(prepared?.readiness) || readiness.gate_digest || null,
+        digest: restoreSha === deployedSha
+          ? (preparednessDigest(prepared?.readiness) || readiness.gate_digest || null)
+          : null,
       };
     }
 
@@ -387,6 +394,7 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
       status: 'RELEASE_ROLLBACK_AUTONOMY_RESTORED',
       phase,
       deployed_sha: deployedSha,
+      restore_sha: restorePaused ? null : restoreSha,
       paused: control?.paused === true,
       max_autonomy: control?.max_autonomy === true,
       launch_approved_sha: control?.launch_approved_sha || null,
