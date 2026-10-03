@@ -19,10 +19,10 @@ test('decoupled downstream proof never deploys, rolls back, toggles MAX, or muta
   assert.doesNotMatch(workflow,/max[_ -]?autonomy|MAX 100/i);
 });
 
-test('decoupled MEL-FILE proof serializes browser pressure and retries only transient statuses', async () => {
+test('decoupled MEL-FILE proof gates browser pressure on exact-SHA release readiness and retries only transient statuses', async () => {
   const workflow=await readFile(new URL('../../.github/workflows/release-downstream-proof-decoupled.yml',import.meta.url),'utf8');
   const fileBlock=workflow.split('\n  file:\n')[1]?.split('\n  sovereignty:\n')[0]||'';
-  assert.match(fileBlock,/needs: browser/);
+  assert.doesNotMatch(fileBlock,/needs:\s*browser/);
   assert.match(fileBlock,/api\/teacher\/launch-readiness/);
   assert.match(fileBlock,/GO_FOR_SUPERVISED_AUTONOMY/);
   assert.match(fileBlock,/candidate_sha/);
