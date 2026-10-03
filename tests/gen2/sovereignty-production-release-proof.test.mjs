@@ -36,6 +36,19 @@ test('MEL-SOV-01 streamed Drive prepare preserves a fixed byte length without bu
   assert.doesNotMatch(runtime,/await backup\.body\.arrayBuffer\(\)/);
 });
 
+test('MEL-SOV-01 refresh API rejects skipped infrastructure as verified evidence', async () => {
+  const runtime=await readFile(new URL('../../src/evolution/release-launch-bootstrap.js',import.meta.url),'utf8');
+  assert.match(runtime,/requiresConcreteLiveProof/);
+  assert.match(runtime,/requestedRefresh === 'source_control'/);
+  assert.match(runtime,/requestedRefresh === 'infrastructure'/);
+  assert.match(runtime,/requestedRefresh === 'backup_restore'/);
+  assert.match(runtime,/row\?\.skipped !== true/);
+  assert.match(runtime,/Number\(row\?\.prevalidated \|\| 0\) > 0/);
+  assert.match(runtime,/verification_reason/);
+  assert.match(runtime,/LIVE_PROOF_SKIPPED/);
+  assert.match(runtime,/status: verifiedRefresh \? 'MEL_SOV_01_REFRESH_STEP_VERIFIED' : 'MEL_SOV_01_REFRESH_STEP_FAILED'/);
+});
+
 test('MEL-SOV-01 live proof splits heavy refreshes and uses immutable exact-SHA auth', async () => {
   const workflow=await readFile(new URL('../../.github/workflows/mel-sov-01-live-proof.yml',import.meta.url),'utf8');
   assert.match(workflow,/MEL_BACKUP_ENCRYPTION_KEY_B64/);
