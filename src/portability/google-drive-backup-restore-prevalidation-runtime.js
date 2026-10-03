@@ -701,6 +701,7 @@ export async function runGoogleDriveBackupRestorePrevalidationRuntime(env={},{
   candidateStore=null,
   registryStore=null,
   loadBackup=loadLatestEncryptedSystemBackup,
+  loadBackupSource=loadLatestEncryptedSystemBackupSource,
   resolvePipedreamDrive=pipedreamDriveContext,
   stage='all',
 }={}){
@@ -717,7 +718,7 @@ export async function runGoogleDriveBackupRestorePrevalidationRuntime(env={},{
 
   if(stage!=='all'){
     return runPipedreamBackupRestoreStage(env,{
-      stage,sourceSha:sourceSha||env.MEL_DEPLOYED_GIT_SHA,now,fetchImpl,loadBackup,
+      stage,sourceSha:sourceSha||env.MEL_DEPLOYED_GIT_SHA,now,fetchImpl,loadBackupSource,
       resolvePipedreamDrive,candidateStore:scopedStore,registryStore:registry,
     });
   }
