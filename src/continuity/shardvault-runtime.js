@@ -600,6 +600,12 @@ async function download(env,e,objectId,descriptor=null){
     return payload;
   }
   const remote=descriptor?.remoteUrl;
+  if(e.adapter==='github_actions_code_mirror'){
+    if(!remote)throw new Error(`READ_${e.id}_REMOTE_URL_MISSING`);
+    const r=await fetchTimed(publicUrl(remote,`READ_${e.id}_REMOTE`),{method:'GET',headers:{'accept':'application/octet-stream','cache-control':'no-cache'}},20000);
+    if(!r.ok)throw new Error(`READ_${e.id}_${r.status}`);
+    return new Uint8Array(await r.arrayBuffer());
+  }
   if(e.adapter==='pastemyst_b64'){
     if(!remote)throw new Error(`READ_${e.id}_REMOTE_URL_MISSING`);
     const r=await fetchTimed(publicUrl(remote,`READ_${e.id}_REMOTE`),{method:'GET',headers:{'accept':'application/json'}},15000);
@@ -1314,6 +1320,12 @@ async function ensureExternalCodeArchive(env,c,codeBackup){
       return prioritizeExternalCodeCandidates(ranked,state);
     };
     let candidates=buildCandidates();
+    if(i===goal-1){
+      const githubMirror=githubCodeMirrorEndpoint(env,id,shard.length);
+      if(githubMirror&&!used.has(githubMirror.id)&&codeTargetAvailableNow(state,githubMirror)){
+        candidates=[githubMirror,...candidates.filter(endpoint=>endpoint.id!==githubMirror.id)];
+      }
+    }
     const retryCycleExhausted=candidates.length>0&&codeTargetDiscoveryRefreshNeeded(candidates,state);
     if(!candidates.length||retryCycleExhausted){
       if(!candidates.length)state.code_pool_exhaustions=(Number(state.code_pool_exhaustions)||0)+1;
@@ -1384,7 +1396,9 @@ async function ensureExternalCodeArchive(env,c,codeBackup){
     try{
       const shardKey=await hkdf(c.master,utf8(state.snapshotId),utf8('MEL-ShardVault/v1/code-shard-mac'));
       const descriptor=await withCodeReplicaDeadline(async()=>{
-        const objectId='code-'+id.sha.slice(0,12)+'-shard-'+String(i).padStart(2,'0')+'-'+rid(6);
+        const objectId=e.adapter==='github_actions_code_mirror'
+          ? 'code-'+id.sha.slice(0,12)+'-shard-'+String(i).padStart(2,'0')+'-github'
+          : 'code-'+id.sha.slice(0,12)+'-shard-'+String(i).padStart(2,'0')+'-'+rid(6);
         const locator=await uploadFragment(env,e,objectId,shard);
         const d={
           index:i,endpointId:e.id,endpoint:endpointSnapshot(e),
@@ -1406,6 +1420,19 @@ async function ensureExternalCodeArchive(env,c,codeBackup){
       };
       try{await rememberValidatedExternalEndpoints(env,[provenEndpoint]);}catch{}
     }catch(error){
+      if(error?.code==='GITHUB_CODE_MIRROR_PENDING'){
+        const retryAt=new Date(Date.now()+8000).toISOString();
+        state.github_code_mirror_pending={
+          endpoint_id:e.id,relay_job_id:error.relayJobId||null,relay_status:error.relayStatus||null,
+          remote_url:error.remoteUrl||null,retry_after_at:retryAt,
+        };
+        state.updatedAt=new Date().toISOString();
+        await writeCodeSyncState(env,id,state);
+        return {...codeBackup,external:codeSyncExternalView(state,goal,'RETRY_TARGETS',{
+          reason:'GITHUB_CODE_MIRROR_PENDING',relay_pending:true,relay_job_id:error.relayJobId||null,
+          relay_status:error.relayStatus||null,next_retry_at:retryAt,
+        })};
+      }
       const failureState=recordCodeTargetFailure(state,e,error,Date.now());
       if(failureState.permanent===true)await invalidateCodeTargetQualification(env,e.id).catch(()=>false);
       state.failures=[...(state.failures||[]),{
