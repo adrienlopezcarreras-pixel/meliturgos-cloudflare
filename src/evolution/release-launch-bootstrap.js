@@ -447,7 +447,7 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
     };
     const requestedRefresh = String(url.searchParams.get('refresh') || '').trim().toLowerCase();
     const requestedRefreshStep = String(url.searchParams.get('step') || '').trim().toLowerCase();
-    const backupRestoreSteps = new Set(['prepare','readback','rollback','finalize']);
+    const backupRestoreSteps = new Set(['resolve','prepare','readback','rollback','finalize']);
     if (requestedRefresh === 'backup_restore' && requestedRefreshStep && !backupRestoreSteps.has(requestedRefreshStep)) {
       return Response.json({
         ok: false,
