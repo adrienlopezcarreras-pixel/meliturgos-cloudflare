@@ -10,7 +10,6 @@ import {
 export const COMPLETION_MATRIX_SCHEMA = 'mel.roadmap.completion-matrix.v1';
 
 const COMPLETE_STATUSES = new Set([
-  ROADMAP_STATUSES.DONE,
   ROADMAP_STATUSES.VERIFIED,
 ]);
 
