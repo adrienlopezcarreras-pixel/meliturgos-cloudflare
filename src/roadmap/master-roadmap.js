@@ -1,5 +1,4 @@
 export const ROADMAP_STATUSES = Object.freeze({
-  DONE: 'DONE',
   VERIFIED: 'DONE_VERIFIED',
   IN_PROGRESS: 'IN_PROGRESS',
   PARTIAL: 'PARTIAL',
@@ -8,7 +7,7 @@ export const ROADMAP_STATUSES = Object.freeze({
   BLOCKED_EXTERNAL: 'BLOCKED_EXTERNAL'
 });
 
-export const ROADMAP_REGISTRY_REVISION = '2026-10-02.08';
+export const ROADMAP_REGISTRY_REVISION = '2026-10-03.09';
 
 const phase = (id, title, items) => ({ id, title, items });
 const item = (id, title, status, next = '', priority = 'P2') => ({ id, title, status, next, priority });
@@ -86,7 +85,7 @@ export const MASTER_ROADMAP = Object.freeze([
     item('MEL-COUNCIL-02', 'Critiques indépendantes + synthèse MEL', 'DONE_VERIFIED', 'Production certifiée sur SHA 53774b4dfbac645e250e518c62254365d4bfd3c8 par run 36193962224: Council réel avec au moins deux critiques indépendantes, modèles distincts, provenance complète, coût ajouté zéro sous MEL_ZERO_EURO_V1 et synthèse MEL séparée complète.', 'P1'),
     item('MEL-COUNCIL-03', 'Teacher escalation vers ChatGPT/autres IA', 'DONE_VERIFIED', 'Round-trip Teacher externe reel verifie le 2026-09-26: handoff production lie au SHA exact lu via Teacher Bridge, reponse ChatGPT NEEDS_CHANGES ecrite sur teacher-bridge/runtime (commit 4ceccc7b) sans mutation du candidat, puis maintenance runtime observée requeueant le handoff stale et ramenant pending_count/waiting_teacher_count a 0. Le canal, la provenance, le digest SHA et le fail-closed ont donc ete exerces de bout en bout.', 'P0'),
     item('MEL-COUNCIL-04', 'Apprentissage du meilleur modèle selon la tâche', 'DONE_VERIFIED', 'Implémentation fusionnée par PR #367: preuves D1 persistantes modèle/tâche, ordre appris des candidats, ingestion qualité des benchmarks et fallback statique; le choix explicite utilisateur reste autoritatif. Inclus dans le main exact déployé e749551d6c2786c225d5194a5a3556e4f47c84fd. Certification finale: présent sur le SHA exact 02709095088bf71567350b1b4f4465231440d448, full-suite CI verte avant fusion et déploiement Cloudflare release 36232449914 vert avec preuve identite SHA, autonomie production et HTTP final.', 'P1'),
-    item('MEL-COUNCIL-05', 'Récupération automatique après feedback négatif propriétaire', 'DONE', 'Développement fusionné par PR #847 au SHA aa5c92c8e088510cfa4cc168037be833c6151b90: « non / tu n’y arrives pas / ça ne marche pas » est contextualisé comme feedback d’échec, model.council reçoit demande originale + réponse précédente + feedback, puis seules les capacités non destructives autorisées peuvent être retentées automatiquement; actions PC/appareils sensibles exclues. Correction persistée non validée, XP=0 tant qu aucune validation indépendante n existe. CI PR entièrement verte, dont gen2-05-model-council-ci run 36835372242 avec syntaxe + full suite. Passage DONE_VERIFIED réservé à une preuve runtime production exact-SHA.', 'P0'),
+    item('MEL-COUNCIL-05', 'Récupération automatique après feedback négatif propriétaire', 'PARTIAL', 'Développement fusionné par PR #847 au SHA aa5c92c8e088510cfa4cc168037be833c6151b90: « non / tu n’y arrives pas / ça ne marche pas » est contextualisé comme feedback d’échec, model.council reçoit demande originale + réponse précédente + feedback, puis seules les capacités non destructives autorisées peuvent être retentées automatiquement; actions PC/appareils sensibles exclues. Correction persistée non validée, XP=0 tant qu aucune validation indépendante n existe. CI PR entièrement verte, dont gen2-05-model-council-ci run 36835372242 avec syntaxe + full suite. Passage DONE_VERIFIED réservé à une preuve runtime production exact-SHA.', 'P0'),
   ]),
 
   phase('P06', 'Module Lab, évolution et apprentissage', [
@@ -114,7 +113,7 @@ export const MASTER_ROADMAP = Object.freeze([
 
   phase('P08', 'Connecteurs et web', [
     item('GEN2-32', 'Connector SDK', 'DONE_VERIFIED', 'Validation réelle acquise le 26/09/2026: suite contractuelle officielle GEN2-32 verte dans le run 36272469638; provider Cloudflare réel passé CONFIGURED -> CONNECTED avec health CHECKED et auth vérifiée via le SDK MEL, sans mutation ni exposition de secret. Provider GitHub réel repassé sur le main courant avec le token utilisateur gh du PC: CONFIGURED -> CONNECTED, health CHECKED, auth vérifiée, 3 capacités, zéro mutation. Le token GitHub automatique Actions est un token installation et n\'est pas compatible avec la sonde /user; les OAuth/permissions propres aux autres fournisseurs restent suivis séparément.', 'P1'),
-    item('GEN2-33', 'Gmail / Google', 'DONE', 'Développement terminé: runtime OAuth Google persistant, PKCE, refresh, stockage chiffré et probes intégrés. Contrats et preuve production du run 36350478390 verts; le vault production est sain mais les identifiants d application Google et les tokens Gmail/Calendar/Tasks sont absents. Vérification réelle à faire ultérieurement avec credentials + consentement avant passage en DONE_VERIFIED.', 'P1'),
+    item('GEN2-33', 'Gmail / Google', 'BLOCKED_HUMAN', 'Développement terminé: runtime OAuth Google persistant, PKCE, refresh, stockage chiffré et probes intégrés. Contrats et preuve production du run 36350478390 verts; le vault production est sain mais les identifiants d application Google et les tokens Gmail/Calendar/Tasks sont absents. Vérification réelle à faire ultérieurement avec credentials + consentement avant passage en DONE_VERIFIED.', 'P1'),
     item('GEN2-34', 'Outlook / Microsoft', 'DONE_VERIFIED', 'Certification production acquise le 01/10/2026 sur SHA exact f4f57e3617f313a1f41c113eab0deee0c44388b4 via post-release-proof-suite run 36902043229: la route Microsoft directe a correctement signalé CONNECTION_TOKEN_NOT_AVAILABLE puis le fallback supporté Pipedream a prouvé un compte microsoft_outlook réellement lié; la preuve finale marque microsoft.outlook=true sans exposer de secret.', 'P2'),
     item('GEN2-35', 'OneDrive / SharePoint', 'DONE_VERIFIED', 'Certification production acquise le 01/10/2026 sur SHA exact f4f57e3617f313a1f41c113eab0deee0c44388b4 via post-release-proof-suite run 36902043229: après absence attendue de token Microsoft direct, les fallbacks supportés Pipedream ont prouvé des comptes microsoft_onedrive et sharepoint réellement liés; la preuve finale marque microsoft.onedrive=true et microsoft.sharepoint=true sans exposition de secret.', 'P1'),
     item('GEN2-36', 'GitHub / Cloudflare / Vercel', 'DONE_VERIFIED', 'Certification production acquise le 01/10/2026 sur SHA exact f4f57e3617f313a1f41c113eab0deee0c44388b4. post-release-proof-suite run 36902043229 / job 110503345561 a prouvé Cloudflare workers.read et deployments.read réels via relay avec health HEALTHY, puis GitHub workflow dispatch réellement exécuté via D1 Actions relay avec statut DISPATCHED. Le job connexions du même run a prouvé Vercel authentifié avec project_count=2. Aucune valeur secrète exposée.', 'P0'),
@@ -192,7 +191,7 @@ export const MASTER_ROADMAP = Object.freeze([
     item('MEL-UI-03', 'Favicon visage MEL', 'DONE_VERIFIED', '—', 'P3'),
     item('MEL-UI-05', 'État réel, pas de cartes factices', 'DONE_VERIFIED', 'État fail-closed et consolidation UI certifiés sur SHA cd2e5762cf199a433a29d148859e2b662608060c: full-candidate-ci 35863695942 SUCCESS et production 35863775641 SUCCESS, autonomie/HTTP inclus. Métriques absentes restent —/Indisponible, aucun faux zéro/lifecycle inventé, pseudo-panneau Work supprimé et surface IA & Développement canonique unique.', 'P0'),
     item('MEL-UI-06', 'Copier-coller direct de fichiers et images dans la zone d’échange Normal + Complet', 'DONE_VERIFIED', 'MEL-FILE-01 complet: collage/sélection/glisser-déposer, staging visible, retrait avant envoi, upload privé, SHA-256, TTL et cleanup R2 physique borné. Certification production sur SHA 9f845d033eb6d691f7da974f5a59b49ad80fa208 par deploy-cloudflare-release run 36823708693: étape Prove MEL-FILE-01 in real production browser verte, couvrant Normal (#fileInput/#attachments) et Complet (/professor, #chatFileInput/#chatAttachments), artifact 11144755647 mel-file-browser-production-proof exact-SHA.', 'P0'),
-    item('MEL-UI-07', 'Réponses riches et compétence de présentation adaptative', 'DONE', 'Renderer DOM sûr partagé fusionné par PR #848 au SHA cbe06478728ec043c72d8b890fe7a005f55b13a3: titres, gras/italique, listes, citations, tableaux, séparateurs, code inline/blocs et liens HTTP(S), sans injection HTML arbitraire; Normal rendu direct et Complet via enhancer/MutationObserver. Professor UI audit run 36835974370 vert avec syntaxe + full suite et tests JSDOM XSS. Compétence de présentation adaptative fusionnée par PR #849 au SHA ef3033ae8a93bc45d27ccbb2f2e93e6c00b36c76: réponses courtes compactes, Markdown structuré pour audits/roadmaps/comparaisons/rapports, HTML brut interdit; Professor UI audit run 36836422778 entièrement vert avec full suite. Passage DONE_VERIFIED réservé à un déploiement exact-SHA et une preuve navigateur production Normal + Complet.', 'P0'),
+    item('MEL-UI-07', 'Réponses riches et compétence de présentation adaptative', 'PARTIAL', 'Renderer DOM sûr partagé fusionné par PR #848 au SHA cbe06478728ec043c72d8b890fe7a005f55b13a3: titres, gras/italique, listes, citations, tableaux, séparateurs, code inline/blocs et liens HTTP(S), sans injection HTML arbitraire; Normal rendu direct et Complet via enhancer/MutationObserver. Professor UI audit run 36835974370 vert avec syntaxe + full suite et tests JSDOM XSS. Compétence de présentation adaptative fusionnée par PR #849 au SHA ef3033ae8a93bc45d27ccbb2f2e93e6c00b36c76: réponses courtes compactes, Markdown structuré pour audits/roadmaps/comparaisons/rapports, HTML brut interdit; Professor UI audit run 36836422778 entièrement vert avec full suite. Passage DONE_VERIFIED réservé à un déploiement exact-SHA et une preuve navigateur production Normal + Complet.', 'P0'),
   ]),
 
   phase('P15', 'Release, migration et maturité finale', [
@@ -230,6 +229,7 @@ export function validateRoadmap() {
       if (itemIds.has(row.id)) issues.push({ type: 'DUPLICATE_ITEM_ID', id: row.id });
       itemIds.add(row.id);
       if (!validStatuses.has(row.status)) issues.push({ type: 'INVALID_STATUS', id: row.id, status: row.status });
+      if (row.status === 'DONE') issues.push({ type: 'LEGACY_DONE_STATUS_FORBIDDEN', id: row.id });
       if (!VALID_PRIORITIES.has(row.priority)) issues.push({ type: 'INVALID_PRIORITY', id: row.id, priority: row.priority });
 
       const normalizedTitle = normalizeRoadmapText(row.title);
@@ -251,7 +251,7 @@ export function roadmapSummary() {
     byStatus[row.status] = (byStatus[row.status] || 0) + 1;
     byPriority[row.priority] = (byPriority[row.priority] || 0) + 1;
   }
-  const complete = (byStatus.DONE || 0) + (byStatus.DONE_VERIFIED || 0);
+  const complete = byStatus.DONE_VERIFIED || 0;
   return {
     total: rows.length,
     complete,
