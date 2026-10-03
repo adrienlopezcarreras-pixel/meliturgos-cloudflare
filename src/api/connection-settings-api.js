@@ -718,7 +718,9 @@ export async function testPipedreamGoogleTasksRead(config, contextOwner, options
         external_user_id: contextOwner,
         id: actionId,
         configured_props: {
-          google_tasks: { authProvisionId: account.id },
+          // Pipedream's current google_tasks-list-task-lists action exposes
+          // its authenticated app prop as "app", not "google_tasks".
+          app: { authProvisionId: account.id },
           maxResults: 1,
         },
       }),

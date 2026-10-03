@@ -3,8 +3,8 @@ import { BROWSER_ACTIONS, BROWSER_CAPABILITY_SCHEMA } from './browser-capability
 export const BROWSER_COMPANION_SCHEMA = 'mel.devices.browser-companion.v1';
 
 const DEFAULT_ENDPOINT = 'https://browser-companion.internal';
-const DEFAULT_TIMEOUT_MS = 8000;
-const MAX_TIMEOUT_MS = 15000;
+const DEFAULT_TIMEOUT_MS = 25000;
+const MAX_TIMEOUT_MS = 35000;
 const MAX_RESPONSE_BYTES = 131072;
 const ACTIONS = new Set(Object.values(BROWSER_ACTIONS));
 

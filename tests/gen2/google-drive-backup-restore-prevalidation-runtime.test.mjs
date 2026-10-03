@@ -169,15 +169,10 @@ function pipedreamDriveProxyFixture(encryptedText,{backupId='pd-drive-backup-1'}
     const method=init.method||'GET';
     const target=decodeTarget(url);
     calls.push({target,method,body_kind:init.body?.constructor?.name||typeof init.body});
-    if(method==='POST'&&target.includes('/drive/v3/files?fields=')){
+    if(method==='POST'&&target.includes('/upload/drive/v3/files?uploadType=media')){
       creations+=1;
       const id=creations===1?backupId:'pd-drive-rollback-'+creations;
       return Response.json({id,name:creations===1?'backup.enc.json':'rollback.json'});
-    }
-    if(method==='PATCH'&&target.includes('/upload/drive/v3/files/')){
-      const match=target.match(/\/files\/([^?]+)/);
-      const id=match?.[1]||'';
-      return Response.json({id,name:id===backupId?'backup.enc.json':'rollback.json'});
     }
     if(method==='GET'&&target.includes('/files/'+backupId+'?alt=media')){
       return new Response(encryptedText,{status:200,headers:{'content-type':'application/json'}});
@@ -248,10 +243,9 @@ test('MEL-SOV-01 can prove encrypted backup/restore through the existing Pipedre
   assert.equal(proof.rollback_verified,true);
   assert.equal(proof.ciphertext_sha256,proof.readback_sha256);
   assert.match(proof.evidence_ref,/pipedream-proxy-file/);
-  assert.deepEqual(proxy.calls.map(row=>row.method),['POST','PATCH','GET','POST','PATCH','DELETE','GET']);
-  assert.ok(proxy.calls[0].target.includes('/drive/v3/files?fields='));
-  assert.ok(proxy.calls[1].target.includes('/upload/drive/v3/files/pd-drive-backup-1?uploadType=media'));
-  assert.ok(proxy.calls[2].target.includes('/drive/v3/files/pd-drive-backup-1?alt=media'));
+  assert.deepEqual(proxy.calls.map(row=>row.method),['POST','GET','POST','DELETE','GET']);
+  assert.ok(proxy.calls[0].target.includes('/upload/drive/v3/files?uploadType=media'));
+  assert.ok(proxy.calls[1].target.includes('/drive/v3/files/pd-drive-backup-1?alt=media'));
   assert.doesNotMatch(JSON.stringify(proxy.calls),/server-token/);
 });
 
