@@ -1,5 +1,6 @@
 import { buildShardVaultMemoryPayload } from './shardvault-memory-export.js';
 import { discoverAutonomousRepositories, invalidateRepresentativeProof } from './autonomous-repositories.js';
+import { D1GitHubActionRelayStore } from '../platform/github-action-relay.js';
 
 const te = new TextEncoder();
 const HOUR = 60 * 60 * 1000;
@@ -297,8 +298,72 @@ async function telegraphAccessToken(env,seed='melshardvault'){
   await writeTelegraphAccessToken(env,token);
   return token;
 }
+const GITHUB_CODE_MIRROR_ID='github-actions-code-mirror';
+const GITHUB_CODE_MIRROR_WORKFLOW='shardvault-github-code-mirror.yml';
+const GITHUB_CODE_MIRROR_BRANCH='shardvault-mirror';
+
+function configuredWritableWorkflows(env){
+  return String(env?.MEL_GITHUB_WRITABLE_WORKFLOWS||'').split(',').map(x=>x.trim()).filter(Boolean);
+}
+function githubCodeMirrorEndpoint(env,id,requiredBytes=0){
+  if(!id?.repository||!id?.sha||!env?.DB?.prepare||!env?.MEDIA_BUCKET?.put||!env?.MEDIA_BUCKET?.get)return null;
+  if(!configuredWritableWorkflows(env).includes(GITHUB_CODE_MIRROR_WORKFLOW))return null;
+  const maxBytes=8*1024*1024;
+  if(Math.max(0,Number(requiredBytes)||0)>maxBytes)return null;
+  const urlTemplate='https://raw.githubusercontent.com/'+id.repository+'/refs/heads/'+GITHUB_CODE_MIRROR_BRANCH+'/shardvault-code/'+id.sha+'/{objectId}.bin';
+  return normalizeEndpoint({
+    id:GITHUB_CODE_MIRROR_ID,adapter:'github_actions_code_mirror',urlTemplate,method:'PUT',maxBytes,
+    operatorDomain:'raw.githubusercontent.com',providerId:'github',jurisdiction:'UNKNOWN',
+    score:100,confidence:100,autonomous:true,authMode:'d1_actions_relay',
+    evidenceMode:'runtime_relay_roundtrip',evidenceVerification:'exact_code_fragment_roundtrip',
+    expectedRetentionDays:3650,retentionModel:'git_persistent',
+  },0);
+}
+function githubMirrorStagingKey(id,objectId){
+  return 'shardvault/github-code-mirror-staging/'+id.repository.replace('/','__')+'/'+id.sha+'/'+objectId+'.bin';
+}
+function githubMirrorPendingKey(id,objectId){
+  return 'shardvault/github-code-mirror-pending/'+id.repository.replace('/','__')+'/'+id.sha+'/'+objectId+'.json';
+}
+async function readJsonObject(bucket,key){
+  if(!bucket?.get)return null;
+  try{const body=await bucket.get(key);return body?JSON.parse(await body.text()):null;}catch{return null;}
+}
+async function githubCodeMirrorUpload(env,e,objectId,payload){
+  const id=deployedCodeIdentity(env);
+  if(!id)throw Object.assign(new Error('GITHUB_CODE_MIRROR_IDENTITY_UNAVAILABLE'),{code:'GITHUB_CODE_MIRROR_IDENTITY_UNAVAILABLE'});
+  const remoteUrl=publicUrl(e.urlTemplate.replaceAll('{objectId}',encodeURIComponent(objectId)),'WRITE_'+e.id+'_REMOTE').toString();
+  try{
+    const existing=await fetchTimed(remoteUrl,{method:'GET',headers:{'accept':'application/octet-stream','cache-control':'no-cache'}},15000);
+    if(existing.ok){const got=new Uint8Array(await existing.arrayBuffer());if(byteArraysEqual(got,payload))return {remoteUrl};}
+  }catch{}
+  const pendingKey=githubMirrorPendingKey(id,objectId);
+  const stagingKey=githubMirrorStagingKey(id,objectId);
+  let pending=await readJsonObject(env.MEDIA_BUCKET,pendingKey);
+  const relay=new D1GitHubActionRelayStore(env.DB);
+  if(pending?.relay_job_id){
+    const job=await relay.get(pending.relay_job_id).catch(()=>null);
+    if(job?.status==='FAILED'){await env.MEDIA_BUCKET.delete(pendingKey).catch(()=>{});pending=null;}
+    else{
+      throw Object.assign(new Error('GITHUB_CODE_MIRROR_PENDING'),{
+        code:'GITHUB_CODE_MIRROR_PENDING',relayJobId:String(pending.relay_job_id),
+        relayStatus:String(job?.status||'QUEUED'),remoteUrl,
+      });
+    }
+  }
+  const digest=await sha256Hex(payload);
+  await env.MEDIA_BUCKET.put(stagingKey,payload,{httpMetadata:{contentType:'application/octet-stream'},customMetadata:{git_sha:id.sha,object_id:objectId,sha256:digest,kind:'github-code-mirror-staging'}});
+  const mirrorPath='shardvault-code/'+id.sha+'/'+objectId+'.bin';
+  const job=await relay.enqueue({workflow:GITHUB_CODE_MIRROR_WORKFLOW,ref:'main',inputs:{
+    r2_key:stagingKey,mirror_path:mirrorPath,expected_sha256:digest,byte_length:String(payload.length),
+  }});
+  pending={relay_job_id:job.id,staging_key:stagingKey,mirror_path:mirrorPath,expected_sha256:digest,byte_length:payload.length,remote_url:remoteUrl,created_at:new Date().toISOString()};
+  await env.MEDIA_BUCKET.put(pendingKey,JSON.stringify(pending),{httpMetadata:{contentType:'application/json'}});
+  throw Object.assign(new Error('GITHUB_CODE_MIRROR_PENDING'),{code:'GITHUB_CODE_MIRROR_PENDING',relayJobId:job.id,relayStatus:job.status,remoteUrl});
+}
 async function upload(env,e,objectId,payload){
   if(payload.length>e.maxBytes)throw new Error(`ENDPOINT_${e.id}_MAX_BYTES`);
+  if(e.adapter==='github_actions_code_mirror')return githubCodeMirrorUpload(env,e,objectId,payload);
   if(e.backend==='r2'){
     if(!env?.MEDIA_BUCKET?.put)throw new Error('R2_BINDING_UNAVAILABLE');
     await env.MEDIA_BUCKET.put(String(e.keyPrefix||'shardvault/objects/')+objectId,payload,{httpMetadata:{contentType:'application/octet-stream'}});
