@@ -602,8 +602,6 @@ jobs:
           echo "Decoupled downstream proofs dispatched for exact SHA ${EXPECTED_SHA}; release continues independently."
 
       - name: Prepare and prove production autonomy launch evidence
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
@@ -1851,6 +1849,7 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           MEL_BACKUP_ENCRYPTION_KEY_B64: ${{ secrets.MEL_BACKUP_ENCRYPTION_KEY_B64 }}
           MEL_BACKUP_ENCRYPTION_KEY_ID: ${{ secrets.MEL_BACKUP_ENCRYPTION_KEY_ID }}
+          GITHUB_TOKEN: ${{ github.token }}
 
       - name: Verify production HTTP
         shell: bash
