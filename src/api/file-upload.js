@@ -1,4 +1,4 @@
-import { requireAuth } from '../core/security.js';
+import { requireAuth, isReleaseSmokeRequest } from '../core/security.js';
 import { createEnvMediaVaultCodec } from '../media/media-vault-crypto.js';
 import {
   MAX_INLINE_TRANSCRIPTION_BYTES,
@@ -162,6 +162,9 @@ export async function handleFileUpload(request, env, options = {}) {
     if (!auth.ok) return auth.response;
   }
 
+  const parallelProofUpload = Boolean(request.headers.get('x-mel-parallel-proof'))
+    && isReleaseSmokeRequest(request, env);
+
   const type = String(request.headers.get('content-type') || '').toLowerCase();
   if (!type.includes('multipart/form-data')) {
     return Response.json({ ok:false, code:'FILE_REQUIRED' }, { status:415 });
@@ -179,10 +182,31 @@ export async function handleFileUpload(request, env, options = {}) {
   const name = safeName(file.name);
   const mime = String(file.type || 'application/octet-stream').slice(0, 160);
   const bytes = new Uint8Array(await file.arrayBuffer());
+
+  if (parallelProofUpload) {
+    const proofName = /^mel-file-(normal|full)-proof\.txt$/i.exec(name);
+    if (!proofName || mime.toLowerCase() !== 'text/plain' || bytes.byteLength > 16_384) {
+      return Response.json({ ok:false, code:'MEL_FILE_PROOF_UPLOAD_REJECTED' }, {
+        status:403, headers:{'cache-control':'no-store'}
+      });
+    }
+    const proofText = new TextDecoder('utf-8', { fatal:false }).decode(bytes).trim();
+    const proofMatch = /^MEL_FILE_(NORMAL|FULL)_PROOF_([a-f0-9]{40})$/i.exec(proofText);
+    const expectedKind = proofName[1].toUpperCase();
+    const deployedSha = String(env?.MEL_DEPLOYED_GIT_SHA || '').trim().toLowerCase();
+    if (!proofMatch || proofMatch[1].toUpperCase() !== expectedKind
+      || !/^[a-f0-9]{40}$/.test(deployedSha)
+      || proofMatch[2].toLowerCase() !== deployedSha) {
+      return Response.json({ ok:false, code:'MEL_FILE_PROOF_PAYLOAD_INVALID' }, {
+        status:403, headers:{'cache-control':'no-store'}
+      });
+    }
+  }
+
   const sha256 = await sha256Hex(bytes);
   const id = crypto.randomUUID();
   const createdAt = new Date();
-  const ttlSeconds = mediaTtlSeconds(env);
+  const ttlSeconds = parallelProofUpload ? 300 : mediaTtlSeconds(env);
   const expiresAt = new Date(createdAt.getTime() + ttlSeconds * 1000);
   const key = `uploads/${new Date().toISOString().slice(0,10)}/${id}-${name}`;
   let stored = false;
