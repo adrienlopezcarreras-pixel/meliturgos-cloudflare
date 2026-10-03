@@ -766,25 +766,23 @@ async function runPipedreamBackupRestoreStage(env,{
       return{ok:true,skipped:false,status:'BACKUP_RESTORE_STAGE_RESOLVED',stage,provider:state.provider,secret_values_exposed:false};
     }
     const native=await resolveNativeDrive(env,{fetchImpl});
-    const pd=native?null:await resolvePipedreamDrive(env,{fetchImpl});
-    if(!native&&!pd)fail('SOV_BACKUP_GOOGLE_DRIVE_AUTH_REQUIRED',409);
+    // The exact-SHA staged release proof must use MEL's native Google OAuth
+    // grant. Pipedream Drive writes have repeatedly failed with HTTP 403 in
+    // production, so silently falling back would only hide a missing drive.file
+    // consent behind a transport error.
+    if(!native)fail('SOV_BACKUP_GOOGLE_DRIVE_RECONSENT_REQUIRED',409);
     state={
       ...(state?.source_sha===source_sha?state:{}),
-      schema:'mel.sov-backup-restore-stage/v3',
+      schema:'mel.sov-backup-restore-stage/v4',
       source_sha,
-      provider:native?'google-drive-oauth':'google-drive-via-pipedream',
-      ...(pd?{
-        pd_account_id:clean(pd.account_id,300),
-        pd_project_id:clean(pd.config?.project_id,300),
-        pd_environment:pd.config?.environment==='development'?'development':'production',
-      }:{
-        pd_account_id:null,pd_project_id:null,pd_environment:null,
-      }),
+      provider:'google-drive-oauth',
+      pd_account_id:null,
+      pd_project_id:null,
+      pd_environment:null,
       resolved:true,
       resolved_at:new Date(now).toISOString(),
       updated_at:new Date(now).toISOString(),
     };
-    if(!native&&(!state.pd_account_id||!state.pd_project_id))fail('SOV_BACKUP_PIPEDREAM_CONTEXT_INVALID',409);
     await writeBackupRestoreStage(env,source_sha,state);
     return{ok:true,skipped:false,status:'BACKUP_RESTORE_STAGE_RESOLVED',stage,provider:state.provider,secret_values_exposed:false};
   }
