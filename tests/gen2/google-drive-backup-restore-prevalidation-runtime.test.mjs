@@ -405,6 +405,9 @@ test('MEL-SOV-01 staged prepare persists source ciphertext hash so readback does
   };
   env.MEDIA_BUCKET=bucket;
   const driveBytes=encryptedText;
+  const driveSha=Buffer.from(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(driveBytes))).toString('hex');
+  const driveSize=new TextEncoder().encode(driveBytes).byteLength;
+  let mediaReads=0;
   const fetchImpl=async(url,init={})=>{
     const method=init.method||'GET';
     const value=String(url);
@@ -414,7 +417,11 @@ test('MEL-SOV-01 staged prepare persists source ciphertext hash so readback does
     if(method==='PATCH'&&value.includes('/upload/drive/v3/files/drive-staged-1?')){
       return Response.json({id:'drive-staged-1',name:'staged.enc.json'});
     }
+    if(method==='GET'&&value.includes('/drive/v3/files/drive-staged-1?fields=')){
+      return Response.json({id:'drive-staged-1',name:'staged.enc.json',size:String(driveSize),sha256Checksum:driveSha});
+    }
     if(method==='GET'&&value.includes('/drive/v3/files/drive-staged-1?alt=media')){
+      mediaReads+=1;
       return new Response(driveBytes,{status:200,headers:{'content-type':'application/json'}});
     }
     return new Response('unexpected',{status:500});
@@ -437,6 +444,8 @@ test('MEL-SOV-01 staged prepare persists source ciphertext hash so readback does
       object_key:sourceKey,
       byte_length:new TextEncoder().encode(encryptedText).byteLength,
       body:new Blob([encryptedText]).stream(),
+      restore_verified:true,
+      restore_code:'RESTORE_CANDIDATE_VERIFIED',
     }),
   });
   assert.equal(prepared.status,'BACKUP_RESTORE_STAGE_PREPARED');
@@ -453,6 +462,8 @@ test('MEL-SOV-01 staged prepare persists source ciphertext hash so readback does
   const persistedAfterReadback=JSON.parse(String(bucket.objects.get(stageKey)));
   assert.equal(persistedAfterReadback.readback_sha256,persistedAfterReadback.ciphertext_sha256);
   assert.equal(persistedAfterReadback.restore_verified,true);
+  assert.equal(persistedAfterReadback.drive_sha256_verified,true);
+  assert.equal(mediaReads,0,'native staged readback must use Drive checksum metadata, not download the full backup');
 });
 
 test('MEL-SOV-01 classifies disabled Google Drive API without leaking provider messages',async()=>{
@@ -487,6 +498,8 @@ test('MEL-SOV-01 classifies disabled Google Drive API without leaking provider m
         object_key:'backups/system/snapshot-api-disabled.enc.json',
         byte_length:32,
         body:new Blob(['encrypted']).stream(),
+        restore_verified:true,
+        restore_code:'RESTORE_CANDIDATE_VERIFIED',
       }),
       fetchImpl:async()=>Response.json({
         error:{
@@ -612,6 +625,15 @@ test('release sovereignty proof refreshes backup_restore before reading coverage
   assert.match(source,/new Set\(\['resolve','prepare','readback','rollback','finalize'\]\)/);
 });
 
+
+test('MEL-SOV-01 staged native readback uses Drive SHA-256 metadata instead of materializing the backup',async()=>{
+  const source=await readFile(new URL('../../src/portability/google-drive-backup-restore-prevalidation-runtime.js',import.meta.url),'utf8');
+  assert.match(source,/fields=id,name,size,sha256Checksum/);
+  assert.match(source,/drive_sha256_verified:native\?true/);
+  const staged=source.slice(source.indexOf("if(stage==='readback')"),source.indexOf("if(stage==='rollback')"));
+  assert.match(staged,/driveReadIntegrityMetadata/);
+  assert.match(staged,/source_restore_verified/);
+});
 
 test('MEL-SOV-01 native Drive readback follows media redirects and emits bounded read failure codes',async()=>{
   const source=await readFile(new URL('../../src/portability/google-drive-backup-restore-prevalidation-runtime.js',import.meta.url),'utf8');
