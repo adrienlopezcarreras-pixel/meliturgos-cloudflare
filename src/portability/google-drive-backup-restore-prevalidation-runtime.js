@@ -528,6 +528,32 @@ async function driveWriteMedia({token,fileId,body,byteLength=0,fetchImpl=fetch})
   }
 }
 
+async function driveReadIntegrityMetadata({token,fileId,fetchImpl=fetch}){
+  let response;
+  try{
+    response=await fetchImpl(
+      'https://www.googleapis.com/drive/v3/files/'+encodeURIComponent(fileId)+'?fields=id,name,size,sha256Checksum',
+      {
+        method:'GET',
+        headers:{authorization:`Bearer ${token}`},
+        redirect:'manual',
+        signal:AbortSignal.timeout(20000),
+      },
+    );
+  }catch(error){
+    const name=clean(error?.name,120).toUpperCase();
+    if(name==='TIMEOUTERROR'||name==='ABORTERROR')fail('SOV_BACKUP_DRIVE_METADATA_TIMEOUT',503);
+    fail('SOV_BACKUP_DRIVE_METADATA_NETWORK_FAILED',503);
+  }
+  const payload=await response.json().catch(()=>({}));
+  if(!response.ok||!payload?.id)fail(driveFailureCode('SOV_BACKUP_DRIVE_METADATA_FAILED',response,payload),502);
+  const sha256=clean(payload.sha256Checksum,80).toLowerCase();
+  if(!/^[a-f0-9]{64}$/.test(sha256))fail('SOV_BACKUP_DRIVE_SHA256_UNAVAILABLE',409);
+  const size=Number(payload.size);
+  if(!Number.isSafeInteger(size)||size<0)fail('SOV_BACKUP_DRIVE_SIZE_UNAVAILABLE',409);
+  return{id:clean(payload.id,300),name:clean(payload.name,300)||null,size,sha256_checksum:sha256};
+}
+
 async function driveReadBytes({token,fileId,fetchImpl=fetch,allowNotFound=false}){
   let response;
   try{
@@ -665,6 +691,8 @@ export async function loadLatestEncryptedSystemBackupSource(env={}){
     object_key:clean(row.object_key,500),
     byte_length:Number.isFinite(byte_length)&&byte_length>=0?byte_length:0,
     body,
+    restore_verified:metadata.restoreVerified===true,
+    restore_code:clean(metadata.restoreCode,160)||'RESTORE_CANDIDATE_VERIFIED',
   };
 }
 
@@ -868,6 +896,7 @@ async function runPipedreamBackupRestoreStage(env,{
     }
     const backup=await loadBackupSource(env);
     if(!backup?.snapshot_id||!backup?.object_key)fail('SOV_BACKUP_SOURCE_REQUIRED',409);
+    if(backup?.restore_verified!==true)fail('SOV_BACKUP_SOURCE_RESTORE_PROOF_REQUIRED',409);
     const name=`MEL-SOV-01-${backup.snapshot_id}-${source_sha.slice(0,12)}.enc.json`;
     let created;
     if(native){
@@ -901,6 +930,8 @@ async function runPipedreamBackupRestoreStage(env,{
       snapshot_id:backup.snapshot_id,
       source_object_key:backup.object_key,
       source_byte_length:Number(backup.byte_length||0),
+      source_restore_verified:true,
+      source_restore_code:clean(backup.restore_code,160)||'RESTORE_CANDIDATE_VERIFIED',
       drive_file_id:created.id,
       drive_name:created.name||name,
       ciphertext_sha256,
@@ -925,25 +956,38 @@ async function runPipedreamBackupRestoreStage(env,{
     }
     const ciphertext_sha256=clean(state.ciphertext_sha256,80).toLowerCase();
     if(!/^[a-f0-9]{64}$/.test(ciphertext_sha256))fail('SOV_BACKUP_SOURCE_CIPHERTEXT_SHA_REQUIRED',409);
-    const readbackBytes=native
-      ? await driveReadBytes({token:native.token,fileId:state.drive_file_id,fetchImpl})
-      : await pipedreamDriveProxyReadBytes({pd,fileId:state.drive_file_id,fetchImpl});
-    if(Number(state.source_byte_length||0)>0&&readbackBytes.byteLength!==Number(state.source_byte_length)){
-      fail('SOV_BACKUP_DRIVE_READBACK_LENGTH_MISMATCH',409);
+    let readback_sha256;
+    let restore_code;
+    if(native){
+      const metadata=await driveReadIntegrityMetadata({token:native.token,fileId:state.drive_file_id,fetchImpl});
+      if(Number(state.source_byte_length||0)>0&&metadata.size!==Number(state.source_byte_length)){
+        fail('SOV_BACKUP_DRIVE_READBACK_LENGTH_MISMATCH',409);
+      }
+      readback_sha256=metadata.sha256_checksum;
+      if(readback_sha256!==ciphertext_sha256)fail('SOV_BACKUP_DRIVE_READBACK_INTEGRITY_MISMATCH',409);
+      if(state.source_restore_verified!==true)fail('SOV_BACKUP_SOURCE_RESTORE_PROOF_REQUIRED',409);
+      restore_code=clean(state.source_restore_code,160)||'RESTORE_CANDIDATE_VERIFIED';
+    }else{
+      const readbackBytes=await pipedreamDriveProxyReadBytes({pd,fileId:state.drive_file_id,fetchImpl});
+      if(Number(state.source_byte_length||0)>0&&readbackBytes.byteLength!==Number(state.source_byte_length)){
+        fail('SOV_BACKUP_DRIVE_READBACK_LENGTH_MISMATCH',409);
+      }
+      readback_sha256=await sha256Hex(readbackBytes);
+      if(readback_sha256!==ciphertext_sha256)fail('SOV_BACKUP_DRIVE_READBACK_INTEGRITY_MISMATCH',409);
+      const readback=new TextDecoder().decode(readbackBytes);
+      let envelope;
+      try{envelope=JSON.parse(readback);}catch{fail('SOV_BACKUP_DRIVE_READBACK_JSON_INVALID',409);}
+      if(envelope?.schema!==ENCRYPTED_BACKUP_SCHEMA)fail('SOV_BACKUP_DRIVE_READBACK_SCHEMA_INVALID',409);
+      const snapshot=await createEnvBackupEncryptionCodec(env).open(envelope);
+      const restore=await verifyRestoreCandidate(snapshot);
+      if(restore?.ok!==true)fail(restore?.code||'SOV_BACKUP_RESTORE_DRILL_FAILED',409);
+      if(String(snapshot.id||'')!==String(state.snapshot_id||''))fail('SOV_BACKUP_RESTORE_SNAPSHOT_MISMATCH',409);
+      restore_code=restore.code||'RESTORE_CANDIDATE_VERIFIED';
     }
-    const readback_sha256=await sha256Hex(readbackBytes);
-    if(readback_sha256!==ciphertext_sha256)fail('SOV_BACKUP_DRIVE_READBACK_INTEGRITY_MISMATCH',409);
-    const readback=new TextDecoder().decode(readbackBytes);
-    let envelope;
-    try{envelope=JSON.parse(readback);}catch{fail('SOV_BACKUP_DRIVE_READBACK_JSON_INVALID',409);}
-    if(envelope?.schema!==ENCRYPTED_BACKUP_SCHEMA)fail('SOV_BACKUP_DRIVE_READBACK_SCHEMA_INVALID',409);
-    const snapshot=await createEnvBackupEncryptionCodec(env).open(envelope);
-    const restore=await verifyRestoreCandidate(snapshot);
-    if(restore?.ok!==true)fail(restore?.code||'SOV_BACKUP_RESTORE_DRILL_FAILED',409);
-    if(String(snapshot.id||'')!==String(state.snapshot_id||''))fail('SOV_BACKUP_RESTORE_SNAPSHOT_MISMATCH',409);
     Object.assign(state,{
       ciphertext_sha256,readback_sha256,readback_verified:true,restore_verified:true,
-      restore_code:restore.code||'RESTORE_CANDIDATE_VERIFIED',
+      drive_sha256_verified:native?true:state.drive_sha256_verified===true,
+      restore_code,
       readback_verified_at:new Date(now).toISOString(),updated_at:new Date(now).toISOString(),
     });
     await writeBackupRestoreStage(env,source_sha,state);
