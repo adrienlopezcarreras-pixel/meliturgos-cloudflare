@@ -53,7 +53,7 @@ test('normal mode is keyboard accessible, voice-discoverable and runtime is vers
   assert.match(html,/class="mic-hint"/);
   assert.match(html,/↩ Reprendre le dernier échange/);
   assert.match(html,/class="window empty-chat"/);
-  assert.match(html,/normal-runtime\.js\?v=8/);
+  assert.match(html,/normal-runtime\.js\?v=9/);
   assert.match(NORMAL_RUNTIME_SOURCE,/drop\.addEventListener\('keydown'/);
   assert.match(NORMAL_RUNTIME_SOURCE,/navigator\.serviceWorker\.register\('\/sw\.js'/);
 });
@@ -64,7 +64,8 @@ test('service worker caches only static resources, persists revalidation and lea
   assert.match(SERVICE_WORKER_SOURCE,/event\.waitUntil\(update/);
   assert.match(SERVICE_WORKER_SOURCE,/url\.pathname\.startsWith\('\/assets\/'\)/);
   assert.match(SERVICE_WORKER_SOURCE,/request\.mode==='navigate'.*return/);
-  assert.match(SERVICE_WORKER_SOURCE,/const PRECACHE=\['\/normal-runtime\.js','\/assets\/avatars\/mel-full\.webp/);
+  assert.match(SERVICE_WORKER_SOURCE,/const PRECACHE=\['\/assets\/avatars\/mel-full\.webp/);
+  assert.match(SERVICE_WORKER_SOURCE,/url\.pathname==='\/normal-runtime\.js'[\s\S]{0,120}fetch\(request,\{cache:'no-store'\}\)/);
   assert.doesNotMatch(SERVICE_WORKER_SOURCE,/PRECACHE=.*['"]\/(?:mvp|professor|api\/)/);
   assert.doesNotMatch(SERVICE_WORKER_SOURCE,/cache\.add\('\/'\)|FALLBACK='\/'/);
 });
