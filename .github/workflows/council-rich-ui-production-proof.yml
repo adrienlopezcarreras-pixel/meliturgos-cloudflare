@@ -97,7 +97,7 @@ jobs:
           )).toString('base64url'));
           NODE
           )"
-          SESSION="council-rich-ui-${EXPECTED_SHA:0:12}"
+          SESSION="council-rich-ui-${EXPECTED_SHA:0:12}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           export TOKEN SESSION EXPECTED_SHA
           echo "::add-mask::${TOKEN}"
 
@@ -145,7 +145,11 @@ jobs:
           done
           test "${COUNCIL_READY}" = "1"
 
-          BODY="$(node - <<'NODE'
+          # Phase 1: navigate both surfaces, prove Normal rich rendering, then submit
+          # the Full chat request. Do not wait for the Full async reply in this
+          # same BrowserSession call: a bounded 20s wait used to tear down the
+          # proof state and restart navigation before the reply could land.
+          BROWSER_SEND_BODY="$(node - <<'NODE'
           const session=process.env.SESSION;
           const token=process.env.TOKEN;
           const origin='https://meliturgos.adrien-lopezcarreras.workers.dev';
@@ -165,8 +169,6 @@ jobs:
             {id:'wait-full-chat',action:'browser.wait-text',selector:'#viewTitle',text:'Conversation'},
             {id:'type-full',action:'browser.type',selector:'.view.active[data-panel="chat"] #chatInput',text:'lis src/index.js dans ton code'},
             {id:'send-full',action:'browser.click',selector:'#chatSend'},
-            {id:'wait-full',action:'browser.wait-text',selector:'#chatlog',text:'RELEASE_CODE_SMOKE_OK'},
-            {id:'read-full-rich',action:'browser.read-text',selector:'#chatlog .msg.mel[data-rich-rendered="true"]:last-child'},
           ];
           process.stdout.write(JSON.stringify({id:'browser.execute',input:{
             session_id:session,
@@ -178,48 +180,124 @@ jobs:
           NODE
           )"
 
-          BROWSER_CODE="000"
-          for ATTEMPT in $(seq 1 12); do
-            BROWSER_CODE="$(curl --silent --show-error --max-time 150             --header "x-mel-release-smoke: 1"             --header "x-mel-parallel-proof: ${TOKEN}"             --header "content-type: application/json"             --data "${BODY}"             --output rich-ui-browser.json             --write-out '%{http_code}'             "${BASE_URL}/api/gen2/capabilities/execute" || true)"
-            if [ "${BROWSER_CODE}" = "200" ]; then
-              break
-            fi
-            BROWSER_ERROR_CODE="$(node -e 'const fs=require("fs");let d={};try{d=JSON.parse(fs.readFileSync("rich-ui-browser.json","utf8"))}catch{};process.stdout.write(String(d?.code||d?.error||d?.status||"UNKNOWN"))')"
-            BROWSER_FAILED_STEP_ID="$(node -e 'const fs=require("fs");let d={};try{d=JSON.parse(fs.readFileSync("rich-ui-browser.json","utf8"))}catch{};process.stdout.write(String(d?.failed_step_id||""))')"
+          SEND_READY=0
+          for ATTEMPT in $(seq 1 6); do
+            BROWSER_CODE="$(curl --silent --show-error --max-time 150 \
+              --header "x-mel-release-smoke: 1" \
+              --header "x-mel-parallel-proof: ${TOKEN}" \
+              --header "content-type: application/json" \
+              --data "${BROWSER_SEND_BODY}" \
+              --output rich-ui-send.json --write-out '%{http_code}' \
+              "${BASE_URL}/api/gen2/capabilities/execute" || true)"
+            if [ "${BROWSER_CODE}" = "200" ]; then SEND_READY=1; break; fi
+            BROWSER_ERROR_CODE="$(node -e 'const fs=require("fs");let d={};try{d=JSON.parse(fs.readFileSync("rich-ui-send.json","utf8"))}catch{};process.stdout.write(String(d?.code||d?.error||d?.status||"UNKNOWN"))')"
+            BROWSER_FAILED_STEP_ID="$(node -e 'const fs=require("fs");let d={};try{d=JSON.parse(fs.readFileSync("rich-ui-send.json","utf8"))}catch{};process.stdout.write(String(d?.failed_step_id||""))')"
             if [ "${BROWSER_CODE}" = "401" ] && [ "${BROWSER_ERROR_CODE}" = "AUTH_REQUIRED" ]; then
-              echo "Rich UI browser proof auth is still propagating; retry ${ATTEMPT}/12."
+              echo "Rich UI browser proof auth is still propagating; retry ${ATTEMPT}/6."
               sleep 2
               continue
             fi
             case "${BROWSER_CODE}" in
               408|409|429|500|502|503|504)
-                echo "Transient rich UI browser proof status ${BROWSER_CODE} (${BROWSER_ERROR_CODE}, step=${BROWSER_FAILED_STEP_ID:-unknown}); retry ${ATTEMPT}/12."
-                sleep $((ATTEMPT < 8 ? ATTEMPT * 2 : 15))
-                continue
+                echo "Transient rich UI browser proof status ${BROWSER_CODE} (${BROWSER_ERROR_CODE}, step=${BROWSER_FAILED_STEP_ID:-unknown}); retry ${ATTEMPT}/6."
+                sleep $((ATTEMPT * 2))
                 ;;
               *)
                 echo "Non-retryable rich UI browser proof status ${BROWSER_CODE} (${BROWSER_ERROR_CODE}, step=${BROWSER_FAILED_STEP_ID:-unknown})."
-                if [ -s rich-ui-browser.json ]; then
-                  node -e 'const fs=require("fs");let d={};try{d=JSON.parse(fs.readFileSync("rich-ui-browser.json","utf8"))}catch{};console.log(JSON.stringify({ok:d?.ok===true,code:d?.code||d?.error||d?.status||"UNKNOWN",failed_step_id:d?.failed_step_id||null}))'
-                fi
                 exit 31
                 ;;
             esac
           done
-          test "${BROWSER_CODE}" = "200"
+          test "${SEND_READY}" = "1"
+
+          node - <<'NODE'
+          const d=require('./rich-ui-send.json'),r=d?.result||{};
+          const out=id=>(r.outputs||[]).find(x=>x?.step_id===id)?.output||{};
+          if(d?.ok!==true||r?.ok!==true||Number(r?.steps_completed||0)!==10)throw new Error('RICH_UI_SEND_PHASE_INCOMPLETE');
+          const normal=out('read-normal-rich');
+          if(normal?.kind!=='text'||!String(normal?.text||'').includes('RELEASE_CODE_SMOKE_OK'))throw new Error('NORMAL_RICH_RENDER_NOT_PROVED');
+          if(out('send-full')?.kind!=='interaction')throw new Error('FULL_CHAT_SEND_NOT_PROVED');
+          NODE
+
+          # Phase 2: keep the exact same page/session alive while the Full chat
+          # request completes. Retrying this phase never navigates away.
+          WAIT_FULL_BODY="$(node - <<'NODE'
+          const session=process.env.SESSION;
+          const origin='https://meliturgos.adrien-lopezcarreras.workers.dev';
+          process.stdout.write(JSON.stringify({id:'browser.execute',input:{
+            session_id:session,
+            device:{id:'cloudflare-browser',capabilities:['browser.control']},
+            sandbox:{allowed_origins:[origin],max_steps:1},
+            approvals:[],
+            steps:[{id:'wait-full',action:'browser.wait-text',selector:'#chatlog',text:'RELEASE_CODE_SMOKE_OK'}],
+          }}));
+          NODE
+          )"
+
+          FULL_READY=0
+          for ATTEMPT in $(seq 1 8); do
+            WAIT_CODE="$(curl --silent --show-error --max-time 60 \
+              --header "x-mel-release-smoke: 1" \
+              --header "x-mel-parallel-proof: ${TOKEN}" \
+              --header "content-type: application/json" \
+              --data "${WAIT_FULL_BODY}" \
+              --output rich-ui-wait-full.json --write-out '%{http_code}' \
+              "${BASE_URL}/api/gen2/capabilities/execute" || true)"
+            if [ "${WAIT_CODE}" = "200" ]; then FULL_READY=1; break; fi
+            WAIT_ERROR_CODE="$(node -e 'const fs=require("fs");let d={};try{d=JSON.parse(fs.readFileSync("rich-ui-wait-full.json","utf8"))}catch{};process.stdout.write(String(d?.code||d?.error||d?.status||"UNKNOWN"))')"
+            WAIT_FAILED_STEP_ID="$(node -e 'const fs=require("fs");let d={};try{d=JSON.parse(fs.readFileSync("rich-ui-wait-full.json","utf8"))}catch{};process.stdout.write(String(d?.failed_step_id||""))')"
+            case "${WAIT_CODE}" in
+              408|409|429|500|502|503|504)
+                echo "Transient Full rich response wait ${WAIT_CODE} (${WAIT_ERROR_CODE}, step=${WAIT_FAILED_STEP_ID:-unknown}); retry ${ATTEMPT}/8 without navigation."
+                sleep $((ATTEMPT < 8 ? ATTEMPT * 2 : 15))
+                ;;
+              *)
+                echo "Non-retryable Full rich response wait ${WAIT_CODE} (${WAIT_ERROR_CODE}, step=${WAIT_FAILED_STEP_ID:-unknown})."
+                exit 32
+                ;;
+            esac
+          done
+          test "${FULL_READY}" = "1"
+
+          # Phase 3: read the already-rendered rich node from the same session.
+          READ_FULL_BODY="$(node - <<'NODE'
+          const session=process.env.SESSION;
+          const origin='https://meliturgos.adrien-lopezcarreras.workers.dev';
+          process.stdout.write(JSON.stringify({id:'browser.execute',input:{
+            session_id:session,
+            device:{id:'cloudflare-browser',capabilities:['browser.control']},
+            sandbox:{allowed_origins:[origin],max_steps:1},
+            approvals:[],
+            steps:[{id:'read-full-rich',action:'browser.read-text',selector:'#chatlog .msg.mel[data-rich-rendered="true"]:last-child'}],
+          }}));
+          NODE
+          )"
+          READ_CODE="$(curl --silent --show-error --max-time 45 \
+            --header "x-mel-release-smoke: 1" \
+            --header "x-mel-parallel-proof: ${TOKEN}" \
+            --header "content-type: application/json" \
+            --data "${READ_FULL_BODY}" \
+            --output rich-ui-read-full.json --write-out '%{http_code}' \
+            "${BASE_URL}/api/gen2/capabilities/execute" || true)"
+          test "${READ_CODE}" = "200"
 
           node - <<'NODE'
           const fs=require('fs');
-          const browser=require('./rich-ui-browser.json');
+          const send=require('./rich-ui-send.json');
+          const wait=require('./rich-ui-wait-full.json');
+          const read=require('./rich-ui-read-full.json');
           const council=require('./council-live.json');
           const self=require('./self-check.json');
-          const r=browser?.result||{};
-          if(browser?.ok!==true || browser?.capability!=='browser.execute') throw new Error('RICH_UI_BROWSER_NOT_OK');
-          if(r?.ok!==true || Number(r?.steps_completed||0)!==12) throw new Error('RICH_UI_BROWSER_INCOMPLETE');
-          const output=id=>(r.outputs||[]).find(x=>x?.step_id===id)?.output||{};
-          const normal=output('read-normal-rich');
-          const full=output('read-full-rich');
+          const sendResult=send?.result||{},waitResult=wait?.result||{},readResult=read?.result||{};
+          if(send?.ok!==true||send?.capability!=='browser.execute'||sendResult?.ok!==true||Number(sendResult?.steps_completed||0)!==10) throw new Error('RICH_UI_SEND_PHASE_NOT_OK');
+          if(wait?.ok!==true||waitResult?.ok!==true||Number(waitResult?.steps_completed||0)!==1) throw new Error('RICH_UI_WAIT_PHASE_NOT_OK');
+          if(read?.ok!==true||readResult?.ok!==true||Number(readResult?.steps_completed||0)!==1) throw new Error('RICH_UI_READ_PHASE_NOT_OK');
+          const output=(r,id)=>(r.outputs||[]).find(x=>x?.step_id===id)?.output||{};
+          const normal=output(sendResult,'read-normal-rich');
+          const waited=output(waitResult,'wait-full');
+          const full=output(readResult,'read-full-rich');
           if(normal?.kind!=='text' || !String(normal?.text||'').includes('RELEASE_CODE_SMOKE_OK')) throw new Error('NORMAL_RICH_RENDER_NOT_PROVED');
+          if(waited?.kind!=='wait'||waited?.matched!==true) throw new Error('FULL_RICH_WAIT_NOT_PROVED');
           if(full?.kind!=='text' || !String(full?.text||'').includes('RELEASE_CODE_SMOKE_OK')) throw new Error('FULL_RICH_RENDER_NOT_PROVED');
           const cr=council?.result||{};
           const proof={
