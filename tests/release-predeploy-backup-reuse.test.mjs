@@ -165,15 +165,34 @@ test('canonical release push restores MAX autonomy after live proofs', async () 
 });
 
 
-test('automatic rollback forces older version restore after secret changes and surfaces Cloudflare errors', async () => {
+test('automatic rollback stages prior autonomy state before restoring the older Worker and verifies shared D1 after propagation', async () => {
   const source = await readFile(new URL('../.github/workflows/deploy-cloudflare-release.yml', import.meta.url), 'utf8');
   const start = source.indexOf('      - name: Automatic rollback on failed production verification');
   const block = source.slice(start);
-  assert.match(block, /deployments\?force=true/);
+  const preRestore = block.indexOf('restore_sha=${PREVIOUS_DEPLOYED_SHA}');
+  const cloudflareRollback = block.indexOf('deployments?force=true');
+  const postControl = block.indexOf('/api/gen2/autonomy/control');
+  assert.ok(preRestore >= 0 && cloudflareRollback > preRestore && postControl > cloudflareRollback);
+  assert.match(block, /expected_sha=\$\{EXPECTED_SHA\}/);
+  assert.match(block, /PRE_RESTORE_READY=0/);
+  assert.match(block, /Previous autonomy control staged in shared D1 before Worker rollback/);
   assert.match(block, /Automatic rollback returned HTTP/);
   assert.match(block, /cat rollback-response\.json/);
   assert.match(block, /d\?\.success!==true/);
   assert.match(block, /exit 49/);
+  assert.match(block, /exit 56/);
+  assert.match(block, /exit 57/);
+});
+
+test('durable production reads absorb transient transport resets with bounded retries', async () => {
+  const source = await readFile(new URL('../.github/workflows/deploy-cloudflare-release.yml', import.meta.url), 'utf8');
+  const start = source.indexOf('          for DURABLE_CAPABILITY in timeline.list project.list event.list; do');
+  const end = source.indexOf("          node - <<'NODE'", start);
+  const block = source.slice(start, end);
+  assert.match(block, /for DURABLE_ATTEMPT in 1 2 3/);
+  assert.match(block, /capabilities\/execute" \|\| true/);
+  assert.match(block, /bounded retry/);
+  assert.match(block, /after bounded retries/);
 });
 
 
