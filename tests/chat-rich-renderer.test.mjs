@@ -51,6 +51,12 @@ test('rich renderer creates headings, inline emphasis, lists, quotes, tables and
   assert.equal(host.dataset.richRendered, 'true');
 });
 
+test('rich renderer preserves technical identifiers containing underscores', () => {
+  const { host } = render('RELEASE_CODE_SMOKE_OK et *italique*');
+  assert.match(host.textContent, /RELEASE_CODE_SMOKE_OK/);
+  assert.equal(host.querySelector('em')?.textContent, 'italique');
+});
+
 test('rich renderer keeps raw HTML inert and refuses unsafe link schemes', () => {
   const payload = [
     '<img src=x onerror="window.pwned=true">',
