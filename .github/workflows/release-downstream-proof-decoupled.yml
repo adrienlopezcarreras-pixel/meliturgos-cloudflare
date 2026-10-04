@@ -90,7 +90,7 @@ jobs:
 
   capabilities:
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 12
     env:
       TARGET_SHA: ${{ inputs.expected_sha }}
       BASE_URL: https://meliturgos.adrien-lopezcarreras.workers.dev
@@ -109,13 +109,96 @@ jobs:
           NODE
           )"
           echo "::add-mask::${TOKEN}"
-          CODE="$(curl --silent --show-error --max-time 120             --header "x-mel-release-smoke: 1"             --header "x-mel-parallel-proof: ${TOKEN}"             --output capability-health-raw.json --write-out '%{http_code}'             "${BASE_URL}/api/gen2/capabilities?refresh=1" || true)"
-          test "${CODE}" = "200"
+
+          SELF_READY=0
+          for ATTEMPT in $(seq 1 12); do
+            SELF_CODE="$(curl --silent --show-error --max-time 45 \
+              --header "x-mel-release-smoke: 1" \
+              --header "x-mel-parallel-proof: ${TOKEN}" \
+              --output capability-self-check.json --write-out '%{http_code}' \
+              "${BASE_URL}/api/gen2/code/self-check" || true)"
+            if [ "${SELF_CODE}" = "200" ] && TARGET_SHA="${TARGET_SHA}" node - <<'NODE'
+          const d=require('./capability-self-check.json');
+          process.exit(d?.ok===true
+            && String(d?.deployed_sha||'').toLowerCase()===String(process.env.TARGET_SHA||'').toLowerCase()
+            ? 0 : 1);
+          NODE
+            then
+              SELF_READY=1
+              break
+            fi
+            case "${SELF_CODE}" in
+              000|401|408|409|429|500|502|503|504)
+                echo "CapabilityBus exact-SHA readiness not ready (HTTP ${SELF_CODE}); retry ${ATTEMPT}/12."
+                sleep $((ATTEMPT < 6 ? ATTEMPT : 6))
+                ;;
+              *) break ;;
+            esac
+          done
+          if [ "${SELF_READY}" != "1" ]; then
+            TARGET_SHA="${TARGET_SHA}" SELF_CODE="${SELF_CODE:-000}" node - <<'NODE'
+          const fs=require('fs');
+          let raw={};try{raw=JSON.parse(fs.readFileSync('capability-self-check.json','utf8'))}catch{}
+          fs.writeFileSync('capability-health.json',JSON.stringify({
+            schema:'mel.downstream-capability-health/v2',
+            source_sha:String(process.env.TARGET_SHA||'').toLowerCase(),
+            status:'EXACT_SHA_READINESS_FAILED',
+            http_status:Number(process.env.SELF_CODE||0),
+            response_code:String(raw?.code||raw?.error||raw?.status||'UNKNOWN').slice(0,160),
+            exact_sha_verified:false,
+            secret_values_exposed:false,
+          },null,2));
+          NODE
+            exit 31
+          fi
+
+          CAP_READY=0
+          CODE="000"
+          for ATTEMPT in $(seq 1 8); do
+            CODE="$(curl --silent --show-error --max-time 120 \
+              --header "x-mel-release-smoke: 1" \
+              --header "x-mel-parallel-proof: ${TOKEN}" \
+              --output capability-health-raw.json --write-out '%{http_code}' \
+              "${BASE_URL}/api/gen2/capabilities?refresh=1" || true)"
+            if [ "${CODE}" = "200" ]; then
+              CAP_READY=1
+              break
+            fi
+            ERROR_CODE="$(node -e 'const fs=require("fs");let d={};try{d=JSON.parse(fs.readFileSync("capability-health-raw.json","utf8"))}catch{};process.stdout.write(String(d?.code||d?.error||d?.status||"UNKNOWN").slice(0,160))')"
+            case "${CODE}" in
+              000|401|408|409|429|500|502|503|504)
+                echo "Transient CapabilityBus health status ${CODE} (${ERROR_CODE}); retry ${ATTEMPT}/8."
+                sleep $((ATTEMPT * 2))
+                ;;
+              *)
+                echo "Non-retryable CapabilityBus health status ${CODE} (${ERROR_CODE})."
+                break
+                ;;
+            esac
+          done
+
+          if [ "${CAP_READY}" != "1" ]; then
+            TARGET_SHA="${TARGET_SHA}" CODE="${CODE}" node - <<'NODE'
+          const fs=require('fs');
+          let raw={};try{raw=JSON.parse(fs.readFileSync('capability-health-raw.json','utf8'))}catch{}
+          fs.writeFileSync('capability-health.json',JSON.stringify({
+            schema:'mel.downstream-capability-health/v2',
+            source_sha:String(process.env.TARGET_SHA||'').toLowerCase(),
+            status:'CAPABILITY_HEALTH_REQUEST_FAILED',
+            http_status:Number(process.env.CODE||0),
+            response_code:String(raw?.code||raw?.error||raw?.status||'UNKNOWN').slice(0,160),
+            exact_sha_verified:true,
+            secret_values_exposed:false,
+          },null,2));
+          NODE
+            exit 32
+          fi
+
           TARGET_SHA="${TARGET_SHA}" node - <<'NODE'
           const fs=require('fs');
           const d=JSON.parse(fs.readFileSync('capability-health-raw.json','utf8'));
           const caps=Array.isArray(d?.capabilities)?d.capabilities:[];
-          if(!caps.length) throw new Error('CAPABILITY_HEALTH_EMPTY');
+          if(d?.ok!==true||!caps.length) throw new Error('CAPABILITY_HEALTH_EMPTY');
           const rows=caps.map(row=>({
             id:String(row?.id||'').slice(0,180),
             provider:String(row?.provider||'core').slice(0,80),
@@ -133,8 +216,11 @@ jobs:
             by_health[row.health]=(by_health[row.health]||0)+1;
           }
           const sanitized={
-            schema:'mel.downstream-capability-health/v1',
+            schema:'mel.downstream-capability-health/v2',
             source_sha:String(process.env.TARGET_SHA||'').toLowerCase(),
+            status:'CAPABILITY_HEALTH_CAPTURED',
+            exact_sha_verified:true,
+            health_refreshed:d?.health_refreshed===true,
             total:rows.length,
             by_health,
             by_provider,
