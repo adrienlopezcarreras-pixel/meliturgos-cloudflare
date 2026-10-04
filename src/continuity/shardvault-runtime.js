@@ -1153,6 +1153,62 @@ export async function verifyShardVaultCodeReconstruction(env,{dropIndexes=[]}={}
   return {...result,repository:read.id.repository,sha:read.id.sha,manifest_key:read.id.manifestKey};
 }
 
+export async function getReleaseVerifiedShardVaultCodeArchive(env){
+  if(String(env?.MEL_SHARDVAULT_ENABLED||'false')!=='true'){
+    return {ok:false,status:'CODE_ARCHIVE_SHARDVAULT_DISABLED'};
+  }
+  let c;
+  try{c=await config(env);}catch(error){
+    return {ok:false,status:'CODE_ARCHIVE_CONFIG_INVALID',error:String(error?.message||error)};
+  }
+  if(!c?.ok)return {ok:false,status:'CODE_ARCHIVE_CONFIG_MISSING',missing:c?.missing||[]};
+  const read=await readExternalCodeManifest(env,c);
+  if(read?.ok!==true)return {ok:false,status:read?.status||'CODE_MANIFEST_UNAVAILABLE',detail:read};
+  const manifest=read.manifest||{};
+  if(manifest.reconstructionVerified!==true){
+    return {ok:false,status:'CODE_ARCHIVE_RELEASE_RECONSTRUCTION_NOT_VERIFIED',source_sha:manifest.git_sha||null};
+  }
+  if(!manifest.reconstructionVerifiedAt){
+    return {ok:false,status:'CODE_ARCHIVE_RELEASE_RECONSTRUCTION_TIMESTAMP_MISSING',source_sha:manifest.git_sha||null};
+  }
+  const key=String(manifest.archive_key||'').trim();
+  if(!key||!env?.MEDIA_BUCKET?.get){
+    return {ok:false,status:'CODE_ARCHIVE_LOCAL_SOURCE_UNAVAILABLE',source_sha:manifest.git_sha||null};
+  }
+  const object=await env.MEDIA_BUCKET.get(key);
+  if(!object)return {ok:false,status:'CODE_ARCHIVE_LOCAL_SOURCE_MISSING',archive_key:key,source_sha:manifest.git_sha||null};
+  const archiveBytes=new Uint8Array(await object.arrayBuffer());
+  const digest=await sha256Hex(archiveBytes);
+  if(digest!==String(manifest.sha256||'').toLowerCase()){
+    return {
+      ok:false,status:'CODE_ARCHIVE_SIGNED_HASH_MISMATCH',archive_key:key,
+      local_sha256:digest,manifest_sha256:manifest.sha256||null,source_sha:manifest.git_sha||null,
+    };
+  }
+  if(Number(manifest.archiveBytes)>0&&archiveBytes.length!==Number(manifest.archiveBytes)){
+    return {
+      ok:false,status:'CODE_ARCHIVE_SIGNED_SIZE_MISMATCH',archive_key:key,
+      local_bytes:archiveBytes.length,manifest_bytes:Number(manifest.archiveBytes),source_sha:manifest.git_sha||null,
+    };
+  }
+  if(archiveBytes.length<2||archiveBytes[0]!==0x1f||archiveBytes[1]!==0x8b){
+    return {ok:false,status:'CODE_ARCHIVE_SIGNED_FORMAT_INVALID',archive_key:key,source_sha:manifest.git_sha||null};
+  }
+  return {
+    ok:true,status:'CODE_ARCHIVE_RELEASE_VERIFIED',
+    repository:read.id?.repository||null,
+    source_sha:manifest.git_sha||read.id?.sha||null,
+    sha256:digest,
+    bytes:archiveBytes,
+    byte_length:archiveBytes.length,
+    archive_key:key,
+    external_reconstruction_verified:true,
+    independent_of_local_archive:true,
+    reconstruction_verified_at:String(manifest.reconstructionVerifiedAt),
+    evidence:'SIGNED_RELEASE_RECONSTRUCTION_MANIFEST',
+  };
+}
+
 export async function getVerifiedShardVaultCodeArchive(env){
   const verified=await verifyShardVaultCodeReconstruction(env);
   if(verified?.ok!==true||verified?.status!=='CODE_RECONSTRUCTION_VERIFIED'){
