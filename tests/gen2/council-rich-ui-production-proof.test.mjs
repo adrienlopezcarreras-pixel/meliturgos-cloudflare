@@ -97,6 +97,6 @@ test('rich UI browser proof retries bounded transient runtime pressure instead o
 
 
 test('Full chat exposes a deterministic completion marker after rendering MEL response', async () => {
-  const page=await readFile(new URL('../../src/pages/full-interface-v2.js',import.meta.url),'utf8');
+  const page=fs.readFileSync(new URL('../../src/pages/full-interface-v2.js',import.meta.url),'utf8');
   assert.match(page,/addMsg\('mel',d\.text\|\|d\.response\|\|'Réponse vide\.'\);qs\('#chatStatus'\)\.textContent='Réponse reçue\.'/);
 });
