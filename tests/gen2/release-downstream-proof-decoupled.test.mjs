@@ -88,26 +88,23 @@ test('sovereignty proof binds exact SHA through code self-check instead of requi
   assert.match(statusBlock,/TECHNICAL_SOVEREIGNTY_STATUS/);
 });
 
-test('decoupled sovereignty waits for exact-SHA release readiness before local source-control refresh', async () => {
+test('decoupled sovereignty waits for canonical exact-SHA release success before local source-control refresh', async () => {
   const workflow=await readFile(new URL('../../.github/workflows/release-downstream-proof-decoupled.yml',import.meta.url),'utf8');
   const block=workflow.split('\n  sovereignty:\n')[1]?.split('\n  summary:\n')[0]||'';
-  assert.match(block,/sovereignty-launch-readiness\.json/);
-  assert.match(block,/api\/teacher\/launch-readiness/);
-  assert.match(block,/GO_FOR_SUPERVISED_AUTONOMY/);
-  assert.match(block,/candidate_sha/);
-  assert.match(block,/SOV proof waiting for exact-SHA release readiness/);
-  assert.match(block,/--max-time 10/);
-  assert.match(block,/sleep 5/);
+  assert.match(workflow,/actions:\s*read/);
+  assert.match(block,/GITHUB_TOKEN/);
+  assert.match(block,/sovereignty-release-runs\.json/);
+  assert.match(block,/actions\/workflows\/deploy-cloudflare-release\.yml\/runs\?head_sha=\$\{TARGET_SHA\}/);
+  assert.match(block,/completed:success/);
+  assert.match(block,/SOV proof waiting for canonical exact-SHA release success/);
   assert.match(block,/Decoupled SOV fast path: exact-SHA final proof already valid/);
   assert.match(block,/exact_sha_fast_path:true/);
-  assert.match(block,/SOV target SHA is no longer deployed/);
-  assert.match(block,/sovereignty-current-sha\.json/);
-  assert.match(block,/exit 42/);
-  const ready=block.indexOf('test "${RELEASE_READY}" = "1"');
+  assert.doesNotMatch(block,/SOV proof waiting for exact-SHA release readiness/);
+  const ready=block.indexOf('test "${RELEASE_SUCCESS}" = "1"');
+  const fast=block.indexOf('FAST_SOV_CODE=');
   const refresh=block.indexOf('for TARGET in ai ai_local source_control; do');
-  assert.ok(ready>0&&refresh>ready,'SOV refresh must start only after exact-SHA launch readiness');
+  assert.ok(ready>0&&fast>ready&&refresh>fast,'SOV fast path and fallback refresh must start only after canonical exact-SHA release success');
 });
-
 test('source-control prevalidation surfaces a sanitized blocked reason for strict SOV diagnostics', async () => {
   const runtime=await readFile(new URL('../../src/portability/companion-source-control-prevalidation-runtime.js',import.meta.url),'utf8');
   const validator=await readFile(new URL('../../src/portability/sovereignty-candidate-validator.js',import.meta.url),'utf8');
