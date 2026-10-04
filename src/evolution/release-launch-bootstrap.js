@@ -22,7 +22,7 @@ import { proveEcosystemTeacherHandoff } from '../evaluation/capability-watch-run
 import { runAutonomyRuntimeTick } from './autonomy-runtime.js';
 import { maybeHandleConnectionSettingsApi } from '../api/connection-settings-api.js';
 import { D1AlternativeRegistryStore } from '../portability/d1-alternative-registry-store.js';
-import { sovereigntyCoverageFromRegistry } from '../portability/prevalidated-alternative-registry.js';
+import { eligibleAlternatives, sovereigntyCoverageFromRegistry } from '../portability/prevalidated-alternative-registry.js';
 import { liveTechnicalSovereigntyReport } from '../portability/technical-sovereignty-live.js';
 import { runConfiguredAiCandidateValidationRuntime } from '../portability/configured-ai-candidate-validation-runtime.js';
 import { runCompanionAiPrevalidationRuntime } from '../portability/companion-ai-prevalidation-runtime.js';
@@ -45,6 +45,13 @@ function exactDeployedSha(env = {}) {
   } catch {
     return '';
   }
+}
+
+function exactShaReusableAlternative(registry, layer, deployedSha, { now = Date.now() } = {}) {
+  const sha = String(deployedSha || '').trim().toLowerCase();
+  if (!/^[0-9a-f]{40}$/.test(sha)) return null;
+  const rows = eligibleAlternatives(registry, layer, { maxAddedCostEur: 0, now });
+  return rows.find((row) => String(row?.proof?.source_sha || '').trim().toLowerCase() === sha) || null;
 }
 
 function exactDeployedBranch(env = {}) {
@@ -492,7 +499,42 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
         }, { status: 400, headers: { 'cache-control': 'no-store' } });
       }
       await runRefresh(requestedRefresh, refresher);
-      const row = refresh[requestedRefresh];
+      let row = refresh[requestedRefresh];
+
+      // A paired Companion may be temporarily offline after it has already
+      // produced a fresh proof for this exact deployed SHA. Reuse is allowed
+      // only for source-control/infrastructure, only for offline skips, and
+      // only when the registry proof is still prevalidated and source-SHA exact.
+      const offlineProofLayer = requestedRefresh === 'source_control'
+        || requestedRefresh === 'infrastructure';
+      const offlineReason = row?.skipped === true
+        && ['COMPANION_OFFLINE','DEVICE_OFFLINE'].includes(String(row?.reason || ''));
+      if (offlineProofLayer && offlineReason) {
+        try {
+          const registryStore = new D1AlternativeRegistryStore(env.DB);
+          const registry = await registryStore.load();
+          const reusable = exactShaReusableAlternative(registry, requestedRefresh, deployedSha, { now });
+          if (reusable) {
+            row = {
+              ...row,
+              ok: true,
+              skipped: false,
+              status: 'EXACT_SHA_PREVALIDATED_REUSED',
+              reason: null,
+              prevalidated: Math.max(1, Number(row?.prevalidated || 0)),
+              blocked: 0,
+              reused_exact_sha_prevalidation: true,
+              reused_alternative_id: reusable.id,
+              reused_provider: reusable.provider,
+              proof_source_sha: reusable.proof?.source_sha || null,
+            };
+            refresh[requestedRefresh] = row;
+          }
+        } catch {
+          // Fail closed below if registry reuse cannot be proven.
+        }
+      }
+
       const requiresConcreteLiveProof = requestedRefresh === 'source_control'
         || requestedRefresh === 'infrastructure'
         || requestedRefresh === 'backup_restore';
@@ -1405,4 +1447,4 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
 }
 
 export const __launchBootstrapTest = Object.freeze({
-  runConnectionProof, equalToken, safeReadiness, requestPhase });
+  runConnectionProof, equalToken, safeReadiness, requestPhase, exactShaReusableAlternative });
