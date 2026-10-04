@@ -114,3 +114,17 @@ test('MINI hardware fix validates camera variants, audible loopback, and Wi-Fi r
   assert.match(main, /request_view\(MINI_VIEW_WIFI_LIST\)/);
   assert.match(main, /MINI WIFI CONNECT START FAILED/);
 });
+
+
+test('MINI accepts Android Bluetooth-base UUIDs encoded as 128-bit GATT UUIDs', async () => {
+  const bridge = await readFile(
+    new URL('../firmware/waveshare-terminal/main/mel_mobile_bridge.cpp', import.meta.url),
+    'utf8'
+  );
+  assert.match(bridge, /UUID_SERVICE_128/);
+  assert.match(bridge, /UUID_RX_128/);
+  assert.match(bridge, /UUID_TX_128/);
+  assert.match(bridge, /uuid_matches_mel/);
+  assert.match(bridge, /peer_disc_all\(conn_handle, on_discovery_complete/);
+  assert.match(bridge, /NimBLE ble_uuid_cmp\(\) is type-strict/);
+});
