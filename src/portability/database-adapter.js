@@ -33,14 +33,15 @@ export async function proveDatabaseAdapter(adapter){
   if(!tx)return{ok:false,status:'DATABASE_BEGIN_FAILED'};
 
   const table='mel_sovereignty_probe';
+  const probeId=`probe-${globalThis.crypto?.randomUUID?.()||`${Date.now()}-${Math.random().toString(16).slice(2)}`}`;
   try{
     const created=await adapter.execute({tx,sql:`CREATE TABLE IF NOT EXISTS ${table}(id TEXT PRIMARY KEY,value TEXT NOT NULL)`,params:[]});
     if(created?.ok!==true)return{ok:false,status:'DATABASE_DDL_FAILED'};
 
-    const inserted=await adapter.execute({tx,sql:`INSERT INTO ${table}(id,value) VALUES(?,?)`,params:['probe','ok']});
+    const inserted=await adapter.execute({tx,sql:`INSERT INTO ${table}(id,value) VALUES(?,?)`,params:[probeId,'ok']});
     if(inserted?.ok!==true)return{ok:false,status:'DATABASE_WRITE_FAILED'};
 
-    const rows=await adapter.query({tx,sql:`SELECT id,value FROM ${table} WHERE id=?`,params:['probe']});
+    const rows=await adapter.query({tx,sql:`SELECT id,value FROM ${table} WHERE id=?`,params:[probeId]});
     if(rows?.ok!==true||!Array.isArray(rows.rows)||rows.rows[0]?.value!=='ok'){
       return{ok:false,status:'DATABASE_READ_FAILED'};
     }
@@ -54,7 +55,7 @@ export async function proveDatabaseAdapter(adapter){
     const tx2=await adapter.begin();
     const imported=await adapter.importLogical({tx:tx2,snapshot:exported.snapshot});
     if(imported?.ok!==true)return{ok:false,status:'DATABASE_IMPORT_FAILED'};
-    const readback=await adapter.query({tx:tx2,sql:`SELECT id,value FROM ${table} WHERE id=?`,params:['probe']});
+    const readback=await adapter.query({tx:tx2,sql:`SELECT id,value FROM ${table} WHERE id=?`,params:[probeId]});
     if(readback?.ok!==true||readback.rows?.[0]?.value!=='ok'){
       await adapter.rollback(tx2).catch(()=>{});
       return{ok:false,status:'DATABASE_IMPORT_VERIFY_FAILED'};
