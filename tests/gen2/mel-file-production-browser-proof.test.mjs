@@ -35,6 +35,9 @@ test('parallel proof can stage only an exact-SHA bounded MEL-FILE upload', async
   assert.match(upload,/mel-file-\(normal\|full\)-proof\\\.txt/);
   assert.match(upload,/bytes\.byteLength > 16_384/);
   assert.match(upload,/MEL_FILE_\(NORMAL\|FULL\)_PROOF_/);
+  assert.match(upload,/function exactDeployedGitSha\(env\)/);
+  assert.match(upload,/typeof MEL_DEPLOYED_GIT_SHA !== 'undefined'/);
+  assert.match(upload,/const deployedSha = exactDeployedGitSha\(env\)/);
   assert.match(upload,/proofMatch\[2\]\.toLowerCase\(\) !== deployedSha/);
   assert.match(upload,/parallelProofUpload \? 300 : mediaTtlSeconds\(env\)/);
   assert.match(upload,/MEL_FILE_PROOF_UPLOAD_REJECTED/);
