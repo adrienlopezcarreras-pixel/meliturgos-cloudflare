@@ -100,3 +100,26 @@ test('MINI rejects zero-byte camera frames and renders a real preview', async ()
   assert.match(main, /lv_img_set_src\(settings_camera_preview/);
   assert.match(main, /visuel OK/);
 });
+
+
+test('successful fresh pair is accepted as immediate online proof', async () => {
+  const runtime = await readFile(
+    new URL('../firmware/waveshare-terminal/main/mel_terminal.cpp', import.meta.url),
+    'utf8'
+  );
+  assert.match(runtime, /g_fresh_pair_proved_online = true/);
+  assert.match(runtime, /g_last_session_status = 200/);
+  assert.match(runtime, /g_fresh_pair_proved_online \? 200 : device_session_status\(\)/);
+  assert.match(runtime, /\/api\/device\/v1\/heartbeat/);
+});
+
+test('camera enables low-light cleanup controls', async () => {
+  const main = await readFile(
+    new URL('../firmware/waveshare-terminal/main/main.cpp', import.meta.url),
+    'utf8'
+  );
+  assert.match(main, /set_denoise\(sensor, 4\)/);
+  assert.match(main, /GAINCEILING_8X/);
+  assert.match(main, /set_bpc\(sensor, 1\)/);
+  assert.match(main, /set_wpc\(sensor, 1\)/);
+});
