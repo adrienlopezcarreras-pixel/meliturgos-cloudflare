@@ -64,13 +64,27 @@ test('MEL-SOV-01 live proof splits heavy refreshes and uses immutable exact-SHA 
   assert.match(workflow,/QUERY="\$\{QUERY\}&step=\$\{STEP\}"/);
   assert.match(workflow,/release-launch-bootstrap\?\$\{QUERY\}/);
   assert.match(workflow,/MEL_SOV_01_REFRESH_STEP_VERIFIED/);
-  assert.match(workflow,/--max-time 75/);
+  assert.match(workflow,/MEL-SOV-01 fast path: exact-SHA final proof already valid/);
+  assert.match(workflow,/mel-sov-fast\.json/);
+  assert.match(workflow,/--max-time 55/);
   assert.match(workflow,/--max-time 60/);
-  assert.match(workflow,/for ATTEMPT in \$\(seq 1 6\)/);
+  assert.match(workflow,/for ATTEMPT in \$\(seq 1 4\)/);
   assert.match(workflow,/000\|409\|429\|500\|502\|503\|504/);
   assert.match(workflow,/MEL_SOV_01_REFRESH_FAILED/);
   assert.match(workflow,/refresh_error:/);
   assert.doesNotMatch(workflow,/wrangler secret put/);
   assert.doesNotMatch(workflow,/wrangler secret delete/);
   assert.doesNotMatch(workflow,/MEL_LAUNCH_BOOTSTRAP_TOKEN/);
+});
+
+
+test('MEL-SOV-01 refresh reuses fresh exact-SHA registry proof before expensive live validation', async () => {
+  const runtime=await readFile(new URL('../../src/evolution/release-launch-bootstrap.js',import.meta.url),'utf8');
+  assert.match(runtime,/const reusableLayer = requestedRefresh === 'source_control'/);
+  assert.match(runtime,/requestedRefresh === 'infrastructure' && requestedRefreshStep/);
+  assert.match(runtime,/requestedRefresh === 'backup_restore'/);
+  assert.match(runtime,/exactShaReusableAlternative\(registry, reusableLayer, deployedSha/);
+  const reuse=runtime.indexOf('exactShaReusableAlternative(registry, reusableLayer, deployedSha');
+  const live=runtime.indexOf('await runRefresh(requestedRefresh, refresher)');
+  assert.ok(reuse>0&&live>reuse,'exact-SHA registry reuse must be attempted before expensive live refresh');
 });
