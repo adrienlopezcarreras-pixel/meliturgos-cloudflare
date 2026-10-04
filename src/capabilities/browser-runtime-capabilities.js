@@ -33,6 +33,7 @@ const browserStepSchema = {
     },
     delta_x: { type: 'number' },
     delta_y: { type: 'number' },
+    timeout_ms: { type: 'integer', minimum: 0, maximum: 60000 },
   },
   required: ['id', 'action'],
   additionalProperties: false,
