@@ -220,6 +220,7 @@ function unsignedManifest(m){const {manifestMac:_mac,...u}=m;return u;}
 async function manifestMac(c,m){const key=await hkdf(c.master,utf8(c.vaultId),utf8('MEL-ShardVault/v1/manifest-mac'));return b64u(await hmac(key,utf8(stable(unsignedManifest(m)))));}
 async function validManifest(c,m){if(!m||m.vaultId!==c.vaultId||m.format!=='MEL-ShardVault'||!m.manifestMac)return false;try{return (await manifestMac(c,m))===m.manifestMac;}catch{return false;}}
 function r2ManifestPrefix(c){return 'shardvault/manifests/'+encodeURIComponent(c.vaultId)+'/';}
+function r2LatestManifestKey(c){return r2ManifestPrefix(c)+'latest.json';}
 async function inventoryRows(env,c){
   if(c.storageMode==='CLOUDFLARE_FALLBACK'||c.storageMode==='EXTERNAL_DISTRIBUTED'){
     const out=[];let cursor=undefined,seen=0;
@@ -753,8 +754,10 @@ async function downloadFragment(env,e,d){
 }
 async function appendManifest(env,c,m){
   if(c.storageMode==='CLOUDFLARE_FALLBACK'||c.storageMode==='EXTERNAL_DISTRIBUTED'){
+    const body=JSON.stringify(m);
     const key=r2ManifestPrefix(c)+m.snapshotId+'-r'+String(m.revision||1).padStart(4,'0')+'.json';
-    await env.MEDIA_BUCKET.put(key,JSON.stringify(m),{httpMetadata:{contentType:'application/json'}});
+    await env.MEDIA_BUCKET.put(key,body,{httpMetadata:{contentType:'application/json'}});
+    await env.MEDIA_BUCKET.put(r2LatestManifestKey(c),body,{httpMetadata:{contentType:'application/json'}});
     return;
   }
   const r=await fetchTimed(env.MEL_INVENTORY_APPEND_URL,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(m)});
@@ -1893,11 +1896,19 @@ async function latestShardVaultSnapshotFast(env,c){
   if(c.storageMode!=='CLOUDFLARE_FALLBACK'&&c.storageMode!=='EXTERNAL_DISTRIBUTED'){
     return latestSnapshot(await inventoryRows(env,c));
   }
+  try{
+    const pointer=await env.MEDIA_BUCKET.get(r2LatestManifestKey(c));
+    if(pointer){
+      const manifest=JSON.parse(await pointer.text());
+      if(await validManifest(c,manifest))return manifest;
+    }
+  }catch{}
   const objects=[];
   let cursor=undefined,seen=0;
   do{
     const listed=await env.MEDIA_BUCKET.list({prefix:r2ManifestPrefix(c),cursor,limit:1000});
     for(const object of listed?.objects||[]){
+      if(object.key===r2LatestManifestKey(c))continue;
       if(++seen>5000)break;
       objects.push(object);
     }
@@ -1909,7 +1920,10 @@ async function latestShardVaultSnapshotFast(env,c){
     if(!body)continue;
     try{
       const manifest=JSON.parse(await body.text());
-      if(await validManifest(c,manifest))return manifest;
+      if(await validManifest(c,manifest)){
+        await env.MEDIA_BUCKET.put(r2LatestManifestKey(c),JSON.stringify(manifest),{httpMetadata:{contentType:'application/json'}});
+        return manifest;
+      }
     }catch{}
   }
   return null;
@@ -1921,37 +1935,65 @@ async function promoteExternalEndpointWithExistingShard(env,c,last,endpoint){
   }
   const counts=new Map();
   for(const d of last.shards||[])counts.set(d.endpointId,(counts.get(d.endpointId)||0)+1);
-  const donor=[...(last.shards||[])].sort((a,b)=>{
-    const ae=endpointById(c,a.endpointId,a),be=endpointById(c,b.endpointId,b);
-    const ai=ae?.backend?1:0,bi=be?.backend?1:0;
-    if(ai!==bi)return bi-ai;
-    return (counts.get(b.endpointId)||0)-(counts.get(a.endpointId)||0);
-  }).find(d=>{
+  const candidates=[...(last.shards||[])].filter(d=>{
     const donorEndpoint=endpointById(c,d.endpointId,d);
     if(!donorEndpoint||d.endpointId===endpoint.id)return false;
-    return Boolean(donorEndpoint.backend)||(counts.get(d.endpointId)||0)>1;
+    const safe=Boolean(donorEndpoint.backend)||(counts.get(d.endpointId)||0)>1;
+    return safe&&Array.isArray(d.parts)&&d.parts.length>0;
+  }).sort((a,b)=>{
+    const ac=counts.get(a.endpointId)||0,bc=counts.get(b.endpointId)||0;
+    if(ac!==bc)return bc-ac;
+    return (a.parts?.length||0)-(b.parts?.length||0);
   });
-  if(!donor)return {ok:false,status:'PROMOTION_NO_SAFE_DONOR_SHARD',endpoint_id:endpoint.id};
+  const donor=candidates[0]||null;
+  if(!donor)return {ok:false,status:'PROMOTION_NO_STREAMABLE_DONOR_SHARD',endpoint_id:endpoint.id};
 
   const donorEndpoint=endpointById(c,donor.endpointId,donor);
-  const shard=await downloadFragment(env,donorEndpoint,donor);
-  if(shard.length!==Number(last.shardSize||donor.byteLength||0)){
-    return {ok:false,status:'PROMOTION_DONOR_LENGTH_INVALID',endpoint_id:endpoint.id,donor_endpoint_id:donor.endpointId};
-  }
-  const shardKey=await hkdf(c.master,utf8(last.snapshotId),utf8('MEL-ShardVault/v1/shard-mac'));
-  const mac=b64u(await hmac(shardKey,concat(utf8(`${last.snapshotId}:${donor.index}:`),shard)));
-  if(mac!==donor.mac)return {ok:false,status:'PROMOTION_DONOR_MAC_INVALID',endpoint_id:endpoint.id,donor_endpoint_id:donor.endpointId};
+  const baseId=rid(24);
+  const targetLimit=fragmentChunkLimit(endpoint);
+  const parts=[];
+  let total=0,targetPartIndex=0;
 
-  const objectId=rid(24);
-  const locator=await uploadFragment(env,endpoint,objectId,shard);
+  for(const sourcePart of donor.parts){
+    const source=await download(env,donorEndpoint,sourcePart.objectId,{
+      ...donor,objectId:sourcePart.objectId,remoteUrl:sourcePart.remoteUrl||null,parts:null
+    });
+    if(Number(sourcePart.byteLength)>0&&source.length!==Number(sourcePart.byteLength)){
+      return {ok:false,status:'PROMOTION_DONOR_PART_LENGTH_INVALID',endpoint_id:endpoint.id,donor_endpoint_id:donor.endpointId};
+    }
+    for(let offset=0;offset<source.length;offset+=targetLimit){
+      const chunk=source.slice(offset,Math.min(source.length,offset+targetLimit));
+      const partId=baseId+'-p'+String(targetPartIndex++).padStart(4,'0');
+      const locator=await upload(env,endpoint,partId,chunk);
+      const part={objectId:partId,remoteUrl:locator?.remoteUrl||null,byteLength:chunk.length};
+      const got=await download(env,endpoint,partId,{
+        ...donor,objectId:partId,remoteUrl:part.remoteUrl,parts:null
+      });
+      if(!byteArraysEqual(got,chunk)){
+        return {ok:false,status:'PROMOTION_PART_ROUNDTRIP_MISMATCH',endpoint_id:endpoint.id,donor_endpoint_id:donor.endpointId,part_index:targetPartIndex-1};
+      }
+      parts.push(part);
+      total+=chunk.length;
+    }
+  }
+
+  const expectedLength=Number(last.shardSize||donor.byteLength||0);
+  if(total!==expectedLength){
+    return {ok:false,status:'PROMOTION_STREAM_LENGTH_INVALID',endpoint_id:endpoint.id,donor_endpoint_id:donor.endpointId,expected_bytes:expectedLength,actual_bytes:total};
+  }
+
   const replacement={
     index:donor.index,endpointId:endpoint.id,endpoint:endpointSnapshot(endpoint),
-    objectId:locator.objectId,remoteUrl:locator.remoteUrl||null,parts:locator.parts||null,
-    byteLength:shard.length,mac
+    objectId:baseId,remoteUrl:null,parts,byteLength:total,mac:donor.mac
   };
   const roundtrip=await downloadFragment(env,endpoint,replacement);
-  if(!byteArraysEqual(roundtrip,shard)){
-    return {ok:false,status:'PROMOTION_ROUNDTRIP_MISMATCH',endpoint_id:endpoint.id,donor_endpoint_id:donor.endpointId};
+  if(roundtrip.length!==expectedLength){
+    return {ok:false,status:'PROMOTION_ROUNDTRIP_LENGTH_INVALID',endpoint_id:endpoint.id,donor_endpoint_id:donor.endpointId};
+  }
+  const shardKey=await hkdf(c.master,utf8(last.snapshotId),utf8('MEL-ShardVault/v1/shard-mac'));
+  const mac=b64u(await hmac(shardKey,concat(utf8(`${last.snapshotId}:${donor.index}:`),roundtrip)));
+  if(mac!==donor.mac){
+    return {ok:false,status:'PROMOTION_ROUNDTRIP_MAC_INVALID',endpoint_id:endpoint.id,donor_endpoint_id:donor.endpointId};
   }
 
   const descriptors=(last.shards||[]).map(d=>d.index===donor.index?replacement:{...d});
@@ -1960,17 +2002,11 @@ async function promoteExternalEndpointWithExistingShard(env,c,last,endpoint){
   next.diversity=diversity(endpoints);
   next.manifestMac=await manifestMac(c,next);
   await appendManifest(env,c,next);
-  await rememberValidatedExternalEndpoints(env,[{
-    ...endpoint,
-    representativeVerifiedAt:new Date().toISOString(),
-    representativeBytes:shard.length,
-    representativeSha256:await sha256Hex(shard),
-    representativeParts:Array.isArray(replacement.parts)?replacement.parts.length:1,
-    evidenceVerification:'representative_full_fragment_roundtrip'
-  }]);
+  await rememberValidatedExternalEndpoints(env,[endpoint]);
   return {
     ok:true,status:'SINGLE_SHARD_PROMOTED',endpoint_id:endpoint.id,
     donor_endpoint_id:donor.endpointId,shard_index:donor.index,
+    streamed_parts:parts.length,streamed_bytes:total,
     snapshot_id:last.snapshotId,revision:next.revision,manifest:next
   };
 }
@@ -1985,25 +2021,32 @@ export async function activateValidatedShardVaultEndpoint(env,endpointId){
   let c;
   try{c=await config(env);}catch{}
   if(!c?.ok)return {ok:false,status:'ACTIVATION_STATUS_FAILED',endpoint_id:id};
-  const rows=await inventoryRows(env,c),latestBefore=latestSnapshot(rows);
+
+  const latestBefore=await latestShardVaultSnapshotFast(env,c);
   const before=await reconcileActiveExternalEndpoints(env,c,latestBefore);
-  if(!before.some(e=>e.id===id)&&before.length>=Math.min(7,c.n))return {ok:false,status:'ACTIVE_EXTERNAL_REGISTRY_FULL',endpoint_id:id,active_endpoint_ids:before.map(e=>e.id),target_count:Math.min(7,c.n)};
-  const staged=await stageActiveExternalEndpoints(env,c,latestBefore,[endpoint]);
-  await writePreferredEndpoint(env,id);
-  const cycle=await runShardVaultCycle(env,{force:true});
-  if(!cycle?.ok){
-    await writeActiveExternalEndpoints(env,before);
-    return {ok:false,status:'ACTIVATION_SNAPSHOT_FAILED',endpoint_id:id,cycle,active_endpoint_ids:before.map(e=>e.id)};
+  if(before.some(e=>e.id===id)){
+    await writePreferredEndpoint(env,id);
+    return {ok:true,status:'ALREADY_ACTIVE',endpoint_id:id,used_fragments:(latestBefore?.shards||[]).filter(x=>x.endpointId===id).length,snapshot_id:latestBefore?.snapshotId||null,active_external_count:before.length,active_endpoint_ids:before.map(e=>e.id),code_sync:null};
   }
-  const rowsAfter=await inventoryRows(env,c),latest=latestSnapshot(rowsAfter);
+  if(before.length>=Math.min(7,c.n))return {ok:false,status:'ACTIVE_EXTERNAL_REGISTRY_FULL',endpoint_id:id,active_endpoint_ids:before.map(e=>e.id),target_count:Math.min(7,c.n)};
+
+  const promoted=await promoteExternalEndpointWithExistingShard(env,c,latestBefore,endpoint);
+  if(!promoted?.ok)return {ok:false,status:promoted?.status||'ACTIVATION_SNAPSHOT_FAILED',endpoint_id:id,promotion:promoted,active_endpoint_ids:before.map(e=>e.id)};
+
+  const latest=promoted.manifest;
   const actual=await reconcileActiveExternalEndpoints(env,c,latest);
   const used=(latest?.shards||[]).filter(x=>x.endpointId===id).length;
-  if(!used)return {ok:false,status:'ACTIVATION_NOT_USED',endpoint_id:id,cycle,active_endpoint_ids:actual.map(e=>e.id)};
-  let code_sync=null;
-  if(actual.length>=Math.min(7,c.n)){
-    try{code_sync=await syncShardVaultCodeExternally(env);}catch(error){code_sync={ok:false,status:'COPY_FAILED',error:String(error?.message||error)};}
-  }
-  return {ok:true,status:'ACTIVATED',endpoint_id:id,used_fragments:used,snapshot_id:latest.snapshotId,active_external_count:actual.length,active_endpoint_ids:actual.map(e=>e.id),staged_endpoint_ids:staged.map(e=>e.id),code_sync,cycle};
+  if(!used)return {ok:false,status:'ACTIVATION_NOT_USED',endpoint_id:id,promotion:{...promoted,manifest:undefined},active_endpoint_ids:actual.map(e=>e.id)};
+  await writePreferredEndpoint(env,id);
+  const code_sync=actual.length>=Math.min(7,c.n)
+    ? {ok:true,deferred:true,status:'DEFERRED_SEPARATE_OPERATION'}
+    : null;
+  return {
+    ok:true,status:'ACTIVATED',endpoint_id:id,used_fragments:used,
+    snapshot_id:latest.snapshotId,active_external_count:actual.length,
+    active_endpoint_ids:actual.map(e=>e.id),code_sync,
+    promotion:{...promoted,manifest:undefined}
+  };
 }
 
 export async function searchAutonomousShardVaultRepositories(env,{maxNewEndpoints=7,probeLimit=null,probeOffset=0,knownCandidatesOnly=false}={}){

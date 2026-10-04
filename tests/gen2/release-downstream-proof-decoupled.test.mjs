@@ -30,6 +30,9 @@ test('decoupled MEL-FILE proof mirrors the successful canonical browser shape af
   assert.match(fileBlock,/GO_FOR_SUPERVISED_AUTONOMY/);
   assert.match(fileBlock,/candidate_sha/);
   assert.match(fileBlock,/for ATTEMPT in \$\(seq 1 60\)/);
+  assert.match(fileBlock,/MEL-FILE target SHA is no longer deployed/);
+  assert.match(fileBlock,/mel-file-current-sha\.json/);
+  assert.match(fileBlock,/exit 42/);
   assert.ok(fileBlock.indexOf('GO_FOR_SUPERVISED_AUTONOMY')<fileBlock.indexOf('FILE_READY=0'),'release readiness must gate MEL-FILE browser pressure');
   assert.match(fileBlock,/SESSION="decoupled-file-\$\{TARGET_SHA:0:12\}-\$\{GITHUB_RUN_ID\}-\$\{GITHUB_RUN_ATTEMPT\}"/);
   assert.doesNotMatch(fileBlock,/SESSION="[^"]*\$\{ATTEMPT\}"/);
@@ -93,6 +96,9 @@ test('decoupled sovereignty waits for exact-SHA release readiness before local s
   assert.match(block,/GO_FOR_SUPERVISED_AUTONOMY/);
   assert.match(block,/candidate_sha/);
   assert.match(block,/SOV proof waiting for exact-SHA release readiness/);
+  assert.match(block,/SOV target SHA is no longer deployed/);
+  assert.match(block,/sovereignty-current-sha\.json/);
+  assert.match(block,/exit 42/);
   const ready=block.indexOf('test "${RELEASE_READY}" = "1"');
   const refresh=block.indexOf('for TARGET in ai ai_local source_control; do');
   assert.ok(ready>0&&refresh>ready,'SOV refresh must start only after exact-SHA launch readiness');
