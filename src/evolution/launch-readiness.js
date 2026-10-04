@@ -485,6 +485,9 @@ export function summarizeAutonomyLaunchCodeSync(value) {
         }))
       : [],
     verified_roundtrip: external?.verified_roundtrip === true,
+    reconstruction_verified: external?.reconstruction_verified === true,
+    release_quorum: Number(external?.release_quorum || 5),
+    repair_pending: external?.repair_pending === true,
     critical_status: value?.critical_status || null,
   };
 }
