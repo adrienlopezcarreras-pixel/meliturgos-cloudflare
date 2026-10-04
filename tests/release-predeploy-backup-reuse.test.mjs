@@ -50,9 +50,10 @@ test('canonical release waits on bounded ShardVault progress instead of a fixed 
   assert.match(source, /no active-attempt or no-progress budget is consumed/);
   assert.match(source, /Launch code-sync stopped after bounded no-progress window/);
   assert.match(source, /PRODUCTION_CODE_SYNC_FINAL_NOT_COMPLETE/);
-  assert.match(source, /PRODUCTION_CODE_SYNC_FINAL_NOT_COPIED/);
+  assert.match(source, /PRODUCTION_CODE_SYNC_FINAL_NOT_RELEASE_SAFE/);
   assert.match(source, /PRODUCTION_CODE_SYNC_TARGET_LT_7/);
-  assert.match(source, /PRODUCTION_CODE_SYNC_SUCCESSFUL_ENDPOINTS_LT_7/);
+  assert.match(source, /PRODUCTION_CODE_SYNC_SUCCESSFUL_ENDPOINTS_LT_RELEASE_QUORUM/);
+  assert.match(source, /PRODUCTION_CODE_SYNC_QUORUM_RECONSTRUCTION_NOT_VERIFIED/);
   assert.match(source, /PRODUCTION_CODE_SYNC_ROUNDTRIP_NOT_VERIFIED/);
   assert.match(source, /exit 48/);
   assert.doesNotMatch(source, /for CODE_SYNC_ATTEMPT in \$\(seq 1 12\)/);
