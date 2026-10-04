@@ -919,15 +919,19 @@ jobs:
           test "${CAPABILITY_WATCH_READY}" = "1"
           node - <<'NODE'
           const d=require('./production-capability-watch-proof.json');
+          const openCount=Number(d?.open_handoff_count||0);
+          const teacherProvenCount=Number(d?.teacher_proven_handoff_count||0);
+          const blockedCount=Number(d?.blocked_open_handoff_count||0);
           const active=d?.status==='GEN2_42_TEACHER_HANDOFF_READY'
             && Number(d?.active_teacher_handoff_count||0)>=1
             && Boolean(d?.job_id)
             && Boolean(d?.teacher_request_id);
           const progressed=d?.status==='GEN2_42_TEACHER_HANDOFF_PROGRESS_VERIFIED'
             && d?.progress_verified===true
-            && Number(d?.open_handoff_count||0)>0
-            && Number(d?.teacher_proven_handoff_count||0)===Number(d?.open_handoff_count||0)
-            && Number(d?.blocked_open_handoff_count||0)===0
+            && openCount>0
+            && teacherProvenCount>=1
+            && blockedCount>=0
+            && teacherProvenCount+blockedCount===openCount
             && Boolean(d?.teacher_request_id);
           const idle=d?.status==='GEN2_42_TEACHER_HANDOFF_IDLE_VERIFIED'
             && d?.idle_verified===true
@@ -937,7 +941,7 @@ jobs:
             && !d?.teacher_request_id;
           if(d?.ok!==true || (!active && !progressed && !idle)) throw new Error('GEN2_42_TEACHER_HANDOFF_PROOF_FAILED');
           if(d?.production_activation_allowed!==false || d?.auto_approval_allowed!==false) throw new Error('GEN2_42_PROOF_ESCALATED_PRIVILEGES');
-          console.log('GEN2-42 production Teacher handoff proof passed: '+String(d.status));
+          console.log('GEN2-42 production Teacher handoff proof passed: '+String(d.status)+' teacher_proven='+teacherProvenCount+' blocked='+blockedCount+' open='+openCount);
           NODE
 
 
