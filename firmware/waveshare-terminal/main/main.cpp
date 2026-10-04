@@ -9,6 +9,7 @@
 #include "esp_io_expander_tca9554.h"
 #include "esp_lvgl_port.h"
 #include "esp_log.h"
+#include "esp_timer.h"
 #include "esp_heap_caps.h"
 #include "esp_event.h"
 #include "esp_wifi.h"
