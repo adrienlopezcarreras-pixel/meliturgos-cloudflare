@@ -427,8 +427,14 @@ function Resolve-SovereigntyRelativePath([string]$repo,[string]$relative) {
 
 function Invoke-SovereigntyGit([string]$repo,[string[]]$arguments) {
   if (-not (Get-Command git.exe -ErrorAction SilentlyContinue)) { throw "SOVEREIGNTY_GIT_NOT_INSTALLED" }
-  $output = & git.exe -C $repo @arguments 2>&1
-  $exitCode = $LASTEXITCODE
+  $previousErrorActionPreference = $ErrorActionPreference
+  try {
+    $ErrorActionPreference = "Continue"
+    $output = & git.exe -C $repo @arguments 2>&1
+    $exitCode = $LASTEXITCODE
+  } finally {
+    $ErrorActionPreference = $previousErrorActionPreference
+  }
   if ($exitCode -ne 0) {
     $detail = ([string]($output -join " ")).Trim()
     if ($detail.Length -gt 500) { $detail = $detail.Substring(0,500) }
@@ -506,6 +512,7 @@ function Seed-SovereigntyGitRepo([string]$repository,[string]$expectedSha) {
     [IO.File]::WriteAllText((Join-Path $repo ".mel-source-provenance.json"),$provenance,[Text.UTF8Encoding]::new($false))
 
     [void](Invoke-SovereigntyGit $repo @("init","-b","main"))
+    [void](Invoke-SovereigntyGit $repo @("config","core.autocrlf","false"))
     [void](Invoke-SovereigntyGit $repo @("add","-A"))
     [void](Invoke-SovereigntyGit $repo @("-c","user.name=MEL Sovereignty","-c","user.email=mel-sovereignty@localhost","commit","-m",("Recovered source " + $sha)))
     $localSha = Invoke-SovereigntyGit $repo @("rev-parse","HEAD")
