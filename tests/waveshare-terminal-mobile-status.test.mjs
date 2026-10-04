@@ -93,8 +93,9 @@ test('MINI rejects zero-byte camera frames and renders a real preview', async ()
   const end = main.indexOf('static void settings_camera_clicked', start);
   const task = main.slice(start, end);
   assert.doesNotMatch(task, /esp_camera_return_all\(\)/);
-  assert.match(task, /fb->len > 0/);
-  assert.match(task, /fb->len < expected/);
+  assert.match(task, /fb->len == expected/);
+  assert.match(task, /fb->len != expected/);
+  assert.match(task, /warm-up frame/);
   assert.match(task, /settings_camera_show_preview\(fb\)/);
   assert.match(main, /lv_img_set_src\(settings_camera_preview/);
   assert.match(main, /visuel OK/);
