@@ -267,6 +267,9 @@ function safeReadiness(value) {
       external_code_status: value?.shardvault?.external_code_status || null,
       external_code_endpoints: Number(value?.shardvault?.external_code_endpoints || 0),
       target_count: Number(value?.shardvault?.target_count || 7),
+      release_quorum: Number(value?.shardvault?.release_quorum || 5),
+      code_reconstruction_verified: value?.shardvault?.code_reconstruction_verified === true,
+      repair_pending: value?.shardvault?.repair_pending === true,
     },
   };
 }

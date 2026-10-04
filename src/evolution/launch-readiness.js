@@ -11,7 +11,7 @@ import {
 } from '../backup/system-backup-runtime.js';
 import { verifyRestoreCandidate } from '../backup/restore-service.js';
 import { createEnvBackupEncryptionCodec } from '../backup/encrypted-backup-storage.js';
-import { getShardVaultStatus, syncShardVaultCodeExternally } from '../continuity/shardvault-runtime.js';
+import { getShardVaultStatus, syncShardVaultCodeExternally, verifyShardVaultCodeReconstruction } from '../continuity/shardvault-runtime.js';
 import { D1DevJobRepository } from '../dev/d1-dev-job-repository.js';
 import {
   AutonomySupervisor,
@@ -327,22 +327,39 @@ export async function evaluateShardVaultLaunchReadiness(env) {
   const activeExternal = Array.isArray(status?.active_external_registry) ? status.active_external_registry.length : 0;
   const externalCode = status?.code_survival?.external;
   const externalEndpoints = Array.isArray(externalCode?.endpoints) ? externalCode.endpoints.length : 0;
+  const dataShards = Number(externalCode?.data_shards || status?.scheme?.data_shards || 4);
+  const targetCount = Number(externalCode?.target_count || status?.scheme?.total_shards || 7);
+  const releaseQuorum = Math.min(targetCount, Math.max(dataShards, 5));
+  const reconstruction = await verifyShardVaultCodeReconstruction(env)
+    .catch(error => ({ ok: false, status: 'CODE_RECONSTRUCTION_CHECK_FAILED', error: String(error?.message || error) }));
+  const codeReconstructible = reconstruction?.ok === true
+    && reconstruction?.status === 'CODE_RECONSTRUCTION_VERIFIED';
+  const fullReplication = activeExternal >= targetCount
+    && externalCode?.status === 'COPIED'
+    && externalEndpoints >= targetCount;
+  const quorumReplication = activeExternal >= releaseQuorum
+    && ['COPIED', 'QUORUM_COPIED'].includes(String(externalCode?.status || ''))
+    && externalEndpoints >= releaseQuorum
+    && codeReconstructible;
   const ok = status?.ok === true
     && status?.enabled === true
     && status?.health?.recoverable === true
-    && activeExternal >= 7
-    && externalCode?.status === 'COPIED'
-    && externalEndpoints >= 7;
+    && quorumReplication;
 
   return {
     ok,
-    status: ok ? 'SHARDVAULT_7X_CODE_SURVIVAL_VERIFIED' : 'SHARDVAULT_LAUNCH_PROOF_INCOMPLETE',
+    status: ok
+      ? fullReplication ? 'SHARDVAULT_7X_CODE_SURVIVAL_VERIFIED' : 'SHARDVAULT_QUORUM_CODE_SURVIVAL_VERIFIED'
+      : 'SHARDVAULT_LAUNCH_PROOF_INCOMPLETE',
     vault_status: status?.status || null,
     recoverable: status?.health?.recoverable === true,
     active_external_count: activeExternal,
     external_code_status: externalCode?.status || null,
     external_code_endpoints: externalEndpoints,
-    target_count: 7,
+    target_count: targetCount,
+    release_quorum: releaseQuorum,
+    code_reconstruction_verified: codeReconstructible,
+    repair_pending: ok && !fullReplication,
   };
 }
 
@@ -468,6 +485,9 @@ export function summarizeAutonomyLaunchCodeSync(value) {
         }))
       : [],
     verified_roundtrip: external?.verified_roundtrip === true,
+    reconstruction_verified: external?.reconstruction_verified === true,
+    release_quorum: Number(external?.release_quorum || 5),
+    repair_pending: external?.repair_pending === true,
     critical_status: value?.critical_status || null,
   };
 }

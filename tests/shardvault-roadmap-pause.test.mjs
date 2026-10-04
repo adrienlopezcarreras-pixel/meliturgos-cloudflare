@@ -16,7 +16,7 @@ test('roadmap closeout reactivates ShardVault external replication while autonom
   assert.equal(wrangler.env.preview.vars.MEL_AUTONOMOUS_PROBE_LIMIT, '20');
 });
 
-test('release workflow preserves external ShardVault 7x proof and only permits an explicit temporary dev-light pause', async () => {
+test('release workflow preserves the ShardVault 7x target, a reconstructible release quorum, and only an explicit temporary dev-light pause', async () => {
   const workflow = await readFile(new URL('../.github/workflows/deploy-cloudflare-release.yml', import.meta.url), 'utf8');
   const paused=/MEL_ROADMAP_SHARDVAULT_PAUSED: 'true'/.test(workflow);
   if(paused){
@@ -28,8 +28,10 @@ test('release workflow preserves external ShardVault 7x proof and only permits a
   assert.match(workflow, /if \[ "\$MEL_ROADMAP_SHARDVAULT_PAUSED" = "true" \]/);
   assert.match(workflow, /for SHARD_STATUS_ATTEMPT in \$\(seq 1 12\); do/);
   assert.match(workflow, /for SHARD_ATTEMPT in \$\(seq 1 17\); do/);
-  assert.match(workflow, /PRODUCTION_SHARDVAULT_ACTIVE_EXTERNAL_LT_7/);
-  assert.match(workflow, /PRODUCTION_SHARDVAULT_EXTERNAL_LT_7/);
+  assert.match(workflow, /SHARD_RELEASE_QUORUM=5/);
+  assert.match(workflow, /PRODUCTION_SHARDVAULT_ACTIVE_EXTERNAL_LT_RELEASE_QUORUM/);
+  assert.match(workflow, /PRODUCTION_SHARDVAULT_EXTERNAL_LT_RELEASE_QUORUM/);
+  assert.match(workflow, /PRODUCTION_EXTERNAL_CODE_RECONSTRUCTION_NOT_VERIFIED/);
   assert.match(workflow, /for PAUSE_ATTEMPT in \$\(seq 1 12\); do/);
   assert.match(workflow, /Launch pause propagation attempt/);
   assert.match(workflow, /test "\$PAUSE_READY" = "1"/);

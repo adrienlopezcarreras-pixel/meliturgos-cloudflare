@@ -204,7 +204,7 @@ test('ShardVault refreshes discovery once every ready code target has already be
   );
 });
 
-test('bounded discovery retry is wired to replace a failed active endpoint without lowering 7x target', async () => {
+test('bounded discovery retry preserves the 7x target while allowing a 5-of-7 release quorum', async () => {
   const runtime = await readFile(new URL('../src/continuity/shardvault-runtime.js', import.meta.url), 'utf8');
   const workflow = await readFile(new URL('../.github/workflows/deploy-cloudflare-release.yml', import.meta.url), 'utf8');
 
@@ -212,9 +212,10 @@ test('bounded discovery retry is wired to replace a failed active endpoint witho
   assert.match(runtime, /excludeEndpointIds:\[rotation\.failedEndpointId\]/);
   assert.match(runtime, /recovered_write_failure:true/);
   assert.match(runtime, /replaced_endpoint_id:rotation\.failedEndpointId/);
-  assert.match(workflow, /PRODUCTION_SHARDVAULT_ACTIVE_EXTERNAL_LT_7/);
-  assert.match(workflow, /PRODUCTION_SHARDVAULT_EXTERNAL_LT_7/);
-  assert.doesNotMatch(workflow, /active_external_count\|\|0\)<[0-6]/);
+  assert.match(workflow, /PRODUCTION_SHARDVAULT_ACTIVE_EXTERNAL_LT_RELEASE_QUORUM/);
+  assert.match(workflow, /PRODUCTION_SHARDVAULT_EXTERNAL_LT_RELEASE_QUORUM/);
+  assert.match(workflow, /SHARD_RELEASE_QUORUM=5/);
+  assert.match(workflow, /PRODUCTION_EXTERNAL_CODE_RECONSTRUCTION_NOT_VERIFIED/);
   assert.match(runtime, /await writeCodeSyncState\(env,id,state\);[\s\S]{0,1400}discoverAutonomousRepositories\(env,/);
   assert.match(runtime, /selectionCount:1,/);
   assert.match(runtime, /probeLimit:2,/);
