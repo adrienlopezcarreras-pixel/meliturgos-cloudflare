@@ -2623,6 +2623,7 @@ private fun CompanionPanel(
 ) {
     val bridgeState by MelBleBridgeService.bridgeState.collectAsStateWithLifecycle()
     val bleReady by MelBleBridgeService.miniLinkReady.collectAsStateWithLifecycle()
+    val phoneInternetReady by MelBleBridgeService.phoneInternetAvailable.collectAsStateWithLifecycle()
     val internetReady by MelBleBridgeService.internetReady.collectAsStateWithLifecycle()
     val pairingComplete by MelBleBridgeService.miniPairingComplete.collectAsStateWithLifecycle()
     var showPairRecovery by rememberSaveable { mutableStateOf(false) }
@@ -2671,11 +2672,15 @@ private fun CompanionPanel(
                 Text("Internet de la MINI", color = MelInk, fontWeight = FontWeight.Bold)
                 Text(
                     if (internetReady)
-                        "Relais Internet actif"
+                        "Relais Internet MEL actif"
+                    else if (bleReady && !phoneInternetReady)
+                        "MINI connectée · téléphone sans Internet validé"
                     else if (bleReady)
-                        "MINI connectée · activation Internet automatique"
+                        "MINI connectée · téléphone en ligne · validation MEL en cours"
+                    else if (phoneInternetReady)
+                        "Téléphone en ligne · en attente de la MINI"
                     else
-                        "Le relais Internet s’active automatiquement dès que la MINI se connecte.",
+                        "Téléphone hors ligne · active Wi-Fi ou données mobiles.",
                     color = if (internetReady) MelSuccess else MelMuted,
                     fontSize = 12.sp
                 )
