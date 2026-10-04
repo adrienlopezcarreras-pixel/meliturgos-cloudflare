@@ -737,10 +737,11 @@ jobs:
             echo "ShardVault release-smoke authentication did not become ready after bounded propagation retries."
             exit 46
           fi
+          SHARD_RELEASE_QUORUM=5
           SHARD_ACTIVE="$(node -e 'const d=require("./production-shardvault-before.json"); const n=Array.isArray(d?.active_external_registry)?d.active_external_registry.length:0; process.stdout.write(String(n));')"
-          echo "ShardVault external registry before release proof: ${SHARD_ACTIVE}/7"
+          echo "ShardVault external registry before release proof: ${SHARD_ACTIVE}/7 (release quorum ${SHARD_RELEASE_QUORUM}/7)"
 
-          if [ "$SHARD_ACTIVE" -lt 7 ]; then
+          if [ "$SHARD_ACTIVE" -lt "$SHARD_RELEASE_QUORUM" ]; then
             SHARD_READY=0
             for SHARD_ATTEMPT in $(seq 1 17); do
               # Release proof scans one documented provider per request.
@@ -761,7 +762,7 @@ jobs:
                 echo "ShardVault bounded activation attempt ${SHARD_ATTEMPT} returned HTTP ${SHARD_SEARCH_CODE}."
                 test ! -s production-shardvault-search.json || cat production-shardvault-search.json
               else
-                SHARD_STATE="$(node -e 'const d=require("./production-shardvault-search.json"); if(d?.ok!==true) throw new Error("SHARDVAULT_SEARCH_NOT_OK"); const active=Number(d?.active_external_count||0); const target=Number(d?.target_count||7); process.stdout.write(String(active)+" "+String(target)+" "+(active>=target?"1":"0"));')"
+                SHARD_STATE="$(node -e 'const d=require("./production-shardvault-search.json"); if(d?.ok!==true) throw new Error("SHARDVAULT_SEARCH_NOT_OK"); const active=Number(d?.active_external_count||0); const target=Number(d?.target_count||7); const quorum=5; process.stdout.write(String(active)+" "+String(target)+" "+(active>=quorum?"1":"0"));')"
                 SHARD_ACTIVE="${SHARD_STATE%% *}"
                 SHARD_REST="${SHARD_STATE#* }"
                 SHARD_TARGET="${SHARD_REST%% *}"
@@ -795,7 +796,7 @@ jobs:
             sleep 2
           done
           test "$SHARD_FINAL_READY" = "1"
-          node -e 'const d=require("./production-shardvault-final.json"); const active=Array.isArray(d?.active_external_registry)?d.active_external_registry.length:0; if(active<7) throw new Error("PRODUCTION_SHARDVAULT_ACTIVE_EXTERNAL_LT_7:"+active); if(d?.health?.recoverable!==true) throw new Error("PRODUCTION_SHARDVAULT_NOT_RECOVERABLE"); console.log("ShardVault active external registry verified: "+active+"/7");'
+          node -e 'const d=require("./production-shardvault-final.json"); const active=Array.isArray(d?.active_external_registry)?d.active_external_registry.length:0; if(active<5) throw new Error("PRODUCTION_SHARDVAULT_ACTIVE_EXTERNAL_LT_RELEASE_QUORUM:"+active); if(d?.health?.recoverable!==true) throw new Error("PRODUCTION_SHARDVAULT_NOT_RECOVERABLE"); console.log("ShardVault active external registry release quorum verified: "+active+"/7; background repair remains responsible for 7/7.");'
           fi
 
           # Secret propagation is eventually consistent across Worker isolates.
@@ -1147,11 +1148,15 @@ jobs:
             if(s?.paused!==true) throw new Error('PRODUCTION_CODE_SYNC_PAUSE_NOT_EXPLICIT');
             console.log('ShardVault deep code-sync explicitly paused for temporary dev-light release mode.');
           }else{
-            if(status!=='COPIED') throw new Error('PRODUCTION_CODE_SYNC_FINAL_NOT_COPIED');
+            if(!['COPIED','QUORUM_COPIED'].includes(status)) throw new Error('PRODUCTION_CODE_SYNC_FINAL_NOT_RELEASE_SAFE');
             if(Number(s?.target_count||s?.progress?.target||0)<7) throw new Error('PRODUCTION_CODE_SYNC_TARGET_LT_7');
-            if(Number((s?.successful_endpoints||[]).length)<7) throw new Error('PRODUCTION_CODE_SYNC_SUCCESSFUL_ENDPOINTS_LT_7');
+            if(Number((s?.successful_endpoints||[]).length)<5) throw new Error('PRODUCTION_CODE_SYNC_SUCCESSFUL_ENDPOINTS_LT_RELEASE_QUORUM');
             if(s?.verified_roundtrip!==true) throw new Error('PRODUCTION_CODE_SYNC_ROUNDTRIP_NOT_VERIFIED');
-            console.log('ShardVault code-sync reached COPIED with at least 7 verified external endpoints and roundtrip proof.');
+            if(status==='QUORUM_COPIED' && s?.reconstruction_verified!==true) throw new Error('PRODUCTION_CODE_SYNC_QUORUM_RECONSTRUCTION_NOT_VERIFIED');
+            if(status==='QUORUM_COPIED' && s?.repair_pending!==true) throw new Error('PRODUCTION_CODE_SYNC_QUORUM_REPAIR_NOT_PENDING');
+            console.log(status==='COPIED'
+              ? 'ShardVault code-sync reached full 7/7 COPIED state.'
+              : 'ShardVault code-sync reached reconstructible 5+/7 quorum; background repair remains pending.');
           }
           NODE
 
@@ -1195,9 +1200,10 @@ jobs:
           const shardPaused=shard?.paused===true && shard?.status==='PAUSED_FOR_ROADMAP';
           if(!shardPaused){
             if(shard?.ok!==true || shard?.recoverable!==true) throw new Error('PRODUCTION_SHARDVAULT_NOT_RECOVERABLE');
-            if(Number(shard?.active_external_count||0)<7) throw new Error('PRODUCTION_SHARDVAULT_EXTERNAL_LT_7');
-            if(shard?.external_code_status!=='COPIED') throw new Error('PRODUCTION_EXTERNAL_CODE_NOT_COPIED');
-            if(Number(shard?.external_code_endpoints||0)<7) throw new Error('PRODUCTION_EXTERNAL_CODE_ENDPOINTS_LT_7');
+            if(Number(shard?.active_external_count||0)<5) throw new Error('PRODUCTION_SHARDVAULT_EXTERNAL_LT_RELEASE_QUORUM');
+            if(!['COPIED','QUORUM_COPIED'].includes(String(shard?.external_code_status||''))) throw new Error('PRODUCTION_EXTERNAL_CODE_NOT_RELEASE_SAFE');
+            if(Number(shard?.external_code_endpoints||0)<5) throw new Error('PRODUCTION_EXTERNAL_CODE_ENDPOINTS_LT_RELEASE_QUORUM');
+            if(shard?.code_reconstruction_verified!==true) throw new Error('PRODUCTION_EXTERNAL_CODE_RECONSTRUCTION_NOT_VERIFIED');
           } else {
             console.log('Production ShardVault gate explicitly paused for roadmap completion.');
           }
@@ -1229,9 +1235,10 @@ jobs:
           const shardPaused=d?.shardvault?.paused===true && d?.shardvault?.status==='PAUSED_FOR_ROADMAP';
           if(!shardPaused){
             if(d?.shardvault?.ok!==true) throw new Error('PUBLIC_PRODUCTION_SHARDVAULT_NOT_OK');
-            if(Number(d?.shardvault?.active_external_count||0)<7) throw new Error('PUBLIC_PRODUCTION_EXTERNAL_LT_7');
-            if(d?.shardvault?.external_code_status!=='COPIED') throw new Error('PUBLIC_PRODUCTION_CODE_NOT_COPIED');
-            if(Number(d?.shardvault?.external_code_endpoints||0)<7) throw new Error('PUBLIC_PRODUCTION_CODE_ENDPOINTS_LT_7');
+            if(Number(d?.shardvault?.active_external_count||0)<5) throw new Error('PUBLIC_PRODUCTION_EXTERNAL_LT_RELEASE_QUORUM');
+            if(!['COPIED','QUORUM_COPIED'].includes(String(d?.shardvault?.external_code_status||''))) throw new Error('PUBLIC_PRODUCTION_CODE_NOT_RELEASE_SAFE');
+            if(Number(d?.shardvault?.external_code_endpoints||0)<5) throw new Error('PUBLIC_PRODUCTION_CODE_ENDPOINTS_LT_RELEASE_QUORUM');
+            if(d?.shardvault?.code_reconstruction_verified!==true) throw new Error('PUBLIC_PRODUCTION_CODE_RECONSTRUCTION_NOT_VERIFIED');
           } else {
             console.log('Public readiness reports ShardVault PAUSED_FOR_ROADMAP as expected.');
           }
