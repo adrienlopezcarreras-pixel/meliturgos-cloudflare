@@ -177,11 +177,15 @@ static void microphone_boot_probe_task(void *) {
     vTaskDelete(nullptr);
 }
 
-static void camera_boot_probe_task(void *) {
-    // UI is already alive before this runs. Camera probing can therefore be slow
-    // without starving taskLVGL on CPU0.
-    vTaskDelay(pdMS_TO_TICKS(2500));
-    ESP_LOGI(TAG, "SELFTEST CAMERA: init DVP sensor off the LVGL core (CPU%d)", xPortGetCoreID());
+static bool camera_probe_once(const char *phase) {
+    sensor_t *existing = esp_camera_sensor_get();
+    if (existing && (existing->id.PID == OV5640_PID || existing->id.PID == OV2640_PID)) {
+        camera_ok = true;
+        ESP_LOGI(TAG, "SELFTEST CAMERA %s: already initialized PID=0x%04x", phase, existing->id.PID);
+        return true;
+    }
+
+    ESP_LOGI(TAG, "SELFTEST CAMERA %s: Waveshare DVP init on shared I2C%d", phase, I2C_PORT_NUM);
     esp_camera_port_init((i2c_port_num_t)I2C_PORT_NUM);
     sensor_t *sensor = esp_camera_sensor_get();
     camera_ok = sensor && (sensor->id.PID == OV5640_PID || sensor->id.PID == OV2640_PID);
@@ -192,16 +196,36 @@ static void camera_boot_probe_task(void *) {
         if (fb) {
             ESP_LOGI(TAG, "SELFTEST CAMERA PASS: %s %ux%u, %u bytes", model, fb->width, fb->height, (unsigned)fb->len);
             esp_camera_fb_return(fb);
-        } else {
-            ESP_LOGW(TAG, "SELFTEST CAMERA: %s initialized but no frame returned", model);
-            camera_ok = false;
+            return true;
         }
-    } else if (sensor) {
-        ESP_LOGW(TAG, "SELFTEST CAMERA: unsupported DVP sensor PID=0x%04x", sensor->id.PID);
-    } else {
-        ESP_LOGW(TAG, "SELFTEST CAMERA: no OV5640/OV2640 detected");
+        ESP_LOGW(TAG, "SELFTEST CAMERA: %s detected but no frame returned", model);
+        camera_ok = false;
+        return false;
     }
 
+    if (sensor) {
+        ESP_LOGW(TAG, "SELFTEST CAMERA: unsupported DVP sensor PID=0x%04x", sensor->id.PID);
+    } else {
+        // OV5640 normally answers SCCB at 0x3c; OV2640 commonly uses 0x30.
+        // Probe both addresses after the driver attempt so serial diagnostics
+        // distinguish a software-driver failure from an absent/unpowered module.
+        esp_err_t p3c = i2c_master_probe(i2c_bus_handle, 0x3c, 100);
+        esp_err_t p30 = i2c_master_probe(i2c_bus_handle, 0x30, 100);
+        ESP_LOGW(TAG, "SELFTEST CAMERA: no OV sensor; SCCB probe 0x3c=%s 0x30=%s",
+                 esp_err_to_name(p3c), esp_err_to_name(p30));
+    }
+    return false;
+}
+
+static void camera_boot_probe_task(void *) {
+    // The factory firmware brings the camera up before LVGL/Wi-Fi. MEL now does
+    // the same first attempt synchronously; this task is only a delayed recovery
+    // pass in case the sensor power rail/ribbon needed extra settling time.
+    vTaskDelay(pdMS_TO_TICKS(1800));
+    if (!camera_ok) {
+        ESP_LOGW(TAG, "SELFTEST CAMERA: retry after boot settle");
+        camera_probe_once("RETRY");
+    }
     mel_terminal_set_hardware(camera_ok, audio_ok, false);
     ESP_LOGI(TAG, "SELFTEST SUMMARY: display=OK touch=OK audio=%s camera=%s wifi=READY",
              audio_ok ? "OK" : "FAIL", camera_ok ? "OK" : "FAIL");
@@ -293,7 +317,7 @@ static void mini_wifi_event_diag(void *, esp_event_base_t base, int32_t id, void
             mel_terminal_set_wifi_connected(true);
             ESP_LOGI(TAG, "MINI WIFI GOT IP %s", ip);
             clock_start_sync();
-            if (mel_terminal_has_token()) mel_terminal_start_online();
+            mel_terminal_start_online();
         }
     }
 }
@@ -1605,11 +1629,16 @@ static void wifi_fallback_after_ble_task(void *) {
 
     ESP_LOGI(TAG, "TRANSPORT PRIORITY: MEL Mobile first, Wi-Fi fallback after %d ms", first_window_ms);
     while (elapsed_ms < candidate_window_ms) {
-        if (mel_mobile_bridge_ready()) {
-            ESP_LOGI(TAG, "TRANSPORT SELECTED: MEL Mobile; automatic Wi-Fi fallback cancelled");
+        if (mel_terminal_online()) {
+            ESP_LOGI(TAG, "TRANSPORT SELECTED: MEL Mobile + authenticated MEL session");
             wifi_fallback_task_handle = nullptr;
             vTaskDelete(nullptr);
             return;
+        }
+        if (mel_mobile_bridge_ready()) {
+            // BLE/GATT alone is not Internet. Give the authenticated MEL session
+            // a short chance to validate before deciding whether Wi-Fi is needed.
+            mel_terminal_start_online();
         }
 
         if (elapsed_ms >= first_window_ms && !mel_mobile_bridge_candidate_seen()) break;
@@ -1617,11 +1646,15 @@ static void wifi_fallback_after_ble_task(void *) {
         elapsed_ms += 250;
     }
 
-    if (mel_mobile_bridge_ready()) {
-        ESP_LOGI(TAG, "TRANSPORT SELECTED: MEL Mobile after extended discovery");
+    if (mel_terminal_online()) {
+        ESP_LOGI(TAG, "TRANSPORT SELECTED: MEL Mobile after authenticated validation");
         wifi_fallback_task_handle = nullptr;
         vTaskDelete(nullptr);
         return;
+    }
+
+    if (mel_mobile_bridge_ready()) {
+        ESP_LOGW(TAG, "MEL Mobile BLE connected but MEL session is still offline; enabling Wi-Fi recovery");
     }
 
     if (wifi_got_ip || wifi_connect_task_handle) {
@@ -1702,6 +1735,13 @@ extern "C" void app_main(void) {
     audio_ok = input_dev != nullptr && output_dev != nullptr;
     ESP_LOGI(TAG, "STEP 4 %s", audio_ok ? "OK" : "FAILED");
 
+    // Match Waveshare's factory order: PMU -> audio -> camera -> backlight/LVGL.
+    // Initializing the DVP sensor only after LVGL/BLE/Wi-Fi was needlessly
+    // different from the constructor path and can hide power/bus timing issues.
+    ESP_LOGI(TAG, "STEP 4.5: CAMERA DVP EARLY");
+    camera_ok = camera_probe_once("EARLY");
+    ESP_LOGI(TAG, "STEP 4.5 %s", camera_ok ? "OK" : "FAILED/RETRY LATER");
+
     ESP_LOGI(TAG, "STEP 5: BACKLIGHT + LVGL");
     esp_3inch5_brightness_port_init();
     esp_3inch5_brightness_port_set(80);
@@ -1712,11 +1752,7 @@ extern "C" void app_main(void) {
     const bool storage_ok = mel_terminal_init_storage();
     ESP_LOGI(TAG, "STEP 5.2 %s", storage_ok ? "OK" : "FAILED");
 
-    // OV5640 is initialized lazily on first camera request, on core 1.
-    // Keeping it out of the critical boot path prevents long SCCB sensor
-    // probing from starving LVGL and triggering the task watchdog.
-    camera_ok = false;
-    mel_terminal_set_hardware(false, audio_ok, false);
+    mel_terminal_set_hardware(camera_ok, audio_ok, false);
 
     // Start NimBLE synchronously before the Wi-Fi stack so Android discovery
     // cannot lose the boot race. The watcher below only maintains/reports link state.
