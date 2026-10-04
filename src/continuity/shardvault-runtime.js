@@ -1888,6 +1888,93 @@ export async function setPreferredShardVaultEndpoint(env,endpointId){
   return {ok:true,status:'PREFERRED',preferred_endpoint:saved,endpoint};
 }
 
+
+async function latestShardVaultSnapshotFast(env,c){
+  if(c.storageMode!=='CLOUDFLARE_FALLBACK'&&c.storageMode!=='EXTERNAL_DISTRIBUTED'){
+    return latestSnapshot(await inventoryRows(env,c));
+  }
+  const objects=[];
+  let cursor=undefined,seen=0;
+  do{
+    const listed=await env.MEDIA_BUCKET.list({prefix:r2ManifestPrefix(c),cursor,limit:1000});
+    for(const object of listed?.objects||[]){
+      if(++seen>5000)break;
+      objects.push(object);
+    }
+    cursor=listed?.truncated?listed.cursor:undefined;
+  }while(cursor&&seen<=5000);
+  objects.sort((a,b)=>new Date(b?.uploaded||0)-new Date(a?.uploaded||0));
+  for(const object of objects.slice(0,24)){
+    const body=await env.MEDIA_BUCKET.get(object.key);
+    if(!body)continue;
+    try{
+      const manifest=JSON.parse(await body.text());
+      if(await validManifest(c,manifest))return manifest;
+    }catch{}
+  }
+  return null;
+}
+
+async function promoteExternalEndpointWithExistingShard(env,c,last,endpoint){
+  if(!last||!Array.isArray(last.shards)||!last.shards.length){
+    return {ok:false,status:'PROMOTION_SNAPSHOT_MISSING',endpoint_id:endpoint?.id||null};
+  }
+  const counts=new Map();
+  for(const d of last.shards||[])counts.set(d.endpointId,(counts.get(d.endpointId)||0)+1);
+  const donor=[...(last.shards||[])].sort((a,b)=>{
+    const ae=endpointById(c,a.endpointId,a),be=endpointById(c,b.endpointId,b);
+    const ai=ae?.backend?1:0,bi=be?.backend?1:0;
+    if(ai!==bi)return bi-ai;
+    return (counts.get(b.endpointId)||0)-(counts.get(a.endpointId)||0);
+  }).find(d=>{
+    const donorEndpoint=endpointById(c,d.endpointId,d);
+    if(!donorEndpoint||d.endpointId===endpoint.id)return false;
+    return Boolean(donorEndpoint.backend)||(counts.get(d.endpointId)||0)>1;
+  });
+  if(!donor)return {ok:false,status:'PROMOTION_NO_SAFE_DONOR_SHARD',endpoint_id:endpoint.id};
+
+  const donorEndpoint=endpointById(c,donor.endpointId,donor);
+  const shard=await downloadFragment(env,donorEndpoint,donor);
+  if(shard.length!==Number(last.shardSize||donor.byteLength||0)){
+    return {ok:false,status:'PROMOTION_DONOR_LENGTH_INVALID',endpoint_id:endpoint.id,donor_endpoint_id:donor.endpointId};
+  }
+  const shardKey=await hkdf(c.master,utf8(last.snapshotId),utf8('MEL-ShardVault/v1/shard-mac'));
+  const mac=b64u(await hmac(shardKey,concat(utf8(`${last.snapshotId}:${donor.index}:`),shard)));
+  if(mac!==donor.mac)return {ok:false,status:'PROMOTION_DONOR_MAC_INVALID',endpoint_id:endpoint.id,donor_endpoint_id:donor.endpointId};
+
+  const objectId=rid(24);
+  const locator=await uploadFragment(env,endpoint,objectId,shard);
+  const replacement={
+    index:donor.index,endpointId:endpoint.id,endpoint:endpointSnapshot(endpoint),
+    objectId:locator.objectId,remoteUrl:locator.remoteUrl||null,parts:locator.parts||null,
+    byteLength:shard.length,mac
+  };
+  const roundtrip=await downloadFragment(env,endpoint,replacement);
+  if(!byteArraysEqual(roundtrip,shard)){
+    return {ok:false,status:'PROMOTION_ROUNDTRIP_MISMATCH',endpoint_id:endpoint.id,donor_endpoint_id:donor.endpointId};
+  }
+
+  const descriptors=(last.shards||[]).map(d=>d.index===donor.index?replacement:{...d});
+  const next={...last,revision:(last.revision||1)+1,updatedAt:new Date().toISOString(),shards:descriptors};
+  const endpoints=[...new Map(descriptors.map(d=>[d.endpointId,endpointById(c,d.endpointId,d)]).filter(([,e])=>e).map(([id,e])=>[id,e])).values()];
+  next.diversity=diversity(endpoints);
+  next.manifestMac=await manifestMac(c,next);
+  await appendManifest(env,c,next);
+  await rememberValidatedExternalEndpoints(env,[{
+    ...endpoint,
+    representativeVerifiedAt:new Date().toISOString(),
+    representativeBytes:shard.length,
+    representativeSha256:await sha256Hex(shard),
+    representativeParts:Array.isArray(replacement.parts)?replacement.parts.length:1,
+    evidenceVerification:'representative_full_fragment_roundtrip'
+  }]);
+  return {
+    ok:true,status:'SINGLE_SHARD_PROMOTED',endpoint_id:endpoint.id,
+    donor_endpoint_id:donor.endpointId,shard_index:donor.index,
+    snapshot_id:last.snapshotId,revision:next.revision,manifest:next
+  };
+}
+
 export async function activateValidatedShardVaultEndpoint(env,endpointId){
   const id=String(endpointId||'').trim();
   if(!id)return {ok:false,status:'ENDPOINT_ID_REQUIRED'};
@@ -1932,7 +2019,7 @@ export async function searchAutonomousShardVaultRepositories(env,{maxNewEndpoint
   try{
     const boundedMode=Number(maxNewEndpoints)!==7||probeLimit!==null||Number(probeOffset)!==0;
     let requiredBytes=256,last=null;
-    try{const rows=await inventoryRows(env,c);last=latestSnapshot(rows);requiredBytes=Math.max(256,Number(last?.shardSize)||256);}catch{}
+    try{last=await latestShardVaultSnapshotFast(env,c);requiredBytes=Math.max(256,Number(last?.shardSize)||256);}catch{}
     // Bounded maintenance/release searches must stay cheap enough for a Worker
     // request. Exact critical-code sizing is deferred to the separate code-sync
     // proof once seven external endpoints are active.
@@ -1979,24 +2066,17 @@ export async function searchAutonomousShardVaultRepositories(env,{maxNewEndpoint
       const validated=validatedPool
         .slice(validatedOffset,validatedOffset+boundedMaxNew);
       if(validated.length){
-        const staged=await stageActiveExternalEndpoints(env,c,last,validated);
-        if(staged.length>active.length){
-          try{activation_cycle=await runShardVaultCycle(env,{force:true,skipExternalCode:true,activeRegistryOnly:true});}
-          catch(error){activation_cycle={ok:false,error:String(error?.message||error)};}
-          if(activation_cycle?.ok){
-            const rowsAfter=await inventoryRows(env,c),latestAfter=latestSnapshot(rowsAfter);
-            active=await reconcileActiveExternalEndpoints(env,c,latestAfter);
-            last=latestAfter;
+        try{
+          const promoted=await promoteExternalEndpointWithExistingShard(env,c,last,validated[0]);
+          const promotedManifest=promoted?.manifest||null;
+          activation_cycle=promotedManifest?{...promoted,manifest:undefined}:promoted;
+          if(promoted?.ok&&promotedManifest){
+            last=promotedManifest;
+            active=await reconcileActiveExternalEndpoints(env,c,last);
             cached_staged=Math.max(0,active.length-activeBefore.length);
-          }else{
-            const recovered=await retryActivationAfterWriteFailure(env,{
-              c,last,activeBefore,staged,activationCycle:activation_cycle,skipExternalCode:true,
-            });
-            activation_cycle=recovered.cycle;
-            active=recovered.active;
-            last=recovered.last;
-            if(recovered.recovered)cached_staged=Math.max(0,active.length-activeBefore.length);
           }
+        }catch(error){
+          activation_cycle={ok:false,status:'SINGLE_SHARD_PROMOTION_FAILED',error:String(error?.message||error)};
         }
       }
     }
@@ -2017,22 +2097,18 @@ export async function searchAutonomousShardVaultRepositories(env,{maxNewEndpoint
       });
       await rememberValidatedExternalEndpoints(env,[...(report.qualified||[]),...(report.selected||[])]);
       await rememberCodeCandidateEndpoints(env,[...(report.qualified||[]),...(report.selected||[]),...(report.eligible||[])]);
-      const activeBeforeDiscovery=active;
-      const staged=await stageActiveExternalEndpoints(env,c,last,(report.selected||[]).slice(0,selectionTarget));
-      if(staged.length>activeBeforeDiscovery.length){
-        try{activation_cycle=await runShardVaultCycle(env,{force:true,skipExternalCode:true,activeRegistryOnly:true});}
-        catch(error){activation_cycle={ok:false,error:String(error?.message||error)};}
-        if(activation_cycle?.ok){
-          const rowsAfter=await inventoryRows(env,c),latestAfter=latestSnapshot(rowsAfter);
-          active=await reconcileActiveExternalEndpoints(env,c,latestAfter);
-          last=latestAfter;
-        }else{
-          const recovered=await retryActivationAfterWriteFailure(env,{
-            c,last,activeBefore:activeBeforeDiscovery,staged,activationCycle:activation_cycle,skipExternalCode:true,
-          });
-          activation_cycle=recovered.cycle;
-          active=recovered.active;
-          last=recovered.last;
+      const selectedForPromotion=(report.selected||[]).slice(0,selectionTarget);
+      if(selectedForPromotion.length){
+        try{
+          const promoted=await promoteExternalEndpointWithExistingShard(env,c,last,selectedForPromotion[0]);
+          const promotedManifest=promoted?.manifest||null;
+          activation_cycle=promotedManifest?{...promoted,manifest:undefined}:promoted;
+          if(promoted?.ok&&promotedManifest){
+            last=promotedManifest;
+            active=await reconcileActiveExternalEndpoints(env,c,last);
+          }
+        }catch(error){
+          activation_cycle={ok:false,status:'SINGLE_SHARD_PROMOTION_FAILED',error:String(error?.message||error)};
         }
       }
     }
