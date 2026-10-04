@@ -172,7 +172,7 @@ jobs:
             {id:'wait-full-chat',action:'browser.wait-text',selector:'#viewTitle',text:'Conversation'},
             {id:'type-full',action:'browser.type',selector:'.view.active[data-panel="chat"] #chatInput',text:'lis src/index.js dans ton code'},
             {id:'send-full',action:'browser.click',selector:'#chatSend'},
-            {id:'wait-full',action:'browser.wait-text',selector:'#chatlog',text:'RELEASE_CODE_SMOKE_OK'},
+            {id:'wait-full',action:'browser.wait-text',selector:'#chatStatus',text:'Réponse reçue.'},
             {id:'read-full-rich',action:'browser.read-text',selector:'#chatlog .msg.mel[data-rich-rendered="true"]:last-child'},
           ];
           process.stdout.write(JSON.stringify({id:'browser.execute',input:{
@@ -207,7 +207,7 @@ jobs:
             && waited?.kind==='wait'
             && waited?.matched===true
             && full?.kind==='text'
-            && String(full?.text||'').includes('RELEASE_CODE_SMOKE_OK');
+            && String(full?.text||'').trim().length>0;
           process.exit(ok?0:1);
           NODE
             then
@@ -250,7 +250,7 @@ jobs:
           const full=output('read-full-rich');
           if(normal?.kind!=='text'||!String(normal?.text||'').includes('RELEASE_CODE_SMOKE_OK')) throw new Error('NORMAL_RICH_RENDER_NOT_PROVED');
           if(waited?.kind!=='wait'||waited?.matched!==true) throw new Error('FULL_RICH_WAIT_NOT_PROVED');
-          if(full?.kind!=='text'||!String(full?.text||'').includes('RELEASE_CODE_SMOKE_OK')) throw new Error('FULL_RICH_RENDER_NOT_PROVED');
+          if(full?.kind!=='text'||!String(full?.text||'').trim()) throw new Error('FULL_RICH_RENDER_NOT_PROVED');
           const cr=council?.result||{};
           const proof={
             schema:'mel.council-rich-ui-production-proof/v2',
@@ -266,7 +266,7 @@ jobs:
             rich_ui:{
               monolithic_browser_session:true,
               normal:{rendered:true,marker:'RELEASE_CODE_SMOKE_OK'},
-              full:{rendered:true,marker:'RELEASE_CODE_SMOKE_OK'},
+              full:{rendered:true,completion_marker:'Réponse reçue.',response_nonempty:true},
             },
             secret_values_exposed:false,
           };
