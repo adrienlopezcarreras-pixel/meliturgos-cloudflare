@@ -1618,3 +1618,4 @@ if ($trayResources) {
   try { $trayResources.icon.Dispose() } catch {}
   try { $trayResources.bitmap.Dispose() } catch {}
 }
+# Packaging trigger for stable companion 15a84145 - no runtime behavior change
