@@ -109,6 +109,7 @@ class MelBleBridgeService : Service() {
     private val subscribed = ConcurrentHashMap<String, Boolean>()
     private val pullFrames = ConcurrentHashMap<String, ConcurrentLinkedQueue<ByteArray>>()
     private val latestResponseIds = ConcurrentHashMap<String, Int>()
+    private val pullOnlyResponseIds = ConcurrentHashMap<String, Int>()
     private val notificationAck = ArrayBlockingQueue<Int>(1)
 
     private var bluetoothManager: BluetoothManager? = null
@@ -176,6 +177,7 @@ class MelBleBridgeService : Service() {
             subscribed.clear()
             pullFrames.clear()
             latestResponseIds.clear()
+            pullOnlyResponseIds.clear()
             android.os.Handler(mainLooper).postDelayed({ startBridge() }, 250L)
         } else if (gattServer == null) {
             startBridge()
@@ -433,6 +435,7 @@ class MelBleBridgeService : Service() {
                 subscribed.remove(device.address)
                 pullFrames.remove(device.address)
                 latestResponseIds.remove(device.address)
+                pullOnlyResponseIds.remove(device.address)
             }
         }
 
@@ -577,6 +580,7 @@ class MelBleBridgeService : Service() {
             require(deviceId.length in 3..128) { "DEVICE_ID" }
             require(length in 0..MAX_REQUEST_BYTES) { "SIZE" }
             latestResponseIds[device.address] = requestId
+            pullOnlyResponseIds.remove(device.address)
             pullFrames.computeIfAbsent(device.address) { ConcurrentLinkedQueue() }.clear()
             requests[device.address] = PendingRequest(requestId, method, path, contentType, token, deviceId, length)
         }.onFailure {
@@ -1127,7 +1131,12 @@ class MelBleBridgeService : Service() {
         }
         val server = gattServer ?: return false
         val characteristic = txCharacteristic ?: return false
-        if (subscribed[device.address] == true) {
+
+        // Never mix notification and pull ordering after one notification has failed.
+        // Otherwise BODY can be queued for pull while END is delivered by notification,
+        // making MINI complete the response before it has received the BODY/token.
+        val pullOnly = pullOnlyResponseIds[device.address] == responseId
+        if (subscribed[device.address] == true && !pullOnly) {
             while (notificationAck.poll() != null) { }
             @Suppress("DEPRECATION")
             run { characteristic.value = frame.copyOf() }
@@ -1136,8 +1145,11 @@ class MelBleBridgeService : Service() {
             if (queued) {
                 val status = notificationAck.poll(750, TimeUnit.MILLISECONDS)
                 if (status == BluetoothGatt.GATT_SUCCESS) return true
-                Log.w(TAG, "BLE push notify failed/timeout status=$status; falling back to pull")
+                Log.w(TAG, "BLE push notify failed/timeout status=$status; switching response $responseId to pull-only")
+            } else {
+                Log.w(TAG, "BLE push notify could not queue; switching response $responseId to pull-only")
             }
+            pullOnlyResponseIds[device.address] = responseId
         }
         val queue = pullFrames.computeIfAbsent(device.address) { ConcurrentLinkedQueue() }
         queue.offer(frame.copyOf())
