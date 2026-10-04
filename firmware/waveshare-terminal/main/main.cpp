@@ -450,7 +450,20 @@ static void mini_anim_cb(lv_timer_t *) {
     } else if (state == MEL_TERMINAL_ERROR) {
         if (state != last_face_state && status_label) lv_label_set_text(status_label, "ERREUR");
     } else if (state != last_face_state || online != last_online) {
-        if (status_label) lv_label_set_text(status_label, online ? "PARLER" : "HORS LIGNE");
+        if (status_label) {
+            if (online) {
+                lv_label_set_text(status_label, "PARLER");
+            } else if (mel_terminal_mobile_connected()) {
+                const int s = mel_terminal_last_session_status();
+                if (s == 401 || s == 403) lv_label_set_text(status_label, "APP MEL A REAPPAIRER");
+                else if (s == -1) lv_label_set_text(status_label, "BLE OK · RELAIS MEL KO");
+                else if (s == -2) lv_label_set_text(status_label, "BLE OK · TOKEN RECU INVALIDE");
+                else if (s > 0) lv_label_set_text_fmt(status_label, "BLE OK · MEL HTTP %d", s);
+                else lv_label_set_text(status_label, "BLE OK · VALIDATION MEL...");
+            } else {
+                lv_label_set_text(status_label, "HORS LIGNE");
+            }
+        }
     }
 
     last_face_state = state;
