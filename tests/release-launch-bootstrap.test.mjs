@@ -112,7 +112,7 @@ test('sovereignty source-control refresh reuses exact-SHA proof offline and reje
       }else{
         assert.equal(body.ok,false);
         assert.equal(body.status,'MEL_SOV_01_REFRESH_STEP_FAILED');
-        assert.equal(body.refresh?.reused_exact_sha_prevalidation,true,false);
+        assert.notEqual(body.refresh?.reused_exact_sha_prevalidation,true);
       }
     } finally {
       DB.close();
