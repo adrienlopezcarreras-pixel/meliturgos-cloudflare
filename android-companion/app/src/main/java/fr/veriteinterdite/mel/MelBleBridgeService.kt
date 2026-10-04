@@ -26,6 +26,9 @@ import android.graphics.Paint
 import android.graphics.Rect
 import android.graphics.RectF
 import android.graphics.Typeface
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
@@ -81,6 +84,7 @@ class MelBleBridgeService : Service() {
         const val ACTION_RESTART = "fr.veriteinterdite.mel.action.RESTART_MINI_BRIDGE"
         val bridgeState = MutableStateFlow("OFF")
         val miniLinkReady = MutableStateFlow(false)
+        val phoneInternetAvailable = MutableStateFlow(false)
         val internetReady = MutableStateFlow(false)
         val miniPairingComplete = MutableStateFlow(false)
         val wakeProfileRevision = MutableStateFlow(0)
@@ -113,6 +117,22 @@ class MelBleBridgeService : Service() {
     private var txCharacteristic: BluetoothGattCharacteristic? = null
     private var advertiseCallback: AdvertiseCallback? = null
     private var wakeLock: PowerManager.WakeLock? = null
+    private var connectivityManager: ConnectivityManager? = null
+    private var networkCallbackRegistered = false
+
+    private val networkCallback = object : ConnectivityManager.NetworkCallback() {
+        override fun onAvailable(network: Network) {
+            refreshPhoneInternetState()
+        }
+
+        override fun onLost(network: Network) {
+            refreshPhoneInternetState()
+        }
+
+        override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) {
+            refreshPhoneInternetState()
+        }
+    }
 
     override fun onCreate() {
         super.onCreate()
@@ -121,7 +141,10 @@ class MelBleBridgeService : Service() {
             ?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "MEL:BleBridge")
             ?.apply { acquire() }
         miniLinkReady.value = false
+        phoneInternetAvailable.value = false
         internetReady.value = false
+        connectivityManager = getSystemService(ConnectivityManager::class.java)
+        registerNetworkWatch()
         miniPairingComplete.value = getSharedPreferences("mel_mobile_bridge", MODE_PRIVATE)
             .getBoolean("mini_pairing_complete", false)
         bridgeState.value = "D├ëMARRAGE"
@@ -162,10 +185,12 @@ class MelBleBridgeService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onDestroy() {
+        unregisterNetworkWatch()
         stopAdvertising()
         runCatching { gattServer?.close() }
         gattServer = null
         miniLinkReady.value = false
+        phoneInternetAvailable.value = false
         internetReady.value = false
         bridgeState.value = "OFF"
         if (wakeLock?.isHeld == true) wakeLock?.release()
@@ -173,6 +198,41 @@ class MelBleBridgeService : Service() {
         executor.shutdownNow()
         diagExecutor.shutdownNow()
         super.onDestroy()
+    }
+
+    private fun registerNetworkWatch() {
+        val cm = connectivityManager ?: return
+        if (networkCallbackRegistered) return
+        runCatching {
+            cm.registerDefaultNetworkCallback(networkCallback)
+            networkCallbackRegistered = true
+        }.onFailure {
+            Log.w(TAG, "Network callback registration failed: ${it.message}")
+        }
+        refreshPhoneInternetState()
+    }
+
+    private fun unregisterNetworkWatch() {
+        val cm = connectivityManager ?: return
+        if (!networkCallbackRegistered) return
+        runCatching { cm.unregisterNetworkCallback(networkCallback) }
+        networkCallbackRegistered = false
+    }
+
+    private fun refreshPhoneInternetState() {
+        val cm = connectivityManager ?: return
+        val active = cm.activeNetwork
+        val caps = active?.let { cm.getNetworkCapabilities(it) }
+        val available = caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true &&
+            caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+        phoneInternetAvailable.value = available
+        if (!available) {
+            internetReady.value = false
+            if (miniLinkReady.value) bridgeState.value = "MINI CONNECTÉE · TÉLÉPHONE HORS LIGNE"
+        } else if (miniLinkReady.value && !internetReady.value) {
+            bridgeState.value = "MINI CONNECTÉE · RELAIS INTERNET PRÊT"
+        }
+        Log.i(TAG, "Phone Internet validated=$available miniLink=${miniLinkReady.value} melInternet=${internetReady.value}")
     }
 
     private fun rememberMiniPairingComplete() {
@@ -369,7 +429,11 @@ class MelBleBridgeService : Service() {
                 miniLinkReady.value = enabled
                 if (!enabled) internetReady.value = false
                 if (enabled) {
-                    bridgeState.value = "MINI CONNECT├ëE ┬À RELAIS PR├èT"
+                    refreshPhoneInternetState()
+                    bridgeState.value = if (phoneInternetAvailable.value)
+                        "MINI CONNECTÉE · RELAIS INTERNET PRÊT"
+                    else
+                        "MINI CONNECTÉE · TÉLÉPHONE HORS LIGNE"
                     Log.i(TAG, "MINI BLE response channel ready ${device.address}")
                 } else {
                     bridgeState.value = "MINI LI├ëE ┬À CANAL INACTIF"
