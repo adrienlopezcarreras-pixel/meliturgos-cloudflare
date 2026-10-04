@@ -93,3 +93,24 @@ test('MINI settings exposes hardware diagnostics after transport setup', async (
   assert.match(main, /settings_camera_clicked/);
   assert.match(main, /settings_stt_clicked/);
 });
+
+
+test('MINI hardware fix validates camera variants, audible loopback, and Wi-Fi recovery', async () => {
+  const [main, workflow] = await Promise.all([
+    readFile(new URL('../firmware/waveshare-terminal/main/main.cpp', import.meta.url), 'utf8'),
+    readFile(new URL('../.github/workflows/waveshare-terminal-firmware.yml', import.meta.url), 'utf8'),
+  ]);
+
+  assert.match(workflow, /set_cfg_y CONFIG_OV5640_SUPPORT/);
+  assert.match(workflow, /set_cfg_y CONFIG_OV2640_SUPPORT/);
+  assert.match(workflow, /camera_config_t config = \{\};/);
+  assert.match(workflow, /config\.sccb_i2c_port = i2c_port/);
+
+  assert.match(main, /sensor->id\.PID == OV5640_PID \|\| sensor->id\.PID == OV2640_PID/);
+  assert.match(main, /MIC : parle pendant 2 secondes/);
+  assert.match(main, /HP : lecture de ta voix pendant 2 secondes/);
+  assert.match(main, /esp_codec_dev_write\(output_dev, pcm, byte_count\)/);
+  assert.match(main, /No MEL Mobile and no saved Wi-Fi; opening Wi-Fi setup/);
+  assert.match(main, /request_view\(MINI_VIEW_WIFI_LIST\)/);
+  assert.match(main, /MINI WIFI CONNECT START FAILED/);
+});
