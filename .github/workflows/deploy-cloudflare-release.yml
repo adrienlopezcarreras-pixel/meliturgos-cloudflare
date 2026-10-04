@@ -345,11 +345,16 @@ jobs:
           const d=JSON.parse(fs.readFileSync('predeploy-autonomy-control.json','utf8'));
           if(d?.ok!==true) throw new Error('PREDEPLOY_AUTONOMY_CONTROL_NOT_OK');
           if(typeof d?.paused!=='boolean' || typeof d?.max_autonomy!=='boolean') throw new Error('PREDEPLOY_AUTONOMY_CONTROL_INVALID');
-          if(d.paused===true && d.max_autonomy===true) throw new Error('PREDEPLOY_AUTONOMY_CONTROL_CONTRADICTORY');
+          const paused=d.paused===true;
+          const reportedMax=d.max_autonomy===true;
+          const maxAutonomy=paused?false:reportedMax;
+          if(paused&&reportedMax){
+            console.log('Legacy contradictory autonomy control normalized fail-safe: PAUSED=true, MAX=false.');
+          }
           fs.appendFileSync(process.env.GITHUB_ENV,
-            'PREVIOUS_AUTONOMY_PAUSED='+String(d.paused===true)+'\n'
-            +'PREVIOUS_MAX_AUTONOMY='+String(d.max_autonomy===true)+'\n');
-          console.log(JSON.stringify({paused:d.paused===true,max_autonomy:d.max_autonomy===true,status:d.status||null}));
+            'PREVIOUS_AUTONOMY_PAUSED='+String(paused)+'\n'
+            +'PREVIOUS_MAX_AUTONOMY='+String(maxAutonomy)+'\n');
+          console.log(JSON.stringify({paused,max_autonomy:maxAutonomy,status:paused?'PAUSED':(maxAutonomy?'MAX_AUTONOMY':(d.status||'RUNNING')),normalized_contradiction:paused&&reportedMax}));
           NODE
 
       - name: Create verified pre-deploy production backup
