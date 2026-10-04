@@ -365,28 +365,16 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
       return Response.json({ ok: false, code: 'D1_NOT_BOUND', phase }, { status: 503, headers: { 'cache-control': 'no-store' } });
     }
 
-    let launch = { sha: null, at: null, digest: null };
-    if (!restorePaused) {
-      const prepared = await prepare(env);
-      const readiness = safeReadiness(prepared?.readiness);
-      const approvedSha = String(prepared?.readiness?.candidate_sha || readiness.candidate_sha || '').trim().toLowerCase();
-      if (prepared?.ok !== true || readiness.launch_ready !== true || approvedSha !== deployedSha) {
-        return Response.json({
-          ok: false,
-          code: 'ROLLBACK_RESTORE_LAUNCH_GATE_BLOCKED',
-          phase,
-          deployed_sha: deployedSha,
-          readiness,
-        }, { status: 409, headers: { 'cache-control': 'no-store' } });
-      }
-      launch = {
-        sha: restoreSha,
-        at: prepared?.readiness?.evaluated_at || new Date().toISOString(),
-        digest: restoreSha === deployedSha
-          ? (preparednessDigest(prepared?.readiness) || readiness.gate_digest || null)
-          : null,
-      };
-    }
+    // Rollback restore is a recovery operation, not a launch authorization for
+    // the failing candidate. Re-opening candidate readiness here can deadlock
+    // recovery on the very gate that caused the release to fail (for example
+    // ShardVault launch proof). Authorization is instead bound to the trusted
+    // release workflow through OIDC and to the exact candidate SHA currently
+    // deployed above. After the Worker rollback, the autonomy runtime still
+    // enforces that launch_approved_sha matches the exact deployed stable SHA.
+    const launch = restorePaused
+      ? { sha: null, at: null, digest: null }
+      : { sha: restoreSha, at: new Date().toISOString(), digest: null };
 
     const control = await setControl(env.DB, {
       paused: restorePaused,
