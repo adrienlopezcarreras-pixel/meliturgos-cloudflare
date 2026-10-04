@@ -150,9 +150,14 @@ export async function runCompanionSourceControlPrevalidationRuntime(env,{
     },
   });
 
+  const blockedResult=(validation.results||[]).find(row=>row?.status==='BLOCKED')||null;
+  const blockedReason=blockedResult
+    ? String(blockedResult.code||blockedResult.validation_status||blockedResult.reason||'SOURCE_CONTROL_PREVALIDATION_BLOCKED').slice(0,180)
+    : null;
   const state={
     last_run_at:now,
     status:validation.prevalidated>0?'PREVALIDATED':validation.blocked>0?'BLOCKED':'NOOP',
+    reason:validation.prevalidated>0?null:blockedReason,
     device_id:device.id,
     source_sha:sourceSha,
     processed:validation.processed,
