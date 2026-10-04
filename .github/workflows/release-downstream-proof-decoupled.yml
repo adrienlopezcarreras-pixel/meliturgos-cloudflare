@@ -506,145 +506,104 @@ jobs:
           done
           test "${RELEASE_READY}" = "1"
 
-          SESSION="decoupled-file-${TARGET_SHA:0:12}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          export TOKEN SESSION TARGET_SHA
 
-          # Keep the page alive after setInputFiles so the asynchronous UI upload
-          # can finish without a retry navigating away and discarding its state.
-          NORMAL_BODY="$(node - <<'NODE'
+          # Keep upload and DOM confirmation in one browser.execute call.
+          # The canonical #598 proof demonstrated that the page's async
+          # attachment state is reliable within one execution, while splitting
+          # upload and wait across executions can lose the pending DOM state.
+          FILE_READY=0
+          for ATTEMPT in $(seq 1 8); do
+            SESSION="decoupled-file-${TARGET_SHA:0:12}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${ATTEMPT}"
+            export TOKEN SESSION TARGET_SHA
+            FILE_BODY="$(node - <<'NODE'
           const origin='https://meliturgos.adrien-lopezcarreras.workers.dev';
           const s=process.env.SESSION,t=process.env.TOKEN,sha=process.env.TARGET_SHA;
-          process.stdout.write(JSON.stringify({id:'browser.execute',input:{session_id:s,device:{id:'cloudflare-browser',capabilities:['browser.control']},sandbox:{allowed_origins:[origin],max_steps:3},approvals:[
-            {approved:true,session_id:s,step_id:'headers-normal',action:'browser.set-headers'},
-            {approved:true,session_id:s,step_id:'upload-normal',action:'browser.upload-file'}
-          ],steps:[
-            {id:'headers-normal',action:'browser.set-headers',headers:{'x-mel-release-smoke':'1','x-mel-parallel-proof':t}},
+          const approvals=[
+            {approved:true,session_id:s,step_id:'headers',action:'browser.set-headers'},
+            {approved:true,session_id:s,step_id:'upload-normal',action:'browser.upload-file'},
+            {approved:true,session_id:s,step_id:'upload-full',action:'browser.upload-file'},
+          ];
+          const steps=[
+            {id:'headers',action:'browser.set-headers',headers:{'x-mel-release-smoke':'1','x-mel-parallel-proof':t}},
             {id:'normal',action:'browser.navigate',url:origin+'/?proof_sha='+sha},
-            {id:'upload-normal',action:'browser.upload-file',selector:'#fileInput',file_name:'mel-file-normal-proof.txt',mime_type:'text/plain',file_text:'MEL_FILE_NORMAL_PROOF_'+sha}
-          ]}}));
-          NODE
-          )"
-          NORMAL_CODE="$(curl --silent --show-error --max-time 90 \
-            --header "x-mel-release-smoke: 1" \
-            --header "x-mel-parallel-proof: ${TOKEN}" \
-            --header "content-type: application/json" \
-            --data "${NORMAL_BODY}" --output file-normal-upload.json --write-out '%{http_code}' \
-            "${BASE_URL}/api/gen2/capabilities/execute" || true)"
-          if [ "${NORMAL_CODE}" != "200" ]; then
-            echo "MEL-FILE normal upload phase failed with HTTP ${NORMAL_CODE}."
-            test ! -s file-normal-upload.json || cat file-normal-upload.json
-            exit 31
-          fi
-
-          NORMAL_WAIT_READY=0
-          for ATTEMPT in $(seq 1 8); do
-            WAIT_NORMAL_BODY="$(node - <<'NODE'
-          const origin='https://meliturgos.adrien-lopezcarreras.workers.dev';
-          const s=process.env.SESSION;
-          process.stdout.write(JSON.stringify({id:'browser.execute',input:{session_id:s,device:{id:'cloudflare-browser',capabilities:['browser.control']},sandbox:{allowed_origins:[origin],max_steps:1},approvals:[],steps:[
-            {id:'wait-normal',action:'browser.wait-text',selector:'#attachments',text:'mel-file-normal-proof.txt'}
-          ]}}));
-          NODE
-          )"
-            CODE="$(curl --silent --show-error --max-time 45 \
-              --header "x-mel-release-smoke: 1" \
-              --header "x-mel-parallel-proof: ${TOKEN}" \
-              --header "content-type: application/json" \
-              --data "${WAIT_NORMAL_BODY}" --output file-normal-wait.json --write-out '%{http_code}' \
-              "${BASE_URL}/api/gen2/capabilities/execute" || true)"
-            if [ "${CODE}" = "200" ]; then NORMAL_WAIT_READY=1; break; fi
-            case "${CODE}" in
-              408|409|429|500|502|503|504)
-                echo "Transient MEL-FILE normal staging status ${CODE}; retry ${ATTEMPT}/8 without navigation."
-                if [ -s file-normal-wait.json ]; then
-                  node -e 'const fs=require("fs");let d={};try{d=JSON.parse(fs.readFileSync("file-normal-wait.json","utf8"))}catch{};console.log(JSON.stringify({ok:d?.ok===true,error:d?.error||d?.code||d?.status||"UNKNOWN",failed_step_id:d?.failed_step_id||null}))'
-                fi
-                sleep $((ATTEMPT * 2))
-                ;;
-              *)
-                echo "Non-retryable MEL-FILE normal staging status ${CODE}."
-                exit 31
-                ;;
-            esac
-          done
-          test "${NORMAL_WAIT_READY}" = "1"
-
-          FULL_BODY="$(node - <<'NODE'
-          const origin='https://meliturgos.adrien-lopezcarreras.workers.dev';
-          const s=process.env.SESSION,t=process.env.TOKEN,sha=process.env.TARGET_SHA;
-          process.stdout.write(JSON.stringify({id:'browser.execute',input:{session_id:s,device:{id:'cloudflare-browser',capabilities:['browser.control']},sandbox:{allowed_origins:[origin],max_steps:3},approvals:[
-            {approved:true,session_id:s,step_id:'headers-full',action:'browser.set-headers'},
-            {approved:true,session_id:s,step_id:'upload-full',action:'browser.upload-file'}
-          ],steps:[
-            {id:'headers-full',action:'browser.set-headers',headers:{'x-mel-release-smoke':'1','x-mel-parallel-proof':t}},
+            {id:'upload-normal',action:'browser.upload-file',selector:'#fileInput',file_name:'mel-file-normal-proof.txt',mime_type:'text/plain',file_text:'MEL_FILE_NORMAL_PROOF_'+sha},
+            {id:'wait-normal',action:'browser.wait-text',selector:'#attachments',text:'mel-file-normal-proof.txt'},
             {id:'full',action:'browser.navigate',url:origin+'/professor?view=chat&proof_sha='+sha},
-            {id:'upload-full',action:'browser.upload-file',selector:'#chatFileInput',file_name:'mel-file-full-proof.txt',mime_type:'text/plain',file_text:'MEL_FILE_FULL_PROOF_'+sha}
-          ]}}));
+            {id:'upload-full',action:'browser.upload-file',selector:'#chatFileInput',file_name:'mel-file-full-proof.txt',mime_type:'text/plain',file_text:'MEL_FILE_FULL_PROOF_'+sha},
+            {id:'wait-full',action:'browser.wait-text',selector:'#chatAttachments',text:'mel-file-full-proof.txt'},
+          ];
+          process.stdout.write(JSON.stringify({id:'browser.execute',input:{
+            session_id:s,
+            device:{id:'cloudflare-browser',capabilities:['browser.control']},
+            sandbox:{allowed_origins:[origin],max_steps:7},
+            approvals,
+            steps,
+          }}));
           NODE
           )"
-          FULL_CODE="$(curl --silent --show-error --max-time 90 \
-            --header "x-mel-release-smoke: 1" \
-            --header "x-mel-parallel-proof: ${TOKEN}" \
-            --header "content-type: application/json" \
-            --data "${FULL_BODY}" --output file-full-upload.json --write-out '%{http_code}' \
-            "${BASE_URL}/api/gen2/capabilities/execute" || true)"
-          if [ "${FULL_CODE}" != "200" ]; then
-            echo "MEL-FILE full upload phase failed with HTTP ${FULL_CODE}."
-            test ! -s file-full-upload.json || cat file-full-upload.json
-            exit 31
-          fi
-
-          FULL_WAIT_READY=0
-          for ATTEMPT in $(seq 1 8); do
-            WAIT_FULL_BODY="$(node - <<'NODE'
-          const origin='https://meliturgos.adrien-lopezcarreras.workers.dev';
-          const s=process.env.SESSION;
-          process.stdout.write(JSON.stringify({id:'browser.execute',input:{session_id:s,device:{id:'cloudflare-browser',capabilities:['browser.control']},sandbox:{allowed_origins:[origin],max_steps:1},approvals:[],steps:[
-            {id:'wait-full',action:'browser.wait-text',selector:'#chatAttachments',text:'mel-file-full-proof.txt'}
-          ]}}));
-          NODE
-          )"
-            CODE="$(curl --silent --show-error --max-time 45 \
+            FILE_CODE="$(curl --silent --show-error --max-time 120 \
               --header "x-mel-release-smoke: 1" \
               --header "x-mel-parallel-proof: ${TOKEN}" \
               --header "content-type: application/json" \
-              --data "${WAIT_FULL_BODY}" --output file-full-wait.json --write-out '%{http_code}' \
+              --data "${FILE_BODY}" --output file-browser-proof.json --write-out '%{http_code}' \
               "${BASE_URL}/api/gen2/capabilities/execute" || true)"
-            if [ "${CODE}" = "200" ]; then FULL_WAIT_READY=1; break; fi
-            case "${CODE}" in
-              408|409|429|500|502|503|504)
-                echo "Transient MEL-FILE full staging status ${CODE}; retry ${ATTEMPT}/8 without navigation."
-                if [ -s file-full-wait.json ]; then
-                  node -e 'const fs=require("fs");let d={};try{d=JSON.parse(fs.readFileSync("file-full-wait.json","utf8"))}catch{};console.log(JSON.stringify({ok:d?.ok===true,error:d?.error||d?.code||d?.status||"UNKNOWN",failed_step_id:d?.failed_step_id||null}))'
-                fi
+
+            if [ "${FILE_CODE}" = "200" ] && node - <<'NODE'
+          const fs=require('fs');
+          const d=JSON.parse(fs.readFileSync('file-browser-proof.json','utf8'));
+          const r=d?.result||{};
+          const out=id=>(r.outputs||[]).find(x=>x?.step_id===id)?.output||{};
+          const ok=d?.ok===true
+            && r?.ok===true
+            && Number(r?.steps_completed||0)===7
+            && out('upload-normal')?.kind==='upload'
+            && out('upload-normal')?.file_name==='mel-file-normal-proof.txt'
+            && out('wait-normal')?.kind==='wait'
+            && out('wait-normal')?.matched===true
+            && out('upload-full')?.kind==='upload'
+            && out('upload-full')?.file_name==='mel-file-full-proof.txt'
+            && out('wait-full')?.kind==='wait'
+            && out('wait-full')?.matched===true;
+          process.exit(ok?0:1);
+          NODE
+            then
+              FILE_READY=1
+              break
+            fi
+
+            if [ -s file-browser-proof.json ]; then
+              node -e 'const fs=require("fs");let d={};try{d=JSON.parse(fs.readFileSync("file-browser-proof.json","utf8"))}catch{};console.log(JSON.stringify({ok:d?.ok===true,error:d?.error||d?.code||d?.status||"UNKNOWN",failed_step_id:d?.failed_step_id||null,steps_completed:Number(d?.result?.steps_completed||0)}))'
+            fi
+            case "${FILE_CODE}" in
+              000|200|408|409|429|500|502|503|504)
+                echo "Transient MEL-FILE monolithic proof status ${FILE_CODE}; retry ${ATTEMPT}/8 with a fresh browser session."
                 sleep $((ATTEMPT * 2))
                 ;;
               *)
-                echo "Non-retryable MEL-FILE full staging status ${CODE}."
+                echo "Non-retryable MEL-FILE monolithic proof status ${FILE_CODE}."
                 exit 31
                 ;;
             esac
           done
-          test "${FULL_WAIT_READY}" = "1"
+          test "${FILE_READY}" = "1"
 
-          node - <<'NODE'
+          TARGET_SHA="${TARGET_SHA}" node - <<'NODE'
           const fs=require('fs');
-          const normalUpload=require('./file-normal-upload.json')?.result||{};
-          const normalWait=require('./file-normal-wait.json')?.result||{};
-          const fullUpload=require('./file-full-upload.json')?.result||{};
-          const fullWait=require('./file-full-wait.json')?.result||{};
-          const out=(r,id)=>(r.outputs||[]).find(x=>x?.step_id===id)?.output||{};
-          if(normalUpload?.ok!==true||out(normalUpload,'upload-normal').kind!=='upload')throw new Error('MEL_FILE_NORMAL_UPLOAD_FAILED');
-          if(normalWait?.ok!==true||out(normalWait,'wait-normal').matched!==true)throw new Error('MEL_FILE_NORMAL_STAGE_FAILED');
-          if(fullUpload?.ok!==true||out(fullUpload,'upload-full').kind!=='upload')throw new Error('MEL_FILE_FULL_UPLOAD_FAILED');
-          if(fullWait?.ok!==true||out(fullWait,'wait-full').matched!==true)throw new Error('MEL_FILE_FULL_STAGE_FAILED');
+          const d=require('./file-browser-proof.json');
+          const r=d?.result||{};
+          const out=id=>(r.outputs||[]).find(x=>x?.step_id===id)?.output||{};
+          if(d?.ok!==true||r?.ok!==true||Number(r?.steps_completed||0)!==7)throw new Error('MEL_FILE_BROWSER_EXECUTION_INCOMPLETE');
+          if(out('upload-normal')?.kind!=='upload'||out('wait-normal')?.matched!==true)throw new Error('MEL_FILE_NORMAL_STAGE_FAILED');
+          if(out('upload-full')?.kind!=='upload'||out('wait-full')?.matched!==true)throw new Error('MEL_FILE_FULL_STAGE_FAILED');
           fs.writeFileSync('mel-file-browser-production-proof.json',JSON.stringify({
-            schema:'mel.file-browser-production-proof/v3',
-            source_sha:String(process.env.TARGET_SHA).toLowerCase(),
+            schema:'mel.file-browser-production-proof/v4',
+            source_sha:String(process.env.TARGET_SHA||'').toLowerCase(),
             exact_sha_verified:true,
-            phased_browser_session:true,
-            normal:{upload:true,staged:true},full:{upload:true,staged:true},
-            browser_execute:true,secret_values_exposed:false,
+            monolithic_browser_session:true,
+            normal:{upload:true,staged:true},
+            full:{upload:true,staged:true},
+            browser_execute:true,
+            secret_values_exposed:false,
           },null,2));
           NODE
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02

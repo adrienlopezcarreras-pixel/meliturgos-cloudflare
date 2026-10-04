@@ -10,6 +10,8 @@ on:
       - 'tests/operator-auth.test.mjs'
       - 'tests/release-production-smoke-routes.test.mjs'
       - '.github/workflows/release-observability-smoke-ci.yml'
+      - '.github/workflows/release-downstream-proof-decoupled.yml'
+      - 'tests/gen2/release-downstream-proof-decoupled.test.mjs'
       - 'scripts/check-release-proof-shell.mjs'
   push:
     branches:
@@ -43,6 +45,7 @@ jobs:
           tests/operator-auth.test.mjs
           tests/release-production-smoke-routes.test.mjs
           tests/gen2/runtime-observability.test.mjs
+          tests/gen2/release-downstream-proof-decoupled.test.mjs
           tests/system-readiness.test.mjs
 
   release-observability-full-suite:
