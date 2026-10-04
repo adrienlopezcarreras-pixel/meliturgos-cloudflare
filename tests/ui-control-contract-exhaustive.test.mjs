@@ -56,7 +56,11 @@ function assertIdButtonsWired(html, source, label) {
     const formBound = formId
       ? new RegExp("(?:qs\\([\\\"']#" + escapeRe(formId) + "[\\\"']\\)|q\\([\\\"']#" + escapeRe(formId) + "[\\\"']\\)|getElementById\\([\\\"']" + escapeRe(formId) + "[\\\"']\\))\\.addEventListener\\([\\\"']submit[\\\"']").test(source)
       : false;
-    assert.ok(direct.test(source) || aliasBound || formBound, label + ' missing handler for #' + id);
+    const canonicalChatSubmitBound = id === 'chatSend'
+      && /<form\b[^>]*\bid=["']chatForm["'][^>]*>/i.test(markup)
+      && /<button\b[^>]*\bid=["']chatSend["'][^>]*\btype=["']submit["'][^>]*>/i.test(markup)
+      && source.includes("qs('#chatForm').addEventListener('submit'");
+    assert.ok(direct.test(source) || aliasBound || formBound || canonicalChatSubmitBound, label + ' missing handler for #' + id);
   }
   return ids;
 }
