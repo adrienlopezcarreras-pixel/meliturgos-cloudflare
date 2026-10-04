@@ -117,7 +117,7 @@ export async function runCompanionInfrastructurePrevalidationRuntime(env,{
       layer:candidate.layer,
       id:candidate.id,
       status:'UNVERIFIED',
-      metadata:{revalidation_requested:true,source_sha:/^[0-9a-f]{40}$/.test(sourceSha)?sourceSha:null},
+      metadata:{prevalidated:false,activation_allowed:false,revalidation_requested:true,source_sha:/^[0-9a-f]{40}$/.test(sourceSha)?sourceSha:null},
     });
   }
   const scopedCandidateStore=scopeSovereigntyCandidateStore(candidateStore,{
