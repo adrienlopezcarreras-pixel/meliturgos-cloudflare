@@ -16,18 +16,18 @@ function b64urlBytes(bytes){
 function b64urlJson(value){
   return b64urlBytes(Buffer.from(JSON.stringify(value),'utf8'));
 }
-async function signedJwt(privateKey,{workflow='github-action-relay.yml',event='schedule',aud=AUDIENCE,expOffset=300}={}){
+async function signedJwt(privateKey,{workflow='github-action-relay.yml',event='schedule',aud=AUDIENCE,expOffset=300,branch='main'}={}){
   const now=Math.floor(Date.now()/1000);
   const header={alg:'RS256',typ:'JWT',kid:'test-kid'};
   const claims={
     iss:ISSUER,
     aud,
-    sub:`repo:${REPOSITORY}:ref:refs/heads/main`,
+    sub:`repo:${REPOSITORY}:ref:refs/heads/${branch}`,
     repository:REPOSITORY,
     repository_owner:'adrienlopezcarreras-pixel',
-    workflow_ref:`${REPOSITORY}/.github/workflows/${workflow}@refs/heads/main`,
+    workflow_ref:`${REPOSITORY}/.github/workflows/${workflow}@refs/heads/${branch}`,
     event_name:event,
-    ref:'refs/heads/main',
+    ref:`refs/heads/${branch}`,
     sha:'a'.repeat(40),
     actor:'adrienlopezcarreras-pixel',
     run_id:'1234',
@@ -93,6 +93,30 @@ test('GitHub Actions OIDC verifier accepts only the scoped repository/workflow/e
     }),
     error=>error?.code==='GITHUB_OIDC_WORKFLOW_DENIED' && error?.status===403,
   );
+
+  const releaseBranchToken=await signedJwt(keys.privateKey,{
+    workflow:'deploy-cloudflare-release.yml',
+    event:'push',
+    branch:'release/mel-hardware-v0.1.0',
+  });
+  await assert.rejects(
+    ()=>verifyGitHubActionsOidcToken(releaseBranchToken,{
+      env,
+      fetchImpl,
+      allowedWorkflows:['deploy-cloudflare-release.yml'],
+      allowedEvents:['push'],
+    }),
+    error=>error?.code==='GITHUB_OIDC_WORKFLOW_DENIED' && error?.status===403,
+  );
+  const releaseVerified=await verifyGitHubActionsOidcToken(releaseBranchToken,{
+    env,
+    fetchImpl,
+    allowedWorkflows:['deploy-cloudflare-release.yml'],
+    allowedWorkflowBranches:['main','release/mel-hardware-v0.1.0'],
+    allowedEvents:['push'],
+  });
+  assert.equal(releaseVerified.ok,true);
+  assert.equal(releaseVerified.workflow_ref,`${REPOSITORY}/.github/workflows/deploy-cloudflare-release.yml@refs/heads/release/mel-hardware-v0.1.0`);
 
   const wrongAudience=await signedJwt(keys.privateKey,{aud:'wrong-audience'});
   await assert.rejects(
