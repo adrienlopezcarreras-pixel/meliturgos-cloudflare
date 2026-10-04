@@ -1698,9 +1698,12 @@ extern "C" void app_main(void) {
     camera_ok = false;
     mel_terminal_set_hardware(false, audio_ok, false);
 
-    // Start the phone bridge before Wi-Fi association. The Wi-Fi radio stack is
-    // initialized below, but it will not auto-connect until BLE first-refusal ends.
+    // Start NimBLE synchronously before the Wi-Fi stack so Android discovery
+    // cannot lose the boot race. The watcher below only maintains/reports link state.
+    ESP_LOGI(TAG, "STEP 5.5: MEL MOBILE BLE PRIMARY");
+    mel_mobile_bridge_start();
     xTaskCreatePinnedToCore(mobile_bridge_watch_task, "mel_mobile_watch", 4096, nullptr, 3, nullptr, 0);
+    ESP_LOGI(TAG, "STEP 5.5 OK: MEL MOBILE SCANNING");
 
     ESP_LOGI(TAG, "STEP 6: WIFI STACK (FALLBACK READY, NOT CONNECTED)");
     ESP_ERROR_CHECK(mini_wifi_stack_init());
