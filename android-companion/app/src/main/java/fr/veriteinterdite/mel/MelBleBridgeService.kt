@@ -966,12 +966,13 @@ class MelBleBridgeService : Service() {
             if (request.path == "/api/device/v1/heartbeat" && status in 200..299 && stream != null) {
                 val rawHeartbeat = stream.use { it.readBytes() }
                 val heartbeatJson = runCatching { JSONObject(rawHeartbeat.toString(Charsets.UTF_8)) }.getOrNull()
+                val nowMs = System.currentTimeMillis()
+                val zone = TimeZone.getDefault()
                 val compactHeartbeat = JSONObject()
                     .put("ok", true)
-                    .apply {
-                        val serverTime = heartbeatJson?.optLong("server_time", 0L) ?: 0L
-                        if (serverTime > 0L) put("server_time", serverTime)
-                    }
+                    .put("epoch_ms", heartbeatJson?.optLong("server_time", 0L)?.takeIf { it > 0L } ?: nowMs)
+                    .put("utc_offset_seconds", zone.getOffset(nowMs) / 1000)
+                    .put("timezone", zone.id)
                     .toString()
                     .toByteArray(Charsets.UTF_8)
                 val heartbeatMeta = JSONObject()
