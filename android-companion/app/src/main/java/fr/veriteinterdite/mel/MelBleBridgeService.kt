@@ -889,6 +889,33 @@ class MelBleBridgeService : Service() {
                 return
             }
 
+            // MINI pairing only needs token + protocol_version. Compacting a successful
+            // pair response keeps the credential body inside one BLE payload, eliminating
+            // a multi-frame failure mode during first/recovery authentication.
+            if (request.path == "/api/device/v1/pair" && status in 200..299 && stream != null) {
+                val rawPairBody = stream.use { it.readBytes() }
+                val pairJson = runCatching { JSONObject(rawPairBody.toString(Charsets.UTF_8)) }.getOrNull()
+                val compactPairBody = if (pairJson != null &&
+                    pairJson.optString("token").isNotBlank() &&
+                    pairJson.optString("protocol_version").isNotBlank()
+                ) {
+                    JSONObject()
+                        .put("token", pairJson.getString("token"))
+                        .put("protocol_version", pairJson.getString("protocol_version"))
+                        .toString()
+                        .toByteArray(Charsets.UTF_8)
+                } else rawPairBody
+                val pairMeta = JSONObject()
+                    .put("status", status)
+                    .put("contentType", "application/json")
+                    .put("length", compactPairBody.size)
+                if (!sendJsonFrame(device, OP_RESPONSE_BEGIN, request.id, pairMeta)) return
+                if (!sendBodyFrames(device, request.id, compactPairBody)) return
+                sendFrame(device, packet(OP_RESPONSE_END, request.id, byteArrayOf()))
+                Log.i(TAG, "MEL MINI pair response compacted to ${compactPairBody.size} bytes")
+                return
+            }
+
             val rawContentLength = connection.contentLengthLong.coerceAtLeast(-1L)
             val meta = JSONObject()
                 .put("status", status)
