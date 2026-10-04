@@ -267,10 +267,15 @@ class MelBleBridgeService : Service() {
                 MelApiClient(BuildConfig.MEL_BASE_URL, androidDeviceId, vault)
                     .heartbeat(sdkInt = Build.VERSION.SDK_INT, phase = "MINI_BRIDGE_READY")
             }.onSuccess {
-                if (!internetReady.value && miniLinkReady.value) {
-                    bridgeState.value = "MINI CONNECTÉE · MEL PRÊT · SYNCHRONISATION"
-                }
-                Log.i(TAG, "Android MEL session validated for MINI sponsorship")
+                // This is a real authenticated request to MEL, not a local BLE
+                // assumption. Together with miniLinkReady it proves the phone can
+                // act as MINI's Internet relay immediately.
+                internetReady.value = miniLinkReady.value && phoneInternetAvailable.value
+                bridgeState.value = if (internetReady.value)
+                    "MINI CONNECTÉE · INTERNET OK"
+                else
+                    "MINI CONNECTÉE · MEL PRÊT"
+                Log.i(TAG, "Android MEL session validated; MINI relay Internet ready=${internetReady.value}")
             }.onFailure { error ->
                 internetReady.value = false
                 bridgeState.value = if (error is MelApiException && (error.status == 401 || error.status == 403)) {
