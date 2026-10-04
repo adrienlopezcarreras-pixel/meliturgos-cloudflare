@@ -718,3 +718,13 @@ test('Android MINI BLE preserves response ordering after notification fallback',
   assert.match(service,/pullOnlyResponseIds\[device\.address\] = responseId/);
   assert.match(service,/pullOnlyResponseIds\.remove\(device\.address\)/);
 });
+
+
+test('Android compacts successful MINI pair token response into BLE-safe body', async () => {
+  const service=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelBleBridgeService.kt',root),'utf8');
+  assert.match(service,/request\.path == "\/api\/device\/v1\/pair" && status in 200\.\.299/);
+  assert.match(service,/compactPairBody/);
+  assert.match(service,/pairJson\.getString\("token"\)/);
+  assert.match(service,/pairJson\.getString\("protocol_version"\)/);
+  assert.match(service,/MEL MINI pair response compacted to/);
+});
