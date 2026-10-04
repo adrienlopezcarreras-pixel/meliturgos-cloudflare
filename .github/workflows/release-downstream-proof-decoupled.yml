@@ -872,7 +872,7 @@ jobs:
               fi
             fi
             echo "SOV proof waiting for exact-SHA release readiness; attempt ${ATTEMPT}/60."
-            sleep 10
+            sleep 5
           done
           test "${RELEASE_READY}" = "1"
 
@@ -951,7 +951,7 @@ jobs:
             fi
             local REFRESH_CODE="000"
             local REFRESH_READY=0
-            for ATTEMPT in $(seq 1 6); do
+            for ATTEMPT in $(seq 1 4); do
               REFRESH_CODE="$(curl --silent --show-error --max-time 55 \
                 --header "x-mel-parallel-proof: ${TOKEN}" \
                 --header "content-type: application/json" \
