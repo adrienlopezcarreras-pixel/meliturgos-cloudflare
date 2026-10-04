@@ -30,7 +30,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          npx wrangler d1 execute meliturgos-memory --remote --json --command "SELECT candidate_key,layer,candidate_id,status,metadata_json,last_seen_at FROM mel_sovereignty_candidates WHERE candidate_key='database::companion-local-db' LIMIT 1;" > d1-raw.json
+          set +e
+          npx wrangler d1 execute meliturgos-memory --remote --json --command "SELECT candidate_key,layer,candidate_id,status,metadata_json,last_seen_at FROM mel_sovereignty_candidates WHERE candidate_key='database::companion-local-db' LIMIT 1;" > d1-raw.json 2> d1-error.txt
+          WRANGLER_CODE=$?
+          set -e
+          echo "wrangler_exit=$WRANGLER_CODE"
+          if [ -s d1-error.txt ]; then sed -n '1,120p' d1-error.txt; fi
+          if [ ! -s d1-raw.json ]; then echo '[]' > d1-raw.json; fi
           node - <<'NODE'
           const fs=require('fs');
           const raw=JSON.parse(fs.readFileSync('d1-raw.json','utf8'));
