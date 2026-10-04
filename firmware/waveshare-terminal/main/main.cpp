@@ -12,13 +12,13 @@
 #include "esp_heap_caps.h"
 #include "esp_event.h"
 #include "esp_wifi.h"
+#include "esp_netif.h"
 #include "esp_sntp.h"
 #include "nvs.h"
 #include <time.h>
 #include "lvgl.h"
 
 #include "esp_3inch5_lcd_port.h"
-#include "esp_wifi_port.h"
 #include "esp_axp2101_port.h"
 #include "esp_es8311_port.h"
 #include "esp_camera_port.h"
@@ -440,21 +440,63 @@ static void mini_anim_cb(lv_timer_t *) {
     last_online = online;
 }
 
+static void mini_wifi_get_ip(char *ip, size_t ip_len) {
+    if (!ip || ip_len == 0) return;
+    ip[0] = '\0';
+    esp_netif_t *sta = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
+    if (!sta) return;
+    esp_netif_ip_info_t info = {};
+    if (esp_netif_get_ip_info(sta, &info) != ESP_OK) return;
+    snprintf(ip, ip_len, IPSTR, IP2STR(&info.ip));
+}
+
+static esp_err_t mini_wifi_stack_init() {
+    esp_err_t err = esp_netif_init();
+    if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) return err;
+
+    err = esp_event_loop_create_default();
+    if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) return err;
+
+    esp_netif_t *sta = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
+    if (!sta) sta = esp_netif_create_default_wifi_sta();
+    if (!sta) return ESP_FAIL;
+
+    wifi_init_config_t init = WIFI_INIT_CONFIG_DEFAULT();
+    err = esp_wifi_init(&init);
+    if (err != ESP_OK) return err;
+
+    ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, WIFI_EVENT_STA_CONNECTED, &mini_wifi_event_diag, nullptr));
+    ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, WIFI_EVENT_STA_DISCONNECTED, &mini_wifi_event_diag, nullptr));
+    ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &mini_wifi_event_diag, nullptr));
+
+    ESP_ERROR_CHECK(esp_wifi_set_storage(WIFI_STORAGE_RAM));
+    ESP_ERROR_CHECK(esp_wifi_set_country_code("FR", false));
+    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
+    esp_err_t ps = esp_wifi_set_ps(WIFI_PS_NONE);
+    if (ps != ESP_OK) ESP_LOGW(TAG, "Wi-Fi power-save disable warning: %s", esp_err_to_name(ps));
+    return esp_wifi_start();
+}
+
 static esp_err_t mini_wifi_sta_connect(const char *ssid, const char *password) {
     if (!ssid || !ssid[0]) return ESP_ERR_INVALID_ARG;
+
+    // Own the station state machine end-to-end. Do not let the Waveshare sample
+    // helper race MEL Mobile with an implicit connect attempt.
+    esp_wifi_disconnect();
+    vTaskDelay(pdMS_TO_TICKS(80));
 
     wifi_config_t cfg = {};
     snprintf((char *)cfg.sta.ssid, sizeof(cfg.sta.ssid), "%s", ssid);
     snprintf((char *)cfg.sta.password, sizeof(cfg.sta.password), "%s", password ? password : "");
-
-    // Phone hotspots vary between OPEN/WPA2/WPA3 transition modes.
-    // Accept all authentication modes supported by the ESP32-S3 station.
+    cfg.sta.scan_method = WIFI_ALL_CHANNEL_SCAN;
+    cfg.sta.sort_method = WIFI_CONNECT_AP_BY_SIGNAL;
+    cfg.sta.threshold.rssi = -127;
     cfg.sta.threshold.authmode = WIFI_AUTH_OPEN;
     cfg.sta.pmf_cfg.capable = true;
     cfg.sta.pmf_cfg.required = false;
 
-    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
-    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &cfg));
+    esp_err_t err = esp_wifi_set_config(WIFI_IF_STA, &cfg);
+    if (err != ESP_OK) return err;
     return esp_wifi_connect();
 }
 
@@ -521,7 +563,7 @@ static void mini_apply_requested_view(void) {
         if (settings_panel) lv_obj_clear_flag(settings_panel, LV_OBJ_FLAG_HIDDEN);
         if (settings_status) {
             char ip[32] = {};
-            esp_wifi_port_get_ip(ip);
+            mini_wifi_get_ip(ip, sizeof(ip));
             lv_label_set_text_fmt(settings_status, "Wi-Fi: %s\nMobile: %s\nMEL: %s",
                                   wifi_got_ip ? (ip[0] ? ip : "OK") : "OFF",
                                   mel_terminal_mobile_connected() ? "CONNECTE" : "OFF",
@@ -579,7 +621,7 @@ static void mini_apply_requested_view(void) {
 
 static void start_mel_runtime_after_wifi(const char *ssid, const char *pwd) {
     char ip[32] = {};
-    esp_wifi_port_get_ip(ip);
+    mini_wifi_get_ip(ip, sizeof(ip));
     save_mel_wifi_credentials(ssid, pwd);
     mel_terminal_set_network_info(ip);
     mel_terminal_set_hardware(camera_ok, audio_ok, false);
@@ -599,7 +641,7 @@ static void start_mel_runtime_after_wifi(const char *ssid, const char *pwd) {
 static void settings_refresh_status(void) {
     if (!settings_status) return;
     char ip[32] = {};
-    esp_wifi_port_get_ip(ip);
+    mini_wifi_get_ip(ip, sizeof(ip));
     lv_label_set_text_fmt(settings_status,
                           "Wi-Fi: %s\nMobile: %s\nMEL: %s\nAudio: %s  Camera: %s",
                           wifi_got_ip ? (ip[0] ? ip : "OK") : "OFF",
@@ -1116,7 +1158,7 @@ static void wifi_connect_task(void *arg) {
 
     if (connected) {
         char ip[32] = {};
-        esp_wifi_port_get_ip(ip);
+        mini_wifi_get_ip(ip, sizeof(ip));
 
         if (lvgl_port_lock(0)) {
             if (wifi_status) lv_label_set_text_fmt(wifi_status, "Connecte a %s\nIP %s", ssid, ip);
@@ -1661,13 +1703,8 @@ extern "C" void app_main(void) {
     xTaskCreatePinnedToCore(mobile_bridge_watch_task, "mel_mobile_watch", 4096, nullptr, 3, nullptr, 0);
 
     ESP_LOGI(TAG, "STEP 6: WIFI STACK (FALLBACK READY, NOT CONNECTED)");
-    esp_wifi_port_init(nullptr, nullptr);
-    ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, WIFI_EVENT_STA_DISCONNECTED, &mini_wifi_event_diag, nullptr));
-    ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &mini_wifi_event_diag, nullptr));
-    ESP_ERROR_CHECK(esp_wifi_set_country_code("FR", false));
-    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
-    ESP_ERROR_CHECK(esp_wifi_start());
-    ESP_LOGI(TAG, "STEP 6 OK: WIFI STACK READY (FR channels 1-13)");
+    ESP_ERROR_CHECK(mini_wifi_stack_init());
+    ESP_LOGI(TAG, "STEP 6 OK: STA-ONLY WIFI STACK READY (FR channels 1-13)");
 
     if (lvgl_port_lock(0)) {
         mini_smoke_ui();
