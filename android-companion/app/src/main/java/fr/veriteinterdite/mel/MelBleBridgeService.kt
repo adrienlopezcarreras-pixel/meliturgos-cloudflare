@@ -108,6 +108,7 @@ class MelBleBridgeService : Service() {
     private val metaFrames = ConcurrentHashMap<String, ByteArrayOutputStream>()
     private val metaFrameIds = ConcurrentHashMap<String, Int>()
     private val connectedAtMs = ConcurrentHashMap<String, Long>()
+    private val connectedDevices = ConcurrentHashMap<String, BluetoothDevice>()
     private val mtus = ConcurrentHashMap<String, Int>()
     private val subscribed = ConcurrentHashMap<String, Boolean>()
     private val pullFrames = ConcurrentHashMap<String, ConcurrentLinkedQueue<ByteArray>>()
@@ -124,6 +125,41 @@ class MelBleBridgeService : Service() {
     private var connectivityManager: ConnectivityManager? = null
     private var networkCallbackRegistered = false
     @Volatile private var melValidationInFlight = false
+    private val bridgeHandler by lazy { android.os.Handler(mainLooper) }
+    private val bridgeWatchdog = object : Runnable {
+        override fun run() {
+            try {
+                val activeAdapter = adapter
+                if (activeAdapter == null || !activeAdapter.isEnabled) {
+                    miniLinkReady.value = false
+                    internetReady.value = false
+                    bridgeState.value = "BLUETOOTH OFF"
+                } else if (gattServer == null) {
+                    Log.w(TAG, "BLE watchdog: GATT server missing; rebuilding bridge")
+                    startBridge()
+                } else if (connectedDevices.isEmpty()) {
+                    if (advertiseCallback == null) {
+                        Log.i(TAG, "BLE watchdog: no MINI connected; restarting advertising")
+                        startAdvertising()
+                    }
+                } else {
+                    val now = System.currentTimeMillis()
+                    connectedDevices.forEach { (address, device) ->
+                        val ready = subscribed[address] == true
+                        val age = now - (connectedAtMs[address] ?: now)
+                        if (!ready && age > 20_000L) {
+                            Log.w(TAG, "BLE watchdog: stale unready GATT link $address age=${age}ms; recycling")
+                            runCatching { gattServer?.cancelConnection(device) }
+                        }
+                    }
+                }
+            } catch (error: Throwable) {
+                Log.w(TAG, "BLE watchdog failed: ${error.message}")
+            } finally {
+                bridgeHandler.postDelayed(this, 5_000L)
+            }
+        }
+    }
 
     private val networkCallback = object : ConnectivityManager.NetworkCallback() {
         override fun onAvailable(network: Network) {
@@ -164,6 +200,8 @@ class MelBleBridgeService : Service() {
                 .build()
         )
         startBridge()
+        bridgeHandler.removeCallbacks(bridgeWatchdog)
+        bridgeHandler.postDelayed(bridgeWatchdog, 5_000L)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -193,6 +231,7 @@ class MelBleBridgeService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onDestroy() {
+        bridgeHandler.removeCallbacks(bridgeWatchdog)
         unregisterNetworkWatch()
         stopAdvertising()
         runCatching { gattServer?.close() }
@@ -357,6 +396,7 @@ class MelBleBridgeService : Service() {
 
     private fun startAdvertising() {
         if (!hasBluetoothPermissions()) return
+        if (advertiseCallback != null) return
         val activeAdapter = adapter ?: return
         val advertiser = activeAdapter.bluetoothLeAdvertiser ?: return
         val settings = AdvertiseSettings.Builder()
@@ -375,8 +415,9 @@ class MelBleBridgeService : Service() {
                 Log.i(TAG, "MEL Mobile advertising started")
             }
             override fun onStartFailure(errorCode: Int) {
+                advertiseCallback = null
                 bridgeState.value = "ERREUR BLE $errorCode"
-                Log.e(TAG, "MEL Mobile advertising failed code=$errorCode")
+                Log.e(TAG, "MEL Mobile advertising failed code=$errorCode; watchdog will retry")
             }
         }
         advertiseCallback = callback
@@ -427,7 +468,9 @@ class MelBleBridgeService : Service() {
         override fun onConnectionStateChange(device: BluetoothDevice, status: Int, newState: Int) {
             Log.i(TAG, "MINI BLE state=${device.address} status=$status newState=$newState")
             if (newState == BluetoothGatt.STATE_CONNECTED) {
+                stopAdvertising()
                 connectedAtMs[device.address] = System.currentTimeMillis()
+                connectedDevices[device.address] = device
                 subscribed[device.address] = false
                 miniLinkReady.value = false
                 internetReady.value = false
@@ -435,6 +478,7 @@ class MelBleBridgeService : Service() {
                 publishBleDiagnostic(status, newState, null)
             } else {
                 val started = connectedAtMs.remove(device.address)
+                connectedDevices.remove(device.address)
                 val duration = started?.let { System.currentTimeMillis() - it }
                 publishBleDiagnostic(status, newState, duration)
                 miniLinkReady.value = false
@@ -448,6 +492,12 @@ class MelBleBridgeService : Service() {
                 pullFrames.remove(device.address)
                 latestResponseIds.remove(device.address)
                 pullOnlyResponseIds.remove(device.address)
+                bridgeHandler.postDelayed({
+                    if (adapter?.isEnabled == true && connectedDevices.isEmpty()) {
+                        stopAdvertising()
+                        startAdvertising()
+                    }
+                }, 350L)
             }
         }
 
