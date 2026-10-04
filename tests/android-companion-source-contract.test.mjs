@@ -692,7 +692,9 @@ test('Android MINI bridge distinguishes phone Internet from proven MEL relay',as
   assert.match(service,/registerDefaultNetworkCallback/);
   assert.match(service,/MINI CONNECTÉE · MEL À VALIDER/);
   assert.match(service,/validatePhoneMelSession\(\)/);
-  assert.match(service,/MINI CONNECTÉE · MEL PRÊT · SYNCHRONISATION/);
+  assert.match(service,/Android MEL session validated; MINI relay Internet ready=/);
+  assert.match(service,/internetReady\.value = miniLinkReady\.value && phoneInternetAvailable\.value/);
+  assert.match(service,/MINI CONNECTÉE · INTERNET OK/);
   assert.match(activity,/phoneInternetReady by MelBleBridgeService\.phoneInternetAvailable/);
   assert.match(activity,/téléphone en ligne · validation MEL en cours/);
   assert.match(build,/versionCode = 61/);
