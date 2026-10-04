@@ -46,7 +46,10 @@ export async function validateSovereigntyCandidates({
         layer:candidate.layer,id:candidate.id,status:'BLOCKED',
         metadata:{reason:'RESOLUTION_FAILED',code:clean(error?.code||error?.message,180)},
       });
-      results.push({layer:candidate.layer,id:candidate.id,status:'BLOCKED',reason:'RESOLUTION_FAILED'});
+      results.push({
+        layer:candidate.layer,id:candidate.id,status:'BLOCKED',reason:'RESOLUTION_FAILED',
+        code:clean(error?.code||error?.message,180)||null,
+      });
       continue;
     }
 
@@ -163,7 +166,11 @@ export async function validateSovereigntyCandidates({
           code:clean(validation?.code,180)||null,
         },
       });
-      results.push({layer:candidate.layer,id:candidate.id,status:'BLOCKED',validation_status:validation?.status||'UNKNOWN'});
+      results.push({
+        layer:candidate.layer,id:candidate.id,status:'BLOCKED',
+        validation_status:validation?.status||'UNKNOWN',
+        code:clean(validation?.code,180)||null,
+      });
     }
   }
 
