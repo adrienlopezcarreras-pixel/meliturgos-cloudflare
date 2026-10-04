@@ -2019,7 +2019,7 @@ export async function searchAutonomousShardVaultRepositories(env,{maxNewEndpoint
   try{
     const boundedMode=Number(maxNewEndpoints)!==7||probeLimit!==null||Number(probeOffset)!==0;
     let requiredBytes=256,last=null;
-    try{const rows=await inventoryRows(env,c);last=latestSnapshot(rows);requiredBytes=Math.max(256,Number(last?.shardSize)||256);}catch{}
+    try{last=await latestShardVaultSnapshotFast(env,c);requiredBytes=Math.max(256,Number(last?.shardSize)||256);}catch{}
     // Bounded maintenance/release searches must stay cheap enough for a Worker
     // request. Exact critical-code sizing is deferred to the separate code-sync
     // proof once seven external endpoints are active.
@@ -2066,24 +2066,17 @@ export async function searchAutonomousShardVaultRepositories(env,{maxNewEndpoint
       const validated=validatedPool
         .slice(validatedOffset,validatedOffset+boundedMaxNew);
       if(validated.length){
-        const staged=await stageActiveExternalEndpoints(env,c,last,validated);
-        if(staged.length>active.length){
-          try{activation_cycle=await runShardVaultCycle(env,{force:true,skipExternalCode:true,activeRegistryOnly:true});}
-          catch(error){activation_cycle={ok:false,error:String(error?.message||error)};}
-          if(activation_cycle?.ok){
-            const rowsAfter=await inventoryRows(env,c),latestAfter=latestSnapshot(rowsAfter);
-            active=await reconcileActiveExternalEndpoints(env,c,latestAfter);
-            last=latestAfter;
+        try{
+          const promoted=await promoteExternalEndpointWithExistingShard(env,c,last,validated[0]);
+          const promotedManifest=promoted?.manifest||null;
+          activation_cycle=promotedManifest?{...promoted,manifest:undefined}:promoted;
+          if(promoted?.ok&&promotedManifest){
+            last=promotedManifest;
+            active=await reconcileActiveExternalEndpoints(env,c,last);
             cached_staged=Math.max(0,active.length-activeBefore.length);
-          }else{
-            const recovered=await retryActivationAfterWriteFailure(env,{
-              c,last,activeBefore,staged,activationCycle:activation_cycle,skipExternalCode:true,
-            });
-            activation_cycle=recovered.cycle;
-            active=recovered.active;
-            last=recovered.last;
-            if(recovered.recovered)cached_staged=Math.max(0,active.length-activeBefore.length);
           }
+        }catch(error){
+          activation_cycle={ok:false,status:'SINGLE_SHARD_PROMOTION_FAILED',error:String(error?.message||error)};
         }
       }
     }
@@ -2104,22 +2097,18 @@ export async function searchAutonomousShardVaultRepositories(env,{maxNewEndpoint
       });
       await rememberValidatedExternalEndpoints(env,[...(report.qualified||[]),...(report.selected||[])]);
       await rememberCodeCandidateEndpoints(env,[...(report.qualified||[]),...(report.selected||[]),...(report.eligible||[])]);
-      const activeBeforeDiscovery=active;
-      const staged=await stageActiveExternalEndpoints(env,c,last,(report.selected||[]).slice(0,selectionTarget));
-      if(staged.length>activeBeforeDiscovery.length){
-        try{activation_cycle=await runShardVaultCycle(env,{force:true,skipExternalCode:true,activeRegistryOnly:true});}
-        catch(error){activation_cycle={ok:false,error:String(error?.message||error)};}
-        if(activation_cycle?.ok){
-          const rowsAfter=await inventoryRows(env,c),latestAfter=latestSnapshot(rowsAfter);
-          active=await reconcileActiveExternalEndpoints(env,c,latestAfter);
-          last=latestAfter;
-        }else{
-          const recovered=await retryActivationAfterWriteFailure(env,{
-            c,last,activeBefore:activeBeforeDiscovery,staged,activationCycle:activation_cycle,skipExternalCode:true,
-          });
-          activation_cycle=recovered.cycle;
-          active=recovered.active;
-          last=recovered.last;
+      const selectedForPromotion=(report.selected||[]).slice(0,selectionTarget);
+      if(selectedForPromotion.length){
+        try{
+          const promoted=await promoteExternalEndpointWithExistingShard(env,c,last,selectedForPromotion[0]);
+          const promotedManifest=promoted?.manifest||null;
+          activation_cycle=promotedManifest?{...promoted,manifest:undefined}:promoted;
+          if(promoted?.ok&&promotedManifest){
+            last=promotedManifest;
+            active=await reconcileActiveExternalEndpoints(env,c,last);
+          }
+        }catch(error){
+          activation_cycle={ok:false,status:'SINGLE_SHARD_PROMOTION_FAILED',error:String(error?.message||error)};
         }
       }
     }
