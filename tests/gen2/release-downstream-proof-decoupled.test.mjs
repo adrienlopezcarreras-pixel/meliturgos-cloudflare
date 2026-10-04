@@ -94,7 +94,7 @@ test('decoupled sovereignty waits for exact-SHA release readiness before local s
   assert.match(block,/candidate_sha/);
   assert.match(block,/SOV proof waiting for exact-SHA release readiness/);
   const ready=block.indexOf('test "${RELEASE_READY}" = "1"');
-  const refresh=block.indexOf('for TARGET in ai ai_local source_control infrastructure; do');
+  const refresh=block.indexOf('for TARGET in ai ai_local source_control; do');
   assert.ok(ready>0&&refresh>ready,'SOV refresh must start only after exact-SHA launch readiness');
 });
 
@@ -108,16 +108,19 @@ test('source-control prevalidation surfaces a sanitized blocked reason for stric
 
 test('decoupled sovereignty proof refreshes every bounded prevalidation domain before final status', async () => {
   const workflow=await readFile(new URL('../../.github/workflows/release-downstream-proof-decoupled.yml',import.meta.url),'utf8');
-  assert.match(workflow,/for TARGET in ai ai_local source_control infrastructure/);
+  assert.match(workflow,/for TARGET in ai ai_local source_control/);
+  assert.match(workflow,/for STEP in runtime storage database ci_cd secrets_identity scheduler observability backup_restore/);
+  assert.match(workflow,/refresh_sov_target "infrastructure" "\$\{STEP\}"/);
   assert.match(workflow,/for STEP in resolve prepare readback rollback finalize/);
   assert.match(workflow,/release-launch-bootstrap\?\$\{QUERY\}/);
   assert.match(workflow,/MEL_SOV_01_REFRESH_STEP_VERIFIED/);
   assert.match(workflow,/MEL_SOV_01_REFRESH_SAFETY_FAILED/);
-  const refresh=workflow.indexOf('for TARGET in ai ai_local source_control infrastructure; do');
+  const refresh=workflow.indexOf('for TARGET in ai ai_local source_control; do');
+  const infrastructureStages=workflow.indexOf('for STEP in runtime storage database ci_cd secrets_identity scheduler observability backup_restore; do');
   const backupStages=workflow.indexOf('for STEP in resolve prepare readback rollback finalize; do');
   const status=workflow.indexOf('output sovereignty.json');
   const finalProof=workflow.indexOf('output mel-sov-01.json');
-  assert.ok(refresh>0&&backupStages>refresh&&status>backupStages&&finalProof>status,'bounded sovereignty refreshes and all backup stages must run before status and final proof');
+  assert.ok(refresh>0&&infrastructureStages>refresh&&backupStages>infrastructureStages&&status>backupStages&&finalProof>status,'bounded sovereignty refreshes, infrastructure layers, and all backup stages must run before status and final proof');
 });
 
 test('decoupled sovereignty refreshes retry only bounded transient pressure and preserve a sanitized failure artifact', async () => {
@@ -132,7 +135,7 @@ test('decoupled sovereignty refreshes retry only bounded transient pressure and 
   assert.match(workflow,/SOV_BACKUP_GOOGLE_DRIVE_PERMISSION_DENIED/);
   assert.match(workflow,/SOV_BACKUP_GOOGLE_DRIVE_QUOTA_EXCEEDED/);
   assert.match(workflow,/Google Drive API is disabled/);
-  assert.match(workflow,/409\|429\|500\|502\|503\|504/);
+  assert.match(workflow,/000\|409\|429\|500\|502\|503\|504/);
   assert.match(workflow,/Transient decoupled SOV refresh/);
   assert.match(workflow,/Non-retryable decoupled SOV refresh/);
   assert.match(workflow,/status:'MEL_SOV_01_REFRESH_FAILED'/);
