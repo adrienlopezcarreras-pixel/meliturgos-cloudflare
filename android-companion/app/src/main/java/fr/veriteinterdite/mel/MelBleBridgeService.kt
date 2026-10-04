@@ -916,6 +916,31 @@ class MelBleBridgeService : Service() {
                 return
             }
 
+            // MINI session validation uses heartbeat. Return only the tiny
+            // liveness payload that MINI actually needs, rather than relaying the
+            // full accepted/status object over many GATT frames.
+            if (request.path == "/api/device/v1/heartbeat" && status in 200..299 && stream != null) {
+                val rawHeartbeat = stream.use { it.readBytes() }
+                val heartbeatJson = runCatching { JSONObject(rawHeartbeat.toString(Charsets.UTF_8)) }.getOrNull()
+                val compactHeartbeat = JSONObject()
+                    .put("ok", true)
+                    .apply {
+                        val serverTime = heartbeatJson?.optLong("server_time", 0L) ?: 0L
+                        if (serverTime > 0L) put("server_time", serverTime)
+                    }
+                    .toString()
+                    .toByteArray(Charsets.UTF_8)
+                val heartbeatMeta = JSONObject()
+                    .put("status", status)
+                    .put("contentType", "application/json")
+                    .put("length", compactHeartbeat.size)
+                if (!sendJsonFrame(device, OP_RESPONSE_BEGIN, request.id, heartbeatMeta)) return
+                if (!sendBodyFrames(device, request.id, compactHeartbeat)) return
+                sendFrame(device, packet(OP_RESPONSE_END, request.id, byteArrayOf()))
+                Log.i(TAG, "MEL MINI heartbeat response compacted to ${compactHeartbeat.size} bytes")
+                return
+            }
+
             val rawContentLength = connection.contentLengthLong.coerceAtLeast(-1L)
             val meta = JSONObject()
                 .put("status", status)
