@@ -79,6 +79,17 @@ test('companion database proof is repeatable against persistent primary keys',as
   assert.equal(second.status,'DATABASE_ADAPTER_VERIFIED');
 });
 
+test('database proof reports the concrete companion failure code',async()=>{
+  const execute=async({action})=>{
+    if(action==='health')return{ok:false,code:'SOVEREIGNTY_DATABASE_STATE_CORRUPT'};
+    return{ok:false,code:'UNEXPECTED_ACTION'};
+  };
+  const proof=await proveDatabaseAdapter(createCompanionDatabaseAdapter({execute}));
+  assert.equal(proof.ok,false);
+  assert.equal(proof.status,'DATABASE_HEALTH_FAILED');
+  assert.equal(proof.health.code,'SOVEREIGNTY_DATABASE_STATE_CORRUPT');
+});
+
 test('offline companion fails closed for storage and database',async()=>{
   const offline=async()=>({ok:false,code:'DEVICE_OFFLINE'});
   const storage=await createCompanionObjectStorageAdapter({execute:offline}).health();
