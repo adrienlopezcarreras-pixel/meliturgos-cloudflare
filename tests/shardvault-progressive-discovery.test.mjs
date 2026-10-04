@@ -70,7 +70,7 @@ test('bounded ShardVault qualification stays small while activation still uses t
   assert.match(runtime,/readValidatedExternalEndpoints\(env,qualificationBytes\)/);
   assert.match(runtime,/requiredBytes:qualificationBytes/);
   assert.match(runtime,/qualification_bytes:qualificationBytes/);
-  assert.match(runtime,/runShardVaultCycle\(env,\{force:true,skipExternalCode:true\}\)/);
+  assert.match(runtime,/runShardVaultCycle\(env,\{force:true,skipExternalCode:true,activeRegistryOnly:true\}\)/);
 });
 
 test('release ShardVault scan probes two candidates per batch and resets cursor for Internet discovery', () => {
