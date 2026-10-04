@@ -548,6 +548,13 @@ void mel_mobile_bridge_rescan(void) {
         return;
     }
     if (g_conn_handle != BLE_HS_CONN_HANDLE_NONE) {
+        if (g_ready.load()) {
+            // The settings button is a discovery/recovery action, not a
+            // disconnect button. Keep a proven GATT bridge intact.
+            ESP_LOGI(TAG, "MEL Mobile rescan ignored: healthy BLE link already active");
+            return;
+        }
+        ESP_LOGW(TAG, "MEL Mobile rescan: recycling incomplete BLE connection");
         ble_gap_terminate(g_conn_handle, BLE_ERR_REM_USER_CONN_TERM);
         return;
     }
