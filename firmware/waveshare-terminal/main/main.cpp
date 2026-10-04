@@ -1827,10 +1827,44 @@ static void mobile_bridge_watch_task(void *) {
 }
 
 static void wifi_fallback_after_ble_task(void *) {
-    // Wi-Fi is the stable Internet path. BLE remains active in parallel for
-    // MEL Mobile features, but a healthy phone link must never prevent saved
-    // Wi-Fi from being restored.
+    // Give MEL Mobile first refusal. If we see an Android advertisement, extend
+    // the window to let GATT/MTU/service discovery complete before using Wi-Fi.
+    constexpr int first_window_ms = 8000;
+    constexpr int candidate_window_ms = 20000;
+    int elapsed_ms = 0;
+
+    ESP_LOGI(TAG, "TRANSPORT PRIORITY: MEL Mobile first, Wi-Fi fallback after %d ms", first_window_ms);
+    while (elapsed_ms < candidate_window_ms) {
+        if (mel_terminal_online()) {
+            ESP_LOGI(TAG, "TRANSPORT SELECTED: MEL Mobile + authenticated MEL session");
+            wifi_fallback_task_handle = nullptr;
+            vTaskDelete(nullptr);
+            return;
+        }
+        if (mel_mobile_bridge_ready()) {
+            // BLE/GATT alone is not Internet. Give the authenticated MEL session
+            // a short chance to validate before deciding whether Wi-Fi is needed.
+            mel_terminal_start_online();
+        }
+
+        if (elapsed_ms >= first_window_ms && !mel_mobile_bridge_candidate_seen()) break;
+        vTaskDelay(pdMS_TO_TICKS(250));
+        elapsed_ms += 250;
+    }
+
+    if (mel_terminal_online()) {
+        ESP_LOGI(TAG, "TRANSPORT SELECTED: MEL Mobile after authenticated validation");
+        wifi_fallback_task_handle = nullptr;
+        vTaskDelete(nullptr);
+        return;
+    }
+
+    if (mel_mobile_bridge_ready()) {
+        ESP_LOGW(TAG, "MEL Mobile BLE connected but MEL session is still offline; enabling Wi-Fi recovery");
+    }
+
     if (wifi_got_ip || wifi_connect_task_handle) {
+        ESP_LOGI(TAG, "Wi-Fi fallback skipped: Wi-Fi already active/connecting");
         wifi_fallback_task_handle = nullptr;
         vTaskDelete(nullptr);
         return;
@@ -1839,14 +1873,22 @@ static void wifi_fallback_after_ble_task(void *) {
     char saved_ssid[33] = {};
     char saved_pwd[65] = {};
     if (!wifi_load_credentials(saved_ssid, sizeof(saved_ssid), saved_pwd, sizeof(saved_pwd))) {
-        if (mel_mobile_bridge_ready()) {
-            ESP_LOGW(TAG, "No saved Wi-Fi; MEL Mobile remains available as secondary transport");
-            mel_terminal_start_online();
-        } else {
-            ESP_LOGW(TAG, "No saved Wi-Fi; opening Wi-Fi setup");
-            wifi_scan_requested = true;
-            request_view(MINI_VIEW_WIFI_LIST);
+        if (mel_mobile_bridge_ready() || mel_mobile_bridge_candidate_seen()) {
+            // The phone is physically present. Do not throw the user into the Wi-Fi
+            // setup screen just because MEL authentication needs another retry.
+            // Keep BLE primary and retry online validation in place.
+            ESP_LOGW(TAG, "MEL Mobile present but session offline; keeping UI and retrying BLE auth (no saved Wi-Fi)");
+            for (int retry = 0; retry < 12 && !mel_terminal_online(); ++retry) {
+                if (mel_mobile_bridge_ready()) mel_terminal_start_online();
+                vTaskDelay(pdMS_TO_TICKS(2500));
+            }
+            wifi_fallback_task_handle = nullptr;
+            vTaskDelete(nullptr);
+            return;
         }
+        ESP_LOGW(TAG, "No MEL Mobile candidate and no saved Wi-Fi; opening Wi-Fi setup");
+        wifi_scan_requested = true;
+        request_view(MINI_VIEW_WIFI_LIST);
         wifi_fallback_task_handle = nullptr;
         vTaskDelete(nullptr);
         return;
@@ -1854,7 +1896,7 @@ static void wifi_fallback_after_ble_task(void *) {
 
     char *payload = (char *)calloc(1, 33 + 65);
     if (!payload) {
-        ESP_LOGE(TAG, "Saved Wi-Fi recovery allocation failed");
+        ESP_LOGE(TAG, "Wi-Fi fallback allocation failed");
         wifi_fallback_task_handle = nullptr;
         vTaskDelete(nullptr);
         return;
@@ -1862,25 +1904,21 @@ static void wifi_fallback_after_ble_task(void *) {
     snprintf(payload, 33, "%s", saved_ssid);
     snprintf(payload + 33, 65, "%s", saved_pwd);
 
-    ESP_LOGI(TAG, "Starting persistent saved Wi-Fi: %s", saved_ssid);
-    BaseType_t created = xTaskCreatePinnedToCore(
+    ESP_LOGW(TAG, "MEL Mobile unavailable; starting saved Wi-Fi fallback: %s", saved_ssid);
+    xTaskCreatePinnedToCore(
         wifi_connect_task,
-        "mini_wifi_persistent",
+        "mini_wifi_fallback",
         6144,
         payload,
         3,
         &wifi_connect_task_handle,
         0
     );
-    if (created != pdPASS) {
-        ESP_LOGE(TAG, "Could not start saved Wi-Fi task");
-        free(payload);
-        wifi_connect_task_handle = nullptr;
-    }
 
     wifi_fallback_task_handle = nullptr;
     vTaskDelete(nullptr);
 }
+
 extern "C" void app_main(void) {
     ESP_LOGI(TAG, "MINI ULTRA SAFE BOOT");
 
@@ -1942,7 +1980,7 @@ extern "C" void app_main(void) {
     xTaskCreatePinnedToCore(mobile_bridge_watch_task, "mel_mobile_watch", 4096, nullptr, 3, nullptr, 0);
     ESP_LOGI(TAG, "STEP 5.5 OK: MEL MOBILE SCANNING");
 
-    ESP_LOGI(TAG, "STEP 6: WIFI STACK (PERSISTENT INTERNET)");
+    ESP_LOGI(TAG, "STEP 6: WIFI STACK (FALLBACK READY, NOT CONNECTED)");
     ESP_ERROR_CHECK(mini_wifi_stack_init());
     ESP_LOGI(TAG, "STEP 6 OK: STA-ONLY WIFI STACK READY (FR channels 1-13)");
 
@@ -1951,11 +1989,11 @@ extern "C" void app_main(void) {
         lvgl_port_unlock();
     }
 
-    // Restore saved Wi-Fi immediately and keep BLE running in parallel.
-    // ONLINE must no longer depend on the Android phone being present.
+    // Do not auto-connect Wi-Fi at boot. MEL Mobile gets priority; only if the
+    // phone is absent/unusable do we fall back to saved Wi-Fi credentials.
     xTaskCreatePinnedToCore(
         wifi_fallback_after_ble_task,
-        "mini_wifi_boot",
+        "mini_transport_select",
         4096,
         nullptr,
         3,
