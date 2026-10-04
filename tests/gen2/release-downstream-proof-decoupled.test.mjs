@@ -235,3 +235,14 @@ test('decoupled Compétences proof binds live capabilities, verified skills, XP 
   assert.match(parallel,/api\/learning\/progress/);
   assert.equal([...parallel.matchAll(/'([^']+)'/g)].some(([,route])=>route.includes('/learning/')&&route!=='/api/learning/progress'),false);
 });
+
+
+test('decoupled MEL-FILE and SOV proofs fail fast when target SHA is no longer deployed', async () => {
+  const workflow=await readFile(new URL('../../.github/workflows/release-downstream-proof-decoupled.yml',import.meta.url),'utf8');
+  const fileBlock=workflow.split('\n  file:\n')[1]?.split('\n  sovereignty:\n')[0]||'';
+  const sovBlock=workflow.split('\n  sovereignty:\n')[1]?.split('\n  summary:\n')[0]||'';
+  assert.match(fileBlock,/MEL-FILE target SHA is no longer deployed; stopping obsolete downstream proof/);
+  assert.match(fileBlock,/exit 42/);
+  assert.match(sovBlock,/SOV target SHA is no longer deployed; stopping obsolete downstream proof/);
+  assert.match(sovBlock,/exit 42/);
+});
