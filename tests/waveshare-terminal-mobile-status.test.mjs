@@ -5,7 +5,7 @@ import { readFile } from 'node:fs/promises';
 const root = new URL('../', import.meta.url);
 // Fresh-head guard: run this contract against the current PR merge ref.
 
-test('MINI 0.4.29 reports the real mobile link independently from Wi-Fi', async () => {
+test('MINI 0.4.30 reports the real mobile link independently from Wi-Fi', async () => {
   const [runtime, main, header, workflow] = await Promise.all([
     readFile(new URL('firmware/waveshare-terminal/main/mel_terminal.cpp', root), 'utf8'),
     readFile(new URL('firmware/waveshare-terminal/main/main.cpp', root), 'utf8'),
@@ -13,8 +13,8 @@ test('MINI 0.4.29 reports the real mobile link independently from Wi-Fi', async 
     readFile(new URL('.github/workflows/waveshare-terminal-firmware.yml', root), 'utf8'),
   ]);
 
-  assert.match(header, /MEL_FW_VERSION "0\.4\.29-online-camera-noise"/);
-  assert.match(workflow, /"version": "0\.4\.29-online-camera-noise"/);
+  assert.match(header, /MEL_FW_VERSION "0\.4\.30-safe-boot-online"/);
+  assert.match(workflow, /"version": "0\.4\.30-safe-boot-online"/);
 
   assert.match(runtime, /void mel_terminal_set_mobile_connected\(bool connected\)/);
   assert.match(runtime, /ui_status\(g_online \? "MEL MOBILE CONNECTE" : "MOBILE CONNECTE"\)/);
@@ -113,13 +113,16 @@ test('successful fresh pair is accepted as immediate online proof', async () => 
   assert.match(runtime, /\/api\/device\/v1\/heartbeat/);
 });
 
-test('camera enables low-light cleanup controls', async () => {
+test('camera boot path stays on safe sensor defaults', async () => {
   const main = await readFile(
     new URL('../firmware/waveshare-terminal/main/main.cpp', import.meta.url),
     'utf8'
   );
-  assert.match(main, /set_denoise\(sensor, 4\)/);
-  assert.match(main, /GAINCEILING_8X/);
-  assert.match(main, /set_bpc\(sensor, 1\)/);
-  assert.match(main, /set_wpc\(sensor, 1\)/);
+  const start = main.indexOf('static bool camera_probe_once');
+  const end = main.indexOf('static const char *wifi_reason_text', start);
+  const probe = main.slice(start, end);
+  assert.match(probe, /safe defaults/);
+  assert.doesNotMatch(probe, /set_denoise\(/);
+  assert.doesNotMatch(probe, /set_gainceiling\(/);
+  assert.doesNotMatch(probe, /set_whitebal\(/);
 });
