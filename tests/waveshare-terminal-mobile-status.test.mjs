@@ -55,3 +55,30 @@ test('Camera capture is serialized and boot no longer consumes a frame', async (
   assert.match(main, /xSemaphoreTake\(camera_test_mutex/);
   assert.match(main, /xSemaphoreGive\(camera_test_mutex/);
 });
+
+
+test('MINI camera test no longer disconnects Wi-Fi or reinitializes the driver', async () => {
+  const main = await readFile(
+    new URL('../firmware/waveshare-terminal/main/main.cpp', import.meta.url),
+    'utf8'
+  );
+  const start = main.indexOf('static void settings_camera_test_task');
+  const end = main.indexOf('static void settings_camera_clicked', start);
+  const task = main.slice(start, end);
+  assert.doesNotMatch(task, /esp_wifi_disconnect\(\)/);
+  assert.doesNotMatch(task, /esp_camera_deinit\(\)/);
+  assert.doesNotMatch(task, /esp_camera_port_init\(/);
+  assert.match(task, /esp_camera_sensor_get\(\)/);
+  assert.match(task, /esp_camera_fb_get\(\)/);
+  assert.match(task, /attente trame \(max 4 s\)/);
+  assert.match(main, /camera_task_ok != pdPASS/);
+});
+
+test('MINI restarts MEL online validation on every physical BLE reconnect', async () => {
+  const main = await readFile(
+    new URL('../firmware/waveshare-terminal/main/main.cpp', import.meta.url),
+    'utf8'
+  );
+  assert.match(main, /if \(!physical_ready\)[\s\S]*mel_terminal_set_mobile_connected\(true\);[\s\S]*mel_terminal_start_online\(\);/);
+  assert.match(main, /online validation restarted/);
+});
