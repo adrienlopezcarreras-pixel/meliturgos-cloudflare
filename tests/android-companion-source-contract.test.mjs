@@ -707,3 +707,12 @@ test('Android MINI relay distinguishes phone connectivity from MEL authenticatio
   assert.match(service,/APPLI MEL À RÉAPPAIRER/);
   assert.match(service,/request\.path == "\/api\/device\/v1\/pair"/);
 });
+
+
+test('Android MINI BLE preserves response ordering after notification fallback', async () => {
+  const service=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelBleBridgeService.kt',root),'utf8');
+  assert.match(service,/pullOnlyResponseIds/);
+  assert.match(service,/switching response \$responseId to pull-only/);
+  assert.match(service,/pullOnlyResponseIds\[device\.address\] = responseId/);
+  assert.match(service,/pullOnlyResponseIds\.remove\(device\.address\)/);
+});
