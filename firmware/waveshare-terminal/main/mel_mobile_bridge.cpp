@@ -48,6 +48,7 @@ static const uint8_t OP_BEGIN = 0x01;
 static const uint8_t OP_BODY = 0x02;
 static const uint8_t OP_END = 0x03;
 static const uint8_t OP_PING = 0x04;
+static const uint8_t OP_META_CHUNK = 0x05;
 static const uint8_t OP_RESPONSE_BEGIN = 0x11;
 static const uint8_t OP_RESPONSE_BODY = 0x12;
 static const uint8_t OP_RESPONSE_END = 0x13;
@@ -617,10 +618,25 @@ static esp_err_t request_common(
     std::string meta = json_string(root);
     cJSON_Delete(root);
 
-    bool ok = write_frame(OP_BEGIN, id, reinterpret_cast<const uint8_t *>(meta.data()), meta.size());
+    const uint16_t mtu = ble_att_mtu(g_conn_handle);
+    const size_t chunk = std::max<size_t>(12, std::min<size_t>(500, mtu > 8 ? (size_t)mtu - 8 : 15));
+
+    bool ok = true;
+    if (meta.size() <= chunk) {
+        ok = write_frame(OP_BEGIN, id, reinterpret_cast<const uint8_t *>(meta.data()), meta.size());
+    } else {
+        // The Redmi/Android GATT server can legitimately negotiate the BLE minimum
+        // MTU (23). Fragment request metadata instead of treating a healthy BLE link
+        // as unusable merely because the JSON header is larger than one ATT packet.
+        for (size_t off = 0; ok && off < meta.size(); off += chunk) {
+            const size_t n = std::min(chunk, meta.size() - off);
+            ok = write_frame(OP_META_CHUNK, id,
+                             reinterpret_cast<const uint8_t *>(meta.data() + off), n);
+        }
+        if (ok) ok = write_frame(OP_BEGIN, id, nullptr, 0);
+    }
+
     if (ok && body_len) {
-        const uint16_t mtu = ble_att_mtu(g_conn_handle);
-        const size_t chunk = std::max<size_t>(12, std::min<size_t>(500, mtu > 8 ? (size_t)mtu - 8 : 15));
         for (size_t off = 0; ok && off < body_len; off += chunk) {
             const size_t n = std::min(chunk, body_len - off);
             ok = write_frame(OP_BODY, id, body + off, n);
