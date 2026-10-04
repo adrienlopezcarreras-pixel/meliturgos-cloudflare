@@ -62,3 +62,20 @@ test('code-sync discovery excludes used, quarantined and exhausted retry-cycle e
   assert.match(discovery,/EXCLUDED_ENDPOINT/);
   assert.match(discovery,/excluded\.has\(c\.id\)/);
 });
+
+
+test('bounded ShardVault qualification stays small while activation still uses the real snapshot', () => {
+  const runtime=fs.readFileSync(new URL('../src/continuity/shardvault-runtime.js',import.meta.url),'utf8');
+  assert.match(runtime,/const qualificationBytes=Math\.max\(64\*1024,Math\.min\(requiredBytes,256\*1024\)\)/);
+  assert.match(runtime,/readValidatedExternalEndpoints\(env,qualificationBytes\)/);
+  assert.match(runtime,/requiredBytes:qualificationBytes/);
+  assert.match(runtime,/qualification_bytes:qualificationBytes/);
+  assert.match(runtime,/runShardVaultCycle\(env,\{force:true,skipExternalCode:true\}\)/);
+});
+
+test('release ShardVault scan probes two candidates per batch and resets cursor for Internet discovery', () => {
+  const workflow=fs.readFileSync(new URL('../.github/workflows/deploy-cloudflare-release.yml',import.meta.url),'utf8');
+  assert.match(workflow,/SHARD_PROBE_LIMIT=2/);
+  assert.match(workflow,/SHARD_OFFSET=\$\(\( \(SHARD_ATTEMPT - 1\) \* SHARD_PROBE_LIMIT \)\)/);
+  assert.match(workflow,/SHARD_OFFSET=\$\(\( \(\(SHARD_ATTEMPT - 8\) % 7\) \* SHARD_PROBE_LIMIT \)\)/);
+});
