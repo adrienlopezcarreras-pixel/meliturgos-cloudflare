@@ -5,7 +5,7 @@ import { readFile } from 'node:fs/promises';
 const root = new URL('../', import.meta.url);
 // Fresh-head guard: run this contract against the current PR merge ref.
 
-test('MINI 0.4.31 reports the real mobile link independently from Wi-Fi', async () => {
+test('MINI 0.4.33 reports the real mobile link independently from Wi-Fi', async () => {
   const [runtime, main, header, workflow] = await Promise.all([
     readFile(new URL('firmware/waveshare-terminal/main/mel_terminal.cpp', root), 'utf8'),
     readFile(new URL('firmware/waveshare-terminal/main/main.cpp', root), 'utf8'),
@@ -13,8 +13,8 @@ test('MINI 0.4.31 reports the real mobile link independently from Wi-Fi', async 
     readFile(new URL('.github/workflows/waveshare-terminal-firmware.yml', root), 'utf8'),
   ]);
 
-  assert.match(header, /MEL_FW_VERSION "0\.4\.31-sticky-online"/);
-  assert.match(workflow, /"version": "0\.4\.31-sticky-online"/);
+  assert.match(header, /MEL_FW_VERSION "0\.4\.33-mobile-retry"/);
+  assert.match(workflow, /"version": "0\.4\.33-mobile-retry"/);
 
   assert.match(runtime, /void mel_terminal_set_mobile_connected\(bool connected\)/);
   assert.match(runtime, /ui_status\(g_online \? "MEL MOBILE CONNECTE" : "MOBILE CONNECTE"\)/);
@@ -125,4 +125,16 @@ test('camera boot path stays on safe sensor defaults', async () => {
   assert.doesNotMatch(probe, /set_denoise\(/);
   assert.doesNotMatch(probe, /set_gainceiling\(/);
   assert.doesNotMatch(probe, /set_whitebal\(/);
+});
+
+
+test('MINI keeps retrying MEL validation while BLE stays physically ready', async () => {
+  const [main, runtime] = await Promise.all([
+    readFile(new URL('../firmware/waveshare-terminal/main/main.cpp', import.meta.url), 'utf8'),
+    readFile(new URL('../firmware/waveshare-terminal/main/mel_terminal.cpp', import.meta.url), 'utf8'),
+  ]);
+  assert.match(main, /session offline; retrying validation/);
+  assert.match(main, /revalidate_seconds >= 5/);
+  assert.match(runtime, /MEL session transient failure attempt=/);
+  assert.match(runtime, /for \(int attempt = 1; attempt <= 6; \+\+attempt\)/);
 });
