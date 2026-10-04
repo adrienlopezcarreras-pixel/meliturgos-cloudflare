@@ -415,7 +415,7 @@ test('Android Complete mode exposes an authenticated self diagnostic',async()=>{
   const vm=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelViewModel.kt',root),'utf8');
   const api=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelApiClient.kt',root),'utf8');
   const build=await readFile(new URL('app/build.gradle.kts',root),'utf8');
-  assert.match(build,/versionCode = 63/);
+  assert.match(build,/versionCode = 64/);
   assert.match(build,/versionName = "0\.6\.54-mini-heartbeat-compact"/);
   assert.match(api,/APP_VERSION = "0\.6\.54-mini-heartbeat-compact"/);
   assert.match(vm,/val diagnosticReport: String\? = null/);
@@ -438,7 +438,7 @@ test('Android device validation probes are authenticated and bounded',async()=>{
   const build=await readFile(new URL('app/build.gradle.kts',root),'utf8');
   const api=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelApiClient.kt',root),'utf8');
 
-  assert.match(build,/versionCode = 63/);
+  assert.match(build,/versionCode = 64/);
   assert.match(build,/versionName = "0\.6\.54-mini-heartbeat-compact"/);
   assert.match(api,/APP_VERSION = "0\.6\.54-mini-heartbeat-compact"/);
 
@@ -472,7 +472,7 @@ test('real mic and file successes feed the diagnostic report',async()=>{
   const build=await readFile(new URL('app/build.gradle.kts',root),'utf8');
   const api=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelApiClient.kt',root),'utf8');
 
-  assert.match(build,/versionCode = 63/);
+  assert.match(build,/versionCode = 64/);
   assert.match(build,/versionName = "0\.6\.54-mini-heartbeat-compact"/);
   assert.match(api,/APP_VERSION = "0\.6\.54-mini-heartbeat-compact"/);
 
@@ -491,7 +491,7 @@ test('Android dark UI keeps readable content contrast',async()=>{
   const build=await readFile(new URL('app/build.gradle.kts',root),'utf8');
   const api=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelApiClient.kt',root),'utf8');
 
-  assert.match(build,/versionCode = 63/);
+  assert.match(build,/versionCode = 64/);
   assert.match(build,/versionName = "0\.6\.54-mini-heartbeat-compact"/);
   assert.match(api,/APP_VERSION = "0\.6\.54-mini-heartbeat-compact"/);
 
@@ -697,7 +697,7 @@ test('Android MINI bridge distinguishes phone Internet from proven MEL relay',as
   assert.match(service,/MINI CONNECTÉE · INTERNET OK/);
   assert.match(activity,/phoneInternetReady by MelBleBridgeService\.phoneInternetAvailable/);
   assert.match(activity,/téléphone en ligne · validation MEL en cours/);
-  assert.match(build,/versionCode = 63/);
+  assert.match(build,/versionCode = 64/);
   assert.match(build,/versionName = "0\.6\.54-mini-heartbeat-compact"/);
 });
 
