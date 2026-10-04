@@ -75,9 +75,10 @@ test('temporary dev-light release accepts explicit PAUSED_FOR_ROADMAP code-sync 
   assert.match(readiness,/env\?\.MEL_SHARDVAULT_ROADMAP_PAUSED/);
   assert.match(source,/PRODUCTION_CODE_SYNC_UNEXPECTED_PAUSE/);
   assert.match(source,/PRODUCTION_CODE_SYNC_PAUSE_NOT_EXPLICIT/);
-  assert.match(source,/status!=='COPIED'/);
+  assert.match(source,/\['COPIED','QUORUM_COPIED'\]\.includes\(status\)/);
   assert.match(source,/PRODUCTION_CODE_SYNC_TARGET_LT_7/);
-  assert.match(source,/PRODUCTION_CODE_SYNC_SUCCESSFUL_ENDPOINTS_LT_7/);
+  assert.match(source,/PRODUCTION_CODE_SYNC_SUCCESSFUL_ENDPOINTS_LT_RELEASE_QUORUM/);
+  assert.match(source,/PRODUCTION_CODE_SYNC_QUORUM_RECONSTRUCTION_NOT_VERIFIED/);
   assert.match(source,/PRODUCTION_CODE_SYNC_ROUNDTRIP_NOT_VERIFIED/);
 });
 
