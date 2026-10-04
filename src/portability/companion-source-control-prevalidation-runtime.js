@@ -84,7 +84,7 @@ export async function runCompanionSourceControlPrevalidationRuntime(env,{
     layer:'source_control',
     id:'companion-local-git',
     status:'UNVERIFIED',
-    metadata:{revalidation_requested:true,source_sha:sourceSha},
+    metadata:{prevalidated:false,activation_allowed:false,revalidation_requested:true,source_sha:sourceSha},
   });
   const scopedCandidateStore=scopeSovereigntyCandidateStore(candidateStore,{
     keys:['source_control::companion-local-git'],
