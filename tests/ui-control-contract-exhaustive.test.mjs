@@ -43,14 +43,14 @@ function assertIdButtonsWired(html, source, label) {
     const markup=String(html);
     const buttonMatch=new RegExp('<button\\b[^>]*\\bid=["\\\']'+escaped+'["\\\'][^>]*>','i').exec(markup);
     let formId=null;
-    if(buttonMatch&&/\\btype=["']submit["']/i.test(buttonMatch[0])){
+    if(buttonMatch&&/\btype=["']submit["']/i.test(buttonMatch[0])){
       const before=markup.slice(0,buttonMatch.index);
       const formOpen=before.lastIndexOf('<form');
       const formClose=before.lastIndexOf('</form>');
       if(formOpen>formClose){
         const formTagEnd=markup.indexOf('>',formOpen);
         const formTag=markup.slice(formOpen,formTagEnd+1);
-        formId=formTag.match(/\\bid=["']([^"']+)["']/i)?.[1]||null;
+        formId=formTag.match(/\bid=["']([^"']+)["']/i)?.[1]||null;
       }
     }
     const formBound = formId
