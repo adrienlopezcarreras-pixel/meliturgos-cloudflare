@@ -875,7 +875,7 @@ class PermissionsForm : Form
     public PermissionsForm()
     {
         Text = "MEL Companion — autorisations";
-        ClientSize = new Size(650, 560);
+        ClientSize = new Size(720, 610);
         StartPosition = FormStartPosition.CenterParent;
         FormBorderStyle = FormBorderStyle.FixedDialog;
         MaximizeBox = false;
@@ -884,15 +884,20 @@ class PermissionsForm : Form
         ForeColor = MelApp.Text;
         AutoScaleMode = AutoScaleMode.None;
         Font = new Font("Segoe UI", 9f, FontStyle.Regular);
+        DoubleBuffered = true;
+        Paint += delegate(object s, PaintEventArgs e){ MelApp.PaintBackdrop(e.Graphics, ClientSize.Width, ClientSize.Height); };
 
-        Controls.Add(MelApp.Label("AUTORISATIONS LOCALES",28,22,350,34,14,MelApp.Cyan,FontStyle.Bold));
-        Controls.Add(MelApp.Label("MEL ne pourra jamais dépasser ces autorisations sur ce PC.",30,60,580,28,9.5f,MelApp.Muted,FontStyle.Regular));
+        Controls.Add(MelApp.MelFace(28,20,78));
+        Controls.Add(MelApp.Label("AUTORISATIONS LOCALES",126,28,380,34,15,MelApp.Cyan,FontStyle.Bold));
+        Controls.Add(MelApp.Label("MEL ne dépassera jamais les droits activés ici.",126,62,500,24,9.5f,MelApp.Muted,FontStyle.Regular));
+        Controls.Add(MelApp.Pill("LOCAL ONLY",552,30,132,24,MelApp.Violet));
 
         var currentApps = MelApp.ConfigList("allowed_apps");
         var currentPaths = MelApp.ConfigList("allowed_paths");
 
-        var appsPanel = new Panel(); appsPanel.SetBounds(28,105,594,185); appsPanel.BackColor = MelApp.Panel; Controls.Add(appsPanel);
-        appsPanel.Controls.Add(MelApp.Label("APPLICATIONS",18,12,180,24,9,MelApp.Cyan,FontStyle.Bold));
+        var appsPanel = MelApp.Card(28,116,664,190,MelApp.Cyan); Controls.Add(appsPanel);
+        appsPanel.Controls.Add(MelApp.Label("APPLICATIONS",20,14,180,24,9,MelApp.Cyan,FontStyle.Bold));
+        appsPanel.Controls.Add(MelApp.Label("Accès autorisé au moteur local",20,36,260,20,8,MelApp.Muted,FontStyle.Regular));
         for (int i=0;i<MelApp.PermissionApps.Length;i++)
         {
             var box = new CheckBox();
@@ -900,13 +905,14 @@ class PermissionsForm : Form
             box.Tag = MelApp.PermissionApps[i];
             box.Checked = MelApp.ContainsIgnoreCase(currentApps, MelApp.PermissionApps[i]);
             box.ForeColor = MelApp.Text; box.BackColor = Color.Transparent; box.AutoSize = true;
+            box.Font = new Font("Segoe UI",9f,FontStyle.Regular);
             int col = i < 3 ? 0 : 1, row = i < 3 ? i : i-3;
-            box.SetBounds(20 + col*280, 46 + row*38, 250, 28);
+            box.SetBounds(22 + col*306, 70 + row*34, 280, 28);
             appsPanel.Controls.Add(box); appBoxes.Add(box);
         }
 
-        var pathsPanel = new Panel(); pathsPanel.SetBounds(28,305,594,155); pathsPanel.BackColor = MelApp.Panel; Controls.Add(pathsPanel);
-        pathsPanel.Controls.Add(MelApp.Label("DOSSIERS",18,12,180,24,9,MelApp.Cyan,FontStyle.Bold));
+        var pathsPanel = MelApp.Card(28,324,664,158,MelApp.Violet); Controls.Add(pathsPanel);
+        pathsPanel.Controls.Add(MelApp.Label("DOSSIERS",20,14,180,24,9,MelApp.Violet,FontStyle.Bold));
         for (int i=0;i<paths.Length;i++)
         {
             var box = new CheckBox();
@@ -914,13 +920,13 @@ class PermissionsForm : Form
             box.Tag = paths[i];
             box.Checked = MelApp.ContainsIgnoreCase(currentPaths, paths[i]);
             box.ForeColor = MelApp.Text; box.BackColor = Color.Transparent; box.AutoSize = false;
-            box.SetBounds(20, 44 + i*32, 550, 26);
+            box.SetBounds(22, 48 + i*30, 610, 25);
             pathsPanel.Controls.Add(box); pathBoxes.Add(box);
         }
 
-        Controls.Add(MelApp.Label("Désactiver une autorisation la bloque immédiatement. La réactiver reste limitée aux droits accordés lors de l’appairage.",30,472,585,45,8.5f,MelApp.Muted,FontStyle.Regular));
-        var cancel = MelApp.TechButton("ANNULER",402,515,95,34,false); cancel.Click += delegate { Close(); }; Controls.Add(cancel);
-        var save = MelApp.TechButton("APPLIQUER",507,515,115,34,true); save.Click += Apply; Controls.Add(save);
+        Controls.Add(MelApp.Label("Toute désactivation est immédiate. Une réactivation reste limitée aux droits accordés lors de l’appairage.",32,500,640,40,8.5f,MelApp.Muted,FontStyle.Regular));
+        var cancel = MelApp.TechButton("ANNULER",472,548,100,38,false); cancel.Click += delegate { Close(); }; Controls.Add(cancel);
+        var save = MelApp.TechButton("APPLIQUER",584,548,108,38,true); save.Click += Apply; Controls.Add(save);
     }
 
     void Apply(object sender, EventArgs e)
