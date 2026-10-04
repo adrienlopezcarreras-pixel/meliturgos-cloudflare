@@ -188,13 +188,13 @@ class MelBleBridgeService : Service() {
         registerNetworkWatch()
         miniPairingComplete.value = getSharedPreferences("mel_mobile_bridge", MODE_PRIVATE)
             .getBoolean("mini_pairing_complete", false)
-        bridgeState.value = "D├ëMARRAGE"
+        bridgeState.value = "DEMARRAGE"
         startForeground(
             NOTIFICATION_ID,
             NotificationCompat.Builder(this, CHANNEL_ID)
                 .setSmallIcon(R.drawable.ic_mel_avatar)
                 .setContentTitle("MEL Mobile")
-                .setContentText("Pont Bluetooth pr├¬t pour la MINI")
+                .setContentText("Pont Bluetooth pret pour la MINI")
                 .setOngoing(true)
                 .setSilent(true)
                 .build()
@@ -411,7 +411,7 @@ class MelBleBridgeService : Service() {
             .build()
         val callback = object : AdvertiseCallback() {
             override fun onStartSuccess(settingsInEffect: AdvertiseSettings?) {
-                bridgeState.value = "PR├èT"
+                bridgeState.value = "PRET"
                 Log.i(TAG, "MEL Mobile advertising started")
             }
             override fun onStartFailure(errorCode: Int) {
@@ -474,7 +474,7 @@ class MelBleBridgeService : Service() {
                 subscribed[device.address] = false
                 miniLinkReady.value = false
                 internetReady.value = false
-                bridgeState.value = "MINI LI├ëE ┬À INITIALISATION CANAL"
+                bridgeState.value = "MINI LIEE | INITIALISATION CANAL"
                 publishBleDiagnostic(status, newState, null)
             } else {
                 val started = connectedAtMs.remove(device.address)
@@ -483,7 +483,7 @@ class MelBleBridgeService : Service() {
                 publishBleDiagnostic(status, newState, duration)
                 miniLinkReady.value = false
                 internetReady.value = false
-                bridgeState.value = if (adapter?.isEnabled == true) "PR├èT" else "BLUETOOTH OFF"
+                bridgeState.value = if (adapter?.isEnabled == true) "PRET" else "BLUETOOTH OFF"
                 requests.remove(device.address)
                 metaFrames.remove(device.address)
                 metaFrameIds.remove(device.address)
@@ -541,7 +541,7 @@ class MelBleBridgeService : Service() {
                         "MINI CONNECTÉE · TÉLÉPHONE HORS LIGNE"
                     Log.i(TAG, "MINI BLE response channel ready ${device.address}")
                 } else {
-                    bridgeState.value = "MINI LI├ëE ┬À CANAL INACTIF"
+                    bridgeState.value = "MINI LIEE | CANAL INACTIF"
                 }
             }
         }
@@ -944,7 +944,7 @@ class MelBleBridgeService : Service() {
             }
         }.getOrElse {
             internetReady.value = false
-            bridgeState.value = "MINI CONNECT├ëE ┬À INTERNET ERREUR"
+            bridgeState.value = "MINI CONNECTEE | INTERNET ERREUR"
             Log.e(TAG, "MEL relay open failed ${request.method} ${request.path}", it)
             sendError(device, request.id, "NETWORK_OPEN")
             return
@@ -1058,7 +1058,7 @@ class MelBleBridgeService : Service() {
             sendFrame(device, packet(OP_RESPONSE_END, request.id, byteArrayOf()))
         } catch (error: Throwable) {
             internetReady.value = false
-            bridgeState.value = "MINI CONNECT├ëE ┬À INTERNET ERREUR"
+            bridgeState.value = "MINI CONNECTEE | INTERNET ERREUR"
             Log.e(TAG, "Relay failed ${request.method} ${request.path}", error)
             sendError(device, request.id, "NETWORK_READ")
         } finally {
@@ -1324,7 +1324,7 @@ class MelBleBridgeService : Service() {
             val manager = getSystemService(NotificationManager::class.java)
             manager.createNotificationChannel(
                 NotificationChannel(CHANNEL_ID, "MEL Mobile", NotificationManager.IMPORTANCE_LOW).apply {
-                    description = "Connexion itin├®rante de la MINI via Bluetooth"
+                    description = "Connexion itinerante de la MINI via Bluetooth"
                 }
             )
         }
