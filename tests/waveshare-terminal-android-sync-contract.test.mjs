@@ -128,3 +128,27 @@ test('MINI accepts Android Bluetooth-base UUIDs encoded as 128-bit GATT UUIDs', 
   assert.match(bridge, /peer_disc_all\(conn_handle, on_discovery_complete/);
   assert.match(bridge, /NimBLE ble_uuid_cmp\(\) is type-strict/);
 });
+
+
+test('MINI requires authenticated MEL online before cancelling Wi-Fi recovery', async () => {
+  const main = await readFile(
+    new URL('../firmware/waveshare-terminal/main/main.cpp', import.meta.url),
+    'utf8'
+  );
+  assert.match(main, /if \(mel_terminal_online\(\)\)/);
+  assert.match(main, /MEL Mobile BLE connected but MEL session is still offline; enabling Wi-Fi recovery/);
+  assert.match(main, /mel_terminal_start_online\(\);/);
+  assert.match(main, /mini_wifi_event_diag[\s\S]*mel_terminal_start_online\(\);/);
+});
+
+test('MINI camera follows Waveshare early bring-up and shared SCCB I2C0', async () => {
+  const [main, workflow] = await Promise.all([
+    readFile(new URL('../firmware/waveshare-terminal/main/main.cpp', import.meta.url), 'utf8'),
+    readFile(new URL('../.github/workflows/waveshare-terminal-firmware.yml', import.meta.url), 'utf8'),
+  ]);
+  assert.match(main, /STEP 4\.5: CAMERA DVP EARLY/);
+  assert.match(main, /camera_probe_once\("EARLY"\)/);
+  assert.match(main, /SCCB probe 0x3c=%s 0x30=%s/);
+  assert.match(workflow, /set_cfg_y CONFIG_SCCB_HARDWARE_I2C_PORT0/);
+  assert.match(workflow, /set_cfg_n CONFIG_SCCB_HARDWARE_I2C_PORT1/);
+});
