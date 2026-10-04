@@ -208,3 +208,16 @@ test('browser live proof uses MEL-owned deterministic public content', async () 
   assert.doesNotMatch(block, /https:\/\/example\.com/);
   assert.doesNotMatch(block, /Example Domain/);
 });
+
+test('canonical release accepts Teacher-proven progress while keeping blocked backlog observable', async () => {
+  const source = await readFile(new URL('../.github/workflows/deploy-cloudflare-release.yml', import.meta.url), 'utf8');
+  const start = source.indexOf("const d=require('./production-capability-watch-proof.json')");
+  const end = source.indexOf("console.log('GEN2-42 production Teacher handoff proof passed", start);
+  const block = source.slice(start, end);
+  assert.ok(start >= 0 && end > start, 'GEN2-42 workflow proof contract must exist');
+  assert.match(block, /teacherProvenCount>=1/);
+  assert.match(block, /blockedCount>=0/);
+  assert.match(block, /teacherProvenCount\+blockedCount===openCount/);
+  assert.doesNotMatch(block, /teacher_proven_handoff_count\|\|0\)===Number\(d\?\.open_handoff_count/);
+  assert.doesNotMatch(block, /blocked_open_handoff_count\|\|0\)===0/);
+});
