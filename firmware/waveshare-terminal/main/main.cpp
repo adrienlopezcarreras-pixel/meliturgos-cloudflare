@@ -693,9 +693,15 @@ static void settings_wifi_clicked(lv_event_t *e) {
 
 static void settings_pair_clicked(lv_event_t *e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-    if (mel_terminal_has_token()) {
-        if (settings_status) lv_label_set_text(settings_status, "");
+    if (mel_terminal_has_token() && mel_terminal_online()) {
+        if (settings_status) lv_label_set_text(settings_status, "MEL deja appariee et en ligne.");
         return;
+    }
+    if (pair_status) {
+        lv_label_set_text(pair_status,
+            mel_terminal_has_token()
+                ? "Liaison MEL stockee mais hors ligne. Entre un nouveau code pour reappairer."
+                : "Entre le code genere dans MEL > MINI");
     }
     request_view(MINI_VIEW_PAIR);
 }
@@ -985,17 +991,32 @@ static void settings_camera_clicked(lv_event_t *e) {
         settings_set_status("Test camera deja en cours...");
         return;
     }
+
+    // Release the previous 320x480 RGB565 preview before allocating a new task.
+    // Otherwise ~300 KiB of PSRAM plus a 7 KiB task stack stayed resident and
+    // repeated tests could fail at task creation despite the camera itself working.
+    if (settings_camera_preview) {
+        lv_obj_del(settings_camera_preview);
+        settings_camera_preview = nullptr;
+    }
+    if (settings_camera_preview_buf) {
+        heap_caps_free(settings_camera_preview_buf);
+        settings_camera_preview_buf = nullptr;
+    }
+
     settings_set_status("CAMERA : capture en cours...");
-    // Waveshare's own camera task runs on core 1. Keep the one-shot test there
-    // too, away from the camera driver's core-0 worker and LVGL/Wi-Fi activity.
     const BaseType_t camera_task_ok = xTaskCreatePinnedToCore(
-        settings_camera_test_task, "settings_camera_test", 7168, nullptr, 3,
+        settings_camera_test_task, "settings_camera_test", 4096, nullptr, 3,
         &settings_camera_test_task_handle, 1
     );
     if (camera_task_ok != pdPASS) {
         settings_camera_test_task_handle = nullptr;
-        settings_set_status("CAMERA FAIL : impossible de lancer le test (memoire).");
-        ESP_LOGE(TAG, "CAMERA TEST task creation failed; free heap=%u", (unsigned)esp_get_free_heap_size());
+        char msg[180];
+        const unsigned free_heap = (unsigned)esp_get_free_heap_size();
+        const unsigned largest = (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+        snprintf(msg, sizeof(msg), "CAMERA FAIL : memoire interne %u, bloc max %u.", free_heap, largest);
+        settings_set_status(msg);
+        ESP_LOGE(TAG, "CAMERA TEST task creation failed; free=%u largest_internal=%u", free_heap, largest);
     }
 }
 
@@ -1100,13 +1121,13 @@ static void pair_submit_clicked(lv_event_t *e) {
 static void pair_open_clicked(lv_event_t *e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
     ESP_LOGI(TAG, "UI EVENT: MEL clicked");
-    if (mel_terminal_has_token()) {
-        if (runtime_status_label) {
-            lv_label_set_text(runtime_status_label,
-                              mel_terminal_online() ? "MEL APPARIEE  EN LIGNE" : "MEL APPARIEE  RECONNEXION");
-        }
-        ESP_LOGI(TAG, "MEL pairing already stored in NVS; pair screen suppressed");
+    if (mel_terminal_has_token() && mel_terminal_online()) {
+        if (runtime_status_label) lv_label_set_text(runtime_status_label, "MEL APPARIEE  EN LIGNE");
+        ESP_LOGI(TAG, "MEL pairing valid and online; pair screen suppressed");
         return;
+    }
+    if (pair_status && mel_terminal_has_token()) {
+        lv_label_set_text(pair_status, "Liaison stockee hors ligne. Entre un nouveau code MEL.");
     }
     request_view(MINI_VIEW_PAIR);
 }
