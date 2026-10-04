@@ -777,6 +777,14 @@ class MelBleBridgeService : Service() {
     }
 
     private fun relay(device: BluetoothDevice, request: PendingRequest) {
+        // Redmi/Xiaomi can acknowledge GATT notifications even when the peer never
+        // receives them. Session-critical responses therefore use the TX
+        // characteristic read queue only. MINI already polls that queue every 60 ms.
+        if (request.path == "/api/device/v1/pair" || request.path == "/api/device/v1/heartbeat") {
+            pullOnlyResponseIds[device.address] = request.id
+            Log.i(TAG, "MEL MINI control response forced to pull-only path=${request.path} id=${request.id}")
+        }
+
         // The MINI uses /manifest only as its first authenticated liveness check.
         // Serving this tiny manifest locally avoids blocking the BLE link on the
         // firmware-manifest R2 lookup; real heartbeat/chat/voice traffic still
