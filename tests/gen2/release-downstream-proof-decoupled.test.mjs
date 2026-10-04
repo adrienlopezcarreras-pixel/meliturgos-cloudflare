@@ -71,6 +71,19 @@ test('sovereignty proof binds exact SHA through code self-check instead of requi
   assert.match(statusBlock,/TECHNICAL_SOVEREIGNTY_STATUS/);
 });
 
+test('decoupled sovereignty waits for exact-SHA release readiness before local source-control refresh', async () => {
+  const workflow=await readFile(new URL('../../.github/workflows/release-downstream-proof-decoupled.yml',import.meta.url),'utf8');
+  const block=workflow.split('\n  sovereignty:\n')[1]?.split('\n  summary:\n')[0]||'';
+  assert.match(block,/sovereignty-launch-readiness\.json/);
+  assert.match(block,/api\/teacher\/launch-readiness/);
+  assert.match(block,/GO_FOR_SUPERVISED_AUTONOMY/);
+  assert.match(block,/candidate_sha/);
+  assert.match(block,/SOV proof waiting for exact-SHA release readiness/);
+  const ready=block.indexOf('test "${RELEASE_READY}" = "1"');
+  const refresh=block.indexOf('for TARGET in ai ai_local source_control infrastructure; do');
+  assert.ok(ready>0&&refresh>ready,'SOV refresh must start only after exact-SHA launch readiness');
+});
+
 test('decoupled sovereignty proof refreshes every bounded prevalidation domain before final status', async () => {
   const workflow=await readFile(new URL('../../.github/workflows/release-downstream-proof-decoupled.yml',import.meta.url),'utf8');
   assert.match(workflow,/for TARGET in ai ai_local source_control infrastructure/);

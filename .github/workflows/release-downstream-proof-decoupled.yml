@@ -719,7 +719,7 @@ jobs:
 
   sovereignty:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 25
     env:
       PROOF_KEY_B64: ${{ secrets.MEL_BACKUP_ENCRYPTION_KEY_B64 }}
     steps:
@@ -766,6 +766,31 @@ jobs:
             esac
           done
           test "${SHA_READY}" = "1"
+
+          # The local source-control proof consumes the externally reconstructed
+          # ShardVault archive for the exact deployed SHA. The release dispatches
+          # downstream proofs before that code-sync finishes, so wait for the same
+          # exact-SHA GO_FOR_SUPERVISED_AUTONOMY gate used by MEL-FILE before
+          # starting source-control prevalidation.
+          RELEASE_READY=0
+          for ATTEMPT in $(seq 1 60); do
+            READY_CODE="$(curl --silent --show-error --max-time 30 \
+              --output sovereignty-launch-readiness.json --write-out '%{http_code}' \
+              "${BASE_URL}/api/teacher/launch-readiness" || true)"
+            if [ "${READY_CODE}" = "200" ] && TARGET_SHA="${TARGET_SHA}" node - <<'NODE'
+          const d=require('./sovereignty-launch-readiness.json');
+          const expected=String(process.env.TARGET_SHA||'').toLowerCase();
+          const actual=String(d?.candidate_sha||'').toLowerCase();
+          process.exit(d?.launch_ready===true && d?.status==='GO_FOR_SUPERVISED_AUTONOMY' && actual===expected ? 0 : 1);
+          NODE
+            then
+              RELEASE_READY=1
+              break
+            fi
+            echo "SOV proof waiting for exact-SHA release readiness; attempt ${ATTEMPT}/60."
+            sleep 10
+          done
+          test "${RELEASE_READY}" = "1"
 
           # Populate every bounded sovereignty prevalidation domain before reading
           # the final 10-layer registry. Each refresh is isolated in its own
