@@ -1,0 +1,123 @@
+name: MEL daily self-improvement
+
+on:
+  schedule:
+    - cron: '37 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write
+
+concurrency:
+  group: mel-daily-self-improvement
+  cancel-in-progress: false
+
+jobs:
+  daily:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Checkout current main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: main
+          fetch-depth: 1
+
+      - name: Resolve latest stable production SHA
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api "repos/$GITHUB_REPOSITORY/actions/workflows/deploy-cloudflare-release.yml/runs?status=success&per_page=20" > stable-runs.json
+          DEPLOYED_SHA="$(node - <<'NODE'
+          const d=require('./stable-runs.json');
+          const run=(d.workflow_runs||[]).find(r=>r?.status==='completed'&&r?.conclusion==='success'&&/^[0-9a-f]{40}$/i.test(String(r?.head_sha||'')));
+          if(!run) process.exit(2);
+          process.stdout.write(String(run.head_sha).toLowerCase());
+          NODE
+          )"
+          echo "DEPLOYED_SHA=$DEPLOYED_SHA" >> "$GITHUB_ENV"
+          echo "Daily improvement bound to stable production SHA: $DEPLOYED_SHA"
+
+      - name: Dispatch exact-SHA self-audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh workflow run mel-self-audit-production-proof.yml --ref main -f expected_sha="$DEPLOYED_SHA"
+          echo "DAILY_SELF_AUDIT_DISPATCHED sha=$DEPLOYED_SHA"
+
+      - name: Dispatch autonomous code and capability improvement pass
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh workflow run gen2-42-runtime-tick.yml --ref main -f chain_depth=0
+          echo "DAILY_AUTONOMY_IMPROVEMENT_DISPATCHED"
+
+      - name: Resume LoRA from latest immutable checkpoint
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api "repos/$GITHUB_REPOSITORY/actions/workflows/lora-kaggle-free-gpu.yml/runs?per_page=30" > lora-runs.json
+          ACTIVE="$(node - <<'NODE'
+          const d=require('./lora-runs.json');
+          const active=(d.workflow_runs||[]).filter(r=>['queued','in_progress','waiting','requested','pending'].includes(String(r?.status||'')));
+          process.stdout.write(String(active.length));
+          NODE
+          )"
+          if [ "$ACTIVE" -gt 0 ]; then
+            echo "LORA_DAILY_CHAIN_ALREADY_ACTIVE count=$ACTIVE"
+            exit 0
+          fi
+
+          gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" > lora-releases.json
+          node - <<'NODE' > lora-resume.env
+          const fs=require('fs');
+          const releases=require('./lora-releases.json');
+          const rows=releases
+            .map(r=>{
+              const m=String(r?.tag_name||'').match(/^mel-lora-kaggle-([0-9a-f]{12})-c(\d{3})$/i);
+              return m?{r,cycle:Number(m[2])}:null;
+            })
+            .filter(Boolean)
+            .sort((a,b)=>new Date(b.r.published_at||b.r.created_at||0)-new Date(a.r.published_at||a.r.created_at||0));
+          const latest=rows[0]||null;
+          if(!latest){
+            fs.writeSync(1,'LORA_PARENT_TAG=\nLORA_NEXT_CYCLE=0\nLORA_SOURCE_SHA=\n');
+          }else{
+            const sha=String(latest.r.target_commitish||'').toLowerCase();
+            if(!/^[0-9a-f]{40}$/.test(sha)) throw new Error('LORA_PARENT_SOURCE_SHA_INVALID');
+            fs.writeSync(1,[
+              'LORA_PARENT_TAG='+latest.r.tag_name,
+              'LORA_NEXT_CYCLE='+(latest.cycle+1),
+              'LORA_SOURCE_SHA='+sha,
+              ''
+            ].join('\n'));
+          }
+          NODE
+          set -a
+          . ./lora-resume.env
+          set +a
+          if [ -z "${LORA_SOURCE_SHA:-}" ]; then
+            LORA_SOURCE_SHA="$(git rev-parse HEAD)"
+          fi
+          [[ "$LORA_SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "${LORA_NEXT_CYCLE:-0}" =~ ^[0-9]+$ ]]
+
+          echo "LoRA daily resume: source=$LORA_SOURCE_SHA parent=${LORA_PARENT_TAG:-none} next_cycle=${LORA_NEXT_CYCLE:-0}"
+          gh workflow run lora-kaggle-free-gpu.yml             --repo "$GITHUB_REPOSITORY"             --ref main             -f source_sha="$LORA_SOURCE_SHA"             -f cycle="${LORA_NEXT_CYCLE:-0}"             -f parent_release_tag="${LORA_PARENT_TAG:-}"             -f shard_size=750             -f max_cycles=100             -f benchmark_preview=false             -f smoke_only=false
+          echo "LORA_DAILY_MINIMUM_PASS_DISPATCHED; chained workflow may continue additional safe cycles automatically."
+
+      - name: Record daily improvement policy
+        shell: bash
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<EOF
+          ### MEL daily self-improvement
+          - Stable production SHA: `$DEPLOYED_SHA`
+          - Code/capabilities: autonomous runtime improvement pass dispatched
+          - Verification: exact-SHA self-audit dispatched
+          - Reasoning: at least one LoRA cycle attempted daily when no LoRA chain is already active
+          - Additional LoRA cycles: automatically continue as far as zero-cost quota, tests, benchmarks and safety gates allow
+          - Regression policy: keep improvements only when verification stays green
+          EOF
