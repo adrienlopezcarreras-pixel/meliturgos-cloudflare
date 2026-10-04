@@ -449,7 +449,11 @@ static void mini_anim_cb(lv_timer_t *) {
         if (state != last_face_state && status_label) lv_label_set_text(status_label, "MEL PARLE");
     } else if (state == MEL_TERMINAL_ERROR) {
         if (state != last_face_state && status_label) lv_label_set_text(status_label, "ERREUR");
-    } else if (state != last_face_state || online != last_online) {
+    } else {
+        // Connectivity is asynchronous: BLE can become ready and MEL can later
+        // return a concrete HTTP/session result without changing the face state.
+        // Refresh this label every UI tick so diagnostics never remain stuck on
+        // the initial "HORS LIGNE" text.
         if (status_label) {
             if (online) {
                 lv_label_set_text(status_label, "PARLER");
