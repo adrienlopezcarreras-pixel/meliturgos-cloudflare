@@ -134,8 +134,14 @@ test('release rollback restores only the captured autonomy state through exact-S
   assert.match(source,/release-rollback-restore/);
   assert.match(source,/x-mel-github-oidc/);
   assert.match(source,/audience=meliturgos-worker/);
-  assert.match(source,/waiting for exact stable SHA propagation/);
+  assert.match(source,/restore_sha=\$\{PREVIOUS_DEPLOYED_SHA\}/);
+  assert.match(source,/Previous autonomy control staged in shared D1 before Worker rollback/);
+  assert.match(source,/waiting for stable propagation/);
   const rollback=source.split('Automatic rollback on failed production verification')[1]||'';
+  const staged=rollback.indexOf('restore_sha=${PREVIOUS_DEPLOYED_SHA}');
+  const workerRollback=rollback.indexOf('deployments?force=true');
+  const verifyControl=rollback.indexOf('/api/gen2/autonomy/control');
+  assert.ok(staged>=0 && workerRollback>staged && verifyControl>workerRollback);
   assert.doesNotMatch(rollback,/wrangler secret put/);
   assert.match(rollback,/if \[ "\$\{PREVIOUS_AUTONOMY_PAUSED\}" = "true" \] && \[ "\$\{PREVIOUS_MAX_AUTONOMY\}" = "false" \]/);
 });
