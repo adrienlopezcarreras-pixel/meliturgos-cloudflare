@@ -629,8 +629,8 @@ static esp_err_t request_common(
     const TickType_t wait = pdMS_TO_TICKS(120000);
     const TickType_t started = xTaskGetTickCount();
     bool completed = false;
-    bool push_mode = false;
     NotifyFrame notify_frame;
+    TickType_t last_pull = 0;
     while ((xTaskGetTickCount() - started) < wait) {
         if (xSemaphoreTake(g_response_done, 0) == pdTRUE) {
             completed = true;
@@ -638,8 +638,8 @@ static esp_err_t request_common(
         }
         if (!g_ready.load() || g_conn_handle == BLE_HS_CONN_HANDLE_NONE) break;
 
+        // Consume all push notifications first.
         while (g_notify_queue && xQueueReceive(g_notify_queue, &notify_frame, 0) == pdTRUE) {
-            push_mode = true;
             handle_rx_frame(notify_frame.data, notify_frame.len);
             if (xSemaphoreTake(g_response_done, 0) == pdTRUE) {
                 completed = true;
@@ -648,16 +648,20 @@ static esp_err_t request_common(
         }
         if (completed) break;
 
-        if (!push_mode) {
+        // IMPORTANT: Android can fall back from notify to characteristic-read
+        // for any individual response frame. The old code stopped polling forever
+        // after the first successful notification, so a later frame placed in the
+        // pull queue could never be consumed. That left MINI stuck at "MEL à valider".
+        const TickType_t now = xTaskGetTickCount();
+        if ((now - last_pull) >= pdMS_TO_TICKS(60)) {
             pull_response_frame();
+            last_pull = now;
             if (xSemaphoreTake(g_response_done, 0) == pdTRUE) {
                 completed = true;
                 break;
             }
-            vTaskDelay(pdMS_TO_TICKS(20));
-        } else {
-            vTaskDelay(pdMS_TO_TICKS(2));
         }
+        vTaskDelay(pdMS_TO_TICKS(5));
     }
     if (!completed) {
         g_active.failed = true;
