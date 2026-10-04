@@ -70,7 +70,7 @@ test('bounded ShardVault qualification stays small while activation still uses t
   assert.match(runtime,/readValidatedExternalEndpoints\(env,qualificationBytes\)/);
   assert.match(runtime,/requiredBytes:qualificationBytes/);
   assert.match(runtime,/qualification_bytes:qualificationBytes/);
-  assert.match(runtime,/runShardVaultCycle\(env,\{force:true,skipExternalCode:true\}\)/);
+  assert.match(runtime,/runShardVaultCycle\(env,\{force:true,skipExternalCode:true,activeRegistryOnly:true\}\)/);
 });
 
 test('release ShardVault scan probes two candidates per batch and resets cursor for Internet discovery', () => {
@@ -78,4 +78,13 @@ test('release ShardVault scan probes two candidates per batch and resets cursor 
   assert.match(workflow,/SHARD_PROBE_LIMIT=2/);
   assert.match(workflow,/SHARD_OFFSET=\$\(\( \(SHARD_ATTEMPT - 1\) \* SHARD_PROBE_LIMIT \)\)/);
   assert.match(workflow,/SHARD_OFFSET=\$\(\( \(\(SHARD_ATTEMPT - 8\) % 7\) \* SHARD_PROBE_LIMIT \)\)/);
+});
+
+
+test('qualified ShardVault activation never re-enters Internet discovery', () => {
+  const runtime=fs.readFileSync(new URL('../src/continuity/shardvault-runtime.js',import.meta.url),'utf8');
+  assert.match(runtime,/activeRegistryOnly=false/);
+  assert.match(runtime,/activeRegistryOnly\|\|String\(env\?\.MEL_SHARDVAULT_AUTONOMOUS/);
+  assert.match(runtime,/runShardVaultCycle\(env,\{force:true,skipExternalCode:true,activeRegistryOnly:true\}\)/);
+  assert.match(runtime,/enrichAutonomous\(env,c,estimated,\{excludeEndpointIds,activeRegistryOnly\}\)/);
 });
