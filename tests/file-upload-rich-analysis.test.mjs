@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import { handleFileUpload } from '../src/api/file-upload.js';
 import { WORKERS_AI_TRANSCRIPTION_MODEL } from '../src/media/workers-ai-media-capabilities.js';
 import {
@@ -176,6 +177,13 @@ test('small audio upload is transcribed with exact zero-cost Whisper and exposed
   assert.equal(body.analysis_provider,WORKERS_AI_TRANSCRIPTION_MODEL);
 });
 
+
+test('parallel MEL-FILE proof resolves exact deployed SHA from the compile-time define before env fallback', async () => {
+  const source=await readFile(new URL('../src/api/file-upload.js',import.meta.url),'utf8');
+  assert.match(source,/typeof MEL_DEPLOYED_GIT_SHA !== 'undefined'/);
+  assert.match(source,/defined \|\| env\?\.MEL_DEPLOYED_GIT_SHA/);
+  assert.match(source,/const deployedSha = exactDeployedSha\(env\)/);
+});
 
 test('parallel exact-SHA MEL-FILE proof upload is accepted only with matching token payload and deployed SHA', async () => {
   const token='p'.repeat(48);
