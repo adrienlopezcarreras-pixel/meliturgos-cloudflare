@@ -674,11 +674,22 @@ static void settings_refresh_status(void) {
     if (!settings_status) return;
     char ip[32] = {};
     mini_wifi_get_ip(ip, sizeof(ip));
+    const int session_status = mel_terminal_last_session_status();
+    char mel_state[56] = {};
+    if (mel_terminal_online()) {
+        snprintf(mel_state, sizeof(mel_state), "EN LIGNE");
+    } else if (session_status > 0) {
+        snprintf(mel_state, sizeof(mel_state), "HORS LIGNE HTTP %d", session_status);
+    } else if (session_status < 0) {
+        snprintf(mel_state, sizeof(mel_state), "HORS LIGNE TRANSPORT");
+    } else {
+        snprintf(mel_state, sizeof(mel_state), "HORS LIGNE");
+    }
     lv_label_set_text_fmt(settings_status,
                           "Wi-Fi: %s\nMobile: %s\nMEL: %s\nAudio: %s  Camera: %s",
                           wifi_got_ip ? (ip[0] ? ip : "OK") : "OFF",
                           mel_terminal_mobile_connected() ? "CONNECTE" : "OFF",
-                          mel_terminal_online() ? "EN LIGNE" : "HORS LIGNE",
+                          mel_state,
                           audio_ok ? "OK" : "NON",
                           camera_ok ? "OK" : "NON");
 }
@@ -710,9 +721,13 @@ static void settings_pair_clicked(lv_event_t *e) {
 
 static void settings_set_status(const char *text) {
     if (!text) return;
-    if (lvgl_port_lock(0)) {
+    // A zero-timeout lock could drop the worker's final result and leave
+    // "CAMERA : capture en cours..." displayed forever even after the test ended.
+    if (lvgl_port_lock(1200)) {
         if (settings_status) lv_label_set_text(settings_status, text);
         lvgl_port_unlock();
+    } else {
+        ESP_LOGW(TAG, "SETTINGS STATUS update missed after LVGL timeout: %s", text);
     }
 }
 
