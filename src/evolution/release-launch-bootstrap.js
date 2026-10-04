@@ -452,12 +452,22 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
     const requestedRefresh = String(url.searchParams.get('refresh') || '').trim().toLowerCase();
     const requestedRefreshStep = String(url.searchParams.get('step') || '').trim().toLowerCase();
     const backupRestoreSteps = new Set(['resolve','prepare','readback','rollback','finalize']);
+    const infrastructureRefreshSteps = new Set(['runtime','storage','database','ci_cd','secrets_identity','scheduler','observability','backup_restore']);
     if (requestedRefresh === 'backup_restore' && requestedRefreshStep && !backupRestoreSteps.has(requestedRefreshStep)) {
       return Response.json({
         ok: false,
         code: 'MEL_SOV_01_BACKUP_RESTORE_STEP_INVALID',
         phase,
         allowed_refresh_steps: [...backupRestoreSteps],
+        autonomy_started: false,
+      }, { status: 400, headers: { 'cache-control': 'no-store' } });
+    }
+    if (requestedRefresh === 'infrastructure' && requestedRefreshStep && !infrastructureRefreshSteps.has(requestedRefreshStep)) {
+      return Response.json({
+        ok: false,
+        code: 'MEL_SOV_01_INFRASTRUCTURE_STEP_INVALID',
+        phase,
+        allowed_refresh_steps: [...infrastructureRefreshSteps],
         autonomy_started: false,
       }, { status: 400, headers: { 'cache-control': 'no-store' } });
     }
@@ -468,7 +478,11 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
       source_control: (runtimeEnv, options) =>
         runCompanionSourceControlPrevalidationRuntime(runtimeEnv, { ...options, sourceSha: deployedSha }),
       infrastructure: (runtimeEnv, options) =>
-        runCompanionInfrastructurePrevalidationRuntime(runtimeEnv, { ...options, sourceSha: deployedSha }),
+        runCompanionInfrastructurePrevalidationRuntime(runtimeEnv, {
+          ...options,
+          sourceSha: deployedSha,
+          targetLayer: requestedRefreshStep || null,
+        }),
       backup_restore: (runtimeEnv, options) =>
         runGoogleDriveBackupRestorePrevalidationRuntime(runtimeEnv, {
           ...options,
@@ -543,7 +557,9 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
         status: verifiedRefresh ? 'MEL_SOV_01_REFRESH_STEP_VERIFIED' : 'MEL_SOV_01_REFRESH_STEP_FAILED',
         phase,
         refresh_target: requestedRefresh,
-        refresh_step: requestedRefresh === 'backup_restore' ? (requestedRefreshStep || 'all') : null,
+        refresh_step: (requestedRefresh === 'backup_restore' || requestedRefresh === 'infrastructure')
+          ? (requestedRefreshStep || 'all')
+          : null,
         refresh: verifiedRow,
         deployed_sha: deployedSha || null,
         secret_values_exposed: false,
