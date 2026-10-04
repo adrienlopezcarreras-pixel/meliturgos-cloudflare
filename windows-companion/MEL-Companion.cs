@@ -14,7 +14,7 @@ using System.Web.Script.Serialization;
 static class MelApp
 {
     public const string DefaultServer = "https://meliturgos.adrien-lopezcarreras.workers.dev";
-    public const string Version = "2.3.7";
+    public const string Version = "2.3.8";
     public static readonly string MelDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "MEL");
     public static readonly string ConfigPath = Path.Combine(MelDir, "computer.json");
     public static readonly string InstalledExe = Path.Combine(MelDir, "MEL-Companion.exe");
@@ -421,9 +421,16 @@ static class MelApp
             var screen = new Dictionary<string, object> {
                 {"x",bounds.X},{"y",bounds.Y},{"width",bounds.Width},{"height",bounds.Height}
             };
-            var body = Json.Serialize(new Dictionary<string, object> {
+            var heartbeat = new Dictionary<string, object> {
                 {"version",Version},{"hostname",Environment.MachineName},{"user",Environment.UserName},{"screen",screen}
-            });
+            };
+            // The native shell owns and supervises the authenticated PowerShell
+            // engine. If that child process is alive, attest its heartbeat too
+            // so server-side sovereignty checks do not misclassify an open,
+            // supervised Companion as offline between engine HTTP heartbeats.
+            if (CompanionRunning())
+                heartbeat["engine_heartbeat_at"] = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            var body = Json.Serialize(heartbeat);
             var o = Obj(Http(Server + "/api/computer/v1/heartbeat", "POST", body, DeviceHeaders()));
             object ok;
             var serverOk = o.TryGetValue("ok", out ok) && Convert.ToBoolean(ok);
