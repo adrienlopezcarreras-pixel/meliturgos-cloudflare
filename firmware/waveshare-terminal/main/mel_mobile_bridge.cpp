@@ -665,6 +665,11 @@ static esp_err_t request_common(
     }
     if (!completed) {
         g_active.failed = true;
+        ESP_LOGW(TAG, "MEL Mobile request id=%u timed out; recycling BLE link", (unsigned)id);
+        g_ready.store(false);
+        if (g_conn_handle != BLE_HS_CONN_HANDLE_NONE) {
+            ble_gap_terminate(g_conn_handle, BLE_ERR_REM_USER_CONN_TERM);
+        }
         xSemaphoreGive(g_request_mutex);
         return ESP_ERR_TIMEOUT;
     }
