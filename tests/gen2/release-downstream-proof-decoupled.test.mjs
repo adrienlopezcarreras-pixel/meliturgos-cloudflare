@@ -137,6 +137,9 @@ test('decoupled capability health proof is read-only, sanitized, and grouped by 
   assert.match(block,/by_health/);
   assert.match(block,/health_detail/);
   assert.match(block,/secret_values_exposed:false/);
+  assert.match(block,/if: always\\(\\)/);
+  assert.match(block,/MEL_BACKUP_ENCRYPTION_KEY_B64/);
+  assert.doesNotMatch(block,/MEL_PARALLEL_PROOF_KEY_B64/);
   assert.doesNotMatch(block,/MEL_LAUNCH_BOOTSTRAP_TOKEN/);
   assert.doesNotMatch(block,/wrangler\s+(?:deploy|secret|versions)/);
 });
