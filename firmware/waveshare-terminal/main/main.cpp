@@ -916,21 +916,41 @@ static void settings_camera_test_task(void *) {
         // and the UI would report the exact symptom seen on hardware: PASS / 0 octet.
         camera_fb_t *fb = nullptr;
         long elapsed_ms = 0;
+        const size_t expected = (size_t)320 * 480 * 2U;
+
+        // fb_count=1 + GRAB_WHEN_EMPTY means the very first frame can have been
+        // sitting in the queue since boot, before auto-exposure/white-balance and
+        // DVP timing have settled. Drain several complete frames so the preview
+        // is a fresh sensor frame, like Waveshare's continuous camera example.
+        for (int warm = 1; warm <= 3; ++warm) {
+            const int64_t started = esp_timer_get_time();
+            camera_fb_t *stale = esp_camera_fb_get();
+            elapsed_ms += (long)((esp_timer_get_time() - started) / 1000);
+            if (!stale) {
+                ESP_LOGW(TAG, "CAMERA TEST: warm-up frame %d unavailable", warm);
+                vTaskDelay(pdMS_TO_TICKS(80));
+                continue;
+            }
+            ESP_LOGI(TAG, "CAMERA TEST: warm-up frame %d len=%u", warm, (unsigned)stale->len);
+            esp_camera_fb_return(stale);
+            vTaskDelay(pdMS_TO_TICKS(80));
+        }
+
         for (int attempt = 1; attempt <= 3; ++attempt) {
             const int64_t started = esp_timer_get_time();
             fb = esp_camera_fb_get();
             elapsed_ms += (long)((esp_timer_get_time() - started) / 1000);
-            if (fb && fb->buf && fb->len > 0) break;
+            if (fb && fb->buf && fb->len == expected) break;
             if (fb) {
-                ESP_LOGW(TAG, "CAMERA TEST: discarded empty frame attempt=%d len=%u", attempt, (unsigned)fb->len);
+                ESP_LOGW(TAG, "CAMERA TEST: rejected frame attempt=%d len=%u expected=%u",
+                         attempt, (unsigned)fb->len, (unsigned)expected);
                 esp_camera_fb_return(fb);
                 fb = nullptr;
             }
-            vTaskDelay(pdMS_TO_TICKS(60));
+            vTaskDelay(pdMS_TO_TICKS(80));
         }
 
-        const size_t expected = (size_t)320 * 480 * 2U;
-        if (!fb || !fb->buf || fb->len < expected) {
+        if (!fb || !fb->buf || fb->len != expected) {
             char msg[240];
             snprintf(msg, sizeof(msg),
                      "CAMERA FAIL : %s detecte, trame invalide (%u/%u octets, %ld ms).",
@@ -1795,7 +1815,20 @@ static void wifi_fallback_after_ble_task(void *) {
     char saved_ssid[33] = {};
     char saved_pwd[65] = {};
     if (!wifi_load_credentials(saved_ssid, sizeof(saved_ssid), saved_pwd, sizeof(saved_pwd))) {
-        ESP_LOGW(TAG, "No MEL Mobile and no saved Wi-Fi; opening Wi-Fi setup");
+        if (mel_mobile_bridge_ready() || mel_mobile_bridge_candidate_seen()) {
+            // The phone is physically present. Do not throw the user into the Wi-Fi
+            // setup screen just because MEL authentication needs another retry.
+            // Keep BLE primary and retry online validation in place.
+            ESP_LOGW(TAG, "MEL Mobile present but session offline; keeping UI and retrying BLE auth (no saved Wi-Fi)");
+            for (int retry = 0; retry < 12 && !mel_terminal_online(); ++retry) {
+                if (mel_mobile_bridge_ready()) mel_terminal_start_online();
+                vTaskDelay(pdMS_TO_TICKS(2500));
+            }
+            wifi_fallback_task_handle = nullptr;
+            vTaskDelete(nullptr);
+            return;
+        }
+        ESP_LOGW(TAG, "No MEL Mobile candidate and no saved Wi-Fi; opening Wi-Fi setup");
         wifi_scan_requested = true;
         request_view(MINI_VIEW_WIFI_LIST);
         wifi_fallback_task_handle = nullptr;
