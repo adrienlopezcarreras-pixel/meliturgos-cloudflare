@@ -230,7 +230,7 @@ class MelBleBridgeService : Service() {
             internetReady.value = false
             if (miniLinkReady.value) bridgeState.value = "MINI CONNECTÉE · TÉLÉPHONE HORS LIGNE"
         } else if (miniLinkReady.value && !internetReady.value) {
-            bridgeState.value = "MINI CONNECTÉE · RELAIS INTERNET PRÊT"
+            bridgeState.value = "MINI CONNECTÉE · TÉLÉPHONE EN LIGNE · MEL À VALIDER"
         }
         Log.i(TAG, "Phone Internet validated=$available miniLink=${miniLinkReady.value} melInternet=${internetReady.value}")
     }
@@ -819,7 +819,12 @@ class MelBleBridgeService : Service() {
                 rememberMiniPairingComplete()
             }
             internetReady.value = miniLinkReady.value && success
-            bridgeState.value = if (internetReady.value) "MINI CONNECTÉE · INTERNET OK" else "MINI CONNECTÉE · MEL HTTP $status"
+            bridgeState.value = when {
+                internetReady.value -> "MINI CONNECTÉE · INTERNET OK"
+                request.path == "/api/device/v1/pair" && (status == 401 || status == 403) ->
+                    "MINI CONNECTÉE · APPLI MEL À RÉAPPAIRER"
+                else -> "MINI CONNECTÉE · MEL HTTP $status"
+            }
             Log.i(TAG, "MEL relay HTTP ${request.method} ${request.path} -> $status")
             val contentType = connection.contentType ?: "application/octet-stream"
             val stream = if (status in 200..299) connection.inputStream else connection.errorStream
