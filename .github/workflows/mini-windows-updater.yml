@@ -1,0 +1,80 @@
+name: mini-windows-updater
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - fix/mini-wifi-internet-diagnostics
+    paths:
+      - "tools/mini-updater/**"
+      - ".github/workflows/mini-windows-updater.yml"
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install packager
+        shell: pwsh
+        run: |
+          python -m pip install --disable-pip-version-check esptool==4.8.1 pyinstaller==6.11.1
+
+      - name: Download validated 0.4.34 firmware
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh run download 37239323591 `
+            --repo "${{ github.repository }}" `
+            --name "MEL-Waveshare-3.5-C-cd04ad5e4d1d8be06c818c07c270090efcac3ca9" `
+            --dir firmware-artifact
+          if (!(Test-Path "firmware-artifact/build/mel-terminal.bin")) {
+            throw "Validated firmware binary missing"
+          }
+
+      - name: Build standalone updater
+        shell: pwsh
+        run: |
+          pyinstaller `
+            --noconfirm `
+            --clean `
+            --onefile `
+            --console `
+            --name "MEL-MINI-Updater-0.4.34" `
+            --collect-all esptool `
+            --collect-all serial `
+            --add-data "firmware-artifact/build/mel-terminal.bin;." `
+            tools/mini-updater/mini_updater.py
+
+      - name: Self-test updater
+        shell: pwsh
+        run: |
+          & ".\dist\MEL-MINI-Updater-0.4.34.exe" --self-test
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: SHA256
+        shell: pwsh
+        run: |
+          Get-FileHash ".\dist\MEL-MINI-Updater-0.4.34.exe" -Algorithm SHA256 |
+            Format-List | Out-File ".\dist\MEL-MINI-Updater-0.4.34.sha256.txt"
+
+      - name: Upload updater
+        uses: actions/upload-artifact@v4
+        with:
+          name: MEL-MINI-Updater-0.4.34
+          path: |
+            dist/MEL-MINI-Updater-0.4.34.exe
+            dist/MEL-MINI-Updater-0.4.34.sha256.txt
+          if-no-files-found: error
+          retention-days: 30
