@@ -6,5 +6,5 @@ test('sovereignty bootstrap forwards the resolved deployed SHA to companion prev
   const source = await readFile(new URL('../../src/evolution/release-launch-bootstrap.js', import.meta.url), 'utf8');
   assert.match(source, /const deployedSha = exactDeployedSha\(env\);/);
   assert.match(source, /runCompanionSourceControlPrevalidationRuntime\(runtimeEnv, \{ \.\.\.options, sourceSha: deployedSha \}\)/);
-  assert.match(source, /runCompanionInfrastructurePrevalidationRuntime\(runtimeEnv, \{ \.\.\.options, sourceSha: deployedSha \}\)/);
+  assert.match(source, /runCompanionInfrastructurePrevalidationRuntime\(runtimeEnv, \{[\s\S]*\.\.\.options,[\s\S]*sourceSha: deployedSha,[\s\S]*targetLayer: requestedRefreshStep \|\| null,[\s\S]*\}\)/);
 });

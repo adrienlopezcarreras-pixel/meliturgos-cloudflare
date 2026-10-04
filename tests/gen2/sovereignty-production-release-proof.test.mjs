@@ -54,7 +54,9 @@ test('MEL-SOV-01 live proof splits heavy refreshes and uses immutable exact-SHA 
   assert.match(workflow,/MEL_BACKUP_ENCRYPTION_KEY_B64/);
   assert.match(workflow,/MEL_PARALLEL_PROOF_V1:/);
   assert.match(workflow,/x-mel-parallel-proof/);
-  assert.match(workflow,/for TARGET in ai ai_local source_control infrastructure/);
+  assert.match(workflow,/for TARGET in ai ai_local source_control/);
+  assert.match(workflow,/for STEP in runtime storage database ci_cd secrets_identity scheduler observability backup_restore/);
+  assert.match(workflow,/refresh_sov_target "infrastructure" "\$\{STEP\}"/);
   assert.match(workflow,/for STEP in resolve prepare readback rollback finalize/);
   assert.match(workflow,/QUERY="refresh=\$\{TARGET\}"/);
   assert.match(workflow,/QUERY="\$\{QUERY\}&step=\$\{STEP\}"/);
@@ -63,7 +65,7 @@ test('MEL-SOV-01 live proof splits heavy refreshes and uses immutable exact-SHA 
   assert.match(workflow,/--max-time 75/);
   assert.match(workflow,/--max-time 60/);
   assert.match(workflow,/for ATTEMPT in \$\(seq 1 6\)/);
-  assert.match(workflow,/409\|429\|500\|502\|503\|504/);
+  assert.match(workflow,/000\|409\|429\|500\|502\|503\|504/);
   assert.match(workflow,/MEL_SOV_01_REFRESH_FAILED/);
   assert.match(workflow,/refresh_error:/);
   assert.doesNotMatch(workflow,/wrangler secret put/);

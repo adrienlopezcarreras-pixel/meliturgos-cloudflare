@@ -894,7 +894,7 @@ jobs:
                   ;;
               esac
               case "${REFRESH_CODE}" in
-                409|429|500|502|503|504)
+                000|409|429|500|502|503|504)
                   echo "Transient decoupled SOV refresh ${KEY} status ${REFRESH_CODE} (${REFRESH_ERROR}); retry ${ATTEMPT}/6."
                   sleep $((ATTEMPT * 2))
                   ;;
@@ -932,8 +932,11 @@ jobs:
           NODE
           }
 
-          for TARGET in ai ai_local source_control infrastructure; do
+          for TARGET in ai ai_local source_control; do
             refresh_sov_target "${TARGET}" || exit $?
+          done
+          for STEP in runtime storage database ci_cd secrets_identity scheduler observability backup_restore; do
+            refresh_sov_target "infrastructure" "${STEP}" || exit $?
           done
           for STEP in resolve prepare readback rollback finalize; do
             refresh_sov_target "backup_restore" "${STEP}" || exit $?
