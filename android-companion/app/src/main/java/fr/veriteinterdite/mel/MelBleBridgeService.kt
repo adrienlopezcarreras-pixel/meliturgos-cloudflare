@@ -76,6 +76,7 @@ class MelBleBridgeService : Service() {
         private const val OP_BODY = 0x02
         private const val OP_END = 0x03
         private const val OP_PING = 0x04
+        private const val OP_META_CHUNK = 0x05
         private const val OP_RESPONSE_BEGIN = 0x11
         private const val OP_RESPONSE_BODY = 0x12
         private const val OP_RESPONSE_END = 0x13
@@ -104,6 +105,8 @@ class MelBleBridgeService : Service() {
     private val executor = Executors.newSingleThreadExecutor()
     private val diagExecutor = Executors.newSingleThreadExecutor()
     private val requests = ConcurrentHashMap<String, PendingRequest>()
+    private val metaFrames = ConcurrentHashMap<String, ByteArrayOutputStream>()
+    private val metaFrameIds = ConcurrentHashMap<String, Int>()
     private val connectedAtMs = ConcurrentHashMap<String, Long>()
     private val mtus = ConcurrentHashMap<String, Int>()
     private val subscribed = ConcurrentHashMap<String, Boolean>()
@@ -173,6 +176,8 @@ class MelBleBridgeService : Service() {
             gattServer = null
             txCharacteristic = null
             requests.clear()
+            metaFrames.clear()
+            metaFrameIds.clear()
             mtus.clear()
             subscribed.clear()
             pullFrames.clear()
@@ -436,6 +441,8 @@ class MelBleBridgeService : Service() {
                 internetReady.value = false
                 bridgeState.value = if (adapter?.isEnabled == true) "PR├èT" else "BLUETOOTH OFF"
                 requests.remove(device.address)
+                metaFrames.remove(device.address)
+                metaFrameIds.remove(device.address)
                 mtus.remove(device.address)
                 subscribed.remove(device.address)
                 pullFrames.remove(device.address)
@@ -557,6 +564,7 @@ class MelBleBridgeService : Service() {
         val requestId = ByteBuffer.wrap(frame, 1, 4).order(ByteOrder.LITTLE_ENDIAN).int
         val payload = frame.copyOfRange(5, frame.size)
         when (op) {
+            OP_META_CHUNK -> appendMetaChunk(device, requestId, payload)
             OP_BEGIN -> beginRequest(device, requestId, payload)
             OP_BODY -> appendBody(device, requestId, payload)
             OP_END -> finishRequest(device, requestId)
@@ -569,9 +577,36 @@ class MelBleBridgeService : Service() {
         }
     }
 
+    private fun appendMetaChunk(device: BluetoothDevice, requestId: Int, payload: ByteArray) {
+        val address = device.address
+        val previousId = metaFrameIds[address]
+        if (previousId != requestId) {
+            metaFrames[address] = ByteArrayOutputStream()
+            metaFrameIds[address] = requestId
+        }
+        val buffer = metaFrames.computeIfAbsent(address) { ByteArrayOutputStream() }
+        if (buffer.size() + payload.size > 4096) {
+            metaFrames.remove(address)
+            metaFrameIds.remove(address)
+            executor.execute { sendError(device, requestId, "META_TOO_LARGE") }
+            return
+        }
+        buffer.write(payload)
+    }
+
     private fun beginRequest(device: BluetoothDevice, requestId: Int, payload: ByteArray) {
         runCatching {
-            val meta = JSONObject(payload.toString(Charsets.UTF_8))
+            val completePayload = if (payload.isNotEmpty()) {
+                metaFrames.remove(device.address)
+                metaFrameIds.remove(device.address)
+                payload
+            } else {
+                val expectedId = metaFrameIds.remove(device.address)
+                val buffered = metaFrames.remove(device.address)?.toByteArray()
+                require(expectedId == requestId && buffered != null && buffered.isNotEmpty()) { "META" }
+                buffered
+            }
+            val meta = JSONObject(completePayload.toString(Charsets.UTF_8))
             val method = meta.optString("m", meta.optString("method", "POST")).uppercase()
             val path = meta.optString("p", meta.optString("path"))
             val contentType = meta.optString("c", meta.optString("contentType", "application/json"))
@@ -1161,11 +1196,22 @@ class MelBleBridgeService : Service() {
     }
 
     private fun sendError(device: BluetoothDevice, requestId: Int, code: String) {
-        sendJsonFrame(device, OP_ERROR, requestId, JSONObject().put("error", code))
+        val mtu = mtus[device.address] ?: 23
+        val maxPayload = (mtu - 8).coerceIn(12, 500)
+        val raw = code.toByteArray(Charsets.UTF_8)
+        val compact = raw.copyOfRange(0, minOf(raw.size, maxPayload))
+        sendFrame(device, packet(OP_ERROR, requestId, compact))
     }
 
     private fun sendJsonFrame(device: BluetoothDevice, op: Int, requestId: Int, json: JSONObject): Boolean {
-        return sendFrame(device, packet(op, requestId, json.toString().toByteArray(Charsets.UTF_8)))
+        // MINI only needs HTTP status from RESPONSE_BEGIN. Keeping this frame below
+        // the 20-byte ATT payload limit makes the relay work even at MTU 23.
+        val payload = if (op == OP_RESPONSE_BEGIN) {
+            JSONObject().put("status", json.optInt("status", 0)).toString()
+        } else {
+            json.toString()
+        }.toByteArray(Charsets.UTF_8)
+        return sendFrame(device, packet(op, requestId, payload))
     }
 
     private fun packet(op: Int, requestId: Int, payload: ByteArray): ByteArray {
