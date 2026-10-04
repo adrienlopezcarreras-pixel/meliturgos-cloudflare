@@ -145,29 +145,79 @@ jobs:
           done
           test "${COUNCIL_READY}" = "1"
 
-          # Keep each submitted request, its async wait, and rich-node read in
-          # one browser.execute call. Splitting the Full response wait into a
-          # later execution can lose the page's pending async DOM state.
+          # Keep submit -> async wait -> rich read monolithic per surface,
+          # but isolate Normal and Full in independent browser sessions. This
+          # prevents cross-navigation/session state from contaminating Full.
           RICH_READY=0
           for ATTEMPT in $(seq 1 6); do
-            SESSION="council-rich-ui-${EXPECTED_SHA:0:12}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${ATTEMPT}"
-            export SESSION TOKEN EXPECTED_SHA
-            BROWSER_BODY="$(node - <<'NODE'
-          const session=process.env.SESSION;
+            NORMAL_SESSION="council-rich-normal-${EXPECTED_SHA:0:12}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${ATTEMPT}"
+            FULL_SESSION="council-rich-full-${EXPECTED_SHA:0:12}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${ATTEMPT}"
+            export NORMAL_SESSION FULL_SESSION TOKEN EXPECTED_SHA
+
+            NORMAL_BODY="$(node - <<'NODE'
+          const session=process.env.NORMAL_SESSION;
           const token=process.env.TOKEN;
           const origin='https://meliturgos.adrien-lopezcarreras.workers.dev';
-          const approvals=[
-            {approved:true,session_id:session,step_id:'set-auth',action:'browser.set-headers'},
-            {approved:true,session_id:session,step_id:'type-normal',action:'browser.type'},
-            {approved:true,session_id:session,step_id:'type-full',action:'browser.type'},
-          ];
           const steps=[
-            {id:'set-auth',action:'browser.set-headers',headers:{'x-mel-release-smoke':'1','x-mel-parallel-proof':token}},
+            {id:'set-auth-normal',action:'browser.set-headers',headers:{'x-mel-release-smoke':'1','x-mel-parallel-proof':token}},
             {id:'navigate-normal',action:'browser.navigate',url:origin+'/'},
             {id:'type-normal',action:'browser.type',selector:'#promptInput',text:'lis src/index.js dans ton code'},
             {id:'send-normal',action:'browser.click',selector:'#send'},
             {id:'wait-normal',action:'browser.wait-text',selector:'#messages',text:'RELEASE_CODE_SMOKE_OK',timeout_ms:45000},
             {id:'read-normal-rich',action:'browser.read-text',selector:'#messages .msg.mel > div[data-rich-rendered="true"]'},
+          ];
+          process.stdout.write(JSON.stringify({id:'browser.execute',input:{
+            session_id:session,
+            device:{id:'cloudflare-browser',capabilities:['browser.control']},
+            sandbox:{allowed_origins:[origin],max_steps:steps.length},
+            approvals:[
+              {approved:true,session_id:session,step_id:'set-auth-normal',action:'browser.set-headers'},
+              {approved:true,session_id:session,step_id:'type-normal',action:'browser.type'},
+            ],
+            steps,
+          }}));
+          NODE
+          )"
+
+            NORMAL_CODE="$(curl --silent --show-error --max-time 120 \
+              --header "x-mel-release-smoke: 1" \
+              --header "x-mel-parallel-proof: ${TOKEN}" \
+              --header "content-type: application/json" \
+              --data "${NORMAL_BODY}" \
+              --output rich-ui-normal.json --write-out '%{http_code}' \
+              "${BASE_URL}/api/gen2/capabilities/execute" || true)"
+
+            NORMAL_OK=0
+            if [ "${NORMAL_CODE}" = "200" ] && node - <<'NODE'
+          const d=require('./rich-ui-normal.json'),r=d?.result||{};
+          const out=id=>(r.outputs||[]).find(x=>x?.step_id===id)?.output||{};
+          const rich=out('read-normal-rich');
+          const ok=d?.ok===true
+            && d?.capability==='browser.execute'
+            && r?.ok===true
+            && Number(r?.steps_completed||0)===6
+            && out('wait-normal')?.matched===true
+            && rich?.kind==='text'
+            && String(rich?.text||'').includes('RELEASE_CODE_SMOKE_OK');
+          process.exit(ok?0:1);
+          NODE
+            then
+              NORMAL_OK=1
+            fi
+            if [ "${NORMAL_OK}" != "1" ]; then
+              NORMAL_ERROR_CODE="$(node -e 'const fs=require("fs");let d={};try{d=JSON.parse(fs.readFileSync("rich-ui-normal.json","utf8"))}catch{};process.stdout.write(String(d?.code||d?.error||d?.status||"UNKNOWN"))')"
+              NORMAL_FAILED_STEP_ID="$(node -e 'const fs=require("fs");let d={};try{d=JSON.parse(fs.readFileSync("rich-ui-normal.json","utf8"))}catch{};process.stdout.write(String(d?.failed_step_id||""))')"
+              echo "Transient Normal rich UI proof status ${NORMAL_CODE} (${NORMAL_ERROR_CODE}, step=${NORMAL_FAILED_STEP_ID:-unknown}); retry ${ATTEMPT}/6."
+              sleep $((ATTEMPT * 2))
+              continue
+            fi
+
+            FULL_BODY="$(node - <<'NODE'
+          const session=process.env.FULL_SESSION;
+          const token=process.env.TOKEN;
+          const origin='https://meliturgos.adrien-lopezcarreras.workers.dev';
+          const steps=[
+            {id:'set-auth-full',action:'browser.set-headers',headers:{'x-mel-release-smoke':'1','x-mel-parallel-proof':token}},
             {id:'navigate-full',action:'browser.navigate',url:origin+'/professor?view=chat'},
             {id:'wait-full-chat',action:'browser.wait-text',selector:'#viewTitle',text:'Conversation'},
             {id:'type-full',action:'browser.type',selector:'.view.active[data-panel="chat"] #chatInput',text:'lis src/index.js dans ton code'},
@@ -179,30 +229,31 @@ jobs:
             session_id:session,
             device:{id:'cloudflare-browser',capabilities:['browser.control']},
             sandbox:{allowed_origins:[origin],max_steps:steps.length},
-            approvals,
+            approvals:[
+              {approved:true,session_id:session,step_id:'set-auth-full',action:'browser.set-headers'},
+              {approved:true,session_id:session,step_id:'type-full',action:'browser.type'},
+            ],
             steps,
           }}));
           NODE
           )"
 
-            BROWSER_CODE="$(curl --silent --show-error --max-time 210 \
+            FULL_CODE="$(curl --silent --show-error --max-time 150 \
               --header "x-mel-release-smoke: 1" \
               --header "x-mel-parallel-proof: ${TOKEN}" \
               --header "content-type: application/json" \
-              --data "${BROWSER_BODY}" \
-              --output rich-ui-browser.json --write-out '%{http_code}' \
+              --data "${FULL_BODY}" \
+              --output rich-ui-full.json --write-out '%{http_code}' \
               "${BASE_URL}/api/gen2/capabilities/execute" || true)"
 
-            if [ "${BROWSER_CODE}" = "200" ] && node - <<'NODE'
-          const d=require('./rich-ui-browser.json'),r=d?.result||{};
+            if [ "${FULL_CODE}" = "200" ] && node - <<'NODE'
+          const d=require('./rich-ui-full.json'),r=d?.result||{};
           const out=id=>(r.outputs||[]).find(x=>x?.step_id===id)?.output||{};
-          const normal=out('read-normal-rich'),waited=out('wait-full'),full=out('read-full-rich');
+          const waited=out('wait-full'),full=out('read-full-rich');
           const ok=d?.ok===true
             && d?.capability==='browser.execute'
             && r?.ok===true
-            && Number(r?.steps_completed||0)===12
-            && normal?.kind==='text'
-            && String(normal?.text||'').includes('RELEASE_CODE_SMOKE_OK')
+            && Number(r?.steps_completed||0)===7
             && out('send-full')?.kind==='interaction'
             && waited?.kind==='wait'
             && waited?.matched===true
@@ -215,20 +266,55 @@ jobs:
               break
             fi
 
-            BROWSER_ERROR_CODE="$(node -e 'const fs=require("fs");let d={};try{d=JSON.parse(fs.readFileSync("rich-ui-browser.json","utf8"))}catch{};process.stdout.write(String(d?.code||d?.error||d?.status||"UNKNOWN"))')"
-            BROWSER_FAILED_STEP_ID="$(node -e 'const fs=require("fs");let d={};try{d=JSON.parse(fs.readFileSync("rich-ui-browser.json","utf8"))}catch{};process.stdout.write(String(d?.failed_step_id||""))')"
-            if [ "${BROWSER_CODE}" = "401" ] && [ "${BROWSER_ERROR_CODE}" = "AUTH_REQUIRED" ]; then
-              echo "Rich UI browser proof auth is still propagating; retry ${ATTEMPT}/6 with a fresh browser session."
+            FULL_ERROR_CODE="$(node -e 'const fs=require("fs");let d={};try{d=JSON.parse(fs.readFileSync("rich-ui-full.json","utf8"))}catch{};process.stdout.write(String(d?.code||d?.error||d?.status||"UNKNOWN"))')"
+            FULL_FAILED_STEP_ID="$(node -e 'const fs=require("fs");let d={};try{d=JSON.parse(fs.readFileSync("rich-ui-full.json","utf8"))}catch{};process.stdout.write(String(d?.failed_step_id||""))')"
+
+            # Best-effort diagnostic in the same Full session after a failed
+            # wait. This never satisfies the proof; it only exposes the actual
+            # UI status/message instead of leaving a generic 408.
+            DIAG_BODY="$(node - <<'NODE'
+          const session=process.env.FULL_SESSION;
+          const token=process.env.TOKEN;
+          const origin='https://meliturgos.adrien-lopezcarreras.workers.dev';
+          const steps=[
+            {id:'diag-auth',action:'browser.set-headers',headers:{'x-mel-release-smoke':'1','x-mel-parallel-proof':token}},
+            {id:'diag-status',action:'browser.read-text',selector:'#chatStatus'},
+            {id:'diag-last',action:'browser.read-text',selector:'#chatlog .msg:last-child'},
+          ];
+          process.stdout.write(JSON.stringify({id:'browser.execute',input:{
+            session_id:session,
+            device:{id:'cloudflare-browser',capabilities:['browser.control']},
+            sandbox:{allowed_origins:[origin],max_steps:steps.length},
+            approvals:[{approved:true,session_id:session,step_id:'diag-auth',action:'browser.set-headers'}],
+            steps,
+          }}));
+          NODE
+          )"
+            curl --silent --show-error --max-time 30 \
+              --header "x-mel-release-smoke: 1" \
+              --header "x-mel-parallel-proof: ${TOKEN}" \
+              --header "content-type: application/json" \
+              --data "${DIAG_BODY}" \
+              --output rich-ui-full-diagnostic.json \
+              "${BASE_URL}/api/gen2/capabilities/execute" || true
+            node - <<'NODE' || true
+          const fs=require('fs');let d={};try{d=JSON.parse(fs.readFileSync('rich-ui-full-diagnostic.json','utf8'))}catch{}
+          const out=id=>(d?.result?.outputs||[]).find(x=>x?.step_id===id)?.output||{};
+          console.log(JSON.stringify({full_status:String(out('diag-status')?.text||'').slice(0,240),last_message:String(out('diag-last')?.text||'').slice(0,240)}));
+          NODE
+
+            if [ "${FULL_CODE}" = "401" ] && [ "${FULL_ERROR_CODE}" = "AUTH_REQUIRED" ]; then
+              echo "Full rich UI proof auth is still propagating; retry ${ATTEMPT}/6 with a fresh Full session."
               sleep 2
               continue
             fi
-            case "${BROWSER_CODE}" in
+            case "${FULL_CODE}" in
               000|200|408|409|429|500|502|503|504)
-                echo "Transient rich UI browser proof status ${BROWSER_CODE} (${BROWSER_ERROR_CODE}, step=${BROWSER_FAILED_STEP_ID:-unknown}); retry ${ATTEMPT}/6 with a fresh browser session."
+                echo "Transient Full rich UI proof status ${FULL_CODE} (${FULL_ERROR_CODE}, step=${FULL_FAILED_STEP_ID:-unknown}); retry ${ATTEMPT}/6 with a fresh Full session."
                 sleep $((ATTEMPT * 2))
                 ;;
               *)
-                echo "Non-retryable rich UI browser proof status ${BROWSER_CODE} (${BROWSER_ERROR_CODE}, step=${BROWSER_FAILED_STEP_ID:-unknown})."
+                echo "Non-retryable Full rich UI proof status ${FULL_CODE} (${FULL_ERROR_CODE}, step=${FULL_FAILED_STEP_ID:-unknown})."
                 exit 31
                 ;;
             esac
@@ -237,23 +323,28 @@ jobs:
 
           node - <<'NODE'
           const fs=require('fs');
-          const browser=require('./rich-ui-browser.json');
+          const normalBrowser=require('./rich-ui-normal.json');
+          const fullBrowser=require('./rich-ui-full.json');
           const council=require('./council-live.json');
           const self=require('./self-check.json');
-          const result=browser?.result||{};
-          if(browser?.ok!==true||browser?.capability!=='browser.execute'||result?.ok!==true||Number(result?.steps_completed||0)!==12) {
-            throw new Error('RICH_UI_BROWSER_PROOF_NOT_OK');
+          const normalResult=normalBrowser?.result||{},fullResult=fullBrowser?.result||{};
+          if(normalBrowser?.ok!==true||normalBrowser?.capability!=='browser.execute'||normalResult?.ok!==true||Number(normalResult?.steps_completed||0)!==6) {
+            throw new Error('NORMAL_RICH_UI_BROWSER_PROOF_NOT_OK');
           }
-          const output=id=>(result.outputs||[]).find(x=>x?.step_id===id)?.output||{};
-          const normal=output('read-normal-rich');
-          const waited=output('wait-full');
-          const full=output('read-full-rich');
+          if(fullBrowser?.ok!==true||fullBrowser?.capability!=='browser.execute'||fullResult?.ok!==true||Number(fullResult?.steps_completed||0)!==7) {
+            throw new Error('FULL_RICH_UI_BROWSER_PROOF_NOT_OK');
+          }
+          const normalOut=id=>(normalResult.outputs||[]).find(x=>x?.step_id===id)?.output||{};
+          const fullOut=id=>(fullResult.outputs||[]).find(x=>x?.step_id===id)?.output||{};
+          const normal=normalOut('read-normal-rich');
+          const waited=fullOut('wait-full');
+          const full=fullOut('read-full-rich');
           if(normal?.kind!=='text'||!String(normal?.text||'').includes('RELEASE_CODE_SMOKE_OK')) throw new Error('NORMAL_RICH_RENDER_NOT_PROVED');
           if(waited?.kind!=='wait'||waited?.matched!==true) throw new Error('FULL_RICH_WAIT_NOT_PROVED');
           if(full?.kind!=='text'||!String(full?.text||'').trim()) throw new Error('FULL_RICH_RENDER_NOT_PROVED');
           const cr=council?.result||{};
           const proof={
-            schema:'mel.council-rich-ui-production-proof/v2',
+            schema:'mel.council-rich-ui-production-proof/v3',
             source_sha:process.env.EXPECTED_SHA,
             exact_sha_runtime:self?.deployed_sha===process.env.EXPECTED_SHA,
             council_recovery_contract_tests:true,
@@ -264,7 +355,8 @@ jobs:
               synthesis_status:cr?.synthesis?.status||null,
             },
             rich_ui:{
-              monolithic_browser_session:true,
+              independent_surface_sessions:true,
+              monolithic_per_surface:true,
               normal:{rendered:true,marker:'RELEASE_CODE_SMOKE_OK'},
               full:{rendered:true,completion_marker:'Réponse reçue.',response_nonempty:true},
             },

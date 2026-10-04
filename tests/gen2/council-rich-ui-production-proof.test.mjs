@@ -53,7 +53,7 @@ test('production proof uses immutable exact-SHA proof auth and never mutates Wor
 test('production proof tolerates only bounded transient proof-auth propagation', () => {
   assert.match(workflow, /for ATTEMPT in \$\(seq 1 12\)/);
   assert.match(workflow, /COUNCIL_ERROR_CODE/);
-  assert.match(workflow, /BROWSER_ERROR_CODE/);
+  assert.match(workflow, /FULL_ERROR_CODE/);
   assert.match(workflow, /AUTH_REQUIRED/);
   assert.match(workflow, /sleep 2/);
 });
@@ -67,32 +67,38 @@ test('rich UI proof enters the full chat deterministically before typing', () =>
   assert.match(full, /new URLSearchParams\(location\.search\)\.get\('view'\)/);
 });
 
-test('Full rich UI proof keeps submit, async wait and rich read inside one browser execution', () => {
-  assert.match(workflow, /SESSION="council-rich-ui-\$\{EXPECTED_SHA:0:12\}-\$\{GITHUB_RUN_ID\}-\$\{GITHUB_RUN_ATTEMPT\}-\$\{ATTEMPT\}"/);
-  assert.match(workflow, /rich-ui-browser\.json/);
-  assert.doesNotMatch(workflow, /rich-ui-wait-full\.json/);
-  assert.doesNotMatch(workflow, /rich-ui-read-full\.json/);
+test('Normal and Full rich UI proofs use independent sessions while each surface remains monolithic', () => {
+  assert.match(workflow, /NORMAL_SESSION="council-rich-normal-/);
+  assert.match(workflow, /FULL_SESSION="council-rich-full-/);
+  assert.match(workflow, /rich-ui-normal\.json/);
+  assert.match(workflow, /rich-ui-full\.json/);
+  assert.match(workflow, /id:'send-normal'/);
+  assert.match(workflow, /id:'wait-normal'/);
+  assert.match(workflow, /id:'read-normal-rich'/);
   assert.match(workflow, /id:'send-full'/);
   assert.match(workflow, /id:'wait-full'/);
   assert.match(workflow, /selector:'#chatStatus',text:'Réponse reçue\.'/);
   assert.match(workflow, /id:'read-full-rich'/);
-  assert.ok(workflow.includes("Number(r?.steps_completed||0)===12"));
-  assert.ok(workflow.includes("Number(result?.steps_completed||0)!==12"));
-  assert.match(workflow, /monolithic_browser_session:true/);
+  assert.ok(workflow.includes("Number(r?.steps_completed||0)===6"));
+  assert.ok(workflow.includes("Number(r?.steps_completed||0)===7"));
+  assert.match(workflow, /independent_surface_sessions:true/);
+  assert.match(workflow, /monolithic_per_surface:true/);
   assert.match(workflow, /response_nonempty:true/);
-  const body=workflow.split('BROWSER_BODY=')[1]?.split('BROWSER_CODE=')[0]||'';
-  assert.match(body, /id:'send-full'/);
-  assert.match(body, /id:'wait-full'/);
-  assert.match(body, /id:'read-full-rich'/);
+  const fullBody=workflow.split('FULL_BODY=')[1]?.split('FULL_CODE=')[0]||'';
+  assert.match(fullBody, /id:'send-full'/);
+  assert.match(fullBody, /id:'wait-full'/);
+  assert.match(fullBody, /id:'read-full-rich'/);
+  assert.match(workflow, /rich-ui-full-diagnostic\.json/);
+  assert.match(workflow, /diag-status/);
 });
 
 test('rich UI browser proof retries bounded transient runtime pressure instead of failing one-shot', () => {
   assert.match(workflow, /408\|409\|429\|500\|502\|503\|504/);
-  assert.match(workflow, /Transient rich UI browser proof status/);
-  assert.match(workflow, /BROWSER_FAILED_STEP_ID/);
+  assert.match(workflow, /Transient Full rich UI proof status/);
+  assert.match(workflow, /FULL_FAILED_STEP_ID/);
   assert.match(workflow, /failed_step_id/);
-  assert.match(workflow, /Non-retryable rich UI browser proof status/);
-  assert.match(workflow, /retry \$\{ATTEMPT\}\/6 with a fresh browser session/);
+  assert.match(workflow, /Non-retryable Full rich UI proof status/);
+  assert.match(workflow, /retry \$\{ATTEMPT\}\/6 with a fresh Full session/);
 });
 
 
