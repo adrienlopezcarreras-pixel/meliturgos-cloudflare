@@ -58,7 +58,7 @@ test('MINI and Android BLE bridge UUIDs stay aligned', async () => {
 });
 
 
-test('MINI keeps persistent Wi-Fi primary while MEL Mobile runs in parallel', async () => {
+test('MINI prioritizes MEL Mobile before automatic Wi-Fi fallback', async () => {
   const [main, bridge, runtime] = await Promise.all([
     readFile(new URL('../firmware/waveshare-terminal/main/main.cpp', import.meta.url), 'utf8'),
     readFile(new URL('../firmware/waveshare-terminal/main/mel_mobile_bridge.cpp', import.meta.url), 'utf8'),
@@ -67,17 +67,17 @@ test('MINI keeps persistent Wi-Fi primary while MEL Mobile runs in parallel', as
 
   assert.match(main, /MEL MOBILE BLE START \(PRIMARY\)/);
   assert.doesNotMatch(main, /while \(!camera_probe_done\)/);
-  assert.match(main, /WIFI STACK \(PERSISTENT INTERNET\)/);
-  assert.match(main, /Starting persistent saved Wi-Fi/);
-  assert.match(main, /mini_wifi_boot/);
+  assert.match(main, /TRANSPORT PRIORITY: MEL Mobile first/);
+  assert.match(main, /mel_mobile_bridge_candidate_seen\(\)/);
+  assert.match(main, /MEL Mobile unavailable; starting saved Wi-Fi fallback/);
 
   assert.match(bridge, /params\.passive = 0/);
   assert.match(bridge, /g_candidate_seen\.store\(true\)/);
   assert.match(bridge, /bool mel_mobile_bridge_candidate_seen\(void\)/);
 
-  const wifiPrimary = runtime.indexOf('if (!g_wifi_connected) {');
-  const mobileFallback = runtime.indexOf('if (mel_mobile_bridge_ready()) return mobile_request();', wifiPrimary);
-  assert.ok(wifiPrimary >= 0 && mobileFallback > wifiPrimary, 'Wi-Fi must be the primary Internet path and BLE a fallback');
+  const mobileFirst = runtime.indexOf('if (mel_mobile_bridge_ready())');
+  const wifiGuard = runtime.indexOf('if (!g_wifi_connected) return ESP_ERR_INVALID_STATE');
+  assert.ok(mobileFirst >= 0 && wifiGuard > mobileFirst, 'MEL Mobile must be evaluated before direct Wi-Fi');
 });
 
 
@@ -131,14 +131,14 @@ test('MINI accepts Android Bluetooth-base UUIDs encoded as 128-bit GATT UUIDs', 
 });
 
 
-test('MINI restores saved Wi-Fi independently from MEL Mobile state', async () => {
+test('MINI requires authenticated MEL online before cancelling Wi-Fi recovery', async () => {
   const main = await readFile(
     new URL('../firmware/waveshare-terminal/main/main.cpp', import.meta.url),
     'utf8'
   );
-  assert.match(main, /Wi-Fi is the stable Internet path/);
-  assert.match(main, /wifi_load_credentials\(saved_ssid/);
-  assert.match(main, /Starting persistent saved Wi-Fi/);
+  assert.match(main, /if \(mel_terminal_online\(\)\)/);
+  assert.match(main, /MEL Mobile BLE connected but MEL session is still offline; enabling Wi-Fi recovery/);
+  assert.match(main, /mel_terminal_start_online\(\);/);
   assert.match(main, /mini_wifi_event_diag[\s\S]*mel_terminal_start_online\(\);/);
 });
 
