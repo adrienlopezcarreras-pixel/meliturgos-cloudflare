@@ -140,6 +140,14 @@ test('decoupled capability health proof is read-only, sanitized, and grouped by 
   assert.match(block,/by_health/);
   assert.match(block,/health_detail/);
   assert.match(block,/secret_values_exposed:false/);
+  assert.match(block,/api\/gen2\/code\/self-check/);
+  assert.match(block,/for ATTEMPT in \$\(seq 1 12\)/);
+  assert.match(block,/Transient CapabilityBus health status/);
+  assert.match(block,/for ATTEMPT in \$\(seq 1 8\)/);
+  assert.match(block,/EXACT_SHA_READINESS_FAILED/);
+  assert.match(block,/CAPABILITY_HEALTH_REQUEST_FAILED/);
+  assert.match(block,/mel\.downstream-capability-health\/v2/);
+  assert.match(block,/exact_sha_verified:true/);
   assert.match(block,/if: always\(\)/);
   assert.match(block,/MEL_BACKUP_ENCRYPTION_KEY_B64/);
   assert.doesNotMatch(block,/MEL_PARALLEL_PROOF_KEY_B64/);
