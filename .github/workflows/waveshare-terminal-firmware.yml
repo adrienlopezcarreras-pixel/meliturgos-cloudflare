@@ -76,6 +76,8 @@ jobs:
           set_cfg_y CONFIG_OV2640_SUPPORT
           set_cfg_n CONFIG_OV3660_SUPPORT
           set_cfg_y CONFIG_OV5640_SUPPORT
+          set_cfg_y CONFIG_SCCB_HARDWARE_I2C_PORT0
+          set_cfg_n CONFIG_SCCB_HARDWARE_I2C_PORT1
           set_cfg_n CONFIG_GC2145_SUPPORT
           set_cfg_n CONFIG_GC032A_SUPPORT
           set_cfg_n CONFIG_GC0308_SUPPORT
@@ -110,6 +112,8 @@ jobs:
           required = {
               "CONFIG_OV5640_SUPPORT=y",
               "CONFIG_OV2640_SUPPORT=y",
+              "CONFIG_SCCB_HARDWARE_I2C_PORT0=y",
+              "# CONFIG_SCCB_HARDWARE_I2C_PORT1 is not set",
               "# CONFIG_OV3660_SUPPORT is not set",
               "CONFIG_COMPILER_OPTIMIZATION_PERF=y",
               "CONFIG_LV_ATTRIBUTE_FAST_MEM_USE_IRAM=y",
@@ -141,7 +145,7 @@ jobs:
             "model": "waveshare-esp32-s3-touch-lcd-3.5-c",
             "channel": "stable",
             "firmware": {
-              "version": "0.4.21-ble-android-fix",
+              "version": "0.4.22-camera-online-recovery",
               "available": true,
               "key": "devices/waveshare-esp32-s3-touch-lcd-3.5-c/mel-terminal.bin",
               "sha256": "${OTA_SHA256}",
