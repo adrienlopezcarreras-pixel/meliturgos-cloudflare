@@ -143,7 +143,7 @@ test('code archive replication is separately gated after seven live targets are 
   assert.match(runtime,/codeSyncExternalView\(state,goal,'COPIED'\)/);
   assert.match(runtime,/if\(result\.target_reached\)/);
   assert.match(runtime,/DEFERRED_SEPARATE_OPERATION/);
-  assert.match(runtime,/runShardVaultCycle\(env,\{force:true,skipExternalCode:true,activeRegistryOnly:true\}\)/);
+  assert.match(runtime,/promoteExternalEndpointWithExistingShard/);
 });
 
 
@@ -204,7 +204,7 @@ test('critical code bundle is preferred while exact-SHA archive remains a previe
   assert.match(runtime,/verifyShardVaultCodeReconstruction/);
   assert.match(runtime,/independent_of_local_archive:true/);
   assert.match(runtime,/syncShardVaultCodeExternally/);
-  assert.match(runtime,/skipExternalCode:true/);
+  assert.match(runtime,/DEFERRED_SEPARATE_OPERATION/);
 });
 
 
