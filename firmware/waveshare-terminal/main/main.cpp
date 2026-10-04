@@ -1771,22 +1771,31 @@ static void mobile_bridge_watch_task(void *) {
     bool physical_ready = false;
     int offline_seconds = 0;
     int keepalive_seconds = 0;
+    int revalidate_seconds = 0;
     while (true) {
         const bool ready = mel_mobile_bridge_ready();
         if (ready) {
             offline_seconds = 0;
             keepalive_seconds++;
+            revalidate_seconds++;
             if (keepalive_seconds >= 8) {
                 mel_mobile_bridge_keepalive();
                 keepalive_seconds = 0;
             }
             if (!physical_ready) {
                 physical_ready = true;
+                revalidate_seconds = 0;
                 // Every physical BLE reconnection must restart authentication,
                 // even when the reconnect happened inside the UI grace period.
                 mel_terminal_set_mobile_connected(true);
                 mel_terminal_start_online();
                 ESP_LOGI(TAG, "MEL MOBILE PHYSICAL READY; online validation restarted");
+            } else if (!mel_terminal_online() && revalidate_seconds >= 5) {
+                // A transient heartbeat/GATT failure must not leave MINI offline
+                // forever while the physical Android bridge is still healthy.
+                revalidate_seconds = 0;
+                ESP_LOGI(TAG, "MEL MOBILE READY but session offline; retrying validation");
+                mel_terminal_start_online();
             }
             if (!reported_ready) {
                 reported_ready = true;
@@ -1795,6 +1804,7 @@ static void mobile_bridge_watch_task(void *) {
         } else if (reported_ready) {
             physical_ready = false;
             keepalive_seconds = 0;
+            revalidate_seconds = 0;
             offline_seconds++;
             // Android reconnects in ~1-2 s on transient GATT drops. Keep the
             // companion logically online during a short transport handover so
