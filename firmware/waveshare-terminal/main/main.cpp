@@ -181,21 +181,25 @@ static void camera_boot_probe_task(void *) {
     // UI is already alive before this runs. Camera probing can therefore be slow
     // without starving taskLVGL on CPU0.
     vTaskDelay(pdMS_TO_TICKS(2500));
-    ESP_LOGI(TAG, "SELFTEST CAMERA: init OV5640 off the LVGL core (CPU%d)", xPortGetCoreID());
+    ESP_LOGI(TAG, "SELFTEST CAMERA: init DVP sensor off the LVGL core (CPU%d)", xPortGetCoreID());
     esp_camera_port_init((i2c_port_num_t)I2C_PORT_NUM);
-    camera_ok = esp_camera_sensor_get() != nullptr;
+    sensor_t *sensor = esp_camera_sensor_get();
+    camera_ok = sensor && (sensor->id.PID == OV5640_PID || sensor->id.PID == OV2640_PID);
 
     if (camera_ok) {
+        const char *model = sensor->id.PID == OV5640_PID ? "OV5640" : "OV2640";
         camera_fb_t *fb = esp_camera_fb_get();
         if (fb) {
-            ESP_LOGI(TAG, "SELFTEST CAMERA PASS: %ux%u, %u bytes", fb->width, fb->height, (unsigned)fb->len);
+            ESP_LOGI(TAG, "SELFTEST CAMERA PASS: %s %ux%u, %u bytes", model, fb->width, fb->height, (unsigned)fb->len);
             esp_camera_fb_return(fb);
         } else {
-            ESP_LOGW(TAG, "SELFTEST CAMERA: sensor initialized but no frame returned");
+            ESP_LOGW(TAG, "SELFTEST CAMERA: %s initialized but no frame returned", model);
             camera_ok = false;
         }
+    } else if (sensor) {
+        ESP_LOGW(TAG, "SELFTEST CAMERA: unsupported DVP sensor PID=0x%04x", sensor->id.PID);
     } else {
-        ESP_LOGW(TAG, "SELFTEST CAMERA: OV5640 unavailable");
+        ESP_LOGW(TAG, "SELFTEST CAMERA: no OV5640/OV2640 detected");
     }
 
     mel_terminal_set_hardware(camera_ok, audio_ok, false);
@@ -692,7 +696,9 @@ static void settings_audio_test_task(void *) {
         return;
     }
 
-    constexpr size_t sample_count = 48000; // 1 s @ 48 kHz mono
+    // Match the Waveshare reference audio test: capture two seconds from the
+    // onboard microphone, then replay exactly that PCM through the speaker.
+    constexpr size_t sample_count = 2 * 48000; // 2 s @ 48 kHz mono
     constexpr size_t byte_count = sample_count * sizeof(int16_t);
     auto *pcm = static_cast<int16_t *>(heap_caps_malloc(byte_count, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
     if (!pcm) pcm = static_cast<int16_t *>(malloc(byte_count));
@@ -703,8 +709,8 @@ static void settings_audio_test_task(void *) {
         return;
     }
 
-    settings_set_status("MIC : mesure du bruit de fond pendant 1 seconde...");
-    esp_codec_dev_set_in_gain(input_dev, 38.0);
+    settings_set_status("MIC : parle pendant 2 secondes...");
+    esp_codec_dev_set_in_gain(input_dev, 40.0);
     const int rc = esp_codec_dev_read(input_dev, pcm, byte_count);
     esp_codec_dev_set_in_gain(input_dev, 0.0);
 
@@ -751,30 +757,19 @@ static void settings_audio_test_task(void *) {
     const int32_t span = (int32_t)max_s - (int32_t)min_s;
     const bool signal_ok = span > 20 && transitions > (sample_count / 200);
 
-    char msg[260];
-    snprintf(msg, sizeof(msg),
-             "MIC %s | bruit: RMS %u | moyen %u | min %d max %d | span %ld | clipping %u",
-             signal_ok ? "PASS" : "FAIL/PLAT",
-             (unsigned)rms, (unsigned)mean_abs, (int)min_s, (int)max_s,
-             (long)span, (unsigned)clips);
-    ESP_LOGI(TAG, "%s transitions=%u", msg, (unsigned)transitions);
-    settings_set_status(msg);
+    settings_set_status("HP : lecture de ta voix pendant 2 secondes...");
+    esp_codec_dev_set_out_vol(output_dev, 75.0);
+    const int wrc = esp_codec_dev_write(output_dev, pcm, byte_count);
+    esp_codec_dev_set_out_vol(output_dev, 0.0);
 
-    // Short 880 Hz speaker tone after microphone measurement.
-    constexpr int tone_samples = 12000; // 250 ms at 48 kHz
-    auto *tone = static_cast<int16_t *>(heap_caps_malloc(tone_samples * sizeof(int16_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
-    if (!tone) tone = static_cast<int16_t *>(malloc(tone_samples * sizeof(int16_t)));
-    if (tone) {
-        for (int i = 0; i < tone_samples; ++i) {
-            const int phase = (i * 880) % 48000;
-            tone[i] = phase < 24000 ? 4500 : -4500;
-        }
-        esp_codec_dev_set_out_vol(output_dev, 55.0);
-        const int wrc = esp_codec_dev_write(output_dev, tone, tone_samples * sizeof(int16_t));
-        esp_codec_dev_set_out_vol(output_dev, 0.0);
-        ESP_LOGI(TAG, "SPEAKER TEST rc=%d", wrc);
-        heap_caps_free(tone);
-    }
+    char msg[280];
+    snprintf(msg, sizeof(msg),
+             "MIC %s | HP %s | RMS %u | min %d max %d | span %ld | clipping %u",
+             signal_ok ? "PASS" : "FAIBLE/PLAT",
+             wrc == ESP_CODEC_DEV_OK ? "LECTURE OK" : "FAIL",
+             (unsigned)rms, (int)min_s, (int)max_s, (long)span, (unsigned)clips);
+    ESP_LOGI(TAG, "%s transitions=%u speaker_rc=%d", msg, (unsigned)transitions, wrc);
+    settings_set_status(msg);
 
     heap_caps_free(pcm);
     settings_audio_test_task_handle = nullptr;
@@ -794,17 +789,25 @@ static void settings_audio_clicked(lv_event_t *e) {
 static void settings_camera_test_task(void *) {
     if (!camera_ok) {
         esp_camera_port_init((i2c_port_num_t)I2C_PORT_NUM);
-        camera_ok = esp_camera_sensor_get() != nullptr;
     }
+    sensor_t *sensor = esp_camera_sensor_get();
+    camera_ok = sensor && (sensor->id.PID == OV5640_PID || sensor->id.PID == OV2640_PID);
     if (!camera_ok) {
-        settings_set_status("CAMERA FAIL : OV5640 indisponible.");
+        if (sensor) {
+            char msg[160];
+            snprintf(msg, sizeof(msg), "CAMERA FAIL : capteur DVP non supporte (PID 0x%04x).", sensor->id.PID);
+            settings_set_status(msg);
+        } else {
+            settings_set_status("CAMERA FAIL : aucun OV5640/OV2640 detecte.");
+        }
     } else {
+        const char *model = sensor->id.PID == OV5640_PID ? "OV5640" : "OV2640";
         camera_fb_t *fb = esp_camera_fb_get();
         if (!fb) {
             settings_set_status("CAMERA FAIL : aucune image recue.");
         } else {
             char msg[180];
-            snprintf(msg, sizeof(msg), "CAMERA PASS : %ux%u | %u octets", fb->width, fb->height, (unsigned)fb->len);
+            snprintf(msg, sizeof(msg), "CAMERA PASS : %s | %ux%u | %u octets", model, fb->width, fb->height, (unsigned)fb->len);
             settings_set_status(msg);
             esp_camera_fb_return(fb);
         }
@@ -1146,10 +1149,22 @@ static void wifi_connect_task(void *arg) {
     wifi_reconnect_attempt = 0;
     wifi_got_ip = false;
     wifi_disconnect_reason = -1;
-    mini_wifi_sta_connect(ssid, pwd);
+    const esp_err_t connect_err = mini_wifi_sta_connect(ssid, pwd);
+    if (connect_err != ESP_OK) {
+        ESP_LOGE(TAG, "MINI WIFI CONNECT START FAILED: %s", esp_err_to_name(connect_err));
+        if (lvgl_port_lock(0)) {
+            if (wifi_status) lv_label_set_text_fmt(wifi_status, "Echec demarrage Wi-Fi\n%s", esp_err_to_name(connect_err));
+            if (wifi_keyboard) lv_obj_clear_flag(wifi_keyboard, LV_OBJ_FLAG_HIDDEN);
+            if (wifi_connect_btn) lv_obj_clear_flag(wifi_connect_btn, LV_OBJ_FLAG_HIDDEN);
+            lvgl_port_unlock();
+        }
+        wifi_connect_task_handle = nullptr;
+        vTaskDelete(nullptr);
+        return;
+    }
 
     bool connected = false;
-    for (int i = 0; i < 30; ++i) {
+    for (int i = 0; i < 40; ++i) {
         if (wifi_got_ip) {
             connected = true;
             break;
@@ -1619,7 +1634,9 @@ static void wifi_fallback_after_ble_task(void *) {
     char saved_ssid[33] = {};
     char saved_pwd[65] = {};
     if (!wifi_load_credentials(saved_ssid, sizeof(saved_ssid), saved_pwd, sizeof(saved_pwd))) {
-        ESP_LOGI(TAG, "No MEL Mobile and no saved Wi-Fi; waiting for phone or manual Wi-Fi setup");
+        ESP_LOGW(TAG, "No MEL Mobile and no saved Wi-Fi; opening Wi-Fi setup");
+        wifi_scan_requested = true;
+        request_view(MINI_VIEW_WIFI_LIST);
         wifi_fallback_task_handle = nullptr;
         vTaskDelete(nullptr);
         return;
