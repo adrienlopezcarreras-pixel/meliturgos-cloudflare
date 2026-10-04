@@ -7,7 +7,7 @@ import { createCompanionSecretStoreAdapter } from './companion-secret-store-adap
 import { createCompanionSchedulerAdapter } from './companion-scheduler-adapter.js';
 import { createCompanionObservabilityAdapter } from './companion-observability-adapter.js';
 import { proveCompanionBackupRestoreAlternative } from './companion-backup-restore-prevalidation.js';
-import { SovereigntyCandidateStore } from './sovereignty-candidate-store.js';
+import { SovereigntyCandidateStore, scopeSovereigntyCandidateStore } from './sovereignty-candidate-store.js';
 import { D1AlternativeRegistryStore } from './d1-alternative-registry-store.js';
 import { validateSovereigntyCandidates } from './sovereignty-candidate-validator.js';
 
@@ -108,6 +108,21 @@ export async function runCompanionInfrastructurePrevalidationRuntime(env,{
       }],
     })),
   },{now});
+  // Due/forced infrastructure refreshes must retest the exact local candidates.
+  // The shared candidate table also contains discoveries for unrelated layers,
+  // while PREVALIDATED rows are intentionally preserved by watch upserts.
+  // Reset only this bounded local set and scope validation to it.
+  for(const candidate of LOCAL_CANDIDATES){
+    await candidateStore.setStatus({
+      layer:candidate.layer,
+      id:candidate.id,
+      status:'UNVERIFIED',
+      metadata:{revalidation_requested:true,source_sha:/^[0-9a-f]{40}$/.test(sourceSha)?sourceSha:null},
+    });
+  }
+  const scopedCandidateStore=scopeSovereigntyCandidateStore(candidateStore,{
+    keys:LOCAL_CANDIDATES.map(candidate=>`${candidate.layer}::${candidate.id}`),
+  });
 
   let device;
   try{device=await latestOnlineWindows(env.DB,{now});}catch{}
@@ -153,7 +168,7 @@ export async function runCompanionInfrastructurePrevalidationRuntime(env,{
   }
 
   const result=await validateSovereigntyCandidates({
-    candidateStore,
+    candidateStore:scopedCandidateStore,
     registryStore,
     env,
     now,
