@@ -27,6 +27,7 @@ import { liveTechnicalSovereigntyReport } from '../portability/technical-soverei
 import { runConfiguredAiCandidateValidationRuntime } from '../portability/configured-ai-candidate-validation-runtime.js';
 import { runCompanionAiPrevalidationRuntime } from '../portability/companion-ai-prevalidation-runtime.js';
 import { runCompanionSourceControlPrevalidationRuntime } from '../portability/companion-source-control-prevalidation-runtime.js';
+import { runShardVaultSourceControlPrevalidationRuntime } from '../portability/shardvault-source-control-prevalidation-runtime.js';
 import { runCompanionInfrastructurePrevalidationRuntime } from '../portability/companion-infrastructure-prevalidation-runtime.js';
 import { runGoogleDriveBackupRestorePrevalidationRuntime } from '../portability/google-drive-backup-restore-prevalidation-runtime.js';
 import { authorizeGitHubActionsOidcRequest } from '../security/github-actions-oidc.js';
@@ -488,8 +489,42 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
       ai: runConfiguredAiCandidateValidationRuntime,
       ai_local: (runtimeEnv, options) =>
         runCompanionAiPrevalidationRuntime(runtimeEnv, { ...options, sourceSha: deployedSha }),
-      source_control: (runtimeEnv, options) =>
-        runCompanionSourceControlPrevalidationRuntime(runtimeEnv, { ...options, sourceSha: deployedSha }),
+      source_control: async (runtimeEnv, options) => {
+        const shardVault = await runShardVaultSourceControlPrevalidationRuntime(runtimeEnv, {
+          ...options,
+          sourceSha: deployedSha,
+        });
+        if(Number(shardVault?.prevalidated||0)>0)return shardVault;
+
+        const companion = await runCompanionSourceControlPrevalidationRuntime(runtimeEnv, {
+          ...options,
+          sourceSha: deployedSha,
+        });
+        if(Number(companion?.prevalidated||0)>0)return companion;
+
+        const results=[
+          ...(Array.isArray(shardVault?.results)?shardVault.results:[]),
+          ...(Array.isArray(companion?.results)?companion.results:[]),
+        ];
+        const shardReason=String(
+          shardVault?.reason
+          || results.find(row=>row?.id==='shardvault-reconstructed-source-control'&&row?.status==='BLOCKED')?.code
+          || results.find(row=>row?.id==='shardvault-reconstructed-source-control'&&row?.status==='BLOCKED')?.validation_status
+          || ''
+        ).slice(0,180);
+        const companionReason=String(companion?.reason||'').slice(0,180);
+        return{
+          ok:shardVault?.ok!==false&&companion?.ok!==false,
+          skipped:shardVault?.skipped===true&&companion?.skipped===true,
+          status:'SOURCE_CONTROL_ALTERNATIVES_UNAVAILABLE',
+          reason:shardReason||companionReason||'SOURCE_CONTROL_ALTERNATIVES_UNAVAILABLE',
+          source_sha:deployedSha,
+          processed:Number(shardVault?.processed||0)+Number(companion?.processed||0),
+          prevalidated:0,
+          blocked:Number(shardVault?.blocked||0)+Number(companion?.blocked||0),
+          results,
+        };
+      },
       infrastructure: (runtimeEnv, options) =>
         runCompanionInfrastructurePrevalidationRuntime(runtimeEnv, {
           ...options,
