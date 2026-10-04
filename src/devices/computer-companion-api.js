@@ -272,16 +272,28 @@ async function heartbeat(request,env,a){
  const b=await request.json().catch(()=>({}));
  const row=await env.DB.prepare("SELECT metadata FROM computer_devices WHERE id=? LIMIT 1").bind(a.device.id).first();
  let metadata={};try{metadata=JSON.parse(row?.metadata||"{}")}catch{}
+ const now=Date.now();
  const patch={};
  if(b.version!==undefined)patch.version=b.version||null;
  if(b.engine_version!==undefined)patch.engine_version=b.engine_version||null;
- if(b.engine_heartbeat_at!==undefined&&Number.isFinite(Number(b.engine_heartbeat_at)))patch.engine_heartbeat_at=Number(b.engine_heartbeat_at);
+ if(b.engine_heartbeat_at!==undefined&&Number.isFinite(Number(b.engine_heartbeat_at))){
+   patch.engine_heartbeat_at=Number(b.engine_heartbeat_at);
+ }else if(
+   b.version!==undefined
+   && typeof b.hostname==="string" && b.hostname.trim()
+   && b.screen && typeof b.screen==="object"
+ ){
+   // Native Windows Companion heartbeats are emitted only after
+   // EnsureCompanion() supervises the authenticated PowerShell engine.
+   // Treat that authenticated supervisor heartbeat as fresh engine presence
+   // for compatibility with already-installed native clients.
+   patch.engine_heartbeat_at=now;
+ }
  if(b.hostname!==undefined)patch.hostname=b.hostname||null;
  if(b.user!==undefined)patch.user=b.user||null;
  if(b.screen&&typeof b.screen==="object")patch.screen=b.screen;
  if(b.active_window!==undefined)patch.active_window=b.active_window||null;
  metadata={...metadata,...patch};
- const now=Date.now();
  await env.DB.prepare("UPDATE computer_devices SET last_seen_at=?,metadata=? WHERE id=?").bind(now,JSON.stringify(metadata),a.device.id).run();
  const engineHeartbeatAt=Number(metadata.engine_heartbeat_at||0);
  const engineOnline=engineHeartbeatAt>0&&now-engineHeartbeatAt<35000;

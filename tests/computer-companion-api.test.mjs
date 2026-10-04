@@ -265,6 +265,30 @@ test('Windows installer clears owner password before token-based companion downl
 });
 
 
+test('authenticated native supervisor heartbeat keeps already-installed Windows engine online',async()=>{
+  const DB=sqliteD1();
+  try{
+    const env={DB,MELITURGOS_USER:'adrien',MELITURGOS_PASSWORD:'test'};
+    const codeRes=await maybeHandleComputerApi(ownerRequest('/api/computer/v1/pair-code','POST',{}),env);
+    const code=(await codeRes.json()).code;
+    const pairRes=await maybeHandleComputerApi(new Request('https://mel.test/api/computer/v1/pair',{
+      method:'POST',headers:{'content-type':'application/json'},
+      body:JSON.stringify({pair_code:code,computer_id:'pc-native-supervisor'})
+    }),env);
+    const paired=await pairRes.json();
+    const headers={authorization:'Bearer '+paired.token,'x-mel-computer-id':'pc-native-supervisor','content-type':'application/json'};
+    const before=Date.now();
+    const response=await maybeHandleComputerApi(new Request('https://mel.test/api/computer/v1/heartbeat',{
+      method:'POST',headers,
+      body:JSON.stringify({version:'2.3.7',hostname:'PC',user:'adrien',screen:{x:0,y:0,width:1920,height:1080}})
+    }),env);
+    const payload=await response.json();
+    assert.equal(payload.ok,true);
+    assert.equal(payload.engine_online,true);
+    assert.ok(Number(payload.engine_last_seen_at)>=before);
+  }finally{DB.close();}
+});
+
 test('Windows command engine heartbeat is independently fresh from the desktop UI heartbeat',async()=>{
   const DB=sqliteD1();
   try{
@@ -297,10 +321,10 @@ test('Windows command engine heartbeat is independently fresh from the desktop U
   }finally{DB.close();}
 });
 
-test('Windows Companion 2.3.7 watchdogs the engine and implements local runtime sovereignty',async()=>{
+test('Windows Companion 2.3.8 watchdogs the engine and implements local runtime sovereignty',async()=>{
   const desktop=await readFile(new URL('../windows-companion/MEL-Companion.cs',import.meta.url),'utf8');
   const companion=await readFile(new URL('../assets/MEL-Computer-Companion.ps1',import.meta.url),'utf8');
-  assert.match(desktop,/Version = "2\.3\.7"/);
+  assert.match(desktop,/Version = "2\.3\.8"/);
   assert.match(desktop,/EnsureCompanion/);
   assert.match(desktop,/CompanionRunning/);
   assert.match(companion,/\$Version = "1\.3\.0"/);
