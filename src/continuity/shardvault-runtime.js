@@ -1935,37 +1935,65 @@ async function promoteExternalEndpointWithExistingShard(env,c,last,endpoint){
   }
   const counts=new Map();
   for(const d of last.shards||[])counts.set(d.endpointId,(counts.get(d.endpointId)||0)+1);
-  const donor=[...(last.shards||[])].sort((a,b)=>{
-    const ae=endpointById(c,a.endpointId,a),be=endpointById(c,b.endpointId,b);
-    const ai=ae?.backend?1:0,bi=be?.backend?1:0;
-    if(ai!==bi)return bi-ai;
-    return (counts.get(b.endpointId)||0)-(counts.get(a.endpointId)||0);
-  }).find(d=>{
+  const candidates=[...(last.shards||[])].filter(d=>{
     const donorEndpoint=endpointById(c,d.endpointId,d);
     if(!donorEndpoint||d.endpointId===endpoint.id)return false;
-    return Boolean(donorEndpoint.backend)||(counts.get(d.endpointId)||0)>1;
+    const safe=Boolean(donorEndpoint.backend)||(counts.get(d.endpointId)||0)>1;
+    return safe&&Array.isArray(d.parts)&&d.parts.length>0;
+  }).sort((a,b)=>{
+    const ac=counts.get(a.endpointId)||0,bc=counts.get(b.endpointId)||0;
+    if(ac!==bc)return bc-ac;
+    return (a.parts?.length||0)-(b.parts?.length||0);
   });
-  if(!donor)return {ok:false,status:'PROMOTION_NO_SAFE_DONOR_SHARD',endpoint_id:endpoint.id};
+  const donor=candidates[0]||null;
+  if(!donor)return {ok:false,status:'PROMOTION_NO_STREAMABLE_DONOR_SHARD',endpoint_id:endpoint.id};
 
   const donorEndpoint=endpointById(c,donor.endpointId,donor);
-  const shard=await downloadFragment(env,donorEndpoint,donor);
-  if(shard.length!==Number(last.shardSize||donor.byteLength||0)){
-    return {ok:false,status:'PROMOTION_DONOR_LENGTH_INVALID',endpoint_id:endpoint.id,donor_endpoint_id:donor.endpointId};
-  }
-  const shardKey=await hkdf(c.master,utf8(last.snapshotId),utf8('MEL-ShardVault/v1/shard-mac'));
-  const mac=b64u(await hmac(shardKey,concat(utf8(`${last.snapshotId}:${donor.index}:`),shard)));
-  if(mac!==donor.mac)return {ok:false,status:'PROMOTION_DONOR_MAC_INVALID',endpoint_id:endpoint.id,donor_endpoint_id:donor.endpointId};
+  const baseId=rid(24);
+  const targetLimit=fragmentChunkLimit(endpoint);
+  const parts=[];
+  let total=0,targetPartIndex=0;
 
-  const objectId=rid(24);
-  const locator=await uploadFragment(env,endpoint,objectId,shard);
+  for(const sourcePart of donor.parts){
+    const source=await download(env,donorEndpoint,sourcePart.objectId,{
+      ...donor,objectId:sourcePart.objectId,remoteUrl:sourcePart.remoteUrl||null,parts:null
+    });
+    if(Number(sourcePart.byteLength)>0&&source.length!==Number(sourcePart.byteLength)){
+      return {ok:false,status:'PROMOTION_DONOR_PART_LENGTH_INVALID',endpoint_id:endpoint.id,donor_endpoint_id:donor.endpointId};
+    }
+    for(let offset=0;offset<source.length;offset+=targetLimit){
+      const chunk=source.slice(offset,Math.min(source.length,offset+targetLimit));
+      const partId=baseId+'-p'+String(targetPartIndex++).padStart(4,'0');
+      const locator=await upload(env,endpoint,partId,chunk);
+      const part={objectId:partId,remoteUrl:locator?.remoteUrl||null,byteLength:chunk.length};
+      const got=await download(env,endpoint,partId,{
+        ...donor,objectId:partId,remoteUrl:part.remoteUrl,parts:null
+      });
+      if(!byteArraysEqual(got,chunk)){
+        return {ok:false,status:'PROMOTION_PART_ROUNDTRIP_MISMATCH',endpoint_id:endpoint.id,donor_endpoint_id:donor.endpointId,part_index:targetPartIndex-1};
+      }
+      parts.push(part);
+      total+=chunk.length;
+    }
+  }
+
+  const expectedLength=Number(last.shardSize||donor.byteLength||0);
+  if(total!==expectedLength){
+    return {ok:false,status:'PROMOTION_STREAM_LENGTH_INVALID',endpoint_id:endpoint.id,donor_endpoint_id:donor.endpointId,expected_bytes:expectedLength,actual_bytes:total};
+  }
+
   const replacement={
     index:donor.index,endpointId:endpoint.id,endpoint:endpointSnapshot(endpoint),
-    objectId:locator.objectId,remoteUrl:locator.remoteUrl||null,parts:locator.parts||null,
-    byteLength:shard.length,mac
+    objectId:baseId,remoteUrl:null,parts,byteLength:total,mac:donor.mac
   };
   const roundtrip=await downloadFragment(env,endpoint,replacement);
-  if(!byteArraysEqual(roundtrip,shard)){
-    return {ok:false,status:'PROMOTION_ROUNDTRIP_MISMATCH',endpoint_id:endpoint.id,donor_endpoint_id:donor.endpointId};
+  if(roundtrip.length!==expectedLength){
+    return {ok:false,status:'PROMOTION_ROUNDTRIP_LENGTH_INVALID',endpoint_id:endpoint.id,donor_endpoint_id:donor.endpointId};
+  }
+  const shardKey=await hkdf(c.master,utf8(last.snapshotId),utf8('MEL-ShardVault/v1/shard-mac'));
+  const mac=b64u(await hmac(shardKey,concat(utf8(`${last.snapshotId}:${donor.index}:`),roundtrip)));
+  if(mac!==donor.mac){
+    return {ok:false,status:'PROMOTION_ROUNDTRIP_MAC_INVALID',endpoint_id:endpoint.id,donor_endpoint_id:donor.endpointId};
   }
 
   const descriptors=(last.shards||[]).map(d=>d.index===donor.index?replacement:{...d});
@@ -1974,17 +2002,11 @@ async function promoteExternalEndpointWithExistingShard(env,c,last,endpoint){
   next.diversity=diversity(endpoints);
   next.manifestMac=await manifestMac(c,next);
   await appendManifest(env,c,next);
-  await rememberValidatedExternalEndpoints(env,[{
-    ...endpoint,
-    representativeVerifiedAt:new Date().toISOString(),
-    representativeBytes:shard.length,
-    representativeSha256:await sha256Hex(shard),
-    representativeParts:Array.isArray(replacement.parts)?replacement.parts.length:1,
-    evidenceVerification:'representative_full_fragment_roundtrip'
-  }]);
+  await rememberValidatedExternalEndpoints(env,[endpoint]);
   return {
     ok:true,status:'SINGLE_SHARD_PROMOTED',endpoint_id:endpoint.id,
     donor_endpoint_id:donor.endpointId,shard_index:donor.index,
+    streamed_parts:parts.length,streamed_bytes:total,
     snapshot_id:last.snapshotId,revision:next.revision,manifest:next
   };
 }
