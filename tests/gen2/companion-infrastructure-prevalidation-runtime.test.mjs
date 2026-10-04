@@ -38,7 +38,8 @@ test('infrastructure prevalidation revalidates only the bounded local candidate 
   assert.match(source,/status:'UNVERIFIED'/);
   assert.match(source,/keys:selectedCandidates\.map/);
   assert.match(source,/candidateStore:scopedCandidateStore/);
-  assert.match(source,/candidate_count:selectedCandidates\.length/);\n  assert.match(source,/mel-sovereignty-proof-v2-/);
+  assert.match(source,/candidate_count:selectedCandidates\.length/);
+  assert.match(source,/mel-sovereignty-proof-v2-/);
   assert.match(source,/sourceSha\.slice\(0,12\)/);
 });
 
