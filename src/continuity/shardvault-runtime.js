@@ -1947,6 +1947,11 @@ export async function searchAutonomousShardVaultRepositories(env,{maxNewEndpoint
       }
     }catch{}
     const targetCount=Math.min(7,c.n);
+    // Discovery only needs a bounded live write/read qualification sample.
+    // A candidate is counted as active only after runShardVaultCycle writes the
+    // real production shard size, so keep the expensive representative probe
+    // small enough that one slow provider cannot monopolize the release gate.
+    const qualificationBytes=Math.max(64*1024,Math.min(requiredBytes,256*1024));
     const boundedMode=Number(maxNewEndpoints)!==7||probeLimit!==null||Number(probeOffset)!==0;
     const boundedMaxNew=boundedMode
       ? Math.max(1,Math.min(targetCount,Math.trunc(Number(maxNewEndpoints)||1)))
@@ -1962,7 +1967,7 @@ export async function searchAutonomousShardVaultRepositories(env,{maxNewEndpoint
 
     if(boundedMode&&active.length<targetCount){
       const activeIds=new Set(active.map(e=>e.id));
-      const validatedPool=(await readValidatedExternalEndpoints(env,requiredBytes))
+      const validatedPool=(await readValidatedExternalEndpoints(env,qualificationBytes))
         .filter(e=>!activeIds.has(e.id));
       const validatedOffset=Math.max(0,Math.trunc(Number(probeOffset)||0));
       const validated=validatedPool
@@ -1999,7 +2004,7 @@ export async function searchAutonomousShardVaultRepositories(env,{maxNewEndpoint
         : targetCount;
       const activeDiscoveryIds=active.map(endpoint=>endpoint.id);
       report=await discoverAutonomousRepositories(env,{
-        masterKey:c.master,vaultId:c.vaultId,requiredBytes,
+        masterKey:c.master,vaultId:c.vaultId,requiredBytes:qualificationBytes,
         selectionCount:selectionTarget,probeLimit,probeOffset,
         internetDiscovery:knownCandidatesOnly!==true,
         excludeEndpointIds:activeDiscoveryIds,
@@ -2039,6 +2044,7 @@ export async function searchAutonomousShardVaultRepositories(env,{maxNewEndpoint
       ok:true,
       searched_at:new Date().toISOString(),
       required_bytes:requiredBytes,
+      qualification_bytes:qualificationBytes,
       declared_critical_bundle_bytes:typeof MEL_CRITICAL_CODE_BUNDLE_BYTES!=='undefined'?Math.max(0,Number(MEL_CRITICAL_CODE_BUNDLE_BYTES)||0):0,
       representative_archive_source:last?.code_archive_probe?.source||null,
       representative_archive_key:last?.code_archive_probe?.key||null,
