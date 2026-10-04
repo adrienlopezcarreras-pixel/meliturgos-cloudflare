@@ -22,7 +22,7 @@ test('decoupled downstream proof never deploys, rolls back, toggles MAX, or muta
   assert.doesNotMatch(workflow,/max[_ -]?autonomy|MAX 100/i);
 });
 
-test('decoupled MEL-FILE proof gates browser pressure on exact-SHA readiness and preserves page state while staging', async () => {
+test('decoupled MEL-FILE proof gates browser pressure on exact-SHA readiness and keeps upload plus staging in one execution', async () => {
   const workflow=await readFile(new URL('../../.github/workflows/release-downstream-proof-decoupled.yml',import.meta.url),'utf8');
   const fileBlock=workflow.split('\n  file:\n')[1]?.split('\n  sovereignty:\n')[0]||'';
   assert.doesNotMatch(fileBlock,/needs:\s*browser/);
@@ -30,17 +30,20 @@ test('decoupled MEL-FILE proof gates browser pressure on exact-SHA readiness and
   assert.match(fileBlock,/GO_FOR_SUPERVISED_AUTONOMY/);
   assert.match(fileBlock,/candidate_sha/);
   assert.match(fileBlock,/for ATTEMPT in \$\(seq 1 60\)/);
-  assert.ok(fileBlock.indexOf('GO_FOR_SUPERVISED_AUTONOMY')<fileBlock.indexOf('SESSION="decoupled-file-'),'release readiness must gate MEL-FILE browser pressure');
-  assert.match(fileBlock,/SESSION="decoupled-file-\$\{TARGET_SHA:0:12\}-\$\{GITHUB_RUN_ID\}-\$\{GITHUB_RUN_ATTEMPT\}"/);
-  assert.match(fileBlock,/file-normal-upload\.json/);
-  assert.match(fileBlock,/file-normal-wait\.json/);
-  assert.match(fileBlock,/file-full-upload\.json/);
-  assert.match(fileBlock,/file-full-wait\.json/);
-  assert.match(fileBlock,/retry \$\{ATTEMPT\}\/8 without navigation/);
-  assert.match(fileBlock,/phased_browser_session:true/);
-  assert.match(fileBlock,/408\|409\|429\|500\|502\|503\|504/);
-  assert.match(fileBlock,/Non-retryable MEL-FILE (?:normal|full) staging status/);
+  assert.ok(fileBlock.indexOf('GO_FOR_SUPERVISED_AUTONOMY')<fileBlock.indexOf('FILE_READY=0'),'release readiness must gate MEL-FILE browser pressure');
+  assert.match(fileBlock,/SESSION="decoupled-file-\$\{TARGET_SHA:0:12\}-\$\{GITHUB_RUN_ID\}-\$\{GITHUB_RUN_ATTEMPT\}-\$\{ATTEMPT\}"/);
+  assert.match(fileBlock,/max_steps:7/);
+  assert.match(fileBlock,/upload-normal/);
+  assert.match(fileBlock,/wait-normal/);
+  assert.match(fileBlock,/upload-full/);
+  assert.match(fileBlock,/wait-full/);
+  assert.match(fileBlock,/steps_completed\|\|0\)!==7/);
+  assert.match(fileBlock,/retry \$\{ATTEMPT\}\/8 with a fresh browser session/);
+  assert.match(fileBlock,/monolithic_browser_session:true/);
+  assert.match(fileBlock,/000\|200\|408\|409\|429\|500\|502\|503\|504/);
+  assert.match(fileBlock,/Non-retryable MEL-FILE monolithic proof status/);
   assert.match(fileBlock,/failed_step_id/);
+  assert.doesNotMatch(fileBlock,/file-normal-wait\.json|file-full-wait\.json/);
 });
 
 test('decoupled browser proof retries bounded transient failures before gating MEL-FILE', async () => {
