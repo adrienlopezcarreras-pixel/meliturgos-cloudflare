@@ -72,7 +72,7 @@ export async function prevalidateInfrastructureAlternative({
   if(proof?.ok!==true){
     return{
       ok:false,status:'INFRA_LIVE_PROOF_FAILED',id,provider,layer,
-      code:clean(proof?.status,180),proof,
+      code:clean(proof?.code||proof?.health?.code||proof?.status,180),proof,
       registry:createAlternativeRegistry(registry?.all||[],{now}),
     };
   }

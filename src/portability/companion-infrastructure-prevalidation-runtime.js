@@ -205,7 +205,14 @@ export async function runCompanionInfrastructurePrevalidationRuntime(env,{
         return{descriptor:d,adapter:createCompanionObjectStorageAdapter({execute})};
       }
       if(candidate.layer==='database'){
-        return{descriptor:d,adapter:createCompanionDatabaseAdapter({execute})};
+        const proofDbSuffix=/^[0-9a-f]{40}$/.test(sourceSha)?sourceSha.slice(0,12):'local';
+        return{
+          descriptor:d,
+          adapter:createCompanionDatabaseAdapter({
+            execute,
+            database:`mel-sovereignty-proof-v2-${proofDbSuffix}`,
+          }),
+        };
       }
       if(candidate.layer==='ci_cd'){
         await ensureSeeded();

@@ -545,15 +545,20 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
       const verifiedRefresh = row?.ok !== false
         && (!requiresConcreteLiveProof || row?.skipped !== true)
         && (!requiresPrevalidatedResult || Number(row?.prevalidated || 0) > 0);
+      const concreteFailureCode = row?.reason
+        || row?.results?.find?.(result=>result?.status==='BLOCKED')?.code
+        || row?.results?.find?.(result=>result?.status==='BLOCKED')?.validation_status
+        || null;
       const verifiedRow = {
         ...row,
         verified: verifiedRefresh,
         verification_reason: verifiedRefresh
           ? null
-          : row?.reason || (row?.skipped === true ? 'LIVE_PROOF_SKIPPED' : 'LIVE_PREVALIDATION_REQUIRED'),
+          : concreteFailureCode || (row?.skipped === true ? 'LIVE_PROOF_SKIPPED' : 'LIVE_PREVALIDATION_REQUIRED'),
       };
       return Response.json({
         ok: verifiedRefresh,
+        code: verifiedRefresh ? null : (concreteFailureCode || 'MEL_SOV_01_REFRESH_STEP_FAILED'),
         status: verifiedRefresh ? 'MEL_SOV_01_REFRESH_STEP_VERIFIED' : 'MEL_SOV_01_REFRESH_STEP_FAILED',
         phase,
         refresh_target: requestedRefresh,
