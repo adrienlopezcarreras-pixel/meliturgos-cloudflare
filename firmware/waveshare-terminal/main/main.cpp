@@ -816,76 +816,51 @@ static void settings_camera_test_task(void *) {
         return;
     }
 
-    // Waveshare documents a GDMA/ESP32-S3 failure mode while Wi-Fi STA is
-    // associating. The user's symptom ("capture en cours" forever) matches a
-    // stale camera/GDMA path, so isolate the capture from Wi-Fi reconnects and
-    // rebuild the camera driver from a clean state.
-    const bool resume_wifi = wifi_got_ip || wifi_auto_reconnect_enabled;
-    wifi_auto_reconnect_enabled = false;
-    if (resume_wifi) {
-        ESP_LOGI(TAG, "CAMERA TEST: pausing Wi-Fi STA to protect camera GDMA");
-        esp_wifi_disconnect();
-        vTaskDelay(pdMS_TO_TICKS(180));
-    }
-
-    settings_set_status("CAMERA : reset du capteur...");
-    sensor_t *existing = esp_camera_sensor_get();
-    if (existing) {
-        esp_camera_return_all();
-        esp_err_t deinit_err = esp_camera_deinit();
-        ESP_LOGI(TAG, "CAMERA TEST: clean deinit -> %s", esp_err_to_name(deinit_err));
-        vTaskDelay(pdMS_TO_TICKS(150));
-    }
-
-    ESP_LOGI(TAG, "CAMERA TEST: fresh Waveshare DVP init on core %d", xPortGetCoreID());
-    esp_camera_port_init((i2c_port_num_t)I2C_PORT_NUM);
-
+    // The camera is initialized once at boot in the same order as Waveshare's
+    // reference firmware. Do NOT disconnect Wi-Fi and do NOT deinit/reinit the
+    // DVP driver here: doing so can strand both the network and camera DMA path.
     sensor_t *sensor = esp_camera_sensor_get();
     camera_ok = sensor && (sensor->id.PID == OV5640_PID || sensor->id.PID == OV2640_PID);
+
     if (!camera_ok) {
         i2c_master_bus_handle_t bus = nullptr;
         esp_err_t bus_err = i2c_master_get_bus_handle(I2C_PORT_NUM, &bus);
         esp_err_t p3c = bus_err == ESP_OK ? i2c_master_probe(bus, 0x3c, 100) : bus_err;
         esp_err_t p30 = bus_err == ESP_OK ? i2c_master_probe(bus, 0x30, 100) : bus_err;
-        char msg[220];
+        char msg[240];
         if (sensor) {
             snprintf(msg, sizeof(msg),
                      "CAMERA FAIL : PID 0x%04x non supporte.\nSCCB 0x3C=%s  0x30=%s",
                      sensor->id.PID, esp_err_to_name(p3c), esp_err_to_name(p30));
         } else {
             snprintf(msg, sizeof(msg),
-                     "CAMERA FAIL : aucun capteur.\nSCCB 0x3C=%s  0x30=%s",
+                     "CAMERA FAIL : capteur non initialise.\nSCCB 0x3C=%s  0x30=%s",
                      esp_err_to_name(p3c), esp_err_to_name(p30));
         }
         settings_set_status(msg);
         ESP_LOGW(TAG, "%s", msg);
     } else {
         const char *model = sensor->id.PID == OV5640_PID ? "OV5640" : "OV2640";
-        char stage[120];
-        snprintf(stage, sizeof(stage), "CAMERA : %s detecte, capture...", model);
+        char stage[128];
+        snprintf(stage, sizeof(stage), "CAMERA : %s detecte, attente trame (max 4 s)...", model);
         settings_set_status(stage);
 
-        // Return every framebuffer to the driver before the one-shot capture.
-        // This clears a stale ownership flag left by an interrupted/failed probe.
         esp_camera_return_all();
-        vTaskDelay(pdMS_TO_TICKS(120));
-
+        vTaskDelay(pdMS_TO_TICKS(80));
         const int64_t started = esp_timer_get_time();
         camera_fb_t *fb = esp_camera_fb_get();
         const long elapsed_ms = (long)((esp_timer_get_time() - started) / 1000);
+
         if (!fb) {
-            char msg[200];
+            char msg[220];
             snprintf(msg, sizeof(msg),
-                     "CAMERA FAIL : %s detecte mais aucune trame DVP (%ld ms).",
+                     "CAMERA FAIL : %s detecte mais aucune trame DVP apres %ld ms.",
                      model, elapsed_ms);
             settings_set_status(msg);
             ESP_LOGW(TAG, "%s", msg);
             camera_ok = false;
-            esp_camera_return_all();
-            esp_err_t deinit_err = esp_camera_deinit();
-            ESP_LOGW(TAG, "CAMERA TEST: deinit after capture timeout -> %s", esp_err_to_name(deinit_err));
         } else {
-            char msg[200];
+            char msg[220];
             snprintf(msg, sizeof(msg),
                      "CAMERA PASS : %s | %ux%u | %u octets | %ld ms",
                      model, fb->width, fb->height, (unsigned)fb->len, elapsed_ms);
@@ -897,18 +872,10 @@ static void settings_camera_test_task(void *) {
     }
 
     mel_terminal_set_hardware(camera_ok, audio_ok, false);
-
-    if (resume_wifi) {
-        wifi_auto_reconnect_enabled = true;
-        esp_err_t wifi_err = esp_wifi_connect();
-        ESP_LOGI(TAG, "CAMERA TEST: Wi-Fi resume -> %s", esp_err_to_name(wifi_err));
-    }
-
     xSemaphoreGive(camera_test_mutex);
     settings_camera_test_task_handle = nullptr;
     vTaskDelete(nullptr);
 }
-
 static void settings_camera_clicked(lv_event_t *e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
     ESP_LOGI(TAG, "UI BUTTON: TEST CAMERA");
@@ -919,7 +886,15 @@ static void settings_camera_clicked(lv_event_t *e) {
     settings_set_status("CAMERA : capture en cours...");
     // Waveshare's own camera task runs on core 1. Keep the one-shot test there
     // too, away from the camera driver's core-0 worker and LVGL/Wi-Fi activity.
-    xTaskCreatePinnedToCore(settings_camera_test_task, "settings_camera_test", 10240, nullptr, 3, &settings_camera_test_task_handle, 1);
+    const BaseType_t camera_task_ok = xTaskCreatePinnedToCore(
+        settings_camera_test_task, "settings_camera_test", 7168, nullptr, 3,
+        &settings_camera_test_task_handle, 1
+    );
+    if (camera_task_ok != pdPASS) {
+        settings_camera_test_task_handle = nullptr;
+        settings_set_status("CAMERA FAIL : impossible de lancer le test (memoire).");
+        ESP_LOGE(TAG, "CAMERA TEST task creation failed; free heap=%u", (unsigned)esp_get_free_heap_size());
+    }
 }
 
 static void settings_stt_status_cb(const char *text) {
@@ -1663,15 +1638,15 @@ static void mobile_bridge_watch_task(void *) {
             }
             if (!physical_ready) {
                 physical_ready = true;
-                // Every physical BLE reconnection refreshes phone clock + wake profile,
-                // even when the short outage stayed hidden from the UI.
+                // Every physical BLE reconnection must restart authentication,
+                // even when the reconnect happened inside the UI grace period.
                 mel_terminal_set_mobile_connected(true);
-                ESP_LOGI(TAG, "MEL MOBILE PHYSICAL READY");
+                mel_terminal_start_online();
+                ESP_LOGI(TAG, "MEL MOBILE PHYSICAL READY; online validation restarted");
             }
             if (!reported_ready) {
                 reported_ready = true;
                 ESP_LOGI(TAG, "MEL MOBILE READY");
-                mel_terminal_start_online();
             }
         } else if (reported_ready) {
             physical_ready = false;
