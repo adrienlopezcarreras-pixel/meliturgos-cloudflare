@@ -728,3 +728,12 @@ test('Android compacts successful MINI pair token response into BLE-safe body', 
   assert.match(service,/pairJson\.getString\("protocol_version"\)/);
   assert.match(service,/MEL MINI pair response compacted to/);
 });
+
+
+test('Android compacts MINI heartbeat response over BLE', async () => {
+  const service=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelBleBridgeService.kt',root),'utf8');
+  assert.match(service,/request\.path == "\/api\/device\/v1\/heartbeat"/);
+  assert.match(service,/compactHeartbeat/);
+  assert.match(service,/server_time/);
+  assert.match(service,/MEL MINI heartbeat response compacted to/);
+});
