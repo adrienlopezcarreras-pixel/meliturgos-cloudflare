@@ -230,7 +230,8 @@ class MelBleBridgeService : Service() {
             internetReady.value = false
             if (miniLinkReady.value) bridgeState.value = "MINI CONNECTÉE · TÉLÉPHONE HORS LIGNE"
         } else if (miniLinkReady.value && !internetReady.value) {
-            bridgeState.value = "MINI CONNECTÉE · TÉLÉPHONE EN LIGNE · MEL À VALIDER"
+            bridgeState.value = "MINI CONNECTÉE · MEL À VALIDER"
+            validatePhoneMelSession()
         }
         Log.i(TAG, "Phone Internet validated=$available miniLink=${miniLinkReady.value} melInternet=${internetReady.value}")
     }
@@ -243,6 +244,38 @@ class MelBleBridgeService : Service() {
             .putBoolean("mini_pairing_complete", true)
             .apply()
         Log.i(TAG, "MINI pairing persisted; future reconnects are automatic")
+    }
+
+    private fun validatePhoneMelSession() {
+        if (!miniLinkReady.value || !phoneInternetAvailable.value) return
+        diagExecutor.execute {
+            val rawAndroidId = Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID)
+            val androidDeviceId = "android-" + (rawAndroidId ?: "unknown").take(64)
+            val vault = TokenVault(this@MelBleBridgeService)
+            if (vault.load().isNullOrBlank()) {
+                internetReady.value = false
+                bridgeState.value = "MINI CONNECTÉE · APPLI MEL À RÉAPPAIRER"
+                Log.w(TAG, "MINI bridge cannot sponsor pairing: Android MEL token missing")
+                return@execute
+            }
+            runCatching {
+                MelApiClient(BuildConfig.MEL_BASE_URL, androidDeviceId, vault)
+                    .heartbeat(sdkInt = Build.VERSION.SDK_INT, phase = "MINI_BRIDGE_READY")
+            }.onSuccess {
+                if (!internetReady.value && miniLinkReady.value) {
+                    bridgeState.value = "MINI CONNECTÉE · MEL PRÊT · SYNCHRONISATION"
+                }
+                Log.i(TAG, "Android MEL session validated for MINI sponsorship")
+            }.onFailure { error ->
+                internetReady.value = false
+                bridgeState.value = if (error is MelApiException && (error.status == 401 || error.status == 403)) {
+                    "MINI CONNECTÉE · APPLI MEL À RÉAPPAIRER"
+                } else {
+                    "MINI CONNECTÉE · MEL INJOIGNABLE"
+                }
+                Log.w(TAG, "Android MEL validation failed: ${error.message}")
+            }
+        }
     }
 
     private fun hasBluetoothPermissions(): Boolean {
@@ -431,9 +464,10 @@ class MelBleBridgeService : Service() {
                 if (enabled) {
                     refreshPhoneInternetState()
                     bridgeState.value = if (phoneInternetAvailable.value)
-                        "MINI CONNECTÉE · RELAIS INTERNET PRÊT"
+                        "MINI CONNECTÉE · MEL À VALIDER"
                     else
                         "MINI CONNECTÉE · TÉLÉPHONE HORS LIGNE"
+                    if (phoneInternetAvailable.value) validatePhoneMelSession()
                     Log.i(TAG, "MINI BLE response channel ready ${device.address}")
                 } else {
                     bridgeState.value = "MINI LI├ëE ┬À CANAL INACTIF"
