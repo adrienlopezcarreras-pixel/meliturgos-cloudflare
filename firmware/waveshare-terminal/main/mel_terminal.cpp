@@ -104,6 +104,7 @@ static uint64_t g_storage_total = 0;
 static uint64_t g_storage_free = 0;
 static wl_handle_t g_storage_wl = WL_INVALID_HANDLE;
 static bool g_online = false;
+static volatile int g_last_session_status = 0;
 static bool g_wifi_connected = false;
 static bool g_mobile_connected = false;
 static volatile int g_runtime_state = MEL_TERMINAL_IDLE;
@@ -2419,6 +2420,10 @@ bool mel_terminal_mobile_connected(void) {
     return g_mobile_connected && mel_mobile_bridge_ready();
 }
 
+int mel_terminal_last_session_status(void) {
+    return g_last_session_status;
+}
+
 static bool apply_wake_profile_json(const std::string &raw, const char *source, bool persist) {
     if (raw.empty()) return false;
     cJSON *root = cJSON_Parse(raw.c_str());
@@ -2526,7 +2531,10 @@ static void mobile_companion_sync_task(void *) {
 }
 
 static int device_session_status() {
-    if (!g_cfg.token[0]) return 401;
+    if (!g_cfg.token[0]) {
+        g_last_session_status = 401;
+        return 401;
+    }
     std::string response;
     int status = 0;
     esp_err_t err = http_request(
@@ -2535,9 +2543,11 @@ static int device_session_status() {
         nullptr, nullptr, 0, response, status
     );
     if (err != ESP_OK) {
+        g_last_session_status = -1;
         ESP_LOGW(TAG, "MEL session validation unavailable: %s; keeping stored token", esp_err_to_name(err));
         return -1;
     }
+    g_last_session_status = status;
     if (status == 200 && !response.empty()) {
         cJSON *root = cJSON_Parse(response.c_str());
         if (root) {
