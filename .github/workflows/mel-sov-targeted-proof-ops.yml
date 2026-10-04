@@ -1,0 +1,18 @@
+name: MEL SOV targeted proof ops
+
+on:
+  push:
+    branches:
+      - ops/sov-targeted-proof-20261005
+    paths:
+      - .github/workflows/mel-sov-targeted-proof-ops.yml
+
+permissions:
+  contents: read
+
+jobs:
+  sovereignty:
+    uses: ./.github/workflows/mel-sov-01-live-proof.yml
+    with:
+      expected_sha: 43435e6ec7190c12bd3d9f30fc40288106374fe0
+    secrets: inherit
