@@ -31,7 +31,12 @@ function dbExec(){
     if(action==='rollback'){txs.delete(payload.tx);return{ok:true};}
     if(action==='execute'){
       if(/^CREATE TABLE/i.test(payload.sql))return{ok:true,changes:0};
-      if(/^INSERT INTO/i.test(payload.sql)){ensure(payload.tx).set(payload.params[0],payload.params[1]);return{ok:true,changes:1};}
+      if(/^INSERT INTO/i.test(payload.sql)){
+        const m=ensure(payload.tx);
+        if(m.has(payload.params[0]))return{ok:false,code:'PRIMARY_KEY_CONFLICT'};
+        m.set(payload.params[0],payload.params[1]);
+        return{ok:true,changes:1};
+      }
       return{ok:false,code:'SQL_UNSUPPORTED'};
     }
     if(action==='query'){
@@ -61,6 +66,17 @@ test('companion database satisfies provider-neutral DB proof',async()=>{
   assert.equal(proof.provider,'local-companion-db');
   assert.equal(proof.export,true);
   assert.equal(proof.import,true);
+});
+
+test('companion database proof is repeatable against persistent primary keys',async()=>{
+  const execute=dbExec();
+  const adapter=createCompanionDatabaseAdapter({execute});
+  const first=await proveDatabaseAdapter(adapter);
+  const second=await proveDatabaseAdapter(adapter);
+  assert.equal(first.ok,true);
+  assert.equal(second.ok,true);
+  assert.equal(first.status,'DATABASE_ADAPTER_VERIFIED');
+  assert.equal(second.status,'DATABASE_ADAPTER_VERIFIED');
 });
 
 test('offline companion fails closed for storage and database',async()=>{
