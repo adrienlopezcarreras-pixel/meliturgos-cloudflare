@@ -72,7 +72,9 @@ test('bounded ShardVault qualification stays small and promotes one real shard w
   assert.match(runtime,/qualification_bytes:qualificationBytes/);
   assert.match(runtime,/promoteExternalEndpointWithExistingShard/);
   assert.match(runtime,/SINGLE_SHARD_PROMOTED/);
-  assert.match(runtime,/PROMOTION_ROUNDTRIP_MISMATCH/);
+  assert.match(runtime,/PROMOTION_PART_ROUNDTRIP_MISMATCH/);
+  assert.match(runtime,/PROMOTION_ROUNDTRIP_MAC_INVALID/);
+  assert.match(runtime,/r2LatestManifestKey/);
   assert.match(runtime,/latestShardVaultSnapshotFast/);
 });
 
