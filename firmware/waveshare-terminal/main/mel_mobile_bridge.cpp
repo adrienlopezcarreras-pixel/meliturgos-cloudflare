@@ -39,6 +39,7 @@ static const uint8_t OP_ERROR = 0x1f;
 
 static std::atomic<bool> g_started{false};
 static std::atomic<bool> g_ready{false};
+static std::atomic<bool> g_candidate_seen{false};
 static uint16_t g_conn_handle = BLE_HS_CONN_HANDLE_NONE;
 static uint16_t g_rx_handle = 0;
 static uint16_t g_tx_handle = 0;
@@ -365,7 +366,11 @@ static int gap_event(struct ble_gap_event *event, void *arg) {
     (void)arg;
     switch (event->type) {
         case BLE_GAP_EVENT_DISC:
-            if (adv_has_service(&event->disc)) connect_to(&event->disc);
+            if (adv_has_service(&event->disc)) {
+                g_candidate_seen.store(true);
+                ESP_LOGI(TAG, "MEL Mobile advertisement detected rssi=%d", event->disc.rssi);
+                connect_to(&event->disc);
+            }
             return 0;
         case BLE_GAP_EVENT_CONNECT:
             if (event->connect.status != 0) {
@@ -448,8 +453,10 @@ static void start_scan() {
     uint8_t own_addr_type = 0;
     if (ble_hs_id_infer_auto(0, &own_addr_type) != 0) return;
     struct ble_gap_disc_params params = {};
-    params.passive = 1;
-    params.filter_duplicates = 1;
+    // Active scanning is intentional: some Android stacks move service data
+    // to the scan response. MINI must discover MEL Mobile before Wi-Fi fallback.
+    params.passive = 0;
+    params.filter_duplicates = 0;
     params.filter_policy = 0;
     params.limited = 0;
     int rc = ble_gap_disc(own_addr_type, BLE_HS_FOREVER, &params, gap_event, nullptr);
@@ -533,6 +540,10 @@ bool mel_mobile_bridge_keepalive(void) {
 
 bool mel_mobile_bridge_ready(void) {
     return g_ready.load();
+}
+
+bool mel_mobile_bridge_candidate_seen(void) {
+    return g_candidate_seen.load();
 }
 
 uint16_t mel_mobile_bridge_mtu(void) {
