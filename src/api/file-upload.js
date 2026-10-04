@@ -9,6 +9,14 @@ import {
 const MAX_FILE_BYTES = 25_000_000;
 const DEFAULT_MEDIA_TTL_SECONDS = 7 * 24 * 60 * 60;
 
+function exactDeployedSha(env = {}) {
+  const defined = typeof MEL_DEPLOYED_GIT_SHA !== 'undefined'
+    ? String(MEL_DEPLOYED_GIT_SHA || '')
+    : '';
+  const candidate = String(defined || env?.MEL_DEPLOYED_GIT_SHA || '').trim().toLowerCase();
+  return /^[a-f0-9]{40}$/.test(candidate) ? candidate : '';
+}
+
 async function sha256Hex(bytes) {
   const digest = await crypto.subtle.digest('SHA-256', bytes);
   return [...new Uint8Array(digest)].map(value => value.toString(16).padStart(2, '0')).join('');
@@ -193,7 +201,7 @@ export async function handleFileUpload(request, env, options = {}) {
     const proofText = new TextDecoder('utf-8', { fatal:false }).decode(bytes).trim();
     const proofMatch = /^MEL_FILE_(NORMAL|FULL)_PROOF_([a-f0-9]{40})$/i.exec(proofText);
     const expectedKind = proofName[1].toUpperCase();
-    const deployedSha = String(env?.MEL_DEPLOYED_GIT_SHA || '').trim().toLowerCase();
+    const deployedSha = exactDeployedSha(env);
     if (!proofMatch || proofMatch[1].toUpperCase() !== expectedKind
       || !/^[a-f0-9]{40}$/.test(deployedSha)
       || proofMatch[2].toLowerCase() !== deployedSha) {

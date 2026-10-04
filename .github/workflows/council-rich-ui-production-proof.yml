@@ -221,7 +221,8 @@ jobs:
             {id:'navigate-full',action:'browser.navigate',url:origin+'/professor?view=chat'},
             {id:'wait-full-chat',action:'browser.wait-text',selector:'#viewTitle',text:'Conversation'},
             {id:'type-full',action:'browser.type',selector:'.view.active[data-panel="chat"] #chatInput',text:'lis src/index.js dans ton code'},
-            {id:'send-full',action:'browser.click',selector:'#chatSend'},
+            {id:'submit-full',action:'browser.submit',selector:'#chatForm'},
+            {id:'wait-full-submit',action:'browser.wait-text',selector:'#chatlog .msg.user:last-child',text:'lis src/index.js dans ton code',timeout_ms:5000},
             {id:'wait-full',action:'browser.wait-text',selector:'#chatStatus',text:'Réponse reçue.',timeout_ms:60000},
             {id:'read-full-rich',action:'browser.read-text',selector:'#chatlog .msg.mel[data-rich-rendered="true"]:last-child'},
           ];
@@ -232,6 +233,7 @@ jobs:
             approvals:[
               {approved:true,session_id:session,step_id:'set-auth-full',action:'browser.set-headers'},
               {approved:true,session_id:session,step_id:'type-full',action:'browser.type'},
+              {approved:true,session_id:session,step_id:'submit-full',action:'browser.submit'},
             ],
             steps,
           }}));
@@ -249,12 +251,14 @@ jobs:
             if [ "${FULL_CODE}" = "200" ] && node - <<'NODE'
           const d=require('./rich-ui-full.json'),r=d?.result||{};
           const out=id=>(r.outputs||[]).find(x=>x?.step_id===id)?.output||{};
-          const waited=out('wait-full'),full=out('read-full-rich');
+          const submitted=out('wait-full-submit'),waited=out('wait-full'),full=out('read-full-rich');
           const ok=d?.ok===true
             && d?.capability==='browser.execute'
             && r?.ok===true
-            && Number(r?.steps_completed||0)===7
-            && out('send-full')?.kind==='interaction'
+            && Number(r?.steps_completed||0)===8
+            && out('submit-full')?.kind==='interaction'
+            && submitted?.kind==='wait'
+            && submitted?.matched===true
             && waited?.kind==='wait'
             && waited?.matched===true
             && full?.kind==='text'
@@ -331,15 +335,17 @@ jobs:
           if(normalBrowser?.ok!==true||normalBrowser?.capability!=='browser.execute'||normalResult?.ok!==true||Number(normalResult?.steps_completed||0)!==6) {
             throw new Error('NORMAL_RICH_UI_BROWSER_PROOF_NOT_OK');
           }
-          if(fullBrowser?.ok!==true||fullBrowser?.capability!=='browser.execute'||fullResult?.ok!==true||Number(fullResult?.steps_completed||0)!==7) {
+          if(fullBrowser?.ok!==true||fullBrowser?.capability!=='browser.execute'||fullResult?.ok!==true||Number(fullResult?.steps_completed||0)!==8) {
             throw new Error('FULL_RICH_UI_BROWSER_PROOF_NOT_OK');
           }
           const normalOut=id=>(normalResult.outputs||[]).find(x=>x?.step_id===id)?.output||{};
           const fullOut=id=>(fullResult.outputs||[]).find(x=>x?.step_id===id)?.output||{};
           const normal=normalOut('read-normal-rich');
+          const submitted=fullOut('wait-full-submit');
           const waited=fullOut('wait-full');
           const full=fullOut('read-full-rich');
           if(normal?.kind!=='text'||!String(normal?.text||'').includes('RELEASE_CODE_SMOKE_OK')) throw new Error('NORMAL_RICH_RENDER_NOT_PROVED');
+          if(submitted?.kind!=='wait'||submitted?.matched!==true) throw new Error('FULL_RICH_SUBMIT_NOT_PROVED');
           if(waited?.kind!=='wait'||waited?.matched!==true) throw new Error('FULL_RICH_WAIT_NOT_PROVED');
           if(full?.kind!=='text'||!String(full?.text||'').trim()) throw new Error('FULL_RICH_RENDER_NOT_PROVED');
           const cr=council?.result||{};

@@ -5,7 +5,7 @@ import { readFile } from 'node:fs/promises';
 const read = (path) => readFile(new URL(`../${path}`, import.meta.url), 'utf8');
 
 const canonicalButtonHandlers = Object.freeze({
-  chatSend: ['#chatSend', 'sendChat'],
+  chatSend: ['#chatForm', 'sendChat'],
   refreshSkills: ['#refreshSkills', 'loadSkills'],
   multiRun: ['#multiRun', '/api/gen2/augmentio/fanout'],
   workCreate: ['#workCreate', '/api/work/jobs'],

@@ -81,6 +81,8 @@ test('resolver failure is isolated and recorded as BLOCKED',async()=>{
   });
   assert.equal(result.blocked,1);
   assert.equal(s.registryStore.candidates[0].metadata.reason,'RESOLUTION_FAILED');
+  assert.equal(result.results[0].reason,'RESOLUTION_FAILED');
+  assert.equal(result.results[0].code,'CREDENTIAL_REQUIRED');
 });
 
 

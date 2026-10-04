@@ -40,7 +40,10 @@ test('Professor visible controls are wired to real route implementations', async
     read('src/dev/runtime-api.js'),
     read('src/index.js'),
   ]);
-  for (const id of ['chatSend','refreshSkills','multiRun','workCreate','workRefresh','memoryRefresh','chatgptImport','codeSelfCheck','diagCaps','diagRoadmap','diagAug']) {
+  assert.match(page, /<form class="composer" id="chatForm">/);
+  assert.match(page, /<button class="primary" id="chatSend" type="submit">Envoyer<\/button>/);
+  assert.match(page, /qs\('#chatForm'\)\.addEventListener\('submit',e=>\{e\.preventDefault\(\);sendChat\(\)\}\)/);
+  for (const id of ['refreshSkills','multiRun','workCreate','workRefresh','memoryRefresh','chatgptImport','codeSelfCheck','diagCaps','diagRoadmap','diagAug']) {
     assert.match(page, new RegExp("(?:qs\\('#"+id+"'\\)|getElementById\\('"+id+"'\\))\\.onclick"));
   }
   for (const id of ['melFullMax','melFullCycle','melFullStop','melFullActivity','melFullActivityClose','melFullActivityRefresh']) {

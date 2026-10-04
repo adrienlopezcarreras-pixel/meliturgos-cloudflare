@@ -75,17 +75,20 @@ test('Normal and Full rich UI proofs use independent sessions while each surface
   assert.match(workflow, /id:'send-normal'/);
   assert.match(workflow, /id:'wait-normal'/);
   assert.match(workflow, /id:'read-normal-rich'/);
-  assert.match(workflow, /id:'send-full'/);
+  assert.match(workflow, /id:'submit-full'/);
+  assert.match(workflow, /id:'wait-full-submit'/);
   assert.match(workflow, /id:'wait-full'/);
   assert.match(workflow, /selector:'#chatStatus',text:'Réponse reçue\.'/);
   assert.match(workflow, /id:'read-full-rich'/);
   assert.ok(workflow.includes("Number(r?.steps_completed||0)===6"));
-  assert.ok(workflow.includes("Number(r?.steps_completed||0)===7"));
+  assert.ok(workflow.includes("Number(r?.steps_completed||0)===8"));
   assert.match(workflow, /independent_surface_sessions:true/);
   assert.match(workflow, /monolithic_per_surface:true/);
   assert.match(workflow, /response_nonempty:true/);
   const fullBody=workflow.split('FULL_BODY=')[1]?.split('FULL_CODE=')[0]||'';
-  assert.match(fullBody, /id:'send-full'/);
+  assert.match(fullBody, /id:'submit-full'/);
+  assert.match(fullBody, /action:'browser\.submit',selector:'#chatForm'/);
+  assert.match(fullBody, /id:'wait-full-submit'/);
   assert.match(fullBody, /id:'wait-full'/);
   assert.match(fullBody, /id:'read-full-rich'/);
   assert.match(workflow, /rich-ui-full-diagnostic\.json/);
@@ -101,6 +104,14 @@ test('rich UI browser proof retries bounded transient runtime pressure instead o
   assert.match(workflow, /retry \$\{ATTEMPT\}\/6 with a fresh Full session/);
 });
 
+
+test('Full chat uses a semantic form submit path for click and keyboard reliability', () => {
+  const page=fs.readFileSync('src/pages/full-interface-v2.js','utf8');
+  assert.match(page,/<form class="composer" id="chatForm">/);
+  assert.match(page,/<button class="primary" id="chatSend" type="submit">Envoyer<\/button>/);
+  assert.match(page,/qs\('#chatForm'\)\.addEventListener\('submit',e=>\{e\.preventDefault\(\);sendChat\(\)\}\)/);
+  assert.doesNotMatch(page,/qs\('#chatSend'\)\.onclick=/);
+});
 
 test('Full chat exposes a deterministic completion marker after rendering MEL response', async () => {
   const page=fs.readFileSync(new URL('../../src/pages/full-interface-v2.js',import.meta.url),'utf8');
