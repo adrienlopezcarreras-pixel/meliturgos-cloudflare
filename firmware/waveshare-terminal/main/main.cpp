@@ -910,7 +910,7 @@ static void settings_camera_test_task(void *) {
         snprintf(stage, sizeof(stage), "CAMERA : %s detecte, attente trame (max 4 s)...", model);
         settings_set_status(stage);
 
-        // Never call esp_camera_return_all() before taking a queued frame.
+        // Never force-return all camera buffers before taking a queued frame.
         // With fb_count=1 that re-enabled the same buffer while a stale queue pointer
         // still referenced it, so the driver could zero fb->len for the next DMA frame
         // and the UI would report the exact symptom seen on hardware: PASS / 0 octet.
