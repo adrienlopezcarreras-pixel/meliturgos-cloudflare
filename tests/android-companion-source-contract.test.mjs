@@ -680,3 +680,19 @@ test('Android CI preflights the unsigned release variant without signing secrets
   assert.match(workflow,/grep -q "package: name='fr\.veriteinterdite\.mel'"/);
   assert.match(workflow,/grep -q "launchable-activity:"/);
 });
+
+
+test('Android MINI bridge distinguishes phone Internet from proven MEL relay',async()=>{
+  const service=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelBleBridgeService.kt',root),'utf8');
+  const activity=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MainActivity.kt',root),'utf8');
+  const build=await readFile(new URL('app/build.gradle.kts',root),'utf8');
+  assert.match(service,/val phoneInternetAvailable = MutableStateFlow\(false\)/);
+  assert.match(service,/ConnectivityManager\.NetworkCallback/);
+  assert.match(service,/NET_CAPABILITY_VALIDATED/);
+  assert.match(service,/registerDefaultNetworkCallback/);
+  assert.match(service,/MINI CONNECTÉE · RELAIS INTERNET PRÊT/);
+  assert.match(activity,/phoneInternetReady by MelBleBridgeService\.phoneInternetAvailable/);
+  assert.match(activity,/téléphone en ligne · validation MEL en cours/);
+  assert.match(build,/versionCode = 58/);
+  assert.match(build,/versionName = "0\.6\.49-mini-relay-hardened"/);
+});
