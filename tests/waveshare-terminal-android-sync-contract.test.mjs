@@ -79,3 +79,17 @@ test('MINI prioritizes MEL Mobile before automatic Wi-Fi fallback', async () => 
   const wifiGuard = runtime.indexOf('if (!g_wifi_connected) return ESP_ERR_INVALID_STATE');
   assert.ok(mobileFirst >= 0 && wifiGuard > mobileFirst, 'MEL Mobile must be evaluated before direct Wi-Fi');
 });
+
+
+test('MINI settings exposes hardware diagnostics after transport setup', async () => {
+  const main = await readFile(
+    new URL('../firmware/waveshare-terminal/main/main.cpp', import.meta.url),
+    'utf8'
+  );
+  assert.match(main, /"TEST MICRO \+ HP"/);
+  assert.match(main, /"TEST CAMERA"/);
+  assert.match(main, /"TEST VOIX \/ STT"/);
+  assert.match(main, /settings_audio_clicked/);
+  assert.match(main, /settings_camera_clicked/);
+  assert.match(main, /settings_stt_clicked/);
+});
