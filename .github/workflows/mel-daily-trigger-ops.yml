@@ -1,0 +1,21 @@
+name: MEL daily self-improvement one-shot trigger
+
+on:
+  push:
+    branches:
+      - ops/sov-targeted-proof-20261005
+    paths:
+      - .github/workflows/mel-daily-trigger-ops.yml
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Dispatch daily MEL improvement now
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run mel-daily-self-improvement.yml --repo "$GITHUB_REPOSITORY" --ref main
