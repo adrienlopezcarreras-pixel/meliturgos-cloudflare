@@ -32,9 +32,12 @@ test('backup restore candidate is proven through independent local storage and s
 test('infrastructure prevalidation revalidates only the bounded local candidate set',async()=>{
   const source=await readFile(new URL('../../src/portability/companion-infrastructure-prevalidation-runtime.js',import.meta.url),'utf8');
   assert.match(source,/scopeSovereigntyCandidateStore/);
-  assert.match(source,/for\(const candidate of LOCAL_CANDIDATES\)/);
+  assert.match(source,/targetLayer=null/);
+  assert.match(source,/selectedCandidates=normalizedTargetLayer/);
+  assert.match(source,/for\(const candidate of selectedCandidates\)/);
   assert.match(source,/status:'UNVERIFIED'/);
-  assert.match(source,/keys:LOCAL_CANDIDATES\.map/);
+  assert.match(source,/keys:selectedCandidates\.map/);
   assert.match(source,/candidateStore:scopedCandidateStore/);
+  assert.match(source,/candidate_count:selectedCandidates\.length/);
 });
 
