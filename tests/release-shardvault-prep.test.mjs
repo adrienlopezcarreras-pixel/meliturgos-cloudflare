@@ -27,7 +27,7 @@ test('release smoke can prepare ShardVault only on exact status/search paths',()
   assert.equal(isReleaseSmokeRequest(request('/api/gen2/shardvault/search',{method:'POST',supplied:'x'.repeat(64)}),env),false);
 });
 
-test('release workflow expands active ShardVault registry before launch bootstrap without lowering 7x gate',async()=>{
+test('release workflow requires a reconstructible 5-of-7 ShardVault quorum without weakening the 7x target',async()=>{
   const source=await readFile(new URL('../.github/workflows/deploy-cloudflare-release.yml',import.meta.url),'utf8');
   const search=source.indexOf('/api/gen2/shardvault/search');
   const bootstrap=source.indexOf('/api/internal/release-launch-bootstrap',search);
@@ -37,6 +37,7 @@ test('release workflow expands active ShardVault registry before launch bootstra
   assert.match(source,/SHARD_STATUS_READY=0/);
   assert.match(source,/ShardVault status propagation attempt/);
   assert.match(source,/exit 46/);
+  assert.match(source,/SHARD_RELEASE_QUORUM=5/);
   assert.match(source,/seq 1 17/);
   assert.match(source,/max_new_endpoints\\":1/);
   assert.match(source,/SHARD_PROBE_LIMIT=1/);
@@ -46,9 +47,11 @@ test('release workflow expands active ShardVault registry before launch bootstra
   assert.doesNotMatch(source,/enabling live Internet discovery/);
   assert.match(source,/--max-time 90/);
   assert.match(source,/active_external_registry/);
-  assert.match(source,/active<7/);
-  assert.match(source,/PRODUCTION_SHARDVAULT_ACTIVE_EXTERNAL_LT_7/);
-  assert.match(source,/PRODUCTION_SHARDVAULT_EXTERNAL_LT_7/);
+  assert.match(source,/active>=quorum/);
+  assert.match(source,/PRODUCTION_SHARDVAULT_ACTIVE_EXTERNAL_LT_RELEASE_QUORUM/);
+  assert.match(source,/PRODUCTION_SHARDVAULT_EXTERNAL_LT_RELEASE_QUORUM/);
+  assert.match(source,/PRODUCTION_EXTERNAL_CODE_RECONSTRUCTION_NOT_VERIFIED/);
+  assert.match(source,/QUORUM_COPIED/);
   assert.doesNotMatch(source,/active_external_count\|\|0\)<3/);
 });
 
@@ -60,7 +63,7 @@ test('unbounded ShardVault search keeps full live revalidation even with seven a
 });
 
 
-test('temporary dev-light release accepts explicit PAUSED_FOR_ROADMAP code-sync without weakening normal 7x proof',async()=>{
+test('temporary dev-light release accepts explicit PAUSED_FOR_ROADMAP code-sync without weakening the normal quorum proof',async()=>{
   const [source,readiness]=await Promise.all([
     readFile(new URL('../.github/workflows/deploy-cloudflare-release.yml',import.meta.url),'utf8'),
     readFile(new URL('../src/evolution/launch-readiness.js',import.meta.url),'utf8'),
