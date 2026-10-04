@@ -1997,10 +1997,12 @@ export async function searchAutonomousShardVaultRepositories(env,{maxNewEndpoint
       const selectionTarget=boundedMode
         ? Math.min(remainingBudget,targetCount-active.length)
         : targetCount;
+      const activeDiscoveryIds=active.map(endpoint=>endpoint.id);
       report=await discoverAutonomousRepositories(env,{
         masterKey:c.master,vaultId:c.vaultId,requiredBytes,
         selectionCount:selectionTarget,probeLimit,probeOffset,
-        internetDiscovery:knownCandidatesOnly!==true
+        internetDiscovery:knownCandidatesOnly!==true,
+        excludeEndpointIds:activeDiscoveryIds,
       });
       await rememberValidatedExternalEndpoints(env,[...(report.qualified||[]),...(report.selected||[])]);
       await rememberCodeCandidateEndpoints(env,[...(report.qualified||[]),...(report.selected||[]),...(report.eligible||[])]);
