@@ -85,22 +85,22 @@ test('ShardVault source-control prevalidation persists a fresh exact-SHA zero-co
   const DB=sqliteD1();
   try{
     const sha='9'.repeat(40);
-    const original=globalThis.DecompressionStream;
-    // Node 22 provides DecompressionStream; this assertion documents the runtime contract.
-    assert.equal(typeof original,'function');
     const result=await runShardVaultSourceControlPrevalidationRuntime(
       {DB,MEL_DEPLOYED_GIT_SHA:sha},
-      {sourceSha:sha},
-    ).catch(error=>{
-      // Production uses the signed ShardVault archive loader. Unit-test the runtime wiring
-      // separately below because the production loader requires R2/manifest bindings.
-      assert.ok(error);
-      return null;
-    });
-    assert.equal(result,null);
+      {sourceSha:sha,archiveLoader:loader(sha)},
+    );
+    assert.equal(result.ok,true);
+    assert.equal(result.prevalidated,1);
+    assert.equal(result.blocked,0);
+    assert.equal(result.status,'PREVALIDATED');
 
-    const runtime=await import('../../src/portability/shardvault-source-control-prevalidation-runtime.js');
-    assert.equal(runtime.SHARDVAULT_SOURCE_CONTROL_CANDIDATE_ID,SHARDVAULT_SOURCE_CONTROL_CANDIDATE_ID);
+    const registry=await new D1AlternativeRegistryStore(DB).load();
+    const rows=eligibleAlternatives(registry,'source_control',{maxAddedCostEur:0});
+    const row=rows.find(item=>item.id===SHARDVAULT_SOURCE_CONTROL_CANDIDATE_ID);
+    assert.ok(row);
+    assert.equal(row.provider,'shardvault-external+d1-overlay');
+    assert.equal(row.proof.source_sha,sha);
+    assert.equal(row.prevalidated,true);
   }finally{DB.close();}
 });
 
