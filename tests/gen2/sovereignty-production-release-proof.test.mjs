@@ -57,7 +57,8 @@ test('MEL-SOV-01 live proof splits heavy refreshes and uses immutable exact-SHA 
   assert.match(workflow,/MEL_PARALLEL_PROOF_V1:/);
   assert.match(workflow,/x-mel-parallel-proof/);
   assert.match(workflow,/for TARGET in ai ai_local source_control/);
-  assert.match(workflow,/for STEP in runtime storage database ci_cd secrets_identity scheduler observability backup_restore/);
+  assert.match(workflow,/for STEP in runtime storage database ci_cd secrets_identity scheduler observability/);
+  assert.doesNotMatch(workflow,/for STEP in runtime storage database ci_cd secrets_identity scheduler observability backup_restore/);
   assert.match(workflow,/refresh_sov_target "infrastructure" "\$\{STEP\}"/);
   assert.match(workflow,/for STEP in resolve prepare readback rollback finalize/);
   assert.match(workflow,/QUERY="refresh=\$\{TARGET\}"/);
