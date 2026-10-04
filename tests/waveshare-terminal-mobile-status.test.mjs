@@ -13,8 +13,8 @@ test('MINI 0.4.24 reports the real mobile link independently from Wi-Fi', async 
     readFile(new URL('.github/workflows/waveshare-terminal-firmware.yml', root), 'utf8'),
   ]);
 
-  assert.match(header, /MEL_FW_VERSION "0\.4\.23-camera-stall-diag"/);
-  assert.match(workflow, /"version": "0\.4\.23-camera-stall-diag"/);
+  assert.match(header, /MEL_FW_VERSION "0\.4\.24-ble-relay-camera-lock"/);
+  assert.match(workflow, /"version": "0\.4\.24-ble-relay-camera-lock"/);
 
   assert.match(runtime, /void mel_terminal_set_mobile_connected\(bool connected\)/);
   assert.match(runtime, /ui_status\(g_online \? "MEL MOBILE CONNECTE" : "MOBILE CONNECTE"\)/);
@@ -28,4 +28,30 @@ test('MINI 0.4.24 reports the real mobile link independently from Wi-Fi', async 
   // A mobile disconnect while Wi-Fi is still associated must clear the stale
   // mobile label instead of leaving MINI falsely shown as connected.
   assert.match(runtime, /else \{\s*ui_status\(g_online \? "" : "WI-FI CONNECTE"\);\s*\}/);
+});
+
+
+test('BLE relay keeps pull fallback active after notifications', async () => {
+  const bridge = await readFile(
+    new URL('../firmware/waveshare-terminal/main/mel_mobile_bridge.cpp', import.meta.url),
+    'utf8'
+  );
+  assert.doesNotMatch(bridge, /bool push_mode/);
+  assert.match(bridge, /last_pull/);
+  assert.match(bridge, /pull_response_frame\(\)/);
+  assert.match(bridge, /timed out; recycling BLE link/);
+});
+
+test('Camera capture is serialized and boot no longer consumes a frame', async () => {
+  const main = await readFile(
+    new URL('../firmware/waveshare-terminal/main/main.cpp', import.meta.url),
+    'utf8'
+  );
+  const start = main.indexOf('static bool camera_probe_once');
+  const end = main.indexOf('static const char *wifi_reason_text', start);
+  const probe = main.slice(start, end);
+  assert.doesNotMatch(probe, /esp_camera_fb_get\(\)/);
+  assert.match(main, /camera_test_mutex/);
+  assert.match(main, /xSemaphoreTake\(camera_test_mutex/);
+  assert.match(main, /xSemaphoreGive\(camera_test_mutex/);
 });
