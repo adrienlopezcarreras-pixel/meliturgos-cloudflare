@@ -220,6 +220,7 @@ function unsignedManifest(m){const {manifestMac:_mac,...u}=m;return u;}
 async function manifestMac(c,m){const key=await hkdf(c.master,utf8(c.vaultId),utf8('MEL-ShardVault/v1/manifest-mac'));return b64u(await hmac(key,utf8(stable(unsignedManifest(m)))));}
 async function validManifest(c,m){if(!m||m.vaultId!==c.vaultId||m.format!=='MEL-ShardVault'||!m.manifestMac)return false;try{return (await manifestMac(c,m))===m.manifestMac;}catch{return false;}}
 function r2ManifestPrefix(c){return 'shardvault/manifests/'+encodeURIComponent(c.vaultId)+'/';}
+function r2LatestManifestKey(c){return r2ManifestPrefix(c)+'latest.json';}
 async function inventoryRows(env,c){
   if(c.storageMode==='CLOUDFLARE_FALLBACK'||c.storageMode==='EXTERNAL_DISTRIBUTED'){
     const out=[];let cursor=undefined,seen=0;
@@ -753,8 +754,10 @@ async function downloadFragment(env,e,d){
 }
 async function appendManifest(env,c,m){
   if(c.storageMode==='CLOUDFLARE_FALLBACK'||c.storageMode==='EXTERNAL_DISTRIBUTED'){
+    const body=JSON.stringify(m);
     const key=r2ManifestPrefix(c)+m.snapshotId+'-r'+String(m.revision||1).padStart(4,'0')+'.json';
-    await env.MEDIA_BUCKET.put(key,JSON.stringify(m),{httpMetadata:{contentType:'application/json'}});
+    await env.MEDIA_BUCKET.put(key,body,{httpMetadata:{contentType:'application/json'}});
+    await env.MEDIA_BUCKET.put(r2LatestManifestKey(c),body,{httpMetadata:{contentType:'application/json'}});
     return;
   }
   const r=await fetchTimed(env.MEL_INVENTORY_APPEND_URL,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(m)});
@@ -1893,11 +1896,19 @@ async function latestShardVaultSnapshotFast(env,c){
   if(c.storageMode!=='CLOUDFLARE_FALLBACK'&&c.storageMode!=='EXTERNAL_DISTRIBUTED'){
     return latestSnapshot(await inventoryRows(env,c));
   }
+  try{
+    const pointer=await env.MEDIA_BUCKET.get(r2LatestManifestKey(c));
+    if(pointer){
+      const manifest=JSON.parse(await pointer.text());
+      if(await validManifest(c,manifest))return manifest;
+    }
+  }catch{}
   const objects=[];
   let cursor=undefined,seen=0;
   do{
     const listed=await env.MEDIA_BUCKET.list({prefix:r2ManifestPrefix(c),cursor,limit:1000});
     for(const object of listed?.objects||[]){
+      if(object.key===r2LatestManifestKey(c))continue;
       if(++seen>5000)break;
       objects.push(object);
     }
@@ -1909,7 +1920,10 @@ async function latestShardVaultSnapshotFast(env,c){
     if(!body)continue;
     try{
       const manifest=JSON.parse(await body.text());
-      if(await validManifest(c,manifest))return manifest;
+      if(await validManifest(c,manifest)){
+        await env.MEDIA_BUCKET.put(r2LatestManifestKey(c),JSON.stringify(manifest),{httpMetadata:{contentType:'application/json'}});
+        return manifest;
+      }
     }catch{}
   }
   return null;
