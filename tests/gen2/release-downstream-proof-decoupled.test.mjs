@@ -54,6 +54,14 @@ test('decoupled MEL-FILE proof mirrors the successful canonical browser shape af
   assert.doesNotMatch(fileBlock,/file-normal-wait\.json|file-full-wait\.json/);
 });
 
+test('decoupled MEL-FILE HTTP envelope exceeds the two bounded asynchronous DOM waits', async () => {
+  const workflow=await readFile(new URL('../../.github/workflows/release-downstream-proof-decoupled.yml',import.meta.url),'utf8');
+  const block=workflow.split('\n  file:\n')[1]?.split('\n  sovereignty:\n')[0]||'';
+  assert.match(block,/FILE_CODE="\$\(curl --silent --show-error --max-time 180/);
+  assert.match(block,/wait-normal'.*timeout_ms:60000/);
+  assert.match(block,/wait-full'.*timeout_ms:60000/);
+});
+
 test('decoupled browser proof retries bounded transient failures before gating MEL-FILE', async () => {
   const workflow=await readFile(new URL('../../.github/workflows/release-downstream-proof-decoupled.yml',import.meta.url),'utf8');
   assert.match(workflow,/BROWSER_READY=0/);
