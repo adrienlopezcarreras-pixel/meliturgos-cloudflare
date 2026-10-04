@@ -546,22 +546,30 @@ static esp_err_t http_request(
         );
     };
 
-    // Prefer direct Wi-Fi whenever it is actually connected. Large requests
-    // such as STT WAV uploads are much more reliable over Wi-Fi. MEL Mobile is
-    // the primary path only when Wi-Fi is unavailable, and remains the fallback
-    // if a direct Wi-Fi request fails.
-    if (!g_wifi_connected && mel_mobile_bridge_ready()) {
-        return mobile_request();
+    // MEL Mobile is the preferred transport whenever its GATT channel is ready.
+    // Wi-Fi is a fallback, not the primary path. If BLE itself fails and Wi-Fi
+    // is already connected, retry the same request directly over Wi-Fi.
+    if (mel_mobile_bridge_ready()) {
+        esp_err_t mobile_err = mobile_request();
+        if (mobile_err == ESP_OK || !g_wifi_connected) return mobile_err;
+        ESP_LOGW(TAG, "MEL MOBILE transport failed (%s); falling back to Wi-Fi",
+                 esp_err_to_name(mobile_err));
+        response.clear();
+        status = 0;
+    } else if (g_mobile_connected) {
+        // Preserve short Android reconnects before abandoning the phone link.
+        ESP_LOGI(TAG, "MEL MOBILE reconnect grace before Wi-Fi fallback");
+        if (wait_for_mobile_bridge_ready(8000)) {
+            esp_err_t mobile_err = mobile_request();
+            if (mobile_err == ESP_OK || !g_wifi_connected) return mobile_err;
+            response.clear();
+            status = 0;
+        } else if (!g_wifi_connected) {
+            return ESP_ERR_TIMEOUT;
+        }
     }
 
-    // A short Android GATT reconnect must be transparent to the companion.
-    // While MEL Mobile is the active transport and Wi-Fi is absent, wait for
-    // the bridge instead of immediately falling into a dead Wi-Fi path.
-    if (g_mobile_connected && !g_wifi_connected) {
-        ESP_LOGI(TAG, "MEL MOBILE reconnect grace before HTTP");
-        if (wait_for_mobile_bridge_ready(8000)) return mobile_request();
-        return ESP_ERR_TIMEOUT;
-    }
+    if (!g_wifi_connected) return ESP_ERR_INVALID_STATE;
 
     HttpBuffer buffer;
     esp_http_client_config_t cfg = {};
