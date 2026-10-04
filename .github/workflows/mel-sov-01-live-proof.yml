@@ -166,7 +166,7 @@ jobs:
           for TARGET in ai ai_local source_control; do
             refresh_sov_target "${TARGET}" || exit $?
           done
-          for STEP in runtime storage database ci_cd secrets_identity scheduler observability backup_restore; do
+          for STEP in runtime storage database ci_cd secrets_identity scheduler observability; do
             refresh_sov_target "infrastructure" "${STEP}" || exit $?
           done
           for STEP in resolve prepare readback rollback finalize; do
@@ -206,7 +206,7 @@ jobs:
               steps:Object.fromEntries(rows.map(([step,row])=>[step,row?.refresh||null])),
             };
           };
-          refresh.infrastructure=collect('infrastructure',['runtime','storage','database','ci_cd','secrets_identity','scheduler','observability','backup_restore']);
+          refresh.infrastructure=collect('infrastructure',['runtime','storage','database','ci_cd','secrets_identity','scheduler','observability']);
           refresh.backup_restore=collect('backup_restore',['resolve','prepare','readback','rollback','finalize']);
           d.prevalidation_refresh=refresh;
           fs.writeFileSync('mel-sov-01-live-proof.json',JSON.stringify(d,null,2));
