@@ -262,16 +262,34 @@ jobs:
           )"
           echo "::add-mask::${TOKEN}"
 
-          SHA_CODE="$(curl --silent --show-error --max-time 45 \
-            --header "x-mel-release-smoke: 1" \
-            --header "x-mel-parallel-proof: ${TOKEN}" \
-            --output skills-self-check.json --write-out '%{http_code}' \
-            "${BASE_URL}/api/gen2/code/self-check" || true)"
-          test "${SHA_CODE}" = "200"
-          TARGET_SHA="${TARGET_SHA}" node - <<'NODE'
-          const d=require('./skills-self-check.json');
-          if(String(d?.deployed_sha||'').toLowerCase()!==String(process.env.TARGET_SHA||'').toLowerCase())throw new Error('SKILLS_EXACT_SHA_MISMATCH');
+          SKILLS_SHA_READY=0
+          for ATTEMPT in $(seq 1 12); do
+            SHA_CODE="$(curl --silent --show-error --max-time 45 \
+              --header "x-mel-release-smoke: 1" \
+              --header "x-mel-parallel-proof: ${TOKEN}" \
+              --output skills-self-check.json --write-out '%{http_code}' \
+              "${BASE_URL}/api/gen2/code/self-check" || true)"
+            if [ "${SHA_CODE}" = "200" ] && TARGET_SHA="${TARGET_SHA}" node - <<'NODE'
+          const fs=require('fs');
+          let d={}; try{d=JSON.parse(fs.readFileSync('skills-self-check.json','utf8'))}catch{}
+          if(String(d?.deployed_sha||'').toLowerCase()!==String(process.env.TARGET_SHA||'').toLowerCase()) process.exit(1);
           NODE
+            then
+              SKILLS_SHA_READY=1
+              break
+            fi
+            case "${SHA_CODE}" in
+              000|200|401|408|409|429|500|502|503|504)
+                echo "Compétences exact-SHA identity still propagating (HTTP ${SHA_CODE}); retry ${ATTEMPT}/12."
+                sleep $((ATTEMPT < 4 ? ATTEMPT : 4))
+                ;;
+              *)
+                echo "Non-retryable Compétences exact-SHA identity status ${SHA_CODE}."
+                exit 29
+                ;;
+            esac
+          done
+          test "${SKILLS_SHA_READY}" = "1"
 
           SKILL_CODE="$(curl --silent --show-error --max-time 60 \
             --header "x-mel-release-smoke: 1" \

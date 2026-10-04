@@ -168,6 +168,9 @@ test('decoupled Compétences proof binds live capabilities, verified skills, XP 
   const workflow=await readFile(new URL('../../.github/workflows/release-downstream-proof-decoupled.yml',import.meta.url),'utf8');
   const block=workflow.split('\n  skills:\n')[1]?.split('\n  browser:\n')[0]||'';
   assert.match(block,/api\/gen2\/code\/self-check/);
+  assert.match(block,/SKILLS_SHA_READY=0/);
+  assert.match(block,/Compétences exact-SHA identity still propagating/);
+  assert.match(block,/000\\|200\\|401\\|408\\|409\\|429\\|500\\|502\\|503\\|504/);
   assert.match(block,/"id":"skill\.list"/);
   assert.match(block,/"active_only":true/);
   assert.match(block,/api\/learning\/progress/);
