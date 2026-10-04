@@ -24,7 +24,7 @@ jobs:
   production-proof:
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -62,6 +62,33 @@ jobs:
           )"
           echo "::add-mask::${TOKEN}"
 
+          # Fast path: the canonical release may already have populated a fresh
+          # 10-layer sovereignty registry for this exact deployed SHA. Prove the
+          # final state first and avoid re-running 16 expensive live refreshes.
+          FAST_CODE="$(curl --silent --show-error --max-time 20 \
+            --header "x-mel-parallel-proof: ${TOKEN}" \
+            --header "content-type: application/json" \
+            --data '{"phase":"sovereignty-proof"}' \
+            --output mel-sov-fast.json --write-out '%{http_code}' \
+            "${BASE_URL}/api/internal/release-launch-bootstrap" || true)"
+          if [ "${FAST_CODE}" = "200" ] && EXPECTED_SHA="${EXPECTED_SHA}" node - <<'NODE'
+          const d=require('./mel-sov-fast.json');
+          const expected=String(process.env.EXPECTED_SHA||'').toLowerCase();
+          process.exit(
+            d?.ok===true
+            && d?.status==='MEL_SOV_01_DONE_VERIFIED_ELIGIBLE'
+            && d?.done_verified_eligible===true
+            && String(d?.deployed_sha||'').toLowerCase()===expected
+            && d?.secret_values_exposed===false
+            && d?.autonomy_started===false
+          ? 0 : 1);
+          NODE
+          then
+            cp mel-sov-fast.json mel-sov-01-live-proof.json
+            echo "MEL-SOV-01 fast path: exact-SHA final proof already valid."
+            exit 0
+          fi
+
           # Refresh each expensive sovereignty prevalidation domain in its own
           # Worker request so no single request can consume the full CPU budget.
           # Runtime pressure can make one isolated refresh transiently fail, so
@@ -78,8 +105,8 @@ jobs:
             fi
             local CODE="000"
             local REFRESH_READY=0
-            for ATTEMPT in $(seq 1 6); do
-              CODE="$(curl --silent --show-error --max-time 75 \
+            for ATTEMPT in $(seq 1 4); do
+              CODE="$(curl --silent --show-error --max-time 55 \
                 --header "x-mel-parallel-proof: ${TOKEN}" \
                 --header "content-type: application/json" \
                 --data '{"phase":"sovereignty-proof"}' \
@@ -97,7 +124,7 @@ jobs:
               fi
               case "${CODE}" in
                 000|409|429|500|502|503|504)
-                  echo "Transient MEL-SOV-01 refresh ${KEY} status ${CODE} (${REFRESH_ERROR_CODE}); retry ${ATTEMPT}/6."
+                  echo "Transient MEL-SOV-01 refresh ${KEY} status ${CODE} (${REFRESH_ERROR_CODE}); retry ${ATTEMPT}/4."
                   sleep $((ATTEMPT * 2))
                   ;;
                 *)

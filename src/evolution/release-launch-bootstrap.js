@@ -504,7 +504,49 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
           autonomy_started: false,
         }, { status: 400, headers: { 'cache-control': 'no-store' } });
       }
-      await runRefresh(requestedRefresh, refresher);
+
+      // Post-release proofs must not re-run expensive provider prevalidations
+      // when a fresh zero-cost proof already exists for this exact deployed SHA.
+      // This is deliberately fail-closed: eligibleAlternatives enforces proof
+      // freshness/shape and exactShaReusableAlternative binds it to deployedSha.
+      const reusableLayer = requestedRefresh === 'source_control'
+        ? 'source_control'
+        : requestedRefresh === 'infrastructure' && requestedRefreshStep
+          ? requestedRefreshStep
+          : requestedRefresh === 'backup_restore'
+            ? 'backup_restore'
+            : requestedRefresh === 'ai'
+              ? 'ai'
+              : null;
+      if (reusableLayer) {
+        try {
+          const registryStore = new D1AlternativeRegistryStore(env.DB);
+          const registry = await registryStore.load();
+          const reusable = exactShaReusableAlternative(registry, reusableLayer, deployedSha, { now });
+          if (reusable) {
+            refresh[requestedRefresh] = {
+              ok: true,
+              skipped: false,
+              status: 'EXACT_SHA_PREVALIDATED_REUSED',
+              reason: null,
+              processed: 0,
+              prevalidated: 1,
+              blocked: 0,
+              reused_exact_sha_prevalidation: true,
+              reused_alternative_id: reusable.id,
+              reused_provider: reusable.provider,
+              proof_source_sha: reusable.proof?.source_sha || null,
+              reusable_layer: reusableLayer,
+            };
+          }
+        } catch {
+          // Fall through to the bounded live refresh below.
+        }
+      }
+
+      if (!refresh[requestedRefresh]) {
+        await runRefresh(requestedRefresh, refresher);
+      }
       let row = refresh[requestedRefresh];
 
       // Source-control may already have a fresh, zero-cost prevalidated proof
