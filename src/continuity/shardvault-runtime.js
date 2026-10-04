@@ -4,6 +4,7 @@ import { D1GitHubActionRelayStore } from '../platform/github-action-relay.js';
 
 const te = new TextEncoder();
 const HOUR = 60 * 60 * 1000;
+const SHARDVAULT_RELEASE_QUORUM = 5;
 
 function bytes(v){ if(v instanceof Uint8Array)return new Uint8Array(v); if(v instanceof ArrayBuffer)return new Uint8Array(v); if(ArrayBuffer.isView(v))return new Uint8Array(v.buffer.slice(v.byteOffset,v.byteOffset+v.byteLength)); throw new TypeError('BYTES_REQUIRED'); }
 function utf8(v){ return te.encode(String(v)); }
@@ -799,14 +800,25 @@ async function inspectCodeArchive(env,c=null){
           verified=b64u(await hmac(key,utf8(stable(copy))))===manifest.manifestMac;
         }
         if(verified&&manifest?.git_sha===id.sha){
+          const endpoints=[...new Set((manifest.replicas||manifest.shards||[]).map(x=>x.endpointId).filter(Boolean))];
+          const totalShards=Number(manifest.totalShards||manifest.totalReplicas)||7;
+          const dataShards=Number(manifest.dataShards||manifest.requiredReplicas)||4;
+          const releaseQuorum=Math.min(totalShards,Math.max(dataShards,SHARDVAULT_RELEASE_QUORUM));
+          const fullyReplicated=endpoints.length>=totalShards;
+          const quorumReplicated=endpoints.length>=releaseQuorum;
           external={
-            status:'COPIED',
+            status:fullyReplicated?'COPIED':quorumReplicated?'QUORUM_COPIED':'INCOMPLETE',
             manifest_key:id.manifestKey,
             snapshot_id:manifest.snapshotId||null,
-            shards:Number(manifest.totalShards||manifest.totalReplicas)||0,
-            data_shards:Number(manifest.dataShards||manifest.requiredReplicas)||0,
+            shards:totalShards,
+            persisted_shards:(manifest.replicas||manifest.shards||[]).length,
+            data_shards:dataShards,
             replication_mode:manifest.replicationMode||'RS_4_OF_7',
-            endpoints:[...new Set((manifest.replicas||manifest.shards||[]).map(x=>x.endpointId).filter(Boolean))],
+            endpoints,
+            target_count:totalShards,
+            release_quorum:releaseQuorum,
+            repair_pending:quorumReplicated&&!fullyReplicated,
+            reconstruction_verified:manifest?.reconstructionVerified===true,
             created_at:manifest.createdAt||null
           };
         }
@@ -1226,6 +1238,39 @@ function codeSyncExternalView(state,goal,status='COPYING',extra={}){
     ...extra
   };
 }
+function codeReleaseQuorum(state,goal){
+  return Math.min(goal,Math.max(Number(state?.dataShards)||4,SHARDVAULT_RELEASE_QUORUM));
+}
+async function publishQuorumCodeManifest(env,c,id,state){
+  const goal=Math.min(7,Number(state?.totalShards)||c.n);
+  const descriptors=codeSyncDescriptors(state).slice(0,goal);
+  const quorum=codeReleaseQuorum(state,goal);
+  const endpoints=[...new Set(descriptors.map(x=>x.endpointId).filter(Boolean))];
+  if(descriptors.length<quorum||endpoints.length<quorum)return null;
+  const manifest={
+    format:'MEL-ShardVault-Code',formatVersion:5,replicationMode:'RS_4_OF_7',
+    repository:id.repository,git_sha:id.sha,archive_key:state.archive_key,snapshotId:state.snapshotId,createdAt:state.createdAt,
+    totalShards:goal,dataShards:Number(state.dataShards),shardSize:Number(state.shardSize),
+    ciphertextLength:Number(state.ciphertextLength),iv:state.iv,archiveBytes:Number(state.archiveBytes),sha256:state.sha256,
+    shards:descriptors,diversity:diversity(descriptors.map(d=>d.endpoint||{})),roundtripVerified:true,
+    releaseQuorum:quorum,repairPending:descriptors.length<goal
+  };
+  const reconstruction=await reconstructExternalCodeArchive(env,c,manifest)
+    .catch(error=>({ok:false,status:'CODE_RECONSTRUCTION_CHECK_FAILED',error:String(error?.message||error)}));
+  if(reconstruction?.ok!==true)return null;
+  manifest.reconstructionVerified=true;
+  manifest.reconstructionVerifiedAt=new Date().toISOString();
+  const unsigned={...manifest},key=await hkdf(c.master,utf8(id.sha),utf8('MEL-ShardVault/v1/code-manifest-mac'));
+  manifest.manifestMac=b64u(await hmac(key,utf8(stable(unsigned))));
+  await env.MEDIA_BUCKET.put(id.manifestKey,JSON.stringify(manifest),{httpMetadata:{contentType:'application/json'}});
+  return {
+    ...codeSyncExternalView(state,goal,'QUORUM_COPIED'),
+    manifest_key:id.manifestKey,shards:descriptors.length,data_shards:Number(state.dataShards),
+    release_quorum:quorum,verified_roundtrip:true,reconstruction_verified:true,
+    reconstruction_status:reconstruction.status,repair_pending:descriptors.length<goal,created_at:manifest.createdAt
+  };
+}
+
 async function withCodeReplicaDeadline(task,ms=45000){
   let timer=null;
   try{
@@ -1457,6 +1502,8 @@ async function ensureExternalCodeArchive(env,c,codeBackup){
     state.updatedAt=new Date().toISOString();
     if(state.shards.length<goal){
       await writeCodeSyncState(env,id,state);
+      const quorumExternal=await publishQuorumCodeManifest(env,c,id,state);
+      if(quorumExternal)return {...codeBackup,external:{...quorumExternal,last_shard_index:i,last_endpoint_id:e.id}};
       return {...codeBackup,external:codeSyncExternalView(state,goal,'COPYING',{last_shard_index:i,last_endpoint_id:e.id,verified_roundtrip:true})};
     }
   }
@@ -1537,9 +1584,14 @@ export async function syncShardVaultCodeExternally(env){
     const external=result?.external||null;
     const progressStatus=['COPYING','RETRY_TARGETS'].includes(String(external?.status||''));
     const copied=external?.status==='COPIED'&&Array.isArray(external?.endpoints)&&external.endpoints.length>=goal;
+    const releaseQuorum=Math.min(goal,Math.max(Number(external?.data_shards)||4,SHARDVAULT_RELEASE_QUORUM));
+    const quorumCopied=external?.status==='QUORUM_COPIED'
+      && Array.isArray(external?.endpoints)
+      && external.endpoints.length>=releaseQuorum
+      && external?.reconstruction_verified===true;
     return {
-      ok:copied||progressStatus,
-      complete:copied,
+      ok:copied||quorumCopied||progressStatus,
+      complete:copied||quorumCopied,
       status:external?.status||'UNKNOWN',
       external,
       repository:result?.repository||codeBackup.repository,
