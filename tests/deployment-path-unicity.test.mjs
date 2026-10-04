@@ -52,9 +52,10 @@ test('canonical production release requires human approval and exact immutable i
   const timeout=/timeout-minutes:\s*(\d+)/.exec(source);
   assert.ok(timeout,'canonical release timeout must be explicit');
   assert.ok(Number(timeout[1])>=75,'canonical release timeout must cover bounded ShardVault retry windows');
-  assert.match(source, /CODE_SYNC_MAX_ATTEMPTS=32/);
+  assert.match(source, /CODE_SYNC_MAX_ACTIVE_ATTEMPTS=32/);
   assert.match(source, /CODE_SYNC_MAX_STALL=12/);
-  assert.match(source, /for CODE_SYNC_ATTEMPT in \$\(seq 1 "\$CODE_SYNC_MAX_ATTEMPTS"\); do/);
+  assert.match(source, /CODE_SYNC_DEADLINE_EPOCH=\$\(\( \$\(date \+%s\) \+ 1200 \)\)/);
+  assert.match(source, /while \[ "\$CODE_SYNC_READY" != "1" \] && \[ "\$\(date \+%s\)" -lt "\$CODE_SYNC_DEADLINE_EPOCH" \]; do/);
   assert.match(source, /PRODUCTION_CODE_SYNC_FINAL_NOT_COMPLETE/);
   assert.match(source, /PRODUCTION_CODE_SYNC_FINAL_NOT_COPIED/);
   assert.match(source, /PRODUCTION_CODE_SYNC_SUCCESSFUL_ENDPOINTS_LT_7/);
