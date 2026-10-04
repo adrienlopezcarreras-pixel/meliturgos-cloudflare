@@ -96,6 +96,7 @@ static volatile int wifi_disconnect_reason = -1;
 static volatile bool wifi_auto_reconnect_enabled = false;
 static volatile int wifi_reconnect_attempt = 0;
 static TaskHandle_t wifi_reconnect_task_handle = nullptr;
+static TaskHandle_t wifi_fallback_task_handle = nullptr;
 static TaskHandle_t settings_audio_test_task_handle = nullptr;
 static TaskHandle_t settings_camera_test_task_handle = nullptr;
 
@@ -1488,8 +1489,9 @@ static void mini_smoke_ui() {
 }
 
 static void mobile_bridge_watch_task(void *) {
-    while (!camera_probe_done) vTaskDelay(pdMS_TO_TICKS(20));
-    ESP_LOGI(TAG, "MEL MOBILE BLE START");
+    // MEL Mobile is MINI's primary transport. Never gate BLE startup on camera,
+    // Wi-Fi, pairing or any other optional peripheral.
+    ESP_LOGI(TAG, "MEL MOBILE BLE START (PRIMARY)");
     mel_mobile_bridge_start();
     bool reported_ready = false;
     bool physical_ready = false;
@@ -1532,6 +1534,75 @@ static void mobile_bridge_watch_task(void *) {
         }
         vTaskDelay(pdMS_TO_TICKS(1000));
     }
+}
+
+static void wifi_fallback_after_ble_task(void *) {
+    // Give MEL Mobile first refusal. If we see an Android advertisement, extend
+    // the window to let GATT/MTU/service discovery complete before using Wi-Fi.
+    constexpr int first_window_ms = 8000;
+    constexpr int candidate_window_ms = 20000;
+    int elapsed_ms = 0;
+
+    ESP_LOGI(TAG, "TRANSPORT PRIORITY: MEL Mobile first, Wi-Fi fallback after %d ms", first_window_ms);
+    while (elapsed_ms < candidate_window_ms) {
+        if (mel_mobile_bridge_ready()) {
+            ESP_LOGI(TAG, "TRANSPORT SELECTED: MEL Mobile; automatic Wi-Fi fallback cancelled");
+            wifi_fallback_task_handle = nullptr;
+            vTaskDelete(nullptr);
+            return;
+        }
+
+        if (elapsed_ms >= first_window_ms && !mel_mobile_bridge_candidate_seen()) break;
+        vTaskDelay(pdMS_TO_TICKS(250));
+        elapsed_ms += 250;
+    }
+
+    if (mel_mobile_bridge_ready()) {
+        ESP_LOGI(TAG, "TRANSPORT SELECTED: MEL Mobile after extended discovery");
+        wifi_fallback_task_handle = nullptr;
+        vTaskDelete(nullptr);
+        return;
+    }
+
+    if (wifi_got_ip || wifi_connect_task_handle) {
+        ESP_LOGI(TAG, "Wi-Fi fallback skipped: Wi-Fi already active/connecting");
+        wifi_fallback_task_handle = nullptr;
+        vTaskDelete(nullptr);
+        return;
+    }
+
+    char saved_ssid[33] = {};
+    char saved_pwd[65] = {};
+    if (!wifi_load_credentials(saved_ssid, sizeof(saved_ssid), saved_pwd, sizeof(saved_pwd))) {
+        ESP_LOGI(TAG, "No MEL Mobile and no saved Wi-Fi; waiting for phone or manual Wi-Fi setup");
+        wifi_fallback_task_handle = nullptr;
+        vTaskDelete(nullptr);
+        return;
+    }
+
+    char *payload = (char *)calloc(1, 33 + 65);
+    if (!payload) {
+        ESP_LOGE(TAG, "Wi-Fi fallback allocation failed");
+        wifi_fallback_task_handle = nullptr;
+        vTaskDelete(nullptr);
+        return;
+    }
+    snprintf(payload, 33, "%s", saved_ssid);
+    snprintf(payload + 33, 65, "%s", saved_pwd);
+
+    ESP_LOGW(TAG, "MEL Mobile unavailable; starting saved Wi-Fi fallback: %s", saved_ssid);
+    xTaskCreatePinnedToCore(
+        wifi_connect_task,
+        "mini_wifi_fallback",
+        6144,
+        payload,
+        3,
+        &wifi_connect_task_handle,
+        0
+    );
+
+    wifi_fallback_task_handle = nullptr;
+    vTaskDelete(nullptr);
 }
 
 extern "C" void app_main(void) {
@@ -1585,36 +1656,35 @@ extern "C" void app_main(void) {
     camera_ok = false;
     mel_terminal_set_hardware(false, audio_ok, false);
 
-    ESP_LOGI(TAG, "STEP 6: WIFI STACK");
+    // Start the phone bridge before Wi-Fi association. The Wi-Fi radio stack is
+    // initialized below, but it will not auto-connect until BLE first-refusal ends.
+    xTaskCreatePinnedToCore(mobile_bridge_watch_task, "mel_mobile_watch", 4096, nullptr, 3, nullptr, 0);
+
+    ESP_LOGI(TAG, "STEP 6: WIFI STACK (FALLBACK READY, NOT CONNECTED)");
     esp_wifi_port_init(nullptr, nullptr);
     ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, WIFI_EVENT_STA_DISCONNECTED, &mini_wifi_event_diag, nullptr));
     ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &mini_wifi_event_diag, nullptr));
     ESP_ERROR_CHECK(esp_wifi_set_country_code("FR", false));
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
     ESP_ERROR_CHECK(esp_wifi_start());
-    ESP_LOGI(TAG, "STEP 6 OK: WIFI STACK STARTED (FR channels 1-13)");
-
-    xTaskCreatePinnedToCore(mobile_bridge_watch_task, "mel_mobile_watch", 4096, nullptr, 2, nullptr, 0);
+    ESP_LOGI(TAG, "STEP 6 OK: WIFI STACK READY (FR channels 1-13)");
 
     if (lvgl_port_lock(0)) {
         mini_smoke_ui();
         lvgl_port_unlock();
     }
 
-    char saved_ssid[33] = {};
-    char saved_pwd[65] = {};
-    if (wifi_load_credentials(saved_ssid, sizeof(saved_ssid), saved_pwd, sizeof(saved_pwd))) {
-        char *payload = (char *)calloc(1, 33 + 65);
-        if (payload) {
-            snprintf(payload, 33, "%s", saved_ssid);
-            snprintf(payload + 33, 65, "%s", saved_pwd);
-            xTaskCreatePinnedToCore(wifi_connect_task, "mini_wifi_boot", 6144, payload, 3, &wifi_connect_task_handle, 0);
-        }
-        ESP_LOGI(TAG, "Saved WiFi requested: %s", saved_ssid);
-    } else {
-        // Stable behavior: stay on MEL home. Wi-Fi setup is user-initiated only.
-        ESP_LOGI(TAG, "No saved WiFi; staying on MEL main view");
-    }
+    // Do not auto-connect Wi-Fi at boot. MEL Mobile gets priority; only if the
+    // phone is absent/unusable do we fall back to saved Wi-Fi credentials.
+    xTaskCreatePinnedToCore(
+        wifi_fallback_after_ble_task,
+        "mini_transport_select",
+        4096,
+        nullptr,
+        3,
+        &wifi_fallback_task_handle,
+        0
+    );
 
     ESP_LOGI(TAG, "MINI INTEGRATED RUNTIME READY");
     xTaskCreatePinnedToCore(camera_boot_probe_task, "mini_camera_probe", 8192, nullptr, 2, nullptr, 0);
