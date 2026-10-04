@@ -705,7 +705,7 @@ test('Android MINI bridge distinguishes phone Internet from proven MEL relay',as
 test('Android MINI relay distinguishes phone connectivity from MEL authentication', async () => {
   const service=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelBleBridgeService.kt',root),'utf8');
   assert.match(service,/MINI CONNECTÉE · MEL À VALIDER/);
-  assert.match(service,/Android MEL session validated for MINI sponsorship/);
+  assert.match(service,/Android MEL session validated; MINI relay Internet ready=/);
   assert.match(service,/APPLI MEL À RÉAPPAIRER/);
   assert.match(service,/request\.path == "\/api\/device\/v1\/pair"/);
 });
