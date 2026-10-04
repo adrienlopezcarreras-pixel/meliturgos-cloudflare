@@ -23,8 +23,8 @@ android {
         applicationId = "fr.veriteinterdite.mel"
         minSdk = 26
         targetSdk = 35
-        versionCode = 57
-        versionName = "0.6.48-truthful-mini-link"
+        versionCode = 58
+        versionName = "0.6.49-mini-relay-hardened"
         buildConfigField("String", "MEL_BASE_URL", "\"https://meliturgos.adrien-lopezcarreras.workers.dev\"")
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
