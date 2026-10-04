@@ -198,27 +198,12 @@ static bool camera_probe_once(const char *phase) {
     if (camera_ok) {
         const char *model = sensor->id.PID == OV5640_PID ? "OV5640" : "OV2640";
 
-        // Keep automatic exposure/white balance, but prevent the sensor from
-        // exploding chroma noise in near-darkness. OV5640 supports stronger ISP
-        // denoise; both supported sensors benefit from bad/white-pixel correction.
-        if (sensor->set_whitebal) sensor->set_whitebal(sensor, 1);
-        if (sensor->set_awb_gain) sensor->set_awb_gain(sensor, 1);
-        if (sensor->set_exposure_ctrl) sensor->set_exposure_ctrl(sensor, 1);
-        if (sensor->set_gain_ctrl) sensor->set_gain_ctrl(sensor, 1);
-        if (sensor->set_aec2) sensor->set_aec2(sensor, 1);
-        if (sensor->set_bpc) sensor->set_bpc(sensor, 1);
-        if (sensor->set_wpc) sensor->set_wpc(sensor, 1);
-        if (sensor->set_raw_gma) sensor->set_raw_gma(sensor, 1);
-        if (sensor->set_lenc) sensor->set_lenc(sensor, 1);
-        if (sensor->id.PID == OV5640_PID) {
-            if (sensor->set_denoise) sensor->set_denoise(sensor, 4);
-            if (sensor->set_gainceiling) sensor->set_gainceiling(sensor, GAINCEILING_8X);
-        } else {
-            if (sensor->set_gainceiling) sensor->set_gainceiling(sensor, GAINCEILING_16X);
-        }
-
-        ESP_LOGI(TAG, "SELFTEST CAMERA SENSOR PASS: %s PID=0x%04x denoise=%u gainceil=%u",
-                 model, sensor->id.PID, sensor->status.denoise, sensor->status.gainceiling);
+        // SAFE BOOT: do not touch optional image-processing registers here.
+        // The 0.4.29 low-light tuning ran synchronously before LVGL and could
+        // strand boot on real hardware. Camera quality tuning must happen only
+        // after the UI/runtime is alive, never in the boot-critical path.
+        ESP_LOGI(TAG, "SELFTEST CAMERA SENSOR PASS: %s PID=0x%04x (safe defaults)",
+                 model, sensor->id.PID);
         return true;
     }
 
