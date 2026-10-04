@@ -25,6 +25,19 @@ test('bounded ShardVault activation rotates cached validated endpoints with prob
 });
 
 
+test('bounded ShardVault maintenance excludes already active endpoints before applying probe offsets', () => {
+  const runtime=fs.readFileSync(new URL('../src/continuity/shardvault-runtime.js',import.meta.url),'utf8');
+  const discovery=fs.readFileSync(new URL('../src/continuity/autonomous-repositories.js',import.meta.url),'utf8');
+  assert.match(runtime,/const activeDiscoveryIds=active\.map\(endpoint=>endpoint\.id\)/);
+  assert.match(runtime,/excludeEndpointIds:activeDiscoveryIds/);
+  assert.match(discovery,/const excluded=new Set/);
+  assert.match(discovery,/if\(excluded\.has\(c\.id\)\)/);
+  assert.ok(
+    discovery.indexOf('if(excluded.has(c.id))') < discovery.indexOf('eligibleRows.slice(boundedProbeOffset'),
+    'active endpoint exclusions must happen before the bounded probe offset is applied'
+  );
+});
+
 test('bounded release scan can skip broad Internet discovery while normal discovery stays enabled', () => {
   const runtime=fs.readFileSync(new URL('../src/continuity/shardvault-runtime.js',import.meta.url),'utf8');
   const discovery=fs.readFileSync(new URL('../src/continuity/autonomous-repositories.js',import.meta.url),'utf8');
