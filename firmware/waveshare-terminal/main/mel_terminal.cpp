@@ -872,9 +872,9 @@ static std::string json_string(cJSON *obj) {
     return out;
 }
 
-static bool pair_terminal() {
+static bool pair_terminal(bool force_android_refresh = false) {
     g_fresh_pair_proved_online = false;
-    if (g_cfg.token[0]) return true;
+    if (g_cfg.token[0] && !force_android_refresh) return true;
     const bool android_sponsored_pair = mel_mobile_bridge_ready();
     if (!g_cfg.pair_code[0] && !android_sponsored_pair) return false;
 
@@ -2342,7 +2342,7 @@ static void network_task(void *arg) {
     }
 
     ui_status("APPAIRAGE...");
-    if (!pair_terminal()) {
+    if (!pair_terminal(false)) {
         ui_status("CODE A RENOUVELER");
         ui_answer("Le Wi-Fi fonctionne mais le code MEL est invalide ou expire. Maintiens BOOT au prochain demarrage puis recree un code.");
         vTaskDelete(nullptr);
@@ -2626,7 +2626,7 @@ static void online_runtime_task(void *) {
         if (mel_mobile_bridge_ready()) {
             ESP_LOGI(TAG, "Retrying MEL pairing through authenticated Android bridge");
             for (int attempt = 1; attempt <= 3 && !g_cfg.token[0]; ++attempt) {
-                if (pair_terminal()) {
+                if (pair_terminal(true)) {
                     session_status = g_fresh_pair_proved_online ? 200 : device_session_status();
                     break;
                 }
@@ -2669,6 +2669,32 @@ static void online_runtime_task(void *) {
 void mel_terminal_start_online(void) {
     if (g_online || g_online_task_handle) return;
     xTaskCreatePinnedToCore(online_runtime_task, "mel_online", 10240, nullptr, 5, &g_online_task_handle, 0);
+}
+
+void mel_terminal_refresh_mobile_identity(void) {
+    if (!mel_mobile_bridge_ready()) return;
+    if (g_online_task_handle) return;
+
+    // Do not destroy the last known token before a replacement exists.
+    // A successful Android-sponsored /pair atomically stores the fresh token.
+    make_device_id();
+    load_config();
+    ui_status("MEL MOBILE · IDENTITE...");
+    if (pair_terminal(true)) {
+        g_online = true;
+        ui_status("MEL MOBILE CONNECTE");
+        ui_answer("");
+        if (!g_heartbeat_task_handle) {
+            xTaskCreatePinnedToCore(heartbeat_task, "mel_heartbeat", 6144, nullptr, 2, &g_heartbeat_task_handle, 0);
+        }
+        ESP_LOGI(TAG, "MEL MOBILE identity refreshed through authenticated Android sponsor");
+        return;
+    }
+
+    // Keep the previous token untouched and fall back to the normal retry loop.
+    g_online = false;
+    ESP_LOGW(TAG, "MEL MOBILE identity refresh failed; retaining previous token");
+    mel_terminal_start_online();
 }
 
 void mel_terminal_start(bool force_setup) {
