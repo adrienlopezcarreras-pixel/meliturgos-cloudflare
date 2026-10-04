@@ -196,7 +196,7 @@ static bool camera_probe_once(const char *phase) {
         const char *model = sensor->id.PID == OV5640_PID ? "OV5640" : "OV2640";
         // Keep boot bring-up identical to the Waveshare camera example: initialize
         // the sensor, then leave frame acquisition to the camera task. A boot-time
-        // one-shot esp_camera_fb_get() could race with the later manual test/GDMA.
+        // one-shot frame grab could race with the later manual test/GDMA.
         ESP_LOGI(TAG, "SELFTEST CAMERA SENSOR PASS: %s PID=0x%04x", model, sensor->id.PID);
         return true;
     }
