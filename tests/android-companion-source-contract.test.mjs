@@ -737,3 +737,22 @@ test('Android compacts MINI heartbeat response over BLE', async () => {
   assert.match(service,/server_time/);
   assert.match(service,/MEL MINI heartbeat response compacted to/);
 });
+
+
+test('Android MINI bridge stays alive, reconnects after GATT drops, refreshes devices and relays phone clock',async()=>{
+  const bridge=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelBleBridgeService.kt',root),'utf8');
+  const vm=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelViewModel.kt',root),'utf8');
+  assert.match(bridge,/START_STICKY/);
+  assert.match(bridge,/PARTIAL_WAKE_LOCK/);
+  assert.match(bridge,/bridgeWatchdog/);
+  assert.match(bridge,/postDelayed\(bridgeWatchdog, 5_000L\)/);
+  assert.match(bridge,/connectedDevices\.isEmpty\(\)/);
+  assert.match(bridge,/startAdvertising\(\)/);
+  assert.match(bridge,/cancelConnection\(device\)/);
+  assert.match(bridge,/epoch_ms/);
+  assert.match(bridge,/utc_offset_seconds/);
+  assert.match(bridge,/TimeZone\.getDefault\(\)/);
+  assert.match(vm,/startCompanionRefreshLoop/);
+  assert.match(vm,/delay\(10_000\)/);
+  assert.match(vm,/refreshCompanions\(\)/);
+});
