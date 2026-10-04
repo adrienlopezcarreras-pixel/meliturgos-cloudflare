@@ -125,6 +125,7 @@ static bool last_online = false;
 static void request_view(MiniView view);
 static void mini_apply_requested_view(void);
 static void wifi_start_scan(void);
+static void wifi_fallback_after_ble_task(void *);
 static void ui_stress_task(void *);
 
 static void microphone_boot_probe_task(void *) {
@@ -518,13 +519,31 @@ static esp_err_t mini_wifi_sta_connect(const char *ssid, const char *password) {
 
 static bool wifi_load_credentials(char *ssid, size_t ssid_len, char *pwd, size_t pwd_len) {
     nvs_handle_t h;
-    if (nvs_open("mini_wifi", NVS_READONLY, &h) != ESP_OK) return false;
+    if (nvs_open("mini_wifi", NVS_READONLY, &h) == ESP_OK) {
+        size_t sl = ssid_len;
+        size_t pl = pwd_len;
+        esp_err_t a = nvs_get_str(h, "ssid", ssid, &sl);
+        esp_err_t b = nvs_get_str(h, "pwd", pwd, &pl);
+        nvs_close(h);
+        if (a == ESP_OK && b == ESP_OK && ssid[0] != '\0') return true;
+    }
+
+    // Compatibility with older MINI builds which persisted the same credentials
+    // in the "mel" namespace only. This lets safe-boot upgrades keep the user's
+    // network without forcing a fresh Wi-Fi setup.
+    ssid[0] = '\0';
+    pwd[0] = '\0';
+    if (nvs_open("mel", NVS_READONLY, &h) != ESP_OK) return false;
     size_t sl = ssid_len;
     size_t pl = pwd_len;
     esp_err_t a = nvs_get_str(h, "ssid", ssid, &sl);
-    esp_err_t b = nvs_get_str(h, "pwd", pwd, &pl);
+    esp_err_t b = nvs_get_str(h, "wifi_pass", pwd, &pl);
     nvs_close(h);
-    return a == ESP_OK && b == ESP_OK && ssid[0] != '\0';
+    if (a == ESP_OK && b == ESP_OK && ssid[0] != '\0') {
+        ESP_LOGI(TAG, "Recovered saved Wi-Fi credentials from legacy MEL NVS");
+        return true;
+    }
+    return false;
 }
 
 static void wifi_save_credentials(const char *ssid, const char *pwd) {
@@ -1227,13 +1246,12 @@ static void wifi_scan_task(void *) {
     ESP_LOGI(TAG, "UI ACTION: WIFI SCAN start");
     esp_err_t scan_err = esp_wifi_scan_start(&scan_cfg, true);
 
-    // A pending STA connection can temporarily reject a scan. Cancel that
-    // attempt and retry once instead of incorrectly showing "no network".
+    // A pending STA operation can temporarily reject a scan. Never tear down
+    // a healthy connection just to refresh the settings list: that made opening
+    // the Wi-Fi screen look like the MINI had gone offline.
     if (scan_err == ESP_ERR_WIFI_STATE) {
-        ESP_LOGW(TAG, "WIFI SCAN busy with STA state; cancelling connect and retrying");
-        wifi_auto_reconnect_enabled = false;
-        esp_wifi_disconnect();
-        vTaskDelay(pdMS_TO_TICKS(200));
+        ESP_LOGW(TAG, "WIFI SCAN busy with STA state; preserving current connection and retrying");
+        vTaskDelay(pdMS_TO_TICKS(350));
         scan_err = esp_wifi_scan_start(&scan_cfg, true);
     }
 
@@ -1786,6 +1804,22 @@ static void mobile_bridge_watch_task(void *) {
                 offline_seconds = 0;
                 mel_terminal_set_mobile_connected(false);
                 ESP_LOGW(TAG, "MEL MOBILE OFFLINE after reconnect grace");
+
+                // BLE can disappear long after the one-shot boot selector has exited.
+                // Start the saved-Wi-Fi recovery path again so MINI never remains
+                // stranded offline merely because the phone link dropped later.
+                if (!wifi_got_ip && !wifi_connect_task_handle && !wifi_fallback_task_handle) {
+                    ESP_LOGW(TAG, "MEL MOBILE lost; scheduling persistent Wi-Fi fallback");
+                    xTaskCreatePinnedToCore(
+                        wifi_fallback_after_ble_task,
+                        "mini_wifi_recovery",
+                        4096,
+                        nullptr,
+                        3,
+                        &wifi_fallback_task_handle,
+                        0
+                    );
+                }
             }
         }
         vTaskDelay(pdMS_TO_TICKS(1000));
