@@ -308,6 +308,7 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
   const rollbackOidc = phase === 'release-rollback-restore'
     ? await authorizeOidc(request, env, {
         allowedWorkflows: ['deploy-cloudflare-release.yml'],
+        allowedWorkflowBranches: [...new Set(['main', exactDeployedBranch(env)].filter(Boolean))],
         allowedEvents: ['push', 'workflow_dispatch'],
       })
     : { ok: false };

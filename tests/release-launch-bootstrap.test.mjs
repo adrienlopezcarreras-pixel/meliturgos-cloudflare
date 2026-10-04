@@ -905,7 +905,7 @@ test('release rollback restore is OIDC-scoped, exact-SHA bound and restores MAX 
       headers:{'x-mel-github-oidc':'fixture-oidc','content-type':'application/json'},
       body:JSON.stringify({phase:'release-rollback-restore'}),
     }),
-    {MEL_DEPLOYED_GIT_SHA:sha,DB:{prepare(){}}},
+    {MEL_DEPLOYED_GIT_SHA:sha,MEL_DEPLOYED_GIT_BRANCH:'release/mel-hardware-v0.1.0',DB:{prepare(){}}},
     {
       authorizeOidc:async(_request,_env,options)=>{oidc.push(options);return {ok:true};},
       prepare:async()=>({ok:true,status:'LAUNCH_EVIDENCE_READY',readiness:{
@@ -925,6 +925,7 @@ test('release rollback restore is OIDC-scoped, exact-SHA bound and restores MAX 
   assert.equal(body.launch_approved_sha,sha);
   assert.equal(body.oidc_authorized,true);
   assert.deepEqual(oidc[0].allowedWorkflows,['deploy-cloudflare-release.yml']);
+  assert.deepEqual(oidc[0].allowedWorkflowBranches,['main','release/mel-hardware-v0.1.0']);
   assert.deepEqual(oidc[0].allowedEvents,['push','workflow_dispatch']);
   assert.equal(controls.length,1);
   assert.equal(controls[0].source,'release-rollback-restore');
