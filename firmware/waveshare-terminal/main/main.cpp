@@ -1801,6 +1801,14 @@ static void mobile_bridge_watch_task(void *) {
                 reported_ready = true;
                 ESP_LOGI(TAG, "MEL MOBILE READY");
             }
+
+            // Keep retrying MEL authentication while the physical BLE bridge is
+            // healthy. A transient first heartbeat/pair failure must never leave
+            // MINI permanently offline until the next disconnect/reboot.
+            if (!mel_terminal_online() && (keepalive_seconds % 5) == 0) {
+                ESP_LOGI(TAG, "MEL MOBILE link healthy but session offline; retrying online validation");
+                mel_terminal_start_online();
+            }
         } else if (reported_ready) {
             physical_ready = false;
             keepalive_seconds = 0;
