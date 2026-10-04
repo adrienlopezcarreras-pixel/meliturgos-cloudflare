@@ -2535,12 +2535,25 @@ static int device_session_status() {
         g_last_session_status = 401;
         return 401;
     }
+
+    // Session proof must stay tiny over BLE. The old GET /manifest response is
+    // much larger than a liveness check and had to cross many GATT frames before
+    // MINI could declare itself online. Use the authenticated heartbeat route
+    // instead; it validates the same device token with a small response.
+    cJSON *root = cJSON_CreateObject();
+    cJSON_AddStringToObject(root, "firmware", MEL_FW_VERSION);
+    cJSON_AddStringToObject(root, "protocol_version", MEL_PROTOCOL_VERSION);
+    cJSON_AddStringToObject(root, "phase", "SESSION_CHECK");
+    std::string body = json_string(root);
+    cJSON_Delete(root);
+
     std::string response;
     int status = 0;
     esp_err_t err = http_request(
-        HTTP_METHOD_GET,
-        std::string(SERVER) + "/api/device/v1/manifest",
-        nullptr, nullptr, 0, response, status
+        HTTP_METHOD_POST,
+        std::string(SERVER) + "/api/device/v1/heartbeat",
+        "application/json",
+        body.data(), (int)body.size(), response, status
     );
     if (err != ESP_OK) {
         g_last_session_status = -1;
@@ -2549,10 +2562,10 @@ static int device_session_status() {
     }
     g_last_session_status = status;
     if (status == 200 && !response.empty()) {
-        cJSON *root = cJSON_Parse(response.c_str());
-        if (root) {
-            sync_phone_clock_from_json(root);
-            cJSON_Delete(root);
+        cJSON *json = cJSON_Parse(response.c_str());
+        if (json) {
+            sync_phone_clock_from_json(json);
+            cJSON_Delete(json);
         }
     }
     return status;
