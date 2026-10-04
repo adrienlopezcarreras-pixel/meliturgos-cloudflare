@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import { maybeHandleReleaseLaunchBootstrap, __launchBootstrapTest } from '../src/evolution/release-launch-bootstrap.js';
 import { sqliteD1 } from './helpers/sqlite-d1.mjs';
+import { createAlternativeRegistry } from '../src/portability/prevalidated-alternative-registry.js';
 
 const TOKEN='a'.repeat(64);
 
@@ -29,6 +30,34 @@ test('release bootstrap fails closed without exact temporary secret', async () =
     assert.equal((await response.json()).code,'BOOTSTRAP_AUTH_REQUIRED');
   }
   assert.equal(__launchBootstrapTest.equalToken(TOKEN,TOKEN),true);
+});
+
+test('exact-SHA sovereignty reuse accepts only fresh matching zero-cost prevalidation', () => {
+  const now=Date.now();
+  const sha='7'.repeat(40);
+  const proof=(sourceSha,expiresAt=new Date(now+60000).toISOString())=>({
+    isolated_test:true,
+    smoke:true,
+    rollback:true,
+    export:true,
+    import:true,
+    activate:true,
+    verified_at:new Date(now-1000).toISOString(),
+    expires_at:expiresAt,
+    evidence_ref:'runtime://test',
+    source_sha:sourceSha,
+  });
+  const registry=createAlternativeRegistry([
+    {id:'source.exact',layer:'source_control',provider:'local-git',added_cost_eur:0,proof:proof(sha)},
+    {id:'source.other',layer:'source_control',provider:'local-git-2',added_cost_eur:0,proof:proof('8'.repeat(40))},
+    {id:'infra.expired',layer:'infrastructure',provider:'local-runtime',added_cost_eur:0,proof:proof(sha,new Date(now-1000).toISOString())},
+  ],{now});
+
+  const exact=__launchBootstrapTest.exactShaReusableAlternative(registry,'source_control',sha,{now});
+  assert.equal(exact?.id,'source.exact');
+  assert.equal(__launchBootstrapTest.exactShaReusableAlternative(registry,'source_control','8'.repeat(40),{now})?.id,'source.other');
+  assert.equal(__launchBootstrapTest.exactShaReusableAlternative(registry,'infrastructure',sha,{now}),null);
+  assert.equal(__launchBootstrapTest.exactShaReusableAlternative(registry,'source_control','bad-sha',{now}),null);
 });
 
 test('release bootstrap pauses inherited autonomy before preparing exact-SHA launch evidence', async () => {
