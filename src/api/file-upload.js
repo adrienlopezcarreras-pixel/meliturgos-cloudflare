@@ -20,6 +20,14 @@ function mediaTtlSeconds(env) {
   return Math.max(300, Math.min(30 * 24 * 60 * 60, Math.floor(configured)));
 }
 
+function exactDeployedGitSha(env) {
+  const injected = typeof MEL_DEPLOYED_GIT_SHA !== 'undefined'
+    ? String(MEL_DEPLOYED_GIT_SHA || '')
+    : '';
+  const bound = String(env?.MEL_DEPLOYED_GIT_SHA || '');
+  return (injected || bound).trim().replace(/^['"]|['"]$/g, '').toLowerCase();
+}
+
 function safeName(value) {
   return String(value || 'file')
     .replace(/[\\/\0\r\n]+/g, '_')
@@ -193,7 +201,7 @@ export async function handleFileUpload(request, env, options = {}) {
     const proofText = new TextDecoder('utf-8', { fatal:false }).decode(bytes).trim();
     const proofMatch = /^MEL_FILE_(NORMAL|FULL)_PROOF_([a-f0-9]{40})$/i.exec(proofText);
     const expectedKind = proofName[1].toUpperCase();
-    const deployedSha = String(env?.MEL_DEPLOYED_GIT_SHA || '').trim().toLowerCase();
+    const deployedSha = exactDeployedGitSha(env);
     if (!proofMatch || proofMatch[1].toUpperCase() !== expectedKind
       || !/^[a-f0-9]{40}$/.test(deployedSha)
       || proofMatch[2].toLowerCase() !== deployedSha) {
