@@ -977,11 +977,11 @@ test('GEN2-42 owner MAX bootstrap approves only the gated SHA then runs one cano
   assert.equal(controls[0].launch_gate_digest,digest);
 });
 
-test('release rollback restore is OIDC-scoped, exact-SHA bound and restores MAX only after readiness', async () => {
+test('release rollback restore is OIDC-scoped, exact-SHA bound and never reopens candidate launch gates', async () => {
   const sha='9'.repeat(40);
-  const digest='a'.repeat(64);
   const controls=[];
   const oidc=[];
+  let prepareCalls=0;
   const response=await maybeHandleReleaseLaunchBootstrap(
     new Request('https://mel.test/api/internal/release-launch-bootstrap?expected_sha='+sha+'&paused=false&max=true',{
       method:'POST',
@@ -991,11 +991,7 @@ test('release rollback restore is OIDC-scoped, exact-SHA bound and restores MAX 
     {MEL_DEPLOYED_GIT_SHA:sha,MEL_DEPLOYED_GIT_BRANCH:'release/mel-hardware-v0.1.0',DB:{prepare(){}}},
     {
       authorizeOidc:async(_request,_env,options)=>{oidc.push(options);return {ok:true};},
-      prepare:async()=>({ok:true,status:'LAUNCH_EVIDENCE_READY',readiness:{
-        ok:true,status:'GO_FOR_SUPERVISED_AUTONOMY',launch_ready:true,
-        candidate_sha:sha,evaluated_at:'2026-10-03T05:00:00.000Z',gate_digest:digest,
-        blockers:[],gates:{verified_restore_dry_run:true},
-      }}),
+      prepare:async()=>{prepareCalls+=1;throw new Error('rollback restore must not reopen candidate readiness');},
       setControl:async(_db,input)=>{controls.push(input);return input;},
     },
   );
@@ -1010,10 +1006,12 @@ test('release rollback restore is OIDC-scoped, exact-SHA bound and restores MAX 
   assert.deepEqual(oidc[0].allowedWorkflows,['deploy-cloudflare-release.yml']);
   assert.deepEqual(oidc[0].allowedWorkflowBranches,['main','release/mel-hardware-v0.1.0']);
   assert.deepEqual(oidc[0].allowedEvents,['push','workflow_dispatch']);
+  assert.equal(prepareCalls,0);
   assert.equal(controls.length,1);
   assert.equal(controls[0].source,'release-rollback-restore');
   assert.equal(controls[0].launch_approved_sha,sha);
-  assert.equal(controls[0].launch_gate_digest,digest);
+  assert.equal(controls[0].launch_gate_digest,null);
+  assert.ok(controls[0].launch_approved_at);
   assert.equal(body.restore_sha,sha);
 });
 
@@ -1031,11 +1029,7 @@ test('release rollback restore can stage the previous stable SHA while the candi
     {MEL_DEPLOYED_GIT_SHA:candidate,DB:{prepare(){}}},
     {
       authorizeOidc:async()=>({ok:true}),
-      prepare:async()=>({ok:true,status:'LAUNCH_EVIDENCE_READY',readiness:{
-        ok:true,status:'GO_FOR_SUPERVISED_AUTONOMY',launch_ready:true,
-        candidate_sha:candidate,evaluated_at:'2026-10-04T00:00:00.000Z',gate_digest:digest,
-        blockers:[],gates:{verified_restore_dry_run:true},
-      }}),
+      prepare:async()=>{throw new Error('candidate launch gates must not block rollback staging');},
       setControl:async(_db,input)=>{controls.push(input);return input;},
     },
   );
@@ -1049,6 +1043,7 @@ test('release rollback restore can stage the previous stable SHA while the candi
   assert.equal(controls.length,1);
   assert.equal(controls[0].launch_approved_sha,previous);
   assert.equal(controls[0].launch_gate_digest,null);
+  assert.ok(controls[0].launch_approved_at);
 });
 
 test('release rollback restore refuses SHA mismatch before touching readiness or control', async () => {
