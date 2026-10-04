@@ -523,8 +523,7 @@ jobs:
   file:
     runs-on: ubuntu-24.04
     # The file proof can wait up to 10 minutes for exact-SHA readiness before
-    # eight bounded 120-second browser attempts. 15 minutes could kill a valid
-    # run before its final retry, as happened in downstream #16.
+    # twelve bounded browser attempts aligned with the canonical release proof.
     timeout-minutes: 30
     env:
       PROOF_KEY_B64: ${{ secrets.MEL_BACKUP_ENCRYPTION_KEY_B64 }}
@@ -593,14 +592,13 @@ jobs:
           test "${RELEASE_READY}" = "1"
 
 
-          # Keep upload and DOM confirmation in one browser.execute call.
-          # The canonical #598 proof demonstrated that the page's async
-          # attachment state is reliable within one execution, while splitting
-          # upload and wait across executions can lose the pending DOM state.
+          # Mirror the browser shape proven by canonical release #600:
+          # stable session across retries, exact production URLs, and the full
+          # upload+DOM wait sequence inside one browser.execute.
+          SESSION="decoupled-file-${TARGET_SHA:0:12}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          export TOKEN SESSION TARGET_SHA
           FILE_READY=0
-          for ATTEMPT in $(seq 1 8); do
-            SESSION="decoupled-file-${TARGET_SHA:0:12}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${ATTEMPT}"
-            export TOKEN SESSION TARGET_SHA
+          for ATTEMPT in $(seq 1 12); do
             FILE_BODY="$(node - <<'NODE'
           const origin='https://meliturgos.adrien-lopezcarreras.workers.dev';
           const s=process.env.SESSION,t=process.env.TOKEN,sha=process.env.TARGET_SHA;
@@ -611,10 +609,10 @@ jobs:
           ];
           const steps=[
             {id:'headers',action:'browser.set-headers',headers:{'x-mel-release-smoke':'1','x-mel-parallel-proof':t}},
-            {id:'normal',action:'browser.navigate',url:origin+'/?proof_sha='+sha},
+            {id:'normal',action:'browser.navigate',url:origin+'/'},
             {id:'upload-normal',action:'browser.upload-file',selector:'#fileInput',file_name:'mel-file-normal-proof.txt',mime_type:'text/plain',file_text:'MEL_FILE_NORMAL_PROOF_'+sha},
             {id:'wait-normal',action:'browser.wait-text',selector:'#attachments',text:'mel-file-normal-proof.txt'},
-            {id:'full',action:'browser.navigate',url:origin+'/professor?view=chat&proof_sha='+sha},
+            {id:'full',action:'browser.navigate',url:origin+'/professor'},
             {id:'upload-full',action:'browser.upload-file',selector:'#chatFileInput',file_name:'mel-file-full-proof.txt',mime_type:'text/plain',file_text:'MEL_FILE_FULL_PROOF_'+sha},
             {id:'wait-full',action:'browser.wait-text',selector:'#chatAttachments',text:'mel-file-full-proof.txt'},
           ];
@@ -662,11 +660,11 @@ jobs:
             fi
             case "${FILE_CODE}" in
               000|200|408|409|429|500|502|503|504)
-                echo "Transient MEL-FILE monolithic proof status ${FILE_CODE}; retry ${ATTEMPT}/8 with a fresh browser session."
+                echo "Transient MEL-FILE canonical-shape proof status ${FILE_CODE}; retry ${ATTEMPT}/12 in the stable browser session."
                 sleep $((ATTEMPT * 2))
                 ;;
               *)
-                echo "Non-retryable MEL-FILE monolithic proof status ${FILE_CODE}."
+                echo "Non-retryable MEL-FILE canonical-shape proof status ${FILE_CODE}."
                 exit 31
                 ;;
             esac
@@ -686,6 +684,8 @@ jobs:
             source_sha:String(process.env.TARGET_SHA||'').toLowerCase(),
             exact_sha_verified:true,
             monolithic_browser_session:true,
+            canonical_page_shape:true,
+            stable_session_across_retries:true,
             normal:{upload:true,staged:true},
             full:{upload:true,staged:true},
             browser_execute:true,
