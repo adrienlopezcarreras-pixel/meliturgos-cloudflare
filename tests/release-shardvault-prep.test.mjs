@@ -108,6 +108,17 @@ test('release code-sync waits for future retry windows without consuming the no-
   assert.doesNotMatch(source,/\$CODE_SYNC_STATUS" = "RETRY_TARGETS".*Math\.min\(15,delta\)/s);
 });
 
+test('release code-sync does not burn active attempt budget while waiting on relay/retry windows',async()=>{
+  const source=await readFile(new URL('../.github/workflows/deploy-cloudflare-release.yml',import.meta.url),'utf8');
+  assert.match(source,/CODE_SYNC_ACTIVE_ATTEMPTS=0/);
+  assert.match(source,/CODE_SYNC_MAX_ACTIVE_ATTEMPTS=32/);
+  assert.match(source,/CODE_SYNC_DEADLINE_EPOCH=\$\(\( \$\(date \+%s\) \+ 1200 \)\)/);
+  assert.match(source,/no active-attempt or no-progress budget is consumed/);
+  assert.match(source,/CODE_SYNC_ACTIVE_ATTEMPTS=\$\(\(CODE_SYNC_ACTIVE_ATTEMPTS \+ 1\)\)/);
+  assert.match(source,/bounded active-attempt\/deadline gate/);
+  assert.doesNotMatch(source,/CODE_SYNC_MAX_ATTEMPTS=32/);
+});
+
 test('release job timeout is long enough for bounded ShardVault retry windows',async()=>{
   const source=await readFile(new URL('../.github/workflows/deploy-cloudflare-release.yml',import.meta.url),'utf8');
   const match=/jobs:\s*\n\s*deploy:[\s\S]*?timeout-minutes:\s*(\d+)/.exec(source);
