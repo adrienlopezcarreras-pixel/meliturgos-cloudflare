@@ -80,7 +80,7 @@ test('MINI restarts MEL online validation on every physical BLE reconnect', asyn
     'utf8'
   );
   assert.match(main, /if \(!physical_ready\)[\s\S]*mel_terminal_set_mobile_connected\(true\);[\s\S]*mel_terminal_start_online\(\);/);
-  assert.match(main, /online validation restarted/);
+  assert.match(main, /identity\/session recovery started/);
 });
 
 
