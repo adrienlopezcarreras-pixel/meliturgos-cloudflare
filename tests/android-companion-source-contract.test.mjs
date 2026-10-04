@@ -690,7 +690,9 @@ test('Android MINI bridge distinguishes phone Internet from proven MEL relay',as
   assert.match(service,/ConnectivityManager\.NetworkCallback/);
   assert.match(service,/NET_CAPABILITY_VALIDATED/);
   assert.match(service,/registerDefaultNetworkCallback/);
-  assert.match(service,/MINI CONNECTÉE · RELAIS INTERNET PRÊT/);
+  assert.match(service,/MINI CONNECTÉE · MEL À VALIDER/);
+  assert.match(service,/validatePhoneMelSession\(\)/);
+  assert.match(service,/MINI CONNECTÉE · MEL PRÊT · SYNCHRONISATION/);
   assert.match(activity,/phoneInternetReady by MelBleBridgeService\.phoneInternetAvailable/);
   assert.match(activity,/téléphone en ligne · validation MEL en cours/);
   assert.match(build,/versionCode = 60/);
@@ -700,7 +702,8 @@ test('Android MINI bridge distinguishes phone Internet from proven MEL relay',as
 
 test('Android MINI relay distinguishes phone connectivity from MEL authentication', async () => {
   const service=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelBleBridgeService.kt',root),'utf8');
-  assert.match(service,/TÉLÉPHONE EN LIGNE · MEL À VALIDER/);
+  assert.match(service,/MINI CONNECTÉE · MEL À VALIDER/);
+  assert.match(service,/Android MEL session validated for MINI sponsorship/);
   assert.match(service,/APPLI MEL À RÉAPPAIRER/);
   assert.match(service,/request\.path == "\/api\/device\/v1\/pair"/);
 });
