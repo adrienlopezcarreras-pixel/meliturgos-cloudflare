@@ -45,6 +45,8 @@ test('MEL-SOV-01 refresh API rejects skipped infrastructure as verified evidence
   assert.match(runtime,/row\?\.skipped !== true/);
   assert.match(runtime,/Number\(row\?\.prevalidated \|\| 0\) > 0/);
   assert.match(runtime,/verification_reason/);
+  assert.match(runtime,/concreteFailureCode/);
+  assert.match(runtime,/row\?\.results\?\.find/);
   assert.match(runtime,/LIVE_PROOF_SKIPPED/);
   assert.match(runtime,/status: verifiedRefresh \? 'MEL_SOV_01_REFRESH_STEP_VERIFIED' : 'MEL_SOV_01_REFRESH_STEP_FAILED'/);
 });
