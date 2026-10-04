@@ -90,5 +90,5 @@ test('rich UI browser proof retries bounded transient runtime pressure instead o
   assert.match(workflow, /BROWSER_FAILED_STEP_ID/);
   assert.match(workflow, /failed_step_id/);
   assert.match(workflow, /Non-retryable rich UI browser proof status/);
-  assert.match(workflow, /retry \\${ATTEMPT}\/6 with a fresh browser session/);
+  assert.match(workflow, /retry \$\{ATTEMPT\}\/6 with a fresh browser session/);
 });
