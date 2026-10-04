@@ -143,7 +143,7 @@ test('code archive replication is separately gated after seven live targets are 
   assert.match(runtime,/codeSyncExternalView\(state,goal,'COPIED'\)/);
   assert.match(runtime,/if\(result\.target_reached\)/);
   assert.match(runtime,/DEFERRED_SEPARATE_OPERATION/);
-  assert.match(runtime,/runShardVaultCycle\(env,\{force:true,skipExternalCode:true\}\)/);
+  assert.match(runtime,/runShardVaultCycle\(env,\{force:true,skipExternalCode:true,activeRegistryOnly:true\}\)/);
 });
 
 
