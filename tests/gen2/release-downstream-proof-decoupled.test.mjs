@@ -96,6 +96,10 @@ test('decoupled sovereignty waits for exact-SHA release readiness before local s
   assert.match(block,/GO_FOR_SUPERVISED_AUTONOMY/);
   assert.match(block,/candidate_sha/);
   assert.match(block,/SOV proof waiting for exact-SHA release readiness/);
+  assert.match(block,/--max-time 10/);
+  assert.match(block,/sleep 5/);
+  assert.match(block,/Decoupled SOV fast path: exact-SHA final proof already valid/);
+  assert.match(block,/exact_sha_fast_path:true/);
   assert.match(block,/SOV target SHA is no longer deployed/);
   assert.match(block,/sovereignty-current-sha\.json/);
   assert.match(block,/exit 42/);
@@ -132,7 +136,9 @@ test('decoupled sovereignty proof refreshes every bounded prevalidation domain b
 test('decoupled sovereignty refreshes retry only bounded transient pressure and preserve a sanitized failure artifact', async () => {
   const workflow=await readFile(new URL('../../.github/workflows/release-downstream-proof-decoupled.yml',import.meta.url),'utf8');
   assert.match(workflow,/REFRESH_READY=0/);
-  assert.match(workflow,/for ATTEMPT in \$\(seq 1 6\)/);
+  const block=workflow.split('\n  sovereignty:\n')[1]?.split('\n  summary:\n')[0]||'';
+  assert.match(block,/for ATTEMPT in \$\(seq 1 4\)/);
+  assert.match(block,/--max-time 55/);
   assert.match(workflow,/BOOTSTRAP_AUTH_REQUIRED/);
   assert.match(workflow,/Decoupled SOV proof auth is still propagating/);
   assert.match(workflow,/SOV_BACKUP_GOOGLE_DRIVE_RECONSENT_REQUIRED/);
