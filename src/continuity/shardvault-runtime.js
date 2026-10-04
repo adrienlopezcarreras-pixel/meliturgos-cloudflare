@@ -121,14 +121,14 @@ function excludeShardVaultEndpoints(c,endpointIds=[]){
     endpoints:(c.endpoints||[]).filter(e=>!excluded.has(String(e?.id||''))),
   };
 }
-async function enrichAutonomous(env,c,requiredBytes,{excludeEndpointIds=[]}={}){
+async function enrichAutonomous(env,c,requiredBytes,{excludeEndpointIds=[],activeRegistryOnly=false}={}){
   const excluded=new Set((excludeEndpointIds||[]).map(value=>String(value||'')).filter(Boolean));
   c=excludeShardVaultEndpoints(c,excluded);
   let active=[];
   try{active=(await readActiveExternalEndpoints(env)).filter(e=>!excluded.has(String(e?.id||'')));}catch{}
   const activeBoosted=active.map((e,i)=>({...e,score:1000000-i,activeRegistry:true}));
-  if(String(env?.MEL_SHARDVAULT_AUTONOMOUS||'true')!=='true'){
-    return {config:activeBoosted.length?mergeAutonomous(c,{selected:activeBoosted},env):c,report:null};
+  if(activeRegistryOnly||String(env?.MEL_SHARDVAULT_AUTONOMOUS||'true')!=='true'){
+    return {config:activeBoosted.length?mergeAutonomous(c,{selected:activeBoosted},env):c,report:{selected:activeBoosted,qualified:activeBoosted,rejected:[],activation_registry_only:activeRegistryOnly===true}};
   }
   try{
     const report=await discoverAutonomousRepositories(env,{masterKey:c.master,vaultId:c.vaultId,requiredBytes,selectionCount:c.n});
@@ -1481,7 +1481,7 @@ async function ensureExternalCodeArchive(env,c,codeBackup){
     verified_roundtrip:true,created_at:manifest.createdAt
   }};
 }
-export async function runShardVaultCycle(env,{force=false,skipExternalCode=false,excludeEndpointIds=[]}={}){
+export async function runShardVaultCycle(env,{force=false,skipExternalCode=false,excludeEndpointIds=[],activeRegistryOnly=false}={}){
   if(String(env?.MEL_SHARDVAULT_ENABLED||'false')!=='true')return {ok:true,enabled:false,skipped:true,reason:'DISABLED'};
   let c;
   try{c=await config(env);}catch(error){return {ok:false,enabled:true,skipped:true,reason:'CONFIG_INVALID',error:String(error?.message||error)};}
@@ -1495,14 +1495,14 @@ export async function runShardVaultCycle(env,{force=false,skipExternalCode=false
       try{health=await checkAndRepair(env,c,last);}
       catch(error){
         health={snapshotId:last.snapshotId,healthy:false,fatal:String(error?.message||error)};
-        const enriched=await enrichAutonomous(env,c,last.shardSize||0,{excludeEndpointIds});c=enriched.config;autonomous=enriched.report;
+        const enriched=await enrichAutonomous(env,c,last.shardSize||0,{excludeEndpointIds,activeRegistryOnly});c=enriched.config;autonomous=enriched.report;
         if(c.allEndpoints.length){try{health=await checkAndRepair(env,c,last);}catch(error2){health={snapshotId:last.snapshotId,healthy:false,fatal:String(error2?.message||error2)};}}
       }
     }
     if(!force&&last&&Number.isFinite(age)&&age<c.intervalMs)return {ok:health?.healthy!==false,enabled:true,skipped:true,reason:'INTERVAL_NOT_DUE',latest_snapshot:last.snapshotId,age_ms:age,health,autonomous,diversity:diversity(c.endpoints),storage_mode:c.storageMode,degraded:c.degraded,code_backup:codeBackup};
     const payload=await buildShardVaultMemoryPayload(env,{limit:Number(env.MEL_SHARDVAULT_EXPORT_LIMIT)||10000});
     payload.code_survival=codeBackup;
-    const estimated=Math.max(256,Math.ceil((utf8(JSON.stringify(payload)).length+16)/c.k)),enriched=await enrichAutonomous(env,c,estimated,{excludeEndpointIds});
+    const estimated=Math.max(256,Math.ceil((utf8(JSON.stringify(payload)).length+16)/c.k)),enriched=await enrichAutonomous(env,c,estimated,{excludeEndpointIds,activeRegistryOnly});
     c=enriched.config;autonomous=enriched.report;
     if(!c.endpoints.length)throw new Error('NO_STORAGE_ENDPOINTS_AVAILABLE');
     if(!skipExternalCode){
@@ -1739,6 +1739,7 @@ async function retryActivationAfterWriteFailure(env,{c,last,activeBefore=[],stag
       force:true,
       skipExternalCode,
       excludeEndpointIds:[rotation.failedEndpointId],
+      activeRegistryOnly:true,
     });
   }catch(error){
     retryCycle={ok:false,error:String(error?.message||error)};
@@ -1975,7 +1976,7 @@ export async function searchAutonomousShardVaultRepositories(env,{maxNewEndpoint
       if(validated.length){
         const staged=await stageActiveExternalEndpoints(env,c,last,validated);
         if(staged.length>active.length){
-          try{activation_cycle=await runShardVaultCycle(env,{force:true,skipExternalCode:true});}
+          try{activation_cycle=await runShardVaultCycle(env,{force:true,skipExternalCode:true,activeRegistryOnly:true});}
           catch(error){activation_cycle={ok:false,error:String(error?.message||error)};}
           if(activation_cycle?.ok){
             const rowsAfter=await inventoryRows(env,c),latestAfter=latestSnapshot(rowsAfter);
@@ -2014,7 +2015,7 @@ export async function searchAutonomousShardVaultRepositories(env,{maxNewEndpoint
       const activeBeforeDiscovery=active;
       const staged=await stageActiveExternalEndpoints(env,c,last,(report.selected||[]).slice(0,selectionTarget));
       if(staged.length>activeBeforeDiscovery.length){
-        try{activation_cycle=await runShardVaultCycle(env,{force:true,skipExternalCode:true});}
+        try{activation_cycle=await runShardVaultCycle(env,{force:true,skipExternalCode:true,activeRegistryOnly:true});}
         catch(error){activation_cycle={ok:false,error:String(error?.message||error)};}
         if(activation_cycle?.ok){
           const rowsAfter=await inventoryRows(env,c),latestAfter=latestSnapshot(rowsAfter);
