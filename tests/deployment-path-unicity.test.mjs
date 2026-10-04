@@ -57,8 +57,9 @@ test('canonical production release requires human approval and exact immutable i
   assert.match(source, /CODE_SYNC_DEADLINE_EPOCH=\$\(\( \$\(date \+%s\) \+ 1200 \)\)/);
   assert.match(source, /while \[ "\$CODE_SYNC_READY" != "1" \] && \[ "\$\(date \+%s\)" -lt "\$CODE_SYNC_DEADLINE_EPOCH" \]; do/);
   assert.match(source, /PRODUCTION_CODE_SYNC_FINAL_NOT_COMPLETE/);
-  assert.match(source, /PRODUCTION_CODE_SYNC_FINAL_NOT_COPIED/);
-  assert.match(source, /PRODUCTION_CODE_SYNC_SUCCESSFUL_ENDPOINTS_LT_7/);
+  assert.match(source, /PRODUCTION_CODE_SYNC_FINAL_NOT_RELEASE_SAFE/);
+  assert.match(source, /PRODUCTION_CODE_SYNC_SUCCESSFUL_ENDPOINTS_LT_RELEASE_QUORUM/);
+  assert.match(source, /PRODUCTION_CODE_SYNC_QUORUM_RECONSTRUCTION_NOT_VERIFIED/);
   assert.match(source, /PRODUCTION_CODE_SYNC_ROUNDTRIP_NOT_VERIFIED/);
   assert.match(source, /CODE_SYNC_CODE="\$\(curl --silent --show-error --max-time 170 \\\n\s+--header "x-mel-launch-bootstrap: \$\{BOOTSTRAP_TOKEN\}"/);
   assert.match(source, /--data '\{"phase":"code-sync"\}'/);
