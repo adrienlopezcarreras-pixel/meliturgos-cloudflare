@@ -480,6 +480,7 @@ class MelBleBridgeService : Service() {
                 descriptor.value = value.copyOf()
                 val enabled = value.contentEquals(BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE)
                 subscribed[device.address] = enabled
+                if (enabled) mtus.putIfAbsent(device.address, 23)
                 miniLinkReady.value = enabled
                 if (!enabled) internetReady.value = false
                 if (enabled) {
@@ -735,7 +736,7 @@ class MelBleBridgeService : Service() {
             .put("audioChannels", 1)
         if (!sendJsonFrame(device, OP_RESPONSE_BEGIN, requestId, meta)) return false
 
-        val mtu = mtus[device.address] ?: 247
+        val mtu = mtus[device.address] ?: 23
         val maxPayload = (mtu - 8).coerceIn(12, 500)
         val inputBuffer = ByteArray(maxPayload * 3)
         val outputBuffer = ByteArray(maxPayload)
@@ -984,7 +985,7 @@ class MelBleBridgeService : Service() {
             if (!sendJsonFrame(device, OP_RESPONSE_BEGIN, request.id, meta)) return
             if (stream != null) {
                 stream.use { input ->
-                    val mtu = mtus[device.address] ?: 247
+                    val mtu = mtus[device.address] ?: 23
                     val maxPayload = (mtu - 8).coerceIn(12, 500)
                     val buffer = ByteArray(maxPayload)
                     while (true) {
@@ -1184,7 +1185,7 @@ class MelBleBridgeService : Service() {
 
     private fun sendBodyFrames(device: BluetoothDevice, requestId: Int, body: ByteArray): Boolean {
         if (body.isEmpty()) return true
-        val mtu = mtus[device.address] ?: 247
+        val mtu = mtus[device.address] ?: 23
         val maxPayload = (mtu - 8).coerceIn(12, 500)
         var offset = 0
         while (offset < body.size) {
