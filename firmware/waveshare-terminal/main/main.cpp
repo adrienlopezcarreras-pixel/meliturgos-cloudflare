@@ -78,6 +78,7 @@ static lv_obj_t *wifi_pwd = nullptr;
 static lv_obj_t *wifi_keyboard = nullptr;
 static lv_obj_t *wifi_connect_btn = nullptr;
 static lv_obj_t *main_panel = nullptr;
+static lv_obj_t *transport_indicator = nullptr;
 static lv_obj_t *settings_panel = nullptr;
 static volatile bool camera_probe_done = false;
 static lv_obj_t *settings_status = nullptr;
@@ -431,6 +432,19 @@ static void mini_anim_cb(lv_timer_t *) {
         lv_obj_set_style_border_color(talk_button, accent, 0);
     }
 
+    if (transport_indicator) {
+        if (mel_terminal_mobile_connected()) {
+            lv_label_set_text(transport_indicator, "BT");
+            lv_obj_set_style_text_color(transport_indicator, lv_color_hex(0x22D3EE), 0);
+        } else if (wifi_got_ip) {
+            lv_label_set_text(transport_indicator, LV_SYMBOL_WIFI);
+            lv_obj_set_style_text_color(transport_indicator, lv_color_hex(0x34D399), 0);
+        } else {
+            lv_label_set_text(transport_indicator, "--");
+            lv_obj_set_style_text_color(transport_indicator, lv_color_hex(0x64748B), 0);
+        }
+    }
+
     if (talk_button) {
         if (online && (state == MEL_TERMINAL_IDLE || state == MEL_TERMINAL_LISTENING)) {
             lv_obj_clear_state(talk_button, LV_STATE_DISABLED);
@@ -460,10 +474,10 @@ static void mini_anim_cb(lv_timer_t *) {
             } else if (mel_terminal_mobile_connected()) {
                 const int s = mel_terminal_last_session_status();
                 if (s == 401 || s == 403) lv_label_set_text(status_label, "APP MEL A REAPPAIRER");
-                else if (s == -1) lv_label_set_text(status_label, "BLE OK · RELAIS MEL KO");
-                else if (s == -2) lv_label_set_text(status_label, "BLE OK · TOKEN RECU INVALIDE");
-                else if (s > 0) lv_label_set_text_fmt(status_label, "BLE OK · MEL HTTP %d", s);
-                else lv_label_set_text(status_label, "BLE OK · VALIDATION MEL...");
+                else if (s == -1) lv_label_set_text(status_label, "BT OK | RELAIS MEL KO");
+                else if (s == -2) lv_label_set_text(status_label, "BT OK | TOKEN INVALIDE");
+                else if (s > 0) lv_label_set_text_fmt(status_label, "BT OK | MEL HTTP %d", s);
+                else lv_label_set_text(status_label, "BT OK | VALIDATION MEL...");
             } else {
                 lv_label_set_text(status_label, "HORS LIGNE");
             }
@@ -1697,10 +1711,11 @@ static void mini_smoke_ui() {
     lv_obj_set_style_pad_all(main_panel, 0, 0);
     lv_obj_clear_flag(main_panel, LV_OBJ_FLAG_SCROLLABLE);
 
-    lv_obj_t *wifi_indicator = lv_label_create(main_panel);
-    lv_label_set_text(wifi_indicator, LV_SYMBOL_WIFI);
-    lv_obj_set_style_text_color(wifi_indicator, lv_color_hex(0x22D3EE), 0);
-    lv_obj_align(wifi_indicator, LV_ALIGN_TOP_LEFT, 18, 20);
+    transport_indicator = lv_label_create(main_panel);
+    lv_label_set_text(transport_indicator, "--");
+    lv_obj_set_style_text_font(transport_indicator, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(transport_indicator, lv_color_hex(0x64748B), 0);
+    lv_obj_align(transport_indicator, LV_ALIGN_TOP_LEFT, 18, 20);
 
     time_label = lv_label_create(main_panel);
     lv_label_set_text(time_label, "--:--");
