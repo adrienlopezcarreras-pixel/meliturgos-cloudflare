@@ -36,6 +36,10 @@ jobs:
           set -e
           echo "wrangler_exit=$WRANGLER_CODE"
           if [ -s d1-error.txt ]; then sed -n '1,120p' d1-error.txt; fi
+          if [ "$WRANGLER_CODE" != "0" ] && [ -s d1-raw.json ]; then
+            echo "wrangler_stdout:"
+            sed -n '1,120p' d1-raw.json
+          fi
           if [ ! -s d1-raw.json ]; then echo '[]' > d1-raw.json; fi
           node - <<'NODE'
           const fs=require('fs');
