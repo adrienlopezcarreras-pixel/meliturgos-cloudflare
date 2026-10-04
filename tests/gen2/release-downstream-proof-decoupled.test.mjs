@@ -51,6 +51,12 @@ test('decoupled MEL-FILE proof mirrors the successful canonical browser shape af
   assert.match(fileBlock,/000\|200\|408\|409\|429\|500\|502\|503\|504/);
   assert.match(fileBlock,/Non-retryable MEL-FILE canonical-shape proof status/);
   assert.match(fileBlock,/failed_step_id/);
+  assert.match(fileBlock,/mel-file-preflight\.json/);
+  assert.match(fileBlock,/\/api\/files\/upload/);
+  assert.match(fileBlock,/MEL_FILE_PARALLEL_API_PREFLIGHT_FAILED/);
+  assert.match(fileBlock,/mel-file-ui-diagnostic\.json/);
+  assert.match(fileBlock,/diag-status/);
+  assert.match(fileBlock,/diag-attachments/);
   assert.doesNotMatch(fileBlock,/file-normal-wait\.json|file-full-wait\.json/);
 });
 

@@ -175,3 +175,59 @@ test('small audio upload is transcribed with exact zero-cost Whisper and exposed
   assert.equal(body.analysis_status,'AUDIO_TRANSCRIBED');
   assert.equal(body.analysis_provider,WORKERS_AI_TRANSCRIPTION_MODEL);
 });
+
+
+test('parallel exact-SHA MEL-FILE proof upload is accepted only with matching token payload and deployed SHA', async () => {
+  const token='p'.repeat(48);
+  const sha='a'.repeat(40);
+  const env={
+    ...MEDIA_ENV,
+    MELITURGOS_USER:'adrien',
+    MELITURGOS_PASSWORD:'owner-secret',
+    MEL_PARALLEL_PROOF_TOKEN:token,
+    MEL_DEPLOYED_GIT_SHA:sha,
+    MEDIA_BUCKET:{async put(){return undefined;}},
+  };
+  const form=new FormData();
+  form.append('file',new File([
+    new TextEncoder().encode('MEL_FILE_NORMAL_PROOF_'+sha)
+  ],'mel-file-normal-proof.txt',{type:'text/plain'}));
+  const request=new Request('https://mel.test/api/files/upload',{
+    method:'POST',
+    headers:{'x-mel-release-smoke':'1','x-mel-parallel-proof':token},
+    body:form,
+  });
+  const response=await handleFileUpload(request,env);
+  const body=await response.json();
+  assert.equal(response.status,200);
+  assert.equal(body.ok,true);
+  assert.equal(body.stored,true);
+  assert.match(String(body.preview_text||''),new RegExp('MEL_FILE_NORMAL_PROOF_'+sha));
+});
+
+test('parallel MEL-FILE proof rejects a payload for a different deployed SHA', async () => {
+  const token='q'.repeat(48);
+  const deployed='b'.repeat(40);
+  const other='c'.repeat(40);
+  const env={
+    ...MEDIA_ENV,
+    MELITURGOS_USER:'adrien',
+    MELITURGOS_PASSWORD:'owner-secret',
+    MEL_PARALLEL_PROOF_TOKEN:token,
+    MEL_DEPLOYED_GIT_SHA:deployed,
+    MEDIA_BUCKET:{async put(){return undefined;}},
+  };
+  const form=new FormData();
+  form.append('file',new File([
+    new TextEncoder().encode('MEL_FILE_NORMAL_PROOF_'+other)
+  ],'mel-file-normal-proof.txt',{type:'text/plain'}));
+  const request=new Request('https://mel.test/api/files/upload',{
+    method:'POST',
+    headers:{'x-mel-release-smoke':'1','x-mel-parallel-proof':token},
+    body:form,
+  });
+  const response=await handleFileUpload(request,env);
+  const body=await response.json();
+  assert.equal(response.status,403);
+  assert.equal(body.code,'MEL_FILE_PROOF_PAYLOAD_INVALID');
+});

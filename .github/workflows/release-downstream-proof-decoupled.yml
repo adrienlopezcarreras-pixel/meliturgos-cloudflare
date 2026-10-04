@@ -609,6 +609,25 @@ jobs:
           done
           test "${RELEASE_READY}" = "1"
 
+          # Prove the parallel exact-SHA upload contract directly before the UI
+          # path so an auth/payload/storage rejection is distinguishable from a
+          # browser event-binding failure.
+          printf 'MEL_FILE_NORMAL_PROOF_%s' "${TARGET_SHA}" > mel-file-preflight.txt
+          PREFLIGHT_CODE="$(curl --silent --show-error --max-time 60 \
+            --header "x-mel-release-smoke: 1" \
+            --header "x-mel-parallel-proof: ${TOKEN}" \
+            --form "file=@mel-file-preflight.txt;type=text/plain;filename=mel-file-normal-proof.txt" \
+            --output mel-file-preflight.json --write-out '%{http_code}' \
+            "${BASE_URL}/api/files/upload" || true)"
+          if [ "${PREFLIGHT_CODE}" != "200" ]; then
+            echo "MEL-FILE exact-SHA API preflight failed with HTTP ${PREFLIGHT_CODE}."
+            node -e 'const fs=require("fs");let d={};try{d=JSON.parse(fs.readFileSync("mel-file-preflight.json","utf8"))}catch{};console.log(JSON.stringify({code:d?.code||d?.error||"UNKNOWN",stored:d?.stored===true}))'
+            exit 32
+          fi
+          node - <<'NODE'
+          const d=require('./mel-file-preflight.json');
+          if(d?.ok!==true||d?.stored!==true)throw new Error('MEL_FILE_PARALLEL_API_PREFLIGHT_FAILED');
+          NODE
 
           # Mirror the browser shape proven by canonical release #600:
           # stable session across retries, exact production URLs, and the full
@@ -676,6 +695,39 @@ jobs:
             if [ -s file-browser-proof.json ]; then
               node -e 'const fs=require("fs");let d={};try{d=JSON.parse(fs.readFileSync("file-browser-proof.json","utf8"))}catch{};console.log(JSON.stringify({ok:d?.ok===true,error:d?.error||d?.code||d?.status||"UNKNOWN",failed_step_id:d?.failed_step_id||null,steps_completed:Number(d?.result?.steps_completed||0)}))'
             fi
+
+            # Best-effort same-session UI diagnostic. This never satisfies the
+            # proof; it only reveals whether the page reports upload/auth error.
+            DIAG_BODY="$(node - <<'NODE'
+          const origin='https://meliturgos.adrien-lopezcarreras.workers.dev';
+          const s=process.env.SESSION,t=process.env.TOKEN;
+          const steps=[
+            {id:'diag-headers',action:'browser.set-headers',headers:{'x-mel-release-smoke':'1','x-mel-parallel-proof':t}},
+            {id:'diag-status',action:'browser.read-text',selector:'#status'},
+            {id:'diag-attachments',action:'browser.read-text',selector:'#attachments'},
+          ];
+          process.stdout.write(JSON.stringify({id:'browser.execute',input:{
+            session_id:s,
+            device:{id:'cloudflare-browser',capabilities:['browser.control']},
+            sandbox:{allowed_origins:[origin],max_steps:steps.length},
+            approvals:[{approved:true,session_id:s,step_id:'diag-headers',action:'browser.set-headers'}],
+            steps,
+          }}));
+          NODE
+          )"
+            curl --silent --show-error --max-time 30 \
+              --header "x-mel-release-smoke: 1" \
+              --header "x-mel-parallel-proof: ${TOKEN}" \
+              --header "content-type: application/json" \
+              --data "${DIAG_BODY}" \
+              --output mel-file-ui-diagnostic.json \
+              "${BASE_URL}/api/gen2/capabilities/execute" || true
+            node - <<'NODE' || true
+          const fs=require('fs');let d={};try{d=JSON.parse(fs.readFileSync('mel-file-ui-diagnostic.json','utf8'))}catch{}
+          const out=id=>(d?.result?.outputs||[]).find(x=>x?.step_id===id)?.output||{};
+          console.log(JSON.stringify({ui_status:String(out('diag-status')?.text||'').slice(0,240),attachments:String(out('diag-attachments')?.text||'').slice(0,240)}));
+          NODE
+
             case "${FILE_CODE}" in
               000|200|408|409|429|500|502|503|504)
                 echo "Transient MEL-FILE canonical-shape proof status ${FILE_CODE}; retry ${ATTEMPT}/12 in the stable browser session."
