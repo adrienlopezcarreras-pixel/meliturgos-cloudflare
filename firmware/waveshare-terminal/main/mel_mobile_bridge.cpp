@@ -26,6 +26,22 @@ static const uint16_t MEL_BRIDGE_TX = 0xABF2;
 static const ble_uuid16_t UUID_SERVICE = BLE_UUID16_INIT(MEL_BRIDGE_SERVICE);
 static const ble_uuid16_t UUID_RX = BLE_UUID16_INIT(MEL_BRIDGE_RX);
 static const ble_uuid16_t UUID_TX = BLE_UUID16_INIT(MEL_BRIDGE_TX);
+// Android exposes UUID.fromString("0000abfX-0000-1000-8000-00805f9b34fb")
+// as a real 128-bit GATT UUID. NimBLE ble_uuid_cmp() is type-strict, so a
+// UUID16 and the equivalent Bluetooth-base UUID128 do NOT compare equal.
+// Accept both encodings end-to-end (advertisement + GATT discovery).
+static const ble_uuid128_t UUID_SERVICE_128 = BLE_UUID128_INIT(
+    0xfb, 0x34, 0x9b, 0x5f, 0x80, 0x00, 0x00, 0x80,
+    0x00, 0x10, 0x00, 0x00, 0xf0, 0xab, 0x00, 0x00
+);
+static const ble_uuid128_t UUID_RX_128 = BLE_UUID128_INIT(
+    0xfb, 0x34, 0x9b, 0x5f, 0x80, 0x00, 0x00, 0x80,
+    0x00, 0x10, 0x00, 0x00, 0xf1, 0xab, 0x00, 0x00
+);
+static const ble_uuid128_t UUID_TX_128 = BLE_UUID128_INIT(
+    0xfb, 0x34, 0x9b, 0x5f, 0x80, 0x00, 0x00, 0x80,
+    0x00, 0x10, 0x00, 0x00, 0xf2, 0xab, 0x00, 0x00
+);
 static const ble_uuid16_t UUID_CCCD = BLE_UUID16_INIT(BLE_GATT_DSC_CLT_CFG_UUID16);
 
 static const uint8_t OP_BEGIN = 0x01;
@@ -81,18 +97,27 @@ static std::string json_string(cJSON *root) {
     return out;
 }
 
+static bool uuid_matches_mel(const ble_uuid_t *uuid,
+                             const ble_uuid16_t *short_uuid,
+                             const ble_uuid128_t *full_uuid) {
+    if (!uuid || !short_uuid || !full_uuid) return false;
+    if (uuid->type == BLE_UUID_TYPE_16) {
+        return ble_uuid_cmp(uuid, &short_uuid->u) == 0;
+    }
+    if (uuid->type == BLE_UUID_TYPE_128) {
+        return ble_uuid_cmp(uuid, &full_uuid->u) == 0;
+    }
+    return false;
+}
+
 static bool adv_has_service(const struct ble_gap_disc_desc *disc) {
     struct ble_hs_adv_fields fields = {};
     if (ble_hs_adv_parse_fields(&fields, disc->data, disc->length_data) != 0) return false;
-    const ble_uuid_t *wanted = &UUID_SERVICE.u;
     for (int i = 0; i < fields.num_uuids16; ++i) {
-        if (ble_uuid_cmp(&fields.uuids16[i].u, wanted) == 0) return true;
-    }
-    for (int i = 0; i < fields.num_uuids32; ++i) {
-        if (ble_uuid_cmp(&fields.uuids32[i].u, wanted) == 0) return true;
+        if (uuid_matches_mel(&fields.uuids16[i].u, &UUID_SERVICE, &UUID_SERVICE_128)) return true;
     }
     for (int i = 0; i < fields.num_uuids128; ++i) {
-        if (ble_uuid_cmp(&fields.uuids128[i].u, wanted) == 0) return true;
+        if (uuid_matches_mel(&fields.uuids128[i].u, &UUID_SERVICE, &UUID_SERVICE_128)) return true;
     }
     return false;
 }
@@ -263,7 +288,7 @@ static void on_discovery_complete(const struct peer *peer, int status, void *arg
     int matching_services = 0;
     const struct peer_svc *svc = nullptr;
     SLIST_FOREACH(svc, &peer->svcs, next) {
-        if (ble_uuid_cmp(&svc->svc.uuid.u, &UUID_SERVICE.u) != 0) continue;
+        if (!uuid_matches_mel(&svc->svc.uuid.u, &UUID_SERVICE, &UUID_SERVICE_128)) continue;
         matching_services++;
         if (!selected_svc || svc->svc.start_handle > selected_svc->svc.start_handle) {
             selected_svc = svc;
@@ -276,8 +301,8 @@ static void on_discovery_complete(const struct peer *peer, int status, void *arg
     if (selected_svc) {
         const struct peer_chr *chr = nullptr;
         SLIST_FOREACH(chr, &selected_svc->chrs, next) {
-            if (ble_uuid_cmp(&chr->chr.uuid.u, &UUID_RX.u) == 0) rx = chr;
-            if (ble_uuid_cmp(&chr->chr.uuid.u, &UUID_TX.u) == 0) tx = chr;
+            if (uuid_matches_mel(&chr->chr.uuid.u, &UUID_RX, &UUID_RX_128)) rx = chr;
+            if (uuid_matches_mel(&chr->chr.uuid.u, &UUID_TX, &UUID_TX_128)) tx = chr;
         }
         if (tx) {
             const struct peer_dsc *dsc = nullptr;
@@ -327,9 +352,9 @@ static int mtu_complete(uint16_t conn_handle, const struct ble_gatt_error *error
         g_mtu = mtu;
         ESP_LOGI(TAG, "MEL Mobile MTU=%u", mtu);
     }
-    int rc = peer_disc_svc_by_uuid(
-        conn_handle, &UUID_SERVICE.u, on_discovery_complete, nullptr
-    );
+    // Discover all services because Android may expose the Bluetooth-base
+    // UUID as a 128-bit ATT UUID. peer_disc_svc_by_uuid(UUID16) would miss it.
+    int rc = peer_disc_all(conn_handle, on_discovery_complete, nullptr);
     if (rc != 0) {
         ESP_LOGW(TAG, "MEL Mobile service discovery start failed rc=%d", rc);
         ble_gap_terminate(conn_handle, BLE_ERR_REM_USER_CONN_TERM);
