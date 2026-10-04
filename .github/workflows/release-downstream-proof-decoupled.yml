@@ -496,7 +496,7 @@ jobs:
           export SESSION
           BODY="$(node -e 'process.stdout.write(JSON.stringify({id:"browser.execute",input:{session_id:process.env.SESSION,device:{id:"cloudflare-browser",capabilities:["browser.control"]},sandbox:{allowed_origins:["https://meliturgos.adrien-lopezcarreras.workers.dev"],max_steps:2},approvals:[],steps:[{id:"navigate",action:"browser.navigate",url:"https://meliturgos.adrien-lopezcarreras.workers.dev/about"},{id:"read",action:"browser.read-text",selector:"body"}]}}))')"
           BROWSER_READY=0
-          for ATTEMPT in $(seq 1 6); do
+          for ATTEMPT in $(seq 1 4); do
             CODE="$(curl --silent --show-error --max-time 90 \
               --header "x-mel-release-smoke: 1" \
               --header "x-mel-parallel-proof: ${TOKEN}" \
@@ -507,7 +507,7 @@ jobs:
             if [ "${CODE}" = "200" ]; then BROWSER_READY=1; break; fi
             case "${CODE}" in
               408|409|429|500|502|503|504)
-                echo "Transient browser.execute proof status ${CODE}; retry ${ATTEMPT}/6."
+                echo "Transient browser.execute proof status ${CODE}; retry ${ATTEMPT}/4."
                 sleep $((ATTEMPT * 2))
                 ;;
               *)
@@ -621,7 +621,7 @@ jobs:
               fi
             fi
             echo "MEL-FILE proof waiting for exact-SHA release readiness; attempt ${ATTEMPT}/60."
-            sleep 10
+            sleep 5
           done
           test "${RELEASE_READY}" = "1"
 
@@ -787,7 +787,7 @@ jobs:
 
   sovereignty:
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    timeout-minutes: 35
     env:
       PROOF_KEY_B64: ${{ secrets.MEL_BACKUP_ENCRYPTION_KEY_B64 }}
     steps:
@@ -842,7 +842,7 @@ jobs:
           # starting source-control prevalidation.
           RELEASE_READY=0
           for ATTEMPT in $(seq 1 60); do
-            READY_CODE="$(curl --silent --show-error --max-time 30 \
+            READY_CODE="$(curl --silent --show-error --max-time 10 \
               --output sovereignty-launch-readiness.json --write-out '%{http_code}' \
               "${BASE_URL}/api/teacher/launch-readiness" || true)"
             if [ "${READY_CODE}" = "200" ] && TARGET_SHA="${TARGET_SHA}" node - <<'NODE'
@@ -876,6 +876,67 @@ jobs:
           done
           test "${RELEASE_READY}" = "1"
 
+          # Fast path after canonical release readiness: if the final exact-SHA
+          # sovereignty proof is already complete, do not re-run the expensive
+          # provider prevalidations in this decoupled workflow.
+          FAST_SOV_CODE="$(curl --silent --show-error --max-time 20 \
+            --header "x-mel-parallel-proof: ${TOKEN}" \
+            --header "content-type: application/json" \
+            --data '{"phase":"sovereignty-proof"}' \
+            --output mel-sov-fast.json --write-out '%{http_code}' \
+            "${BASE_URL}/api/internal/release-launch-bootstrap" || true)"
+          if [ "${FAST_SOV_CODE}" = "200" ] && TARGET_SHA="${TARGET_SHA}" node - <<'NODE'
+          const d=require('./mel-sov-fast.json');
+          const expected=String(process.env.TARGET_SHA||'').toLowerCase();
+          process.exit(
+            d?.ok===true
+            && d?.status==='MEL_SOV_01_DONE_VERIFIED_ELIGIBLE'
+            && d?.done_verified_eligible===true
+            && String(d?.deployed_sha||'').toLowerCase()===expected
+            && d?.secret_values_exposed===false
+            && d?.autonomy_started===false
+          ? 0 : 1);
+          NODE
+          then
+            TARGET_SHA="${TARGET_SHA}" FAST_SOV_CODE="${FAST_SOV_CODE}" node - <<'NODE'
+          const fs=require('fs');
+          const d=require('./mel-sov-fast.json');
+          const expected=String(process.env.TARGET_SHA||'').toLowerCase();
+          fs.writeFileSync('mel-sov-01-production-proof.json',JSON.stringify({
+            schema:'mel.sov-01-decoupled-production-proof/v2',
+            source_sha:expected,
+            http_status:Number(process.env.FAST_SOV_CODE||200),
+            ok:true,
+            status:d.status,
+            done_verified_eligible:true,
+            ready_layer_count:Number(d?.ready_layer_count||0),
+            layer_count:Number(d?.layer_count||0),
+            registry_count:Number(d?.registry_count||0),
+            ai_low_refusal_ready:d?.ai_low_refusal_ready===true,
+            autonomy_started:false,
+            owner_launch_required:d?.owner_launch_required===true,
+            exact_sha_verified:true,
+            exact_sha_fast_path:true,
+            secret_values_exposed:false,
+          },null,2));
+          fs.writeFileSync('sovereignty-production-status.json',JSON.stringify({
+            schema:'mel.decoupled-sovereignty-status/v4',
+            source_sha:expected,
+            fully_sovereign:d?.architecture_fully_sovereign===true,
+            covered_layers:d?.covered_layers||[],
+            uncovered_layers:d?.uncovered_layers||[],
+            ready_layer_count:Number(d?.ready_layer_count||0),
+            layer_count:Number(d?.layer_count||0),
+            registry_count:Number(d?.registry_count||0),
+            exact_sha_verified:true,
+            exact_sha_fast_path:true,
+            secret_values_exposed:false,
+          },null,2));
+          NODE
+            echo "Decoupled SOV fast path: exact-SHA final proof already valid."
+            exit 0
+          fi
+
           # Populate every bounded sovereignty prevalidation domain before reading
           # the final 10-layer registry. Each refresh is isolated in its own
           # Worker request to preserve the CPU-splitting invariant from MEL-SOV-01.
@@ -891,7 +952,7 @@ jobs:
             local REFRESH_CODE="000"
             local REFRESH_READY=0
             for ATTEMPT in $(seq 1 6); do
-              REFRESH_CODE="$(curl --silent --show-error --max-time 75 \
+              REFRESH_CODE="$(curl --silent --show-error --max-time 55 \
                 --header "x-mel-parallel-proof: ${TOKEN}" \
                 --header "content-type: application/json" \
                 --data '{"phase":"sovereignty-proof"}' \
@@ -903,7 +964,7 @@ jobs:
               fi
               REFRESH_ERROR="$(KEY="${KEY}" node -e 'const fs=require("fs");let d={};try{d=JSON.parse(fs.readFileSync("sovereignty-refresh-"+process.env.KEY+".json","utf8"))}catch{};process.stdout.write(String(d?.refresh?.reason||d?.code||d?.error||d?.status||"UNKNOWN").slice(0,160))')"
               if [ "${REFRESH_CODE}" = "401" ] && [ "${REFRESH_ERROR}" = "BOOTSTRAP_AUTH_REQUIRED" ]; then
-                echo "Decoupled SOV proof auth is still propagating for ${KEY}; retry ${ATTEMPT}/6."
+                echo "Decoupled SOV proof auth is still propagating for ${KEY}; retry ${ATTEMPT}/4."
                 sleep 2
                 continue
               fi
@@ -927,7 +988,7 @@ jobs:
               esac
               case "${REFRESH_CODE}" in
                 000|409|429|500|502|503|504)
-                  echo "Transient decoupled SOV refresh ${KEY} status ${REFRESH_CODE} (${REFRESH_ERROR}); retry ${ATTEMPT}/6."
+                  echo "Transient decoupled SOV refresh ${KEY} status ${REFRESH_CODE} (${REFRESH_ERROR}); retry ${ATTEMPT}/4."
                   sleep $((ATTEMPT * 2))
                   ;;
                 *)
