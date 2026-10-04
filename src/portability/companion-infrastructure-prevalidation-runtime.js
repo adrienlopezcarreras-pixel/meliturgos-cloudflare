@@ -86,8 +86,20 @@ export async function runCompanionInfrastructurePrevalidationRuntime(env,{
   intervalMs=Number(env?.MEL_LOCAL_INFRA_REVALIDATE_INTERVAL_MS)||DEFAULT_INTERVAL_MS,
   sourceSha=String(env?.MEL_DEPLOYED_GIT_SHA||env?.MEL_SOURCE_SHA||'').trim().toLowerCase(),
   repository=String(env?.MEL_SOVEREIGNTY_LOCAL_REPOSITORY||'meliturgos-cloudflare').trim(),
+  targetLayer=null,
 }={}){
   if(!env?.DB)return{ok:true,skipped:true,reason:'DB_NOT_CONFIGURED'};
+
+  const normalizedTargetLayer=String(targetLayer||'').trim().toLowerCase();
+  const selectedCandidates=normalizedTargetLayer
+    ? LOCAL_CANDIDATES.filter(candidate=>candidate.layer===normalizedTargetLayer)
+    : LOCAL_CANDIDATES;
+  if(normalizedTargetLayer&&!selectedCandidates.length){
+    throw Object.assign(new Error('INFRASTRUCTURE_TARGET_LAYER_INVALID'),{
+      code:'INFRASTRUCTURE_TARGET_LAYER_INVALID',
+      target_layer:normalizedTargetLayer,
+    });
+  }
 
   const prior=await loadState(env.DB);
   const last=Number(prior.last_run_at||0);
@@ -97,7 +109,7 @@ export async function runCompanionInfrastructurePrevalidationRuntime(env,{
 
   const candidateStore=new SovereigntyCandidateStore(env.DB);
   await candidateStore.upsertFromWatch({
-    results:LOCAL_CANDIDATES.map(candidate=>({
+    results:selectedCandidates.map(candidate=>({
       layer:candidate.layer,
       candidate_hints:[{
         id:candidate.id,
@@ -112,7 +124,7 @@ export async function runCompanionInfrastructurePrevalidationRuntime(env,{
   // The shared candidate table also contains discoveries for unrelated layers,
   // while PREVALIDATED rows are intentionally preserved by watch upserts.
   // Reset only this bounded local set and scope validation to it.
-  for(const candidate of LOCAL_CANDIDATES){
+  for(const candidate of selectedCandidates){
     await candidateStore.setStatus({
       layer:candidate.layer,
       id:candidate.id,
@@ -121,7 +133,7 @@ export async function runCompanionInfrastructurePrevalidationRuntime(env,{
     });
   }
   const scopedCandidateStore=scopeSovereigntyCandidateStore(candidateStore,{
-    keys:LOCAL_CANDIDATES.map(candidate=>`${candidate.layer}::${candidate.id}`),
+    keys:selectedCandidates.map(candidate=>`${candidate.layer}::${candidate.id}`),
   });
 
   let device;
@@ -130,13 +142,13 @@ export async function runCompanionInfrastructurePrevalidationRuntime(env,{
     await saveState(env.DB,{
       last_run_at:now,
       status:'WAITING_FOR_COMPANION',
-      candidate_count:LOCAL_CANDIDATES.length,
+      candidate_count:selectedCandidates.length,
     });
     return{
       ok:true,
       skipped:true,
       reason:'COMPANION_OFFLINE',
-      candidate_count:LOCAL_CANDIDATES.length,
+      candidate_count:selectedCandidates.length,
     };
   }
 
@@ -172,9 +184,9 @@ export async function runCompanionInfrastructurePrevalidationRuntime(env,{
     registryStore,
     env,
     now,
-    limit:LOCAL_CANDIDATES.length,
+    limit:selectedCandidates.length,
     resolveCandidate:async candidate=>{
-      const local=LOCAL_CANDIDATES.find(row=>row.layer===candidate.layer&&row.id===candidate.id);
+      const local=selectedCandidates.find(row=>row.layer===candidate.layer&&row.id===candidate.id);
       if(!local)return{descriptor:null,adapter:null};
       const d=descriptor(local);
 
@@ -251,11 +263,13 @@ export async function runCompanionInfrastructurePrevalidationRuntime(env,{
 
   const state={
     last_run_at:now,
-    status:result.prevalidated===LOCAL_CANDIDATES.length?'PREVALIDATED_ALL'
+    status:result.prevalidated===selectedCandidates.length?'PREVALIDATED_ALL'
       :result.prevalidated>0?'PREVALIDATED_PARTIAL'
       :result.blocked>0?'BLOCKED':'NOOP',
     device_id:device.id,
     source_sha:/^[0-9a-f]{40}$/.test(sourceSha)?sourceSha:null,
+    target_layer:normalizedTargetLayer||null,
+    candidate_count:selectedCandidates.length,
     processed:result.processed,
     prevalidated:result.prevalidated,
     blocked:result.blocked,
