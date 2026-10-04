@@ -198,8 +198,12 @@ static bool camera_probe_once(const char *phase) {
             esp_camera_fb_return(fb);
             return true;
         }
-        ESP_LOGW(TAG, "SELFTEST CAMERA: %s detected but no frame returned", model);
+        ESP_LOGW(TAG, "SELFTEST CAMERA: %s detected but no frame returned; resetting camera driver", model);
         camera_ok = false;
+        esp_camera_return_all();
+        esp_err_t deinit_err = esp_camera_deinit();
+        ESP_LOGW(TAG, "SELFTEST CAMERA: deinit after failed frame -> %s", esp_err_to_name(deinit_err));
+        vTaskDelay(pdMS_TO_TICKS(120));
         return false;
     }
 
@@ -811,31 +815,94 @@ static void settings_audio_clicked(lv_event_t *e) {
 }
 
 static void settings_camera_test_task(void *) {
-    if (!camera_ok) {
-        esp_camera_port_init((i2c_port_num_t)I2C_PORT_NUM);
+    // Waveshare documents a GDMA/ESP32-S3 failure mode while Wi-Fi STA is
+    // associating. The user's symptom ("capture en cours" forever) matches a
+    // stale camera/GDMA path, so isolate the capture from Wi-Fi reconnects and
+    // rebuild the camera driver from a clean state.
+    const bool resume_wifi = wifi_got_ip || wifi_auto_reconnect_enabled;
+    wifi_auto_reconnect_enabled = false;
+    if (resume_wifi) {
+        ESP_LOGI(TAG, "CAMERA TEST: pausing Wi-Fi STA to protect camera GDMA");
+        esp_wifi_disconnect();
+        vTaskDelay(pdMS_TO_TICKS(180));
     }
+
+    settings_set_status("CAMERA : reset du capteur...");
+    sensor_t *existing = esp_camera_sensor_get();
+    if (existing) {
+        esp_camera_return_all();
+        esp_err_t deinit_err = esp_camera_deinit();
+        ESP_LOGI(TAG, "CAMERA TEST: clean deinit -> %s", esp_err_to_name(deinit_err));
+        vTaskDelay(pdMS_TO_TICKS(150));
+    }
+
+    ESP_LOGI(TAG, "CAMERA TEST: fresh Waveshare DVP init on core %d", xPortGetCoreID());
+    esp_camera_port_init((i2c_port_num_t)I2C_PORT_NUM);
+
     sensor_t *sensor = esp_camera_sensor_get();
     camera_ok = sensor && (sensor->id.PID == OV5640_PID || sensor->id.PID == OV2640_PID);
     if (!camera_ok) {
+        i2c_master_bus_handle_t bus = nullptr;
+        esp_err_t bus_err = i2c_master_get_bus_handle(I2C_PORT_NUM, &bus);
+        esp_err_t p3c = bus_err == ESP_OK ? i2c_master_probe(bus, 0x3c, 100) : bus_err;
+        esp_err_t p30 = bus_err == ESP_OK ? i2c_master_probe(bus, 0x30, 100) : bus_err;
+        char msg[220];
         if (sensor) {
-            char msg[160];
-            snprintf(msg, sizeof(msg), "CAMERA FAIL : capteur DVP non supporte (PID 0x%04x).", sensor->id.PID);
-            settings_set_status(msg);
+            snprintf(msg, sizeof(msg),
+                     "CAMERA FAIL : PID 0x%04x non supporte.\nSCCB 0x3C=%s  0x30=%s",
+                     sensor->id.PID, esp_err_to_name(p3c), esp_err_to_name(p30));
         } else {
-            settings_set_status("CAMERA FAIL : aucun OV5640/OV2640 detecte.");
+            snprintf(msg, sizeof(msg),
+                     "CAMERA FAIL : aucun capteur.\nSCCB 0x3C=%s  0x30=%s",
+                     esp_err_to_name(p3c), esp_err_to_name(p30));
         }
+        settings_set_status(msg);
+        ESP_LOGW(TAG, "%s", msg);
     } else {
         const char *model = sensor->id.PID == OV5640_PID ? "OV5640" : "OV2640";
+        char stage[120];
+        snprintf(stage, sizeof(stage), "CAMERA : %s detecte, capture...", model);
+        settings_set_status(stage);
+
+        // Return every framebuffer to the driver before the one-shot capture.
+        // This clears a stale ownership flag left by an interrupted/failed probe.
+        esp_camera_return_all();
+        vTaskDelay(pdMS_TO_TICKS(120));
+
+        const int64_t started = esp_timer_get_time();
         camera_fb_t *fb = esp_camera_fb_get();
+        const long elapsed_ms = (long)((esp_timer_get_time() - started) / 1000);
         if (!fb) {
-            settings_set_status("CAMERA FAIL : aucune image recue.");
-        } else {
-            char msg[180];
-            snprintf(msg, sizeof(msg), "CAMERA PASS : %s | %ux%u | %u octets", model, fb->width, fb->height, (unsigned)fb->len);
+            char msg[200];
+            snprintf(msg, sizeof(msg),
+                     "CAMERA FAIL : %s detecte mais aucune trame DVP (%ld ms).",
+                     model, elapsed_ms);
             settings_set_status(msg);
+            ESP_LOGW(TAG, "%s", msg);
+            camera_ok = false;
+            esp_camera_return_all();
+            esp_err_t deinit_err = esp_camera_deinit();
+            ESP_LOGW(TAG, "CAMERA TEST: deinit after capture timeout -> %s", esp_err_to_name(deinit_err));
+        } else {
+            char msg[200];
+            snprintf(msg, sizeof(msg),
+                     "CAMERA PASS : %s | %ux%u | %u octets | %ld ms",
+                     model, fb->width, fb->height, (unsigned)fb->len, elapsed_ms);
+            settings_set_status(msg);
+            ESP_LOGI(TAG, "%s", msg);
             esp_camera_fb_return(fb);
+            camera_ok = true;
         }
     }
+
+    mel_terminal_set_hardware(camera_ok, audio_ok, false);
+
+    if (resume_wifi) {
+        wifi_auto_reconnect_enabled = true;
+        esp_err_t wifi_err = esp_wifi_connect();
+        ESP_LOGI(TAG, "CAMERA TEST: Wi-Fi resume -> %s", esp_err_to_name(wifi_err));
+    }
+
     settings_camera_test_task_handle = nullptr;
     vTaskDelete(nullptr);
 }
@@ -848,7 +915,9 @@ static void settings_camera_clicked(lv_event_t *e) {
         return;
     }
     settings_set_status("CAMERA : capture en cours...");
-    xTaskCreatePinnedToCore(settings_camera_test_task, "settings_camera_test", 8192, nullptr, 3, &settings_camera_test_task_handle, 0);
+    // Waveshare's own camera task runs on core 1. Keep the one-shot test there
+    // too, away from the camera driver's core-0 worker and LVGL/Wi-Fi activity.
+    xTaskCreatePinnedToCore(settings_camera_test_task, "settings_camera_test", 10240, nullptr, 3, &settings_camera_test_task_handle, 1);
 }
 
 static void settings_stt_status_cb(const char *text) {
