@@ -210,7 +210,7 @@ export async function runCompanionInfrastructurePrevalidationRuntime(env,{
           descriptor:d,
           adapter:createCompanionDatabaseAdapter({
             execute,
-            database:`mel-sovereignty-proof-v2-${proofDbSuffix}`,
+            database:`mel-sovereignty-proof-v3-${proofDbSuffix}`,
           }),
         };
       }
