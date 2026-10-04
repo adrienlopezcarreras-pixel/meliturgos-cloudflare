@@ -743,20 +743,13 @@ jobs:
           if [ "$SHARD_ACTIVE" -lt 7 ]; then
             SHARD_READY=0
             for SHARD_ATTEMPT in $(seq 1 17); do
-              # Probe candidates in small batches. Active endpoints are excluded
-              # by the runtime before this offset is applied, so stepping by two
-              # avoids repeatedly burning a whole request on one slow provider.
-              SHARD_PROBE_LIMIT=2
+              # Release proof scans one documented provider per request.
+              # Broad Internet discovery stays outside the production gate so
+              # a slow catalogue/search cannot exhaust Worker CPU.
+              SHARD_PROBE_LIMIT=1
               SHARD_KNOWN_ONLY=true
-              SHARD_OFFSET=$(( (SHARD_ATTEMPT - 1) * SHARD_PROBE_LIMIT ))
-              if [ "$SHARD_ATTEMPT" -gt 7 ]; then
-                SHARD_KNOWN_ONLY=false
-                # Restart the bounded cursor when Internet discovery is enabled:
-                # the candidate set may have changed and old offsets are stale.
-                SHARD_OFFSET=$(( ((SHARD_ATTEMPT - 8) % 7) * SHARD_PROBE_LIMIT ))
-                echo "ShardVault known pool exhausted; enabling live Internet discovery on attempt ${SHARD_ATTEMPT}."
-              fi
-              SHARD_SEARCH_CODE="$(curl --silent --show-error --max-time 175 \
+              SHARD_OFFSET=$(( (SHARD_ATTEMPT - 1) % 13 ))
+              SHARD_SEARCH_CODE="$(curl --silent --show-error --max-time 90 \
                 --header "x-mel-release-smoke: 1" \
                 --header "x-mel-launch-bootstrap: ${BOOTSTRAP_TOKEN}" \
                 --header "content-type: application/json" \
