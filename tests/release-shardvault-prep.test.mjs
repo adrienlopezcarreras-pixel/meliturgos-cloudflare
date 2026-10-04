@@ -134,6 +134,14 @@ test('final ShardVault status tolerates bounded secret propagation',async()=>{
   assert.match(source,/test "\$SHARD_FINAL_READY" = "1"/);
 });
 
+test('release capture normalizes legacy paused plus MAX contradiction fail-safe before rollback state is recorded',async()=>{
+  const source=await readFile(new URL('../.github/workflows/deploy-cloudflare-release.yml',import.meta.url),'utf8');
+  assert.match(source,/const maxAutonomy=paused\?false:reportedMax/);
+  assert.match(source,/Legacy contradictory autonomy control normalized fail-safe/);
+  assert.match(source,/PREVIOUS_MAX_AUTONOMY='\+String\(maxAutonomy\)/);
+  assert.doesNotMatch(source,/PREDEPLOY_AUTONOMY_CONTROL_CONTRADICTORY/);
+});
+
 test('release rollback restores only the captured autonomy state through exact-SHA OIDC flow',async()=>{
   const source=await readFile(new URL('../.github/workflows/deploy-cloudflare-release.yml',import.meta.url),'utf8');
   assert.match(source,/id-token:\s*write/);
