@@ -147,11 +147,197 @@ jobs:
           }
           NODE
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
         with:
           name: downstream-capability-health-${{ inputs.expected_sha }}
           path: capability-health.json
           if-no-files-found: error
           retention-days: 14
+
+  skills:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      TARGET_SHA: ${{ inputs.expected_sha }}
+      BASE_URL: https://meliturgos.adrien-lopezcarreras.workers.dev
+      PROOF_KEY_B64: ${{ secrets.MEL_BACKUP_ENCRYPTION_KEY_B64 }}
+    steps:
+      - name: Prove exact-SHA Compétences truth surface
+        shell: bash
+        run: |
+          set -euo pipefail
+          TOKEN="$(PROOF_KEY_B64="${PROOF_KEY_B64}" TARGET_SHA="${TARGET_SHA}" node - <<'NODE'
+          const crypto=require('crypto');
+          const source=Buffer.from(String(process.env.PROOF_KEY_B64||''),'base64');
+          const sha=String(process.env.TARGET_SHA||'').toLowerCase();
+          if(source.length!==32||!/^[0-9a-f]{40}$/.test(sha)) throw new Error('PARALLEL_PROOF_DERIVATION_INVALID');
+          process.stdout.write(Buffer.from(crypto.hkdfSync('sha256',source,Buffer.from('meliturgos-parallel-proof-salt-v1'),Buffer.from('MEL_PARALLEL_PROOF_V1:'+sha),32)).toString('base64url'));
+          NODE
+          )"
+          echo "::add-mask::${TOKEN}"
+
+          SHA_CODE="$(curl --silent --show-error --max-time 45 \
+            --header "x-mel-release-smoke: 1" \
+            --header "x-mel-parallel-proof: ${TOKEN}" \
+            --output skills-self-check.json --write-out '%{http_code}' \
+            "${BASE_URL}/api/gen2/code/self-check" || true)"
+          test "${SHA_CODE}" = "200"
+          TARGET_SHA="${TARGET_SHA}" node - <<'NODE'
+          const d=require('./skills-self-check.json');
+          if(String(d?.deployed_sha||'').toLowerCase()!==String(process.env.TARGET_SHA||'').toLowerCase())throw new Error('SKILLS_EXACT_SHA_MISMATCH');
+          NODE
+
+          SKILL_CODE="$(curl --silent --show-error --max-time 60 \
+            --header "x-mel-release-smoke: 1" \
+            --header "x-mel-parallel-proof: ${TOKEN}" \
+            --header "content-type: application/json" \
+            --data '{"id":"skill.list","input":{"active_only":true}}' \
+            --output skills-registry-raw.json --write-out '%{http_code}' \
+            "${BASE_URL}/api/gen2/capabilities/execute" || true)"
+          test "${SKILL_CODE}" = "200"
+
+          XP_CODE="$(curl --silent --show-error --max-time 60 \
+            --header "x-mel-release-smoke: 1" \
+            --header "x-mel-parallel-proof: ${TOKEN}" \
+            --output skills-learning-raw.json --write-out '%{http_code}' \
+            "${BASE_URL}/api/learning/progress" || true)"
+          test "${XP_CODE}" = "200"
+
+          TARGET_SHA="${TARGET_SHA}" node - <<'NODE'
+          const fs=require('fs');
+          const skills=require('./skills-registry-raw.json');
+          const learning=require('./skills-learning-raw.json');
+          const rows=Array.isArray(skills?.result)?skills.result:null;
+          if(!rows)throw new Error('SKILLS_REGISTRY_RESULT_INVALID');
+          const verified=rows.filter(row=>row?.state==='verified'
+            && Array.isArray(row?.evidence)
+            && row.evidence.some(e=>['verified','pass'].includes(String(e?.status||'').toLowerCase())));
+          const xp=Number(learning?.xp),level=Number(learning?.level);
+          if(learning?.ok!==true||!Number.isFinite(xp)||xp<0||!Number.isFinite(level)||level<1)throw new Error('SKILLS_LEARNING_PROGRESS_INVALID');
+          fs.writeFileSync('skills-expected.json',JSON.stringify({
+            source_sha:String(process.env.TARGET_SHA||'').toLowerCase(),
+            active_registry_count:rows.length,
+            verified_active_count:verified.length,
+            xp:Math.trunc(xp),
+            level:Math.trunc(level),
+            xp_source:String(learning?.xp_source||'').slice(0,80),
+          },null,2));
+          NODE
+
+          SESSION="skills-proof-${TARGET_SHA:0:12}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          export SESSION TOKEN TARGET_SHA
+
+          NAV_BODY="$(node - <<'NODE'
+          const origin='https://meliturgos.adrien-lopezcarreras.workers.dev';
+          const s=process.env.SESSION,t=process.env.TOKEN,sha=process.env.TARGET_SHA;
+          process.stdout.write(JSON.stringify({id:'browser.execute',input:{
+            session_id:s,
+            device:{id:'cloudflare-browser',capabilities:['browser.control']},
+            sandbox:{allowed_origins:[origin],max_steps:2},
+            approvals:[{approved:true,session_id:s,step_id:'headers',action:'browser.set-headers'}],
+            steps:[
+              {id:'headers',action:'browser.set-headers',headers:{'x-mel-release-smoke':'1','x-mel-parallel-proof':t}},
+              {id:'skills-page',action:'browser.navigate',url:origin+'/professor?view=skills&proof_sha='+sha}
+            ],
+          }}));
+          NODE
+          )"
+          NAV_CODE="$(curl --silent --show-error --max-time 60 \
+            --header "x-mel-release-smoke: 1" \
+            --header "x-mel-parallel-proof: ${TOKEN}" \
+            --header "content-type: application/json" \
+            --data "${NAV_BODY}" --output skills-nav.json --write-out '%{http_code}' \
+            "${BASE_URL}/api/gen2/capabilities/execute" || true)"
+          test "${NAV_CODE}" = "200"
+
+          READY=0
+          for ATTEMPT in $(seq 1 8); do
+            WAIT_BODY="$(node - <<'NODE'
+          const origin='https://meliturgos.adrien-lopezcarreras.workers.dev';
+          process.stdout.write(JSON.stringify({id:'browser.execute',input:{
+            session_id:process.env.SESSION,
+            device:{id:'cloudflare-browser',capabilities:['browser.control']},
+            sandbox:{allowed_origins:[origin],max_steps:1},
+            approvals:[],
+            steps:[{id:'skills-ready',action:'browser.wait-text',selector:'#skillsLearningState',text:'VÉRIFIÉ'}],
+          }}));
+          NODE
+          )"
+            WAIT_CODE="$(curl --silent --show-error --max-time 45 \
+              --header "x-mel-release-smoke: 1" \
+              --header "x-mel-parallel-proof: ${TOKEN}" \
+              --header "content-type: application/json" \
+              --data "${WAIT_BODY}" --output skills-wait.json --write-out '%{http_code}' \
+              "${BASE_URL}/api/gen2/capabilities/execute" || true)"
+            if [ "${WAIT_CODE}" = "200" ]; then READY=1; break; fi
+            case "${WAIT_CODE}" in
+              408|409|429|500|502|503|504)
+                echo "Compétences browser state not ready yet (HTTP ${WAIT_CODE}); retry ${ATTEMPT}/8 without navigation."
+                sleep $((ATTEMPT * 2))
+                ;;
+              *) exit 31 ;;
+            esac
+          done
+          test "${READY}" = "1"
+
+          READ_BODY="$(node - <<'NODE'
+          const origin='https://meliturgos.adrien-lopezcarreras.workers.dev';
+          process.stdout.write(JSON.stringify({id:'browser.execute',input:{
+            session_id:process.env.SESSION,
+            device:{id:'cloudflare-browser',capabilities:['browser.control']},
+            sandbox:{allowed_origins:[origin],max_steps:4},
+            approvals:[],
+            steps:[
+              {id:'learned',action:'browser.read-text',selector:'#skillsLearned'},
+              {id:'xp',action:'browser.read-text',selector:'#skillsXp'},
+              {id:'learning-summary',action:'browser.read-text',selector:'#skillsLearningSummary'},
+              {id:'provider-summary',action:'browser.read-text',selector:'#skillsProviderSummary'}
+            ],
+          }}));
+          NODE
+          )"
+          READ_CODE="$(curl --silent --show-error --max-time 60 \
+            --header "x-mel-release-smoke: 1" \
+            --header "x-mel-parallel-proof: ${TOKEN}" \
+            --header "content-type: application/json" \
+            --data "${READ_BODY}" --output skills-browser-read.json --write-out '%{http_code}' \
+            "${BASE_URL}/api/gen2/capabilities/execute" || true)"
+          test "${READ_CODE}" = "200"
+
+          TARGET_SHA="${TARGET_SHA}" node - <<'NODE'
+          const fs=require('fs');
+          const expected=require('./skills-expected.json');
+          const browser=require('./skills-browser-read.json'),r=browser?.result||{};
+          const out=id=>(r.outputs||[]).find(x=>x?.step_id===id)?.output||{};
+          const text=id=>String(out(id)?.text||'').trim();
+          const learned=Number(text('learned').replace(/[^0-9-]/g,''));
+          const xp=Number(text('xp').replace(/[^0-9-]/g,''));
+          if(browser?.ok!==true||r?.ok!==true||Number(r?.steps_completed||0)!==4)throw new Error('SKILLS_BROWSER_READ_INCOMPLETE');
+          if(!Number.isFinite(learned)||learned!==expected.verified_active_count)throw new Error('SKILLS_LEARNED_COUNT_MISMATCH');
+          if(!Number.isFinite(xp)||xp!==expected.xp)throw new Error('SKILLS_XP_MISMATCH');
+          if(!text('learning-summary'))throw new Error('SKILLS_LEARNING_SUMMARY_EMPTY');
+          if(!text('provider-summary')||/Vérification des fournisseurs/i.test(text('provider-summary')))throw new Error('SKILLS_PROVIDER_SUMMARY_NOT_READY');
+          fs.writeFileSync('skills-control-center-production-proof.json',JSON.stringify({
+            schema:'mel.skills-control-center-production-proof/v1',
+            source_sha:String(process.env.TARGET_SHA||'').toLowerCase(),
+            exact_sha_verified:true,
+            capability_bus_live:true,
+            skill_registry_live:true,
+            learning_progress_live:true,
+            browser_rendered:true,
+            verified_active_count:expected.verified_active_count,
+            xp:expected.xp,
+            level:expected.level,
+            xp_source:expected.xp_source,
+            secret_values_exposed:false,
+          },null,2));
+          NODE
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: downstream-skills-control-center-${{ inputs.expected_sha }}
+          path: skills-control-center-production-proof.json
+          if-no-files-found: error
+          retention-days: 30
 
   browser:
     runs-on: ubuntu-24.04

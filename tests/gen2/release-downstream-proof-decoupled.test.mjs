@@ -137,6 +137,35 @@ test('decoupled capability health proof is read-only, sanitized, and grouped by 
   assert.match(block,/by_health/);
   assert.match(block,/health_detail/);
   assert.match(block,/secret_values_exposed:false/);
+  assert.match(block,/if: always\\(\\)/);
+  assert.match(block,/MEL_BACKUP_ENCRYPTION_KEY_B64/);
+  assert.doesNotMatch(block,/MEL_PARALLEL_PROOF_KEY_B64/);
   assert.doesNotMatch(block,/MEL_LAUNCH_BOOTSTRAP_TOKEN/);
   assert.doesNotMatch(block,/wrangler\s+(?:deploy|secret|versions)/);
+});
+
+
+test('decoupled Compétences proof binds live capabilities, verified skills, XP and browser rendering to exact SHA', async () => {
+  const workflow=await readFile(new URL('../../.github/workflows/release-downstream-proof-decoupled.yml',import.meta.url),'utf8');
+  const block=workflow.split('\n  skills:\n')[1]?.split('\n  browser:\n')[0]||'';
+  assert.match(block,/api\/gen2\/code\/self-check/);
+  assert.match(block,/"id":"skill\.list"/);
+  assert.match(block,/"active_only":true/);
+  assert.match(block,/api\/learning\/progress/);
+  assert.match(block,/verified_active_count/);
+  assert.match(block,/xp_source/);
+  assert.match(block,/\/professor\?view=skills/);
+  assert.match(block,/#skillsLearningState/);
+  assert.match(block,/#skillsLearned/);
+  assert.match(block,/#skillsXp/);
+  assert.match(block,/retry \$\{ATTEMPT\}\/8 without navigation/);
+  assert.match(block,/skills-control-center-production-proof\/v1/);
+  assert.match(block,/secret_values_exposed:false/);
+  assert.doesNotMatch(block,/MEL_LAUNCH_BOOTSTRAP_TOKEN/);
+  assert.doesNotMatch(block,/wrangler\s+(?:deploy|secret|versions)/);
+
+  const security=await readFile(new URL('../../src/core/security.js',import.meta.url),'utf8');
+  const parallel=security.split('const PARALLEL_PROOF_ALLOWLIST')[1]?.split('export function isReleaseSmokeRequest')[0]||'';
+  assert.match(parallel,/api\/learning\/progress/);
+  assert.equal([...parallel.matchAll(/'([^']+)'/g)].some(([,route])=>route.includes('/learning/')&&route!=='/api/learning/progress'),false);
 });
