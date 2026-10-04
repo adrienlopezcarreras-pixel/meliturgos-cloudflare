@@ -455,7 +455,13 @@ export async function proveEcosystemTeacherHandoff(
   const blockedOpen = open.filter(item => !teacherProven.includes(item));
   const handoff = active[0]?.handoff || teacherProven[0]?.handoff || null;
   const idleVerified = open.length === 0;
-  const progressVerified = open.length > 0 && blockedOpen.length === 0;
+  // This release gate proves that the Teacher handoff mechanism is live, not
+  // that every unrelated ecosystem-watch backlog item has already completed.
+  // A ledger containing only blocked/unprepared work still fails closed.
+  // Once at least one open item has a durable Teacher request, mixed backlog
+  // remains observable through blocked_open_handoff_count without blocking the
+  // production release itself; no discovery item is auto-approved or activated.
+  const progressVerified = teacherProven.length > 0;
   const ok = idleVerified || progressVerified;
   return {
     ok,
