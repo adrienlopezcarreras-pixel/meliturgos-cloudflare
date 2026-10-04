@@ -216,6 +216,8 @@ class MelBleBridgeService : Service() {
             requests.clear()
             metaFrames.clear()
             metaFrameIds.clear()
+            connectedAtMs.clear()
+            connectedDevices.clear()
             mtus.clear()
             subscribed.clear()
             pullFrames.clear()
