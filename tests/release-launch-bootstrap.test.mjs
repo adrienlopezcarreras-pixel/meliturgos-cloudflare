@@ -114,6 +114,87 @@ test('sovereignty source-control refresh reuses exact-SHA proof offline and reje
   }
 });
 
+test('exact-SHA sovereignty reuse accepts only fresh matching zero-cost prevalidation', () => {
+  const now=Date.now();
+  const sha='7'.repeat(40);
+  const proof=(sourceSha,expiresAt=new Date(now+60000).toISOString())=>({
+    isolated_test:true,smoke:true,rollback:true,export:true,import:true,activate:true,
+    verified_at:new Date(now-1000).toISOString(),
+    expires_at:expiresAt,
+    evidence_ref:'runtime://test',
+    source_sha:sourceSha,
+  });
+  const registry=createAlternativeRegistry([
+    {id:'source.exact',layer:'source_control',provider:'local-git',added_cost_eur:0,proof:proof(sha)},
+    {id:'source.other',layer:'source_control',provider:'local-git-2',added_cost_eur:0,proof:proof('8'.repeat(40))},
+    {id:'source.expired',layer:'source_control',provider:'local-git-3',added_cost_eur:0,proof:proof('9'.repeat(40),new Date(now-1000).toISOString())},
+  ],{now});
+
+  assert.equal(__launchBootstrapTest.exactShaReusableAlternative(registry,'source_control',sha,{now})?.id,'source.exact');
+  assert.equal(__launchBootstrapTest.exactShaReusableAlternative(registry,'source_control','8'.repeat(40),{now})?.id,'source.other');
+  assert.equal(__launchBootstrapTest.exactShaReusableAlternative(registry,'source_control','9'.repeat(40),{now}),null);
+  assert.equal(__launchBootstrapTest.exactShaReusableAlternative(registry,'source_control','bad-sha',{now}),null);
+});
+
+test('sovereignty source-control refresh reuses exact-SHA proof offline and rejects mismatched proof', async () => {
+  const now=Date.now();
+  const deployedSha='6'.repeat(40);
+  const proofSha=sha=>({
+    isolated_test:true,smoke:true,rollback:true,export:true,import:true,activate:true,
+    verified_at:new Date(now-1000).toISOString(),
+    expires_at:new Date(now+86400000).toISOString(),
+    evidence_ref:'runtime://source-control-offline-proof',
+    source_sha:sha,
+  });
+  const request=()=>new Request('https://mel.test/api/internal/release-launch-bootstrap?refresh=source_control',{
+    method:'POST',
+    headers:{'x-mel-launch-bootstrap':TOKEN,'content-type':'application/json'},
+    body:JSON.stringify({phase:'sovereignty-proof'}),
+  });
+
+  for (const [sourceSha,expectedStatus,expectedReuse] of [
+    [deployedSha,200,true],
+    ['5'.repeat(40),409,false],
+  ]) {
+    const DB=sqliteD1();
+    try {
+      const store=new D1AlternativeRegistryStore(DB);
+      await store.save(createAlternativeRegistry([{
+        id:'source.offline',
+        layer:'source_control',
+        provider:'local-companion-git',
+        adapter_id:'companion-local-git',
+        added_cost_eur:0,
+        proof:proofSha(sourceSha),
+      }],{now}));
+
+      const response=await maybeHandleReleaseLaunchBootstrap(request(),{
+        MEL_LAUNCH_BOOTSTRAP_TOKEN:TOKEN,
+        MEL_DEPLOYED_GIT_SHA:deployedSha,
+        DB,
+      });
+      assert.equal(response.status,expectedStatus);
+      const body=await response.json();
+      assert.equal(body.autonomy_started,false);
+      assert.equal(body.secret_values_exposed,false);
+      assert.equal(body.deployed_sha,deployedSha);
+      if(expectedReuse){
+        assert.equal(body.ok,true);
+        assert.equal(body.status,'MEL_SOV_01_REFRESH_STEP_VERIFIED');
+        assert.equal(body.refresh?.status,'EXACT_SHA_PREVALIDATED_REUSED');
+        assert.equal(body.refresh?.reused_exact_sha_prevalidation,true);
+        assert.equal(body.refresh?.proof_source_sha,deployedSha);
+      }else{
+        assert.equal(body.ok,false);
+        assert.equal(body.status,'MEL_SOV_01_REFRESH_STEP_FAILED');
+        assert.notEqual(body.refresh?.reused_exact_sha_prevalidation,true);
+      }
+    } finally {
+      DB.close();
+    }
+  }
+});
+
 test('release bootstrap pauses inherited autonomy before preparing exact-SHA launch evidence', async () => {
   const calls=[];
   const readiness={
