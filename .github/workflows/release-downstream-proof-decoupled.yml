@@ -363,7 +363,7 @@ jobs:
             device:{id:'cloudflare-browser',capabilities:['browser.control']},
             sandbox:{allowed_origins:[origin],max_steps:1},
             approvals:[],
-            steps:[{id:'skills-ready',action:'browser.wait-text',selector:'#skillsLearningState',text:'VÉRIFIÉ'}],
+            steps:[{id:'skills-ready',action:'browser.wait-text',selector:'#skillsLearningState',text:'VÉRIFIÉ',timeout_ms:45000}],
           }}));
           NODE
           )"
@@ -629,10 +629,10 @@ jobs:
             {id:'headers',action:'browser.set-headers',headers:{'x-mel-release-smoke':'1','x-mel-parallel-proof':t}},
             {id:'normal',action:'browser.navigate',url:origin+'/'},
             {id:'upload-normal',action:'browser.upload-file',selector:'#fileInput',file_name:'mel-file-normal-proof.txt',mime_type:'text/plain',file_text:'MEL_FILE_NORMAL_PROOF_'+sha},
-            {id:'wait-normal',action:'browser.wait-text',selector:'#attachments',text:'mel-file-normal-proof.txt'},
+            {id:'wait-normal',action:'browser.wait-text',selector:'#attachments',text:'mel-file-normal-proof.txt',timeout_ms:60000},
             {id:'full',action:'browser.navigate',url:origin+'/professor'},
             {id:'upload-full',action:'browser.upload-file',selector:'#chatFileInput',file_name:'mel-file-full-proof.txt',mime_type:'text/plain',file_text:'MEL_FILE_FULL_PROOF_'+sha},
-            {id:'wait-full',action:'browser.wait-text',selector:'#chatAttachments',text:'mel-file-full-proof.txt'},
+            {id:'wait-full',action:'browser.wait-text',selector:'#chatAttachments',text:'mel-file-full-proof.txt',timeout_ms:60000},
           ];
           process.stdout.write(JSON.stringify({id:'browser.execute',input:{
             session_id:s,

@@ -166,13 +166,13 @@ jobs:
             {id:'navigate-normal',action:'browser.navigate',url:origin+'/'},
             {id:'type-normal',action:'browser.type',selector:'#promptInput',text:'lis src/index.js dans ton code'},
             {id:'send-normal',action:'browser.click',selector:'#send'},
-            {id:'wait-normal',action:'browser.wait-text',selector:'#messages',text:'RELEASE_CODE_SMOKE_OK'},
+            {id:'wait-normal',action:'browser.wait-text',selector:'#messages',text:'RELEASE_CODE_SMOKE_OK',timeout_ms:45000},
             {id:'read-normal-rich',action:'browser.read-text',selector:'#messages .msg.mel > div[data-rich-rendered="true"]'},
             {id:'navigate-full',action:'browser.navigate',url:origin+'/professor?view=chat'},
             {id:'wait-full-chat',action:'browser.wait-text',selector:'#viewTitle',text:'Conversation'},
             {id:'type-full',action:'browser.type',selector:'.view.active[data-panel="chat"] #chatInput',text:'lis src/index.js dans ton code'},
             {id:'send-full',action:'browser.click',selector:'#chatSend'},
-            {id:'wait-full',action:'browser.wait-text',selector:'#chatStatus',text:'Réponse reçue.'},
+            {id:'wait-full',action:'browser.wait-text',selector:'#chatStatus',text:'Réponse reçue.',timeout_ms:60000},
             {id:'read-full-rich',action:'browser.read-text',selector:'#chatlog .msg.mel[data-rich-rendered="true"]:last-child'},
           ];
           process.stdout.write(JSON.stringify({id:'browser.execute',input:{

@@ -146,6 +146,7 @@ export function normalizeBrowserRequest(input = {}) {
       headers: normalizeHeaders(step?.headers),
       delta_x: numeric(step?.delta_x),
       delta_y: numeric(step?.delta_y),
+      timeout_ms: Math.max(0,Math.min(60000,Math.trunc(numeric(step?.timeout_ms)))),
     };
   });
 

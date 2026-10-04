@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   ACTION_TIMEOUT_MS,
   WAIT_TEXT_TIMEOUT_MS,
+  MAX_WAIT_TEXT_TIMEOUT_MS,
   allowedDomainsFromOrigins,
   executeBrowserStep,
   normalizeCompanionPayload,
@@ -27,6 +28,7 @@ function payload(step = {}) {
 test('wait-text has a longer bounded budget than ordinary browser actions', () => {
   assert.equal(ACTION_TIMEOUT_MS,7000);
   assert.equal(WAIT_TEXT_TIMEOUT_MS,20000);
+  assert.equal(MAX_WAIT_TEXT_TIMEOUT_MS,60000);
   assert.ok(WAIT_TEXT_TIMEOUT_MS>ACTION_TIMEOUT_MS);
 });
 
@@ -128,6 +130,21 @@ test('page executor uploads bounded inline file content without echoing file byt
   assert.equal(calls[0].file.mimeType,'text/plain');
   assert.equal(calls[0].file.buffer.toString('utf8'),'private-proof-content');
   assert.equal(JSON.stringify(result).includes('private-proof-content'),false);
+});
+
+test('wait-text accepts a bounded per-step timeout without changing the default', async () => {
+  const waits=[];
+  let reads=0;
+  const page={
+    url(){return 'https://example.com/'},
+    locator(){return {async innerText(){reads+=1;return reads>1?'READY':''}}},
+    async waitForTimeout(ms){waits.push(ms)},
+  };
+  const result=await executeBrowserStep(page,{
+    id:'wait-bounded',action:'browser.wait-text',selector:'#state',text:'READY',timeout_ms:45000,
+  },['https://example.com']);
+  assert.equal(result.matched,true);
+  assert.ok(waits.length>=1);
 });
 
 test('page executor applies only normalized request headers and waits for expected text', async () => {
