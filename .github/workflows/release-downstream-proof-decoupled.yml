@@ -604,6 +604,22 @@ jobs:
               RELEASE_READY=1
               break
             fi
+            if (( ATTEMPT % 3 == 0 )); then
+              CURRENT_SHA_CODE="$(curl --silent --show-error --max-time 20 \
+                --header "x-mel-release-smoke: 1" \
+                --header "x-mel-parallel-proof: ${TOKEN}" \
+                --output mel-file-current-sha.json --write-out '%{http_code}' \
+                "${BASE_URL}/api/gen2/code/self-check" || true)"
+              if [ "${CURRENT_SHA_CODE}" = "200" ] && ! TARGET_SHA="${TARGET_SHA}" node - <<'NODE'
+          const fs=require('fs');let d={};try{d=JSON.parse(fs.readFileSync('mel-file-current-sha.json','utf8'))}catch{}
+          const actual=String(d?.deployed_sha||d?.sha||'').toLowerCase();
+          process.exit(actual===String(process.env.TARGET_SHA||'').toLowerCase()?0:1);
+          NODE
+              then
+                echo "MEL-FILE target SHA is no longer deployed; stopping obsolete downstream proof."
+                exit 42
+              fi
+            fi
             echo "MEL-FILE proof waiting for exact-SHA release readiness; attempt ${ATTEMPT}/60."
             sleep 10
           done
@@ -838,6 +854,22 @@ jobs:
             then
               RELEASE_READY=1
               break
+            fi
+            if (( ATTEMPT % 3 == 0 )); then
+              CURRENT_SHA_CODE="$(curl --silent --show-error --max-time 20 \
+                --header "x-mel-release-smoke: 1" \
+                --header "x-mel-parallel-proof: ${TOKEN}" \
+                --output sovereignty-current-sha.json --write-out '%{http_code}' \
+                "${BASE_URL}/api/gen2/code/self-check" || true)"
+              if [ "${CURRENT_SHA_CODE}" = "200" ] && ! TARGET_SHA="${TARGET_SHA}" node - <<'NODE'
+          const fs=require('fs');let d={};try{d=JSON.parse(fs.readFileSync('sovereignty-current-sha.json','utf8'))}catch{}
+          const actual=String(d?.deployed_sha||d?.sha||'').toLowerCase();
+          process.exit(actual===String(process.env.TARGET_SHA||'').toLowerCase()?0:1);
+          NODE
+              then
+                echo "SOV target SHA is no longer deployed; stopping obsolete downstream proof."
+                exit 42
+              fi
             fi
             echo "SOV proof waiting for exact-SHA release readiness; attempt ${ATTEMPT}/60."
             sleep 10
