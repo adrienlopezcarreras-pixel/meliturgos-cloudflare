@@ -2594,7 +2594,29 @@ static void online_runtime_task(void *) {
         return;
     }
 
-    int session_status = g_fresh_pair_proved_online ? 200 : device_session_status();
+    int session_status = g_fresh_pair_proved_online ? 200 : -1;
+
+    // GATT can be physically ready a little before the Android relay has
+    // completed Internet/session validation. Retry transient failures locally
+    // instead of declaring MINI permanently offline after one heartbeat.
+    if (session_status != 200) {
+        for (int attempt = 1; attempt <= 6; ++attempt) {
+            if (!mel_mobile_bridge_ready() && !g_wifi_connected) {
+                ui_status("MEL MOBILE RECONNEXION...");
+                wait_for_mobile_bridge_ready(3000);
+            } else {
+                ui_status("MEL MOBILE VALIDATION...");
+            }
+
+            session_status = device_session_status();
+            if (session_status == 200 || session_status == 401 || session_status == 403) break;
+
+            ESP_LOGW(TAG, "MEL session transient failure attempt=%d status=%d; retrying",
+                     attempt, session_status);
+            vTaskDelay(pdMS_TO_TICKS(1000 + attempt * 500));
+        }
+    }
+
     if (session_status == 401 || session_status == 403) {
         ESP_LOGW(TAG, "Stored MEL token explicitly rejected with HTTP %d; clearing token", session_status);
         g_online = false;
@@ -2603,8 +2625,13 @@ static void online_runtime_task(void *) {
 
         if (mel_mobile_bridge_ready()) {
             ESP_LOGI(TAG, "Retrying MEL pairing through authenticated Android bridge");
-            if (pair_terminal()) {
-                session_status = device_session_status();
+            for (int attempt = 1; attempt <= 3 && !g_cfg.token[0]; ++attempt) {
+                if (pair_terminal()) {
+                    session_status = g_fresh_pair_proved_online ? 200 : device_session_status();
+                    break;
+                }
+                ESP_LOGW(TAG, "Android-sponsored MINI re-pair attempt=%d failed", attempt);
+                vTaskDelay(pdMS_TO_TICKS(1500));
             }
         }
 
@@ -2616,10 +2643,11 @@ static void online_runtime_task(void *) {
             return;
         }
     }
+
     if (session_status != 200) {
-        ESP_LOGW(TAG, "MEL session check returned %d; preserving persistent pairing", session_status);
+        ESP_LOGW(TAG, "MEL session still unavailable after retries: %d; keeping pairing for automatic retry", session_status);
         g_online = false;
-        ui_status("MEL TEMPORAIREMENT INDISPONIBLE");
+        ui_status(mel_terminal_mobile_connected() ? "MEL MOBILE CONNECTE · VALIDATION..." : "MEL TEMPORAIREMENT INDISPONIBLE");
         ui_answer("");
         g_online_task_handle = nullptr;
         vTaskDelete(nullptr);
