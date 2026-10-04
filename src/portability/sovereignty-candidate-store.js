@@ -55,6 +55,7 @@ export class SovereigntyCandidateStore{
           provider_hint=excluded.provider_hint,
           source_url=excluded.source_url,
           source_title=excluded.source_title,
+          status=excluded.status,
           last_seen_at=excluded.last_seen_at,
           seen_count=mel_sovereignty_candidates.seen_count+1,
           metadata_json=excluded.metadata_json`)
