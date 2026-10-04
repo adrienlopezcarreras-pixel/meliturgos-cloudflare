@@ -98,6 +98,14 @@ test('decoupled sovereignty waits for exact-SHA release readiness before local s
   assert.ok(ready>0&&refresh>ready,'SOV refresh must start only after exact-SHA launch readiness');
 });
 
+test('source-control prevalidation surfaces a sanitized blocked reason for strict SOV diagnostics', async () => {
+  const runtime=await readFile(new URL('../../src/portability/companion-source-control-prevalidation-runtime.js',import.meta.url),'utf8');
+  const validator=await readFile(new URL('../../src/portability/sovereignty-candidate-validator.js',import.meta.url),'utf8');
+  assert.match(runtime,/blockedResult\.code\|\|blockedResult\.validation_status\|\|blockedResult\.reason/);
+  assert.match(runtime,/reason:validation\.prevalidated>0\?null:blockedReason/);
+  assert.match(validator,/code:clean\(error\?\.code\|\|error\?\.message,180\)\|\|null/);
+});
+
 test('decoupled sovereignty proof refreshes every bounded prevalidation domain before final status', async () => {
   const workflow=await readFile(new URL('../../.github/workflows/release-downstream-proof-decoupled.yml',import.meta.url),'utf8');
   assert.match(workflow,/for TARGET in ai ai_local source_control infrastructure/);
