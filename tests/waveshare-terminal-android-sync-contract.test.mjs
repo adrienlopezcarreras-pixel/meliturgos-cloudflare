@@ -56,3 +56,26 @@ test('MINI and Android BLE bridge UUIDs stay aligned', async () => {
   assert.doesNotMatch(mini, /7d4b000[123]/i);
   assert.doesNotMatch(android, /7d4b000[123]/i);
 });
+
+
+test('MINI prioritizes MEL Mobile before automatic Wi-Fi fallback', async () => {
+  const [main, bridge, runtime] = await Promise.all([
+    readFile(new URL('../firmware/waveshare-terminal/main/main.cpp', import.meta.url), 'utf8'),
+    readFile(new URL('../firmware/waveshare-terminal/main/mel_mobile_bridge.cpp', import.meta.url), 'utf8'),
+    readFile(new URL('../firmware/waveshare-terminal/main/mel_terminal.cpp', import.meta.url), 'utf8'),
+  ]);
+
+  assert.match(main, /MEL MOBILE BLE START \(PRIMARY\)/);
+  assert.doesNotMatch(main, /while \(!camera_probe_done\)/);
+  assert.match(main, /TRANSPORT PRIORITY: MEL Mobile first/);
+  assert.match(main, /mel_mobile_bridge_candidate_seen\(\)/);
+  assert.match(main, /MEL Mobile unavailable; starting saved Wi-Fi fallback/);
+
+  assert.match(bridge, /params\.passive = 0/);
+  assert.match(bridge, /g_candidate_seen\.store\(true\)/);
+  assert.match(bridge, /bool mel_mobile_bridge_candidate_seen\(void\)/);
+
+  const mobileFirst = runtime.indexOf('if (mel_mobile_bridge_ready())');
+  const wifiGuard = runtime.indexOf('if (!g_wifi_connected) return ESP_ERR_INVALID_STATE');
+  assert.ok(mobileFirst >= 0 && wifiGuard > mobileFirst, 'MEL Mobile must be evaluated before direct Wi-Fi');
+});
