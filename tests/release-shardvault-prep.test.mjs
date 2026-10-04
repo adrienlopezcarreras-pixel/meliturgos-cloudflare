@@ -103,7 +103,7 @@ test('release code-sync waits for future retry windows without consuming the no-
   assert.match(source,/futureRetryAt=failuresList/);
   assert.match(source,/retryable===true&&row\?\.permanent!==true/);
   assert.match(source,/CODE_SYNC_WAITING_FOR_RETRY=1/);
-  assert.match(source,/no-progress stall is not consumed/);
+  assert.match(source,/no active-attempt or no-progress budget is consumed/);
   assert.match(source,/Math\.min\(90,delta\+1\)/);
   assert.doesNotMatch(source,/\$CODE_SYNC_STATUS" = "RETRY_TARGETS".*Math\.min\(15,delta\)/s);
 });
