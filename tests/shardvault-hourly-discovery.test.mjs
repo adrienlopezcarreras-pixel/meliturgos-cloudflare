@@ -8,8 +8,9 @@ test('hourly maintenance schedules autonomous ShardVault Internet discovery', ()
   assert.match(source,/hourly Internet discovery/);
   assert.match(source,/runShardVaultCycle\(env,\{activeRegistryOnly:true\}\)/);
   assert.match(source,/maxNewEndpoints:1/);
-  assert.match(source,/probeLimit:2/);
-  assert.match(source,/probeOffset:Math\.floor\(Date\.now\(\)\/3600000\)%12/);
+  assert.match(source,/probeLimit:1/);
+  assert.match(source,/knownCandidatesOnly:true/);
+  assert.match(source,/probeOffset:Math\.floor\(Date\.now\(\)\/3600000\)%13/);
   const shard=fs.readFileSync(new URL('../src/continuity/shardvault-runtime.js',import.meta.url),'utf8');
   assert.match(shard,/shardvault\/discovery\/latest\.json/);
   assert.match(shard,/last_discovery:discovery/);

@@ -11,6 +11,20 @@ const DISCOVERY_LATEST_KEY='shardvault/discovery/latest.json';
 const REPRESENTATIVE_PROOF_KEY='shardvault/discovery/representative-proofs.json';
 const REPRESENTATIVE_MIN_BYTES=64*1024;
 const REPRESENTATIVE_MAX_BYTES=8*1024*1024;
+const BOUNDED_PROVIDER_PRIORITY = Object.freeze([
+  'catbox-public',
+  'dpaste-org-public',
+  'dpaste-public',
+  'paste-c-net-public',
+  'pastegg-public',
+  'markdownpaste-public',
+  'udrop-dev-public',
+  '0x0-st-public',
+  '1c3-public',
+  'pastehtml-public',
+  'msk-paste-public',
+  'pst-rs-abhicracker-public'
+]);
 const QUERY_SETS = Object.freeze([
   ['anonymous file hosting api in:name,description,readme','temporary file upload api in:name,description,readme','free file hosting api in:name,description,readme'],
   ['guest upload rest api in:name,description,readme','no signup file upload api in:name,description,readme','free object storage api in:name,description,readme'],
@@ -1429,7 +1443,15 @@ export async function discoverAutonomousRepositories(env,{masterKey,vaultId,requ
     const e=eligible(c,{requiredBytes,policyMaxAgeDays,minRetentionDays});if(e.ok)eligibleRows.push(c);else rejected.push({source:c.source,id:c.id,reason:e.reasons.join(',')});
   }
   const probed=[];
-  for(const c of eligibleRows.slice(boundedProbeOffset,boundedProbeOffset+probeLimit)){try{probed.push(await probe(c,requiredBytes,policyMaxAgeDays,env));}catch(error){rejected.push({source:c.source,id:c.id,reason:String(error?.message||error)});}}
+  const probePool=requestedProbeLimit==null
+    ? eligibleRows
+    : [...eligibleRows].sort((a,b)=>{
+        const ai=BOUNDED_PROVIDER_PRIORITY.indexOf(a.id),bi=BOUNDED_PROVIDER_PRIORITY.indexOf(b.id);
+        const ar=ai<0?BOUNDED_PROVIDER_PRIORITY.length:ai;
+        const br=bi<0?BOUNDED_PROVIDER_PRIORITY.length:bi;
+        return ar-br||a.id.localeCompare(b.id);
+      });
+  for(const c of probePool.slice(boundedProbeOffset,boundedProbeOffset+probeLimit)){try{probed.push(await probe(c,requiredBytes,policyMaxAgeDays,env));}catch(error){rejected.push({source:c.source,id:c.id,reason:String(error?.message||error)});}}
   const representativeProofs=await readRepresentativeProofs(env);
   const qualified=[];
   let representativeProbed=0;

@@ -1930,30 +1930,35 @@ export async function searchAutonomousShardVaultRepositories(env,{maxNewEndpoint
     await writeDiscoveryStatus(env,result);return result;
   }
   try{
+    const boundedMode=Number(maxNewEndpoints)!==7||probeLimit!==null||Number(probeOffset)!==0;
     let requiredBytes=256,last=null;
     try{const rows=await inventoryRows(env,c);last=latestSnapshot(rows);requiredBytes=Math.max(256,Number(last?.shardSize)||256);}catch{}
-    try{
-      const code=await ensureCodeArchive(env);
-      const declaredBundleBytes=typeof MEL_CRITICAL_CODE_BUNDLE_BYTES!=='undefined'
-        ? Math.max(0,Number(MEL_CRITICAL_CODE_BUNDLE_BYTES)||0)
-        : 0;
-      const archiveBytes=Math.max(
-        Math.max(0,Number(code?.bytes||code?.critical_bytes||0)),
-        code?.source==='CRITICAL_BUNDLE'?declaredBundleBytes:0
-      );
-      last={...(last||{}),code_archive_probe:code};
-      if(archiveBytes>0){
-        const codeShardBytes=Math.max(64*1024,Math.ceil((archiveBytes+32)/Math.max(2,Number(c.k)||4)));
-        requiredBytes=Math.max(requiredBytes,codeShardBytes);
-      }
-    }catch{}
+    // Bounded maintenance/release searches must stay cheap enough for a Worker
+    // request. Exact critical-code sizing is deferred to the separate code-sync
+    // proof once seven external endpoints are active.
+    if(!boundedMode){
+      try{
+        const code=await ensureCodeArchive(env);
+        const declaredBundleBytes=typeof MEL_CRITICAL_CODE_BUNDLE_BYTES!=='undefined'
+          ? Math.max(0,Number(MEL_CRITICAL_CODE_BUNDLE_BYTES)||0)
+          : 0;
+        const archiveBytes=Math.max(
+          Math.max(0,Number(code?.bytes||code?.critical_bytes||0)),
+          code?.source==='CRITICAL_BUNDLE'?declaredBundleBytes:0
+        );
+        last={...(last||{}),code_archive_probe:code};
+        if(archiveBytes>0){
+          const codeShardBytes=Math.max(64*1024,Math.ceil((archiveBytes+32)/Math.max(2,Number(c.k)||4)));
+          requiredBytes=Math.max(requiredBytes,codeShardBytes);
+        }
+      }catch{}
+    }
     const targetCount=Math.min(7,c.n);
-    // Discovery only needs a bounded live write/read qualification sample.
-    // A candidate is counted as active only after runShardVaultCycle writes the
-    // real production shard size, so keep the expensive representative probe
-    // small enough that one slow provider cannot monopolize the release gate.
-    const qualificationBytes=Math.max(64*1024,Math.min(requiredBytes,256*1024));
-    const boundedMode=Number(maxNewEndpoints)!==7||probeLimit!==null||Number(probeOffset)!==0;
+    // One bounded request qualifies only a small live sample. The endpoint is
+    // counted active only after the real snapshot round-trip succeeds.
+    const qualificationBytes=boundedMode
+      ? 64*1024
+      : Math.max(64*1024,Math.min(requiredBytes,256*1024));
     const boundedMaxNew=boundedMode
       ? Math.max(1,Math.min(targetCount,Math.trunc(Number(maxNewEndpoints)||1)))
       : targetCount;
@@ -2007,7 +2012,7 @@ export async function searchAutonomousShardVaultRepositories(env,{maxNewEndpoint
       report=await discoverAutonomousRepositories(env,{
         masterKey:c.master,vaultId:c.vaultId,requiredBytes:qualificationBytes,
         selectionCount:selectionTarget,probeLimit,probeOffset,
-        internetDiscovery:knownCandidatesOnly!==true,
+        internetDiscovery:boundedMode?false:knownCandidatesOnly!==true,
         excludeEndpointIds:activeDiscoveryIds,
       });
       await rememberValidatedExternalEndpoints(env,[...(report.qualified||[]),...(report.selected||[])]);
@@ -2078,7 +2083,7 @@ export async function searchAutonomousShardVaultRepositories(env,{maxNewEndpoint
       target_reached:active.length>=targetCount,
       continue_searching:active.length<targetCount,
       search_mode:'MAINTAIN_7_EXTERNAL',
-      search_strategy:boundedMode?'INCREMENTAL_BOUNDED':'FULL_REVALIDATION',
+      search_strategy:boundedMode?'INCREMENTAL_KNOWN_POOL':'FULL_REVALIDATION',
       known_candidates_only:knownCandidatesOnly===true,
       activation_cycle
     };
