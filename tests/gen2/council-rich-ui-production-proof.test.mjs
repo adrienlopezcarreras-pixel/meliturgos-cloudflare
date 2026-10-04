@@ -74,10 +74,12 @@ test('Full rich UI proof keeps submit, async wait and rich read inside one brows
   assert.doesNotMatch(workflow, /rich-ui-read-full\.json/);
   assert.match(workflow, /id:'send-full'/);
   assert.match(workflow, /id:'wait-full'/);
+  assert.match(workflow, /selector:'#chatStatus',text:'Réponse reçue\.'/);
   assert.match(workflow, /id:'read-full-rich'/);
   assert.ok(workflow.includes("Number(r?.steps_completed||0)===12"));
   assert.ok(workflow.includes("Number(result?.steps_completed||0)!==12"));
   assert.match(workflow, /monolithic_browser_session:true/);
+  assert.match(workflow, /response_nonempty:true/);
   const body=workflow.split('BROWSER_BODY=')[1]?.split('BROWSER_CODE=')[0]||'';
   assert.match(body, /id:'send-full'/);
   assert.match(body, /id:'wait-full'/);
@@ -91,4 +93,10 @@ test('rich UI browser proof retries bounded transient runtime pressure instead o
   assert.match(workflow, /failed_step_id/);
   assert.match(workflow, /Non-retryable rich UI browser proof status/);
   assert.match(workflow, /retry \$\{ATTEMPT\}\/6 with a fresh browser session/);
+});
+
+
+test('Full chat exposes a deterministic completion marker after rendering MEL response', async () => {
+  const page=await readFile(new URL('../../src/pages/full-interface-v2.js',import.meta.url),'utf8');
+  assert.match(page,/addMsg\('mel',d\.text\|\|d\.response\|\|'Réponse vide\.'\);qs\('#chatStatus'\)\.textContent='Réponse reçue\.'/);
 });
