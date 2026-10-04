@@ -100,6 +100,7 @@ static TaskHandle_t wifi_reconnect_task_handle = nullptr;
 static TaskHandle_t wifi_fallback_task_handle = nullptr;
 static TaskHandle_t settings_audio_test_task_handle = nullptr;
 static TaskHandle_t settings_camera_test_task_handle = nullptr;
+static SemaphoreHandle_t camera_test_mutex = nullptr;
 
 enum MiniView {
     MINI_VIEW_MAIN = 0,
@@ -193,19 +194,11 @@ static bool camera_probe_once(const char *phase) {
 
     if (camera_ok) {
         const char *model = sensor->id.PID == OV5640_PID ? "OV5640" : "OV2640";
-        camera_fb_t *fb = esp_camera_fb_get();
-        if (fb) {
-            ESP_LOGI(TAG, "SELFTEST CAMERA PASS: %s %ux%u, %u bytes", model, fb->width, fb->height, (unsigned)fb->len);
-            esp_camera_fb_return(fb);
-            return true;
-        }
-        ESP_LOGW(TAG, "SELFTEST CAMERA: %s detected but no frame returned; resetting camera driver", model);
-        camera_ok = false;
-        esp_camera_return_all();
-        esp_err_t deinit_err = esp_camera_deinit();
-        ESP_LOGW(TAG, "SELFTEST CAMERA: deinit after failed frame -> %s", esp_err_to_name(deinit_err));
-        vTaskDelay(pdMS_TO_TICKS(120));
-        return false;
+        // Keep boot bring-up identical to the Waveshare camera example: initialize
+        // the sensor, then leave frame acquisition to the camera task. A boot-time
+        // one-shot esp_camera_fb_get() could race with the later manual test/GDMA.
+        ESP_LOGI(TAG, "SELFTEST CAMERA SENSOR PASS: %s PID=0x%04x", model, sensor->id.PID);
+        return true;
     }
 
     if (sensor) {
@@ -220,22 +213,6 @@ static bool camera_probe_once(const char *phase) {
                  esp_err_to_name(p3c), esp_err_to_name(p30));
     }
     return false;
-}
-
-static void camera_boot_probe_task(void *) {
-    // The factory firmware brings the camera up before LVGL/Wi-Fi. MEL now does
-    // the same first attempt synchronously; this task is only a delayed recovery
-    // pass in case the sensor power rail/ribbon needed extra settling time.
-    vTaskDelay(pdMS_TO_TICKS(1800));
-    if (!camera_ok) {
-        ESP_LOGW(TAG, "SELFTEST CAMERA: retry after boot settle");
-        camera_probe_once("RETRY");
-    }
-    mel_terminal_set_hardware(camera_ok, audio_ok, false);
-    ESP_LOGI(TAG, "SELFTEST SUMMARY: display=OK touch=OK audio=%s camera=%s wifi=READY",
-             audio_ok ? "OK" : "FAIL", camera_ok ? "OK" : "FAIL");
-    camera_probe_done = true;
-    vTaskDelete(nullptr);
 }
 
 static const char *wifi_reason_text(int reason) {
@@ -831,6 +808,14 @@ static void settings_audio_clicked(lv_event_t *e) {
 }
 
 static void settings_camera_test_task(void *) {
+    if (!camera_test_mutex) camera_test_mutex = xSemaphoreCreateMutex();
+    if (!camera_test_mutex || xSemaphoreTake(camera_test_mutex, pdMS_TO_TICKS(1500)) != pdTRUE) {
+        settings_set_status("CAMERA : test deja actif.");
+        settings_camera_test_task_handle = nullptr;
+        vTaskDelete(nullptr);
+        return;
+    }
+
     // Waveshare documents a GDMA/ESP32-S3 failure mode while Wi-Fi STA is
     // associating. The user's symptom ("capture en cours" forever) matches a
     // stale camera/GDMA path, so isolate the capture from Wi-Fi reconnects and
@@ -919,6 +904,7 @@ static void settings_camera_test_task(void *) {
         ESP_LOGI(TAG, "CAMERA TEST: Wi-Fi resume -> %s", esp_err_to_name(wifi_err));
     }
 
+    xSemaphoreGive(camera_test_mutex);
     settings_camera_test_task_handle = nullptr;
     vTaskDelete(nullptr);
 }
@@ -1868,7 +1854,6 @@ extern "C" void app_main(void) {
     );
 
     ESP_LOGI(TAG, "MINI INTEGRATED RUNTIME READY");
-    xTaskCreatePinnedToCore(camera_boot_probe_task, "mini_camera_probe", 8192, nullptr, 2, nullptr, 0);
     xTaskCreatePinnedToCore(microphone_boot_probe_task, "mini_micro_probe", 4096, nullptr, 2, nullptr, 0);
 #if MINI_UI_STRESS_TEST
     xTaskCreatePinnedToCore(ui_stress_task, "mini_ui_stress", 4096, nullptr, 2, nullptr, 0);
