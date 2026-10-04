@@ -22,6 +22,7 @@
 #include "esp_event.h"
 #include "esp_netif.h"
 #include "esp_wifi.h"
+#include "driver/i2c_master.h"
 #include "esp_http_server.h"
 #include "esp_http_client.h"
 #include "esp_crt_bundle.h"
@@ -1570,8 +1571,20 @@ static void camera_task(void *) {
     }
 
     if (!g_camera_ok) {
+        i2c_master_bus_handle_t bus = nullptr;
+        esp_err_t bus_err = i2c_master_get_bus_handle(0, &bus);
+        esp_err_t p3c = bus_err == ESP_OK ? i2c_master_probe(bus, 0x3c, 100) : bus_err;
+        esp_err_t p30 = bus_err == ESP_OK ? i2c_master_probe(bus, 0x30, 100) : bus_err;
+        char diag[220] = {};
+        snprintf(
+            diag, sizeof(diag),
+            "Aucun capteur DVP detecte.\nSCCB 0x3C: %s\nSCCB 0x30: %s\nSi les deux sont absents, verifier la nappe OV5640.",
+            esp_err_to_name(p3c), esp_err_to_name(p30)
+        );
         ui_status("CAMERA ERREUR");
-        ui_answer("OV5640 indisponible.");
+        ui_answer(diag);
+        ESP_LOGW(TAG, "CAMERA TEST no sensor: 0x3c=%s 0x30=%s",
+                 esp_err_to_name(p3c), esp_err_to_name(p30));
         vTaskDelete(nullptr);
         return;
     }
