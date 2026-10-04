@@ -8,6 +8,7 @@ const CANDIDATE_ID='shardvault-reconstructed-source-control';
 export async function runShardVaultSourceControlPrevalidationRuntime(env,{
   now=Date.now(),
   sourceSha=String(env?.MEL_DEPLOYED_GIT_SHA||env?.MEL_SOURCE_SHA||'').trim().toLowerCase(),
+  archiveLoader=null,
 }={}){
   if(!env?.DB)return{ok:true,skipped:true,reason:'DB_NOT_CONFIGURED'};
   if(!/^[0-9a-f]{40}$/.test(sourceSha)){
@@ -44,7 +45,11 @@ export async function runShardVaultSourceControlPrevalidationRuntime(env,{
     keys:[`source_control::${CANDIDATE_ID}`],
   });
   const registryStore=new D1AlternativeRegistryStore(env.DB);
-  const adapter=createShardVaultSourceControlAdapter({env,expectedSha:sourceSha});
+  const adapter=createShardVaultSourceControlAdapter({
+    env,
+    expectedSha:sourceSha,
+    ...(typeof archiveLoader==='function'?{archiveLoader}:{}),
+  });
 
   const validation=await validateSovereigntyCandidates({
     candidateStore:scopedCandidateStore,
