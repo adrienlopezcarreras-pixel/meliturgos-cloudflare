@@ -119,6 +119,7 @@ class MelBleBridgeService : Service() {
     private var wakeLock: PowerManager.WakeLock? = null
     private var connectivityManager: ConnectivityManager? = null
     private var networkCallbackRegistered = false
+    @Volatile private var melValidationInFlight = false
 
     private val networkCallback = object : ConnectivityManager.NetworkCallback() {
         override fun onAvailable(network: Network) {
@@ -247,8 +248,10 @@ class MelBleBridgeService : Service() {
     }
 
     private fun validatePhoneMelSession() {
-        if (!miniLinkReady.value || !phoneInternetAvailable.value) return
+        if (!miniLinkReady.value || !phoneInternetAvailable.value || melValidationInFlight) return
+        melValidationInFlight = true
         diagExecutor.execute {
+            try {
             val rawAndroidId = Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID)
             val androidDeviceId = "android-" + (rawAndroidId ?: "unknown").take(64)
             val vault = TokenVault(this@MelBleBridgeService)
@@ -274,6 +277,9 @@ class MelBleBridgeService : Service() {
                     "MINI CONNECTÉE · MEL INJOIGNABLE"
                 }
                 Log.w(TAG, "Android MEL validation failed: ${error.message}")
+            }
+            } finally {
+                melValidationInFlight = false
             }
         }
     }
@@ -467,7 +473,6 @@ class MelBleBridgeService : Service() {
                         "MINI CONNECTÉE · MEL À VALIDER"
                     else
                         "MINI CONNECTÉE · TÉLÉPHONE HORS LIGNE"
-                    if (phoneInternetAvailable.value) validatePhoneMelSession()
                     Log.i(TAG, "MINI BLE response channel ready ${device.address}")
                 } else {
                     bridgeState.value = "MINI LI├ëE ┬À CANAL INACTIF"
