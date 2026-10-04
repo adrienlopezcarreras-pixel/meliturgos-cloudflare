@@ -468,7 +468,7 @@ function Seed-SovereigntyGitRepo([string]$repository,[string]$expectedSha) {
 
   try {
     $uri = $Server + "/api/computer/v1/sovereignty-code-archive?sha=" + [uri]::EscapeDataString($sha)
-    $response = Invoke-WebRequest -Uri $uri -Method Get -Headers (Headers) -OutFile $archive -UseBasicParsing -TimeoutSec 120
+    $response = Invoke-WebRequest -Uri $uri -Method Get -Headers (Headers) -OutFile $archive -UseBasicParsing -TimeoutSec 120 -PassThru
     $sourceSha = ([string]$response.Headers["X-MEL-Source-Sha"]).Trim().ToLowerInvariant()
     $expectedArchiveHash = ([string]$response.Headers["X-MEL-Archive-Sha256"]).Trim().ToLowerInvariant()
     $externalVerified = ([string]$response.Headers["X-MEL-External-Reconstruction-Verified"]).Trim()
