@@ -159,6 +159,7 @@ class MelViewModel(
                     status = "MEL connectée",
                     error = null
                 )
+                refreshCompanions()
             } catch (error: Throwable) {
                 if (isInvalidSession(error)) {
                     vault.clear()
@@ -203,6 +204,7 @@ class MelViewModel(
                     status = "Téléphone associé et vérifié",
                     error = null
                 )
+                refreshCompanions()
             } catch (error: Throwable) {
                 vault.clear()
                 MelBackground.cancel(appContext)
