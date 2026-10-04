@@ -1788,8 +1788,12 @@ static void mobile_bridge_watch_task(void *) {
                 // Every physical BLE reconnection must restart authentication,
                 // even when the reconnect happened inside the UI grace period.
                 mel_terminal_set_mobile_connected(true);
-                mel_terminal_start_online();
-                ESP_LOGI(TAG, "MEL MOBILE PHYSICAL READY; online validation restarted");
+                if (!mel_terminal_online()) {
+                    mel_terminal_refresh_mobile_identity();
+                } else {
+                    mel_terminal_start_online();
+                }
+                ESP_LOGI(TAG, "MEL MOBILE PHYSICAL READY; identity/session recovery started");
             } else if (!mel_terminal_online() && revalidate_seconds >= 5) {
                 // A transient heartbeat/GATT failure must not leave MINI offline
                 // forever while the physical Android bridge is still healthy.
