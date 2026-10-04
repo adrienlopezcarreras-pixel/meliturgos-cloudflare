@@ -439,6 +439,16 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
           processed: Number(result?.processed || 0),
           prevalidated: Number(result?.prevalidated || 0),
           blocked: Number(result?.blocked || 0),
+          results: Array.isArray(result?.results)
+            ? result.results.slice(0,20).map((row)=>({
+                layer: String(row?.layer || '').slice(0,80) || null,
+                id: String(row?.id || '').slice(0,160) || null,
+                status: String(row?.status || '').slice(0,80) || null,
+                validation_status: String(row?.validation_status || '').slice(0,160) || null,
+                code: String(row?.code || '').slice(0,180) || null,
+                reason: String(row?.reason || '').slice(0,180) || null,
+              }))
+            : [],
         };
       } catch (error) {
         refresh[id] = {
