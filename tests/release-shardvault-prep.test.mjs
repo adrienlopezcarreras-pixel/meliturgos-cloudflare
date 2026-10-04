@@ -39,7 +39,7 @@ test('release workflow expands active ShardVault registry before launch bootstra
   assert.match(source,/exit 46/);
   assert.match(source,/seq 1 17/);
   assert.match(source,/max_new_endpoints\\":1/);
-  assert.match(source,/SHARD_PROBE_LIMIT=1/);
+  assert.doesNotMatch(source,/SHARD_PROBE_LIMIT=1/);
   assert.match(source,/SHARD_PROBE_LIMIT=2/);
   assert.match(source,/probe_offset/);
   assert.match(source,/SHARD_KNOWN_ONLY=true/);
