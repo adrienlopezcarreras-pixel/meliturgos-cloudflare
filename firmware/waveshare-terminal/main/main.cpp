@@ -101,6 +101,9 @@ static TaskHandle_t wifi_fallback_task_handle = nullptr;
 static TaskHandle_t settings_audio_test_task_handle = nullptr;
 static TaskHandle_t settings_camera_test_task_handle = nullptr;
 static SemaphoreHandle_t camera_test_mutex = nullptr;
+static lv_obj_t *settings_camera_preview = nullptr;
+static uint8_t *settings_camera_preview_buf = nullptr;
+static lv_img_dsc_t settings_camera_preview_img = {};
 
 enum MiniView {
     MINI_VIEW_MAIN = 0,
@@ -807,6 +810,68 @@ static void settings_audio_clicked(lv_event_t *e) {
     xTaskCreatePinnedToCore(settings_audio_test_task, "settings_audio_test", 8192, nullptr, 4, &settings_audio_test_task_handle, 0);
 }
 
+static void settings_camera_preview_close(lv_event_t *e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    if (settings_camera_preview) {
+        lv_obj_del(settings_camera_preview);
+        settings_camera_preview = nullptr;
+    }
+    if (settings_camera_preview_buf) {
+        heap_caps_free(settings_camera_preview_buf);
+        settings_camera_preview_buf = nullptr;
+    }
+}
+
+static bool settings_camera_show_preview(const camera_fb_t *fb) {
+    if (!fb || !fb->buf || fb->len == 0) return false;
+    const size_t expected = (size_t)fb->width * (size_t)fb->height * 2U;
+    if (fb->format != PIXFORMAT_RGB565 || fb->len < expected) {
+        ESP_LOGW(TAG, "CAMERA PREVIEW rejected format=%d len=%u expected=%u",
+                 (int)fb->format, (unsigned)fb->len, (unsigned)expected);
+        return false;
+    }
+
+    uint8_t *copy = static_cast<uint8_t *>(heap_caps_malloc(expected, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    if (!copy) copy = static_cast<uint8_t *>(heap_caps_malloc(expected, MALLOC_CAP_8BIT));
+    if (!copy) {
+        ESP_LOGE(TAG, "CAMERA PREVIEW allocation failed (%u bytes)", (unsigned)expected);
+        return false;
+    }
+    memcpy(copy, fb->buf, expected);
+
+    if (!lvgl_port_lock(1500)) {
+        heap_caps_free(copy);
+        return false;
+    }
+    if (settings_camera_preview) {
+        lv_obj_del(settings_camera_preview);
+        settings_camera_preview = nullptr;
+    }
+    if (settings_camera_preview_buf) {
+        heap_caps_free(settings_camera_preview_buf);
+        settings_camera_preview_buf = nullptr;
+    }
+
+    settings_camera_preview_buf = copy;
+    memset(&settings_camera_preview_img, 0, sizeof(settings_camera_preview_img));
+    settings_camera_preview_img.header.always_zero = 0;
+    settings_camera_preview_img.header.w = fb->width;
+    settings_camera_preview_img.header.h = fb->height;
+    settings_camera_preview_img.header.cf = LV_IMG_CF_TRUE_COLOR;
+    settings_camera_preview_img.data_size = expected;
+    settings_camera_preview_img.data = settings_camera_preview_buf;
+
+    settings_camera_preview = lv_img_create(settings_panel ? settings_panel : lv_scr_act());
+    lv_img_set_src(settings_camera_preview, &settings_camera_preview_img);
+    lv_img_set_zoom(settings_camera_preview, 235);
+    lv_obj_center(settings_camera_preview);
+    lv_obj_add_flag(settings_camera_preview, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(settings_camera_preview, settings_camera_preview_close, LV_EVENT_CLICKED, nullptr);
+    lv_obj_move_foreground(settings_camera_preview);
+    lvgl_port_unlock();
+    return true;
+}
+
 static void settings_camera_test_task(void *) {
     if (!camera_test_mutex) camera_test_mutex = xSemaphoreCreateMutex();
     if (!camera_test_mutex || xSemaphoreTake(camera_test_mutex, pdMS_TO_TICKS(1500)) != pdTRUE) {
@@ -845,29 +910,46 @@ static void settings_camera_test_task(void *) {
         snprintf(stage, sizeof(stage), "CAMERA : %s detecte, attente trame (max 4 s)...", model);
         settings_set_status(stage);
 
-        esp_camera_return_all();
-        vTaskDelay(pdMS_TO_TICKS(80));
-        const int64_t started = esp_timer_get_time();
-        camera_fb_t *fb = esp_camera_fb_get();
-        const long elapsed_ms = (long)((esp_timer_get_time() - started) / 1000);
+        // Never call esp_camera_return_all() before taking a queued frame.
+        // With fb_count=1 that re-enabled the same buffer while a stale queue pointer
+        // still referenced it, so the driver could zero fb->len for the next DMA frame
+        // and the UI would report the exact symptom seen on hardware: PASS / 0 octet.
+        camera_fb_t *fb = nullptr;
+        long elapsed_ms = 0;
+        for (int attempt = 1; attempt <= 3; ++attempt) {
+            const int64_t started = esp_timer_get_time();
+            fb = esp_camera_fb_get();
+            elapsed_ms += (long)((esp_timer_get_time() - started) / 1000);
+            if (fb && fb->buf && fb->len > 0) break;
+            if (fb) {
+                ESP_LOGW(TAG, "CAMERA TEST: discarded empty frame attempt=%d len=%u", attempt, (unsigned)fb->len);
+                esp_camera_fb_return(fb);
+                fb = nullptr;
+            }
+            vTaskDelay(pdMS_TO_TICKS(60));
+        }
 
-        if (!fb) {
-            char msg[220];
+        const size_t expected = (size_t)320 * 480 * 2U;
+        if (!fb || !fb->buf || fb->len < expected) {
+            char msg[240];
             snprintf(msg, sizeof(msg),
-                     "CAMERA FAIL : %s detecte mais aucune trame DVP apres %ld ms.",
-                     model, elapsed_ms);
+                     "CAMERA FAIL : %s detecte, trame invalide (%u/%u octets, %ld ms).",
+                     model, fb ? (unsigned)fb->len : 0U, (unsigned)expected, elapsed_ms);
             settings_set_status(msg);
             ESP_LOGW(TAG, "%s", msg);
+            if (fb) esp_camera_fb_return(fb);
             camera_ok = false;
         } else {
-            char msg[220];
+            const bool preview_ok = settings_camera_show_preview(fb);
+            char msg[240];
             snprintf(msg, sizeof(msg),
-                     "CAMERA PASS : %s | %ux%u | %u octets | %ld ms",
-                     model, fb->width, fb->height, (unsigned)fb->len, elapsed_ms);
+                     "CAMERA PASS : %s | %ux%u | %u octets | %ld ms%s",
+                     model, fb->width, fb->height, (unsigned)fb->len, elapsed_ms,
+                     preview_ok ? " | visuel OK (touche pour fermer)" : " | visuel indisponible");
             settings_set_status(msg);
             ESP_LOGI(TAG, "%s", msg);
             esp_camera_fb_return(fb);
-            camera_ok = true;
+            camera_ok = preview_ok;
         }
     }
 
