@@ -1021,9 +1021,13 @@ jobs:
           CODE_SYNC_LAST_COMPLETED=-1
           CODE_SYNC_STALL=0
           CODE_SYNC_LAST_RELAY_JOB=""
-          CODE_SYNC_MAX_ATTEMPTS=32
+          CODE_SYNC_ACTIVE_ATTEMPTS=0
+          CODE_SYNC_MAX_ACTIVE_ATTEMPTS=32
           CODE_SYNC_MAX_STALL=12
-          for CODE_SYNC_ATTEMPT in $(seq 1 "$CODE_SYNC_MAX_ATTEMPTS"); do
+          CODE_SYNC_DEADLINE_EPOCH=$(( $(date +%s) + 1200 ))
+          CODE_SYNC_CYCLE=0
+          while [ "$CODE_SYNC_READY" != "1" ] && [ "$(date +%s)" -lt "$CODE_SYNC_DEADLINE_EPOCH" ]; do
+            CODE_SYNC_CYCLE=$((CODE_SYNC_CYCLE + 1))
             CODE_SYNC_CODE="$(curl --silent --show-error --max-time 170 \
               --header "x-mel-launch-bootstrap: ${BOOTSTRAP_TOKEN}" \
               --header "content-type: application/json" \
@@ -1100,14 +1104,16 @@ jobs:
                 CODE_SYNC_LAST_COMPLETED="$CODE_SYNC_COMPLETED"
                 CODE_SYNC_STALL=0
               elif [ "$CODE_SYNC_WAITING_FOR_RETRY" = "1" ]; then
-                echo "ShardVault is waiting for retry window ${CODE_SYNC_NEXT_RETRY}; no-progress stall is not consumed."
+                echo "ShardVault is waiting for retry/relay completion; no active-attempt or no-progress budget is consumed."
               else
+                CODE_SYNC_ACTIVE_ATTEMPTS=$((CODE_SYNC_ACTIVE_ATTEMPTS + 1))
                 CODE_SYNC_STALL=$((CODE_SYNC_STALL + 1))
               fi
-              echo "Launch code-sync phase ${CODE_SYNC_ATTEMPT}/${CODE_SYNC_MAX_ATTEMPTS}: ${CODE_SYNC_COMPLETED}/${CODE_SYNC_TARGET}, status=${CODE_SYNC_STATUS}, stall=${CODE_SYNC_STALL}/${CODE_SYNC_MAX_STALL}, wait=${CODE_SYNC_WAIT}s."
+              echo "Launch code-sync cycle ${CODE_SYNC_CYCLE}: ${CODE_SYNC_COMPLETED}/${CODE_SYNC_TARGET}, status=${CODE_SYNC_STATUS}, active_attempts=${CODE_SYNC_ACTIVE_ATTEMPTS}/${CODE_SYNC_MAX_ACTIVE_ATTEMPTS}, stall=${CODE_SYNC_STALL}/${CODE_SYNC_MAX_STALL}, wait=${CODE_SYNC_WAIT}s."
             else
+              CODE_SYNC_ACTIVE_ATTEMPTS=$((CODE_SYNC_ACTIVE_ATTEMPTS + 1))
               CODE_SYNC_STALL=$((CODE_SYNC_STALL + 1))
-              echo "Launch code-sync phase attempt ${CODE_SYNC_ATTEMPT}/${CODE_SYNC_MAX_ATTEMPTS} returned HTTP ${CODE_SYNC_CODE}; stall=${CODE_SYNC_STALL}/${CODE_SYNC_MAX_STALL}."
+              echo "Launch code-sync cycle ${CODE_SYNC_CYCLE} returned HTTP ${CODE_SYNC_CODE}; active_attempts=${CODE_SYNC_ACTIVE_ATTEMPTS}/${CODE_SYNC_MAX_ACTIVE_ATTEMPTS}, stall=${CODE_SYNC_STALL}/${CODE_SYNC_MAX_STALL}."
               if [ -s production-launch-code-sync.json ]; then
                 node -e 'const fs=require("fs"); const raw=fs.readFileSync("production-launch-code-sync.json","utf8"); try { const d=JSON.parse(raw); console.log(JSON.stringify({status:d?.status||null,complete:d?.complete===true,code_sync:d?.code_sync||null},null,2)); } catch { console.log(JSON.stringify({transient_non_json_response:raw.slice(0,240)})); }'
               fi
@@ -1116,10 +1122,14 @@ jobs:
               echo "Launch code-sync stopped after bounded no-progress window."
               break
             fi
+            if [ "$CODE_SYNC_ACTIVE_ATTEMPTS" -ge "$CODE_SYNC_MAX_ACTIVE_ATTEMPTS" ]; then
+              echo "Launch code-sync stopped after bounded active-attempt budget."
+              break
+            fi
             sleep "$CODE_SYNC_WAIT"
           done
           if [ "$CODE_SYNC_READY" != "1" ]; then
-            echo "ShardVault code-sync did not reach a verified complete state within the bounded progress window."
+            echo "ShardVault code-sync did not reach a verified complete state before the bounded active-attempt/deadline gate."
             test ! -s production-launch-code-sync.json || cat production-launch-code-sync.json
             exit 48
           fi
