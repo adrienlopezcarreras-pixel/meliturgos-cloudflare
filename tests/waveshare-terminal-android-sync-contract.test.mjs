@@ -110,7 +110,8 @@ test('MINI hardware fix validates camera variants, audible loopback, and Wi-Fi r
   assert.match(main, /MIC : parle pendant 2 secondes/);
   assert.match(main, /HP : lecture de ta voix pendant 2 secondes/);
   assert.match(main, /esp_codec_dev_write\(output_dev, pcm, byte_count\)/);
-  assert.match(main, /No MEL Mobile and no saved Wi-Fi; opening Wi-Fi setup/);
+  assert.match(main, /No MEL Mobile candidate and no saved Wi-Fi; opening Wi-Fi setup/);
+  assert.match(main, /MEL Mobile present but session offline; keeping UI and retrying BLE auth/);
   assert.match(main, /request_view\(MINI_VIEW_WIFI_LIST\)/);
   assert.match(main, /MINI WIFI CONNECT START FAILED/);
 });
