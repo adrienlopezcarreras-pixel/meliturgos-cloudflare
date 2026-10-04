@@ -120,14 +120,14 @@ test('device TTS uses self-describing 48 kHz mono linear16 WAV for MINI playback
 });
 
 
-test('MINI prefers persistent Wi-Fi and keeps MEL Mobile as transport fallback', async () => {
+test('MINI prefers MEL Mobile and uses Wi-Fi only as transport fallback', async () => {
   const source = await readFile(
     new URL('../firmware/waveshare-terminal/main/mel_terminal.cpp', import.meta.url),
     'utf8'
   );
-  assert.match(source,/if \(!g_wifi_connected\) \{/);
-  assert.match(source,/if \(mel_mobile_bridge_ready\(\)\) return mobile_request\(\);/);
-  assert.match(source,/Wi-Fi HTTP failed .*falling back to MEL MOBILE/);
+  assert.match(source,/if \(mel_mobile_bridge_ready\(\)\) \{/);
+  assert.match(source,/MEL MOBILE transport failed .*falling back to Wi-Fi/);
+  assert.match(source,/if \(!g_wifi_connected\) return ESP_ERR_INVALID_STATE/);
 });
 
 test('MINI BLE transport keeps reconnect protections enabled', async () => {
