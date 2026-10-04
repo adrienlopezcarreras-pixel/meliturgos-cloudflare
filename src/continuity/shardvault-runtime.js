@@ -2021,25 +2021,32 @@ export async function activateValidatedShardVaultEndpoint(env,endpointId){
   let c;
   try{c=await config(env);}catch{}
   if(!c?.ok)return {ok:false,status:'ACTIVATION_STATUS_FAILED',endpoint_id:id};
-  const rows=await inventoryRows(env,c),latestBefore=latestSnapshot(rows);
+
+  const latestBefore=await latestShardVaultSnapshotFast(env,c);
   const before=await reconcileActiveExternalEndpoints(env,c,latestBefore);
-  if(!before.some(e=>e.id===id)&&before.length>=Math.min(7,c.n))return {ok:false,status:'ACTIVE_EXTERNAL_REGISTRY_FULL',endpoint_id:id,active_endpoint_ids:before.map(e=>e.id),target_count:Math.min(7,c.n)};
-  const staged=await stageActiveExternalEndpoints(env,c,latestBefore,[endpoint]);
-  await writePreferredEndpoint(env,id);
-  const cycle=await runShardVaultCycle(env,{force:true});
-  if(!cycle?.ok){
-    await writeActiveExternalEndpoints(env,before);
-    return {ok:false,status:'ACTIVATION_SNAPSHOT_FAILED',endpoint_id:id,cycle,active_endpoint_ids:before.map(e=>e.id)};
+  if(before.some(e=>e.id===id)){
+    await writePreferredEndpoint(env,id);
+    return {ok:true,status:'ALREADY_ACTIVE',endpoint_id:id,used_fragments:(latestBefore?.shards||[]).filter(x=>x.endpointId===id).length,snapshot_id:latestBefore?.snapshotId||null,active_external_count:before.length,active_endpoint_ids:before.map(e=>e.id),code_sync:null};
   }
-  const rowsAfter=await inventoryRows(env,c),latest=latestSnapshot(rowsAfter);
+  if(before.length>=Math.min(7,c.n))return {ok:false,status:'ACTIVE_EXTERNAL_REGISTRY_FULL',endpoint_id:id,active_endpoint_ids:before.map(e=>e.id),target_count:Math.min(7,c.n)};
+
+  const promoted=await promoteExternalEndpointWithExistingShard(env,c,latestBefore,endpoint);
+  if(!promoted?.ok)return {ok:false,status:promoted?.status||'ACTIVATION_SNAPSHOT_FAILED',endpoint_id:id,promotion:promoted,active_endpoint_ids:before.map(e=>e.id)};
+
+  const latest=promoted.manifest;
   const actual=await reconcileActiveExternalEndpoints(env,c,latest);
   const used=(latest?.shards||[]).filter(x=>x.endpointId===id).length;
-  if(!used)return {ok:false,status:'ACTIVATION_NOT_USED',endpoint_id:id,cycle,active_endpoint_ids:actual.map(e=>e.id)};
-  let code_sync=null;
-  if(actual.length>=Math.min(7,c.n)){
-    try{code_sync=await syncShardVaultCodeExternally(env);}catch(error){code_sync={ok:false,status:'COPY_FAILED',error:String(error?.message||error)};}
-  }
-  return {ok:true,status:'ACTIVATED',endpoint_id:id,used_fragments:used,snapshot_id:latest.snapshotId,active_external_count:actual.length,active_endpoint_ids:actual.map(e=>e.id),staged_endpoint_ids:staged.map(e=>e.id),code_sync,cycle};
+  if(!used)return {ok:false,status:'ACTIVATION_NOT_USED',endpoint_id:id,promotion:{...promoted,manifest:undefined},active_endpoint_ids:actual.map(e=>e.id)};
+  await writePreferredEndpoint(env,id);
+  const code_sync=actual.length>=Math.min(7,c.n)
+    ? {ok:true,deferred:true,status:'DEFERRED_SEPARATE_OPERATION'}
+    : null;
+  return {
+    ok:true,status:'ACTIVATED',endpoint_id:id,used_fragments:used,
+    snapshot_id:latest.snapshotId,active_external_count:actual.length,
+    active_endpoint_ids:actual.map(e=>e.id),code_sync,
+    promotion:{...promoted,manifest:undefined}
+  };
 }
 
 export async function searchAutonomousShardVaultRepositories(env,{maxNewEndpoints=7,probeLimit=null,probeOffset=0,knownCandidatesOnly=false}={}){
