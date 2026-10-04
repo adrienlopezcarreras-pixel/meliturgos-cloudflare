@@ -1,0 +1,61 @@
+name: MEL SOV database diagnostic ops
+
+on:
+  push:
+    branches:
+      - ops/sov-targeted-proof-20261005
+    paths:
+      - .github/workflows/mel-sov-database-diagnostic-ops.yml
+
+permissions:
+  contents: read
+
+jobs:
+  diagnostic:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: main
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Read sanitized database candidate state
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx wrangler d1 execute meliturgos-memory --remote --json --command "SELECT candidate_key,layer,candidate_id,status,metadata_json,last_seen_at FROM mel_sovereignty_candidates WHERE candidate_key='database::companion-local-db' LIMIT 1;" > d1-raw.json
+          node - <<'NODE'
+          const fs=require('fs');
+          const raw=JSON.parse(fs.readFileSync('d1-raw.json','utf8'));
+          const result=Array.isArray(raw)?raw[0]:raw;
+          const row=result?.results?.[0]||result?.result?.[0]||result?.results?.[0]||null;
+          let meta={}; try{meta=JSON.parse(row?.metadata_json||'{}')}catch{}
+          const safe={
+            candidate_key:row?.candidate_key||null,
+            layer:row?.layer||null,
+            candidate_id:row?.candidate_id||null,
+            status:row?.status||null,
+            last_seen_at:Number(row?.last_seen_at||0),
+            reason:String(meta?.reason||'').slice(0,180)||null,
+            code:String(meta?.code||'').slice(0,180)||null,
+            validation_status:String(meta?.validation_status||'').slice(0,180)||null,
+            missing_config:Array.isArray(meta?.missing_config)?meta.missing_config.slice(0,20):[],
+            missing_secrets:Array.isArray(meta?.missing_secrets)?meta.missing_secrets.slice(0,20):[],
+            secret_values_exposed:false,
+          };
+          fs.writeFileSync('database-candidate-diagnostic.json',JSON.stringify(safe,null,2));
+          console.log(JSON.stringify(safe,null,2));
+          NODE
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: mel-sov-database-diagnostic
+          path: database-candidate-diagnostic.json
+          if-no-files-found: error
+          retention-days: 7
