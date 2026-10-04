@@ -40,13 +40,14 @@ test('post-release proof suite runs automatically after a successful canonical r
 
 test('canonical release waits on bounded ShardVault progress instead of a fixed blind retry count', async () => {
   const source = await readFile(new URL('../.github/workflows/deploy-cloudflare-release.yml', import.meta.url), 'utf8');
-  assert.match(source, /CODE_SYNC_MAX_ATTEMPTS=32/);
+  assert.match(source, /CODE_SYNC_MAX_ACTIVE_ATTEMPTS=32/);
   assert.match(source, /CODE_SYNC_MAX_STALL=12/);
   assert.match(source, /CODE_SYNC_LAST_COMPLETED=-1/);
+  assert.match(source, /CODE_SYNC_DEADLINE_EPOCH=\$\(\( \$\(date \+%s\) \+ 1200 \)\)/);
   assert.match(source, /futureRetryAt=failuresList/);
   assert.match(source, /CODE_SYNC_NEXT_RETRY/);
   assert.match(source, /CODE_SYNC_WAITING_FOR_RETRY=1/);
-  assert.match(source, /no-progress stall is not consumed/);
+  assert.match(source, /no active-attempt or no-progress budget is consumed/);
   assert.match(source, /Launch code-sync stopped after bounded no-progress window/);
   assert.match(source, /PRODUCTION_CODE_SYNC_FINAL_NOT_COMPLETE/);
   assert.match(source, /PRODUCTION_CODE_SYNC_FINAL_NOT_COPIED/);
