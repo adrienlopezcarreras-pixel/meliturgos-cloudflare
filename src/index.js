@@ -606,7 +606,7 @@ export default {
             console.error('[MEL ShardVault] scheduled continuity cycle failed:', error?.code || error?.message || error);
             return null;
           }),
-          searchAutonomousShardVaultRepositories(env,{maxNewEndpoints:1,probeLimit:2,probeOffset:Math.floor(Date.now()/3600000)%12,knownCandidatesOnly:false}).then((result) => {
+          searchAutonomousShardVaultRepositories(env,{maxNewEndpoints:1,probeLimit:1,probeOffset:Math.floor(Date.now()/3600000)%13,knownCandidatesOnly:true}).then((result) => {
             if (result?.ok === false) console.error('[MEL ShardVault] hourly Internet discovery reported:', result.status || result.error || 'NOT_OK');
             return result;
           }).catch((error) => {
