@@ -40,7 +40,17 @@ function assertIdButtonsWired(html, source, label) {
     const direct = new RegExp("(?:qs\\([\"']#" + escaped + "[\"']\\)|q\\([\"']#" + escaped + "[\"']\\)|getElementById\\([\"']" + escaped + "[\"']\\)|\\$\\([\"']" + escaped + "[\"']\\))(?:\\.onclick\\s*=|\\.addEventListener\\()");
     const alias = aliases.get(id);
     const aliasBound = alias ? new RegExp("\\b" + escapeRe(alias) + "\\.(?:onclick\\s*=|addEventListener\\()").test(source) : false;
-    assert.ok(direct.test(source) || aliasBound, label + ' missing handler for #' + id);
+    const formMatch = String(html).match(new RegExp(
+      '<form\\b[^>]*\\bid=["\\\']([^"\\\']+)["\\\'][^>]*>[\\s\\S]*?<button\\b[^>]*\\bid=["\\\']'
+      + escaped
+      + '["\\\'][^>]*\\btype=["\\\']submit["\\\'][^>]*>[\\s\\S]*?<\\/form>',
+      'i',
+    ));
+    const formId = formMatch?.[1] || null;
+    const formBound = formId
+      ? new RegExp("(?:qs\\([\\\"']#" + escapeRe(formId) + "[\\\"']\\)|q\\([\\\"']#" + escapeRe(formId) + "[\\\"']\\)|getElementById\\([\\\"']" + escapeRe(formId) + "[\\\"']\\))(?:\\.addEventListener\\([\\\"']submit[\\\"'])").test(source)
+      : false;
+    assert.ok(direct.test(source) || aliasBound || formBound, label + ' missing handler for #' + id);
   }
   return ids;
 }
