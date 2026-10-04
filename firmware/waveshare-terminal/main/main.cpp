@@ -893,6 +893,9 @@ static void settings_ui_create(lv_obj_t *screen) {
 
     settings_add_button(settings_panel, "CONNEXION WI-FI", 106, settings_wifi_clicked);
     settings_add_button(settings_panel, "APPAIRAGE MEL", 156, settings_pair_clicked);
+    settings_add_button(settings_panel, "TEST MICRO + HP", 206, settings_audio_clicked);
+    settings_add_button(settings_panel, "TEST CAMERA", 256, settings_camera_clicked);
+    settings_add_button(settings_panel, "TEST VOIX / STT", 306, settings_stt_clicked);
     settings_add_button(settings_panel, "BLUETOOTH / MEL MOBILE", 356, settings_network_clicked);
 
     lv_obj_add_flag(settings_panel, LV_OBJ_FLAG_HIDDEN);
