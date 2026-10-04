@@ -64,13 +64,16 @@ test('code-sync discovery excludes used, quarantined and exhausted retry-cycle e
 });
 
 
-test('bounded ShardVault qualification stays small while activation still uses the real snapshot', () => {
+test('bounded ShardVault qualification stays small and promotes one real shard without a full cycle', () => {
   const runtime=fs.readFileSync(new URL('../src/continuity/shardvault-runtime.js',import.meta.url),'utf8');
   assert.match(runtime,/const qualificationBytes=boundedMode[\s\S]*?\? 64\*1024[\s\S]*?: Math\.max\(64\*1024,Math\.min\(requiredBytes,256\*1024\)\)/);
   assert.match(runtime,/readValidatedExternalEndpoints\(env,qualificationBytes\)/);
   assert.match(runtime,/requiredBytes:qualificationBytes/);
   assert.match(runtime,/qualification_bytes:qualificationBytes/);
-  assert.match(runtime,/runShardVaultCycle\(env,\{force:true,skipExternalCode:true,activeRegistryOnly:true\}\)/);
+  assert.match(runtime,/promoteExternalEndpointWithExistingShard/);
+  assert.match(runtime,/SINGLE_SHARD_PROMOTED/);
+  assert.match(runtime,/PROMOTION_ROUNDTRIP_MISMATCH/);
+  assert.match(runtime,/latestShardVaultSnapshotFast/);
 });
 
 test('release ShardVault scan probes one documented candidate per bounded request', () => {
@@ -83,12 +86,15 @@ test('release ShardVault scan probes one documented candidate per bounded reques
 });
 
 
-test('qualified ShardVault activation never re-enters Internet discovery', () => {
+test('bounded ShardVault activation never re-enters broad discovery or a full snapshot cycle', () => {
   const runtime=fs.readFileSync(new URL('../src/continuity/shardvault-runtime.js',import.meta.url),'utf8');
+  const search=runtime.slice(runtime.indexOf('export async function searchAutonomousShardVaultRepositories'));
   assert.match(runtime,/activeRegistryOnly=false/);
   assert.match(runtime,/activeRegistryOnly\|\|String\(env\?\.MEL_SHARDVAULT_AUTONOMOUS/);
-  assert.match(runtime,/runShardVaultCycle\(env,\{force:true,skipExternalCode:true,activeRegistryOnly:true\}\)/);
   assert.match(runtime,/enrichAutonomous\(env,c,estimated,\{excludeEndpointIds,activeRegistryOnly\}\)/);
+  assert.match(search,/internetDiscovery:boundedMode\?false:knownCandidatesOnly!==true/);
+  assert.match(search,/promoteExternalEndpointWithExistingShard/);
+  assert.doesNotMatch(search,/runShardVaultCycle\(env,\{force:true,skipExternalCode:true,activeRegistryOnly:true\}\)/);
 });
 
 
