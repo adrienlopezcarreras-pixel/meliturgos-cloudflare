@@ -900,6 +900,7 @@ static bool pair_terminal(bool force_android_refresh = false) {
         status
     );
     if (err != ESP_OK || status != 200) {
+        g_last_session_status = err == ESP_OK ? status : -1;
         ESP_LOGE(TAG, "Pairing failed status=%d err=%s body=%s", status, esp_err_to_name(err), response.c_str());
         return false;
     }
@@ -919,6 +920,10 @@ static bool pair_terminal(bool force_android_refresh = false) {
         // declaring a freshly paired MINI online.
         g_fresh_pair_proved_online = true;
         g_last_session_status = 200;
+    }
+    if (!ok && status == 200) {
+        g_last_session_status = -2; // pair response reached MINI but token/protocol could not be parsed
+        ESP_LOGE(TAG, "Pairing response invalid despite HTTP 200");
     }
     if (json) cJSON_Delete(json);
     return ok;
