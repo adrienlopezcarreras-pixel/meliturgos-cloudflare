@@ -20,6 +20,7 @@ void mel_terminal_set_network_info(const char *ip);
 void mel_terminal_set_wifi_connected(bool connected);
 void mel_terminal_set_mobile_connected(bool connected);
 bool mel_terminal_mobile_connected(void);
+int mel_terminal_last_session_status(void);
 void mel_terminal_start_online(void);
 
 enum MelTerminalState {
