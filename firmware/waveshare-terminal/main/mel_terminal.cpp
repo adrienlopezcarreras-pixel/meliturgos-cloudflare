@@ -105,6 +105,7 @@ static uint64_t g_storage_free = 0;
 static wl_handle_t g_storage_wl = WL_INVALID_HANDLE;
 static bool g_online = false;
 static volatile int g_last_session_status = 0;
+static volatile bool g_fresh_pair_proved_online = false;
 static bool g_wifi_connected = false;
 static bool g_mobile_connected = false;
 static volatile int g_runtime_state = MEL_TERMINAL_IDLE;
@@ -872,6 +873,7 @@ static std::string json_string(cJSON *obj) {
 }
 
 static bool pair_terminal() {
+    g_fresh_pair_proved_online = false;
     if (g_cfg.token[0]) return true;
     const bool android_sponsored_pair = mel_mobile_bridge_ready();
     if (!g_cfg.pair_code[0] && !android_sponsored_pair) return false;
@@ -912,6 +914,11 @@ static bool pair_terminal() {
         save_string("token", g_cfg.token);
         save_string("pair_code", "");
         g_cfg.pair_code[0] = '\0';
+        // HTTP 200 from /pair is itself a real backend round-trip that issued
+        // this token. Do not immediately require a second BLE transaction before
+        // declaring a freshly paired MINI online.
+        g_fresh_pair_proved_online = true;
+        g_last_session_status = 200;
     }
     if (json) cJSON_Delete(json);
     return ok;
@@ -2587,7 +2594,7 @@ static void online_runtime_task(void *) {
         return;
     }
 
-    int session_status = device_session_status();
+    int session_status = g_fresh_pair_proved_online ? 200 : device_session_status();
     if (session_status == 401 || session_status == 403) {
         ESP_LOGW(TAG, "Stored MEL token explicitly rejected with HTTP %d; clearing token", session_status);
         g_online = false;
