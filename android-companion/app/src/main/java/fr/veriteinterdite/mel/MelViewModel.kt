@@ -7,6 +7,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.CreationExtras
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -78,9 +79,24 @@ class MelViewModel(
 
     private val _state = MutableStateFlow(MelUiState(mode = initialMode))
     val state: StateFlow<MelUiState> = _state.asStateFlow()
+    private var companionRefreshLoopStarted = false
 
     init {
         verifyExistingSession()
+        startCompanionRefreshLoop()
+    }
+
+    private fun startCompanionRefreshLoop() {
+        if (companionRefreshLoopStarted) return
+        companionRefreshLoopStarted = true
+        viewModelScope.launch {
+            while (true) {
+                if (_state.value.session == SessionStage.CONNECTED && !_state.value.busy) {
+                    refreshCompanions()
+                }
+                delay(10_000)
+            }
+        }
     }
 
     fun setMode(mode: MelMode) {
@@ -143,6 +159,7 @@ class MelViewModel(
                     status = "MEL connectée",
                     error = null
                 )
+                refreshCompanions()
             } catch (error: Throwable) {
                 if (isInvalidSession(error)) {
                     vault.clear()
@@ -187,6 +204,7 @@ class MelViewModel(
                     status = "Téléphone associé et vérifié",
                     error = null
                 )
+                refreshCompanions()
             } catch (error: Throwable) {
                 vault.clear()
                 MelBackground.cancel(appContext)

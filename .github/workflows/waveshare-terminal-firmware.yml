@@ -36,6 +36,13 @@ jobs:
           cp firmware/waveshare-terminal/partitions.csv build/waveshare-mel/partitions.csv
           cp firmware/waveshare-terminal/sdkconfig.defaults build/waveshare-mel/sdkconfig.defaults
 
+          # Harden the Waveshare camera port for IDF 5.4: zero-initialize the
+          # whole camera_config_t and actually use MEL's shared I2C port.
+          sed -i 's/camera_config_t config;/camera_config_t config = {};/' build/waveshare-mel/components/esp_port/esp_camera_port.cpp
+          sed -i 's/config.sccb_i2c_port = 0;/config.sccb_i2c_port = i2c_port;/' build/waveshare-mel/components/esp_port/esp_camera_port.cpp
+          grep -q 'camera_config_t config = {};' build/waveshare-mel/components/esp_port/esp_camera_port.cpp
+          grep -q 'config.sccb_i2c_port = i2c_port;' build/waveshare-mel/components/esp_port/esp_camera_port.cpp
+
           # The pinned Waveshare sample ships a complete sdkconfig. Apply MINI overrides
           # directly so they cannot be shadowed by that checked-in sdkconfig.
           cd build/waveshare-mel
@@ -66,9 +73,11 @@ jobs:
           set_cfg_n CONFIG_OV7670_SUPPORT
           set_cfg_n CONFIG_OV7725_SUPPORT
           set_cfg_n CONFIG_NT99141_SUPPORT
-          set_cfg_n CONFIG_OV2640_SUPPORT
+          set_cfg_y CONFIG_OV2640_SUPPORT
           set_cfg_n CONFIG_OV3660_SUPPORT
           set_cfg_y CONFIG_OV5640_SUPPORT
+          set_cfg_y CONFIG_SCCB_HARDWARE_I2C_PORT0
+          set_cfg_n CONFIG_SCCB_HARDWARE_I2C_PORT1
           set_cfg_n CONFIG_GC2145_SUPPORT
           set_cfg_n CONFIG_GC032A_SUPPORT
           set_cfg_n CONFIG_GC0308_SUPPORT
@@ -102,6 +111,9 @@ jobs:
           cfg = set(Path("build/waveshare-mel/sdkconfig").read_text().splitlines())
           required = {
               "CONFIG_OV5640_SUPPORT=y",
+              "CONFIG_OV2640_SUPPORT=y",
+              "CONFIG_SCCB_HARDWARE_I2C_PORT0=y",
+              "# CONFIG_SCCB_HARDWARE_I2C_PORT1 is not set",
               "# CONFIG_OV3660_SUPPORT is not set",
               "CONFIG_COMPILER_OPTIMIZATION_PERF=y",
               "CONFIG_LV_ATTRIBUTE_FAST_MEM_USE_IRAM=y",
@@ -133,7 +145,7 @@ jobs:
             "model": "waveshare-esp32-s3-touch-lcd-3.5-c",
             "channel": "stable",
             "firmware": {
-              "version": "0.4.18-truthful-mobile-status",
+              "version": "0.4.38-unified",
               "available": true,
               "key": "devices/waveshare-esp32-s3-touch-lcd-3.5-c/mel-terminal.bin",
               "sha256": "${OTA_SHA256}",

@@ -12,6 +12,7 @@ void mel_mobile_bridge_start(void);
 void mel_mobile_bridge_rescan(void);
 bool mel_mobile_bridge_keepalive(void);
 bool mel_mobile_bridge_ready(void);
+bool mel_mobile_bridge_candidate_seen(void);
 uint16_t mel_mobile_bridge_mtu(void);
 
 esp_err_t mel_mobile_bridge_request(

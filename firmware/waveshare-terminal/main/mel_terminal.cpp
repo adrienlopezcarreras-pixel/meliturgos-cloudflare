@@ -22,6 +22,7 @@
 #include "esp_event.h"
 #include "esp_netif.h"
 #include "esp_wifi.h"
+#include "driver/i2c_master.h"
 #include "esp_http_server.h"
 #include "esp_http_client.h"
 #include "esp_crt_bundle.h"
@@ -103,6 +104,8 @@ static uint64_t g_storage_total = 0;
 static uint64_t g_storage_free = 0;
 static wl_handle_t g_storage_wl = WL_INVALID_HANDLE;
 static bool g_online = false;
+static volatile int g_last_session_status = 0;
+static volatile bool g_fresh_pair_proved_online = false;
 static bool g_wifi_connected = false;
 static bool g_mobile_connected = false;
 static volatile int g_runtime_state = MEL_TERMINAL_IDLE;
@@ -546,22 +549,30 @@ static esp_err_t http_request(
         );
     };
 
-    // Prefer direct Wi-Fi whenever it is actually connected. Large requests
-    // such as STT WAV uploads are much more reliable over Wi-Fi. MEL Mobile is
-    // the primary path only when Wi-Fi is unavailable, and remains the fallback
-    // if a direct Wi-Fi request fails.
-    if (!g_wifi_connected && mel_mobile_bridge_ready()) {
-        return mobile_request();
+    // MEL Mobile is the preferred transport whenever its GATT channel is ready.
+    // Wi-Fi is a fallback, not the primary path. If BLE itself fails and Wi-Fi
+    // is already connected, retry the same request directly over Wi-Fi.
+    if (mel_mobile_bridge_ready()) {
+        esp_err_t mobile_err = mobile_request();
+        if (mobile_err == ESP_OK || !g_wifi_connected) return mobile_err;
+        ESP_LOGW(TAG, "MEL MOBILE transport failed (%s); falling back to Wi-Fi",
+                 esp_err_to_name(mobile_err));
+        response.clear();
+        status = 0;
+    } else if (g_mobile_connected) {
+        // Preserve short Android reconnects before abandoning the phone link.
+        ESP_LOGI(TAG, "MEL MOBILE reconnect grace before Wi-Fi fallback");
+        if (wait_for_mobile_bridge_ready(8000)) {
+            esp_err_t mobile_err = mobile_request();
+            if (mobile_err == ESP_OK || !g_wifi_connected) return mobile_err;
+            response.clear();
+            status = 0;
+        } else if (!g_wifi_connected) {
+            return ESP_ERR_TIMEOUT;
+        }
     }
 
-    // A short Android GATT reconnect must be transparent to the companion.
-    // While MEL Mobile is the active transport and Wi-Fi is absent, wait for
-    // the bridge instead of immediately falling into a dead Wi-Fi path.
-    if (g_mobile_connected && !g_wifi_connected) {
-        ESP_LOGI(TAG, "MEL MOBILE reconnect grace before HTTP");
-        if (wait_for_mobile_bridge_ready(8000)) return mobile_request();
-        return ESP_ERR_TIMEOUT;
-    }
+    if (!g_wifi_connected) return ESP_ERR_INVALID_STATE;
 
     HttpBuffer buffer;
     esp_http_client_config_t cfg = {};
@@ -861,8 +872,9 @@ static std::string json_string(cJSON *obj) {
     return out;
 }
 
-static bool pair_terminal() {
-    if (g_cfg.token[0]) return true;
+static bool pair_terminal(bool force_android_refresh = false) {
+    g_fresh_pair_proved_online = false;
+    if (g_cfg.token[0] && !force_android_refresh) return true;
     const bool android_sponsored_pair = mel_mobile_bridge_ready();
     if (!g_cfg.pair_code[0] && !android_sponsored_pair) return false;
 
@@ -888,6 +900,7 @@ static bool pair_terminal() {
         status
     );
     if (err != ESP_OK || status != 200) {
+        g_last_session_status = err == ESP_OK ? status : -1;
         ESP_LOGE(TAG, "Pairing failed status=%d err=%s body=%s", status, esp_err_to_name(err), response.c_str());
         return false;
     }
@@ -902,6 +915,15 @@ static bool pair_terminal() {
         save_string("token", g_cfg.token);
         save_string("pair_code", "");
         g_cfg.pair_code[0] = '\0';
+        // HTTP 200 from /pair is itself a real backend round-trip that issued
+        // this token. Do not immediately require a second BLE transaction before
+        // declaring a freshly paired MINI online.
+        g_fresh_pair_proved_online = true;
+        g_last_session_status = 200;
+    }
+    if (!ok && status == 200) {
+        g_last_session_status = -2; // pair response reached MINI but token/protocol could not be parsed
+        ESP_LOGE(TAG, "Pairing response invalid despite HTTP 200");
     }
     if (json) cJSON_Delete(json);
     return ok;
@@ -1562,8 +1584,20 @@ static void camera_task(void *) {
     }
 
     if (!g_camera_ok) {
+        i2c_master_bus_handle_t bus = nullptr;
+        esp_err_t bus_err = i2c_master_get_bus_handle(0, &bus);
+        esp_err_t p3c = bus_err == ESP_OK ? i2c_master_probe(bus, 0x3c, 100) : bus_err;
+        esp_err_t p30 = bus_err == ESP_OK ? i2c_master_probe(bus, 0x30, 100) : bus_err;
+        char diag[220] = {};
+        snprintf(
+            diag, sizeof(diag),
+            "Aucun capteur DVP detecte.\nSCCB 0x3C: %s\nSCCB 0x30: %s\nSi les deux sont absents, verifier la nappe OV5640.",
+            esp_err_to_name(p3c), esp_err_to_name(p30)
+        );
         ui_status("CAMERA ERREUR");
-        ui_answer("OV5640 indisponible.");
+        ui_answer(diag);
+        ESP_LOGW(TAG, "CAMERA TEST no sensor: 0x3c=%s 0x30=%s",
+                 esp_err_to_name(p3c), esp_err_to_name(p30));
         vTaskDelete(nullptr);
         return;
     }
@@ -2313,7 +2347,7 @@ static void network_task(void *arg) {
     }
 
     ui_status("APPAIRAGE...");
-    if (!pair_terminal()) {
+    if (!pair_terminal(false)) {
         ui_status("CODE A RENOUVELER");
         ui_answer("Le Wi-Fi fonctionne mais le code MEL est invalide ou expire. Maintiens BOOT au prochain demarrage puis recree un code.");
         vTaskDelete(nullptr);
@@ -2396,6 +2430,10 @@ void mel_terminal_set_mobile_connected(bool connected) {
 
 bool mel_terminal_mobile_connected(void) {
     return g_mobile_connected && mel_mobile_bridge_ready();
+}
+
+int mel_terminal_last_session_status(void) {
+    return g_last_session_status;
 }
 
 static bool apply_wake_profile_json(const std::string &raw, const char *source, bool persist) {
@@ -2505,23 +2543,41 @@ static void mobile_companion_sync_task(void *) {
 }
 
 static int device_session_status() {
-    if (!g_cfg.token[0]) return 401;
+    if (!g_cfg.token[0]) {
+        g_last_session_status = 401;
+        return 401;
+    }
+
+    // Session proof must stay tiny over BLE. The old GET /manifest response is
+    // much larger than a liveness check and had to cross many GATT frames before
+    // MINI could declare itself online. Use the authenticated heartbeat route
+    // instead; it validates the same device token with a small response.
+    cJSON *root = cJSON_CreateObject();
+    cJSON_AddStringToObject(root, "firmware", MEL_FW_VERSION);
+    cJSON_AddStringToObject(root, "protocol_version", MEL_PROTOCOL_VERSION);
+    cJSON_AddStringToObject(root, "phase", "SESSION_CHECK");
+    std::string body = json_string(root);
+    cJSON_Delete(root);
+
     std::string response;
     int status = 0;
     esp_err_t err = http_request(
-        HTTP_METHOD_GET,
-        std::string(SERVER) + "/api/device/v1/manifest",
-        nullptr, nullptr, 0, response, status
+        HTTP_METHOD_POST,
+        std::string(SERVER) + "/api/device/v1/heartbeat",
+        "application/json",
+        body.data(), (int)body.size(), response, status
     );
     if (err != ESP_OK) {
+        g_last_session_status = -1;
         ESP_LOGW(TAG, "MEL session validation unavailable: %s; keeping stored token", esp_err_to_name(err));
         return -1;
     }
+    g_last_session_status = status;
     if (status == 200 && !response.empty()) {
-        cJSON *root = cJSON_Parse(response.c_str());
-        if (root) {
-            sync_phone_clock_from_json(root);
-            cJSON_Delete(root);
+        cJSON *json = cJSON_Parse(response.c_str());
+        if (json) {
+            sync_phone_clock_from_json(json);
+            cJSON_Delete(json);
         }
     }
     return status;
@@ -2543,7 +2599,29 @@ static void online_runtime_task(void *) {
         return;
     }
 
-    int session_status = device_session_status();
+    int session_status = g_fresh_pair_proved_online ? 200 : -1;
+
+    // GATT can be physically ready a little before the Android relay has
+    // completed Internet/session validation. Retry transient failures locally
+    // instead of declaring MINI permanently offline after one heartbeat.
+    if (session_status != 200) {
+        for (int attempt = 1; attempt <= 6; ++attempt) {
+            if (!mel_mobile_bridge_ready() && !g_wifi_connected) {
+                ui_status("MEL MOBILE RECONNEXION...");
+                wait_for_mobile_bridge_ready(3000);
+            } else {
+                ui_status("MEL MOBILE VALIDATION...");
+            }
+
+            session_status = device_session_status();
+            if (session_status == 200 || session_status == 401 || session_status == 403) break;
+
+            ESP_LOGW(TAG, "MEL session transient failure attempt=%d status=%d; retrying",
+                     attempt, session_status);
+            vTaskDelay(pdMS_TO_TICKS(1000 + attempt * 500));
+        }
+    }
+
     if (session_status == 401 || session_status == 403) {
         ESP_LOGW(TAG, "Stored MEL token explicitly rejected with HTTP %d; clearing token", session_status);
         g_online = false;
@@ -2552,8 +2630,13 @@ static void online_runtime_task(void *) {
 
         if (mel_mobile_bridge_ready()) {
             ESP_LOGI(TAG, "Retrying MEL pairing through authenticated Android bridge");
-            if (pair_terminal()) {
-                session_status = device_session_status();
+            for (int attempt = 1; attempt <= 3 && !g_cfg.token[0]; ++attempt) {
+                if (pair_terminal(true)) {
+                    session_status = g_fresh_pair_proved_online ? 200 : device_session_status();
+                    break;
+                }
+                ESP_LOGW(TAG, "Android-sponsored MINI re-pair attempt=%d failed", attempt);
+                vTaskDelay(pdMS_TO_TICKS(1500));
             }
         }
 
@@ -2565,10 +2648,11 @@ static void online_runtime_task(void *) {
             return;
         }
     }
+
     if (session_status != 200) {
-        ESP_LOGW(TAG, "MEL session check returned %d; preserving persistent pairing", session_status);
+        ESP_LOGW(TAG, "MEL session still unavailable after retries: %d; keeping pairing for automatic retry", session_status);
         g_online = false;
-        ui_status("MEL TEMPORAIREMENT INDISPONIBLE");
+        ui_status(mel_terminal_mobile_connected() ? "MEL MOBILE CONNECTE · VALIDATION..." : "MEL TEMPORAIREMENT INDISPONIBLE");
         ui_answer("");
         g_online_task_handle = nullptr;
         vTaskDelete(nullptr);
@@ -2590,6 +2674,32 @@ static void online_runtime_task(void *) {
 void mel_terminal_start_online(void) {
     if (g_online || g_online_task_handle) return;
     xTaskCreatePinnedToCore(online_runtime_task, "mel_online", 10240, nullptr, 5, &g_online_task_handle, 0);
+}
+
+void mel_terminal_refresh_mobile_identity(void) {
+    if (!mel_mobile_bridge_ready()) return;
+    if (g_online_task_handle) return;
+
+    // Do not destroy the last known token before a replacement exists.
+    // A successful Android-sponsored /pair atomically stores the fresh token.
+    make_device_id();
+    load_config();
+    ui_status("MEL MOBILE · IDENTITE...");
+    if (pair_terminal(true)) {
+        g_online = true;
+        ui_status("MEL MOBILE CONNECTE");
+        ui_answer("");
+        if (!g_heartbeat_task_handle) {
+            xTaskCreatePinnedToCore(heartbeat_task, "mel_heartbeat", 6144, nullptr, 2, &g_heartbeat_task_handle, 0);
+        }
+        ESP_LOGI(TAG, "MEL MOBILE identity refreshed through authenticated Android sponsor");
+        return;
+    }
+
+    // Keep the previous token untouched and fall back to the normal retry loop.
+    g_online = false;
+    ESP_LOGW(TAG, "MEL MOBILE identity refresh failed; retaining previous token");
+    mel_terminal_start_online();
 }
 
 void mel_terminal_start(bool force_setup) {

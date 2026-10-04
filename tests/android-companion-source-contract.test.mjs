@@ -415,9 +415,9 @@ test('Android Complete mode exposes an authenticated self diagnostic',async()=>{
   const vm=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelViewModel.kt',root),'utf8');
   const api=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelApiClient.kt',root),'utf8');
   const build=await readFile(new URL('app/build.gradle.kts',root),'utf8');
-  assert.match(build,/versionCode = 57/);
-  assert.match(build,/versionName = "0\.6\.48-truthful-mini-link"/);
-  assert.match(api,/APP_VERSION = "0\.6\.48-truthful-mini-link"/);
+  assert.match(build,/versionCode = 67/);
+  assert.match(build,/versionName = "0\.6\.58-mini-stable-bridge"/);
+  assert.match(api,/APP_VERSION = "0\.6\.58-mini-stable-bridge"/);
   assert.match(vm,/val diagnosticReport: String\? = null/);
   assert.match(vm,/fun runDiagnostics\(\)/);
   assert.match(vm,/client\.heartbeat\(sdkInt = Build\.VERSION\.SDK_INT\)/);
@@ -438,9 +438,9 @@ test('Android device validation probes are authenticated and bounded',async()=>{
   const build=await readFile(new URL('app/build.gradle.kts',root),'utf8');
   const api=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelApiClient.kt',root),'utf8');
 
-  assert.match(build,/versionCode = 57/);
-  assert.match(build,/versionName = "0\.6\.48-truthful-mini-link"/);
-  assert.match(api,/APP_VERSION = "0\.6\.48-truthful-mini-link"/);
+  assert.match(build,/versionCode = 67/);
+  assert.match(build,/versionName = "0\.6\.58-mini-stable-bridge"/);
+  assert.match(api,/APP_VERSION = "0\.6\.58-mini-stable-bridge"/);
 
   assert.match(activity,/private const val MAX_FILE_BYTES = 25_000_000/);
   assert.match(activity,/private fun readUriBounded\(uri: Uri\): ByteArray/);
@@ -472,9 +472,9 @@ test('real mic and file successes feed the diagnostic report',async()=>{
   const build=await readFile(new URL('app/build.gradle.kts',root),'utf8');
   const api=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelApiClient.kt',root),'utf8');
 
-  assert.match(build,/versionCode = 57/);
-  assert.match(build,/versionName = "0\.6\.48-truthful-mini-link"/);
-  assert.match(api,/APP_VERSION = "0\.6\.48-truthful-mini-link"/);
+  assert.match(build,/versionCode = 67/);
+  assert.match(build,/versionName = "0\.6\.58-mini-stable-bridge"/);
+  assert.match(api,/APP_VERSION = "0\.6\.58-mini-stable-bridge"/);
 
   const voice=vm.slice(vm.indexOf('fun sendVoice('),vm.indexOf('fun sendFile('));
   assert.match(voice,/appendDiagnosticLine\("Micro réel: OK"\)/);
@@ -491,9 +491,9 @@ test('Android dark UI keeps readable content contrast',async()=>{
   const build=await readFile(new URL('app/build.gradle.kts',root),'utf8');
   const api=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelApiClient.kt',root),'utf8');
 
-  assert.match(build,/versionCode = 57/);
-  assert.match(build,/versionName = "0\.6\.48-truthful-mini-link"/);
-  assert.match(api,/APP_VERSION = "0\.6\.48-truthful-mini-link"/);
+  assert.match(build,/versionCode = 67/);
+  assert.match(build,/versionName = "0\.6\.58-mini-stable-bridge"/);
+  assert.match(api,/APP_VERSION = "0\.6\.58-mini-stable-bridge"/);
 
   assert.match(activity,/contentColor = MelInk/);
   assert.match(activity,/CardDefaults\.cardColors\(containerColor = MelPanel, contentColor = MelInk\)/);
@@ -679,4 +679,80 @@ test('Android CI preflights the unsigned release variant without signing secrets
   assert.match(workflow,/release-preflight\.apk\.sha256/);
   assert.match(workflow,/grep -q "package: name='fr\.veriteinterdite\.mel'"/);
   assert.match(workflow,/grep -q "launchable-activity:"/);
+});
+
+
+test('Android MINI bridge distinguishes phone Internet from proven MEL relay',async()=>{
+  const service=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelBleBridgeService.kt',root),'utf8');
+  const activity=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MainActivity.kt',root),'utf8');
+  const build=await readFile(new URL('app/build.gradle.kts',root),'utf8');
+  assert.match(service,/val phoneInternetAvailable = MutableStateFlow\(false\)/);
+  assert.match(service,/ConnectivityManager\.NetworkCallback/);
+  assert.match(service,/NET_CAPABILITY_VALIDATED/);
+  assert.match(service,/registerDefaultNetworkCallback/);
+  assert.match(service,/MINI CONNECTÉE · MEL À VALIDER/);
+  assert.match(service,/validatePhoneMelSession\(\)/);
+  assert.match(service,/Android MEL session validated; MINI relay Internet ready=/);
+  assert.match(service,/internetReady\.value = miniLinkReady\.value && phoneInternetAvailable\.value/);
+  assert.match(service,/MINI CONNECTÉE · INTERNET OK/);
+  assert.match(activity,/phoneInternetReady by MelBleBridgeService\.phoneInternetAvailable/);
+  assert.match(activity,/téléphone en ligne · validation MEL en cours/);
+  assert.match(build,/versionCode = 67/);
+  assert.match(build,/versionName = "0\.6\.58-mini-stable-bridge"/);
+});
+
+
+test('Android MINI relay distinguishes phone connectivity from MEL authentication', async () => {
+  const service=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelBleBridgeService.kt',root),'utf8');
+  assert.match(service,/MINI CONNECTÉE · MEL À VALIDER/);
+  assert.match(service,/Android MEL session validated; MINI relay Internet ready=/);
+  assert.match(service,/APPLI MEL À RÉAPPAIRER/);
+  assert.match(service,/request\.path == "\/api\/device\/v1\/pair"/);
+});
+
+
+test('Android MINI BLE preserves response ordering after notification fallback', async () => {
+  const service=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelBleBridgeService.kt',root),'utf8');
+  assert.match(service,/pullOnlyResponseIds/);
+  assert.match(service,/switching response \$responseId to pull-only/);
+  assert.match(service,/pullOnlyResponseIds\[device\.address\] = responseId/);
+  assert.match(service,/pullOnlyResponseIds\.remove\(device\.address\)/);
+});
+
+
+test('Android compacts successful MINI pair token response into BLE-safe body', async () => {
+  const service=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelBleBridgeService.kt',root),'utf8');
+  assert.match(service,/request\.path == "\/api\/device\/v1\/pair" && status in 200\.\.299/);
+  assert.match(service,/compactPairBody/);
+  assert.match(service,/pairJson\.getString\("token"\)/);
+  assert.match(service,/pairJson\.getString\("protocol_version"\)/);
+  assert.match(service,/MEL MINI pair response compacted to/);
+});
+
+
+test('Android compacts MINI heartbeat response over BLE', async () => {
+  const service=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelBleBridgeService.kt',root),'utf8');
+  assert.match(service,/request\.path == "\/api\/device\/v1\/heartbeat"/);
+  assert.match(service,/compactHeartbeat/);
+  assert.match(service,/server_time/);
+  assert.match(service,/MEL MINI heartbeat response compacted to/);
+});
+
+
+test('Android MINI bridge stays alive, reconnects after GATT drops, refreshes devices and relays phone clock',async()=>{
+  const bridge=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelBleBridgeService.kt',root),'utf8');
+  const vm=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelViewModel.kt',root),'utf8');
+  assert.match(bridge,/START_STICKY/);
+  assert.match(bridge,/PARTIAL_WAKE_LOCK/);
+  assert.match(bridge,/bridgeWatchdog/);
+  assert.match(bridge,/postDelayed\(bridgeWatchdog, 5_000L\)/);
+  assert.match(bridge,/connectedDevices\.isEmpty\(\)/);
+  assert.match(bridge,/startAdvertising\(\)/);
+  assert.match(bridge,/cancelConnection\(device\)/);
+  assert.match(bridge,/epoch_ms/);
+  assert.match(bridge,/utc_offset_seconds/);
+  assert.match(bridge,/TimeZone\.getDefault\(\)/);
+  assert.match(vm,/startCompanionRefreshLoop/);
+  assert.match(vm,/delay\(10_000\)/);
+  assert.match(vm,/refreshCompanions\(\)/);
 });

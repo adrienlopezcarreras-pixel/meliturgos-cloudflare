@@ -4,7 +4,7 @@
 
 #define MEL_LCD_H_RES 320
 #define MEL_LCD_V_RES 480
-#define MEL_FW_VERSION "0.4.18-truthful-mobile-status"
+#define MEL_FW_VERSION "0.4.38-unified"
 #define MEL_PROTOCOL_VERSION "1.0"
 // MINI mobile status is independent from Wi-Fi association.
 
@@ -20,7 +20,9 @@ void mel_terminal_set_network_info(const char *ip);
 void mel_terminal_set_wifi_connected(bool connected);
 void mel_terminal_set_mobile_connected(bool connected);
 bool mel_terminal_mobile_connected(void);
+int mel_terminal_last_session_status(void);
 void mel_terminal_start_online(void);
+void mel_terminal_refresh_mobile_identity(void);
 
 enum MelTerminalState {
   MEL_TERMINAL_IDLE = 0,
