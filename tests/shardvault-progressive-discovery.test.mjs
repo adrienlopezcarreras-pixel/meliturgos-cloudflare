@@ -33,7 +33,7 @@ test('bounded ShardVault maintenance excludes already active endpoints before ap
   assert.match(discovery,/const excluded=new Set/);
   assert.match(discovery,/if\(excluded\.has\(c\.id\)\)/);
   assert.ok(
-    discovery.indexOf('if(excluded.has(c.id))') < discovery.indexOf('eligibleRows.slice(boundedProbeOffset'),
+    discovery.indexOf('if(excluded.has(c.id))') < discovery.indexOf('probePool.slice(boundedProbeOffset'),
     'active endpoint exclusions must happen before the bounded probe offset is applied'
   );
 });
