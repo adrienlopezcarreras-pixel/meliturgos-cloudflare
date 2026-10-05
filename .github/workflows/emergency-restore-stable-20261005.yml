@@ -1,0 +1,92 @@
+name: emergency-restore-stable-20261005
+
+on:
+  push:
+    branches:
+      - 'recovery/restore-stable-20261005'
+
+permissions:
+  contents: read
+
+jobs:
+  restore:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      STABLE_VERSION_ID: ca1be512-a266-4bd8-84f1-ee89d64da45d
+      STABLE_GIT_SHA: e73ec7c91f131df562cabf1c49c5d23e6ac1d3c1
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+
+      - name: Restore stable Worker version
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          npx wrangler rollback "${STABLE_VERSION_ID}"             --name meliturgos             --message "Emergency restore after failed release #636"
+          npx wrangler deployments list --name meliturgos --json > /tmp/deployments.json
+          STABLE_VERSION_ID="${STABLE_VERSION_ID}" node - <<'NODE'
+          const fs=require('fs');
+          const raw=JSON.parse(fs.readFileSync('/tmp/deployments.json','utf8'));
+          const rows=Array.isArray(raw)?raw:(Array.isArray(raw?.deployments)?raw.deployments:[]);
+          const first=rows[0]||{};
+          const versions=Array.isArray(first?.versions)?first.versions:[];
+          const stable=String(process.env.STABLE_VERSION_ID||'');
+          const ok=versions.some(v=>String(v?.version_id||'')===stable && Number(v?.percentage)===100);
+          if(!ok) throw new Error('STABLE_WORKER_VERSION_NOT_ACTIVE');
+          console.log('Stable Worker version restored at 100%.');
+          NODE
+
+      - name: Restore captured MAX autonomy state in D1
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          STABLE_GIT_SHA="${STABLE_GIT_SHA}" node - <<'NODE'
+          const fs=require('fs');
+          const sha=String(process.env.STABLE_GIT_SHA||'').toLowerCase();
+          if(!/^[0-9a-f]{40}$/.test(sha)) throw new Error('STABLE_SHA_INVALID');
+          const now=Date.now();
+          const meta={
+            paused:false,
+            max_autonomy:true,
+            owner_override:true,
+            status:'MAX_AUTONOMY',
+            updated_at:now,
+            source:'emergency-recovery-workflow',
+            reason:'restore-stable-after-release-636',
+            launch_approved_sha:sha,
+            launch_approved_at:new Date(now).toISOString(),
+            launch_gate_digest:null,
+          };
+          const esc=JSON.stringify(meta).replaceAll("'","''");
+          fs.writeFileSync('/tmp/restore-autonomy.sql',
+            "INSERT INTO dev_bridge_state(bridge_id,last_seen,status,metadata_json) VALUES('mel-autonomy-control',"
+            +now+",'MAX_AUTONOMY','"+esc+"') "
+            +"ON CONFLICT(bridge_id) DO UPDATE SET last_seen=excluded.last_seen,status=excluded.status,metadata_json=excluded.metadata_json;\n");
+          NODE
+          npx wrangler d1 execute meliturgos-memory --remote --file /tmp/restore-autonomy.sql --yes
+          npx wrangler d1 execute meliturgos-memory --remote             --command "SELECT status,metadata_json FROM dev_bridge_state WHERE bridge_id='mel-autonomy-control' LIMIT 1"             --json > /tmp/autonomy-control.json
+          STABLE_GIT_SHA="${STABLE_GIT_SHA}" node - <<'NODE'
+          const fs=require('fs');
+          const raw=JSON.parse(fs.readFileSync('/tmp/autonomy-control.json','utf8'));
+          const root=Array.isArray(raw)?raw[0]:raw;
+          const rows=root?.results||root?.result?.results||root?.result||[];
+          const row=Array.isArray(rows)?rows[0]:null;
+          if(!row) throw new Error('AUTONOMY_CONTROL_ROW_MISSING');
+          const meta=JSON.parse(String(row.metadata_json||'{}'));
+          const sha=String(process.env.STABLE_GIT_SHA||'').toLowerCase();
+          if(String(row.status||'')!=='MAX_AUTONOMY') throw new Error('AUTONOMY_STATUS_NOT_MAX');
+          if(meta?.paused!==false || meta?.max_autonomy!==true) throw new Error('AUTONOMY_STATE_NOT_RESTORED');
+          if(String(meta?.launch_approved_sha||'').toLowerCase()!==sha) throw new Error('AUTONOMY_SHA_NOT_RESTORED');
+          console.log('Stable MAX autonomy control restored in D1.');
+          NODE
