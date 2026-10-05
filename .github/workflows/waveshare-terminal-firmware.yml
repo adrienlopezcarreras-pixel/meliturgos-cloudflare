@@ -145,7 +145,7 @@ jobs:
             "model": "waveshare-esp32-s3-touch-lcd-3.5-c",
             "channel": "stable",
             "firmware": {
-              "version": "0.4.51-stt-progress-compact",
+              "version": "0.4.52-stt-16k-no-loop",
               "available": true,
               "key": "devices/waveshare-esp32-s3-touch-lcd-3.5-c/mel-terminal.bin",
               "sha256": "${OTA_SHA256}",
