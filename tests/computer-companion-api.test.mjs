@@ -220,7 +220,7 @@ test('Windows desktop v2 keeps tray UI, headless engine, and packaged EXE contra
   assert.match(desktop,/--self-test/);
   assert.match(desktop,/self-test\.json/);
   assert.match(desktop,/\/api\/computer\/v1\/companions/);
-  assert.match(desktop,/Lancer MEL Companion avec Windows/);
+  assert.match(desktop,/Lancer avec Windows/);
   assert.match(desktop,/RÉAPPAIRER/);
   assert.match(desktop,/DÉSINSTALLER/);
   assert.match(desktop,/RegisterHotKey/);
