@@ -884,14 +884,17 @@ class MelBleBridgeService : Service() {
 
     private fun buildCompactSttRelay(pcm8: ByteArray, contentType: String): Pair<String, ByteArray> {
         require(pcm8.isNotEmpty() && pcm8.size <= 16_000 * 10) { "PCM8_SIZE" }
-        val sampleRate = Regex("""rate=(\\d+)""")
+        val sourceRate = Regex("""rate=(\\d+)""")
             .find(contentType)
             ?.groupValues
             ?.getOrNull(1)
             ?.toIntOrNull()
-            ?.coerceIn(8_000, 48_000)
-            ?: 16_000
-        val pcm16Bytes = pcm8.size * 2
+            ?.coerceIn(8_000, 16_000)
+            ?: 8_000
+        val targetRate = 16_000
+        val copiesPerSample = if (sourceRate <= 8_000) 2 else 1
+        val pcm16Samples = pcm8.size * copiesPerSample
+        val pcm16Bytes = pcm16Samples * 2
         val wav = ByteArray(44 + pcm16Bytes)
         val header = ByteBuffer.wrap(wav).order(ByteOrder.LITTLE_ENDIAN)
         header.put("RIFF".toByteArray(Charsets.US_ASCII))
@@ -901,8 +904,8 @@ class MelBleBridgeService : Service() {
         header.putInt(16)
         header.putShort(1.toShort())
         header.putShort(1.toShort())
-        header.putInt(sampleRate)
-        header.putInt(sampleRate * 2)
+        header.putInt(targetRate)
+        header.putInt(targetRate * 2)
         header.putShort(2.toShort())
         header.putShort(16.toShort())
         header.put("data".toByteArray(Charsets.US_ASCII))
@@ -910,8 +913,10 @@ class MelBleBridgeService : Service() {
         var dst = 44
         for (raw in pcm8) {
             val sample = (((raw.toInt() and 0xff) - 128) shl 8).toShort().toInt()
-            wav[dst++] = (sample and 0xff).toByte()
-            wav[dst++] = ((sample shr 8) and 0xff).toByte()
+            repeat(copiesPerSample) {
+                wav[dst++] = (sample and 0xff).toByte()
+                wav[dst++] = ((sample shr 8) and 0xff).toByte()
+            }
         }
 
         val boundary = "----MEL-ANDROID-STT"
@@ -1031,7 +1036,7 @@ class MelBleBridgeService : Service() {
         val relayContentType = relayPayload.first
         val relayBody = relayPayload.second
         if (compactStt) {
-            Log.i(TAG, "MEL compact STT expanded BLE=${request.body.size()} -> HTTP=${relayBody.size} bytes")
+            Log.i(TAG, "MEL compact STT expanded BLE=${request.body.size()} -> 16k HTTP=${relayBody.size} bytes")
         }
 
         // Manifest requests must reach the real MEL backend. BLE connectivity alone
