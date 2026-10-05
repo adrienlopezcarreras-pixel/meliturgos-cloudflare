@@ -327,7 +327,7 @@ test('Windows Companion 2.3.9 watchdogs the engine and implements local runtime 
   assert.match(desktop,/Version = "2\.3\.9"/);
   assert.match(desktop,/EnsureCompanion/);
   assert.match(desktop,/CompanionRunning/);
-  assert.match(companion,/\$Version = "1\.3\.0"/);
+  assert.match(companion,/\$Version = "1\.3\.1"/);
   assert.match(companion,/engine_heartbeat_at/);
   assert.match(companion,/function Perform-SovereigntyRuntime/);
   assert.match(companion,/sovereignty\.runtime\./);
