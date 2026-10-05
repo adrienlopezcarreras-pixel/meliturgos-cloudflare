@@ -43,17 +43,16 @@ jobs:
             return btoa(binary);
           }
 
-          async function runModel(env, model, audio) {
+          async function runTurbo(env, bytes, language = "en") {
             const started = Date.now();
             try {
-              const result = await env.AI.run(model, {
-                audio,
+              const result = await env.AI.run("@cf/openai/whisper-large-v3-turbo", {
+                audio: toBase64(bytes),
                 task: "transcribe",
-                language: "en"
+                language
               });
               return {
                 ok: true,
-                model,
                 elapsed_ms: Date.now() - started,
                 text: String(result?.text ?? result?.transcription_info?.text ?? result?.response ?? "").slice(0, 500),
                 keys: result && typeof result === "object" ? Object.keys(result) : []
@@ -61,10 +60,9 @@ jobs:
             } catch (error) {
               return {
                 ok: false,
-                model,
                 elapsed_ms: Date.now() - started,
                 name: String(error?.name || ""),
-                message: String(error?.message || error).slice(0, 1000),
+                message: String(error?.message || error).slice(0, 1200),
                 stack: String(error?.stack || "").slice(0, 2000)
               };
             }
@@ -72,21 +70,43 @@ jobs:
 
           export default {
             async fetch(request, env) {
+              if (request.method === "POST") {
+                const type = String(request.headers.get("content-type") || "").toLowerCase();
+                if (!type.includes("multipart/form-data")) {
+                  return Response.json({ok:false,stage:"content_type",type},{status:415});
+                }
+                let form;
+                try { form = await request.formData(); }
+                catch (error) {
+                  return Response.json({ok:false,stage:"form_data",message:String(error?.message||error)},{status:415});
+                }
+                const file = form.get("audio");
+                if (!file || typeof file.arrayBuffer !== "function") {
+                  return Response.json({ok:false,stage:"audio_field"},{status:400});
+                }
+                const bytes = new Uint8Array(await file.arrayBuffer());
+                const result = await runTurbo(env, bytes, "en");
+                return Response.json({
+                  ok: result.ok,
+                  stage: "android_shape",
+                  file_type: String(file.type || ""),
+                  file_size: Number(file.size || 0),
+                  riff: String.fromCharCode(...bytes.slice(0,4)),
+                  wave: String.fromCharCode(...bytes.slice(8,12)),
+                  fmt_rate: bytes.length >= 28 ? (bytes[24] | (bytes[25]<<8) | (bytes[26]<<16) | (bytes[27]<<24)) >>> 0 : 0,
+                  bits: bytes.length >= 36 ? (bytes[34] | (bytes[35]<<8)) : 0,
+                  result
+                }, {status:result.ok ? 200 : 500});
+              }
+
               const source = "https://raw.githubusercontent.com/craigsdennis/notebooks-cloudflare-workers-ai/main/assets/craig-rambling.mp3";
               const response = await fetch(source);
               if (!response.ok) {
                 return Response.json({ok:false, stage:"sample_fetch", status:response.status}, {status:500});
               }
               const bytes = new Uint8Array(await response.arrayBuffer());
-              const audio = toBase64(bytes);
-              const turbo = await runModel(env, "@cf/openai/whisper-large-v3-turbo", audio);
-              const classic = await runModel(env, "@cf/openai/whisper", audio);
-              return Response.json({
-                ok: turbo.ok || classic.ok,
-                sample_bytes: bytes.length,
-                turbo,
-                classic
-              }, {status: turbo.ok || classic.ok ? 200 : 500});
+              const turbo = await runTurbo(env, bytes, "en");
+              return Response.json({ok:turbo.ok,stage:"official_sample",sample_bytes:bytes.length,turbo},{status:turbo.ok?200:500});
             }
           };
           JS
@@ -105,18 +125,70 @@ jobs:
         working-directory: .tmp-stt-probe
         run: npx wrangler deploy --config wrangler.jsonc
 
-      - name: Execute real Workers AI transcription
+      - name: Test official Cloudflare speech sample
         shell: bash
         run: |
           set -euo pipefail
           URL="https://mel-stt-smoke-${{ github.run_id }}.adrien-lopezcarreras.workers.dev"
           for i in $(seq 1 12); do
-            CODE="$(curl -sS --max-time 60 -o /tmp/stt.json -w '%{http_code}' "$URL" || true)"
+            CODE="$(curl -sS --max-time 60 -o /tmp/official.json -w '%{http_code}' "$URL" || true)"
             if [ "$CODE" = "200" ] || [ "$CODE" = "500" ]; then break; fi
             sleep 2
           done
-          cat /tmp/stt.json
-          node -e 'const fs=require("fs"); const d=JSON.parse(fs.readFileSync("/tmp/stt.json","utf8")); if(!d.turbo&&!d.classic) process.exit(2); if(!d.turbo?.ok&&!d.classic?.ok) process.exit(3);'
+          cat /tmp/official.json
+          node -e 'const fs=require("fs"); const d=JSON.parse(fs.readFileSync("/tmp/official.json","utf8")); if(!d.turbo?.ok) process.exit(3);'
+
+      - name: Build Android-shaped STT multipart
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsSL "https://raw.githubusercontent.com/craigsdennis/notebooks-cloudflare-workers-ai/main/assets/craig-rambling.mp3" -o /tmp/sample.mp3
+          ffmpeg -hide_banner -loglevel error -y -i /tmp/sample.mp3 -t 3 -ar 8000 -ac 1 -f u8 /tmp/sample.pcm8
+          node <<'NODE'
+          const fs=require('fs');
+          const pcm8=fs.readFileSync('/tmp/sample.pcm8');
+          const copies=2;
+          const pcm16Bytes=pcm8.length*copies*2;
+          const wav=Buffer.alloc(44+pcm16Bytes);
+          wav.write('RIFF',0,'ascii');
+          wav.writeUInt32LE(36+pcm16Bytes,4);
+          wav.write('WAVE',8,'ascii');
+          wav.write('fmt ',12,'ascii');
+          wav.writeUInt32LE(16,16);
+          wav.writeUInt16LE(1,20);
+          wav.writeUInt16LE(1,22);
+          wav.writeUInt32LE(16000,24);
+          wav.writeUInt32LE(32000,28);
+          wav.writeUInt16LE(2,32);
+          wav.writeUInt16LE(16,34);
+          wav.write('data',36,'ascii');
+          wav.writeUInt32LE(pcm16Bytes,40);
+          let dst=44;
+          for(const raw of pcm8){
+            let sample=((raw&255)-128)<<8;
+            if(sample<0) sample=0x10000+sample;
+            for(let c=0;c<copies;c++){
+              wav.writeUInt16LE(sample&0xffff,dst);
+              dst+=2;
+            }
+          }
+          fs.writeFileSync('/tmp/android.wav',wav);
+          const boundary='----MEL-ANDROID-STT';
+          const prefix=Buffer.from('--'+boundary+'\r\nContent-Disposition: form-data; name="audio"; filename="mel.wav"\r\nContent-Type: audio/wav\r\n\r\n');
+          const suffix=Buffer.from('\r\n--'+boundary+'--\r\n');
+          fs.writeFileSync('/tmp/android.multipart',Buffer.concat([prefix,wav,suffix]));
+          console.log(JSON.stringify({pcm8:pcm8.length,wav:wav.length,multipart:prefix.length+wav.length+suffix.length}));
+          NODE
+
+      - name: Test exact Android-shaped WAV and multipart
+        shell: bash
+        run: |
+          set -euo pipefail
+          URL="https://mel-stt-smoke-${{ github.run_id }}.adrien-lopezcarreras.workers.dev"
+          CODE="$(curl -sS --max-time 60 -o /tmp/android.json -w '%{http_code}'             -X POST             -H 'Content-Type: multipart/form-data; boundary=----MEL-ANDROID-STT'             --data-binary @/tmp/android.multipart             "$URL" || true)"
+          echo "HTTP=$CODE"
+          cat /tmp/android.json
+          node -e 'const fs=require("fs"); const d=JSON.parse(fs.readFileSync("/tmp/android.json","utf8")); if(!d.result?.ok) process.exit(4);'
 
       - name: Cleanup probe
         if: always()
