@@ -591,10 +591,14 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
         }
       }
 
-      const requiresConcreteLiveProof = requestedRefresh === 'source_control'
+      const requiresConcreteLiveProof = requestedRefresh === 'ai'
+        || requestedRefresh === 'ai_local'
+        || requestedRefresh === 'source_control'
         || requestedRefresh === 'infrastructure'
         || requestedRefresh === 'backup_restore';
-      const requiresPrevalidatedResult = requestedRefresh === 'source_control'
+      const requiresPrevalidatedResult = requestedRefresh === 'ai'
+        || requestedRefresh === 'ai_local'
+        || requestedRefresh === 'source_control'
         || requestedRefresh === 'infrastructure'
         || (requestedRefresh === 'backup_restore' && (!requestedRefreshStep || requestedRefreshStep === 'finalize'));
       const verifiedRefresh = row?.ok !== false
