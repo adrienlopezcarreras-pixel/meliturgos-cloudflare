@@ -102,8 +102,8 @@ test('decoupled sovereignty waits for canonical exact-SHA release success before
   assert.doesNotMatch(block,/SOV proof waiting for exact-SHA release readiness/);
   const ready=block.indexOf('test "${RELEASE_SUCCESS}" = "1"');
   const fast=block.indexOf('FAST_SOV_CODE=');
-  const refresh=block.indexOf('for TARGET in ai ai_local source_control; do');
-  assert.ok(ready>0&&fast>ready&&refresh>fast,'SOV fast path and fallback refresh must start only after canonical exact-SHA release success');
+  const selective=block.indexOf('if layer_covered "ai"; then');
+  assert.ok(ready>0&&fast>ready&&selective>fast,'SOV fast path and selective missing-layer refresh must start only after canonical exact-SHA release success');
 });
 test('source-control prevalidation surfaces a sanitized blocked reason for strict SOV diagnostics', async () => {
   const runtime=await readFile(new URL('../../src/portability/companion-source-control-prevalidation-runtime.js',import.meta.url),'utf8');
@@ -113,21 +113,26 @@ test('source-control prevalidation surfaces a sanitized blocked reason for stric
   assert.match(validator,/code:clean\(error\?\.code\|\|error\?\.message,180\)\|\|null/);
 });
 
-test('decoupled sovereignty proof refreshes every bounded prevalidation domain before final status', async () => {
+test('decoupled sovereignty proof refreshes only missing bounded domains before final status', async () => {
   const workflow=await readFile(new URL('../../.github/workflows/release-downstream-proof-decoupled.yml',import.meta.url),'utf8');
-  assert.match(workflow,/for TARGET in ai ai_local source_control/);
+  assert.match(workflow,/layer_covered\(\)/);
+  assert.match(workflow,/if layer_covered "ai"/);
+  assert.match(workflow,/if layer_covered "source_control"/);
   assert.match(workflow,/for STEP in runtime storage database ci_cd secrets_identity scheduler observability/);
+  assert.match(workflow,/if layer_covered "\$\{STEP\}"/);
   assert.match(workflow,/refresh_sov_target "infrastructure" "\$\{STEP\}"/);
   assert.match(workflow,/for STEP in resolve prepare readback rollback finalize/);
+  assert.match(workflow,/if layer_covered "backup_restore"/);
+  assert.match(workflow,/ALREADY_COVERED/);
   assert.match(workflow,/release-launch-bootstrap\?\$\{QUERY\}/);
   assert.match(workflow,/MEL_SOV_01_REFRESH_STEP_VERIFIED/);
   assert.match(workflow,/MEL_SOV_01_REFRESH_SAFETY_FAILED/);
-  const refresh=workflow.indexOf('for TARGET in ai ai_local source_control; do');
+  const selective=workflow.indexOf('if layer_covered "ai"; then');
   const infrastructureStages=workflow.indexOf('for STEP in runtime storage database ci_cd secrets_identity scheduler observability; do');
   const backupStages=workflow.indexOf('for STEP in resolve prepare readback rollback finalize; do');
   const status=workflow.indexOf('output sovereignty.json');
   const finalProof=workflow.indexOf('output mel-sov-01.json');
-  assert.ok(refresh>0&&infrastructureStages>refresh&&backupStages>infrastructureStages&&status>backupStages&&finalProof>status,'bounded sovereignty refreshes, infrastructure-only layers, and all dedicated backup stages must run before status and final proof');
+  assert.ok(selective>0&&infrastructureStages>selective&&backupStages>infrastructureStages&&status>backupStages&&finalProof>status,'selective missing-layer refreshes must complete before status and final proof');
 });
 
 test('decoupled sovereignty refreshes retry only bounded transient pressure and preserve a sanitized failure artifact', async () => {
