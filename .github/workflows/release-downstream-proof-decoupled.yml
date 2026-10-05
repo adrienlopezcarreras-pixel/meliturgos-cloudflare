@@ -332,67 +332,24 @@ jobs:
           SESSION="skills-proof-${TARGET_SHA:0:12}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           export SESSION TOKEN TARGET_SHA
 
-          NAV_BODY="$(node - <<'NODE'
+          # Keep the rendered Compétences proof atomic. A split navigate/wait/read
+          # sequence can lose the in-memory Browser session between separate
+          # browser.execute calls even though the exact-SHA APIs are healthy.
+          # Replaying this read-only composite plan is safe and remains bounded.
+          SKILLS_BROWSER_READY=0
+          for ATTEMPT in $(seq 1 8); do
+            SKILLS_BODY="$(node - <<'NODE'
           const origin='https://meliturgos.adrien-lopezcarreras.workers.dev';
           const s=process.env.SESSION,t=process.env.TOKEN,sha=process.env.TARGET_SHA;
           process.stdout.write(JSON.stringify({id:'browser.execute',input:{
             session_id:s,
             device:{id:'cloudflare-browser',capabilities:['browser.control']},
-            sandbox:{allowed_origins:[origin],max_steps:2},
+            sandbox:{allowed_origins:[origin],max_steps:7},
             approvals:[{approved:true,session_id:s,step_id:'headers',action:'browser.set-headers'}],
             steps:[
               {id:'headers',action:'browser.set-headers',headers:{'x-mel-release-smoke':'1','x-mel-parallel-proof':t}},
-              {id:'skills-page',action:'browser.navigate',url:origin+'/professor?view=skills&proof_sha='+sha}
-            ],
-          }}));
-          NODE
-          )"
-          NAV_CODE="$(curl --silent --show-error --max-time 60 \
-            --header "x-mel-release-smoke: 1" \
-            --header "x-mel-parallel-proof: ${TOKEN}" \
-            --header "content-type: application/json" \
-            --data "${NAV_BODY}" --output skills-nav.json --write-out '%{http_code}' \
-            "${BASE_URL}/api/gen2/capabilities/execute" || true)"
-          test "${NAV_CODE}" = "200"
-
-          READY=0
-          for ATTEMPT in $(seq 1 8); do
-            WAIT_BODY="$(node - <<'NODE'
-          const origin='https://meliturgos.adrien-lopezcarreras.workers.dev';
-          process.stdout.write(JSON.stringify({id:'browser.execute',input:{
-            session_id:process.env.SESSION,
-            device:{id:'cloudflare-browser',capabilities:['browser.control']},
-            sandbox:{allowed_origins:[origin],max_steps:1},
-            approvals:[],
-            steps:[{id:'skills-ready',action:'browser.wait-text',selector:'#skillsLearningState',text:'VÉRIFIÉ',timeout_ms:45000}],
-          }}));
-          NODE
-          )"
-            WAIT_CODE="$(curl --silent --show-error --max-time 45 \
-              --header "x-mel-release-smoke: 1" \
-              --header "x-mel-parallel-proof: ${TOKEN}" \
-              --header "content-type: application/json" \
-              --data "${WAIT_BODY}" --output skills-wait.json --write-out '%{http_code}' \
-              "${BASE_URL}/api/gen2/capabilities/execute" || true)"
-            if [ "${WAIT_CODE}" = "200" ]; then READY=1; break; fi
-            case "${WAIT_CODE}" in
-              408|409|429|500|502|503|504)
-                echo "Compétences browser state not ready yet (HTTP ${WAIT_CODE}); retry ${ATTEMPT}/8 without navigation."
-                sleep $((ATTEMPT * 2))
-                ;;
-              *) exit 31 ;;
-            esac
-          done
-          test "${READY}" = "1"
-
-          READ_BODY="$(node - <<'NODE'
-          const origin='https://meliturgos.adrien-lopezcarreras.workers.dev';
-          process.stdout.write(JSON.stringify({id:'browser.execute',input:{
-            session_id:process.env.SESSION,
-            device:{id:'cloudflare-browser',capabilities:['browser.control']},
-            sandbox:{allowed_origins:[origin],max_steps:4},
-            approvals:[],
-            steps:[
+              {id:'skills-page',action:'browser.navigate',url:origin+'/professor?view=skills&proof_sha='+sha},
+              {id:'skills-ready',action:'browser.wait-text',selector:'#skillsLearningState',text:'VÉRIFIÉ',timeout_ms:20000},
               {id:'learned',action:'browser.read-text',selector:'#skillsLearned'},
               {id:'xp',action:'browser.read-text',selector:'#skillsXp'},
               {id:'learning-summary',action:'browser.read-text',selector:'#skillsLearningSummary'},
@@ -401,13 +358,35 @@ jobs:
           }}));
           NODE
           )"
-          READ_CODE="$(curl --silent --show-error --max-time 60 \
-            --header "x-mel-release-smoke: 1" \
-            --header "x-mel-parallel-proof: ${TOKEN}" \
-            --header "content-type: application/json" \
-            --data "${READ_BODY}" --output skills-browser-read.json --write-out '%{http_code}' \
-            "${BASE_URL}/api/gen2/capabilities/execute" || true)"
-          test "${READ_CODE}" = "200"
+            SKILLS_BROWSER_CODE="$(curl --silent --show-error --max-time 90 \
+              --header "x-mel-release-smoke: 1" \
+              --header "x-mel-parallel-proof: ${TOKEN}" \
+              --header "content-type: application/json" \
+              --data "${SKILLS_BODY}" --output skills-browser-read.json --write-out '%{http_code}' \
+              "${BASE_URL}/api/gen2/capabilities/execute" || true)"
+            if [ "${SKILLS_BROWSER_CODE}" = "200" ] && node - <<'NODE'
+          const d=require('./skills-browser-read.json'),r=d?.result||{};
+          process.exit(d?.ok===true&&r?.ok===true&&Number(r?.steps_completed||0)===7?0:1);
+          NODE
+            then
+              SKILLS_BROWSER_READY=1
+              break
+            fi
+            if [ -s skills-browser-read.json ]; then
+              node -e 'const fs=require("fs");let d={};try{d=JSON.parse(fs.readFileSync("skills-browser-read.json","utf8"))}catch{};console.log(JSON.stringify({ok:d?.ok===true,status:d?.status||null,error:d?.error||d?.code||null,failed_step_id:d?.failed_step_id||null,steps_completed:Number(d?.result?.steps_completed||0)}))'
+            fi
+            case "${SKILLS_BROWSER_CODE}" in
+              000|400|401|403|404|408|409|429|500|502|503|504)
+                echo "Compétences atomic browser proof not ready (HTTP ${SKILLS_BROWSER_CODE}); retry ${ATTEMPT}/8."
+                sleep $((ATTEMPT * 2))
+                ;;
+              *)
+                echo "Non-retryable Compétences atomic browser proof status ${SKILLS_BROWSER_CODE}."
+                exit 31
+                ;;
+            esac
+          done
+          test "${SKILLS_BROWSER_READY}" = "1"
 
           TARGET_SHA="${TARGET_SHA}" node - <<'NODE'
           const fs=require('fs');
@@ -417,7 +396,7 @@ jobs:
           const text=id=>String(out(id)?.text||'').trim();
           const learned=Number(text('learned').replace(/[^0-9-]/g,''));
           const xp=Number(text('xp').replace(/[^0-9-]/g,''));
-          if(browser?.ok!==true||r?.ok!==true||Number(r?.steps_completed||0)!==4)throw new Error('SKILLS_BROWSER_READ_INCOMPLETE');
+          if(browser?.ok!==true||r?.ok!==true||Number(r?.steps_completed||0)!==7)throw new Error('SKILLS_BROWSER_READ_INCOMPLETE');
           if(!Number.isFinite(learned)||learned!==expected.verified_active_count)throw new Error('SKILLS_LEARNED_COUNT_MISMATCH');
           if(!Number.isFinite(xp)||xp!==expected.xp)throw new Error('SKILLS_XP_MISMATCH');
           if(!text('learning-summary'))throw new Error('SKILLS_LEARNING_SUMMARY_EMPTY');
