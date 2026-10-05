@@ -77,6 +77,7 @@ static std::atomic<uint32_t> g_request_id{1};
 static std::atomic<int64_t> g_phone_epoch_ms{0};
 static std::atomic<int32_t> g_phone_offset_seconds{0};
 static std::atomic<int64_t> g_phone_clock_received_us{0};
+static std::atomic<int> g_voice_transfer_progress{-1};
 
 struct NotifyFrame {
     uint16_t len = 0;
@@ -777,6 +778,10 @@ uint16_t mel_mobile_bridge_mtu(void) {
     return g_mtu;
 }
 
+int mel_mobile_bridge_voice_progress(void) {
+    return g_voice_transfer_progress.load();
+}
+
 static esp_err_t request_common(
     esp_http_client_method_t method,
     const char *path,
@@ -821,6 +826,7 @@ static esp_err_t request_common(
     // path on a conservative payload size while leaving control/chat traffic
     // at the negotiated MTU.
     const bool voice_upload = strstr(path, "/voice/transcribe") != nullptr;
+    if (voice_upload) g_voice_transfer_progress.store(0);
     const size_t chunk = voice_upload
         ? std::min<size_t>(160, negotiated_chunk)
         : negotiated_chunk;
@@ -849,6 +855,10 @@ static esp_err_t request_common(
         for (size_t off = 0; ok && off < body_len; off += chunk, ++frame_index) {
             const size_t n = std::min(chunk, body_len - off);
             ok = write_frame(OP_BODY, id, body + off, n);
+            if (ok && voice_upload && body_len > 0) {
+                const int pct = (int)std::min<size_t>(99, ((off + n) * 100U) / body_len);
+                g_voice_transfer_progress.store(pct);
+            }
             // Each write already waits for its ATT response. This tiny periodic
             // yield additionally avoids monopolising the application task during
             // long STT uploads and gives the NimBLE host room to service link
@@ -860,10 +870,12 @@ static esp_err_t request_common(
     }
     if (ok) ok = write_frame(OP_END, id, nullptr, 0);
     if (!ok) {
+        if (voice_upload) g_voice_transfer_progress.store(-1);
         g_active.failed = true;
         xSemaphoreGive(g_request_mutex);
         return ESP_FAIL;
     }
+    if (voice_upload) g_voice_transfer_progress.store(101);
 
     const TickType_t wait = pdMS_TO_TICKS(voice_upload ? 45000 : 120000);
     const TickType_t started = xTaskGetTickCount();
@@ -910,12 +922,14 @@ static esp_err_t request_common(
         // A server/STT timeout is not proof that the radio link is dead.
         // Never tear down a healthy GATT connection here; the reconnect watchdog
         // below handles genuine physical disconnects independently.
+        if (voice_upload) g_voice_transfer_progress.store(-1);
         xSemaphoreGive(g_request_mutex);
         return ESP_ERR_TIMEOUT;
     }
     status = g_active.status;
     if (response) *response = g_active.body;
     const bool failed = g_active.failed;
+    if (voice_upload) g_voice_transfer_progress.store(-1);
     xSemaphoreGive(g_request_mutex);
     return failed ? ESP_FAIL : ESP_OK;
 }
