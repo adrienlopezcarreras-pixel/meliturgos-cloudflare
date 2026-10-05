@@ -37,7 +37,9 @@ foreach ($name in $files) {
 }
 
 $desktopSource = Join-Path $repoRoot "windows-companion\MEL-Companion.cs"
+$avatarSource = Join-Path $assetDir "meliturgos-avatar-fille.png"
 if (-not (Test-Path -LiteralPath $desktopSource -PathType Leaf)) { throw "WINDOWS_DESKTOP_SOURCE_MISSING" }
+if (-not (Test-Path -LiteralPath $avatarSource -PathType Leaf)) { throw "WINDOWS_AVATAR_SOURCE_MISSING" }
 $companionSource = Join-Path $assetDir "MEL-Computer-Companion.ps1"
 $desktopText = [IO.File]::ReadAllText($desktopSource,[Text.Encoding]::UTF8)
 if ($desktopText -notmatch "__COMPANION_B64__") { throw "WINDOWS_DESKTOP_EMBED_PLACEHOLDER_MISSING" }
@@ -66,6 +68,7 @@ $compileArgs = @(
   "/reference:System.Drawing.dll",
   "/reference:System.Web.Extensions.dll",
   "/reference:System.Security.dll",
+  "/resource:$avatarSource,MelAvatar.png",
   $desktopBuildSource
 )
 & $csc @compileArgs
