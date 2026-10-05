@@ -56,7 +56,7 @@ static const int VOICE_STT_RATE = 8000;
 static const int VOICE_CAPTURE_SAMPLES = VOICE_SECONDS * VOICE_CAPTURE_RATE;
 static const int VOICE_CAPTURE_BYTES = VOICE_CAPTURE_SAMPLES * 2;
 static const int VOICE_STT_SAMPLES = VOICE_SECONDS * VOICE_STT_RATE;
-static const int VOICE_STT_BYTES = VOICE_STT_SAMPLES;
+static const int VOICE_STT_BYTES = VOICE_STT_SAMPLES * 2;
 static const int WAKE_RATE = 16000;
 static const int WAKE_WINDOW_MS = 1900;
 static const int WAKE_WINDOW_SAMPLES = WAKE_RATE * WAKE_WINDOW_MS / 1000;
@@ -1191,126 +1191,114 @@ static std::string record_and_transcribe() {
         return "";
     }
 
-    auto *capture = static_cast<int16_t *>(heap_caps_malloc(VOICE_CAPTURE_BYTES, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
-    if (!capture) capture = static_cast<int16_t *>(heap_caps_malloc(VOICE_CAPTURE_BYTES, MALLOC_CAP_8BIT));
-    if (!capture) {
-        ESP_LOGE(TAG, "VOICE: capture allocation failed");
+    // 0.4.50: capture directly into the final 8 kHz / 16-bit STT buffer.
+    // This removes the old ~288 KiB 48 kHz capture buffer and its extra
+    // conversion allocation, which could stall under camera/LVGL PSRAM pressure.
+    const int speech_capacity = VOICE_STT_SAMPLES;
+    const int speech_capacity_bytes = speech_capacity * (int)sizeof(int16_t);
+    auto *speech = static_cast<int16_t *>(
+        heap_caps_malloc(speech_capacity_bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)
+    );
+    if (!speech) speech = static_cast<int16_t *>(heap_caps_malloc(speech_capacity_bytes, MALLOC_CAP_8BIT));
+    if (!speech) {
+        ESP_LOGE(TAG, "VOICE: direct STT buffer allocation failed");
+        voice_error("MEMOIRE STT");
+        return "";
+    }
+
+    constexpr int CAPTURE_CHUNK_MS = 100;
+    constexpr int CAPTURE_CHUNK_SAMPLES = (VOICE_CAPTURE_RATE * CAPTURE_CHUNK_MS) / 1000;
+    const int chunk_bytes = CAPTURE_CHUNK_SAMPLES * (int)sizeof(int16_t);
+    auto *chunk = static_cast<int16_t *>(
+        heap_caps_malloc(chunk_bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)
+    );
+    if (!chunk) chunk = static_cast<int16_t *>(heap_caps_malloc(chunk_bytes, MALLOC_CAP_8BIT));
+    if (!chunk) {
+        heap_caps_free(speech);
+        ESP_LOGE(TAG, "VOICE: capture chunk allocation failed");
         voice_error("MEMOIRE AUDIO");
         return "";
     }
 
-    // Read in short chunks so a second press on PARLER can stop recording
-    // immediately instead of waiting for the maximum recording duration.
-    constexpr int CAPTURE_CHUNK_MS = 100;
-    constexpr int CAPTURE_CHUNK_SAMPLES = (VOICE_CAPTURE_RATE * CAPTURE_CHUNK_MS) / 1000;
+    int speech_samples = 0;
     int captured_samples = 0;
     int rc = ESP_CODEC_DEV_OK;
 
     ensure_mic_mutex();
     if (!g_mic_mutex || xSemaphoreTake(g_mic_mutex, pdMS_TO_TICKS(1500)) != pdTRUE) {
-        heap_caps_free(capture);
+        heap_caps_free(chunk);
+        heap_caps_free(speech);
         voice_error("MICRO OCCUPE");
         return "";
     }
+
     esp_codec_dev_set_in_gain(input_dev, 40.0);
-    while (captured_samples < VOICE_CAPTURE_SAMPLES) {
-        const int remaining = VOICE_CAPTURE_SAMPLES - captured_samples;
-        const int chunk_samples = remaining < CAPTURE_CHUNK_SAMPLES ? remaining : CAPTURE_CHUNK_SAMPLES;
-        rc = esp_codec_dev_read(
-            input_dev,
-            capture + captured_samples,
-            (int)(chunk_samples * sizeof(int16_t))
-        );
+    while (speech_samples < speech_capacity) {
+        rc = esp_codec_dev_read(input_dev, chunk, chunk_bytes);
         if (rc != ESP_CODEC_DEV_OK) break;
-        captured_samples += chunk_samples;
+        captured_samples += CAPTURE_CHUNK_SAMPLES;
 
         uint64_t chunk_abs_sum = 0;
-        for (int i = 0; i < chunk_samples; i += 4) {
-            const int32_t v = capture[captured_samples - chunk_samples + i];
-            chunk_abs_sum += (uint32_t)(v < 0 ? -v : v);
+        for (int i = 0; i + 5 < CAPTURE_CHUNK_SAMPLES && speech_samples < speech_capacity; i += 6) {
+            int32_t v = ((int32_t)chunk[i] + chunk[i + 1] + chunk[i + 2] +
+                         chunk[i + 3] + chunk[i + 4] + chunk[i + 5]) / 6;
+            if (v > 32767) v = 32767;
+            if (v < -32768) v = -32768;
+            speech[speech_samples++] = (int16_t)v;
+            const int32_t av = v < 0 ? -v : v;
+            chunk_abs_sum += (uint32_t)av;
         }
-        const int sampled = (chunk_samples + 3) / 4;
-        const uint32_t chunk_mean_abs = sampled > 0 ? (uint32_t)(chunk_abs_sum / sampled) : 0;
+
+        const int produced = CAPTURE_CHUNK_SAMPLES / 6;
+        const uint32_t chunk_mean_abs = produced > 0 ? (uint32_t)(chunk_abs_sum / produced) : 0;
         int visual_level = (int)(chunk_mean_abs / 24U);
         if (visual_level > 100) visual_level = 100;
         g_voice_level = visual_level;
 
         if (g_voice_stop_requested) {
-            ESP_LOGI(TAG, "VOICE STOP: manual stop after %d ms (%d samples)",
-                     (captured_samples * 1000) / VOICE_CAPTURE_RATE, captured_samples);
+            ESP_LOGI(TAG, "VOICE STOP: direct STT stop after %d ms (%d stt samples)",
+                     (captured_samples * 1000) / VOICE_CAPTURE_RATE, speech_samples);
             break;
         }
     }
     esp_codec_dev_set_in_gain(input_dev, 0.0);
     xSemaphoreGive(g_mic_mutex);
     g_voice_level = 0;
+    heap_caps_free(chunk);
 
     if (rc != ESP_CODEC_DEV_OK) {
         ESP_LOGE(TAG, "VOICE: esp_codec_dev_read failed rc=%d after %d samples", rc, captured_samples);
-        heap_caps_free(capture);
+        heap_caps_free(speech);
         voice_error("LECTURE MICRO");
         return "";
     }
-    if (captured_samples < (VOICE_CAPTURE_RATE / 4)) {
-        ESP_LOGW(TAG, "VOICE: recording too short (%d samples)", captured_samples);
-        heap_caps_free(capture);
+    if (speech_samples < (VOICE_STT_RATE / 4)) {
+        ESP_LOGW(TAG, "VOICE: recording too short (%d STT samples)", speech_samples);
+        heap_caps_free(speech);
         voice_error("ENREG. TROP COURT");
         return "";
     }
 
-    // Recording is now finished. The second press means STOP + transcribe,
-    // never "cancel and discard".
     g_runtime_state = MEL_TERMINAL_TRANSCRIBING;
-    ui_status("TRANSCRIPTION...");
+    ui_status("PREP AUDIO...");
+    vTaskDelay(pdMS_TO_TICKS(30));
 
+    // Remove DC and normalize in place. Work only on the compact 8 kHz buffer.
     int64_t dc_sum = 0;
-    int16_t raw_min = 32767;
-    int16_t raw_max = -32768;
-    uint64_t raw_abs_sum = 0;
-    for (int i = 0; i < captured_samples; ++i) {
-        const int16_t sample = capture[i];
-        dc_sum += sample;
-        if (sample < raw_min) raw_min = sample;
-        if (sample > raw_max) raw_max = sample;
-        raw_abs_sum += (uint32_t)(sample < 0 ? -(int32_t)sample : (int32_t)sample);
-    }
-    const int32_t dc = (int32_t)(dc_sum / captured_samples);
-    const uint32_t raw_mean_abs = (uint32_t)(raw_abs_sum / captured_samples);
-    ESP_LOGI(TAG,
-             "MIC RAW: samples=%d duration_ms=%d min=%d max=%d span=%ld mean_abs=%u dc=%ld",
-             captured_samples, (captured_samples * 1000) / VOICE_CAPTURE_RATE,
-             (int)raw_min, (int)raw_max,
-             (long)((int32_t)raw_max - (int32_t)raw_min),
-             (unsigned)raw_mean_abs, (long)dc);
+    for (int i = 0; i < speech_samples; ++i) dc_sum += speech[i];
+    const int32_t dc = (int32_t)(dc_sum / speech_samples);
 
-    const int speech_samples = captured_samples / 6;
-    const int speech_work_bytes = speech_samples * (int)sizeof(int16_t);
-    const int speech_bytes = speech_samples * (int)sizeof(int16_t); // final 16-bit PCM payload
-    auto *speech = static_cast<int16_t *>(heap_caps_malloc(speech_work_bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
-    if (!speech) speech = static_cast<int16_t *>(heap_caps_malloc(speech_work_bytes, MALLOC_CAP_8BIT));
-    if (!speech) {
-        heap_caps_free(capture);
-        ESP_LOGE(TAG, "VOICE: STT buffer allocation failed");
-        voice_error("MEMOIRE STT");
-        return "";
-    }
-
-    // 48 kHz -> 8 kHz mono: average each group of six samples while
-    // removing the measured DC offset.
     int32_t peak = 0;
     uint64_t speech_abs_sum = 0;
     for (int i = 0; i < speech_samples; ++i) {
-        const int j = i * 6;
-        int32_t v = ((int32_t)capture[j] + capture[j + 1] + capture[j + 2] +
-                     capture[j + 3] + capture[j + 4] + capture[j + 5]) / 6 - dc;
+        int32_t v = (int32_t)speech[i] - dc;
         if (v > 32767) v = 32767;
         if (v < -32768) v = -32768;
         speech[i] = (int16_t)v;
-        const int32_t a = v < 0 ? -v : v;
-        if (a > peak) peak = a;
-        speech_abs_sum += (uint32_t)a;
+        const int32_t av = v < 0 ? -v : v;
+        if (av > peak) peak = av;
+        speech_abs_sum += (uint32_t)av;
     }
-    heap_caps_free(capture);
 
     uint32_t speech_mean_abs = (uint32_t)(speech_abs_sum / speech_samples);
     if (peak < 90 || speech_mean_abs < 18) {
@@ -1321,38 +1309,35 @@ static std::string record_and_transcribe() {
         return "";
     }
 
-    // Normalize conversational speech without excessive amplification of noise.
     int32_t scale_q15 = (int32_t)(((int64_t)16000 * 32768) / peak);
     const int32_t max_scale_q15 = 8 * 32768;
     if (scale_q15 > max_scale_q15) scale_q15 = max_scale_q15;
     if (scale_q15 < 8192) scale_q15 = 8192;
-    peak = 0;
-    speech_abs_sum = 0;
     for (int i = 0; i < speech_samples; ++i) {
         int32_t v = (int32_t)(((int64_t)speech[i] * scale_q15) >> 15);
         if (v > 30000) v = 30000;
         if (v < -30000) v = -30000;
         speech[i] = (int16_t)v;
-        const int32_t a = v < 0 ? -v : v;
-        if (a > peak) peak = a;
-        speech_abs_sum += (uint32_t)a;
     }
-    speech_mean_abs = (uint32_t)(speech_abs_sum / speech_samples);
-    ESP_LOGI(TAG, "MIC STT READY: rate=%d samples=%d bytes=%d peak=%ld mean_abs=%u scale_q15=%ld",
-             VOICE_STT_RATE, speech_samples, speech_bytes, (long)peak,
-             (unsigned)speech_mean_abs, (long)scale_q15);
 
+    ui_status("PAQUET STT...");
+    vTaskDelay(pdMS_TO_TICKS(30));
+
+    const int speech_bytes = speech_samples * (int)sizeof(int16_t);
     const char *boundary = "----MEL-ESP32-VOICE";
     std::string prefix = std::string("--") + boundary +
         "\r\nContent-Disposition: form-data; name=\"audio\"; filename=\"mel.wav\"\r\n"
         "Content-Type: audio/wav\r\n\r\n";
     std::string suffix = std::string("\r\n--") + boundary + "--\r\n";
     const size_t total = prefix.size() + 44 + (size_t)speech_bytes + suffix.size();
-    auto *multipart = static_cast<uint8_t *>(heap_caps_malloc(total, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+
+    auto *multipart = static_cast<uint8_t *>(
+        heap_caps_malloc(total, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)
+    );
     if (!multipart) multipart = static_cast<uint8_t *>(heap_caps_malloc(total, MALLOC_CAP_8BIT));
     if (!multipart) {
         heap_caps_free(speech);
-        ESP_LOGE(TAG, "VOICE: multipart allocation failed");
+        ESP_LOGE(TAG, "VOICE: multipart allocation failed bytes=%u", (unsigned)total);
         voice_error("MEMOIRE REQUETE");
         return "";
     }
@@ -1367,14 +1352,16 @@ static std::string record_and_transcribe() {
     std::string response;
     int status = 0;
     std::string content_type = std::string("multipart/form-data; boundary=") + boundary;
-    ESP_LOGI(TAG, "STT UPLOAD SAFE: bytes=%u wav_bytes=%d rate=%d bits=16 duration_ms=%d",
+
+    ESP_LOGI(TAG, "STT DIRECT: total=%u wav_bytes=%d rate=%d bits=16 duration_ms=%d",
              (unsigned)total, speech_bytes + 44, VOICE_STT_RATE,
              (speech_samples * 1000) / VOICE_STT_RATE);
     ui_status("ENVOI STT...");
+    vTaskDelay(pdMS_TO_TICKS(40));
 
     esp_err_t err = ESP_FAIL;
     const bool mobile_transport_expected = mel_mobile_bridge_ready() || g_mobile_connected;
-    for (int attempt = 1; attempt <= 3; ++attempt) {
+    for (int attempt = 1; attempt <= 2; ++attempt) {
         response.clear();
         status = 0;
         err = http_request(
@@ -1391,20 +1378,18 @@ static std::string record_and_transcribe() {
                  (int)std::min<size_t>(response.size(), 240), response.c_str());
         if (err == ESP_OK && status == 200) break;
         if (status > 0 && status < 500) break;
-        if (attempt < 3) {
+
+        if (attempt < 2) {
             const bool mobile_retry =
                 mobile_transport_expected || g_mobile_connected || mel_mobile_bridge_candidate_seen();
             if (mobile_retry) {
                 ui_status("RECONNEXION STT...");
-                ESP_LOGW(TAG, "STT transport lost; waiting for MEL Mobile before retry %d", attempt + 1);
-                if (wait_for_mobile_bridge_ready(12000)) {
-                    ui_status("TRANSCRIPTION...");
-                    vTaskDelay(pdMS_TO_TICKS(150));
+                if (wait_for_mobile_bridge_ready(8000)) {
+                    ui_status("ENVOI STT...");
+                    vTaskDelay(pdMS_TO_TICKS(100));
                     continue;
                 }
             }
-            ui_status("STT RETRY...");
-            vTaskDelay(pdMS_TO_TICKS(750));
         }
     }
     heap_caps_free(multipart);
