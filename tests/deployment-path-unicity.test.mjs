@@ -101,9 +101,12 @@ test('canonical production release requires human approval and exact immutable i
   );
   assert.match(immutableDeploy, /--keep-vars/);
   assert.match(immutableDeploy, /--secrets-file media-vault-release-secrets\.json/);
-  assert.match(source, /Require production owner auth secret before deploy/);
+  assert.match(source, /Validate production owner auth recovery source before deploy/);
+  assert.match(source, /MELITURGOS_PASSWORD: \$\{\{ secrets\.MELITURGOS_PASSWORD \}\}/);
+  assert.match(source, /test -n "\$\{MELITURGOS_PASSWORD:-\}"/);
+  assert.match(source, /MELITURGOS_PASSWORD:String\(process\.env\.MELITURGOS_PASSWORD\|\|''\)/);
   assert.match(source, /wrangler secret list --name meliturgos --format json/);
-  assert.match(source, /PRODUCTION_OWNER_AUTH_SECRET_MISSING/);
+  assert.match(source, /restore it from the GitHub source of truth/);
   assert.match(source, /Verify owner auth binding and exact deployment immediately/);
   assert.match(source, /AUTH_NOT_CONFIGURED/);
   assert.match(source, /ROOT_CODE.*401/);
