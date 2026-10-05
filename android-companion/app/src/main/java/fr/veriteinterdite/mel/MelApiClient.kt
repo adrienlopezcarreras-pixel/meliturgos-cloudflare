@@ -20,7 +20,7 @@ class MelApiClient(
 ) {
     companion object {
         const val PROTOCOL_VERSION = "1.0"
-        const val APP_VERSION = "0.6.66-native-stt-route"
+        const val APP_VERSION = "0.6.67-stt-diagnostics"
     }
 
     init {
@@ -65,7 +65,7 @@ class MelApiClient(
                 .getOrElse { throw MelApiException("INVALID_SERVER_RESPONSE", status, body.take(180)) }
             if (status !in 200..299) {
                 throw MelApiException(
-                    code = json.optString("code", json.optString("error", "HTTP_$status")),
+                    code = json.optString("code", json.optString("reason", json.optString("error", "HTTP_$status"))),
                     status = status,
                     detail = json.optString("detail")
                 )
@@ -83,7 +83,7 @@ class MelApiClient(
                 val body = connection.errorStream?.bufferedReader()?.use { it.readText() }.orEmpty()
                 val json = runCatching { JSONObject(body) }.getOrNull()
                 throw MelApiException(
-                    code = json?.let { it.optString("code", it.optString("error", "HTTP_$status")) }
+                    code = json?.let { it.optString("code", it.optString("reason", it.optString("error", "HTTP_$status"))) }
                         ?: "HTTP_$status",
                     status = status,
                     detail = json?.optString("detail").orEmpty()
