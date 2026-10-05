@@ -20,7 +20,7 @@ class MelApiClient(
 ) {
     companion object {
         const val PROTOCOL_VERSION = "1.0"
-        const val APP_VERSION = "0.6.59-mini-clock-ping"
+        const val APP_VERSION = "0.6.60-mini-direct-clock-frame"
     }
 
     init {
