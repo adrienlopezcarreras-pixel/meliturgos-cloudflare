@@ -532,7 +532,7 @@ static esp_err_t http_request(
     int &status
 ) {
     const bool compact_mobile_stt =
-        content_type && strncmp(content_type, "application/x-mel-pcm8", 22) == 0;
+        content_type && strncmp(content_type, "application/x-mel-pcm", strlen("application/x-mel-pcm")) == 0;
 
     auto mobile_request = [&]() -> esp_err_t {
         const std::string prefix = SERVER;
@@ -1329,10 +1329,9 @@ static std::string record_and_transcribe() {
     ui_status("PAQUET STT...");
     vTaskDelay(pdMS_TO_TICKS(30));
 
-    // BLE payload is compact unsigned PCM8 at 8 kHz. Android 0.6.67 expands
-    // this to standard signed PCM16 WAV before contacting the MEL STT endpoint.
-    // Reuse the lower half of the int16 buffer in-place; forward iteration is
-    // safe because each output byte is written below the next unread sample.
+    // BLE payload is 4-bit normalized PCM at 8 kHz: two samples per byte.
+    // Android 0.6.68 reconstructs signed PCM16/16 kHz before calling MEL STT.
+    // First quantize the captured PCM16 stream into unsigned PCM8 in-place.
     auto *pcm8 = reinterpret_cast<uint8_t *>(speech);
     for (int i = 0; i < speech_samples; ++i) {
         int32_t q = ((int32_t)speech[i] + 32768) >> 8;
@@ -1340,14 +1339,29 @@ static std::string record_and_transcribe() {
         if (q > 255) q = 255;
         pcm8[i] = (uint8_t)q;
     }
-    const int total = speech_samples;
+
+    // Pack two PCM8 samples into one byte. The 4-bit quantizer was validated
+    // end-to-end against whisper-large-v3-turbo before enabling it here.
+    auto *pcm4 = pcm8;
+    int packed_bytes = 0;
+    for (int i = 0; i < speech_samples; i += 2) {
+        const uint8_t raw0 = pcm8[i];
+        const uint8_t raw1 = (i + 1 < speech_samples) ? pcm8[i + 1] : 128;
+        const uint8_t q0 = (uint8_t)std::min<int>(15, (raw0 + 8) / 17);
+        const uint8_t q1 = (uint8_t)std::min<int>(15, (raw1 + 8) / 17);
+        pcm4[packed_bytes++] = (uint8_t)((q0 << 4) | q1);
+    }
+    const int total = packed_bytes;
 
     std::string response;
     int status = 0;
-    const char *content_type = "application/x-mel-pcm8;rate=8000;channels=1";
+    const char *content_type =
+        "application/x-mel-pcm4;rate=8000;channels=1;samples_per_byte=2";
 
-    ESP_LOGI(TAG, "STT COMPACT: bytes=%d rate=%d bits=8 duration_ms=%d",
-             total, VOICE_STT_RATE, (speech_samples * 1000) / VOICE_STT_RATE);
+    ESP_LOGI(TAG,
+             "STT COMPACT: source_samples=%d bytes=%d reduction=50%% rate=%d bits=4 duration_ms=%d",
+             speech_samples, total, VOICE_STT_RATE,
+             (speech_samples * 1000) / VOICE_STT_RATE);
     ui_status("ENVOI STT...");
     vTaskDelay(pdMS_TO_TICKS(40));
 
@@ -1357,7 +1371,7 @@ static std::string record_and_transcribe() {
         HTTP_METHOD_POST,
         std::string(SERVER) + "/api/device/v1/voice/transcribe",
         content_type,
-        reinterpret_cast<const char *>(pcm8),
+        reinterpret_cast<const char *>(pcm4),
         total,
         response,
         status
