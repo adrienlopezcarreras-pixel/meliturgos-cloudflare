@@ -1,0 +1,28 @@
+name: runtime-503-diagnostic
+
+on:
+  push:
+    branches:
+      - fix/runtime-503-diagnostic-20261005
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Capture production 503 bodies
+        shell: bash
+        run: |
+          set -euo pipefail
+          base="https://meliturgos.adrien-lopezcarreras.workers.dev"
+          for path in "/" "/api/v1/version" "/api/gen2/autonomy/control"; do
+            out="$(mktemp)"
+            code="$(curl --silent --show-error --location --max-time 30 --output "$out" --write-out '%{http_code}' "$base$path" || true)"
+            echo "=== $path HTTP $code ==="
+            head -c 4000 "$out" || true
+            echo
+          done
