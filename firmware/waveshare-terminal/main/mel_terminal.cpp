@@ -1486,7 +1486,49 @@ void mel_terminal_request_voice(void) {
     }
 
     g_voice_stop_requested = false;
-    xTaskCreatePinnedToCore(voice_task, "mel_voice", 10240, nullptr, 5, &g_voice_task_handle, 0);
+
+    // Camera/LVGL can leave internal SRAM fragmented even though PSRAM is still
+    // plentiful. Allocate the voice task stack from PSRAM first so PARLER cannot
+    // fail silently merely because a contiguous 10 KiB internal block is missing.
+    BaseType_t created = xTaskCreatePinnedToCoreWithCaps(
+        voice_task,
+        "mel_voice",
+        12288,
+        nullptr,
+        5,
+        &g_voice_task_handle,
+        0,
+        MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT
+    );
+
+    if (created != pdPASS || !g_voice_task_handle) {
+        ESP_LOGW(TAG,
+                 "VOICE task PSRAM create failed rc=%ld free_internal=%u largest_internal=%u free_psram=%u; trying internal fallback",
+                 (long)created,
+                 (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
+                 (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
+                 (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+        g_voice_task_handle = nullptr;
+        created = xTaskCreatePinnedToCore(
+            voice_task, "mel_voice", 8192, nullptr, 5, &g_voice_task_handle, 0
+        );
+    }
+
+    if (created != pdPASS || !g_voice_task_handle) {
+        g_voice_task_handle = nullptr;
+        g_runtime_state = MEL_TERMINAL_ERROR;
+        voice_error("RAM VOIX");
+        ui_status("RAM VOIX");
+        ESP_LOGE(TAG,
+                 "VOICE task create failed rc=%ld free_internal=%u largest_internal=%u free_psram=%u",
+                 (long)created,
+                 (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
+                 (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
+                 (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+        return;
+    }
+
+    ESP_LOGI(TAG, "VOICE task started handle=%p", g_voice_task_handle);
 }
 
 int mel_terminal_state(void) {
