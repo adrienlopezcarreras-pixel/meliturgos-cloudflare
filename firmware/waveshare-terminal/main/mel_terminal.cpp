@@ -1378,15 +1378,33 @@ static std::string record_and_transcribe() {
         return "";
     }
     if (status != 200) {
-        switch (status) {
-            case 400: voice_error("STT 400"); break;
-            case 401: voice_error("STT 401 AUTH"); break;
-            case 413: voice_error("STT 413"); break;
-            case 415: voice_error("STT 415 FORMAT"); break;
-            case 429: voice_error("STT 429 LIMITE"); break;
-            case 500: voice_error("STT 500"); break;
-            case 503: voice_error("STT 503 IA"); break;
-            default: voice_error("STT SERVEUR KO"); break;
+        const std::string server_code = parse_json_text(response, "code");
+        const std::string server_reason = parse_json_text(response, "reason");
+        const std::string server_detail = parse_json_text(response, "detail");
+        const std::string diagnostic = !server_code.empty() ? server_code : server_reason;
+        ESP_LOGE(TAG, "STT SERVER ERROR status=%d code=%s reason=%s detail=%s",
+                 status,
+                 server_code.empty() ? "-" : server_code.c_str(),
+                 server_reason.empty() ? "-" : server_reason.c_str(),
+                 server_detail.empty() ? "-" : server_detail.c_str());
+
+        if (diagnostic == "AI_BINDING_MISSING") voice_error("STT IA ABSENTE");
+        else if (diagnostic == "TRANSCRIPTION_UNAVAILABLE") voice_error("STT IA ERREUR");
+        else if (diagnostic == "EMPTY_TRANSCRIPTION") voice_error("TRANSCRIPTION VIDE");
+        else if (diagnostic == "AUDIO_REQUIRED") voice_error("STT AUDIO");
+        else if (diagnostic == "DEVICE_NOT_PAIRED") voice_error("STT AUTH");
+        else {
+            switch (status) {
+                case 400: voice_error("STT 400"); break;
+                case 401:
+                case 403: voice_error("STT AUTH"); break;
+                case 413: voice_error("STT 413"); break;
+                case 415: voice_error("STT 415 FORMAT"); break;
+                case 429: voice_error("STT 429 LIMITE"); break;
+                case 500: voice_error("STT 500"); break;
+                case 503: voice_error("STT 503 IA"); break;
+                default: voice_error("STT SERVEUR KO"); break;
+            }
         }
         return "";
     }
