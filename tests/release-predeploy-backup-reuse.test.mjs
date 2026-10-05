@@ -5,7 +5,7 @@ import { readFile } from 'node:fs/promises';
 test('canonical release proves a recent restore-verified backup through the ephemeral binder before deploy', async () => {
   const source = await readFile(new URL('../.github/workflows/deploy-cloudflare-release.yml', import.meta.url), 'utf8');
   const start = source.indexOf('      - name: Create verified pre-deploy production backup');
-  const end = source.indexOf('      - name: Install pinned Browser Rendering adapter', start);
+  const end = source.indexOf('      - name: Prepare encrypted Media Vault secrets for exact deployment', start);
   const block = source.slice(start, end);
   assert.match(block, /mel-pdb-\$\{GITHUB_RUN_ID\}-\$\{GITHUB_RUN_ATTEMPT\}/);
   assert.match(block, /\/health/);
@@ -72,15 +72,21 @@ test('exact production deploy synchronizes the canonical backup encryption key i
   assert.match(source.slice(deploy, source.indexOf('      - name: Refresh production Workers AI zero-cost proof', deploy)), /--secrets-file media-vault-release-secrets\.json/);
 });
 
-test('Workers AI zero-cost proof refresh runs after exact production deploy and before autonomy proof', async () => {
+test('Workers AI zero-cost proof is bundled into the exact immutable production deploy before autonomy proof', async () => {
   const source = await readFile(new URL('../.github/workflows/deploy-cloudflare-release.yml', import.meta.url), 'utf8');
-  const deploy = source.indexOf('      - name: Deploy exact approved SHA to production');
-  const proof = source.indexOf('      - name: Refresh production Workers AI zero-cost proof');
-  const autonomy = source.indexOf('      - name: Prepare and prove production autonomy launch evidence');
-  assert.ok(deploy >= 0 && proof >= 0 && autonomy >= 0, 'release markers must exist');
-  assert.ok(deploy < proof, 'Workers AI proof refresh must happen only after the exact production SHA is deployed');
-  assert.ok(proof < autonomy, 'Workers AI zero-cost proof must be refreshed before autonomy live proofs begin');
-  assert.match(source, /wrangler secret put MEL_WORKERS_AI_ZERO_COST_PROOF_JSON/);
+  const prepare = source.indexOf('      - name: Prepare encrypted Media Vault secrets for exact deployment');
+  const deploy = source.indexOf('      - name: Deploy exact approved SHA to production', prepare);
+  const verify = source.indexOf('      - name: Verify bundled Workers AI zero-cost proof', deploy);
+  const autonomy = source.indexOf('      - name: Prepare and prove production autonomy launch evidence', verify);
+  assert.ok(prepare >= 0 && deploy > prepare && verify > deploy && autonomy > verify, 'release markers must exist in immutable-deploy order');
+  const prepareBlock = source.slice(prepare, deploy);
+  assert.match(prepareBlock, /MEL_WORKERS_AI_ZERO_COST_PROOF_JSON:JSON\.stringify\(workersAiProof\)/);
+  assert.match(prepareBlock, /workers-ai-zero-cost-proof\.json/);
+  const deployBlock = source.slice(deploy, verify);
+  assert.match(deployBlock, /--secrets-file media-vault-release-secrets\.json/);
+  const verifyBlock = source.slice(verify, autonomy);
+  assert.match(verifyBlock, /Workers AI zero-cost proof bundled in the exact Worker deployment and still fresh/);
+  assert.doesNotMatch(source.slice(deploy, autonomy), /wrangler secret put MEL_WORKERS_AI_ZERO_COST_PROOF_JSON/);
 });
 
 
