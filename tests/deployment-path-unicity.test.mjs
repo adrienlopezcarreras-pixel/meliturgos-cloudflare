@@ -99,7 +99,7 @@ test('canonical production release requires human approval and exact immutable i
     source.indexOf('      - name: Deploy exact approved SHA to production'),
     source.indexOf('      - name: Verify bundled Workers AI zero-cost proof'),
   );
-  assert.match(immutableDeploy, /--keep-vars/);
+  assert.doesNotMatch(immutableDeploy, /--keep-vars/);
   assert.match(immutableDeploy, /--secrets-file media-vault-release-secrets\.json/);
   assert.match(source, /Require production owner auth secret before deploy/);
   assert.match(source, /wrangler secret list --name meliturgos --format json/);
