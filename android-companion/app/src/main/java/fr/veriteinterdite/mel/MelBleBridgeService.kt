@@ -930,9 +930,12 @@ class MelBleBridgeService : Service() {
         // Redmi/Xiaomi can acknowledge GATT notifications even when the peer never
         // receives them. Session-critical responses therefore use the TX
         // characteristic read queue only. MINI already polls that queue every 60 ms.
-        if (request.path == "/api/device/v1/pair" || request.path == "/api/device/v1/heartbeat") {
+        if (request.path == "/api/device/v1/pair" ||
+            request.path == "/api/device/v1/heartbeat" ||
+            request.path == "/api/device/v1/voice/transcribe"
+        ) {
             pullOnlyResponseIds[device.address] = request.id
-            Log.i(TAG, "MEL MINI control response forced to pull-only path=${request.path} id=${request.id}")
+            Log.i(TAG, "MEL MINI critical response forced to pull-only path=${request.path} id=${request.id}")
         }
 
         // The MINI uses /manifest only as its first authenticated liveness check.
@@ -1039,7 +1042,7 @@ class MelBleBridgeService : Service() {
             (url.openConnection() as HttpURLConnection).apply {
                 requestMethod = request.method
                 connectTimeout = 15_000
-                readTimeout = 90_000
+                readTimeout = if (request.path == "/api/device/v1/voice/transcribe") 30_000 else 90_000
                 if (request.token.isNotEmpty()) setRequestProperty("Authorization", "Bearer ${request.token}")
                 setRequestProperty("X-MEL-Device-ID", request.deviceId)
                 setRequestProperty("X-MEL-Mobile-Bridge", BuildConfig.VERSION_NAME)
@@ -1087,6 +1090,9 @@ class MelBleBridgeService : Service() {
             Log.i(TAG, "MEL relay HTTP ${request.method} ${request.path} -> $status")
             val contentType = connection.contentType ?: "application/octet-stream"
             val stream = if (status in 200..299) connection.inputStream else connection.errorStream
+            if (request.path == "/api/device/v1/voice/transcribe") {
+                Log.i(TAG, "MEL STT server responded status=$status contentType=$contentType")
+            }
             val downsampleTts = status in 200..299 && request.path == "/api/device/v1/voice/tts"
 
             if (downsampleTts && stream != null) {
@@ -1150,6 +1156,19 @@ class MelBleBridgeService : Service() {
                 if (!sendBodyFrames(device, request.id, compactHeartbeat)) return
                 sendFrame(device, packet(OP_RESPONSE_END, request.id, byteArrayOf()))
                 Log.i(TAG, "MEL MINI heartbeat response compacted to ${compactHeartbeat.size} bytes")
+                return
+            }
+
+            if (request.path == "/api/device/v1/voice/transcribe") {
+                val sttBody = stream?.use { it.readBytes() } ?: byteArrayOf()
+                val sttMeta = JSONObject()
+                    .put("status", status)
+                    .put("contentType", contentType)
+                    .put("length", sttBody.size)
+                if (!sendJsonFrame(device, OP_RESPONSE_BEGIN, request.id, sttMeta)) return
+                if (sttBody.isNotEmpty() && !sendBodyFrames(device, request.id, sttBody)) return
+                sendFrame(device, packet(OP_RESPONSE_END, request.id, byteArrayOf()))
+                Log.i(TAG, "MEL STT response queued pull-only bytes=${sttBody.size} status=$status")
                 return
             }
 
