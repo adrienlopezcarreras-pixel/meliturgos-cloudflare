@@ -544,7 +544,9 @@ test('Android MINI mobile shell keeps settings-driven native navigation and comp
   assert.doesNotMatch(activity,/GÉNÉRER LE CODE MINI/);
   assert.doesNotMatch(bridge,/MEL relay local manifest -> 200/);
   assert.doesNotMatch(bridge,/request\.method == "GET" && request\.path == "\/api\/device\/v1\/manifest"/);
-  assert.match(bridge,/URL\(BuildConfig\.MEL_BASE_URL\.trimEnd\('\/'\) \+ request\.path\)/);
+  assert.match(bridge,/val relayPath = if \(useAndroidSttRoute\) "\/api\/android\/v1\/voice\/transcribe" else request\.path/);
+  assert.match(bridge,/URL\(BuildConfig\.MEL_BASE_URL\.trimEnd\('\/'\) \+ relayPath\)/);
+  assert.match(bridge,/setRequestProperty\("X-MEL-MINI-Device-ID", request\.deviceId\)/);
   assert.match(bridge,/request\.path == "\/api\/device\/v1\/render\/card"/);
   assert.match(bridge,/renderMiniCardMimg\(/);
   assert.match(bridge,/payload\.optString\("image_url", ""\)/);
