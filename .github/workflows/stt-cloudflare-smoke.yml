@@ -130,11 +130,16 @@ jobs:
         run: |
           set -euo pipefail
           URL="https://mel-stt-smoke-${{ github.run_id }}.adrien-lopezcarreras.workers.dev"
-          for i in $(seq 1 12); do
+          READY=0
+          for i in $(seq 1 20); do
             CODE="$(curl -sS --max-time 60 -o /tmp/official.json -w '%{http_code}' "$URL" || true)"
-            if [ "$CODE" = "200" ] || [ "$CODE" = "500" ]; then break; fi
-            sleep 2
+            if node -e 'const fs=require("fs"); try{JSON.parse(fs.readFileSync("/tmp/official.json","utf8")); process.exit(0)}catch{process.exit(1)}' 2>/dev/null; then
+              if [ "$CODE" = "200" ] || [ "$CODE" = "500" ]; then READY=1; break; fi
+            fi
+            echo "probe not ready attempt=$i http=$CODE body=$(head -c 120 /tmp/official.json 2>/dev/null || true)"
+            sleep 3
           done
+          test "$READY" = "1"
           cat /tmp/official.json
           node -e 'const fs=require("fs"); const d=JSON.parse(fs.readFileSync("/tmp/official.json","utf8")); if(!d.turbo?.ok) process.exit(3);'
 
