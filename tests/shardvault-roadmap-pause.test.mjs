@@ -26,7 +26,8 @@ test('release workflow preserves the ShardVault 7x target, a reconstructible rel
     assert.match(workflow,/MEL_ROADMAP_SHARDVAULT_PAUSED: 'false'/);
   }
   assert.match(workflow, /if \[ "\$MEL_ROADMAP_SHARDVAULT_PAUSED" = "true" \]/);
-  assert.match(workflow, /for SHARD_STATUS_ATTEMPT in \$\(seq 1 12\); do/);
+  assert.match(workflow, /SHARD_STATUS_DEADLINE_EPOCH=\$\(\( \$\(date \+%s\) \+ 360 \)\)/);
+  assert.match(workflow, /while \[ "\$SHARD_STATUS_READY" != "1" \] && \[ "\$\(date \+%s\)" -lt "\$SHARD_STATUS_DEADLINE_EPOCH" \]; do/);
   assert.match(workflow, /for SHARD_ATTEMPT in \$\(seq 1 17\); do/);
   assert.match(workflow, /SHARD_RELEASE_QUORUM=5/);
   assert.match(workflow, /PRODUCTION_SHARDVAULT_ACTIVE_EXTERNAL_LT_RELEASE_QUORUM/);
