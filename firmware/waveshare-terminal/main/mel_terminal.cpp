@@ -1464,7 +1464,17 @@ static void voice_task(void *) {
 
 
 void mel_terminal_request_voice(void) {
-    if (!g_online || !g_audio_ok) return;
+    if (!g_online) {
+        ui_status("MEL HORS LIGNE");
+        ESP_LOGW(TAG, "VOICE ignored: MEL offline");
+        return;
+    }
+    if (!g_audio_ok || !input_dev) {
+        voice_error("MICRO INDISPONIBLE");
+        ui_status("MICRO INDISPONIBLE");
+        ESP_LOGW(TAG, "VOICE ignored: microphone unavailable");
+        return;
+    }
 
     if (g_voice_task_handle) {
         if (g_runtime_state == MEL_TERMINAL_LISTENING) {
@@ -2176,7 +2186,7 @@ static void heartbeat_task(void *) {
             cJSON_Delete(root);
             std::string response;
             int status = 0;
-            http_request(
+            const esp_err_t heartbeat_err = http_request(
                 HTTP_METHOD_POST,
                 std::string(SERVER) + "/api/device/v1/heartbeat",
                 "application/json",
@@ -2185,6 +2195,13 @@ static void heartbeat_task(void *) {
                 response,
                 status
             );
+            if (heartbeat_err == ESP_OK && status == 200 && !response.empty()) {
+                cJSON *heartbeat_json = cJSON_Parse(response.c_str());
+                if (heartbeat_json) {
+                    sync_phone_clock_from_json(heartbeat_json);
+                    cJSON_Delete(heartbeat_json);
+                }
+            }
         }
         vTaskDelay(pdMS_TO_TICKS(15000));
     }
