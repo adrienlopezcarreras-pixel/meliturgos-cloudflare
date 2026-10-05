@@ -65,10 +65,9 @@ jobs:
           TARGET_SHA="$TARGET_SHA" node - <<'NODE' > sov-before.env
           const fs=require('fs'); let d={}; try{d=JSON.parse(fs.readFileSync('sov-before.json','utf8'))}catch{}
           const expected=String(process.env.TARGET_SHA||'').toLowerCase();
-          const covered=new Set(Array.isArray(d?.covered_layers)?d.covered_layers:[]);
           const exact=String(d?.deployed_sha||'').toLowerCase()===expected;
           console.log('SOV_DONE='+(d?.done_verified_eligible===true&&exact?'1':'0'));
-          console.log('AI_COVERED='+(covered.has('ai')||d?.layers?.ai?.ready===true?'1':'0'));
+          console.log('AI_LOW_REFUSAL_READY='+(d?.ai_low_refusal_ready===true?'1':'0'));
           NODE
           . ./sov-before.env
 
@@ -76,8 +75,8 @@ jobs:
             echo "MEL_SOV_AI_ALREADY_CLOSED"
             exit 0
           fi
-          if [ "$AI_COVERED" = "1" ]; then
-            echo "MEL_SOV_AI_ALREADY_COVERED_FINAL_GATE_PENDING"
+          if [ "$AI_LOW_REFUSAL_READY" = "1" ]; then
+            echo "MEL_SOV_AI_LOW_REFUSAL_READY_FINAL_GATE_PENDING"
             exit 0
           fi
 
