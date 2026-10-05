@@ -463,7 +463,17 @@ static void mini_anim_cb(lv_timer_t *) {
     if (state == MEL_TERMINAL_LISTENING) {
         if (state != last_face_state && status_label) lv_label_set_text(status_label, "STOP");
     } else if (state == MEL_TERMINAL_TRANSCRIBING) {
-        if (state != last_face_state && status_label) lv_label_set_text(status_label, "TRANSCRIPTION");
+        // mel_terminal owns detailed PREP/PAQUET/ENVOI labels. Only override
+        // while an actual BLE upload is active, so the UI cannot hide the
+        // precise stage behind a generic "TRANSCRIPTION" label.
+        if (status_label) {
+            const int progress = mel_mobile_bridge_voice_progress();
+            if (progress >= 0 && progress <= 100) {
+                lv_label_set_text_fmt(status_label, "STT %d%%", progress);
+            } else if (progress == 101) {
+                lv_label_set_text(status_label, "STT SERVEUR");
+            }
+        }
     } else if (state == MEL_TERMINAL_THINKING) {
         if (state != last_face_state && status_label) lv_label_set_text(status_label, "REFLEXION");
     } else if (state == MEL_TERMINAL_SPEAKING) {
