@@ -27,9 +27,6 @@
   "ai": {
     "binding": "AI"
   },
-  "secrets": {
-    "required": ["MELITURGOS_PASSWORD"]
-  },
   "services": [
     {
       "binding": "MEL_BROWSER_COMPANION",
