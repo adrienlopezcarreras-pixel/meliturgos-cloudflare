@@ -99,10 +99,9 @@ test('canonical production release requires human approval and exact immutable i
     source.indexOf('      - name: Prepare encrypted Media Vault secrets for exact deployment'),
     source.indexOf('      - name: Install pinned Browser Rendering adapter'),
   );
-  assert.match(preparation, /MELITURGOS_PASSWORD: \$\{\{ secrets\.MELITURGOS_PASSWORD \}\}/);
-  assert.match(preparation, /test -n "\$\{MELITURGOS_PASSWORD:-\}"/);
-  assert.match(preparation, /MELITURGOS_PASSWORD:String\(process\.env\.MELITURGOS_PASSWORD\|\|''\)/);
-  assert.match(preparation, /!payload\.MELITURGOS_PASSWORD/);
+  assert.doesNotMatch(preparation, /secrets\.MELITURGOS_PASSWORD/);
+  assert.doesNotMatch(preparation, /MELITURGOS_PASSWORD:String\(process\.env\.MELITURGOS_PASSWORD\|\|''\)/);
+  assert.doesNotMatch(preparation, /!payload\.MELITURGOS_PASSWORD/);
 
   const immutableDeploy = source.slice(
     source.indexOf('      - name: Deploy exact approved SHA to production'),
@@ -110,10 +109,10 @@ test('canonical production release requires human approval and exact immutable i
   );
   assert.match(immutableDeploy, /--keep-vars/);
   assert.match(immutableDeploy, /--secrets-file media-vault-release-secrets\.json/);
-  assert.match(source, /Inspect production owner auth secret before recovery deploy/);
+  assert.match(source, /Require production owner auth secret before exact deploy/);
   assert.match(source, /wrangler secret list --name meliturgos --format json/);
-  assert.match(source, /restored by the exact deployment from the GitHub source of truth/);
-  assert.doesNotMatch(source, /PRODUCTION_OWNER_AUTH_SECRET_MISSING/);
+  assert.match(source, /PRODUCTION_OWNER_AUTH_SECRET_MISSING/);
+  assert.match(source, /omitted secrets are preserved by the exact deployment/);
   assert.match(source, /Verify owner auth binding and exact deployment immediately/);
   assert.match(source, /AUTH_NOT_CONFIGURED/);
   assert.match(source, /ROOT_CODE.*401/);
