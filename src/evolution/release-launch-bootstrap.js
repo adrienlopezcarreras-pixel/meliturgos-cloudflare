@@ -1472,8 +1472,12 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
       }
     }
 
-    const publicCache = await writeAutonomyLaunchReadinessPublicCache(env, readiness);
-    if (readiness.launch_ready === true && publicCache?.ok !== true) {
+    const publicCache = env?.DB && typeof env.DB.prepare === 'function'
+      ? await writeAutonomyLaunchReadinessPublicCache(env, readiness)
+      : { ok: false, status: 'PUBLIC_LAUNCH_READINESS_CACHE_DB_UNAVAILABLE' };
+    if (readiness.launch_ready === true
+      && env?.DB && typeof env.DB.prepare === 'function'
+      && publicCache?.ok !== true) {
       return Response.json({
         ok: false,
         status: 'PUBLIC_LAUNCH_READINESS_CACHE_WRITE_FAILED',
