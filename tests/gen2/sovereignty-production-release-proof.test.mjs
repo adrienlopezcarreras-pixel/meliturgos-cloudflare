@@ -59,8 +59,8 @@ test('MEL-SOV-01 live proof splits heavy refreshes and uses immutable exact-SHA 
   assert.match(workflow,/if layer_covered "ai"; then/);
   assert.match(workflow,/mark_refresh_skipped "ai" "" "ai"/);
   assert.match(workflow,/mark_refresh_skipped "ai_local" "" "ai"/);
+  assert.match(workflow,/if refresh_sov_target "ai_local"; then/);
   assert.match(workflow,/refresh_sov_target "ai" \|\| exit \$\?/);
-  assert.match(workflow,/refresh_sov_target "ai_local" \|\| exit \$\?/);
   assert.match(workflow,/if layer_covered "source_control"; then/);
   assert.match(workflow,/refresh_sov_target "source_control" \|\| exit \$\?/);
   assert.match(workflow,/for STEP in runtime storage database ci_cd secrets_identity scheduler observability/);
