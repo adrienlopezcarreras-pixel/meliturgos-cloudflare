@@ -1,7 +1,7 @@
 import { D1DevJobRepository } from '../dev/d1-dev-job-repository.js';
 import { listPendingRuntimeTeacherRequests, teacherBridgePublicView } from './runtime-teacher-bridge.js';
 import { isSupervisedAutonomyJob } from '../evolution/autonomy-supervisor.js';
-import { getAutonomyLaunchReadiness } from '../evolution/launch-readiness.js';
+import { readAutonomyLaunchReadinessPublicCache } from '../evolution/launch-readiness.js';
 
 const TERMINAL = new Set(['COMPLETED', 'COMMITTED', 'CANCELLED', 'FAILED']);
 const PUBLIC_PATHS = new Set(['/api/teacher/pending', '/api/teacher/status', '/api/teacher/work', '/api/teacher/bridge.txt', '/api/teacher/launch-readiness']);
@@ -293,6 +293,42 @@ export async function maybeHandlePublicTeacherBridge(request, env, { repository 
   const url = new URL(request.url);
   if (!PUBLIC_PATHS.has(url.pathname)) return null;
 
+  const jsonHeaders = {
+    'cache-control': 'no-store, max-age=0',
+    'content-type': 'application/json; charset=utf-8',
+    'x-content-type-options': 'nosniff',
+  };
+
+  if (url.pathname === '/api/teacher/launch-readiness') {
+    const cached = await readAutonomyLaunchReadinessPublicCache(env);
+    if (cached?.ok !== true || !cached?.readiness) {
+      return new Response(JSON.stringify({
+        ok: false,
+        status: cached?.status || 'PUBLIC_LAUNCH_READINESS_CACHE_UNAVAILABLE',
+        launch_ready: false,
+        candidate_sha: cached?.candidate_sha || null,
+        expected_sha: cached?.expected_sha || null,
+        blockers: [cached?.status || 'PUBLIC_LAUNCH_READINESS_CACHE_UNAVAILABLE'],
+        proof_source: 'internal-exact-sha-cache',
+        mutation_allowed: false,
+        exposes_secrets: false,
+        exposes_memory: false,
+      }), {
+        status: 503,
+        headers: jsonHeaders,
+      });
+    }
+    return new Response(JSON.stringify({
+      ...safeLaunchReadiness(cached.readiness),
+      proof_source: 'internal-exact-sha-cache',
+      cache_schema: cached.cache_schema || null,
+      cache_age_ms: Number(cached.cache_age_ms || 0),
+    }), {
+      status: 200,
+      headers: jsonHeaders,
+    });
+  }
+
   const repo = repository || new D1DevJobRepository(env?.DB);
   const [pendingRows, jobs] = await Promise.all([
     listPendingRuntimeTeacherRequests(repo, { limit: 20 }),
@@ -300,11 +336,6 @@ export async function maybeHandlePublicTeacherBridge(request, env, { repository 
   ]);
   const pending = minimizePending(pendingRows);
   const autonomy = summarizeAutonomyJobs(jobs);
-  const jsonHeaders = {
-    'cache-control': 'no-store, max-age=0',
-    'content-type': 'application/json; charset=utf-8',
-    'x-content-type-options': 'nosniff',
-  };
 
   if (url.pathname === '/api/teacher/bridge.txt') {
     const snapshot = bridgeSnapshot(pending, jobs);
@@ -315,14 +346,6 @@ export async function maybeHandlePublicTeacherBridge(request, env, { repository 
         'content-type': 'text/plain; charset=utf-8',
         'x-content-type-options': 'nosniff',
       },
-    });
-  }
-
-  if (url.pathname === '/api/teacher/launch-readiness') {
-    const readiness = await getAutonomyLaunchReadiness(env, { repository: repo });
-    return new Response(JSON.stringify(safeLaunchReadiness(readiness)), {
-      status: 200,
-      headers: jsonHeaders,
     });
   }
 

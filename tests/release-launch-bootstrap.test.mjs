@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { maybeHandleReleaseLaunchBootstrap, __launchBootstrapTest } from '../src/evolution/release-launch-bootstrap.js';
+import { readAutonomyLaunchReadinessPublicCache } from '../src/evolution/launch-readiness.js';
 import { sqliteD1 } from './helpers/sqlite-d1.mjs';
 import { createAlternativeRegistry } from '../src/portability/prevalidated-alternative-registry.js';
 import { D1AlternativeRegistryStore } from '../src/portability/d1-alternative-registry-store.js';
@@ -239,6 +240,53 @@ test('release backup phase reuses exact SHA-bound restore proof without rebuildi
   assert.equal(body.backup.id,'system-existing');
   assert.equal(body.backup.deployed_sha,sha);
   assert.equal(backupCalls,0);
+});
+
+test('release readiness phase persists a fresh exact-SHA public proof cache', async () => {
+  const DB=sqliteD1();
+  const sha='d'.repeat(40);
+  const readiness={
+    ok:true,
+    status:'GO_FOR_SUPERVISED_AUTONOMY',
+    launch_ready:true,
+    candidate_branch:'candidate/mel-clean-autonomy',
+    candidate_sha:sha,
+    gate_digest:'e'.repeat(64),
+    gates:{verified_restore_dry_run:true,shardvault_critical_survival:true},
+    blockers:[],
+    failure_hygiene:{ok:true,retry_cap:3,historical_failed_count:0,unbounded_failed_count:0,code:'FAILURE_HISTORY_BOUNDED'},
+    restore:{ok:true,status:'RELEASE_BOUND_SYSTEM_BACKUP_RESTORE_PROOF_VERIFIED',snapshot_id:'system-cache',deployed_sha:sha,backup_deployed_sha:sha,sha_matches:true},
+    shardvault:{ok:true,status:'SHARDVAULT_QUORUM_CODE_SURVIVAL_VERIFIED',recoverable:true,active_external_count:5,external_code_status:'QUORUM_COPIED',external_code_endpoints:5,target_count:7,release_quorum:5,code_reconstruction_verified:true},
+    evaluated_at:new Date().toISOString(),
+  };
+  try {
+    const response=await maybeHandleReleaseLaunchBootstrap(
+      new Request('https://mel.test/api/internal/release-launch-bootstrap',{
+        method:'POST',
+        headers:{'x-mel-launch-bootstrap':TOKEN,'content-type':'application/json'},
+        body:JSON.stringify({phase:'readiness'}),
+      }),
+      {MEL_LAUNCH_BOOTSTRAP_TOKEN:TOKEN,MEL_DEPLOYED_GIT_SHA:sha,DB},
+      {
+        setControl:async()=>({paused:true,max_autonomy:false}),
+        readReadiness:async()=>readiness,
+        prepareBackup:async()=>{throw new Error('CACHE_TEST_MUST_NOT_REPAIR_BACKUP');},
+      },
+    );
+    assert.equal(response.status,200);
+    const body=await response.json();
+    assert.equal(body.ok,true);
+    assert.equal(body.public_cache?.ok,true);
+    assert.equal(body.public_cache?.candidate_sha,sha);
+
+    const cached=await readAutonomyLaunchReadinessPublicCache({DB,MEL_DEPLOYED_GIT_SHA:sha});
+    assert.equal(cached.ok,true,JSON.stringify(cached));
+    assert.equal(cached.readiness?.launch_ready,true);
+    assert.equal(cached.readiness?.candidate_sha,sha);
+    assert.equal(cached.readiness?.status,'GO_FOR_SUPERVISED_AUTONOMY');
+  } finally {
+    DB.close();
+  }
 });
 
 test('release bootstrap exposes bounded pause, backup, code-sync and readiness phases', async () => {
