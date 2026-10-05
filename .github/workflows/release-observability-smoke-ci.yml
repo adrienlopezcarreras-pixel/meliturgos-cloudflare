@@ -13,6 +13,8 @@ on:
       - '.github/workflows/release-downstream-proof-decoupled.yml'
       - 'tests/gen2/release-downstream-proof-decoupled.test.mjs'
       - 'scripts/check-release-proof-shell.mjs'
+      - '.github/workflows/mel-sov-ai-auto-close.yml'
+      - 'tests/gen2/sov-ai-auto-close.test.mjs'
   push:
     branches:
       - 'fix/release-observability-smoke'
@@ -46,6 +48,7 @@ jobs:
           tests/release-production-smoke-routes.test.mjs
           tests/gen2/runtime-observability.test.mjs
           tests/gen2/release-downstream-proof-decoupled.test.mjs
+          tests/gen2/sov-ai-auto-close.test.mjs
           tests/system-readiness.test.mjs
 
   release-observability-full-suite:
