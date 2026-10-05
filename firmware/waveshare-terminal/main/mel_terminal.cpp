@@ -52,7 +52,7 @@ static const int WIFI_FAIL_BIT = BIT1;
 static const size_t MAX_HTTP_RESPONSE = 64 * 1024;
 static const int VOICE_SECONDS = 3;
 static const int VOICE_CAPTURE_RATE = 48000;
-static const int VOICE_STT_RATE = 16000;
+static const int VOICE_STT_RATE = 8000;
 static const int VOICE_CAPTURE_SAMPLES = VOICE_SECONDS * VOICE_CAPTURE_RATE;
 static const int VOICE_CAPTURE_BYTES = VOICE_CAPTURE_SAMPLES * 2;
 static const int VOICE_STT_SAMPLES = VOICE_SECONDS * VOICE_STT_RATE;
@@ -1245,8 +1245,9 @@ static std::string record_and_transcribe() {
         captured_samples += CAPTURE_CHUNK_SAMPLES;
 
         uint64_t chunk_abs_sum = 0;
-        for (int i = 0; i + 2 < CAPTURE_CHUNK_SAMPLES && speech_samples < speech_capacity; i += 3) {
-            int32_t v = ((int32_t)chunk[i] + chunk[i + 1] + chunk[i + 2]) / 3;
+        for (int i = 0; i + 5 < CAPTURE_CHUNK_SAMPLES && speech_samples < speech_capacity; i += 6) {
+            int32_t v = ((int32_t)chunk[i] + chunk[i + 1] + chunk[i + 2] +
+                         chunk[i + 3] + chunk[i + 4] + chunk[i + 5]) / 6;
             if (v > 32767) v = 32767;
             if (v < -32768) v = -32768;
             speech[speech_samples++] = (int16_t)v;
@@ -1254,7 +1255,7 @@ static std::string record_and_transcribe() {
             chunk_abs_sum += (uint32_t)av;
         }
 
-        const int produced = CAPTURE_CHUNK_SAMPLES / 3;
+        const int produced = CAPTURE_CHUNK_SAMPLES / 6;
         const uint32_t chunk_mean_abs = produced > 0 ? (uint32_t)(chunk_abs_sum / produced) : 0;
         int visual_level = (int)(chunk_mean_abs / 24U);
         if (visual_level > 100) visual_level = 100;
@@ -1343,7 +1344,7 @@ static std::string record_and_transcribe() {
 
     std::string response;
     int status = 0;
-    const char *content_type = "application/x-mel-pcm8;rate=16000;channels=1";
+    const char *content_type = "application/x-mel-pcm8;rate=8000;channels=1";
 
     ESP_LOGI(TAG, "STT COMPACT: bytes=%d rate=%d bits=8 duration_ms=%d",
              total, VOICE_STT_RATE, (speech_samples * 1000) / VOICE_STT_RATE);
@@ -1367,7 +1368,13 @@ static std::string record_and_transcribe() {
     heap_caps_free(speech);
 
     if (err != ESP_OK) {
-        voice_error("STT RESEAU");
+        if (response.find("BODY_LENGTH") != std::string::npos) voice_error("BLE BODY LENGTH");
+        else if (response.find("BODY_TOO_LARGE") != std::string::npos) voice_error("BLE BODY LARGE");
+        else if (response.find("BAD_REQUEST") != std::string::npos) voice_error("BLE BAD REQ");
+        else if (response.find("NETWORK_OPEN") != std::string::npos) voice_error("TEL RESEAU");
+        else if (response.find("NETWORK_READ") != std::string::npos) voice_error("TEL HTTP");
+        else if (response.find("STT_PCM8") != std::string::npos) voice_error("STT PCM8");
+        else voice_error("BLE ENVOI");
         return "";
     }
     if (status != 200) {
