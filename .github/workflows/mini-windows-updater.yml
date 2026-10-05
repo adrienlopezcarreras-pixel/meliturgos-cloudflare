@@ -30,14 +30,14 @@ jobs:
         run: |
           python -m pip install --disable-pip-version-check esptool==4.8.1 pyinstaller==6.11.1
 
-      - name: Download validated 0.4.40 firmware
+      - name: Download validated 0.4.41 firmware
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh run download 37270689279 `
+          gh run download 37272751957 `
             --repo "${{ github.repository }}" `
-            --name "MEL-Waveshare-3.5-C-c72ade9967ef5fd4b5604c6c352d68e0a7b9115e" `
+            --name "MEL-Waveshare-3.5-C-800f55b22bc9e1375cc76157406d07946d9ffb08" `
             --dir firmware-artifact
           if (!(Test-Path "firmware-artifact/build/mel-terminal.bin")) {
             throw "Validated firmware binary missing"
@@ -51,7 +51,7 @@ jobs:
             --clean `
             --onefile `
             --console `
-            --name "MEL-MINI-Updater-0.4.40" `
+            --name "MEL-MINI-Updater-0.4.41" `
             --collect-all esptool `
             --collect-all serial `
             --add-data "firmware-artifact/build/mel-terminal.bin;." `
@@ -60,21 +60,21 @@ jobs:
       - name: Self-test updater
         shell: pwsh
         run: |
-          & ".\dist\MEL-MINI-Updater-0.4.40.exe" --self-test
+          & ".\dist\MEL-MINI-Updater-0.4.41.exe" --self-test
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: SHA256
         shell: pwsh
         run: |
-          Get-FileHash ".\dist\MEL-MINI-Updater-0.4.40.exe" -Algorithm SHA256 |
-            Format-List | Out-File ".\dist\MEL-MINI-Updater-0.4.40.sha256.txt"
+          Get-FileHash ".\dist\MEL-MINI-Updater-0.4.41.exe" -Algorithm SHA256 |
+            Format-List | Out-File ".\dist\MEL-MINI-Updater-0.4.41.sha256.txt"
 
       - name: Upload updater
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: MEL-MINI-Updater-0.4.40
+          name: MEL-MINI-Updater-0.4.41
           path: |
-            dist/MEL-MINI-Updater-0.4.40.exe
-            dist/MEL-MINI-Updater-0.4.40.sha256.txt
+            dist/MEL-MINI-Updater-0.4.41.exe
+            dist/MEL-MINI-Updater-0.4.41.sha256.txt
           if-no-files-found: error
           retention-days: 30
