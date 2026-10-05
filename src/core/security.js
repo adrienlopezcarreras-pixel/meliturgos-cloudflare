@@ -202,6 +202,10 @@ export function authorized(request, env) {
 }
 
 export function requireAuth(request, env) {
+  // Release proofs authenticate with their own narrow, allowlisted token.
+  // Evaluate that path before the owner-password configuration check so a
+  // missing operator secret cannot block exact-SHA release verification.
+  if (isReleaseSmokeRequest(request, env)) return { ok: true };
   if (!env.MELITURGOS_PASSWORD) return { ok: false, response: notConfiguredResponse(request) };
   if (!authorized(request, env)) return { ok: false, response: unauthorizedResponse(request) };
   return { ok: true };
