@@ -177,3 +177,29 @@ test('ShardVault rejects workers.dev as an external persistence target to avoid 
   assert.match(source,/WORKERS_DEV_SAME_ZONE_UNSAFE/);
   assert.match(source,/raw\.flatMap\(\(endpoint,index\)=>\{try\{return \[normalizeEndpoint\(endpoint,index\)\];\}catch\{return \[\];\}\}\)/);
 });
+
+
+test('release code-sync treats Cloudflare 1042 as a Worker visibility gap rather than ShardVault no-progress',async()=>{
+  const source=await readFile(new URL('../.github/workflows/deploy-cloudflare-release.yml',import.meta.url),'utf8');
+  assert.match(source,/error code: 1042/);
+  assert.match(source,/transient Cloudflare Worker visibility gap 1042/);
+  assert.match(source,/without consuming ShardVault attempt\/stall budget/);
+  assert.match(source,/CODE_SYNC_WAIT=10/);
+  const gap=source.indexOf('transient Cloudflare Worker visibility gap 1042');
+  const stall=source.indexOf('CODE_SYNC_STALL=$((CODE_SYNC_STALL + 1))',gap);
+  assert.ok(gap>=0 && stall>gap,'1042 branch must bypass the normal stall increment');
+});
+
+test('rollback waits for canonical Worker visibility before staging state or invoking Wrangler rollback',async()=>{
+  const source=await readFile(new URL('../.github/workflows/deploy-cloudflare-release.yml',import.meta.url),'utf8');
+  const rollback=source.split('Automatic rollback on failed production verification')[1]||'';
+  const visible=rollback.indexOf('WORKER_VISIBLE=0');
+  const preRestore=rollback.indexOf('release-rollback-restore');
+  const wrangler=rollback.indexOf('npx wrangler rollback');
+  assert.ok(visible>=0 && preRestore>visible && wrangler>preRestore);
+  assert.match(rollback,/for WORKER_ATTEMPT in \$\(seq 1 30\)/);
+  assert.match(rollback,/workers\/scripts\/meliturgos\/deployments/);
+  assert.match(rollback,/"code"\[\[:space:\]\]\*:\[\[:space:\]\]\*10007/);
+  assert.match(rollback,/Canonical Worker did not become observable before rollback safety deadline/);
+  assert.match(rollback,/exit 58/);
+});

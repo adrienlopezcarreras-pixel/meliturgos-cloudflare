@@ -1119,9 +1119,20 @@ jobs:
               fi
               echo "Launch code-sync cycle ${CODE_SYNC_CYCLE}: ${CODE_SYNC_COMPLETED}/${CODE_SYNC_TARGET}, status=${CODE_SYNC_STATUS}, active_attempts=${CODE_SYNC_ACTIVE_ATTEMPTS}/${CODE_SYNC_MAX_ACTIVE_ATTEMPTS}, stall=${CODE_SYNC_STALL}/${CODE_SYNC_MAX_STALL}, wait=${CODE_SYNC_WAIT}s."
             else
-              CODE_SYNC_ACTIVE_ATTEMPTS=$((CODE_SYNC_ACTIVE_ATTEMPTS + 1))
-              CODE_SYNC_STALL=$((CODE_SYNC_STALL + 1))
-              echo "Launch code-sync cycle ${CODE_SYNC_CYCLE} returned HTTP ${CODE_SYNC_CODE}; active_attempts=${CODE_SYNC_ACTIVE_ATTEMPTS}/${CODE_SYNC_MAX_ACTIVE_ATTEMPTS}, stall=${CODE_SYNC_STALL}/${CODE_SYNC_MAX_STALL}."
+              # Cloudflare error 1042 is an edge/control-plane visibility gap:
+              # the Worker can temporarily look absent while a deployment/secret
+              # revision propagates. Do not burn ShardVault's no-progress budget
+              # for a failure that happened before the code-sync handler ran.
+              CODE_SYNC_WORKER_GAP=0
+              if [ "$CODE_SYNC_CODE" = "404" ] && [ -s production-launch-code-sync.json ] && grep -q 'error code: 1042' production-launch-code-sync.json; then
+                CODE_SYNC_WORKER_GAP=1
+                CODE_SYNC_WAIT=10
+                echo "Launch code-sync hit transient Cloudflare Worker visibility gap 1042; waiting without consuming ShardVault attempt/stall budget."
+              else
+                CODE_SYNC_ACTIVE_ATTEMPTS=$((CODE_SYNC_ACTIVE_ATTEMPTS + 1))
+                CODE_SYNC_STALL=$((CODE_SYNC_STALL + 1))
+                echo "Launch code-sync cycle ${CODE_SYNC_CYCLE} returned HTTP ${CODE_SYNC_CODE}; active_attempts=${CODE_SYNC_ACTIVE_ATTEMPTS}/${CODE_SYNC_MAX_ACTIVE_ATTEMPTS}, stall=${CODE_SYNC_STALL}/${CODE_SYNC_MAX_STALL}."
+              fi
               if [ -s production-launch-code-sync.json ]; then
                 node -e 'const fs=require("fs"); const raw=fs.readFileSync("production-launch-code-sync.json","utf8"); try { const d=JSON.parse(raw); console.log(JSON.stringify({status:d?.status||null,complete:d?.complete===true,code_sync:d?.code_sync||null},null,2)); } catch { console.log(JSON.stringify({transient_non_json_response:raw.slice(0,240)})); }'
               fi
@@ -2314,6 +2325,33 @@ jobs:
           test -n "${PREVIOUS_DEPLOYED_SHA:-}"
           test -n "${PREVIOUS_AUTONOMY_PAUSED:-}"
           test -n "${PREVIOUS_MAX_AUTONOMY:-}"
+
+          # A failed proof may coincide with Cloudflare's transient 1042
+          # visibility window. Wait for the canonical Worker to be observable
+          # again before staging D1 state or invoking rollback.
+          WORKER_VISIBLE=0
+          for WORKER_ATTEMPT in $(seq 1 30); do
+            WORKER_CODE="$(curl --silent --show-error --max-time 30 \
+              --header "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+              --output rollback-worker-visibility.json \
+              --write-out '%{http_code}' \
+              "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/scripts/meliturgos/deployments" || true)"
+            if [ "${WORKER_CODE}" = "200" ]; then
+              WORKER_VISIBLE=1
+              break
+            fi
+            if [ "${WORKER_CODE}" = "404" ] && grep -q '"code"[[:space:]]*:[[:space:]]*10007' rollback-worker-visibility.json 2>/dev/null; then
+              echo "Cloudflare Worker visibility gap persists (10007/1042); retry ${WORKER_ATTEMPT}/30."
+            else
+              echo "Worker visibility probe returned HTTP ${WORKER_CODE}; retry ${WORKER_ATTEMPT}/30."
+            fi
+            sleep 5
+          done
+          if [ "${WORKER_VISIBLE}" != "1" ]; then
+            echo "Canonical Worker did not become observable before rollback safety deadline."
+            test ! -s rollback-worker-visibility.json || cat rollback-worker-visibility.json
+            exit 58
+          fi
 
           PRE_RESTORE_REQUIRED=1
           PRE_RESTORE_READY=0
