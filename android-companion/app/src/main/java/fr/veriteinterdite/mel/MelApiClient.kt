@@ -20,7 +20,7 @@ class MelApiClient(
 ) {
     companion object {
         const val PROTOCOL_VERSION = "1.0"
-        const val APP_VERSION = "0.6.65-stt-light-ble"
+        const val APP_VERSION = "0.6.66-native-stt-route"
     }
 
     init {
@@ -275,12 +275,20 @@ class MelApiClient(
         require(audioBytes.isNotEmpty())
         val boundary = "mel-" + UUID.randomUUID().toString()
         val connection = connection("/api/android/v1/voice/transcribe", "POST")
+        connection.connectTimeout = 10_000
+        connection.readTimeout = 35_000
         connection.doOutput = true
         connection.setRequestProperty("Content-Type", "multipart/form-data; boundary=$boundary")
+        val extension = when {
+            mimeType.contains("wav", ignoreCase = true) -> "wav"
+            mimeType.contains("webm", ignoreCase = true) -> "webm"
+            mimeType.contains("mpeg", ignoreCase = true) || mimeType.contains("mp3", ignoreCase = true) -> "mp3"
+            else -> "m4a"
+        }
         connection.outputStream.use { output ->
             fun text(value: String) = output.write(value.toByteArray(Charsets.UTF_8))
             text("--$boundary\r\n")
-            text("Content-Disposition: form-data; name=\"audio\"; filename=\"voice.m4a\"\r\n")
+            text("Content-Disposition: form-data; name=\"audio\"; filename=\"voice.$extension\"\r\n")
             text("Content-Type: $mimeType\r\n\r\n")
             output.write(audioBytes)
             text("\r\n--$boundary--\r\n")
