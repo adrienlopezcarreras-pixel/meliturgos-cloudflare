@@ -1323,39 +1323,25 @@ static std::string record_and_transcribe() {
     ui_status("PAQUET STT...");
     vTaskDelay(pdMS_TO_TICKS(30));
 
-    const int speech_bytes = speech_samples * (int)sizeof(int16_t);
-    const char *boundary = "----MEL-ESP32-VOICE";
-    std::string prefix = std::string("--") + boundary +
-        "\r\nContent-Disposition: form-data; name=\"audio\"; filename=\"mel.wav\"\r\n"
-        "Content-Type: audio/wav\r\n\r\n";
-    std::string suffix = std::string("\r\n--") + boundary + "--\r\n";
-    const size_t total = prefix.size() + 44 + (size_t)speech_bytes + suffix.size();
-
-    auto *multipart = static_cast<uint8_t *>(
-        heap_caps_malloc(total, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)
-    );
-    if (!multipart) multipart = static_cast<uint8_t *>(heap_caps_malloc(total, MALLOC_CAP_8BIT));
-    if (!multipart) {
-        heap_caps_free(speech);
-        ESP_LOGE(TAG, "VOICE: multipart allocation failed bytes=%u", (unsigned)total);
-        voice_error("MEMOIRE REQUETE");
-        return "";
+    // BLE payload is compact unsigned PCM8 at 8 kHz. Android 0.6.62 expands
+    // this to standard signed PCM16 WAV before contacting the MEL STT endpoint.
+    // Reuse the lower half of the int16 buffer in-place; forward iteration is
+    // safe because each output byte is written below the next unread sample.
+    auto *pcm8 = reinterpret_cast<uint8_t *>(speech);
+    for (int i = 0; i < speech_samples; ++i) {
+        int32_t q = ((int32_t)speech[i] + 32768) >> 8;
+        if (q < 0) q = 0;
+        if (q > 255) q = 255;
+        pcm8[i] = (uint8_t)q;
     }
-
-    size_t off = 0;
-    memcpy(multipart + off, prefix.data(), prefix.size()); off += prefix.size();
-    wav_header_pcm16(multipart + off, (uint32_t)speech_bytes, VOICE_STT_RATE); off += 44;
-    memcpy(multipart + off, speech, (size_t)speech_bytes); off += (size_t)speech_bytes;
-    memcpy(multipart + off, suffix.data(), suffix.size());
-    heap_caps_free(speech);
+    const int total = speech_samples;
 
     std::string response;
     int status = 0;
-    std::string content_type = std::string("multipart/form-data; boundary=") + boundary;
+    const char *content_type = "application/x-mel-pcm8;rate=8000;channels=1";
 
-    ESP_LOGI(TAG, "STT DIRECT: total=%u wav_bytes=%d rate=%d bits=16 duration_ms=%d",
-             (unsigned)total, speech_bytes + 44, VOICE_STT_RATE,
-             (speech_samples * 1000) / VOICE_STT_RATE);
+    ESP_LOGI(TAG, "STT COMPACT: bytes=%d rate=%d bits=8 duration_ms=%d",
+             total, VOICE_STT_RATE, (speech_samples * 1000) / VOICE_STT_RATE);
     ui_status("ENVOI STT...");
     vTaskDelay(pdMS_TO_TICKS(40));
 
@@ -1367,9 +1353,9 @@ static std::string record_and_transcribe() {
         err = http_request(
             HTTP_METHOD_POST,
             std::string(SERVER) + "/api/device/v1/voice/transcribe",
-            content_type.c_str(),
-            reinterpret_cast<const char *>(multipart),
-            (int)total,
+            content_type,
+            reinterpret_cast<const char *>(pcm8),
+            total,
             response,
             status
         );
@@ -1392,7 +1378,7 @@ static std::string record_and_transcribe() {
             }
         }
     }
-    heap_caps_free(multipart);
+    heap_caps_free(speech);
 
     if (err != ESP_OK) {
         voice_error("RESEAU STT");
