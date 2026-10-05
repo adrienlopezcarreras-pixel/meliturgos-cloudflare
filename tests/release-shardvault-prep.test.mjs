@@ -33,9 +33,11 @@ test('release workflow requires a reconstructible 5-of-7 ShardVault quorum witho
   const bootstrap=source.indexOf('/api/internal/release-launch-bootstrap',search);
   assert.ok(search>0);
   assert.ok(bootstrap>search);
-  assert.match(source,/for SHARD_STATUS_ATTEMPT in \$\(seq 1 12\)/);
   assert.match(source,/SHARD_STATUS_READY=0/);
-  assert.match(source,/ShardVault status propagation attempt/);
+  assert.match(source,/SHARD_STATUS_DEADLINE_EPOCH=\$\(\( \$\(date \+%s\) \+ 360 \)\)/);
+  assert.match(source,/while \[ "\$SHARD_STATUS_READY" != "1" \] && \[ "\$\(date \+%s\)" -lt "\$SHARD_STATUS_DEADLINE_EPOCH" \]/);
+  assert.match(source,/waiting within the 360s propagation budget/);
+  assert.match(source,/bounded 360s propagation window/);
   assert.match(source,/exit 46/);
   assert.match(source,/SHARD_RELEASE_QUORUM=5/);
   assert.match(source,/seq 1 17/);
