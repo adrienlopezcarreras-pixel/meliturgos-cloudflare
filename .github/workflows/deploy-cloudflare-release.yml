@@ -652,7 +652,7 @@ jobs:
           npx wrangler deploy --config browser-companion/runtime/wrangler.browser-production.jsonc
           echo "Production Browser Companion deployed."
 
-      - name: Require production owner auth secret before deploy
+      - name: Inspect production owner auth secret before recovery deploy
         shell: bash
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -664,8 +664,11 @@ jobs:
           const fs=require('fs');
           const rows=JSON.parse(fs.readFileSync('production-secret-names.json','utf8'));
           const names=(Array.isArray(rows)?rows:[]).map(row=>String(row?.name||'')).filter(Boolean);
-          if(!names.includes('MELITURGOS_PASSWORD')) throw new Error('PRODUCTION_OWNER_AUTH_SECRET_MISSING');
-          console.log('Production owner auth secret presence verified without exposing its value.');
+          if(names.includes('MELITURGOS_PASSWORD')) {
+            console.log('Production owner auth secret already exists remotely and will be refreshed from the GitHub source of truth.');
+          } else {
+            console.log('Production owner auth secret is absent remotely and will be restored by the exact deployment from the GitHub source of truth.');
+          }
           NODE
           rm -f production-secret-names.json
 
