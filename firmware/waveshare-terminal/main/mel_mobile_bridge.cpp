@@ -83,6 +83,7 @@ struct NotifyFrame {
     uint8_t data[520] = {};
 };
 static QueueHandle_t g_notify_queue = nullptr;
+static TaskHandle_t g_reconnect_watch_task = nullptr;
 
 struct ActiveResponse {
     uint32_t id = 0;
@@ -96,6 +97,7 @@ static ActiveResponse g_active;
 
 static int gap_event(struct ble_gap_event *event, void *arg);
 static void start_scan();
+static void reconnect_watch_task(void *);
 static void handle_rx_frame(const uint8_t *data, size_t len);
 
 static std::string json_string(cJSON *root) {
@@ -564,8 +566,24 @@ static void start_scan() {
 }
 
 static void on_reset(int reason) {
-    ESP_LOGW(TAG, "NimBLE reset reason=%d", reason);
+    ESP_LOGW(TAG, "NimBLE reset reason=%d; clearing stale connection state", reason);
     g_ready.store(false);
+    g_rx_handle = 0;
+    g_tx_handle = 0;
+    g_mtu = 23;
+    g_conn_handle = BLE_HS_CONN_HANDLE_NONE;
+    g_active.failed = true;
+    if (g_response_done) xSemaphoreGive(g_response_done);
+}
+
+static void reconnect_watch_task(void *) {
+    while (true) {
+        if (g_started.load() && !g_ready.load() &&
+            g_conn_handle == BLE_HS_CONN_HANDLE_NONE) {
+            start_scan();
+        }
+        vTaskDelay(pdMS_TO_TICKS(2000));
+    }
 }
 
 static void on_sync() {
@@ -612,7 +630,18 @@ void mel_mobile_bridge_start(void) {
     ble_hs_cfg.sync_cb = on_sync;
     ble_att_set_preferred_mtu(185); // conservative Android/Redmi-safe MTU
     nimble_port_freertos_init(host_task);
-    ESP_LOGI(TAG, "MEL Mobile BLE client started");
+    if (!g_reconnect_watch_task) {
+        xTaskCreatePinnedToCore(
+            reconnect_watch_task,
+            "mel_ble_reconnect",
+            3072,
+            nullptr,
+            2,
+            &g_reconnect_watch_task,
+            0
+        );
+    }
+    ESP_LOGI(TAG, "MEL Mobile BLE client started with persistent reconnect watchdog");
 }
 
 void mel_mobile_bridge_rescan(void) {
@@ -811,7 +840,7 @@ static esp_err_t request_common(
         return ESP_FAIL;
     }
 
-    const TickType_t wait = pdMS_TO_TICKS(120000);
+    const TickType_t wait = pdMS_TO_TICKS(voice_upload ? 45000 : 120000);
     const TickType_t started = xTaskGetTickCount();
     bool completed = false;
     NotifyFrame notify_frame;
@@ -850,11 +879,12 @@ static esp_err_t request_common(
     }
     if (!completed) {
         g_active.failed = true;
-        ESP_LOGW(TAG, "MEL Mobile request id=%u timed out; recycling BLE link", (unsigned)id);
-        g_ready.store(false);
-        if (g_conn_handle != BLE_HS_CONN_HANDLE_NONE) {
-            ble_gap_terminate(g_conn_handle, BLE_ERR_REM_USER_CONN_TERM);
-        }
+        ESP_LOGW(TAG,
+                 "MEL Mobile request id=%u timed out; preserving BLE link ready=%d conn=%u",
+                 (unsigned)id, g_ready.load() ? 1 : 0, (unsigned)g_conn_handle);
+        // A server/STT timeout is not proof that the radio link is dead.
+        // Never tear down a healthy GATT connection here; the reconnect watchdog
+        // below handles genuine physical disconnects independently.
         xSemaphoreGive(g_request_mutex);
         return ESP_ERR_TIMEOUT;
     }
