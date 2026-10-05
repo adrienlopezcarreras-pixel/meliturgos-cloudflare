@@ -727,7 +727,8 @@ static void settings_refresh_status(void) {
         snprintf(mel_state, sizeof(mel_state), "HORS LIGNE");
     }
     lv_label_set_text_fmt(settings_status,
-                          "Wi-Fi: %s\nMobile: %s\nMEL: %s\nAudio: %s  Camera: %s",
+                          "Firmware: %s\nWi-Fi: %s\nMobile: %s\nMEL: %s\nAudio: %s  Camera: %s",
+                          MEL_FW_VERSION,
                           wifi_got_ip ? (ip[0] ? ip : "OK") : "OFF",
                           mel_terminal_mobile_connected() ? "CONNECTE" : "OFF",
                           mel_state,
@@ -1740,14 +1741,6 @@ static void mini_smoke_ui() {
     lv_obj_set_style_text_font(time_label, &lv_font_montserrat_20, 0);
     lv_obj_set_style_text_color(time_label, lv_color_hex(0xF8FAFC), 0);
     lv_obj_align(time_label, LV_ALIGN_TOP_RIGHT, -66, 16);
-
-    lv_obj_t *version_label = lv_label_create(main_panel);
-    // Short build marker: do not overlap the clock at the top-right.
-    lv_label_set_text(version_label, "0.4.42");
-    lv_obj_set_style_text_color(version_label, lv_color_hex(0x64748B), 0);
-    lv_obj_set_width(version_label, 72);
-    lv_obj_set_style_text_align(version_label, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_align(version_label, LV_ALIGN_TOP_MID, 0, 22);
 
     lv_obj_t *settings_btn = lv_btn_create(main_panel);
     lv_obj_set_size(settings_btn, 46, 40);
