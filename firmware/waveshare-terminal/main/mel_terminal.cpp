@@ -1387,7 +1387,7 @@ static std::string record_and_transcribe() {
         else if (response.find("BAD_REQUEST") != std::string::npos) voice_error("BLE BAD REQ");
         else if (response.find("NETWORK_OPEN") != std::string::npos) voice_error("TEL RESEAU");
         else if (response.find("NETWORK_READ") != std::string::npos) voice_error("TEL HTTP");
-        else if (response.find("STT_PCM8") != std::string::npos) voice_error("STT PCM8");
+        else if (response.find("STT_PCM") != std::string::npos) voice_error("STT PCM");
         else voice_error("BLE ENVOI");
         return "";
     }
