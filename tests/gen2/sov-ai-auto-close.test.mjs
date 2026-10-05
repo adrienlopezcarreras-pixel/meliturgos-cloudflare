@@ -11,6 +11,9 @@ test('AI SOV auto-close watches only the missing AI layer and preserves the 10/1
   assert.ok(source.includes('ready_layer_count||0)===10'));
   assert.ok(source.includes('layer_count||0)===10'));
   assert.ok(source.includes('ai_low_refusal_ready===true'));
+  assert.ok(source.includes("AI_LOW_REFUSAL_READY='+(d?.ai_low_refusal_ready===true?'1':'0')"));
+  assert.ok(source.includes('MEL_SOV_AI_LOW_REFUSAL_READY_FINAL_GATE_PENDING'));
+  assert.equal(source.includes('AI_COVERED='),false);
   assert.equal(source.includes('refresh=source_control'),false);
   assert.equal(source.includes('refresh=infrastructure'),false);
   assert.equal(source.includes('refresh=backup_restore'),false);
