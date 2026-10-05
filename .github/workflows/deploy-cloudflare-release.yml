@@ -674,7 +674,6 @@ jobs:
           touch production-deploy-started.marker
           test -s media-vault-release-secrets.json
           npx wrangler deploy \
-            --keep-vars \
             --secrets-file media-vault-release-secrets.json \
             --define "MEL_DEPLOYED_GIT_SHA:'${EXPECTED_SHA}'" \
             --define "MEL_DEPLOYED_GIT_BRANCH:'${RELEASE_BRANCH}'" \
