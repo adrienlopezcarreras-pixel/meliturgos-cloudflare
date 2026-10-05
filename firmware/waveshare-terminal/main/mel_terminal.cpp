@@ -1368,7 +1368,8 @@ static std::string record_and_transcribe() {
              (speech_samples * 1000) / VOICE_STT_RATE);
 
     esp_err_t err = ESP_FAIL;
-    for (int attempt = 1; attempt <= 2; ++attempt) {
+    const bool mobile_transport_expected = mel_mobile_bridge_ready() || g_mobile_connected;
+    for (int attempt = 1; attempt <= 3; ++attempt) {
         response.clear();
         status = 0;
         err = http_request(
@@ -1385,9 +1386,20 @@ static std::string record_and_transcribe() {
                  (int)std::min<size_t>(response.size(), 240), response.c_str());
         if (err == ESP_OK && status == 200) break;
         if (status > 0 && status < 500) break;
-        if (attempt == 1) {
+        if (attempt < 3) {
+            const bool mobile_retry =
+                mobile_transport_expected || g_mobile_connected || mel_mobile_bridge_candidate_seen();
+            if (mobile_retry) {
+                ui_status("RECONNEXION STT...");
+                ESP_LOGW(TAG, "STT transport lost; waiting for MEL Mobile before retry %d", attempt + 1);
+                if (wait_for_mobile_bridge_ready(12000)) {
+                    ui_status("TRANSCRIPTION...");
+                    vTaskDelay(pdMS_TO_TICKS(150));
+                    continue;
+                }
+            }
             ui_status("STT RETRY...");
-            vTaskDelay(pdMS_TO_TICKS(300));
+            vTaskDelay(pdMS_TO_TICKS(750));
         }
     }
     heap_caps_free(multipart);
@@ -2469,10 +2481,10 @@ void mel_terminal_set_wifi_connected(bool connected) {
 void mel_terminal_set_mobile_connected(bool connected) {
     g_mobile_connected = connected;
     if (connected) {
-        // Mobile BLE is an independent transport signal. Show it even when the
-        // ESP32 still has a Wi-Fi association, because Wi-Fi association alone
-        // does not prove that MEL has usable Internet.
-        ui_status(g_online ? "MEL MOBILE CONNECTE" : "MOBILE CONNECTE");
+        // A BLE reconnect must not overwrite TRANSCRIPTION/REFLEXION/MEL PARLE.
+        if (g_runtime_state == MEL_TERMINAL_IDLE) {
+            ui_status(g_online ? "MEL MOBILE CONNECTE" : "MOBILE CONNECTE");
+        }
         if (g_online && g_runtime_state == MEL_TERMINAL_IDLE && !g_wake_sync_task_handle) {
             xTaskCreatePinnedToCore(mobile_companion_sync_task, "mel_mobile_sync", 6144, nullptr, 3, &g_wake_sync_task_handle, 0);
         }
@@ -2480,9 +2492,16 @@ void mel_terminal_set_mobile_connected(bool connected) {
     }
 
     if (!g_wifi_connected) {
-        g_online = false;
-        ui_status("HORS LIGNE");
-    } else {
+        // Preserve the authenticated logical session while voice owns the bridge.
+        // The same captured WAV can then be retried after a short BLE reconnect.
+        if (g_runtime_state == MEL_TERMINAL_IDLE) {
+            g_online = false;
+            ui_status("HORS LIGNE");
+        } else {
+            ESP_LOGW(TAG, "MEL Mobile transport lost during voice state=%d; preserving session for retry",
+                     (int)g_runtime_state);
+        }
+    } else if (g_runtime_state == MEL_TERMINAL_IDLE) {
         ui_status(g_online ? "" : "WI-FI CONNECTE");
     }
 }
