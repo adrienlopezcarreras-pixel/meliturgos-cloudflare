@@ -4,7 +4,7 @@
 
 #define MEL_LCD_H_RES 320
 #define MEL_LCD_V_RES 480
-#define MEL_FW_VERSION "0.4.51-stt-progress-compact"
+#define MEL_FW_VERSION "0.4.52-stt-16k-no-loop"
 #define MEL_PROTOCOL_VERSION "1.0"
 // MINI mobile status is independent from Wi-Fi association.
 
