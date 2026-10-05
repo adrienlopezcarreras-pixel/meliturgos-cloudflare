@@ -90,11 +90,11 @@ test('canonical production release requires human approval and exact immutable i
       source.indexOf('Production code self-check + memory + UI smoke passed.'),
     'chat self-code smoke must complete before the broader production smoke bundle',
   );
-  assert.ok(
-    source.indexOf('Production code self-check + memory + UI smoke passed.') <
-      source.indexOf('cleanup_secret\n          trap - EXIT'),
-    'all authenticated release smokes must run before the temporary bootstrap secret is deleted',
-  );
+  const exactDeploy = source.indexOf('      - name: Deploy exact approved SHA to production');
+  const autonomyProof = source.indexOf('      - name: Prepare and prove production autonomy launch evidence', exactDeploy);
+  assert.ok(exactDeploy >= 0 && autonomyProof > exactDeploy, 'autonomy proof must run after the exact immutable deploy');
+  assert.match(source.slice(0, exactDeploy), /MEL_LAUNCH_BOOTSTRAP_TOKEN:String\(process\.env\.BOOTSTRAP_TOKEN\|\|''\)/);
+  assert.doesNotMatch(source.slice(exactDeploy, autonomyProof), /wrangler secret (?:put|delete) MEL_LAUNCH_BOOTSTRAP_TOKEN/);
   assert.match(source, /MEL_DEPLOYED_GIT_SHA/);
   assert.match(source, /MEL_DEPLOYED_GIT_BRANCH/);
 });
