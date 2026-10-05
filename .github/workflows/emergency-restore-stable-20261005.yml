@@ -72,6 +72,8 @@ jobs:
             MEL_BACKUP_ENCRYPTION_KEY_ID:String(process.env.MEL_BACKUP_ENCRYPTION_KEY_ID||''),
           };
           if(Object.values(payload).some(v=>!v)) throw new Error('RECOVERY_SECRETS_MISSING');
+          console.log('::add-mask::'+parallel);
+          fs.appendFileSync(process.env.GITHUB_ENV,'MEL_RECOVERY_PARALLEL_TOKEN='+parallel+'\\n');
           fs.writeFileSync('/tmp/media-vault-release-secrets.json',JSON.stringify(payload),{mode:0o600});
           NODE
 
@@ -100,7 +102,7 @@ jobs:
           set -euo pipefail
           READY=0
           for ATTEMPT in $(seq 1 12); do
-            CODE="$(curl --silent --show-error --max-time 30               --output /tmp/self-check.json --write-out '%{http_code}'               "https://meliturgos.adrien-lopezcarreras.workers.dev/api/gen2/code/self-check" || true)"
+            CODE="$(curl --silent --show-error --max-time 30               --header "x-mel-release-smoke: 1"               --header "x-mel-parallel-proof: ${MEL_RECOVERY_PARALLEL_TOKEN}"               --output /tmp/self-check.json --write-out '%{http_code}'               "https://meliturgos.adrien-lopezcarreras.workers.dev/api/gen2/code/self-check" || true)"
             if [ "${CODE}" = "200" ] && STABLE_GIT_SHA="${STABLE_GIT_SHA}" node - <<'NODE'
           const d=require('/tmp/self-check.json');
           const expected=String(process.env.STABLE_GIT_SHA||'').toLowerCase();
