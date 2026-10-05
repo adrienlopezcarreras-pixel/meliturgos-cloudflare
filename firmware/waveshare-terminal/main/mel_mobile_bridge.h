@@ -15,6 +15,7 @@ bool mel_mobile_bridge_ready(void);
 bool mel_mobile_bridge_format_phone_time(char *out, size_t out_len);
 bool mel_mobile_bridge_candidate_seen(void);
 uint16_t mel_mobile_bridge_mtu(void);
+int mel_mobile_bridge_voice_progress(void);
 
 esp_err_t mel_mobile_bridge_request(
     esp_http_client_method_t method,
