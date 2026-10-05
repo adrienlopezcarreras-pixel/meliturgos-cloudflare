@@ -882,9 +882,15 @@ class MelBleBridgeService : Service() {
         return pendingLow == null
     }
 
-    private fun buildCompactSttRelay(pcm8: ByteArray): Pair<String, ByteArray> {
-        require(pcm8.isNotEmpty() && pcm8.size <= 8_000 * 10) { "PCM8_SIZE" }
-        val sampleRate = 8_000
+    private fun buildCompactSttRelay(pcm8: ByteArray, contentType: String): Pair<String, ByteArray> {
+        require(pcm8.isNotEmpty() && pcm8.size <= 16_000 * 10) { "PCM8_SIZE" }
+        val sampleRate = Regex("""rate=(\\d+)""")
+            .find(contentType)
+            ?.groupValues
+            ?.getOrNull(1)
+            ?.toIntOrNull()
+            ?.coerceIn(8_000, 48_000)
+            ?: 16_000
         val pcm16Bytes = pcm8.size * 2
         val wav = ByteArray(44 + pcm16Bytes)
         val header = ByteBuffer.wrap(wav).order(ByteOrder.LITTLE_ENDIAN)
@@ -1011,7 +1017,7 @@ class MelBleBridgeService : Service() {
         val compactStt = request.path == "/api/device/v1/voice/transcribe" &&
             request.contentType.startsWith("application/x-mel-pcm8")
         val relayPayload = if (compactStt) {
-            runCatching { buildCompactSttRelay(request.body.toByteArray()) }.getOrElse {
+            runCatching { buildCompactSttRelay(request.body.toByteArray(), request.contentType) }.getOrElse {
                 Log.e(TAG, "Compact STT conversion failed", it)
                 sendError(device, request.id, "STT_PCM8")
                 return
