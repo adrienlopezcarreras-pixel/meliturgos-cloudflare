@@ -649,6 +649,23 @@ jobs:
           npx wrangler deploy --config browser-companion/runtime/wrangler.browser-production.jsonc
           echo "Production Browser Companion deployed."
 
+      - name: Require production owner auth secret before deploy
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          npx wrangler secret list --name meliturgos --format json > production-secret-names.json
+          node - <<'NODE'
+          const fs=require('fs');
+          const rows=JSON.parse(fs.readFileSync('production-secret-names.json','utf8'));
+          const names=(Array.isArray(rows)?rows:[]).map(row=>String(row?.name||'')).filter(Boolean);
+          if(!names.includes('MELITURGOS_PASSWORD')) throw new Error('PRODUCTION_OWNER_AUTH_SECRET_MISSING');
+          console.log('Production owner auth secret presence verified without exposing its value.');
+          NODE
+          rm -f production-secret-names.json
+
       - name: Deploy exact approved SHA to production
         shell: bash
         run: |
@@ -667,6 +684,42 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Verify owner auth binding and exact deployment immediately
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE_URL="https://meliturgos.adrien-lopezcarreras.workers.dev"
+          test -s release-bootstrap-token.txt
+          BOOTSTRAP_TOKEN="$(cat release-bootstrap-token.txt)"
+          echo "::add-mask::${BOOTSTRAP_TOKEN}"
+
+          AUTH_READY=0
+          for ATTEMPT in $(seq 1 12); do
+            ROOT_BODY="$(mktemp)"
+            ROOT_CODE="$(curl --silent --show-error --max-time 30               --output "${ROOT_BODY}" --write-out '%{http_code}'               "${BASE_URL}/" || true)"
+            if [ "${ROOT_CODE}" = "503" ] && grep -q 'AUTH_NOT_CONFIGURED' "${ROOT_BODY}" 2>/dev/null; then
+              echo "Production owner auth binding is missing after deploy."
+              cat "${ROOT_BODY}"
+              exit 47
+            fi
+
+            IDENTITY_CODE="$(curl --silent --show-error --max-time 30               --header "x-mel-release-smoke: 1"               --header "x-mel-launch-bootstrap: ${BOOTSTRAP_TOKEN}"               --header "content-type: application/json"               --data '{"phase":"identity"}'               --output production-immediate-identity.json               --write-out '%{http_code}'               "${BASE_URL}/api/internal/release-launch-bootstrap" || true)"
+            if [ "${ROOT_CODE}" = "401" ] && [ "${IDENTITY_CODE}" = "200" ] &&               EXPECTED_SHA="${EXPECTED_SHA}" node - <<'NODE'
+          const d=require('./production-immediate-identity.json');
+          const expected=String(process.env.EXPECTED_SHA||'').toLowerCase();
+          if(d?.ok!==true || d?.status!=='RELEASE_IDENTITY_VERIFIED') process.exit(1);
+          if(String(d?.deployed_sha||'').toLowerCase()!==expected) process.exit(1);
+          NODE
+            then
+              AUTH_READY=1
+              break
+            fi
+            echo "Immediate auth/identity probe attempt ${ATTEMPT}/12: root=${ROOT_CODE}, identity=${IDENTITY_CODE}."
+            sleep 2
+          done
+          test "${AUTH_READY}" = "1"
+          echo "Production owner auth binding and exact SHA verified immediately after deploy."
 
       - name: Verify bundled Workers AI zero-cost proof
         shell: bash
