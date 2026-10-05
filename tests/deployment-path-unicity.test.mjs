@@ -95,6 +95,12 @@ test('canonical production release requires human approval and exact immutable i
   assert.ok(exactDeploy >= 0 && autonomyProof > exactDeploy, 'autonomy proof must run after the exact immutable deploy');
   assert.match(source.slice(0, exactDeploy), /MEL_LAUNCH_BOOTSTRAP_TOKEN:String\(process\.env\.BOOTSTRAP_TOKEN\|\|''\)/);
   assert.doesNotMatch(source.slice(exactDeploy, autonomyProof), /wrangler secret (?:put|delete) MEL_LAUNCH_BOOTSTRAP_TOKEN/);
+  const immutableDeploy = source.slice(
+    source.indexOf('      - name: Deploy exact approved SHA to production'),
+    source.indexOf('      - name: Verify bundled Workers AI zero-cost proof'),
+  );
+  assert.match(immutableDeploy, /--keep-vars/);
+  assert.match(immutableDeploy, /--secrets-file media-vault-release-secrets\.json/);
   assert.match(source, /MEL_DEPLOYED_GIT_SHA/);
   assert.match(source, /MEL_DEPLOYED_GIT_BRANCH/);
 });
