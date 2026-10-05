@@ -182,7 +182,39 @@ jobs:
           const prefix=Buffer.from('--'+boundary+'\r\nContent-Disposition: form-data; name="audio"; filename="mel.wav"\r\nContent-Type: audio/wav\r\n\r\n');
           const suffix=Buffer.from('\r\n--'+boundary+'--\r\n');
           fs.writeFileSync('/tmp/android.multipart',Buffer.concat([prefix,wav,suffix]));
-          console.log(JSON.stringify({pcm8:pcm8.length,wav:wav.length,multipart:prefix.length+wav.length+suffix.length}));
+
+          // Candidate MINI 0.4.55 transport: pack two normalized unsigned
+          // PCM8 samples into one byte (4 bits each), then reconstruct on Android.
+          const packed=Buffer.alloc(Math.ceil(pcm8.length/2));
+          for(let i=0;i<pcm8.length;i+=2){
+            const q0=Math.min(15,Math.max(0,Math.round((pcm8[i]&255)/17)));
+            const q1=i+1<pcm8.length ? Math.min(15,Math.max(0,Math.round((pcm8[i+1]&255)/17))) : 8;
+            packed[i>>1]=(q0<<4)|q1;
+          }
+          const pcm4Wav=Buffer.alloc(44+pcm16Bytes);
+          wav.copy(pcm4Wav,0,0,44);
+          let d4=44;
+          for(let i=0;i<pcm8.length;i++){
+            const byte=packed[i>>1];
+            const nibble=(i&1)===0 ? (byte>>4)&15 : byte&15;
+            const raw8=nibble*17;
+            let sample=(raw8-128)<<8;
+            if(sample<0) sample+=65536;
+            for(let c=0;c<copies;c++){
+              pcm4Wav.writeUInt16LE(sample&0xffff,d4);
+              d4+=2;
+            }
+          }
+          fs.writeFileSync('/tmp/android-pcm4.wav',pcm4Wav);
+          fs.writeFileSync('/tmp/android-pcm4.multipart',Buffer.concat([prefix,pcm4Wav,suffix]));
+          console.log(JSON.stringify({
+            pcm8:pcm8.length,
+            pcm4:packed.length,
+            reduction_pct:Math.round((1-packed.length/pcm8.length)*100),
+            wav:wav.length,
+            pcm4_wav:pcm4Wav.length,
+            multipart:prefix.length+wav.length+suffix.length
+          }));
           NODE
 
       - name: Test exact Android-shaped WAV and multipart
@@ -194,6 +226,20 @@ jobs:
           echo "HTTP=$CODE"
           cat /tmp/android.json
           node -e 'const fs=require("fs"); const d=JSON.parse(fs.readFileSync("/tmp/android.json","utf8")); if(!d.result?.ok) process.exit(4);'
+
+      - name: Test proposed 4-bit MINI BLE transport after Android reconstruction
+        shell: bash
+        run: |
+          set -euo pipefail
+          URL="https://mel-stt-smoke-${{ github.run_id }}.adrien-lopezcarreras.workers.dev"
+          CODE="$(curl -sS --max-time 60 -o /tmp/android-pcm4.json -w '%{http_code}' \
+            -X POST \
+            -H 'Content-Type: multipart/form-data; boundary=----MEL-ANDROID-STT' \
+            --data-binary @/tmp/android-pcm4.multipart \
+            "$URL" || true)"
+          echo "HTTP=$CODE"
+          cat /tmp/android-pcm4.json
+          node -e 'const fs=require("fs"); const d=JSON.parse(fs.readFileSync("/tmp/android-pcm4.json","utf8")); const t=String(d.result?.text||"").trim(); console.log(JSON.stringify({pcm4_ok:d.result?.ok,text:t})); if(!d.result?.ok || t.length<8) process.exit(5);'
 
       - name: Cleanup probe
         if: always()
