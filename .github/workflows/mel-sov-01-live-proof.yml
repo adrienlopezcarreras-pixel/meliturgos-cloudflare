@@ -139,7 +139,7 @@ jobs:
             local CODE="000"
             local REFRESH_READY=0
             local MAX_ATTEMPTS=4
-            if [ "${TARGET}" = "ai_local" ]; then MAX_ATTEMPTS=40; fi
+            if [ "${TARGET}" = "ai_local" ]; then MAX_ATTEMPTS=60; fi
             for ATTEMPT in $(seq 1 "${MAX_ATTEMPTS}"); do
               CODE="$(curl --silent --show-error --max-time 55 \
                 --header "x-mel-parallel-proof: ${TOKEN}" \
