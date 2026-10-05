@@ -52,7 +52,7 @@ static const int WIFI_FAIL_BIT = BIT1;
 static const size_t MAX_HTTP_RESPONSE = 64 * 1024;
 static const int VOICE_SECONDS = 3;
 static const int VOICE_CAPTURE_RATE = 48000;
-static const int VOICE_STT_RATE = 8000;
+static const int VOICE_STT_RATE = 16000;
 static const int VOICE_CAPTURE_SAMPLES = VOICE_SECONDS * VOICE_CAPTURE_RATE;
 static const int VOICE_CAPTURE_BYTES = VOICE_CAPTURE_SAMPLES * 2;
 static const int VOICE_STT_SAMPLES = VOICE_SECONDS * VOICE_STT_RATE;
@@ -1245,9 +1245,8 @@ static std::string record_and_transcribe() {
         captured_samples += CAPTURE_CHUNK_SAMPLES;
 
         uint64_t chunk_abs_sum = 0;
-        for (int i = 0; i + 5 < CAPTURE_CHUNK_SAMPLES && speech_samples < speech_capacity; i += 6) {
-            int32_t v = ((int32_t)chunk[i] + chunk[i + 1] + chunk[i + 2] +
-                         chunk[i + 3] + chunk[i + 4] + chunk[i + 5]) / 6;
+        for (int i = 0; i + 2 < CAPTURE_CHUNK_SAMPLES && speech_samples < speech_capacity; i += 3) {
+            int32_t v = ((int32_t)chunk[i] + chunk[i + 1] + chunk[i + 2]) / 3;
             if (v > 32767) v = 32767;
             if (v < -32768) v = -32768;
             speech[speech_samples++] = (int16_t)v;
@@ -1255,7 +1254,7 @@ static std::string record_and_transcribe() {
             chunk_abs_sum += (uint32_t)av;
         }
 
-        const int produced = CAPTURE_CHUNK_SAMPLES / 6;
+        const int produced = CAPTURE_CHUNK_SAMPLES / 3;
         const uint32_t chunk_mean_abs = produced > 0 ? (uint32_t)(chunk_abs_sum / produced) : 0;
         int visual_level = (int)(chunk_mean_abs / 24U);
         if (visual_level > 100) visual_level = 100;
@@ -1344,54 +1343,44 @@ static std::string record_and_transcribe() {
 
     std::string response;
     int status = 0;
-    const char *content_type = "application/x-mel-pcm8;rate=8000;channels=1";
+    const char *content_type = "application/x-mel-pcm8;rate=16000;channels=1";
 
     ESP_LOGI(TAG, "STT COMPACT: bytes=%d rate=%d bits=8 duration_ms=%d",
              total, VOICE_STT_RATE, (speech_samples * 1000) / VOICE_STT_RATE);
     ui_status("ENVOI STT...");
     vTaskDelay(pdMS_TO_TICKS(40));
 
-    esp_err_t err = ESP_FAIL;
-    const bool mobile_transport_expected = mel_mobile_bridge_ready() || g_mobile_connected;
-    for (int attempt = 1; attempt <= 2; ++attempt) {
-        response.clear();
-        status = 0;
-        err = http_request(
-            HTTP_METHOD_POST,
-            std::string(SERVER) + "/api/device/v1/voice/transcribe",
-            content_type,
-            reinterpret_cast<const char *>(pcm8),
-            total,
-            response,
-            status
-        );
-        ESP_LOGI(TAG, "STT RESULT attempt=%d err=%s status=%d body=%.*s",
-                 attempt, esp_err_to_name(err), status,
-                 (int)std::min<size_t>(response.size(), 240), response.c_str());
-        if (err == ESP_OK && status == 200) break;
-        if (status > 0 && status < 500) break;
-
-        if (attempt < 2) {
-            const bool mobile_retry =
-                mobile_transport_expected || g_mobile_connected || mel_mobile_bridge_candidate_seen();
-            if (mobile_retry) {
-                ui_status("RECONNEXION STT...");
-                if (wait_for_mobile_bridge_ready(8000)) {
-                    ui_status("ENVOI STT...");
-                    vTaskDelay(pdMS_TO_TICKS(100));
-                    continue;
-                }
-            }
-        }
-    }
+    response.clear();
+    status = 0;
+    const esp_err_t err = http_request(
+        HTTP_METHOD_POST,
+        std::string(SERVER) + "/api/device/v1/voice/transcribe",
+        content_type,
+        reinterpret_cast<const char *>(pcm8),
+        total,
+        response,
+        status
+    );
+    ESP_LOGI(TAG, "STT RESULT err=%s status=%d body=%.*s",
+             esp_err_to_name(err), status,
+             (int)std::min<size_t>(response.size(), 240), response.c_str());
     heap_caps_free(speech);
 
     if (err != ESP_OK) {
-        voice_error("RESEAU STT");
+        voice_error("STT RESEAU");
         return "";
     }
     if (status != 200) {
-        voice_error(status == 401 ? "SESSION MEL" : "SERVEUR STT");
+        switch (status) {
+            case 400: voice_error("STT 400"); break;
+            case 401: voice_error("STT 401 AUTH"); break;
+            case 413: voice_error("STT 413"); break;
+            case 415: voice_error("STT 415 FORMAT"); break;
+            case 429: voice_error("STT 429 LIMITE"); break;
+            case 500: voice_error("STT 500"); break;
+            case 503: voice_error("STT 503 IA"); break;
+            default: voice_error("STT SERVEUR KO"); break;
+        }
         return "";
     }
 
