@@ -76,7 +76,7 @@ test('MEL-SOV-01 live proof splits heavy refreshes and uses immutable exact-SHA 
   assert.match(workflow,/--max-time 55/);
   assert.match(workflow,/--max-time 60/);
   assert.match(workflow,/local MAX_ATTEMPTS=4/);
-  assert.ok(workflow.includes('if [ "${TARGET}" = "ai_local" ]; then MAX_ATTEMPTS=10; fi'));
+  assert.ok(workflow.includes('if [ "${TARGET}" = "ai_local" ]; then MAX_ATTEMPTS=40; fi'));
   assert.match(workflow,/for ATTEMPT in \$\(seq 1 "\$\{MAX_ATTEMPTS\}"\)/);
   assert.match(workflow,/SOVEREIGNTY_AI_LOCAL_BOOTSTRAP_PENDING/);
   assert.match(workflow,/000\|409\|429\|500\|502\|503\|504/);
