@@ -250,3 +250,18 @@ test('decoupled Compétences proof binds live capabilities, verified skills, XP 
   assert.match(parallel,/api\/learning\/progress/);
   assert.equal([...parallel.matchAll(/'([^']+)'/g)].some(([,route])=>route.includes('/learning/')&&route!=='/api/learning/progress'),false);
 });
+
+
+test('all decoupled downstream proofs wait behind one stable exact-SHA readiness gate', async () => {
+  const workflow=await readFile(new URL('../../.github/workflows/release-downstream-proof-decoupled.yml',import.meta.url),'utf8');
+  const readiness=workflow.split('\n  readiness:\n')[1]?.split('\n  http:\n')[0]||'';
+  assert.match(readiness,/timeout-minutes:\s*8/);
+  assert.match(readiness,/DEADLINE_EPOCH=\$\(\( \$\(date \+%s\) \+ 360 \)\)/);
+  assert.match(readiness,/while \[ "\$\{READY\}" != "1" \] && \[ "\$\(date \+%s\)" -lt "\$\{DEADLINE_EPOCH\}" \]/);
+  assert.match(readiness,/RELEASE_IDENTITY_VERIFIED/);
+  assert.match(readiness,/Downstream exact-SHA readiness did not stabilize within 360 seconds/);
+  for (const job of ['http','capabilities','skills','browser','file','sovereignty']) {
+    const block=workflow.split('\n  '+job+':\n')[1]?.split(/\n  [a-z][a-z0-9_-]*:\n/)[0]||'';
+    assert.match(block,/^    needs: readiness$/m,job+' must wait for readiness');
+  }
+});
