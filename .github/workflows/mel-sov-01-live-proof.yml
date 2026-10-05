@@ -138,7 +138,9 @@ jobs:
             fi
             local CODE="000"
             local REFRESH_READY=0
-            for ATTEMPT in $(seq 1 4); do
+            local MAX_ATTEMPTS=4
+            if [ "${TARGET}" = "ai_local" ]; then MAX_ATTEMPTS=10; fi
+            for ATTEMPT in $(seq 1 "${MAX_ATTEMPTS}"); do
               CODE="$(curl --silent --show-error --max-time 55 \
                 --header "x-mel-parallel-proof: ${TOKEN}" \
                 --header "content-type: application/json" \
@@ -155,9 +157,16 @@ jobs:
                 echo "Google Drive OAuth re-consent is required for ${KEY}; this is not transient."
                 break
               fi
+              case "${REFRESH_ERROR_CODE}" in
+                SOVEREIGNTY_AI_LOCAL_BOOTSTRAP_PENDING)
+                  echo "Local AI bootstrap is still running; retry ${ATTEMPT}/${MAX_ATTEMPTS} after bounded backoff."
+                  sleep 30
+                  continue
+                  ;;
+              esac
               case "${CODE}" in
                 000|409|429|500|502|503|504)
-                  echo "Transient MEL-SOV-01 refresh ${KEY} status ${CODE} (${REFRESH_ERROR_CODE}); retry ${ATTEMPT}/4."
+                  echo "Transient MEL-SOV-01 refresh ${KEY} status ${CODE} (${REFRESH_ERROR_CODE}); retry ${ATTEMPT}/${MAX_ATTEMPTS}."
                   sleep $((ATTEMPT * 2))
                   ;;
                 *)
