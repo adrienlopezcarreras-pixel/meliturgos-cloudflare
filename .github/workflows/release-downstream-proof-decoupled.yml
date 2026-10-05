@@ -17,7 +17,65 @@ env:
   BASE_URL: https://meliturgos.adrien-lopezcarreras.workers.dev
 
 jobs:
+  readiness:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    env:
+      PROOF_KEY_B64: ${{ secrets.MEL_BACKUP_ENCRYPTION_KEY_B64 }}
+    steps:
+      - name: Wait for stable exact-SHA production identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "${TARGET_SHA}" =~ ^[0-9a-fA-F]{40}$ ]]
+          TOKEN="$(PROOF_KEY_B64="${PROOF_KEY_B64}" TARGET_SHA="${TARGET_SHA}" node - <<'NODE'
+          const crypto=require('crypto');
+          const source=Buffer.from(String(process.env.PROOF_KEY_B64||''),'base64');
+          const sha=String(process.env.TARGET_SHA||'').toLowerCase();
+          if(source.length!==32) throw new Error('PARALLEL_PROOF_SOURCE_KEY_INVALID');
+          if(!/^[0-9a-f]{40}$/.test(sha)) throw new Error('PARALLEL_PROOF_SHA_INVALID');
+          process.stdout.write(Buffer.from(crypto.hkdfSync(
+            'sha256',source,
+            Buffer.from('meliturgos-parallel-proof-salt-v1','utf8'),
+            Buffer.from('MEL_PARALLEL_PROOF_V1:'+sha,'utf8'),
+            32,
+          )).toString('base64url'));
+          NODE
+          )"
+          echo "::add-mask::${TOKEN}"
+
+          READY=0
+          ATTEMPT=0
+          DEADLINE_EPOCH=$(( $(date +%s) + 360 ))
+          while [ "${READY}" != "1" ] && [ "$(date +%s)" -lt "${DEADLINE_EPOCH}" ]; do
+            ATTEMPT=$((ATTEMPT + 1))
+            CODE="$(curl --silent --show-error --max-time 30 \
+              --header "x-mel-parallel-proof: ${TOKEN}" \
+              --header "content-type: application/json" \
+              --data '{"phase":"identity"}' \
+              --output downstream-readiness-identity.json --write-out '%{http_code}' \
+              "${BASE_URL}/api/internal/release-launch-bootstrap" || true)"
+            if [ "${CODE}" = "200" ] && TARGET_SHA="${TARGET_SHA}" node - <<'NODE'
+          const d=require('./downstream-readiness-identity.json');
+          const expected=String(process.env.TARGET_SHA||'').toLowerCase();
+          const actual=String(d?.deployed_sha||'').toLowerCase();
+          process.exit(d?.ok===true && d?.status==='RELEASE_IDENTITY_VERIFIED' && actual===expected ? 0 : 1);
+          NODE
+            then
+              READY=1
+              break
+            fi
+            echo "Downstream exact-SHA readiness not stable yet (HTTP ${CODE}); attempt ${ATTEMPT} within 360s budget."
+            sleep 5
+          done
+          if [ "${READY}" != "1" ]; then
+            echo "Downstream exact-SHA readiness did not stabilize within 360 seconds."
+            test ! -s downstream-readiness-identity.json || cat downstream-readiness-identity.json
+            exit 30
+          fi
+
   http:
+    needs: readiness
     runs-on: ubuntu-24.04
     timeout-minutes: 8
     env:
@@ -90,6 +148,7 @@ jobs:
           retention-days: 14
 
   capabilities:
+    needs: readiness
     runs-on: ubuntu-24.04
     timeout-minutes: 12
     env:
@@ -242,6 +301,7 @@ jobs:
           retention-days: 14
 
   skills:
+    needs: readiness
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     env:
@@ -424,6 +484,7 @@ jobs:
           retention-days: 30
 
   browser:
+    needs: readiness
     runs-on: ubuntu-24.04
     timeout-minutes: 12
     env:
@@ -519,6 +580,7 @@ jobs:
           retention-days: 14
 
   file:
+    needs: readiness
     runs-on: ubuntu-24.04
     # The autonomy launch proof can legitimately spend most of its bounded
     # 20-minute ShardVault window. Keep MEL-FILE decoupled and patient enough
@@ -767,6 +829,7 @@ jobs:
           retention-days: 14
 
   sovereignty:
+    needs: readiness
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     env:
