@@ -58,6 +58,21 @@ test('requireAuth distinguishes unconfigured auth from rejected credentials with
   assert.equal(JSON.stringify(payload).includes('hidden-value'), false);
 });
 
+test('requireAuth accepts a valid allowlisted release proof even if owner password is unavailable', () => {
+  const token = 'r'.repeat(64);
+  const request = new Request('https://meliturgos.test/api/gen2/shardvault/status', {
+    method:'GET',
+    headers:{
+      'x-mel-release-smoke':'1',
+      'x-mel-launch-bootstrap':token,
+    },
+  });
+  assert.equal(requireAuth(request, {
+    MELITURGOS_USER:'adrien',
+    MEL_LAUNCH_BOOTSTRAP_TOKEN:token,
+  }).ok, true);
+});
+
 
 test('ephemeral release smoke auth is restricted to exact verification routes and bounded smoke entry points', () => {
   const token = 'b'.repeat(64);
