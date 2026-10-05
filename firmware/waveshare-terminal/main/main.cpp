@@ -61,6 +61,7 @@ static bool visual_active = false;
 static lv_obj_t *left_eye = nullptr;
 static lv_obj_t *right_eye = nullptr;
 static lv_obj_t *talk_button = nullptr;
+static lv_obj_t *talk_hitbox = nullptr;
 static lv_obj_t *mouth_obj = nullptr;
 static lv_timer_t *anim_timer = nullptr;
 static bool listening = false;
@@ -264,6 +265,15 @@ static void clock_start_sync(void) {
 
 static void clock_timer_cb(lv_timer_t *) {
     if (!time_label) return;
+
+    // Prefer the phone clock transported directly over BLE. This does not depend
+    // on ESP32 system time, SNTP, Wi-Fi or settimeofday().
+    char phone_time[8] = {};
+    if (mel_mobile_bridge_format_phone_time(phone_time, sizeof(phone_time))) {
+        lv_label_set_text(time_label, phone_time);
+        return;
+    }
+
     time_t now = 0;
     time(&now);
     struct tm local_tm = {};
@@ -446,15 +456,8 @@ static void mini_anim_cb(lv_timer_t *) {
     }
 
     if (talk_button) {
-        // Keep the control touchable while idle/offline so a press always gives
-        // the user an explicit reason (MEL OFF / MIC KO) instead of doing nothing.
-        if (state == MEL_TERMINAL_TRANSCRIBING ||
-            state == MEL_TERMINAL_THINKING ||
-            state == MEL_TERMINAL_SPEAKING) {
-            lv_obj_add_state(talk_button, LV_STATE_DISABLED);
-        } else {
-            lv_obj_clear_state(talk_button, LV_STATE_DISABLED);
-        }
+        // Never disable touch completely: every press must produce visible feedback.
+        lv_obj_clear_state(talk_button, LV_STATE_DISABLED);
     }
 
     if (state == MEL_TERMINAL_LISTENING) {
@@ -1688,6 +1691,14 @@ static void touch_cb(lv_event_t *e) {
         return;
     }
 
+    if (state == MEL_TERMINAL_TRANSCRIBING ||
+        state == MEL_TERMINAL_THINKING ||
+        state == MEL_TERMINAL_SPEAKING) {
+        lv_label_set_text(status_label, "OCCUPE");
+        ESP_LOGI(TAG, "Talk press acknowledged while runtime busy state=%d", state);
+        return;
+    }
+
     if (state == MEL_TERMINAL_IDLE) lv_label_set_text(status_label, "ECOUTE...");
     else if (state == MEL_TERMINAL_LISTENING) lv_label_set_text(status_label, "ENVOI...");
     mel_terminal_request_voice();
@@ -1729,6 +1740,13 @@ static void mini_smoke_ui() {
     lv_obj_set_style_text_font(time_label, &lv_font_montserrat_20, 0);
     lv_obj_set_style_text_color(time_label, lv_color_hex(0xF8FAFC), 0);
     lv_obj_align(time_label, LV_ALIGN_TOP_RIGHT, -66, 16);
+
+    lv_obj_t *version_label = lv_label_create(main_panel);
+    lv_label_set_text(version_label, MEL_FW_VERSION);
+    lv_obj_set_style_text_color(version_label, lv_color_hex(0x64748B), 0);
+    lv_obj_set_width(version_label, 170);
+    lv_obj_set_style_text_align(version_label, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_align(version_label, LV_ALIGN_TOP_MID, 0, 22);
 
     lv_obj_t *settings_btn = lv_btn_create(main_panel);
     lv_obj_set_size(settings_btn, 46, 40);
@@ -1790,6 +1808,21 @@ static void mini_smoke_ui() {
     lv_label_set_text(status_label, "PARLER");
     lv_obj_set_style_text_align(status_label, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_center(status_label);
+    lv_obj_clear_flag(status_label, LV_OBJ_FLAG_CLICKABLE);
+
+    // Large transparent touch target around the visible circle. The Waveshare
+    // touch calibration is less precise near the bottom edge, so a 96 px circle
+    // is unnecessarily strict on real hardware.
+    talk_hitbox = lv_obj_create(main_panel);
+    lv_obj_set_size(talk_hitbox, 210, 126);
+    lv_obj_align(talk_hitbox, LV_ALIGN_BOTTOM_MID, 0, 0);
+    lv_obj_set_style_bg_opa(talk_hitbox, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(talk_hitbox, 0, 0);
+    lv_obj_set_style_pad_all(talk_hitbox, 0, 0);
+    lv_obj_clear_flag(talk_hitbox, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(talk_hitbox, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(talk_hitbox, touch_cb, LV_EVENT_PRESSED, nullptr);
+    lv_obj_move_foreground(talk_hitbox);
 
     wifi_ui_create(screen);
     pair_ui_create(screen);
