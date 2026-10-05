@@ -1087,17 +1087,33 @@ class MelBleBridgeService : Service() {
         val relayContentType = request.contentType
         val relayBody = request.body.toByteArray()
 
+        // STT is an Android-mediated operation: the phone already owns a valid,
+        // durable Android companion session and is the component actually making
+        // the Internet request. Route MINI STT through that authenticated surface
+        // instead of reusing the MINI bearer token across the BLE proxy.
+        val rawAndroidIdForRelay = Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID)
+        val androidDeviceIdForRelay = "android-" + (rawAndroidIdForRelay ?: "unknown").take(64)
+        val androidTokenForRelay = TokenVault(this).load()
+        val useAndroidSttRoute = compactStt && !androidTokenForRelay.isNullOrBlank()
+        val relayPath = if (useAndroidSttRoute) "/api/android/v1/voice/transcribe" else request.path
+
         // Manifest requests must reach the real MEL backend. BLE connectivity alone
         // is not proof of Internet access; returning a local 200 here made MINI
         // believe it was online even when the phone could not reach MEL.
         val connection = runCatching {
-            val url = URL(BuildConfig.MEL_BASE_URL.trimEnd('/') + request.path)
+            val url = URL(BuildConfig.MEL_BASE_URL.trimEnd('/') + relayPath)
             (url.openConnection() as HttpURLConnection).apply {
                 requestMethod = request.method
                 connectTimeout = 15_000
-                readTimeout = if (request.path == "/api/device/v1/voice/transcribe") 30_000 else 90_000
-                if (request.token.isNotEmpty()) setRequestProperty("Authorization", "Bearer ${request.token}")
-                setRequestProperty("X-MEL-Device-ID", request.deviceId)
+                readTimeout = if (compactStt) 30_000 else 90_000
+                if (useAndroidSttRoute) {
+                    setRequestProperty("Authorization", "Bearer $androidTokenForRelay")
+                    setRequestProperty("X-MEL-Device-ID", androidDeviceIdForRelay)
+                    setRequestProperty("X-MEL-MINI-Device-ID", request.deviceId)
+                } else {
+                    if (request.token.isNotEmpty()) setRequestProperty("Authorization", "Bearer ${request.token}")
+                    setRequestProperty("X-MEL-Device-ID", request.deviceId)
+                }
                 setRequestProperty("X-MEL-Mobile-Bridge", BuildConfig.VERSION_NAME)
                 if (request.path == "/api/device/v1/pair") {
                     val androidToken = TokenVault(this@MelBleBridgeService).load()
@@ -1140,7 +1156,7 @@ class MelBleBridgeService : Service() {
                     "MINI CONNECTÉE · APPLI MEL À RÉAPPAIRER"
                 else -> "MINI CONNECTÉE · MEL HTTP $status"
             }
-            Log.i(TAG, "MEL relay HTTP ${request.method} ${request.path} -> $status")
+            Log.i(TAG, "MEL relay HTTP ${request.method} ${request.path} via $relayPath -> $status")
             val contentType = connection.contentType ?: "application/octet-stream"
             val stream = if (status in 200..299) connection.inputStream else connection.errorStream
             val downsampleTts = status in 200..299 && request.path == "/api/device/v1/voice/tts"
