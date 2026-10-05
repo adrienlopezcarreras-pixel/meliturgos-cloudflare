@@ -13,7 +13,7 @@ function request(audio=new Blob(['audio'],{type:'audio/webm'})){
   return new Request('https://mel.test/api/voice/transcribe',{method:'POST',headers:{authorization:auth},body:form});
 }
 
-test('canonical voice transcription uses one authenticated Workers AI route', async()=>{
+test('canonical voice transcription uses Turbo first', async()=>{
   const response=await handleVoiceTranscription(request(),{
     MELITURGOS_USER:'adrien',MELITURGOS_PASSWORD:'test',
     AI:{async run(model,input){
@@ -26,7 +26,28 @@ test('canonical voice transcription uses one authenticated Workers AI route', as
     }}
   });
   assert.equal(response.status,200);
-  assert.deepEqual(await response.json(),{ok:true,text:'bonjour depuis le micro',language:'fr',model:'@cf/openai/whisper-large-v3-turbo',stored:false,archive_via:'chat',input_source:'voice-server-transcription'});
+  assert.deepEqual(await response.json(),{ok:true,text:'bonjour depuis le micro',language:'fr',model:'@cf/openai/whisper-large-v3-turbo',fallback_model_used:false,stored:false,archive_via:'chat',input_source:'voice-server-transcription'});
+});
+
+test('voice transcription falls back to multilingual Whisper when Turbo fails', async()=>{
+  const calls=[];
+  const response=await handleVoiceTranscription(request(),{
+    MELITURGOS_USER:'adrien',MELITURGOS_PASSWORD:'test',
+    AI:{async run(model,input){
+      calls.push(model);
+      if(model==='@cf/openai/whisper-large-v3-turbo') throw new Error('turbo unavailable');
+      assert.equal(model,'@cf/openai/whisper');
+      assert.ok(Array.isArray(input.audio));
+      assert.ok(input.audio.length>0);
+      return{text:'secours whisper ok'};
+    }}
+  });
+  assert.equal(response.status,200);
+  assert.deepEqual(calls,['@cf/openai/whisper-large-v3-turbo','@cf/openai/whisper']);
+  const body=await response.json();
+  assert.equal(body.text,'secours whisper ok');
+  assert.equal(body.model,'@cf/openai/whisper');
+  assert.equal(body.fallback_model_used,true);
 });
 
 test('voice fails closed to text when AI is unavailable and mobile UI releases microphone', async()=>{
