@@ -1329,7 +1329,7 @@ static std::string record_and_transcribe() {
     ui_status("PAQUET STT...");
     vTaskDelay(pdMS_TO_TICKS(30));
 
-    // BLE payload is compact unsigned PCM8 at 8 kHz. Android 0.6.62 expands
+    // BLE payload is compact unsigned PCM8 at 8 kHz. Android 0.6.67 expands
     // this to standard signed PCM16 WAV before contacting the MEL STT endpoint.
     // Reuse the lower half of the int16 buffer in-place; forward iteration is
     // safe because each output byte is written below the next unread sample.
