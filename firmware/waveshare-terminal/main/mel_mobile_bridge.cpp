@@ -83,7 +83,6 @@ struct NotifyFrame {
     uint8_t data[520] = {};
 };
 static QueueHandle_t g_notify_queue = nullptr;
-static TaskHandle_t g_reconnect_watch_task = nullptr;
 
 struct ActiveResponse {
     uint32_t id = 0;
@@ -97,7 +96,6 @@ static ActiveResponse g_active;
 
 static int gap_event(struct ble_gap_event *event, void *arg);
 static void start_scan();
-static void reconnect_watch_task(void *);
 static void handle_rx_frame(const uint8_t *data, size_t len);
 
 static std::string json_string(cJSON *root) {
@@ -566,7 +564,10 @@ static void start_scan() {
 }
 
 static void on_reset(int reason) {
-    ESP_LOGW(TAG, "NimBLE reset reason=%d; clearing stale connection state", reason);
+    ESP_LOGW(TAG, "NimBLE reset reason=%d; waiting for host resync", reason);
+    // Clear only transport state here. NimBLE will call on_sync() once the host
+    // is usable again; on_sync owns restarting the scan. This avoids racing a
+    // scan against controller reset while still discarding stale handles.
     g_ready.store(false);
     g_rx_handle = 0;
     g_tx_handle = 0;
@@ -574,16 +575,6 @@ static void on_reset(int reason) {
     g_conn_handle = BLE_HS_CONN_HANDLE_NONE;
     g_active.failed = true;
     if (g_response_done) xSemaphoreGive(g_response_done);
-}
-
-static void reconnect_watch_task(void *) {
-    while (true) {
-        if (g_started.load() && !g_ready.load() &&
-            g_conn_handle == BLE_HS_CONN_HANDLE_NONE) {
-            start_scan();
-        }
-        vTaskDelay(pdMS_TO_TICKS(2000));
-    }
 }
 
 static void on_sync() {
@@ -630,18 +621,7 @@ void mel_mobile_bridge_start(void) {
     ble_hs_cfg.sync_cb = on_sync;
     ble_att_set_preferred_mtu(185); // conservative Android/Redmi-safe MTU
     nimble_port_freertos_init(host_task);
-    if (!g_reconnect_watch_task) {
-        xTaskCreatePinnedToCore(
-            reconnect_watch_task,
-            "mel_ble_reconnect",
-            3072,
-            nullptr,
-            2,
-            &g_reconnect_watch_task,
-            0
-        );
-    }
-    ESP_LOGI(TAG, "MEL Mobile BLE client started with persistent reconnect watchdog");
+    ESP_LOGI(TAG, "MEL Mobile BLE client started");
 }
 
 void mel_mobile_bridge_rescan(void) {
