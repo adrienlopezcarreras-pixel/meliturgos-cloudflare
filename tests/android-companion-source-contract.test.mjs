@@ -777,8 +777,8 @@ test('idle TX reads expose direct binary clock frames to MINI',async()=>{
 });
 
 
-test('MINI compact STT uses native Android voice route', () => {
-  const service = read('android-companion/app/src/main/java/fr/veriteinterdite/mel/MelBleBridgeService.kt');
+test('MINI compact STT uses native Android voice route', async () => {
+  const service = await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelBleBridgeService.kt',root),'utf8');
   assert.match(service, /MelApiClient\(/);
   assert.match(service, /api\.transcribe\(wav, "audio\/wav"\)/);
   assert.match(service, /MEL MINI STT native Android route/);
