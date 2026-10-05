@@ -415,9 +415,9 @@ test('Android Complete mode exposes an authenticated self diagnostic',async()=>{
   const vm=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelViewModel.kt',root),'utf8');
   const api=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelApiClient.kt',root),'utf8');
   const build=await readFile(new URL('app/build.gradle.kts',root),'utf8');
-  assert.match(build,/versionCode = 67/);
-  assert.match(build,/versionName = "0\.6\.58-mini-stable-bridge"/);
-  assert.match(api,/APP_VERSION = "0\.6\.58-mini-stable-bridge"/);
+  assert.match(build,/versionCode = 68/);
+  assert.match(build,/versionName = "0\.6\.59-mini-clock-ping"/);
+  assert.match(api,/APP_VERSION = "0\.6\.59-mini-clock-ping"/);
   assert.match(vm,/val diagnosticReport: String\? = null/);
   assert.match(vm,/fun runDiagnostics\(\)/);
   assert.match(vm,/client\.heartbeat\(sdkInt = Build\.VERSION\.SDK_INT\)/);
@@ -438,9 +438,9 @@ test('Android device validation probes are authenticated and bounded',async()=>{
   const build=await readFile(new URL('app/build.gradle.kts',root),'utf8');
   const api=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelApiClient.kt',root),'utf8');
 
-  assert.match(build,/versionCode = 67/);
-  assert.match(build,/versionName = "0\.6\.58-mini-stable-bridge"/);
-  assert.match(api,/APP_VERSION = "0\.6\.58-mini-stable-bridge"/);
+  assert.match(build,/versionCode = 68/);
+  assert.match(build,/versionName = "0\.6\.59-mini-clock-ping"/);
+  assert.match(api,/APP_VERSION = "0\.6\.59-mini-clock-ping"/);
 
   assert.match(activity,/private const val MAX_FILE_BYTES = 25_000_000/);
   assert.match(activity,/private fun readUriBounded\(uri: Uri\): ByteArray/);
@@ -472,9 +472,9 @@ test('real mic and file successes feed the diagnostic report',async()=>{
   const build=await readFile(new URL('app/build.gradle.kts',root),'utf8');
   const api=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelApiClient.kt',root),'utf8');
 
-  assert.match(build,/versionCode = 67/);
-  assert.match(build,/versionName = "0\.6\.58-mini-stable-bridge"/);
-  assert.match(api,/APP_VERSION = "0\.6\.58-mini-stable-bridge"/);
+  assert.match(build,/versionCode = 68/);
+  assert.match(build,/versionName = "0\.6\.59-mini-clock-ping"/);
+  assert.match(api,/APP_VERSION = "0\.6\.59-mini-clock-ping"/);
 
   const voice=vm.slice(vm.indexOf('fun sendVoice('),vm.indexOf('fun sendFile('));
   assert.match(voice,/appendDiagnosticLine\("Micro réel: OK"\)/);
@@ -491,9 +491,9 @@ test('Android dark UI keeps readable content contrast',async()=>{
   const build=await readFile(new URL('app/build.gradle.kts',root),'utf8');
   const api=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelApiClient.kt',root),'utf8');
 
-  assert.match(build,/versionCode = 67/);
-  assert.match(build,/versionName = "0\.6\.58-mini-stable-bridge"/);
-  assert.match(api,/APP_VERSION = "0\.6\.58-mini-stable-bridge"/);
+  assert.match(build,/versionCode = 68/);
+  assert.match(build,/versionName = "0\.6\.59-mini-clock-ping"/);
+  assert.match(api,/APP_VERSION = "0\.6\.59-mini-clock-ping"/);
 
   assert.match(activity,/contentColor = MelInk/);
   assert.match(activity,/CardDefaults\.cardColors\(containerColor = MelPanel, contentColor = MelInk\)/);
@@ -697,8 +697,8 @@ test('Android MINI bridge distinguishes phone Internet from proven MEL relay',as
   assert.match(service,/MINI CONNECTÉE · INTERNET OK/);
   assert.match(activity,/phoneInternetReady by MelBleBridgeService\.phoneInternetAvailable/);
   assert.match(activity,/téléphone en ligne · validation MEL en cours/);
-  assert.match(build,/versionCode = 67/);
-  assert.match(build,/versionName = "0\.6\.58-mini-stable-bridge"/);
+  assert.match(build,/versionCode = 68/);
+  assert.match(build,/versionName = "0\.6\.59-mini-clock-ping"/);
 });
 
 
@@ -755,4 +755,13 @@ test('Android MINI bridge stays alive, reconnects after GATT drops, refreshes de
   assert.match(vm,/startCompanionRefreshLoop/);
   assert.match(vm,/delay\(10_000\)/);
   assert.match(vm,/refreshCompanions\(\)/);
+});
+
+
+test('MINI BLE ping carries direct phone clock independently of HTTP heartbeat',async()=>{
+  const bridge=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelBleBridgeService.kt',root),'utf8');
+  assert.match(bridge,/OP_PING -> executor\.execute/);
+  assert.match(bridge,/put\("epoch_ms", nowMs\)/);
+  assert.match(bridge,/put\("utc_offset_seconds", zone\.getOffset\(nowMs\) \/ 1000\)/);
+  assert.match(bridge,/pullOnlyResponseIds\[device\.address\] = requestId/);
 });
