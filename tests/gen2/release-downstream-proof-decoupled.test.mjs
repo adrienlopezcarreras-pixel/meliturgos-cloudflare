@@ -29,7 +29,8 @@ test('decoupled MEL-FILE proof mirrors the successful canonical browser shape af
   assert.match(fileBlock,/api\/teacher\/launch-readiness/);
   assert.match(fileBlock,/GO_FOR_SUPERVISED_AUTONOMY/);
   assert.match(fileBlock,/candidate_sha/);
-  assert.match(fileBlock,/for ATTEMPT in \$\(seq 1 60\)/);
+  assert.match(fileBlock,/for ATTEMPT in \$\(seq 1 180\)/);
+  assert.match(fileBlock,/timeout-minutes:\s*45/);
   assert.match(fileBlock,/MEL-FILE target SHA is no longer deployed/);
   assert.match(fileBlock,/mel-file-current-sha\.json/);
   assert.match(fileBlock,/exit 42/);
@@ -232,7 +233,13 @@ test('decoupled Compétences proof binds live capabilities, verified skills, XP 
   assert.match(block,/#skillsLearningState/);
   assert.match(block,/#skillsLearned/);
   assert.match(block,/#skillsXp/);
-  assert.match(block,/retry \$\{ATTEMPT\}\/8 without navigation/);
+  assert.match(block,/SKILLS_BROWSER_READY=0/);
+  assert.match(block,/max_steps:7/);
+  assert.match(block,/timeout_ms:20000/);
+  assert.match(block,/Compétences atomic browser proof not ready/);
+  assert.match(block,/000\|400\|401\|403\|404\|408\|409\|429\|500\|502\|503\|504/);
+  assert.match(block,/steps_completed\|\|0\)===7/);
+  assert.doesNotMatch(block,/without navigation/);
   assert.match(block,/skills-control-center-production-proof\/v1/);
   assert.match(block,/secret_values_exposed:false/);
   assert.doesNotMatch(block,/MEL_LAUNCH_BOOTSTRAP_TOKEN/);
