@@ -415,9 +415,9 @@ test('Android Complete mode exposes an authenticated self diagnostic',async()=>{
   const vm=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelViewModel.kt',root),'utf8');
   const api=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelApiClient.kt',root),'utf8');
   const build=await readFile(new URL('app/build.gradle.kts',root),'utf8');
-  assert.match(build,/versionCode = 76/);
-  assert.match(build,/versionName = "0\.6\.67-stt-diagnostics"/);
-  assert.match(api,/APP_VERSION = "0\.6\.67-stt-diagnostics"/);
+  assert.match(build,/versionCode = 77/);
+  assert.match(build,/versionName = "0\.6\.68-stt-pcm4"/);
+  assert.match(api,/APP_VERSION = "0\.6\.68-stt-pcm4"/);
   assert.match(vm,/val diagnosticReport: String\? = null/);
   assert.match(vm,/fun runDiagnostics\(\)/);
   assert.match(vm,/client\.heartbeat\(sdkInt = Build\.VERSION\.SDK_INT\)/);
@@ -438,9 +438,9 @@ test('Android device validation probes are authenticated and bounded',async()=>{
   const build=await readFile(new URL('app/build.gradle.kts',root),'utf8');
   const api=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelApiClient.kt',root),'utf8');
 
-  assert.match(build,/versionCode = 76/);
-  assert.match(build,/versionName = "0\.6\.67-stt-diagnostics"/);
-  assert.match(api,/APP_VERSION = "0\.6\.67-stt-diagnostics"/);
+  assert.match(build,/versionCode = 77/);
+  assert.match(build,/versionName = "0\.6\.68-stt-pcm4"/);
+  assert.match(api,/APP_VERSION = "0\.6\.68-stt-pcm4"/);
 
   assert.match(activity,/private const val MAX_FILE_BYTES = 25_000_000/);
   assert.match(activity,/private fun readUriBounded\(uri: Uri\): ByteArray/);
@@ -472,9 +472,9 @@ test('real mic and file successes feed the diagnostic report',async()=>{
   const build=await readFile(new URL('app/build.gradle.kts',root),'utf8');
   const api=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelApiClient.kt',root),'utf8');
 
-  assert.match(build,/versionCode = 76/);
-  assert.match(build,/versionName = "0\.6\.67-stt-diagnostics"/);
-  assert.match(api,/APP_VERSION = "0\.6\.67-stt-diagnostics"/);
+  assert.match(build,/versionCode = 77/);
+  assert.match(build,/versionName = "0\.6\.68-stt-pcm4"/);
+  assert.match(api,/APP_VERSION = "0\.6\.68-stt-pcm4"/);
 
   const voice=vm.slice(vm.indexOf('fun sendVoice('),vm.indexOf('fun sendFile('));
   assert.match(voice,/appendDiagnosticLine\("Micro réel: OK"\)/);
@@ -491,9 +491,9 @@ test('Android dark UI keeps readable content contrast',async()=>{
   const build=await readFile(new URL('app/build.gradle.kts',root),'utf8');
   const api=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelApiClient.kt',root),'utf8');
 
-  assert.match(build,/versionCode = 76/);
-  assert.match(build,/versionName = "0\.6\.67-stt-diagnostics"/);
-  assert.match(api,/APP_VERSION = "0\.6\.67-stt-diagnostics"/);
+  assert.match(build,/versionCode = 77/);
+  assert.match(build,/versionName = "0\.6\.68-stt-pcm4"/);
+  assert.match(api,/APP_VERSION = "0\.6\.68-stt-pcm4"/);
 
   assert.match(activity,/contentColor = MelInk/);
   assert.match(activity,/CardDefaults\.cardColors\(containerColor = MelPanel, contentColor = MelInk\)/);
@@ -699,8 +699,8 @@ test('Android MINI bridge distinguishes phone Internet from proven MEL relay',as
   assert.match(service,/MINI CONNECTÉE · INTERNET OK/);
   assert.match(activity,/phoneInternetReady by MelBleBridgeService\.phoneInternetAvailable/);
   assert.match(activity,/téléphone en ligne · validation MEL en cours/);
-  assert.match(build,/versionCode = 76/);
-  assert.match(build,/versionName = "0\.6\.67-stt-diagnostics"/);
+  assert.match(build,/versionCode = 77/);
+  assert.match(build,/versionName = "0\.6\.68-stt-pcm4"/);
 });
 
 
@@ -784,4 +784,7 @@ test('MINI compact STT uses native Android voice route', async () => {
   assert.match(service, /MelApiClient\(/);
   assert.match(service, /api\.transcribe\(wav, "audio\/wav"\)/);
   assert.match(service, /MEL MINI STT native Android route/);
+  assert.match(service, /application\/x-mel-pcm4/);
+  assert.match(service, /nibble \* 17/);
+  assert.match(service, /request\.contentType\.startsWith\("application\/x-mel-pcm"\)/);
 });
