@@ -8,6 +8,8 @@ test('release backup sidecar uses a unique Worker name per workflow run and atte
   assert.match(source, /wrangler\.run\.jsonc/);
   assert.match(source, /config\.name=process\.env\.REFRESH_NAME/);
   assert.match(source, /REFRESH_URL="https:\/\/\$\{REFRESH_NAME\}\.adrien-lopezcarreras\.workers\.dev"/);
+  assert.match(source, /--var "MEL_PREDEPLOY_BACKUP_REFRESH_TOKEN:\$\{REFRESH_TOKEN\}"/);
+  assert.doesNotMatch(source, /wrangler secret put MEL_PREDEPLOY_BACKUP_REFRESH_TOKEN/);
   assert.doesNotMatch(source, /REFRESH_NAME="mel-predeploy-backup-refresh"/);
 });
 
