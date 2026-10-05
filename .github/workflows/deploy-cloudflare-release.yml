@@ -497,12 +497,14 @@ jobs:
       - name: Prepare encrypted Media Vault secrets for exact deployment
         shell: bash
         env:
+          MELITURGOS_PASSWORD: ${{ secrets.MELITURGOS_PASSWORD }}
           MEL_BACKUP_ENCRYPTION_KEY_B64: ${{ secrets.MEL_BACKUP_ENCRYPTION_KEY_B64 }}
           MEL_BACKUP_ENCRYPTION_KEY_ID: ${{ secrets.MEL_BACKUP_ENCRYPTION_KEY_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           set -euo pipefail
+          test -n "${MELITURGOS_PASSWORD:-}"
           test -n "${MEL_BACKUP_ENCRYPTION_KEY_B64:-}"
           test -n "${MEL_BACKUP_ENCRYPTION_KEY_ID:-}"
           test -n "${CLOUDFLARE_API_TOKEN:-}"
@@ -616,6 +618,7 @@ jobs:
           )).toString('base64url');
           const workersAiProof=JSON.parse(fs.readFileSync('workers-ai-zero-cost-proof.json','utf8'));
           const payload={
+            MELITURGOS_PASSWORD:String(process.env.MELITURGOS_PASSWORD||''),
             MEL_LAUNCH_BOOTSTRAP_TOKEN:String(process.env.BOOTSTRAP_TOKEN||''),
             MEL_WORKERS_AI_ZERO_COST_PROOF_JSON:JSON.stringify(workersAiProof),
             MEL_MEDIA_ENCRYPTION_KEY_B64:String(process.env.MEDIA_KEY_B64||''),
@@ -626,7 +629,7 @@ jobs:
             MEL_BACKUP_ENCRYPTION_KEY_B64:String(process.env.MEL_BACKUP_ENCRYPTION_KEY_B64||''),
             MEL_BACKUP_ENCRYPTION_KEY_ID:String(process.env.MEL_BACKUP_ENCRYPTION_KEY_ID||''),
           };
-          if(!payload.MEL_LAUNCH_BOOTSTRAP_TOKEN || !payload.MEL_WORKERS_AI_ZERO_COST_PROOF_JSON
+          if(!payload.MELITURGOS_PASSWORD || !payload.MEL_LAUNCH_BOOTSTRAP_TOKEN || !payload.MEL_WORKERS_AI_ZERO_COST_PROOF_JSON
             || !payload.MEL_MEDIA_ENCRYPTION_KEY_B64 || !payload.MEL_MEDIA_ENCRYPTION_KEY_ID || !payload.MEL_PARALLEL_PROOF_TOKEN
             || !payload.MEL_BACKUP_ENCRYPTION_KEY_B64 || !payload.MEL_BACKUP_ENCRYPTION_KEY_ID) {
             throw new Error('RELEASE_CRYPTO_SECRETS_MISSING');

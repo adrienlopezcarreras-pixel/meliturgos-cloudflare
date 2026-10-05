@@ -95,6 +95,15 @@ test('canonical production release requires human approval and exact immutable i
   assert.ok(exactDeploy >= 0 && autonomyProof > exactDeploy, 'autonomy proof must run after the exact immutable deploy');
   assert.match(source.slice(0, exactDeploy), /MEL_LAUNCH_BOOTSTRAP_TOKEN:String\(process\.env\.BOOTSTRAP_TOKEN\|\|''\)/);
   assert.doesNotMatch(source.slice(exactDeploy, autonomyProof), /wrangler secret (?:put|delete) MEL_LAUNCH_BOOTSTRAP_TOKEN/);
+  const preparation = source.slice(
+    source.indexOf('      - name: Prepare encrypted Media Vault secrets for exact deployment'),
+    source.indexOf('      - name: Install pinned Browser Rendering adapter'),
+  );
+  assert.match(preparation, /MELITURGOS_PASSWORD: \$\{\{ secrets\.MELITURGOS_PASSWORD \}\}/);
+  assert.match(preparation, /test -n "\$\{MELITURGOS_PASSWORD:-\}"/);
+  assert.match(preparation, /MELITURGOS_PASSWORD:String\(process\.env\.MELITURGOS_PASSWORD\|\|''\)/);
+  assert.match(preparation, /!payload\.MELITURGOS_PASSWORD/);
+
   const immutableDeploy = source.slice(
     source.indexOf('      - name: Deploy exact approved SHA to production'),
     source.indexOf('      - name: Verify bundled Workers AI zero-cost proof'),
@@ -110,6 +119,9 @@ test('canonical production release requires human approval and exact immutable i
   assert.match(source, /RELEASE_IDENTITY_VERIFIED/);
   assert.match(source, /MEL_DEPLOYED_GIT_SHA/);
   assert.match(source, /MEL_DEPLOYED_GIT_BRANCH/);
+
+  const wrangler = await readFile(path.join(process.cwd(), 'wrangler.jsonc'), 'utf8');
+  assert.match(wrangler, /"secrets"\s*:\s*\{[\s\S]*"required"\s*:\s*\[[\s\S]*"MELITURGOS_PASSWORD"/);
 });
 
 
