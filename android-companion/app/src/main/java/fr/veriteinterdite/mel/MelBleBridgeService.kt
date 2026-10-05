@@ -1056,7 +1056,7 @@ class MelBleBridgeService : Service() {
                 val body = JSONObject()
                     .put("ok", false)
                     .put("code", "ANDROID_STT_RELAY")
-                    .put("detail", String(error.message ?: error::class.java.simpleName).take(160))
+                    .put("detail", (error.message ?: error::class.java.simpleName).take(160))
                     .toString()
                     .toByteArray(Charsets.UTF_8)
                 val meta = JSONObject()
