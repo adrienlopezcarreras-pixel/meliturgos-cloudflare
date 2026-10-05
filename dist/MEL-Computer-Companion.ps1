@@ -1528,7 +1528,7 @@ catch {
     updated_at_unix_ms = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
   }
   $running | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $statusPath -Encoding UTF8
-  Start-Process powershell.exe -WindowStyle Hidden -ArgumentList @(
+  Start-Process -FilePath "powershell.exe" -WindowStyle Hidden -ArgumentList @(
     "-NoProfile","-NonInteractive","-ExecutionPolicy","Bypass","-File",$scriptPath
   )
   return "STARTED"
