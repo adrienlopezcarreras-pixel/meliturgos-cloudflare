@@ -446,10 +446,14 @@ static void mini_anim_cb(lv_timer_t *) {
     }
 
     if (talk_button) {
-        if (online && (state == MEL_TERMINAL_IDLE || state == MEL_TERMINAL_LISTENING)) {
-            lv_obj_clear_state(talk_button, LV_STATE_DISABLED);
-        } else {
+        // Keep the control touchable while idle/offline so a press always gives
+        // the user an explicit reason (MEL OFF / MIC KO) instead of doing nothing.
+        if (state == MEL_TERMINAL_TRANSCRIBING ||
+            state == MEL_TERMINAL_THINKING ||
+            state == MEL_TERMINAL_SPEAKING) {
             lv_obj_add_state(talk_button, LV_STATE_DISABLED);
+        } else {
+            lv_obj_clear_state(talk_button, LV_STATE_DISABLED);
         }
     }
 
@@ -1666,19 +1670,26 @@ static void lv_port_init() {
 
 static void touch_cb(lv_event_t *e) {
     if (!status_label) return;
-    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    if (lv_event_get_code(e) != LV_EVENT_PRESSED) return;
 
-    ESP_LOGI(TAG, "UI BUTTON: PARLER clicked state=%d online=%d",
-             mel_terminal_state(), mel_terminal_online() ? 1 : 0);
+    const int state = mel_terminal_state();
+    ESP_LOGI(TAG, "UI BUTTON: PARLER pressed state=%d online=%d audio=%d",
+             state, mel_terminal_online() ? 1 : 0, audio_ok ? 1 : 0);
+
     if (!mel_terminal_online()) {
-        lv_label_set_text(status_label, "MEL HORS LIGNE");
-        ESP_LOGW(TAG, "Talk requested while MEL runtime is offline");
+        lv_label_set_text(status_label, "MEL OFF");
+        if (runtime_status_label) lv_label_set_text(runtime_status_label, "SESSION MEL HORS LIGNE");
+        return;
+    }
+    if (!audio_ok || !input_dev) {
+        lv_label_set_text(status_label, "MIC KO");
+        if (runtime_status_label) lv_label_set_text(runtime_status_label, "MICRO INDISPONIBLE");
+        ESP_LOGW(TAG, "Talk pressed but microphone path is unavailable");
         return;
     }
 
-    // Tap-to-toggle: first tap starts capture, second tap stops and sends.
-    // Do not bind stop to RELEASED: a normal quick tap used to start and stop
-    // recording in the same gesture, making PARLER appear non-functional.
+    if (state == MEL_TERMINAL_IDLE) lv_label_set_text(status_label, "ECOUTE...");
+    else if (state == MEL_TERMINAL_LISTENING) lv_label_set_text(status_label, "ENVOI...");
     mel_terminal_request_voice();
 }
 
@@ -1773,7 +1784,7 @@ static void mini_smoke_ui() {
     lv_obj_set_style_bg_color(talk_button, lv_color_hex(0x08233C), 0);
     lv_obj_set_style_border_width(talk_button, 3, 0);
     lv_obj_set_style_border_color(talk_button, lv_color_hex(0x22D3EE), 0);
-    lv_obj_add_event_cb(talk_button, touch_cb, LV_EVENT_ALL, nullptr);
+    lv_obj_add_event_cb(talk_button, touch_cb, LV_EVENT_PRESSED, nullptr);
 
     status_label = lv_label_create(talk_button);
     lv_label_set_text(status_label, "PARLER");
