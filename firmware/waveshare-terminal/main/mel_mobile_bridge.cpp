@@ -441,10 +441,14 @@ static void connect_to(const struct ble_gap_disc_desc *disc) {
     struct ble_gap_conn_params params = {};
     params.scan_itvl = 0x0010;
     params.scan_window = 0x0010;
-    params.itvl_min = BLE_GAP_INITIAL_CONN_ITVL_MIN;   // 30 ms
-    params.itvl_max = BLE_GAP_INITIAL_CONN_ITVL_MAX;   // 50 ms
-    params.latency = BLE_GAP_INITIAL_CONN_LATENCY;
-    params.supervision_timeout = BLE_GAP_INITIAL_SUPERVISION_TIMEOUT;
+    // Conservative link parameters: the Redmi/Xiaomi bridge proved unstable
+    // with the generic defaults during idle periods and large STT transfers.
+    // 30-40 ms, no slave latency, 8 s supervision gives the phone and ESP32
+    // enough margin without sacrificing interactive latency.
+    params.itvl_min = 24;          // 30 ms (1.25 ms units)
+    params.itvl_max = 32;          // 40 ms
+    params.latency = 0;
+    params.supervision_timeout = 800; // 8 s (10 ms units)
     params.min_ce_len = BLE_GAP_INITIAL_CONN_MIN_CE_LEN;
     params.max_ce_len = BLE_GAP_INITIAL_CONN_MAX_CE_LEN;
     int rc = ble_gap_connect(own_addr_type, &disc->addr, 15000, &params, gap_event, nullptr);
@@ -478,7 +482,7 @@ static int gap_event(struct ble_gap_event *event, void *arg) {
                 ble_gap_terminate(g_conn_handle, BLE_ERR_REM_USER_CONN_TERM);
                 return 0;
             }
-            ble_att_set_preferred_mtu(517);
+            ble_att_set_preferred_mtu(185); // conservative Android/Redmi-safe MTU
             if (ble_gattc_exchange_mtu(g_conn_handle, mtu_complete, nullptr) != 0) {
                 mtu_complete(g_conn_handle, nullptr, ble_att_mtu(g_conn_handle), nullptr);
             }
@@ -606,7 +610,7 @@ void mel_mobile_bridge_start(void) {
     }
     ble_hs_cfg.reset_cb = on_reset;
     ble_hs_cfg.sync_cb = on_sync;
-    ble_att_set_preferred_mtu(517);
+    ble_att_set_preferred_mtu(185); // conservative Android/Redmi-safe MTU
     nimble_port_freertos_init(host_task);
     ESP_LOGI(TAG, "MEL Mobile BLE client started");
 }
