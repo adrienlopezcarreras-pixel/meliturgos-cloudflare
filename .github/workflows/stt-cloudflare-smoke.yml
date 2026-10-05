@@ -1,0 +1,124 @@
+name: stt-cloudflare-smoke
+
+on:
+  push:
+    branches:
+      - fix/mini-clock-voice-companion-ui
+    paths:
+      - '.github/workflows/stt-cloudflare-smoke.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install wrangler
+        run: npm install --no-save wrangler@latest
+
+      - name: Build ephemeral STT probe
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .tmp-stt-probe
+          cat > .tmp-stt-probe/index.js <<'JS'
+          function toBase64(bytes) {
+            let binary = "";
+            const chunk = 0x4000;
+            for (let i = 0; i < bytes.length; i += chunk) {
+              binary += String.fromCharCode(...bytes.subarray(i, Math.min(i + chunk, bytes.length)));
+            }
+            return btoa(binary);
+          }
+
+          async function runModel(env, model, audio) {
+            const started = Date.now();
+            try {
+              const result = await env.AI.run(model, {
+                audio,
+                task: "transcribe",
+                language: "en"
+              });
+              return {
+                ok: true,
+                model,
+                elapsed_ms: Date.now() - started,
+                text: String(result?.text ?? result?.transcription_info?.text ?? result?.response ?? "").slice(0, 500),
+                keys: result && typeof result === "object" ? Object.keys(result) : []
+              };
+            } catch (error) {
+              return {
+                ok: false,
+                model,
+                elapsed_ms: Date.now() - started,
+                name: String(error?.name || ""),
+                message: String(error?.message || error).slice(0, 1000),
+                stack: String(error?.stack || "").slice(0, 2000)
+              };
+            }
+          }
+
+          export default {
+            async fetch(request, env) {
+              const source = "https://raw.githubusercontent.com/craigsdennis/notebooks-cloudflare-workers-ai/main/assets/craig-rambling.mp3";
+              const response = await fetch(source);
+              if (!response.ok) {
+                return Response.json({ok:false, stage:"sample_fetch", status:response.status}, {status:500});
+              }
+              const bytes = new Uint8Array(await response.arrayBuffer());
+              const audio = toBase64(bytes);
+              const turbo = await runModel(env, "@cf/openai/whisper-large-v3-turbo", audio);
+              const classic = await runModel(env, "@cf/openai/whisper", audio);
+              return Response.json({
+                ok: turbo.ok || classic.ok,
+                sample_bytes: bytes.length,
+                turbo,
+                classic
+              }, {status: turbo.ok || classic.ok ? 200 : 500});
+            }
+          };
+          JS
+
+          cat > .tmp-stt-probe/wrangler.jsonc <<'JSON'
+          {
+            "name": "mel-stt-smoke-${{ github.run_id }}",
+            "main": "index.js",
+            "compatibility_date": "2026-09-04",
+            "workers_dev": true,
+            "ai": { "binding": "AI" }
+          }
+          JSON
+
+      - name: Deploy probe
+        working-directory: .tmp-stt-probe
+        run: npx wrangler deploy --config wrangler.jsonc
+
+      - name: Execute real Workers AI transcription
+        shell: bash
+        run: |
+          set -euo pipefail
+          URL="https://mel-stt-smoke-${{ github.run_id }}.adrien-lopezcarreras.workers.dev"
+          for i in $(seq 1 12); do
+            CODE="$(curl -sS --max-time 60 -o /tmp/stt.json -w '%{http_code}' "$URL" || true)"
+            if [ "$CODE" = "200" ] || [ "$CODE" = "500" ]; then break; fi
+            sleep 2
+          done
+          cat /tmp/stt.json
+          node -e 'const fs=require("fs"); const d=JSON.parse(fs.readFileSync("/tmp/stt.json","utf8")); if(!d.turbo&&!d.classic) process.exit(2); if(!d.turbo?.ok&&!d.classic?.ok) process.exit(3);'
+
+      - name: Cleanup probe
+        if: always()
+        working-directory: .tmp-stt-probe
+        run: npx wrangler delete --name "mel-stt-smoke-${{ github.run_id }}" --force || true
