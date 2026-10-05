@@ -143,8 +143,12 @@ jobs:
           cat /tmp/official.json
           node -e 'const fs=require("fs"); const d=JSON.parse(fs.readFileSync("/tmp/official.json","utf8")); if(!d.turbo?.ok) process.exit(3);'
 
-      - name: Verify ffmpeg
+      - name: Install ffmpeg
+        shell: bash
         run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg
           ffmpeg -version | head -1
 
       - name: Build Android-shaped STT multipart
