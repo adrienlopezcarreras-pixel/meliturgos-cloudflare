@@ -3,7 +3,10 @@
 #include <algorithm>
 #include <atomic>
 #include <cstring>
+#include <cstdlib>
+#include <ctime>
 #include <string>
+#include <sys/time.h>
 
 #include "cJSON.h"
 #include "esp_log.h"
@@ -96,6 +99,49 @@ static std::string json_string(cJSON *root) {
     std::string out = raw ? raw : "{}";
     if (raw) cJSON_free(raw);
     return out;
+}
+
+static bool apply_phone_clock(const std::string &body) {
+    if (body.empty()) return false;
+    cJSON *root = cJSON_Parse(body.c_str());
+    if (!root) return false;
+    cJSON *epoch_item = cJSON_GetObjectItemCaseSensitive(root, "epoch_ms");
+    cJSON *offset_item = cJSON_GetObjectItemCaseSensitive(root, "utc_offset_seconds");
+    if (!cJSON_IsNumber(epoch_item) || !cJSON_IsNumber(offset_item)) {
+        cJSON_Delete(root);
+        return false;
+    }
+
+    const int64_t epoch_ms = (int64_t)epoch_item->valuedouble;
+    const int offset_seconds = offset_item->valueint;
+    if (epoch_ms < 1700000000000LL) {
+        cJSON_Delete(root);
+        return false;
+    }
+
+    struct timeval tv = {};
+    tv.tv_sec = (time_t)(epoch_ms / 1000LL);
+    tv.tv_usec = (suseconds_t)((epoch_ms % 1000LL) * 1000LL);
+    if (settimeofday(&tv, nullptr) != 0) {
+        ESP_LOGW(TAG, "BLE PHONE CLOCK settimeofday failed");
+        cJSON_Delete(root);
+        return false;
+    }
+
+    const int abs_offset = offset_seconds < 0 ? -offset_seconds : offset_seconds;
+    const int hours = abs_offset / 3600;
+    const int minutes = (abs_offset % 3600) / 60;
+    const char sign = offset_seconds >= 0 ? '-' : '+';
+    char tz[32] = {};
+    if (minutes) snprintf(tz, sizeof(tz), "MEL%c%d:%02d", sign, hours, minutes);
+    else snprintf(tz, sizeof(tz), "MEL%c%d", sign, hours);
+    setenv("TZ", tz, 1);
+    tzset();
+
+    ESP_LOGI(TAG, "BLE PHONE CLOCK synced epoch=%lld offset=%d tz=%s",
+             (long long)(epoch_ms / 1000LL), offset_seconds, tz);
+    cJSON_Delete(root);
+    return true;
 }
 
 static bool uuid_matches_mel(const ble_uuid_t *uuid,
@@ -565,9 +611,59 @@ void mel_mobile_bridge_rescan(void) {
 bool mel_mobile_bridge_keepalive(void) {
     if (!g_ready.load() || g_conn_handle == BLE_HS_CONN_HANDLE_NONE || !g_request_mutex) return false;
     if (xSemaphoreTake(g_request_mutex, 0) != pdTRUE) return false;
-    const bool ok = pull_response_frame();
+
+    const uint32_t id = g_request_id.fetch_add(1);
+    g_active = {};
+    g_active.id = id;
+    while (xSemaphoreTake(g_response_done, 0) == pdTRUE) {}
+    if (g_notify_queue) xQueueReset(g_notify_queue);
+
+    if (!write_frame(OP_PING, id, nullptr, 0)) {
+        xSemaphoreGive(g_request_mutex);
+        return false;
+    }
+
+    const TickType_t started = xTaskGetTickCount();
+    const TickType_t wait = pdMS_TO_TICKS(5000);
+    bool completed = false;
+    NotifyFrame notify_frame;
+    TickType_t last_pull = 0;
+
+    while ((xTaskGetTickCount() - started) < wait) {
+        if (xSemaphoreTake(g_response_done, 0) == pdTRUE) {
+            completed = true;
+            break;
+        }
+        if (!g_ready.load() || g_conn_handle == BLE_HS_CONN_HANDLE_NONE) break;
+
+        while (g_notify_queue && xQueueReceive(g_notify_queue, &notify_frame, 0) == pdTRUE) {
+            handle_rx_frame(notify_frame.data, notify_frame.len);
+            if (xSemaphoreTake(g_response_done, 0) == pdTRUE) {
+                completed = true;
+                break;
+            }
+        }
+        if (completed) break;
+
+        const TickType_t now = xTaskGetTickCount();
+        if ((now - last_pull) >= pdMS_TO_TICKS(60)) {
+            pull_response_frame();
+            last_pull = now;
+            if (xSemaphoreTake(g_response_done, 0) == pdTRUE) {
+                completed = true;
+                break;
+            }
+        }
+        vTaskDelay(pdMS_TO_TICKS(5));
+    }
+
+    const bool ok = completed && !g_active.failed && g_active.status == 200;
+    if (ok && !g_active.body.empty()) {
+        apply_phone_clock(g_active.body);
+    }
     xSemaphoreGive(g_request_mutex);
-    if (ok) ESP_LOGD(TAG, "MEL Mobile keepalive OK");
+    if (ok) ESP_LOGD(TAG, "MEL Mobile keepalive/clock OK");
+    else ESP_LOGW(TAG, "MEL Mobile keepalive/clock failed id=%u status=%d", (unsigned)id, g_active.status);
     return ok;
 }
 
