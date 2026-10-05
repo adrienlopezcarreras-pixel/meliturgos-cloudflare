@@ -713,25 +713,10 @@ jobs:
         run: |
           set -euo pipefail
           BASE_URL="https://meliturgos.adrien-lopezcarreras.workers.dev"
-          BOOTSTRAP_TOKEN="$(openssl rand -hex 32)"
+          test -s release-bootstrap-token.txt
+          BOOTSTRAP_TOKEN="$(cat release-bootstrap-token.txt)"
+          [[ "${BOOTSTRAP_TOKEN}" =~ ^[0-9a-f]{64}$ ]]
           echo "::add-mask::${BOOTSTRAP_TOKEN}"
-
-          cleanup_secret() {
-            set +e
-            set +o pipefail
-            for SECRET_NAME in MEL_LAUNCH_BOOTSTRAP_TOKEN MEL_RELEASE_BACKUP_ENCRYPTION_KEY_ID MEL_RELEASE_BACKUP_ENCRYPTION_KEY_B64; do
-              printf 'y\n' | npx wrangler secret delete "$SECRET_NAME" --env="" >/tmp/"${SECRET_NAME}"-delete.log 2>&1 || true
-            done
-            set -o pipefail
-            set -e
-          }
-          trap 'cleanup_secret || true' EXIT
-
-          test -n "${MEL_BACKUP_ENCRYPTION_KEY_ID:-}"
-          test -n "${MEL_BACKUP_ENCRYPTION_KEY_B64:-}"
-          printf '%s' "$BOOTSTRAP_TOKEN" | npx wrangler secret put MEL_LAUNCH_BOOTSTRAP_TOKEN --env=""
-          printf '%s' "$MEL_BACKUP_ENCRYPTION_KEY_ID" | npx wrangler secret put MEL_RELEASE_BACKUP_ENCRYPTION_KEY_ID --env=""
-          printf '%s' "$MEL_BACKUP_ENCRYPTION_KEY_B64" | npx wrangler secret put MEL_RELEASE_BACKUP_ENCRYPTION_KEY_B64 --env=""
 
           if [ "$MEL_ROADMAP_SHARDVAULT_PAUSED" = "true" ]; then
             echo "ShardVault external replication is PAUSED_FOR_ROADMAP; skipping 7/7 Internet endpoint proof."
@@ -1972,8 +1957,6 @@ jobs:
           },null,2));
           NODE
 
-          cleanup_secret
-          trap - EXIT
           echo "Temporary launch bootstrap secret deleted."
 
           if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
@@ -2000,7 +1983,7 @@ jobs:
               echo '- Historical failure retries: bounded'
               echo '- Autonomy started by deployment: **no**'
               echo '- Owner Resume/MAX remains required to start the SHA'
-              echo '- Temporary bootstrap secret: deleted'
+              echo '- Release bootstrap token: exact-deploy bound and rotated on next release'
             } >> "$GITHUB_STEP_SUMMARY"
           fi
         env:
@@ -2034,17 +2017,11 @@ jobs:
         run: |
           set -euo pipefail
           BASE_URL="https://meliturgos.adrien-lopezcarreras.workers.dev"
-          BROWSER_TOKEN="$(openssl rand -hex 32)"
+          test -s release-bootstrap-token.txt
+          BROWSER_TOKEN="$(cat release-bootstrap-token.txt)"
           BROWSER_SESSION_ID="release-browser-proof-${EXPECTED_SHA:0:12}"
           export BROWSER_SESSION_ID
           echo "::add-mask::${BROWSER_TOKEN}"
-          cleanup_browser_secret() {
-            set +e
-            printf 'y\n' | npx wrangler secret delete MEL_LAUNCH_BOOTSTRAP_TOKEN --env="" >/tmp/mel-browser-secret-delete.log 2>&1 || true
-            set -e
-          }
-          trap cleanup_browser_secret EXIT
-          printf '%s' "${BROWSER_TOKEN}" | npx wrangler secret put MEL_LAUNCH_BOOTSTRAP_TOKEN --env=""
 
           READY=0
           for ATTEMPT in $(seq 1 12); do
@@ -2075,8 +2052,6 @@ jobs:
           console.log('Real production browser.execute proof passed.');
           NODE
 
-          cleanup_browser_secret
-          trap - EXIT
 
       - name: Prove MEL-FILE-01 in real production browser
         shell: bash
@@ -2086,18 +2061,11 @@ jobs:
         run: |
           set -euo pipefail
           BASE_URL="https://meliturgos.adrien-lopezcarreras.workers.dev"
-          FILE_TOKEN="$(openssl rand -hex 32)"
+          test -s release-bootstrap-token.txt
+          FILE_TOKEN="$(cat release-bootstrap-token.txt)"
           FILE_SESSION_ID="release-file-proof-${EXPECTED_SHA:0:12}"
           export FILE_TOKEN FILE_SESSION_ID EXPECTED_SHA
           echo "::add-mask::${FILE_TOKEN}"
-
-          cleanup_file_secret() {
-            set +e
-            printf 'y\n' | npx wrangler secret delete MEL_LAUNCH_BOOTSTRAP_TOKEN --env="" >/tmp/mel-file-secret-delete.log 2>&1 || true
-            set -e
-          }
-          trap cleanup_file_secret EXIT
-          printf '%s' "${FILE_TOKEN}" | npx wrangler secret put MEL_LAUNCH_BOOTSTRAP_TOKEN --env=""
 
           FILE_READY=0
           for ATTEMPT in $(seq 1 12); do
@@ -2161,8 +2129,6 @@ jobs:
           NODE
 
           rm -f production-file-browser-proof.json
-          cleanup_file_secret
-          trap - EXIT
 
       - name: Upload MEL-FILE-01 production proof
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -2180,17 +2146,9 @@ jobs:
         run: |
           set -euo pipefail
           BASE_URL="https://meliturgos.adrien-lopezcarreras.workers.dev"
-          SOV_TOKEN="$(openssl rand -hex 32)"
+          test -s release-bootstrap-token.txt
+          SOV_TOKEN="$(cat release-bootstrap-token.txt)"
           echo "::add-mask::${SOV_TOKEN}"
-
-          cleanup_sov_secret() {
-            set +e
-            printf 'y\n' | npx wrangler secret delete MEL_LAUNCH_BOOTSTRAP_TOKEN --env="" >/tmp/mel-sov-secret-delete.log 2>&1 || true
-            set -e
-          }
-          trap cleanup_sov_secret EXIT
-
-          printf '%s' "${SOV_TOKEN}" | npx wrangler secret put MEL_LAUNCH_BOOTSTRAP_TOKEN --env=""
 
           SOV_READY=0
           for ATTEMPT in $(seq 1 12); do
@@ -2260,8 +2218,6 @@ jobs:
           NODE
 
           rm -f production-sovereignty-status.json
-          cleanup_sov_secret
-          trap - EXIT
 
           if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
             node - <<'NODE' >> "$GITHUB_STEP_SUMMARY"
@@ -2293,15 +2249,9 @@ jobs:
         run: |
           set -euo pipefail
           BASE_URL="https://meliturgos.adrien-lopezcarreras.workers.dev"
-          MAX_TOKEN="$(openssl rand -hex 32)"
+          test -s release-bootstrap-token.txt
+          MAX_TOKEN="$(cat release-bootstrap-token.txt)"
           echo "::add-mask::${MAX_TOKEN}"
-          cleanup_max_secret() {
-            set +e
-            printf 'y\n' | npx wrangler secret delete MEL_LAUNCH_BOOTSTRAP_TOKEN --env="" >/dev/null 2>&1 || true
-            set -e
-          }
-          trap cleanup_max_secret EXIT
-          printf '%s' "$MAX_TOKEN" | npx wrangler secret put MEL_LAUNCH_BOOTSTRAP_TOKEN --env=""
           READY=0
           for ATTEMPT in $(seq 1 12); do
             CODE="$(curl --silent --show-error --max-time 120 \
@@ -2316,8 +2266,6 @@ jobs:
           done
           test "$READY" = "1"
           node -e 'const d=require("./owner-max-autorelease.json");if(d?.ok!==true||d?.max_autonomy!==true||d?.paused===true)throw new Error("OWNER_MAX_AUTORELEASE_RESTART_FAILED");console.log("MAX 100% restored after verified release.")'
-          cleanup_max_secret
-          trap - EXIT
 
       - name: Kick event-driven autonomy chain after MAX restore
         if: success() && env.OWNER_MAX_AUTORELEASE == 'true'
