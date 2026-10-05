@@ -1220,11 +1220,24 @@ jobs:
           },null,2));
           NODE
 
-          PUBLIC_CODE="$(curl --silent --show-error --max-time 60 \
-            --output production-launch-readiness.json \
-            --write-out '%{http_code}' \
-            "${BASE_URL}/api/teacher/launch-readiness")"
-          test "$PUBLIC_CODE" = "200"
+          PUBLIC_READY=0
+          for PUBLIC_ATTEMPT in $(seq 1 6); do
+            PUBLIC_CODE="$(curl --silent --show-error --max-time 60 \
+              --output production-launch-readiness.json \
+              --write-out '%{http_code}' \
+              "${BASE_URL}/api/teacher/launch-readiness" || true)"
+            if [ "$PUBLIC_CODE" = "200" ]; then
+              PUBLIC_READY=1
+              break
+            fi
+            echo "Public production launch-readiness attempt ${PUBLIC_ATTEMPT}/6 returned HTTP ${PUBLIC_CODE}; bounded retry."
+            test ! -s production-launch-readiness.json || cat production-launch-readiness.json
+            sleep $((PUBLIC_ATTEMPT * 2))
+          done
+          if [ "$PUBLIC_READY" != "1" ]; then
+            echo "Public production launch-readiness did not return HTTP 200 after bounded retries."
+            exit 28
+          fi
 
           EXPECTED_SHA="$EXPECTED_SHA" node - <<'NODE'
           const fs=require('fs');
