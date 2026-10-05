@@ -14,7 +14,7 @@ using System.Web.Script.Serialization;
 static class MelApp
 {
     public const string DefaultServer = "https://meliturgos.adrien-lopezcarreras.workers.dev";
-    public const string Version = "2.3.9";
+    public const string Version = "2.4.0";
     public static readonly string MelDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "MEL");
     public static readonly string ConfigPath = Path.Combine(MelDir, "computer.json");
     public static readonly string InstalledExe = Path.Combine(MelDir, "MEL-Companion.exe");
@@ -125,13 +125,36 @@ static class MelApp
         return bmp;
     }
 
+    static Image CanonicalAvatarCache;
+
+    public static Image CanonicalAvatar()
+    {
+        if (CanonicalAvatarCache != null) return CanonicalAvatarCache;
+        try
+        {
+            var asm = typeof(MelApp).Assembly;
+            using (var stream = asm.GetManifestResourceStream("MelAvatar.png"))
+            {
+                if (stream != null)
+                {
+                    using (var source = Image.FromStream(stream))
+                        CanonicalAvatarCache = new Bitmap(source);
+                }
+            }
+        }
+        catch { CanonicalAvatarCache = null; }
+
+        if (CanonicalAvatarCache == null) CanonicalAvatarCache = MakeMelTechnoFace(512);
+        return CanonicalAvatarCache;
+    }
+
     public static PictureBox MelFace(int x, int y, int size)
     {
         var box = new PictureBox();
         box.SetBounds(x, y, size, size);
         box.BackColor = Color.Transparent;
         box.SizeMode = PictureBoxSizeMode.Zoom;
-        box.Image = MakeMelTechnoFace(size);
+        box.Image = CanonicalAvatar();
         box.TabStop = false;
         return box;
     }
@@ -664,7 +687,116 @@ static class MelApp
     }
 }
 
-// MEL Techno face is generated entirely with GDI+ above: no external logo asset is required.
+// MEL visual controls shared by the desktop Companion.
+class MelHeroPanel : Control
+{
+    public string Header = "MEL";
+    public string SubHeader = "PERSONAL INTELLIGENCE SYSTEM";
+    public MelHeroPanel()
+    {
+        DoubleBuffered = true;
+        BackColor = MelApp.Bg;
+    }
+
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        e.Graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.HighQuality;
+        e.Graphics.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+        e.Graphics.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
+        e.Graphics.Clear(MelApp.Bg);
+
+        var img = MelApp.CanonicalAvatar();
+        if (img != null)
+        {
+            float scale = Math.Max((float)Width / img.Width, (float)Height / img.Height);
+            int dw = (int)Math.Ceiling(img.Width * scale);
+            int dh = (int)Math.Ceiling(img.Height * scale);
+            int dx = (Width - dw) / 2;
+            int dy = (Height - dh) / 2;
+            e.Graphics.DrawImage(img, new Rectangle(dx,dy,dw,dh));
+        }
+
+        using (var overlay = new System.Drawing.Drawing2D.LinearGradientBrush(
+            new Rectangle(0,0,Math.Max(1,Width),Math.Max(1,Height)),
+            Color.FromArgb(55,0,5,10),
+            Color.FromArgb(225,0,5,10),
+            90f))
+        {
+            e.Graphics.FillRectangle(overlay,0,0,Width,Height);
+        }
+
+        using (var top = new SolidBrush(Color.FromArgb(155,0,4,10)))
+            e.Graphics.FillRectangle(top,0,0,Width,42);
+
+        using (var line = new Pen(Color.FromArgb(120,MelApp.Cyan),1f))
+            e.Graphics.DrawLine(line,0,Height-1,Width,Height-1);
+
+        TextRenderer.DrawText(e.Graphics, Header,
+            new Font("Segoe UI Semibold",15f,FontStyle.Bold),
+            new Rectangle(18,8,190,28), Color.White,
+            TextFormatFlags.Left | TextFormatFlags.VerticalCenter);
+
+        TextRenderer.DrawText(e.Graphics, SubHeader,
+            new Font("Segoe UI Semibold",7.5f,FontStyle.Bold),
+            new Rectangle(18,Height-34,280,22), MelApp.Cyan,
+            TextFormatFlags.Left | TextFormatFlags.VerticalCenter);
+    }
+}
+
+class MelOrb : Control
+{
+    public string MainText = "OUVRIR";
+    public string Caption = "MEL";
+    public Color Accent = MelApp.Cyan;
+    bool hover;
+
+    public MelOrb()
+    {
+        DoubleBuffered = true;
+        BackColor = Color.Transparent;
+        Cursor = Cursors.Hand;
+        MouseEnter += delegate { hover=true; Invalidate(); };
+        MouseLeave += delegate { hover=false; Invalidate(); };
+    }
+
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        e.Graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+        e.Graphics.Clear(Color.Transparent);
+        int pad = 8;
+        var outer = new Rectangle(pad,pad,Width-pad*2-1,Height-pad*2-1);
+        var inner = new Rectangle(pad+10,pad+10,Width-(pad+10)*2-1,Height-(pad+10)*2-1);
+
+        using (var glow = new Pen(Color.FromArgb(hover?160:100,Accent), hover?6f:4f))
+            e.Graphics.DrawEllipse(glow,outer);
+        using (var ring = new Pen(Color.FromArgb(220,Accent),2f))
+            e.Graphics.DrawEllipse(ring,inner);
+        using (var fill = new SolidBrush(Color.FromArgb(hover?35:18,Accent)))
+            e.Graphics.FillEllipse(fill,inner);
+
+        int cx=Width/2, cy=Height/2-12;
+        using (var mic = new Pen(Color.FromArgb(225,Accent),4f))
+        {
+            e.Graphics.DrawArc(mic,cx-15,cy-24,30,42,0,180);
+            e.Graphics.DrawLine(mic,cx-15,cy-3,cx-15,cy+7);
+            e.Graphics.DrawLine(mic,cx+15,cy-3,cx+15,cy+7);
+            e.Graphics.DrawArc(mic,cx-15,cy-5,30,24,0,180);
+            e.Graphics.DrawLine(mic,cx,cy+18,cx,cy+31);
+            e.Graphics.DrawLine(mic,cx-10,cy+31,cx+10,cy+31);
+        }
+
+        TextRenderer.DrawText(e.Graphics, MainText,
+            new Font("Segoe UI Semibold",13f,FontStyle.Bold),
+            new Rectangle(20,Height/2+35,Width-40,28), Color.FromArgb(225,240,246,255),
+            TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+
+        TextRenderer.DrawText(e.Graphics, Caption,
+            new Font("Segoe UI",8.5f,FontStyle.Regular),
+            new Rectangle(20,Height/2+64,Width-40,22), Color.FromArgb(145,166,197),
+            TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+    }
+}
+
 class MelCard : Panel
 {
     public Color Accent = MelApp.Cyan;
