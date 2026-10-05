@@ -89,6 +89,39 @@ jobs:
             exit 0
           fi
 
+          layer_covered() {
+            local LAYER="$1"
+            LAYER="${LAYER}" node - <<'NODE'
+          const fs=require('fs');
+          let d={};
+          try{d=JSON.parse(fs.readFileSync('mel-sov-fast.json','utf8'))}catch{}
+          const layer=String(process.env.LAYER||'');
+          const covered=new Set(Array.isArray(d?.covered_layers)?d.covered_layers:[]);
+          const row=d?.layers?.[layer];
+          process.exit(covered.has(layer)||row?.ready===true?0:1);
+          NODE
+          }
+
+          mark_refresh_skipped() {
+            local TARGET="$1"
+            local STEP="${2:-}"
+            local LAYER="${3:-$TARGET}"
+            local KEY="$TARGET"
+            if [ -n "$STEP" ]; then KEY="$TARGET-$STEP"; fi
+            TARGET="$TARGET" STEP="$STEP" LAYER="$LAYER" KEY="$KEY" node - <<'NODE'
+          const fs=require('fs');
+          const target=process.env.TARGET,step=process.env.STEP||null,layer=process.env.LAYER;
+          const out={
+            ok:true,status:'MEL_SOV_01_REFRESH_STEP_VERIFIED',
+            refresh_target:target,refresh_step:step,
+            refresh:{ok:true,skipped:true,status:'ALREADY_COVERED',layer,processed:0,prevalidated:0,blocked:0},
+            secret_values_exposed:false,autonomy_started:false
+          };
+          fs.writeFileSync('mel-sov-refresh-'+process.env.KEY+'.json',JSON.stringify(out,null,2));
+          NODE
+            echo "MEL-SOV-01 skip: ${LAYER} already covered."
+          }
+
           # Refresh each expensive sovereignty prevalidation domain in its own
           # Worker request so no single request can consume the full CPU budget.
           # Runtime pressure can make one isolated refresh transiently fail, so
@@ -163,14 +196,31 @@ jobs:
           NODE
           }
 
-          for TARGET in ai ai_local source_control; do
-            refresh_sov_target "${TARGET}" || exit $?
-          done
+          if layer_covered "ai"; then
+            mark_refresh_skipped "ai" "" "ai"
+            mark_refresh_skipped "ai_local" "" "ai"
+          else
+            refresh_sov_target "ai" || exit $?
+            refresh_sov_target "ai_local" || exit $?
+          fi
+          if layer_covered "source_control"; then
+            mark_refresh_skipped "source_control" "" "source_control"
+          else
+            refresh_sov_target "source_control" || exit $?
+          fi
           for STEP in runtime storage database ci_cd secrets_identity scheduler observability; do
-            refresh_sov_target "infrastructure" "${STEP}" || exit $?
+            if layer_covered "${STEP}"; then
+              mark_refresh_skipped "infrastructure" "${STEP}" "${STEP}"
+            else
+              refresh_sov_target "infrastructure" "${STEP}" || exit $?
+            fi
           done
           for STEP in resolve prepare readback rollback finalize; do
-            refresh_sov_target "backup_restore" "${STEP}" || exit $?
+            if layer_covered "backup_restore"; then
+              mark_refresh_skipped "backup_restore" "${STEP}" "backup_restore"
+            else
+              refresh_sov_target "backup_restore" "${STEP}" || exit $?
+            fi
           done
 
           CODE="$(curl --silent --show-error --max-time 60 \
