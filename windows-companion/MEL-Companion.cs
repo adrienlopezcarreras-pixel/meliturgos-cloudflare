@@ -14,7 +14,7 @@ using System.Web.Script.Serialization;
 static class MelApp
 {
     public const string DefaultServer = "https://meliturgos.adrien-lopezcarreras.workers.dev";
-    public const string Version = "2.3.9";
+    public const string Version = "2.4.0";
     public static readonly string MelDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "MEL");
     public static readonly string ConfigPath = Path.Combine(MelDir, "computer.json");
     public static readonly string InstalledExe = Path.Combine(MelDir, "MEL-Companion.exe");
@@ -125,13 +125,36 @@ static class MelApp
         return bmp;
     }
 
+    static Image CanonicalAvatarCache;
+
+    public static Image CanonicalAvatar()
+    {
+        if (CanonicalAvatarCache != null) return CanonicalAvatarCache;
+        try
+        {
+            var asm = typeof(MelApp).Assembly;
+            using (var stream = asm.GetManifestResourceStream("MelAvatar.png"))
+            {
+                if (stream != null)
+                {
+                    using (var source = Image.FromStream(stream))
+                        CanonicalAvatarCache = new Bitmap(source);
+                }
+            }
+        }
+        catch { CanonicalAvatarCache = null; }
+
+        if (CanonicalAvatarCache == null) CanonicalAvatarCache = MakeMelTechnoFace(512);
+        return CanonicalAvatarCache;
+    }
+
     public static PictureBox MelFace(int x, int y, int size)
     {
         var box = new PictureBox();
         box.SetBounds(x, y, size, size);
         box.BackColor = Color.Transparent;
         box.SizeMode = PictureBoxSizeMode.Zoom;
-        box.Image = MakeMelTechnoFace(size);
+        box.Image = CanonicalAvatar();
         box.TabStop = false;
         return box;
     }
@@ -664,7 +687,116 @@ static class MelApp
     }
 }
 
-// MEL Techno face is generated entirely with GDI+ above: no external logo asset is required.
+// MEL visual controls shared by the desktop Companion.
+class MelHeroPanel : Control
+{
+    public string Header = "MEL";
+    public string SubHeader = "PERSONAL INTELLIGENCE SYSTEM";
+    public MelHeroPanel()
+    {
+        DoubleBuffered = true;
+        BackColor = MelApp.Bg;
+    }
+
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        e.Graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.HighQuality;
+        e.Graphics.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+        e.Graphics.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
+        e.Graphics.Clear(MelApp.Bg);
+
+        var img = MelApp.CanonicalAvatar();
+        if (img != null)
+        {
+            float scale = Math.Max((float)Width / img.Width, (float)Height / img.Height);
+            int dw = (int)Math.Ceiling(img.Width * scale);
+            int dh = (int)Math.Ceiling(img.Height * scale);
+            int dx = (Width - dw) / 2;
+            int dy = (Height - dh) / 2;
+            e.Graphics.DrawImage(img, new Rectangle(dx,dy,dw,dh));
+        }
+
+        using (var overlay = new System.Drawing.Drawing2D.LinearGradientBrush(
+            new Rectangle(0,0,Math.Max(1,Width),Math.Max(1,Height)),
+            Color.FromArgb(55,0,5,10),
+            Color.FromArgb(225,0,5,10),
+            90f))
+        {
+            e.Graphics.FillRectangle(overlay,0,0,Width,Height);
+        }
+
+        using (var top = new SolidBrush(Color.FromArgb(155,0,4,10)))
+            e.Graphics.FillRectangle(top,0,0,Width,42);
+
+        using (var line = new Pen(Color.FromArgb(120,MelApp.Cyan),1f))
+            e.Graphics.DrawLine(line,0,Height-1,Width,Height-1);
+
+        TextRenderer.DrawText(e.Graphics, Header,
+            new Font("Segoe UI Semibold",15f,FontStyle.Bold),
+            new Rectangle(18,8,190,28), Color.White,
+            TextFormatFlags.Left | TextFormatFlags.VerticalCenter);
+
+        TextRenderer.DrawText(e.Graphics, SubHeader,
+            new Font("Segoe UI Semibold",7.5f,FontStyle.Bold),
+            new Rectangle(18,Height-34,280,22), MelApp.Cyan,
+            TextFormatFlags.Left | TextFormatFlags.VerticalCenter);
+    }
+}
+
+class MelOrb : Control
+{
+    public string MainText = "OUVRIR";
+    public string Caption = "MEL";
+    public Color Accent = MelApp.Cyan;
+    bool hover;
+
+    public MelOrb()
+    {
+        DoubleBuffered = true;
+        BackColor = Color.Transparent;
+        Cursor = Cursors.Hand;
+        MouseEnter += delegate { hover=true; Invalidate(); };
+        MouseLeave += delegate { hover=false; Invalidate(); };
+    }
+
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        e.Graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+        e.Graphics.Clear(Color.Transparent);
+        int pad = 8;
+        var outer = new Rectangle(pad,pad,Width-pad*2-1,Height-pad*2-1);
+        var inner = new Rectangle(pad+10,pad+10,Width-(pad+10)*2-1,Height-(pad+10)*2-1);
+
+        using (var glow = new Pen(Color.FromArgb(hover?160:100,Accent), hover?6f:4f))
+            e.Graphics.DrawEllipse(glow,outer);
+        using (var ring = new Pen(Color.FromArgb(220,Accent),2f))
+            e.Graphics.DrawEllipse(ring,inner);
+        using (var fill = new SolidBrush(Color.FromArgb(hover?35:18,Accent)))
+            e.Graphics.FillEllipse(fill,inner);
+
+        int cx=Width/2, cy=Height/2-12;
+        using (var mic = new Pen(Color.FromArgb(225,Accent),4f))
+        {
+            e.Graphics.DrawArc(mic,cx-15,cy-24,30,42,0,180);
+            e.Graphics.DrawLine(mic,cx-15,cy-3,cx-15,cy+7);
+            e.Graphics.DrawLine(mic,cx+15,cy-3,cx+15,cy+7);
+            e.Graphics.DrawArc(mic,cx-15,cy-5,30,24,0,180);
+            e.Graphics.DrawLine(mic,cx,cy+18,cx,cy+31);
+            e.Graphics.DrawLine(mic,cx-10,cy+31,cx+10,cy+31);
+        }
+
+        TextRenderer.DrawText(e.Graphics, MainText,
+            new Font("Segoe UI Semibold",13f,FontStyle.Bold),
+            new Rectangle(20,Height/2+35,Width-40,28), Color.FromArgb(225,240,246,255),
+            TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+
+        TextRenderer.DrawText(e.Graphics, Caption,
+            new Font("Segoe UI",8.5f,FontStyle.Regular),
+            new Rectangle(20,Height/2+64,Width-40,22), Color.FromArgb(145,166,197),
+            TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+    }
+}
+
 class MelCard : Panel
 {
     public Color Accent = MelApp.Cyan;
@@ -824,45 +956,57 @@ class SetupForm : Form
 
     public SetupForm()
     {
-        Text = "MEL Techno Companion — installation"; ClientSize = new Size(800, 560);
-        StartPosition = FormStartPosition.CenterScreen; FormBorderStyle = FormBorderStyle.FixedDialog;
-        MaximizeBox = false; BackColor = MelApp.Bg; ForeColor = MelApp.Text;
-        AutoScaleMode = AutoScaleMode.None; Font = new Font("Segoe UI", 9f, FontStyle.Regular);
+        Text = "MEL — connexion";
+        ClientSize = new Size(430, 720);
+        StartPosition = FormStartPosition.CenterScreen;
+        FormBorderStyle = FormBorderStyle.FixedSingle;
+        MaximizeBox = false;
+        MinimizeBox = true;
+        BackColor = Color.FromArgb(1,6,12);
+        ForeColor = MelApp.Text;
+        AutoScaleMode = AutoScaleMode.None;
+        Font = new Font("Segoe UI", 9f, FontStyle.Regular);
         DoubleBuffered = true;
-        Paint += delegate(object s, PaintEventArgs e){ MelApp.PaintBackdrop(e.Graphics, ClientSize.Width, ClientSize.Height); };
 
-        Controls.Add(MelApp.MelFace(32,24,96));
-        Controls.Add(MelApp.Label("MEL TECHNO",148,30,300,36,18,MelApp.Cyan,FontStyle.Bold));
-        Controls.Add(MelApp.Label("COMPAGNON // WINDOWS",148,66,320,26,10.5f,MelApp.Text,FontStyle.Bold));
-        Controls.Add(MelApp.Label("Connexion locale sécurisée au même écosystème que MEL Mobile et MINI.",148,92,560,22,9,MelApp.Muted,FontStyle.Regular));
-        Controls.Add(MelApp.Pill("LIAISON SÉCURISÉE",610,38,150,26,MelApp.Violet));
+        var hero = new MelHeroPanel();
+        hero.SetBounds(0,0,430,220);
+        hero.Header = "MEL";
+        hero.SubHeader = "PERSONAL INTELLIGENCE SYSTEM";
+        Controls.Add(hero);
 
-        var p = MelApp.Card(38,142,724,300,MelApp.Cyan); Controls.Add(p);
-        p.Controls.Add(MelApp.Label("APPAIRAGE MEL",26,20,220,26,10,MelApp.Cyan,FontStyle.Bold));
-        p.Controls.Add(MelApp.Label("Associe ce PC à ton compte MEL. Les identifiants ne sont jamais conservés.",26,48,650,24,9,MelApp.Muted,FontStyle.Regular));
-        p.Controls.Add(MelApp.Label("Adresse MEL",26,88,180,22,9,MelApp.Muted,FontStyle.Regular));
-        server.SetBounds(26,112,672,34); server.Text = MelApp.DefaultServer; MelApp.StyleTextBox(server); p.Controls.Add(server);
-        p.Controls.Add(MelApp.Label("Utilisateur",26,158,180,22,9,MelApp.Muted,FontStyle.Regular));
-        user.SetBounds(26,182,315,34); user.Text = "adrien"; MelApp.StyleTextBox(user); p.Controls.Add(user);
-        p.Controls.Add(MelApp.Label("Mot de passe",383,158,180,22,9,MelApp.Muted,FontStyle.Regular));
-        pass.SetBounds(383,182,315,34); pass.UseSystemPasswordChar = true; MelApp.StyleTextBox(pass); p.Controls.Add(pass);
-        startup.Text = "Lancer MEL Companion avec Windows"; startup.Checked = true;
-        startup.ForeColor = MelApp.Text; startup.BackColor = Color.Transparent; startup.AutoSize = true; startup.SetBounds(26,244,350,30); p.Controls.Add(startup);
+        var mel = MelApp.Label("MEL",0,236,430,52,26,Color.FromArgb(225,235,242,250),FontStyle.Bold);
+        mel.TextAlign = ContentAlignment.MiddleCenter; Controls.Add(mel);
+        var sub = MelApp.Label("PERSONAL INTELLIGENCE SYSTEM",0,286,430,24,9,MelApp.Cyan,FontStyle.Bold);
+        sub.TextAlign = ContentAlignment.MiddleCenter; Controls.Add(sub);
+        var mobile = MelApp.Label("Companion Windows sécurisé",0,312,430,24,9.5f,MelApp.Muted,FontStyle.Regular);
+        mobile.TextAlign = ContentAlignment.MiddleCenter; Controls.Add(mobile);
 
-        status = MelApp.Label("Prêt à appairer ce PC.",42,466,480,30,9.5f,MelApp.Muted,FontStyle.Bold); Controls.Add(status);
-        var quit = MelApp.TechButton("ANNULER",548,462,98,40,false); quit.Click += delegate { Close(); }; Controls.Add(quit);
-        var go = MelApp.TechButton("CONNECTER",658,462,104,40,true); go.Click += Connect; Controls.Add(go); AcceptButton = go;
+        var card = MelApp.Card(24,350,382,300,MelApp.Cyan); Controls.Add(card);
+        card.Controls.Add(MelApp.Label("MEL // LINK",22,18,160,24,10,MelApp.Cyan,FontStyle.Bold));
+        card.Controls.Add(MelApp.Pill("CHIFFRÉ",258,16,98,24,MelApp.Green));
+        card.Controls.Add(MelApp.Label("Connexion à MEL",22,52,300,34,16,MelApp.Text,FontStyle.Bold));
+
+        server.SetBounds(22,96,338,34); server.Text = MelApp.DefaultServer; MelApp.StyleTextBox(server); card.Controls.Add(server);
+        user.SetBounds(22,142,338,38); user.Text = "adrien"; MelApp.StyleTextBox(user); card.Controls.Add(user);
+        pass.SetBounds(22,192,338,38); pass.UseSystemPasswordChar = true; MelApp.StyleTextBox(pass); card.Controls.Add(pass);
+
+        var go = MelApp.TechButton("ENTRER DANS MEL",22,242,338,42,true);
+        go.Click += Connect; card.Controls.Add(go); AcceptButton = go;
+
+        startup.Checked = true; startup.Visible = false;
+        status = MelApp.Label("Jeton local protégé par Windows",24,668,382,28,8.5f,MelApp.Muted,FontStyle.Regular);
+        status.TextAlign = ContentAlignment.MiddleCenter; Controls.Add(status);
     }
 
     void Connect(object sender, EventArgs e)
     {
         if (pass.Text.Length == 0) { status.Text="Mot de passe requis."; status.ForeColor=MelApp.Red; return; }
-        status.Text="Appairage sécurisé en cours…"; status.ForeColor=MelApp.Cyan; Refresh();
+        status.Text="Connexion sécurisée à MEL…"; status.ForeColor=MelApp.Cyan; Refresh();
         string err;
         if (!MelApp.Pair(server.Text, user.Text.Trim().Length>0?user.Text.Trim():"adrien", pass.Text, out err))
         { pass.Text=""; status.Text="Échec : " + err; status.ForeColor=MelApp.Red; return; }
-        pass.Text=""; MelApp.InstallFiles(startup.Checked); status.Text="Ordinateur connecté ✓"; status.ForeColor=MelApp.Green; Refresh();
-        Thread.Sleep(450); DialogResult=DialogResult.OK; Close();
+        pass.Text=""; MelApp.InstallFiles(startup.Checked); status.Text="PC associé à MEL"; status.ForeColor=MelApp.Green; Refresh();
+        Thread.Sleep(350); DialogResult=DialogResult.OK; Close();
     }
 }
 
@@ -951,57 +1095,125 @@ class PermissionsForm : Form
 
 class MainForm : Form
 {
-    Label state, pcLine; Panel devicePanel; CheckBox startup; System.Windows.Forms.Timer timer;
+    Label state, pcLine, companionState;
+    Panel devicePanel;
+    CheckBox startup;
+    System.Windows.Forms.Timer timer;
+    MelOrb orb;
 
     public MainForm()
     {
-        Text="MEL Techno Companion"; ClientSize=new Size(900,680); StartPosition=FormStartPosition.CenterScreen;
-        BackColor=MelApp.Bg; ForeColor=MelApp.Text; MinimumSize=new Size(916,719);
-        AutoScaleMode=AutoScaleMode.None; Font=new Font("Segoe UI",9f,FontStyle.Regular);
+        Text="MEL";
+        ClientSize=new Size(430,720);
+        StartPosition=FormStartPosition.CenterScreen;
+        BackColor=Color.FromArgb(1,6,12);
+        ForeColor=MelApp.Text;
+        MinimumSize=new Size(446,759);
+        MaximumSize=new Size(446,759);
+        MaximizeBox=false;
+        AutoScaleMode=AutoScaleMode.None;
+        Font=new Font("Segoe UI",9f,FontStyle.Regular);
         DoubleBuffered=true;
-        Paint += delegate(object s, PaintEventArgs e){ MelApp.PaintBackdrop(e.Graphics, ClientSize.Width, ClientSize.Height); };
 
-        Controls.Add(MelApp.MelFace(30,18,104));
-        Controls.Add(MelApp.Label("MEL TECHNO",156,28,300,38,18,MelApp.Cyan,FontStyle.Bold));
-        Controls.Add(MelApp.Label("COMPAGNON // WINDOWS",156,65,330,26,10.5f,MelApp.Text,FontStyle.Bold));
-        Controls.Add(MelApp.Label("Même identité MEL que l’APK et la MINI · contrôle local sécurisé",156,91,500,22,9,MelApp.Muted,FontStyle.Regular));
-        state=MelApp.Label("● Vérification…",670,82,190,24,9,MelApp.Muted,FontStyle.Bold); Controls.Add(state);
-        var open=MelApp.TechButton("OUVRIR MEL",728,28,142,40,true); open.Click+=delegate{MelApp.OpenMel();}; Controls.Add(open);
+        var hero=new MelHeroPanel();
+        hero.SetBounds(0,0,430,292);
+        hero.Header="MEL";
+        hero.SubHeader="PERSONAL INTELLIGENCE SYSTEM";
+        Controls.Add(hero);
 
-        var pc = MelApp.Card(30,136,840,128,MelApp.Cyan); Controls.Add(pc);
-        pc.Controls.Add(MelApp.Label("CE PC",22,16,120,24,9,MelApp.Cyan,FontStyle.Bold));
-        pc.Controls.Add(MelApp.Pill("MOTEUR LOCAL",674,16,140,24,MelApp.Violet));
-        pcLine=MelApp.Label(Environment.MachineName+"  //  "+MelApp.ComputerId,22,46,620,30,11,MelApp.Text,FontStyle.Bold); pc.Controls.Add(pcLine);
-        pc.Controls.Add(MelApp.Label("Contrôle autorisé · captures · commandes MEL en arrière-plan · liaison chiffrée",22,80,650,24,9,MelApp.Muted,FontStyle.Regular));
-        pc.Controls.Add(MelApp.Pill("CTRL+ALT+M",674,76,140,24,MelApp.Cyan));
+        state=MelApp.Label("● Vérification…",0,304,430,26,10,MelApp.Muted,FontStyle.Bold);
+        state.TextAlign=ContentAlignment.MiddleCenter; Controls.Add(state);
 
-        Controls.Add(MelApp.Label("APPAREILS MEL",32,286,240,28,10,MelApp.Cyan,FontStyle.Bold));
-        Controls.Add(MelApp.Label("MINI et Android remontés par MEL",32,310,300,22,8.5f,MelApp.Muted,FontStyle.Regular));
-        var permissions=MelApp.TechButton("AUTORISATIONS",588,286,136,38,false); permissions.Click+=delegate{using(var form=new PermissionsForm()) form.ShowDialog(this);}; Controls.Add(permissions);
-        var refresh=MelApp.TechButton("ACTUALISER",736,286,134,38,false); refresh.Click+=delegate{RefreshAll();}; Controls.Add(refresh);
+        pcLine=MelApp.Label(Environment.MachineName,20,332,390,24,8.5f,MelApp.Muted,FontStyle.Regular);
+        pcLine.TextAlign=ContentAlignment.MiddleCenter; Controls.Add(pcLine);
 
-        devicePanel=new Panel(); devicePanel.SetBounds(30,340,840,220); devicePanel.BackColor=Color.Transparent; devicePanel.AutoScroll=true; Controls.Add(devicePanel);
+        orb=new MelOrb();
+        orb.SetBounds(110,364,210,210);
+        orb.MainText="OUVRIR MEL";
+        orb.Caption="COMPAGNON";
+        orb.Click+=delegate{MelApp.OpenMel();};
+        Controls.Add(orb);
 
-        startup=new CheckBox(); startup.Text="Lancer MEL Companion avec Windows"; startup.Checked=MelApp.StartupEnabled();
-        startup.ForeColor=MelApp.Text; startup.BackColor=Color.Transparent; startup.AutoSize=true; startup.SetBounds(34,590,330,28);
-        startup.CheckedChanged+=delegate{MelApp.ConfigureStartup(startup.Checked);}; Controls.Add(startup);
+        companionState=MelApp.Label("Companion prêt",0,578,430,24,9,MelApp.Muted,FontStyle.Regular);
+        companionState.TextAlign=ContentAlignment.MiddleCenter; Controls.Add(companionState);
 
-        var repair=MelApp.TechButton("RÉPARER",492,584,104,38,false); repair.Click+=delegate{MelApp.InstallFiles(startup.Checked); MelApp.StartCompanion(); MessageBox.Show("Installation réparée.","MEL Companion");}; Controls.Add(repair);
-        var rePair=MelApp.TechButton("RÉAPPAIRER",608,584,116,38,false); rePair.Click+=RePair; Controls.Add(rePair);
-        var uninstall=MelApp.TechButton("DÉSINSTALLER",736,584,134,38,false); uninstall.Click+=delegate{MelApp.Uninstall();}; Controls.Add(uninstall);
+        devicePanel=new Panel();
+        devicePanel.SetBounds(20,614,390,42);
+        devicePanel.BackColor=Color.Transparent;
+        Controls.Add(devicePanel);
 
-        Controls.Add(MelApp.Label("MEL Companion reste actif dans la zone de notification même lorsque cette fenêtre est fermée.",34,638,800,24,8.5f,MelApp.Muted,FontStyle.Regular));
-        FormClosing += delegate(object s, FormClosingEventArgs e){ if (!MelApp.Exiting && e.CloseReason==CloseReason.UserClosing){e.Cancel=true;Hide();} };
-        timer=new System.Windows.Forms.Timer(); timer.Interval=10000; timer.Tick+=delegate{RefreshAll();}; timer.Start(); Shown+=delegate{RefreshAll();};
+        startup=new CheckBox();
+        startup.Checked=MelApp.StartupEnabled();
+        startup.Visible=false;
+        Controls.Add(startup);
+
+        var settings=MelApp.TechButton("RÉGLAGES",80,672,126,34,false);
+        settings.Click+=ShowSettings; Controls.Add(settings);
+        var refresh=MelApp.TechButton("ACTUALISER",224,672,126,34,false);
+        refresh.Click+=delegate{RefreshAll();}; Controls.Add(refresh);
+
+        FormClosing += delegate(object s, FormClosingEventArgs e){
+            if (!MelApp.Exiting && e.CloseReason==CloseReason.UserClosing){e.Cancel=true;Hide();}
+        };
+        timer=new System.Windows.Forms.Timer();
+        timer.Interval=10000;
+        timer.Tick+=delegate{RefreshAll();};
+        timer.Start();
+        Shown+=delegate{RefreshAll();};
+    }
+
+    void ShowSettings(object sender, EventArgs e)
+    {
+        var menu=new ContextMenuStrip();
+        menu.BackColor=Color.FromArgb(7,14,24);
+        menu.ForeColor=MelApp.Text;
+        menu.Font=new Font("Segoe UI",9.5f,FontStyle.Regular);
+        menu.RenderMode=ToolStripRenderMode.System;
+
+        var permissions=menu.Items.Add("Autorisations locales");
+        permissions.Click+=delegate{using(var form=new PermissionsForm()) form.ShowDialog(this);};
+
+        var startItem=new ToolStripMenuItem("Lancer avec Windows");
+        startItem.Checked=MelApp.StartupEnabled();
+        startItem.CheckOnClick=true;
+        startItem.CheckedChanged+=delegate{
+            startup.Checked=startItem.Checked;
+            MelApp.ConfigureStartup(startup.Checked);
+        };
+        menu.Items.Add(startItem);
+
+        var repair=menu.Items.Add("Réparer le moteur local");
+        repair.Click+=delegate{
+            MelApp.InstallFiles(startup.Checked);
+            MelApp.StartCompanion();
+            companionState.Text="Moteur local réparé";
+            RefreshAll();
+        };
+
+        var pair=menu.Items.Add("RÉAPPAIRER CE PC");
+        pair.Click+=RePair;
+
+        menu.Items.Add(new ToolStripSeparator());
+        var uninstall=menu.Items.Add("DÉSINSTALLER MEL COMPANION");
+        uninstall.Click+=delegate{MelApp.Uninstall();};
+
+        var control=sender as Control;
+        if(control!=null) menu.Show(control,new Point(0,control.Height+4));
     }
 
     void RePair(object sender, EventArgs e)
     {
-        if (MessageBox.Show("Réappairer ce PC à MEL ?", "MEL Companion", MessageBoxButtons.YesNo) != DialogResult.Yes) return;
+        if (MessageBox.Show("Réappairer ce PC à MEL ?", "MEL", MessageBoxButtons.YesNo) != DialogResult.Yes) return;
         try { File.Delete(MelApp.ConfigPath); } catch {}
-        Hide(); var setup=new SetupForm();
+        Hide();
+        var setup=new SetupForm();
         if (setup.ShowDialog()==DialogResult.OK && MelApp.LoadConfig())
-        { MelApp.InstallFiles(startup.Checked); MelApp.StartCompanion(); pcLine.Text=Environment.MachineName+"  •  "+MelApp.ComputerId; Show(); RefreshAll(); }
+        {
+            MelApp.InstallFiles(startup.Checked);
+            MelApp.StartCompanion();
+            Show();
+            RefreshAll();
+        }
         else Show();
     }
 
@@ -1012,38 +1224,35 @@ class MainForm : Form
     {
         MelApp.EnsureCompanion();
         MelApp.MaybeRefreshCompanionEngine(false);
-        var ok=MelApp.Heartbeat(); state.Text=ok?"● Connecté à MEL":"● Reconnexion…"; state.ForeColor=ok?MelApp.Green:MelApp.Red;
+        var ok=MelApp.Heartbeat();
+
+        state.Text=ok?"● CONNECTÉ À MEL":"● RECONNEXION…";
+        state.ForeColor=ok?MelApp.Green:MelApp.Red;
+        companionState.Text=ok?"Companion Windows prêt":"Recherche du moteur MEL…";
+        pcLine.Text="CE PC  //  "+Environment.MachineName;
         MelApp.Tray.Text=ok?"MEL Companion — connecté":"MEL Companion — reconnexion";
-        devicePanel.Controls.Clear(); var devices=MelApp.Devices();
-        if (devices.Count==0)
-        {
-            var empty=MelApp.Card(8,8,808,118,MelApp.Violet); devicePanel.Controls.Add(empty);
-            empty.Controls.Add(MelApp.MelFace(22,17,78));
-            empty.Controls.Add(MelApp.Label("AUCUN APPAREIL MEL VISIBLE",120,24,430,26,10,MelApp.Text,FontStyle.Bold));
-            empty.Controls.Add(MelApp.Label("La MINI ou l’APK apparaîtront ici dès leur prochain heartbeat serveur.",120,54,570,24,9,MelApp.Muted,FontStyle.Regular));
-            empty.Controls.Add(MelApp.Pill("EN ATTENTE",650,24,126,24,MelApp.Violet));
-            return;
-        }
-        int y=8;
+
+        devicePanel.Controls.Clear();
+        var devices=MelApp.Devices();
+
+        int x=0;
+        int shown=0;
         foreach(var d in devices)
         {
-            var name=Get(d,"name"); var kind=Get(d,"kind"); var online=Bool(d,"online");
-            var camera=Bool(d,"camera"); var mic=Bool(d,"microphone"); var live=Bool(d,"live_stream");
-            var firmware=Get(d,"firmware"); var phase=Get(d,"phase");
-            var accent=online?MelApp.Green:MelApp.Violet;
-            var row=MelApp.Card(8,y,808,92,accent); devicePanel.Controls.Add(row);
-            row.Controls.Add(MelApp.MelFace(16,14,62));
-            row.Controls.Add(MelApp.Label((kind=="android"?"ANDROID // ":"MINI // ")+name,94,14,410,24,10,MelApp.Text,FontStyle.Bold));
-            row.Controls.Add(MelApp.Label((phase.Length>0?phase:"MEL DEVICE")+(firmware.Length>0?"  ·  "+firmware:""),94,40,470,22,8.5f,MelApp.Muted,FontStyle.Regular));
-            row.Controls.Add(MelApp.Pill(online?"ONLINE":"OFFLINE",650,12,126,24,online?MelApp.Green:MelApp.Red));
-            row.Controls.Add(MelApp.Pill(camera?"CAM OK":"CAM —",94,64,92,20,camera?MelApp.Cyan:MelApp.Muted));
-            row.Controls.Add(MelApp.Pill(mic?"MIC OK":"MIC —",194,64,92,20,mic?MelApp.Green:MelApp.Muted));
-            var cam=MelApp.TechButton(live?"OUVRIR FLUX":"CAMÉRA",650,48,126,32,live); cam.Enabled=camera;
-            cam.Click+=delegate {
-                if (live) MelApp.OpenMel();
-                else MessageBox.Show("La caméra est détectée, mais aucun flux vidéo live réel n’est encore publié par cet appareil.\n\nLe bouton passera automatiquement à « OUVRIR FLUX » dès qu’un endpoint live sera disponible.", "MEL — caméra");
-            };
-            row.Controls.Add(cam); y+=102;
+            if(shown>=3) break;
+            var kind=Get(d,"kind");
+            var online=Bool(d,"online");
+            var label=(kind=="android"?"ANDROID":"MINI")+" "+(online?"ONLINE":"OFFLINE");
+            var pill=MelApp.Pill(label,x,5,120,28,online?MelApp.Green:MelApp.Red);
+            devicePanel.Controls.Add(pill);
+            x+=132;
+            shown++;
+        }
+
+        if(shown==0)
+        {
+            var none=MelApp.Pill("AUCUN APPAREIL",92,5,205,28,MelApp.Violet);
+            devicePanel.Controls.Add(none);
         }
     }
 }

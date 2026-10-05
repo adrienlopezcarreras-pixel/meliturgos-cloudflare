@@ -20,7 +20,7 @@ class MelApiClient(
 ) {
     companion object {
         const val PROTOCOL_VERSION = "1.0"
-        const val APP_VERSION = "0.6.58-mini-stable-bridge"
+        const val APP_VERSION = "0.6.68-stt-pcm4"
     }
 
     init {
@@ -65,7 +65,7 @@ class MelApiClient(
                 .getOrElse { throw MelApiException("INVALID_SERVER_RESPONSE", status, body.take(180)) }
             if (status !in 200..299) {
                 throw MelApiException(
-                    code = json.optString("code", json.optString("error", "HTTP_$status")),
+                    code = json.optString("code", json.optString("reason", json.optString("error", "HTTP_$status"))),
                     status = status,
                     detail = json.optString("detail")
                 )
@@ -83,7 +83,7 @@ class MelApiClient(
                 val body = connection.errorStream?.bufferedReader()?.use { it.readText() }.orEmpty()
                 val json = runCatching { JSONObject(body) }.getOrNull()
                 throw MelApiException(
-                    code = json?.let { it.optString("code", it.optString("error", "HTTP_$status")) }
+                    code = json?.let { it.optString("code", it.optString("reason", it.optString("error", "HTTP_$status"))) }
                         ?: "HTTP_$status",
                     status = status,
                     detail = json?.optString("detail").orEmpty()
@@ -275,12 +275,20 @@ class MelApiClient(
         require(audioBytes.isNotEmpty())
         val boundary = "mel-" + UUID.randomUUID().toString()
         val connection = connection("/api/android/v1/voice/transcribe", "POST")
+        connection.connectTimeout = 10_000
+        connection.readTimeout = 35_000
         connection.doOutput = true
         connection.setRequestProperty("Content-Type", "multipart/form-data; boundary=$boundary")
+        val extension = when {
+            mimeType.contains("wav", ignoreCase = true) -> "wav"
+            mimeType.contains("webm", ignoreCase = true) -> "webm"
+            mimeType.contains("mpeg", ignoreCase = true) || mimeType.contains("mp3", ignoreCase = true) -> "mp3"
+            else -> "m4a"
+        }
         connection.outputStream.use { output ->
             fun text(value: String) = output.write(value.toByteArray(Charsets.UTF_8))
             text("--$boundary\r\n")
-            text("Content-Disposition: form-data; name=\"audio\"; filename=\"voice.m4a\"\r\n")
+            text("Content-Disposition: form-data; name=\"audio\"; filename=\"voice.$extension\"\r\n")
             text("Content-Type: $mimeType\r\n\r\n")
             output.write(audioBytes)
             text("\r\n--$boundary--\r\n")

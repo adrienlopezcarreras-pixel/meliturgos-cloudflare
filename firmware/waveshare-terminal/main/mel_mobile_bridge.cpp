@@ -3,7 +3,10 @@
 #include <algorithm>
 #include <atomic>
 #include <cstring>
+#include <cstdlib>
+#include <ctime>
 #include <string>
+#include <sys/time.h>
 
 #include "cJSON.h"
 #include "esp_log.h"
@@ -52,6 +55,7 @@ static const uint8_t OP_META_CHUNK = 0x05;
 static const uint8_t OP_RESPONSE_BEGIN = 0x11;
 static const uint8_t OP_RESPONSE_BODY = 0x12;
 static const uint8_t OP_RESPONSE_END = 0x13;
+static const uint8_t OP_CLOCK = 0x14;
 static const uint8_t OP_ERROR = 0x1f;
 
 static std::atomic<bool> g_started{false};
@@ -70,6 +74,10 @@ static uint8_t g_read_frame[520] = {};
 static size_t g_read_len = 0;
 static bool g_read_failed = false;
 static std::atomic<uint32_t> g_request_id{1};
+static std::atomic<int64_t> g_phone_epoch_ms{0};
+static std::atomic<int32_t> g_phone_offset_seconds{0};
+static std::atomic<int64_t> g_phone_clock_received_us{0};
+static std::atomic<int> g_voice_transfer_progress{-1};
 
 struct NotifyFrame {
     uint16_t len = 0;
@@ -89,6 +97,7 @@ static ActiveResponse g_active;
 
 static int gap_event(struct ble_gap_event *event, void *arg);
 static void start_scan();
+static void recycle_link(const char *reason);
 static void handle_rx_frame(const uint8_t *data, size_t len);
 
 static std::string json_string(cJSON *root) {
@@ -96,6 +105,51 @@ static std::string json_string(cJSON *root) {
     std::string out = raw ? raw : "{}";
     if (raw) cJSON_free(raw);
     return out;
+}
+
+static bool apply_phone_clock(const std::string &body) {
+    if (body.empty()) return false;
+    cJSON *root = cJSON_Parse(body.c_str());
+    if (!root) return false;
+    cJSON *epoch_item = cJSON_GetObjectItemCaseSensitive(root, "epoch_ms");
+    cJSON *offset_item = cJSON_GetObjectItemCaseSensitive(root, "utc_offset_seconds");
+    if (!cJSON_IsNumber(epoch_item) || !cJSON_IsNumber(offset_item)) {
+        cJSON_Delete(root);
+        return false;
+    }
+
+    const int64_t epoch_ms = (int64_t)epoch_item->valuedouble;
+    const int offset_seconds = offset_item->valueint;
+    if (epoch_ms < 1700000000000LL) {
+        cJSON_Delete(root);
+        return false;
+    }
+
+    g_phone_epoch_ms.store(epoch_ms);
+    g_phone_offset_seconds.store(offset_seconds);
+    g_phone_clock_received_us.store(esp_timer_get_time());
+
+    struct timeval tv = {};
+    tv.tv_sec = (time_t)(epoch_ms / 1000LL);
+    tv.tv_usec = (suseconds_t)((epoch_ms % 1000LL) * 1000LL);
+    if (settimeofday(&tv, nullptr) != 0) {
+        ESP_LOGW(TAG, "BLE PHONE CLOCK settimeofday failed; direct display clock remains valid");
+    }
+
+    const int abs_offset = offset_seconds < 0 ? -offset_seconds : offset_seconds;
+    const int hours = abs_offset / 3600;
+    const int minutes = (abs_offset % 3600) / 60;
+    const char sign = offset_seconds >= 0 ? '-' : '+';
+    char tz[32] = {};
+    if (minutes) snprintf(tz, sizeof(tz), "MEL%c%d:%02d", sign, hours, minutes);
+    else snprintf(tz, sizeof(tz), "MEL%c%d", sign, hours);
+    setenv("TZ", tz, 1);
+    tzset();
+
+    ESP_LOGI(TAG, "BLE PHONE CLOCK synced epoch=%lld offset=%d tz=%s",
+             (long long)(epoch_ms / 1000LL), offset_seconds, tz);
+    cJSON_Delete(root);
+    return true;
 }
 
 static bool uuid_matches_mel(const ble_uuid_t *uuid,
@@ -163,13 +217,18 @@ static bool pull_response_frame() {
     const int rc = ble_gattc_read(g_conn_handle, g_tx_handle, read_complete, nullptr);
     if (rc != 0) {
         ESP_LOGW(TAG, "BLE TX read start failed rc=%d", rc);
+        recycle_link("read-start");
         return false;
     }
     if (xSemaphoreTake(g_read_done, pdMS_TO_TICKS(2500)) != pdTRUE) {
         ESP_LOGW(TAG, "BLE TX read timeout");
+        recycle_link("read-timeout");
         return false;
     }
-    if (g_read_failed) return false;
+    if (g_read_failed) {
+        recycle_link("read-status");
+        return false;
+    }
     if (g_read_len >= 5 && g_read_frame[0] != 0) {
         handle_rx_frame(g_read_frame, g_read_len);
     }
@@ -190,6 +249,31 @@ static int cccd_subscribe_complete(uint16_t conn_handle, const struct ble_gatt_e
     g_ready.store(false);
     ble_gap_terminate(conn_handle, BLE_ERR_REM_USER_CONN_TERM);
     return 0;
+}
+
+static void recycle_link(const char *reason) {
+    const uint16_t handle = g_conn_handle;
+    ESP_LOGW(TAG, "BLE link unhealthy (%s); recycling conn=%u ready=%d",
+             reason ? reason : "unknown", (unsigned)handle, g_ready.load() ? 1 : 0);
+    g_ready.store(false);
+    g_rx_handle = 0;
+    g_tx_handle = 0;
+    g_mtu = 23;
+    g_active.failed = true;
+    if (g_response_done) xSemaphoreGive(g_response_done);
+
+    if (handle == BLE_HS_CONN_HANDLE_NONE) {
+        start_scan();
+        return;
+    }
+
+    const int rc = ble_gap_terminate(handle, BLE_ERR_REM_USER_CONN_TERM);
+    if (rc != 0) {
+        ESP_LOGW(TAG, "BLE terminate failed rc=%d; clearing stale handle locally", rc);
+        peer_delete(handle);
+        if (g_conn_handle == handle) g_conn_handle = BLE_HS_CONN_HANDLE_NONE;
+        start_scan();
+    }
 }
 
 static bool write_frame(uint8_t op, uint32_t id, const uint8_t *payload, size_t payload_len) {
@@ -218,13 +302,19 @@ static bool write_frame(uint8_t op, uint32_t id, const uint8_t *payload, size_t 
     );
     if (rc != 0) {
         ESP_LOGW(TAG, "BLE write start failed rc=%d", rc);
+        recycle_link("write-start");
         return false;
     }
     if (xSemaphoreTake(g_write_done, pdMS_TO_TICKS(5000)) != pdTRUE) {
         ESP_LOGW(TAG, "BLE write timeout");
+        recycle_link("write-timeout");
         return false;
     }
-    return !g_write_failed;
+    if (g_write_failed) {
+        recycle_link("write-status");
+        return false;
+    }
+    return true;
 }
 
 static void handle_rx_frame(const uint8_t *data, size_t len) {
@@ -236,9 +326,25 @@ static void handle_rx_frame(const uint8_t *data, size_t len) {
                         ((uint32_t)data[4] << 24);
     ESP_LOGI(TAG, "MEL Mobile RX op=0x%02x id=%u len=%u active=%u",
              op, (unsigned)id, (unsigned)len, (unsigned)g_active.id);
-    if (id != g_active.id) return;
     const uint8_t *payload = data + 5;
     const size_t payload_len = len - 5;
+
+    if (op == OP_CLOCK && payload_len >= 12) {
+        int64_t epoch_ms = 0;
+        int32_t offset_seconds = 0;
+        memcpy(&epoch_ms, payload, sizeof(epoch_ms));
+        memcpy(&offset_seconds, payload + 8, sizeof(offset_seconds));
+        if (epoch_ms >= 1700000000000LL) {
+            g_phone_epoch_ms.store(epoch_ms);
+            g_phone_offset_seconds.store(offset_seconds);
+            g_phone_clock_received_us.store(esp_timer_get_time());
+            ESP_LOGI(TAG, "BLE CLOCK FRAME epoch=%lld offset=%d",
+                     (long long)epoch_ms, (int)offset_seconds);
+        }
+        return;
+    }
+
+    if (id != g_active.id) return;
 
     if (op == OP_RESPONSE_BEGIN) {
         std::string meta(reinterpret_cast<const char *>(payload), payload_len);
@@ -261,7 +367,10 @@ static void handle_rx_frame(const uint8_t *data, size_t len) {
     }
     if (op == OP_ERROR) {
         g_active.failed = true;
+        g_active.status = 0;
+        g_active.body.clear();
         if (payload_len) {
+            g_active.body.assign(reinterpret_cast<const char *>(payload), payload_len);
             ESP_LOGW(TAG, "MEL Mobile bridge error: %.*s", (int)payload_len, (const char *)payload);
         }
         if (g_response_done) xSemaphoreGive(g_response_done);
@@ -373,10 +482,14 @@ static void connect_to(const struct ble_gap_disc_desc *disc) {
     struct ble_gap_conn_params params = {};
     params.scan_itvl = 0x0010;
     params.scan_window = 0x0010;
-    params.itvl_min = BLE_GAP_INITIAL_CONN_ITVL_MIN;   // 30 ms
-    params.itvl_max = BLE_GAP_INITIAL_CONN_ITVL_MAX;   // 50 ms
-    params.latency = BLE_GAP_INITIAL_CONN_LATENCY;
-    params.supervision_timeout = BLE_GAP_INITIAL_SUPERVISION_TIMEOUT;
+    // Conservative link parameters: the Redmi/Xiaomi bridge proved unstable
+    // with the generic defaults during idle periods and large STT transfers.
+    // 30-40 ms, no slave latency, 8 s supervision gives the phone and ESP32
+    // enough margin without sacrificing interactive latency.
+    params.itvl_min = 24;          // 30 ms (1.25 ms units)
+    params.itvl_max = 32;          // 40 ms
+    params.latency = 0;
+    params.supervision_timeout = 800; // 8 s (10 ms units)
     params.min_ce_len = BLE_GAP_INITIAL_CONN_MIN_CE_LEN;
     params.max_ce_len = BLE_GAP_INITIAL_CONN_MAX_CE_LEN;
     int rc = ble_gap_connect(own_addr_type, &disc->addr, 15000, &params, gap_event, nullptr);
@@ -410,7 +523,7 @@ static int gap_event(struct ble_gap_event *event, void *arg) {
                 ble_gap_terminate(g_conn_handle, BLE_ERR_REM_USER_CONN_TERM);
                 return 0;
             }
-            ble_att_set_preferred_mtu(517);
+            ble_att_set_preferred_mtu(185); // conservative Android/Redmi-safe MTU
             if (ble_gattc_exchange_mtu(g_conn_handle, mtu_complete, nullptr) != 0) {
                 mtu_complete(g_conn_handle, nullptr, ble_att_mtu(g_conn_handle), nullptr);
             }
@@ -436,7 +549,15 @@ static int gap_event(struct ble_gap_event *event, void *arg) {
                      event->conn_update_req.peer_params->itvl_max,
                      event->conn_update_req.peer_params->latency,
                      event->conn_update_req.peer_params->supervision_timeout);
-            // NimBLE pre-fills self_params with the peer request. Return 0 to accept it.
+            // Never let the phone renegotiate the Redmi/Xiaomi link into an
+            // aggressive/fragile profile. Force the same proven-safe window
+            // used for the initial connection.
+            event->conn_update_req.self_params->itvl_min = 24;   // 30 ms
+            event->conn_update_req.self_params->itvl_max = 32;   // 40 ms
+            event->conn_update_req.self_params->latency = 0;
+            event->conn_update_req.self_params->supervision_timeout = 800; // 8 s
+            event->conn_update_req.self_params->min_ce_len = BLE_GAP_INITIAL_CONN_MIN_CE_LEN;
+            event->conn_update_req.self_params->max_ce_len = BLE_GAP_INITIAL_CONN_MAX_CE_LEN;
             return 0;
         case BLE_GAP_EVENT_CONN_UPDATE: {
             struct ble_gap_conn_desc desc = {};
@@ -492,8 +613,17 @@ static void start_scan() {
 }
 
 static void on_reset(int reason) {
-    ESP_LOGW(TAG, "NimBLE reset reason=%d", reason);
+    ESP_LOGW(TAG, "NimBLE reset reason=%d; waiting for host resync", reason);
+    // Clear only transport state here. NimBLE will call on_sync() once the host
+    // is usable again; on_sync owns restarting the scan. This avoids racing a
+    // scan against controller reset while still discarding stale handles.
     g_ready.store(false);
+    g_rx_handle = 0;
+    g_tx_handle = 0;
+    g_mtu = 23;
+    g_conn_handle = BLE_HS_CONN_HANDLE_NONE;
+    g_active.failed = true;
+    if (g_response_done) xSemaphoreGive(g_response_done);
 }
 
 static void on_sync() {
@@ -538,7 +668,7 @@ void mel_mobile_bridge_start(void) {
     }
     ble_hs_cfg.reset_cb = on_reset;
     ble_hs_cfg.sync_cb = on_sync;
-    ble_att_set_preferred_mtu(517);
+    ble_att_set_preferred_mtu(185); // conservative Android/Redmi-safe MTU
     nimble_port_freertos_init(host_task);
     ESP_LOGI(TAG, "MEL Mobile BLE client started");
 }
@@ -565,14 +695,82 @@ void mel_mobile_bridge_rescan(void) {
 bool mel_mobile_bridge_keepalive(void) {
     if (!g_ready.load() || g_conn_handle == BLE_HS_CONN_HANDLE_NONE || !g_request_mutex) return false;
     if (xSemaphoreTake(g_request_mutex, 0) != pdTRUE) return false;
-    const bool ok = pull_response_frame();
+
+    const uint32_t id = g_request_id.fetch_add(1);
+    g_active = {};
+    g_active.id = id;
+    while (xSemaphoreTake(g_response_done, 0) == pdTRUE) {}
+    if (g_notify_queue) xQueueReset(g_notify_queue);
+
+    if (!write_frame(OP_PING, id, nullptr, 0)) {
+        xSemaphoreGive(g_request_mutex);
+        return false;
+    }
+
+    const TickType_t started = xTaskGetTickCount();
+    const TickType_t wait = pdMS_TO_TICKS(5000);
+    bool completed = false;
+    NotifyFrame notify_frame;
+    TickType_t last_pull = 0;
+
+    while ((xTaskGetTickCount() - started) < wait) {
+        if (xSemaphoreTake(g_response_done, 0) == pdTRUE) {
+            completed = true;
+            break;
+        }
+        if (!g_ready.load() || g_conn_handle == BLE_HS_CONN_HANDLE_NONE) break;
+
+        while (g_notify_queue && xQueueReceive(g_notify_queue, &notify_frame, 0) == pdTRUE) {
+            handle_rx_frame(notify_frame.data, notify_frame.len);
+            if (xSemaphoreTake(g_response_done, 0) == pdTRUE) {
+                completed = true;
+                break;
+            }
+        }
+        if (completed) break;
+
+        const TickType_t now = xTaskGetTickCount();
+        if ((now - last_pull) >= pdMS_TO_TICKS(60)) {
+            pull_response_frame();
+            last_pull = now;
+            if (xSemaphoreTake(g_response_done, 0) == pdTRUE) {
+                completed = true;
+                break;
+            }
+        }
+        vTaskDelay(pdMS_TO_TICKS(5));
+    }
+
+    const bool ok = completed && !g_active.failed && g_active.status == 200;
+    if (ok && !g_active.body.empty()) {
+        apply_phone_clock(g_active.body);
+    }
     xSemaphoreGive(g_request_mutex);
-    if (ok) ESP_LOGD(TAG, "MEL Mobile keepalive OK");
+    if (ok) ESP_LOGD(TAG, "MEL Mobile keepalive/clock OK");
+    else ESP_LOGW(TAG, "MEL Mobile keepalive/clock failed id=%u status=%d", (unsigned)id, g_active.status);
     return ok;
 }
 
 bool mel_mobile_bridge_ready(void) {
     return g_ready.load();
+}
+
+bool mel_mobile_bridge_format_phone_time(char *out, size_t out_len) {
+    if (!out || out_len < 6) return false;
+    const int64_t base_ms = g_phone_epoch_ms.load();
+    const int64_t received_us = g_phone_clock_received_us.load();
+    if (base_ms < 1700000000000LL || received_us <= 0) return false;
+
+    int64_t elapsed_ms = (esp_timer_get_time() - received_us) / 1000LL;
+    if (elapsed_ms < 0) elapsed_ms = 0;
+    const int64_t utc_seconds = (base_ms + elapsed_ms) / 1000LL;
+    const int64_t local_seconds = utc_seconds + (int64_t)g_phone_offset_seconds.load();
+    int64_t day_seconds = local_seconds % 86400LL;
+    if (day_seconds < 0) day_seconds += 86400LL;
+    const int hour = (int)(day_seconds / 3600LL);
+    const int minute = (int)((day_seconds % 3600LL) / 60LL);
+    snprintf(out, out_len, "%02d:%02d", hour, minute);
+    return true;
 }
 
 bool mel_mobile_bridge_candidate_seen(void) {
@@ -581,6 +779,10 @@ bool mel_mobile_bridge_candidate_seen(void) {
 
 uint16_t mel_mobile_bridge_mtu(void) {
     return g_mtu;
+}
+
+int mel_mobile_bridge_voice_progress(void) {
+    return g_voice_transfer_progress.load();
 }
 
 static esp_err_t request_common(
@@ -619,7 +821,22 @@ static esp_err_t request_common(
     cJSON_Delete(root);
 
     const uint16_t mtu = ble_att_mtu(g_conn_handle);
-    const size_t chunk = std::max<size_t>(12, std::min<size_t>(500, mtu > 8 ? (size_t)mtu - 8 : 15));
+    const size_t negotiated_chunk =
+        std::max<size_t>(12, std::min<size_t>(500, mtu > 8 ? (size_t)mtu - 8 : 15));
+    // Some Redmi/Xiaomi GATT server stacks advertise a large MTU but become
+    // unstable under hundreds of near-maximum write-with-response packets.
+    // Voice/STT is by far the largest MINI->phone transfer, so keep only that
+    // path on a conservative payload size while leaving control/chat traffic
+    // at the negotiated MTU.
+    const bool voice_upload = strstr(path, "/voice/transcribe") != nullptr;
+    if (voice_upload) g_voice_transfer_progress.store(0);
+    const size_t chunk = voice_upload
+        ? std::min<size_t>(160, negotiated_chunk)
+        : negotiated_chunk;
+    if (voice_upload) {
+        ESP_LOGI(TAG, "BLE STT compatibility mode mtu=%u payload=%u body=%u",
+                 (unsigned)mtu, (unsigned)chunk, (unsigned)body_len);
+    }
 
     bool ok = true;
     if (meta.size() <= chunk) {
@@ -637,19 +854,33 @@ static esp_err_t request_common(
     }
 
     if (ok && body_len) {
-        for (size_t off = 0; ok && off < body_len; off += chunk) {
+        size_t frame_index = 0;
+        for (size_t off = 0; ok && off < body_len; off += chunk, ++frame_index) {
             const size_t n = std::min(chunk, body_len - off);
             ok = write_frame(OP_BODY, id, body + off, n);
+            if (ok && voice_upload && body_len > 0) {
+                const int pct = (int)std::min<size_t>(99, ((off + n) * 100U) / body_len);
+                g_voice_transfer_progress.store(pct);
+            }
+            // Each write already waits for its ATT response. This tiny periodic
+            // yield additionally avoids monopolising the application task during
+            // long STT uploads and gives the NimBLE host room to service link
+            // maintenance on vendor-sensitive phones.
+            if (ok && voice_upload && (frame_index % 8U) == 7U) {
+                vTaskDelay(pdMS_TO_TICKS(2));
+            }
         }
     }
     if (ok) ok = write_frame(OP_END, id, nullptr, 0);
     if (!ok) {
+        if (voice_upload) g_voice_transfer_progress.store(-1);
         g_active.failed = true;
         xSemaphoreGive(g_request_mutex);
         return ESP_FAIL;
     }
+    if (voice_upload) g_voice_transfer_progress.store(101);
 
-    const TickType_t wait = pdMS_TO_TICKS(120000);
+    const TickType_t wait = pdMS_TO_TICKS(voice_upload ? 45000 : 120000);
     const TickType_t started = xTaskGetTickCount();
     bool completed = false;
     NotifyFrame notify_frame;
@@ -688,17 +919,20 @@ static esp_err_t request_common(
     }
     if (!completed) {
         g_active.failed = true;
-        ESP_LOGW(TAG, "MEL Mobile request id=%u timed out; recycling BLE link", (unsigned)id);
-        g_ready.store(false);
-        if (g_conn_handle != BLE_HS_CONN_HANDLE_NONE) {
-            ble_gap_terminate(g_conn_handle, BLE_ERR_REM_USER_CONN_TERM);
-        }
+        ESP_LOGW(TAG,
+                 "MEL Mobile request id=%u timed out; preserving BLE link ready=%d conn=%u",
+                 (unsigned)id, g_ready.load() ? 1 : 0, (unsigned)g_conn_handle);
+        // A server/STT timeout is not proof that the radio link is dead.
+        // Never tear down a healthy GATT connection here; the reconnect watchdog
+        // below handles genuine physical disconnects independently.
+        if (voice_upload) g_voice_transfer_progress.store(-1);
         xSemaphoreGive(g_request_mutex);
         return ESP_ERR_TIMEOUT;
     }
     status = g_active.status;
     if (response) *response = g_active.body;
     const bool failed = g_active.failed;
+    if (voice_upload) g_voice_transfer_progress.store(-1);
     xSemaphoreGive(g_request_mutex);
     return failed ? ESP_FAIL : ESP_OK;
 }

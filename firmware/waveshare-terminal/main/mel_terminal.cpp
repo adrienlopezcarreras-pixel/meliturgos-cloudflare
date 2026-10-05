@@ -50,9 +50,9 @@ static const char *MODEL = "waveshare-esp32-s3-touch-lcd-3.5-c";
 static const int WIFI_CONNECTED_BIT = BIT0;
 static const int WIFI_FAIL_BIT = BIT1;
 static const size_t MAX_HTTP_RESPONSE = 64 * 1024;
-static const int VOICE_SECONDS = 10;
+static const int VOICE_SECONDS = 3;
 static const int VOICE_CAPTURE_RATE = 48000;
-static const int VOICE_STT_RATE = 16000;
+static const int VOICE_STT_RATE = 8000;
 static const int VOICE_CAPTURE_SAMPLES = VOICE_SECONDS * VOICE_CAPTURE_RATE;
 static const int VOICE_CAPTURE_BYTES = VOICE_CAPTURE_SAMPLES * 2;
 static const int VOICE_STT_SAMPLES = VOICE_SECONDS * VOICE_STT_RATE;
@@ -531,6 +531,9 @@ static esp_err_t http_request(
     std::string &response,
     int &status
 ) {
+    const bool compact_mobile_stt =
+        content_type && strncmp(content_type, "application/x-mel-pcm", strlen("application/x-mel-pcm")) == 0;
+
     auto mobile_request = [&]() -> esp_err_t {
         const std::string prefix = SERVER;
         if (!mel_mobile_bridge_ready() || url.rfind(prefix, 0) != 0) return ESP_ERR_INVALID_STATE;
@@ -554,7 +557,7 @@ static esp_err_t http_request(
     // is already connected, retry the same request directly over Wi-Fi.
     if (mel_mobile_bridge_ready()) {
         esp_err_t mobile_err = mobile_request();
-        if (mobile_err == ESP_OK || !g_wifi_connected) return mobile_err;
+        if (mobile_err == ESP_OK || !g_wifi_connected || compact_mobile_stt) return mobile_err;
         ESP_LOGW(TAG, "MEL MOBILE transport failed (%s); falling back to Wi-Fi",
                  esp_err_to_name(mobile_err));
         response.clear();
@@ -564,7 +567,7 @@ static esp_err_t http_request(
         ESP_LOGI(TAG, "MEL MOBILE reconnect grace before Wi-Fi fallback");
         if (wait_for_mobile_bridge_ready(8000)) {
             esp_err_t mobile_err = mobile_request();
-            if (mobile_err == ESP_OK || !g_wifi_connected) return mobile_err;
+            if (mobile_err == ESP_OK || !g_wifi_connected || compact_mobile_stt) return mobile_err;
             response.clear();
             status = 0;
         } else if (!g_wifi_connected) {
@@ -572,6 +575,9 @@ static esp_err_t http_request(
         }
     }
 
+    // Compact MINI STT is a phone-relay transport format, not a public MEL API
+    // media type. Never leak it to the backend through direct Wi-Fi fallback.
+    if (compact_mobile_stt) return ESP_ERR_INVALID_STATE;
     if (!g_wifi_connected) return ESP_ERR_INVALID_STATE;
 
     HttpBuffer buffer;
@@ -1168,8 +1174,10 @@ static MelChatReply chat_with_mel(const std::string &text) {
     return reply;
 }
 
-static void wav_header(uint8_t *h, uint32_t data_size, uint32_t sample_rate) {
-    const uint32_t byte_rate = sample_rate * 2;
+static void wav_header_pcm16(uint8_t *h, uint32_t data_size, uint32_t sample_rate) {
+    // Standard signed 16-bit mono PCM WAV for maximum STT compatibility.
+    // 8 kHz keeps a 3-second utterance around 48 KiB over BLE.
+    const uint32_t byte_rate = sample_rate * 2U;
     const uint32_t riff_size = 36 + data_size;
     memcpy(h, "RIFF", 4); memcpy(h + 8, "WAVEfmt ", 8);
     h[4]=(uint8_t)riff_size; h[5]=(uint8_t)(riff_size>>8); h[6]=(uint8_t)(riff_size>>16); h[7]=(uint8_t)(riff_size>>24);
@@ -1189,124 +1197,114 @@ static std::string record_and_transcribe() {
         return "";
     }
 
-    auto *capture = static_cast<int16_t *>(heap_caps_malloc(VOICE_CAPTURE_BYTES, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
-    if (!capture) capture = static_cast<int16_t *>(heap_caps_malloc(VOICE_CAPTURE_BYTES, MALLOC_CAP_8BIT));
-    if (!capture) {
-        ESP_LOGE(TAG, "VOICE: capture allocation failed");
+    // 0.4.50: capture directly into the final 8 kHz / 16-bit STT buffer.
+    // This removes the old ~288 KiB 48 kHz capture buffer and its extra
+    // conversion allocation, which could stall under camera/LVGL PSRAM pressure.
+    const int speech_capacity = VOICE_STT_SAMPLES;
+    const int speech_capacity_bytes = speech_capacity * (int)sizeof(int16_t);
+    auto *speech = static_cast<int16_t *>(
+        heap_caps_malloc(speech_capacity_bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)
+    );
+    if (!speech) speech = static_cast<int16_t *>(heap_caps_malloc(speech_capacity_bytes, MALLOC_CAP_8BIT));
+    if (!speech) {
+        ESP_LOGE(TAG, "VOICE: direct STT buffer allocation failed");
+        voice_error("MEMOIRE STT");
+        return "";
+    }
+
+    constexpr int CAPTURE_CHUNK_MS = 100;
+    constexpr int CAPTURE_CHUNK_SAMPLES = (VOICE_CAPTURE_RATE * CAPTURE_CHUNK_MS) / 1000;
+    const int chunk_bytes = CAPTURE_CHUNK_SAMPLES * (int)sizeof(int16_t);
+    auto *chunk = static_cast<int16_t *>(
+        heap_caps_malloc(chunk_bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)
+    );
+    if (!chunk) chunk = static_cast<int16_t *>(heap_caps_malloc(chunk_bytes, MALLOC_CAP_8BIT));
+    if (!chunk) {
+        heap_caps_free(speech);
+        ESP_LOGE(TAG, "VOICE: capture chunk allocation failed");
         voice_error("MEMOIRE AUDIO");
         return "";
     }
 
-    // Read in short chunks so a second press on PARLER can stop recording
-    // immediately instead of waiting for the maximum recording duration.
-    constexpr int CAPTURE_CHUNK_MS = 100;
-    constexpr int CAPTURE_CHUNK_SAMPLES = (VOICE_CAPTURE_RATE * CAPTURE_CHUNK_MS) / 1000;
+    int speech_samples = 0;
     int captured_samples = 0;
     int rc = ESP_CODEC_DEV_OK;
 
     ensure_mic_mutex();
     if (!g_mic_mutex || xSemaphoreTake(g_mic_mutex, pdMS_TO_TICKS(1500)) != pdTRUE) {
-        heap_caps_free(capture);
+        heap_caps_free(chunk);
+        heap_caps_free(speech);
         voice_error("MICRO OCCUPE");
         return "";
     }
+
     esp_codec_dev_set_in_gain(input_dev, 40.0);
-    while (captured_samples < VOICE_CAPTURE_SAMPLES) {
-        const int remaining = VOICE_CAPTURE_SAMPLES - captured_samples;
-        const int chunk_samples = remaining < CAPTURE_CHUNK_SAMPLES ? remaining : CAPTURE_CHUNK_SAMPLES;
-        rc = esp_codec_dev_read(
-            input_dev,
-            capture + captured_samples,
-            (int)(chunk_samples * sizeof(int16_t))
-        );
+    while (speech_samples < speech_capacity) {
+        rc = esp_codec_dev_read(input_dev, chunk, chunk_bytes);
         if (rc != ESP_CODEC_DEV_OK) break;
-        captured_samples += chunk_samples;
+        captured_samples += CAPTURE_CHUNK_SAMPLES;
 
         uint64_t chunk_abs_sum = 0;
-        for (int i = 0; i < chunk_samples; i += 4) {
-            const int32_t v = capture[captured_samples - chunk_samples + i];
-            chunk_abs_sum += (uint32_t)(v < 0 ? -v : v);
+        for (int i = 0; i + 5 < CAPTURE_CHUNK_SAMPLES && speech_samples < speech_capacity; i += 6) {
+            int32_t v = ((int32_t)chunk[i] + chunk[i + 1] + chunk[i + 2] +
+                         chunk[i + 3] + chunk[i + 4] + chunk[i + 5]) / 6;
+            if (v > 32767) v = 32767;
+            if (v < -32768) v = -32768;
+            speech[speech_samples++] = (int16_t)v;
+            const int32_t av = v < 0 ? -v : v;
+            chunk_abs_sum += (uint32_t)av;
         }
-        const int sampled = (chunk_samples + 3) / 4;
-        const uint32_t chunk_mean_abs = sampled > 0 ? (uint32_t)(chunk_abs_sum / sampled) : 0;
+
+        const int produced = CAPTURE_CHUNK_SAMPLES / 6;
+        const uint32_t chunk_mean_abs = produced > 0 ? (uint32_t)(chunk_abs_sum / produced) : 0;
         int visual_level = (int)(chunk_mean_abs / 24U);
         if (visual_level > 100) visual_level = 100;
         g_voice_level = visual_level;
 
         if (g_voice_stop_requested) {
-            ESP_LOGI(TAG, "VOICE STOP: manual stop after %d ms (%d samples)",
-                     (captured_samples * 1000) / VOICE_CAPTURE_RATE, captured_samples);
+            ESP_LOGI(TAG, "VOICE STOP: direct STT stop after %d ms (%d stt samples)",
+                     (captured_samples * 1000) / VOICE_CAPTURE_RATE, speech_samples);
             break;
         }
     }
     esp_codec_dev_set_in_gain(input_dev, 0.0);
     xSemaphoreGive(g_mic_mutex);
     g_voice_level = 0;
+    heap_caps_free(chunk);
 
     if (rc != ESP_CODEC_DEV_OK) {
         ESP_LOGE(TAG, "VOICE: esp_codec_dev_read failed rc=%d after %d samples", rc, captured_samples);
-        heap_caps_free(capture);
+        heap_caps_free(speech);
         voice_error("LECTURE MICRO");
         return "";
     }
-    if (captured_samples < (VOICE_CAPTURE_RATE / 4)) {
-        ESP_LOGW(TAG, "VOICE: recording too short (%d samples)", captured_samples);
-        heap_caps_free(capture);
+    if (speech_samples < (VOICE_STT_RATE / 4)) {
+        ESP_LOGW(TAG, "VOICE: recording too short (%d STT samples)", speech_samples);
+        heap_caps_free(speech);
         voice_error("ENREG. TROP COURT");
         return "";
     }
 
-    // Recording is now finished. The second press means STOP + transcribe,
-    // never "cancel and discard".
     g_runtime_state = MEL_TERMINAL_TRANSCRIBING;
-    ui_status("TRANSCRIPTION...");
+    ui_status("PREP AUDIO...");
+    vTaskDelay(pdMS_TO_TICKS(30));
 
+    // Remove DC and normalize in place. Work only on the compact 8 kHz buffer.
     int64_t dc_sum = 0;
-    int16_t raw_min = 32767;
-    int16_t raw_max = -32768;
-    uint64_t raw_abs_sum = 0;
-    for (int i = 0; i < captured_samples; ++i) {
-        const int16_t sample = capture[i];
-        dc_sum += sample;
-        if (sample < raw_min) raw_min = sample;
-        if (sample > raw_max) raw_max = sample;
-        raw_abs_sum += (uint32_t)(sample < 0 ? -(int32_t)sample : (int32_t)sample);
-    }
-    const int32_t dc = (int32_t)(dc_sum / captured_samples);
-    const uint32_t raw_mean_abs = (uint32_t)(raw_abs_sum / captured_samples);
-    ESP_LOGI(TAG,
-             "MIC RAW: samples=%d duration_ms=%d min=%d max=%d span=%ld mean_abs=%u dc=%ld",
-             captured_samples, (captured_samples * 1000) / VOICE_CAPTURE_RATE,
-             (int)raw_min, (int)raw_max,
-             (long)((int32_t)raw_max - (int32_t)raw_min),
-             (unsigned)raw_mean_abs, (long)dc);
+    for (int i = 0; i < speech_samples; ++i) dc_sum += speech[i];
+    const int32_t dc = (int32_t)(dc_sum / speech_samples);
 
-    const int speech_samples = captured_samples / 3;
-    const int speech_bytes = speech_samples * (int)sizeof(int16_t);
-    auto *speech = static_cast<int16_t *>(heap_caps_malloc(speech_bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
-    if (!speech) speech = static_cast<int16_t *>(heap_caps_malloc(speech_bytes, MALLOC_CAP_8BIT));
-    if (!speech) {
-        heap_caps_free(capture);
-        ESP_LOGE(TAG, "VOICE: STT buffer allocation failed");
-        voice_error("MEMOIRE STT");
-        return "";
-    }
-
-    // 48 kHz -> 16 kHz mono: average each group of three samples while
-    // removing the measured DC offset.
     int32_t peak = 0;
     uint64_t speech_abs_sum = 0;
     for (int i = 0; i < speech_samples; ++i) {
-        const int j = i * 3;
-        int32_t v = ((int32_t)capture[j] + capture[j + 1] + capture[j + 2]) / 3 - dc;
+        int32_t v = (int32_t)speech[i] - dc;
         if (v > 32767) v = 32767;
         if (v < -32768) v = -32768;
         speech[i] = (int16_t)v;
-        const int32_t a = v < 0 ? -v : v;
-        if (a > peak) peak = a;
-        speech_abs_sum += (uint32_t)a;
+        const int32_t av = v < 0 ? -v : v;
+        if (av > peak) peak = av;
+        speech_abs_sum += (uint32_t)av;
     }
-    heap_caps_free(capture);
 
     uint32_t speech_mean_abs = (uint32_t)(speech_abs_sum / speech_samples);
     if (peak < 90 || speech_mean_abs < 18) {
@@ -1317,87 +1315,111 @@ static std::string record_and_transcribe() {
         return "";
     }
 
-    // Normalize conversational speech without excessive amplification of noise.
     int32_t scale_q15 = (int32_t)(((int64_t)16000 * 32768) / peak);
     const int32_t max_scale_q15 = 8 * 32768;
     if (scale_q15 > max_scale_q15) scale_q15 = max_scale_q15;
     if (scale_q15 < 8192) scale_q15 = 8192;
-    peak = 0;
-    speech_abs_sum = 0;
     for (int i = 0; i < speech_samples; ++i) {
         int32_t v = (int32_t)(((int64_t)speech[i] * scale_q15) >> 15);
         if (v > 30000) v = 30000;
         if (v < -30000) v = -30000;
         speech[i] = (int16_t)v;
-        const int32_t a = v < 0 ? -v : v;
-        if (a > peak) peak = a;
-        speech_abs_sum += (uint32_t)a;
-    }
-    speech_mean_abs = (uint32_t)(speech_abs_sum / speech_samples);
-    ESP_LOGI(TAG, "MIC STT READY: rate=%d samples=%d bytes=%d peak=%ld mean_abs=%u scale_q15=%ld",
-             VOICE_STT_RATE, speech_samples, speech_bytes, (long)peak,
-             (unsigned)speech_mean_abs, (long)scale_q15);
-
-    const char *boundary = "----MEL-ESP32-VOICE";
-    std::string prefix = std::string("--") + boundary +
-        "\r\nContent-Disposition: form-data; name=\"audio\"; filename=\"mel.wav\"\r\n"
-        "Content-Type: audio/wav\r\n\r\n";
-    std::string suffix = std::string("\r\n--") + boundary + "--\r\n";
-    const size_t total = prefix.size() + 44 + (size_t)speech_bytes + suffix.size();
-    auto *multipart = static_cast<uint8_t *>(heap_caps_malloc(total, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
-    if (!multipart) multipart = static_cast<uint8_t *>(heap_caps_malloc(total, MALLOC_CAP_8BIT));
-    if (!multipart) {
-        heap_caps_free(speech);
-        ESP_LOGE(TAG, "VOICE: multipart allocation failed");
-        voice_error("MEMOIRE REQUETE");
-        return "";
     }
 
-    size_t off = 0;
-    memcpy(multipart + off, prefix.data(), prefix.size()); off += prefix.size();
-    wav_header(multipart + off, (uint32_t)speech_bytes, VOICE_STT_RATE); off += 44;
-    memcpy(multipart + off, speech, speech_bytes); off += (size_t)speech_bytes;
-    memcpy(multipart + off, suffix.data(), suffix.size());
-    heap_caps_free(speech);
+    ui_status("PAQUET STT...");
+    vTaskDelay(pdMS_TO_TICKS(30));
+
+    // BLE payload is 4-bit normalized PCM at 8 kHz: two samples per byte.
+    // Android 0.6.68 reconstructs signed PCM16/16 kHz before calling MEL STT.
+    // First quantize the captured PCM16 stream into unsigned PCM8 in-place.
+    auto *pcm8 = reinterpret_cast<uint8_t *>(speech);
+    for (int i = 0; i < speech_samples; ++i) {
+        int32_t q = ((int32_t)speech[i] + 32768) >> 8;
+        if (q < 0) q = 0;
+        if (q > 255) q = 255;
+        pcm8[i] = (uint8_t)q;
+    }
+
+    // Pack two PCM8 samples into one byte. The 4-bit quantizer was validated
+    // end-to-end against whisper-large-v3-turbo before enabling it here.
+    auto *pcm4 = pcm8;
+    int packed_bytes = 0;
+    for (int i = 0; i < speech_samples; i += 2) {
+        const uint8_t raw0 = pcm8[i];
+        const uint8_t raw1 = (i + 1 < speech_samples) ? pcm8[i + 1] : 128;
+        const uint8_t q0 = (uint8_t)std::min<int>(15, (raw0 + 8) / 17);
+        const uint8_t q1 = (uint8_t)std::min<int>(15, (raw1 + 8) / 17);
+        pcm4[packed_bytes++] = (uint8_t)((q0 << 4) | q1);
+    }
+    const int total = packed_bytes;
 
     std::string response;
     int status = 0;
-    std::string content_type = std::string("multipart/form-data; boundary=") + boundary;
-    ESP_LOGI(TAG, "STT UPLOAD: bytes=%u wav_bytes=%d rate=%d duration_ms=%d",
-             (unsigned)total, speech_bytes + 44, VOICE_STT_RATE,
-             (speech_samples * 1000) / VOICE_STT_RATE);
+    const char *content_type =
+        "application/x-mel-pcm4;rate=8000;channels=1;samples_per_byte=2";
 
-    esp_err_t err = ESP_FAIL;
-    for (int attempt = 1; attempt <= 2; ++attempt) {
-        response.clear();
-        status = 0;
-        err = http_request(
-            HTTP_METHOD_POST,
-            std::string(SERVER) + "/api/device/v1/voice/transcribe",
-            content_type.c_str(),
-            reinterpret_cast<const char *>(multipart),
-            (int)total,
-            response,
-            status
-        );
-        ESP_LOGI(TAG, "STT RESULT attempt=%d err=%s status=%d body=%.*s",
-                 attempt, esp_err_to_name(err), status,
-                 (int)std::min<size_t>(response.size(), 240), response.c_str());
-        if (err == ESP_OK && status == 200) break;
-        if (status > 0 && status < 500) break;
-        if (attempt == 1) {
-            ui_status("STT RETRY...");
-            vTaskDelay(pdMS_TO_TICKS(300));
-        }
-    }
-    heap_caps_free(multipart);
+    ESP_LOGI(TAG,
+             "STT COMPACT: source_samples=%d bytes=%d reduction=50%% rate=%d bits=4 duration_ms=%d",
+             speech_samples, total, VOICE_STT_RATE,
+             (speech_samples * 1000) / VOICE_STT_RATE);
+    ui_status("ENVOI STT...");
+    vTaskDelay(pdMS_TO_TICKS(40));
+
+    response.clear();
+    status = 0;
+    const esp_err_t err = http_request(
+        HTTP_METHOD_POST,
+        std::string(SERVER) + "/api/device/v1/voice/transcribe",
+        content_type,
+        reinterpret_cast<const char *>(pcm4),
+        total,
+        response,
+        status
+    );
+    ESP_LOGI(TAG, "STT RESULT err=%s status=%d body=%.*s",
+             esp_err_to_name(err), status,
+             (int)std::min<size_t>(response.size(), 240), response.c_str());
+    heap_caps_free(speech);
 
     if (err != ESP_OK) {
-        voice_error("RESEAU STT");
+        if (response.find("BODY_LENGTH") != std::string::npos) voice_error("BLE BODY LENGTH");
+        else if (response.find("BODY_TOO_LARGE") != std::string::npos) voice_error("BLE BODY LARGE");
+        else if (response.find("BAD_REQUEST") != std::string::npos) voice_error("BLE BAD REQ");
+        else if (response.find("NETWORK_OPEN") != std::string::npos) voice_error("TEL RESEAU");
+        else if (response.find("NETWORK_READ") != std::string::npos) voice_error("TEL HTTP");
+        else if (response.find("STT_PCM") != std::string::npos) voice_error("STT PCM");
+        else voice_error("BLE ENVOI");
         return "";
     }
     if (status != 200) {
-        voice_error(status == 401 ? "SESSION MEL" : "SERVEUR STT");
+        const std::string server_code = parse_json_text(response, "code");
+        const std::string server_reason = parse_json_text(response, "reason");
+        const std::string server_detail = parse_json_text(response, "detail");
+        const std::string diagnostic = !server_code.empty() ? server_code : server_reason;
+        ESP_LOGE(TAG, "STT SERVER ERROR status=%d code=%s reason=%s detail=%s",
+                 status,
+                 server_code.empty() ? "-" : server_code.c_str(),
+                 server_reason.empty() ? "-" : server_reason.c_str(),
+                 server_detail.empty() ? "-" : server_detail.c_str());
+
+        if (diagnostic == "AI_BINDING_MISSING") voice_error("STT IA ABSENTE");
+        else if (diagnostic == "TRANSCRIPTION_UNAVAILABLE") voice_error("STT IA ERREUR");
+        else if (diagnostic == "EMPTY_TRANSCRIPTION") voice_error("TRANSCRIPTION VIDE");
+        else if (diagnostic == "AUDIO_REQUIRED") voice_error("STT AUDIO");
+        else if (diagnostic == "DEVICE_NOT_PAIRED") voice_error("STT AUTH");
+        else {
+            switch (status) {
+                case 400: voice_error("STT 400"); break;
+                case 401:
+                case 403: voice_error("STT AUTH"); break;
+                case 413: voice_error("STT 413"); break;
+                case 415: voice_error("STT 415 FORMAT"); break;
+                case 429: voice_error("STT 429 LIMITE"); break;
+                case 500: voice_error("STT 500"); break;
+                case 503: voice_error("STT 503 IA"); break;
+                default: voice_error("STT SERVEUR KO"); break;
+            }
+        }
         return "";
     }
 
@@ -1464,7 +1486,17 @@ static void voice_task(void *) {
 
 
 void mel_terminal_request_voice(void) {
-    if (!g_online || !g_audio_ok) return;
+    if (!g_online) {
+        ui_status("MEL HORS LIGNE");
+        ESP_LOGW(TAG, "VOICE ignored: MEL offline");
+        return;
+    }
+    if (!g_audio_ok || !input_dev) {
+        voice_error("MICRO INDISPONIBLE");
+        ui_status("MICRO INDISPONIBLE");
+        ESP_LOGW(TAG, "VOICE ignored: microphone unavailable");
+        return;
+    }
 
     if (g_voice_task_handle) {
         if (g_runtime_state == MEL_TERMINAL_LISTENING) {
@@ -1476,7 +1508,49 @@ void mel_terminal_request_voice(void) {
     }
 
     g_voice_stop_requested = false;
-    xTaskCreatePinnedToCore(voice_task, "mel_voice", 10240, nullptr, 5, &g_voice_task_handle, 0);
+
+    // Camera/LVGL can leave internal SRAM fragmented even though PSRAM is still
+    // plentiful. Allocate the voice task stack from PSRAM first so PARLER cannot
+    // fail silently merely because a contiguous 10 KiB internal block is missing.
+    BaseType_t created = xTaskCreatePinnedToCoreWithCaps(
+        voice_task,
+        "mel_voice",
+        12288,
+        nullptr,
+        5,
+        &g_voice_task_handle,
+        0,
+        MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT
+    );
+
+    if (created != pdPASS || !g_voice_task_handle) {
+        ESP_LOGW(TAG,
+                 "VOICE task PSRAM create failed rc=%ld free_internal=%u largest_internal=%u free_psram=%u; trying internal fallback",
+                 (long)created,
+                 (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
+                 (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
+                 (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+        g_voice_task_handle = nullptr;
+        created = xTaskCreatePinnedToCore(
+            voice_task, "mel_voice", 8192, nullptr, 5, &g_voice_task_handle, 0
+        );
+    }
+
+    if (created != pdPASS || !g_voice_task_handle) {
+        g_voice_task_handle = nullptr;
+        g_runtime_state = MEL_TERMINAL_ERROR;
+        voice_error("RAM VOIX");
+        ui_status("RAM VOIX");
+        ESP_LOGE(TAG,
+                 "VOICE task create failed rc=%ld free_internal=%u largest_internal=%u free_psram=%u",
+                 (long)created,
+                 (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
+                 (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
+                 (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+        return;
+    }
+
+    ESP_LOGI(TAG, "VOICE task started handle=%p", g_voice_task_handle);
 }
 
 int mel_terminal_state(void) {
@@ -2176,7 +2250,7 @@ static void heartbeat_task(void *) {
             cJSON_Delete(root);
             std::string response;
             int status = 0;
-            http_request(
+            const esp_err_t heartbeat_err = http_request(
                 HTTP_METHOD_POST,
                 std::string(SERVER) + "/api/device/v1/heartbeat",
                 "application/json",
@@ -2185,6 +2259,13 @@ static void heartbeat_task(void *) {
                 response,
                 status
             );
+            if (heartbeat_err == ESP_OK && status == 200 && !response.empty()) {
+                cJSON *heartbeat_json = cJSON_Parse(response.c_str());
+                if (heartbeat_json) {
+                    sync_phone_clock_from_json(heartbeat_json);
+                    cJSON_Delete(heartbeat_json);
+                }
+            }
         }
         vTaskDelay(pdMS_TO_TICKS(15000));
     }
@@ -2410,10 +2491,10 @@ void mel_terminal_set_wifi_connected(bool connected) {
 void mel_terminal_set_mobile_connected(bool connected) {
     g_mobile_connected = connected;
     if (connected) {
-        // Mobile BLE is an independent transport signal. Show it even when the
-        // ESP32 still has a Wi-Fi association, because Wi-Fi association alone
-        // does not prove that MEL has usable Internet.
-        ui_status(g_online ? "MEL MOBILE CONNECTE" : "MOBILE CONNECTE");
+        // A BLE reconnect must not overwrite TRANSCRIPTION/REFLEXION/MEL PARLE.
+        if (g_runtime_state == MEL_TERMINAL_IDLE) {
+            ui_status(g_online ? "MEL MOBILE CONNECTE" : "MOBILE CONNECTE");
+        }
         if (g_online && g_runtime_state == MEL_TERMINAL_IDLE && !g_wake_sync_task_handle) {
             xTaskCreatePinnedToCore(mobile_companion_sync_task, "mel_mobile_sync", 6144, nullptr, 3, &g_wake_sync_task_handle, 0);
         }
@@ -2421,9 +2502,16 @@ void mel_terminal_set_mobile_connected(bool connected) {
     }
 
     if (!g_wifi_connected) {
-        g_online = false;
-        ui_status("HORS LIGNE");
-    } else {
+        // Preserve the authenticated logical session while voice owns the bridge.
+        // The same captured WAV can then be retried after a short BLE reconnect.
+        if (g_runtime_state == MEL_TERMINAL_IDLE) {
+            g_online = false;
+            ui_status("HORS LIGNE");
+        } else {
+            ESP_LOGW(TAG, "MEL Mobile transport lost during voice state=%d; preserving session for retry",
+                     (int)g_runtime_state);
+        }
+    } else if (g_runtime_state == MEL_TERMINAL_IDLE) {
         ui_status(g_online ? "" : "WI-FI CONNECTE");
     }
 }

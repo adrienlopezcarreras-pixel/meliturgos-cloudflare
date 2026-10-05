@@ -61,6 +61,7 @@ static bool visual_active = false;
 static lv_obj_t *left_eye = nullptr;
 static lv_obj_t *right_eye = nullptr;
 static lv_obj_t *talk_button = nullptr;
+static lv_obj_t *talk_hitbox = nullptr;
 static lv_obj_t *mouth_obj = nullptr;
 static lv_timer_t *anim_timer = nullptr;
 static bool listening = false;
@@ -264,6 +265,15 @@ static void clock_start_sync(void) {
 
 static void clock_timer_cb(lv_timer_t *) {
     if (!time_label) return;
+
+    // Prefer the phone clock transported directly over BLE. This does not depend
+    // on ESP32 system time, SNTP, Wi-Fi or settimeofday().
+    char phone_time[8] = {};
+    if (mel_mobile_bridge_format_phone_time(phone_time, sizeof(phone_time))) {
+        lv_label_set_text(time_label, phone_time);
+        return;
+    }
+
     time_t now = 0;
     time(&now);
     struct tm local_tm = {};
@@ -446,17 +456,24 @@ static void mini_anim_cb(lv_timer_t *) {
     }
 
     if (talk_button) {
-        if (online && (state == MEL_TERMINAL_IDLE || state == MEL_TERMINAL_LISTENING)) {
-            lv_obj_clear_state(talk_button, LV_STATE_DISABLED);
-        } else {
-            lv_obj_add_state(talk_button, LV_STATE_DISABLED);
-        }
+        // Never disable touch completely: every press must produce visible feedback.
+        lv_obj_clear_state(talk_button, LV_STATE_DISABLED);
     }
 
     if (state == MEL_TERMINAL_LISTENING) {
         if (state != last_face_state && status_label) lv_label_set_text(status_label, "STOP");
     } else if (state == MEL_TERMINAL_TRANSCRIBING) {
-        if (state != last_face_state && status_label) lv_label_set_text(status_label, "TRANSCRIPTION");
+        // mel_terminal owns detailed PREP/PAQUET/ENVOI labels. Only override
+        // while an actual BLE upload is active, so the UI cannot hide the
+        // precise stage behind a generic "TRANSCRIPTION" label.
+        if (status_label) {
+            const int progress = mel_mobile_bridge_voice_progress();
+            if (progress >= 0 && progress <= 100) {
+                lv_label_set_text_fmt(status_label, "STT %d%%", progress);
+            } else if (progress == 101) {
+                lv_label_set_text(status_label, "STT SERVEUR");
+            }
+        }
     } else if (state == MEL_TERMINAL_THINKING) {
         if (state != last_face_state && status_label) lv_label_set_text(status_label, "REFLEXION");
     } else if (state == MEL_TERMINAL_SPEAKING) {
@@ -720,7 +737,8 @@ static void settings_refresh_status(void) {
         snprintf(mel_state, sizeof(mel_state), "HORS LIGNE");
     }
     lv_label_set_text_fmt(settings_status,
-                          "Wi-Fi: %s\nMobile: %s\nMEL: %s\nAudio: %s  Camera: %s",
+                          "Firmware: %s\nWi-Fi: %s\nMobile: %s\nMEL: %s\nAudio: %s  Camera: %s",
+                          MEL_FW_VERSION,
                           wifi_got_ip ? (ip[0] ? ip : "OK") : "OFF",
                           mel_terminal_mobile_connected() ? "CONNECTE" : "OFF",
                           mel_state,
@@ -1666,24 +1684,35 @@ static void lv_port_init() {
 
 static void touch_cb(lv_event_t *e) {
     if (!status_label) return;
-    const lv_event_code_t code = lv_event_get_code(e);
-    if (code == LV_EVENT_PRESSED) {
-        ESP_LOGI(TAG, "UI BUTTON: PARLER pressed");
-        if (!mel_terminal_online()) {
-            lv_label_set_text(status_label, "MEL HORS LIGNE");
-            ESP_LOGW(TAG, "Talk requested while MEL runtime is offline");
-            return;
-        }
-        mel_terminal_request_voice();
-        ESP_LOGI(TAG, "PARLER recording started");
+    if (lv_event_get_code(e) != LV_EVENT_PRESSED) return;
+
+    const int state = mel_terminal_state();
+    ESP_LOGI(TAG, "UI BUTTON: PARLER pressed state=%d online=%d audio=%d",
+             state, mel_terminal_online() ? 1 : 0, audio_ok ? 1 : 0);
+
+    if (!mel_terminal_online()) {
+        lv_label_set_text(status_label, "MEL OFF");
+        if (runtime_status_label) lv_label_set_text(runtime_status_label, "SESSION MEL HORS LIGNE");
         return;
     }
-    if (code == LV_EVENT_RELEASED || code == LV_EVENT_PRESS_LOST) {
-        if (mel_terminal_state() == MEL_TERMINAL_LISTENING) {
-            mel_terminal_request_voice();
-            ESP_LOGI(TAG, "PARLER released -> stop and send");
-        }
+    if (!audio_ok || !input_dev) {
+        lv_label_set_text(status_label, "MIC KO");
+        if (runtime_status_label) lv_label_set_text(runtime_status_label, "MICRO INDISPONIBLE");
+        ESP_LOGW(TAG, "Talk pressed but microphone path is unavailable");
+        return;
     }
+
+    if (state == MEL_TERMINAL_TRANSCRIBING ||
+        state == MEL_TERMINAL_THINKING ||
+        state == MEL_TERMINAL_SPEAKING) {
+        lv_label_set_text(status_label, "OCCUPE");
+        ESP_LOGI(TAG, "Talk press acknowledged while runtime busy state=%d", state);
+        return;
+    }
+
+    if (state == MEL_TERMINAL_IDLE) lv_label_set_text(status_label, "ECOUTE...");
+    else if (state == MEL_TERMINAL_LISTENING) lv_label_set_text(status_label, "ENVOI...");
+    mel_terminal_request_voice();
 }
 
 static void web_card_touch_cb(lv_event_t *e) {
@@ -1777,12 +1806,27 @@ static void mini_smoke_ui() {
     lv_obj_set_style_bg_color(talk_button, lv_color_hex(0x08233C), 0);
     lv_obj_set_style_border_width(talk_button, 3, 0);
     lv_obj_set_style_border_color(talk_button, lv_color_hex(0x22D3EE), 0);
-    lv_obj_add_event_cb(talk_button, touch_cb, LV_EVENT_ALL, nullptr);
+    lv_obj_add_event_cb(talk_button, touch_cb, LV_EVENT_PRESSED, nullptr);
 
     status_label = lv_label_create(talk_button);
     lv_label_set_text(status_label, "PARLER");
     lv_obj_set_style_text_align(status_label, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_center(status_label);
+    lv_obj_clear_flag(status_label, LV_OBJ_FLAG_CLICKABLE);
+
+    // Large transparent touch target around the visible circle. The Waveshare
+    // touch calibration is less precise near the bottom edge, so a 96 px circle
+    // is unnecessarily strict on real hardware.
+    talk_hitbox = lv_obj_create(main_panel);
+    lv_obj_set_size(talk_hitbox, 210, 126);
+    lv_obj_align(talk_hitbox, LV_ALIGN_BOTTOM_MID, 0, 0);
+    lv_obj_set_style_bg_opa(talk_hitbox, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(talk_hitbox, 0, 0);
+    lv_obj_set_style_pad_all(talk_hitbox, 0, 0);
+    lv_obj_clear_flag(talk_hitbox, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(talk_hitbox, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(talk_hitbox, touch_cb, LV_EVENT_PRESSED, nullptr);
+    lv_obj_move_foreground(talk_hitbox);
 
     wifi_ui_create(screen);
     pair_ui_create(screen);
@@ -1811,24 +1855,29 @@ static void mobile_bridge_watch_task(void *) {
             keepalive_seconds++;
             revalidate_seconds++;
             if (keepalive_seconds >= 8) {
-                mel_mobile_bridge_keepalive();
+                // Maintenance traffic must never contend with STT/chat/TTS.
+                if (mel_terminal_state() == MEL_TERMINAL_IDLE) {
+                    mel_mobile_bridge_keepalive();
+                }
                 keepalive_seconds = 0;
             }
             if (!physical_ready) {
                 physical_ready = true;
                 revalidate_seconds = 0;
-                // Every physical BLE reconnection must restart authentication,
-                // even when the reconnect happened inside the UI grace period.
                 mel_terminal_set_mobile_connected(true);
-                if (!mel_terminal_online()) {
-                    mel_terminal_refresh_mobile_identity();
+                if (mel_terminal_state() == MEL_TERMINAL_IDLE) {
+                    if (!mel_terminal_online()) {
+                        mel_terminal_refresh_mobile_identity();
+                    } else {
+                        mel_terminal_start_online();
+                    }
+                    ESP_LOGI(TAG, "MEL MOBILE PHYSICAL READY; identity/session recovery started");
                 } else {
-                    mel_terminal_start_online();
+                    ESP_LOGI(TAG, "MEL MOBILE PHYSICAL READY during voice state=%d; deferring session validation",
+                             mel_terminal_state());
                 }
-                ESP_LOGI(TAG, "MEL MOBILE PHYSICAL READY; identity/session recovery started");
-            } else if (!mel_terminal_online() && revalidate_seconds >= 5) {
-                // A transient heartbeat/GATT failure must not leave MINI offline
-                // forever while the physical Android bridge is still healthy.
+            } else if (!mel_terminal_online() && revalidate_seconds >= 5 &&
+                       mel_terminal_state() == MEL_TERMINAL_IDLE) {
                 revalidate_seconds = 0;
                 ESP_LOGI(TAG, "MEL MOBILE READY but session offline; retrying validation");
                 mel_terminal_start_online();
@@ -1841,7 +1890,8 @@ static void mobile_bridge_watch_task(void *) {
             // Keep retrying MEL authentication while the physical BLE bridge is
             // healthy. A transient first heartbeat/pair failure must never leave
             // MINI permanently offline until the next disconnect/reboot.
-            if (!mel_terminal_online() && (keepalive_seconds % 5) == 0) {
+            if (!mel_terminal_online() && (keepalive_seconds % 5) == 0 &&
+                mel_terminal_state() == MEL_TERMINAL_IDLE) {
                 ESP_LOGI(TAG, "MEL MOBILE link healthy but session offline; retrying online validation");
                 mel_terminal_start_online();
             }

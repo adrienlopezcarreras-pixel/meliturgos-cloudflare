@@ -13,6 +13,7 @@ import android.bluetooth.BluetoothGattServer
 import android.bluetooth.BluetoothGattServerCallback
 import android.bluetooth.BluetoothGattService
 import android.bluetooth.BluetoothManager
+import android.bluetooth.BluetoothProfile
 import android.bluetooth.le.AdvertiseCallback
 import android.bluetooth.le.AdvertiseData
 import android.bluetooth.le.AdvertiseSettings
@@ -80,6 +81,7 @@ class MelBleBridgeService : Service() {
         private const val OP_RESPONSE_BEGIN = 0x11
         private const val OP_RESPONSE_BODY = 0x12
         private const val OP_RESPONSE_END = 0x13
+        private const val OP_CLOCK = 0x14
         private const val OP_ERROR = 0x1f
 
         const val ACTION_RESTART = "fr.veriteinterdite.mel.action.RESTART_MINI_BRIDGE"
@@ -144,13 +146,40 @@ class MelBleBridgeService : Service() {
                     }
                 } else {
                     val now = System.currentTimeMillis()
-                    connectedDevices.forEach { (address, device) ->
+                    val actualGattAddresses = runCatching {
+                        bluetoothManager
+                            ?.getConnectedDevices(BluetoothProfile.GATT)
+                            ?.map { it.address }
+                            ?.toSet()
+                            .orEmpty()
+                    }.getOrDefault(emptySet())
+
+                    connectedDevices.toMap().forEach { (address, device) ->
                         val ready = subscribed[address] == true
                         val age = now - (connectedAtMs[address] ?: now)
-                        if (!ready && age > 20_000L) {
+                        val ghost = address !in actualGattAddresses
+                        if (ghost) {
+                            Log.w(TAG, "BLE watchdog: purging ghost MINI link $address age=${age}ms")
+                            connectedAtMs.remove(address)
+                            connectedDevices.remove(address)
+                            mtus.remove(address)
+                            subscribed.remove(address)
+                            requests.remove(address)
+                            metaFrames.remove(address)
+                            metaFrameIds.remove(address)
+                            pullFrames.remove(address)
+                            latestResponseIds.remove(address)
+                            pullOnlyResponseIds.remove(address)
+                            miniLinkReady.value = false
+                            internetReady.value = false
+                        } else if (!ready && age > 20_000L) {
                             Log.w(TAG, "BLE watchdog: stale unready GATT link $address age=${age}ms; recycling")
                             runCatching { gattServer?.cancelConnection(device) }
                         }
+                    }
+                    if (connectedDevices.isEmpty() && advertiseCallback == null) {
+                        Log.i(TAG, "BLE watchdog: ghost/stale link cleared; restarting advertising")
+                        startAdvertising()
                     }
                 }
             } catch (error: Throwable) {
@@ -603,7 +632,16 @@ class MelBleBridgeService : Service() {
                 return
             }
             val frame = pullFrames.computeIfAbsent(device.address) { ConcurrentLinkedQueue() }.poll()
-                ?: byteArrayOf(0, 0, 0, 0, 0)
+                ?: run {
+                    val nowMs = System.currentTimeMillis()
+                    val zone = TimeZone.getDefault()
+                    val clockPayload = ByteBuffer.allocate(12)
+                        .order(ByteOrder.LITTLE_ENDIAN)
+                        .putLong(nowMs)
+                        .putInt(zone.getOffset(nowMs) / 1000)
+                        .array()
+                    packet(OP_CLOCK, 0, clockPayload)
+                }
             gattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, 0, frame)
         }
 
@@ -623,9 +661,25 @@ class MelBleBridgeService : Service() {
             OP_END -> finishRequest(device, requestId)
             OP_PING -> executor.execute {
                 latestResponseIds[device.address] = requestId
-                pullFrames.computeIfAbsent(device.address) { ConcurrentLinkedQueue() }.clear()
-                sendJsonFrame(device, OP_RESPONSE_BEGIN, requestId, JSONObject().put("status", 200).put("contentType", "application/json").put("length", 0))
+                pullOnlyResponseIds[device.address] = requestId
+                val queue = pullFrames.computeIfAbsent(device.address) { ConcurrentLinkedQueue() }
+                queue.clear()
+                val nowMs = System.currentTimeMillis()
+                val zone = TimeZone.getDefault()
+                val body = JSONObject()
+                    .put("epoch_ms", nowMs)
+                    .put("utc_offset_seconds", zone.getOffset(nowMs) / 1000)
+                    .put("timezone", zone.id)
+                    .toString()
+                    .toByteArray(Charsets.UTF_8)
+                val meta = JSONObject()
+                    .put("status", 200)
+                    .put("contentType", "application/json")
+                    .put("length", body.size)
+                if (!sendJsonFrame(device, OP_RESPONSE_BEGIN, requestId, meta)) return@execute
+                if (!sendBodyFrames(device, requestId, body)) return@execute
                 sendFrame(device, packet(OP_RESPONSE_END, requestId, byteArrayOf()))
+                Log.d(TAG, "MEL MINI BLE clock ping epoch=$nowMs zone=${zone.id}")
             }
         }
     }
@@ -828,13 +882,66 @@ class MelBleBridgeService : Service() {
         return pendingLow == null
     }
 
+    private fun buildCompactSttWav(payload: ByteArray, contentType: String): ByteArray {
+        require(payload.isNotEmpty() && payload.size <= 16_000 * 10) { "PCM_SIZE" }
+        val sourceRate = Regex("""rate=(\\d+)""")
+            .find(contentType)
+            ?.groupValues
+            ?.getOrNull(1)
+            ?.toIntOrNull()
+            ?.coerceIn(8_000, 16_000)
+            ?: 8_000
+        val packed4 = contentType.startsWith("application/x-mel-pcm4")
+        val sourceSamples = if (packed4) payload.size * 2 else payload.size
+        val targetRate = 16_000
+        val copiesPerSample = if (sourceRate <= 8_000) 2 else 1
+        val pcm16Samples = sourceSamples * copiesPerSample
+        val pcm16Bytes = pcm16Samples * 2
+        val wav = ByteArray(44 + pcm16Bytes)
+        val header = ByteBuffer.wrap(wav).order(ByteOrder.LITTLE_ENDIAN)
+        header.put("RIFF".toByteArray(Charsets.US_ASCII))
+        header.putInt(36 + pcm16Bytes)
+        header.put("WAVE".toByteArray(Charsets.US_ASCII))
+        header.put("fmt ".toByteArray(Charsets.US_ASCII))
+        header.putInt(16)
+        header.putShort(1.toShort())
+        header.putShort(1.toShort())
+        header.putInt(targetRate)
+        header.putInt(targetRate * 2)
+        header.putShort(2.toShort())
+        header.putShort(16.toShort())
+        header.put("data".toByteArray(Charsets.US_ASCII))
+        header.putInt(pcm16Bytes)
+
+        var dst = 44
+        for (index in 0 until sourceSamples) {
+            val raw = if (packed4) {
+                val packed = payload[index / 2].toInt() and 0xff
+                val nibble = if ((index and 1) == 0) (packed ushr 4) and 0x0f else packed and 0x0f
+                nibble * 17
+            } else {
+                payload[index].toInt() and 0xff
+            }
+            val sample = ((raw - 128) shl 8).toShort().toInt()
+            repeat(copiesPerSample) {
+                wav[dst++] = (sample and 0xff).toByte()
+                wav[dst++] = ((sample shr 8) and 0xff).toByte()
+            }
+        }
+
+        return wav
+    }
+
     private fun relay(device: BluetoothDevice, request: PendingRequest) {
         // Redmi/Xiaomi can acknowledge GATT notifications even when the peer never
         // receives them. Session-critical responses therefore use the TX
         // characteristic read queue only. MINI already polls that queue every 60 ms.
-        if (request.path == "/api/device/v1/pair" || request.path == "/api/device/v1/heartbeat") {
+        if (request.path == "/api/device/v1/pair" ||
+            request.path == "/api/device/v1/heartbeat" ||
+            request.path == "/api/device/v1/voice/transcribe"
+        ) {
             pullOnlyResponseIds[device.address] = request.id
-            Log.i(TAG, "MEL MINI control response forced to pull-only path=${request.path} id=${request.id}")
+            Log.i(TAG, "MEL MINI critical response forced to pull-only path=${request.path} id=${request.id}")
         }
 
         // The MINI uses /manifest only as its first authenticated liveness check.
@@ -916,17 +1023,107 @@ class MelBleBridgeService : Service() {
             return
         }
 
+        val compactStt = request.path == "/api/device/v1/voice/transcribe" &&
+            request.contentType.startsWith("application/x-mel-pcm")
+
+        if (compactStt) {
+            val wav = runCatching {
+                buildCompactSttWav(request.body.toByteArray(), request.contentType)
+            }.getOrElse {
+                Log.e(TAG, "Compact STT WAV conversion failed", it)
+                sendError(device, request.id, "STT_PCM")
+                return
+            }
+
+            val rawAndroidId = Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID)
+            val androidDeviceId = "android-" + (rawAndroidId ?: "unknown").take(64)
+            val api = MelApiClient(
+                BuildConfig.MEL_BASE_URL,
+                androidDeviceId,
+                TokenVault(this)
+            )
+            val result = try {
+                Log.i(TAG, "MEL MINI STT native Android route codec=${request.contentType.substringBefore(';')} BLE=${request.body.size()} WAV=${wav.size}")
+                api.transcribe(wav, "audio/wav")
+            } catch (error: MelApiException) {
+                val status = error.status.takeIf { it in 400..599 } ?: 503
+                val body = JSONObject()
+                    .put("ok", false)
+                    .put("code", error.code)
+                    .put("detail", error.detail)
+                    .toString()
+                    .toByteArray(Charsets.UTF_8)
+                val meta = JSONObject()
+                    .put("status", status)
+                    .put("contentType", "application/json")
+                    .put("length", body.size)
+                sendJsonFrame(device, OP_RESPONSE_BEGIN, request.id, meta)
+                if (body.isNotEmpty()) sendBodyFrames(device, request.id, body)
+                sendFrame(device, packet(OP_RESPONSE_END, request.id, byteArrayOf()))
+                Log.e(TAG, "MEL MINI STT native Android route failed status=$status code=${error.code}")
+                return
+            } catch (error: Throwable) {
+                val body = JSONObject()
+                    .put("ok", false)
+                    .put("code", "ANDROID_STT_RELAY")
+                    .put("detail", (error.message ?: error::class.java.simpleName).take(160))
+                    .toString()
+                    .toByteArray(Charsets.UTF_8)
+                val meta = JSONObject()
+                    .put("status", 503)
+                    .put("contentType", "application/json")
+                    .put("length", body.size)
+                sendJsonFrame(device, OP_RESPONSE_BEGIN, request.id, meta)
+                if (body.isNotEmpty()) sendBodyFrames(device, request.id, body)
+                sendFrame(device, packet(OP_RESPONSE_END, request.id, byteArrayOf()))
+                Log.e(TAG, "MEL MINI STT native Android route crashed", error)
+                return
+            }
+
+            val body = result.toString().toByteArray(Charsets.UTF_8)
+            val meta = JSONObject()
+                .put("status", 200)
+                .put("contentType", "application/json")
+                .put("length", body.size)
+            if (!sendJsonFrame(device, OP_RESPONSE_BEGIN, request.id, meta)) return
+            if (!sendBodyFrames(device, request.id, body)) return
+            sendFrame(device, packet(OP_RESPONSE_END, request.id, byteArrayOf()))
+            internetReady.value = miniLinkReady.value
+            bridgeState.value = "MINI CONNECTÉE · INTERNET OK"
+            Log.i(TAG, "MEL MINI STT native Android route -> 200 bytes=${body.size}")
+            return
+        }
+
+        val relayContentType = request.contentType
+        val relayBody = request.body.toByteArray()
+
+        // STT is an Android-mediated operation: the phone already owns a valid,
+        // durable Android companion session and is the component actually making
+        // the Internet request. Route MINI STT through that authenticated surface
+        // instead of reusing the MINI bearer token across the BLE proxy.
+        val rawAndroidIdForRelay = Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID)
+        val androidDeviceIdForRelay = "android-" + (rawAndroidIdForRelay ?: "unknown").take(64)
+        val androidTokenForRelay = TokenVault(this).load()
+        val useAndroidSttRoute = compactStt && !androidTokenForRelay.isNullOrBlank()
+        val relayPath = if (useAndroidSttRoute) "/api/android/v1/voice/transcribe" else request.path
+
         // Manifest requests must reach the real MEL backend. BLE connectivity alone
         // is not proof of Internet access; returning a local 200 here made MINI
         // believe it was online even when the phone could not reach MEL.
         val connection = runCatching {
-            val url = URL(BuildConfig.MEL_BASE_URL.trimEnd('/') + request.path)
+            val url = URL(BuildConfig.MEL_BASE_URL.trimEnd('/') + relayPath)
             (url.openConnection() as HttpURLConnection).apply {
                 requestMethod = request.method
                 connectTimeout = 15_000
-                readTimeout = 90_000
-                if (request.token.isNotEmpty()) setRequestProperty("Authorization", "Bearer ${request.token}")
-                setRequestProperty("X-MEL-Device-ID", request.deviceId)
+                readTimeout = if (compactStt) 30_000 else 90_000
+                if (useAndroidSttRoute) {
+                    setRequestProperty("Authorization", "Bearer $androidTokenForRelay")
+                    setRequestProperty("X-MEL-Device-ID", androidDeviceIdForRelay)
+                    setRequestProperty("X-MEL-MINI-Device-ID", request.deviceId)
+                } else {
+                    if (request.token.isNotEmpty()) setRequestProperty("Authorization", "Bearer ${request.token}")
+                    setRequestProperty("X-MEL-Device-ID", request.deviceId)
+                }
                 setRequestProperty("X-MEL-Mobile-Bridge", BuildConfig.VERSION_NAME)
                 if (request.path == "/api/device/v1/pair") {
                     val androidToken = TokenVault(this@MelBleBridgeService).load()
@@ -938,10 +1135,10 @@ class MelBleBridgeService : Service() {
                     }
                 }
                 setRequestProperty("Accept", "*/*")
-                if (request.body.size() > 0) {
+                if (relayBody.isNotEmpty()) {
                     doOutput = true
-                    setRequestProperty("Content-Type", request.contentType)
-                    outputStream.use { it.write(request.body.toByteArray()) }
+                    setRequestProperty("Content-Type", relayContentType)
+                    outputStream.use { it.write(relayBody) }
                 }
             }
         }.getOrElse {
@@ -969,7 +1166,7 @@ class MelBleBridgeService : Service() {
                     "MINI CONNECTÉE · APPLI MEL À RÉAPPAIRER"
                 else -> "MINI CONNECTÉE · MEL HTTP $status"
             }
-            Log.i(TAG, "MEL relay HTTP ${request.method} ${request.path} -> $status")
+            Log.i(TAG, "MEL relay HTTP ${request.method} ${request.path} via $relayPath -> $status")
             val contentType = connection.contentType ?: "application/octet-stream"
             val stream = if (status in 200..299) connection.inputStream else connection.errorStream
             val downsampleTts = status in 200..299 && request.path == "/api/device/v1/voice/tts"

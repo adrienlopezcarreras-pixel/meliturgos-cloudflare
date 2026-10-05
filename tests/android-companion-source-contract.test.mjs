@@ -415,9 +415,9 @@ test('Android Complete mode exposes an authenticated self diagnostic',async()=>{
   const vm=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelViewModel.kt',root),'utf8');
   const api=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelApiClient.kt',root),'utf8');
   const build=await readFile(new URL('app/build.gradle.kts',root),'utf8');
-  assert.match(build,/versionCode = 67/);
-  assert.match(build,/versionName = "0\.6\.58-mini-stable-bridge"/);
-  assert.match(api,/APP_VERSION = "0\.6\.58-mini-stable-bridge"/);
+  assert.match(build,/versionCode = 77/);
+  assert.match(build,/versionName = "0\.6\.68-stt-pcm4"/);
+  assert.match(api,/APP_VERSION = "0\.6\.68-stt-pcm4"/);
   assert.match(vm,/val diagnosticReport: String\? = null/);
   assert.match(vm,/fun runDiagnostics\(\)/);
   assert.match(vm,/client\.heartbeat\(sdkInt = Build\.VERSION\.SDK_INT\)/);
@@ -438,9 +438,9 @@ test('Android device validation probes are authenticated and bounded',async()=>{
   const build=await readFile(new URL('app/build.gradle.kts',root),'utf8');
   const api=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelApiClient.kt',root),'utf8');
 
-  assert.match(build,/versionCode = 67/);
-  assert.match(build,/versionName = "0\.6\.58-mini-stable-bridge"/);
-  assert.match(api,/APP_VERSION = "0\.6\.58-mini-stable-bridge"/);
+  assert.match(build,/versionCode = 77/);
+  assert.match(build,/versionName = "0\.6\.68-stt-pcm4"/);
+  assert.match(api,/APP_VERSION = "0\.6\.68-stt-pcm4"/);
 
   assert.match(activity,/private const val MAX_FILE_BYTES = 25_000_000/);
   assert.match(activity,/private fun readUriBounded\(uri: Uri\): ByteArray/);
@@ -472,9 +472,9 @@ test('real mic and file successes feed the diagnostic report',async()=>{
   const build=await readFile(new URL('app/build.gradle.kts',root),'utf8');
   const api=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelApiClient.kt',root),'utf8');
 
-  assert.match(build,/versionCode = 67/);
-  assert.match(build,/versionName = "0\.6\.58-mini-stable-bridge"/);
-  assert.match(api,/APP_VERSION = "0\.6\.58-mini-stable-bridge"/);
+  assert.match(build,/versionCode = 77/);
+  assert.match(build,/versionName = "0\.6\.68-stt-pcm4"/);
+  assert.match(api,/APP_VERSION = "0\.6\.68-stt-pcm4"/);
 
   const voice=vm.slice(vm.indexOf('fun sendVoice('),vm.indexOf('fun sendFile('));
   assert.match(voice,/appendDiagnosticLine\("Micro réel: OK"\)/);
@@ -491,9 +491,9 @@ test('Android dark UI keeps readable content contrast',async()=>{
   const build=await readFile(new URL('app/build.gradle.kts',root),'utf8');
   const api=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelApiClient.kt',root),'utf8');
 
-  assert.match(build,/versionCode = 67/);
-  assert.match(build,/versionName = "0\.6\.58-mini-stable-bridge"/);
-  assert.match(api,/APP_VERSION = "0\.6\.58-mini-stable-bridge"/);
+  assert.match(build,/versionCode = 77/);
+  assert.match(build,/versionName = "0\.6\.68-stt-pcm4"/);
+  assert.match(api,/APP_VERSION = "0\.6\.68-stt-pcm4"/);
 
   assert.match(activity,/contentColor = MelInk/);
   assert.match(activity,/CardDefaults\.cardColors\(containerColor = MelPanel, contentColor = MelInk\)/);
@@ -544,7 +544,9 @@ test('Android MINI mobile shell keeps settings-driven native navigation and comp
   assert.doesNotMatch(activity,/GÉNÉRER LE CODE MINI/);
   assert.doesNotMatch(bridge,/MEL relay local manifest -> 200/);
   assert.doesNotMatch(bridge,/request\.method == "GET" && request\.path == "\/api\/device\/v1\/manifest"/);
-  assert.match(bridge,/URL\(BuildConfig\.MEL_BASE_URL\.trimEnd\('\/'\) \+ request\.path\)/);
+  assert.match(bridge,/val relayPath = if \(useAndroidSttRoute\) "\/api\/android\/v1\/voice\/transcribe" else request\.path/);
+  assert.match(bridge,/URL\(BuildConfig\.MEL_BASE_URL\.trimEnd\('\/'\) \+ relayPath\)/);
+  assert.match(bridge,/setRequestProperty\("X-MEL-MINI-Device-ID", request\.deviceId\)/);
   assert.match(bridge,/request\.path == "\/api\/device\/v1\/render\/card"/);
   assert.match(bridge,/renderMiniCardMimg\(/);
   assert.match(bridge,/payload\.optString\("image_url", ""\)/);
@@ -697,8 +699,8 @@ test('Android MINI bridge distinguishes phone Internet from proven MEL relay',as
   assert.match(service,/MINI CONNECTÉE · INTERNET OK/);
   assert.match(activity,/phoneInternetReady by MelBleBridgeService\.phoneInternetAvailable/);
   assert.match(activity,/téléphone en ligne · validation MEL en cours/);
-  assert.match(build,/versionCode = 67/);
-  assert.match(build,/versionName = "0\.6\.58-mini-stable-bridge"/);
+  assert.match(build,/versionCode = 77/);
+  assert.match(build,/versionName = "0\.6\.68-stt-pcm4"/);
 });
 
 
@@ -755,4 +757,34 @@ test('Android MINI bridge stays alive, reconnects after GATT drops, refreshes de
   assert.match(vm,/startCompanionRefreshLoop/);
   assert.match(vm,/delay\(10_000\)/);
   assert.match(vm,/refreshCompanions\(\)/);
+});
+
+
+test('MINI BLE ping carries direct phone clock independently of HTTP heartbeat',async()=>{
+  const bridge=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelBleBridgeService.kt',root),'utf8');
+  assert.match(bridge,/OP_PING -> executor\.execute/);
+  assert.match(bridge,/put\("epoch_ms", nowMs\)/);
+  assert.match(bridge,/put\("utc_offset_seconds", zone\.getOffset\(nowMs\) \/ 1000\)/);
+  assert.match(bridge,/pullOnlyResponseIds\[device\.address\] = requestId/);
+});
+
+
+test('idle TX reads expose direct binary clock frames to MINI',async()=>{
+  const bridge=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelBleBridgeService.kt',root),'utf8');
+  assert.match(bridge,/private const val OP_CLOCK = 0x14/);
+  assert.match(bridge,/ByteBuffer\.allocate\(12\)/);
+  assert.match(bridge,/putLong\(nowMs\)/);
+  assert.match(bridge,/putInt\(zone\.getOffset\(nowMs\) \/ 1000\)/);
+  assert.match(bridge,/packet\(OP_CLOCK, 0, clockPayload\)/);
+});
+
+
+test('MINI compact STT uses native Android voice route', async () => {
+  const service = await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelBleBridgeService.kt',root),'utf8');
+  assert.match(service, /MelApiClient\(/);
+  assert.match(service, /api\.transcribe\(wav, "audio\/wav"\)/);
+  assert.match(service, /MEL MINI STT native Android route/);
+  assert.match(service, /application\/x-mel-pcm4/);
+  assert.match(service, /nibble \* 17/);
+  assert.match(service, /request\.contentType\.startsWith\("application\/x-mel-pcm"\)/);
 });
