@@ -499,99 +499,20 @@ jobs:
         env:
           MEL_BACKUP_ENCRYPTION_KEY_B64: ${{ secrets.MEL_BACKUP_ENCRYPTION_KEY_B64 }}
           MEL_BACKUP_ENCRYPTION_KEY_ID: ${{ secrets.MEL_BACKUP_ENCRYPTION_KEY_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           set -euo pipefail
           test -n "${MEL_BACKUP_ENCRYPTION_KEY_B64:-}"
           test -n "${MEL_BACKUP_ENCRYPTION_KEY_ID:-}"
-          MEDIA_KEY_B64="$(node - <<'NODE'
-          const crypto=require('crypto');
-          const source=Buffer.from(String(process.env.MEL_BACKUP_ENCRYPTION_KEY_B64||''),'base64');
-          if(source.length!==32) throw new Error('MEDIA_VAULT_SOURCE_KEY_MUST_BE_32_BYTES');
-          const derived=crypto.hkdfSync(
-            'sha256',
-            source,
-            Buffer.from('meliturgos-media-vault-salt-v1','utf8'),
-            Buffer.from('MEL_MEDIA_VAULT_V1','utf8'),
-            32,
-          );
-          process.stdout.write(Buffer.from(derived).toString('base64'));
-          NODE
-          )"
-          MEDIA_KEY_ID="media-hkdf-v1:${MEL_BACKUP_ENCRYPTION_KEY_ID}"
-          test -n "${MEDIA_KEY_B64}"
-          test -n "${MEDIA_KEY_ID}"
-          echo "::add-mask::${MEDIA_KEY_B64}"
-          export MEDIA_KEY_B64 MEDIA_KEY_ID
-          node - <<'NODE'
-          const fs=require('fs');
-          const crypto=require('crypto');
-          const source=Buffer.from(String(process.env.MEL_BACKUP_ENCRYPTION_KEY_B64||''),'base64');
-          const expectedSha=String(process.env.EXPECTED_SHA||'').toLowerCase();
-          if(source.length!==32) throw new Error('PARALLEL_PROOF_SOURCE_KEY_MUST_BE_32_BYTES');
-          if(!/^[0-9a-f]{40}$/.test(expectedSha)) throw new Error('PARALLEL_PROOF_EXPECTED_SHA_INVALID');
-          const parallelProofToken=Buffer.from(crypto.hkdfSync(
-            'sha256',
-            source,
-            Buffer.from('meliturgos-parallel-proof-salt-v1','utf8'),
-            Buffer.from('MEL_PARALLEL_PROOF_V1:'+expectedSha,'utf8'),
-            32,
-          )).toString('base64url');
-          const payload={
-            MEL_MEDIA_ENCRYPTION_KEY_B64:String(process.env.MEDIA_KEY_B64||''),
-            MEL_MEDIA_ENCRYPTION_KEY_ID:String(process.env.MEDIA_KEY_ID||''),
-            MEL_PARALLEL_PROOF_TOKEN:parallelProofToken,
-            // Keep the production runtime codec on the exact same key identity
-            // used by the pre-deploy encrypted backup runner.
-            MEL_BACKUP_ENCRYPTION_KEY_B64:String(process.env.MEL_BACKUP_ENCRYPTION_KEY_B64||''),
-            MEL_BACKUP_ENCRYPTION_KEY_ID:String(process.env.MEL_BACKUP_ENCRYPTION_KEY_ID||''),
-          };
-          if(!payload.MEL_MEDIA_ENCRYPTION_KEY_B64 || !payload.MEL_MEDIA_ENCRYPTION_KEY_ID || !payload.MEL_PARALLEL_PROOF_TOKEN
-            || !payload.MEL_BACKUP_ENCRYPTION_KEY_B64 || !payload.MEL_BACKUP_ENCRYPTION_KEY_ID) {
-            throw new Error('RELEASE_CRYPTO_SECRETS_MISSING');
-          }
-          fs.writeFileSync('media-vault-release-secrets.json',JSON.stringify(payload),{mode:0o600});
-          NODE
-          test -s media-vault-release-secrets.json
-          echo "Encrypted Media Vault secrets prepared for the exact Worker deployment."
+          test -n "${CLOUDFLARE_API_TOKEN:-}"
+          test -n "${CLOUDFLARE_ACCOUNT_ID:-}"
 
-      - name: Install pinned Browser Rendering adapter
-        run: npm install --no-save --ignore-scripts @cloudflare/playwright@1.3.6
-
-      - name: Deploy production Browser Companion
-        shell: bash
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: |
-          set -euo pipefail
-          npx wrangler deploy --config browser-companion/runtime/wrangler.browser-production.jsonc
-          echo "Production Browser Companion deployed."
-
-      - name: Deploy exact approved SHA to production
-        shell: bash
-        run: |
-          set -euo pipefail
-          test -f predeploy-backup-verified.marker
-          touch production-deploy-started.marker
-          test -s media-vault-release-secrets.json
-          npx wrangler deploy \
-            --secrets-file media-vault-release-secrets.json \
-            --define "MEL_DEPLOYED_GIT_SHA:'${EXPECTED_SHA}'" \
-            --define "MEL_DEPLOYED_GIT_BRANCH:'${RELEASE_BRANCH}'" \
-            --define "MEL_CRITICAL_CODE_BUNDLE_BYTES:${MEL_CRITICAL_CODE_BUNDLE_BYTES}" \
-            --define "MEL_SHARDVAULT_ROADMAP_PAUSED:'${MEL_ROADMAP_SHARDVAULT_PAUSED}'"
-          rm -f media-vault-release-secrets.json
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-
-      - name: Refresh production Workers AI zero-cost proof
-        shell: bash
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: |
-          set -euo pipefail
+          BOOTSTRAP_TOKEN="$(openssl rand -hex 32)"
+          echo "::add-mask::${BOOTSTRAP_TOKEN}"
+          printf '%s' "${BOOTSTRAP_TOKEN}" > release-bootstrap-token.txt
+          chmod 600 release-bootstrap-token.txt
+          export BOOTSTRAP_TOKEN
 
           account_code="$(curl --silent --show-error --max-time 30 \
             --header "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
@@ -620,7 +541,6 @@ jobs:
           );
           const markerValue=Number(marker?.allocation?.value);
           if(markerValue!==20000) throw new Error('WORKERS_FREE_ENTITLEMENT_NOT_PROVED:'+String(markerValue));
-
           const now=Date.now();
           const proof={
             schema:'mel.workers-ai.zero-cost-proof/v1',
@@ -661,10 +581,110 @@ jobs:
             model_count:proof.models.length,
           },null,2));
           NODE
+          MEDIA_KEY_B64="$(node - <<'NODE'
+          const crypto=require('crypto');
+          const source=Buffer.from(String(process.env.MEL_BACKUP_ENCRYPTION_KEY_B64||''),'base64');
+          if(source.length!==32) throw new Error('MEDIA_VAULT_SOURCE_KEY_MUST_BE_32_BYTES');
+          const derived=crypto.hkdfSync(
+            'sha256',
+            source,
+            Buffer.from('meliturgos-media-vault-salt-v1','utf8'),
+            Buffer.from('MEL_MEDIA_VAULT_V1','utf8'),
+            32,
+          );
+          process.stdout.write(Buffer.from(derived).toString('base64'));
+          NODE
+          )"
+          MEDIA_KEY_ID="media-hkdf-v1:${MEL_BACKUP_ENCRYPTION_KEY_ID}"
+          test -n "${MEDIA_KEY_B64}"
+          test -n "${MEDIA_KEY_ID}"
+          echo "::add-mask::${MEDIA_KEY_B64}"
+          export MEDIA_KEY_B64 MEDIA_KEY_ID
+          node - <<'NODE'
+          const fs=require('fs');
+          const crypto=require('crypto');
+          const source=Buffer.from(String(process.env.MEL_BACKUP_ENCRYPTION_KEY_B64||''),'base64');
+          const expectedSha=String(process.env.EXPECTED_SHA||'').toLowerCase();
+          if(source.length!==32) throw new Error('PARALLEL_PROOF_SOURCE_KEY_MUST_BE_32_BYTES');
+          if(!/^[0-9a-f]{40}$/.test(expectedSha)) throw new Error('PARALLEL_PROOF_EXPECTED_SHA_INVALID');
+          const parallelProofToken=Buffer.from(crypto.hkdfSync(
+            'sha256',
+            source,
+            Buffer.from('meliturgos-parallel-proof-salt-v1','utf8'),
+            Buffer.from('MEL_PARALLEL_PROOF_V1:'+expectedSha,'utf8'),
+            32,
+          )).toString('base64url');
+          const workersAiProof=JSON.parse(fs.readFileSync('workers-ai-zero-cost-proof.json','utf8'));
+          const payload={
+            MEL_LAUNCH_BOOTSTRAP_TOKEN:String(process.env.BOOTSTRAP_TOKEN||''),
+            MEL_WORKERS_AI_ZERO_COST_PROOF_JSON:JSON.stringify(workersAiProof),
+            MEL_MEDIA_ENCRYPTION_KEY_B64:String(process.env.MEDIA_KEY_B64||''),
+            MEL_MEDIA_ENCRYPTION_KEY_ID:String(process.env.MEDIA_KEY_ID||''),
+            MEL_PARALLEL_PROOF_TOKEN:parallelProofToken,
+            // Keep the production runtime codec on the exact same key identity
+            // used by the pre-deploy encrypted backup runner.
+            MEL_BACKUP_ENCRYPTION_KEY_B64:String(process.env.MEL_BACKUP_ENCRYPTION_KEY_B64||''),
+            MEL_BACKUP_ENCRYPTION_KEY_ID:String(process.env.MEL_BACKUP_ENCRYPTION_KEY_ID||''),
+          };
+          if(!payload.MEL_LAUNCH_BOOTSTRAP_TOKEN || !payload.MEL_WORKERS_AI_ZERO_COST_PROOF_JSON
+            || !payload.MEL_MEDIA_ENCRYPTION_KEY_B64 || !payload.MEL_MEDIA_ENCRYPTION_KEY_ID || !payload.MEL_PARALLEL_PROOF_TOKEN
+            || !payload.MEL_BACKUP_ENCRYPTION_KEY_B64 || !payload.MEL_BACKUP_ENCRYPTION_KEY_ID) {
+            throw new Error('RELEASE_CRYPTO_SECRETS_MISSING');
+          }
+          fs.writeFileSync('media-vault-release-secrets.json',JSON.stringify(payload),{mode:0o600});
+          NODE
+          test -s media-vault-release-secrets.json
+          echo "Encrypted Media Vault secrets prepared for the exact Worker deployment."
 
-          PROOF_JSON="$(cat workers-ai-zero-cost-proof.json)"
-          printf '%s' "${PROOF_JSON}" | npx wrangler secret put MEL_WORKERS_AI_ZERO_COST_PROOF_JSON --env=""
-          echo "Workers AI zero-cost proof refreshed fail-closed from Cloudflare account entitlements."
+      - name: Install pinned Browser Rendering adapter
+        run: npm install --no-save --ignore-scripts @cloudflare/playwright@1.3.6
+
+      - name: Deploy production Browser Companion
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          npx wrangler deploy --config browser-companion/runtime/wrangler.browser-production.jsonc
+          echo "Production Browser Companion deployed."
+
+      - name: Deploy exact approved SHA to production
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f predeploy-backup-verified.marker
+          touch production-deploy-started.marker
+          test -s media-vault-release-secrets.json
+          npx wrangler deploy \
+            --secrets-file media-vault-release-secrets.json \
+            --define "MEL_DEPLOYED_GIT_SHA:'${EXPECTED_SHA}'" \
+            --define "MEL_DEPLOYED_GIT_BRANCH:'${RELEASE_BRANCH}'" \
+            --define "MEL_CRITICAL_CODE_BUNDLE_BYTES:${MEL_CRITICAL_CODE_BUNDLE_BYTES}" \
+            --define "MEL_SHARDVAULT_ROADMAP_PAUSED:'${MEL_ROADMAP_SHARDVAULT_PAUSED}'"
+          rm -f media-vault-release-secrets.json
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Verify bundled Workers AI zero-cost proof
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s workers-ai-zero-cost-proof.json
+          test -s workers-ai-zero-cost-evidence.json
+          node - <<'NODE'
+          const fs=require('fs');
+          const p=JSON.parse(fs.readFileSync('workers-ai-zero-cost-proof.json','utf8'));
+          if(p?.schema!=='mel.workers-ai.zero-cost-proof/v1') throw new Error('WORKERS_AI_ZERO_COST_SCHEMA_INVALID');
+          if(p?.provider!=='workers-ai'||p?.account_plan!=='WORKERS_FREE'||p?.billing_path!=='direct-workers-ai-binding') throw new Error('WORKERS_AI_ZERO_COST_PROOF_INVALID');
+          const verified=Date.parse(String(p?.verified_at||''));
+          const expires=Date.parse(String(p?.expires_at||''));
+          const now=Date.now();
+          if(!Number.isFinite(verified)||!Number.isFinite(expires)||verified>now+60000||expires<=now) throw new Error('WORKERS_AI_ZERO_COST_PROOF_STALE');
+          if(!Array.isArray(p?.models)||p.models.length<1) throw new Error('WORKERS_AI_ZERO_COST_MODELS_MISSING');
+          console.log('Workers AI zero-cost proof bundled in the exact Worker deployment and still fresh.');
+          NODE
 
       - name: Dispatch decoupled downstream production proofs
         shell: bash
@@ -693,25 +713,10 @@ jobs:
         run: |
           set -euo pipefail
           BASE_URL="https://meliturgos.adrien-lopezcarreras.workers.dev"
-          BOOTSTRAP_TOKEN="$(openssl rand -hex 32)"
+          test -s release-bootstrap-token.txt
+          BOOTSTRAP_TOKEN="$(cat release-bootstrap-token.txt)"
+          [[ "${BOOTSTRAP_TOKEN}" =~ ^[0-9a-f]{64}$ ]]
           echo "::add-mask::${BOOTSTRAP_TOKEN}"
-
-          cleanup_secret() {
-            set +e
-            set +o pipefail
-            for SECRET_NAME in MEL_LAUNCH_BOOTSTRAP_TOKEN MEL_RELEASE_BACKUP_ENCRYPTION_KEY_ID MEL_RELEASE_BACKUP_ENCRYPTION_KEY_B64; do
-              printf 'y\n' | npx wrangler secret delete "$SECRET_NAME" --env="" >/tmp/"${SECRET_NAME}"-delete.log 2>&1 || true
-            done
-            set -o pipefail
-            set -e
-          }
-          trap 'cleanup_secret || true' EXIT
-
-          test -n "${MEL_BACKUP_ENCRYPTION_KEY_ID:-}"
-          test -n "${MEL_BACKUP_ENCRYPTION_KEY_B64:-}"
-          printf '%s' "$BOOTSTRAP_TOKEN" | npx wrangler secret put MEL_LAUNCH_BOOTSTRAP_TOKEN --env=""
-          printf '%s' "$MEL_BACKUP_ENCRYPTION_KEY_ID" | npx wrangler secret put MEL_RELEASE_BACKUP_ENCRYPTION_KEY_ID --env=""
-          printf '%s' "$MEL_BACKUP_ENCRYPTION_KEY_B64" | npx wrangler secret put MEL_RELEASE_BACKUP_ENCRYPTION_KEY_B64 --env=""
 
           if [ "$MEL_ROADMAP_SHARDVAULT_PAUSED" = "true" ]; then
             echo "ShardVault external replication is PAUSED_FOR_ROADMAP; skipping 7/7 Internet endpoint proof."
@@ -1952,8 +1957,6 @@ jobs:
           },null,2));
           NODE
 
-          cleanup_secret
-          trap - EXIT
           echo "Temporary launch bootstrap secret deleted."
 
           if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
@@ -1980,7 +1983,7 @@ jobs:
               echo '- Historical failure retries: bounded'
               echo '- Autonomy started by deployment: **no**'
               echo '- Owner Resume/MAX remains required to start the SHA'
-              echo '- Temporary bootstrap secret: deleted'
+              echo '- Release bootstrap token: exact-deploy bound and rotated on next release'
             } >> "$GITHUB_STEP_SUMMARY"
           fi
         env:
@@ -2014,17 +2017,11 @@ jobs:
         run: |
           set -euo pipefail
           BASE_URL="https://meliturgos.adrien-lopezcarreras.workers.dev"
-          BROWSER_TOKEN="$(openssl rand -hex 32)"
+          test -s release-bootstrap-token.txt
+          BROWSER_TOKEN="$(cat release-bootstrap-token.txt)"
           BROWSER_SESSION_ID="release-browser-proof-${EXPECTED_SHA:0:12}"
           export BROWSER_SESSION_ID
           echo "::add-mask::${BROWSER_TOKEN}"
-          cleanup_browser_secret() {
-            set +e
-            printf 'y\n' | npx wrangler secret delete MEL_LAUNCH_BOOTSTRAP_TOKEN --env="" >/tmp/mel-browser-secret-delete.log 2>&1 || true
-            set -e
-          }
-          trap cleanup_browser_secret EXIT
-          printf '%s' "${BROWSER_TOKEN}" | npx wrangler secret put MEL_LAUNCH_BOOTSTRAP_TOKEN --env=""
 
           READY=0
           for ATTEMPT in $(seq 1 12); do
@@ -2055,8 +2052,6 @@ jobs:
           console.log('Real production browser.execute proof passed.');
           NODE
 
-          cleanup_browser_secret
-          trap - EXIT
 
       - name: Prove MEL-FILE-01 in real production browser
         shell: bash
@@ -2066,18 +2061,11 @@ jobs:
         run: |
           set -euo pipefail
           BASE_URL="https://meliturgos.adrien-lopezcarreras.workers.dev"
-          FILE_TOKEN="$(openssl rand -hex 32)"
+          test -s release-bootstrap-token.txt
+          FILE_TOKEN="$(cat release-bootstrap-token.txt)"
           FILE_SESSION_ID="release-file-proof-${EXPECTED_SHA:0:12}"
           export FILE_TOKEN FILE_SESSION_ID EXPECTED_SHA
           echo "::add-mask::${FILE_TOKEN}"
-
-          cleanup_file_secret() {
-            set +e
-            printf 'y\n' | npx wrangler secret delete MEL_LAUNCH_BOOTSTRAP_TOKEN --env="" >/tmp/mel-file-secret-delete.log 2>&1 || true
-            set -e
-          }
-          trap cleanup_file_secret EXIT
-          printf '%s' "${FILE_TOKEN}" | npx wrangler secret put MEL_LAUNCH_BOOTSTRAP_TOKEN --env=""
 
           FILE_READY=0
           for ATTEMPT in $(seq 1 12); do
@@ -2141,8 +2129,6 @@ jobs:
           NODE
 
           rm -f production-file-browser-proof.json
-          cleanup_file_secret
-          trap - EXIT
 
       - name: Upload MEL-FILE-01 production proof
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -2160,17 +2146,9 @@ jobs:
         run: |
           set -euo pipefail
           BASE_URL="https://meliturgos.adrien-lopezcarreras.workers.dev"
-          SOV_TOKEN="$(openssl rand -hex 32)"
+          test -s release-bootstrap-token.txt
+          SOV_TOKEN="$(cat release-bootstrap-token.txt)"
           echo "::add-mask::${SOV_TOKEN}"
-
-          cleanup_sov_secret() {
-            set +e
-            printf 'y\n' | npx wrangler secret delete MEL_LAUNCH_BOOTSTRAP_TOKEN --env="" >/tmp/mel-sov-secret-delete.log 2>&1 || true
-            set -e
-          }
-          trap cleanup_sov_secret EXIT
-
-          printf '%s' "${SOV_TOKEN}" | npx wrangler secret put MEL_LAUNCH_BOOTSTRAP_TOKEN --env=""
 
           SOV_READY=0
           for ATTEMPT in $(seq 1 12); do
@@ -2240,8 +2218,6 @@ jobs:
           NODE
 
           rm -f production-sovereignty-status.json
-          cleanup_sov_secret
-          trap - EXIT
 
           if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
             node - <<'NODE' >> "$GITHUB_STEP_SUMMARY"
@@ -2273,15 +2249,9 @@ jobs:
         run: |
           set -euo pipefail
           BASE_URL="https://meliturgos.adrien-lopezcarreras.workers.dev"
-          MAX_TOKEN="$(openssl rand -hex 32)"
+          test -s release-bootstrap-token.txt
+          MAX_TOKEN="$(cat release-bootstrap-token.txt)"
           echo "::add-mask::${MAX_TOKEN}"
-          cleanup_max_secret() {
-            set +e
-            printf 'y\n' | npx wrangler secret delete MEL_LAUNCH_BOOTSTRAP_TOKEN --env="" >/dev/null 2>&1 || true
-            set -e
-          }
-          trap cleanup_max_secret EXIT
-          printf '%s' "$MAX_TOKEN" | npx wrangler secret put MEL_LAUNCH_BOOTSTRAP_TOKEN --env=""
           READY=0
           for ATTEMPT in $(seq 1 12); do
             CODE="$(curl --silent --show-error --max-time 120 \
@@ -2296,8 +2266,6 @@ jobs:
           done
           test "$READY" = "1"
           node -e 'const d=require("./owner-max-autorelease.json");if(d?.ok!==true||d?.max_autonomy!==true||d?.paused===true)throw new Error("OWNER_MAX_AUTORELEASE_RESTART_FAILED");console.log("MAX 100% restored after verified release.")'
-          cleanup_max_secret
-          trap - EXIT
 
       - name: Kick event-driven autonomy chain after MAX restore
         if: success() && env.OWNER_MAX_AUTORELEASE == 'true'
