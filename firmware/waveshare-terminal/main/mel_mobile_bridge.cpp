@@ -96,6 +96,7 @@ static ActiveResponse g_active;
 
 static int gap_event(struct ble_gap_event *event, void *arg);
 static void start_scan();
+static void recycle_link(const char *reason);
 static void handle_rx_frame(const uint8_t *data, size_t len);
 
 static std::string json_string(cJSON *root) {
@@ -215,13 +216,18 @@ static bool pull_response_frame() {
     const int rc = ble_gattc_read(g_conn_handle, g_tx_handle, read_complete, nullptr);
     if (rc != 0) {
         ESP_LOGW(TAG, "BLE TX read start failed rc=%d", rc);
+        recycle_link("read-start");
         return false;
     }
     if (xSemaphoreTake(g_read_done, pdMS_TO_TICKS(2500)) != pdTRUE) {
         ESP_LOGW(TAG, "BLE TX read timeout");
+        recycle_link("read-timeout");
         return false;
     }
-    if (g_read_failed) return false;
+    if (g_read_failed) {
+        recycle_link("read-status");
+        return false;
+    }
     if (g_read_len >= 5 && g_read_frame[0] != 0) {
         handle_rx_frame(g_read_frame, g_read_len);
     }
@@ -242,6 +248,31 @@ static int cccd_subscribe_complete(uint16_t conn_handle, const struct ble_gatt_e
     g_ready.store(false);
     ble_gap_terminate(conn_handle, BLE_ERR_REM_USER_CONN_TERM);
     return 0;
+}
+
+static void recycle_link(const char *reason) {
+    const uint16_t handle = g_conn_handle;
+    ESP_LOGW(TAG, "BLE link unhealthy (%s); recycling conn=%u ready=%d",
+             reason ? reason : "unknown", (unsigned)handle, g_ready.load() ? 1 : 0);
+    g_ready.store(false);
+    g_rx_handle = 0;
+    g_tx_handle = 0;
+    g_mtu = 23;
+    g_active.failed = true;
+    if (g_response_done) xSemaphoreGive(g_response_done);
+
+    if (handle == BLE_HS_CONN_HANDLE_NONE) {
+        start_scan();
+        return;
+    }
+
+    const int rc = ble_gap_terminate(handle, BLE_ERR_REM_USER_CONN_TERM);
+    if (rc != 0) {
+        ESP_LOGW(TAG, "BLE terminate failed rc=%d; clearing stale handle locally", rc);
+        peer_delete(handle);
+        if (g_conn_handle == handle) g_conn_handle = BLE_HS_CONN_HANDLE_NONE;
+        start_scan();
+    }
 }
 
 static bool write_frame(uint8_t op, uint32_t id, const uint8_t *payload, size_t payload_len) {
@@ -270,13 +301,19 @@ static bool write_frame(uint8_t op, uint32_t id, const uint8_t *payload, size_t 
     );
     if (rc != 0) {
         ESP_LOGW(TAG, "BLE write start failed rc=%d", rc);
+        recycle_link("write-start");
         return false;
     }
     if (xSemaphoreTake(g_write_done, pdMS_TO_TICKS(5000)) != pdTRUE) {
         ESP_LOGW(TAG, "BLE write timeout");
+        recycle_link("write-timeout");
         return false;
     }
-    return !g_write_failed;
+    if (g_write_failed) {
+        recycle_link("write-status");
+        return false;
+    }
+    return true;
 }
 
 static void handle_rx_frame(const uint8_t *data, size_t len) {
@@ -508,7 +545,15 @@ static int gap_event(struct ble_gap_event *event, void *arg) {
                      event->conn_update_req.peer_params->itvl_max,
                      event->conn_update_req.peer_params->latency,
                      event->conn_update_req.peer_params->supervision_timeout);
-            // NimBLE pre-fills self_params with the peer request. Return 0 to accept it.
+            // Never let the phone renegotiate the Redmi/Xiaomi link into an
+            // aggressive/fragile profile. Force the same proven-safe window
+            // used for the initial connection.
+            event->conn_update_req.self_params->itvl_min = 24;   // 30 ms
+            event->conn_update_req.self_params->itvl_max = 32;   // 40 ms
+            event->conn_update_req.self_params->latency = 0;
+            event->conn_update_req.self_params->supervision_timeout = 800; // 8 s
+            event->conn_update_req.self_params->min_ce_len = BLE_GAP_INITIAL_CONN_MIN_CE_LEN;
+            event->conn_update_req.self_params->max_ce_len = BLE_GAP_INITIAL_CONN_MAX_CE_LEN;
             return 0;
         case BLE_GAP_EVENT_CONN_UPDATE: {
             struct ble_gap_conn_desc desc = {};
