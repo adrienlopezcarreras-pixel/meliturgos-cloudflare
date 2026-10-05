@@ -623,9 +623,25 @@ class MelBleBridgeService : Service() {
             OP_END -> finishRequest(device, requestId)
             OP_PING -> executor.execute {
                 latestResponseIds[device.address] = requestId
-                pullFrames.computeIfAbsent(device.address) { ConcurrentLinkedQueue() }.clear()
-                sendJsonFrame(device, OP_RESPONSE_BEGIN, requestId, JSONObject().put("status", 200).put("contentType", "application/json").put("length", 0))
+                pullOnlyResponseIds[device.address] = requestId
+                val queue = pullFrames.computeIfAbsent(device.address) { ConcurrentLinkedQueue() }
+                queue.clear()
+                val nowMs = System.currentTimeMillis()
+                val zone = TimeZone.getDefault()
+                val body = JSONObject()
+                    .put("epoch_ms", nowMs)
+                    .put("utc_offset_seconds", zone.getOffset(nowMs) / 1000)
+                    .put("timezone", zone.id)
+                    .toString()
+                    .toByteArray(Charsets.UTF_8)
+                val meta = JSONObject()
+                    .put("status", 200)
+                    .put("contentType", "application/json")
+                    .put("length", body.size)
+                if (!sendJsonFrame(device, OP_RESPONSE_BEGIN, requestId, meta)) return@execute
+                if (!sendBodyFrames(device, requestId, body)) return@execute
                 sendFrame(device, packet(OP_RESPONSE_END, requestId, byteArrayOf()))
+                Log.d(TAG, "MEL MINI BLE clock ping epoch=$nowMs zone=${zone.id}")
             }
         }
     }
