@@ -755,7 +755,21 @@ static esp_err_t request_common(
     cJSON_Delete(root);
 
     const uint16_t mtu = ble_att_mtu(g_conn_handle);
-    const size_t chunk = std::max<size_t>(12, std::min<size_t>(500, mtu > 8 ? (size_t)mtu - 8 : 15));
+    const size_t negotiated_chunk =
+        std::max<size_t>(12, std::min<size_t>(500, mtu > 8 ? (size_t)mtu - 8 : 15));
+    // Some Redmi/Xiaomi GATT server stacks advertise a large MTU but become
+    // unstable under hundreds of near-maximum write-with-response packets.
+    // Voice/STT is by far the largest MINI->phone transfer, so keep only that
+    // path on a conservative payload size while leaving control/chat traffic
+    // at the negotiated MTU.
+    const bool voice_upload = strstr(path, "/voice/transcribe") != nullptr;
+    const size_t chunk = voice_upload
+        ? std::min<size_t>(160, negotiated_chunk)
+        : negotiated_chunk;
+    if (voice_upload) {
+        ESP_LOGI(TAG, "BLE STT compatibility mode mtu=%u payload=%u body=%u",
+                 (unsigned)mtu, (unsigned)chunk, (unsigned)body_len);
+    }
 
     bool ok = true;
     if (meta.size() <= chunk) {
@@ -773,9 +787,17 @@ static esp_err_t request_common(
     }
 
     if (ok && body_len) {
-        for (size_t off = 0; ok && off < body_len; off += chunk) {
+        size_t frame_index = 0;
+        for (size_t off = 0; ok && off < body_len; off += chunk, ++frame_index) {
             const size_t n = std::min(chunk, body_len - off);
             ok = write_frame(OP_BODY, id, body + off, n);
+            // Each write already waits for its ATT response. This tiny periodic
+            // yield additionally avoids monopolising the application task during
+            // long STT uploads and gives the NimBLE host room to service link
+            // maintenance on vendor-sensitive phones.
+            if (ok && voice_upload && (frame_index % 8U) == 7U) {
+                vTaskDelay(pdMS_TO_TICKS(2));
+            }
         }
     }
     if (ok) ok = write_frame(OP_END, id, nullptr, 0);
