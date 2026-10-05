@@ -531,6 +531,9 @@ static esp_err_t http_request(
     std::string &response,
     int &status
 ) {
+    const bool compact_mobile_stt =
+        content_type && strncmp(content_type, "application/x-mel-pcm8", 22) == 0;
+
     auto mobile_request = [&]() -> esp_err_t {
         const std::string prefix = SERVER;
         if (!mel_mobile_bridge_ready() || url.rfind(prefix, 0) != 0) return ESP_ERR_INVALID_STATE;
@@ -554,7 +557,7 @@ static esp_err_t http_request(
     // is already connected, retry the same request directly over Wi-Fi.
     if (mel_mobile_bridge_ready()) {
         esp_err_t mobile_err = mobile_request();
-        if (mobile_err == ESP_OK || !g_wifi_connected) return mobile_err;
+        if (mobile_err == ESP_OK || !g_wifi_connected || compact_mobile_stt) return mobile_err;
         ESP_LOGW(TAG, "MEL MOBILE transport failed (%s); falling back to Wi-Fi",
                  esp_err_to_name(mobile_err));
         response.clear();
@@ -564,7 +567,7 @@ static esp_err_t http_request(
         ESP_LOGI(TAG, "MEL MOBILE reconnect grace before Wi-Fi fallback");
         if (wait_for_mobile_bridge_ready(8000)) {
             esp_err_t mobile_err = mobile_request();
-            if (mobile_err == ESP_OK || !g_wifi_connected) return mobile_err;
+            if (mobile_err == ESP_OK || !g_wifi_connected || compact_mobile_stt) return mobile_err;
             response.clear();
             status = 0;
         } else if (!g_wifi_connected) {
@@ -572,6 +575,9 @@ static esp_err_t http_request(
         }
     }
 
+    // Compact MINI STT is a phone-relay transport format, not a public MEL API
+    // media type. Never leak it to the backend through direct Wi-Fi fallback.
+    if (compact_mobile_stt) return ESP_ERR_INVALID_STATE;
     if (!g_wifi_connected) return ESP_ERR_INVALID_STATE;
 
     HttpBuffer buffer;
