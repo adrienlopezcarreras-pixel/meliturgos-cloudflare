@@ -1666,24 +1666,20 @@ static void lv_port_init() {
 
 static void touch_cb(lv_event_t *e) {
     if (!status_label) return;
-    const lv_event_code_t code = lv_event_get_code(e);
-    if (code == LV_EVENT_PRESSED) {
-        ESP_LOGI(TAG, "UI BUTTON: PARLER pressed");
-        if (!mel_terminal_online()) {
-            lv_label_set_text(status_label, "MEL HORS LIGNE");
-            ESP_LOGW(TAG, "Talk requested while MEL runtime is offline");
-            return;
-        }
-        mel_terminal_request_voice();
-        ESP_LOGI(TAG, "PARLER recording started");
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+
+    ESP_LOGI(TAG, "UI BUTTON: PARLER clicked state=%d online=%d",
+             mel_terminal_state(), mel_terminal_online() ? 1 : 0);
+    if (!mel_terminal_online()) {
+        lv_label_set_text(status_label, "MEL HORS LIGNE");
+        ESP_LOGW(TAG, "Talk requested while MEL runtime is offline");
         return;
     }
-    if (code == LV_EVENT_RELEASED || code == LV_EVENT_PRESS_LOST) {
-        if (mel_terminal_state() == MEL_TERMINAL_LISTENING) {
-            mel_terminal_request_voice();
-            ESP_LOGI(TAG, "PARLER released -> stop and send");
-        }
-    }
+
+    // Tap-to-toggle: first tap starts capture, second tap stops and sends.
+    // Do not bind stop to RELEASED: a normal quick tap used to start and stop
+    // recording in the same gesture, making PARLER appear non-functional.
+    mel_terminal_request_voice();
 }
 
 static void web_card_touch_cb(lv_event_t *e) {
