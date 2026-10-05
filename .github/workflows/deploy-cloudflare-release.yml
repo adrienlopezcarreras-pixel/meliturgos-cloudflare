@@ -649,6 +649,23 @@ jobs:
           npx wrangler deploy --config browser-companion/runtime/wrangler.browser-production.jsonc
           echo "Production Browser Companion deployed."
 
+      - name: Require production owner auth secret before deploy
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          npx wrangler secret list --name meliturgos --format json > production-secret-names.json
+          node - <<'NODE'
+          const fs=require('fs');
+          const rows=JSON.parse(fs.readFileSync('production-secret-names.json','utf8'));
+          const names=(Array.isArray(rows)?rows:[]).map(row=>String(row?.name||'')).filter(Boolean);
+          if(!names.includes('MELITURGOS_PASSWORD')) throw new Error('PRODUCTION_OWNER_AUTH_SECRET_MISSING');
+          console.log('Production owner auth secret presence verified without exposing its value.');
+          NODE
+          rm -f production-secret-names.json
+
       - name: Deploy exact approved SHA to production
         shell: bash
         run: |
