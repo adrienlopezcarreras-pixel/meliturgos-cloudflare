@@ -14,104 +14,71 @@ permissions:
 jobs:
   probe:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 10
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
-        with:
-          node-version: '22'
-          cache: npm
-      - run: npm ci
-      - name: Prepare documented speech sample as 16 kHz mono WAV
+      - name: Download Cloudflare-documented speech sample
         shell: bash
         run: |
           set -euo pipefail
-          curl -fsSL --retry 3 https://raw.githubusercontent.com/craigsdennis/notebooks-cloudflare-workers-ai/main/assets/craig-rambling.mp3 -o /tmp/sample.mp3
-          ffmpeg -hide_banner -loglevel error -y -i /tmp/sample.mp3 -ar 16000 -ac 1 -c:a pcm_s16le /tmp/sample.wav
-          file /tmp/sample.wav
-          ls -l /tmp/sample.wav
-      - name: Create isolated Workers AI probe
+          curl -fsSL --retry 3             https://raw.githubusercontent.com/craigsdennis/notebooks-cloudflare-workers-ai/main/assets/craig-rambling.mp3             -o /tmp/sample.mp3
+          file /tmp/sample.mp3
+          test -s /tmp/sample.mp3
+      - name: Build both documented request shapes
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p /tmp/mel-stt-probe
-          cat >/tmp/mel-stt-probe/worker.mjs <<'EOF'
-          function bytesToBase64(bytes) {
-            let binary = "";
-            const chunk = 0x4000;
-            for (let i = 0; i < bytes.length; i += chunk) {
-              binary += String.fromCharCode(...bytes.subarray(i, Math.min(i + chunk, bytes.length)));
-            }
-            return btoa(binary);
-          }
-          function textOf(v) {
-            return v?.text ?? v?.transcription_info?.text ?? v?.response ?? "";
-          }
-          export default {
-            async fetch(request, env) {
-              try {
-                const form = await request.formData();
-                const file = form.get("audio");
-                if (!file || typeof file.arrayBuffer !== "function") {
-                  return Response.json({ok:false,stage:"form",error:"audio missing"},{status:400});
-                }
-                const bytes = new Uint8Array(await file.arrayBuffer());
-                const audio = bytesToBase64(bytes);
-                const url = new URL(request.url);
-                const model = url.pathname === "/classic" ? "@cf/openai/whisper" : "@cf/openai/whisper-large-v3-turbo";
-                const started = Date.now();
-                const result = await env.AI.run(model, { audio, task:"transcribe", language:"fr" });
-                return Response.json({ ok:true, model, elapsed_ms:Date.now()-started, input_bytes:bytes.length, text:textOf(result), result });
-              } catch (error) {
-                return Response.json({ ok:false, error:String(error?.message || error), stack:String(error?.stack || "").slice(0,1000) },{status:500});
-              }
-            }
-          };
-          EOF
-          NAME="mel-stt-doc-probe-${GITHUB_RUN_ID}"
-          cat >/tmp/mel-stt-probe/wrangler.jsonc <<EOF
-          {
-            "name": "${NAME}",
-            "main": "worker.mjs",
-            "compatibility_date": "2026-10-05",
-            "workers_dev": true,
-            "ai": { "binding": "AI" }
-          }
-          EOF
-          echo "PROBE_NAME=${NAME}" >> "$GITHUB_ENV"
-      - name: Deploy isolated probe
-        shell: bash
-        run: |
-          set -euo pipefail
-          cd /tmp/mel-stt-probe
-          npx --yes wrangler@4.135.0 deploy --config wrangler.jsonc
-      - name: Test documented large-v3-turbo path
-        shell: bash
-        run: |
-          set -euo pipefail
-          URL="https://${PROBE_NAME}.adrien-lopezcarreras.workers.dev/large"
-          CODE="$(curl -sS --max-time 60 -o /tmp/large.json -w '%{http_code}' -F 'audio=@/tmp/sample.wav;type=audio/wav' "$URL" || true)"
-          echo "HTTP=${CODE}"
-          cat /tmp/large.json
-          test "$CODE" = "200"
-          node -e 'const d=require("/tmp/large.json"); if(!d.ok || !String(d.text||"").trim()) process.exit(1)'
-      - name: Test classic Whisper fallback
-        if: always()
+          node - <<'NODE'
+          const fs=require('fs');
+          const bytes=fs.readFileSync('/tmp/sample.mp3');
+          fs.writeFileSync('/tmp/base64.json',JSON.stringify({
+            audio:bytes.toString('base64'),
+            task:'transcribe',
+            language:'en'
+          }));
+          fs.writeFileSync('/tmp/bytes.json',JSON.stringify({
+            audio:Array.from(bytes)
+          }));
+          console.log(JSON.stringify({bytes:bytes.length,base64_json:fs.statSync('/tmp/base64.json').size,bytes_json:fs.statSync('/tmp/bytes.json').size}));
+          NODE
+      - name: Probe tutorial base64 form
         shell: bash
         run: |
           set +e
-          URL="https://${PROBE_NAME}.adrien-lopezcarreras.workers.dev/classic"
-          CODE="$(curl -sS --max-time 60 -o /tmp/classic.json -w '%{http_code}' -F 'audio=@/tmp/sample.wav;type=audio/wav' "$URL" || true)"
-          echo "HTTP=${CODE}"
-          test ! -s /tmp/classic.json || cat /tmp/classic.json
-          exit 0
-      - name: Delete isolated probe
-        if: always()
+          URL="https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/ai/run/@cf/openai/whisper-large-v3-turbo"
+          CODE="$(curl -sS --max-time 90 -o /tmp/base64-result.json -w '%{http_code}'             -X POST             -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}"             -H "Content-Type: application/json"             --data-binary @/tmp/base64.json             "$URL" || true)"
+          echo "BASE64_HTTP=${CODE}"
+          cat /tmp/base64-result.json
+          echo
+          echo "BASE64_HTTP=${CODE}" >> "$GITHUB_ENV"
+      - name: Probe REST byte-array form
         shell: bash
         run: |
           set +e
-          cd /tmp/mel-stt-probe
-          npx --yes wrangler@4.135.0 delete --config wrangler.jsonc --force
+          URL="https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/ai/run/@cf/openai/whisper-large-v3-turbo"
+          CODE="$(curl -sS --max-time 90 -o /tmp/bytes-result.json -w '%{http_code}'             -X POST             -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}"             -H "Content-Type: application/json"             --data-binary @/tmp/bytes.json             "$URL" || true)"
+          echo "BYTES_HTTP=${CODE}"
+          cat /tmp/bytes-result.json
+          echo
+          echo "BYTES_HTTP=${CODE}" >> "$GITHUB_ENV"
+      - name: Require at least one documented shape to work
+        shell: bash
+        run: |
+          set -euo pipefail
+          node - <<'NODE'
+          const fs=require('fs');
+          function read(p){try{return JSON.parse(fs.readFileSync(p,'utf8'))}catch{return null}}
+          const b64=read('/tmp/base64-result.json');
+          const arr=read('/tmp/bytes-result.json');
+          function text(d){return String(d?.result?.text ?? d?.result?.transcription_info?.text ?? d?.text ?? '').trim()}
+          console.log(JSON.stringify({
+            base64_ok:b64?.success===true,
+            base64_text:text(b64).slice(0,120),
+            bytes_ok:arr?.success===true,
+            bytes_text:text(arr).slice(0,120)
+          }));
+          if(!text(b64) && !text(arr)) process.exit(1);
+          NODE
