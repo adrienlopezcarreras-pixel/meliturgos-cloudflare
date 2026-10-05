@@ -367,7 +367,10 @@ static void handle_rx_frame(const uint8_t *data, size_t len) {
     }
     if (op == OP_ERROR) {
         g_active.failed = true;
+        g_active.status = 0;
+        g_active.body.clear();
         if (payload_len) {
+            g_active.body.assign(reinterpret_cast<const char *>(payload), payload_len);
             ESP_LOGW(TAG, "MEL Mobile bridge error: %.*s", (int)payload_len, (const char *)payload);
         }
         if (g_response_done) xSemaphoreGive(g_response_done);
