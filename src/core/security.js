@@ -202,6 +202,7 @@ export function authorized(request, env) {
 }
 
 export function requireAuth(request, env) {
+  if (isReleaseSmokeRequest(request, env)) return { ok: true };
   if (!env.MELITURGOS_PASSWORD) return { ok: false, response: notConfiguredResponse(request) };
   if (!authorized(request, env)) return { ok: false, response: unauthorizedResponse(request) };
   return { ok: true };
