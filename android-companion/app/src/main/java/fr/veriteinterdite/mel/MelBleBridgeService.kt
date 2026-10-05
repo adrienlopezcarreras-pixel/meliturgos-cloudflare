@@ -882,7 +882,7 @@ class MelBleBridgeService : Service() {
         return pendingLow == null
     }
 
-    private fun buildCompactSttRelay(pcm8: ByteArray, contentType: String): Pair<String, ByteArray> {
+    private fun buildCompactSttWav(pcm8: ByteArray, contentType: String): ByteArray {
         require(pcm8.isNotEmpty() && pcm8.size <= 16_000 * 10) { "PCM8_SIZE" }
         val sourceRate = Regex("""rate=(\\d+)""")
             .find(contentType)
@@ -919,16 +919,7 @@ class MelBleBridgeService : Service() {
             }
         }
 
-        val boundary = "----MEL-ANDROID-STT"
-        val prefix = ("--" + boundary +
-            "\r\nContent-Disposition: form-data; name=\"audio\"; filename=\"mel.wav\"\r\n" +
-            "Content-Type: audio/wav\r\n\r\n").toByteArray(Charsets.UTF_8)
-        val suffix = ("\r\n--" + boundary + "--\r\n").toByteArray(Charsets.UTF_8)
-        val body = ByteArray(prefix.size + wav.size + suffix.size)
-        prefix.copyInto(body, 0)
-        wav.copyInto(body, prefix.size)
-        suffix.copyInto(body, prefix.size + wav.size)
-        return "multipart/form-data; boundary=$boundary" to body
+        return wav
     }
 
     private fun relay(device: BluetoothDevice, request: PendingRequest) {
@@ -1024,20 +1015,77 @@ class MelBleBridgeService : Service() {
 
         val compactStt = request.path == "/api/device/v1/voice/transcribe" &&
             request.contentType.startsWith("application/x-mel-pcm8")
-        val relayPayload = if (compactStt) {
-            runCatching { buildCompactSttRelay(request.body.toByteArray(), request.contentType) }.getOrElse {
-                Log.e(TAG, "Compact STT conversion failed", it)
+
+        if (compactStt) {
+            val wav = runCatching {
+                buildCompactSttWav(request.body.toByteArray(), request.contentType)
+            }.getOrElse {
+                Log.e(TAG, "Compact STT WAV conversion failed", it)
                 sendError(device, request.id, "STT_PCM8")
                 return
             }
-        } else {
-            request.contentType to request.body.toByteArray()
+
+            val rawAndroidId = Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID)
+            val androidDeviceId = "android-" + (rawAndroidId ?: "unknown").take(64)
+            val api = MelApiClient(
+                BuildConfig.MEL_BASE_URL,
+                androidDeviceId,
+                TokenVault(this)
+            )
+            val result = try {
+                Log.i(TAG, "MEL MINI STT native Android route BLE=${request.body.size()} WAV=${wav.size}")
+                api.transcribe(wav, "audio/wav")
+            } catch (error: MelApiException) {
+                val status = error.status.takeIf { it in 400..599 } ?: 503
+                val body = JSONObject()
+                    .put("ok", false)
+                    .put("code", error.code)
+                    .put("detail", error.detail)
+                    .toString()
+                    .toByteArray(Charsets.UTF_8)
+                val meta = JSONObject()
+                    .put("status", status)
+                    .put("contentType", "application/json")
+                    .put("length", body.size)
+                sendJsonFrame(device, OP_RESPONSE_BEGIN, request.id, meta)
+                if (body.isNotEmpty()) sendBodyFrames(device, request.id, body)
+                sendFrame(device, packet(OP_RESPONSE_END, request.id, byteArrayOf()))
+                Log.e(TAG, "MEL MINI STT native Android route failed status=$status code=${error.code}")
+                return
+            } catch (error: Throwable) {
+                val body = JSONObject()
+                    .put("ok", false)
+                    .put("code", "ANDROID_STT_RELAY")
+                    .put("detail", String(error.message ?: error::class.java.simpleName).take(160))
+                    .toString()
+                    .toByteArray(Charsets.UTF_8)
+                val meta = JSONObject()
+                    .put("status", 503)
+                    .put("contentType", "application/json")
+                    .put("length", body.size)
+                sendJsonFrame(device, OP_RESPONSE_BEGIN, request.id, meta)
+                if (body.isNotEmpty()) sendBodyFrames(device, request.id, body)
+                sendFrame(device, packet(OP_RESPONSE_END, request.id, byteArrayOf()))
+                Log.e(TAG, "MEL MINI STT native Android route crashed", error)
+                return
+            }
+
+            val body = result.toString().toByteArray(Charsets.UTF_8)
+            val meta = JSONObject()
+                .put("status", 200)
+                .put("contentType", "application/json")
+                .put("length", body.size)
+            if (!sendJsonFrame(device, OP_RESPONSE_BEGIN, request.id, meta)) return
+            if (!sendBodyFrames(device, request.id, body)) return
+            sendFrame(device, packet(OP_RESPONSE_END, request.id, byteArrayOf()))
+            internetReady.value = miniLinkReady.value
+            bridgeState.value = "MINI CONNECTÉE · INTERNET OK"
+            Log.i(TAG, "MEL MINI STT native Android route -> 200 bytes=${body.size}")
+            return
         }
-        val relayContentType = relayPayload.first
-        val relayBody = relayPayload.second
-        if (compactStt) {
-            Log.i(TAG, "MEL compact STT expanded BLE=${request.body.size()} -> 16k HTTP=${relayBody.size} bytes")
-        }
+
+        val relayContentType = request.contentType
+        val relayBody = request.body.toByteArray()
 
         // Manifest requests must reach the real MEL backend. BLE connectivity alone
         // is not proof of Internet access; returning a local 200 here made MINI
@@ -1095,9 +1143,6 @@ class MelBleBridgeService : Service() {
             Log.i(TAG, "MEL relay HTTP ${request.method} ${request.path} -> $status")
             val contentType = connection.contentType ?: "application/octet-stream"
             val stream = if (status in 200..299) connection.inputStream else connection.errorStream
-            if (request.path == "/api/device/v1/voice/transcribe") {
-                Log.i(TAG, "MEL STT server responded status=$status contentType=$contentType")
-            }
             val downsampleTts = status in 200..299 && request.path == "/api/device/v1/voice/tts"
 
             if (downsampleTts && stream != null) {
@@ -1161,19 +1206,6 @@ class MelBleBridgeService : Service() {
                 if (!sendBodyFrames(device, request.id, compactHeartbeat)) return
                 sendFrame(device, packet(OP_RESPONSE_END, request.id, byteArrayOf()))
                 Log.i(TAG, "MEL MINI heartbeat response compacted to ${compactHeartbeat.size} bytes")
-                return
-            }
-
-            if (request.path == "/api/device/v1/voice/transcribe") {
-                val sttBody = stream?.use { it.readBytes() } ?: byteArrayOf()
-                val sttMeta = JSONObject()
-                    .put("status", status)
-                    .put("contentType", contentType)
-                    .put("length", sttBody.size)
-                if (!sendJsonFrame(device, OP_RESPONSE_BEGIN, request.id, sttMeta)) return
-                if (sttBody.isNotEmpty() && !sendBodyFrames(device, request.id, sttBody)) return
-                sendFrame(device, packet(OP_RESPONSE_END, request.id, byteArrayOf()))
-                Log.i(TAG, "MEL STT response queued pull-only bytes=${sttBody.size} status=$status")
                 return
             }
 
