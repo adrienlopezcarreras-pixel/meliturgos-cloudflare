@@ -139,7 +139,7 @@ jobs:
             local CODE="000"
             local REFRESH_READY=0
             local MAX_ATTEMPTS=4
-            if [ "${TARGET}" = "ai_local" ]; then MAX_ATTEMPTS=10; fi
+            if [ "${TARGET}" = "ai_local" ]; then MAX_ATTEMPTS=40; fi
             for ATTEMPT in $(seq 1 "${MAX_ATTEMPTS}"); do
               CODE="$(curl --silent --show-error --max-time 55 \
                 --header "x-mel-parallel-proof: ${TOKEN}" \
@@ -162,6 +162,10 @@ jobs:
                   echo "Local AI bootstrap is still running; retry ${ATTEMPT}/${MAX_ATTEMPTS} after bounded backoff."
                   sleep 30
                   continue
+                  ;;
+                SOVEREIGNTY_AI_LOCAL_BOOTSTRAP_FAILED:*)
+                  echo "Local AI bootstrap failed with ${REFRESH_ERROR_CODE}; stop retrying and preserve the exact diagnostic."
+                  break
                   ;;
               esac
               case "${CODE}" in
