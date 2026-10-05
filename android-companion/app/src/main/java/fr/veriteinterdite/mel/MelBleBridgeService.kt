@@ -882,6 +882,44 @@ class MelBleBridgeService : Service() {
         return pendingLow == null
     }
 
+    private fun buildCompactSttRelay(pcm8: ByteArray): Pair<String, ByteArray> {
+        require(pcm8.isNotEmpty() && pcm8.size <= 8_000 * 10) { "PCM8_SIZE" }
+        val sampleRate = 8_000
+        val pcm16Bytes = pcm8.size * 2
+        val wav = ByteArray(44 + pcm16Bytes)
+        val header = ByteBuffer.wrap(wav).order(ByteOrder.LITTLE_ENDIAN)
+        header.put("RIFF".toByteArray(Charsets.US_ASCII))
+        header.putInt(36 + pcm16Bytes)
+        header.put("WAVE".toByteArray(Charsets.US_ASCII))
+        header.put("fmt ".toByteArray(Charsets.US_ASCII))
+        header.putInt(16)
+        header.putShort(1)
+        header.putShort(1)
+        header.putInt(sampleRate)
+        header.putInt(sampleRate * 2)
+        header.putShort(2)
+        header.putShort(16)
+        header.put("data".toByteArray(Charsets.US_ASCII))
+        header.putInt(pcm16Bytes)
+        var dst = 44
+        for (raw in pcm8) {
+            val sample = (((raw.toInt() and 0xff) - 128) shl 8).toShort().toInt()
+            wav[dst++] = (sample and 0xff).toByte()
+            wav[dst++] = ((sample shr 8) and 0xff).toByte()
+        }
+
+        val boundary = "----MEL-ANDROID-STT"
+        val prefix = ("--" + boundary +
+            "\r\nContent-Disposition: form-data; name=\"audio\"; filename=\"mel.wav\"\r\n" +
+            "Content-Type: audio/wav\r\n\r\n").toByteArray(Charsets.UTF_8)
+        val suffix = ("\r\n--" + boundary + "--\r\n").toByteArray(Charsets.UTF_8)
+        val body = ByteArray(prefix.size + wav.size + suffix.size)
+        prefix.copyInto(body, 0)
+        wav.copyInto(body, prefix.size)
+        suffix.copyInto(body, prefix.size + wav.size)
+        return "multipart/form-data; boundary=$boundary" to body
+    }
+
     private fun relay(device: BluetoothDevice, request: PendingRequest) {
         // Redmi/Xiaomi can acknowledge GATT notifications even when the peer never
         // receives them. Session-critical responses therefore use the TX
@@ -970,6 +1008,23 @@ class MelBleBridgeService : Service() {
             return
         }
 
+        val compactStt = request.path == "/api/device/v1/voice/transcribe" &&
+            request.contentType.startsWith("application/x-mel-pcm8")
+        val relayPayload = if (compactStt) {
+            runCatching { buildCompactSttRelay(request.body.toByteArray()) }.getOrElse {
+                Log.e(TAG, "Compact STT conversion failed", it)
+                sendError(device, request.id, "STT_PCM8")
+                return
+            }
+        } else {
+            request.contentType to request.body.toByteArray()
+        }
+        val relayContentType = relayPayload.first
+        val relayBody = relayPayload.second
+        if (compactStt) {
+            Log.i(TAG, "MEL compact STT expanded BLE=${request.body.size()} -> HTTP=${relayBody.size} bytes")
+        }
+
         // Manifest requests must reach the real MEL backend. BLE connectivity alone
         // is not proof of Internet access; returning a local 200 here made MINI
         // believe it was online even when the phone could not reach MEL.
@@ -992,10 +1047,10 @@ class MelBleBridgeService : Service() {
                     }
                 }
                 setRequestProperty("Accept", "*/*")
-                if (request.body.size() > 0) {
+                if (relayBody.isNotEmpty()) {
                     doOutput = true
-                    setRequestProperty("Content-Type", request.contentType)
-                    outputStream.use { it.write(request.body.toByteArray()) }
+                    setRequestProperty("Content-Type", relayContentType)
+                    outputStream.use { it.write(relayBody) }
                 }
             }
         }.getOrElse {
