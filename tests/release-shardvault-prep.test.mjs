@@ -161,9 +161,19 @@ test('release rollback restores only the captured autonomy state through exact-S
   assert.match(source,/waiting for stable propagation/);
   const rollback=source.split('Automatic rollback on failed production verification')[1]||'';
   const staged=rollback.indexOf('restore_sha=${PREVIOUS_DEPLOYED_SHA}');
-  const workerRollback=rollback.indexOf('deployments?force=true');
+  const workerRollback=rollback.indexOf('npx wrangler rollback');
   const verifyControl=rollback.indexOf('/api/gen2/autonomy/control');
   assert.ok(staged>=0 && workerRollback>staged && verifyControl>workerRollback);
+  assert.match(rollback,/--name meliturgos/);
+  assert.doesNotMatch(rollback,/deployments\?force=true/);
   assert.doesNotMatch(rollback,/wrangler secret put/);
   assert.match(rollback,/if \[ "\$\{PREVIOUS_AUTONOMY_PAUSED\}" = "true" \] && \[ "\$\{PREVIOUS_MAX_AUTONOMY\}" = "false" \]/);
+});
+
+
+test('ShardVault rejects workers.dev as an external persistence target to avoid Cloudflare same-zone Worker fetches',async()=>{
+  const source=await readFile(new URL('../src/continuity/shardvault-runtime.js',import.meta.url),'utf8');
+  assert.match(source,/endsWith\('\.workers\.dev'\)/);
+  assert.match(source,/WORKERS_DEV_SAME_ZONE_UNSAFE/);
+  assert.match(source,/raw\.flatMap\(\(endpoint,index\)=>\{try\{return \[normalizeEndpoint\(endpoint,index\)\];\}catch\{return \[\];\}\}\)/);
 });

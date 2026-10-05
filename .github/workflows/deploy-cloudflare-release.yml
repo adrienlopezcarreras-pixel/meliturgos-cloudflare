@@ -2365,23 +2365,19 @@ jobs:
             done
           fi
 
-          cat > rollback-request.json <<JSON
-          {"strategy":"percentage","versions":[{"version_id":"${PREVIOUS_CLOUDFLARE_VERSION_ID}","percentage":100}],"annotations":{"workers/message":"MEL automatic rollback after failed release verification"}}
-          JSON
-          ROLLBACK_CODE="$(curl --silent --show-error --max-time 60 \
-            --request POST \
-            --header "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
-            --header "Content-Type: application/json" \
-            --data-binary @rollback-request.json \
-            --output rollback-response.json \
-            --write-out '%{http_code}' \
-            "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/scripts/meliturgos/deployments?force=true" || true)"
-          if [ "$ROLLBACK_CODE" != "200" ]; then
-            echo "Automatic rollback returned HTTP ${ROLLBACK_CODE}."
-            test ! -s rollback-response.json || cat rollback-response.json
+          # Use Wrangler's supported rollback command rather than hand-crafting
+          # the deployment API request. It resolves the Worker identity from the
+          # canonical config and creates a 100% deployment of the captured version.
+          if ! npx wrangler rollback "${PREVIOUS_CLOUDFLARE_VERSION_ID}" \
+            --name meliturgos \
+            --message "MEL automatic rollback after failed release verification" \
+            >/tmp/mel-rollback.log 2>&1; then
+            echo "Automatic Wrangler rollback failed."
+            cat /tmp/mel-rollback.log
             exit 49
           fi
-          node -e 'const d=require("./rollback-response.json");if(d?.success!==true)throw new Error("AUTOMATIC_ROLLBACK_FAILED");console.log("Automatic rollback accepted to previous stable Cloudflare version.")'
+          cat /tmp/mel-rollback.log
+          echo "Automatic rollback accepted to previous stable Cloudflare version."
 
           CONTROL_READY=0
           for CONTROL_ATTEMPT in $(seq 1 18); do
