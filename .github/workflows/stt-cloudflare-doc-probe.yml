@@ -14,71 +14,78 @@ permissions:
 jobs:
   probe:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-      - name: Download Cloudflare-documented speech sample
+      - name: Download reference speech and install ffmpeg
         shell: bash
         run: |
           set -euo pipefail
           curl -fsSL --retry 3             https://raw.githubusercontent.com/craigsdennis/notebooks-cloudflare-workers-ai/main/assets/craig-rambling.mp3             -o /tmp/sample.mp3
-          file /tmp/sample.mp3
-          test -s /tmp/sample.mp3
-      - name: Build both documented request shapes
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg
+          ffmpeg -version | head -1
+      - name: Build exact MINI-to-Android WAV path
         shell: bash
         run: |
           set -euo pipefail
+          # Reproduce the MINI transport: unsigned PCM8, mono, 8 kHz.
+          ffmpeg -hide_banner -loglevel error -y -i /tmp/sample.mp3             -ar 8000 -ac 1 -f u8 /tmp/mini-pcm8.raw
+          # Reproduce Android 0.6.65 exactly: each 8k sample -> signed PCM16,
+          # duplicated once to create a 16 kHz WAV.
           node - <<'NODE'
           const fs=require('fs');
-          const bytes=fs.readFileSync('/tmp/sample.mp3');
-          fs.writeFileSync('/tmp/base64.json',JSON.stringify({
-            audio:bytes.toString('base64'),
+          const pcm8=fs.readFileSync('/tmp/mini-pcm8.raw');
+          const pcm16Bytes=pcm8.length*2*2;
+          const wav=Buffer.alloc(44+pcm16Bytes);
+          let o=0;
+          wav.write('RIFF',o);o+=4;
+          wav.writeUInt32LE(36+pcm16Bytes,o);o+=4;
+          wav.write('WAVE',o);o+=4;
+          wav.write('fmt ',o);o+=4;
+          wav.writeUInt32LE(16,o);o+=4;
+          wav.writeUInt16LE(1,o);o+=2;
+          wav.writeUInt16LE(1,o);o+=2;
+          wav.writeUInt32LE(16000,o);o+=4;
+          wav.writeUInt32LE(32000,o);o+=4;
+          wav.writeUInt16LE(2,o);o+=2;
+          wav.writeUInt16LE(16,o);o+=2;
+          wav.write('data',o);o+=4;
+          wav.writeUInt32LE(pcm16Bytes,o);o+=4;
+          for(const raw of pcm8){
+            let sample=(raw-128)<<8;
+            if(sample<0) sample+=65536;
+            wav.writeUInt16LE(sample,o);o+=2;
+            wav.writeUInt16LE(sample,o);o+=2;
+          }
+          fs.writeFileSync('/tmp/android-rebuilt.wav',wav);
+          const payload={
+            audio:wav.toString('base64'),
             task:'transcribe',
             language:'en'
-          }));
-          fs.writeFileSync('/tmp/bytes.json',JSON.stringify({
-            audio:Array.from(bytes)
-          }));
-          console.log(JSON.stringify({bytes:bytes.length,base64_json:fs.statSync('/tmp/base64.json').size,bytes_json:fs.statSync('/tmp/bytes.json').size}));
+          };
+          fs.writeFileSync('/tmp/android-wav.json',JSON.stringify(payload));
+          console.log(JSON.stringify({pcm8_bytes:pcm8.length,wav_bytes:wav.length,json_bytes:fs.statSync('/tmp/android-wav.json').size}));
           NODE
-      - name: Probe tutorial base64 form
-        shell: bash
-        run: |
-          set +e
-          URL="https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/ai/run/@cf/openai/whisper-large-v3-turbo"
-          CODE="$(curl -sS --max-time 90 -o /tmp/base64-result.json -w '%{http_code}'             -X POST             -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}"             -H "Content-Type: application/json"             --data-binary @/tmp/base64.json             "$URL" || true)"
-          echo "BASE64_HTTP=${CODE}"
-          cat /tmp/base64-result.json
-          echo
-          echo "BASE64_HTTP=${CODE}" >> "$GITHUB_ENV"
-      - name: Probe REST byte-array form
-        shell: bash
-        run: |
-          set +e
-          URL="https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/ai/run/@cf/openai/whisper-large-v3-turbo"
-          CODE="$(curl -sS --max-time 90 -o /tmp/bytes-result.json -w '%{http_code}'             -X POST             -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}"             -H "Content-Type: application/json"             --data-binary @/tmp/bytes.json             "$URL" || true)"
-          echo "BYTES_HTTP=${CODE}"
-          cat /tmp/bytes-result.json
-          echo
-          echo "BYTES_HTTP=${CODE}" >> "$GITHUB_ENV"
-      - name: Require at least one documented shape to work
+          file /tmp/android-rebuilt.wav
+          ffprobe -v error -show_entries stream=codec_name,sample_rate,channels,bits_per_sample,duration -of json /tmp/android-rebuilt.wav
+      - name: Probe exact Android-rebuilt WAV against large-v3-turbo
         shell: bash
         run: |
           set -euo pipefail
+          URL="https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/ai/run/@cf/openai/whisper-large-v3-turbo"
+          CODE="$(curl -sS --max-time 90 -o /tmp/result.json -w '%{http_code}'             -X POST             -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}"             -H "Content-Type: application/json"             --data-binary @/tmp/android-wav.json             "$URL")"
+          echo "HTTP=${CODE}"
+          cat /tmp/result.json
+          echo
+          test "$CODE" = "200"
           node - <<'NODE'
           const fs=require('fs');
-          function read(p){try{return JSON.parse(fs.readFileSync(p,'utf8'))}catch{return null}}
-          const b64=read('/tmp/base64-result.json');
-          const arr=read('/tmp/bytes-result.json');
-          function text(d){return String(d?.result?.text ?? d?.result?.transcription_info?.text ?? d?.text ?? '').trim()}
-          console.log(JSON.stringify({
-            base64_ok:b64?.success===true,
-            base64_text:text(b64).slice(0,120),
-            bytes_ok:arr?.success===true,
-            bytes_text:text(arr).slice(0,120)
-          }));
-          if(!text(b64) && !text(arr)) process.exit(1);
+          const d=JSON.parse(fs.readFileSync('/tmp/result.json','utf8'));
+          const text=String(d?.result?.text ?? d?.result?.transcription_info?.text ?? '').trim();
+          console.log(JSON.stringify({success:d?.success===true,text:text.slice(0,160)}));
+          if(d?.success!==true || !text) process.exit(1);
           NODE
