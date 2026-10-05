@@ -237,9 +237,13 @@ jobs:
           }
           trap 'cleanup_refresher || true' EXIT
 
-          npx wrangler deploy --config "${REFRESH_CONFIG}" >/tmp/predeploy-refresh-deploy.log
+          # Deploy the ephemeral sidecar exactly once with its short-lived auth token.
+          # A separate `wrangler secret put` creates a second Worker revision and can make
+          # workers.dev alternate between unauthenticated/absent revisions during propagation.
+          npx wrangler deploy --config "${REFRESH_CONFIG}" \
+            --var "MEL_PREDEPLOY_BACKUP_REFRESH_TOKEN:${REFRESH_TOKEN}" \
+            >/tmp/predeploy-refresh-deploy.log
           REFRESH_CREATED=1
-          printf '%s' "${REFRESH_TOKEN}" | npx wrangler secret put MEL_PREDEPLOY_BACKUP_REFRESH_TOKEN --config "${REFRESH_CONFIG}" >/tmp/predeploy-refresh-auth-secret.log
 
           SIDECAR_READY=0
           SIDECAR_STABLE_PROBES=0
