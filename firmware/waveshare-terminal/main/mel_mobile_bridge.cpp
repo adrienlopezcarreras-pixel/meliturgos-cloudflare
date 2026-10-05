@@ -55,6 +55,7 @@ static const uint8_t OP_META_CHUNK = 0x05;
 static const uint8_t OP_RESPONSE_BEGIN = 0x11;
 static const uint8_t OP_RESPONSE_BODY = 0x12;
 static const uint8_t OP_RESPONSE_END = 0x13;
+static const uint8_t OP_CLOCK = 0x14;
 static const uint8_t OP_ERROR = 0x1f;
 
 static std::atomic<bool> g_started{false};
@@ -73,6 +74,9 @@ static uint8_t g_read_frame[520] = {};
 static size_t g_read_len = 0;
 static bool g_read_failed = false;
 static std::atomic<uint32_t> g_request_id{1};
+static std::atomic<int64_t> g_phone_epoch_ms{0};
+static std::atomic<int32_t> g_phone_offset_seconds{0};
+static std::atomic<int64_t> g_phone_clock_received_us{0};
 
 struct NotifyFrame {
     uint16_t len = 0;
@@ -119,13 +123,15 @@ static bool apply_phone_clock(const std::string &body) {
         return false;
     }
 
+    g_phone_epoch_ms.store(epoch_ms);
+    g_phone_offset_seconds.store(offset_seconds);
+    g_phone_clock_received_us.store(esp_timer_get_time());
+
     struct timeval tv = {};
     tv.tv_sec = (time_t)(epoch_ms / 1000LL);
     tv.tv_usec = (suseconds_t)((epoch_ms % 1000LL) * 1000LL);
     if (settimeofday(&tv, nullptr) != 0) {
-        ESP_LOGW(TAG, "BLE PHONE CLOCK settimeofday failed");
-        cJSON_Delete(root);
-        return false;
+        ESP_LOGW(TAG, "BLE PHONE CLOCK settimeofday failed; direct display clock remains valid");
     }
 
     const int abs_offset = offset_seconds < 0 ? -offset_seconds : offset_seconds;
@@ -282,9 +288,25 @@ static void handle_rx_frame(const uint8_t *data, size_t len) {
                         ((uint32_t)data[4] << 24);
     ESP_LOGI(TAG, "MEL Mobile RX op=0x%02x id=%u len=%u active=%u",
              op, (unsigned)id, (unsigned)len, (unsigned)g_active.id);
-    if (id != g_active.id) return;
     const uint8_t *payload = data + 5;
     const size_t payload_len = len - 5;
+
+    if (op == OP_CLOCK && payload_len >= 12) {
+        int64_t epoch_ms = 0;
+        int32_t offset_seconds = 0;
+        memcpy(&epoch_ms, payload, sizeof(epoch_ms));
+        memcpy(&offset_seconds, payload + 8, sizeof(offset_seconds));
+        if (epoch_ms >= 1700000000000LL) {
+            g_phone_epoch_ms.store(epoch_ms);
+            g_phone_offset_seconds.store(offset_seconds);
+            g_phone_clock_received_us.store(esp_timer_get_time());
+            ESP_LOGI(TAG, "BLE CLOCK FRAME epoch=%lld offset=%d",
+                     (long long)epoch_ms, (int)offset_seconds);
+        }
+        return;
+    }
+
+    if (id != g_active.id) return;
 
     if (op == OP_RESPONSE_BEGIN) {
         std::string meta(reinterpret_cast<const char *>(payload), payload_len);
@@ -669,6 +691,24 @@ bool mel_mobile_bridge_keepalive(void) {
 
 bool mel_mobile_bridge_ready(void) {
     return g_ready.load();
+}
+
+bool mel_mobile_bridge_format_phone_time(char *out, size_t out_len) {
+    if (!out || out_len < 6) return false;
+    const int64_t base_ms = g_phone_epoch_ms.load();
+    const int64_t received_us = g_phone_clock_received_us.load();
+    if (base_ms < 1700000000000LL || received_us <= 0) return false;
+
+    int64_t elapsed_ms = (esp_timer_get_time() - received_us) / 1000LL;
+    if (elapsed_ms < 0) elapsed_ms = 0;
+    const int64_t utc_seconds = (base_ms + elapsed_ms) / 1000LL;
+    const int64_t local_seconds = utc_seconds + (int64_t)g_phone_offset_seconds.load();
+    int64_t day_seconds = local_seconds % 86400LL;
+    if (day_seconds < 0) day_seconds += 86400LL;
+    const int hour = (int)(day_seconds / 3600LL);
+    const int minute = (int)((day_seconds % 3600LL) / 60LL);
+    snprintf(out, out_len, "%02d:%02d", hour, minute);
+    return true;
 }
 
 bool mel_mobile_bridge_candidate_seen(void) {
