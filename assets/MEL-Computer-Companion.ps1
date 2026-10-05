@@ -30,7 +30,7 @@ function Unprotect-Text([string]$value) {
 $Token = Unprotect-Text $config.token_protected
 $Server = ([string]$config.server_url).TrimEnd("/")
 $ComputerId = [string]$config.computer_id
-$Version = "1.3.0"
+$Version = "1.3.1"
 $Headless = $env:MEL_COMPANION_HEADLESS -eq "1"
 $ParentPid = 0
 [void][int]::TryParse([string]$env:MEL_COMPANION_PARENT_PID,[ref]$ParentPid)
@@ -1422,41 +1422,79 @@ function Start-SovereigntyAiBootstrap([string]$requestedModel) {
   $root = Sovereignty-Root
   $statusPath = Join-Path $root "ai-bootstrap-status.json"
   $scriptPath = Join-Path $root "ai-bootstrap.ps1"
+  $stdoutPath = Join-Path $root "ai-bootstrap.stdout.log"
+  $stderrPath = Join-Path $root "ai-bootstrap.stderr.log"
+  $nowMs = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
   $status = Read-SovereigntyAiBootstrapStatus
-  if ($null -ne $status -and [string]$status.state -eq "FAILED") {
+  $priorAttempt = 0
+  $statusVersion = ""
+  if ($null -ne $status) {
+    try { $priorAttempt = [int]$status.attempt } catch {}
+    $statusVersion = ([string]$status.engine_version).Trim()
+  }
+
+  if ($null -ne $status -and [string]$status.state -eq "FAILED" -and $statusVersion -eq $Version) {
     $failedAt = 0L
     try { $failedAt = [int64]$status.updated_at_unix_ms } catch {}
     $failedCode = ([string]$status.code).Trim()
     if ([string]::IsNullOrWhiteSpace($failedCode)) { $failedCode = "UNKNOWN" }
-    if ($failedAt -gt 0 -and ([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() - $failedAt) -lt (5*60*1000)) {
+    if ($failedAt -gt 0 -and ($nowMs - $failedAt) -lt (5*60*1000)) {
       return ("FAILED:" + $failedCode)
     }
   }
+
   if ($null -ne $status -and [string]$status.state -eq "RUNNING") {
     $started = 0L
+    $bootstrapPid = 0
     try { $started = [int64]$status.started_at_unix_ms } catch {}
-    if ($started -gt 0 -and ([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() - $started) -lt (30*60*1000)) {
-      return "IN_PROGRESS"
+    try { $bootstrapPid = [int]$status.process_id } catch {}
+    $ageMs = if ($started -gt 0) { $nowMs - $started } else { [int64]::MaxValue }
+
+    if ($statusVersion -eq $Version) {
+      $processAlive = $false
+      if ($bootstrapPid -gt 0) {
+        try { $processAlive = $null -ne (Get-Process -Id $bootstrapPid -ErrorAction SilentlyContinue) } catch {}
+      }
+      if ($processAlive -and $ageMs -lt (30*60*1000)) {
+        return "IN_PROGRESS"
+      }
+      if ($bootstrapPid -le 0 -and $ageMs -lt 30000) {
+        return "IN_PROGRESS"
+      }
+      if ($priorAttempt -ge 3) {
+        return "FAILED:OLLAMA_BOOTSTRAP_PROCESS_EXITED"
+      }
+    } else {
+      $priorAttempt = 0
     }
   }
+
+  $attempt = [Math]::Min(3,[Math]::Max(1,$priorAttempt + 1))
+  $startedAt = $nowMs
 
   $payload = @'
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 $model = "__MODEL__"
+$engineVersion = "__ENGINE_VERSION__"
+$attempt = __ATTEMPT__
+$startedAt = [int64]__STARTED_AT__
 $statusPath = Join-Path $PSScriptRoot "ai-bootstrap-status.json"
 
 function Write-MelAiBootstrapStatus([string]$state,[string]$code) {
   $row = @{
-    schema = "mel.local-ai-bootstrap/v1"
+    schema = "mel.local-ai-bootstrap/v2"
     state = $state
     code = $code
     model = $model
+    engine_version = $engineVersion
+    attempt = $attempt
+    process_id = $PID
+    started_at_unix_ms = $startedAt
     updated_at = (Get-Date).ToUniversalTime().ToString("o")
     updated_at_unix_ms = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
   }
-  if ($state -eq "RUNNING") { $row.started_at_unix_ms = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() }
   $row | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $statusPath -Encoding UTF8
 }
 
@@ -1542,21 +1580,69 @@ catch {
 }
 '@
   $payload = $payload.Replace("__MODEL__",$model)
+  $payload = $payload.Replace("__ENGINE_VERSION__",$Version)
+  $payload = $payload.Replace("__ATTEMPT__",[string]$attempt)
+  $payload = $payload.Replace("__STARTED_AT__",[string]$startedAt)
   [IO.File]::WriteAllText($scriptPath,$payload,[Text.UTF8Encoding]::new($false))
-  $running = @{
-    schema = "mel.local-ai-bootstrap/v1"
-    state = "RUNNING"
-    code = "LAUNCHED"
-    model = $model
-    started_at_unix_ms = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
-    updated_at_unix_ms = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+
+  $tokens = $null
+  $parseErrors = $null
+  [void][System.Management.Automation.Language.Parser]::ParseFile($scriptPath,[ref]$tokens,[ref]$parseErrors)
+  if ($null -ne $parseErrors -and $parseErrors.Count -gt 0) {
+    @{
+      schema = "mel.local-ai-bootstrap/v2"
+      state = "FAILED"
+      code = "OLLAMA_BOOTSTRAP_SCRIPT_PARSE_FAILED"
+      model = $model
+      engine_version = $Version
+      attempt = $attempt
+      started_at_unix_ms = $startedAt
+      updated_at_unix_ms = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+    } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $statusPath -Encoding UTF8
+    return "FAILED:OLLAMA_BOOTSTRAP_SCRIPT_PARSE_FAILED"
   }
-  $running | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $statusPath -Encoding UTF8
-  Start-Process -FilePath "powershell.exe" -WindowStyle Hidden -ArgumentList @(
-    "-NoProfile","-NonInteractive","-ExecutionPolicy","Bypass","-File",$scriptPath
-  )
-  return "STARTED"
+
+  @{
+    schema = "mel.local-ai-bootstrap/v2"
+    state = "RUNNING"
+    code = "LAUNCHING"
+    model = $model
+    engine_version = $Version
+    attempt = $attempt
+    started_at_unix_ms = $startedAt
+    updated_at_unix_ms = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+  } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $statusPath -Encoding UTF8
+
+  try {
+    try { Remove-Item -LiteralPath $stdoutPath -Force -ErrorAction SilentlyContinue } catch {}
+    try { Remove-Item -LiteralPath $stderrPath -Force -ErrorAction SilentlyContinue } catch {}
+    $bootstrapProcess = Start-Process -FilePath "powershell.exe" -WindowStyle Hidden -PassThru -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath -ArgumentList @(
+      "-NoProfile","-NonInteractive","-ExecutionPolicy","Bypass","-File",$scriptPath
+    )
+    Start-Sleep -Milliseconds 150
+    $launched = Read-SovereigntyAiBootstrapStatus
+    if ($null -ne $launched -and [string]$launched.state -eq "RUNNING" -and -not $launched.process_id) {
+      $launched | Add-Member -NotePropertyName process_id -NotePropertyValue $bootstrapProcess.Id -Force
+      $launched | Add-Member -NotePropertyName engine_version -NotePropertyValue $Version -Force
+      $launched | Add-Member -NotePropertyName attempt -NotePropertyValue $attempt -Force
+      $launched | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $statusPath -Encoding UTF8
+    }
+    return "STARTED"
+  } catch {
+    @{
+      schema = "mel.local-ai-bootstrap/v2"
+      state = "FAILED"
+      code = "OLLAMA_BOOTSTRAP_LAUNCH_FAILED"
+      model = $model
+      engine_version = $Version
+      attempt = $attempt
+      started_at_unix_ms = $startedAt
+      updated_at_unix_ms = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+    } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $statusPath -Encoding UTF8
+    return "FAILED:OLLAMA_BOOTSTRAP_LAUNCH_FAILED"
+  }
 }
+
 
 function Get-SovereigntyLocalAiState {
   $base = "http://127.0.0.1:11434"
