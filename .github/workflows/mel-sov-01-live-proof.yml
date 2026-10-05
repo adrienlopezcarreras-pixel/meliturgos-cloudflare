@@ -200,8 +200,15 @@ jobs:
             mark_refresh_skipped "ai" "" "ai"
             mark_refresh_skipped "ai_local" "" "ai"
           else
-            refresh_sov_target "ai" || exit $?
-            refresh_sov_target "ai_local" || exit $?
+            # Prefer the local Companion path first because a valid local proof
+            # is intrinsically zero-cost and must pass the low-refusal probe.
+            # If it is unavailable, fall back to any explicitly configured
+            # provider-neutral zero-cost AI candidate.
+            if refresh_sov_target "ai_local"; then
+              mark_refresh_skipped "ai" "" "ai"
+            else
+              refresh_sov_target "ai" || exit $?
+            fi
           fi
           if layer_covered "source_control"; then
             mark_refresh_skipped "source_control" "" "source_control"
