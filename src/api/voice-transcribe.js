@@ -36,7 +36,7 @@ export async function handleVoiceTranscription(request, env, options = {}) {
     return Response.json({ ok:false, code:'AUDIO_REQUIRED', available:false, fallback:'text' }, { status:415 });
   }
   if (!env?.AI || typeof env.AI.run !== 'function') {
-    return Response.json({ ok:false, available:false, fallback:'text', reason:'AI_BINDING_MISSING' }, { status:503 });
+    return Response.json({ ok:false, code:'AI_BINDING_MISSING', available:false, fallback:'text', reason:'AI_BINDING_MISSING' }, { status:503 });
   }
 
   let form;
@@ -60,11 +60,12 @@ export async function handleVoiceTranscription(request, env, options = {}) {
       language:'fr'
     });
     const text = String(resultText(result) || '').trim();
-    if (!text) return Response.json({ ok:false, available:false, fallback:'text', reason:'EMPTY_TRANSCRIPTION' }, { status:503 });
+    if (!text) return Response.json({ ok:false, code:'EMPTY_TRANSCRIPTION', available:false, fallback:'text', reason:'EMPTY_TRANSCRIPTION' }, { status:503 });
     return Response.json({ ok:true, text, language:'fr', model:MODEL, stored:false, archive_via:'chat', input_source:'voice-server-transcription' }, { headers:{'cache-control':'no-store'} });
   } catch (error) {
     return Response.json({
       ok:false,
+      code:'TRANSCRIPTION_UNAVAILABLE',
       available:false,
       fallback:'text',
       reason:'TRANSCRIPTION_UNAVAILABLE',
