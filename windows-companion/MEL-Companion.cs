@@ -1190,11 +1190,11 @@ class MainForm : Form
             RefreshAll();
         };
 
-        var pair=menu.Items.Add("Réappairer ce PC");
+        var pair=menu.Items.Add("RÉAPPAIRER CE PC");
         pair.Click+=RePair;
 
         menu.Items.Add(new ToolStripSeparator());
-        var uninstall=menu.Items.Add("Désinstaller MEL Companion");
+        var uninstall=menu.Items.Add("DÉSINSTALLER MEL COMPANION");
         uninstall.Click+=delegate{MelApp.Uninstall();};
 
         var control=sender as Control;
