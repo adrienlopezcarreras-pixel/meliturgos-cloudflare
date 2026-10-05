@@ -50,13 +50,13 @@ static const char *MODEL = "waveshare-esp32-s3-touch-lcd-3.5-c";
 static const int WIFI_CONNECTED_BIT = BIT0;
 static const int WIFI_FAIL_BIT = BIT1;
 static const size_t MAX_HTTP_RESPONSE = 64 * 1024;
-static const int VOICE_SECONDS = 10;
+static const int VOICE_SECONDS = 5;
 static const int VOICE_CAPTURE_RATE = 48000;
-static const int VOICE_STT_RATE = 16000;
+static const int VOICE_STT_RATE = 8000;
 static const int VOICE_CAPTURE_SAMPLES = VOICE_SECONDS * VOICE_CAPTURE_RATE;
 static const int VOICE_CAPTURE_BYTES = VOICE_CAPTURE_SAMPLES * 2;
 static const int VOICE_STT_SAMPLES = VOICE_SECONDS * VOICE_STT_RATE;
-static const int VOICE_STT_BYTES = VOICE_STT_SAMPLES * 2;
+static const int VOICE_STT_BYTES = VOICE_STT_SAMPLES;
 static const int WAKE_RATE = 16000;
 static const int WAKE_WINDOW_MS = 1900;
 static const int WAKE_WINDOW_SAMPLES = WAKE_RATE * WAKE_WINDOW_MS / 1000;
@@ -1168,8 +1168,11 @@ static MelChatReply chat_with_mel(const std::string &text) {
     return reply;
 }
 
-static void wav_header(uint8_t *h, uint32_t data_size, uint32_t sample_rate) {
-    const uint32_t byte_rate = sample_rate * 2;
+static void wav_header_pcm8(uint8_t *h, uint32_t data_size, uint32_t sample_rate) {
+    // Standard unsigned 8-bit mono PCM WAV. Whisper accepts ordinary PCM WAV
+    // and resamples server-side; this cuts MINI BLE payload by 4x versus
+    // 16 kHz / 16-bit PCM while retaining telephone-band speech intelligibility.
+    const uint32_t byte_rate = sample_rate;
     const uint32_t riff_size = 36 + data_size;
     memcpy(h, "RIFF", 4); memcpy(h + 8, "WAVEfmt ", 8);
     h[4]=(uint8_t)riff_size; h[5]=(uint8_t)(riff_size>>8); h[6]=(uint8_t)(riff_size>>16); h[7]=(uint8_t)(riff_size>>24);
@@ -1177,7 +1180,7 @@ static void wav_header(uint8_t *h, uint32_t data_size, uint32_t sample_rate) {
     h[20]=1; h[21]=0; h[22]=1; h[23]=0;
     h[24]=(uint8_t)sample_rate; h[25]=(uint8_t)(sample_rate>>8); h[26]=(uint8_t)(sample_rate>>16); h[27]=(uint8_t)(sample_rate>>24);
     h[28]=(uint8_t)byte_rate; h[29]=(uint8_t)(byte_rate>>8); h[30]=(uint8_t)(byte_rate>>16); h[31]=(uint8_t)(byte_rate>>24);
-    h[32]=2; h[33]=0; h[34]=16; h[35]=0; memcpy(h+36,"data",4);
+    h[32]=1; h[33]=0; h[34]=8; h[35]=0; memcpy(h+36,"data",4);
     h[40]=(uint8_t)data_size; h[41]=(uint8_t)(data_size>>8); h[42]=(uint8_t)(data_size>>16); h[43]=(uint8_t)(data_size>>24);
 }
 
@@ -1281,10 +1284,11 @@ static std::string record_and_transcribe() {
              (long)((int32_t)raw_max - (int32_t)raw_min),
              (unsigned)raw_mean_abs, (long)dc);
 
-    const int speech_samples = captured_samples / 3;
-    const int speech_bytes = speech_samples * (int)sizeof(int16_t);
-    auto *speech = static_cast<int16_t *>(heap_caps_malloc(speech_bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
-    if (!speech) speech = static_cast<int16_t *>(heap_caps_malloc(speech_bytes, MALLOC_CAP_8BIT));
+    const int speech_samples = captured_samples / 6;
+    const int speech_work_bytes = speech_samples * (int)sizeof(int16_t);
+    const int speech_bytes = speech_samples; // final 8-bit PCM payload
+    auto *speech = static_cast<int16_t *>(heap_caps_malloc(speech_work_bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    if (!speech) speech = static_cast<int16_t *>(heap_caps_malloc(speech_work_bytes, MALLOC_CAP_8BIT));
     if (!speech) {
         heap_caps_free(capture);
         ESP_LOGE(TAG, "VOICE: STT buffer allocation failed");
@@ -1292,13 +1296,14 @@ static std::string record_and_transcribe() {
         return "";
     }
 
-    // 48 kHz -> 16 kHz mono: average each group of three samples while
+    // 48 kHz -> 8 kHz mono: average each group of six samples while
     // removing the measured DC offset.
     int32_t peak = 0;
     uint64_t speech_abs_sum = 0;
     for (int i = 0; i < speech_samples; ++i) {
-        const int j = i * 3;
-        int32_t v = ((int32_t)capture[j] + capture[j + 1] + capture[j + 2]) / 3 - dc;
+        const int j = i * 6;
+        int32_t v = ((int32_t)capture[j] + capture[j + 1] + capture[j + 2] +
+                     capture[j + 3] + capture[j + 4] + capture[j + 5]) / 6 - dc;
         if (v > 32767) v = 32767;
         if (v < -32768) v = -32768;
         speech[i] = (int16_t)v;
@@ -1355,15 +1360,20 @@ static std::string record_and_transcribe() {
 
     size_t off = 0;
     memcpy(multipart + off, prefix.data(), prefix.size()); off += prefix.size();
-    wav_header(multipart + off, (uint32_t)speech_bytes, VOICE_STT_RATE); off += 44;
-    memcpy(multipart + off, speech, speech_bytes); off += (size_t)speech_bytes;
+    wav_header_pcm8(multipart + off, (uint32_t)speech_bytes, VOICE_STT_RATE); off += 44;
+    for (int i = 0; i < speech_samples; ++i) {
+        int32_t q = ((int32_t)speech[i] + 32768) >> 8;
+        if (q < 0) q = 0;
+        if (q > 255) q = 255;
+        multipart[off++] = (uint8_t)q;
+    }
     memcpy(multipart + off, suffix.data(), suffix.size());
     heap_caps_free(speech);
 
     std::string response;
     int status = 0;
     std::string content_type = std::string("multipart/form-data; boundary=") + boundary;
-    ESP_LOGI(TAG, "STT UPLOAD: bytes=%u wav_bytes=%d rate=%d duration_ms=%d",
+    ESP_LOGI(TAG, "STT UPLOAD FAST: bytes=%u wav_bytes=%d rate=%d bits=8 duration_ms=%d",
              (unsigned)total, speech_bytes + 44, VOICE_STT_RATE,
              (speech_samples * 1000) / VOICE_STT_RATE);
 
