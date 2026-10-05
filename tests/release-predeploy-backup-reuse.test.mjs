@@ -152,7 +152,7 @@ test('predeploy refresh creates the backup on the GitHub runner and keeps the Wo
   assert.match(runner, /'r2', 'object', 'get'/);
   assert.match(runner, /PREDEPLOY_BACKUP_REFRESH_CREATED/);
 
-  const binderEnd = source.indexOf('      - name: Install pinned Browser Rendering adapter', binder);
+  const binderEnd = source.indexOf('      - name: Prepare encrypted Media Vault secrets for exact deployment', binder);
   const binderBlock = source.slice(binder, binderEnd);
   assert.match(binderBlock, /mel-pdb-\$\{GITHUB_RUN_ID\}-\$\{GITHUB_RUN_ATTEMPT\}/);
   assert.match(binderBlock, /\/health/);
