@@ -1476,15 +1476,19 @@ try {
   $ollama = Resolve-MelOllamaExe
 
   if ([string]::IsNullOrWhiteSpace([string]$ollama)) {
-    $installerScript = Join-Path $env:TEMP "mel-ollama-install.ps1"
-    Invoke-WebRequest -Uri "https://ollama.com/install.ps1" -UseBasicParsing -OutFile $installerScript -TimeoutSec 60
-    $installerText = Get-Content -LiteralPath $installerScript -Raw -Encoding UTF8
-    if ($installerText -notmatch 'OllamaSetup\.exe' -or $installerText -notmatch 'Get-AuthenticodeSignature') {
-      throw "OLLAMA_INSTALLER_SCRIPT_UNEXPECTED"
+    $installer = Join-Path $env:TEMP "MEL-OllamaSetup.exe"
+    Invoke-WebRequest -Uri "https://ollama.com/download/OllamaSetup.exe" -UseBasicParsing -OutFile $installer -TimeoutSec 180
+    $sig = Get-AuthenticodeSignature -FilePath $installer
+    $subject = if ($null -ne $sig.SignerCertificate) { [string]$sig.SignerCertificate.Subject } else { "" }
+    if ($sig.Status -ne "Valid" -or $subject -notmatch '(^|, )O=Ollama Inc\.(,|$)') {
+      try { Remove-Item -LiteralPath $installer -Force -ErrorAction SilentlyContinue } catch {}
+      throw "OLLAMA_INSTALLER_SIGNATURE_INVALID"
     }
-    & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $installerScript
-    if ($LASTEXITCODE -ne 0) { throw "OLLAMA_INSTALL_FAILED" }
-    try { Remove-Item -LiteralPath $installerScript -Force -ErrorAction SilentlyContinue } catch {}
+    $proc = Start-Process -FilePath $installer -ArgumentList "/VERYSILENT /NORESTART /SUPPRESSMSGBOXES" -PassThru
+    $proc.WaitForExit()
+    $exitCode = $proc.ExitCode
+    try { Remove-Item -LiteralPath $installer -Force -ErrorAction SilentlyContinue } catch {}
+    if ($exitCode -ne 0) { throw ("OLLAMA_INSTALL_FAILED:" + $exitCode) }
     $ollama = Resolve-MelOllamaExe
   }
 
