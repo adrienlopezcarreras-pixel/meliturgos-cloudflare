@@ -85,7 +85,7 @@ def main():
     banner()
     firmware = asset_path("mel-terminal.bin")
     if not firmware.exists() or firmware.stat().st_size < 1_000_000:
-        print("ERREUR : firmware 0.4.45 integre introuvable ou invalide.")
+        print("ERREUR : firmware 0.4.45-ble-stable integre introuvable ou invalide.")
         return 20
 
     if "--self-test" in sys.argv:
