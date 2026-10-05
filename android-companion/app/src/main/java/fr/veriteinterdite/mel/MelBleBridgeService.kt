@@ -13,6 +13,7 @@ import android.bluetooth.BluetoothGattServer
 import android.bluetooth.BluetoothGattServerCallback
 import android.bluetooth.BluetoothGattService
 import android.bluetooth.BluetoothManager
+import android.bluetooth.BluetoothProfile
 import android.bluetooth.le.AdvertiseCallback
 import android.bluetooth.le.AdvertiseData
 import android.bluetooth.le.AdvertiseSettings
@@ -145,13 +146,40 @@ class MelBleBridgeService : Service() {
                     }
                 } else {
                     val now = System.currentTimeMillis()
-                    connectedDevices.forEach { (address, device) ->
+                    val actualGattAddresses = runCatching {
+                        bluetoothManager
+                            ?.getConnectedDevices(BluetoothProfile.GATT)
+                            ?.map { it.address }
+                            ?.toSet()
+                            .orEmpty()
+                    }.getOrDefault(emptySet())
+
+                    connectedDevices.toMap().forEach { (address, device) ->
                         val ready = subscribed[address] == true
                         val age = now - (connectedAtMs[address] ?: now)
-                        if (!ready && age > 20_000L) {
+                        val ghost = address !in actualGattAddresses
+                        if (ghost) {
+                            Log.w(TAG, "BLE watchdog: purging ghost MINI link $address age=${age}ms")
+                            connectedAtMs.remove(address)
+                            connectedDevices.remove(address)
+                            mtus.remove(address)
+                            subscribed.remove(address)
+                            requests.remove(address)
+                            metaFrames.remove(address)
+                            metaFrameIds.remove(address)
+                            pullFrames.remove(address)
+                            latestResponseIds.remove(address)
+                            pullOnlyResponseIds.remove(address)
+                            miniLinkReady.value = false
+                            internetReady.value = false
+                        } else if (!ready && age > 20_000L) {
                             Log.w(TAG, "BLE watchdog: stale unready GATT link $address age=${age}ms; recycling")
                             runCatching { gattServer?.cancelConnection(device) }
                         }
+                    }
+                    if (connectedDevices.isEmpty() && advertiseCallback == null) {
+                        Log.i(TAG, "BLE watchdog: ghost/stale link cleared; restarting advertising")
+                        startAdvertising()
                     }
                 }
             } catch (error: Throwable) {
