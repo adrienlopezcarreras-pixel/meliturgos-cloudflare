@@ -114,7 +114,10 @@ test('local sovereignty whitelist and PowerShell companion expose only bounded l
     assert.match(source,/OLLAMA_INSTALLER_SIGNATURE_INVALID/);
     assert.match(source,/VERYSILENT \/NORESTART \/SUPPRESSMSGBOXES/);
     assert.ok(source.includes('qwen2.5:1.5b'));
-    assert.ok(source.includes('& $ollama pull $model'));
+    assert.match(source,/ArgumentList @\("pull",\$model\)/);
+    assert.match(source,/WaitForExit\(300000\)/);
+    assert.match(source,/WaitForExit\(720000\)/);
+    assert.match(source,/SOVEREIGNTY_AI_LOCAL_BOOTSTRAP_FAILED/);
     assert.match(source,/MEL_LOCAL_AI_AUTO_INSTALL/);
     assert.match(source,/SOVEREIGNTY_AI_MODEL_NOT_ALLOWED/);
     assert.match(source,/network_scope="localhost-only"/);
@@ -138,7 +141,8 @@ test('production sovereignty proof and hourly maintenance both refresh local AI 
 
 test('production SOV proof gives local AI bootstrap a bounded installation window',async()=>{
   const workflow=await readFile(new URL('../../.github/workflows/mel-sov-01-live-proof.yml',import.meta.url),'utf8');
-  assert.ok(workflow.includes('if [ "${TARGET}" = "ai_local" ]; then MAX_ATTEMPTS=10; fi'));
+  assert.ok(workflow.includes('if [ "${TARGET}" = "ai_local" ]; then MAX_ATTEMPTS=40; fi'));
   assert.match(workflow,/SOVEREIGNTY_AI_LOCAL_BOOTSTRAP_PENDING/);
   assert.match(workflow,/sleep 30/);
+  assert.match(workflow,/SOVEREIGNTY_AI_LOCAL_BOOTSTRAP_FAILED:\*/);
 });
