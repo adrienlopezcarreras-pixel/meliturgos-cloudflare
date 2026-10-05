@@ -1043,7 +1043,7 @@ class MelBleBridgeService : Service() {
                 TokenVault(this)
             )
             val result = try {
-                Log.i(TAG, "MEL MINI STT native Android route BLE=${request.body.size()} WAV=${wav.size}")
+                Log.i(TAG, "MEL MINI STT native Android route codec=${request.contentType.substringBefore(';')} BLE=${request.body.size()} WAV=${wav.size}")
                 api.transcribe(wav, "audio/wav")
             } catch (error: MelApiException) {
                 val status = error.status.takeIf { it in 400..599 } ?: 503
