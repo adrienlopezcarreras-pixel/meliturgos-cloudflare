@@ -1,6 +1,7 @@
 import {
   evaluateRestoreReadiness,
   getAutonomyLaunchReadiness,
+  writeAutonomyLaunchReadinessPublicCache,
   prepareAutonomyLaunch,
   prepareAutonomyLaunchBackup,
   prepareAutonomyLaunchCodeSync,
@@ -1471,12 +1472,42 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
       }
     }
 
+    const publicCache = env?.DB && typeof env.DB.prepare === 'function'
+      ? await writeAutonomyLaunchReadinessPublicCache(env, readiness)
+      : { ok: false, status: 'PUBLIC_LAUNCH_READINESS_CACHE_DB_UNAVAILABLE' };
+    if (readiness.launch_ready === true
+      && env?.DB && typeof env.DB.prepare === 'function'
+      && publicCache?.ok !== true) {
+      return Response.json({
+        ok: false,
+        status: 'PUBLIC_LAUNCH_READINESS_CACHE_WRITE_FAILED',
+        phase,
+        readiness,
+        backup_repair: backupRepair,
+        public_cache: {
+          ok: false,
+          status: publicCache?.status || 'PUBLIC_LAUNCH_READINESS_CACHE_WRITE_FAILED',
+          code: publicCache?.code || null,
+        },
+        autonomy_started: false,
+        owner_launch_required: true,
+      }, {
+        status: 503,
+        headers: { 'cache-control': 'no-store' },
+      });
+    }
+
     return Response.json({
       ok: readiness.launch_ready === true,
       status: readiness.launch_ready ? 'LAUNCH_EVIDENCE_READY' : 'LAUNCH_EVIDENCE_INCOMPLETE',
       phase,
       readiness,
       backup_repair: backupRepair,
+      public_cache: {
+        ok: publicCache?.ok === true,
+        status: publicCache?.status || null,
+        candidate_sha: publicCache?.candidate_sha || null,
+      },
       autonomy_started: false,
       owner_launch_required: true,
     }, {
