@@ -1374,27 +1374,202 @@ function Perform-SovereigntyRuntime([string]$operation,$payload) {
 }
 
 
+function Test-SovereigntyLocalAiEndpoint([int]$timeoutSec=3) {
+  try {
+    return Invoke-RestMethod -Uri "http://127.0.0.1:11434/api/tags" -Method "GET" -TimeoutSec $timeoutSec -ErrorAction Stop
+  } catch {
+    return $null
+  }
+}
+
+function Resolve-SovereigntyOllamaExe {
+  try {
+    $cmd = Get-Command ollama.exe -ErrorAction SilentlyContinue
+    if ($null -ne $cmd -and -not [string]::IsNullOrWhiteSpace([string]$cmd.Source)) {
+      return [string]$cmd.Source
+    }
+  } catch {}
+  $candidates = @(
+    (Join-Path $env:LOCALAPPDATA "Programs\Ollama\ollama.exe"),
+    (Join-Path $env:LOCALAPPDATA "Ollama\ollama.exe"),
+    (Join-Path $env:ProgramFiles "Ollama\ollama.exe")
+  )
+  foreach ($candidate in $candidates) {
+    if (-not [string]::IsNullOrWhiteSpace([string]$candidate) -and (Test-Path -LiteralPath $candidate -PathType Leaf)) {
+      return [string]$candidate
+    }
+  }
+  return $null
+}
+
+function Read-SovereigntyAiBootstrapStatus {
+  try {
+    $path = Join-Path (Sovereignty-Root) "ai-bootstrap-status.json"
+    if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { return $null }
+    return Get-Content -LiteralPath $path -Raw -Encoding UTF8 | ConvertFrom-Json
+  } catch {
+    return $null
+  }
+}
+
+function Start-SovereigntyAiBootstrap([string]$requestedModel) {
+  if ([string]$env:MEL_LOCAL_AI_AUTO_INSTALL -eq "0") { return "DISABLED" }
+
+  $model = ([string]$requestedModel).Trim()
+  if ([string]::IsNullOrWhiteSpace($model)) { $model = "qwen2.5:1.5b" }
+  if ($model -notmatch '^[A-Za-z0-9_.:/-]{1,120}$') { throw "SOVEREIGNTY_AI_BOOTSTRAP_MODEL_INVALID" }
+
+  $root = Sovereignty-Root
+  $statusPath = Join-Path $root "ai-bootstrap-status.json"
+  $scriptPath = Join-Path $root "ai-bootstrap.ps1"
+  $status = Read-SovereigntyAiBootstrapStatus
+  if ($null -ne $status -and [string]$status.state -eq "RUNNING") {
+    $started = 0L
+    try { $started = [int64]$status.started_at_unix_ms } catch {}
+    if ($started -gt 0 -and ([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() - $started) -lt (30*60*1000)) {
+      return "IN_PROGRESS"
+    }
+  }
+
+  $payload = @'
+$ErrorActionPreference = "Stop"
+$ProgressPreference = "SilentlyContinue"
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+$model = "__MODEL__"
+$statusPath = Join-Path $PSScriptRoot "ai-bootstrap-status.json"
+
+function Write-MelAiBootstrapStatus([string]$state,[string]$code) {
+  $row = @{
+    schema = "mel.local-ai-bootstrap/v1"
+    state = $state
+    code = $code
+    model = $model
+    updated_at = (Get-Date).ToUniversalTime().ToString("o")
+    updated_at_unix_ms = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+  }
+  if ($state -eq "RUNNING") { $row.started_at_unix_ms = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() }
+  $row | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $statusPath -Encoding UTF8
+}
+
+function Resolve-MelOllamaExe {
+  try {
+    $cmd = Get-Command ollama.exe -ErrorAction SilentlyContinue
+    if ($null -ne $cmd -and -not [string]::IsNullOrWhiteSpace([string]$cmd.Source)) { return [string]$cmd.Source }
+  } catch {}
+  foreach ($candidate in @(
+    (Join-Path $env:LOCALAPPDATA "Programs\Ollama\ollama.exe"),
+    (Join-Path $env:LOCALAPPDATA "Ollama\ollama.exe"),
+    (Join-Path $env:ProgramFiles "Ollama\ollama.exe")
+  )) {
+    if (-not [string]::IsNullOrWhiteSpace([string]$candidate) -and (Test-Path -LiteralPath $candidate -PathType Leaf)) { return [string]$candidate }
+  }
+  return $null
+}
+
+function Read-MelOllamaTags {
+  try { return Invoke-RestMethod -Uri "http://127.0.0.1:11434/api/tags" -Method Get -TimeoutSec 4 -ErrorAction Stop }
+  catch { return $null }
+}
+
+try {
+  Write-MelAiBootstrapStatus "RUNNING" "STARTED"
+  $ollama = Resolve-MelOllamaExe
+
+  if ([string]::IsNullOrWhiteSpace([string]$ollama)) {
+    $installerScript = Join-Path $env:TEMP "mel-ollama-install.ps1"
+    Invoke-WebRequest -Uri "https://ollama.com/install.ps1" -UseBasicParsing -OutFile $installerScript -TimeoutSec 60
+    $installerText = Get-Content -LiteralPath $installerScript -Raw -Encoding UTF8
+    if ($installerText -notmatch 'OllamaSetup\.exe' -or $installerText -notmatch 'Get-AuthenticodeSignature') {
+      throw "OLLAMA_INSTALLER_SCRIPT_UNEXPECTED"
+    }
+    & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $installerScript
+    if ($LASTEXITCODE -ne 0) { throw "OLLAMA_INSTALL_FAILED" }
+    try { Remove-Item -LiteralPath $installerScript -Force -ErrorAction SilentlyContinue } catch {}
+    $ollama = Resolve-MelOllamaExe
+  }
+
+  if ([string]::IsNullOrWhiteSpace([string]$ollama)) { throw "OLLAMA_EXE_NOT_FOUND" }
+
+  $tags = Read-MelOllamaTags
+  if ($null -eq $tags) {
+    try { Start-Process -FilePath $ollama -ArgumentList @("serve") -WindowStyle Hidden } catch {}
+    for ($i=0; $i -lt 30 -and $null -eq $tags; $i++) {
+      Start-Sleep -Seconds 2
+      $tags = Read-MelOllamaTags
+    }
+  }
+  if ($null -eq $tags) { throw "OLLAMA_SERVER_NOT_READY" }
+
+  $installed = @($tags.models | ForEach-Object { ([string]$_.name).Trim() } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+  if ($installed -notcontains $model) {
+    & $ollama pull $model
+    if ($LASTEXITCODE -ne 0) { throw "OLLAMA_MODEL_PULL_FAILED" }
+    $tags = Read-MelOllamaTags
+    $installed = @($tags.models | ForEach-Object { ([string]$_.name).Trim() } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+    if ($installed -notcontains $model) { throw "OLLAMA_MODEL_PULL_NOT_VISIBLE" }
+  }
+
+  Write-MelAiBootstrapStatus "READY" "LOCAL_AI_READY"
+  exit 0
+}
+catch {
+  Write-MelAiBootstrapStatus "FAILED" ([string]$_.Exception.Message)
+  exit 1
+}
+'@
+  $payload = $payload.Replace("__MODEL__",$model)
+  [IO.File]::WriteAllText($scriptPath,$payload,[Text.UTF8Encoding]::new($false))
+  $running = @{
+    schema = "mel.local-ai-bootstrap/v1"
+    state = "RUNNING"
+    code = "LAUNCHED"
+    model = $model
+    started_at_unix_ms = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+    updated_at_unix_ms = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+  }
+  $running | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $statusPath -Encoding UTF8
+  Start-Process powershell.exe -WindowStyle Hidden -ArgumentList @(
+    "-NoProfile","-NonInteractive","-ExecutionPolicy","Bypass","-File",$scriptPath
+  )
+  return "STARTED"
+}
+
 function Get-SovereigntyLocalAiState {
   $base = "http://127.0.0.1:11434"
-  try {
-    $tags = Invoke-RestMethod -Uri ($base + "/api/tags") -Method "GET" -TimeoutSec 5 -ErrorAction Stop
-  } catch {
-    throw "SOVEREIGNTY_AI_LOCAL_ENGINE_UNAVAILABLE"
+  $requested = ([string]$env:MEL_LOCAL_AI_MODEL).Trim()
+  $bootstrapModel = if ([string]::IsNullOrWhiteSpace($requested)) { "qwen2.5:1.5b" } else { $requested }
+
+  $tags = Test-SovereigntyLocalAiEndpoint 4
+  if ($null -eq $tags) {
+    $bootstrap = Start-SovereigntyAiBootstrap $bootstrapModel
+    if ($bootstrap -eq "DISABLED") { throw "SOVEREIGNTY_AI_LOCAL_ENGINE_UNAVAILABLE" }
+    throw "SOVEREIGNTY_AI_LOCAL_BOOTSTRAP_PENDING"
   }
+
   $models = @()
   foreach ($row in @($tags.models)) {
     $name = ([string]$row.name).Trim()
     if (-not [string]::IsNullOrWhiteSpace($name)) { $models += ,$name }
   }
-  if ($models.Count -lt 1) { throw "SOVEREIGNTY_AI_LOCAL_MODEL_MISSING" }
-  $requested = ([string]$env:MEL_LOCAL_AI_MODEL).Trim()
+
+  if ($models.Count -lt 1) {
+    $bootstrap = Start-SovereigntyAiBootstrap $bootstrapModel
+    if ($bootstrap -eq "DISABLED") { throw "SOVEREIGNTY_AI_LOCAL_MODEL_MISSING" }
+    throw "SOVEREIGNTY_AI_LOCAL_BOOTSTRAP_PENDING"
+  }
+
   $model = $null
   if (-not [string]::IsNullOrWhiteSpace($requested)) {
     $model = $models | Where-Object { [string]$_ -eq $requested } | Select-Object -First 1
-    if ([string]::IsNullOrWhiteSpace([string]$model)) { throw "SOVEREIGNTY_AI_MODEL_NOT_INSTALLED" }
+    if ([string]::IsNullOrWhiteSpace([string]$model)) {
+      $bootstrap = Start-SovereigntyAiBootstrap $requested
+      if ($bootstrap -eq "DISABLED") { throw "SOVEREIGNTY_AI_MODEL_NOT_INSTALLED" }
+      throw "SOVEREIGNTY_AI_LOCAL_BOOTSTRAP_PENDING"
+    }
   } else {
     $model = [string]$models[0]
   }
+
   return @{ endpoint=$base; model=[string]$model; installed_models=$models }
 }
 
