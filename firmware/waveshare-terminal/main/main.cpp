@@ -1742,9 +1742,10 @@ static void mini_smoke_ui() {
     lv_obj_align(time_label, LV_ALIGN_TOP_RIGHT, -66, 16);
 
     lv_obj_t *version_label = lv_label_create(main_panel);
-    lv_label_set_text(version_label, MEL_FW_VERSION);
+    // Short build marker: do not overlap the clock at the top-right.
+    lv_label_set_text(version_label, "0.4.42");
     lv_obj_set_style_text_color(version_label, lv_color_hex(0x64748B), 0);
-    lv_obj_set_width(version_label, 170);
+    lv_obj_set_width(version_label, 72);
     lv_obj_set_style_text_align(version_label, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_align(version_label, LV_ALIGN_TOP_MID, 0, 22);
 
@@ -1851,24 +1852,29 @@ static void mobile_bridge_watch_task(void *) {
             keepalive_seconds++;
             revalidate_seconds++;
             if (keepalive_seconds >= 8) {
-                mel_mobile_bridge_keepalive();
+                // Maintenance traffic must never contend with STT/chat/TTS.
+                if (mel_terminal_state() == MEL_TERMINAL_IDLE) {
+                    mel_mobile_bridge_keepalive();
+                }
                 keepalive_seconds = 0;
             }
             if (!physical_ready) {
                 physical_ready = true;
                 revalidate_seconds = 0;
-                // Every physical BLE reconnection must restart authentication,
-                // even when the reconnect happened inside the UI grace period.
                 mel_terminal_set_mobile_connected(true);
-                if (!mel_terminal_online()) {
-                    mel_terminal_refresh_mobile_identity();
+                if (mel_terminal_state() == MEL_TERMINAL_IDLE) {
+                    if (!mel_terminal_online()) {
+                        mel_terminal_refresh_mobile_identity();
+                    } else {
+                        mel_terminal_start_online();
+                    }
+                    ESP_LOGI(TAG, "MEL MOBILE PHYSICAL READY; identity/session recovery started");
                 } else {
-                    mel_terminal_start_online();
+                    ESP_LOGI(TAG, "MEL MOBILE PHYSICAL READY during voice state=%d; deferring session validation",
+                             mel_terminal_state());
                 }
-                ESP_LOGI(TAG, "MEL MOBILE PHYSICAL READY; identity/session recovery started");
-            } else if (!mel_terminal_online() && revalidate_seconds >= 5) {
-                // A transient heartbeat/GATT failure must not leave MINI offline
-                // forever while the physical Android bridge is still healthy.
+            } else if (!mel_terminal_online() && revalidate_seconds >= 5 &&
+                       mel_terminal_state() == MEL_TERMINAL_IDLE) {
                 revalidate_seconds = 0;
                 ESP_LOGI(TAG, "MEL MOBILE READY but session offline; retrying validation");
                 mel_terminal_start_online();
@@ -1881,7 +1887,8 @@ static void mobile_bridge_watch_task(void *) {
             // Keep retrying MEL authentication while the physical BLE bridge is
             // healthy. A transient first heartbeat/pair failure must never leave
             // MINI permanently offline until the next disconnect/reboot.
-            if (!mel_terminal_online() && (keepalive_seconds % 5) == 0) {
+            if (!mel_terminal_online() && (keepalive_seconds % 5) == 0 &&
+                mel_terminal_state() == MEL_TERMINAL_IDLE) {
                 ESP_LOGI(TAG, "MEL MOBILE link healthy but session offline; retrying online validation");
                 mel_terminal_start_online();
             }
