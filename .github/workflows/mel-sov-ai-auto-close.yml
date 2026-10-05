@@ -80,6 +80,7 @@ jobs:
             exit 0
           fi
 
+          AI_REFRESH_OK=0
           AI_CODE="$(curl --silent --show-error --max-time 150 \
             --header "x-mel-parallel-proof: $PROOF_TOKEN" \
             --header "content-type: application/json" \
@@ -92,22 +93,55 @@ jobs:
           process.stdout.write(String(d?.refresh?.reason||d?.refresh?.status||d?.code||d?.status||'UNKNOWN').slice(0,180));
           NODE
           )"
-          case "$AI_REASON" in
-            COMPANION_OFFLINE|COMPANION_LOCAL_AI_UNAVAILABLE|DEVICE_OFFLINE|COMPANION_COMMAND_TIMEOUT)
-              echo "MEL_SOV_AI_WAITING_FOR_COMPANION reason=$AI_REASON"
-              exit 0
-              ;;
-          esac
-          if [ "$AI_CODE" != "200" ]; then
-            echo "MEL_SOV_AI_REFRESH_NOT_READY http=$AI_CODE reason=$AI_REASON"
-            exit 0
-          fi
-
-          node - <<'NODE'
+          if [ "$AI_CODE" = "200" ]; then
+            node - <<'NODE'
           const d=require('./sov-ai-local.json');
           if(d?.ok!==true||d?.status!=='MEL_SOV_01_REFRESH_STEP_VERIFIED') throw new Error('AI_LOCAL_REFRESH_NOT_VERIFIED');
           if(d?.secret_values_exposed!==false||d?.autonomy_started!==false) throw new Error('AI_LOCAL_REFRESH_SAFETY_FAILED');
           NODE
+            AI_REFRESH_OK=1
+            echo "MEL_SOV_AI_LOCAL_PREVALIDATED"
+          else
+            echo "MEL_SOV_AI_LOCAL_NOT_READY http=$AI_CODE reason=$AI_REASON"
+          fi
+
+          CONFIGURED_AI_REASON="NOT_ATTEMPTED"
+          if [ "$AI_REFRESH_OK" != "1" ]; then
+            CONFIGURED_AI_CODE="$(curl --silent --show-error --max-time 150 \
+              --header "x-mel-parallel-proof: $PROOF_TOKEN" \
+              --header "content-type: application/json" \
+              --data '{"phase":"sovereignty-proof"}' \
+              --output sov-ai-configured.json --write-out '%{http_code}' \
+              "$BASE_URL/api/internal/release-launch-bootstrap?refresh=ai" || true)"
+            CONFIGURED_AI_REASON="$(node - <<'NODE'
+          const fs=require('fs');let d={};try{d=JSON.parse(fs.readFileSync('sov-ai-configured.json','utf8'))}catch{}
+          process.stdout.write(String(d?.refresh?.reason||d?.refresh?.status||d?.code||d?.status||'UNKNOWN').slice(0,180));
+          NODE
+            )"
+            if [ "$CONFIGURED_AI_CODE" = "200" ]; then
+              node - <<'NODE'
+          const d=require('./sov-ai-configured.json');
+          if(d?.ok!==true||d?.status!=='MEL_SOV_01_REFRESH_STEP_VERIFIED') throw new Error('AI_CONFIGURED_REFRESH_NOT_VERIFIED');
+          if(d?.secret_values_exposed!==false||d?.autonomy_started!==false) throw new Error('AI_CONFIGURED_REFRESH_SAFETY_FAILED');
+          NODE
+              AI_REFRESH_OK=1
+              echo "MEL_SOV_AI_CONFIGURED_PREVALIDATED"
+            else
+              echo "MEL_SOV_AI_CONFIGURED_NOT_READY http=$CONFIGURED_AI_CODE reason=$CONFIGURED_AI_REASON"
+            fi
+          fi
+
+          if [ "$AI_REFRESH_OK" != "1" ]; then
+            case "$AI_REASON" in
+              COMPANION_OFFLINE|COMPANION_LOCAL_AI_UNAVAILABLE|DEVICE_OFFLINE|COMPANION_COMMAND_TIMEOUT)
+                echo "MEL_SOV_AI_WAITING_FOR_COMPANION reason=$AI_REASON configured_reason=$CONFIGURED_AI_REASON"
+                ;;
+              *)
+                echo "MEL_SOV_AI_REFRESH_NOT_READY local_reason=$AI_REASON configured_reason=$CONFIGURED_AI_REASON"
+                ;;
+            esac
+            exit 0
+          fi
 
           FINAL_CODE="$(curl --silent --show-error --max-time 45 \
             --header "x-mel-parallel-proof: $PROOF_TOKEN" \
