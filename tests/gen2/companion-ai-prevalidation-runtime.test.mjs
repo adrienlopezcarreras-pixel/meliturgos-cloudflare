@@ -108,8 +108,11 @@ test('local sovereignty whitelist and PowerShell companion expose only bounded l
     assert.match(source,/http:\/\/127\.0\.0\.1:11434/);
     assert.match(source,/SOVEREIGNTY_AI_LOCAL_ENGINE_UNAVAILABLE/);
     assert.match(source,/SOVEREIGNTY_AI_LOCAL_BOOTSTRAP_PENDING/);
-    assert.ok(source.includes('https://ollama.com/install.ps1'));
+    assert.ok(source.includes('https://ollama.com/download/OllamaSetup.exe'));
     assert.match(source,/Get-AuthenticodeSignature/);
+    assert.match(source,/O=Ollama Inc\\\./);
+    assert.match(source,/OLLAMA_INSTALLER_SIGNATURE_INVALID/);
+    assert.match(source,/VERYSILENT \/NORESTART \/SUPPRESSMSGBOXES/);
     assert.ok(source.includes('qwen2.5:1.5b'));
     assert.ok(source.includes('& $ollama pull $model'));
     assert.match(source,/MEL_LOCAL_AI_AUTO_INSTALL/);
