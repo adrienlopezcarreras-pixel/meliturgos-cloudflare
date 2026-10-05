@@ -114,6 +114,31 @@ test('sovereignty source-control refresh reuses exact-SHA proof offline and reje
   }
 });
 
+test('AI sovereignty refresh fails closed when no concrete prevalidated AI alternative is produced', async () => {
+  const deployedSha='6'.repeat(40);
+  const DB=sqliteD1();
+  try {
+    const response=await maybeHandleReleaseLaunchBootstrap(
+      new Request('https://mel.test/api/internal/release-launch-bootstrap?refresh=ai_local',{
+        method:'POST',
+        headers:{'x-mel-launch-bootstrap':TOKEN,'content-type':'application/json'},
+        body:JSON.stringify({phase:'sovereignty-proof'}),
+      }),
+      {MEL_LAUNCH_BOOTSTRAP_TOKEN:TOKEN,MEL_DEPLOYED_GIT_SHA:deployedSha,DB},
+    );
+    assert.equal(response.status,409);
+    const body=await response.json();
+    assert.equal(body.ok,false);
+    assert.equal(body.status,'MEL_SOV_01_REFRESH_STEP_FAILED');
+    assert.equal(body.refresh_target,'ai_local');
+    assert.equal(body.refresh?.verified,false);
+    assert.equal(Number(body.refresh?.prevalidated||0),0);
+    assert.equal(body.autonomy_started,false);
+  } finally {
+    DB.close();
+  }
+});
+
 test('release bootstrap pauses inherited autonomy before preparing exact-SHA launch evidence', async () => {
   const calls=[];
   const readiness={
