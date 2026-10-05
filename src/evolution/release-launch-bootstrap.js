@@ -316,7 +316,7 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
         allowedEvents: ['schedule', 'workflow_dispatch'],
       })
     : { ok: false };
-  const rollbackOidc = phase === 'release-rollback-restore'
+  const releaseOidc = phase !== 'gen2-42-runtime-tick'
     ? await authorizeOidc(request, env, {
         allowedWorkflows: ['deploy-cloudflare-release.yml'],
         allowedWorkflowBranches: [...new Set(['main', exactDeployedBranch(env)].filter(Boolean))],
@@ -324,17 +324,14 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
       })
     : { ok: false };
   const gen2Authorized = gen2SecretAuthorized || gen2ChallengeAuthorized || gen2Oidc.ok === true;
-  const rollbackAuthorized = rollbackOidc.ok === true;
-  if (!primaryAuthorized && !gen2Authorized && !parallelAuthorized && !rollbackAuthorized) {
+  const releaseAuthorized = releaseOidc.ok === true;
+  if (!primaryAuthorized && !gen2Authorized && !parallelAuthorized && !releaseAuthorized) {
     return Response.json({ ok: false, code: 'BOOTSTRAP_AUTH_REQUIRED' }, { status: 401, headers: { 'cache-control': 'no-store' } });
   }
-  if (parallelAuthorized && !primaryAuthorized && !gen2Authorized && !rollbackAuthorized && !parallelProofPhase) {
+  if (parallelAuthorized && !primaryAuthorized && !gen2Authorized && !releaseAuthorized && !parallelProofPhase) {
     return Response.json({ ok: false, code: 'BOOTSTRAP_SCOPE_DENIED' }, { status: 403, headers: { 'cache-control': 'no-store' } });
   }
-  if (gen2Authorized && !primaryAuthorized && phase !== 'gen2-42-runtime-tick') {
-    return Response.json({ ok: false, code: 'BOOTSTRAP_SCOPE_DENIED' }, { status: 403, headers: { 'cache-control': 'no-store' } });
-  }
-  if (rollbackAuthorized && !primaryAuthorized && phase !== 'release-rollback-restore') {
+  if (gen2Authorized && !primaryAuthorized && !releaseAuthorized && phase !== 'gen2-42-runtime-tick') {
     return Response.json({ ok: false, code: 'BOOTSTRAP_SCOPE_DENIED' }, { status: 403, headers: { 'cache-control': 'no-store' } });
   }
 
@@ -398,7 +395,7 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
       paused: control?.paused === true,
       max_autonomy: control?.max_autonomy === true,
       launch_approved_sha: control?.launch_approved_sha || null,
-      oidc_authorized: rollbackAuthorized,
+      oidc_authorized: releaseAuthorized,
     }, { headers: { 'cache-control': 'no-store' } });
   }
 
