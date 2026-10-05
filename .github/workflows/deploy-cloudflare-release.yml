@@ -720,7 +720,10 @@ jobs:
           # every production isolate.  Retry the first authenticated request
           # instead of treating that propagation window as a release failure.
           SHARD_STATUS_READY=0
-          for SHARD_STATUS_ATTEMPT in $(seq 1 12); do
+          SHARD_STATUS_ATTEMPT=0
+          SHARD_STATUS_DEADLINE_EPOCH=$(( $(date +%s) + 360 ))
+          while [ "$SHARD_STATUS_READY" != "1" ] && [ "$(date +%s)" -lt "$SHARD_STATUS_DEADLINE_EPOCH" ]; do
+            SHARD_STATUS_ATTEMPT=$((SHARD_STATUS_ATTEMPT + 1))
             SHARD_STATUS_CODE="$(curl --silent --show-error --max-time 60 \
               --header "x-mel-release-smoke: 1" \
               --header "x-mel-launch-bootstrap: ${BOOTSTRAP_TOKEN}" \
@@ -731,14 +734,14 @@ jobs:
               SHARD_STATUS_READY=1
               break
             fi
-            echo "ShardVault status propagation attempt ${SHARD_STATUS_ATTEMPT}/12 returned HTTP ${SHARD_STATUS_CODE}."
+            echo "ShardVault status propagation attempt ${SHARD_STATUS_ATTEMPT} returned HTTP ${SHARD_STATUS_CODE}; waiting within the 360s propagation budget."
             if [ -s production-shardvault-before.json ]; then
               cat production-shardvault-before.json
             fi
-            sleep 2
+            sleep 5
           done
           if [ "$SHARD_STATUS_READY" != "1" ]; then
-            echo "ShardVault release-smoke authentication did not become ready after bounded propagation retries."
+            echo "ShardVault release-smoke authentication did not become ready within the bounded 360s propagation window."
             exit 46
           fi
           SHARD_RELEASE_QUORUM=5
