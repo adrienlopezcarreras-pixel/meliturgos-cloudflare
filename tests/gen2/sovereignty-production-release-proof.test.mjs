@@ -56,7 +56,13 @@ test('MEL-SOV-01 live proof splits heavy refreshes and uses immutable exact-SHA 
   assert.match(workflow,/MEL_BACKUP_ENCRYPTION_KEY_B64/);
   assert.match(workflow,/MEL_PARALLEL_PROOF_V1:/);
   assert.match(workflow,/x-mel-parallel-proof/);
-  assert.match(workflow,/for TARGET in ai ai_local source_control/);
+  assert.match(workflow,/if layer_covered "ai"; then/);
+  assert.match(workflow,/mark_refresh_skipped "ai" "" "ai"/);
+  assert.match(workflow,/mark_refresh_skipped "ai_local" "" "ai"/);
+  assert.match(workflow,/refresh_sov_target "ai" \|\| exit \$\?/);
+  assert.match(workflow,/refresh_sov_target "ai_local" \|\| exit \$\?/);
+  assert.match(workflow,/if layer_covered "source_control"; then/);
+  assert.match(workflow,/refresh_sov_target "source_control" \|\| exit \$\?/);
   assert.match(workflow,/for STEP in runtime storage database ci_cd secrets_identity scheduler observability/);
   assert.doesNotMatch(workflow,/for STEP in runtime storage database ci_cd secrets_identity scheduler observability backup_restore/);
   assert.match(workflow,/refresh_sov_target "infrastructure" "\$\{STEP\}"/);
