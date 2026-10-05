@@ -11,38 +11,110 @@ permissions:
 jobs:
   restore:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     env:
-      STABLE_VERSION_ID: ca1be512-a266-4bd8-84f1-ee89d64da45d
       STABLE_GIT_SHA: e73ec7c91f131df562cabf1c49c5d23e6ac1d3c1
+      STABLE_BRANCH: release/mel-hardware-v0.1.0
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Checkout exact stable source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.STABLE_GIT_SHA }}
+          fetch-depth: 0
+
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
         with:
           node-version: '22'
           cache: npm
+
       - run: npm ci
 
-      - name: Restore stable Worker version
+      - name: Build stable critical bundle identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          tar -czf /tmp/mel-critical-code.tar.gz             --exclude='src/assets'             src shardvault worker.js wrangler.jsonc package.json package-lock.json
+          test -s /tmp/mel-critical-code.tar.gz
+          BUNDLE_BYTES="$(wc -c < /tmp/mel-critical-code.tar.gz)"
+          echo "MEL_CRITICAL_CODE_BUNDLE_BYTES=${BUNDLE_BYTES}" >> "$GITHUB_ENV"
+          echo "Stable critical bundle bytes: ${BUNDLE_BYTES}"
+
+      - name: Prepare exact production secrets
+        shell: bash
+        env:
+          MEL_BACKUP_ENCRYPTION_KEY_B64: ${{ secrets.MEL_BACKUP_ENCRYPTION_KEY_B64 }}
+          MEL_BACKUP_ENCRYPTION_KEY_ID: ${{ secrets.MEL_BACKUP_ENCRYPTION_KEY_ID }}
+        run: |
+          set -euo pipefail
+          test -n "${MEL_BACKUP_ENCRYPTION_KEY_B64:-}"
+          test -n "${MEL_BACKUP_ENCRYPTION_KEY_ID:-}"
+          STABLE_GIT_SHA="${STABLE_GIT_SHA}" node - <<'NODE'
+          const fs=require('fs'),crypto=require('crypto');
+          const source=Buffer.from(String(process.env.MEL_BACKUP_ENCRYPTION_KEY_B64||''),'base64');
+          if(source.length!==32) throw new Error('BACKUP_KEY_MUST_BE_32_BYTES');
+          const sha=String(process.env.STABLE_GIT_SHA||'').toLowerCase();
+          if(!/^[0-9a-f]{40}$/.test(sha)) throw new Error('STABLE_SHA_INVALID');
+          const media=Buffer.from(crypto.hkdfSync(
+            'sha256',source,
+            Buffer.from('meliturgos-media-vault-salt-v1'),
+            Buffer.from('MEL_MEDIA_VAULT_V1'),32
+          )).toString('base64');
+          const parallel=Buffer.from(crypto.hkdfSync(
+            'sha256',source,
+            Buffer.from('meliturgos-parallel-proof-salt-v1'),
+            Buffer.from('MEL_PARALLEL_PROOF_V1:'+sha),32
+          )).toString('base64url');
+          const payload={
+            MEL_MEDIA_ENCRYPTION_KEY_B64:media,
+            MEL_MEDIA_ENCRYPTION_KEY_ID:'media-hkdf-v1:'+String(process.env.MEL_BACKUP_ENCRYPTION_KEY_ID||''),
+            MEL_PARALLEL_PROOF_TOKEN:parallel,
+            MEL_BACKUP_ENCRYPTION_KEY_B64:String(process.env.MEL_BACKUP_ENCRYPTION_KEY_B64||''),
+            MEL_BACKUP_ENCRYPTION_KEY_ID:String(process.env.MEL_BACKUP_ENCRYPTION_KEY_ID||''),
+          };
+          if(Object.values(payload).some(v=>!v)) throw new Error('RECOVERY_SECRETS_MISSING');
+          fs.writeFileSync('/tmp/media-vault-release-secrets.json',JSON.stringify(payload),{mode:0o600});
+          NODE
+
+      - name: Recreate stable production Worker
         shell: bash
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           set -euo pipefail
-          npx wrangler rollback "${STABLE_VERSION_ID}"             --name meliturgos             --message "Emergency restore after failed release #636"
+          test -s /tmp/media-vault-release-secrets.json
+          npx wrangler deploy             --secrets-file /tmp/media-vault-release-secrets.json             --define "MEL_DEPLOYED_GIT_SHA:'${STABLE_GIT_SHA}'"             --define "MEL_DEPLOYED_GIT_BRANCH:'${STABLE_BRANCH}'"             --define "MEL_CRITICAL_CODE_BUNDLE_BYTES:${MEL_CRITICAL_CODE_BUNDLE_BYTES}"             --define "MEL_SHARDVAULT_ROADMAP_PAUSED:'false'"
+          rm -f /tmp/media-vault-release-secrets.json
           npx wrangler deployments list --name meliturgos --json > /tmp/deployments.json
-          STABLE_VERSION_ID="${STABLE_VERSION_ID}" node - <<'NODE'
+          node - <<'NODE'
           const fs=require('fs');
           const raw=JSON.parse(fs.readFileSync('/tmp/deployments.json','utf8'));
           const rows=Array.isArray(raw)?raw:(Array.isArray(raw?.deployments)?raw.deployments:[]);
-          const first=rows[0]||{};
-          const versions=Array.isArray(first?.versions)?first.versions:[];
-          const stable=String(process.env.STABLE_VERSION_ID||'');
-          const ok=versions.some(v=>String(v?.version_id||'')===stable && Number(v?.percentage)===100);
-          if(!ok) throw new Error('STABLE_WORKER_VERSION_NOT_ACTIVE');
-          console.log('Stable Worker version restored at 100%.');
+          if(!rows.length) throw new Error('RECOVERY_DEPLOYMENT_NOT_FOUND');
+          console.log('Stable Worker recreated; deployments API is live.');
           NODE
+
+      - name: Verify exact stable SHA is served
+        shell: bash
+        run: |
+          set -euo pipefail
+          READY=0
+          for ATTEMPT in $(seq 1 12); do
+            CODE="$(curl --silent --show-error --max-time 30               --output /tmp/self-check.json --write-out '%{http_code}'               "https://meliturgos.adrien-lopezcarreras.workers.dev/api/gen2/code/self-check" || true)"
+            if [ "${CODE}" = "200" ] && STABLE_GIT_SHA="${STABLE_GIT_SHA}" node - <<'NODE'
+          const d=require('/tmp/self-check.json');
+          const expected=String(process.env.STABLE_GIT_SHA||'').toLowerCase();
+          const actual=String(d?.deployed_sha||d?.sha||'').toLowerCase();
+          process.exit(actual===expected?0:1);
+          NODE
+            then
+              READY=1
+              break
+            fi
+            echo "Stable exact-SHA propagation attempt ${ATTEMPT}/12 returned HTTP ${CODE}."
+            sleep 3
+          done
+          test "${READY}" = "1"
 
       - name: Restore captured MAX autonomy state in D1
         shell: bash
@@ -54,18 +126,13 @@ jobs:
           STABLE_GIT_SHA="${STABLE_GIT_SHA}" node - <<'NODE'
           const fs=require('fs');
           const sha=String(process.env.STABLE_GIT_SHA||'').toLowerCase();
-          if(!/^[0-9a-f]{40}$/.test(sha)) throw new Error('STABLE_SHA_INVALID');
           const now=Date.now();
+          if(!/^[0-9a-f]{40}$/.test(sha)) throw new Error('STABLE_SHA_INVALID');
           const meta={
-            paused:false,
-            max_autonomy:true,
-            owner_override:true,
-            status:'MAX_AUTONOMY',
-            updated_at:now,
-            source:'emergency-recovery-workflow',
+            paused:false,max_autonomy:true,owner_override:true,status:'MAX_AUTONOMY',
+            updated_at:now,source:'emergency-recovery-workflow',
             reason:'restore-stable-after-release-636',
-            launch_approved_sha:sha,
-            launch_approved_at:new Date(now).toISOString(),
+            launch_approved_sha:sha,launch_approved_at:new Date(now).toISOString(),
             launch_gate_digest:null,
           };
           const esc=JSON.stringify(meta).replaceAll("'","''");
@@ -89,4 +156,18 @@ jobs:
           if(meta?.paused!==false || meta?.max_autonomy!==true) throw new Error('AUTONOMY_STATE_NOT_RESTORED');
           if(String(meta?.launch_approved_sha||'').toLowerCase()!==sha) throw new Error('AUTONOMY_SHA_NOT_RESTORED');
           console.log('Stable MAX autonomy control restored in D1.');
+          NODE
+
+      - name: Verify public autonomy control
+        shell: bash
+        run: |
+          set -euo pipefail
+          CODE="$(curl --silent --show-error --max-time 30             --output /tmp/control.json --write-out '%{http_code}'             "https://meliturgos.adrien-lopezcarreras.workers.dev/api/gen2/autonomy/control" || true)"
+          test "${CODE}" = "200"
+          STABLE_GIT_SHA="${STABLE_GIT_SHA}" node - <<'NODE'
+          const d=require('/tmp/control.json');
+          const sha=String(process.env.STABLE_GIT_SHA||'').toLowerCase();
+          if(d?.ok!==true||d?.paused!==false||d?.max_autonomy!==true) throw new Error('PUBLIC_AUTONOMY_NOT_MAX');
+          if(String(d?.launch_approved_sha||'').toLowerCase()!==sha) throw new Error('PUBLIC_AUTONOMY_SHA_MISMATCH');
+          console.log('Stable production baseline verified: exact SHA + MAX autonomy.');
           NODE
