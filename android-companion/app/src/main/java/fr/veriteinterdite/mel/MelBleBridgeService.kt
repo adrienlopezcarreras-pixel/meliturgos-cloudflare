@@ -80,6 +80,7 @@ class MelBleBridgeService : Service() {
         private const val OP_RESPONSE_BEGIN = 0x11
         private const val OP_RESPONSE_BODY = 0x12
         private const val OP_RESPONSE_END = 0x13
+        private const val OP_CLOCK = 0x14
         private const val OP_ERROR = 0x1f
 
         const val ACTION_RESTART = "fr.veriteinterdite.mel.action.RESTART_MINI_BRIDGE"
@@ -603,7 +604,16 @@ class MelBleBridgeService : Service() {
                 return
             }
             val frame = pullFrames.computeIfAbsent(device.address) { ConcurrentLinkedQueue() }.poll()
-                ?: byteArrayOf(0, 0, 0, 0, 0)
+                ?: run {
+                    val nowMs = System.currentTimeMillis()
+                    val zone = TimeZone.getDefault()
+                    val clockPayload = ByteBuffer.allocate(12)
+                        .order(ByteOrder.LITTLE_ENDIAN)
+                        .putLong(nowMs)
+                        .putInt(zone.getOffset(nowMs) / 1000)
+                        .array()
+                    packet(OP_CLOCK, 0, clockPayload)
+                }
             gattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, 0, frame)
         }
 
