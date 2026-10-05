@@ -882,8 +882,8 @@ class MelBleBridgeService : Service() {
         return pendingLow == null
     }
 
-    private fun buildCompactSttWav(pcm8: ByteArray, contentType: String): ByteArray {
-        require(pcm8.isNotEmpty() && pcm8.size <= 16_000 * 10) { "PCM8_SIZE" }
+    private fun buildCompactSttWav(payload: ByteArray, contentType: String): ByteArray {
+        require(payload.isNotEmpty() && payload.size <= 16_000 * 10) { "PCM_SIZE" }
         val sourceRate = Regex("""rate=(\\d+)""")
             .find(contentType)
             ?.groupValues
@@ -891,9 +891,11 @@ class MelBleBridgeService : Service() {
             ?.toIntOrNull()
             ?.coerceIn(8_000, 16_000)
             ?: 8_000
+        val packed4 = contentType.startsWith("application/x-mel-pcm4")
+        val sourceSamples = if (packed4) payload.size * 2 else payload.size
         val targetRate = 16_000
         val copiesPerSample = if (sourceRate <= 8_000) 2 else 1
-        val pcm16Samples = pcm8.size * copiesPerSample
+        val pcm16Samples = sourceSamples * copiesPerSample
         val pcm16Bytes = pcm16Samples * 2
         val wav = ByteArray(44 + pcm16Bytes)
         val header = ByteBuffer.wrap(wav).order(ByteOrder.LITTLE_ENDIAN)
@@ -910,9 +912,17 @@ class MelBleBridgeService : Service() {
         header.putShort(16.toShort())
         header.put("data".toByteArray(Charsets.US_ASCII))
         header.putInt(pcm16Bytes)
+
         var dst = 44
-        for (raw in pcm8) {
-            val sample = (((raw.toInt() and 0xff) - 128) shl 8).toShort().toInt()
+        for (index in 0 until sourceSamples) {
+            val raw = if (packed4) {
+                val packed = payload[index / 2].toInt() and 0xff
+                val nibble = if ((index and 1) == 0) (packed ushr 4) and 0x0f else packed and 0x0f
+                nibble * 17
+            } else {
+                payload[index].toInt() and 0xff
+            }
+            val sample = ((raw - 128) shl 8).toShort().toInt()
             repeat(copiesPerSample) {
                 wav[dst++] = (sample and 0xff).toByte()
                 wav[dst++] = ((sample shr 8) and 0xff).toByte()
@@ -1014,14 +1024,14 @@ class MelBleBridgeService : Service() {
         }
 
         val compactStt = request.path == "/api/device/v1/voice/transcribe" &&
-            request.contentType.startsWith("application/x-mel-pcm8")
+            request.contentType.startsWith("application/x-mel-pcm")
 
         if (compactStt) {
             val wav = runCatching {
                 buildCompactSttWav(request.body.toByteArray(), request.contentType)
             }.getOrElse {
                 Log.e(TAG, "Compact STT WAV conversion failed", it)
-                sendError(device, request.id, "STT_PCM8")
+                sendError(device, request.id, "STT_PCM")
                 return
             }
 
