@@ -1423,6 +1423,15 @@ function Start-SovereigntyAiBootstrap([string]$requestedModel) {
   $statusPath = Join-Path $root "ai-bootstrap-status.json"
   $scriptPath = Join-Path $root "ai-bootstrap.ps1"
   $status = Read-SovereigntyAiBootstrapStatus
+  if ($null -ne $status -and [string]$status.state -eq "FAILED") {
+    $failedAt = 0L
+    try { $failedAt = [int64]$status.updated_at_unix_ms } catch {}
+    $failedCode = ([string]$status.code).Trim()
+    if ([string]::IsNullOrWhiteSpace($failedCode)) { $failedCode = "UNKNOWN" }
+    if ($failedAt -gt 0 -and ([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() - $failedAt) -lt (5*60*1000)) {
+      return ("FAILED:" + $failedCode)
+    }
+  }
   if ($null -ne $status -and [string]$status.state -eq "RUNNING") {
     $started = 0L
     try { $started = [int64]$status.started_at_unix_ms } catch {}
@@ -1477,6 +1486,7 @@ try {
 
   if ([string]::IsNullOrWhiteSpace([string]$ollama)) {
     $installer = Join-Path $env:TEMP "MEL-OllamaSetup.exe"
+    Write-MelAiBootstrapStatus "RUNNING" "DOWNLOADING_INSTALLER"
     Invoke-WebRequest -Uri "https://ollama.com/download/OllamaSetup.exe" -UseBasicParsing -OutFile $installer -TimeoutSec 180
     $sig = Get-AuthenticodeSignature -FilePath $installer
     $subject = if ($null -ne $sig.SignerCertificate) { [string]$sig.SignerCertificate.Subject } else { "" }
@@ -1484,8 +1494,12 @@ try {
       try { Remove-Item -LiteralPath $installer -Force -ErrorAction SilentlyContinue } catch {}
       throw "OLLAMA_INSTALLER_SIGNATURE_INVALID"
     }
+    Write-MelAiBootstrapStatus "RUNNING" "INSTALLING_ENGINE"
     $proc = Start-Process -FilePath $installer -ArgumentList "/VERYSILENT /NORESTART /SUPPRESSMSGBOXES" -PassThru
-    $proc.WaitForExit()
+    if (-not $proc.WaitForExit(300000)) {
+      try { $proc.Kill() } catch {}
+      throw "OLLAMA_INSTALL_TIMEOUT"
+    }
     $exitCode = $proc.ExitCode
     try { Remove-Item -LiteralPath $installer -Force -ErrorAction SilentlyContinue } catch {}
     if ($exitCode -ne 0) { throw ("OLLAMA_INSTALL_FAILED:" + $exitCode) }
@@ -1496,6 +1510,7 @@ try {
 
   $tags = Read-MelOllamaTags
   if ($null -eq $tags) {
+    Write-MelAiBootstrapStatus "RUNNING" "STARTING_ENGINE"
     try { Start-Process -FilePath $ollama -ArgumentList @("serve") -WindowStyle Hidden } catch {}
     for ($i=0; $i -lt 30 -and $null -eq $tags; $i++) {
       Start-Sleep -Seconds 2
@@ -1506,8 +1521,13 @@ try {
 
   $installed = @($tags.models | ForEach-Object { ([string]$_.name).Trim() } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
   if ($installed -notcontains $model) {
-    & $ollama pull $model
-    if ($LASTEXITCODE -ne 0) { throw "OLLAMA_MODEL_PULL_FAILED" }
+    Write-MelAiBootstrapStatus "RUNNING" "PULLING_MODEL"
+    $pull = Start-Process -FilePath $ollama -ArgumentList @("pull",$model) -PassThru -WindowStyle Hidden
+    if (-not $pull.WaitForExit(720000)) {
+      try { $pull.Kill() } catch {}
+      throw "OLLAMA_MODEL_PULL_TIMEOUT"
+    }
+    if ($pull.ExitCode -ne 0) { throw ("OLLAMA_MODEL_PULL_FAILED:" + $pull.ExitCode) }
     $tags = Read-MelOllamaTags
     $installed = @($tags.models | ForEach-Object { ([string]$_.name).Trim() } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
     if ($installed -notcontains $model) { throw "OLLAMA_MODEL_PULL_NOT_VISIBLE" }
@@ -1547,6 +1567,7 @@ function Get-SovereigntyLocalAiState {
   if ($null -eq $tags) {
     $bootstrap = Start-SovereigntyAiBootstrap $bootstrapModel
     if ($bootstrap -eq "DISABLED") { throw "SOVEREIGNTY_AI_LOCAL_ENGINE_UNAVAILABLE" }
+    if ([string]$bootstrap -like "FAILED:*") { throw ("SOVEREIGNTY_AI_LOCAL_BOOTSTRAP_FAILED:" + ([string]$bootstrap).Substring(7)) }
     throw "SOVEREIGNTY_AI_LOCAL_BOOTSTRAP_PENDING"
   }
 
@@ -1559,6 +1580,7 @@ function Get-SovereigntyLocalAiState {
   if ($models.Count -lt 1) {
     $bootstrap = Start-SovereigntyAiBootstrap $bootstrapModel
     if ($bootstrap -eq "DISABLED") { throw "SOVEREIGNTY_AI_LOCAL_MODEL_MISSING" }
+    if ([string]$bootstrap -like "FAILED:*") { throw ("SOVEREIGNTY_AI_LOCAL_BOOTSTRAP_FAILED:" + ([string]$bootstrap).Substring(7)) }
     throw "SOVEREIGNTY_AI_LOCAL_BOOTSTRAP_PENDING"
   }
 
@@ -1568,6 +1590,7 @@ function Get-SovereigntyLocalAiState {
     if ([string]::IsNullOrWhiteSpace([string]$model)) {
       $bootstrap = Start-SovereigntyAiBootstrap $requested
       if ($bootstrap -eq "DISABLED") { throw "SOVEREIGNTY_AI_MODEL_NOT_INSTALLED" }
+      if ([string]$bootstrap -like "FAILED:*") { throw ("SOVEREIGNTY_AI_LOCAL_BOOTSTRAP_FAILED:" + ([string]$bootstrap).Substring(7)) }
       throw "SOVEREIGNTY_AI_LOCAL_BOOTSTRAP_PENDING"
     }
   } else {
