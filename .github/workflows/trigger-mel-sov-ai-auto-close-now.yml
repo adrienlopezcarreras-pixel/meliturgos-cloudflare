@@ -1,0 +1,21 @@
+name: Trigger MEL SOV AI auto-close now
+
+on:
+  push:
+    branches:
+      - ops/trigger-sov-ai-auto-close-20261005
+    paths:
+      - .github/workflows/trigger-mel-sov-ai-auto-close-now.yml
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Dispatch AI-only SOV closer
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run mel-sov-ai-auto-close.yml --repo "$GITHUB_REPOSITORY" --ref main
