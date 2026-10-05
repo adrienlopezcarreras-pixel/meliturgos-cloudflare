@@ -1,0 +1,145 @@
+name: MEL SOV AI auto-close
+
+on:
+  schedule:
+    - cron: '11 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: mel-sov-ai-auto-close
+  cancel-in-progress: false
+
+jobs:
+  close-ai-gap:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PROOF_KEY_B64: ${{ secrets.MEL_BACKUP_ENCRYPTION_KEY_B64 }}
+      BASE_URL: https://meliturgos.adrien-lopezcarreras.workers.dev
+    steps:
+      - name: Resolve latest successful production SHA
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api "repos/$GITHUB_REPOSITORY/actions/workflows/deploy-cloudflare-release.yml/runs?status=success&per_page=20" > release-runs.json
+          TARGET_SHA="$(node - <<'NODE'
+          const d=require('./release-runs.json');
+          const run=(d.workflow_runs||[]).find(r=>r?.status==='completed'&&r?.conclusion==='success'&&/^[0-9a-f]{40}$/i.test(String(r?.head_sha||'')));
+          if(!run) process.exit(2);
+          process.stdout.write(String(run.head_sha).toLowerCase());
+          NODE
+          )"
+          echo "TARGET_SHA=$TARGET_SHA" >> "$GITHUB_ENV"
+
+      - name: Derive exact-SHA proof token
+        shell: bash
+        run: |
+          set -euo pipefail
+          TOKEN="$(PROOF_KEY_B64="$PROOF_KEY_B64" TARGET_SHA="$TARGET_SHA" node - <<'NODE'
+          const crypto=require('crypto');
+          const source=Buffer.from(String(process.env.PROOF_KEY_B64||''),'base64');
+          const sha=String(process.env.TARGET_SHA||'').toLowerCase();
+          if(source.length!==32||!/^[0-9a-f]{40}$/.test(sha)) throw new Error('PARALLEL_PROOF_DERIVATION_INVALID');
+          process.stdout.write(Buffer.from(crypto.hkdfSync('sha256',source,Buffer.from('meliturgos-parallel-proof-salt-v1'),Buffer.from('MEL_PARALLEL_PROOF_V1:'+sha),32)).toString('base64url'));
+          NODE
+          )"
+          echo "::add-mask::$TOKEN"
+          echo "PROOF_TOKEN=$TOKEN" >> "$GITHUB_ENV"
+
+      - name: Close only the remaining AI sovereignty gap
+        shell: bash
+        run: |
+          set -euo pipefail
+          BEFORE_CODE="$(curl --silent --show-error --max-time 30 \
+            --header "x-mel-parallel-proof: $PROOF_TOKEN" \
+            --header "content-type: application/json" \
+            --data '{"phase":"sovereignty-proof"}' \
+            --output sov-before.json --write-out '%{http_code}' \
+            "$BASE_URL/api/internal/release-launch-bootstrap" || true)"
+
+          TARGET_SHA="$TARGET_SHA" node - <<'NODE' > sov-before.env
+          const fs=require('fs'); let d={}; try{d=JSON.parse(fs.readFileSync('sov-before.json','utf8'))}catch{}
+          const expected=String(process.env.TARGET_SHA||'').toLowerCase();
+          const covered=new Set(Array.isArray(d?.covered_layers)?d.covered_layers:[]);
+          const exact=String(d?.deployed_sha||'').toLowerCase()===expected;
+          console.log('SOV_DONE='+(d?.done_verified_eligible===true&&exact?'1':'0'));
+          console.log('AI_COVERED='+(covered.has('ai')||d?.layers?.ai?.ready===true?'1':'0'));
+          NODE
+          . ./sov-before.env
+
+          if [ "$SOV_DONE" = "1" ]; then
+            echo "MEL_SOV_AI_ALREADY_CLOSED"
+            exit 0
+          fi
+          if [ "$AI_COVERED" = "1" ]; then
+            echo "MEL_SOV_AI_ALREADY_COVERED_FINAL_GATE_PENDING"
+            exit 0
+          fi
+
+          AI_CODE="$(curl --silent --show-error --max-time 150 \
+            --header "x-mel-parallel-proof: $PROOF_TOKEN" \
+            --header "content-type: application/json" \
+            --data '{"phase":"sovereignty-proof"}' \
+            --output sov-ai-local.json --write-out '%{http_code}' \
+            "$BASE_URL/api/internal/release-launch-bootstrap?refresh=ai_local" || true)"
+
+          AI_REASON="$(node - <<'NODE'
+          const fs=require('fs');let d={};try{d=JSON.parse(fs.readFileSync('sov-ai-local.json','utf8'))}catch{}
+          process.stdout.write(String(d?.refresh?.reason||d?.refresh?.status||d?.code||d?.status||'UNKNOWN').slice(0,180));
+          NODE
+          )"
+          case "$AI_REASON" in
+            COMPANION_OFFLINE|COMPANION_LOCAL_AI_UNAVAILABLE|DEVICE_OFFLINE|COMPANION_COMMAND_TIMEOUT)
+              echo "MEL_SOV_AI_WAITING_FOR_COMPANION reason=$AI_REASON"
+              exit 0
+              ;;
+          esac
+          if [ "$AI_CODE" != "200" ]; then
+            echo "MEL_SOV_AI_REFRESH_NOT_READY http=$AI_CODE reason=$AI_REASON"
+            exit 0
+          fi
+
+          node - <<'NODE'
+          const d=require('./sov-ai-local.json');
+          if(d?.ok!==true||d?.status!=='MEL_SOV_01_REFRESH_STEP_VERIFIED') throw new Error('AI_LOCAL_REFRESH_NOT_VERIFIED');
+          if(d?.secret_values_exposed!==false||d?.autonomy_started!==false) throw new Error('AI_LOCAL_REFRESH_SAFETY_FAILED');
+          NODE
+
+          FINAL_CODE="$(curl --silent --show-error --max-time 45 \
+            --header "x-mel-parallel-proof: $PROOF_TOKEN" \
+            --header "content-type: application/json" \
+            --data '{"phase":"sovereignty-proof"}' \
+            --output sov-final.json --write-out '%{http_code}' \
+            "$BASE_URL/api/internal/release-launch-bootstrap" || true)"
+
+          TARGET_SHA="$TARGET_SHA" FINAL_CODE="$FINAL_CODE" node - <<'NODE'
+          const d=require('./sov-final.json');
+          const expected=String(process.env.TARGET_SHA||'').toLowerCase();
+          const ok=Number(process.env.FINAL_CODE)===200
+            && d?.ok===true
+            && d?.status==='MEL_SOV_01_DONE_VERIFIED_ELIGIBLE'
+            && d?.done_verified_eligible===true
+            && d?.ai_low_refusal_ready===true
+            && Number(d?.ready_layer_count||0)===10
+            && Number(d?.layer_count||0)===10
+            && String(d?.deployed_sha||'').toLowerCase()===expected
+            && d?.secret_values_exposed===false
+            && d?.autonomy_started===false;
+          if(!ok) process.exit(31);
+          console.log('MEL_SOV_AI_CLOSED_10_OF_10');
+          NODE
+
+      - name: Summary
+        if: always()
+        shell: bash
+        run: |
+          echo '### MEL SOV AI auto-close' >> "$GITHUB_STEP_SUMMARY"
+          echo '- Scope: AI layer only' >> "$GITHUB_STEP_SUMMARY"
+          echo '- Non-AI layers are not revalidated here' >> "$GITHUB_STEP_SUMMARY"
+          echo '- Offline Companion means waiting, not regression' >> "$GITHUB_STEP_SUMMARY"
+          echo '- Final success still requires unchanged SOV 10/10' >> "$GITHUB_STEP_SUMMARY"
