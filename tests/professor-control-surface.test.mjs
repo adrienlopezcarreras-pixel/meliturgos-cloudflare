@@ -176,3 +176,12 @@ test('Compétences combines CapabilityBus, verified active Skill Registry and re
   assert.ok(page.includes('ACTIVE · VÉRIFIÉE'), 'verified active skills must be labelled explicitly');
   assert.ok(page.includes('Aucune compétence apprise active et vérifiée'), 'empty registry must fail closed instead of inventing skills');
 });
+
+
+test('connections UI isolates Google reconfiguration from the other provider cards', async()=>{
+  const source=await import('node:fs/promises').then(fs=>fs.readFile(new URL('../src/pages/full-interface-v2.js',import.meta.url),'utf8'));
+  assert.match(source,/id="googleAppConfig"/);
+  assert.match(source,/RECONNEXION REQUISE/);
+  assert.match(source,/Google doit être reconfiguré, mais les autres connexions restent indépendantes/);
+  assert.match(source,/details\.open=true/);
+});
