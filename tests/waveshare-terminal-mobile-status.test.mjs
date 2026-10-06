@@ -5,7 +5,7 @@ import { readFile } from 'node:fs/promises';
 const root = new URL('../', import.meta.url);
 // Fresh-head guard: run this contract against the current PR merge ref.
 
-test('MINI 0.4.38 reports the real mobile link independently from Wi-Fi', async () => {
+test('MINI 0.5.0 Link V2 reports the real mobile link independently from Wi-Fi', async () => {
   const [runtime, main, header, workflow] = await Promise.all([
     readFile(new URL('firmware/waveshare-terminal/main/mel_terminal.cpp', root), 'utf8'),
     readFile(new URL('firmware/waveshare-terminal/main/main.cpp', root), 'utf8'),
@@ -13,8 +13,8 @@ test('MINI 0.4.38 reports the real mobile link independently from Wi-Fi', async 
     readFile(new URL('.github/workflows/waveshare-terminal-firmware.yml', root), 'utf8'),
   ]);
 
-  assert.match(header, /MEL_FW_VERSION "0\.4\.38-unified"/);
-  assert.match(workflow, /"version": "0\.4\.38-unified"/);
+  assert.match(header, /MEL_FW_VERSION "0\.5\.0-link-v2-dev"/);
+  assert.match(workflow, /"version": "0\.5\.0-link-v2-dev"/);
 
   assert.match(runtime, /void mel_terminal_set_mobile_connected\(bool connected\)/);
   assert.match(runtime, /ui_status\(g_online \? "MEL MOBILE CONNECTE" : "MOBILE CONNECTE"\)/);
@@ -31,15 +31,19 @@ test('MINI 0.4.38 reports the real mobile link independently from Wi-Fi', async 
 });
 
 
-test('BLE relay keeps pull fallback active after notifications', async () => {
-  const bridge = await readFile(
-    new URL('../firmware/waveshare-terminal/main/mel_mobile_bridge.cpp', import.meta.url),
-    'utf8'
-  );
-  assert.doesNotMatch(bridge, /bool push_mode/);
-  assert.match(bridge, /last_pull/);
-  assert.match(bridge, /pull_response_frame\(\)/);
-  assert.match(bridge, /timed out; recycling BLE link/);
+test('Link V2 removes characteristic-read fallback and enforces sequence plus credits', async () => {
+  const [server, transport] = await Promise.all([
+    readFile(new URL('../firmware/waveshare-terminal/main/mel_link_v2_server.cpp', import.meta.url), 'utf8'),
+    readFile(new URL('../firmware/waveshare-terminal/main/mel_link_v2_transport.cpp', import.meta.url), 'utf8'),
+  ]);
+  assert.doesNotMatch(server,/ble_gattc_read/);
+  assert.doesNotMatch(server,/pull_response_frame/);
+  assert.match(transport,/MEL_LINK_V2_CREDIT/);
+  assert.match(transport,/g_credit_sem/);
+  assert.match(transport,/Response sequence gap/);
+  assert.match(transport,/header\.seq != g_active\.expected_response_seq/);
+  assert.match(server,/BLE_GAP_EVENT_NOTIFY_TX/);
+  assert.match(server,/BLE_HS_EDONE/);
 });
 
 test('Camera capture is serialized and boot no longer consumes a frame', async () => {
