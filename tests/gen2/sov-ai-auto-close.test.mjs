@@ -18,7 +18,11 @@ test('AI SOV auto-close watches only the missing AI layer and preserves the 10/1
   assert.ok(source.includes('ai_low_refusal_ready===true'));
   assert.ok(source.includes("AI_LOW_REFUSAL_READY='+(d?.ai_low_refusal_ready===true?'1':'0')"));
   assert.ok(source.includes('MEL_SOV_AI_LOW_REFUSAL_ALREADY_READY'));
-  assert.ok(source.includes('for AI_ATTEMPT in $(seq 1 8)'));
+  assert.ok(source.includes('AI_BOOTSTRAP_WAITS=0'));
+  assert.ok(source.includes('AI_ENGINE_UPDATE_WAITS=0'));
+  assert.ok(source.includes('while [ "$AI_ATTEMPT" -lt 28 ]'));
+  assert.ok(source.includes('AI_ENGINE_UPDATE_WAITS" -lt 14'));
+  assert.ok(source.includes('AI_BOOTSTRAP_WAITS" -lt 8'));
   assert.ok(source.includes('SOVEREIGNTY_AI_LOCAL_BOOTSTRAP_PENDING'));
   assert.ok(source.includes('MEL_SOV_AI_BOOTSTRAP_WAIT'));
   assert.ok(source.includes('sleep 45'));
