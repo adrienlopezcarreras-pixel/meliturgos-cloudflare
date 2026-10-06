@@ -11,7 +11,7 @@ permissions:
 jobs:
   audit:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
@@ -19,31 +19,66 @@ jobs:
           node-version: '22'
           cache: npm
       - run: npm ci
-      - name: Read OAuth vault table counts only
+      - name: Audit OAuth vault presence through ephemeral D1 sidecar
         shell: bash
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           set -euo pipefail
-          npx wrangler d1 execute meliturgos-memory --remote --json --command "
-            SELECT
-              (SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='mel_oauth_tokens') AS token_table_exists,
-              (SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='mel_oauth_transactions') AS tx_table_exists;
-          " > schema.json
-          cat schema.json
-          TOKEN_TABLE="$(node -e "const d=require('./schema.json'); const r=d?.[0]?.results?.[0]||d?.result?.[0]?.results?.[0]||{}; process.stdout.write(String(r.token_table_exists||0))")"
-          TX_TABLE="$(node -e "const d=require('./schema.json'); const r=d?.[0]?.results?.[0]||d?.result?.[0]?.results?.[0]||{}; process.stdout.write(String(r.tx_table_exists||0))")"
-          TOKENS=0
-          TX=0
-          if [ "$TOKEN_TABLE" = "1" ]; then
-            npx wrangler d1 execute meliturgos-memory --remote --json --command "SELECT COUNT(*) AS n FROM mel_oauth_tokens;" > tokens.json
-            TOKENS="$(node -e "const d=require('./tokens.json'); const r=d?.[0]?.results?.[0]||d?.result?.[0]?.results?.[0]||{}; process.stdout.write(String(r.n||0))")"
+          NAME="mel-oauth-audit-${GITHUB_RUN_ID}"
+          CONFIG="release-tools/predeploy-backup-refresh/wrangler.audit.jsonc"
+          TOKEN="$(openssl rand -hex 32)"
+          echo "::add-mask::${TOKEN}"
+          export NAME
+          node - <<'NODE'
+          const fs=require('fs');
+          const src='release-tools/predeploy-backup-refresh/wrangler.jsonc';
+          const dst='release-tools/predeploy-backup-refresh/wrangler.audit.jsonc';
+          const c=JSON.parse(fs.readFileSync(src,'utf8'));
+          c.name=process.env.NAME;
+          fs.writeFileSync(dst,JSON.stringify(c,null,2));
+          NODE
+          cleanup(){
+            set +e
+            curl --silent --show-error --max-time 30 --request DELETE               --header "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}"               "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/scripts/${NAME}" >/dev/null
+          }
+          trap cleanup EXIT
+          npx wrangler deploy --config "${CONFIG}"             --var "MEL_PREDEPLOY_BACKUP_REFRESH_TOKEN:${TOKEN}" >/tmp/audit-deploy.log
+
+          URL="https://${NAME}.adrien-lopezcarreras.workers.dev"
+          READY=0
+          for i in $(seq 1 20); do
+            code="$(curl --silent --show-error --max-time 20               --header "x-mel-predeploy-backup-refresh: ${TOKEN}"               --output /tmp/tables.json --write-out '%{http_code}'               "${URL}/d1/tables" || true)"
+            if [ "${code}" = "200" ]; then READY=1; break; fi
+            sleep 2
+          done
+          test "${READY}" = "1"
+
+          node - <<'NODE'
+          const fs=require('fs');
+          const d=JSON.parse(fs.readFileSync('/tmp/tables.json','utf8'));
+          if(d?.ok!==true||!Array.isArray(d?.tables)) process.exit(2);
+          const names=new Set(d.tables.map(x=>String(x?.name||'')));
+          fs.writeFileSync('/tmp/existence.json',JSON.stringify({
+            tokens:names.has('mel_oauth_tokens'),
+            transactions:names.has('mel_oauth_transactions')
+          }));
+          NODE
+
+          TOKEN_TABLE="$(node -e "const d=require('/tmp/existence.json');process.stdout.write(d.tokens?'1':'0')")"
+          TX_TABLE="$(node -e "const d=require('/tmp/existence.json');process.stdout.write(d.transactions?'1':'0')")"
+          TOKEN_ROWS=0
+          TX_ROWS=0
+
+          if [ "${TOKEN_TABLE}" = "1" ]; then
+            curl --silent --show-error --fail --max-time 20               --header "x-mel-predeploy-backup-refresh: ${TOKEN}"               "${URL}/d1/rows?table=mel_oauth_tokens&offset=0&limit=1" >/tmp/token-row.json
+            TOKEN_ROWS="$(node -e "const d=require('/tmp/token-row.json');process.stdout.write(Array.isArray(d.rows)&&d.rows.length?'1':'0')")"
           fi
-          if [ "$TX_TABLE" = "1" ]; then
-            npx wrangler d1 execute meliturgos-memory --remote --json --command "SELECT COUNT(*) AS n FROM mel_oauth_transactions;" > tx.json
-            TX="$(node -e "const d=require('./tx.json'); const r=d?.[0]?.results?.[0]||d?.result?.[0]?.results?.[0]||{}; process.stdout.write(String(r.n||0))")"
+
+          if [ "${TX_TABLE}" = "1" ]; then
+            curl --silent --show-error --fail --max-time 20               --header "x-mel-predeploy-backup-refresh: ${TOKEN}"               "${URL}/d1/rows?table=mel_oauth_transactions&offset=0&limit=1" >/tmp/tx-row.json
+            TX_ROWS="$(node -e "const d=require('/tmp/tx-row.json');process.stdout.write(Array.isArray(d.rows)&&d.rows.length?'1':'0')")"
           fi
-          echo "OAUTH_VAULT_AUDIT token_table=$TOKEN_TABLE token_rows=$TOKENS tx_table=$TX_TABLE tx_rows=$TX"
-          test "$TOKENS" -ge 0
-          test "$TX" -ge 0
+
+          echo "OAUTH_VAULT_AUDIT token_table=${TOKEN_TABLE} token_nonempty=${TOKEN_ROWS} tx_table=${TX_TABLE} tx_nonempty=${TX_ROWS}"
