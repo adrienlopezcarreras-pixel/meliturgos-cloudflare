@@ -593,9 +593,22 @@ esp_err_t mel_link_v2_transport_transcribe_adpcm(
 ) {
     if (!mel_link_v2_transport_ready() || !samples || sample_count == 0 ||
         !mini_device_id || !*mini_device_id || !g_exchange_mutex) {
+        response = "BT_SESSION_NOT_READY";
         return ESP_ERR_INVALID_STATE;
     }
+
+    const uint16_t negotiated_mtu = mel_link_v2_server_mtu();
+    // A full 256-sample ADPCM block is 132 bytes. With the 13-byte MEL frame
+    // header and 3-byte ATT overhead the link needs an MTU of at least 148.
+    if (negotiated_mtu < 148) {
+        char diag[32] = {};
+        snprintf(diag, sizeof(diag), "BT_MTU_%u", (unsigned)negotiated_mtu);
+        response = diag;
+        ESP_LOGE(TAG, "STT cannot start: negotiated MTU=%u (<148)", negotiated_mtu);
+        return ESP_ERR_INVALID_SIZE;
+    }
     if (xSemaphoreTake(g_exchange_mutex, pdMS_TO_TICKS(3000)) != pdTRUE) {
+        response = "BT_EXCHANGE_BUSY";
         return ESP_ERR_TIMEOUT;
     }
 
@@ -628,6 +641,7 @@ esp_err_t mel_link_v2_transport_transcribe_adpcm(
     while (ok && offset < sample_count) {
         if (xSemaphoreTake(g_credit_sem, pdMS_TO_TICKS(5000)) != pdTRUE) {
             ESP_LOGE(TAG, "audio credit timeout stream=%u seq=%u", g_active.stream_id, seq);
+            response = "BT_AUDIO_CREDIT_TIMEOUT";
             ok = false;
             break;
         }
@@ -641,6 +655,7 @@ esp_err_t mel_link_v2_transport_transcribe_adpcm(
                 encoded, sizeof(encoded), &encoded_size)) {
             ESP_LOGE(TAG, "ADPCM encode failed stream=%u seq=%u count=%u",
                      g_active.stream_id, seq, (unsigned)count);
+            response = "ADPCM_ENCODE";
             ok = false;
             break;
         }
@@ -667,11 +682,14 @@ esp_err_t mel_link_v2_transport_transcribe_adpcm(
 
     const bool done = xSemaphoreTake(g_response_done, pdMS_TO_TICKS(90000)) == pdTRUE;
     status = g_active.status;
-    response = g_active.body;
+    if (!g_active.body.empty()) response = g_active.body;
     const bool failed = !done || g_active.failed;
     if (!done) {
+        response = "STT_RESPONSE_TIMEOUT";
         ESP_LOGE(TAG, "ADPCM STT response timeout stream=%u blocks=%u",
                  g_active.stream_id, seq);
+    } else if (g_active.failed && response.empty()) {
+        response = "BT_RESPONSE_FAILED";
     }
 
     g_active = {};
