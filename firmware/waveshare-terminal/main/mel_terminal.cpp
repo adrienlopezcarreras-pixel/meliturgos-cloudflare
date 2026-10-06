@@ -1456,6 +1456,33 @@ static std::string record_and_transcribe() {
 }
 
 static void voice_task(void *) {
+    if (!g_online) {
+        if (!mel_mobile_bridge_ready()) {
+            g_runtime_state = MEL_TERMINAL_ERROR;
+            voice_error("RELAIS MEL");
+            ui_status("RELAIS MEL INDISPONIBLE");
+            g_voice_task_handle = nullptr;
+            vTaskDelete(nullptr);
+            return;
+        }
+
+        ui_status("VALIDATION MEL...");
+        mel_terminal_start_online();
+        for (int i = 0; i < 40 && !g_online && mel_mobile_bridge_ready(); ++i) {
+            vTaskDelay(pdMS_TO_TICKS(200));
+        }
+        if (!g_online) {
+            g_runtime_state = MEL_TERMINAL_ERROR;
+            voice_error("RELAIS MEL");
+            ui_status("RELAIS MEL NON PRET");
+            vTaskDelay(pdMS_TO_TICKS(1200));
+            g_runtime_state = MEL_TERMINAL_IDLE;
+            g_voice_task_handle = nullptr;
+            vTaskDelete(nullptr);
+            return;
+        }
+    }
+
     g_runtime_state = MEL_TERMINAL_LISTENING;
     ui_status("ECOUTE...");
     ui_answer("");
@@ -1512,7 +1539,8 @@ static void voice_task(void *) {
 
 
 void mel_terminal_request_voice(void) {
-    if (!g_online || !g_audio_ok) return;
+    if (!g_audio_ok) return;
+    if (!g_online && !mel_mobile_bridge_ready()) return;
 
     if (g_voice_task_handle) {
         if (g_runtime_state == MEL_TERMINAL_LISTENING) {
