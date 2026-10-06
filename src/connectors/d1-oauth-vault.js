@@ -5,6 +5,9 @@ export const OAUTH_VAULT_ALGORITHM = 'AES-GCM-256';
 
 const KEY_BYTES = 32;
 const IV_BYTES = 12;
+const OAUTH_VAULT_HKDF_SALT = 'meliturgos-oauth-vault-salt-v1';
+const OAUTH_VAULT_HKDF_INFO = 'MEL_OAUTH_VAULT_DERIVED_KEY_V1';
+export const OAUTH_VAULT_DERIVED_KEY_PREFIX = 'oauth-hkdf-v1:';
 
 function vaultError(code, status = 400) {
   return new DomainError(code, status);
@@ -44,6 +47,20 @@ async function importKey(bytes) {
   return crypto.subtle.importKey('raw', bytes, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
 }
 
+async function deriveOAuthVaultKey(rootBytes) {
+  if (!(rootBytes instanceof Uint8Array) || rootBytes.byteLength !== KEY_BYTES) {
+    throw vaultError('OAUTH_VAULT_ROOT_KEY_MUST_BE_32_BYTES', 503);
+  }
+  const material = await crypto.subtle.importKey('raw', rootBytes, 'HKDF', false, ['deriveBits']);
+  const bits = await crypto.subtle.deriveBits({
+    name: 'HKDF',
+    hash: 'SHA-256',
+    salt: new TextEncoder().encode(OAUTH_VAULT_HKDF_SALT),
+    info: new TextEncoder().encode(OAUTH_VAULT_HKDF_INFO),
+  }, material, 256);
+  return new Uint8Array(bits);
+}
+
 function stable(value) {
   if (Array.isArray(value)) return value.map(stable);
   if (!value || typeof value !== 'object') return value;
@@ -62,18 +79,25 @@ export function decodeOAuthVaultKey(value) {
 
 export function createOAuthVaultCodec({
   keyBytes,
+  keyResolver = null,
   keyId,
   randomBytes = size => crypto.getRandomValues(new Uint8Array(size)),
 } = {}) {
   const normalizedKeyId = clean(keyId, 200);
   if (!normalizedKeyId) throw vaultError('OAUTH_VAULT_KEY_ID_REQUIRED', 503);
-  if (!(keyBytes instanceof Uint8Array) || keyBytes.byteLength !== KEY_BYTES) {
+  const fixedKey = keyBytes instanceof Uint8Array && keyBytes.byteLength === KEY_BYTES
+    ? keyBytes
+    : null;
+  if (!fixedKey && typeof keyResolver !== 'function') {
     throw vaultError('OAUTH_VAULT_KEY_MUST_BE_32_BYTES', 503);
   }
 
   let imported;
   async function key() {
-    imported ||= importKey(keyBytes);
+    if (!imported) {
+      const resolved = fixedKey || await keyResolver();
+      imported = await importKey(resolved);
+    }
     return imported;
   }
 
@@ -108,7 +132,12 @@ export function createOAuthVaultCodec({
     async open(envelope, expectedAad) {
       requireValue(envelope?.schema === OAUTH_VAULT_SCHEMA, 'OAUTH_VAULT_SCHEMA_INVALID', 409);
       requireValue(envelope?.algorithm === OAUTH_VAULT_ALGORITHM, 'OAUTH_VAULT_ALGORITHM_INVALID', 409);
-      requireValue(envelope?.key_id === normalizedKeyId, 'OAUTH_VAULT_KEY_ID_MISMATCH', 409);
+      if (envelope?.key_id !== normalizedKeyId) {
+        if (String(envelope?.key_id || '') === 'mel-oauth-v1' && normalizedKeyId.startsWith(OAUTH_VAULT_DERIVED_KEY_PREFIX)) {
+          throw vaultError('OAUTH_VAULT_LEGACY_KEY_UNAVAILABLE_RECONNECT_REQUIRED', 409);
+        }
+        throw vaultError('OAUTH_VAULT_KEY_ID_MISMATCH', 409);
+      }
       requireValue(
         JSON.stringify(stable(envelope?.aad || {})) === JSON.stringify(stable(expectedAad || {})),
         'OAUTH_VAULT_AAD_MISMATCH',
@@ -143,13 +172,28 @@ export function createOAuthVaultCodec({
 }
 
 export function createEnvOAuthVaultCodec(env = {}) {
-  const keyId = clean(env.MEL_OAUTH_ENCRYPTION_KEY_ID, 200);
-  const encoded = clean(env.MEL_OAUTH_ENCRYPTION_KEY_B64, 1000);
-  if (!keyId) throw vaultError('OAUTH_VAULT_KEY_ID_REQUIRED', 503);
-  if (!encoded) throw vaultError('OAUTH_VAULT_KEY_REQUIRED', 503);
+  const explicitKeyId = clean(env.MEL_OAUTH_ENCRYPTION_KEY_ID, 200);
+  const explicitEncoded = clean(env.MEL_OAUTH_ENCRYPTION_KEY_B64, 1000);
+  if (Boolean(explicitKeyId) !== Boolean(explicitEncoded)) {
+    throw vaultError('OAUTH_VAULT_EXPLICIT_KEY_INCOMPLETE', 503);
+  }
+  if (explicitKeyId && explicitEncoded) {
+    return createOAuthVaultCodec({
+      keyId: explicitKeyId,
+      keyBytes: decodeOAuthVaultKey(explicitEncoded),
+    });
+  }
+
+  const rootKeyId = clean(env.MEL_BACKUP_ENCRYPTION_KEY_ID, 200);
+  const rootEncoded = clean(env.MEL_BACKUP_ENCRYPTION_KEY_B64, 1000);
+  if (!rootKeyId) throw vaultError('OAUTH_VAULT_ROOT_KEY_ID_REQUIRED', 503);
+  if (!rootEncoded) throw vaultError('OAUTH_VAULT_ROOT_KEY_REQUIRED', 503);
+  const rootBytes = base64ToBytes(rootEncoded, 'OAUTH_VAULT_ROOT_KEY_BASE64_INVALID');
+  if (rootBytes.byteLength !== KEY_BYTES) throw vaultError('OAUTH_VAULT_ROOT_KEY_MUST_BE_32_BYTES', 503);
+
   return createOAuthVaultCodec({
-    keyId,
-    keyBytes: decodeOAuthVaultKey(encoded),
+    keyId: OAUTH_VAULT_DERIVED_KEY_PREFIX + rootKeyId,
+    keyResolver: () => deriveOAuthVaultKey(rootBytes),
   });
 }
 
