@@ -89,9 +89,12 @@ export function createCompanionSovereigntyExecutor(env,{
         return{
           ok:false,
           code:'COMPANION_ENGINE_UPDATE_REQUIRED:'+MIN_LOCAL_AI_ENGINE_VERSION,
+          native_version:clean(metadata.version,80)||null,
           engine_version:engineVersion||null,
           required_engine_version:MIN_LOCAL_AI_ENGINE_VERSION,
           refresh_status:clean(metadata.engine_refresh_status,80)||null,
+          refresh_at:Number(metadata.engine_refresh_at||0)||null,
+          refresh_error:clean(metadata.engine_refresh_error,180)||null,
         };
       }
     }
