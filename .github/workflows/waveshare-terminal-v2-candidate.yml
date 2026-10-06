@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - fix/mini-apk-v2-token-relay-20261006
+      - build/mini-0.5.13-chatnotify-20261006
   workflow_dispatch:
 
 permissions:
