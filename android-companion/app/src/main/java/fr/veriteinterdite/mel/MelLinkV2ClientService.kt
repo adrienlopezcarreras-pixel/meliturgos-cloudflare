@@ -302,8 +302,13 @@ class MelLinkV2ClientService : Service() {
                 miniReady.value = false
                 protocolReady.value = false
                 if (!hasBlePermissions()) return
-                val mtuQueued = runCatching { client.requestMtu(MelLinkV2Protocol.DEFAULT_MTU) }.getOrDefault(false)
-                if (!mtuQueued) client.discoverServices()
+                val mtuQueued = runCatching {
+                    client.requestMtu(MelLinkV2Protocol.DEFAULT_MTU)
+                }.getOrDefault(false)
+                if (!mtuQueued) {
+                    lastError.value = "MTU_REQUEST_FAILED"
+                    failAndReconnect(client, "MTU_REQUEST_FAILED")
+                }
                 return
             }
 
@@ -320,6 +325,14 @@ class MelLinkV2ClientService : Service() {
 
         override fun onMtuChanged(client: BluetoothGatt, mtu: Int, status: Int) {
             if (!hasBlePermissions()) return
+            if (status != BluetoothGatt.GATT_SUCCESS || mtu < MelLinkV2Protocol.MIN_AUDIO_MTU) {
+                lastError.value = "MTU_" + mtu + "_STATUS_" + status
+                state.value = "MTU INSUFFISANT (" + mtu + ")"
+                Log.e(TAG, "Link V2 MTU insufficient: mtu=" + mtu + " status=" + status)
+                failAndReconnect(client, "MTU_" + mtu + "_STATUS_" + status)
+                return
+            }
+            Log.i(TAG, "Link V2 MTU negotiated: " + mtu)
             state.value = "DECOUVERTE SERVICES"
             client.discoverServices()
         }
