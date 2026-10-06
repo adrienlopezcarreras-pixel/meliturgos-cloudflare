@@ -17,6 +17,8 @@ object MelLinkV2Protocol {
     const val REQUEST_BEGIN = 0x10
     const val REQUEST_DATA = 0x11
     const val REQUEST_END = 0x12
+    const val MEDIA_CONFIG_REQUEST = 0x13
+    const val MEDIA_CONFIG = 0x14
     const val RESPONSE_BEGIN = 0x20
     const val RESPONSE_DATA = 0x21
     const val RESPONSE_END = 0x22
