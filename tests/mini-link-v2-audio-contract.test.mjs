@@ -78,3 +78,19 @@ test('Link V2 audio/server failure remains a stream failure, not a physical BLE 
   assert.match(android,/sendErrorAsync/);
   assert.doesNotMatch(android,/cancelConnection/);
 });
+
+
+test('MINI audio begin/end use notifications because CREDIT/response provide app-level acknowledgement', async () => {
+  const transport = await readFile(
+    new URL('../firmware/waveshare-terminal/main/mel_link_v2_transport.cpp', import.meta.url),
+    'utf8'
+  );
+  assert.match(
+    transport,
+    /MEL_LINK_V2_AUDIO_BEGIN,[\s\S]*?\(uint16_t\)meta\.size\(\), false/
+  );
+  assert.match(
+    transport,
+    /MEL_LINK_V2_AUDIO_END,[\s\S]*?nullptr, 0, false/
+  );
+});
