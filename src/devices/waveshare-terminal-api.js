@@ -480,10 +480,29 @@ async function authorizeAndroidMiniLink(env, androidDeviceId, miniDeviceId) {
   const row = await env.DB.prepare(`SELECT android_device_id,mini_device_id
     FROM android_mini_links WHERE android_device_id=? AND mini_device_id=? LIMIT 1`)
     .bind(androidDeviceId, miniDeviceId).first();
-  if (!row) return false;
-  await env.DB.prepare(`UPDATE android_mini_links SET last_seen_at=?
-    WHERE android_device_id=? AND mini_device_id=?`)
-    .bind(Date.now(), androidDeviceId, miniDeviceId).run();
+  if (row) {
+    await env.DB.prepare(`UPDATE android_mini_links SET last_seen_at=?
+      WHERE android_device_id=? AND mini_device_id=?`)
+      .bind(Date.now(), androidDeviceId, miniDeviceId).run();
+    return true;
+  }
+
+  // One-time migration path for an already-paired pre-V2 MINI: if nobody has
+  // claimed this MINI yet and its server-side device record is still valid,
+  // the first authenticated Android companion physically relaying that exact
+  // device ID becomes its durable V2 companion. Once claimed, a second Android
+  // cannot silently take it over.
+  const existingLink = await env.DB.prepare(
+    "SELECT android_device_id FROM android_mini_links WHERE mini_device_id=? LIMIT 1"
+  ).bind(miniDeviceId).first();
+  if (existingLink) return false;
+
+  const mini = await env.DB.prepare(
+    "SELECT device_id,revoked_at FROM device_tokens WHERE device_id=? LIMIT 1"
+  ).bind(miniDeviceId).first();
+  if (!mini || mini.revoked_at != null) return false;
+
+  await linkAndroidMini(env, androidDeviceId, miniDeviceId);
   return true;
 }
 
