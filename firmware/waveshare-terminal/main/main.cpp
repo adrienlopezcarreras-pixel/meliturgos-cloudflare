@@ -446,7 +446,8 @@ static void mini_anim_cb(lv_timer_t *) {
     }
 
     if (talk_button) {
-        if (online && (state == MEL_TERMINAL_IDLE || state == MEL_TERMINAL_LISTENING)) {
+        const bool voice_transport_ready = online || mel_terminal_mobile_connected();
+        if (voice_transport_ready && (state == MEL_TERMINAL_IDLE || state == MEL_TERMINAL_LISTENING)) {
             lv_obj_clear_state(talk_button, LV_STATE_DISABLED);
         } else {
             lv_obj_add_state(talk_button, LV_STATE_DISABLED);
@@ -1669,13 +1670,17 @@ static void touch_cb(lv_event_t *e) {
     const lv_event_code_t code = lv_event_get_code(e);
     if (code == LV_EVENT_PRESSED) {
         ESP_LOGI(TAG, "UI BUTTON: PARLER pressed");
-        if (!mel_terminal_online()) {
+        if (!mel_terminal_online() && !mel_terminal_mobile_connected()) {
             lv_label_set_text(status_label, "MEL HORS LIGNE");
-            ESP_LOGW(TAG, "Talk requested while MEL runtime is offline");
+            ESP_LOGW(TAG, "Talk requested without MEL transport");
             return;
         }
+        if (!mel_terminal_online()) {
+            lv_label_set_text(status_label, "VALIDATION MEL...");
+            ESP_LOGI(TAG, "PARLER requested during Link V2 identity/session recovery");
+        }
         mel_terminal_request_voice();
-        ESP_LOGI(TAG, "PARLER recording started");
+        ESP_LOGI(TAG, "PARLER request accepted");
         return;
     }
     if (code == LV_EVENT_RELEASED || code == LV_EVENT_PRESS_LOST) {
