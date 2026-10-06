@@ -96,6 +96,7 @@ static TaskHandle_t wifi_connect_task_handle = nullptr;
 static volatile bool wifi_got_ip = false;
 static volatile int wifi_disconnect_reason = -1;
 static volatile bool wifi_auto_reconnect_enabled = false;
+static volatile bool media_wifi_active = false;
 static volatile int wifi_reconnect_attempt = 0;
 static TaskHandle_t wifi_reconnect_task_handle = nullptr;
 static TaskHandle_t wifi_fallback_task_handle = nullptr;
@@ -291,12 +292,12 @@ static void mini_wifi_event_diag(void *, esp_event_base_t base, int32_t id, void
         mel_terminal_set_wifi_connected(false);
         ESP_LOGW(TAG, "MINI WIFI DISCONNECTED reason=%d (%s)",
                  wifi_disconnect_reason, wifi_reason_text(wifi_disconnect_reason));
-        if (wifi_auto_reconnect_enabled && !wifi_reconnect_task_handle) {
+        if (!media_wifi_active && wifi_auto_reconnect_enabled && !wifi_reconnect_task_handle) {
             xTaskCreatePinnedToCore(wifi_reconnect_task, "mini_wifi_reconnect", 4096, nullptr, 3, &wifi_reconnect_task_handle, 0);
         }
     } else if (base == IP_EVENT && id == IP_EVENT_STA_GOT_IP) {
         wifi_got_ip = true;
-        wifi_auto_reconnect_enabled = true;
+        wifi_auto_reconnect_enabled = !media_wifi_active;
         wifi_reconnect_attempt = 0;
         wifi_disconnect_reason = -1;
         auto *ev = static_cast<ip_event_got_ip_t *>(data);
@@ -306,10 +307,76 @@ static void mini_wifi_event_diag(void *, esp_event_base_t base, int32_t id, void
             mel_terminal_set_network_info(ip);
             mel_terminal_set_wifi_connected(true);
             ESP_LOGI(TAG, "MINI WIFI GOT IP %s", ip);
-            clock_start_sync();
-            mel_terminal_start_online();
+            if (!media_wifi_active) {
+                clock_start_sync();
+                mel_terminal_start_online();
+            } else {
+                ESP_LOGI(TAG, "MINI MEDIA WIFI ready; Internet/session remain on MEL Mobile");
+            }
         }
     }
+}
+
+bool mini_media_wifi_connect(
+    const char *ssid,
+    const char *password,
+    char *gateway,
+    size_t gateway_len
+) {
+    if (!ssid || !ssid[0] || !gateway || gateway_len < 8) return false;
+    gateway[0] = '\0';
+    media_wifi_active = true;
+    wifi_auto_reconnect_enabled = false;
+    wifi_reconnect_attempt = 0;
+
+    esp_wifi_disconnect();
+    vTaskDelay(pdMS_TO_TICKS(120));
+
+    wifi_config_t cfg = {};
+    snprintf((char *)cfg.sta.ssid, sizeof(cfg.sta.ssid), "%s", ssid);
+    snprintf((char *)cfg.sta.password, sizeof(cfg.sta.password), "%s", password ? password : "");
+    cfg.sta.scan_method = WIFI_ALL_CHANNEL_SCAN;
+    cfg.sta.sort_method = WIFI_CONNECT_AP_BY_SIGNAL;
+    cfg.sta.threshold.rssi = -127;
+    cfg.sta.threshold.authmode = WIFI_AUTH_OPEN;
+    cfg.sta.pmf_cfg.capable = true;
+    cfg.sta.pmf_cfg.required = false;
+
+    if (esp_wifi_set_config(WIFI_IF_STA, &cfg) != ESP_OK ||
+        esp_wifi_connect() != ESP_OK) {
+        media_wifi_active = false;
+        return false;
+    }
+
+    esp_netif_t *sta = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
+    for (int i = 0; i < 120; ++i) {
+        esp_netif_ip_info_t info = {};
+        if (sta && esp_netif_get_ip_info(sta, &info) == ESP_OK &&
+            info.ip.addr != 0 && info.gw.addr != 0) {
+            snprintf(gateway, gateway_len, IPSTR, IP2STR(&info.gw));
+            ESP_LOGI(TAG, "MINI MEDIA WIFI connected ssid=%s gateway=%s", ssid, gateway);
+            return true;
+        }
+        vTaskDelay(pdMS_TO_TICKS(100));
+    }
+
+    ESP_LOGW(TAG, "MINI MEDIA WIFI timeout ssid=%s", ssid);
+    esp_wifi_disconnect();
+    media_wifi_active = false;
+    wifi_got_ip = false;
+    mel_terminal_set_wifi_connected(false);
+    return false;
+}
+
+void mini_media_wifi_release(void) {
+    if (!media_wifi_active) return;
+    media_wifi_active = false;
+    wifi_auto_reconnect_enabled = false;
+    wifi_reconnect_attempt = 0;
+    esp_wifi_disconnect();
+    wifi_got_ip = false;
+    mel_terminal_set_wifi_connected(false);
+    ESP_LOGI(TAG, "MINI MEDIA WIFI released; BLE remains primary");
 }
 
 bool mini_ui_visual_active() {
