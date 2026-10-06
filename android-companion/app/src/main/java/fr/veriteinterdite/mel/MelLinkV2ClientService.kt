@@ -369,21 +369,32 @@ class MelLinkV2ClientService : Service() {
         }
         val rawId = Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID)
         val androidDeviceId = "android-" + (rawId ?: "unknown").take(64)
+        val miniDeviceId = request.meta.optString("mini_device_id").trim()
         val token = TokenVault(this).load()
         if (token.isNullOrBlank()) {
             sendError(request.streamId, "ANDROID_NOT_PAIRED")
             return
         }
+        if (miniDeviceId.isBlank()) {
+            sendError(request.streamId, "MINI_DEVICE_ID_REQUIRED")
+            return
+        }
+
+        val delegatedPath = if (path.startsWith("/api/device/v1/")) {
+            "/api/android/v1/mini/" + path.removePrefix("/api/device/v1/")
+        } else {
+            path
+        }
 
         try {
-            val connection = java.net.URL(BuildConfig.MEL_BASE_URL.trimEnd('/') + path).openConnection() as java.net.HttpURLConnection
+            val connection = java.net.URL(BuildConfig.MEL_BASE_URL.trimEnd('/') + delegatedPath).openConnection() as java.net.HttpURLConnection
             try {
                 connection.requestMethod = method
                 connection.connectTimeout = 15_000
                 connection.readTimeout = 90_000
                 connection.setRequestProperty("Authorization", "Bearer $token")
                 connection.setRequestProperty("X-MEL-Device-ID", androidDeviceId)
-                connection.setRequestProperty("X-MEL-MINI-Device-ID", request.meta.optString("mini_device_id"))
+                connection.setRequestProperty("X-MEL-MINI-Device-ID", miniDeviceId)
                 connection.setRequestProperty("X-MEL-Link-Protocol", "2")
                 connection.setRequestProperty("Accept", "*/*")
                 if (request.body.size() > 0) {
