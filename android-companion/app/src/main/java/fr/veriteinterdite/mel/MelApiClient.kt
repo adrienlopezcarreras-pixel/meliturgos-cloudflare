@@ -288,6 +288,31 @@ class MelApiClient(
         return readJson(connection)
     }
 
+
+    fun transcribeMini(
+        audioBytes: ByteArray,
+        miniDeviceId: String,
+        mimeType: String = "audio/wav"
+    ): JSONObject {
+        require(audioBytes.isNotEmpty())
+        require(miniDeviceId.isNotBlank()) { "MINI_DEVICE_ID_REQUIRED" }
+        val boundary = "mel-mini-" + UUID.randomUUID().toString()
+        val connection = connection("/api/android/v1/mini/voice/transcribe", "POST")
+        connection.doOutput = true
+        connection.setRequestProperty("X-MEL-MINI-Device-ID", miniDeviceId.take(200))
+        connection.setRequestProperty("X-MEL-Link-Protocol", "2")
+        connection.setRequestProperty("Content-Type", "multipart/form-data; boundary=$boundary")
+        connection.outputStream.use { output ->
+            fun text(value: String) = output.write(value.toByteArray(Charsets.UTF_8))
+            text("--$boundary\r\n")
+            text("Content-Disposition: form-data; name=\"audio\"; filename=\"mini.wav\"\r\n")
+            text("Content-Type: $mimeType\r\n\r\n")
+            output.write(audioBytes)
+            text("\r\n--$boundary--\r\n")
+        }
+        return readJson(connection)
+    }
+
     fun syncAndAck(conversationId: String): JSONArray {
         val response = sync(conversationId)
         val messages = response.optJSONArray("messages") ?: JSONArray()
