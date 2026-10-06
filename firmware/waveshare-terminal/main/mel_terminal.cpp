@@ -43,6 +43,7 @@
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "freertos/idf_additions.h"
 #include "freertos/event_groups.h"
 #include "freertos/semphr.h"
 
@@ -566,9 +567,25 @@ static esp_err_t http_request(
 ) {
     auto mobile_request = [&]() -> esp_err_t {
         const std::string prefix = SERVER;
-        if (!mel_mobile_bridge_ready() || url.rfind(prefix, 0) != 0) return ESP_ERR_INVALID_STATE;
+        if (url.rfind(prefix, 0) != 0) return ESP_ERR_INVALID_STATE;
         const std::string path = url.substr(prefix.size());
-        ESP_LOGI(TAG, "HTTP via MEL MOBILE: %s", path.c_str());
+
+        if (mel_link_v2_transport_ready()) {
+            ESP_LOGI(TAG, "HTTP via MEL LINK V2: %s", path.c_str());
+            return mel_link_v2_transport_request(
+                method,
+                path.c_str(),
+                content_type,
+                g_device_id,
+                reinterpret_cast<const uint8_t *>(body),
+                body_len > 0 ? (size_t)body_len : 0,
+                response,
+                status
+            );
+        }
+
+        if (!mel_mobile_bridge_ready()) return ESP_ERR_INVALID_STATE;
+        ESP_LOGW(TAG, "HTTP falling back to legacy MEL MOBILE bridge: %s", path.c_str());
         return mel_mobile_bridge_request(
             method,
             path.c_str(),
@@ -585,7 +602,7 @@ static esp_err_t http_request(
     // MEL Mobile is the preferred transport whenever its GATT channel is ready.
     // Wi-Fi is a fallback, not the primary path. If BLE itself fails and Wi-Fi
     // is already connected, retry the same request directly over Wi-Fi.
-    if (mel_mobile_bridge_ready()) {
+    if (mel_link_v2_transport_ready() || mel_mobile_bridge_ready()) {
         esp_err_t mobile_err = mobile_request();
         if (mobile_err == ESP_OK || !g_wifi_connected) return mobile_err;
         ESP_LOGW(TAG, "MEL MOBILE transport failed (%s); falling back to Wi-Fi",
@@ -615,7 +632,7 @@ static esp_err_t http_request(
     cfg.crt_bundle_attach = esp_crt_bundle_attach;
     cfg.timeout_ms = 45000;
     esp_http_client_handle_t client = esp_http_client_init(&cfg);
-    if (!client) return mel_mobile_bridge_ready() ? mobile_request() : ESP_FAIL;
+    if (!client) return (mel_link_v2_transport_ready() || mel_mobile_bridge_ready()) ? mobile_request() : ESP_FAIL;
 
     esp_http_client_set_method(client, method);
     if (content_type) esp_http_client_set_header(client, "Content-Type", content_type);
@@ -631,7 +648,7 @@ static esp_err_t http_request(
     response = buffer.body;
     esp_http_client_cleanup(client);
 
-    if (err != ESP_OK && mel_mobile_bridge_ready()) {
+    if (err != ESP_OK && (mel_link_v2_transport_ready() || mel_mobile_bridge_ready())) {
         ESP_LOGW(TAG, "Wi-Fi HTTP failed (%s), falling back to MEL MOBILE", esp_err_to_name(err));
         response.clear();
         status = 0;
@@ -1586,14 +1603,15 @@ static void voice_worker_task(void *) {
 bool mel_terminal_prepare_voice_worker(void) {
     if (g_voice_worker_handle) return true;
 
-    const BaseType_t created = xTaskCreatePinnedToCore(
+    const BaseType_t created = xTaskCreatePinnedToCoreWithCaps(
         voice_worker_task,
         "mel_voice",
         10240,
         nullptr,
         5,
         &g_voice_worker_handle,
-        0
+        0,
+        MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT
     );
 
     if (created != pdPASS || !g_voice_worker_handle) {
