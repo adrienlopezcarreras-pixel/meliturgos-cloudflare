@@ -504,12 +504,21 @@ static esp_err_t request_common(
     std::string meta = json_string(meta_json);
     cJSON_Delete(meta_json);
 
-    bool ok = meta.size() <= 160 &&
-        send_v2(
+    bool ok = meta.size() <= 160;
+    if (!ok) {
+        if (response) *response = "REQUEST_META_TOO_LARGE";
+    } else if (!send_v2(
             MEL_LINK_V2_REQUEST_BEGIN, g_active.stream_id, 0,
             reinterpret_cast<const uint8_t *>(meta.data()),
-            (uint16_t)meta.size(), true
-        );
+            (uint16_t)meta.size(), false
+        )) {
+        if (response) {
+            *response = mel_link_v2_transport_ready()
+                ? "BT_REQUEST_BEGIN_SEND"
+                : "BT_SESSION_DROPPED_REQUEST_BEGIN";
+        }
+        ok = false;
+    }
 
     const uint16_t mtu = mel_link_v2_server_mtu();
     const size_t max_payload = mtu > (MEL_LINK_V2_HEADER_SIZE + 3)
@@ -523,19 +532,42 @@ static esp_err_t request_common(
         while (offset < body_len && ok) {
             if (xSemaphoreTake(g_credit_sem, pdMS_TO_TICKS(5000)) != pdTRUE) {
                 ESP_LOGE(TAG, "credit timeout stream=%u seq=%u", g_active.stream_id, seq);
+                if (response) *response = "BT_REQUEST_CREDIT_TIMEOUT";
                 ok = false;
                 break;
             }
             const size_t n = std::min(chunk, body_len - offset);
+            const uint16_t current_seq = seq;
             ok = send_v2(
                 MEL_LINK_V2_REQUEST_DATA, g_active.stream_id, seq++,
                 body + offset, (uint16_t)n, false
             );
+            if (!ok) {
+                if (response) {
+                    char diag[48] = {};
+                    snprintf(
+                        diag, sizeof(diag),
+                        mel_link_v2_transport_ready()
+                            ? "BT_REQUEST_DATA_SEND_%u"
+                            : "BT_SESSION_DROPPED_REQUEST_DATA_%u",
+                        (unsigned)current_seq
+                    );
+                    *response = diag;
+                }
+                break;
+            }
             offset += n;
         }
     }
 
-    if (ok) ok = send_v2(MEL_LINK_V2_REQUEST_END, g_active.stream_id, seq, nullptr, 0, true);
+    if (ok) {
+        ok = send_v2(MEL_LINK_V2_REQUEST_END, g_active.stream_id, seq, nullptr, 0, false);
+        if (!ok && response) {
+            *response = mel_link_v2_transport_ready()
+                ? "BT_REQUEST_END_SEND"
+                : "BT_SESSION_DROPPED_REQUEST_END";
+        }
+    }
     if (!ok) {
         g_active.failed = true;
         g_active = {};
