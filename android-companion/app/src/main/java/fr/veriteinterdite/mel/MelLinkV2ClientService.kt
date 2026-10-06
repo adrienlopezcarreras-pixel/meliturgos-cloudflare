@@ -592,6 +592,44 @@ class MelLinkV2ClientService : Service() {
         )
     }
 
+        private fun sendAudioResponse(streamId: Int, pcm16: ShortArray, outputRate: Int): Boolean {
+        if (pcm16.isEmpty()) return false
+        val meta = JSONObject()
+            .put("codec", "ima-adpcm")
+            .put("rate", 16_000)
+            .put("ch", 1)
+            .put("samples", pcm16.size)
+            .put("block", MelImaAdpcm.BLOCK_SAMPLES)
+            .put("output_rate", outputRate)
+            .toString()
+            .toByteArray(Charsets.UTF_8)
+
+        if (!sendControlBlocking(
+                MelLinkV2Protocol.encode(
+                    MelLinkV2Protocol.AUDIO_BEGIN, 0, streamId, 0, meta
+                )
+            )) return false
+
+        var seq = 0
+        var offset = 0
+        while (offset < pcm16.size) {
+            val end = minOf(offset + MelImaAdpcm.BLOCK_SAMPLES, pcm16.size)
+            val encoded = MelImaAdpcm.encodeBlock(pcm16.copyOfRange(offset, end))
+            if (!sendBulkBlocking(
+                    MelLinkV2Protocol.encode(
+                        MelLinkV2Protocol.AUDIO_DATA, 0, streamId, seq++, encoded
+                    )
+                )) return false
+            offset = end
+        }
+
+        return sendControlBlocking(
+            MelLinkV2Protocol.encode(
+                MelLinkV2Protocol.AUDIO_END, 0, streamId, seq
+            )
+        )
+    }
+
         private fun executeRequest(request: IncomingRequest) {
         val method = request.meta.optString("method", "POST").uppercase()
         val path = request.meta.optString("path")
@@ -643,21 +681,29 @@ class MelLinkV2ClientService : Service() {
                 }
                 val stream = if (status in 200..299) connection.inputStream else connection.errorStream
                 val body = stream?.use { it.readBytes() } ?: byteArrayOf()
-                val begin = JSONObject()
-                    .put("status", status)
-                    .put("content_type", connection.contentType ?: "application/octet-stream")
-                    .put("length", body.size)
-                    .toString().toByteArray()
-                if (!sendControlBlocking(MelLinkV2Protocol.encode(MelLinkV2Protocol.RESPONSE_BEGIN, 0, request.streamId, 0, begin))) return
-                var seq = 0
-                var offset = 0
-                val chunk = 150
-                while (offset < body.size) {
-                    val end = minOf(offset + chunk, body.size)
-                    if (!sendBulkBlocking(MelLinkV2Protocol.encode(MelLinkV2Protocol.RESPONSE_DATA, 0, request.streamId, seq++, body.copyOfRange(offset, end)))) return
-                    offset = end
+
+                if (status in 200..299 && path == "/api/device/v1/voice/tts") {
+                    val pcm48 = runCatching {
+                        MelImaAdpcm.decodePcm16MonoWav(body, 48_000)
+                    }.getOrElse {
+                        lastError.value = "TTS_WAV"
+                        sendResponse(
+                            request.streamId, 503, "application/json",
+                            JSONObject().put("ok",false).put("code","TTS_WAV").toString().toByteArray()
+                        )
+                        return
+                    }
+                    val pcm16 = MelImaAdpcm.decimate48kTo16k(pcm48)
+                    sendAudioResponse(request.streamId, pcm16, outputRate = 48_000)
+                    return
                 }
-                sendControlBlocking(MelLinkV2Protocol.encode(MelLinkV2Protocol.RESPONSE_END, 0, request.streamId, seq))
+
+                sendResponse(
+                    request.streamId,
+                    status,
+                    connection.contentType ?: "application/octet-stream",
+                    body
+                )
             } finally {
                 connection.disconnect()
             }
