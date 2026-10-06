@@ -14,8 +14,9 @@ test('Link V2 physical STT preserves real 16 kHz speech before ADPCM transport',
 
   assert.match(terminal,/VOICE_CAPTURE_RATE = 16000/);
   assert.match(terminal,/VOICE_STT_RATE = 16000/);
-  assert.match(terminal,/VOICE_DECIMATOR_Q15\[31\]/);
-  assert.match(terminal,/acc \+= \(int64_t\)centered \* VOICE_DECIMATOR_Q15\[tap\]/);
+  assert.doesNotMatch(terminal,/VOICE_DECIMATOR_Q15/);
+  assert.match(terminal,/const int speech_samples = captured_samples/);
+  assert.match(terminal,/int32_t v = \(int32_t\)capture\[i\] - dc/);
   assert.match(terminal,/mel_link_v2_transport_transcribe_adpcm\(/);
   assert.doesNotMatch(terminal,/application\/x-mel-pcm4/);
   assert.doesNotMatch(terminal,/samples_per_byte=2/);
