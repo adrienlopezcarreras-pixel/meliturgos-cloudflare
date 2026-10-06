@@ -53,6 +53,11 @@ static lv_obj_t *status_label = nullptr;
 static lv_obj_t *runtime_status_label = nullptr;
 static lv_obj_t *time_label = nullptr;
 static lv_obj_t *answer_label = nullptr;
+static lv_obj_t *response_panel = nullptr;
+static lv_obj_t *response_text_box = nullptr;
+static lv_obj_t *response_media_frame = nullptr;
+static lv_obj_t *response_image_obj = nullptr;
+static lv_obj_t *response_media_hint = nullptr;
 static lv_obj_t *face_obj = nullptr;
 static lv_obj_t *avatar_obj = nullptr;
 static uint8_t *visual_pixels = nullptr;
@@ -115,6 +120,7 @@ enum MiniView {
     MINI_VIEW_WIFI_MANUAL = 3,
     MINI_VIEW_PAIR = 4,
     MINI_VIEW_SETTINGS = 5,
+    MINI_VIEW_RESPONSE = 6,
 };
 
 static volatile int requested_view = MINI_VIEW_MAIN;
@@ -384,19 +390,41 @@ bool mini_ui_visual_active() {
     return visual_active;
 }
 
+bool mini_ui_response_page_active() {
+    return active_view == MINI_VIEW_RESPONSE || requested_view == MINI_VIEW_RESPONSE;
+}
+
+void mini_ui_open_response_page(const char *text) {
+    if (answer_label && lvgl_port_lock(1000)) {
+        lv_label_set_text(answer_label, text ? text : "");
+        if (text && text[0]) lv_obj_clear_flag(answer_label, LV_OBJ_FLAG_HIDDEN);
+        else lv_obj_add_flag(answer_label, LV_OBJ_FLAG_HIDDEN);
+        lvgl_port_unlock();
+    }
+    request_view(MINI_VIEW_RESPONSE);
+}
+
+void mini_ui_close_response_page() {
+    mini_ui_hide_visual();
+    request_view(MINI_VIEW_MAIN);
+}
+
 void mini_ui_hide_visual() {
-    if (!avatar_obj) return;
     uint8_t *old_pixels = nullptr;
     if (lvgl_port_lock(1000)) {
         if (visual_active) {
-            lv_img_set_src(avatar_obj, &mel_avatar_mode_complet);
-            lv_obj_set_pos(avatar_obj, 0, 0);
-            lv_img_set_zoom(avatar_obj, 256);
+            if (response_image_obj) {
+                lv_obj_add_flag(response_image_obj, LV_OBJ_FLAG_HIDDEN);
+                lv_img_set_src(response_image_obj, nullptr);
+            }
+            if (response_media_hint) {
+                lv_label_set_text(response_media_hint, "TEXTE / PHOTO / VIDEO");
+                lv_obj_clear_flag(response_media_hint, LV_OBJ_FLAG_HIDDEN);
+            }
             visual_active = false;
             old_pixels = visual_pixels;
             visual_pixels = nullptr;
             memset(&visual_image, 0, sizeof(visual_image));
-            lv_obj_invalidate(avatar_obj);
         }
         lvgl_port_unlock();
     }
@@ -404,7 +432,7 @@ void mini_ui_hide_visual() {
 }
 
 bool mini_ui_show_rgb565(const uint8_t *pixels, size_t bytes, uint16_t width, uint16_t height) {
-    if (!pixels || !bytes || !avatar_obj || width == 0 || height == 0 || width > 320 || height > 320) return false;
+    if (!pixels || !bytes || !response_image_obj || width == 0 || height == 0 || width > 320 || height > 320) return false;
     const size_t expected = (size_t)width * (size_t)height * 2u;
     if (bytes != expected) return false;
 
@@ -424,11 +452,15 @@ bool mini_ui_show_rgb565(const uint8_t *pixels, size_t bytes, uint16_t width, ui
         visual_image.header.cf = LV_IMG_CF_TRUE_COLOR;
         visual_image.data_size = bytes;
         visual_image.data = visual_pixels;
-        lv_img_set_src(avatar_obj, &visual_image);
-        lv_obj_center(avatar_obj);
-        lv_img_set_zoom(avatar_obj, 256);
+        lv_img_set_src(response_image_obj, &visual_image);
+        const int zoom_w = (260 * 256) / std::max<int>(1, width);
+        const int zoom_h = (190 * 256) / std::max<int>(1, height);
+        lv_img_set_zoom(response_image_obj, std::min(256, std::min(zoom_w, zoom_h)));
+        lv_obj_center(response_image_obj);
+        lv_obj_clear_flag(response_image_obj, LV_OBJ_FLAG_HIDDEN);
+        if (response_media_hint) lv_obj_add_flag(response_media_hint, LV_OBJ_FLAG_HIDDEN);
         visual_active = true;
-        lv_obj_invalidate(avatar_obj);
+        lv_obj_invalidate(response_image_obj);
         lvgl_port_unlock();
         applied = true;
     }
@@ -437,6 +469,7 @@ bool mini_ui_show_rgb565(const uint8_t *pixels, size_t bytes, uint16_t width, ui
         return false;
     }
     if (old_pixels) heap_caps_free(old_pixels);
+    request_view(MINI_VIEW_RESPONSE);
     return true;
 }
 
@@ -689,11 +722,17 @@ static void mini_apply_requested_view(void) {
     if (wifi_panel) lv_obj_add_flag(wifi_panel, LV_OBJ_FLAG_HIDDEN);
     if (pair_panel) lv_obj_add_flag(pair_panel, LV_OBJ_FLAG_HIDDEN);
     if (settings_panel) lv_obj_add_flag(settings_panel, LV_OBJ_FLAG_HIDDEN);
+    if (response_panel) lv_obj_add_flag(response_panel, LV_OBJ_FLAG_HIDDEN);
     if (wifi_keyboard) lv_obj_add_flag(wifi_keyboard, LV_OBJ_FLAG_HIDDEN);
     if (pair_keyboard) lv_obj_add_flag(pair_keyboard, LV_OBJ_FLAG_HIDDEN);
 
     if (active_view == MINI_VIEW_MAIN) {
         if (main_panel) lv_obj_clear_flag(main_panel, LV_OBJ_FLAG_HIDDEN);
+        return;
+    }
+
+    if (active_view == MINI_VIEW_RESPONSE) {
+        if (response_panel) lv_obj_clear_flag(response_panel, LV_OBJ_FLAG_HIDDEN);
         return;
     }
 
@@ -1774,6 +1813,102 @@ static void touch_cb(lv_event_t *e) {
     ESP_LOGI(TAG, "PARLER first click -> start listening");
 }
 
+static void response_back_clicked(lv_event_t *e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    mini_ui_close_response_page();
+}
+
+static void response_next_clicked(lv_event_t *e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    mel_terminal_display_next();
+}
+
+static void response_previous_clicked(lv_event_t *e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    mel_terminal_display_previous();
+}
+
+static void response_ui_create(lv_obj_t *screen) {
+    response_panel = lv_obj_create(screen);
+    lv_obj_set_size(response_panel, 300, 460);
+    lv_obj_align(response_panel, LV_ALIGN_CENTER, 0, 0);
+    lv_obj_set_style_radius(response_panel, 18, 0);
+    lv_obj_set_style_bg_color(response_panel, lv_color_hex(0x07111F), 0);
+    lv_obj_set_style_bg_opa(response_panel, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(response_panel, 2, 0);
+    lv_obj_set_style_border_color(response_panel, lv_color_hex(0x22D3EE), 0);
+    lv_obj_set_style_pad_all(response_panel, 8, 0);
+    lv_obj_clear_flag(response_panel, LV_OBJ_FLAG_SCROLLABLE);
+
+    lv_obj_t *title = lv_label_create(response_panel);
+    lv_label_set_text(title, "REPONSE MEL");
+    lv_obj_set_style_text_color(title, lv_color_hex(0xF8FAFC), 0);
+    lv_obj_align(title, LV_ALIGN_TOP_LEFT, 10, 8);
+
+    lv_obj_t *back = lv_btn_create(response_panel);
+    lv_obj_set_size(back, 72, 36);
+    lv_obj_align(back, LV_ALIGN_TOP_RIGHT, -4, 2);
+    lv_obj_t *back_label = lv_label_create(back);
+    lv_label_set_text(back_label, "RETOUR");
+    lv_obj_center(back_label);
+    lv_obj_add_event_cb(back, response_back_clicked, LV_EVENT_CLICKED, nullptr);
+
+    response_media_frame = lv_obj_create(response_panel);
+    lv_obj_set_size(response_media_frame, 268, 202);
+    lv_obj_align(response_media_frame, LV_ALIGN_TOP_MID, 0, 50);
+    lv_obj_set_style_bg_color(response_media_frame, lv_color_hex(0x020617), 0);
+    lv_obj_set_style_border_width(response_media_frame, 1, 0);
+    lv_obj_set_style_border_color(response_media_frame, lv_color_hex(0x334155), 0);
+    lv_obj_set_style_pad_all(response_media_frame, 4, 0);
+    lv_obj_clear_flag(response_media_frame, LV_OBJ_FLAG_SCROLLABLE);
+
+    response_media_hint = lv_label_create(response_media_frame);
+    lv_label_set_text(response_media_hint, "TEXTE / PHOTO / VIDEO");
+    lv_obj_set_style_text_color(response_media_hint, lv_color_hex(0x64748B), 0);
+    lv_obj_center(response_media_hint);
+
+    response_image_obj = lv_img_create(response_media_frame);
+    lv_obj_center(response_image_obj);
+    lv_obj_add_flag(response_image_obj, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(response_image_obj, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(response_image_obj, web_card_touch_cb, LV_EVENT_ALL, nullptr);
+
+    response_text_box = lv_obj_create(response_panel);
+    lv_obj_set_size(response_text_box, 268, 142);
+    lv_obj_align(response_text_box, LV_ALIGN_BOTTOM_MID, 0, -42);
+    lv_obj_set_style_bg_color(response_text_box, lv_color_hex(0x0B172A), 0);
+    lv_obj_set_style_border_width(response_text_box, 1, 0);
+    lv_obj_set_style_border_color(response_text_box, lv_color_hex(0x334155), 0);
+    lv_obj_set_style_pad_all(response_text_box, 8, 0);
+    lv_obj_set_scroll_dir(response_text_box, LV_DIR_VER);
+
+    answer_label = lv_label_create(response_text_box);
+    lv_label_set_long_mode(answer_label, LV_LABEL_LONG_WRAP);
+    lv_obj_set_width(answer_label, 244);
+    lv_obj_set_style_text_align(answer_label, LV_TEXT_ALIGN_LEFT, 0);
+    lv_obj_set_style_text_color(answer_label, lv_color_hex(0xE2E8F0), 0);
+    lv_label_set_text(answer_label, "");
+    lv_obj_align(answer_label, LV_ALIGN_TOP_LEFT, 0, 0);
+
+    lv_obj_t *prev = lv_btn_create(response_panel);
+    lv_obj_set_size(prev, 86, 34);
+    lv_obj_align(prev, LV_ALIGN_BOTTOM_LEFT, 6, -2);
+    lv_obj_t *prev_label = lv_label_create(prev);
+    lv_label_set_text(prev_label, "PRECEDENT");
+    lv_obj_center(prev_label);
+    lv_obj_add_event_cb(prev, response_previous_clicked, LV_EVENT_CLICKED, nullptr);
+
+    lv_obj_t *next = lv_btn_create(response_panel);
+    lv_obj_set_size(next, 86, 34);
+    lv_obj_align(next, LV_ALIGN_BOTTOM_RIGHT, -6, -2);
+    lv_obj_t *next_label = lv_label_create(next);
+    lv_label_set_text(next_label, "SUIVANT");
+    lv_obj_center(next_label);
+    lv_obj_add_event_cb(next, response_next_clicked, LV_EVENT_CLICKED, nullptr);
+
+    lv_obj_add_flag(response_panel, LV_OBJ_FLAG_HIDDEN);
+}
+
 static void web_card_touch_cb(lv_event_t *e) {
     if (!mel_terminal_has_display()) return;
     const lv_event_code_t code = lv_event_get_code(e);
@@ -1846,18 +1981,6 @@ static void mini_smoke_ui() {
     lv_obj_add_event_cb(avatar_obj, visual_touch_cb, LV_EVENT_CLICKED, nullptr);
     lv_obj_add_event_cb(avatar_obj, visual_touch_cb, LV_EVENT_GESTURE, nullptr);
 
-    answer_label = lv_label_create(main_panel);
-    lv_label_set_long_mode(answer_label, LV_LABEL_LONG_WRAP);
-    lv_obj_set_width(answer_label, 286);
-    lv_obj_set_height(answer_label, 72);
-    lv_obj_set_style_text_align(answer_label, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_set_style_text_color(answer_label, lv_color_hex(0xCBD5E1), 0);
-    lv_label_set_text(answer_label, "");
-    lv_obj_align(answer_label, LV_ALIGN_BOTTOM_MID, 0, -104);
-    lv_obj_add_flag(answer_label, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_event_cb(answer_label, web_card_touch_cb, LV_EVENT_ALL, nullptr);
-    lv_obj_add_flag(answer_label, LV_OBJ_FLAG_HIDDEN);
-
     talk_button = lv_btn_create(main_panel);
     lv_obj_set_size(talk_button, 96, 96);
     lv_obj_align(talk_button, LV_ALIGN_BOTTOM_MID, 0, -8);
@@ -1890,6 +2013,7 @@ static void mini_smoke_ui() {
     wifi_ui_create(screen);
     pair_ui_create(screen);
     settings_ui_create(screen);
+    response_ui_create(screen);
     mel_terminal_bind_external_ui(runtime_status_label, answer_label);
     anim_timer = lv_timer_create(mini_anim_cb, 250, nullptr);
     lv_timer_create(clock_timer_cb, 1000, nullptr);
