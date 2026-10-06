@@ -160,7 +160,7 @@ static void voice_error(const char *reason) {
         ESP_LOGW(TAG, "VOICE ERROR: %s", g_last_voice_error);
     } else {
         g_last_voice_error_buf[0] = '\0';
-        voice_error(nullptr);
+        g_last_voice_error = nullptr;
     }
 }
 static TaskHandle_t g_online_task_handle = nullptr;
