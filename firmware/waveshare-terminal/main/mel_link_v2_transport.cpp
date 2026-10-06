@@ -22,6 +22,10 @@ struct ActiveExchange {
     int status = 0;
     bool failed = false;
     bool pong = false;
+    bool audio_response = false;
+    uint16_t expected_audio_seq = 0;
+    size_t expected_audio_samples = 0;
+    size_t received_audio_samples = 0;
     std::string body;
     mel_link_v2_chunk_cb cb = nullptr;
     void *cb_ctx = nullptr;
@@ -66,6 +70,39 @@ static void drain_semaphore(SemaphoreHandle_t sem) {
     while (xSemaphoreTake(sem, 0) == pdTRUE) {}
 }
 
+static bool deliver_audio_16k_as_48k(
+    const int16_t *samples,
+    size_t sample_count
+) {
+    if (!samples || sample_count == 0) return true;
+    uint8_t out[480];
+    size_t used = 0;
+
+    auto flush = [&]() -> bool {
+        if (used == 0) return true;
+        bool ok = true;
+        if (g_active.cb) {
+            ok = g_active.cb(out, used, g_active.cb_ctx);
+        } else if (g_active.body.size() + used <= MAX_RESPONSE_BYTES) {
+            g_active.body.append(reinterpret_cast<const char *>(out), used);
+        } else {
+            ok = false;
+        }
+        used = 0;
+        return ok;
+    };
+
+    for (size_t i = 0; i < sample_count; ++i) {
+        const uint16_t raw = static_cast<uint16_t>(samples[i]);
+        for (int repeat = 0; repeat < 3; ++repeat) {
+            if (used + 2 > sizeof(out) && !flush()) return false;
+            out[used++] = static_cast<uint8_t>(raw & 0xff);
+            out[used++] = static_cast<uint8_t>((raw >> 8) & 0xff);
+        }
+    }
+    return flush();
+}
+
 static void rx_frame(const uint8_t *frame, size_t len, void *ctx) {
     (void)ctx;
     MelLinkV2Header header = {};
@@ -100,6 +137,89 @@ static void rx_frame(const uint8_t *frame, size_t len, void *ctx) {
         g_active.failed = true;
         g_active.status = 0;
         g_active.body.assign(reinterpret_cast<const char *>(payload), header.payload_len);
+        if (g_response_done) xSemaphoreGive(g_response_done);
+        return;
+    }
+
+    if (header.type == MEL_LINK_V2_AUDIO_BEGIN) {
+        std::string meta(reinterpret_cast<const char *>(payload), header.payload_len);
+        cJSON *root = cJSON_Parse(meta.c_str());
+        cJSON *codec = root ? cJSON_GetObjectItemCaseSensitive(root, "codec") : nullptr;
+        cJSON *rate = root ? cJSON_GetObjectItemCaseSensitive(root, "rate") : nullptr;
+        cJSON *channels = root ? cJSON_GetObjectItemCaseSensitive(root, "ch") : nullptr;
+        cJSON *samples = root ? cJSON_GetObjectItemCaseSensitive(root, "samples") : nullptr;
+        cJSON *block = root ? cJSON_GetObjectItemCaseSensitive(root, "block") : nullptr;
+        cJSON *output_rate = root ? cJSON_GetObjectItemCaseSensitive(root, "output_rate") : nullptr;
+
+        const bool valid =
+            cJSON_IsString(codec) && codec->valuestring &&
+            strcmp(codec->valuestring, "ima-adpcm") == 0 &&
+            cJSON_IsNumber(rate) && rate->valueint == 16000 &&
+            cJSON_IsNumber(channels) && channels->valueint == 1 &&
+            cJSON_IsNumber(block) && block->valueint == MEL_IMA_ADPCM_BLOCK_SAMPLES &&
+            cJSON_IsNumber(output_rate) && output_rate->valueint == 48000 &&
+            cJSON_IsNumber(samples) && samples->valuedouble > 0 &&
+            samples->valuedouble <= 16000.0 * 120.0;
+
+        if (!valid) {
+            g_active.failed = true;
+            if (root) cJSON_Delete(root);
+            if (g_response_done) xSemaphoreGive(g_response_done);
+            return;
+        }
+
+        g_active.audio_response = true;
+        g_active.status = 200;
+        g_active.expected_audio_seq = 0;
+        g_active.expected_audio_samples = static_cast<size_t>(samples->valuedouble);
+        g_active.received_audio_samples = 0;
+        if (root) cJSON_Delete(root);
+        return;
+    }
+
+    if (header.type == MEL_LINK_V2_AUDIO_DATA) {
+        if (!g_active.audio_response || header.seq != g_active.expected_audio_seq) {
+            ESP_LOGE(TAG, "Audio response sequence gap expected=%u got=%u",
+                     g_active.expected_audio_seq, header.seq);
+            g_active.failed = true;
+            if (g_response_done) xSemaphoreGive(g_response_done);
+            return;
+        }
+
+        int16_t decoded[MEL_IMA_ADPCM_BLOCK_SAMPLES] = {};
+        size_t decoded_samples = 0;
+        if (!mel_ima_adpcm_decode_block(
+                payload, header.payload_len,
+                decoded, MEL_IMA_ADPCM_BLOCK_SAMPLES,
+                &decoded_samples)) {
+            g_active.failed = true;
+            if (g_response_done) xSemaphoreGive(g_response_done);
+            return;
+        }
+
+        if (g_active.received_audio_samples + decoded_samples > g_active.expected_audio_samples ||
+            !deliver_audio_16k_as_48k(decoded, decoded_samples)) {
+            g_active.failed = true;
+            if (g_response_done) xSemaphoreGive(g_response_done);
+            return;
+        }
+
+        g_active.received_audio_samples += decoded_samples;
+        g_active.expected_audio_seq++;
+        return;
+    }
+
+    if (header.type == MEL_LINK_V2_AUDIO_END) {
+        if (!g_active.audio_response ||
+            header.seq != g_active.expected_audio_seq ||
+            g_active.received_audio_samples != g_active.expected_audio_samples) {
+            ESP_LOGE(TAG,
+                     "Audio response END mismatch seq=%u/%u samples=%u/%u",
+                     header.seq, g_active.expected_audio_seq,
+                     (unsigned)g_active.received_audio_samples,
+                     (unsigned)g_active.expected_audio_samples);
+            g_active.failed = true;
+        }
         if (g_response_done) xSemaphoreGive(g_response_done);
         return;
     }
