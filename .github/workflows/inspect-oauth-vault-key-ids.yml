@@ -13,49 +13,55 @@ permissions:
 jobs:
   inspect:
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    timeout-minutes: 8
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      MEL_BACKUP_ENCRYPTION_KEY_B64: ${{ secrets.MEL_BACKUP_ENCRYPTION_KEY_B64 }}
+      MEL_BACKUP_ENCRYPTION_KEY_ID: ${{ secrets.MEL_BACKUP_ENCRYPTION_KEY_ID }}
     steps:
-      - name: Read OAuth vault key identifiers only
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Inspect OAuth vault key identifiers from encrypted #649 backup
         shell: bash
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
-          set -u
-          set +e
-          npx -y wrangler@4.135.0 d1 execute meliturgos-memory --remote --json \
-            --command "SELECT connector_id, json_extract(envelope_json,'$.key_id') AS key_id, updated_at FROM mel_oauth_tokens ORDER BY connector_id" \
-            > oauth-key-ids.json 2> oauth-key-ids.stderr
-          CODE=$?
-          set -e
-          if [ "$CODE" != "0" ]; then
-            echo "D1_QUERY_FAILED exit=$CODE"
-            sed -n '1,120p' oauth-key-ids.stderr
-            node - <<'NODE'
-          const fs=require('fs');
-          const raw=fs.existsSync('oauth-key-ids.json')?fs.readFileSync('oauth-key-ids.json','utf8'):'';
-          if(raw) console.log(raw.slice(0,2000));
-          NODE
-            exit "$CODE"
-          fi
-          node - <<'NODE'
-          const fs=require('fs');
-          const d=JSON.parse(fs.readFileSync('oauth-key-ids.json','utf8'));
-          const rows=[];
-          const walk=v=>{
-            if(Array.isArray(v)){ for(const x of v) walk(x); return; }
-            if(v&&typeof v==='object'){
-              if('connector_id' in v&&'key_id' in v) rows.push(v);
-              for(const x of Object.values(v)) walk(x);
-            }
-          };
-          walk(d);
+          set -euo pipefail
+          test -n "${MEL_BACKUP_ENCRYPTION_KEY_B64:-}"
+          test -n "${MEL_BACKUP_ENCRYPTION_KEY_ID:-}"
+          OBJECT="meliturgos-private-media/backups/system/system-20261006054126738.enc.json"
+          npx -y wrangler@4.135.0 r2 object get "$OBJECT" --file system-backup.enc.json --remote
+          test -s system-backup.enc.json
+
+          node --input-type=module - <<'NODE'
+          import fs from 'node:fs';
+          import { createBackupEncryptionCodec, decodeBackupEncryptionKey } from './src/backup/encrypted-backup-storage.js';
+
+          const keyId=String(process.env.MEL_BACKUP_ENCRYPTION_KEY_ID||'').trim();
+          const keyBytes=decodeBackupEncryptionKey(String(process.env.MEL_BACKUP_ENCRYPTION_KEY_B64||'').trim());
+          const codec=createBackupEncryptionCodec({keyId,keyBytes});
+          const envelope=JSON.parse(fs.readFileSync('system-backup.enc.json','utf8'));
+          const snapshot=await codec.open(envelope);
+
+          const tables=snapshot?.exports?.database?.tables||[];
+          const oauth=tables.find(row=>String(row?.name||'')==='mel_oauth_tokens');
+          const rows=Array.isArray(oauth?.rows)?oauth.rows:[];
+          if(!rows.length){
+            console.log('OAUTH_KEY_IDS none');
+            process.exit(0);
+          }
           const unique=new Map();
           for(const row of rows){
-            const connector=String(row.connector_id||'').slice(0,120);
-            const keyId=String(row.key_id||'').slice(0,200);
-            if(connector&&keyId) unique.set(connector,keyId);
+            let env={};
+            try{env=JSON.parse(String(row?.envelope_json||'{}'));}catch{}
+            const connector=String(row?.connector_id||'').slice(0,120);
+            const vaultKeyId=String(env?.key_id||'').slice(0,200);
+            if(connector&&vaultKeyId) unique.set(connector,vaultKeyId);
           }
           if(!unique.size) console.log('OAUTH_KEY_IDS none');
-          for(const [connector,keyId] of unique) console.log('OAUTH_KEY_ID connector='+connector+' key_id='+keyId);
+          for(const [connector,vaultKeyId] of unique){
+            console.log('OAUTH_KEY_ID connector='+connector+' key_id='+vaultKeyId);
+          }
           NODE
+
+          rm -f system-backup.enc.json
