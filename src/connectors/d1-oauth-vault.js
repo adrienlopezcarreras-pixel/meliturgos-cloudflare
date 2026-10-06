@@ -2,6 +2,7 @@ import { DomainError, requireValue } from '../core/contracts.js';
 
 export const OAUTH_VAULT_SCHEMA = 'MEL_OAUTH_VAULT_V1';
 export const OAUTH_VAULT_ALGORITHM = 'AES-GCM-256';
+export const OAUTH_VAULT_DERIVED_KEY_PREFIX = 'oauth-hkdf-v1:';
 
 const KEY_BYTES = 32;
 const IV_BYTES = 12;
@@ -119,7 +120,13 @@ export function createOAuthVaultCodec({
     async open(envelope, expectedAad) {
       requireValue(envelope?.schema === OAUTH_VAULT_SCHEMA, 'OAUTH_VAULT_SCHEMA_INVALID', 409);
       requireValue(envelope?.algorithm === OAUTH_VAULT_ALGORITHM, 'OAUTH_VAULT_ALGORITHM_INVALID', 409);
-      requireValue(envelope?.key_id === normalizedKeyId, 'OAUTH_VAULT_KEY_ID_MISMATCH', 409);
+      if (envelope?.key_id !== normalizedKeyId) {
+        if (String(envelope?.key_id || '') === 'mel-oauth-v1'
+          && normalizedKeyId.startsWith(OAUTH_VAULT_DERIVED_KEY_PREFIX)) {
+          throw vaultError('OAUTH_VAULT_LEGACY_KEY_UNAVAILABLE_RECONNECT_REQUIRED', 409);
+        }
+        throw vaultError('OAUTH_VAULT_KEY_ID_MISMATCH', 409);
+      }
       requireValue(
         JSON.stringify(stable(envelope?.aad || {})) === JSON.stringify(stable(expectedAad || {})),
         'OAUTH_VAULT_AAD_MISMATCH',
@@ -194,7 +201,7 @@ export function createEnvOAuthVaultCodec(env = {}) {
   if (!recoveryEncoded) throw vaultError('OAUTH_VAULT_RECOVERY_KEY_REQUIRED', 503);
 
   return createOAuthVaultCodec({
-    keyId: `oauth-hkdf-v1:${recoveryKeyId}`,
+    keyId: OAUTH_VAULT_DERIVED_KEY_PREFIX + recoveryKeyId,
     keyBytesResolver: () => deriveOAuthVaultKeyFromBackup(recoveryEncoded),
   });
 }
