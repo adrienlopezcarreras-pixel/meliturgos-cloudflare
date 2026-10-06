@@ -6,7 +6,11 @@
   "compatibility_flags": ["global_fetch_strictly_public"],
   "workers_dev": true,
   "secrets": {
-    "required": ["MELITURGOS_PASSWORD"]
+    "required": [
+      "MELITURGOS_PASSWORD",
+      "MEL_OAUTH_ENCRYPTION_KEY_ID",
+      "MEL_OAUTH_ENCRYPTION_KEY_B64"
+    ]
   },
   "assets": {
     "directory": "./dist"
