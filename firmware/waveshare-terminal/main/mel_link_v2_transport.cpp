@@ -640,7 +640,7 @@ esp_err_t mel_link_v2_transport_transcribe_adpcm(
     } else if (!send_v2(
             MEL_LINK_V2_AUDIO_BEGIN, g_active.stream_id, 0,
             reinterpret_cast<const uint8_t *>(meta.data()),
-            (uint16_t)meta.size(), true
+            (uint16_t)meta.size(), false
         )) {
         response = mel_link_v2_transport_ready()
             ? "BT_AUDIO_BEGIN_SEND"
@@ -696,7 +696,7 @@ esp_err_t mel_link_v2_transport_transcribe_adpcm(
     if (ok) {
         ok = send_v2(
             MEL_LINK_V2_AUDIO_END, g_active.stream_id, seq,
-            nullptr, 0, true
+            nullptr, 0, false
         );
         if (!ok) {
             response = mel_link_v2_transport_ready()
