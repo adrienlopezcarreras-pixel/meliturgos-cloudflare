@@ -113,3 +113,28 @@ test('MINI generic request begin/end use notifications with CREDIT/response ackn
   assert.match(transport, /BT_REQUEST_CREDIT_TIMEOUT/);
   assert.match(transport, /BT_REQUEST_END_SEND/);
 });
+
+
+test('Link V2 TTS accepts canonical 16 kHz WAV and never streams HTTP errors as PCM', async () => {
+  const [service, transport, terminal] = await Promise.all([
+    readFile(new URL('android-companion/app/src/main/java/fr/veriteinterdite/mel/MelLinkV2ClientService.kt', root), 'utf8'),
+    readFile(new URL('firmware/waveshare-terminal/main/mel_link_v2_transport.cpp', root), 'utf8'),
+    readFile(new URL('firmware/waveshare-terminal/main/mel_terminal.cpp', root), 'utf8'),
+  ]);
+  assert.match(service, /decodePcm16MonoWav\(body, 16_000\)/);
+  assert.match(service, /decodePcm16MonoWav\(body, 48_000\)/);
+  assert.match(transport, /g_active\.cb && g_active\.status >= 200 && g_active\.status < 300/);
+  assert.match(terminal, /TTS SANS AUDIO/);
+  assert.match(terminal, /TTS HTTP %d/);
+  assert.match(terminal, /voice_tts_text/);
+});
+
+test('MINI response viewer transliterates unsupported UTF-8 glyphs instead of drawing squares', async () => {
+  const main = await readFile(
+    new URL('firmware/waveshare-terminal/main/main.cpp', root),
+    'utf8'
+  );
+  assert.match(main, /mini_display_ascii/);
+  assert.match(main, /lv_obj_set_style_text_font\(answer_label, &lv_font_montserrat_16/);
+  assert.match(main, /const std::string safe = mini_display_ascii\(text\)/);
+});
