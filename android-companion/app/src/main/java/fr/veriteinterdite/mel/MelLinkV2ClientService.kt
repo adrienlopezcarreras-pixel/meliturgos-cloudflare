@@ -362,19 +362,7 @@ class MelLinkV2ClientService : Service() {
             }
             connecting.set(false)
             miniReady.value = true
-            state.value = "MINI CONNECTEE"
-            sendControlAsync(
-                MelLinkV2Protocol.encode(
-                    MelLinkV2Protocol.HELLO,
-                    0,
-                    0,
-                    0,
-                    JSONObject()
-                        .put("protocol", MelLinkV2Protocol.VERSION)
-                        .put("android", BuildConfig.VERSION_NAME)
-                        .toString().toByteArray()
-                )
-            )
+            state.value = "MINI CONNECTEE · ATTENTE HELLO V2"
         }
 
         @Deprecated("Deprecated by Android")
