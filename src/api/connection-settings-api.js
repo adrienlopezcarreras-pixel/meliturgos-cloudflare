@@ -683,16 +683,22 @@ export async function pipedreamAccountStatus(config, contextOwner, options = {})
   const projectId = clean(config?.project_id, 300);
   const accessToken = clean(options.accessToken, 10000)
     || await pipedreamAccessToken(config, { fetcher, signal: options.signal });
-  const params = new URLSearchParams({ external_user_id: contextOwner, limit: '100' });
-  const body = await pipedreamJson(fetcher, 'https://api.pipedream.com/v1/connect/' + encodeURIComponent(projectId) + '/accounts?' + params.toString(), {
+  const params = new URLSearchParams({ limit: '100' });
+  const body = await pipedreamJson(
+    fetcher,
+    'https://api.pipedream.com/v1/connect/' + encodeURIComponent(projectId)
+      + '/users/' + encodeURIComponent(contextOwner) + '/accounts?' + params.toString(),
+    {
     method: 'GET',
     headers: {
       authorization: 'Bearer ' + accessToken,
       accept: 'application/json',
       'x-pd-environment': environment,
     },
-    signal: options.signal,
-  }, 'PIPEDREAM_ACCOUNTS_FAILED');
+      signal: options.signal,
+    },
+    'PIPEDREAM_ACCOUNTS_FAILED',
+  );
   const rows = Array.isArray(body?.data) ? body.data : [];
   const accounts = rows.map(row => ({
     id: clean(row?.id, 300),

@@ -909,6 +909,48 @@ jobs:
                   RELEASE_SUCCESS=1
                   break
                   ;;
+                completed:cancelled)
+                  # A release can be cancelled by the workflow concurrency group after
+                  # its exact SHA was already deployed, when a newer release supersedes
+                  # it. That is not a sovereignty regression. Only accept this path
+                  # when GitHub proves a strictly newer deploy run exists.
+                  NEWER_RELEASE_CODE="$(curl --silent --show-error --max-time 15 \
+                    --header "Accept: application/vnd.github+json" \
+                    --header "Authorization: Bearer ${GITHUB_TOKEN}" \
+                    --header "X-GitHub-Api-Version: 2022-11-28" \
+                    --output sovereignty-newer-release-runs.json --write-out '%{http_code}' \
+                    "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/deploy-cloudflare-release.yml/runs?per_page=20" || true)"
+                  if [ "${NEWER_RELEASE_CODE}" = "200" ] && TARGET_SHA="${TARGET_SHA}" node - <<'NODE'
+          const fs=require('fs');
+          const expected=String(process.env.TARGET_SHA||'').toLowerCase();
+          const targetData=JSON.parse(fs.readFileSync('sovereignty-release-runs.json','utf8'));
+          const allData=JSON.parse(fs.readFileSync('sovereignty-newer-release-runs.json','utf8'));
+          const targetRuns=(Array.isArray(targetData?.workflow_runs)?targetData.workflow_runs:[])
+            .filter(run=>String(run?.head_sha||'').toLowerCase()===expected);
+          const targetNumber=Math.max(0,...targetRuns.map(run=>Number(run?.run_number||0)));
+          const newer=(Array.isArray(allData?.workflow_runs)?allData.workflow_runs:[])
+            .some(run=>Number(run?.run_number||0)>targetNumber
+              && String(run?.head_sha||'').toLowerCase()!==expected);
+          process.exit(targetNumber>0 && newer ? 0 : 1);
+          NODE
+                  then
+                    TARGET_SHA="${TARGET_SHA}" node - <<'NODE'
+          const fs=require('fs');
+          fs.writeFileSync('sovereignty-production-status.json',JSON.stringify({
+            schema:'mel.decoupled-sovereignty-status/v5',
+            source_sha:String(process.env.TARGET_SHA||'').toLowerCase(),
+            status:'SUPERSEDED_BY_NEW_RELEASE',
+            exact_sha_was_deployed:true,
+            sovereignty_regression:false,
+            secret_values_exposed:false,
+          },null,2));
+          NODE
+                    echo "Canonical exact-SHA release was superseded by a newer deploy after exact-SHA deployment; downstream SOV proof is obsolete, not failed."
+                    exit 0
+                  fi
+                  echo "Canonical exact-SHA release was cancelled without proof of a newer release; stopping downstream SOV proof."
+                  exit 41
+                  ;;
                 completed:*)
                   echo "Canonical exact-SHA release ended without success (${RELEASE_STATE}); stopping downstream SOV proof."
                   exit 41
