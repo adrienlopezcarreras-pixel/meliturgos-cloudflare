@@ -11,6 +11,7 @@
 void mel_terminal_ui_init(lv_disp_t *display);
 void mel_terminal_start(bool force_setup);
 void mel_terminal_set_hardware(bool camera_ok, bool audio_ok, bool sd_ok);
+bool mel_terminal_prepare_voice_worker(void);
 bool mel_terminal_init_storage(void);
 bool mel_terminal_storage_ok(void);
 
