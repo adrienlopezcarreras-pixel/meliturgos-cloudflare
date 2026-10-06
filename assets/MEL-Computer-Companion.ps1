@@ -1462,7 +1462,36 @@ function Start-SovereigntyAiBootstrap([string]$requestedModel) {
         return "IN_PROGRESS"
       }
       if ($priorAttempt -ge 3) {
-        return "FAILED:OLLAMA_BOOTSTRAP_PROCESS_EXITED"
+        Start-Sleep -Milliseconds 250
+        $terminal = Read-SovereigntyAiBootstrapStatus
+        if ($null -ne $terminal -and $statusVersion -eq $Version) {
+          $terminalState = ([string]$terminal.state).Trim().ToUpperInvariant()
+          $terminalCode = ([string]$terminal.code).Trim()
+          if ($terminalState -eq "FAILED" -and -not [string]::IsNullOrWhiteSpace($terminalCode)) {
+            return ("FAILED:" + $terminalCode)
+          }
+          if ($terminalState -eq "READY") {
+            return "READY"
+          }
+        }
+
+        $lastStage = ([string]$status.code).Trim().ToUpperInvariant()
+        if ([string]::IsNullOrWhiteSpace($lastStage)) { $lastStage = "UNKNOWN" }
+        $lastStage = ($lastStage -replace '[^A-Z0-9_.:-]','_')
+        $fallbackCode = "OLLAMA_BOOTSTRAP_PROCESS_EXITED_AT_" + $lastStage
+        @{
+          schema = "mel.local-ai-bootstrap/v2"
+          state = "FAILED"
+          code = $fallbackCode
+          model = $model
+          engine_version = $Version
+          attempt = $priorAttempt
+          process_id = $bootstrapPid
+          started_at_unix_ms = $started
+          updated_at = (Get-Date).ToUniversalTime().ToString("o")
+          updated_at_unix_ms = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+        } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $statusPath -Encoding UTF8
+        return ("FAILED:" + $fallbackCode)
       }
     } else {
       $priorAttempt = 0
@@ -1619,14 +1648,12 @@ catch {
     $bootstrapProcess = Start-Process -FilePath "powershell.exe" -WindowStyle Hidden -PassThru -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath -ArgumentList @(
       "-NoProfile","-NonInteractive","-ExecutionPolicy","Bypass","-File",$scriptPath
     )
-    Start-Sleep -Milliseconds 150
-    $launched = Read-SovereigntyAiBootstrapStatus
-    if ($null -ne $launched -and [string]$launched.state -eq "RUNNING" -and -not $launched.process_id) {
-      $launched | Add-Member -NotePropertyName process_id -NotePropertyValue $bootstrapProcess.Id -Force
-      $launched | Add-Member -NotePropertyName engine_version -NotePropertyValue $Version -Force
-      $launched | Add-Member -NotePropertyName attempt -NotePropertyValue $attempt -Force
-      $launched | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $statusPath -Encoding UTF8
+    if ($null -eq $bootstrapProcess -or $bootstrapProcess.Id -le 0) {
+      throw "OLLAMA_BOOTSTRAP_LAUNCH_NO_PROCESS"
     }
+    # The child process owns ai-bootstrap-status.json after launch.
+    # Do not rewrite a stale RUNNING snapshot here: it can overwrite a fast
+    # FAILED status emitted by the child and hide the real bootstrap error.
     return "STARTED"
   } catch {
     @{
