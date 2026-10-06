@@ -626,3 +626,12 @@ test('Pipedream Google Tasks proof fails closed without a healthy linked account
     error => error?.code === 'PIPEDREAM_GOOGLE_TASKS_ACCOUNT_REQUIRED',
   );
 });
+
+
+test('legacy OAuth vault failures expose a reconnect action instead of an opaque 409', async()=>{
+  const source=await import('node:fs/promises').then(fs=>fs.readFile(new URL('../../src/api/connection-settings-api.js',import.meta.url),'utf8'));
+  assert.match(source,/OAUTH_VAULT_LEGACY_KEY_UNAVAILABLE_RECONNECT_REQUIRED/);
+  assert.match(source,/RECONNECT_GOOGLE/);
+  assert.match(source,/RECONNECT_MICROSOFT/);
+  assert.match(source,/RECONNECT_YAHOO/);
+});
