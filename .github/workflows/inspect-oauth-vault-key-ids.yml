@@ -13,204 +13,81 @@ permissions:
 jobs:
   inspect:
     runs-on: ubuntu-24.04
-    timeout-minutes: 12
+    timeout-minutes: 8
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-      MEL_BACKUP_ENCRYPTION_KEY_B64: ${{ secrets.MEL_BACKUP_ENCRYPTION_KEY_B64 }}
-      MEL_BACKUP_ENCRYPTION_KEY_ID: ${{ secrets.MEL_BACKUP_ENCRYPTION_KEY_ID }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
-      - name: Inspect OAuth vault key identifiers from encrypted #649 backup
+      - name: Inspect OAuth vault key identifiers through ephemeral D1 sidecar
         shell: bash
         run: |
           set -euo pipefail
-          test -n "${MEL_BACKUP_ENCRYPTION_KEY_B64:-}"
-          test -n "${MEL_BACKUP_ENCRYPTION_KEY_ID:-}"
-          OBJECT="meliturgos-private-media/backups/system/system-20261006054126738.enc.json"
-          npx -y wrangler@4.135.0 r2 object get "$OBJECT" --file system-backup.enc.json --remote
-          test -s system-backup.enc.json
-          echo "BACKUP_BYTES=$(stat -c%s system-backup.enc.json)"
+          test -n "${CLOUDFLARE_API_TOKEN:-}"
+          test -n "${CLOUDFLARE_ACCOUNT_ID:-}"
 
-          node --input-type=module - <<'NODE'
-          import fs from 'node:fs';
-          import crypto from 'node:crypto';
-          import { stableStringify } from './src/resilience/recovery-bundle.js';
+          NAME="mel-oauth-keyid-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          CONFIG="release-tools/predeploy-backup-refresh/wrangler.oauth-keyid.jsonc"
+          URL="https://${NAME}.adrien-lopezcarreras.workers.dev"
+          export NAME CONFIG
 
-          const file='system-backup.enc.json';
-          const size=fs.statSync(file).size;
-          const fd=fs.openSync(file,'r');
-          const prefixLen=Math.min(size,128*1024);
-          const suffixLen=Math.min(size,128*1024);
-          const prefixBuf=Buffer.alloc(prefixLen);
-          const suffixBuf=Buffer.alloc(suffixLen);
-          fs.readSync(fd,prefixBuf,0,prefixLen,0);
-          fs.readSync(fd,suffixBuf,0,suffixLen,size-suffixLen);
-          fs.closeSync(fd);
-          const prefix=prefixBuf.toString('utf8');
-          const suffix=suffixBuf.toString('utf8');
-
-          const field=(name,source)=>{
-            const m=source.match(new RegExp('"'+name+'":"([^"]*)"'));
-            if(!m) throw new Error('BACKUP_FIELD_NOT_FOUND:'+name);
-            return m[1];
-          };
-          const schema=field('schema',prefix);
-          const algorithm=field('algorithm',prefix);
-          const envelopeKeyId=field('key_id',prefix);
-          const ivB64=field('iv_b64',prefix);
-          const aadMatch=suffix.match(/"aad":(\{[^{}]*\})\}\s*$/s);
-          if(!aadMatch) throw new Error('BACKUP_AAD_NOT_FOUND');
-          const aad=JSON.parse(aadMatch[1]);
-
-          const expectedKeyId=String(process.env.MEL_BACKUP_ENCRYPTION_KEY_ID||'').trim();
-          if(envelopeKeyId!==expectedKeyId) throw new Error('BACKUP_KEY_ID_MISMATCH');
-          if(schema!=='MEL_ENCRYPTED_BACKUP_V1'||algorithm!=='AES-GCM-256') throw new Error('BACKUP_ENVELOPE_UNSUPPORTED');
-
-          const startMarker='"ciphertext_b64":"';
-          const startInPrefix=prefix.indexOf(startMarker);
-          if(startInPrefix<0) throw new Error('BACKUP_CIPHERTEXT_START_NOT_FOUND');
-          const start=startInPrefix+Buffer.byteLength(startMarker);
-          const endMarker='","plaintext_sha256"';
-          const endInSuffix=suffix.indexOf(endMarker);
-          if(endInSuffix<0) throw new Error('BACKUP_CIPHERTEXT_END_NOT_FOUND');
-          const end=(size-suffixLen)+endInSuffix;
-          if(end<=start) throw new Error('BACKUP_CIPHERTEXT_RANGE_INVALID');
-
-          const key=Buffer.from(String(process.env.MEL_BACKUP_ENCRYPTION_KEY_B64||''),'base64');
-          if(key.length!==32) throw new Error('BACKUP_KEY_LENGTH_INVALID');
-          const iv=Buffer.from(ivB64,'base64');
-          if(iv.length!==12) throw new Error('BACKUP_IV_LENGTH_INVALID');
-          const decipher=crypto.createDecipheriv('aes-256-gcm',key,iv,{authTagLength:16});
-          decipher.setAAD(Buffer.from(stableStringify(aad),'utf8'));
-
-          const input=fs.createReadStream(file,{start,end:end-1,encoding:'ascii',highWaterMark:1024*1024});
-          const output=fs.createWriteStream('system-backup.json',{mode:0o600});
-          let b64Carry='';
-          let decodedTail=Buffer.alloc(0);
-          for await (const chunk of input){
-            const text=b64Carry+chunk;
-            const usable=text.length-(text.length%4);
-            b64Carry=text.slice(usable);
-            if(!usable) continue;
-            const decoded=Buffer.from(text.slice(0,usable),'base64');
-            const joined=decodedTail.length?Buffer.concat([decodedTail,decoded]):decoded;
-            if(joined.length>16){
-              const cut=joined.length-16;
-              output.write(decipher.update(joined.subarray(0,cut)));
-              decodedTail=joined.subarray(cut);
-            } else {
-              decodedTail=joined;
-            }
-          }
-          if(b64Carry.length){
-            const decoded=Buffer.from(b64Carry,'base64');
-            const joined=Buffer.concat([decodedTail,decoded]);
-            if(joined.length>16){
-              const cut=joined.length-16;
-              output.write(decipher.update(joined.subarray(0,cut)));
-              decodedTail=joined.subarray(cut);
-            } else decodedTail=joined;
-          }
-          if(decodedTail.length!==16) throw new Error('BACKUP_AUTH_TAG_INVALID');
-          decipher.setAuthTag(decodedTail);
-          output.write(decipher.final());
-          await new Promise((resolve,reject)=>{output.end(resolve);output.on('error',reject);});
-          console.log('BACKUP_STREAM_DECRYPTED bytes='+fs.statSync('system-backup.json').size);
-          NODE
-
-          OFFSET="$(grep -abo -m1 '"name":"mel_oauth_tokens"' system-backup.json | cut -d: -f1 || true)"
-          if [ -z "$OFFSET" ]; then
-            echo "OAUTH_KEY_IDS none"
-            rm -f system-backup.enc.json system-backup.json
-            exit 0
-          fi
-          export OFFSET
           node - <<'NODE'
           const fs=require('fs');
-          const crypto=require('crypto');
-
-          const fd=fs.openSync('system-backup.json','r');
-          const absolute=Math.max(0,Number(process.env.OFFSET)||0);
-          const windowStart=Math.max(0,absolute-8192);
-          const buf=Buffer.alloc(8*1024*1024);
-          const read=fs.readSync(fd,buf,0,buf.length,windowStart);
-          fs.closeSync(fd);
-          const text=buf.subarray(0,read).toString('utf8');
-          const target=absolute-windowStart;
-
-          let inString=false,escaped=false,targetStart=-1,targetEnd=-1;
-          const stack=[];
-          for(let i=0;i<text.length;i++){
-            const ch=text[i];
-            if(inString){
-              if(escaped){escaped=false;continue;}
-              if(ch==='\\\\'){escaped=true;continue;}
-              if(ch==='"')inString=false;
-              continue;
-            }
-            if(ch==='"'){inString=true;continue;}
-            if(ch==='{')stack.push(i);
-            else if(ch==='}'){
-              const start=stack.pop();
-              if(targetStart<0 && i>=target){
-                const containing=stack.length?stack[stack.length-1]:start;
-                if(containing>=0 && containing<=target) targetStart=containing;
-              }
-              if(targetStart>=0 && start===targetStart){targetEnd=i+1;break;}
-            }
-            if(i===target && targetStart<0 && stack.length) targetStart=stack[stack.length-1];
-          }
-          if(targetStart<0||targetEnd<0) throw new Error('OAUTH_TABLE_OBJECT_NOT_BOUNDED');
-          const table=JSON.parse(text.slice(targetStart,targetEnd));
-          if(String(table?.name||'')!=='mel_oauth_tokens') throw new Error('OAUTH_TABLE_OBJECT_MISMATCH');
-          const rows=Array.isArray(table?.rows)?table.rows:[];
-          const uniqueConnectors=[...new Set(rows.map(r=>String(r?.connector_id||'')).filter(Boolean))];
-          const envelopes=rows.map(r=>{try{return JSON.parse(String(r?.envelope_json||'{}'))}catch{return null}}).filter(Boolean);
-          const uniqueKeyIds=[...new Set(envelopes.map(e=>String(e?.key_id||'')).filter(Boolean))];
-          console.log('OAUTH_CONNECTORS '+uniqueConnectors.join(','));
-          console.log('OAUTH_VAULT_KEY_IDS '+uniqueKeyIds.join(','));
-          if(!envelopes.length||!uniqueKeyIds.length) process.exit(3);
-
-          const sample=envelopes[0];
-          const stable=v=>Array.isArray(v)?v.map(stable):(!v||typeof v!=='object'?v:Object.fromEntries(Object.keys(v).sort().map(k=>[k,stable(v[k])])));
-          const aad=Buffer.from(JSON.stringify(stable(sample.aad||{})),'utf8');
-          const iv=Buffer.from(String(sample.iv_b64||''),'base64');
-          const ciphertext=Buffer.from(String(sample.ciphertext_b64||''),'base64');
-          const root=Buffer.from(String(process.env.MEL_BACKUP_ENCRYPTION_KEY_B64||''),'base64');
-          if(root.length!==32||iv.length!==12||ciphertext.length<17) throw new Error('OAUTH_SAMPLE_INVALID');
-
-          const candidates=[];
-          const add=(label,key)=>{const b=Buffer.from(key);if(b.length===32)candidates.push([label,b]);};
-          add('DIRECT_BACKUP_ROOT',root);
-          const hkdf=(salt,info)=>Buffer.from(crypto.hkdfSync('sha256',root,Buffer.from(salt,'utf8'),Buffer.from(info,'utf8'),32));
-          for(const [salt,info,label] of [
-            ['meliturgos-oauth-vault-salt-v1','MEL_OAUTH_VAULT_V1','HKDF_OAUTH_VAULT'],
-            ['meliturgos-oauth-salt-v1','MEL_OAUTH_VAULT_V1','HKDF_OAUTH_GENERIC'],
-            ['meliturgos-oauth-vault-salt-v1','MEL_OAUTH_ENCRYPTION_V1','HKDF_OAUTH_ENCRYPTION'],
-            ['meliturgos-oauth-salt-v1','MEL_OAUTH_ENCRYPTION_V1','HKDF_OAUTH_ENCRYPTION_GENERIC'],
-            ['meliturgos-oauth-salt-v1','MEL_OAUTH_V1','HKDF_OAUTH_V1'],
-            ['meliturgos-oauth-vault-salt-v1','mel-oauth-v1','HKDF_KEY_ID'],
-            ['meliturgos-secrets-salt-v1','MEL_OAUTH_VAULT_V1','HKDF_SECRETS_OAUTH'],
-            ['meliturgos-oauth-vault-salt-v1','MEL_OAUTH_VAULT_V1:mel-oauth-v1','HKDF_OAUTH_VAULT_KEYED'],
-          ]) add(label,hkdf(salt,info));
-
-          let matched='';
-          for(const [label,key] of candidates){
-            try{
-              const tag=ciphertext.subarray(ciphertext.length-16);
-              const body=ciphertext.subarray(0,ciphertext.length-16);
-              const decipher=crypto.createDecipheriv('aes-256-gcm',key,iv,{authTagLength:16});
-              decipher.setAAD(aad);
-              decipher.setAuthTag(tag);
-              const plaintext=Buffer.concat([decipher.update(body),decipher.final()]);
-              const parsed=JSON.parse(plaintext.toString('utf8'));
-              if(parsed&&typeof parsed==='object'){matched=label;break;}
-            }catch{}
-          }
-          console.log('OAUTH_KEY_DERIVATION_MATCH '+(matched||'NONE'));
+          const source='release-tools/predeploy-backup-refresh/wrangler.jsonc';
+          const target=process.env.CONFIG;
+          const config=JSON.parse(fs.readFileSync(source,'utf8'));
+          config.name=process.env.NAME;
+          fs.writeFileSync(target,JSON.stringify(config,null,2));
           NODE
 
-          rm -f system-backup.enc.json system-backup.json
+          TOKEN="$(openssl rand -hex 32)"
+          echo "::add-mask::${TOKEN}"
+          CREATED=0
+          cleanup() {
+            set +e
+            if [ "${CREATED:-0}" = "1" ]; then
+              curl --silent --show-error --max-time 30                 --request DELETE                 --header "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}"                 --output /tmp/delete.json                 "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/scripts/${NAME}"                 >/dev/null || true
+            fi
+            rm -f oauth-row-page.json "$CONFIG"
+          }
+          trap cleanup EXIT
+
+          npx -y wrangler@4.135.0 deploy --config "$CONFIG"             --var "MEL_PREDEPLOY_BACKUP_REFRESH_TOKEN:${TOKEN}" >/tmp/oauth-sidecar-deploy.log
+          CREATED=1
+
+          READY=0
+          for ATTEMPT in $(seq 1 18); do
+            CODE="$(curl --silent --show-error --max-time 30               --header "x-mel-predeploy-backup-refresh: ${TOKEN}"               --output /tmp/oauth-ready.json               --write-out '%{http_code}'               "${URL}/d1/tables" || true)"
+            if [ "$CODE" = "200" ]; then
+              READY=1
+              break
+            fi
+            sleep 2
+          done
+          test "$READY" = "1"
+
+          CODE="$(curl --silent --show-error --max-time 30             --header "x-mel-predeploy-backup-refresh: ${TOKEN}"             --output oauth-row-page.json             --write-out '%{http_code}'             "${URL}/d1/rows?table=mel_oauth_tokens&offset=0&limit=100" || true)"
+          test "$CODE" = "200"
+
+          node - <<'NODE'
+          const fs=require('fs');
+          const d=JSON.parse(fs.readFileSync('oauth-row-page.json','utf8'));
+          if(d?.ok!==true||d?.status!=='D1_ROWS_PAGE'||!Array.isArray(d?.rows)) throw new Error('OAUTH_D1_ROWS_INVALID');
+          const unique=new Map();
+          for(const row of d.rows){
+            let env={};
+            try{env=JSON.parse(String(row?.envelope_json||'{}'));}catch{}
+            const connector=String(row?.connector_id||'').slice(0,120);
+            const keyId=String(env?.key_id||'').slice(0,200);
+            if(connector&&keyId) unique.set(connector,keyId);
+          }
+          if(!unique.size) console.log('OAUTH_KEY_IDS none');
+          for(const [connector,keyId] of unique) console.log('OAUTH_KEY_ID connector='+connector+' key_id='+keyId);
+          console.log('OAUTH_ROW_COUNT '+d.rows.length);
+          NODE
+
+          cleanup
+          CREATED=0
+          trap - EXIT
