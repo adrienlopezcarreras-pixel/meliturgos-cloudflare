@@ -137,6 +137,7 @@ static TaskHandle_t g_voice_worker_handle = nullptr;
 static volatile bool g_voice_job_active = false;
 static volatile bool g_voice_stop_requested = false;
 static volatile int g_voice_level = 0;
+static char g_last_voice_error_buf[96] = {};
 static const char *g_last_voice_error = nullptr;
 static volatile bool g_voice_capture_requested = false;
 static SemaphoreHandle_t g_mic_mutex = nullptr;
@@ -153,8 +154,14 @@ static bool render_display_item_card(size_t index);
 static bool handle_local_media_command(const std::string &spoken);
 
 static void voice_error(const char *reason) {
-    g_last_voice_error = reason;
-    if (reason) ESP_LOGW(TAG, "VOICE ERROR: %s", reason);
+    if (reason && *reason) {
+        strlcpy(g_last_voice_error_buf, reason, sizeof(g_last_voice_error_buf));
+        g_last_voice_error = g_last_voice_error_buf;
+        ESP_LOGW(TAG, "VOICE ERROR: %s", g_last_voice_error);
+    } else {
+        g_last_voice_error_buf[0] = '\0';
+        voice_error(nullptr);
+    }
 }
 static TaskHandle_t g_online_task_handle = nullptr;
 static TaskHandle_t g_heartbeat_task_handle = nullptr;
@@ -1208,7 +1215,7 @@ static void wav_header(uint8_t *h, uint32_t data_size, uint32_t sample_rate) {
 }
 
 static std::string record_and_transcribe() {
-    g_last_voice_error = nullptr;
+    voice_error(nullptr);
     if (!g_audio_ok || !input_dev) {
         ESP_LOGE(TAG, "VOICE: input codec unavailable");
         voice_error("MICRO INDISPONIBLE");
@@ -1451,7 +1458,14 @@ static std::string record_and_transcribe() {
     }
 
     if (err != ESP_OK) {
-        voice_error("RESEAU STT");
+        if (!response.empty()) {
+            // Transport returns compact actionable diagnostics such as
+            // BT_MTU_23, BT_AUDIO_CREDIT_TIMEOUT, AUDIO_SEQUENCE or
+            // STT_RESPONSE_TIMEOUT. Keep the exact reason visible on MINI.
+            voice_error(response.c_str());
+        } else {
+            voice_error("RESEAU STT");
+        }
         return "";
     }
     if (status != 200) {
@@ -1634,7 +1648,7 @@ void mel_terminal_request_voice(void) {
         return;
     }
 
-    g_last_voice_error = nullptr;
+    voice_error(nullptr);
     g_voice_stop_requested = false;
     g_voice_capture_requested = true;
     g_voice_job_active = true;
