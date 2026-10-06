@@ -3,7 +3,8 @@ const SAFE_SAMPLES = Object.freeze({
   'roadmap.read': {},
   'system.bindings': {},
   'chatgpt.archive.preview': { archive: { conversations: [] } },
-  'capability.audit': { deep: false },
+  // Never execute capability.audit from inside a capability audit: that is recursive
+  // global work, can outlive the per-capability timeout, and can starve the parent stress run.
   'code.read': { path: 'package.json' },
   'code.search': { query: 'MELITURGOS' },
   'code.integrity': { paths: ['src/index.js', 'src/api/native-chat.js', 'package.json'] },
