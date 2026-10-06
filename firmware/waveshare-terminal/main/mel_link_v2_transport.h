@@ -35,3 +35,12 @@ esp_err_t mel_link_v2_transport_request_stream(
     mel_link_v2_chunk_cb cb,
     void *ctx
 );
+
+
+esp_err_t mel_link_v2_transport_transcribe_adpcm(
+    const int16_t *samples,
+    size_t sample_count,
+    const char *mini_device_id,
+    std::string &response,
+    int &status
+);
