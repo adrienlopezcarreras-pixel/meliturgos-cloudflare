@@ -1,0 +1,199 @@
+name: waveshare-terminal-v2-candidate
+
+on:
+  push:
+    branches:
+      - fix/mini-apk-v2-token-relay-20261006
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: waveshare-terminal-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout MEL
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Prepare pinned Waveshare base
+        shell: bash
+        run: |
+          set -euo pipefail
+          UPSTREAM_SHA=283ec84c566c096f8c30493b93dcd4b0bb608de7
+          git clone --filter=blob:none https://github.com/waveshareteam/ESP32-S3-Touch-LCD-3.5.git upstream-waveshare
+          git -C upstream-waveshare checkout "$UPSTREAM_SHA"
+          mkdir -p build/waveshare-mel
+          cp -a upstream-waveshare/ESP-IDF/03_lvgl_system/. build/waveshare-mel/
+          rm -f build/waveshare-mel/main/*
+          cp firmware/waveshare-terminal/main/* build/waveshare-mel/main/
+          cp firmware/waveshare-terminal/partitions.csv build/waveshare-mel/partitions.csv
+          cp firmware/waveshare-terminal/sdkconfig.defaults build/waveshare-mel/sdkconfig.defaults
+
+          # Harden the Waveshare camera port for IDF 5.4: zero-initialize the
+          # whole camera_config_t and actually use MEL's shared I2C port.
+          sed -i 's/camera_config_t config;/camera_config_t config = {};/' build/waveshare-mel/components/esp_port/esp_camera_port.cpp
+          sed -i 's/config.sccb_i2c_port = 0;/config.sccb_i2c_port = i2c_port;/' build/waveshare-mel/components/esp_port/esp_camera_port.cpp
+          grep -q 'camera_config_t config = {};' build/waveshare-mel/components/esp_port/esp_camera_port.cpp
+          grep -q 'config.sccb_i2c_port = i2c_port;' build/waveshare-mel/components/esp_port/esp_camera_port.cpp
+
+          # The pinned Waveshare sample ships a complete sdkconfig. Apply MINI overrides
+          # directly so they cannot be shadowed by that checked-in sdkconfig.
+          cd build/waveshare-mel
+          set_cfg_y() {
+            local key="$1"
+            sed -i -E "/^${key}=|^# ${key} is not set/d" sdkconfig
+            printf '%s=y\n' "$key" >> sdkconfig
+          }
+          set_cfg_n() {
+            local key="$1"
+            sed -i -E "/^${key}=|^# ${key} is not set/d" sdkconfig
+            printf '# %s is not set\n' "$key" >> sdkconfig
+          }
+
+          set_cfg_y CONFIG_COMPILER_OPTIMIZATION_PERF
+          set_cfg_y CONFIG_LV_ATTRIBUTE_FAST_MEM_USE_IRAM
+          set_cfg_y CONFIG_LV_MEMCPY_MEMSET_STD
+
+          # ESP32-S3 Wi-Fi and BLE share one 2.4 GHz radio. Lock the
+          # coexistence configuration recommended by Espressif instead of
+          # inheriting whatever the pinned vendor sdkconfig happened to contain.
+          set_cfg_y CONFIG_ESP_COEX_SW_COEXIST_ENABLE
+          set_cfg_y CONFIG_BT_NIMBLE_PINNED_TO_CORE_0
+          set_cfg_n CONFIG_ESP_WIFI_TASK_PINNED_TO_CORE_0
+          set_cfg_y CONFIG_ESP_WIFI_TASK_PINNED_TO_CORE_1
+
+          set_cfg_y CONFIG_BT_ENABLED
+          set_cfg_y CONFIG_BTDM_CTRL_MODE_BLE_ONLY
+          set_cfg_n CONFIG_BTDM_CTRL_MODE_BR_EDR_ONLY
+          set_cfg_n CONFIG_BTDM_CTRL_MODE_BTDM
+          set_cfg_n CONFIG_BT_BLUEDROID_ENABLED
+          set_cfg_y CONFIG_BT_NIMBLE_ENABLED
+          set_cfg_n CONFIG_BT_NIMBLE_ROLE_CENTRAL
+          set_cfg_y CONFIG_BT_NIMBLE_ROLE_PERIPHERAL
+          set_cfg_n CONFIG_BT_NIMBLE_ROLE_OBSERVER
+          set_cfg_y CONFIG_BT_NIMBLE_ROLE_BROADCASTER
+          set_cfg_n CONFIG_BT_NIMBLE_GATT_CLIENT
+          set_cfg_y CONFIG_BT_NIMBLE_GATT_SERVER
+
+          set_cfg_n CONFIG_OV7670_SUPPORT
+          set_cfg_n CONFIG_OV7725_SUPPORT
+          set_cfg_n CONFIG_NT99141_SUPPORT
+          set_cfg_y CONFIG_OV2640_SUPPORT
+          set_cfg_n CONFIG_OV3660_SUPPORT
+          set_cfg_y CONFIG_OV5640_SUPPORT
+          set_cfg_y CONFIG_SCCB_HARDWARE_I2C_PORT0
+          set_cfg_n CONFIG_SCCB_HARDWARE_I2C_PORT1
+          set_cfg_n CONFIG_GC2145_SUPPORT
+          set_cfg_n CONFIG_GC032A_SUPPORT
+          set_cfg_n CONFIG_GC0308_SUPPORT
+          set_cfg_n CONFIG_BF3005_SUPPORT
+          set_cfg_n CONFIG_BF20A6_SUPPORT
+          set_cfg_n CONFIG_SC101IOT_SUPPORT
+          set_cfg_n CONFIG_SC030IOT_SUPPORT
+          set_cfg_n CONFIG_SC031GS_SUPPORT
+          set_cfg_n CONFIG_MEGA_CCM_SUPPORT
+
+          cd ../..
+          printf '%s\n' "$UPSTREAM_SHA" > build/waveshare-mel/WAVESHARE_UPSTREAM_SHA
+
+      - name: Build and merge ESP32-S3 image
+        uses: espressif/esp-idf-ci-action@e6f5c74232b1ccd4c97ed641f1e48553853f1fd5
+        with:
+          esp_idf_version: v5.4.2
+          target: esp32s3
+          path: build/waveshare-mel
+          command: >-
+            idf.py build &&
+            idf.py merge-bin -o mini-first-install.bin &&
+            cp build/lvgl_system.bin build/mel-terminal.bin
+
+      - name: Verify effective firmware configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          cfg = set(Path("build/waveshare-mel/sdkconfig").read_text().splitlines())
+          required = {
+              "CONFIG_OV5640_SUPPORT=y",
+              "CONFIG_OV2640_SUPPORT=y",
+              "CONFIG_SCCB_HARDWARE_I2C_PORT0=y",
+              "# CONFIG_SCCB_HARDWARE_I2C_PORT1 is not set",
+              "# CONFIG_OV3660_SUPPORT is not set",
+              "CONFIG_COMPILER_OPTIMIZATION_PERF=y",
+              "CONFIG_LV_ATTRIBUTE_FAST_MEM_USE_IRAM=y",
+              "CONFIG_LV_MEMCPY_MEMSET_STD=y",
+              "CONFIG_ESP_COEX_SW_COEXIST_ENABLE=y",
+              "CONFIG_BT_NIMBLE_PINNED_TO_CORE_0=y",
+              "CONFIG_ESP_WIFI_TASK_PINNED_TO_CORE_1=y",
+              "# CONFIG_ESP_WIFI_TASK_PINNED_TO_CORE_0 is not set",
+              "CONFIG_BT_ENABLED=y",
+              "CONFIG_BT_NIMBLE_ENABLED=y",
+              "# CONFIG_BT_NIMBLE_ROLE_CENTRAL is not set",
+              "CONFIG_BT_NIMBLE_ROLE_PERIPHERAL=y",
+              "# CONFIG_BT_NIMBLE_ROLE_OBSERVER is not set",
+              "CONFIG_BT_NIMBLE_ROLE_BROADCASTER=y",
+              "CONFIG_BT_NIMBLE_GATT_SERVER=y",
+              "# CONFIG_BT_BLUEDROID_ENABLED is not set",
+          }
+          missing = sorted(required - cfg)
+          if missing:
+              raise SystemExit("Missing effective sdkconfig values: " + ", ".join(missing))
+          print("Effective MINI sdkconfig verified")
+          PY
+
+      - name: Build firmware manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd build/waveshare-mel/build
+          test -s mel-terminal.bin
+          test -s mini-first-install.bin
+          OTA_SHA256="$(sha256sum mel-terminal.bin | awk '{print $1}')"
+          OTA_SIZE="$(stat -c '%s' mel-terminal.bin)"
+          INSTALL_SHA256="$(sha256sum mini-first-install.bin | awk '{print $1}')"
+          INSTALL_SIZE="$(stat -c '%s' mini-first-install.bin)"
+          cat > ../firmware-manifest.json <<JSON
+          {
+            "model": "waveshare-esp32-s3-touch-lcd-3.5-c",
+            "channel": "stable",
+            "firmware": {
+              "version": "0.5.1-link-v2-clock-voice",
+              "available": true,
+              "key": "devices/waveshare-esp32-s3-touch-lcd-3.5-c/mel-terminal.bin",
+              "sha256": "${OTA_SHA256}",
+              "size": ${OTA_SIZE},
+              "source_sha": "${GITHUB_SHA}",
+              "waveshare_upstream_sha": "283ec84c566c096f8c30493b93dcd4b0bb608de7"
+            },
+            "installer": {
+              "available": true,
+              "key": "devices/waveshare-esp32-s3-touch-lcd-3.5-c/mini-first-install.bin",
+              "sha256": "${INSTALL_SHA256}",
+              "size": ${INSTALL_SIZE}
+            },
+            "assets": { "version": "1", "items": [] }
+          }
+          JSON
+          sha256sum mel-terminal.bin mini-first-install.bin lvgl_system.elf lvgl_system.map ../firmware-manifest.json > ../SHA256SUMS.txt
+
+      - name: Upload flash-ready artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: MEL-Waveshare-3.5-C-${{ github.sha }}
+          path: |
+            build/waveshare-mel/build/mel-terminal.bin
+            build/waveshare-mel/build/mini-first-install.bin
+            build/waveshare-mel/build/lvgl_system.elf
+            build/waveshare-mel/build/lvgl_system.map
+            build/waveshare-mel/firmware-manifest.json
+            build/waveshare-mel/SHA256SUMS.txt
+            build/waveshare-mel/WAVESHARE_UPSTREAM_SHA
+          if-no-files-found: error
+          retention-days: 30
