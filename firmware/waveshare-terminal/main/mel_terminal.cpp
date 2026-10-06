@@ -1,5 +1,6 @@
 #include "mel_terminal.h"
 #include "mel_mobile_bridge.h"
+#include "mel_link_v2_transport.h"
 #include "mini_visual.h"
 
 #include <algorithm>
@@ -57,6 +58,15 @@ static const int VOICE_CAPTURE_SAMPLES = VOICE_SECONDS * VOICE_CAPTURE_RATE;
 static const int VOICE_CAPTURE_BYTES = VOICE_CAPTURE_SAMPLES * 2;
 static const int VOICE_STT_SAMPLES = VOICE_SECONDS * VOICE_STT_RATE;
 static const int VOICE_STT_BYTES = VOICE_STT_SAMPLES * 2;
+
+// 31-tap Hamming-windowed low-pass (~7 kHz at 48 kHz), Q15.
+// Applied before 3:1 decimation so the 16 kHz STT stream does not alias
+// high-frequency codec noise into the speech band.
+static const int16_t VOICE_DECIMATOR_Q15[31] = {
+    51, 17, -58, -146, -134, 84, 426, 555, 114, -838,
+    -1592, -1105, 1213, 4834, 8186, 9551, 8186, 4834, 1213,
+    -1105, -1592, -838, 114, 555, 426, 84, -134, -146, -58, 17, 51
+};
 static const int WAKE_RATE = 16000;
 static const int WAKE_WINDOW_MS = 1900;
 static const int WAKE_WINDOW_SAMPLES = WAKE_RATE * WAKE_WINDOW_MS / 1000;
@@ -1292,13 +1302,23 @@ static std::string record_and_transcribe() {
         return "";
     }
 
-    // 48 kHz -> 16 kHz mono: average each group of three samples while
-    // removing the measured DC offset.
+    // True 48 kHz -> 16 kHz mono decimation. Filter before dropping
+    // samples; merely averaging triplets aliases out-of-band energy into speech.
     int32_t peak = 0;
     uint64_t speech_abs_sum = 0;
+    constexpr int FIR_TAPS = 31;
+    constexpr int FIR_HALF = FIR_TAPS / 2;
     for (int i = 0; i < speech_samples; ++i) {
-        const int j = i * 3;
-        int32_t v = ((int32_t)capture[j] + capture[j + 1] + capture[j + 2]) / 3 - dc;
+        const int center = i * 3;
+        int64_t acc = 0;
+        for (int tap = 0; tap < FIR_TAPS; ++tap) {
+            int src = center + tap - FIR_HALF;
+            if (src < 0) src = 0;
+            if (src >= captured_samples) src = captured_samples - 1;
+            const int32_t centered = (int32_t)capture[src] - dc;
+            acc += (int64_t)centered * VOICE_DECIMATOR_Q15[tap];
+        }
+        int32_t v = (int32_t)(acc >> 15);
         if (v > 32767) v = 32767;
         if (v < -32768) v = -32768;
         speech[i] = (int16_t)v;
@@ -1338,39 +1358,66 @@ static std::string record_and_transcribe() {
              VOICE_STT_RATE, speech_samples, speech_bytes, (long)peak,
              (unsigned)speech_mean_abs, (long)scale_q15);
 
-    const char *boundary = "----MEL-ESP32-VOICE";
-    std::string prefix = std::string("--") + boundary +
-        "\r\nContent-Disposition: form-data; name=\"audio\"; filename=\"mel.wav\"\r\n"
-        "Content-Type: audio/wav\r\n\r\n";
-    std::string suffix = std::string("\r\n--") + boundary + "--\r\n";
-    const size_t total = prefix.size() + 44 + (size_t)speech_bytes + suffix.size();
-    auto *multipart = static_cast<uint8_t *>(heap_caps_malloc(total, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
-    if (!multipart) multipart = static_cast<uint8_t *>(heap_caps_malloc(total, MALLOC_CAP_8BIT));
-    if (!multipart) {
-        heap_caps_free(speech);
-        ESP_LOGE(TAG, "VOICE: multipart allocation failed");
-        voice_error("MEMOIRE REQUETE");
-        return "";
-    }
-
-    size_t off = 0;
-    memcpy(multipart + off, prefix.data(), prefix.size()); off += prefix.size();
-    wav_header(multipart + off, (uint32_t)speech_bytes, VOICE_STT_RATE); off += 44;
-    memcpy(multipart + off, speech, speech_bytes); off += (size_t)speech_bytes;
-    memcpy(multipart + off, suffix.data(), suffix.size());
-    heap_caps_free(speech);
-
     std::string response;
     int status = 0;
-    std::string content_type = std::string("multipart/form-data; boundary=") + boundary;
-    ESP_LOGI(TAG, "STT UPLOAD: bytes=%u wav_bytes=%d rate=%d duration_ms=%d",
-             (unsigned)total, speech_bytes + 44, VOICE_STT_RATE,
-             (speech_samples * 1000) / VOICE_STT_RATE);
-
     esp_err_t err = ESP_FAIL;
-    for (int attempt = 1; attempt <= 2; ++attempt) {
-        response.clear();
-        status = 0;
+
+    if (mel_mobile_bridge_ready()) {
+        ui_status("STT V2...");
+        ESP_LOGI(TAG,
+                 "STT V2 ADPCM: pcm16_samples=%d pcm16_bytes=%d rate=%d",
+                 speech_samples, speech_bytes, VOICE_STT_RATE);
+        err = mel_link_v2_transport_transcribe_adpcm(
+            speech,
+            (size_t)speech_samples,
+            g_device_id,
+            response,
+            status
+        );
+        heap_caps_free(speech);
+        ESP_LOGI(TAG, "STT V2 RESULT err=%s status=%d body=%.*s",
+                 esp_err_to_name(err), status,
+                 (int)std::min<size_t>(response.size(), 240), response.c_str());
+    } else {
+        // Autonomous Wi-Fi fallback remains ordinary standards-compliant WAV.
+        // The proprietary ADPCM codec exists only on the local BLE hop.
+        const char *boundary = "----MEL-ESP32-VOICE";
+        std::string prefix = std::string("--") + boundary +
+            "\r\nContent-Disposition: form-data; name=\"audio\"; filename=\"mel.wav\"\r\n"
+            "Content-Type: audio/wav\r\n\r\n";
+        std::string suffix = std::string("\r\n--") + boundary + "--\r\n";
+        const size_t total = prefix.size() + 44 + (size_t)speech_bytes + suffix.size();
+        auto *multipart = static_cast<uint8_t *>(
+            heap_caps_malloc(total, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)
+        );
+        if (!multipart) multipart = static_cast<uint8_t *>(heap_caps_malloc(total, MALLOC_CAP_8BIT));
+        if (!multipart) {
+            heap_caps_free(speech);
+            ESP_LOGE(TAG, "VOICE: Wi-Fi multipart allocation failed");
+            voice_error("MEMOIRE REQUETE");
+            return "";
+        }
+
+        size_t off = 0;
+        memcpy(multipart + off, prefix.data(), prefix.size()); off += prefix.size();
+        wav_header(multipart + off, (uint32_t)speech_bytes, VOICE_STT_RATE); off += 44;
+        memcpy(multipart + off, speech, speech_bytes); off += (size_t)speech_bytes;
+        memcpy(multipart + off, suffix.data(), suffix.size());
+        heap_caps_free(speech);
+
+        std::string content_type = std::string("multipart/form-data; boundary=") + boundary;
+        ESP_LOGI(TAG, "STT WIFI WAV: bytes=%u wav_bytes=%d rate=%d duration_ms=%d",
+                 (unsigned)total, speech_bytes + 44, VOICE_STT_RATE,
+                 (speech_samples * 1000) / VOICE_STT_RATE);
+
+        if (!g_wifi_connected) {
+            heap_caps_free(multipart);
+            voice_error("AUCUN TRANSPORT");
+            return "";
+        }
+
+        // V2 is unavailable here, so the canonical request helper takes the
+        // direct Wi-Fi branch and cannot accidentally tunnel this WAV over BLE.
         err = http_request(
             HTTP_METHOD_POST,
             std::string(SERVER) + "/api/device/v1/voice/transcribe",
@@ -1380,24 +1427,25 @@ static std::string record_and_transcribe() {
             response,
             status
         );
-        ESP_LOGI(TAG, "STT RESULT attempt=%d err=%s status=%d body=%.*s",
-                 attempt, esp_err_to_name(err), status,
+        heap_caps_free(multipart);
+        ESP_LOGI(TAG, "STT WIFI RESULT err=%s status=%d body=%.*s",
+                 esp_err_to_name(err), status,
                  (int)std::min<size_t>(response.size(), 240), response.c_str());
-        if (err == ESP_OK && status == 200) break;
-        if (status > 0 && status < 500) break;
-        if (attempt == 1) {
-            ui_status("STT RETRY...");
-            vTaskDelay(pdMS_TO_TICKS(300));
-        }
     }
-    heap_caps_free(multipart);
 
     if (err != ESP_OK) {
         voice_error("RESEAU STT");
         return "";
     }
     if (status != 200) {
-        voice_error(status == 401 ? "SESSION MEL" : "SERVEUR STT");
+        const std::string server_code = parse_json_text(response, "code");
+        ESP_LOGE(TAG, "STT ERROR status=%d code=%s", status,
+                 server_code.empty() ? "-" : server_code.c_str());
+        if (server_code == "TRANSCRIPTION_UNAVAILABLE") voice_error("STT IA ERREUR");
+        else if (server_code == "EMPTY_TRANSCRIPTION") voice_error("TRANSCRIPTION VIDE");
+        else if (server_code == "AI_BINDING_MISSING") voice_error("STT IA ABSENTE");
+        else if (status == 401 || status == 403) voice_error("SESSION MEL");
+        else voice_error("SERVEUR STT");
         return "";
     }
 
