@@ -391,6 +391,10 @@ async function deviceChat(request, env, auth) {
   const body = await request.json().catch(() => ({}));
   const text = String(body.text || body.message || "").trim();
   if (!text) return json({ ok: false, code: "MESSAGE_REQUIRED" }, 400);
+  const inputSource = body.input_source === "voice-server-transcription"
+    ? "voice-server-transcription"
+    : "text";
+  const voiceReply = body.voice_reply === true || body.voice_mode === true;
   const internal = new Request(new URL("/api/chat", request.url), {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -399,7 +403,9 @@ async function deviceChat(request, env, auth) {
       device_id: auth.deviceId,
       conversation_id: body.conversation_id || `terminal-${auth.deviceId}`,
       ui_theme: body.ui_theme || "default",
-      parallel: body.parallel === true
+      input_source: inputSource,
+      voice_reply: voiceReply,
+      parallel: voiceReply ? false : body.parallel === true
     })
   });
   return handleNativeChat(internal, env, { authorized: true, source: "waveshare-terminal", device_id: auth.deviceId });
