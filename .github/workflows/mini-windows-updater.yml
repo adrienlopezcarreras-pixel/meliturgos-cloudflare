@@ -7,6 +7,7 @@ on:
       - fix/mini-wifi-internet-diagnostics
       - package/mini-updater-v2-20261006
       - fix/mini-apk-v2-token-relay-20261006
+      - fix/mini-v0.5.14-voice-tts-display-20261006
     paths:
       - "tools/mini-updater/**"
       - ".github/workflows/mini-windows-updater.yml"
@@ -37,16 +38,16 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh run watch 37515192033 --repo "${{ github.repository }}" --exit-status --interval 10
+          gh run watch 37523387658 --repo "${{ github.repository }}" --exit-status --interval 10
 
       - name: Download exact Link V2 firmware
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh run download 37515192033 `
+          gh run download 37523387658 `
             --repo "${{ github.repository }}" `
-            --name "MEL-Waveshare-3.5-C-59469139272e502d4b030f90bd0f8e378a72b4de" `
+            --name "MEL-Waveshare-3.5-C-f95511075e425c2c0ea6d20e73906cafbe9b63dc" `
             --dir firmware-artifact
           if (!(Test-Path "firmware-artifact/build/mel-terminal.bin")) {
             throw "Validated Link V2 firmware binary missing"
@@ -60,7 +61,7 @@ jobs:
             --clean `
             --onefile `
             --console `
-            --name "MEL-MINI-Updater-0.5.13-ChatNotify" `
+            --name "MEL-MINI-Updater-0.5.14-VoiceTTSDisplay" `
             --collect-all esptool `
             --collect-all serial `
             --add-data "firmware-artifact/build/mel-terminal.bin;." `
@@ -69,21 +70,21 @@ jobs:
       - name: Self-test updater
         shell: pwsh
         run: |
-          & ".\dist\MEL-MINI-Updater-0.5.13-ChatNotify.exe" --self-test
+          & ".\dist\MEL-MINI-Updater-0.5.14-VoiceTTSDisplay.exe" --self-test
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: SHA256
         shell: pwsh
         run: |
-          Get-FileHash ".\dist\MEL-MINI-Updater-0.5.13-ChatNotify.exe" -Algorithm SHA256 |
-            Format-List | Out-File ".\dist\MEL-MINI-Updater-0.5.13-ChatNotify.sha256.txt"
+          Get-FileHash ".\dist\MEL-MINI-Updater-0.5.14-VoiceTTSDisplay.exe" -Algorithm SHA256 |
+            Format-List | Out-File ".\dist\MEL-MINI-Updater-0.5.14-VoiceTTSDisplay.sha256.txt"
 
       - name: Upload updater
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: MEL-MINI-Updater-0.5.13-ChatNotify
+          name: MEL-MINI-Updater-0.5.14-VoiceTTSDisplay
           path: |
-            dist/MEL-MINI-Updater-0.5.13-ChatNotify.exe
-            dist/MEL-MINI-Updater-0.5.13-ChatNotify.sha256.txt
+            dist/MEL-MINI-Updater-0.5.14-VoiceTTSDisplay.exe
+            dist/MEL-MINI-Updater-0.5.14-VoiceTTSDisplay.sha256.txt
           if-no-files-found: error
           retention-days: 30
