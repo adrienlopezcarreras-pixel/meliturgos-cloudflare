@@ -37,16 +37,16 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh run watch 37512408943 --repo "${{ github.repository }}" --exit-status --interval 10
+          gh run watch 37515192033 --repo "${{ github.repository }}" --exit-status --interval 10
 
       - name: Download exact Link V2 firmware
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh run download 37512408943 `
+          gh run download 37515192033 `
             --repo "${{ github.repository }}" `
-            --name "MEL-Waveshare-3.5-C-075eb58bbd4c10861a650c0e59a08015bb973558" `
+            --name "MEL-Waveshare-3.5-C-59469139272e502d4b030f90bd0f8e378a72b4de" `
             --dir firmware-artifact
           if (!(Test-Path "firmware-artifact/build/mel-terminal.bin")) {
             throw "Validated Link V2 firmware binary missing"
@@ -60,7 +60,7 @@ jobs:
             --clean `
             --onefile `
             --console `
-            --name "MEL-MINI-Updater-0.5.12-AudioNotify" `
+            --name "MEL-MINI-Updater-0.5.13-ChatNotify" `
             --collect-all esptool `
             --collect-all serial `
             --add-data "firmware-artifact/build/mel-terminal.bin;." `
@@ -69,21 +69,21 @@ jobs:
       - name: Self-test updater
         shell: pwsh
         run: |
-          & ".\dist\MEL-MINI-Updater-0.5.12-AudioNotify.exe" --self-test
+          & ".\dist\MEL-MINI-Updater-0.5.13-ChatNotify.exe" --self-test
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: SHA256
         shell: pwsh
         run: |
-          Get-FileHash ".\dist\MEL-MINI-Updater-0.5.12-AudioNotify.exe" -Algorithm SHA256 |
-            Format-List | Out-File ".\dist\MEL-MINI-Updater-0.5.12-AudioNotify.sha256.txt"
+          Get-FileHash ".\dist\MEL-MINI-Updater-0.5.13-ChatNotify.exe" -Algorithm SHA256 |
+            Format-List | Out-File ".\dist\MEL-MINI-Updater-0.5.13-ChatNotify.sha256.txt"
 
       - name: Upload updater
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: MEL-MINI-Updater-0.5.12-AudioNotify
+          name: MEL-MINI-Updater-0.5.13-ChatNotify
           path: |
-            dist/MEL-MINI-Updater-0.5.12-AudioNotify.exe
-            dist/MEL-MINI-Updater-0.5.12-AudioNotify.sha256.txt
+            dist/MEL-MINI-Updater-0.5.13-ChatNotify.exe
+            dist/MEL-MINI-Updater-0.5.13-ChatNotify.sha256.txt
           if-no-files-found: error
           retention-days: 30
