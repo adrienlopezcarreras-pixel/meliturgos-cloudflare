@@ -1,0 +1,43 @@
+name: inspect-cloudflare-version-bindings
+
+on:
+  push:
+    branches:
+      - ops/repair-owner-auth-20261006
+    paths:
+      - .github/workflows/inspect-cloudflare-version-bindings.yml
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Inspect binding names on historical versions
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          API="https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/scripts/meliturgos/versions"
+          LIST="$(curl -fsSL -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" "${API}?per_page=100")"
+          printf '%s' "${LIST}" > versions.json
+          node - <<'NODE'
+          const d=require('./versions.json');
+          for(const v of (d.result||[]).slice(0,100)){
+            console.log('VERSION',v.id,'number='+String(v.number||''),'created='+String(v.metadata?.created_on||''),'preview='+String(v.metadata?.hasPreview||false));
+          }
+          NODE
+          for V in fd941103-40cb-4881-ab2c-f194ed5cb5ba cd0d3411-5028-41fd-a647-b4179474ce6f 0e8fb9ca-834f-4e75-9f81-d6bde3e3f7ec ad0e4e61-1baa-49ff-bd16-21770dca7bdd 973813a5-6428-4f49-a953-255e4a3ecec3 c32a0ced-4e9f-4873-95d4-a64abda7a7d1 d5f43564-2c6f-42d5-a412-5fca68aac9d2 68c1c7c1-e1b6-4521-8401-7abbeb7b4766; do
+            BODY="$(curl -fsSL -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" "${API}/${V}" || true)"
+            V="${V}" BODY="${BODY}" node - <<'NODE'
+          const v=process.env.V; let d={}; try{d=JSON.parse(process.env.BODY||'{}')}catch{}
+          const r=d.result||{};
+          const resources=Array.isArray(r.resources)?r.resources:[];
+          const names=resources.map(x=>String(x?.binding||x?.name||'')).filter(Boolean);
+          console.log('BINDINGS',v,'has_owner_password='+String(names.includes('MELITURGOS_PASSWORD')),'names='+names.filter(n=>/MELITURGOS|MEL_|DB|MEDIA/i.test(n)).join(','));
+          NODE
+          done
