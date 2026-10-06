@@ -137,6 +137,7 @@ static TaskHandle_t g_voice_task_handle = nullptr;
 static volatile bool g_voice_stop_requested = false;
 static volatile int g_voice_level = 0;
 static const char *g_last_voice_error = nullptr;
+static volatile bool g_voice_capture_requested = false;
 static SemaphoreHandle_t g_mic_mutex = nullptr;
 static TaskHandle_t g_wake_task_handle = nullptr;
 static TaskHandle_t g_wake_sync_task_handle = nullptr;
@@ -419,7 +420,8 @@ static void wake_detector_task(void *) {
     int filled = 0;
     while (true) {
         if (!g_wake_profile_ready || (!g_online && !mel_mobile_bridge_ready()) ||
-            !g_audio_ok || !input_dev || g_runtime_state != MEL_TERMINAL_IDLE) {
+            !g_audio_ok || !input_dev || g_voice_capture_requested ||
+            g_runtime_state != MEL_TERMINAL_IDLE) {
             filled = 0;
             vTaskDelay(pdMS_TO_TICKS(250));
             continue;
@@ -1228,8 +1230,9 @@ static std::string record_and_transcribe() {
     int rc = ESP_CODEC_DEV_OK;
 
     ensure_mic_mutex();
-    if (!g_mic_mutex || xSemaphoreTake(g_mic_mutex, pdMS_TO_TICKS(1500)) != pdTRUE) {
+    if (!g_mic_mutex || xSemaphoreTake(g_mic_mutex, pdMS_TO_TICKS(2500)) != pdTRUE) {
         heap_caps_free(capture);
+        ESP_LOGE(TAG, "VOICE: microphone mutex unavailable after priority wait");
         voice_error("MICRO OCCUPE");
         return "";
     }
@@ -1479,6 +1482,7 @@ static void voice_task(void *) {
     vTaskDelay(pdMS_TO_TICKS(60));
     const int64_t stt_started_us = esp_timer_get_time();
     std::string text = record_and_transcribe();
+    g_voice_capture_requested = false;
     ESP_LOGI(TAG, "VOICE PERF: STT total=%lld ms", (long long)((esp_timer_get_time() - stt_started_us) / 1000));
     if (text.empty()) {
         g_runtime_state = MEL_TERMINAL_ERROR;
@@ -1559,6 +1563,7 @@ void mel_terminal_request_voice(void) {
     }
 
     g_voice_stop_requested = false;
+    g_voice_capture_requested = true;
     g_runtime_state = MEL_TERMINAL_LISTENING;
     ui_status("ECOUTE...");
     ui_answer("");
@@ -1574,6 +1579,7 @@ void mel_terminal_request_voice(void) {
     );
     if (created != pdPASS || !g_voice_task_handle) {
         g_voice_task_handle = nullptr;
+        g_voice_capture_requested = false;
         g_runtime_state = MEL_TERMINAL_ERROR;
         voice_error("TACHE VOIX");
         ui_status("ERREUR TACHE VOIX");
@@ -1593,6 +1599,10 @@ bool mel_terminal_online(void) {
 
 int mel_terminal_voice_level(void) {
     return g_voice_level;
+}
+
+const char *mel_terminal_last_voice_error(void) {
+    return g_last_voice_error ? g_last_voice_error : "";
 }
 
 bool mel_terminal_has_display(void) {
