@@ -415,8 +415,8 @@ test('Android Complete mode exposes an authenticated self diagnostic',async()=>{
   const vm=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelViewModel.kt',root),'utf8');
   const api=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelApiClient.kt',root),'utf8');
   const build=await readFile(new URL('app/build.gradle.kts',root),'utf8');
-  assert.match(build,/versionCode = 82/);
-  assert.match(build,/versionName = "0\.7\.4-link-v2-native16k"/);
+  assert.match(build,/versionCode = 83/);
+  assert.match(build,/versionName = "0\.7\.5-link-v2-stt-flow"/);
   assert.match(api,/APP_VERSION = "0\.7\.1-link-v2-token-relay"/);
   assert.match(vm,/val diagnosticReport: String\? = null/);
   assert.match(vm,/fun runDiagnostics\(\)/);
@@ -438,8 +438,8 @@ test('Android device validation probes are authenticated and bounded',async()=>{
   const build=await readFile(new URL('app/build.gradle.kts',root),'utf8');
   const api=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelApiClient.kt',root),'utf8');
 
-  assert.match(build,/versionCode = 82/);
-  assert.match(build,/versionName = "0\.7\.4-link-v2-native16k"/);
+  assert.match(build,/versionCode = 83/);
+  assert.match(build,/versionName = "0\.7\.5-link-v2-stt-flow"/);
   assert.match(api,/APP_VERSION = "0\.7\.1-link-v2-token-relay"/);
 
   assert.match(activity,/private const val MAX_FILE_BYTES = 25_000_000/);
@@ -472,8 +472,8 @@ test('real mic and file successes feed the diagnostic report',async()=>{
   const build=await readFile(new URL('app/build.gradle.kts',root),'utf8');
   const api=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelApiClient.kt',root),'utf8');
 
-  assert.match(build,/versionCode = 82/);
-  assert.match(build,/versionName = "0\.7\.4-link-v2-native16k"/);
+  assert.match(build,/versionCode = 83/);
+  assert.match(build,/versionName = "0\.7\.5-link-v2-stt-flow"/);
   assert.match(api,/APP_VERSION = "0\.7\.1-link-v2-token-relay"/);
 
   const voice=vm.slice(vm.indexOf('fun sendVoice('),vm.indexOf('fun sendFile('));
@@ -491,8 +491,8 @@ test('Android dark UI keeps readable content contrast',async()=>{
   const build=await readFile(new URL('app/build.gradle.kts',root),'utf8');
   const api=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelApiClient.kt',root),'utf8');
 
-  assert.match(build,/versionCode = 82/);
-  assert.match(build,/versionName = "0\.7\.4-link-v2-native16k"/);
+  assert.match(build,/versionCode = 83/);
+  assert.match(build,/versionName = "0\.7\.5-link-v2-stt-flow"/);
   assert.match(api,/APP_VERSION = "0\.7\.1-link-v2-token-relay"/);
 
   assert.match(activity,/contentColor = MelInk/);
@@ -684,8 +684,8 @@ test('Android Link V2 reports Internet ready only after physical, protocol and a
   assert.match(service,/phoneOk && miniReady\.value && protocolReady\.value && melSessionReady/);
   assert.match(service,/MINI V2 · INTERNET OK/);
   assert.match(activity,/phoneInternetReady by MelLinkV2ClientService\.phoneInternetAvailable/);
-  assert.match(build,/versionCode = 82/);
-  assert.match(build,/versionName = "0\.7\.4-link-v2-native16k"/);
+  assert.match(build,/versionCode = 83/);
+  assert.match(build,/versionName = "0\.7\.5-link-v2-stt-flow"/);
 });
 
 test('Android Link V2 has one GATT response path and serializes every write by callback acknowledgement',async()=>{
