@@ -646,6 +646,15 @@ test('Google status isolates unreadable legacy connector tokens instead of faili
 });
 
 
+test('Pipedream accounts endpoint degrades gracefully when account listing is unavailable', async()=>{
+  const source=await import('node:fs/promises').then(fs=>fs.readFile(new URL('../../src/api/connection-settings-api.js',import.meta.url),'utf8'));
+  assert.match(source,/error\?\.code !== 'PIPEDREAM_ACCOUNTS_FAILED'/);
+  assert.match(source,/account_status_degraded:\s*true/);
+  assert.match(source,/connect_link_supported:\s*true/);
+  assert.match(source,/actions_supported:\s*true/);
+  assert.match(source,/proxy_supported:\s*true/);
+});
+
 test('Pipedream account status uses the project accounts endpoint scoped by external_user_id', async()=>{
   const source=await import('node:fs/promises').then(fs=>fs.readFile(new URL('../../src/api/connection-settings-api.js',import.meta.url),'utf8'));
   assert.match(source,/\/accounts\?/);
