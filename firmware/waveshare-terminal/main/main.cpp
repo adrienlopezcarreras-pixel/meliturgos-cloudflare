@@ -2111,6 +2111,13 @@ extern "C" void app_main(void) {
     audio_ok = input_dev != nullptr && output_dev != nullptr;
     ESP_LOGI(TAG, "STEP 4 %s", audio_ok ? "OK" : "FAILED");
 
+    // Waveshare keeps the codec open and records directly through
+    // esp_codec_dev_read(). Reserve MEL's permanent worker now, while internal
+    // heap is still contiguous, before camera/LVGL/BLE allocations.
+    bool voice_worker_ok = false;
+    if (audio_ok) voice_worker_ok = mel_terminal_prepare_voice_worker();
+    ESP_LOGI(TAG, "STEP 4.1 VOICE WORKER %s", voice_worker_ok ? "READY" : "FAILED");
+
     // Match Waveshare's factory order: PMU -> audio -> camera -> backlight/LVGL.
     // Initializing the DVP sensor only after LVGL/BLE/Wi-Fi was needlessly
     // different from the constructor path and can hide power/bus timing issues.
