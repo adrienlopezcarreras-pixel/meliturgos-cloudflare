@@ -24,6 +24,18 @@ const DEFAULT_APPS=["notepad","calculator","explorer","msedge","firefox","chrome
 const PAIR_TTL_MS=10*60*1000;
 const MINI_ONLINE_MS=60*1000;
 const ANDROID_ONLINE_MS=35*60*1000;
+const MIN_SOVEREIGN_AI_ENGINE_VERSION="1.3.2";
+
+function versionAtLeast(actual,required){
+ const a=String(actual||"").match(/^\d+(?:\.\d+){0,3}/)?.[0]?.split(".").map(Number)||[];
+ const r=String(required||"").match(/^\d+(?:\.\d+){0,3}/)?.[0]?.split(".").map(Number)||[];
+ if(!a.length||!r.length)return false;
+ for(let i=0;i<Math.max(a.length,r.length);i++){
+  const av=Number(a[i]||0),rv=Number(r[i]||0);
+  if(av>rv)return true;if(av<rv)return false;
+ }
+ return true;
+}
 
 
 function json(v,s=200,h={}){return Response.json(v,{status:s,headers:{"cache-control":"no-store",...h}})}
@@ -276,6 +288,9 @@ async function heartbeat(request,env,a){
  const patch={};
  if(b.version!==undefined)patch.version=b.version||null;
  if(b.engine_version!==undefined)patch.engine_version=b.engine_version||null;
+ if(b.engine_refresh_status!==undefined)patch.engine_refresh_status=safe(b.engine_refresh_status,80)||null;
+ if(b.engine_refresh_at!==undefined&&Number.isFinite(Number(b.engine_refresh_at)))patch.engine_refresh_at=Number(b.engine_refresh_at);
+ if(b.engine_refresh_error!==undefined)patch.engine_refresh_error=safe(b.engine_refresh_error,180)||null;
  if(b.engine_heartbeat_at!==undefined&&Number.isFinite(Number(b.engine_heartbeat_at))){
    patch.engine_heartbeat_at=Number(b.engine_heartbeat_at);
  }else if(
@@ -297,12 +312,19 @@ async function heartbeat(request,env,a){
  await env.DB.prepare("UPDATE computer_devices SET last_seen_at=?,metadata=? WHERE id=?").bind(now,JSON.stringify(metadata),a.device.id).run();
  const engineHeartbeatAt=Number(metadata.engine_heartbeat_at||0);
  const engineOnline=engineHeartbeatAt>0&&now-engineHeartbeatAt<35000;
+ const engineVersion=safe(metadata.engine_version,80)||null;
+ const engineUpdateRequired=!versionAtLeast(engineVersion,MIN_SOVEREIGN_AI_ENGINE_VERSION);
  return json({
    ok:true,
    server_time:now,
    engine_online:engineOnline,
-   engine_version:safe(metadata.engine_version,80)||null,
-   engine_last_seen_at:engineHeartbeatAt||null
+   engine_version:engineVersion,
+   engine_last_seen_at:engineHeartbeatAt||null,
+   required_engine_version:MIN_SOVEREIGN_AI_ENGINE_VERSION,
+   engine_update_required:engineUpdateRequired,
+   engine_refresh_status:safe(metadata.engine_refresh_status,80)||null,
+   engine_refresh_at:Number(metadata.engine_refresh_at||0)||null,
+   engine_refresh_error:safe(metadata.engine_refresh_error,180)||null
  })
 }
 async function claim(env,a){if(a.device.halted)return json({ok:true,halted:true,command:null});const r=await env.DB.prepare("SELECT * FROM computer_commands WHERE device_id=? AND status=? ORDER BY created_at ASC LIMIT 1").bind(a.device.id,"PENDING").first();if(!r)return json({ok:true,halted:false,command:null});await env.DB.prepare("UPDATE computer_commands SET status=?,claimed_at=? WHERE id=? AND status=?").bind("RUNNING",Date.now(),r.id,"PENDING").run();return json({ok:true,halted:false,command:{id:r.id,session_id:r.session_id,plan:parse(r.plan_json,{})}})}

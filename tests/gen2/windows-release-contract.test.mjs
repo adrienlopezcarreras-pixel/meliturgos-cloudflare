@@ -59,7 +59,7 @@ test('native Windows Companion refreshes only its authenticated MEL engine with 
   assert.match(source, /\/api\/computer\/v1\/companion/);
   assert.match(source, /DeviceHeaders\(\)/);
   assert.match(source, /MaybeRefreshCompanionEngine/);
-  assert.match(source, /TotalMinutes < 10/);
+  assert.match(source, /TotalSeconds < 30/);
   assert.match(source, /System\.Management\.Automation\.Language\.Parser/);
   assert.match(source, /ValidatePowerShellFile/);
   assert.match(source, /File\.Replace\(temp, CompanionPath, backup, true\)/);
@@ -68,4 +68,8 @@ test('native Windows Companion refreshes only its authenticated MEL engine with 
   assert.doesNotMatch(source, /powershell\.exe.*Invoke-WebRequest/si);
   assert.match(source, /CompanionRunning\(\)/);
   assert.match(source, /heartbeat\["engine_heartbeat_at"\] = DateTimeOffset\.UtcNow\.ToUnixTimeMilliseconds\(\)/);
+  assert.match(source, /engine_refresh_status/);
+  assert.match(source, /engine_update_required/);
+  assert.match(source, /MaybeRefreshCompanionEngine\(true\)/);
+  assert.match(source, /public const string Version = "2\.3\.10"/);
 });
