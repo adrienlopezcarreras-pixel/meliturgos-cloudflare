@@ -347,18 +347,22 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun ensureMobileBridge(forceRestart: Boolean = false) {
+        val permissions = mutableListOf<String>()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            val permissions = arrayOf(
-                Manifest.permission.BLUETOOTH_SCAN,
-                Manifest.permission.BLUETOOTH_CONNECT
-            )
-            val missing = permissions.filter {
-                ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
-            }
-            if (missing.isNotEmpty()) {
-                bluetoothPermissions.launch(missing.toTypedArray())
-                return
-            }
+            permissions += Manifest.permission.BLUETOOTH_SCAN
+            permissions += Manifest.permission.BLUETOOTH_CONNECT
+        }
+        if (Build.VERSION.SDK_INT >= 33) {
+            permissions += Manifest.permission.NEARBY_WIFI_DEVICES
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            permissions += Manifest.permission.ACCESS_FINE_LOCATION
+        }
+        val missing = permissions.filter {
+            ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
+        }
+        if (missing.isNotEmpty()) {
+            bluetoothPermissions.launch(missing.toTypedArray())
+            return
         }
         val adapter = getSystemService(BluetoothManager::class.java)?.adapter ?: return
         if (!adapter.isEnabled) {
