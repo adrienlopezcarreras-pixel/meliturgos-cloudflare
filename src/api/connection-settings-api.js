@@ -248,7 +248,26 @@ async function oauthStatus(env, provider, contextOwner) {
     : createMailOAuthRuntime({ providerId: provider, env: resolved });
   const connectors = {};
   for (const connectorId of PROVIDER_CONNECTORS[provider]) {
-    connectors[connectorId] = await runtime.status(connectorId, { owner: contextOwner });
+    try {
+      connectors[connectorId] = await runtime.status(connectorId, { owner: contextOwner });
+    } catch (error) {
+      const code=clean(error?.code || error?.message || 'CONNECTION_STATUS_UNAVAILABLE',160);
+      if (code==='OAUTH_VAULT_LEGACY_KEY_UNAVAILABLE_RECONNECT_REQUIRED') {
+        connectors[connectorId] = {
+          connector_id: connectorId,
+          authorized: false,
+          token_source: 'legacy_unreadable',
+          scopes: [],
+          expires_at: null,
+          refreshable: false,
+          reconnect_required: true,
+          action_required: provider==='google' ? 'RECONNECT_GOOGLE' : provider==='microsoft' ? 'RECONNECT_MICROSOFT' : 'RECONNECT_YAHOO',
+          reason: code,
+        };
+        continue;
+      }
+      throw error;
+    }
   }
   return {
     provider,
