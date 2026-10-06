@@ -94,3 +94,22 @@ test('MINI audio begin/end use notifications because CREDIT/response provide app
     /MEL_LINK_V2_AUDIO_END,[\s\S]*?nullptr, 0, false/
   );
 });
+
+
+test('MINI generic request begin/end use notifications with CREDIT/response acknowledgement', async () => {
+  const transport = await readFile(
+    new URL('../firmware/waveshare-terminal/main/mel_link_v2_transport.cpp', import.meta.url),
+    'utf8'
+  );
+  assert.match(
+    transport,
+    /MEL_LINK_V2_REQUEST_BEGIN,[\s\S]*?\(uint16_t\)meta\.size\(\), false/
+  );
+  assert.match(
+    transport,
+    /MEL_LINK_V2_REQUEST_END,[\s\S]*?nullptr, 0, false/
+  );
+  assert.match(transport, /BT_REQUEST_BEGIN_SEND/);
+  assert.match(transport, /BT_REQUEST_CREDIT_TIMEOUT/);
+  assert.match(transport, /BT_REQUEST_END_SEND/);
+});
