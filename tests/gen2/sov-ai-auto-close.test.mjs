@@ -22,6 +22,10 @@ test('AI SOV auto-close watches only the missing AI layer and preserves the 10/1
   assert.ok(source.includes('AI_ENGINE_UPDATE_WAITS=0'));
   assert.ok(source.includes('while [ "$AI_ATTEMPT" -lt 28 ]'));
   assert.ok(source.includes('AI_ENGINE_UPDATE_WAITS" -lt 14'));
+  assert.ok(source.includes('AI_DIAGNOSTICS'));
+  assert.ok(source.includes('native='));
+  assert.ok(source.includes('engine='));
+  assert.ok(source.includes('refresh_error='));
   assert.ok(source.includes('AI_BOOTSTRAP_WAITS" -lt 8'));
   assert.ok(source.includes('SOVEREIGNTY_AI_LOCAL_BOOTSTRAP_PENDING'));
   assert.ok(source.includes('MEL_SOV_AI_BOOTSTRAP_WAIT'));
