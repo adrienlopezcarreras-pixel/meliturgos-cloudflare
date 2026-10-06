@@ -860,18 +860,24 @@ class MelLinkV2ClientService : Service() {
             }
 
             if (status in 200..299 && path == "/api/device/v1/voice/tts") {
-                val pcm48 = runCatching {
-                    MelImaAdpcm.decodePcm16MonoWav(body, 48_000)
+                val pcm16 = runCatching {
+                    MelImaAdpcm.decodePcm16MonoWav(body, 16_000)
+                }.recoverCatching {
+                    val pcm48 = MelImaAdpcm.decodePcm16MonoWav(body, 48_000)
+                    MelImaAdpcm.decimate48kTo16k(pcm48)
                 }.getOrElse {
                     lastError.value = "TTS_WAV"
                     sendResponse(
                         request.streamId, 503, "application/json",
-                        JSONObject().put("ok", false).put("code", "TTS_WAV")
+                        JSONObject()
+                            .put("ok", false)
+                            .put("code", "TTS_WAV")
+                            .put("content_type", connection.contentType.orEmpty())
+                            .put("bytes", body.size)
                             .toString().toByteArray(Charsets.UTF_8)
                     )
                     return
                 }
-                val pcm16 = MelImaAdpcm.decimate48kTo16k(pcm48)
                 sendAudioResponse(request.streamId, pcm16, outputRate = 48_000)
                 return
             }
