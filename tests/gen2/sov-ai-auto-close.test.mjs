@@ -23,6 +23,10 @@ test('AI SOV auto-close watches only the missing AI layer and preserves the 10/1
   assert.ok(source.includes('while [ "$AI_ATTEMPT" -lt 28 ]'));
   assert.ok(source.includes('AI_ENGINE_UPDATE_WAITS" -lt 14'));
   assert.ok(source.includes('AI_DIAGNOSTICS'));
+  assert.ok(source.includes('release_transition_supersedes_run'));
+  assert.ok(source.includes('MEL_SOV_AI_SUPERSEDED_BY_NEW_RELEASE'));
+  assert.ok(source.includes('BOOTSTRAP_AUTH_REQUIRED'));
+  assert.ok(source.includes('abort_if_release_transition'));
   assert.ok(source.includes('native='));
   assert.ok(source.includes('engine='));
   assert.ok(source.includes('refresh_error='));

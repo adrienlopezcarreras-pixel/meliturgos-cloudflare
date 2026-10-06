@@ -63,6 +63,28 @@ jobs:
         run: |
           set -euo pipefail
 
+          release_transition_supersedes_run() {
+            gh api "repos/$GITHUB_REPOSITORY/actions/workflows/deploy-cloudflare-release.yml/runs?per_page=10" > release-transition.json
+            TARGET_SHA="$TARGET_SHA" node - <<'NODE'
+          const d=require('./release-transition.json');
+          const target=String(process.env.TARGET_SHA||'').toLowerCase();
+          const runs=d.workflow_runs||[];
+          const newerActive=runs.some(r=>['queued','in_progress','waiting','pending'].includes(String(r?.status||'')));
+          const latestSuccess=runs.find(r=>r?.status==='completed'&&r?.conclusion==='success'&&/^[0-9a-f]{40}$/i.test(String(r?.head_sha||'')));
+          const stableChanged=latestSuccess&&String(latestSuccess.head_sha||'').toLowerCase()!==target;
+          process.exit(newerActive||stableChanged?0:1);
+          NODE
+          }
+
+          abort_if_release_transition() {
+            local code="${1:-}"
+            local reason="${2:-}"
+            if [ "$code" = "401" ] && [ "$reason" = "BOOTSTRAP_AUTH_REQUIRED" ] && release_transition_supersedes_run; then
+              echo "MEL_SOV_AI_SUPERSEDED_BY_NEW_RELEASE target=$TARGET_SHA"
+              exit 0
+            fi
+          }
+
           read_state() {
             local file="$1"
             TARGET_SHA="$TARGET_SHA" FILE="$file" node - <<'NODE'
@@ -132,6 +154,8 @@ jobs:
           NODE
               )"
 
+              abort_if_release_transition "$AI_CODE" "$AI_REASON"
+
               if [ "$AI_CODE" = "200" ]; then
                 node - <<'NODE'
           const d=require('./sov-ai-local.json');
@@ -188,6 +212,8 @@ jobs:
           process.stdout.write(String(d?.refresh?.reason||d?.refresh?.status||d?.code||d?.status||'UNKNOWN').slice(0,180));
           NODE
             )"
+            abort_if_release_transition "$CONFIGURED_AI_CODE" "$CONFIGURED_AI_REASON"
+
             if [ "$CONFIGURED_AI_CODE" = "200" ]; then
               node - <<'NODE'
           const d=require('./sov-ai-configured.json');
@@ -229,6 +255,13 @@ jobs:
             --data '{"phase":"sovereignty-proof"}' \
             --output sov-final.json --write-out '%{http_code}' \
             "$BASE_URL/api/internal/release-launch-bootstrap" || true)"
+
+          FINAL_REASON="$(node - <<'NODE'
+          const fs=require('fs');let d={};try{d=JSON.parse(fs.readFileSync('sov-final.json','utf8'))}catch{}
+          process.stdout.write(String(d?.code||d?.status||'UNKNOWN').slice(0,180));
+          NODE
+          )"
+          abort_if_release_transition "$FINAL_CODE" "$FINAL_REASON"
 
           TARGET_SHA="$TARGET_SHA" FINAL_CODE="$FINAL_CODE" node - <<'NODE'
           const d=require('./sov-final.json');
