@@ -2,6 +2,19 @@ import { isLocalSovereigntyAction } from './local-sovereignty-actions.js';
 
 function clean(v,max=300){return String(v||'').trim().slice(0,max);}
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+const MIN_LOCAL_AI_ENGINE_VERSION='1.3.2';
+
+function versionAtLeast(actual,required){
+  const a=String(actual||'').match(/^\d+(?:\.\d+){0,3}/)?.[0]?.split('.').map(Number)||[];
+  const r=String(required||'').match(/^\d+(?:\.\d+){0,3}/)?.[0]?.split('.').map(Number)||[];
+  if(!a.length||!r.length)return false;
+  for(let i=0;i<Math.max(a.length,r.length);i++){
+    const av=Number(a[i]||0),rv=Number(r[i]||0);
+    if(av>rv)return true;
+    if(av<rv)return false;
+  }
+  return true;
+}
 
 async function ensureTables(db){
   await db.prepare(`CREATE TABLE IF NOT EXISTS computer_devices(
@@ -69,6 +82,19 @@ export function createCompanionSovereigntyExecutor(env,{
     if(!device)return{ok:false,code:'COMPUTER_OFFLINE'};
     if(Number(device.halted)===1)return{ok:false,code:'OWNER_HALT_ACTIVE'};
     if(String(device.platform||'').toLowerCase()!=='windows')return{ok:false,code:'SOVEREIGNTY_WINDOWS_REQUIRED'};
+    if(capabilityId==='sovereignty.ai'){
+      const metadata=parseJson(device.metadata,{})||{};
+      const engineVersion=clean(metadata.engine_version,80);
+      if(!versionAtLeast(engineVersion,MIN_LOCAL_AI_ENGINE_VERSION)){
+        return{
+          ok:false,
+          code:'COMPANION_ENGINE_UPDATE_REQUIRED:'+MIN_LOCAL_AI_ENGINE_VERSION,
+          engine_version:engineVersion||null,
+          required_engine_version:MIN_LOCAL_AI_ENGINE_VERSION,
+          refresh_status:clean(metadata.engine_refresh_status,80)||null,
+        };
+      }
+    }
 
     const commandId=crypto.randomUUID();
     const sessionId=crypto.randomUUID();
