@@ -387,6 +387,72 @@ async function serveSetupScript(request, env) {
   return new Response(response.body, { status: 200, headers });
 }
 
+
+function miniVoiceNeedsFullRuntime(text) {
+  const value = String(text || "").toLowerCase();
+  return /\b(?:ouvre|ouvrir|cherche|recherche|internet|web|m[ée]t[ée]o|temps|temp[ée]rature|actualit[ée]|news|mail|email|gmail|outlook|agenda|calendrier|rendez-vous|rappel|souviens|m[ée]moire|photo|vid[ée]o|cam[ée]ra|fichier|document|t[ée]l[ée]charge|navigateur|site|page|prix|bourse|score|horaire|aujourd'hui|demain|maintenant)\b/i.test(value);
+}
+
+async function runMiniDirectVoice(text, env) {
+  if (!env?.AI || typeof env.AI.run !== "function") {
+    return { ok: false, code: "AI_BINDING_MISSING", status: 503 };
+  }
+  const messages = [
+    {
+      role: "system",
+      content: "Tu es MEL, compagnon vocal d'Adrien. Réponds en français, en tutoyant Adrien, directement, naturellement, en 1 à 3 phrases courtes. Pas de listes, pas de préambule, pas de markdown. Si la demande exige une information actuelle, un outil, un fichier, une action ou une mémoire personnelle, réponds seulement que tu passes au mode complet."
+    },
+    { role: "user", content: String(text || "").slice(0, 4000) }
+  ];
+
+  const attempts = [
+    { model: "@cf/zai-org/glm-4.7-flash", timeoutMs: 4500 },
+    { model: "@cf/meta/llama-3.3-70b-instruct-fp8-fast", timeoutMs: 4500 }
+  ];
+
+  let lastError = null;
+  for (const attempt of attempts) {
+    let timer = null;
+    try {
+      const result = await Promise.race([
+        env.AI.run(attempt.model, { messages, max_tokens: 120, temperature: 0.3 }),
+        new Promise((_, reject) => {
+          timer = setTimeout(() => {
+            const error = new Error("MINI_VOICE_MODEL_TIMEOUT");
+            error.code = "MINI_VOICE_MODEL_TIMEOUT";
+            reject(error);
+          }, attempt.timeoutMs);
+        })
+      ]);
+      const reply = typeof result === "string"
+        ? result
+        : result?.response ?? result?.text ?? result?.message?.content
+          ?? result?.choices?.[0]?.message?.content ?? result?.choices?.[0]?.text ?? "";
+      if (String(reply || "").trim()) {
+        return {
+          ok: true,
+          text: String(reply).trim().slice(0, 700),
+          model: attempt.model,
+          provider: "workers-ai",
+          response_mode: "mini-voice-fast"
+        };
+      }
+      lastError = new Error("MINI_VOICE_EMPTY");
+    } catch (error) {
+      lastError = error;
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+
+  return {
+    ok: false,
+    code: "MINI_VOICE_FAST_FAILED",
+    detail: String(lastError?.code || lastError?.message || "UNKNOWN").slice(0, 120),
+    status: 503
+  };
+}
+
 async function deviceChat(request, env, auth) {
   const body = await request.json().catch(() => ({}));
   const text = String(body.text || body.message || "").trim();
@@ -395,6 +461,12 @@ async function deviceChat(request, env, auth) {
     ? "voice-server-transcription"
     : "text";
   const voiceReply = body.voice_reply === true || body.voice_mode === true;
+
+  if (voiceReply && inputSource === "voice-server-transcription" && !miniVoiceNeedsFullRuntime(text)) {
+    const fast = await runMiniDirectVoice(text, env);
+    if (fast.ok) return json(fast, 200);
+  }
+
   const internal = new Request(new URL("/api/chat", request.url), {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -440,7 +512,7 @@ async function deviceTts(request, env, auth) {
       speaker,
       encoding: "linear16",
       container: "wav",
-      sample_rate: 48000
+      sample_rate: 16000
     }, { returnRawResponse: true });
 
     if (result instanceof Response) {
@@ -448,7 +520,7 @@ async function deviceTts(request, env, auth) {
       headers.set("content-type", "audio/wav");
       headers.set("cache-control", "no-store");
       headers.set("x-mel-audio-format", "wav-pcm-s16le");
-      headers.set("x-mel-audio-rate", "48000");
+      headers.set("x-mel-audio-rate", "16000");
       headers.set("x-mel-audio-channels", "1");
       return new Response(result.body, { status: result.status, headers });
     }
@@ -460,7 +532,7 @@ async function deviceTts(request, env, auth) {
           "content-type": "audio/wav",
           "cache-control": "no-store",
           "x-mel-audio-format": "wav-pcm-s16le",
-          "x-mel-audio-rate": "48000",
+          "x-mel-audio-rate": "16000",
           "x-mel-audio-channels": "1"
         }
       });
