@@ -22,10 +22,89 @@ function extractText(body) {
     ?? null;
 }
 
+function normalizeGeminiContents(input) {
+  if(Array.isArray(input)){
+    return input.map(row=>({
+      role:String(row?.role||'user').toLowerCase()==='assistant'?'model':'user',
+      parts:[{text:String(row?.content||'')}],
+    }));
+  }
+  return [{role:'user',parts:[{text:typeof input==='string'?input:JSON.stringify(input)}]}];
+}
+
+function extractGeminiText(body) {
+  const parts=body?.candidates?.[0]?.content?.parts;
+  if(!Array.isArray(parts)) return null;
+  const text=parts.map(part=>typeof part?.text==='string'?part.text:'').join('').trim();
+  return text||null;
+}
+
 function secretFromEnv(env, secretName) {
   const key=String(secretName||'').trim();
   if(!key || !/^[A-Z0-9_]{3,120}$/.test(key)) return '';
   return String(env?.[key]||'').trim();
+}
+
+export function createGeminiChatAdapter({
+  env = {},
+  id='gemini:free-tier',
+  providerId='google-gemini',
+  modelId='gemini-3.1-flash-lite',
+  secretEnv='GEMINI_API_KEY',
+  capabilities=['GENERAL','REASONING','STEERABLE','FALLBACK'],
+  priority=-50,
+  estimatedCost=0,
+  costProvenance=null,
+  concurrency=1,
+  fetchImpl=fetch,
+}={}) {
+  const adapterId=String(id||'').trim();
+  const provider=String(providerId||'google-gemini').trim();
+  const model=String(modelId||'gemini-3.1-flash-lite').trim();
+  const secret=secretFromEnv(env,secretEnv);
+  if(!adapterId||!provider||!model) throw new TypeError('GEMINI_DESCRIPTOR_INVALID');
+
+  return new ProviderAdapter({
+    id:adapterId,
+    providerId:provider,
+    modelId:model,
+    capabilities,
+    priority,
+    estimatedCost,
+    costProvenance,
+    concurrency,
+    authRequired:true,
+    terms:'Google Gemini Developer API adapter using generateContent. Free-tier use remains quota-limited.',
+    healthCheck:async()=>secret?'UNKNOWN':'UNAVAILABLE',
+    quotaSnapshot:async()=>({known:false,source:'google-gemini-free-tier'}),
+    invoke:async({input,context={},signal}={})=>{
+      if(signal?.aborted) throw Object.assign(new Error('PROVIDER_ABORTED'),{code:'PROVIDER_ABORTED'});
+      if(!secret) throw Object.assign(new Error('GEMINI_API_KEY_REQUIRED'),{code:'GEMINI_API_KEY_REQUIRED',status:503});
+      const target='https://generativelanguage.googleapis.com/v1beta/models/'
+        +encodeURIComponent(model)+':generateContent';
+      const maxTokens=Number(context?.inference_settings?.max_tokens||0);
+      const payload={
+        contents:normalizeGeminiContents(input),
+        ...(context?.system?{systemInstruction:{parts:[{text:String(context.system)}]}}:{}),
+        ...(maxTokens>0?{generationConfig:{maxOutputTokens:Math.max(1,Math.min(8192,maxTokens))}}:{}),
+      };
+      const response=await fetchImpl(target,{
+        method:'POST',
+        headers:{'content-type':'application/json','x-goog-api-key':secret},
+        body:JSON.stringify(payload),
+        signal,
+      });
+      if(!response.ok) throw Object.assign(new Error('GEMINI_PROVIDER_ERROR'),{code:'GEMINI_PROVIDER_ERROR',status:response.status});
+      const body=await response.json();
+      const text=extractGeminiText(body);
+      if(!text) throw Object.assign(new Error('GEMINI_EMPTY_RESPONSE'),{code:'GEMINI_EMPTY_RESPONSE',status:502});
+      return {
+        text,
+        provenance:{provider,model,transport:'gemini-generate-content'},
+        raw:body,
+      };
+    },
+  });
 }
 
 export function createHttpChatAdapter({
@@ -94,6 +173,38 @@ export function createHttpChatAdapter({
   });
 }
 
+function geminiFreeTierDescriptor(env={}) {
+  if(!String(env?.GEMINI_API_KEY||'').trim()) return null;
+  const model=String(env?.MEL_GEMINI_MODEL||'gemini-3.1-flash-lite').trim();
+  return {
+    id:'gemini:free-tier',
+    providerId:'google-gemini',
+    modelId:model,
+    endpoint:'https://generativelanguage.googleapis.com/v1beta/models/'+model+':generateContent',
+    secretEnv:'GEMINI_API_KEY',
+    transport:'gemini-generate-content',
+    capabilities:['GENERAL','REASONING','STEERABLE','FALLBACK'],
+    priority:-50,
+    estimatedCost:0,
+    costProvenance:{
+      verified:true,
+      addedCost:0,
+      source:'google-gemini-developer-api-free-tier',
+      authorization:{
+        approved:true,
+        policy:'ZERO_EURO',
+        authority:'owner-explicit-free-tier-selection',
+        adapter_id:'gemini:free-tier',
+        provider:'google-gemini',
+        model,
+      },
+    },
+    concurrency:1,
+    policyProfile:'LOW_REFUSAL',
+    lowRefusal:true,
+  };
+}
+
 function legacyNinjaChatDescriptor(env={}) {
   const endpoint=String(env?.NINJACHAT_ENDPOINT||env?.NINJACHAT_API_URL||'').trim();
   const secretEnv=['NINJACHAT_API_KEY','NINJACHAT_TOKEN','NINJACHAT_SECRET']
@@ -152,11 +263,23 @@ export function parseHttpChatProviderDescriptors(env={}) {
     concurrency:Number(row?.concurrency||1),
     policyProfile:String(row?.policy_profile||'STANDARD').trim().toUpperCase(),
     lowRefusal:row?.low_refusal===true,
+    transport:String(row?.transport||'provider-neutral-http').trim(),
   }));
+
+  const gemini=geminiFreeTierDescriptor(env);
+  if(gemini&&!descriptors.some(row=>row.id===gemini.id||row.providerId==='google-gemini')){
+    descriptors.push(gemini);
+  }
 
   const legacy=legacyNinjaChatDescriptor(env);
   if(legacy&&!descriptors.some(row=>row.id===legacy.id||row.providerId==='ninjachat')){
     descriptors.push(legacy);
   }
   return descriptors.slice(0,8);
+}
+
+export function createConfiguredAiAdapter(options={}) {
+  return String(options?.transport||'').trim()==='gemini-generate-content'
+    ? createGeminiChatAdapter(options)
+    : createHttpChatAdapter(options);
 }
