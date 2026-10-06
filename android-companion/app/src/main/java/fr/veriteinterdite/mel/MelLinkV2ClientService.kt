@@ -103,6 +103,7 @@ class MelLinkV2ClientService : Service() {
     private val writeLock = Any()
     private val requests = HashMap<Int, IncomingRequest>()
     private val audioStreams = HashMap<Int, IncomingAudio>()
+    private lateinit var mediaReceiver: MiniMediaReceiver
     private var scanActive = false
     private var reconnectAttempt = 0
     private val handler by lazy { android.os.Handler(mainLooper) }
@@ -120,6 +121,7 @@ class MelLinkV2ClientService : Service() {
             ?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "MEL:LinkV2")
             ?.apply { acquire() }
         connectivityManager = getSystemService(ConnectivityManager::class.java)
+        mediaReceiver = MiniMediaReceiver(this)
         miniPairingComplete.value = getSharedPreferences("mel_link_v2", MODE_PRIVATE)
             .getBoolean("mini_pairing_complete", false)
         registerNetworkWatch()
@@ -156,6 +158,7 @@ class MelLinkV2ClientService : Service() {
         gatt = null
         executor.shutdownNow()
         bleWriter.shutdownNow()
+        if (::mediaReceiver.isInitialized) mediaReceiver.close()
         unregisterNetworkWatch()
         miniReady.value = false
         protocolReady.value = false
@@ -397,6 +400,40 @@ class MelLinkV2ClientService : Service() {
             }
             MelLinkV2Protocol.PING -> {
                 sendControlAsync(MelLinkV2Protocol.encode(MelLinkV2Protocol.PONG, 0, frame.streamId, frame.seq))
+            }
+            MelLinkV2Protocol.MEDIA_CONFIG_REQUEST -> {
+                if (!::mediaReceiver.isInitialized) {
+                    sendErrorAsync(frame.streamId, "MEDIA_RECEIVER_UNAVAILABLE")
+                    return
+                }
+                mediaReceiver.ensureStarted(
+                    onReady = { cfg ->
+                        val payload = JSONObject()
+                            .put("ssid", cfg.ssid)
+                            .put("pass", cfg.passphrase)
+                            .put("port", cfg.port)
+                            .put("token", cfg.token)
+                            .toString()
+                            .toByteArray(Charsets.UTF_8)
+                        if (payload.size > 170) {
+                            sendErrorAsync(frame.streamId, "MEDIA_CONFIG_TOO_LARGE")
+                        } else {
+                            sendControlAsync(
+                                MelLinkV2Protocol.encode(
+                                    MelLinkV2Protocol.MEDIA_CONFIG,
+                                    0,
+                                    frame.streamId,
+                                    0,
+                                    payload
+                                )
+                            )
+                        }
+                    },
+                    onError = { code ->
+                        lastError.value = code
+                        sendErrorAsync(frame.streamId, code)
+                    }
+                )
             }
             MelLinkV2Protocol.REQUEST_BEGIN -> {
                 val meta = runCatching { JSONObject(frame.payload.toString(Charsets.UTF_8)) }.getOrNull() ?: return
