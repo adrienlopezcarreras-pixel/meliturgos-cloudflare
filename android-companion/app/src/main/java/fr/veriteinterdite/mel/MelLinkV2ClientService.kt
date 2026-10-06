@@ -399,8 +399,14 @@ class MelLinkV2ClientService : Service() {
             }
             MelLinkV2Protocol.REQUEST_BEGIN -> {
                 val meta = runCatching { JSONObject(frame.payload.toString(Charsets.UTF_8)) }.getOrNull() ?: return
+                val path = meta.optString("path")
+                val bodyLen = meta.optLong("body_len", -1L)
+                if (!path.startsWith("/api/device/v1/") || bodyLen !in 0L..524_288L) {
+                    sendErrorAsync(frame.streamId, "REQUEST_META")
+                    return
+                }
                 synchronized(requests) { requests[frame.streamId] = IncomingRequest(frame.streamId, meta) }
-                sendCreditAsync(frame.streamId, 6)
+                sendCreditAsync(frame.streamId, MelLinkV2Protocol.CREDIT_WINDOW)
             }
             MelLinkV2Protocol.REQUEST_DATA -> {
                 val request = synchronized(requests) { requests[frame.streamId] } ?: return
@@ -408,6 +414,13 @@ class MelLinkV2ClientService : Service() {
                     synchronized(requests) { requests.remove(frame.streamId) }
                     lastError.value = "REQUEST_SEQUENCE"
                     sendErrorAsync(frame.streamId, "REQUEST_SEQUENCE")
+                    return
+                }
+                val expected = request.meta.optLong("body_len", -1L)
+                if (request.body.size().toLong() + frame.payload.size > expected) {
+                    synchronized(requests) { requests.remove(frame.streamId) }
+                    lastError.value = "REQUEST_LENGTH"
+                    sendErrorAsync(frame.streamId, "REQUEST_LENGTH")
                     return
                 }
                 request.nextSeq++
@@ -421,14 +434,21 @@ class MelLinkV2ClientService : Service() {
                     sendErrorAsync(frame.streamId, "REQUEST_END_SEQUENCE")
                     return
                 }
+                if (request.body.size().toLong() != request.meta.optLong("body_len", -1L)) {
+                    lastError.value = "REQUEST_LENGTH"
+                    sendErrorAsync(frame.streamId, "REQUEST_LENGTH")
+                    return
+                }
                 executor.execute { executeRequest(request) }
             }
             MelLinkV2Protocol.AUDIO_BEGIN -> {
                 val meta = runCatching { JSONObject(frame.payload.toString(Charsets.UTF_8)) }.getOrNull() ?: return
+                val expectedSamples = meta.optInt("samples", -1)
                 if (meta.optString("codec") != "ima-adpcm" ||
                     meta.optInt("rate") != 16_000 ||
                     meta.optInt("ch") != 1 ||
-                    meta.optInt("block") != MelImaAdpcm.BLOCK_SAMPLES
+                    meta.optInt("block") != MelImaAdpcm.BLOCK_SAMPLES ||
+                    expectedSamples !in 1..160_000
                 ) {
                     sendErrorAsync(frame.streamId, "AUDIO_FORMAT")
                     return
@@ -576,7 +596,7 @@ class MelLinkV2ClientService : Service() {
         val method = request.meta.optString("method", "POST").uppercase()
         val path = request.meta.optString("path")
         val contentType = request.meta.optString("content_type", "application/json")
-        if (!path.startsWith("/api/")) {
+        if (!path.startsWith("/api/device/v1/")) {
             sendError(request.streamId, "BAD_PATH")
             return
         }
