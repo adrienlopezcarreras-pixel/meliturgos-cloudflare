@@ -1619,8 +1619,7 @@ static void voice_worker_task(void *) {
                  (long long)((esp_timer_get_time() - tts_started_us) / 1000));
         if (!spoken) {
             ESP_LOGW(TAG, "Voice reply unavailable");
-            ui_status("TTS ERREUR");
-            vTaskDelay(pdMS_TO_TICKS(500));
+            vTaskDelay(pdMS_TO_TICKS(900));
         }
 
         if (!g_display_items.empty()) {
