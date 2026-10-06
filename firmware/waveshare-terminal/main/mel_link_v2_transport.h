@@ -6,6 +6,7 @@
 #include "esp_http_client.h"
 
 typedef bool (*mel_link_v2_chunk_cb)(const uint8_t *data, size_t len, void *ctx);
+typedef void (*mel_link_v2_progress_cb)(size_t sent_samples, size_t total_samples, void *ctx);
 
 typedef struct {
     char ssid[33];
@@ -32,7 +33,9 @@ esp_err_t mel_link_v2_transport_request(
     const uint8_t *body,
     size_t body_len,
     std::string &response,
-    int &status
+    int &status,
+    mel_link_v2_progress_cb progress_cb = nullptr,
+    void *progress_ctx = nullptr
 );
 
 esp_err_t mel_link_v2_transport_request_stream(
