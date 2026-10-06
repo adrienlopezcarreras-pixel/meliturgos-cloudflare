@@ -130,19 +130,87 @@ jobs:
           export OFFSET
           node - <<'NODE'
           const fs=require('fs');
+          const crypto=require('crypto');
+
           const fd=fs.openSync('system-backup.json','r');
-          const start=Math.max(0,Number(process.env.OFFSET)||0);
-          const buf=Buffer.alloc(4*1024*1024);
-          const read=fs.readSync(fd,buf,0,buf.length,start);
+          const absolute=Math.max(0,Number(process.env.OFFSET)||0);
+          const windowStart=Math.max(0,absolute-8192);
+          const buf=Buffer.alloc(8*1024*1024);
+          const read=fs.readSync(fd,buf,0,buf.length,windowStart);
           fs.closeSync(fd);
           const text=buf.subarray(0,read).toString('utf8');
-          const connectors=[...text.matchAll(/"connector_id":"([^"]{1,120})"/g)].map(m=>m[1]);
-          const keyIds=[...text.matchAll(/\\\"key_id\\\":\\\"([^"\\]{1,200})\\\"/g)].map(m=>m[1]);
-          const uniqueConnectors=[...new Set(connectors)];
-          const uniqueKeyIds=[...new Set(keyIds)];
+          const target=absolute-windowStart;
+
+          let inString=false,escaped=false,targetStart=-1,targetEnd=-1;
+          const stack=[];
+          for(let i=0;i<text.length;i++){
+            const ch=text[i];
+            if(inString){
+              if(escaped){escaped=false;continue;}
+              if(ch==='\\\\'){escaped=true;continue;}
+              if(ch==='"')inString=false;
+              continue;
+            }
+            if(ch==='"'){inString=true;continue;}
+            if(ch==='{')stack.push(i);
+            else if(ch==='}'){
+              const start=stack.pop();
+              if(targetStart<0 && i>=target){
+                const containing=stack.length?stack[stack.length-1]:start;
+                if(containing>=0 && containing<=target) targetStart=containing;
+              }
+              if(targetStart>=0 && start===targetStart){targetEnd=i+1;break;}
+            }
+            if(i===target && targetStart<0 && stack.length) targetStart=stack[stack.length-1];
+          }
+          if(targetStart<0||targetEnd<0) throw new Error('OAUTH_TABLE_OBJECT_NOT_BOUNDED');
+          const table=JSON.parse(text.slice(targetStart,targetEnd));
+          if(String(table?.name||'')!=='mel_oauth_tokens') throw new Error('OAUTH_TABLE_OBJECT_MISMATCH');
+          const rows=Array.isArray(table?.rows)?table.rows:[];
+          const uniqueConnectors=[...new Set(rows.map(r=>String(r?.connector_id||'')).filter(Boolean))];
+          const envelopes=rows.map(r=>{try{return JSON.parse(String(r?.envelope_json||'{}'))}catch{return null}}).filter(Boolean);
+          const uniqueKeyIds=[...new Set(envelopes.map(e=>String(e?.key_id||'')).filter(Boolean))];
           console.log('OAUTH_CONNECTORS '+uniqueConnectors.join(','));
           console.log('OAUTH_VAULT_KEY_IDS '+uniqueKeyIds.join(','));
-          if(!uniqueKeyIds.length) process.exit(3);
+          if(!envelopes.length||!uniqueKeyIds.length) process.exit(3);
+
+          const sample=envelopes[0];
+          const stable=v=>Array.isArray(v)?v.map(stable):(!v||typeof v!=='object'?v:Object.fromEntries(Object.keys(v).sort().map(k=>[k,stable(v[k])])));
+          const aad=Buffer.from(JSON.stringify(stable(sample.aad||{})),'utf8');
+          const iv=Buffer.from(String(sample.iv_b64||''),'base64');
+          const ciphertext=Buffer.from(String(sample.ciphertext_b64||''),'base64');
+          const root=Buffer.from(String(process.env.MEL_BACKUP_ENCRYPTION_KEY_B64||''),'base64');
+          if(root.length!==32||iv.length!==12||ciphertext.length<17) throw new Error('OAUTH_SAMPLE_INVALID');
+
+          const candidates=[];
+          const add=(label,key)=>{const b=Buffer.from(key);if(b.length===32)candidates.push([label,b]);};
+          add('DIRECT_BACKUP_ROOT',root);
+          const hkdf=(salt,info)=>Buffer.from(crypto.hkdfSync('sha256',root,Buffer.from(salt,'utf8'),Buffer.from(info,'utf8'),32));
+          for(const [salt,info,label] of [
+            ['meliturgos-oauth-vault-salt-v1','MEL_OAUTH_VAULT_V1','HKDF_OAUTH_VAULT'],
+            ['meliturgos-oauth-salt-v1','MEL_OAUTH_VAULT_V1','HKDF_OAUTH_GENERIC'],
+            ['meliturgos-oauth-vault-salt-v1','MEL_OAUTH_ENCRYPTION_V1','HKDF_OAUTH_ENCRYPTION'],
+            ['meliturgos-oauth-salt-v1','MEL_OAUTH_ENCRYPTION_V1','HKDF_OAUTH_ENCRYPTION_GENERIC'],
+            ['meliturgos-oauth-salt-v1','MEL_OAUTH_V1','HKDF_OAUTH_V1'],
+            ['meliturgos-oauth-vault-salt-v1','mel-oauth-v1','HKDF_KEY_ID'],
+            ['meliturgos-secrets-salt-v1','MEL_OAUTH_VAULT_V1','HKDF_SECRETS_OAUTH'],
+            ['meliturgos-oauth-vault-salt-v1','MEL_OAUTH_VAULT_V1:mel-oauth-v1','HKDF_OAUTH_VAULT_KEYED'],
+          ]) add(label,hkdf(salt,info));
+
+          let matched='';
+          for(const [label,key] of candidates){
+            try{
+              const tag=ciphertext.subarray(ciphertext.length-16);
+              const body=ciphertext.subarray(0,ciphertext.length-16);
+              const decipher=crypto.createDecipheriv('aes-256-gcm',key,iv,{authTagLength:16});
+              decipher.setAAD(aad);
+              decipher.setAuthTag(tag);
+              const plaintext=Buffer.concat([decipher.update(body),decipher.final()]);
+              const parsed=JSON.parse(plaintext.toString('utf8'));
+              if(parsed&&typeof parsed==='object'){matched=label;break;}
+            }catch{}
+          }
+          console.log('OAUTH_KEY_DERIVATION_MATCH '+(matched||'NONE'));
           NODE
 
           rm -f system-backup.enc.json system-backup.json
