@@ -16,7 +16,7 @@ concurrency:
 jobs:
   close-ai-gap:
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 25
     env:
       GH_TOKEN: ${{ github.token }}
       PROOF_KEY_B64: ${{ secrets.MEL_BACKUP_ENCRYPTION_KEY_B64 }}
@@ -55,6 +55,21 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+
+          read_state() {
+            local file="$1"
+            TARGET_SHA="$TARGET_SHA" FILE="$file" node - <<'NODE'
+          const fs=require('fs');
+          let d={};
+          try{d=JSON.parse(fs.readFileSync(process.env.FILE,'utf8'))}catch{}
+          const expected=String(process.env.TARGET_SHA||'').toLowerCase();
+          const exact=String(d?.deployed_sha||'').toLowerCase()===expected;
+          console.log('SOV_DONE='+(d?.done_verified_eligible===true&&exact?'1':'0'));
+          console.log('AI_LOW_REFUSAL_READY='+(d?.ai_low_refusal_ready===true?'1':'0'));
+          console.log('SOV_STATUS='+String(d?.status||d?.code||'UNKNOWN').replace(/[^A-Za-z0-9_.:-]/g,'_').slice(0,180));
+          NODE
+          }
+
           BEFORE_CODE="$(curl --silent --show-error --max-time 30 \
             --header "x-mel-parallel-proof: $PROOF_TOKEN" \
             --header "content-type: application/json" \
@@ -62,47 +77,65 @@ jobs:
             --output sov-before.json --write-out '%{http_code}' \
             "$BASE_URL/api/internal/release-launch-bootstrap" || true)"
 
-          TARGET_SHA="$TARGET_SHA" node - <<'NODE' > sov-before.env
-          const fs=require('fs'); let d={}; try{d=JSON.parse(fs.readFileSync('sov-before.json','utf8'))}catch{}
-          const expected=String(process.env.TARGET_SHA||'').toLowerCase();
-          const exact=String(d?.deployed_sha||'').toLowerCase()===expected;
-          console.log('SOV_DONE='+(d?.done_verified_eligible===true&&exact?'1':'0'));
-          console.log('AI_LOW_REFUSAL_READY='+(d?.ai_low_refusal_ready===true?'1':'0'));
-          NODE
+          read_state sov-before.json > sov-before.env
           . ./sov-before.env
 
           if [ "$SOV_DONE" = "1" ]; then
             echo "MEL_SOV_AI_ALREADY_CLOSED"
             exit 0
           fi
-          if [ "$AI_LOW_REFUSAL_READY" = "1" ]; then
-            echo "MEL_SOV_AI_LOW_REFUSAL_READY_FINAL_GATE_PENDING"
-            exit 0
-          fi
 
           AI_REFRESH_OK=0
-          AI_CODE="$(curl --silent --show-error --max-time 150 \
-            --header "x-mel-parallel-proof: $PROOF_TOKEN" \
-            --header "content-type: application/json" \
-            --data '{"phase":"sovereignty-proof"}' \
-            --output sov-ai-local.json --write-out '%{http_code}' \
-            "$BASE_URL/api/internal/release-launch-bootstrap?refresh=ai_local" || true)"
+          AI_REASON="NOT_ATTEMPTED"
 
-          AI_REASON="$(node - <<'NODE'
+          if [ "$AI_LOW_REFUSAL_READY" = "1" ]; then
+            echo "MEL_SOV_AI_LOW_REFUSAL_ALREADY_READY"
+            AI_REFRESH_OK=1
+          else
+            for AI_ATTEMPT in $(seq 1 8); do
+              AI_CODE="$(curl --silent --show-error --max-time 150 \
+                --header "x-mel-parallel-proof: $PROOF_TOKEN" \
+                --header "content-type: application/json" \
+                --data '{"phase":"sovereignty-proof"}' \
+                --output sov-ai-local.json --write-out '%{http_code}' \
+                "$BASE_URL/api/internal/release-launch-bootstrap?refresh=ai_local" || true)"
+
+              AI_REASON="$(node - <<'NODE'
           const fs=require('fs');let d={};try{d=JSON.parse(fs.readFileSync('sov-ai-local.json','utf8'))}catch{}
           process.stdout.write(String(d?.refresh?.reason||d?.refresh?.status||d?.code||d?.status||'UNKNOWN').slice(0,180));
           NODE
-          )"
-          if [ "$AI_CODE" = "200" ]; then
-            node - <<'NODE'
+              )"
+
+              if [ "$AI_CODE" = "200" ]; then
+                node - <<'NODE'
           const d=require('./sov-ai-local.json');
           if(d?.ok!==true||d?.status!=='MEL_SOV_01_REFRESH_STEP_VERIFIED') throw new Error('AI_LOCAL_REFRESH_NOT_VERIFIED');
           if(d?.secret_values_exposed!==false||d?.autonomy_started!==false) throw new Error('AI_LOCAL_REFRESH_SAFETY_FAILED');
           NODE
-            AI_REFRESH_OK=1
-            echo "MEL_SOV_AI_LOCAL_PREVALIDATED"
-          else
-            echo "MEL_SOV_AI_LOCAL_NOT_READY http=$AI_CODE reason=$AI_REASON"
+                AI_REFRESH_OK=1
+                echo "MEL_SOV_AI_LOCAL_PREVALIDATED attempt=$AI_ATTEMPT"
+                break
+              fi
+
+              echo "MEL_SOV_AI_LOCAL_NOT_READY attempt=$AI_ATTEMPT http=$AI_CODE reason=$AI_REASON"
+
+              case "$AI_REASON" in
+                SOVEREIGNTY_AI_LOCAL_BOOTSTRAP_PENDING)
+                  if [ "$AI_ATTEMPT" -lt 8 ]; then
+                    echo "MEL_SOV_AI_BOOTSTRAP_WAIT attempt=$AI_ATTEMPT"
+                    sleep 45
+                    continue
+                  fi
+                  ;;
+                COMPANION_OFFLINE|COMPANION_LOCAL_AI_UNAVAILABLE|DEVICE_OFFLINE|COMPANION_COMMAND_TIMEOUT)
+                  if [ "$AI_ATTEMPT" -lt 3 ]; then
+                    sleep 20
+                    continue
+                  fi
+                  ;;
+              esac
+              break
+            done
           fi
 
           CONFIGURED_AI_REASON="NOT_ATTEMPTED"
@@ -132,15 +165,21 @@ jobs:
           fi
 
           if [ "$AI_REFRESH_OK" != "1" ]; then
+            echo "MEL_SOV_AI_NOT_CLOSED local_reason=$AI_REASON configured_reason=$CONFIGURED_AI_REASON"
             case "$AI_REASON" in
+              SOVEREIGNTY_AI_LOCAL_BOOTSTRAP_PENDING)
+                echo "MEL_SOV_AI_LOCAL_BOOTSTRAP_STILL_PENDING"
+                exit 42
+                ;;
               COMPANION_OFFLINE|COMPANION_LOCAL_AI_UNAVAILABLE|DEVICE_OFFLINE|COMPANION_COMMAND_TIMEOUT)
-                echo "MEL_SOV_AI_WAITING_FOR_COMPANION reason=$AI_REASON configured_reason=$CONFIGURED_AI_REASON"
+                echo "MEL_SOV_AI_LOCAL_RUNTIME_UNAVAILABLE"
+                exit 43
                 ;;
               *)
-                echo "MEL_SOV_AI_REFRESH_NOT_READY local_reason=$AI_REASON configured_reason=$CONFIGURED_AI_REASON"
+                echo "MEL_SOV_AI_REFRESH_FAILED"
+                exit 44
                 ;;
             esac
-            exit 0
           fi
 
           FINAL_CODE="$(curl --silent --show-error --max-time 45 \
@@ -163,7 +202,19 @@ jobs:
             && String(d?.deployed_sha||'').toLowerCase()===expected
             && d?.secret_values_exposed===false
             && d?.autonomy_started===false;
-          if(!ok) process.exit(31);
+          if(!ok){
+            console.error('MEL_SOV_AI_FINAL_GATE_NOT_CLOSED',JSON.stringify({
+              http:Number(process.env.FINAL_CODE),
+              status:d?.status||d?.code||null,
+              done_verified_eligible:d?.done_verified_eligible===true,
+              ai_low_refusal_ready:d?.ai_low_refusal_ready===true,
+              ready_layer_count:Number(d?.ready_layer_count||0),
+              layer_count:Number(d?.layer_count||0),
+              deployed_sha:String(d?.deployed_sha||'').toLowerCase(),
+              expected_sha:expected,
+            }));
+            process.exit(45);
+          }
           console.log('MEL_SOV_AI_CLOSED_10_OF_10');
           NODE
 
@@ -174,5 +225,6 @@ jobs:
           echo '### MEL SOV AI auto-close' >> "$GITHUB_STEP_SUMMARY"
           echo '- Scope: AI layer only' >> "$GITHUB_STEP_SUMMARY"
           echo '- Non-AI layers are not revalidated here' >> "$GITHUB_STEP_SUMMARY"
-          echo '- Offline Companion means waiting, not regression' >> "$GITHUB_STEP_SUMMARY"
-          echo '- Final success still requires unchanged SOV 10/10' >> "$GITHUB_STEP_SUMMARY"
+          echo '- Bootstrap pending is retried inside the same run' >> "$GITHUB_STEP_SUMMARY"
+          echo '- The workflow fails if SOV 10/10 is not actually closed' >> "$GITHUB_STEP_SUMMARY"
+          echo '- Green now means MEL_SOV_AI_CLOSED_10_OF_10 or already closed' >> "$GITHUB_STEP_SUMMARY"
