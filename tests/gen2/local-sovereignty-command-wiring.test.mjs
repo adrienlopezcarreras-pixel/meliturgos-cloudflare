@@ -30,3 +30,18 @@ test('normal computer-use route remains separate from sovereignty queue',async()
   assert.match(source,/ownerSovereigntyCommand/);
   assert.doesNotMatch(source,/evaluateComputerUsePlan\([^)]*sovereignty/i);
 });
+
+
+test('local AI bootstrap child exclusively owns terminal status after launch',async()=>{
+  for(const rel of [
+    '../../assets/MEL-Computer-Companion.ps1',
+    '../../dist/MEL-Computer-Companion.ps1',
+  ]){
+    const source=await readFile(new URL(rel,import.meta.url),'utf8');
+    assert.match(source,/The child process owns ai-bootstrap-status\.json after launch/);
+    assert.match(source,/OLLAMA_BOOTSTRAP_PROCESS_EXITED_AT_/);
+    assert.match(source,/Start-Sleep -Milliseconds 250/);
+    assert.doesNotMatch(source,/\$launched \| Add-Member -NotePropertyName process_id/);
+    assert.doesNotMatch(source,/\$launched \| ConvertTo-Json -Depth 5 \| Set-Content -LiteralPath \$statusPath/);
+  }
+});
