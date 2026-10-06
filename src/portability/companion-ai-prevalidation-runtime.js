@@ -56,11 +56,19 @@ export async function runCompanionAiPrevalidationRuntime(env={},{
   }
   if(health?.ok!==true||health?.ready!==true){
     const code=clean(health?.code,180)||'COMPANION_LOCAL_AI_UNAVAILABLE';
+    const diagnostics={
+      native_version:clean(health?.native_version,80)||null,
+      engine_version:clean(health?.engine_version,80)||null,
+      required_engine_version:clean(health?.required_engine_version,80)||null,
+      refresh_status:clean(health?.refresh_status,80)||null,
+      refresh_at:Number(health?.refresh_at||0)||null,
+      refresh_error:clean(health?.refresh_error,180)||null,
+    };
     await candidates.setStatus({
       layer:'ai',id:COMPANION_LOCAL_AI_CANDIDATE_ID,status:'BLOCKED',
-      metadata:{reason:code,secret_values_exposed:false},
+      metadata:{reason:code,...diagnostics,secret_values_exposed:false},
     });
-    return{ok:true,skipped:true,reason:code,processed:0,prevalidated:0,blocked:1};
+    return{ok:true,skipped:true,reason:code,...diagnostics,processed:0,prevalidated:0,blocked:1};
   }
 
   const model=clean(health?.model,240);
