@@ -30,7 +30,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
 import java.util.UUID
+import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
@@ -73,6 +75,9 @@ class MelLinkV2ClientService : Service() {
     private var bulkRx: BluetoothGattCharacteristic? = null
     private val connecting = AtomicBoolean(false)
     private val executor = Executors.newSingleThreadExecutor()
+    private val bleWriter = Executors.newSingleThreadExecutor()
+    private val writeAck = ArrayBlockingQueue<Int>(1)
+    private val writeLock = Any()
     private val requests = HashMap<Int, IncomingRequest>()
     private var scanActive = false
     private var reconnectAttempt = 0
@@ -116,6 +121,7 @@ class MelLinkV2ClientService : Service() {
         runCatching { gatt?.close() }
         gatt = null
         executor.shutdownNow()
+        bleWriter.shutdownNow()
         miniReady.value = false
         protocolReady.value = false
         state.value = "OFF"
@@ -276,7 +282,7 @@ class MelLinkV2ClientService : Service() {
             connecting.set(false)
             miniReady.value = true
             state.value = "MINI CONNECTEE"
-            sendControl(
+            sendControlAsync(
                 MelLinkV2Protocol.encode(
                     MelLinkV2Protocol.HELLO,
                     0,
@@ -301,9 +307,8 @@ class MelLinkV2ClientService : Service() {
         }
 
         override fun onCharacteristicWrite(client: BluetoothGatt, characteristic: BluetoothGattCharacteristic, status: Int) {
-            if (status != BluetoothGatt.GATT_SUCCESS) {
-                lastError.value = "WRITE_$status"
-            }
+            writeAck.offer(status)
+            if (status != BluetoothGatt.GATT_SUCCESS) lastError.value = "WRITE_$status"
         }
     }
 
@@ -316,20 +321,20 @@ class MelLinkV2ClientService : Service() {
             MelLinkV2Protocol.HELLO -> {
                 protocolReady.value = true
                 state.value = "MINI V2 PRETE"
-                sendControl(MelLinkV2Protocol.encode(MelLinkV2Protocol.SESSION, 0, 0, 0, sessionPayload()))
+                sendControlAsync(MelLinkV2Protocol.encode(MelLinkV2Protocol.SESSION, 0, 0, 0, sessionPayload()))
             }
             MelLinkV2Protocol.PING -> {
-                sendControl(MelLinkV2Protocol.encode(MelLinkV2Protocol.PONG, 0, frame.streamId, frame.seq))
+                sendControlAsync(MelLinkV2Protocol.encode(MelLinkV2Protocol.PONG, 0, frame.streamId, frame.seq))
             }
             MelLinkV2Protocol.REQUEST_BEGIN -> {
                 val meta = runCatching { JSONObject(frame.payload.toString(Charsets.UTF_8)) }.getOrNull() ?: return
                 synchronized(requests) { requests[frame.streamId] = IncomingRequest(frame.streamId, meta) }
-                sendCredit(frame.streamId, 6)
+                sendCreditAsync(frame.streamId, 6)
             }
             MelLinkV2Protocol.REQUEST_DATA -> {
                 val request = synchronized(requests) { requests[frame.streamId] } ?: return
                 request.body.write(frame.payload)
-                sendCredit(frame.streamId, 1)
+                sendCreditAsync(frame.streamId, 1)
             }
             MelLinkV2Protocol.REQUEST_END -> {
                 val request = synchronized(requests) { requests.remove(frame.streamId) } ?: return
@@ -394,16 +399,16 @@ class MelLinkV2ClientService : Service() {
                     .put("content_type", connection.contentType ?: "application/octet-stream")
                     .put("length", body.size)
                     .toString().toByteArray()
-                if (!sendControl(MelLinkV2Protocol.encode(MelLinkV2Protocol.RESPONSE_BEGIN, 0, request.streamId, 0, begin))) return
+                if (!sendControlBlocking(MelLinkV2Protocol.encode(MelLinkV2Protocol.RESPONSE_BEGIN, 0, request.streamId, 0, begin))) return
                 var seq = 0
                 var offset = 0
                 val chunk = 150
                 while (offset < body.size) {
                     val end = minOf(offset + chunk, body.size)
-                    if (!sendBulk(MelLinkV2Protocol.encode(MelLinkV2Protocol.RESPONSE_DATA, 0, request.streamId, seq++, body.copyOfRange(offset, end)))) return
+                    if (!sendBulkBlocking(MelLinkV2Protocol.encode(MelLinkV2Protocol.RESPONSE_DATA, 0, request.streamId, seq++, body.copyOfRange(offset, end)))) return
                     offset = end
                 }
-                sendControl(MelLinkV2Protocol.encode(MelLinkV2Protocol.RESPONSE_END, 0, request.streamId, seq))
+                sendControlBlocking(MelLinkV2Protocol.encode(MelLinkV2Protocol.RESPONSE_END, 0, request.streamId, seq))
             } finally {
                 connection.disconnect()
             }
@@ -413,31 +418,48 @@ class MelLinkV2ClientService : Service() {
         }
     }
 
-    private fun sendCredit(streamId: Int, credits: Int) {
+    private fun sendCreditAsync(streamId: Int, credits: Int) {
         val payload = byteArrayOf((credits and 0xff).toByte(), ((credits ushr 8) and 0xff).toByte())
-        sendControl(MelLinkV2Protocol.encode(MelLinkV2Protocol.CREDIT, 0, streamId, 0, payload))
+        sendControlAsync(MelLinkV2Protocol.encode(MelLinkV2Protocol.CREDIT, 0, streamId, 0, payload))
     }
 
     private fun sendError(streamId: Int, code: String) {
-        sendControl(MelLinkV2Protocol.encode(MelLinkV2Protocol.ERROR, 0, streamId, 0, code.toByteArray()))
+        sendControlBlocking(MelLinkV2Protocol.encode(MelLinkV2Protocol.ERROR, 0, streamId, 0, code.toByteArray()))
     }
 
-    private fun sendControl(frame: ByteArray): Boolean = writeGatt(controlRx, frame, BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT)
-    private fun sendBulk(frame: ByteArray): Boolean = writeGatt(bulkRx, frame, BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT)
+    private fun sendControlAsync(frame: ByteArray) {
+        if (!bleWriter.isShutdown) bleWriter.execute { sendControlBlocking(frame) }
+    }
 
-    private fun writeGatt(characteristic: BluetoothGattCharacteristic?, value: ByteArray, writeType: Int): Boolean {
-        val client = gatt ?: return false
-        val target = characteristic ?: return false
-        if (!hasBlePermissions()) return false
-        return if (Build.VERSION.SDK_INT >= 33) {
-            client.writeCharacteristic(target, value, writeType) == BluetoothGatt.GATT_SUCCESS
-        } else {
-            @Suppress("DEPRECATION")
-            run {
-                target.writeType = writeType
-                target.value = value
-                client.writeCharacteristic(target)
+    private fun sendControlBlocking(frame: ByteArray): Boolean =
+        writeGattBlocking(controlRx, frame, BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT)
+
+    private fun sendBulkBlocking(frame: ByteArray): Boolean =
+        writeGattBlocking(bulkRx, frame, BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT)
+
+    private fun writeGattBlocking(
+        characteristic: BluetoothGattCharacteristic?,
+        value: ByteArray,
+        writeType: Int
+    ): Boolean {
+        synchronized(writeLock) {
+            val client = gatt ?: return false
+            val target = characteristic ?: return false
+            if (!hasBlePermissions()) return false
+            while (writeAck.poll() != null) { }
+            val queued = if (Build.VERSION.SDK_INT >= 33) {
+                client.writeCharacteristic(target, value, writeType) == BluetoothGatt.GATT_SUCCESS
+            } else {
+                @Suppress("DEPRECATION")
+                run {
+                    target.writeType = writeType
+                    target.value = value
+                    client.writeCharacteristic(target)
+                }
             }
+            if (!queued) return false
+            val status = writeAck.poll(5, TimeUnit.SECONDS) ?: return false
+            return status == BluetoothGatt.GATT_SUCCESS
         }
     }
 
