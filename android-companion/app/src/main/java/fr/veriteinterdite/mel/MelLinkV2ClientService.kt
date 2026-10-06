@@ -106,6 +106,7 @@ class MelLinkV2ClientService : Service() {
     private lateinit var mediaReceiver: MiniMediaReceiver
     private var scanActive = false
     private var reconnectAttempt = 0
+    private var mtuRetryAttempted = false
     private val handler by lazy { android.os.Handler(mainLooper) }
 
     private val networkCallback = object : ConnectivityManager.NetworkCallback() {
@@ -298,6 +299,7 @@ class MelLinkV2ClientService : Service() {
         override fun onConnectionStateChange(client: BluetoothGatt, status: Int, newState: Int) {
             if (newState == BluetoothProfile.STATE_CONNECTED && status == BluetoothGatt.GATT_SUCCESS) {
                 reconnectAttempt = 0
+                mtuRetryAttempted = false
                 state.value = "NEGOCIATION"
                 miniReady.value = false
                 protocolReady.value = false
@@ -326,6 +328,15 @@ class MelLinkV2ClientService : Service() {
         override fun onMtuChanged(client: BluetoothGatt, mtu: Int, status: Int) {
             if (!hasBlePermissions()) return
             if (status != BluetoothGatt.GATT_SUCCESS || mtu < MelLinkV2Protocol.MIN_AUDIO_MTU) {
+                if (!mtuRetryAttempted) {
+                    mtuRetryAttempted = true
+                    val retryQueued = runCatching { client.requestMtu(517) }.getOrDefault(false)
+                    if (retryQueued) {
+                        state.value = "RENEGOCIATION MTU"
+                        Log.w(TAG, "Link V2 MTU retry requested after mtu=" + mtu + " status=" + status)
+                        return
+                    }
+                }
                 lastError.value = "MTU_" + mtu + "_STATUS_" + status
                 state.value = "MTU INSUFFISANT (" + mtu + ")"
                 Log.e(TAG, "Link V2 MTU insufficient: mtu=" + mtu + " status=" + status)
