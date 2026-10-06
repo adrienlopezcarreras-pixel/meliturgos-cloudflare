@@ -162,14 +162,16 @@ static int gap_event(struct ble_gap_event *event, void *arg) {
             }
             return 0;
 
-        case BLE_GAP_EVENT_DISCONNECT:
+        case BLE_GAP_EVENT_DISCONNECT: {
             ESP_LOGW(TAG, "Android disconnected reason=%d", event->disconnect.reason);
             g_conn = BLE_HS_CONN_HANDLE_NONE;
             g_mtu = 23;
             g_event_subscribed = false;
-            g_ready.store(false);
+            const bool was_ready = g_ready.exchange(false);
+            if (g_state_cb && was_ready) g_state_cb(false, g_state_ctx);
             start_advertising();
             return 0;
+        }
 
         case BLE_GAP_EVENT_SUBSCRIBE:
             if (event->subscribe.attr_handle == g_event_handle) {
