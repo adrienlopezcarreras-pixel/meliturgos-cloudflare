@@ -64,21 +64,13 @@ static const int WIFI_CONNECTED_BIT = BIT0;
 static const int WIFI_FAIL_BIT = BIT1;
 static const size_t MAX_HTTP_RESPONSE = 64 * 1024;
 static const int VOICE_SECONDS = 10;
-static const int VOICE_CAPTURE_RATE = 48000;
+static const int VOICE_CAPTURE_RATE = 16000;
 static const int VOICE_STT_RATE = 16000;
 static const int VOICE_CAPTURE_SAMPLES = VOICE_SECONDS * VOICE_CAPTURE_RATE;
 static const int VOICE_CAPTURE_BYTES = VOICE_CAPTURE_SAMPLES * 2;
 static const int VOICE_STT_SAMPLES = VOICE_SECONDS * VOICE_STT_RATE;
 static const int VOICE_STT_BYTES = VOICE_STT_SAMPLES * 2;
 
-// 31-tap Hamming-windowed low-pass (~7 kHz at 48 kHz), Q15.
-// Applied before 3:1 decimation so the 16 kHz STT stream does not alias
-// high-frequency codec noise into the speech band.
-static const int16_t VOICE_DECIMATOR_Q15[31] = {
-    51, 17, -58, -146, -134, 84, 426, 555, 114, -838,
-    -1592, -1105, 1213, 4834, 8186, 9551, 8186, 4834, 1213,
-    -1105, -1592, -838, 114, 555, 426, 84, -134, -146, -58, 17, 51
-};
 static const int WAKE_RATE = 16000;
 static const int WAKE_WINDOW_MS = 1900;
 static const int WAKE_WINDOW_SAMPLES = WAKE_RATE * WAKE_WINDOW_MS / 1000;
@@ -403,7 +395,7 @@ static void ensure_mic_mutex() {
 
 static void wake_detector_task(void *) {
     auto *ring = static_cast<int16_t *>(heap_caps_calloc(WAKE_WINDOW_SAMPLES, sizeof(int16_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
-    auto *raw = static_cast<int16_t *>(heap_caps_malloc(WAKE_HOP_SAMPLES * 3 * sizeof(int16_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    auto *raw = static_cast<int16_t *>(heap_caps_malloc(WAKE_HOP_SAMPLES * sizeof(int16_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
     auto *hop = static_cast<int16_t *>(heap_caps_malloc(WAKE_HOP_SAMPLES * sizeof(int16_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
     if (!ring || !raw || !hop) {
         if (ring) heap_caps_free(ring);
@@ -430,7 +422,7 @@ static void wake_detector_task(void *) {
             continue;
         }
         esp_codec_dev_set_in_gain(input_dev, 35.0);
-        const int rc = esp_codec_dev_read(input_dev, raw, WAKE_HOP_SAMPLES * 3 * (int)sizeof(int16_t));
+        const int rc = esp_codec_dev_read(input_dev, raw, WAKE_HOP_SAMPLES * (int)sizeof(int16_t));
         esp_codec_dev_set_in_gain(input_dev, 0.0);
         xSemaphoreGive(g_mic_mutex);
         if (rc != ESP_CODEC_DEV_OK) {
@@ -444,12 +436,7 @@ static void wake_detector_task(void *) {
             continue;
         }
 
-        for (int i = 0; i < WAKE_HOP_SAMPLES; ++i) {
-            const int j = i * 3;
-            int32_t v = ((int32_t)raw[j] + raw[j + 1] + raw[j + 2]) / 3;
-            v = std::max<int32_t>(-32768, std::min<int32_t>(32767, v));
-            hop[i] = (int16_t)v;
-        }
+        memcpy(hop, raw, WAKE_HOP_SAMPLES * sizeof(int16_t));
         if (filled < WAKE_WINDOW_SAMPLES) {
             const int copy = std::min(WAKE_HOP_SAMPLES, WAKE_WINDOW_SAMPLES - filled);
             memcpy(ring + filled, hop, copy * sizeof(int16_t));
@@ -686,7 +673,7 @@ static bool http_discard_exact(esp_http_client_handle_t client, uint32_t count) 
 }
 
 static bool read_tts_wav_header(esp_http_client_handle_t client, uint32_t &pcm_bytes) {
-    static const uint32_t TTS_MAX_PCM_BYTES = 48000U * 2U * 180U;
+    static const uint32_t TTS_MAX_PCM_BYTES = 16000U * 2U * 180U;
     uint8_t riff[12] = {};
     if (!http_read_exact(client, riff, sizeof(riff))) return false;
     if (memcmp(riff, "RIFF", 4) != 0 || memcmp(riff + 8, "WAVE", 4) != 0) return false;
@@ -708,7 +695,7 @@ static bool read_tts_wav_header(esp_http_client_handle_t client, uint32_t &pcm_b
             const uint16_t channels = read_le16(fmt + 2);
             const uint32_t sample_rate = read_le32(fmt + 4);
             const uint16_t bits_per_sample = read_le16(fmt + 14);
-            if (audio_format != 1 || channels != 1 || sample_rate != 48000 || bits_per_sample != 16) {
+            if (audio_format != 1 || channels != 1 || sample_rate != 16000 || bits_per_sample != 16) {
                 ESP_LOGE(
                     TAG,
                     "TTS WAV format mismatch format=%u channels=%u rate=%lu bits=%u",
@@ -1378,7 +1365,7 @@ static std::string record_and_transcribe() {
              (long)((int32_t)raw_max - (int32_t)raw_min),
              (unsigned)raw_mean_abs, (long)dc);
 
-    const int speech_samples = captured_samples / 3;
+    const int speech_samples = captured_samples;
     const int speech_bytes = speech_samples * (int)sizeof(int16_t);
     auto *speech = static_cast<int16_t *>(heap_caps_malloc(speech_bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
     if (!speech) speech = static_cast<int16_t *>(heap_caps_malloc(speech_bytes, MALLOC_CAP_8BIT));
@@ -1389,23 +1376,12 @@ static std::string record_and_transcribe() {
         return "";
     }
 
-    // True 48 kHz -> 16 kHz mono decimation. Filter before dropping
-    // samples; merely averaging triplets aliases out-of-band energy into speech.
+    // Waveshare's ES8311 BSP already delivers native 16 kHz mono PCM.
+    // Keep the signal at its native rate; only remove DC before normalization.
     int32_t peak = 0;
     uint64_t speech_abs_sum = 0;
-    constexpr int FIR_TAPS = 31;
-    constexpr int FIR_HALF = FIR_TAPS / 2;
     for (int i = 0; i < speech_samples; ++i) {
-        const int center = i * 3;
-        int64_t acc = 0;
-        for (int tap = 0; tap < FIR_TAPS; ++tap) {
-            int src = center + tap - FIR_HALF;
-            if (src < 0) src = 0;
-            if (src >= captured_samples) src = captured_samples - 1;
-            const int32_t centered = (int32_t)capture[src] - dc;
-            acc += (int64_t)centered * VOICE_DECIMATOR_Q15[tap];
-        }
-        int32_t v = (int32_t)(acc >> 15);
+        int32_t v = (int32_t)capture[i] - dc;
         if (v > 32767) v = 32767;
         if (v < -32768) v = -32768;
         speech[i] = (int16_t)v;
