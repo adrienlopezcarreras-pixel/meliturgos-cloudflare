@@ -1,6 +1,7 @@
 #include "mel_link_v2_transport.h"
 #include "mel_link_v2_protocol.h"
 #include "mel_link_v2_server.h"
+#include "mel_ima_adpcm.h"
 
 #include <atomic>
 #include <cstring>
@@ -342,4 +343,100 @@ esp_err_t mel_link_v2_transport_request_stream(
     void *ctx
 ) {
     return request_common(method,path,content_type,mini_device_id,body,body_len,nullptr,status,cb,ctx);
+}
+
+
+esp_err_t mel_link_v2_transport_transcribe_adpcm(
+    const int16_t *samples,
+    size_t sample_count,
+    const char *mini_device_id,
+    std::string &response,
+    int &status
+) {
+    if (!mel_link_v2_transport_ready() || !samples || sample_count == 0 ||
+        !mini_device_id || !*mini_device_id || !g_exchange_mutex) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (xSemaphoreTake(g_exchange_mutex, pdMS_TO_TICKS(3000)) != pdTRUE) {
+        return ESP_ERR_TIMEOUT;
+    }
+
+    g_active = {};
+    g_active.stream_id = g_next_stream.fetch_add(1);
+    if (g_active.stream_id == 0) g_active.stream_id = g_next_stream.fetch_add(1);
+    drain_semaphore(g_response_done);
+    drain_semaphore(g_credit_sem);
+
+    cJSON *meta_json = cJSON_CreateObject();
+    cJSON_AddStringToObject(meta_json, "codec", "ima-adpcm");
+    cJSON_AddNumberToObject(meta_json, "rate", 16000);
+    cJSON_AddNumberToObject(meta_json, "ch", 1);
+    cJSON_AddNumberToObject(meta_json, "samples", (double)sample_count);
+    cJSON_AddNumberToObject(meta_json, "block", MEL_IMA_ADPCM_BLOCK_SAMPLES);
+    cJSON_AddStringToObject(meta_json, "mini", mini_device_id);
+    std::string meta = json_string(meta_json);
+    cJSON_Delete(meta_json);
+
+    bool ok = meta.size() <= 160 &&
+        send_v2(
+            MEL_LINK_V2_AUDIO_BEGIN, g_active.stream_id, 0,
+            reinterpret_cast<const uint8_t *>(meta.data()),
+            (uint16_t)meta.size(), true
+        );
+
+    uint16_t seq = 0;
+    size_t offset = 0;
+    uint8_t encoded[MEL_IMA_ADPCM_MAX_ENCODED_BYTES] = {};
+    while (ok && offset < sample_count) {
+        if (xSemaphoreTake(g_credit_sem, pdMS_TO_TICKS(5000)) != pdTRUE) {
+            ESP_LOGE(TAG, "audio credit timeout stream=%u seq=%u", g_active.stream_id, seq);
+            ok = false;
+            break;
+        }
+
+        const size_t count = std::min<size_t>(
+            MEL_IMA_ADPCM_BLOCK_SAMPLES, sample_count - offset
+        );
+        size_t encoded_size = 0;
+        if (!mel_ima_adpcm_encode_block(
+                samples + offset, count,
+                encoded, sizeof(encoded), &encoded_size)) {
+            ESP_LOGE(TAG, "ADPCM encode failed stream=%u seq=%u count=%u",
+                     g_active.stream_id, seq, (unsigned)count);
+            ok = false;
+            break;
+        }
+
+        ok = send_v2(
+            MEL_LINK_V2_AUDIO_DATA, g_active.stream_id, seq++,
+            encoded, (uint16_t)encoded_size, false
+        );
+        offset += count;
+    }
+
+    if (ok) {
+        ok = send_v2(
+            MEL_LINK_V2_AUDIO_END, g_active.stream_id, seq,
+            nullptr, 0, true
+        );
+    }
+
+    if (!ok) {
+        g_active = {};
+        xSemaphoreGive(g_exchange_mutex);
+        return ESP_FAIL;
+    }
+
+    const bool done = xSemaphoreTake(g_response_done, pdMS_TO_TICKS(90000)) == pdTRUE;
+    status = g_active.status;
+    response = g_active.body;
+    const bool failed = !done || g_active.failed;
+    if (!done) {
+        ESP_LOGE(TAG, "ADPCM STT response timeout stream=%u blocks=%u",
+                 g_active.stream_id, seq);
+    }
+
+    g_active = {};
+    xSemaphoreGive(g_exchange_mutex);
+    return failed ? ESP_ERR_TIMEOUT : ESP_OK;
 }
