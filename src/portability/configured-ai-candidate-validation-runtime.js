@@ -1,4 +1,4 @@
-import { parseHttpChatProviderDescriptors, createHttpChatAdapter } from '../augmentio/http-chat-adapter.js';
+import { parseHttpChatProviderDescriptors, createConfiguredAiAdapter } from '../augmentio/http-chat-adapter.js';
 import { SovereigntyCandidateStore } from './sovereignty-candidate-store.js';
 import { D1AlternativeRegistryStore } from './d1-alternative-registry-store.js';
 import { syncConfiguredAiCandidates } from './configured-ai-candidate-sync.js';
@@ -75,7 +75,7 @@ export async function runConfiguredAiCandidateValidationRuntime(env,{
         added_cost_eur:d.estimatedCost,
         cost_provenance:d.costProvenance,
       };
-      const adapter=createHttpChatAdapter({
+      const adapter=createConfiguredAiAdapter({
         env,
         ...d,
         fetchImpl,
