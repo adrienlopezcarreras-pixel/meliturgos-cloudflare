@@ -76,7 +76,15 @@ class MelLinkV2ClientService : Service() {
     private data class IncomingRequest(
         val streamId: Int,
         val meta: JSONObject,
-        val body: ByteArrayOutputStream = ByteArrayOutputStream()
+        val body: ByteArrayOutputStream = ByteArrayOutputStream(),
+        var nextSeq: Int = 0
+    )
+
+    private data class IncomingAudio(
+        val streamId: Int,
+        val meta: JSONObject,
+        val pcm16: ByteArrayOutputStream = ByteArrayOutputStream(),
+        var nextSeq: Int = 0
     )
 
     private var wakeLock: PowerManager.WakeLock? = null
@@ -93,6 +101,7 @@ class MelLinkV2ClientService : Service() {
     private val writeAck = ArrayBlockingQueue<Int>(1)
     private val writeLock = Any()
     private val requests = HashMap<Int, IncomingRequest>()
+    private val audioStreams = HashMap<Int, IncomingAudio>()
     private var scanActive = false
     private var reconnectAttempt = 0
     private val handler by lazy { android.os.Handler(mainLooper) }
@@ -406,18 +415,76 @@ class MelLinkV2ClientService : Service() {
             }
             MelLinkV2Protocol.REQUEST_DATA -> {
                 val request = synchronized(requests) { requests[frame.streamId] } ?: return
+                if (frame.seq != request.nextSeq) {
+                    synchronized(requests) { requests.remove(frame.streamId) }
+                    lastError.value = "REQUEST_SEQUENCE"
+                    sendErrorAsync(frame.streamId, "REQUEST_SEQUENCE")
+                    return
+                }
+                request.nextSeq++
                 request.body.write(frame.payload)
                 sendCreditAsync(frame.streamId, 1)
             }
             MelLinkV2Protocol.REQUEST_END -> {
                 val request = synchronized(requests) { requests.remove(frame.streamId) } ?: return
+                if (frame.seq != request.nextSeq) {
+                    lastError.value = "REQUEST_END_SEQUENCE"
+                    sendErrorAsync(frame.streamId, "REQUEST_END_SEQUENCE")
+                    return
+                }
                 executor.execute { executeRequest(request) }
             }
-            MelLinkV2Protocol.AUDIO_BEGIN,
-            MelLinkV2Protocol.AUDIO_DATA,
+            MelLinkV2Protocol.AUDIO_BEGIN -> {
+                val meta = runCatching { JSONObject(frame.payload.toString(Charsets.UTF_8)) }.getOrNull() ?: return
+                if (meta.optString("codec") != "ima-adpcm" ||
+                    meta.optInt("rate") != 16_000 ||
+                    meta.optInt("ch") != 1 ||
+                    meta.optInt("block") != MelImaAdpcm.BLOCK_SAMPLES
+                ) {
+                    sendErrorAsync(frame.streamId, "AUDIO_FORMAT")
+                    return
+                }
+                synchronized(audioStreams) {
+                    audioStreams[frame.streamId] = IncomingAudio(frame.streamId, meta)
+                }
+                sendCreditAsync(frame.streamId, MelLinkV2Protocol.CREDIT_WINDOW)
+            }
+            MelLinkV2Protocol.AUDIO_DATA -> {
+                val audio = synchronized(audioStreams) { audioStreams[frame.streamId] } ?: return
+                if (frame.seq != audio.nextSeq) {
+                    synchronized(audioStreams) { audioStreams.remove(frame.streamId) }
+                    lastError.value = "AUDIO_SEQUENCE"
+                    sendErrorAsync(frame.streamId, "AUDIO_SEQUENCE")
+                    return
+                }
+                val pcm = runCatching { MelImaAdpcm.decodeBlock(frame.payload) }.getOrElse {
+                    synchronized(audioStreams) { audioStreams.remove(frame.streamId) }
+                    lastError.value = "AUDIO_ADPCM"
+                    sendErrorAsync(frame.streamId, "AUDIO_ADPCM")
+                    return
+                }
+                audio.nextSeq++
+                for (sample in pcm) {
+                    val value = sample.toInt()
+                    audio.pcm16.write(value and 0xff)
+                    audio.pcm16.write((value ushr 8) and 0xff)
+                }
+                sendCreditAsync(frame.streamId, 1)
+            }
             MelLinkV2Protocol.AUDIO_END -> {
-                // Audio streams use the same request executor in the next gate.
-                lastError.value = "AUDIO_GATE_PENDING"
+                val audio = synchronized(audioStreams) { audioStreams.remove(frame.streamId) } ?: return
+                if (frame.seq != audio.nextSeq) {
+                    lastError.value = "AUDIO_END_SEQUENCE"
+                    sendErrorAsync(frame.streamId, "AUDIO_END_SEQUENCE")
+                    return
+                }
+                val expectedSamples = audio.meta.optInt("samples", -1)
+                if (expectedSamples <= 0 || audio.pcm16.size() != expectedSamples * 2) {
+                    lastError.value = "AUDIO_LENGTH"
+                    sendErrorAsync(frame.streamId, "AUDIO_LENGTH")
+                    return
+                }
+                executor.execute { executeAudio(audio) }
             }
         }
     }
@@ -432,7 +499,91 @@ class MelLinkV2ClientService : Service() {
             .toByteArray()
     }
 
-    private fun executeRequest(request: IncomingRequest) {
+    private fun executeAudio(audio: IncomingAudio) {
+        val miniDeviceId = audio.meta.optString("mini").trim()
+        if (miniDeviceId.isBlank()) {
+            sendError(audio.streamId, "MINI_DEVICE_ID_REQUIRED")
+            return
+        }
+
+        val rawPcm = audio.pcm16.toByteArray()
+        val samples = ShortArray(rawPcm.size / 2)
+        var offset = 0
+        for (i in samples.indices) {
+            val lo = rawPcm[offset++].toInt() and 0xff
+            val hi = rawPcm[offset++].toInt() and 0xff
+            samples[i] = ((hi shl 8) or lo).toShort()
+        }
+        val wav = MelImaAdpcm.pcm16MonoWav(samples, 16_000)
+
+        val rawAndroidId = Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID)
+        val androidDeviceId = "android-" + (rawAndroidId ?: "unknown").take(64)
+        try {
+            val result = MelApiClient(
+                BuildConfig.MEL_BASE_URL,
+                androidDeviceId,
+                TokenVault(this)
+            ).transcribe(wav, "audio/wav")
+            val body = result.toString().toByteArray(Charsets.UTF_8)
+            sendResponse(audio.streamId, 200, "application/json", body)
+            internetReady.value = phoneInternetAvailable.value && miniReady.value && protocolReady.value && melSessionReady
+            Log.i(TAG, "V2 ADPCM STT -> 200 samples=${samples.size} wav=${wav.size}")
+        } catch (error: MelApiException) {
+            val status = error.status.takeIf { it in 400..599 } ?: 503
+            val body = JSONObject()
+                .put("ok", false)
+                .put("code", error.code)
+                .put("detail", error.detail)
+                .toString()
+                .toByteArray(Charsets.UTF_8)
+            sendResponse(audio.streamId, status, "application/json", body)
+            lastError.value = "STT_${error.code}"
+        } catch (error: Throwable) {
+            val body = JSONObject()
+                .put("ok", false)
+                .put("code", "ANDROID_STT_RELAY")
+                .put("detail", (error.message ?: error::class.java.simpleName).take(160))
+                .toString()
+                .toByteArray(Charsets.UTF_8)
+            sendResponse(audio.streamId, 503, "application/json", body)
+            lastError.value = "STT_RELAY"
+        }
+    }
+
+    private fun sendResponse(streamId: Int, status: Int, contentType: String, body: ByteArray): Boolean {
+        val begin = JSONObject()
+            .put("status", status)
+            .put("content_type", contentType)
+            .put("length", body.size)
+            .toString()
+            .toByteArray(Charsets.UTF_8)
+        if (!sendControlBlocking(
+                MelLinkV2Protocol.encode(
+                    MelLinkV2Protocol.RESPONSE_BEGIN, 0, streamId, 0, begin
+                )
+            )) return false
+
+        var seq = 0
+        var offset = 0
+        val chunk = 150
+        while (offset < body.size) {
+            val end = minOf(offset + chunk, body.size)
+            if (!sendBulkBlocking(
+                    MelLinkV2Protocol.encode(
+                        MelLinkV2Protocol.RESPONSE_DATA, 0, streamId, seq++,
+                        body.copyOfRange(offset, end)
+                    )
+                )) return false
+            offset = end
+        }
+        return sendControlBlocking(
+            MelLinkV2Protocol.encode(
+                MelLinkV2Protocol.RESPONSE_END, 0, streamId, seq
+            )
+        )
+    }
+
+        private fun executeRequest(request: IncomingRequest) {
         val method = request.meta.optString("method", "POST").uppercase()
         val path = request.meta.optString("path")
         val contentType = request.meta.optString("content_type", "application/json")
@@ -516,6 +667,10 @@ class MelLinkV2ClientService : Service() {
         sendControlBlocking(MelLinkV2Protocol.encode(MelLinkV2Protocol.ERROR, 0, streamId, 0, code.toByteArray()))
     }
 
+    private fun sendErrorAsync(streamId: Int, code: String) {
+        if (!bleWriter.isShutdown) bleWriter.execute { sendError(streamId, code) }
+    }
+
     private fun sendControlAsync(frame: ByteArray) {
         if (!bleWriter.isShutdown) bleWriter.execute { sendControlBlocking(frame) }
     }
@@ -568,6 +723,7 @@ class MelLinkV2ClientService : Service() {
         eventTx = null
         bulkRx = null
         synchronized(requests) { requests.clear() }
+        synchronized(audioStreams) { audioStreams.clear() }
     }
 
     private fun resetPhysicalLink(reason: String) {
