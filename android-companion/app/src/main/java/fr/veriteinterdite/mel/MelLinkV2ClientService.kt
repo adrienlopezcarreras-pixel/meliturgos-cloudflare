@@ -341,12 +341,13 @@ class MelLinkV2ClientService : Service() {
             }
             val cccd = event.getDescriptor(CCCD_UUID)
                 ?: return failAndReconnect(client, "CCCD_MISSING")
+            val eventCccdValue = byteArrayOf(3, 0)
             val queued = if (Build.VERSION.SDK_INT >= 33) {
-                client.writeDescriptor(cccd, BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE) == BluetoothGatt.GATT_SUCCESS
+                client.writeDescriptor(cccd, eventCccdValue) == BluetoothGatt.GATT_SUCCESS
             } else {
                 @Suppress("DEPRECATION")
                 run {
-                    cccd.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
+                    cccd.value = eventCccdValue
                     client.writeDescriptor(cccd)
                 }
             }
