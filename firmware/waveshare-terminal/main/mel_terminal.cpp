@@ -1264,6 +1264,20 @@ static void wav_header(uint8_t *h, uint32_t data_size, uint32_t sample_rate) {
     h[40]=(uint8_t)data_size; h[41]=(uint8_t)(data_size>>8); h[42]=(uint8_t)(data_size>>16); h[43]=(uint8_t)(data_size>>24);
 }
 
+
+static void stt_link_progress(size_t sent_samples, size_t total_samples, void *) {
+    if (total_samples == 0) return;
+    if (sent_samples >= total_samples) {
+        ui_status("STT SERVEUR...");
+        return;
+    }
+    const unsigned pct = (unsigned)((sent_samples * 100U) / total_samples);
+    if (pct >= 75U) ui_status("STT 75%...");
+    else if (pct >= 50U) ui_status("STT 50%...");
+    else if (pct >= 25U) ui_status("STT 25%...");
+    else ui_status("STT BLE...");
+}
+
 static std::string record_and_transcribe() {
     voice_error(nullptr);
     if (!g_audio_ok || !input_dev) {
@@ -1435,7 +1449,9 @@ static std::string record_and_transcribe() {
             (size_t)speech_samples,
             g_device_id,
             response,
-            status
+            status,
+            stt_link_progress,
+            nullptr
         );
         heap_caps_free(speech);
         ESP_LOGI(TAG, "STT V2 RESULT err=%s status=%d body=%.*s",
