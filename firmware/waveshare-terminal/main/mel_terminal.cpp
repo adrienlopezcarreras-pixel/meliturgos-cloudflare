@@ -1559,8 +1559,18 @@ static void voice_task(void *) {
 
 
 void mel_terminal_request_voice(void) {
-    if (!g_audio_ok) return;
-    if (!g_online && !mel_mobile_bridge_ready()) return;
+    if (!g_audio_ok || !input_dev) {
+        voice_error("MICRO INDISPONIBLE");
+        ui_status("MICRO INDISPONIBLE");
+        ESP_LOGW(TAG, "PARLER refused: microphone unavailable");
+        return;
+    }
+    if (!g_online && !mel_mobile_bridge_ready()) {
+        voice_error("RELAIS MEL");
+        ui_status("RELAIS MEL INDISPONIBLE");
+        ESP_LOGW(TAG, "PARLER refused: no authenticated transport");
+        return;
+    }
 
     if (g_voice_task_handle) {
         if (g_runtime_state == MEL_TERMINAL_LISTENING) {
