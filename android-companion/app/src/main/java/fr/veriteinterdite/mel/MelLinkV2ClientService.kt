@@ -512,7 +512,7 @@ class MelLinkV2ClientService : Service() {
                 BuildConfig.MEL_BASE_URL,
                 androidDeviceId,
                 TokenVault(this)
-            ).transcribe(wav, "audio/wav")
+            ).transcribeMini(wav, miniDeviceId, "audio/wav")
             val body = result.toString().toByteArray(Charsets.UTF_8)
             sendResponse(audio.streamId, 200, "application/json", body)
             internetReady.value = phoneInternetAvailable.value && miniReady.value && protocolReady.value && melSessionReady
