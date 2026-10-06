@@ -1,4 +1,5 @@
 name: mini-windows-updater
+# Waveshare ES8311 BSP native format: 16 kHz mono 16-bit.
 
 on:
   workflow_dispatch:
