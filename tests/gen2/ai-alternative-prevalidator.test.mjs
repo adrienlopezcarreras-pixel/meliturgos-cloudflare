@@ -128,3 +128,53 @@ test('live low-refusal proof upgrades an alternate AI provider to low-refusal re
   assert.equal(result.registry.layers.ai[0].low_refusal,true);
   assert.equal(result.results[0].low_refusal_probe.ok,true);
 });
+
+
+test('Gemini free-tier secret auto-registers an always-on zero-cost low-refusal alternative',async()=>{
+  const requests=[];
+  const env={
+    GEMINI_API_KEY:'gemini-test-secret',
+    MEL_DEPLOYED_GIT_SHA:'c'.repeat(40),
+  };
+  const result=await prevalidateConfiguredAiAlternatives({
+    env,
+    registry:createAlternativeRegistry([],{now}),
+    now,
+    fetchImpl:async(url,options={})=>{
+      requests.push({url:String(url),headers:options.headers,body:JSON.parse(options.body)});
+      return Response.json({
+        candidates:[{content:{parts:[{text:'MEL_AI_ALT_OK'}]}}],
+      });
+    },
+  });
+  assert.equal(result.prevalidated_count,1);
+  const row=result.registry.layers.ai.find(x=>x.id==='gemini:free-tier');
+  assert.ok(row);
+  assert.equal(row.prevalidated,true);
+  assert.equal(row.provider,'google-gemini');
+  assert.equal(row.endpoint_class,'always-on-google-gemini-api');
+  assert.equal(row.added_cost_eur,0);
+  assert.equal(row.low_refusal,true);
+  assert.equal(row.proof.source_sha,'c'.repeat(40));
+  assert.equal(requests.length,4);
+  assert.match(requests[0].url,/gemini-3\.1-flash-lite:generateContent$/);
+  assert.equal(requests[0].headers['x-goog-api-key'],'gemini-test-secret');
+  assert.ok(Array.isArray(requests[0].body.contents));
+  assert.ok(requests[0].body.systemInstruction);
+});
+
+test('Gemini API key is never sent as bearer authorization',async()=>{
+  const env={GEMINI_API_KEY:'gemini-test-secret',MEL_DEPLOYED_GIT_SHA:'d'.repeat(40)};
+  let headers=null;
+  await prevalidateConfiguredAiAlternatives({
+    env,
+    registry:createAlternativeRegistry([],{now}),
+    now,
+    fetchImpl:async(_url,options={})=>{
+      headers=options.headers;
+      return Response.json({candidates:[{content:{parts:[{text:'MEL_AI_ALT_OK'}]}}]});
+    },
+  });
+  assert.equal(headers.authorization,undefined);
+  assert.equal(headers['x-goog-api-key'],'gemini-test-secret');
+});
