@@ -10,6 +10,7 @@
 #include "host/ble_gatt.h"
 #include "host/ble_hs.h"
 #include "host/ble_uuid.h"
+#include "host/util/util.h"
 #include "nimble/nimble_port.h"
 #include "nimble/nimble_port_freertos.h"
 #include "os/os_mbuf.h"
@@ -95,20 +96,20 @@ static const struct ble_gatt_svc_def g_services[] = {
             {
                 .uuid = &UUID_CONTROL_RX.u,
                 .access_cb = access_cb,
-                .val_handle = &g_control_handle,
                 .flags = BLE_GATT_CHR_F_WRITE,
+                .val_handle = &g_control_handle,
             },
             {
                 .uuid = &UUID_EVENT_TX.u,
                 .access_cb = access_cb,
-                .val_handle = &g_event_handle,
                 .flags = BLE_GATT_CHR_F_NOTIFY | BLE_GATT_CHR_F_INDICATE,
+                .val_handle = &g_event_handle,
             },
             {
                 .uuid = &UUID_BULK_RX.u,
                 .access_cb = access_cb,
-                .val_handle = &g_bulk_handle,
                 .flags = BLE_GATT_CHR_F_WRITE | BLE_GATT_CHR_F_WRITE_NO_RSP,
+                .val_handle = &g_bulk_handle,
             },
             {0}
         }
