@@ -111,9 +111,10 @@ test('canonical production release requires human approval and exact immutable i
   assert.match(immutableDeploy, /--secrets-file media-vault-release-secrets\.json/);
   assert.match(source, /Require persistent production secrets before exact deploy/);
   assert.match(source, /wrangler secret list --name meliturgos --format json/);
-  assert.match(source, /media-vault-release-secrets\\.json/);
+  assert.match(source, /readFileSync\('media-vault-release-secrets\.json'/);
+  assert.match(source, /Object\.keys\(staged\|\|\{\}\)/);
   assert.match(source, /PRODUCTION_REQUIRED_SECRETS_MISSING/);
-  assert.match(source, /omitted secrets are preserved by the exact deployment/);
+  assert.match(source, /omitted remote secrets are preserved/);
   assert.match(source, /Verify owner auth binding and exact deployment immediately/);
   assert.match(source, /AUTH_NOT_CONFIGURED/);
   assert.match(source, /ROOT_CODE.*401/);
