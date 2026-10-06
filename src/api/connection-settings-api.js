@@ -543,16 +543,14 @@ export async function pipedreamAccessToken(config, options = {}) {
   const fetcher = options.fetcher || fetch;
   const projectId = clean(config?.project_id, 300);
   const environment = config?.environment === 'development' ? 'development' : 'production';
-  const form = new URLSearchParams();
-  form.set('grant_type', 'client_credentials');
-  form.set('client_id', clean(config?.client_id, 1000));
-  form.set('client_secret', clean(config?.client_secret, 2000));
-  form.set('project_id', projectId);
-  form.set('environment', environment);
   const body = await pipedreamJson(fetcher, 'https://api.pipedream.com/v1/oauth/token', {
     method: 'POST',
-    headers: { 'content-type': 'application/x-www-form-urlencoded', accept: 'application/json' },
-    body: form.toString(),
+    headers: { 'content-type': 'application/json', accept: 'application/json' },
+    body: JSON.stringify({
+      grant_type: 'client_credentials',
+      client_id: clean(config?.client_id, 1000),
+      client_secret: clean(config?.client_secret, 2000),
+    }),
     signal: options.signal,
   }, 'PIPEDREAM_AUTH_FAILED');
   const accessToken = clean(body?.access_token, 10000);
@@ -686,7 +684,7 @@ export async function pipedreamAccountStatus(config, contextOwner, options = {})
   const accessToken = clean(options.accessToken, 10000)
     || await pipedreamAccessToken(config, { fetcher, signal: options.signal });
   const params = new URLSearchParams({ external_user_id: contextOwner, limit: '100' });
-  const body = await pipedreamJson(fetcher, 'https://api.pipedream.com/v1/' + encodeURIComponent(projectId) + '/accounts/?' + params.toString(), {
+  const body = await pipedreamJson(fetcher, 'https://api.pipedream.com/v1/connect/' + encodeURIComponent(projectId) + '/accounts?' + params.toString(), {
     method: 'GET',
     headers: {
       authorization: 'Bearer ' + accessToken,
