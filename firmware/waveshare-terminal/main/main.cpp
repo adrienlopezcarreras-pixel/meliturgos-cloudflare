@@ -513,8 +513,9 @@ static void mini_anim_cb(lv_timer_t *) {
     }
 
     if (talk_button) {
-        const bool voice_transport_ready = online || mel_terminal_mobile_connected();
-        if (voice_transport_ready && (state == MEL_TERMINAL_IDLE || state == MEL_TERMINAL_LISTENING)) {
+        // Keep PARLER clickable while idle so a missing transport or microphone
+        // produces a visible diagnostic instead of a dead-looking button.
+        if (state == MEL_TERMINAL_IDLE || state == MEL_TERMINAL_LISTENING) {
             lv_obj_clear_state(talk_button, LV_STATE_DISABLED);
         } else {
             lv_obj_add_state(talk_button, LV_STATE_DISABLED);
@@ -1734,28 +1735,35 @@ static void lv_port_init() {
 
 static void touch_cb(lv_event_t *e) {
     if (!status_label) return;
-    const lv_event_code_t code = lv_event_get_code(e);
-    if (code == LV_EVENT_PRESSED) {
-        ESP_LOGI(TAG, "UI BUTTON: PARLER pressed");
-        if (!mel_terminal_online() && !mel_terminal_mobile_connected()) {
-            lv_label_set_text(status_label, "MEL HORS LIGNE");
-            ESP_LOGW(TAG, "Talk requested without MEL transport");
-            return;
-        }
-        if (!mel_terminal_online()) {
-            lv_label_set_text(status_label, "VALIDATION MEL...");
-            ESP_LOGI(TAG, "PARLER requested during Link V2 identity/session recovery");
-        }
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+
+    const int state = mel_terminal_state();
+    ESP_LOGI(TAG, "UI BUTTON: PARLER clicked state=%d", state);
+
+    if (state == MEL_TERMINAL_LISTENING) {
         mel_terminal_request_voice();
-        ESP_LOGI(TAG, "PARLER request accepted");
+        ESP_LOGI(TAG, "PARLER second click -> stop and transcribe");
         return;
     }
-    if (code == LV_EVENT_RELEASED || code == LV_EVENT_PRESS_LOST) {
-        if (mel_terminal_state() == MEL_TERMINAL_LISTENING) {
-            mel_terminal_request_voice();
-            ESP_LOGI(TAG, "PARLER released -> stop and send");
-        }
+
+    if (state != MEL_TERMINAL_IDLE) {
+        ESP_LOGI(TAG, "PARLER ignored while runtime busy state=%d", state);
+        return;
     }
+
+    if (!mel_terminal_online() && !mel_terminal_mobile_connected()) {
+        lv_label_set_text(status_label, "MEL HORS LIGNE");
+        ESP_LOGW(TAG, "Talk requested without MEL transport");
+        return;
+    }
+
+    if (!mel_terminal_online()) {
+        lv_label_set_text(status_label, "VALIDATION MEL...");
+        ESP_LOGI(TAG, "PARLER requested during Link V2 identity/session recovery");
+    }
+
+    mel_terminal_request_voice();
+    ESP_LOGI(TAG, "PARLER first click -> start listening");
 }
 
 static void web_card_touch_cb(lv_event_t *e) {
