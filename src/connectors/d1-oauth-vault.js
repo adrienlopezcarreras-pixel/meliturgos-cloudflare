@@ -63,17 +63,28 @@ export function decodeOAuthVaultKey(value) {
 export function createOAuthVaultCodec({
   keyBytes,
   keyId,
+  keyBytesResolver = null,
   randomBytes = size => crypto.getRandomValues(new Uint8Array(size)),
 } = {}) {
   const normalizedKeyId = clean(keyId, 200);
   if (!normalizedKeyId) throw vaultError('OAUTH_VAULT_KEY_ID_REQUIRED', 503);
-  if (!(keyBytes instanceof Uint8Array) || keyBytes.byteLength !== KEY_BYTES) {
+  const staticKeyBytes = keyBytes instanceof Uint8Array ? keyBytes : null;
+  if (staticKeyBytes && staticKeyBytes.byteLength !== KEY_BYTES) {
+    throw vaultError('OAUTH_VAULT_KEY_MUST_BE_32_BYTES', 503);
+  }
+  if (!staticKeyBytes && typeof keyBytesResolver !== 'function') {
     throw vaultError('OAUTH_VAULT_KEY_MUST_BE_32_BYTES', 503);
   }
 
   let imported;
   async function key() {
-    imported ||= importKey(keyBytes);
+    if (!imported) {
+      const resolved = staticKeyBytes || await keyBytesResolver();
+      if (!(resolved instanceof Uint8Array) || resolved.byteLength !== KEY_BYTES) {
+        throw vaultError('OAUTH_VAULT_KEY_MUST_BE_32_BYTES', 503);
+      }
+      imported = await importKey(resolved);
+    }
     return imported;
   }
 
@@ -142,14 +153,49 @@ export function createOAuthVaultCodec({
   });
 }
 
+export async function deriveOAuthVaultKeyFromBackup(value) {
+  const source = base64ToBytes(value, 'OAUTH_VAULT_RECOVERY_KEY_BASE64_INVALID');
+  if (source.byteLength !== KEY_BYTES) {
+    throw vaultError('OAUTH_VAULT_RECOVERY_KEY_MUST_BE_32_BYTES', 503);
+  }
+  const material = await crypto.subtle.importKey('raw', source, 'HKDF', false, ['deriveBits']);
+  const bits = await crypto.subtle.deriveBits({
+    name: 'HKDF',
+    hash: 'SHA-256',
+    salt: new TextEncoder().encode('meliturgos-oauth-vault-salt-v1'),
+    info: new TextEncoder().encode('MEL_OAUTH_VAULT_V1'),
+  }, material, KEY_BYTES * 8);
+  return new Uint8Array(bits);
+}
+
 export function createEnvOAuthVaultCodec(env = {}) {
   const keyId = clean(env.MEL_OAUTH_ENCRYPTION_KEY_ID, 200);
   const encoded = clean(env.MEL_OAUTH_ENCRYPTION_KEY_B64, 1000);
-  if (!keyId) throw vaultError('OAUTH_VAULT_KEY_ID_REQUIRED', 503);
-  if (!encoded) throw vaultError('OAUTH_VAULT_KEY_REQUIRED', 503);
+
+  // Preserve legacy dedicated OAuth keys when present so existing ciphertext
+  // remains readable. A partial legacy configuration is invalid and must not
+  // silently fall back to a different key.
+  if (keyId || encoded) {
+    if (!keyId) throw vaultError('OAUTH_VAULT_KEY_ID_REQUIRED', 503);
+    if (!encoded) throw vaultError('OAUTH_VAULT_KEY_REQUIRED', 503);
+    return createOAuthVaultCodec({
+      keyId,
+      keyBytes: decodeOAuthVaultKey(encoded),
+    });
+  }
+
+  // New canonical path: derive the OAuth vault key from MEL's stable backup
+  // root with strict HKDF domain separation. The backup root is already
+  // persisted by the release system, so OAuth encryption survives Worker
+  // secret loss without introducing a second unrecoverable root secret.
+  const recoveryKeyId = clean(env.MEL_BACKUP_ENCRYPTION_KEY_ID, 200);
+  const recoveryEncoded = clean(env.MEL_BACKUP_ENCRYPTION_KEY_B64, 1000);
+  if (!recoveryKeyId) throw vaultError('OAUTH_VAULT_RECOVERY_KEY_ID_REQUIRED', 503);
+  if (!recoveryEncoded) throw vaultError('OAUTH_VAULT_RECOVERY_KEY_REQUIRED', 503);
+
   return createOAuthVaultCodec({
-    keyId,
-    keyBytes: decodeOAuthVaultKey(encoded),
+    keyId: `oauth-hkdf-v1:${recoveryKeyId}`,
+    keyBytesResolver: () => deriveOAuthVaultKeyFromBackup(recoveryEncoded),
   });
 }
 
