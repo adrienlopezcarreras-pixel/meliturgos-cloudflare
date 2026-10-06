@@ -722,7 +722,26 @@ async function pipedreamAccounts(env, contextOwner, requestUrl, signal) {
     error.status = 409;
     throw error;
   }
-  return pipedreamAccountStatus(stored, contextOwner, { signal });
+  try {
+    return await pipedreamAccountStatus(stored, contextOwner, { signal });
+  } catch (error) {
+    if (error?.code !== 'PIPEDREAM_ACCOUNTS_FAILED') throw error;
+    const auth = await testPipedreamCredentials(stored, { signal });
+    return {
+      ok: true,
+      provider: 'pipedream',
+      project_id: clean(stored.project_id, 300),
+      accounts: [],
+      connected_apps: [],
+      account_status_available: false,
+      account_status_degraded: true,
+      authenticated: auth.authenticated === true,
+      environment: auth.environment,
+      connect_link_supported: true,
+      actions_supported: true,
+      proxy_supported: true,
+    };
+  }
 }
 
 export async function testPipedreamGoogleTasksRead(config, contextOwner, options = {}) {
