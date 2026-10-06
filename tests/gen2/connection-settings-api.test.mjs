@@ -643,3 +643,10 @@ test('Google status isolates unreadable legacy connector tokens instead of faili
   assert.match(source,/reconnect_required:\s*true/);
   assert.match(source,/RECONNECT_GOOGLE/);
 });
+
+
+test('Pipedream account status uses current Connect project accounts endpoint', async()=>{
+  const source=await import('node:fs/promises').then(fs=>fs.readFile(new URL('../../src/api/connection-settings-api.js',import.meta.url),'utf8'));
+  assert.match(source,/https:\/\/api\.pipedream\.com\/v1\/['"]? \+ encodeURIComponent\(projectId\) \+ ['"]?\/accounts\//);
+  assert.doesNotMatch(source,/\/v1\/connect\/['"]? \+ encodeURIComponent\(projectId\) \+ ['"]?\/accounts/);
+});
