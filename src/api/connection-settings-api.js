@@ -1012,12 +1012,16 @@ export async function maybeHandleConnectionSettingsApi(request, env = {}, url = 
 
     return json({ ok: false, code: 'NOT_FOUND' }, 404);
   } catch (error) {
+    const code=clean(error?.code || 'CONNECTION_OPERATION_FAILED',160);
+    const inferredAction = code==='OAUTH_VAULT_LEGACY_KEY_UNAVAILABLE_RECONNECT_REQUIRED'
+      ? (provider==='google' ? 'RECONNECT_GOOGLE' : provider==='microsoft' ? 'RECONNECT_MICROSOFT' : provider==='yahoo' ? 'RECONNECT_YAHOO' : 'RECONNECT_CONNECTION')
+      : '';
     return json({
       ok: false,
       error: clean(error?.code || error?.message || 'CONNECTION_OPERATION_FAILED', 160),
-      code: clean(error?.code || 'CONNECTION_OPERATION_FAILED', 160),
+      code,
       ...(Number.isFinite(Number(error?.upstream_status)) ? { upstream_status: Number(error.upstream_status) } : {}),
-      ...(clean(error?.action_required, 160) ? { action_required: clean(error.action_required, 160) } : {}),
+      ...(clean(error?.action_required || inferredAction, 160) ? { action_required: clean(error?.action_required || inferredAction, 160) } : {}),
     }, Number(error?.status) || 500);
   }
 }
