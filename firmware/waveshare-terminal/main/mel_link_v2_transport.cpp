@@ -322,7 +322,7 @@ static void rx_frame(const uint8_t *frame, size_t len, void *ctx) {
             return;
         }
         g_active.expected_response_seq++;
-        if (g_active.cb) {
+        if (g_active.cb && g_active.status >= 200 && g_active.status < 300) {
             if (!g_active.cb(payload, header.payload_len, g_active.cb_ctx)) {
                 g_active.failed = true;
                 if (g_response_done) xSemaphoreGive(g_response_done);
