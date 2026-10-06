@@ -68,6 +68,10 @@ test('Link V2 audio/server failure remains a stream failure, not a physical BLE 
   ]);
 
   assert.match(transport,/ADPCM STT response timeout/);
+  assert.match(transport,/BT_AUDIO_BEGIN_SEND/);
+  assert.match(transport,/BT_AUDIO_DATA_SEND_%u/);
+  assert.match(transport,/BT_AUDIO_END_SEND/);
+  assert.match(transport,/BT_SESSION_DROPPED_/);
   assert.doesNotMatch(transport,/ble_gap_terminate/);
   assert.doesNotMatch(transport,/start_scan/);
   assert.match(server,/BLE_GAP_EVENT_DISCONNECT/);
