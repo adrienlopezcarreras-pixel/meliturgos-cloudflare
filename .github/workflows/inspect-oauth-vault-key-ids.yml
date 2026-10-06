@@ -54,7 +54,15 @@ jobs:
           }
           trap cleanup EXIT
 
-          npx -y wrangler@4.135.0 deploy --config "$CONFIG"             --var "MEL_PREDEPLOY_BACKUP_REFRESH_TOKEN:${TOKEN}" >/tmp/oauth-sidecar-deploy.log
+          set +e
+          npx -y wrangler@4.135.0 deploy --config "$CONFIG"             --var "MEL_PREDEPLOY_BACKUP_REFRESH_TOKEN:${TOKEN}" >/tmp/oauth-sidecar-deploy.log 2>&1
+          DEPLOY_CODE=$?
+          set -e
+          if [ "$DEPLOY_CODE" != "0" ]; then
+            echo "OAUTH_SIDECAR_DEPLOY_FAILED exit=$DEPLOY_CODE"
+            sed -n '1,180p' /tmp/oauth-sidecar-deploy.log
+            exit "$DEPLOY_CODE"
+          fi
           CREATED=1
 
           READY=0
