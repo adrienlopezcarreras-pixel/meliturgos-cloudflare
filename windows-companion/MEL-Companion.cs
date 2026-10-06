@@ -65,63 +65,183 @@ static class MelApp
 
     public static Bitmap MakeMelTechnoFace(int size)
     {
-        var bmp = new Bitmap(size, size);
-        using (var g = Graphics.FromImage(bmp))
+        // Render MEL at high internal resolution, then downsample. This keeps the
+        // techno face crisp on HiDPI displays without shipping an external font
+        // or image asset.
+        const int canvas = 512;
+        var hi = new Bitmap(canvas, canvas, System.Drawing.Imaging.PixelFormat.Format32bppPArgb);
+        using (var g = Graphics.FromImage(hi))
         {
             g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
             g.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
+            g.CompositingQuality = System.Drawing.Drawing2D.CompositingQuality.HighQuality;
             g.Clear(Color.Transparent);
-            var scale = Math.Max(0.01f, size / 100f);
-            g.ScaleTransform(scale, scale);
 
-            using (var glow = new Pen(Color.FromArgb(70, 68, 232, 255), 9f))
-            using (var outer = new Pen(Color.FromArgb(72, 120, 255), 4f))
-            using (var cyan = new Pen(Cyan, 3f))
-            using (var faceFill = new SolidBrush(Color.FromArgb(14, 29, 55)))
-            using (var eyeFill = new SolidBrush(Color.FromArgb(74, 239, 255)))
-            using (var eyeCore = new SolidBrush(Color.White))
-            using (var mouth = new Pen(Color.FromArgb(112, 150, 255), 3f))
+            using (var halo = new System.Drawing.Drawing2D.PathGradientBrush(new Point[] {
+                new Point(256,28), new Point(474,256), new Point(256,484), new Point(38,256)
+            }))
             {
-                g.DrawEllipse(glow, 11, 11, 78, 78);
-                g.DrawArc(outer, 8, 8, 84, 84, 204, 312);
-
-                var head = new Point[] {
-                    new Point(50,12), new Point(78,23), new Point(88,48),
-                    new Point(80,74), new Point(63,89), new Point(50,94),
-                    new Point(37,89), new Point(20,74), new Point(12,48),
-                    new Point(22,23)
+                halo.CenterColor = Color.FromArgb(82, 96, 204, 255);
+                halo.SurroundColors = new Color[] {
+                    Color.FromArgb(0,96,204,255),
+                    Color.FromArgb(0,96,204,255),
+                    Color.FromArgb(0,96,204,255),
+                    Color.FromArgb(0,96,204,255)
                 };
-                g.FillPolygon(faceFill, head);
-                g.DrawPolygon(cyan, head);
+                halo.CenterPoint = new PointF(256,256);
+                g.FillEllipse(halo, 34,34,444,444);
+            }
 
-                var leftEye = new Point[] {
-                    new Point(24,43), new Point(43,38), new Point(39,51), new Point(25,54)
+            using (var ringWide = new Pen(Color.FromArgb(34, 102, 181, 235), 34f))
+            using (var ring = new Pen(Color.FromArgb(180, 92, 170, 220), 8f))
+            using (var ringFine = new Pen(Color.FromArgb(130, 188, 226, 248), 2.5f))
+            {
+                g.DrawArc(ringWide, 62,62,388,388, 192, 300);
+                g.DrawArc(ring, 66,66,380,380, 198, 288);
+                g.DrawArc(ringFine, 82,82,348,348, 10, 145);
+                g.DrawArc(ringFine, 82,82,348,348, 190, 105);
+            }
+
+            var head = new PointF[] {
+                new PointF(256,78),
+                new PointF(337,98),
+                new PointF(397,151),
+                new PointF(423,235),
+                new PointF(410,322),
+                new PointF(363,391),
+                new PointF(307,432),
+                new PointF(256,448),
+                new PointF(205,432),
+                new PointF(149,391),
+                new PointF(102,322),
+                new PointF(89,235),
+                new PointF(115,151),
+                new PointF(175,98)
+            };
+
+            using (var headPath = new System.Drawing.Drawing2D.GraphicsPath())
+            {
+                headPath.AddPolygon(head);
+                using (var fill = new System.Drawing.Drawing2D.LinearGradientBrush(
+                    new Rectangle(90,78,334,370),
+                    Color.FromArgb(245, 25, 31, 40),
+                    Color.FromArgb(245, 10, 15, 22),
+                    90f))
+                using (var edgeGlow = new Pen(Color.FromArgb(115, 92,170,220), 18f))
+                using (var edge = new Pen(Color.FromArgb(238, 150,218,245), 5f))
+                {
+                    g.DrawPath(edgeGlow, headPath);
+                    g.FillPath(fill, headPath);
+                    g.DrawPath(edge, headPath);
+                }
+            }
+
+            // Temple / cheek armor panels.
+            using (var panelFill = new SolidBrush(Color.FromArgb(150, 48,58,70)))
+            using (var panelLine = new Pen(Color.FromArgb(165, 111,184,222), 3f))
+            {
+                var leftPanel = new PointF[] {
+                    new PointF(112,186), new PointF(166,142), new PointF(174,330),
+                    new PointF(139,363), new PointF(108,302)
                 };
-                var rightEye = new Point[] {
-                    new Point(76,43), new Point(57,38), new Point(61,51), new Point(75,54)
+                var rightPanel = new PointF[] {
+                    new PointF(400,186), new PointF(346,142), new PointF(338,330),
+                    new PointF(373,363), new PointF(404,302)
                 };
-                g.FillPolygon(eyeFill, leftEye);
-                g.FillPolygon(eyeFill, rightEye);
-                g.FillEllipse(eyeCore, 31, 43, 5, 5);
-                g.FillEllipse(eyeCore, 64, 43, 5, 5);
+                g.FillPolygon(panelFill,leftPanel); g.DrawPolygon(panelLine,leftPanel);
+                g.FillPolygon(panelFill,rightPanel); g.DrawPolygon(panelLine,rightPanel);
+            }
 
-                g.DrawLine(cyan, 24, 34, 43, 31);
-                g.DrawLine(cyan, 57, 31, 76, 34);
-                g.DrawLine(cyan, 50, 47, 50, 65);
-                g.DrawLine(cyan, 46, 66, 54, 66);
+            // Brow structures.
+            using (var brow = new Pen(Color.FromArgb(210, 119,195,232), 6f))
+            using (var browCore = new Pen(Color.FromArgb(235, 214,241,255), 2f))
+            {
+                g.DrawLine(brow, 150,192,228,176);
+                g.DrawLine(brow, 284,176,362,192);
+                g.DrawLine(browCore, 154,190,225,178);
+                g.DrawLine(browCore, 287,178,358,190);
+            }
 
-                g.DrawLine(mouth, 34, 72, 43, 75);
-                g.DrawLine(mouth, 43, 75, 57, 75);
-                g.DrawLine(mouth, 57, 75, 66, 72);
+            // Eyes: layered luminous cyan lenses.
+            using (var eyeGlow = new SolidBrush(Color.FromArgb(72, 101,220,255)))
+            using (var eye = new SolidBrush(Color.FromArgb(225, 98,215,246)))
+            using (var eyeCore = new SolidBrush(Color.White))
+            using (var eyeLine = new Pen(Color.FromArgb(235, 180,238,255), 3f))
+            {
+                var left = new PointF[] {
+                    new PointF(145,213), new PointF(227,196), new PointF(215,241), new PointF(153,249)
+                };
+                var right = new PointF[] {
+                    new PointF(367,213), new PointF(285,196), new PointF(297,241), new PointF(359,249)
+                };
+                g.FillEllipse(eyeGlow, 135,190,104,76);
+                g.FillEllipse(eyeGlow, 273,190,104,76);
+                g.FillPolygon(eye,left); g.DrawPolygon(eyeLine,left);
+                g.FillPolygon(eye,right); g.DrawPolygon(eyeLine,right);
+                g.FillEllipse(eyeCore, 186,211,16,16);
+                g.FillEllipse(eyeCore, 310,211,16,16);
+                g.FillEllipse(new SolidBrush(Color.FromArgb(210,18,47,68)),190,215,8,8);
+                g.FillEllipse(new SolidBrush(Color.FromArgb(210,18,47,68)),314,215,8,8);
+            }
 
-                g.DrawLine(cyan, 8, 48, 2, 48);
-                g.DrawLine(cyan, 92, 48, 98, 48);
-                g.DrawLine(cyan, 17, 28, 8, 21);
-                g.DrawLine(cyan, 83, 28, 92, 21);
-                g.FillEllipse(eyeFill, 0, 46, 5, 5);
-                g.FillEllipse(eyeFill, 95, 46, 5, 5);
+            // Central nose bridge / processor spine.
+            using (var spine = new Pen(Color.FromArgb(180, 104,183,220), 4f))
+            using (var spineCore = new Pen(Color.FromArgb(220, 183,230,249), 2f))
+            {
+                g.DrawLine(spine,256,185,256,319);
+                g.DrawLine(spineCore,256,191,256,313);
+                g.DrawLine(spine,237,311,256,326);
+                g.DrawLine(spine,275,311,256,326);
+            }
+
+            // Mouth / voice interface.
+            using (var mouthGlow = new Pen(Color.FromArgb(85, 97,184,238), 18f))
+            using (var mouth = new Pen(Color.FromArgb(215, 127,203,239), 4f))
+            using (var mouthCore = new Pen(Color.FromArgb(240, 215,244,255), 1.8f))
+            {
+                g.DrawLines(mouthGlow,new PointF[] {
+                    new PointF(184,350), new PointF(224,365), new PointF(288,365), new PointF(328,350)
+                });
+                g.DrawLines(mouth,new PointF[] {
+                    new PointF(184,350), new PointF(224,365), new PointF(288,365), new PointF(328,350)
+                });
+                g.DrawLine(mouthCore,224,365,288,365);
+            }
+
+            // Fine circuit traces.
+            using (var trace = new Pen(Color.FromArgb(130, 92,170,220), 2.5f))
+            using (var node = new SolidBrush(Color.FromArgb(220, 144,213,244)))
+            {
+                g.DrawLine(trace,132,274,96,274);
+                g.DrawLine(trace,380,274,416,274);
+                g.DrawLine(trace,161,370,126,407);
+                g.DrawLine(trace,351,370,386,407);
+                g.DrawLine(trace,216,113,205,79);
+                g.DrawLine(trace,296,113,307,79);
+                g.FillEllipse(node,90,268,12,12);
+                g.FillEllipse(node,410,268,12,12);
+                g.FillEllipse(node,199,72,12,12);
+                g.FillEllipse(node,301,72,12,12);
+            }
+
+            // Small lower status light.
+            using (var statusGlow = new SolidBrush(Color.FromArgb(90, 87,180,125)))
+            using (var status = new SolidBrush(Color.FromArgb(235, 111,220,151)))
+            {
+                g.FillEllipse(statusGlow,239,409,34,34);
+                g.FillEllipse(status,248,418,16,16);
             }
         }
+
+        var bmp = new Bitmap(size,size,System.Drawing.Imaging.PixelFormat.Format32bppPArgb);
+        using (var g = Graphics.FromImage(bmp))
+        {
+            g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.HighQuality;
+            g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+            g.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
+            g.DrawImage(hi, new Rectangle(0,0,size,size));
+        }
+        hi.Dispose();
         return bmp;
     }
 
@@ -961,9 +1081,9 @@ class MainForm : Form
         DoubleBuffered=true;
         Paint += delegate(object sender, PaintEventArgs e){ MelApp.PaintBackdrop(e.Graphics, ClientSize.Width, ClientSize.Height); };
 
-        Controls.Add(MelApp.MelFace(24,12,52));
-        Controls.Add(MelApp.Label("MEL Companion",92,15,300,27,14.5f,MelApp.Text,FontStyle.Bold));
-        Controls.Add(MelApp.Label("Ordinateur connecté à MEL",92,43,300,20,9.25f,MelApp.Muted,FontStyle.Regular));
+        Controls.Add(MelApp.MelFace(20,8,64));
+        Controls.Add(MelApp.Label("MEL Companion",100,15,300,27,14f,MelApp.Text,FontStyle.Bold));
+        Controls.Add(MelApp.Label("Ordinateur connecté à MEL",100,43,300,20,9.25f,MelApp.Muted,FontStyle.Regular));
         state=MelApp.Label("Vérification…",626,27,130,22,9.25f,MelApp.Muted,FontStyle.Regular); Controls.Add(state);
         var open=MelApp.TechButton("Ouvrir MEL",770,20,106,34,true); open.Click+=delegate{MelApp.OpenMel();}; Controls.Add(open);
 
