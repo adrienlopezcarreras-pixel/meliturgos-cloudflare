@@ -528,7 +528,13 @@ static void mini_anim_cb(lv_timer_t *) {
     } else if (state == MEL_TERMINAL_SPEAKING) {
         if (state != last_face_state && status_label) lv_label_set_text(status_label, "MEL PARLE");
     } else if (state == MEL_TERMINAL_ERROR) {
-        if (state != last_face_state && status_label) lv_label_set_text(status_label, "ERREUR");
+        if (state != last_face_state && status_label) {
+            const char *voice_error = mel_terminal_last_voice_error();
+            lv_label_set_text(
+                status_label,
+                (voice_error && voice_error[0]) ? voice_error : "ERREUR"
+            );
+        }
     } else {
         // Connectivity is asynchronous: BLE can become ready and MEL can later
         // return a concrete HTTP/session result without changing the face state.
