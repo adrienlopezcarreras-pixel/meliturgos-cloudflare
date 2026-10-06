@@ -148,6 +148,7 @@ static int64_t g_last_wake_trigger_us = 0;
 static void sync_wake_phrase_profile();
 static void mobile_companion_sync_task(void *);
 static bool render_display_item_card(size_t index);
+static bool handle_local_media_command(const std::string &spoken);
 
 static void voice_error(const char *reason) {
     g_last_voice_error = reason;
