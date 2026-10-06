@@ -12,7 +12,7 @@ test('Link V2 physical STT preserves real 16 kHz speech before ADPCM transport',
     readFile(new URL('firmware/waveshare-terminal/main/mel_link_v2_protocol.h',root),'utf8'),
   ]);
 
-  assert.match(terminal,/VOICE_CAPTURE_RATE = 48000/);
+  assert.match(terminal,/VOICE_CAPTURE_RATE = 16000/);
   assert.match(terminal,/VOICE_STT_RATE = 16000/);
   assert.match(terminal,/VOICE_DECIMATOR_Q15\[31\]/);
   assert.match(terminal,/acc \+= \(int64_t\)centered \* VOICE_DECIMATOR_Q15\[tap\]/);
@@ -137,4 +137,21 @@ test('MINI response viewer transliterates unsupported UTF-8 glyphs instead of dr
   assert.match(main, /mini_display_ascii/);
   assert.match(main, /lv_obj_set_style_text_font\(answer_label, &lv_font_montserrat_16/);
   assert.match(main, /const std::string safe = mini_display_ascii\(text\)/);
+});
+
+
+test('Waveshare ES8311 path stays native 16 kHz from capture through Link V2 playback', async () => {
+  const [terminal, transport, service, main] = await Promise.all([
+    readFile(new URL('firmware/waveshare-terminal/main/mel_terminal.cpp', root), 'utf8'),
+    readFile(new URL('firmware/waveshare-terminal/main/mel_link_v2_transport.cpp', root), 'utf8'),
+    readFile(new URL('android-companion/app/src/main/java/fr/veriteinterdite/mel/MelLinkV2ClientService.kt', root), 'utf8'),
+    readFile(new URL('firmware/waveshare-terminal/main/main.cpp', root), 'utf8'),
+  ]);
+  assert.match(terminal, /VOICE_CAPTURE_RATE = 16000/);
+  assert.doesNotMatch(terminal, /VOICE_DECIMATOR_Q15/);
+  assert.match(transport, /output_rate->valueint == 16000/);
+  assert.match(transport, /deliver_audio_16k_native/);
+  assert.doesNotMatch(transport, /deliver_audio_16k_as_48k/);
+  assert.match(service, /sendAudioResponse\(request\.streamId, pcm16, outputRate = 16_000\)/);
+  assert.match(main, /sample_count = 2 \* 16000/);
 });
