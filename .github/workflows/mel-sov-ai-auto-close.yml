@@ -99,7 +99,13 @@ jobs:
             echo "MEL_SOV_AI_LOW_REFUSAL_ALREADY_READY"
             AI_REFRESH_OK=1
           else
-            for AI_ATTEMPT in $(seq 1 8); do
+            AI_ATTEMPT=0
+            AI_BOOTSTRAP_WAITS=0
+            AI_ENGINE_UPDATE_WAITS=0
+            AI_RUNTIME_WAITS=0
+
+            while [ "$AI_ATTEMPT" -lt 28 ]; do
+              AI_ATTEMPT=$((AI_ATTEMPT + 1))
               AI_CODE="$(curl --silent --show-error --max-time 150 \
                 --header "x-mel-parallel-proof: $PROOF_TOKEN" \
                 --header "content-type: application/json" \
@@ -128,21 +134,25 @@ jobs:
 
               case "$AI_REASON" in
                 SOVEREIGNTY_AI_LOCAL_BOOTSTRAP_PENDING)
-                  if [ "$AI_ATTEMPT" -lt 8 ]; then
-                    echo "MEL_SOV_AI_BOOTSTRAP_WAIT attempt=$AI_ATTEMPT"
+                  AI_BOOTSTRAP_WAITS=$((AI_BOOTSTRAP_WAITS + 1))
+                  if [ "$AI_BOOTSTRAP_WAITS" -lt 8 ]; then
+                    echo "MEL_SOV_AI_BOOTSTRAP_WAIT attempt=$AI_ATTEMPT wait=$AI_BOOTSTRAP_WAITS/8"
                     sleep 45
                     continue
                   fi
                   ;;
                 COMPANION_ENGINE_UPDATE_REQUIRED:*|SOVEREIGNTY_AI_LOCAL_BOOTSTRAP_FAILED:COMPANION_ENGINE_UPDATE_REQUIRED:*)
-                  if [ "$AI_ATTEMPT" -lt 8 ]; then
-                    echo "MEL_SOV_AI_ENGINE_UPDATE_WAIT attempt=$AI_ATTEMPT reason=$AI_REASON"
+                  AI_ENGINE_UPDATE_WAITS=$((AI_ENGINE_UPDATE_WAITS + 1))
+                  if [ "$AI_ENGINE_UPDATE_WAITS" -lt 14 ]; then
+                    echo "MEL_SOV_AI_ENGINE_UPDATE_WAIT attempt=$AI_ATTEMPT wait=$AI_ENGINE_UPDATE_WAITS/14 reason=$AI_REASON"
                     sleep 45
                     continue
                   fi
                   ;;
                 COMPANION_OFFLINE|COMPANION_LOCAL_AI_UNAVAILABLE|DEVICE_OFFLINE|COMPANION_COMMAND_TIMEOUT)
-                  if [ "$AI_ATTEMPT" -lt 3 ]; then
+                  AI_RUNTIME_WAITS=$((AI_RUNTIME_WAITS + 1))
+                  if [ "$AI_RUNTIME_WAITS" -lt 3 ]; then
+                    echo "MEL_SOV_AI_RUNTIME_WAIT attempt=$AI_ATTEMPT wait=$AI_RUNTIME_WAITS/3 reason=$AI_REASON"
                     sleep 20
                     continue
                   fi
