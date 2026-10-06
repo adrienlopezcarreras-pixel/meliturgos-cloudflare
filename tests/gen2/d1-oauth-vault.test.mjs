@@ -283,10 +283,18 @@ test('token deletion removes durable token and resolver then returns empty strin
   assert.equal(await vault.accessTokenResolver()('google-tasks', { owner: 'adrien' }), '');
 });
 
-test('environment codec requires a separate named 256-bit OAuth key', () => {
+test('environment codec preserves legacy OAuth keys and derives a recoverable HKDF key from backup root', async () => {
   assert.throws(
     () => createEnvOAuthVaultCodec({}),
-    { code: 'OAUTH_VAULT_KEY_ID_REQUIRED' },
+    { code: 'OAUTH_VAULT_RECOVERY_KEY_ID_REQUIRED' },
+  );
+  assert.throws(
+    () => createEnvOAuthVaultCodec({
+      MEL_OAUTH_ENCRYPTION_KEY_ID: 'oauth-key',
+      MEL_BACKUP_ENCRYPTION_KEY_ID: 'backup-key',
+      MEL_BACKUP_ENCRYPTION_KEY_B64: btoa(String.fromCharCode(...key(9))),
+    }),
+    { code: 'OAUTH_VAULT_KEY_REQUIRED' },
   );
   assert.throws(
     () => createEnvOAuthVaultCodec({
@@ -296,10 +304,63 @@ test('environment codec requires a separate named 256-bit OAuth key', () => {
     { code: 'OAUTH_VAULT_KEY_MUST_BE_32_BYTES' },
   );
 
-  const valid = createEnvOAuthVaultCodec({
+  const legacy = createEnvOAuthVaultCodec({
     MEL_OAUTH_ENCRYPTION_KEY_ID: 'oauth-key',
     MEL_OAUTH_ENCRYPTION_KEY_B64: btoa(String.fromCharCode(...key())),
+    MEL_BACKUP_ENCRYPTION_KEY_ID: 'backup-key',
+    MEL_BACKUP_ENCRYPTION_KEY_B64: btoa(String.fromCharCode(...key(9))),
   });
-  assert.equal(valid.key_id, 'oauth-key');
-  assert.equal(valid.algorithm, 'AES-GCM-256');
+  assert.equal(legacy.key_id, 'oauth-key');
+  assert.equal(legacy.algorithm, 'AES-GCM-256');
+
+  const recoveryEnv = {
+    MEL_BACKUP_ENCRYPTION_KEY_ID: 'backup-key-2026',
+    MEL_BACKUP_ENCRYPTION_KEY_B64: btoa(String.fromCharCode(...key(41))),
+  };
+  const derivedA = createEnvOAuthVaultCodec(recoveryEnv);
+  const derivedB = createEnvOAuthVaultCodec(recoveryEnv);
+  assert.equal(derivedA.key_id, 'oauth-hkdf-v1:backup-key-2026');
+  assert.equal(derivedB.key_id, derivedA.key_id);
+
+  const aad = { kind: 'token', owner: 'adrien', connector_id: 'gmail' };
+  const envelope = await derivedA.seal({ access_token: 'recoverable-token', scopes: [] }, aad);
+  const opened = await derivedB.open(envelope, aad);
+  assert.equal(opened.access_token, 'recoverable-token');
+  assert.doesNotMatch(JSON.stringify(envelope), /recoverable-token/);
+});
+
+
+test('wrong backup root with the same key identity fails closed', async () => {
+  const aad = { kind: 'token', owner: 'adrien', connector_id: 'gmail' };
+  const source = createEnvOAuthVaultCodec({
+    MEL_BACKUP_ENCRYPTION_KEY_ID: 'backup-key-stable',
+    MEL_BACKUP_ENCRYPTION_KEY_B64: btoa(String.fromCharCode(...key(31))),
+  });
+  const envelope = await source.seal({ access_token: 'recoverable-token' }, aad);
+  const wrong = createEnvOAuthVaultCodec({
+    MEL_BACKUP_ENCRYPTION_KEY_ID: 'backup-key-stable',
+    MEL_BACKUP_ENCRYPTION_KEY_B64: btoa(String.fromCharCode(...key(63))),
+  });
+  await assert.rejects(
+    () => wrong.open(envelope, aad),
+    { code: 'OAUTH_VAULT_DECRYPTION_FAILED' },
+  );
+});
+
+test('derived codec preserves legacy mel-oauth-v1 rows and asks for reconnect', async () => {
+  const aad = { kind: 'token', owner: 'adrien', connector_id: 'gmail' };
+  const legacy = createOAuthVaultCodec({
+    keyBytes: key(3),
+    keyId: 'mel-oauth-v1',
+    randomBytes: iv,
+  });
+  const envelope = await legacy.seal({ access_token: 'legacy-token' }, aad);
+  const derived = createEnvOAuthVaultCodec({
+    MEL_BACKUP_ENCRYPTION_KEY_ID: 'backup-key-stable',
+    MEL_BACKUP_ENCRYPTION_KEY_B64: btoa(String.fromCharCode(...key(31))),
+  });
+  await assert.rejects(
+    () => derived.open(envelope, aad),
+    { code: 'OAUTH_VAULT_LEGACY_KEY_UNAVAILABLE_RECONNECT_REQUIRED' },
+  );
 });

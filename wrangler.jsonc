@@ -8,8 +8,8 @@
   "secrets": {
     "required": [
       "MELITURGOS_PASSWORD",
-      "MEL_OAUTH_ENCRYPTION_KEY_ID",
-      "MEL_OAUTH_ENCRYPTION_KEY_B64"
+      "MEL_BACKUP_ENCRYPTION_KEY_ID",
+      "MEL_BACKUP_ENCRYPTION_KEY_B64"
     ]
   },
   "assets": {

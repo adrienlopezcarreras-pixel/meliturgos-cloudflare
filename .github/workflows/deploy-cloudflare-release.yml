@@ -661,6 +661,8 @@ jobs:
           const fs=require('fs');
           const rows=JSON.parse(fs.readFileSync('production-secret-names.json','utf8'));
           const names=new Set((Array.isArray(rows)?rows:[]).map(row=>String(row?.name||'')).filter(Boolean));
+          const staged=JSON.parse(fs.readFileSync('media-vault-release-secrets.json','utf8'));
+          for(const name of Object.keys(staged||{})) names.add(String(name));
           const source=fs.readFileSync('wrangler.jsonc','utf8');
           const match=source.match(/"secrets"\s*:\s*\{[\s\S]*?"required"\s*:\s*(\[[\s\S]*?\])/);
           if(!match) throw new Error('PRODUCTION_REQUIRED_SECRET_CONTRACT_MISSING');
@@ -670,7 +672,7 @@ jobs:
           }
           const missing=required.filter(name=>!names.has(name));
           if(missing.length) throw new Error('PRODUCTION_REQUIRED_SECRETS_MISSING:'+missing.join(','));
-          console.log('Persistent production secret contract verified: '+required.length+' required bindings present; omitted secrets are preserved by the exact deployment.');
+          console.log('Persistent production secret contract verified: '+required.length+' required bindings available remotely or staged for the exact deployment; omitted remote secrets are preserved.');
           NODE
           rm -f production-secret-names.json
 
