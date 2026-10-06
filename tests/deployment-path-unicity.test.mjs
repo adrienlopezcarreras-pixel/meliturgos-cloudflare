@@ -109,9 +109,9 @@ test('canonical production release requires human approval and exact immutable i
   );
   assert.match(immutableDeploy, /--keep-vars/);
   assert.match(immutableDeploy, /--secrets-file media-vault-release-secrets\.json/);
-  assert.match(source, /Require production owner auth secret before exact deploy/);
+  assert.match(source, /Require persistent production secrets before exact deploy/);
   assert.match(source, /wrangler secret list --name meliturgos --format json/);
-  assert.match(source, /PRODUCTION_OWNER_AUTH_SECRET_MISSING/);
+  assert.match(source, /PRODUCTION_REQUIRED_SECRETS_MISSING/);
   assert.match(source, /omitted secrets are preserved by the exact deployment/);
   assert.match(source, /Verify owner auth binding and exact deployment immediately/);
   assert.match(source, /AUTH_NOT_CONFIGURED/);
@@ -122,6 +122,8 @@ test('canonical production release requires human approval and exact immutable i
 
   const wrangler = await readFile(path.join(process.cwd(), 'wrangler.jsonc'), 'utf8');
   assert.match(wrangler, /"secrets"\s*:\s*\{[\s\S]*"required"\s*:\s*\[[\s\S]*"MELITURGOS_PASSWORD"/);
+  assert.match(wrangler, /"required"\s*:\s*\[[\s\S]*"MEL_OAUTH_ENCRYPTION_KEY_ID"/);
+  assert.match(wrangler, /"required"\s*:\s*\[[\s\S]*"MEL_OAUTH_ENCRYPTION_KEY_B64"/);
 });
 
 
