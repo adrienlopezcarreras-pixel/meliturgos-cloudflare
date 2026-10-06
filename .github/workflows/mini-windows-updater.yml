@@ -45,7 +45,7 @@ jobs:
         run: |
           gh run download 37420468203 `
             --repo "${{ github.repository }}" `
-            --name "MEL-Waveshare-3.5-C-5b0a947622953bd0329ac192a7920d9592766a03" `
+            --name "MEL-Waveshare-3.5-C-e4bcc7d73640f9dd71b40545ae08b3f8e3c685ea" `
             --dir firmware-artifact
           if (!(Test-Path "firmware-artifact/build/mel-terminal.bin")) {
             throw "Validated Link V2 firmware binary missing"
