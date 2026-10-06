@@ -41,6 +41,9 @@ static std::atomic<uint16_t> g_next_stream{1};
 static SemaphoreHandle_t g_exchange_mutex = nullptr;
 static SemaphoreHandle_t g_response_done = nullptr;
 static SemaphoreHandle_t g_credit_sem = nullptr;
+static SemaphoreHandle_t g_media_config_sem = nullptr;
+static SemaphoreHandle_t g_media_config_mutex = nullptr;
+static MelLinkV2MediaConfig g_media_config = {};
 static ActiveExchange g_active;
 
 static std::string json_string(cJSON *root) {
@@ -157,6 +160,35 @@ static void rx_frame(const uint8_t *frame, size_t len, void *ctx) {
         const bool clock_ok = apply_android_session_clock(payload, header.payload_len);
         g_session_ready.store(true);
         ESP_LOGI(TAG, "Android V2 session ready clock=%s", clock_ok ? "OK" : "UNAVAILABLE");
+        return;
+    }
+
+    if (header.type == MEL_LINK_V2_MEDIA_CONFIG) {
+        std::string raw(reinterpret_cast<const char *>(payload), header.payload_len);
+        cJSON *root = cJSON_Parse(raw.c_str());
+        cJSON *ssid = root ? cJSON_GetObjectItemCaseSensitive(root, "ssid") : nullptr;
+        cJSON *pass = root ? cJSON_GetObjectItemCaseSensitive(root, "pass") : nullptr;
+        cJSON *port = root ? cJSON_GetObjectItemCaseSensitive(root, "port") : nullptr;
+        cJSON *token = root ? cJSON_GetObjectItemCaseSensitive(root, "token") : nullptr;
+        const bool valid =
+            cJSON_IsString(ssid) && ssid->valuestring && strlen(ssid->valuestring) <= 32 &&
+            cJSON_IsString(pass) && pass->valuestring && strlen(pass->valuestring) <= 64 &&
+            cJSON_IsNumber(port) && port->valueint > 0 && port->valueint <= 65535 &&
+            cJSON_IsString(token) && token->valuestring &&
+            strlen(token->valuestring) >= 16 && strlen(token->valuestring) <= 96;
+        if (valid) {
+            memset(&g_media_config, 0, sizeof(g_media_config));
+            strlcpy(g_media_config.ssid, ssid->valuestring, sizeof(g_media_config.ssid));
+            strlcpy(g_media_config.password, pass->valuestring, sizeof(g_media_config.password));
+            strlcpy(g_media_config.token, token->valuestring, sizeof(g_media_config.token));
+            g_media_config.port = (uint16_t)port->valueint;
+            if (g_media_config_sem) xSemaphoreGive(g_media_config_sem);
+            ESP_LOGI(TAG, "Android media channel config received ssid=%s port=%u",
+                     g_media_config.ssid, (unsigned)g_media_config.port);
+        } else {
+            ESP_LOGW(TAG, "Android media channel config rejected");
+        }
+        if (root) cJSON_Delete(root);
         return;
     }
 
@@ -347,7 +379,10 @@ void mel_link_v2_transport_start(void) {
     g_exchange_mutex = xSemaphoreCreateMutex();
     g_response_done = xSemaphoreCreateBinary();
     g_credit_sem = xSemaphoreCreateCounting(32, 0);
-    if (!g_exchange_mutex || !g_response_done || !g_credit_sem) {
+    g_media_config_sem = xSemaphoreCreateBinary();
+    g_media_config_mutex = xSemaphoreCreateMutex();
+    if (!g_exchange_mutex || !g_response_done || !g_credit_sem ||
+        !g_media_config_sem || !g_media_config_mutex) {
         ESP_LOGE(TAG, "V2 synchronization allocation failed");
         g_started.store(false);
         return;
@@ -373,6 +408,47 @@ bool mel_link_v2_transport_candidate_seen(void) {
 
 uint16_t mel_link_v2_transport_mtu(void) {
     return mel_link_v2_server_mtu();
+}
+
+bool mel_link_v2_transport_request_media_config(
+    MelLinkV2MediaConfig *out,
+    uint32_t timeout_ms
+) {
+    if (!out || !mel_link_v2_transport_ready() ||
+        !g_media_config_sem || !g_media_config_mutex) {
+        return false;
+    }
+    if (xSemaphoreTake(g_media_config_mutex, pdMS_TO_TICKS(1500)) != pdTRUE) {
+        return false;
+    }
+
+    drain_semaphore(g_media_config_sem);
+    memset(&g_media_config, 0, sizeof(g_media_config));
+    uint16_t stream_id = g_next_stream.fetch_add(1);
+    if (stream_id == 0) stream_id = g_next_stream.fetch_add(1);
+
+    const bool sent = send_v2(
+        MEL_LINK_V2_MEDIA_CONFIG_REQUEST,
+        stream_id,
+        0,
+        nullptr,
+        0,
+        true
+    );
+    const bool ready =
+        sent &&
+        xSemaphoreTake(
+            g_media_config_sem,
+            pdMS_TO_TICKS(timeout_ms ? timeout_ms : 15000)
+        ) == pdTRUE &&
+        g_media_config.ssid[0] &&
+        g_media_config.password[0] &&
+        g_media_config.token[0] &&
+        g_media_config.port > 0;
+
+    if (ready) *out = g_media_config;
+    xSemaphoreGive(g_media_config_mutex);
+    return ready;
 }
 
 bool mel_link_v2_transport_keepalive(void) {
