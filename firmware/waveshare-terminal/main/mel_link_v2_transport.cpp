@@ -600,9 +600,7 @@ esp_err_t mel_link_v2_transport_request(
     const uint8_t *body,
     size_t body_len,
     std::string &response,
-    int &status,
-    mel_link_v2_progress_cb progress_cb,
-    void *progress_ctx
+    int &status
 ) {
     return request_common(method,path,content_type,mini_device_id,body,body_len,&response,status,nullptr,nullptr);
 }
