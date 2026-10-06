@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include <algorithm>
 
 #include "nvs_flash.h"
 #include "freertos/FreeRTOS.h"
@@ -134,6 +135,7 @@ static bool last_online = false;
 static void request_view(MiniView view);
 static void mini_apply_requested_view(void);
 static void wifi_start_scan(void);
+static void web_card_touch_cb(lv_event_t *e);
 static void wifi_fallback_after_ble_task(void *);
 static void ui_stress_task(void *);
 
