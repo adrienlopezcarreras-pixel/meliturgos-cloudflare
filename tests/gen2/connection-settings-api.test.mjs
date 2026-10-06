@@ -475,7 +475,8 @@ test('Pipedream account status uses the server access token and filters by MEL e
   assert.deepEqual(result.connected_apps.sort(), ['microsoft_onedrive', 'microsoft_outlook']);
   const accountsCall = calls.find(call => call.url.includes('/users/adrien/accounts?'));
   assert.ok(accountsCall);
-  assert.match(accountsCall.url, /external_user_id=adrien/);
+  assert.match(accountsCall.url, /\/v1\/connect\/proj_demo123\/users\/adrien\/accounts\?limit=100$/);
+  assert.doesNotMatch(accountsCall.url, /external_user_id=/);
   assert.equal(accountsCall.init.headers.authorization, 'Bearer server-token');
   assert.equal(accountsCall.init.headers['x-pd-environment'], 'production');
 });
@@ -648,5 +649,5 @@ test('Google status isolates unreadable legacy connector tokens instead of faili
 test('Pipedream account status uses the official user-scoped Connect accounts endpoint', async()=>{
   const source=await import('node:fs/promises').then(fs=>fs.readFile(new URL('../../src/api/connection-settings-api.js',import.meta.url),'utf8'));
   assert.match(source,/\/users\/['"]? \+ encodeURIComponent\(contextOwner\) \+ ['"]?\/accounts\?/);
-  assert.doesNotMatch(source,/external_user_id:\s*contextOwner/);
+  assert.match(source,/const params = new URLSearchParams\(\{ limit: '100' \}\);/);
 });
