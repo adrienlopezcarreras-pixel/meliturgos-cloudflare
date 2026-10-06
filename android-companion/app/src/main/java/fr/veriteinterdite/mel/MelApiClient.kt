@@ -20,7 +20,7 @@ class MelApiClient(
 ) {
     companion object {
         const val PROTOCOL_VERSION = "1.0"
-        const val APP_VERSION = "0.7.0-link-v2-dev"
+        const val APP_VERSION = "0.7.1-link-v2-token-relay"
     }
 
     init {
