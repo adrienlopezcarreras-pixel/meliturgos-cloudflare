@@ -415,9 +415,9 @@ test('Android Complete mode exposes an authenticated self diagnostic',async()=>{
   const vm=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelViewModel.kt',root),'utf8');
   const api=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelApiClient.kt',root),'utf8');
   const build=await readFile(new URL('app/build.gradle.kts',root),'utf8');
-  assert.match(build,/versionCode = 78/);
-  assert.match(build,/versionName = "0\.7\.0-link-v2-dev"/);
-  assert.match(api,/APP_VERSION = "0\.7\.0-link-v2-dev"/);
+  assert.match(build,/versionCode = 79/);
+  assert.match(build,/versionName = "0\.7\.1-link-v2-token-relay"/);
+  assert.match(api,/APP_VERSION = "0\.7\.1-link-v2-token-relay"/);
   assert.match(vm,/val diagnosticReport: String\? = null/);
   assert.match(vm,/fun runDiagnostics\(\)/);
   assert.match(vm,/client\.heartbeat\(sdkInt = Build\.VERSION\.SDK_INT\)/);
@@ -438,9 +438,9 @@ test('Android device validation probes are authenticated and bounded',async()=>{
   const build=await readFile(new URL('app/build.gradle.kts',root),'utf8');
   const api=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelApiClient.kt',root),'utf8');
 
-  assert.match(build,/versionCode = 78/);
-  assert.match(build,/versionName = "0\.7\.0-link-v2-dev"/);
-  assert.match(api,/APP_VERSION = "0\.7\.0-link-v2-dev"/);
+  assert.match(build,/versionCode = 79/);
+  assert.match(build,/versionName = "0\.7\.1-link-v2-token-relay"/);
+  assert.match(api,/APP_VERSION = "0\.7\.1-link-v2-token-relay"/);
 
   assert.match(activity,/private const val MAX_FILE_BYTES = 25_000_000/);
   assert.match(activity,/private fun readUriBounded\(uri: Uri\): ByteArray/);
@@ -472,9 +472,9 @@ test('real mic and file successes feed the diagnostic report',async()=>{
   const build=await readFile(new URL('app/build.gradle.kts',root),'utf8');
   const api=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelApiClient.kt',root),'utf8');
 
-  assert.match(build,/versionCode = 78/);
-  assert.match(build,/versionName = "0\.7\.0-link-v2-dev"/);
-  assert.match(api,/APP_VERSION = "0\.7\.0-link-v2-dev"/);
+  assert.match(build,/versionCode = 79/);
+  assert.match(build,/versionName = "0\.7\.1-link-v2-token-relay"/);
+  assert.match(api,/APP_VERSION = "0\.7\.1-link-v2-token-relay"/);
 
   const voice=vm.slice(vm.indexOf('fun sendVoice('),vm.indexOf('fun sendFile('));
   assert.match(voice,/appendDiagnosticLine\("Micro réel: OK"\)/);
@@ -491,9 +491,9 @@ test('Android dark UI keeps readable content contrast',async()=>{
   const build=await readFile(new URL('app/build.gradle.kts',root),'utf8');
   const api=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelApiClient.kt',root),'utf8');
 
-  assert.match(build,/versionCode = 78/);
-  assert.match(build,/versionName = "0\.7\.0-link-v2-dev"/);
-  assert.match(api,/APP_VERSION = "0\.7\.0-link-v2-dev"/);
+  assert.match(build,/versionCode = 79/);
+  assert.match(build,/versionName = "0\.7\.1-link-v2-token-relay"/);
+  assert.match(api,/APP_VERSION = "0\.7\.1-link-v2-token-relay"/);
 
   assert.match(activity,/contentColor = MelInk/);
   assert.match(activity,/CardDefaults\.cardColors\(containerColor = MelPanel, contentColor = MelInk\)/);
@@ -684,8 +684,8 @@ test('Android Link V2 reports Internet ready only after physical, protocol and a
   assert.match(service,/phoneOk && miniReady\.value && protocolReady\.value && melSessionReady/);
   assert.match(service,/MINI V2 · INTERNET OK/);
   assert.match(activity,/phoneInternetReady by MelLinkV2ClientService\.phoneInternetAvailable/);
-  assert.match(build,/versionCode = 78/);
-  assert.match(build,/versionName = "0\.7\.0-link-v2-dev"/);
+  assert.match(build,/versionCode = 79/);
+  assert.match(build,/versionName = "0\.7\.1-link-v2-token-relay"/);
 });
 
 test('Android Link V2 has one GATT response path and serializes every write by callback acknowledgement',async()=>{
@@ -699,18 +699,27 @@ test('Android Link V2 has one GATT response path and serializes every write by c
   assert.doesNotMatch(service,/onCharacteristicReadRequest/);
 });
 
-test('Android Link V2 delegates MINI HTTP operations without transporting the MINI bearer token over BLE',async()=>{
+test('Android Link V2 sponsors one MINI token and relays through the production device contract',async()=>{
   const service=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelLinkV2ClientService.kt',root),'utf8');
-  const androidApi=await readFile(new URL('../src/devices/android-companion-api.js',import.meta.url),'utf8');
+  const vault=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MiniTokenVault.kt',root),'utf8');
   const miniApi=await readFile(new URL('../src/devices/waveshare-terminal-api.js',import.meta.url),'utf8');
 
-  assert.match(service,/\/api\/android\/v1\/mini\//);
-  assert.match(service,/X-MEL-MINI-Device-ID/);
-  assert.match(service,/Authorization", "Bearer \$token"/);
-  assert.match(androidApi,/handleAndroidDelegatedMiniRequest/);
-  assert.match(miniApi,/android_mini_links/);
-  assert.match(miniApi,/ANDROID_MINI_LINK_REQUIRED/);
-  assert.match(miniApi,/first authenticated Android companion physically relaying/);
+  assert.match(vault,/AndroidKeyStore/);
+  assert.match(vault,/AES\/GCM\/NoPadding/);
+  assert.match(vault,/updateAAD\(deviceId\.toByteArray/);
+  assert.match(service,/X-MEL-Android-Device-ID/);
+  assert.match(service,/X-MEL-Android-Token/);
+  assert.match(service,/Authorization", "Bearer \$miniToken"/);
+  assert.match(service,/X-MEL-Device-ID", miniDeviceId/);
+  assert.match(service,/MiniTokenVault\(this\)\.save\(miniDeviceId, miniToken\)/);
+  assert.match(service,/MiniTokenVault\(this\)\.clear\(miniDeviceId\)/);
+  assert.match(service,/\/api\/device\/v1\/voice\/transcribe/);
+  assert.doesNotMatch(service,/\/api\/android\/v1\/mini\//);
+
+  assert.match(miniApi,/authorizeAndroidBridge/);
+  assert.match(miniApi,/x-mel-android-device-id/);
+  assert.match(miniApi,/x-mel-android-token/);
+  assert.match(miniApi,/issueDeviceToken/);
 });
 
 test('Android Link V2 owns bounded reconnect state instead of competing bridge watchdogs',async()=>{
