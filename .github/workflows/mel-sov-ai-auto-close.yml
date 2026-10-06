@@ -140,6 +140,13 @@ jobs:
                     continue
                   fi
                   ;;
+                *COMPANION_ENGINE_UPDATE_REQUIRED*)
+                  if [ "$AI_ATTEMPT" -lt 8 ]; then
+                    echo "MEL_SOV_AI_ENGINE_UPDATE_WAIT attempt=$AI_ATTEMPT reason=$AI_REASON"
+                    sleep 45
+                    continue
+                  fi
+                  ;;
               esac
               break
             done
@@ -181,6 +188,10 @@ jobs:
               COMPANION_OFFLINE|COMPANION_LOCAL_AI_UNAVAILABLE|DEVICE_OFFLINE|COMPANION_COMMAND_TIMEOUT)
                 echo "MEL_SOV_AI_LOCAL_RUNTIME_UNAVAILABLE"
                 exit 43
+                ;;
+              *COMPANION_ENGINE_UPDATE_REQUIRED*)
+                echo "MEL_SOV_AI_ENGINE_UPDATE_REQUIRED reason=$AI_REASON"
+                exit 47
                 ;;
               OLLAMA_BOOTSTRAP_PROCESS_EXITED_AT_*|OLLAMA_BOOTSTRAP_PROCESS_EXITED)
                 echo "MEL_SOV_AI_OLLAMA_BOOTSTRAP_FAILED reason=$AI_REASON"
