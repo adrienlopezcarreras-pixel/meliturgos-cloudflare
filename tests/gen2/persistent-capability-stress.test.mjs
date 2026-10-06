@@ -141,3 +141,9 @@ test('persistent stress live-proof validators accept a durable terminal report a
     },
   }, 'cap-stress-proof'), /CAPABILITY_STRESS_JOB_MISMATCH/);
 });
+
+
+test('deep capability stress never self-executes capability.audit recursively', async () => {
+  const { SAFE_SAMPLES } = await import('../../src/diagnostics/capability-truth-audit.js');
+  assert.equal(Object.hasOwn(SAFE_SAMPLES, 'capability.audit'), false);
+});
