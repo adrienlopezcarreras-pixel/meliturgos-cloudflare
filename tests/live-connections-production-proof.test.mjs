@@ -43,7 +43,9 @@ test('live connection proof persists precise partial evidence even when a connec
   assert.match(source,/connector_id":"google-drive"/);
   assert.match(source,/drive:process\.env\.GOOGLE_DRIVE_OK==='1'/);
   assert.match(source,/yahoo_or_ymail:process\.env\.YAHOO_OK==='1'/);
+  assert.match(source,/required:false/);
   assert.match(source,/authenticated_target_probe:process\.env\.VERCEL_OK==='1'/);
+  assert.match(source,/OPTIONAL_NOT_CONFIGURED/);
   assert.match(source,/- name: Upload sanitized live proof\n\s+if: always\(\)/);
   assert.match(source,/secret_values_exposed:false/);
 });
@@ -80,4 +82,12 @@ test('Yahoo/Ymail production proof uses Pipedream account health without direct 
 test('Google Tasks Pipedream fallback uses the documented proxy host',async()=>{
   const source=await readFile(new URL('../src/api/connection-settings-api.js',import.meta.url),'utf8');
   assert.match(source,/https:\/\/www\.googleapis\.com\/tasks\/v1\/users\/@me\/lists\?maxResults=1/);
+});
+
+
+test('Vercel absence is reported but never blocks MEL connection completion', async()=>{
+  const source=await readFile(workflowUrl,'utf8');
+  const block=source.slice(source.indexOf('VERCEL_OK=0'),source.indexOf('GOOGLE_GMAIL_OK="${GOOGLE_GMAIL_OK}"'));
+  assert.match(block,/VERCEL_STATUS="OPTIONAL_NOT_CONFIGURED"/);
+  assert.doesNotMatch(block,/FAILURES=\$\(\(FAILURES\+1\)\)/);
 });
