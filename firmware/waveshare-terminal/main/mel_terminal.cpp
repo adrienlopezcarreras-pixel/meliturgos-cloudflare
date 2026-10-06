@@ -1481,7 +1481,9 @@ static std::string record_and_transcribe() {
             // STT_RESPONSE_TIMEOUT. Keep the exact reason visible on MINI.
             voice_error(response.c_str());
         } else {
-            voice_error("RESEAU STT");
+            char diag[64] = {};
+            snprintf(diag, sizeof(diag), "STT_TRANSPORT_%s", esp_err_to_name(err));
+            voice_error(diag);
         }
         return "";
     }
