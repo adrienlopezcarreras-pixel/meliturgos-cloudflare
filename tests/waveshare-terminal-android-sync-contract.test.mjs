@@ -25,18 +25,18 @@ test('MINI second voice action stops and finalizes an active recording', async (
   );
 });
 
-test('MINI TTS playback contract remains PCM 16-bit mono at 48 kHz', async () => {
+test('MINI TTS playback contract matches Waveshare native PCM 16-bit mono at 16 kHz', async () => {
   const [runtime, apiTests] = await Promise.all([
     readFile(new URL('../firmware/waveshare-terminal/main/mel_terminal.cpp', import.meta.url), 'utf8'),
     readFile(new URL('./waveshare-terminal-api.test.mjs', import.meta.url), 'utf8'),
   ]);
 
   assert.match(runtime, /channels != 1/);
-  assert.match(runtime, /sample_rate != 48000/);
+  assert.match(runtime, /sample_rate != 16000/);
   assert.match(runtime, /bits_per_sample != 16/);
   assert.match(apiTests, /@cf\/deepgram\/aura-1/);
   assert.match(apiTests, /speaker:'luna'/);
-  assert.match(apiTests, /sample_rate:48000/);
+  assert.match(apiTests, /sample_rate:16000/);
 });
 
 test('MINI and Android Link V2 UUIDs and roles stay aligned', async () => {
