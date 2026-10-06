@@ -133,7 +133,8 @@ static volatile int g_runtime_state = MEL_TERMINAL_IDLE;
 static std::vector<MelDisplayItem> g_display_items;
 static size_t g_display_index = 0;
 static std::string g_display_title;
-static TaskHandle_t g_voice_task_handle = nullptr;
+static TaskHandle_t g_voice_worker_handle = nullptr;
+static volatile bool g_voice_job_active = false;
 static volatile bool g_voice_stop_requested = false;
 static volatile int g_voice_level = 0;
 static const char *g_last_voice_error = nullptr;
@@ -1471,73 +1472,136 @@ static std::string record_and_transcribe() {
     return text;
 }
 
-static void voice_task(void *) {
-    // Recording is a local hardware action. Never block the microphone behind
-    // MEL/session validation: a ready BLE bridge is enough to start listening.
-    // Network/auth errors are handled only after capture, when STT is sent.
-    g_runtime_state = MEL_TERMINAL_LISTENING;
-    ui_status("ECOUTE...");
-    ui_answer("");
-    ESP_LOGI(TAG, "VOICE TASK started: capture begins immediately");
-    vTaskDelay(pdMS_TO_TICKS(60));
-    const int64_t stt_started_us = esp_timer_get_time();
-    std::string text = record_and_transcribe();
-    g_voice_capture_requested = false;
-    ESP_LOGI(TAG, "VOICE PERF: STT total=%lld ms", (long long)((esp_timer_get_time() - stt_started_us) / 1000));
-    if (text.empty()) {
-        g_runtime_state = MEL_TERMINAL_ERROR;
-        ui_status(g_last_voice_error ? g_last_voice_error : "ERREUR STT");
-        ui_answer("");
-        vTaskDelay(pdMS_TO_TICKS(1800));
-        g_runtime_state = MEL_TERMINAL_IDLE;
-        g_voice_stop_requested = false;
-        g_voice_task_handle = nullptr;
-        vTaskDelete(nullptr);
-        return;
-    }
-    if (handle_local_media_command(text)) {
-        g_voice_stop_requested = false;
-        g_voice_task_handle = nullptr;
-        vTaskDelete(nullptr);
-        return;
-    }
+static void voice_worker_task(void *) {
+    ESP_LOGI(
+        TAG,
+        "VOICE WORKER READY core=%d free_heap=%u largest_internal=%u",
+        xPortGetCoreID(),
+        (unsigned)esp_get_free_heap_size(),
+        (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)
+    );
 
-    g_runtime_state = MEL_TERMINAL_THINKING;
-    ui_status("REFLEXION...");
-    ui_answer("");
-    const int64_t chat_started_us = esp_timer_get_time();
-    MelChatReply reply = chat_with_mel(text);
-    set_display_results(reply);
-    const std::string &answer = reply.text;
-    ESP_LOGI(TAG, "VOICE PERF: CHAT=%lld ms chars=%u display_items=%u",
-             (long long)((esp_timer_get_time() - chat_started_us) / 1000),
-             (unsigned)answer.size(), (unsigned)reply.display_items.size());
-    g_runtime_state = MEL_TERMINAL_SPEAKING;
-    ui_status("MEL PARLE");
-    std::string visible_answer = answer;
-    if (visible_answer.size() > 500) visible_answer.resize(500);
-    ui_answer(visible_answer.c_str());
-    const int64_t tts_started_us = esp_timer_get_time();
-    const bool spoken = speak_text(answer);
-    ESP_LOGI(TAG, "VOICE PERF: TTS+PLAY=%lld ms", (long long)((esp_timer_get_time() - tts_started_us) / 1000));
-    if (!spoken) {
-        ESP_LOGW(TAG, "Voice reply unavailable");
-        ui_status("TTS ERREUR");
-        vTaskDelay(pdMS_TO_TICKS(500));
+    for (;;) {
+        // The worker is created once during boot, before camera/LVGL/BLE consume
+        // internal heap. PARLER only sends a task notification; no stack
+        // allocation happens at click time.
+        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+        if (!g_voice_job_active) continue;
+
+        g_runtime_state = MEL_TERMINAL_LISTENING;
+        ui_status("ECOUTE...");
+        ui_answer("");
+        ESP_LOGI(TAG, "VOICE WORKER notified: capture begins immediately");
+        vTaskDelay(pdMS_TO_TICKS(60));
+
+        const int64_t stt_started_us = esp_timer_get_time();
+        std::string text = record_and_transcribe();
+        g_voice_capture_requested = false;
+        ESP_LOGI(TAG, "VOICE PERF: STT total=%lld ms",
+                 (long long)((esp_timer_get_time() - stt_started_us) / 1000));
+
+        if (text.empty()) {
+            g_runtime_state = MEL_TERMINAL_ERROR;
+            ui_status(g_last_voice_error ? g_last_voice_error : "ERREUR STT");
+            ui_answer("");
+            vTaskDelay(pdMS_TO_TICKS(1800));
+            g_runtime_state = MEL_TERMINAL_IDLE;
+            g_voice_stop_requested = false;
+            g_voice_job_active = false;
+            continue;
+        }
+
+        if (handle_local_media_command(text)) {
+            g_voice_stop_requested = false;
+            g_voice_job_active = false;
+            continue;
+        }
+
+        g_runtime_state = MEL_TERMINAL_THINKING;
+        ui_status("REFLEXION...");
+        ui_answer("");
+        const int64_t chat_started_us = esp_timer_get_time();
+        MelChatReply reply = chat_with_mel(text);
+        set_display_results(reply);
+        const std::string &answer = reply.text;
+        ESP_LOGI(TAG, "VOICE PERF: CHAT=%lld ms chars=%u display_items=%u",
+                 (long long)((esp_timer_get_time() - chat_started_us) / 1000),
+                 (unsigned)answer.size(), (unsigned)reply.display_items.size());
+
+        g_runtime_state = MEL_TERMINAL_SPEAKING;
+        ui_status("MEL PARLE");
+        std::string visible_answer = answer;
+        if (visible_answer.size() > 500) visible_answer.resize(500);
+        ui_answer(visible_answer.c_str());
+
+        const int64_t tts_started_us = esp_timer_get_time();
+        const bool spoken = speak_text(answer);
+        ESP_LOGI(TAG, "VOICE PERF: TTS+PLAY=%lld ms",
+                 (long long)((esp_timer_get_time() - tts_started_us) / 1000));
+        if (!spoken) {
+            ESP_LOGW(TAG, "Voice reply unavailable");
+            ui_status("TTS ERREUR");
+            vTaskDelay(pdMS_TO_TICKS(500));
+        }
+
+        if (!g_display_items.empty()) {
+            ui_show_display_source(0);
+            if (mel_mobile_bridge_ready()) render_display_item_card(0);
+        } else {
+            ui_status("");
+        }
+
+        g_runtime_state = MEL_TERMINAL_IDLE;
+        if (g_mobile_connected && g_online && mel_mobile_bridge_ready() && !g_wake_sync_task_handle) {
+            xTaskCreatePinnedToCore(
+                mobile_companion_sync_task,
+                "mel_mobile_sync",
+                6144,
+                nullptr,
+                3,
+                &g_wake_sync_task_handle,
+                0
+            );
+        }
+        g_voice_stop_requested = false;
+        g_voice_capture_requested = false;
+        g_voice_job_active = false;
     }
-    if (!g_display_items.empty()) {
-        ui_show_display_source(0);
-        if (mel_mobile_bridge_ready()) render_display_item_card(0);
-    } else ui_status("");
-    g_runtime_state = MEL_TERMINAL_IDLE;
-    if (g_mobile_connected && g_online && mel_mobile_bridge_ready() && !g_wake_sync_task_handle) {
-        xTaskCreatePinnedToCore(mobile_companion_sync_task, "mel_mobile_sync", 6144, nullptr, 3, &g_wake_sync_task_handle, 0);
-    }
-    g_voice_stop_requested = false;
-    g_voice_task_handle = nullptr;
-    vTaskDelete(nullptr);
 }
 
+bool mel_terminal_prepare_voice_worker(void) {
+    if (g_voice_worker_handle) return true;
+
+    const BaseType_t created = xTaskCreatePinnedToCore(
+        voice_worker_task,
+        "mel_voice",
+        10240,
+        nullptr,
+        5,
+        &g_voice_worker_handle,
+        0
+    );
+
+    if (created != pdPASS || !g_voice_worker_handle) {
+        g_voice_worker_handle = nullptr;
+        ESP_LOGE(
+            TAG,
+            "VOICE WORKER BOOT FAIL rc=%ld free_heap=%u largest_internal=%u",
+            (long)created,
+            (unsigned)esp_get_free_heap_size(),
+            (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)
+        );
+        return false;
+    }
+
+    ESP_LOGI(
+        TAG,
+        "VOICE WORKER RESERVED at boot free_heap=%u largest_internal=%u",
+        (unsigned)esp_get_free_heap_size(),
+        (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)
+    );
+    return true;
+}
 
 void mel_terminal_request_voice(void) {
     if (!g_audio_ok || !input_dev) {
@@ -1553,7 +1617,7 @@ void mel_terminal_request_voice(void) {
         return;
     }
 
-    if (g_voice_task_handle) {
+    if (g_voice_job_active) {
         if (g_runtime_state == MEL_TERMINAL_LISTENING) {
             g_voice_stop_requested = true;
             ui_status("STOP...");
@@ -1562,46 +1626,24 @@ void mel_terminal_request_voice(void) {
         return;
     }
 
+    if (!g_voice_worker_handle) {
+        g_runtime_state = MEL_TERMINAL_ERROR;
+        voice_error("VOIX BOOT");
+        ui_status("VOIX BOOT");
+        ESP_LOGE(TAG, "PARLER refused: boot-time voice worker is unavailable");
+        return;
+    }
+
+    g_last_voice_error = nullptr;
     g_voice_stop_requested = false;
     g_voice_capture_requested = true;
+    g_voice_job_active = true;
     g_runtime_state = MEL_TERMINAL_LISTENING;
     ui_status("ECOUTE...");
     ui_answer("");
 
-    const BaseType_t created = xTaskCreatePinnedToCore(
-        voice_task,
-        "mel_voice",
-        10240,
-        nullptr,
-        5,
-        &g_voice_task_handle,
-        0
-    );
-    // Only the FreeRTOS return code is authoritative here. The new task runs
-    // concurrently on core 0 and may legitimately finish (and clear the global
-    // handle) before this caller on core 1 resumes. Checking the handle here
-    // races with the worker and can overwrite the real microphone/STT error
-    // with a false "TACHE VOIX".
-    if (created != pdPASS) {
-        g_voice_task_handle = nullptr;
-        g_voice_capture_requested = false;
-        g_runtime_state = MEL_TERMINAL_ERROR;
-        voice_error("TACHE VOIX");
-        ui_status("ERREUR TACHE VOIX");
-        ESP_LOGE(
-            TAG,
-            "PARLER failed: voice task creation rc=%ld free_heap=%u largest_internal=%u",
-            (long)created,
-            (unsigned)esp_get_free_heap_size(),
-            (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)
-        );
-        return;
-    }
-    ESP_LOGI(
-        TAG,
-        "PARLER accepted: FreeRTOS created voice task free_heap=%u",
-        (unsigned)esp_get_free_heap_size()
-    );
+    xTaskNotifyGive(g_voice_worker_handle);
+    ESP_LOGI(TAG, "PARLER -> permanent voice worker notified");
 }
 
 int mel_terminal_state(void) {
