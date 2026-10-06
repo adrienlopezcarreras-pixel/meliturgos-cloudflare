@@ -66,8 +66,8 @@ jobs:
           # inheriting whatever the pinned vendor sdkconfig happened to contain.
           set_cfg_y CONFIG_ESP_COEX_SW_COEXIST_ENABLE
           set_cfg_y CONFIG_BT_NIMBLE_PINNED_TO_CORE_0
-          sed -i -E '/^CONFIG_ESP_WIFI_TASK_CORE_ID=/d' sdkconfig
-          printf 'CONFIG_ESP_WIFI_TASK_CORE_ID=1\n' >> sdkconfig
+          set_cfg_n CONFIG_ESP_WIFI_TASK_PINNED_TO_CORE_0
+          set_cfg_y CONFIG_ESP_WIFI_TASK_PINNED_TO_CORE_1
 
           set_cfg_y CONFIG_BT_ENABLED
           set_cfg_y CONFIG_BTDM_CTRL_MODE_BLE_ONLY
@@ -128,7 +128,8 @@ jobs:
               "CONFIG_LV_MEMCPY_MEMSET_STD=y",
               "CONFIG_ESP_COEX_SW_COEXIST_ENABLE=y",
               "CONFIG_BT_NIMBLE_PINNED_TO_CORE_0=y",
-              "CONFIG_ESP_WIFI_TASK_CORE_ID=1",
+              "CONFIG_ESP_WIFI_TASK_PINNED_TO_CORE_1=y",
+              "# CONFIG_ESP_WIFI_TASK_PINNED_TO_CORE_0 is not set",
               "CONFIG_BT_ENABLED=y",
               "CONFIG_BT_NIMBLE_ENABLED=y",
               "CONFIG_BT_NIMBLE_ROLE_CENTRAL=y",
