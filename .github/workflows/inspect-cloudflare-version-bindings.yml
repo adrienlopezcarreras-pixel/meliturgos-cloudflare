@@ -23,21 +23,21 @@ jobs:
         run: |
           set -euo pipefail
           API="https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/scripts/meliturgos/versions"
-          LIST="$(curl -fsSL -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" "${API}?per_page=100")"
-          printf '%s' "${LIST}" > versions.json
-          node - <<'NODE'
-          const d=require('./versions.json');
-          for(const v of (d.result||[]).slice(0,100)){
-            console.log('VERSION',v.id,'number='+String(v.number||''),'created='+String(v.metadata?.created_on||''),'preview='+String(v.metadata?.hasPreview||false));
-          }
-          NODE
-          for V in fd941103-40cb-4881-ab2c-f194ed5cb5ba cd0d3411-5028-41fd-a647-b4179474ce6f 0e8fb9ca-834f-4e75-9f81-d6bde3e3f7ec ad0e4e61-1baa-49ff-bd16-21770dca7bdd 973813a5-6428-4f49-a953-255e4a3ecec3 c32a0ced-4e9f-4873-95d4-a64abda7a7d1 d5f43564-2c6f-42d5-a412-5fca68aac9d2 68c1c7c1-e1b6-4521-8401-7abbeb7b4766; do
-            BODY="$(curl -fsSL -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" "${API}/${V}" || true)"
-            V="${V}" BODY="${BODY}" node - <<'NODE'
-          const v=process.env.V; let d={}; try{d=JSON.parse(process.env.BODY||'{}')}catch{}
-          const r=d.result||{};
-          const resources=Array.isArray(r.resources)?r.resources:[];
-          const names=resources.map(x=>String(x?.binding||x?.name||'')).filter(Boolean);
-          console.log('BINDINGS',v,'has_owner_password='+String(names.includes('MELITURGOS_PASSWORD')),'names='+names.filter(n=>/MELITURGOS|MEL_|DB|MEDIA/i.test(n)).join(','));
+          for V in             fd941103-40cb-4881-ab2c-f194ed5cb5ba             cd0d3411-5028-41fd-a647-b4179474ce6f             0e8fb9ca-834f-4e75-9f81-d6bde3e3f7ec             ad0e4e61-1baa-49ff-bd16-21770dca7bdd             973813a5-6428-4f49-a953-255e4a3ecec3             c32a0ced-4e9f-4873-95d4-a64abda7a7d1             d5f43564-2c6f-42d5-a412-5fca68aac9d2             68c1c7c1-e1b6-4521-8401-7abbeb7b4766             4cbeb523-6690-47b1-9599-7fc799b0062b             0841abcf-2b15-4395-b3e8-7ed4620dd452             87713535-a9f4-4d6b-8145-e9b05f064c81             6b493b05-0ed5-4cb3-b398-035e7583d3f0             1e27d518-ce41-420a-9e0d-4eaa42810e2e
+          do
+            curl -fsSL -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" "${API}/${V}" > version.json
+            V="${V}" node - <<'NODE'
+          const d=require('./version.json');
+          const b=d?.result?.resources?.bindings ?? {};
+          const rows=Array.isArray(b) ? b : Object.entries(b).flatMap(([k,v]) => {
+            if(Array.isArray(v)) return v.map(x=>({key:k,...(x||{})}));
+            if(v && typeof v==='object') return [{key:k,...v}];
+            return [{key:k,value:v}];
+          });
+          const names=rows.map(x=>String(x?.name||x?.binding||x?.key||'')).filter(Boolean);
+          const secretRows=rows.filter(x=>String(x?.type||x?.key||'').toLowerCase().includes('secret') || /password|token|key/i.test(String(x?.name||x?.binding||x?.key||'')));
+          console.log('BINDINGS',process.env.V,'has_owner_password='+String(names.includes('MELITURGOS_PASSWORD')),'binding_names='+names.join(','));
+          console.log('SECRET_NAMES',process.env.V,secretRows.map(x=>String(x?.name||x?.binding||x?.key||'')).filter(Boolean).join(','));
           NODE
           done
+          rm -f version.json
