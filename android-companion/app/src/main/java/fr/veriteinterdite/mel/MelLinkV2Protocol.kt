@@ -9,6 +9,8 @@ object MelLinkV2Protocol {
     const val MAGIC1: Int = 0x32
     const val HEADER_SIZE = 13
     const val DEFAULT_MTU = 185
+    // 132-byte ADPCM block + 13-byte MEL header + 3-byte ATT overhead.
+    const val MIN_AUDIO_MTU = 148
     const val CREDIT_WINDOW = 6
 
     const val HELLO = 0x01
