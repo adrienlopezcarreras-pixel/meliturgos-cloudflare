@@ -38,6 +38,12 @@
         android:usesCleartextTraffic="false">
         <service
             android:name=".MelBleBridgeService"
+            android:enabled="false"
+            android:exported="false"
+            android:stopWithTask="false"
+            android:foregroundServiceType="connectedDevice" />
+        <service
+            android:name=".MelLinkV2ClientService"
             android:exported="false"
             android:stopWithTask="false"
             android:foregroundServiceType="connectedDevice" />
