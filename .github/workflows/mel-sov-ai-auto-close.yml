@@ -182,8 +182,12 @@ jobs:
                 echo "MEL_SOV_AI_LOCAL_RUNTIME_UNAVAILABLE"
                 exit 43
                 ;;
+              OLLAMA_BOOTSTRAP_PROCESS_EXITED_AT_*|OLLAMA_BOOTSTRAP_PROCESS_EXITED)
+                echo "MEL_SOV_AI_OLLAMA_BOOTSTRAP_FAILED reason=$AI_REASON"
+                exit 46
+                ;;
               *)
-                echo "MEL_SOV_AI_REFRESH_FAILED"
+                echo "MEL_SOV_AI_REFRESH_FAILED reason=$AI_REASON"
                 exit 44
                 ;;
             esac
