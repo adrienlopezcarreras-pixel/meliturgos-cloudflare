@@ -9,7 +9,8 @@
     "required": [
       "MELITURGOS_PASSWORD",
       "MEL_BACKUP_ENCRYPTION_KEY_ID",
-      "MEL_BACKUP_ENCRYPTION_KEY_B64"
+      "MEL_BACKUP_ENCRYPTION_KEY_B64",
+      "GEMINI_API_KEY"
     ]
   },
   "assets": {
