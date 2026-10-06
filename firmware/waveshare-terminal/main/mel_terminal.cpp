@@ -246,16 +246,6 @@ static void set_display_results(const MelChatReply &reply) {
     g_display_items = reply.display_items;
     g_display_title = reply.display_title;
     g_display_index = 0;
-    if (g_answer && lvgl_port_lock(1000)) {
-        if (g_display_items.empty()) {
-            lv_obj_set_height(g_answer, 74);
-            lv_obj_align(g_answer, LV_ALIGN_BOTTOM_MID, 0, -84);
-        } else {
-            lv_obj_set_height(g_answer, 132);
-            lv_obj_align(g_answer, LV_ALIGN_BOTTOM_MID, 0, -84);
-        }
-        lvgl_port_unlock();
-    }
 }
 
 static void ui_show_display_source(size_t index) {
@@ -789,7 +779,7 @@ static bool mobile_tts_chunk(const uint8_t *data, size_t len, void *ctx_ptr) {
 }
 
 static bool speak_text(const std::string &text) {
-    if (!g_audio_ok || !output_dev || !g_cfg.token[0] || text.empty()) return false;
+    if (!g_audio_ok || !output_dev || text.empty()) return false;
 
     cJSON *root = cJSON_CreateObject();
     cJSON_AddStringToObject(root, "text", text.c_str());
@@ -797,10 +787,37 @@ static bool speak_text(const std::string &text) {
     std::string body = json_string(root);
     cJSON_Delete(root);
 
+    if (mel_link_v2_transport_ready()) {
+        MobileTtsContext ctx;
+        ctx.started_us = esp_timer_get_time();
+        int status = 0;
+        esp_codec_dev_set_out_vol(output_dev, 100.0);
+        esp_err_t err = mel_link_v2_transport_request_stream(
+            HTTP_METHOD_POST,
+            "/api/device/v1/voice/tts",
+            "application/json",
+            g_device_id,
+            reinterpret_cast<const uint8_t *>(body.data()),
+            body.size(),
+            status,
+            mobile_tts_chunk,
+            &ctx
+        );
+        esp_codec_dev_set_out_vol(output_dev, 0.0);
+        const bool ok = err == ESP_OK && status == 200 && ctx.ok && !ctx.have_carry;
+        if (!ok) ESP_LOGW(TAG, "LINK V2 TTS failed err=%s status=%d", esp_err_to_name(err), status);
+        return ok;
+    }
+
+    if (!g_cfg.token[0]) {
+        ESP_LOGW(TAG, "TTS unavailable: no local token and Link V2 unavailable");
+        return false;
+    }
+
     if (!mel_mobile_bridge_ready() && g_mobile_connected && !g_wifi_connected) {
         ESP_LOGI(TAG, "MEL MOBILE reconnect grace before TTS");
         ui_status("RECONNEXION...");
-        wait_for_mobile_bridge_ready(8000);
+        wait_for_mobile_bridge_ready(3000);
     }
 
     if (mel_mobile_bridge_ready()) {
@@ -1164,6 +1181,7 @@ static MelChatReply chat_with_mel(const std::string &text) {
     cJSON_AddStringToObject(root, "conversation_id", g_device_id);
     cJSON_AddStringToObject(root, "input_source", "voice-server-transcription");
     cJSON_AddBoolToObject(root, "voice_mode", true);
+    cJSON_AddBoolToObject(root, "voice_reply", true);
     cJSON_AddBoolToObject(root, "parallel", false);
     std::string body = json_string(root);
     cJSON_Delete(root);
@@ -1564,8 +1582,8 @@ static void voice_worker_task(void *) {
         g_runtime_state = MEL_TERMINAL_SPEAKING;
         ui_status("MEL PARLE");
         std::string visible_answer = answer;
-        if (visible_answer.size() > 500) visible_answer.resize(500);
-        ui_answer(visible_answer.c_str());
+        if (visible_answer.size() > 2000) visible_answer.resize(2000);
+        mini_ui_open_response_page(visible_answer.c_str());
 
         const int64_t tts_started_us = esp_timer_get_time();
         const bool spoken = speak_text(answer);
@@ -1579,7 +1597,7 @@ static void voice_worker_task(void *) {
 
         if (!g_display_items.empty()) {
             ui_show_display_source(0);
-            if (mel_mobile_bridge_ready()) render_display_item_card(0);
+            if (mel_link_v2_transport_ready() || mel_mobile_bridge_ready()) render_display_item_card(0);
         } else {
             ui_status("");
         }
