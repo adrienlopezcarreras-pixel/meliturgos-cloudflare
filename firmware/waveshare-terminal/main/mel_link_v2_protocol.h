@@ -42,3 +42,24 @@ struct __attribute__((packed)) MelLinkV2Header {
 };
 
 static_assert(sizeof(MelLinkV2Header) == MEL_LINK_V2_HEADER_SIZE, "MEL Link V2 header layout drift");
+
+
+uint16_t mel_link_v2_crc16(const uint8_t *data, size_t len);
+
+size_t mel_link_v2_encode(
+    uint8_t type,
+    uint8_t flags,
+    uint16_t stream_id,
+    uint16_t seq,
+    const uint8_t *payload,
+    uint16_t payload_len,
+    uint8_t *out,
+    size_t out_capacity
+);
+
+bool mel_link_v2_decode(
+    const uint8_t *frame,
+    size_t frame_len,
+    MelLinkV2Header *header_out,
+    const uint8_t **payload_out
+);
