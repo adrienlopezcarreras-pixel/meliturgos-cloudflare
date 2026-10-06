@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
-      - name: Inspect current Cloudflare version bindings
+      - name: Locate historical runtime secret bindings
         shell: bash
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -26,10 +26,8 @@ jobs:
           curl -fsSL -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" "${API}?per_page=100" > versions.json
           node - <<'NODE' > version-ids.txt
           const d=require('./versions.json');
-          const items=Array.isArray(d?.result?.items)?d.result.items:[];
-          for(const v of items) console.log(String(v?.id||''));
+          for(const v of (d?.result?.items||[])) console.log(String(v?.id||''));
           NODE
-
           while IFS= read -r V; do
             [ -n "${V}" ] || continue
             curl -fsSL -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" "${API}/${V}" > version.json
@@ -42,8 +40,22 @@ jobs:
             return [{key:k,value:v}];
           });
           const names=rows.map(x=>String(x?.name||x?.binding||x?.key||'')).filter(Boolean);
-          console.log('BINDING_CHECK',process.env.V,'has_owner_password='+String(names.includes('MELITURGOS_PASSWORD')),'binding_count='+String(names.length));
+          const wanted=[
+            'MELITURGOS_PASSWORD',
+            'MEL_OAUTH_ENCRYPTION_KEY_ID',
+            'MEL_OAUTH_ENCRYPTION_KEY_B64',
+            'VERCEL_TOKEN',
+            'PIPEDREAM_PROJECT_ID',
+            'PIPEDREAM_CLIENT_ID',
+            'PIPEDREAM_CLIENT_SECRET',
+            'PIPEDREAM_ACCESS_TOKEN',
+            'GOOGLE_CLIENT_ID',
+            'GOOGLE_CLIENT_SECRET',
+            'MICROSOFT_CLIENT_ID',
+            'MICROSOFT_CLIENT_SECRET'
+          ];
+          const present=wanted.filter(x=>names.includes(x));
+          console.log('SECRET_BINDINGS',process.env.V,'present='+present.join(','));
           NODE
           done < version-ids.txt
-
           rm -f versions.json version.json version-ids.txt
