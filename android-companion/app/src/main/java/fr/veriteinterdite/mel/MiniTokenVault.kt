@@ -36,7 +36,7 @@ class MiniTokenVault(private val context: Context) {
     private fun slot(deviceId: String): String {
         val digest = MessageDigest.getInstance("SHA-256")
             .digest(deviceId.toByteArray(Charsets.UTF_8))
-        return digest.joinToString("") { "%02x".format(it) }.take(32)
+        return digest.joinToString("") { (it.toInt() and 0xff).toString(16).padStart(2, '0') }.take(32)
     }
 
     fun save(deviceId: String, token: String) {
