@@ -15,6 +15,8 @@
 #include "os/os_mbuf.h"
 #include "services/gap/ble_svc_gap.h"
 #include "services/gatt/ble_svc_gatt.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
 
 static const char *TAG = "MEL_LINK_V2";
 
@@ -34,6 +36,11 @@ static uint8_t g_own_addr_type = 0;
 static bool g_event_subscribed = false;
 static mel_link_v2_rx_cb g_rx_cb = nullptr;
 static void *g_rx_ctx = nullptr;
+static mel_link_v2_state_cb g_state_cb = nullptr;
+static void *g_state_ctx = nullptr;
+static SemaphoreHandle_t g_tx_mutex = nullptr;
+static SemaphoreHandle_t g_tx_done = nullptr;
+static std::atomic<bool> g_tx_failed{false};
 
 static int gap_event(struct ble_gap_event *event, void *arg);
 static void start_advertising();
@@ -166,10 +173,12 @@ static int gap_event(struct ble_gap_event *event, void *arg) {
         case BLE_GAP_EVENT_SUBSCRIBE:
             if (event->subscribe.attr_handle == g_event_handle) {
                 g_event_subscribed = event->subscribe.cur_notify || event->subscribe.cur_indicate;
-                g_ready.store(g_event_subscribed);
+                const bool now_ready = g_event_subscribed;
+                const bool was_ready = g_ready.exchange(now_ready);
                 ESP_LOGI(TAG, "event subscription notify=%d indicate=%d ready=%d",
                          event->subscribe.cur_notify, event->subscribe.cur_indicate,
-                         g_ready.load() ? 1 : 0);
+                         now_ready ? 1 : 0);
+                if (g_state_cb && was_ready != now_ready) g_state_cb(now_ready, g_state_ctx);
             }
             return 0;
 
@@ -177,6 +186,13 @@ static int gap_event(struct ble_gap_event *event, void *arg) {
             if (event->mtu.conn_handle == g_conn) {
                 g_mtu = event->mtu.value;
                 ESP_LOGI(TAG, "MTU=%u", g_mtu);
+            }
+            return 0;
+
+        case BLE_GAP_EVENT_NOTIFY_TX:
+            if (event->notify_tx.conn_handle == g_conn && event->notify_tx.attr_handle == g_event_handle) {
+                g_tx_failed.store(event->notify_tx.status != 0);
+                if (g_tx_done) xSemaphoreGive(g_tx_done);
             }
             return 0;
 
@@ -195,6 +211,7 @@ static void on_reset(int reason) {
     g_mtu = 23;
     g_event_subscribed = false;
     g_ready.store(false);
+    if (g_state_cb) g_state_cb(false, g_state_ctx);
 }
 
 static void on_sync() {
@@ -220,6 +237,13 @@ static void host_task(void *arg) {
 esp_err_t mel_link_v2_server_start(void) {
     bool expected = false;
     if (!g_started.compare_exchange_strong(expected, true)) return ESP_OK;
+
+    g_tx_mutex = xSemaphoreCreateMutex();
+    g_tx_done = xSemaphoreCreateBinary();
+    if (!g_tx_mutex || !g_tx_done) {
+        g_started.store(false);
+        return ESP_ERR_NO_MEM;
+    }
 
     esp_err_t err = nimble_port_init();
     if (err != ESP_OK) {
@@ -261,6 +285,11 @@ void mel_link_v2_server_set_rx_callback(mel_link_v2_rx_cb cb, void *ctx) {
     g_rx_ctx = ctx;
 }
 
+void mel_link_v2_server_set_state_callback(mel_link_v2_state_cb cb, void *ctx) {
+    g_state_cb = cb;
+    g_state_ctx = ctx;
+}
+
 static esp_err_t send_frame(const uint8_t *frame, size_t len, bool indicate) {
     if (!mel_link_v2_server_ready() || !frame || !frame_header_valid(frame, len)) {
         return ESP_ERR_INVALID_STATE;
@@ -268,12 +297,31 @@ static esp_err_t send_frame(const uint8_t *frame, size_t len, bool indicate) {
     const size_t max_value = g_mtu > 3 ? g_mtu - 3 : 20;
     if (len > max_value) return ESP_ERR_INVALID_SIZE;
 
+    if (!g_tx_mutex || !g_tx_done) return ESP_ERR_INVALID_STATE;
+    if (xSemaphoreTake(g_tx_mutex, pdMS_TO_TICKS(5000)) != pdTRUE) return ESP_ERR_TIMEOUT;
+
+    while (xSemaphoreTake(g_tx_done, 0) == pdTRUE) {}
+    g_tx_failed.store(false);
+
     struct os_mbuf *om = ble_hs_mbuf_from_flat(frame, len);
-    if (!om) return ESP_ERR_NO_MEM;
+    if (!om) {
+        xSemaphoreGive(g_tx_mutex);
+        return ESP_ERR_NO_MEM;
+    }
+
     const int rc = indicate
         ? ble_gatts_indicate_custom(g_conn, g_event_handle, om)
         : ble_gatts_notify_custom(g_conn, g_event_handle, om);
-    return rc == 0 ? ESP_OK : ESP_FAIL;
+    if (rc != 0) {
+        xSemaphoreGive(g_tx_mutex);
+        return ESP_FAIL;
+    }
+
+    const bool completed = xSemaphoreTake(g_tx_done, pdMS_TO_TICKS(5000)) == pdTRUE;
+    const bool failed = g_tx_failed.load();
+    xSemaphoreGive(g_tx_mutex);
+    if (!completed) return ESP_ERR_TIMEOUT;
+    return failed ? ESP_FAIL : ESP_OK;
 }
 
 esp_err_t mel_link_v2_server_notify(const uint8_t *frame, size_t len) {
