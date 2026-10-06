@@ -18,6 +18,9 @@ import android.bluetooth.le.ScanResult
 import android.bluetooth.le.ScanSettings
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
 import android.os.Build
 import android.os.IBinder
 import android.os.ParcelUuid
@@ -59,7 +62,15 @@ class MelLinkV2ClientService : Service() {
         val state = MutableStateFlow("OFF")
         val miniReady = MutableStateFlow(false)
         val protocolReady = MutableStateFlow(false)
+        val phoneInternetAvailable = MutableStateFlow(false)
+        val internetReady = MutableStateFlow(false)
+        val miniPairingComplete = MutableStateFlow(false)
+        val wakeProfileRevision = MutableStateFlow(0)
         val lastError = MutableStateFlow("")
+
+        // Compatibility names used by the existing UI during the V2 cutover.
+        val bridgeState = state
+        val miniLinkReady = miniReady
     }
 
     private data class IncomingRequest(
@@ -69,6 +80,9 @@ class MelLinkV2ClientService : Service() {
     )
 
     private var wakeLock: PowerManager.WakeLock? = null
+    private var connectivityManager: ConnectivityManager? = null
+    private var networkCallbackRegistered = false
+    @Volatile private var melSessionReady = false
     private var gatt: BluetoothGatt? = null
     private var controlRx: BluetoothGattCharacteristic? = null
     private var eventTx: BluetoothGattCharacteristic? = null
@@ -83,12 +97,22 @@ class MelLinkV2ClientService : Service() {
     private var reconnectAttempt = 0
     private val handler by lazy { android.os.Handler(mainLooper) }
 
+    private val networkCallback = object : ConnectivityManager.NetworkCallback() {
+        override fun onAvailable(network: Network) = refreshInternetState()
+        override fun onLost(network: Network) = refreshInternetState()
+        override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) = refreshInternetState()
+    }
+
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
         wakeLock = getSystemService(PowerManager::class.java)
             ?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "MEL:LinkV2")
             ?.apply { acquire() }
+        connectivityManager = getSystemService(ConnectivityManager::class.java)
+        miniPairingComplete.value = getSharedPreferences("mel_link_v2", MODE_PRIVATE)
+            .getBoolean("mini_pairing_complete", false)
+        registerNetworkWatch()
         startForeground(
             NOTIFICATION_ID,
             NotificationCompat.Builder(this, CHANNEL_ID)
@@ -122,15 +146,62 @@ class MelLinkV2ClientService : Service() {
         gatt = null
         executor.shutdownNow()
         bleWriter.shutdownNow()
+        unregisterNetworkWatch()
         miniReady.value = false
         protocolReady.value = false
+        phoneInternetAvailable.value = false
+        melSessionReady = false
+        internetReady.value = false
         state.value = "OFF"
         if (wakeLock?.isHeld == true) wakeLock?.release()
         wakeLock = null
         super.onDestroy()
     }
 
-    private fun hasBlePermissions(): Boolean {
+    private fun registerNetworkWatch() {
+        val cm = connectivityManager ?: return
+        if (networkCallbackRegistered) return
+        runCatching {
+            cm.registerDefaultNetworkCallback(networkCallback)
+            networkCallbackRegistered = true
+        }
+        refreshInternetState()
+    }
+
+    private fun unregisterNetworkWatch() {
+        val cm = connectivityManager ?: return
+        if (!networkCallbackRegistered) return
+        runCatching { cm.unregisterNetworkCallback(networkCallback) }
+        networkCallbackRegistered = false
+    }
+
+    private fun refreshInternetState() {
+        val cm = connectivityManager
+        val network = cm?.activeNetwork
+        val caps = network?.let { cm.getNetworkCapabilities(it) }
+        val phoneOk = caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true &&
+            caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+        phoneInternetAvailable.value = phoneOk
+        internetReady.value = phoneOk && miniReady.value && protocolReady.value && melSessionReady
+    }
+
+    private fun validateMelSession() {
+        if (!phoneInternetAvailable.value || !miniReady.value || !protocolReady.value || melSessionReady) return
+        executor.execute {
+            val rawId = Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID)
+            val androidDeviceId = "android-" + (rawId ?: "unknown").take(64)
+            val ok = runCatching {
+                MelApiClient(BuildConfig.MEL_BASE_URL, androidDeviceId, TokenVault(this))
+                    .heartbeat(sdkInt = Build.VERSION.SDK_INT, phase = "MINI_LINK_V2_READY")
+            }.isSuccess
+            melSessionReady = ok
+            refreshInternetState()
+            if (ok) state.value = "MINI V2 · INTERNET OK"
+            else lastError.value = "MEL_SESSION"
+        }
+    }
+
+        private fun hasBlePermissions(): Boolean {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return true
         return ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_SCAN) == PackageManager.PERMISSION_GRANTED &&
             ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED
@@ -320,7 +391,9 @@ class MelLinkV2ClientService : Service() {
         when (frame.type) {
             MelLinkV2Protocol.HELLO -> {
                 protocolReady.value = true
-                state.value = "MINI V2 PRETE"
+                refreshInternetState()
+                validateMelSession()
+                state.value = if (internetReady.value) "MINI V2 · INTERNET OK" else "MINI V2 PRETE"
                 sendControlAsync(MelLinkV2Protocol.encode(MelLinkV2Protocol.SESSION, 0, 0, 0, sessionPayload()))
             }
             MelLinkV2Protocol.PING -> {
@@ -403,6 +476,11 @@ class MelLinkV2ClientService : Service() {
                     connection.outputStream.use { it.write(request.body.toByteArray()) }
                 }
                 val status = connection.responseCode
+                if (status in 200..299 && path == "/api/device/v1/pair") {
+                    miniPairingComplete.value = true
+                    getSharedPreferences("mel_link_v2", MODE_PRIVATE).edit()
+                        .putBoolean("mini_pairing_complete", true).apply()
+                }
                 val stream = if (status in 200..299) connection.inputStream else connection.errorStream
                 val body = stream?.use { it.readBytes() } ?: byteArrayOf()
                 val begin = JSONObject()
@@ -483,6 +561,8 @@ class MelLinkV2ClientService : Service() {
     private fun clearSession(reason: String) {
         miniReady.value = false
         protocolReady.value = false
+        melSessionReady = false
+        internetReady.value = false
         state.value = reason
         controlRx = null
         eventTx = null
