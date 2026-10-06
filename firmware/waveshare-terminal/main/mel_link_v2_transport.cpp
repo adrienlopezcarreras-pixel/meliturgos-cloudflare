@@ -6,6 +6,9 @@
 #include <atomic>
 #include <cstring>
 #include <algorithm>
+#include <sys/time.h>
+#include <time.h>
+#include <cstdlib>
 
 #include "cJSON.h"
 #include "esp_log.h"
@@ -103,6 +106,44 @@ static bool deliver_audio_16k_as_48k(
     return flush();
 }
 
+static bool apply_android_session_clock(const uint8_t *payload, size_t len) {
+    if (!payload || len == 0 || len > 512) return false;
+    std::string raw(reinterpret_cast<const char *>(payload), len);
+    cJSON *root = cJSON_Parse(raw.c_str());
+    if (!root) return false;
+    cJSON *epoch = cJSON_GetObjectItemCaseSensitive(root, "epoch_ms");
+    cJSON *offset = cJSON_GetObjectItemCaseSensitive(root, "utc_offset_seconds");
+    bool ok = cJSON_IsNumber(epoch) && cJSON_IsNumber(offset);
+    if (ok) {
+        const int64_t epoch_ms = (int64_t)epoch->valuedouble;
+        const int offset_seconds = offset->valueint;
+        if (epoch_ms >= 1700000000000LL && offset_seconds >= -50400 && offset_seconds <= 50400) {
+            struct timeval tv = {};
+            tv.tv_sec = (time_t)(epoch_ms / 1000LL);
+            tv.tv_usec = (suseconds_t)((epoch_ms % 1000LL) * 1000LL);
+            if (settimeofday(&tv, nullptr) == 0) {
+                const int abs_offset = offset_seconds < 0 ? -offset_seconds : offset_seconds;
+                const int hours = abs_offset / 3600;
+                const int minutes = (abs_offset % 3600) / 60;
+                const char sign = offset_seconds >= 0 ? '-' : '+';
+                char tz[32] = {};
+                if (minutes) snprintf(tz, sizeof(tz), "MEL%c%d:%02d", sign, hours, minutes);
+                else snprintf(tz, sizeof(tz), "MEL%c%d", sign, hours);
+                setenv("TZ", tz, 1);
+                tzset();
+                ESP_LOGI(TAG, "Android SESSION clock synced epoch=%lld offset=%d",
+                         (long long)(epoch_ms / 1000LL), offset_seconds);
+            } else {
+                ok = false;
+            }
+        } else {
+            ok = false;
+        }
+    }
+    cJSON_Delete(root);
+    return ok;
+}
+
 static void rx_frame(const uint8_t *frame, size_t len, void *ctx) {
     (void)ctx;
     MelLinkV2Header header = {};
@@ -113,8 +154,9 @@ static void rx_frame(const uint8_t *frame, size_t len, void *ctx) {
     }
 
     if (header.type == MEL_LINK_V2_SESSION && header.stream_id == 0) {
+        const bool clock_ok = apply_android_session_clock(payload, header.payload_len);
         g_session_ready.store(true);
-        ESP_LOGI(TAG, "Android V2 session ready");
+        ESP_LOGI(TAG, "Android V2 session ready clock=%s", clock_ok ? "OK" : "UNAVAILABLE");
         return;
     }
 
