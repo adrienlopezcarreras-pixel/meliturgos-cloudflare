@@ -472,7 +472,7 @@ class MelLinkV2ClientService : Service() {
     private fun scheduleReconnect() {
         if (isDestroyedCompat()) return
         reconnectAttempt = (reconnectAttempt + 1).coerceAtMost(6)
-        val delay = minOf(15_000L, 500L shl reconnectAttempt)
+        val delay = minOf(15_000L, 500L * (1L shl reconnectAttempt))
         state.value = "RECONNEXION V2"
         handler.postDelayed({ startDiscovery() }, delay)
     }
