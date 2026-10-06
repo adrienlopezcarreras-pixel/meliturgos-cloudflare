@@ -101,7 +101,7 @@ export async function runRuntimeWorkDagResumeProof(env = {}, {
         idempotent: true,
         payload: {
           capability: 'GENERAL',
-          input: 'Runtime continuity proof. Reply with a short technical acknowledgement only.',
+          input: 'Please respond with the exact string "PONG" to confirm receipt.',
           context: { purpose: 'MEL_RUNTIME_WORK_DAG_RESUME_PROOF' },
           maxCandidates: 2,
         },
