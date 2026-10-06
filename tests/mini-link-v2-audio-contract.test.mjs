@@ -47,7 +47,10 @@ test('Android decodes V2 ADPCM to canonical WAV and uses delegated MINI STT prov
   assert.match(service,/AUDIO_SEQUENCE/);
   assert.match(service,/AUDIO_LENGTH/);
   assert.match(service,/pcm16MonoWav\(samples, 16_000\)/);
-  assert.match(service,/transcribeMini\(wav, miniDeviceId, "audio\/wav"\)/);
+  assert.match(service,/miniDeviceConnection\(/);
+  assert.match(service,/\/api\/device\/v1\/voice\/transcribe/);
+  assert.match(service,/Authorization", "Bearer \$miniToken"/);
+  assert.match(service,/MiniTokenVault\(this\)\.load\(miniDeviceId\)/);
 
   assert.match(codec,/const val BLOCK_SAMPLES = 256/);
   assert.match(codec,/const val MAX_ENCODED_BYTES = 132/);
