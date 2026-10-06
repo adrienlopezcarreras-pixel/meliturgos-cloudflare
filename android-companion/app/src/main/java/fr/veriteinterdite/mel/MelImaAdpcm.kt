@@ -81,4 +81,133 @@ object MelImaAdpcm {
         for (sample in samples) out.putShort(sample)
         return out.array()
     }
+
+    private val decimatorQ15 = intArrayOf(
+        51,17,-58,-146,-134,84,426,555,114,-838,
+        -1592,-1105,1213,4834,8186,9551,8186,4834,1213,
+        -1105,-1592,-838,114,555,426,84,-134,-146,-58,17,51
+    )
+
+    fun encodeBlock(samples: ShortArray): ByteArray {
+        require(samples.isNotEmpty() && samples.size <= BLOCK_SAMPLES)
+        val out = ByteArray(encodedSize(samples.size))
+        var predictor = samples[0].toInt()
+        var index = 0
+        out[0] = (predictor and 0xff).toByte()
+        out[1] = ((predictor ushr 8) and 0xff).toByte()
+        out[2] = index.toByte()
+        out[3] = if (samples.size == BLOCK_SAMPLES) 0 else samples.size.toByte()
+
+        var dst = 4
+        var low = true
+        var packed = 0
+        for (i in 1 until samples.size) {
+            val step = stepTable[index]
+            var diff = samples[i].toInt() - predictor
+            var code = 0
+            if (diff < 0) {
+                code = 8
+                diff = -diff
+            }
+            var delta = step ushr 3
+            var threshold = step
+            if (diff >= threshold) {
+                code = code or 4
+                diff -= threshold
+                delta += threshold
+            }
+            threshold = threshold ushr 1
+            if (diff >= threshold) {
+                code = code or 2
+                diff -= threshold
+                delta += threshold
+            }
+            threshold = threshold ushr 1
+            if (diff >= threshold) {
+                code = code or 1
+                delta += threshold
+            }
+
+            predictor = if ((code and 8) != 0) predictor - delta else predictor + delta
+            predictor = predictor.coerceIn(-32768, 32767)
+            index = (index + indexTable[code and 0x0f]).coerceIn(0, 88)
+
+            if (low) {
+                packed = code and 0x0f
+                low = false
+            } else {
+                packed = packed or ((code and 0x0f) shl 4)
+                out[dst++] = packed.toByte()
+                packed = 0
+                low = true
+            }
+        }
+        if (!low) out[dst] = packed.toByte()
+        return out
+    }
+
+    fun decodePcm16MonoWav(wav: ByteArray, expectedRate: Int): ShortArray {
+        require(wav.size >= 44) { "short WAV" }
+        require(wav.copyOfRange(0,4).toString(Charsets.US_ASCII) == "RIFF") { "not RIFF" }
+        require(wav.copyOfRange(8,12).toString(Charsets.US_ASCII) == "WAVE") { "not WAVE" }
+
+        var offset = 12
+        var formatOk = false
+        var dataOffset = -1
+        var dataSize = -1
+        while (offset + 8 <= wav.size) {
+            val id = wav.copyOfRange(offset,offset+4).toString(Charsets.US_ASCII)
+            val size = le32(wav, offset + 4)
+            val body = offset + 8
+            require(size >= 0 && body + size <= wav.size) { "bad WAV chunk" }
+            if (id == "fmt " && size >= 16) {
+                val audioFormat = le16(wav, body)
+                val channels = le16(wav, body + 2)
+                val rate = le32(wav, body + 4)
+                val bits = le16(wav, body + 14)
+                formatOk = audioFormat == 1 && channels == 1 && rate == expectedRate && bits == 16
+            } else if (id == "data") {
+                dataOffset = body
+                dataSize = size
+                break
+            }
+            offset = body + size + (size and 1)
+        }
+        require(formatOk && dataOffset >= 0 && dataSize >= 0 && (dataSize and 1) == 0) { "unsupported WAV" }
+        val samples = ShortArray(dataSize / 2)
+        var src = dataOffset
+        for (i in samples.indices) {
+            val lo = wav[src++].toInt() and 0xff
+            val hi = wav[src++].toInt() and 0xff
+            samples[i] = ((hi shl 8) or lo).toShort()
+        }
+        return samples
+    }
+
+    fun decimate48kTo16k(samples48k: ShortArray): ShortArray {
+        require(samples48k.size >= 31)
+        val count = samples48k.size / 3
+        val out = ShortArray(count)
+        val half = decimatorQ15.size / 2
+        for (i in 0 until count) {
+            val center = i * 3
+            var acc = 0L
+            for (tap in decimatorQ15.indices) {
+                val src = (center + tap - half).coerceIn(0, samples48k.lastIndex)
+                acc += samples48k[src].toLong() * decimatorQ15[tap].toLong()
+            }
+            out[i] = (acc shr 15).coerceIn(-32768,32767).toShort()
+        }
+        return out
+    }
+
+    private fun le16(data: ByteArray, offset: Int): Int =
+        (data[offset].toInt() and 0xff) or ((data[offset+1].toInt() and 0xff) shl 8)
+
+    private fun le32(data: ByteArray, offset: Int): Int =
+        (data[offset].toInt() and 0xff) or
+            ((data[offset+1].toInt() and 0xff) shl 8) or
+            ((data[offset+2].toInt() and 0xff) shl 16) or
+            ((data[offset+3].toInt() and 0xff) shl 24)
+
 }
