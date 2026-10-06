@@ -191,7 +191,9 @@ static int gap_event(struct ble_gap_event *event, void *arg) {
 
         case BLE_GAP_EVENT_NOTIFY_TX:
             if (event->notify_tx.conn_handle == g_conn && event->notify_tx.attr_handle == g_event_handle) {
-                g_tx_failed.store(event->notify_tx.status != 0);
+                const bool indication_ack =
+                    event->notify_tx.indication && event->notify_tx.status == BLE_HS_EDONE;
+                g_tx_failed.store(event->notify_tx.status != 0 && !indication_ack);
                 if (g_tx_done) xSemaphoreGive(g_tx_done);
             }
             return 0;
