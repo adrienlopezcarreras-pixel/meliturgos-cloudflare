@@ -171,6 +171,5 @@ test('STT Link V2 uses asynchronous notifications with batched Android credits',
   assert.match(transport, /progress_cb\(offset, sample_count, progress_ctx\)/);
   assert.match(service, /var creditsConsumed: Int = 0/);
   assert.match(service, /CREDIT_WINDOW \/ 2/);
-  assert.match(service, /sendCreditAsync\(frame\.streamId, audio\.creditsConsumed\)/);
-  assert.doesNotMatch(service, /sendCreditAsync\(frame\.streamId, 1\)/);
+  assert.match(service, /MelLinkV2Protocol\.AUDIO_DATA[\s\S]*?audio\.creditsConsumed\+\+[\s\S]*?sendCreditAsync\(frame\.streamId, audio\.creditsConsumed\)/);
 });
