@@ -23,7 +23,7 @@ test('MINI uses internal flash FAT storage for assets and rendered media', async
   assert.match(runtime, /"storage_free_bytes"/);
   assert.match(cmake, /\bfatfs\b/);
   assert.match(cmake, /\bwear_levelling\b/);
-  assert.match(header, /MEL_FW_VERSION "0\.5\.15-native-16k-audio"/);
+  assert.match(header, /MEL_FW_VERSION "0\.5\.16-stt-flow-control"/);
   assert.match(api, /"storage\.internal"/);
   assert.match(api, /internal_storage: body\.internal_storage/);
   assert.match(workflow, /"version": "0\.5\.9-boot-stable-link"/);
