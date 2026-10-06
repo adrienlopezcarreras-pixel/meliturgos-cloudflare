@@ -33,9 +33,7 @@ esp_err_t mel_link_v2_transport_request(
     const uint8_t *body,
     size_t body_len,
     std::string &response,
-    int &status,
-    mel_link_v2_progress_cb progress_cb = nullptr,
-    void *progress_ctx = nullptr
+    int &status
 );
 
 esp_err_t mel_link_v2_transport_request_stream(
@@ -56,5 +54,7 @@ esp_err_t mel_link_v2_transport_transcribe_adpcm(
     size_t sample_count,
     const char *mini_device_id,
     std::string &response,
-    int &status
+    int &status,
+    mel_link_v2_progress_cb progress_cb = nullptr,
+    void *progress_ctx = nullptr
 );
