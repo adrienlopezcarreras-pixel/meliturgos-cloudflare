@@ -1198,7 +1198,13 @@ static MelChatReply chat_with_mel(const std::string &text) {
         status
     );
     if (err != ESP_OK || status != 200) {
-        reply.text = "Connexion chat impossible.";
+        char diag[96] = {};
+        if (!response.empty()) {
+            snprintf(diag, sizeof(diag), "CHAT %d · %s", status, response.c_str());
+        } else {
+            snprintf(diag, sizeof(diag), "CHAT %d · %s", status, esp_err_to_name(err));
+        }
+        reply.text = diag;
         return reply;
     }
 
