@@ -118,6 +118,19 @@ jobs:
           process.stdout.write(String(d?.refresh?.reason||d?.refresh?.status||d?.code||d?.status||'UNKNOWN').slice(0,180));
           NODE
               )"
+              AI_DIAGNOSTICS="$(node - <<'NODE'
+          const fs=require('fs');let d={};try{d=JSON.parse(fs.readFileSync('sov-ai-local.json','utf8'))}catch{}
+          const r=d?.refresh||{};
+          const safe=v=>String(v??'').replace(/[^A-Za-z0-9_.:-]/g,'_').slice(0,180);
+          process.stdout.write([
+            'native='+safe(r.native_version||'unknown'),
+            'engine='+safe(r.engine_version||'unknown'),
+            'required='+safe(r.required_engine_version||'unknown'),
+            'refresh='+safe(r.refresh_status||'unknown'),
+            'refresh_error='+safe(r.refresh_error||'none')
+          ].join(' '));
+          NODE
+              )"
 
               if [ "$AI_CODE" = "200" ]; then
                 node - <<'NODE'
@@ -130,7 +143,7 @@ jobs:
                 break
               fi
 
-              echo "MEL_SOV_AI_LOCAL_NOT_READY attempt=$AI_ATTEMPT http=$AI_CODE reason=$AI_REASON"
+              echo "MEL_SOV_AI_LOCAL_NOT_READY attempt=$AI_ATTEMPT http=$AI_CODE reason=$AI_REASON $AI_DIAGNOSTICS"
 
               case "$AI_REASON" in
                 SOVEREIGNTY_AI_LOCAL_BOOTSTRAP_PENDING)
