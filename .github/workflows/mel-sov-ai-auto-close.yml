@@ -134,6 +134,13 @@ jobs:
                     continue
                   fi
                   ;;
+                COMPANION_ENGINE_UPDATE_REQUIRED:*|SOVEREIGNTY_AI_LOCAL_BOOTSTRAP_FAILED:COMPANION_ENGINE_UPDATE_REQUIRED:*)
+                  if [ "$AI_ATTEMPT" -lt 8 ]; then
+                    echo "MEL_SOV_AI_ENGINE_UPDATE_WAIT attempt=$AI_ATTEMPT reason=$AI_REASON"
+                    sleep 45
+                    continue
+                  fi
+                  ;;
                 COMPANION_OFFLINE|COMPANION_LOCAL_AI_UNAVAILABLE|DEVICE_OFFLINE|COMPANION_COMMAND_TIMEOUT)
                   if [ "$AI_ATTEMPT" -lt 3 ]; then
                     sleep 20
