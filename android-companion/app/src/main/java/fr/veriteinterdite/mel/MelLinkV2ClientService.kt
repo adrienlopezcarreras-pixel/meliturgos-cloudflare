@@ -508,10 +508,67 @@ class MelLinkV2ClientService : Service() {
             .toByteArray()
     }
 
+    private fun currentAndroidDeviceId(): String {
+        val rawId = Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID)
+        return "android-" + (rawId ?: "unknown").take(64)
+    }
+
+    private fun miniDeviceConnection(
+        path: String,
+        method: String,
+        miniDeviceId: String,
+        miniToken: String
+    ): java.net.HttpURLConnection {
+        val connection = java.net.URL(
+            BuildConfig.MEL_BASE_URL.trimEnd('/') + path
+        ).openConnection() as java.net.HttpURLConnection
+        connection.requestMethod = method
+        connection.connectTimeout = 15_000
+        connection.readTimeout = 90_000
+        connection.setRequestProperty("Authorization", "Bearer $miniToken")
+        connection.setRequestProperty("X-MEL-Device-ID", miniDeviceId)
+        connection.setRequestProperty("X-MEL-Link-Protocol", "2")
+        connection.setRequestProperty("Accept", "*/*")
+        return connection
+    }
+
+    private fun sponsoredPairConnection(
+        path: String,
+        method: String,
+        androidDeviceId: String,
+        androidToken: String
+    ): java.net.HttpURLConnection {
+        val connection = java.net.URL(
+            BuildConfig.MEL_BASE_URL.trimEnd('/') + path
+        ).openConnection() as java.net.HttpURLConnection
+        connection.requestMethod = method
+        connection.connectTimeout = 15_000
+        connection.readTimeout = 90_000
+        // Existing production pairing contract: the Android token sponsors the
+        // MINI but never crosses BLE.
+        connection.setRequestProperty("X-MEL-Android-Device-ID", androidDeviceId)
+        connection.setRequestProperty("X-MEL-Android-Token", androidToken)
+        connection.setRequestProperty("X-MEL-Link-Protocol", "2")
+        connection.setRequestProperty("Accept", "application/json")
+        return connection
+    }
+
     private fun executeAudio(audio: IncomingAudio) {
         val miniDeviceId = audio.meta.optString("mini").trim()
         if (miniDeviceId.isBlank()) {
             sendError(audio.streamId, "MINI_DEVICE_ID_REQUIRED")
+            return
+        }
+
+        val miniToken = MiniTokenVault(this).load(miniDeviceId)
+        if (miniToken.isNullOrBlank()) {
+            sendResponse(
+                audio.streamId,
+                401,
+                "application/json",
+                JSONObject().put("ok", false).put("code", "MINI_TOKEN_MISSING")
+                    .toString().toByteArray(Charsets.UTF_8)
+            )
             return
         }
 
@@ -525,28 +582,44 @@ class MelLinkV2ClientService : Service() {
         }
         val wav = MelImaAdpcm.pcm16MonoWav(samples, 16_000)
 
-        val rawAndroidId = Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID)
-        val androidDeviceId = "android-" + (rawAndroidId ?: "unknown").take(64)
+        var connection: java.net.HttpURLConnection? = null
         try {
-            val result = MelApiClient(
-                BuildConfig.MEL_BASE_URL,
-                androidDeviceId,
-                TokenVault(this)
-            ).transcribeMini(wav, miniDeviceId, "audio/wav")
-            val body = result.toString().toByteArray(Charsets.UTF_8)
-            sendResponse(audio.streamId, 200, "application/json", body)
-            internetReady.value = phoneInternetAvailable.value && miniReady.value && protocolReady.value && melSessionReady
-            Log.i(TAG, "V2 ADPCM STT -> 200 samples=${samples.size} wav=${wav.size}")
-        } catch (error: MelApiException) {
-            val status = error.status.takeIf { it in 400..599 } ?: 503
-            val body = JSONObject()
-                .put("ok", false)
-                .put("code", error.code)
-                .put("detail", error.detail)
-                .toString()
-                .toByteArray(Charsets.UTF_8)
-            sendResponse(audio.streamId, status, "application/json", body)
-            lastError.value = "STT_${error.code}"
+            val boundary = "mel-mini-v2-" + UUID.randomUUID().toString()
+            connection = miniDeviceConnection(
+                "/api/device/v1/voice/transcribe",
+                "POST",
+                miniDeviceId,
+                miniToken
+            )
+            connection.doOutput = true
+            connection.setRequestProperty("Content-Type", "multipart/form-data; boundary=$boundary")
+            connection.outputStream.use { output ->
+                fun text(value: String) = output.write(value.toByteArray(Charsets.UTF_8))
+                text("--$boundary\r\n")
+                text("Content-Disposition: form-data; name=\"audio\"; filename=\"mini.wav\"\r\n")
+                text("Content-Type: audio/wav\r\n\r\n")
+                output.write(wav)
+                text("\r\n--$boundary--\r\n")
+            }
+            val status = connection.responseCode
+            val stream = if (status in 200..299) connection.inputStream else connection.errorStream
+            val body = stream?.use { it.readBytes() } ?: byteArrayOf()
+            if (status == 401 || status == 403) {
+                MiniTokenVault(this).clear(miniDeviceId)
+            }
+            sendResponse(
+                audio.streamId,
+                status,
+                connection.contentType ?: "application/json",
+                body
+            )
+            if (status in 200..299) {
+                internetReady.value =
+                    phoneInternetAvailable.value && miniReady.value && protocolReady.value && melSessionReady
+                Log.i(TAG, "V2 ADPCM STT -> $status samples=${samples.size} wav=${wav.size}")
+            } else {
+                lastError.value = "STT_HTTP_$status"
+            }
         } catch (error: Throwable) {
             val body = JSONObject()
                 .put("ok", false)
@@ -556,6 +629,8 @@ class MelLinkV2ClientService : Service() {
                 .toByteArray(Charsets.UTF_8)
             sendResponse(audio.streamId, 503, "application/json", body)
             lastError.value = "STT_RELAY"
+        } finally {
+            connection?.disconnect()
         }
     }
 
@@ -592,7 +667,7 @@ class MelLinkV2ClientService : Service() {
         )
     }
 
-        private fun sendAudioResponse(streamId: Int, pcm16: ShortArray, outputRate: Int): Boolean {
+    private fun sendAudioResponse(streamId: Int, pcm16: ShortArray, outputRate: Int): Boolean {
         if (pcm16.isEmpty()) return false
         val meta = JSONObject()
             .put("codec", "ima-adpcm")
@@ -630,7 +705,7 @@ class MelLinkV2ClientService : Service() {
         )
     }
 
-        private fun executeRequest(request: IncomingRequest) {
+    private fun executeRequest(request: IncomingRequest) {
         val method = request.meta.optString("method", "POST").uppercase()
         val path = request.meta.optString("path")
         val contentType = request.meta.optString("content_type", "application/json")
@@ -638,78 +713,114 @@ class MelLinkV2ClientService : Service() {
             sendError(request.streamId, "BAD_PATH")
             return
         }
-        val rawId = Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID)
-        val androidDeviceId = "android-" + (rawId ?: "unknown").take(64)
+
         val miniDeviceId = request.meta.optString("mini_device_id").trim()
-        val token = TokenVault(this).load()
-        if (token.isNullOrBlank()) {
-            sendError(request.streamId, "ANDROID_NOT_PAIRED")
-            return
-        }
         if (miniDeviceId.isBlank()) {
             sendError(request.streamId, "MINI_DEVICE_ID_REQUIRED")
             return
         }
 
-        val delegatedPath = if (path.startsWith("/api/device/v1/")) {
-            "/api/android/v1/mini/" + path.removePrefix("/api/device/v1/")
-        } else {
-            path
-        }
+        val isPair = path == "/api/device/v1/pair"
+        val androidDeviceId = currentAndroidDeviceId()
+        val androidToken = TokenVault(this).load()
 
+        var connection: java.net.HttpURLConnection? = null
         try {
-            val connection = java.net.URL(BuildConfig.MEL_BASE_URL.trimEnd('/') + delegatedPath).openConnection() as java.net.HttpURLConnection
-            try {
-                connection.requestMethod = method
-                connection.connectTimeout = 15_000
-                connection.readTimeout = 90_000
-                connection.setRequestProperty("Authorization", "Bearer $token")
-                connection.setRequestProperty("X-MEL-Device-ID", androidDeviceId)
-                connection.setRequestProperty("X-MEL-MINI-Device-ID", miniDeviceId)
-                connection.setRequestProperty("X-MEL-Link-Protocol", "2")
-                connection.setRequestProperty("Accept", "*/*")
-                if (request.body.size() > 0) {
-                    connection.doOutput = true
-                    connection.setRequestProperty("Content-Type", contentType)
-                    connection.outputStream.use { it.write(request.body.toByteArray()) }
-                }
-                val status = connection.responseCode
-                if (status in 200..299 && path == "/api/device/v1/pair") {
-                    miniPairingComplete.value = true
-                    getSharedPreferences("mel_link_v2", MODE_PRIVATE).edit()
-                        .putBoolean("mini_pairing_complete", true).apply()
-                }
-                val stream = if (status in 200..299) connection.inputStream else connection.errorStream
-                val body = stream?.use { it.readBytes() } ?: byteArrayOf()
-
-                if (status in 200..299 && path == "/api/device/v1/voice/tts") {
-                    val pcm48 = runCatching {
-                        MelImaAdpcm.decodePcm16MonoWav(body, 48_000)
-                    }.getOrElse {
-                        lastError.value = "TTS_WAV"
-                        sendResponse(
-                            request.streamId, 503, "application/json",
-                            JSONObject().put("ok",false).put("code","TTS_WAV").toString().toByteArray()
-                        )
-                        return
-                    }
-                    val pcm16 = MelImaAdpcm.decimate48kTo16k(pcm48)
-                    sendAudioResponse(request.streamId, pcm16, outputRate = 48_000)
+            connection = if (isPair) {
+                if (androidToken.isNullOrBlank()) {
+                    sendResponse(
+                        request.streamId,
+                        401,
+                        "application/json",
+                        JSONObject().put("ok", false).put("code", "ANDROID_NOT_PAIRED")
+                            .toString().toByteArray(Charsets.UTF_8)
+                    )
                     return
                 }
-
-                sendResponse(
-                    request.streamId,
-                    status,
-                    connection.contentType ?: "application/octet-stream",
-                    body
-                )
-            } finally {
-                connection.disconnect()
+                sponsoredPairConnection(path, method, androidDeviceId, androidToken)
+            } else {
+                val miniToken = MiniTokenVault(this).load(miniDeviceId)
+                if (miniToken.isNullOrBlank()) {
+                    // Deliberately return a normal 401 response. MINI already
+                    // handles this by clearing its stale token and immediately
+                    // requesting an Android-sponsored /pair refresh.
+                    sendResponse(
+                        request.streamId,
+                        401,
+                        "application/json",
+                        JSONObject().put("ok", false).put("code", "MINI_TOKEN_MISSING")
+                            .toString().toByteArray(Charsets.UTF_8)
+                    )
+                    return
+                }
+                miniDeviceConnection(path, method, miniDeviceId, miniToken)
             }
+
+            if (request.body.size() > 0) {
+                connection.doOutput = true
+                connection.setRequestProperty("Content-Type", contentType)
+                connection.outputStream.use { it.write(request.body.toByteArray()) }
+            }
+
+            val status = connection.responseCode
+            val stream = if (status in 200..299) connection.inputStream else connection.errorStream
+            val body = stream?.use { it.readBytes() } ?: byteArrayOf()
+
+            if (isPair && status in 200..299) {
+                val response = runCatching {
+                    JSONObject(body.toString(Charsets.UTF_8))
+                }.getOrNull()
+                val miniToken = response?.optString("token").orEmpty()
+                val responseMiniId = response?.optString("device_id").orEmpty()
+                if (miniToken.isBlank() || responseMiniId != miniDeviceId) {
+                    sendResponse(
+                        request.streamId,
+                        502,
+                        "application/json",
+                        JSONObject().put("ok", false).put("code", "MINI_PAIR_RESPONSE_INVALID")
+                            .toString().toByteArray(Charsets.UTF_8)
+                    )
+                    return
+                }
+                // Store the exact same MINI token Android is about to send back
+                // to MINI over the encrypted local BLE link.
+                MiniTokenVault(this).save(miniDeviceId, miniToken)
+                miniPairingComplete.value = true
+                getSharedPreferences("mel_link_v2", MODE_PRIVATE).edit()
+                    .putBoolean("mini_pairing_complete", true).apply()
+                state.value = "MINI V2 · IDENTITE OK"
+            } else if (!isPair && (status == 401 || status == 403)) {
+                MiniTokenVault(this).clear(miniDeviceId)
+            }
+
+            if (status in 200..299 && path == "/api/device/v1/voice/tts") {
+                val pcm48 = runCatching {
+                    MelImaAdpcm.decodePcm16MonoWav(body, 48_000)
+                }.getOrElse {
+                    lastError.value = "TTS_WAV"
+                    sendResponse(
+                        request.streamId, 503, "application/json",
+                        JSONObject().put("ok", false).put("code", "TTS_WAV")
+                            .toString().toByteArray(Charsets.UTF_8)
+                    )
+                    return
+                }
+                val pcm16 = MelImaAdpcm.decimate48kTo16k(pcm48)
+                sendAudioResponse(request.streamId, pcm16, outputRate = 48_000)
+                return
+            }
+
+            sendResponse(
+                request.streamId,
+                status,
+                connection.contentType ?: "application/octet-stream",
+                body
+            )
         } catch (error: Throwable) {
             sendError(request.streamId, "HTTP_RELAY")
             lastError.value = error.message.orEmpty()
+        } finally {
+            connection?.disconnect()
         }
     }
 
