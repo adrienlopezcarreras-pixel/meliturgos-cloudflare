@@ -7,11 +7,22 @@
 
 typedef bool (*mel_link_v2_chunk_cb)(const uint8_t *data, size_t len, void *ctx);
 
+typedef struct {
+    char ssid[33];
+    char password[65];
+    char token[97];
+    uint16_t port;
+} MelLinkV2MediaConfig;
+
 void mel_link_v2_transport_start(void);
 bool mel_link_v2_transport_ready(void);
 bool mel_link_v2_transport_keepalive(void);
 bool mel_link_v2_transport_candidate_seen(void);
 uint16_t mel_link_v2_transport_mtu(void);
+bool mel_link_v2_transport_request_media_config(
+    MelLinkV2MediaConfig *out,
+    uint32_t timeout_ms
+);
 
 esp_err_t mel_link_v2_transport_request(
     esp_http_client_method_t method,
