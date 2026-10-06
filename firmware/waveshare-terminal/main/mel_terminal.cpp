@@ -33,9 +33,12 @@
 #include "wear_levelling.h"
 #include "esp_camera.h"
 #include "esp_camera_port.h"
+#include "img_converters.h"
 #include "esp_codec_dev.h"
 #include "esp_lvgl_port.h"
 #include "cJSON.h"
+#include "lwip/sockets.h"
+#include "lwip/inet.h"
 #include "mbedtls/sha256.h"
 
 #include "freertos/FreeRTOS.h"
@@ -46,6 +49,14 @@
 #include "esp_es8311_port.h"
 
 static const char *TAG = "mel_terminal";
+
+bool mini_media_wifi_connect(
+    const char *ssid,
+    const char *password,
+    char *gateway,
+    size_t gateway_len
+);
+void mini_media_wifi_release();
 static const char *SERVER = "https://meliturgos.adrien-lopezcarreras.workers.dev";
 static const char *MODEL = "waveshare-esp32-s3-touch-lcd-3.5-c";
 static const int WIFI_CONNECTED_BIT = BIT0;
@@ -406,7 +417,8 @@ static void wake_detector_task(void *) {
     ensure_mic_mutex();
     int filled = 0;
     while (true) {
-        if (!g_wake_profile_ready || !g_online || !g_audio_ok || !input_dev || g_runtime_state != MEL_TERMINAL_IDLE) {
+        if (!g_wake_profile_ready || (!g_online && !mel_mobile_bridge_ready()) ||
+            !g_audio_ok || !input_dev || g_runtime_state != MEL_TERMINAL_IDLE) {
             filled = 0;
             vTaskDelay(pdMS_TO_TICKS(250));
             continue;
