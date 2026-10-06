@@ -419,13 +419,13 @@ test('Pipedream access token exchange matches the official SDK client-credential
   assert.equal(calls[0].url, 'https://api.pipedream.com/v1/oauth/token');
   assert.equal(calls[0].init.method, 'POST');
   assert.equal(calls[0].init.redirect, 'manual');
-  assert.equal(calls[0].init.headers['content-type'], 'application/x-www-form-urlencoded');
-  const body = new URLSearchParams(String(calls[0].init.body));
-  assert.equal(body.get('grant_type'), 'client_credentials');
-  assert.equal(body.get('client_id'), 'client-id');
-  assert.equal(body.get('client_secret'), 'client-secret');
-  assert.equal(body.get('project_id'), 'proj_demo123');
-  assert.equal(body.get('environment'), 'production');
+  assert.equal(calls[0].init.headers['content-type'], 'application/json');
+  const body = JSON.parse(String(calls[0].init.body));
+  assert.equal(body.grant_type, 'client_credentials');
+  assert.equal(body.client_id, 'client-id');
+  assert.equal(body.client_secret, 'client-secret');
+  assert.equal('project_id' in body, false);
+  assert.equal('environment' in body, false);
 });
 
 test('Pipedream real project probe checks Outlook and OneDrive component catalogs', async () => {
@@ -473,7 +473,7 @@ test('Pipedream account status uses the server access token and filters by MEL e
     },
   });
   assert.deepEqual(result.connected_apps.sort(), ['microsoft_onedrive', 'microsoft_outlook']);
-  const accountsCall = calls.find(call => call.url.includes('/accounts/?'));
+  const accountsCall = calls.find(call => call.url.includes('/accounts?'));
   assert.ok(accountsCall);
   assert.match(accountsCall.url, /external_user_id=adrien/);
   assert.equal(accountsCall.init.headers.authorization, 'Bearer server-token');
@@ -494,7 +494,7 @@ test('Pipedream Google Tasks proof executes the read-only List Task Lists action
       if (String(url).endsWith('/v1/oauth/token')) {
         return Response.json({ access_token: 'server-token', token_type: 'Bearer', expires_in: 3600 });
       }
-      if (String(url).includes('/accounts/?')) {
+      if (String(url).includes('/accounts?')) {
         return Response.json({
           data: [
             { id: 'apn_tasks', name: 'Google Tasks', healthy: true, dead: false, app: { name_slug: 'google_tasks' } },
@@ -542,7 +542,7 @@ test('Pipedream Google Tasks proof falls back to the read-only Connect proxy whe
       if (String(url).endsWith('/v1/oauth/token')) {
         return Response.json({ access_token: 'server-token', token_type: 'Bearer', expires_in: 3600 });
       }
-      if (String(url).includes('/accounts/?')) {
+      if (String(url).includes('/accounts?')) {
         return Response.json({
           data: [
             { id: 'apn_tasks', name: 'Google Tasks', healthy: true, dead: false, app: { name_slug: 'google_tasks' } },
@@ -590,7 +590,7 @@ test('Pipedream Google Tasks fallback preserves only sanitized upstream status o
     }, 'adrien', {
       fetcher: async (url) => {
         if (String(url).endsWith('/v1/oauth/token')) return Response.json({ access_token: 'server-token' });
-        if (String(url).includes('/accounts/?')) {
+        if (String(url).includes('/accounts?')) {
           return Response.json({
             data: [{ id: 'apn_tasks', healthy: true, app: { name_slug: 'google_tasks' } }],
           });
@@ -619,7 +619,7 @@ test('Pipedream Google Tasks proof fails closed without a healthy linked account
     }, 'adrien', {
       fetcher: async (url) => {
         if (String(url).endsWith('/v1/oauth/token')) return Response.json({ access_token: 'server-token' });
-        if (String(url).includes('/accounts/?')) return Response.json({ data: [] });
+        if (String(url).includes('/accounts?')) return Response.json({ data: [] });
         throw new Error('ACTION_MUST_NOT_RUN');
       },
     }),
@@ -645,8 +645,7 @@ test('Google status isolates unreadable legacy connector tokens instead of faili
 });
 
 
-test('Pipedream account status uses current Connect project accounts endpoint', async()=>{
+test('Pipedream account status uses the Connect project accounts endpoint', async()=>{
   const source=await import('node:fs/promises').then(fs=>fs.readFile(new URL('../../src/api/connection-settings-api.js',import.meta.url),'utf8'));
-  assert.match(source,/https:\/\/api\.pipedream\.com\/v1\/['"]? \+ encodeURIComponent\(projectId\) \+ ['"]?\/accounts\//);
-  assert.doesNotMatch(source,/\/v1\/connect\/['"]? \+ encodeURIComponent\(projectId\) \+ ['"]?\/accounts/);
+  assert.match(source,/https:\/\/api\.pipedream\.com\/v1\/connect\/['"]? \+ encodeURIComponent\(projectId\) \+ ['"]?\/accounts\?/);
 });
