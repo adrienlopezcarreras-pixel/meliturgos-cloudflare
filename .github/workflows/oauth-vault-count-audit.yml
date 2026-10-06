@@ -1,0 +1,49 @@
+name: oauth-vault-count-audit
+
+on:
+  push:
+    branches:
+      - diag/oauth-vault-count-20261006
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Read OAuth vault table counts only
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          npx wrangler d1 execute meliturgos-memory --remote --json --command "
+            SELECT
+              (SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='mel_oauth_tokens') AS token_table_exists,
+              (SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='mel_oauth_transactions') AS tx_table_exists;
+          " > schema.json
+          cat schema.json
+          TOKEN_TABLE="$(node -e "const d=require('./schema.json'); const r=d?.[0]?.results?.[0]||d?.result?.[0]?.results?.[0]||{}; process.stdout.write(String(r.token_table_exists||0))")"
+          TX_TABLE="$(node -e "const d=require('./schema.json'); const r=d?.[0]?.results?.[0]||d?.result?.[0]?.results?.[0]||{}; process.stdout.write(String(r.tx_table_exists||0))")"
+          TOKENS=0
+          TX=0
+          if [ "$TOKEN_TABLE" = "1" ]; then
+            npx wrangler d1 execute meliturgos-memory --remote --json --command "SELECT COUNT(*) AS n FROM mel_oauth_tokens;" > tokens.json
+            TOKENS="$(node -e "const d=require('./tokens.json'); const r=d?.[0]?.results?.[0]||d?.result?.[0]?.results?.[0]||{}; process.stdout.write(String(r.n||0))")"
+          fi
+          if [ "$TX_TABLE" = "1" ]; then
+            npx wrangler d1 execute meliturgos-memory --remote --json --command "SELECT COUNT(*) AS n FROM mel_oauth_transactions;" > tx.json
+            TX="$(node -e "const d=require('./tx.json'); const r=d?.[0]?.results?.[0]||d?.result?.[0]?.results?.[0]||{}; process.stdout.write(String(r.n||0))")"
+          fi
+          echo "OAUTH_VAULT_AUDIT token_table=$TOKEN_TABLE token_rows=$TOKENS tx_table=$TX_TABLE tx_rows=$TX"
+          test "$TOKENS" -ge 0
+          test "$TX" -ge 0
