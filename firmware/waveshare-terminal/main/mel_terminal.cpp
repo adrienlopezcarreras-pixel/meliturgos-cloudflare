@@ -1680,6 +1680,17 @@ static bool media_send_all(int fd, const void *data, size_t len) {
     return true;
 }
 
+static bool media_recv_all(int fd, void *data, size_t len) {
+    uint8_t *p = static_cast<uint8_t *>(data);
+    size_t received = 0;
+    while (received < len) {
+        const int n = recv(fd, p + received, len - received, 0);
+        if (n <= 0) return false;
+        received += (size_t)n;
+    }
+    return true;
+}
+
 static bool media_send_u8(int fd, uint8_t value) {
     return media_send_all(fd, &value, 1);
 }
@@ -1963,6 +1974,58 @@ static bool capture_audio_to_phone(int seconds) {
     if (ok) ok = media_send_u32(fd, 0);
     media_close_socket(fd);
     ESP_LOGI(TAG, "MEDIA AUDIO %s seconds=%d", ok ? "OK" : "FAIL", seconds);
+    return ok;
+}
+
+static bool open_web_page_on_mini(const std::string &url) {
+    if (url.rfind("https://", 0) != 0 && url.rfind("http://", 0) != 0) return false;
+    if (url.size() > 2048) return false;
+
+    constexpr uint16_t width = 320;
+    constexpr uint16_t height = 320;
+    int fd = media_open_socket(
+        4,
+        "mel-mini-browser",
+        width,
+        height,
+        0,
+        0,
+        0
+    );
+    if (fd < 0) return false;
+
+    bool ok =
+        media_send_u16(fd, (uint16_t)url.size()) &&
+        media_send_all(fd, url.data(), url.size());
+
+    uint32_t net_len = 0;
+    if (ok) ok = media_recv_all(fd, &net_len, sizeof(net_len));
+    const uint32_t bytes = ntohl(net_len);
+    const size_t expected = (size_t)width * (size_t)height * 2U;
+    if (!ok || bytes != expected) {
+        media_close_socket(fd);
+        return false;
+    }
+
+    auto *pixels = static_cast<uint8_t *>(
+        heap_caps_malloc(expected, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)
+    );
+    if (!pixels) pixels = static_cast<uint8_t *>(malloc(expected));
+    if (!pixels) {
+        media_close_socket(fd);
+        return false;
+    }
+
+    ok = media_recv_all(fd, pixels, expected);
+    media_close_socket(fd);
+    if (ok) {
+        ok = mini_ui_show_rgb565(pixels, expected, width, height);
+    }
+    free(pixels);
+    if (ok) {
+        ui_status("WEB");
+        ui_answer("Page ouverte via le telephone. Touchez l'image pour revenir.");
+    }
     return ok;
 }
 
@@ -2255,9 +2318,15 @@ static bool mobile_asset_chunk(const uint8_t *data, size_t len, void *ctx_ptr) {
 }
 
 static bool render_display_item_card(size_t index) {
-    if (!g_storage_ok || !mel_mobile_bridge_ready() || g_display_items.empty()) return false;
+    if (!mel_mobile_bridge_ready() || g_display_items.empty()) return false;
     if (index >= g_display_items.size()) index = 0;
     const MelDisplayItem &item = g_display_items[index];
+
+    // The phone owns the real browser engine. Render the page there and return
+    // only a 320x320 RGB565 view to MINI RAM. No browser asset is persisted on MINI.
+    if (open_web_page_on_mini(item.url)) return true;
+
+    if (!g_storage_ok) return false;
 
     cJSON *root = cJSON_CreateObject();
     cJSON_AddStringToObject(root, "title", item.title.c_str());
