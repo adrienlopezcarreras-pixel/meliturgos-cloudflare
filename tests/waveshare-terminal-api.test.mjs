@@ -166,3 +166,14 @@ test('MINI firmware validates the WAV contract before writing to ES8311', async 
   assert.match(source,/TTS WAV header invalid; refusing audio playback/);
   assert.match(source,/TTS_MAX_PCM_BYTES/);
 });
+
+
+test('MINI device chat preserves voice mode for fast spoken replies', async () => {
+  const source = await readFile(
+    new URL('../src/devices/waveshare-terminal-api.js', import.meta.url),
+    'utf8'
+  );
+  assert.match(source, /input_source: inputSource/);
+  assert.match(source, /voice_reply: voiceReply/);
+  assert.match(source, /parallel: voiceReply \? false : body\.parallel === true/);
+});
