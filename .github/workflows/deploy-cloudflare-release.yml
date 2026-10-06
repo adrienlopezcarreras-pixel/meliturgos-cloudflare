@@ -649,7 +649,7 @@ jobs:
           npx wrangler deploy --config browser-companion/runtime/wrangler.browser-production.jsonc
           echo "Production Browser Companion deployed."
 
-      - name: Require production owner auth secret before exact deploy
+      - name: Require persistent production secrets before exact deploy
         shell: bash
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -660,9 +660,17 @@ jobs:
           node - <<'NODE'
           const fs=require('fs');
           const rows=JSON.parse(fs.readFileSync('production-secret-names.json','utf8'));
-          const names=(Array.isArray(rows)?rows:[]).map(row=>String(row?.name||'')).filter(Boolean);
-          if(!names.includes('MELITURGOS_PASSWORD')) throw new Error('PRODUCTION_OWNER_AUTH_SECRET_MISSING');
-          console.log('Production owner auth secret presence verified; omitted secrets are preserved by the exact deployment.');
+          const names=new Set((Array.isArray(rows)?rows:[]).map(row=>String(row?.name||'')).filter(Boolean));
+          const source=fs.readFileSync('wrangler.jsonc','utf8');
+          const match=source.match(/"secrets"\s*:\s*\{[\s\S]*?"required"\s*:\s*(\[[\s\S]*?\])/);
+          if(!match) throw new Error('PRODUCTION_REQUIRED_SECRET_CONTRACT_MISSING');
+          const required=JSON.parse(match[1]);
+          if(!Array.isArray(required)||required.length<1||required.some(name=>typeof name!=='string'||!name.trim())) {
+            throw new Error('PRODUCTION_REQUIRED_SECRET_CONTRACT_INVALID');
+          }
+          const missing=required.filter(name=>!names.has(name));
+          if(missing.length) throw new Error('PRODUCTION_REQUIRED_SECRETS_MISSING:'+missing.join(','));
+          console.log('Persistent production secret contract verified: '+required.length+' required bindings present; omitted secrets are preserved by the exact deployment.');
           NODE
           rm -f production-secret-names.json
 
