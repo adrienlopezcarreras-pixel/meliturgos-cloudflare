@@ -473,7 +473,7 @@ test('Pipedream account status uses the server access token and filters by MEL e
     },
   });
   assert.deepEqual(result.connected_apps.sort(), ['microsoft_onedrive', 'microsoft_outlook']);
-  const accountsCall = calls.find(call => call.url.includes('/accounts?'));
+  const accountsCall = calls.find(call => call.url.includes('/users/adrien/accounts?'));
   assert.ok(accountsCall);
   assert.match(accountsCall.url, /external_user_id=adrien/);
   assert.equal(accountsCall.init.headers.authorization, 'Bearer server-token');
@@ -494,7 +494,7 @@ test('Pipedream Google Tasks proof executes the read-only List Task Lists action
       if (String(url).endsWith('/v1/oauth/token')) {
         return Response.json({ access_token: 'server-token', token_type: 'Bearer', expires_in: 3600 });
       }
-      if (String(url).includes('/accounts?')) {
+      if (String(url).includes('/users/adrien/accounts?')) {
         return Response.json({
           data: [
             { id: 'apn_tasks', name: 'Google Tasks', healthy: true, dead: false, app: { name_slug: 'google_tasks' } },
@@ -542,7 +542,7 @@ test('Pipedream Google Tasks proof falls back to the read-only Connect proxy whe
       if (String(url).endsWith('/v1/oauth/token')) {
         return Response.json({ access_token: 'server-token', token_type: 'Bearer', expires_in: 3600 });
       }
-      if (String(url).includes('/accounts?')) {
+      if (String(url).includes('/users/adrien/accounts?')) {
         return Response.json({
           data: [
             { id: 'apn_tasks', name: 'Google Tasks', healthy: true, dead: false, app: { name_slug: 'google_tasks' } },
@@ -590,7 +590,7 @@ test('Pipedream Google Tasks fallback preserves only sanitized upstream status o
     }, 'adrien', {
       fetcher: async (url) => {
         if (String(url).endsWith('/v1/oauth/token')) return Response.json({ access_token: 'server-token' });
-        if (String(url).includes('/accounts?')) {
+        if (String(url).includes('/users/adrien/accounts?')) {
           return Response.json({
             data: [{ id: 'apn_tasks', healthy: true, app: { name_slug: 'google_tasks' } }],
           });
@@ -619,7 +619,7 @@ test('Pipedream Google Tasks proof fails closed without a healthy linked account
     }, 'adrien', {
       fetcher: async (url) => {
         if (String(url).endsWith('/v1/oauth/token')) return Response.json({ access_token: 'server-token' });
-        if (String(url).includes('/accounts?')) return Response.json({ data: [] });
+        if (String(url).includes('/users/adrien/accounts?')) return Response.json({ data: [] });
         throw new Error('ACTION_MUST_NOT_RUN');
       },
     }),
@@ -645,7 +645,8 @@ test('Google status isolates unreadable legacy connector tokens instead of faili
 });
 
 
-test('Pipedream account status uses the Connect project accounts endpoint', async()=>{
+test('Pipedream account status uses the official user-scoped Connect accounts endpoint', async()=>{
   const source=await import('node:fs/promises').then(fs=>fs.readFile(new URL('../../src/api/connection-settings-api.js',import.meta.url),'utf8'));
-  assert.match(source,/https:\/\/api\.pipedream\.com\/v1\/connect\/['"]? \+ encodeURIComponent\(projectId\) \+ ['"]?\/accounts\?/);
+  assert.match(source,/\/users\/['"]? \+ encodeURIComponent\(contextOwner\) \+ ['"]?\/accounts\?/);
+  assert.doesNotMatch(source,/external_user_id:\s*contextOwner/);
 });
