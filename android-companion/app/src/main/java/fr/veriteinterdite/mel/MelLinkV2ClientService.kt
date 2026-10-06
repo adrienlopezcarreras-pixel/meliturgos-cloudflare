@@ -542,7 +542,8 @@ class MelLinkV2ClientService : Service() {
                     audio.pcm16.write((value ushr 8) and 0xff)
                 }
                 audio.creditsConsumed++
-                if (audio.creditsConsumed >= MelLinkV2Protocol.CREDIT_WINDOW) {
+                val replenishAt = maxOf(1, MelLinkV2Protocol.CREDIT_WINDOW / 2)
+                if (audio.creditsConsumed >= replenishAt) {
                     sendCreditAsync(frame.streamId, audio.creditsConsumed)
                     audio.creditsConsumed = 0
                 }
