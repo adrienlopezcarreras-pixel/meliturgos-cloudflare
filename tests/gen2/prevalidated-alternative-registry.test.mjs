@@ -85,3 +85,31 @@ test('AI sovereignty reports whether a fresh low-refusal rescue model exists',()
   assert.equal(missing.coverage.ai.ready,true);
   assert.equal(missing.ai_low_refusal_ready,false);
 });
+
+
+test('owner-device local AI remains optional and cannot close global AI survival coverage',()=>{
+  const localOnly=createAlternativeRegistry([
+    {
+      id:'ai.local-companion',layer:'ai',provider:'local-companion-ai',
+      endpoint_class:'paired-windows-localhost-ai',added_cost_eur:0,
+      low_refusal:true,policy_profile:'LOW_REFUSAL',proof:proof(),
+    },
+  ],{now});
+  const localCoverage=sovereigntyCoverageFromRegistry(localOnly,{now});
+  assert.equal(localCoverage.coverage.ai.ready,false);
+  assert.equal(localCoverage.ai_low_refusal_ready,false);
+  assert.equal(localCoverage.ai_local_optional_ready,true);
+  assert.equal(localCoverage.ai_survival_requires_owner_device,false);
+
+  const alwaysOn=createAlternativeRegistry([
+    {
+      id:'ai.always-on',layer:'ai',provider:'alternate-ai',
+      endpoint_class:'provider-neutral-http-chat',added_cost_eur:0,
+      low_refusal:true,policy_profile:'LOW_REFUSAL',proof:proof(),
+    },
+  ],{now});
+  const alwaysOnCoverage=sovereigntyCoverageFromRegistry(alwaysOn,{now});
+  assert.equal(alwaysOnCoverage.coverage.ai.ready,true);
+  assert.equal(alwaysOnCoverage.ai_low_refusal_ready,true);
+  assert.equal(alwaysOnCoverage.ai_local_optional_ready,false);
+});

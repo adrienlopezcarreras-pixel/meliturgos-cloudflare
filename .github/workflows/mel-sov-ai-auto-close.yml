@@ -115,92 +115,16 @@ jobs:
           fi
 
           AI_REFRESH_OK=0
-          AI_REASON="NOT_ATTEMPTED"
+          CONFIGURED_AI_REASON="NOT_ATTEMPTED"
 
+          # Survival invariant: never require or auto-start an owner PC to close
+          # the global AI sovereignty gate. The Windows/Ollama path is optional
+          # local acceleration and is validated only by explicit/manual ai_local
+          # refreshes outside this auto-close workflow.
           if [ "$AI_LOW_REFUSAL_READY" = "1" ]; then
-            echo "MEL_SOV_AI_LOW_REFUSAL_ALREADY_READY"
+            echo "MEL_SOV_AI_ALWAYS_ON_LOW_REFUSAL_ALREADY_READY"
             AI_REFRESH_OK=1
           else
-            AI_ATTEMPT=0
-            AI_BOOTSTRAP_WAITS=0
-            AI_ENGINE_UPDATE_WAITS=0
-            AI_RUNTIME_WAITS=0
-
-            while [ "$AI_ATTEMPT" -lt 28 ]; do
-              AI_ATTEMPT=$((AI_ATTEMPT + 1))
-              AI_CODE="$(curl --silent --show-error --max-time 150 \
-                --header "x-mel-parallel-proof: $PROOF_TOKEN" \
-                --header "content-type: application/json" \
-                --data '{"phase":"sovereignty-proof"}' \
-                --output sov-ai-local.json --write-out '%{http_code}' \
-                "$BASE_URL/api/internal/release-launch-bootstrap?refresh=ai_local" || true)"
-
-              AI_REASON="$(node - <<'NODE'
-          const fs=require('fs');let d={};try{d=JSON.parse(fs.readFileSync('sov-ai-local.json','utf8'))}catch{}
-          process.stdout.write(String(d?.refresh?.reason||d?.refresh?.status||d?.code||d?.status||'UNKNOWN').slice(0,180));
-          NODE
-              )"
-              AI_DIAGNOSTICS="$(node - <<'NODE'
-          const fs=require('fs');let d={};try{d=JSON.parse(fs.readFileSync('sov-ai-local.json','utf8'))}catch{}
-          const r=d?.refresh||{};
-          const safe=v=>String(v??'').replace(/[^A-Za-z0-9_.:-]/g,'_').slice(0,180);
-          process.stdout.write([
-            'native='+safe(r.native_version||'unknown'),
-            'engine='+safe(r.engine_version||'unknown'),
-            'required='+safe(r.required_engine_version||'unknown'),
-            'refresh='+safe(r.refresh_status||'unknown'),
-            'refresh_error='+safe(r.refresh_error||'none')
-          ].join(' '));
-          NODE
-              )"
-
-              abort_if_release_transition "$AI_CODE" "$AI_REASON"
-
-              if [ "$AI_CODE" = "200" ]; then
-                node - <<'NODE'
-          const d=require('./sov-ai-local.json');
-          if(d?.ok!==true||d?.status!=='MEL_SOV_01_REFRESH_STEP_VERIFIED') throw new Error('AI_LOCAL_REFRESH_NOT_VERIFIED');
-          if(d?.secret_values_exposed!==false||d?.autonomy_started!==false) throw new Error('AI_LOCAL_REFRESH_SAFETY_FAILED');
-          NODE
-                AI_REFRESH_OK=1
-                echo "MEL_SOV_AI_LOCAL_PREVALIDATED attempt=$AI_ATTEMPT"
-                break
-              fi
-
-              echo "MEL_SOV_AI_LOCAL_NOT_READY attempt=$AI_ATTEMPT http=$AI_CODE reason=$AI_REASON $AI_DIAGNOSTICS"
-
-              case "$AI_REASON" in
-                SOVEREIGNTY_AI_LOCAL_BOOTSTRAP_PENDING)
-                  AI_BOOTSTRAP_WAITS=$((AI_BOOTSTRAP_WAITS + 1))
-                  if [ "$AI_BOOTSTRAP_WAITS" -lt 8 ]; then
-                    echo "MEL_SOV_AI_BOOTSTRAP_WAIT attempt=$AI_ATTEMPT wait=$AI_BOOTSTRAP_WAITS/8"
-                    sleep 45
-                    continue
-                  fi
-                  ;;
-                COMPANION_ENGINE_UPDATE_REQUIRED:*|SOVEREIGNTY_AI_LOCAL_BOOTSTRAP_FAILED:COMPANION_ENGINE_UPDATE_REQUIRED:*)
-                  AI_ENGINE_UPDATE_WAITS=$((AI_ENGINE_UPDATE_WAITS + 1))
-                  if [ "$AI_ENGINE_UPDATE_WAITS" -lt 14 ]; then
-                    echo "MEL_SOV_AI_ENGINE_UPDATE_WAIT attempt=$AI_ATTEMPT wait=$AI_ENGINE_UPDATE_WAITS/14 reason=$AI_REASON"
-                    sleep 45
-                    continue
-                  fi
-                  ;;
-                COMPANION_OFFLINE|COMPANION_LOCAL_AI_UNAVAILABLE|DEVICE_OFFLINE|COMPANION_COMMAND_TIMEOUT)
-                  AI_RUNTIME_WAITS=$((AI_RUNTIME_WAITS + 1))
-                  if [ "$AI_RUNTIME_WAITS" -lt 3 ]; then
-                    echo "MEL_SOV_AI_RUNTIME_WAIT attempt=$AI_ATTEMPT wait=$AI_RUNTIME_WAITS/3 reason=$AI_REASON"
-                    sleep 20
-                    continue
-                  fi
-                  ;;
-              esac
-              break
-            done
-          fi
-
-          CONFIGURED_AI_REASON="NOT_ATTEMPTED"
-          if [ "$AI_REFRESH_OK" != "1" ]; then
             CONFIGURED_AI_CODE="$(curl --silent --show-error --max-time 150 \
               --header "x-mel-parallel-proof: $PROOF_TOKEN" \
               --header "content-type: application/json" \
@@ -221,32 +145,16 @@ jobs:
           if(d?.secret_values_exposed!==false||d?.autonomy_started!==false) throw new Error('AI_CONFIGURED_REFRESH_SAFETY_FAILED');
           NODE
               AI_REFRESH_OK=1
-              echo "MEL_SOV_AI_CONFIGURED_PREVALIDATED"
+              echo "MEL_SOV_AI_ALWAYS_ON_PREVALIDATED"
             else
-              echo "MEL_SOV_AI_CONFIGURED_NOT_READY http=$CONFIGURED_AI_CODE reason=$CONFIGURED_AI_REASON"
+              echo "MEL_SOV_AI_ALWAYS_ON_NOT_READY http=$CONFIGURED_AI_CODE reason=$CONFIGURED_AI_REASON"
             fi
           fi
 
           if [ "$AI_REFRESH_OK" != "1" ]; then
-            echo "MEL_SOV_AI_NOT_CLOSED local_reason=$AI_REASON configured_reason=$CONFIGURED_AI_REASON"
-            case "$AI_REASON" in
-              SOVEREIGNTY_AI_LOCAL_BOOTSTRAP_PENDING)
-                echo "MEL_SOV_AI_LOCAL_BOOTSTRAP_STILL_PENDING"
-                exit 42
-                ;;
-              COMPANION_OFFLINE|COMPANION_LOCAL_AI_UNAVAILABLE|DEVICE_OFFLINE|COMPANION_COMMAND_TIMEOUT)
-                echo "MEL_SOV_AI_LOCAL_RUNTIME_UNAVAILABLE"
-                exit 43
-                ;;
-              OLLAMA_BOOTSTRAP_PROCESS_EXITED_AT_*|OLLAMA_BOOTSTRAP_PROCESS_EXITED|SOVEREIGNTY_AI_LOCAL_BOOTSTRAP_FAILED:OLLAMA_BOOTSTRAP_PROCESS_EXITED_AT_*|SOVEREIGNTY_AI_LOCAL_BOOTSTRAP_FAILED:OLLAMA_BOOTSTRAP_PROCESS_EXITED)
-                echo "MEL_SOV_AI_OLLAMA_BOOTSTRAP_FAILED reason=$AI_REASON"
-                exit 46
-                ;;
-              *)
-                echo "MEL_SOV_AI_REFRESH_FAILED reason=$AI_REASON"
-                exit 44
-                ;;
-            esac
+            echo "MEL_SOV_AI_ALWAYS_ON_ALTERNATIVE_REQUIRED configured_reason=$CONFIGURED_AI_REASON"
+            echo "MEL_SOV_AI_LOCAL_OPTIONAL_NOT_AUTO_STARTED"
+            exit 47
           fi
 
           FINAL_CODE="$(curl --silent --show-error --max-time 45 \
@@ -299,6 +207,7 @@ jobs:
           echo '### MEL SOV AI auto-close' >> "$GITHUB_STEP_SUMMARY"
           echo '- Scope: AI layer only' >> "$GITHUB_STEP_SUMMARY"
           echo '- Non-AI layers are not revalidated here' >> "$GITHUB_STEP_SUMMARY"
-          echo '- Bootstrap pending is retried inside the same run' >> "$GITHUB_STEP_SUMMARY"
+          echo '- Owner-PC / Ollama is optional and is never auto-started by this gate' >> "$GITHUB_STEP_SUMMARY"
+          echo '- Global AI coverage requires an always-on prevalidated alternative' >> "$GITHUB_STEP_SUMMARY"
           echo '- The workflow fails if SOV 10/10 is not actually closed' >> "$GITHUB_STEP_SUMMARY"
-          echo '- Green now means MEL_SOV_AI_CLOSED_10_OF_10 or already closed' >> "$GITHUB_STEP_SUMMARY"
+          echo '- Green means MEL_SOV_AI_CLOSED_10_OF_10 or already closed without owner-device dependency' >> "$GITHUB_STEP_SUMMARY"
