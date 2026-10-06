@@ -156,3 +156,21 @@ test('Waveshare ES8311 path stays native 16 kHz from capture through Link V2 pla
   assert.match(service, /sendAudioResponse\(request\.streamId, pcm16, outputRate = 16_000\)/);
   assert.match(main, /sample_count = 2 \* 16000/);
 });
+
+
+test('STT Link V2 uses asynchronous notifications with batched Android credits', async () => {
+  const [server, transport, service] = await Promise.all([
+    readFile(new URL('firmware/waveshare-terminal/main/mel_link_v2_server.cpp', root), 'utf8'),
+    readFile(new URL('firmware/waveshare-terminal/main/mel_link_v2_transport.cpp', root), 'utf8'),
+    readFile(new URL('android-companion/app/src/main/java/fr/veriteinterdite/mel/MelLinkV2ClientService.kt', root), 'utf8'),
+  ]);
+  assert.match(server, /if \(!indicate\)/);
+  assert.match(server, /event->notify_tx\.indication/);
+  assert.match(server, /notification tx status=%d/);
+  assert.match(transport, /pdMS_TO_TICKS\(45000\)/);
+  assert.match(transport, /progress_cb\(offset, sample_count, progress_ctx\)/);
+  assert.match(service, /var creditsConsumed: Int = 0/);
+  assert.match(service, /CREDIT_WINDOW \/ 2/);
+  assert.match(service, /sendCreditAsync\(frame\.streamId, audio\.creditsConsumed\)/);
+  assert.doesNotMatch(service, /sendCreditAsync\(frame\.streamId, 1\)/);
+});
