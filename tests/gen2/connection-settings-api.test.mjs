@@ -635,3 +635,11 @@ test('legacy OAuth vault failures expose a reconnect action instead of an opaque
   assert.match(source,/RECONNECT_MICROSOFT/);
   assert.match(source,/RECONNECT_YAHOO/);
 });
+
+
+test('Google status isolates unreadable legacy connector tokens instead of failing the provider status', async()=>{
+  const source=await import('node:fs/promises').then(fs=>fs.readFile(new URL('../../src/api/connection-settings-api.js',import.meta.url),'utf8'));
+  assert.match(source,/legacy_unreadable/);
+  assert.match(source,/reconnect_required:\s*true/);
+  assert.match(source,/RECONNECT_GOOGLE/);
+});
