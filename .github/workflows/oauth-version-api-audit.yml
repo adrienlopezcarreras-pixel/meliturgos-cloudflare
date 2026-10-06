@@ -28,7 +28,18 @@ jobs:
           const fs=require('fs');
           const cp=require('child_process');
           const root=JSON.parse(fs.readFileSync('versions.json','utf8'));
-          const rows=Array.isArray(root?.result)?root.result:[];
+          const rows=Array.isArray(root?.result)
+            ? root.result
+            : Array.isArray(root?.result?.items)
+              ? root.result.items
+              : Array.isArray(root?.items)
+                ? root.items
+                : [];
+          console.log('OAUTH_VERSION_API_SHAPE '+JSON.stringify({
+            top:Object.keys(root||{}),
+            result:Array.isArray(root?.result)?'array':typeof root?.result,
+            result_keys:root?.result&&typeof root.result==='object'&&!Array.isArray(root.result)?Object.keys(root.result):[]
+          }));
           const token=process.env.CLOUDFLARE_API_TOKEN;
           const account=process.env.CLOUDFLARE_ACCOUNT_ID;
           const hits=[];
