@@ -3,7 +3,7 @@ name: android-apk-v2-candidate
 on:
   push:
     branches:
-      - fix/mini-v0.5.14-voice-tts-display-20261006
+      - fix/mini-v0.5.15-native-16k-audio-20261006
 
 permissions:
   contents: read
