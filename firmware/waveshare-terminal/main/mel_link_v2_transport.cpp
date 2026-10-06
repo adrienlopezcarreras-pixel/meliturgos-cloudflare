@@ -76,7 +76,7 @@ static void drain_semaphore(SemaphoreHandle_t sem) {
     while (xSemaphoreTake(sem, 0) == pdTRUE) {}
 }
 
-static bool deliver_audio_16k_as_48k(
+static bool deliver_audio_16k_native(
     const int16_t *samples,
     size_t sample_count
 ) {
@@ -100,11 +100,9 @@ static bool deliver_audio_16k_as_48k(
 
     for (size_t i = 0; i < sample_count; ++i) {
         const uint16_t raw = static_cast<uint16_t>(samples[i]);
-        for (int repeat = 0; repeat < 3; ++repeat) {
-            if (used + 2 > sizeof(out) && !flush()) return false;
-            out[used++] = static_cast<uint8_t>(raw & 0xff);
-            out[used++] = static_cast<uint8_t>((raw >> 8) & 0xff);
-        }
+        if (used + 2 > sizeof(out) && !flush()) return false;
+        out[used++] = static_cast<uint8_t>(raw & 0xff);
+        out[used++] = static_cast<uint8_t>((raw >> 8) & 0xff);
     }
     return flush();
 }
@@ -231,7 +229,7 @@ static void rx_frame(const uint8_t *frame, size_t len, void *ctx) {
             cJSON_IsNumber(rate) && rate->valueint == 16000 &&
             cJSON_IsNumber(channels) && channels->valueint == 1 &&
             cJSON_IsNumber(block) && block->valueint == MEL_IMA_ADPCM_BLOCK_SAMPLES &&
-            cJSON_IsNumber(output_rate) && output_rate->valueint == 48000 &&
+            cJSON_IsNumber(output_rate) && output_rate->valueint == 16000 &&
             cJSON_IsNumber(samples) && samples->valuedouble > 0 &&
             samples->valuedouble <= 16000.0 * 120.0;
 
@@ -272,7 +270,7 @@ static void rx_frame(const uint8_t *frame, size_t len, void *ctx) {
         }
 
         if (g_active.received_audio_samples + decoded_samples > g_active.expected_audio_samples ||
-            !deliver_audio_16k_as_48k(decoded, decoded_samples)) {
+            !deliver_audio_16k_native(decoded, decoded_samples)) {
             g_active.failed = true;
             if (g_response_done) xSemaphoreGive(g_response_done);
             return;
