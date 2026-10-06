@@ -1106,8 +1106,37 @@ jobs:
             mark_refresh_skipped "ai" "" "ai"
             mark_refresh_skipped "ai_local" "" "ai"
           else
-            refresh_sov_target "ai" || exit $?
-            refresh_sov_target "ai_local" || exit $?
+            # Local sovereign AI is the primary proof path. Validate it first so
+            # Ollama bootstrap failures remain observable instead of being masked
+            # by a missing configured alternate provider.
+            if refresh_sov_target "ai_local"; then
+              mark_refresh_skipped "ai" "" "ai_local"
+            else
+              AI_LOCAL_RC=$?
+              AI_LOCAL_REASON="$(node -e 'const fs=require("fs");let d={};try{d=JSON.parse(fs.readFileSync("sovereignty-refresh-ai_local.json","utf8"))}catch{};process.stdout.write(String(d?.refresh?.reason||d?.code||d?.error||d?.status||"UNKNOWN").slice(0,160))')"
+              cp sovereignty-production-status.json sovereignty-ai-local-failure.json
+
+              echo "Local sovereign AI proof failed rc=${AI_LOCAL_RC} reason=${AI_LOCAL_REASON}; checking configured AI fallback."
+
+              if refresh_sov_target "ai"; then
+                echo "Configured AI fallback verified after local AI failure (${AI_LOCAL_REASON})."
+              else
+                AI_CONFIGURED_RC=$?
+                AI_CONFIGURED_REASON="$(node -e 'const fs=require("fs");let d={};try{d=JSON.parse(fs.readFileSync("sovereignty-refresh-ai.json","utf8"))}catch{};process.stdout.write(String(d?.refresh?.reason||d?.code||d?.error||d?.status||"UNKNOWN").slice(0,160))')"
+
+                if [ "${AI_CONFIGURED_REASON}" = "NO_ALTERNATE_AI_CONFIG" ]; then
+                  # The configured fallback is absent by design. Restore the
+                  # primary local-AI failure so stage-specific Ollama diagnostics
+                  # such as OLLAMA_BOOTSTRAP_PROCESS_EXITED_AT_* are preserved.
+                  cp sovereignty-ai-local-failure.json sovereignty-production-status.json
+                  echo "No alternate AI is configured; preserving primary local AI diagnostic: ${AI_LOCAL_REASON}."
+                  exit "${AI_LOCAL_RC}"
+                fi
+
+                echo "Configured AI fallback also failed rc=${AI_CONFIGURED_RC} reason=${AI_CONFIGURED_REASON}."
+                exit "${AI_CONFIGURED_RC}"
+              fi
+            fi
           fi
           if layer_covered "source_control"; then
             mark_refresh_skipped "source_control" "" "source_control"
