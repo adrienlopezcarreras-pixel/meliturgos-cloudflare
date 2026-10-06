@@ -1,4 +1,11 @@
 package fr.veriteinterdite.mel
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.CountDownLatch
+import java.io.DataOutputStream
+import android.webkit.WebViewClient
+import android.webkit.WebView
+import android.graphics.Canvas
+import android.graphics.Bitmap
 
 import android.content.ContentValues
 import android.content.Context
@@ -174,6 +181,7 @@ class MiniMediaReceiver(private val context: Context) {
                 1 -> receivePhoto(input, safeName(name, "mel-mini-photo.jpg"))
                 2 -> receiveVideo(input, safeName(name, "mel-mini-video.avi"), width, height, fps)
                 3 -> receiveAudio(input, safeName(name, "mel-mini-audio.wav"), sampleRate, channels)
+                4 -> receiveBrowser(input, DataOutputStream(BufferedOutputStream(client.getOutputStream())), width, height)
             }
         }
     }
@@ -262,6 +270,94 @@ class MiniMediaReceiver(private val context: Context) {
         } finally {
             temp.delete()
         }
+    }
+
+    private fun receiveBrowser(
+        input: DataInputStream,
+        output: DataOutputStream,
+        requestedWidth: Int,
+        requestedHeight: Int
+    ) {
+        val urlLen = input.readUnsignedShort()
+        if (urlLen !in 8..2048) {
+            output.writeInt(0)
+            output.flush()
+            return
+        }
+        val url = String(readFully(input, urlLen), Charsets.UTF_8).trim()
+        if (!(url.startsWith("https://") || url.startsWith("http://"))) {
+            output.writeInt(0)
+            output.flush()
+            return
+        }
+        val width = requestedWidth.coerceIn(160, 320)
+        val height = requestedHeight.coerceIn(160, 320)
+        val rgb565 = renderWebPage(url, width, height)
+        if (rgb565 == null) {
+            output.writeInt(0)
+        } else {
+            output.writeInt(rgb565.size)
+            output.write(rgb565)
+        }
+        output.flush()
+    }
+
+    private fun renderWebPage(url: String, width: Int, height: Int): ByteArray? {
+        val latch = CountDownLatch(1)
+        var result: ByteArray? = null
+        Handler(context.mainLooper).post {
+            val web = WebView(context.applicationContext)
+            web.settings.javaScriptEnabled = true
+            web.settings.domStorageEnabled = true
+            web.settings.loadsImagesAutomatically = true
+            web.settings.builtInZoomControls = false
+            web.settings.displayZoomControls = false
+            web.setBackgroundColor(android.graphics.Color.WHITE)
+            web.layout(0, 0, width, height)
+            web.webViewClient = object : WebViewClient() {
+                override fun onPageFinished(view: WebView, pageUrl: String) {
+                    Handler(context.mainLooper).postDelayed({
+                        runCatching {
+                            view.measure(
+                                android.view.View.MeasureSpec.makeMeasureSpec(width, android.view.View.MeasureSpec.EXACTLY),
+                                android.view.View.MeasureSpec.makeMeasureSpec(height, android.view.View.MeasureSpec.EXACTLY)
+                            )
+                            view.layout(0, 0, width, height)
+                            val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+                            val canvas = Canvas(bitmap)
+                            view.draw(canvas)
+                            val pixels = IntArray(width * height)
+                            bitmap.getPixels(pixels, 0, width, 0, 0, width, height)
+                            val out = ByteArray(width * height * 2)
+                            var offset = 0
+                            for (pixel in pixels) {
+                                val r = (pixel ushr 16) and 0xff
+                                val g = (pixel ushr 8) and 0xff
+                                val b = pixel and 0xff
+                                val rgb = ((r shr 3) shl 11) or ((g shr 2) shl 5) or (b shr 3)
+                                out[offset++] = (rgb and 0xff).toByte()
+                                out[offset++] = ((rgb ushr 8) and 0xff).toByte()
+                            }
+                            result = out
+                            bitmap.recycle()
+                        }
+                        view.stopLoading()
+                        view.destroy()
+                        latch.countDown()
+                    }, 1300L)
+                }
+            }
+            web.loadUrl(url)
+            Handler(context.mainLooper).postDelayed({
+                if (latch.count > 0L) {
+                    runCatching { web.stopLoading() }
+                    runCatching { web.destroy() }
+                    latch.countDown()
+                }
+            }, 14_000L)
+        }
+        latch.await(16, TimeUnit.SECONDS)
+        return result
     }
 
     private fun createMediaStoreEntry(
