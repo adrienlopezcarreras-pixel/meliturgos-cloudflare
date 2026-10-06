@@ -61,6 +61,7 @@ static bool visual_active = false;
 static lv_obj_t *left_eye = nullptr;
 static lv_obj_t *right_eye = nullptr;
 static lv_obj_t *talk_button = nullptr;
+static lv_obj_t *talk_touch_zone = nullptr;
 static lv_obj_t *mouth_obj = nullptr;
 static lv_timer_t *anim_timer = nullptr;
 static bool listening = false;
@@ -513,13 +514,9 @@ static void mini_anim_cb(lv_timer_t *) {
     }
 
     if (talk_button) {
-        // Keep PARLER clickable while idle so a missing transport or microphone
-        // produces a visible diagnostic instead of a dead-looking button.
-        if (state == MEL_TERMINAL_IDLE || state == MEL_TERMINAL_LISTENING) {
-            lv_obj_clear_state(talk_button, LV_STATE_DISABLED);
-        } else {
-            lv_obj_add_state(talk_button, LV_STATE_DISABLED);
-        }
+        // Never disable the physical talk target. Busy/offline states are
+        // reported explicitly by the callback instead of making the UI dead.
+        lv_obj_clear_state(talk_button, LV_STATE_DISABLED);
     }
 
     if (state == MEL_TERMINAL_LISTENING) {
@@ -1737,6 +1734,11 @@ static void touch_cb(lv_event_t *e) {
     if (!status_label) return;
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
 
+    if (runtime_status_label) {
+        lv_label_set_text(runtime_status_label, "TOUCH OK");
+    }
+    lv_label_set_text(status_label, "TOUCH OK");
+
     const int state = mel_terminal_state();
     ESP_LOGI(TAG, "UI BUTTON: PARLER clicked state=%d", state);
 
@@ -1863,6 +1865,21 @@ static void mini_smoke_ui() {
     lv_label_set_text(status_label, "PARLER");
     lv_obj_set_style_text_align(status_label, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_center(status_label);
+
+    // Hardware fallback hit target: some FT6336/LVGL combinations can miss a
+    // small circular child even though the bottom screen area is reporting
+    // touch. Keep an invisible full-width strip above the main UI and route it
+    // to the exact same PARLER handler.
+    talk_touch_zone = lv_obj_create(main_panel);
+    lv_obj_set_size(talk_touch_zone, 320, 116);
+    lv_obj_align(talk_touch_zone, LV_ALIGN_BOTTOM_MID, 0, 0);
+    lv_obj_set_style_bg_opa(talk_touch_zone, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(talk_touch_zone, 0, 0);
+    lv_obj_set_style_pad_all(talk_touch_zone, 0, 0);
+    lv_obj_clear_flag(talk_touch_zone, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(talk_touch_zone, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(talk_touch_zone, touch_cb, LV_EVENT_CLICKED, nullptr);
+    lv_obj_move_foreground(talk_touch_zone);
 
     wifi_ui_create(screen);
     pair_ui_create(screen);
