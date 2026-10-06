@@ -627,7 +627,9 @@ esp_err_t mel_link_v2_transport_transcribe_adpcm(
     size_t sample_count,
     const char *mini_device_id,
     std::string &response,
-    int &status
+    int &status,
+    mel_link_v2_progress_cb progress_cb,
+    void *progress_ctx
 ) {
     if (!mel_link_v2_transport_ready() || !samples || sample_count == 0 ||
         !mini_device_id || !*mini_device_id || !g_exchange_mutex) {
