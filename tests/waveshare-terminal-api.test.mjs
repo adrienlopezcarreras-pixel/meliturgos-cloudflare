@@ -177,3 +177,16 @@ test('MINI device chat preserves voice mode for fast spoken replies', async () =
   assert.match(source, /voice_reply: voiceReply/);
   assert.match(source, /parallel: voiceReply \? false : body\.parallel === true/);
 });
+
+
+test('MINI spoken chat selects the bounded fast inference route', async () => {
+  const source = await readFile(
+    new URL('../src/api/native-chat.js', import.meta.url),
+    'utf8'
+  );
+  assert.match(source, /taskOverride: voiceReply \? 'FAST'/);
+  assert.match(source, /'@cf\/zai-org\/glm-4\.7-flash'/);
+  assert.match(source, /timeoutMs: voiceReply \? 6000 : null/);
+  assert.match(source, /maxCalls: voiceReply \? 1 : null/);
+  assert.match(source, /VOICE_FAST_FALLBACK_TIMEOUT/);
+});

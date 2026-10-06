@@ -798,7 +798,7 @@ async function activePromotedAdapter(env) {
   }
 }
 
-export function createNativeModelRouter(env, inferenceSettings = null, activeAdapter = null) {
+export function createNativeModelRouter(env, inferenceSettings = null, activeAdapter = null, routerOptions = {}) {
   const generation = inferenceGenerationOptions(inferenceSettings);
   const runtimeModel = String(activeAdapter?.runtime_model || activeAdapter?.adapter?.runtime_model || '').trim();
   const finetuneId = String(activeAdapter?.finetune_id || activeAdapter?.adapter?.finetune_id || '').trim();
@@ -815,9 +815,12 @@ export function createNativeModelRouter(env, inferenceSettings = null, activeAda
       enabled: true,
     });
   }
+  const routerTimeoutMs = Math.max(1000, Number(routerOptions?.timeoutMs) || 120000);
+  const routerMaxCalls = Math.max(1, Math.min(3, Number(routerOptions?.maxCalls) || 3));
   return new ModelRouter({
     registry,
-    maxCalls: 3,
+    timeoutMs: routerTimeoutMs,
+    maxCalls: routerMaxCalls,
     performanceStore: env?.DB ? new D1ModelPerformanceStore(env.DB) : null,
     invoke: async (selected, messages) => {
       const modelId = selected.model_id || selected.id;
@@ -838,13 +841,13 @@ function nativeCapabilityContext(env, request = null, options = {}) {
   };
 }
 
-export async function runNativeInference({ env, messages, text, parallel = false, maxCandidates = 4, inferenceSettings = null, activeAdapter = null, runtime = null, taskOverride = null, preferredModel = null } = {}) {
+export async function runNativeInference({ env, messages, text, parallel = false, maxCandidates = 4, inferenceSettings = null, activeAdapter = null, runtime = null, taskOverride = null, preferredModel = null, timeoutMs = null, maxCalls = null } = {}) {
   if (!env?.AI || typeof env.AI.run !== 'function') {
     const error = new Error('AI_BINDING_MISSING');
     error.code = 'AI_BINDING_MISSING';
     throw error;
   }
-  const router = createNativeModelRouter(env, inferenceSettings, activeAdapter);
+  const router = createNativeModelRouter(env, inferenceSettings, activeAdapter, { timeoutMs, maxCalls });
   const task = taskOverride ? String(taskOverride).toUpperCase() : classifyTask(text || '');
   const boundedCandidates = Math.max(1, Math.min(12, Number(maxCandidates) || 4));
   if (parallel && !activeAdapter) {
@@ -1277,11 +1280,76 @@ export async function handleNativeChat(request, env, options = {}) {
       inferenceSettings: effectiveInferenceSettings,
       activeAdapter,
       runtime,
-      taskOverride: personalProfileIntent ? 'REASONING' : null,
-      preferredModel: personalProfileIntent ? '@cf/meta/llama-3.3-70b-instruct-fp8-fast' : null,
+      taskOverride: voiceReply ? 'FAST' : (personalProfileIntent ? 'REASONING' : null),
+      preferredModel: voiceReply
+        ? '@cf/zai-org/glm-4.7-flash'
+        : (personalProfileIntent ? '@cf/meta/llama-3.3-70b-instruct-fp8-fast' : null),
+      timeoutMs: voiceReply ? 6000 : null,
+      maxCalls: voiceReply ? 1 : null,
     });
   } catch (error) {
-    if (personalProfileIntent && personalProfileFallback) {
+    if (voiceReply) {
+      let timer = null;
+      try {
+        const fallbackModel = '@cf/meta/llama-3.3-70b-instruct-fp8-fast';
+        const compactedMessages = compactInferenceMessages(messages, {
+          systemChars: 9000,
+          historyChars: 4000,
+          maxHistoryMessages: 4,
+        });
+        const generation = {
+          ...inferenceGenerationOptions(effectiveInferenceSettings),
+          max_tokens: Math.min(Number(effectiveInferenceSettings?.max_tokens) || 160, 160),
+        };
+        const fallbackResult = await Promise.race([
+          env.AI.run(fallbackModel, { messages: compactedMessages, ...generation }),
+          new Promise((_, reject) => {
+            timer = setTimeout(() => {
+              const timeout = new Error('VOICE_FAST_FALLBACK_TIMEOUT');
+              timeout.code = 'VOICE_FAST_FALLBACK_TIMEOUT';
+              reject(timeout);
+            }, 6000);
+          }),
+        ]);
+        const fallbackText = typeof fallbackResult === 'string'
+          ? fallbackResult
+          : fallbackResult?.response
+            ?? fallbackResult?.text
+            ?? fallbackResult?.message?.content
+            ?? fallbackResult?.choices?.[0]?.message?.content
+            ?? fallbackResult?.choices?.[0]?.text
+            ?? '';
+        if (!String(fallbackText || '').trim()) {
+          throw Object.assign(new Error('VOICE_FAST_FALLBACK_EMPTY'), { code: 'VOICE_FAST_FALLBACK_EMPTY' });
+        }
+        ai = {
+          text: String(fallbackText),
+          model: fallbackModel,
+          provider: 'workers-ai',
+          task: 'FAST',
+          attempts: 1,
+          fallback_used: true,
+          fallback_compacted: true,
+          tool_succeeded: true,
+          finish_reason: extractFinishReason(fallbackResult),
+          truncated: isTruncationFinishReason(extractFinishReason(fallbackResult)),
+          usage: fallbackResult?.usage || null,
+        };
+      } catch (voiceError) {
+        console.error('[native-chat] fast voice inference failed', {
+          primary: error?.code || error?.message || String(error),
+          fallback: voiceError?.code || voiceError?.message || String(voiceError),
+        });
+        return Response.json({
+          ok: false,
+          error: 'VOICE_CHAT_TIMEOUT',
+          code: 'VOICE_CHAT_TIMEOUT',
+          detail: String(voiceError?.code || voiceError?.message || 'VOICE_FAST_FAILED').slice(0, 180),
+        }, { status: 504, headers: { 'cache-control': 'no-store' } });
+      } finally {
+        if (timer) clearTimeout(timer);
+      }
+    } else if (personalProfileIntent && personalProfileFallback) {
       ai = {
         text: personalProfileFallback,
         model: 'deterministic-personal-profile-fallback',
