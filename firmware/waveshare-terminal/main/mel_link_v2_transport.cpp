@@ -628,12 +628,19 @@ esp_err_t mel_link_v2_transport_transcribe_adpcm(
     std::string meta = json_string(meta_json);
     cJSON_Delete(meta_json);
 
-    bool ok = meta.size() <= 160 &&
-        send_v2(
+    bool ok = meta.size() <= 160;
+    if (!ok) {
+        response = "AUDIO_META_TOO_LARGE";
+    } else if (!send_v2(
             MEL_LINK_V2_AUDIO_BEGIN, g_active.stream_id, 0,
             reinterpret_cast<const uint8_t *>(meta.data()),
             (uint16_t)meta.size(), true
-        );
+        )) {
+        response = mel_link_v2_transport_ready()
+            ? "BT_AUDIO_BEGIN_SEND"
+            : "BT_SESSION_DROPPED_BEGIN";
+        ok = false;
+    }
 
     uint16_t seq = 0;
     size_t offset = 0;
@@ -660,10 +667,23 @@ esp_err_t mel_link_v2_transport_transcribe_adpcm(
             break;
         }
 
+        const uint16_t current_seq = seq;
         ok = send_v2(
             MEL_LINK_V2_AUDIO_DATA, g_active.stream_id, seq++,
             encoded, (uint16_t)encoded_size, false
         );
+        if (!ok) {
+            char diag[48] = {};
+            snprintf(
+                diag, sizeof(diag),
+                mel_link_v2_transport_ready()
+                    ? "BT_AUDIO_DATA_SEND_%u"
+                    : "BT_SESSION_DROPPED_DATA_%u",
+                (unsigned)current_seq
+            );
+            response = diag;
+            break;
+        }
         offset += count;
     }
 
@@ -672,6 +692,11 @@ esp_err_t mel_link_v2_transport_transcribe_adpcm(
             MEL_LINK_V2_AUDIO_END, g_active.stream_id, seq,
             nullptr, 0, true
         );
+        if (!ok) {
+            response = mel_link_v2_transport_ready()
+                ? "BT_AUDIO_END_SEND"
+                : "BT_SESSION_DROPPED_END";
+        }
     }
 
     if (!ok) {
