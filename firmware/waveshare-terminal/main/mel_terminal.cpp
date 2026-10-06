@@ -778,11 +778,23 @@ static bool mobile_tts_chunk(const uint8_t *data, size_t len, void *ctx_ptr) {
     return true;
 }
 
+
+static std::string voice_tts_text(const std::string &text) {
+    if (text.size() <= 600) return text;
+    size_t end = 600;
+    while (end > 0 && (static_cast<unsigned char>(text[end]) & 0xC0) == 0x80) --end;
+    std::string out = text.substr(0, end);
+    const size_t sentence = out.find_last_of(".!?");
+    if (sentence > 240) out.resize(sentence + 1);
+    return out;
+}
+
 static bool speak_text(const std::string &text) {
     if (!g_audio_ok || !output_dev || text.empty()) return false;
 
+    const std::string spoken_text = voice_tts_text(text);
     cJSON *root = cJSON_CreateObject();
-    cJSON_AddStringToObject(root, "text", text.c_str());
+    cJSON_AddStringToObject(root, "text", spoken_text.c_str());
     cJSON_AddStringToObject(root, "speaker", "luna");
     std::string body = json_string(root);
     cJSON_Delete(root);
@@ -804,8 +816,18 @@ static bool speak_text(const std::string &text) {
             &ctx
         );
         esp_codec_dev_set_out_vol(output_dev, 0.0);
-        const bool ok = err == ESP_OK && status == 200 && ctx.ok && !ctx.have_carry;
-        if (!ok) ESP_LOGW(TAG, "LINK V2 TTS failed err=%s status=%d", esp_err_to_name(err), status);
+        const bool ok = err == ESP_OK && status == 200 && ctx.ok && !ctx.have_carry && !ctx.first_audio;
+        if (!ok) {
+            ESP_LOGW(TAG, "LINK V2 TTS failed err=%s status=%d first_audio=%d",
+                     esp_err_to_name(err), status, ctx.first_audio ? 1 : 0);
+            if (status > 0) {
+                char diag[32] = {};
+                snprintf(diag, sizeof(diag), "TTS HTTP %d", status);
+                ui_status(diag);
+            } else if (ctx.first_audio) {
+                ui_status("TTS SANS AUDIO");
+            }
+        }
         return ok;
     }
 
