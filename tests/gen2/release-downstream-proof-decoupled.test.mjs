@@ -140,7 +140,12 @@ test('decoupled sovereignty refreshes retry only bounded transient pressure and 
   const workflow=await readFile(new URL('../../.github/workflows/release-downstream-proof-decoupled.yml',import.meta.url),'utf8');
   assert.match(workflow,/REFRESH_READY=0/);
   const block=workflow.split('\n  sovereignty:\n')[1]?.split('\n  summary:\n')[0]||'';
-  assert.match(block,/for ATTEMPT in \$\(seq 1 4\)/);
+  assert.match(block,/local MAX_ATTEMPTS=4/);
+  assert.match(block,/if \[ "\$\{TARGET\}" = "ai_local" \]; then/);
+  assert.match(block,/MAX_ATTEMPTS=8/);
+  assert.match(block,/for ATTEMPT in \$\(seq 1 "\$\{MAX_ATTEMPTS\}"\)/);
+  assert.match(block,/COMPANION_ENGINE_UPDATE_REQUIRED/);
+  assert.match(block,/sleep 45/);
   assert.match(block,/--max-time 55/);
   assert.match(workflow,/BOOTSTRAP_AUTH_REQUIRED/);
   assert.match(workflow,/Decoupled SOV proof auth is still propagating/);
