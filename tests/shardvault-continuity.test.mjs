@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import { __shardvaultTest } from '../src/continuity/shardvault-runtime.js';
 
 const data = Array.from({ length: 4 }, (_, index) => {
@@ -92,6 +93,14 @@ assert.deepEqual(failoverResult.assignments.map(x=>x.endpointId), ['e1','e4','e3
 assert.deepEqual(failoverResult.pending_indices, []);
 assert.ok(failoverResult.failures.some(x=>x.endpoint_id==='e2'));
 assert.deepEqual(failoverResult.attempted_endpoints, ['e1','e2','e3','e4']);
+
+const shardVaultSource=await readFile(new URL('../src/continuity/shardvault-runtime.js',import.meta.url),'utf8');
+const collectStart=shardVaultSource.indexOf('async function collect(env,c,m)');
+const collectEnd=shardVaultSource.indexOf('async function repair(',collectStart);
+assert.ok(collectStart>=0&&collectEnd>collectStart);
+const collectSource=shardVaultSource.slice(collectStart,collectEnd);
+assert.match(collectSource,/await Promise\.all\(\(m\.shards\|\|\[\]\)\.map\(async d=>/);
+assert.doesNotMatch(collectSource,/for\(const d of m\.shards\|\|\[\]\)/);
 
 console.log('ShardVault continuity tests: OK');
 
