@@ -1577,16 +1577,31 @@ void mel_terminal_request_voice(void) {
         &g_voice_task_handle,
         0
     );
-    if (created != pdPASS || !g_voice_task_handle) {
+    // Only the FreeRTOS return code is authoritative here. The new task runs
+    // concurrently on core 0 and may legitimately finish (and clear the global
+    // handle) before this caller on core 1 resumes. Checking the handle here
+    // races with the worker and can overwrite the real microphone/STT error
+    // with a false "TACHE VOIX".
+    if (created != pdPASS) {
         g_voice_task_handle = nullptr;
         g_voice_capture_requested = false;
         g_runtime_state = MEL_TERMINAL_ERROR;
         voice_error("TACHE VOIX");
         ui_status("ERREUR TACHE VOIX");
-        ESP_LOGE(TAG, "PARLER failed: voice task creation rc=%ld", (long)created);
+        ESP_LOGE(
+            TAG,
+            "PARLER failed: voice task creation rc=%ld free_heap=%u largest_internal=%u",
+            (long)created,
+            (unsigned)esp_get_free_heap_size(),
+            (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)
+        );
         return;
     }
-    ESP_LOGI(TAG, "PARLER accepted: voice task created");
+    ESP_LOGI(
+        TAG,
+        "PARLER accepted: FreeRTOS created voice task free_heap=%u",
+        (unsigned)esp_get_free_heap_size()
+    );
 }
 
 int mel_terminal_state(void) {
