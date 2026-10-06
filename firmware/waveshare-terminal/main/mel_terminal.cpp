@@ -1469,37 +1469,14 @@ static std::string record_and_transcribe() {
 }
 
 static void voice_task(void *) {
-    if (!g_online) {
-        if (!mel_mobile_bridge_ready()) {
-            g_runtime_state = MEL_TERMINAL_ERROR;
-            voice_error("RELAIS MEL");
-            ui_status("RELAIS MEL INDISPONIBLE");
-            g_voice_task_handle = nullptr;
-            vTaskDelete(nullptr);
-            return;
-        }
-
-        ui_status("VALIDATION MEL...");
-        mel_terminal_start_online();
-        for (int i = 0; i < 40 && !g_online && mel_mobile_bridge_ready(); ++i) {
-            vTaskDelay(pdMS_TO_TICKS(200));
-        }
-        if (!g_online) {
-            g_runtime_state = MEL_TERMINAL_ERROR;
-            voice_error("RELAIS MEL");
-            ui_status("RELAIS MEL NON PRET");
-            vTaskDelay(pdMS_TO_TICKS(1200));
-            g_runtime_state = MEL_TERMINAL_IDLE;
-            g_voice_task_handle = nullptr;
-            vTaskDelete(nullptr);
-            return;
-        }
-    }
-
+    // Recording is a local hardware action. Never block the microphone behind
+    // MEL/session validation: a ready BLE bridge is enough to start listening.
+    // Network/auth errors are handled only after capture, when STT is sent.
     g_runtime_state = MEL_TERMINAL_LISTENING;
     ui_status("ECOUTE...");
     ui_answer("");
-    vTaskDelay(pdMS_TO_TICKS(100));
+    ESP_LOGI(TAG, "VOICE TASK started: capture begins immediately");
+    vTaskDelay(pdMS_TO_TICKS(60));
     const int64_t stt_started_us = esp_timer_get_time();
     std::string text = record_and_transcribe();
     ESP_LOGI(TAG, "VOICE PERF: STT total=%lld ms", (long long)((esp_timer_get_time() - stt_started_us) / 1000));
@@ -1582,7 +1559,28 @@ void mel_terminal_request_voice(void) {
     }
 
     g_voice_stop_requested = false;
-    xTaskCreatePinnedToCore(voice_task, "mel_voice", 10240, nullptr, 5, &g_voice_task_handle, 0);
+    g_runtime_state = MEL_TERMINAL_LISTENING;
+    ui_status("ECOUTE...");
+    ui_answer("");
+
+    const BaseType_t created = xTaskCreatePinnedToCore(
+        voice_task,
+        "mel_voice",
+        10240,
+        nullptr,
+        5,
+        &g_voice_task_handle,
+        0
+    );
+    if (created != pdPASS || !g_voice_task_handle) {
+        g_voice_task_handle = nullptr;
+        g_runtime_state = MEL_TERMINAL_ERROR;
+        voice_error("TACHE VOIX");
+        ui_status("ERREUR TACHE VOIX");
+        ESP_LOGE(TAG, "PARLER failed: voice task creation rc=%ld", (long)created);
+        return;
+    }
+    ESP_LOGI(TAG, "PARLER accepted: voice task created");
 }
 
 int mel_terminal_state(void) {
