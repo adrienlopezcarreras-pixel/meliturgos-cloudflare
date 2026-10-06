@@ -37,6 +37,7 @@ void mel_terminal_request_voice(void);
 int mel_terminal_state(void);
 bool mel_terminal_online(void);
 int mel_terminal_voice_level(void);
+const char *mel_terminal_last_voice_error(void);
 bool mel_terminal_has_display(void);
 void mel_terminal_display_next(void);
 void mel_terminal_display_previous(void);
