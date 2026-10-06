@@ -193,10 +193,17 @@ async function executePersistentStress({ bus, store, job, context = {} }) {
     });
 
     const observed = [];
+    // capability.audit is safe as a standalone bounded smoke, but executing it
+    // from inside the persistent global stress recursively refreshes the whole
+    // registry and can outlive the per-capability timeout. Keep it inventoried,
+    // but do not self-execute it in this parent stress run.
+    const persistentStressSamples = { ...SAFE_SAMPLES };
+    delete persistentStressSamples['capability.audit'];
     const first = await auditRuntimeCapabilities({ bus }, {
       deep: true,
       context: executionContext(context),
       executionTimeoutMs: 4_000,
+      samples: persistentStressSamples,
       onProgress: async ({ index, total, row }) => {
         observed[index - 1] = compactProgressRow(row);
         if (index === total || row?.tested_now === true || index % 5 === 0) {

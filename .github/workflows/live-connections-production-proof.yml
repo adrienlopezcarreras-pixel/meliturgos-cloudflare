@@ -244,14 +244,19 @@ jobs:
           fi
           if [ "${YAHOO_OK}" != "1" ]; then FAILURES=$((FAILURES+1)); fi
 
+          # Vercel is an optional integration. MEL production and sovereignty do
+          # not depend on a paid Vercel plan, so an absent token is reported but
+          # must not fail the global connection proof.
           VERCEL_OK=0
+          VERCEL_STATUS="OPTIONAL_NOT_CONFIGURED"
           if probe vercel /api/gen2/connections/vercel/test '{}'; then
             VERCEL_OK=1
+            VERCEL_STATUS="CONNECTED"
           else
-            FAILURES=$((FAILURES+1))
+            echo 'vercel: {"ok":false,"required":false,"status":"OPTIONAL_NOT_CONFIGURED"}'
           fi
 
-          GOOGLE_GMAIL_OK="${GOOGLE_GMAIL_OK}" GOOGLE_CALENDAR_OK="${GOOGLE_CALENDAR_OK}" GOOGLE_TASKS_OK="${GOOGLE_TASKS_OK}" GOOGLE_DRIVE_OK="${GOOGLE_DRIVE_OK}" MICROSOFT_MAIL_OK="${MICROSOFT_MAIL_OK}" MICROSOFT_ONEDRIVE_OK="${MICROSOFT_ONEDRIVE_OK}" MICROSOFT_SHAREPOINT_OK="${MICROSOFT_SHAREPOINT_OK}" YAHOO_OK="${YAHOO_OK}" VERCEL_OK="${VERCEL_OK}" FAILURES="${FAILURES}" node - <<'NODE'
+          GOOGLE_GMAIL_OK="${GOOGLE_GMAIL_OK}" GOOGLE_CALENDAR_OK="${GOOGLE_CALENDAR_OK}" GOOGLE_TASKS_OK="${GOOGLE_TASKS_OK}" GOOGLE_DRIVE_OK="${GOOGLE_DRIVE_OK}" MICROSOFT_MAIL_OK="${MICROSOFT_MAIL_OK}" MICROSOFT_ONEDRIVE_OK="${MICROSOFT_ONEDRIVE_OK}" MICROSOFT_SHAREPOINT_OK="${MICROSOFT_SHAREPOINT_OK}" YAHOO_OK="${YAHOO_OK}" VERCEL_OK="${VERCEL_OK}" VERCEL_STATUS="${VERCEL_STATUS}" FAILURES="${FAILURES}" node - <<'NODE'
           const fs=require('fs');
           const proof={
             schema:'mel.live-connections-production-proof/v1',
@@ -272,7 +277,11 @@ jobs:
             mail:{
               yahoo_or_ymail:process.env.YAHOO_OK==='1'
             },
-            vercel:{authenticated_target_probe:process.env.VERCEL_OK==='1'},
+            vercel:{
+              required:false,
+              authenticated_target_probe:process.env.VERCEL_OK==='1',
+              status:process.env.VERCEL_STATUS||'OPTIONAL_NOT_CONFIGURED'
+            },
             secret_values_exposed:false,
             mutation_scope:'read_only_parallel_proof_auth'
           };

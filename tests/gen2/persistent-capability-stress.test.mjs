@@ -141,3 +141,11 @@ test('persistent stress live-proof validators accept a durable terminal report a
     },
   }, 'cap-stress-proof'), /CAPABILITY_STRESS_JOB_MISMATCH/);
 });
+
+
+test('persistent capability stress excludes capability.audit only from its own recursive execution set', async () => {
+  const source = await readFile(new URL('../../src/diagnostics/persistent-capability-stress.js', import.meta.url), 'utf8');
+  assert.match(source, /delete persistentStressSamples\['capability\.audit'\]/);
+  const { SAFE_SAMPLES } = await import('../../src/diagnostics/capability-truth-audit.js');
+  assert.equal(Object.hasOwn(SAFE_SAMPLES, 'capability.audit'), true);
+});
