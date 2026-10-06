@@ -8,7 +8,7 @@ on:
       - fix/mini-wifi-internet-diagnostics
       - package/mini-updater-v2-20261006
       - fix/mini-apk-v2-token-relay-20261006
-      - fix/mini-v0.5.15-native-16k-audio-20261006
+      - fix/mini-v0.5.16-stt-flow-control-20261006
     paths:
       - "tools/mini-updater/**"
       - ".github/workflows/mini-windows-updater.yml"
@@ -39,16 +39,16 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh run watch 37526313483 --repo "${{ github.repository }}" --exit-status --interval 10
+          gh run watch 37529549487 --repo "${{ github.repository }}" --exit-status --interval 10
 
       - name: Download exact Link V2 firmware
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh run download 37526313483 `
+          gh run download 37529549487 `
             --repo "${{ github.repository }}" `
-            --name "MEL-Waveshare-3.5-C-d3614d15b9d9c0aa8c8d0014c7d5914d33a667eb" `
+            --name "MEL-Waveshare-3.5-C-af4ed00332e9f2a8a751578fba3f20e8ab25faaa" `
             --dir firmware-artifact
           if (!(Test-Path "firmware-artifact/build/mel-terminal.bin")) {
             throw "Validated Link V2 firmware binary missing"
@@ -62,7 +62,7 @@ jobs:
             --clean `
             --onefile `
             --console `
-            --name "MEL-MINI-Updater-0.5.15-Native16kAudio" `
+            --name "MEL-MINI-Updater-0.5.16-STTFlowControl" `
             --collect-all esptool `
             --collect-all serial `
             --add-data "firmware-artifact/build/mel-terminal.bin;." `
@@ -71,21 +71,21 @@ jobs:
       - name: Self-test updater
         shell: pwsh
         run: |
-          & ".\dist\MEL-MINI-Updater-0.5.15-Native16kAudio.exe" --self-test
+          & ".\dist\MEL-MINI-Updater-0.5.16-STTFlowControl.exe" --self-test
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: SHA256
         shell: pwsh
         run: |
-          Get-FileHash ".\dist\MEL-MINI-Updater-0.5.15-Native16kAudio.exe" -Algorithm SHA256 |
-            Format-List | Out-File ".\dist\MEL-MINI-Updater-0.5.15-Native16kAudio.sha256.txt"
+          Get-FileHash ".\dist\MEL-MINI-Updater-0.5.16-STTFlowControl.exe" -Algorithm SHA256 |
+            Format-List | Out-File ".\dist\MEL-MINI-Updater-0.5.16-STTFlowControl.sha256.txt"
 
       - name: Upload updater
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: MEL-MINI-Updater-0.5.15-Native16kAudio
+          name: MEL-MINI-Updater-0.5.16-STTFlowControl
           path: |
-            dist/MEL-MINI-Updater-0.5.15-Native16kAudio.exe
-            dist/MEL-MINI-Updater-0.5.15-Native16kAudio.sha256.txt
+            dist/MEL-MINI-Updater-0.5.16-STTFlowControl.exe
+            dist/MEL-MINI-Updater-0.5.16-STTFlowControl.sha256.txt
           if-no-files-found: error
           retention-days: 30
