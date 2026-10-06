@@ -600,7 +600,9 @@ esp_err_t mel_link_v2_transport_request(
     const uint8_t *body,
     size_t body_len,
     std::string &response,
-    int &status
+    int &status,
+    mel_link_v2_progress_cb progress_cb,
+    void *progress_ctx
 ) {
     return request_common(method,path,content_type,mini_device_id,body,body_len,&response,status,nullptr,nullptr);
 }
@@ -680,6 +682,7 @@ esp_err_t mel_link_v2_transport_transcribe_adpcm(
 
     uint16_t seq = 0;
     size_t offset = 0;
+    if (progress_cb) progress_cb(0, sample_count, progress_ctx);
     uint8_t encoded[MEL_IMA_ADPCM_MAX_ENCODED_BYTES] = {};
     while (ok && offset < sample_count) {
         if (xSemaphoreTake(g_credit_sem, pdMS_TO_TICKS(5000)) != pdTRUE) {
@@ -721,6 +724,7 @@ esp_err_t mel_link_v2_transport_transcribe_adpcm(
             break;
         }
         offset += count;
+        if (progress_cb) progress_cb(offset, sample_count, progress_ctx);
     }
 
     if (ok) {
@@ -741,7 +745,7 @@ esp_err_t mel_link_v2_transport_transcribe_adpcm(
         return ESP_FAIL;
     }
 
-    const bool done = xSemaphoreTake(g_response_done, pdMS_TO_TICKS(90000)) == pdTRUE;
+    const bool done = xSemaphoreTake(g_response_done, pdMS_TO_TICKS(45000)) == pdTRUE;
     status = g_active.status;
     if (!g_active.body.empty()) response = g_active.body;
     const bool failed = !done || g_active.failed;
