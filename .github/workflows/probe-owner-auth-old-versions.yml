@@ -1,0 +1,45 @@
+name: probe-owner-auth-old-versions
+
+on:
+  push:
+    branches:
+      - ops/repair-owner-auth-20261006
+    paths:
+      - .github/workflows/probe-owner-auth-old-versions.yml
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Probe historical Cloudflare versions
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSIONS=(
+            fd941103-40cb-4881-ab2c-f194ed5cb5ba
+            cd0d3411-5028-41fd-a647-b4179474ce6f
+            0e8fb9ca-834f-4e75-9f81-d6bde3e3f7ec
+            ad0e4e61-1baa-49ff-bd16-21770dca7bdd
+            973813a5-6428-4f49-a953-255e4a3ecec3
+            c32a0ced-4e9f-4873-95d4-a64abda7a7d1
+            d5f43564-2c6f-42d5-a412-5fca68aac9d2
+            68c1c7c1-e1b6-4521-8401-7abbeb7b4766
+            4cbeb523-6690-47b1-9599-7fc799b0062b
+            0841abcf-2b15-4395-b3e8-7ed4620dd452
+            87713535-a9f4-4d6b-8145-e9b05f064c81
+            6b493b05-0ed5-4cb3-b398-035e7583d3f0
+            1e27d518-ce41-420a-9e0d-4eaa42810e2e
+          )
+          for V in "${VERSIONS[@]}"; do
+            P="${V%%-*}"
+            URL="https://${P}-meliturgos.adrien-lopezcarreras.workers.dev/"
+            BODY="$(mktemp)"
+            CODE="$(curl -sS --max-time 15 -o "${BODY}" -w '%{http_code}' "${URL}" || true)"
+            TEXT="$(tr '\n' ' ' < "${BODY}" | head -c 180)"
+            echo "PROBE ${V} prefix=${P} code=${CODE} body=${TEXT}"
+            rm -f "${BODY}"
+          done
