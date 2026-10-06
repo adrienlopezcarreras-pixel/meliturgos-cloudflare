@@ -322,6 +322,14 @@ static esp_err_t send_frame(const uint8_t *frame, size_t len, bool indicate) {
         return ESP_FAIL;
     }
 
+    if (!indicate) {
+        // Notifications are already flow-controlled by Link V2 CREDIT frames.
+        // Do not serialize every packet on BLE_GAP_EVENT_NOTIFY_TX: that made
+        // multi-second STT uploads stall for seconds per ADPCM block.
+        xSemaphoreGive(g_tx_mutex);
+        return ESP_OK;
+    }
+
     const bool completed = xSemaphoreTake(g_tx_done, pdMS_TO_TICKS(5000)) == pdTRUE;
     const bool failed = g_tx_failed.load();
     xSemaphoreGive(g_tx_mutex);
