@@ -53,3 +53,29 @@ test('compact inference fallback preserves current turn and bounds oversized con
   const historyChars = compact.slice(1, -1).reduce((sum, row) => sum + row.content.length, 0);
   assert.ok(historyChars <= 6000);
 });
+
+
+test('voice-style inference can force a single fast model with a short router timeout', async () => {
+  const calls = [];
+  const env = {
+    AI: {
+      run: async (model, payload) => {
+        calls.push({ model, payload });
+        return { response: 'réponse rapide' };
+      },
+    },
+  };
+  const result = await runNativeInference({
+    env,
+    messages: [{ role: 'user', content: 'bonjour' }],
+    text: 'bonjour',
+    taskOverride: 'FAST',
+    preferredModel: '@cf/zai-org/glm-4.7-flash',
+    timeoutMs: 6000,
+    maxCalls: 1,
+  });
+  assert.equal(result.text, 'réponse rapide');
+  assert.equal(result.task, 'FAST');
+  assert.equal(result.model, '@cf/zai-org/glm-4.7-flash');
+  assert.equal(calls.length, 1);
+});
