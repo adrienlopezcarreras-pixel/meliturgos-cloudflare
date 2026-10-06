@@ -396,10 +396,73 @@ bool mini_ui_response_page_active() {
     return active_view == MINI_VIEW_RESPONSE || requested_view == MINI_VIEW_RESPONSE;
 }
 
+
+static std::string mini_display_ascii(const char *text) {
+    const std::string in = text ? text : "";
+    std::string out;
+    out.reserve(in.size());
+    for (size_t i = 0; i < in.size();) {
+        const unsigned char a = static_cast<unsigned char>(in[i]);
+        if (a < 0x80) {
+            if (a == '\n' || a == '\r' || a == '\t' || a >= 0x20) out.push_back(static_cast<char>(a));
+            ++i;
+            continue;
+        }
+
+        auto push = [&](char ch, size_t n) {
+            out.push_back(ch);
+            i += n;
+        };
+
+        if (i + 1 < in.size() && a == 0xC3) {
+            const unsigned char b = static_cast<unsigned char>(in[i + 1]);
+            switch (b) {
+                case 0x80: case 0x81: case 0x82: case 0x83: case 0x84: case 0x85:
+                case 0xA0: case 0xA1: case 0xA2: case 0xA3: case 0xA4: case 0xA5: push((b < 0xA0) ? 'A' : 'a', 2); continue;
+                case 0x87: case 0xA7: push((b == 0x87) ? 'C' : 'c', 2); continue;
+                case 0x88: case 0x89: case 0x8A: case 0x8B:
+                case 0xA8: case 0xA9: case 0xAA: case 0xAB: push((b < 0xA0) ? 'E' : 'e', 2); continue;
+                case 0x8C: case 0x8D: case 0x8E: case 0x8F:
+                case 0xAC: case 0xAD: case 0xAE: case 0xAF: push((b < 0xA0) ? 'I' : 'i', 2); continue;
+                case 0x91: case 0xB1: push((b == 0x91) ? 'N' : 'n', 2); continue;
+                case 0x92: case 0x93: case 0x94: case 0x95: case 0x96:
+                case 0xB2: case 0xB3: case 0xB4: case 0xB5: case 0xB6: push((b < 0xA0) ? 'O' : 'o', 2); continue;
+                case 0x99: case 0x9A: case 0x9B: case 0x9C:
+                case 0xB9: case 0xBA: case 0xBB: case 0xBC: push((b < 0xA0) ? 'U' : 'u', 2); continue;
+                case 0x9D: case 0xBD: case 0xBF: push((b == 0x9D) ? 'Y' : 'y', 2); continue;
+                default: break;
+            }
+        }
+
+        if (i + 2 < in.size() && a == 0xE2 && static_cast<unsigned char>(in[i + 1]) == 0x80) {
+            const unsigned char b = static_cast<unsigned char>(in[i + 2]);
+            if (b == 0x98 || b == 0x99) { push('\'', 3); continue; }
+            if (b == 0x9C || b == 0x9D) { push('"', 3); continue; }
+            if (b == 0x93 || b == 0x94) { push('-', 3); continue; }
+            if (b == 0xA6) { out += "..."; i += 3; continue; }
+        }
+
+        if (i + 2 < in.size() && a == 0xE2 &&
+            static_cast<unsigned char>(in[i + 1]) == 0x80 &&
+            static_cast<unsigned char>(in[i + 2]) == 0xA2) {
+            out += " - ";
+            i += 3;
+            continue;
+        }
+
+        if ((a & 0xE0) == 0xC0) i += std::min<size_t>(2, in.size() - i);
+        else if ((a & 0xF0) == 0xE0) i += std::min<size_t>(3, in.size() - i);
+        else if ((a & 0xF8) == 0xF0) i += std::min<size_t>(4, in.size() - i);
+        else ++i;
+    }
+    return out;
+}
+
 void mini_ui_open_response_page(const char *text) {
+    const std::string safe = mini_display_ascii(text);
     if (answer_label && lvgl_port_lock(1000)) {
-        lv_label_set_text(answer_label, text ? text : "");
-        if (text && text[0]) lv_obj_clear_flag(answer_label, LV_OBJ_FLAG_HIDDEN);
+        lv_label_set_text(answer_label, safe.c_str());
+        if (!safe.empty()) lv_obj_clear_flag(answer_label, LV_OBJ_FLAG_HIDDEN);
         else lv_obj_add_flag(answer_label, LV_OBJ_FLAG_HIDDEN);
         lvgl_port_unlock();
     }
@@ -1889,6 +1952,7 @@ static void response_ui_create(lv_obj_t *screen) {
     lv_obj_set_width(answer_label, 244);
     lv_obj_set_style_text_align(answer_label, LV_TEXT_ALIGN_LEFT, 0);
     lv_obj_set_style_text_color(answer_label, lv_color_hex(0xE2E8F0), 0);
+    lv_obj_set_style_text_font(answer_label, &lv_font_montserrat_16, 0);
     lv_label_set_text(answer_label, "");
     lv_obj_align(answer_label, LV_ALIGN_TOP_LEFT, 0, 0);
 
