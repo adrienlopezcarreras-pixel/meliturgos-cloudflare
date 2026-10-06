@@ -1028,7 +1028,11 @@ jobs:
             fi
             local REFRESH_CODE="000"
             local REFRESH_READY=0
-            for ATTEMPT in $(seq 1 4); do
+            local MAX_ATTEMPTS=4
+            if [ "${TARGET}" = "ai_local" ]; then
+              MAX_ATTEMPTS=8
+            fi
+            for ATTEMPT in $(seq 1 "${MAX_ATTEMPTS}"); do
               REFRESH_CODE="$(curl --silent --show-error --max-time 55 \
                 --header "x-mel-parallel-proof: ${TOKEN}" \
                 --header "content-type: application/json" \
@@ -1046,6 +1050,13 @@ jobs:
                 continue
               fi
               case "${REFRESH_ERROR}" in
+                COMPANION_ENGINE_UPDATE_REQUIRED:*|SOVEREIGNTY_AI_LOCAL_BOOTSTRAP_FAILED:COMPANION_ENGINE_UPDATE_REQUIRED:*)
+                  if [ "${ATTEMPT}" -lt "${MAX_ATTEMPTS}" ]; then
+                    echo "Companion engine update required for ${KEY}; retry ${ATTEMPT}/${MAX_ATTEMPTS} after bounded refresh window."
+                    sleep 45
+                    continue
+                  fi
+                  ;;
                 SOV_BACKUP_GOOGLE_DRIVE_RECONSENT_REQUIRED)
                   echo "Google Drive OAuth re-consent is required for ${KEY}; this is not transient."
                   break
