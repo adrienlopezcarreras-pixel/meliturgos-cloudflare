@@ -33,6 +33,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
 import java.util.UUID
+import java.util.TimeZone
 import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
@@ -500,10 +501,14 @@ class MelLinkV2ClientService : Service() {
 
     private fun sessionPayload(): ByteArray {
         val rawId = Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID)
+        val now = System.currentTimeMillis()
+        val zone = TimeZone.getDefault()
         return JSONObject()
             .put("protocol", MelLinkV2Protocol.VERSION)
             .put("device_id", "android-" + (rawId ?: "unknown").take(64))
-            .put("epoch_ms", System.currentTimeMillis())
+            .put("epoch_ms", now)
+            .put("utc_offset_seconds", zone.getOffset(now) / 1000)
+            .put("timezone", zone.id.take(64))
             .toString()
             .toByteArray()
     }
