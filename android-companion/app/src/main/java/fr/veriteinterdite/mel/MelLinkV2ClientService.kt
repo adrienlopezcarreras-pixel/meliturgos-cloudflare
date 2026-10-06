@@ -878,7 +878,7 @@ class MelLinkV2ClientService : Service() {
                     )
                     return
                 }
-                sendAudioResponse(request.streamId, pcm16, outputRate = 48_000)
+                sendAudioResponse(request.streamId, pcm16, outputRate = 16_000)
                 return
             }
 
