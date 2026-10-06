@@ -14,7 +14,7 @@ using System.Web.Script.Serialization;
 static class MelApp
 {
     public const string DefaultServer = "https://meliturgos.adrien-lopezcarreras.workers.dev";
-    public const string Version = "2.3.9";
+    public const string Version = "2.3.10";
     public static readonly string MelDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "MEL");
     public static readonly string ConfigPath = Path.Combine(MelDir, "computer.json");
     public static readonly string InstalledExe = Path.Combine(MelDir, "MEL-Companion.exe");
@@ -29,6 +29,8 @@ static class MelApp
     public static string ComputerId;
     public static Process CompanionProcess;
     public static DateTime LastEngineRefreshUtc = DateTime.MinValue;
+    public static string LastEngineRefreshStatus = "NOT_RUN";
+    public static string LastEngineRefreshError = "";
     public static NotifyIcon Tray;
     public static HotKeyWindow HotKey;
     public const string HotKeyLabel = "Ctrl+Alt+M";
@@ -210,19 +212,36 @@ static class MelApp
         {
             var now = DateTime.UtcNow;
             if (!force && LastEngineRefreshUtc != DateTime.MinValue &&
-                now.Subtract(LastEngineRefreshUtc).TotalMinutes < 10) return false;
-            LastEngineRefreshUtc = now;
+                now.Subtract(LastEngineRefreshUtc).TotalSeconds < 30) return false;
             if (Server == null || Server.Length == 0 || Token == null || Token.Length < 20 || ComputerId == null || ComputerId.Length == 0)
+            {
+                LastEngineRefreshStatus = "NOT_CONFIGURED";
                 return false;
+            }
+            LastEngineRefreshUtc = now;
+            LastEngineRefreshStatus = "CHECKING";
+            LastEngineRefreshError = "";
 
             var latest = Http(Server + "/api/computer/v1/companion", "GET", null, DeviceHeaders());
-            if (string.IsNullOrWhiteSpace(latest) || latest.Length < 10000) return false;
-            if (!latest.Contains("function Send-Heartbeat") || !latest.Contains("function Perform-Step")) return false;
+            if (string.IsNullOrWhiteSpace(latest) || latest.Length < 10000)
+            {
+                LastEngineRefreshStatus = "INVALID_REMOTE_PAYLOAD";
+                return false;
+            }
+            if (!latest.Contains("function Send-Heartbeat") || !latest.Contains("function Perform-Step"))
+            {
+                LastEngineRefreshStatus = "INVALID_REMOTE_CONTRACT";
+                return false;
+            }
 
             var latestBytes = new UTF8Encoding(false).GetBytes(latest);
             var latestHash = Sha256Hex(latestBytes);
             var currentHash = File.Exists(CompanionPath) ? Sha256Hex(File.ReadAllBytes(CompanionPath)) : "";
-            if (string.Equals(latestHash, currentHash, StringComparison.OrdinalIgnoreCase)) return false;
+            if (string.Equals(latestHash, currentHash, StringComparison.OrdinalIgnoreCase))
+            {
+                LastEngineRefreshStatus = "CURRENT";
+                return false;
+            }
 
             Directory.CreateDirectory(MelDir);
             var temp = CompanionPath + ".update-" + Guid.NewGuid().ToString("N") + ".ps1";
@@ -231,6 +250,7 @@ static class MelApp
             if (!ValidatePowerShellFile(temp))
             {
                 try { File.Delete(temp); } catch { }
+                LastEngineRefreshStatus = "SYNTAX_REJECTED";
                 return false;
             }
 
@@ -246,9 +266,16 @@ static class MelApp
             }
 
             RestartCompanion();
+            LastEngineRefreshStatus = "UPDATED";
             return true;
         }
-        catch { return false; }
+        catch (Exception ex)
+        {
+            LastEngineRefreshStatus = "FAILED";
+            LastEngineRefreshError = ex.GetType().Name + ": " + (ex.Message ?? "");
+            if (LastEngineRefreshError.Length > 180) LastEngineRefreshError = LastEngineRefreshError.Substring(0,180);
+            return false;
+        }
     }
 
     static Dictionary<string, object> Obj(string json) { return Json.Deserialize<Dictionary<string, object>>(json); }
@@ -426,7 +453,10 @@ static class MelApp
                 {"x",bounds.X},{"y",bounds.Y},{"width",bounds.Width},{"height",bounds.Height}
             };
             var heartbeat = new Dictionary<string, object> {
-                {"version",Version},{"hostname",Environment.MachineName},{"user",Environment.UserName},{"screen",screen}
+                {"version",Version},{"hostname",Environment.MachineName},{"user",Environment.UserName},{"screen",screen},
+                {"engine_refresh_status",LastEngineRefreshStatus},
+                {"engine_refresh_at",LastEngineRefreshUtc == DateTime.MinValue ? 0L : new DateTimeOffset(LastEngineRefreshUtc).ToUnixTimeMilliseconds()},
+                {"engine_refresh_error",LastEngineRefreshError}
             };
             // The native shell owns and supervises the authenticated PowerShell
             // engine. If that child process is alive, attest its heartbeat too
@@ -438,6 +468,9 @@ static class MelApp
             var o = Obj(Http(Server + "/api/computer/v1/heartbeat", "POST", body, DeviceHeaders()));
             object ok;
             var serverOk = o.TryGetValue("ok", out ok) && Convert.ToBoolean(ok);
+            object updateRequired;
+            if (o.TryGetValue("engine_update_required", out updateRequired) && updateRequired != null && Convert.ToBoolean(updateRequired))
+                MaybeRefreshCompanionEngine(true);
             object engineOnline;
             if (o.TryGetValue("engine_online", out engineOnline) && engineOnline != null)
                 return serverOk && Convert.ToBoolean(engineOnline);
