@@ -37,16 +37,16 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh run watch 37466352850 --repo "${{ github.repository }}" --exit-status --interval 10
+          gh run watch 37466439448 --repo "${{ github.repository }}" --exit-status --interval 10
 
       - name: Download exact Link V2 firmware
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh run download 37466352850 `
+          gh run download 37466439448 `
             --repo "${{ github.repository }}" `
-            --name "MEL-Waveshare-3.5-C-04456d29fc270b571025224583df2edbf8013eb8" `
+            --name "MEL-Waveshare-3.5-C-5c07bb6544902fd35043f64271866aaa0e7159f5" `
             --dir firmware-artifact
           if (!(Test-Path "firmware-artifact/build/mel-terminal.bin")) {
             throw "Validated Link V2 firmware binary missing"
