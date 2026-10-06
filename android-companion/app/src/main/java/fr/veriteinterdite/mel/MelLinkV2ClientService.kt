@@ -85,7 +85,8 @@ class MelLinkV2ClientService : Service() {
         val streamId: Int,
         val meta: JSONObject,
         val pcm16: ByteArrayOutputStream = ByteArrayOutputStream(),
-        var nextSeq: Int = 0
+        var nextSeq: Int = 0,
+        var creditsConsumed: Int = 0
     )
 
     private var wakeLock: PowerManager.WakeLock? = null
@@ -540,7 +541,11 @@ class MelLinkV2ClientService : Service() {
                     audio.pcm16.write(value and 0xff)
                     audio.pcm16.write((value ushr 8) and 0xff)
                 }
-                sendCreditAsync(frame.streamId, 1)
+                audio.creditsConsumed++
+                if (audio.creditsConsumed >= MelLinkV2Protocol.CREDIT_WINDOW) {
+                    sendCreditAsync(frame.streamId, audio.creditsConsumed)
+                    audio.creditsConsumed = 0
+                }
             }
             MelLinkV2Protocol.AUDIO_END -> {
                 val audio = synchronized(audioStreams) { audioStreams.remove(frame.streamId) } ?: return
