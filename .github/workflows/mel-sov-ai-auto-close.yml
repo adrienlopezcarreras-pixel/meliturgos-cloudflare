@@ -4,6 +4,13 @@ on:
   schedule:
     - cron: '11 * * * *'
   workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/mel-sov-ai-auto-close.yml'
+      - 'src/portability/**'
+      - 'tests/gen2/sov-ai-auto-close.test.mjs'
 
 permissions:
   contents: read

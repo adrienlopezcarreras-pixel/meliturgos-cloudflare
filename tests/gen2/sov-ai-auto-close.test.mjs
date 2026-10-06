@@ -5,6 +5,9 @@ import { readFile } from 'node:fs/promises';
 test('AI SOV auto-close watches only the missing AI layer and preserves the 10/10 gate', async()=>{
   const source=await readFile(new URL('../../.github/workflows/mel-sov-ai-auto-close.yml',import.meta.url),'utf8');
   assert.ok(source.includes("cron: '11 * * * *'"));
+  assert.ok(source.includes('push:'));
+  assert.ok(source.includes('- main'));
+  assert.ok(source.includes("- 'src/portability/**'"));
   assert.ok(source.includes('refresh=ai_local'));
   assert.ok(source.includes('refresh=ai'));
   assert.ok(source.includes('MEL_SOV_AI_CONFIGURED_PREVALIDATED'));
