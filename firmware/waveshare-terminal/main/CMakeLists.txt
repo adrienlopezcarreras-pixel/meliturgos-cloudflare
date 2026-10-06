@@ -1,5 +1,5 @@
 idf_component_register(
-  SRCS "main.cpp" "mel_terminal.cpp" "mel_mobile_bridge.cpp" "nimble_peer.c" "mel_avatar_mode_complet.c"
+  SRCS "main.cpp" "mel_terminal.cpp" "mel_mobile_bridge_v2.cpp" "mel_link_v2_protocol.cpp" "mel_link_v2_server.cpp" "mel_link_v2_transport.cpp" "mel_ima_adpcm.cpp" "mel_avatar_mode_complet.c"
   INCLUDE_DIRS "."
   REQUIRES
     nvs_flash

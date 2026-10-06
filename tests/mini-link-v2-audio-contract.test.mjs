@@ -1,0 +1,73 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+
+const root=new URL('../',import.meta.url);
+
+test('Link V2 physical STT preserves real 16 kHz speech before ADPCM transport',async()=>{
+  const [terminal,transport,codec,protocol]=await Promise.all([
+    readFile(new URL('firmware/waveshare-terminal/main/mel_terminal.cpp',root),'utf8'),
+    readFile(new URL('firmware/waveshare-terminal/main/mel_link_v2_transport.cpp',root),'utf8'),
+    readFile(new URL('firmware/waveshare-terminal/main/mel_ima_adpcm.h',root),'utf8'),
+    readFile(new URL('firmware/waveshare-terminal/main/mel_link_v2_protocol.h',root),'utf8'),
+  ]);
+
+  assert.match(terminal,/VOICE_CAPTURE_RATE = 48000/);
+  assert.match(terminal,/VOICE_STT_RATE = 16000/);
+  assert.match(terminal,/VOICE_DECIMATOR_Q15\[31\]/);
+  assert.match(terminal,/acc \+= \(int64_t\)centered \* VOICE_DECIMATOR_Q15\[tap\]/);
+  assert.match(terminal,/mel_link_v2_transport_transcribe_adpcm\(/);
+  assert.doesNotMatch(terminal,/application\/x-mel-pcm4/);
+  assert.doesNotMatch(terminal,/samples_per_byte=2/);
+
+  assert.match(codec,/MEL_IMA_ADPCM_BLOCK_SAMPLES 256/);
+  assert.match(codec,/MEL_IMA_ADPCM_MAX_ENCODED_BYTES 132/);
+  assert.match(protocol,/MEL_LINK_V2_HEADER_SIZE 13/);
+  assert.ok(132+13 < 185-3,'one ADPCM block must fit inside an ATT value at MTU 185');
+
+  assert.match(transport,/MEL_LINK_V2_AUDIO_BEGIN/);
+  assert.match(transport,/MEL_LINK_V2_AUDIO_DATA/);
+  assert.match(transport,/MEL_LINK_V2_AUDIO_END/);
+  assert.match(transport,/mel_ima_adpcm_encode_block/);
+  assert.match(transport,/xSemaphoreTake\(g_credit_sem/);
+});
+
+test('Android decodes V2 ADPCM to canonical WAV and uses delegated MINI STT provenance',async()=>{
+  const [service,codec,api,serverApi]=await Promise.all([
+    readFile(new URL('android-companion/app/src/main/java/fr/veriteinterdite/mel/MelLinkV2ClientService.kt',root),'utf8'),
+    readFile(new URL('android-companion/app/src/main/java/fr/veriteinterdite/mel/MelImaAdpcm.kt',root),'utf8'),
+    readFile(new URL('android-companion/app/src/main/java/fr/veriteinterdite/mel/MelApiClient.kt',root),'utf8'),
+    readFile(new URL('src/devices/android-companion-api.js',root),'utf8'),
+  ]);
+
+  assert.match(service,/MelLinkV2Protocol\.AUDIO_BEGIN/);
+  assert.match(service,/MelLinkV2Protocol\.AUDIO_DATA/);
+  assert.match(service,/MelLinkV2Protocol\.AUDIO_END/);
+  assert.match(service,/MelImaAdpcm\.decodeBlock/);
+  assert.match(service,/AUDIO_SEQUENCE/);
+  assert.match(service,/AUDIO_LENGTH/);
+  assert.match(service,/pcm16MonoWav\(samples, 16_000\)/);
+  assert.match(service,/transcribeMini\(wav, miniDeviceId, "audio\/wav"\)/);
+
+  assert.match(codec,/const val BLOCK_SAMPLES = 256/);
+  assert.match(codec,/const val MAX_ENCODED_BYTES = 132/);
+  assert.match(codec,/fun pcm16MonoWav/);
+  assert.match(api,/\/api\/android\/v1\/mini\/voice\/transcribe/);
+  assert.match(api,/X-MEL-MINI-Device-ID/);
+  assert.match(serverApi,/handleAndroidDelegatedMiniRequest/);
+});
+
+test('Link V2 audio/server failure remains a stream failure, not a physical BLE reset',async()=>{
+  const [server,transport,android]=await Promise.all([
+    readFile(new URL('firmware/waveshare-terminal/main/mel_link_v2_server.cpp',root),'utf8'),
+    readFile(new URL('firmware/waveshare-terminal/main/mel_link_v2_transport.cpp',root),'utf8'),
+    readFile(new URL('android-companion/app/src/main/java/fr/veriteinterdite/mel/MelLinkV2ClientService.kt',root),'utf8'),
+  ]);
+
+  assert.match(transport,/ADPCM STT response timeout/);
+  assert.doesNotMatch(transport,/ble_gap_terminate/);
+  assert.doesNotMatch(transport,/start_scan/);
+  assert.match(server,/BLE_GAP_EVENT_DISCONNECT/);
+  assert.match(android,/sendErrorAsync/);
+  assert.doesNotMatch(android,/cancelConnection/);
+});

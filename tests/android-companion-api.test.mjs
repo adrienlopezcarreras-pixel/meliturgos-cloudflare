@@ -413,3 +413,78 @@ test('Android file route accepts device-token uploads without owner credentials'
     assert.equal(denied.status,401);
   }finally{DB.close();}
 });
+
+
+test('Android Link V2 can pair and operate its MINI through durable delegated auth without a MINI bearer on BLE',async()=>{
+  const DB=sqliteD1();
+  try{
+    const env={
+      DB,
+      MELITURGOS_USER:'adrien',
+      MELITURGOS_PASSWORD:'test',
+      AI:{async run(model){
+        if(String(model).includes('whisper')) return {text:'mini delegated voice'};
+        return {response:'mini delegated chat'};
+      }}
+    };
+    const android=await pair(env,'android-link-v2');
+    const miniId='mini-link-v2-001';
+    const delegatedHeaders=deviceHeaders(android.device_id,android.token,{
+      'content-type':'application/json',
+      'x-mel-mini-device-id':miniId,
+      'x-mel-link-protocol':'2'
+    });
+
+    const miniPair=await worker.fetch(new Request('https://mel.test/api/android/v1/mini/pair',{
+      method:'POST',
+      headers:delegatedHeaders,
+      body:JSON.stringify({
+        device_id:'ignored-client-value',
+        name:'MINI V2',
+        model:'waveshare-esp32-s3-touch-lcd-3.5-c',
+        firmware:'0.5.0-dev',
+        protocol_version:'1.0'
+      })
+    }),env);
+    assert.equal(miniPair.status,200);
+    const miniPairBody=await miniPair.json();
+    assert.equal(miniPairBody.device_id,miniId);
+    assert.ok(miniPairBody.token.length>=40);
+
+    const link=await DB.prepare('SELECT android_device_id,mini_device_id FROM android_mini_links WHERE android_device_id=? AND mini_device_id=?')
+      .bind(android.device_id,miniId).first();
+    assert.equal(link.android_device_id,android.device_id);
+    assert.equal(link.mini_device_id,miniId);
+
+    const heartbeat=await worker.fetch(new Request('https://mel.test/api/android/v1/mini/heartbeat',{
+      method:'POST',
+      headers:delegatedHeaders,
+      body:JSON.stringify({
+        firmware:'0.5.0-dev',
+        protocol_version:'2.0',
+        phase:'BLE_V2_READY',
+        microphone:true,
+        speaker:true
+      })
+    }),env);
+    assert.equal(heartbeat.status,200);
+    const heartbeatBody=await heartbeat.json();
+    assert.equal(heartbeatBody.device_id,miniId);
+    assert.equal(heartbeatBody.accepted.phase,'BLE_V2_READY');
+
+    const status=await DB.prepare('SELECT payload_json FROM device_status WHERE device_id=?').bind(miniId).first();
+    assert.equal(JSON.parse(status.payload_json).phase,'BLE_V2_READY');
+
+    const stranger=await pair(env,'android-link-v2-stranger');
+    const denied=await worker.fetch(new Request('https://mel.test/api/android/v1/mini/heartbeat',{
+      method:'POST',
+      headers:deviceHeaders(stranger.device_id,stranger.token,{
+        'content-type':'application/json',
+        'x-mel-mini-device-id':miniId
+      }),
+      body:'{}'
+    }),env);
+    assert.equal(denied.status,403);
+    assert.equal((await denied.json()).code,'ANDROID_MINI_LINK_REQUIRED');
+  }finally{DB.close();}
+});

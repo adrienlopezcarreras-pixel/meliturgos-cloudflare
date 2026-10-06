@@ -221,14 +221,14 @@ test('Windows desktop v2 keeps tray UI, headless engine, and packaged EXE contra
   assert.match(desktop,/self-test\.json/);
   assert.match(desktop,/\/api\/computer\/v1\/companions/);
   assert.match(desktop,/Lancer MEL Companion avec Windows/);
-  assert.match(desktop,/RÉAPPAIRER/);
-  assert.match(desktop,/DÉSINSTALLER/);
+  assert.match(desktop,/Réappairer/i);
+  assert.match(desktop,/Désinstaller/i);
   assert.match(desktop,/RegisterHotKey/);
   assert.match(desktop,/UnregisterHotKey/);
   assert.match(desktop,/Ctrl\+Alt\+M/);
   assert.match(desktop,/WM_HOTKEY/);
   assert.match(desktop,/class PermissionsForm/);
-  assert.match(desktop,/AUTORISATIONS LOCALES/);
+  assert.match(desktop,/Autorisations locales/i);
   assert.match(desktop,/SavePermissions/);
   assert.match(desktop,/RestartCompanion/);
   assert.match(desktop,/allowed_app_count/);
@@ -321,10 +321,10 @@ test('Windows command engine heartbeat is independently fresh from the desktop U
   }finally{DB.close();}
 });
 
-test('Windows Companion 2.3.9 watchdogs the engine and implements local runtime sovereignty',async()=>{
+test('Windows Companion 2.4.0 watchdogs the engine and implements local runtime sovereignty',async()=>{
   const desktop=await readFile(new URL('../windows-companion/MEL-Companion.cs',import.meta.url),'utf8');
   const companion=await readFile(new URL('../assets/MEL-Computer-Companion.ps1',import.meta.url),'utf8');
-  assert.match(desktop,/Version = "2\.3\.9"/);
+  assert.match(desktop,/Version = "2\.4\.0"/);
   assert.match(desktop,/EnsureCompanion/);
   assert.match(desktop,/CompanionRunning/);
   assert.match(companion,/\$Version = "1\.3\.1"/);

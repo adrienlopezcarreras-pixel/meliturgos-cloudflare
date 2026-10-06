@@ -74,6 +74,13 @@ async function ensureTables(env) {
     payload_json TEXT NOT NULL DEFAULT '{}',
     updated_at INTEGER NOT NULL
   )`).run();
+  await env.DB.prepare(`CREATE TABLE IF NOT EXISTS android_mini_links (
+    android_device_id TEXT NOT NULL,
+    mini_device_id TEXT NOT NULL,
+    linked_at INTEGER NOT NULL,
+    last_seen_at INTEGER NOT NULL,
+    PRIMARY KEY(android_device_id, mini_device_id)
+  )`).run();
 }
 
 async function registerRuntimeDevice(env, body) {
@@ -457,6 +464,102 @@ async function deviceTts(request, env, auth) {
   } catch (error) {
     return json({ ok: false, code: "TTS_FAILED", detail: String(error?.message || error).slice(0, 180) }, 503);
   }
+}
+
+async function linkAndroidMini(env, androidDeviceId, miniDeviceId) {
+  await ensureTables(env);
+  const now = Date.now();
+  await env.DB.prepare(`INSERT INTO android_mini_links(android_device_id,mini_device_id,linked_at,last_seen_at)
+    VALUES(?,?,?,?)
+    ON CONFLICT(android_device_id,mini_device_id) DO UPDATE SET last_seen_at=excluded.last_seen_at`)
+    .bind(androidDeviceId, miniDeviceId, now, now).run();
+}
+
+async function authorizeAndroidMiniLink(env, androidDeviceId, miniDeviceId) {
+  await ensureTables(env);
+  const row = await env.DB.prepare(`SELECT android_device_id,mini_device_id
+    FROM android_mini_links WHERE android_device_id=? AND mini_device_id=? LIMIT 1`)
+    .bind(androidDeviceId, miniDeviceId).first();
+  if (row) {
+    await env.DB.prepare(`UPDATE android_mini_links SET last_seen_at=?
+      WHERE android_device_id=? AND mini_device_id=?`)
+      .bind(Date.now(), androidDeviceId, miniDeviceId).run();
+    return true;
+  }
+
+  // One-time migration path for an already-paired pre-V2 MINI: if nobody has
+  // claimed this MINI yet and its server-side device record is still valid,
+  // the first authenticated Android companion physically relaying that exact
+  // device ID becomes its durable V2 companion. Once claimed, a second Android
+  // cannot silently take it over.
+  const existingLink = await env.DB.prepare(
+    "SELECT android_device_id FROM android_mini_links WHERE mini_device_id=? LIMIT 1"
+  ).bind(miniDeviceId).first();
+  if (existingLink) return false;
+
+  const mini = await env.DB.prepare(
+    "SELECT device_id,revoked_at FROM device_tokens WHERE device_id=? LIMIT 1"
+  ).bind(miniDeviceId).first();
+  if (!mini || mini.revoked_at != null) return false;
+
+  await linkAndroidMini(env, androidDeviceId, miniDeviceId);
+  return true;
+}
+
+/**
+ * Executes MINI operations through an already-authenticated Android companion.
+ * The Android bearer token stays on the phone/server hop and is never forwarded
+ * over BLE to MINI. MINI's own token remains only for autonomous Wi-Fi fallback.
+ */
+export async function handleAndroidDelegatedMiniRequest(
+  request,
+  env,
+  androidDeviceId,
+  miniDeviceId,
+  miniPath
+) {
+  const androidId = String(androidDeviceId || "").trim().slice(0, 200);
+  const requestedMiniId = String(miniDeviceId || "").trim().slice(0, 200);
+  const path = String(miniPath || "");
+  if (!androidId || !requestedMiniId) return json({ok:false,code:"MINI_LINK_ID_REQUIRED"},400);
+  if (!path.startsWith(WAVESHARE_TERMINAL_API + "/")) {
+    return json({ok:false,code:"MINI_DELEGATED_PATH_INVALID"},400);
+  }
+
+  if (path === WAVESHARE_TERMINAL_API + "/pair" && request.method === "POST") {
+    await ensureTables(env);
+    const body = await request.clone().json().catch(()=>({}));
+    body.device_id = requestedMiniId;
+    const response = await issueDeviceToken(env, body);
+    if (response.ok) await linkAndroidMini(env, androidId, requestedMiniId);
+    return response;
+  }
+
+  if (!(await authorizeAndroidMiniLink(env, androidId, requestedMiniId))) {
+    return json({ok:false,code:"ANDROID_MINI_LINK_REQUIRED"},403);
+  }
+
+  const auth = {ok:true,deviceId:requestedMiniId,model:WAVESHARE_TERMINAL_MODEL};
+  const url = new URL(request.url);
+  if (path === WAVESHARE_TERMINAL_API + "/manifest" && request.method === "GET") {
+    return json({ok:true,device_id:requestedMiniId,...(await loadManifest(env,url.origin))});
+  }
+  if (path === WAVESHARE_TERMINAL_API + "/heartbeat" && request.method === "POST") {
+    return updateHeartbeat(request,env,auth);
+  }
+  if (path === WAVESHARE_TERMINAL_API + "/chat" && request.method === "POST") {
+    return deviceChat(request,env,auth);
+  }
+  if (path === WAVESHARE_TERMINAL_API + "/voice/transcribe" && request.method === "POST") {
+    return deviceVoice(request,env,auth);
+  }
+  if (path === WAVESHARE_TERMINAL_API + "/voice/tts" && request.method === "POST") {
+    return deviceTts(request,env,auth);
+  }
+  if (path === WAVESHARE_TERMINAL_API + "/download" && (request.method === "GET" || request.method === "HEAD")) {
+    return serveDownload(request,env,url);
+  }
+  return json({ok:false,code:"MINI_DELEGATED_ROUTE_NOT_FOUND"},404);
 }
 
 export async function maybeHandleWaveshareTerminalApi(request, env) {

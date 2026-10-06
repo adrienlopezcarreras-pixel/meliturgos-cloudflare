@@ -61,14 +61,26 @@ jobs:
           set_cfg_y CONFIG_LV_ATTRIBUTE_FAST_MEM_USE_IRAM
           set_cfg_y CONFIG_LV_MEMCPY_MEMSET_STD
 
+          # ESP32-S3 Wi-Fi and BLE share one 2.4 GHz radio. Lock the
+          # coexistence configuration recommended by Espressif instead of
+          # inheriting whatever the pinned vendor sdkconfig happened to contain.
+          set_cfg_y CONFIG_ESP_COEX_SW_COEXIST_ENABLE
+          set_cfg_y CONFIG_BT_NIMBLE_PINNED_TO_CORE_0
+          set_cfg_n CONFIG_ESP_WIFI_TASK_PINNED_TO_CORE_0
+          set_cfg_y CONFIG_ESP_WIFI_TASK_PINNED_TO_CORE_1
+
           set_cfg_y CONFIG_BT_ENABLED
           set_cfg_y CONFIG_BTDM_CTRL_MODE_BLE_ONLY
           set_cfg_n CONFIG_BTDM_CTRL_MODE_BR_EDR_ONLY
           set_cfg_n CONFIG_BTDM_CTRL_MODE_BTDM
           set_cfg_n CONFIG_BT_BLUEDROID_ENABLED
           set_cfg_y CONFIG_BT_NIMBLE_ENABLED
-          set_cfg_y CONFIG_BT_NIMBLE_ROLE_CENTRAL
-          set_cfg_n CONFIG_BT_NIMBLE_ROLE_PERIPHERAL
+          set_cfg_n CONFIG_BT_NIMBLE_ROLE_CENTRAL
+          set_cfg_y CONFIG_BT_NIMBLE_ROLE_PERIPHERAL
+          set_cfg_n CONFIG_BT_NIMBLE_ROLE_OBSERVER
+          set_cfg_y CONFIG_BT_NIMBLE_ROLE_BROADCASTER
+          set_cfg_n CONFIG_BT_NIMBLE_GATT_CLIENT
+          set_cfg_y CONFIG_BT_NIMBLE_GATT_SERVER
 
           set_cfg_n CONFIG_OV7670_SUPPORT
           set_cfg_n CONFIG_OV7725_SUPPORT
@@ -118,9 +130,17 @@ jobs:
               "CONFIG_COMPILER_OPTIMIZATION_PERF=y",
               "CONFIG_LV_ATTRIBUTE_FAST_MEM_USE_IRAM=y",
               "CONFIG_LV_MEMCPY_MEMSET_STD=y",
+              "CONFIG_ESP_COEX_SW_COEXIST_ENABLE=y",
+              "CONFIG_BT_NIMBLE_PINNED_TO_CORE_0=y",
+              "CONFIG_ESP_WIFI_TASK_PINNED_TO_CORE_1=y",
+              "# CONFIG_ESP_WIFI_TASK_PINNED_TO_CORE_0 is not set",
               "CONFIG_BT_ENABLED=y",
               "CONFIG_BT_NIMBLE_ENABLED=y",
-              "CONFIG_BT_NIMBLE_ROLE_CENTRAL=y",
+              "# CONFIG_BT_NIMBLE_ROLE_CENTRAL is not set",
+              "CONFIG_BT_NIMBLE_ROLE_PERIPHERAL=y",
+              "# CONFIG_BT_NIMBLE_ROLE_OBSERVER is not set",
+              "CONFIG_BT_NIMBLE_ROLE_BROADCASTER=y",
+              "CONFIG_BT_NIMBLE_GATT_SERVER=y",
               "# CONFIG_BT_BLUEDROID_ENABLED is not set",
           }
           missing = sorted(required - cfg)
@@ -145,7 +165,7 @@ jobs:
             "model": "waveshare-esp32-s3-touch-lcd-3.5-c",
             "channel": "stable",
             "firmware": {
-              "version": "0.4.38-unified",
+              "version": "0.5.0-link-v2-dev",
               "available": true,
               "key": "devices/waveshare-esp32-s3-touch-lcd-3.5-c/mel-terminal.bin",
               "sha256": "${OTA_SHA256}",
