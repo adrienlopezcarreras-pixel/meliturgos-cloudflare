@@ -1513,6 +1513,13 @@ static void voice_task(void *) {
         vTaskDelete(nullptr);
         return;
     }
+    if (handle_local_media_command(text)) {
+        g_voice_stop_requested = false;
+        g_voice_task_handle = nullptr;
+        vTaskDelete(nullptr);
+        return;
+    }
+
     g_runtime_state = MEL_TERMINAL_THINKING;
     ui_status("REFLEXION...");
     ui_answer("");
@@ -1659,6 +1666,383 @@ void mel_terminal_test_stt(mel_terminal_test_status_cb_t cb) {
     }
     g_voice_stop_requested = false;
     xTaskCreatePinnedToCore(stt_test_task, "mel_stt_test", 12288, nullptr, 5, &g_stt_test_task_handle, 0);
+}
+
+
+static bool media_send_all(int fd, const void *data, size_t len) {
+    const uint8_t *p = static_cast<const uint8_t *>(data);
+    size_t sent = 0;
+    while (sent < len) {
+        const int n = send(fd, p + sent, len - sent, 0);
+        if (n <= 0) return false;
+        sent += (size_t)n;
+    }
+    return true;
+}
+
+static bool media_send_u8(int fd, uint8_t value) {
+    return media_send_all(fd, &value, 1);
+}
+
+static bool media_send_u16(int fd, uint16_t value) {
+    const uint16_t net = htons(value);
+    return media_send_all(fd, &net, sizeof(net));
+}
+
+static bool media_send_u32(int fd, uint32_t value) {
+    const uint32_t net = htonl(value);
+    return media_send_all(fd, &net, sizeof(net));
+}
+
+static int media_open_socket(
+    uint8_t type,
+    const char *name,
+    uint16_t width,
+    uint16_t height,
+    uint8_t fps,
+    uint32_t sample_rate,
+    uint8_t channels
+) {
+    if (!mel_mobile_bridge_ready()) return -1;
+
+    MelLinkV2MediaConfig cfg = {};
+    ui_status("PREPARATION TELEPHONE...");
+    if (!mel_link_v2_transport_request_media_config(&cfg, 20000)) {
+        ESP_LOGW(TAG, "MEDIA config unavailable");
+        return -1;
+    }
+
+    char gateway[32] = {};
+    if (!mini_media_wifi_connect(
+            cfg.ssid,
+            cfg.password,
+            gateway,
+            sizeof(gateway))) {
+        ESP_LOGW(TAG, "MEDIA Wi-Fi connect failed");
+        return -1;
+    }
+
+    const int fd = socket(AF_INET, SOCK_STREAM, IPPROTO_IP);
+    if (fd < 0) {
+        mini_media_wifi_release();
+        return -1;
+    }
+
+    struct timeval timeout = {};
+    timeout.tv_sec = 20;
+    setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
+    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+
+    struct sockaddr_in dest = {};
+    dest.sin_family = AF_INET;
+    dest.sin_port = htons(cfg.port);
+    if (inet_pton(AF_INET, gateway, &dest.sin_addr) != 1 ||
+        connect(fd, reinterpret_cast<struct sockaddr *>(&dest), sizeof(dest)) != 0) {
+        close(fd);
+        mini_media_wifi_release();
+        return -1;
+    }
+
+    static const uint8_t magic[5] = {'M','E','L','M','1'};
+    const size_t token_len = strlen(cfg.token);
+    const size_t name_len = name ? strlen(name) : 0;
+    const bool header_ok =
+        token_len >= 16 && token_len <= 96 &&
+        name_len >= 1 && name_len <= 128 &&
+        media_send_all(fd, magic, sizeof(magic)) &&
+        media_send_u8(fd, type) &&
+        media_send_u8(fd, (uint8_t)token_len) &&
+        media_send_all(fd, cfg.token, token_len) &&
+        media_send_u16(fd, (uint16_t)name_len) &&
+        media_send_all(fd, name, name_len) &&
+        media_send_u16(fd, width) &&
+        media_send_u16(fd, height) &&
+        media_send_u8(fd, fps) &&
+        media_send_u32(fd, sample_rate) &&
+        media_send_u8(fd, channels);
+
+    if (!header_ok) {
+        close(fd);
+        mini_media_wifi_release();
+        return -1;
+    }
+    return fd;
+}
+
+static void media_close_socket(int fd) {
+    if (fd >= 0) {
+        shutdown(fd, SHUT_RDWR);
+        close(fd);
+    }
+    mini_media_wifi_release();
+}
+
+static bool frame_to_jpeg(camera_fb_t *fb, uint8_t **jpeg, size_t *jpeg_len, bool *owned) {
+    if (!fb || !jpeg || !jpeg_len || !owned) return false;
+    *jpeg = nullptr;
+    *jpeg_len = 0;
+    *owned = false;
+    if (fb->format == PIXFORMAT_JPEG) {
+        *jpeg = fb->buf;
+        *jpeg_len = fb->len;
+        return fb->buf && fb->len > 0;
+    }
+    if (!frame2jpg(fb, 78, jpeg, jpeg_len)) return false;
+    *owned = true;
+    return *jpeg && *jpeg_len > 0;
+}
+
+static bool capture_photo_to_phone() {
+    if (!g_camera_ok) {
+        esp_camera_port_init((i2c_port_num_t)0);
+        g_camera_ok = esp_camera_sensor_get() != nullptr;
+    }
+    if (!g_camera_ok) return false;
+
+    camera_fb_t *fb = esp_camera_fb_get();
+    if (!fb) return false;
+
+    uint8_t *jpeg = nullptr;
+    size_t jpeg_len = 0;
+    bool owned = false;
+    const bool converted = frame_to_jpeg(fb, &jpeg, &jpeg_len, &owned);
+    const uint16_t width = fb->width;
+    const uint16_t height = fb->height;
+
+    bool ok = false;
+    if (converted && jpeg_len <= 12U * 1024U * 1024U) {
+        int fd = media_open_socket(
+            1,
+            "mel-mini-photo.jpg",
+            width,
+            height,
+            1,
+            0,
+            0
+        );
+        if (fd >= 0) {
+            ok =
+                media_send_u32(fd, (uint32_t)jpeg_len) &&
+                media_send_all(fd, jpeg, jpeg_len);
+            media_close_socket(fd);
+        }
+    }
+
+    if (owned && jpeg) free(jpeg);
+    esp_camera_fb_return(fb);
+    ESP_LOGI(TAG, "MEDIA PHOTO %s bytes=%u", ok ? "OK" : "FAIL", (unsigned)jpeg_len);
+    return ok;
+}
+
+static bool capture_video_to_phone(int seconds) {
+    seconds = std::max(1, std::min(30, seconds));
+    if (!g_camera_ok) {
+        esp_camera_port_init((i2c_port_num_t)0);
+        g_camera_ok = esp_camera_sensor_get() != nullptr;
+    }
+    if (!g_camera_ok) return false;
+
+    constexpr uint8_t fps = 5;
+    const int frames_target = seconds * fps;
+    int fd = -1;
+    bool ok = true;
+    int frames_sent = 0;
+    const int64_t frame_period_us = 1000000LL / fps;
+
+    for (int i = 0; i < frames_target && ok; ++i) {
+        const int64_t started = esp_timer_get_time();
+        camera_fb_t *fb = esp_camera_fb_get();
+        if (!fb) {
+            ok = false;
+            break;
+        }
+
+        uint8_t *jpeg = nullptr;
+        size_t jpeg_len = 0;
+        bool owned = false;
+        if (!frame_to_jpeg(fb, &jpeg, &jpeg_len, &owned) ||
+            jpeg_len > 2U * 1024U * 1024U) {
+            if (owned && jpeg) free(jpeg);
+            esp_camera_fb_return(fb);
+            ok = false;
+            break;
+        }
+
+        if (fd < 0) {
+            fd = media_open_socket(
+                2,
+                "mel-mini-video.avi",
+                fb->width,
+                fb->height,
+                fps,
+                0,
+                0
+            );
+            if (fd < 0) {
+                if (owned && jpeg) free(jpeg);
+                esp_camera_fb_return(fb);
+                return false;
+            }
+        }
+
+        ok =
+            media_send_u32(fd, (uint32_t)jpeg_len) &&
+            media_send_all(fd, jpeg, jpeg_len);
+        if (ok) ++frames_sent;
+
+        if (owned && jpeg) free(jpeg);
+        esp_camera_fb_return(fb);
+
+        const int64_t elapsed = esp_timer_get_time() - started;
+        if (elapsed < frame_period_us) {
+            vTaskDelay(pdMS_TO_TICKS((frame_period_us - elapsed) / 1000));
+        }
+    }
+
+    if (fd >= 0) {
+        if (ok) ok = media_send_u32(fd, 0);
+        media_close_socket(fd);
+    }
+    ESP_LOGI(TAG, "MEDIA VIDEO %s frames=%d/%d", ok ? "OK" : "FAIL", frames_sent, frames_target);
+    return ok && frames_sent > 0;
+}
+
+static bool capture_audio_to_phone(int seconds) {
+    seconds = std::max(1, std::min(120, seconds));
+    if (!g_audio_ok || !input_dev) return false;
+
+    int fd = media_open_socket(
+        3,
+        "mel-mini-audio.wav",
+        0,
+        0,
+        0,
+        VOICE_CAPTURE_RATE,
+        1
+    );
+    if (fd < 0) return false;
+
+    constexpr int chunk_samples = VOICE_CAPTURE_RATE / 10;
+    auto *pcm = static_cast<int16_t *>(
+        heap_caps_malloc(chunk_samples * sizeof(int16_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)
+    );
+    if (!pcm) pcm = static_cast<int16_t *>(malloc(chunk_samples * sizeof(int16_t)));
+    if (!pcm) {
+        media_close_socket(fd);
+        return false;
+    }
+
+    ensure_mic_mutex();
+    bool ok = g_mic_mutex &&
+        xSemaphoreTake(g_mic_mutex, pdMS_TO_TICKS(1500)) == pdTRUE;
+    if (ok) esp_codec_dev_set_in_gain(input_dev, 38.0);
+
+    const int chunks = seconds * 10;
+    for (int i = 0; i < chunks && ok; ++i) {
+        const int rc = esp_codec_dev_read(
+            input_dev,
+            pcm,
+            chunk_samples * (int)sizeof(int16_t)
+        );
+        if (rc != ESP_CODEC_DEV_OK) {
+            ok = false;
+            break;
+        }
+        const uint32_t bytes = chunk_samples * sizeof(int16_t);
+        ok =
+            media_send_u32(fd, bytes) &&
+            media_send_all(fd, pcm, bytes);
+    }
+
+    if (g_mic_mutex && uxSemaphoreGetCount(g_mic_mutex) == 0) {
+        esp_codec_dev_set_in_gain(input_dev, 0.0);
+        xSemaphoreGive(g_mic_mutex);
+    }
+    free(pcm);
+
+    if (ok) ok = media_send_u32(fd, 0);
+    media_close_socket(fd);
+    ESP_LOGI(TAG, "MEDIA AUDIO %s seconds=%d", ok ? "OK" : "FAIL", seconds);
+    return ok;
+}
+
+static std::string command_lower(std::string value) {
+    std::transform(
+        value.begin(),
+        value.end(),
+        value.begin(),
+        [](unsigned char c) { return (char)std::tolower(c); }
+    );
+    return value;
+}
+
+static int command_seconds(const std::string &text, int fallback, int maximum) {
+    for (size_t i = 0; i < text.size(); ++i) {
+        if (!std::isdigit((unsigned char)text[i])) continue;
+        int value = atoi(text.c_str() + i);
+        if (value > 0) return std::min(maximum, value);
+    }
+    return fallback;
+}
+
+static bool handle_local_media_command(const std::string &spoken) {
+    const std::string text = command_lower(spoken);
+    const bool photo =
+        text.find("photo") != std::string::npos &&
+        (text.find("prend") != std::string::npos ||
+         text.find("prends") != std::string::npos ||
+         text.find("prendre") != std::string::npos ||
+         text.find("capture") != std::string::npos);
+
+    const bool video =
+        text.find("filme") != std::string::npos ||
+        text.find("filmer") != std::string::npos ||
+        text.find("video") != std::string::npos ||
+        text.find("vidéo") != std::string::npos;
+
+    const bool audio =
+        !photo && !video &&
+        (text.find("enregistre") != std::string::npos ||
+         text.find("dictaphone") != std::string::npos ||
+         text.find("audio") != std::string::npos);
+
+    if (!photo && !video && !audio) return false;
+
+    g_runtime_state = MEL_TERMINAL_THINKING;
+    bool ok = false;
+    if (photo) {
+        ui_status("PHOTO...");
+        ok = capture_photo_to_phone();
+        ui_answer(ok ? "Photo enregistree sur le telephone." : "Echec de la photo.");
+    } else if (video) {
+        const int seconds = command_seconds(text, 10, 30);
+        char status[48] = {};
+        snprintf(status, sizeof(status), "VIDEO %d S...", seconds);
+        ui_status(status);
+        ok = capture_video_to_phone(seconds);
+        ui_answer(ok ? "Video enregistree sur le telephone." : "Echec de la video.");
+    } else {
+        const int seconds = command_seconds(text, 30, 120);
+        char status[48] = {};
+        snprintf(status, sizeof(status), "ENREGISTREMENT %d S...", seconds);
+        ui_status(status);
+        ok = capture_audio_to_phone(seconds);
+        ui_answer(ok ? "Audio enregistre sur le telephone." : "Echec de l'enregistrement.");
+    }
+
+    g_runtime_state = ok ? MEL_TERMINAL_SPEAKING : MEL_TERMINAL_ERROR;
+    if (ok) {
+        speak_text(
+            photo ? "Photo enregistrée sur le téléphone." :
+            video ? "Vidéo enregistrée sur le téléphone." :
+                    "Enregistrement terminé sur le téléphone."
+        );
+    } else {
+        vTaskDelay(pdMS_TO_TICKS(900));
+    }
+    g_runtime_state = MEL_TERMINAL_IDLE;
+    ui_status("");
+    return true;
 }
 
 static void camera_task(void *) {
