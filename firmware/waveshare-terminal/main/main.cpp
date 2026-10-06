@@ -957,7 +957,7 @@ static void settings_audio_test_task(void *) {
 
     // Match the Waveshare reference audio test: capture two seconds from the
     // onboard microphone, then replay exactly that PCM through the speaker.
-    constexpr size_t sample_count = 2 * 48000; // 2 s @ 48 kHz mono
+    constexpr size_t sample_count = 2 * 16000; // Waveshare ES8311 BSP: 2 s @ 16 kHz mono
     constexpr size_t byte_count = sample_count * sizeof(int16_t);
     auto *pcm = static_cast<int16_t *>(heap_caps_malloc(byte_count, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
     if (!pcm) pcm = static_cast<int16_t *>(malloc(byte_count));
