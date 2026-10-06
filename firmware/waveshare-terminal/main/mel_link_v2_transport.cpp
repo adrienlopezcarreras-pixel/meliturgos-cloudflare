@@ -544,13 +544,19 @@ static esp_err_t request_common(
     }
 
     const bool voice = strstr(path, "/voice/") != nullptr;
-    const TickType_t wait = pdMS_TO_TICKS(voice ? 90000 : 60000);
+    const bool chat = strcmp(path, "/api/device/v1/chat") == 0;
+    const TickType_t wait = pdMS_TO_TICKS(chat ? 20000 : (voice ? 90000 : 60000));
     const bool done = xSemaphoreTake(g_response_done, wait) == pdTRUE;
     status = g_active.status;
     if (response) *response = g_active.body;
     const bool failed = !done || g_active.failed;
 
-    if (!done) ESP_LOGE(TAG, "response timeout path=%s stream=%u", path, g_active.stream_id);
+    if (!done) {
+        ESP_LOGE(TAG, "response timeout path=%s stream=%u", path, g_active.stream_id);
+        if (response && response->empty()) {
+            *response = chat ? "CHAT_RESPONSE_TIMEOUT" : "LINK_RESPONSE_TIMEOUT";
+        }
+    }
     g_active = {};
     xSemaphoreGive(g_exchange_mutex);
     return failed ? ESP_ERR_TIMEOUT : ESP_OK;
