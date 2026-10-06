@@ -73,3 +73,19 @@ test('scheduled sovereignty maintenance has one authority per local infrastructu
     assert.match(authority,new RegExp(`layer:['"]${layer}['"]`));
   }
 });
+
+
+test('PowerShell SOV AI preserves the last Ollama bootstrap stage when the process exits', async () => {
+  for (const rel of [
+    '../../assets/MEL-Computer-Companion.ps1',
+    '../../dist/MEL-Computer-Companion.ps1',
+  ]) {
+    const source = await readFile(new URL(rel, import.meta.url), 'utf8');
+    assert.match(source, /OLLAMA_BOOTSTRAP_PROCESS_EXITED_AT_/);
+    assert.match(source, /\$lastStage = \(\[string\]\$status\.code\)\.Trim\(\)\.ToUpperInvariant\(\)/);
+    assert.match(source, /DOWNLOADING_INSTALLER/);
+    assert.match(source, /INSTALLING_ENGINE/);
+    assert.match(source, /STARTING_ENGINE/);
+    assert.match(source, /PULLING_MODEL/);
+  }
+});
