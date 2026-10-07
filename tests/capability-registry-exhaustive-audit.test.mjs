@@ -24,6 +24,12 @@ test('every registered runtime capability is unique, inventoried and truth-class
     assert.ok(['LOW','MEDIUM','HIGH'].includes(row.risk), 'invalid risk for ' + row.id);
     assert.equal(typeof row.enabled, 'boolean', 'invalid enabled flag for ' + row.id);
     assert.ok(row.provider, 'missing provider for ' + row.id);
+    const declared = String(row.implementation_status || '').toUpperCase();
+    assert.notEqual(declared, 'STUB', 'stub capability remains registered: ' + row.id);
+    assert.notEqual(declared, 'NOT_IMPLEMENTED', 'unimplemented capability remains registered: ' + row.id);
+    const contract = runtime.bus.contract(row.id);
+    assert.equal(contract.valid, true, 'invalid contract for ' + row.id);
+    assert.equal(contract.handler_registered, true, 'missing handler for ' + row.id);
   }
 });
 
