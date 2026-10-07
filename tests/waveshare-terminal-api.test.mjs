@@ -74,14 +74,37 @@ test('device TTS uses self-describing 48 kHz mono linear16 WAV for MINI playback
       };
     }
   };
+
+  // Real Aura contract: return a self-describing WAV stream instead of naked
+  // bytes that MEL would have to guess about.
+  const wav = new Uint8Array(48);
+  const ascii = (offset, text) => {
+    for (let i=0;i<text.length;i++) wav[offset+i] = text.charCodeAt(i);
+  };
+  const view = new DataView(wav.buffer);
+  ascii(0,'RIFF');
+  view.setUint32(4,40,true);
+  ascii(8,'WAVE');
+  ascii(12,'fmt ');
+  view.setUint32(16,16,true);
+  view.setUint16(20,1,true);
+  view.setUint16(22,1,true);
+  view.setUint32(24,48000,true);
+  view.setUint32(28,96000,true);
+  view.setUint16(32,2,true);
+  view.setUint16(34,16,true);
+  ascii(36,'data');
+  view.setUint32(40,4,true);
+  wav.set([0x00,0x00,0x00,0x01],44);
+
   const env = {
     DB: db,
     AI: {
       async run(model, input, options) {
         aiCall = { model, input, options };
-        return new Response(new Uint8Array([0x00,0x00,0x00,0x01]), {
+        return new Response(wav, {
           status:200,
-          headers:{'content-type':'application/octet-stream'}
+          headers:{'content-type':'audio/wav'}
         });
       }
     }
@@ -104,16 +127,13 @@ test('device TTS uses self-describing 48 kHz mono linear16 WAV for MINI playback
   assert.equal(r.headers.get('x-mel-audio-rate'),'48000');
   assert.equal(r.headers.get('x-mel-audio-channels'),'1');
   const out = new Uint8Array(await r.arrayBuffer());
-  assert.equal(new TextDecoder().decode(out.slice(0,4)),'RIFF');
-  assert.equal(new TextDecoder().decode(out.slice(8,12)),'WAVE');
-  assert.equal(out.length,48);
-  assert.deepEqual(Array.from(out.slice(44)),[0x00,0x00,0x00,0x01]);
+  assert.deepEqual(Array.from(out),Array.from(wav));
   assert.equal(aiCall.model,'@cf/deepgram/aura-1');
   assert.deepEqual(aiCall.input,{
     text:'Bonjour MINI',
     speaker:'luna',
     encoding:'linear16',
-    container:'none',
+    container:'wav',
     sample_rate:48000
   });
   assert.deepEqual(aiCall.options,{ returnRawResponse:true });
