@@ -26,7 +26,7 @@ test('MINI uses internal flash FAT storage for assets and rendered media', async
   assert.match(header, /MEL_FW_VERSION "0\.6\.0-audio-link-rebuild"/);
   assert.match(api, /"storage\.internal"/);
   assert.match(api, /internal_storage: body\.internal_storage/);
-  assert.match(workflow, /"version": "0\.5\.9-boot-stable-link"/);
+  assert.match(workflow, /"version": "0\.6\.0-audio-link-rebuild"/);
   assert.match(runtime, /esp_vfs_fat_spiflash_unmount_rw_wl\("\/melstore", g_storage_wl\)/);
   assert.match(runtime, /static void storage_reset_after_failure\(\)/);
   assert.match(runtime, /static void storage_refresh_info\(\)/);
