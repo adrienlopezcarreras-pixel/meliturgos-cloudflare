@@ -21,12 +21,14 @@ test('canonical release proves a recent restore-verified backup through the ephe
   assert.doesNotMatch(block, /MEL_LAUNCH_BOOTSTRAP_TOKEN/);
 });
 
-test('post-release proof suite runs automatically after a successful canonical release and calls platform proof first', async () => {
+test('post-release proof suite is a direct release health gate and calls platform proof first', async () => {
+  const deploy = await readFile(new URL('../.github/workflows/deploy-cloudflare-release.yml', import.meta.url), 'utf8');
   const suite = await readFile(new URL('../.github/workflows/post-release-proof-suite.yml', import.meta.url), 'utf8');
   const platform = await readFile(new URL('../.github/workflows/activate-platform-capabilities.yml', import.meta.url), 'utf8');
-  assert.match(suite, /workflows: \["deploy-cloudflare-release"\]/);
-  assert.match(suite, /github\.event\.workflow_run\.conclusion == 'success'/);
-  assert.match(suite, /uses: \.\/\.github\/workflows\/activate-platform-capabilities\.yml/);
+  assert.match(suite, /workflow_call:/);
+  assert.doesNotMatch(suite, /workflow_run:/);
+  assert.match(deploy, /post-release-health:\n[\s\S]*needs:\s*deploy[\s\S]*uses:\s*\.\/\.github\/workflows\/post-release-proof-suite\.yml/);
+  assert.match(suite, /platform:\n[\s\S]*uses: \.\/\.github\/workflows\/activate-platform-capabilities\.yml/);
   assert.match(platform, /workflow_call:/);
   assert.doesNotMatch(platform, /workflows: \["deploy-cloudflare-release"\]/);
   assert.match(platform, /cloudflare\.workers\.read/);
