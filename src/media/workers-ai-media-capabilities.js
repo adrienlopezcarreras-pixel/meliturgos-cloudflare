@@ -146,7 +146,7 @@ async function browserMediaCall(env, path, payload, {
   maxResponseChars = 20_000_000,
   failureCode = 'BROWSER_MEDIA_FAILED',
 } = {}) {
-  if (!browserMediaReady(env)) throw mediaError('BROWSER_VIDEO_RENDERER_UNAVAILABLE');
+  if (!browserMediaReady(env)) throw mediaError('BROWSER_MEDIA_RUNTIME_UNAVAILABLE');
   const response = await env.MEL_BROWSER_COMPANION.fetch(new Request(
     'https://browser-companion.internal' + path,
     {
@@ -372,7 +372,8 @@ async function imageProcess(env, input = {}) {
     ok: true,
     schema: 'mel.workers-ai-media/v1',
     capability: 'media.image.process',
-    provider: 'workers-ai',
+    provider: 'workers-ai+browser-run',
+    engine: 'flux2-reference-edit',
     model: WORKERS_AI_IMAGE_EDIT_MODEL,
     zero_added_cost: true,
     artifact,
@@ -564,7 +565,7 @@ async function videoGenerate(env, input = {}) {
   if (!workersProvenance) throw mediaError('WORKERS_AI_ZERO_COST_PROOF_REQUIRED');
   const browserProvenance = browserRunZeroCostProvenance(env);
   if (!browserProvenance) throw mediaError('BROWSER_RUN_ZERO_COST_PROOF_REQUIRED');
-  if (!browserMediaReady(env)) throw mediaError('BROWSER_VIDEO_RENDERER_UNAVAILABLE');
+  if (!browserMediaReady(env)) throw mediaError('BROWSER_MEDIA_RUNTIME_UNAVAILABLE');
   if (!mediaStorageReady(env)) throw mediaError('MEDIA_VAULT_UNAVAILABLE');
 
   const prompt = clean(input?.prompt || input?.description, 4000);
@@ -646,7 +647,7 @@ async function videoGenerate(env, input = {}) {
 async function videoProcess(env, input = {}) {
   const browserProvenance = browserRunZeroCostProvenance(env);
   if (!browserProvenance) throw mediaError('BROWSER_RUN_ZERO_COST_PROOF_REQUIRED');
-  if (!browserMediaReady(env)) throw mediaError('BROWSER_VIDEO_RENDERER_UNAVAILABLE');
+  if (!browserMediaReady(env)) throw mediaError('BROWSER_MEDIA_RUNTIME_UNAVAILABLE');
   if (!mediaStorageReady(env)) throw mediaError('MEDIA_VAULT_UNAVAILABLE');
 
   const source = await videoInputData(env, input);
@@ -700,7 +701,7 @@ async function videoProcess(env, input = {}) {
 async function videoAnalyze(env, input = {}) {
   const browserProvenance = browserRunZeroCostProvenance(env);
   if (!browserProvenance) throw mediaError('BROWSER_RUN_ZERO_COST_PROOF_REQUIRED');
-  if (!browserMediaReady(env)) throw mediaError('BROWSER_VIDEO_RENDERER_UNAVAILABLE');
+  if (!browserMediaReady(env)) throw mediaError('BROWSER_MEDIA_RUNTIME_UNAVAILABLE');
   if (!aiReady(env, IMAGE_ANALYZE_ADAPTER_ID, WORKERS_AI_VISION_MODEL)) throw mediaError('WORKERS_AI_VISION_UNAVAILABLE');
   if (!aiReady(env, TRANSCRIPTION_ADAPTER_ID, WORKERS_AI_TRANSCRIPTION_MODEL)) throw mediaError('WORKERS_AI_TRANSCRIPTION_UNAVAILABLE');
 
