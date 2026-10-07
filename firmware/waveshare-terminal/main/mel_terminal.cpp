@@ -138,6 +138,22 @@ static TaskHandle_t g_voice_worker_handle = nullptr;
 static volatile bool g_voice_job_active = false;
 static volatile bool g_voice_stop_requested = false;
 static volatile bool g_tts_stop_requested = false;
+
+static bool speaker_output_enable(float volume) {
+    if (!output_dev) return false;
+    const int mute_rc = esp_codec_dev_set_out_mute(output_dev, false);
+    const int vol_rc = esp_codec_dev_set_out_vol(output_dev, volume);
+    ESP_LOGI(TAG, "SPEAKER enable mute_rc=%d vol_rc=%d volume=%.1f", mute_rc, vol_rc, volume);
+    return mute_rc == ESP_CODEC_DEV_OK && vol_rc == ESP_CODEC_DEV_OK;
+}
+
+static void speaker_output_disable(void) {
+    if (!output_dev) return;
+    const int vol_rc = esp_codec_dev_set_out_vol(output_dev, 0.0);
+    const int mute_rc = esp_codec_dev_set_out_mute(output_dev, true);
+    ESP_LOGI(TAG, "SPEAKER disable vol_rc=%d mute_rc=%d", vol_rc, mute_rc);
+}
+
 static bool g_voice_output_enabled = true;
 static volatile int g_voice_level = 0;
 static char g_last_voice_error_buf[96] = {};
@@ -882,7 +898,7 @@ static bool speak_text(const std::string &text) {
         MobileTtsContext ctx;
         ctx.started_us = esp_timer_get_time();
         int status = 0;
-        esp_codec_dev_set_out_vol(output_dev, 100.0);
+        speaker_output_enable(100.0);
         esp_err_t err = mel_link_v2_transport_request_stream(
             HTTP_METHOD_POST,
             "/api/device/v1/voice/tts",
@@ -894,7 +910,7 @@ static bool speak_text(const std::string &text) {
             mobile_tts_chunk,
             &ctx
         );
-        esp_codec_dev_set_out_vol(output_dev, 0.0);
+        speaker_output_disable();
         const bool stopped = g_tts_stop_requested;
         const bool ok = !stopped && err == ESP_OK && status == 200 && ctx.ok && !ctx.have_carry && !ctx.first_audio;
         if (stopped) {
@@ -934,7 +950,7 @@ static bool speak_text(const std::string &text) {
         MobileTtsContext ctx;
         ctx.started_us = esp_timer_get_time();
         int status = 0;
-        esp_codec_dev_set_out_vol(output_dev, 100.0);
+        speaker_output_enable(100.0);
         esp_err_t err = mel_mobile_bridge_request_stream(
             HTTP_METHOD_POST,
             "/api/device/v1/voice/tts",
@@ -947,7 +963,7 @@ static bool speak_text(const std::string &text) {
             mobile_tts_chunk,
             &ctx
         );
-        esp_codec_dev_set_out_vol(output_dev, 0.0);
+        speaker_output_disable();
         const bool ok = err == ESP_OK && status == 200 && ctx.ok && !ctx.have_carry;
         if (!ok) ESP_LOGW(TAG, "MOBILE TTS failed err=%s status=%d", esp_err_to_name(err), status);
         return ok;
@@ -987,7 +1003,7 @@ static bool speak_text(const std::string &text) {
                 } else {
                     uint8_t *buffer = static_cast<uint8_t *>(heap_caps_malloc(4097, MALLOC_CAP_8BIT));
                     if (buffer) {
-                        esp_codec_dev_set_out_vol(output_dev, 100.0);
+                        speaker_output_enable(100.0);
                         ok = true;
                         bool have_carry = false;
                         uint8_t carry = 0;
@@ -1035,7 +1051,7 @@ static bool speak_text(const std::string &text) {
                             ok = true;
                             ui_status("VOIX STOP");
                         } else if (have_carry || remaining != 0) ok = false;
-                        esp_codec_dev_set_out_vol(output_dev, 0.0);
+                        speaker_output_disable();
                         heap_caps_free(buffer);
                     }
                 }
@@ -1871,7 +1887,7 @@ void mel_terminal_set_voice_output_enabled(bool enabled) {
         ESP_LOGI(TAG, "VOICE OUTPUT activation rearmed tts_stop=0 audio_ok=%d output_dev=%p", g_audio_ok ? 1 : 0, output_dev);
     } else {
         g_tts_stop_requested = true;
-        if (output_dev) esp_codec_dev_set_out_vol(output_dev, 0.0);
+        if (output_dev) speaker_output_disable();
     }
     nvs_handle_t nvs;
     if (nvs_open("mel", NVS_READWRITE, &nvs) == ESP_OK) {
@@ -1908,9 +1924,42 @@ void mel_terminal_test_voice_output(void) {
     );
 }
 
+static void speaker_tone_test_task(void *) {
+    if (!output_dev || !g_audio_ok) {
+        ui_status("HP INDISPONIBLE");
+        vTaskDelete(nullptr);
+        return;
+    }
+    constexpr int sample_rate = 48000;
+    constexpr int samples = 12000; // 250 ms
+    int16_t *pcm = static_cast<int16_t *>(heap_caps_malloc(samples * sizeof(int16_t), MALLOC_CAP_8BIT));
+    if (!pcm) {
+        ui_status("TEST HP MEMOIRE");
+        vTaskDelete(nullptr);
+        return;
+    }
+    // 750 Hz square-ish sine approximation, loud enough to hear.
+    for (int i = 0; i < samples; ++i) {
+        const int phase = i % 64;
+        pcm[i] = (phase < 32) ? 11000 : -11000;
+    }
+    speaker_output_enable(85.0);
+    const int rc = esp_codec_dev_write(output_dev, pcm, samples * sizeof(int16_t));
+    vTaskDelay(pdMS_TO_TICKS(80));
+    speaker_output_disable();
+    heap_caps_free(pcm);
+    ESP_LOGI(TAG, "SPEAKER local tone write rc=%d", rc);
+    ui_status(rc == ESP_CODEC_DEV_OK ? "HP LOCAL : BIP ENVOYE" : "HP LOCAL : ECHEC");
+    vTaskDelete(nullptr);
+}
+
+void mel_terminal_test_speaker_local(void) {
+    xTaskCreatePinnedToCore(speaker_tone_test_task, "mel_spk_tone", 4096, nullptr, 4, nullptr, 0);
+}
+
 void mel_terminal_stop_voice_output(void) {
     g_tts_stop_requested = true;
-    if (output_dev) esp_codec_dev_set_out_vol(output_dev, 0.0);
+    if (output_dev) speaker_output_disable();
     ESP_LOGI(TAG, "VOICE OUTPUT stop requested");
 }
 
