@@ -38,8 +38,7 @@ test('every id-bearing button is uniquely declared and wired outside its markup 
   assert.equal(new Set(ids).size, ids.length, 'button IDs must remain unique');
 
   for (const id of ids) {
-    const escaped = id.replace(/[.*+?^${}()|[\]\\]/g, '\\'\\\\$&'');
-    const occurrences = source.match(new RegExp(escaped, 'g'))?.length || 0;
+    const occurrences = source.split(id).length - 1;
     assert.ok(occurrences >= 2, 'orphan button without runtime wiring: ' + id);
   }
 });
