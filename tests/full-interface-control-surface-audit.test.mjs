@@ -57,7 +57,7 @@ test('all navigation and jump controls target an existing canonical panel', () =
 
 test('generic control families keep their delegated handlers', () => {
   const families = [
-    ['data-view', "qsa('[data-view]')"],
+    ['data-view', "qsa('#nav button[data-view]')"],
     ['data-jump', "qsa('[data-jump]')"],
     ['data-mode', "qsa('[data-mode]')"],
     ['data-pc-app', "qsa('[data-pc-app]')"],
