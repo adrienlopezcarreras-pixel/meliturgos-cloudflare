@@ -2421,12 +2421,6 @@ extern "C" void app_main(void) {
         lvgl_port_unlock();
     }
 
-    // Diagnostic release: prove the physical speaker path once after the UI is alive.
-    // This bypasses Android, BLE, HTTP and TTS entirely.
-    if (audio_ok) {
-        ESP_LOGI(TAG, "STEP 6.1: LOCAL SPEAKER SELFTEST");
-        mel_terminal_test_speaker_local();
-    }
 
     // Do not auto-connect Wi-Fi at boot. MEL Mobile gets priority; only if the
     // phone is absent/unusable do we fall back to saved Wi-Fi credentials.
