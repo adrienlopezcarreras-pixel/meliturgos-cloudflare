@@ -44,7 +44,7 @@ function addArtifactCapability(bus) {
 test('default bus exposes truthful persistent Work capabilities', () => {
   const unavailable = createDefaultCapabilityBus({ env: {} });
   for (const id of ['work.create', 'work.run', 'work.status', 'work.artifacts']) {
-    assert.equal(unavailable.describe(id).health, 'DEGRADED');
+    assert.equal(unavailable.describe(id).health, 'UNAVAILABLE');
   }
   assert.equal(unavailable.describe('work.status').risk, 'LOW');
   assert.equal(unavailable.describe('work.create').risk, 'MEDIUM');
@@ -116,7 +116,7 @@ test('Work execution fails closed when durable D1 is unavailable', async () => {
   const bus = createDefaultCapabilityBus({ env: {} });
   await assert.rejects(
     () => bus.execute('work.status', { id: 'missing' }, context),
-    error => error.code === 'WORK_DAG_DB_REQUIRED'
+    error => error.code === 'CAPABILITY_UNAVAILABLE'
   );
 });
 
