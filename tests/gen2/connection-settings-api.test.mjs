@@ -428,6 +428,47 @@ test('Pipedream access token exchange matches the official SDK client-credential
   assert.equal('environment' in body, false);
 });
 
+test('Pipedream defaults new Connect configuration to development for Free-compatible setup', async () => {
+  const runtimeEnv = env();
+  const response = await call('/api/gen2/connections/pipedream/save', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      project_id: 'proj_demo123',
+      client_id: 'client-id',
+      client_secret: 'client-secret',
+    }),
+  }, runtimeEnv);
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.environment, 'development');
+});
+
+test('Pipedream production probe falls back to development on upstream 400', async () => {
+  const calls = [];
+  const result = await testPipedreamCredentials({
+    project_id: 'proj_demo123',
+    client_id: 'client-id',
+    client_secret: 'client-secret',
+    environment: 'production',
+  }, {
+    fetcher: async (url, init) => {
+      calls.push({ url: String(url), init });
+      if (String(url).endsWith('/v1/oauth/token')) return Response.json({ access_token: 'access' });
+      if (init.headers['x-pd-environment'] === 'production') {
+        return Response.json({ error: 'production_not_available' }, { status: 400 });
+      }
+      return Response.json({ data: [{ key: 'one' }] });
+    },
+  });
+  assert.equal(result.authenticated, true);
+  assert.equal(result.configured_environment, 'production');
+  assert.equal(result.environment, 'development');
+  assert.equal(result.environment_fallback_used, true);
+  assert.ok(calls.some(call => call.init?.headers?.['x-pd-environment'] === 'production'));
+  assert.ok(calls.some(call => call.init?.headers?.['x-pd-environment'] === 'development'));
+});
+
 test('Pipedream real project probe checks Outlook and OneDrive component catalogs', async () => {
   const calls = [];
   const result = await testPipedreamCredentials({
@@ -481,6 +522,32 @@ test('Pipedream account status uses the server access token and filters by MEL e
   assert.equal(accountsCall.init.headers['x-pd-environment'], 'production');
 });
 
+
+test('Pipedream account status accepts alternate accounts response shape and production fallback', async () => {
+  const calls = [];
+  const result = await pipedreamAccountStatus({
+    project_id: 'proj_demo123',
+    client_id: 'client-id',
+    client_secret: 'client-secret',
+    environment: 'production',
+  }, 'adrien', {
+    fetcher: async (url, init) => {
+      calls.push({ url: String(url), init });
+      if (String(url).endsWith('/v1/oauth/token')) return Response.json({ access_token: 'server-token' });
+      if (init.headers['x-pd-environment'] === 'production') {
+        return Response.json({ error: 'production_not_available' }, { status: 400 });
+      }
+      return Response.json({
+        accounts: [
+          { id: 'apn_outlook', healthy: true, app: { name_slug: 'microsoft_outlook' } },
+        ],
+      });
+    },
+  });
+  assert.equal(result.environment, 'development');
+  assert.equal(result.environment_fallback_used, true);
+  assert.deepEqual(result.connected_apps, ['microsoft_outlook']);
+});
 
 test('Pipedream Google Tasks proof executes the read-only List Task Lists action without returning private content', async () => {
   const calls = [];
