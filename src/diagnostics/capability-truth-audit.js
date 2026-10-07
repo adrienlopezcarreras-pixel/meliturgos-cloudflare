@@ -52,6 +52,11 @@ const SAFE_SAMPLES = Object.freeze({
   'evolution.ledger.list': { limit: 1 },
   'resilience.recovery.drill.latest': {},
   'resilience.cold-standby.prepare.latest': {},
+  'presentation.layout.plan': { kind: 'chat' },
+  'work.plan': {
+    goal: 'Audit borné sans effet de bord',
+    steps: [{ id: 'step-1', title: 'Lire la roadmap', capability: 'roadmap.read', input: {}, dependsOn: [], idempotent: true }],
+  },
 });
 
 // Automatic deep audits must be zero-added-cost by proof, not assumption.
@@ -61,8 +66,11 @@ const SAFE_SAMPLES = Object.freeze({
 // zeroCostCapabilityIds for the current run.
 const COST_SENSITIVE_CAPABILITIES = new Set([
   'augmentio.fanout',
+  'model.council',
   'council.state-of-play',
   'evolution.preflight',
+  'work.plan.generate',
+  'media.audio.transcribe',
   'evolution.enqueue',
   'web.research',
   'code.read',
