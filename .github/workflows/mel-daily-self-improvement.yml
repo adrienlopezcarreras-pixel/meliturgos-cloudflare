@@ -26,20 +26,34 @@ jobs:
           ref: main
           fetch-depth: 1
 
-      - name: Resolve latest stable production SHA
+      - name: Resolve latest deployed production SHA
         shell: bash
         run: |
           set -euo pipefail
-          gh api "repos/$GITHUB_REPOSITORY/actions/workflows/deploy-cloudflare-release.yml/runs?status=success&per_page=20" > stable-runs.json
+          gh api "repos/$GITHUB_REPOSITORY/actions/workflows/deploy-cloudflare-release.yml/runs?per_page=20" > release-runs.json
           DEPLOYED_SHA="$(node - <<'NODE'
-          const d=require('./stable-runs.json');
-          const run=(d.workflow_runs||[]).find(r=>r?.status==='completed'&&r?.conclusion==='success'&&/^[0-9a-f]{40}$/i.test(String(r?.head_sha||'')));
-          if(!run) process.exit(2);
-          process.stdout.write(String(run.head_sha).toLowerCase());
+          const fs=require('fs');
+          const d=require('./release-runs.json');
+          const {execFileSync}=require('child_process');
+          const runs=(d.workflow_runs||[])
+            .filter(r=>/^[0-9a-f]{40}$/i.test(String(r?.head_sha||'')))
+            .sort((a,b)=>Number(b?.run_number||0)-Number(a?.run_number||0));
+          for(const run of runs){
+            try{
+              const raw=execFileSync('gh',['api',`repos/${process.env.GITHUB_REPOSITORY}/actions/runs/${run.id}/jobs?per_page=100`],{encoding:'utf8'});
+              const jobs=JSON.parse(raw)?.jobs||[];
+              const deploy=jobs.find(j=>j?.name==='deploy');
+              if(deploy?.status==='completed'&&deploy?.conclusion==='success'){
+                process.stdout.write(String(run.head_sha).toLowerCase());
+                process.exit(0);
+              }
+            }catch{}
+          }
+          process.exit(2);
           NODE
           )"
           echo "DEPLOYED_SHA=$DEPLOYED_SHA" >> "$GITHUB_ENV"
-          echo "Daily improvement bound to stable production SHA: $DEPLOYED_SHA"
+          echo "Daily improvement bound to latest successfully deployed production SHA: $DEPLOYED_SHA"
 
       - name: Dispatch exact-SHA self-audit
         shell: bash
