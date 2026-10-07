@@ -11,5 +11,5 @@ test('predeploy backup retries transient Cloudflare R2 failures without weakenin
   assert.match(source, /Transient Wrangler\/R2 failure on attempt/);
   assert.match(source, /BACKUP_R2_ROUNDTRIP_MISMATCH/);
   assert.match(source, /BACKUP_OBJECT_NOT_PROVEN_AFTER_UPLOAD/);
-  assert.match(source, /restore_candidate_verified:true/);
+  assert.match(source, /restore_candidate_verified:\s*true/);
 });
