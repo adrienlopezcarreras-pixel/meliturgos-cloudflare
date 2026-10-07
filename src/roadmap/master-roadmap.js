@@ -7,7 +7,7 @@ export const ROADMAP_STATUSES = Object.freeze({
   BLOCKED_EXTERNAL: 'BLOCKED_EXTERNAL'
 });
 
-export const ROADMAP_REGISTRY_REVISION = '2026-10-03.09';
+export const ROADMAP_REGISTRY_REVISION = '2026-10-07.10';
 
 const phase = (id, title, items) => ({ id, title, items });
 const item = (id, title, status, next = '', priority = 'P2') => ({ id, title, status, next, priority });
@@ -113,7 +113,7 @@ export const MASTER_ROADMAP = Object.freeze([
 
   phase('P08', 'Connecteurs et web', [
     item('GEN2-32', 'Connector SDK', 'DONE_VERIFIED', 'Validation réelle acquise le 26/09/2026: suite contractuelle officielle GEN2-32 verte dans le run 36272469638; provider Cloudflare réel passé CONFIGURED -> CONNECTED avec health CHECKED et auth vérifiée via le SDK MEL, sans mutation ni exposition de secret. Provider GitHub réel repassé sur le main courant avec le token utilisateur gh du PC: CONFIGURED -> CONNECTED, health CHECKED, auth vérifiée, 3 capacités, zéro mutation. Le token GitHub automatique Actions est un token installation et n\'est pas compatible avec la sonde /user; les OAuth/permissions propres aux autres fournisseurs restent suivis séparément.', 'P1'),
-    item('GEN2-33', 'Gmail / Google', 'BLOCKED_HUMAN', 'Développement terminé: runtime OAuth Google persistant, PKCE, refresh, stockage chiffré et probes intégrés. Contrats et preuve production du run 36350478390 verts; le vault production est sain mais les identifiants d application Google et les autorisations Gmail/Calendar/Tasks sont absents. Vérification réelle à faire ultérieurement avec credentials + consentement avant passage en DONE_VERIFIED.', 'P1'),
+    item('GEN2-33', 'Gmail / Google', 'DONE_VERIFIED', 'Release #669 exact-SHA production proof: Gmail, Google Tasks and Google Drive passed live probes; Calendar is operational through the linked Pipedream fallback while the native Calendar API remains disabled. OAuth is configured and refreshable. Job 112808758304.', 'P1'),
     item('GEN2-34', 'Outlook / Microsoft', 'DONE_VERIFIED', 'Certification production acquise le 01/10/2026 sur SHA exact f4f57e3617f313a1f41c113eab0deee0c44388b4 via post-release-proof-suite run 36902043229: la route Microsoft directe a correctement signalé CONNECTION_TOKEN_NOT_AVAILABLE puis le fallback supporté Pipedream a prouvé un compte microsoft_outlook réellement lié; la preuve finale marque microsoft.outlook=true sans exposer de secret.', 'P2'),
     item('GEN2-35', 'OneDrive / SharePoint', 'DONE_VERIFIED', 'Certification production acquise le 01/10/2026 sur SHA exact f4f57e3617f313a1f41c113eab0deee0c44388b4 via post-release-proof-suite run 36902043229: après absence attendue de token Microsoft direct, les fallbacks supportés Pipedream ont prouvé des comptes microsoft_onedrive et sharepoint réellement liés; la preuve finale marque microsoft.onedrive=true et microsoft.sharepoint=true sans exposition de secret.', 'P1'),
     item('GEN2-36', 'GitHub / Cloudflare / Vercel', 'DONE_VERIFIED', 'Certification production acquise le 01/10/2026 sur SHA exact f4f57e3617f313a1f41c113eab0deee0c44388b4. post-release-proof-suite run 36902043229 / job 110503345561 a prouvé Cloudflare workers.read et deployments.read réels via relay avec health HEALTHY, puis GitHub workflow dispatch réellement exécuté via D1 Actions relay avec statut DISPATCHED. Le job connexions du même run a prouvé Vercel authentifié avec project_count=2. Aucune valeur secrète exposée.', 'P0'),
