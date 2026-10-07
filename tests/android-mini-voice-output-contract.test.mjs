@@ -50,6 +50,8 @@ test('Android Link V2 synthesizes MINI speech locally in French before server TT
   assert.match(service, /sendAudioResponse\(request\.streamId, pcm, outputRate = 48_000\)/);
   assert.doesNotMatch(service, /else \{\s*MelImaAdpcm\.decodePcm16Le\(body\)/);
   assert.match(synth, /setLanguage\(Locale\.FRANCE\)/);
+  assert.match(synth, /fun warmup\(context: Context\)/);
+  assert.match(service, /mel-mini-tts-warmup/);
   assert.match(synth, /onBeginSynthesis/);
   assert.match(synth, /onAudioAvailable/);
   assert.match(synth, /ENCODING_PCM_16BIT/);
