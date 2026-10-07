@@ -76,14 +76,6 @@ static void drain_semaphore(SemaphoreHandle_t sem) {
     while (xSemaphoreTake(sem, 0) == pdTRUE) {}
 }
 
-static bool send_credit(uint16_t stream_id, uint16_t credits) {
-    uint8_t payload[2] = {
-        static_cast<uint8_t>(credits & 0xff),
-        static_cast<uint8_t>((credits >> 8) & 0xff)
-    };
-    return send_v2(MEL_LINK_V2_CREDIT, stream_id, 0, payload, sizeof(payload), false);
-}
-
 static bool deliver_audio_48k_native(
     const int16_t *samples,
     size_t sample_count
