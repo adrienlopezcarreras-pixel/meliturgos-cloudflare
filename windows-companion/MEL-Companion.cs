@@ -14,7 +14,7 @@ using System.Web.Script.Serialization;
 static class MelApp
 {
     public const string DefaultServer = "https://meliturgos.adrien-lopezcarreras.workers.dev";
-    public const string Version = "2.3.10";
+    public const string Version = "2.4.0";
     public static readonly string MelDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "MEL");
     public static readonly string ConfigPath = Path.Combine(MelDir, "computer.json");
     public static readonly string InstalledExe = Path.Combine(MelDir, "MEL-Companion.exe");
@@ -984,100 +984,406 @@ class PermissionsForm : Form
 
 class MainForm : Form
 {
-    Label state, pcLine; Panel devicePanel; CheckBox startup; System.Windows.Forms.Timer timer;
+    Label state;
+    Label pcLine;
+    Label pcSubline;
+    Label devicesTitle;
+    FlowLayoutPanel deviceList;
+    CheckBox startup;
+    System.Windows.Forms.Timer timer;
+    bool refreshing;
+
+    static Label UiLabel(string text, float size, Color color, FontStyle style)
+    {
+        var l = new Label();
+        l.Text = text;
+        l.AutoSize = false;
+        l.Dock = DockStyle.Fill;
+        l.ForeColor = color;
+        l.BackColor = Color.Transparent;
+        l.Font = new Font("Segoe UI", size, style);
+        l.TextAlign = ContentAlignment.MiddleLeft;
+        l.AutoEllipsis = true;
+        return l;
+    }
+
+    static Button UiButton(string text, bool primary)
+    {
+        var b = new Button();
+        b.Text = text;
+        b.AutoSize = false;
+        b.Height = 38;
+        b.FlatStyle = FlatStyle.Flat;
+        b.FlatAppearance.BorderSize = 1;
+        b.FlatAppearance.BorderColor = primary ? MelApp.Cyan : MelApp.Line;
+        b.BackColor = primary ? MelApp.Cyan : Color.FromArgb(22, 37, 58);
+        b.ForeColor = primary ? Color.FromArgb(3, 18, 27) : MelApp.Text;
+        b.Font = new Font("Segoe UI Semibold", 9f, FontStyle.Bold);
+        b.Cursor = Cursors.Hand;
+        b.Margin = new Padding(6, 0, 0, 0);
+        return b;
+    }
+
+    static Label UiBadge(string text, Color color)
+    {
+        var l = new Label();
+        l.Text = text;
+        l.AutoSize = false;
+        l.Size = new Size(112, 26);
+        l.BackColor = color;
+        l.ForeColor = Color.White;
+        l.Font = new Font("Segoe UI Semibold", 8.5f, FontStyle.Bold);
+        l.TextAlign = ContentAlignment.MiddleCenter;
+        l.Margin = new Padding(6, 0, 0, 0);
+        return l;
+    }
+
+    static Panel UiPanel(Color back)
+    {
+        var p = new Panel();
+        p.BackColor = back;
+        p.Padding = new Padding(16);
+        p.Margin = new Padding(0, 0, 0, 12);
+        return p;
+    }
 
     public MainForm()
     {
-        Text="MEL Techno Companion"; ClientSize=new Size(900,680); StartPosition=FormStartPosition.CenterScreen;
-        BackColor=MelApp.Bg; ForeColor=MelApp.Text; MinimumSize=new Size(916,719);
-        AutoScaleMode=AutoScaleMode.None; Font=new Font("Segoe UI",9f,FontStyle.Regular);
-        DoubleBuffered=true;
-        Paint += delegate(object s, PaintEventArgs e){ MelApp.PaintBackdrop(e.Graphics, ClientSize.Width, ClientSize.Height); };
+        Text = "MEL Techno Companion";
+        ClientSize = new Size(980, 720);
+        MinimumSize = new Size(900, 650);
+        StartPosition = FormStartPosition.CenterScreen;
+        BackColor = Color.FromArgb(8, 14, 26);
+        ForeColor = MelApp.Text;
+        Font = new Font("Segoe UI", 9f, FontStyle.Regular);
+        AutoScaleMode = AutoScaleMode.Dpi;
+        DoubleBuffered = true;
 
-        Controls.Add(MelApp.MelFace(30,18,104));
-        Controls.Add(MelApp.Label("MEL TECHNO",156,28,300,38,18,MelApp.Cyan,FontStyle.Bold));
-        Controls.Add(MelApp.Label("COMPAGNON // WINDOWS",156,65,330,26,10.5f,MelApp.Text,FontStyle.Bold));
-        Controls.Add(MelApp.Label("Même identité MEL que l’APK et la MINI · contrôle local sécurisé",156,91,500,22,9,MelApp.Muted,FontStyle.Regular));
-        state=MelApp.Label("● Vérification…",670,82,190,24,9,MelApp.Muted,FontStyle.Bold); Controls.Add(state);
-        var open=MelApp.TechButton("OUVRIR MEL",728,28,142,40,true); open.Click+=delegate{MelApp.OpenMel();}; Controls.Add(open);
+        var root = new TableLayoutPanel();
+        root.Dock = DockStyle.Fill;
+        root.BackColor = BackColor;
+        root.Padding = new Padding(24);
+        root.ColumnCount = 1;
+        root.RowCount = 5;
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 92));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 122));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 58));
+        root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 74));
+        Controls.Add(root);
 
-        var pc = MelApp.Card(30,136,840,128,MelApp.Cyan); Controls.Add(pc);
-        pc.Controls.Add(MelApp.Label("CE PC",22,16,120,24,9,MelApp.Cyan,FontStyle.Bold));
-        pc.Controls.Add(MelApp.Pill("MOTEUR LOCAL",674,16,140,24,MelApp.Violet));
-        pcLine=MelApp.Label(Environment.MachineName+"  //  "+MelApp.ComputerId,22,46,620,30,11,MelApp.Text,FontStyle.Bold); pc.Controls.Add(pcLine);
-        pc.Controls.Add(MelApp.Label("Contrôle autorisé · captures · commandes MEL en arrière-plan · liaison chiffrée",22,80,650,24,9,MelApp.Muted,FontStyle.Regular));
-        pc.Controls.Add(MelApp.Pill("CTRL+ALT+M",674,76,140,24,MelApp.Cyan));
+        var header = new TableLayoutPanel();
+        header.Dock = DockStyle.Fill;
+        header.ColumnCount = 3;
+        header.RowCount = 1;
+        header.BackColor = BackColor;
+        header.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 72));
+        header.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        header.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 170));
+        var face = MelApp.MelFace(0, 0, 60);
+        face.Dock = DockStyle.Fill;
+        face.Margin = new Padding(0, 8, 12, 8);
+        header.Controls.Add(face, 0, 0);
 
-        Controls.Add(MelApp.Label("APPAREILS MEL",32,286,240,28,10,MelApp.Cyan,FontStyle.Bold));
-        Controls.Add(MelApp.Label("MINI et Android remontés par MEL",32,310,300,22,8.5f,MelApp.Muted,FontStyle.Regular));
-        var permissions=MelApp.TechButton("AUTORISATIONS",588,286,136,38,false); permissions.Click+=delegate{using(var form=new PermissionsForm()) form.ShowDialog(this);}; Controls.Add(permissions);
-        var refresh=MelApp.TechButton("ACTUALISER",736,286,134,38,false); refresh.Click+=delegate{RefreshAll();}; Controls.Add(refresh);
+        var headText = new TableLayoutPanel();
+        headText.Dock = DockStyle.Fill;
+        headText.RowCount = 3;
+        headText.ColumnCount = 1;
+        headText.RowStyles.Add(new RowStyle(SizeType.Absolute, 32));
+        headText.RowStyles.Add(new RowStyle(SizeType.Absolute, 26));
+        headText.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        headText.Controls.Add(UiLabel("MEL TECHNO COMPANION", 16f, MelApp.Cyan, FontStyle.Bold), 0, 0);
+        headText.Controls.Add(UiLabel("Windows · contrôle local sécurisé", 10f, MelApp.Text, FontStyle.Bold), 0, 1);
+        headText.Controls.Add(UiLabel("Même identité MEL que l’APK et la MINI", 9f, MelApp.Muted, FontStyle.Regular), 0, 2);
+        header.Controls.Add(headText, 1, 0);
 
-        devicePanel=new Panel(); devicePanel.SetBounds(30,340,840,220); devicePanel.BackColor=Color.Transparent; devicePanel.AutoScroll=true; Controls.Add(devicePanel);
+        var headActions = new TableLayoutPanel();
+        headActions.Dock = DockStyle.Fill;
+        headActions.RowCount = 2;
+        headActions.ColumnCount = 1;
+        headActions.RowStyles.Add(new RowStyle(SizeType.Absolute, 42));
+        headActions.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        var open = UiButton("OUVRIR MEL", true);
+        open.Dock = DockStyle.Fill;
+        open.Click += delegate { MelApp.OpenMel(); };
+        headActions.Controls.Add(open, 0, 0);
+        state = UiLabel("● Vérification…", 9f, MelApp.Muted, FontStyle.Bold);
+        state.TextAlign = ContentAlignment.MiddleCenter;
+        headActions.Controls.Add(state, 0, 1);
+        header.Controls.Add(headActions, 2, 0);
+        root.Controls.Add(header, 0, 0);
 
-        startup=new CheckBox(); startup.Text="Lancer MEL Companion avec Windows"; startup.Checked=MelApp.StartupEnabled();
-        startup.ForeColor=MelApp.Text; startup.BackColor=Color.Transparent; startup.AutoSize=true; startup.SetBounds(34,590,330,28);
-        startup.CheckedChanged+=delegate{MelApp.ConfigureStartup(startup.Checked);}; Controls.Add(startup);
+        var pc = UiPanel(Color.FromArgb(16, 28, 45));
+        pc.Dock = DockStyle.Fill;
+        var pcGrid = new TableLayoutPanel();
+        pcGrid.Dock = DockStyle.Fill;
+        pcGrid.ColumnCount = 2;
+        pcGrid.RowCount = 3;
+        pcGrid.BackColor = pc.BackColor;
+        pcGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        pcGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 150));
+        pcGrid.RowStyles.Add(new RowStyle(SizeType.Absolute, 28));
+        pcGrid.RowStyles.Add(new RowStyle(SizeType.Absolute, 34));
+        pcGrid.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        pc.Controls.Add(pcGrid);
 
-        var repair=MelApp.TechButton("RÉPARER",492,584,104,38,false); repair.Click+=delegate{MelApp.InstallFiles(startup.Checked); MelApp.StartCompanion(); MessageBox.Show("Installation réparée.","MEL Companion");}; Controls.Add(repair);
-        var rePair=MelApp.TechButton("RÉAPPAIRER",608,584,116,38,false); rePair.Click+=RePair; Controls.Add(rePair);
-        var uninstall=MelApp.TechButton("DÉSINSTALLER",736,584,134,38,false); uninstall.Click+=delegate{MelApp.Uninstall();}; Controls.Add(uninstall);
+        pcGrid.Controls.Add(UiLabel("CE PC", 9f, MelApp.Cyan, FontStyle.Bold), 0, 0);
+        var local = UiBadge("MOTEUR LOCAL", Color.FromArgb(90, 65, 135));
+        local.Dock = DockStyle.Fill;
+        pcGrid.Controls.Add(local, 1, 0);
 
-        Controls.Add(MelApp.Label("MEL Companion reste actif dans la zone de notification même lorsque cette fenêtre est fermée.",34,638,800,24,8.5f,MelApp.Muted,FontStyle.Regular));
-        FormClosing += delegate(object s, FormClosingEventArgs e){ if (!MelApp.Exiting && e.CloseReason==CloseReason.UserClosing){e.Cancel=true;Hide();} };
-        timer=new System.Windows.Forms.Timer(); timer.Interval=10000; timer.Tick+=delegate{RefreshAll();}; timer.Start(); Shown+=delegate{RefreshAll();};
+        pcLine = UiLabel(Environment.MachineName + "  ·  " + MelApp.ComputerId, 12f, MelApp.Text, FontStyle.Bold);
+        pcGrid.SetColumnSpan(pcLine, 2);
+        pcGrid.Controls.Add(pcLine, 0, 1);
+
+        pcSubline = UiLabel("Contrôle autorisé · captures · commandes MEL en arrière-plan · liaison chiffrée", 9f, MelApp.Muted, FontStyle.Regular);
+        pcGrid.SetColumnSpan(pcSubline, 2);
+        pcGrid.Controls.Add(pcSubline, 0, 2);
+        root.Controls.Add(pc, 0, 1);
+
+        var sectionBar = new TableLayoutPanel();
+        sectionBar.Dock = DockStyle.Fill;
+        sectionBar.ColumnCount = 3;
+        sectionBar.RowCount = 1;
+        sectionBar.BackColor = BackColor;
+        sectionBar.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        sectionBar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 150));
+        sectionBar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 138));
+        devicesTitle = UiLabel("APPAREILS MEL", 11f, MelApp.Cyan, FontStyle.Bold);
+        sectionBar.Controls.Add(devicesTitle, 0, 0);
+        var permissions = UiButton("AUTORISATIONS", false);
+        permissions.Dock = DockStyle.Fill;
+        permissions.Click += delegate { using (var form = new PermissionsForm()) form.ShowDialog(this); };
+        sectionBar.Controls.Add(permissions, 1, 0);
+        var refresh = UiButton("ACTUALISER", false);
+        refresh.Dock = DockStyle.Fill;
+        refresh.Click += delegate { RefreshAll(); };
+        sectionBar.Controls.Add(refresh, 2, 0);
+        root.Controls.Add(sectionBar, 0, 2);
+
+        deviceList = new FlowLayoutPanel();
+        deviceList.Dock = DockStyle.Fill;
+        deviceList.AutoScroll = true;
+        deviceList.WrapContents = false;
+        deviceList.FlowDirection = FlowDirection.TopDown;
+        deviceList.BackColor = Color.FromArgb(10, 18, 31);
+        deviceList.Padding = new Padding(10);
+        root.Controls.Add(deviceList, 0, 3);
+
+        var footer = new TableLayoutPanel();
+        footer.Dock = DockStyle.Fill;
+        footer.ColumnCount = 4;
+        footer.RowCount = 2;
+        footer.BackColor = BackColor;
+        footer.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        footer.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 112));
+        footer.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 126));
+        footer.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 136));
+        footer.RowStyles.Add(new RowStyle(SizeType.Absolute, 40));
+        footer.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+
+        startup = new CheckBox();
+        startup.Text = "Lancer MEL Companion avec Windows";
+        startup.Checked = MelApp.StartupEnabled();
+        startup.ForeColor = MelApp.Text;
+        startup.BackColor = BackColor;
+        startup.AutoSize = true;
+        startup.Anchor = AnchorStyles.Left;
+        startup.CheckedChanged += delegate { MelApp.ConfigureStartup(startup.Checked); };
+        footer.Controls.Add(startup, 0, 0);
+
+        var repair = UiButton("RÉPARER", false);
+        repair.Dock = DockStyle.Fill;
+        repair.Click += delegate {
+            MelApp.InstallFiles(startup.Checked);
+            MelApp.StartCompanion();
+            MessageBox.Show("Installation réparée.", "MEL Companion");
+            RefreshAll();
+        };
+        footer.Controls.Add(repair, 1, 0);
+
+        var rePair = UiButton("RÉAPPAIRER", false);
+        rePair.Dock = DockStyle.Fill;
+        rePair.Click += RePair;
+        footer.Controls.Add(rePair, 2, 0);
+
+        var uninstall = UiButton("DÉSINSTALLER", false);
+        uninstall.Dock = DockStyle.Fill;
+        uninstall.Click += delegate { MelApp.Uninstall(); };
+        footer.Controls.Add(uninstall, 3, 0);
+
+        var footNote = UiLabel("Le Companion reste actif dans la zone de notification quand cette fenêtre est fermée. Raccourci : Ctrl+Alt+M.", 8.5f, MelApp.Muted, FontStyle.Regular);
+        footer.SetColumnSpan(footNote, 4);
+        footer.Controls.Add(footNote, 0, 1);
+        root.Controls.Add(footer, 0, 4);
+
+        FormClosing += delegate(object s, FormClosingEventArgs e) {
+            if (!MelApp.Exiting && e.CloseReason == CloseReason.UserClosing) {
+                e.Cancel = true;
+                Hide();
+            }
+        };
+
+        timer = new System.Windows.Forms.Timer();
+        timer.Interval = 10000;
+        timer.Tick += delegate { RefreshAll(); };
+        timer.Start();
+        Shown += delegate { RefreshAll(); };
     }
 
     void RePair(object sender, EventArgs e)
     {
         if (MessageBox.Show("Réappairer ce PC à MEL ?", "MEL Companion", MessageBoxButtons.YesNo) != DialogResult.Yes) return;
         try { File.Delete(MelApp.ConfigPath); } catch {}
-        Hide(); var setup=new SetupForm();
-        if (setup.ShowDialog()==DialogResult.OK && MelApp.LoadConfig())
-        { MelApp.InstallFiles(startup.Checked); MelApp.StartCompanion(); pcLine.Text=Environment.MachineName+"  •  "+MelApp.ComputerId; Show(); RefreshAll(); }
-        else Show();
+        Hide();
+        var setup = new SetupForm();
+        if (setup.ShowDialog() == DialogResult.OK && MelApp.LoadConfig()) {
+            MelApp.InstallFiles(startup.Checked);
+            MelApp.StartCompanion();
+            pcLine.Text = Environment.MachineName + "  ·  " + MelApp.ComputerId;
+            Show();
+            RefreshAll();
+        } else Show();
     }
 
-    string Get(Dictionary<string,object> d,string k) { object v; return d.TryGetValue(k,out v)&&v!=null?Convert.ToString(v):""; }
-    bool Bool(Dictionary<string,object> d,string k) { object v; return d.TryGetValue(k,out v)&&v!=null&&Convert.ToBoolean(v); }
+    string Get(Dictionary<string,object> d, string k)
+    {
+        object v;
+        return d.TryGetValue(k, out v) && v != null ? Convert.ToString(v) : "";
+    }
+
+    bool Bool(Dictionary<string,object> d, string k)
+    {
+        object v;
+        return d.TryGetValue(k, out v) && v != null && Convert.ToBoolean(v);
+    }
+
+    Panel BuildDeviceRow(Dictionary<string,object> d)
+    {
+        var name = Get(d, "name");
+        var kind = Get(d, "kind");
+        var online = Bool(d, "online");
+        var camera = Bool(d, "camera");
+        var mic = Bool(d, "microphone");
+        var live = Bool(d, "live_stream");
+        var firmware = Get(d, "firmware");
+        var phase = Get(d, "phase");
+
+        var row = UiPanel(Color.FromArgb(18, 31, 49));
+        row.Width = Math.Max(760, deviceList.ClientSize.Width - 38);
+        row.Height = 104;
+        row.Margin = new Padding(0, 0, 0, 10);
+
+        var grid = new TableLayoutPanel();
+        grid.Dock = DockStyle.Fill;
+        grid.ColumnCount = 4;
+        grid.RowCount = 3;
+        grid.BackColor = row.BackColor;
+        grid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 58));
+        grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        grid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 116));
+        grid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 124));
+        grid.RowStyles.Add(new RowStyle(SizeType.Absolute, 32));
+        grid.RowStyles.Add(new RowStyle(SizeType.Absolute, 28));
+        grid.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        row.Controls.Add(grid);
+
+        var icon = MelApp.MelFace(0, 0, 44);
+        icon.Dock = DockStyle.Fill;
+        icon.Margin = new Padding(0, 0, 10, 0);
+        grid.Controls.Add(icon, 0, 0);
+        grid.SetRowSpan(icon, 3);
+
+        var title = UiLabel((kind == "android" ? "ANDROID · " : "MINI · ") + (name.Length > 0 ? name : "Appareil MEL"), 10f, MelApp.Text, FontStyle.Bold);
+        grid.Controls.Add(title, 1, 0);
+
+        var onlineBadge = UiBadge(online ? "ONLINE" : "OFFLINE", online ? Color.FromArgb(30, 130, 95) : Color.FromArgb(150, 55, 70));
+        onlineBadge.Dock = DockStyle.Fill;
+        grid.Controls.Add(onlineBadge, 2, 0);
+
+        var camButton = UiButton(live ? "OUVRIR FLUX" : "CAMÉRA", live);
+        camButton.Dock = DockStyle.Fill;
+        camButton.Enabled = camera;
+        camButton.Click += delegate {
+            if (live) MelApp.OpenMel();
+            else MessageBox.Show(
+                "La caméra est détectée, mais aucun flux vidéo live réel n’est publié par cet appareil.",
+                "MEL — caméra"
+            );
+        };
+        grid.Controls.Add(camButton, 3, 0);
+        grid.SetRowSpan(camButton, 3);
+
+        var detail = UiLabel((phase.Length > 0 ? phase : "MEL DEVICE") + (firmware.Length > 0 ? "  ·  " + firmware : ""), 8.5f, MelApp.Muted, FontStyle.Regular);
+        grid.Controls.Add(detail, 1, 1);
+        grid.SetColumnSpan(detail, 2);
+
+        var caps = new FlowLayoutPanel();
+        caps.Dock = DockStyle.Fill;
+        caps.FlowDirection = FlowDirection.LeftToRight;
+        caps.WrapContents = false;
+        caps.BackColor = row.BackColor;
+        caps.Padding = new Padding(0, 2, 0, 0);
+        caps.Controls.Add(UiBadge(camera ? "CAM OK" : "CAM —", camera ? Color.FromArgb(20, 105, 120) : Color.FromArgb(65, 72, 84)));
+        caps.Controls.Add(UiBadge(mic ? "MIC OK" : "MIC —", mic ? Color.FromArgb(30, 130, 95) : Color.FromArgb(65, 72, 84)));
+        grid.Controls.Add(caps, 1, 2);
+        grid.SetColumnSpan(caps, 2);
+
+        return row;
+    }
+
+    void RenderState(bool ok, List<Dictionary<string,object>> devices)
+    {
+        if (IsDisposed) return;
+        state.Text = ok ? "● Connecté à MEL" : "● Reconnexion…";
+        state.ForeColor = ok ? MelApp.Green : MelApp.Red;
+        if (MelApp.Tray != null)
+            MelApp.Tray.Text = ok ? "MEL Companion — connecté" : "MEL Companion — reconnexion";
+
+        devicesTitle.Text = devices.Count == 0 ? "APPAREILS MEL · aucun appareil" : "APPAREILS MEL · " + devices.Count;
+        deviceList.SuspendLayout();
+        deviceList.Controls.Clear();
+
+        if (devices.Count == 0) {
+            var empty = UiPanel(Color.FromArgb(18, 31, 49));
+            empty.Width = Math.Max(760, deviceList.ClientSize.Width - 38);
+            empty.Height = 92;
+            var label = UiLabel("Aucun appareil MEL visible. La MINI ou l’APK apparaîtront ici au prochain heartbeat.", 9.5f, MelApp.Muted, FontStyle.Regular);
+            label.Dock = DockStyle.Fill;
+            empty.Controls.Add(label);
+            deviceList.Controls.Add(empty);
+        } else {
+            foreach (var d in devices) deviceList.Controls.Add(BuildDeviceRow(d));
+        }
+        deviceList.ResumeLayout(true);
+    }
 
     void RefreshAll()
     {
-        MelApp.EnsureCompanion();
-        MelApp.MaybeRefreshCompanionEngine(false);
-        var ok=MelApp.Heartbeat(); state.Text=ok?"● Connecté à MEL":"● Reconnexion…"; state.ForeColor=ok?MelApp.Green:MelApp.Red;
-        MelApp.Tray.Text=ok?"MEL Companion — connecté":"MEL Companion — reconnexion";
-        devicePanel.Controls.Clear(); var devices=MelApp.Devices();
-        if (devices.Count==0)
-        {
-            var empty=MelApp.Card(8,8,808,118,MelApp.Violet); devicePanel.Controls.Add(empty);
-            empty.Controls.Add(MelApp.MelFace(22,17,78));
-            empty.Controls.Add(MelApp.Label("AUCUN APPAREIL MEL VISIBLE",120,24,430,26,10,MelApp.Text,FontStyle.Bold));
-            empty.Controls.Add(MelApp.Label("La MINI ou l’APK apparaîtront ici dès leur prochain heartbeat serveur.",120,54,570,24,9,MelApp.Muted,FontStyle.Regular));
-            empty.Controls.Add(MelApp.Pill("EN ATTENTE",650,24,126,24,MelApp.Violet));
-            return;
-        }
-        int y=8;
-        foreach(var d in devices)
-        {
-            var name=Get(d,"name"); var kind=Get(d,"kind"); var online=Bool(d,"online");
-            var camera=Bool(d,"camera"); var mic=Bool(d,"microphone"); var live=Bool(d,"live_stream");
-            var firmware=Get(d,"firmware"); var phase=Get(d,"phase");
-            var accent=online?MelApp.Green:MelApp.Violet;
-            var row=MelApp.Card(8,y,808,92,accent); devicePanel.Controls.Add(row);
-            row.Controls.Add(MelApp.MelFace(16,14,62));
-            row.Controls.Add(MelApp.Label((kind=="android"?"ANDROID // ":"MINI // ")+name,94,14,410,24,10,MelApp.Text,FontStyle.Bold));
-            row.Controls.Add(MelApp.Label((phase.Length>0?phase:"MEL DEVICE")+(firmware.Length>0?"  ·  "+firmware:""),94,40,470,22,8.5f,MelApp.Muted,FontStyle.Regular));
-            row.Controls.Add(MelApp.Pill(online?"ONLINE":"OFFLINE",650,12,126,24,online?MelApp.Green:MelApp.Red));
-            row.Controls.Add(MelApp.Pill(camera?"CAM OK":"CAM —",94,64,92,20,camera?MelApp.Cyan:MelApp.Muted));
-            row.Controls.Add(MelApp.Pill(mic?"MIC OK":"MIC —",194,64,92,20,mic?MelApp.Green:MelApp.Muted));
-            var cam=MelApp.TechButton(live?"OUVRIR FLUX":"CAMÉRA",650,48,126,32,live); cam.Enabled=camera;
-            cam.Click+=delegate {
-                if (live) MelApp.OpenMel();
-                else MessageBox.Show("La caméra est détectée, mais aucun flux vidéo live réel n’est encore publié par cet appareil.\n\nLe bouton passera automatiquement à « OUVRIR FLUX » dès qu’un endpoint live sera disponible.", "MEL — caméra");
-            };
-            row.Controls.Add(cam); y+=102;
-        }
+        if (refreshing || IsDisposed) return;
+        refreshing = true;
+        state.Text = "● Actualisation…";
+        state.ForeColor = MelApp.Muted;
+
+        ThreadPool.QueueUserWorkItem(delegate {
+            bool ok = false;
+            List<Dictionary<string,object>> devices = new List<Dictionary<string,object>>();
+            try {
+                MelApp.EnsureCompanion();
+                MelApp.MaybeRefreshCompanionEngine(false);
+                ok = MelApp.Heartbeat();
+                devices = MelApp.Devices();
+            } catch { }
+
+            try {
+                BeginInvoke((Action)delegate {
+                    refreshing = false;
+                    RenderState(ok, devices);
+                });
+            } catch {
+                refreshing = false;
+            }
+        });
     }
 }
 
