@@ -15,6 +15,7 @@ import {
   WORKERS_AI_ZERO_COST_PROOF_SCHEMA,
   WORKERS_AI_ZERO_COST_PRICING_POLICY,
 } from '../src/augmentio/workers-ai-zero-cost-proof.js';
+import { BROWSER_RUN_ZERO_COST_PROOF_SCHEMA } from '../src/media/browser-run-zero-cost-proof.js';
 
 function mediaKeyB64() {
   return Buffer.from(Uint8Array.from({ length: 32 }, (_, i) => i + 11)).toString('base64');
@@ -41,8 +42,20 @@ function proof(models, now = Date.now()) {
     expires_at: new Date(now + 20 * 60_000).toISOString(),
   });
 }
+function browserProof(now = Date.now()) {
+  return JSON.stringify({
+    schema: BROWSER_RUN_ZERO_COST_PROOF_SCHEMA,
+    provider: 'cloudflare-browser-run',
+    account_plan: 'WORKERS_FREE',
+    included_minutes_per_day: 10,
+    overage_behavior: 'HARD_LIMIT_NO_BILLING',
+    documentation_url: 'https://developers.cloudflare.com/browser-run/pricing/',
+    verified_at: new Date(now - 5_000).toISOString(),
+    expires_at: new Date(now + 20 * 60_000).toISOString(),
+  });
+}
 
-function fixture({ proofJson, run } = {}) {
+function fixture({ proofJson, run, browser = false } = {}) {
   const writes = [];
   let calls = 0;
   const env = {
@@ -50,6 +63,25 @@ function fixture({ proofJson, run } = {}) {
     MEL_MEDIA_ENCRYPTION_KEY_ID: 'media-key-test',
     MEL_MEDIA_ENCRYPTION_KEY_B64: mediaKeyB64(),
     MEL_WORKERS_AI_ZERO_COST_PROOF_JSON: proofJson,
+    ...(browser ? {
+      MEL_BROWSER_RUN_ZERO_COST_PROOF_JSON: browserProof(),
+      MEL_BROWSER_COMPANION: {
+        async fetch(request) {
+          const body = JSON.parse(await request.text());
+          if (new URL(request.url).pathname !== '/v1/media/resize-image') {
+            return Response.json({ ok: false, code: 'UNEXPECTED_BROWSER_ROUTE' }, { status: 404 });
+          }
+          return Response.json({
+            ok: true,
+            schema: 'mel.media.browser-resize-image.result/v1',
+            base64: body.base64,
+            mime: 'image/jpeg',
+            width: 510,
+            height: 510,
+          });
+        },
+      },
+    } : {}),
     MEDIA_BUCKET: {
       async put(key, value, options) {
         writes.push({ key, value: new Uint8Array(value), options });
@@ -91,8 +123,10 @@ test('Gemma 4 vision performs real image analysis only with exact zero-cost proo
     proofJson: proof([WORKERS_AI_VISION_MODEL]),
     run: async (model, input, options) => {
       assert.equal(model, WORKERS_AI_VISION_MODEL);
-      assert.equal(input.messages[1].content, 'Décris précisément.');
-      assert.match(input.image, /^data:image\/png;base64,/);
+      assert.equal(input.messages[1].content[0].type, 'text');
+      assert.equal(input.messages[1].content[0].text, 'Décris précisément.');
+      assert.equal(input.messages[1].content[1].type, 'image_url');
+      assert.match(input.messages[1].content[1].image_url.url, /^data:image\/png;base64,/);
       assert.deepEqual(options, { rejectIfBusy: true });
       return { response: 'Une image de test observable.' };
     },
@@ -118,6 +152,7 @@ test('FLUX.2 Klein performs real image editing and stores the result encrypted',
   const output = Buffer.from('edited-image-private-test-bytes');
   const f = fixture({
     proofJson: proof([WORKERS_AI_IMAGE_EDIT_MODEL]),
+    browser: true,
     run: async (model, input, options) => {
       assert.equal(model, WORKERS_AI_IMAGE_EDIT_MODEL);
       assert.ok(input?.multipart?.body);
@@ -138,6 +173,8 @@ test('FLUX.2 Klein performs real image editing and stores the result encrypted',
   assert.equal(result.ok, true);
   assert.equal(result.capability, 'media.image.process');
   assert.equal(result.model, WORKERS_AI_IMAGE_EDIT_MODEL);
+  assert.equal(result.reference_resize.width, 510);
+  assert.equal(result.reference_resize.height, 510);
   assert.equal(result.artifact.private, true);
   assert.equal(result.artifact.stored_encrypted, true);
   assert.equal(f.writes.length, 1);
