@@ -58,9 +58,10 @@ let roadmapCache=null,roadmapCacheAt=0,capabilityCache=null,capabilityCacheAt=0;
 const PANEL_TTL_MS=30000,panelLoadedAt=new Map(),getInflight=new Map();
 if('serviceWorker' in navigator){window.addEventListener('load',()=>navigator.serviceWorker.register('/sw.js',{scope:'/'}).catch(()=>{}),{once:true});}
 function requestTimeoutMs(url,method){
-  if(String(url).includes('/api/chat'))return 120000;
-  if(/\/api\/(?:files\/upload|gen2\/augmentio\/fanout|learning\/benchmark|learning\/lora|work\/jobs|gen2\/shardvault\/snapshot)/.test(String(url)))return 120000;
-  if(String(url).includes('/api/gen2/connections/'))return 30000;
+  const value=String(url);
+  if(value.includes('/api/chat'))return 120000;
+  if(['/api/files/upload','/api/gen2/augmentio/fanout','/api/learning/benchmark','/api/learning/lora','/api/work/jobs','/api/gen2/shardvault/snapshot'].some(part=>value.includes(part)))return 120000;
+  if(value.includes('/api/gen2/connections/'))return 30000;
   return method==='GET'?20000:45000;
 }
 function apiErrorMessage(payload,status){
@@ -71,6 +72,7 @@ function apiErrorMessage(payload,status){
   if(code==='PIPEDREAM_NOT_CONFIGURED')return 'Pipedream n’est pas encore configuré.';
   return code||('HTTP '+status);
 }
+function rawFetch(url,opts){return fetch(url,opts)}
 async function fetchJsonWithTimeout(url,opts={},timeoutMs=45000){
   const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),timeoutMs);
   const external=opts.signal;
@@ -80,7 +82,7 @@ async function fetchJsonWithTimeout(url,opts={},timeoutMs=45000){
     else{onAbort=()=>controller.abort();external.addEventListener('abort',onAbort,{once:true});}
   }
   try{
-    const r=await fetch(url,{...opts,signal:controller.signal}),t=await r.text();let d;
+    const r=await rawFetch(url,{...opts,signal:controller.signal}),t=await r.text();let d;
     try{d=t?JSON.parse(t):{}}catch{throw Error('Réponse serveur invalide')}
     if(!r.ok)throw Error(apiErrorMessage(d,r.status));
     return d;
