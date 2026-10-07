@@ -58,18 +58,6 @@ function workersProof(now=Date.now()){
     expires_at:new Date(now+30*60_000).toISOString(),
   });
 }
-function transformProof(now=Date.now()){
-  return JSON.stringify({
-    schema:'mel.media-transform.zero-cost-proof/v1',
-    provider:'cloudflare-media-transformations',
-    binding:'MEDIA',
-    source:'cloudflare-official-bindings-doc',
-    billing_status:'OPEN_BETA_NOT_BILLED',
-    documentation_url:'https://developers.cloudflare.com/stream/transform-videos/bindings/',
-    verified_at:new Date(now-5000).toISOString(),
-    expires_at:new Date(now+30*60_000).toISOString(),
-  });
-}
 function browserProof(now=Date.now()){
   return JSON.stringify({
     schema:'mel.browser-run.zero-cost-proof/v1',
@@ -88,11 +76,9 @@ function env(){
     MEL_MEDIA_ENCRYPTION_KEY_ID:'matrix-test',
     MEL_MEDIA_ENCRYPTION_KEY_B64:keyB64(),
     MEL_WORKERS_AI_ZERO_COST_PROOF_JSON:workersProof(),
-    MEL_MEDIA_TRANSFORM_ZERO_COST_PROOF_JSON:transformProof(),
     MEL_BROWSER_RUN_ZERO_COST_PROOF_JSON:browserProof(),
     MEDIA_BUCKET:{async put(){}},
     AI:{async run(){throw new Error('MATRIX_TEST_MUST_NOT_EXECUTE_PROVIDER');}},
-    MEDIA:{input(){return {transform(){return this;},output(){return {async response(){return new Response(new Uint8Array([1]),{status:200});}};}};}},
     MEL_BROWSER_COMPANION:{async fetch(){return Response.json({ok:true,schema:'mel.media.browser-render-video.result/v1',mime:'video/webm',base64:'AQ==',bytes:1});}},
   };
 }
@@ -110,7 +96,6 @@ test('MEL-MEDIA-02 exposes exactly the 12 required executable capability handler
 test('MEL-MEDIA-02 capability matrix remains fail-closed when zero-cost proofs are removed',()=>{
   const runtime=env();
   delete runtime.MEL_WORKERS_AI_ZERO_COST_PROOF_JSON;
-  delete runtime.MEL_MEDIA_TRANSFORM_ZERO_COST_PROOF_JSON;
   delete runtime.MEL_BROWSER_RUN_ZERO_COST_PROOF_JSON;
   const merged={
     ...createProceduralAudioCapabilities(runtime),
