@@ -1284,14 +1284,11 @@ static void settings_camera_clicked(lv_event_t *e) {
     }
 }
 
-static void settings_stt_status_cb(const char *text) {
-    settings_set_status(text);
-}
-
-static void settings_stt_clicked(lv_event_t *e) {
+static void settings_chat_clicked(lv_event_t *e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-    ESP_LOGI(TAG, "UI BUTTON: TEST VOIX/STT");
-    mel_terminal_test_stt(settings_stt_status_cb);
+    ESP_LOGI(TAG, "UI BUTTON: CHAT MEL");
+    mini_ui_hide_visual();
+    request_view(MINI_VIEW_RESPONSE);
 }
 
 static void settings_network_clicked(lv_event_t *e) {
@@ -1355,7 +1352,7 @@ static void settings_ui_create(lv_obj_t *screen) {
     settings_add_button(settings_panel, "APPAIRAGE MEL", 156, settings_pair_clicked);
     settings_add_button(settings_panel, "TEST MICRO + HP", 206, settings_audio_clicked);
     settings_add_button(settings_panel, "TEST CAMERA", 256, settings_camera_clicked);
-    settings_add_button(settings_panel, "TEST VOIX / STT", 306, settings_stt_clicked);
+    settings_add_button(settings_panel, "CHAT MEL", 306, settings_chat_clicked);
     settings_add_button(settings_panel, "BLUETOOTH / MEL MOBILE", 356, settings_network_clicked);
 
     lv_obj_add_flag(settings_panel, LV_OBJ_FLAG_HIDDEN);
@@ -1941,7 +1938,7 @@ static void response_ui_create(lv_obj_t *screen) {
     lv_obj_clear_flag(response_panel, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t *title = lv_label_create(response_panel);
-    lv_label_set_text(title, "REPONSE MEL");
+    lv_label_set_text(title, "CHAT MEL");
     lv_obj_set_style_text_color(title, lv_color_hex(0xF8FAFC), 0);
     lv_obj_align(title, LV_ALIGN_TOP_LEFT, 10, 8);
 
