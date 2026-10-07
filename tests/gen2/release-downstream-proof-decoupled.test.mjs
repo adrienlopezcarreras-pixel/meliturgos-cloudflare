@@ -89,22 +89,24 @@ test('sovereignty proof binds exact SHA through code self-check instead of requi
   assert.match(statusBlock,/TECHNICAL_SOVEREIGNTY_STATUS/);
 });
 
-test('decoupled sovereignty waits for canonical exact-SHA release success before local source-control refresh', async () => {
+test('decoupled sovereignty waits for canonical exact-SHA deploy job success instead of aggregate workflow success', async () => {
   const workflow=await readFile(new URL('../../.github/workflows/release-downstream-proof-decoupled.yml',import.meta.url),'utf8');
   const block=workflow.split('\n  sovereignty:\n')[1]?.split('\n  summary:\n')[0]||'';
   assert.match(workflow,/actions:\s*read/);
   assert.match(block,/GITHUB_TOKEN/);
   assert.match(block,/sovereignty-release-runs\.json/);
   assert.match(block,/actions\/workflows\/deploy-cloudflare-release\.yml\/runs\?head_sha=\$\{TARGET_SHA\}/);
+  assert.match(block,/actions\/runs\/\$\{RELEASE_RUN_ID\}\/jobs\?per_page=100/);
+  assert.match(block,/String\(job\?\.name\|\|''\)==='deploy'/);
   assert.match(block,/completed:success/);
-  assert.match(block,/SOV proof waiting for canonical exact-SHA release success/);
+  assert.match(block,/SOV proof waiting for canonical exact-SHA deploy job success/);
   assert.match(block,/Decoupled SOV fast path: exact-SHA final proof already valid/);
   assert.match(block,/exact_sha_fast_path:true/);
-  assert.doesNotMatch(block,/SOV proof waiting for exact-SHA release readiness/);
-  const ready=block.indexOf('test "${RELEASE_SUCCESS}" = "1"');
+  assert.doesNotMatch(block,/SOV proof waiting for canonical exact-SHA release success/);
+  const ready=block.indexOf('test "${RELEASE_DEPLOY_SUCCESS}" = "1"');
   const fast=block.indexOf('FAST_SOV_CODE=');
   const selective=block.indexOf('if layer_covered "ai"; then');
-  assert.ok(ready>0&&fast>ready&&selective>fast,'SOV fast path and selective missing-layer refresh must start only after canonical exact-SHA release success');
+  assert.ok(ready>0&&fast>ready&&selective>fast,'SOV fast path and selective missing-layer refresh must start only after canonical exact-SHA deploy job success');
 });
 test('source-control prevalidation surfaces a sanitized blocked reason for strict SOV diagnostics', async () => {
   const runtime=await readFile(new URL('../../src/portability/companion-source-control-prevalidation-runtime.js',import.meta.url),'utf8');

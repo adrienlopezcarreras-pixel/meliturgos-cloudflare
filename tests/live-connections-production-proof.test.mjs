@@ -91,3 +91,17 @@ test('Vercel absence is reported but never blocks MEL connection completion', as
   assert.match(block,/VERCEL_STATUS="OPTIONAL_NOT_CONFIGURED"/);
   assert.doesNotMatch(block,/FAILURES=\$\(\(FAILURES\+1\)\)/);
 });
+
+test('live connection proof reports sanitized Pipedream environment and upstream diagnostics', async()=>{
+  const source=await readFile(workflowUrl,'utf8');
+  assert.match(source,/connections\/pipedream\/status/);
+  assert.match(source,/pipedream_status:/);
+  assert.match(source,/client_id_present/);
+  assert.match(source,/client_secret_present/);
+  assert.match(source,/account_status_degraded/);
+  assert.match(source,/reconnect_required/);
+  assert.match(source,/upstream_code/);
+  assert.match(source,/upstream_message/);
+  assert.match(source,/action_required/);
+  assert.doesNotMatch(source,/client_secret[^_]/);
+});

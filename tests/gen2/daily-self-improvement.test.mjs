@@ -15,3 +15,12 @@ test('daily self-improvement dispatches audit, autonomy and resumable LoRA', asy
   assert.match(source,/shard_size=750/);
   assert.doesNotMatch(source,/paid fallback/i);
 });
+
+test('daily self-audit follows the latest successful deploy job even when aggregate release health is red', async () => {
+  const source=await readFile(new URL('../../.github/workflows/mel-daily-self-improvement.yml', import.meta.url),'utf8');
+  assert.match(source,/actions\/runs\/\$\{run\.id\}\/jobs\?per_page=100/);
+  assert.match(source,/\.find\(\w+=>\w+\?\.name==='deploy'\)/);
+  assert.match(source,/deploy\?\.status==='completed'&&deploy\?\.conclusion==='success'/);
+  assert.doesNotMatch(source,/deploy-cloudflare-release\.yml\/runs\?status=success/);
+  assert.match(source,/latest successfully deployed production SHA/);
+});
