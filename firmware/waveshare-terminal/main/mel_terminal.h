@@ -4,7 +4,7 @@
 
 #define MEL_LCD_H_RES 320
 #define MEL_LCD_V_RES 480
-#define MEL_FW_VERSION "0.6.2-tts-flow-fix"
+#define MEL_FW_VERSION "0.6.3-voice-activation-fix"
 #define MEL_PROTOCOL_VERSION "1.0"
 // MINI mobile status is independent from Wi-Fi association.
 
@@ -41,6 +41,7 @@ int mel_terminal_voice_level(void);
 const char *mel_terminal_last_voice_error(void);
 bool mel_terminal_voice_output_enabled(void);
 void mel_terminal_set_voice_output_enabled(bool enabled);
+void mel_terminal_test_voice_output(void);
 void mel_terminal_stop_voice_output(void);
 bool mel_terminal_has_display(void);
 void mel_terminal_display_next(void);
