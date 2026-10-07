@@ -15,6 +15,7 @@ import { registerGoogleWorkspaceCapabilities } from './google-workspace-capabili
 import { registerPipedreamLinkedCapabilities } from './pipedream-linked-capabilities.js';
 import { registerCreativeMediaCapabilities } from './creative-media-capabilities.js';
 import { createWorkersAiZeroCostMediaCapabilities } from '../media/workers-ai-media-capabilities.js';
+import { createProceduralAudioCapabilities } from '../media/procedural-audio-capabilities.js';
 import { createDefaultAugmentioPool } from '../augmentio/default-pool.js';
 import { Augmentio } from '../augmentio/augmentio.js';
 import { inspectZeroCostProviderReadiness } from '../augmentio/zero-cost-readiness.js';
@@ -427,9 +428,11 @@ export function createDefaultCapabilityBus({ audit, env, repository, branch, tok
   }, async input => ({ ok: true, preview: true, ...normalizeChatGPTArchive(input.archive ?? input).summary }));
 
   const builtInZeroCostMedia = createWorkersAiZeroCostMediaCapabilities(runtimeEnv);
+  const builtInProceduralMedia = createProceduralAudioCapabilities(runtimeEnv);
   const mediaEnv = {
     ...runtimeEnv,
     MEL_MEDIA_CAPABILITIES: {
+      ...builtInProceduralMedia,
       ...builtInZeroCostMedia,
       ...(runtimeEnv.MEL_MEDIA_CAPABILITIES || {}),
     },
