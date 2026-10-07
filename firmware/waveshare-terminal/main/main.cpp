@@ -1291,6 +1291,13 @@ static void settings_chat_clicked(lv_event_t *e) {
     request_view(MINI_VIEW_RESPONSE);
 }
 
+static void settings_voice_output_clicked(lv_event_t *e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    const bool enabled = !mel_terminal_voice_output_enabled();
+    mel_terminal_set_voice_output_enabled(enabled);
+    settings_set_status(enabled ? "REPONSE VOCALE : ON" : "REPONSE VOCALE : OFF");
+}
+
 static void settings_network_clicked(lv_event_t *e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
     ESP_LOGI(TAG, "UI BUTTON: BLUETOOTH / MEL MOBILE");
@@ -1354,6 +1361,7 @@ static void settings_ui_create(lv_obj_t *screen) {
     settings_add_button(settings_panel, "TEST CAMERA", 256, settings_camera_clicked);
     settings_add_button(settings_panel, "CHAT MEL", 306, settings_chat_clicked);
     settings_add_button(settings_panel, "BLUETOOTH / MEL MOBILE", 356, settings_network_clicked);
+    settings_add_button(settings_panel, "REPONSE VOCALE ON / OFF", 406, settings_voice_output_clicked);
 
     lv_obj_add_flag(settings_panel, LV_OBJ_FLAG_HIDDEN);
     settings_refresh_status();
@@ -1925,6 +1933,12 @@ static void response_previous_clicked(lv_event_t *e) {
     mel_terminal_display_previous();
 }
 
+static void response_stop_voice_clicked(lv_event_t *e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    mel_terminal_stop_voice_output();
+    ESP_LOGI(TAG, "UI BUTTON: STOP VOIX");
+}
+
 static void response_ui_create(lv_obj_t *screen) {
     response_panel = lv_obj_create(screen);
     lv_obj_set_size(response_panel, 300, 460);
@@ -1989,7 +2003,7 @@ static void response_ui_create(lv_obj_t *screen) {
     lv_obj_align(answer_label, LV_ALIGN_TOP_LEFT, 0, 0);
 
     lv_obj_t *prev = lv_btn_create(response_panel);
-    lv_obj_set_size(prev, 86, 34);
+    lv_obj_set_size(prev, 72, 34);
     lv_obj_align(prev, LV_ALIGN_BOTTOM_LEFT, 6, -2);
     lv_obj_t *prev_label = lv_label_create(prev);
     lv_label_set_text(prev_label, "PRECEDENT");
@@ -1997,12 +2011,20 @@ static void response_ui_create(lv_obj_t *screen) {
     lv_obj_add_event_cb(prev, response_previous_clicked, LV_EVENT_CLICKED, nullptr);
 
     lv_obj_t *next = lv_btn_create(response_panel);
-    lv_obj_set_size(next, 86, 34);
+    lv_obj_set_size(next, 72, 34);
     lv_obj_align(next, LV_ALIGN_BOTTOM_RIGHT, -6, -2);
     lv_obj_t *next_label = lv_label_create(next);
     lv_label_set_text(next_label, "SUIVANT");
     lv_obj_center(next_label);
     lv_obj_add_event_cb(next, response_next_clicked, LV_EVENT_CLICKED, nullptr);
+
+    lv_obj_t *stop_voice = lv_btn_create(response_panel);
+    lv_obj_set_size(stop_voice, 92, 34);
+    lv_obj_align(stop_voice, LV_ALIGN_BOTTOM_MID, 0, -2);
+    lv_obj_t *stop_voice_label = lv_label_create(stop_voice);
+    lv_label_set_text(stop_voice_label, "STOP VOIX");
+    lv_obj_center(stop_voice_label);
+    lv_obj_add_event_cb(stop_voice, response_stop_voice_clicked, LV_EVENT_CLICKED, nullptr);
 
     lv_obj_add_flag(response_panel, LV_OBJ_FLAG_HIDDEN);
 }
