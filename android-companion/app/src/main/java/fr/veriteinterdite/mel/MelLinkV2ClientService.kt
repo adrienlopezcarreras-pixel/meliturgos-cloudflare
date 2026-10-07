@@ -139,6 +139,10 @@ class MelLinkV2ClientService : Service() {
                 .setSilent(true)
                 .build()
         )
+        Thread {
+            runCatching { MelMiniVoiceSynthesizer.warmup(applicationContext) }
+                .onFailure { Log.w(TAG, "French MINI TTS warmup failed", it) }
+        }.apply { name = "mel-mini-tts-warmup"; isDaemon = true }.start()
         startDiscovery()
     }
 
