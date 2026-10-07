@@ -397,7 +397,7 @@ export function createDefaultCapabilityBus({ audit, env, repository, branch, tok
       additionalProperties: false
     },
     output_schema: { type: 'object', additionalProperties: true },
-    risk: 'LOW', permissions: [], health: runtimeEnv.DB ? 'HEALTHY' : 'DEGRADED', enabled: true
+    risk: 'LOW', permissions: [], health: runtimeEnv.DB ? 'HEALTHY' : 'UNAVAILABLE', enabled: true
   }, async input => {
     if (!runtimeEnv.DB) throw capabilityError('DB_BINDING_MISSING');
     if (!runtimeEnv.MELITURGOS_USER) throw capabilityError('MELITURGOS_USER_MISSING');
