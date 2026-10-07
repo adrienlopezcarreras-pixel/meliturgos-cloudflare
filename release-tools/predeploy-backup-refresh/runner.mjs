@@ -145,17 +145,36 @@ async function registerMetadata(sidecar, registration) {
   return result;
 }
 
-function runWrangler(args) {
-  const result = spawnSync('npx', ['wrangler', ...args], {
-    encoding: 'utf8',
-    env: process.env,
-    maxBuffer: 32 * 1024 * 1024,
-  });
-  if (result.status !== 0) {
-    const detail = String(result.stderr || result.stdout || '').replace(/\s+/g, ' ').trim().slice(0, 500);
-    throw new Error(`WRANGLER_FAILED:${args.slice(0, 4).join(':')}:${detail}`);
+const WRANGLER_TRANSIENT_RE = /(?:\b(?:429|500|502|503|504|520|522|524)\b|failed to fetch|fetch failed|econnreset|etimedout|socket hang up|temporar(?:y|ily)|network error)/i;
+
+function sleepSync(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+function runWrangler(args, { attempts = 1 } = {}) {
+  let last = null;
+  for (let attempt = 1; attempt <= Math.max(1, attempts); attempt += 1) {
+    const result = spawnSync('npx', ['wrangler', ...args], {
+      encoding: 'utf8',
+      env: process.env,
+      maxBuffer: 32 * 1024 * 1024,
+    });
+    last = result;
+    if (result.status === 0) return result;
+
+    const detail = String(result.stderr || result.stdout || '').replace(/\s+/g, ' ').trim();
+    const transient = WRANGLER_TRANSIENT_RE.test(detail);
+    if (!transient || attempt >= attempts) {
+      throw new Error(`WRANGLER_FAILED:${args.slice(0, 4).join(':')}:${detail.slice(0, 500)}`);
+    }
+
+    const delayMs = Math.min(20_000, 2_000 * (2 ** (attempt - 1)));
+    process.stderr.write(`Transient Wrangler/R2 failure on attempt ${attempt}/${attempts}; retrying in ${delayMs}ms.\n`);
+    sleepSync(delayMs);
   }
-  return result;
+
+  const detail = String(last?.stderr || last?.stdout || '').replace(/\s+/g, ' ').trim().slice(0, 500);
+  throw new Error(`WRANGLER_FAILED:${args.slice(0, 4).join(':')}:${detail}`);
 }
 
 async function createBackup() {
@@ -216,14 +235,14 @@ async function createBackup() {
         '--file', uploadPath,
         '--content-type', 'application/json; charset=utf-8',
         '--remote',
-      ]);
+      ], { attempts: 6 });
 
       try {
         runWrangler([
           'r2', 'object', 'get', `${bucketName}/${objectKey}`,
           '--file', verifyPath,
           '--remote',
-        ]);
+        ], { attempts: 6 });
         const downloaded = await readFile(verifyPath, 'utf8');
         if (downloaded !== payload) throw new Error('BACKUP_R2_ROUNDTRIP_MISMATCH');
 
@@ -259,7 +278,7 @@ async function createBackup() {
         };
       } catch (error) {
         try {
-          runWrangler(['r2', 'object', 'delete', `${bucketName}/${objectKey}`, '--remote']);
+          runWrangler(['r2', 'object', 'delete', `${bucketName}/${objectKey}`, '--remote'], { attempts: 4 });
         } catch {}
         throw error;
       }
