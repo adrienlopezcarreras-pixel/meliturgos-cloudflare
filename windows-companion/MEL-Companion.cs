@@ -14,7 +14,7 @@ using System.Web.Script.Serialization;
 static class MelApp
 {
     public const string DefaultServer = "https://meliturgos.adrien-lopezcarreras.workers.dev";
-    public const string Version = "2.4.1";
+    public const string Version = "2.4.2";
     public static readonly string MelDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "MEL");
     public static readonly string ConfigPath = Path.Combine(MelDir, "computer.json");
     public static readonly string InstalledExe = Path.Combine(MelDir, "MEL-Companion.exe");
@@ -894,8 +894,8 @@ class SetupForm : Form
     public SetupForm()
     {
         Text = "MEL Techno Companion — installation"; ClientSize = new Size(800, 560);
-        StartPosition = FormStartPosition.CenterScreen; FormBorderStyle = FormBorderStyle.FixedDialog;
-        MaximizeBox = false; BackColor = MelApp.Bg; ForeColor = MelApp.Text;
+        StartPosition = FormStartPosition.CenterScreen; FormBorderStyle = FormBorderStyle.Sizable;
+        MinimumSize = new Size(800, 560); MaximizeBox = true; BackColor = MelApp.Bg; ForeColor = MelApp.Text;
         AutoScaleMode = AutoScaleMode.None; Font = new Font("Segoe UI", 11.5f, FontStyle.Regular);
         DoubleBuffered = true;
         Paint += delegate(object s, PaintEventArgs e){ MelApp.PaintBackdrop(e.Graphics, ClientSize.Width, ClientSize.Height); };
@@ -946,8 +946,9 @@ class PermissionsForm : Form
         Text = "MEL Companion — autorisations";
         ClientSize = new Size(720, 610);
         StartPosition = FormStartPosition.CenterParent;
-        FormBorderStyle = FormBorderStyle.FixedDialog;
-        MaximizeBox = false;
+        FormBorderStyle = FormBorderStyle.Sizable;
+        MinimumSize = new Size(720, 610);
+        MaximizeBox = true;
         MinimizeBox = false;
         BackColor = MelApp.Bg;
         ForeColor = MelApp.Text;
@@ -1206,6 +1207,9 @@ class MainForm : Form
         deviceList.FlowDirection = FlowDirection.TopDown;
         deviceList.BackColor = Color.FromArgb(10, 18, 31);
         deviceList.Padding = new Padding(10);
+        deviceList.HorizontalScroll.Enabled = false;
+        deviceList.HorizontalScroll.Visible = false;
+        deviceList.Resize += delegate { ResizeDeviceRows(); };
         root.Controls.Add(deviceList, 0, 3);
 
         var footer = new TableLayoutPanel();
@@ -1266,7 +1270,8 @@ class MainForm : Form
         timer.Interval = 10000;
         timer.Tick += delegate { RefreshAll(); };
         timer.Start();
-        Shown += delegate { RefreshAll(); };
+        Shown += delegate { ResizeDeviceRows(); RefreshAll(); };
+        Resize += delegate { ResizeDeviceRows(); };
     }
 
     void RePair(object sender, EventArgs e)
@@ -1308,7 +1313,7 @@ class MainForm : Form
         var phase = Get(d, "phase");
 
         var row = UiPanel(Color.FromArgb(18, 31, 49));
-        row.Width = Math.Max(760, deviceList.ClientSize.Width - 38);
+        row.Width = Math.Max(320, deviceList.ClientSize.Width - deviceList.Padding.Horizontal - 6);
         row.Height = 146;
         row.Margin = new Padding(0, 0, 0, 10);
 
@@ -1370,6 +1375,17 @@ class MainForm : Form
         return row;
     }
 
+    void ResizeDeviceRows()
+    {
+        if (deviceList == null || deviceList.IsDisposed) return;
+        int width = Math.Max(320, deviceList.ClientSize.Width - deviceList.Padding.Horizontal - 6);
+        foreach (Control control in deviceList.Controls)
+        {
+            control.Width = width;
+        }
+        deviceList.PerformLayout();
+    }
+
     void RenderState(bool ok, List<Dictionary<string,object>> devices)
     {
         if (IsDisposed) return;
@@ -1384,7 +1400,7 @@ class MainForm : Form
 
         if (devices.Count == 0) {
             var empty = UiPanel(Color.FromArgb(18, 31, 49));
-            empty.Width = Math.Max(760, deviceList.ClientSize.Width - 38);
+            empty.Width = Math.Max(320, deviceList.ClientSize.Width - deviceList.Padding.Horizontal - 6);
             empty.Height = 120;
             var label = UiLabel("Aucun appareil MEL visible. La MINI ou l’APK apparaîtront ici au prochain heartbeat.", 12f, MelApp.Muted, FontStyle.Regular);
             label.Dock = DockStyle.Fill;
@@ -1394,6 +1410,7 @@ class MainForm : Form
             foreach (var d in devices) deviceList.Controls.Add(BuildDeviceRow(d));
         }
         deviceList.ResumeLayout(true);
+        ResizeDeviceRows();
     }
 
     void RefreshAll()
