@@ -19,6 +19,7 @@ void mel_link_v2_transport_start(void);
 bool mel_link_v2_transport_ready(void);
 bool mel_link_v2_transport_keepalive(void);
 bool mel_link_v2_transport_candidate_seen(void);
+bool mel_link_v2_transport_cancel_active(void);
 uint16_t mel_link_v2_transport_mtu(void);
 bool mel_link_v2_transport_request_media_config(
     MelLinkV2MediaConfig *out,
