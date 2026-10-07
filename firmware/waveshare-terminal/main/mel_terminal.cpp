@@ -1868,6 +1868,7 @@ void mel_terminal_set_voice_output_enabled(bool enabled) {
         // call. Rearm audio immediately when the user explicitly turns voice ON.
         g_tts_stop_requested = false;
         voice_error(nullptr);
+        ESP_LOGI(TAG, "VOICE OUTPUT activation rearmed tts_stop=0 audio_ok=%d output_dev=%p", g_audio_ok ? 1 : 0, output_dev);
     } else {
         g_tts_stop_requested = true;
         if (output_dev) esp_codec_dev_set_out_vol(output_dev, 0.0);
