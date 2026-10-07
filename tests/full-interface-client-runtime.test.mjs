@@ -79,21 +79,17 @@ test('full interface exposes Gmail plus Yahoo/Ymail through Pipedream while Micr
 });
 
 
-test('full interface exposes Vercel connection controls and bounded redeploy actions', async () => {
+test('full interface keeps optional Vercel backend out of the canonical owner control surface', async () => {
   const response = await onRequestGet();
   const html = await response.text();
-  assert.match(html, />Vercel</);
-  assert.match(html, /id="vercelToken"/);
-  assert.match(html, /id="vercelTeamId"/);
-  assert.match(html, /id="vercelProjectId"/);
-  assert.match(html, /id="vercelProjectName"/);
-  assert.match(html, /id="vercelSave"/);
-  assert.match(html, /id="vercelTest"/);
-  assert.match(html, /id="vercelDeploymentSelect"/);
-  assert.match(html, /id="vercelRedeployPreview"/);
-  assert.match(html, /id="vercelRedeployProduction"/);
-  assert.match(html, /x-mel-approve-capability/);
-  assert.match(html, /vercel\.deployments\.redeploy/);
+  assert.doesNotMatch(html, /<h2>Vercel<\/h2>/);
+  for (const id of [
+    'vercelToken','vercelTeamId','vercelProjectId','vercelProjectName',
+    'vercelSave','vercelTest','vercelDeploymentSelect',
+    'vercelRedeployPreview','vercelRedeployProduction',
+  ]) {
+    assert.doesNotMatch(html, new RegExp('id="' + id + '"'));
+  }
 });
 
 
