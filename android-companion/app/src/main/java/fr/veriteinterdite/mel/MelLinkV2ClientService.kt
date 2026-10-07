@@ -665,6 +665,42 @@ class MelLinkV2ClientService : Service() {
         }
         val wav = MelImaAdpcm.pcm16MonoWav(samples, 16_000)
 
+        // Normal MINI voice path: synthesize French speech locally on Android.
+        // This uses the same installed fr-FR TTS engine that already speaks
+        // successfully on the phone, captures its PCM, resamples to 48 kHz
+        // mono, then streams it through Link V2. The server TTS remains only
+        // a fallback if local French synthesis is unavailable.
+        if (!isPair && method == "POST" && path == "/api/device/v1/voice/tts") {
+            val pairedMiniToken = MiniTokenVault(this).load(miniDeviceId)
+            if (!pairedMiniToken.isNullOrBlank()) {
+                val requestedText = runCatching {
+                    JSONObject(request.body.toString(Charsets.UTF_8.name()))
+                        .optString("text")
+                        .trim()
+                }.getOrDefault("")
+                if (requestedText.isNotBlank()) {
+                    val localPcm = runCatching {
+                        MelMiniVoiceSynthesizer.synthesizePcm48kMono(this, requestedText)
+                    }
+                    if (localPcm.isSuccess) {
+                        val pcm = localPcm.getOrThrow()
+                        Log.i(TAG, "MINI local fr-FR TTS -> PCM48 samples=" + pcm.size)
+                        state.value = "MINI V2 · VOIX FR LOCALE"
+                        val sent = sendAudioResponse(request.streamId, pcm, outputRate = 48_000)
+                        if (!sent) {
+                            lastError.value = "TTS_LOCAL_BLE_SEND"
+                            sendError(request.streamId, "TTS_LOCAL_BLE_SEND")
+                        }
+                        return
+                    } else {
+                        val error = localPcm.exceptionOrNull()
+                        Log.w(TAG, "Local French MINI TTS unavailable; server fallback", error)
+                        lastError.value = "TTS_LOCAL_FALLBACK"
+                    }
+                }
+            }
+        }
+
         var connection: java.net.HttpURLConnection? = null
         try {
             val boundary = "mel-mini-v2-" + UUID.randomUUID().toString()
@@ -891,15 +927,16 @@ class MelLinkV2ClientService : Service() {
             }
 
             if (status in 200..299 && path == "/api/device/v1/voice/tts") {
+                // Network fallback is strict: only a self-describing WAV is
+                // accepted. Never reinterpret arbitrary compressed/JSON bytes
+                // as PCM, which was the source of the long tone regression.
                 val pcm48 = runCatching {
-                    if (body.size >= 12 &&
-                        body.copyOfRange(0, 4).toString(Charsets.US_ASCII) == "RIFF" &&
-                        body.copyOfRange(8, 12).toString(Charsets.US_ASCII) == "WAVE"
-                    ) {
-                        MelImaAdpcm.decodePcm16MonoWav(body, 48_000)
-                    } else {
-                        MelImaAdpcm.decodePcm16Le(body)
-                    }
+                    require(
+                        body.size >= 12 &&
+                            body.copyOfRange(0, 4).toString(Charsets.US_ASCII) == "RIFF" &&
+                            body.copyOfRange(8, 12).toString(Charsets.US_ASCII) == "WAVE"
+                    ) { "TTS_WAV_REQUIRED" }
+                    MelImaAdpcm.decodePcm16MonoWav(body, 48_000)
                 }.recoverCatching {
                     val pcm16 = MelImaAdpcm.decodePcm16MonoWav(body, 16_000)
                     MelImaAdpcm.upsample16kTo48k(pcm16)
