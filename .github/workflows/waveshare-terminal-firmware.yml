@@ -35,6 +35,8 @@ jobs:
           cp firmware/waveshare-terminal/main/* build/waveshare-mel/main/
           cp firmware/waveshare-terminal/partitions.csv build/waveshare-mel/partitions.csv
           cp firmware/waveshare-terminal/sdkconfig.defaults build/waveshare-mel/sdkconfig.defaults
+          cp firmware/waveshare-terminal/vendor/esp_es8311_port.cpp build/waveshare-mel/components/esp_port/esp_es8311_port.cpp
+          cp firmware/waveshare-terminal/vendor/esp_es8311_port.h build/waveshare-mel/components/esp_port/esp_es8311_port.h
 
           # Harden the Waveshare camera port for IDF 5.4: zero-initialize the
           # whole camera_config_t and actually use MEL's shared I2C port.
@@ -165,7 +167,7 @@ jobs:
             "model": "waveshare-esp32-s3-touch-lcd-3.5-c",
             "channel": "stable",
             "firmware": {
-              "version": "0.6.5-codec-shared-stop-fix",
+              "version": "0.6.6-audio-port-audit-fix",
               "available": true,
               "key": "devices/waveshare-esp32-s3-touch-lcd-3.5-c/mel-terminal.bin",
               "sha256": "${OTA_SHA256}",
