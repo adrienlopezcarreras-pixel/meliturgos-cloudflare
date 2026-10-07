@@ -199,7 +199,86 @@ function workspaceHealthcheck(resolveAccessToken, fetchImpl, env, connectorId, {
 
 const objectOutput = { type: 'object', additionalProperties: true };
 
-export function registerGoogleWorkspaceCapabilities(bus, { env = {}, fetchImpl = fetch, resolveAccessToken = null } = {}) {
+async function calendarRequest({
+  resolveAccessToken,
+  fetchImpl,
+  pipedreamRuntime,
+  env,
+  context,
+  url,
+  method = 'GET',
+  body,
+  code,
+} = {}) {
+  let nativeError = null;
+  try {
+    const token = await tokenFor(resolveAccessToken, 'google-calendar', context);
+    const result = await requestJson(fetchImpl, token, url, {
+      method,
+      body,
+      code,
+      signal: context?.signal,
+    });
+    return { provider: 'google', body: result };
+  } catch (error) {
+    nativeError = error;
+  }
+
+  if (!pipedreamRuntime || typeof pipedreamRuntime.proxy !== 'function') throw nativeError;
+  try {
+    const proxied = await pipedreamRuntime.proxy({
+      owner: context?.owner || env?.MELITURGOS_USER || 'owner',
+      app: 'google_calendar',
+      url,
+      method,
+      body,
+      signal: context?.signal,
+    });
+    return { provider: 'pipedream', body: proxied?.body || {} };
+  } catch (fallbackError) {
+    const combined = error(code + '_ALL_PATHS_FAILED', 503);
+    combined.native_code = String(nativeError?.code || nativeError?.message || 'CALENDAR_NATIVE_FAILED').slice(0, 160);
+    combined.fallback_code = String(fallbackError?.code || fallbackError?.message || 'CALENDAR_PIPEDREAM_FAILED').slice(0, 160);
+    throw combined;
+  }
+}
+
+function calendarHealthcheck(resolveAccessToken, fetchImpl, env, pipedreamRuntime, { protectedAction = false } = {}) {
+  const owner = String(env?.MELITURGOS_USER || 'owner').trim() || 'owner';
+  const probe = CALENDAR_API + '/calendars/primary';
+  return async () => {
+    try {
+      const token = await tokenFor(resolveAccessToken, 'google-calendar', { owner });
+      await requestJson(fetchImpl, token, probe, { method: 'GET', code: 'GOOGLE_CALENDAR_HEALTH_FAILED' });
+      return { status: protectedAction ? 'PROTECTED' : 'HEALTHY', transport: 'google' };
+    } catch (nativeError) {
+      if (!pipedreamRuntime || typeof pipedreamRuntime.proxy !== 'function') {
+        const code = String(nativeError?.code || nativeError?.message || 'GOOGLE_CALENDAR_HEALTH_FAILED').slice(0, 180);
+        return { status: 'UNAVAILABLE', reason: code };
+      }
+      try {
+        await pipedreamRuntime.proxy({
+          owner,
+          app: 'google_calendar',
+          url: probe,
+          method: 'GET',
+        });
+        return {
+          status: protectedAction ? 'PROTECTED' : 'HEALTHY',
+          transport: 'pipedream',
+          native_reason: String(nativeError?.code || nativeError?.message || '').slice(0, 160),
+        };
+      } catch (fallbackError) {
+        return {
+          status: 'UNAVAILABLE',
+          reason: String(fallbackError?.code || fallbackError?.message || 'GOOGLE_CALENDAR_ALL_PATHS_FAILED').slice(0, 180),
+        };
+      }
+    }
+  };
+}
+
+export function registerGoogleWorkspaceCapabilities(bus, { env = {}, fetchImpl = fetch, resolveAccessToken = null, pipedreamRuntime = null } = {}) {
   if (!bus || typeof bus.discover !== 'function') throw new TypeError('CAPABILITY_BUS_REQUIRED');
   const resolveToken = resolveAccessToken || fixedTokenResolver(env);
 
@@ -319,9 +398,9 @@ export function registerGoogleWorkspaceCapabilities(bus, { env = {}, fetchImpl =
     id: 'calendar.events.read',
     name: 'Google Calendar event search',
     category: 'planning',
-    version: '1.0.0',
-    provider: 'google',
-    description: 'Reads a bounded set of events from one Google calendar.',
+    version: '1.1.0',
+    provider: 'google+pipedream',
+    description: 'Reads a bounded set of events from one Google calendar, using native Google first and the linked Pipedream account as an authenticated fallback.',
     input_schema: {
       type: 'object',
       properties: {
@@ -337,10 +416,9 @@ export function registerGoogleWorkspaceCapabilities(bus, { env = {}, fetchImpl =
     risk: 'LOW',
     permissions: ['google.calendar.read'],
     health: 'DEGRADED',
-    healthcheck: workspaceHealthcheck(resolveToken, fetchImpl, env, 'google-calendar'),
+    healthcheck: calendarHealthcheck(resolveToken, fetchImpl, env, pipedreamRuntime),
     enabled: true,
   }, async (input, context) => {
-    const token = await tokenFor(resolveToken, 'google-calendar', context);
     const calendarId = encodeURIComponent(text(input.calendar_id || 'primary', 'CALENDAR_ID_INVALID', 300));
     const params = query({
       singleEvents: 'true',
@@ -350,9 +428,22 @@ export function registerGoogleWorkspaceCapabilities(bus, { env = {}, fetchImpl =
       timeMax: input.time_max ? text(input.time_max, 'CALENDAR_TIME_INVALID', 80) : '',
       q: input.query ? text(input.query, 'CALENDAR_QUERY_INVALID', 1000) : '',
     });
-    const body = await requestJson(fetchImpl, token, CALENDAR_API + '/calendars/' + calendarId + '/events?' + params, { code: 'CALENDAR_READ_FAILED', signal: context?.signal });
-    const events = (Array.isArray(body.items) ? body.items : []).slice(0, listLimit(input.limit));
-    return { provider: 'google', calendar_id: input.calendar_id || 'primary', events, count: events.length };
+    const transport = await calendarRequest({
+      resolveAccessToken: resolveToken,
+      fetchImpl,
+      pipedreamRuntime,
+      env,
+      context,
+      url: CALENDAR_API + '/calendars/' + calendarId + '/events?' + params,
+      code: 'CALENDAR_READ_FAILED',
+    });
+    const events = (Array.isArray(transport.body?.items) ? transport.body.items : []).slice(0, listLimit(input.limit));
+    return {
+      provider: transport.provider,
+      calendar_id: input.calendar_id || 'primary',
+      events,
+      count: events.length,
+    };
   });
 
   for (const spec of [
@@ -364,9 +455,9 @@ export function registerGoogleWorkspaceCapabilities(bus, { env = {}, fetchImpl =
       id: spec.id,
       name: 'Google Calendar event ' + spec.action,
       category: 'planning',
-      version: '1.0.0',
-      provider: 'google',
-      description: 'Mutates one Google Calendar event after explicit owner approval.',
+      version: '1.1.0',
+      provider: 'google+pipedream',
+      description: 'Mutates one Google Calendar event after explicit owner approval, using native Google first and Pipedream only as an authenticated fallback.',
       input_schema: {
         type: 'object',
         properties: {
@@ -388,10 +479,9 @@ export function registerGoogleWorkspaceCapabilities(bus, { env = {}, fetchImpl =
       permissions: [spec.permission],
       approval: { required: true, scope: spec.id, reason: 'CALENDAR_EVENT_MUTATION' },
       health: 'DEGRADED',
-    healthcheck: workspaceHealthcheck(resolveToken, fetchImpl, env, 'google-calendar', { protectedAction: true }),
+      healthcheck: calendarHealthcheck(resolveToken, fetchImpl, env, pipedreamRuntime, { protectedAction: true }),
       enabled: true,
     }, async (input, context) => {
-      const token = await tokenFor(resolveToken, 'google-calendar', context);
       const calendarId = encodeURIComponent(text(input.calendar_id || 'primary', 'CALENDAR_ID_INVALID', 300));
       const base = CALENDAR_API + '/calendars/' + calendarId + '/events';
       let url = base;
@@ -402,13 +492,23 @@ export function registerGoogleWorkspaceCapabilities(bus, { env = {}, fetchImpl =
         url += '/' + eventId;
         if (spec.action === 'update') body = calendarEvent(input, { partial: true });
       }
-      const result = await requestJson(fetchImpl, token, url, {
+      const transport = await calendarRequest({
+        resolveAccessToken: resolveToken,
+        fetchImpl,
+        pipedreamRuntime,
+        env,
+        context,
+        url,
         method: spec.method,
         body,
         code: 'CALENDAR_' + spec.action.toUpperCase() + '_FAILED',
-        signal: context?.signal,
       });
-      return { provider: 'google', calendar_id: input.calendar_id || 'primary', event_id: String(result.id || input.event_id || ''), accepted: true };
+      return {
+        provider: transport.provider,
+        calendar_id: input.calendar_id || 'primary',
+        event_id: String(transport.body?.id || input.event_id || ''),
+        accepted: true,
+      };
     });
   }
 
