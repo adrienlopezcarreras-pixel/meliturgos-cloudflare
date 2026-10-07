@@ -61,6 +61,8 @@ static lv_obj_t *response_text_box = nullptr;
 static lv_obj_t *response_media_frame = nullptr;
 static lv_obj_t *response_image_obj = nullptr;
 static lv_obj_t *response_media_hint = nullptr;
+static lv_obj_t *response_stop_voice_btn = nullptr;
+static lv_obj_t *response_stop_voice_label = nullptr;
 static lv_obj_t *face_obj = nullptr;
 static lv_obj_t *avatar_obj = nullptr;
 static uint8_t *visual_pixels = nullptr;
@@ -1952,8 +1954,11 @@ static void response_previous_clicked(lv_event_t *e) {
 
 static void response_stop_voice_clicked(lv_event_t *e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    if (response_stop_voice_label) lv_label_set_text(response_stop_voice_label, "ARRET...");
+    if (response_stop_voice_btn) lv_obj_add_state(response_stop_voice_btn, LV_STATE_DISABLED);
     mel_terminal_stop_voice_output();
-    ESP_LOGI(TAG, "UI BUTTON: STOP VOIX");
+    if (response_stop_voice_label) lv_label_set_text(response_stop_voice_label, "VOIX STOP");
+    ESP_LOGI(TAG, "UI BUTTON: STOP VOIX -> cancellation requested");
 }
 
 static void response_ui_create(lv_obj_t *screen) {
@@ -2035,13 +2040,13 @@ static void response_ui_create(lv_obj_t *screen) {
     lv_obj_center(next_label);
     lv_obj_add_event_cb(next, response_next_clicked, LV_EVENT_CLICKED, nullptr);
 
-    lv_obj_t *stop_voice = lv_btn_create(response_panel);
-    lv_obj_set_size(stop_voice, 92, 34);
-    lv_obj_align(stop_voice, LV_ALIGN_BOTTOM_MID, 0, -2);
-    lv_obj_t *stop_voice_label = lv_label_create(stop_voice);
-    lv_label_set_text(stop_voice_label, "STOP VOIX");
-    lv_obj_center(stop_voice_label);
-    lv_obj_add_event_cb(stop_voice, response_stop_voice_clicked, LV_EVENT_CLICKED, nullptr);
+    response_stop_voice_btn = lv_btn_create(response_panel);
+    lv_obj_set_size(response_stop_voice_btn, 92, 34);
+    lv_obj_align(response_stop_voice_btn, LV_ALIGN_BOTTOM_MID, 0, -2);
+    response_stop_voice_label = lv_label_create(response_stop_voice_btn);
+    lv_label_set_text(response_stop_voice_label, "STOP VOIX");
+    lv_obj_center(response_stop_voice_label);
+    lv_obj_add_event_cb(response_stop_voice_btn, response_stop_voice_clicked, LV_EVENT_CLICKED, nullptr);
 
     lv_obj_add_flag(response_panel, LV_OBJ_FLAG_HIDDEN);
 }
