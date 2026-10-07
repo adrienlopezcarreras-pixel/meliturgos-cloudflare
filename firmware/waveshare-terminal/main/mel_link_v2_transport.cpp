@@ -76,6 +76,21 @@ static void drain_semaphore(SemaphoreHandle_t sem) {
     while (xSemaphoreTake(sem, 0) == pdTRUE) {}
 }
 
+static bool grant_remote_credits(uint16_t stream_id, uint16_t credits, bool confirmed = false) {
+    uint8_t payload[2] = {
+        static_cast<uint8_t>(credits & 0xff),
+        static_cast<uint8_t>((credits >> 8) & 0xff)
+    };
+    return send_v2(
+        MEL_LINK_V2_CREDIT,
+        stream_id,
+        0,
+        payload,
+        sizeof(payload),
+        confirmed
+    );
+}
+
 static bool deliver_audio_pcm_native(
     const int16_t *samples,
     size_t sample_count
@@ -246,6 +261,10 @@ static void rx_frame(const uint8_t *frame, size_t len, void *ctx) {
         g_active.expected_audio_samples = static_cast<size_t>(samples->valuedouble);
         g_active.received_audio_samples = 0;
         if (root) cJSON_Delete(root);
+        if (!grant_remote_credits(header.stream_id, MEL_LINK_V2_CREDIT_WINDOW, true)) {
+            g_active.failed = true;
+            if (g_response_done) xSemaphoreGive(g_response_done);
+        }
         return;
     }
 
@@ -278,6 +297,10 @@ static void rx_frame(const uint8_t *frame, size_t len, void *ctx) {
 
         g_active.received_audio_samples += decoded_samples;
         g_active.expected_audio_seq++;
+        if (!grant_remote_credits(header.stream_id, 1)) {
+            g_active.failed = true;
+            if (g_response_done) xSemaphoreGive(g_response_done);
+        }
         return;
     }
 
@@ -308,6 +331,10 @@ static void rx_frame(const uint8_t *frame, size_t len, void *ctx) {
         g_active.status = cJSON_IsNumber(status) ? status->valueint : 0;
         g_active.expected_response_seq = 0;
         if (root) cJSON_Delete(root);
+        if (!grant_remote_credits(header.stream_id, MEL_LINK_V2_CREDIT_WINDOW, true)) {
+            g_active.failed = true;
+            if (g_response_done) xSemaphoreGive(g_response_done);
+        }
         return;
     }
 
@@ -328,6 +355,10 @@ static void rx_frame(const uint8_t *frame, size_t len, void *ctx) {
         } else if (g_active.body.size() + header.payload_len <= MAX_RESPONSE_BYTES) {
             g_active.body.append(reinterpret_cast<const char *>(payload), header.payload_len);
         } else {
+            g_active.failed = true;
+            if (g_response_done) xSemaphoreGive(g_response_done);
+        }
+        if (!g_active.failed && !grant_remote_credits(header.stream_id, 1)) {
             g_active.failed = true;
             if (g_response_done) xSemaphoreGive(g_response_done);
         }
