@@ -1,4 +1,4 @@
-import { mediaStorageReady, storePrivateArtifact } from './workers-ai-media-capabilities.js';
+import { mediaStorageReady, storePrivateArtifact, readPrivateArtifactBytes } from './workers-ai-media-capabilities.js';
 
 const MAX_ANALYSIS_BYTES = 24_000_000;
 const DEFAULT_SAMPLE_RATE = 22050;
@@ -23,6 +23,14 @@ function inputBytes(input = {}) {
     const binary = atob(raw);
     return Uint8Array.from(binary, ch => ch.charCodeAt(0));
   } catch { throw err('AUDIO_BASE64_INVALID'); }
+}
+async function inputBytesForEnv(env, input = {}) {
+  if (input?.artifact_key) {
+    const artifact = await readPrivateArtifactBytes(env, input.artifact_key);
+    if (!artifact.mime.startsWith('audio/')) throw err('AUDIO_ARTIFACT_REQUIRED', 415);
+    return artifact.bytes;
+  }
+  return inputBytes(input);
 }
 function readAscii(view, offset, len) {
   let out=''; for(let i=0;i<len;i++) out+=String.fromCharCode(view.getUint8(offset+i)); return out;
@@ -113,13 +121,13 @@ function generatedMusic(prompt,duration=12,sr=DEFAULT_SAMPLE_RATE){
   }
   return {samples:out,bpm,root_hz:root};
 }
-async function audioAnalyze(input={}){
-  const bytes=inputBytes(input);if(!bytes?.byteLength)throw err('AUDIO_INPUT_REQUIRED');
+async function audioAnalyze(env,input={}){
+  const bytes=await inputBytesForEnv(env,input);if(!bytes?.byteLength)throw err('AUDIO_INPUT_REQUIRED');
   const wav=decodeWav(bytes),s=spectral(wav.samples,wav.sample_rate);
   return Object.freeze({ok:true,schema:'mel.dsp-audio/v1',capability:'media.audio.analyze',provider:'mel-dsp',zero_added_cost:true,...wav,...s,dominant_note:noteName(s.dominant_frequency_hz)});
 }
-async function musicAnalyze(input={}){
-  const base=await audioAnalyze(input),bytes=inputBytes(input),wav=decodeWav(bytes),bpm=estimateTempo(wav.samples,wav.sample_rate);
+async function musicAnalyze(env,input={}){
+  const base=await audioAnalyze(env,input),bytes=await inputBytesForEnv(env,input),wav=decodeWav(bytes),bpm=estimateTempo(wav.samples,wav.sample_rate);
   return Object.freeze({...base,capability:'media.music.analyze',schema:'mel.dsp-music/v1',estimated_bpm:bpm});
 }
 async function audioGenerate(env,input={}){
@@ -138,8 +146,8 @@ async function musicGenerate(env,input={}){
 }
 export function createProceduralAudioCapabilities(env={}){
   const out={
-    'media.audio.analyze': input=>audioAnalyze(input),
-    'media.music.analyze': input=>musicAnalyze(input),
+    'media.audio.analyze': input=>audioAnalyze(env,input),
+    'media.music.analyze': input=>musicAnalyze(env,input),
   };
   if(mediaStorageReady(env)){
     out['media.audio.generate']=input=>audioGenerate(env,input);
