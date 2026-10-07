@@ -40,16 +40,16 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh run watch 37607131648 --repo "${{ github.repository }}" --exit-status --interval 10
+          gh run watch 37610845722 --repo "${{ github.repository }}" --exit-status --interval 10
 
       - name: Download exact Link V2 firmware
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh run download 37607131648 `
+          gh run download 37610845722 `
             --repo "${{ github.repository }}" `
-            --name "MEL-Waveshare-3.5-C-bcf0365716c5df3dda9f265f8c589b5de396ff0b" `
+            --name "MEL-Waveshare-3.5-C-0b9c514ce30712ae34f6d9b589fb9265966cb515" `
             --dir firmware-artifact
           if (!(Test-Path "firmware-artifact/build/mel-terminal.bin")) {
             throw "Validated Link V2 firmware binary missing"
@@ -63,7 +63,7 @@ jobs:
             --clean `
             --onefile `
             --console `
-            --name "MEL-MINI-Updater-0.6.0-AudioLink" `
+            --name "MEL-MINI-Updater-0.6.0-AudioLink-StableBLE" `
             --collect-all esptool `
             --collect-all serial `
             --add-data "firmware-artifact/build/mel-terminal.bin;." `
@@ -72,21 +72,21 @@ jobs:
       - name: Self-test updater
         shell: pwsh
         run: |
-          & ".\dist\MEL-MINI-Updater-0.6.0-AudioLink.exe" --self-test
+          & ".\dist\MEL-MINI-Updater-0.6.0-AudioLink-StableBLE.exe" --self-test
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: SHA256
         shell: pwsh
         run: |
-          Get-FileHash ".\dist\MEL-MINI-Updater-0.6.0-AudioLink.exe" -Algorithm SHA256 |
-            Format-List | Out-File ".\dist\MEL-MINI-Updater-0.6.0-AudioLink.sha256.txt"
+          Get-FileHash ".\dist\MEL-MINI-Updater-0.6.0-AudioLink-StableBLE.exe" -Algorithm SHA256 |
+            Format-List | Out-File ".\dist\MEL-MINI-Updater-0.6.0-AudioLink-StableBLE.sha256.txt"
 
       - name: Upload updater
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: MEL-MINI-Updater-0.6.0-AudioLink
+          name: MEL-MINI-Updater-0.6.0-AudioLink-StableBLE
           path: |
-            dist/MEL-MINI-Updater-0.6.0-AudioLink.exe
-            dist/MEL-MINI-Updater-0.6.0-AudioLink.sha256.txt
+            dist/MEL-MINI-Updater-0.6.0-AudioLink-StableBLE.exe
+            dist/MEL-MINI-Updater-0.6.0-AudioLink-StableBLE.sha256.txt
           if-no-files-found: error
           retention-days: 30
