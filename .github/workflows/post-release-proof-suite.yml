@@ -37,7 +37,7 @@ jobs:
       - run: node --test tests/gen2/post-release-proof-suite.test.mjs
 
   resolve:
-    if: github.event_name == 'workflow_dispatch' || github.event_name == 'workflow_call'
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
     outputs:
       expected_sha: ${{ steps.sha.outputs.expected_sha }}
