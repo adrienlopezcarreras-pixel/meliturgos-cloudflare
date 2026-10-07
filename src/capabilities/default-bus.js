@@ -12,6 +12,7 @@ import { registerSelfAuditCapabilities } from './self-audit-capability.js';
 import { registerBrowserRuntimeCapabilities } from './browser-runtime-capabilities.js';
 import { registerComputerRuntimeCapabilities } from './computer-runtime-capabilities.js';
 import { registerGoogleWorkspaceCapabilities } from './google-workspace-capabilities.js';
+import { registerPipedreamLinkedCapabilities } from './pipedream-linked-capabilities.js';
 import { registerCreativeMediaCapabilities } from './creative-media-capabilities.js';
 import { createWorkersAiZeroCostMediaCapabilities } from '../media/workers-ai-media-capabilities.js';
 import { createDefaultAugmentioPool } from '../augmentio/default-pool.js';
@@ -164,6 +165,7 @@ export function createDefaultCapabilityBus({ audit, env, repository, branch, tok
     resolveAccessToken: typeof googleAccessTokenResolver === 'function' ? googleAccessTokenResolver : null,
     pipedreamRuntime,
   });
+  registerPipedreamLinkedCapabilities(bus, { pipedreamRuntime });
 
   registerPresentationCapabilities(bus);
 
