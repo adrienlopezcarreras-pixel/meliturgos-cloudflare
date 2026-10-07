@@ -125,7 +125,7 @@ test('Link V2 TTS preserves canonical 48 kHz PCM and never streams HTTP errors a
   assert.match(service, /decodePcm16MonoWav\(body, 48_000\)/);
   assert.match(service, /decodePcm16MonoWav\(body, 48_000\)/);
   assert.match(transport, /g_active\.cb && g_active\.status >= 200 && g_active\.status < 300/);
-  assert.match(terminal, /TTS SANS AUDIO/);
+  assert.match(terminal, /TTS BLE -> SECOURS/);
   assert.match(terminal, /TTS HTTP %d/);
   assert.match(terminal, /voice_tts_text/);
 });
@@ -175,7 +175,7 @@ test('STT Link V2 uses asynchronous notifications with batched Android credits',
 });
 
 
-test('Android-to-MINI response and TTS bulk uses acknowledged writes for connection stability', async () => {
+test('Android-to-MINI response uses acknowledged writes while TTS uses credit-controlled no-response bulk', async () => {
   const [service, transport] = await Promise.all([
     readFile(new URL('android-companion/app/src/main/java/fr/veriteinterdite/mel/MelLinkV2ClientService.kt', root), 'utf8'),
     readFile(new URL('firmware/waveshare-terminal/main/mel_link_v2_transport.cpp', root), 'utf8'),
@@ -183,9 +183,11 @@ test('Android-to-MINI response and TTS bulk uses acknowledged writes for connect
   assert.match(service, /private fun sendBulkBlocking\(frame: ByteArray\): Boolean/);
   assert.match(service, /writeGattBlocking\(bulkRx, frame, BluetoothGattCharacteristic\.WRITE_TYPE_DEFAULT\)/);
   assert.match(service, /RESPONSE_DATA[\s\S]*?sendBulkBlocking/);
-  assert.match(service, /AUDIO_DATA[\s\S]*?sendBulkBlocking/);
-  assert.doesNotMatch(transport, /send_credit\(header\.stream_id, MEL_LINK_V2_CREDIT_WINDOW\)/);
-  assert.doesNotMatch(transport, /send_credit\(header\.stream_id, 1\)/);
+  assert.match(service, /AUDIO_DATA[\s\S]*?sendBulkNoResponse/);
+  assert.match(service, /beginOutboundTransfer\(streamId\)/);
+  assert.match(service, /awaitOutboundCredit\(streamId, credits\)/);
+  assert.match(transport, /MEL_LINK_V2_CREDIT/);
+  assert.match(transport, /credit_payload\[2\] = \{1, 0\}/);
 });
 
 
