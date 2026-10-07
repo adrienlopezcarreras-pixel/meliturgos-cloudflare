@@ -2743,11 +2743,11 @@ private fun CompanionPanel(
     onConnectMini: () -> Unit,
     onMiniPairCode: (String, String) -> Unit
 ) {
-    val bridgeState by MelBleBridgeService.bridgeState.collectAsStateWithLifecycle()
-    val bleReady by MelBleBridgeService.miniLinkReady.collectAsStateWithLifecycle()
-    val phoneInternetReady by MelBleBridgeService.phoneInternetAvailable.collectAsStateWithLifecycle()
-    val internetReady by MelBleBridgeService.internetReady.collectAsStateWithLifecycle()
-    val pairingComplete by MelBleBridgeService.miniPairingComplete.collectAsStateWithLifecycle()
+    val bridgeState by MelLinkV2ClientService.bridgeState.collectAsStateWithLifecycle()
+    val bleReady by MelLinkV2ClientService.miniLinkReady.collectAsStateWithLifecycle()
+    val phoneInternetReady by MelLinkV2ClientService.phoneInternetAvailable.collectAsStateWithLifecycle()
+    val internetReady by MelLinkV2ClientService.internetReady.collectAsStateWithLifecycle()
+    val pairingComplete by MelLinkV2ClientService.miniPairingComplete.collectAsStateWithLifecycle()
     var showPairRecovery by rememberSaveable { mutableStateOf(false) }
     var miniPairUser by rememberSaveable { mutableStateOf("adrien") }
     var miniPairSecret by rememberSaveable { mutableStateOf("") }
