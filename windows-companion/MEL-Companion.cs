@@ -14,7 +14,7 @@ using System.Web.Script.Serialization;
 static class MelApp
 {
     public const string DefaultServer = "https://meliturgos.adrien-lopezcarreras.workers.dev";
-    public const string Version = "2.4.0";
+    public const string Version = "2.4.1";
     public static readonly string MelDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "MEL");
     public static readonly string ConfigPath = Path.Combine(MelDir, "computer.json");
     public static readonly string InstalledExe = Path.Combine(MelDir, "MEL-Companion.exe");
@@ -73,55 +73,91 @@ static class MelApp
             g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
             g.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
             g.Clear(Color.Transparent);
-            var scale = Math.Max(0.01f, size / 100f);
-            g.ScaleTransform(scale, scale);
+            float s = Math.Max(0.01f, size / 128f);
+            g.ScaleTransform(s, s);
 
-            using (var glow = new Pen(Color.FromArgb(70, 68, 232, 255), 9f))
-            using (var outer = new Pen(Color.FromArgb(72, 120, 255), 4f))
-            using (var cyan = new Pen(Cyan, 3f))
-            using (var faceFill = new SolidBrush(Color.FromArgb(14, 29, 55)))
-            using (var eyeFill = new SolidBrush(Color.FromArgb(74, 239, 255)))
-            using (var eyeCore = new SolidBrush(Color.White))
-            using (var mouth = new Pen(Color.FromArgb(112, 150, 255), 3f))
+            // Canonical MEL favicon: dark rounded tile, cyan ring, human avatar.
+            using (var tile = new SolidBrush(Color.FromArgb(6,16,29)))
+            using (var ringFill = new SolidBrush(Color.FromArgb(13,48,74)))
+            using (var ring = new Pen(Color.FromArgb(34,211,238),5f))
+            using (var hair = new SolidBrush(Color.FromArgb(23,17,15)))
+            using (var hair2 = new SolidBrush(Color.FromArgb(59,36,27)))
+            using (var skin = new SolidBrush(Color.FromArgb(215,163,130)))
+            using (var brow = new SolidBrush(Color.FromArgb(58,39,33)))
+            using (var eye = new SolidBrush(Color.FromArgb(20,33,42)))
+            using (var lip = new SolidBrush(Color.FromArgb(184,120,103)))
+            using (var jacket = new SolidBrush(Color.FromArgb(11,34,56)))
+            using (var cyan = new SolidBrush(Color.FromArgb(34,211,238)))
+            using (var shirt = new SolidBrush(Color.FromArgb(7,21,35)))
+            using (var bluePen = new Pen(Color.FromArgb(96,165,250),3f))
             {
-                g.DrawEllipse(glow, 11, 11, 78, 78);
-                g.DrawArc(outer, 8, 8, 84, 84, 204, 312);
+                g.FillRectangle(tile, 0, 0, 128, 128);
+                g.FillEllipse(ringFill, 7, 7, 114, 114);
+                g.DrawEllipse(ring, 7, 7, 114, 114);
 
-                var head = new Point[] {
-                    new Point(50,12), new Point(78,23), new Point(88,48),
-                    new Point(80,74), new Point(63,89), new Point(50,94),
-                    new Point(37,89), new Point(20,74), new Point(12,48),
-                    new Point(22,23)
+                // Hair silhouette.
+                var hp = new System.Drawing.Drawing2D.GraphicsPath();
+                hp.AddBezier(34,54,34,28,47,17,64,17);
+                hp.AddBezier(64,17,83,17,95,31,94,57);
+                hp.AddBezier(94,57,93,72,90,84,88,91);
+                hp.AddLine(40,91);
+                hp.AddBezier(40,91,35,76,34,54,34,54);
+                hp.CloseFigure();
+                g.FillPath(hair, hp);
+
+                // Upper hair.
+                var hairTop = new PointF[] {
+                    new PointF(38,51), new PointF(39,39), new PointF(47,27),
+                    new PointF(64,22), new PointF(80,27), new PointF(89,39),
+                    new PointF(89,54), new PointF(83,45), new PointF(68,36),
+                    new PointF(55,42), new PointF(39,43)
                 };
-                g.FillPolygon(faceFill, head);
-                g.DrawPolygon(cyan, head);
+                g.FillPolygon(hair2, hairTop);
 
-                var leftEye = new Point[] {
-                    new Point(24,43), new Point(43,38), new Point(39,51), new Point(25,54)
-                };
-                var rightEye = new Point[] {
-                    new Point(76,43), new Point(57,38), new Point(61,51), new Point(75,54)
-                };
-                g.FillPolygon(eyeFill, leftEye);
-                g.FillPolygon(eyeFill, rightEye);
-                g.FillEllipse(eyeCore, 31, 43, 5, 5);
-                g.FillEllipse(eyeCore, 64, 43, 5, 5);
+                // Face.
+                var fp = new System.Drawing.Drawing2D.GraphicsPath();
+                fp.AddBezier(43,48,43,35,52,28,64,28);
+                fp.AddBezier(64,28,76,28,85,36,85,49);
+                fp.AddLine(84,64);
+                fp.AddBezier(83,76,75,86,64,86);
+                fp.AddBezier(64,86,53,86,45,76,44,64);
+                fp.CloseFigure();
+                g.FillPath(skin, fp);
 
-                g.DrawLine(cyan, 24, 34, 43, 31);
-                g.DrawLine(cyan, 57, 31, 76, 34);
-                g.DrawLine(cyan, 50, 47, 50, 65);
-                g.DrawLine(cyan, 46, 66, 54, 66);
+                // Side hair.
+                var lh = new PointF[]{new PointF(43,46),new PointF(39,48),new PointF(37,62),new PointF(40,79),new PointF(43,91),new PointF(49,79),new PointF(44,64)};
+                var rh = new PointF[]{new PointF(86,46),new PointF(89,49),new PointF(91,63),new PointF(88,80),new PointF(85,91),new PointF(79,79),new PointF(84,64)};
+                g.FillPolygon(hair2, lh);
+                g.FillPolygon(hair2, rh);
 
-                g.DrawLine(mouth, 34, 72, 43, 75);
-                g.DrawLine(mouth, 43, 75, 57, 75);
-                g.DrawLine(mouth, 57, 75, 66, 72);
+                // Brows and eyes.
+                g.FillRectangle(brow, 50,55,9,3);
+                g.FillRectangle(brow, 69,55,9,3);
+                g.FillEllipse(eye, 51,55,4,4);
+                g.FillEllipse(eye, 71,55,4,4);
 
-                g.DrawLine(cyan, 8, 48, 2, 48);
-                g.DrawLine(cyan, 92, 48, 98, 48);
-                g.DrawLine(cyan, 17, 28, 8, 21);
-                g.DrawLine(cyan, 83, 28, 92, 21);
-                g.FillEllipse(eyeFill, 0, 46, 5, 5);
-                g.FillEllipse(eyeFill, 95, 46, 5, 5);
+                // Mouth.
+                var mp = new System.Drawing.Drawing2D.GraphicsPath();
+                mp.AddBezier(56,76,61,79,67,79,72,76);
+                mp.AddBezier(72,76,68,83,61,84,56,78);
+                mp.CloseFigure();
+                g.FillPath(lip, mp);
+
+                // Neck.
+                g.FillRectangle(skin, 55,82,18,17);
+
+                // Jacket/body.
+                var body = new PointF[]{new PointF(25,124),new PointF(29,108),new PointF(40,96),new PointF(55,89),new PointF(64,94),new PointF(73,89),new PointF(88,97),new PointF(99,109),new PointF(103,124)};
+                g.FillPolygon(jacket, body);
+                var cyanShape = new PointF[]{new PointF(45,96),new PointF(58,108),new PointF(64,101),new PointF(70,108),new PointF(84,96),new PointF(91,124),new PointF(37,124)};
+                g.FillPolygon(cyan, cyanShape);
+                var shirtShape = new PointF[]{new PointF(49,97),new PointF(64,112),new PointF(79,97),new PointF(85,124),new PointF(43,124)};
+                g.FillPolygon(shirt, shirtShape);
+
+                g.DrawLine(bluePen,17,102,33,102);
+                g.DrawLine(bluePen,95,102,111,102);
+                g.DrawLine(bluePen,13,109,37,109);
+                g.DrawLine(bluePen,91,109,115,109);
             }
         }
         return bmp;
@@ -673,7 +709,7 @@ static class MelApp
     {
         if (Main == null || Main.IsDisposed) Main = new MainForm();
         if (!Main.Visible) Main.Show();
-        if (Main.WindowState == FormWindowState.Minimized) Main.WindowState = FormWindowState.Normal;
+        if (Main.WindowState == FormWindowState.Minimized) Main.WindowState = FormWindowState.Maximized;
         Main.BringToFront(); Main.Activate();
     }
 
@@ -860,7 +896,7 @@ class SetupForm : Form
         Text = "MEL Techno Companion — installation"; ClientSize = new Size(800, 560);
         StartPosition = FormStartPosition.CenterScreen; FormBorderStyle = FormBorderStyle.FixedDialog;
         MaximizeBox = false; BackColor = MelApp.Bg; ForeColor = MelApp.Text;
-        AutoScaleMode = AutoScaleMode.None; Font = new Font("Segoe UI", 9f, FontStyle.Regular);
+        AutoScaleMode = AutoScaleMode.None; Font = new Font("Segoe UI", 11.5f, FontStyle.Regular);
         DoubleBuffered = true;
         Paint += delegate(object s, PaintEventArgs e){ MelApp.PaintBackdrop(e.Graphics, ClientSize.Width, ClientSize.Height); };
 
@@ -916,7 +952,7 @@ class PermissionsForm : Form
         BackColor = MelApp.Bg;
         ForeColor = MelApp.Text;
         AutoScaleMode = AutoScaleMode.None;
-        Font = new Font("Segoe UI", 9f, FontStyle.Regular);
+        Font = new Font("Segoe UI", 11.5f, FontStyle.Regular);
         DoubleBuffered = true;
         Paint += delegate(object s, PaintEventArgs e){ MelApp.PaintBackdrop(e.Graphics, ClientSize.Width, ClientSize.Height); };
 
@@ -1012,13 +1048,13 @@ class MainForm : Form
         var b = new Button();
         b.Text = text;
         b.AutoSize = false;
-        b.Height = 38;
+        b.Height = 50;
         b.FlatStyle = FlatStyle.Flat;
         b.FlatAppearance.BorderSize = 1;
         b.FlatAppearance.BorderColor = primary ? MelApp.Cyan : MelApp.Line;
         b.BackColor = primary ? MelApp.Cyan : Color.FromArgb(22, 37, 58);
         b.ForeColor = primary ? Color.FromArgb(3, 18, 27) : MelApp.Text;
-        b.Font = new Font("Segoe UI Semibold", 9f, FontStyle.Bold);
+        b.Font = new Font("Segoe UI Semibold", 12f, FontStyle.Bold);
         b.Cursor = Cursors.Hand;
         b.Margin = new Padding(6, 0, 0, 0);
         return b;
@@ -1029,10 +1065,10 @@ class MainForm : Form
         var l = new Label();
         l.Text = text;
         l.AutoSize = false;
-        l.Size = new Size(112, 26);
+        l.Size = new Size(142, 36);
         l.BackColor = color;
         l.ForeColor = Color.White;
-        l.Font = new Font("Segoe UI Semibold", 8.5f, FontStyle.Bold);
+        l.Font = new Font("Segoe UI Semibold", 11f, FontStyle.Bold);
         l.TextAlign = ContentAlignment.MiddleCenter;
         l.Margin = new Padding(6, 0, 0, 0);
         return l;
@@ -1042,7 +1078,7 @@ class MainForm : Form
     {
         var p = new Panel();
         p.BackColor = back;
-        p.Padding = new Padding(16);
+        p.Padding = new Padding(22);
         p.Margin = new Padding(0, 0, 0, 12);
         return p;
     }
@@ -1050,26 +1086,28 @@ class MainForm : Form
     public MainForm()
     {
         Text = "MEL Techno Companion";
-        ClientSize = new Size(980, 720);
-        MinimumSize = new Size(900, 650);
+        ClientSize = new Size(1320, 860);
+        MinimumSize = new Size(1100, 760);
         StartPosition = FormStartPosition.CenterScreen;
+        WindowState = FormWindowState.Maximized;
+        Icon = MelApp.MakeIcon();
         BackColor = Color.FromArgb(8, 14, 26);
         ForeColor = MelApp.Text;
-        Font = new Font("Segoe UI", 9f, FontStyle.Regular);
+        Font = new Font("Segoe UI", 11.5f, FontStyle.Regular);
         AutoScaleMode = AutoScaleMode.Dpi;
         DoubleBuffered = true;
 
         var root = new TableLayoutPanel();
         root.Dock = DockStyle.Fill;
         root.BackColor = BackColor;
-        root.Padding = new Padding(24);
+        root.Padding = new Padding(32);
         root.ColumnCount = 1;
         root.RowCount = 5;
-        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 92));
-        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 122));
-        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 58));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 126));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 154));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 96));
         root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 74));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 96));
         Controls.Add(root);
 
         var header = new TableLayoutPanel();
@@ -1077,10 +1115,10 @@ class MainForm : Form
         header.ColumnCount = 3;
         header.RowCount = 1;
         header.BackColor = BackColor;
-        header.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 72));
+        header.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 102));
         header.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        header.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 170));
-        var face = MelApp.MelFace(0, 0, 60);
+        header.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 240));
+        var face = MelApp.MelFace(0, 0, 88);
         face.Dock = DockStyle.Fill;
         face.Margin = new Padding(0, 8, 12, 8);
         header.Controls.Add(face, 0, 0);
@@ -1089,25 +1127,25 @@ class MainForm : Form
         headText.Dock = DockStyle.Fill;
         headText.RowCount = 3;
         headText.ColumnCount = 1;
-        headText.RowStyles.Add(new RowStyle(SizeType.Absolute, 32));
-        headText.RowStyles.Add(new RowStyle(SizeType.Absolute, 26));
+        headText.RowStyles.Add(new RowStyle(SizeType.Absolute, 46));
+        headText.RowStyles.Add(new RowStyle(SizeType.Absolute, 34));
         headText.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        headText.Controls.Add(UiLabel("MEL TECHNO COMPANION", 16f, MelApp.Cyan, FontStyle.Bold), 0, 0);
-        headText.Controls.Add(UiLabel("Windows · contrôle local sécurisé", 10f, MelApp.Text, FontStyle.Bold), 0, 1);
-        headText.Controls.Add(UiLabel("Même identité MEL que l’APK et la MINI", 9f, MelApp.Muted, FontStyle.Regular), 0, 2);
+        headText.Controls.Add(UiLabel("MEL TECHNO COMPANION", 22f, MelApp.Cyan, FontStyle.Bold), 0, 0);
+        headText.Controls.Add(UiLabel("Windows · contrôle local sécurisé", 13f, MelApp.Text, FontStyle.Bold), 0, 1);
+        headText.Controls.Add(UiLabel("Même identité MEL que l’APK et la MINI", 11.5f, MelApp.Muted, FontStyle.Regular), 0, 2);
         header.Controls.Add(headText, 1, 0);
 
         var headActions = new TableLayoutPanel();
         headActions.Dock = DockStyle.Fill;
         headActions.RowCount = 2;
         headActions.ColumnCount = 1;
-        headActions.RowStyles.Add(new RowStyle(SizeType.Absolute, 42));
+        headActions.RowStyles.Add(new RowStyle(SizeType.Absolute, 54));
         headActions.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         var open = UiButton("OUVRIR MEL", true);
         open.Dock = DockStyle.Fill;
         open.Click += delegate { MelApp.OpenMel(); };
         headActions.Controls.Add(open, 0, 0);
-        state = UiLabel("● Vérification…", 9f, MelApp.Muted, FontStyle.Bold);
+        state = UiLabel("● Vérification…", 11.5f, MelApp.Muted, FontStyle.Bold);
         state.TextAlign = ContentAlignment.MiddleCenter;
         headActions.Controls.Add(state, 0, 1);
         header.Controls.Add(headActions, 2, 0);
@@ -1121,22 +1159,22 @@ class MainForm : Form
         pcGrid.RowCount = 3;
         pcGrid.BackColor = pc.BackColor;
         pcGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        pcGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 150));
-        pcGrid.RowStyles.Add(new RowStyle(SizeType.Absolute, 28));
-        pcGrid.RowStyles.Add(new RowStyle(SizeType.Absolute, 34));
+        pcGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 190));
+        pcGrid.RowStyles.Add(new RowStyle(SizeType.Absolute, 36));
+        pcGrid.RowStyles.Add(new RowStyle(SizeType.Absolute, 46));
         pcGrid.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         pc.Controls.Add(pcGrid);
 
-        pcGrid.Controls.Add(UiLabel("CE PC", 9f, MelApp.Cyan, FontStyle.Bold), 0, 0);
+        pcGrid.Controls.Add(UiLabel("CE PC", 11.5f, MelApp.Cyan, FontStyle.Bold), 0, 0);
         var local = UiBadge("MOTEUR LOCAL", Color.FromArgb(90, 65, 135));
         local.Dock = DockStyle.Fill;
         pcGrid.Controls.Add(local, 1, 0);
 
-        pcLine = UiLabel(Environment.MachineName + "  ·  " + MelApp.ComputerId, 12f, MelApp.Text, FontStyle.Bold);
+        pcLine = UiLabel(Environment.MachineName + "  ·  " + MelApp.ComputerId, 15f, MelApp.Text, FontStyle.Bold);
         pcGrid.SetColumnSpan(pcLine, 2);
         pcGrid.Controls.Add(pcLine, 0, 1);
 
-        pcSubline = UiLabel("Contrôle autorisé · captures · commandes MEL en arrière-plan · liaison chiffrée", 9f, MelApp.Muted, FontStyle.Regular);
+        pcSubline = UiLabel("Contrôle autorisé · captures · commandes MEL en arrière-plan · liaison chiffrée", 11f, MelApp.Muted, FontStyle.Regular);
         pcGrid.SetColumnSpan(pcSubline, 2);
         pcGrid.Controls.Add(pcSubline, 0, 2);
         root.Controls.Add(pc, 0, 1);
@@ -1147,9 +1185,9 @@ class MainForm : Form
         sectionBar.RowCount = 1;
         sectionBar.BackColor = BackColor;
         sectionBar.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        sectionBar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 150));
-        sectionBar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 138));
-        devicesTitle = UiLabel("APPAREILS MEL", 11f, MelApp.Cyan, FontStyle.Bold);
+        sectionBar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 200));
+        sectionBar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 180));
+        devicesTitle = UiLabel("APPAREILS MEL", 14f, MelApp.Cyan, FontStyle.Bold);
         sectionBar.Controls.Add(devicesTitle, 0, 0);
         var permissions = UiButton("AUTORISATIONS", false);
         permissions.Dock = DockStyle.Fill;
@@ -1176,10 +1214,10 @@ class MainForm : Form
         footer.RowCount = 2;
         footer.BackColor = BackColor;
         footer.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        footer.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 112));
-        footer.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 126));
-        footer.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 136));
-        footer.RowStyles.Add(new RowStyle(SizeType.Absolute, 40));
+        footer.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 150));
+        footer.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 168));
+        footer.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 180));
+        footer.RowStyles.Add(new RowStyle(SizeType.Absolute, 52));
         footer.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
 
         startup = new CheckBox();
@@ -1212,7 +1250,7 @@ class MainForm : Form
         uninstall.Click += delegate { MelApp.Uninstall(); };
         footer.Controls.Add(uninstall, 3, 0);
 
-        var footNote = UiLabel("Le Companion reste actif dans la zone de notification quand cette fenêtre est fermée. Raccourci : Ctrl+Alt+M.", 8.5f, MelApp.Muted, FontStyle.Regular);
+        var footNote = UiLabel("Le Companion reste actif dans la zone de notification quand cette fenêtre est fermée. Raccourci : Ctrl+Alt+M.", 10.5f, MelApp.Muted, FontStyle.Regular);
         footer.SetColumnSpan(footNote, 4);
         footer.Controls.Add(footNote, 0, 1);
         root.Controls.Add(footer, 0, 4);
@@ -1271,7 +1309,7 @@ class MainForm : Form
 
         var row = UiPanel(Color.FromArgb(18, 31, 49));
         row.Width = Math.Max(760, deviceList.ClientSize.Width - 38);
-        row.Height = 104;
+        row.Height = 146;
         row.Margin = new Padding(0, 0, 0, 10);
 
         var grid = new TableLayoutPanel();
@@ -1279,22 +1317,22 @@ class MainForm : Form
         grid.ColumnCount = 4;
         grid.RowCount = 3;
         grid.BackColor = row.BackColor;
-        grid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 58));
+        grid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 82));
         grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        grid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 116));
-        grid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 124));
-        grid.RowStyles.Add(new RowStyle(SizeType.Absolute, 32));
-        grid.RowStyles.Add(new RowStyle(SizeType.Absolute, 28));
+        grid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 150));
+        grid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 176));
+        grid.RowStyles.Add(new RowStyle(SizeType.Absolute, 42));
+        grid.RowStyles.Add(new RowStyle(SizeType.Absolute, 38));
         grid.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         row.Controls.Add(grid);
 
-        var icon = MelApp.MelFace(0, 0, 44);
+        var icon = MelApp.MelFace(0, 0, 64);
         icon.Dock = DockStyle.Fill;
         icon.Margin = new Padding(0, 0, 10, 0);
         grid.Controls.Add(icon, 0, 0);
         grid.SetRowSpan(icon, 3);
 
-        var title = UiLabel((kind == "android" ? "ANDROID · " : "MINI · ") + (name.Length > 0 ? name : "Appareil MEL"), 10f, MelApp.Text, FontStyle.Bold);
+        var title = UiLabel((kind == "android" ? "ANDROID · " : "MINI · ") + (name.Length > 0 ? name : "Appareil MEL"), 13.5f, MelApp.Text, FontStyle.Bold);
         grid.Controls.Add(title, 1, 0);
 
         var onlineBadge = UiBadge(online ? "ONLINE" : "OFFLINE", online ? Color.FromArgb(30, 130, 95) : Color.FromArgb(150, 55, 70));
@@ -1314,7 +1352,7 @@ class MainForm : Form
         grid.Controls.Add(camButton, 3, 0);
         grid.SetRowSpan(camButton, 3);
 
-        var detail = UiLabel((phase.Length > 0 ? phase : "MEL DEVICE") + (firmware.Length > 0 ? "  ·  " + firmware : ""), 8.5f, MelApp.Muted, FontStyle.Regular);
+        var detail = UiLabel((phase.Length > 0 ? phase : "MEL DEVICE") + (firmware.Length > 0 ? "  ·  " + firmware : ""), 10.5f, MelApp.Muted, FontStyle.Regular);
         grid.Controls.Add(detail, 1, 1);
         grid.SetColumnSpan(detail, 2);
 
@@ -1347,8 +1385,8 @@ class MainForm : Form
         if (devices.Count == 0) {
             var empty = UiPanel(Color.FromArgb(18, 31, 49));
             empty.Width = Math.Max(760, deviceList.ClientSize.Width - 38);
-            empty.Height = 92;
-            var label = UiLabel("Aucun appareil MEL visible. La MINI ou l’APK apparaîtront ici au prochain heartbeat.", 9.5f, MelApp.Muted, FontStyle.Regular);
+            empty.Height = 120;
+            var label = UiLabel("Aucun appareil MEL visible. La MINI ou l’APK apparaîtront ici au prochain heartbeat.", 12f, MelApp.Muted, FontStyle.Regular);
             label.Dock = DockStyle.Fill;
             empty.Controls.Add(label);
             deviceList.Controls.Add(empty);
