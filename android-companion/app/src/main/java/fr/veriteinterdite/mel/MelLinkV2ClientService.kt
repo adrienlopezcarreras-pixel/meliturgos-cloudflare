@@ -752,40 +752,54 @@ class MelLinkV2ClientService : Service() {
 
     private fun sendAudioResponse(streamId: Int, pcm16: ShortArray, outputRate: Int): Boolean {
         if (pcm16.isEmpty()) return false
-        val meta = JSONObject()
-            .put("codec", "ima-adpcm")
-            .put("rate", outputRate)
-            .put("ch", 1)
-            .put("samples", pcm16.size)
-            .put("block", MelImaAdpcm.BLOCK_SAMPLES)
-            .put("output_rate", outputRate)
-            .toString()
-            .toByteArray(Charsets.UTF_8)
 
-        if (!sendControlBlocking(
-                MelLinkV2Protocol.encode(
-                    MelLinkV2Protocol.AUDIO_BEGIN, 0, streamId, 0, meta
-                )
-            )) return false
+        // Keep TTS frames comfortably below the negotiated MTU and use the
+        // same credit-based flow control already used by the MINI uplink.
+        // This prevents long spoken replies from overrunning Android's GATT
+        // write queue while text/chat traffic still appears healthy.
+        val audioBlockSamples = 128
+        val credits = beginOutboundTransfer(streamId)
+        requestBlePriority(BluetoothGatt.CONNECTION_PRIORITY_HIGH)
+        try {
+            val meta = JSONObject()
+                .put("codec", "ima-adpcm")
+                .put("rate", outputRate)
+                .put("ch", 1)
+                .put("samples", pcm16.size)
+                .put("block", audioBlockSamples)
+                .put("output_rate", outputRate)
+                .toString()
+                .toByteArray(Charsets.UTF_8)
 
-        var seq = 0
-        var offset = 0
-        while (offset < pcm16.size) {
-            val end = minOf(offset + MelImaAdpcm.BLOCK_SAMPLES, pcm16.size)
-            val encoded = MelImaAdpcm.encodeBlock(pcm16.copyOfRange(offset, end))
-            if (!sendBulkBlocking(
+            if (!sendControlBlocking(
                     MelLinkV2Protocol.encode(
-                        MelLinkV2Protocol.AUDIO_DATA, 0, streamId, seq++, encoded
+                        MelLinkV2Protocol.AUDIO_BEGIN, 0, streamId, 0, meta
                     )
                 )) return false
-            offset = end
-        }
 
-        return sendControlBlocking(
-            MelLinkV2Protocol.encode(
-                MelLinkV2Protocol.AUDIO_END, 0, streamId, seq
+            var seq = 0
+            var offset = 0
+            while (offset < pcm16.size) {
+                if (!awaitOutboundCredit(streamId, credits)) return false
+                val end = minOf(offset + audioBlockSamples, pcm16.size)
+                val encoded = MelImaAdpcm.encodeBlock(pcm16.copyOfRange(offset, end))
+                if (!sendBulkNoResponse(
+                        MelLinkV2Protocol.encode(
+                            MelLinkV2Protocol.AUDIO_DATA, 0, streamId, seq++, encoded
+                        )
+                    )) return false
+                offset = end
+            }
+
+            return sendControlBlocking(
+                MelLinkV2Protocol.encode(
+                    MelLinkV2Protocol.AUDIO_END, 0, streamId, seq
+                )
             )
-        )
+        } finally {
+            endOutboundTransfer(streamId, credits)
+            requestBlePriority(BluetoothGatt.CONNECTION_PRIORITY_BALANCED)
+        }
     }
 
     private fun executeRequest(request: IncomingRequest) {
