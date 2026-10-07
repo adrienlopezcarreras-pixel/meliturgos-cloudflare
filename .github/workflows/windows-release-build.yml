@@ -120,6 +120,26 @@ jobs:
         run: |
           ./scripts/build-windows-release.ps1 -Version "$env:RELEASE_VERSION" -SourceSha "$env:EXPECTED_SHA" -Sign
 
+      - name: Validate exact MEL image assets
+        shell: pwsh
+        run: |
+          $avatarB64 = (Get-Content -Raw "windows-companion/mel-avatar-128.jpg.b64").Trim()
+          $iconB64 = (Get-Content -Raw "windows-companion/mel-avatar-32.ico.b64").Trim()
+          $avatar = [Convert]::FromBase64String($avatarB64)
+          $icon = [Convert]::FromBase64String($iconB64)
+          if ($avatar.Length -lt 4000) { throw "WINDOWS_AVATAR_TOO_SMALL" }
+          if ($icon.Length -lt 1000) { throw "WINDOWS_ICON_TOO_SMALL" }
+          if ($avatar[0] -ne 0xFF -or $avatar[1] -ne 0xD8) { throw "WINDOWS_AVATAR_NOT_JPEG" }
+          if ($icon[0] -ne 0x00 -or $icon[1] -ne 0x00 -or $icon[2] -ne 0x01 -or $icon[3] -ne 0x00) { throw "WINDOWS_ICON_INVALID" }
+
+      - name: Run native Companion self-test
+        shell: pwsh
+        run: |
+          $exe = ".windows-release/MEL-Windows-$env:RELEASE_VERSION/MEL-Companion.exe"
+          if (!(Test-Path $exe)) { throw "WINDOWS_COMPANION_EXE_MISSING" }
+          & $exe --self-test
+          if ($LASTEXITCODE -ne 0) { throw "WINDOWS_COMPANION_SELF_TEST_FAILED:$LASTEXITCODE" }
+
       - name: Verify release package
         shell: pwsh
         run: |
