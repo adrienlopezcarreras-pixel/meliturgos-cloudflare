@@ -532,36 +532,58 @@ async function deviceTts(request, env, auth) {
   const model = String(env.MEL_TTS_MODEL || "@cf/deepgram/aura-1");
 
   try {
+    // Ask Aura for a real WAV container. Do not assume returnRawResponse bytes
+    // are naked PCM: Cloudflare's model contract exposes encoded audio streams.
     const result = await env.AI.run(model, {
       text,
       speaker,
       encoding: "linear16",
-      container: "none",
+      container: "wav",
       sample_rate: 48000
     }, { returnRawResponse: true });
 
     let source;
     let sourceStatus = 200;
+    let sourceType = "";
     if (result instanceof Response) {
       sourceStatus = result.status;
+      sourceType = String(result.headers.get("content-type") || "").toLowerCase();
       if (!result.ok) {
         return new Response(result.body, {
           status: result.status,
-          headers: { "content-type": result.headers.get("content-type") || "application/json", "cache-control": "no-store" }
+          headers: {
+            "content-type": result.headers.get("content-type") || "application/json",
+            "cache-control": "no-store"
+          }
         });
       }
       source = new Uint8Array(await result.arrayBuffer());
     } else if (result?.body) {
+      sourceType = String(result?.headers?.get?.("content-type") || "").toLowerCase();
       source = new Uint8Array(await new Response(result.body).arrayBuffer());
     } else {
       return json({ ok: false, code: "TTS_EMPTY_RESPONSE" }, 503);
     }
 
-    if (!source.length || (source.length & 1) !== 0) {
-      return json({ ok: false, code: "TTS_PCM_INVALID", bytes: source.length }, 503);
+    const isWav =
+      source.length >= 44 &&
+      source[0] === 0x52 && source[1] === 0x49 && source[2] === 0x46 && source[3] === 0x46 &&
+      source[8] === 0x57 && source[9] === 0x41 && source[10] === 0x56 && source[11] === 0x45;
+
+    if (!isWav) {
+      // Fail closed rather than treating MP3/MPEG/JSON bytes as PCM, which
+      // produces the long tone heard on the physical MINI speaker.
+      const magic = [...source.slice(0, 12)].map((b) => b.toString(16).padStart(2, "0")).join("");
+      return json({
+        ok: false,
+        code: "TTS_WAV_REQUIRED",
+        content_type: sourceType,
+        bytes: source.length,
+        magic
+      }, 502);
     }
-    const wav = wrapPcm16MonoWav(source, 48000);
-    return new Response(wav, {
+
+    return new Response(source, {
       status: sourceStatus,
       headers: {
         "content-type": "audio/wav",
@@ -572,7 +594,11 @@ async function deviceTts(request, env, auth) {
       }
     });
   } catch (error) {
-    return json({ ok: false, code: "TTS_FAILED", detail: String(error?.message || error).slice(0, 180) }, 503);
+    return json({
+      ok: false,
+      code: "TTS_FAILED",
+      detail: String(error?.message || error).slice(0, 180)
+    }, 503);
   }
 }
 
