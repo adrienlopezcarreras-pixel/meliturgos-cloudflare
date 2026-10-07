@@ -1,5 +1,6 @@
 import { workersAiRuntimeZeroCostProvenance } from '../augmentio/workers-ai-zero-cost-proof.js';
 import { createEnvMediaVaultCodec } from './media-vault-crypto.js';
+import { mediaTransformZeroCostProvenance } from './media-transform-zero-cost-proof.js';
 
 export const WORKERS_AI_IMAGE_MODEL = '@cf/black-forest-labs/flux-1-schnell';
 export const WORKERS_AI_VISION_MODEL = '@cf/google/gemma-4-26b-a4b-it';
@@ -14,6 +15,8 @@ const TTS_ADAPTER_ID = 'workers-ai.media.audio.aura-1';
 const TRANSCRIPTION_ADAPTER_ID = 'workers-ai.media.audio.whisper-large-v3-turbo';
 const MAX_IMAGE_BYTES = 20_000_000;
 const MAX_AUDIO_BYTES = 20_000_000;
+const MAX_VIDEO_INPUT_BYTES = 50_000_000;
+const MAX_VIDEO_OUTPUT_BYTES = 50_000_000;
 export const MAX_INLINE_TRANSCRIPTION_BYTES = 8_000_000;
 const DEFAULT_MEDIA_TTL_SECONDS = 7 * 24 * 60 * 60;
 const AURA_SPEAKERS = new Set([
@@ -88,6 +91,49 @@ function modelText(result) {
 
 function aiReady(env, adapterId, modelId) {
   return Boolean(env?.AI?.run && freshZeroCostProof(env, adapterId, modelId));
+}
+
+function videoInputBytes(input = {}) {
+  if (input?.bytes instanceof Uint8Array) {
+    if (!input.bytes.byteLength || input.bytes.byteLength > MAX_VIDEO_INPUT_BYTES) throw mediaError('VIDEO_BYTES_INVALID', 413);
+    return input.bytes;
+  }
+  if (input?.bytes instanceof ArrayBuffer) {
+    const bytes = new Uint8Array(input.bytes);
+    if (!bytes.byteLength || bytes.byteLength > MAX_VIDEO_INPUT_BYTES) throw mediaError('VIDEO_BYTES_INVALID', 413);
+    return bytes;
+  }
+  const encoded = clean(input?.video_base64 ?? input?.video ?? input?.data, 70_000_000);
+  if (!encoded) return null;
+  const normalized = encoded.includes(',') ? encoded.slice(encoded.indexOf(',') + 1) : encoded;
+  const bytes = base64Bytes(normalized);
+  if (!bytes.byteLength || bytes.byteLength > MAX_VIDEO_INPUT_BYTES) throw mediaError('VIDEO_BYTES_INVALID', 413);
+  return bytes;
+}
+
+function mediaTransformProof(env) {
+  return mediaTransformZeroCostProvenance(env);
+}
+
+function mediaTransformReady(env) {
+  return Boolean(env?.MEDIA && typeof env.MEDIA.input === 'function' && mediaTransformProof(env));
+}
+
+function boundedSeconds(value, fallback = 20, max = 60) {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return fallback;
+  return Math.min(max, Math.max(1, Math.round(n)));
+}
+
+async function mediaTransformBytes(result, failureCode) {
+  const response = await result.response();
+  if (!response?.ok) throw mediaError(failureCode, response?.status || 502);
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  if (!bytes.byteLength) throw mediaError(failureCode, 502);
+  return {
+    bytes,
+    mime: clean(response.headers.get('content-type') || 'application/octet-stream', 160),
+  };
 }
 
 function normalizeTranscriptionResult(value) {
@@ -411,6 +457,143 @@ export async function transcribeAudioBytes(env, bytesInput, options = {}) {
   });
 }
 
+async function videoProcess(env, input = {}) {
+  const transformProvenance = mediaTransformProof(env);
+  if (!transformProvenance) throw mediaError('MEDIA_TRANSFORM_ZERO_COST_PROOF_REQUIRED');
+  if (!mediaTransformReady(env)) throw mediaError('MEDIA_TRANSFORM_BINDING_UNAVAILABLE');
+  if (!mediaStorageReady(env)) throw mediaError('MEDIA_VAULT_UNAVAILABLE');
+
+  const bytes = videoInputBytes(input);
+  if (!bytes?.byteLength) throw mediaError('VIDEO_INPUT_REQUIRED', 400);
+  const params = input?.params && typeof input.params === 'object' ? input.params : {};
+  const width = Number(input?.width ?? params.width);
+  const height = Number(input?.height ?? params.height);
+  const fitRaw = clean(input?.fit ?? params.fit, 20).toLowerCase();
+  const fit = ['contain','cover','scale-down'].includes(fitRaw) ? fitRaw : 'scale-down';
+  const duration = boundedSeconds(input?.duration_seconds ?? params.duration_seconds, 20, 60);
+  const time = Math.max(0, Number(input?.start_seconds ?? params.start_seconds) || 0);
+  const transform = {};
+  if (Number.isInteger(width) && width >= 10 && width <= 2000) transform.width = width;
+  if (Number.isInteger(height) && height >= 10 && height <= 2000) transform.height = height;
+  transform.fit = fit;
+
+  const stream = new Response(bytes).body;
+  const output = env.MEDIA.input(stream)
+    .transform(transform)
+    .output({
+      mode: 'video',
+      time: String(time) + 's',
+      duration: String(duration) + 's',
+      audio: input?.audio !== false,
+    });
+  const normalized = await mediaTransformBytes(output, 'MEDIA_VIDEO_PROCESS_FAILED');
+  if (normalized.bytes.byteLength > MAX_VIDEO_OUTPUT_BYTES) throw mediaError('MEDIA_VIDEO_OUTPUT_TOO_LARGE', 502);
+  const artifact = await storePrivateArtifact(env, normalized.bytes, {
+    capability: 'media.video.process',
+    model: 'cloudflare-media-transformations',
+    mime: normalized.mime.includes('video/') ? normalized.mime : 'video/mp4',
+    extension: 'mp4',
+  });
+  return Object.freeze({
+    ok: true,
+    schema: 'mel.cloudflare-media-transform/v1',
+    capability: 'media.video.process',
+    provider: 'cloudflare-media-transformations',
+    zero_added_cost: true,
+    input_sha256: await sha256Hex(bytes),
+    transform: Object.freeze({ ...transform, start_seconds: time, duration_seconds: duration, audio: input?.audio !== false }),
+    artifact,
+    provenance: transformProvenance,
+  });
+}
+
+async function videoAnalyze(env, input = {}) {
+  const transformProvenance = mediaTransformProof(env);
+  if (!transformProvenance) throw mediaError('MEDIA_TRANSFORM_ZERO_COST_PROOF_REQUIRED');
+  if (!mediaTransformReady(env)) throw mediaError('MEDIA_TRANSFORM_BINDING_UNAVAILABLE');
+  if (!aiReady(env, IMAGE_ANALYZE_ADAPTER_ID, WORKERS_AI_VISION_MODEL)) throw mediaError('WORKERS_AI_VISION_UNAVAILABLE');
+  if (!aiReady(env, TRANSCRIPTION_ADAPTER_ID, WORKERS_AI_TRANSCRIPTION_MODEL)) throw mediaError('WORKERS_AI_TRANSCRIPTION_UNAVAILABLE');
+
+  const bytes = videoInputBytes(input);
+  if (!bytes?.byteLength) throw mediaError('VIDEO_INPUT_REQUIRED', 400);
+  const duration = boundedSeconds(input?.duration_seconds, 30, 60);
+  const imageCount = Math.min(12, Math.max(3, Math.round(Number(input?.image_count) || 6)));
+  const start = Math.max(0, Number(input?.start_seconds) || 0);
+
+  const visualTransform = env.MEDIA.input(new Response(bytes).body)
+    .output({
+      mode: 'spritesheet',
+      time: String(start) + 's',
+      duration: String(duration) + 's',
+      imageCount,
+      format: 'jpg',
+    });
+  const visual = await mediaTransformBytes(visualTransform, 'MEDIA_VIDEO_FRAME_EXTRACTION_FAILED');
+  const visualAnalysis = await imageAnalyze(env, {
+    bytes: visual.bytes,
+    mime: visual.mime.includes('image/') ? visual.mime : 'image/jpeg',
+    prompt: clean(input?.prompt, 6000) || 'Analyse ce storyboard extrait de la vidéo. Décris les scènes, sujets, actions, changements, texte visible et incertitudes. N’invente pas ce qui n’est pas visible.',
+  });
+
+  let transcript = null;
+  let transcriptStatus = 'NO_AUDIO_OR_NO_SPEECH';
+  try {
+    const audioTransform = env.MEDIA.input(new Response(bytes).body)
+      .output({
+        mode: 'audio',
+        time: String(start) + 's',
+        duration: String(duration) + 's',
+        format: 'm4a',
+      });
+    const audio = await mediaTransformBytes(audioTransform, 'MEDIA_VIDEO_AUDIO_EXTRACTION_FAILED');
+    if (audio.bytes.byteLength <= MAX_INLINE_TRANSCRIPTION_BYTES) {
+      const transcribed = await transcribeAudioBytes(env, audio.bytes, {
+        language: input?.language,
+        vad_filter: true,
+      });
+      transcript = transcribed.text;
+      transcriptStatus = 'TRANSCRIBED';
+    } else {
+      transcriptStatus = 'AUDIO_TOO_LARGE_FOR_INLINE_TRANSCRIPTION';
+    }
+  } catch (error) {
+    transcriptStatus = clean(error?.code || error?.message, 180) || 'AUDIO_ANALYSIS_UNAVAILABLE';
+  }
+
+  const synthesisPrompt = [
+    'Tu synthétises une analyse vidéo à partir de preuves déjà extraites.',
+    'Analyse visuelle:',
+    visualAnalysis.analysis,
+    'Transcription audio:',
+    transcript || '(aucune transcription disponible)',
+    'Réponds de façon factuelle en distinguant ce qui est visible de ce qui est entendu.',
+  ].join('\n');
+  const synthesis = await env.AI.run(WORKERS_AI_VISION_MODEL, {
+    messages: [{ role: 'user', content: synthesisPrompt }],
+    chat_template_kwargs: { enable_thinking: false },
+  }, { rejectIfBusy: true });
+  const summary = modelText(synthesis) || visualAnalysis.analysis;
+
+  return Object.freeze({
+    ok: true,
+    schema: 'mel.cloudflare-video-analysis/v1',
+    capability: 'media.video.analyze',
+    provider: 'cloudflare-media-transformations+workers-ai',
+    zero_added_cost: true,
+    sampled_duration_seconds: duration,
+    sampled_frame_count: imageCount,
+    input_sha256: await sha256Hex(bytes),
+    visual_analysis: visualAnalysis.analysis,
+    transcript,
+    transcript_status: transcriptStatus,
+    summary,
+    provenance: Object.freeze({
+      media_transform: transformProvenance,
+      vision: visualAnalysis.provenance,
+    }),
+  });
+}
+
 async function audioTranscribe(env, input = {}) {
   let bytes = null;
   if (input?.bytes instanceof Uint8Array) bytes = input.bytes;
@@ -448,6 +631,14 @@ export function createWorkersAiZeroCostMediaCapabilities(env = {}) {
   }
   if (aiReady(env, TRANSCRIPTION_ADAPTER_ID, WORKERS_AI_TRANSCRIPTION_MODEL)) {
     adapters['media.audio.transcribe'] = input => audioTranscribe(env, input);
+  }
+  if (mediaTransformReady(env) && mediaStorageReady(env)) {
+    adapters['media.video.process'] = input => videoProcess(env, input);
+  }
+  if (mediaTransformReady(env)
+    && aiReady(env, IMAGE_ANALYZE_ADAPTER_ID, WORKERS_AI_VISION_MODEL)
+    && aiReady(env, TRANSCRIPTION_ADAPTER_ID, WORKERS_AI_TRANSCRIPTION_MODEL)) {
+    adapters['media.video.analyze'] = input => videoAnalyze(env, input);
   }
   return Object.freeze(adapters);
 }
