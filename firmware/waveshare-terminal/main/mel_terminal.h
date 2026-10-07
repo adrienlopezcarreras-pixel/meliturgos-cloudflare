@@ -4,7 +4,7 @@
 
 #define MEL_LCD_H_RES 320
 #define MEL_LCD_V_RES 480
-#define MEL_FW_VERSION "0.6.6-audio-port-audit-fix"
+#define MEL_FW_VERSION "0.6.7-tts-wav-fix"
 #define MEL_PROTOCOL_VERSION "1.0"
 // MINI mobile status is independent from Wi-Fi association.
 
