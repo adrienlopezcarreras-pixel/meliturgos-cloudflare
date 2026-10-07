@@ -584,6 +584,37 @@ test('Pipedream account status accepts alternate accounts response shape and pro
   assert.deepEqual(result.connected_apps, ['microsoft_outlook']);
 });
 
+test('Pipedream account status retries Development when Production account inventory returns 401', async () => {
+  const calls = [];
+  const result = await pipedreamAccountStatus({
+    project_id: 'proj_demo123',
+    client_id: 'client-id',
+    client_secret: 'client-secret',
+    environment: 'production',
+  }, 'adrien', {
+    fetcher: async (url, init) => {
+      calls.push({ url: String(url), init });
+      if (String(url).endsWith('/v1/oauth/token')) return Response.json({ access_token: 'server-token' });
+      if (init.headers['x-pd-environment'] === 'production') {
+        return Response.json({ error: 'Unauthorized' }, { status: 401 });
+      }
+      return Response.json({
+        data: [
+          { id: 'apn_outlook', healthy: true, app: { name_slug: 'microsoft_outlook' } },
+          { id: 'apn_onedrive', healthy: true, app: { name_slug: 'microsoft_onedrive' } },
+          { id: 'apn_sharepoint', healthy: true, app: { name_slug: 'sharepoint' } },
+          { id: 'apn_imap', healthy: true, app: { name_slug: 'imap' } },
+        ],
+      });
+    },
+  });
+  assert.equal(result.environment, 'development');
+  assert.equal(result.environment_fallback_used, true);
+  assert.deepEqual(result.connected_apps.sort(), ['imap', 'microsoft_onedrive', 'microsoft_outlook', 'sharepoint']);
+  assert.ok(calls.some(call => call.init?.headers?.['x-pd-environment'] === 'production'));
+  assert.ok(calls.some(call => call.init?.headers?.['x-pd-environment'] === 'development'));
+});
+
 test('Pipedream Google Tasks proof executes the read-only List Task Lists action without returning private content', async () => {
   const calls = [];
   const result = await testPipedreamGoogleTasksRead({
