@@ -1,3 +1,21 @@
+async function sampleRead(runtime, context, id, input = {}) {
+  const result = await runtime.bus.execute(id, input, {
+    owner: context?.owner || 'capability-audit',
+    permissions: context?.permissions || [],
+    requestId: context?.requestId || crypto.randomUUID(),
+  });
+  return result;
+}
+
+function firstArray(value, ...paths) {
+  for (const path of paths) {
+    let cursor = value;
+    for (const key of path.split('.')) cursor = cursor?.[key];
+    if (Array.isArray(cursor)) return cursor;
+  }
+  return [];
+}
+
 const SAFE_SAMPLES = Object.freeze({
   echo: { value: 'capability-audit' },
   'roadmap.read': {},
@@ -56,6 +74,94 @@ const SAFE_SAMPLES = Object.freeze({
   'work.plan': {
     goal: 'Audit borné sans effet de bord',
     steps: [{ id: 'step-1', title: 'Lire la roadmap', capability: 'roadmap.read', input: {}, dependsOn: [], idempotent: true }],
+  },
+
+  // Dynamic read-only fixtures: derive a real identifier from a bounded list
+  // instead of inventing IDs that would create false runtime failures.
+  'gmail.messages.read': async ({ runtime, context }) => {
+    const result = await sampleRead(runtime, context, 'gmail.messages.search', { query: 'newer_than:30d', limit: 1 });
+    const id = firstArray(result, 'messages')[0]?.id;
+    return id ? { message_id: String(id) } : undefined;
+  },
+  'tasks.tasks.read': async ({ runtime, context }) => {
+    const result = await sampleRead(runtime, context, 'tasks.tasklists.read', { limit: 1 });
+    const id = firstArray(result, 'tasklists')[0]?.id;
+    return id ? { tasklist_id: String(id), limit: 1 } : undefined;
+  },
+  'mail.messages.read': async ({ runtime, context }) => {
+    const result = await sampleRead(runtime, context, 'mail.messages.search', { limit: 1 });
+    const id = firstArray(result, 'messages')[0]?.id;
+    return id ? { message_id: String(id) } : undefined;
+  },
+  'files.read': async ({ runtime, context }) => {
+    const result = await sampleRead(runtime, context, 'files.list', { limit: 1 });
+    const id = firstArray(result, 'files')[0]?.id;
+    return id ? { file_id: String(id), include_content: false } : undefined;
+  },
+  'drive.files.read': async ({ runtime, context }) => {
+    const result = await sampleRead(runtime, context, 'drive.files.list', { limit: 1 });
+    const id = firstArray(result, 'files')[0]?.id;
+    return id ? { file_id: String(id), include_content: false } : undefined;
+  },
+  'sites.read': async ({ runtime, context }) => {
+    const result = await sampleRead(runtime, context, 'sites.list', { limit: 1 });
+    const id = firstArray(result, 'sites')[0]?.id;
+    return id ? { site_id: String(id) } : undefined;
+  },
+  'timeline.get': async ({ runtime, context }) => {
+    const rows = await sampleRead(runtime, context, 'timeline.list', { limit: 1 });
+    const id = firstArray(rows, '')[0]?.event_id;
+    return id ? { event_id: String(id) } : undefined;
+  },
+  'project.get': async ({ runtime, context }) => {
+    const rows = await sampleRead(runtime, context, 'project.list', { limit: 1 });
+    const id = firstArray(rows, '')[0]?.project_id;
+    return id ? { project_id: String(id) } : undefined;
+  },
+  'decision.get': async ({ runtime, context }) => {
+    const rows = await sampleRead(runtime, context, 'decision.list', { limit: 1 });
+    const id = firstArray(rows, '')[0]?.decision_id;
+    return id ? { decision_id: String(id) } : undefined;
+  },
+  'lesson.get': async ({ runtime, context }) => {
+    const rows = await sampleRead(runtime, context, 'lesson.list', { limit: 1 });
+    const id = firstArray(rows, '')[0]?.lesson_id;
+    return id ? { lesson_id: String(id) } : undefined;
+  },
+  'event.get': async ({ runtime, context }) => {
+    const result = await sampleRead(runtime, context, 'event.list', { limit: 1 });
+    const id = firstArray(result, 'events', 'items')[0]?.event_id;
+    return id ? { event_id: String(id) } : undefined;
+  },
+  'skill.resolve': async ({ runtime, context }) => {
+    const rows = await sampleRead(runtime, context, 'skill.list', { active_only: true });
+    const row = firstArray(rows, '')[0];
+    return row?.skill_id ? { skill_id: String(row.skill_id), version: row.version ? String(row.version) : undefined } : undefined;
+  },
+  'skill.history': async ({ runtime, context }) => {
+    const rows = await sampleRead(runtime, context, 'skill.list', { active_only: true });
+    const row = firstArray(rows, '')[0];
+    return row?.skill_id ? { skill_id: String(row.skill_id) } : undefined;
+  },
+  'work.plan.get': async ({ runtime, context }) => {
+    const result = await sampleRead(runtime, context, 'work.plan.list', { limit: 1 });
+    const id = firstArray(result, 'plans')[0]?.id;
+    return id ? { id: String(id) } : undefined;
+  },
+  'work.plan.history': async ({ runtime, context }) => {
+    const result = await sampleRead(runtime, context, 'work.plan.list', { limit: 1 });
+    const id = firstArray(result, 'plans')[0]?.id;
+    return id ? { id: String(id), limit: 1 } : undefined;
+  },
+  'conversation.get': async ({ runtime, context }) => {
+    const rows = await sampleRead(runtime, context, 'conversation.list', {});
+    const row = firstArray(rows, '')[0];
+    return row?.id ? { id: String(row.id) } : undefined;
+  },
+  'conversation.messages.list': async ({ runtime, context }) => {
+    const rows = await sampleRead(runtime, context, 'conversation.list', {});
+    const row = firstArray(rows, '')[0];
+    return row?.id ? { conversationId: String(row.id), limit: 1 } : undefined;
   },
 });
 
@@ -200,12 +306,12 @@ export async function auditRuntimeCapabilities(runtime, {
       try { contract = runtime.bus.contract(record.id); }
       catch { contract = { valid:false, inspection_error:true }; }
     }
-    const sample = samples?.[record.id];
+    let sample = samples?.[record.id];
     const declared = declaredImplementationStatus(record);
     const declaredNonExecutable = declared === 'STUB' || declared === 'NOT_IMPLEMENTED';
     const costSensitive = COST_SENSITIVE_CAPABILITIES.has(record.id);
     const costApproved = !costSensitive || provenZeroCost.has(record.id);
-    const blockedReason = autoExecutionBlockReason({
+    let blockedReason = autoExecutionBlockReason({
       deep,
       record,
       sample,
@@ -213,6 +319,15 @@ export async function auditRuntimeCapabilities(runtime, {
       costSensitive,
       costApproved,
     });
+    if (blockedReason == null && typeof sample === 'function') {
+      try {
+        sample = await sample({ runtime, context, record });
+        if (sample === undefined) blockedReason = 'NO_RUNTIME_FIXTURE';
+      } catch (error) {
+        blockedReason = 'SAMPLE_PREPARATION_FAILED:' + String(error?.code || error?.message || 'UNKNOWN').slice(0, 120);
+        sample = undefined;
+      }
+    }
     const executable = deep
       && !declaredNonExecutable
       && record.enabled !== false
