@@ -40,16 +40,16 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh run watch 37682319615 --repo "${{ github.repository }}" --exit-status --interval 10
+          gh run watch 37685951575 --repo "${{ github.repository }}" --exit-status --interval 10
 
       - name: Download exact Link V2 firmware
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh run download 37682319615 `
+          gh run download 37685951575 `
             --repo "${{ github.repository }}" `
-            --name "MEL-Waveshare-3.5-C-d0d980fd2a7db13e16dd7c82603ee88e3a53ead2" `
+            --name "MEL-Waveshare-3.5-C-d0607645db7b5d2602f1173336ee93359ecc47f0" `
             --dir firmware-artifact
           if (!(Test-Path "firmware-artifact/build/mel-terminal.bin")) {
             throw "Validated Link V2 firmware binary missing"
@@ -63,7 +63,7 @@ jobs:
             --clean `
             --onefile `
             --console `
-            --name "MEL-MINI-Updater-0.6.6-AudioPortAuditFix" `
+            --name "MEL-MINI-Updater-0.6.7-TtsWavFix" `
             --collect-all esptool `
             --collect-all serial `
             --add-data "firmware-artifact/build/mel-terminal.bin;." `
@@ -72,21 +72,21 @@ jobs:
       - name: Self-test updater
         shell: pwsh
         run: |
-          & ".\dist\MEL-MINI-Updater-0.6.6-AudioPortAuditFix.exe" --self-test
+          & ".\dist\MEL-MINI-Updater-0.6.7-TtsWavFix.exe" --self-test
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: SHA256
         shell: pwsh
         run: |
-          Get-FileHash ".\dist\MEL-MINI-Updater-0.6.6-AudioPortAuditFix.exe" -Algorithm SHA256 |
-            Format-List | Out-File ".\dist\MEL-MINI-Updater-0.6.6-AudioPortAuditFix.sha256.txt"
+          Get-FileHash ".\dist\MEL-MINI-Updater-0.6.7-TtsWavFix.exe" -Algorithm SHA256 |
+            Format-List | Out-File ".\dist\MEL-MINI-Updater-0.6.7-TtsWavFix.sha256.txt"
 
       - name: Upload updater
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: MEL-MINI-Updater-0.6.6-AudioPortAuditFix
+          name: MEL-MINI-Updater-0.6.7-TtsWavFix
           path: |
-            dist/MEL-MINI-Updater-0.6.6-AudioPortAuditFix.exe
-            dist/MEL-MINI-Updater-0.6.6-AudioPortAuditFix.sha256.txt
+            dist/MEL-MINI-Updater-0.6.7-TtsWavFix.exe
+            dist/MEL-MINI-Updater-0.6.7-TtsWavFix.sha256.txt
           if-no-files-found: error
           retention-days: 30
