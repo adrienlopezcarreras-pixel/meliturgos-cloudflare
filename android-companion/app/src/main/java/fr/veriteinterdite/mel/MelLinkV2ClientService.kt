@@ -741,9 +741,14 @@ class MelLinkV2ClientService : Service() {
 
     private fun sendAudioResponse(streamId: Int, pcm16: ShortArray, outputRate: Int): Boolean {
         if (pcm16.isEmpty()) return false
+        val client = gatt ?: return false
+        if (hasBlePermissions()) {
+            runCatching { client.requestConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_HIGH) }
+        }
+        try {
         val meta = JSONObject()
             .put("codec", "ima-adpcm")
-            .put("rate", 16_000)
+            .put("rate", outputRate)
             .put("ch", 1)
             .put("samples", pcm16.size)
             .put("block", MelImaAdpcm.BLOCK_SAMPLES)
@@ -775,6 +780,11 @@ class MelLinkV2ClientService : Service() {
                 MelLinkV2Protocol.AUDIO_END, 0, streamId, seq
             )
         )
+        } finally {
+            if (hasBlePermissions()) {
+                runCatching { client.requestConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_BALANCED) }
+            }
+        }
     }
 
     private fun executeRequest(request: IncomingRequest) {
@@ -866,25 +876,22 @@ class MelLinkV2ClientService : Service() {
             }
 
             if (status in 200..299 && path == "/api/device/v1/voice/tts") {
-                val pcm16 = runCatching {
-                    MelImaAdpcm.decodePcm16MonoWav(body, 16_000)
-                }.recoverCatching {
-                    val pcm48 = MelImaAdpcm.decodePcm16MonoWav(body, 48_000)
-                    MelImaAdpcm.decimate48kTo16k(pcm48)
+                val pcm48 = runCatching {
+                    MelImaAdpcm.decodePcm16MonoWav(body, 48_000)
                 }.getOrElse {
-                    lastError.value = "TTS_WAV"
+                    lastError.value = "TTS_WAV_48K"
                     sendResponse(
                         request.streamId, 503, "application/json",
                         JSONObject()
                             .put("ok", false)
-                            .put("code", "TTS_WAV")
+                            .put("code", "TTS_WAV_48K")
                             .put("content_type", connection.contentType.orEmpty())
                             .put("bytes", body.size)
                             .toString().toByteArray(Charsets.UTF_8)
                     )
                     return
                 }
-                sendAudioResponse(request.streamId, pcm16, outputRate = 16_000)
+                sendAudioResponse(request.streamId, pcm48, outputRate = 48_000)
                 return
             }
 
@@ -923,7 +930,32 @@ class MelLinkV2ClientService : Service() {
         writeGattBlocking(controlRx, frame, BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT)
 
     private fun sendBulkBlocking(frame: ByteArray): Boolean =
-        writeGattBlocking(bulkRx, frame, BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT)
+        writeGattNoResponse(bulkRx, frame)
+
+    private fun writeGattNoResponse(
+        characteristic: BluetoothGattCharacteristic?,
+        value: ByteArray
+    ): Boolean {
+        synchronized(writeLock) {
+            val client = gatt ?: return false
+            val target = characteristic ?: return false
+            if (!hasBlePermissions()) return false
+            return if (Build.VERSION.SDK_INT >= 33) {
+                client.writeCharacteristic(
+                    target,
+                    value,
+                    BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
+                ) == BluetoothGatt.GATT_SUCCESS
+            } else {
+                @Suppress("DEPRECATION")
+                run {
+                    target.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
+                    target.value = value
+                    client.writeCharacteristic(target)
+                }
+            }
+        }
+    }
 
     private fun writeGattBlocking(
         characteristic: BluetoothGattCharacteristic?,
