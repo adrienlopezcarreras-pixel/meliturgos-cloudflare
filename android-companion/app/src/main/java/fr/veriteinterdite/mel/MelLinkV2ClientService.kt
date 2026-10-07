@@ -36,6 +36,7 @@ import java.util.UUID
 import java.util.TimeZone
 import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.Executors
+import java.util.concurrent.Semaphore
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -104,6 +105,7 @@ class MelLinkV2ClientService : Service() {
     private val writeLock = Any()
     private val requests = HashMap<Int, IncomingRequest>()
     private val audioStreams = HashMap<Int, IncomingAudio>()
+    private val outboundCredits = HashMap<Int, Semaphore>()
     private lateinit var mediaReceiver: MiniMediaReceiver
     private var scanActive = false
     private var reconnectAttempt = 0
@@ -426,6 +428,15 @@ class MelLinkV2ClientService : Service() {
             MelLinkV2Protocol.PING -> {
                 sendControlAsync(MelLinkV2Protocol.encode(MelLinkV2Protocol.PONG, 0, frame.streamId, frame.seq))
             }
+            MelLinkV2Protocol.CREDIT -> {
+                if (frame.payload.size < 2) return
+                val credits = (frame.payload[0].toInt() and 0xff) or
+                    ((frame.payload[1].toInt() and 0xff) shl 8)
+                if (credits <= 0) return
+                synchronized(outboundCredits) {
+                    outboundCredits[frame.streamId]?.release(credits)
+                }
+            }
             MelLinkV2Protocol.MEDIA_CONFIG_REQUEST -> {
                 if (!::mediaReceiver.isInitialized) {
                     sendErrorAsync(frame.streamId, "MEDIA_RECEIVER_UNAVAILABLE")
@@ -713,30 +724,38 @@ class MelLinkV2ClientService : Service() {
             .put("length", body.size)
             .toString()
             .toByteArray(Charsets.UTF_8)
-        if (!sendControlBlocking(
-                MelLinkV2Protocol.encode(
-                    MelLinkV2Protocol.RESPONSE_BEGIN, 0, streamId, 0, begin
-                )
-            )) return false
-
-        var seq = 0
-        var offset = 0
-        val chunk = 150
-        while (offset < body.size) {
-            val end = minOf(offset + chunk, body.size)
-            if (!sendBulkBlocking(
+        val credits = beginOutboundTransfer(streamId)
+        requestBlePriority(BluetoothGatt.CONNECTION_PRIORITY_HIGH)
+        try {
+            if (!sendControlBlocking(
                     MelLinkV2Protocol.encode(
-                        MelLinkV2Protocol.RESPONSE_DATA, 0, streamId, seq++,
-                        body.copyOfRange(offset, end)
+                        MelLinkV2Protocol.RESPONSE_BEGIN, 0, streamId, 0, begin
                     )
                 )) return false
-            offset = end
-        }
-        return sendControlBlocking(
-            MelLinkV2Protocol.encode(
-                MelLinkV2Protocol.RESPONSE_END, 0, streamId, seq
+
+            var seq = 0
+            var offset = 0
+            val chunk = 150
+            while (offset < body.size) {
+                if (!awaitOutboundCredit(streamId, credits)) return false
+                val end = minOf(offset + chunk, body.size)
+                if (!sendBulkNoResponse(
+                        MelLinkV2Protocol.encode(
+                            MelLinkV2Protocol.RESPONSE_DATA, 0, streamId, seq++,
+                            body.copyOfRange(offset, end)
+                        )
+                    )) return false
+                offset = end
+            }
+            return sendControlBlocking(
+                MelLinkV2Protocol.encode(
+                    MelLinkV2Protocol.RESPONSE_END, 0, streamId, seq
+                )
             )
-        )
+        } finally {
+            endOutboundTransfer(streamId, credits)
+            requestBlePriority(BluetoothGatt.CONNECTION_PRIORITY_BALANCED)
+        }
     }
 
     private fun sendAudioResponse(streamId: Int, pcm16: ShortArray, outputRate: Int): Boolean {
@@ -751,30 +770,38 @@ class MelLinkV2ClientService : Service() {
             .toString()
             .toByteArray(Charsets.UTF_8)
 
-        if (!sendControlBlocking(
-                MelLinkV2Protocol.encode(
-                    MelLinkV2Protocol.AUDIO_BEGIN, 0, streamId, 0, meta
-                )
-            )) return false
-
-        var seq = 0
-        var offset = 0
-        while (offset < pcm16.size) {
-            val end = minOf(offset + MelImaAdpcm.BLOCK_SAMPLES, pcm16.size)
-            val encoded = MelImaAdpcm.encodeBlock(pcm16.copyOfRange(offset, end))
-            if (!sendBulkBlocking(
+        val credits = beginOutboundTransfer(streamId)
+        requestBlePriority(BluetoothGatt.CONNECTION_PRIORITY_HIGH)
+        try {
+            if (!sendControlBlocking(
                     MelLinkV2Protocol.encode(
-                        MelLinkV2Protocol.AUDIO_DATA, 0, streamId, seq++, encoded
+                        MelLinkV2Protocol.AUDIO_BEGIN, 0, streamId, 0, meta
                     )
                 )) return false
-            offset = end
-        }
 
-        return sendControlBlocking(
-            MelLinkV2Protocol.encode(
-                MelLinkV2Protocol.AUDIO_END, 0, streamId, seq
+            var seq = 0
+            var offset = 0
+            while (offset < pcm16.size) {
+                if (!awaitOutboundCredit(streamId, credits)) return false
+                val end = minOf(offset + MelImaAdpcm.BLOCK_SAMPLES, pcm16.size)
+                val encoded = MelImaAdpcm.encodeBlock(pcm16.copyOfRange(offset, end))
+                if (!sendBulkNoResponse(
+                        MelLinkV2Protocol.encode(
+                            MelLinkV2Protocol.AUDIO_DATA, 0, streamId, seq++, encoded
+                        )
+                    )) return false
+                offset = end
+            }
+
+            return sendControlBlocking(
+                MelLinkV2Protocol.encode(
+                    MelLinkV2Protocol.AUDIO_END, 0, streamId, seq
+                )
             )
-        )
+        } finally {
+            endOutboundTransfer(streamId, credits)
+            requestBlePriority(BluetoothGatt.CONNECTION_PRIORITY_BALANCED)
+        }
     }
 
     private fun executeRequest(request: IncomingRequest) {
@@ -922,8 +949,65 @@ class MelLinkV2ClientService : Service() {
     private fun sendControlBlocking(frame: ByteArray): Boolean =
         writeGattBlocking(controlRx, frame, BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT)
 
-    private fun sendBulkBlocking(frame: ByteArray): Boolean =
-        writeGattBlocking(bulkRx, frame, BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT)
+    private fun beginOutboundTransfer(streamId: Int): Semaphore {
+        val sem = Semaphore(0)
+        synchronized(outboundCredits) { outboundCredits[streamId] = sem }
+        return sem
+    }
+
+    private fun endOutboundTransfer(streamId: Int, sem: Semaphore) {
+        synchronized(outboundCredits) {
+            if (outboundCredits[streamId] === sem) outboundCredits.remove(streamId)
+        }
+    }
+
+    private fun awaitOutboundCredit(streamId: Int, sem: Semaphore): Boolean {
+        val ok = sem.tryAcquire(5, TimeUnit.SECONDS)
+        if (!ok) lastError.value = "BULK_CREDIT_TIMEOUT_$streamId"
+        return ok
+    }
+
+    private fun requestBlePriority(priority: Int) {
+        val client = gatt ?: return
+        if (!hasBlePermissions()) return
+        runCatching { client.requestConnectionPriority(priority) }
+            .onFailure { Log.w(TAG, "BLE connection priority request failed", it) }
+    }
+
+    private fun sendBulkNoResponse(frame: ByteArray): Boolean =
+        writeGattNoResponse(bulkRx, frame)
+
+    private fun writeGattNoResponse(
+        characteristic: BluetoothGattCharacteristic?,
+        value: ByteArray
+    ): Boolean {
+        synchronized(writeLock) {
+            val client = gatt ?: return false
+            val target = characteristic ?: return false
+            if (!hasBlePermissions()) return false
+
+            repeat(6) { attempt ->
+                val queued = if (Build.VERSION.SDK_INT >= 33) {
+                    client.writeCharacteristic(
+                        target,
+                        value,
+                        BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
+                    ) == BluetoothGatt.GATT_SUCCESS
+                } else {
+                    @Suppress("DEPRECATION")
+                    run {
+                        target.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
+                        target.value = value
+                        client.writeCharacteristic(target)
+                    }
+                }
+                if (queued) return true
+                if (attempt < 5) Thread.sleep(4L)
+            }
+            lastError.value = "BULK_WRITE_QUEUE"
+            return false
+        }
+    }
 
     private fun writeGattBlocking(
         characteristic: BluetoothGattCharacteristic?,
@@ -968,6 +1052,10 @@ class MelLinkV2ClientService : Service() {
         bulkRx = null
         synchronized(requests) { requests.clear() }
         synchronized(audioStreams) { audioStreams.clear() }
+        synchronized(outboundCredits) {
+            outboundCredits.values.forEach { it.release(MelLinkV2Protocol.CREDIT_WINDOW) }
+            outboundCredits.clear()
+        }
     }
 
     private fun resetPhysicalLink(reason: String) {
