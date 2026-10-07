@@ -79,6 +79,17 @@ function imageMime(input = {}) {
   return 'image/png';
 }
 
+async function imageInputData(env, input = {}) {
+  if (input?.artifact_key) {
+    const artifact = await readPrivateArtifactBytes(env, input.artifact_key);
+    if (!artifact.mime.startsWith('image/')) throw mediaError('IMAGE_ARTIFACT_REQUIRED', 415);
+    if (!artifact.bytes.byteLength || artifact.bytes.byteLength > MAX_IMAGE_BYTES) throw mediaError('WORKERS_AI_IMAGE_INPUT_TOO_LARGE', 413);
+    return { bytes: artifact.bytes, mime: artifact.mime };
+  }
+  const bytes = imageInputBytes(input);
+  return { bytes, mime: imageMime(input) };
+}
+
 function modelText(result) {
   return clean(
     result?.response
@@ -261,9 +272,10 @@ async function imageAnalyze(env, input = {}) {
   if (!provenance) throw mediaError('WORKERS_AI_ZERO_COST_PROOF_REQUIRED');
   if (!env?.AI?.run) throw mediaError('AI_BINDING_MISSING');
 
-  const bytes = imageInputBytes(input);
+  const imageInput = await imageInputData(env, input);
+  const bytes = imageInput.bytes;
   if (!bytes?.byteLength) throw mediaError('IMAGE_INPUT_REQUIRED', 400);
-  const mime = imageMime(input);
+  const mime = imageInput.mime;
   const prompt = clean(input?.prompt || input?.question || 'Analyse cette image précisément. Décris les éléments visibles, le texte lisible, les relations spatiales et les incertitudes. N’invente rien.', 6000);
   const image = `data:${mime};base64,${bytesBase64(bytes)}`;
   const result = await env.AI.run(WORKERS_AI_VISION_MODEL, {
@@ -299,9 +311,10 @@ async function imageProcess(env, input = {}) {
   if (!env?.AI?.run) throw mediaError('AI_BINDING_MISSING');
   if (!mediaStorageReady(env)) throw mediaError('MEDIA_VAULT_UNAVAILABLE');
 
-  const bytes = imageInputBytes(input);
+  const imageInput = await imageInputData(env, input);
+  const bytes = imageInput.bytes;
   if (!bytes?.byteLength) throw mediaError('IMAGE_INPUT_REQUIRED', 400);
-  const mime = imageMime(input);
+  const mime = imageInput.mime;
   const prompt = clean(input?.prompt || input?.instruction || input?.operation, 6000);
   if (!prompt) throw mediaError('IMAGE_PROCESS_INSTRUCTION_REQUIRED', 400);
 
@@ -741,7 +754,11 @@ async function videoAnalyze(env, input = {}) {
 
 async function audioTranscribe(env, input = {}) {
   let bytes = null;
-  if (input?.bytes instanceof Uint8Array) bytes = input.bytes;
+  if (input?.artifact_key) {
+    const artifact = await readPrivateArtifactBytes(env, input.artifact_key);
+    if (!artifact.mime.startsWith('audio/')) throw mediaError('AUDIO_ARTIFACT_REQUIRED', 415);
+    bytes = artifact.bytes;
+  } else if (input?.bytes instanceof Uint8Array) bytes = input.bytes;
   else if (input?.bytes instanceof ArrayBuffer) bytes = new Uint8Array(input.bytes);
   else {
     const encoded = clean(input?.audio_base64 ?? input?.audio, 16_000_000);
