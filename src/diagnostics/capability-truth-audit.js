@@ -109,6 +109,7 @@ function autoExecutionBlockReason({ deep, record, sample, declared, costSensitiv
   if (!deep) return null;
   if (declared === 'STUB' || declared === 'NOT_IMPLEMENTED') return 'DECLARED_NON_EXECUTABLE';
   if (record?.enabled === false) return 'DISABLED';
+  if (String(record?.health || '').toUpperCase() === 'UNAVAILABLE') return 'HEALTH_UNAVAILABLE';
   if (record?.risk !== 'LOW') return 'RISK_NOT_LOW';
   if (sample === undefined) return 'NO_BOUNDED_SAMPLE';
   if (costSensitive && !costApproved) return 'UNKNOWN_OR_EXTERNAL_COST';
@@ -205,6 +206,7 @@ export async function auditRuntimeCapabilities(runtime, {
     const executable = deep
       && !declaredNonExecutable
       && record.enabled !== false
+      && String(record?.health || '').toUpperCase() !== 'UNAVAILABLE'
       && record.risk === 'LOW'
       && sample !== undefined
       && costApproved;
