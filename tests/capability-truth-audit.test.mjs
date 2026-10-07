@@ -150,6 +150,24 @@ test('deep audit explains every local reason that prevents bounded automatic exe
   assert.deepEqual(calls, []);
 });
 
+test('deep audit does not execute a bounded sample after health refresh marks it unavailable', async () => {
+  let executions = 0;
+  const record = { id:'external.read', name:'External read', category:'test', provider:'external', risk:'LOW', enabled:true, health:'DEGRADED' };
+  const bus = {
+    list: () => [record],
+    refreshHealth: async () => ({ ...record, health:'UNAVAILABLE', health_detail:'ACCOUNT_NOT_CONNECTED' }),
+    contract: () => ({ valid:true }),
+    execute: async () => { executions += 1; return { ok:true }; },
+  };
+  const report = await auditRuntimeCapabilities({ bus }, { deep:true, samples:{ 'external.read':{} } });
+  const row = report.capabilities[0];
+  assert.equal(row.health, 'UNAVAILABLE');
+  assert.equal(row.tested_now, false);
+  assert.equal(row.auto_execution_blocked, 'HEALTH_UNAVAILABLE');
+  assert.equal(row.truth_status, 'BLOCKED_EXTERNAL');
+  assert.equal(executions, 0);
+});
+
 test('deep audit fails closed on provider/cost-sensitive samples until exact zero-cost proof is supplied', async () => {
   const calls = [];
   const records = [
