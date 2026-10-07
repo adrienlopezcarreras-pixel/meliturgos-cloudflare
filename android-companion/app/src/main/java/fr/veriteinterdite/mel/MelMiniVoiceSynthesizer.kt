@@ -112,6 +112,10 @@ object MelMiniVoiceSynthesizer {
         throw initError ?: IllegalStateException("MINI_TTS_INIT_FAILED")
     }
 
+    fun warmup(context: Context) {
+        ensureFrenchEngine(context.applicationContext)
+    }
+
     fun synthesizePcm48kMono(context: Context, text: String): ShortArray = synchronized(synthLock) {
         val clean = text.trim()
         require(clean.isNotEmpty()) { "MINI_TTS_TEXT_EMPTY" }
