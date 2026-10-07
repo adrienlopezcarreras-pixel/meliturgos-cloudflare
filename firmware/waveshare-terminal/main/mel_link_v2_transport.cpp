@@ -38,6 +38,8 @@ static std::atomic<bool> g_started{false};
 static std::atomic<bool> g_session_ready{false};
 static std::atomic<bool> g_server_ready{false};
 static std::atomic<uint16_t> g_next_stream{1};
+static std::atomic<uint16_t> g_active_stream_id{0};
+static std::atomic<bool> g_cancel_active{false};
 static SemaphoreHandle_t g_exchange_mutex = nullptr;
 static SemaphoreHandle_t g_response_done = nullptr;
 static SemaphoreHandle_t g_credit_sem = nullptr;
@@ -190,7 +192,12 @@ static void rx_frame(const uint8_t *frame, size_t len, void *ctx) {
         return;
     }
 
-    if (header.stream_id != g_active.stream_id || !g_active.stream_id) return;
+    const uint16_t active_stream = g_active_stream_id.load();
+    if (header.stream_id != active_stream || !active_stream) return;
+    if (g_cancel_active.load()) {
+        if (g_response_done) xSemaphoreGive(g_response_done);
+        return;
+    }
 
     if (header.type == MEL_LINK_V2_CREDIT) {
         if (header.payload_len < 2 || !g_credit_sem) return;
@@ -468,6 +475,8 @@ bool mel_link_v2_transport_keepalive(void) {
     g_active = {};
     g_active.stream_id = g_next_stream.fetch_add(1);
     if (g_active.stream_id == 0) g_active.stream_id = g_next_stream.fetch_add(1);
+    g_active_stream_id.store(g_active.stream_id);
+    g_cancel_active.store(false);
     drain_semaphore(g_response_done);
 
     const bool sent = send_v2(MEL_LINK_V2_PING, g_active.stream_id, 0, nullptr, 0, true);
@@ -500,6 +509,8 @@ static esp_err_t request_common(
     g_active = {};
     g_active.stream_id = g_next_stream.fetch_add(1);
     if (g_active.stream_id == 0) g_active.stream_id = g_next_stream.fetch_add(1);
+    g_active_stream_id.store(g_active.stream_id);
+    g_cancel_active.store(false);
     g_active.cb = cb;
     g_active.cb_ctx = cb_ctx;
     drain_semaphore(g_response_done);
@@ -581,6 +592,8 @@ static esp_err_t request_common(
     if (!ok) {
         g_active.failed = true;
         g_active = {};
+        g_active_stream_id.store(0);
+        g_cancel_active.store(false);
         xSemaphoreGive(g_exchange_mutex);
         return ESP_FAIL;
     }
@@ -591,17 +604,22 @@ static esp_err_t request_common(
     const bool done = xSemaphoreTake(g_response_done, wait) == pdTRUE;
     status = g_active.status;
     if (response) *response = g_active.body;
-    const bool failed = !done || g_active.failed;
+    const bool cancelled = g_cancel_active.load();
+    const bool failed = !done || g_active.failed || cancelled;
 
-    if (!done) {
+    if (cancelled) {
+        ESP_LOGI(TAG, "request cancelled path=%s stream=%u", path, g_active.stream_id);
+    } else if (!done) {
         ESP_LOGE(TAG, "response timeout path=%s stream=%u", path, g_active.stream_id);
         if (response && response->empty()) {
             *response = chat ? "CHAT_RESPONSE_TIMEOUT" : "LINK_RESPONSE_TIMEOUT";
         }
     }
     g_active = {};
+    g_active_stream_id.store(0);
+    g_cancel_active.store(false);
     xSemaphoreGive(g_exchange_mutex);
-    return failed ? ESP_ERR_TIMEOUT : ESP_OK;
+    return failed ? (cancelled ? ESP_ERR_INVALID_STATE : ESP_ERR_TIMEOUT) : ESP_OK;
 }
 
 esp_err_t mel_link_v2_transport_request(
@@ -615,6 +633,16 @@ esp_err_t mel_link_v2_transport_request(
     int &status
 ) {
     return request_common(method,path,content_type,mini_device_id,body,body_len,&response,status,nullptr,nullptr);
+}
+
+bool mel_link_v2_transport_cancel_active(void) {
+    const uint16_t stream = g_active_stream_id.load();
+    if (!stream) return false;
+    g_cancel_active.store(true);
+    if (g_response_done) xSemaphoreGive(g_response_done);
+    if (g_credit_sem) xSemaphoreGive(g_credit_sem);
+    ESP_LOGI(TAG, "cancel active stream=%u", stream);
+    return true;
 }
 
 esp_err_t mel_link_v2_transport_request_stream(
@@ -665,6 +693,8 @@ esp_err_t mel_link_v2_transport_transcribe_adpcm(
     g_active = {};
     g_active.stream_id = g_next_stream.fetch_add(1);
     if (g_active.stream_id == 0) g_active.stream_id = g_next_stream.fetch_add(1);
+    g_active_stream_id.store(g_active.stream_id);
+    g_cancel_active.store(false);
     drain_semaphore(g_response_done);
     drain_semaphore(g_credit_sem);
 
@@ -753,6 +783,8 @@ esp_err_t mel_link_v2_transport_transcribe_adpcm(
 
     if (!ok) {
         g_active = {};
+        g_active_stream_id.store(0);
+        g_cancel_active.store(false);
         xSemaphoreGive(g_exchange_mutex);
         return ESP_FAIL;
     }
@@ -760,8 +792,11 @@ esp_err_t mel_link_v2_transport_transcribe_adpcm(
     const bool done = xSemaphoreTake(g_response_done, pdMS_TO_TICKS(45000)) == pdTRUE;
     status = g_active.status;
     if (!g_active.body.empty()) response = g_active.body;
-    const bool failed = !done || g_active.failed;
-    if (!done) {
+    const bool cancelled = g_cancel_active.load();
+    const bool failed = !done || g_active.failed || cancelled;
+    if (cancelled) {
+        response = "BT_CANCELLED";
+    } else if (!done) {
         response = "STT_RESPONSE_TIMEOUT";
         ESP_LOGE(TAG, "ADPCM STT response timeout stream=%u blocks=%u",
                  g_active.stream_id, seq);
@@ -770,6 +805,8 @@ esp_err_t mel_link_v2_transport_transcribe_adpcm(
     }
 
     g_active = {};
+    g_active_stream_id.store(0);
+    g_cancel_active.store(false);
     xSemaphoreGive(g_exchange_mutex);
-    return failed ? ESP_ERR_TIMEOUT : ESP_OK;
+    return failed ? (cancelled ? ESP_ERR_INVALID_STATE : ESP_ERR_TIMEOUT) : ESP_OK;
 }
