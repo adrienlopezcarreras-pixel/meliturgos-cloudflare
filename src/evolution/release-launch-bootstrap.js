@@ -31,9 +31,10 @@ import { runCompanionSourceControlPrevalidationRuntime } from '../portability/co
 import { runCompanionInfrastructurePrevalidationRuntime } from '../portability/companion-infrastructure-prevalidation-runtime.js';
 import { runGoogleDriveBackupRestorePrevalidationRuntime } from '../portability/google-drive-backup-restore-prevalidation-runtime.js';
 import { authorizeGitHubActionsOidcRequest } from '../security/github-actions-oidc.js';
+import { runMelMedia02LiveProof } from '../media/media-roadmap-proof.js';
 
 const PATH = '/api/internal/release-launch-bootstrap';
-const PHASES = new Set(['all', 'identity', 'pause', 'backup', 'code-sync', 'readiness', 'sovereignty-proof', 'skill-registry-proof', 'plugin-sdk-proof', 'evolution-ledger-proof', 'agent-automation-proof', 'provider-escape-proof', 'long-context-proof', 'capability-watch-proof', 'connection-proof', 'gen2-42-runtime-tick', 'gen2-42-owner-max', 'release-rollback-restore']);
+const PHASES = new Set(['all', 'identity', 'pause', 'backup', 'code-sync', 'readiness', 'sovereignty-proof', 'skill-registry-proof', 'plugin-sdk-proof', 'evolution-ledger-proof', 'agent-automation-proof', 'provider-escape-proof', 'long-context-proof', 'capability-watch-proof', 'connection-proof', 'media-proof', 'gen2-42-runtime-tick', 'gen2-42-owner-max', 'release-rollback-restore']);
 
 function exactDeployedSha(env = {}) {
   const direct = String(env?.MEL_DEPLOYED_GIT_SHA || '').trim().toLowerCase();
@@ -284,6 +285,7 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
   proveCapabilityWatch = proveEcosystemTeacherHandoff,
   runAutonomyTick = runAutonomyRuntimeTick,
   connectionHandler = maybeHandleConnectionSettingsApi,
+  proveMedia = runMelMedia02LiveProof,
   authorizeOidc = authorizeGitHubActionsOidcRequest,
 } = {}) {
   const url = new URL(request.url);
@@ -420,6 +422,41 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
   if (phase === 'connection-proof') {
     const result = await runConnectionProof(env, connectionHandler);
     return Response.json({ ...result, phase, deployed_sha: exactDeployedSha(env) || null, autonomy_started: false, owner_launch_required: true }, { status: 200, headers: { 'cache-control': 'no-store' } });
+  }
+
+  if (phase === 'media-proof') {
+    const deployedSha = exactDeployedSha(env);
+    try {
+      const result = await proveMedia(env, { sourceSha: deployedSha });
+      const ok = result?.ok === true
+        && result?.status === 'MEL_MEDIA_02_DONE_VERIFIED_ELIGIBLE'
+        && result?.done_verified_eligible === true
+        && result?.capability_count === 12
+        && String(result?.source_sha || '').toLowerCase() === deployedSha;
+      return Response.json({
+        ...result,
+        ok,
+        phase,
+        deployed_sha: deployedSha || null,
+        autonomy_started: false,
+        owner_launch_required: true,
+        secret_values_exposed: false,
+      }, { status: ok ? 200 : 409, headers: { 'cache-control': 'no-store' } });
+    } catch (error) {
+      return Response.json({
+        ok: false,
+        status: 'MEL_MEDIA_02_NOT_VERIFIED',
+        code: String(error?.code || error?.message || 'MEL_MEDIA_02_PROOF_FAILED').slice(0,180),
+        capability: error?.capability || null,
+        health: error?.health || null,
+        detail: error?.detail || null,
+        phase,
+        deployed_sha: deployedSha || null,
+        autonomy_started: false,
+        owner_launch_required: true,
+        secret_values_exposed: false,
+      }, { status: Number(error?.status) || 503, headers: { 'cache-control': 'no-store' } });
+    }
   }
 
   if (phase === 'sovereignty-proof') {
