@@ -435,3 +435,35 @@ test('Google OAuth API derives public origin from the live HTTPS request when Wo
     'https://meliturgos.example/api/gen2/oauth/google/gmail/callback',
   );
 });
+
+
+test('Google capability token resolver accepts the canonical backup-derived OAuth vault', async () => {
+  const calls = [];
+  const vaults = {
+    accessTokenResolver() {
+      return async (connectorId, context) => {
+        calls.push({ connectorId, owner: context.owner });
+        return 'vault-access-token';
+      };
+    },
+  };
+  const resolver = createGoogleAccessTokenResolver({
+    DB: {},
+    MEL_BACKUP_ENCRYPTION_KEY_ID: 'backup-key-v1',
+    MEL_BACKUP_ENCRYPTION_KEY_B64: Buffer.alloc(32, 7).toString('base64'),
+  }, { vaults });
+
+  assert.equal(typeof resolver, 'function');
+  assert.equal(await resolver('gmail', { owner: 'adrien' }), 'vault-access-token');
+  assert.deepEqual(calls, [{ connectorId: 'gmail', owner: 'adrien' }]);
+});
+
+test('Google capability token resolver fails closed on partial backup-vault configuration', () => {
+  assert.throws(
+    () => createGoogleAccessTokenResolver({
+      DB: {},
+      MEL_BACKUP_ENCRYPTION_KEY_ID: 'backup-key-v1',
+    }),
+    /OAUTH_VAULT_RECOVERY_CONFIGURATION_INCOMPLETE/,
+  );
+});
