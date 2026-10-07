@@ -265,7 +265,7 @@ async function resumeLatestConversation(){const button=qs('#resumeLatestChat');i
 qs('#chatForm').addEventListener('submit',e=>{e.preventDefault();sendChat()});qs('#chatInput').addEventListener('paste',e=>{const files=filesFromTransfer(e.clipboardData);if(!files.length)return;e.preventDefault();uploadChatFiles(files,'clipboard')});qs('#chatAttach').onclick=()=>qs('#chatFileInput').click();qs('#chatFileInput').addEventListener('change',e=>uploadChatFiles([...e.target.files],'file-picker'));qs('#resumeLatestChat').onclick=resumeLatestConversation;
 function statusTag(s){const good=['ONLINE','HEALTHY','DONE_VERIFIED'].includes(s),bad=['OFFLINE','BLOCKED_EXTERNAL','BLOCKED_HUMAN'].includes(s);return '<span class="tag '+(good?'good':bad?'bad':'warn')+'">'+String(s||'UNKNOWN')+'</span>'}
 function capFamily(id){const v=String(id||'').toLowerCase();if(v.startsWith('code.'))return'Code';if(/conversation|memory|rag|archive/.test(v))return'Mémoire & échanges';if(/roadmap|evolution|dev|module|work/.test(v))return'Développement';if(/augmentio|teacher|model|research|web/.test(v))return'IA & recherche';if(/device|sync|browser|mail|gmail|drive|calendar/.test(v))return'Outils & connexions';return'Autres'}
-async function loadChatCapabilities(force=false){const summary=qs('#chatCapSummary'),groups=qs('#chatCapGroups'),list=qs('#chatCapList');if(!summary||!groups||!list)return[];summary.textContent='Lecture de mes capacités…';try{const d=await loadCapabilitiesData(force);if(!Array.isArray(d?.capabilities))throw Error('Liste CapabilityBus absente');const caps=d.capabilities;const active=caps.filter(capabilityUsable);const by={};for(const x of active){const f=capFamily(x.id);by[f]=(by[f]||0)+1}summary.textContent=active.length+' capacité'+(active.length>1?'s':'')+' disponible'+(active.length>1?'s':'')+' sur '+caps.length+' enregistrée'+(caps.length>1?'s':'')+'.';groups.innerHTML=Object.entries(by).sort((a,b)=>b[1]-a[1]).map(([k,n])=>'<span class="cap-chip">'+esc(k)+' · '+n+'</span>').join('');list.innerHTML=caps.map(x=>{const meta=capabilityHealthMeta(x);return '<div class="cap-help-item"><strong>'+esc(x.name||x.id)+'</strong><small>'+esc(x.description||x.id||'')+'</small><span class="cap-help-state '+meta.kind+'">'+esc(meta.label)+'</span></div>'}).join('')||'<div class="muted">Aucune capacité enregistrée.</div>';return caps}catch(e){summary.textContent='Capacités indisponibles : '+e.message;groups.innerHTML='';list.textContent='Impossible de lire le CapabilityBus.';throw e}}
+async function loadChatCapabilities(force=false){const summary=qs('#chatCapSummary'),groups=qs('#chatCapGroups'),list=qs('#chatCapList');if(!summary||!groups||!list)return[];summary.textContent='Lecture de mes capacités…';try{const d=await loadCapabilitiesData(force);if(!Array.isArray(d?.capabilities))throw Error('Liste CapabilityBus absente');const caps=d.capabilities;const active=caps.filter(capabilityFunctional);const by={};for(const x of active){const f=capFamily(x.id);by[f]=(by[f]||0)+1}summary.textContent=active.length+' capacité'+(active.length>1?'s':'')+' disponible'+(active.length>1?'s':'')+' sur '+caps.length+' enregistrée'+(caps.length>1?'s':'')+'.';groups.innerHTML=Object.entries(by).sort((a,b)=>b[1]-a[1]).map(([k,n])=>'<span class="cap-chip">'+esc(k)+' · '+n+'</span>').join('');list.innerHTML=caps.map(x=>{const meta=capabilityHealthMeta(x);return '<div class="cap-help-item"><strong>'+esc(x.name||x.id)+'</strong><small>'+esc(x.description||x.id||'')+'</small><span class="cap-help-state '+meta.kind+'">'+esc(meta.label)+'</span></div>'}).join('')||'<div class="muted">Aucune capacité enregistrée.</div>';return caps}catch(e){summary.textContent='Capacités indisponibles : '+e.message;groups.innerHTML='';list.textContent='Impossible de lire le CapabilityBus.';throw e}}
 qs('#chatCapRefresh').onclick=()=>{panelLoadedAt.delete('chat');loadChatCapabilities(true).then(()=>panelLoadedAt.set('chat',Date.now())).catch(()=>{})};
 async function loadActiveSkillRegistry(){
   const d=await jfetch('/api/gen2/capabilities/execute',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id:'skill.list',input:{active_only:true}})});
@@ -401,7 +401,7 @@ async function prepareChatGPTArchive(){
   const payload=JSON.parse(text);
   const preview=await jfetch('/api/gen2/import/chatgpt-archive',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({archive:payload,preview:true})});
   chatgptPrepared={fileName:f.name,payload,preview};
-  const fmt=v=>Number(v||0).toLocaleString('fr-FR');
+  const fmt=v=>{const n=finiteMetric(v);return n===null?'—':n.toLocaleString('fr-FR')};
   qs('#chatgptPreOfficial').textContent=preview.official_export===true?'OUI':'NON / NON PROUVÉ';
   qs('#chatgptPreConversations').textContent=fmt(preview.conversations);
   qs('#chatgptPreMessages').textContent=fmt(preview.messages);
@@ -426,23 +426,33 @@ async function finishChatGPTMemoryBackfill(){
   return status;
 }
 function melMem05Verdict(archiveStatus,memoryStatus){
-  const descriptors=Number(archiveStatus?.attachment_index?.descriptors||0);
+  const metric=value=>{const n=finiteMetric(value);return n===null?null:n};
+  const descriptors=metric(archiveStatus?.attachment_index?.descriptors);
+  const binary=metric(archiveStatus?.attachment_index?.binary_content_available);
+  const indexed=metric(archiveStatus?.attachment_index?.indexed_descriptors);
+  const partial=metric(archiveStatus?.partial_conversations);
+  const underfilled=metric(archiveStatus?.underfilled_conversations);
+  const remainingMessages=metric(memoryStatus?.remaining_eligible_messages);
+  const remainingConversations=metric(memoryStatus?.remaining_conversations);
+  const requiredKnown=[descriptors,partial,underfilled,remainingMessages,remainingConversations].every(v=>v!==null);
   const complete=archiveStatus?.full_archive_confirmed===true
-    && Number(archiveStatus?.partial_conversations||0)===0
-    && Number(archiveStatus?.underfilled_conversations||0)===0
-    && Number(memoryStatus?.remaining_eligible_messages||0)===0
-    && Number(memoryStatus?.remaining_conversations||0)===0
+    && requiredKnown
+    && partial===0
+    && underfilled===0
+    && remainingMessages===0
+    && remainingConversations===0
     && descriptors>0;
   return {
     complete,
+    evidence_complete:requiredKnown,
     full_archive_confirmed:archiveStatus?.full_archive_confirmed===true,
     attachment_descriptors:descriptors,
-    binary_content_available:Number(archiveStatus?.attachment_index?.binary_content_available||0),
-    indexed_descriptors:Number(archiveStatus?.attachment_index?.indexed_descriptors||0),
-    partial_conversations:Number(archiveStatus?.partial_conversations||0),
-    underfilled_conversations:Number(archiveStatus?.underfilled_conversations||0),
-    remaining_eligible_messages:Number(memoryStatus?.remaining_eligible_messages||0),
-    remaining_conversations:Number(memoryStatus?.remaining_conversations||0),
+    binary_content_available:binary,
+    indexed_descriptors:indexed,
+    partial_conversations:partial,
+    underfilled_conversations:underfilled,
+    remaining_eligible_messages:remainingMessages,
+    remaining_conversations:remainingConversations,
   };
 }
 qs('#chatgptFile').onchange=()=>{chatgptPrepared=null;qs('#chatgptImport').disabled=true;setChatGPTJourneyState('À PRÉ-AUDITER','warn');qs('#chatgptJourneyVerdict').textContent='Nouveau fichier sélectionné : lance le pré-audit.'};
@@ -574,7 +584,7 @@ if(topCycle)topCycle.onclick=()=>autonomyAction(topCycle,'/api/gen2/autonomy/tic
 if(topPause)topPause.onclick=()=>autonomyAction(topPause,autonomyControl.paused===true?'/api/gen2/autonomy/resume':'/api/gen2/autonomy/pause',autonomyControl.paused===true?{}:{reason:'owner-control-center-pause'},autonomyControl.paused===true?'Reprise de MEL':'Mise en pause',null).catch(()=>{});
 if(topActivity)topActivity.onclick=async()=>{if(!desktopPanel)return;desktopPanel.hidden=!desktopPanel.hidden;if(!desktopPanel.hidden)await showActivity(qs('#desktopActivityBody'))};
 qs('#desktopActivityClose').onclick=()=>{if(desktopPanel)desktopPanel.hidden=true};
-async function loadWork(){try{const r=await fetch('/api/work/health');const d=await r.json().catch(()=>({}));qs('#bridgeState').textContent=r.ok?'Disponible':'Indisponible';qs('#workOut').textContent=JSON.stringify(d,null,2)}catch(e){qs('#bridgeState').textContent='Indisponible';qs('#workOut').textContent=e.message}}
+async function loadWork(){try{const d=await jfetch('/api/work/health');const online=d?.ok===true&&d?.available===true&&String(d?.status||'').toUpperCase()==='ONLINE';const mode=String(d?.mode||'').toLowerCase();qs('#bridgeState').textContent=online?(mode==='preflight-only'?'Préflight disponible':'Disponible'):'Indisponible';qs('#workOut').textContent=JSON.stringify(d,null,2)}catch(e){qs('#bridgeState').textContent='Indisponible';qs('#workOut').textContent='État Work indisponible : '+e.message}}
 qs('#workRefresh').onclick=loadWork;qs('#workCreate').onclick=async()=>{const goal=qs('#workGoal').value.trim();if(!goal)return;qs('#workCreate').disabled=true;try{const d=await jfetch('/api/work/jobs',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({goal,mode:'prepare'})});qs('#workOut').textContent=JSON.stringify(d,null,2)}catch(e){qs('#workOut').textContent='Erreur : '+e.message}finally{qs('#workCreate').disabled=false}};
 function setLoraTag(id,text,kind){const el=qs(id);if(!el)return;el.textContent=text;el.className='tag '+kind}
 async function loadFreeLoraStatus(){
