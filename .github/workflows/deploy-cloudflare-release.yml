@@ -44,7 +44,7 @@ jobs:
       RELEASE_BRANCH: ${{ github.event_name == 'workflow_dispatch' && inputs.release_branch || github.ref_name }}
       EXPECTED_SHA: ${{ github.event_name == 'workflow_dispatch' && inputs.expected_sha || github.sha }}
       APPROVAL: ${{ github.event_name == 'workflow_dispatch' && inputs.approval || 'DEPLOY_APPROVED' }}
-      OWNER_MAX_AUTORELEASE: ${{ github.event_name == 'push' && 'true' || (inputs.owner_max_autorelease && 'true' || 'false') }}
+      OWNER_MAX_AUTORELEASE: ${{ github.event_name == 'workflow_dispatch' && inputs.owner_max_autorelease && 'true' || 'false' }}
       # TEMPORARY DEV-LIGHT MODE: ShardVault 7/7/code-sync proof paused to finish downstream release validation.
       # MUST be restored to 'false' before final validation/closure.
       MEL_ROADMAP_SHARDVAULT_PAUSED: 'false'
@@ -2397,6 +2397,32 @@ jobs:
           path: production-sovereignty-proof.json
           if-no-files-found: error
           retention-days: 14
+
+      - name: Keep MAX disabled after hardening release
+        if: success() && env.OWNER_MAX_AUTORELEASE != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE_URL="https://meliturgos.adrien-lopezcarreras.workers.dev"
+          test -s release-bootstrap-token.txt
+          SAFE_TOKEN="$(cat release-bootstrap-token.txt)"
+          echo "::add-mask::${SAFE_TOKEN}"
+          CODE="$(curl --silent --show-error --max-time 120 \
+            --header "x-mel-launch-bootstrap: ${SAFE_TOKEN}" \
+            --header "content-type: application/json" \
+            --data '{"phase":"pause"}' \
+            --output final-autonomy-safe-stop.json \
+            --write-out '%{http_code}' \
+            "${BASE_URL}/api/internal/release-launch-bootstrap" || true)"
+          test "${CODE}" = "200"
+          node - <<'NODE'
+          const d=require('./final-autonomy-safe-stop.json');
+          if(d?.ok!==true||d?.paused!==true||d?.max_autonomy!==false){
+            throw new Error('FINAL_AUTONOMY_SAFE_STOP_NOT_PROVED');
+          }
+          if(d?.autonomy_started===true) throw new Error('FINAL_AUTONOMY_SAFE_STOP_STARTED_AUTONOMY');
+          console.log('Final hardening state: paused=true, max_autonomy=false.');
+          NODE
 
       - name: Re-enable MAX 100% after verified autonomous release
         if: success() && env.OWNER_MAX_AUTORELEASE == 'true'
