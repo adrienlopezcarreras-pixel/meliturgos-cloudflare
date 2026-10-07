@@ -34,6 +34,8 @@
 extern esp_codec_dev_handle_t input_dev;
 extern esp_codec_dev_handle_t output_dev;
 
+void mini_media_wifi_release(void);
+
 
 #define MINI_LCD_H_RES 320
 #define MINI_LCD_V_RES 480
