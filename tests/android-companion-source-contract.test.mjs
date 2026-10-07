@@ -606,7 +606,7 @@ test('Android 0.6.48 exposes native keyboard camera companion and tools surfaces
   assert.doesNotMatch(activity,/Intent\(Intent\.ACTION_VIEW,\s*Uri\.parse\("https?:/);
 });
 
-test('Android 0.6.48 keeps French system TTS primary with server fallback',async()=>{
+test('Android voice keeps French system TTS primary with PCM48 then MP3 server fallbacks',async()=>{
   const api=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelApiClient.kt',root),'utf8');
   const vm=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelViewModel.kt',root),'utf8');
   const activity=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MainActivity.kt',root),'utf8');
@@ -625,12 +625,17 @@ test('Android 0.6.48 keeps French system TTS primary with server fallback',async
   assert.match(player,/AudioFormat\.ENCODING_PCM_16BIT/);
   assert.match(player,/AudioFormat\.CHANNEL_OUT_MONO/);
   assert.match(player,/SAMPLE_RATE = 48_000/);
+  assert.match(vm,/client\.tts\(answer, speaker = "luna", format = "pcm"\)/);
+  assert.match(vm,/MelVoicePlayer\.playPcm48kMono\(pcm\)/);
   assert.match(vm,/client\.tts\(answer, speaker = "luna", format = "mp3"\)/);
   assert.match(vm,/MelVoicePlayer\.playMp3\(appContext, audio\)/);
   assert.match(vm,/MelVoicePlayer\.playSystemFrench\(appContext, answer\)/);
   assert.match(vm,/status = "MEL parle…"/);
   assert.match(vm,/Audio MEL: meilleure voix Android fr-FR/);
-  assert.match(vm,/Audio MEL: secours serveur/);
+  assert.match(vm,/Audio MEL: secours PCM 48 kHz/);
+  assert.match(vm,/Audio MEL: secours MP3/);
+  assert.match(player,/AudioAttributes\.USAGE_MEDIA/);
+  assert.match(player,/AudioManager\.STREAM_MUSIC/);
   assert.match(player,/TextToSpeech/);
   assert.match(player,/Locale\.FRANCE/);
   assert.match(player,/splitForTts\(text, maxChunk\)/);
