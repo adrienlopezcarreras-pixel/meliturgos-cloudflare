@@ -1,15 +1,17 @@
 import { createWorkersAIAdapter } from '../augmentio/workers-ai-adapter.js';
+import { enforcePublicRateLimit } from '../security/public-rate-limit.js';
 
 const MODEL = '@cf/zai-org/glm-4.7-flash';
 const MAX_QUERY = 1800;
 
-function json(payload, status = 200) {
+function json(payload, status = 200, extra = {}) {
   return new Response(JSON.stringify(payload), {
     status,
     headers: {
       'content-type': 'application/json; charset=utf-8',
       'cache-control': 'no-store',
       'x-content-type-options': 'nosniff',
+      ...extra,
     },
   });
 }
@@ -21,6 +23,10 @@ function cleanQuery(value = '') {
 export async function handlePublicFidesChat(request, env) {
   if (!env?.AI || typeof env.AI.run !== 'function') {
     return json({ ok: false, error: 'FIDES_AI_UNAVAILABLE' }, 503);
+  }
+  const rate = await enforcePublicRateLimit(request, env, { scope: 'fides-guest-chat', limit: 12, windowMs: 60_000 });
+  if (!rate.ok) {
+    return json({ ok: false, error: 'PUBLIC_RATE_LIMITED' }, 429, { 'retry-after': String(rate.retry_after_seconds) });
   }
 
   let body;

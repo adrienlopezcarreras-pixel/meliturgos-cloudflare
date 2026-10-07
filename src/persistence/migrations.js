@@ -302,6 +302,24 @@ export const MIGRATIONS = [
     await db.prepare("DELETE FROM mel_oauth_tokens WHERE connector_id='generic-imap-smtp'").run();
     await db.prepare("DELETE FROM mel_oauth_transactions WHERE connector_id='generic-imap-smtp'").run();
   }},
+  { version: 16, name: 'runtime_query_indexes_and_public_rate_limits', run: async db => {
+    await db.prepare(`CREATE INDEX IF NOT EXISTS idx_conversations_owner_updated
+      ON conversations(owner, updated_at DESC)`).run();
+    await db.prepare(`CREATE INDEX IF NOT EXISTS idx_knowledge_entities_type
+      ON knowledge_entities(type)`).run();
+    await db.prepare(`CREATE INDEX IF NOT EXISTS idx_timeline_events_occurred
+      ON timeline_events(occurred_at ASC)`).run();
+    await db.prepare(`CREATE INDEX IF NOT EXISTS idx_automation_runs_automation_created
+      ON automation_runs(automation_id, created_at ASC)`).run();
+    await db.prepare(`CREATE TABLE IF NOT EXISTS public_rate_limits (
+      key TEXT PRIMARY KEY,
+      window_started INTEGER NOT NULL,
+      count INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    )`).run();
+    await db.prepare(`CREATE INDEX IF NOT EXISTS idx_public_rate_limits_updated
+      ON public_rate_limits(updated_at DESC)`).run();
+  }},
 ];
 
 export async function migrate(db, targetVersion = DB_SCHEMA_VERSION) {

@@ -8,7 +8,7 @@ test('canonical migration provisions persistent conversation focus and response 
   const DB=sqliteD1();
   try {
     const result=await migrate(DB);
-    assert.equal(DB_SCHEMA_VERSION,15);
+    assert.equal(DB_SCHEMA_VERSION,16);
     assert.equal(result.currentVersion,DB_SCHEMA_VERSION);
     const focus=await DB.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='conversation_focus_state'").first();
     const quality=await DB.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='mel_response_quality_events'").first();

@@ -21,12 +21,14 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.Environment
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.provider.AlarmClock
 import android.provider.CalendarContract
 import android.provider.OpenableColumns
+import android.provider.MediaStore
 import android.provider.Settings
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -122,6 +124,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.ViewModelProvider
@@ -159,6 +162,9 @@ class MainActivity : ComponentActivity() {
     private val voiceLevel = mutableStateOf(0f)
     private val voiceMessage = mutableStateOf("Micro prêt")
     private val cameraPhoto = mutableStateOf<Bitmap?>(null)
+    private val cameraVideoUri = mutableStateOf<Uri?>(null)
+    private var pendingVideoFile: File? = null
+    private var pendingVideoUri: Uri? = null
     private val wakeEnrollmentCount = mutableStateOf(0)
     private val wakeEnrollmentActive = mutableStateOf(false)
     private val wakeEnrolled = mutableStateOf(false)
@@ -197,6 +203,22 @@ class MainActivity : ComponentActivity() {
     ) { bitmap ->
         cameraPhoto.value = bitmap
         voiceMessage.value = if (bitmap != null) "Photo prête · envoie-la à MEL" else "Caméra annulée"
+    }
+
+    private val videoCapture = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        val uri = pendingVideoUri
+        val file = pendingVideoFile
+        if (result.resultCode == android.app.Activity.RESULT_OK && uri != null && file?.exists() == true && file.length() > 0L) {
+            cameraVideoUri.value = uri
+            voiceMessage.value = "Vidéo enregistrée sur le téléphone · envoie-la à MEL"
+        } else {
+            runCatching { file?.delete() }
+            voiceMessage.value = "Vidéo annulée"
+        }
+        pendingVideoFile = null
+        pendingVideoUri = null
     }
 
     private val notificationPermission = registerForActivityResult(
@@ -303,8 +325,11 @@ class MainActivity : ComponentActivity() {
                     onBackgroundProbe = model::runBackgroundProbe,
                     onTestVoice = ::testFrenchVoice,
                     cameraPhoto = cameraPhoto.value,
+                    cameraVideoReady = cameraVideoUri.value != null,
                     onCamera = ::openCamera,
+                    onVideoCamera = ::openVideoCamera,
                     onSendCamera = ::sendCameraPhoto,
+                    onSendVideo = ::sendCameraVideo,
                     onRefreshCompanions = model::refreshCompanions,
                     onConnectMini = { ensureMobileBridge(true) },
                     onMiniPairCode = model::requestMiniPairCode,
@@ -459,6 +484,30 @@ class MainActivity : ComponentActivity() {
             .onFailure { voiceMessage.value = "Caméra indisponible sur ce téléphone" }
     }
 
+    private fun openVideoCamera() {
+        runCatching {
+            val directory = getExternalFilesDir(Environment.DIRECTORY_MOVIES) ?: filesDir
+            if (!directory.exists()) directory.mkdirs()
+            val file = File.createTempFile("mel-video-", ".mp4", directory)
+            val uri = FileProvider.getUriForFile(this, packageName + ".fileprovider", file)
+            pendingVideoFile = file
+            pendingVideoUri = uri
+            val intent = Intent(MediaStore.ACTION_VIDEO_CAPTURE).apply {
+                putExtra(MediaStore.EXTRA_OUTPUT, uri)
+                putExtra(MediaStore.EXTRA_DURATION_LIMIT, 15)
+                putExtra(MediaStore.EXTRA_SIZE_LIMIT, MAX_FILE_BYTES.toLong())
+                addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION or Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                clipData = ClipData.newRawUri("Vidéo MEL", uri)
+            }
+            videoCapture.launch(intent)
+        }.onFailure {
+            runCatching { pendingVideoFile?.delete() }
+            pendingVideoFile = null
+            pendingVideoUri = null
+            voiceMessage.value = "Caméra vidéo indisponible sur ce téléphone"
+        }
+    }
+
     private fun sendCameraPhoto() {
         val bitmap = cameraPhoto.value ?: run {
             voiceMessage.value = "Prends d’abord une photo"
@@ -478,6 +527,31 @@ class MainActivity : ComponentActivity() {
         )
         cameraPhoto.value = null
         voiceMessage.value = "Photo envoyée à MEL"
+    }
+
+    private fun sendCameraVideo() {
+        val uri = cameraVideoUri.value ?: run {
+            voiceMessage.value = "Enregistre d’abord une vidéo"
+            return
+        }
+        Thread {
+            try {
+                val bytes = readUriBounded(uri)
+                val name = "mel-camera-video-" + System.currentTimeMillis() + ".mp4"
+                model.sendFile(name, "video/mp4", bytes)
+                runOnUiThread {
+                    cameraVideoUri.value = null
+                    voiceMessage.value = "Vidéo envoyée à MEL · copie locale conservée"
+                }
+            } catch (error: Throwable) {
+                runOnUiThread {
+                    voiceMessage.value = if (error.message == "FILE_TOO_LARGE")
+                        "Vidéo trop volumineuse · limite 25 Mo"
+                    else
+                        "Vidéo : " + (error.message ?: "lecture impossible")
+                }
+            }
+        }.start()
     }
 
     private fun copyDiagnostic(report: String) {
@@ -1030,7 +1104,11 @@ class MainActivity : ComponentActivity() {
             }
             MelCompanionCommand.Camera -> {
                 openCamera()
-                model.localCompanionReply(raw, "J’ouvre la caméra.", voice)
+                model.localCompanionReply(raw, "J’ouvre la caméra photo.", voice)
+            }
+            MelCompanionCommand.VideoCamera -> {
+                openVideoCamera()
+                model.localCompanionReply(raw, "J’ouvre la caméra vidéo. La séquence sera conservée sur le téléphone.", voice)
             }
             MelCompanionCommand.FilePicker -> {
                 pickFile()
@@ -1347,8 +1425,11 @@ internal fun MelApp(
     onBackgroundProbe: () -> Unit,
     onTestVoice: () -> Unit,
     cameraPhoto: Bitmap? = null,
+    cameraVideoReady: Boolean = false,
     onCamera: () -> Unit = {},
+    onVideoCamera: () -> Unit = {},
     onSendCamera: () -> Unit = {},
+    onSendVideo: () -> Unit = {},
     onRefreshCompanions: () -> Unit = {},
     onConnectMini: () -> Unit = {},
     onMiniPairCode: (String, String) -> Unit = { _, _ -> },
@@ -1397,8 +1478,11 @@ internal fun MelApp(
                 onBackgroundProbe = onBackgroundProbe,
                 onTestVoice = onTestVoice,
                 cameraPhoto = cameraPhoto,
+                cameraVideoReady = cameraVideoReady,
                 onCamera = onCamera,
+                onVideoCamera = onVideoCamera,
                 onSendCamera = onSendCamera,
+                onSendVideo = onSendVideo,
                 onRefreshCompanions = onRefreshCompanions,
                 onConnectMini = onConnectMini,
                 onMiniPairCode = onMiniPairCode,
@@ -1767,8 +1851,11 @@ private fun ConversationScreen(
     onBackgroundProbe: () -> Unit,
     onTestVoice: () -> Unit,
     cameraPhoto: Bitmap?,
+    cameraVideoReady: Boolean,
     onCamera: () -> Unit,
+    onVideoCamera: () -> Unit,
     onSendCamera: () -> Unit,
+    onSendVideo: () -> Unit,
     onRefreshCompanions: () -> Unit,
     onConnectMini: () -> Unit,
     onMiniPairCode: (String, String) -> Unit,
@@ -1841,7 +1928,14 @@ private fun ConversationScreen(
                 )
             }
             MobileSection.CAMERA -> SectionSurface("CAMERA // MEL") {
-                CameraPanel(photo = cameraPhoto, onCamera = onCamera, onSend = onSendCamera)
+                CameraPanel(
+                    photo = cameraPhoto,
+                    videoReady = cameraVideoReady,
+                    onCamera = onCamera,
+                    onVideoCamera = onVideoCamera,
+                    onSendPhoto = onSendCamera,
+                    onSendVideo = onSendVideo
+                )
             }
             MobileSection.COMPANION -> SectionSurface("COMPAGNON // MINI") {
                 CompanionPanel(
@@ -2558,11 +2652,14 @@ private fun KeyboardPanel(
 @Composable
 private fun CameraPanel(
     photo: Bitmap?,
+    videoReady: Boolean,
     onCamera: () -> Unit,
-    onSend: () -> Unit
+    onVideoCamera: () -> Unit,
+    onSendPhoto: () -> Unit,
+    onSendVideo: () -> Unit
 ) {
     Column(
-        Modifier.fillMaxSize(),
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         HudLabel("CAMERA // MEL", "CAPTURE NATIVE ANDROID", MelBlue)
@@ -2573,14 +2670,14 @@ private fun CameraPanel(
                 contentDescription = "Photo capturée pour MEL",
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(360.dp)
+                    .height(320.dp)
                     .clip(RoundedCornerShape(24.dp))
                     .border(1.dp, MelBlue.copy(alpha = .35f), RoundedCornerShape(24.dp)),
                 contentScale = ContentScale.Crop
             )
         } else {
             Surface(
-                modifier = Modifier.fillMaxWidth().height(360.dp),
+                modifier = Modifier.fillMaxWidth().height(260.dp),
                 color = MelGlass,
                 border = BorderStroke(1.dp, MelBlue.copy(alpha = .24f)),
                 shape = RoundedCornerShape(24.dp)
@@ -2590,27 +2687,49 @@ private fun CameraPanel(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Center
                 ) {
-                    MelAvatar(118, online = true, faceState = MelFaceState.IDLE)
-                    Spacer(Modifier.height(14.dp))
-                    Text("Caméra prête", color = MelInk, fontWeight = FontWeight.Bold)
-                    Text("Prends une photo puis envoie-la à MEL.", color = MelMuted, fontSize = 12.sp)
+                    MelAvatar(104, online = true, faceState = MelFaceState.IDLE)
+                    Spacer(Modifier.height(12.dp))
+                    Text(if (videoReady) "Vidéo prête" else "Caméra prête", color = MelInk, fontWeight = FontWeight.Bold)
+                    Text(
+                        if (videoReady) "La vidéo est enregistrée sur le téléphone et peut être envoyée à MEL."
+                        else "Prends une photo ou enregistre une vidéo.",
+                        color = MelMuted,
+                        fontSize = 12.sp,
+                        textAlign = TextAlign.Center
+                    )
                 }
             }
         }
         Spacer(Modifier.height(12.dp))
-        Button(
-            onClick = onCamera,
-            modifier = Modifier.fillMaxWidth().height(52.dp).testTag("camera-open"),
-            shape = RoundedCornerShape(18.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = MelBlue)
-        ) { Text(if (photo == null) "OUVRIR LA CAMÉRA" else "REPRENDRE LA PHOTO", fontWeight = FontWeight.Bold) }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(
+                onClick = onCamera,
+                modifier = Modifier.weight(1f).height(52.dp).testTag("camera-open"),
+                shape = RoundedCornerShape(18.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = MelBlue)
+            ) { Text(if (photo == null) "PHOTO" else "REPRENDRE", fontWeight = FontWeight.Bold) }
+            OutlinedButton(
+                onClick = onVideoCamera,
+                modifier = Modifier.weight(1f).height(52.dp).testTag("camera-video-open"),
+                shape = RoundedCornerShape(18.dp)
+            ) { Text(if (videoReady) "REPRENDRE VIDÉO" else "VIDÉO", fontWeight = FontWeight.Bold) }
+        }
         Spacer(Modifier.height(8.dp))
         OutlinedButton(
-            onClick = onSend,
+            onClick = onSendPhoto,
             modifier = Modifier.fillMaxWidth().height(50.dp).testTag("camera-send"),
             enabled = photo != null,
             shape = RoundedCornerShape(18.dp)
-        ) { Text("ENVOYER À MEL") }
+        ) { Text("ENVOYER LA PHOTO À MEL") }
+        Spacer(Modifier.height(8.dp))
+        OutlinedButton(
+            onClick = onSendVideo,
+            modifier = Modifier.fillMaxWidth().height(50.dp).testTag("camera-video-send"),
+            enabled = videoReady,
+            shape = RoundedCornerShape(18.dp)
+        ) { Text("ENVOYER LA VIDÉO À MEL") }
+        Spacer(Modifier.height(10.dp))
+        Text("Vidéo limitée à 15 s et 25 Mo. La copie locale est conservée.", color = MelMuted, fontSize = 11.sp)
     }
 }
 

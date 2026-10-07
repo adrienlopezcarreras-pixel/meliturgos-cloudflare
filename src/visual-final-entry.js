@@ -1,4 +1,5 @@
 import app from './preview-auth-entry.js';
+import { rejectCrossSiteMutation } from './core/security.js';
 
 const NORMAL_PATHS = new Set(['/', '/mvp']);
 const PROFESSOR_PATHS = new Set(['/professor']);
@@ -97,6 +98,8 @@ export async function finalizeVisualResponse(response, pathname) {
 
 export default {
   async fetch(request, env, ctx) {
+    const crossSiteDenied = rejectCrossSiteMutation(request);
+    if (crossSiteDenied) return hardenResponseHeaders(crossSiteDenied);
     // Canonical pages now own their visuals directly. Keep the exported
     // finalizer as a compatibility/audit helper, but do not parse and rebuild
     // every HTML response in the deployed hot path.
