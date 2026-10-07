@@ -156,10 +156,10 @@ function accountFor(rows, app) {
   return account;
 }
 
-export function createPipedreamRuntime({ env = {}, fetcher = fetch } = {}) {
+export function createPipedreamRuntime({ env = {}, fetcher = fetch, configResolver = loadPipedreamRuntimeConfig } = {}) {
   return Object.freeze({
     async status(owner = env.MELITURGOS_USER || 'owner', options = {}) {
-      const config = await loadPipedreamRuntimeConfig(env, owner);
+      const config = await configResolver(env, owner);
       const inventory = await listPipedreamRuntimeAccounts(config, owner, {
         fetcher,
         signal: options.signal,
@@ -177,7 +177,7 @@ export function createPipedreamRuntime({ env = {}, fetcher = fetch } = {}) {
       if (target.protocol !== 'https:' || target.username || target.password) {
         throw runtimeError('PIPEDREAM_PROXY_TARGET_INVALID', 400);
       }
-      const config = await loadPipedreamRuntimeConfig(env, owner);
+      const config = await configResolver(env, owner);
       const inventory = await listPipedreamRuntimeAccounts(config, owner, { fetcher, signal });
       const account = accountFor(inventory.accounts, clean(app, 160));
       const params = new URLSearchParams({
