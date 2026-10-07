@@ -447,6 +447,9 @@ export function inferConnectedDataCapability(value) {
         execution_intent: 'CONNECTED_DATA_MUTATION',
       };
     }
+    // An incomplete mutation request must never degrade into a read/search
+    // operation. Ask the model to clarify the missing fields instead.
+    return null;
   }
 
   if (/\b(?:outlook|msn|hotmail)\b/i.test(raw)) {
