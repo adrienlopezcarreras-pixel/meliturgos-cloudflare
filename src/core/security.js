@@ -1,3 +1,35 @@
+
+const SAFE_BROWSER_METHODS = new Set(['GET','HEAD','OPTIONS']);
+const CROSS_SITE_PUBLIC_POST_PATHS = new Set([
+  '/api/public/wordpress/chat',
+  '/api/public/fides/chat',
+  '/__preview/login',
+]);
+
+export function rejectCrossSiteMutation(request) {
+  const method = String(request?.method || 'GET').toUpperCase();
+  if (SAFE_BROWSER_METHODS.has(method)) return null;
+  const url = new URL(request.url);
+  if (CROSS_SITE_PUBLIC_POST_PATHS.has(url.pathname)) return null;
+
+  const origin = String(request.headers.get('origin') || '').trim();
+  if (origin && origin !== url.origin) {
+    return new Response(JSON.stringify({ ok:false, error:'CROSS_SITE_MUTATION_FORBIDDEN', code:'CROSS_SITE_MUTATION_FORBIDDEN' }), {
+      status: 403,
+      headers: { 'content-type':'application/json; charset=utf-8', 'cache-control':'no-store' },
+    });
+  }
+
+  const fetchSite = String(request.headers.get('sec-fetch-site') || '').toLowerCase();
+  if (fetchSite === 'cross-site') {
+    return new Response(JSON.stringify({ ok:false, error:'CROSS_SITE_MUTATION_FORBIDDEN', code:'CROSS_SITE_MUTATION_FORBIDDEN' }), {
+      status: 403,
+      headers: { 'content-type':'application/json; charset=utf-8', 'cache-control':'no-store' },
+    });
+  }
+  return null;
+}
+
 export function isApiRequest(request) {
   const url = new URL(request.url);
   return url.pathname.startsWith("/api/");
