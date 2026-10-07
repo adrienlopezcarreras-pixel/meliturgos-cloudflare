@@ -70,6 +70,7 @@ const SAFE_SAMPLES = Object.freeze({
   'memory.status': {},
   'knowledge.search': { query: 'MELITURGOS', limit: 1 },
   'evolution.ledger.list': { limit: 1 },
+  'evolution.ledger.verify': { limit: 50 },
   'resilience.recovery.drill.latest': {},
   'resilience.cold-standby.prepare.latest': {},
   'event.list': { limit: 1 },
@@ -166,6 +167,11 @@ const SAFE_SAMPLES = Object.freeze({
     const rows = await sampleRead(runtime, context, 'conversation.list', {});
     const row = firstArray(rows, '')[0];
     return row?.id ? { conversationId: String(row.id), limit: 1 } : undefined;
+  },
+  'knowledge.file.read': async ({ runtime, context }) => {
+    const result = await sampleRead(runtime, context, 'knowledge.search', { query: 'MELITURGOS', limit: 1 });
+    const row = firstArray(result, 'artifacts')[0];
+    return row?.id ? { id: String(row.id) } : row?.filename ? { filename: String(row.filename) } : undefined;
   },
 });
 
