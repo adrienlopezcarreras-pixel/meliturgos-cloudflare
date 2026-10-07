@@ -64,7 +64,7 @@ static const int WIFI_CONNECTED_BIT = BIT0;
 static const int WIFI_FAIL_BIT = BIT1;
 static const size_t MAX_HTTP_RESPONSE = 64 * 1024;
 static const int VOICE_SECONDS = 10;
-static const int VOICE_CAPTURE_RATE = 16000;
+static const int VOICE_CAPTURE_RATE = 48000;
 static const int VOICE_STT_RATE = 16000;
 static const int VOICE_CAPTURE_SAMPLES = VOICE_SECONDS * VOICE_CAPTURE_RATE;
 static const int VOICE_CAPTURE_BYTES = VOICE_CAPTURE_SAMPLES * 2;
@@ -79,6 +79,14 @@ static const int WAKE_HOP_SAMPLES = WAKE_RATE * WAKE_HOP_MS / 1000;
 static const int WAKE_FEATURE_SEGMENTS = 6;
 static const int WAKE_FEATURE_BANDS = 8;
 static const int WAKE_FEATURE_COUNT = WAKE_FEATURE_SEGMENTS * WAKE_FEATURE_BANDS;
+
+// 31-tap low-pass FIR shared with Android. The physical ES8311 stream is
+// 48 kHz; STT and wake features are intentionally downsampled to 16 kHz.
+static const int16_t VOICE_DECIMATOR_Q15[31] = {
+    51,17,-58,-146,-134,84,426,555,114,-838,
+    -1592,-1105,1213,4834,8186,9551,8186,4834,1213,
+    -1105,-1592,-838,114,555,426,84,-134,-146,-58,17,51
+};
 
 extern esp_codec_dev_handle_t input_dev;
 extern esp_codec_dev_handle_t output_dev;
@@ -393,9 +401,37 @@ static void ensure_mic_mutex() {
     if (!g_mic_mutex) g_mic_mutex = xSemaphoreCreateMutex();
 }
 
+static int decimate_48k_to_16k(
+    const int16_t *input,
+    int input_samples,
+    int16_t *output,
+    int output_capacity,
+    int32_t dc
+) {
+    if (!input || !output || input_samples < 3 || output_capacity <= 0) return 0;
+    const int count = std::min(input_samples / 3, output_capacity);
+    constexpr int taps = sizeof(VOICE_DECIMATOR_Q15) / sizeof(VOICE_DECIMATOR_Q15[0]);
+    constexpr int half = taps / 2;
+    for (int i = 0; i < count; ++i) {
+        const int center = i * 3;
+        int64_t acc = 0;
+        for (int tap = 0; tap < taps; ++tap) {
+            const int src = std::max(0, std::min(input_samples - 1, center + tap - half));
+            const int32_t v = (int32_t)input[src] - dc;
+            acc += (int64_t)v * VOICE_DECIMATOR_Q15[tap];
+        }
+        int32_t v = (int32_t)(acc >> 15);
+        if (v > 32767) v = 32767;
+        if (v < -32768) v = -32768;
+        output[i] = (int16_t)v;
+    }
+    return count;
+}
+
 static void wake_detector_task(void *) {
+    constexpr int WAKE_RAW_SAMPLES = WAKE_HOP_SAMPLES * 3;
     auto *ring = static_cast<int16_t *>(heap_caps_calloc(WAKE_WINDOW_SAMPLES, sizeof(int16_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
-    auto *raw = static_cast<int16_t *>(heap_caps_malloc(WAKE_HOP_SAMPLES * sizeof(int16_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    auto *raw = static_cast<int16_t *>(heap_caps_malloc(WAKE_RAW_SAMPLES * sizeof(int16_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
     auto *hop = static_cast<int16_t *>(heap_caps_malloc(WAKE_HOP_SAMPLES * sizeof(int16_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
     if (!ring || !raw || !hop) {
         if (ring) heap_caps_free(ring);
@@ -422,7 +458,7 @@ static void wake_detector_task(void *) {
             continue;
         }
         esp_codec_dev_set_in_gain(input_dev, 35.0);
-        const int rc = esp_codec_dev_read(input_dev, raw, WAKE_HOP_SAMPLES * (int)sizeof(int16_t));
+        const int rc = esp_codec_dev_read(input_dev, raw, WAKE_RAW_SAMPLES * (int)sizeof(int16_t));
         esp_codec_dev_set_in_gain(input_dev, 0.0);
         xSemaphoreGive(g_mic_mutex);
         if (rc != ESP_CODEC_DEV_OK) {
@@ -436,7 +472,14 @@ static void wake_detector_task(void *) {
             continue;
         }
 
-        memcpy(hop, raw, WAKE_HOP_SAMPLES * sizeof(int16_t));
+        const int hop_samples = decimate_48k_to_16k(
+            raw, WAKE_RAW_SAMPLES, hop, WAKE_HOP_SAMPLES, 0
+        );
+        if (hop_samples != WAKE_HOP_SAMPLES) {
+            ESP_LOGW(TAG, "WAKE decimator produced %d/%d samples", hop_samples, WAKE_HOP_SAMPLES);
+            filled = 0;
+            continue;
+        }
         if (filled < WAKE_WINDOW_SAMPLES) {
             const int copy = std::min(WAKE_HOP_SAMPLES, WAKE_WINDOW_SAMPLES - filled);
             memcpy(ring + filled, hop, copy * sizeof(int16_t));
@@ -673,7 +716,7 @@ static bool http_discard_exact(esp_http_client_handle_t client, uint32_t count) 
 }
 
 static bool read_tts_wav_header(esp_http_client_handle_t client, uint32_t &pcm_bytes) {
-    static const uint32_t TTS_MAX_PCM_BYTES = 16000U * 2U * 180U;
+    static const uint32_t TTS_MAX_PCM_BYTES = 48000U * 2U * 180U;
     uint8_t riff[12] = {};
     if (!http_read_exact(client, riff, sizeof(riff))) return false;
     if (memcmp(riff, "RIFF", 4) != 0 || memcmp(riff + 8, "WAVE", 4) != 0) return false;
@@ -695,7 +738,7 @@ static bool read_tts_wav_header(esp_http_client_handle_t client, uint32_t &pcm_b
             const uint16_t channels = read_le16(fmt + 2);
             const uint32_t sample_rate = read_le32(fmt + 4);
             const uint16_t bits_per_sample = read_le16(fmt + 14);
-            if (audio_format != 1 || channels != 1 || sample_rate != 16000 || bits_per_sample != 16) {
+            if (audio_format != 1 || channels != 1 || sample_rate != 48000 || bits_per_sample != 16) {
                 ESP_LOGE(
                     TAG,
                     "TTS WAV format mismatch format=%u channels=%u rate=%lu bits=%u",
@@ -1379,7 +1422,7 @@ static std::string record_and_transcribe() {
              (long)((int32_t)raw_max - (int32_t)raw_min),
              (unsigned)raw_mean_abs, (long)dc);
 
-    const int speech_samples = captured_samples;
+    const int speech_samples = captured_samples / 3;
     const int speech_bytes = speech_samples * (int)sizeof(int16_t);
     auto *speech = static_cast<int16_t *>(heap_caps_malloc(speech_bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
     if (!speech) speech = static_cast<int16_t *>(heap_caps_malloc(speech_bytes, MALLOC_CAP_8BIT));
@@ -1390,20 +1433,27 @@ static std::string record_and_transcribe() {
         return "";
     }
 
-    // Waveshare's ES8311 BSP already delivers native 16 kHz mono PCM.
-    // Keep the signal at its native rate; only remove DC before normalization.
+    // The Waveshare BSP opens esp_codec_dev at 48 kHz. Low-pass then
+    // decimate by 3 so Whisper receives a real 16 kHz signal with correct time.
+    const int decimated = decimate_48k_to_16k(
+        capture, captured_samples, speech, speech_samples, dc
+    );
+    heap_caps_free(capture);
+    if (decimated != speech_samples || speech_samples <= 0) {
+        heap_caps_free(speech);
+        ESP_LOGE(TAG, "VOICE: decimator produced %d/%d samples", decimated, speech_samples);
+        voice_error("DECIMATION STT");
+        return "";
+    }
+
     int32_t peak = 0;
     uint64_t speech_abs_sum = 0;
     for (int i = 0; i < speech_samples; ++i) {
-        int32_t v = (int32_t)capture[i] - dc;
-        if (v > 32767) v = 32767;
-        if (v < -32768) v = -32768;
-        speech[i] = (int16_t)v;
+        const int32_t v = speech[i];
         const int32_t a = v < 0 ? -v : v;
         if (a > peak) peak = a;
         speech_abs_sum += (uint32_t)a;
     }
-    heap_caps_free(capture);
 
     uint32_t speech_mean_abs = (uint32_t)(speech_abs_sum / speech_samples);
     if (peak < 90 || speech_mean_abs < 18) {

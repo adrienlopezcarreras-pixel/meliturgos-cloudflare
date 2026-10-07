@@ -184,6 +184,19 @@ object MelImaAdpcm {
         return samples
     }
 
+    fun upsample16kTo48k(samples16k: ShortArray): ShortArray {
+        if (samples16k.isEmpty()) return ShortArray(0)
+        val out = ShortArray(samples16k.size * 3)
+        for (i in samples16k.indices) {
+            val a = samples16k[i].toInt()
+            val b = samples16k[minOf(i + 1, samples16k.lastIndex)].toInt()
+            out[i * 3] = a.toShort()
+            out[i * 3 + 1] = ((2 * a + b) / 3).coerceIn(-32768, 32767).toShort()
+            out[i * 3 + 2] = ((a + 2 * b) / 3).coerceIn(-32768, 32767).toShort()
+        }
+        return out
+    }
+
     fun decimate48kTo16k(samples48k: ShortArray): ShortArray {
         require(samples48k.size >= 31)
         val count = samples48k.size / 3

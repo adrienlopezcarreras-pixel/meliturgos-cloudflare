@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises';
 
 const root=new URL('../',import.meta.url);
 
-test('Link V2 physical STT preserves real 16 kHz speech before ADPCM transport',async()=>{
+test('Link V2 physical STT captures 48 kHz and decimates to real 16 kHz before ADPCM transport',async()=>{
   const [terminal,transport,codec,protocol]=await Promise.all([
     readFile(new URL('firmware/waveshare-terminal/main/mel_terminal.cpp',root),'utf8'),
     readFile(new URL('firmware/waveshare-terminal/main/mel_link_v2_transport.cpp',root),'utf8'),
@@ -12,11 +12,11 @@ test('Link V2 physical STT preserves real 16 kHz speech before ADPCM transport',
     readFile(new URL('firmware/waveshare-terminal/main/mel_link_v2_protocol.h',root),'utf8'),
   ]);
 
-  assert.match(terminal,/VOICE_CAPTURE_RATE = 16000/);
+  assert.match(terminal,/VOICE_CAPTURE_RATE = 48000/);
   assert.match(terminal,/VOICE_STT_RATE = 16000/);
-  assert.doesNotMatch(terminal,/VOICE_DECIMATOR_Q15/);
-  assert.match(terminal,/const int speech_samples = captured_samples/);
-  assert.match(terminal,/int32_t v = \(int32_t\)capture\[i\] - dc/);
+  assert.match(terminal,/VOICE_DECIMATOR_Q15/);
+  assert.match(terminal,/const int speech_samples = captured_samples \/ 3/);
+  assert.match(terminal,/decimate_48k_to_16k/);
   assert.match(terminal,/mel_link_v2_transport_transcribe_adpcm\(/);
   assert.doesNotMatch(terminal,/application\/x-mel-pcm4/);
   assert.doesNotMatch(terminal,/samples_per_byte=2/);
@@ -116,13 +116,13 @@ test('MINI generic request begin/end use notifications with CREDIT/response ackn
 });
 
 
-test('Link V2 TTS accepts canonical 16 kHz WAV and never streams HTTP errors as PCM', async () => {
+test('Link V2 TTS preserves canonical 48 kHz PCM and never streams HTTP errors as PCM', async () => {
   const [service, transport, terminal] = await Promise.all([
     readFile(new URL('android-companion/app/src/main/java/fr/veriteinterdite/mel/MelLinkV2ClientService.kt', root), 'utf8'),
     readFile(new URL('firmware/waveshare-terminal/main/mel_link_v2_transport.cpp', root), 'utf8'),
     readFile(new URL('firmware/waveshare-terminal/main/mel_terminal.cpp', root), 'utf8'),
   ]);
-  assert.match(service, /decodePcm16MonoWav\(body, 16_000\)/);
+  assert.match(service, /decodePcm16MonoWav\(body, 48_000\)/);
   assert.match(service, /decodePcm16MonoWav\(body, 48_000\)/);
   assert.match(transport, /g_active\.cb && g_active\.status >= 200 && g_active\.status < 300/);
   assert.match(terminal, /TTS SANS AUDIO/);
@@ -141,7 +141,7 @@ test('MINI response viewer transliterates unsupported UTF-8 glyphs instead of dr
 });
 
 
-test('Waveshare ES8311 path stays native 16 kHz from capture through Link V2 playback', async () => {
+test('Waveshare ES8311 path uses 48 kHz physical capture/playback with 16 kHz STT', async () => {
   const [terminal, transport, service, main] = await Promise.all([
     readFile(new URL('firmware/waveshare-terminal/main/mel_terminal.cpp', root), 'utf8'),
     readFile(new URL('firmware/waveshare-terminal/main/mel_link_v2_transport.cpp', root), 'utf8'),
@@ -150,11 +150,11 @@ test('Waveshare ES8311 path stays native 16 kHz from capture through Link V2 pla
   ]);
   assert.match(terminal, /VOICE_CAPTURE_RATE = 16000/);
   assert.doesNotMatch(terminal, /VOICE_DECIMATOR_Q15/);
-  assert.match(transport, /output_rate->valueint == 16000/);
-  assert.match(transport, /deliver_audio_16k_native/);
-  assert.doesNotMatch(transport, /deliver_audio_16k_as_48k/);
-  assert.match(service, /sendAudioResponse\(request\.streamId, pcm16, outputRate = 16_000\)/);
-  assert.match(main, /sample_count = 2 \* 16000/);
+  assert.match(transport, /output_rate->valueint == 48000/);
+  assert.match(transport, /deliver_audio_48k_native/);
+  assert.doesNotMatch(transport, /deliver_audio_16k_native/);
+  assert.match(service, /sendAudioResponse\(request\.streamId, pcm48, outputRate = 48_000\)/);
+  assert.match(main, /sample_count = 2 \* 48000/);
 });
 
 

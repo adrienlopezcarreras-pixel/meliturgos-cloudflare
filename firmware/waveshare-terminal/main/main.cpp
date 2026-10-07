@@ -104,6 +104,10 @@ static volatile bool wifi_got_ip = false;
 static volatile int wifi_disconnect_reason = -1;
 static volatile bool wifi_auto_reconnect_enabled = false;
 static volatile bool media_wifi_active = false;
+static wifi_config_t media_wifi_previous_cfg = {};
+static bool media_wifi_previous_cfg_valid = false;
+static bool media_wifi_previous_connected = false;
+static bool media_wifi_previous_auto_reconnect = false;
 static volatile int wifi_reconnect_attempt = 0;
 static TaskHandle_t wifi_reconnect_task_handle = nullptr;
 static TaskHandle_t wifi_fallback_task_handle = nullptr;
@@ -334,6 +338,12 @@ bool mini_media_wifi_connect(
 ) {
     if (!ssid || !ssid[0] || !gateway || gateway_len < 8) return false;
     gateway[0] = '\0';
+    media_wifi_previous_cfg = {};
+    media_wifi_previous_cfg_valid =
+        esp_wifi_get_config(WIFI_IF_STA, &media_wifi_previous_cfg) == ESP_OK &&
+        media_wifi_previous_cfg.sta.ssid[0] != 0;
+    media_wifi_previous_connected = wifi_got_ip;
+    media_wifi_previous_auto_reconnect = wifi_auto_reconnect_enabled;
     media_wifi_active = true;
     wifi_auto_reconnect_enabled = false;
     wifi_reconnect_attempt = 0;
@@ -354,6 +364,12 @@ bool mini_media_wifi_connect(
     if (esp_wifi_set_config(WIFI_IF_STA, &cfg) != ESP_OK ||
         esp_wifi_connect() != ESP_OK) {
         media_wifi_active = false;
+        if (media_wifi_previous_cfg_valid) {
+            esp_wifi_set_config(WIFI_IF_STA, &media_wifi_previous_cfg);
+            wifi_auto_reconnect_enabled =
+                media_wifi_previous_auto_reconnect || media_wifi_previous_connected;
+            if (media_wifi_previous_connected) esp_wifi_connect();
+        }
         return false;
     }
 
@@ -370,22 +386,39 @@ bool mini_media_wifi_connect(
     }
 
     ESP_LOGW(TAG, "MINI MEDIA WIFI timeout ssid=%s", ssid);
-    esp_wifi_disconnect();
-    media_wifi_active = false;
-    wifi_got_ip = false;
-    mel_terminal_set_wifi_connected(false);
+    mini_media_wifi_release();
     return false;
 }
 
 void mini_media_wifi_release(void) {
     if (!media_wifi_active) return;
     media_wifi_active = false;
-    wifi_auto_reconnect_enabled = false;
     wifi_reconnect_attempt = 0;
     esp_wifi_disconnect();
     wifi_got_ip = false;
     mel_terminal_set_wifi_connected(false);
-    ESP_LOGI(TAG, "MINI MEDIA WIFI released; BLE remains primary");
+
+    const bool should_reconnect =
+        media_wifi_previous_cfg_valid &&
+        (media_wifi_previous_connected || media_wifi_previous_auto_reconnect);
+    wifi_auto_reconnect_enabled = should_reconnect;
+    if (media_wifi_previous_cfg_valid) {
+        const esp_err_t cfg_err = esp_wifi_set_config(WIFI_IF_STA, &media_wifi_previous_cfg);
+        const esp_err_t connect_err =
+            (cfg_err == ESP_OK && should_reconnect) ? esp_wifi_connect() : ESP_OK;
+        ESP_LOGI(TAG,
+                 "MINI MEDIA WIFI restore cfg=%s reconnect=%s connect=%s",
+                 esp_err_to_name(cfg_err),
+                 should_reconnect ? "YES" : "NO",
+                 esp_err_to_name(connect_err));
+    } else {
+        ESP_LOGI(TAG, "MINI MEDIA WIFI released; no previous STA config to restore");
+    }
+
+    media_wifi_previous_cfg = {};
+    media_wifi_previous_cfg_valid = false;
+    media_wifi_previous_connected = false;
+    media_wifi_previous_auto_reconnect = false;
 }
 
 bool mini_ui_visual_active() {
@@ -957,7 +990,7 @@ static void settings_audio_test_task(void *) {
 
     // Match the Waveshare reference audio test: capture two seconds from the
     // onboard microphone, then replay exactly that PCM through the speaker.
-    constexpr size_t sample_count = 2 * 16000; // Waveshare ES8311 BSP: 2 s @ 16 kHz mono
+    constexpr size_t sample_count = 2 * 48000; // Waveshare esp_codec_dev contract: 2 s @ 48 kHz mono
     constexpr size_t byte_count = sample_count * sizeof(int16_t);
     auto *pcm = static_cast<int16_t *>(heap_caps_malloc(byte_count, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
     if (!pcm) pcm = static_cast<int16_t *>(malloc(byte_count));

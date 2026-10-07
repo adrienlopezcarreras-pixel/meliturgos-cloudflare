@@ -76,7 +76,7 @@ static void drain_semaphore(SemaphoreHandle_t sem) {
     while (xSemaphoreTake(sem, 0) == pdTRUE) {}
 }
 
-static bool deliver_audio_16k_native(
+static bool deliver_audio_48k_native(
     const int16_t *samples,
     size_t sample_count
 ) {
@@ -226,12 +226,12 @@ static void rx_frame(const uint8_t *frame, size_t len, void *ctx) {
         const bool valid =
             cJSON_IsString(codec) && codec->valuestring &&
             strcmp(codec->valuestring, "ima-adpcm") == 0 &&
-            cJSON_IsNumber(rate) && rate->valueint == 16000 &&
+            cJSON_IsNumber(rate) && rate->valueint == 48000 &&
             cJSON_IsNumber(channels) && channels->valueint == 1 &&
             cJSON_IsNumber(block) && block->valueint == MEL_IMA_ADPCM_BLOCK_SAMPLES &&
-            cJSON_IsNumber(output_rate) && output_rate->valueint == 16000 &&
+            cJSON_IsNumber(output_rate) && output_rate->valueint == 48000 &&
             cJSON_IsNumber(samples) && samples->valuedouble > 0 &&
-            samples->valuedouble <= 16000.0 * 120.0;
+            samples->valuedouble <= 48000.0 * 120.0;
 
         if (!valid) {
             g_active.failed = true;
@@ -270,7 +270,7 @@ static void rx_frame(const uint8_t *frame, size_t len, void *ctx) {
         }
 
         if (g_active.received_audio_samples + decoded_samples > g_active.expected_audio_samples ||
-            !deliver_audio_16k_native(decoded, decoded_samples)) {
+            !deliver_audio_48k_native(decoded, decoded_samples)) {
             g_active.failed = true;
             if (g_response_done) xSemaphoreGive(g_response_done);
             return;
