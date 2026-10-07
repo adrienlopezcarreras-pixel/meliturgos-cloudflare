@@ -71,5 +71,27 @@ test('native Windows Companion refreshes only its authenticated MEL engine with 
   assert.match(source, /engine_refresh_status/);
   assert.match(source, /engine_update_required/);
   assert.match(source, /MaybeRefreshCompanionEngine\(true\)/);
-  assert.match(source, /public const string Version = "2\.4\.2"/);
+  assert.match(source, /public const string Version = "2\.5\.0"/);
+});
+
+
+test('GEN2-59 Companion 2.5.0 uses WPF responsive UI and exact embedded MEL image', async () => {
+  const [source, wpf, build] = await Promise.all([
+    read('windows-companion/MEL-Companion.cs'),
+    read('windows-companion/MEL-Companion-WPF.cs'),
+    read('scripts/build-windows-release.ps1')
+  ]);
+  assert.match(source, /__MEL_AVATAR_B64__/);
+  assert.match(source, /__MEL_ICON_B64__/);
+  assert.match(source, /#if !WPF_UI/);
+  assert.match(wpf, /class MainForm : Window/);
+  assert.match(wpf, /ScrollViewer/);
+  assert.match(wpf, /GridUnitType\.Star/);
+  assert.match(wpf, /TextWrapping = TextWrapping\.Wrap/);
+  assert.match(wpf, /MelApp\.AvatarBytes\(\)/);
+  assert.match(build, /\/define:WPF_UI/);
+  assert.match(build, /PresentationFramework\.dll/);
+  assert.match(build, /\/win32icon:/);
+  assert.match(build, /mel-avatar-128\.jpg\.b64/);
+  assert.match(build, /mel-avatar-32\.ico\.b64/);
 });
