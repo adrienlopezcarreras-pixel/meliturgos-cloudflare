@@ -903,17 +903,20 @@ static bool speak_text(const std::string &text) {
             return true;
         }
         if (!ok) {
-            ESP_LOGW(TAG, "LINK V2 TTS failed err=%s status=%d first_audio=%d",
+            ESP_LOGW(TAG, "LINK V2 TTS failed err=%s status=%d first_audio=%d; trying fallback",
                      esp_err_to_name(err), status, ctx.first_audio ? 1 : 0);
             if (status > 0) {
                 char diag[32] = {};
                 snprintf(diag, sizeof(diag), "TTS HTTP %d", status);
                 ui_status(diag);
             } else if (ctx.first_audio) {
-                ui_status("TTS SANS AUDIO");
+                ui_status("TTS BLE -> SECOURS");
             }
+        } else {
+            return true;
         }
-        return ok;
+        // Do not strand voice output on a failed BLE audio stream. Continue
+        // into the legacy mobile or direct Wi-Fi path when available.
     }
 
     if (!g_cfg.token[0]) {
