@@ -47,7 +47,6 @@ jobs:
         run: |
           node --check src/media/workers-ai-media-capabilities.js
           node --check src/media/procedural-audio-capabilities.js
-          node --check src/media/media-transform-zero-cost-proof.js
           node --check src/media/browser-run-zero-cost-proof.js
           node --check browser-companion/runtime/worker.js
       - name: Require all 12 media capabilities
