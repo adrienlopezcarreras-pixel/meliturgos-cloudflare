@@ -136,6 +136,172 @@ async function renderMediaVideo(request, env) {
   }
 }
 
+
+function normalizeVideoPayload(payload, expectedSchema) {
+  if (!payload || payload.schema !== expectedSchema) throw Object.assign(new Error('MEDIA_VIDEO_REQUEST_INVALID'), { status: 400 });
+  const base64 = typeof payload.base64 === 'string' ? payload.base64.trim() : '';
+  if (!base64 || base64.length > 16_000_000) throw Object.assign(new Error('MEDIA_VIDEO_INPUT_INVALID'), { status: 413 });
+  const mimeRaw = String(payload.mime || '').toLowerCase();
+  const mime = ['video/webm','video/mp4','video/ogg'].includes(mimeRaw) ? mimeRaw : 'video/webm';
+  return {
+    base64,
+    mime,
+    width: Math.round(boundedNumber(payload.width, 640, 256, 960)),
+    height: Math.round(boundedNumber(payload.height, 360, 144, 540)),
+    durationMs: Math.round(boundedNumber(payload.duration_ms, 3000, 500, 6000)),
+    startMs: Math.round(boundedNumber(payload.start_ms, 0, 0, 60_000)),
+    fps: Math.round(boundedNumber(payload.fps, 12, 8, 20)),
+    imageCount: Math.round(boundedNumber(payload.image_count, 4, 3, 8)),
+    includeAudio: payload.audio !== false,
+  };
+}
+
+async function withMediaPage(env, fn) {
+  if (!env?.BROWSER) throw Object.assign(new Error('BROWSER_BINDING_MISSING'), { status: 503 });
+  let browser;
+  try {
+    browser = await launch(env.BROWSER, { keep_alive: 60000 });
+    const context = browser.contexts?.()[0] || await browser.newContext();
+    const page = context.pages?.()[0] || await context.newPage();
+    await page.setContent('<!doctype html><html><body style="margin:0;background:#000"><video id="v" playsinline></video><canvas id="c"></canvas></body></html>');
+    return await fn(page);
+  } finally {
+    try { if (browser) await browser.close(); } catch {}
+  }
+}
+
+async function processMediaVideo(request, env) {
+  let payload;
+  try { payload = normalizeVideoPayload(await request.json(), 'mel.media.browser-process-video/v1'); }
+  catch (error) { return json({ ok:false, code:String(error?.message||'MEDIA_VIDEO_REQUEST_INVALID').slice(0,120) }, Number(error?.status)||400); }
+  try {
+    const result = await withMediaPage(env, page => page.evaluate(async ({ base64, mime, width, height, durationMs, startMs, fps, includeAudio }) => {
+      const fromBase64 = value => {
+        const binary = atob(value);
+        const out = new Uint8Array(binary.length);
+        for (let i=0;i<binary.length;i++) out[i]=binary.charCodeAt(i);
+        return out;
+      };
+      const toBase64 = bytes => {
+        let binary=''; const chunk=0x8000;
+        for(let i=0;i<bytes.length;i+=chunk) binary+=String.fromCharCode(...bytes.subarray(i,Math.min(bytes.length,i+chunk)));
+        return btoa(binary);
+      };
+      const video=document.getElementById('v'), canvas=document.getElementById('c'), ctx=canvas.getContext('2d',{alpha:false});
+      canvas.width=width; canvas.height=height;
+      const url=URL.createObjectURL(new Blob([fromBase64(base64)],{type:mime}));
+      video.src=url; video.preload='auto';
+      await new Promise((resolve,reject)=>{video.onloadedmetadata=resolve;video.onerror=()=>reject(new Error('VIDEO_DECODE_FAILED'));});
+      const sourceDurationMs=Number.isFinite(video.duration)?video.duration*1000:durationMs;
+      const safeStartMs=Math.min(startMs,Math.max(0,sourceDurationMs-100));
+      const safeDurationMs=Math.min(durationMs,Math.max(250,sourceDurationMs-safeStartMs));
+      const seek=seconds=>new Promise((resolve,reject)=>{
+        const timer=setTimeout(()=>reject(new Error('VIDEO_SEEK_TIMEOUT')),5000);
+        const done=()=>{clearTimeout(timer);resolve();};
+        video.addEventListener('seeked',done,{once:true});
+        video.currentTime=Math.max(0,Math.min(seconds,Math.max(0,video.duration-0.001)));
+      });
+      await seek(safeStartMs/1000);
+      const stream=canvas.captureStream(fps);
+      let audioTracks=[];
+      if(includeAudio && typeof video.captureStream==='function'){
+        try{
+          const captured=video.captureStream();
+          audioTracks=captured.getAudioTracks();
+          for(const track of audioTracks) stream.addTrack(track);
+        }catch{}
+      }
+      const outMime=['video/webm;codecs=vp8,opus','video/webm;codecs=vp8','video/webm'].find(x=>MediaRecorder.isTypeSupported(x))||'';
+      if(!outMime) throw new Error('MEDIARECORDER_WEBM_UNSUPPORTED');
+      const recorder=new MediaRecorder(stream,{mimeType:outMime,videoBitsPerSecond:1_200_000});
+      const chunks=[]; recorder.ondataavailable=e=>{if(e.data?.size)chunks.push(e.data);};
+      const stopped=new Promise((resolve,reject)=>{recorder.onstop=resolve;recorder.onerror=e=>reject(e.error||new Error('MEDIARECORDER_FAILED'));});
+      const draw=()=>{
+        ctx.fillStyle='#000';ctx.fillRect(0,0,width,height);
+        const sw=video.videoWidth||width,sh=video.videoHeight||height,scale=Math.min(width/sw,height/sh);
+        const dw=sw*scale,dh=sh*scale;
+        ctx.drawImage(video,(width-dw)/2,(height-dh)/2,dw,dh);
+      };
+      recorder.start(250);
+      try{await video.play();}catch{video.muted=true;await video.play();}
+      const started=performance.now();
+      await new Promise(resolve=>{
+        const frame=now=>{draw();if(now-started>=safeDurationMs||video.ended)return resolve();requestAnimationFrame(frame);};
+        requestAnimationFrame(frame);
+      });
+      video.pause(); recorder.stop(); await stopped;
+      stream.getTracks().forEach(track=>track.stop()); URL.revokeObjectURL(url);
+      const bytes=new Uint8Array(await new Blob(chunks,{type:outMime}).arrayBuffer());
+      if(!bytes.byteLength||bytes.byteLength>12_000_000) throw new Error('VIDEO_PROCESS_OUTPUT_INVALID');
+      return {base64:toBase64(bytes),mime:outMime,bytes:bytes.byteLength,audio_tracks:audioTracks.length,duration_ms:safeDurationMs};
+    }, payload));
+    return json({ok:true,schema:'mel.media.browser-process-video.result/v1',...result,width:payload.width,height:payload.height,fps:payload.fps});
+  } catch(error) {
+    return json({ok:false,code:String(error?.message||'MEDIA_VIDEO_PROCESS_FAILED').slice(0,120)},Number(error?.status)||502);
+  }
+}
+
+async function sampleMediaVideo(request, env) {
+  let payload;
+  try { payload = normalizeVideoPayload(await request.json(), 'mel.media.browser-sample-video/v1'); }
+  catch (error) { return json({ ok:false, code:String(error?.message||'MEDIA_VIDEO_REQUEST_INVALID').slice(0,120) }, Number(error?.status)||400); }
+  try {
+    const result = await withMediaPage(env, page => page.evaluate(async ({ base64, mime, durationMs, startMs, imageCount }) => {
+      const fromBase64=value=>{const binary=atob(value),out=new Uint8Array(binary.length);for(let i=0;i<binary.length;i++)out[i]=binary.charCodeAt(i);return out;};
+      const toBase64=bytes=>{let binary='';const chunk=0x8000;for(let i=0;i<bytes.length;i+=chunk)binary+=String.fromCharCode(...bytes.subarray(i,Math.min(bytes.length,i+chunk)));return btoa(binary);};
+      const video=document.getElementById('v'),canvas=document.getElementById('c'),ctx=canvas.getContext('2d',{alpha:false});
+      const url=URL.createObjectURL(new Blob([fromBase64(base64)],{type:mime}));
+      video.src=url;video.preload='auto';
+      await new Promise((resolve,reject)=>{video.onloadedmetadata=resolve;video.onerror=()=>reject(new Error('VIDEO_DECODE_FAILED'));});
+      const sourceDurationMs=Number.isFinite(video.duration)?video.duration*1000:durationMs;
+      const safeStartMs=Math.min(startMs,Math.max(0,sourceDurationMs-100));
+      const safeDurationMs=Math.min(durationMs,Math.max(250,sourceDurationMs-safeStartMs));
+      const tileW=320,tileH=180,cols=Math.ceil(Math.sqrt(imageCount)),rows=Math.ceil(imageCount/cols);
+      canvas.width=tileW*cols;canvas.height=tileH*rows;
+      const seek=seconds=>new Promise((resolve,reject)=>{const timer=setTimeout(()=>reject(new Error('VIDEO_SEEK_TIMEOUT')),5000);const done=()=>{clearTimeout(timer);resolve();};video.addEventListener('seeked',done,{once:true});video.currentTime=Math.max(0,Math.min(seconds,Math.max(0,video.duration-0.001)));});
+      for(let i=0;i<imageCount;i++){
+        const fraction=imageCount===1?0:i/(imageCount-1);
+        await seek((safeStartMs+safeDurationMs*fraction)/1000);
+        const x=(i%cols)*tileW,y=Math.floor(i/cols)*tileH;
+        ctx.fillStyle='#000';ctx.fillRect(x,y,tileW,tileH);
+        const sw=video.videoWidth||tileW,sh=video.videoHeight||tileH,scale=Math.min(tileW/sw,tileH/sh),dw=sw*scale,dh=sh*scale;
+        ctx.drawImage(video,x+(tileW-dw)/2,y+(tileH-dh)/2,dw,dh);
+      }
+      const dataUrl=canvas.toDataURL('image/jpeg',0.72);
+      const jpeg=dataUrl.slice(dataUrl.indexOf(',')+1);
+      if(!jpeg||jpeg.length>8_000_000) throw new Error('VIDEO_SAMPLE_IMAGE_INVALID');
+
+      let audioBase64=null,audioMime=null,audioBytes=0;
+      if(typeof video.captureStream==='function'){
+        try{
+          await seek(safeStartMs/1000);
+          const captured=video.captureStream();
+          const tracks=captured.getAudioTracks();
+          if(tracks.length){
+            const audioStream=new MediaStream(tracks);
+            const candidate=['audio/webm;codecs=opus','audio/webm'].find(x=>MediaRecorder.isTypeSupported(x))||'';
+            if(candidate){
+              const rec=new MediaRecorder(audioStream,{mimeType:candidate,audioBitsPerSecond:96000}),chunks=[];
+              rec.ondataavailable=e=>{if(e.data?.size)chunks.push(e.data);};
+              const stopped=new Promise((resolve,reject)=>{rec.onstop=resolve;rec.onerror=e=>reject(e.error||new Error('AUDIO_RECORD_FAILED'));});
+              rec.start(250);try{await video.play();}catch{video.muted=true;await video.play();}
+              await new Promise(resolve=>setTimeout(resolve,Math.min(6000,safeDurationMs)));
+              video.pause();rec.stop();await stopped;audioStream.getTracks().forEach(t=>t.stop());
+              const bytes=new Uint8Array(await new Blob(chunks,{type:candidate}).arrayBuffer());
+              if(bytes.byteLength&&bytes.byteLength<=6_000_000){audioBase64=toBase64(bytes);audioMime=candidate;audioBytes=bytes.byteLength;}
+            }
+          }
+        }catch{}
+      }
+      URL.revokeObjectURL(url);
+      return {spritesheet_base64:jpeg,spritesheet_mime:'image/jpeg',audio_base64:audioBase64,audio_mime:audioMime,audio_bytes:audioBytes,duration_ms:safeDurationMs,image_count:imageCount};
+    }, payload));
+    return json({ok:true,schema:'mel.media.browser-sample-video.result/v1',...result});
+  } catch(error) {
+    return json({ok:false,code:String(error?.message||'MEDIA_VIDEO_SAMPLE_FAILED').slice(0,120)},Number(error?.status)||502);
+  }
+}
+
 function policyFingerprint(origins) {
   return JSON.stringify([...origins].sort());
 }
@@ -146,6 +312,12 @@ export default {
 
     if (request.method === 'POST' && url.pathname === '/v1/media/render-video') {
       return renderMediaVideo(request, env);
+    }
+    if (request.method === 'POST' && url.pathname === '/v1/media/process-video') {
+      return processMediaVideo(request, env);
+    }
+    if (request.method === 'POST' && url.pathname === '/v1/media/sample-video') {
+      return sampleMediaVideo(request, env);
     }
 
     if (request.method === 'GET' && url.pathname === '/health') {
