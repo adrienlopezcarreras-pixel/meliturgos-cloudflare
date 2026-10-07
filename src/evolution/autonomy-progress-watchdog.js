@@ -98,7 +98,10 @@ export async function recordAutonomyProgressWatchdog(db = null, tick = {}, {
   const waitingExternal = progress.waiting_external === true;
   const leaseBusy = String(tick?.status || '').toUpperCase() === 'SKIPPED_LEASE_BUSY';
   const explicitBlock = String(progress.block_reason || tick?.reason || tick?.status || '').slice(0, 180) || null;
-  const shouldStall = workRemaining && !advanced;
+  // A live lease means another heartbeat owns the runtime. Do not call that
+  // a MAX stall yet: the Actions runner retries the lease explicitly and fails
+  // closed if it never clears.
+  const shouldStall = workRemaining && !advanced && !leaseBusy && !waitingExternal;
 
   const counters = {
     ...previous.counters,
@@ -116,9 +119,11 @@ export async function recordAutonomyProgressWatchdog(db = null, tick = {}, {
     ? 'STALLED'
     : advanced
       ? 'ADVANCING'
-      : workRemaining
-        ? (waitingExternal ? 'WAITING_EXTERNAL' : 'NO_PROGRESS')
-        : 'IDLE';
+      : leaseBusy
+        ? 'LEASE_BUSY'
+        : workRemaining
+          ? (waitingExternal ? 'WAITING_EXTERNAL' : 'NO_PROGRESS')
+          : 'IDLE';
 
   const state = {
     status,
