@@ -527,11 +527,10 @@ async function showActivity(panel){
   if(!panel)return;panel.textContent='Chargement de l’activité…';
   try{const d=await jfetch('/api/gen2/autonomy/state');panel.innerHTML=activityMarkup(d)}catch(e){panel.textContent='Activité indisponible : '+e.message}
 }
-const mobileMax=qs('#mobileMaxAutonomy'),mobilePause=qs('#mobilePauseAutonomy'),mobileStart=qs('#mobileStartCycle'),mobileResume=qs('#mobileResumeAutonomy'),mobileActivity=qs('#mobileActivityAutonomy');
+const mobileMax=qs('#mobileMaxAutonomy'),mobilePause=qs('#mobilePauseAutonomy'),mobileStart=qs('#mobileStartCycle'),mobileActivity=qs('#mobileActivityAutonomy');
 if(mobileMax)mobileMax.onclick=()=>autonomyAction(mobileMax,'/api/gen2/autonomy/max',{enabled:autonomyControl.max_autonomy!==true},'MAX 100%').catch(()=>{});
-if(mobilePause)mobilePause.onclick=()=>autonomyAction(mobilePause,'/api/gen2/autonomy/pause',{reason:'owner-mobile-standby'},'Mise en pause').catch(()=>{});
+if(mobilePause)mobilePause.onclick=()=>autonomyAction(mobilePause,autonomyControl.paused===true?'/api/gen2/autonomy/resume':'/api/gen2/autonomy/pause',autonomyControl.paused===true?{}:{reason:'owner-mobile-standby'},autonomyControl.paused===true?'Reprise de MEL':'Mise en pause').catch(()=>{});
 if(mobileStart)mobileStart.onclick=()=>autonomyAction(mobileStart,'/api/gen2/autonomy/tick',{},'Cycle MEL').catch(()=>{});
-if(mobileResume)mobileResume.onclick=()=>autonomyAction(mobileResume,'/api/gen2/autonomy/resume',{},'Reprise de MEL').catch(()=>{});
 if(mobileActivity)mobileActivity.onclick=async()=>{const panel=qs('#mobileActivityPanel');if(!panel)return;if(!panel.hidden){panel.hidden=true;return}panel.hidden=false;await showActivity(panel)};
 const topMax=qs('#melFullMax'),topCycle=qs('#melFullCycle'),topPause=qs('#melFullStop'),topActivity=qs('#melFullActivity'),desktopPanel=qs('#desktopActivityPanel');
 if(topMax)topMax.onclick=()=>autonomyAction(topMax,'/api/gen2/autonomy/max',{enabled:autonomyControl.max_autonomy!==true},'Autonomie maximale',null).catch(()=>{});
