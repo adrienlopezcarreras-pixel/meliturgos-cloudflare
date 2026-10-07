@@ -724,38 +724,30 @@ class MelLinkV2ClientService : Service() {
             .put("length", body.size)
             .toString()
             .toByteArray(Charsets.UTF_8)
-        val credits = beginOutboundTransfer(streamId)
-        requestBlePriority(BluetoothGatt.CONNECTION_PRIORITY_HIGH)
-        try {
-            if (!sendControlBlocking(
+        if (!sendControlBlocking(
+                MelLinkV2Protocol.encode(
+                    MelLinkV2Protocol.RESPONSE_BEGIN, 0, streamId, 0, begin
+                )
+            )) return false
+
+        var seq = 0
+        var offset = 0
+        val chunk = 150
+        while (offset < body.size) {
+            val end = minOf(offset + chunk, body.size)
+            if (!sendBulkBlocking(
                     MelLinkV2Protocol.encode(
-                        MelLinkV2Protocol.RESPONSE_BEGIN, 0, streamId, 0, begin
+                        MelLinkV2Protocol.RESPONSE_DATA, 0, streamId, seq++,
+                        body.copyOfRange(offset, end)
                     )
                 )) return false
-
-            var seq = 0
-            var offset = 0
-            val chunk = 150
-            while (offset < body.size) {
-                if (!awaitOutboundCredit(streamId, credits)) return false
-                val end = minOf(offset + chunk, body.size)
-                if (!sendBulkNoResponse(
-                        MelLinkV2Protocol.encode(
-                            MelLinkV2Protocol.RESPONSE_DATA, 0, streamId, seq++,
-                            body.copyOfRange(offset, end)
-                        )
-                    )) return false
-                offset = end
-            }
-            return sendControlBlocking(
-                MelLinkV2Protocol.encode(
-                    MelLinkV2Protocol.RESPONSE_END, 0, streamId, seq
-                )
-            )
-        } finally {
-            endOutboundTransfer(streamId, credits)
-            requestBlePriority(BluetoothGatt.CONNECTION_PRIORITY_BALANCED)
+            offset = end
         }
+        return sendControlBlocking(
+            MelLinkV2Protocol.encode(
+                MelLinkV2Protocol.RESPONSE_END, 0, streamId, seq
+            )
+        )
     }
 
     private fun sendAudioResponse(streamId: Int, pcm16: ShortArray, outputRate: Int): Boolean {
@@ -770,38 +762,30 @@ class MelLinkV2ClientService : Service() {
             .toString()
             .toByteArray(Charsets.UTF_8)
 
-        val credits = beginOutboundTransfer(streamId)
-        requestBlePriority(BluetoothGatt.CONNECTION_PRIORITY_HIGH)
-        try {
-            if (!sendControlBlocking(
+        if (!sendControlBlocking(
+                MelLinkV2Protocol.encode(
+                    MelLinkV2Protocol.AUDIO_BEGIN, 0, streamId, 0, meta
+                )
+            )) return false
+
+        var seq = 0
+        var offset = 0
+        while (offset < pcm16.size) {
+            val end = minOf(offset + MelImaAdpcm.BLOCK_SAMPLES, pcm16.size)
+            val encoded = MelImaAdpcm.encodeBlock(pcm16.copyOfRange(offset, end))
+            if (!sendBulkBlocking(
                     MelLinkV2Protocol.encode(
-                        MelLinkV2Protocol.AUDIO_BEGIN, 0, streamId, 0, meta
+                        MelLinkV2Protocol.AUDIO_DATA, 0, streamId, seq++, encoded
                     )
                 )) return false
-
-            var seq = 0
-            var offset = 0
-            while (offset < pcm16.size) {
-                if (!awaitOutboundCredit(streamId, credits)) return false
-                val end = minOf(offset + MelImaAdpcm.BLOCK_SAMPLES, pcm16.size)
-                val encoded = MelImaAdpcm.encodeBlock(pcm16.copyOfRange(offset, end))
-                if (!sendBulkNoResponse(
-                        MelLinkV2Protocol.encode(
-                            MelLinkV2Protocol.AUDIO_DATA, 0, streamId, seq++, encoded
-                        )
-                    )) return false
-                offset = end
-            }
-
-            return sendControlBlocking(
-                MelLinkV2Protocol.encode(
-                    MelLinkV2Protocol.AUDIO_END, 0, streamId, seq
-                )
-            )
-        } finally {
-            endOutboundTransfer(streamId, credits)
-            requestBlePriority(BluetoothGatt.CONNECTION_PRIORITY_BALANCED)
+            offset = end
         }
+
+        return sendControlBlocking(
+            MelLinkV2Protocol.encode(
+                MelLinkV2Protocol.AUDIO_END, 0, streamId, seq
+            )
+        )
     }
 
     private fun executeRequest(request: IncomingRequest) {
@@ -948,6 +932,9 @@ class MelLinkV2ClientService : Service() {
 
     private fun sendControlBlocking(frame: ByteArray): Boolean =
         writeGattBlocking(controlRx, frame, BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT)
+
+    private fun sendBulkBlocking(frame: ByteArray): Boolean =
+        writeGattBlocking(bulkRx, frame, BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT)
 
     private fun beginOutboundTransfer(streamId: Int): Semaphore {
         val sem = Semaphore(0)
