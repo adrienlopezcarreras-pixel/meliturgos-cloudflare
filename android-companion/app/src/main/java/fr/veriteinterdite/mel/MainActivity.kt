@@ -259,7 +259,7 @@ class MainActivity : ComponentActivity() {
         model = ViewModelProvider(this, factory)[MelViewModel::class.java]
         setContent {
             val state by model.state.collectAsStateWithLifecycle()
-            val wakeProfileRevision by MelBleBridgeService.wakeProfileRevision.collectAsStateWithLifecycle()
+            val wakeProfileRevision by MelLinkV2ClientService.wakeProfileRevision.collectAsStateWithLifecycle()
             LaunchedEffect(wakeProfileRevision) {
                 refreshWakeEnrollmentState()
                 if (wakeEnrolled.value && state.session == SessionStage.CONNECTED && !state.busy && !state.speaking) {
@@ -374,7 +374,7 @@ class MainActivity : ComponentActivity() {
     private fun ensureMobileBridge(forceRestart: Boolean = false) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             val permissions = arrayOf(
-                Manifest.permission.BLUETOOTH_ADVERTISE,
+                Manifest.permission.BLUETOOTH_SCAN,
                 Manifest.permission.BLUETOOTH_CONNECT
             )
             val missing = permissions.filter {
@@ -394,8 +394,8 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun startMobileBridge(forceRestart: Boolean = false) {
-        val intent = Intent(this, MelBleBridgeService::class.java)
-        if (forceRestart) intent.action = MelBleBridgeService.ACTION_RESTART
+        val intent = Intent(this, MelLinkV2ClientService::class.java)
+        if (forceRestart) intent.action = MelLinkV2ClientService.ACTION_RESTART
         ContextCompat.startForegroundService(this, intent)
     }
 
