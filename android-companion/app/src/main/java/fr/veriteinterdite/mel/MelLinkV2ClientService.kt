@@ -878,7 +878,14 @@ class MelLinkV2ClientService : Service() {
 
             if (status in 200..299 && path == "/api/device/v1/voice/tts") {
                 val pcm48 = runCatching {
-                    MelImaAdpcm.decodePcm16MonoWav(body, 48_000)
+                    if (body.size >= 12 &&
+                        body.copyOfRange(0, 4).toString(Charsets.US_ASCII) == "RIFF" &&
+                        body.copyOfRange(8, 12).toString(Charsets.US_ASCII) == "WAVE"
+                    ) {
+                        MelImaAdpcm.decodePcm16MonoWav(body, 48_000)
+                    } else {
+                        MelImaAdpcm.decodePcm16Le(body)
+                    }
                 }.recoverCatching {
                     val pcm16 = MelImaAdpcm.decodePcm16MonoWav(body, 16_000)
                     MelImaAdpcm.upsample16kTo48k(pcm16)

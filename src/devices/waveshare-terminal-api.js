@@ -495,6 +495,31 @@ async function deviceVoice(request, env, auth) {
 }
 
 
+function wrapPcm16MonoWav(pcmBytes, sampleRate = 48000) {
+  const pcm = pcmBytes instanceof Uint8Array ? pcmBytes : new Uint8Array(pcmBytes || 0);
+  if (!pcm.length || (pcm.length & 1) !== 0) throw new Error("TTS_PCM_INVALID");
+  const out = new Uint8Array(44 + pcm.length);
+  const view = new DataView(out.buffer);
+  const ascii = (offset, text) => {
+    for (let i = 0; i < text.length; i++) out[offset + i] = text.charCodeAt(i);
+  };
+  ascii(0, "RIFF");
+  view.setUint32(4, 36 + pcm.length, true);
+  ascii(8, "WAVE");
+  ascii(12, "fmt ");
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, 1, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * 2, true);
+  view.setUint16(32, 2, true);
+  view.setUint16(34, 16, true);
+  ascii(36, "data");
+  view.setUint32(40, pcm.length, true);
+  out.set(pcm, 44);
+  return out;
+}
+
 async function deviceTts(request, env, auth) {
   const body = await request.json().catch(() => ({}));
   const text = String(body.text || "").trim().slice(0, 1200);
@@ -511,34 +536,41 @@ async function deviceTts(request, env, auth) {
       text,
       speaker,
       encoding: "linear16",
-      container: "wav",
+      container: "none",
       sample_rate: 48000
     }, { returnRawResponse: true });
 
+    let source;
+    let sourceStatus = 200;
     if (result instanceof Response) {
-      const headers = new Headers(result.headers);
-      headers.set("content-type", "audio/wav");
-      headers.set("cache-control", "no-store");
-      headers.set("x-mel-audio-format", "wav-pcm-s16le");
-      headers.set("x-mel-audio-rate", "48000");
-      headers.set("x-mel-audio-channels", "1");
-      return new Response(result.body, { status: result.status, headers });
+      sourceStatus = result.status;
+      if (!result.ok) {
+        return new Response(result.body, {
+          status: result.status,
+          headers: { "content-type": result.headers.get("content-type") || "application/json", "cache-control": "no-store" }
+        });
+      }
+      source = new Uint8Array(await result.arrayBuffer());
+    } else if (result?.body) {
+      source = new Uint8Array(await new Response(result.body).arrayBuffer());
+    } else {
+      return json({ ok: false, code: "TTS_EMPTY_RESPONSE" }, 503);
     }
 
-    if (result?.body) {
-      return new Response(result.body, {
-        status: 200,
-        headers: {
-          "content-type": "audio/wav",
-          "cache-control": "no-store",
-          "x-mel-audio-format": "wav-pcm-s16le",
-          "x-mel-audio-rate": "48000",
-          "x-mel-audio-channels": "1"
-        }
-      });
+    if (!source.length || (source.length & 1) !== 0) {
+      return json({ ok: false, code: "TTS_PCM_INVALID", bytes: source.length }, 503);
     }
-
-    return json({ ok: false, code: "TTS_EMPTY_RESPONSE" }, 503);
+    const wav = wrapPcm16MonoWav(source, 48000);
+    return new Response(wav, {
+      status: sourceStatus,
+      headers: {
+        "content-type": "audio/wav",
+        "cache-control": "no-store",
+        "x-mel-audio-format": "wav-pcm-s16le",
+        "x-mel-audio-rate": "48000",
+        "x-mel-audio-channels": "1"
+      }
+    });
   } catch (error) {
     return json({ ok: false, code: "TTS_FAILED", detail: String(error?.message || error).slice(0, 180) }, 503);
   }

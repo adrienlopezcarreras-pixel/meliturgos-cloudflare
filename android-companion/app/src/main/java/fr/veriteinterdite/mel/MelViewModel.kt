@@ -506,14 +506,47 @@ class MelViewModel(
             MelVoicePlayer.stop()
         }
 
-        // Last-resort compatibility path only. Luna is not the preferred French voice.
+        var pcmFailure: Throwable? = null
+        try {
+            val pcm = client.tts(answer, speaker = "luna", format = "pcm")
+            if (pcm.isEmpty() || (pcm.size and 1) != 0) throw MelApiException("TTS_PCM_INVALID", 502)
+            _state.value = _state.value.copy(
+                busy = true,
+                speaking = true,
+                status = "MEL parle · PCM…",
+                error = null
+            )
+            MelVoicePlayer.playPcm48kMono(pcm)
+            _state.value = _state.value.copy(
+                busy = false,
+                speaking = false,
+                status = "MEL connectée · mode ${mode.label}",
+                error = null
+            )
+            appendDiagnosticLine("Audio MEL: secours PCM 48 kHz")
+            return
+        } catch (error: MelPlaybackInterruptedException) {
+            _state.value = _state.value.copy(
+                busy = false,
+                speaking = false,
+                status = "Je t’écoute…",
+                error = null
+            )
+            appendDiagnosticLine("Audio MEL: interruption volontaire pendant PCM")
+            return
+        } catch (error: Throwable) {
+            pcmFailure = error
+            MelVoicePlayer.stop()
+        }
+
+        // Final compatibility path for devices where raw PCM playback is unavailable.
         try {
             val audio = client.tts(answer, speaker = "luna", format = "mp3")
             if (audio.isEmpty()) throw MelApiException("TTS_AUDIO_EMPTY", 502)
             _state.value = _state.value.copy(
                 busy = true,
                 speaking = true,
-                status = "MEL parle · secours…",
+                status = "MEL parle · secours MP3…",
                 error = null
             )
             MelVoicePlayer.playMp3(appContext, audio)
@@ -523,7 +556,7 @@ class MelViewModel(
                 status = "MEL connectée · mode ${mode.label}",
                 error = null
             )
-            appendDiagnosticLine("Audio MEL: secours serveur")
+            appendDiagnosticLine("Audio MEL: secours MP3")
         } catch (fallbackError: MelPlaybackInterruptedException) {
             _state.value = _state.value.copy(
                 busy = false,
@@ -531,7 +564,7 @@ class MelViewModel(
                 status = "Je t’écoute…",
                 error = null
             )
-            appendDiagnosticLine("Audio MEL: interruption volontaire pendant secours")
+            appendDiagnosticLine("Audio MEL: interruption volontaire pendant secours MP3")
             return
         } catch (fallbackError: Throwable) {
             MelVoicePlayer.stop()
@@ -540,7 +573,7 @@ class MelViewModel(
                 speaking = false,
                 status = "MEL connectée · audio indisponible",
                 error = "Réponse reçue · audio indisponible · " +
-                    explain(frenchFailure ?: fallbackError)
+                    explain(pcmFailure ?: frenchFailure ?: fallbackError)
             )
         }
     }

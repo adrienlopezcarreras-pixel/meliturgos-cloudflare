@@ -146,6 +146,18 @@ object MelImaAdpcm {
         return out
     }
 
+    fun decodePcm16Le(bytes: ByteArray): ShortArray {
+        require(bytes.isNotEmpty() && (bytes.size and 1) == 0) { "invalid PCM16" }
+        val samples = ShortArray(bytes.size / 2)
+        var src = 0
+        for (i in samples.indices) {
+            val lo = bytes[src++].toInt() and 0xff
+            val hi = bytes[src++].toInt() and 0xff
+            samples[i] = ((hi shl 8) or lo).toShort()
+        }
+        return samples
+    }
+
     fun decodePcm16MonoWav(wav: ByteArray, expectedRate: Int): ShortArray {
         require(wav.size >= 44) { "short WAV" }
         require(wav.copyOfRange(0,4).toString(Charsets.US_ASCII) == "RIFF") { "not RIFF" }
