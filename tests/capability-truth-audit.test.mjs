@@ -258,6 +258,56 @@ test('deep audit never executes a capability whose refreshed health is unavailab
 });
 
 
+test('deep audit can derive a real bounded fixture before testing an ID-based read', async () => {
+  const records = [
+    { id:'thing.list', name:'List', category:'test', provider:'core', risk:'LOW', enabled:true, health:'HEALTHY' },
+    { id:'thing.get', name:'Get', category:'test', provider:'core', risk:'LOW', enabled:true, health:'HEALTHY' },
+  ];
+  const calls=[];
+  const runtime={
+    bus:{
+      list:()=>records,
+      contract:()=>({valid:true}),
+      execute:async(id,input)=>{
+        calls.push({id,input});
+        if(id==='thing.list') return [{ id:'real-1' }];
+        if(id==='thing.get') return { id:input.id };
+        throw new Error('unexpected');
+      },
+    },
+  };
+  const report=await auditRuntimeCapabilities(runtime,{
+    deep:true,
+    samples:{
+      'thing.list':{},
+      'thing.get':async({runtime,context})=>{
+        const rows=await runtime.bus.execute('thing.list',{},context);
+        return rows[0]?.id?{id:rows[0].id}:undefined;
+      },
+    },
+  });
+  const get=report.capabilities.find(row=>row.id==='thing.get');
+  assert.equal(get.tested_now,true);
+  assert.equal(get.truth_status,'EXISTANT_ET_TESTE');
+  assert.ok(calls.some(call=>call.id==='thing.get'&&call.input.id==='real-1'));
+});
+
+test('dynamic bounded fixture absence is reported without manufacturing a runtime failure', async () => {
+  const record={ id:'thing.get', name:'Get', category:'test', provider:'core', risk:'LOW', enabled:true, health:'HEALTHY' };
+  let executions=0;
+  const runtime={bus:{list:()=>[record],contract:()=>({valid:true}),execute:async()=>{executions+=1;return{};}}};
+  const report=await auditRuntimeCapabilities(runtime,{
+    deep:true,
+    samples:{'thing.get':async()=>undefined},
+  });
+  const row=report.capabilities[0];
+  assert.equal(row.tested_now,false);
+  assert.equal(row.auto_execution_blocked,'NO_RUNTIME_FIXTURE');
+  assert.equal(row.truth_status,'EXISTANT_NON_TESTE');
+  assert.equal(executions,0);
+});
+
+
 test('CapabilityBus contract proof is non-executing and validates guarded structure', async () => {
   let executions = 0;
   const bus = new CapabilityBus();
