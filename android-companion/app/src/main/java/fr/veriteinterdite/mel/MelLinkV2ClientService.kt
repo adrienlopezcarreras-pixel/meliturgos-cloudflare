@@ -488,6 +488,7 @@ class MelLinkV2ClientService : Service() {
                 )
             }
             MelLinkV2Protocol.REQUEST_BEGIN -> {
+                synchronized(outboundCredits) { cancelledOutbound.remove(frame.streamId) }
                 val meta = runCatching { JSONObject(frame.payload.toString(Charsets.UTF_8)) }.getOrNull() ?: return
                 val path = meta.optString("path")
                 val bodyLen = meta.optLong("body_len", -1L)
@@ -1019,7 +1020,6 @@ class MelLinkV2ClientService : Service() {
     private fun beginOutboundTransfer(streamId: Int): Semaphore {
         val sem = Semaphore(0)
         synchronized(outboundCredits) {
-            cancelledOutbound.remove(streamId)
             outboundCredits[streamId] = sem
         }
         return sem
