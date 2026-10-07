@@ -15,6 +15,43 @@ const SAFE_SAMPLES = Object.freeze({
   'evolution.module.propose': { goal: 'prévisualiser une capacité locale de diagnostic sans écrire ni activer de code', threshold: 2 },
   'device.policy.preview': { deviceId: 'audit-preview', capabilities: ['status.read'], action: 'status.read', ownerApproved: false, ownerShutdown: false, adapter: 'audit-preview' },
   'web.research': { query: 'Cloudflare Workers documentation', depth: 1 },
+
+  // Bounded read-only production probes. These samples intentionally avoid
+  // mutations and use tiny result windows so the persistent stress can prove
+  // real execution instead of stopping at contract inspection.
+  'github.repository.read': {},
+  'github.actions.runs.read': { limit: 1 },
+  'cloudflare.workers.read': {},
+  'cloudflare.deployments.read': {},
+  'gmail.messages.search': { query: 'newer_than:1d', limit: 1 },
+  'calendar.events.read': { limit: 1 },
+  'tasks.tasklists.read': { limit: 1 },
+  'mail.messages.search': { limit: 1 },
+  'files.list': { limit: 1 },
+  'files.search': { query: 'mel', limit: 1 },
+  'drive.files.list': { limit: 1 },
+  'drive.files.search': { query: 'mel', limit: 1 },
+  'sites.list': { limit: 1 },
+  'sites.search': { query: 'mel', limit: 1 },
+  'roadmap.human-actions-required': {},
+  'system.integrity': {},
+  'system.maturity': {},
+  'chatgpt.history.search': { query: 'MELITURGOS', limit: 1 },
+  'computer.status': {},
+  'work.plan.list': { limit: 1 },
+  'openloop.due': { limit: 1 },
+  'timeline.list': { limit: 1 },
+  'project.list': { limit: 1 },
+  'decision.list': { limit: 1 },
+  'lesson.list': { limit: 1 },
+  'skill.list': { active_only: true },
+  'skill.snapshot.export': {},
+  'self.audit.status': {},
+  'memory.status': {},
+  'knowledge.search': { query: 'MELITURGOS', limit: 1 },
+  'evolution.ledger.list': { limit: 1 },
+  'resilience.recovery.drill.latest': {},
+  'resilience.cold-standby.prepare.latest': {},
 });
 
 // Automatic deep audits must be zero-added-cost by proof, not assumption.
@@ -73,6 +110,8 @@ function autoExecutionBlockReason({ deep, record, sample, declared, costSensitiv
   if (!deep) return null;
   if (declared === 'STUB' || declared === 'NOT_IMPLEMENTED') return 'DECLARED_NON_EXECUTABLE';
   if (record?.enabled === false) return 'DISABLED';
+  const health = String(record?.health || '').toUpperCase();
+  if (['UNAVAILABLE','OFFLINE','DISABLED','BLOCKED','DOWN','BROKEN'].includes(health)) return 'HEALTH_UNAVAILABLE';
   if (record?.risk !== 'LOW') return 'RISK_NOT_LOW';
   if (sample === undefined) return 'NO_BOUNDED_SAMPLE';
   if (costSensitive && !costApproved) return 'UNKNOWN_OR_EXTERNAL_COST';
@@ -169,6 +208,7 @@ export async function auditRuntimeCapabilities(runtime, {
     const executable = deep
       && !declaredNonExecutable
       && record.enabled !== false
+      && blockedReason == null
       && record.risk === 'LOW'
       && sample !== undefined
       && costApproved;
