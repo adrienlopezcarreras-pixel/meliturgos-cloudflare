@@ -1416,8 +1416,9 @@ test('release bootstrap media proof requires exact-SHA 12/12 live execution and 
       done_verified_eligible:true,
       source_sha:sourceSha,
       capability_count:12,
+      all_executions_zero_added_cost:true,
       required_capabilities:Array.from({length:12},(_,i)=>'media.test.'+i),
-      executions:Array.from({length:12},(_,i)=>({id:'media.test.'+i,ok:true})),
+      executions:Array.from({length:12},(_,i)=>({id:'media.test.'+i,ok:true,zero_added_cost:true})),
       secret_values_exposed:false,
       autonomy_started:false,
     }),
@@ -1428,6 +1429,7 @@ test('release bootstrap media proof requires exact-SHA 12/12 live execution and 
   assert.equal(body.status,'MEL_MEDIA_02_DONE_VERIFIED_ELIGIBLE');
   assert.equal(body.done_verified_eligible,true);
   assert.equal(body.capability_count,12);
+  assert.equal(body.all_executions_zero_added_cost,true);
   assert.equal(body.deployed_sha,sha);
   assert.equal(body.autonomy_started,false);
   assert.equal(body.secret_values_exposed,false);
@@ -1446,6 +1448,22 @@ test('release bootstrap media proof requires exact-SHA 12/12 live execution and 
   });
   assert.equal(incomplete.status,409);
   assert.equal((await incomplete.json()).ok,false);
+
+  const billable=await maybeHandleReleaseLaunchBootstrap(request(),{
+    MEL_LAUNCH_BOOTSTRAP_TOKEN:TOKEN,
+    MEL_DEPLOYED_GIT_SHA:sha,
+  },{
+    proveMedia:async()=>({
+      ok:true,
+      status:'MEL_MEDIA_02_DONE_VERIFIED_ELIGIBLE',
+      done_verified_eligible:true,
+      source_sha:sha,
+      capability_count:12,
+      all_executions_zero_added_cost:false,
+    }),
+  });
+  assert.equal(billable.status,409);
+  assert.equal((await billable.json()).ok,false);
 
   const failed=await maybeHandleReleaseLaunchBootstrap(request(),{
     MEL_LAUNCH_BOOTSTRAP_TOKEN:TOKEN,
