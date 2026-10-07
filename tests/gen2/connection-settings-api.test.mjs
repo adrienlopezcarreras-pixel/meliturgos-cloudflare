@@ -44,6 +44,41 @@ test('Google Drive live probe failures become actionable without exposing provid
     upstream_status: 403,
     action_required: 'ENABLE_GOOGLE_DRIVE_API',
   });
+test('Google Calendar live probe failures become actionable without exposing provider payloads', () => {
+  const disabled = classifyOAuthProbeFailure({
+    provider: 'google',
+    connectorId: 'google-calendar',
+    status: 403,
+    body: { error: { message: 'Google Calendar API has not been used in project 789 before or it is disabled.' } },
+  });
+  assert.deepEqual(disabled, {
+    code: 'GOOGLE_CALENDAR_API_NOT_ENABLED',
+    status: 409,
+    upstream_status: 403,
+    action_required: 'ENABLE_GOOGLE_CALENDAR_API',
+  });
+
+  const scope = classifyOAuthProbeFailure({
+    provider: 'google',
+    connectorId: 'google-calendar',
+    status: 403,
+    body: { error: { message: 'Request had insufficient authentication scopes.' } },
+  });
+  assert.equal(scope.code, 'GOOGLE_CALENDAR_RECONSENT_REQUIRED');
+  assert.equal(scope.action_required, 'RECONNECT_GOOGLE_WITH_CALENDAR_SCOPE');
+
+  const generic = classifyOAuthProbeFailure({
+    provider: 'google',
+    connectorId: 'google-calendar',
+    status: 403,
+    body: { error: { message: 'Permission denied.' } },
+  });
+  assert.equal(generic.code, 'GOOGLE_CALENDAR_ACCESS_FORBIDDEN');
+  assert.equal(generic.action_required, 'VERIFY_GOOGLE_CALENDAR_API_AND_CONSENT');
+  assert.equal(JSON.stringify(disabled).includes('project 789'), false);
+});
+
+
 
   const scope = classifyOAuthProbeFailure({
     provider: 'google',
@@ -726,4 +761,61 @@ test('Pipedream account status uses the project accounts endpoint scoped by exte
   const source=await import('node:fs/promises').then(fs=>fs.readFile(new URL('../../src/api/connection-settings-api.js',import.meta.url),'utf8'));
   assert.match(source,/\/accounts\?/);
   assert.match(source,/external_user_id: contextOwner/);
+});
+
+test('Pipedream development account mismatch stays degraded and actionable instead of being masked by catalogue testing', async () => {
+  const runtimeEnv = env();
+  const saved = await call('/api/gen2/connections/pipedream/save', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      project_id: 'proj_demo123',
+      client_id: 'client-id',
+      client_secret: 'client-secret',
+      environment: 'development',
+    }),
+  }, runtimeEnv);
+  assert.equal(saved.status, 200);
+
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, init = {}) => {
+    calls.push({ url: String(url), init });
+    if (String(url).endsWith('/v1/oauth/token')) {
+      return Response.json({ access_token: 'server-token', expires_in: 3600 });
+    }
+    if (String(url).includes('/accounts?')) {
+      return Response.json({
+        error: { code: 'external_user_not_found', message: 'No matching external user ID found for adrien in development' },
+      }, { status: 400 });
+    }
+    throw new Error('UNEXPECTED_FETCH:' + String(url));
+  };
+
+  try {
+    const response = await call('/api/gen2/connections/pipedream/accounts', { method: 'GET' }, runtimeEnv);
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.equal(body.ok, true);
+    assert.equal(body.account_status_degraded, true);
+    assert.equal(body.reconnect_required, true);
+    assert.equal(body.action_required, 'RECONNECT_PIPEDREAM_DEVELOPMENT');
+    assert.equal(body.environment, 'development');
+    assert.equal(body.upstream_status, 400);
+    assert.equal(body.upstream_code, 'external_user_not_found');
+    assert.match(body.upstream_message, /No matching external user ID/);
+    assert.deepEqual(body.connected_apps, []);
+    assert.equal(calls.some(call => call.url.includes('/components?app=')), false);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('Pipedream route boundary preserves sanitized upstream diagnostics for actionable failures', async () => {
+  const source=await import('node:fs/promises').then(fs=>fs.readFile(new URL('../../src/api/connection-settings-api.js',import.meta.url),'utf8'));
+  assert.match(source,/upstream_code: clean\(error\.upstream_code, 160\)/);
+  assert.match(source,/upstream_message: clean\(error\.upstream_message, 240\)/);
+  assert.match(source,/RECONNECT_PIPEDREAM_DEVELOPMENT/);
+  const degraded=source.split('async function pipedreamAccounts')[1]?.split('export async function testPipedreamGoogleTasksRead')[0]||'';
+  assert.doesNotMatch(degraded,/testPipedreamCredentials\(stored/);
 });
