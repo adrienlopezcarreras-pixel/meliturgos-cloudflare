@@ -693,6 +693,26 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
       phase,
       tick_status: tick?.status || null,
       advanced: tick?.advanced === true,
+      progress: tick?.progress && typeof tick.progress === 'object' ? {
+        advanced: tick.progress.advanced === true,
+        events: Array.isArray(tick.progress.events) ? tick.progress.events.slice(0, 20) : [],
+        work_remaining: tick.progress.work_remaining === true,
+        waiting_external: tick.progress.waiting_external === true,
+        block_reason: tick.progress.block_reason || null,
+        active_jobs: Number.isFinite(Number(tick.progress.active_jobs)) ? Number(tick.progress.active_jobs) : null,
+        completed_roadmap_items: Number.isFinite(Number(tick.progress.completed_roadmap_items)) ? Number(tick.progress.completed_roadmap_items) : null,
+        next_roadmap_id: tick.progress.next_roadmap_id || null,
+        job_id: tick.progress.job_id || null,
+        job_status: tick.progress.job_status || null,
+      } : null,
+      watchdog: tick?.watchdog && typeof tick.watchdog === 'object' ? {
+        status: tick.watchdog.status || null,
+        tripped: tick.watchdog.tripped === true,
+        consecutive_stalls: Number(tick.watchdog.consecutive_stalls || 0),
+        stall_limit: Number(tick.watchdog.stall_limit || 0),
+        last_block_reason: tick.watchdog.last_block_reason || null,
+        counters: tick.watchdog.counters || null,
+      } : null,
       paused: tick?.paused === true || tick?.control?.paused === true,
       max_autonomy: tick?.control?.max_autonomy === true,
       bridge_preparation_ready: bridgeReady,
@@ -713,7 +733,7 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
         code: String(row?.code || '').slice(0, 180),
       })).slice(0, 20),
       control_unchanged_by_bootstrap: true,
-    }, { headers: { 'cache-control': 'no-store' } });
+    }, { status: tick?.ok === false ? 409 : 200, headers: { 'cache-control': 'no-store' } });
   }
 
   if (phase === 'gen2-42-owner-max') {
@@ -759,6 +779,26 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
       launch_approved_sha: control?.launch_approved_sha || null,
       tick_status: tick?.status || null,
       advanced: tick?.advanced === true,
+      progress: tick?.progress && typeof tick.progress === 'object' ? {
+        advanced: tick.progress.advanced === true,
+        events: Array.isArray(tick.progress.events) ? tick.progress.events.slice(0, 20) : [],
+        work_remaining: tick.progress.work_remaining === true,
+        waiting_external: tick.progress.waiting_external === true,
+        block_reason: tick.progress.block_reason || null,
+        active_jobs: Number.isFinite(Number(tick.progress.active_jobs)) ? Number(tick.progress.active_jobs) : null,
+        completed_roadmap_items: Number.isFinite(Number(tick.progress.completed_roadmap_items)) ? Number(tick.progress.completed_roadmap_items) : null,
+        next_roadmap_id: tick.progress.next_roadmap_id || null,
+        job_id: tick.progress.job_id || null,
+        job_status: tick.progress.job_status || null,
+      } : null,
+      watchdog: tick?.watchdog && typeof tick.watchdog === 'object' ? {
+        status: tick.watchdog.status || null,
+        tripped: tick.watchdog.tripped === true,
+        consecutive_stalls: Number(tick.watchdog.consecutive_stalls || 0),
+        stall_limit: Number(tick.watchdog.stall_limit || 0),
+        last_block_reason: tick.watchdog.last_block_reason || null,
+        counters: tick.watchdog.counters || null,
+      } : null,
       bridge_preparation_ready: bridgeReady,
       bridge_job: bridgeReady ? {
         job_id: String(bridgeJob.id).slice(0, 180),
@@ -777,7 +817,7 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
         code: String(row?.code || '').slice(0, 180),
       })).slice(0, 20),
       owner_authorized_bootstrap: true,
-    }, { headers: { 'cache-control': 'no-store' } });
+    }, { status: tick?.ok === false ? 409 : 200, headers: { 'cache-control': 'no-store' } });
   }
 
   // A deployment may inherit RUNNING/MAX control state from the previous SHA.
