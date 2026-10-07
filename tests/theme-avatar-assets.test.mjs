@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { getMelAvatarRoute } from '../src/pages/mel-avatar-assets.js';
 import { readFile } from 'node:fs/promises';
 import { enhanceThemeAvatars } from '../src/pages/theme-avatar-enhancer.js';
-import { onRequestGet as renderNormalMode } from '../src/pages/mvp-interface.js';
+import { onRequestGet as renderNormalMode } from '../src/pages/mvp-interface-v3.js';
 
 const AVATARS = [
   ['classic', '/assets/avatars/mel-classic.webp', 'avatarClassic'],
