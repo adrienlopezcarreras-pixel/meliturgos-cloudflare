@@ -32,6 +32,9 @@
   "ai": {
     "binding": "AI"
   },
+  "media": {
+    "binding": "MEDIA"
+  },
   "services": [
     {
       "binding": "MEL_BROWSER_COMPANION",
@@ -98,6 +101,9 @@
       },
       "ai": {
         "binding": "AI"
+      },
+      "media": {
+        "binding": "MEDIA"
       },
       "r2_buckets": [
         {
