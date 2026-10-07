@@ -366,6 +366,157 @@ export function registerPipedreamLinkedCapabilities(bus, { pipedreamRuntime = nu
   ids.push('files.delete');
 
   register(bus, {
+    id: 'drive.files.list',
+    name: 'Google Drive files list',
+    category: 'files',
+    description: 'Lists a bounded Google Drive file set through the linked Pipedream Google Drive account.',
+    input_schema: {
+      type: 'object',
+      properties: { limit: { type: 'integer', minimum: 1, maximum: MAX_LIST } },
+      additionalProperties: false,
+    },
+    risk: 'LOW',
+    permissions: ['google.drive.read'],
+    healthcheck: pdHealth(pipedreamRuntime, 'google_drive', 'https://www.googleapis.com/drive/v3/files?pageSize=1&fields=files(id)'),
+  }, async (input, context) => {
+    const params = new URLSearchParams({
+      pageSize: String(limit(input.limit)),
+      fields: 'files(id,name,mimeType,modifiedTime,size,webViewLink,parents)',
+      q: 'trashed=false',
+    });
+    const body = await proxy(pipedreamRuntime, context, 'google_drive', 'https://www.googleapis.com/drive/v3/files?' + params.toString());
+    const files = Array.isArray(body?.files) ? body.files.slice(0, limit(input.limit)) : [];
+    return { provider: 'pipedream', service: 'google-drive', files, count: files.length };
+  });
+  ids.push('drive.files.list');
+
+  register(bus, {
+    id: 'drive.files.search',
+    name: 'Google Drive files search',
+    category: 'files',
+    description: 'Searches Google Drive by bounded file-name query through Pipedream.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', minLength: 1, maxLength: 300 },
+        limit: { type: 'integer', minimum: 1, maximum: MAX_LIST },
+      },
+      required: ['query'],
+      additionalProperties: false,
+    },
+    risk: 'LOW',
+    permissions: ['google.drive.read'],
+    healthcheck: pdHealth(pipedreamRuntime, 'google_drive', 'https://www.googleapis.com/drive/v3/files?pageSize=1&fields=files(id)'),
+  }, async (input, context) => {
+    const q = text(input.query, 'GOOGLE_DRIVE_QUERY_INVALID', 300).replaceAll("'", "\\'");
+    const params = new URLSearchParams({
+      pageSize: String(limit(input.limit)),
+      fields: 'files(id,name,mimeType,modifiedTime,size,webViewLink,parents)',
+      q: "trashed=false and name contains '" + q + "'",
+    });
+    const body = await proxy(pipedreamRuntime, context, 'google_drive', 'https://www.googleapis.com/drive/v3/files?' + params.toString());
+    const files = Array.isArray(body?.files) ? body.files.slice(0, limit(input.limit)) : [];
+    return { provider: 'pipedream', service: 'google-drive', query: input.query, files, count: files.length };
+  });
+  ids.push('drive.files.search');
+
+  register(bus, {
+    id: 'drive.files.read',
+    name: 'Google Drive file read',
+    category: 'files',
+    description: 'Reads Google Drive metadata and optionally bounded text content through Pipedream.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        file_id: { type: 'string', minLength: 1, maxLength: 500 },
+        include_content: { type: 'boolean' },
+      },
+      required: ['file_id'],
+      additionalProperties: false,
+    },
+    risk: 'LOW',
+    permissions: ['google.drive.read'],
+    healthcheck: pdHealth(pipedreamRuntime, 'google_drive', 'https://www.googleapis.com/drive/v3/files?pageSize=1&fields=files(id)'),
+  }, async (input, context) => {
+    const id = encodeId(input.file_id, 'GOOGLE_DRIVE_FILE_ID_INVALID');
+    const metadata = await proxy(
+      pipedreamRuntime,
+      context,
+      'google_drive',
+      'https://www.googleapis.com/drive/v3/files/' + id + '?fields=id,name,mimeType,modifiedTime,size,webViewLink,parents',
+    );
+    let content = null;
+    if (input.include_content === true && !String(metadata?.mimeType || '').startsWith('application/vnd.google-apps.')) {
+      const raw = await proxy(pipedreamRuntime, context, 'google_drive', 'https://www.googleapis.com/drive/v3/files/' + id + '?alt=media');
+      content = typeof raw?.text === 'string' ? raw.text.slice(0, 120000) : raw;
+    }
+    return { provider: 'pipedream', service: 'google-drive', metadata, content };
+  });
+  ids.push('drive.files.read');
+
+  register(bus, {
+    id: 'drive.files.create',
+    name: 'Google Drive text file create',
+    category: 'files',
+    description: 'Creates one bounded text file in Google Drive after explicit owner approval.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', minLength: 1, maxLength: 300 },
+        content: { type: 'string', maxLength: 120000 },
+        parent_id: { type: 'string', maxLength: 500 },
+      },
+      required: ['name', 'content'],
+      additionalProperties: false,
+    },
+    risk: 'HIGH',
+    permissions: ['google.drive.write'],
+    approval: { required: true, scope: 'drive.files.create', reason: 'GOOGLE_DRIVE_FILE_CREATE' },
+    healthcheck: pdHealth(pipedreamRuntime, 'google_drive', 'https://www.googleapis.com/drive/v3/files?pageSize=1&fields=files(id)', { protectedAction: true }),
+  }, async (input, context) => {
+    const name = text(input.name, 'GOOGLE_DRIVE_NAME_INVALID', 300);
+    if (/[\r\n]/.test(name)) throw capError('GOOGLE_DRIVE_NAME_INVALID', 400);
+    const content = String(input.content ?? '');
+    if (content.length > 120000) throw capError('GOOGLE_DRIVE_CONTENT_INVALID', 400);
+    const metadata = { name, mimeType: 'text/plain' };
+    if (input.parent_id) metadata.parents = [text(input.parent_id, 'GOOGLE_DRIVE_PARENT_ID_INVALID', 500)];
+    const created = await proxy(pipedreamRuntime, context, 'google_drive', 'https://www.googleapis.com/drive/v3/files?fields=id,name,mimeType,webViewLink', {
+      method: 'POST',
+      body: metadata,
+    });
+    const id = encodeId(created?.id, 'GOOGLE_DRIVE_CREATE_ID_MISSING');
+    const uploaded = await proxy(pipedreamRuntime, context, 'google_drive', 'https://www.googleapis.com/upload/drive/v3/files/' + id + '?uploadType=media&fields=id,name,mimeType,webViewLink', {
+      method: 'PATCH',
+      body: content,
+      headers: { 'content-type': 'text/plain; charset=utf-8' },
+    });
+    return { provider: 'pipedream', service: 'google-drive', accepted: true, file: uploaded?.id ? uploaded : created };
+  });
+  ids.push('drive.files.create');
+
+  register(bus, {
+    id: 'drive.files.delete',
+    name: 'Google Drive file delete',
+    category: 'files',
+    description: 'Deletes one Google Drive file after explicit owner approval.',
+    input_schema: {
+      type: 'object',
+      properties: { file_id: { type: 'string', minLength: 1, maxLength: 500 } },
+      required: ['file_id'],
+      additionalProperties: false,
+    },
+    risk: 'HIGH',
+    permissions: ['google.drive.delete'],
+    approval: { required: true, scope: 'drive.files.delete', reason: 'GOOGLE_DRIVE_FILE_DELETE' },
+    healthcheck: pdHealth(pipedreamRuntime, 'google_drive', 'https://www.googleapis.com/drive/v3/files?pageSize=1&fields=files(id)', { protectedAction: true }),
+  }, async (input, context) => {
+    const id = encodeId(input.file_id, 'GOOGLE_DRIVE_FILE_ID_INVALID');
+    await proxy(pipedreamRuntime, context, 'google_drive', 'https://www.googleapis.com/drive/v3/files/' + id, { method: 'DELETE' });
+    return { provider: 'pipedream', service: 'google-drive', accepted: true, file_id: input.file_id };
+  });
+  ids.push('drive.files.delete');
+
+  register(bus, {
     id: 'sites.list',
     name: 'SharePoint followed sites list',
     category: 'files',
