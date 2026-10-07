@@ -101,6 +101,7 @@ const RELEASE_SMOKE_ALLOWLIST = Object.freeze(new Map([
     '/api/v1/version',
     '/api/gen2/code/self-check',
     '/api/gen2/connections/google/status',
+    '/api/gen2/connections/pipedream/status',
     '/api/gen2/connections/pipedream/accounts',
     '/api/gen2/capabilities',
     '/api/gen2/readiness',
@@ -144,6 +145,7 @@ const PARALLEL_PROOF_ALLOWLIST = Object.freeze(new Map([
     // downstream diagnostics. It returns bounded capability metadata only.
     '/api/gen2/capabilities',
     '/api/gen2/connections/google/status',
+    '/api/gen2/connections/pipedream/status',
     '/api/gen2/connections/pipedream/accounts',
     '/api/gen2/autonomy/sovereignty',
     '/api/learning/progress',
