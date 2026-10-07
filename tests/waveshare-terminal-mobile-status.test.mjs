@@ -5,7 +5,7 @@ import { readFile } from 'node:fs/promises';
 const root = new URL('../', import.meta.url);
 // Fresh-head guard: run this contract against the current PR merge ref.
 
-test('MINI 0.6.3 Link V2 reports the real mobile link independently from Wi-Fi', async () => {
+test('MINI 0.6.4 Link V2 reports the real mobile link independently from Wi-Fi', async () => {
   const [runtime, main, header, workflow] = await Promise.all([
     readFile(new URL('firmware/waveshare-terminal/main/mel_terminal.cpp', root), 'utf8'),
     readFile(new URL('firmware/waveshare-terminal/main/main.cpp', root), 'utf8'),
@@ -13,8 +13,8 @@ test('MINI 0.6.3 Link V2 reports the real mobile link independently from Wi-Fi',
     readFile(new URL('.github/workflows/waveshare-terminal-firmware.yml', root), 'utf8'),
   ]);
 
-  assert.match(header, /MEL_FW_VERSION "0\.6\.3-voice-activation-fix"/);
-  assert.match(workflow, /"version": "0\.6\.3-voice-activation-fix"/);
+  assert.match(header, /MEL_FW_VERSION "0\.6\.4-speaker-unmute-fix"/);
+  assert.match(workflow, /"version": "0\.6\.4-speaker-unmute-fix"/);
 
   assert.match(runtime, /void mel_terminal_set_mobile_connected\(bool connected\)/);
   assert.match(runtime, /ui_status\(g_online \? "MEL MOBILE CONNECTE" : "MOBILE CONNECTE"\)/);
