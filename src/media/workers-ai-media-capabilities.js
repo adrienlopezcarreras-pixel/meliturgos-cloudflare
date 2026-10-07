@@ -1,6 +1,5 @@
 import { workersAiRuntimeZeroCostProvenance } from '../augmentio/workers-ai-zero-cost-proof.js';
 import { createEnvMediaVaultCodec } from './media-vault-crypto.js';
-import { mediaTransformZeroCostProvenance } from './media-transform-zero-cost-proof.js';
 import { browserRunZeroCostProvenance } from './browser-run-zero-cost-proof.js';
 
 export const WORKERS_AI_IMAGE_MODEL = '@cf/black-forest-labs/flux-1-schnell';
@@ -16,8 +15,8 @@ const TTS_ADAPTER_ID = 'workers-ai.media.audio.aura-1';
 const TRANSCRIPTION_ADAPTER_ID = 'workers-ai.media.audio.whisper-large-v3-turbo';
 const MAX_IMAGE_BYTES = 20_000_000;
 const MAX_AUDIO_BYTES = 20_000_000;
-const MAX_VIDEO_INPUT_BYTES = 50_000_000;
-const MAX_VIDEO_OUTPUT_BYTES = 50_000_000;
+const MAX_VIDEO_INPUT_BYTES = 10_000_000;
+const MAX_VIDEO_OUTPUT_BYTES = 12_000_000;
 export const MAX_INLINE_TRANSCRIPTION_BYTES = 8_000_000;
 const DEFAULT_MEDIA_TTL_SECONDS = 7 * 24 * 60 * 60;
 const AURA_SPEAKERS = new Set([
@@ -105,36 +104,28 @@ function aiReady(env, adapterId, modelId) {
   return Boolean(env?.AI?.run && freshZeroCostProof(env, adapterId, modelId));
 }
 
-async function videoInputBytes(env, input = {}) {
+async function videoInputData(env, input = {}) {
   if (input?.artifact_key) {
     const artifact = await readPrivateArtifactBytes(env, input.artifact_key);
     if (!artifact.mime.startsWith('video/')) throw mediaError('VIDEO_ARTIFACT_REQUIRED', 415);
     if (!artifact.bytes.byteLength || artifact.bytes.byteLength > MAX_VIDEO_INPUT_BYTES) throw mediaError('VIDEO_BYTES_INVALID', 413);
-    return artifact.bytes;
+    return { bytes: artifact.bytes, mime: artifact.mime };
   }
-  if (input?.bytes instanceof Uint8Array) {
-    if (!input.bytes.byteLength || input.bytes.byteLength > MAX_VIDEO_INPUT_BYTES) throw mediaError('VIDEO_BYTES_INVALID', 413);
-    return input.bytes;
+  let bytes = null;
+  if (input?.bytes instanceof Uint8Array) bytes = input.bytes;
+  else if (input?.bytes instanceof ArrayBuffer) bytes = new Uint8Array(input.bytes);
+  else {
+    const encoded = clean(input?.video_base64 ?? input?.video ?? input?.data, 16_000_000);
+    if (encoded) {
+      const normalized = encoded.includes(',') ? encoded.slice(encoded.indexOf(',') + 1) : encoded;
+      bytes = base64Bytes(normalized);
+    }
   }
-  if (input?.bytes instanceof ArrayBuffer) {
-    const bytes = new Uint8Array(input.bytes);
-    if (!bytes.byteLength || bytes.byteLength > MAX_VIDEO_INPUT_BYTES) throw mediaError('VIDEO_BYTES_INVALID', 413);
-    return bytes;
-  }
-  const encoded = clean(input?.video_base64 ?? input?.video ?? input?.data, 70_000_000);
-  if (!encoded) return null;
-  const normalized = encoded.includes(',') ? encoded.slice(encoded.indexOf(',') + 1) : encoded;
-  const bytes = base64Bytes(normalized);
-  if (!bytes.byteLength || bytes.byteLength > MAX_VIDEO_INPUT_BYTES) throw mediaError('VIDEO_BYTES_INVALID', 413);
-  return bytes;
-}
-
-function mediaTransformProof(env) {
-  return mediaTransformZeroCostProvenance(env);
-}
-
-function mediaTransformReady(env) {
-  return Boolean(env?.MEDIA && typeof env.MEDIA.input === 'function' && mediaTransformProof(env));
+  if (!bytes?.byteLength) return { bytes: null, mime: null };
+  if (bytes.byteLength > MAX_VIDEO_INPUT_BYTES) throw mediaError('VIDEO_BYTES_INVALID', 413);
+  const rawMime = clean(input?.mime ?? input?.mime_type, 120).toLowerCase();
+  const mime = ['video/webm','video/mp4','video/ogg'].includes(rawMime) ? rawMime : 'video/webm';
+  return { bytes, mime };
 }
 
 function browserVideoReady(env) {
@@ -145,21 +136,34 @@ function browserVideoReady(env) {
   );
 }
 
-function boundedSeconds(value, fallback = 20, max = 60) {
+function boundedSeconds(value, fallback = 6, max = 6) {
   const n = Number(value);
   if (!Number.isFinite(n) || n <= 0) return fallback;
-  return Math.min(max, Math.max(1, Math.round(n)));
+  return Math.min(max, Math.max(0.5, n));
 }
 
-async function mediaTransformBytes(result, failureCode) {
-  const response = await result.response();
-  if (!response?.ok) throw mediaError(failureCode, response?.status || 502);
-  const bytes = new Uint8Array(await response.arrayBuffer());
-  if (!bytes.byteLength) throw mediaError(failureCode, 502);
-  return {
-    bytes,
-    mime: clean(response.headers.get('content-type') || 'application/octet-stream', 160),
-  };
+async function browserMediaCall(env, path, payload, {
+  maxResponseChars = 20_000_000,
+  failureCode = 'BROWSER_MEDIA_FAILED',
+} = {}) {
+  if (!browserVideoReady(env)) throw mediaError('BROWSER_VIDEO_RENDERER_UNAVAILABLE');
+  const response = await env.MEL_BROWSER_COMPANION.fetch(new Request(
+    'https://browser-companion.internal' + path,
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(payload),
+    },
+  ));
+  const raw = await response.text();
+  if (raw.length > maxResponseChars) throw mediaError('BROWSER_MEDIA_RESPONSE_TOO_LARGE', 502);
+  let body;
+  try { body = raw ? JSON.parse(raw) : {}; }
+  catch { throw mediaError('BROWSER_MEDIA_INVALID_JSON', 502); }
+  if (!response.ok || body?.ok !== true) {
+    throw mediaError(clean(body?.code, 160) || failureCode, response.status || 502);
+  }
+  return body;
 }
 
 function normalizeTranscriptionResult(value) {
@@ -616,115 +620,115 @@ async function videoGenerate(env, input = {}) {
 }
 
 async function videoProcess(env, input = {}) {
-  const transformProvenance = mediaTransformProof(env);
-  if (!transformProvenance) throw mediaError('MEDIA_TRANSFORM_ZERO_COST_PROOF_REQUIRED');
-  if (!mediaTransformReady(env)) throw mediaError('MEDIA_TRANSFORM_BINDING_UNAVAILABLE');
+  const browserProvenance = browserRunZeroCostProvenance(env);
+  if (!browserProvenance) throw mediaError('BROWSER_RUN_ZERO_COST_PROOF_REQUIRED');
+  if (!browserVideoReady(env)) throw mediaError('BROWSER_VIDEO_RENDERER_UNAVAILABLE');
   if (!mediaStorageReady(env)) throw mediaError('MEDIA_VAULT_UNAVAILABLE');
 
-  const bytes = await videoInputBytes(env, input);
+  const source = await videoInputData(env, input);
+  const bytes = source.bytes;
   if (!bytes?.byteLength) throw mediaError('VIDEO_INPUT_REQUIRED', 400);
   const params = input?.params && typeof input.params === 'object' ? input.params : {};
-  const width = Number(input?.width ?? params.width);
-  const height = Number(input?.height ?? params.height);
-  const fitRaw = clean(input?.fit ?? params.fit, 20).toLowerCase();
-  const fit = ['contain','cover','scale-down'].includes(fitRaw) ? fitRaw : 'scale-down';
-  const duration = boundedSeconds(input?.duration_seconds ?? params.duration_seconds, 20, 60);
-  const time = Math.max(0, Number(input?.start_seconds ?? params.start_seconds) || 0);
-  const transform = {};
-  if (Number.isInteger(width) && width >= 10 && width <= 2000) transform.width = width;
-  if (Number.isInteger(height) && height >= 10 && height <= 2000) transform.height = height;
-  transform.fit = fit;
+  const width = Math.round(Math.min(960, Math.max(256, Number(input?.width ?? params.width) || 640)));
+  const height = Math.round(Math.min(540, Math.max(144, Number(input?.height ?? params.height) || 360)));
+  const duration = boundedSeconds(input?.duration_seconds ?? params.duration_seconds, 3, 6);
+  const startSeconds = Math.max(0, Math.min(60, Number(input?.start_seconds ?? params.start_seconds) || 0));
+  const fps = Math.round(Math.min(20, Math.max(8, Number(input?.fps ?? params.fps) || 12)));
 
-  const stream = new Response(bytes).body;
-  const output = env.MEDIA.input(stream)
-    .transform(transform)
-    .output({
-      mode: 'video',
-      time: String(time) + 's',
-      duration: String(duration) + 's',
-      audio: input?.audio !== false,
-    });
-  const normalized = await mediaTransformBytes(output, 'MEDIA_VIDEO_PROCESS_FAILED');
-  if (normalized.bytes.byteLength > MAX_VIDEO_OUTPUT_BYTES) throw mediaError('MEDIA_VIDEO_OUTPUT_TOO_LARGE', 502);
-  const artifact = await storePrivateArtifact(env, normalized.bytes, {
+  const rendered = await browserMediaCall(env, '/v1/media/process-video', {
+    schema: 'mel.media.browser-process-video/v1',
+    base64: bytesBase64(bytes),
+    mime: source.mime,
+    width,
+    height,
+    duration_ms: Math.round(duration * 1000),
+    start_ms: Math.round(startSeconds * 1000),
+    fps,
+    audio: input?.audio !== false,
+  }, { failureCode: 'BROWSER_VIDEO_PROCESS_FAILED' });
+
+  const output = base64Bytes(rendered.base64);
+  if (!output.byteLength || output.byteLength > MAX_VIDEO_OUTPUT_BYTES) throw mediaError('BROWSER_VIDEO_PROCESS_OUTPUT_INVALID', 502);
+  const artifact = await storePrivateArtifact(env, output, {
     capability: 'media.video.process',
-    model: 'cloudflare-media-transformations',
-    mime: normalized.mime.includes('video/') ? normalized.mime : 'video/mp4',
-    extension: 'mp4',
+    model: 'mel-browser-run-video-process-v1',
+    mime: clean(rendered.mime, 120) || 'video/webm',
+    extension: 'webm',
   });
   return Object.freeze({
     ok: true,
-    schema: 'mel.cloudflare-media-transform/v1',
+    schema: 'mel.browser-run-video-process/v1',
     capability: 'media.video.process',
-    provider: 'cloudflare-media-transformations',
+    provider: 'cloudflare-browser-run',
+    engine: 'canvas-mediarecorder',
     zero_added_cost: true,
     input_sha256: await sha256Hex(bytes),
-    transform: Object.freeze({ ...transform, start_seconds: time, duration_seconds: duration, audio: input?.audio !== false }),
+    width,
+    height,
+    duration_seconds: Number(rendered.duration_ms || duration * 1000) / 1000,
+    fps,
+    audio_tracks: Number(rendered.audio_tracks || 0),
     artifact,
-    provenance: transformProvenance,
+    provenance: browserProvenance,
   });
 }
 
 async function videoAnalyze(env, input = {}) {
-  const transformProvenance = mediaTransformProof(env);
-  if (!transformProvenance) throw mediaError('MEDIA_TRANSFORM_ZERO_COST_PROOF_REQUIRED');
-  if (!mediaTransformReady(env)) throw mediaError('MEDIA_TRANSFORM_BINDING_UNAVAILABLE');
+  const browserProvenance = browserRunZeroCostProvenance(env);
+  if (!browserProvenance) throw mediaError('BROWSER_RUN_ZERO_COST_PROOF_REQUIRED');
+  if (!browserVideoReady(env)) throw mediaError('BROWSER_VIDEO_RENDERER_UNAVAILABLE');
   if (!aiReady(env, IMAGE_ANALYZE_ADAPTER_ID, WORKERS_AI_VISION_MODEL)) throw mediaError('WORKERS_AI_VISION_UNAVAILABLE');
   if (!aiReady(env, TRANSCRIPTION_ADAPTER_ID, WORKERS_AI_TRANSCRIPTION_MODEL)) throw mediaError('WORKERS_AI_TRANSCRIPTION_UNAVAILABLE');
 
-  const bytes = await videoInputBytes(env, input);
+  const source = await videoInputData(env, input);
+  const bytes = source.bytes;
   if (!bytes?.byteLength) throw mediaError('VIDEO_INPUT_REQUIRED', 400);
-  const duration = boundedSeconds(input?.duration_seconds, 30, 60);
-  const imageCount = Math.min(12, Math.max(3, Math.round(Number(input?.image_count) || 6)));
-  const start = Math.max(0, Number(input?.start_seconds) || 0);
+  const duration = boundedSeconds(input?.duration_seconds, 4, 6);
+  const imageCount = Math.min(8, Math.max(3, Math.round(Number(input?.image_count) || 4)));
+  const startSeconds = Math.max(0, Math.min(60, Number(input?.start_seconds) || 0));
 
-  const visualTransform = env.MEDIA.input(new Response(bytes).body)
-    .output({
-      mode: 'spritesheet',
-      time: String(start) + 's',
-      duration: String(duration) + 's',
-      imageCount,
-      format: 'jpg',
-    });
-  const visual = await mediaTransformBytes(visualTransform, 'MEDIA_VIDEO_FRAME_EXTRACTION_FAILED');
+  const sampled = await browserMediaCall(env, '/v1/media/sample-video', {
+    schema: 'mel.media.browser-sample-video/v1',
+    base64: bytesBase64(bytes),
+    mime: source.mime,
+    duration_ms: Math.round(duration * 1000),
+    start_ms: Math.round(startSeconds * 1000),
+    image_count: imageCount,
+  }, { failureCode: 'BROWSER_VIDEO_SAMPLE_FAILED' });
+
   const visualAnalysis = await imageAnalyze(env, {
-    bytes: visual.bytes,
-    mime: visual.mime.includes('image/') ? visual.mime : 'image/jpeg',
-    prompt: clean(input?.prompt, 6000) || 'Analyse ce storyboard extrait de la vidéo. Décris les scènes, sujets, actions, changements, texte visible et incertitudes. N’invente pas ce qui n’est pas visible.',
+    image_base64: sampled.spritesheet_base64,
+    mime: sampled.spritesheet_mime || 'image/jpeg',
+    prompt: clean(input?.prompt, 6000) || 'Analyse ce storyboard extrait de la vidéo. Décris les scènes, sujets, actions, changements, texte visible et incertitudes. N’invente rien.',
   });
 
   let transcript = null;
-  let transcriptStatus = 'NO_AUDIO_OR_NO_SPEECH';
-  try {
-    const audioTransform = env.MEDIA.input(new Response(bytes).body)
-      .output({
-        mode: 'audio',
-        time: String(start) + 's',
-        duration: String(duration) + 's',
-        format: 'm4a',
-      });
-    const audio = await mediaTransformBytes(audioTransform, 'MEDIA_VIDEO_AUDIO_EXTRACTION_FAILED');
-    if (audio.bytes.byteLength <= MAX_INLINE_TRANSCRIPTION_BYTES) {
-      const transcribed = await transcribeAudioBytes(env, audio.bytes, {
-        language: input?.language,
-        vad_filter: true,
-      });
-      transcript = transcribed.text;
-      transcriptStatus = 'TRANSCRIBED';
-    } else {
-      transcriptStatus = 'AUDIO_TOO_LARGE_FOR_INLINE_TRANSCRIPTION';
+  let transcriptStatus = 'NO_AUDIO_TRACK_OR_NOT_CAPTURED';
+  if (sampled?.audio_base64) {
+    try {
+      const audioBytes = base64Bytes(sampled.audio_base64);
+      if (audioBytes.byteLength <= MAX_INLINE_TRANSCRIPTION_BYTES) {
+        const transcribed = await transcribeAudioBytes(env, audioBytes, {
+          language: input?.language,
+          vad_filter: true,
+        });
+        transcript = transcribed.text;
+        transcriptStatus = 'TRANSCRIBED';
+      } else {
+        transcriptStatus = 'AUDIO_TOO_LARGE_FOR_INLINE_TRANSCRIPTION';
+      }
+    } catch (error) {
+      transcriptStatus = clean(error?.code || error?.message, 180) || 'AUDIO_ANALYSIS_UNAVAILABLE';
     }
-  } catch (error) {
-    transcriptStatus = clean(error?.code || error?.message, 180) || 'AUDIO_ANALYSIS_UNAVAILABLE';
   }
 
   const synthesisPrompt = [
-    'Tu synthétises une analyse vidéo à partir de preuves déjà extraites.',
+    'Tu synthétises une analyse vidéo à partir de preuves extraites localement.',
     'Analyse visuelle:',
     visualAnalysis.analysis,
     'Transcription audio:',
-    transcript || '(aucune transcription disponible)',
-    'Réponds de façon factuelle en distinguant ce qui est visible de ce qui est entendu.',
+    transcript || '(aucune piste audio capturée)',
+    'Distingue explicitement ce qui est visible de ce qui est entendu.',
   ].join('\n');
   const synthesis = await env.AI.run(WORKERS_AI_VISION_MODEL, {
     messages: [{ role: 'user', content: synthesisPrompt }],
@@ -734,19 +738,19 @@ async function videoAnalyze(env, input = {}) {
 
   return Object.freeze({
     ok: true,
-    schema: 'mel.cloudflare-video-analysis/v1',
+    schema: 'mel.browser-run-video-analysis/v1',
     capability: 'media.video.analyze',
-    provider: 'cloudflare-media-transformations+workers-ai',
+    provider: 'cloudflare-browser-run+workers-ai',
     zero_added_cost: true,
-    sampled_duration_seconds: duration,
-    sampled_frame_count: imageCount,
+    sampled_duration_seconds: Number(sampled.duration_ms || duration * 1000) / 1000,
+    sampled_frame_count: Number(sampled.image_count || imageCount),
     input_sha256: await sha256Hex(bytes),
     visual_analysis: visualAnalysis.analysis,
     transcript,
     transcript_status: transcriptStatus,
     summary,
     provenance: Object.freeze({
-      media_transform: transformProvenance,
+      browser_run: browserProvenance,
       vision: visualAnalysis.provenance,
     }),
   });
@@ -794,10 +798,10 @@ export function createWorkersAiZeroCostMediaCapabilities(env = {}) {
   if (aiReady(env, TRANSCRIPTION_ADAPTER_ID, WORKERS_AI_TRANSCRIPTION_MODEL)) {
     adapters['media.audio.transcribe'] = input => audioTranscribe(env, input);
   }
-  if (mediaTransformReady(env) && mediaStorageReady(env)) {
+  if (browserVideoReady(env) && mediaStorageReady(env)) {
     adapters['media.video.process'] = input => videoProcess(env, input);
   }
-  if (mediaTransformReady(env)
+  if (browserVideoReady(env)
     && aiReady(env, IMAGE_ANALYZE_ADAPTER_ID, WORKERS_AI_VISION_MODEL)
     && aiReady(env, TRANSCRIPTION_ADAPTER_ID, WORKERS_AI_TRANSCRIPTION_MODEL)) {
     adapters['media.video.analyze'] = input => videoAnalyze(env, input);
