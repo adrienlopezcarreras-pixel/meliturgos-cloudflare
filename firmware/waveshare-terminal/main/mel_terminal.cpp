@@ -1959,8 +1959,11 @@ void mel_terminal_test_speaker_local(void) {
 
 void mel_terminal_stop_voice_output(void) {
     g_tts_stop_requested = true;
+    const bool cancelled = mel_link_v2_transport_cancel_active();
     if (output_dev) speaker_output_disable();
-    ESP_LOGI(TAG, "VOICE OUTPUT stop requested");
+    g_runtime_state = MEL_TERMINAL_IDLE;
+    ui_status("VOIX STOP");
+    ESP_LOGI(TAG, "VOICE OUTPUT stop requested transport_cancel=%d", cancelled ? 1 : 0);
 }
 
 bool mel_terminal_has_display(void) {
