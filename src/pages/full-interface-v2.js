@@ -235,8 +235,8 @@ function show(name){
 }
 qsa('#nav button[data-view]').forEach(b=>b.onclick=()=>show(b.dataset.view));qsa('[data-jump]').forEach(b=>b.onclick=()=>show(b.dataset.jump));
 const modeTabs=qsa('#melUnifiedTabs [data-mode]');
+modeTabs.forEach(tab=>tab.onclick=()=>setUnifiedMode(tab.dataset.mode));
 modeTabs.forEach((tab,index)=>{
-  tab.onclick=()=>setUnifiedMode(tab.dataset.mode);
   tab.tabIndex=index===0?0:-1;
   tab.addEventListener('keydown',e=>{
     if(!['ArrowLeft','ArrowRight','Home','End'].includes(e.key))return;
