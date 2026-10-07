@@ -2662,7 +2662,7 @@ private fun CameraPanel(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        HudLabel("CAMERA // MEL", "PHOTO + VIDÉO NATIVE ANDROID", MelBlue)
+        HudLabel("CAMERA // MEL", "CAPTURE NATIVE ANDROID", MelBlue)
         Spacer(Modifier.height(12.dp))
         if (photo != null) {
             Image(
