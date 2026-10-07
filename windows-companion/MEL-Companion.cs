@@ -100,7 +100,7 @@ static class MelApp
                 hp.AddBezier(34,54,34,28,47,17,64,17);
                 hp.AddBezier(64,17,83,17,95,31,94,57);
                 hp.AddBezier(94,57,93,72,90,84,88,91);
-                hp.AddLine(40,91);
+                hp.AddLine(88,91,40,91);
                 hp.AddBezier(40,91,35,76,34,54,34,54);
                 hp.CloseFigure();
                 g.FillPath(hair, hp);
@@ -118,8 +118,8 @@ static class MelApp
                 var fp = new System.Drawing.Drawing2D.GraphicsPath();
                 fp.AddBezier(43,48,43,35,52,28,64,28);
                 fp.AddBezier(64,28,76,28,85,36,85,49);
-                fp.AddLine(84,64);
-                fp.AddBezier(83,76,75,86,64,86);
+                fp.AddLine(85,49,84,64);
+                fp.AddBezier(84,64,83,76,75,86,64,86);
                 fp.AddBezier(64,86,53,86,45,76,44,64);
                 fp.CloseFigure();
                 g.FillPath(skin, fp);
