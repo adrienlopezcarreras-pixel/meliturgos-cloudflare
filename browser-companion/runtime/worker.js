@@ -170,6 +170,42 @@ async function withMediaPage(env, fn) {
   }
 }
 
+async function resizeMediaImage(request, env) {
+  if (!env?.BROWSER) return json({ ok:false, code:'BROWSER_BINDING_MISSING' },503);
+  const payload=await request.json().catch(()=>null);
+  if(!payload||payload.schema!=='mel.media.browser-resize-image/v1') return json({ok:false,code:'MEDIA_IMAGE_RESIZE_REQUEST_INVALID'},400);
+  const base64=typeof payload.base64==='string'?payload.base64.trim():'';
+  const mimeRaw=String(payload.mime||'').toLowerCase();
+  const mime=['image/jpeg','image/png','image/webp'].includes(mimeRaw)?mimeRaw:'image/jpeg';
+  if(!base64||base64.length>12_000_000) return json({ok:false,code:'MEDIA_IMAGE_RESIZE_INPUT_INVALID'},413);
+  const maxEdge=Math.round(boundedNumber(payload.max_edge,510,64,510));
+  try{
+    const result=await withMediaPage(env,page=>page.evaluate(async({base64,mime,maxEdge})=>{
+      const img=await new Promise((resolve,reject)=>{
+        const node=new Image();
+        node.onload=()=>resolve(node);
+        node.onerror=()=>reject(new Error('IMAGE_DECODE_FAILED'));
+        node.src='data:'+mime+';base64,'+base64;
+      });
+      const ratio=Math.min(1,maxEdge/Math.max(img.naturalWidth,img.naturalHeight));
+      const width=Math.max(1,Math.floor(img.naturalWidth*ratio));
+      const height=Math.max(1,Math.floor(img.naturalHeight*ratio));
+      const canvas=document.getElementById('c');
+      canvas.width=width;canvas.height=height;
+      const ctx=canvas.getContext('2d',{alpha:false});
+      ctx.fillStyle='#fff';ctx.fillRect(0,0,width,height);
+      ctx.drawImage(img,0,0,width,height);
+      const data=canvas.toDataURL('image/jpeg',0.88);
+      const encoded=data.slice(data.indexOf(',')+1);
+      if(!encoded||encoded.length>8_000_000) throw new Error('IMAGE_RESIZE_OUTPUT_INVALID');
+      return {base64:encoded,mime:'image/jpeg',width,height};
+    },{base64,mime,maxEdge}));
+    return json({ok:true,schema:'mel.media.browser-resize-image.result/v1',...result});
+  }catch(error){
+    return json({ok:false,code:String(error?.message||'MEDIA_IMAGE_RESIZE_FAILED').slice(0,120)},Number(error?.status)||502);
+  }
+}
+
 async function processMediaVideo(request, env) {
   let payload;
   try { payload = normalizeVideoPayload(await request.json(), 'mel.media.browser-process-video/v1'); }
@@ -312,6 +348,9 @@ export default {
 
     if (request.method === 'POST' && url.pathname === '/v1/media/render-video') {
       return renderMediaVideo(request, env);
+    }
+    if (request.method === 'POST' && url.pathname === '/v1/media/resize-image') {
+      return resizeMediaImage(request, env);
     }
     if (request.method === 'POST' && url.pathname === '/v1/media/process-video') {
       return processMediaVideo(request, env);
