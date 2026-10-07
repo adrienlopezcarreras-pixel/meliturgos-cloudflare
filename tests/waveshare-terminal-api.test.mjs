@@ -79,12 +79,10 @@ test('device TTS uses self-describing 48 kHz mono linear16 WAV for MINI playback
     AI: {
       async run(model, input, options) {
         aiCall = { model, input, options };
-        return new Response(new Uint8Array([
-          0x52,0x49,0x46,0x46,0x28,0x00,0x00,0x00,0x57,0x41,0x56,0x45,
-          0x66,0x6d,0x74,0x20,0x10,0x00,0x00,0x00,0x01,0x00,0x01,0x00,
-          0x80,0xbb,0x00,0x00,0x00,0x77,0x01,0x00,0x02,0x00,0x10,0x00,
-          0x64,0x61,0x74,0x61,0x04,0x00,0x00,0x00,0x00,0x00,0x00,0x01
-        ]), { status:200, headers:{'content-type':'audio/wav'} });
+        return new Response(new Uint8Array([0x00,0x00,0x00,0x01]), {
+          status:200,
+          headers:{'content-type':'application/octet-stream'}
+        });
       }
     }
   };
@@ -108,12 +106,14 @@ test('device TTS uses self-describing 48 kHz mono linear16 WAV for MINI playback
   const out = new Uint8Array(await r.arrayBuffer());
   assert.equal(new TextDecoder().decode(out.slice(0,4)),'RIFF');
   assert.equal(new TextDecoder().decode(out.slice(8,12)),'WAVE');
+  assert.equal(out.length,48);
+  assert.deepEqual(Array.from(out.slice(44)),[0x00,0x00,0x00,0x01]);
   assert.equal(aiCall.model,'@cf/deepgram/aura-1');
   assert.deepEqual(aiCall.input,{
     text:'Bonjour MINI',
     speaker:'luna',
     encoding:'linear16',
-    container:'wav',
+    container:'none',
     sample_rate:48000
   });
   assert.deepEqual(aiCall.options,{ returnRawResponse:true });
