@@ -94,7 +94,13 @@ function aiReady(env, adapterId, modelId) {
   return Boolean(env?.AI?.run && freshZeroCostProof(env, adapterId, modelId));
 }
 
-function videoInputBytes(input = {}) {
+async function videoInputBytes(env, input = {}) {
+  if (input?.artifact_key) {
+    const artifact = await readPrivateArtifactBytes(env, input.artifact_key);
+    if (!artifact.mime.startsWith('video/')) throw mediaError('VIDEO_ARTIFACT_REQUIRED', 415);
+    if (!artifact.bytes.byteLength || artifact.bytes.byteLength > MAX_VIDEO_INPUT_BYTES) throw mediaError('VIDEO_BYTES_INVALID', 413);
+    return artifact.bytes;
+  }
   if (input?.bytes instanceof Uint8Array) {
     if (!input.bytes.byteLength || input.bytes.byteLength > MAX_VIDEO_INPUT_BYTES) throw mediaError('VIDEO_BYTES_INVALID', 413);
     return input.bytes;
@@ -219,6 +225,7 @@ export async function storePrivateArtifact(env, bytesInput, {
     httpMetadata: { contentType: 'application/octet-stream' },
     customMetadata: {
       generated: 'true',
+      id,
       owner,
       capability: clean(capability, 160),
       model: clean(model, 300),
@@ -335,6 +342,49 @@ async function imageProcess(env, input = {}) {
     artifact,
     input_sha256: await sha256Hex(bytes),
     provenance,
+  });
+}
+
+export async function readPrivateArtifactBytes(env = {}, keyInput = '') {
+  const key = clean(keyInput, 1200);
+  if (!key || !key.startsWith('generated/')) throw mediaError('MEDIA_ARTIFACT_KEY_INVALID', 400);
+  if (!env?.MEDIA_BUCKET || typeof env.MEDIA_BUCKET.get !== 'function') throw mediaError('MEDIA_VAULT_UNAVAILABLE', 503);
+  const object = await env.MEDIA_BUCKET.get(key);
+  if (!object) throw mediaError('MEDIA_ARTIFACT_NOT_FOUND', 404);
+  const ciphertext = new Uint8Array(await object.arrayBuffer());
+  const metadata = object.customMetadata || {};
+  const id = clean(metadata.id, 200) || clean(key.split('/').pop()?.split('.')[0], 200);
+  const owner = clean(metadata.owner || env.MELITURGOS_USER || 'owner', 200) || 'owner';
+  const capability = clean(metadata.capability, 160);
+  const model = clean(metadata.model, 300);
+  const mime = clean(metadata.originalMime, 160);
+  const plaintextSha256 = clean(metadata.sha256 || metadata.plaintextSha256, 64).toLowerCase();
+  if (!id || !capability || !model || !mime || !/^[0-9a-f]{64}$/.test(plaintextSha256)) {
+    throw mediaError('MEDIA_ARTIFACT_METADATA_INVALID', 409);
+  }
+  const codec = createEnvMediaVaultCodec(env);
+  const bytes = await codec.open({
+    ciphertext,
+    metadata,
+    aad: {
+      schema: 'MEL_MEDIA_GENERATED_AAD_V1',
+      id,
+      owner,
+      capability,
+      model,
+      mime,
+      plaintext_sha256: plaintextSha256,
+    },
+  });
+  return Object.freeze({
+    key,
+    id,
+    bytes,
+    mime,
+    capability,
+    model,
+    sha256: plaintextSha256,
+    size: bytes.byteLength,
   });
 }
 
@@ -558,7 +608,7 @@ async function videoProcess(env, input = {}) {
   if (!mediaTransformReady(env)) throw mediaError('MEDIA_TRANSFORM_BINDING_UNAVAILABLE');
   if (!mediaStorageReady(env)) throw mediaError('MEDIA_VAULT_UNAVAILABLE');
 
-  const bytes = videoInputBytes(input);
+  const bytes = await videoInputBytes(env, input);
   if (!bytes?.byteLength) throw mediaError('VIDEO_INPUT_REQUIRED', 400);
   const params = input?.params && typeof input.params === 'object' ? input.params : {};
   const width = Number(input?.width ?? params.width);
@@ -609,7 +659,7 @@ async function videoAnalyze(env, input = {}) {
   if (!aiReady(env, IMAGE_ANALYZE_ADAPTER_ID, WORKERS_AI_VISION_MODEL)) throw mediaError('WORKERS_AI_VISION_UNAVAILABLE');
   if (!aiReady(env, TRANSCRIPTION_ADAPTER_ID, WORKERS_AI_TRANSCRIPTION_MODEL)) throw mediaError('WORKERS_AI_TRANSCRIPTION_UNAVAILABLE');
 
-  const bytes = videoInputBytes(input);
+  const bytes = await videoInputBytes(env, input);
   if (!bytes?.byteLength) throw mediaError('VIDEO_INPUT_REQUIRED', 400);
   const duration = boundedSeconds(input?.duration_seconds, 30, 60);
   const imageCount = Math.min(12, Math.max(3, Math.round(Number(input?.image_count) || 6)));
