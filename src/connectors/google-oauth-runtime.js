@@ -294,10 +294,22 @@ export function createGoogleOAuthRuntime({ env = {}, fetcher = fetch, vaults = n
 
 export function createGoogleAccessTokenResolver(env = {}, options = {}) {
   if (!env?.DB) return null;
-  const hasKeyId = Boolean(clean(env.MEL_OAUTH_ENCRYPTION_KEY_ID, 200));
-  const hasKey = Boolean(clean(env.MEL_OAUTH_ENCRYPTION_KEY_B64, 1000));
-  if (!hasKeyId && !hasKey) return null;
-  requireValue(hasKeyId && hasKey, 'OAUTH_VAULT_CONFIGURATION_INCOMPLETE', 503);
+  const hasDedicatedKeyId = Boolean(clean(env.MEL_OAUTH_ENCRYPTION_KEY_ID, 200));
+  const hasDedicatedKey = Boolean(clean(env.MEL_OAUTH_ENCRYPTION_KEY_B64, 1000));
+  if (hasDedicatedKeyId !== hasDedicatedKey) {
+    requireValue(false, 'OAUTH_VAULT_CONFIGURATION_INCOMPLETE', 503);
+  }
+
+  const hasRecoveryKeyId = Boolean(clean(env.MEL_BACKUP_ENCRYPTION_KEY_ID, 200));
+  const hasRecoveryKey = Boolean(clean(env.MEL_BACKUP_ENCRYPTION_KEY_B64, 1000));
+  if (!hasDedicatedKeyId && hasRecoveryKeyId !== hasRecoveryKey) {
+    requireValue(false, 'OAUTH_VAULT_RECOVERY_CONFIGURATION_INCOMPLETE', 503);
+  }
+  if (!hasDedicatedKeyId && !hasRecoveryKeyId) return null;
+
+  // Use the exact same vault resolver as the connection-settings API. This
+  // preserves legacy dedicated OAuth keys and otherwise derives the OAuth vault
+  // key from MEL's canonical backup root.
   const vaults = options.vaults || createD1OAuthVaults(env, options);
   const fullOAuth = Boolean(
     clean(env.GOOGLE_OAUTH_CLIENT_ID, 1000)

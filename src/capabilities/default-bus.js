@@ -12,6 +12,7 @@ import { registerSelfAuditCapabilities } from './self-audit-capability.js';
 import { registerBrowserRuntimeCapabilities } from './browser-runtime-capabilities.js';
 import { registerComputerRuntimeCapabilities } from './computer-runtime-capabilities.js';
 import { registerGoogleWorkspaceCapabilities } from './google-workspace-capabilities.js';
+import { registerPipedreamLinkedCapabilities } from './pipedream-linked-capabilities.js';
 import { registerCreativeMediaCapabilities } from './creative-media-capabilities.js';
 import { createWorkersAiZeroCostMediaCapabilities } from '../media/workers-ai-media-capabilities.js';
 import { createDefaultAugmentioPool } from '../augmentio/default-pool.js';
@@ -119,7 +120,7 @@ function zeroCostHealth(runtimeEnv, minimum = 1) {
 }
 
 /** Safe capability bus used by MEL's Gen2 runtime. Only real executable handlers are registered. */
-export function createDefaultCapabilityBus({ audit, env, repository, branch, token, fetchImpl, googleAccessTokenResolver = null, vercelConfigResolver = null } = {}) {
+export function createDefaultCapabilityBus({ audit, env, repository, branch, token, fetchImpl, googleAccessTokenResolver = null, vercelConfigResolver = null, pipedreamRuntime = null } = {}) {
   const runtimeEnv = env || {};
   const bus = new CapabilityBus({ audit });
 
@@ -162,7 +163,9 @@ export function createDefaultCapabilityBus({ audit, env, repository, branch, tok
     env: runtimeEnv,
     fetchImpl: platformFetch,
     resolveAccessToken: typeof googleAccessTokenResolver === 'function' ? googleAccessTokenResolver : null,
+    pipedreamRuntime,
   });
+  registerPipedreamLinkedCapabilities(bus, { pipedreamRuntime });
 
   registerPresentationCapabilities(bus);
 

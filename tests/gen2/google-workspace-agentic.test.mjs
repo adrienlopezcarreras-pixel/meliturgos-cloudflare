@@ -257,3 +257,92 @@ test('connector registry advertises Google Tasks and mutation capabilities witho
   const serialized = JSON.stringify([gmail, calendar, tasks]);
   assert.equal(serialized.includes('access-token'), false);
 });
+
+
+test('Calendar read stays executable through Pipedream when the native Calendar API is disabled', async () => {
+  const nativeCalls = [];
+  const proxyCalls = [];
+  const bus = new CapabilityBus();
+  registerGoogleWorkspaceCapabilities(bus, {
+    env: { MELITURGOS_USER: 'adrien' },
+    resolveAccessToken: async () => 'google-token',
+    fetchImpl: async (url, init = {}) => {
+      nativeCalls.push({ url: String(url), init });
+      if (String(url).includes('www.googleapis.com/calendar/v3/')) {
+        return response({ error: { code: 403, status: 'PERMISSION_DENIED' } }, 403);
+      }
+      return response({});
+    },
+    pipedreamRuntime: {
+      async proxy(input) {
+        proxyCalls.push(input);
+        if (String(input.url).endsWith('/calendars/primary')) {
+          return { provider: 'pipedream', body: { id: 'primary' } };
+        }
+        return {
+          provider: 'pipedream',
+          body: { items: [{ id: 'event-pd-1', summary: 'RDV Pipedream' }] },
+        };
+      },
+    },
+  });
+
+  const health = await bus.refreshHealth('calendar.events.read');
+  assert.equal(health.health, 'HEALTHY');
+
+  const result = await bus.execute('calendar.events.read', { calendar_id: 'primary', limit: 1 }, {
+    owner: 'adrien',
+    permissions: ['google.calendar.read'],
+  });
+  assert.equal(result.provider, 'pipedream');
+  assert.equal(result.count, 1);
+  assert.equal(result.events[0].id, 'event-pd-1');
+  assert.ok(nativeCalls.some(call => call.url.includes('/calendar/v3/calendars/primary/events?')));
+  assert.ok(proxyCalls.some(call => call.app === 'google_calendar' && call.url.includes('/calendar/v3/calendars/primary/events?')));
+});
+
+test('Calendar mutation keeps explicit approval when execution falls back to Pipedream', async () => {
+  const proxyCalls = [];
+  const bus = new CapabilityBus();
+  registerGoogleWorkspaceCapabilities(bus, {
+    env: { MELITURGOS_USER: 'adrien' },
+    resolveAccessToken: async () => 'google-token',
+    fetchImpl: async (url) => {
+      if (String(url).includes('www.googleapis.com/calendar/v3/')) {
+        return response({ error: { code: 403 } }, 403);
+      }
+      return response({});
+    },
+    pipedreamRuntime: {
+      async proxy(input) {
+        proxyCalls.push(input);
+        if (input.method === 'POST') return { provider: 'pipedream', body: { id: 'event-pd-create' } };
+        return { provider: 'pipedream', body: { id: 'primary' } };
+      },
+    },
+  });
+
+  const input = {
+    calendar_id: 'primary',
+    summary: 'RDV fallback',
+    start: '2026-10-08T10:00:00+02:00',
+    end: '2026-10-08T10:30:00+02:00',
+  };
+  await assert.rejects(
+    () => bus.execute('calendar.events.create', input, {
+      owner: 'adrien',
+      permissions: ['google.calendar.write'],
+    }),
+    { code: 'EXPLICIT_APPROVAL_REQUIRED' },
+  );
+  assert.equal(proxyCalls.length, 0);
+
+  const result = await bus.execute('calendar.events.create', input, {
+    owner: 'adrien',
+    permissions: ['google.calendar.write'],
+    approvedCapabilities: ['calendar.events.create'],
+  });
+  assert.equal(result.provider, 'pipedream');
+  assert.equal(result.event_id, 'event-pd-create');
+  assert.ok(proxyCalls.some(call => call.method === 'POST' && call.app === 'google_calendar'));
+});

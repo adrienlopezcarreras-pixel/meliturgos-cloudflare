@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { inferNativeCodeCapability, buildRuntimeCapabilityManifest, applyCapabilityExecutionEvidence } from '../src/api/native-chat.js';
+import { inferNativeCodeCapability, inferConnectedDataCapability, buildRuntimeCapabilityManifest, applyCapabilityExecutionEvidence } from '../src/api/native-chat.js';
 
 test('follow-up access question reuses recent code context and path', () => {
   const recent = [
@@ -82,4 +82,43 @@ test('failed tool execution becomes explicit runtime failure without erasing STU
   assert.equal(updated[0].status, 'EXISTANT_MAIS_ECHEC_RUNTIME');
   assert.equal(updated[0].last_execution.code, 'UPSTREAM_TIMEOUT');
   assert.equal(updated[1].status, 'STUB');
+});
+
+
+test('connected private-data routing maps natural read requests to real capabilities', () => {
+  assert.deepEqual(
+    inferConnectedDataCapability('Regarde mes mails Outlook'),
+    { id:'mail.messages.search', input:{ limit:20 } },
+  );
+  assert.deepEqual(
+    inferConnectedDataCapability('Liste mes fichiers OneDrive'),
+    { id:'files.list', input:{ limit:20 } },
+  );
+  assert.deepEqual(
+    inferConnectedDataCapability('Cherche facture dans Google Drive'),
+    { id:'drive.files.search', input:{ query:'facture', limit:20 } },
+  );
+  assert.deepEqual(
+    inferConnectedDataCapability("Qu'est-ce que j'ai dans mon agenda ?"),
+    { id:'calendar.events.read', input:{ limit:20 } },
+  );
+  assert.deepEqual(
+    inferConnectedDataCapability('Montre mes tâches Google Tasks'),
+    { id:'tasks.tasklists.read', input:{ limit:20 } },
+  );
+});
+
+test('connected private-data routing only plans an email mutation when recipient subject and body are explicit', () => {
+  assert.deepEqual(
+    inferConnectedDataCapability('Envoie un mail Outlook à test@example.com objet: Test MEL message: Bonjour'),
+    {
+      id:'mail.messages.send',
+      input:{ to:['test@example.com'], subject:'Test MEL', body:'Bonjour' },
+      execution_intent:'CONNECTED_DATA_MUTATION',
+    },
+  );
+  assert.equal(
+    inferConnectedDataCapability('Envoie un mail Outlook à test@example.com'),
+    null,
+  );
 });
