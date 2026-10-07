@@ -66,7 +66,7 @@ jobs:
             provider:'workers-ai',
             account_plan:'WORKERS_FREE',
             billing_path:'direct-workers-ai-binding',
-            pricing_policy:'cloudflare-workers-ai-pricing-2026-08-28',
+            pricing_policy:'cloudflare-workers-ai-pricing-2026-10-01',
             free_allocation_neurons_per_day:10000,
             free_overage_behavior:'FAIL_NOT_BILL',
             plan_evidence:{
