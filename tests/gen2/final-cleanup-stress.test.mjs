@@ -73,6 +73,6 @@ test('roadmap truth has only the still-unproved media provider milestone open', 
 
   const summary = roadmapSummary();
   assert.equal(summary.total, rows.length);
-  assert.equal(summary.done_verified, rows.length - 1);
-  assert.ok(summary.percent_complete > 99 && summary.percent_complete < 100);
+  assert.equal(summary.complete, rows.length - 1);
+  assert.equal(summary.percent_complete, 99);
 });
