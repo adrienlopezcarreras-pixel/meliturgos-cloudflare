@@ -2369,8 +2369,10 @@ extern "C" void app_main(void) {
     // be starved during codec/camera bring-up.
     ESP_LOGI(TAG, "STEP 4: AUDIO ES8311");
     esp_es8311_port_init(i2c_bus_handle);
-    audio_ok = input_dev != nullptr && output_dev != nullptr;
-    ESP_LOGI(TAG, "STEP 4 %s", audio_ok ? "OK" : "FAILED");
+    audio_ok = esp_es8311_port_ready();
+    ESP_LOGI(TAG, "STEP 4 %s err=%s",
+             audio_ok ? "OK" : "FAILED",
+             esp_err_to_name(esp_es8311_port_last_error()));
 
     // Waveshare keeps the codec open and records directly through
     // esp_codec_dev_read(). Reserve MEL's permanent worker now, while internal
