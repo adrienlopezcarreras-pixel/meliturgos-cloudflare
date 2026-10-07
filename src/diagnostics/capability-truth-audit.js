@@ -15,6 +15,42 @@ const SAFE_SAMPLES = Object.freeze({
   'evolution.module.propose': { goal: 'prévisualiser une capacité locale de diagnostic sans écrire ni activer de code', threshold: 2 },
   'device.policy.preview': { deviceId: 'audit-preview', capabilities: ['status.read'], action: 'status.read', ownerApproved: false, ownerShutdown: false, adapter: 'audit-preview' },
   'web.research': { query: 'Cloudflare Workers documentation', depth: 1 },
+
+  // Read-only, bounded production samples. These intentionally avoid ids that
+  // could target or mutate a real object and use tiny limits wherever possible.
+  'roadmap.human-actions-required': {},
+  'presentation.layout.plan': {},
+  'work.plan.list': { limit: 1 },
+  'work.list': { limit: 1 },
+  'work.open': { limit: 1 },
+  'openloop.due': { limit: 1 },
+  'timeline.list': { limit: 1, order: 'desc' },
+  'project.list': { limit: 1, order: 'desc' },
+  'decision.list': { limit: 1, order: 'desc' },
+  'lesson.list': { limit: 1, order: 'desc' },
+  'event.list': { limit: 1 },
+  'skill.list': { active_only: true },
+  'skill.snapshot.export': {},
+  'self.audit.status': {},
+  'autonomy.bridge.status': { limit: 1 },
+  'autonomy.activity': { limit: 1 },
+  'self.state': {},
+  'evolution.ledger.list': { limit: 1 },
+  'evolution.ledger.verify': { limit: 50 },
+  'knowledge.search': { query: '__mel_capability_stress_no_match__', limit: 1 },
+
+  // Connected-account reads are bounded and non-mutating. They deliberately
+  // use no-match queries where supported to minimize private-data exposure.
+  'gmail.messages.search': { query: '__mel_capability_stress_no_match__', limit: 1 },
+  'calendar.events.read': { query: '__mel_capability_stress_no_match__', limit: 1 },
+  'tasks.tasklists.read': { limit: 1 },
+  'mail.messages.search': { query: '__mel_capability_stress_no_match__', limit: 1 },
+  'files.list': { limit: 1 },
+  'files.search': { query: '__mel_capability_stress_no_match__', limit: 1 },
+  'drive.files.list': { limit: 1 },
+  'drive.files.search': { query: '__mel_capability_stress_no_match__', limit: 1 },
+  'sites.list': { limit: 1 },
+  'sites.search': { query: '__mel_capability_stress_no_match__', limit: 1 },
 });
 
 // Automatic deep audits must be zero-added-cost by proof, not assumption.
