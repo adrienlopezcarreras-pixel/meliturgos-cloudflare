@@ -529,6 +529,12 @@ jobs:
             "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/entitlements" || true)"
           test "${account_code}" = "200"
           test "${ent_code}" = "200"
+          curl --fail --silent --show-error --location --max-time 30 "https://developers.cloudflare.com/browser-run/pricing/" -o browser-run-pricing.html
+          curl --fail --silent --show-error --location --max-time 30 "https://developers.cloudflare.com/browser-run/limits/" -o browser-run-limits.html
+          grep -Fq "Workers Free" browser-run-pricing.html
+          grep -Fq "10 minutes per day" browser-run-pricing.html
+          grep -Fq "429" browser-run-limits.html
+          grep -Fq "10 minutes per day" browser-run-limits.html
 
           node - <<'NODE'
           const fs=require('fs');
@@ -584,6 +590,29 @@ jobs:
             expires_at:proof.expires_at,
             model_count:proof.models.length,
           },null,2));
+          const browserPricing=fs.readFileSync('browser-run-pricing.html','utf8');
+          const browserLimits=fs.readFileSync('browser-run-limits.html','utf8');
+          if(!browserPricing.includes('Workers Free')||!browserPricing.includes('10 minutes per day')) throw new Error('BROWSER_RUN_FREE_PRICING_NOT_PROVED');
+          if(!browserLimits.includes('429')||!browserLimits.includes('10 minutes per day')) throw new Error('BROWSER_RUN_FREE_HARD_LIMIT_NOT_PROVED');
+          const browserProof={
+            schema:'mel.browser-run.zero-cost-proof/v1',
+            provider:'cloudflare-browser-run',
+            account_plan:'WORKERS_FREE',
+            included_minutes_per_day:10,
+            overage_behavior:'HARD_LIMIT_NO_BILLING',
+            documentation_url:'https://developers.cloudflare.com/browser-run/pricing/',
+            verified_at:new Date(now).toISOString(),
+            expires_at:new Date(now+60*60*1000).toISOString(),
+          };
+          fs.writeFileSync('browser-run-zero-cost-proof.json',JSON.stringify(browserProof));
+          fs.writeFileSync('browser-run-zero-cost-evidence.json',JSON.stringify({
+            schema:browserProof.schema,
+            account_plan:browserProof.account_plan,
+            included_minutes_per_day:browserProof.included_minutes_per_day,
+            overage_behavior:browserProof.overage_behavior,
+            verified_at:browserProof.verified_at,
+            expires_at:browserProof.expires_at,
+          },null,2));
           NODE
           MEDIA_KEY_B64="$(node - <<'NODE'
           const crypto=require('crypto');
@@ -619,9 +648,11 @@ jobs:
             32,
           )).toString('base64url');
           const workersAiProof=JSON.parse(fs.readFileSync('workers-ai-zero-cost-proof.json','utf8'));
+          const browserRunProof=JSON.parse(fs.readFileSync('browser-run-zero-cost-proof.json','utf8'));
           const payload={
             MEL_LAUNCH_BOOTSTRAP_TOKEN:String(process.env.BOOTSTRAP_TOKEN||''),
             MEL_WORKERS_AI_ZERO_COST_PROOF_JSON:JSON.stringify(workersAiProof),
+            MEL_BROWSER_RUN_ZERO_COST_PROOF_JSON:JSON.stringify(browserRunProof),
             MEL_MEDIA_ENCRYPTION_KEY_B64:String(process.env.MEDIA_KEY_B64||''),
             MEL_MEDIA_ENCRYPTION_KEY_ID:String(process.env.MEDIA_KEY_ID||''),
             MEL_PARALLEL_PROOF_TOKEN:parallelProofToken,
@@ -630,7 +661,7 @@ jobs:
             MEL_BACKUP_ENCRYPTION_KEY_B64:String(process.env.MEL_BACKUP_ENCRYPTION_KEY_B64||''),
             MEL_BACKUP_ENCRYPTION_KEY_ID:String(process.env.MEL_BACKUP_ENCRYPTION_KEY_ID||''),
           };
-          if(!payload.MEL_LAUNCH_BOOTSTRAP_TOKEN || !payload.MEL_WORKERS_AI_ZERO_COST_PROOF_JSON
+          if(!payload.MEL_LAUNCH_BOOTSTRAP_TOKEN || !payload.MEL_WORKERS_AI_ZERO_COST_PROOF_JSON || !payload.MEL_BROWSER_RUN_ZERO_COST_PROOF_JSON
             || !payload.MEL_MEDIA_ENCRYPTION_KEY_B64 || !payload.MEL_MEDIA_ENCRYPTION_KEY_ID || !payload.MEL_PARALLEL_PROOF_TOKEN
             || !payload.MEL_BACKUP_ENCRYPTION_KEY_B64 || !payload.MEL_BACKUP_ENCRYPTION_KEY_ID) {
             throw new Error('RELEASE_CRYPTO_SECRETS_MISSING');
@@ -741,6 +772,8 @@ jobs:
           set -euo pipefail
           test -s workers-ai-zero-cost-proof.json
           test -s workers-ai-zero-cost-evidence.json
+          test -s browser-run-zero-cost-proof.json
+          test -s browser-run-zero-cost-evidence.json
           node - <<'NODE'
           const fs=require('fs');
           const p=JSON.parse(fs.readFileSync('workers-ai-zero-cost-proof.json','utf8'));
@@ -751,7 +784,12 @@ jobs:
           const now=Date.now();
           if(!Number.isFinite(verified)||!Number.isFinite(expires)||verified>now+60000||expires<=now) throw new Error('WORKERS_AI_ZERO_COST_PROOF_STALE');
           if(!Array.isArray(p?.models)||p.models.length<1) throw new Error('WORKERS_AI_ZERO_COST_MODELS_MISSING');
-          console.log('Workers AI zero-cost proof bundled in the exact Worker deployment and still fresh.');
+          const b=JSON.parse(fs.readFileSync('browser-run-zero-cost-proof.json','utf8'));
+          if(b?.schema!=='mel.browser-run.zero-cost-proof/v1'||b?.provider!=='cloudflare-browser-run'||b?.account_plan!=='WORKERS_FREE') throw new Error('BROWSER_RUN_ZERO_COST_PROOF_INVALID');
+          if(b?.overage_behavior!=='HARD_LIMIT_NO_BILLING'||Number(b?.included_minutes_per_day)!==10) throw new Error('BROWSER_RUN_ZERO_COST_GUARD_INVALID');
+          const bVerified=Date.parse(String(b?.verified_at||'')),bExpires=Date.parse(String(b?.expires_at||''));
+          if(!Number.isFinite(bVerified)||!Number.isFinite(bExpires)||bVerified>Date.now()+60000||bExpires<=Date.now()) throw new Error('BROWSER_RUN_ZERO_COST_PROOF_STALE');
+          console.log('Workers AI + Browser Run zero-cost proofs bundled in the exact Worker deployment and still fresh.');
           NODE
 
       - name: Dispatch decoupled downstream production proofs
