@@ -417,7 +417,74 @@ function actionLikeRequest(value) {
 }
 
 function privateConnectedDataRequest(value) {
-  return /\b(?:mes\s+(?:mails?|emails?|fichiers?|documents?|photos?|messages?|contacts?|calendriers?|agendas?)|gmail|outlook|onedrive|google\s+drive|sharepoint|mon\s+(?:gmail|outlook|drive|agenda|calendrier)|ma\s+(?:bo[iî]te\s+mail|messagerie))\b/i.test(String(value || ''));
+  return /\b(?:mes\s+(?:mails?|emails?|fichiers?|documents?|photos?|messages?|contacts?|calendriers?|agendas?|t[âa]ches?)|gmail|outlook|onedrive|google\s+drive|google\s+tasks|sharepoint|mon\s+(?:gmail|outlook|drive|agenda|calendrier)|ma\s+(?:bo[iî]te\s+mail|messagerie))\b/i.test(String(value || ''));
+}
+
+function connectedSearchQuery(value, providerPattern) {
+  const raw = String(value || '').trim();
+  const stripped = raw
+    .replace(providerPattern, ' ')
+    .replace(/\b(?:cherche|recherche|trouve|montre|liste|lis|regarde|dans|sur|mes|mails?|emails?|messages?|fichiers?|documents?|sites?)\b/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return stripped.length >= 2 ? stripped.slice(0, 300) : '';
+}
+
+export function inferConnectedDataCapability(value) {
+  const raw = String(value || '').trim();
+  if (!raw || !privateConnectedDataRequest(raw)) return null;
+
+  const emailSend = /\b(?:envoie|envoyer|send)\b[\s\S]*\b(?:mail|email|message)\b/i.test(raw);
+  if (emailSend) {
+    const address = raw.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)?.[0] || '';
+    const subject = raw.match(/\b(?:objet|sujet)\s*[:=-]\s*([^\n]+?)(?=\s+\b(?:message|corps)\s*[:=-]|$)/i)?.[1]?.trim() || '';
+    const body = raw.match(/\b(?:message|corps)\s*[:=-]\s*([\s\S]+)$/i)?.[1]?.trim() || '';
+    if (address && subject && body) {
+      const outlook = /\b(?:outlook|msn|hotmail|live\.com)\b/i.test(raw);
+      return {
+        id: outlook ? 'mail.messages.send' : 'gmail.messages.send',
+        input: { to: [address], subject: subject.slice(0, 998), body: body.slice(0, 100000) },
+        execution_intent: 'CONNECTED_DATA_MUTATION',
+      };
+    }
+  }
+
+  if (/\b(?:outlook|msn|hotmail)\b/i.test(raw)) {
+    const query = connectedSearchQuery(raw, /\b(?:outlook|msn|hotmail)\b/gi);
+    return { id: 'mail.messages.search', input: { ...(query ? { query } : {}), limit: 20 } };
+  }
+  if (/\bgmail\b/i.test(raw)) {
+    const query = connectedSearchQuery(raw, /\bgmail\b/gi);
+    return { id: 'gmail.messages.search', input: { query: query || 'newer_than:30d', limit: 20 } };
+  }
+  if (/\b(?:agenda|calendrier|calendar|rendez[- ]?vous|[ée]v[ée]nements?)\b/i.test(raw)) {
+    return { id: 'calendar.events.read', input: { limit: 20 } };
+  }
+  if (/\b(?:google\s+tasks|mes\s+t[âa]ches?)\b/i.test(raw)) {
+    return { id: 'tasks.tasklists.read', input: { limit: 20 } };
+  }
+  if (/\bonedrive\b/i.test(raw)) {
+    const wantsSearch = /\b(?:cherche|recherche|trouve)\b/i.test(raw);
+    const query = connectedSearchQuery(raw, /\bonedrive\b/gi);
+    return wantsSearch && query
+      ? { id: 'files.search', input: { query, limit: 20 } }
+      : { id: 'files.list', input: { limit: 20 } };
+  }
+  if (/\bgoogle\s+drive\b/i.test(raw)) {
+    const wantsSearch = /\b(?:cherche|recherche|trouve)\b/i.test(raw);
+    const query = connectedSearchQuery(raw, /\bgoogle\s+drive\b/gi);
+    return wantsSearch && query
+      ? { id: 'drive.files.search', input: { query, limit: 20 } }
+      : { id: 'drive.files.list', input: { limit: 20 } };
+  }
+  if (/\bsharepoint\b/i.test(raw)) {
+    const wantsSearch = /\b(?:cherche|recherche|trouve)\b/i.test(raw);
+    const query = connectedSearchQuery(raw, /\bsharepoint\b/gi);
+    return wantsSearch && query
+      ? { id: 'sites.search', input: { query, limit: 20 } }
+      : { id: 'sites.list', input: { limit: 20 } };
+  }
+  return null;
 }
 
 export function shouldEscalateNativeChatToCouncil({
@@ -971,6 +1038,7 @@ export async function handleNativeChat(request, env, options = {}) {
     : inferredExecutionCapability
       || inferredSelfActivityCapability
       || inferNativeComputerCapability(activeTaskText)
+      || inferConnectedDataCapability(activeTaskText)
       || (!personalProfileIntent ? inferChatGPTHistoryCapability(activeTaskText) : null)
       || inferDirectCurrentWebCapability(activeTaskText, body.intent_context || {})
       || inferKnowledgeCapability(activeTaskText)
@@ -1028,6 +1096,7 @@ export async function handleNativeChat(request, env, options = {}) {
     : (body.capability?.id ? body.capability : inferredCapability);
   const toolResults = [];
   const capabilitiesUsed = [];
+  let approvalRequired = null;
 
   if (releaseSmoke && (!capability?.id || !['code.read','code.search'].includes(String(capability.id)))) {
     return Response.json({
@@ -1044,8 +1113,47 @@ export async function handleNativeChat(request, env, options = {}) {
       toolResults.push({ capability: capability.id, status: 'SUCCEEDED', result: summarizeToolResult(result) });
       capabilitiesUsed.push(capability.id);
     } catch (error) {
-      toolResults.push({ capability: capability.id, status: 'FAILED', error: error.code || error.message || 'CAPABILITY_FAILED' });
+      const code = error.code || error.message || 'CAPABILITY_FAILED';
+      toolResults.push({ capability: capability.id, status: 'FAILED', error: code });
+      if (code === 'EXPLICIT_APPROVAL_REQUIRED') {
+        approvalRequired = {
+          capability: String(capability.id),
+          input: structuredClone(capability.input || {}),
+          scope: String(error?.approval_scope || capability.id),
+        };
+      }
     }
+  }
+
+  if (!releaseSmoke && approvalRequired) {
+    const responseText = 'Cette action peut modifier tes données et nécessite ta confirmation explicite. Vérifie les détails puis confirme pour l’exécuter.';
+    let archiveSaved = false;
+    if (service) {
+      try {
+        await service.archiveMessage({ conversationId, deviceId, role:'user', content:text, timestamp:Date.now(), provenance:userProvenance, metadata:userMetadata });
+        await service.archiveMessage({
+          conversationId,
+          deviceId,
+          role:'assistant',
+          content:responseText,
+          timestamp:Date.now()+1,
+          provenance:'native-chat:approval-required',
+          metadata:{ capability:approvalRequired.capability },
+        });
+        archiveSaved = true;
+      } catch {}
+    }
+    return Response.json({
+      ok:true,
+      text:responseText,
+      model:'deterministic-approval-gate',
+      provider:'mel',
+      response_mode:'approval-required',
+      approval_required:approvalRequired,
+      capability_used:capabilitiesUsed,
+      tool_results:toolResults,
+      archive_saved:archiveSaved,
+    }, { headers:{'cache-control':'no-store'} });
   }
 
   let councilRecoveryRetry = null;
