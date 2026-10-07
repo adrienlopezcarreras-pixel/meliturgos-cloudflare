@@ -4,6 +4,7 @@
 #include "esp_codec_dev.h"
 #include "esp_codec_dev_defaults.h"
 #include "esp_log.h"
+#include "esp_heap_caps.h"
 
 #define I2S_MCK_PIN 12
 #define I2S_BCK_PIN 13
