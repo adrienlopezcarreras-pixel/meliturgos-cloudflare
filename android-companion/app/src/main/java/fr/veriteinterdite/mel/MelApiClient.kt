@@ -20,7 +20,7 @@ class MelApiClient(
 ) {
     companion object {
         const val PROTOCOL_VERSION = "1.0"
-        const val APP_VERSION = "0.7.6-voice-output"
+        // Voice-output build: media-routed French TTS with PCM48/MP3 fallback.\n        const val APP_VERSION = "0.7.6-voice-output"
     }
 
     init {

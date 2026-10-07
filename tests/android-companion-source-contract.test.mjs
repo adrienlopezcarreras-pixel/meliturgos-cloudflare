@@ -415,9 +415,9 @@ test('Android Complete mode exposes an authenticated self diagnostic',async()=>{
   const vm=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelViewModel.kt',root),'utf8');
   const api=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelApiClient.kt',root),'utf8');
   const build=await readFile(new URL('app/build.gradle.kts',root),'utf8');
-  assert.match(build,/versionCode = 83/);
-  assert.match(build,/versionName = "0\.7\.5-link-v2-stt-flow"/);
-  assert.match(api,/APP_VERSION = "0\.7\.1-link-v2-token-relay"/);
+  assert.match(build,/versionCode = 84/);
+  assert.match(build,/versionName = "0\.7\.6-voice-output"/);
+  assert.match(api,/APP_VERSION = "0\.7\.6-voice-output"/);
   assert.match(vm,/val diagnosticReport: String\? = null/);
   assert.match(vm,/fun runDiagnostics\(\)/);
   assert.match(vm,/client\.heartbeat\(sdkInt = Build\.VERSION\.SDK_INT\)/);
@@ -438,9 +438,9 @@ test('Android device validation probes are authenticated and bounded',async()=>{
   const build=await readFile(new URL('app/build.gradle.kts',root),'utf8');
   const api=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelApiClient.kt',root),'utf8');
 
-  assert.match(build,/versionCode = 83/);
-  assert.match(build,/versionName = "0\.7\.5-link-v2-stt-flow"/);
-  assert.match(api,/APP_VERSION = "0\.7\.1-link-v2-token-relay"/);
+  assert.match(build,/versionCode = 84/);
+  assert.match(build,/versionName = "0\.7\.6-voice-output"/);
+  assert.match(api,/APP_VERSION = "0\.7\.6-voice-output"/);
 
   assert.match(activity,/private const val MAX_FILE_BYTES = 25_000_000/);
   assert.match(activity,/private fun readUriBounded\(uri: Uri\): ByteArray/);
@@ -472,9 +472,9 @@ test('real mic and file successes feed the diagnostic report',async()=>{
   const build=await readFile(new URL('app/build.gradle.kts',root),'utf8');
   const api=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelApiClient.kt',root),'utf8');
 
-  assert.match(build,/versionCode = 83/);
-  assert.match(build,/versionName = "0\.7\.5-link-v2-stt-flow"/);
-  assert.match(api,/APP_VERSION = "0\.7\.1-link-v2-token-relay"/);
+  assert.match(build,/versionCode = 84/);
+  assert.match(build,/versionName = "0\.7\.6-voice-output"/);
+  assert.match(api,/APP_VERSION = "0\.7\.6-voice-output"/);
 
   const voice=vm.slice(vm.indexOf('fun sendVoice('),vm.indexOf('fun sendFile('));
   assert.match(voice,/appendDiagnosticLine\("Micro réel: OK"\)/);
@@ -491,9 +491,9 @@ test('Android dark UI keeps readable content contrast',async()=>{
   const build=await readFile(new URL('app/build.gradle.kts',root),'utf8');
   const api=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelApiClient.kt',root),'utf8');
 
-  assert.match(build,/versionCode = 83/);
-  assert.match(build,/versionName = "0\.7\.5-link-v2-stt-flow"/);
-  assert.match(api,/APP_VERSION = "0\.7\.1-link-v2-token-relay"/);
+  assert.match(build,/versionCode = 84/);
+  assert.match(build,/versionName = "0\.7\.6-voice-output"/);
+  assert.match(api,/APP_VERSION = "0\.7\.6-voice-output"/);
 
   assert.match(activity,/contentColor = MelInk/);
   assert.match(activity,/CardDefaults\.cardColors\(containerColor = MelPanel, contentColor = MelInk\)/);
@@ -649,7 +649,7 @@ test('Android voice keeps French system TTS primary with PCM48 then MP3 server f
   assert.match(activity,/startBargeInListening\(\)/);
   assert.match(activity,/model\.interruptSpeechForBargeIn\(\)/);
   const barge=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelBargeInDetector.kt',root),'utf8');
-  assert.match(barge,/AudioSource\.VOICE_COMMUNICATION/);
+  assert.match(barge,/AudioSource\.VOICE_RECOGNITION/);
   assert.match(barge,/AcousticEchoCanceler/);
   assert.match(barge,/NoiseSuppressor/);
   assert.match(activity,/state\.speaking -> MelFaceState\.SPEAKING/);
@@ -689,8 +689,8 @@ test('Android Link V2 reports Internet ready only after physical, protocol and a
   assert.match(service,/phoneOk && miniReady\.value && protocolReady\.value && melSessionReady/);
   assert.match(service,/MINI V2 · INTERNET OK/);
   assert.match(activity,/phoneInternetReady by MelLinkV2ClientService\.phoneInternetAvailable/);
-  assert.match(build,/versionCode = 83/);
-  assert.match(build,/versionName = "0\.7\.5-link-v2-stt-flow"/);
+  assert.match(build,/versionCode = 84/);
+  assert.match(build,/versionName = "0\.7\.6-voice-output"/);
 });
 
 test('Android Link V2 has one GATT response path and serializes every write by callback acknowledgement',async()=>{
