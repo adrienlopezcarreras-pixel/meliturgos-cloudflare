@@ -45,6 +45,13 @@ jobs:
           test "${ACCOUNT_CODE}" = "200"
           test "${ENT_CODE}" = "200"
 
+          curl --fail --silent --show-error --location --max-time 30 "https://developers.cloudflare.com/workers-ai/platform/pricing/" -o workers-ai-pricing.html
+          curl --fail --silent --show-error --location --max-time 30 "https://developers.cloudflare.com/workers-ai/platform/errors/" -o workers-ai-errors.html
+          grep -Fq "10,000 Neurons per day" workers-ai-pricing.html
+          grep -Fq "N/A - Upgrade to Workers Paid" workers-ai-pricing.html
+          grep -Fq "daily free allocation of 10,000 neurons" workers-ai-errors.html
+          grep -Fq "429" workers-ai-errors.html
+
           node - <<'NODE'
           const fs=require('fs');
           const account=JSON.parse(fs.readFileSync('workers-ai-account.json','utf8'));
