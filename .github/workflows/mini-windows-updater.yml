@@ -40,16 +40,16 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh run watch 37617214324 --repo "${{ github.repository }}" --exit-status --interval 10
+          gh run watch 37620577257 --repo "${{ github.repository }}" --exit-status --interval 10
 
       - name: Download exact Link V2 firmware
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh run download 37617214324 `
+          gh run download 37620577257 `
             --repo "${{ github.repository }}" `
-            --name "MEL-Waveshare-3.5-C-c7c510f0ecaa1620932f02c3a0948ec579e6d130" `
+            --name "MEL-Waveshare-3.5-C-174c7971116235a14b3a077f39e13d02fe8b65a8" `
             --dir firmware-artifact
           if (!(Test-Path "firmware-artifact/build/mel-terminal.bin")) {
             throw "Validated Link V2 firmware binary missing"
@@ -63,7 +63,7 @@ jobs:
             --clean `
             --onefile `
             --console `
-            --name "MEL-MINI-Updater-0.6.0-VoiceOutput" `
+            --name "MEL-MINI-Updater-0.6.1-VoiceControls" `
             --collect-all esptool `
             --collect-all serial `
             --add-data "firmware-artifact/build/mel-terminal.bin;." `
@@ -72,21 +72,21 @@ jobs:
       - name: Self-test updater
         shell: pwsh
         run: |
-          & ".\dist\MEL-MINI-Updater-0.6.0-VoiceOutput.exe" --self-test
+          & ".\dist\MEL-MINI-Updater-0.6.1-VoiceControls.exe" --self-test
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: SHA256
         shell: pwsh
         run: |
-          Get-FileHash ".\dist\MEL-MINI-Updater-0.6.0-VoiceOutput.exe" -Algorithm SHA256 |
-            Format-List | Out-File ".\dist\MEL-MINI-Updater-0.6.0-VoiceOutput.sha256.txt"
+          Get-FileHash ".\dist\MEL-MINI-Updater-0.6.1-VoiceControls.exe" -Algorithm SHA256 |
+            Format-List | Out-File ".\dist\MEL-MINI-Updater-0.6.1-VoiceControls.sha256.txt"
 
       - name: Upload updater
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: MEL-MINI-Updater-0.6.0-VoiceOutput
+          name: MEL-MINI-Updater-0.6.1-VoiceControls
           path: |
-            dist/MEL-MINI-Updater-0.6.0-VoiceOutput.exe
-            dist/MEL-MINI-Updater-0.6.0-VoiceOutput.sha256.txt
+            dist/MEL-MINI-Updater-0.6.1-VoiceControls.exe
+            dist/MEL-MINI-Updater-0.6.1-VoiceControls.sha256.txt
           if-no-files-found: error
           retention-days: 30
