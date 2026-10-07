@@ -792,6 +792,58 @@ jobs:
           console.log('Workers AI + Browser Run zero-cost proofs bundled in the exact Worker deployment and still fresh.');
           NODE
 
+      - name: Prove MEL-MEDIA-02 12/12 live on exact deployed SHA
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE_URL="https://meliturgos.adrien-lopezcarreras.workers.dev"
+          test -s release-bootstrap-token.txt
+          BOOTSTRAP_TOKEN="$(cat release-bootstrap-token.txt)"
+          echo "::add-mask::${BOOTSTRAP_TOKEN}"
+
+          MEDIA_READY=0
+          for ATTEMPT in 1 2 3; do
+            MEDIA_CODE="$(curl --silent --show-error --max-time 300 \
+              --header "x-mel-launch-bootstrap: ${BOOTSTRAP_TOKEN}" \
+              --header "content-type: application/json" \
+              --data '{"phase":"media-proof"}' \
+              --output mel-media-02-production-proof.json \
+              --write-out '%{http_code}' \
+              "${BASE_URL}/api/internal/release-launch-bootstrap" || true)"
+            if [ "${MEDIA_CODE}" = "200" ] && EXPECTED_SHA="${EXPECTED_SHA}" node - <<'NODE'
+          const d=require('./mel-media-02-production-proof.json');
+          const expected=String(process.env.EXPECTED_SHA||'').toLowerCase();
+          if(d?.ok!==true) process.exit(1);
+          if(d?.status!=='MEL_MEDIA_02_DONE_VERIFIED_ELIGIBLE'||d?.done_verified_eligible!==true) process.exit(1);
+          if(String(d?.source_sha||'').toLowerCase()!==expected||String(d?.deployed_sha||'').toLowerCase()!==expected) process.exit(1);
+          if(Number(d?.capability_count)!==12) process.exit(1);
+          if(!Array.isArray(d?.required_capabilities)||d.required_capabilities.length!==12) process.exit(1);
+          if(!Array.isArray(d?.executions)||d.executions.length!==12||d.executions.some(row=>row?.ok!==true)) process.exit(1);
+          if(d?.secret_values_exposed!==false||d?.autonomy_started!==false) process.exit(1);
+          NODE
+            then
+              MEDIA_READY=1
+              break
+            fi
+            echo "MEL-MEDIA-02 live proof attempt ${ATTEMPT}/3 returned HTTP ${MEDIA_CODE}."
+            test ! -s mel-media-02-production-proof.json || cat mel-media-02-production-proof.json
+            sleep $((ATTEMPT * 3))
+          done
+          if [ "${MEDIA_READY}" != "1" ]; then
+            echo "MEL-MEDIA-02 exact-SHA 12/12 production proof failed."
+            exit 58
+          fi
+          echo "MEL-MEDIA-02 exact-SHA 12/12 live proof passed."
+
+      - name: Upload MEL-MEDIA-02 exact-SHA evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: mel-media-02-production-proof-${{ env.EXPECTED_SHA }}
+          path: mel-media-02-production-proof.json
+          if-no-files-found: warn
+          retention-days: 14
+
       - name: Dispatch decoupled downstream production proofs
         shell: bash
         env:
