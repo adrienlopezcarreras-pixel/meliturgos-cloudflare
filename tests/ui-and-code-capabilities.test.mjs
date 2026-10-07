@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { inferCodeCapability } from '../src/router.js';
-import { onRequestGet as renderNormalMode } from '../src/pages/mvp-interface.js';
+import { onRequestGet as renderNormalMode } from '../src/pages/mvp-interface-v3.js';
 import { NORMAL_RUNTIME_SOURCE } from '../src/pages/mvp-runtime.js';
 
 test('code questions are routed to search automatically', () => {
