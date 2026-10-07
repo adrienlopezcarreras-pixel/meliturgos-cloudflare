@@ -1,5 +1,6 @@
 import { createConnector } from '../connectors/wordpress.js';
 import { createWorkersAIAdapter } from '../augmentio/workers-ai-adapter.js';
+import { enforcePublicRateLimit } from '../security/public-rate-limit.js';
 
 const MODEL='@cf/zai-org/glm-4.7-flash';
 const MAX_QUERY=1200;
@@ -40,6 +41,8 @@ export async function handlePublicWordPressChat(request, env) {
   const origin=String(request.headers.get('origin')||'');
   if(origin && origin!=='https://verite-interdite.fr') return json({ok:false,error:'PUBLIC_ORIGIN_FORBIDDEN'},403);
   if(!env?.AI || typeof env.AI.run!=='function') return json({ok:false,error:'PUBLIC_AI_UNAVAILABLE'},503);
+  const rate=await enforcePublicRateLimit(request,env,{scope:'wordpress-public-chat',limit:20,windowMs:60_000});
+  if(!rate.ok)return json({ok:false,error:'PUBLIC_RATE_LIMITED'},429,{'retry-after':String(rate.retry_after_seconds)});
 
   let body;
   try{body=await request.json()}catch{return json({ok:false,error:'PUBLIC_CHAT_BODY_INVALID'},400)}
