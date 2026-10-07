@@ -148,8 +148,8 @@ test('Waveshare ES8311 path uses 48 kHz physical capture/playback with 16 kHz ST
     readFile(new URL('android-companion/app/src/main/java/fr/veriteinterdite/mel/MelLinkV2ClientService.kt', root), 'utf8'),
     readFile(new URL('firmware/waveshare-terminal/main/main.cpp', root), 'utf8'),
   ]);
-  assert.match(terminal, /VOICE_CAPTURE_RATE = 16000/);
-  assert.doesNotMatch(terminal, /VOICE_DECIMATOR_Q15/);
+  assert.match(terminal, /VOICE_CAPTURE_RATE = 48000/);
+  assert.match(terminal, /VOICE_DECIMATOR_Q15/);
   assert.match(transport, /output_rate->valueint == 48000/);
   assert.match(transport, /deliver_audio_48k_native/);
   assert.doesNotMatch(transport, /deliver_audio_16k_native/);
@@ -172,4 +172,20 @@ test('STT Link V2 uses asynchronous notifications with batched Android credits',
   assert.match(service, /var creditsConsumed: Int = 0/);
   assert.match(service, /CREDIT_WINDOW \/ 2/);
   assert.match(service, /MelLinkV2Protocol\.AUDIO_DATA[\s\S]*?audio\.creditsConsumed\+\+[\s\S]*?sendCreditAsync\(frame\.streamId, audio\.creditsConsumed\)/);
+});
+
+
+test('Android-to-MINI bulk uses no-response writes with bidirectional CREDIT backpressure', async () => {
+  const [service, transport] = await Promise.all([
+    readFile(new URL('android-companion/app/src/main/java/fr/veriteinterdite/mel/MelLinkV2ClientService.kt', root), 'utf8'),
+    readFile(new URL('firmware/waveshare-terminal/main/mel_link_v2_transport.cpp', root), 'utf8'),
+  ]);
+  assert.match(service, /WRITE_TYPE_NO_RESPONSE/);
+  assert.match(service, /beginOutboundTransfer/);
+  assert.match(service, /awaitOutboundCredit/);
+  assert.match(service, /CONNECTION_PRIORITY_HIGH/);
+  assert.match(service, /CONNECTION_PRIORITY_BALANCED/);
+  assert.match(service, /MelLinkV2Protocol\.CREDIT[\s\S]*?outboundCredits/);
+  assert.match(transport, /send_credit\(header\.stream_id, MEL_LINK_V2_CREDIT_WINDOW\)/);
+  assert.match(transport, /send_credit\(header\.stream_id, 1\)/);
 });
