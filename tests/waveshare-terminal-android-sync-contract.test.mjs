@@ -21,7 +21,7 @@ test('MINI second voice action stops and finalizes an active recording', async (
 
   assert.match(
     source,
-    /if \(g_voice_worker_handle\) \{[\s\S]*?g_runtime_state == MEL_TERMINAL_LISTENING[\s\S]*?g_voice_stop_requested = true;[\s\S]*?VOICE STOP requested by second press/
+    /if \(g_voice_job_active\) \{[\s\S]*?g_runtime_state == MEL_TERMINAL_LISTENING[\s\S]*?g_voice_stop_requested = true;[\s\S]*?VOICE STOP requested by second press/
   );
 });
 
