@@ -168,7 +168,7 @@ function freshZeroCostProof(env, adapterId, modelId) {
   return workersAiRuntimeZeroCostProvenance(env, { adapterId, modelId });
 }
 
-function mediaStorageReady(env = {}) {
+export function mediaStorageReady(env = {}) {
   return Boolean(
     env.MEDIA_BUCKET
     && typeof env.MEDIA_BUCKET.put === 'function'
@@ -181,7 +181,7 @@ function adapterReady(env, adapterId, modelId) {
   return Boolean(env?.AI?.run && mediaStorageReady(env) && freshZeroCostProof(env, adapterId, modelId));
 }
 
-async function storePrivateArtifact(env, bytesInput, {
+export async function storePrivateArtifact(env, bytesInput, {
   capability,
   model,
   mime,
