@@ -10,6 +10,7 @@ import { retireObsoleteQueueJobs } from './queue-hygiene.js';
 import { tryAcquireAutonomyRuntimeLease, releaseAutonomyRuntimeLease } from './autonomy-runtime-lease.js';
 import { createZeroCostBenchmarkEvaluator } from '../learning/operator-actions.js';
 import { reconcileRuntimeCompletions } from '../teachers/github-completion-reconciler.js';
+import { recordAutonomyProgressWatchdog, resetAutonomyProgressWatchdog } from './autonomy-progress-watchdog.js';
 
 export * from './autonomy-runtime-core.js';
 
@@ -565,13 +566,68 @@ export async function runAutonomyMaintenance(env, options = {}) {
   }
 }
 
+async function autonomyProgressSnapshot(repository, roadmap = null) {
+  try {
+    const supervisor = new AutonomySupervisor({ repository, ...(roadmap ? { roadmap } : {}) });
+    const state = await supervisor.state();
+    const active = Array.isArray(state?.active) ? state.active : [];
+    const actionable = selectActionableAutonomyJob(active);
+    return {
+      work_remaining: active.length > 0 || Boolean(state?.next),
+      active_jobs: active.length,
+      next_roadmap_id: state?.next?.id || null,
+      job_id: actionable?.id || active[0]?.id || null,
+      job_status: String(actionable?.status || active[0]?.status || '').toUpperCase() || null,
+    };
+  } catch {
+    return {
+      work_remaining: null,
+      active_jobs: null,
+      next_roadmap_id: null,
+      job_id: null,
+      job_status: null,
+    };
+  }
+}
+
+function augmentTickProgress(tick = {}) {
+  const progress = tick?.progress && typeof tick.progress === 'object' ? { ...tick.progress } : {};
+  const events = new Set(Array.isArray(progress.events) ? progress.events : []);
+  if (Array.isArray(tick?.owner_max_sweep?.applied) && tick.owner_max_sweep.applied.length > 0) events.add('OWNER_MAX_APPROVAL_APPLIED');
+  if (Array.isArray(tick?.internal_teacher_mirror?.mirrored) && tick.internal_teacher_mirror.mirrored.length > 0) events.add('TEACHER_REQUEST_MIRRORED');
+  if (Array.isArray(tick?.owner_chat_teacher_mirror?.mirrored) && tick.owner_chat_teacher_mirror.mirrored.length > 0) events.add('OWNER_CHAT_TEACHER_MIRRORED');
+  if (tick?.pre_ensure?.created === true) events.add('JOB_CREATED');
+  const advanced = tick?.advanced === true || events.size > 0;
+  return {
+    ...tick,
+    advanced,
+    progress: {
+      ...progress,
+      advanced,
+      events: [...events],
+      block_reason: progress.block_reason || tick?.owner_max_error || tick?.runtime_error || null,
+    },
+  };
+}
+
 export async function runAutonomyRuntimeTick(env, options = {}) {
   const control = await getAutonomyControl(env?.DB, { memoryState: options.autonomyControlState || null });
+  const repository = options.repository || (env?.DB ? new D1DevJobRepository(env.DB) : null);
+
   if (control.paused) {
+    const watchdog = await resetAutonomyProgressWatchdog(env?.DB || null, { status: 'PAUSED' }).catch(() => null);
     return {
       status: 'PAUSED',
       paused: true,
       advanced: false,
+      progress: {
+        advanced: false,
+        events: [],
+        work_remaining: null,
+        waiting_external: false,
+        block_reason: 'PAUSED',
+      },
+      watchdog,
       candidate_branch: env?.MEL_GITHUB_BRANCH || CANONICAL_CANDIDATE_BRANCH,
       control,
     };
@@ -580,15 +636,31 @@ export async function runAutonomyRuntimeTick(env, options = {}) {
   const launchApproval = launchApprovalValid(env, control, options);
   if (!launchApproval.ok) {
     const passiveCompletions = await reconcileVerifiedCompletionsBehindLaunchGate(env, options);
-    return {
+    const snapshot = repository ? await autonomyProgressSnapshot(repository, options.roadmap || null) : {};
+    const base = {
       ok: false,
       status: launchApproval.code,
       advanced: false,
+      progress: {
+        advanced: false,
+        events: [],
+        work_remaining: snapshot.work_remaining === true,
+        active_jobs: snapshot.active_jobs ?? null,
+        next_roadmap_id: snapshot.next_roadmap_id || null,
+        job_id: snapshot.job_id || null,
+        job_status: snapshot.job_status || null,
+        waiting_external: false,
+        block_reason: launchApproval.code,
+      },
       candidate_branch: env?.MEL_GITHUB_BRANCH || CANONICAL_CANDIDATE_BRANCH,
       control,
       launch_gate: launchApproval,
       passive_completions: passiveCompletions,
     };
+    base.watchdog = await recordAutonomyProgressWatchdog(env?.DB || null, base, {
+      maxAutonomy: control.max_autonomy === true,
+    }).catch(() => null);
+    return base;
   }
 
   validateCandidateBranches(env);
@@ -603,20 +675,55 @@ export async function runAutonomyRuntimeTick(env, options = {}) {
   });
 
   if (!lease.acquired) {
-    return {
+    const snapshot = repository ? await autonomyProgressSnapshot(repository, options.roadmap || null) : {};
+    const base = {
       ok: true,
       status: 'SKIPPED_LEASE_BUSY',
       skipped: true,
       advanced: false,
       reason: 'AUTONOMY_RUNTIME_LEASE_BUSY',
+      progress: {
+        advanced: false,
+        events: [],
+        work_remaining: snapshot.work_remaining === true,
+        active_jobs: snapshot.active_jobs ?? null,
+        next_roadmap_id: snapshot.next_roadmap_id || null,
+        job_id: snapshot.job_id || null,
+        job_status: snapshot.job_status || null,
+        waiting_external: false,
+        block_reason: 'AUTONOMY_RUNTIME_LEASE_BUSY',
+      },
       candidate_branch: env?.MEL_GITHUB_BRANCH || CANONICAL_CANDIDATE_BRANCH,
       control,
       lease: { expires_at: lease.expires_at || null },
     };
+    const watchdog = await recordAutonomyProgressWatchdog(env?.DB || null, base, {
+      maxAutonomy: control.max_autonomy === true,
+    }).catch(() => null);
+    return watchdog?.tripped === true
+      ? { ...base, ok: false, status: 'MAX_PROGRESS_STALLED', watchdog }
+      : { ...base, watchdog };
   }
 
   try {
-    return await runAutonomyRuntimeTickUnlocked(env, options, control);
+    const raw = await runAutonomyRuntimeTickUnlocked(env, { ...options, repository: repository || options.repository }, control);
+    const tick = augmentTickProgress(raw);
+    const watchdog = await recordAutonomyProgressWatchdog(env?.DB || null, tick, {
+      maxAutonomy: control.max_autonomy === true,
+    }).catch(() => null);
+    if (watchdog?.tripped === true) {
+      return {
+        ...tick,
+        ok: false,
+        status: 'MAX_PROGRESS_STALLED',
+        watchdog,
+        progress: {
+          ...(tick.progress || {}),
+          block_reason: watchdog.last_block_reason || tick?.progress?.block_reason || 'MAX_PROGRESS_STALLED',
+        },
+      };
+    }
+    return { ...tick, watchdog };
   } finally {
     await releaseAutonomyRuntimeLease({
       db: env?.DB || null,
