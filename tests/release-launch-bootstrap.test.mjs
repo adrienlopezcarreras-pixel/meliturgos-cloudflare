@@ -317,7 +317,11 @@ test('release bootstrap exposes bounded pause, backup, code-sync and readiness p
 
   const pause=await maybeHandleReleaseLaunchBootstrap(request('pause'),{MEL_LAUNCH_BOOTSTRAP_TOKEN:TOKEN,DB:{}},deps);
   assert.equal(pause.status,200);
-  assert.equal((await pause.json()).status,'RELEASE_PAUSED');
+  const pauseBody=await pause.json();
+  assert.equal(pauseBody.status,'RELEASE_PAUSED');
+  assert.equal(pauseBody.paused,true);
+  assert.equal(pauseBody.max_autonomy,false);
+  assert.equal(pauseBody.autonomy_started,false);
 
   const backup=await maybeHandleReleaseLaunchBootstrap(request('backup'),{MEL_LAUNCH_BOOTSTRAP_TOKEN:TOKEN,DB:{}},deps);
   assert.equal(backup.status,200);
