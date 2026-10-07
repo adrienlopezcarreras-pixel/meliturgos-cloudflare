@@ -169,3 +169,27 @@ test('Professor avoids expensive visual effects and blocking health probes on th
   assert.match(html,/Réponse serveur trop lente/);
   assert.match(html,/loadChatGPTImportStatus\(\)\.catch\(\(\)=>\{\}\);loadShardVaultStatus\(\)\.catch\(\(\)=>\{\}\)/);
 });
+
+
+test('Professor uses Free-compatible Pipedream defaults and explicit bounded request timeouts', async () => {
+  const html = await (await renderProfessor()).text();
+  const source = await read('src/pages/full-interface-v2.js');
+  assert.match(html, /id="pipedreamEnvironment"[^>]*>[\s\S]*value="development" selected>Development · gratuit/);
+  assert.match(html, /value="production">Production · plan Pipedream payant/);
+  assert.match(html, /id="chatInput"[^>]*maxlength="100000"/);
+  assert.match(source, /function requestTimeoutMs\(url,method\)/);
+  assert.match(source, /includes\('\/api\/chat'\)\)return 120000/);
+  assert.match(source, /includes\('\/api\/gen2\/connections\/'\)\)return 30000/);
+  assert.match(source, /fetchJsonWithTimeout/);
+});
+
+test('Professor declares button semantics and keyboard navigation for its tablist', async () => {
+  const html = await (await renderProfessor()).text();
+  const buttons = [...html.matchAll(/<button\b([^>]*)>/gi)];
+  assert.ok(buttons.length >= 80);
+  assert.equal(buttons.every(match => /\btype=["'](?:button|submit)["']/i.test(match[1])), true);
+  assert.match(html, /role="tablist"/);
+  assert.match(html, /ArrowLeft/);
+  assert.match(html, /ArrowRight/);
+  assert.match(html, /\.tabIndex=/);
+});
