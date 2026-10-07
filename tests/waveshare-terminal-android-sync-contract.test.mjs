@@ -102,7 +102,8 @@ test('MINI settings exposes hardware diagnostics after transport setup', async (
   assert.match(main, /settings_audio_clicked/);
   assert.match(main, /settings_camera_clicked/);
   assert.match(main, /settings_chat_clicked/);
-  assert.match(main, /"VOIX : ON"/);\n  assert.match(main, /"VOIX : OFF"/);
+  assert.match(main, /"VOIX : ON"/);
+  assert.match(main, /"VOIX : OFF"/);
   assert.match(main, /mel_terminal_stop_voice_output\(\)/);
 });
 
