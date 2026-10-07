@@ -86,7 +86,7 @@ jobs:
             local code
             code="$(curl --silent --show-error --max-time 45               --header "x-mel-release-smoke: 1"               --header "x-mel-parallel-proof: ${TOKEN}"               --header "content-type: application/json"               --data "${body}"               --output "${out}"               --write-out '%{http_code}'               "${BASE_URL}${path}" || true)"
             if [ "${code}" != "200" ]; then
-              node -e 'const fs=require("fs");let d={};try{d=JSON.parse(fs.readFileSync(process.argv[1],"utf8"))}catch{};console.log(process.argv[2]+": "+JSON.stringify({ok:false,http:Number(process.argv[3]),code:d?.code||d?.error||"UNKNOWN",upstream_status:Number(d?.upstream_status||0)||null,action_required:d?.action_required||null}))' "${out}" "${name}" "${code}"
+              node -e 'const fs=require("fs");let d={};try{d=JSON.parse(fs.readFileSync(process.argv[1],"utf8"))}catch{};console.log(process.argv[2]+": "+JSON.stringify({ok:false,http:Number(process.argv[3]),code:d?.code||d?.error||"UNKNOWN",upstream_status:Number(d?.upstream_status||0)||null,upstream_code:d?.upstream_code||null,upstream_message:d?.upstream_message||null,action_required:d?.action_required||null}))' "${out}" "${name}" "${code}"
               return 1
             fi
             node -e 'const fs=require("fs");const d=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));if(d?.ok!==true)process.exit(2);console.log(process.argv[2]+": "+JSON.stringify({ok:true,provider:d?.provider||null,connector_id:d?.connector_id||null,live_probe:d?.live_probe===true,persistent:d?.persistent===true,authenticated:d?.authenticated===true,project_found:d?.project_found===true,project_count:Number(d?.project_count||0),deployment_count:Number(d?.deployment_count||0)}))' "${out}" "${name}"
@@ -150,6 +150,10 @@ jobs:
           # sanitized account/app health before accepting it as a fallback.
           PIPEDREAM_OK=0
           PIPEDREAM_APPS=""
+          PD_STATUS_CODE="$(curl --silent --show-error --max-time 30               --header "x-mel-release-smoke: 1"               --header "x-mel-parallel-proof: ${TOKEN}"               --output /tmp/pipedream_status.json               --write-out '%{http_code}'               "${BASE_URL}/api/gen2/connections/pipedream/status" || true)"
+          if [ "${PD_STATUS_CODE}" = "200" ]; then
+            node -e 'const d=require("/tmp/pipedream_status.json");console.log("pipedream_status: "+JSON.stringify({ok:d?.ok===true,configured:d?.configured===true,environment:d?.environment||null,client_id_present:d?.client_id_present===true,client_secret_present:d?.client_secret_present===true}))'
+          fi
           # The linked-account inventory is the stronger proof for MEL's actual
           # integrations: it authenticates the project and proves which user
           # accounts are healthy. Component catalogue reachability is diagnostic
@@ -170,9 +174,9 @@ jobs:
           if [ "${PD_ACCOUNTS_CODE}" = "200" ]; then
             PIPEDREAM_OK=1
             PIPEDREAM_APPS="$(node -e 'const d=require("/tmp/pipedream_accounts.json");process.stdout.write((d.connected_apps||[]).join(","))')"
-            node -e 'const d=require("/tmp/pipedream_accounts.json");console.log("pipedream_accounts: "+JSON.stringify({ok:d?.ok===true,connected_apps:d?.connected_apps||[],healthy_account_count:(d?.accounts||[]).filter(x=>x?.healthy===true).length}))'
+            node -e 'const d=require("/tmp/pipedream_accounts.json");console.log("pipedream_accounts: "+JSON.stringify({ok:d?.ok===true,connected_apps:d?.connected_apps||[],healthy_account_count:(d?.accounts||[]).filter(x=>x?.healthy===true).length,account_status_degraded:d?.account_status_degraded===true,reconnect_required:d?.reconnect_required===true,environment:d?.environment||null,action_required:d?.action_required||null,upstream_status:Number(d?.upstream_status||0)||null,upstream_code:d?.upstream_code||null,upstream_message:d?.upstream_message||null}))'
           else
-            PD_ACCOUNTS_CODE="${PD_ACCOUNTS_CODE}" node -e 'const fs=require("fs");let d={};try{d=JSON.parse(fs.readFileSync("/tmp/pipedream_accounts.json","utf8"))}catch{};console.log("pipedream_accounts: "+JSON.stringify({ok:false,http:Number(process.env.PD_ACCOUNTS_CODE||0),code:d?.code||d?.error||"UNKNOWN"}))'
+            PD_ACCOUNTS_CODE="${PD_ACCOUNTS_CODE}" node -e 'const fs=require("fs");let d={};try{d=JSON.parse(fs.readFileSync("/tmp/pipedream_accounts.json","utf8"))}catch{};console.log("pipedream_accounts: "+JSON.stringify({ok:false,http:Number(process.env.PD_ACCOUNTS_CODE||0),code:d?.code||d?.error||"UNKNOWN",upstream_status:Number(d?.upstream_status||0)||null,upstream_code:d?.upstream_code||null,upstream_message:d?.upstream_message||null,action_required:d?.action_required||null}))'
           fi
           if ! probe pipedream_catalog /api/gen2/connections/pipedream/test '{}'; then
             echo "Pipedream component-catalogue diagnostic is unavailable; linked-account proof remains authoritative."
