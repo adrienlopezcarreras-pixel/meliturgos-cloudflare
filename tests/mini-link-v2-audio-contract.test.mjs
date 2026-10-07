@@ -128,6 +128,9 @@ test('Link V2 TTS preserves canonical 48 kHz PCM and never streams HTTP errors a
   assert.match(terminal, /TTS BLE -> SECOURS/);
   assert.match(terminal, /TTS HTTP %d/);
   assert.match(terminal, /voice_tts_text/);
+  assert.match(terminal, /esp_codec_dev_set_out_mute\(output_dev, false\)/);
+  assert.match(terminal, /speaker_output_enable\(100\.0\)/);
+  assert.match(terminal, /mel_terminal_test_speaker_local/);
 });
 
 test('MINI response viewer transliterates unsupported UTF-8 glyphs instead of drawing squares', async () => {
