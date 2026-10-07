@@ -8,7 +8,9 @@ async function sampleRead(runtime, context, id, input = {}) {
 }
 
 function firstArray(value, ...paths) {
+  if (Array.isArray(value)) return value;
   for (const path of paths) {
+    if (!path) continue;
     let cursor = value;
     for (const key of path.split('.')) cursor = cursor?.[key];
     if (Array.isArray(cursor)) return cursor;
@@ -70,6 +72,8 @@ const SAFE_SAMPLES = Object.freeze({
   'evolution.ledger.list': { limit: 1 },
   'resilience.recovery.drill.latest': {},
   'resilience.cold-standby.prepare.latest': {},
+  'event.list': { limit: 1 },
+  'self.state': {},
   'presentation.layout.plan': { kind: 'chat' },
   'work.plan': {
     goal: 'Audit borné sans effet de bord',
