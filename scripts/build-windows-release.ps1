@@ -37,20 +37,36 @@ foreach ($name in $files) {
 }
 
 $desktopSource = Join-Path $repoRoot "windows-companion\MEL-Companion.cs"
+$wpfSource = Join-Path $repoRoot "windows-companion\MEL-Companion-WPF.cs"
+$avatarB64Path = Join-Path $repoRoot "windows-companion\mel-avatar-128.jpg.b64"
+$iconB64Path = Join-Path $repoRoot "windows-companion\mel-avatar-32.ico.b64"
 if (-not (Test-Path -LiteralPath $desktopSource -PathType Leaf)) { throw "WINDOWS_DESKTOP_SOURCE_MISSING" }
+if (-not (Test-Path -LiteralPath $wpfSource -PathType Leaf)) { throw "WINDOWS_WPF_SOURCE_MISSING" }
+if (-not (Test-Path -LiteralPath $avatarB64Path -PathType Leaf)) { throw "WINDOWS_AVATAR_ASSET_MISSING" }
+if (-not (Test-Path -LiteralPath $iconB64Path -PathType Leaf)) { throw "WINDOWS_ICON_ASSET_MISSING" }
 $companionSource = Join-Path $assetDir "MEL-Computer-Companion.ps1"
 $desktopText = [IO.File]::ReadAllText($desktopSource,[Text.Encoding]::UTF8)
+$wpfText = [IO.File]::ReadAllText($wpfSource,[Text.Encoding]::UTF8)
 if ($desktopText -notmatch "__COMPANION_B64__") { throw "WINDOWS_DESKTOP_EMBED_PLACEHOLDER_MISSING" }
+if ($desktopText -notmatch "__MEL_AVATAR_B64__") { throw "WINDOWS_AVATAR_EMBED_PLACEHOLDER_MISSING" }
+if ($desktopText -notmatch "__MEL_ICON_B64__") { throw "WINDOWS_ICON_EMBED_PLACEHOLDER_MISSING" }
 $companionB64 = [Convert]::ToBase64String([IO.File]::ReadAllBytes($companionSource))
+$avatarB64 = [IO.File]::ReadAllText($avatarB64Path,[Text.Encoding]::ASCII).Trim()
+$iconB64 = [IO.File]::ReadAllText($iconB64Path,[Text.Encoding]::ASCII).Trim()
 $desktopBuildSource = Join-Path $stage "MEL-Companion.build.cs"
+$wpfBuildSource = Join-Path $stage "MEL-Companion-WPF.build.cs"
+$desktopIcon = Join-Path $stage "MEL-Companion.ico"
 $desktopExe = Join-Path $stage "MEL-Companion.exe"
 $unicodeEscape = [Text.RegularExpressions.MatchEvaluator]{
   param($match)
   return ('\u{0:X4}' -f [int][char]$match.Value[0])
 }
 $asciiDesktop = [Text.RegularExpressions.Regex]::Replace($desktopText,'[^\x00-\x7F]',$unicodeEscape)
-$expandedSource = $asciiDesktop.Replace("__COMPANION_B64__",$companionB64)
+$expandedSource = $asciiDesktop.Replace("__COMPANION_B64__",$companionB64).Replace("__MEL_AVATAR_B64__",$avatarB64).Replace("__MEL_ICON_B64__",$iconB64)
+$asciiWpf = [Text.RegularExpressions.Regex]::Replace($wpfText,'[^\x00-\x7F]',$unicodeEscape)
 [IO.File]::WriteAllText($desktopBuildSource,$expandedSource,[Text.Encoding]::ASCII)
+[IO.File]::WriteAllText($wpfBuildSource,$asciiWpf,[Text.Encoding]::ASCII)
+[IO.File]::WriteAllBytes($desktopIcon,[Convert]::FromBase64String($iconB64))
 $cscCandidates = @(
   (Join-Path $env:WINDIR "Microsoft.NET\Framework64\v4.0.30319\csc.exe"),
   (Join-Path $env:WINDIR "Microsoft.NET\Framework\v4.0.30319\csc.exe")
@@ -61,16 +77,25 @@ $compileArgs = @(
   "/nologo",
   "/target:winexe",
   "/optimize+",
+  "/define:WPF_UI",
   "/out:$desktopExe",
+  "/win32icon:$desktopIcon",
   "/reference:System.Windows.Forms.dll",
   "/reference:System.Drawing.dll",
   "/reference:System.Web.Extensions.dll",
   "/reference:System.Security.dll",
-  $desktopBuildSource
+  "/reference:WindowsBase.dll",
+  "/reference:PresentationCore.dll",
+  "/reference:PresentationFramework.dll",
+  "/reference:System.Xaml.dll",
+  $desktopBuildSource,
+  $wpfBuildSource
 )
 & $csc @compileArgs
 if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $desktopExe -PathType Leaf)) { throw "WINDOWS_DESKTOP_COMPILE_FAILED" }
 Remove-Item -LiteralPath $desktopBuildSource -Force
+Remove-Item -LiteralPath $wpfBuildSource -Force
+Remove-Item -LiteralPath $desktopIcon -Force
 
 $launcher = @(
   '@echo off',
