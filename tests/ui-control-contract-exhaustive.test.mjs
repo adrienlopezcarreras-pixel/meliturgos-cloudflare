@@ -116,6 +116,8 @@ test('full-mode canonical controls and navigation all have a click path', async 
   assert.match(source, /href="\/veille"/);
   assert.match(source, /Mettre MEL en pause/);
   assert.match(source, /Veille des capacités/);
+  assert.doesNotMatch(html, /id="mobileResumeAutonomy"/, 'standalone mobile resume button is redundant');
+  assert.match(source, /mobilePause[^\n]*autonomyControl\.paused===true\?'\/api\/gen2\/autonomy\/resume':'\/api\/gen2\/autonomy\/pause'/);
   assert.match(source, /freeAgenticColab/);
   assert.match(source, /agenticLink\.href=d\.agentic_colab_url/);
   assert.doesNotMatch(source, /mel-full-control-runtime|mel-roadmap-live-refresh-runtime|mel-work-truth-runtime/);
