@@ -514,9 +514,9 @@ test('Android MINI mobile shell keeps settings-driven native navigation and comp
   const bridge=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelBleBridgeService.kt',root),'utf8');
   const screenshotTest=await readFile(new URL('app/src/androidTest/java/fr/veriteinterdite/mel/MelUiHarnessScreenshotTest.kt',root),'utf8');
 
-  assert.match(activity,/MelBleBridgeService\.miniLinkReady\.collectAsStateWithLifecycle\(\)/);
-  assert.match(activity,/MelBleBridgeService\.internetReady\.collectAsStateWithLifecycle\(\)/);
-  assert.match(activity,/MelBleBridgeService\.miniPairingComplete\.collectAsStateWithLifecycle\(\)/);
+  assert.match(activity,/MelLinkV2ClientService\.miniLinkReady\.collectAsStateWithLifecycle\(\)/);
+  assert.match(activity,/MelLinkV2ClientService\.internetReady\.collectAsStateWithLifecycle\(\)/);
+  assert.match(activity,/MelLinkV2ClientService\.miniPairingComplete\.collectAsStateWithLifecycle\(\)/);
   assert.match(activity,/APPAIRAGE ENREGISTRÉ/);
   assert.match(activity,/reconnecte automatiquement/);
   assert.match(activity,/mini-pair-recovery-toggle/);
@@ -695,7 +695,7 @@ test('Android MINI bridge distinguishes phone Internet from proven MEL relay',as
   assert.match(service,/Android MEL session validated; MINI relay Internet ready=/);
   assert.match(service,/internetReady\.value = miniLinkReady\.value && phoneInternetAvailable\.value/);
   assert.match(service,/MINI CONNECTÉE · INTERNET OK/);
-  assert.match(activity,/phoneInternetReady by MelBleBridgeService\.phoneInternetAvailable/);
+  assert.match(activity,/phoneInternetReady by MelLinkV2ClientService\.phoneInternetAvailable/);
   assert.match(activity,/téléphone en ligne · validation MEL en cours/);
   assert.match(build,/versionCode = 67/);
   assert.match(build,/versionName = "0\.6\.58-mini-stable-bridge"/);
