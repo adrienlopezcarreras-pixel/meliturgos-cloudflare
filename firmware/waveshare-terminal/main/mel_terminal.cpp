@@ -1863,7 +1863,12 @@ bool mel_terminal_voice_output_enabled(void) {
 
 void mel_terminal_set_voice_output_enabled(bool enabled) {
     g_voice_output_enabled = enabled;
-    if (!enabled) {
+    if (enabled) {
+        // STOP VOIX used to leave this latch asserted until a later speak_text()
+        // call. Rearm audio immediately when the user explicitly turns voice ON.
+        g_tts_stop_requested = false;
+        voice_error(nullptr);
+    } else {
         g_tts_stop_requested = true;
         if (output_dev) esp_codec_dev_set_out_vol(output_dev, 0.0);
     }
@@ -1874,6 +1879,32 @@ void mel_terminal_set_voice_output_enabled(bool enabled) {
         nvs_close(nvs);
     }
     ESP_LOGI(TAG, "VOICE OUTPUT %s", enabled ? "ENABLED" : "DISABLED");
+}
+
+static void voice_output_test_task(void *) {
+    ui_status("TEST VOIX...");
+    const bool ok = speak_text("La reponse vocale est activee.");
+    ui_status(ok ? "VOIX : ON" : "VOIX : ECHEC");
+    if (!ok) voice_error("TTS TEST ECHEC");
+    vTaskDelete(nullptr);
+}
+
+void mel_terminal_test_voice_output(void) {
+    if (!g_voice_output_enabled) return;
+    if (!g_audio_ok || !output_dev) {
+        voice_error("HP INDISPONIBLE");
+        ui_status("VOIX : HP INDISPONIBLE");
+        return;
+    }
+    xTaskCreatePinnedToCore(
+        voice_output_test_task,
+        "mel_voice_test",
+        6144,
+        nullptr,
+        4,
+        nullptr,
+        0
+    );
 }
 
 void mel_terminal_stop_voice_output(void) {
