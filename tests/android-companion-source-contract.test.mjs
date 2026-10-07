@@ -415,7 +415,7 @@ test('Android Complete mode exposes an authenticated self diagnostic',async()=>{
   const vm=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelViewModel.kt',root),'utf8');
   const api=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelApiClient.kt',root),'utf8');
   const build=await readFile(new URL('app/build.gradle.kts',root),'utf8');
-  assert.match(build,/versionCode = 85/);
+  assert.match(build,/versionCode = 86/);
   assert.match(build,/versionName = "0\.7\.7-mini-link-state"/);
   assert.match(api,/APP_VERSION = "0\.7\.7-mini-link-state"/);
   assert.match(vm,/val diagnosticReport: String\? = null/);
@@ -438,7 +438,7 @@ test('Android device validation probes are authenticated and bounded',async()=>{
   const build=await readFile(new URL('app/build.gradle.kts',root),'utf8');
   const api=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelApiClient.kt',root),'utf8');
 
-  assert.match(build,/versionCode = 85/);
+  assert.match(build,/versionCode = 86/);
   assert.match(build,/versionName = "0\.7\.7-mini-link-state"/);
   assert.match(api,/APP_VERSION = "0\.7\.7-mini-link-state"/);
 
@@ -472,7 +472,7 @@ test('real mic and file successes feed the diagnostic report',async()=>{
   const build=await readFile(new URL('app/build.gradle.kts',root),'utf8');
   const api=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelApiClient.kt',root),'utf8');
 
-  assert.match(build,/versionCode = 85/);
+  assert.match(build,/versionCode = 86/);
   assert.match(build,/versionName = "0\.7\.7-mini-link-state"/);
   assert.match(api,/APP_VERSION = "0\.7\.7-mini-link-state"/);
 
@@ -491,7 +491,7 @@ test('Android dark UI keeps readable content contrast',async()=>{
   const build=await readFile(new URL('app/build.gradle.kts',root),'utf8');
   const api=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelApiClient.kt',root),'utf8');
 
-  assert.match(build,/versionCode = 85/);
+  assert.match(build,/versionCode = 86/);
   assert.match(build,/versionName = "0\.7\.7-mini-link-state"/);
   assert.match(api,/APP_VERSION = "0\.7\.7-mini-link-state"/);
 
@@ -689,7 +689,7 @@ test('Android Link V2 reports Internet ready only after physical, protocol and a
   assert.match(service,/phoneOk && miniReady\.value && protocolReady\.value && melSessionReady/);
   assert.match(service,/MINI V2 · INTERNET OK/);
   assert.match(activity,/phoneInternetReady by MelLinkV2ClientService\.phoneInternetAvailable/);
-  assert.match(build,/versionCode = 85/);
+  assert.match(build,/versionCode = 86/);
   assert.match(build,/versionName = "0\.7\.7-mini-link-state"/);
 });
 
@@ -752,4 +752,11 @@ test('Android MINI chat diagnostics use the live Link V2 service, never the disa
   assert.match(section,/MelLinkV2ClientService\.miniLinkReady\.value/);
   assert.match(section,/MelLinkV2ClientService\.internetReady\.value/);
   assert.doesNotMatch(vm,/MelBleBridgeService\./);
+});
+
+
+test('Android local French MINI TTS build version is explicit', async () => {
+  const build = await readFile(new URL('../android-companion/app/build.gradle.kts', import.meta.url), 'utf8');
+  assert.match(build,/versionCode = 86/);
+  assert.match(build,/versionName = "0\.7\.8-mini-local-fr-tts"/);
 });
