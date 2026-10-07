@@ -171,3 +171,15 @@ test('MINI camera follows Waveshare early bring-up and shared SCCB I2C0', async 
   assert.match(workflow, /set_cfg_y CONFIG_SCCB_HARDWARE_I2C_PORT0/);
   assert.match(workflow, /set_cfg_n CONFIG_SCCB_HARDWARE_I2C_PORT1/);
 });
+
+
+test('VOIX ON validates speech only and never injects the diagnostic speaker tone', async () => {
+  const main = await readFile(new URL('../firmware/waveshare-terminal/main/main.cpp', import.meta.url), 'utf8');
+  const fn = main.slice(
+    main.indexOf('static void settings_voice_output_clicked'),
+    main.indexOf('static void settings_network_clicked')
+  );
+  assert.match(fn, /mel_terminal_test_voice_output\(\)/);
+  assert.doesNotMatch(fn, /mel_terminal_test_speaker_local\(\)/);
+  assert.match(fn, /REPONSE VOCALE : ON - test voix/);
+});
