@@ -19,6 +19,11 @@ function fixture() {
         return { body: { value: [{ id: 'file-1', name: 'doc.txt' }] } };
       }
       if (url.includes('/me/drive/root')) return { body: { id: 'root' } };
+      if (url.includes('www.googleapis.com/drive/v3/files?') && input.method === 'POST') return { body: { id: 'g-file-created', name: 'note.txt' } };
+      if (url.includes('www.googleapis.com/upload/drive/v3/files/')) return { body: { id: 'g-file-created', name: 'note.txt' } };
+      if (url.includes('www.googleapis.com/drive/v3/files/') && url.includes('alt=media')) return { body: { text: 'drive-content' } };
+      if (url.includes('www.googleapis.com/drive/v3/files/')) return { body: { id: 'g-file-1', name: 'drive.txt', mimeType: 'text/plain' } };
+      if (url.includes('www.googleapis.com/drive/v3/files?')) return { body: { files: [{ id: 'g-file-1', name: 'drive.txt' }] } };
       if (url.includes('/me/followedSites')) return { body: { value: [{ id: 'site-1', name: 'Site' }] } };
       if (url.includes('/sites?')) return { body: { value: [{ id: 'site-1', name: 'Site' }] } };
       if (url.includes('/sites/root')) return { body: { id: 'root-site', name: 'Root' } };
@@ -43,6 +48,11 @@ test('Pipedream linked runtime registers Outlook OneDrive and SharePoint executi
     'files.read',
     'files.write',
     'files.delete',
+    'drive.files.list',
+    'drive.files.search',
+    'drive.files.read',
+    'drive.files.create',
+    'drive.files.delete',
     'sites.list',
     'sites.search',
     'sites.read',
@@ -140,4 +150,32 @@ test('Linked capabilities become unavailable rather than fake-healthy when Piped
   const row = await bus.refreshHealth('mail.messages.search');
   assert.equal(row.health, 'UNAVAILABLE');
   assert.equal(row.health_detail, 'PIPEDREAM_RUNTIME_UNAVAILABLE');
+});
+
+
+test('Google Drive linked account is executable and mutations remain approval-gated', async () => {
+  const { bus, calls } = fixture();
+  const list = await bus.execute('drive.files.list', { limit: 3 }, {
+    owner: 'adrien',
+    permissions: ['google.drive.read'],
+  });
+  assert.equal(list.count, 1);
+  assert.equal(list.files[0].id, 'g-file-1');
+
+  await assert.rejects(
+    () => bus.execute('drive.files.create', { name: 'note.txt', content: 'bonjour' }, {
+      owner: 'adrien',
+      permissions: ['google.drive.write'],
+    }),
+    { code: 'EXPLICIT_APPROVAL_REQUIRED' },
+  );
+
+  const created = await bus.execute('drive.files.create', { name: 'note.txt', content: 'bonjour' }, {
+    owner: 'adrien',
+    permissions: ['google.drive.write'],
+    approvedCapabilities: ['drive.files.create'],
+  });
+  assert.equal(created.accepted, true);
+  assert.ok(calls.some(call => call.app === 'google_drive' && call.method === 'POST'));
+  assert.ok(calls.some(call => call.app === 'google_drive' && call.method === 'PATCH'));
 });
