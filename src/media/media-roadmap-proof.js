@@ -83,6 +83,9 @@ export async function runMelMedia02LiveProof(env = {}, {
     const result = await bounded(bus.execute(id, input, context), id);
     const safe = safeResult(id, result, Math.max(0, Date.now() - started));
     if (!safe.ok) throw proofError('MEL_MEDIA_02_EXECUTION_NOT_OK', 502, { capability: id });
+    if (safe.zero_added_cost !== true) {
+      throw proofError('MEL_MEDIA_02_ZERO_COST_NOT_PROVED', 409, { capability: id });
+    }
     results.push(safe);
     return result;
   };
@@ -188,6 +191,7 @@ export async function runMelMedia02LiveProof(env = {}, {
       video: true,
     },
     zero_added_cost_required: true,
+    all_executions_zero_added_cost: results.every(row => row.zero_added_cost === true),
     secret_values_exposed: false,
     autonomy_started: false,
     verified_at: new Date().toISOString(),
