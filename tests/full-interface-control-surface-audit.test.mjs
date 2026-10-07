@@ -5,15 +5,15 @@ import fs from 'node:fs';
 const source = fs.readFileSync(new URL('../src/pages/full-interface-v2.js', import.meta.url), 'utf8');
 
 function buttons() {
-  return [...source.matchAll(/<button\\b([^>]*)>([\\s\\S]*?)<\\/button>/g)].map((match, index) => ({
+  return [...source.matchAll(/<button\b([^>]*)>([\s\S]*?)<\/button>/g)].map((match, index) => ({
     index,
     attrs: match[1],
-    label: match[2].replace(/<[^>]+>/g, ' ').replace(/\\s+/g, ' ').trim(),
+    label: match[2].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim(),
   }));
 }
 
 function attr(attrs, name) {
-  const match = new RegExp('(?:^|\\\\s)' + name + '="([^"]+)"').exec(attrs);
+  const match = new RegExp('(?:^|\\s)' + name + '="([^"]+)"').exec(attrs);
   return match?.[1] || null;
 }
 
@@ -38,7 +38,7 @@ test('every id-bearing button is uniquely declared and wired outside its markup 
   assert.equal(new Set(ids).size, ids.length, 'button IDs must remain unique');
 
   for (const id of ids) {
-    const escaped = id.replace(/[.*+?^\${}()|[\\]\\\\]/g, '\\\\$&');
+    const escaped = id.replace(/[.*+?^${}()|[\]\\]/g, '\\'\\\\$&'');
     const occurrences = source.match(new RegExp(escaped, 'g'))?.length || 0;
     assert.ok(occurrences >= 2, 'orphan button without runtime wiring: ' + id);
   }
@@ -98,5 +98,5 @@ test('responsive duplicate controls are limited to the audited autonomy/navigati
 });
 
 test('owner UI keeps event wiring out of inline HTML attributes', () => {
-  assert.equal(/<button\\b[^>]*\\bonclick\\s*=/.test(source), false);
+  assert.equal(/<button\b[^>]*\bonclick\s*=/.test(source), false);
 });
