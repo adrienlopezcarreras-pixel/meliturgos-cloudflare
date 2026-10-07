@@ -60,19 +60,16 @@ test('canary rollback verification stays tied to the recorded real proof', () =>
   assert.match(row.next, /Actions run 35093195456/i);
 });
 
-test('canonical roadmap forbids bare DONE and keeps unverified implementations non-final', () => {
+test('canonical roadmap forbids bare DONE and requires exact production proof for promoted items', () => {
   const rows = flattenRoadmap();
   assert.equal(rows.some(row => row.status === 'DONE'), false);
 
-  const councilRecovery = byId('MEL-COUNCIL-05');
-  assert.equal(councilRecovery.status, 'PARTIAL');
-  assert.match(councilRecovery.next, /DONE_VERIFIED|preuve runtime production exact-SHA/i);
+  for (const id of ['MEL-COUNCIL-05','GEN2-33','MEL-SOV-01','MEL-UI-07']) {
+    const row = byId(id);
+    assert.equal(row.status, 'DONE_VERIFIED', id);
+    assert.match(row.next, /1054e06986bc00d09eef29344df6f95ac7d557ba|release #669/i, id);
+  }
 
-  const google = byId('GEN2-33');
-  assert.equal(google.status, 'BLOCKED_HUMAN');
-  assert.match(google.next, /credentials|consentement|DONE_VERIFIED/i);
-
-  const richUi = byId('MEL-UI-07');
-  assert.equal(richUi.status, 'PARTIAL');
-  assert.match(richUi.next, /DONE_VERIFIED|preuve navigateur production/i);
+  const media = byId('MEL-MEDIA-02');
+  assert.notEqual(media.status, 'DONE_VERIFIED');
 });
