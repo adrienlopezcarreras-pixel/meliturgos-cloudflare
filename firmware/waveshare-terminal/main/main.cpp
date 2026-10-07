@@ -1054,9 +1054,11 @@ static void settings_audio_test_task(void *) {
     const bool signal_ok = span > 20 && transitions > (sample_count / 200);
 
     settings_set_status("HP : lecture de ta voix pendant 2 secondes...");
+    esp_codec_dev_set_out_mute(output_dev, false);
     esp_codec_dev_set_out_vol(output_dev, 75.0);
     const int wrc = esp_codec_dev_write(output_dev, pcm, byte_count);
     esp_codec_dev_set_out_vol(output_dev, 0.0);
+    esp_codec_dev_set_out_mute(output_dev, true);
 
     char msg[280];
     snprintf(msg, sizeof(msg),
@@ -1300,8 +1302,11 @@ static void settings_voice_output_clicked(lv_event_t *e) {
     if (settings_voice_btn_label) {
         lv_label_set_text(settings_voice_btn_label, enabled ? "VOIX : ON" : "VOIX : OFF");
     }
-    settings_set_status(enabled ? "REPONSE VOCALE : ON - test en cours..." : "REPONSE VOCALE : OFF");
-    if (enabled) mel_terminal_test_voice_output();
+    settings_set_status(enabled ? "REPONSE VOCALE : ON - test HP local..." : "REPONSE VOCALE : OFF");
+    if (enabled) {
+        mel_terminal_test_speaker_local();
+        mel_terminal_test_voice_output();
+    }
 }
 
 static void settings_network_clicked(lv_event_t *e) {
