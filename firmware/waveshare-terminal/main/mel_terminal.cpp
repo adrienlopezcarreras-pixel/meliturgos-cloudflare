@@ -677,6 +677,43 @@ static esp_err_t http_request(
     return err;
 }
 
+static esp_err_t http_request_wifi_direct(
+    esp_http_client_method_t method,
+    const std::string &url,
+    const char *content_type,
+    const char *body,
+    int body_len,
+    std::string &response,
+    int &status
+) {
+    if (!g_wifi_connected) return ESP_ERR_INVALID_STATE;
+
+    HttpBuffer buffer;
+    esp_http_client_config_t cfg = {};
+    cfg.url = url.c_str();
+    cfg.event_handler = http_event;
+    cfg.user_data = &buffer;
+    cfg.crt_bundle_attach = esp_crt_bundle_attach;
+    cfg.timeout_ms = 45000;
+    esp_http_client_handle_t client = esp_http_client_init(&cfg);
+    if (!client) return ESP_FAIL;
+
+    esp_http_client_set_method(client, method);
+    if (content_type) esp_http_client_set_header(client, "Content-Type", content_type);
+    if (g_cfg.token[0]) {
+        std::string auth = std::string("Bearer ") + g_cfg.token;
+        esp_http_client_set_header(client, "Authorization", auth.c_str());
+        esp_http_client_set_header(client, "X-MEL-Device-ID", g_device_id);
+    }
+    if (body && body_len > 0) esp_http_client_set_post_field(client, body, body_len);
+
+    const esp_err_t err = esp_http_client_perform(client);
+    status = esp_http_client_get_status_code(client);
+    response = buffer.body;
+    esp_http_client_cleanup(client);
+    return err;
+}
+
 
 static std::string json_string(cJSON *obj);
 
@@ -1489,6 +1526,48 @@ static std::string record_and_transcribe() {
     int status = 0;
     esp_err_t err = ESP_FAIL;
 
+    auto transcribe_wifi_direct = [&]() -> esp_err_t {
+        const char *boundary = "----MEL-ESP32-VOICE";
+        std::string prefix = std::string("--") + boundary +
+            "\r\nContent-Disposition: form-data; name=\"audio\"; filename=\"mel.wav\"\r\n"
+            "Content-Type: audio/wav\r\n\r\n";
+        std::string suffix = std::string("\r\n--") + boundary + "--\r\n";
+        const size_t total = prefix.size() + 44 + (size_t)speech_bytes + suffix.size();
+        auto *multipart = static_cast<uint8_t *>(
+            heap_caps_malloc(total, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)
+        );
+        if (!multipart) multipart = static_cast<uint8_t *>(heap_caps_malloc(total, MALLOC_CAP_8BIT));
+        if (!multipart) {
+            ESP_LOGE(TAG, "VOICE: Wi-Fi multipart allocation failed");
+            return ESP_ERR_NO_MEM;
+        }
+
+        size_t off = 0;
+        memcpy(multipart + off, prefix.data(), prefix.size()); off += prefix.size();
+        wav_header(multipart + off, (uint32_t)speech_bytes, VOICE_STT_RATE); off += 44;
+        memcpy(multipart + off, speech, speech_bytes); off += (size_t)speech_bytes;
+        memcpy(multipart + off, suffix.data(), suffix.size());
+
+        std::string content_type = std::string("multipart/form-data; boundary=") + boundary;
+        ESP_LOGI(TAG, "STT WIFI DIRECT WAV: bytes=%u wav_bytes=%d rate=%d duration_ms=%d",
+                 (unsigned)total, speech_bytes + 44, VOICE_STT_RATE,
+                 (speech_samples * 1000) / VOICE_STT_RATE);
+        const esp_err_t wifi_err = http_request_wifi_direct(
+            HTTP_METHOD_POST,
+            std::string(SERVER) + "/api/device/v1/voice/transcribe",
+            content_type.c_str(),
+            reinterpret_cast<const char *>(multipart),
+            (int)total,
+            response,
+            status
+        );
+        heap_caps_free(multipart);
+        ESP_LOGI(TAG, "STT WIFI DIRECT RESULT err=%s status=%d body=%.*s",
+                 esp_err_to_name(wifi_err), status,
+                 (int)std::min<size_t>(response.size(), 240), response.c_str());
+        return wifi_err;
+    };
+
     if (mel_mobile_bridge_ready()) {
         ui_status("STT V2...");
         ESP_LOGI(TAG,
@@ -1503,64 +1582,30 @@ static std::string record_and_transcribe() {
             stt_link_progress,
             nullptr
         );
-        heap_caps_free(speech);
         ESP_LOGI(TAG, "STT V2 RESULT err=%s status=%d body=%.*s",
                  esp_err_to_name(err), status,
                  (int)std::min<size_t>(response.size(), 240), response.c_str());
-    } else {
-        // Autonomous Wi-Fi fallback remains ordinary standards-compliant WAV.
-        // The proprietary ADPCM codec exists only on the local BLE hop.
-        const char *boundary = "----MEL-ESP32-VOICE";
-        std::string prefix = std::string("--") + boundary +
-            "\r\nContent-Disposition: form-data; name=\"audio\"; filename=\"mel.wav\"\r\n"
-            "Content-Type: audio/wav\r\n\r\n";
-        std::string suffix = std::string("\r\n--") + boundary + "--\r\n";
-        const size_t total = prefix.size() + 44 + (size_t)speech_bytes + suffix.size();
-        auto *multipart = static_cast<uint8_t *>(
-            heap_caps_malloc(total, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)
-        );
-        if (!multipart) multipart = static_cast<uint8_t *>(heap_caps_malloc(total, MALLOC_CAP_8BIT));
-        if (!multipart) {
-            heap_caps_free(speech);
-            ESP_LOGE(TAG, "VOICE: Wi-Fi multipart allocation failed");
-            voice_error("MEMOIRE REQUETE");
-            return "";
+
+        if ((err != ESP_OK || status != 200) && g_wifi_connected) {
+            ESP_LOGW(TAG,
+                     "STT V2 failed err=%s status=%d; retrying direct Wi-Fi",
+                     esp_err_to_name(err), status);
+            ui_status("STT WIFI...");
+            response.clear();
+            status = 0;
+            err = transcribe_wifi_direct();
         }
-
-        size_t off = 0;
-        memcpy(multipart + off, prefix.data(), prefix.size()); off += prefix.size();
-        wav_header(multipart + off, (uint32_t)speech_bytes, VOICE_STT_RATE); off += 44;
-        memcpy(multipart + off, speech, speech_bytes); off += (size_t)speech_bytes;
-        memcpy(multipart + off, suffix.data(), suffix.size());
-        heap_caps_free(speech);
-
-        std::string content_type = std::string("multipart/form-data; boundary=") + boundary;
-        ESP_LOGI(TAG, "STT WIFI WAV: bytes=%u wav_bytes=%d rate=%d duration_ms=%d",
-                 (unsigned)total, speech_bytes + 44, VOICE_STT_RATE,
-                 (speech_samples * 1000) / VOICE_STT_RATE);
-
+    } else {
         if (!g_wifi_connected) {
-            heap_caps_free(multipart);
+            heap_caps_free(speech);
             voice_error("AUCUN TRANSPORT");
             return "";
         }
-
-        // V2 is unavailable here, so the canonical request helper takes the
-        // direct Wi-Fi branch and cannot accidentally tunnel this WAV over BLE.
-        err = http_request(
-            HTTP_METHOD_POST,
-            std::string(SERVER) + "/api/device/v1/voice/transcribe",
-            content_type.c_str(),
-            reinterpret_cast<const char *>(multipart),
-            (int)total,
-            response,
-            status
-        );
-        heap_caps_free(multipart);
-        ESP_LOGI(TAG, "STT WIFI RESULT err=%s status=%d body=%.*s",
-                 esp_err_to_name(err), status,
-                 (int)std::min<size_t>(response.size(), 240), response.c_str());
+        ui_status("STT WIFI...");
+        err = transcribe_wifi_direct();
     }
+
+    heap_caps_free(speech);
 
     if (err != ESP_OK) {
         if (!response.empty()) {

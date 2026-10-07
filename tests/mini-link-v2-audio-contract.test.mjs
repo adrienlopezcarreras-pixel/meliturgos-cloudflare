@@ -187,3 +187,13 @@ test('Android-to-MINI response and TTS bulk uses acknowledged writes for connect
   assert.doesNotMatch(transport, /send_credit\(header\.stream_id, MEL_LINK_V2_CREDIT_WINDOW\)/);
   assert.doesNotMatch(transport, /send_credit\(header\.stream_id, 1\)/);
 });
+
+
+test('MINI STT falls back to direct Wi-Fi when Link V2 transcription fails', async () => {
+  const terminal = await readFile(new URL('firmware/waveshare-terminal/main/mel_terminal.cpp', root), 'utf8');
+  assert.match(terminal,/static esp_err_t http_request_wifi_direct\(/);
+  assert.match(terminal,/STT V2 failed err=.*retrying direct Wi-Fi/);
+  assert.match(terminal,/if \(\(err != ESP_OK \|\| status != 200\) && g_wifi_connected\)/);
+  assert.match(terminal,/err = transcribe_wifi_direct\(\)/);
+  assert.match(terminal,/STT WIFI DIRECT RESULT/);
+});
