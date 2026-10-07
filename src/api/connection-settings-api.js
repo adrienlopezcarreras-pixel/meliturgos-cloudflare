@@ -287,6 +287,22 @@ export function classifyOAuthProbeFailure({ provider, connectorId, status, body 
   let code = 'CONNECTION_LIVE_PROBE_FAILED';
   let actionRequired = null;
 
+  if (provider === 'google' && connectorId === 'google-calendar') {
+    if (upstreamStatus === 401) {
+      code = 'GOOGLE_CALENDAR_REAUTH_REQUIRED';
+      actionRequired = 'RECONNECT_GOOGLE';
+    } else if (upstreamStatus === 403 && /(accessnotconfigured|service_disabled|has not been used in project|api[^a-z0-9]+(?:is )?disabled)/i.test(serialized)) {
+      code = 'GOOGLE_CALENDAR_API_NOT_ENABLED';
+      actionRequired = 'ENABLE_GOOGLE_CALENDAR_API';
+    } else if (upstreamStatus === 403 && /(insufficientpermissions|insufficient[^a-z0-9]+(?:authentication )?scopes|access_token_scope_insufficient)/i.test(serialized)) {
+      code = 'GOOGLE_CALENDAR_RECONSENT_REQUIRED';
+      actionRequired = 'RECONNECT_GOOGLE_WITH_CALENDAR_SCOPE';
+    } else if (upstreamStatus === 403) {
+      code = 'GOOGLE_CALENDAR_ACCESS_FORBIDDEN';
+      actionRequired = 'VERIFY_GOOGLE_CALENDAR_API_AND_CONSENT';
+    }
+  }
+
   if (provider === 'google' && connectorId === 'google-tasks') {
     if (upstreamStatus === 401) {
       code = 'GOOGLE_TASKS_REAUTH_REQUIRED';
@@ -475,6 +491,26 @@ function canFallbackPipedreamEnvironment(error, environment) {
   return environment === 'production' && Number(error?.upstream_status) === 400;
 }
 
+function classifyPipedreamUpstreamAction(error, environment = '') {
+  const detail = [
+    clean(error?.upstream_code, 160),
+    clean(error?.upstream_message, 240),
+  ].filter(Boolean).join(' ').toLowerCase();
+  if (environment === 'development' && /(no matching external user|external user[^a-z0-9]+(?:id )?(?:was )?not found|user[^a-z0-9]+not found[^a-z0-9]+development)/i.test(detail)) {
+    return 'RECONNECT_PIPEDREAM_DEVELOPMENT';
+  }
+  if (/(production environment|production).*?(?:not available|not enabled|upgrade|plan|billing)/i.test(detail)) {
+    return 'USE_PIPEDREAM_DEVELOPMENT';
+  }
+  if (/(project).*?(?:not found|invalid|unknown|mismatch)/i.test(detail)) {
+    return 'VERIFY_PIPEDREAM_PROJECT_ID';
+  }
+  if (Number(error?.upstream_status) === 400 && environment === 'development') {
+    return 'VERIFY_PIPEDREAM_DEVELOPMENT_PROJECT_AND_RECONNECT';
+  }
+  return '';
+}
+
 async function persistPipedreamEnvironment(env, contextOwner, stored, environment) {
   const normalized = environment === 'production' ? 'production' : 'development';
   if (configuredPipedreamEnvironment(stored) === normalized) return false;
@@ -637,10 +673,19 @@ export async function testPipedreamCredentials(config, options = {}) {
       };
     } catch (error) {
       lastError = error;
-      if (!canFallbackPipedreamEnvironment(error, environment)) throw error;
+      if (!canFallbackPipedreamEnvironment(error, environment)) {
+        const actionRequired = classifyPipedreamUpstreamAction(error, environment);
+        if (actionRequired) error.action_required = actionRequired;
+        throw error;
+      }
     }
   }
-  throw lastError || Object.assign(new Error('PIPEDREAM_PROJECT_TEST_FAILED'), { code: 'PIPEDREAM_PROJECT_TEST_FAILED', status: 502 });
+  if (lastError) {
+    const actionRequired = classifyPipedreamUpstreamAction(lastError, 'development');
+    if (actionRequired) lastError.action_required = actionRequired;
+    throw lastError;
+  }
+  throw Object.assign(new Error('PIPEDREAM_PROJECT_TEST_FAILED'), { code: 'PIPEDREAM_PROJECT_TEST_FAILED', status: 502 });
 }
 
 async function createPipedreamUserToken(stored, contextOwner, requestUrl, signal, app = '') {
@@ -789,10 +834,19 @@ export async function pipedreamAccountStatus(config, contextOwner, options = {})
       };
     } catch (error) {
       lastError = error;
-      if (!canFallbackPipedreamEnvironment(error, environment)) throw error;
+      if (!canFallbackPipedreamEnvironment(error, environment)) {
+        const actionRequired = classifyPipedreamUpstreamAction(error, environment);
+        if (actionRequired) error.action_required = actionRequired;
+        throw error;
+      }
     }
   }
-  throw lastError || Object.assign(new Error('PIPEDREAM_ACCOUNTS_FAILED'), { code: 'PIPEDREAM_ACCOUNTS_FAILED', status: 502 });
+  if (lastError) {
+    const actionRequired = classifyPipedreamUpstreamAction(lastError, 'development');
+    if (actionRequired) lastError.action_required = actionRequired;
+    throw lastError;
+  }
+  throw Object.assign(new Error('PIPEDREAM_ACCOUNTS_FAILED'), { code: 'PIPEDREAM_ACCOUNTS_FAILED', status: 502 });
 }
 
 async function pipedreamAccounts(env, contextOwner, requestUrl, signal) {
@@ -809,7 +863,8 @@ async function pipedreamAccounts(env, contextOwner, requestUrl, signal) {
     return result;
   } catch (error) {
     if (error?.code !== 'PIPEDREAM_ACCOUNTS_FAILED') throw error;
-    const auth = await testPipedreamCredentials(stored, { signal });
+    const configuredEnvironment = configuredPipedreamEnvironment(stored);
+    const actionRequired = clean(error?.action_required || classifyPipedreamUpstreamAction(error, configuredEnvironment), 160) || null;
     return {
       ok: true,
       provider: 'pipedream',
@@ -818,10 +873,15 @@ async function pipedreamAccounts(env, contextOwner, requestUrl, signal) {
       connected_apps: [],
       account_status_available: false,
       account_status_degraded: true,
-      authenticated: auth.authenticated === true,
-      configured_environment: auth.configured_environment,
-      environment: auth.environment,
-      environment_fallback_used: auth.environment_fallback_used === true,
+      authenticated: true,
+      configured_environment: configuredEnvironment,
+      environment: configuredEnvironment,
+      environment_fallback_used: false,
+      reconnect_required: actionRequired === 'RECONNECT_PIPEDREAM_DEVELOPMENT',
+      action_required: actionRequired,
+      upstream_status: Number(error?.upstream_status) || null,
+      upstream_code: clean(error?.upstream_code, 160) || null,
+      upstream_message: clean(error?.upstream_message, 240) || null,
       connect_link_supported: true,
       actions_supported: true,
       proxy_supported: true,
@@ -1154,6 +1214,8 @@ export async function maybeHandleConnectionSettingsApi(request, env = {}, url = 
       error: clean(error?.code || error?.message || 'CONNECTION_OPERATION_FAILED', 160),
       code,
       ...(Number.isFinite(Number(error?.upstream_status)) ? { upstream_status: Number(error.upstream_status) } : {}),
+      ...(clean(error?.upstream_code, 160) ? { upstream_code: clean(error.upstream_code, 160) } : {}),
+      ...(clean(error?.upstream_message, 240) ? { upstream_message: clean(error.upstream_message, 240) } : {}),
       ...(clean(error?.action_required || inferredAction, 160) ? { action_required: clean(error?.action_required || inferredAction, 160) } : {}),
     }, Number(error?.status) || 500);
   }
