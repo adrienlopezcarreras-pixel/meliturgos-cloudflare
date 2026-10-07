@@ -75,6 +75,8 @@ class MelCompanionCommandsTest {
     @Test
     fun cameraFilesAndNotificationsAreLocal() {
         assertTrue(MelCompanionCommands.parse("prends une photo") is MelCompanionCommand.Camera)
+        assertTrue(MelCompanionCommands.parse("filme une vidéo") is MelCompanionCommand.VideoCamera)
+        assertTrue(MelCompanionCommands.parse("enregistre une vidéo") is MelCompanionCommand.VideoCamera)
         assertTrue(MelCompanionCommands.parse("ouvre un fichier") is MelCompanionCommand.FilePicker)
         assertTrue(MelCompanionCommands.parse("active les notifications") is MelCompanionCommand.EnableNotifications)
     }
