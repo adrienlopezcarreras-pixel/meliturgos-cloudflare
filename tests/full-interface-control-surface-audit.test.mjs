@@ -59,7 +59,7 @@ test('generic control families keep their delegated handlers', () => {
   const families = [
     ['data-view', "qsa('#nav button[data-view]')"],
     ['data-jump', "qsa('[data-jump]')"],
-    ['data-mode', "qsa('[data-mode]')"],
+    ['data-mode', "qsa('#melUnifiedTabs [data-mode]')"],
     ['data-pc-app', "qsa('[data-pc-app]')"],
     ['data-pc-key', "qsa('[data-pc-key]')"],
     ['data-pd-connect', "qsa('[data-pd-connect]')"],
