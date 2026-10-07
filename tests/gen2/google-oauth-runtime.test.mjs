@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
-import { createGoogleOAuthRuntime } from '../../src/connectors/google-oauth-runtime.js';
+import { createGoogleAccessTokenResolver, createGoogleOAuthRuntime } from '../../src/connectors/google-oauth-runtime.js';
 import { maybeHandleGoogleOAuthApi } from '../../src/api/google-oauth-api.js';
 
 class TransactionVault {
