@@ -17,10 +17,14 @@ test('release workflow proves Normal and Full MEL file staging in a real browser
   assert.match(workflow,/Upload MEL-FILE-01 production proof/);
 });
 
-test('canonical post-release suite runs the reusable live connection proof after deploy', async () => {
-  const parent=await readFile(new URL('../../.github/workflows/post-release-proof-suite.yml',import.meta.url),'utf8');
-  assert.match(parent,/workflow_run:/);
-  assert.match(parent,/workflows:\s*\["deploy-cloudflare-release"\]/);
+test('canonical release directly gates success on the reusable live connection proof suite', async () => {
+  const [deploy,parent]=await Promise.all([
+    readFile(new URL('../../.github/workflows/deploy-cloudflare-release.yml',import.meta.url),'utf8'),
+    readFile(new URL('../../.github/workflows/post-release-proof-suite.yml',import.meta.url),'utf8'),
+  ]);
+  assert.match(parent,/workflow_call:/);
+  assert.doesNotMatch(parent,/workflow_run:/);
+  assert.match(deploy,/post-release-health:\n[\s\S]*needs:\s*deploy[\s\S]*uses:\s*\.\/\.github\/workflows\/post-release-proof-suite\.yml/);
   assert.match(parent,/connections:\n[\s\S]*uses: \.\/\.github\/workflows\/live-connections-production-proof\.yml/);
   assert.match(parent,/expected_sha:\s*\$\{\{\s*needs\.resolve\.outputs\.expected_sha\s*\}\}/);
 });
