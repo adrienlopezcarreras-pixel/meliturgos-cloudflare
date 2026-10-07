@@ -475,6 +475,22 @@ function canFallbackPipedreamEnvironment(error, environment) {
   return environment === 'production' && Number(error?.upstream_status) === 400;
 }
 
+async function persistPipedreamEnvironment(env, contextOwner, stored, environment) {
+  const normalized = environment === 'production' ? 'production' : 'development';
+  if (configuredPipedreamEnvironment(stored) === normalized) return false;
+  const vaults = createD1OAuthVaults(env);
+  await vaults.tokenVault.put({
+    owner: contextOwner,
+    connector_id: PIPEDREAM_CONFIG_ID,
+    token_set: {
+      ...stored,
+      environment: normalized,
+      updated_at: Date.now(),
+    },
+  });
+  return true;
+}
+
 async function pipedreamStatus(env, contextOwner) {
   const stored = await pipedreamStoredConfig(env, contextOwner).catch(() => null);
   return {
@@ -697,6 +713,7 @@ async function createPipedreamConnectLink(env, contextOwner, body, requestUrl, s
     throw error;
   }
   const { tokenBody, environment, configured_environment, environment_fallback_used } = await createPipedreamUserToken(stored, contextOwner, requestUrl, signal, app);
+  if (environment_fallback_used) await persistPipedreamEnvironment(env, contextOwner, stored, environment);
   const rawLink = clean(tokenBody?.connect_link_url || tokenBody?.connectLinkUrl, 4000);
   if (!rawLink) {
     const error = new Error('PIPEDREAM_CONNECT_LINK_MISSING');
@@ -787,7 +804,9 @@ async function pipedreamAccounts(env, contextOwner, requestUrl, signal) {
     throw error;
   }
   try {
-    return await pipedreamAccountStatus(stored, contextOwner, { signal });
+    const result = await pipedreamAccountStatus(stored, contextOwner, { signal });
+    if (result.environment_fallback_used) await persistPipedreamEnvironment(env, contextOwner, stored, result.environment);
+    return result;
   } catch (error) {
     if (error?.code !== 'PIPEDREAM_ACCOUNTS_FAILED') throw error;
     const auth = await testPipedreamCredentials(stored, { signal });
@@ -885,6 +904,9 @@ export async function testPipedreamGoogleTasksRead(config, contextOwner, options
     live_proxy: transport === 'proxy',
     read_only: true,
     account_connected: true,
+    configured_environment: accounts.configured_environment,
+    environment,
+    environment_fallback_used: accounts.environment_fallback_used === true,
     private_content_returned: false,
   };
 }
@@ -1107,9 +1129,13 @@ export async function maybeHandleConnectionSettingsApi(request, env = {}, url = 
         if (!stored) return json({ ok: false, code: 'PIPEDREAM_NOT_CONFIGURED' }, 409);
         const body = await bodyObject(request);
         if (clean(body?.probe, 120) === 'google_tasks_read') {
-          return json(await testPipedreamGoogleTasksRead(stored, contextOwner, { signal: request.signal }));
+          const result = await testPipedreamGoogleTasksRead(stored, contextOwner, { signal: request.signal });
+          if (result.environment_fallback_used) await persistPipedreamEnvironment(env, contextOwner, stored, result.environment);
+          return json(result);
         }
-        return json(await testPipedreamCredentials(stored, { signal: request.signal }));
+        const result = await testPipedreamCredentials(stored, { signal: request.signal });
+        if (result.environment_fallback_used) await persistPipedreamEnvironment(env, contextOwner, stored, result.environment);
+        return json(result);
       }
       const body = await bodyObject(request);
       const connectorId = clean(body.connector_id, 160);
