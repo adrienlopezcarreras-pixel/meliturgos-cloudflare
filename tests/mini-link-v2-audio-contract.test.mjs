@@ -217,3 +217,17 @@ test('MINI uses codec driver with shared ES8311 instance support and STOP cancel
   assert.match(terminal, /mel_link_v2_transport_cancel_active\(\)/);
   assert.match(terminal, /ui_status\("VOIX STOP"\)/);
 });
+
+
+test('STOP VOIX propagates a CANCEL frame to Android and aborts outbound TTS immediately', async () => {
+  const [transport, service] = await Promise.all([
+    readFile(new URL('../firmware/waveshare-terminal/main/mel_link_v2_transport.cpp', import.meta.url), 'utf8'),
+    readFile(new URL('../android-companion/app/src/main/java/fr/veriteinterdite/mel/MelLinkV2ClientService.kt', import.meta.url), 'utf8'),
+  ]);
+  assert.match(transport, /static const char kCancel\[\] = "CANCEL"/);
+  assert.match(transport, /MEL_LINK_V2_ERROR,[\s\S]*?kCancel/);
+  assert.match(service, /MelLinkV2Protocol\.ERROR ->/);
+  assert.match(service, /code == "CANCEL"/);
+  assert.match(service, /cancelledOutbound\.add\(frame\.streamId\)/);
+  assert.match(service, /outboundCancelled\(streamId\)/);
+});
