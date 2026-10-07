@@ -824,7 +824,8 @@ jobs:
           if(String(d?.source_sha||'').toLowerCase()!==expected||String(d?.deployed_sha||'').toLowerCase()!==expected) process.exit(1);
           if(Number(d?.capability_count)!==12) process.exit(1);
           if(!Array.isArray(d?.required_capabilities)||d.required_capabilities.length!==12) process.exit(1);
-          if(!Array.isArray(d?.executions)||d.executions.length!==12||d.executions.some(row=>row?.ok!==true)) process.exit(1);
+          if(!Array.isArray(d?.executions)||d.executions.length!==12||d.executions.some(row=>row?.ok!==true||row?.zero_added_cost!==true)) process.exit(1);
+          if(d?.all_executions_zero_added_cost!==true) process.exit(1);
           if(d?.secret_values_exposed!==false||d?.autonomy_started!==false) process.exit(1);
           NODE
             then
