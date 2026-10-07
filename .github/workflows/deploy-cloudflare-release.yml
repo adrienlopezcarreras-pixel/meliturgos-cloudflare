@@ -2514,62 +2514,61 @@ jobs:
             exit 58
           fi
 
-          PRE_RESTORE_REQUIRED=1
+          # Hardening invariant: rollback restores the previous Worker version but
+          # NEVER restarts autonomy. Shared D1 is staged PAUSED/MAX=false before
+          # the code rollback so the previous Worker inherits the safe state.
+          SAFE_PAUSED=true
+          SAFE_MAX=false
           PRE_RESTORE_READY=0
-          if [ "${PREVIOUS_AUTONOMY_PAUSED}" = "true" ] && [ "${PREVIOUS_MAX_AUTONOMY}" = "false" ]; then
-            PRE_RESTORE_REQUIRED=0
-            PRE_RESTORE_READY=1
-            echo "Previous production was already paused; pre-rollback MAX restoration is unnecessary."
-          else
-            OIDC_RESPONSE="$(curl --silent --show-error --fail --retry 3 --retry-all-errors --retry-delay 2 --max-time 30 \
-              --header "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
-              "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=meliturgos-worker")"
-            OIDC_TOKEN="$(printf '%s' "${OIDC_RESPONSE}" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const j=JSON.parse(s);if(!j.value)process.exit(2);process.stdout.write(j.value)})')"
-            echo "::add-mask::${OIDC_TOKEN}"
 
-            for RESTORE_ATTEMPT in $(seq 1 6); do
-              RESTORE_CODE="$(curl --silent --show-error --max-time 120 \
-                --request POST \
-                --header "x-mel-github-oidc: ${OIDC_TOKEN}" \
-                --header "content-type: application/json" \
-                --data '{"phase":"release-rollback-restore"}' \
-                --output rollback-autonomy-restore.json \
-                --write-out '%{http_code}' \
-                "https://meliturgos.adrien-lopezcarreras.workers.dev/api/internal/release-launch-bootstrap?expected_sha=${EXPECTED_SHA}&restore_sha=${PREVIOUS_DEPLOYED_SHA}&paused=${PREVIOUS_AUTONOMY_PAUSED}&max=${PREVIOUS_MAX_AUTONOMY}" || true)"
-              if [ "${RESTORE_CODE}" = "200" ] && \
-                EXPECTED_SHA="${EXPECTED_SHA}" \
-                PREVIOUS_DEPLOYED_SHA="${PREVIOUS_DEPLOYED_SHA}" \
-                PREVIOUS_AUTONOMY_PAUSED="${PREVIOUS_AUTONOMY_PAUSED}" \
-                PREVIOUS_MAX_AUTONOMY="${PREVIOUS_MAX_AUTONOMY}" \
-                node - <<'NODE'
+          OIDC_RESPONSE="$(curl --silent --show-error --fail --retry 3 --retry-all-errors --retry-delay 2 --max-time 30 \
+            --header "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=meliturgos-worker")"
+          OIDC_TOKEN="$(printf '%s' "${OIDC_RESPONSE}" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const j=JSON.parse(s);if(!j.value)process.exit(2);process.stdout.write(j.value)})')"
+          echo "::add-mask::${OIDC_TOKEN}"
+
+          for RESTORE_ATTEMPT in $(seq 1 6); do
+            RESTORE_CODE="$(curl --silent --show-error --max-time 120 \
+              --request POST \
+              --header "x-mel-github-oidc: ${OIDC_TOKEN}" \
+              --header "content-type: application/json" \
+              --data '{"phase":"release-rollback-restore"}' \
+              --output rollback-autonomy-restore.json \
+              --write-out '%{http_code}' \
+              "https://meliturgos.adrien-lopezcarreras.workers.dev/api/internal/release-launch-bootstrap?expected_sha=${EXPECTED_SHA}&restore_sha=${PREVIOUS_DEPLOYED_SHA}&paused=true&max=false" || true)"
+            if [ "${RESTORE_CODE}" = "200" ] && \
+              EXPECTED_SHA="${EXPECTED_SHA}" \
+              PREVIOUS_DEPLOYED_SHA="${PREVIOUS_DEPLOYED_SHA}" \
+              node - <<'NODE'
           const d=require('./rollback-autonomy-restore.json');
           const deployed=String(process.env.EXPECTED_SHA||'').toLowerCase();
           const restore=String(process.env.PREVIOUS_DEPLOYED_SHA||'').toLowerCase();
-          const paused=String(process.env.PREVIOUS_AUTONOMY_PAUSED)==='true';
-          const max=String(process.env.PREVIOUS_MAX_AUTONOMY)==='true';
           if(d?.ok!==true || d?.status!=='RELEASE_ROLLBACK_AUTONOMY_RESTORED') process.exit(1);
           if(String(d?.deployed_sha||'').toLowerCase()!==deployed) process.exit(1);
-          if(String(d?.restore_sha||'').toLowerCase()!==restore) process.exit(1);
-          if(String(d?.launch_approved_sha||'').toLowerCase()!==restore) process.exit(1);
-          if(d?.paused!==paused || d?.max_autonomy!==max) process.exit(1);
+          if(String(d?.restore_sha||'')!=='') process.exit(1);
+          if(d?.launch_approved_sha!=null) process.exit(1);
+          if(d?.paused!==true || d?.max_autonomy!==false) process.exit(1);
           NODE
-              then
-                PRE_RESTORE_READY=1
-                echo "Previous autonomy control staged in shared D1 before Worker rollback."
-                break
-              fi
-              echo "Pre-rollback autonomy restore attempt ${RESTORE_ATTEMPT}/6 returned HTTP ${RESTORE_CODE}; bounded retry."
-              test ! -s rollback-autonomy-restore.json || cat rollback-autonomy-restore.json
-              sleep 3
-            done
+            then
+              PRE_RESTORE_READY=1
+              echo "Safe paused autonomy staged in shared D1 before Worker rollback."
+              break
+            fi
+            echo "Pre-rollback safe-stop attempt ${RESTORE_ATTEMPT}/6 returned HTTP ${RESTORE_CODE}; bounded retry."
+            test ! -s rollback-autonomy-restore.json || cat rollback-autonomy-restore.json
+            sleep 3
+          done
+          if [ "${PRE_RESTORE_READY}" != "1" ]; then
+            echo "Refusing rollback without a proven PAUSED/MAX=false shared-D1 state."
+            exit 56
           fi
 
           # Use Wrangler's supported rollback command rather than hand-crafting
-          # the deployment API request. It resolves the Worker identity from the
-          # canonical config and creates a 100% deployment of the captured version.
+          # the deployment API request. It restores code only; autonomy remains
+          # fail-safe in the shared D1 state staged above.
           if ! npx wrangler rollback "${PREVIOUS_CLOUDFLARE_VERSION_ID}" \
             --name meliturgos \
-            --message "MEL automatic rollback after failed release verification" \
+            --message "MEL automatic rollback after failed release verification (MAX kept disabled)" \
             >/tmp/mel-rollback.log 2>&1; then
             echo "Automatic Wrangler rollback failed."
             cat /tmp/mel-rollback.log
@@ -2584,33 +2583,23 @@ jobs:
               --output rollback-autonomy-control.json \
               --write-out '%{http_code}' \
               "https://meliturgos.adrien-lopezcarreras.workers.dev/api/gen2/autonomy/control" || true)"
-            if [ "${CONTROL_CODE}" = "200" ] && \
-              PREVIOUS_AUTONOMY_PAUSED="${PREVIOUS_AUTONOMY_PAUSED}" \
-              PREVIOUS_MAX_AUTONOMY="${PREVIOUS_MAX_AUTONOMY}" \
-              node - <<'NODE'
+            if [ "${CONTROL_CODE}" = "200" ] && node - <<'NODE'
           const d=require('./rollback-autonomy-control.json');
-          const paused=String(process.env.PREVIOUS_AUTONOMY_PAUSED)==='true';
-          const max=String(process.env.PREVIOUS_MAX_AUTONOMY)==='true';
-          if(d?.ok!==true || d?.paused!==paused || d?.max_autonomy!==max) process.exit(1);
+          if(d?.ok!==true || d?.paused!==true || d?.max_autonomy!==false) process.exit(1);
           NODE
             then
               CONTROL_READY=1
               break
             fi
-            echo "Rollback autonomy control verification attempt ${CONTROL_ATTEMPT}/18 returned HTTP ${CONTROL_CODE}; waiting for stable propagation."
+            echo "Rollback safe autonomy verification attempt ${CONTROL_ATTEMPT}/18 returned HTTP ${CONTROL_CODE}; waiting for stable propagation."
             sleep 3
           done
-
-          if [ "${PRE_RESTORE_REQUIRED}" = "1" ] && [ "${PRE_RESTORE_READY}" != "1" ]; then
-            echo "Worker rollback succeeded, but the prior launch SHA could not be staged before rollback."
-            exit 56
-          fi
           if [ "${CONTROL_READY}" != "1" ]; then
-            echo "Worker rollback succeeded, but prior paused/MAX control was not observable after propagation."
+            echo "Worker rollback succeeded, but PAUSED/MAX=false was not observable after propagation."
             test ! -s rollback-autonomy-control.json || cat rollback-autonomy-control.json
             exit 57
           fi
-          echo "Previous stable Worker and autonomy control restored after failed exact-SHA release."
+          echo "Previous stable Worker restored with autonomy PAUSED and MAX disabled."
 
 
   post-release-health:
