@@ -528,7 +528,7 @@ export function registerPipedreamLinkedCapabilities(bus, { pipedreamRuntime = nu
     },
     risk: 'LOW',
     permissions: ['microsoft.sites.read'],
-    healthcheck: pdHealth(pipedreamRuntime, 'sharepoint', GRAPH + '/sites/root?$select=id,name'),
+    healthcheck: pdHealth(pipedreamRuntime, 'sharepoint', GRAPH + '/me/followedSites?$top=1&$select=id,name'),
   }, async (input, context) => {
     const body = await proxy(pipedreamRuntime, context, 'sharepoint', GRAPH + '/me/followedSites?$top=' + limit(input.limit));
     const sites = rows(body).slice(0, limit(input.limit));
@@ -552,7 +552,7 @@ export function registerPipedreamLinkedCapabilities(bus, { pipedreamRuntime = nu
     },
     risk: 'LOW',
     permissions: ['microsoft.sites.read'],
-    healthcheck: pdHealth(pipedreamRuntime, 'sharepoint', GRAPH + '/sites/root?$select=id,name'),
+    healthcheck: pdHealth(pipedreamRuntime, 'sharepoint', GRAPH + '/sites?search=mel&$top=1&$select=id,name'),
   }, async (input, context) => {
     const q = text(input.query, 'SHAREPOINT_QUERY_INVALID', 300);
     const params = new URLSearchParams({ search: q, '$top': String(limit(input.limit)) });
