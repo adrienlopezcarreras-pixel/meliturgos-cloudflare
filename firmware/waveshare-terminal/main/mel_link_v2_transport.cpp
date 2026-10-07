@@ -638,10 +638,22 @@ esp_err_t mel_link_v2_transport_request(
 bool mel_link_v2_transport_cancel_active(void) {
     const uint16_t stream = g_active_stream_id.load();
     if (!stream) return false;
+
+    // Propagate STOP VOIX to Android so a local TTS / BLE sender aborts too.
+    static const char kCancel[] = "CANCEL";
+    const bool remote_cancel = send_v2(
+        MEL_LINK_V2_ERROR,
+        stream,
+        0,
+        reinterpret_cast<const uint8_t *>(kCancel),
+        sizeof(kCancel) - 1,
+        false
+    );
+
     g_cancel_active.store(true);
     if (g_response_done) xSemaphoreGive(g_response_done);
     if (g_credit_sem) xSemaphoreGive(g_credit_sem);
-    ESP_LOGI(TAG, "cancel active stream=%u", stream);
+    ESP_LOGI(TAG, "cancel active stream=%u remote=%d", stream, remote_cancel ? 1 : 0);
     return true;
 }
 
