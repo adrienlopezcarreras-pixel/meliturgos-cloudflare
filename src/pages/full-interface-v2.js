@@ -111,6 +111,7 @@ async function loadCapabilitiesData(force=false){
   capabilityCacheAt=Date.now();
   return capabilityCache;
 }
+function capabilityFunctional(x){return x?.enabled!==false&&['HEALTHY','ONLINE','PROTECTED'].includes(String(x?.health||'').toUpperCase())}
 function capabilityUsable(x){return x?.enabled!==false&&!['UNAVAILABLE','OFFLINE','BLOCKED','DISABLED','ERROR','FAILED','FAIL','DOWN','UNHEALTHY','BROKEN'].includes(String(x?.health||'').toUpperCase())}
 function capabilityHealthMeta(skill){
   const raw=skill?.enabled===false?'DISABLED':String(skill?.health||'UNKNOWN').toUpperCase();
@@ -124,7 +125,7 @@ function capabilityHealthMeta(skill){
 }
 function renderCapabilitySummary(caps){
   qs('#capCount').textContent=caps.length;
-  qs('#capSummary').textContent=caps.filter(capabilityUsable).length+' utilisables';
+  qs('#capSummary').textContent=caps.filter(capabilityFunctional).length+' fonctionnelles · '+caps.filter(x=>String(x?.health||'').toUpperCase()==='DEGRADED').length+' dégradées';
 }
 async function loadCapabilitySummary(force=false){
   const d=await loadCapabilitiesData(force),caps=Array.isArray(d.capabilities)?d.capabilities:[];
@@ -324,7 +325,7 @@ async function loadSkills(force=false){
     const counts={healthy:0,protected:0,degraded:0,waiting:0,unavailable:0,failed:0},providers={};
     for(const skill of caps){
       const meta=capabilityHealthMeta(skill),provider=String(skill.provider||'core');
-      providers[provider]=providers[provider]||{total:0,usable:0};providers[provider].total++;if(capabilityUsable(skill))providers[provider].usable++;
+      providers[provider]=providers[provider]||{total:0,functional:0,degraded:0};providers[provider].total++;if(capabilityFunctional(skill))providers[provider].functional++;else if(String(skill?.health||'').toUpperCase()==='DEGRADED')providers[provider].degraded++;
       if(meta.waiting)counts.waiting++;
       else if(['HEALTHY','ONLINE'].includes(meta.raw))counts.healthy++;
       else if(meta.raw==='PROTECTED')counts.protected++;
@@ -334,7 +335,7 @@ async function loadSkills(force=false){
     }
     const set=(id,value)=>{const el=qs(id);if(el)el.textContent=value};
     set('#skillsHealthy',counts.healthy);set('#skillsProtected',counts.protected);set('#skillsDegraded',counts.degraded);set('#skillsWaiting',counts.waiting);set('#skillsUnavailable',counts.unavailable);set('#skillsFailed',counts.failed);
-    const providerSummary=qs('#skillsProviderSummary');if(providerSummary)providerSummary.textContent=Object.entries(providers).sort((a,b)=>a[0].localeCompare(b[0])).map(([name,row])=>name+' '+row.usable+'/'+row.total).join(' · ')||'Aucun fournisseur';
+    const providerSummary=qs('#skillsProviderSummary');if(providerSummary)providerSummary.textContent=Object.entries(providers).sort((a,b)=>a[0].localeCompare(b[0])).map(([name,row])=>name+' '+row.functional+'/'+row.total+' fonctionnelles'+(row.degraded?' · '+row.degraded+' dégradées':'')).join(' · ')||'Aucun fournisseur';
     box.innerHTML='';const fragment=document.createDocumentFragment();
     for(const skill of caps){
       const meta=capabilityHealthMeta(skill),el=document.createElement('div');el.className='skill';
