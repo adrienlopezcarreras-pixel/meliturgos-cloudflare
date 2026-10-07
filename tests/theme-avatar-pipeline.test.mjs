@@ -5,7 +5,6 @@ import { readFile } from 'node:fs/promises';
 const finalEntry = await readFile(new URL('../src/visual-final-entry.js', import.meta.url), 'utf8');
 const previewAuth = await readFile(new URL('../src/preview-auth-entry.js', import.meta.url), 'utf8');
 const liveEntry = await readFile(new URL('../src/professor-live-learning-entry.js', import.meta.url), 'utf8');
-const mvpEntry = await readFile(new URL('../src/pages/mvp-interface.js', import.meta.url), 'utf8');
 const mvp = await readFile(new URL('../src/pages/mvp-interface-v3.js', import.meta.url), 'utf8');
 const mvpRuntime = await readFile(new URL('../src/pages/mvp-runtime.js', import.meta.url), 'utf8');
 const enhancer = await readFile(new URL('../src/pages/theme-avatar-enhancer.js', import.meta.url), 'utf8');
