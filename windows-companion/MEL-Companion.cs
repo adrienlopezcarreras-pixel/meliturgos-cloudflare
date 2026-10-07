@@ -503,8 +503,9 @@ static class MelApp
     public static Icon MakeIcon()
     {
         using (var ms = new MemoryStream(IconBytes()))
+        using (var loaded = new Icon(ms))
         {
-            return new Icon(ms);
+            return (Icon)loaded.Clone();
         }
     }
 
