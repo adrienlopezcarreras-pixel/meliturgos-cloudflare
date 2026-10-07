@@ -1,6 +1,7 @@
 import { workersAiRuntimeZeroCostProvenance } from '../augmentio/workers-ai-zero-cost-proof.js';
 import { createEnvMediaVaultCodec } from './media-vault-crypto.js';
 import { mediaTransformZeroCostProvenance } from './media-transform-zero-cost-proof.js';
+import { browserRunZeroCostProvenance } from './browser-run-zero-cost-proof.js';
 
 export const WORKERS_AI_IMAGE_MODEL = '@cf/black-forest-labs/flux-1-schnell';
 export const WORKERS_AI_VISION_MODEL = '@cf/google/gemma-4-26b-a4b-it';
@@ -117,6 +118,14 @@ function mediaTransformProof(env) {
 
 function mediaTransformReady(env) {
   return Boolean(env?.MEDIA && typeof env.MEDIA.input === 'function' && mediaTransformProof(env));
+}
+
+function browserVideoReady(env) {
+  return Boolean(
+    env?.MEL_BROWSER_COMPANION
+    && typeof env.MEL_BROWSER_COMPANION.fetch === 'function'
+    && browserRunZeroCostProvenance(env),
+  );
 }
 
 function boundedSeconds(value, fallback = 20, max = 60) {
@@ -457,6 +466,92 @@ export async function transcribeAudioBytes(env, bytesInput, options = {}) {
   });
 }
 
+async function videoGenerate(env, input = {}) {
+  const workersProvenance = freshZeroCostProof(env, IMAGE_ADAPTER_ID, WORKERS_AI_IMAGE_MODEL);
+  if (!workersProvenance) throw mediaError('WORKERS_AI_ZERO_COST_PROOF_REQUIRED');
+  const browserProvenance = browserRunZeroCostProvenance(env);
+  if (!browserProvenance) throw mediaError('BROWSER_RUN_ZERO_COST_PROOF_REQUIRED');
+  if (!browserVideoReady(env)) throw mediaError('BROWSER_VIDEO_RENDERER_UNAVAILABLE');
+  if (!mediaStorageReady(env)) throw mediaError('MEDIA_VAULT_UNAVAILABLE');
+
+  const prompt = clean(input?.prompt || input?.description, 4000);
+  if (!prompt) throw mediaError('MEDIA_PROMPT_REQUIRED', 400);
+  const width = Math.round(Math.min(960, Math.max(256, Number(input?.width) || 640)));
+  const height = Math.round(Math.min(540, Math.max(144, Number(input?.height) || 360)));
+  const durationMs = Math.round(Math.min(6000, Math.max(1500, (Number(input?.duration_seconds) || 3) * 1000)));
+  const fps = Math.round(Math.min(20, Math.max(8, Number(input?.fps) || 12)));
+  const requestedFrames = Math.round(Math.min(2, Math.max(1, Number(input?.frame_count) || 1)));
+  const frames = [];
+
+  for (let i = 0; i < requestedFrames; i += 1) {
+    const framePrompt = requestedFrames === 1
+      ? prompt
+      : `${prompt}. Cinematic storyboard frame ${i + 1} of ${requestedFrames}; preserve the same subject, setting, palette and visual identity.`;
+    const result = await env.AI.run(WORKERS_AI_IMAGE_MODEL, {
+      prompt: framePrompt,
+      steps: 4,
+      width: Math.min(1024, Math.max(256, width)),
+      height: Math.min(1024, Math.max(256, height)),
+    }, { rejectIfBusy: true });
+    const encoded = clean(result?.image ?? result?.result?.image, 40_000_000);
+    if (!encoded) throw mediaError('WORKERS_AI_VIDEO_FRAME_EMPTY', 502);
+    frames.push({
+      mime: 'image/jpeg',
+      base64: encoded.includes(',') ? encoded.slice(encoded.indexOf(',') + 1) : encoded,
+    });
+  }
+
+  const renderResponse = await env.MEL_BROWSER_COMPANION.fetch(new Request(
+    'https://browser-companion.internal/v1/media/render-video',
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        schema: 'mel.media.browser-render-video/v1',
+        frames,
+        width,
+        height,
+        duration_ms: durationMs,
+        fps,
+      }),
+    },
+  ));
+  const raw = await renderResponse.text();
+  if (raw.length > 20_000_000) throw mediaError('BROWSER_VIDEO_RENDER_RESPONSE_TOO_LARGE', 502);
+  let rendered;
+  try { rendered = raw ? JSON.parse(raw) : {}; } catch { throw mediaError('BROWSER_VIDEO_RENDER_INVALID_JSON', 502); }
+  if (!renderResponse.ok || rendered?.ok !== true || !rendered?.base64) {
+    throw mediaError(clean(rendered?.code, 160) || 'BROWSER_VIDEO_RENDER_FAILED', renderResponse.status || 502);
+  }
+  const videoBytes = base64Bytes(rendered.base64);
+  if (!videoBytes.byteLength || videoBytes.byteLength > MAX_VIDEO_OUTPUT_BYTES) throw mediaError('BROWSER_VIDEO_RENDER_OUTPUT_INVALID', 502);
+  const artifact = await storePrivateArtifact(env, videoBytes, {
+    capability: 'media.video.generate',
+    model: 'mel-flux-browser-video-v1',
+    mime: clean(rendered.mime, 120) || 'video/webm',
+    extension: 'webm',
+  });
+  return Object.freeze({
+    ok: true,
+    schema: 'mel.zero-cost-video-generation/v1',
+    capability: 'media.video.generate',
+    provider: 'workers-ai+browser-run',
+    engine: 'generated-frame-animation',
+    zero_added_cost: true,
+    prompt_sha256: await sha256Hex(new TextEncoder().encode(prompt)),
+    frame_count: frames.length,
+    width,
+    height,
+    duration_seconds: durationMs / 1000,
+    fps,
+    artifact,
+    provenance: Object.freeze({
+      image_generation: workersProvenance,
+      browser_render: browserProvenance,
+    }),
+  });
+}
+
 async function videoProcess(env, input = {}) {
   const transformProvenance = mediaTransformProof(env);
   if (!transformProvenance) throw mediaError('MEDIA_TRANSFORM_ZERO_COST_PROOF_REQUIRED');
@@ -639,6 +734,10 @@ export function createWorkersAiZeroCostMediaCapabilities(env = {}) {
     && aiReady(env, IMAGE_ANALYZE_ADAPTER_ID, WORKERS_AI_VISION_MODEL)
     && aiReady(env, TRANSCRIPTION_ADAPTER_ID, WORKERS_AI_TRANSCRIPTION_MODEL)) {
     adapters['media.video.analyze'] = input => videoAnalyze(env, input);
+  }
+  if (browserVideoReady(env)
+    && adapterReady(env, IMAGE_ADAPTER_ID, WORKERS_AI_IMAGE_MODEL)) {
+    adapters['media.video.generate'] = input => videoGenerate(env, input);
   }
   return Object.freeze(adapters);
 }
