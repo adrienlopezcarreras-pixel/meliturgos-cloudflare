@@ -487,8 +487,15 @@ function pipedreamEnvironmentCandidates(config = {}) {
   return configured === 'production' ? ['production', 'development'] : ['development'];
 }
 
-function canFallbackPipedreamEnvironment(error, environment) {
-  return environment === 'production' && Number(error?.upstream_status) === 400;
+function canFallbackPipedreamEnvironment(error, environment, operation = 'generic') {
+  const status = Number(error?.upstream_status);
+  if (environment !== 'production') return false;
+  if (status === 400) return true;
+  // The server OAuth token is acquired before account inventory runs. A 401/403
+  // from /accounts can therefore represent a Production-vs-Development user
+  // namespace mismatch rather than invalid client credentials. Retry only this
+  // read-only account operation in Development; never broaden auth fallback.
+  return operation === 'accounts' && (status === 401 || status === 403);
 }
 
 function classifyPipedreamUpstreamAction(error, environment = '') {
@@ -834,7 +841,7 @@ export async function pipedreamAccountStatus(config, contextOwner, options = {})
       };
     } catch (error) {
       lastError = error;
-      if (!canFallbackPipedreamEnvironment(error, environment)) {
+      if (!canFallbackPipedreamEnvironment(error, environment, 'accounts')) {
         const actionRequired = classifyPipedreamUpstreamAction(error, environment);
         if (actionRequired) error.action_required = actionRequired;
         throw error;
