@@ -128,7 +128,7 @@ async function videoInputData(env, input = {}) {
   return { bytes, mime };
 }
 
-function browserVideoReady(env) {
+function browserMediaReady(env) {
   return Boolean(
     env?.MEL_BROWSER_COMPANION
     && typeof env.MEL_BROWSER_COMPANION.fetch === 'function'
@@ -146,7 +146,7 @@ async function browserMediaCall(env, path, payload, {
   maxResponseChars = 20_000_000,
   failureCode = 'BROWSER_MEDIA_FAILED',
 } = {}) {
-  if (!browserVideoReady(env)) throw mediaError('BROWSER_VIDEO_RENDERER_UNAVAILABLE');
+  if (!browserMediaReady(env)) throw mediaError('BROWSER_VIDEO_RENDERER_UNAVAILABLE');
   const response = await env.MEL_BROWSER_COMPANION.fetch(new Request(
     'https://browser-companion.internal' + path,
     {
@@ -285,9 +285,14 @@ async function imageAnalyze(env, input = {}) {
   const result = await env.AI.run(WORKERS_AI_VISION_MODEL, {
     messages: [
       { role: 'system', content: 'Tu analyses uniquement ce qui est observable dans l’image. Signale explicitement toute incertitude.' },
-      { role: 'user', content: prompt },
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: prompt },
+          { type: 'image_url', image_url: { url: image } },
+        ],
+      },
     ],
-    image,
     chat_template_kwargs: { enable_thinking: false },
   }, { rejectIfBusy: true });
   const analysis = modelText(result);
@@ -315,12 +320,26 @@ async function imageProcess(env, input = {}) {
   if (!env?.AI?.run) throw mediaError('AI_BINDING_MISSING');
   if (!mediaStorageReady(env)) throw mediaError('MEDIA_VAULT_UNAVAILABLE');
 
+  const browserProvenance = browserRunZeroCostProvenance(env);
+  if (!browserProvenance) throw mediaError('BROWSER_RUN_ZERO_COST_PROOF_REQUIRED');
+  if (!browserMediaReady(env)) throw mediaError('BROWSER_IMAGE_RESIZER_UNAVAILABLE');
   const imageInput = await imageInputData(env, input);
-  const bytes = imageInput.bytes;
-  if (!bytes?.byteLength) throw mediaError('IMAGE_INPUT_REQUIRED', 400);
-  const mime = imageInput.mime;
+  const sourceBytes = imageInput.bytes;
+  if (!sourceBytes?.byteLength) throw mediaError('IMAGE_INPUT_REQUIRED', 400);
   const prompt = clean(input?.prompt || input?.instruction || input?.operation, 6000);
   if (!prompt) throw mediaError('IMAGE_PROCESS_INSTRUCTION_REQUIRED', 400);
+
+  const resized = await browserMediaCall(env, '/v1/media/resize-image', {
+    schema: 'mel.media.browser-resize-image/v1',
+    base64: bytesBase64(sourceBytes),
+    mime: imageInput.mime,
+    max_edge: 510,
+  }, { maxResponseChars: 12_000_000, failureCode: 'BROWSER_IMAGE_RESIZE_FAILED' });
+  const bytes = base64Bytes(resized.base64);
+  const mime = clean(resized.mime, 120) || 'image/jpeg';
+  if (!bytes.byteLength || Number(resized.width || 0) >= 512 || Number(resized.height || 0) >= 512) {
+    throw mediaError('BROWSER_IMAGE_RESIZE_CONTRACT_FAILED', 502);
+  }
 
   const form = new FormData();
   form.append('prompt', prompt);
@@ -357,8 +376,15 @@ async function imageProcess(env, input = {}) {
     model: WORKERS_AI_IMAGE_EDIT_MODEL,
     zero_added_cost: true,
     artifact,
-    input_sha256: await sha256Hex(bytes),
-    provenance,
+    input_sha256: await sha256Hex(sourceBytes),
+    reference_resize: Object.freeze({
+      width: Number(resized.width || 0),
+      height: Number(resized.height || 0),
+    }),
+    provenance: Object.freeze({
+      workers_ai: provenance,
+      browser_run: browserProvenance,
+    }),
   });
 }
 
@@ -538,7 +564,7 @@ async function videoGenerate(env, input = {}) {
   if (!workersProvenance) throw mediaError('WORKERS_AI_ZERO_COST_PROOF_REQUIRED');
   const browserProvenance = browserRunZeroCostProvenance(env);
   if (!browserProvenance) throw mediaError('BROWSER_RUN_ZERO_COST_PROOF_REQUIRED');
-  if (!browserVideoReady(env)) throw mediaError('BROWSER_VIDEO_RENDERER_UNAVAILABLE');
+  if (!browserMediaReady(env)) throw mediaError('BROWSER_VIDEO_RENDERER_UNAVAILABLE');
   if (!mediaStorageReady(env)) throw mediaError('MEDIA_VAULT_UNAVAILABLE');
 
   const prompt = clean(input?.prompt || input?.description, 4000);
@@ -557,8 +583,6 @@ async function videoGenerate(env, input = {}) {
     const result = await env.AI.run(WORKERS_AI_IMAGE_MODEL, {
       prompt: framePrompt,
       steps: 4,
-      width: Math.min(1024, Math.max(256, width)),
-      height: Math.min(1024, Math.max(256, height)),
     }, { rejectIfBusy: true });
     const encoded = clean(result?.image ?? result?.result?.image, 40_000_000);
     if (!encoded) throw mediaError('WORKERS_AI_VIDEO_FRAME_EMPTY', 502);
@@ -622,7 +646,7 @@ async function videoGenerate(env, input = {}) {
 async function videoProcess(env, input = {}) {
   const browserProvenance = browserRunZeroCostProvenance(env);
   if (!browserProvenance) throw mediaError('BROWSER_RUN_ZERO_COST_PROOF_REQUIRED');
-  if (!browserVideoReady(env)) throw mediaError('BROWSER_VIDEO_RENDERER_UNAVAILABLE');
+  if (!browserMediaReady(env)) throw mediaError('BROWSER_VIDEO_RENDERER_UNAVAILABLE');
   if (!mediaStorageReady(env)) throw mediaError('MEDIA_VAULT_UNAVAILABLE');
 
   const source = await videoInputData(env, input);
@@ -676,7 +700,7 @@ async function videoProcess(env, input = {}) {
 async function videoAnalyze(env, input = {}) {
   const browserProvenance = browserRunZeroCostProvenance(env);
   if (!browserProvenance) throw mediaError('BROWSER_RUN_ZERO_COST_PROOF_REQUIRED');
-  if (!browserVideoReady(env)) throw mediaError('BROWSER_VIDEO_RENDERER_UNAVAILABLE');
+  if (!browserMediaReady(env)) throw mediaError('BROWSER_VIDEO_RENDERER_UNAVAILABLE');
   if (!aiReady(env, IMAGE_ANALYZE_ADAPTER_ID, WORKERS_AI_VISION_MODEL)) throw mediaError('WORKERS_AI_VISION_UNAVAILABLE');
   if (!aiReady(env, TRANSCRIPTION_ADAPTER_ID, WORKERS_AI_TRANSCRIPTION_MODEL)) throw mediaError('WORKERS_AI_TRANSCRIPTION_UNAVAILABLE');
 
@@ -786,7 +810,8 @@ export function createWorkersAiZeroCostMediaCapabilities(env = {}) {
   if (aiReady(env, IMAGE_ANALYZE_ADAPTER_ID, WORKERS_AI_VISION_MODEL)) {
     adapters['media.image.analyze'] = input => imageAnalyze(env, input);
   }
-  if (adapterReady(env, IMAGE_PROCESS_ADAPTER_ID, WORKERS_AI_IMAGE_EDIT_MODEL)) {
+  if (adapterReady(env, IMAGE_PROCESS_ADAPTER_ID, WORKERS_AI_IMAGE_EDIT_MODEL)
+    && browserMediaReady(env)) {
     adapters['media.image.process'] = input => imageProcess(env, input);
   }
   if (adapterReady(env, IMAGE_ADAPTER_ID, WORKERS_AI_IMAGE_MODEL)) {
@@ -798,15 +823,15 @@ export function createWorkersAiZeroCostMediaCapabilities(env = {}) {
   if (aiReady(env, TRANSCRIPTION_ADAPTER_ID, WORKERS_AI_TRANSCRIPTION_MODEL)) {
     adapters['media.audio.transcribe'] = input => audioTranscribe(env, input);
   }
-  if (browserVideoReady(env) && mediaStorageReady(env)) {
+  if (browserMediaReady(env) && mediaStorageReady(env)) {
     adapters['media.video.process'] = input => videoProcess(env, input);
   }
-  if (browserVideoReady(env)
+  if (browserMediaReady(env)
     && aiReady(env, IMAGE_ANALYZE_ADAPTER_ID, WORKERS_AI_VISION_MODEL)
     && aiReady(env, TRANSCRIPTION_ADAPTER_ID, WORKERS_AI_TRANSCRIPTION_MODEL)) {
     adapters['media.video.analyze'] = input => videoAnalyze(env, input);
   }
-  if (browserVideoReady(env)
+  if (browserMediaReady(env)
     && adapterReady(env, IMAGE_ADAPTER_ID, WORKERS_AI_IMAGE_MODEL)) {
     adapters['media.video.generate'] = input => videoGenerate(env, input);
   }
