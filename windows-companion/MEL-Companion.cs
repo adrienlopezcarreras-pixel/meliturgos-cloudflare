@@ -14,7 +14,7 @@ using System.Web.Script.Serialization;
 static class MelApp
 {
     public const string DefaultServer = "https://meliturgos.adrien-lopezcarreras.workers.dev";
-    public const string Version = "2.4.2";
+    public const string Version = "2.5.0";
     public static readonly string MelDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "MEL");
     public static readonly string ConfigPath = Path.Combine(MelDir, "computer.json");
     public static readonly string InstalledExe = Path.Combine(MelDir, "MEL-Companion.exe");
@@ -37,6 +37,11 @@ static class MelApp
     public static MainForm Main;
     public static bool Exiting;
     const string CompanionB64 = "__COMPANION_B64__";
+    const string AvatarB64 = "__MEL_AVATAR_B64__";
+    const string IconB64 = "__MEL_ICON_B64__";
+
+    public static byte[] AvatarBytes() { return Convert.FromBase64String(AvatarB64); }
+    public static byte[] IconBytes() { return Convert.FromBase64String(IconB64); }
 
     [DllImport("user32.dll")] static extern bool SetProcessDpiAwarenessContext(IntPtr value);
     [DllImport("user32.dll")] static extern bool SetProcessDPIAware();
@@ -67,100 +72,11 @@ static class MelApp
 
     public static Bitmap MakeMelTechnoFace(int size)
     {
-        var bmp = new Bitmap(size, size);
-        using (var g = Graphics.FromImage(bmp))
+        using (var ms = new MemoryStream(AvatarBytes()))
+        using (var source = Image.FromStream(ms))
         {
-            g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
-            g.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
-            g.Clear(Color.Transparent);
-            float s = Math.Max(0.01f, size / 128f);
-            g.ScaleTransform(s, s);
-
-            // Canonical MEL favicon: dark rounded tile, cyan ring, human avatar.
-            using (var tile = new SolidBrush(Color.FromArgb(6,16,29)))
-            using (var ringFill = new SolidBrush(Color.FromArgb(13,48,74)))
-            using (var ring = new Pen(Color.FromArgb(34,211,238),5f))
-            using (var hair = new SolidBrush(Color.FromArgb(23,17,15)))
-            using (var hair2 = new SolidBrush(Color.FromArgb(59,36,27)))
-            using (var skin = new SolidBrush(Color.FromArgb(215,163,130)))
-            using (var brow = new SolidBrush(Color.FromArgb(58,39,33)))
-            using (var eye = new SolidBrush(Color.FromArgb(20,33,42)))
-            using (var lip = new SolidBrush(Color.FromArgb(184,120,103)))
-            using (var jacket = new SolidBrush(Color.FromArgb(11,34,56)))
-            using (var cyan = new SolidBrush(Color.FromArgb(34,211,238)))
-            using (var shirt = new SolidBrush(Color.FromArgb(7,21,35)))
-            using (var bluePen = new Pen(Color.FromArgb(96,165,250),3f))
-            {
-                g.FillRectangle(tile, 0, 0, 128, 128);
-                g.FillEllipse(ringFill, 7, 7, 114, 114);
-                g.DrawEllipse(ring, 7, 7, 114, 114);
-
-                // Hair silhouette.
-                var hp = new System.Drawing.Drawing2D.GraphicsPath();
-                hp.AddBezier(new PointF(34,54),new PointF(34,28),new PointF(47,17),new PointF(64,17));
-                hp.AddBezier(new PointF(64,17),new PointF(83,17),new PointF(95,31),new PointF(94,57));
-                hp.AddBezier(new PointF(94,57),new PointF(93,72),new PointF(90,84),new PointF(88,91));
-                hp.AddLine(new PointF(88,91),new PointF(40,91));
-                hp.AddBezier(new PointF(40,91),new PointF(35,76),new PointF(34,54),new PointF(34,54));
-                hp.CloseFigure();
-                g.FillPath(hair, hp);
-
-                // Upper hair.
-                var hairTop = new PointF[] {
-                    new PointF(38,51), new PointF(39,39), new PointF(47,27),
-                    new PointF(64,22), new PointF(80,27), new PointF(89,39),
-                    new PointF(89,54), new PointF(83,45), new PointF(68,36),
-                    new PointF(55,42), new PointF(39,43)
-                };
-                g.FillPolygon(hair2, hairTop);
-
-                // Face.
-                var fp = new System.Drawing.Drawing2D.GraphicsPath();
-                fp.AddBezier(new PointF(43,48),new PointF(43,35),new PointF(52,28),new PointF(64,28));
-                fp.AddBezier(new PointF(64,28),new PointF(76,28),new PointF(85,36),new PointF(85,49));
-                fp.AddLine(new PointF(85,49),new PointF(84,64));
-                fp.AddBezier(new PointF(84,64),new PointF(83,76),new PointF(75,86),new PointF(64,86));
-                fp.AddBezier(new PointF(64,86),new PointF(53,86),new PointF(45,76),new PointF(44,64));
-                fp.CloseFigure();
-                g.FillPath(skin, fp);
-
-                // Side hair.
-                var lh = new PointF[]{new PointF(43,46),new PointF(39,48),new PointF(37,62),new PointF(40,79),new PointF(43,91),new PointF(49,79),new PointF(44,64)};
-                var rh = new PointF[]{new PointF(86,46),new PointF(89,49),new PointF(91,63),new PointF(88,80),new PointF(85,91),new PointF(79,79),new PointF(84,64)};
-                g.FillPolygon(hair2, lh);
-                g.FillPolygon(hair2, rh);
-
-                // Brows and eyes.
-                g.FillRectangle(brow, 50,55,9,3);
-                g.FillRectangle(brow, 69,55,9,3);
-                g.FillEllipse(eye, 51,55,4,4);
-                g.FillEllipse(eye, 71,55,4,4);
-
-                // Mouth.
-                var mp = new System.Drawing.Drawing2D.GraphicsPath();
-                mp.AddBezier(new PointF(56,76),new PointF(61,79),new PointF(67,79),new PointF(72,76));
-                mp.AddBezier(new PointF(72,76),new PointF(68,83),new PointF(61,84),new PointF(56,78));
-                mp.CloseFigure();
-                g.FillPath(lip, mp);
-
-                // Neck.
-                g.FillRectangle(skin, 55,82,18,17);
-
-                // Jacket/body.
-                var body = new PointF[]{new PointF(25,124),new PointF(29,108),new PointF(40,96),new PointF(55,89),new PointF(64,94),new PointF(73,89),new PointF(88,97),new PointF(99,109),new PointF(103,124)};
-                g.FillPolygon(jacket, body);
-                var cyanShape = new PointF[]{new PointF(45,96),new PointF(58,108),new PointF(64,101),new PointF(70,108),new PointF(84,96),new PointF(91,124),new PointF(37,124)};
-                g.FillPolygon(cyan, cyanShape);
-                var shirtShape = new PointF[]{new PointF(49,97),new PointF(64,112),new PointF(79,97),new PointF(85,124),new PointF(43,124)};
-                g.FillPolygon(shirt, shirtShape);
-
-                g.DrawLine(bluePen,17,102,33,102);
-                g.DrawLine(bluePen,95,102,111,102);
-                g.DrawLine(bluePen,13,109,37,109);
-                g.DrawLine(bluePen,91,109,115,109);
-            }
+            return new Bitmap(source, new Size(size, size));
         }
-        return bmp;
     }
 
     public static PictureBox MelFace(int x, int y, int size)
@@ -420,7 +336,7 @@ static class MelApp
     {
         Directory.CreateDirectory(MelDir);
         File.WriteAllBytes(CompanionPath, Convert.FromBase64String(CompanionB64));
-        var current = Application.ExecutablePath;
+        var current = System.Windows.Forms.Application.ExecutablePath;
         if (!string.Equals(Path.GetFullPath(current), Path.GetFullPath(InstalledExe), StringComparison.OrdinalIgnoreCase))
             File.Copy(current, InstalledExe, true);
         ConfigureStartup(startup);
@@ -586,8 +502,10 @@ static class MelApp
 
     public static Icon MakeIcon()
     {
-        using (var bmp = MakeMelTechnoFace(32))
-            return Icon.FromHandle(bmp.GetHicon());
+        using (var ms = new MemoryStream(IconBytes()))
+        {
+            return new Icon(ms);
+        }
     }
 
     public static Button TechButton(string text, int x, int y, int w, int h, bool primary)
@@ -698,7 +616,11 @@ static class MelApp
         var permissions = menu.Items.Add("Autorisations");
         menu.Items.Add("-"); var quit = menu.Items.Add("Quitter MEL Companion");
         open.Click += delegate { OpenMel(); }; show.Click += delegate { ShowMain(); };
+#if WPF_UI
+        permissions.Click += delegate { var form = new PermissionsForm(); form.ShowDialog(); };
+#else
         permissions.Click += delegate { using (var form = new PermissionsForm()) form.ShowDialog(); };
+#endif
         quit.Click += delegate { Exit(); };
         Tray.ContextMenuStrip = menu;
         Tray.MouseClick += delegate(object s, MouseEventArgs e) { if (e.Button == MouseButtons.Left) ShowMain(); };
@@ -707,10 +629,21 @@ static class MelApp
 
     public static void ShowMain()
     {
+#if WPF_UI
+        if (Main == null) Main = new MainForm();
+        if (!Main.IsVisible) Main.Show();
+        if (Main.WindowState == System.Windows.WindowState.Minimized)
+            Main.WindowState = System.Windows.WindowState.Normal;
+        Main.Activate();
+        Main.Topmost = true;
+        Main.Topmost = false;
+        Main.Focus();
+#else
         if (Main == null || Main.IsDisposed) Main = new MainForm();
         if (!Main.Visible) Main.Show();
         if (Main.WindowState == FormWindowState.Minimized) Main.WindowState = FormWindowState.Maximized;
         Main.BringToFront(); Main.Activate();
+#endif
     }
 
     public static void Exit()
@@ -719,7 +652,12 @@ static class MelApp
         if (Tray != null) { Tray.Visible = false; Tray.Dispose(); }
         try { if (HotKey != null) { HotKey.Dispose(); HotKey = null; } } catch { }
         try { if (CompanionProcess != null && !CompanionProcess.HasExited) CompanionProcess.Kill(); } catch { }
+#if WPF_UI
+        if (System.Windows.Application.Current != null)
+            System.Windows.Application.Current.Shutdown();
+#else
         Application.Exit();
+#endif
     }
 
     public static void Uninstall()
@@ -886,6 +824,7 @@ class HotKeyWindow : NativeWindow, IDisposable
     }
 }
 
+#if !WPF_UI
 class SetupForm : Form
 {
     TextBox server = new TextBox(), user = new TextBox(), pass = new TextBox();
@@ -1470,3 +1409,4 @@ class Program
         mutex.ReleaseMutex();
     }
 }
+#endif
