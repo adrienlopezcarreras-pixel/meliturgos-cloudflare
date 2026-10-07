@@ -236,9 +236,9 @@ function autoExecutionBlockReason({ deep, record, sample, declared, costSensitiv
   if (!deep) return null;
   if (declared === 'STUB' || declared === 'NOT_IMPLEMENTED') return 'DECLARED_NON_EXECUTABLE';
   if (record?.enabled === false) return 'DISABLED';
+  if (record?.risk !== 'LOW') return 'RISK_NOT_LOW';
   const health = String(record?.health || '').toUpperCase();
   if (['UNAVAILABLE','OFFLINE','DISABLED','BLOCKED','DOWN','BROKEN'].includes(health)) return 'HEALTH_UNAVAILABLE';
-  if (record?.risk !== 'LOW') return 'RISK_NOT_LOW';
   if (sample === undefined) return 'NO_BOUNDED_SAMPLE';
   if (costSensitive && !costApproved) return 'UNKNOWN_OR_EXTERNAL_COST';
   return null;
@@ -331,7 +331,7 @@ export async function auditRuntimeCapabilities(runtime, {
       costSensitive,
       costApproved,
     });
-    if (blockedReason == null && typeof sample === 'function') {
+    if (deep && blockedReason == null && typeof sample === 'function') {
       try {
         sample = await sample({ runtime, context, record });
         if (sample === undefined) blockedReason = 'NO_RUNTIME_FIXTURE';
