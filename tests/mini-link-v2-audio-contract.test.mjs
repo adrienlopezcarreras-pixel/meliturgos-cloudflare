@@ -202,3 +202,18 @@ test('MINI STT falls back to direct Wi-Fi when Link V2 transcription fails', asy
   assert.match(terminal,/err = transcribe_wifi_direct\(\)/);
   assert.match(terminal,/STT WIFI DIRECT RESULT/);
 });
+
+
+test('MINI uses codec driver with shared ES8311 instance support and STOP cancels active TTS transport', async () => {
+  const [deps, transport, terminal] = await Promise.all([
+    readFile(new URL('firmware/waveshare-terminal/main/idf_component.yml', root), 'utf8'),
+    readFile(new URL('firmware/waveshare-terminal/main/mel_link_v2_transport.cpp', root), 'utf8'),
+    readFile(new URL('firmware/waveshare-terminal/main/mel_terminal.cpp', root), 'utf8'),
+  ]);
+  assert.match(deps, /espressif\/esp_codec_dev:\s*"1\.6\.2"/);
+  assert.match(transport, /mel_link_v2_transport_cancel_active/);
+  assert.match(transport, /g_cancel_active\.store\(true\)/);
+  assert.match(transport, /xSemaphoreGive\(g_response_done\)/);
+  assert.match(terminal, /mel_link_v2_transport_cancel_active\(\)/);
+  assert.match(terminal, /ui_status\("VOIX STOP"\)/);
+});
