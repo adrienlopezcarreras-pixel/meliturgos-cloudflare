@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { inferNativeCodeCapability } from '../src/api/native-chat.js';
-import { onRequestGet as normalModePage } from '../src/pages/mvp-interface.js';
+import { onRequestGet as normalModePage } from '../src/pages/mvp-interface-v3.js';
 import { getLiveLearningProgress } from '../src/learning/live-progress.js';
 
 test('source access questions never invent a default code path', () => {
