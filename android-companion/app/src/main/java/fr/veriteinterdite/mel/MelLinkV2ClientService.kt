@@ -688,36 +688,33 @@ class MelLinkV2ClientService : Service() {
         // mono, then streams it through Link V2. The server TTS remains only
         // a fallback if local French synthesis is unavailable.
         if (!isPair && method == "POST" && path == "/api/device/v1/voice/tts") {
-            val pairedMiniToken = MiniTokenVault(this).load(miniDeviceId)
-            if (!pairedMiniToken.isNullOrBlank()) {
-                val requestedText = runCatching {
-                    JSONObject(request.body.toString(Charsets.UTF_8.name()))
-                        .optString("text")
-                        .trim()
-                }.getOrDefault("")
-                if (requestedText.isNotBlank()) {
-                    val localPcm = runCatching {
-                        MelMiniVoiceSynthesizer.synthesizePcm48kMono(this, requestedText)
-                    }
-                    if (localPcm.isSuccess) {
-                        val pcm = localPcm.getOrThrow()
-                        if (outboundCancelled(request.streamId)) {
-                            Log.i(TAG, "MINI local TTS discarded after remote cancel stream=" + request.streamId)
-                            return
-                        }
-                        Log.i(TAG, "MINI local fr-FR TTS -> PCM48 samples=" + pcm.size)
-                        state.value = "MINI V2 · VOIX FR LOCALE"
-                        val sent = sendAudioResponse(request.streamId, pcm, outputRate = 48_000)
-                        if (!sent) {
-                            lastError.value = "TTS_LOCAL_BLE_SEND"
-                            sendError(request.streamId, "TTS_LOCAL_BLE_SEND")
-                        }
+            val requestedText = runCatching {
+                JSONObject(request.body.toString(Charsets.UTF_8.name()))
+                    .optString("text")
+                    .trim()
+            }.getOrDefault("")
+            if (requestedText.isNotBlank()) {
+                val localPcm = runCatching {
+                    MelMiniVoiceSynthesizer.synthesizePcm48kMono(this, requestedText)
+                }
+                if (localPcm.isSuccess) {
+                    val pcm = localPcm.getOrThrow()
+                    if (outboundCancelled(request.streamId)) {
+                        Log.i(TAG, "MINI local TTS discarded after remote cancel stream=" + request.streamId)
                         return
-                    } else {
-                        val error = localPcm.exceptionOrNull()
-                        Log.w(TAG, "Local French MINI TTS unavailable; server fallback", error)
-                        lastError.value = "TTS_LOCAL_FALLBACK"
                     }
+                    Log.i(TAG, "MINI local fr-FR TTS -> PCM48 samples=" + pcm.size)
+                    state.value = "MINI V2 · VOIX FR LOCALE"
+                    val sent = sendAudioResponse(request.streamId, pcm, outputRate = 48_000)
+                    if (!sent && !outboundCancelled(request.streamId)) {
+                        lastError.value = "TTS_LOCAL_BLE_SEND"
+                        sendError(request.streamId, "TTS_LOCAL_BLE_SEND")
+                    }
+                    return
+                } else {
+                    val error = localPcm.exceptionOrNull()
+                    Log.w(TAG, "Local French MINI TTS unavailable; server fallback", error)
+                    lastError.value = "TTS_LOCAL_FALLBACK"
                 }
             }
         }
