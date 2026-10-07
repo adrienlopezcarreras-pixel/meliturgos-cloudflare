@@ -35,6 +35,8 @@ import java.io.ByteArrayOutputStream
 import java.util.UUID
 import java.util.TimeZone
 import java.util.concurrent.ArrayBlockingQueue
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.Semaphore
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
@@ -102,6 +104,7 @@ class MelLinkV2ClientService : Service() {
     private val bleWriter = Executors.newSingleThreadExecutor()
     private val writeAck = ArrayBlockingQueue<Int>(1)
     private val writeLock = Any()
+    private val outboundCredits = ConcurrentHashMap<Int, Semaphore>()
     private val requests = HashMap<Int, IncomingRequest>()
     private val audioStreams = HashMap<Int, IncomingAudio>()
     private lateinit var mediaReceiver: MiniMediaReceiver
@@ -416,6 +419,12 @@ class MelLinkV2ClientService : Service() {
             return
         }
         when (frame.type) {
+            MelLinkV2Protocol.CREDIT -> {
+                if (frame.payload.size < 2) return
+                val credits = (frame.payload[0].toInt() and 0xff) or
+                    ((frame.payload[1].toInt() and 0xff) shl 8)
+                if (credits > 0) outboundCredits[frame.streamId]?.release(credits)
+            }
             MelLinkV2Protocol.HELLO -> {
                 protocolReady.value = true
                 refreshInternetState()
@@ -707,6 +716,8 @@ class MelLinkV2ClientService : Service() {
     }
 
     private fun sendResponse(streamId: Int, status: Int, contentType: String, body: ByteArray): Boolean {
+        outboundCredits[streamId] = Semaphore(0)
+        try {
         val begin = JSONObject()
             .put("status", status)
             .put("content_type", contentType)
@@ -737,6 +748,9 @@ class MelLinkV2ClientService : Service() {
                 MelLinkV2Protocol.RESPONSE_END, 0, streamId, seq
             )
         )
+        } finally {
+            outboundCredits.remove(streamId)
+        }
     }
 
     private fun sendAudioResponse(streamId: Int, pcm16: ShortArray, outputRate: Int): Boolean {
@@ -745,6 +759,7 @@ class MelLinkV2ClientService : Service() {
         if (hasBlePermissions()) {
             runCatching { client.requestConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_HIGH) }
         }
+        outboundCredits[streamId] = Semaphore(0)
         try {
         val meta = JSONObject()
             .put("codec", "ima-adpcm")
@@ -781,6 +796,7 @@ class MelLinkV2ClientService : Service() {
             )
         )
         } finally {
+            outboundCredits.remove(streamId)
             if (hasBlePermissions()) {
                 runCatching { client.requestConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_BALANCED) }
             }
@@ -929,8 +945,16 @@ class MelLinkV2ClientService : Service() {
     private fun sendControlBlocking(frame: ByteArray): Boolean =
         writeGattBlocking(controlRx, frame, BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT)
 
-    private fun sendBulkBlocking(frame: ByteArray): Boolean =
-        writeGattNoResponse(bulkRx, frame)
+    private fun sendBulkBlocking(frame: ByteArray): Boolean {
+        if (frame.size < MelLinkV2Protocol.HEADER_SIZE) return false
+        val streamId = (frame[5].toInt() and 0xff) or ((frame[6].toInt() and 0xff) shl 8)
+        val credit = outboundCredits[streamId] ?: return false
+        if (!credit.tryAcquire(5, TimeUnit.SECONDS)) {
+            lastError.value = "BT_REVERSE_CREDIT_TIMEOUT"
+            return false
+        }
+        return writeGattNoResponse(bulkRx, frame)
+    }
 
     private fun writeGattNoResponse(
         characteristic: BluetoothGattCharacteristic?,
