@@ -783,7 +783,7 @@ async function loadConnections(){
     if(qs('#pipedreamProjectId'))qs('#pipedreamProjectId').value=pd.project_id||'';
     if(qs('#pipedreamClientId'))qs('#pipedreamClientId').value='';
     if(qs('#pipedreamClientSecret'))qs('#pipedreamClientSecret').value='';
-    if(qs('#pipedreamEnvironment'))qs('#pipedreamEnvironment').value=pd.environment||'production';
+    if(qs('#pipedreamEnvironment'))qs('#pipedreamEnvironment').value=pd.environment||'development';
     const note=qs('#connNotePipedream');if(note)note.textContent='Projet '+(pd.project_id||'Pipedream')+' enregistré. Client ID et secret restent uniquement dans le vault chiffré.';
   }else setConnectionBadge('#connStatePipedream','NON CONFIGURÉ','neutral');
   if(pd?.configured){
@@ -795,7 +795,14 @@ async function loadConnections(){
         const note=qs('#connNotePipedream');if(note)note.textContent='Pipedream est opérationnel en Development. Production n’est pas disponible pour ce projet/plan.';
         const envSelect=qs('#pipedreamEnvironment');if(envSelect)envSelect.value='development';
       }else if(accountState.account_status_degraded===true){
-        setConnectionBadge('#connStatePipedream','AUTH OK · STATUT COMPTES DÉGRADÉ','warn');
+        const reconnect=accountState.reconnect_required===true||accountState.action_required==='RECONNECT_PIPEDREAM_DEVELOPMENT';
+        setConnectionBadge('#connStatePipedream',reconnect?'RECONNEXION DEVELOPMENT REQUISE':'AUTH OK · STATUT COMPTES DÉGRADÉ','warn');
+        const note=qs('#connNotePipedream');
+        if(note)note.textContent=reconnect
+          ?'Pipedream est en Development, mais les comptes reliés en Production ne sont pas transférés automatiquement. Reconnecte Outlook/MSN, OneDrive, SharePoint et Yahoo/Ymail avec les boutons ci-dessous.'
+          :'Projet Pipedream authentifié, mais la liste des comptes reliés est momentanément indisponible'+(accountState.action_required?' · action : '+accountState.action_required:'')+'.';
+        const envSelect=qs('#pipedreamEnvironment');if(envSelect)envSelect.value=accountState.environment||'development';
+        const state=qs('#pipedreamPrimaryState');if(state&&reconnect)state.textContent='Reconnecte les comptes dans l’environnement Development gratuit.';
       }
       const labels={microsoft_outlook:'Outlook / MSN',microsoft_onedrive:'OneDrive',sharepoint:'SharePoint',imap:'Yahoo/Ymail via IMAP',google_drive:'Google Drive',google_calendar:'Google Calendar',google_tasks:'Google Tasks',dropbox:'Dropbox',lemlist:'Lemlist'};
       qsa('[data-pd-connect]').forEach(button=>{
@@ -869,7 +876,7 @@ async function saveOAuthApp(provider,button){
 }
 async function savePipedream(){
   const btn=qs('#pipedreamSave');if(!btn)return;
-  const project_id=qs('#pipedreamProjectId')?.value?.trim()||'',client_id=qs('#pipedreamClientId')?.value?.trim()||'',client_secret=qs('#pipedreamClientSecret')?.value||'',environment=qs('#pipedreamEnvironment')?.value||'production';
+  const project_id=qs('#pipedreamProjectId')?.value?.trim()||'',client_id=qs('#pipedreamClientId')?.value?.trim()||'',client_secret=qs('#pipedreamClientSecret')?.value||'',environment=qs('#pipedreamEnvironment')?.value||'development';
   if(!project_id||!client_id||!client_secret){
     const banner=qs('#connectionBanner');if(banner){banner.hidden=false;banner.className='connection-banner bad';banner.textContent='Pipedream : Project ID, Client ID et Client Secret requis.'}
     return;
