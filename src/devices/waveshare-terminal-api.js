@@ -387,86 +387,10 @@ async function serveSetupScript(request, env) {
   return new Response(response.body, { status: 200, headers });
 }
 
-
-function miniVoiceNeedsFullRuntime(text) {
-  const value = String(text || "").toLowerCase();
-  return /\b(?:ouvre|ouvrir|cherche|recherche|internet|web|m[ée]t[ée]o|temps|temp[ée]rature|actualit[ée]|news|mail|email|gmail|outlook|agenda|calendrier|rendez-vous|rappel|souviens|m[ée]moire|photo|vid[ée]o|cam[ée]ra|fichier|document|t[ée]l[ée]charge|navigateur|site|page|prix|bourse|score|horaire|aujourd'hui|demain|maintenant)\b/i.test(value);
-}
-
-async function runMiniDirectVoice(text, env) {
-  if (!env?.AI || typeof env.AI.run !== "function") {
-    return { ok: false, code: "AI_BINDING_MISSING", status: 503 };
-  }
-  const messages = [
-    {
-      role: "system",
-      content: "Tu es MEL, compagnon vocal d'Adrien. Réponds en français, en tutoyant Adrien, directement, naturellement, en 1 à 3 phrases courtes. Pas de listes, pas de préambule, pas de markdown. Si la demande exige une information actuelle, un outil, un fichier, une action ou une mémoire personnelle, réponds seulement que tu passes au mode complet."
-    },
-    { role: "user", content: String(text || "").slice(0, 4000) }
-  ];
-
-  const attempts = [
-    { model: "@cf/zai-org/glm-4.7-flash", timeoutMs: 4500 },
-    { model: "@cf/meta/llama-3.3-70b-instruct-fp8-fast", timeoutMs: 4500 }
-  ];
-
-  let lastError = null;
-  for (const attempt of attempts) {
-    let timer = null;
-    try {
-      const result = await Promise.race([
-        env.AI.run(attempt.model, { messages, max_tokens: 120, temperature: 0.3 }),
-        new Promise((_, reject) => {
-          timer = setTimeout(() => {
-            const error = new Error("MINI_VOICE_MODEL_TIMEOUT");
-            error.code = "MINI_VOICE_MODEL_TIMEOUT";
-            reject(error);
-          }, attempt.timeoutMs);
-        })
-      ]);
-      const reply = typeof result === "string"
-        ? result
-        : result?.response ?? result?.text ?? result?.message?.content
-          ?? result?.choices?.[0]?.message?.content ?? result?.choices?.[0]?.text ?? "";
-      if (String(reply || "").trim()) {
-        return {
-          ok: true,
-          text: String(reply).trim().slice(0, 700),
-          model: attempt.model,
-          provider: "workers-ai",
-          response_mode: "mini-voice-fast"
-        };
-      }
-      lastError = new Error("MINI_VOICE_EMPTY");
-    } catch (error) {
-      lastError = error;
-    } finally {
-      if (timer) clearTimeout(timer);
-    }
-  }
-
-  return {
-    ok: false,
-    code: "MINI_VOICE_FAST_FAILED",
-    detail: String(lastError?.code || lastError?.message || "UNKNOWN").slice(0, 120),
-    status: 503
-  };
-}
-
 async function deviceChat(request, env, auth) {
   const body = await request.json().catch(() => ({}));
   const text = String(body.text || body.message || "").trim();
   if (!text) return json({ ok: false, code: "MESSAGE_REQUIRED" }, 400);
-  const inputSource = body.input_source === "voice-server-transcription"
-    ? "voice-server-transcription"
-    : "text";
-  const voiceReply = body.voice_reply === true || body.voice_mode === true;
-
-  if (voiceReply && inputSource === "voice-server-transcription" && !miniVoiceNeedsFullRuntime(text)) {
-    const fast = await runMiniDirectVoice(text, env);
-    if (fast.ok) return json(fast, 200);
-  }
-
   const internal = new Request(new URL("/api/chat", request.url), {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -475,9 +399,7 @@ async function deviceChat(request, env, auth) {
       device_id: auth.deviceId,
       conversation_id: body.conversation_id || `terminal-${auth.deviceId}`,
       ui_theme: body.ui_theme || "default",
-      input_source: inputSource,
-      voice_reply: voiceReply,
-      parallel: voiceReply ? false : body.parallel === true
+      parallel: body.parallel === true
     })
   });
   return handleNativeChat(internal, env, { authorized: true, source: "waveshare-terminal", device_id: auth.deviceId });
@@ -512,7 +434,7 @@ async function deviceTts(request, env, auth) {
       speaker,
       encoding: "linear16",
       container: "wav",
-      sample_rate: 16000
+      sample_rate: 48000
     }, { returnRawResponse: true });
 
     if (result instanceof Response) {
@@ -520,7 +442,7 @@ async function deviceTts(request, env, auth) {
       headers.set("content-type", "audio/wav");
       headers.set("cache-control", "no-store");
       headers.set("x-mel-audio-format", "wav-pcm-s16le");
-      headers.set("x-mel-audio-rate", "16000");
+      headers.set("x-mel-audio-rate", "48000");
       headers.set("x-mel-audio-channels", "1");
       return new Response(result.body, { status: result.status, headers });
     }
@@ -532,7 +454,7 @@ async function deviceTts(request, env, auth) {
           "content-type": "audio/wav",
           "cache-control": "no-store",
           "x-mel-audio-format": "wav-pcm-s16le",
-          "x-mel-audio-rate": "16000",
+          "x-mel-audio-rate": "48000",
           "x-mel-audio-channels": "1"
         }
       });
@@ -565,6 +487,11 @@ async function authorizeAndroidMiniLink(env, androidDeviceId, miniDeviceId) {
     return true;
   }
 
+  // One-time migration path for an already-paired pre-V2 MINI: if nobody has
+  // claimed this MINI yet and its server-side device record is still valid,
+  // the first authenticated Android companion physically relaying that exact
+  // device ID becomes its durable V2 companion. Once claimed, a second Android
+  // cannot silently take it over.
   const existingLink = await env.DB.prepare(
     "SELECT android_device_id FROM android_mini_links WHERE mini_device_id=? LIMIT 1"
   ).bind(miniDeviceId).first();
@@ -579,6 +506,11 @@ async function authorizeAndroidMiniLink(env, androidDeviceId, miniDeviceId) {
   return true;
 }
 
+/**
+ * Executes MINI operations through an already-authenticated Android companion.
+ * The Android bearer token stays on the phone/server hop and is never forwarded
+ * over BLE to MINI. MINI's own token remains only for autonomous Wi-Fi fallback.
+ */
 export async function handleAndroidDelegatedMiniRequest(
   request,
   env,
@@ -612,11 +544,21 @@ export async function handleAndroidDelegatedMiniRequest(
   if (path === WAVESHARE_TERMINAL_API + "/manifest" && request.method === "GET") {
     return json({ok:true,device_id:requestedMiniId,...(await loadManifest(env,url.origin))});
   }
-  if (path === WAVESHARE_TERMINAL_API + "/heartbeat" && request.method === "POST") return updateHeartbeat(request,env,auth);
-  if (path === WAVESHARE_TERMINAL_API + "/chat" && request.method === "POST") return deviceChat(request,env,auth);
-  if (path === WAVESHARE_TERMINAL_API + "/voice/transcribe" && request.method === "POST") return deviceVoice(request,env,auth);
-  if (path === WAVESHARE_TERMINAL_API + "/voice/tts" && request.method === "POST") return deviceTts(request,env,auth);
-  if (path === WAVESHARE_TERMINAL_API + "/download" && (request.method === "GET" || request.method === "HEAD")) return serveDownload(request,env,url);
+  if (path === WAVESHARE_TERMINAL_API + "/heartbeat" && request.method === "POST") {
+    return updateHeartbeat(request,env,auth);
+  }
+  if (path === WAVESHARE_TERMINAL_API + "/chat" && request.method === "POST") {
+    return deviceChat(request,env,auth);
+  }
+  if (path === WAVESHARE_TERMINAL_API + "/voice/transcribe" && request.method === "POST") {
+    return deviceVoice(request,env,auth);
+  }
+  if (path === WAVESHARE_TERMINAL_API + "/voice/tts" && request.method === "POST") {
+    return deviceTts(request,env,auth);
+  }
+  if (path === WAVESHARE_TERMINAL_API + "/download" && (request.method === "GET" || request.method === "HEAD")) {
+    return serveDownload(request,env,url);
+  }
   return json({ok:false,code:"MINI_DELEGATED_ROUTE_NOT_FOUND"},404);
 }
 

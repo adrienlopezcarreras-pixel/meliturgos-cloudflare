@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include <algorithm>
 
 #include "nvs_flash.h"
 #include "freertos/FreeRTOS.h"
@@ -53,6 +54,11 @@ static lv_obj_t *status_label = nullptr;
 static lv_obj_t *runtime_status_label = nullptr;
 static lv_obj_t *time_label = nullptr;
 static lv_obj_t *answer_label = nullptr;
+static lv_obj_t *response_panel = nullptr;
+static lv_obj_t *response_text_box = nullptr;
+static lv_obj_t *response_media_frame = nullptr;
+static lv_obj_t *response_image_obj = nullptr;
+static lv_obj_t *response_media_hint = nullptr;
 static lv_obj_t *face_obj = nullptr;
 static lv_obj_t *avatar_obj = nullptr;
 static uint8_t *visual_pixels = nullptr;
@@ -61,6 +67,7 @@ static bool visual_active = false;
 static lv_obj_t *left_eye = nullptr;
 static lv_obj_t *right_eye = nullptr;
 static lv_obj_t *talk_button = nullptr;
+static lv_obj_t *talk_touch_zone = nullptr;
 static lv_obj_t *mouth_obj = nullptr;
 static lv_timer_t *anim_timer = nullptr;
 static bool listening = false;
@@ -96,6 +103,7 @@ static TaskHandle_t wifi_connect_task_handle = nullptr;
 static volatile bool wifi_got_ip = false;
 static volatile int wifi_disconnect_reason = -1;
 static volatile bool wifi_auto_reconnect_enabled = false;
+static volatile bool media_wifi_active = false;
 static volatile int wifi_reconnect_attempt = 0;
 static TaskHandle_t wifi_reconnect_task_handle = nullptr;
 static TaskHandle_t wifi_fallback_task_handle = nullptr;
@@ -113,6 +121,7 @@ enum MiniView {
     MINI_VIEW_WIFI_MANUAL = 3,
     MINI_VIEW_PAIR = 4,
     MINI_VIEW_SETTINGS = 5,
+    MINI_VIEW_RESPONSE = 6,
 };
 
 static volatile int requested_view = MINI_VIEW_MAIN;
@@ -126,6 +135,7 @@ static bool last_online = false;
 static void request_view(MiniView view);
 static void mini_apply_requested_view(void);
 static void wifi_start_scan(void);
+static void web_card_touch_cb(lv_event_t *e);
 static void wifi_fallback_after_ble_task(void *);
 static void ui_stress_task(void *);
 
@@ -291,12 +301,12 @@ static void mini_wifi_event_diag(void *, esp_event_base_t base, int32_t id, void
         mel_terminal_set_wifi_connected(false);
         ESP_LOGW(TAG, "MINI WIFI DISCONNECTED reason=%d (%s)",
                  wifi_disconnect_reason, wifi_reason_text(wifi_disconnect_reason));
-        if (wifi_auto_reconnect_enabled && !wifi_reconnect_task_handle) {
+        if (!media_wifi_active && wifi_auto_reconnect_enabled && !wifi_reconnect_task_handle) {
             xTaskCreatePinnedToCore(wifi_reconnect_task, "mini_wifi_reconnect", 4096, nullptr, 3, &wifi_reconnect_task_handle, 0);
         }
     } else if (base == IP_EVENT && id == IP_EVENT_STA_GOT_IP) {
         wifi_got_ip = true;
-        wifi_auto_reconnect_enabled = true;
+        wifi_auto_reconnect_enabled = !media_wifi_active;
         wifi_reconnect_attempt = 0;
         wifi_disconnect_reason = -1;
         auto *ev = static_cast<ip_event_got_ip_t *>(data);
@@ -306,29 +316,180 @@ static void mini_wifi_event_diag(void *, esp_event_base_t base, int32_t id, void
             mel_terminal_set_network_info(ip);
             mel_terminal_set_wifi_connected(true);
             ESP_LOGI(TAG, "MINI WIFI GOT IP %s", ip);
-            clock_start_sync();
-            mel_terminal_start_online();
+            if (!media_wifi_active) {
+                clock_start_sync();
+                mel_terminal_start_online();
+            } else {
+                ESP_LOGI(TAG, "MINI MEDIA WIFI ready; Internet/session remain on MEL Mobile");
+            }
         }
     }
+}
+
+bool mini_media_wifi_connect(
+    const char *ssid,
+    const char *password,
+    char *gateway,
+    size_t gateway_len
+) {
+    if (!ssid || !ssid[0] || !gateway || gateway_len < 8) return false;
+    gateway[0] = '\0';
+    media_wifi_active = true;
+    wifi_auto_reconnect_enabled = false;
+    wifi_reconnect_attempt = 0;
+
+    esp_wifi_disconnect();
+    vTaskDelay(pdMS_TO_TICKS(120));
+
+    wifi_config_t cfg = {};
+    snprintf((char *)cfg.sta.ssid, sizeof(cfg.sta.ssid), "%s", ssid);
+    snprintf((char *)cfg.sta.password, sizeof(cfg.sta.password), "%s", password ? password : "");
+    cfg.sta.scan_method = WIFI_ALL_CHANNEL_SCAN;
+    cfg.sta.sort_method = WIFI_CONNECT_AP_BY_SIGNAL;
+    cfg.sta.threshold.rssi = -127;
+    cfg.sta.threshold.authmode = WIFI_AUTH_OPEN;
+    cfg.sta.pmf_cfg.capable = true;
+    cfg.sta.pmf_cfg.required = false;
+
+    if (esp_wifi_set_config(WIFI_IF_STA, &cfg) != ESP_OK ||
+        esp_wifi_connect() != ESP_OK) {
+        media_wifi_active = false;
+        return false;
+    }
+
+    esp_netif_t *sta = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
+    for (int i = 0; i < 120; ++i) {
+        esp_netif_ip_info_t info = {};
+        if (sta && esp_netif_get_ip_info(sta, &info) == ESP_OK &&
+            info.ip.addr != 0 && info.gw.addr != 0) {
+            snprintf(gateway, gateway_len, IPSTR, IP2STR(&info.gw));
+            ESP_LOGI(TAG, "MINI MEDIA WIFI connected ssid=%s gateway=%s", ssid, gateway);
+            return true;
+        }
+        vTaskDelay(pdMS_TO_TICKS(100));
+    }
+
+    ESP_LOGW(TAG, "MINI MEDIA WIFI timeout ssid=%s", ssid);
+    esp_wifi_disconnect();
+    media_wifi_active = false;
+    wifi_got_ip = false;
+    mel_terminal_set_wifi_connected(false);
+    return false;
+}
+
+void mini_media_wifi_release(void) {
+    if (!media_wifi_active) return;
+    media_wifi_active = false;
+    wifi_auto_reconnect_enabled = false;
+    wifi_reconnect_attempt = 0;
+    esp_wifi_disconnect();
+    wifi_got_ip = false;
+    mel_terminal_set_wifi_connected(false);
+    ESP_LOGI(TAG, "MINI MEDIA WIFI released; BLE remains primary");
 }
 
 bool mini_ui_visual_active() {
     return visual_active;
 }
 
+bool mini_ui_response_page_active() {
+    return active_view == MINI_VIEW_RESPONSE || requested_view == MINI_VIEW_RESPONSE;
+}
+
+
+static std::string mini_display_ascii(const char *text) {
+    const std::string in = text ? text : "";
+    std::string out;
+    out.reserve(in.size());
+    for (size_t i = 0; i < in.size();) {
+        const unsigned char a = static_cast<unsigned char>(in[i]);
+        if (a < 0x80) {
+            if (a == '\n' || a == '\r' || a == '\t' || a >= 0x20) out.push_back(static_cast<char>(a));
+            ++i;
+            continue;
+        }
+
+        auto push = [&](char ch, size_t n) {
+            out.push_back(ch);
+            i += n;
+        };
+
+        if (i + 1 < in.size() && a == 0xC3) {
+            const unsigned char b = static_cast<unsigned char>(in[i + 1]);
+            switch (b) {
+                case 0x80: case 0x81: case 0x82: case 0x83: case 0x84: case 0x85:
+                case 0xA0: case 0xA1: case 0xA2: case 0xA3: case 0xA4: case 0xA5: push((b < 0xA0) ? 'A' : 'a', 2); continue;
+                case 0x87: case 0xA7: push((b == 0x87) ? 'C' : 'c', 2); continue;
+                case 0x88: case 0x89: case 0x8A: case 0x8B:
+                case 0xA8: case 0xA9: case 0xAA: case 0xAB: push((b < 0xA0) ? 'E' : 'e', 2); continue;
+                case 0x8C: case 0x8D: case 0x8E: case 0x8F:
+                case 0xAC: case 0xAD: case 0xAE: case 0xAF: push((b < 0xA0) ? 'I' : 'i', 2); continue;
+                case 0x91: case 0xB1: push((b == 0x91) ? 'N' : 'n', 2); continue;
+                case 0x92: case 0x93: case 0x94: case 0x95: case 0x96:
+                case 0xB2: case 0xB3: case 0xB4: case 0xB5: case 0xB6: push((b < 0xA0) ? 'O' : 'o', 2); continue;
+                case 0x99: case 0x9A: case 0x9B: case 0x9C:
+                case 0xB9: case 0xBA: case 0xBB: case 0xBC: push((b < 0xA0) ? 'U' : 'u', 2); continue;
+                case 0x9D: case 0xBD: case 0xBF: push((b == 0x9D) ? 'Y' : 'y', 2); continue;
+                default: break;
+            }
+        }
+
+        if (i + 2 < in.size() && a == 0xE2 && static_cast<unsigned char>(in[i + 1]) == 0x80) {
+            const unsigned char b = static_cast<unsigned char>(in[i + 2]);
+            if (b == 0x98 || b == 0x99) { push('\'', 3); continue; }
+            if (b == 0x9C || b == 0x9D) { push('"', 3); continue; }
+            if (b == 0x93 || b == 0x94) { push('-', 3); continue; }
+            if (b == 0xA6) { out += "..."; i += 3; continue; }
+        }
+
+        if (i + 2 < in.size() && a == 0xE2 &&
+            static_cast<unsigned char>(in[i + 1]) == 0x80 &&
+            static_cast<unsigned char>(in[i + 2]) == 0xA2) {
+            out += " - ";
+            i += 3;
+            continue;
+        }
+
+        if ((a & 0xE0) == 0xC0) i += std::min<size_t>(2, in.size() - i);
+        else if ((a & 0xF0) == 0xE0) i += std::min<size_t>(3, in.size() - i);
+        else if ((a & 0xF8) == 0xF0) i += std::min<size_t>(4, in.size() - i);
+        else ++i;
+    }
+    return out;
+}
+
+void mini_ui_open_response_page(const char *text) {
+    const std::string safe = mini_display_ascii(text);
+    if (answer_label && lvgl_port_lock(1000)) {
+        lv_label_set_text(answer_label, safe.c_str());
+        if (!safe.empty()) lv_obj_clear_flag(answer_label, LV_OBJ_FLAG_HIDDEN);
+        else lv_obj_add_flag(answer_label, LV_OBJ_FLAG_HIDDEN);
+        lvgl_port_unlock();
+    }
+    request_view(MINI_VIEW_RESPONSE);
+}
+
+void mini_ui_close_response_page() {
+    mini_ui_hide_visual();
+    request_view(MINI_VIEW_MAIN);
+}
+
 void mini_ui_hide_visual() {
-    if (!avatar_obj) return;
     uint8_t *old_pixels = nullptr;
     if (lvgl_port_lock(1000)) {
         if (visual_active) {
-            lv_img_set_src(avatar_obj, &mel_avatar_mode_complet);
-            lv_obj_set_pos(avatar_obj, 0, 0);
-            lv_img_set_zoom(avatar_obj, 256);
+            if (response_image_obj) {
+                lv_obj_add_flag(response_image_obj, LV_OBJ_FLAG_HIDDEN);
+                lv_img_set_src(response_image_obj, nullptr);
+            }
+            if (response_media_hint) {
+                lv_label_set_text(response_media_hint, "TEXTE / PHOTO / VIDEO");
+                lv_obj_clear_flag(response_media_hint, LV_OBJ_FLAG_HIDDEN);
+            }
             visual_active = false;
             old_pixels = visual_pixels;
             visual_pixels = nullptr;
             memset(&visual_image, 0, sizeof(visual_image));
-            lv_obj_invalidate(avatar_obj);
         }
         lvgl_port_unlock();
     }
@@ -336,7 +497,7 @@ void mini_ui_hide_visual() {
 }
 
 bool mini_ui_show_rgb565(const uint8_t *pixels, size_t bytes, uint16_t width, uint16_t height) {
-    if (!pixels || !bytes || !avatar_obj || width == 0 || height == 0 || width > 320 || height > 320) return false;
+    if (!pixels || !bytes || !response_image_obj || width == 0 || height == 0 || width > 320 || height > 320) return false;
     const size_t expected = (size_t)width * (size_t)height * 2u;
     if (bytes != expected) return false;
 
@@ -356,11 +517,15 @@ bool mini_ui_show_rgb565(const uint8_t *pixels, size_t bytes, uint16_t width, ui
         visual_image.header.cf = LV_IMG_CF_TRUE_COLOR;
         visual_image.data_size = bytes;
         visual_image.data = visual_pixels;
-        lv_img_set_src(avatar_obj, &visual_image);
-        lv_obj_center(avatar_obj);
-        lv_img_set_zoom(avatar_obj, 256);
+        lv_img_set_src(response_image_obj, &visual_image);
+        const int zoom_w = (260 * 256) / std::max<int>(1, width);
+        const int zoom_h = (190 * 256) / std::max<int>(1, height);
+        lv_img_set_zoom(response_image_obj, std::min(256, std::min(zoom_w, zoom_h)));
+        lv_obj_center(response_image_obj);
+        lv_obj_clear_flag(response_image_obj, LV_OBJ_FLAG_HIDDEN);
+        if (response_media_hint) lv_obj_add_flag(response_media_hint, LV_OBJ_FLAG_HIDDEN);
         visual_active = true;
-        lv_obj_invalidate(avatar_obj);
+        lv_obj_invalidate(response_image_obj);
         lvgl_port_unlock();
         applied = true;
     }
@@ -369,6 +534,7 @@ bool mini_ui_show_rgb565(const uint8_t *pixels, size_t bytes, uint16_t width, ui
         return false;
     }
     if (old_pixels) heap_caps_free(old_pixels);
+    request_view(MINI_VIEW_RESPONSE);
     return true;
 }
 
@@ -446,11 +612,9 @@ static void mini_anim_cb(lv_timer_t *) {
     }
 
     if (talk_button) {
-        if (online && (state == MEL_TERMINAL_IDLE || state == MEL_TERMINAL_LISTENING)) {
-            lv_obj_clear_state(talk_button, LV_STATE_DISABLED);
-        } else {
-            lv_obj_add_state(talk_button, LV_STATE_DISABLED);
-        }
+        // Never disable the physical talk target. Busy/offline states are
+        // reported explicitly by the callback instead of making the UI dead.
+        lv_obj_clear_state(talk_button, LV_STATE_DISABLED);
     }
 
     if (state == MEL_TERMINAL_LISTENING) {
@@ -462,7 +626,13 @@ static void mini_anim_cb(lv_timer_t *) {
     } else if (state == MEL_TERMINAL_SPEAKING) {
         if (state != last_face_state && status_label) lv_label_set_text(status_label, "MEL PARLE");
     } else if (state == MEL_TERMINAL_ERROR) {
-        if (state != last_face_state && status_label) lv_label_set_text(status_label, "ERREUR");
+        if (state != last_face_state && status_label) {
+            const char *voice_error = mel_terminal_last_voice_error();
+            lv_label_set_text(
+                status_label,
+                (voice_error && voice_error[0]) ? voice_error : "ERREUR"
+            );
+        }
     } else {
         // Connectivity is asynchronous: BLE can become ready and MEL can later
         // return a concrete HTTP/session result without changing the face state.
@@ -617,11 +787,17 @@ static void mini_apply_requested_view(void) {
     if (wifi_panel) lv_obj_add_flag(wifi_panel, LV_OBJ_FLAG_HIDDEN);
     if (pair_panel) lv_obj_add_flag(pair_panel, LV_OBJ_FLAG_HIDDEN);
     if (settings_panel) lv_obj_add_flag(settings_panel, LV_OBJ_FLAG_HIDDEN);
+    if (response_panel) lv_obj_add_flag(response_panel, LV_OBJ_FLAG_HIDDEN);
     if (wifi_keyboard) lv_obj_add_flag(wifi_keyboard, LV_OBJ_FLAG_HIDDEN);
     if (pair_keyboard) lv_obj_add_flag(pair_keyboard, LV_OBJ_FLAG_HIDDEN);
 
     if (active_view == MINI_VIEW_MAIN) {
         if (main_panel) lv_obj_clear_flag(main_panel, LV_OBJ_FLAG_HIDDEN);
+        return;
+    }
+
+    if (active_view == MINI_VIEW_RESPONSE) {
+        if (response_panel) lv_obj_clear_flag(response_panel, LV_OBJ_FLAG_HIDDEN);
         return;
     }
 
@@ -781,7 +957,7 @@ static void settings_audio_test_task(void *) {
 
     // Match the Waveshare reference audio test: capture two seconds from the
     // onboard microphone, then replay exactly that PCM through the speaker.
-    constexpr size_t sample_count = 2 * 48000; // 2 s @ 48 kHz mono
+    constexpr size_t sample_count = 2 * 16000; // Waveshare ES8311 BSP: 2 s @ 16 kHz mono
     constexpr size_t byte_count = sample_count * sizeof(int16_t);
     auto *pcm = static_cast<int16_t *>(heap_caps_malloc(byte_count, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
     if (!pcm) pcm = static_cast<int16_t *>(malloc(byte_count));
@@ -1666,24 +1842,137 @@ static void lv_port_init() {
 
 static void touch_cb(lv_event_t *e) {
     if (!status_label) return;
-    const lv_event_code_t code = lv_event_get_code(e);
-    if (code == LV_EVENT_PRESSED) {
-        ESP_LOGI(TAG, "UI BUTTON: PARLER pressed");
-        if (!mel_terminal_online()) {
-            lv_label_set_text(status_label, "MEL HORS LIGNE");
-            ESP_LOGW(TAG, "Talk requested while MEL runtime is offline");
-            return;
-        }
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+
+    if (runtime_status_label) {
+        lv_label_set_text(runtime_status_label, "TOUCH OK");
+    }
+    lv_label_set_text(status_label, "TOUCH OK");
+
+    const int state = mel_terminal_state();
+    ESP_LOGI(TAG, "UI BUTTON: PARLER clicked state=%d", state);
+
+    if (state == MEL_TERMINAL_LISTENING) {
         mel_terminal_request_voice();
-        ESP_LOGI(TAG, "PARLER recording started");
+        ESP_LOGI(TAG, "PARLER second click -> stop and transcribe");
         return;
     }
-    if (code == LV_EVENT_RELEASED || code == LV_EVENT_PRESS_LOST) {
-        if (mel_terminal_state() == MEL_TERMINAL_LISTENING) {
-            mel_terminal_request_voice();
-            ESP_LOGI(TAG, "PARLER released -> stop and send");
-        }
+
+    if (state != MEL_TERMINAL_IDLE) {
+        ESP_LOGI(TAG, "PARLER ignored while runtime busy state=%d", state);
+        return;
     }
+
+    if (!mel_terminal_online() && !mel_terminal_mobile_connected()) {
+        lv_label_set_text(status_label, "MEL HORS LIGNE");
+        ESP_LOGW(TAG, "Talk requested without MEL transport");
+        return;
+    }
+
+    if (!mel_terminal_online()) {
+        lv_label_set_text(status_label, "VALIDATION MEL...");
+        ESP_LOGI(TAG, "PARLER requested during Link V2 identity/session recovery");
+    }
+
+    mel_terminal_request_voice();
+    ESP_LOGI(TAG, "PARLER first click -> start listening");
+}
+
+static void response_back_clicked(lv_event_t *e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    mini_ui_close_response_page();
+}
+
+static void response_next_clicked(lv_event_t *e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    mel_terminal_display_next();
+}
+
+static void response_previous_clicked(lv_event_t *e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    mel_terminal_display_previous();
+}
+
+static void response_ui_create(lv_obj_t *screen) {
+    response_panel = lv_obj_create(screen);
+    lv_obj_set_size(response_panel, 300, 460);
+    lv_obj_align(response_panel, LV_ALIGN_CENTER, 0, 0);
+    lv_obj_set_style_radius(response_panel, 18, 0);
+    lv_obj_set_style_bg_color(response_panel, lv_color_hex(0x07111F), 0);
+    lv_obj_set_style_bg_opa(response_panel, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(response_panel, 2, 0);
+    lv_obj_set_style_border_color(response_panel, lv_color_hex(0x22D3EE), 0);
+    lv_obj_set_style_pad_all(response_panel, 8, 0);
+    lv_obj_clear_flag(response_panel, LV_OBJ_FLAG_SCROLLABLE);
+
+    lv_obj_t *title = lv_label_create(response_panel);
+    lv_label_set_text(title, "REPONSE MEL");
+    lv_obj_set_style_text_color(title, lv_color_hex(0xF8FAFC), 0);
+    lv_obj_align(title, LV_ALIGN_TOP_LEFT, 10, 8);
+
+    lv_obj_t *back = lv_btn_create(response_panel);
+    lv_obj_set_size(back, 72, 36);
+    lv_obj_align(back, LV_ALIGN_TOP_RIGHT, -4, 2);
+    lv_obj_t *back_label = lv_label_create(back);
+    lv_label_set_text(back_label, "RETOUR");
+    lv_obj_center(back_label);
+    lv_obj_add_event_cb(back, response_back_clicked, LV_EVENT_CLICKED, nullptr);
+
+    response_media_frame = lv_obj_create(response_panel);
+    lv_obj_set_size(response_media_frame, 268, 202);
+    lv_obj_align(response_media_frame, LV_ALIGN_TOP_MID, 0, 50);
+    lv_obj_set_style_bg_color(response_media_frame, lv_color_hex(0x020617), 0);
+    lv_obj_set_style_border_width(response_media_frame, 1, 0);
+    lv_obj_set_style_border_color(response_media_frame, lv_color_hex(0x334155), 0);
+    lv_obj_set_style_pad_all(response_media_frame, 4, 0);
+    lv_obj_clear_flag(response_media_frame, LV_OBJ_FLAG_SCROLLABLE);
+
+    response_media_hint = lv_label_create(response_media_frame);
+    lv_label_set_text(response_media_hint, "TEXTE / PHOTO / VIDEO");
+    lv_obj_set_style_text_color(response_media_hint, lv_color_hex(0x64748B), 0);
+    lv_obj_center(response_media_hint);
+
+    response_image_obj = lv_img_create(response_media_frame);
+    lv_obj_center(response_image_obj);
+    lv_obj_add_flag(response_image_obj, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(response_image_obj, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(response_image_obj, web_card_touch_cb, LV_EVENT_ALL, nullptr);
+
+    response_text_box = lv_obj_create(response_panel);
+    lv_obj_set_size(response_text_box, 268, 142);
+    lv_obj_align(response_text_box, LV_ALIGN_BOTTOM_MID, 0, -42);
+    lv_obj_set_style_bg_color(response_text_box, lv_color_hex(0x0B172A), 0);
+    lv_obj_set_style_border_width(response_text_box, 1, 0);
+    lv_obj_set_style_border_color(response_text_box, lv_color_hex(0x334155), 0);
+    lv_obj_set_style_pad_all(response_text_box, 8, 0);
+    lv_obj_set_scroll_dir(response_text_box, LV_DIR_VER);
+
+    answer_label = lv_label_create(response_text_box);
+    lv_label_set_long_mode(answer_label, LV_LABEL_LONG_WRAP);
+    lv_obj_set_width(answer_label, 244);
+    lv_obj_set_style_text_align(answer_label, LV_TEXT_ALIGN_LEFT, 0);
+    lv_obj_set_style_text_color(answer_label, lv_color_hex(0xE2E8F0), 0);
+    lv_obj_set_style_text_font(answer_label, &lv_font_montserrat_16, 0);
+    lv_label_set_text(answer_label, "");
+    lv_obj_align(answer_label, LV_ALIGN_TOP_LEFT, 0, 0);
+
+    lv_obj_t *prev = lv_btn_create(response_panel);
+    lv_obj_set_size(prev, 86, 34);
+    lv_obj_align(prev, LV_ALIGN_BOTTOM_LEFT, 6, -2);
+    lv_obj_t *prev_label = lv_label_create(prev);
+    lv_label_set_text(prev_label, "PRECEDENT");
+    lv_obj_center(prev_label);
+    lv_obj_add_event_cb(prev, response_previous_clicked, LV_EVENT_CLICKED, nullptr);
+
+    lv_obj_t *next = lv_btn_create(response_panel);
+    lv_obj_set_size(next, 86, 34);
+    lv_obj_align(next, LV_ALIGN_BOTTOM_RIGHT, -6, -2);
+    lv_obj_t *next_label = lv_label_create(next);
+    lv_label_set_text(next_label, "SUIVANT");
+    lv_obj_center(next_label);
+    lv_obj_add_event_cb(next, response_next_clicked, LV_EVENT_CLICKED, nullptr);
+
+    lv_obj_add_flag(response_panel, LV_OBJ_FLAG_HIDDEN);
 }
 
 static void web_card_touch_cb(lv_event_t *e) {
@@ -1758,18 +2047,6 @@ static void mini_smoke_ui() {
     lv_obj_add_event_cb(avatar_obj, visual_touch_cb, LV_EVENT_CLICKED, nullptr);
     lv_obj_add_event_cb(avatar_obj, visual_touch_cb, LV_EVENT_GESTURE, nullptr);
 
-    answer_label = lv_label_create(main_panel);
-    lv_label_set_long_mode(answer_label, LV_LABEL_LONG_WRAP);
-    lv_obj_set_width(answer_label, 286);
-    lv_obj_set_height(answer_label, 72);
-    lv_obj_set_style_text_align(answer_label, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_set_style_text_color(answer_label, lv_color_hex(0xCBD5E1), 0);
-    lv_label_set_text(answer_label, "");
-    lv_obj_align(answer_label, LV_ALIGN_BOTTOM_MID, 0, -104);
-    lv_obj_add_flag(answer_label, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_event_cb(answer_label, web_card_touch_cb, LV_EVENT_ALL, nullptr);
-    lv_obj_add_flag(answer_label, LV_OBJ_FLAG_HIDDEN);
-
     talk_button = lv_btn_create(main_panel);
     lv_obj_set_size(talk_button, 96, 96);
     lv_obj_align(talk_button, LV_ALIGN_BOTTOM_MID, 0, -8);
@@ -1784,9 +2061,25 @@ static void mini_smoke_ui() {
     lv_obj_set_style_text_align(status_label, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_center(status_label);
 
+    // Hardware fallback hit target: some FT6336/LVGL combinations can miss a
+    // small circular child even though the bottom screen area is reporting
+    // touch. Keep an invisible full-width strip above the main UI and route it
+    // to the exact same PARLER handler.
+    talk_touch_zone = lv_obj_create(main_panel);
+    lv_obj_set_size(talk_touch_zone, 320, 116);
+    lv_obj_align(talk_touch_zone, LV_ALIGN_BOTTOM_MID, 0, 0);
+    lv_obj_set_style_bg_opa(talk_touch_zone, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(talk_touch_zone, 0, 0);
+    lv_obj_set_style_pad_all(talk_touch_zone, 0, 0);
+    lv_obj_clear_flag(talk_touch_zone, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(talk_touch_zone, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(talk_touch_zone, touch_cb, LV_EVENT_CLICKED, nullptr);
+    lv_obj_move_foreground(talk_touch_zone);
+
     wifi_ui_create(screen);
     pair_ui_create(screen);
     settings_ui_create(screen);
+    response_ui_create(screen);
     mel_terminal_bind_external_ui(runtime_status_label, answer_label);
     anim_timer = lv_timer_create(mini_anim_cb, 250, nullptr);
     lv_timer_create(clock_timer_cb, 1000, nullptr);
@@ -2007,6 +2300,13 @@ extern "C" void app_main(void) {
     esp_es8311_port_init(i2c_bus_handle);
     audio_ok = input_dev != nullptr && output_dev != nullptr;
     ESP_LOGI(TAG, "STEP 4 %s", audio_ok ? "OK" : "FAILED");
+
+    // Waveshare keeps the codec open and records directly through
+    // esp_codec_dev_read(). Reserve MEL's permanent worker now, while internal
+    // heap is still contiguous, before camera/LVGL/BLE allocations.
+    bool voice_worker_ok = false;
+    if (audio_ok) voice_worker_ok = mel_terminal_prepare_voice_worker();
+    ESP_LOGI(TAG, "STEP 4.1 VOICE WORKER %s", voice_worker_ok ? "READY" : "FAILED");
 
     // Match Waveshare's factory order: PMU -> audio -> camera -> backlight/LVGL.
     // Initializing the DVP sensor only after LVGL/BLE/Wi-Fi was needlessly

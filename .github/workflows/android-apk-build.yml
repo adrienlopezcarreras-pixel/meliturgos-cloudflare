@@ -5,6 +5,7 @@ on:
     branches:
       - candidate/mel-clean-autonomy
       - main
+      - fix/mini-apk-v2-token-relay-20261006
     paths:
       - "android-companion/**"
       - ".github/workflows/android-apk-build.yml"
