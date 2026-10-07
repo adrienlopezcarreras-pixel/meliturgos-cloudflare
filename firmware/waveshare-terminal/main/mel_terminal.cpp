@@ -1,5 +1,6 @@
 #include "mel_terminal.h"
 #include "mel_mobile_bridge.h"
+#include "mel_link_v2_transport.h"
 #include "mini_visual.h"
 
 #include <algorithm>
@@ -1233,6 +1234,19 @@ static void wav_header(uint8_t *h, uint32_t data_size, uint32_t sample_rate) {
     h[40]=(uint8_t)data_size; h[41]=(uint8_t)(data_size>>8); h[42]=(uint8_t)(data_size>>16); h[43]=(uint8_t)(data_size>>24);
 }
 
+static void stt_link_progress(size_t sent_samples, size_t total_samples, void *) {
+    if (total_samples == 0) return;
+    if (sent_samples >= total_samples) {
+        ui_status("STT SERVEUR...");
+        return;
+    }
+    const unsigned pct = (unsigned)((sent_samples * 100U) / total_samples);
+    if (pct >= 75U) ui_status("STT 75%...");
+    else if (pct >= 50U) ui_status("STT 50%...");
+    else if (pct >= 25U) ui_status("STT 25%...");
+    else ui_status("STT BLE...");
+}
+
 static std::string record_and_transcribe() {
     g_last_voice_error = nullptr;
     if (!g_audio_ok || !input_dev) {
@@ -1397,66 +1411,104 @@ static std::string record_and_transcribe() {
              VOICE_STT_RATE, speech_samples, speech_bytes, (long)peak,
              (unsigned)speech_mean_abs, (long)scale_q15);
 
-    const char *boundary = "----MEL-ESP32-VOICE";
-    std::string prefix = std::string("--") + boundary +
-        "\r\nContent-Disposition: form-data; name=\"audio\"; filename=\"mel.wav\"\r\n"
-        "Content-Type: audio/wav\r\n\r\n";
-    std::string suffix = std::string("\r\n--") + boundary + "--\r\n";
-    const size_t total = prefix.size() + 44 + (size_t)speech_bytes + suffix.size();
-    auto *multipart = static_cast<uint8_t *>(heap_caps_malloc(total, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
-    if (!multipart) multipart = static_cast<uint8_t *>(heap_caps_malloc(total, MALLOC_CAP_8BIT));
-    if (!multipart) {
-        heap_caps_free(speech);
-        ESP_LOGE(TAG, "VOICE: multipart allocation failed");
-        voice_error("MEMOIRE REQUETE");
-        return "";
-    }
-
-    size_t off = 0;
-    memcpy(multipart + off, prefix.data(), prefix.size()); off += prefix.size();
-    wav_header(multipart + off, (uint32_t)speech_bytes, VOICE_STT_RATE); off += 44;
-    memcpy(multipart + off, speech, speech_bytes); off += (size_t)speech_bytes;
-    memcpy(multipart + off, suffix.data(), suffix.size());
-    heap_caps_free(speech);
-
     std::string response;
     int status = 0;
-    std::string content_type = std::string("multipart/form-data; boundary=") + boundary;
-    ESP_LOGI(TAG, "STT UPLOAD: bytes=%u wav_bytes=%d rate=%d duration_ms=%d",
-             (unsigned)total, speech_bytes + 44, VOICE_STT_RATE,
-             (speech_samples * 1000) / VOICE_STT_RATE);
-
     esp_err_t err = ESP_FAIL;
-    for (int attempt = 1; attempt <= 2; ++attempt) {
-        response.clear();
-        status = 0;
-        err = http_request(
-            HTTP_METHOD_POST,
-            std::string(SERVER) + "/api/device/v1/voice/transcribe",
-            content_type.c_str(),
-            reinterpret_cast<const char *>(multipart),
-            (int)total,
+
+    if (mel_link_v2_transport_ready()) {
+        ui_status("STT V2...");
+        ESP_LOGI(TAG,
+                 "STT V2 ADPCM: pcm16_samples=%d pcm16_bytes=%d rate=%d",
+                 speech_samples, speech_bytes, VOICE_STT_RATE);
+        err = mel_link_v2_transport_transcribe_adpcm(
+            speech,
+            (size_t)speech_samples,
+            g_device_id,
             response,
-            status
+            status,
+            stt_link_progress,
+            nullptr
         );
-        ESP_LOGI(TAG, "STT RESULT attempt=%d err=%s status=%d body=%.*s",
-                 attempt, esp_err_to_name(err), status,
+        heap_caps_free(speech);
+        ESP_LOGI(TAG, "STT V2 RESULT err=%s status=%d body=%.*s",
+                 esp_err_to_name(err), status,
                  (int)std::min<size_t>(response.size(), 240), response.c_str());
-        if (err == ESP_OK && status == 200) break;
-        if (status > 0 && status < 500) break;
-        if (attempt == 1) {
-            ui_status("STT RETRY...");
-            vTaskDelay(pdMS_TO_TICKS(300));
+    } else {
+        // Autonomous Wi-Fi fallback remains an ordinary self-describing WAV.
+        const char *boundary = "----MEL-ESP32-VOICE";
+        std::string prefix = std::string("--") + boundary +
+            "\r\nContent-Disposition: form-data; name=\"audio\"; filename=\"mel.wav\"\r\n"
+            "Content-Type: audio/wav\r\n\r\n";
+        std::string suffix = std::string("\r\n--") + boundary + "--\r\n";
+        const size_t total = prefix.size() + 44 + (size_t)speech_bytes + suffix.size();
+        auto *multipart = static_cast<uint8_t *>(
+            heap_caps_malloc(total, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)
+        );
+        if (!multipart) multipart = static_cast<uint8_t *>(
+            heap_caps_malloc(total, MALLOC_CAP_8BIT)
+        );
+        if (!multipart) {
+            heap_caps_free(speech);
+            ESP_LOGE(TAG, "VOICE: Wi-Fi multipart allocation failed");
+            voice_error("MEMOIRE REQUETE");
+            return "";
         }
+
+        size_t off = 0;
+        memcpy(multipart + off, prefix.data(), prefix.size()); off += prefix.size();
+        wav_header(multipart + off, (uint32_t)speech_bytes, VOICE_STT_RATE); off += 44;
+        memcpy(multipart + off, speech, speech_bytes); off += (size_t)speech_bytes;
+        memcpy(multipart + off, suffix.data(), suffix.size());
+        heap_caps_free(speech);
+
+        std::string content_type = std::string("multipart/form-data; boundary=") + boundary;
+        ESP_LOGI(TAG, "STT WIFI WAV: bytes=%u wav_bytes=%d rate=%d duration_ms=%d",
+                 (unsigned)total, speech_bytes + 44, VOICE_STT_RATE,
+                 (speech_samples * 1000) / VOICE_STT_RATE);
+
+        if (!g_wifi_connected) {
+            heap_caps_free(multipart);
+            voice_error("AUCUN TRANSPORT");
+            return "";
+        }
+
+        for (int attempt = 1; attempt <= 2; ++attempt) {
+            response.clear();
+            status = 0;
+            err = http_request(
+                HTTP_METHOD_POST,
+                std::string(SERVER) + "/api/device/v1/voice/transcribe",
+                content_type.c_str(),
+                reinterpret_cast<const char *>(multipart),
+                (int)total,
+                response,
+                status
+            );
+            ESP_LOGI(TAG, "STT WIFI RESULT attempt=%d err=%s status=%d body=%.*s",
+                     attempt, esp_err_to_name(err), status,
+                     (int)std::min<size_t>(response.size(), 240), response.c_str());
+            if (err == ESP_OK && status == 200) break;
+            if (status > 0 && status < 500) break;
+            if (attempt == 1) {
+                ui_status("STT RETRY...");
+                vTaskDelay(pdMS_TO_TICKS(300));
+            }
+        }
+        heap_caps_free(multipart);
     }
-    heap_caps_free(multipart);
 
     if (err != ESP_OK) {
-        voice_error("RESEAU STT");
+        if (!response.empty() && response.size() < 80) voice_error(response.c_str());
+        else voice_error("RESEAU STT");
         return "";
     }
     if (status != 200) {
-        voice_error(status == 401 ? "SESSION MEL" : "SERVEUR STT");
+        const std::string server_code = parse_json_text(response, "code");
+        if (server_code == "TRANSCRIPTION_UNAVAILABLE") voice_error("STT IA ERREUR");
+        else if (server_code == "EMPTY_TRANSCRIPTION") voice_error("TRANSCRIPTION VIDE");
+        else if (server_code == "AI_BINDING_MISSING") voice_error("STT IA ABSENTE");
+        else if (status == 401 || status == 403) voice_error("SESSION MEL");
+        else voice_error("SERVEUR STT");
         return "";
     }
 
