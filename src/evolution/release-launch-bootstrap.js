@@ -1444,13 +1444,25 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
   }
 
   if (phase === 'pause') {
+    const control = await setControl(env?.DB, {
+      paused: true,
+      max_autonomy: false,
+      owner_override: false,
+      source: 'release-bootstrap',
+      reason: 'hardening-safe-stop',
+    });
+    const paused = control?.paused === true;
+    const maxDisabled = control?.max_autonomy === false;
     return Response.json({
-      ok: true,
-      status: 'RELEASE_PAUSED',
+      ok: paused && maxDisabled,
+      status: paused && maxDisabled ? 'RELEASE_PAUSED' : 'RELEASE_PAUSE_FAILED',
       phase,
+      paused,
+      max_autonomy: control?.max_autonomy === true,
+      control_status: control?.status || null,
       autonomy_started: false,
       owner_launch_required: true,
-    }, { status: 200, headers: { 'cache-control': 'no-store' } });
+    }, { status: paused && maxDisabled ? 200 : 409, headers: { 'cache-control': 'no-store' } });
   }
 
   if (phase === 'backup') {
