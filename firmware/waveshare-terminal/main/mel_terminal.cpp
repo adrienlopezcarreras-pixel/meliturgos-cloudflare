@@ -137,6 +137,8 @@ static std::string g_display_title;
 static TaskHandle_t g_voice_worker_handle = nullptr;
 static volatile bool g_voice_job_active = false;
 static volatile bool g_voice_stop_requested = false;
+static volatile bool g_tts_stop_requested = false;
+static bool g_voice_output_enabled = true;
 static volatile int g_voice_level = 0;
 static char g_last_voice_error_buf[96] = {};
 static const char *g_last_voice_error = nullptr;
@@ -293,6 +295,10 @@ static void load_config() {
     nvs_read_string(nvs, "wifi_pass", g_cfg.password, sizeof(g_cfg.password));
     nvs_read_string(nvs, "pair_code", g_cfg.pair_code, sizeof(g_cfg.pair_code));
     nvs_read_string(nvs, "token", g_cfg.token, sizeof(g_cfg.token));
+    uint8_t voice_output = 1;
+    if (nvs_get_u8(nvs, "voice_out", &voice_output) == ESP_OK) {
+        g_voice_output_enabled = voice_output != 0;
+    }
     nvs_close(nvs);
 }
 
@@ -812,6 +818,7 @@ struct MobileTtsContext {
 
 static bool mobile_tts_chunk(const uint8_t *data, size_t len, void *ctx_ptr) {
     auto *ctx = static_cast<MobileTtsContext *>(ctx_ptr);
+    if (g_tts_stop_requested) return false;
     if (!ctx || !data || len == 0 || !ctx->ok) return ctx && ctx->ok;
     uint8_t buffer[520];
     size_t offset = 0;
@@ -857,7 +864,12 @@ static std::string voice_tts_text(const std::string &text) {
 }
 
 static bool speak_text(const std::string &text) {
+    if (!g_voice_output_enabled) {
+        ESP_LOGI(TAG, "TTS skipped: voice output disabled");
+        return true;
+    }
     if (!g_audio_ok || !output_dev || text.empty()) return false;
+    g_tts_stop_requested = false;
 
     const std::string spoken_text = voice_tts_text(text);
     cJSON *root = cJSON_CreateObject();
@@ -883,7 +895,13 @@ static bool speak_text(const std::string &text) {
             &ctx
         );
         esp_codec_dev_set_out_vol(output_dev, 0.0);
-        const bool ok = err == ESP_OK && status == 200 && ctx.ok && !ctx.have_carry && !ctx.first_audio;
+        const bool stopped = g_tts_stop_requested;
+        const bool ok = !stopped && err == ESP_OK && status == 200 && ctx.ok && !ctx.have_carry && !ctx.first_audio;
+        if (stopped) {
+            ESP_LOGI(TAG, "LINK V2 TTS stopped by user");
+            ui_status("VOIX STOP");
+            return true;
+        }
         if (!ok) {
             ESP_LOGW(TAG, "LINK V2 TTS failed err=%s status=%d first_audio=%d",
                      esp_err_to_name(err), status, ctx.first_audio ? 1 : 0);
@@ -972,6 +990,10 @@ static bool speak_text(const std::string &text) {
                         uint8_t carry = 0;
                         bool first_audio = true;
                         while (remaining > 0 && ok) {
+                            if (g_tts_stop_requested) {
+                                ESP_LOGI(TAG, "Wi-Fi TTS stopped by user");
+                                break;
+                            }
                             const size_t offset = have_carry ? 1 : 0;
                             if (have_carry) buffer[0] = carry;
                             const int want = (int)std::min<uint32_t>(4096U, remaining);
@@ -1006,7 +1028,10 @@ static bool speak_text(const std::string &text) {
                                 }
                             }
                         }
-                        if (have_carry || remaining != 0) ok = false;
+                        if (g_tts_stop_requested) {
+                            ok = true;
+                            ui_status("VOIX STOP");
+                        } else if (have_carry || remaining != 0) ok = false;
                         esp_codec_dev_set_out_vol(output_dev, 0.0);
                         heap_caps_free(buffer);
                     }
@@ -1701,10 +1726,11 @@ static void voice_worker_task(void *) {
         mini_ui_open_response_page(visible_answer.c_str());
 
         const int64_t tts_started_us = esp_timer_get_time();
+        const bool voice_enabled = g_voice_output_enabled;
         const bool spoken = speak_text(answer);
         ESP_LOGI(TAG, "VOICE PERF: TTS+PLAY=%lld ms",
                  (long long)((esp_timer_get_time() - tts_started_us) / 1000));
-        if (!spoken) {
+        if (!spoken && voice_enabled) {
             ESP_LOGW(TAG, "Voice reply unavailable");
             vTaskDelay(pdMS_TO_TICKS(900));
         }
@@ -1826,6 +1852,31 @@ int mel_terminal_voice_level(void) {
 
 const char *mel_terminal_last_voice_error(void) {
     return g_last_voice_error ? g_last_voice_error : "";
+}
+
+bool mel_terminal_voice_output_enabled(void) {
+    return g_voice_output_enabled;
+}
+
+void mel_terminal_set_voice_output_enabled(bool enabled) {
+    g_voice_output_enabled = enabled;
+    if (!enabled) {
+        g_tts_stop_requested = true;
+        if (output_dev) esp_codec_dev_set_out_vol(output_dev, 0.0);
+    }
+    nvs_handle_t nvs;
+    if (nvs_open("mel", NVS_READWRITE, &nvs) == ESP_OK) {
+        nvs_set_u8(nvs, "voice_out", enabled ? 1 : 0);
+        nvs_commit(nvs);
+        nvs_close(nvs);
+    }
+    ESP_LOGI(TAG, "VOICE OUTPUT %s", enabled ? "ENABLED" : "DISABLED");
+}
+
+void mel_terminal_stop_voice_output(void) {
+    g_tts_stop_requested = true;
+    if (output_dev) esp_codec_dev_set_out_vol(output_dev, 0.0);
+    ESP_LOGI(TAG, "VOICE OUTPUT stop requested");
 }
 
 bool mel_terminal_has_display(void) {
