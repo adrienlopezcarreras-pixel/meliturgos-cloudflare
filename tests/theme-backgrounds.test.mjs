@@ -5,7 +5,7 @@ import {
   HD_BACKGROUNDS,
   HD_BACKGROUND_MEDIA,
 } from '../src/assets/generated/hd-backgrounds.js';
-import { onRequestGet as renderNormalMode } from '../src/pages/mvp-interface.js';
+import { onRequestGet as renderNormalMode } from '../src/pages/mvp-interface-v3.js';
 import { finalizeVisualResponse } from '../src/visual-final-entry.js';
 
 const LEGACY_THEMES = ['classic', 'crusade', 'religious', 'granada', 'aviation', 'paladin', 'amazon'];
