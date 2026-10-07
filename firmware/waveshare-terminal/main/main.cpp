@@ -1304,9 +1304,11 @@ static void settings_voice_output_clicked(lv_event_t *e) {
     if (settings_voice_btn_label) {
         lv_label_set_text(settings_voice_btn_label, enabled ? "VOIX : ON" : "VOIX : OFF");
     }
-    settings_set_status(enabled ? "REPONSE VOCALE : ON - test HP local..." : "REPONSE VOCALE : OFF");
+    settings_set_status(enabled ? "REPONSE VOCALE : ON - test voix..." : "REPONSE VOCALE : OFF");
     if (enabled) {
-        mel_terminal_test_speaker_local();
+        // The physical speaker path has its own TEST MICRO + HP diagnostic.
+        // Do not inject a tone into the normal voice path: VOIX ON must prove
+        // actual speech, not merely prove that the DAC can emit a beep.
         mel_terminal_test_voice_output();
     }
 }
