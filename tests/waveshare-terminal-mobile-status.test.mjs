@@ -14,7 +14,7 @@ test('MINI 0.6.2 Link V2 reports the real mobile link independently from Wi-Fi',
   ]);
 
   assert.match(header, /MEL_FW_VERSION "0\.6\.2-tts-flow-fix"/);
-  assert.match(workflow, /"version": "0\.6\.0-audio-link-rebuild"/);
+  assert.match(workflow, /"version": "0\.6\.2-tts-flow-fix"/);
 
   assert.match(runtime, /void mel_terminal_set_mobile_connected\(bool connected\)/);
   assert.match(runtime, /ui_status\(g_online \? "MEL MOBILE CONNECTE" : "MOBILE CONNECTE"\)/);
