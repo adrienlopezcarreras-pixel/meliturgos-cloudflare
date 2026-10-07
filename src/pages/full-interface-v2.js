@@ -483,7 +483,9 @@ function renderAutonomy(state){
   const next=state?.next;
   qs('#autonomyNext').textContent=next?.id?(next.id+' · '+next.title):'Sélection automatique par la roadmap';
   const max=qs('#melFullMax');if(max){max.classList.toggle('max-active',autonomyControl.max_autonomy===true);max.textContent=autonomyControl.max_autonomy===true?'MAX ACTIF':'MAX 100%';}
+  const mobileMax=qs('#mobileMaxAutonomy');if(mobileMax){mobileMax.classList.toggle('max-active',autonomyControl.max_autonomy===true);mobileMax.textContent=autonomyControl.max_autonomy===true?'MAX ACTIF':'MAX 100%';}
   const pause=qs('#melFullStop');if(pause)pause.textContent=autonomyControl.paused===true?'Reprendre MEL':'Mettre MEL en pause';
+  const mobilePause=qs('#mobilePauseAutonomy');if(mobilePause)mobilePause.textContent=autonomyControl.paused===true?'Reprendre MEL':'Mettre MEL en pause';
 }
 async function loadAutonomy(){
   try{
