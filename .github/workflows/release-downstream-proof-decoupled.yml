@@ -898,23 +898,8 @@ jobs:
             RELEASE_RUN_NUMBER="0"
             RELEASE_WORKFLOW_STATE="unknown"
             if [ "${RELEASE_API_CODE}" = "200" ]; then
-              read -r RELEASE_RUN_ID RELEASE_RUN_NUMBER RELEASE_WORKFLOW_STATE <<EOF
-$(TARGET_SHA="${TARGET_SHA}" node - <<'NODE'
-          const fs=require('fs');
-          let d={}; try{d=JSON.parse(fs.readFileSync('sovereignty-release-runs.json','utf8'))}catch{}
-          const expected=String(process.env.TARGET_SHA||'').toLowerCase();
-          const runs=(Array.isArray(d?.workflow_runs)?d.workflow_runs:[])
-            .filter(run=>String(run?.head_sha||'').toLowerCase()===expected)
-            .sort((a,b)=>Number(a?.run_number||0)-Number(b?.run_number||0));
-          const latest=runs.at(-1)||{};
-          process.stdout.write([
-            String(latest?.id||''),
-            String(Number(latest?.run_number||0)),
-            String(latest?.status||'')+':'+String(latest?.conclusion||''),
-          ].join(' '));
-          NODE
-)
-EOF
+              RELEASE_META="$(TARGET_SHA="${TARGET_SHA}" node -e 'const fs=require("fs");let d={};try{d=JSON.parse(fs.readFileSync("sovereignty-release-runs.json","utf8"))}catch{};const expected=String(process.env.TARGET_SHA||"").toLowerCase();const runs=(Array.isArray(d?.workflow_runs)?d.workflow_runs:[]).filter(run=>String(run?.head_sha||"").toLowerCase()===expected).sort((a,b)=>Number(a?.run_number||0)-Number(b?.run_number||0));const latest=runs.at(-1)||{};process.stdout.write([String(latest?.id||""),String(Number(latest?.run_number||0)),String(latest?.status||"")+":"+String(latest?.conclusion||"")].join(" "))')"
+              IFS=' ' read -r RELEASE_RUN_ID RELEASE_RUN_NUMBER RELEASE_WORKFLOW_STATE <<< "${RELEASE_META}"
             fi
 
             DEPLOY_JOB_STATE="unknown"
