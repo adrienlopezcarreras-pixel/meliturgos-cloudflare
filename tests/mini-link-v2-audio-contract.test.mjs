@@ -230,4 +230,5 @@ test('STOP VOIX propagates a CANCEL frame to Android and aborts outbound TTS imm
   assert.match(service, /code == "CANCEL"/);
   assert.match(service, /cancelledOutbound\.add\(frame\.streamId\)/);
   assert.match(service, /outboundCancelled\(streamId\)/);
+  assert.match(service, /REQUEST_BEGIN -> \{[\s\S]*?cancelledOutbound\.remove\(frame\.streamId\)/);
 });
