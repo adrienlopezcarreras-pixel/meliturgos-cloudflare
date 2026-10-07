@@ -48,10 +48,19 @@ jobs:
           node --check src/media/workers-ai-media-capabilities.js
           node --check src/media/procedural-audio-capabilities.js
           node --check src/media/browser-run-zero-cost-proof.js
+          node --check src/media/media-roadmap-proof.js
           node --check browser-companion/runtime/worker.js
       - name: Require all 12 media capabilities
-        run: |
-          node --test             tests/mel-media-02-full-matrix.test.mjs             tests/workers-ai-media-capabilities.test.mjs             tests/media-transform-video-capabilities.test.mjs             tests/procedural-audio-capabilities.test.mjs             tests/media-capability-truth-matrix.test.mjs             tests/creative-media-capabilities.test.mjs
+        run: >-
+          node --test
+          tests/mel-media-02-full-matrix.test.mjs
+          tests/workers-ai-media-capabilities.test.mjs
+          tests/browser-run-video-capabilities.test.mjs
+          tests/browser-run-media-surface-contract.test.mjs
+          tests/procedural-audio-capabilities.test.mjs
+          tests/media-capability-truth-matrix.test.mjs
+          tests/creative-media-capabilities.test.mjs
+          tests/release-launch-bootstrap.test.mjs
 
   media-adjacent-full-suite:
     runs-on: ubuntu-24.04
