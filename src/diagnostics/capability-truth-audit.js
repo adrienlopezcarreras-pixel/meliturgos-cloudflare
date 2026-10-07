@@ -68,6 +68,8 @@ const SAFE_SAMPLES = Object.freeze({
   'skill.snapshot.export': {},
   'self.audit.status': {},
   'memory.status': {},
+  'memory.retrieve': { query: 'MELITURGOS', limit: 1, semantic: false },
+  'memory.consolidate': { limit: 1 },
   'knowledge.search': { query: 'MELITURGOS', limit: 1 },
   'evolution.ledger.list': { limit: 1 },
   'evolution.ledger.verify': { limit: 50 },
