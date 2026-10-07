@@ -2,10 +2,14 @@ import { workersAiRuntimeZeroCostProvenance } from '../augmentio/workers-ai-zero
 import { createEnvMediaVaultCodec } from './media-vault-crypto.js';
 
 export const WORKERS_AI_IMAGE_MODEL = '@cf/black-forest-labs/flux-1-schnell';
+export const WORKERS_AI_VISION_MODEL = '@cf/google/gemma-4-26b-a4b-it';
+export const WORKERS_AI_IMAGE_EDIT_MODEL = '@cf/black-forest-labs/flux-2-klein-4b';
 export const WORKERS_AI_TTS_MODEL = '@cf/deepgram/aura-1';
 export const WORKERS_AI_TRANSCRIPTION_MODEL = '@cf/openai/whisper-large-v3-turbo';
 
 const IMAGE_ADAPTER_ID = 'workers-ai.media.image.flux-1-schnell';
+const IMAGE_ANALYZE_ADAPTER_ID = 'workers-ai.media.image.gemma-4-vision';
+const IMAGE_PROCESS_ADAPTER_ID = 'workers-ai.media.image.flux-2-klein-4b';
 const TTS_ADAPTER_ID = 'workers-ai.media.audio.aura-1';
 const TRANSCRIPTION_ADAPTER_ID = 'workers-ai.media.audio.whisper-large-v3-turbo';
 const MAX_IMAGE_BYTES = 20_000_000;
@@ -48,6 +52,42 @@ function bytesBase64(bytesInput) {
     binary += String.fromCharCode(...bytes.subarray(offset, Math.min(bytes.byteLength, offset + chunkSize)));
   }
   return btoa(binary);
+}
+
+function imageInputBytes(input = {}) {
+  if (input?.bytes instanceof Uint8Array) return input.bytes;
+  if (input?.bytes instanceof ArrayBuffer) return new Uint8Array(input.bytes);
+  const encoded = clean(input?.image_base64 ?? input?.image ?? input?.data, 40_000_000);
+  if (!encoded) return null;
+  const normalized = encoded.includes(',') ? encoded.slice(encoded.indexOf(',') + 1) : encoded;
+  const bytes = base64Bytes(normalized);
+  if (!bytes.byteLength) return null;
+  if (bytes.byteLength > MAX_IMAGE_BYTES) throw mediaError('WORKERS_AI_IMAGE_INPUT_TOO_LARGE', 413);
+  return bytes;
+}
+
+function imageMime(input = {}) {
+  const explicit = clean(input?.mime ?? input?.mime_type, 120).toLowerCase();
+  if (/^image\/(png|jpeg|jpg|webp)$/.test(explicit)) return explicit === 'image/jpg' ? 'image/jpeg' : explicit;
+  const encoded = clean(input?.image_base64 ?? input?.image ?? input?.data, 240);
+  const match = encoded.match(/^data:(image\/(?:png|jpeg|jpg|webp));base64,/i);
+  if (match) return match[1].toLowerCase() === 'image/jpg' ? 'image/jpeg' : match[1].toLowerCase();
+  return 'image/png';
+}
+
+function modelText(result) {
+  return clean(
+    result?.response
+      ?? result?.result?.response
+      ?? result?.choices?.[0]?.message?.content
+      ?? result?.result?.choices?.[0]?.message?.content
+      ?? result?.text,
+    120_000,
+  );
+}
+
+function aiReady(env, adapterId, modelId) {
+  return Boolean(env?.AI?.run && freshZeroCostProof(env, adapterId, modelId));
 }
 
 function normalizeTranscriptionResult(value) {
@@ -151,6 +191,95 @@ async function storePrivateArtifact(env, bytesInput, {
       algorithm: String(sealed.metadata.mediaAlgorithm || ''),
       key_id: String(sealed.metadata.mediaKeyId || ''),
     }),
+  });
+}
+
+async function imageAnalyze(env, input = {}) {
+  const provenance = freshZeroCostProof(env, IMAGE_ANALYZE_ADAPTER_ID, WORKERS_AI_VISION_MODEL);
+  if (!provenance) throw mediaError('WORKERS_AI_ZERO_COST_PROOF_REQUIRED');
+  if (!env?.AI?.run) throw mediaError('AI_BINDING_MISSING');
+
+  const bytes = imageInputBytes(input);
+  if (!bytes?.byteLength) throw mediaError('IMAGE_INPUT_REQUIRED', 400);
+  const mime = imageMime(input);
+  const prompt = clean(input?.prompt || input?.question || 'Analyse cette image précisément. Décris les éléments visibles, le texte lisible, les relations spatiales et les incertitudes. N’invente rien.', 6000);
+  const image = `data:${mime};base64,${bytesBase64(bytes)}`;
+  const result = await env.AI.run(WORKERS_AI_VISION_MODEL, {
+    messages: [
+      { role: 'system', content: 'Tu analyses uniquement ce qui est observable dans l’image. Signale explicitement toute incertitude.' },
+      { role: 'user', content: prompt },
+    ],
+    image,
+    chat_template_kwargs: { enable_thinking: false },
+  }, { rejectIfBusy: true });
+  const analysis = modelText(result);
+  if (!analysis) throw mediaError('WORKERS_AI_IMAGE_ANALYSIS_EMPTY', 502);
+  return Object.freeze({
+    ok: true,
+    schema: 'mel.workers-ai-media/v1',
+    capability: 'media.image.analyze',
+    provider: 'workers-ai',
+    model: WORKERS_AI_VISION_MODEL,
+    zero_added_cost: true,
+    analysis,
+    source: Object.freeze({
+      mime,
+      size: bytes.byteLength,
+      sha256: await sha256Hex(bytes),
+    }),
+    provenance,
+  });
+}
+
+async function imageProcess(env, input = {}) {
+  const provenance = freshZeroCostProof(env, IMAGE_PROCESS_ADAPTER_ID, WORKERS_AI_IMAGE_EDIT_MODEL);
+  if (!provenance) throw mediaError('WORKERS_AI_ZERO_COST_PROOF_REQUIRED');
+  if (!env?.AI?.run) throw mediaError('AI_BINDING_MISSING');
+  if (!mediaStorageReady(env)) throw mediaError('MEDIA_VAULT_UNAVAILABLE');
+
+  const bytes = imageInputBytes(input);
+  if (!bytes?.byteLength) throw mediaError('IMAGE_INPUT_REQUIRED', 400);
+  const mime = imageMime(input);
+  const prompt = clean(input?.prompt || input?.instruction || input?.operation, 6000);
+  if (!prompt) throw mediaError('IMAGE_PROCESS_INSTRUCTION_REQUIRED', 400);
+
+  const form = new FormData();
+  form.append('prompt', prompt);
+  form.append('input_image_0', new Blob([bytes], { type: mime }), 'input-image');
+  const width = Number(input?.width ?? input?.params?.width);
+  const height = Number(input?.height ?? input?.params?.height);
+  if (Number.isInteger(width) && width >= 256 && width <= 1920) form.append('width', String(width));
+  if (Number.isInteger(height) && height >= 256 && height <= 1920) form.append('height', String(height));
+  const packed = new Response(form);
+  const contentType = packed.headers.get('content-type');
+  const result = await env.AI.run(WORKERS_AI_IMAGE_EDIT_MODEL, {
+    multipart: {
+      body: packed.body,
+      contentType,
+    },
+  }, { rejectIfBusy: true });
+
+  const encoded = clean(result?.image ?? result?.result?.image, 40_000_000);
+  if (!encoded) throw mediaError('WORKERS_AI_IMAGE_PROCESS_OUTPUT_INVALID', 502);
+  const output = base64Bytes(encoded.includes(',') ? encoded.slice(encoded.indexOf(',') + 1) : encoded);
+  if (!output.byteLength) throw mediaError('WORKERS_AI_IMAGE_PROCESS_OUTPUT_EMPTY', 502);
+  if (output.byteLength > MAX_IMAGE_BYTES) throw mediaError('WORKERS_AI_IMAGE_OUTPUT_TOO_LARGE', 502);
+  const artifact = await storePrivateArtifact(env, output, {
+    capability: 'media.image.process',
+    model: WORKERS_AI_IMAGE_EDIT_MODEL,
+    mime: 'image/jpeg',
+    extension: 'jpg',
+  });
+  return Object.freeze({
+    ok: true,
+    schema: 'mel.workers-ai-media/v1',
+    capability: 'media.image.process',
+    provider: 'workers-ai',
+    model: WORKERS_AI_IMAGE_EDIT_MODEL,
+    zero_added_cost: true,
+    artifact,
+    input_sha256: await sha256Hex(bytes),
+    provenance,
   });
 }
 
@@ -305,13 +434,19 @@ async function audioTranscribe(env, input = {}) {
  */
 export function createWorkersAiZeroCostMediaCapabilities(env = {}) {
   const adapters = {};
+  if (aiReady(env, IMAGE_ANALYZE_ADAPTER_ID, WORKERS_AI_VISION_MODEL)) {
+    adapters['media.image.analyze'] = input => imageAnalyze(env, input);
+  }
+  if (adapterReady(env, IMAGE_PROCESS_ADAPTER_ID, WORKERS_AI_IMAGE_EDIT_MODEL)) {
+    adapters['media.image.process'] = input => imageProcess(env, input);
+  }
   if (adapterReady(env, IMAGE_ADAPTER_ID, WORKERS_AI_IMAGE_MODEL)) {
     adapters['media.image.generate'] = input => imageGenerate(env, input);
   }
   if (adapterReady(env, TTS_ADAPTER_ID, WORKERS_AI_TTS_MODEL)) {
     adapters['media.audio.synthesize'] = input => audioSynthesize(env, input);
   }
-  if (env?.AI?.run && freshZeroCostProof(env, TRANSCRIPTION_ADAPTER_ID, WORKERS_AI_TRANSCRIPTION_MODEL)) {
+  if (aiReady(env, TRANSCRIPTION_ADAPTER_ID, WORKERS_AI_TRANSCRIPTION_MODEL)) {
     adapters['media.audio.transcribe'] = input => audioTranscribe(env, input);
   }
   return Object.freeze(adapters);
