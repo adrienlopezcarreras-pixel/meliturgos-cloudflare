@@ -25,7 +25,12 @@ test('master roadmap is comprehensive, unique and internally consistent', () => 
 
   const summary = roadmapSummary();
   assert.equal(summary.total, rows.length);
-  assert.ok(summary.percent_complete >= 0 && summary.percent_complete <= 100);
+  const open = rows.filter(row => row.status !== 'DONE_VERIFIED');
+  assert.deepEqual(open.map(row => ({ id: row.id, status: row.status })), [
+    { id: 'MEL-MEDIA-02', status: 'PLANNED' },
+  ], 'only the still-unproved media-provider milestone may remain open');
+  assert.equal(summary.complete, rows.length - 1);
+  assert.ok(summary.percent_complete >= 99 && summary.percent_complete < 100);
   const payload = getRoadmapPayload();
   assert.equal(payload.ok, true);
   assert.equal(payload.validation.ok, true);
