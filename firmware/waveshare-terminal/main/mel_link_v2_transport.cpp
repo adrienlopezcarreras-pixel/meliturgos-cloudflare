@@ -228,7 +228,8 @@ static void rx_frame(const uint8_t *frame, size_t len, void *ctx) {
             strcmp(codec->valuestring, "ima-adpcm") == 0 &&
             cJSON_IsNumber(rate) && rate->valueint == 48000 &&
             cJSON_IsNumber(channels) && channels->valueint == 1 &&
-            cJSON_IsNumber(block) && block->valueint == MEL_IMA_ADPCM_BLOCK_SAMPLES &&
+            cJSON_IsNumber(block) && block->valueint >= 32 &&
+            block->valueint <= MEL_IMA_ADPCM_BLOCK_SAMPLES &&
             cJSON_IsNumber(output_rate) && output_rate->valueint == 48000 &&
             cJSON_IsNumber(samples) && samples->valuedouble > 0 &&
             samples->valuedouble <= 48000.0 * 120.0;
@@ -246,6 +247,14 @@ static void rx_frame(const uint8_t *frame, size_t len, void *ctx) {
         g_active.expected_audio_samples = static_cast<size_t>(samples->valuedouble);
         g_active.received_audio_samples = 0;
         if (root) cJSON_Delete(root);
+
+        // Android sends TTS audio with explicit backpressure. Grant an initial
+        // window now; each successfully decoded block replenishes one credit.
+        uint8_t credit_payload[2] = {
+            (uint8_t)(6 & 0xff),
+            (uint8_t)((6 >> 8) & 0xff)
+        };
+        send_v2(MEL_LINK_V2_CREDIT, header.stream_id, 0, credit_payload, sizeof(credit_payload), false);
         return;
     }
 
@@ -278,6 +287,9 @@ static void rx_frame(const uint8_t *frame, size_t len, void *ctx) {
 
         g_active.received_audio_samples += decoded_samples;
         g_active.expected_audio_seq++;
+
+        uint8_t credit_payload[2] = {1, 0};
+        send_v2(MEL_LINK_V2_CREDIT, header.stream_id, 0, credit_payload, sizeof(credit_payload), false);
         return;
     }
 
