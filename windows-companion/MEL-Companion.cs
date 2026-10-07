@@ -97,11 +97,11 @@ static class MelApp
 
                 // Hair silhouette.
                 var hp = new System.Drawing.Drawing2D.GraphicsPath();
-                hp.AddBezier(34,54,34,28,47,17,64,17);
-                hp.AddBezier(64,17,83,17,95,31,94,57);
-                hp.AddBezier(94,57,93,72,90,84,88,91);
-                hp.AddLine(88,91,40,91);
-                hp.AddBezier(40,91,35,76,34,54,34,54);
+                hp.AddBezier(new PointF(34,54),new PointF(34,28),new PointF(47,17),new PointF(64,17));
+                hp.AddBezier(new PointF(64,17),new PointF(83,17),new PointF(95,31),new PointF(94,57));
+                hp.AddBezier(new PointF(94,57),new PointF(93,72),new PointF(90,84),new PointF(88,91));
+                hp.AddLine(new PointF(88,91),new PointF(40,91));
+                hp.AddBezier(new PointF(40,91),new PointF(35,76),new PointF(34,54),new PointF(34,54));
                 hp.CloseFigure();
                 g.FillPath(hair, hp);
 
@@ -116,11 +116,11 @@ static class MelApp
 
                 // Face.
                 var fp = new System.Drawing.Drawing2D.GraphicsPath();
-                fp.AddBezier(43,48,43,35,52,28,64,28);
-                fp.AddBezier(64,28,76,28,85,36,85,49);
-                fp.AddLine(85,49,84,64);
-                fp.AddBezier(84,64,83,76,75,86,64,86);
-                fp.AddBezier(64,86,53,86,45,76,44,64);
+                fp.AddBezier(new PointF(43,48),new PointF(43,35),new PointF(52,28),new PointF(64,28));
+                fp.AddBezier(new PointF(64,28),new PointF(76,28),new PointF(85,36),new PointF(85,49));
+                fp.AddLine(new PointF(85,49),new PointF(84,64));
+                fp.AddBezier(new PointF(84,64),new PointF(83,76),new PointF(75,86),new PointF(64,86));
+                fp.AddBezier(new PointF(64,86),new PointF(53,86),new PointF(45,76),new PointF(44,64));
                 fp.CloseFigure();
                 g.FillPath(skin, fp);
 
@@ -138,8 +138,8 @@ static class MelApp
 
                 // Mouth.
                 var mp = new System.Drawing.Drawing2D.GraphicsPath();
-                mp.AddBezier(56,76,61,79,67,79,72,76);
-                mp.AddBezier(72,76,68,83,61,84,56,78);
+                mp.AddBezier(new PointF(56,76),new PointF(61,79),new PointF(67,79),new PointF(72,76));
+                mp.AddBezier(new PointF(72,76),new PointF(68,83),new PointF(61,84),new PointF(56,78));
                 mp.CloseFigure();
                 g.FillPath(lip, mp);
 
