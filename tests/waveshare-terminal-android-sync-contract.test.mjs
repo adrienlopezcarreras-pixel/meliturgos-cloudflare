@@ -102,7 +102,7 @@ test('MINI settings exposes hardware diagnostics after transport setup', async (
   assert.match(main, /settings_audio_clicked/);
   assert.match(main, /settings_camera_clicked/);
   assert.match(main, /settings_chat_clicked/);
-  assert.match(main, /"REPONSE VOCALE ON \/ OFF"/);
+  assert.match(main, /"VOIX : " \+ std::string\(mel_terminal_voice_output_enabled\(\) \? "ON" : "OFF"\)/);
   assert.match(main, /mel_terminal_stop_voice_output\(\)/);
 });
 
