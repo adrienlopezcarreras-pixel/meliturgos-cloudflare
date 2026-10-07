@@ -175,17 +175,15 @@ test('STT Link V2 uses asynchronous notifications with batched Android credits',
 });
 
 
-test('Android-to-MINI bulk uses no-response writes with bidirectional CREDIT backpressure', async () => {
+test('Android-to-MINI response and TTS bulk uses acknowledged writes for connection stability', async () => {
   const [service, transport] = await Promise.all([
     readFile(new URL('android-companion/app/src/main/java/fr/veriteinterdite/mel/MelLinkV2ClientService.kt', root), 'utf8'),
     readFile(new URL('firmware/waveshare-terminal/main/mel_link_v2_transport.cpp', root), 'utf8'),
   ]);
-  assert.match(service, /WRITE_TYPE_NO_RESPONSE/);
-  assert.match(service, /beginOutboundTransfer/);
-  assert.match(service, /awaitOutboundCredit/);
-  assert.match(service, /CONNECTION_PRIORITY_HIGH/);
-  assert.match(service, /CONNECTION_PRIORITY_BALANCED/);
-  assert.match(service, /MelLinkV2Protocol\.CREDIT[\s\S]*?outboundCredits/);
-  assert.match(transport, /send_credit\(header\.stream_id, MEL_LINK_V2_CREDIT_WINDOW\)/);
-  assert.match(transport, /send_credit\(header\.stream_id, 1\)/);
+  assert.match(service, /private fun sendBulkBlocking\(frame: ByteArray\): Boolean/);
+  assert.match(service, /writeGattBlocking\(bulkRx, frame, BluetoothGattCharacteristic\.WRITE_TYPE_DEFAULT\)/);
+  assert.match(service, /RESPONSE_DATA[\s\S]*?sendBulkBlocking/);
+  assert.match(service, /AUDIO_DATA[\s\S]*?sendBulkBlocking/);
+  assert.doesNotMatch(transport, /send_credit\(header\.stream_id, MEL_LINK_V2_CREDIT_WINDOW\)/);
+  assert.doesNotMatch(transport, /send_credit\(header\.stream_id, 1\)/);
 });
