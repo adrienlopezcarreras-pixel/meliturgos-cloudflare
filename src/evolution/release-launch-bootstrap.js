@@ -432,6 +432,7 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
         && result?.status === 'MEL_MEDIA_02_DONE_VERIFIED_ELIGIBLE'
         && result?.done_verified_eligible === true
         && result?.capability_count === 12
+        && result?.all_executions_zero_added_cost === true
         && String(result?.source_sha || '').toLowerCase() === deployedSha;
       return Response.json({
         ...result,
