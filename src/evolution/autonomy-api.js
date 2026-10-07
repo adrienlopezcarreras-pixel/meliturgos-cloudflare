@@ -14,6 +14,7 @@ import { SovereigntyCandidateStore } from '../portability/sovereignty-candidate-
 import { parseHttpChatProviderDescriptors } from '../augmentio/http-chat-adapter.js';
 import { evaluateCandidateReadiness, readinessRequirementsForDescriptor } from '../portability/sovereignty-candidate-readiness.js';
 import { localSovereigntyProfile } from '../portability/local-sovereignty-profile.js';
+import { readAutonomyProgressWatchdog, resetAutonomyProgressWatchdog } from './autonomy-progress-watchdog.js';
 
 const TERMINAL = new Set(['COMPLETED', 'COMMITTED', 'CANCELLED', 'FAILED']);
 const CANONICAL_CANDIDATE_BRANCH = 'candidate/mel-clean-autonomy';
@@ -69,10 +70,11 @@ function safeRoadmapItem(item) {
 export async function getAutonomyState(env, { repository = null, autonomyControlState = null, roadmap = null } = {}) {
   const repo = repository || new D1DevJobRepository(env.DB);
   const supervisor = new AutonomySupervisor({ repository: repo, ...(roadmap ? { roadmap } : {}) });
-  const [state, readiness, control] = await Promise.all([
+  const [state, readiness, control, progressWatchdog] = await Promise.all([
     supervisor.state(),
     getAutonomyReadiness({ repository: repo }),
     getAutonomyControl(env.DB, { memoryState: autonomyControlState }),
+    readAutonomyProgressWatchdog(env.DB),
   ]);
   const autonomyJobs = state.jobs.filter(isSupervisedAutonomyJob);
   const active = autonomyJobs.filter(job => !TERMINAL.has(String(job.status || '').toUpperCase()));
@@ -95,6 +97,7 @@ export async function getAutonomyState(env, { repository = null, autonomyControl
       blockers: readiness.blockers,
       next_action: readiness.next_action,
     },
+    progress_watchdog: progressWatchdog,
     counts: {
       total_autonomy_jobs: autonomyJobs.length,
       owner_requested: autonomyJobs.filter(job => job?.requested_by === 'owner-chat').length,
@@ -334,6 +337,9 @@ export async function maybeHandleAutonomyApi(request, env, { repository = null, 
       launch_gate_digest: prepared?.readiness?.gate_digest,
       memoryState: autonomyControlState,
     });
+    if (!enabled) {
+      await resetAutonomyProgressWatchdog(env.DB, { status: 'DISABLED' }).catch(() => null);
+    }
     let tick = null;
     if (enabled) {
       tick = await runAutonomyRuntimeTick(env, { repository: repo, fetchImpl, autonomyControlState, roadmap });
