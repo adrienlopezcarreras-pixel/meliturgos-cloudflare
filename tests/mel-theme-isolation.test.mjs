@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { onRequestGet as normalMvp } from '../src/pages/mvp-interface.js';
+import { onRequestGet as normalMvp } from '../src/pages/mvp-interface-v3.js';
 import { onRequestGet as professorPage } from '../src/pages/full-interface-v2.js';
 import { enhanceThemeAvatars } from '../src/pages/theme-avatar-enhancer.js';
 import { applyMelThemeBackgrounds } from '../src/pages/mel-theme-backgrounds.js';
