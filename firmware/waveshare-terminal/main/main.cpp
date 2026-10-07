@@ -91,6 +91,7 @@ static lv_obj_t *transport_indicator = nullptr;
 static lv_obj_t *settings_panel = nullptr;
 static volatile bool camera_probe_done = false;
 static lv_obj_t *settings_status = nullptr;
+static lv_obj_t *settings_voice_btn_label = nullptr;
 static lv_obj_t *pair_panel = nullptr;
 static lv_obj_t *pair_button = nullptr;
 static volatile bool stress_pair_click_requested = false;
@@ -931,12 +932,13 @@ static void settings_refresh_status(void) {
         snprintf(mel_state, sizeof(mel_state), "HORS LIGNE");
     }
     lv_label_set_text_fmt(settings_status,
-                          "Wi-Fi: %s\nMobile: %s\nMEL: %s\nAudio: %s  Camera: %s",
+                          "Wi-Fi: %s\nMobile: %s\nMEL: %s\nAudio: %s  Camera: %s\nVoix: %s",
                           wifi_got_ip ? (ip[0] ? ip : "OK") : "OFF",
                           mel_terminal_mobile_connected() ? "CONNECTE" : "OFF",
                           mel_state,
                           audio_ok ? "OK" : "NON",
-                          camera_ok ? "OK" : "NON");
+                          camera_ok ? "OK" : "NON",
+                          mel_terminal_voice_output_enabled() ? "ON" : "OFF");
 }
 
 static void settings_open_clicked(lv_event_t *e) {
@@ -1295,7 +1297,11 @@ static void settings_voice_output_clicked(lv_event_t *e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
     const bool enabled = !mel_terminal_voice_output_enabled();
     mel_terminal_set_voice_output_enabled(enabled);
-    settings_set_status(enabled ? "REPONSE VOCALE : ON" : "REPONSE VOCALE : OFF");
+    if (settings_voice_btn_label) {
+        lv_label_set_text(settings_voice_btn_label, enabled ? "VOIX : ON" : "VOIX : OFF");
+    }
+    settings_set_status(enabled ? "REPONSE VOCALE : ON - test en cours..." : "REPONSE VOCALE : OFF");
+    if (enabled) mel_terminal_test_voice_output();
 }
 
 static void settings_network_clicked(lv_event_t *e) {
@@ -1361,7 +1367,13 @@ static void settings_ui_create(lv_obj_t *screen) {
     settings_add_button(settings_panel, "TEST CAMERA", 256, settings_camera_clicked);
     settings_add_button(settings_panel, "CHAT MEL", 306, settings_chat_clicked);
     settings_add_button(settings_panel, "BLUETOOTH / MEL MOBILE", 356, settings_network_clicked);
-    settings_add_button(settings_panel, "REPONSE VOCALE ON / OFF", 406, settings_voice_output_clicked);
+    lv_obj_t *voice_btn = settings_add_button(
+        settings_panel,
+        mel_terminal_voice_output_enabled() ? "VOIX : ON" : "VOIX : OFF",
+        406,
+        settings_voice_output_clicked
+    );
+    settings_voice_btn_label = lv_obj_get_child(voice_btn, 0);
 
     lv_obj_add_flag(settings_panel, LV_OBJ_FLAG_HIDDEN);
     settings_refresh_status();
