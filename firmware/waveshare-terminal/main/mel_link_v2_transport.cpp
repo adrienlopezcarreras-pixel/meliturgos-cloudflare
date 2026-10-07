@@ -254,10 +254,6 @@ static void rx_frame(const uint8_t *frame, size_t len, void *ctx) {
         g_active.expected_audio_samples = static_cast<size_t>(samples->valuedouble);
         g_active.received_audio_samples = 0;
         if (root) cJSON_Delete(root);
-        if (!send_credit(header.stream_id, MEL_LINK_V2_CREDIT_WINDOW)) {
-            g_active.failed = true;
-            if (g_response_done) xSemaphoreGive(g_response_done);
-        }
         return;
     }
 
@@ -290,10 +286,6 @@ static void rx_frame(const uint8_t *frame, size_t len, void *ctx) {
 
         g_active.received_audio_samples += decoded_samples;
         g_active.expected_audio_seq++;
-        if (!send_credit(header.stream_id, 1)) {
-            g_active.failed = true;
-            if (g_response_done) xSemaphoreGive(g_response_done);
-        }
         return;
     }
 
@@ -324,10 +316,6 @@ static void rx_frame(const uint8_t *frame, size_t len, void *ctx) {
         g_active.status = cJSON_IsNumber(status) ? status->valueint : 0;
         g_active.expected_response_seq = 0;
         if (root) cJSON_Delete(root);
-        if (!send_credit(header.stream_id, MEL_LINK_V2_CREDIT_WINDOW)) {
-            g_active.failed = true;
-            if (g_response_done) xSemaphoreGive(g_response_done);
-        }
         return;
     }
 
@@ -348,10 +336,6 @@ static void rx_frame(const uint8_t *frame, size_t len, void *ctx) {
         } else if (g_active.body.size() + header.payload_len <= MAX_RESPONSE_BYTES) {
             g_active.body.append(reinterpret_cast<const char *>(payload), header.payload_len);
         } else {
-            g_active.failed = true;
-            if (g_response_done) xSemaphoreGive(g_response_done);
-        }
-        if (!g_active.failed && !send_credit(header.stream_id, 1)) {
             g_active.failed = true;
             if (g_response_done) xSemaphoreGive(g_response_done);
         }
