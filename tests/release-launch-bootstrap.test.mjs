@@ -1392,3 +1392,67 @@ test('parallel production proof token can read exact identity but cannot mutate 
   assert.equal(denied.status,403);
   assert.equal((await denied.json()).code,'BOOTSTRAP_SCOPE_DENIED');
 });
+
+
+test('release bootstrap media proof requires exact-SHA 12/12 live execution and never starts autonomy', async () => {
+  const sha='4'.repeat(40);
+  const request=()=>new Request('https://mel.test/api/internal/release-launch-bootstrap',{
+    method:'POST',
+    headers:{'x-mel-launch-bootstrap':TOKEN,'content-type':'application/json'},
+    body:JSON.stringify({phase:'media-proof'}),
+  });
+
+  const ok=await maybeHandleReleaseLaunchBootstrap(request(),{
+    MEL_LAUNCH_BOOTSTRAP_TOKEN:TOKEN,
+    MEL_DEPLOYED_GIT_SHA:sha,
+  },{
+    proveMedia:async(_env,{sourceSha})=>({
+      ok:true,
+      status:'MEL_MEDIA_02_DONE_VERIFIED_ELIGIBLE',
+      done_verified_eligible:true,
+      source_sha:sourceSha,
+      capability_count:12,
+      required_capabilities:Array.from({length:12},(_,i)=>'media.test.'+i),
+      executions:Array.from({length:12},(_,i)=>({id:'media.test.'+i,ok:true})),
+      secret_values_exposed:false,
+      autonomy_started:false,
+    }),
+  });
+  assert.equal(ok.status,200);
+  const body=await ok.json();
+  assert.equal(body.ok,true);
+  assert.equal(body.status,'MEL_MEDIA_02_DONE_VERIFIED_ELIGIBLE');
+  assert.equal(body.done_verified_eligible,true);
+  assert.equal(body.capability_count,12);
+  assert.equal(body.deployed_sha,sha);
+  assert.equal(body.autonomy_started,false);
+  assert.equal(body.secret_values_exposed,false);
+
+  const incomplete=await maybeHandleReleaseLaunchBootstrap(request(),{
+    MEL_LAUNCH_BOOTSTRAP_TOKEN:TOKEN,
+    MEL_DEPLOYED_GIT_SHA:sha,
+  },{
+    proveMedia:async()=>({
+      ok:true,
+      status:'MEL_MEDIA_02_DONE_VERIFIED_ELIGIBLE',
+      done_verified_eligible:true,
+      source_sha:sha,
+      capability_count:11,
+    }),
+  });
+  assert.equal(incomplete.status,409);
+  assert.equal((await incomplete.json()).ok,false);
+
+  const failed=await maybeHandleReleaseLaunchBootstrap(request(),{
+    MEL_LAUNCH_BOOTSTRAP_TOKEN:TOKEN,
+    MEL_DEPLOYED_GIT_SHA:sha,
+  },{
+    proveMedia:async()=>{throw Object.assign(new Error('MEDIA_FAILURE'),{code:'MEDIA_FAILURE',status:503,capability:'media.video.generate'});},
+  });
+  assert.equal(failed.status,503);
+  const failedBody=await failed.json();
+  assert.equal(failedBody.ok,false);
+  assert.equal(failedBody.status,'MEL_MEDIA_02_NOT_VERIFIED');
+  assert.equal(failedBody.capability,'media.video.generate');
+  assert.equal(failedBody.autonomy_started,false);
+});
