@@ -105,56 +105,25 @@ jobs:
           printf '%s' "${PROOF}" | npx wrangler secret put MEL_WORKERS_AI_ZERO_COST_PROOF_JSON --name meliturgos
           echo "Workers AI zero-cost runtime proof refreshed without code deployment."
 
-      - name: Re-prove Media Transformations open-beta no-billing status
-        shell: bash
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-        run: |
-          set -euo pipefail
-          DOC_URL="https://developers.cloudflare.com/stream/transform-videos/bindings/"
-          curl --fail --silent --show-error --location --max-time 30 "${DOC_URL}" -o media-transform-bindings.html
-          grep -Fq "Transformation operations via the binding will not be billed." media-transform-bindings.html
-          node - <<'NODE'
-          const fs=require('fs');
-          const now=Date.now();
-          const proof={
-            schema:'mel.media-transform.zero-cost-proof/v1',
-            provider:'cloudflare-media-transformations',
-            binding:'MEDIA',
-            source:'cloudflare-official-bindings-doc',
-            billing_status:'OPEN_BETA_NOT_BILLED',
-            documentation_url:'https://developers.cloudflare.com/stream/transform-videos/bindings/',
-            verified_at:new Date(now).toISOString(),
-            expires_at:new Date(now+60*60*1000).toISOString(),
-          };
-          fs.writeFileSync('media-transform-zero-cost-proof.json',JSON.stringify(proof));
-          fs.writeFileSync('media-transform-zero-cost-proof-evidence.json',JSON.stringify({
-            schema:'mel.media-transform.zero-cost-proof-refresh/v1',
-            billing_status:proof.billing_status,
-            verified_at:proof.verified_at,
-            expires_at:proof.expires_at,
-            secret_values_exposed:false,
-          },null,2));
-          NODE
-          PROOF="$(cat media-transform-zero-cost-proof.json)"
-          test -n "${PROOF}"
-          printf '%s' "${PROOF}" | npx wrangler secret put MEL_MEDIA_TRANSFORM_ZERO_COST_PROOF_JSON --name meliturgos
-          echo "Media Transformations zero-cost runtime proof refreshed without code deployment."
-
       - name: Re-prove Browser Run Workers Free hard-limit status
         shell: bash
         run: |
           set -euo pipefail
           DOC_URL="https://developers.cloudflare.com/browser-run/pricing/"
           curl --fail --silent --show-error --location --max-time 30 "${DOC_URL}" -o browser-run-pricing.html
+          curl --fail --silent --show-error --location --max-time 30 "https://developers.cloudflare.com/browser-run/limits/" -o browser-run-limits.html
           grep -Fq "Workers Free" browser-run-pricing.html
           grep -Fq "10 minutes per day" browser-run-pricing.html
+          grep -Fq "429" browser-run-limits.html
+          grep -Fq "10 minutes per day" browser-run-limits.html
           node - <<'NODE'
           const fs=require('fs');
           const account=JSON.parse(fs.readFileSync('workers-ai-account.json','utf8'));
           if(String(account?.result?.type||'').toLowerCase()!=='standard') throw new Error('WORKERS_FREE_ACCOUNT_TYPE_NOT_PROVED');
           const html=fs.readFileSync('browser-run-pricing.html','utf8');
+          const limits=fs.readFileSync('browser-run-limits.html','utf8');
           if(!html.includes('Workers Free')||!html.includes('10 minutes per day')) throw new Error('BROWSER_RUN_FREE_PRICING_NOT_PROVED');
+          if(!limits.includes('429')||!limits.includes('10 minutes per day')) throw new Error('BROWSER_RUN_FREE_HARD_LIMIT_NOT_PROVED');
           const now=Date.now();
           const proof={
             schema:'mel.browser-run.zero-cost-proof/v1',
@@ -189,7 +158,6 @@ jobs:
           name: workers-ai-zero-cost-proof-refresh-${{ github.run_id }}
           path: |
             workers-ai-zero-cost-proof-evidence.json
-            media-transform-zero-cost-proof-evidence.json
             browser-run-zero-cost-proof-evidence.json
           if-no-files-found: warn
           retention-days: 7
