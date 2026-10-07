@@ -57,3 +57,14 @@ test('Android Link V2 synthesizes MINI speech locally in French before server TT
   assert.match(synth, /ENCODING_PCM_16BIT/);
   assert.match(synth, /resampleLinear/);
 });
+
+
+test('MINI local French synthesis does not depend on MINI server token', async () => {
+  const service = await readFile(new URL('../android-companion/app/src/main/java/fr/veriteinterdite/mel/MelLinkV2ClientService.kt', import.meta.url), 'utf8');
+  const start = service.indexOf('if (!isPair && method == "POST" && path == "/api/device/v1/voice/tts")');
+  const end = service.indexOf('var connection: java.net.HttpURLConnection?', start);
+  const local = service.slice(start, end);
+  assert.match(local, /MelMiniVoiceSynthesizer\.synthesizePcm48kMono/);
+  assert.doesNotMatch(local, /MiniTokenVault/);
+  assert.match(local, /if \(!sent && !outboundCancelled\(request\.streamId\)\)/);
+});
