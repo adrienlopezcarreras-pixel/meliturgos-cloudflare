@@ -30,8 +30,8 @@ test('MINI TTS server constructs a deterministic 48 kHz PCM WAV and Android acce
     readFile(new URL('android-companion/app/src/main/java/fr/veriteinterdite/mel/MelImaAdpcm.kt', root), 'utf8'),
   ]);
   assert.match(server, /encoding: "linear16"/);
-  assert.match(server, /container: "none"/);
-  assert.match(server, /wrapPcm16MonoWav\(source, 48000\)/);
+  assert.match(server, /container: "wav"/);
+  assert.match(server, /TTS_WAV_REQUIRED/);
   assert.match(server, /"content-type": "audio\/wav"/);
   assert.match(link, /MelImaAdpcm\.decodePcm16Le\(body\)/);
   assert.match(codec, /fun decodePcm16Le\(bytes: ByteArray\): ShortArray/);
