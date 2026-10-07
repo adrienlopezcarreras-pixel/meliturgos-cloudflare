@@ -1,0 +1,43 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+
+const source=await readFile(new URL('../browser-companion/runtime/worker.js',import.meta.url),'utf8');
+
+test('Browser Run media endpoints are explicit, bounded, and contain no generic script execution surface',()=>{
+  for(const route of [
+    '/v1/media/resize-image',
+    '/v1/media/render-video',
+    '/v1/media/process-video',
+    '/v1/media/sample-video',
+  ]) assert.match(source,new RegExp(route.replaceAll('/','\\/')));
+
+  assert.match(source,/slice\(0, 3\)/);
+  assert.match(source,/boundedNumber\(payload\.duration_ms, 3000, 1500, 6000\)/);
+  assert.match(source,/boundedNumber\(payload\.image_count, 4, 3, 8\)/);
+  assert.match(source,/boundedNumber\(payload\.max_edge,510,64,510\)/);
+  assert.match(source,/base64\.length > 16_000_000/);
+  assert.match(source,/buffer\.byteLength > 12_000_000/);
+  assert.doesNotMatch(source,/new Function\s*\(/);
+  assert.doesNotMatch(source,/eval\s*\(\s*(?:payload|request|body|input)/);
+  assert.doesNotMatch(source,/javascript\.eval/);
+  assert.doesNotMatch(source,/exec-script/);
+});
+
+test('media routes accept only their fixed schemas and do not enter the generic browser action protocol',()=>{
+  assert.match(source,/mel\.media\.browser-render-video\/v1/);
+  assert.match(source,/mel\.media\.browser-resize-image\/v1/);
+  assert.match(source,/mel\.media\.browser-process-video\/v1/);
+  assert.match(source,/mel\.media\.browser-sample-video\/v1/);
+  const mediaRouteIndex=source.indexOf("/v1/media/render-video");
+  const genericRouteIndex=source.indexOf("['/v1/browser/perform', '/v1/browser/close']");
+  assert.ok(mediaRouteIndex>=0);
+  assert.ok(genericRouteIndex>mediaRouteIndex);
+});
+
+test('video generation is visibly frame-animation and never claims a premium generative-video provider',async()=>{
+  const runtime=await readFile(new URL('../src/media/workers-ai-media-capabilities.js',import.meta.url),'utf8');
+  assert.match(runtime,/engine: 'generated-frame-animation'/);
+  assert.match(runtime,/provider: 'workers-ai\+browser-run'/);
+  assert.doesNotMatch(runtime,/provider:\s*['"](?:veo|seedance|dreamina)['"]/i);
+});
