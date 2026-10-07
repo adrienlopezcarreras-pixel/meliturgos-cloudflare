@@ -106,6 +106,7 @@ class MelLinkV2ClientService : Service() {
     private val requests = HashMap<Int, IncomingRequest>()
     private val audioStreams = HashMap<Int, IncomingAudio>()
     private val outboundCredits = HashMap<Int, Semaphore>()
+    private val cancelledOutbound = HashSet<Int>()
     private lateinit var mediaReceiver: MiniMediaReceiver
     private var scanActive = false
     private var reconnectAttempt = 0
@@ -432,6 +433,17 @@ class MelLinkV2ClientService : Service() {
             MelLinkV2Protocol.PING -> {
                 sendControlAsync(MelLinkV2Protocol.encode(MelLinkV2Protocol.PONG, 0, frame.streamId, frame.seq))
             }
+            MelLinkV2Protocol.ERROR -> {
+                val code = frame.payload.toString(Charsets.UTF_8)
+                if (code == "CANCEL") {
+                    synchronized(outboundCredits) {
+                        cancelledOutbound.add(frame.streamId)
+                        outboundCredits[frame.streamId]?.release(64)
+                    }
+                    lastError.value = "REMOTE_CANCEL_" + frame.streamId
+                    Log.i(TAG, "MINI cancelled outbound stream=" + frame.streamId)
+                }
+            }
             MelLinkV2Protocol.CREDIT -> {
                 if (frame.payload.size < 2) return
                 val credits = (frame.payload[0].toInt() and 0xff) or
@@ -688,6 +700,10 @@ class MelLinkV2ClientService : Service() {
                     }
                     if (localPcm.isSuccess) {
                         val pcm = localPcm.getOrThrow()
+                        if (outboundCancelled(request.streamId)) {
+                            Log.i(TAG, "MINI local TTS discarded after remote cancel stream=" + request.streamId)
+                            return
+                        }
                         Log.i(TAG, "MINI local fr-FR TTS -> PCM48 samples=" + pcm.size)
                         state.value = "MINI V2 · VOIX FR LOCALE"
                         val sent = sendAudioResponse(request.streamId, pcm, outputRate = 48_000)
@@ -820,7 +836,9 @@ class MelLinkV2ClientService : Service() {
             var seq = 0
             var offset = 0
             while (offset < pcm16.size) {
+                if (outboundCancelled(streamId)) return false
                 if (!awaitOutboundCredit(streamId, credits)) return false
+                if (outboundCancelled(streamId)) return false
                 val end = minOf(offset + audioBlockSamples, pcm16.size)
                 val encoded = MelImaAdpcm.encodeBlock(pcm16.copyOfRange(offset, end))
                 if (!sendBulkNoResponse(
@@ -1000,13 +1018,20 @@ class MelLinkV2ClientService : Service() {
 
     private fun beginOutboundTransfer(streamId: Int): Semaphore {
         val sem = Semaphore(0)
-        synchronized(outboundCredits) { outboundCredits[streamId] = sem }
+        synchronized(outboundCredits) {
+            cancelledOutbound.remove(streamId)
+            outboundCredits[streamId] = sem
+        }
         return sem
     }
+
+    private fun outboundCancelled(streamId: Int): Boolean =
+        synchronized(outboundCredits) { cancelledOutbound.contains(streamId) }
 
     private fun endOutboundTransfer(streamId: Int, sem: Semaphore) {
         synchronized(outboundCredits) {
             if (outboundCredits[streamId] === sem) outboundCredits.remove(streamId)
+            cancelledOutbound.remove(streamId)
         }
     }
 
@@ -1104,6 +1129,7 @@ class MelLinkV2ClientService : Service() {
         synchronized(outboundCredits) {
             outboundCredits.values.forEach { it.release(MelLinkV2Protocol.CREDIT_WINDOW) }
             outboundCredits.clear()
+            cancelledOutbound.clear()
         }
     }
 
