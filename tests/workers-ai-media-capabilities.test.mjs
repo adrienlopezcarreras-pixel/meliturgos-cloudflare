@@ -4,6 +4,8 @@ import assert from 'node:assert/strict';
 import {
   MAX_INLINE_TRANSCRIPTION_BYTES,
   WORKERS_AI_IMAGE_MODEL,
+  WORKERS_AI_IMAGE_EDIT_MODEL,
+  WORKERS_AI_VISION_MODEL,
   WORKERS_AI_TRANSCRIPTION_MODEL,
   WORKERS_AI_TTS_MODEL,
   createWorkersAiZeroCostMediaCapabilities,
@@ -81,6 +83,66 @@ test('Workers AI media adapters stay absent without a fresh exact-model zero-cos
   };
   assert.deepEqual(Object.keys(createWorkersAiZeroCostMediaCapabilities(stale)), []);
   assert.equal(f.calls(), 0);
+});
+
+test('Gemma 4 vision performs real image analysis only with exact zero-cost proof', async () => {
+  const png = Uint8Array.from([137,80,78,71,13,10,26,10,1,2,3,4]);
+  const f = fixture({
+    proofJson: proof([WORKERS_AI_VISION_MODEL]),
+    run: async (model, input, options) => {
+      assert.equal(model, WORKERS_AI_VISION_MODEL);
+      assert.equal(input.messages[1].content, 'Décris précisément.');
+      assert.match(input.image, /^data:image\/png;base64,/);
+      assert.deepEqual(options, { rejectIfBusy: true });
+      return { response: 'Une image de test observable.' };
+    },
+  });
+  const adapters = createWorkersAiZeroCostMediaCapabilities(f.env);
+  assert.equal(typeof adapters['media.image.analyze'], 'function');
+  const result = await adapters['media.image.analyze']({
+    bytes: png,
+    mime: 'image/png',
+    prompt: 'Décris précisément.',
+  });
+  assert.equal(result.ok, true);
+  assert.equal(result.capability, 'media.image.analyze');
+  assert.equal(result.model, WORKERS_AI_VISION_MODEL);
+  assert.equal(result.analysis, 'Une image de test observable.');
+  assert.equal(result.source.size, png.byteLength);
+  assert.match(result.source.sha256, /^[0-9a-f]{64}$/);
+  assert.equal(f.writes.length, 0);
+});
+
+test('FLUX.2 Klein performs real image editing and stores the result encrypted', async () => {
+  const source = Uint8Array.from([137,80,78,71,13,10,26,10,7,8,9,10]);
+  const output = Buffer.from('edited-image-private-test-bytes');
+  const f = fixture({
+    proofJson: proof([WORKERS_AI_IMAGE_EDIT_MODEL]),
+    run: async (model, input, options) => {
+      assert.equal(model, WORKERS_AI_IMAGE_EDIT_MODEL);
+      assert.ok(input?.multipart?.body);
+      assert.match(String(input?.multipart?.contentType || ''), /^multipart\/form-data; boundary=/i);
+      assert.deepEqual(options, { rejectIfBusy: true });
+      return { image: output.toString('base64') };
+    },
+  });
+  const adapters = createWorkersAiZeroCostMediaCapabilities(f.env);
+  assert.equal(typeof adapters['media.image.process'], 'function');
+  const result = await adapters['media.image.process']({
+    bytes: source,
+    mime: 'image/png',
+    instruction: 'Rendre le fond plus sombre.',
+    width: 1024,
+    height: 768,
+  });
+  assert.equal(result.ok, true);
+  assert.equal(result.capability, 'media.image.process');
+  assert.equal(result.model, WORKERS_AI_IMAGE_EDIT_MODEL);
+  assert.equal(result.artifact.private, true);
+  assert.equal(result.artifact.stored_encrypted, true);
+  assert.equal(f.writes.length, 1);
+  assert.equal(f.writes[0].options.customMetadata.capability, 'media.image.process');
+  assert.notDeepEqual(Buffer.from(f.writes[0].value), output);
 });
 
 test('FLUX image generation is exact-model, zero-cost-gated and encrypted into private Media Vault storage', async () => {
