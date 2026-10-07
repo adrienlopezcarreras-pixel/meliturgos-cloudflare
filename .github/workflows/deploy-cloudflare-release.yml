@@ -30,11 +30,14 @@ permissions:
   id-token: write
 
 concurrency:
-  group: mel-launch-bootstrap-token
+  group: mel-production-deploy
   cancel-in-progress: true
 
 jobs:
   deploy:
+    concurrency:
+      group: mel-launch-bootstrap-token
+      cancel-in-progress: true
     runs-on: ubuntu-latest
     timeout-minutes: 90
     env:
@@ -2485,3 +2488,12 @@ jobs:
             exit 57
           fi
           echo "Previous stable Worker and autonomy control restored after failed exact-SHA release."
+
+
+  post-release-health:
+    name: post-release-health-gate
+    needs: deploy
+    uses: ./.github/workflows/post-release-proof-suite.yml
+    with:
+      expected_sha: ${{ github.event_name == 'workflow_dispatch' && inputs.expected_sha || github.sha }}
+    secrets: inherit
