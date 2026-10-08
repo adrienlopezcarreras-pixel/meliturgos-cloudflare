@@ -64,12 +64,16 @@ object MelVoicePlayer {
             Handler(Looper.getMainLooper()).post {
                 val ref = AtomicReference<TextToSpeech?>(null)
                 val engine = TextToSpeech(context.applicationContext) { status ->
-                    val tts = ref.get()
-                    try {
-                        if (status != TextToSpeech.SUCCESS || tts == null) {
-                            throw IllegalStateException("ANDROID_TTS_INIT_FAILED")
-                        }
-                        val languageResult = tts.setLanguage(Locale.FRANCE)
+                    // Defer one main-loop turn so the engine reference is
+                    // published even when a TTS implementation initializes
+                    // unusually quickly.
+                    Handler(Looper.getMainLooper()).post {
+                        val tts = ref.get()
+                        try {
+                            if (status != TextToSpeech.SUCCESS || tts == null) {
+                                throw IllegalStateException("ANDROID_TTS_INIT_FAILED")
+                            }
+                            val languageResult = tts.setLanguage(Locale.FRANCE)
                         if (languageResult == TextToSpeech.LANG_MISSING_DATA ||
                             languageResult == TextToSpeech.LANG_NOT_SUPPORTED) {
                             throw IllegalStateException("ANDROID_TTS_FRENCH_UNAVAILABLE")
@@ -104,9 +108,10 @@ object MelVoicePlayer {
                     } catch (error: Throwable) {
                         synchronized(ttsLock) { ttsInitError = error }
                         runCatching { tts?.shutdown() }
-                    } finally {
-                        synchronized(ttsLock) { ttsInitLatch = null }
-                        latch.countDown()
+                        } finally {
+                            synchronized(ttsLock) { ttsInitLatch = null }
+                            latch.countDown()
+                        }
                     }
                 }
                 ref.set(engine)
