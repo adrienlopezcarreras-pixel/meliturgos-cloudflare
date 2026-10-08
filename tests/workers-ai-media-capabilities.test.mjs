@@ -286,3 +286,55 @@ test('Whisper inline transcription fails before AI when audio requires chunking'
   );
   assert.equal(f.calls(), 0);
 });
+
+
+test('video analysis uses LLaVA only for storyboard vision and never for text-only synthesis', async () => {
+  const video = Uint8Array.from([0,0,0,24,102,116,121,112,1,2,3,4]);
+  const sprite = Uint8Array.from([137,80,78,71,13,10,26,10,9,8,7,6]);
+  const f = fixture({
+    proofJson: proof([WORKERS_AI_VISION_MODEL, WORKERS_AI_TRANSCRIPTION_MODEL]),
+    run: async (model, input, options) => {
+      assert.equal(model, WORKERS_AI_VISION_MODEL);
+      assert.deepEqual(input.image, Array.from(sprite));
+      assert.equal(typeof input.prompt, 'string');
+      assert.equal(input.max_tokens, 512);
+      assert.equal(input.messages, undefined);
+      assert.deepEqual(options, { rejectIfBusy: true });
+      return { description: 'Deux scènes visibles dans le storyboard.' };
+    },
+  });
+  f.env.MEL_BROWSER_RUN_ZERO_COST_PROOF_JSON = browserProof();
+  f.env.MEL_BROWSER_COMPANION = {
+    async fetch(request) {
+      assert.equal(new URL(request.url).pathname, '/v1/media/sample-video');
+      const body = JSON.parse(await request.text());
+      assert.equal(body.schema, 'mel.media.browser-sample-video/v1');
+      assert.equal(body.mime, 'video/mp4');
+      return Response.json({
+        ok: true,
+        schema: 'mel.media.browser-sample-video.result/v1',
+        spritesheet_base64: Buffer.from(sprite).toString('base64'),
+        spritesheet_mime: 'image/png',
+        duration_ms: 4000,
+        image_count: 4,
+      });
+    },
+  };
+
+  const adapters = createWorkersAiZeroCostMediaCapabilities(f.env);
+  assert.equal(typeof adapters['media.video.analyze'], 'function');
+  const result = await adapters['media.video.analyze']({
+    bytes: video,
+    mime: 'video/mp4',
+    duration_seconds: 4,
+    image_count: 4,
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.capability, 'media.video.analyze');
+  assert.equal(result.visual_analysis, 'Deux scènes visibles dans le storyboard.');
+  assert.equal(result.transcript, null);
+  assert.match(result.summary, /Analyse visuelle : Deux scènes visibles/);
+  assert.match(result.summary, /aucune piste audio capturée/);
+  assert.equal(f.calls(), 1);
+});
