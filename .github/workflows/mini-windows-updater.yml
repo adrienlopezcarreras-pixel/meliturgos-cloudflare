@@ -30,7 +30,7 @@ jobs:
         run: |
           python -m pip install --disable-pip-version-check esptool==4.8.1 pyinstaller==6.11.1
 
-      - name: Download validated 0.6.10 firmware
+      - name: Download validated 0.6.12 firmware
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
@@ -51,7 +51,7 @@ jobs:
             --clean `
             --onefile `
             --console `
-            --name "MEL-MINI-Updater-0.6.10" `
+            --name "MEL-MINI-Updater-0.6.12" `
             --collect-all esptool `
             --collect-all serial `
             --add-data "firmware-artifact/build/mel-terminal.bin;." `
@@ -60,21 +60,21 @@ jobs:
       - name: Self-test updater
         shell: pwsh
         run: |
-          & ".\dist\MEL-MINI-Updater-0.6.10.exe" --self-test
+          & ".\dist\MEL-MINI-Updater-0.6.12.exe" --self-test
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: SHA256
         shell: pwsh
         run: |
-          Get-FileHash ".\dist\MEL-MINI-Updater-0.6.10.exe" -Algorithm SHA256 |
-            Format-List | Out-File ".\dist\MEL-MINI-Updater-0.6.10.sha256.txt"
+          Get-FileHash ".\dist\MEL-MINI-Updater-0.6.12.exe" -Algorithm SHA256 |
+            Format-List | Out-File ".\dist\MEL-MINI-Updater-0.6.12.sha256.txt"
 
       - name: Upload updater
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: MEL-MINI-Updater-0.6.10
+          name: MEL-MINI-Updater-0.6.12
           path: |
-            dist/MEL-MINI-Updater-0.6.10.exe
-            dist/MEL-MINI-Updater-0.6.10.sha256.txt
+            dist/MEL-MINI-Updater-0.6.12.exe
+            dist/MEL-MINI-Updater-0.6.12.sha256.txt
           if-no-files-found: error
           retention-days: 30
