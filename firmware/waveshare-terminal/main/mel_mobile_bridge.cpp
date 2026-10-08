@@ -13,6 +13,7 @@
 #include "host/ble_gatt.h"
 #include "host/ble_hs.h"
 #include "host/util/util.h"
+#include "services/gap/ble_svc_gap.h"
 #include "nimble/nimble_port.h"
 #include "nimble/nimble_port_freertos.h"
 #include "os/os_mbuf.h"
@@ -123,14 +124,14 @@ static const struct ble_gatt_svc_def gatt_svcs[] = {
             {
                 .uuid = &UUID_RX.u,
                 .access_cb = gatt_access,
-                .val_handle = &g_rx_val_handle,
                 .flags = BLE_GATT_CHR_F_WRITE | BLE_GATT_CHR_F_WRITE_NO_RSP,
+                .val_handle = &g_rx_val_handle,
             },
             {
                 .uuid = &UUID_TX.u,
                 .access_cb = gatt_access,
-                .val_handle = &g_tx_val_handle,
                 .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_NOTIFY,
+                .val_handle = &g_tx_val_handle,
             },
             {0}
         }
