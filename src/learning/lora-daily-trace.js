@@ -82,6 +82,39 @@ async function eventTypes(db,runId){
   return new Set((out?.results||[]).map(r=>String(r.event_type||'')));
 }
 
+export async function verifyLoraDailyTrace(env={},runId){
+  const db=env?.DB;
+  if(!db?.prepare)return {ok:false,code:'D1_NOT_BOUND'};
+  const run=await loadRun(db,runId);
+  if(!run)return {ok:false,code:'LORA_TRACE_NOT_FOUND'};
+  const rows=await db.prepare('SELECT seq,event_type,payload_json,payload_sha256 FROM lora_training_events WHERE run_id=? ORDER BY seq ASC').bind(runId).all();
+  const events=rows?.results||[];
+  let chain='';
+  const issues=[];
+  for(let i=0;i<events.length;i+=1){
+    const row=events[i];
+    const expectedSeq=i+1;
+    const seq=Number(row.seq);
+    if(seq!==expectedSeq)issues.push({type:'SEQUENCE_GAP',expected:expectedSeq,actual:seq});
+    const payloadJson=String(row.payload_json||'{}');
+    const payloadHash=await sha256Hex(payloadJson);
+    if(payloadHash!==String(row.payload_sha256||''))issues.push({type:'PAYLOAD_HASH_MISMATCH',seq});
+    chain=await sha256Hex(chain+'|'+seq+'|'+String(row.event_type||'')+'|'+payloadHash);
+  }
+  if(Number(run.last_seq||0)!==events.length)issues.push({type:'LAST_SEQ_MISMATCH',stored:Number(run.last_seq||0),events:events.length});
+  if(events.length>0&&chain!==String(run.trace_sha256||''))issues.push({type:'TRACE_HASH_MISMATCH'});
+  if(events.length===0&&Number(run.last_seq||0)>0)issues.push({type:'EVENTS_MISSING'});
+  return {
+    ok:issues.length===0,
+    run_id:runId,
+    event_count:events.length,
+    last_seq:Number(run.last_seq||0),
+    trace_sha256:String(run.trace_sha256||''),
+    recomputed_trace_sha256:chain,
+    issues,
+  };
+}
+
 export async function appendLoraDailyTrace(env={},body={},identity={}){
   const db=env?.DB;
   if(!db?.prepare) throw Object.assign(new Error('D1_NOT_BOUND'),{status:503,code:'D1_NOT_BOUND'});
@@ -152,6 +185,8 @@ export async function appendLoraDailyTrace(env={},body={},identity={}){
   let verification={ok:false,checks:{}};
   if(status==='SUCCEEDED'){
     verification=successCompleteness(run,await eventTypes(db,runId));
+    const chainVerification=await verifyLoraDailyTrace(env,runId);
+    verification={...verification,chain:chainVerification,ok:verification.ok&&chainVerification.ok};
     if(!verification.ok){
       await db.prepare("UPDATE lora_training_runs SET status='TRACE_INCOMPLETE',trace_verified=0,finished_at=? WHERE run_id=?").bind(now,runId).run();
       run=await loadRun(db,runId);
@@ -201,7 +236,8 @@ export async function listLoraDailyTraces(env={}, {limit=30,day=null}={}){
 export async function getLoraDailyTrace(env={},runId){
   const run=await loadRun(env?.DB,runId);if(!run)return null;
   const events=await env.DB.prepare('SELECT seq,event_type,occurred_at,payload_json,payload_sha256 FROM lora_training_events WHERE run_id=? ORDER BY seq ASC').bind(runId).all();
-  return {...run,dataset:parse(run.dataset_json,{}),training:parse(run.training_json,{}),results:parse(run.results_json,{}),errors:parse(run.errors_json,[]),artifacts:parse(run.artifacts_json,[]),events:(events?.results||[]).map(e=>({...e,payload:parse(e.payload_json,{})}))};
+  const verification=await verifyLoraDailyTrace(env,runId);
+  return {...run,dataset:parse(run.dataset_json,{}),training:parse(run.training_json,{}),results:parse(run.results_json,{}),errors:parse(run.errors_json,[]),artifacts:parse(run.artifacts_json,[]),events:(events?.results||[]).map(e=>({...e,payload:parse(e.payload_json,{})})),verification};
 }
 export async function markMissingLoraTrainingDay(env={}, {now=Date.now(),day=null}={}){
   const db=env?.DB;if(!db?.prepare)return {ok:false,status:'D1_NOT_BOUND'};
