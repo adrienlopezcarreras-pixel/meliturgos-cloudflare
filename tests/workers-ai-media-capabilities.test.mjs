@@ -55,7 +55,7 @@ function browserProof(now = Date.now()) {
   });
 }
 
-function fixture({ proofJson, run, browser = false } = {}) {
+function fixture({ proofJson, run, toMarkdown = null, browser = false } = {}) {
   const writes = [];
   let calls = 0;
   const env = {
@@ -92,6 +92,7 @@ function fixture({ proofJson, run, browser = false } = {}) {
         calls += 1;
         return run(model, input, options);
       },
+      ...(typeof toMarkdown === 'function' ? { toMarkdown } : {}),
     },
   };
   return { env, writes, calls: () => calls };
@@ -145,6 +146,37 @@ test('Gemma 4 vision performs real image analysis only with exact zero-cost proo
   assert.equal(result.source.size, png.byteLength);
   assert.match(result.source.sha256, /^[0-9a-f]{64}$/);
   assert.equal(f.writes.length, 0);
+});
+
+test('Gemma vision schema mismatch falls back to Workers AI toMarkdown without hiding the capability', async () => {
+  const png = Uint8Array.from([137,80,78,71,13,10,26,10,5,6,7,8]);
+  let markdownCalls = 0;
+  const f = fixture({
+    proofJson: proof([WORKERS_AI_VISION_MODEL]),
+    run: async () => {
+      const error = new Error("5006: Error: Additional or unevaluated properties '/max_tokens' at '/' not allowed");
+      error.code = '5006';
+      throw error;
+    },
+    toMarkdown: async (file, options) => {
+      markdownCalls += 1;
+      assert.equal(file.name, 'mel-image.png');
+      assert.equal(file.blob.type, 'image/png');
+      assert.equal(options.conversionOptions.image.descriptionLanguage, 'fr');
+      assert.equal(options.conversionOptions.output.format, 'text');
+      return [{ data: 'Un cercle bleu sur un fond ivoire.' }];
+    },
+  });
+  const result = await createWorkersAiZeroCostMediaCapabilities(f.env)['media.image.analyze']({
+    bytes: png,
+    mime: 'image/png',
+    prompt: 'Décris précisément.',
+  });
+  assert.equal(result.ok, true);
+  assert.equal(result.analysis, 'Un cercle bleu sur un fond ivoire.');
+  assert.equal(result.engine, 'workers-ai-tomarkdown-vision-fallback');
+  assert.equal(f.calls(), 1);
+  assert.equal(markdownCalls, 1);
 });
 
 test('FLUX.2 Klein performs real image editing and stores the result encrypted', async () => {
