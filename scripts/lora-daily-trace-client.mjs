@@ -10,7 +10,72 @@ const runnerTemp=process.env.RUNNER_TEMP||process.cwd();
 const seqFile=path.join(runnerTemp,'mel-lora-trace-seq.txt');
 const artifactDir=path.resolve(process.env.MEL_LORA_TRACE_ARTIFACT_DIR||'artifacts');
 const journalPath=path.join(artifactDir,'lora-daily-trace.jsonl');
+const spoolDir=path.join(artifactDir,'lora-trace-pending');
 fs.mkdirSync(artifactDir,{recursive:true});
+fs.mkdirSync(spoolDir,{recursive:true});
+
+const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+const terminalEvents=new Set(['SUCCEEDED','FAILED','CANCELLED','TIMED_OUT','INTERRUPTED','SMOKE_COMPLETED','TRACE_INCOMPLETE']);
+
+function journal(value){
+  fs.appendFileSync(journalPath,JSON.stringify({at:new Date().toISOString(),...value})+'\n');
+}
+function pendingFiles(){
+  return fs.readdirSync(spoolDir)
+    .filter(name=>/^\d{6}-.*\.json$/.test(name))
+    .sort()
+    .map(name=>path.join(spoolDir,name));
+}
+async function oidcToken(){
+  const oidcUrl=process.env.ACTIONS_ID_TOKEN_REQUEST_URL;
+  const oidcRequestToken=process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN;
+  if(!oidcUrl||!oidcRequestToken)throw Object.assign(new Error('LORA_TRACE_GITHUB_OIDC_ENV_MISSING'),{code:'LORA_TRACE_GITHUB_OIDC_ENV_MISSING'});
+  const response=await fetch(oidcUrl+(oidcUrl.includes('?')?'&':'?')+'audience=meliturgos-worker',{
+    headers:{authorization:'bearer '+oidcRequestToken,accept:'application/json'},
+    signal:AbortSignal.timeout(15000),
+  });
+  if(!response.ok)throw Object.assign(new Error('LORA_TRACE_OIDC_FAILED:'+response.status),{code:'LORA_TRACE_OIDC_FAILED'});
+  const body=await response.json();
+  if(!body?.value)throw Object.assign(new Error('LORA_TRACE_OIDC_TOKEN_MISSING'),{code:'LORA_TRACE_OIDC_TOKEN_MISSING'});
+  return String(body.value);
+}
+async function deliver(file){
+  const body=JSON.parse(fs.readFileSync(file,'utf8'));
+  const endpoint=String(process.env.MEL_LORA_TRACE_ENDPOINT||'https://meliturgos.adrien-lopezcarreras.workers.dev/api/internal/lora-trace');
+  let last={status:0,parsed:null,raw:'',error:null};
+  for(let attempt=1;attempt<=5;attempt+=1){
+    try{
+      const token=await oidcToken();
+      const response=await fetch(endpoint,{
+        method:'POST',
+        headers:{'content-type':'application/json','x-mel-github-oidc':token},
+        body:JSON.stringify(body),
+        signal:AbortSignal.timeout(30000),
+      });
+      const raw=await response.text();
+      let parsed=null;try{parsed=raw?JSON.parse(raw):null}catch{}
+      last={status:response.status,parsed,raw,error:null};
+      journal({direction:'IN',attempt,seq:body.seq,event_type:body.event_type,http_status:response.status,response:parsed||raw.slice(0,4000)});
+      if(response.ok&&parsed?.ok===true){
+        fs.unlinkSync(file);
+        return {ok:true,parsed};
+      }
+      if(response.status>=400&&response.status<500&&![408,409,425,429].includes(response.status))break;
+    }catch(error){
+      last={status:0,parsed:null,raw:'',error:String(error?.code||error?.message||error).slice(0,300)};
+      journal({direction:'RETRY_ERROR',attempt,seq:body.seq,event_type:body.event_type,error:last.error});
+    }
+    if(attempt<5)await sleep(Math.min(20000,1000*(2**(attempt-1))));
+  }
+  return {ok:false,...last};
+}
+async function flushPending(){
+  for(const file of pendingFiles()){
+    const result=await deliver(file);
+    if(!result.ok)return {ok:false,file,result};
+  }
+  return {ok:true};
+}
 
 let seq=0;
 try{seq=Number(fs.readFileSync(seqFile,'utf8').trim())||0}catch{}
@@ -55,31 +120,21 @@ const body={
   ...(payload.artifacts?{artifacts:Array.isArray(payload.artifacts)?payload.artifacts:[payload.artifacts]}:{}),
   ...(payload.summary_fr?{summary_fr:String(payload.summary_fr)}:{}),
 };
-fs.appendFileSync(journalPath,JSON.stringify({direction:'OUT',...body})+'\n');
 
-const oidcUrl=process.env.ACTIONS_ID_TOKEN_REQUEST_URL;
-const oidcRequestToken=process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN;
-if(!oidcUrl||!oidcRequestToken){console.error('LORA_TRACE_GITHUB_OIDC_ENV_MISSING');process.exit(3);}
-const oidcResponse=await fetch(oidcUrl+(oidcUrl.includes('?')?'&':'?')+'audience=meliturgos-worker',{
-  headers:{authorization:'bearer '+oidcRequestToken,accept:'application/json'},
-  signal:AbortSignal.timeout(15000),
-});
-if(!oidcResponse.ok){console.error('LORA_TRACE_OIDC_FAILED',oidcResponse.status);process.exit(3);}
-const oidc=await oidcResponse.json();
-if(!oidc?.value){console.error('LORA_TRACE_OIDC_TOKEN_MISSING');process.exit(3);}
+journal({direction:'OUT',...body});
+const spoolName=String(seq).padStart(6,'0')+'-'+EVENT.toLowerCase()+'.json';
+const spoolPath=path.join(spoolDir,spoolName);
+fs.writeFileSync(spoolPath,JSON.stringify(body)+'\n');
 
-const endpoint=String(process.env.MEL_LORA_TRACE_ENDPOINT||'https://meliturgos.adrien-lopezcarreras.workers.dev/api/internal/lora-trace');
-const response=await fetch(endpoint,{
-  method:'POST',
-  headers:{'content-type':'application/json','x-mel-github-oidc':String(oidc.value)},
-  body:JSON.stringify(body),
-  signal:AbortSignal.timeout(30000),
-});
-const raw=await response.text();
-let parsed=null;try{parsed=raw?JSON.parse(raw):null}catch{}
-fs.appendFileSync(journalPath,JSON.stringify({direction:'IN',seq,event_type:EVENT,http_status:response.status,response:parsed||raw.slice(0,4000)})+'\n');
-if(!response.ok||parsed?.ok!==true){
-  console.error('LORA_TRACE_WRITE_FAILED',response.status,parsed?.code||parsed?.status||raw.slice(0,300));
-  process.exit(EVENT==='SUCCEEDED'?5:4);
+const flushed=await flushPending();
+if(!flushed.ok){
+  const queued=pendingFiles().map(file=>path.basename(file));
+  journal({direction:'QUEUE_RETAINED',seq,event_type:EVENT,pending:queued,error:flushed.result?.error||flushed.result?.parsed?.code||flushed.result?.status||null});
+  console.error('LORA_TRACE_WRITE_FAILED_QUEUE_RETAINED',JSON.stringify({event:EVENT,seq,pending:queued,http_status:flushed.result?.status||0,error:flushed.result?.error||flushed.result?.parsed?.code||null}));
+  // A run may never be green while durable tracing is unavailable. Intermediate
+  // failures deliberately fail the workflow; the always() terminal step can
+  // retry the same ordered spool if connectivity returns before runner teardown.
+  process.exit(terminalEvents.has(EVENT)||EVENT==='SUCCEEDED'?5:4);
 }
-console.log(JSON.stringify({status:'LORA_TRACE_WRITTEN',run_id:runId,seq,event_type:EVENT,trace_status:parsed.status||null}));
+
+console.log(JSON.stringify({status:'LORA_TRACE_WRITTEN_AND_SPOOL_EMPTY',run_id:runId,seq,event_type:EVENT,pending:0}));
