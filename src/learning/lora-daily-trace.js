@@ -48,14 +48,24 @@ function successCompleteness(run,eventTypes){
   const training=parse(run.training_json,{});
   const results=parse(run.results_json,{});
   const artifacts=parse(run.artifacts_json,[]);
-  const hasArtifact=artifacts.some(a=>HASH_RE.test(String(a?.sha256||a?.digest||'')) && clean(a?.kind||a?.name||a?.path,300));
+  const artifactKinds=new Set(artifacts
+    .filter(a=>HASH_RE.test(String(a?.sha256||a?.digest||'')) && clean(a?.kind||a?.name||a?.path,300))
+    .map(a=>clean(a?.kind,80).toLowerCase()));
+  const metricEvidence=Number.isFinite(Number(results?.train_loss))
+    || Boolean(results?.metrics&&typeof results.metrics==='object'&&Object.keys(results.metrics).length>0);
+  const progressionEvidence=Boolean(results?.progression&&typeof results.progression==='object'&&Object.keys(results.progression).length>0);
+  const testsEvidence=Boolean(results?.tests&&typeof results.tests==='object'&&Object.keys(results.tests).length>0);
+  const comparisonEvidence=Boolean(results?.comparison&&typeof results.comparison==='object'&&Object.keys(results.comparison).length>0);
   const checks={
     identification:SHA_RE.test(String(run.source_sha||''))&&Boolean(clean(run.model_version||run.base_model,300)),
     dataset:Number.isFinite(Number(dataset.shard_count??dataset.shards))&&Number(dataset.shard_count??dataset.shards)>=1,
     training:Number.isFinite(Number(training.steps??training.global_step))&&Number(training.steps??training.global_step)>=1
-      && Number.isFinite(Number(training.duration_seconds))&&Number(training.duration_seconds)>=0,
-    results:Boolean(results&&typeof results==='object'&&Object.keys(results).length>0),
-    artifacts:hasArtifact,
+      && Number.isFinite(Number(training.duration_seconds))&&Number(training.duration_seconds)>0,
+    metrics:metricEvidence,
+    progression:progressionEvidence,
+    tests:testsEvidence,
+    comparison:comparisonEvidence,
+    artifacts:artifactKinds.has('adapter')&&artifactKinds.has('bundle')&&artifactKinds.has('checkpoint'),
     summary:clean(run.summary_fr,4000).length>=40,
     event_started:eventTypes.has('STARTED'),
     event_progress:eventTypes.has('TRAINING_PROGRESS')||eventTypes.has('TRAINING_RESULT'),
