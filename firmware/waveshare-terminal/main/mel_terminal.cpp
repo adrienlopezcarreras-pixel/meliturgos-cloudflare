@@ -46,6 +46,7 @@
 #include "freertos/idf_additions.h"
 #include "freertos/event_groups.h"
 #include "freertos/semphr.h"
+#include "freertos/queue.h"
 
 #include "esp_es8311_port.h"
 
@@ -824,46 +825,119 @@ static bool read_tts_wav_header(esp_http_client_handle_t client, uint32_t &pcm_b
     return false;
 }
 
+struct MobileTtsPacket {
+    uint16_t len = 0;
+    uint8_t data[520] = {};
+};
+
 struct MobileTtsContext {
-    bool ok = true;
+    volatile bool ok = true;
     bool have_carry = false;
     uint8_t carry = 0;
-    bool first_audio = true;
+    volatile bool first_audio = true;
     int64_t started_us = 0;
+    QueueHandle_t queue = nullptr;
+    SemaphoreHandle_t drained = nullptr;
 };
+
+static void mobile_tts_playback_task(void *arg) {
+    auto *ctx = static_cast<MobileTtsContext *>(arg);
+    MobileTtsPacket packet;
+    while (ctx && ctx->queue && xQueueReceive(ctx->queue, &packet, portMAX_DELAY) == pdTRUE) {
+        if (packet.len == 0) break;
+        if (g_tts_stop_requested) continue;
+
+        if (ctx->first_audio) {
+            ctx->first_audio = false;
+            ESP_LOGI(TAG, "VOICE PERF: TTS first-audio=%lld ms (AUDIO TASK)",
+                     (long long)((esp_timer_get_time() - ctx->started_us) / 1000));
+        }
+        const int rc = esp_codec_dev_write(output_dev, packet.data, packet.len);
+        if (rc != ESP_CODEC_DEV_OK) {
+            ESP_LOGE(TAG, "TTS audio task codec write failed rc=%d bytes=%u", rc, (unsigned)packet.len);
+            ctx->ok = false;
+        }
+    }
+    if (ctx && ctx->drained) xSemaphoreGive(ctx->drained);
+    vTaskDelete(nullptr);
+}
+
+static bool mobile_tts_start(MobileTtsContext *ctx) {
+    if (!ctx) return false;
+    ctx->queue = xQueueCreate(24, sizeof(MobileTtsPacket));
+    ctx->drained = xSemaphoreCreateBinary();
+    if (!ctx->queue || !ctx->drained) {
+        if (ctx->queue) vQueueDelete(ctx->queue);
+        if (ctx->drained) vSemaphoreDelete(ctx->drained);
+        ctx->queue = nullptr;
+        ctx->drained = nullptr;
+        ctx->ok = false;
+        return false;
+    }
+    const BaseType_t created = xTaskCreatePinnedToCore(
+        mobile_tts_playback_task,
+        "mel_tts_play",
+        4096,
+        ctx,
+        6,
+        nullptr,
+        1
+    );
+    if (created != pdPASS) {
+        vQueueDelete(ctx->queue);
+        vSemaphoreDelete(ctx->drained);
+        ctx->queue = nullptr;
+        ctx->drained = nullptr;
+        ctx->ok = false;
+        return false;
+    }
+    return true;
+}
+
+static bool mobile_tts_finish(MobileTtsContext *ctx) {
+    if (!ctx || !ctx->queue || !ctx->drained) return false;
+    MobileTtsPacket end;
+    end.len = 0;
+    const bool queued = xQueueSend(ctx->queue, &end, pdMS_TO_TICKS(2000)) == pdTRUE;
+    const bool drained = queued && xSemaphoreTake(ctx->drained, pdMS_TO_TICKS(5000)) == pdTRUE;
+    const bool ok = ctx->ok && drained;
+    vQueueDelete(ctx->queue);
+    vSemaphoreDelete(ctx->drained);
+    ctx->queue = nullptr;
+    ctx->drained = nullptr;
+    return ok;
+}
 
 static bool mobile_tts_chunk(const uint8_t *data, size_t len, void *ctx_ptr) {
     auto *ctx = static_cast<MobileTtsContext *>(ctx_ptr);
     if (g_tts_stop_requested) return false;
-    if (!ctx || !data || len == 0 || !ctx->ok) return ctx && ctx->ok;
-    uint8_t buffer[520];
+    if (!ctx || !data || len == 0 || !ctx->ok || !ctx->queue) return false;
+
+    MobileTtsPacket packet;
     size_t offset = 0;
     if (ctx->have_carry) {
-        buffer[0] = ctx->carry;
+        packet.data[0] = ctx->carry;
         offset = 1;
         ctx->have_carry = false;
     }
-    if (offset + len > sizeof(buffer)) {
+    if (offset + len > sizeof(packet.data)) {
         ctx->ok = false;
         return false;
     }
-    memcpy(buffer + offset, data, len);
+    memcpy(packet.data + offset, data, len);
     size_t total = offset + len;
     if (total & 1U) {
-        ctx->carry = buffer[total - 1];
+        ctx->carry = packet.data[total - 1];
         ctx->have_carry = true;
         total--;
     }
-    if (total > 0) {
-        if (ctx->first_audio) {
-            ctx->first_audio = false;
-            ESP_LOGI(TAG, "VOICE PERF: TTS first-audio=%lld ms (MOBILE)",
-                     (long long)((esp_timer_get_time() - ctx->started_us) / 1000));
-        }
-        if (esp_codec_dev_write(output_dev, buffer, total) != ESP_CODEC_DEV_OK) {
-            ctx->ok = false;
-            return false;
-        }
+    if (total == 0) return true;
+
+    packet.len = static_cast<uint16_t>(total);
+    if (xQueueSend(ctx->queue, &packet, pdMS_TO_TICKS(1000)) != pdTRUE) {
+        ESP_LOGE(TAG, "TTS audio queue full bytes=%u", (unsigned)total);
+        ctx->ok = false;
+        return false;
     }
     return true;
 }
@@ -898,21 +972,25 @@ static bool speak_text(const std::string &text) {
         MobileTtsContext ctx;
         ctx.started_us = esp_timer_get_time();
         int status = 0;
-        speaker_output_enable(100.0);
-        esp_err_t err = mel_link_v2_transport_request_stream(
-            HTTP_METHOD_POST,
-            "/api/device/v1/voice/tts",
-            "application/json",
-            g_device_id,
-            reinterpret_cast<const uint8_t *>(body.data()),
-            body.size(),
-            status,
-            mobile_tts_chunk,
-            &ctx
-        );
+        const bool audioTaskReady = mobile_tts_start(&ctx);
+        const bool speakerReady = audioTaskReady && speaker_output_enable(100.0);
+        esp_err_t err = (speakerReady)
+            ? mel_link_v2_transport_request_stream(
+                HTTP_METHOD_POST,
+                "/api/device/v1/voice/tts",
+                "application/json",
+                g_device_id,
+                reinterpret_cast<const uint8_t *>(body.data()),
+                body.size(),
+                status,
+                mobile_tts_chunk,
+                &ctx
+            )
+            : ESP_ERR_INVALID_STATE;
+        const bool playbackDrained = audioTaskReady ? mobile_tts_finish(&ctx) : false;
         speaker_output_disable();
         const bool stopped = g_tts_stop_requested;
-        const bool ok = !stopped && err == ESP_OK && status == 200 && ctx.ok && !ctx.have_carry && !ctx.first_audio;
+        const bool ok = !stopped && err == ESP_OK && status == 200 && playbackDrained && !ctx.have_carry && !ctx.first_audio;
         if (stopped) {
             ESP_LOGI(TAG, "LINK V2 TTS stopped by user");
             ui_status("VOIX STOP");
@@ -950,21 +1028,25 @@ static bool speak_text(const std::string &text) {
         MobileTtsContext ctx;
         ctx.started_us = esp_timer_get_time();
         int status = 0;
-        speaker_output_enable(100.0);
-        esp_err_t err = mel_mobile_bridge_request_stream(
-            HTTP_METHOD_POST,
-            "/api/device/v1/voice/tts",
-            "application/json",
-            g_cfg.token,
-            g_device_id,
-            reinterpret_cast<const uint8_t *>(body.data()),
-            body.size(),
-            status,
-            mobile_tts_chunk,
-            &ctx
-        );
+        const bool audioTaskReady = mobile_tts_start(&ctx);
+        const bool speakerReady = audioTaskReady && speaker_output_enable(100.0);
+        esp_err_t err = (speakerReady)
+            ? mel_mobile_bridge_request_stream(
+                HTTP_METHOD_POST,
+                "/api/device/v1/voice/tts",
+                "application/json",
+                g_cfg.token,
+                g_device_id,
+                reinterpret_cast<const uint8_t *>(body.data()),
+                body.size(),
+                status,
+                mobile_tts_chunk,
+                &ctx
+            )
+            : ESP_ERR_INVALID_STATE;
+        const bool playbackDrained = audioTaskReady ? mobile_tts_finish(&ctx) : false;
         speaker_output_disable();
-        const bool ok = err == ESP_OK && status == 200 && ctx.ok && !ctx.have_carry;
+        const bool ok = err == ESP_OK && status == 200 && playbackDrained && !ctx.have_carry && !ctx.first_audio;
         if (!ok) ESP_LOGW(TAG, "MOBILE TTS failed err=%s status=%d", esp_err_to_name(err), status);
         return ok;
     }
