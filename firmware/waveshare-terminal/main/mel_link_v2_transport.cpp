@@ -600,7 +600,10 @@ static esp_err_t request_common(
 
     const bool voice = strstr(path, "/voice/") != nullptr;
     const bool chat = strcmp(path, "/api/device/v1/chat") == 0;
-    const TickType_t wait = pdMS_TO_TICKS(chat ? 20000 : (voice ? 90000 : 60000));
+    // Android may legitimately wait on MEL for up to 120 s on chat.
+    // MINI must outlive that relay window, otherwise it abandons the stream
+    // first and reports CHAT_RESPONSE_TIMEOUT while Android is still waiting.
+    const TickType_t wait = pdMS_TO_TICKS(chat ? 130000 : (voice ? 90000 : 60000));
     const bool done = xSemaphoreTake(g_response_done, wait) == pdTRUE;
     status = g_active.status;
     if (response) *response = g_active.body;
