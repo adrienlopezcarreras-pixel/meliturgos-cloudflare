@@ -591,9 +591,14 @@ class Program
         bool selfTest=args!=null && Array.Exists(args,delegate(string a){return a=="--self-test";});
         if(selfTest) { MelApp.RunSelfTest(); return; }
 
+        MelApp.RetireInstalledCompanionForUpgrade();
+
         bool created;
         mutex=new Mutex(true,"MEL.Companion.Desktop.v2",out created);
-        if(!created) return;
+        if(!created) {
+            MessageBox.Show("MEL Companion est déjà lancé. Ferme l'ancienne instance depuis la zone de notification puis relance cette version.", "MEL Companion", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
 
         var app=new System.Windows.Application();
         app.ShutdownMode=ShutdownMode.OnExplicitShutdown;
