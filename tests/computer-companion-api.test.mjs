@@ -228,7 +228,7 @@ test('Windows desktop v2 keeps tray UI, headless engine, and packaged EXE contra
   assert.match(desktop,/Ctrl\+Alt\+M/);
   assert.match(desktop,/WM_HOTKEY/);
   assert.match(desktop,/class PermissionsForm/);
-  assert.match(desktop,/AUTORISATIONS LOCALES/);
+  assert.match(desktop,/Autorisations locales/i);
   assert.match(desktop,/SavePermissions/);
   assert.match(desktop,/RestartCompanion/);
   assert.match(desktop,/allowed_app_count/);
