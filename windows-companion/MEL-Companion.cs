@@ -1046,7 +1046,7 @@ class MainForm : Form
         MelApp.EnsureCompanion();
         MelApp.MaybeRefreshCompanionEngine(false);
         var ok=MelApp.Heartbeat(); state.Text=ok?"● Connecté à MEL":"● Reconnexion…"; state.ForeColor=ok?MelApp.Green:MelApp.Red;
-        MelApp.Tray.Text=ok?"MEL Companion — connecté":"MEL Companion — reconnexion";
+        if (MelApp.Tray != null) MelApp.Tray.Text=ok?"MEL Companion — connecté":"MEL Companion — reconnexion";
         devicePanel.Controls.Clear(); var devices=MelApp.Devices();
         if (devices.Count==0)
         {
@@ -1106,7 +1106,13 @@ class Program
             return;
         }
 
-        bool created; mutex=new Mutex(true,"MEL.Companion.Desktop.v2",out created); if(!created) return;
+        bool created; mutex=new Mutex(true,"MEL.Companion.Desktop.v2",out created);
+        if (!created)
+        {
+            if (args == null || !Array.Exists(args, a => a == "--background"))
+                MessageBox.Show("MEL Companion est deja lance dans cette session. Verifiez la zone de notification Windows.", "MEL Companion", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
         Application.EnableVisualStyles(); Application.SetCompatibleTextRenderingDefault(false);
         bool background = args != null && Array.Exists(args, a => a == "--background");
         if (!MelApp.LoadConfig())
