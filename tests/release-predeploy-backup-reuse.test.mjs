@@ -87,7 +87,7 @@ test('Workers AI zero-cost proof is bundled into the exact immutable production 
   const deployBlock = source.slice(deploy, verify);
   assert.match(deployBlock, /--secrets-file media-vault-release-secrets\.json/);
   const verifyBlock = source.slice(verify, autonomy);
-  assert.match(verifyBlock, /Workers AI zero-cost proof bundled in the exact Worker deployment and still fresh/);
+  assert.match(verifyBlock, /Workers AI \+ Browser Run zero-cost proofs bundled in the exact Worker deployment and still fresh/);
   assert.doesNotMatch(source.slice(deploy, autonomy), /wrangler secret put MEL_WORKERS_AI_ZERO_COST_PROOF_JSON/);
 });
 
