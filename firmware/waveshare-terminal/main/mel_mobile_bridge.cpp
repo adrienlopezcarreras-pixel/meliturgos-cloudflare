@@ -1,15 +1,13 @@
 #include "mel_mobile_bridge.h"
 
-#include <algorithm>
 #include <atomic>
 #include <cstring>
 #include <string>
 
-#include "cJSON.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
-#include "freertos/queue.h"
+
 #include "host/ble_att.h"
 #include "host/ble_gap.h"
 #include "host/ble_gatt.h"
@@ -17,483 +15,226 @@
 #include "host/util/util.h"
 #include "nimble/nimble_port.h"
 #include "nimble/nimble_port_freertos.h"
-#include "esp_central.h"
+#include "os/os_mbuf.h"
 
-static const char *TAG = "mel_mobile_bridge";
-static const uint16_t MEL_BRIDGE_SERVICE = 0xABF0;
-static const uint16_t MEL_BRIDGE_RX = 0xABF1;
-static const uint16_t MEL_BRIDGE_TX = 0xABF2;
-static const ble_uuid16_t UUID_SERVICE = BLE_UUID16_INIT(MEL_BRIDGE_SERVICE);
-static const ble_uuid16_t UUID_RX = BLE_UUID16_INIT(MEL_BRIDGE_RX);
-static const ble_uuid16_t UUID_TX = BLE_UUID16_INIT(MEL_BRIDGE_TX);
-// Android exposes UUID.fromString("0000abfX-0000-1000-8000-00805f9b34fb")
-// as a real 128-bit GATT UUID. NimBLE ble_uuid_cmp() is type-strict, so a
-// UUID16 and the equivalent Bluetooth-base UUID128 do NOT compare equal.
-// Accept both encodings end-to-end (advertisement + GATT discovery).
-static const ble_uuid128_t UUID_SERVICE_128 = BLE_UUID128_INIT(
-    0xfb, 0x34, 0x9b, 0x5f, 0x80, 0x00, 0x00, 0x80,
-    0x00, 0x10, 0x00, 0x00, 0xf0, 0xab, 0x00, 0x00
-);
-static const ble_uuid128_t UUID_RX_128 = BLE_UUID128_INIT(
-    0xfb, 0x34, 0x9b, 0x5f, 0x80, 0x00, 0x00, 0x80,
-    0x00, 0x10, 0x00, 0x00, 0xf1, 0xab, 0x00, 0x00
-);
-static const ble_uuid128_t UUID_TX_128 = BLE_UUID128_INIT(
-    0xfb, 0x34, 0x9b, 0x5f, 0x80, 0x00, 0x00, 0x80,
-    0x00, 0x10, 0x00, 0x00, 0xf2, 0xab, 0x00, 0x00
-);
-static const ble_uuid16_t UUID_CCCD = BLE_UUID16_INIT(BLE_GATT_DSC_CLT_CFG_UUID16);
+static const char *TAG = "mel_mobile_peripheral";
 
-static const uint8_t OP_BEGIN = 0x01;
-static const uint8_t OP_BODY = 0x02;
-static const uint8_t OP_END = 0x03;
-static const uint8_t OP_PING = 0x04;
-static const uint8_t OP_META_CHUNK = 0x05;
-static const uint8_t OP_RESPONSE_BEGIN = 0x11;
-static const uint8_t OP_RESPONSE_BODY = 0x12;
-static const uint8_t OP_RESPONSE_END = 0x13;
-static const uint8_t OP_ERROR = 0x1f;
+static const ble_uuid16_t UUID_SERVICE = BLE_UUID16_INIT(0xABF0);
+static const ble_uuid16_t UUID_RX = BLE_UUID16_INIT(0xABF1);
+static const ble_uuid16_t UUID_TX = BLE_UUID16_INIT(0xABF2);
 
 static std::atomic<bool> g_started{false};
 static std::atomic<bool> g_ready{false};
 static std::atomic<bool> g_candidate_seen{false};
 static uint16_t g_conn_handle = BLE_HS_CONN_HANDLE_NONE;
-static uint16_t g_rx_handle = 0;
-static uint16_t g_tx_handle = 0;
+static uint16_t g_rx_val_handle = 0;
+static uint16_t g_tx_val_handle = 0;
 static uint16_t g_mtu = 23;
-static SemaphoreHandle_t g_request_mutex = nullptr;
-static SemaphoreHandle_t g_write_done = nullptr;
-static bool g_write_failed = false;
-static SemaphoreHandle_t g_read_done = nullptr;
+
 static SemaphoreHandle_t g_response_done = nullptr;
-static uint8_t g_read_frame[520] = {};
-static size_t g_read_len = 0;
-static bool g_read_failed = false;
+static SemaphoreHandle_t g_request_mutex = nullptr;
+static std::string g_response;
+static int g_response_status = 0;
+static bool g_response_failed = false;
+static uint32_t g_active_id = 0;
 static std::atomic<uint32_t> g_request_id{1};
 
-struct NotifyFrame {
-    uint16_t len = 0;
-    uint8_t data[520] = {};
-};
-static QueueHandle_t g_notify_queue = nullptr;
-
-struct ActiveResponse {
-    uint32_t id = 0;
-    int status = 0;
-    bool failed = false;
-    std::string body;
-    mel_mobile_bridge_chunk_cb cb = nullptr;
-    void *cb_ctx = nullptr;
-};
-static ActiveResponse g_active;
+static const uint8_t OP_BEGIN = 0x01;
+static const uint8_t OP_BODY = 0x02;
+static const uint8_t OP_END = 0x03;
+static const uint8_t OP_PING = 0x04;
+static const uint8_t OP_RESPONSE_BEGIN = 0x11;
+static const uint8_t OP_RESPONSE_BODY = 0x12;
+static const uint8_t OP_RESPONSE_END = 0x13;
+static const uint8_t OP_ERROR = 0x1f;
 
 static int gap_event(struct ble_gap_event *event, void *arg);
-static void start_scan();
-static void handle_rx_frame(const uint8_t *data, size_t len);
+static void start_advertising();
 
-static std::string json_string(cJSON *root) {
-    char *raw = cJSON_PrintUnformatted(root);
-    std::string out = raw ? raw : "{}";
-    if (raw) cJSON_free(raw);
-    return out;
+static uint32_t frame_id(const uint8_t *data) {
+    return (uint32_t)data[1] |
+           ((uint32_t)data[2] << 8) |
+           ((uint32_t)data[3] << 16) |
+           ((uint32_t)data[4] << 24);
 }
 
-static bool uuid_matches_mel(const ble_uuid_t *uuid,
-                             const ble_uuid16_t *short_uuid,
-                             const ble_uuid128_t *full_uuid) {
-    if (!uuid || !short_uuid || !full_uuid) return false;
-    if (uuid->type == BLE_UUID_TYPE_16) {
-        return ble_uuid_cmp(uuid, &short_uuid->u) == 0;
-    }
-    if (uuid->type == BLE_UUID_TYPE_128) {
-        return ble_uuid_cmp(uuid, &full_uuid->u) == 0;
-    }
-    return false;
-}
-
-static bool adv_has_service(const struct ble_gap_disc_desc *disc) {
-    struct ble_hs_adv_fields fields = {};
-    if (ble_hs_adv_parse_fields(&fields, disc->data, disc->length_data) != 0) return false;
-    for (int i = 0; i < fields.num_uuids16; ++i) {
-        if (uuid_matches_mel(&fields.uuids16[i].u, &UUID_SERVICE, &UUID_SERVICE_128)) return true;
-    }
-    for (int i = 0; i < fields.num_uuids128; ++i) {
-        if (uuid_matches_mel(&fields.uuids128[i].u, &UUID_SERVICE, &UUID_SERVICE_128)) return true;
-    }
-    return false;
-}
-
-static int write_complete(uint16_t conn_handle, const struct ble_gatt_error *error,
-                          struct ble_gatt_attr *attr, void *arg) {
-    (void)conn_handle; (void)attr; (void)arg;
-    g_write_failed = error && error->status != 0;
-    if (g_write_failed) {
-        ESP_LOGW(TAG, "BLE write completion status=%d", error->status);
-    }
-    if (g_write_done) xSemaphoreGive(g_write_done);
-    return 0;
-}
-
-static int read_complete(uint16_t conn_handle, const struct ble_gatt_error *error,
-                         struct ble_gatt_attr *attr, void *arg) {
-    (void)conn_handle; (void)arg;
-    g_read_len = 0;
-    g_read_failed = true;
-    if (!error || error->status == 0) {
-        if (attr && attr->om) {
-            const int len = OS_MBUF_PKTLEN(attr->om);
-            if (len > 0 && len <= (int)sizeof(g_read_frame) &&
-                os_mbuf_copydata(attr->om, 0, len, g_read_frame) == 0) {
-                g_read_len = (size_t)len;
-                g_read_failed = false;
-            }
-        }
-    } else {
-        ESP_LOGW(TAG, "BLE TX read status=%d", error->status);
-    }
-    if (g_read_done) xSemaphoreGive(g_read_done);
-    return 0;
-}
-
-static bool pull_response_frame() {
-    if (!g_ready.load() || g_conn_handle == BLE_HS_CONN_HANDLE_NONE || !g_tx_handle) return false;
-    while (xSemaphoreTake(g_read_done, 0) == pdTRUE) {}
-    g_read_len = 0;
-    g_read_failed = true;
-    const int rc = ble_gattc_read(g_conn_handle, g_tx_handle, read_complete, nullptr);
-    if (rc != 0) {
-        ESP_LOGW(TAG, "BLE TX read start failed rc=%d", rc);
-        return false;
-    }
-    if (xSemaphoreTake(g_read_done, pdMS_TO_TICKS(2500)) != pdTRUE) {
-        ESP_LOGW(TAG, "BLE TX read timeout");
-        return false;
-    }
-    if (g_read_failed) return false;
-    if (g_read_len >= 5 && g_read_frame[0] != 0) {
-        handle_rx_frame(g_read_frame, g_read_len);
-    }
-    return true;
-}
-
-static int cccd_subscribe_complete(uint16_t conn_handle, const struct ble_gatt_error *error,
-                                   struct ble_gatt_attr *attr, void *arg) {
-    (void)attr; (void)arg;
-    if (!error || error->status == 0) {
-        g_mtu = ble_att_mtu(conn_handle);
-        g_ready.store(true);
-        ESP_LOGI(TAG, "MEL MOBILE READY after CCCD confirm conn=%u mtu=%u rx=%u tx=%u",
-                 conn_handle, g_mtu, g_rx_handle, g_tx_handle);
-        return 0;
-    }
-    ESP_LOGW(TAG, "MEL Mobile CCCD subscribe failed status=%d", error->status);
-    g_ready.store(false);
-    ble_gap_terminate(conn_handle, BLE_ERR_REM_USER_CONN_TERM);
-    return 0;
-}
-
-static bool write_frame(uint8_t op, uint32_t id, const uint8_t *payload, size_t payload_len) {
-    if (!g_ready.load() || g_conn_handle == BLE_HS_CONN_HANDLE_NONE || !g_rx_handle) return false;
-    const uint16_t mtu = ble_att_mtu(g_conn_handle);
-    // GATT characteristic values are capped at 512 bytes even with MTU 517.
-    // Keep the full MEL frame (5-byte header + payload) comfortably below it.
-    const size_t limit = std::min<size_t>(500, mtu > 8 ? (size_t)mtu - 8 : 15);
-    if (payload_len > limit) {
-        ESP_LOGE(TAG, "BLE frame too large: %u > %u (MTU %u)",
-                 (unsigned)payload_len, (unsigned)limit, (unsigned)mtu);
-        return false;
-    }
-    std::string frame;
-    frame.resize(5 + payload_len);
-    frame[0] = (char)op;
-    frame[1] = (char)(id & 0xff);
-    frame[2] = (char)((id >> 8) & 0xff);
-    frame[3] = (char)((id >> 16) & 0xff);
-    frame[4] = (char)((id >> 24) & 0xff);
-    if (payload_len) memcpy(frame.data() + 5, payload, payload_len);
-    while (xSemaphoreTake(g_write_done, 0) == pdTRUE) {}
-    g_write_failed = false;
-    int rc = ble_gattc_write_flat(
-        g_conn_handle, g_rx_handle, frame.data(), (uint16_t)frame.size(), write_complete, nullptr
-    );
-    if (rc != 0) {
-        ESP_LOGW(TAG, "BLE write start failed rc=%d", rc);
-        return false;
-    }
-    if (xSemaphoreTake(g_write_done, pdMS_TO_TICKS(5000)) != pdTRUE) {
-        ESP_LOGW(TAG, "BLE write timeout");
-        return false;
-    }
-    return !g_write_failed;
-}
-
-static void handle_rx_frame(const uint8_t *data, size_t len) {
+static void consume_response_frame(const uint8_t *data, size_t len) {
     if (!data || len < 5) return;
     const uint8_t op = data[0];
-    const uint32_t id = (uint32_t)data[1] |
-                        ((uint32_t)data[2] << 8) |
-                        ((uint32_t)data[3] << 16) |
-                        ((uint32_t)data[4] << 24);
-    ESP_LOGI(TAG, "MEL Mobile RX op=0x%02x id=%u len=%u active=%u",
-             op, (unsigned)id, (unsigned)len, (unsigned)g_active.id);
-    if (id != g_active.id) return;
+    const uint32_t id = frame_id(data);
+    if (id != g_active_id) return;
     const uint8_t *payload = data + 5;
     const size_t payload_len = len - 5;
 
     if (op == OP_RESPONSE_BEGIN) {
-        std::string meta(reinterpret_cast<const char *>(payload), payload_len);
-        cJSON *root = cJSON_Parse(meta.c_str());
-        cJSON *status = root ? cJSON_GetObjectItemCaseSensitive(root, "status") : nullptr;
-        g_active.status = cJSON_IsNumber(status) ? status->valueint : 0;
-        ESP_LOGI(TAG, "MEL Mobile response begin status=%d", g_active.status);
-        if (root) cJSON_Delete(root);
+        g_response_status = 200;
+        if (payload_len) {
+            std::string meta(reinterpret_cast<const char *>(payload), payload_len);
+            const std::string key = "\"status\":";
+            const auto pos = meta.find(key);
+            if (pos != std::string::npos) {
+                g_response_status = atoi(meta.c_str() + pos + key.size());
+            }
+        }
         return;
     }
     if (op == OP_RESPONSE_BODY) {
-        if (g_active.cb) {
-            if (!g_active.cb(payload, payload_len, g_active.cb_ctx)) g_active.failed = true;
-        } else if (g_active.body.size() + payload_len <= 1024 * 1024) {
-            g_active.body.append(reinterpret_cast<const char *>(payload), payload_len);
+        if (g_response.size() + payload_len <= 1024 * 1024) {
+            g_response.append(reinterpret_cast<const char *>(payload), payload_len);
         } else {
-            g_active.failed = true;
+            g_response_failed = true;
         }
         return;
     }
     if (op == OP_ERROR) {
-        g_active.failed = true;
-        if (payload_len) {
-            ESP_LOGW(TAG, "MEL Mobile bridge error: %.*s", (int)payload_len, (const char *)payload);
-        }
+        g_response_failed = true;
         if (g_response_done) xSemaphoreGive(g_response_done);
         return;
     }
     if (op == OP_RESPONSE_END) {
-        ESP_LOGI(TAG, "MEL Mobile response end id=%u status=%d", (unsigned)id, g_active.status);
         if (g_response_done) xSemaphoreGive(g_response_done);
     }
 }
 
-static void on_discovery_complete(const struct peer *peer, int status, void *arg) {
+static int gatt_access(uint16_t conn_handle, uint16_t attr_handle,
+                       struct ble_gatt_access_ctxt *ctxt, void *arg) {
     (void)arg;
-    if (status != 0 || !peer) {
-        ESP_LOGW(TAG, "GATT discovery failed status=%d", status);
-        if (peer) ble_gap_terminate(peer->conn_handle, BLE_ERR_REM_USER_CONN_TERM);
-        return;
-    }
-
-    // Android may temporarily expose several copies of the same custom GATT
-    // service after app updates/restarts. The peer helper returns the first
-    // match, which can be a stale registration. Select the newest matching
-    // service (highest start handle) and resolve RX/TX/CCCD inside that service.
-    const struct peer_svc *selected_svc = nullptr;
-    int matching_services = 0;
-    const struct peer_svc *svc = nullptr;
-    SLIST_FOREACH(svc, &peer->svcs, next) {
-        if (!uuid_matches_mel(&svc->svc.uuid.u, &UUID_SERVICE, &UUID_SERVICE_128)) continue;
-        matching_services++;
-        if (!selected_svc || svc->svc.start_handle > selected_svc->svc.start_handle) {
-            selected_svc = svc;
+    if (attr_handle == g_rx_val_handle && ctxt->op == BLE_GATT_ACCESS_OP_WRITE_CHR) {
+        const int len = OS_MBUF_PKTLEN(ctxt->om);
+        if (len <= 0 || len > 520) return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
+        uint8_t frame[520] = {};
+        if (os_mbuf_copydata(ctxt->om, 0, len, frame) != 0) {
+            return BLE_ATT_ERR_UNLIKELY;
         }
+        consume_response_frame(frame, (size_t)len);
+        return 0;
     }
-
-    const struct peer_chr *rx = nullptr;
-    const struct peer_chr *tx = nullptr;
-    const struct peer_dsc *cccd = nullptr;
-    if (selected_svc) {
-        const struct peer_chr *chr = nullptr;
-        SLIST_FOREACH(chr, &selected_svc->chrs, next) {
-            if (uuid_matches_mel(&chr->chr.uuid.u, &UUID_RX, &UUID_RX_128)) rx = chr;
-            if (uuid_matches_mel(&chr->chr.uuid.u, &UUID_TX, &UUID_TX_128)) tx = chr;
-        }
-        if (tx) {
-            const struct peer_dsc *dsc = nullptr;
-            SLIST_FOREACH(dsc, &tx->dscs, next) {
-                if (ble_uuid_cmp(&dsc->dsc.uuid.u, &UUID_CCCD.u) == 0) {
-                    cccd = dsc;
-                    break;
-                }
-            }
-        }
+    if (attr_handle == g_tx_val_handle && ctxt->op == BLE_GATT_ACCESS_OP_READ_CHR) {
+        return 0;
     }
-
-    if (!rx || !tx || !cccd) {
-        ESP_LOGW(TAG, "MEL Mobile GATT layout incomplete services=%d", matching_services);
-        ble_gap_terminate(peer->conn_handle, BLE_ERR_REM_USER_CONN_TERM);
-        return;
-    }
-    ESP_LOGI(TAG, "MEL Mobile GATT services=%d selected=%u-%u rx=%u tx=%u cccd=%u",
-             matching_services,
-             selected_svc ? selected_svc->svc.start_handle : 0,
-             selected_svc ? selected_svc->svc.end_handle : 0,
-             rx->chr.val_handle, tx->chr.val_handle, cccd->dsc.handle);
-    g_rx_handle = rx->chr.val_handle;
-    g_tx_handle = tx->chr.val_handle;
-    uint8_t value[2] = {1, 0}; // notifications
-    g_ready.store(false);
-    int rc = ble_gattc_write_flat(
-        peer->conn_handle,
-        cccd->dsc.handle,
-        value,
-        sizeof(value),
-        cccd_subscribe_complete,
-        nullptr
-    );
-    if (rc != 0) {
-        ESP_LOGW(TAG, "MEL Mobile subscribe start failed rc=%d", rc);
-        ble_gap_terminate(peer->conn_handle, BLE_ERR_REM_USER_CONN_TERM);
-        return;
-    }
-    ESP_LOGI(TAG, "MEL Mobile CCCD subscribe queued; waiting for confirmation");
+    return BLE_ATT_ERR_UNLIKELY;
 }
 
-static int mtu_complete(uint16_t conn_handle, const struct ble_gatt_error *error,
-                        uint16_t mtu, void *arg) {
-    (void)arg;
-    if (!error || error->status == 0) {
-        g_mtu = mtu;
-        ESP_LOGI(TAG, "MEL Mobile MTU=%u", mtu);
-    }
-    // Discover all services because Android may expose the Bluetooth-base
-    // UUID as a 128-bit ATT UUID. peer_disc_svc_by_uuid(UUID16) would miss it.
-    int rc = peer_disc_all(conn_handle, on_discovery_complete, nullptr);
+static const struct ble_gatt_svc_def gatt_svcs[] = {
+    {
+        .type = BLE_GATT_SVC_TYPE_PRIMARY,
+        .uuid = &UUID_SERVICE.u,
+        .characteristics = (struct ble_gatt_chr_def[]) {
+            {
+                .uuid = &UUID_RX.u,
+                .access_cb = gatt_access,
+                .val_handle = &g_rx_val_handle,
+                .flags = BLE_GATT_CHR_F_WRITE | BLE_GATT_CHR_F_WRITE_NO_RSP,
+            },
+            {
+                .uuid = &UUID_TX.u,
+                .access_cb = gatt_access,
+                .val_handle = &g_tx_val_handle,
+                .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_NOTIFY,
+            },
+            {0}
+        }
+    },
+    {0}
+};
+
+static bool notify_frame(uint8_t op, uint32_t id, const uint8_t *payload, size_t payload_len) {
+    if (!g_ready.load() || g_conn_handle == BLE_HS_CONN_HANDLE_NONE || !g_tx_val_handle) return false;
+    const size_t max_payload = (g_mtu > 8) ? std::min<size_t>(500, g_mtu - 8) : 15;
+    if (payload_len > max_payload) return false;
+
+    uint8_t frame[520] = {};
+    frame[0] = op;
+    frame[1] = (uint8_t)(id & 0xff);
+    frame[2] = (uint8_t)((id >> 8) & 0xff);
+    frame[3] = (uint8_t)((id >> 16) & 0xff);
+    frame[4] = (uint8_t)((id >> 24) & 0xff);
+    if (payload_len) memcpy(frame + 5, payload, payload_len);
+
+    struct os_mbuf *om = ble_hs_mbuf_from_flat(frame, (uint16_t)(5 + payload_len));
+    if (!om) return false;
+    const int rc = ble_gatts_notify_custom(g_conn_handle, g_tx_val_handle, om);
     if (rc != 0) {
-        ESP_LOGW(TAG, "MEL Mobile service discovery start failed rc=%d", rc);
-        ble_gap_terminate(conn_handle, BLE_ERR_REM_USER_CONN_TERM);
+        ESP_LOGW(TAG, "notify failed rc=%d", rc);
+        return false;
     }
-    return 0;
+    return true;
 }
 
-static void connect_to(const struct ble_gap_disc_desc *disc) {
+static void start_advertising() {
     uint8_t own_addr_type = 0;
-    if (ble_gap_disc_cancel() != 0) return;
-    if (ble_hs_id_infer_auto(0, &own_addr_type) != 0) {
-        start_scan();
-        return;
-    }
-    struct ble_gap_conn_params params = {};
-    params.scan_itvl = 0x0010;
-    params.scan_window = 0x0010;
-    params.itvl_min = BLE_GAP_INITIAL_CONN_ITVL_MIN;   // 30 ms
-    params.itvl_max = BLE_GAP_INITIAL_CONN_ITVL_MAX;   // 50 ms
-    params.latency = BLE_GAP_INITIAL_CONN_LATENCY;
-    params.supervision_timeout = BLE_GAP_INITIAL_SUPERVISION_TIMEOUT;
-    params.min_ce_len = BLE_GAP_INITIAL_CONN_MIN_CE_LEN;
-    params.max_ce_len = BLE_GAP_INITIAL_CONN_MAX_CE_LEN;
-    int rc = ble_gap_connect(own_addr_type, &disc->addr, 15000, &params, gap_event, nullptr);
-    if (rc != 0) {
-        ESP_LOGW(TAG, "MEL Mobile connect start failed rc=%d", rc);
-        start_scan();
+    if (ble_hs_id_infer_auto(0, &own_addr_type) != 0) return;
+
+    struct ble_hs_adv_fields fields = {};
+    fields.flags = BLE_HS_ADV_F_DISC_GEN | BLE_HS_ADV_F_BREDR_UNSUP;
+    const char *name = "MEL MINI";
+    fields.name = (uint8_t *)name;
+    fields.name_len = strlen(name);
+    fields.name_is_complete = 1;
+    fields.uuids16 = (ble_uuid16_t *)&UUID_SERVICE;
+    fields.num_uuids16 = 1;
+    fields.uuids16_is_complete = 1;
+    ble_gap_adv_set_fields(&fields);
+
+    struct ble_gap_adv_params params = {};
+    params.conn_mode = BLE_GAP_CONN_MODE_UND;
+    params.disc_mode = BLE_GAP_DISC_MODE_GEN;
+    const int rc = ble_gap_adv_start(own_addr_type, nullptr, BLE_HS_FOREVER, &params, gap_event, nullptr);
+    if (rc == 0 || rc == BLE_HS_EALREADY) {
+        g_candidate_seen.store(true);
+        ESP_LOGI(TAG, "Advertising MEL MINI service ABF0");
     } else {
-        ESP_LOGI(TAG, "MEL Mobile candidate found; connecting");
+        ESP_LOGW(TAG, "Advertising failed rc=%d", rc);
     }
 }
 
 static int gap_event(struct ble_gap_event *event, void *arg) {
     (void)arg;
     switch (event->type) {
-        case BLE_GAP_EVENT_DISC:
-            if (adv_has_service(&event->disc)) {
-                g_candidate_seen.store(true);
-                ESP_LOGI(TAG, "MEL Mobile advertisement detected rssi=%d", event->disc.rssi);
-                connect_to(&event->disc);
-            }
-            return 0;
         case BLE_GAP_EVENT_CONNECT:
             if (event->connect.status != 0) {
-                ESP_LOGW(TAG, "MEL Mobile BLE connect failed status=%d", event->connect.status);
-                start_scan();
+                ESP_LOGW(TAG, "BLE connect failed status=%d", event->connect.status);
+                start_advertising();
                 return 0;
             }
             g_conn_handle = event->connect.conn_handle;
             g_ready.store(false);
-            if (peer_add(g_conn_handle) != 0) {
-                ble_gap_terminate(g_conn_handle, BLE_ERR_REM_USER_CONN_TERM);
-                return 0;
-            }
-            ble_att_set_preferred_mtu(517);
-            if (ble_gattc_exchange_mtu(g_conn_handle, mtu_complete, nullptr) != 0) {
-                mtu_complete(g_conn_handle, nullptr, ble_att_mtu(g_conn_handle), nullptr);
-            }
+            g_mtu = ble_att_mtu(g_conn_handle);
+            ESP_LOGI(TAG, "Android connected conn=%u mtu=%u", g_conn_handle, g_mtu);
             return 0;
-        case BLE_GAP_EVENT_NOTIFY_RX: {
-            if (event->notify_rx.attr_handle != g_tx_handle || !event->notify_rx.om) return 0;
-            const int len = OS_MBUF_PKTLEN(event->notify_rx.om);
-            if (len <= 0 || len > 520 || !g_notify_queue) return 0;
-            NotifyFrame frame;
-            frame.len = (uint16_t)len;
-            if (os_mbuf_copydata(event->notify_rx.om, 0, len, frame.data) == 0) {
-                if (xQueueSend(g_notify_queue, &frame, 0) != pdTRUE) {
-                    ESP_LOGW(TAG, "BLE notify queue full; dropping frame");
-                }
+        case BLE_GAP_EVENT_SUBSCRIBE:
+            if (event->subscribe.attr_handle == g_tx_val_handle &&
+                (event->subscribe.cur_notify || event->subscribe.cur_indicate)) {
+                g_ready.store(true);
+                g_mtu = ble_att_mtu(event->subscribe.conn_handle);
+                ESP_LOGI(TAG, "LINK V2 READY conn=%u mtu=%u", event->subscribe.conn_handle, g_mtu);
+            } else if (event->subscribe.attr_handle == g_tx_val_handle) {
+                g_ready.store(false);
             }
             return 0;
-        }
-        case BLE_GAP_EVENT_CONN_UPDATE_REQ:
-        case BLE_GAP_EVENT_L2CAP_UPDATE_REQ:
-            ESP_LOGI(TAG,
-                     "MEL Mobile conn update req itvl=%u-%u latency=%u timeout=%u",
-                     event->conn_update_req.peer_params->itvl_min,
-                     event->conn_update_req.peer_params->itvl_max,
-                     event->conn_update_req.peer_params->latency,
-                     event->conn_update_req.peer_params->supervision_timeout);
-            // NimBLE pre-fills self_params with the peer request. Return 0 to accept it.
-            return 0;
-        case BLE_GAP_EVENT_CONN_UPDATE: {
-            struct ble_gap_conn_desc desc = {};
-            if (ble_gap_conn_find(event->conn_update.conn_handle, &desc) == 0) {
-                ESP_LOGI(TAG,
-                         "MEL Mobile conn updated status=%d itvl=%u latency=%u timeout=%u",
-                         event->conn_update.status,
-                         desc.conn_itvl,
-                         desc.conn_latency,
-                         desc.supervision_timeout);
-            } else {
-                ESP_LOGI(TAG, "MEL Mobile conn update status=%d", event->conn_update.status);
-            }
-            return 0;
-        }
         case BLE_GAP_EVENT_MTU:
             g_mtu = event->mtu.value;
+            ESP_LOGI(TAG, "MTU updated=%u", g_mtu);
             return 0;
         case BLE_GAP_EVENT_DISCONNECT:
-            ESP_LOGW(TAG, "MEL Mobile disconnected reason=%d", event->disconnect.reason);
+            ESP_LOGW(TAG, "Android disconnected reason=%d", event->disconnect.reason);
             g_ready.store(false);
-            g_rx_handle = 0;
-            g_tx_handle = 0;
-            if (g_conn_handle != BLE_HS_CONN_HANDLE_NONE) peer_delete(g_conn_handle);
             g_conn_handle = BLE_HS_CONN_HANDLE_NONE;
-            g_active.failed = true;
             if (g_response_done) xSemaphoreGive(g_response_done);
-            start_scan();
+            start_advertising();
             return 0;
-        case BLE_GAP_EVENT_DISC_COMPLETE:
-            if (!g_ready.load() && g_conn_handle == BLE_HS_CONN_HANDLE_NONE) start_scan();
+        case BLE_GAP_EVENT_ADV_COMPLETE:
+            if (g_conn_handle == BLE_HS_CONN_HANDLE_NONE) start_advertising();
             return 0;
         default:
             return 0;
     }
 }
 
-static void start_scan() {
-    if (!g_started.load() || g_conn_handle != BLE_HS_CONN_HANDLE_NONE) return;
-    uint8_t own_addr_type = 0;
-    if (ble_hs_id_infer_auto(0, &own_addr_type) != 0) return;
-    struct ble_gap_disc_params params = {};
-    // Active scanning is intentional: some Android stacks move service data
-    // to the scan response. MINI must discover MEL Mobile before Wi-Fi fallback.
-    params.passive = 0;
-    params.filter_duplicates = 0;
-    params.filter_policy = 0;
-    params.limited = 0;
-    int rc = ble_gap_disc(own_addr_type, BLE_HS_FOREVER, &params, gap_event, nullptr);
-    if (rc != 0 && rc != BLE_HS_EALREADY) {
-        ESP_LOGW(TAG, "MEL Mobile scan failed rc=%d", rc);
-    }
-}
-
 static void on_reset(int reason) {
-    ESP_LOGW(TAG, "NimBLE reset reason=%d", reason);
     g_ready.store(false);
+    g_conn_handle = BLE_HS_CONN_HANDLE_NONE;
+    ESP_LOGW(TAG, "NimBLE reset reason=%d", reason);
 }
 
 static void on_sync() {
@@ -502,7 +243,8 @@ static void on_sync() {
         ESP_LOGE(TAG, "NimBLE address init failed rc=%d", rc);
         return;
     }
-    start_scan();
+    ble_svc_gap_device_name_set("MEL MINI");
+    start_advertising();
 }
 
 static void host_task(void *param) {
@@ -514,61 +256,47 @@ static void host_task(void *param) {
 void mel_mobile_bridge_start(void) {
     bool expected = false;
     if (!g_started.compare_exchange_strong(expected, true)) return;
-    g_request_mutex = xSemaphoreCreateMutex();
-    g_write_done = xSemaphoreCreateBinary();
-    g_read_done = xSemaphoreCreateBinary();
+
     g_response_done = xSemaphoreCreateBinary();
-    g_notify_queue = xQueueCreate(32, sizeof(NotifyFrame));
-    if (!g_request_mutex || !g_write_done || !g_read_done || !g_response_done || !g_notify_queue) {
-        ESP_LOGE(TAG, "MEL Mobile synchronization allocation failed");
+    g_request_mutex = xSemaphoreCreateMutex();
+    if (!g_response_done || !g_request_mutex) {
+        ESP_LOGE(TAG, "sync allocation failed");
         g_started.store(false);
         return;
     }
-    int rc = peer_init(1, 8, 16, 16);
-    if (rc != 0) {
-        ESP_LOGE(TAG, "NimBLE peer init failed rc=%d", rc);
-        g_started.store(false);
-        return;
-    }
+
     esp_err_t err = nimble_port_init();
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "NimBLE init failed: %s", esp_err_to_name(err));
         g_started.store(false);
         return;
     }
+
     ble_hs_cfg.reset_cb = on_reset;
     ble_hs_cfg.sync_cb = on_sync;
     ble_att_set_preferred_mtu(517);
+
+    int rc = ble_gatts_count_cfg(gatt_svcs);
+    if (rc == 0) rc = ble_gatts_add_svcs(gatt_svcs);
+    if (rc != 0) {
+        ESP_LOGE(TAG, "GATT service init failed rc=%d", rc);
+        g_started.store(false);
+        return;
+    }
+
     nimble_port_freertos_init(host_task);
-    ESP_LOGI(TAG, "MEL Mobile BLE client started");
+    ESP_LOGI(TAG, "MEL MINI BLE peripheral started");
 }
 
 void mel_mobile_bridge_rescan(void) {
-    if (!g_started.load()) {
-        mel_mobile_bridge_start();
-        return;
-    }
-    if (g_conn_handle != BLE_HS_CONN_HANDLE_NONE) {
-        if (g_ready.load()) {
-            // The settings button is a discovery/recovery action, not a
-            // disconnect button. Keep a proven GATT bridge intact.
-            ESP_LOGI(TAG, "MEL Mobile rescan ignored: healthy BLE link already active");
-            return;
-        }
-        ESP_LOGW(TAG, "MEL Mobile rescan: recycling incomplete BLE connection");
-        ble_gap_terminate(g_conn_handle, BLE_ERR_REM_USER_CONN_TERM);
-        return;
-    }
-    start_scan();
+    if (!g_started.load()) mel_mobile_bridge_start();
+    else if (g_conn_handle == BLE_HS_CONN_HANDLE_NONE) start_advertising();
 }
 
 bool mel_mobile_bridge_keepalive(void) {
-    if (!g_ready.load() || g_conn_handle == BLE_HS_CONN_HANDLE_NONE || !g_request_mutex) return false;
-    if (xSemaphoreTake(g_request_mutex, 0) != pdTRUE) return false;
-    const bool ok = pull_response_frame();
-    xSemaphoreGive(g_request_mutex);
-    if (ok) ESP_LOGD(TAG, "MEL Mobile keepalive OK");
-    return ok;
+    if (!g_ready.load()) return false;
+    const uint32_t id = g_request_id.fetch_add(1);
+    return notify_frame(OP_PING, id, nullptr, 0);
 }
 
 bool mel_mobile_bridge_ready(void) {
@@ -591,116 +319,50 @@ static esp_err_t request_common(
     const char *device_id,
     const uint8_t *body,
     size_t body_len,
-    std::string *response,
-    int &status,
-    mel_mobile_bridge_chunk_cb cb,
-    void *cb_ctx
+    std::string &response,
+    int &status
 ) {
-    if (!mel_mobile_bridge_ready() || !path || !device_id) return ESP_ERR_INVALID_STATE;
-    if (body_len > 512 * 1024) return ESP_ERR_INVALID_SIZE;
-    if (xSemaphoreTake(g_request_mutex, pdMS_TO_TICKS(3000)) != pdTRUE) return ESP_ERR_TIMEOUT;
+    if (!g_ready.load() || !g_request_mutex) return ESP_ERR_INVALID_STATE;
+    if (xSemaphoreTake(g_request_mutex, pdMS_TO_TICKS(1000)) != pdTRUE) return ESP_ERR_TIMEOUT;
 
-    const uint32_t id = g_request_id.fetch_add(1);
-    g_active = {};
-    g_active.id = id;
-    g_active.cb = cb;
-    g_active.cb_ctx = cb_ctx;
     while (xSemaphoreTake(g_response_done, 0) == pdTRUE) {}
-    if (g_notify_queue) xQueueReset(g_notify_queue);
+    g_response.clear();
+    g_response_status = 0;
+    g_response_failed = false;
+    g_active_id = g_request_id.fetch_add(1);
 
-    cJSON *root = cJSON_CreateObject();
-    cJSON_AddStringToObject(root, "m", method == HTTP_METHOD_GET ? "GET" : "POST");
-    cJSON_AddStringToObject(root, "p", path);
-    cJSON_AddStringToObject(root, "c", content_type ? content_type : "application/json");
-    cJSON_AddStringToObject(root, "t", token ? token : "");
-    cJSON_AddStringToObject(root, "d", device_id);
-    cJSON_AddNumberToObject(root, "l", (double)body_len);
-    std::string meta = json_string(root);
-    cJSON_Delete(root);
+    char meta[1024] = {};
+    snprintf(meta, sizeof(meta),
+             "{\"method\":%d,\"path\":\"%s\",\"content_type\":\"%s\",\"token\":\"%s\",\"device_id\":\"%s\",\"content_length\":%u}",
+             (int)method,
+             path ? path : "",
+             content_type ? content_type : "",
+             token ? token : "",
+             device_id ? device_id : "",
+             (unsigned)body_len);
 
-    const uint16_t mtu = ble_att_mtu(g_conn_handle);
-    const size_t chunk = std::max<size_t>(12, std::min<size_t>(500, mtu > 8 ? (size_t)mtu - 8 : 15));
-
-    bool ok = true;
-    if (meta.size() <= chunk) {
-        ok = write_frame(OP_BEGIN, id, reinterpret_cast<const uint8_t *>(meta.data()), meta.size());
-    } else {
-        // The Redmi/Android GATT server can legitimately negotiate the BLE minimum
-        // MTU (23). Fragment request metadata instead of treating a healthy BLE link
-        // as unusable merely because the JSON header is larger than one ATT packet.
-        for (size_t off = 0; ok && off < meta.size(); off += chunk) {
-            const size_t n = std::min(chunk, meta.size() - off);
-            ok = write_frame(OP_META_CHUNK, id,
-                             reinterpret_cast<const uint8_t *>(meta.data() + off), n);
-        }
-        if (ok) ok = write_frame(OP_BEGIN, id, nullptr, 0);
+    bool ok = notify_frame(OP_BEGIN, g_active_id, (const uint8_t *)meta, strlen(meta));
+    const size_t chunk = g_mtu > 16 ? std::min<size_t>(480, g_mtu - 12) : 11;
+    for (size_t off = 0; ok && off < body_len; off += chunk) {
+        const size_t n = std::min(chunk, body_len - off);
+        ok = notify_frame(OP_BODY, g_active_id, body + off, n);
     }
+    if (ok) ok = notify_frame(OP_END, g_active_id, nullptr, 0);
 
-    if (ok && body_len) {
-        for (size_t off = 0; ok && off < body_len; off += chunk) {
-            const size_t n = std::min(chunk, body_len - off);
-            ok = write_frame(OP_BODY, id, body + off, n);
-        }
-    }
-    if (ok) ok = write_frame(OP_END, id, nullptr, 0);
     if (!ok) {
-        g_active.failed = true;
         xSemaphoreGive(g_request_mutex);
         return ESP_FAIL;
     }
 
-    const TickType_t wait = pdMS_TO_TICKS(120000);
-    const TickType_t started = xTaskGetTickCount();
-    bool completed = false;
-    NotifyFrame notify_frame;
-    TickType_t last_pull = 0;
-    while ((xTaskGetTickCount() - started) < wait) {
-        if (xSemaphoreTake(g_response_done, 0) == pdTRUE) {
-            completed = true;
-            break;
-        }
-        if (!g_ready.load() || g_conn_handle == BLE_HS_CONN_HANDLE_NONE) break;
-
-        // Consume all push notifications first.
-        while (g_notify_queue && xQueueReceive(g_notify_queue, &notify_frame, 0) == pdTRUE) {
-            handle_rx_frame(notify_frame.data, notify_frame.len);
-            if (xSemaphoreTake(g_response_done, 0) == pdTRUE) {
-                completed = true;
-                break;
-            }
-        }
-        if (completed) break;
-
-        // IMPORTANT: Android can fall back from notify to characteristic-read
-        // for any individual response frame. The old code stopped polling forever
-        // after the first successful notification, so a later frame placed in the
-        // pull queue could never be consumed. That left MINI stuck at "MEL à valider".
-        const TickType_t now = xTaskGetTickCount();
-        if ((now - last_pull) >= pdMS_TO_TICKS(60)) {
-            pull_response_frame();
-            last_pull = now;
-            if (xSemaphoreTake(g_response_done, 0) == pdTRUE) {
-                completed = true;
-                break;
-            }
-        }
-        vTaskDelay(pdMS_TO_TICKS(5));
-    }
-    if (!completed) {
-        g_active.failed = true;
-        ESP_LOGW(TAG, "MEL Mobile request id=%u timed out; recycling BLE link", (unsigned)id);
-        g_ready.store(false);
-        if (g_conn_handle != BLE_HS_CONN_HANDLE_NONE) {
-            ble_gap_terminate(g_conn_handle, BLE_ERR_REM_USER_CONN_TERM);
-        }
-        xSemaphoreGive(g_request_mutex);
-        return ESP_ERR_TIMEOUT;
-    }
-    status = g_active.status;
-    if (response) *response = g_active.body;
-    const bool failed = g_active.failed;
+    const bool completed = xSemaphoreTake(g_response_done, pdMS_TO_TICKS(30000)) == pdTRUE;
+    response = g_response;
+    status = g_response_status;
+    const bool failed = g_response_failed;
+    g_active_id = 0;
     xSemaphoreGive(g_request_mutex);
-    return failed ? ESP_FAIL : ESP_OK;
+    if (!completed) return ESP_ERR_TIMEOUT;
+    if (failed) return ESP_FAIL;
+    return ESP_OK;
 }
 
 esp_err_t mel_mobile_bridge_request(
@@ -714,8 +376,7 @@ esp_err_t mel_mobile_bridge_request(
     std::string &response,
     int &status
 ) {
-    return request_common(method, path, content_type, token, device_id,
-                          body, body_len, &response, status, nullptr, nullptr);
+    return request_common(method, path, content_type, token, device_id, body, body_len, response, status);
 }
 
 esp_err_t mel_mobile_bridge_request_stream(
@@ -730,6 +391,10 @@ esp_err_t mel_mobile_bridge_request_stream(
     mel_mobile_bridge_chunk_cb cb,
     void *ctx
 ) {
-    return request_common(method, path, content_type, token, device_id,
-                          body, body_len, nullptr, status, cb, ctx);
+    std::string response;
+    const esp_err_t err = request_common(method, path, content_type, token, device_id, body, body_len, response, status);
+    if (err == ESP_OK && cb && !response.empty()) {
+        if (!cb((const uint8_t *)response.data(), response.size(), ctx)) return ESP_FAIL;
+    }
+    return err;
 }
