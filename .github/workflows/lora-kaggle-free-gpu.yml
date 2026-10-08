@@ -642,6 +642,22 @@ jobs:
                 fi
               fi
             fi
+            if (( attempt == 1 || attempt % 4 == 0 )); then
+              TRACE_STATUS_TEXT="$STATUS" TRACE_ATTEMPT="$attempt" node - <<'NODE'
+              const fs=require('fs');
+              fs.writeFileSync('artifacts/lora-trace-heartbeat.json',JSON.stringify({
+                training:{
+                  kaggle_status:String(process.env.TRACE_STATUS_TEXT||'').slice(0,1200),
+                  monitor_attempt:Number(process.env.TRACE_ATTEMPT||0),
+                  heartbeat_at:new Date().toISOString(),
+                },
+              },null,2)+'\n');
+              NODE
+              if ! node .mel-trace-control/scripts/lora-daily-trace-client.mjs TRAINING_HEARTBEAT artifacts/lora-trace-heartbeat.json RUNNING; then
+                echo "::error title=LoRA trace unavailable::Durable heartbeat failed; run cannot remain valid."
+                exit 71
+              fi
+            fi
             LOWER="$(printf '%s' "$STATUS" | tr '[:upper:]' '[:lower:]')"
             if printf '%s' "$LOWER" | grep -Eq 'complete|completed|success'; then
               COMPLETE=1
