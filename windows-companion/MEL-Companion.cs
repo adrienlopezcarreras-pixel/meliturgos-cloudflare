@@ -1046,7 +1046,7 @@ class MainForm : Form
         MelApp.EnsureCompanion();
         MelApp.MaybeRefreshCompanionEngine(false);
         var ok=MelApp.Heartbeat(); state.Text=ok?"● Connecté à MEL":"● Reconnexion…"; state.ForeColor=ok?MelApp.Green:MelApp.Red;
-        MelApp.Tray.Text=ok?"MEL Companion — connecté":"MEL Companion — reconnexion";
+        if (MelApp.Tray != null) MelApp.Tray.Text=ok?"MEL Companion — connecté":"MEL Companion — reconnexion";
         devicePanel.Controls.Clear(); var devices=MelApp.Devices();
         if (devices.Count==0)
         {
@@ -1084,6 +1084,17 @@ class MainForm : Form
 class Program
 {
     static Mutex mutex;
+    static void StartupError(string stage, Exception ex)
+    {
+        try
+        {
+            Directory.CreateDirectory(MelApp.MelDir);
+            File.AppendAllText(Path.Combine(MelApp.MelDir, "companion-startup.log"),
+                DateTime.UtcNow.ToString("o") + " [" + stage + "] " + ex.ToString() + Environment.NewLine);
+        }
+        catch { }
+    }
+
     [STAThread]
     static void Main(string[] args)
     {
@@ -1095,17 +1106,41 @@ class Program
             return;
         }
 
-        bool created; mutex=new Mutex(true,"MEL.Companion.Desktop.v2",out created); if(!created) return;
+        bool created; mutex=new Mutex(true,"MEL.Companion.Desktop.v2",out created);
+        if (!created)
+        {
+            if (args == null || !Array.Exists(args, a => a == "--background"))
+                MessageBox.Show("MEL Companion est deja lance dans cette session. Verifiez la zone de notification Windows.", "MEL Companion", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
         Application.EnableVisualStyles(); Application.SetCompatibleTextRenderingDefault(false);
         bool background = args != null && Array.Exists(args, a => a == "--background");
         if (!MelApp.LoadConfig())
         {
             var setup=new SetupForm(); if(setup.ShowDialog()!=DialogResult.OK || !MelApp.LoadConfig()) return;
         }
-        MelApp.InstallFiles(MelApp.StartupEnabled()); MelApp.StartCompanion(); MelApp.MaybeRefreshCompanionEngine(true); MelApp.BuildTray();
-        MelApp.HotKey=new HotKeyWindow();
-        MelApp.Main=new MainForm(); if(!background) MelApp.Main.Show(); Application.Run();
-        try { if (MelApp.HotKey != null) MelApp.HotKey.Dispose(); } catch { }
-        mutex.ReleaseMutex();
+        try
+        {
+            // Show the application before network access, script installation, or local engine startup.
+            // None of these optional operations should prevent the main window from opening.
+            MelApp.Main = new MainForm();
+            if (!background) MelApp.Main.Show();
+            try { MelApp.BuildTray(); } catch (Exception ex) { StartupError("tray", ex); }
+            try { MelApp.HotKey = new HotKeyWindow(); } catch (Exception ex) { StartupError("hotkey", ex); }
+            try { MelApp.InstallFiles(MelApp.StartupEnabled()); } catch (Exception ex) { StartupError("install", ex); }
+            try { MelApp.StartCompanion(); } catch (Exception ex) { StartupError("engine", ex); }
+            // Engine refresh and heartbeat are handled after the UI is visible.
+            Application.Run();
+        }
+        catch (Exception ex)
+        {
+            StartupError("fatal", ex);
+            MessageBox.Show("Le Companion n'a pas pu demarrer. Consultez le journal dans %LOCALAPPDATA%\\MEL\\companion-startup.log", "MEL Companion", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+        finally
+        {
+            try { if (MelApp.HotKey != null) MelApp.HotKey.Dispose(); } catch { }
+            mutex.ReleaseMutex();
+        }
     }
 }
