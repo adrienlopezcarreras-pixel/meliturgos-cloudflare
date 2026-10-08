@@ -3,13 +3,13 @@ import { createEnvMediaVaultCodec } from './media-vault-crypto.js';
 import { browserRunZeroCostProvenance } from './browser-run-zero-cost-proof.js';
 
 export const WORKERS_AI_IMAGE_MODEL = '@cf/black-forest-labs/flux-1-schnell';
-export const WORKERS_AI_VISION_MODEL = '@cf/google/gemma-4-26b-a4b-it';
+export const WORKERS_AI_VISION_MODEL = '@cf/meta/llama-3.2-11b-vision-instruct';
 export const WORKERS_AI_IMAGE_EDIT_MODEL = '@cf/black-forest-labs/flux-2-klein-4b';
 export const WORKERS_AI_TTS_MODEL = '@cf/deepgram/aura-1';
 export const WORKERS_AI_TRANSCRIPTION_MODEL = '@cf/openai/whisper-large-v3-turbo';
 
 const IMAGE_ADAPTER_ID = 'workers-ai.media.image.flux-1-schnell';
-const IMAGE_ANALYZE_ADAPTER_ID = 'workers-ai.media.image.gemma-4-vision';
+const IMAGE_ANALYZE_ADAPTER_ID = 'workers-ai.media.image.llama-3.2-11b-vision';
 const IMAGE_PROCESS_ADAPTER_ID = 'workers-ai.media.image.flux-2-klein-4b';
 const TTS_ADAPTER_ID = 'workers-ai.media.audio.aura-1';
 const TRANSCRIPTION_ADAPTER_ID = 'workers-ai.media.audio.whisper-large-v3-turbo';
@@ -296,49 +296,19 @@ async function imageAnalyze(env, input = {}) {
   if (!bytes?.byteLength) throw mediaError('IMAGE_INPUT_REQUIRED', 400);
   const mime = imageInput.mime;
   const prompt = clean(input?.prompt || input?.question || 'Analyse cette image précisément. Décris les éléments visibles, le texte lisible, les relations spatiales et les incertitudes. N’invente rien.', 6000);
+  const image = `data:${mime};base64,${bytesBase64(bytes)}`;
 
-  let analysis = '';
-  let engine = 'workers-ai-gemma-vision';
-  if (typeof env?.AI?.toMarkdown === 'function') {
-    const converted = await env.AI.toMarkdown(
-      {
-        name: mime === 'image/png' ? 'mel-image.png' : 'mel-image.jpg',
-        blob: new Blob([bytes], { type: mime }),
-      },
-      {
-        conversionOptions: {
-          image: { descriptionLanguage: 'fr' },
-          output: { format: 'text' },
-        },
-      },
-    );
-    const observed = markdownDescription(converted);
-    if (observed) {
-      analysis = prompt
-        ? `${observed}\n\nConsigne d'analyse demandée: ${prompt}`
-        : observed;
-      engine = 'workers-ai-tomarkdown-vision';
-    }
-  }
+  const result = await env.AI.run(WORKERS_AI_VISION_MODEL, {
+    messages: [
+      { role: 'system', content: 'Tu analyses uniquement ce qui est observable dans l’image. Signale explicitement toute incertitude.' },
+      { role: 'user', content: prompt },
+    ],
+    image,
+    max_tokens: 512,
+    temperature: 0.1,
+  }, { rejectIfBusy: true });
 
-  if (!analysis) {
-    const image = `data:${mime};base64,${bytesBase64(bytes)}`;
-    const result = await env.AI.run(WORKERS_AI_VISION_MODEL, {
-      messages: [
-        { role: 'system', content: 'Tu analyses uniquement ce qui est observable dans l’image. Signale explicitement toute incertitude.' },
-        {
-          role: 'user',
-          content: [
-            { type: 'text', text: prompt },
-            { type: 'image_url', image_url: { url: image } },
-          ],
-        },
-      ],
-      chat_template_kwargs: { enable_thinking: false },
-    }, { rejectIfBusy: true });
-    analysis = modelText(result);
-  }
-
+  const analysis = modelText(result);
   if (!analysis) throw mediaError('WORKERS_AI_IMAGE_ANALYSIS_EMPTY', 502);
   return Object.freeze({
     ok: true,
@@ -346,7 +316,7 @@ async function imageAnalyze(env, input = {}) {
     capability: 'media.image.analyze',
     provider: 'workers-ai',
     model: WORKERS_AI_VISION_MODEL,
-    engine,
+    engine: 'workers-ai-llama-3.2-vision',
     zero_added_cost: true,
     analysis,
     source: Object.freeze({
