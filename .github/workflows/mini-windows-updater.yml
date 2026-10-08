@@ -60,21 +60,21 @@ jobs:
       - name: Self-test updater
         shell: pwsh
         run: |
-          & ".\dist\MEL-MINI-Updater-0.7.0exe" --self-test
+          & ".\dist\MEL-MINI-Updater-0.7.0.exe" --self-test
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: SHA256
         shell: pwsh
         run: |
-          Get-FileHash ".\dist\MEL-MINI-Updater-0.7.0exe" -Algorithm SHA256 |
-            Format-List | Out-File ".\dist\MEL-MINI-Updater-0.7.0sha256.txt"
+          Get-FileHash ".\dist\MEL-MINI-Updater-0.7.0.exe" -Algorithm SHA256 |
+            Format-List | Out-File ".\dist\MEL-MINI-Updater-0.7.0.sha256.txt"
 
       - name: Upload updater
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: MEL-MINI-Updater-0.7.0
           path: |
-            dist/MEL-MINI-Updater-0.7.0exe
-            dist/MEL-MINI-Updater-0.7.0sha256.txt
+            dist/MEL-MINI-Updater-0.7.0.exe
+            dist/MEL-MINI-Updater-0.7.0.sha256.txt
           if-no-files-found: error
           retention-days: 30
