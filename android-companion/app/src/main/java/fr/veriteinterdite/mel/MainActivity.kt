@@ -375,6 +375,8 @@ class MainActivity : ComponentActivity() {
         ActivityResultContracts.StartIntentSenderForResult()
     ) { result ->
         if (result.resultCode == android.app.Activity.RESULT_OK) {
+            val selectedAddress = selectedCompanionAddress(result.data)
+            MelCompanionLink.rememberAddress(this, selectedAddress)
             MelCompanionController.restore(this)
             window.decorView.postDelayed({
                 MelCompanionController.connectExisting(this)
@@ -382,6 +384,37 @@ class MainActivity : ComponentActivity() {
         } else {
             MelCompanionRuntime.markError("association annulée")
         }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun selectedCompanionAddress(data: Intent?): String? {
+        if (data == null) return null
+
+        val scanResult = runCatching {
+            data.getParcelableExtra<ScanResult>(CompanionDeviceManager.EXTRA_DEVICE)
+        }.getOrNull()
+        val scanAddress = scanResult?.device?.address
+        if (MelCompanionLink.isValidAddress(scanAddress)) return scanAddress
+
+        if (Build.VERSION.SDK_INT >= 33) {
+            val association = runCatching {
+                data.getParcelableExtra(
+                    CompanionDeviceManager.EXTRA_ASSOCIATION,
+                    AssociationInfo::class.java
+                )
+            }.getOrNull()
+            val mac = association?.deviceMacAddress?.toString()
+            if (MelCompanionLink.isValidAddress(mac)) return mac
+
+            if (Build.VERSION.SDK_INT >= 34) {
+                val associatedBleAddress = association?.associatedDevice
+                    ?.bleDevice?.device?.address
+                if (MelCompanionLink.isValidAddress(associatedBleAddress)) {
+                    return associatedBleAddress
+                }
+            }
+        }
+        return null
     }
 
     private fun ensureCompanion(forceRestart: Boolean = false) {
