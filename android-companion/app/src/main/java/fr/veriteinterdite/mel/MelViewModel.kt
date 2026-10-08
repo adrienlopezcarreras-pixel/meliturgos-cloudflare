@@ -288,9 +288,9 @@ class MelViewModel(
         ).any { normalized.contains(it) }
         if (!diagnosticIntent) return null
 
-        val bridge = MelBleBridgeService.bridgeState.value
-        val linked = MelBleBridgeService.miniLinkReady.value
-        val internet = MelBleBridgeService.internetReady.value
+        val bridge = MelCompanionRuntime.bridgeState.value
+        val linked = MelCompanionRuntime.miniLinkReady.value
+        val internet = MelCompanionRuntime.internetReady.value
         return when {
             linked && internet ->
                 "Oui. Je vois la MINI, son canal Bluetooth réel est actif et son relais Internet fonctionne."
@@ -357,7 +357,7 @@ class MelViewModel(
                     MelChatMessage("mel", localAnswer)
             )
             viewModelScope.launch(Dispatchers.IO) {
-                appendDiagnosticLine("MINI local fast-path: ${MelBleBridgeService.bridgeState.value}")
+                appendDiagnosticLine("MINI local fast-path: ${MelCompanionRuntime.bridgeState.value}")
                 speakAnswer(localAnswer, mode)
             }
             return
@@ -429,7 +429,7 @@ class MelViewModel(
                             MelChatMessage("user", transcript, voice = true) +
                             MelChatMessage("mel", localAnswer)
                     )
-                    appendDiagnosticLine("MINI voice fast-path: ${MelBleBridgeService.bridgeState.value}")
+                    appendDiagnosticLine("MINI voice fast-path: ${MelCompanionRuntime.bridgeState.value}")
                     speakAnswer(localAnswer, mode)
                     appendDiagnosticLine("Micro réel: OK · réponse MINI locale")
                     return@launch
