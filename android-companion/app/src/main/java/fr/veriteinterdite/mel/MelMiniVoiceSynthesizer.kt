@@ -65,12 +65,16 @@ object MelMiniVoiceSynthesizer {
             Handler(Looper.getMainLooper()).post {
                 val ref = AtomicReference<TextToSpeech?>(null)
                 val tts = TextToSpeech(context.applicationContext) { status ->
-                    val ready = ref.get()
-                    try {
-                        if (status != TextToSpeech.SUCCESS || ready == null) {
-                            throw IllegalStateException("MINI_TTS_INIT_FAILED")
-                        }
-                        val languageResult = ready.setLanguage(Locale.FRANCE)
+                    // Some engines can complete binding immediately. Defer
+                    // configuration by one main-loop turn so ref.set(tts)
+                    // below has definitely published the created engine.
+                    Handler(Looper.getMainLooper()).post {
+                        val ready = ref.get()
+                        try {
+                            if (status != TextToSpeech.SUCCESS || ready == null) {
+                                throw IllegalStateException("MINI_TTS_INIT_FAILED")
+                            }
+                            val languageResult = ready.setLanguage(Locale.FRANCE)
                         if (languageResult == TextToSpeech.LANG_MISSING_DATA ||
                             languageResult == TextToSpeech.LANG_NOT_SUPPORTED) {
                             throw IllegalStateException("MINI_TTS_FRENCH_UNAVAILABLE")
@@ -96,9 +100,10 @@ object MelMiniVoiceSynthesizer {
                     } catch (error: Throwable) {
                         synchronized(initLock) { initError = error }
                         runCatching { ready?.shutdown() }
-                    } finally {
-                        synchronized(initLock) { initLatch = null }
-                        latch.countDown()
+                        } finally {
+                            synchronized(initLock) { initLatch = null }
+                            latch.countDown()
+                        }
                     }
                 }
                 ref.set(tts)
