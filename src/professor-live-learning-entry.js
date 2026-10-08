@@ -5,12 +5,19 @@ import { createLearningEngine } from './learning/learning-engine.js';
 import { getLiveLearningProgress } from './learning/live-progress.js';
 import { ensureZeroCostBenchmarkBaseline, prepareOperatorLora, runOperatorBenchmark, runOperatorLoraBenchmark } from './learning/operator-actions.js';
 import { runScheduledSystemBackup } from './backup/system-backup-runtime.js';
+import {
+  getLoraDailyStatus,
+  getLoraDailyTrace,
+  listLoraDailyTraces,
+  markMissingLoraTrainingDay,
+  reconcileOrphanedLoraTrainingTraces,
+  maybeHandleLoraTraceInternal,
+} from './learning/lora-daily-trace.js';
 
 const FREE_LORA_HF_REPO = 'Meliturgos/mel-lora-uncensored';
 const FREE_LORA_GITHUB_REPO = 'adrienlopezcarreras-pixel/meliturgos-cloudflare';
 const FREE_LORA_WORKFLOW = 'lora-promote-from-huggingface.yml';
 const FREE_LORA_TRAINING_WORKFLOW = 'lora-kaggle-free-gpu.yml';
-const FREE_LORA_COLLECTOR_WORKFLOW = 'lora-kaggle-free-collect.yml';
 const FREE_LORA_REQUIRED_FILES = Object.freeze([
   'adapter_model.safetensors',
   'adapter_config.json',
@@ -125,10 +132,9 @@ async function freeLoraStatusResponse(request, env) {
     }
   }
 
-  const [workflow, trainingWorkflow, collectorWorkflow] = await Promise.all([
+  const [workflow, trainingWorkflow] = await Promise.all([
     latestWorkflowRun(FREE_LORA_WORKFLOW),
     latestWorkflowRun(FREE_LORA_TRAINING_WORKFLOW),
-    latestWorkflowRun(FREE_LORA_COLLECTOR_WORKFLOW),
   ]);
 
   let checkpoint = null;
@@ -182,6 +188,14 @@ async function freeLoraStatusResponse(request, env) {
     };
   } catch {}
 
+  let dailyTrace=null;
+  let dailyStatus=null;
+  try{
+    const traces=await listLoraDailyTraces(env,{limit:1});
+    dailyTrace=traces[0]||null;
+    dailyStatus=await getLoraDailyStatus(env,new Date().toISOString().slice(0,10));
+  }catch{}
+
   return json({
     ok: true,
     mode: 'FREE_KAGGLE_CHECKPOINT_BENCHMARK',
@@ -218,12 +232,51 @@ async function freeLoraStatusResponse(request, env) {
     workflow_url: `https://github.com/${FREE_LORA_GITHUB_REPO}/actions/workflows/${FREE_LORA_WORKFLOW}`,
     training_workflow: trainingWorkflow || { status: 'NEVER_RUN', conclusion: null },
     training_workflow_url: `https://github.com/${FREE_LORA_GITHUB_REPO}/actions/workflows/${FREE_LORA_TRAINING_WORKFLOW}`,
-    collector_workflow: collectorWorkflow || { status: 'NEVER_RUN', conclusion: null },
-    collector_workflow_url: `https://github.com/${FREE_LORA_GITHUB_REPO}/actions/workflows/${FREE_LORA_COLLECTOR_WORKFLOW}`,
     kaggle_url: 'https://www.kaggle.com/code/adrienlopezcarreras/mel-lora-uncensored-notebook-t4',
     checkpoint,
     learning,
+    daily_trace: dailyTrace,
+    daily_status: dailyStatus,
   });
+}
+
+async function loraTraceListResponse(request, env) {
+  const auth=requireAuth(request,env);
+  if(!auth.ok)return auth.response;
+  const url=new URL(request.url);
+  const limit=Math.max(1,Math.min(100,Number(url.searchParams.get('limit'))||30));
+  const day=String(url.searchParams.get('day')||'').trim()||null;
+  try{
+    const traces=await listLoraDailyTraces(env,{limit,day});
+    return json({ok:true,traces,count:traces.length,day});
+  }catch(error){
+    return json({ok:false,error:'LORA_TRACE_READ_FAILED',detail:String(error?.message||'unknown').slice(0,180)},503);
+  }
+}
+
+async function loraTraceDetailResponse(request, env, runId) {
+  const auth=requireAuth(request,env);
+  if(!auth.ok)return auth.response;
+  try{
+    const trace=await getLoraDailyTrace(env,decodeURIComponent(runId));
+    if(!trace)return json({ok:false,error:'LORA_TRACE_NOT_FOUND'},404);
+    return json({ok:true,trace});
+  }catch(error){
+    return json({ok:false,error:'LORA_TRACE_READ_FAILED',detail:String(error?.message||'unknown').slice(0,180)},503);
+  }
+}
+
+async function loraDailyStatusResponse(request, env) {
+  const auth=requireAuth(request,env);
+  if(!auth.ok)return auth.response;
+  const url=new URL(request.url);
+  const day=String(url.searchParams.get('day')||new Date().toISOString().slice(0,10)).trim();
+  try{
+    const status=await getLoraDailyStatus(env,day);
+    return json({ok:true,day,status:status||{day,run_count:0,report_fr:'Aucune trace enregistrée pour ce jour.'}});
+  }catch(error){
+    return json({ok:false,error:'LORA_DAILY_STATUS_READ_FAILED',detail:String(error?.message||'unknown').slice(0,180)},503);
+  }
 }
 
 async function operatorBenchmarkResponse(request, env) {
@@ -313,6 +366,8 @@ export async function stripLegacyNormalVisualLayers(response) {
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
+    const loraTraceInternal=await maybeHandleLoraTraceInternal(request,env);
+    if(loraTraceInternal)return loraTraceInternal;
     if (url.pathname.startsWith('/api/dev-bridge/')) {
       const denied = authorizeDevBridge(request, env);
       if (denied) return denied;
@@ -322,6 +377,15 @@ export default {
     }
     if (request.method === 'GET' && url.pathname === '/api/learning/lora/free-status') {
       return freeLoraStatusResponse(request, env);
+    }
+    if (request.method === 'GET' && url.pathname === '/api/learning/lora/traces') {
+      return loraTraceListResponse(request, env);
+    }
+    if (request.method === 'GET' && url.pathname.startsWith('/api/learning/lora/traces/')) {
+      return loraTraceDetailResponse(request, env, url.pathname.slice('/api/learning/lora/traces/'.length));
+    }
+    if (request.method === 'GET' && url.pathname === '/api/learning/lora/daily-status') {
+      return loraDailyStatusResponse(request, env);
     }
     if (request.method === 'POST' && url.pathname === '/api/learning/benchmark/run') {
       return operatorBenchmarkResponse(request, env);
@@ -360,6 +424,18 @@ export default {
     const maintenance = Promise.allSettled([
       ensureZeroCostBenchmarkBaseline(env).catch((error) => {
         console.error('[MEL benchmark] hourly baseline bootstrap skipped:', error?.code || error?.message || error);
+        return null;
+      }),
+      markMissingLoraTrainingDay(env,{now:timestamp}).catch((error)=>{
+        console.error('[MEL LoRA trace] daily absence check failed:',error?.code||error?.message||error);
+        return null;
+      }),
+      reconcileOrphanedLoraTrainingTraces(env,{now:timestamp}).then((result)=>{
+        if(result?.reconciled>0) console.error('[MEL LoRA trace] orphaned runs reconciled:',result.reconciled);
+        if(result?.ok===false&&result?.status!=='GITHUB_TOKEN_MISSING') console.error('[MEL LoRA trace] reconciliation degraded:',result.status);
+        return result;
+      }).catch((error)=>{
+        console.error('[MEL LoRA trace] orphan reconciliation failed:',error?.code||error?.message||error);
         return null;
       }),
     ]);

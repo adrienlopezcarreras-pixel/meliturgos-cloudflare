@@ -7,7 +7,7 @@ export const ROADMAP_STATUSES = Object.freeze({
   BLOCKED_EXTERNAL: 'BLOCKED_EXTERNAL'
 });
 
-export const ROADMAP_REGISTRY_REVISION = '2026-10-07.10';
+export const ROADMAP_REGISTRY_REVISION = '2026-10-08.1';
 
 const phase = (id, title, items) => ({ id, title, items });
 const item = (id, title, status, next = '', priority = 'P2') => ({ id, title, status, next, priority });
@@ -181,7 +181,8 @@ export const MASTER_ROADMAP = Object.freeze([
     item('GEN2-43', 'Model Watch / découverte', 'DONE_VERIFIED', 'Preuves: PR #28; merge ceec81a6edb11d378dcb686c9495c0a01d86baea; 5/5 tests ciblés; autorisation fail-closed, seuils score/latence/coût et isolation des erreurs par modèle', 'P1'),
     item('MEL-EVAL-01', 'Suites de benchmark conversation / code / recherche / mémoire', 'DONE_VERIFIED', 'Certification répétée acquise le 26/09/2026: deux exécutions live consécutives du workflow mel-eval-01-stable-watch-ci (runs 36235746767 et 36235762652) entièrement vertes, incluant tests MEL-EVAL ciblés, syntaxe, full test suite et runtime dependency security gate. Preuve: proofs/mel-eval-01-repeated-live-20260926.json.', 'P1'),
     item('MEL-EVAL-03', 'Qualité mesurée avant/après évolution', 'DONE_VERIFIED', 'Gate fail-closed avant/après déjà intégré: seuil global et par domaine, erreurs répétées, identité/digest/couverture du benchmark, provenance SHA et artefacts obligatoires. Revalidé sur main actuel: syntaxe globale + tests ciblés Actions 35639804455.', 'P0'),
-    item('MEL-AUDIT-01', 'Self-Audit Supervisor autonome: heartbeat, audit quotidien, stress hebdomadaire et exercice de survie mensuel', 'DONE_VERIFIED', 'Certification production acquise le 01/10/2026 sur SHA exact f4f57e3617f313a1f41c113eab0deee0c44388b4: mel-self-audit-production-proof run 36902042262 a prouvé heartbeat exécuté et persisté, rapport D1 persistant, ledger de 150 capacités, scheduler horaire + superviseur quotidien, contrat stress hebdomadaire et exercice mensuel; sur le même SHA, post-release-proof-suite run 36902043229 a réellement exécuté et terminé avec succès le job persistent-stress / production-proof (110504345736), satisfaisant le gate de stress réel. Preuves sanitizées, exact-SHA et sans secret.', 'P0')
+    item('MEL-AUDIT-01', 'Self-Audit Supervisor autonome: heartbeat, audit quotidien, stress hebdomadaire et exercice de survie mensuel', 'DONE_VERIFIED', 'Certification production acquise le 01/10/2026 sur SHA exact f4f57e3617f313a1f41c113eab0deee0c44388b4: mel-self-audit-production-proof run 36902042262 a prouvé heartbeat exécuté et persisté, rapport D1 persistant, ledger de 150 capacités, scheduler horaire + superviseur quotidien, contrat stress hebdomadaire et exercice mensuel; sur le même SHA, post-release-proof-suite run 36902043229 a réellement exécuté et terminé avec succès le job persistent-stress / production-proof (110504345736), satisfaisant le gate de stress réel. Preuves sanitizées, exact-SHA et sans secret.', 'P0'),
+    item('MEL-LORA-TRACE-01', 'LoRA Daily Trace durable et exploitable par MEL', 'PLANNED', 'Issue #1148. Implémentation en cours : événements incrémentaux D1 + JSONL, OIDC GitHub, compte rendu FR, SHA-256 des livrables, accès API/UI, signalement des jours sans run et gate fail-closed empêchant tout SUCCESS sans trace complète. Ne passer en DONE_VERIFIED qu’après un vrai entraînement quotidien dont MEL relit la trace terminale, y compris preuve d’un échec/interruption traçable.', 'P0')
   ]),
 
   phase('P14', 'Interface et expérience', [

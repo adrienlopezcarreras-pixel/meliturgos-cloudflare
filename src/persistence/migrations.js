@@ -320,6 +320,60 @@ export const MIGRATIONS = [
     await db.prepare(`CREATE INDEX IF NOT EXISTS idx_public_rate_limits_updated
       ON public_rate_limits(updated_at DESC)`).run();
   }},
+  { version: 17, name: 'lora_daily_trace', run: async db => {
+    await db.prepare(`CREATE TABLE IF NOT EXISTS lora_training_runs (
+      run_id TEXT PRIMARY KEY,
+      workflow_run_id INTEGER,
+      workflow_run_number INTEGER,
+      workflow_attempt INTEGER NOT NULL DEFAULT 1,
+      source_sha TEXT NOT NULL,
+      workflow_sha TEXT,
+      model_version TEXT NOT NULL DEFAULT '',
+      base_model TEXT NOT NULL DEFAULT '',
+      cycle INTEGER,
+      status TEXT NOT NULL,
+      started_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      finished_at INTEGER,
+      dataset_json TEXT NOT NULL DEFAULT '{}',
+      training_json TEXT NOT NULL DEFAULT '{}',
+      results_json TEXT NOT NULL DEFAULT '{}',
+      errors_json TEXT NOT NULL DEFAULT '[]',
+      artifacts_json TEXT NOT NULL DEFAULT '[]',
+      summary_fr TEXT NOT NULL DEFAULT '',
+      trace_sha256 TEXT NOT NULL DEFAULT '',
+      last_seq INTEGER NOT NULL DEFAULT 0,
+      trace_verified INTEGER NOT NULL DEFAULT 0
+    )`).run();
+    await db.prepare(`CREATE INDEX IF NOT EXISTS idx_lora_training_runs_started
+      ON lora_training_runs(started_at DESC)`).run();
+    await db.prepare(`CREATE INDEX IF NOT EXISTS idx_lora_training_runs_status
+      ON lora_training_runs(status, updated_at DESC)`).run();
+    await db.prepare(`CREATE TABLE IF NOT EXISTS lora_training_events (
+      run_id TEXT NOT NULL,
+      seq INTEGER NOT NULL,
+      event_type TEXT NOT NULL,
+      occurred_at INTEGER NOT NULL,
+      payload_json TEXT NOT NULL DEFAULT '{}',
+      payload_sha256 TEXT NOT NULL,
+      PRIMARY KEY(run_id, seq)
+    )`).run();
+    await db.prepare(`CREATE INDEX IF NOT EXISTS idx_lora_training_events_time
+      ON lora_training_events(occurred_at ASC)`).run();
+    await db.prepare(`CREATE TABLE IF NOT EXISTS lora_daily_status (
+      day TEXT PRIMARY KEY,
+      first_run_at INTEGER,
+      last_run_at INTEGER,
+      run_count INTEGER NOT NULL DEFAULT 0,
+      successful_count INTEGER NOT NULL DEFAULT 0,
+      failed_count INTEGER NOT NULL DEFAULT 0,
+      absence_reported_at INTEGER,
+      last_run_id TEXT,
+      report_fr TEXT NOT NULL DEFAULT '',
+      updated_at INTEGER NOT NULL
+    )`).run();
+  }},
+
 ];
 
 export async function migrate(db, targetVersion = DB_SCHEMA_VERSION) {

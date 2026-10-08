@@ -8,7 +8,7 @@ test('canonical migration provisions persistent conversation focus and response 
   const DB=sqliteD1();
   try {
     const result=await migrate(DB);
-    assert.equal(DB_SCHEMA_VERSION,16);
+    assert.equal(DB_SCHEMA_VERSION,17);
     assert.equal(result.currentVersion,DB_SCHEMA_VERSION);
     const focus=await DB.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='conversation_focus_state'").first();
     const quality=await DB.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='mel_response_quality_events'").first();
@@ -170,6 +170,26 @@ test('migration v15 removes retired direct-mail credentials and transactions', a
     assert.equal(tx,null);
     const row=await DB.prepare('SELECT name FROM schema_migrations WHERE version=15').first();
     assert.equal(row?.name,'retire_direct_mail_connector');
+  } finally {
+    DB.close();
+  }
+});
+
+
+test('migration v17 provisions durable LoRA daily trace tables and remains idempotent', async () => {
+  const DB=sqliteD1();
+  try {
+    const first=await migrate(DB);
+    const second=await migrate(DB);
+    assert.equal(first.currentVersion,DB_SCHEMA_VERSION);
+    assert.equal(second.currentVersion,DB_SCHEMA_VERSION);
+    for (const name of ['lora_training_runs','lora_training_events','lora_daily_status']) {
+      const row=await DB.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?").bind(name).first();
+      assert.equal(row?.name,name);
+    }
+    const rows=await DB.prepare('SELECT version,name FROM schema_migrations WHERE version=17').all();
+    assert.equal(rows.results.length,1);
+    assert.equal(rows.results[0].name,'lora_daily_trace');
   } finally {
     DB.close();
   }
