@@ -173,13 +173,13 @@ class MainActivity : ComponentActivity() {
     private val bluetoothPermissions = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { grants ->
-        if (grants.values.all { it }) startMobileBridge()
+        if (grants.values.all { it }) startCompanionAssociation()
     }
 
     private val enableBluetooth = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) {
-        ensureMobileBridge()
+        ensureCompanion()
     }
 
     private val microphonePermission = registerForActivityResult(
@@ -259,7 +259,7 @@ class MainActivity : ComponentActivity() {
         model = ViewModelProvider(this, factory)[MelViewModel::class.java]
         setContent {
             val state by model.state.collectAsStateWithLifecycle()
-            val wakeProfileRevision by MelBleBridgeService.wakeProfileRevision.collectAsStateWithLifecycle()
+            val wakeProfileRevision by MelCompanionRuntime.wakeProfileRevision.collectAsStateWithLifecycle()
             LaunchedEffect(wakeProfileRevision) {
                 refreshWakeEnrollmentState()
                 if (wakeEnrolled.value && state.session == SessionStage.CONNECTED && !state.busy && !state.speaking) {
@@ -331,7 +331,7 @@ class MainActivity : ComponentActivity() {
                     onSendCamera = ::sendCameraPhoto,
                     onSendVideo = ::sendCameraVideo,
                     onRefreshCompanions = model::refreshCompanions,
-                    onConnectMini = { ensureMobileBridge(true) },
+                    onConnectMini = { ensureCompanion(true) },
                     onMiniPairCode = model::requestMiniPairCode,
                     wakeEnrollmentCount = wakeEnrollmentCount.value,
                     wakeEnrollmentActive = wakeEnrollmentActive.value,
@@ -342,7 +342,7 @@ class MainActivity : ComponentActivity() {
             }
         }
         if (!ActivityManager.isRunningInTestHarness()) {
-            window.decorView.post { ensureMobileBridge() }
+            window.decorView.post { MelCompanionController.restore(this) }
         }
     }
 
@@ -371,12 +371,19 @@ class MainActivity : ComponentActivity() {
         super.onDestroy()
     }
 
-    private fun ensureMobileBridge(forceRestart: Boolean = false) {
+    private val companionAssociation = registerForActivityResult(
+        ActivityResultContracts.StartIntentSenderForResult()
+    ) { result ->
+        if (result.resultCode == android.app.Activity.RESULT_OK) {
+            MelCompanionController.restore(this)
+        } else {
+            MelCompanionRuntime.markError("association annulée")
+        }
+    }
+
+    private fun ensureCompanion(forceRestart: Boolean = false) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            val permissions = arrayOf(
-                Manifest.permission.BLUETOOTH_ADVERTISE,
-                Manifest.permission.BLUETOOTH_CONNECT
-            )
+            val permissions = arrayOf(Manifest.permission.BLUETOOTH_CONNECT)
             val missing = permissions.filter {
                 ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
             }
@@ -385,18 +392,31 @@ class MainActivity : ComponentActivity() {
                 return
             }
         }
-        val adapter = getSystemService(BluetoothManager::class.java)?.adapter ?: return
+        val adapter = getSystemService(BluetoothManager::class.java)?.adapter ?: run {
+            MelCompanionRuntime.markError("Bluetooth indisponible")
+            return
+        }
         if (!adapter.isEnabled) {
             enableBluetooth.launch(Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE))
             return
         }
-        startMobileBridge(forceRestart)
+        if (!forceRestart) {
+            MelCompanionController.restore(this)
+            if (MelCompanionRuntime.miniPairingComplete.value) return
+        }
+        startCompanionAssociation()
     }
 
-    private fun startMobileBridge(forceRestart: Boolean = false) {
-        val intent = Intent(this, MelBleBridgeService::class.java)
-        if (forceRestart) intent.action = MelBleBridgeService.ACTION_RESTART
-        ContextCompat.startForegroundService(this, intent)
+    private fun startCompanionAssociation() {
+        MelCompanionController.associate(
+            context = this,
+            launchChooser = { sender ->
+                companionAssociation.launch(
+                    androidx.activity.result.IntentSenderRequest.Builder(sender).build()
+                )
+            },
+            onCreated = { MelCompanionController.restore(this) }
+        )
     }
 
     private fun deviceId(): String {
@@ -2740,11 +2760,11 @@ private fun CompanionPanel(
     onConnectMini: () -> Unit,
     onMiniPairCode: (String, String) -> Unit
 ) {
-    val bridgeState by MelBleBridgeService.bridgeState.collectAsStateWithLifecycle()
-    val bleReady by MelBleBridgeService.miniLinkReady.collectAsStateWithLifecycle()
-    val phoneInternetReady by MelBleBridgeService.phoneInternetAvailable.collectAsStateWithLifecycle()
-    val internetReady by MelBleBridgeService.internetReady.collectAsStateWithLifecycle()
-    val pairingComplete by MelBleBridgeService.miniPairingComplete.collectAsStateWithLifecycle()
+    val bridgeState by MelCompanionRuntime.bridgeState.collectAsStateWithLifecycle()
+    val bleReady by MelCompanionRuntime.miniLinkReady.collectAsStateWithLifecycle()
+    val phoneInternetReady by MelCompanionRuntime.phoneInternetAvailable.collectAsStateWithLifecycle()
+    val internetReady by MelCompanionRuntime.internetReady.collectAsStateWithLifecycle()
+    val pairingComplete by MelCompanionRuntime.miniPairingComplete.collectAsStateWithLifecycle()
     var showPairRecovery by rememberSaveable { mutableStateOf(false) }
     var miniPairUser by rememberSaveable { mutableStateOf("adrien") }
     var miniPairSecret by rememberSaveable { mutableStateOf("") }
