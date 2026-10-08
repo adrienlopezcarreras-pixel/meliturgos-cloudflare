@@ -1023,64 +1023,64 @@ class MainForm : Form
     }
     public MainForm()
     {
-        Text="MEL Companion — Windows"; ClientSize=new Size(960,760);
-        MinimumSize=new Size(760,640); StartPosition=FormStartPosition.CenterScreen;
-        Font=new Font("Segoe UI",10f); AutoScaleMode=AutoScaleMode.Font;
+        Text="MEL Companion — Windows"; ClientSize=new Size(1100,870);
+        MinimumSize=new Size(990,770); StartPosition=FormStartPosition.CenterScreen;
+        Font=new Font("Segoe UI",10f); AutoScaleMode=AutoScaleMode.None;
         BackColor=bg; ForeColor=ink;
 
         var root=new TableLayoutPanel { Dock=DockStyle.Fill, ColumnCount=1, RowCount=4,
             BackColor=bg, Padding=new Padding(28,24,28,16) };
-        root.RowStyles.Add(new RowStyle(SizeType.Absolute,102));
-        root.RowStyles.Add(new RowStyle(SizeType.Absolute,150));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute,120));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute,185));
         root.RowStyles.Add(new RowStyle(SizeType.Percent,100));
-        root.RowStyles.Add(new RowStyle(SizeType.Absolute,116));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute,145));
         Controls.Add(root);
 
         var header=new TableLayoutPanel { Dock=DockStyle.Fill, ColumnCount=2,RowCount=2 };
         header.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100));
         header.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute,170));
-        header.RowStyles.Add(new RowStyle(SizeType.Absolute,45));
-        header.RowStyles.Add(new RowStyle(SizeType.Absolute,42));
-        var heading=Txt("MEL  ·  Companion Windows",19,true);
+        header.RowStyles.Add(new RowStyle(SizeType.Absolute,60));
+        header.RowStyles.Add(new RowStyle(SizeType.Absolute,50));
+        var heading=Txt("MEL  ·  Companion Windows",17,true);heading.AutoSize=false;
         heading.Dock=DockStyle.Fill;heading.TextAlign=ContentAlignment.MiddleLeft;
         header.Controls.Add(heading,0,0);
         var open=Btn("Ouvrir MEL",150,delegate{MelApp.OpenMel();},true);
         open.Anchor=AnchorStyles.Top|AnchorStyles.Right;header.Controls.Add(open,1,0);
-        state=Txt("Connexion en cours…",10,false,secondary);
+        state=Txt("Connexion en cours…",10,false,secondary);state.AutoSize=false;
         state.Dock=DockStyle.Fill;state.TextAlign=ContentAlignment.MiddleLeft;
         header.Controls.Add(state,0,1); root.Controls.Add(header,0,0);
 
         var pc=Block();pc.Dock=DockStyle.Fill;
-        var pcTitle=Txt("CET ORDINATEUR",10,true,accent);pcTitle.SetBounds(22,17,300,25);pcTitle.AutoSize=false;pc.Controls.Add(pcTitle);
+        var pcTitle=Txt("CET ORDINATEUR",10,true,accent);pcTitle.SetBounds(22,20,400,36);pcTitle.AutoSize=false;pc.Controls.Add(pcTitle);
         pcLine=Txt(Environment.MachineName+"  ·  "+MelApp.ComputerId,13,true);
-        pcLine.AutoSize=false;pcLine.SetBounds(22,47,pc.Width-45,32);pcLine.Anchor=AnchorStyles.Top|AnchorStyles.Left|AnchorStyles.Right;
+        pcLine.AutoSize=false;pcLine.SetBounds(22,62,pc.Width-45,42);pcLine.Anchor=AnchorStyles.Top|AnchorStyles.Left|AnchorStyles.Right;
         pcLine.AutoEllipsis=true;pc.Controls.Add(pcLine);
         var description=Txt("Moteur local, autorisations et connexion à MEL",9,false,secondary);
-        description.SetBounds(22,86,750,25);description.AutoSize=false;description.Anchor=AnchorStyles.Top|AnchorStyles.Left|AnchorStyles.Right;
+        description.SetBounds(22,112,750,36);description.AutoSize=false;description.Anchor=AnchorStyles.Top|AnchorStyles.Left|AnchorStyles.Right;
         pc.Controls.Add(description);root.Controls.Add(pc,0,1);
 
         var section=new TableLayoutPanel{Dock=DockStyle.Fill,ColumnCount=1,RowCount=3};
-        section.RowStyles.Add(new RowStyle(SizeType.Absolute,44));
-        section.RowStyles.Add(new RowStyle(SizeType.Absolute,31));
+        section.RowStyles.Add(new RowStyle(SizeType.Absolute,62));
+        section.RowStyles.Add(new RowStyle(SizeType.Absolute,48));
         section.RowStyles.Add(new RowStyle(SizeType.Percent,100));
         var sectionTop=new TableLayoutPanel { Dock=DockStyle.Fill,ColumnCount=2 };
         sectionTop.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100));
         sectionTop.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute,286));
-        var devicesTitle=Txt("Appareils MEL",14,true);devicesTitle.Dock=DockStyle.Fill;
+        var devicesTitle=Txt("Appareils MEL",14,true);devicesTitle.AutoSize=false;devicesTitle.Dock=DockStyle.Fill;
         devicesTitle.TextAlign=ContentAlignment.MiddleLeft;sectionTop.Controls.Add(devicesTitle,0,0);
         var topActions=new FlowLayoutPanel{Dock=DockStyle.Fill,FlowDirection=FlowDirection.RightToLeft,WrapContents=false};
         topActions.Controls.Add(Btn("Actualiser",124,delegate{RefreshAll();}));
         topActions.Controls.Add(Btn("Autorisations",140,delegate{using(var form=new PermissionsForm())form.ShowDialog(this);}));
         sectionTop.Controls.Add(topActions,1,0);section.Controls.Add(sectionTop,0,0);
         devicesHint=Txt("État communiqué par les appareils à MEL",9,false,secondary);
-        devicesHint.Dock=DockStyle.Fill;section.Controls.Add(devicesHint,0,1);
+        devicesHint.AutoSize=false;devicesHint.Dock=DockStyle.Fill;section.Controls.Add(devicesHint,0,1);
         devicePanel=new FlowLayoutPanel{Dock=DockStyle.Fill,FlowDirection=FlowDirection.TopDown,
             WrapContents=false,AutoScroll=true,BackColor=bg,Padding=new Padding(0,4,4,4)};
         devicePanel.Resize+=delegate{ResizeDeviceCards();};
         section.Controls.Add(devicePanel,0,2);root.Controls.Add(section,0,2);
 
         var bottom=new TableLayoutPanel { Dock=DockStyle.Fill,ColumnCount=1,RowCount=2 };
-        bottom.RowStyles.Add(new RowStyle(SizeType.Absolute,54));bottom.RowStyles.Add(new RowStyle(SizeType.Absolute,43));
+        bottom.RowStyles.Add(new RowStyle(SizeType.Absolute,70));bottom.RowStyles.Add(new RowStyle(SizeType.Absolute,58));
         var actions=new FlowLayoutPanel{Dock=DockStyle.Fill,WrapContents=false};
         actions.Controls.Add(Btn("Réparer",115,delegate {
             try { MelApp.InstallFiles(startup.Checked);MelApp.StartCompanion();MessageBox.Show("Moteur relancé.","MEL Companion"); }
@@ -1127,21 +1127,21 @@ class MainForm : Form
     }
     Panel DeviceCard(string title,string detail,string status,bool online,bool camera,bool live)
     {
-        var card=Block();card.Dock=DockStyle.None;card.Height=116;
-        var name=Txt(title,12,true);name.AutoSize=false;name.SetBounds(20,15,470,30);
+        var card=Block();card.Dock=DockStyle.None;card.Height=150;
+        var name=Txt(title,12,true);name.AutoSize=false;name.SetBounds(20,18,620,42);
         name.Anchor=AnchorStyles.Top|AnchorStyles.Left|AnchorStyles.Right;name.AutoEllipsis=true;
         card.Controls.Add(name);
-        var line=Txt(detail,9,false,secondary);line.AutoSize=false;line.SetBounds(20,49,470,25);
+        var line=Txt(detail,9,false,secondary);line.AutoSize=false;line.SetBounds(20,68,620,32);
         line.Anchor=AnchorStyles.Top|AnchorStyles.Left|AnchorStyles.Right;line.AutoEllipsis=true;card.Controls.Add(line);
         var statusLabel=Txt(online?"Connecté":"Hors ligne",9,true,online?Color.FromArgb(23,126,85):secondary);
         statusLabel.AutoSize=false;statusLabel.TextAlign=ContentAlignment.MiddleRight;
-        statusLabel.SetBounds(480,17,145,28);statusLabel.Anchor=AnchorStyles.Top|AnchorStyles.Right;
+        statusLabel.SetBounds(660,21,155,40);statusLabel.Anchor=AnchorStyles.Top|AnchorStyles.Right;
         card.Controls.Add(statusLabel);
         var cam=Btn(live?"Ouvrir le flux":"Caméra",148,delegate{
             if(live)MelApp.OpenMel();
             else MessageBox.Show("Aucun flux vidéo live n'est disponible pour cet appareil.","MEL Companion");
         });
-        cam.Enabled=camera;cam.SetBounds(20,78,148,30);card.Controls.Add(cam);
+        cam.Enabled=camera;cam.SetBounds(20,105,148,40);card.Controls.Add(cam);
         return card;
     }
     void RefreshAll()
@@ -1156,11 +1156,11 @@ class MainForm : Form
             devicePanel.SuspendLayout();devicePanel.Controls.Clear();
             var devices=MelApp.Devices();
             if(devices.Count==0){
-                var empty=Block();empty.Dock=DockStyle.None;empty.Height=105;
+                var empty=Block();empty.Dock=DockStyle.None;empty.Height=155;
                 var msg=Txt("Aucun appareil détecté pour le moment",12,true);
-                msg.Location=new Point(20,18);empty.Controls.Add(msg);
+                msg.AutoSize=false;msg.SetBounds(20,20,650,44);empty.Controls.Add(msg);
                 var sub=Txt("La MINI et Android apparaîtront ici lorsqu'ils seront signalés au serveur.",9,false,secondary);
-                sub.Location=new Point(20,53);empty.Controls.Add(sub);devicePanel.Controls.Add(empty);
+                sub.AutoSize=false;sub.SetBounds(20,76,700,40);empty.Controls.Add(sub);devicePanel.Controls.Add(empty);
             }else foreach(var d in devices){
                 var kind=Get(d,"kind");var name=Get(d,"name");
                 var title=(kind=="android"?"Android":"MINI")+"  ·  "+name;
