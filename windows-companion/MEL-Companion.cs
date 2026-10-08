@@ -551,8 +551,21 @@ static class MelApp
 
     public static Icon MakeIcon()
     {
-        using (var bmp = MakeMelTechnoFace(32))
+        // One high-contrast initial, intentionally legible at 16x16 in the Windows tray.
+        using (var bmp = new Bitmap(32, 32))
+        using (var g = Graphics.FromImage(bmp))
+        using (var fill = new SolidBrush(Color.FromArgb(37, 91, 164)))
+        using (var white = new SolidBrush(Color.White))
+        using (var font = new Font("Segoe UI", 20f, FontStyle.Bold, GraphicsUnit.Pixel))
+        {
+            g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+            g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.AntiAliasGridFit;
+            g.Clear(Color.Transparent);
+            g.FillEllipse(fill, 1, 1, 30, 30);
+            var fmt = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center };
+            g.DrawString("M", font, white, new RectangleF(1, 1, 30, 29), fmt);
             return Icon.FromHandle(bmp.GetHicon());
+        }
     }
 
     public static Button TechButton(string text, int x, int y, int w, int h, bool primary)
@@ -1056,6 +1069,7 @@ class MainForm : Form
     public MainForm()
     {
         Text="MEL Companion — Windows";
+        Icon=MelApp.MakeIcon();
         ClientSize=new Size(1000,790);MinimumSize=new Size(790,650);
         StartPosition=FormStartPosition.CenterScreen;
         AutoScaleMode=AutoScaleMode.None;
