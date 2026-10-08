@@ -133,10 +133,13 @@ test('full interface exposes encrypted Pipedream Connect bridge and roadmap app 
   assert.match(html, /DONE_VERIFIED · PIPEDREAM IMAP/);
 });
 
-test('LoRA interface exposes the current collector status instead of only a stale training run', async () => {
+test('LoRA interface no longer exposes the retired Collector workflow and keeps live training/checkpoint state only', async () => {
   const response = await onRequestGet();
   const html = await response.text();
-  assert.match(html, /id="freeCollectorState"/);
-  assert.match(html, /collector_workflow/);
-  assert.match(html, /Collector Kaggle à jour/);
+  assert.doesNotMatch(html, /id="freeCollectorState"/);
+  assert.doesNotMatch(html, /collector_workflow/);
+  assert.doesNotMatch(html, /Collector Kaggle/);
+  assert.match(html, /training_workflow/);
+  assert.match(html, /checkpoint/);
+  assert.match(html, /promotion/);
 });
