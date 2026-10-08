@@ -18,7 +18,8 @@ i2s_chan_handle_t tx_handle = nullptr;
 i2s_chan_handle_t rx_handle = nullptr;
 esp_codec_dev_handle_t output_dev = nullptr;
 esp_codec_dev_handle_t input_dev = nullptr;
-static esp_codec_dev_handle_t codec_dev = nullptr;
+static esp_codec_dev_handle_t output_codec_dev = nullptr;
+static esp_codec_dev_handle_t input_codec_dev = nullptr;
 
 static bool g_ready = false;
 static esp_err_t g_last_error = ESP_OK;
@@ -93,51 +94,64 @@ void esp_es8311_port_init(i2c_master_bus_handle_t bus_handle) {
     const audio_codec_if_t *codec_if = es8311_codec_new(&es8311_cfg);
     if (!codec_if) { g_last_error = ESP_FAIL; ESP_LOGE(TAG, "es8311_codec_new failed"); return; }
 
-    // Follow Espressif's current ES8311 pattern: one duplex codec_dev handle
-    // instead of two independent IN and OUT handles sharing the same physical chip.
-    esp_codec_dev_cfg_t dev_cfg = {
-        .dev_type = ESP_CODEC_DEV_TYPE_IN_OUT,
+    // Keep the exact Waveshare topology that has already produced audible
+    // PCM on this board: one OUT handle and one IN handle sharing the same
+    // ES8311 codec interface and the same I2S data interface.
+    esp_codec_dev_cfg_t out_cfg = {
+        .dev_type = ESP_CODEC_DEV_TYPE_OUT,
         .codec_if = codec_if,
         .data_if = data_if,
     };
-    codec_dev = esp_codec_dev_new(&dev_cfg);
-    if (!codec_dev) {
+    output_codec_dev = esp_codec_dev_new(&out_cfg);
+    if (!output_codec_dev) {
         g_last_error = ESP_FAIL;
-        ESP_LOGE(TAG, "codec_dev IN_OUT create failed");
+        ESP_LOGE(TAG, "codec OUT create failed");
         return;
     }
-    output_dev = codec_dev;
-    input_dev = codec_dev;
 
-    esp_codec_set_disable_when_closed(codec_dev, false);
+    esp_codec_dev_cfg_t in_cfg = {
+        .dev_type = ESP_CODEC_DEV_TYPE_IN,
+        .codec_if = codec_if,
+        .data_if = data_if,
+    };
+    input_codec_dev = esp_codec_dev_new(&in_cfg);
+    if (!input_codec_dev) {
+        g_last_error = ESP_FAIL;
+        ESP_LOGE(TAG, "codec IN create failed");
+        return;
+    }
+
+    output_dev = output_codec_dev;
+    input_dev = input_codec_dev;
+    esp_codec_set_disable_when_closed(output_dev, false);
+    esp_codec_set_disable_when_closed(input_dev, false);
 
     esp_codec_dev_sample_info_t fs = {};
     fs.sample_rate = 48000;
     fs.channel = 1;
     fs.bits_per_sample = 16;
-    fs.channel_mask = 0x01;
-    fs.mclk_multiple = 256;
+    fs.channel_mask = 0;
+    fs.mclk_multiple = 0;
 
-    int open_rc = esp_codec_dev_open(codec_dev, &fs);
-    ESP_LOGI(TAG, "codec IN_OUT open rc=%d rate=%u ch=%u mask=0x%x mclk=%u",
-             open_rc, (unsigned)fs.sample_rate, (unsigned)fs.channel,
-             (unsigned)fs.channel_mask, (unsigned)fs.mclk_multiple);
-    if (open_rc != ESP_CODEC_DEV_OK) {
+    const int out_open_rc = esp_codec_dev_open(output_dev, &fs);
+    const int in_open_rc = esp_codec_dev_open(input_dev, &fs);
+    ESP_LOGI(TAG, "codec OUT open rc=%d IN open rc=%d rate=%u ch=%u",
+             out_open_rc, in_open_rc, (unsigned)fs.sample_rate, (unsigned)fs.channel);
+    if (out_open_rc != ESP_CODEC_DEV_OK || in_open_rc != ESP_CODEC_DEV_OK) {
         g_last_error = ESP_FAIL;
         return;
     }
 
-    int mute_rc = esp_codec_dev_set_out_mute(codec_dev, false);
-    int vol_rc = esp_codec_dev_set_out_vol(codec_dev, 75.0);
-    int gain_rc = esp_codec_dev_set_in_gain(codec_dev, 38.0);
-    ESP_LOGI(TAG, "initial codec mute=%d volume=%d gain=%d", mute_rc, vol_rc, gain_rc);
-    if (mute_rc != ESP_CODEC_DEV_OK || vol_rc != ESP_CODEC_DEV_OK || gain_rc != ESP_CODEC_DEV_OK) {
+    const int vol_rc = esp_codec_dev_set_out_vol(output_dev, 75.0);
+    const int gain_rc = esp_codec_dev_set_in_gain(input_dev, 38.0);
+    ESP_LOGI(TAG, "initial codec volume=%d gain=%d", vol_rc, gain_rc);
+    if (vol_rc != ESP_CODEC_DEV_OK || gain_rc != ESP_CODEC_DEV_OK) {
         g_last_error = ESP_FAIL;
         return;
     }
 
     g_ready = true;
-    ESP_LOGI(TAG, "ES8311 AUDIO READY 48k mono16");
+    ESP_LOGI(TAG, "ES8311 AUDIO READY WAVESHARE PATH 48k mono16");
 }
 
 bool esp_es8311_port_ready(void) {
@@ -149,9 +163,9 @@ esp_err_t esp_es8311_port_last_error(void) {
 }
 
 void esp_es8311_port_dump(void) {
-    if (codec_dev) {
-        ESP_LOGI(TAG, "Dumping ES8311 registers via duplex handle");
-        esp_codec_dev_dump_reg(codec_dev);
+    if (output_dev) {
+        ESP_LOGI(TAG, "Dumping ES8311 registers via Waveshare OUT handle");
+        esp_codec_dev_dump_reg(output_dev);
     }
 }
 
