@@ -40,7 +40,10 @@ static esp_err_t es8311_i2s_init() {
     if (err != ESP_OK) return err;
 
     i2s_std_config_t std_cfg = {};
-    std_cfg.clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(48000);
+    // Match Waveshare's factory bring-up exactly: create the duplex I2S bus
+    // at 16 kHz first; esp_codec_dev_open() then applies the requested 48 kHz
+    // codec stream format.
+    std_cfg.clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(16000);
     std_cfg.slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_STEREO);
     std_cfg.gpio_cfg.mclk = (gpio_num_t)I2S_MCK_PIN;
     std_cfg.gpio_cfg.bclk = (gpio_num_t)I2S_BCK_PIN;
