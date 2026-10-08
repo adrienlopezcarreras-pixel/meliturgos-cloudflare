@@ -80,14 +80,28 @@ export async function runMelMedia02LiveProof(env = {}, {
   };
   const run = async (id, input) => {
     const started = Date.now();
-    const result = await bounded(bus.execute(id, input, context), id);
-    const safe = safeResult(id, result, Math.max(0, Date.now() - started));
-    if (!safe.ok) throw proofError('MEL_MEDIA_02_EXECUTION_NOT_OK', 502, { capability: id });
-    if (safe.zero_added_cost !== true) {
-      throw proofError('MEL_MEDIA_02_ZERO_COST_NOT_PROVED', 409, { capability: id });
+    try {
+      const result = await bounded(bus.execute(id, input, context), id);
+      const safe = safeResult(id, result, Math.max(0, Date.now() - started));
+      if (!safe.ok) throw proofError('MEL_MEDIA_02_EXECUTION_NOT_OK', 502, { capability: id, step: id });
+      if (safe.zero_added_cost !== true) {
+        throw proofError('MEL_MEDIA_02_ZERO_COST_NOT_PROVED', 409, { capability: id, step: id });
+      }
+      results.push(safe);
+      return result;
+    } catch (error) {
+      if (error?.capability) throw error;
+      throw proofError(
+        String(error?.code || 'MEL_MEDIA_02_CAPABILITY_EXECUTION_FAILED').slice(0, 180),
+        Number(error?.status) || 503,
+        {
+          capability: id,
+          step: error?.step || id,
+          cause_code: String(error?.code || '').slice(0, 180) || null,
+          cause_message: String(error?.message || error || '').slice(0, 500) || null,
+        },
+      );
     }
-    results.push(safe);
-    return result;
   };
 
   // Image chain: generate -> analyze -> process.
