@@ -31,7 +31,7 @@ test('complete LoRA run becomes SUCCEEDED only after all durable evidence exists
   await appendLoraDailyTrace(env,base());
   await appendLoraDailyTrace(env,{...base('gh-9001-1',2,'DATASET_PREPARED'),dataset:{shard_count:1,examples:750,sha256:'c'.repeat(64)}},ID);
   await appendLoraDailyTrace(env,{...base('gh-9001-1',3,'TRAINING_PROGRESS'),training:{global_step:16,last_progress:'STEP 16'}},ID);
-  await appendLoraDailyTrace(env,{...base('gh-9001-1',4,'TRAINING_RESULT'),training:{steps:32,global_step:32,duration_seconds:812,parameters:{rank:16}},results:{train_loss:0.42,tests:{exact_provenance:true},comparison:{summary:'meilleur que le précédent'}},artifacts:[{kind:'adapter',name:'adapter_model.safetensors',sha256:'d'.repeat(64)}]},ID);
+  await appendLoraDailyTrace(env,{...base('gh-9001-1',4,'TRAINING_RESULT'),training:{steps:32,global_step:32,duration_seconds:812,parameters:{rank:16}},results:{train_loss:0.42,metrics:{overall:0.91},progression:{global_step:32},tests:{exact_provenance:true},comparison:{summary:'meilleur que le précédent'}},artifacts:[{kind:'adapter',name:'adapter_model.safetensors',sha256:'d'.repeat(64)},{kind:'bundle',name:'mel-lora-bundle.tar.gz',sha256:'e'.repeat(64)},{kind:'checkpoint',name:'mel-lora-kaggle-aaaaaaaaaaaa-c004',sha256:'f'.repeat(64)}]},ID);
   const done=await appendLoraDailyTrace(env,{...base('gh-9001-1',5,'SUCCEEDED','SUCCEEDED'),summary_fr:'Entraînement LoRA terminé et vérifié avec métriques, comparaison et adaptateur SHA-256 conservés durablement.'},ID);
   assert.equal(done.ok,true);
   assert.equal(done.status,'SUCCEEDED');
@@ -45,6 +45,7 @@ test('complete LoRA run becomes SUCCEEDED only after all durable evidence exists
   assert.equal(detail.dataset.shard_count,1);
   assert.equal(detail.training.steps,32);
   assert.equal(detail.results.train_loss,0.42);
+  assert.equal(detail.artifacts.length,3);
   assert.equal(detail.artifacts[0].sha256,'d'.repeat(64));
 
   const rows=await listLoraDailyTraces(env,{limit:5,day:'2026-10-08'});
