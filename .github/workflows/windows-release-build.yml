@@ -123,8 +123,8 @@ jobs:
       - name: Validate exact MEL image assets
         shell: pwsh
         run: |
-          $avatarB64 = (Get-Content -Raw "windows-companion/mel-avatar-128.jpg.b64").Trim()
-          $iconB64 = (Get-Content -Raw "windows-companion/mel-avatar-32.ico.b64").Trim()
+          $avatarB64 = ((Get-Content -Raw "windows-companion/mel-avatar-128.jpg.b64") -replace '[^A-Za-z0-9+/=]','')
+          $iconB64 = ((Get-Content -Raw "windows-companion/mel-avatar-32.ico.b64") -replace '[^A-Za-z0-9+/=]','')
           $avatar = [Convert]::FromBase64String($avatarB64)
           $icon = [Convert]::FromBase64String($iconB64)
           if ($avatar.Length -lt 4000) { throw "WINDOWS_AVATAR_TOO_SMALL" }
