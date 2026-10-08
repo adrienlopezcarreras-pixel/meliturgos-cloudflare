@@ -135,6 +135,13 @@ jobs:
           ref: ${{ env.SOURCE_SHA }}
           fetch-depth: 1
 
+      - name: Checkout current trace control plane
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          path: .mel-trace-control
+          fetch-depth: 1
+
       - name: Initialize durable LoRA daily trace
         shell: bash
         run: |
@@ -172,7 +179,7 @@ jobs:
           };
           fs.writeFileSync('artifacts/lora-trace-start.json',JSON.stringify(payload,null,2)+'\n');
           NODE
-          node scripts/lora-daily-trace-client.mjs STARTED artifacts/lora-trace-start.json RUNNING
+          node .mel-trace-control/scripts/lora-daily-trace-client.mjs STARTED artifacts/lora-trace-start.json RUNNING
 
       - name: Set up Python
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
@@ -250,7 +257,7 @@ jobs:
           };
           fs.writeFileSync('artifacts/lora-trace-dataset.json',JSON.stringify(payload,null,2)+'\n');
           NODE
-          node scripts/lora-daily-trace-client.mjs DATASET_PREPARED artifacts/lora-trace-dataset.json RUNNING
+          node .mel-trace-control/scripts/lora-daily-trace-client.mjs DATASET_PREPARED artifacts/lora-trace-dataset.json RUNNING
 
       - name: Fetch immutable parent checkpoint when continuing
         if: env.PARENT_RELEASE_TAG != ''
@@ -569,7 +576,7 @@ jobs:
           };
           fs.writeFileSync('artifacts/lora-trace-submitted.json',JSON.stringify(payload,null,2)+'\n');
           NODE
-          node scripts/lora-daily-trace-client.mjs TRAINING_SUBMITTED artifacts/lora-trace-submitted.json RUNNING
+          node .mel-trace-control/scripts/lora-daily-trace-client.mjs TRAINING_SUBMITTED artifacts/lora-trace-submitted.json RUNNING
 
       - name: Verify server-side GPU metadata
         shell: bash
@@ -627,7 +634,7 @@ jobs:
                   if(match) payload.training.global_step=Number(match[1]);
                   fs.writeFileSync('artifacts/lora-trace-progress.json',JSON.stringify(payload,null,2)+'\n');
                   NODE
-                  if ! node scripts/lora-daily-trace-client.mjs TRAINING_PROGRESS artifacts/lora-trace-progress.json RUNNING; then
+                  if ! node .mel-trace-control/scripts/lora-daily-trace-client.mjs TRAINING_PROGRESS artifacts/lora-trace-progress.json RUNNING; then
                     echo "::error title=LoRA trace unavailable::Durable progress trace failed; this workflow cannot be successful."
                     exit 70
                   fi
@@ -653,7 +660,7 @@ jobs:
                   errors:[{code:'KAGGLE_CANCELLED',recoverable:true,action:'RETRY_SAME_IMMUTABLE_CYCLE'}],
                 },null,2)+'\n');
                 NODE
-                node scripts/lora-daily-trace-client.mjs TRAINING_RETRY artifacts/lora-trace-retry.json RUNNING || true
+                node .mel-trace-control/scripts/lora-daily-trace-client.mjs TRAINING_RETRY artifacts/lora-trace-retry.json RUNNING || true
                 CANCEL_RETRY_USED=1
                 kaggle kernels push \
                   -p artifacts/kaggle-kernel \
@@ -676,7 +683,7 @@ jobs:
                 training:{failed_at:new Date().toISOString()},
               },null,2)+'\n');
               NODE
-              node scripts/lora-daily-trace-client.mjs TRAINING_ERROR artifacts/lora-trace-error.json RUNNING || true
+              node .mel-trace-control/scripts/lora-daily-trace-client.mjs TRAINING_ERROR artifacts/lora-trace-error.json RUNNING || true
               echo "::error title=Kaggle GPU run failed::$STATUS"
               exit 1
             fi
@@ -795,7 +802,7 @@ jobs:
           };
           fs.writeFileSync('artifacts/lora-trace-result.json',JSON.stringify(payload,null,2)+'\n');
           NODE
-          node scripts/lora-daily-trace-client.mjs TRAINING_RESULT artifacts/lora-trace-result.json RUNNING
+          node .mel-trace-control/scripts/lora-daily-trace-client.mjs TRAINING_RESULT artifacts/lora-trace-result.json RUNNING
 
       - name: Save immutable checkpoint release
         if: env.SMOKE_ONLY != 'true'
@@ -947,7 +954,7 @@ jobs:
           };
           fs.writeFileSync('artifacts/lora-trace-smoke-final.json',JSON.stringify(payload,null,2)+'\n');
           NODE
-          node scripts/lora-daily-trace-client.mjs SMOKE_COMPLETED artifacts/lora-trace-smoke-final.json SMOKE_COMPLETED
+          node .mel-trace-control/scripts/lora-daily-trace-client.mjs SMOKE_COMPLETED artifacts/lora-trace-smoke-final.json SMOKE_COMPLETED
 
       - name: Finalize durable LoRA success trace
         if: success() && env.SMOKE_ONLY != 'true'
@@ -980,7 +987,7 @@ jobs:
           ].join(' ');
           fs.writeFileSync('artifacts/lora-trace-success-final.json',JSON.stringify(result,null,2)+'\n');
           NODE
-          node scripts/lora-daily-trace-client.mjs SUCCEEDED artifacts/lora-trace-success-final.json SUCCEEDED
+          node .mel-trace-control/scripts/lora-daily-trace-client.mjs SUCCEEDED artifacts/lora-trace-success-final.json SUCCEEDED
 
       - name: Finalize interrupted or failed LoRA trace
         if: always() && (failure() || cancelled())
@@ -1016,7 +1023,7 @@ jobs:
           NODE
           TERMINAL="FAILED"
           if [[ "${MEL_TRACE_JOB_STATUS:-}" == "cancelled" ]]; then TERMINAL="CANCELLED"; fi
-          node scripts/lora-daily-trace-client.mjs "$TERMINAL" artifacts/lora-trace-terminal-error.json "$TERMINAL"
+          node .mel-trace-control/scripts/lora-daily-trace-client.mjs "$TERMINAL" artifacts/lora-trace-terminal-error.json "$TERMINAL"
 
       - name: Upload permanent-run trace evidence copy
         if: always()
