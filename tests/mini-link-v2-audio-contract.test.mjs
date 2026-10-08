@@ -276,3 +276,17 @@ test('MINI chat relay outlives Android backend read timeout', async () => {
   assert.match(service, /path == "\/api\/device\/v1\/chat"\) 120_000 else 90_000/);
   assert.doesNotMatch(transport, /chat \? 20000/);
 });
+
+
+test('MINI reasserts ES8311 unmute before every playback', async () => {
+  const [terminal, codec] = await Promise.all([
+    readFile(new URL('../firmware/waveshare-terminal/main/mel_terminal.cpp', import.meta.url), 'utf8'),
+    readFile(new URL('../firmware/waveshare-terminal/vendor/esp_es8311_port.cpp', import.meta.url), 'utf8'),
+  ]);
+  const enableStart = terminal.indexOf('static bool speaker_output_enable');
+  const enableEnd = terminal.indexOf('static void speaker_output_disable', enableStart);
+  const enable = terminal.slice(enableStart, enableEnd);
+  assert.match(enable, /esp_codec_dev_set_out_mute\(output_dev, false\)/);
+  assert.match(enable, /esp_codec_dev_set_out_vol\(output_dev, volume\)/);
+  assert.match(codec, /esp_codec_dev_set_out_mute\(output_dev, false\)/);
+});
