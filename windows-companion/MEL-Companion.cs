@@ -1054,7 +1054,7 @@ class MainForm : Form
     }
     Panel Card(Control parent,int y,int height)
     {
-        var p=new Panel {Location=new Point(0,y),Size=new Size(Math.Max(610,parent.ClientSize.Width-8),height),
+        var p=new Panel {Location=new Point(0,y),Size=new Size(Math.Max(350,parent.ClientSize.Width-26),height),
             BackColor=Color.White};
         p.Paint+=delegate(object sender,PaintEventArgs ev){
             using(var pen=new Pen(stroke))ev.Graphics.DrawRectangle(pen,0,0,p.Width-1,p.Height-1);
@@ -1086,7 +1086,7 @@ class MainForm : Form
         permissions.Anchor=AnchorStyles.Right|AnchorStyles.Top;refresh.Anchor=AnchorStyles.Right|AnchorStyles.Top;
         permissions.Left=ClientSize.Width-370;refresh.Left=ClientSize.Width-180;
         LabelAt(this,"Appareils détectés et état transmis au serveur MEL",28,353,700,34,9,false,gray);
-        cards=new Panel {Left=22,Top=398,Width=ClientSize.Width-44,Height=ClientSize.Height-525,
+        cards=new Panel {Left=22,Top=398,Width=ClientSize.Width-44,Height=ClientSize.Height-545,
             BackColor=background,AutoScroll=true,Anchor=AnchorStyles.Top|AnchorStyles.Bottom|AnchorStyles.Left|AnchorStyles.Right};
         Controls.Add(cards);
         var repair=ButtonAt(this,"Réparer",22,0,120,delegate{
@@ -1097,7 +1097,7 @@ class MainForm : Form
         var uninstall=ButtonAt(this,"Désinstaller",311,0,145,delegate{MelApp.Uninstall();});
         foreach(var btn in new[]{repair,rep,uninstall})btn.Anchor=AnchorStyles.Bottom|AnchorStyles.Left;
         autostart=new CheckBox{Text="Lancer MEL Companion avec Windows",Left=26,Width=380,Height=32,
-            Checked=MelApp.StartupEnabled(),Font=new Font("Segoe UI",10f),Anchor=AnchorStyles.Bottom|AnchorStyles.Left};
+            Checked=MelApp.StartupEnabled(),Font=new Font("Segoe UI",9f),Anchor=AnchorStyles.Bottom|AnchorStyles.Left};
         autostart.CheckedChanged+=delegate{MelApp.ConfigureStartup(autostart.Checked);};
         Controls.Add(autostart);
         Resize+=delegate {PositionFooter();ResizeCards();};
@@ -1113,13 +1113,13 @@ class MainForm : Form
     void ResizeCards()
     {
         if(cards==null)return;
-        foreach(Control c in cards.Controls)c.Width=Math.Max(350,cards.ClientSize.Width-24);
+        foreach(Control c in cards.Controls)c.Width=Math.Max(350,cards.ClientSize.Width-36);
     }
     void PositionFooter()
     {
         var buttons=Controls.OfType<Button>().Where(b=>b.Text=="Réparer"||b.Text=="Réappairer"||b.Text=="Désinstaller").ToArray();
-        foreach(var b in buttons)b.Top=ClientSize.Height-118;
-        if(autostart!=null)autostart.Top=ClientSize.Height-60;
+        foreach(var b in buttons)b.Top=ClientSize.Height-145;
+        if(autostart!=null)autostart.Top=ClientSize.Height-88;
     }
     void RePair(object sender,EventArgs e)
     {
