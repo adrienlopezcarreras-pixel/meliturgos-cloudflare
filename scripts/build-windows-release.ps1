@@ -51,8 +51,12 @@ if ($desktopText -notmatch "__COMPANION_B64__") { throw "WINDOWS_DESKTOP_EMBED_P
 if ($desktopText -notmatch "__MEL_AVATAR_B64__") { throw "WINDOWS_AVATAR_EMBED_PLACEHOLDER_MISSING" }
 if ($desktopText -notmatch "__MEL_ICON_B64__") { throw "WINDOWS_ICON_EMBED_PLACEHOLDER_MISSING" }
 $companionB64 = [Convert]::ToBase64String([IO.File]::ReadAllBytes($companionSource))
-$avatarB64 = [IO.File]::ReadAllText($avatarB64Path,[Text.Encoding]::ASCII).Trim()
-$iconB64 = [IO.File]::ReadAllText($iconB64Path,[Text.Encoding]::ASCII).Trim()
+$avatarB64 = ([IO.File]::ReadAllText($avatarB64Path,[Text.Encoding]::UTF8) -replace '[^A-Za-z0-9+/=]','')
+$iconB64 = ([IO.File]::ReadAllText($iconB64Path,[Text.Encoding]::UTF8) -replace '[^A-Za-z0-9+/=]','')
+if ([string]::IsNullOrWhiteSpace($avatarB64)) { throw "WINDOWS_AVATAR_BASE64_EMPTY" }
+if ([string]::IsNullOrWhiteSpace($iconB64)) { throw "WINDOWS_ICON_BASE64_EMPTY" }
+try { [void][Convert]::FromBase64String($avatarB64) } catch { throw "WINDOWS_AVATAR_BASE64_INVALID" }
+try { [void][Convert]::FromBase64String($iconB64) } catch { throw "WINDOWS_ICON_BASE64_INVALID" }
 $desktopBuildSource = Join-Path $stage "MEL-Companion.build.cs"
 $wpfBuildSource = Join-Path $stage "MEL-Companion-WPF.build.cs"
 $desktopIcon = Join-Path $stage "MEL-Companion.ico"
