@@ -118,16 +118,18 @@ test('Workers AI media adapters stay absent without a fresh exact-model zero-cos
   assert.equal(f.calls(), 0);
 });
 
-test('Gemma 4 vision performs real image analysis only with exact zero-cost proof', async () => {
+test('Llama 3.2 Vision performs exact-model image analysis with Cloudflare image payload', async () => {
   const png = Uint8Array.from([137,80,78,71,13,10,26,10,1,2,3,4]);
   const f = fixture({
     proofJson: proof([WORKERS_AI_VISION_MODEL]),
     run: async (model, input, options) => {
       assert.equal(model, WORKERS_AI_VISION_MODEL);
-      assert.equal(input.messages[1].content[0].type, 'text');
-      assert.equal(input.messages[1].content[0].text, 'Décris précisément.');
-      assert.equal(input.messages[1].content[1].type, 'image_url');
-      assert.match(input.messages[1].content[1].image_url.url, /^data:image\/png;base64,/);
+      assert.equal(input.messages[0].role, 'system');
+      assert.equal(input.messages[1].role, 'user');
+      assert.equal(input.messages[1].content, 'Décris précisément.');
+      assert.match(input.image, /^data:image\/png;base64,/);
+      assert.equal(input.max_tokens, 512);
+      assert.equal(input.temperature, 0.1);
       assert.deepEqual(options, { rejectIfBusy: true });
       return { response: 'Une image de test observable.' };
     },
@@ -142,37 +144,11 @@ test('Gemma 4 vision performs real image analysis only with exact zero-cost proo
   assert.equal(result.ok, true);
   assert.equal(result.capability, 'media.image.analyze');
   assert.equal(result.model, WORKERS_AI_VISION_MODEL);
+  assert.equal(result.engine, 'workers-ai-llama-3.2-vision');
   assert.equal(result.analysis, 'Une image de test observable.');
   assert.equal(result.source.size, png.byteLength);
   assert.match(result.source.sha256, /^[0-9a-f]{64}$/);
   assert.equal(f.writes.length, 0);
-});
-
-test('Workers AI image analysis prefers toMarkdown and avoids the direct vision schema path', async () => {
-  const png = Uint8Array.from([137,80,78,71,13,10,26,10,5,6,7,8]);
-  let markdownCalls = 0;
-  const f = fixture({
-    proofJson: proof([WORKERS_AI_VISION_MODEL]),
-    run: async () => { throw new Error('DIRECT_VISION_MUST_NOT_RUN'); },
-    toMarkdown: async (file, options) => {
-      markdownCalls += 1;
-      assert.equal(file.name, 'mel-image.png');
-      assert.equal(file.blob.type, 'image/png');
-      assert.equal(options.conversionOptions.image.descriptionLanguage, 'fr');
-      assert.equal(options.conversionOptions.output.format, 'text');
-      return [{ data: 'Un cercle bleu sur un fond ivoire.' }];
-    },
-  });
-  const result = await createWorkersAiZeroCostMediaCapabilities(f.env)['media.image.analyze']({
-    bytes: png,
-    mime: 'image/png',
-    prompt: 'Décris précisément.',
-  });
-  assert.equal(result.ok, true);
-  assert.match(result.analysis, /Un cercle bleu sur un fond ivoire\./);
-  assert.equal(result.engine, 'workers-ai-tomarkdown-vision');
-  assert.equal(f.calls(), 0);
-  assert.equal(markdownCalls, 1);
 });
 
 test('FLUX.2 Klein performs real image editing and stores the result encrypted', async () => {

@@ -156,6 +156,7 @@ test('release zero-cost proof authorizes the accessible Council fallback pool', 
   const workflow = await readFile(new URL('../../.github/workflows/deploy-cloudflare-release.yml', import.meta.url), 'utf8');
   assert.match(workflow, /@cf\/meta\/llama-3\.3-70b-instruct-fp8-fast/);
   assert.match(workflow, /@cf\/google\/gemma-4-26b-a4b-it/);
+  assert.match(workflow, /@cf\/meta\/llama-3\.2-11b-vision-instruct/);
   assert.match(workflow, /@cf\/nvidia\/nemotron-3-120b-a12b/);
   assert.match(workflow, /@cf\/zai-org\/glm-4\.7-flash/);
   assert.match(workflow, /@cf\/black-forest-labs\/flux-1-schnell/);
