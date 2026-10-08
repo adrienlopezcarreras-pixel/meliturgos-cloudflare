@@ -10,3 +10,6 @@ bool esp_es8311_port_ready(void);
 esp_err_t esp_es8311_port_last_error(void);
 void esp_es8311_port_dump(void);
 void esp_es8311_test(void);
+
+// Zero-based hardware proof: local PCM only, no BLE/TTS/network.
+bool esp_es8311_play_proof_tone(void);
