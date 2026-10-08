@@ -376,6 +376,9 @@ class MainActivity : ComponentActivity() {
     ) { result ->
         if (result.resultCode == android.app.Activity.RESULT_OK) {
             MelCompanionController.restore(this)
+            window.decorView.postDelayed({
+                MelCompanionController.connectExisting(this)
+            }, 700L)
         } else {
             MelCompanionRuntime.markError("association annulée")
         }
@@ -400,9 +403,10 @@ class MainActivity : ComponentActivity() {
             enableBluetooth.launch(Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE))
             return
         }
-        if (!forceRestart) {
-            MelCompanionController.restore(this)
-            if (MelCompanionRuntime.miniPairingComplete.value) return
+        MelCompanionController.restore(this)
+        if (MelCompanionRuntime.miniPairingComplete.value) {
+            MelCompanionController.connectExisting(this)
+            return
         }
         startCompanionAssociation()
     }
