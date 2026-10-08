@@ -4,6 +4,8 @@ import android.Manifest
 import android.app.ActivityManager
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothManager
+import android.bluetooth.le.ScanResult
+import android.companion.CompanionDeviceManager
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -389,32 +391,11 @@ class MainActivity : ComponentActivity() {
     @Suppress("DEPRECATION")
     private fun selectedCompanionAddress(data: Intent?): String? {
         if (data == null) return null
-
-        val scanResult = runCatching {
+        val scanResult: ScanResult? = runCatching {
             data.getParcelableExtra<ScanResult>(CompanionDeviceManager.EXTRA_DEVICE)
         }.getOrNull()
         val scanAddress = scanResult?.device?.address
-        if (MelCompanionLink.isValidAddress(scanAddress)) return scanAddress
-
-        if (Build.VERSION.SDK_INT >= 33) {
-            val association = runCatching {
-                data.getParcelableExtra(
-                    CompanionDeviceManager.EXTRA_ASSOCIATION,
-                    AssociationInfo::class.java
-                )
-            }.getOrNull()
-            val mac = association?.deviceMacAddress?.toString()
-            if (MelCompanionLink.isValidAddress(mac)) return mac
-
-            if (Build.VERSION.SDK_INT >= 34) {
-                val associatedBleAddress = association?.associatedDevice
-                    ?.bleDevice?.device?.address
-                if (MelCompanionLink.isValidAddress(associatedBleAddress)) {
-                    return associatedBleAddress
-                }
-            }
-        }
-        return null
+        return scanAddress?.takeIf { MelCompanionLink.isValidAddress(it) }
     }
 
     private fun ensureCompanion(forceRestart: Boolean = false) {
