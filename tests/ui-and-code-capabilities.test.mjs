@@ -27,10 +27,10 @@ test('explicit code file requests are routed to code.read', () => {
   assert.equal(inferCodeCapability('Quel temps fait-il ?'), null);
 });
 
-test('normal home UI remains available while v1 redirects to canonical Professor', async () => {
+test('normal home UI remains available while legacy Professor routes redirect canonically in the router', async () => {
   const response = await renderNormalMode();
   const mvp = await response.text();
-  const v1 = await readFile(new URL('../src/pages/full-interface.js', import.meta.url), 'utf8');
+  const router = await readFile(new URL('../src/router.js', import.meta.url), 'utf8');
   assert.match(mvp, /<title>MEL<\/title>/);
   assert.match(mvp, /data-visual-owner="mel-normal-v3"/);
   assert.match(mvp, /id="melAvatar"/);
@@ -38,9 +38,10 @@ test('normal home UI remains available while v1 redirects to canonical Professor
   assert.match(mvp, /\/normal-runtime\.js\?v=9/);
   assert.match(NORMAL_RUNTIME_SOURCE, /location\.href='\/professor'/);
   assert.doesNotMatch(mvp, /status:\s*308/);
-  assert.match(v1, /status:\s*308/);
-  assert.match(v1, /location:\s*["']\/professor["']/);
-  assert.match(v1, /cache-control["']?:\s*["']no-store["']/);
+  assert.match(router, /url\.pathname === "\/professor-v1" \|\| url\.pathname === "\/professor-legacy"/);
+  assert.match(router, /status:\s*308/);
+  assert.match(router, /location:\s*"\/professor"/);
+  assert.match(router, /"cache-control":\s*"no-store"/);
 });
 
 test('canonical full mode remains the contemporary control center wired at /professor', async () => {
