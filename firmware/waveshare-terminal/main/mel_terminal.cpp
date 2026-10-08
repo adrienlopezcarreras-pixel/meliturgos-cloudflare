@@ -1983,10 +1983,44 @@ void mel_terminal_set_voice_output_enabled(bool enabled) {
 }
 
 static void voice_output_test_task(void *) {
+    ui_status("TEST HP LOCAL...");
+    constexpr int samples = 12000; // 250 ms @ 48 kHz
+    int16_t *pcm = static_cast<int16_t *>(
+        heap_caps_malloc(samples * sizeof(int16_t), MALLOC_CAP_8BIT)
+    );
+    if (!pcm) {
+        voice_error("HP TEST MEMOIRE");
+        ui_status("HP TEST : MEMOIRE");
+        vTaskDelete(nullptr);
+        return;
+    }
+    for (int i = 0; i < samples; ++i) {
+        const int phase = i % 64;
+        pcm[i] = (phase < 32) ? 11000 : -11000;
+    }
+    const bool enabled = speaker_output_enable(85.0);
+    const int rc = enabled
+        ? esp_codec_dev_write(output_dev, pcm, samples * sizeof(int16_t))
+        : ESP_FAIL;
+    vTaskDelay(pdMS_TO_TICKS(80));
+    speaker_output_disable();
+    heap_caps_free(pcm);
+
+    const bool local_ok = enabled && rc == ESP_CODEC_DEV_OK;
+    ESP_LOGI(TAG, "VOICE TEST local speaker enabled=%d write_rc=%d", enabled ? 1 : 0, rc);
+    if (!local_ok) {
+        voice_error("HP LOCAL ECHEC");
+        ui_status("HP LOCAL : ECHEC");
+        vTaskDelete(nullptr);
+        return;
+    }
+
+    ui_status("HP LOCAL : BIP ENVOYE");
+    vTaskDelay(pdMS_TO_TICKS(250));
     ui_status("TEST VOIX...");
-    const bool ok = speak_text("La reponse vocale est activee.");
-    ui_status(ok ? "VOIX : ON" : "VOIX : ECHEC");
-    if (!ok) voice_error("TTS TEST ECHEC");
+    const bool tts_ok = speak_text("La reponse vocale est activee.");
+    ui_status(tts_ok ? "VOIX : ON" : "TTS : ECHEC");
+    if (!tts_ok) voice_error("TTS TEST ECHEC");
     vTaskDelete(nullptr);
 }
 
