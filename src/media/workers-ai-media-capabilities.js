@@ -272,8 +272,9 @@ export async function storePrivateArtifact(env, bytesInput, {
 }
 
 function workersAiSchemaMismatch(error) {
-  const message = String(error?.code || error?.message || error || '');
-  return /(?:^|\\b)5006(?:\\b|:)|unevaluated properties|max_tokens.*not allowed/i.test(message);
+  const code = String(error?.code || '').trim();
+  const message = String(error?.message || error || '');
+  return code === '5006' || /(?:^|\\b)5006(?:\\b|:)|unevaluated properties|max_tokens.*not allowed/i.test(message);
 }
 
 function markdownDescription(result) {
