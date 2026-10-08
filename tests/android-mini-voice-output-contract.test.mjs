@@ -23,18 +23,33 @@ test('Android has deterministic PCM48 fallback before MP3 compatibility playback
   assert.match(vm, /client\.tts\(answer, speaker = "luna", format = "mp3"\)/);
 });
 
-test('MINI TTS server constructs a deterministic 48 kHz PCM WAV and Android accepts WAV or raw PCM16', async () => {
-  const [server, link, codec] = await Promise.all([
-    readFile(new URL('src/devices/waveshare-terminal-api.js', root), 'utf8'),
-    readFile(new URL('android-companion/app/src/main/java/fr/veriteinterdite/mel/MelLinkV2ClientService.kt', root), 'utf8'),
-    readFile(new URL('android-companion/app/src/main/java/fr/veriteinterdite/mel/MelImaAdpcm.kt', root), 'utf8'),
-  ]);
+test('MINI prefers local Android fr-FR synthesis and keeps strict WAV server fallback', async () => {
+  const android = await readFile(
+    new URL('../android-companion/app/src/main/java/fr/veriteinterdite/mel/MelLinkV2ClientService.kt', import.meta.url),
+    'utf8'
+  );
+  const synth = await readFile(
+    new URL('../android-companion/app/src/main/java/fr/veriteinterdite/mel/MelMiniVoiceSynthesizer.kt', import.meta.url),
+    'utf8'
+  );
+  const server = await readFile(
+    new URL('../src/devices/waveshare-terminal-api.js', import.meta.url),
+    'utf8'
+  );
+
+  assert.match(android, /MelMiniVoiceSynthesizer\.synthesizePcm48kMono/);
+  assert.match(android, /MINI V2 · VOIX FR LOCALE/);
+  assert.match(android, /MelImaAdpcm\.decodePcm16MonoWav\(body, 48_000\)/);
+  assert.doesNotMatch(android, /MelImaAdpcm\.decodePcm16Le\(body\)/);
+
+  assert.match(synth, /Locale\.FRANCE/);
+  assert.match(synth, /onBeginSynthesis/);
+  assert.match(synth, /onAudioAvailable/);
+  assert.match(synth, /OUTPUT_RATE = 48_000/);
+
   assert.match(server, /encoding: "linear16"/);
   assert.match(server, /container: "wav"/);
   assert.match(server, /TTS_WAV_REQUIRED/);
-  assert.match(server, /"content-type": "audio\/wav"/);
-  assert.match(link, /MelImaAdpcm\.decodePcm16Le\(body\)/);
-  assert.match(codec, /fun decodePcm16Le\(bytes: ByteArray\): ShortArray/);
 });
 
 
