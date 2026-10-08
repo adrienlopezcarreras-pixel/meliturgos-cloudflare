@@ -8,6 +8,7 @@ import {
   getLoraDailyTrace,
   listLoraDailyTraces,
   markMissingLoraTrainingDay,
+  reconcileOrphanedLoraTrainingTraces,
 } from '../src/learning/lora-daily-trace.js';
 
 const SHA='a'.repeat(40);
@@ -100,11 +101,67 @@ test('a day without any training is persistently reported and does not fabricate
   const env=await setup();
   const result=await markMissingLoraTrainingDay(env,{day:'2026-10-07',now:Date.parse('2026-10-08T00:17:00Z')});
   assert.equal(result.ok,true);
-  assert.equal(result.status,'NO_TRAINING_STARTED');
+  assert.equal(result.status,'MISSING_RUN');
   const daily=await getLoraDailyStatus(env,'2026-10-07');
   assert.equal(Number(daily.run_count),0);
   assert.ok(Number(daily.absence_reported_at)>0);
   assert.match(daily.report_fr,/Aucun entraînement LoRA MEL/);
   const rows=await listLoraDailyTraces(env,{day:'2026-10-07'});
   assert.equal(rows.length,0);
+});
+
+
+test('orphaned RUNNING trace is reconciled from GitHub failure and preserves prior events',async()=>{
+  const env=await setup();
+  env.MEL_GITHUB_TOKEN='test-token';
+  await appendLoraDailyTrace(env,base(),ID);
+  await appendLoraDailyTrace(env,{...base('gh-9001-1',2,'TRAINING_PROGRESS'),training:{global_step:11}},ID);
+
+  const result=await reconcileOrphanedLoraTrainingTraces(env,{
+    now:Date.parse('2026-10-08T03:00:00Z'),
+    graceMinutes:1,
+    fetchImpl:async(url,options={})=>{
+      assert.match(String(url),/\/actions\/runs\/9001$/);
+      assert.match(String(options.headers?.authorization||''),/^Bearer /);
+      return Response.json({
+        id:9001,
+        status:'completed',
+        conclusion:'failure',
+        html_url:'https://github.com/owner/repo/actions/runs/9001',
+      });
+    },
+    repository:'owner/repo',
+  });
+  assert.equal(result.reconciled,1);
+  const trace=await getLoraDailyTrace(env,'gh-9001-1');
+  assert.equal(trace.status,'FAILED');
+  assert.equal(Number(trace.trace_verified),1);
+  assert.equal(trace.events.length,3);
+  assert.equal(trace.events[2].event_type,'FAILED');
+  assert.equal(trace.training.global_step,11);
+  assert.equal(trace.errors.at(-1).code,'WORKFLOW_TERMINATED_BEFORE_TRACE_FINALIZATION');
+});
+
+test('GitHub success without terminal LoRA trace is reconciled as TRACE_INCOMPLETE, never success',async()=>{
+  const env=await setup();
+  env.MEL_GITHUB_TOKEN='test-token';
+  await appendLoraDailyTrace(env,base(),ID);
+
+  const result=await reconcileOrphanedLoraTrainingTraces(env,{
+    now:Date.parse('2026-10-08T03:00:00Z'),
+    graceMinutes:1,
+    fetchImpl:async()=>Response.json({
+      id:9001,
+      status:'completed',
+      conclusion:'success',
+      html_url:'https://github.com/owner/repo/actions/runs/9001',
+    }),
+    repository:'owner/repo',
+  });
+  assert.equal(result.reconciled,1);
+  const trace=await getLoraDailyTrace(env,'gh-9001-1');
+  assert.equal(trace.status,'TRACE_INCOMPLETE');
+  assert.equal(Number(trace.trace_verified),0);
+  assert.equal(trace.events.at(-1).event_type,'TRACE_RECONCILED');
+  assert.equal(trace.errors.at(-1).code,'WORKFLOW_SUCCEEDED_WITHOUT_VERIFIED_TRACE');
 });
