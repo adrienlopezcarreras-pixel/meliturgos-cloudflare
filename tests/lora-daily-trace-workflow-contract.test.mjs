@@ -41,14 +41,17 @@ test('smoke-only is traceable but cannot masquerade as a successful checkpointed
   assert.match(workflow,/Aucun checkpoint ni adaptateur n’est déclaré comme entraînement réussi/);
 });
 
-test('trace client writes local JSONL before the remote durable request and requires OIDC',()=>{
-  const localAt=client.indexOf("direction:'OUT'");
-  const fetchAt=client.indexOf("fetch(endpoint");
-  assert.ok(localAt>=0&&fetchAt>localAt);
+test('trace client durably journals and spools locally before flushing remote delivery and requires OIDC',()=>{
+  const localJournalAt=client.indexOf("journal({direction:'OUT'");
+  const spoolWriteAt=client.indexOf("fs.writeFileSync(spoolPath");
+  const flushAt=client.indexOf("const flushed=await flushPending()");
+  assert.ok(localJournalAt>=0&&spoolWriteAt>localJournalAt&&flushAt>spoolWriteAt);
+  assert.match(client,/async function deliver\(file\)/);
+  assert.match(client,/fetch\(endpoint/);
   assert.match(client,/ACTIONS_ID_TOKEN_REQUEST_URL/);
   assert.match(client,/audience=meliturgos-worker/);
   assert.match(client,/x-mel-github-oidc/);
-  assert.match(client,/LORA_TRACE_WRITE_FAILED/);
+  assert.match(client,/LORA_TRACE_WRITE_FAILED_QUEUE_RETAINED/);
 });
 
 test('MEL exposes durable trace history and daily status to the authenticated learning API',()=>{
