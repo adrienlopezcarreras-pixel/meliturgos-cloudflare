@@ -575,6 +575,7 @@ jobs:
             models:[
               '@cf/meta/llama-3.3-70b-instruct-fp8-fast',
               '@cf/google/gemma-4-26b-a4b-it',
+              '@cf/meta/llama-3.2-11b-vision-instruct',
               '@cf/nvidia/nemotron-3-120b-a12b',
               '@cf/zai-org/glm-4.7-flash',
               '@cf/black-forest-labs/flux-1-schnell',
