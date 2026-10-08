@@ -6,6 +6,8 @@
 #include "esp_err.h"
 #include "esp_log.h"
 #include "esp_sleep.h"
+#include "esp_system.h"
+#include "esp_attr.h"
 #include "esp_io_expander_tca9554.h"
 
 #include "esp_axp2101_port.h"
@@ -18,6 +20,8 @@
 static const char *TAG = "mini_audio_zero";
 static i2c_master_bus_handle_t g_i2c = nullptr;
 static esp_io_expander_handle_t g_expander = nullptr;
+RTC_DATA_ATTR static uint32_t g_audio_zero_boot_guard = 0;
+static constexpr uint32_t AUDIO_ZERO_GUARD_MAGIC = 0xA0D10F01;
 
 static void init_i2c(void) {
     i2c_master_bus_config_t cfg = {};
@@ -63,7 +67,12 @@ static void init_expander_and_pa(void) {
 }
 
 extern "C" void app_main(void) {
-    ESP_LOGI(TAG, "AUDIO ZERO PROOF BOOT");
+    const esp_reset_reason_t reset_reason = esp_reset_reason();
+    ESP_LOGI(TAG, "AUDIO ZERO PROOF BOOT reset_reason=%d guard=0x%08lx", (int)reset_reason, (unsigned long)g_audio_zero_boot_guard);
+    if (g_audio_zero_boot_guard == AUDIO_ZERO_GUARD_MAGIC) {
+        ESP_LOGW(TAG, "REBOOT GUARD ACTIVE: suppressing repeated proof tone");
+        esp_deep_sleep_start();
+    }
     ESP_LOGI(TAG, "No BLE, no Wi-Fi, no Android, no TTS, no camera, no LVGL");
 
     init_i2c();
@@ -83,6 +92,11 @@ extern "C" void app_main(void) {
     }
 
     ESP_LOGI(TAG, "ES8311 READY; local PCM proof only");
+
+    // Arm the reboot guard BEFORE playback. If the device resets during or
+    // immediately after the write, the next boot stays silent instead of
+    // replaying the tone forever.
+    g_audio_zero_boot_guard = AUDIO_ZERO_GUARD_MAGIC;
 
     const bool first = esp_es8311_play_proof_tone();
     ESP_LOGI(TAG, "AUDIO ZERO PROOF RESULT: %s", first ? "PASS" : "FAIL");
