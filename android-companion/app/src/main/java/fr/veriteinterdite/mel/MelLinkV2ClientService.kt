@@ -624,7 +624,7 @@ class MelLinkV2ClientService : Service() {
         ).openConnection() as java.net.HttpURLConnection
         connection.requestMethod = method
         connection.connectTimeout = 15_000
-        connection.readTimeout = 90_000
+        connection.readTimeout = if (path == "/api/device/v1/chat") 120_000 else 90_000
         connection.setRequestProperty("Authorization", "Bearer $miniToken")
         connection.setRequestProperty("X-MEL-Device-ID", miniDeviceId)
         connection.setRequestProperty("X-MEL-Link-Protocol", "2")
