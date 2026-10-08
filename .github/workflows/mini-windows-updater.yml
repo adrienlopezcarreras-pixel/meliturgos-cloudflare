@@ -35,9 +35,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh run download 37764307974 `
+          gh run download 37774683157 `
             --repo "${{ github.repository }}" `
-            --name "MEL-Waveshare-3.5-C-baae6305cb351c90d79c3f7d727eac366a85740e" `
+            --name "MEL-Waveshare-3.5-C-f198b862fbccd9967fe5e8df4161ed4e7613bb09" `
             --dir firmware-artifact
           if (!(Test-Path "firmware-artifact/build/mel-terminal.bin")) {
             throw "Validated firmware binary missing"
