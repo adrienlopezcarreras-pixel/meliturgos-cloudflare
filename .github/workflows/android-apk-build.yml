@@ -5,6 +5,7 @@ on:
     branches:
       - candidate/mel-clean-autonomy
       - main
+      - rebuild/android-companion-clean-20261008
     paths:
       - "android-companion/**"
       - ".github/workflows/android-apk-build.yml"
