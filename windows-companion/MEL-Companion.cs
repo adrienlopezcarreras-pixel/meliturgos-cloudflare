@@ -948,64 +948,56 @@ class PermissionsForm : Form
         footer.Controls.Add(actions);
         Controls.Add(footer);
 
-        var scroll=new Panel {Dock=DockStyle.Fill,AutoScroll=true,Padding=new Padding(24,16,24,16)};
+        // Avoid AutoSize FlowLayoutPanel + Dock Fill: WinForms can collapse its
+        // content to zero height before layout, leaving an empty dialog.
+        var scroll=new Panel {Dock=DockStyle.Fill,AutoScroll=true,BackColor=Color.FromArgb(245,247,250)};
         Controls.Add(scroll);
-        var content=new FlowLayoutPanel {Dock=DockStyle.Top,FlowDirection=FlowDirection.TopDown,
-            WrapContents=false,AutoSize=true,AutoSizeMode=AutoSizeMode.GrowAndShrink};
+        // Explicitly place the scroll area above the footer.
+        scroll.BringToFront();
+        footer.BringToFront();
+        var content=new Panel {Location=new Point(0,0),Width=scroll.ClientSize.Width,Height=630,
+            BackColor=Color.FromArgb(245,247,250)};
         scroll.Controls.Add(content);
-        voidResizeContent(scroll,content);
-
-        var heading=Caption("Autorisations locales",18,true);
-        heading.Height=58;content.Controls.Add(heading);
-        var subtitle=Caption("Choisissez les applications et dossiers accessibles à MEL.",10,false);
-        subtitle.Height=43;content.Controls.Add(subtitle);
+        var header=Caption("Autorisations locales",15,true);
+        header.Dock=DockStyle.None;header.SetBounds(22,18,700,50);content.Controls.Add(header);
+        var subtitle=Caption("Applications et dossiers auxquels MEL peut accéder",10,false);
+        subtitle.Dock=DockStyle.None;subtitle.SetBounds(22,72,700,40);content.Controls.Add(subtitle);
 
         var currentApps=MelApp.ConfigList("allowed_apps");
         var currentPaths=MelApp.ConfigList("allowed_paths");
-
-        var apps=Section("Applications autorisées",235);
-        var appGrid=new TableLayoutPanel {Dock=DockStyle.Fill,ColumnCount=2,RowCount=3,
-            Padding=new Padding(6,0,6,8)};
-        appGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,50));
-        appGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,50));
-        for(int i=0;i<3;i++)appGrid.RowStyles.Add(new RowStyle(SizeType.Percent,33.333f));
+        var appsTitle=Caption("APPLICATIONS",11,true);
+        appsTitle.Dock=DockStyle.None;appsTitle.SetBounds(22,126,650,38);content.Controls.Add(appsTitle);
         for(int i=0;i<MelApp.PermissionApps.Length;i++)
         {
+            int column=i<3?0:1, row=i<3?i:i-3;
             var cb=new CheckBox {Text=MelApp.PermissionAppLabels[i],Tag=MelApp.PermissionApps[i],
                 Checked=MelApp.ContainsIgnoreCase(currentApps,MelApp.PermissionApps[i]),
-                Dock=DockStyle.Fill,AutoSize=false,Font=new Font("Segoe UI",10f),ForeColor=ink,
-                TextAlign=ContentAlignment.MiddleLeft};
-            appGrid.Controls.Add(cb,i<3?0:1,i<3?i:i-3);appBoxes.Add(cb);
+                Font=new Font("Segoe UI",10f),ForeColor=ink,AutoSize=false,
+                Size=new Size(320,38),Location=new Point(24+column*350,176+row*48)};
+            content.Controls.Add(cb);appBoxes.Add(cb);
         }
-        apps.Controls.Add(appGrid);apps.Controls.SetChildIndex(appGrid,1);
-        content.Controls.Add(apps);
-
-        var pathsSection=Section("Dossiers autorisés",Math.Max(130,80+paths.Length*48));
-        var pathsList=new TableLayoutPanel {Dock=DockStyle.Fill,ColumnCount=1,RowCount=paths.Length,
-            Padding=new Padding(6,0,6,6),AutoScroll=true};
-        pathsList.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100));
+        int pathHeadingY=338;
+        var folderTitle=Caption("DOSSIERS",11,true);
+        folderTitle.Dock=DockStyle.None;folderTitle.SetBounds(22,pathHeadingY,650,40);
+        content.Controls.Add(folderTitle);
         for(int i=0;i<paths.Length;i++)
         {
-            pathsList.RowStyles.Add(new RowStyle(SizeType.Absolute,46));
             var cb=new CheckBox {Text=paths[i],Tag=paths[i],
                 Checked=MelApp.ContainsIgnoreCase(currentPaths,paths[i]),
-                Dock=DockStyle.Fill,AutoSize=false,Font=new Font("Segoe UI",9.5f),
-                ForeColor=ink,AutoEllipsis=true,TextAlign=ContentAlignment.MiddleLeft};
-            pathsList.Controls.Add(cb,0,i);pathBoxes.Add(cb);
+                Font=new Font("Segoe UI",9f),ForeColor=ink,AutoSize=false,
+                AutoEllipsis=true,Size=new Size(725,42),
+                Location=new Point(24,pathHeadingY+48+i*48)};
+            content.Controls.Add(cb);pathBoxes.Add(cb);
         }
-        pathsSection.Controls.Add(pathsList);pathsSection.Controls.SetChildIndex(pathsList,1);
-        content.Controls.Add(pathsSection);
-    }
-    static void voidResizeContent(Panel scroll,FlowLayoutPanel content)
-    {
-        Action resize=delegate {
-            int width=Math.Max(580,scroll.ClientSize.Width-30);
-            content.Width=width;
-            foreach(Control c in content.Controls)c.Width=width-8;
+        content.Height=Math.Max(590,pathHeadingY+75+paths.Length*48);
+        scroll.Resize+=delegate {
+            content.Width=Math.Max(620,scroll.ClientSize.Width-8);
+            header.Width=content.Width-44;subtitle.Width=content.Width-44;
+            appsTitle.Width=content.Width-44;folderTitle.Width=content.Width-44;
+            foreach(var cb in pathBoxes)cb.Width=content.Width-48;
         };
-        scroll.Resize+=delegate{resize();};
-        content.ControlAdded+=delegate{resize();};
-        resize();
+        // Guarantee a nonzero extent and visible scroll range on first display.
+        Shown+=delegate {scroll.AutoScrollMinSize=new Size(0,content.Height+12);};
     }
     void Apply(object sender,EventArgs e)
     {
@@ -1096,7 +1088,7 @@ class MainForm : Form
         var rep=ButtonAt(this,"Réappairer",154,0,145,RePair);
         var uninstall=ButtonAt(this,"Désinstaller",311,0,145,delegate{MelApp.Uninstall();});
         foreach(var btn in new[]{repair,rep,uninstall})btn.Anchor=AnchorStyles.Bottom|AnchorStyles.Left;
-        autostart=new CheckBox{Text="Lancer MEL Companion avec Windows",Left=26,Width=380,Height=32,
+        autostart=new CheckBox{Text="Lancer MEL Companion avec Windows",Left=26,Width=520,Height=42,
             Checked=MelApp.StartupEnabled(),Font=new Font("Segoe UI",9f),Anchor=AnchorStyles.Bottom|AnchorStyles.Left};
         autostart.CheckedChanged+=delegate{MelApp.ConfigureStartup(autostart.Checked);};
         Controls.Add(autostart);
