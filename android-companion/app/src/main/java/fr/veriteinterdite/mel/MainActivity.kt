@@ -626,7 +626,7 @@ class MainActivity : ComponentActivity() {
                     wakeEnrolled.value = state.enrolled
                     if (state.enrolled) {
                         voiceMessage.value = "OK MEL appris · écoute silencieuse active"
-                        ensureMobileBridge(true)
+                        ensureCompanion(true)
                         scheduleWakeWordRestart()
                     } else {
                         voiceMessage.value = "OK MEL enregistré · ${state.sampleCount}/${WakePhraseTrainer.REQUIRED_SAMPLES}"
@@ -648,7 +648,7 @@ class MainActivity : ComponentActivity() {
         wakeEnrollmentCount.value = 0
         wakeEnrolled.value = false
         voiceMessage.value = "Apprentissage OK MEL réinitialisé"
-        ensureMobileBridge(true)
+        ensureCompanion(true)
     }
 
     private fun beginPushToTalk() {
