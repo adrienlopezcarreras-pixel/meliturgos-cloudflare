@@ -191,6 +191,8 @@ const COST_SENSITIVE_CAPABILITIES = new Set([
   'media.audio.transcribe',
   'evolution.enqueue',
   'web.research',
+  'github.repository.read',
+  'github.actions.runs.read',
   'code.read',
   'code.search',
   'code.integrity',
