@@ -80,7 +80,7 @@ function fixture(){
         if(model===WORKERS_AI_TRANSCRIPTION_MODEL) return {text:'Bonjour vidéo.',word_count:2};
         if(model===WORKERS_AI_VISION_MODEL){
           if(input?.image) return {response:'Storyboard géométrique bleu sur fond clair.'};
-          return {response:'La vidéo montre une forme géométrique; une courte parole est entendue.'};
+          throw new Error('TEXT_ONLY_VISION_CALL_FORBIDDEN');
         }
         if(model===WORKERS_AI_IMAGE_MODEL) return {image:jpeg.toString('base64')};
         throw new Error('UNEXPECTED_MODEL:'+model);
@@ -121,7 +121,7 @@ test('Browser Run Free video analysis samples frames and optional audio then use
   assert.equal(out.transcript,'Bonjour vidéo.');
   assert.equal(out.transcript_status,'TRANSCRIBED');
   assert.match(out.visual_analysis,/géométrique/);
-  assert.match(out.summary,/courte parole/);
+  assert.match(out.summary,/Bonjour vidéo\./);
   assert.equal(f.requests[0].body.schema,'mel.media.browser-sample-video/v1');
 });
 
