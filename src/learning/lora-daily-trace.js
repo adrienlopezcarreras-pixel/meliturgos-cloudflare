@@ -195,7 +195,8 @@ export async function appendLoraDailyTrace(env={},body={},identity={}){
       run=await loadRun(db,runId);
     }
   }else if(TERMINAL.has(status)){
-    await db.prepare('UPDATE lora_training_runs SET trace_verified=1 WHERE run_id=?').bind(runId).run();
+    const verifiedTerminal=status!=='TRACE_INCOMPLETE';
+    await db.prepare('UPDATE lora_training_runs SET trace_verified=? WHERE run_id=?').bind(verifiedTerminal?1:0,runId).run();
     run=await loadRun(db,runId);
   }
 
@@ -253,10 +254,110 @@ export async function markMissingLoraTrainingDay(env={}, {now=Date.now(),day=nul
   if(!current?.absence_reported_at){
     await db.prepare('UPDATE lora_daily_status SET absence_reported_at=? WHERE day=?').bind(ts,target).run();
   }
-  return {ok:true,status:'NO_TRAINING_STARTED',day:target,report_fr:report};
+  return {ok:true,status:'MISSING_RUN',day:target,report_fr:report};
 }
 export async function getLoraDailyStatus(env={},day){
   return env?.DB?.prepare ? env.DB.prepare('SELECT * FROM lora_daily_status WHERE day=?').bind(day).first() : null;
+}
+
+function githubHeaders(token){
+  return {
+    accept:'application/vnd.github+json',
+    'x-github-api-version':'2022-11-28',
+    'user-agent':'meliturgos-lora-trace-reconciler',
+    authorization:'Bearer '+token,
+  };
+}
+function githubTerminal(conclusion){
+  const value=clean(conclusion,80).toLowerCase();
+  if(value==='failure'||value==='action_required'||value==='startup_failure')return 'FAILED';
+  if(value==='cancelled')return 'CANCELLED';
+  if(value==='timed_out')return 'TIMED_OUT';
+  if(value==='success')return 'TRACE_INCOMPLETE';
+  return null;
+}
+export async function reconcileOrphanedLoraTrainingTraces(env={}, {
+  now=Date.now(),
+  graceMinutes=30,
+  limit=20,
+  fetchImpl=fetch,
+  repository='adrienlopezcarreras-pixel/meliturgos-cloudflare',
+}={}){
+  const db=env?.DB;
+  if(!db?.prepare)return {ok:false,status:'D1_NOT_BOUND',checked:0,reconciled:0};
+  const token=clean(env?.MEL_GITHUB_TOKEN,1000);
+  if(!token)return {ok:false,status:'GITHUB_TOKEN_MISSING',checked:0,reconciled:0};
+  const threshold=Number(now)-Math.max(5,Math.min(240,Number(graceMinutes)||30))*60_000;
+  const rows=await db.prepare(
+    "SELECT * FROM lora_training_runs WHERE status='RUNNING' AND updated_at<? ORDER BY updated_at ASC LIMIT ?"
+  ).bind(threshold,Math.max(1,Math.min(100,int(limit,20)))).all();
+  const candidates=rows?.results||[];
+  const reconciled=[],stillActive=[],errors=[];
+  for(const run of candidates){
+    const workflowRunId=int(run.workflow_run_id);
+    if(!workflowRunId){errors.push({run_id:run.run_id,code:'WORKFLOW_RUN_ID_MISSING'});continue;}
+    try{
+      const response=await fetchImpl(`https://api.github.com/repos/${repository}/actions/runs/${workflowRunId}`,{
+        headers:githubHeaders(token),
+        signal:AbortSignal.timeout(20000),
+      });
+      if(!response.ok){
+        errors.push({run_id:run.run_id,code:'GITHUB_RUN_READ_'+response.status});
+        continue;
+      }
+      const gh=await response.json();
+      const status=clean(gh?.status,40).toLowerCase();
+      if(status!=='completed'){
+        stillActive.push({run_id:run.run_id,workflow_status:status||null});
+        continue;
+      }
+      const terminal=githubTerminal(gh?.conclusion);
+      if(!terminal){
+        errors.push({run_id:run.run_id,code:'GITHUB_CONCLUSION_UNHANDLED',conclusion:gh?.conclusion||null});
+        continue;
+      }
+      const nextSeq=Number(run.last_seq||0)+1;
+      const successWithoutTrace=terminal==='TRACE_INCOMPLETE';
+      const summary=successWithoutTrace
+        ?`Le workflow GitHub ${workflowRunId} s'est terminé avec succès, mais aucune trace terminale LoRA vérifiable n'a été reçue. Le run reste non validé et doit être investigué.`
+        :`Le workflow GitHub ${workflowRunId} s'est terminé avec l'état ${terminal}. MEL a reconstitué cet état terminal après absence de mise à jour du journal LoRA.`;
+      const result=await appendLoraDailyTrace(env,{
+        run_id:run.run_id,
+        seq:nextSeq,
+        event_type:successWithoutTrace?'TRACE_RECONCILED':terminal,
+        status:terminal,
+        occurred_at:Number(now),
+        workflow_run_id:workflowRunId,
+        workflow_run_number:int(run.workflow_run_number),
+        workflow_attempt:int(run.workflow_attempt,1),
+        workflow_sha:clean(run.workflow_sha,40),
+        source_sha:clean(run.source_sha,40),
+        model_version:clean(run.model_version,300),
+        base_model:clean(run.base_model,300),
+        cycle:int(run.cycle),
+        errors:[{
+          code:successWithoutTrace?'WORKFLOW_SUCCEEDED_WITHOUT_VERIFIED_TRACE':'WORKFLOW_TERMINATED_BEFORE_TRACE_FINALIZATION',
+          message:summary,
+          github_conclusion:gh?.conclusion||null,
+          github_status:gh?.status||null,
+          reconciled:true,
+        }],
+        training:{reconciled_at:new Date(Number(now)).toISOString()},
+        summary_fr:summary,
+        payload:{
+          reconciled:true,
+          github_run_id:workflowRunId,
+          github_status:gh?.status||null,
+          github_conclusion:gh?.conclusion||null,
+          html_url:gh?.html_url||null,
+        },
+      });
+      reconciled.push({run_id:run.run_id,status:result.status,workflow_run_id:workflowRunId,conclusion:gh?.conclusion||null});
+    }catch(error){
+      errors.push({run_id:run.run_id,code:clean(error?.code||error?.message||'RECONCILE_FAILED',180)});
+    }
+  }
+  return {ok:errors.length===0,status:'RECONCILED',checked:candidates.length,reconciled:reconciled.length,rows:reconciled,still_active:stillActive,errors};
 }
 
 export async function maybeHandleLoraTraceInternal(request,env={}){
