@@ -232,3 +232,18 @@ test('STOP VOIX propagates a CANCEL frame to Android and aborts outbound TTS imm
   assert.match(service, /outboundCancelled\(streamId\)/);
   assert.match(service, /REQUEST_BEGIN -> \{[\s\S]*?cancelledOutbound\.remove\(frame\.streamId\)/);
 });
+
+
+test('MINI TTS never writes the codec directly from the BLE receive callback', async () => {
+  const terminal = await readFile(new URL('../firmware/waveshare-terminal/main/mel_terminal.cpp', import.meta.url), 'utf8');
+  const callbackStart = terminal.indexOf('static bool mobile_tts_chunk');
+  const callbackEnd = terminal.indexOf('static std::string voice_tts_text', callbackStart);
+  const callback = terminal.slice(callbackStart, callbackEnd);
+  assert.match(terminal, /xQueueCreate\(24, sizeof\(MobileTtsPacket\)\)/);
+  assert.match(terminal, /mobile_tts_playback_task/);
+  assert.match(terminal, /xTaskCreatePinnedToCore\([\s\S]*?"mel_tts_play"[\s\S]*?,\s*1\s*\)/);
+  assert.match(callback, /xQueueSend\(ctx->queue/);
+  assert.doesNotMatch(callback, /esp_codec_dev_write/);
+  assert.match(terminal, /TTS audio task codec write failed/);
+  assert.match(terminal, /mobile_tts_finish\(&ctx\)/);
+});
