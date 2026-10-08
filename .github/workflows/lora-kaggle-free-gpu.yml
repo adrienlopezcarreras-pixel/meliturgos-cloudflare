@@ -600,6 +600,7 @@ jobs:
           set -euo pipefail
           COMPLETE=0
           CANCEL_RETRY_USED=0
+          LAST_TRACE_PROGRESS=""
           mkdir -p artifacts
           : > artifacts/kaggle-live.log
           for attempt in $(seq 1 300); do
@@ -611,6 +612,27 @@ jobs:
               LATEST="$(printf '%s\n' "$LOGS" | grep -E 'MEL_TRAINING_PROGRESS |MEL_TRAINING_STAGE |TRAINING_COMMAND_|LOCAL_IMPACT_' | tail -n 1 || true)"
               if [[ -n "$LATEST" ]]; then
                 echo "progress[$attempt] $LATEST"
+                if [[ "$LATEST" != "$LAST_TRACE_PROGRESS" ]]; then
+                  TRACE_LATEST="$LATEST" TRACE_STATUS_TEXT="$STATUS" TRACE_ATTEMPT="$attempt" node - <<'NODE'
+                  const fs=require('fs');
+                  const payload={
+                    training:{
+                      last_progress:String(process.env.TRACE_LATEST||'').slice(0,4000),
+                      kaggle_status:String(process.env.TRACE_STATUS_TEXT||'').slice(0,1200),
+                      monitor_attempt:Number(process.env.TRACE_ATTEMPT||0),
+                      observed_at:new Date().toISOString(),
+                    },
+                  };
+                  const match=String(process.env.TRACE_LATEST||'').match(/"global_step"\s*:\s*(\d+)/);
+                  if(match) payload.training.global_step=Number(match[1]);
+                  fs.writeFileSync('artifacts/lora-trace-progress.json',JSON.stringify(payload,null,2)+'\n');
+                  NODE
+                  if ! node scripts/lora-daily-trace-client.mjs TRAINING_PROGRESS artifacts/lora-trace-progress.json RUNNING; then
+                    echo "::error title=LoRA trace unavailable::Durable progress trace failed; this workflow cannot be successful."
+                    exit 70
+                  fi
+                  LAST_TRACE_PROGRESS="$LATEST"
+                fi
               fi
             fi
             LOWER="$(printf '%s' "$STATUS" | tr '[:upper:]' '[:lower:]')"
@@ -624,6 +646,14 @@ jobs:
               find artifacts/kaggle-error -type f -maxdepth 4 -print || true
               if [[ "$CANCEL_RETRY_USED" == "0" ]]; then
                 echo "::warning title=Kaggle GPU run cancelled::Retrying the same immutable cycle once"
+                node - <<'NODE'
+                const fs=require('fs');
+                fs.writeFileSync('artifacts/lora-trace-retry.json',JSON.stringify({
+                  training:{retry_reason:'KAGGLE_CANCELLED',retry_index:1,retry_at:new Date().toISOString()},
+                  errors:[{code:'KAGGLE_CANCELLED',recoverable:true,action:'RETRY_SAME_IMMUTABLE_CYCLE'}],
+                },null,2)+'\n');
+                NODE
+                node scripts/lora-daily-trace-client.mjs TRAINING_RETRY artifacts/lora-trace-retry.json RUNNING || true
                 CANCEL_RETRY_USED=1
                 kaggle kernels push \
                   -p artifacts/kaggle-kernel \
@@ -639,6 +669,14 @@ jobs:
               mkdir -p artifacts/kaggle-error
               kaggle kernels output "$KERNEL_REF" -p artifacts/kaggle-error --force || true
               find artifacts/kaggle-error -type f -maxdepth 4 -print || true
+              TRACE_FAILURE_STATUS="$STATUS" node - <<'NODE'
+              const fs=require('fs');
+              fs.writeFileSync('artifacts/lora-trace-error.json',JSON.stringify({
+                errors:[{code:'KAGGLE_GPU_RUN_FAILED',message:String(process.env.TRACE_FAILURE_STATUS||'').slice(0,1200),recoverable:false}],
+                training:{failed_at:new Date().toISOString()},
+              },null,2)+'\n');
+              NODE
+              node scripts/lora-daily-trace-client.mjs TRAINING_ERROR artifacts/lora-trace-error.json RUNNING || true
               echo "::error title=Kaggle GPU run failed::$STATUS"
               exit 1
             fi
