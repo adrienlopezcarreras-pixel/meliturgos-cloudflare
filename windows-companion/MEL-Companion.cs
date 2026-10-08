@@ -905,80 +905,122 @@ class PermissionsForm : Form
     readonly List<CheckBox> appBoxes = new List<CheckBox>();
     readonly List<CheckBox> pathBoxes = new List<CheckBox>();
     readonly string[] paths = MelApp.PermissionPaths();
+    readonly Color ink = Color.FromArgb(34,45,60);
+    readonly Color muted = Color.FromArgb(88,102,118);
 
+    Label Caption(string value, float size, bool strong)
+    {
+        return new Label { Text=value, Dock=DockStyle.Top, Height=strong?42:34,
+            ForeColor=strong?ink:muted, BackColor=Color.Transparent,
+            Font=new Font("Segoe UI",size,strong?FontStyle.Bold:FontStyle.Regular),
+            AutoEllipsis=false, TextAlign=ContentAlignment.MiddleLeft };
+    }
+    Panel Section(string title, int height)
+    {
+        var section=new Panel { Dock=DockStyle.Top, Height=height, BackColor=Color.White, Padding=new Padding(18,12,18,8) };
+        var head=Caption(title,11,true);head.Dock=DockStyle.Top;
+        section.Controls.Add(head);
+        return section;
+    }
     public PermissionsForm()
     {
-        Text = "MEL Companion — autorisations";
-        ClientSize = new Size(720, 610);
-        StartPosition = FormStartPosition.CenterParent;
-        FormBorderStyle = FormBorderStyle.FixedDialog;
-        MaximizeBox = false;
-        MinimizeBox = false;
-        BackColor = MelApp.Bg;
-        ForeColor = MelApp.Text;
-        AutoScaleMode = AutoScaleMode.None;
-        Font = new Font("Segoe UI", 9f, FontStyle.Regular);
-        DoubleBuffered = true;
-        Paint += delegate(object s, PaintEventArgs e){ MelApp.PaintBackdrop(e.Graphics, ClientSize.Width, ClientSize.Height); };
+        Text="MEL Companion — Autorisations";
+        ClientSize=new Size(820,700);
+        MinimumSize=new Size(690,580);
+        StartPosition=FormStartPosition.CenterParent;
+        AutoScaleMode=AutoScaleMode.None;
+        Font=new Font("Segoe UI",10f);
+        BackColor=Color.FromArgb(245,247,250);
+        ForeColor=ink;
 
-        Controls.Add(MelApp.MelFace(28,20,78));
-        Controls.Add(MelApp.Label("AUTORISATIONS LOCALES",126,28,380,34,15,MelApp.Cyan,FontStyle.Bold));
-        Controls.Add(MelApp.Label("MEL ne dépassera jamais les droits activés ici.",126,62,500,24,9.5f,MelApp.Muted,FontStyle.Regular));
-        Controls.Add(MelApp.Pill("LOCAL ONLY",552,30,132,24,MelApp.Violet));
+        var footer=new Panel { Dock=DockStyle.Bottom,Height=112,Padding=new Padding(22,12,22,12),
+            BackColor=Color.FromArgb(245,247,250) };
+        var note=new Label { Text="Les modifications s'appliquent uniquement aux autorisations locales de MEL.",
+            Dock=DockStyle.Top,Height=34,ForeColor=muted,Font=new Font("Segoe UI",9f),
+            TextAlign=ContentAlignment.MiddleLeft };
+        footer.Controls.Add(note);
+        var actions=new FlowLayoutPanel { Dock=DockStyle.Bottom, Height=52,
+            FlowDirection=FlowDirection.RightToLeft,WrapContents=false };
+        var save=new Button {Text="Appliquer",Width=145,Height=42,Font=new Font("Segoe UI",10f)};
+        save.Click+=Apply; actions.Controls.Add(save);
+        var cancel=new Button {Text="Annuler",Width=125,Height=42,Font=new Font("Segoe UI",10f)};
+        cancel.Click+=delegate{Close();}; actions.Controls.Add(cancel);
+        footer.Controls.Add(actions);
+        Controls.Add(footer);
 
-        var currentApps = MelApp.ConfigList("allowed_apps");
-        var currentPaths = MelApp.ConfigList("allowed_paths");
+        var scroll=new Panel {Dock=DockStyle.Fill,AutoScroll=true,Padding=new Padding(24,16,24,16)};
+        Controls.Add(scroll);
+        var content=new FlowLayoutPanel {Dock=DockStyle.Top,FlowDirection=FlowDirection.TopDown,
+            WrapContents=false,AutoSize=true,AutoSizeMode=AutoSizeMode.GrowAndShrink};
+        scroll.Controls.Add(content);
+        voidResizeContent(scroll,content);
 
-        var appsPanel = MelApp.Card(28,116,664,190,MelApp.Cyan); Controls.Add(appsPanel);
-        appsPanel.Controls.Add(MelApp.Label("APPLICATIONS",20,14,180,24,9,MelApp.Cyan,FontStyle.Bold));
-        appsPanel.Controls.Add(MelApp.Label("Accès autorisé au moteur local",20,36,260,20,8,MelApp.Muted,FontStyle.Regular));
-        for (int i=0;i<MelApp.PermissionApps.Length;i++)
+        var heading=Caption("Autorisations locales",18,true);
+        heading.Height=58;content.Controls.Add(heading);
+        var subtitle=Caption("Choisissez les applications et dossiers accessibles à MEL.",10,false);
+        subtitle.Height=43;content.Controls.Add(subtitle);
+
+        var currentApps=MelApp.ConfigList("allowed_apps");
+        var currentPaths=MelApp.ConfigList("allowed_paths");
+
+        var apps=Section("Applications autorisées",235);
+        var appGrid=new TableLayoutPanel {Dock=DockStyle.Fill,ColumnCount=2,RowCount=3,
+            Padding=new Padding(6,0,6,8)};
+        appGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,50));
+        appGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,50));
+        for(int i=0;i<3;i++)appGrid.RowStyles.Add(new RowStyle(SizeType.Percent,33.333f));
+        for(int i=0;i<MelApp.PermissionApps.Length;i++)
         {
-            var box = new CheckBox();
-            box.Text = MelApp.PermissionAppLabels[i];
-            box.Tag = MelApp.PermissionApps[i];
-            box.Checked = MelApp.ContainsIgnoreCase(currentApps, MelApp.PermissionApps[i]);
-            box.ForeColor = MelApp.Text; box.BackColor = Color.Transparent; box.AutoSize = true;
-            box.Font = new Font("Segoe UI",9f,FontStyle.Regular);
-            int col = i < 3 ? 0 : 1, row = i < 3 ? i : i-3;
-            box.SetBounds(22 + col*306, 70 + row*34, 280, 28);
-            appsPanel.Controls.Add(box); appBoxes.Add(box);
+            var cb=new CheckBox {Text=MelApp.PermissionAppLabels[i],Tag=MelApp.PermissionApps[i],
+                Checked=MelApp.ContainsIgnoreCase(currentApps,MelApp.PermissionApps[i]),
+                Dock=DockStyle.Fill,AutoSize=false,Font=new Font("Segoe UI",10f),ForeColor=ink,
+                TextAlign=ContentAlignment.MiddleLeft};
+            appGrid.Controls.Add(cb,i<3?0:1,i<3?i:i-3);appBoxes.Add(cb);
         }
+        apps.Controls.Add(appGrid);apps.Controls.SetChildIndex(appGrid,1);
+        content.Controls.Add(apps);
 
-        var pathsPanel = MelApp.Card(28,324,664,158,MelApp.Violet); Controls.Add(pathsPanel);
-        pathsPanel.Controls.Add(MelApp.Label("DOSSIERS",20,14,180,24,9,MelApp.Violet,FontStyle.Bold));
-        for (int i=0;i<paths.Length;i++)
+        var pathsSection=Section("Dossiers autorisés",Math.Max(130,80+paths.Length*48));
+        var pathsList=new TableLayoutPanel {Dock=DockStyle.Fill,ColumnCount=1,RowCount=paths.Length,
+            Padding=new Padding(6,0,6,6),AutoScroll=true};
+        pathsList.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100));
+        for(int i=0;i<paths.Length;i++)
         {
-            var box = new CheckBox();
-            box.Text = paths[i];
-            box.Tag = paths[i];
-            box.Checked = MelApp.ContainsIgnoreCase(currentPaths, paths[i]);
-            box.ForeColor = MelApp.Text; box.BackColor = Color.Transparent; box.AutoSize = false;
-            box.SetBounds(22, 48 + i*30, 610, 25);
-            pathsPanel.Controls.Add(box); pathBoxes.Add(box);
+            pathsList.RowStyles.Add(new RowStyle(SizeType.Absolute,46));
+            var cb=new CheckBox {Text=paths[i],Tag=paths[i],
+                Checked=MelApp.ContainsIgnoreCase(currentPaths,paths[i]),
+                Dock=DockStyle.Fill,AutoSize=false,Font=new Font("Segoe UI",9.5f),
+                ForeColor=ink,AutoEllipsis=true,TextAlign=ContentAlignment.MiddleLeft};
+            pathsList.Controls.Add(cb,0,i);pathBoxes.Add(cb);
         }
-
-        Controls.Add(MelApp.Label("Toute désactivation est immédiate. Une réactivation reste limitée aux droits accordés lors de l’appairage.",32,500,640,40,8.5f,MelApp.Muted,FontStyle.Regular));
-        var cancel = MelApp.TechButton("ANNULER",472,548,100,38,false); cancel.Click += delegate { Close(); }; Controls.Add(cancel);
-        var save = MelApp.TechButton("APPLIQUER",584,548,108,38,true); save.Click += Apply; Controls.Add(save);
+        pathsSection.Controls.Add(pathsList);pathsSection.Controls.SetChildIndex(pathsList,1);
+        content.Controls.Add(pathsSection);
     }
-
-    void Apply(object sender, EventArgs e)
+    static void voidResizeContent(Panel scroll,FlowLayoutPanel content)
     {
-        var apps = new List<string>();
-        foreach (var box in appBoxes) if (box.Checked) apps.Add(Convert.ToString(box.Tag));
-        var allowedPaths = new List<string>();
-        foreach (var box in pathBoxes) if (box.Checked) allowedPaths.Add(Convert.ToString(box.Tag));
-        try
-        {
-            MelApp.SavePermissions(apps, allowedPaths);
-            MessageBox.Show("Autorisations appliquées. Le moteur MEL a été rechargé.", "MEL Companion", MessageBoxButtons.OK, MessageBoxIcon.Information);
-            DialogResult = DialogResult.OK;
-            Close();
-        }
-        catch (Exception ex)
-        {
-            MessageBox.Show("Impossible d’appliquer les autorisations : " + ex.Message, "MEL Companion", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        Action resize=delegate {
+            int width=Math.Max(580,scroll.ClientSize.Width-30);
+            content.Width=width;
+            foreach(Control c in content.Controls)c.Width=width-8;
+        };
+        scroll.Resize+=delegate{resize();};
+        content.ControlAdded+=delegate{resize();};
+        resize();
+    }
+    void Apply(object sender,EventArgs e)
+    {
+        var apps=new List<string>();
+        foreach(var cb in appBoxes)if(cb.Checked)apps.Add(Convert.ToString(cb.Tag));
+        var allowedPaths=new List<string>();
+        foreach(var cb in pathBoxes)if(cb.Checked)allowedPaths.Add(Convert.ToString(cb.Tag));
+        try {
+            MelApp.SavePermissions(apps,allowedPaths);
+            MessageBox.Show("Autorisations appliquées. Le moteur MEL a été rechargé.",
+                "MEL Companion",MessageBoxButtons.OK,MessageBoxIcon.Information);
+            DialogResult=DialogResult.OK;Close();
+        }catch(Exception ex) {
+            MessageBox.Show("Impossible d'appliquer les autorisations : "+ex.Message,
+                "MEL Companion",MessageBoxButtons.OK,MessageBoxIcon.Error);
         }
     }
 }
