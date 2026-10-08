@@ -129,12 +129,12 @@ test('Link V2 TTS preserves canonical 48 kHz PCM and never streams HTTP errors a
   assert.match(terminal, /TTS HTTP %d/);
   assert.match(terminal, /voice_tts_text/);
   assert.match(terminal, /speaker_output_enable\(100\.0\)/);
-  assert.doesNotMatch(
+  assert.match(
     terminal.slice(
       terminal.indexOf('static bool speaker_output_enable'),
       terminal.indexOf('static bool g_voice_output_enabled')
     ),
-    /esp_codec_dev_set_out_mute/
+    /esp_codec_dev_set_out_mute\(output_dev, false\)/
   );
   assert.match(terminal, /mel_terminal_test_speaker_local/);
 });
@@ -255,15 +255,16 @@ test('MINI TTS never writes the codec directly from the BLE receive callback', a
 });
 
 
-test('MINI keeps the proven ES8311 playback path unmuted and gates silence by volume', async () => {
+test('MINI explicitly unmutes ES8311 for playback and gates idle silence by volume', async () => {
   const terminal = await readFile(new URL('../firmware/waveshare-terminal/main/mel_terminal.cpp', import.meta.url), 'utf8');
   const enableStart = terminal.indexOf('static bool speaker_output_enable');
   const disableEnd = terminal.indexOf('static bool g_voice_output_enabled', enableStart);
   const helpers = terminal.slice(enableStart, disableEnd);
+  assert.match(helpers, /esp_codec_dev_set_out_mute\(output_dev, false\)/);
   assert.match(helpers, /esp_codec_dev_set_out_vol\(output_dev, volume\)/);
   assert.match(helpers, /esp_codec_dev_set_out_vol\(output_dev, 0\.0\)/);
-  assert.doesNotMatch(helpers, /esp_codec_dev_set_out_mute/);
-  assert.match(terminal, /Known-good 48 kHz WAV playback never toggled the ES8311 mute bit/);
+  const disableBlock = helpers.slice(helpers.indexOf('static void speaker_output_disable'));
+  assert.doesNotMatch(disableBlock, /esp_codec_dev_set_out_mute\(output_dev, true\)/);
 });
 
 
