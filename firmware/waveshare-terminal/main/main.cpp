@@ -1857,12 +1857,21 @@ static void io_expander_init() {
         ESP_IO_EXPANDER_I2C_TCA9554_ADDRESS_000,
         &expander_handle
     ));
-    ESP_ERROR_CHECK(esp_io_expander_set_dir(expander_handle, IO_EXPANDER_PIN_NUM_1, IO_EXPANDER_OUTPUT));
+    // Waveshare's audio example explicitly maps TCA9554 P2 / EXIO2
+    // to PA_CTRL and drives it HIGH before ES8311 playback. Without this the
+    // microphone/codec can work while the external NS4150B speaker amplifier
+    // remains disabled.
+    ESP_ERROR_CHECK(esp_io_expander_set_dir(
+        expander_handle,
+        IO_EXPANDER_PIN_NUM_1 | IO_EXPANDER_PIN_NUM_2,
+        IO_EXPANDER_OUTPUT
+    ));
     ESP_ERROR_CHECK(esp_io_expander_set_level(expander_handle, IO_EXPANDER_PIN_NUM_1, 0));
     vTaskDelay(pdMS_TO_TICKS(100));
     ESP_ERROR_CHECK(esp_io_expander_set_level(expander_handle, IO_EXPANDER_PIN_NUM_1, 1));
+    ESP_ERROR_CHECK(esp_io_expander_set_level(expander_handle, IO_EXPANDER_PIN_NUM_2, 1));
     vTaskDelay(pdMS_TO_TICKS(100));
-    ESP_LOGI(TAG, "STEP 2 OK");
+    ESP_LOGI(TAG, "STEP 2 OK: TCA9554 reset + PA_CTRL(P2)=HIGH");
 }
 
 static void lv_port_init() {
