@@ -1,116 +1,87 @@
-#include <stdint.h>
+#include <stdio.h>
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+
+#include "driver/gpio.h"
 #include "driver/i2c_master.h"
-#include "esp_err.h"
-#include "esp_log.h"
-#include "esp_sleep.h"
-#include "esp_system.h"
-#include "esp_attr.h"
+
 #include "esp_io_expander_tca9554.h"
+#include "esp_log.h"
 
 #include "esp_axp2101_port.h"
 #include "esp_es8311_port.h"
 
-#define PIN_I2C_SDA GPIO_NUM_8
-#define PIN_I2C_SCL GPIO_NUM_7
+#define EXAMPLE_PIN_I2C_SDA GPIO_NUM_8
+#define EXAMPLE_PIN_I2C_SCL GPIO_NUM_7
 #define I2C_PORT_NUM 0
 
-static const char *TAG = "mini_audio_zero";
-static i2c_master_bus_handle_t g_i2c = nullptr;
-static esp_io_expander_handle_t g_expander = nullptr;
-RTC_DATA_ATTR static uint32_t g_audio_zero_boot_guard = 0;
-static constexpr uint32_t AUDIO_ZERO_GUARD_MAGIC = 0xA0D10F01;
+static const char *TAG = "waveshare_audio_base";
 
-static void init_i2c(void) {
-    i2c_master_bus_config_t cfg = {};
-    cfg.clk_source = I2C_CLK_SRC_DEFAULT;
-    cfg.i2c_port = (i2c_port_num_t)I2C_PORT_NUM;
-    cfg.scl_io_num = PIN_I2C_SCL;
-    cfg.sda_io_num = PIN_I2C_SDA;
-    cfg.glitch_ignore_cnt = 7;
-    cfg.flags.enable_internal_pullup = 1;
-    ESP_ERROR_CHECK(i2c_new_master_bus(&cfg, &g_i2c));
+static i2c_master_bus_handle_t i2c_bus_handle;
+static esp_io_expander_handle_t expander_handle = NULL;
+
+static void i2c_bus_init(void)
+{
+    i2c_master_bus_config_t i2c_mst_config = {};
+    i2c_mst_config.clk_source = I2C_CLK_SRC_DEFAULT;
+    i2c_mst_config.i2c_port = (i2c_port_num_t)I2C_PORT_NUM;
+    i2c_mst_config.scl_io_num = EXAMPLE_PIN_I2C_SCL;
+    i2c_mst_config.sda_io_num = EXAMPLE_PIN_I2C_SDA;
+    i2c_mst_config.glitch_ignore_cnt = 7;
+    i2c_mst_config.flags.enable_internal_pullup = 1;
+
+    ESP_ERROR_CHECK(i2c_new_master_bus(&i2c_mst_config, &i2c_bus_handle));
 }
 
-static void init_expander_and_pa(void) {
+static void io_expander_init(void)
+{
     ESP_ERROR_CHECK(esp_io_expander_new_i2c_tca9554(
-        g_i2c,
+        i2c_bus_handle,
         ESP_IO_EXPANDER_I2C_TCA9554_ADDRESS_000,
-        &g_expander
+        &expander_handle
     ));
-
-    // Exact Waveshare reset pulse on EXIO1.
     ESP_ERROR_CHECK(esp_io_expander_set_dir(
-        g_expander,
+        expander_handle,
         IO_EXPANDER_PIN_NUM_1,
         IO_EXPANDER_OUTPUT
     ));
-    ESP_ERROR_CHECK(esp_io_expander_set_level(g_expander, IO_EXPANDER_PIN_NUM_1, 0));
-    vTaskDelay(pdMS_TO_TICKS(100));
-    ESP_ERROR_CHECK(esp_io_expander_set_level(g_expander, IO_EXPANDER_PIN_NUM_1, 1));
-    vTaskDelay(pdMS_TO_TICKS(100));
-
-    // MINI board speaker amplifier enable (TCA9554 P2 / PA_CTRL).
-    ESP_ERROR_CHECK(esp_io_expander_set_dir(
-        g_expander,
-        IO_EXPANDER_PIN_NUM_2,
-        IO_EXPANDER_OUTPUT
-    ));
     ESP_ERROR_CHECK(esp_io_expander_set_level(
-        g_expander,
-        IO_EXPANDER_PIN_NUM_2,
+        expander_handle,
+        IO_EXPANDER_PIN_NUM_1,
+        0
+    ));
+    vTaskDelay(pdMS_TO_TICKS(100));
+    ESP_ERROR_CHECK(esp_io_expander_set_level(
+        expander_handle,
+        IO_EXPANDER_PIN_NUM_1,
         1
     ));
     vTaskDelay(pdMS_TO_TICKS(100));
 }
 
-extern "C" void app_main(void) {
-    const esp_reset_reason_t reset_reason = esp_reset_reason();
-    ESP_LOGI(TAG, "AUDIO ZERO PROOF BOOT reset_reason=%d guard=0x%08lx", (int)reset_reason, (unsigned long)g_audio_zero_boot_guard);
-    if (g_audio_zero_boot_guard == AUDIO_ZERO_GUARD_MAGIC) {
-        ESP_LOGW(TAG, "REBOOT GUARD ACTIVE: suppressing repeated proof tone");
-        esp_deep_sleep_start();
-    }
-    ESP_LOGI(TAG, "No BLE, no Wi-Fi, no Android, no TTS, no camera, no LVGL");
+extern "C" void app_main(void)
+{
+    ESP_LOGI(TAG, "WAVESHARE OFFICIAL AUDIO BASE");
 
-    init_i2c();
-    ESP_LOGI(TAG, "I2C READY");
-
-    init_expander_and_pa();
-    ESP_LOGI(TAG, "TCA9554 READY: reset pulse + PA_CTRL(P2)=HIGH");
-
-    const esp_err_t pmu = esp_axp2101_port_init(g_i2c);
-    ESP_LOGI(TAG, "AXP2101 init: %s", esp_err_to_name(pmu));
+    // Same board bring-up order as Waveshare's official lvgl_system example.
+    i2c_bus_init();
+    io_expander_init();
+    esp_axp2101_port_init(i2c_bus_handle);
     vTaskDelay(pdMS_TO_TICKS(100));
+    esp_es8311_port_init(i2c_bus_handle);
 
-    esp_es8311_port_init(g_i2c);
-    if (!esp_es8311_port_ready()) {
-        ESP_LOGE(TAG, "ES8311 FAILED: %s", esp_err_to_name(esp_es8311_port_last_error()));
-        while (true) vTaskDelay(pdMS_TO_TICKS(1000));
+    // Only addition to the official base: invoke Waveshare's own microphone
+    // record/playback diagnostic once. It records ~2 seconds, then plays the
+    // captured audio and returns the codec output volume to zero exactly as
+    // the vendor code does.
+    ESP_LOGI(TAG, "Starting official Waveshare esp_es8311_test()");
+    esp_es8311_test();
+    ESP_LOGI(TAG, "Official Waveshare audio test finished");
+
+    // Keep the official-initialized system alive without adding MEL, BLE,
+    // Android, TTS, synthetic tones, PA_CTRL assumptions, or custom muting.
+    while (true) {
+        vTaskDelay(pdMS_TO_TICKS(1000));
     }
-
-    ESP_LOGI(TAG, "ES8311 READY; local PCM proof only");
-
-    // Arm the reboot guard BEFORE playback. If the device resets during or
-    // immediately after the write, the next boot stays silent instead of
-    // replaying the tone forever.
-    g_audio_zero_boot_guard = AUDIO_ZERO_GUARD_MAGIC;
-
-    const bool first = esp_es8311_play_proof_tone();
-    ESP_LOGI(TAG, "AUDIO ZERO PROOF RESULT: %s", first ? "PASS" : "FAIL");
-
-    // Hard stop after one physical proof tone. Disable the external amplifier
-    // first, then enter deep sleep with no wake timer. The tone can only play
-    // again after an intentional hardware reset/power cycle.
-    const esp_err_t pa_off = esp_io_expander_set_level(
-        g_expander,
-        IO_EXPANDER_PIN_NUM_2,
-        0
-    );
-    ESP_LOGI(TAG, "PA_CTRL(P2)=LOW before deep sleep: %s", esp_err_to_name(pa_off));
-    vTaskDelay(pdMS_TO_TICKS(100));
-    ESP_LOGI(TAG, "AUDIO ZERO PROOF HALT: entering deep sleep, no timer wake");
-    esp_deep_sleep_start();
 }
