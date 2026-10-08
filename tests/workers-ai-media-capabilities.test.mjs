@@ -186,15 +186,21 @@ test('FLUX.2 Klein performs real image editing and stores the result encrypted',
   assert.notDeepEqual(Buffer.from(f.writes[0].value), output);
 });
 
-test('FLUX image generation is exact-model, zero-cost-gated and encrypted into private Media Vault storage', async () => {
+test('SDXL Lightning image generation is exact-model, zero-cost-gated and encrypted into private Media Vault storage', async () => {
   const jpeg = Buffer.from('not-a-real-jpeg-but-private-test-bytes');
   const f = fixture({
     proofJson: proof([WORKERS_AI_IMAGE_MODEL, WORKERS_AI_TTS_MODEL]),
     run: async (model, input) => {
       assert.equal(model, WORKERS_AI_IMAGE_MODEL);
       assert.equal(input.prompt, 'portrait techno');
-      assert.equal(input.steps, 4);
-      return { image: jpeg.toString('base64') };
+      assert.equal(input.num_steps, 4);
+      assert.deepEqual(arguments[2], { rejectIfBusy: true });
+      return new ReadableStream({
+        start(controller) {
+          controller.enqueue(jpeg);
+          controller.close();
+        },
+      });
     },
   });
   const adapters = createWorkersAiZeroCostMediaCapabilities(f.env);
