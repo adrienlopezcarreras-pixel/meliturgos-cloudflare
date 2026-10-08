@@ -142,10 +142,11 @@ void esp_es8311_port_init(i2c_master_bus_handle_t bus_handle) {
         return;
     }
 
+    const int mute_rc = esp_codec_dev_set_out_mute(output_dev, false);
     const int vol_rc = esp_codec_dev_set_out_vol(output_dev, 75.0);
     const int gain_rc = esp_codec_dev_set_in_gain(input_dev, 38.0);
-    ESP_LOGI(TAG, "initial codec volume=%d gain=%d", vol_rc, gain_rc);
-    if (vol_rc != ESP_CODEC_DEV_OK || gain_rc != ESP_CODEC_DEV_OK) {
+    ESP_LOGI(TAG, "initial codec unmute=%d volume=%d gain=%d", mute_rc, vol_rc, gain_rc);
+    if (mute_rc != ESP_CODEC_DEV_OK || vol_rc != ESP_CODEC_DEV_OK || gain_rc != ESP_CODEC_DEV_OK) {
         g_last_error = ESP_FAIL;
         return;
     }
