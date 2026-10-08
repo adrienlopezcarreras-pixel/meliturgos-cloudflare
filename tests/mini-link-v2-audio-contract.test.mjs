@@ -128,8 +128,14 @@ test('Link V2 TTS preserves canonical 48 kHz PCM and never streams HTTP errors a
   assert.match(terminal, /TTS BLE -> SECOURS/);
   assert.match(terminal, /TTS HTTP %d/);
   assert.match(terminal, /voice_tts_text/);
-  assert.match(terminal, /esp_codec_dev_set_out_mute\(output_dev, false\)/);
   assert.match(terminal, /speaker_output_enable\(100\.0\)/);
+  assert.doesNotMatch(
+    terminal.slice(
+      terminal.indexOf('static bool speaker_output_enable'),
+      terminal.indexOf('static bool g_voice_output_enabled')
+    ),
+    /esp_codec_dev_set_out_mute/
+  );
   assert.match(terminal, /mel_terminal_test_speaker_local/);
 });
 
@@ -257,5 +263,5 @@ test('MINI keeps the proven ES8311 playback path unmuted and gates silence by vo
   assert.match(helpers, /esp_codec_dev_set_out_vol\(output_dev, volume\)/);
   assert.match(helpers, /esp_codec_dev_set_out_vol\(output_dev, 0\.0\)/);
   assert.doesNotMatch(helpers, /esp_codec_dev_set_out_mute/);
-  assert.match(terminal, /known-good 48 kHz WAV playback never toggled the ES8311 mute bit/);
+  assert.match(terminal, /Known-good 48 kHz WAV playback never toggled the ES8311 mute bit/);
 });
