@@ -1469,12 +1469,22 @@ test('release bootstrap media proof requires exact-SHA 12/12 live execution and 
     MEL_LAUNCH_BOOTSTRAP_TOKEN:TOKEN,
     MEL_DEPLOYED_GIT_SHA:sha,
   },{
-    proveMedia:async()=>{throw Object.assign(new Error('MEDIA_FAILURE'),{code:'MEDIA_FAILURE',status:503,capability:'media.video.generate'});},
+    proveMedia:async()=>{throw Object.assign(new Error('MEDIA_FAILURE'),{
+      code:'MEDIA_FAILURE',
+      status:503,
+      capability:'media.video.generate',
+      step:'media.video.generate',
+      cause_code:'5006',
+      cause_message:"Additional or unevaluated properties '/max_tokens' at '/' not allowed",
+    });},
   });
   assert.equal(failed.status,503);
   const failedBody=await failed.json();
   assert.equal(failedBody.ok,false);
   assert.equal(failedBody.status,'MEL_MEDIA_02_NOT_VERIFIED');
   assert.equal(failedBody.capability,'media.video.generate');
+  assert.equal(failedBody.step,'media.video.generate');
+  assert.equal(failedBody.cause_code,'5006');
+  assert.match(failedBody.cause_message,/max_tokens/);
   assert.equal(failedBody.autonomy_started,false);
 });
