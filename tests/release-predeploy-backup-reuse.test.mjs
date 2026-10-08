@@ -165,18 +165,20 @@ test('predeploy refresh creates the backup on the GitHub runner and keeps the Wo
   assert.doesNotMatch(binderBlock, /release-launch-bootstrap/);
 });
 
-test('canonical release push restores MAX autonomy after live proofs', async () => {
+test('canonical hardening release keeps MAX disabled unless an explicit workflow_dispatch opt-in requests it', async () => {
   const source = await readFile(new URL('../.github/workflows/deploy-cloudflare-release.yml', import.meta.url), 'utf8');
-  assert.match(source, /OWNER_MAX_AUTORELEASE: \$\{\{ github\.event_name == 'push' && 'true'/);
+  assert.match(source, /OWNER_MAX_AUTORELEASE: \$\{\{ github\.event_name == 'workflow_dispatch' && inputs\.owner_max_autorelease && 'true' \|\| 'false' \}\}/);
   const browser = source.indexOf('      - name: Prove real production browser.execute');
+  const safeStop = source.indexOf('      - name: Keep MAX disabled after hardening release');
   const max = source.indexOf('      - name: Re-enable MAX 100% after verified autonomous release');
-  assert.ok(browser >= 0 && max > browser, 'MAX autonomy must only resume after browser.execute live proof');
+  assert.ok(browser >= 0 && safeStop > browser && max > safeStop, 'safe-stop must run after live proofs and before any optional MAX re-enable');
+  assert.match(source, /if: success\(\) && env\.OWNER_MAX_AUTORELEASE != 'true'/);
+  assert.match(source, /paused=true, max_autonomy=false/);
   assert.match(source, /if: success\(\) && env\.OWNER_MAX_AUTORELEASE == 'true'/);
-  assert.match(source, /MAX 100% restored after verified release/);
 });
 
 
-test('automatic rollback stages prior autonomy state before restoring the older Worker and verifies shared D1 after propagation', async () => {
+test('automatic rollback stages a fail-safe paused state before restoring the older Worker and verifies shared D1 after propagation', async () => {
   const source = await readFile(new URL('../.github/workflows/deploy-cloudflare-release.yml', import.meta.url), 'utf8');
   const start = source.indexOf('      - name: Automatic rollback on failed production verification');
   const block = source.slice(start);
@@ -186,7 +188,7 @@ test('automatic rollback stages prior autonomy state before restoring the older 
   assert.ok(preRestore >= 0 && cloudflareRollback > preRestore && postControl > cloudflareRollback);
   assert.match(block, /expected_sha=\$\{EXPECTED_SHA\}/);
   assert.match(block, /PRE_RESTORE_READY=0/);
-  assert.match(block, /Previous autonomy control staged in shared D1 before Worker rollback/);
+  assert.match(block, /Safe paused autonomy staged in shared D1 before Worker rollback/);
   assert.match(block, /npx wrangler rollback "\$\{PREVIOUS_CLOUDFLARE_VERSION_ID\}"/);
   assert.match(block, /--name meliturgos/);
   assert.match(block, /Automatic Wrangler rollback failed/);
