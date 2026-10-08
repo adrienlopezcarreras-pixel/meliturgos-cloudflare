@@ -247,3 +247,15 @@ test('MINI TTS never writes the codec directly from the BLE receive callback', a
   assert.match(terminal, /TTS audio task codec write failed/);
   assert.match(terminal, /mobile_tts_finish\(&ctx\)/);
 });
+
+
+test('MINI keeps the proven ES8311 playback path unmuted and gates silence by volume', async () => {
+  const terminal = await readFile(new URL('../firmware/waveshare-terminal/main/mel_terminal.cpp', import.meta.url), 'utf8');
+  const enableStart = terminal.indexOf('static bool speaker_output_enable');
+  const disableEnd = terminal.indexOf('static bool g_voice_output_enabled', enableStart);
+  const helpers = terminal.slice(enableStart, disableEnd);
+  assert.match(helpers, /esp_codec_dev_set_out_vol\(output_dev, volume\)/);
+  assert.match(helpers, /esp_codec_dev_set_out_vol\(output_dev, 0\.0\)/);
+  assert.doesNotMatch(helpers, /esp_codec_dev_set_out_mute/);
+  assert.match(terminal, /known-good 48 kHz WAV playback never toggled the ES8311 mute bit/);
+});
