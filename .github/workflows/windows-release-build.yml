@@ -137,8 +137,8 @@ jobs:
         run: |
           $exe = ".windows-release/MEL-Windows-$env:RELEASE_VERSION/MEL-Companion.exe"
           if (!(Test-Path $exe)) { throw "WINDOWS_COMPANION_EXE_MISSING" }
-          & $exe --self-test
-          if ($LASTEXITCODE -ne 0) { throw "WINDOWS_COMPANION_SELF_TEST_FAILED:$LASTEXITCODE" }
+          $process = Start-Process -FilePath $exe -ArgumentList "--self-test" -Wait -PassThru -NoNewWindow
+          if ($process.ExitCode -ne 0) { throw "WINDOWS_COMPANION_SELF_TEST_FAILED:$($process.ExitCode)" }
 
       - name: Verify release package
         shell: pwsh
