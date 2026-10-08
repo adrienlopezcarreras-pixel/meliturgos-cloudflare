@@ -1,7 +1,7 @@
 import { authorizeGitHubActionsOidcRequest } from '../security/github-actions-oidc.js';
 
 const WORKFLOW='lora-kaggle-free-gpu.yml';
-const TERMINAL=new Set(['SUCCEEDED','FAILED','CANCELLED','TIMED_OUT','INTERRUPTED','TRACE_INCOMPLETE']);
+const TERMINAL=new Set(['SUCCEEDED','FAILED','CANCELLED','TIMED_OUT','INTERRUPTED','SMOKE_COMPLETED','TRACE_INCOMPLETE']);
 const SHA_RE=/^[0-9a-f]{40}$/i;
 const HASH_RE=/^[0-9a-f]{64}$/i;
 
@@ -167,8 +167,9 @@ export async function appendLoraDailyTrace(env={},body={},identity={}){
   const wasTerminal=TERMINAL.has(String(previous?.status||''));
   if(!wasTerminal&&TERMINAL.has(String(run.status||''))){
     const success=run.status==='SUCCEEDED'&&Number(run.trace_verified)===1;
+    const failure=!success&&run.status!=='SMOKE_COMPLETED';
     await db.prepare(`UPDATE lora_daily_status SET successful_count=successful_count+?,failed_count=failed_count+?,
-      report_fr=?,updated_at=? WHERE day=?`).bind(success?1:0,success?0:1,run.summary_fr||frenchSummary(run),now,day).run();
+      report_fr=?,updated_at=? WHERE day=?`).bind(success?1:0,failure?1:0,run.summary_fr||frenchSummary(run),now,day).run();
   }
 
   if(status==='SUCCEEDED'&&!verification.ok){
