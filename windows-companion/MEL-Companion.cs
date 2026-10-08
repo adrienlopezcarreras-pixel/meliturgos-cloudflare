@@ -999,15 +999,15 @@ class MainForm : Form
     Label LabelAt(Control parent,string value,int x,int y,int w,int h,float font=11f,bool bold=false,Color? ink=null)
     {
         var label=new Label {Text=value,Location=new Point(x,y),Size=new Size(w,h),
-            Font=new Font("Segoe UI",font,bold?FontStyle.Bold:FontStyle.Regular),
+            Font=new Font("Segoe UI",Math.Min(font,12f),bold?FontStyle.Bold:FontStyle.Regular),
             ForeColor=ink??text,BackColor=Color.Transparent,AutoSize=false,
-            TextAlign=ContentAlignment.MiddleLeft,AutoEllipsis=true};
+            TextAlign=ContentAlignment.TopLeft,AutoEllipsis=true};
         parent.Controls.Add(label);return label;
     }
     Button ButtonAt(Control parent,string title,int x,int y,int w,EventHandler action)
     {
         var button=new Button {Text=title,Location=new Point(x,y),Size=new Size(w,42),
-            FlatStyle=FlatStyle.System,Font=new Font("Segoe UI",10f),UseVisualStyleBackColor=true};
+            FlatStyle=FlatStyle.System,Font=new Font("Segoe UI",9f),UseVisualStyleBackColor=true};
         button.Click+=action;parent.Controls.Add(button);return button;
     }
     Panel Card(Control parent,int y,int height)
@@ -1027,24 +1027,24 @@ class MainForm : Form
         AutoScaleMode=AutoScaleMode.None;
         Font=new Font("Segoe UI",10f);BackColor=background;ForeColor=text;
         AutoScroll=false;
-        LabelAt(this,"MEL Companion",28,22,620,49,22,true);
-        connection=LabelAt(this,"Vérification de la connexion…",28,75,670,30,11,false,gray);
+        LabelAt(this,"MEL Companion",28,22,620,52,12,true);
+        connection=LabelAt(this,"Vérification de la connexion…",28,78,670,30,9,false,gray);
         ButtonAt(this,"Ouvrir MEL",0,29,160,delegate{MelApp.OpenMel();}).Anchor=AnchorStyles.Top|AnchorStyles.Right;
         var open=Controls.OfType<Button>().Last();
         open.Left=ClientSize.Width-190;
-        var pc=Card(this,122,132);pc.Left=22;pc.Width=ClientSize.Width-44;
+        var pc=Card(this,132,150);pc.Left=22;pc.Width=ClientSize.Width-44;
         pc.Anchor=AnchorStyles.Top|AnchorStyles.Left|AnchorStyles.Right;
-        LabelAt(pc,"CET ORDINATEUR",20,12,310,35,11,true,blue);
-        LabelAt(pc,Environment.MachineName,20,48,pc.Width-40,36,15,true).Anchor=AnchorStyles.Top|AnchorStyles.Left|AnchorStyles.Right;
-        LabelAt(pc,"Moteur local · Autorisations · Connexion MEL",20,89,pc.Width-40,27,10,false,gray)
+        LabelAt(pc,"CET ORDINATEUR",20,14,310,36,10,true,blue);
+        LabelAt(pc,Environment.MachineName,20,57,pc.Width-40,40,12,true).Anchor=AnchorStyles.Top|AnchorStyles.Left|AnchorStyles.Right;
+        LabelAt(pc,"Moteur local · Autorisations · Connexion MEL",20,109,pc.Width-40,31,9,false,gray)
             .Anchor=AnchorStyles.Top|AnchorStyles.Left|AnchorStyles.Right;
-        LabelAt(this,"Appareils MEL",28,277,390,46,17,true);
-        var permissions=ButtonAt(this,"Autorisations",0,276,150,delegate{using(var dlg=new PermissionsForm())dlg.ShowDialog(this);});
-        var refresh=ButtonAt(this,"Actualiser",0,276,130,delegate{RefreshAll();});
+        LabelAt(this,"Appareils MEL",28,302,390,47,12,true);
+        var permissions=ButtonAt(this,"Autorisations",0,302,170,delegate{using(var dlg=new PermissionsForm())dlg.ShowDialog(this);});
+        var refresh=ButtonAt(this,"Actualiser",0,302,150,delegate{RefreshAll();});
         permissions.Anchor=AnchorStyles.Right|AnchorStyles.Top;refresh.Anchor=AnchorStyles.Right|AnchorStyles.Top;
-        permissions.Left=ClientSize.Width-322;refresh.Left=ClientSize.Width-160;
-        LabelAt(this,"Appareils détectés et état transmis au serveur MEL",28,324,700,28,10,false,gray);
-        cards=new Panel {Left=22,Top=365,Width=ClientSize.Width-44,Height=ClientSize.Height-490,
+        permissions.Left=ClientSize.Width-370;refresh.Left=ClientSize.Width-180;
+        LabelAt(this,"Appareils détectés et état transmis au serveur MEL",28,353,700,34,9,false,gray);
+        cards=new Panel {Left=22,Top=398,Width=ClientSize.Width-44,Height=ClientSize.Height-525,
             BackColor=background,AutoScroll=true,Anchor=AnchorStyles.Top|AnchorStyles.Bottom|AnchorStyles.Left|AnchorStyles.Right};
         Controls.Add(cards);
         var repair=ButtonAt(this,"Réparer",22,0,120,delegate{
@@ -1058,7 +1058,8 @@ class MainForm : Form
             Checked=MelApp.StartupEnabled(),Font=new Font("Segoe UI",10f),Anchor=AnchorStyles.Bottom|AnchorStyles.Left};
         autostart.CheckedChanged+=delegate{MelApp.ConfigureStartup(autostart.Checked);};
         Controls.Add(autostart);
-        Resize+=delegate {PositionFooter();};
+        Resize+=delegate {PositionFooter();ResizeCards();};
+        cards.Resize+=delegate{ResizeCards();};
         PositionFooter();
         FormClosing+=delegate(object sender,FormClosingEventArgs ev){
             if(!MelApp.Exiting&&ev.CloseReason==CloseReason.UserClosing){ev.Cancel=true;Hide();}
@@ -1067,11 +1068,16 @@ class MainForm : Form
         poll.Tick+=delegate{RefreshAll();};poll.Start();
         Shown+=delegate{BeginInvoke((MethodInvoker)delegate{RefreshAll();});};
     }
+    void ResizeCards()
+    {
+        if(cards==null)return;
+        foreach(Control c in cards.Controls)c.Width=Math.Max(350,cards.ClientSize.Width-24);
+    }
     void PositionFooter()
     {
         var buttons=Controls.OfType<Button>().Where(b=>b.Text=="Réparer"||b.Text=="Réappairer"||b.Text=="Désinstaller").ToArray();
-        foreach(var b in buttons)b.Top=ClientSize.Height-103;
-        if(autostart!=null)autostart.Top=ClientSize.Height-53;
+        foreach(var b in buttons)b.Top=ClientSize.Height-118;
+        if(autostart!=null)autostart.Top=ClientSize.Height-60;
     }
     void RePair(object sender,EventArgs e)
     {
@@ -1109,25 +1115,25 @@ class MainForm : Form
             }else{
                 int y=4;
                 foreach(var d in devices){
-                    var p=Card(cards,y,146);
+                    var p=Card(cards,y,160);
                     var kind=Get(d,"kind")=="android"?"Android":"MINI";
-                    LabelAt(p,kind+" — "+Get(d,"name"),22,12,p.Width-235,42,14,true)
+                    LabelAt(p,kind+" — "+Get(d,"name"),22,16,p.Width-235,45,12,true)
                         .Anchor=AnchorStyles.Left|AnchorStyles.Top|AnchorStyles.Right;
                     var onlineDevice=Bool(d,"online");
-                    var status=LabelAt(p,onlineDevice?"En ligne":"Hors ligne",p.Width-175,16,145,34,10,true,
+                    var status=LabelAt(p,onlineDevice?"En ligne":"Hors ligne",p.Width-175,16,145,40,9,true,
                         onlineDevice?Color.FromArgb(25,125,85):gray);
                     status.Anchor=AnchorStyles.Right|AnchorStyles.Top;
-                    LabelAt(p,Get(d,"phase")+"  ·  "+Get(d,"firmware"),22,58,p.Width-44,32,10,false,gray)
+                    LabelAt(p,Get(d,"phase")+"  ·  "+Get(d,"firmware"),22,68,p.Width-44,40,9,false,gray)
                         .Anchor=AnchorStyles.Left|AnchorStyles.Top|AnchorStyles.Right;
-                    var cam=ButtonAt(p,"Caméra",22,98,120,delegate{
+                    var cam=ButtonAt(p,"Caméra",22,110,140,delegate{
                         if(Bool(d,"live_stream"))MelApp.OpenMel();
                         else MessageBox.Show("Aucun flux vidéo live n'est disponible pour cet appareil.","MEL Companion");
                     });
                     cam.Enabled=Bool(d,"camera");
-                    y+=162;
+                    y+=178;
                 }
             }
-            cards.ResumeLayout();
+            cards.ResumeLayout();ResizeCards();
         }catch(Exception ex){
             connection.Text="Erreur : "+ex.GetType().Name;
             try{Directory.CreateDirectory(MelApp.MelDir);
