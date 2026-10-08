@@ -22,6 +22,8 @@ object MelCompanionController {
             val association = manager.myAssociations.firstOrNull()
             if (association != null) {
                 val address = association.deviceMacAddress?.toString()
+                    ?.takeIf { MelCompanionLink.isValidAddress(it) }
+                    ?: MelCompanionLink.rememberedAddress(context)
                 MelCompanionRuntime.markAssociated(association.id, address)
                 if (!address.isNullOrBlank() && Build.VERSION.SDK_INT >= 31) {
                     runCatching { manager.startObservingDevicePresence(address) }
@@ -37,6 +39,8 @@ object MelCompanionController {
         if (Build.VERSION.SDK_INT < 33) return false
         val association = manager.myAssociations.firstOrNull() ?: return false
         val address = association.deviceMacAddress?.toString()
+            ?.takeIf { MelCompanionLink.isValidAddress(it) }
+            ?: MelCompanionLink.rememberedAddress(context)
         MelCompanionRuntime.markAssociated(association.id, address)
         return MelCompanionLink.connect(context, address)
     }
