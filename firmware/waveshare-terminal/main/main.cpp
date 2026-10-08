@@ -2390,6 +2390,18 @@ extern "C" void app_main(void) {
              audio_ok ? "OK" : "FAILED",
              esp_err_to_name(esp_es8311_port_last_error()));
 
+    // Zero-based audio proof: local PCM only. No BLE, no TTS, no Android.
+    // Two long 1 kHz tones make the physical speaker path unmistakable.
+    if (audio_ok) {
+        ESP_LOGI(TAG, "STEP 4.0 AUDIO ZERO PROOF: tone 1");
+        const bool tone1 = esp_es8311_play_proof_tone();
+        vTaskDelay(pdMS_TO_TICKS(250));
+        ESP_LOGI(TAG, "STEP 4.0 AUDIO ZERO PROOF: tone 2");
+        const bool tone2 = esp_es8311_play_proof_tone();
+        ESP_LOGI(TAG, "STEP 4.0 AUDIO ZERO PROOF %s", (tone1 && tone2) ? "PASS" : "FAIL");
+        vTaskDelay(pdMS_TO_TICKS(150));
+    }
+
     // Waveshare keeps the codec open and records directly through
     // esp_codec_dev_read(). Reserve MEL's permanent worker now, while internal
     // heap is still contiguous, before camera/LVGL/BLE allocations.
