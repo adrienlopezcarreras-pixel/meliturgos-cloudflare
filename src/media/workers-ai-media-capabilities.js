@@ -784,19 +784,12 @@ async function videoAnalyze(env, input = {}) {
     }
   }
 
-  const synthesisPrompt = [
-    'Tu synthétises une analyse vidéo à partir de preuves extraites localement.',
-    'Analyse visuelle:',
-    visualAnalysis.analysis,
-    'Transcription audio:',
-    transcript || '(aucune piste audio capturée)',
-    'Distingue explicitement ce qui est visible de ce qui est entendu.',
+  const summary = [
+    'Analyse visuelle : ' + visualAnalysis.analysis,
+    transcript
+      ? 'Transcription audio : ' + transcript
+      : 'Transcription audio : aucune piste audio capturée.',
   ].join('\n');
-  const synthesis = await env.AI.run(WORKERS_AI_VISION_MODEL, {
-    messages: [{ role: 'user', content: synthesisPrompt }],
-    chat_template_kwargs: { enable_thinking: false },
-  }, { rejectIfBusy: true });
-  const summary = modelText(synthesis) || visualAnalysis.analysis;
 
   return Object.freeze({
     ok: true,
