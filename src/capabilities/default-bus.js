@@ -15,6 +15,7 @@ import { registerGoogleWorkspaceCapabilities } from './google-workspace-capabili
 import { registerPipedreamLinkedCapabilities } from './pipedream-linked-capabilities.js';
 import { registerCreativeMediaCapabilities } from './creative-media-capabilities.js';
 import { createWorkersAiZeroCostMediaCapabilities } from '../media/workers-ai-media-capabilities.js';
+import { createProceduralAudioCapabilities } from '../media/procedural-audio-capabilities.js';
 import { createDefaultAugmentioPool } from '../augmentio/default-pool.js';
 import { Augmentio } from '../augmentio/augmentio.js';
 import { inspectZeroCostProviderReadiness } from '../augmentio/zero-cost-readiness.js';
@@ -397,7 +398,7 @@ export function createDefaultCapabilityBus({ audit, env, repository, branch, tok
       additionalProperties: false
     },
     output_schema: { type: 'object', additionalProperties: true },
-    risk: 'LOW', permissions: [], health: runtimeEnv.DB ? 'HEALTHY' : 'DEGRADED', enabled: true
+    risk: 'LOW', permissions: [], health: runtimeEnv.DB ? 'HEALTHY' : 'UNAVAILABLE', enabled: true
   }, async input => {
     if (!runtimeEnv.DB) throw capabilityError('DB_BINDING_MISSING');
     if (!runtimeEnv.MELITURGOS_USER) throw capabilityError('MELITURGOS_USER_MISSING');
@@ -427,9 +428,11 @@ export function createDefaultCapabilityBus({ audit, env, repository, branch, tok
   }, async input => ({ ok: true, preview: true, ...normalizeChatGPTArchive(input.archive ?? input).summary }));
 
   const builtInZeroCostMedia = createWorkersAiZeroCostMediaCapabilities(runtimeEnv);
+  const builtInProceduralMedia = createProceduralAudioCapabilities(runtimeEnv);
   const mediaEnv = {
     ...runtimeEnv,
     MEL_MEDIA_CAPABILITIES: {
+      ...builtInProceduralMedia,
       ...builtInZeroCostMedia,
       ...(runtimeEnv.MEL_MEDIA_CAPABILITIES || {}),
     },

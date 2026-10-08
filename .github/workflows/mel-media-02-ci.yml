@@ -1,0 +1,82 @@
+name: mel-media-02-ci
+
+on:
+  pull_request:
+    paths:
+      - 'src/media/**'
+      - 'src/capabilities/creative-media-capabilities.js'
+      - 'src/capabilities/default-bus.js'
+      - 'browser-companion/runtime/**'
+      - 'wrangler.jsonc'
+      - 'src/roadmap/master-roadmap.js'
+      - 'tests/*media*.test.mjs'
+      - 'tests/procedural-audio-capabilities.test.mjs'
+      - '.github/workflows/workers-ai-zero-cost-proof-refresh.yml'
+      - '.github/workflows/mel-media-02-ci.yml'
+  push:
+    branches:
+      - main
+      - 'audit/final-hardening-cleanup-20261007'
+    paths:
+      - 'src/media/**'
+      - 'src/capabilities/creative-media-capabilities.js'
+      - 'src/capabilities/default-bus.js'
+      - 'browser-companion/runtime/**'
+      - 'wrangler.jsonc'
+      - 'src/roadmap/master-roadmap.js'
+      - 'tests/*media*.test.mjs'
+      - 'tests/procedural-audio-capabilities.test.mjs'
+      - '.github/workflows/workers-ai-zero-cost-proof-refresh.yml'
+      - '.github/workflows/mel-media-02-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  media-12-targeted:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Syntax check media runtime
+        run: |
+          node --check src/media/workers-ai-media-capabilities.js
+          node --check src/media/procedural-audio-capabilities.js
+          node --check src/media/browser-run-zero-cost-proof.js
+          node --check src/media/media-roadmap-proof.js
+          node --check browser-companion/runtime/worker.js
+      - name: Require all 12 media capabilities
+        run: >-
+          node --test
+          tests/mel-media-02-full-matrix.test.mjs
+          tests/workers-ai-media-capabilities.test.mjs
+          tests/browser-run-video-capabilities.test.mjs
+          tests/browser-run-media-surface-contract.test.mjs
+          tests/procedural-audio-capabilities.test.mjs
+          tests/media-capability-truth-matrix.test.mjs
+          tests/creative-media-capabilities.test.mjs
+          tests/release-launch-bootstrap.test.mjs
+
+  media-adjacent-full-suite:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    needs: media-12-targeted
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm run check
+      - name: Normalize branch for candidate-only integration tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          git checkout -b "candidate/pr-${{ github.event.pull_request.number || '1147' }}"
+      - run: npm test

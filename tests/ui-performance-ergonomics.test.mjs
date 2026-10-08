@@ -155,7 +155,11 @@ test('Professor capability health semantics distinguish protected, degraded, non
   assert.match(router, /const capabilities = refresh \? await runtime\.bus\.refreshHealthAll\(\) : runtime\.bus\.list\(\);/);
   assert.match(router, /const protectedStates = new Set\(\["PROTECTED"\]\)/);
   assert.doesNotMatch(router, /degradedStates = new Set\(\[[^\]]*"PROTECTED"/);
-  assert.match(router, /unavailable > 0 \? "INFO" : "OK"/);
+  assert.match(router, /const healthyStates = new Set\(\["HEALTHY","ONLINE"\]\)/);
+  assert.match(router, /const functional = healthy \+ protectedCount/);
+  assert.match(router, /const waitsForPc = row => String\(row\?\.id \|\| ""\)\.toLowerCase\(\)\.startsWith\("computer\."\)/);
+  assert.match(router, /status: failed > 0 \? "ERROR" : \(degraded > 0 \|\| waitingPc > 0 \|\| unavailable > 0\) \? "WARN" : "OK"/);
+  assert.doesNotMatch(router, /unavailable > 0 \? "INFO" : "OK"/);
 });
 
 

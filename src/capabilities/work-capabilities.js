@@ -230,7 +230,7 @@ async function completePlanOpenLoop(db, plan, context = {}) {
 }
 
 export function registerWorkCapabilities(bus, { db } = {}) {
-  const health = db ? 'HEALTHY' : 'DEGRADED';
+  const health = db ? 'HEALTHY' : 'UNAVAILABLE';
 
 
   bus.discover({

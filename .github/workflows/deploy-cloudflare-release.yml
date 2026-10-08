@@ -44,7 +44,7 @@ jobs:
       RELEASE_BRANCH: ${{ github.event_name == 'workflow_dispatch' && inputs.release_branch || github.ref_name }}
       EXPECTED_SHA: ${{ github.event_name == 'workflow_dispatch' && inputs.expected_sha || github.sha }}
       APPROVAL: ${{ github.event_name == 'workflow_dispatch' && inputs.approval || 'DEPLOY_APPROVED' }}
-      OWNER_MAX_AUTORELEASE: ${{ github.event_name == 'push' && 'true' || (inputs.owner_max_autorelease && 'true' || 'false') }}
+      OWNER_MAX_AUTORELEASE: ${{ github.event_name == 'workflow_dispatch' && inputs.owner_max_autorelease && 'true' || 'false' }}
       # TEMPORARY DEV-LIGHT MODE: ShardVault 7/7/code-sync proof paused to finish downstream release validation.
       # MUST be restored to 'false' before final validation/closure.
       MEL_ROADMAP_SHARDVAULT_PAUSED: 'false'
@@ -529,6 +529,18 @@ jobs:
             "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/entitlements" || true)"
           test "${account_code}" = "200"
           test "${ent_code}" = "200"
+          curl --fail --silent --show-error --location --max-time 30 "https://developers.cloudflare.com/workers-ai/platform/pricing/" -o workers-ai-pricing.html
+          curl --fail --silent --show-error --location --max-time 30 "https://developers.cloudflare.com/workers-ai/platform/errors/" -o workers-ai-errors.html
+          grep -Fq "10,000 Neurons per day" workers-ai-pricing.html
+          grep -Fq "N/A - Upgrade to Workers Paid" workers-ai-pricing.html
+          grep -Fq "daily free allocation of 10,000 neurons" workers-ai-errors.html
+          grep -Fq "429" workers-ai-errors.html
+          curl --fail --silent --show-error --location --max-time 30 "https://developers.cloudflare.com/browser-run/pricing/" -o browser-run-pricing.html
+          curl --fail --silent --show-error --location --max-time 30 "https://developers.cloudflare.com/browser-run/limits/" -o browser-run-limits.html
+          grep -Fq "Workers Free" browser-run-pricing.html
+          grep -Fq "10 minutes per day" browser-run-pricing.html
+          grep -Fq "429" browser-run-limits.html
+          grep -Fq "10 minutes per day" browser-run-limits.html
 
           node - <<'NODE'
           const fs=require('fs');
@@ -550,7 +562,7 @@ jobs:
             provider:'workers-ai',
             account_plan:'WORKERS_FREE',
             billing_path:'direct-workers-ai-binding',
-            pricing_policy:'cloudflare-workers-ai-pricing-2026-08-28',
+            pricing_policy:'cloudflare-workers-ai-pricing-2026-10-01',
             free_allocation_neurons_per_day:10000,
             free_overage_behavior:'FAIL_NOT_BILL',
             plan_evidence:{
@@ -566,6 +578,7 @@ jobs:
               '@cf/nvidia/nemotron-3-120b-a12b',
               '@cf/zai-org/glm-4.7-flash',
               '@cf/black-forest-labs/flux-1-schnell',
+              '@cf/black-forest-labs/flux-2-klein-4b',
               '@cf/deepgram/aura-1',
               '@cf/openai/whisper-large-v3-turbo',
             ],
@@ -582,6 +595,29 @@ jobs:
             verified_at:proof.verified_at,
             expires_at:proof.expires_at,
             model_count:proof.models.length,
+          },null,2));
+          const browserPricing=fs.readFileSync('browser-run-pricing.html','utf8');
+          const browserLimits=fs.readFileSync('browser-run-limits.html','utf8');
+          if(!browserPricing.includes('Workers Free')||!browserPricing.includes('10 minutes per day')) throw new Error('BROWSER_RUN_FREE_PRICING_NOT_PROVED');
+          if(!browserLimits.includes('429')||!browserLimits.includes('10 minutes per day')) throw new Error('BROWSER_RUN_FREE_HARD_LIMIT_NOT_PROVED');
+          const browserProof={
+            schema:'mel.browser-run.zero-cost-proof/v1',
+            provider:'cloudflare-browser-run',
+            account_plan:'WORKERS_FREE',
+            included_minutes_per_day:10,
+            overage_behavior:'HARD_LIMIT_NO_BILLING',
+            documentation_url:'https://developers.cloudflare.com/browser-run/pricing/',
+            verified_at:new Date(now).toISOString(),
+            expires_at:new Date(now+60*60*1000).toISOString(),
+          };
+          fs.writeFileSync('browser-run-zero-cost-proof.json',JSON.stringify(browserProof));
+          fs.writeFileSync('browser-run-zero-cost-evidence.json',JSON.stringify({
+            schema:browserProof.schema,
+            account_plan:browserProof.account_plan,
+            included_minutes_per_day:browserProof.included_minutes_per_day,
+            overage_behavior:browserProof.overage_behavior,
+            verified_at:browserProof.verified_at,
+            expires_at:browserProof.expires_at,
           },null,2));
           NODE
           MEDIA_KEY_B64="$(node - <<'NODE'
@@ -618,9 +654,11 @@ jobs:
             32,
           )).toString('base64url');
           const workersAiProof=JSON.parse(fs.readFileSync('workers-ai-zero-cost-proof.json','utf8'));
+          const browserRunProof=JSON.parse(fs.readFileSync('browser-run-zero-cost-proof.json','utf8'));
           const payload={
             MEL_LAUNCH_BOOTSTRAP_TOKEN:String(process.env.BOOTSTRAP_TOKEN||''),
             MEL_WORKERS_AI_ZERO_COST_PROOF_JSON:JSON.stringify(workersAiProof),
+            MEL_BROWSER_RUN_ZERO_COST_PROOF_JSON:JSON.stringify(browserRunProof),
             MEL_MEDIA_ENCRYPTION_KEY_B64:String(process.env.MEDIA_KEY_B64||''),
             MEL_MEDIA_ENCRYPTION_KEY_ID:String(process.env.MEDIA_KEY_ID||''),
             MEL_PARALLEL_PROOF_TOKEN:parallelProofToken,
@@ -629,7 +667,7 @@ jobs:
             MEL_BACKUP_ENCRYPTION_KEY_B64:String(process.env.MEL_BACKUP_ENCRYPTION_KEY_B64||''),
             MEL_BACKUP_ENCRYPTION_KEY_ID:String(process.env.MEL_BACKUP_ENCRYPTION_KEY_ID||''),
           };
-          if(!payload.MEL_LAUNCH_BOOTSTRAP_TOKEN || !payload.MEL_WORKERS_AI_ZERO_COST_PROOF_JSON
+          if(!payload.MEL_LAUNCH_BOOTSTRAP_TOKEN || !payload.MEL_WORKERS_AI_ZERO_COST_PROOF_JSON || !payload.MEL_BROWSER_RUN_ZERO_COST_PROOF_JSON
             || !payload.MEL_MEDIA_ENCRYPTION_KEY_B64 || !payload.MEL_MEDIA_ENCRYPTION_KEY_ID || !payload.MEL_PARALLEL_PROOF_TOKEN
             || !payload.MEL_BACKUP_ENCRYPTION_KEY_B64 || !payload.MEL_BACKUP_ENCRYPTION_KEY_ID) {
             throw new Error('RELEASE_CRYPTO_SECRETS_MISSING');
@@ -740,6 +778,8 @@ jobs:
           set -euo pipefail
           test -s workers-ai-zero-cost-proof.json
           test -s workers-ai-zero-cost-evidence.json
+          test -s browser-run-zero-cost-proof.json
+          test -s browser-run-zero-cost-evidence.json
           node - <<'NODE'
           const fs=require('fs');
           const p=JSON.parse(fs.readFileSync('workers-ai-zero-cost-proof.json','utf8'));
@@ -750,8 +790,66 @@ jobs:
           const now=Date.now();
           if(!Number.isFinite(verified)||!Number.isFinite(expires)||verified>now+60000||expires<=now) throw new Error('WORKERS_AI_ZERO_COST_PROOF_STALE');
           if(!Array.isArray(p?.models)||p.models.length<1) throw new Error('WORKERS_AI_ZERO_COST_MODELS_MISSING');
-          console.log('Workers AI zero-cost proof bundled in the exact Worker deployment and still fresh.');
+          const b=JSON.parse(fs.readFileSync('browser-run-zero-cost-proof.json','utf8'));
+          if(b?.schema!=='mel.browser-run.zero-cost-proof/v1'||b?.provider!=='cloudflare-browser-run'||b?.account_plan!=='WORKERS_FREE') throw new Error('BROWSER_RUN_ZERO_COST_PROOF_INVALID');
+          if(b?.overage_behavior!=='HARD_LIMIT_NO_BILLING'||Number(b?.included_minutes_per_day)!==10) throw new Error('BROWSER_RUN_ZERO_COST_GUARD_INVALID');
+          const bVerified=Date.parse(String(b?.verified_at||'')),bExpires=Date.parse(String(b?.expires_at||''));
+          if(!Number.isFinite(bVerified)||!Number.isFinite(bExpires)||bVerified>Date.now()+60000||bExpires<=Date.now()) throw new Error('BROWSER_RUN_ZERO_COST_PROOF_STALE');
+          console.log('Workers AI + Browser Run zero-cost proofs bundled in the exact Worker deployment and still fresh.');
           NODE
+
+      - name: Prove MEL-MEDIA-02 12/12 live on exact deployed SHA
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE_URL="https://meliturgos.adrien-lopezcarreras.workers.dev"
+          test -s release-bootstrap-token.txt
+          BOOTSTRAP_TOKEN="$(cat release-bootstrap-token.txt)"
+          echo "::add-mask::${BOOTSTRAP_TOKEN}"
+
+          MEDIA_READY=0
+          for ATTEMPT in 1 2 3; do
+            MEDIA_CODE="$(curl --silent --show-error --max-time 300 \
+              --header "x-mel-launch-bootstrap: ${BOOTSTRAP_TOKEN}" \
+              --header "content-type: application/json" \
+              --data '{"phase":"media-proof"}' \
+              --output mel-media-02-production-proof.json \
+              --write-out '%{http_code}' \
+              "${BASE_URL}/api/internal/release-launch-bootstrap" || true)"
+            if [ "${MEDIA_CODE}" = "200" ] && EXPECTED_SHA="${EXPECTED_SHA}" node - <<'NODE'
+          const d=require('./mel-media-02-production-proof.json');
+          const expected=String(process.env.EXPECTED_SHA||'').toLowerCase();
+          if(d?.ok!==true) process.exit(1);
+          if(d?.status!=='MEL_MEDIA_02_DONE_VERIFIED_ELIGIBLE'||d?.done_verified_eligible!==true) process.exit(1);
+          if(String(d?.source_sha||'').toLowerCase()!==expected||String(d?.deployed_sha||'').toLowerCase()!==expected) process.exit(1);
+          if(Number(d?.capability_count)!==12) process.exit(1);
+          if(!Array.isArray(d?.required_capabilities)||d.required_capabilities.length!==12) process.exit(1);
+          if(!Array.isArray(d?.executions)||d.executions.length!==12||d.executions.some(row=>row?.ok!==true||row?.zero_added_cost!==true)) process.exit(1);
+          if(d?.all_executions_zero_added_cost!==true) process.exit(1);
+          if(d?.secret_values_exposed!==false||d?.autonomy_started!==false) process.exit(1);
+          NODE
+            then
+              MEDIA_READY=1
+              break
+            fi
+            echo "MEL-MEDIA-02 live proof attempt ${ATTEMPT}/3 returned HTTP ${MEDIA_CODE}."
+            test ! -s mel-media-02-production-proof.json || cat mel-media-02-production-proof.json
+            sleep $((ATTEMPT * 3))
+          done
+          if [ "${MEDIA_READY}" != "1" ]; then
+            echo "MEL-MEDIA-02 exact-SHA 12/12 production proof failed."
+            exit 58
+          fi
+          echo "MEL-MEDIA-02 exact-SHA 12/12 live proof passed."
+
+      - name: Upload MEL-MEDIA-02 exact-SHA evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: mel-media-02-production-proof-${{ env.EXPECTED_SHA }}
+          path: mel-media-02-production-proof.json
+          if-no-files-found: warn
+          retention-days: 14
 
       - name: Dispatch decoupled downstream production proofs
         shell: bash
@@ -2307,6 +2405,32 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+      - name: Keep MAX disabled after hardening release
+        if: success() && env.OWNER_MAX_AUTORELEASE != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE_URL="https://meliturgos.adrien-lopezcarreras.workers.dev"
+          test -s release-bootstrap-token.txt
+          SAFE_TOKEN="$(cat release-bootstrap-token.txt)"
+          echo "::add-mask::${SAFE_TOKEN}"
+          CODE="$(curl --silent --show-error --max-time 120 \
+            --header "x-mel-launch-bootstrap: ${SAFE_TOKEN}" \
+            --header "content-type: application/json" \
+            --data '{"phase":"pause"}' \
+            --output final-autonomy-safe-stop.json \
+            --write-out '%{http_code}' \
+            "${BASE_URL}/api/internal/release-launch-bootstrap" || true)"
+          test "${CODE}" = "200"
+          node - <<'NODE'
+          const d=require('./final-autonomy-safe-stop.json');
+          if(d?.ok!==true||d?.paused!==true||d?.max_autonomy!==false){
+            throw new Error('FINAL_AUTONOMY_SAFE_STOP_NOT_PROVED');
+          }
+          if(d?.autonomy_started===true) throw new Error('FINAL_AUTONOMY_SAFE_STOP_STARTED_AUTONOMY');
+          console.log('Final hardening state: paused=true, max_autonomy=false.');
+          NODE
+
       - name: Re-enable MAX 100% after verified autonomous release
         if: success() && env.OWNER_MAX_AUTORELEASE == 'true'
         shell: bash
@@ -2391,62 +2515,61 @@ jobs:
             exit 58
           fi
 
-          PRE_RESTORE_REQUIRED=1
+          # Hardening invariant: rollback restores the previous Worker version but
+          # NEVER restarts autonomy. Shared D1 is staged PAUSED/MAX=false before
+          # the code rollback so the previous Worker inherits the safe state.
+          SAFE_PAUSED=true
+          SAFE_MAX=false
           PRE_RESTORE_READY=0
-          if [ "${PREVIOUS_AUTONOMY_PAUSED}" = "true" ] && [ "${PREVIOUS_MAX_AUTONOMY}" = "false" ]; then
-            PRE_RESTORE_REQUIRED=0
-            PRE_RESTORE_READY=1
-            echo "Previous production was already paused; pre-rollback MAX restoration is unnecessary."
-          else
-            OIDC_RESPONSE="$(curl --silent --show-error --fail --retry 3 --retry-all-errors --retry-delay 2 --max-time 30 \
-              --header "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
-              "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=meliturgos-worker")"
-            OIDC_TOKEN="$(printf '%s' "${OIDC_RESPONSE}" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const j=JSON.parse(s);if(!j.value)process.exit(2);process.stdout.write(j.value)})')"
-            echo "::add-mask::${OIDC_TOKEN}"
 
-            for RESTORE_ATTEMPT in $(seq 1 6); do
-              RESTORE_CODE="$(curl --silent --show-error --max-time 120 \
-                --request POST \
-                --header "x-mel-github-oidc: ${OIDC_TOKEN}" \
-                --header "content-type: application/json" \
-                --data '{"phase":"release-rollback-restore"}' \
-                --output rollback-autonomy-restore.json \
-                --write-out '%{http_code}' \
-                "https://meliturgos.adrien-lopezcarreras.workers.dev/api/internal/release-launch-bootstrap?expected_sha=${EXPECTED_SHA}&restore_sha=${PREVIOUS_DEPLOYED_SHA}&paused=${PREVIOUS_AUTONOMY_PAUSED}&max=${PREVIOUS_MAX_AUTONOMY}" || true)"
-              if [ "${RESTORE_CODE}" = "200" ] && \
-                EXPECTED_SHA="${EXPECTED_SHA}" \
-                PREVIOUS_DEPLOYED_SHA="${PREVIOUS_DEPLOYED_SHA}" \
-                PREVIOUS_AUTONOMY_PAUSED="${PREVIOUS_AUTONOMY_PAUSED}" \
-                PREVIOUS_MAX_AUTONOMY="${PREVIOUS_MAX_AUTONOMY}" \
-                node - <<'NODE'
+          OIDC_RESPONSE="$(curl --silent --show-error --fail --retry 3 --retry-all-errors --retry-delay 2 --max-time 30 \
+            --header "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=meliturgos-worker")"
+          OIDC_TOKEN="$(printf '%s' "${OIDC_RESPONSE}" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const j=JSON.parse(s);if(!j.value)process.exit(2);process.stdout.write(j.value)})')"
+          echo "::add-mask::${OIDC_TOKEN}"
+
+          for RESTORE_ATTEMPT in $(seq 1 6); do
+            RESTORE_CODE="$(curl --silent --show-error --max-time 120 \
+              --request POST \
+              --header "x-mel-github-oidc: ${OIDC_TOKEN}" \
+              --header "content-type: application/json" \
+              --data '{"phase":"release-rollback-restore"}' \
+              --output rollback-autonomy-restore.json \
+              --write-out '%{http_code}' \
+              "https://meliturgos.adrien-lopezcarreras.workers.dev/api/internal/release-launch-bootstrap?expected_sha=${EXPECTED_SHA}&restore_sha=${PREVIOUS_DEPLOYED_SHA}&paused=true&max=false" || true)"
+            if [ "${RESTORE_CODE}" = "200" ] && \
+              EXPECTED_SHA="${EXPECTED_SHA}" \
+              PREVIOUS_DEPLOYED_SHA="${PREVIOUS_DEPLOYED_SHA}" \
+              node - <<'NODE'
           const d=require('./rollback-autonomy-restore.json');
           const deployed=String(process.env.EXPECTED_SHA||'').toLowerCase();
           const restore=String(process.env.PREVIOUS_DEPLOYED_SHA||'').toLowerCase();
-          const paused=String(process.env.PREVIOUS_AUTONOMY_PAUSED)==='true';
-          const max=String(process.env.PREVIOUS_MAX_AUTONOMY)==='true';
           if(d?.ok!==true || d?.status!=='RELEASE_ROLLBACK_AUTONOMY_RESTORED') process.exit(1);
           if(String(d?.deployed_sha||'').toLowerCase()!==deployed) process.exit(1);
-          if(String(d?.restore_sha||'').toLowerCase()!==restore) process.exit(1);
-          if(String(d?.launch_approved_sha||'').toLowerCase()!==restore) process.exit(1);
-          if(d?.paused!==paused || d?.max_autonomy!==max) process.exit(1);
+          if(String(d?.restore_sha||'')!=='') process.exit(1);
+          if(d?.launch_approved_sha!=null) process.exit(1);
+          if(d?.paused!==true || d?.max_autonomy!==false) process.exit(1);
           NODE
-              then
-                PRE_RESTORE_READY=1
-                echo "Previous autonomy control staged in shared D1 before Worker rollback."
-                break
-              fi
-              echo "Pre-rollback autonomy restore attempt ${RESTORE_ATTEMPT}/6 returned HTTP ${RESTORE_CODE}; bounded retry."
-              test ! -s rollback-autonomy-restore.json || cat rollback-autonomy-restore.json
-              sleep 3
-            done
+            then
+              PRE_RESTORE_READY=1
+              echo "Safe paused autonomy staged in shared D1 before Worker rollback."
+              break
+            fi
+            echo "Pre-rollback safe-stop attempt ${RESTORE_ATTEMPT}/6 returned HTTP ${RESTORE_CODE}; bounded retry."
+            test ! -s rollback-autonomy-restore.json || cat rollback-autonomy-restore.json
+            sleep 3
+          done
+          if [ "${PRE_RESTORE_READY}" != "1" ]; then
+            echo "Refusing rollback without a proven PAUSED/MAX=false shared-D1 state."
+            exit 56
           fi
 
           # Use Wrangler's supported rollback command rather than hand-crafting
-          # the deployment API request. It resolves the Worker identity from the
-          # canonical config and creates a 100% deployment of the captured version.
+          # the deployment API request. It restores code only; autonomy remains
+          # fail-safe in the shared D1 state staged above.
           if ! npx wrangler rollback "${PREVIOUS_CLOUDFLARE_VERSION_ID}" \
             --name meliturgos \
-            --message "MEL automatic rollback after failed release verification" \
+            --message "MEL automatic rollback after failed release verification (MAX kept disabled)" \
             >/tmp/mel-rollback.log 2>&1; then
             echo "Automatic Wrangler rollback failed."
             cat /tmp/mel-rollback.log
@@ -2461,33 +2584,23 @@ jobs:
               --output rollback-autonomy-control.json \
               --write-out '%{http_code}' \
               "https://meliturgos.adrien-lopezcarreras.workers.dev/api/gen2/autonomy/control" || true)"
-            if [ "${CONTROL_CODE}" = "200" ] && \
-              PREVIOUS_AUTONOMY_PAUSED="${PREVIOUS_AUTONOMY_PAUSED}" \
-              PREVIOUS_MAX_AUTONOMY="${PREVIOUS_MAX_AUTONOMY}" \
-              node - <<'NODE'
+            if [ "${CONTROL_CODE}" = "200" ] && node - <<'NODE'
           const d=require('./rollback-autonomy-control.json');
-          const paused=String(process.env.PREVIOUS_AUTONOMY_PAUSED)==='true';
-          const max=String(process.env.PREVIOUS_MAX_AUTONOMY)==='true';
-          if(d?.ok!==true || d?.paused!==paused || d?.max_autonomy!==max) process.exit(1);
+          if(d?.ok!==true || d?.paused!==true || d?.max_autonomy!==false) process.exit(1);
           NODE
             then
               CONTROL_READY=1
               break
             fi
-            echo "Rollback autonomy control verification attempt ${CONTROL_ATTEMPT}/18 returned HTTP ${CONTROL_CODE}; waiting for stable propagation."
+            echo "Rollback safe autonomy verification attempt ${CONTROL_ATTEMPT}/18 returned HTTP ${CONTROL_CODE}; waiting for stable propagation."
             sleep 3
           done
-
-          if [ "${PRE_RESTORE_REQUIRED}" = "1" ] && [ "${PRE_RESTORE_READY}" != "1" ]; then
-            echo "Worker rollback succeeded, but the prior launch SHA could not be staged before rollback."
-            exit 56
-          fi
           if [ "${CONTROL_READY}" != "1" ]; then
-            echo "Worker rollback succeeded, but prior paused/MAX control was not observable after propagation."
+            echo "Worker rollback succeeded, but PAUSED/MAX=false was not observable after propagation."
             test ! -s rollback-autonomy-control.json || cat rollback-autonomy-control.json
             exit 57
           fi
-          echo "Previous stable Worker and autonomy control restored after failed exact-SHA release."
+          echo "Previous stable Worker restored with autonomy PAUSED and MAX disabled."
 
 
   post-release-health:

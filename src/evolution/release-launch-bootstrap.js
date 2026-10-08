@@ -31,9 +31,10 @@ import { runCompanionSourceControlPrevalidationRuntime } from '../portability/co
 import { runCompanionInfrastructurePrevalidationRuntime } from '../portability/companion-infrastructure-prevalidation-runtime.js';
 import { runGoogleDriveBackupRestorePrevalidationRuntime } from '../portability/google-drive-backup-restore-prevalidation-runtime.js';
 import { authorizeGitHubActionsOidcRequest } from '../security/github-actions-oidc.js';
+import { runMelMedia02LiveProof } from '../media/media-roadmap-proof.js';
 
 const PATH = '/api/internal/release-launch-bootstrap';
-const PHASES = new Set(['all', 'identity', 'pause', 'backup', 'code-sync', 'readiness', 'sovereignty-proof', 'skill-registry-proof', 'plugin-sdk-proof', 'evolution-ledger-proof', 'agent-automation-proof', 'provider-escape-proof', 'long-context-proof', 'capability-watch-proof', 'connection-proof', 'gen2-42-runtime-tick', 'gen2-42-owner-max', 'release-rollback-restore']);
+const PHASES = new Set(['all', 'identity', 'pause', 'backup', 'code-sync', 'readiness', 'sovereignty-proof', 'skill-registry-proof', 'plugin-sdk-proof', 'evolution-ledger-proof', 'agent-automation-proof', 'provider-escape-proof', 'long-context-proof', 'capability-watch-proof', 'connection-proof', 'media-proof', 'gen2-42-runtime-tick', 'gen2-42-owner-max', 'release-rollback-restore']);
 
 function exactDeployedSha(env = {}) {
   const direct = String(env?.MEL_DEPLOYED_GIT_SHA || '').trim().toLowerCase();
@@ -284,6 +285,7 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
   proveCapabilityWatch = proveEcosystemTeacherHandoff,
   runAutonomyTick = runAutonomyRuntimeTick,
   connectionHandler = maybeHandleConnectionSettingsApi,
+  proveMedia = runMelMedia02LiveProof,
   authorizeOidc = authorizeGitHubActionsOidcRequest,
 } = {}) {
   const url = new URL(request.url);
@@ -420,6 +422,42 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
   if (phase === 'connection-proof') {
     const result = await runConnectionProof(env, connectionHandler);
     return Response.json({ ...result, phase, deployed_sha: exactDeployedSha(env) || null, autonomy_started: false, owner_launch_required: true }, { status: 200, headers: { 'cache-control': 'no-store' } });
+  }
+
+  if (phase === 'media-proof') {
+    const deployedSha = exactDeployedSha(env);
+    try {
+      const result = await proveMedia(env, { sourceSha: deployedSha });
+      const ok = result?.ok === true
+        && result?.status === 'MEL_MEDIA_02_DONE_VERIFIED_ELIGIBLE'
+        && result?.done_verified_eligible === true
+        && result?.capability_count === 12
+        && result?.all_executions_zero_added_cost === true
+        && String(result?.source_sha || '').toLowerCase() === deployedSha;
+      return Response.json({
+        ...result,
+        ok,
+        phase,
+        deployed_sha: deployedSha || null,
+        autonomy_started: false,
+        owner_launch_required: true,
+        secret_values_exposed: false,
+      }, { status: ok ? 200 : 409, headers: { 'cache-control': 'no-store' } });
+    } catch (error) {
+      return Response.json({
+        ok: false,
+        status: 'MEL_MEDIA_02_NOT_VERIFIED',
+        code: String(error?.code || error?.message || 'MEL_MEDIA_02_PROOF_FAILED').slice(0,180),
+        capability: error?.capability || null,
+        health: error?.health || null,
+        detail: error?.detail || null,
+        phase,
+        deployed_sha: deployedSha || null,
+        autonomy_started: false,
+        owner_launch_required: true,
+        secret_values_exposed: false,
+      }, { status: Number(error?.status) || 503, headers: { 'cache-control': 'no-store' } });
+    }
   }
 
   if (phase === 'sovereignty-proof') {
@@ -693,6 +731,26 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
       phase,
       tick_status: tick?.status || null,
       advanced: tick?.advanced === true,
+      progress: tick?.progress && typeof tick.progress === 'object' ? {
+        advanced: tick.progress.advanced === true,
+        events: Array.isArray(tick.progress.events) ? tick.progress.events.slice(0, 20) : [],
+        work_remaining: tick.progress.work_remaining === true,
+        waiting_external: tick.progress.waiting_external === true,
+        block_reason: tick.progress.block_reason || null,
+        active_jobs: Number.isFinite(Number(tick.progress.active_jobs)) ? Number(tick.progress.active_jobs) : null,
+        completed_roadmap_items: Number.isFinite(Number(tick.progress.completed_roadmap_items)) ? Number(tick.progress.completed_roadmap_items) : null,
+        next_roadmap_id: tick.progress.next_roadmap_id || null,
+        job_id: tick.progress.job_id || null,
+        job_status: tick.progress.job_status || null,
+      } : null,
+      watchdog: tick?.watchdog && typeof tick.watchdog === 'object' ? {
+        status: tick.watchdog.status || null,
+        tripped: tick.watchdog.tripped === true,
+        consecutive_stalls: Number(tick.watchdog.consecutive_stalls || 0),
+        stall_limit: Number(tick.watchdog.stall_limit || 0),
+        last_block_reason: tick.watchdog.last_block_reason || null,
+        counters: tick.watchdog.counters || null,
+      } : null,
       paused: tick?.paused === true || tick?.control?.paused === true,
       max_autonomy: tick?.control?.max_autonomy === true,
       bridge_preparation_ready: bridgeReady,
@@ -713,7 +771,7 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
         code: String(row?.code || '').slice(0, 180),
       })).slice(0, 20),
       control_unchanged_by_bootstrap: true,
-    }, { headers: { 'cache-control': 'no-store' } });
+    }, { status: tick?.ok === false ? 409 : 200, headers: { 'cache-control': 'no-store' } });
   }
 
   if (phase === 'gen2-42-owner-max') {
@@ -759,6 +817,26 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
       launch_approved_sha: control?.launch_approved_sha || null,
       tick_status: tick?.status || null,
       advanced: tick?.advanced === true,
+      progress: tick?.progress && typeof tick.progress === 'object' ? {
+        advanced: tick.progress.advanced === true,
+        events: Array.isArray(tick.progress.events) ? tick.progress.events.slice(0, 20) : [],
+        work_remaining: tick.progress.work_remaining === true,
+        waiting_external: tick.progress.waiting_external === true,
+        block_reason: tick.progress.block_reason || null,
+        active_jobs: Number.isFinite(Number(tick.progress.active_jobs)) ? Number(tick.progress.active_jobs) : null,
+        completed_roadmap_items: Number.isFinite(Number(tick.progress.completed_roadmap_items)) ? Number(tick.progress.completed_roadmap_items) : null,
+        next_roadmap_id: tick.progress.next_roadmap_id || null,
+        job_id: tick.progress.job_id || null,
+        job_status: tick.progress.job_status || null,
+      } : null,
+      watchdog: tick?.watchdog && typeof tick.watchdog === 'object' ? {
+        status: tick.watchdog.status || null,
+        tripped: tick.watchdog.tripped === true,
+        consecutive_stalls: Number(tick.watchdog.consecutive_stalls || 0),
+        stall_limit: Number(tick.watchdog.stall_limit || 0),
+        last_block_reason: tick.watchdog.last_block_reason || null,
+        counters: tick.watchdog.counters || null,
+      } : null,
       bridge_preparation_ready: bridgeReady,
       bridge_job: bridgeReady ? {
         job_id: String(bridgeJob.id).slice(0, 180),
@@ -777,13 +855,13 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
         code: String(row?.code || '').slice(0, 180),
       })).slice(0, 20),
       owner_authorized_bootstrap: true,
-    }, { headers: { 'cache-control': 'no-store' } });
+    }, { status: tick?.ok === false ? 409 : 200, headers: { 'cache-control': 'no-store' } });
   }
 
   // A deployment may inherit RUNNING/MAX control state from the previous SHA.
   // Force the new release into PAUSED before any preparation. Only the normal
   // owner-authenticated Resume/MAX endpoint may approve and start this SHA.
-  await setControl(env?.DB, {
+  const releaseControl = await setControl(env?.DB, {
     paused: true,
     max_autonomy: false,
     source: 'release-launch-bootstrap',
@@ -1367,13 +1445,18 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
   }
 
   if (phase === 'pause') {
+    const paused = releaseControl?.paused === true;
+    const maxDisabled = releaseControl?.max_autonomy === false;
     return Response.json({
-      ok: true,
-      status: 'RELEASE_PAUSED',
+      ok: paused && maxDisabled,
+      status: paused && maxDisabled ? 'RELEASE_PAUSED' : 'RELEASE_PAUSE_FAILED',
       phase,
+      paused,
+      max_autonomy: releaseControl?.max_autonomy === true,
+      control_status: releaseControl?.status || null,
       autonomy_started: false,
       owner_launch_required: true,
-    }, { status: 200, headers: { 'cache-control': 'no-store' } });
+    }, { status: paused && maxDisabled ? 200 : 409, headers: { 'cache-control': 'no-store' } });
   }
 
   if (phase === 'backup') {

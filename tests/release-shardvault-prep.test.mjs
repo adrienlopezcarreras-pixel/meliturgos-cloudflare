@@ -147,7 +147,7 @@ test('release capture normalizes legacy paused plus MAX contradiction fail-safe 
   assert.doesNotMatch(source,/PREDEPLOY_AUTONOMY_CONTROL_CONTRADICTORY/);
 });
 
-test('release rollback restores only the captured autonomy state through exact-SHA OIDC flow',async()=>{
+test('release rollback restores code through exact-SHA OIDC while preserving PAUSED/MAX=false safety',async()=>{
   const source=await readFile(new URL('../.github/workflows/deploy-cloudflare-release.yml',import.meta.url),'utf8');
   assert.match(source,/id-token:\s*write/);
   assert.match(source,/Capture pre-deploy autonomy control/);
@@ -159,7 +159,7 @@ test('release rollback restores only the captured autonomy state through exact-S
   assert.match(source,/x-mel-github-oidc/);
   assert.match(source,/audience=meliturgos-worker/);
   assert.match(source,/restore_sha=\$\{PREVIOUS_DEPLOYED_SHA\}/);
-  assert.match(source,/Previous autonomy control staged in shared D1 before Worker rollback/);
+  assert.match(source,/Safe paused autonomy staged in shared D1 before Worker rollback/);
   assert.match(source,/waiting for stable propagation/);
   const rollback=source.split('Automatic rollback on failed production verification')[1]||'';
   const staged=rollback.indexOf('restore_sha=${PREVIOUS_DEPLOYED_SHA}');
@@ -169,7 +169,8 @@ test('release rollback restores only the captured autonomy state through exact-S
   assert.match(rollback,/--name meliturgos/);
   assert.doesNotMatch(rollback,/deployments\?force=true/);
   assert.doesNotMatch(rollback,/wrangler secret put/);
-  assert.match(rollback,/if \[ "\$\{PREVIOUS_AUTONOMY_PAUSED\}" = "true" \] && \[ "\$\{PREVIOUS_MAX_AUTONOMY\}" = "false" \]/);
+  assert.match(rollback,/paused=true&max=false/);
+  assert.match(rollback,/MAX kept disabled/);
 });
 
 
