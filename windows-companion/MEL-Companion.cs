@@ -58,6 +58,63 @@ static class MelApp
         }
     }
 
+    public static void RetireInstalledCompanionForUpgrade()
+    {
+        try
+        {
+            var currentProcess = Process.GetCurrentProcess();
+            var currentExe = Path.GetFullPath(currentProcess.MainModule.FileName);
+            var installedExe = Path.GetFullPath(InstalledExe);
+            if (string.Equals(currentExe, installedExe, StringComparison.OrdinalIgnoreCase)) return;
+
+            var processName = Path.GetFileNameWithoutExtension(InstalledExe);
+            foreach (var process in Process.GetProcessesByName(processName))
+            {
+                try
+                {
+                    if (process.Id == currentProcess.Id) continue;
+                    string otherExe;
+                    try { otherExe = Path.GetFullPath(process.MainModule.FileName); }
+                    catch { continue; }
+                    if (!string.Equals(otherExe, installedExe, StringComparison.OrdinalIgnoreCase)) continue;
+
+                    try { process.CloseMainWindow(); } catch { }
+                    try
+                    {
+                        if (!process.WaitForExit(1200))
+                        {
+                            process.Kill();
+                            process.WaitForExit(3000);
+                        }
+                    }
+                    catch { }
+                }
+                finally { process.Dispose(); }
+            }
+
+            for (var i = 0; i < 20; i++)
+            {
+                bool stillRunning = false;
+                foreach (var process in Process.GetProcessesByName(processName))
+                {
+                    try
+                    {
+                        if (process.Id == currentProcess.Id) continue;
+                        string otherExe;
+                        try { otherExe = Path.GetFullPath(process.MainModule.FileName); }
+                        catch { continue; }
+                        if (string.Equals(otherExe, installedExe, StringComparison.OrdinalIgnoreCase))
+                            stillRunning = true;
+                    }
+                    finally { process.Dispose(); }
+                }
+                if (!stillRunning) break;
+                Thread.Sleep(100);
+            }
+        }
+        catch { }
+    }
+
     public static Color Bg = Color.FromArgb(5, 10, 22);
     public static Color Panel = Color.FromArgb(13, 24, 45);
     public static Color Glass = Color.FromArgb(18, 33, 58);
