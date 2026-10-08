@@ -3,7 +3,7 @@ import sys
 import traceback
 from pathlib import Path
 
-VERSION = "0.6.0-audio-link-rebuild"
+VERSION = "AUDIO-ZERO-PROOF"
 APP_OFFSETS = ("0x20000", "0x620000")
 
 def asset_path(name: str) -> Path:
@@ -84,8 +84,8 @@ def flash(port: str, firmware: Path):
 def main():
     banner()
     firmware = asset_path("mel-terminal.bin")
-    if not firmware.exists() or firmware.stat().st_size < 1_000_000:
-        print("ERREUR : firmware 0.6.0 AudioLink integre introuvable ou invalide.")
+    if not firmware.exists() or firmware.stat().st_size < 100_000:
+        print("ERREUR : firmware AUDIO ZERO integre introuvable ou invalide.")
         return 20
 
     if "--self-test" in sys.argv:
