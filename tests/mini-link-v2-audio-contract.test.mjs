@@ -265,3 +265,14 @@ test('MINI keeps the proven ES8311 playback path unmuted and gates silence by vo
   assert.doesNotMatch(helpers, /esp_codec_dev_set_out_mute/);
   assert.match(terminal, /Known-good 48 kHz WAV playback never toggled the ES8311 mute bit/);
 });
+
+
+test('MINI chat relay outlives Android backend read timeout', async () => {
+  const [transport, service] = await Promise.all([
+    readFile(new URL('../firmware/waveshare-terminal/main/mel_link_v2_transport.cpp', import.meta.url), 'utf8'),
+    readFile(new URL('../android-companion/app/src/main/java/fr/veriteinterdite/mel/MelLinkV2ClientService.kt', import.meta.url), 'utf8'),
+  ]);
+  assert.match(transport, /chat \? 130000/);
+  assert.match(service, /path == "\/api\/device\/v1\/chat"\) 120_000 else 90_000/);
+  assert.doesNotMatch(transport, /chat \? 20000/);
+});
