@@ -77,6 +77,20 @@ $cscCandidates = @(
 )
 $csc = $cscCandidates | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } | Select-Object -First 1
 if (-not $csc) { throw "WINDOWS_CSC_COMPILER_MISSING" }
+$wpfReferenceRoots = @(
+  (Join-Path ${env:ProgramFiles(x86)} "Reference Assemblies\\Microsoft\\Framework\\.NETFramework\\v4.8.1"),
+  (Join-Path ${env:ProgramFiles(x86)} "Reference Assemblies\\Microsoft\\Framework\\.NETFramework\\v4.8"),
+  (Join-Path ${env:ProgramFiles(x86)} "Reference Assemblies\\Microsoft\\Framework\\.NETFramework\\v4.7.2")
+)
+$wpfReferenceRoot = $wpfReferenceRoots | Where-Object {
+  Test-Path -LiteralPath (Join-Path $_ "PresentationFramework.dll") -PathType Leaf
+} | Select-Object -First 1
+if (-not $wpfReferenceRoot) { throw "WINDOWS_WPF_REFERENCE_ASSEMBLIES_MISSING" }
+$windowsBaseRef = Join-Path $wpfReferenceRoot "WindowsBase.dll"
+$presentationCoreRef = Join-Path $wpfReferenceRoot "PresentationCore.dll"
+$presentationFrameworkRef = Join-Path $wpfReferenceRoot "PresentationFramework.dll"
+$systemXamlRef = Join-Path $wpfReferenceRoot "System.Xaml.dll"
+
 $compileArgs = @(
   "/nologo",
   "/target:winexe",
@@ -88,10 +102,10 @@ $compileArgs = @(
   "/reference:System.Drawing.dll",
   "/reference:System.Web.Extensions.dll",
   "/reference:System.Security.dll",
-  "/reference:WindowsBase.dll",
-  "/reference:PresentationCore.dll",
-  "/reference:PresentationFramework.dll",
-  "/reference:System.Xaml.dll",
+  "/reference:$windowsBaseRef",
+  "/reference:$presentationCoreRef",
+  "/reference:$presentationFrameworkRef",
+  "/reference:$systemXamlRef",
   $desktopBuildSource,
   $wpfBuildSource
 )
