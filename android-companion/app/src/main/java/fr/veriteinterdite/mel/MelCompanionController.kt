@@ -26,6 +26,7 @@ object MelCompanionController {
                 if (!address.isNullOrBlank() && Build.VERSION.SDK_INT >= 31) {
                     runCatching { manager.startObservingDevicePresence(address) }
                 }
+                MelCompanionLink.connect(context, address)
                 return
             }
         }
@@ -72,6 +73,7 @@ object MelCompanionController {
                     if (!address.isNullOrBlank() && Build.VERSION.SDK_INT >= 31) {
                         runCatching { manager.startObservingDevicePresence(address) }
                     }
+                    MelCompanionLink.connect(context, address)
                     onCreated(associationInfo)
                 }
 
