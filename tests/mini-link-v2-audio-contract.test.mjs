@@ -290,3 +290,19 @@ test('MINI reasserts ES8311 unmute before every playback', async () => {
   assert.match(enable, /esp_codec_dev_set_out_vol\(output_dev, volume\)/);
   assert.match(codec, /esp_codec_dev_set_out_mute\(output_dev, false\)/);
 });
+
+
+test('MINI enables Waveshare PA_CTRL on TCA9554 P2 before audio init', async () => {
+  const main = await readFile(new URL('../firmware/waveshare-terminal/main/main.cpp', import.meta.url), 'utf8');
+  const expander = main.slice(main.indexOf('static void io_expander_init()'), main.indexOf('static void lv_port_init()'));
+  const appMain = main.slice(main.indexOf('extern "C" void app_main'));
+  assert.match(expander, /IO_EXPANDER_PIN_NUM_1 \| IO_EXPANDER_PIN_NUM_2/);
+  assert.match(expander, /esp_io_expander_set_level\(expander_handle, IO_EXPANDER_PIN_NUM_2, 1\)/);
+  assert.ok(appMain.indexOf('io_expander_init();') < appMain.indexOf('esp_es8311_port_init(i2c_bus_handle);'));
+});
+
+test('MINI keeps Waveshare factory I2S bring-up clock before codec 48 kHz open', async () => {
+  const codec = await readFile(new URL('../firmware/waveshare-terminal/vendor/esp_es8311_port.cpp', import.meta.url), 'utf8');
+  assert.match(codec, /I2S_STD_CLK_DEFAULT_CONFIG\(16000\)/);
+  assert.match(codec, /fs\.sample_rate = 48000/);
+});
