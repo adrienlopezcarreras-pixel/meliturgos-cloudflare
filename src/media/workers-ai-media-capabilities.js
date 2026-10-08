@@ -3,13 +3,13 @@ import { createEnvMediaVaultCodec } from './media-vault-crypto.js';
 import { browserRunZeroCostProvenance } from './browser-run-zero-cost-proof.js';
 
 export const WORKERS_AI_IMAGE_MODEL = '@cf/bytedance/stable-diffusion-xl-lightning';
-export const WORKERS_AI_VISION_MODEL = '@cf/meta/llama-3.2-11b-vision-instruct';
+export const WORKERS_AI_VISION_MODEL = '@cf/llava-hf/llava-1.5-7b-hf';
 export const WORKERS_AI_IMAGE_EDIT_MODEL = '@cf/black-forest-labs/flux-2-klein-4b';
 export const WORKERS_AI_TTS_MODEL = '@cf/deepgram/aura-1';
 export const WORKERS_AI_TRANSCRIPTION_MODEL = '@cf/openai/whisper-large-v3-turbo';
 
 const IMAGE_ADAPTER_ID = 'workers-ai.media.image.sdxl-lightning';
-const IMAGE_ANALYZE_ADAPTER_ID = 'workers-ai.media.image.llama-3.2-11b-vision';
+const IMAGE_ANALYZE_ADAPTER_ID = 'workers-ai.media.image.llava-1.5-7b-hf';
 const IMAGE_PROCESS_ADAPTER_ID = 'workers-ai.media.image.flux-2-klein-4b';
 const TTS_ADAPTER_ID = 'workers-ai.media.audio.aura-1';
 const TRANSCRIPTION_ADAPTER_ID = 'workers-ai.media.audio.whisper-large-v3-turbo';
@@ -95,6 +95,8 @@ function modelText(result) {
       ?? result?.result?.response
       ?? result?.choices?.[0]?.message?.content
       ?? result?.result?.choices?.[0]?.message?.content
+      ?? result?.description
+      ?? result?.result?.description
       ?? result?.text,
     120_000,
   );
@@ -296,16 +298,11 @@ async function imageAnalyze(env, input = {}) {
   if (!bytes?.byteLength) throw mediaError('IMAGE_INPUT_REQUIRED', 400);
   const mime = imageInput.mime;
   const prompt = clean(input?.prompt || input?.question || 'Analyse cette image précisément. Décris les éléments visibles, le texte lisible, les relations spatiales et les incertitudes. N’invente rien.', 6000);
-  const image = `data:${mime};base64,${bytesBase64(bytes)}`;
 
   const result = await env.AI.run(WORKERS_AI_VISION_MODEL, {
-    messages: [
-      { role: 'system', content: 'Tu analyses uniquement ce qui est observable dans l’image. Signale explicitement toute incertitude.' },
-      { role: 'user', content: prompt },
-    ],
-    image,
+    image: Array.from(bytes),
+    prompt,
     max_tokens: 512,
-    temperature: 0.1,
   }, { rejectIfBusy: true });
 
   const analysis = modelText(result);
@@ -316,7 +313,7 @@ async function imageAnalyze(env, input = {}) {
     capability: 'media.image.analyze',
     provider: 'workers-ai',
     model: WORKERS_AI_VISION_MODEL,
-    engine: 'workers-ai-llama-3.2-vision',
+    engine: 'workers-ai-llava-1.5-7b-hf',
     zero_added_cost: true,
     analysis,
     source: Object.freeze({
