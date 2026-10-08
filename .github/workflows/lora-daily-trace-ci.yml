@@ -52,5 +52,10 @@ jobs:
           tests/lora-daily-trace.test.mjs
           tests/lora-daily-trace-workflow-contract.test.mjs
           tests/lora-training-heartbeat.test.mjs
+      - name: Normalize branch for candidate-only integration tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          git checkout -b "candidate/lora-trace-${{ github.run_id }}"
       - name: Full repository regression
         run: npm test
