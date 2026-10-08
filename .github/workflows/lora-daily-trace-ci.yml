@@ -1,0 +1,56 @@
+name: lora-daily-trace-ci
+
+on:
+  pull_request:
+    paths:
+      - 'src/learning/lora-daily-trace.js'
+      - 'scripts/lora-daily-trace-client.mjs'
+      - '.github/workflows/lora-kaggle-free-gpu.yml'
+      - 'src/professor-live-learning-entry.js'
+      - 'src/persistence/migrations.js'
+      - 'src/persistence/gen2-schema.js'
+      - 'src/core/config.js'
+      - 'tests/lora-daily-trace*.test.mjs'
+      - '.github/workflows/lora-daily-trace-ci.yml'
+  push:
+    branches:
+      - main
+      - 'audit/final-hardening-cleanup-20261007'
+    paths:
+      - 'src/learning/lora-daily-trace.js'
+      - 'scripts/lora-daily-trace-client.mjs'
+      - '.github/workflows/lora-kaggle-free-gpu.yml'
+      - 'src/professor-live-learning-entry.js'
+      - 'src/persistence/migrations.js'
+      - 'src/persistence/gen2-schema.js'
+      - 'src/core/config.js'
+      - 'tests/lora-daily-trace*.test.mjs'
+      - '.github/workflows/lora-daily-trace-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  trace-contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Syntax
+        run: |
+          node --check src/learning/lora-daily-trace.js
+          node --check scripts/lora-daily-trace-client.mjs
+          node --check src/professor-live-learning-entry.js
+      - name: LoRA daily trace tests
+        run: >-
+          node --test
+          tests/lora-daily-trace.test.mjs
+          tests/lora-daily-trace-workflow-contract.test.mjs
+          tests/lora-training-heartbeat.test.mjs
+      - name: Full repository regression
+        run: npm test
