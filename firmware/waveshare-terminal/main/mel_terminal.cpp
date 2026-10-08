@@ -142,13 +142,14 @@ static volatile bool g_tts_stop_requested = false;
 
 static bool speaker_output_enable(float volume) {
     if (!output_dev) return false;
-    // Known-good 48 kHz WAV playback never toggled the ES8311 mute bit.
-    // Keep the codec unmuted after boot and gate silence with volume only.
-    // This avoids leaving the duplex ES8311 handle in a silent state after
-    // a previous STOP/voice-off transition.
+    // Reassert DAC unmute before every playback. The ES8311 can keep its mute
+    // register across an ESP reset while remaining powered, so volume alone is
+    // not sufficient after an older STOP/voice-off path muted the codec.
+    const int mute_rc = esp_codec_dev_set_out_mute(output_dev, false);
     const int vol_rc = esp_codec_dev_set_out_vol(output_dev, volume);
-    ESP_LOGI(TAG, "SPEAKER enable vol_rc=%d volume=%.1f (mute latched open)", vol_rc, volume);
-    return vol_rc == ESP_CODEC_DEV_OK;
+    ESP_LOGI(TAG, "SPEAKER enable mute_rc=%d vol_rc=%d volume=%.1f",
+             mute_rc, vol_rc, volume);
+    return mute_rc == ESP_CODEC_DEV_OK && vol_rc == ESP_CODEC_DEV_OK;
 }
 
 static void speaker_output_disable(void) {
