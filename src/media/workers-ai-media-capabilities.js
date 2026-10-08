@@ -296,10 +296,33 @@ async function imageAnalyze(env, input = {}) {
   if (!bytes?.byteLength) throw mediaError('IMAGE_INPUT_REQUIRED', 400);
   const mime = imageInput.mime;
   const prompt = clean(input?.prompt || input?.question || 'Analyse cette image précisément. Décris les éléments visibles, le texte lisible, les relations spatiales et les incertitudes. N’invente rien.', 6000);
-  const image = `data:${mime};base64,${bytesBase64(bytes)}`;
+
   let analysis = '';
   let engine = 'workers-ai-gemma-vision';
-  try {
+  if (typeof env?.AI?.toMarkdown === 'function') {
+    const converted = await env.AI.toMarkdown(
+      {
+        name: mime === 'image/png' ? 'mel-image.png' : 'mel-image.jpg',
+        blob: new Blob([bytes], { type: mime }),
+      },
+      {
+        conversionOptions: {
+          image: { descriptionLanguage: 'fr' },
+          output: { format: 'text' },
+        },
+      },
+    );
+    const observed = markdownDescription(converted);
+    if (observed) {
+      analysis = prompt
+        ? `${observed}\n\nConsigne d'analyse demandée: ${prompt}`
+        : observed;
+      engine = 'workers-ai-tomarkdown-vision';
+    }
+  }
+
+  if (!analysis) {
+    const image = `data:${mime};base64,${bytesBase64(bytes)}`;
     const result = await env.AI.run(WORKERS_AI_VISION_MODEL, {
       messages: [
         { role: 'system', content: 'Tu analyses uniquement ce qui est observable dans l’image. Signale explicitement toute incertitude.' },
@@ -314,23 +337,8 @@ async function imageAnalyze(env, input = {}) {
       chat_template_kwargs: { enable_thinking: false },
     }, { rejectIfBusy: true });
     analysis = modelText(result);
-  } catch (error) {
-    if (!workersAiSchemaMismatch(error) || typeof env?.AI?.toMarkdown !== 'function') throw error;
-    const converted = await env.AI.toMarkdown(
-      {
-        name: mime === 'image/png' ? 'mel-image.png' : 'mel-image.jpg',
-        blob: new Blob([bytes], { type: mime }),
-      },
-      {
-        conversionOptions: {
-          image: { descriptionLanguage: 'fr' },
-          output: { format: 'text' },
-        },
-      },
-    );
-    analysis = markdownDescription(converted);
-    engine = 'workers-ai-tomarkdown-vision-fallback';
   }
+
   if (!analysis) throw mediaError('WORKERS_AI_IMAGE_ANALYSIS_EMPTY', 502);
   return Object.freeze({
     ok: true,
@@ -349,7 +357,6 @@ async function imageAnalyze(env, input = {}) {
     provenance,
   });
 }
-
 async function imageProcess(env, input = {}) {
   const provenance = freshZeroCostProof(env, IMAGE_PROCESS_ADAPTER_ID, WORKERS_AI_IMAGE_EDIT_MODEL);
   if (!provenance) throw mediaError('WORKERS_AI_ZERO_COST_PROOF_REQUIRED');
