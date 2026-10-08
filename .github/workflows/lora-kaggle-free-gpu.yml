@@ -731,6 +731,72 @@ jobs:
           },null,2));
           NODE
 
+      - name: Trace verified training result and artifacts
+        if: env.SMOKE_ONLY != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          node - <<'NODE'
+          const fs=require('fs'),crypto=require('crypto');
+          const dir='artifacts/lora-incoming';
+          const read=p=>JSON.parse(fs.readFileSync(p,'utf8'));
+          const run=read('artifacts/kaggle-run.json');
+          const training=read(dir+'/training-evidence.json');
+          const started=read(dir+'/training-started.json');
+          const artifact=read(dir+'/artifact-evidence.json');
+          const dataset=read(dir+'/dataset-metadata.json');
+          const digest=v=>String(v||'').replace(/^sha256:/i,'').toLowerCase();
+          const hashFile=p=>crypto.createHash('sha256').update(fs.readFileSync(p)).digest('hex');
+          const startMs=Date.parse(started.started_at||'');
+          const endMs=Date.parse(training.trained_at||'');
+          const duration=Number.isFinite(startMs)&&Number.isFinite(endMs)?Math.max(0,(endMs-startMs)/1000):0;
+          const payload={
+            dataset:{
+              shard_count:1,
+              examples:Number(dataset.examples??run.shard_size??0),
+              sha256:digest(dataset.output_sha256),
+            },
+            training:{
+              steps:Number(run.global_step??training.training_metrics?.global_step??0),
+              global_step:Number(run.global_step??training.training_metrics?.global_step??0),
+              duration_seconds:duration,
+              parameters:training.hyperparameters||{
+                max_steps:Number(run.max_steps||0),
+                max_length:Number(run.max_length||0),
+                gradient_accumulation_steps:Number(run.gradient_accumulation_steps||0),
+              },
+              stage:run.stage||training.stage||null,
+            },
+            results:{
+              train_loss:run.train_loss??training.training_metrics?.train_loss??null,
+              metrics:run.local_impact||{},
+              progression:{
+                global_step:Number(run.global_step||0),
+                local_next_stage:run.local_next_stage||null,
+                local_uncensored_gate:run.local_uncensored_gate===true,
+              },
+              tests:{
+                exact_provenance:true,
+                offline_kernel:run.offline_kernel===true,
+                local_impact_available:Boolean(run.local_impact&&Object.keys(run.local_impact).length),
+              },
+              comparison:{
+                previous_model_delta:run.local_impact_delta||{},
+                summary:Object.keys(run.local_impact_delta||{}).length
+                  ?'Comparaison locale avec le modèle précédent enregistrée.'
+                  :'Comparaison locale sans delta mesurable.',
+              },
+            },
+            artifacts:[
+              {kind:'adapter',name:'adapter_model.safetensors',sha256:digest(training.artifacts?.adapter_model?.digest||artifact.digest)},
+              {kind:'adapter_config',name:'adapter_config.json',sha256:digest(training.artifacts?.adapter_config?.digest)},
+              {kind:'bundle',name:'mel-lora-bundle.tar.gz',sha256:hashFile('artifacts/mel-lora-bundle.tar.gz')},
+            ].filter(x=>/^[0-9a-f]{64}$/.test(x.sha256)),
+          };
+          fs.writeFileSync('artifacts/lora-trace-result.json',JSON.stringify(payload,null,2)+'\n');
+          NODE
+          node scripts/lora-daily-trace-client.mjs TRAINING_RESULT artifacts/lora-trace-result.json RUNNING
+
       - name: Save immutable checkpoint release
         if: env.SMOKE_ONLY != 'true'
         shell: bash
@@ -866,3 +932,99 @@ jobs:
           if [[ "$CYCLE" == "6" ]]; then NEXT_BENCHMARK_PREVIEW="false"; fi
           gh workflow run lora-kaggle-free-gpu.yml             --repo "$GITHUB_REPOSITORY"             --ref main             -f source_sha="$SOURCE_SHA"             -f cycle="$NEXT_CYCLE"             -f parent_release_tag="$CHECKPOINT_TAG"             -f shard_size="$SHARD_SIZE"             -f max_cycles="$MAX_CYCLES"             -f benchmark_preview="$NEXT_BENCHMARK_PREVIEW"
           echo "Submitted next cycle: $NEXT_CYCLE (benchmark_preview=$NEXT_BENCHMARK_PREVIEW)"
+
+      - name: Finalize durable LoRA smoke trace
+        if: success() && env.SMOKE_ONLY == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          node - <<'NODE'
+          const fs=require('fs');
+          const payload={
+            summary_fr:'Run LoRA smoke terminé volontairement après une étape optimiseur. Aucun checkpoint ni adaptateur n’est déclaré comme entraînement réussi.',
+            training:{steps:1,global_step:1,duration_seconds:0,smoke_only:true},
+            results:{tests:{single_optimizer_step:true},comparison:{summary:'Non applicable au smoke test.'}},
+          };
+          fs.writeFileSync('artifacts/lora-trace-smoke-final.json',JSON.stringify(payload,null,2)+'\n');
+          NODE
+          node scripts/lora-daily-trace-client.mjs SMOKE_COMPLETED artifacts/lora-trace-smoke-final.json SMOKE_COMPLETED
+
+      - name: Finalize durable LoRA success trace
+        if: success() && env.SMOKE_ONLY != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          node - <<'NODE'
+          const fs=require('fs');
+          const result=JSON.parse(fs.readFileSync('artifacts/lora-trace-result.json','utf8'));
+          let finalize={};
+          try{finalize=JSON.parse(fs.readFileSync('artifacts/finalize-result.json','utf8'))}catch{}
+          const run=JSON.parse(fs.readFileSync('artifacts/kaggle-run.json','utf8'));
+          result.results={
+            ...(result.results||{}),
+            finalization:finalize,
+            comparison:{
+              ...(result.results?.comparison||{}),
+              previous_model_delta:run.local_impact_delta||{},
+              summary:Object.keys(run.local_impact_delta||{}).length
+                ?'Le candidat a été comparé au modèle précédent; les deltas sont joints au rapport.'
+                :'Le benchmark local n’a produit aucun delta numérique supplémentaire.',
+            },
+          };
+          result.summary_fr=[
+            'Entraînement LoRA MEL terminé avec trace durable vérifiée.',
+            'Cycle '+String(process.env.CYCLE)+', SHA '+String(process.env.SOURCE_SHA).slice(0,12)+'.',
+            'Étapes: '+String(result.training?.steps??'—')+', perte: '+String(result.results?.train_loss??'—')+'.',
+            'Les métriques, la comparaison au modèle précédent et les empreintes SHA-256 des livrables sont attachées à cette trace.',
+            'Checkpoint: '+String(process.env.CHECKPOINT_TAG||'conservé sans tag renseigné')+'.',
+          ].join(' ');
+          fs.writeFileSync('artifacts/lora-trace-success-final.json',JSON.stringify(result,null,2)+'\n');
+          NODE
+          node scripts/lora-daily-trace-client.mjs SUCCEEDED artifacts/lora-trace-success-final.json SUCCEEDED
+
+      - name: Finalize interrupted or failed LoRA trace
+        if: always() && (failure() || cancelled())
+        continue-on-error: true
+        shell: bash
+        env:
+          MEL_TRACE_JOB_STATUS: ${{ job.status }}
+        run: |
+          set +e
+          mkdir -p artifacts
+          node - <<'NODE'
+          const fs=require('fs');
+          const status=String(process.env.MEL_TRACE_JOB_STATUS||'failure').toLowerCase();
+          const terminal=status==='cancelled'?'CANCELLED':'FAILED';
+          let logTail='';
+          try{
+            const text=fs.readFileSync('artifacts/kaggle-live.log','utf8');
+            logTail=text.slice(-8000);
+          }catch{}
+          const payload={
+            status:terminal,
+            errors:[{
+              code:terminal==='CANCELLED'?'WORKFLOW_CANCELLED':'WORKFLOW_FAILED',
+              message:logTail||'Le workflow LoRA s’est interrompu avant validation complète.',
+              recoverable:terminal==='CANCELLED',
+            }],
+            training:{interrupted_at:new Date().toISOString()},
+            summary_fr:terminal==='CANCELLED'
+              ?'Entraînement LoRA interrompu ou annulé. La trace conserve toutes les étapes écrites avant l’arrêt et la cause disponible.'
+              :'Entraînement LoRA en échec. La trace conserve les étapes déjà exécutées, le dernier journal Kaggle disponible et la cause observée.',
+          };
+          fs.writeFileSync('artifacts/lora-trace-terminal-error.json',JSON.stringify(payload,null,2)+'\n');
+          NODE
+          TERMINAL="FAILED"
+          if [[ "${MEL_TRACE_JOB_STATUS:-}" == "cancelled" ]]; then TERMINAL="CANCELLED"; fi
+          node scripts/lora-daily-trace-client.mjs "$TERMINAL" artifacts/lora-trace-terminal-error.json "$TERMINAL"
+
+      - name: Upload permanent-run trace evidence copy
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: lora-daily-trace-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            artifacts/lora-daily-trace.jsonl
+            artifacts/lora-trace-*.json
+          if-no-files-found: error
+          retention-days: 90
