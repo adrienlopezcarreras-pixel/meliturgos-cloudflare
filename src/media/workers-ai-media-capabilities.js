@@ -271,6 +271,20 @@ export async function storePrivateArtifact(env, bytesInput, {
   });
 }
 
+function workersAiSchemaMismatch(error) {
+  const message = String(error?.code || error?.message || error || '');
+  return /(?:^|\\b)5006(?:\\b|:)|unevaluated properties|max_tokens.*not allowed/i.test(message);
+}
+
+function markdownDescription(result) {
+  const rows = Array.isArray(result) ? result : Array.isArray(result?.result) ? result.result : [result];
+  for (const row of rows) {
+    const text = clean(row?.data ?? row?.text ?? row?.markdown, 12000);
+    if (text) return text;
+  }
+  return '';
+}
+
 async function imageAnalyze(env, input = {}) {
   const provenance = freshZeroCostProof(env, IMAGE_ANALYZE_ADAPTER_ID, WORKERS_AI_VISION_MODEL);
   if (!provenance) throw mediaError('WORKERS_AI_ZERO_COST_PROOF_REQUIRED');
@@ -282,20 +296,40 @@ async function imageAnalyze(env, input = {}) {
   const mime = imageInput.mime;
   const prompt = clean(input?.prompt || input?.question || 'Analyse cette image précisément. Décris les éléments visibles, le texte lisible, les relations spatiales et les incertitudes. N’invente rien.', 6000);
   const image = `data:${mime};base64,${bytesBase64(bytes)}`;
-  const result = await env.AI.run(WORKERS_AI_VISION_MODEL, {
-    messages: [
-      { role: 'system', content: 'Tu analyses uniquement ce qui est observable dans l’image. Signale explicitement toute incertitude.' },
+  let analysis = '';
+  let engine = 'workers-ai-gemma-vision';
+  try {
+    const result = await env.AI.run(WORKERS_AI_VISION_MODEL, {
+      messages: [
+        { role: 'system', content: 'Tu analyses uniquement ce qui est observable dans l’image. Signale explicitement toute incertitude.' },
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: prompt },
+            { type: 'image_url', image_url: { url: image } },
+          ],
+        },
+      ],
+      chat_template_kwargs: { enable_thinking: false },
+    }, { rejectIfBusy: true });
+    analysis = modelText(result);
+  } catch (error) {
+    if (!workersAiSchemaMismatch(error) || typeof env?.AI?.toMarkdown !== 'function') throw error;
+    const converted = await env.AI.toMarkdown(
       {
-        role: 'user',
-        content: [
-          { type: 'text', text: prompt },
-          { type: 'image_url', image_url: { url: image } },
-        ],
+        name: mime === 'image/png' ? 'mel-image.png' : 'mel-image.jpg',
+        blob: new Blob([bytes], { type: mime }),
       },
-    ],
-    chat_template_kwargs: { enable_thinking: false },
-  }, { rejectIfBusy: true });
-  const analysis = modelText(result);
+      {
+        conversionOptions: {
+          image: { descriptionLanguage: 'fr' },
+          output: { format: 'text' },
+        },
+      },
+    );
+    analysis = markdownDescription(converted);
+    engine = 'workers-ai-tomarkdown-vision-fallback';
+  }
   if (!analysis) throw mediaError('WORKERS_AI_IMAGE_ANALYSIS_EMPTY', 502);
   return Object.freeze({
     ok: true,
@@ -303,6 +337,7 @@ async function imageAnalyze(env, input = {}) {
     capability: 'media.image.analyze',
     provider: 'workers-ai',
     model: WORKERS_AI_VISION_MODEL,
+    engine,
     zero_added_cost: true,
     analysis,
     source: Object.freeze({
