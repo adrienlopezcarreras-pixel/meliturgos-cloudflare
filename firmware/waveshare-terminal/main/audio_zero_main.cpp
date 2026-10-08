@@ -5,6 +5,7 @@
 #include "driver/i2c_master.h"
 #include "esp_err.h"
 #include "esp_log.h"
+#include "esp_sleep.h"
 #include "esp_io_expander_tca9554.h"
 
 #include "esp_axp2101_port.h"
@@ -84,12 +85,18 @@ extern "C" void app_main(void) {
     ESP_LOGI(TAG, "ES8311 READY; local PCM proof only");
 
     const bool first = esp_es8311_play_proof_tone();
-    vTaskDelay(pdMS_TO_TICKS(300));
-    const bool second = esp_es8311_play_proof_tone();
+    ESP_LOGI(TAG, "AUDIO ZERO PROOF RESULT: %s", first ? "PASS" : "FAIL");
 
-    ESP_LOGI(TAG, "AUDIO ZERO PROOF RESULT: %s", (first && second) ? "PASS" : "FAIL");
-
-    // Deliberately stop here. Nothing else in MEL is started until the two
-    // local tones are physically heard on the MINI speaker.
-    while (true) vTaskDelay(pdMS_TO_TICKS(1000));
+    // Hard stop after one physical proof tone. Disable the external amplifier
+    // first, then enter deep sleep with no wake timer. The tone can only play
+    // again after an intentional hardware reset/power cycle.
+    const esp_err_t pa_off = esp_io_expander_set_level(
+        g_expander,
+        IO_EXPANDER_PIN_NUM_2,
+        0
+    );
+    ESP_LOGI(TAG, "PA_CTRL(P2)=LOW before deep sleep: %s", esp_err_to_name(pa_off));
+    vTaskDelay(pdMS_TO_TICKS(100));
+    ESP_LOGI(TAG, "AUDIO ZERO PROOF HALT: entering deep sleep, no timer wake");
+    esp_deep_sleep_start();
 }
