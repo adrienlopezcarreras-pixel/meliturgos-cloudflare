@@ -58,9 +58,10 @@ test('Android Link V2 synthesizes MINI speech locally in French before server TT
     readFile(new URL('../android-companion/app/src/main/java/fr/veriteinterdite/mel/MelLinkV2ClientService.kt', import.meta.url), 'utf8'),
     readFile(new URL('../android-companion/app/src/main/java/fr/veriteinterdite/mel/MelMiniVoiceSynthesizer.kt', import.meta.url), 'utf8'),
   ]);
-  const localIndex = service.indexOf('MelMiniVoiceSynthesizer.synthesizePcm48kMono');
-  const httpIndex = service.indexOf('var connection: java.net.HttpURLConnection?');
-  assert.ok(localIndex >= 0 && httpIndex >= 0 && localIndex < httpIndex);
+  const requestStart = service.indexOf('private fun executeRequest(request: IncomingRequest)');
+  const relayStart = service.indexOf('var connection: java.net.HttpURLConnection?', requestStart);
+  const localIndex = service.indexOf('MelMiniVoiceSynthesizer.synthesizePcm48kMono', requestStart);
+  assert.ok(requestStart >= 0 && localIndex >= 0 && relayStart >= 0 && localIndex < relayStart);
   assert.match(service, /MINI V2 · VOIX FR LOCALE/);
   assert.match(service, /sendAudioResponse\(request\.streamId, pcm, outputRate = 48_000\)/);
   assert.doesNotMatch(service, /else \{\s*MelImaAdpcm\.decodePcm16Le\(body\)/);
@@ -69,6 +70,7 @@ test('Android Link V2 synthesizes MINI speech locally in French before server TT
   assert.match(service, /mel-mini-tts-warmup/);
   assert.match(synth, /onBeginSynthesis/);
   assert.match(synth, /onAudioAvailable/);
+  assert.match(synth, /Handler\(Looper\.getMainLooper\(\)\)\.post \{[\s\S]*?val ready = ref\.get\(\)/);
   assert.match(synth, /ENCODING_PCM_16BIT/);
   assert.match(synth, /resampleLinear/);
 });
