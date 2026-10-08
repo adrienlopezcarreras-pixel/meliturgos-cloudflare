@@ -7,6 +7,7 @@ on:
     branches:
       - proof/mini-audio-zero-es8311-20261008
     paths:
+      - "tools/mini-updater/**"
       - ".github/workflows/mini-windows-updater.yml"
 
 permissions:
