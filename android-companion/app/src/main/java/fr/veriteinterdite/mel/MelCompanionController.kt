@@ -26,11 +26,19 @@ object MelCompanionController {
                 if (!address.isNullOrBlank() && Build.VERSION.SDK_INT >= 31) {
                     runCatching { manager.startObservingDevicePresence(address) }
                 }
-                MelCompanionLink.connect(context, address)
                 return
             }
         }
         MelCompanionRuntime.bridgeState.value = "MINI À ASSOCIER"
+    }
+
+    fun connectExisting(context: Context): Boolean {
+        val manager = context.getSystemService(CompanionDeviceManager::class.java) ?: return false
+        if (Build.VERSION.SDK_INT < 33) return false
+        val association = manager.myAssociations.firstOrNull() ?: return false
+        val address = association.deviceMacAddress?.toString()
+        MelCompanionRuntime.markAssociated(association.id, address)
+        return MelCompanionLink.connect(context, address)
     }
 
     fun associate(
@@ -73,7 +81,6 @@ object MelCompanionController {
                     if (!address.isNullOrBlank() && Build.VERSION.SDK_INT >= 31) {
                         runCatching { manager.startObservingDevicePresence(address) }
                     }
-                    MelCompanionLink.connect(context, address)
                     onCreated(associationInfo)
                 }
 
