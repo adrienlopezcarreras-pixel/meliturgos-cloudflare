@@ -2,13 +2,13 @@ import { workersAiRuntimeZeroCostProvenance } from '../augmentio/workers-ai-zero
 import { createEnvMediaVaultCodec } from './media-vault-crypto.js';
 import { browserRunZeroCostProvenance } from './browser-run-zero-cost-proof.js';
 
-export const WORKERS_AI_IMAGE_MODEL = '@cf/black-forest-labs/flux-1-schnell';
+export const WORKERS_AI_IMAGE_MODEL = '@cf/bytedance/stable-diffusion-xl-lightning';
 export const WORKERS_AI_VISION_MODEL = '@cf/meta/llama-3.2-11b-vision-instruct';
 export const WORKERS_AI_IMAGE_EDIT_MODEL = '@cf/black-forest-labs/flux-2-klein-4b';
 export const WORKERS_AI_TTS_MODEL = '@cf/deepgram/aura-1';
 export const WORKERS_AI_TRANSCRIPTION_MODEL = '@cf/openai/whisper-large-v3-turbo';
 
-const IMAGE_ADAPTER_ID = 'workers-ai.media.image.flux-1-schnell';
+const IMAGE_ADAPTER_ID = 'workers-ai.media.image.sdxl-lightning';
 const IMAGE_ANALYZE_ADAPTER_ID = 'workers-ai.media.image.llama-3.2-11b-vision';
 const IMAGE_PROCESS_ADAPTER_ID = 'workers-ai.media.image.flux-2-klein-4b';
 const TTS_ADAPTER_ID = 'workers-ai.media.audio.aura-1';
@@ -445,6 +445,30 @@ export async function readPrivateArtifactBytes(env = {}, keyInput = '') {
   });
 }
 
+async function generatedImageBytes(result) {
+  if (result instanceof Response) {
+    if (!result.ok) throw mediaError('WORKERS_AI_IMAGE_UPSTREAM_FAILED', result.status >= 400 && result.status <= 599 ? result.status : 502);
+    return {
+      bytes: new Uint8Array(await result.arrayBuffer()),
+      mime: clean(result.headers.get('content-type') || 'image/png', 120),
+    };
+  }
+  if (result instanceof ReadableStream) {
+    return {
+      bytes: new Uint8Array(await new Response(result).arrayBuffer()),
+      mime: 'image/png',
+    };
+  }
+  if (result instanceof Uint8Array) return { bytes: result, mime: 'image/png' };
+  if (result instanceof ArrayBuffer) return { bytes: new Uint8Array(result), mime: 'image/png' };
+  const encoded = clean(result?.image ?? result?.result?.image, 40_000_000);
+  if (encoded) {
+    const normalized = encoded.includes(',') ? encoded.slice(encoded.indexOf(',') + 1) : encoded;
+    return { bytes: base64Bytes(normalized), mime: 'image/jpeg' };
+  }
+  throw mediaError('WORKERS_AI_IMAGE_OUTPUT_INVALID', 502);
+}
+
 async function imageGenerate(env, input = {}) {
   const provenance = freshZeroCostProof(env, IMAGE_ADAPTER_ID, WORKERS_AI_IMAGE_MODEL);
   if (!provenance) throw mediaError('WORKERS_AI_ZERO_COST_PROOF_REQUIRED');
@@ -454,20 +478,23 @@ async function imageGenerate(env, input = {}) {
   const prompt = clean(input.prompt, 2048);
   if (!prompt) throw mediaError('MEDIA_PROMPT_REQUIRED', 400);
   const requestedSteps = Number(input?.params?.steps ?? input.steps ?? 4);
-  const steps = Number.isFinite(requestedSteps)
-    ? Math.min(8, Math.max(1, Math.trunc(requestedSteps)))
+  const numSteps = Number.isFinite(requestedSteps)
+    ? Math.min(20, Math.max(1, Math.trunc(requestedSteps)))
     : 4;
 
-  const result = await env.AI.run(WORKERS_AI_IMAGE_MODEL, { prompt, steps });
-  const encoded = clean(result?.image, 40_000_000);
-  if (!encoded) throw mediaError('WORKERS_AI_IMAGE_OUTPUT_INVALID', 502);
-  const bytes = base64Bytes(encoded);
-  if (bytes.byteLength > MAX_IMAGE_BYTES) throw mediaError('WORKERS_AI_IMAGE_OUTPUT_TOO_LARGE', 502);
-  const artifact = await storePrivateArtifact(env, bytes, {
+  const result = await env.AI.run(WORKERS_AI_IMAGE_MODEL, {
+    prompt,
+    num_steps: numSteps,
+  }, { rejectIfBusy: true });
+  const generated = await generatedImageBytes(result);
+  if (!generated.bytes.byteLength) throw mediaError('WORKERS_AI_IMAGE_OUTPUT_EMPTY', 502);
+  if (generated.bytes.byteLength > MAX_IMAGE_BYTES) throw mediaError('WORKERS_AI_IMAGE_OUTPUT_TOO_LARGE', 502);
+  const mime = generated.mime.startsWith('image/') ? generated.mime : 'image/png';
+  const artifact = await storePrivateArtifact(env, generated.bytes, {
     capability: 'media.image.generate',
     model: WORKERS_AI_IMAGE_MODEL,
-    mime: 'image/jpeg',
-    extension: 'jpg',
+    mime,
+    extension: mime.includes('jpeg') ? 'jpg' : 'png',
   });
   return Object.freeze({
     ok: true,
@@ -475,12 +502,12 @@ async function imageGenerate(env, input = {}) {
     capability: 'media.image.generate',
     provider: 'workers-ai',
     model: WORKERS_AI_IMAGE_MODEL,
+    engine: 'workers-ai-sdxl-lightning',
     zero_added_cost: true,
     artifact,
     provenance,
   });
 }
-
 async function responseBytes(value) {
   if (value instanceof Response) {
     if (!value.ok) throw mediaError('WORKERS_AI_TTS_UPSTREAM_FAILED', value.status >= 400 && value.status <= 599 ? value.status : 502);
@@ -596,13 +623,13 @@ async function videoGenerate(env, input = {}) {
       : `${prompt}. Cinematic storyboard frame ${i + 1} of ${requestedFrames}; preserve the same subject, setting, palette and visual identity.`;
     const result = await env.AI.run(WORKERS_AI_IMAGE_MODEL, {
       prompt: framePrompt,
-      steps: 4,
+      num_steps: 4,
     }, { rejectIfBusy: true });
-    const encoded = clean(result?.image ?? result?.result?.image, 40_000_000);
-    if (!encoded) throw mediaError('WORKERS_AI_VIDEO_FRAME_EMPTY', 502);
+    const generated = await generatedImageBytes(result);
+    if (!generated.bytes.byteLength) throw mediaError('WORKERS_AI_VIDEO_FRAME_EMPTY', 502);
     frames.push({
-      mime: 'image/jpeg',
-      base64: encoded.includes(',') ? encoded.slice(encoded.indexOf(',') + 1) : encoded,
+      mime: generated.mime.startsWith('image/') ? generated.mime : 'image/png',
+      base64: bytesBase64(generated.bytes),
     });
   }
 
@@ -632,7 +659,7 @@ async function videoGenerate(env, input = {}) {
   if (!videoBytes.byteLength || videoBytes.byteLength > MAX_VIDEO_OUTPUT_BYTES) throw mediaError('BROWSER_VIDEO_RENDER_OUTPUT_INVALID', 502);
   const artifact = await storePrivateArtifact(env, videoBytes, {
     capability: 'media.video.generate',
-    model: 'mel-flux-browser-video-v1',
+    model: 'mel-sdxl-browser-video-v1',
     mime: clean(rendered.mime, 120) || 'video/webm',
     extension: 'webm',
   });

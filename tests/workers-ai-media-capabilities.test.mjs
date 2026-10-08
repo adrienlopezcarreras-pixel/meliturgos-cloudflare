@@ -186,15 +186,21 @@ test('FLUX.2 Klein performs real image editing and stores the result encrypted',
   assert.notDeepEqual(Buffer.from(f.writes[0].value), output);
 });
 
-test('FLUX image generation is exact-model, zero-cost-gated and encrypted into private Media Vault storage', async () => {
+test('SDXL Lightning image generation is exact-model, zero-cost-gated and encrypted into private Media Vault storage', async () => {
   const jpeg = Buffer.from('not-a-real-jpeg-but-private-test-bytes');
   const f = fixture({
     proofJson: proof([WORKERS_AI_IMAGE_MODEL, WORKERS_AI_TTS_MODEL]),
-    run: async (model, input) => {
+    run: async (model, input, options) => {
       assert.equal(model, WORKERS_AI_IMAGE_MODEL);
       assert.equal(input.prompt, 'portrait techno');
-      assert.equal(input.steps, 4);
-      return { image: jpeg.toString('base64') };
+      assert.equal(input.num_steps, 4);
+      assert.deepEqual(options, { rejectIfBusy: true });
+      return new ReadableStream({
+        start(controller) {
+          controller.enqueue(jpeg);
+          controller.close();
+        },
+      });
     },
   });
   const adapters = createWorkersAiZeroCostMediaCapabilities(f.env);
@@ -211,7 +217,7 @@ test('FLUX image generation is exact-model, zero-cost-gated and encrypted into p
   assert.equal(f.writes.length, 1);
   assert.match(f.writes[0].key, /^generated\/\d{4}-\d{2}-\d{2}\//);
   assert.equal(f.writes[0].options.httpMetadata.contentType, 'application/octet-stream');
-  assert.equal(f.writes[0].options.customMetadata.originalMime, 'image/jpeg');
+  assert.equal(f.writes[0].options.customMetadata.originalMime, 'image/png');
   assert.notDeepEqual(Buffer.from(f.writes[0].value), jpeg);
 });
 

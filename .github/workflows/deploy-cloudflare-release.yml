@@ -578,7 +578,7 @@ jobs:
               '@cf/meta/llama-3.2-11b-vision-instruct',
               '@cf/nvidia/nemotron-3-120b-a12b',
               '@cf/zai-org/glm-4.7-flash',
-              '@cf/black-forest-labs/flux-1-schnell',
+              '@cf/bytedance/stable-diffusion-xl-lightning',
               '@cf/black-forest-labs/flux-2-klein-4b',
               '@cf/deepgram/aura-1',
               '@cf/openai/whisper-large-v3-turbo',
