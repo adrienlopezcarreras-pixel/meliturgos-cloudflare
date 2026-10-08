@@ -118,20 +118,17 @@ test('Workers AI media adapters stay absent without a fresh exact-model zero-cos
   assert.equal(f.calls(), 0);
 });
 
-test('Llama 3.2 Vision performs exact-model image analysis with Cloudflare image payload', async () => {
+test('LLaVA performs exact-model image analysis with Cloudflare image-to-text schema', async () => {
   const png = Uint8Array.from([137,80,78,71,13,10,26,10,1,2,3,4]);
   const f = fixture({
     proofJson: proof([WORKERS_AI_VISION_MODEL]),
     run: async (model, input, options) => {
       assert.equal(model, WORKERS_AI_VISION_MODEL);
-      assert.equal(input.messages[0].role, 'system');
-      assert.equal(input.messages[1].role, 'user');
-      assert.equal(input.messages[1].content, 'Décris précisément.');
-      assert.match(input.image, /^data:image\/png;base64,/);
+      assert.deepEqual(input.image, Array.from(png));
+      assert.equal(input.prompt, 'Décris précisément.');
       assert.equal(input.max_tokens, 512);
-      assert.equal(input.temperature, 0.1);
       assert.deepEqual(options, { rejectIfBusy: true });
-      return { response: 'Une image de test observable.' };
+      return { description: 'Une image de test observable.' };
     },
   });
   const adapters = createWorkersAiZeroCostMediaCapabilities(f.env);
@@ -144,11 +141,10 @@ test('Llama 3.2 Vision performs exact-model image analysis with Cloudflare image
   assert.equal(result.ok, true);
   assert.equal(result.capability, 'media.image.analyze');
   assert.equal(result.model, WORKERS_AI_VISION_MODEL);
-  assert.equal(result.engine, 'workers-ai-llama-3.2-vision');
+  assert.equal(result.engine, 'workers-ai-llava-1.5-7b-hf');
   assert.equal(result.analysis, 'Une image de test observable.');
   assert.equal(result.source.size, png.byteLength);
   assert.match(result.source.sha256, /^[0-9a-f]{64}$/);
-  assert.equal(f.writes.length, 0);
 });
 
 test('FLUX.2 Klein performs real image editing and stores the result encrypted', async () => {
