@@ -10,6 +10,7 @@ import {
   getLoraDailyTrace,
   listLoraDailyTraces,
   markMissingLoraTrainingDay,
+  reconcileOrphanedLoraTrainingTraces,
   maybeHandleLoraTraceInternal,
 } from './learning/lora-daily-trace.js';
 
@@ -427,6 +428,14 @@ export default {
       }),
       markMissingLoraTrainingDay(env,{now:timestamp}).catch((error)=>{
         console.error('[MEL LoRA trace] daily absence check failed:',error?.code||error?.message||error);
+        return null;
+      }),
+      reconcileOrphanedLoraTrainingTraces(env,{now:timestamp}).then((result)=>{
+        if(result?.reconciled>0) console.error('[MEL LoRA trace] orphaned runs reconciled:',result.reconciled);
+        if(result?.ok===false&&result?.status!=='GITHUB_TOKEN_MISSING') console.error('[MEL LoRA trace] reconciliation degraded:',result.status);
+        return result;
+      }).catch((error)=>{
+        console.error('[MEL LoRA trace] orphan reconciliation failed:',error?.code||error?.message||error);
         return null;
       }),
     ]);
