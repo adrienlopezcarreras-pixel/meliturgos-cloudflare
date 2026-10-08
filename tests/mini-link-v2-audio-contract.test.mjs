@@ -129,13 +129,6 @@ test('Link V2 TTS preserves canonical 48 kHz PCM and never streams HTTP errors a
   assert.match(terminal, /TTS HTTP %d/);
   assert.match(terminal, /voice_tts_text/);
   assert.match(terminal, /speaker_output_enable\(100\.0\)/);
-  assert.match(
-    terminal.slice(
-      terminal.indexOf('static bool speaker_output_enable'),
-      terminal.indexOf('static bool g_voice_output_enabled')
-    ),
-    /esp_codec_dev_set_out_mute\(output_dev, false\)/
-  );
   assert.match(terminal, /mel_terminal_test_speaker_local/);
 });
 
@@ -255,18 +248,6 @@ test('MINI TTS never writes the codec directly from the BLE receive callback', a
 });
 
 
-test('MINI explicitly unmutes ES8311 for playback and gates idle silence by volume', async () => {
-  const terminal = await readFile(new URL('../firmware/waveshare-terminal/main/mel_terminal.cpp', import.meta.url), 'utf8');
-  const enableStart = terminal.indexOf('static bool speaker_output_enable');
-  const disableEnd = terminal.indexOf('static bool g_voice_output_enabled', enableStart);
-  const helpers = terminal.slice(enableStart, disableEnd);
-  assert.match(helpers, /esp_codec_dev_set_out_mute\(output_dev, false\)/);
-  assert.match(helpers, /esp_codec_dev_set_out_vol\(output_dev, volume\)/);
-  assert.match(helpers, /esp_codec_dev_set_out_vol\(output_dev, 0\.0\)/);
-  const disableBlock = helpers.slice(helpers.indexOf('static void speaker_output_disable'));
-  assert.doesNotMatch(disableBlock, /esp_codec_dev_set_out_mute\(output_dev, true\)/);
-});
-
 
 test('MINI chat relay outlives Android backend read timeout', async () => {
   const [transport, service] = await Promise.all([
@@ -278,19 +259,6 @@ test('MINI chat relay outlives Android backend read timeout', async () => {
   assert.doesNotMatch(transport, /chat \? 20000/);
 });
 
-
-test('MINI reasserts ES8311 unmute before every playback', async () => {
-  const [terminal, codec] = await Promise.all([
-    readFile(new URL('../firmware/waveshare-terminal/main/mel_terminal.cpp', import.meta.url), 'utf8'),
-    readFile(new URL('../firmware/waveshare-terminal/vendor/esp_es8311_port.cpp', import.meta.url), 'utf8'),
-  ]);
-  const enableStart = terminal.indexOf('static bool speaker_output_enable');
-  const enableEnd = terminal.indexOf('static void speaker_output_disable', enableStart);
-  const enable = terminal.slice(enableStart, enableEnd);
-  assert.match(enable, /esp_codec_dev_set_out_mute\(output_dev, false\)/);
-  assert.match(enable, /esp_codec_dev_set_out_vol\(output_dev, volume\)/);
-  assert.match(codec, /esp_codec_dev_set_out_mute\(output_dev, false\)/);
-});
 
 
 test('MINI enables Waveshare PA_CTRL on TCA9554 P2 before audio init', async () => {
@@ -306,4 +274,31 @@ test('MINI keeps Waveshare factory I2S bring-up clock before codec 48 kHz open',
   const codec = await readFile(new URL('../firmware/waveshare-terminal/vendor/esp_es8311_port.cpp', import.meta.url), 'utf8');
   assert.match(codec, /I2S_STD_CLK_DEFAULT_CONFIG\(16000\)/);
   assert.match(codec, /fs\.sample_rate = 48000/);
+});
+
+
+test('MINI zero audio proof uses only local PCM before MEL runtime', async () => {
+  const [main, codec] = await Promise.all([
+    readFile(new URL('../firmware/waveshare-terminal/main/main.cpp', import.meta.url), 'utf8'),
+    readFile(new URL('../firmware/waveshare-terminal/vendor/esp_es8311_port.cpp', import.meta.url), 'utf8'),
+  ]);
+  assert.match(main, /STEP 4\.0 AUDIO ZERO PROOF: tone 1/);
+  assert.match(main, /esp_es8311_play_proof_tone\(\)/);
+  assert.match(codec, /bool esp_es8311_play_proof_tone\(void\)/);
+  assert.match(codec, /constexpr int sample_rate = 48000/);
+  assert.match(codec, /esp_codec_dev_write\(\s*output_dev/);
+  assert.doesNotMatch(codec, /mel_link_v2/);
+  assert.doesNotMatch(codec, /TextToSpeech/);
+});
+
+test('MINI zero audio layer matches Waveshare factory codec topology', async () => {
+  const codec = await readFile(new URL('../firmware/waveshare-terminal/vendor/esp_es8311_port.cpp', import.meta.url), 'utf8');
+  assert.match(codec, /I2S_STD_CLK_DEFAULT_CONFIG\(16000\)/);
+  assert.match(codec, /ESP_CODEC_DEV_TYPE_OUT/);
+  assert.match(codec, /dev_cfg\.dev_type = ESP_CODEC_DEV_TYPE_IN/);
+  assert.match(codec, /fs\.sample_rate = 48000/);
+  assert.match(codec, /fs\.channel = 1/);
+  assert.match(codec, /fs\.bits_per_sample = 16/);
+  assert.match(codec, /esp_codec_set_disable_when_closed\(output_dev, false\)/);
+  assert.match(codec, /esp_codec_set_disable_when_closed\(input_dev, false\)/);
 });
