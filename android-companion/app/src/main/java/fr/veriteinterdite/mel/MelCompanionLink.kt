@@ -17,18 +17,24 @@ object MelCompanionLink {
     }
 
     @SuppressLint("MissingPermission")
-    fun connect(context: Context, address: String?) {
+    fun connect(context: Context, address: String?): Boolean {
         if (address.isNullOrBlank()) {
             MelCompanionRuntime.markError("adresse MINI absente")
-            return
+            return false
         }
         val adapter = context.getSystemService(BluetoothManager::class.java)?.adapter
         if (adapter == null) {
             MelCompanionRuntime.markError("Bluetooth indisponible")
-            return
+            return false
         }
-        MelCompanionRuntime.markPresent(address)
-        client(context).connect(adapter.getRemoteDevice(address))
+        return runCatching {
+            MelCompanionRuntime.markPresent(address)
+            client(context).connect(adapter.getRemoteDevice(address))
+            true
+        }.getOrElse { error ->
+            MelCompanionRuntime.markError("connexion MINI: " + (error.message ?: error.javaClass.simpleName))
+            false
+        }
     }
 
     fun close() {
