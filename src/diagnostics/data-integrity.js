@@ -2,7 +2,7 @@ import { DB_SCHEMA_VERSION } from '../core/config.js';
 import { MIGRATIONS } from '../persistence/migrations.js';
 
 const MAX_SAMPLES = 10;
-const REQUIRED_TABLE_CONTRACT_VERSION = 16;
+const REQUIRED_TABLE_CONTRACT_VERSION = 17;
 const REQUIRED_MIGRATION_TABLES = Object.freeze([
   'schema_migrations',
   'conversations',
@@ -34,6 +34,9 @@ const REQUIRED_MIGRATION_TABLES = Object.freeze([
   'mel_oauth_tokens',
   'release_backup_bindings',
   'public_rate_limits',
+  'lora_training_runs',
+  'lora_training_events',
+  'lora_daily_status',
 ]);
 
 function integrityError(code) {
@@ -324,6 +327,12 @@ export async function auditDataIntegrity(db) {
     ['knowledge_artifacts.tags_json','knowledge_artifacts','tags_json',false],
     ['knowledge_artifacts.sources_json','knowledge_artifacts','sources_json',false],
     ['knowledge_artifacts.metadata_json','knowledge_artifacts','metadata_json',false],
+    ['lora_training_runs.dataset_json','lora_training_runs','dataset_json',false],
+    ['lora_training_runs.training_json','lora_training_runs','training_json',false],
+    ['lora_training_runs.results_json','lora_training_runs','results_json',false],
+    ['lora_training_runs.errors_json','lora_training_runs','errors_json',false],
+    ['lora_training_runs.artifacts_json','lora_training_runs','artifacts_json',false],
+    ['lora_training_events.payload_json','lora_training_events','payload_json',false],
   ];
   for (const [id,table,column,nullable] of jsonSpecs) {
     if (!table) continue;
