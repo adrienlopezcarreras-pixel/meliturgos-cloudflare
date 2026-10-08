@@ -967,6 +967,8 @@ jobs:
           let finalize={};
           try{finalize=JSON.parse(fs.readFileSync('artifacts/finalize-result.json','utf8'))}catch{}
           const run=JSON.parse(fs.readFileSync('artifacts/kaggle-run.json','utf8'));
+          const crypto=require('crypto');
+          const bundleSha=crypto.createHash('sha256').update(fs.readFileSync('artifacts/mel-lora-bundle.tar.gz')).digest('hex');
           result.results={
             ...(result.results||{}),
             finalization:finalize,
@@ -978,6 +980,10 @@ jobs:
                 :'Le benchmark local n’a produit aucun delta numérique supplémentaire.',
             },
           };
+          result.artifacts=[
+            ...(Array.isArray(result.artifacts)?result.artifacts:[]),
+            {kind:'checkpoint',name:String(process.env.CHECKPOINT_TAG||'checkpoint'),sha256:bundleSha},
+          ];
           result.summary_fr=[
             'Entraînement LoRA MEL terminé avec trace durable vérifiée.',
             'Cycle '+String(process.env.CYCLE)+', SHA '+String(process.env.SOURCE_SHA).slice(0,12)+'.',
