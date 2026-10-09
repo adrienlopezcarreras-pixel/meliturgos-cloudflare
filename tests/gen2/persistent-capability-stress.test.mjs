@@ -149,3 +149,111 @@ test('persistent capability stress excludes capability.audit only from its own r
   const { SAFE_SAMPLES } = await import('../../src/diagnostics/capability-truth-audit.js');
   assert.equal(Object.hasOwn(SAFE_SAMPLES, 'capability.audit'), true);
 });
+
+
+test('persistent stress advances in durable chunks instead of restarting from zero', async () => {
+  const db = sqliteD1();
+  try {
+    const records = Array.from({ length: 25 }, (_, index) => ({
+      id: 'chunk-' + index,
+      name: 'Chunk ' + index,
+      category: 'test',
+      provider: 'core',
+      risk: 'LOW',
+      enabled: true,
+      health: 'HEALTHY',
+    }));
+    const bus = {
+      list: () => records,
+      contract: () => ({ valid: true }),
+      execute: async () => ({ ok: true }),
+    };
+
+    let background = null;
+    const context = {
+      owner: 'test',
+      permissions: [],
+      waitUntil(promise) { background = promise; },
+    };
+
+    const first = await startPersistentCapabilityStress({ bus, db, context });
+    assert.equal(first.status, 'RUNNING');
+    await background;
+
+    let persisted = await readPersistentCapabilityStress({ db, jobId: first.job_id });
+    assert.equal(persisted.status, 'QUEUED');
+    assert.equal(persisted.progress.done, 12);
+    assert.equal(persisted.progress.total, 25);
+    assert.equal(persisted.report.capabilities.length, 12);
+
+    const second = await startPersistentCapabilityStress({ bus, db, context });
+    assert.equal(second.resumed, true);
+    await background;
+
+    persisted = await readPersistentCapabilityStress({ db, jobId: first.job_id });
+    assert.equal(persisted.status, 'QUEUED');
+    assert.equal(persisted.progress.done, 24);
+    assert.equal(persisted.report.capabilities.length, 24);
+
+    const third = await startPersistentCapabilityStress({ bus, db, context });
+    assert.equal(third.resumed, true);
+    await background;
+
+    persisted = await readPersistentCapabilityStress({ db, jobId: first.job_id });
+    assert.equal(persisted.status, 'COMPLETE');
+    assert.equal(persisted.progress.done, 25);
+    assert.equal(persisted.progress.total, 25);
+    assert.equal(persisted.report.capabilities.length, 25);
+    assert.deepEqual(
+      persisted.report.capabilities.map(row => row.id),
+      records.map(row => row.id),
+    );
+  } finally {
+    db.close();
+  }
+});
+
+test('legacy non-zero cursor without a partial report restarts safely from zero', async () => {
+  const db = sqliteD1();
+  try {
+    const records = Array.from({ length: 13 }, (_, index) => ({
+      id: 'legacy-' + index,
+      name: 'Legacy ' + index,
+      category: 'test',
+      provider: 'core',
+      risk: 'LOW',
+      enabled: true,
+      health: 'HEALTHY',
+    }));
+    const bus = {
+      list: () => records,
+      contract: () => ({ valid: true }),
+      execute: async () => ({ ok: true }),
+    };
+
+    const storeModule = await import('../../src/diagnostics/persistent-capability-stress.js');
+    const store = new storeModule.D1CapabilityStressStore(db);
+    const job = await store.create({ total: records.length });
+    await store.update(job.job_id, {
+      status: 'QUEUED',
+      progress: { done: 7, total: records.length, pass: 1, current_capability: null },
+      report: null,
+      summary: { phase: 'QUEUED' },
+    });
+
+    const resumed = await startPersistentCapabilityStress({
+      bus,
+      db,
+      context: { owner: 'test', permissions: [] },
+    });
+    assert.equal(resumed.resumed, true);
+
+    const persisted = await readPersistentCapabilityStress({ db, jobId: job.job_id });
+    assert.equal(persisted.status, 'QUEUED');
+    assert.equal(persisted.progress.done, 12);
+    assert.equal(persisted.report.capabilities.length, 12);
+    assert.equal(persisted.report.capabilities[0].id, 'legacy-0');
+  } finally {
+    db.close();
+  }
+});
