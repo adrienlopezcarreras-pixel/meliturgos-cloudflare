@@ -14,6 +14,7 @@ import android.content.pm.PackageManager
 import android.os.Build
 import androidx.core.content.ContextCompat
 import java.util.UUID
+import java.util.concurrent.ConcurrentLinkedQueue
 
 class MelLinkV2Client(private val context: Context) {
     companion object {
@@ -26,6 +27,9 @@ class MelLinkV2Client(private val context: Context) {
     private var gatt: BluetoothGatt? = null
     private var rx: BluetoothGattCharacteristic? = null
     private var tx: BluetoothGattCharacteristic? = null
+    private val writeQueue = ConcurrentLinkedQueue<ByteArray>()
+    @Volatile private var writeInFlight = false
+    private val relay by lazy { MelLinkV2Relay { enqueueWrite(it) } }
 
     @SuppressLint("MissingPermission")
     fun connect(device: BluetoothDevice) {
@@ -47,14 +51,31 @@ class MelLinkV2Client(private val context: Context) {
         gatt = null
         rx = null
         tx = null
+        writeQueue.clear()
+        writeInFlight = false
         MelCompanionRuntime.miniLinkReady.value = false
     }
 
     @SuppressLint("MissingPermission")
     fun write(frame: ByteArray): Boolean {
-        val g = gatt ?: return false
-        val characteristic = rx ?: return false
-        return if (Build.VERSION.SDK_INT >= 33) {
+        enqueueWrite(frame)
+        return true
+    }
+
+    private fun enqueueWrite(frame: ByteArray) {
+        writeQueue.offer(frame)
+        drainWriteQueue()
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun drainWriteQueue() {
+        if (writeInFlight) return
+        val g = gatt ?: return
+        val characteristic = rx ?: return
+        val frame = writeQueue.poll() ?: return
+        writeInFlight = true
+
+        val started = if (Build.VERSION.SDK_INT >= 33) {
             g.writeCharacteristic(
                 characteristic,
                 frame,
@@ -65,6 +86,12 @@ class MelLinkV2Client(private val context: Context) {
             characteristic.value = frame
             @Suppress("DEPRECATION")
             g.writeCharacteristic(characteristic)
+        }
+
+        if (!started) {
+            writeInFlight = false
+            MelCompanionRuntime.markError("écriture Link V2 non démarrée")
+            drainWriteQueue()
         }
     }
 
@@ -165,7 +192,21 @@ class MelLinkV2Client(private val context: Context) {
             value: ByteArray
         ) {
             if (characteristic.uuid == TX_UUID) {
-                // Transport frame dispatch will be reintroduced above this clean GATT layer.
+                relay.onFrame(value)
+            }
+        }
+
+        override fun onCharacteristicWrite(
+            g: BluetoothGatt,
+            characteristic: BluetoothGattCharacteristic,
+            status: Int
+        ) {
+            if (characteristic.uuid == RX_UUID) {
+                writeInFlight = false
+                if (status != BluetoothGatt.GATT_SUCCESS) {
+                    MelCompanionRuntime.markError("écriture Link V2 $status")
+                }
+                drainWriteQueue()
             }
         }
 
