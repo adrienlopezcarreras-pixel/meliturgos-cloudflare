@@ -37,6 +37,5 @@ test('MEL reconciliation roadmap leaves only genuinely unverified work open', ()
     .map(row => ({ id: row.id, status: row.status }));
   assert.deepEqual(open, [
     { id: 'MEL-MEDIA-02', status: 'PARTIAL' },
-    { id: 'MEL-LORA-TRACE-01', status: 'PARTIAL' },
   ]);
 });
