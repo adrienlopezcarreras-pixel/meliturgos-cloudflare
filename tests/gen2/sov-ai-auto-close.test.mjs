@@ -2,12 +2,25 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
-test('AI SOV auto-close requires an always-on AI alternative and never depends on the owner PC', async()=>{
+test('AI SOV auto-close is OIDC-scoped, follows live deployed SHA and never depends on the owner PC', async()=>{
   const source=await readFile(new URL('../../.github/workflows/mel-sov-ai-auto-close.yml',import.meta.url),'utf8');
   assert.ok(source.includes("cron: '11 * * * *'"));
   assert.ok(source.includes('push:'));
   assert.ok(source.includes('- main'));
   assert.ok(source.includes("- 'src/portability/**'"));
+  assert.ok(source.includes("- 'src/evolution/release-launch-bootstrap.js'"));
+  assert.ok(source.includes('id-token: write'));
+  assert.ok(source.includes('ACTIONS_ID_TOKEN_REQUEST_TOKEN'));
+  assert.ok(source.includes('audience=meliturgos-worker'));
+  assert.ok(source.includes('x-mel-github-oidc'));
+  assert.equal(source.includes('x-mel-parallel-proof'),false);
+  assert.equal(source.includes('PROOF_KEY_B64'),false);
+  assert.equal(source.includes('MEL_BACKUP_ENCRYPTION_KEY_B64'),false);
+  assert.ok(source.includes("const sha=String(d?.deployed_sha||'').toLowerCase()"));
+  assert.ok(source.includes('SOV_DEPLOYED_SHA_INVALID'));
+  assert.ok(source.includes('release_transition_active'));
+  assert.ok(source.includes('MEL_SOV_AI_SUPERSEDED_BY_ACTIVE_RELEASE'));
+  assert.ok(source.includes('MEL_SOV_AI_WAITING_FOR_OIDC_PRODUCTION_DEPLOYMENT'));
   assert.ok(source.includes('refresh=ai'));
   assert.equal(source.includes('refresh=ai_local'),false);
   assert.ok(source.includes('MEL_SOV_AI_ALWAYS_ON_PREVALIDATED'));
@@ -20,10 +33,6 @@ test('AI SOV auto-close requires an always-on AI alternative and never depends o
   assert.ok(source.includes('ai_low_refusal_ready===true'));
   assert.ok(source.includes("AI_LOW_REFUSAL_READY='+(d?.ai_low_refusal_ready===true?'1':'0')"));
   assert.ok(source.includes('MEL_SOV_AI_ALWAYS_ON_LOW_REFUSAL_ALREADY_READY'));
-  assert.ok(source.includes('release_transition_supersedes_run'));
-  assert.ok(source.includes('MEL_SOV_AI_SUPERSEDED_BY_NEW_RELEASE'));
-  assert.ok(source.includes('BOOTSTRAP_AUTH_REQUIRED'));
-  assert.ok(source.includes('abort_if_release_transition'));
   assert.ok(source.includes('exit 47'));
   assert.ok(source.includes('MEL_SOV_AI_FINAL_GATE_NOT_CLOSED'));
   assert.ok(source.includes('process.exit(45)'));
