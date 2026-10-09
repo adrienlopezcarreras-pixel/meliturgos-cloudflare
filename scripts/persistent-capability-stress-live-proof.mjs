@@ -75,10 +75,10 @@ async function main() {
 
   let terminalBody = null;
   let lastDone = 0;
-  for (let attempt = 1; attempt <= 60; attempt += 1) {
+  for (let attempt = 1; attempt <= 240; attempt += 1) {
     const result = await callCapability({ id: 'capability.audit.status', input: { job_id: jobId } }, 'stress-status.json');
     if (result.status !== 200) {
-      console.log(`Stress status attempt ${attempt}/60 returned HTTP ${result.status}.`);
+      console.log(`Stress status attempt ${attempt}/240 returned HTTP ${result.status}.`);
       await sleep(2000);
       continue;
     }
@@ -94,6 +94,20 @@ async function main() {
     if (['COMPLETE', 'COMPLETE_WITH_FAILURES', 'FAILED'].includes(status)) {
       terminalBody = result.body;
       break;
+    }
+
+    // A completed chunk is persisted as QUEUED. Re-enter capability.audit to
+    // claim the next bounded chunk. For a RUNNING job, periodically re-enter as
+    // well: the runtime ignores a fresh lease, but can recover a Worker that
+    // disappeared after its last durable heartbeat.
+    if (status === 'QUEUED' || (status === 'RUNNING' && attempt % 5 === 0) || status === 'RETRYING') {
+      const resume = await callCapability(
+        { id: 'capability.audit', input: { deep: true } },
+        'stress-resume.json'
+      );
+      if (resume.status !== 200) {
+        console.log(`Persistent stress resume attempt returned HTTP ${resume.status}.`);
+      }
     }
     await sleep(2000);
   }
