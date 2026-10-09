@@ -278,3 +278,10 @@ test('live-proof progress diagnostics use the actual status row and drive resume
   assert.match(source, /stress-resume\.json/);
   assert.match(source, /attempt <= 240/);
 });
+
+
+test('persistent stress stale lease exceeds the bounded per-row execution envelope', async () => {
+  const source = await readFile(new URL('../../src/diagnostics/persistent-capability-stress.js', import.meta.url), 'utf8');
+  assert.match(source, /const STALE_RUN_MS = 45000;/);
+  assert.doesNotMatch(source, /const STALE_RUN_MS = 15000;/);
+});
