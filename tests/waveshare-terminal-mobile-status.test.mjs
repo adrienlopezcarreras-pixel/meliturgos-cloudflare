@@ -13,8 +13,8 @@ test('MINI 0.6.14 Link V2 reports the real mobile link independently from Wi-Fi'
     readFile(new URL('.github/workflows/waveshare-terminal-firmware.yml', root), 'utf8'),
   ]);
 
-  assert.match(header, /MEL_FW_VERSION "0\.6\.13-es8311-unmute"/);
-  assert.match(workflow, /"version": "0\.6\.13-es8311-unmute"/);
+  assert.match(header, /MEL_FW_VERSION "0\.6\.14-pa-ctrl"/);
+  assert.match(workflow, /"version": "\$\{FW_VERSION\}"/);
 
   assert.match(runtime, /void mel_terminal_set_mobile_connected\(bool connected\)/);
   assert.match(runtime, /ui_status\(g_online \? "MEL MOBILE CONNECTE" : "MOBILE CONNECTE"\)/);
