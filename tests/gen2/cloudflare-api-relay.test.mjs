@@ -48,3 +48,19 @@ test('Cloudflare relay deployment create is bounded, non-force and verifies the 
   assert.match(createBranch, /await cf\(path\+'\/'\+encodeURIComponent\(deploymentId\)\)/);
   assert.doesNotMatch(createBranch, /force\s*:/);
 });
+
+
+test('Cloudflare relay exposes only sanitized MINI heartbeat fields to its scoped OIDC workflow', async () => {
+  const api = await readFile(new URL('../../src/api/cloudflare-api-relay.js', import.meta.url), 'utf8');
+  const runner = await readFile(new URL('../../scripts/cloudflare-api-relay-runner.mjs', import.meta.url), 'utf8');
+  assert.match(api, /cloudflare-api-relay\/mini-status/);
+  assert.match(api, /firmware:status\.firmware/);
+  assert.match(api, /microphone:status\.microphone/);
+  assert.match(api, /speaker:status\.speaker/);
+  assert.match(api, /camera:status\.camera/);
+  assert.match(api, /internal_storage:status\.internal_storage/);
+  const miniBranch = api.slice(api.indexOf("cloudflare-api-relay/mini-status"), api.indexOf("cloudflare-api-relay/claim"));
+  assert.doesNotMatch(miniBranch, /status\.ip/);
+  assert.match(runner, /MINI_DEVICE_STATUS=/);
+  assert.match(runner, /cloudflare-api-relay\/mini-status/);
+});
