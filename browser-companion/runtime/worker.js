@@ -9,6 +9,7 @@ import {
 } from './browser-core.js';
 
 const KEEP_ALIVE_MS = 60000;
+const MEDIA_KEEP_ALIVE_MS = 600000;
 
 function json(body, status = 200) {
   return Response.json(body, {
@@ -49,7 +50,7 @@ async function renderMediaVideo(request, env) {
   const fps = Math.round(boundedNumber(payload.fps, 12, 8, 20));
   let browser;
   try {
-    browser = await launch(env.BROWSER, { keep_alive: 60000 });
+    browser = await launch(env.BROWSER, { keep_alive: MEDIA_KEEP_ALIVE_MS });
     // Never reuse an existing context/page here. Browser Run may keep shared pages
     // alive for unrelated work; any concurrent navigation would destroy this
     // page.evaluate execution context mid-render.
@@ -163,7 +164,7 @@ async function withMediaPage(env, fn) {
   if (!env?.BROWSER) throw Object.assign(new Error('BROWSER_BINDING_MISSING'), { status: 503 });
   let browser;
   try {
-    browser = await launch(env.BROWSER, { keep_alive: 60000 });
+    browser = await launch(env.BROWSER, { keep_alive: MEDIA_KEEP_ALIVE_MS });
     const context = browser.contexts?.()[0] || await browser.newContext();
     const page = context.pages?.()[0] || await context.newPage();
     await page.setContent('<!doctype html><html><body style="margin:0;background:#000"><video id="v" playsinline></video><canvas id="c"></canvas></body></html>');
