@@ -22,6 +22,11 @@ test('release backup binder uses a unique Worker name and authenticated stable r
   assert.match(source, /BINDER_URL="https:\/\/\$\{BINDER_NAME\}\.adrien-lopezcarreras\.workers\.dev"/);
   assert.match(source, /BINDER_READY=0/);
   assert.match(source, /BINDER_STABLE_PROBES=0/);
+  const binderStart = source.indexOf('      - name: Create verified pre-deploy production backup');
+  const binderEnd = source.indexOf('      - name: Prepare encrypted Media Vault secrets for exact deployment', binderStart);
+  const binderBlock = source.slice(binderStart, binderEnd);
+  assert.match(binderBlock, /--var "MEL_PREDEPLOY_BINDER_TOKEN:\$\{BINDER_TOKEN\}"/);
+  assert.doesNotMatch(binderBlock, /wrangler secret put MEL_PREDEPLOY_BINDER_TOKEN/);
   assert.match(source, /\/health/);
   assert.match(source, /Ephemeral backup binder stable probe/);
   assert.match(source, /seq 1 24/);
