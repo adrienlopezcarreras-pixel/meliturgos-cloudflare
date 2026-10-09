@@ -94,6 +94,38 @@ async function main(){
       : (nonLegacyPorts.length===1 ? nonLegacyPorts[0] : null);
     if(diagnosticPort){
       const port=diagnosticPort;
+
+      const inspectSubmit=await worker('/api/computer/v1/pc-control',{
+        computer_id:computer.id,
+        action:'serial.inspect',
+        payload:{port},
+      });
+      const inspectCommandId=String(inspectSubmit?.command_id||'');
+      const inspectDeadline=Date.now()+20000;
+      let inspectCommand=null;
+      while(Date.now()<inspectDeadline){
+        await new Promise(resolve=>setTimeout(resolve,1000));
+        const poll=await worker('/api/computer/v1/status?computer_id='+encodeURIComponent(computer.id),{},'GET');
+        const commands=Array.isArray(poll?.commands)?poll.commands:[];
+        inspectCommand=commands.find(cmd=>String(cmd?.id||'')===inspectCommandId)||null;
+        if(['SUCCEEDED','FAILED'].includes(String(inspectCommand?.status||''))) break;
+      }
+      const inspectOutput=Array.isArray(inspectCommand?.result?.outputs)
+        ? inspectCommand.result.outputs.find(row=>row?.action==='system.exec')
+        : null;
+      let inspectJson=null;
+      try{inspectJson=JSON.parse(String(inspectOutput?.stdout||'').trim()||'null')}catch{}
+      console.log('MINI_USB_INSPECT='+JSON.stringify({
+        port,
+        status:String(inspectCommand?.status||'TIMEOUT'),
+        error_code:inspectCommand?.error_code||null,
+        exit_code:Number(inspectOutput?.exit_code??-1),
+        details:inspectJson,
+      }));
+      if(String(inspectCommand?.status||'')==='FAILED'){
+        throw Object.assign(new Error('MINI_USB_INSPECT_FAILED'),{code:'MINI_USB_INSPECT_FAILED'});
+      }
+
       const submit=await worker('/api/computer/v1/pc-control',{
         computer_id:computer.id,
         action:'serial.read',
