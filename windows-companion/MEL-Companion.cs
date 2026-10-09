@@ -928,6 +928,7 @@ class PermissionsForm : Form
 {
     readonly List<CheckBox> appBoxes = new List<CheckBox>();
     readonly List<CheckBox> pathBoxes = new List<CheckBox>();
+    CheckBox remoteAccess;
     readonly string[] paths = MelApp.PermissionPaths();
     readonly Color ink = Color.FromArgb(34,45,60);
     readonly Color muted = Color.FromArgb(88,102,118);
