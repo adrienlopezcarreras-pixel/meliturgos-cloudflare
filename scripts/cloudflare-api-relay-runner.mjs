@@ -92,7 +92,7 @@ async function main(){
       const submit=await worker('/api/computer/v1/pc-control',{
         computer_id:computer.id,
         action:'serial.read',
-        payload:{port,duration_ms:1500},
+        payload:{port,duration_ms:3000},
       });
       const commandId=String(submit?.command_id||'');
       const serialDeadline=Date.now()+20000;
@@ -109,7 +109,7 @@ async function main(){
         : null;
       const raw=String(output?.text||'');
       const diagnostics=raw.split(/\r?\n/)
-        .filter(line=>/(MEL|ESP|boot|error|fail|panic|watchdog|audio|I2S|ES8311|BLE|Link V2|transcription)/i.test(line))
+        .filter(line=>/(MEL|ESP|boot|error|fail|panic|watchdog|audio|I2S|ES8311|BLE|Link V2|transcription|STEP|WIFI|camera|storage|READY|NVS|LCD|TOUCH|AXP2101)/i.test(line))
         .slice(0,80).join('\n').slice(0,8000);
       console.log('MINI_SERIAL_READ_PROOF='+JSON.stringify({
         port,
