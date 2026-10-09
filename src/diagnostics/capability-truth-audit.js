@@ -200,6 +200,29 @@ const COST_SENSITIVE_CAPABILITIES = new Set([
   'rag.search',
   'autonomy.status',
   'mentor.recent',
+
+  // Live external connectors are proved by the exact-SHA platform/connections
+  // production gates. The persistent global stress must inventory them
+  // truthfully without reissuing network calls that can outlive a Worker
+  // waitUntil and turn the global proof into a duplicate integration test.
+  'cloudflare.workers.read',
+  'cloudflare.deployments.read',
+  'gmail.messages.search',
+  'gmail.messages.read',
+  'calendar.events.read',
+  'tasks.tasklists.read',
+  'tasks.tasks.read',
+  'mail.messages.search',
+  'mail.messages.read',
+  'files.list',
+  'files.search',
+  'files.read',
+  'drive.files.list',
+  'drive.files.search',
+  'drive.files.read',
+  'sites.list',
+  'sites.search',
+  'sites.read',
 ]);
 
 const DECLARED_IMPLEMENTATION_STATUSES = new Set([
