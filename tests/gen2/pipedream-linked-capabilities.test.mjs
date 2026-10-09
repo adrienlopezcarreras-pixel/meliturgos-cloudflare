@@ -179,3 +179,15 @@ test('Google Drive linked account is executable and mutations remain approval-ga
   assert.ok(calls.some(call => call.app === 'google_drive' && call.method === 'POST'));
   assert.ok(calls.some(call => call.app === 'google_drive' && call.method === 'PATCH'));
 });
+
+
+test('SharePoint read health uses the same bounded endpoints as list and search', async () => {
+  const { bus, calls } = fixture();
+  const listHealth = await bus.refreshHealth('sites.list');
+  const searchHealth = await bus.refreshHealth('sites.search');
+  assert.equal(listHealth.health, 'HEALTHY');
+  assert.equal(searchHealth.health, 'HEALTHY');
+  assert.ok(calls.some(call => call.app === 'sharepoint' && call.url.includes('/me/followedSites?$top=1')));
+  assert.ok(calls.some(call => call.app === 'sharepoint' && call.url.includes('/sites?search=mel')));
+  assert.equal(calls.some(call => call.url.includes('/sites/root') && (call.method || 'GET') === 'GET'), false);
+});
