@@ -30,7 +30,7 @@ function Unprotect-Text([string]$value) {
 $Token = Unprotect-Text $config.token_protected
 $Server = ([string]$config.server_url).TrimEnd("/")
 $ComputerId = [string]$config.computer_id
-$Version = "1.3.2"
+$Version = "1.4.0"
 $Headless = $env:MEL_COMPANION_HEADLESS -eq "1"
 $ParentPid = 0
 [void][int]::TryParse([string]$env:MEL_COMPANION_PARENT_PID,[ref]$ParentPid)
@@ -1775,8 +1775,173 @@ function Perform-SovereigntyAi([string]$operation,$payload) {
   }
 }
 
+
+function PcControl-LimitText([string]$text,[int]$max=65536) {
+  if ($null -eq $text) { return "" }
+  if ($text.Length -le $max) { return $text }
+  return $text.Substring(0,$max) + "\n...[TRUNCATED]"
+}
+
+function PcControl-ResolveLocalPath([string]$path) {
+  if ([string]::IsNullOrWhiteSpace($path)) { throw "PC_PATH_REQUIRED" }
+  $full = [IO.Path]::GetFullPath($path)
+  if ($full.StartsWith("\\")) { throw "PC_NETWORK_PATH_NOT_ALLOWED" }
+  return $full
+}
+
+function PcControl-SerialList {
+  $ports = @([IO.Ports.SerialPort]::GetPortNames() | Sort-Object)
+  return @{ action="serial.list"; ports=$ports; count=$ports.Count }
+}
+
+function PcControl-SerialRead($payload) {
+  $portName = ([string]$payload.port).Trim().ToUpperInvariant()
+  if ($portName -notmatch '^COM\d{1,3}$') { throw "SERIAL_PORT_INVALID" }
+  $available = @([IO.Ports.SerialPort]::GetPortNames())
+  if ($available -notcontains $portName) { throw "SERIAL_PORT_NOT_FOUND" }
+
+  $baud = 115200
+  if ($payload.baud) { $baud = [Math]::Max(1200,[Math]::Min(2000000,[int]$payload.baud)) }
+  $durationMs = 5000
+  if ($payload.duration_ms) { $durationMs = [Math]::Max(250,[Math]::Min(30000,[int]$payload.duration_ms)) }
+
+  $serial = New-Object IO.Ports.SerialPort $portName,$baud,'None',8,'One'
+  $serial.ReadTimeout = 200
+  $serial.WriteTimeout = 1000
+  $serial.DtrEnable = $false
+  $serial.RtsEnable = $false
+  $builder = New-Object Text.StringBuilder
+  try {
+    $serial.Open()
+    $deadline = [DateTime]::UtcNow.AddMilliseconds($durationMs)
+    while ([DateTime]::UtcNow -lt $deadline) {
+      $chunk = $serial.ReadExisting()
+      if (-not [string]::IsNullOrEmpty($chunk)) {
+        [void]$builder.Append($chunk)
+        if ($builder.Length -ge 65536) { break }
+      }
+      Start-Sleep -Milliseconds 50
+    }
+    $captured = $builder.ToString()
+    return @{ action="serial.read"; port=$portName; baud=$baud; duration_ms=$durationMs; chars=$captured.Length; text=(PcControl-LimitText $captured 65536) }
+  } finally {
+    try { if ($serial.IsOpen) { $serial.Close() } } catch {}
+    $serial.Dispose()
+  }
+}
+
+function PcControl-ProcessList {
+  $rows = @(Get-Process -ErrorAction SilentlyContinue | Sort-Object ProcessName | Select-Object -First 300 | ForEach-Object {
+    @{ id=$_.Id; name=$_.ProcessName; cpu=[double]($_.CPU); memory=[long]($_.WorkingSet64) }
+  })
+  return @{ action="process.list"; processes=$rows; count=$rows.Count }
+}
+
+function PcControl-ProcessStart($payload) {
+  $file = [string]$payload.file
+  if ([string]::IsNullOrWhiteSpace($file)) { throw "PROCESS_FILE_REQUIRED" }
+  $args = [string]$payload.arguments
+  $working = [string]$payload.working_directory
+  $psi = New-Object Diagnostics.ProcessStartInfo
+  $psi.FileName = $file
+  if (-not [string]::IsNullOrWhiteSpace($args)) { $psi.Arguments = $args }
+  if (-not [string]::IsNullOrWhiteSpace($working)) { $psi.WorkingDirectory = (PcControl-ResolveLocalPath $working) }
+  $psi.UseShellExecute = $true
+  $p = [Diagnostics.Process]::Start($psi)
+  if ($null -eq $p) { throw "PROCESS_START_FAILED" }
+  return @{ action="process.start"; pid=$p.Id; file=$file }
+}
+
+function PcControl-ProcessKill($payload) {
+  $pidValue = [int]$payload.pid
+  if ($pidValue -le 0 -or $pidValue -eq $PID) { throw "PROCESS_ID_INVALID" }
+  $p = Get-Process -Id $pidValue -ErrorAction Stop
+  $name = $p.ProcessName
+  Stop-Process -Id $pidValue -Force -ErrorAction Stop
+  return @{ action="process.kill"; pid=$pidValue; name=$name; killed=$true }
+}
+
+function PcControl-FileList($payload) {
+  $path = PcControl-ResolveLocalPath ([string]$payload.path)
+  if (-not (Test-Path -LiteralPath $path -PathType Container)) { throw "DIRECTORY_NOT_FOUND" }
+  $items = @(Get-ChildItem -LiteralPath $path -Force -ErrorAction Stop | Select-Object -First 500 | ForEach-Object {
+    $itemLength = 0
+    if (-not $_.PSIsContainer) { $itemLength = [long]$_.Length }
+    @{ name=$_.Name; full_name=$_.FullName; directory=$_.PSIsContainer; length=$itemLength; modified=$_.LastWriteTimeUtc.ToString("o") }
+  })
+  return @{ action="file.list"; path=$path; items=$items; count=$items.Count }
+}
+
+function PcControl-FileReadText($payload) {
+  $path = PcControl-ResolveLocalPath ([string]$payload.path)
+  if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "FILE_NOT_FOUND" }
+  $text = [IO.File]::ReadAllText($path,[Text.Encoding]::UTF8)
+  return @{ action="file.read_text"; path=$path; text=(PcControl-LimitText $text 131072); chars=$text.Length }
+}
+
+function PcControl-FileWriteText($payload) {
+  $path = PcControl-ResolveLocalPath ([string]$payload.path)
+  $text = [string]$payload.text
+  if ($text.Length -gt 1048576) { throw "FILE_TEXT_TOO_LARGE" }
+  $parent = Split-Path -Parent $path
+  if (-not [string]::IsNullOrWhiteSpace($parent)) { [IO.Directory]::CreateDirectory($parent) | Out-Null }
+  $utf8 = New-Object Text.UTF8Encoding $false
+  [IO.File]::WriteAllText($path,$text,$utf8)
+  return @{ action="file.write_text"; path=$path; chars=$text.Length }
+}
+
+function PcControl-SystemInfo {
+  $os = Get-CimInstance Win32_OperatingSystem
+  $cpu = Get-CimInstance Win32_Processor | Select-Object -First 1
+  $cs = Get-CimInstance Win32_ComputerSystem
+  return @{ action="system.info"; hostname=$env:COMPUTERNAME; user=$env:USERNAME; os=$os.Caption; version=$os.Version; architecture=$os.OSArchitecture; cpu=$cpu.Name; logical_processors=[int]$cs.NumberOfLogicalProcessors; memory_bytes=[long]$cs.TotalPhysicalMemory; powershell=$PSVersionTable.PSVersion.ToString() }
+}
+
+function PcControl-SystemExec($payload) {
+  $command = [string]$payload.command
+  if ([string]::IsNullOrWhiteSpace($command)) { throw "SYSTEM_COMMAND_REQUIRED" }
+  if ($command.Length -gt 8192) { throw "SYSTEM_COMMAND_TOO_LONG" }
+  $timeoutMs = 20000
+  if ($payload.timeout_ms) { $timeoutMs = [Math]::Max(500,[Math]::Min(120000,[int]$payload.timeout_ms)) }
+  $psi = New-Object Diagnostics.ProcessStartInfo
+  $psi.FileName = "powershell.exe"
+  $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($command))
+  $psi.Arguments = "-NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand " + $encoded
+  $psi.UseShellExecute = $false
+  $psi.CreateNoWindow = $true
+  $psi.RedirectStandardOutput = $true
+  $psi.RedirectStandardError = $true
+  $p = [Diagnostics.Process]::Start($psi)
+  if ($null -eq $p) { throw "SYSTEM_EXEC_START_FAILED" }
+  if (-not $p.WaitForExit($timeoutMs)) { try { $p.Kill() } catch {}; throw "SYSTEM_EXEC_TIMEOUT" }
+  $out = $p.StandardOutput.ReadToEnd()
+  $err = $p.StandardError.ReadToEnd()
+  return @{ action="system.exec"; exit_code=$p.ExitCode; stdout=(PcControl-LimitText $out 65536); stderr=(PcControl-LimitText $err 32768) }
+}
+
+function Perform-PcControl([string]$action,$payload) {
+  switch ($action) {
+    "serial.list" { return PcControl-SerialList }
+    "serial.read" { return PcControl-SerialRead $payload }
+    "process.list" { return PcControl-ProcessList }
+    "process.start" { return PcControl-ProcessStart $payload }
+    "process.kill" { return PcControl-ProcessKill $payload }
+    "file.list" { return PcControl-FileList $payload }
+    "file.read_text" { return PcControl-FileReadText $payload }
+    "file.write_text" { return PcControl-FileWriteText $payload }
+    "system.info" { return PcControl-SystemInfo }
+    "system.exec" { return PcControl-SystemExec $payload }
+    default { throw "PC_CONTROL_ACTION_NOT_SUPPORTED" }
+  }
+}
+
 function Perform-Step($step, [string]$commandId, [string]$planSchema="") {
   $action = [string]$step.action
+  if ($planSchema -eq "mel.devices.pc-control.v1") {
+    if ($config.remote_access_enabled -ne $true) { throw "REMOTE_ACCESS_DISABLED_LOCALLY" }
+    if (-not ($step.PSObject.Properties.Name -contains "payload")) { throw "PC_CONTROL_PAYLOAD_REQUIRED" }
+    return Perform-PcControl $action $step.payload
+  }
   if ($action.StartsWith("sovereignty.")) {
     if ($planSchema -ne "mel.sovereignty.local-command/v1") { throw "SOVEREIGNTY_COMMAND_SCHEMA_REQUIRED" }
     if ($action.StartsWith("sovereignty.ai.")) {
