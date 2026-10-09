@@ -83,8 +83,12 @@ async function main(){
       .map(value=>String(value||'').trim().toUpperCase())
       .filter(value=>/^COM\d{1,3}$/.test(value));
 
-    if(ports.length===1){
-      const port=ports[0];
+    const nonLegacyPorts=ports.filter(port=>port!=='COM1');
+    const diagnosticPort=ports.length===1
+      ? ports[0]
+      : (nonLegacyPorts.length===1 ? nonLegacyPorts[0] : null);
+    if(diagnosticPort){
+      const port=diagnosticPort;
       const submit=await worker('/api/computer/v1/pc-control',{
         computer_id:computer.id,
         action:'serial.read',
@@ -121,8 +125,9 @@ async function main(){
     }else{
       console.log('MINI_SERIAL_READ_PROOF='+JSON.stringify({
         skipped:true,
-        reason:ports.length===0?'NO_SERIAL_PORT':'AMBIGUOUS_SERIAL_PORTS',
+        reason:ports.length===0?'NO_SERIAL_PORT':'AMBIGUOUS_NON_LEGACY_SERIAL_PORTS',
         ports,
+        non_legacy_ports:nonLegacyPorts,
       }));
     }
   }else{
