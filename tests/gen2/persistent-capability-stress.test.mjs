@@ -257,3 +257,12 @@ test('legacy non-zero cursor without a partial report restarts safely from zero'
     db.close();
   }
 });
+
+
+test('live-proof progress diagnostics use the actual status row and drive resume calls', async () => {
+  const source = await readFile(new URL('../../scripts/persistent-capability-stress-live-proof.mjs', import.meta.url), 'utf8');
+  assert.doesNotMatch(source, /row\?\.progress/);
+  assert.match(source, /r\?\.progress\?\.current_capability/);
+  assert.match(source, /stress-resume\.json/);
+  assert.match(source, /attempt <= 240/);
+});
