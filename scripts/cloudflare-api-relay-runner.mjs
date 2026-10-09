@@ -34,11 +34,19 @@ async function main(){
   // Scoped live proof for the Windows Companion. The Worker accepts this OIDC
   // identity only for read-only status plus system.info / serial.list.
   const pcStatus=await worker('/api/computer/v1/status',{},'GET');
-  const computer=(Array.isArray(pcStatus?.devices)?pcStatus.devices:[]).find(row=>
-    String(row?.platform||'').toLowerCase()==='windows' &&
-    row?.online===true &&
-    row?.metadata?.remote_access_enabled===true
+  const windowsDevices=(Array.isArray(pcStatus?.devices)?pcStatus.devices:[]).filter(row=>
+    String(row?.platform||'').toLowerCase()==='windows'
   );
+  console.log('PC_CONTROL_DEVICE_STATUS='+JSON.stringify(windowsDevices.map(row=>({
+    id:row?.id||null,
+    name:row?.name||null,
+    online:row?.online===true,
+    last_seen_at:Number(row?.last_seen_at||0)||null,
+    remote_access_enabled:row?.metadata?.remote_access_enabled===true,
+    engine_version:row?.metadata?.engine_version||null,
+    engine_heartbeat_at:Number(row?.metadata?.engine_heartbeat_at||0)||null,
+  }))));
+  const computer=windowsDevices.find(row=>row?.online===true);
   if(computer){
     const submitted=[];
     for(const action of ['system.info','serial.list']){

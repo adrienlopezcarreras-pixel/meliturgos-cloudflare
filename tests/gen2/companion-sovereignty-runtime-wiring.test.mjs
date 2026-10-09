@@ -37,7 +37,7 @@ test('local AI fails closed until the stage-aware Companion engine is active',as
   assert.match(aiRuntime,/refresh_error/);
 
   const api=await readFile(new URL('../../src/devices/computer-companion-api.js',import.meta.url),'utf8');
-  assert.match(api,/MIN_SOVEREIGN_AI_ENGINE_VERSION="1\.3\.2"/);
+  assert.match(api,/MIN_SOVEREIGN_AI_ENGINE_VERSION="1\.4\.1"/);
   assert.match(api,/engine_update_required/);
   assert.match(api,/engine_refresh_status/);
   assert.match(api,/required_engine_version/);

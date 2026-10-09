@@ -30,7 +30,7 @@ function Unprotect-Text([string]$value) {
 $Token = Unprotect-Text $config.token_protected
 $Server = ([string]$config.server_url).TrimEnd("/")
 $ComputerId = [string]$config.computer_id
-$Version = "1.4.0"
+$Version = "1.4.1"
 $Headless = $env:MEL_COMPANION_HEADLESS -eq "1"
 $ParentPid = 0
 [void][int]::TryParse([string]$env:MEL_COMPANION_PARENT_PID,[ref]$ParentPid)
@@ -217,6 +217,7 @@ function Send-Heartbeat {
   $body = @{
     engine_version = $Version
     engine_heartbeat_at = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+    remote_access_enabled = ($config.remote_access_enabled -eq $true)
     hostname = $env:COMPUTERNAME
     user = $env:USERNAME
     screen = @{ x=$bounds.X; y=$bounds.Y; width=$bounds.Width; height=$bounds.Height }
