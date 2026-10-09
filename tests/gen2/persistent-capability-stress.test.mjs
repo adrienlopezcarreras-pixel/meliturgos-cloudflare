@@ -6,7 +6,7 @@ import {
   readPersistentCapabilityStress,
   startPersistentCapabilityStress,
 } from '../../src/diagnostics/persistent-capability-stress.js';
-import { validateStart, validateTerminal } from '../../scripts/persistent-capability-stress-live-proof.mjs';
+import { validateStart, validateTerminal, validateProgressTransition } from '../../scripts/persistent-capability-stress-live-proof.mjs';
 
 function echoRecord() {
   return {
@@ -285,4 +285,24 @@ test('persistent stress stale lease exceeds the bounded per-row execution envelo
   const source = await readFile(new URL('../../src/diagnostics/persistent-capability-stress.js', import.meta.url), 'utf8');
   assert.match(source, /const STALE_RUN_MS = 45000;/);
   assert.doesNotMatch(source, /const STALE_RUN_MS = 15000;/);
+});
+
+
+test('retry pass may reset its own cursor while same-pass progress remains monotonic', () => {
+  assert.deepEqual(
+    validateProgressTransition({ pass:1, done:162 }, { pass:2, done:0 }),
+    { pass:2, done:0 },
+  );
+  assert.deepEqual(
+    validateProgressTransition({ pass:2, done:0 }, { pass:2, done:3 }),
+    { pass:2, done:3 },
+  );
+  assert.throws(
+    () => validateProgressTransition({ pass:2, done:3 }, { pass:2, done:2 }),
+    /CAPABILITY_STRESS_PROGRESS_REGRESSED/,
+  );
+  assert.throws(
+    () => validateProgressTransition({ pass:2, done:3 }, { pass:1, done:168 }),
+    /CAPABILITY_STRESS_PASS_REGRESSED/,
+  );
 });
