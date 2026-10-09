@@ -1,6 +1,10 @@
 import { auditRuntimeCapabilities, SAFE_SAMPLES } from './capability-truth-audit.js';
 
-const STALE_RUN_MS = 15000;
+const STALE_RUN_MS = 45000;
+// A capability row can legitimately consume ~14 s across bounded health,
+// sample preparation, execution and durable progress writes. A 15 s stale
+// lease lets the polling proof reclaim the same chunk while the original
+// Worker waitUntil is still alive. Keep a >3x margin to avoid duplicate work.
 const STRESS_CHUNK_SIZE = 12;
 
 function stressError(code) {
