@@ -3,8 +3,10 @@ const OIDC_TOKEN=String(process.env.MEL_CLOUDFLARE_RELAY_OIDC||'');
 const CF_TOKEN=String(process.env.CLOUDFLARE_API_TOKEN||'');
 const ACCOUNT_ID=String(process.env.CLOUDFLARE_ACCOUNT_ID||'');
 function assert(v,c){if(!v)throw Object.assign(new Error(c),{code:c});}
-async function worker(path,body={}){
-  const r=await fetch(BASE_URL+path,{method:'POST',headers:{'x-mel-github-oidc':OIDC_TOKEN,'content-type':'application/json'},body:JSON.stringify(body),signal:AbortSignal.timeout(60000)});
+async function worker(path,body={},method='POST'){
+  const init={method,headers:{'x-mel-github-oidc':OIDC_TOKEN,'content-type':'application/json'},signal:AbortSignal.timeout(60000)};
+  if(method!=='GET')init.body=JSON.stringify(body);
+  const r=await fetch(BASE_URL+path,init);
   const t=await r.text();let d={};try{d=t?JSON.parse(t):{}}catch{}
   if(!r.ok||d?.ok===false)throw Object.assign(new Error(d?.code||'CLOUDFLARE_RELAY_WORKER_REQUEST_FAILED'),{code:d?.code||'CLOUDFLARE_RELAY_WORKER_REQUEST_FAILED',status:r.status});
   return d;
@@ -28,6 +30,45 @@ async function main(){
   assert(CF_TOKEN.length>=20,'CLOUDFLARE_API_TOKEN_REQUIRED');
   assert(/^[A-Za-z0-9_-]{8,80}$/.test(ACCOUNT_ID),'CLOUDFLARE_ACCOUNT_ID_INVALID');
   await worker('/api/internal/cloudflare-api-relay/heartbeat',{run_id:Number(process.env.GITHUB_RUN_ID||0)||null});
+
+  // Scoped live proof for the Windows Companion. The Worker accepts this OIDC
+  // identity only for read-only status plus system.info / serial.list.
+  const pcStatus=await worker('/api/computer/v1/status',{},'GET');
+  const computer=(Array.isArray(pcStatus?.devices)?pcStatus.devices:[]).find(row=>
+    String(row?.platform||'').toLowerCase()==='windows' &&
+    row?.online===true &&
+    row?.metadata?.remote_access_enabled===true
+  );
+  if(computer){
+    const submitted=[];
+    for(const action of ['system.info','serial.list']){
+      const row=await worker('/api/computer/v1/pc-control',{computer_id:computer.id,action,payload:{}});
+      submitted.push({action,command_id:String(row?.command_id||'')});
+    }
+    const deadline=Date.now()+45000;
+    let completed=[];
+    while(Date.now()<deadline){
+      await new Promise(resolve=>setTimeout(resolve,1500));
+      const poll=await worker('/api/computer/v1/status?computer_id='+encodeURIComponent(computer.id),{},'GET');
+      const commands=Array.isArray(poll?.commands)?poll.commands:[];
+      completed=submitted.map(item=>({item,row:commands.find(cmd=>String(cmd?.id||'')===item.command_id)||null}));
+      if(completed.every(entry=>['SUCCEEDED','FAILED'].includes(String(entry.row?.status||''))))break;
+    }
+    const proof=completed.map(entry=>({
+      action:entry.item.action,
+      command_id:entry.item.command_id,
+      status:String(entry.row?.status||'TIMEOUT'),
+      error_code:entry.row?.error_code||null,
+      result:entry.row?.result??null,
+    }));
+    console.log('PC_CONTROL_LIVE_PROOF='+JSON.stringify({
+      device:{id:computer.id,name:computer.name||null,online:true,remote_access_enabled:true,version:computer?.metadata?.version||null},
+      commands:proof,
+    }));
+    if(proof.some(row=>row.status!=='SUCCEEDED')) throw Object.assign(new Error('PC_CONTROL_LIVE_PROOF_FAILED'),{code:'PC_CONTROL_LIVE_PROOF_FAILED'});
+  }else{
+    console.log('PC_CONTROL_LIVE_PROOF='+JSON.stringify({skipped:true,reason:'NO_ONLINE_REMOTE_WINDOWS_COMPANION'}));
+  }
   for(let i=0;i<5;i++){
     const claim=await worker('/api/internal/cloudflare-api-relay/claim');
     const job=claim?.job;if(!job)break;
