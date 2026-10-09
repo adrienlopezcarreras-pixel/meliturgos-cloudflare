@@ -86,3 +86,20 @@ test('distributed Windows companion exposes only fixed shutdown and restart acti
   assert.match(script,/@\("\/r","\/t","5"/);
   assert.doesNotMatch(script,/Invoke-Expression/);
 });
+
+
+test('distributed Windows companion hard-reset path is bounded to normal boot and never flashes',async()=>{
+  const script=await readFile(new URL('../dist/MEL-Computer-Companion.ps1',import.meta.url),'utf8');
+  const start=script.indexOf('function PcControl-SerialHardReset');
+  const end=script.indexOf('function PcControl-ProcessList',start);
+  assert.ok(start>=0&&end>start);
+  const block=script.slice(start,end);
+  assert.match(block,/DtrEnable\s*=\s*\$false/);
+  assert.match(block,/RtsEnable\s*=\s*\$true/);
+  assert.match(block,/RtsEnable\s*=\s*\$false/);
+  assert.match(block,/reset_mode="RTS_EN_PULSE_DTR_HIGH_NORMAL_BOOT"/);
+  assert.match(block,/flash_written=\$false/);
+  assert.match(block,/nvs_modified=\$false/);
+  assert.doesNotMatch(block,/\.Write\(/);
+  assert.doesNotMatch(block,/esptool/i);
+});
