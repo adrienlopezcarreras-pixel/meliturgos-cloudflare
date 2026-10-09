@@ -50,6 +50,10 @@ async function main(){
     remote_access_enabled:row?.metadata?.remote_access_enabled===true,
     engine_version:row?.metadata?.engine_version||null,
     engine_heartbeat_at:Number(row?.metadata?.engine_heartbeat_at||0)||null,
+    engine_refresh_status:row?.metadata?.engine_refresh_status||null,
+    engine_refresh_at:Number(row?.metadata?.engine_refresh_at||0)||null,
+    engine_refresh_error:row?.metadata?.engine_refresh_error||null,
+    native_version:row?.metadata?.version||null,
   }))));
   const computer=windowsDevices.find(row=>row?.online===true);
   if(computer){
@@ -164,7 +168,16 @@ async function main(){
       const resetApproved=String(process.env.MEL_MINI_RESET_APPROVED||'')==='1';
       const miniLooksLikeWaveshare=String(primaryMini?.model||'').toLowerCase().includes('waveshare-esp32-s3');
       const miniOffline=primaryMini?.online===false;
-      if(resetApproved&&miniLooksLikeWaveshare&&miniOffline){
+      const engineVersion=String(computer?.metadata?.engine_version||'').trim();
+      const engineMatch=engineVersion.match(/^(\d+)\.(\d+)\.(\d+)/);
+      const engineReadyForReset=Boolean(engineMatch)&&(
+        Number(engineMatch[1])>1 ||
+        (Number(engineMatch[1])===1 && (
+          Number(engineMatch[2])>4 ||
+          (Number(engineMatch[2])===4 && Number(engineMatch[3])>=1)
+        ))
+      );
+      if(resetApproved&&miniLooksLikeWaveshare&&miniOffline&&engineReadyForReset){
         const resetSubmit=await worker('/api/computer/v1/pc-control',{
           computer_id:computer.id,
           action:'serial.hard_reset',
@@ -211,7 +224,14 @@ async function main(){
       }else if(resetApproved){
         console.log('MINI_SERIAL_HARD_RESET_PROOF='+JSON.stringify({
           skipped:true,
-          reason:!miniLooksLikeWaveshare?'MINI_MODEL_NOT_CONFIRMED':(!miniOffline?'MINI_ALREADY_ONLINE':'RESET_GUARD_REJECTED'),
+          reason:!miniLooksLikeWaveshare
+            ? 'MINI_MODEL_NOT_CONFIRMED'
+            : (!miniOffline
+              ? 'MINI_ALREADY_ONLINE'
+              : (!engineReadyForReset ? 'COMPANION_ENGINE_REFRESH_REQUIRED' : 'RESET_GUARD_REJECTED')),
+          engine_version:engineVersion||null,
+          engine_refresh_status:computer?.metadata?.engine_refresh_status||null,
+          engine_refresh_error:computer?.metadata?.engine_refresh_error||null,
         }));
       }
     }else{
