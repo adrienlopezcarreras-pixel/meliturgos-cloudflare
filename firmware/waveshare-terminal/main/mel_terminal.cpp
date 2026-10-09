@@ -9,6 +9,7 @@
 #include <string>
 #include <vector>
 #include <cstdio>
+#include <cerrno>
 #include <cctype>
 #include <sys/stat.h>
 #include <sys/time.h>
@@ -2752,9 +2753,11 @@ bool mel_terminal_init_storage(void) {
 
     mkdir("/melstore/mel", 0775);
     const char *probe_path = "/melstore/.mini-storage-test";
+    errno = 0;
     FILE *probe = fopen(probe_path, "wb");
     if (!probe) {
-        ESP_LOGE(TAG, "INTERNAL STORAGE self-test open failed");
+        const int open_errno = errno;
+        ESP_LOGE(TAG, "INTERNAL STORAGE self-test open failed errno=%d (%s)", open_errno, strerror(open_errno));
         storage_reset_after_failure();
         return false;
     }
