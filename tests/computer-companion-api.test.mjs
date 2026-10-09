@@ -321,13 +321,16 @@ test('Windows command engine heartbeat is independently fresh from the desktop U
   }finally{DB.close();}
 });
 
-test('Windows Companion 2.3.11 watchdogs and self-refreshes the engine for local runtime sovereignty',async()=>{
+test('Windows Companion 2.3.12 watchdogs and self-refreshes the engine for local runtime sovereignty',async()=>{
   const desktop=await readFile(new URL('../windows-companion/MEL-Companion.cs',import.meta.url),'utf8');
   const companion=await readFile(new URL('../assets/MEL-Computer-Companion.ps1',import.meta.url),'utf8');
-  assert.match(desktop,/Version = "2\.3\.11"/);
+  assert.match(desktop,/Version = "2\.3\.12"/);
   assert.match(desktop,/EnsureCompanion/);
   assert.match(desktop,/CompanionRunning/);
-  assert.match(companion,/\$Version = "1\.4\.0"/);
+  assert.match(desktop,/StartBackgroundSupervisor/);
+  assert.match(desktop,/System\.Threading\.Timer/);
+  assert.match(companion,/\$Version = "1\.4\.1"/);
+  assert.match(companion,/remote_access_enabled\s*=\s*\(\$config\.remote_access_enabled -eq \$true\)/);
   assert.match(companion,/engine_heartbeat_at/);
   assert.match(companion,/function Perform-SovereigntyRuntime/);
   assert.match(companion,/sovereignty\.runtime\./);
