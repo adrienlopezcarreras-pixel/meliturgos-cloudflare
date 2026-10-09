@@ -92,7 +92,7 @@ async function main(){
       const submit=await worker('/api/computer/v1/pc-control',{
         computer_id:computer.id,
         action:'serial.read',
-        payload:{port,duration_ms:1500},
+        payload:{port,duration_ms:3000},
       });
       const commandId=String(submit?.command_id||'');
       const serialDeadline=Date.now()+20000;
