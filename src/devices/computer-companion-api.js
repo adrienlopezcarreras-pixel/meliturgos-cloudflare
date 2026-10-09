@@ -143,6 +143,7 @@ async function ownerPcControl(request,env){
  if(device.halted)return json({ok:false,code:"OWNER_HALT_ACTIVE"},409);
  if(String(device.platform||"").toLowerCase()!=="windows")return json({ok:false,code:"PC_CONTROL_WINDOWS_REQUIRED"},409);
  if(!device.online)return json({ok:false,code:"COMPUTER_OFFLINE"},409);
+ if(device.metadata?.remote_access_enabled!==true)return json({ok:false,code:"REMOTE_ACCESS_DISABLED_LOCALLY"},403);
  const session=safe(b.session_id)||crypto.randomUUID();
  const cid=crypto.randomUUID();
  const plan={schema:"mel.devices.pc-control.v1",owner_authorized:true,steps:[{id:"pc-control-1",action,payload}]};
