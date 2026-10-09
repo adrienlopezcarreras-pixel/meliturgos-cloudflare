@@ -1,6 +1,10 @@
 import { auditRuntimeCapabilities, SAFE_SAMPLES } from './capability-truth-audit.js';
 
-const STALE_RUN_MS = 15000;
+const STALE_RUN_MS = 45000;
+// One capability row can spend up to ~14 s across bounded health, dynamic
+// sample, execution and progress persistence. Keep the stale lease well above
+// that envelope so status polling cannot reclaim and replay the same chunk
+// while its original Worker task is still legitimately running.
 const STRESS_CHUNK_SIZE = 12;
 
 function stressError(code) {
