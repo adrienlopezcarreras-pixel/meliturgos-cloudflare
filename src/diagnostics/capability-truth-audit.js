@@ -335,7 +335,17 @@ export async function auditRuntimeCapabilities(runtime, {
     });
     if (deep && blockedReason == null && typeof sample === 'function') {
       try {
-        sample = await sample({ runtime, context, record });
+        const sampleTimeoutMs = Math.max(50, Math.min(60_000, Number(executionTimeoutMs) || 15_000));
+        let sampleTimer;
+        sample = await Promise.race([
+          sample({ runtime, context, record }),
+          new Promise((_, reject) => {
+            sampleTimer = setTimeout(() => reject(Object.assign(
+              new Error('CAPABILITY_AUDIT_SAMPLE_TIMEOUT'),
+              { code: 'CAPABILITY_AUDIT_SAMPLE_TIMEOUT' },
+            )), sampleTimeoutMs);
+          }),
+        ]).finally(() => clearTimeout(sampleTimer));
         if (sample === undefined) blockedReason = 'NO_RUNTIME_FIXTURE';
       } catch (error) {
         blockedReason = 'SAMPLE_PREPARATION_FAILED:' + String(error?.code || error?.message || 'UNKNOWN').slice(0, 120);

@@ -292,6 +292,34 @@ test('deep audit can derive a real bounded fixture before testing an ID-based re
   assert.ok(calls.some(call=>call.id==='thing.get'&&call.input.id==='real-1'));
 });
 
+test('deep audit bounds a hung dynamic fixture and continues with later capabilities', async () => {
+  const records = [
+    { id:'fixture-hung', name:'Fixture hung', category:'test', provider:'core', risk:'LOW', enabled:true, health:'HEALTHY' },
+    { id:'after-fixture', name:'After fixture', category:'test', provider:'core', risk:'LOW', enabled:true, health:'HEALTHY' },
+  ];
+  const calls=[];
+  const runtime={bus:{
+    list:()=>records,
+    contract:()=>({valid:true}),
+    execute:async(id)=>{calls.push(id);return {ok:true};},
+  }};
+  const report=await auditRuntimeCapabilities(runtime,{
+    deep:true,
+    executionTimeoutMs:50,
+    samples:{
+      'fixture-hung':async()=>new Promise(()=>{}),
+      'after-fixture':{},
+    },
+  });
+  const hung=report.capabilities.find(row=>row.id==='fixture-hung');
+  const after=report.capabilities.find(row=>row.id==='after-fixture');
+  assert.equal(hung.tested_now,false);
+  assert.equal(hung.auto_execution_blocked,'SAMPLE_PREPARATION_FAILED:CAPABILITY_AUDIT_SAMPLE_TIMEOUT');
+  assert.equal(after.tested_now,true);
+  assert.equal(after.truth_status,'EXISTANT_ET_TESTE');
+  assert.deepEqual(calls,['after-fixture']);
+});
+
 test('dynamic bounded fixture absence is reported without manufacturing a runtime failure', async () => {
   const record={ id:'thing.get', name:'Get', category:'test', provider:'core', risk:'LOW', enabled:true, health:'HEALTHY' };
   let executions=0;
