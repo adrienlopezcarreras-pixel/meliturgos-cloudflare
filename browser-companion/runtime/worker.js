@@ -50,9 +50,12 @@ async function renderMediaVideo(request, env) {
   let browser;
   try {
     browser = await launch(env.BROWSER, { keep_alive: 60000 });
-    const context = browser.contexts?.()[0] || await browser.newContext();
-    const page = context.pages?.()[0] || await context.newPage();
-    await page.setContent('<!doctype html><html><body style="margin:0;background:#000"><canvas id="c"></canvas></body></html>');
+    // Never reuse an existing context/page here. Browser Run may keep shared pages
+    // alive for unrelated work; any concurrent navigation would destroy this
+    // page.evaluate execution context mid-render.
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    await page.setContent('<!doctype html><html><body style="margin:0;background:#000"><canvas id="c"></canvas></body></html>', { waitUntil: 'domcontentloaded' });
     const result = await page.evaluate(async ({ frames, width, height, durationMs, fps }) => {
       const canvas = document.getElementById('c');
       canvas.width = width;
