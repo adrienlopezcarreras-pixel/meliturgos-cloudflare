@@ -75,10 +75,10 @@ async function main() {
 
   let terminalBody = null;
   let lastDone = 0;
-  for (let attempt = 1; attempt <= 60; attempt += 1) {
+  for (let attempt = 1; attempt <= 240; attempt += 1) {
     const result = await callCapability({ id: 'capability.audit.status', input: { job_id: jobId } }, 'stress-status.json');
     if (result.status !== 200) {
-      console.log(`Stress status attempt ${attempt}/60 returned HTTP ${result.status}.`);
+      console.log(`Stress status attempt ${attempt}/240 returned HTTP ${result.status}.`);
       await sleep(2000);
       continue;
     }
@@ -90,10 +90,23 @@ async function main() {
     assert(done >= lastDone, 'CAPABILITY_STRESS_PROGRESS_REGRESSED');
     lastDone = done;
     const status = String(r?.status || '');
-    console.log(`Persistent stress ${jobId}: status=${status} progress=${done}/${total} current=${String(row?.progress?.current_capability||"none").slice(0,160)} pass=${Number(row?.progress?.pass||1)}`);
+    console.log(`Persistent stress ${jobId}: status=${status} progress=${done}/${total} current=${String(r?.progress?.current_capability||"none").slice(0,160)} pass=${Number(r?.progress?.pass||1)}`);
     if (['COMPLETE', 'COMPLETE_WITH_FAILURES', 'FAILED'].includes(status)) {
       terminalBody = result.body;
       break;
+    }
+
+    // A completed chunk is persisted as QUEUED. Re-enter capability.audit to
+    // claim the next bounded chunk. A periodic re-entry also lets a stale
+    // RUNNING lease recover after a Worker background task disappears.
+    if (status === 'QUEUED' || (status === 'RUNNING' && attempt % 5 === 0) || status === 'RETRYING') {
+      const resume = await callCapability(
+        { id: 'capability.audit', input: { deep: true } },
+        'stress-resume.json'
+      );
+      if (resume.status !== 200) {
+        console.log(`Persistent stress resume attempt returned HTTP ${resume.status}.`);
+      }
     }
     await sleep(2000);
   }
