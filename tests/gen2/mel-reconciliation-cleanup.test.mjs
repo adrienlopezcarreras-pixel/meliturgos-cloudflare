@@ -35,7 +35,5 @@ test('MEL reconciliation roadmap leaves only genuinely unverified work open', ()
   const open = flattenRoadmap()
     .filter(row => row.status !== 'DONE_VERIFIED')
     .map(row => ({ id: row.id, status: row.status }));
-  assert.deepEqual(open, [
-    { id: 'MEL-MEDIA-02', status: 'PARTIAL' },
-  ]);
+  assert.deepEqual(open, []);
 });
