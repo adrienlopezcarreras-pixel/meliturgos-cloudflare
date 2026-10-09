@@ -7,7 +7,7 @@ export const ROADMAP_STATUSES = Object.freeze({
   BLOCKED_EXTERNAL: 'BLOCKED_EXTERNAL'
 });
 
-export const ROADMAP_REGISTRY_REVISION = '2026-10-09.1';
+export const ROADMAP_REGISTRY_REVISION = '2026-10-09.2';
 
 const phase = (id, title, items) => ({ id, title, items });
 const item = (id, title, status, next = '', priority = 'P2') => ({ id, title, status, next, priority });
@@ -182,7 +182,7 @@ export const MASTER_ROADMAP = Object.freeze([
     item('MEL-EVAL-01', 'Suites de benchmark conversation / code / recherche / mémoire', 'DONE_VERIFIED', 'Certification répétée acquise le 26/09/2026: deux exécutions live consécutives du workflow mel-eval-01-stable-watch-ci (runs 36235746767 et 36235762652) entièrement vertes, incluant tests MEL-EVAL ciblés, syntaxe, full test suite et runtime dependency security gate. Preuve: proofs/mel-eval-01-repeated-live-20260926.json.', 'P1'),
     item('MEL-EVAL-03', 'Qualité mesurée avant/après évolution', 'DONE_VERIFIED', 'Gate fail-closed avant/après déjà intégré: seuil global et par domaine, erreurs répétées, identité/digest/couverture du benchmark, provenance SHA et artefacts obligatoires. Revalidé sur main actuel: syntaxe globale + tests ciblés Actions 35639804455.', 'P0'),
     item('MEL-AUDIT-01', 'Self-Audit Supervisor autonome: heartbeat, audit quotidien, stress hebdomadaire et exercice de survie mensuel', 'DONE_VERIFIED', 'Certification production acquise le 01/10/2026 sur SHA exact f4f57e3617f313a1f41c113eab0deee0c44388b4: mel-self-audit-production-proof run 36902042262 a prouvé heartbeat exécuté et persisté, rapport D1 persistant, ledger de 150 capacités, scheduler horaire + superviseur quotidien, contrat stress hebdomadaire et exercice mensuel; sur le même SHA, post-release-proof-suite run 36902043229 a réellement exécuté et terminé avec succès le job persistent-stress / production-proof (110504345736), satisfaisant le gate de stress réel. Preuves sanitizées, exact-SHA et sans secret.', 'P0'),
-    item('MEL-LORA-TRACE-01', 'LoRA Daily Trace durable et exploitable par MEL', 'PARTIAL', 'Implémentation intégrée sur main: workflow lora-daily-trace-ci, client de trace, stockage/runtime de trace, tests de contrat et lecture UI/API; lora-runtime-pipeline-ci run 37930285787 SUCCESS sur le correctif LoRA courant. Reste volontairement PARTIAL tant qu un vrai entraînement quotidien n a pas laissé une trace terminale complète relue par MEL, avec preuve d un échec ou d une interruption durablement traçable.', 'P0')
+    item('MEL-LORA-TRACE-01', 'LoRA Daily Trace durable et exploitable par MEL', 'DONE_VERIFIED', 'Certification réelle acquise le 09/10/2026 par lora-kaggle-free-gpu run 37923410226 (#112), cycle c010 sur Kaggle T4: entraînement terminé, checkpoint mel-lora-kaggle-8806969aad34-c010, artefact de trace permanent 11615521167, 30 événements incrémentaux avec heartbeats, dataset, résultat, métriques, comparaison et empreintes SHA-256. L événement terminal SUCCEEDED a été accepté uniquement après relecture serveur verifyLoraDailyTrace() et contrôle successCompleteness(), avec trace_verified=1; le client a confirmé LORA_TRACE_WRITTEN_AND_SPOOL_EMPTY. Résumé français terminal et artefact lora-daily-trace-37923410226-1 conservés.', 'P0')
   ]),
 
   phase('P14', 'Interface et expérience', [
