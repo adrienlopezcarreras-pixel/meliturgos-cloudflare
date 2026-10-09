@@ -82,3 +82,15 @@ test('MINI reset is manual-only, model-guarded and followed by heartbeat proof',
   assert.match(runner, /COMPANION_ENGINE_REFRESH_REQUIRED/);
   assert.match(runner, /engine_refresh_status/);
 });
+
+
+test('Cloudflare relay exposes only sanitized published MINI firmware metadata', async () => {
+  const api = await readFile(new URL('../../src/api/cloudflare-api-relay.js', import.meta.url), 'utf8');
+  const runner = await readFile(new URL('../../scripts/cloudflare-api-relay-runner.mjs', import.meta.url), 'utf8');
+  assert.match(api, /cloudflare-api-relay\/mini-firmware-status/);
+  assert.match(api, /devices\/waveshare-esp32-s3-touch-lcd-3\.5-c\/manifest\.json/);
+  assert.match(api, /source_sha/);
+  assert.match(api, /MINI_FIRMWARE_MANIFEST_INVALID/);
+  assert.doesNotMatch(api, /mini-firmware-status[\s\S]{0,2500}object\.body/);
+  assert.match(runner, /MINI_PUBLISHED_FIRMWARE_STATUS=/);
+});
