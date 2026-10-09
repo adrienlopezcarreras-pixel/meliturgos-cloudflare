@@ -633,7 +633,7 @@ jobs:
                   const match=String(process.env.TRACE_LATEST||'').match(/"global_step"\s*:\s*(\d+)/);
                   if(match) payload.training.global_step=Number(match[1]);
                   fs.writeFileSync('artifacts/lora-trace-progress.json',JSON.stringify(payload,null,2)+'\n');
-                  NODE
+          NODE
                   if ! node .mel-trace-control/scripts/lora-daily-trace-client.mjs TRAINING_PROGRESS artifacts/lora-trace-progress.json RUNNING; then
                     echo "::error title=LoRA trace unavailable::Durable progress trace failed; this workflow cannot be successful."
                     exit 70
@@ -652,7 +652,7 @@ jobs:
                   heartbeat_at:new Date().toISOString(),
                 },
               },null,2)+'\n');
-              NODE
+          NODE
               if ! node .mel-trace-control/scripts/lora-daily-trace-client.mjs TRAINING_HEARTBEAT artifacts/lora-trace-heartbeat.json RUNNING; then
                 echo "::error title=LoRA trace unavailable::Durable heartbeat failed; run cannot remain valid."
                 exit 71
@@ -675,7 +675,7 @@ jobs:
                   training:{retry_reason:'KAGGLE_CANCELLED',retry_index:1,retry_at:new Date().toISOString()},
                   errors:[{code:'KAGGLE_CANCELLED',recoverable:true,action:'RETRY_SAME_IMMUTABLE_CYCLE'}],
                 },null,2)+'\n');
-                NODE
+          NODE
                 node .mel-trace-control/scripts/lora-daily-trace-client.mjs TRAINING_RETRY artifacts/lora-trace-retry.json RUNNING || true
                 CANCEL_RETRY_USED=1
                 kaggle kernels push \
@@ -698,7 +698,7 @@ jobs:
                 errors:[{code:'KAGGLE_GPU_RUN_FAILED',message:String(process.env.TRACE_FAILURE_STATUS||'').slice(0,1200),recoverable:false}],
                 training:{failed_at:new Date().toISOString()},
               },null,2)+'\n');
-              NODE
+          NODE
               node .mel-trace-control/scripts/lora-daily-trace-client.mjs TRAINING_ERROR artifacts/lora-trace-error.json RUNNING || true
               echo "::error title=Kaggle GPU run failed::$STATUS"
               exit 1
