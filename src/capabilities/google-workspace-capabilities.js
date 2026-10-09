@@ -278,6 +278,87 @@ function calendarHealthcheck(resolveAccessToken, fetchImpl, env, pipedreamRuntim
   };
 }
 
+async function tasksRequest({
+  resolveAccessToken,
+  fetchImpl,
+  pipedreamRuntime,
+  env,
+  context,
+  url,
+  method = 'GET',
+  body,
+  code,
+} = {}) {
+  let nativeError = null;
+  try {
+    const token = await tokenFor(resolveAccessToken, 'google-tasks', context);
+    const result = await requestJson(fetchImpl, token, url, {
+      method,
+      body,
+      code,
+      signal: context?.signal,
+    });
+    return { provider: 'google', body: result };
+  } catch (error) {
+    nativeError = error;
+  }
+
+  if (!pipedreamRuntime || typeof pipedreamRuntime.proxy !== 'function') throw nativeError;
+  try {
+    const proxied = await pipedreamRuntime.proxy({
+      owner: context?.owner || env?.MELITURGOS_USER || 'owner',
+      app: 'google_tasks',
+      url,
+      method,
+      body,
+      signal: context?.signal,
+    });
+    return { provider: 'pipedream', body: proxied?.body || {} };
+  } catch (fallbackError) {
+    const combined = error(code + '_ALL_PATHS_FAILED', 503);
+    combined.native_code = String(nativeError?.code || nativeError?.message || 'GOOGLE_TASKS_NATIVE_FAILED').slice(0, 160);
+    combined.fallback_code = String(fallbackError?.code || fallbackError?.message || 'GOOGLE_TASKS_PIPEDREAM_FAILED').slice(0, 160);
+    throw combined;
+  }
+}
+
+function tasksHealthcheck(resolveAccessToken, fetchImpl, env, pipedreamRuntime, { protectedAction = false } = {}) {
+  const owner = String(env?.MELITURGOS_USER || 'owner').trim() || 'owner';
+  const probe = TASKS_API + '/users/@me/lists?maxResults=1';
+  return async () => {
+    try {
+      const token = await tokenFor(resolveAccessToken, 'google-tasks', { owner });
+      await requestJson(fetchImpl, token, probe, { method: 'GET', code: 'GOOGLE_TASKS_HEALTH_FAILED' });
+      return { status: protectedAction ? 'PROTECTED' : 'HEALTHY', transport: 'google' };
+    } catch (nativeError) {
+      if (!pipedreamRuntime || typeof pipedreamRuntime.proxy !== 'function') {
+        return {
+          status: 'UNAVAILABLE',
+          reason: String(nativeError?.code || nativeError?.message || 'GOOGLE_TASKS_HEALTH_FAILED').slice(0, 180),
+        };
+      }
+      try {
+        await pipedreamRuntime.proxy({
+          owner,
+          app: 'google_tasks',
+          url: probe,
+          method: 'GET',
+        });
+        return {
+          status: protectedAction ? 'PROTECTED' : 'HEALTHY',
+          transport: 'pipedream',
+          native_reason: String(nativeError?.code || nativeError?.message || '').slice(0, 160),
+        };
+      } catch (fallbackError) {
+        return {
+          status: 'UNAVAILABLE',
+          reason: String(fallbackError?.code || fallbackError?.message || 'GOOGLE_TASKS_ALL_PATHS_FAILED').slice(0, 180),
+        };
+      }
+    }
+  };
+}
+
 export function registerGoogleWorkspaceCapabilities(bus, { env = {}, fetchImpl = fetch, resolveAccessToken = null, pipedreamRuntime = null } = {}) {
   if (!bus || typeof bus.discover !== 'function') throw new TypeError('CAPABILITY_BUS_REQUIRED');
   const resolveToken = resolveAccessToken || fixedTokenResolver(env);
@@ -517,8 +598,8 @@ export function registerGoogleWorkspaceCapabilities(bus, { env = {}, fetchImpl =
     name: 'Google Tasks lists read',
     category: 'planning',
     version: '1.0.0',
-    provider: 'google',
-    description: 'Lists bounded Google Tasks task lists.',
+    provider: 'google+pipedream',
+    description: 'Lists bounded Google Tasks task lists, using native Google first and the linked Pipedream account as fallback.',
     input_schema: {
       type: 'object',
       properties: { limit: { type: 'integer', minimum: 1, maximum: MAX_LIST } },
@@ -528,14 +609,16 @@ export function registerGoogleWorkspaceCapabilities(bus, { env = {}, fetchImpl =
     risk: 'LOW',
     permissions: ['google.tasks.read'],
     health: 'DEGRADED',
-    healthcheck: workspaceHealthcheck(resolveToken, fetchImpl, env, 'google-tasks'),
+    healthcheck: tasksHealthcheck(resolveToken, fetchImpl, env, pipedreamRuntime),
     enabled: true,
   }, async (input, context) => {
-    const token = await tokenFor(resolveToken, 'google-tasks', context);
     const limit = listLimit(input.limit);
-    const body = await requestJson(fetchImpl, token, TASKS_API + '/users/@me/lists?' + query({ maxResults: limit }), { code: 'TASKLISTS_READ_FAILED', signal: context?.signal });
-    const tasklists = (Array.isArray(body.items) ? body.items : []).slice(0, limit);
-    return { provider: 'google', tasklists, count: tasklists.length };
+    const transport = await tasksRequest({
+      resolveAccessToken: resolveToken, fetchImpl, pipedreamRuntime, env, context,
+      url: TASKS_API + '/users/@me/lists?' + query({ maxResults: limit }), code: 'TASKLISTS_READ_FAILED',
+    });
+    const tasklists = (Array.isArray(transport.body?.items) ? transport.body.items : []).slice(0, limit);
+    return { provider: transport.provider, tasklists, count: tasklists.length };
   });
 
   bus.discover({
@@ -543,8 +626,8 @@ export function registerGoogleWorkspaceCapabilities(bus, { env = {}, fetchImpl =
     name: 'Google Tasks read',
     category: 'planning',
     version: '1.0.0',
-    provider: 'google',
-    description: 'Lists bounded tasks in one Google Tasks task list.',
+    provider: 'google+pipedream',
+    description: 'Lists bounded tasks in one Google Tasks task list, using native Google first and Pipedream as fallback.',
     input_schema: {
       type: 'object',
       properties: {
@@ -559,18 +642,20 @@ export function registerGoogleWorkspaceCapabilities(bus, { env = {}, fetchImpl =
     risk: 'LOW',
     permissions: ['google.tasks.read'],
     health: 'DEGRADED',
-    healthcheck: workspaceHealthcheck(resolveToken, fetchImpl, env, 'google-tasks'),
+    healthcheck: tasksHealthcheck(resolveToken, fetchImpl, env, pipedreamRuntime),
     enabled: true,
   }, async (input, context) => {
-    const token = await tokenFor(resolveToken, 'google-tasks', context);
     const tasklist = encodePath(input.tasklist_id, 'TASKLIST_ID_INVALID');
     const limit = listLimit(input.limit);
-    const body = await requestJson(fetchImpl, token, TASKS_API + '/lists/' + tasklist + '/tasks?' + query({
-      maxResults: limit,
-      showCompleted: input.show_completed === false ? 'false' : 'true',
-    }), { code: 'TASKS_READ_FAILED', signal: context?.signal });
-    const tasks = (Array.isArray(body.items) ? body.items : []).slice(0, limit);
-    return { provider: 'google', tasklist_id: input.tasklist_id, tasks, count: tasks.length };
+    const transport = await tasksRequest({
+      resolveAccessToken: resolveToken, fetchImpl, pipedreamRuntime, env, context,
+      url: TASKS_API + '/lists/' + tasklist + '/tasks?' + query({
+        maxResults: limit,
+        showCompleted: input.show_completed === false ? 'false' : 'true',
+      }), code: 'TASKS_READ_FAILED',
+    });
+    const tasks = (Array.isArray(transport.body?.items) ? transport.body.items : []).slice(0, limit);
+    return { provider: transport.provider, tasklist_id: input.tasklist_id, tasks, count: tasks.length };
   });
 
   for (const spec of [
@@ -583,8 +668,8 @@ export function registerGoogleWorkspaceCapabilities(bus, { env = {}, fetchImpl =
       name: 'Google Tasks ' + spec.action,
       category: 'planning',
       version: '1.0.0',
-      provider: 'google',
-      description: 'Mutates one Google task after explicit owner approval.',
+      provider: 'google+pipedream',
+      description: 'Mutates one Google task after explicit owner approval, using native Google first and Pipedream as fallback.',
       input_schema: {
         type: 'object',
         properties: {
@@ -603,10 +688,9 @@ export function registerGoogleWorkspaceCapabilities(bus, { env = {}, fetchImpl =
       permissions: [spec.permission],
       approval: { required: true, scope: spec.id, reason: 'GOOGLE_TASK_MUTATION' },
       health: 'DEGRADED',
-    healthcheck: workspaceHealthcheck(resolveToken, fetchImpl, env, 'google-tasks', { protectedAction: true }),
+    healthcheck: tasksHealthcheck(resolveToken, fetchImpl, env, pipedreamRuntime, { protectedAction: true }),
       enabled: true,
     }, async (input, context) => {
-      const token = await tokenFor(resolveToken, 'google-tasks', context);
       const tasklist = encodePath(input.tasklist_id, 'TASKLIST_ID_INVALID');
       let url = TASKS_API + '/lists/' + tasklist + '/tasks';
       let body;
@@ -616,13 +700,12 @@ export function registerGoogleWorkspaceCapabilities(bus, { env = {}, fetchImpl =
         url += '/' + taskId;
         if (spec.action === 'update') body = taskBody(input, { partial: true });
       }
-      const result = await requestJson(fetchImpl, token, url, {
-        method: spec.method,
-        body,
+      const transport = await tasksRequest({
+        resolveAccessToken: resolveToken, fetchImpl, pipedreamRuntime, env, context,
+        url, method: spec.method, body,
         code: 'TASKS_' + spec.action.toUpperCase() + '_FAILED',
-        signal: context?.signal,
       });
-      return { provider: 'google', tasklist_id: input.tasklist_id, task_id: String(result.id || input.task_id || ''), accepted: true };
+      return { provider: transport.provider, tasklist_id: input.tasklist_id, task_id: String(transport.body?.id || input.task_id || ''), accepted: true };
     });
   }
 
