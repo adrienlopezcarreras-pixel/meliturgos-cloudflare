@@ -194,21 +194,22 @@ test('persistent stress advances in durable chunks instead of restarting from ze
 
     let persisted = await readPersistentCapabilityStress({ db, jobId: first.job_id });
     assert.equal(persisted.status, 'QUEUED');
-    assert.equal(persisted.progress.done, 12);
+    assert.equal(persisted.progress.done, 6);
     assert.equal(persisted.progress.total, 25);
-    assert.equal(persisted.report.capabilities.length, 12);
+    assert.equal(persisted.report.capabilities.length, 6);
 
-    const second = await startPersistentCapabilityStress({ bus, db, context });
-    assert.equal(second.resumed, true);
-    await background;
+    for (const expectedDone of [12, 18, 24]) {
+      const resumed = await startPersistentCapabilityStress({ bus, db, context });
+      assert.equal(resumed.resumed, true);
+      await background;
+      persisted = await readPersistentCapabilityStress({ db, jobId: first.job_id });
+      assert.equal(persisted.status, 'QUEUED');
+      assert.equal(persisted.progress.done, expectedDone);
+      assert.equal(persisted.report.capabilities.length, expectedDone);
+    }
 
-    persisted = await readPersistentCapabilityStress({ db, jobId: first.job_id });
-    assert.equal(persisted.status, 'QUEUED');
-    assert.equal(persisted.progress.done, 24);
-    assert.equal(persisted.report.capabilities.length, 24);
-
-    const third = await startPersistentCapabilityStress({ bus, db, context });
-    assert.equal(third.resumed, true);
+    const final = await startPersistentCapabilityStress({ bus, db, context });
+    assert.equal(final.resumed, true);
     await background;
 
     persisted = await readPersistentCapabilityStress({ db, jobId: first.job_id });
