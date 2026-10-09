@@ -1865,7 +1865,9 @@ function PcControl-FileList($payload) {
   $path = PcControl-ResolveLocalPath ([string]$payload.path)
   if (-not (Test-Path -LiteralPath $path -PathType Container)) { throw "DIRECTORY_NOT_FOUND" }
   $items = @(Get-ChildItem -LiteralPath $path -Force -ErrorAction Stop | Select-Object -First 500 | ForEach-Object {
-    @{ name=$_.Name; full_name=$_.FullName; directory=$_.PSIsContainer; length=if($_.PSIsContainer){0}else{[long]$_.Length}; modified=$_.LastWriteTimeUtc.ToString("o") }
+    $itemLength = 0
+    if (-not $_.PSIsContainer) { $itemLength = [long]$_.Length }
+    @{ name=$_.Name; full_name=$_.FullName; directory=$_.PSIsContainer; length=$itemLength; modified=$_.LastWriteTimeUtc.ToString("o") }
   })
   return @{ action="file.list"; path=$path; items=$items; count=$items.Count }
 }
