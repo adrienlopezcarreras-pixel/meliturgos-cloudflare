@@ -76,9 +76,9 @@ test('canonical roadmap forbids bare DONE and requires exact production proof fo
 
   const loraTrace = byId('MEL-LORA-TRACE-01');
   assert.ok(loraTrace);
-  assert.equal(loraTrace.status, 'PARTIAL');
-  assert.match(loraTrace.next, /37930285787|vrai entraînement|trace terminale/i);
+  assert.equal(loraTrace.status, 'DONE_VERIFIED');
+  assert.match(loraTrace.next, /37923410226|11615521167|verifyLoraDailyTrace|trace_verified=1/i);
 
   const nonVerified = rows.filter(row => row.status !== 'DONE_VERIFIED');
-  assert.deepEqual(nonVerified.map(row => row.id), ['MEL-MEDIA-02','MEL-LORA-TRACE-01']);
+  assert.deepEqual(nonVerified.map(row => row.id), ['MEL-MEDIA-02']);
 });
