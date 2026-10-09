@@ -307,7 +307,15 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
   const parallelExpected = String(env?.MEL_PARALLEL_PROOF_TOKEN || '');
   const parallelSupplied = String(request.headers.get('x-mel-parallel-proof') || '');
   const parallelAuthorized = equalToken(parallelExpected, parallelSupplied);
-  const parallelProofPhase = phase === 'identity' || phase === 'sovereignty-proof';
+  const proofPhase = phase === 'identity' || phase === 'sovereignty-proof';
+  const sovAutoCloseOidc = proofPhase
+    ? await authorizeOidc(request, env, {
+        allowedWorkflows: ['mel-sov-ai-auto-close.yml'],
+        allowedWorkflowBranches: ['main'],
+        allowedEvents: ['schedule', 'workflow_dispatch', 'push'],
+      })
+    : { ok: false };
+  const sovAutoCloseAuthorized = sovAutoCloseOidc.ok === true;
   const gen2SecretAuthorized = equalToken(gen2Expected, gen2Supplied);
   const gen2ChallengeAuthorized = phase === 'gen2-42-runtime-tick'
     ? await consumeBootstrapChallenge(env, gen2Supplied, 'gen2-42-runtime-tick')
@@ -327,10 +335,13 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
     : { ok: false };
   const gen2Authorized = gen2SecretAuthorized || gen2ChallengeAuthorized || gen2Oidc.ok === true;
   const rollbackAuthorized = rollbackOidc.ok === true;
-  if (!primaryAuthorized && !gen2Authorized && !parallelAuthorized && !rollbackAuthorized) {
+  if (!primaryAuthorized && !gen2Authorized && !parallelAuthorized && !rollbackAuthorized && !sovAutoCloseAuthorized) {
     return Response.json({ ok: false, code: 'BOOTSTRAP_AUTH_REQUIRED' }, { status: 401, headers: { 'cache-control': 'no-store' } });
   }
-  if (parallelAuthorized && !primaryAuthorized && !gen2Authorized && !rollbackAuthorized && !parallelProofPhase) {
+  if (parallelAuthorized && !primaryAuthorized && !gen2Authorized && !rollbackAuthorized && !sovAutoCloseAuthorized && !proofPhase) {
+    return Response.json({ ok: false, code: 'BOOTSTRAP_SCOPE_DENIED' }, { status: 403, headers: { 'cache-control': 'no-store' } });
+  }
+  if (sovAutoCloseAuthorized && !primaryAuthorized && !gen2Authorized && !rollbackAuthorized && !parallelAuthorized && !proofPhase) {
     return Response.json({ ok: false, code: 'BOOTSTRAP_SCOPE_DENIED' }, { status: 403, headers: { 'cache-control': 'no-store' } });
   }
   if (gen2Authorized && !primaryAuthorized && phase !== 'gen2-42-runtime-tick') {
