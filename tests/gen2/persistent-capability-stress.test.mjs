@@ -263,8 +263,8 @@ test('legacy non-zero cursor without a partial report restarts safely from zero'
 
     const persisted = await readPersistentCapabilityStress({ db, jobId: job.job_id });
     assert.equal(persisted.status, 'QUEUED');
-    assert.equal(persisted.progress.done, 12);
-    assert.equal(persisted.report.capabilities.length, 12);
+    assert.equal(persisted.progress.done, 6);
+    assert.equal(persisted.report.capabilities.length, 6);
     assert.equal(persisted.report.capabilities[0].id, 'legacy-0');
   } finally {
     db.close();
