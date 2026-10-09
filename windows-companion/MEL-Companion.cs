@@ -315,6 +315,7 @@ static class MelApp
             Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
             Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads")
         };
+        d["remote_access_enabled"] = false;
         d["installed_at"] = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         File.WriteAllText(ConfigPath, Json.Serialize(d), new UTF8Encoding(false));
     }
@@ -338,6 +339,13 @@ static class MelApp
         return result;
     }
 
+    public static bool ConfigBool(string key)
+    {
+        object value;
+        if (Config == null || !Config.TryGetValue(key, out value) || value == null) return false;
+        try { return Convert.ToBoolean(value); } catch { return false; }
+    }
+
     public static bool ContainsIgnoreCase(List<string> values, string candidate)
     {
         foreach (var value in values)
@@ -357,11 +365,12 @@ static class MelApp
         };
     }
 
-    public static void SavePermissions(List<string> apps, List<string> paths)
+    public static void SavePermissions(List<string> apps, List<string> paths, bool remoteAccessEnabled)
     {
         if (Config == null && !LoadConfig()) throw new InvalidOperationException("Configuration MEL indisponible.");
         Config["allowed_apps"] = apps.ToArray();
         Config["allowed_paths"] = paths.ToArray();
+        Config["remote_access_enabled"] = remoteAccessEnabled;
         File.WriteAllText(ConfigPath, Json.Serialize(Config), new UTF8Encoding(false));
         RestartCompanion();
     }
@@ -457,7 +466,8 @@ static class MelApp
                 {"version",Version},{"hostname",Environment.MachineName},{"user",Environment.UserName},{"screen",screen},
                 {"engine_refresh_status",LastEngineRefreshStatus},
                 {"engine_refresh_at",LastEngineRefreshUtc == DateTime.MinValue ? 0L : new DateTimeOffset(LastEngineRefreshUtc).ToUnixTimeMilliseconds()},
-                {"engine_refresh_error",LastEngineRefreshError}
+                {"engine_refresh_error",LastEngineRefreshError},
+                {"remote_access_enabled",ConfigBool("remote_access_enabled")}
             };
             // The native shell owns and supervises the authenticated PowerShell
             // engine. If that child process is alive, attest its heartbeat too
@@ -519,6 +529,7 @@ static class MelApp
         report["global_hotkey"] = HotKeyLabel;
         report["allowed_app_count"] = ConfigList("allowed_apps").Count;
         report["allowed_path_count"] = ConfigList("allowed_paths").Count;
+        report["remote_access_enabled"] = ConfigBool("remote_access_enabled");
 
         if ((bool)report["config_loaded"])
         {
@@ -989,7 +1000,15 @@ class PermissionsForm : Form
                 Size=new Size(320,38),Location=new Point(24+column*350,176+row*48)};
             content.Controls.Add(cb);appBoxes.Add(cb);
         }
-        int pathHeadingY=338;
+        int pathHeadingY=392;
+        remoteAccess=new CheckBox {
+            Text="Autoriser l’accès distant MEL (écran, commandes système, fichiers, processus, ports COM)",
+            Checked=MelApp.ConfigBool("remote_access_enabled"),
+            Font=new Font("Segoe UI",10f,FontStyle.Bold),ForeColor=ink,AutoSize=false,
+            Size=new Size(740,52),Location=new Point(24,320)
+        };
+        content.Controls.Add(remoteAccess);
+
         var folderTitle=Caption("DOSSIERS",11,true);
         folderTitle.Dock=DockStyle.None;folderTitle.SetBounds(22,pathHeadingY,650,40);
         content.Controls.Add(folderTitle);
@@ -1019,7 +1038,7 @@ class PermissionsForm : Form
         var allowedPaths=new List<string>();
         foreach(var cb in pathBoxes)if(cb.Checked)allowedPaths.Add(Convert.ToString(cb.Tag));
         try {
-            MelApp.SavePermissions(apps,allowedPaths);
+            MelApp.SavePermissions(apps,allowedPaths,remoteAccess!=null&&remoteAccess.Checked);
             MessageBox.Show("Autorisations appliquées. Le moteur MEL a été rechargé.",
                 "MEL Companion",MessageBoxButtons.OK,MessageBoxIcon.Information);
             DialogResult=DialogResult.OK;Close();
