@@ -14,7 +14,8 @@
     ]
   },
   "assets": {
-    "directory": "./dist"
+    "directory": "./dist",
+    "binding": "ASSETS"
   },
   "observability": {
     "enabled": true,
