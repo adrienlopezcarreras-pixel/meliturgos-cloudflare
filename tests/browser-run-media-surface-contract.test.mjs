@@ -53,3 +53,9 @@ test('video render uses an isolated browser context so unrelated navigation cann
   assert.doesNotMatch(renderSource,/browser\.contexts\?\.\(\)\[0\]/);
   assert.doesNotMatch(renderSource,/context\.pages\?\.\(\)\[0\]/);
 });
+
+
+test('media browser sessions use an extended keep-alive so long MediaRecorder work is not cut at 60 seconds',()=>{
+  assert.match(source,/const MEDIA_KEEP_ALIVE_MS = 600000;/);
+  assert.match(source,/launch\(env\.BROWSER, \{ keep_alive: MEDIA_KEEP_ALIVE_MS \}\)/);
+});
