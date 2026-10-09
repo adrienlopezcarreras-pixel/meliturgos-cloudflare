@@ -141,6 +141,9 @@ test('predeploy refresh creates the backup on the GitHub runner and keeps the Wo
   assert.doesNotMatch(refresher, /runScheduledSystemBackup/);
   assert.doesNotMatch(refresher, /MEL_BACKUP_ENCRYPTION_KEY_B64/);
 
+  assert.match(refresher, /const R2_PAGE_LIMIT = 1000;/);
+  assert.match(refresher, /const D1_PAGE_LIMIT = 500;/);
+  assert.match(runner, /const D1_PAGE_SIZE = 500;/);
   assert.match(runner, /createVerifiedBackupService/);
   assert.match(runner, /createBackupEncryptionCodec/);
   assert.match(runner, /inspectRestoreCandidate/);
