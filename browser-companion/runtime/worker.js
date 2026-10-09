@@ -51,76 +51,107 @@ async function renderMediaVideo(request, env) {
   let browser;
   try {
     browser = await launch(env.BROWSER, { keep_alive: MEDIA_KEEP_ALIVE_MS });
-    // Never reuse an existing context/page here. Browser Run may keep shared pages
-    // alive for unrelated work; any concurrent navigation would destroy this
-    // page.evaluate execution context mid-render.
     const context = await browser.newContext();
     const page = await context.newPage();
     await page.setContent('<!doctype html><html><body style="margin:0;background:#000"><canvas id="c"></canvas></body></html>', { waitUntil: 'domcontentloaded' });
-    const result = await page.evaluate(async ({ frames, width, height, durationMs, fps }) => {
-      const canvas = document.getElementById('c');
-      canvas.width = width;
-      canvas.height = height;
-      const ctx = canvas.getContext('2d', { alpha: false });
-      const images = await Promise.all(frames.map(frame => new Promise((resolve, reject) => {
-        const img = new Image();
-        img.onload = () => resolve(img);
-        img.onerror = () => reject(new Error('FRAME_DECODE_FAILED'));
-        img.src = 'data:' + frame.mime + ';base64,' + frame.base64;
-      })));
-      const stream = canvas.captureStream(fps);
-      const mime = ['video/webm;codecs=vp8','video/webm'].find(x => MediaRecorder.isTypeSupported(x)) || '';
-      if (!mime) throw new Error('MEDIARECORDER_WEBM_UNSUPPORTED');
-      const recorder = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 1_200_000 });
-      const chunks = [];
-      recorder.ondataavailable = event => { if (event.data?.size) chunks.push(event.data); };
-      const stopped = new Promise((resolve, reject) => {
-        recorder.onstop = resolve;
-        recorder.onerror = event => reject(event.error || new Error('MEDIARECORDER_FAILED'));
-      });
-      recorder.start(250);
-      const started = performance.now();
-      await new Promise(resolve => {
-        const draw = now => {
-          const elapsed = Math.min(durationMs, now - started);
-          const progress = elapsed / durationMs;
-          const position = progress * images.length;
-          const index = Math.min(images.length - 1, Math.floor(position));
-          const next = Math.min(images.length - 1, index + 1);
-          const local = position - Math.floor(position);
-          const drawFrame = (img, alpha, zoomOffset) => {
-            const scale = Math.max(width / img.naturalWidth, height / img.naturalHeight) * (1 + 0.08 * progress + zoomOffset);
-            const w = img.naturalWidth * scale, h = img.naturalHeight * scale;
-            const x = (width - w) / 2 + Math.sin(progress * Math.PI * 2) * width * 0.025;
-            const y = (height - h) / 2 + Math.cos(progress * Math.PI) * height * 0.02;
-            ctx.globalAlpha = alpha;
-            ctx.drawImage(img, x, y, w, h);
+
+    // Start rendering inside the page, but return control to Playwright immediately.
+    // The worker then polls a tiny state object so Browser Run receives regular
+    // protocol commands instead of one long Runtime.evaluate call.
+    await page.evaluate(({ frames, width, height, durationMs, fps }) => {
+      window.__melVideoRender = { status: 'RUNNING', result: null, error: null };
+      (async () => {
+        try {
+          const canvas = document.getElementById('c');
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d', { alpha: false });
+          const images = await Promise.all(frames.map(frame => new Promise((resolve, reject) => {
+            const img = new Image();
+            img.onload = () => resolve(img);
+            img.onerror = () => reject(new Error('FRAME_DECODE_FAILED'));
+            img.src = 'data:' + frame.mime + ';base64,' + frame.base64;
+          })));
+          const stream = canvas.captureStream(fps);
+          const mime = ['video/webm;codecs=vp8','video/webm'].find(x => MediaRecorder.isTypeSupported(x)) || '';
+          if (!mime) throw new Error('MEDIARECORDER_WEBM_UNSUPPORTED');
+          const recorder = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 1_200_000 });
+          const chunks = [];
+          recorder.ondataavailable = event => { if (event.data?.size) chunks.push(event.data); };
+          const stopped = new Promise((resolve, reject) => {
+            recorder.onstop = resolve;
+            recorder.onerror = event => reject(event.error || new Error('MEDIARECORDER_FAILED'));
+          });
+          recorder.start(250);
+          const started = performance.now();
+          await new Promise(resolve => {
+            const draw = now => {
+              const elapsed = Math.min(durationMs, now - started);
+              const progress = elapsed / durationMs;
+              const position = progress * images.length;
+              const index = Math.min(images.length - 1, Math.floor(position));
+              const next = Math.min(images.length - 1, index + 1);
+              const local = position - Math.floor(position);
+              const drawFrame = (img, alpha, zoomOffset) => {
+                const scale = Math.max(width / img.naturalWidth, height / img.naturalHeight) * (1 + 0.08 * progress + zoomOffset);
+                const w = img.naturalWidth * scale, h = img.naturalHeight * scale;
+                const x = (width - w) / 2 + Math.sin(progress * Math.PI * 2) * width * 0.025;
+                const y = (height - h) / 2 + Math.cos(progress * Math.PI) * height * 0.02;
+                ctx.globalAlpha = alpha;
+                ctx.drawImage(img, x, y, w, h);
+              };
+              ctx.globalAlpha = 1;
+              ctx.fillStyle = '#000';
+              ctx.fillRect(0,0,width,height);
+              drawFrame(images[index], 1, 0);
+              if (next !== index && local > 0.55) {
+                const alpha = Math.min(1, (local - 0.55) / 0.45);
+                drawFrame(images[next], alpha, 0.01);
+              }
+              ctx.globalAlpha = 1;
+              if (elapsed >= durationMs) return resolve();
+              requestAnimationFrame(draw);
+            };
+            requestAnimationFrame(draw);
+          });
+          recorder.stop();
+          await Promise.race([
+            stopped,
+            new Promise((_, reject) => setTimeout(() => reject(new Error('MEDIARECORDER_STOP_TIMEOUT')), 15000)),
+          ]);
+          stream.getTracks().forEach(track => track.stop());
+          const blob = new Blob(chunks, { type: mime });
+          const buffer = new Uint8Array(await blob.arrayBuffer());
+          if (!buffer.byteLength || buffer.byteLength > 12_000_000) throw new Error('VIDEO_RENDER_OUTPUT_INVALID');
+          let binary = '';
+          const size = 0x8000;
+          for (let i=0;i<buffer.length;i+=size) binary += String.fromCharCode(...buffer.subarray(i, Math.min(buffer.length, i+size)));
+          window.__melVideoRender = {
+            status: 'DONE',
+            result: { mime, base64: btoa(binary), bytes: buffer.byteLength },
+            error: null,
           };
-          ctx.globalAlpha = 1;
-          ctx.fillStyle = '#000';
-          ctx.fillRect(0,0,width,height);
-          drawFrame(images[index], 1, 0);
-          if (next !== index && local > 0.55) {
-            const alpha = Math.min(1, (local - 0.55) / 0.45);
-            drawFrame(images[next], alpha, 0.01);
-          }
-          ctx.globalAlpha = 1;
-          if (elapsed >= durationMs) return resolve();
-          requestAnimationFrame(draw);
-        };
-        requestAnimationFrame(draw);
-      });
-      recorder.stop();
-      await stopped;
-      stream.getTracks().forEach(track => track.stop());
-      const blob = new Blob(chunks, { type: mime });
-      const buffer = new Uint8Array(await blob.arrayBuffer());
-      if (!buffer.byteLength || buffer.byteLength > 12_000_000) throw new Error('VIDEO_RENDER_OUTPUT_INVALID');
-      let binary = '';
-      const size = 0x8000;
-      for (let i=0;i<buffer.length;i+=size) binary += String.fromCharCode(...buffer.subarray(i, Math.min(buffer.length, i+size)));
-      return { mime, base64: btoa(binary), bytes: buffer.byteLength };
+        } catch (error) {
+          window.__melVideoRender = {
+            status: 'ERROR',
+            result: null,
+            error: String(error?.message || error || 'MEDIA_VIDEO_RENDER_FAILED').slice(0,120),
+          };
+        }
+      })();
+      return true;
     }, { frames, width, height, durationMs, fps });
+
+    const deadline = Date.now() + Math.max(30000, durationMs + 20000);
+    let state = null;
+    while (Date.now() < deadline) {
+      state = await page.evaluate(() => window.__melVideoRender || { status: 'MISSING', result: null, error: null });
+      if (state?.status === 'DONE' || state?.status === 'ERROR') break;
+      await new Promise(resolve => setTimeout(resolve, 500));
+    }
+    if (state?.status === 'ERROR') throw new Error(state.error || 'MEDIA_VIDEO_RENDER_FAILED');
+    if (state?.status !== 'DONE') throw new Error('MEDIA_VIDEO_RENDER_TIMEOUT');
+    const result = state.result;
     if (!result?.base64 || !result?.bytes) return json({ ok: false, code: 'MEDIA_VIDEO_RENDER_EMPTY' }, 502);
     return json({
       ok: true,
@@ -139,7 +170,6 @@ async function renderMediaVideo(request, env) {
     try { if (browser) await browser.close(); } catch {}
   }
 }
-
 
 function normalizeVideoPayload(payload, expectedSchema) {
   if (!payload || payload.schema !== expectedSchema) throw Object.assign(new Error('MEDIA_VIDEO_REQUEST_INVALID'), { status: 400 });

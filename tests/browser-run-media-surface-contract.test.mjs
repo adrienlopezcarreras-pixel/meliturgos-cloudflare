@@ -59,3 +59,17 @@ test('media browser sessions use an extended keep-alive so long MediaRecorder wo
   assert.match(source,/const MEDIA_KEEP_ALIVE_MS = 600000;/);
   assert.match(source,/launch\(env\.BROWSER, \{ keep_alive: MEDIA_KEEP_ALIVE_MS \}\)/);
 });
+
+
+test('video render is state-polled instead of held inside one long page.evaluate promise',()=>{
+  const start=source.indexOf('async function renderMediaVideo');
+  const end=source.indexOf('function normalizeVideoPayload',start);
+  assert.ok(start>=0 && end>start);
+  const renderSource=source.slice(start,end);
+  assert.match(renderSource,/window\.__melVideoRender = \{ status: 'RUNNING'/);
+  assert.match(renderSource,/while \(Date\.now\(\) < deadline\)/);
+  assert.match(renderSource,/window\.__melVideoRender \|\| \{ status: 'MISSING'/);
+  assert.match(renderSource,/MEDIA_VIDEO_RENDER_TIMEOUT/);
+  assert.match(renderSource,/MEDIARECORDER_STOP_TIMEOUT/);
+  assert.doesNotMatch(renderSource,/const result = await page\.evaluate\(async/);
+});
