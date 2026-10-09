@@ -130,7 +130,7 @@ const PC_CONTROL_ACTIONS=new Set([
  "file.list","file.read_text","file.write_text",
  "system.info","system.exec"
 ]);
-const PC_CONTROL_PROOF_ACTIONS=new Set(["system.info","serial.list"]);
+const PC_CONTROL_PROOF_ACTIONS=new Set(["system.info","serial.list","serial.read"]);
 
 async function authorizeOwnerOrPcProof(request,env,{action=null}={}){
  const owner=requireAuth(request,env);if(owner.ok)return {ok:true,kind:"owner"};
@@ -157,9 +157,20 @@ async function ownerPcControl(request,env){
  if(String(device.platform||"").toLowerCase()!=="windows")return json({ok:false,code:"PC_CONTROL_WINDOWS_REQUIRED"},409);
  if(!device.online)return json({ok:false,code:"COMPUTER_OFFLINE"},409);
  if(device.metadata?.remote_access_enabled!==true&&a.kind!=="github-oidc")return json({ok:false,code:"REMOTE_ACCESS_DISABLED_LOCALLY"},403);
+ let effectivePayload=payload;
+ if(a.kind==="github-oidc"){
+  if(action==="serial.read"){
+   const port=safe(payload.port,16).toUpperCase();
+   if(!/^COM\d{1,3}$/.test(port))return json({ok:false,code:"SERIAL_PORT_INVALID"},400);
+   const durationMs=Math.max(250,Math.min(3000,Number(payload.duration_ms)||1500));
+   effectivePayload={port,baud:115200,duration_ms:durationMs};
+  }else{
+   effectivePayload={};
+  }
+ }
  const session=safe(b.session_id)||crypto.randomUUID();
  const cid=crypto.randomUUID();
- const plan={schema:"mel.devices.pc-control.v1",owner_authorized:true,steps:[{id:"pc-control-1",action,payload}]};
+ const plan={schema:"mel.devices.pc-control.v1",owner_authorized:true,steps:[{id:"pc-control-1",action,payload:effectivePayload}]};
  await env.DB.prepare("INSERT INTO computer_commands(id,device_id,session_id,plan_json,status,created_at) VALUES(?,?,?,?,?,?)")
   .bind(cid,device.id,session,JSON.stringify(plan),"PENDING",Date.now()).run();
  return json({ok:true,command_id:cid,status:"PENDING",action,device_id:device.id},202);

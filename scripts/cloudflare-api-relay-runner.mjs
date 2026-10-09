@@ -74,6 +74,57 @@ async function main(){
       commands:proof,
     }));
     if(proof.some(row=>row.status!=='SUCCEEDED')) throw Object.assign(new Error('PC_CONTROL_LIVE_PROOF_FAILED'),{code:'PC_CONTROL_LIVE_PROOF_FAILED'});
+
+    const serialListResult=proof.find(row=>row.action==='serial.list')?.result;
+    const serialOutput=Array.isArray(serialListResult?.outputs)
+      ? serialListResult.outputs.find(row=>row?.action==='serial.list')
+      : null;
+    const ports=(Array.isArray(serialOutput?.ports)?serialOutput.ports:[])
+      .map(value=>String(value||'').trim().toUpperCase())
+      .filter(value=>/^COM\d{1,3}$/.test(value));
+
+    if(ports.length===1){
+      const port=ports[0];
+      const submit=await worker('/api/computer/v1/pc-control',{
+        computer_id:computer.id,
+        action:'serial.read',
+        payload:{port,duration_ms:1500},
+      });
+      const commandId=String(submit?.command_id||'');
+      const serialDeadline=Date.now()+20000;
+      let serialCommand=null;
+      while(Date.now()<serialDeadline){
+        await new Promise(resolve=>setTimeout(resolve,1000));
+        const poll=await worker('/api/computer/v1/status?computer_id='+encodeURIComponent(computer.id),{},'GET');
+        const commands=Array.isArray(poll?.commands)?poll.commands:[];
+        serialCommand=commands.find(cmd=>String(cmd?.id||'')===commandId)||null;
+        if(['SUCCEEDED','FAILED'].includes(String(serialCommand?.status||''))) break;
+      }
+      const output=Array.isArray(serialCommand?.result?.outputs)
+        ? serialCommand.result.outputs.find(row=>row?.action==='serial.read')
+        : null;
+      const raw=String(output?.text||'');
+      const diagnostics=raw.split(/\r?\n/)
+        .filter(line=>/(MEL|ESP|boot|error|fail|panic|watchdog|audio|I2S|ES8311|BLE|Link V2|transcription)/i.test(line))
+        .slice(0,80).join('\n').slice(0,8000);
+      console.log('MINI_SERIAL_READ_PROOF='+JSON.stringify({
+        port,
+        status:String(serialCommand?.status||'TIMEOUT'),
+        error_code:serialCommand?.error_code||null,
+        baud:Number(output?.baud||115200),
+        chars:Number(output?.chars||0),
+        diagnostics,
+      }));
+      if(String(serialCommand?.status||'')==='FAILED'){
+        throw Object.assign(new Error('MINI_SERIAL_READ_FAILED'),{code:'MINI_SERIAL_READ_FAILED'});
+      }
+    }else{
+      console.log('MINI_SERIAL_READ_PROOF='+JSON.stringify({
+        skipped:true,
+        reason:ports.length===0?'NO_SERIAL_PORT':'AMBIGUOUS_SERIAL_PORTS',
+        ports,
+      }));
+    }
   }else{
     console.log('PC_CONTROL_LIVE_PROOF='+JSON.stringify({skipped:true,reason:'NO_ONLINE_REMOTE_WINDOWS_COMPANION'}));
   }
