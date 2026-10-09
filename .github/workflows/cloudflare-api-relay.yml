@@ -63,5 +63,5 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          MEL_MINI_RESET_APPROVED: ${{ (github.event_name == 'workflow_dispatch' || (github.event_name == 'workflow_run' && github.event.workflow_run.head_sha == 'c17f04b6a4488346e6e613f15bcb00cd29319083')) && '1' || '0' }}
+          MEL_MINI_RESET_APPROVED: ${{ (github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' || (github.event_name == 'workflow_run' && github.event.workflow_run.head_sha == 'c17f04b6a4488346e6e613f15bcb00cd29319083')) && '1' || '0' }}
         run: node scripts/cloudflare-api-relay-runner.mjs
