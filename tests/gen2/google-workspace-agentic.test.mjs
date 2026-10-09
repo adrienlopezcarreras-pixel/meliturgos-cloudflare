@@ -346,3 +346,84 @@ test('Calendar mutation keeps explicit approval when execution falls back to Pip
   assert.equal(result.event_id, 'event-pd-create');
   assert.ok(proxyCalls.some(call => call.method === 'POST' && call.app === 'google_calendar'));
 });
+
+
+test('Google Tasks read stays executable through Pipedream when native Tasks access is unavailable', async () => {
+  const nativeCalls = [];
+  const proxyCalls = [];
+  const bus = new CapabilityBus();
+  registerGoogleWorkspaceCapabilities(bus, {
+    env: { MELITURGOS_USER: 'adrien' },
+    resolveAccessToken: async () => 'google-token',
+    fetchImpl: async (url, init = {}) => {
+      nativeCalls.push({ url: String(url), init });
+      if (String(url).includes('tasks.googleapis.com/tasks/v1/')) {
+        return response({ error: { code: 403, status: 'PERMISSION_DENIED' } }, 403);
+      }
+      return response({});
+    },
+    pipedreamRuntime: {
+      async proxy(input) {
+        proxyCalls.push(input);
+        return {
+          provider: 'pipedream',
+          body: { items: [{ id: 'list-pd-1', title: 'Pipedream Tasks' }] },
+        };
+      },
+    },
+  });
+
+  const health = await bus.refreshHealth('tasks.tasklists.read');
+  assert.equal(health.health, 'HEALTHY');
+
+  const result = await bus.execute('tasks.tasklists.read', { limit: 1 }, {
+    owner: 'adrien',
+    permissions: ['google.tasks.read'],
+  });
+  assert.equal(result.provider, 'pipedream');
+  assert.equal(result.count, 1);
+  assert.equal(result.tasklists[0].id, 'list-pd-1');
+  assert.ok(nativeCalls.some(call => call.url.includes('/tasks/v1/users/@me/lists')));
+  assert.ok(proxyCalls.some(call => call.app === 'google_tasks' && call.url.includes('/tasks/v1/users/@me/lists')));
+});
+
+test('Google Tasks mutation keeps explicit approval before Pipedream fallback can write', async () => {
+  const proxyCalls = [];
+  const bus = new CapabilityBus();
+  registerGoogleWorkspaceCapabilities(bus, {
+    env: { MELITURGOS_USER: 'adrien' },
+    resolveAccessToken: async () => 'google-token',
+    fetchImpl: async (url) => {
+      if (String(url).includes('tasks.googleapis.com/tasks/v1/')) {
+        return response({ error: { code: 403 } }, 403);
+      }
+      return response({});
+    },
+    pipedreamRuntime: {
+      async proxy(input) {
+        proxyCalls.push(input);
+        if (input.method === 'POST') return { provider: 'pipedream', body: { id: 'task-pd-create' } };
+        return { provider: 'pipedream', body: { items: [] } };
+      },
+    },
+  });
+
+  const input = { tasklist_id: 'list-1', title: 'Fallback Tasks' };
+  await assert.rejects(
+    () => bus.execute('tasks.tasks.create', input, {
+      owner: 'adrien',
+      permissions: ['google.tasks.write'],
+    }),
+    { code: 'EXPLICIT_APPROVAL_REQUIRED' },
+  );
+  assert.equal(proxyCalls.length, 0);
+
+  const result = await bus.execute('tasks.tasks.create', input, {
+    owner: 'adrien',
+    permissions: ['google.tasks.write'],
+    approvedCapabilities: ['tasks.tasks.create'],
+  });
+  assert.equal(result.provider, 'pipedream');
+  assert.equal(result.task_id, 'task-pd-create');
+  assert.ok(proxyCalls.some(call => call.app === 'google_tasks' && call.method === 'POST'));
+});
