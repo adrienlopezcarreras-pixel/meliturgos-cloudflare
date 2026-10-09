@@ -18,6 +18,7 @@ on:
       - '.github/workflows/persistent-capability-stress-live-proof.yml'
       - 'scripts/persistent-capability-stress-live-proof.mjs'
       - 'src/diagnostics/capability-truth-audit.js'
+      - 'src/diagnostics/persistent-capability-stress.js'
       - 'tests/capability-truth-audit.test.mjs'
       - 'tests/gen2/persistent-capability-stress.test.mjs'
 
@@ -41,7 +42,7 @@ jobs:
           cache: npm
       - run: npm ci
       - run: node --check scripts/persistent-capability-stress-live-proof.mjs
-      - run: node --test tests/gen2/persistent-capability-stress.test.mjs tests/release-production-smoke-routes.test.mjs
+      - run: node --test tests/capability-truth-audit.test.mjs tests/gen2/persistent-capability-stress.test.mjs tests/release-production-smoke-routes.test.mjs
 
   production-proof:
     if: github.event_name != 'pull_request'
@@ -61,7 +62,7 @@ jobs:
         run: npm ci
 
       - name: Contract tests
-        run: node --test tests/gen2/persistent-capability-stress.test.mjs tests/release-production-smoke-routes.test.mjs
+        run: node --test tests/capability-truth-audit.test.mjs tests/gen2/persistent-capability-stress.test.mjs tests/release-production-smoke-routes.test.mjs
 
       - name: Resolve authorized Cloudflare account
         shell: bash
@@ -114,5 +115,6 @@ jobs:
             persistent-capability-stress-live-proof.json
             stress-start.json
             stress-status.json
+            stress-resume.json
           if-no-files-found: warn
           retention-days: 30
