@@ -1883,7 +1883,8 @@ function PcControl-FileWriteText($payload) {
   if ($text.Length -gt 1048576) { throw "FILE_TEXT_TOO_LARGE" }
   $parent = Split-Path -Parent $path
   if (-not [string]::IsNullOrWhiteSpace($parent)) { [IO.Directory]::CreateDirectory($parent) | Out-Null }
-  [IO.File]::WriteAllText($path,$text,(New-Object Text.UTF8Encoding($false)))
+  $utf8 = New-Object Text.UTF8Encoding $false
+  [IO.File]::WriteAllText($path,$text,$utf8)
   return @{ action="file.write_text"; path=$path; chars=$text.Length }
 }
 
