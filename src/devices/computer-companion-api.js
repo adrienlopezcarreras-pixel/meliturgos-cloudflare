@@ -1,4 +1,5 @@
 import { requireAuth } from "../core/security.js";
+import { authorizeGitHubActionsOidcRequest } from "../security/github-actions-oidc.js";
 import { evaluateComputerUsePlan } from "./computer-use.js";
 import { getVerifiedShardVaultCodeArchive } from "../continuity/shardvault-runtime.js";
 import { isLocalSovereigntyAction } from "../portability/local-sovereignty-actions.js";
@@ -98,7 +99,7 @@ async function pair(request,env){
 }
 
 async function ownerStatus(request,env,url){
- const a=requireAuth(request,env);if(!a.ok)return a.response;await tables(env);
+ const a=await authorizeOwnerOrPcProof(request,env);if(!a.ok)return a.response;await tables(env);
  const rows=await env.DB.prepare("SELECT * FROM computer_devices ORDER BY last_seen_at DESC LIMIT 20").all();const devices=(rows.results||[]).map(normalizeDevice);
  const id=url.searchParams.get("computer_id")||devices[0]?.id||"";let commands=[];
  if(id){const q=await env.DB.prepare("SELECT * FROM computer_commands WHERE device_id=? ORDER BY created_at DESC LIMIT 30").bind(id).all();commands=(q.results||[]).map(normalizeCommand)}
@@ -129,11 +130,23 @@ const PC_CONTROL_ACTIONS=new Set([
  "file.list","file.read_text","file.write_text",
  "system.info","system.exec"
 ]);
+const PC_CONTROL_PROOF_ACTIONS=new Set(["system.info","serial.list"]);
+
+async function authorizeOwnerOrPcProof(request,env,{action=null}={}){
+ const owner=requireAuth(request,env);if(owner.ok)return {ok:true,kind:"owner"};
+ if(action&&!PC_CONTROL_PROOF_ACTIONS.has(action))return owner;
+ const oidc=await authorizeGitHubActionsOidcRequest(request,env,{
+  allowedWorkflows:["cloudflare-api-relay.yml"],
+  allowedEvents:["workflow_dispatch","schedule","workflow_run"]
+ });
+ if(oidc.ok)return {ok:true,kind:"github-oidc",identity:oidc.identity};
+ return owner;
+}
 
 async function ownerPcControl(request,env){
- const a=requireAuth(request,env);if(!a.ok)return a.response;await tables(env);
  const b=await request.json().catch(()=>({}));
  const id=safe(b.computer_id),action=safe(b.action,160);
+ const a=await authorizeOwnerOrPcProof(request,env,{action});if(!a.ok)return a.response;await tables(env);
  const payload=b.payload&&typeof b.payload==="object"?b.payload:{};
  if(!id)return json({ok:false,code:"COMPUTER_ID_REQUIRED"},400);
  if(!PC_CONTROL_ACTIONS.has(action))return json({ok:false,code:"PC_CONTROL_ACTION_NOT_ALLOWED"},403);
