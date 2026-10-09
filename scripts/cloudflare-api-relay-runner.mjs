@@ -118,6 +118,7 @@ async function main(){
         baud:Number(output?.baud||115200),
         chars:Number(output?.chars||0),
         diagnostics,
+        trace:raw.slice(0,12000),
       }));
       if(String(serialCommand?.status||'')==='FAILED'){
         throw Object.assign(new Error('MINI_SERIAL_READ_FAILED'),{code:'MINI_SERIAL_READ_FAILED'});
