@@ -50,6 +50,33 @@ export function cloudflareApiRelay(request, env = {}) {
       });
       return Response.json({ok:true,relay:'cloudflare-api',devices},{headers:{'cache-control':'no-store'}});
     }
+    if(url.pathname==='/api/internal/cloudflare-api-relay/mini-firmware-status'&&request.method==='POST'){
+      if(!env?.MEDIA_BUCKET)return Response.json({ok:false,code:'MEDIA_BUCKET_UNAVAILABLE'},{status:503});
+      const key='devices/waveshare-esp32-s3-touch-lcd-3.5-c/manifest.json';
+      const object=await env.MEDIA_BUCKET.get(key);
+      if(!object)return Response.json({ok:false,code:'MINI_FIRMWARE_MANIFEST_NOT_FOUND'},{status:404});
+      let manifest={};try{manifest=JSON.parse(await object.text())}catch{return Response.json({ok:false,code:'MINI_FIRMWARE_MANIFEST_INVALID'},{status:500});}
+      const fw=manifest?.firmware&&typeof manifest.firmware==='object'?manifest.firmware:{};
+      const installer=manifest?.installer&&typeof manifest.installer==='object'?manifest.installer:{};
+      return Response.json({
+        ok:true,
+        relay:'cloudflare-api',
+        model:String(manifest?.model||'').slice(0,160)||null,
+        channel:String(manifest?.channel||'').slice(0,40)||null,
+        firmware:{
+          version:String(fw?.version||'').slice(0,80)||null,
+          available:fw?.available===true,
+          sha256:/^[0-9a-f]{64}$/i.test(String(fw?.sha256||''))?String(fw.sha256).toLowerCase():null,
+          size:Number.isFinite(Number(fw?.size))?Number(fw.size):null,
+          source_sha:/^[0-9a-f]{40}$/i.test(String(fw?.source_sha||''))?String(fw.source_sha).toLowerCase():null,
+        },
+        installer:{
+          available:installer?.available===true,
+          sha256:/^[0-9a-f]{64}$/i.test(String(installer?.sha256||''))?String(installer.sha256).toLowerCase():null,
+          size:Number.isFinite(Number(installer?.size))?Number(installer.size):null,
+        },
+      },{headers:{'cache-control':'no-store'}});
+    }
     if(url.pathname==='/api/internal/cloudflare-api-relay/claim'&&request.method==='POST'){
       return Response.json({ok:true,job:await store.claim()},{headers:{'cache-control':'no-store'}});
     }

@@ -35,6 +35,8 @@ async function main(){
   const miniDevices=(Array.isArray(miniStatus?.devices)?miniStatus.devices:[]).slice(0,5);
   const primaryMini=miniDevices[0]||null;
   console.log('MINI_DEVICE_STATUS='+JSON.stringify({devices:miniDevices}));
+  const publishedMiniFirmware=await worker('/api/internal/cloudflare-api-relay/mini-firmware-status',{});
+  console.log('MINI_PUBLISHED_FIRMWARE_STATUS='+JSON.stringify(publishedMiniFirmware));
 
   // Scoped live proof for the Windows Companion. The Worker accepts this OIDC
   // identity only for read-only status plus system.info / serial.list.
