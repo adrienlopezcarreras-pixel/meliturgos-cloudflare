@@ -64,3 +64,18 @@ test('Cloudflare relay exposes only sanitized MINI heartbeat fields to its scope
   assert.match(runner, /MINI_DEVICE_STATUS=/);
   assert.match(runner, /cloudflare-api-relay\/mini-status/);
 });
+
+
+test('MINI reset is manual-only, model-guarded and followed by heartbeat proof', async () => {
+  const runner = await readFile(new URL('../../scripts/cloudflare-api-relay-runner.mjs', import.meta.url), 'utf8');
+  const workflow = await readFile(new URL('../../.github/workflows/cloudflare-api-relay.yml', import.meta.url), 'utf8');
+  assert.match(workflow, /MEL_MINI_RESET_APPROVED:/);
+  assert.match(workflow, /github\.event_name == 'workflow_dispatch'/);
+  assert.match(runner, /MEL_MINI_RESET_APPROVED/);
+  assert.match(runner, /waveshare-esp32-s3/);
+  assert.match(runner, /primaryMini\?\.online===false/);
+  assert.match(runner, /action:'serial\.hard_reset'/);
+  assert.match(runner, /MINI_SERIAL_HARD_RESET_PROOF=/);
+  assert.match(runner, /MINI_DEVICE_STATUS_AFTER_RESET=/);
+  assert.match(runner, /MINI_USB_INSPECT=/);
+});

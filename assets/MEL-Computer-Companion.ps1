@@ -1831,6 +1831,67 @@ function PcControl-SerialRead($payload) {
   }
 }
 
+
+function PcControl-SerialHardReset($payload) {
+  $portName = ([string]$payload.port).Trim().ToUpperInvariant()
+  if ($portName -notmatch '^COM\d{1,3}$') { throw "SERIAL_PORT_INVALID" }
+  $available = @([IO.Ports.SerialPort]::GetPortNames())
+  if ($available -notcontains $portName) { throw "SERIAL_PORT_NOT_FOUND" }
+
+  $baud = 115200
+  $durationMs = 5000
+  if ($payload.duration_ms) { $durationMs = [Math]::Max(1000,[Math]::Min(8000,[int]$payload.duration_ms)) }
+
+  $serial = New-Object IO.Ports.SerialPort $portName,$baud,'None',8,'One'
+  $serial.ReadTimeout = 200
+  $serial.WriteTimeout = 1000
+  # ESP32-S3 auto-reset signals are active-low: DTR controls GPIO0 and RTS controls EN.
+  # Keep DTR deasserted (GPIO0 high = normal boot) and pulse RTS only.
+  # No serial bytes are written; flash and NVS are untouched.
+  $serial.DtrEnable = $false
+  $serial.RtsEnable = $false
+  $builder = New-Object Text.StringBuilder
+  try {
+    $serial.Open()
+    try { $serial.DiscardInBuffer() } catch {}
+    $serial.DtrEnable = $false
+    $serial.RtsEnable = $true
+    Start-Sleep -Milliseconds 120
+    $serial.RtsEnable = $false
+    Start-Sleep -Milliseconds 120
+
+    $deadline = [DateTime]::UtcNow.AddMilliseconds($durationMs)
+    while ([DateTime]::UtcNow -lt $deadline) {
+      $chunk = $serial.ReadExisting()
+      if (-not [string]::IsNullOrEmpty($chunk)) {
+        [void]$builder.Append($chunk)
+        if ($builder.Length -ge 65536) { break }
+      }
+      Start-Sleep -Milliseconds 50
+    }
+    $captured = $builder.ToString()
+    return @{
+      action="serial.hard_reset"
+      port=$portName
+      baud=$baud
+      duration_ms=$durationMs
+      reset_mode="RTS_EN_PULSE_DTR_HIGH_NORMAL_BOOT"
+      flash_written=$false
+      nvs_modified=$false
+      chars=$captured.Length
+      text=(PcControl-LimitText $captured 65536)
+    }
+  } finally {
+    try {
+      if ($serial.IsOpen) {
+        $serial.DtrEnable = $false
+        $serial.RtsEnable = $false
+        $serial.Close()
+      }
+    } catch {}
+    $serial.Dispose()
+  }
+}
 function PcControl-ProcessList {
   $rows = @(Get-Process -ErrorAction SilentlyContinue | Sort-Object ProcessName | Select-Object -First 300 | ForEach-Object {
     @{ id=$_.Id; name=$_.ProcessName; cpu=[double]($_.CPU); memory=[long]($_.WorkingSet64) }
@@ -1924,6 +1985,7 @@ function Perform-PcControl([string]$action,$payload) {
   switch ($action) {
     "serial.list" { return PcControl-SerialList }
     "serial.read" { return PcControl-SerialRead $payload }
+    "serial.hard_reset" { return PcControl-SerialHardReset $payload }
     "process.list" { return PcControl-ProcessList }
     "process.start" { return PcControl-ProcessStart $payload }
     "process.kill" { return PcControl-ProcessKill $payload }

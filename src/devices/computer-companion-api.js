@@ -125,12 +125,12 @@ async function ownerCommand(request,env){
 async function ownerHalt(request,env,halted){const a=requireAuth(request,env);if(!a.ok)return a.response;await tables(env);const b=await request.json().catch(()=>({}));const id=safe(b.computer_id);await env.DB.prepare("UPDATE computer_devices SET halted=? WHERE id=?").bind(halted?1:0,id).run();const row=await env.DB.prepare("SELECT * FROM computer_devices WHERE id=?").bind(id).first();return row?json({ok:true,computer:normalizeDevice(row)}):json({ok:false,code:"COMPUTER_NOT_FOUND"},404)}
 
 const PC_CONTROL_ACTIONS=new Set([
- "serial.list","serial.read","serial.inspect",
+ "serial.list","serial.read","serial.inspect","serial.hard_reset",
  "process.list","process.start","process.kill",
  "file.list","file.read_text","file.write_text",
  "system.info","system.exec"
 ]);
-const PC_CONTROL_PROOF_ACTIONS=new Set(["system.info","serial.list","serial.read","serial.inspect"]);
+const PC_CONTROL_PROOF_ACTIONS=new Set(["system.info","serial.list","serial.read","serial.inspect","serial.hard_reset"]);
 
 async function authorizeOwnerOrPcProof(request,env,{action=null}={}){
  const owner=requireAuth(request,env);if(owner.ok)return {ok:true,kind:"owner"};
@@ -164,6 +164,11 @@ async function ownerPcControl(request,env){
    const port=safe(payload.port,16).toUpperCase();
    if(!/^COM\d{1,3}$/.test(port))return json({ok:false,code:"SERIAL_PORT_INVALID"},400);
    const durationMs=Math.max(250,Math.min(3000,Number(payload.duration_ms)||1500));
+   effectivePayload={port,baud:115200,duration_ms:durationMs};
+  }else if(action==="serial.hard_reset"){
+   const port=safe(payload.port,16).toUpperCase();
+   if(!/^COM\d{1,3}$/.test(port))return json({ok:false,code:"SERIAL_PORT_INVALID"},400);
+   const durationMs=Math.max(1000,Math.min(8000,Number(payload.duration_ms)||5000));
    effectivePayload={port,baud:115200,duration_ms:durationMs};
   }else if(action==="serial.inspect"){
    const port=safe(payload.port,16).toUpperCase();
