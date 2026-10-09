@@ -1,0 +1,63 @@
+name: pc-control-live-proof
+
+on:
+  push:
+    branches:
+      - test/pc-control-live-20261009
+
+permissions:
+  contents: read
+
+jobs:
+  live-proof:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Prove MEL Companion PC Control through production API
+        shell: bash
+        env:
+          MEL_PASSWORD: ${{ secrets.MELITURGOS_PASSWORD }}
+        run: |
+          set -euo pipefail
+          BASE="https://meliturgos.adrien-lopezcarreras.workers.dev"
+          test -n "${MEL_PASSWORD:-}"
+          AUTH="$(printf 'adrien:%s' "$MEL_PASSWORD" | base64 -w0)"
+          curl -fsS --max-time 30 -H "Authorization: Basic $AUTH" "$BASE/api/computer/v1/status" > status.json
+          node - <<'NODE'
+          const fs=require('fs');
+          const d=JSON.parse(fs.readFileSync('status.json','utf8'));
+          const dev=(d.devices||[]).find(x=>String(x.platform||'').toLowerCase()==='windows' && x.online===true) || (d.devices||[])[0];
+          if(!dev) throw new Error('NO_COMPUTER_DEVICE');
+          console.log('DEVICE='+JSON.stringify({id:dev.id,name:dev.name,online:dev.online,platform:dev.platform,remote_access_enabled:dev?.metadata?.remote_access_enabled===true,version:dev?.metadata?.version||null,last_seen_at:dev.last_seen_at||null}));
+          if(dev.online!==true) throw new Error('COMPUTER_OFFLINE');
+          if(dev?.metadata?.remote_access_enabled!==true) throw new Error('REMOTE_ACCESS_DISABLED_LOCALLY');
+          fs.writeFileSync('device-id.txt',String(dev.id));
+          NODE
+          ID="$(cat device-id.txt)"
+          send() {
+            action="$1"
+            out="$2"
+            curl -fsS --max-time 30               -H "Authorization: Basic $AUTH"               -H "content-type: application/json"               --data "{"computer_id":"$ID","action":"$action","payload":{}}"               "$BASE/api/computer/v1/pc-control" > "$out"
+          }
+          send "system.info" system-submit.json
+          send "serial.list" serial-submit.json
+          sleep 3
+          for i in $(seq 1 20); do
+            curl -fsS --max-time 30 -H "Authorization: Basic $AUTH" "$BASE/api/computer/v1/status?computer_id=$ID" > status-poll.json
+            node - <<'NODE' && exit 0 || true
+          const fs=require('fs');
+          const d=JSON.parse(fs.readFileSync('status-poll.json','utf8'));
+          const rows=d.commands||[];
+          const wanted=rows.filter(x=>['SUCCEEDED','FAILED'].includes(x.status)).slice(0,10);
+          const sys=wanted.find(x=>x?.result?.action==='system.info');
+          const ser=wanted.find(x=>x?.result?.action==='serial.list');
+          if(sys) console.log('SYSTEM_INFO='+JSON.stringify(sys.result));
+          if(ser) console.log('SERIAL_LIST='+JSON.stringify(ser.result));
+          if(sys?.status==='FAILED'||ser?.status==='FAILED') throw new Error('PC_CONTROL_COMMAND_FAILED');
+          if(!sys||!ser) process.exit(1);
+          console.log('PC_CONTROL_LIVE_PROOF=SUCCESS');
+          NODE
+            sleep 2
+          done
+          echo "PC_CONTROL_TIMEOUT"
+          exit 1
