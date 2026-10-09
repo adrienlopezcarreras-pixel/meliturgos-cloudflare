@@ -11,7 +11,7 @@ import { inspectRestoreCandidate } from '../../src/backup/restore-service.js';
 import { APP_VERSION, DB_SCHEMA_VERSION } from '../../src/core/config.js';
 
 const SYSTEM_BACKUP_PREFIX = 'backups/system/';
-const D1_PAGE_SIZE = 100;
+const D1_PAGE_SIZE = 500;
 const MAX_ROWS_PER_TABLE = 50_000;
 const MAX_R2_PAGES = 1000;
 
