@@ -31,6 +31,11 @@ async function main(){
   assert(/^[A-Za-z0-9_-]{8,80}$/.test(ACCOUNT_ID),'CLOUDFLARE_ACCOUNT_ID_INVALID');
   await worker('/api/internal/cloudflare-api-relay/heartbeat',{run_id:Number(process.env.GITHUB_RUN_ID||0)||null});
 
+  const miniStatus=await worker('/api/internal/cloudflare-api-relay/mini-status',{});
+  console.log('MINI_DEVICE_STATUS='+JSON.stringify({
+    devices:(Array.isArray(miniStatus?.devices)?miniStatus.devices:[]).slice(0,5),
+  }));
+
   // Scoped live proof for the Windows Companion. The Worker accepts this OIDC
   // identity only for read-only status plus system.info / serial.list.
   const pcStatus=await worker('/api/computer/v1/status',{},'GET');
