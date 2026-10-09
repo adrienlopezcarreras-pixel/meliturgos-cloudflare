@@ -1,0 +1,33 @@
+name: ops-trigger-lora-cycle10
+
+on:
+  push:
+    branches:
+      - ops/trigger-lora-cycle10-20261009
+    paths:
+      - ".github/workflows/ops-trigger-lora-cycle10.yml"
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dispatch LoRA cycle 10
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh workflow run lora-kaggle-free-gpu.yml \
+            --repo "$GITHUB_REPOSITORY" \
+            --ref main \
+            -f source_sha="8806969aad34e41a2bfdcdb2fc91c20824775e8a" \
+            -f cycle="10" \
+            -f parent_release_tag="mel-lora-kaggle-8806969aad34-c009" \
+            -f shard_size="750" \
+            -f max_cycles="100" \
+            -f benchmark_preview="false" \
+            -f smoke_only="false"
+          echo "LORA_CYCLE_10_DISPATCHED"
