@@ -34,6 +34,18 @@ test('persistent capability stress stores one job and retries a safe runtime fai
       },
     };
 
+    const queued = await startPersistentCapabilityStress({
+      bus,
+      db,
+      context: { owner: 'test', permissions: [] },
+    });
+
+    assert.equal(queued.status, 'QUEUED');
+    assert.match(queued.job_id, /^cap-stress-/);
+    assert.equal(queued.progress.pass, 2);
+    assert.equal(queued.progress.done, 0);
+    assert.equal(executions, 1, 'first invocation performs only the first pass');
+
     const completed = await startPersistentCapabilityStress({
       bus,
       db,
@@ -41,10 +53,10 @@ test('persistent capability stress stores one job and retries a safe runtime fai
     });
 
     assert.equal(completed.status, 'COMPLETE');
-    assert.match(completed.job_id, /^cap-stress-/);
+    assert.equal(completed.job_id, queued.job_id);
     assert.equal(completed.progress.pass, 2);
     assert.equal(completed.progress.done, 1);
-    assert.equal(executions, 2, 'one first-pass execution plus one bounded retry');
+    assert.equal(executions, 2, 'second invocation performs the bounded retry');
 
     const persisted = await readPersistentCapabilityStress({ db, jobId: completed.job_id });
     assert.equal(persisted.status, 'COMPLETE');
