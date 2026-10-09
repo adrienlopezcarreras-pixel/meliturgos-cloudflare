@@ -71,8 +71,8 @@ test('canonical roadmap forbids bare DONE and requires exact production proof fo
   }
 
   const media = byId('MEL-MEDIA-02');
-  assert.equal(media.status, 'PARTIAL');
-  assert.match(media.next, /37946032930|MEDIA_VIDEO_RENDER_TIMEOUT|12\/12/i);
+  assert.equal(media.status, 'DONE_VERIFIED');
+  assert.match(media.next, /release #693|71d028320aabd9240478993629ed36f32344df7e|12\/12|#1193/i);
 
   const loraTrace = byId('MEL-LORA-TRACE-01');
   assert.ok(loraTrace);
@@ -80,5 +80,5 @@ test('canonical roadmap forbids bare DONE and requires exact production proof fo
   assert.match(loraTrace.next, /37923410226|11615521167|verifyLoraDailyTrace|trace_verified=1/i);
 
   const nonVerified = rows.filter(row => row.status !== 'DONE_VERIFIED');
-  assert.deepEqual(nonVerified.map(row => row.id), ['MEL-MEDIA-02']);
+  assert.deepEqual(nonVerified.map(row => row.id), []);
 });
