@@ -78,4 +78,7 @@ test('MINI reset is manual-only, model-guarded and followed by heartbeat proof',
   assert.match(runner, /MINI_SERIAL_HARD_RESET_PROOF=/);
   assert.match(runner, /MINI_DEVICE_STATUS_AFTER_RESET=/);
   assert.match(runner, /MINI_USB_INSPECT=/);
+  assert.match(runner, /engineReadyForReset/);
+  assert.match(runner, /COMPANION_ENGINE_REFRESH_REQUIRED/);
+  assert.match(runner, /engine_refresh_status/);
 });
