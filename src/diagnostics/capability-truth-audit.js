@@ -407,7 +407,24 @@ export async function auditRuntimeCapabilities(runtime, {
       truth_status: classifyCapabilityTruth(record, execution),
     };
     rows.push(row);
-    if (progress) await progress({ index: index + 1, total: records.length, row });
+    if (progress) {
+      let progressTimer;
+      try {
+        await Promise.race([
+          progress({ index: index + 1, total: records.length, row }),
+          new Promise((_, reject) => {
+            progressTimer = setTimeout(() => reject(Object.assign(
+              new Error('CAPABILITY_AUDIT_PROGRESS_TIMEOUT'),
+              { code: 'CAPABILITY_AUDIT_PROGRESS_TIMEOUT' },
+            )), 2_000);
+          }),
+        ]).finally(() => clearTimeout(progressTimer));
+      } catch (error) {
+        // Progress persistence is diagnostic bookkeeping, not capability
+        // execution. A stalled D1/status write must never freeze the entire
+        // global audit. The final report remains authoritative.
+      }
+    }
   }
 
   const counts = rows.reduce((acc, row) => {
