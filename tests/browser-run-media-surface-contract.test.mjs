@@ -41,3 +41,15 @@ test('video generation is visibly frame-animation and never claims a premium gen
   assert.match(runtime,/provider: 'workers-ai\+browser-run'/);
   assert.doesNotMatch(runtime,/provider:\s*['"](?:veo|seedance|dreamina)['"]/i);
 });
+
+
+test('video render uses an isolated browser context so unrelated navigation cannot destroy page.evaluate',()=>{
+  const start=source.indexOf('async function renderMediaVideo');
+  const end=source.indexOf('function normalizeVideoPayload',start);
+  assert.ok(start>=0 && end>start);
+  const renderSource=source.slice(start,end);
+  assert.match(renderSource,/const context = await browser\.newContext\(\)/);
+  assert.match(renderSource,/const page = await context\.newPage\(\)/);
+  assert.doesNotMatch(renderSource,/browser\.contexts\?\.\(\)\[0\]/);
+  assert.doesNotMatch(renderSource,/context\.pages\?\.\(\)\[0\]/);
+});
