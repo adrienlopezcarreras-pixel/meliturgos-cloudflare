@@ -344,6 +344,7 @@ class MainActivity : ComponentActivity() {
             }
         }
         if (!ActivityManager.isRunningInTestHarness()) {
+            MelCompanionInternetValidator.refresh(this)
             window.decorView.post { MelCompanionController.restore(this) }
         }
     }
