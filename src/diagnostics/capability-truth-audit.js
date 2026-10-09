@@ -269,6 +269,9 @@ export async function auditRuntimeCapabilities(runtime, {
   zeroCostCapabilityIds = [],
   onProgress = null,
   executionTimeoutMs = 15_000,
+  startIndex = 0,
+  maxRecords = null,
+  recordIds = null,
 } = {}) {
   if (!runtime?.bus) throw new TypeError('CAPABILITY_BUS_REQUIRED');
 
@@ -278,7 +281,20 @@ export async function auditRuntimeCapabilities(runtime, {
       : []
   );
 
-  let records = runtime.bus.list();
+  const allRecords = runtime.bus.list();
+  const wantedIds = Array.isArray(recordIds) && recordIds.length
+    ? new Set(recordIds.map(value => String(value)))
+    : null;
+  const recordUniverse = wantedIds
+    ? allRecords.filter(record => wantedIds.has(String(record?.id || '')))
+    : allRecords;
+  const totalRecords = recordUniverse.length;
+  const rangeStart = Math.max(0, Math.min(totalRecords, Number(startIndex) || 0));
+  const requestedMax = maxRecords == null ? null : Math.max(0, Number(maxRecords) || 0);
+  const rangeEnd = requestedMax == null
+    ? totalRecords
+    : Math.min(totalRecords, rangeStart + requestedMax);
+  let records = recordUniverse.slice(rangeStart, rangeEnd);
   if (typeof runtime.bus.refreshHealth === 'function') {
     const healthTimeoutMs = 4_000;
     const healthConcurrency = 8;
@@ -411,7 +427,7 @@ export async function auditRuntimeCapabilities(runtime, {
       let progressTimer;
       try {
         await Promise.race([
-          progress({ index: index + 1, total: records.length, row }),
+          progress({ index: rangeStart + index + 1, total: totalRecords, row }),
           new Promise((_, reject) => {
             progressTimer = setTimeout(() => reject(Object.assign(
               new Error('CAPABILITY_AUDIT_PROGRESS_TIMEOUT'),
@@ -436,7 +452,21 @@ export async function auditRuntimeCapabilities(runtime, {
     valid: rows.filter(row => row.contract_valid === true).length,
     invalid: rows.filter(row => row.contract_valid === false).length,
   };
-  return { ok: true, total: rows.length, deep: Boolean(deep), counts, contracts, capabilities: rows };
+  return {
+    ok: true,
+    total: totalRecords,
+    deep: Boolean(deep),
+    counts,
+    contracts,
+    capabilities: rows,
+    range: {
+      start_index: rangeStart,
+      end_index: rangeEnd,
+      next_index: rangeEnd,
+      processed: rows.length,
+      complete: rangeEnd >= totalRecords,
+    },
+  };
 }
 
 export { SAFE_SAMPLES, COST_SENSITIVE_CAPABILITIES, DECLARED_IMPLEMENTATION_STATUSES };
