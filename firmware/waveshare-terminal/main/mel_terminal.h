@@ -4,13 +4,14 @@
 
 #define MEL_LCD_H_RES 320
 #define MEL_LCD_V_RES 480
-#define MEL_FW_VERSION "0.4.38-unified"
+#define MEL_FW_VERSION "0.6.14-pa-ctrl"
 #define MEL_PROTOCOL_VERSION "1.0"
 // MINI mobile status is independent from Wi-Fi association.
 
 void mel_terminal_ui_init(lv_disp_t *display);
 void mel_terminal_start(bool force_setup);
 void mel_terminal_set_hardware(bool camera_ok, bool audio_ok, bool sd_ok);
+bool mel_terminal_prepare_voice_worker(void);
 bool mel_terminal_init_storage(void);
 bool mel_terminal_storage_ok(void);
 
@@ -37,6 +38,12 @@ void mel_terminal_request_voice(void);
 int mel_terminal_state(void);
 bool mel_terminal_online(void);
 int mel_terminal_voice_level(void);
+const char *mel_terminal_last_voice_error(void);
+bool mel_terminal_voice_output_enabled(void);
+void mel_terminal_set_voice_output_enabled(bool enabled);
+void mel_terminal_test_voice_output(void);
+void mel_terminal_test_speaker_local(void);
+void mel_terminal_stop_voice_output(void);
 bool mel_terminal_has_display(void);
 void mel_terminal_display_next(void);
 void mel_terminal_display_previous(void);
