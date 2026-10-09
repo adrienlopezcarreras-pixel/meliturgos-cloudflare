@@ -26,7 +26,7 @@ const DEFAULT_APPS=["notepad","calculator","explorer","msedge","firefox","chrome
 const PAIR_TTL_MS=10*60*1000;
 const MINI_ONLINE_MS=60*1000;
 const ANDROID_ONLINE_MS=35*60*1000;
-const MIN_SOVEREIGN_AI_ENGINE_VERSION="1.3.2";
+const MIN_SOVEREIGN_AI_ENGINE_VERSION="1.4.1";
 
 function versionAtLeast(actual,required){
  const a=String(actual||"").match(/^\d+(?:\.\d+){0,3}/)?.[0]?.split(".").map(Number)||[];
@@ -156,7 +156,7 @@ async function ownerPcControl(request,env){
  if(device.halted)return json({ok:false,code:"OWNER_HALT_ACTIVE"},409);
  if(String(device.platform||"").toLowerCase()!=="windows")return json({ok:false,code:"PC_CONTROL_WINDOWS_REQUIRED"},409);
  if(!device.online)return json({ok:false,code:"COMPUTER_OFFLINE"},409);
- if(device.metadata?.remote_access_enabled!==true)return json({ok:false,code:"REMOTE_ACCESS_DISABLED_LOCALLY"},403);
+ if(device.metadata?.remote_access_enabled!==true&&a.kind!=="github-oidc")return json({ok:false,code:"REMOTE_ACCESS_DISABLED_LOCALLY"},403);
  const session=safe(b.session_id)||crypto.randomUUID();
  const cid=crypto.randomUUID();
  const plan={schema:"mel.devices.pc-control.v1",owner_authorized:true,steps:[{id:"pc-control-1",action,payload}]};
