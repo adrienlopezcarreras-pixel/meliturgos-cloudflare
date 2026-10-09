@@ -528,3 +528,32 @@ test('targeted audit ranges only refresh and inspect requested capability ids', 
   assert.deepEqual(refreshed,['target-1','target-4']);
   assert.equal(report.range.complete,true);
 });
+
+
+test('external connector reads stay inventoried in global stress without duplicate live execution', async () => {
+  const calls=[];
+  const records=[
+    { id:'files.search', name:'OneDrive files search', category:'files', provider:'pipedream', risk:'LOW', enabled:true, health:'HEALTHY' },
+    { id:'sites.search', name:'SharePoint sites search', category:'files', provider:'pipedream', risk:'LOW', enabled:true, health:'HEALTHY' },
+    { id:'device.policy.preview', name:'Device preview', category:'device', provider:'local', risk:'LOW', enabled:true, health:'HEALTHY' },
+  ];
+  const fake={bus:{
+    list:()=>records,
+    execute:async(id)=>{calls.push(id);return {ok:true};},
+  }};
+  const report=await auditRuntimeCapabilities(fake,{
+    deep:true,
+    samples:{
+      'files.search':{query:'mel',limit:1},
+      'sites.search':{query:'mel',limit:1},
+      'device.policy.preview':{},
+    },
+  });
+  for(const id of ['files.search','sites.search']){
+    const row=report.capabilities.find(item=>item.id===id);
+    assert.equal(row.tested_now,false);
+    assert.equal(row.auto_execution_blocked,'UNKNOWN_OR_EXTERNAL_COST');
+    assert.equal(row.truth_status,'EXISTANT_NON_TESTE');
+  }
+  assert.deepEqual(calls,['device.policy.preview']);
+});
