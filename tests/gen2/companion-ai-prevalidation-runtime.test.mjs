@@ -118,7 +118,7 @@ test('local sovereignty whitelist and PowerShell companion expose only bounded l
     assert.match(source,/WaitForExit\(300000\)/);
     assert.match(source,/WaitForExit\(720000\)/);
     assert.match(source,/SOVEREIGNTY_AI_LOCAL_BOOTSTRAP_FAILED/);
-    assert.match(source,/\$Version = "1\.4\.0"/);
+    assert.match(source,/\$Version = "1\.4\.1"/);
     assert.match(source,/mel\.local-ai-bootstrap\/v2/);
     assert.match(source,/engine_version = \$Version/);
     assert.match(source,/process_id = \$PID/);
