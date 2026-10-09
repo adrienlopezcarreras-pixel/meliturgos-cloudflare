@@ -161,6 +161,8 @@ test('predeploy refresh creates the backup on the GitHub runner and keeps the Wo
   assert.match(binderBlock, /BINDER_STABLE_PROBES/);
   assert.match(binderBlock, /\/prepare/);
   assert.match(binderBlock, /predeploy-backup-verified\.marker/);
+  assert.match(binderBlock, /--var "MEL_PREDEPLOY_BINDER_TOKEN:\$\{BINDER_TOKEN\}"/);
+  assert.doesNotMatch(binderBlock, /wrangler secret put MEL_PREDEPLOY_BINDER_TOKEN/);
   assert.doesNotMatch(binderBlock, /MEL_LAUNCH_BOOTSTRAP_TOKEN/);
   assert.doesNotMatch(binderBlock, /release-launch-bootstrap/);
 });
