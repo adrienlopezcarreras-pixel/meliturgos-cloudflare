@@ -15,7 +15,7 @@ using System.Web.Script.Serialization;
 static class MelApp
 {
     public const string DefaultServer = "https://meliturgos.adrien-lopezcarreras.workers.dev";
-    public const string Version = "2.3.11";
+    public const string Version = "2.3.12";
     public static readonly string MelDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "MEL");
     public static readonly string ConfigPath = Path.Combine(MelDir, "computer.json");
     public static readonly string InstalledExe = Path.Combine(MelDir, "MEL-Companion.exe");
@@ -29,6 +29,8 @@ static class MelApp
     public static string Server;
     public static string ComputerId;
     public static Process CompanionProcess;
+    public static System.Threading.Timer SupervisorTimer;
+    static int SupervisorBusy;
     public static DateTime LastEngineRefreshUtc = DateTime.MinValue;
     public static string LastEngineRefreshStatus = "NOT_RUN";
     public static string LastEngineRefreshError = "";
@@ -444,6 +446,36 @@ static class MelApp
         if (CompanionRunning()) return;
         CompanionProcess = null;
         StartCompanion();
+    }
+
+    public static void StartBackgroundSupervisor()
+    {
+        if (SupervisorTimer != null) return;
+        SupervisorTimer = new System.Threading.Timer(delegate
+        {
+            if (Interlocked.Exchange(ref SupervisorBusy, 1) != 0) return;
+            try
+            {
+                EnsureCompanion();
+                Heartbeat();
+            }
+            catch { }
+            finally
+            {
+                Interlocked.Exchange(ref SupervisorBusy, 0);
+            }
+        }, null, 1000, 10000);
+    }
+
+    public static void StopBackgroundSupervisor()
+    {
+        try
+        {
+            var timer = SupervisorTimer;
+            SupervisorTimer = null;
+            if (timer != null) timer.Dispose();
+        }
+        catch { }
     }
 
     static Dictionary<string,string> DeviceHeaders()
@@ -1259,7 +1291,8 @@ class Program
             try { MelApp.HotKey = new HotKeyWindow(); } catch (Exception ex) { StartupError("hotkey", ex); }
             try { MelApp.InstallFiles(MelApp.StartupEnabled()); } catch (Exception ex) { StartupError("install", ex); }
             try { MelApp.StartCompanion(); } catch (Exception ex) { StartupError("engine", ex); }
-            // Engine refresh and heartbeat are handled after the UI is visible.
+            try { MelApp.StartBackgroundSupervisor(); } catch (Exception ex) { StartupError("supervisor", ex); }
+            // Heartbeat supervision no longer depends on the window being visible.
             Application.Run();
         }
         catch (Exception ex)
@@ -1269,6 +1302,7 @@ class Program
         }
         finally
         {
+            try { MelApp.StopBackgroundSupervisor(); } catch { }
             try { if (MelApp.HotKey != null) MelApp.HotKey.Dispose(); } catch { }
             mutex.ReleaseMutex();
         }
