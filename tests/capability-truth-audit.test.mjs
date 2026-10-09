@@ -432,3 +432,71 @@ test('deep audit bounds and parallelizes health refresh while preserving capabil
   assert.ok(peak<=8,'health refresh concurrency must stay bounded');
   assert.equal(refreshed.length,10);
 });
+
+
+test('deep audit can process a bounded absolute range and report the durable next cursor', async () => {
+  const records = Array.from({ length: 7 }, (_, index) => ({
+    id:'range-'+index,
+    name:'Range '+index,
+    category:'test',
+    provider:'core',
+    risk:'LOW',
+    enabled:true,
+    health:'HEALTHY',
+  }));
+  const progress=[];
+  const bus={
+    list:()=>records,
+    contract:()=>({valid:true}),
+    execute:async(id)=>({id}),
+  };
+  const report=await auditRuntimeCapabilities({bus},{
+    deep:true,
+    startIndex:2,
+    maxRecords:3,
+    samples:Object.fromEntries(records.map(row=>[row.id,{}])),
+    onProgress:async p=>progress.push({index:p.index,total:p.total,id:p.row.id}),
+  });
+  assert.equal(report.total,7);
+  assert.deepEqual(report.capabilities.map(row=>row.id),['range-2','range-3','range-4']);
+  assert.deepEqual(report.range,{
+    start_index:2,
+    end_index:5,
+    next_index:5,
+    processed:3,
+    complete:false,
+  });
+  assert.deepEqual(progress.map(row=>row.index),[3,4,5]);
+  assert.equal(progress.every(row=>row.total===7),true);
+});
+
+test('targeted audit ranges only refresh and inspect requested capability ids', async () => {
+  const records = Array.from({ length: 6 }, (_, index) => ({
+    id:'target-'+index,
+    name:'Target '+index,
+    category:'test',
+    provider:'core',
+    risk:'LOW',
+    enabled:true,
+    health:'HEALTHY',
+  }));
+  const refreshed=[];
+  const bus={
+    list:()=>records,
+    refreshHealth:async id=>{
+      refreshed.push(id);
+      return records.find(row=>row.id===id);
+    },
+    contract:()=>({valid:true}),
+    execute:async(id)=>({id}),
+  };
+  const report=await auditRuntimeCapabilities({bus},{
+    deep:true,
+    recordIds:['target-1','target-4'],
+    samples:{'target-1':{},'target-4':{}},
+  });
+  assert.equal(report.total,2);
+  assert.deepEqual(report.capabilities.map(row=>row.id),['target-1','target-4']);
+  assert.deepEqual(refreshed,['target-1','target-4']);
+  assert.equal(report.range.complete,true);
+});
