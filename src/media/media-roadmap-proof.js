@@ -36,6 +36,22 @@ function artifactKey(result, step) {
   return key;
 }
 
+function transientMediaFailure(error) {
+  const code = String(error?.code || '').trim();
+  const message = String(error?.message || error || '').trim();
+  const combined = (code + ' ' + message).toUpperCase();
+  return code === 'MEDIA_VIDEO_RENDER_TIMEOUT'
+    || /\b3040\b/.test(combined)
+    || /\b429\b/.test(combined)
+    || combined.includes('CAPACITY TEMPORARILY EXCEEDED')
+    || combined.includes('PLEASE TRY AGAIN');
+}
+
+async function retryDelay(ms) {
+  if (ms <= 0) return;
+  await new Promise(resolve => setTimeout(resolve, ms));
+}
+
 function safeResult(id, result, durationMs) {
   return Object.freeze({
     id,
@@ -53,6 +69,7 @@ function safeResult(id, result, durationMs) {
 export async function runMelMedia02LiveProof(env = {}, {
   sourceSha = '',
   audit = async () => {},
+  transientRetryDelayMs = 1500,
 } = {}) {
   const deployedSha = exactSha(sourceSha || env?.MEL_DEPLOYED_GIT_SHA);
   if (!deployedSha) throw proofError('MEL_MEDIA_02_DEPLOYED_SHA_INVALID', 409);
@@ -79,29 +96,38 @@ export async function runMelMedia02LiveProof(env = {}, {
     requestId: crypto.randomUUID(),
   };
   const run = async (id, input) => {
-    const started = Date.now();
-    try {
-      const result = await bounded(bus.execute(id, input, context), id);
-      const safe = safeResult(id, result, Math.max(0, Date.now() - started));
-      if (!safe.ok) throw proofError('MEL_MEDIA_02_EXECUTION_NOT_OK', 502, { capability: id, step: id });
-      if (safe.zero_added_cost !== true) {
-        throw proofError('MEL_MEDIA_02_ZERO_COST_NOT_PROVED', 409, { capability: id, step: id });
+    const maxAttempts = 3;
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      const started = Date.now();
+      try {
+        const result = await bounded(bus.execute(id, input, context), id);
+        const safe = safeResult(id, result, Math.max(0, Date.now() - started));
+        if (!safe.ok) throw proofError('MEL_MEDIA_02_EXECUTION_NOT_OK', 502, { capability: id, step: id });
+        if (safe.zero_added_cost !== true) {
+          throw proofError('MEL_MEDIA_02_ZERO_COST_NOT_PROVED', 409, { capability: id, step: id });
+        }
+        results.push(safe);
+        return result;
+      } catch (error) {
+        if (error?.capability) throw error;
+        if (attempt < maxAttempts && transientMediaFailure(error)) {
+          await retryDelay(Math.max(0, Number(transientRetryDelayMs) || 0) * attempt);
+          continue;
+        }
+        throw proofError(
+          String(error?.code || 'MEL_MEDIA_02_CAPABILITY_EXECUTION_FAILED').slice(0, 180),
+          Number(error?.status) || 503,
+          {
+            capability: id,
+            step: error?.step || id,
+            cause_code: String(error?.code || '').slice(0, 180) || null,
+            cause_message: String(error?.message || error || '').slice(0, 500) || null,
+            transient_retry_attempts: attempt - 1,
+          },
+        );
       }
-      results.push(safe);
-      return result;
-    } catch (error) {
-      if (error?.capability) throw error;
-      throw proofError(
-        String(error?.code || 'MEL_MEDIA_02_CAPABILITY_EXECUTION_FAILED').slice(0, 180),
-        Number(error?.status) || 503,
-        {
-          capability: id,
-          step: error?.step || id,
-          cause_code: String(error?.code || '').slice(0, 180) || null,
-          cause_message: String(error?.message || error || '').slice(0, 500) || null,
-        },
-      );
     }
+    throw proofError('MEL_MEDIA_02_RETRY_EXHAUSTED', 503, { capability: id, step: id });
   };
 
   // Image chain: generate -> analyze -> process.
