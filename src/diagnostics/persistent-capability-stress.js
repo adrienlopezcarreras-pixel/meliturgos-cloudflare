@@ -1,6 +1,7 @@
 import { auditRuntimeCapabilities, SAFE_SAMPLES } from './capability-truth-audit.js';
 
-const STALE_RUN_MS = 90000;
+const STALE_RUN_MS = 15000;
+const STRESS_CHUNK_SIZE = 12;
 
 function stressError(code) {
   return Object.assign(new Error(code), { code });
@@ -142,6 +143,21 @@ export class D1CapabilityStressStore {
     return this.row(row);
   }
 
+  async claimRunnable(id, { staleBefore = Date.now() - STALE_RUN_MS } = {}) {
+    await this.init();
+    const now = Date.now();
+    const result = await this.db.prepare(`UPDATE capability_stress_runs
+      SET status='RUNNING', updated_at=?
+      WHERE id=? AND (
+        status='QUEUED'
+        OR (status IN ('RUNNING','RETRYING') AND updated_at<=?)
+      )`)
+      .bind(now, String(id || ''), Number(staleBefore || 0))
+      .run();
+    if (Number(result?.meta?.changes || 0) < 1) return null;
+    return this.get(id);
+  }
+
   async update(id, patch = {}) {
     await this.init();
     const current = await this.get(id);
@@ -182,44 +198,263 @@ function executionContext(context = {}) {
   };
 }
 
+
+function mergeFirstPassChunk(previousReport, chunk) {
+  const capabilities = Array.isArray(previousReport?.capabilities)
+    ? previousReport.capabilities.slice()
+    : [];
+  const startIndex = Number(chunk?.range?.start_index || 0);
+  for (let offset = 0; offset < (chunk?.capabilities || []).length; offset += 1) {
+    capabilities[startIndex + offset] = chunk.capabilities[offset];
+  }
+  const dense = capabilities.filter(Boolean);
+  return {
+    ok: true,
+    total: Number(chunk?.total || previousReport?.total || dense.length || 0),
+    deep: true,
+    counts: countsFor(dense),
+    contracts: contractsFor(dense),
+    capabilities: dense,
+    retry_pass: previousReport?.retry_pass === true,
+    partial: chunk?.range?.complete !== true,
+  };
+}
+
+async function finalizePersistentStress({ store, id, finalReport, retryIds = [] }) {
+  const remainingRuntimeFailures = finalReport.capabilities
+    .filter(row => row?.truth_status === 'EXISTANT_MAIS_ECHEC_RUNTIME')
+    .map(row => row.id);
+  const blocked = finalReport.capabilities
+    .filter(row => row?.auto_execution_blocked)
+    .map(row => ({ id: row.id, reason: row.auto_execution_blocked }));
+
+  return store.update(id, {
+    status: remainingRuntimeFailures.length ? 'COMPLETE_WITH_FAILURES' : 'COMPLETE',
+    progress: {
+      done: finalReport.total,
+      total: finalReport.total,
+      pass: retryIds.length ? 2 : 1,
+      current_capability: null,
+    },
+    summary: {
+      phase: 'COMPLETE',
+      retryable_failures: retryIds.length,
+      remaining_runtime_failures: remainingRuntimeFailures,
+      blocked_count: blocked.length,
+      blocked: blocked.slice(0, 200),
+    },
+    report: {
+      ...finalReport,
+      partial: false,
+      job_id: id,
+      persistent: true,
+      completed_at: Date.now(),
+    },
+    completed_at: Date.now(),
+    error: null,
+  });
+}
+
+async function executeRetryPass({ bus, store, job, context = {} }) {
+  const id = job.job_id;
+  const retryIds = Array.isArray(job?.summary?.retry_ids)
+    ? job.summary.retry_ids.map(value => String(value)).filter(Boolean)
+    : [];
+  if (!retryIds.length) {
+    return finalizePersistentStress({
+      store,
+      id,
+      finalReport: job.report || { ok: true, total: bus.list().length, deep: true, capabilities: [] },
+      retryIds: [],
+    });
+  }
+
+  const retryStart = Math.max(0, Math.min(retryIds.length, Number(job?.progress?.done || 0)));
+  await store.update(id, {
+    status: 'RETRYING',
+    progress: {
+      done: retryStart,
+      total: retryIds.length,
+      pass: 2,
+      current_capability: 'health-refresh',
+    },
+    summary: {
+      ...(job.summary || {}),
+      phase: 'RETRYING',
+      retryable_failures: retryIds.length,
+      retry_ids: retryIds.slice(0, 100),
+      chunk_start: retryStart,
+    },
+    error: null,
+  });
+
+  const retrySamples = Object.fromEntries(
+    retryIds
+      .filter(idValue => Object.hasOwn(SAFE_SAMPLES, idValue))
+      .map(idValue => [idValue, SAFE_SAMPLES[idValue]])
+  );
+
+  const retry = await auditRuntimeCapabilities({ bus }, {
+    deep: true,
+    context: executionContext(context),
+    executionTimeoutMs: 4_000,
+    samples: retrySamples,
+    recordIds: retryIds,
+    startIndex: retryStart,
+    maxRecords: STRESS_CHUNK_SIZE,
+    onProgress: async ({ index, total, row }) => {
+      await store.update(id, {
+        status: 'RETRYING',
+        progress: {
+          done: retryStart,
+          total,
+          pass: 2,
+          current_capability: row?.id || null,
+        },
+        summary: {
+          ...(job.summary || {}),
+          phase: 'RETRYING',
+          retryable_failures: retryIds.length,
+          retry_ids: retryIds.slice(0, 100),
+          chunk_start: retryStart,
+          chunk_progress: index,
+          last_capability: compactProgressRow(row),
+        },
+      });
+    },
+  });
+
+  const merged = mergeRetryReport(job.report || { capabilities: [] }, retry);
+  if (retry?.range?.complete !== true) {
+    return store.update(id, {
+      status: 'QUEUED',
+      progress: {
+        done: Number(retry?.range?.next_index || retryStart),
+        total: retryIds.length,
+        pass: 2,
+        current_capability: null,
+      },
+      summary: {
+        ...(job.summary || {}),
+        phase: 'RETRY_QUEUED',
+        retryable_failures: retryIds.length,
+        retry_ids: retryIds.slice(0, 100),
+        next_index: Number(retry?.range?.next_index || retryStart),
+      },
+      report: merged,
+      error: null,
+    });
+  }
+
+  return finalizePersistentStress({
+    store,
+    id,
+    finalReport: merged,
+    retryIds,
+  });
+}
+
 async function executePersistentStress({ bus, store, job, context = {} }) {
   const id = job.job_id;
   try {
+    if (Number(job?.progress?.pass || 1) === 2) {
+      return executeRetryPass({ bus, store, job, context });
+    }
+
+    const previousRows = Array.isArray(job?.report?.capabilities)
+      ? job.report.capabilities
+      : [];
+    const persistedDone = Number(job?.progress?.done || 0);
+    // Runs created by the pre-resumable implementation may have a non-zero
+    // cursor without a partial report. Restart those once from zero rather than
+    // silently skipping rows.
+    const chunkStart = previousRows.length === persistedDone ? persistedDone : 0;
+    const totalCapabilities = bus.list().length;
+
     await store.update(id, {
       status: 'RUNNING',
-      progress: { done: 0, total: job.progress.total, pass: 1, current_capability: 'health-refresh' },
-      summary: { phase: 'RUNNING', retryable_failures: 0 },
+      progress: {
+        done: chunkStart,
+        total: totalCapabilities,
+        pass: 1,
+        current_capability: 'health-refresh',
+      },
+      summary: {
+        phase: 'RUNNING',
+        retryable_failures: 0,
+        chunk_start: chunkStart,
+        chunk_size: STRESS_CHUNK_SIZE,
+      },
+      report: chunkStart === 0 ? null : job.report,
       error: null,
     });
 
-    const observed = [];
     // capability.audit is safe as a standalone bounded smoke, but executing it
     // from inside the persistent global stress recursively refreshes the whole
     // registry and can outlive the per-capability timeout. Keep it inventoried,
     // but do not self-execute it in this parent stress run.
     const persistentStressSamples = { ...SAFE_SAMPLES };
     delete persistentStressSamples['capability.audit'];
-    const first = await auditRuntimeCapabilities({ bus }, {
+
+    const firstChunk = await auditRuntimeCapabilities({ bus }, {
       deep: true,
       context: executionContext(context),
       executionTimeoutMs: 4_000,
       samples: persistentStressSamples,
+      startIndex: chunkStart,
+      maxRecords: STRESS_CHUNK_SIZE,
       onProgress: async ({ index, total, row }) => {
-        observed[index - 1] = compactProgressRow(row);
-        if (index === total || row?.tested_now === true || index % 5 === 0) {
-          await store.update(id, {
-            status: 'RUNNING',
-            progress: { done: index, total, pass: 1, current_capability: row?.id || null },
-            summary: {
-              phase: 'RUNNING',
-              last_capability: compactProgressRow(row),
-              observed_counts: countsFor(observed.filter(Boolean)),
-            },
-          });
-        }
+        // Keep the durable cursor at the start of the current chunk until every
+        // row in that chunk completed. If a Worker is terminated mid-chunk, the
+        // next invocation safely replays the bounded read-only chunk.
+        await store.update(id, {
+          status: 'RUNNING',
+          progress: {
+            done: chunkStart,
+            total,
+            pass: 1,
+            current_capability: row?.id || null,
+          },
+          summary: {
+            phase: 'RUNNING',
+            chunk_start: chunkStart,
+            chunk_size: STRESS_CHUNK_SIZE,
+            chunk_progress: index,
+            last_capability: compactProgressRow(row),
+          },
+        });
       },
     });
 
+    const mergedFirst = mergeFirstPassChunk(
+      chunkStart === 0 ? null : job.report,
+      firstChunk,
+    );
+
+    if (firstChunk?.range?.complete !== true) {
+      return store.update(id, {
+        status: 'QUEUED',
+        progress: {
+          done: Number(firstChunk?.range?.next_index || chunkStart),
+          total: Number(firstChunk?.total || totalCapabilities),
+          pass: 1,
+          current_capability: null,
+        },
+        summary: {
+          phase: 'QUEUED',
+          retryable_failures: 0,
+          next_index: Number(firstChunk?.range?.next_index || chunkStart),
+          completed_rows: mergedFirst.capabilities.length,
+        },
+        report: mergedFirst,
+        error: null,
+      });
+    }
+
+    const first = {
+      ...mergedFirst,
+      partial: false,
+    };
     const retryIds = first.capabilities
       .filter(row => row?.truth_status === 'EXISTANT_MAIS_ECHEC_RUNTIME')
       .filter(row => row?.auto_execution_blocked == null)
@@ -227,61 +462,31 @@ async function executePersistentStress({ bus, store, job, context = {} }) {
       .filter(row => Object.hasOwn(SAFE_SAMPLES, row.id))
       .map(row => row.id);
 
-    let finalReport = first;
     if (retryIds.length) {
-      const retrySamples = Object.fromEntries(retryIds.map(idValue => [idValue, SAFE_SAMPLES[idValue]]));
-      await store.update(id, {
-        status: 'RETRYING',
-        progress: { done: 0, total: first.total, pass: 2, current_capability: retryIds[0] || null },
-        summary: { phase: 'RETRYING', retryable_failures: retryIds.length, retry_ids: retryIds.slice(0, 100) },
-      });
-      const retry = await auditRuntimeCapabilities({ bus }, {
-        deep: true,
-        context: executionContext(context),
-        executionTimeoutMs: 4_000,
-        samples: retrySamples,
-        onProgress: async ({ index, total, row }) => {
-          if (index === total || row?.tested_now === true || index % 10 === 0) {
-            await store.update(id, {
-              status: 'RETRYING',
-              progress: { done: index, total, pass: 2, current_capability: row?.id || null },
-              summary: {
-                phase: 'RETRYING',
-                retryable_failures: retryIds.length,
-                last_capability: compactProgressRow(row),
-              },
-            });
-          }
+      return store.update(id, {
+        status: 'QUEUED',
+        progress: {
+          done: 0,
+          total: retryIds.length,
+          pass: 2,
+          current_capability: null,
         },
+        summary: {
+          phase: 'RETRY_QUEUED',
+          retryable_failures: retryIds.length,
+          retry_ids: retryIds.slice(0, 100),
+          next_index: 0,
+        },
+        report: first,
+        error: null,
       });
-      finalReport = mergeRetryReport(first, retry);
     }
 
-    const remainingRuntimeFailures = finalReport.capabilities
-      .filter(row => row?.truth_status === 'EXISTANT_MAIS_ECHEC_RUNTIME')
-      .map(row => row.id);
-    const blocked = finalReport.capabilities
-      .filter(row => row?.auto_execution_blocked)
-      .map(row => ({ id: row.id, reason: row.auto_execution_blocked }));
-
-    return store.update(id, {
-      status: remainingRuntimeFailures.length ? 'COMPLETE_WITH_FAILURES' : 'COMPLETE',
-      progress: { done: finalReport.total, total: finalReport.total, pass: retryIds.length ? 2 : 1, current_capability: null },
-      summary: {
-        phase: 'COMPLETE',
-        retryable_failures: retryIds.length,
-        remaining_runtime_failures: remainingRuntimeFailures,
-        blocked_count: blocked.length,
-        blocked: blocked.slice(0, 200),
-      },
-      report: {
-        ...finalReport,
-        job_id: id,
-        persistent: true,
-        completed_at: Date.now(),
-      },
-      completed_at: Date.now(),
-      error: null,
+    return finalizePersistentStress({
+      store,
+      id,
+      finalReport: first,
+      retryIds: [],
     });
   } catch (error) {
     return store.update(id, {
@@ -298,18 +503,18 @@ export async function startPersistentCapabilityStress({ bus, db, context = {} } 
   if (!bus) throw stressError('CAPABILITY_STRESS_BUS_REQUIRED');
   const store = new D1CapabilityStressStore(db);
   const active = await store.latestActive();
-  const now = Date.now();
+  const job = active || await store.create({ total: bus.list().length });
 
-  if (active && now - Number(active.updated_at || 0) <= STALE_RUN_MS) {
-    return { ...active, reused: true, resumed: false };
+  const claimed = await store.claimRunnable(job.job_id);
+  if (!claimed) {
+    return { ...job, reused: Boolean(active), resumed: false };
   }
 
-  const job = active || await store.create({ total: bus.list().length });
-  const promise = executePersistentStress({ bus, store, job, context });
+  const promise = executePersistentStress({ bus, store, job: claimed, context });
   const resumed = Boolean(active);
   if (typeof context.waitUntil === 'function') {
     context.waitUntil(promise);
-    return { ...job, status: 'RUNNING', reused: resumed, resumed };
+    return { ...claimed, status: 'RUNNING', reused: resumed, resumed };
   }
   const completed = await promise;
   return { ...completed, reused: resumed, resumed };
