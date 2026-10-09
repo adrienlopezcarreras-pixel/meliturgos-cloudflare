@@ -84,10 +84,19 @@ async function renderMediaVideo(request, env) {
           });
           recorder.start(250);
           const started = performance.now();
-          await new Promise(resolve => {
-            const draw = now => {
+          const frameIntervalMs = Math.max(25, Math.round(1000 / Math.max(1, fps)));
+          await new Promise((resolve, reject) => {
+            let finished = false;
+            const deadline = started + durationMs + 2500;
+            const draw = () => {
+              if (finished) return;
+              const now = performance.now();
+              if (now > deadline) {
+                finished = true;
+                return reject(new Error('MEDIA_VIDEO_FRAME_SCHEDULER_TIMEOUT'));
+              }
               const elapsed = Math.min(durationMs, now - started);
-              const progress = elapsed / durationMs;
+              const progress = durationMs > 0 ? elapsed / durationMs : 1;
               const position = progress * images.length;
               const index = Math.min(images.length - 1, Math.floor(position));
               const next = Math.min(images.length - 1, index + 1);
@@ -109,10 +118,13 @@ async function renderMediaVideo(request, env) {
                 drawFrame(images[next], alpha, 0.01);
               }
               ctx.globalAlpha = 1;
-              if (elapsed >= durationMs) return resolve();
-              requestAnimationFrame(draw);
+              if (elapsed >= durationMs) {
+                finished = true;
+                return resolve();
+              }
+              setTimeout(draw, frameIntervalMs);
             };
-            requestAnimationFrame(draw);
+            draw();
           });
           recorder.stop();
           await Promise.race([
