@@ -17,6 +17,8 @@ on:
     paths:
       - '.github/workflows/persistent-capability-stress-live-proof.yml'
       - 'scripts/persistent-capability-stress-live-proof.mjs'
+      - 'src/diagnostics/capability-truth-audit.js'
+      - 'tests/capability-truth-audit.test.mjs'
       - 'tests/gen2/persistent-capability-stress.test.mjs'
 
 permissions:
