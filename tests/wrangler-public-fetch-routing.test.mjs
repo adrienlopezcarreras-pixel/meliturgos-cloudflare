@@ -7,6 +7,11 @@ test('production Worker uses public global fetch routing for Cloudflare API subr
   assert.match(source, /"compatibility_flags"\s*:\s*\[[^\]]*"global_fetch_strictly_public"[^\]]*\]/);
 });
 
+test('production Worker exposes the static asset namespace to runtime code', async () => {
+  const source = await readFile(new URL('../wrangler.jsonc', import.meta.url), 'utf8');
+  assert.match(source, /"assets"\s*:\s*\{[\s\S]*?"directory"\s*:\s*"\.\/dist"[\s\S]*?"binding"\s*:\s*"ASSETS"/);
+});
+
 
 test('production Worker declares persistent owner and backup-root secrets as required inherited secrets', async () => {
   const source = await readFile(new URL('../wrangler.jsonc', import.meta.url), 'utf8');
