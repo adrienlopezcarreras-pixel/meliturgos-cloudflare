@@ -417,9 +417,13 @@ jobs:
           }
           trap 'cleanup_binder || true' EXIT
 
-          npx wrangler deploy --config "${BINDER_CONFIG}" >/tmp/predeploy-binder-deploy.log
+          # Keep binder authentication in the same deployed revision. A separate
+          # secret put creates a second revision and can race workers.dev propagation,
+          # yielding Cloudflare 10007 immediately after the first deploy.
+          npx wrangler deploy --config "${BINDER_CONFIG}" \
+            --var "MEL_PREDEPLOY_BINDER_TOKEN:${BINDER_TOKEN}" \
+            >/tmp/predeploy-binder-deploy.log
           BINDER_CREATED=1
-          printf '%s' "${BINDER_TOKEN}" | npx wrangler secret put MEL_PREDEPLOY_BINDER_TOKEN --config "${BINDER_CONFIG}" >/tmp/predeploy-binder-secret.log
 
           BINDER_READY=0
           BINDER_STABLE_PROBES=0
