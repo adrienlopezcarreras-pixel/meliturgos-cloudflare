@@ -1488,3 +1488,53 @@ test('release bootstrap media proof requires exact-SHA 12/12 live execution and 
   assert.match(failedBody.cause_message,/max_tokens/);
   assert.equal(failedBody.autonomy_started,false);
 });
+
+
+test('SOV auto-close OIDC is limited to proof phases and main workflow identity', async () => {
+  const sha='c'.repeat(40);
+  const oidcCalls=[];
+  const identity=await maybeHandleReleaseLaunchBootstrap(
+    new Request('https://mel.test/api/internal/release-launch-bootstrap',{
+      method:'POST',
+      headers:{'x-mel-github-oidc':'fixture-oidc','content-type':'application/json'},
+      body:JSON.stringify({phase:'identity'}),
+    }),
+    {MEL_DEPLOYED_GIT_SHA:sha},
+    {
+      authorizeOidc:async(_request,_env,options)=>{
+        oidcCalls.push(options);
+        return {ok:true};
+      },
+    },
+  );
+  assert.equal(identity.status,200);
+  const identityBody=await identity.json();
+  assert.equal(identityBody.status,'RELEASE_IDENTITY_VERIFIED');
+  assert.equal(identityBody.deployed_sha,sha);
+  assert.equal(oidcCalls.length,1);
+  assert.deepEqual(oidcCalls[0],{
+    allowedWorkflows:['mel-sov-ai-auto-close.yml'],
+    allowedWorkflowBranches:['main'],
+    allowedEvents:['schedule','workflow_dispatch','push'],
+  });
+
+  let deniedOidcCalls=0;
+  const denied=await maybeHandleReleaseLaunchBootstrap(
+    new Request('https://mel.test/api/internal/release-launch-bootstrap',{
+      method:'POST',
+      headers:{'x-mel-github-oidc':'fixture-oidc','content-type':'application/json'},
+      body:JSON.stringify({phase:'pause'}),
+    }),
+    {MEL_DEPLOYED_GIT_SHA:sha},
+    {
+      authorizeOidc:async()=>{
+        deniedOidcCalls+=1;
+        return {ok:true};
+      },
+      setControl:async()=>{throw new Error('OIDC proof workflow must never reach pause control');},
+    },
+  );
+  assert.equal(denied.status,401);
+  assert.equal((await denied.json()).code,'BOOTSTRAP_AUTH_REQUIRED');
+  assert.equal(deniedOidcCalls,0);
+});

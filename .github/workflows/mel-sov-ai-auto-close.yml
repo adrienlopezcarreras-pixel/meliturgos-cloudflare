@@ -10,11 +10,13 @@ on:
     paths:
       - '.github/workflows/mel-sov-ai-auto-close.yml'
       - 'src/portability/**'
+      - 'src/evolution/release-launch-bootstrap.js'
       - 'tests/gen2/sov-ai-auto-close.test.mjs'
 
 permissions:
   contents: read
   actions: read
+  id-token: write
 
 concurrency:
   group: mel-sov-ai-auto-close
@@ -26,64 +28,76 @@ jobs:
     timeout-minutes: 25
     env:
       GH_TOKEN: ${{ github.token }}
-      PROOF_KEY_B64: ${{ secrets.MEL_BACKUP_ENCRYPTION_KEY_B64 }}
       BASE_URL: https://meliturgos.adrien-lopezcarreras.workers.dev
     steps:
-      - name: Resolve latest successful production SHA
-        shell: bash
-        run: |
-          set -euo pipefail
-          gh api "repos/$GITHUB_REPOSITORY/actions/workflows/deploy-cloudflare-release.yml/runs?status=success&per_page=20" > release-runs.json
-          TARGET_SHA="$(node - <<'NODE'
-          const d=require('./release-runs.json');
-          const run=(d.workflow_runs||[]).find(r=>r?.status==='completed'&&r?.conclusion==='success'&&/^[0-9a-f]{40}$/i.test(String(r?.head_sha||'')));
-          if(!run) process.exit(2);
-          process.stdout.write(String(run.head_sha).toLowerCase());
-          NODE
-          )"
-          echo "TARGET_SHA=$TARGET_SHA" >> "$GITHUB_ENV"
-
-      - name: Derive exact-SHA proof token
-        shell: bash
-        run: |
-          set -euo pipefail
-          TOKEN="$(PROOF_KEY_B64="$PROOF_KEY_B64" TARGET_SHA="$TARGET_SHA" node - <<'NODE'
-          const crypto=require('crypto');
-          const source=Buffer.from(String(process.env.PROOF_KEY_B64||''),'base64');
-          const sha=String(process.env.TARGET_SHA||'').toLowerCase();
-          if(source.length!==32||!/^[0-9a-f]{40}$/.test(sha)) throw new Error('PARALLEL_PROOF_DERIVATION_INVALID');
-          process.stdout.write(Buffer.from(crypto.hkdfSync('sha256',source,Buffer.from('meliturgos-parallel-proof-salt-v1'),Buffer.from('MEL_PARALLEL_PROOF_V1:'+sha),32)).toString('base64url'));
-          NODE
-          )"
-          echo "::add-mask::$TOKEN"
-          echo "PROOF_TOKEN=$TOKEN" >> "$GITHUB_ENV"
-
       - name: Close only the remaining AI sovereignty gap
         shell: bash
         run: |
           set -euo pipefail
 
-          release_transition_supersedes_run() {
-            gh api "repos/$GITHUB_REPOSITORY/actions/workflows/deploy-cloudflare-release.yml/runs?per_page=10" > release-transition.json
-            TARGET_SHA="$TARGET_SHA" node - <<'NODE'
+          release_transition_active() {
+            gh api "repos/$GITHUB_REPOSITORY/actions/workflows/deploy-cloudflare-release.yml/runs?per_page=20" > release-transition.json
+            node - <<'NODE'
           const d=require('./release-transition.json');
-          const target=String(process.env.TARGET_SHA||'').toLowerCase();
-          const runs=d.workflow_runs||[];
-          const newerActive=runs.some(r=>['queued','in_progress','waiting','pending'].includes(String(r?.status||'')));
-          const latestSuccess=runs.find(r=>r?.status==='completed'&&r?.conclusion==='success'&&/^[0-9a-f]{40}$/i.test(String(r?.head_sha||'')));
-          const stableChanged=latestSuccess&&String(latestSuccess.head_sha||'').toLowerCase()!==target;
-          process.exit(newerActive||stableChanged?0:1);
+          const active=(d.workflow_runs||[]).some(r=>['queued','in_progress','waiting','pending'].includes(String(r?.status||'')));
+          process.exit(active?0:1);
           NODE
           }
 
-          abort_if_release_transition() {
-            local code="${1:-}"
-            local reason="${2:-}"
-            if [ "$code" = "401" ] && [ "$reason" = "BOOTSTRAP_AUTH_REQUIRED" ] && release_transition_supersedes_run; then
-              echo "MEL_SOV_AI_SUPERSEDED_BY_NEW_RELEASE target=$TARGET_SHA"
+          if release_transition_active; then
+            echo "MEL_SOV_AI_SUPERSEDED_BY_ACTIVE_RELEASE"
+            exit 0
+          fi
+
+          OIDC_RESPONSE="$(curl --silent --show-error --fail --retry 3 --retry-all-errors --retry-delay 2 --max-time 30 \
+            --header "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=meliturgos-worker")"
+          OIDC_TOKEN="$(printf '%s' "${OIDC_RESPONSE}" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const j=JSON.parse(s);if(!j.value)process.exit(2);process.stdout.write(j.value)})')"
+          echo "::add-mask::${OIDC_TOKEN}"
+
+          call_proof() {
+            local url="$1"
+            local file="$2"
+            curl --silent --show-error --max-time 150 \
+              --header "x-mel-github-oidc: ${OIDC_TOKEN}" \
+              --header "content-type: application/json" \
+              --data '{"phase":"sovereignty-proof"}' \
+              --output "$file" --write-out '%{http_code}' \
+              "$url" || true
+          }
+
+          reason_from() {
+            local file="$1"
+            FILE="$file" node - <<'NODE'
+          const fs=require('fs');let d={};try{d=JSON.parse(fs.readFileSync(process.env.FILE,'utf8'))}catch{}
+          process.stdout.write(String(d?.refresh?.reason||d?.refresh?.status||d?.code||d?.status||'UNKNOWN').slice(0,180));
+          NODE
+          }
+
+          BEFORE_CODE="$(call_proof "$BASE_URL/api/internal/release-launch-bootstrap" sov-before.json)"
+          if [ "$BEFORE_CODE" != "200" ]; then
+            BEFORE_REASON="$(reason_from sov-before.json)"
+            if release_transition_active; then
+              echo "MEL_SOV_AI_SUPERSEDED_BY_ACTIVE_RELEASE"
               exit 0
             fi
-          }
+            if [ "${GITHUB_EVENT_NAME}" = "push" ] && [ "$BEFORE_CODE" = "401" ] && [ "$BEFORE_REASON" = "BOOTSTRAP_AUTH_REQUIRED" ]; then
+              echo "MEL_SOV_AI_WAITING_FOR_OIDC_PRODUCTION_DEPLOYMENT"
+              exit 0
+            fi
+            echo "MEL_SOV_AI_INITIAL_PROOF_FAILED http=$BEFORE_CODE reason=$BEFORE_REASON"
+            test ! -s sov-before.json || cat sov-before.json
+            exit 46
+          fi
+
+          TARGET_SHA="$(node - <<'NODE'
+          const d=require('./sov-before.json');
+          const sha=String(d?.deployed_sha||'').toLowerCase();
+          if(!/^[0-9a-f]{40}$/.test(sha)) throw new Error('SOV_DEPLOYED_SHA_INVALID');
+          process.stdout.write(sha);
+          NODE
+          )"
+          echo "TARGET_SHA=$TARGET_SHA" >> "$GITHUB_ENV"
 
           read_state() {
             local file="$1"
@@ -99,18 +113,11 @@ jobs:
           NODE
           }
 
-          BEFORE_CODE="$(curl --silent --show-error --max-time 30 \
-            --header "x-mel-parallel-proof: $PROOF_TOKEN" \
-            --header "content-type: application/json" \
-            --data '{"phase":"sovereignty-proof"}' \
-            --output sov-before.json --write-out '%{http_code}' \
-            "$BASE_URL/api/internal/release-launch-bootstrap" || true)"
-
           read_state sov-before.json > sov-before.env
           . ./sov-before.env
 
           if [ "$SOV_DONE" = "1" ]; then
-            echo "MEL_SOV_AI_ALREADY_CLOSED"
+            echo "MEL_SOV_AI_ALREADY_CLOSED sha=$TARGET_SHA"
             exit 0
           fi
 
@@ -118,30 +125,25 @@ jobs:
           CONFIGURED_AI_REASON="NOT_ATTEMPTED"
 
           # Survival invariant: never require or auto-start an owner PC to close
-          # the global AI sovereignty gate. The Windows/Ollama path is optional
-          # local acceleration and is validated only by explicit/manual ai_local
-          # refreshes outside this auto-close workflow.
+          # the global AI sovereignty gate. The Windows/Ollama path remains an
+          # optional local accelerator, never an auto-close dependency.
           if [ "$AI_LOW_REFUSAL_READY" = "1" ]; then
             echo "MEL_SOV_AI_ALWAYS_ON_LOW_REFUSAL_ALREADY_READY"
             AI_REFRESH_OK=1
           else
-            CONFIGURED_AI_CODE="$(curl --silent --show-error --max-time 150 \
-              --header "x-mel-parallel-proof: $PROOF_TOKEN" \
-              --header "content-type: application/json" \
-              --data '{"phase":"sovereignty-proof"}' \
-              --output sov-ai-configured.json --write-out '%{http_code}' \
-              "$BASE_URL/api/internal/release-launch-bootstrap?refresh=ai" || true)"
-            CONFIGURED_AI_REASON="$(node - <<'NODE'
-          const fs=require('fs');let d={};try{d=JSON.parse(fs.readFileSync('sov-ai-configured.json','utf8'))}catch{}
-          process.stdout.write(String(d?.refresh?.reason||d?.refresh?.status||d?.code||d?.status||'UNKNOWN').slice(0,180));
-          NODE
-            )"
-            abort_if_release_transition "$CONFIGURED_AI_CODE" "$CONFIGURED_AI_REASON"
+            CONFIGURED_AI_CODE="$(call_proof "$BASE_URL/api/internal/release-launch-bootstrap?refresh=ai" sov-ai-configured.json)"
+            CONFIGURED_AI_REASON="$(reason_from sov-ai-configured.json)"
+            if [ "$CONFIGURED_AI_CODE" != "200" ] && release_transition_active; then
+              echo "MEL_SOV_AI_SUPERSEDED_BY_ACTIVE_RELEASE"
+              exit 0
+            fi
 
             if [ "$CONFIGURED_AI_CODE" = "200" ]; then
-              node - <<'NODE'
+              TARGET_SHA="$TARGET_SHA" node - <<'NODE'
           const d=require('./sov-ai-configured.json');
+          const expected=String(process.env.TARGET_SHA||'').toLowerCase();
           if(d?.ok!==true||d?.status!=='MEL_SOV_01_REFRESH_STEP_VERIFIED') throw new Error('AI_CONFIGURED_REFRESH_NOT_VERIFIED');
+          if(String(d?.deployed_sha||'').toLowerCase()!==expected) throw new Error('AI_CONFIGURED_REFRESH_SHA_CHANGED');
           if(d?.secret_values_exposed!==false||d?.autonomy_started!==false) throw new Error('AI_CONFIGURED_REFRESH_SAFETY_FAILED');
           NODE
               AI_REFRESH_OK=1
@@ -157,19 +159,12 @@ jobs:
             exit 47
           fi
 
-          FINAL_CODE="$(curl --silent --show-error --max-time 45 \
-            --header "x-mel-parallel-proof: $PROOF_TOKEN" \
-            --header "content-type: application/json" \
-            --data '{"phase":"sovereignty-proof"}' \
-            --output sov-final.json --write-out '%{http_code}' \
-            "$BASE_URL/api/internal/release-launch-bootstrap" || true)"
-
-          FINAL_REASON="$(node - <<'NODE'
-          const fs=require('fs');let d={};try{d=JSON.parse(fs.readFileSync('sov-final.json','utf8'))}catch{}
-          process.stdout.write(String(d?.code||d?.status||'UNKNOWN').slice(0,180));
-          NODE
-          )"
-          abort_if_release_transition "$FINAL_CODE" "$FINAL_REASON"
+          FINAL_CODE="$(call_proof "$BASE_URL/api/internal/release-launch-bootstrap" sov-final.json)"
+          FINAL_REASON="$(reason_from sov-final.json)"
+          if [ "$FINAL_CODE" != "200" ] && release_transition_active; then
+            echo "MEL_SOV_AI_SUPERSEDED_BY_ACTIVE_RELEASE"
+            exit 0
+          fi
 
           TARGET_SHA="$TARGET_SHA" FINAL_CODE="$FINAL_CODE" node - <<'NODE'
           const d=require('./sov-final.json');
@@ -199,7 +194,6 @@ jobs:
           }
           console.log('MEL_SOV_AI_CLOSED_10_OF_10');
           NODE
-
       - name: Summary
         if: always()
         shell: bash
