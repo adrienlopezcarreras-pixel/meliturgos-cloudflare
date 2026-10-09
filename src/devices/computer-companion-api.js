@@ -125,12 +125,12 @@ async function ownerCommand(request,env){
 async function ownerHalt(request,env,halted){const a=requireAuth(request,env);if(!a.ok)return a.response;await tables(env);const b=await request.json().catch(()=>({}));const id=safe(b.computer_id);await env.DB.prepare("UPDATE computer_devices SET halted=? WHERE id=?").bind(halted?1:0,id).run();const row=await env.DB.prepare("SELECT * FROM computer_devices WHERE id=?").bind(id).first();return row?json({ok:true,computer:normalizeDevice(row)}):json({ok:false,code:"COMPUTER_NOT_FOUND"},404)}
 
 const PC_CONTROL_ACTIONS=new Set([
- "serial.list","serial.read",
+ "serial.list","serial.read","serial.inspect",
  "process.list","process.start","process.kill",
  "file.list","file.read_text","file.write_text",
  "system.info","system.exec"
 ]);
-const PC_CONTROL_PROOF_ACTIONS=new Set(["system.info","serial.list","serial.read"]);
+const PC_CONTROL_PROOF_ACTIONS=new Set(["system.info","serial.list","serial.read","serial.inspect"]);
 
 async function authorizeOwnerOrPcProof(request,env,{action=null}={}){
  const owner=requireAuth(request,env);if(owner.ok)return {ok:true,kind:"owner"};
@@ -157,6 +157,7 @@ async function ownerPcControl(request,env){
  if(String(device.platform||"").toLowerCase()!=="windows")return json({ok:false,code:"PC_CONTROL_WINDOWS_REQUIRED"},409);
  if(!device.online)return json({ok:false,code:"COMPUTER_OFFLINE"},409);
  if(device.metadata?.remote_access_enabled!==true&&a.kind!=="github-oidc")return json({ok:false,code:"REMOTE_ACCESS_DISABLED_LOCALLY"},403);
+ let effectiveAction=action;
  let effectivePayload=payload;
  if(a.kind==="github-oidc"){
   if(action==="serial.read"){
@@ -164,13 +165,22 @@ async function ownerPcControl(request,env){
    if(!/^COM\d{1,3}$/.test(port))return json({ok:false,code:"SERIAL_PORT_INVALID"},400);
    const durationMs=Math.max(250,Math.min(3000,Number(payload.duration_ms)||1500));
    effectivePayload={port,baud:115200,duration_ms:durationMs};
+  }else if(action==="serial.inspect"){
+   const port=safe(payload.port,16).toUpperCase();
+   if(!/^COM\d{1,3}$/.test(port))return json({ok:false,code:"SERIAL_PORT_INVALID"},400);
+   effectiveAction="system.exec";
+   const escaped=port.replace(/'/g,"''");
+   effectivePayload={
+    command:`$port='${escaped}';$pnp=@(Get-CimInstance Win32_PnPEntity -ErrorAction SilentlyContinue | Where-Object { ([string]$_.Name) -like "*($port)*" -or ([string]$_.Caption) -like "*($port)*" } | Select-Object -First 5 Name,Caption,PNPDeviceID,Manufacturer,Status,Service,ClassGuid);$serial=@(Get-CimInstance Win32_SerialPort -ErrorAction SilentlyContinue | Where-Object { ([string]$_.DeviceID).ToUpperInvariant() -eq $port } | Select-Object -First 5 DeviceID,Name,PNPDeviceID,ProviderType,Status);$py=@(Get-Command py,python,python3 -ErrorAction SilentlyContinue | Select-Object -First 3 Name,Source);[ordered]@{action='serial.inspect';port=$port;pnp=$pnp;serial=$serial;python=$py}|ConvertTo-Json -Depth 5 -Compress`,
+    timeout_ms:15000
+   };
   }else{
    effectivePayload={};
   }
  }
  const session=safe(b.session_id)||crypto.randomUUID();
  const cid=crypto.randomUUID();
- const plan={schema:"mel.devices.pc-control.v1",owner_authorized:true,steps:[{id:"pc-control-1",action,payload:effectivePayload}]};
+ const plan={schema:"mel.devices.pc-control.v1",owner_authorized:true,steps:[{id:"pc-control-1",action:effectiveAction,payload:effectivePayload}]};
  await env.DB.prepare("INSERT INTO computer_commands(id,device_id,session_id,plan_json,status,created_at) VALUES(?,?,?,?,?,?)")
   .bind(cid,device.id,session,JSON.stringify(plan),"PENDING",Date.now()).run();
  return json({ok:true,command_id:cid,status:"PENDING",action,device_id:device.id},202);
