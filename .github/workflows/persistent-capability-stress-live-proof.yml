@@ -26,7 +26,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: mel-launch-bootstrap-token
+  group: ${{ github.event_name == 'pull_request' && format('persistent-stress-contract-{0}', github.event.pull_request.number) || 'mel-launch-bootstrap-token' }}
   cancel-in-progress: false
 
 jobs:
