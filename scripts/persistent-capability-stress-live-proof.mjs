@@ -90,7 +90,7 @@ async function main() {
     assert(done >= lastDone, 'CAPABILITY_STRESS_PROGRESS_REGRESSED');
     lastDone = done;
     const status = String(r?.status || '');
-    console.log(`Persistent stress ${jobId}: status=${status} progress=${done}/${total}`);
+    console.log(`Persistent stress ${jobId}: status=${status} progress=${done}/${total} current=${String(row?.progress?.current_capability||"none").slice(0,160)} pass=${Number(row?.progress?.pass||1)}`);
     if (['COMPLETE', 'COMPLETE_WITH_FAILURES', 'FAILED'].includes(status)) {
       terminalBody = result.body;
       break;
