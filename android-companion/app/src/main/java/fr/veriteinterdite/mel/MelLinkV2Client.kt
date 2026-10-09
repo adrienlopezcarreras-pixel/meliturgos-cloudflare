@@ -79,8 +79,14 @@ class MelLinkV2Client(private val context: Context) {
             when (newState) {
                 BluetoothProfile.STATE_CONNECTED -> {
                     MelCompanionRuntime.markPresent(g.device.address)
-                    g.requestMtu(517)
-                    g.discoverServices()
+                    MelCompanionRuntime.bridgeState.value = "GATT CONNECTÉ · NÉGOCIATION MTU…"
+                    val mtuStarted = g.requestMtu(517)
+                    if (!mtuStarted) {
+                        MelCompanionRuntime.bridgeState.value = "GATT CONNECTÉ · DÉCOUVERTE LINK V2…"
+                        if (!g.discoverServices()) {
+                            MelCompanionRuntime.markError("découverte services non démarrée")
+                        }
+                    }
                 }
                 BluetoothProfile.STATE_DISCONNECTED -> {
                     MelCompanionRuntime.markDisconnected()
@@ -89,11 +95,25 @@ class MelLinkV2Client(private val context: Context) {
             }
         }
 
+        @SuppressLint("MissingPermission")
+        override fun onMtuChanged(g: BluetoothGatt, mtu: Int, status: Int) {
+            MelCompanionRuntime.bridgeState.value =
+                if (status == BluetoothGatt.GATT_SUCCESS) {
+                    "MTU $mtu · DÉCOUVERTE LINK V2…"
+                } else {
+                    "MTU PAR DÉFAUT · DÉCOUVERTE LINK V2…"
+                }
+            if (!g.discoverServices()) {
+                MelCompanionRuntime.markError("découverte services non démarrée")
+            }
+        }
+
         override fun onServicesDiscovered(g: BluetoothGatt, status: Int) {
             if (status != BluetoothGatt.GATT_SUCCESS) {
                 MelCompanionRuntime.markError("services GATT $status")
                 return
             }
+            MelCompanionRuntime.bridgeState.value = "SERVICES GATT OK · RECHERCHE LINK V2…"
             val service: BluetoothGattService = g.getService(SERVICE_UUID)
                 ?: run {
                     MelCompanionRuntime.markError("service Link V2 absent")
@@ -105,6 +125,7 @@ class MelLinkV2Client(private val context: Context) {
                 MelCompanionRuntime.markError("caractéristiques Link V2 absentes")
                 return
             }
+            MelCompanionRuntime.bridgeState.value = "LINK V2 TROUVÉ · ACTIVATION NOTIFICATIONS…"
             enableNotifications(g, tx!!)
         }
 
