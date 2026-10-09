@@ -7,6 +7,7 @@ import java.net.URL
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.util.concurrent.Executors
+import java.util.TimeZone
 
 class MelLinkV2Relay(
     private val sendFrame: (ByteArray) -> Unit
@@ -136,10 +137,51 @@ class MelLinkV2Relay(
 
             val status = connection.responseCode
             val stream = if (status in 200..299) connection.inputStream else connection.errorStream
-            val response = stream?.use { it.readBytes() } ?: byteArrayOf()
+            val rawResponse = stream?.use { it.readBytes() } ?: byteArrayOf()
+
+            val response = when {
+                request.path == "/api/device/v1/pair" && status in 200..299 -> {
+                    val json = runCatching {
+                        JSONObject(rawResponse.toString(Charsets.UTF_8))
+                    }.getOrNull()
+                    if (json != null &&
+                        json.optString("token").isNotBlank() &&
+                        json.optString("protocol_version").isNotBlank()
+                    ) {
+                        JSONObject()
+                            .put("token", json.getString("token"))
+                            .put("protocol_version", json.getString("protocol_version"))
+                            .toString()
+                            .toByteArray(Charsets.UTF_8)
+                    } else {
+                        rawResponse
+                    }
+                }
+
+                request.path == "/api/device/v1/heartbeat" && status in 200..299 -> {
+                    val json = runCatching {
+                        JSONObject(rawResponse.toString(Charsets.UTF_8))
+                    }.getOrNull()
+                    val nowMs = System.currentTimeMillis()
+                    val zone = TimeZone.getDefault()
+                    JSONObject()
+                        .put("ok", true)
+                        .put(
+                            "epoch_ms",
+                            json?.optLong("server_time", 0L)
+                                ?.takeIf { it > 1_700_000_000_000L }
+                                ?: nowMs
+                        )
+                        .put("utc_offset_seconds", zone.getOffset(nowMs) / 1000)
+                        .put("timezone", zone.id)
+                        .toString()
+                        .toByteArray(Charsets.UTF_8)
+                }
+
+                else -> rawResponse
+            }
 
             sendResponseBegin(request.id, status)
-            // Conservative payload: works even when Android negotiates only MTU 185.
             val chunkSize = 160
             var offset = 0
             while (offset < response.size) {
@@ -154,6 +196,8 @@ class MelLinkV2Relay(
                 MelCompanionRuntime.phoneInternetAvailable.value &&
                 status in 200..299
             MelCompanionRuntime.bridgeState.value = when {
+                request.path == "/api/device/v1/heartbeat" && status in 200..299 ->
+                    "MINI CONNECTÉE · RELAIS MEL OK · HEURE SYNC"
                 status in 200..299 -> "MINI CONNECTÉE · RELAIS MEL OK"
                 status == 401 || status == 403 -> "MINI CONNECTÉE · AUTH MINI REFUSÉE"
                 else -> "MINI CONNECTÉE · MEL HTTP $status"
