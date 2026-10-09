@@ -60,7 +60,11 @@ test('MINI recovery keeps hardware diagnostics, camera bring-up and Wi-Fi fallba
   assert.match(main, /sensor->id\.PID == OV5640_PID \|\| sensor->id\.PID == OV2640_PID/);
   assert.match(main, /"TEST MICRO \+ HP"/);
   assert.match(main, /"TEST CAMERA"/);
-  assert.match(main, /"TEST VOIX \/ STT"/);
+  // The old TEST VOIX / STT control was replaced with an explicit voice-output
+  // toggle. Assert the real button wiring and that enabling it exercises speech.
+  assert.match(main, /mel_terminal_voice_output_enabled\(\)\s*\?\s*"VOIX : ON"\s*:\s*"VOIX : OFF",\s*406,\s*settings_voice_output_clicked/);
+  assert.match(main, /mel_terminal_set_voice_output_enabled\(enabled\)/);
+  assert.match(main, /if \(enabled\)\s*\{[\s\S]*?mel_terminal_test_voice_output\(\);/);
   assert.match(main, /TRANSPORT PRIORITY: MEL Mobile first/);
   assert.match(workflow, /set_cfg_y CONFIG_OV5640_SUPPORT/);
   assert.match(workflow, /set_cfg_y CONFIG_OV2640_SUPPORT/);
