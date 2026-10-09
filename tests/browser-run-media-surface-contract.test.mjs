@@ -73,3 +73,15 @@ test('video render is state-polled instead of held inside one long page.evaluate
   assert.match(renderSource,/MEDIARECORDER_STOP_TIMEOUT/);
   assert.doesNotMatch(renderSource,/const result = await page\.evaluate\(async/);
 });
+
+
+test('video render uses a headless-safe timer scheduler instead of requestAnimationFrame',()=>{
+  const start=source.indexOf('async function renderMediaVideo');
+  const end=source.indexOf('function normalizeVideoPayload',start);
+  assert.ok(start>=0 && end>start);
+  const renderSource=source.slice(start,end);
+  assert.match(renderSource,/frameIntervalMs/);
+  assert.match(renderSource,/setTimeout\(draw, frameIntervalMs\)/);
+  assert.match(renderSource,/MEDIA_VIDEO_FRAME_SCHEDULER_TIMEOUT/);
+  assert.doesNotMatch(renderSource,/requestAnimationFrame\(draw\)/);
+});
