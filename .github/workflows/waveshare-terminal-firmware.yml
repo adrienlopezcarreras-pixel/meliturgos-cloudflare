@@ -155,6 +155,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          FW_VERSION="$(sed -n 's/^#define MEL_FW_VERSION "\([^"]*\)".*/\1/p' firmware/waveshare-terminal/main/mel_terminal.h)"
+          test -n "$FW_VERSION"
           cd build/waveshare-mel/build
           test -s mel-terminal.bin
           test -s mini-first-install.bin
@@ -167,7 +169,7 @@ jobs:
             "model": "waveshare-esp32-s3-touch-lcd-3.5-c",
             "channel": "stable",
             "firmware": {
-              "version": "0.6.13-es8311-unmute",
+              "version": "${FW_VERSION}",
               "available": true,
               "key": "devices/waveshare-esp32-s3-touch-lcd-3.5-c/mel-terminal.bin",
               "sha256": "${OTA_SHA256}",
