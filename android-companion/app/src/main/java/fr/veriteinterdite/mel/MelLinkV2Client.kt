@@ -153,6 +153,7 @@ class MelLinkV2Client(private val context: Context) {
         override fun onDescriptorWrite(g: BluetoothGatt, descriptor: BluetoothGattDescriptor, status: Int) {
             if (descriptor.uuid == CCCD_UUID && status == BluetoothGatt.GATT_SUCCESS) {
                 MelCompanionRuntime.markConnected()
+                MelCompanionInternetValidator.refresh(context)
             } else if (descriptor.uuid == CCCD_UUID) {
                 MelCompanionRuntime.markError("activation notifications $status")
             }
