@@ -292,6 +292,34 @@ test('deep audit can derive a real bounded fixture before testing an ID-based re
   assert.ok(calls.some(call=>call.id==='thing.get'&&call.input.id==='real-1'));
 });
 
+test('deep audit bounds a hung progress sink and continues capability execution', async () => {
+  const records = [
+    { id:'first', name:'First', category:'test', provider:'core', risk:'LOW', enabled:true, health:'HEALTHY' },
+    { id:'second', name:'Second', category:'test', provider:'core', risk:'LOW', enabled:true, health:'HEALTHY' },
+  ];
+  const calls=[];
+  const runtime={bus:{
+    list:()=>records,
+    contract:()=>({valid:true}),
+    execute:async(id)=>{calls.push(id);return {ok:true};},
+  }};
+  let progressCalls=0;
+  const started=Date.now();
+  const report=await auditRuntimeCapabilities(runtime,{
+    deep:true,
+    samples:{first:{},second:{}},
+    executionTimeoutMs:50,
+    onProgress:async()=>{
+      progressCalls += 1;
+      if(progressCalls===1) return new Promise(()=>{});
+    },
+  });
+  assert.equal(report.total,2);
+  assert.equal(report.capabilities.every(row=>row.truth_status==='EXISTANT_ET_TESTE'),true);
+  assert.deepEqual(calls,['first','second']);
+  assert.ok(Date.now()-started<3500,'hung progress sink must be bounded');
+});
+
 test('deep audit bounds a hung dynamic fixture and continues with later capabilities', async () => {
   const records = [
     { id:'fixture-hung', name:'Fixture hung', category:'test', provider:'core', risk:'LOW', enabled:true, health:'HEALTHY' },
