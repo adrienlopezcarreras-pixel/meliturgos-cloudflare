@@ -71,6 +71,9 @@ test('MINI reset is manual-only, model-guarded and followed by heartbeat proof',
   const workflow = await readFile(new URL('../../.github/workflows/cloudflare-api-relay.yml', import.meta.url), 'utf8');
   assert.match(workflow, /MEL_MINI_RESET_APPROVED:/);
   assert.match(workflow, /github\.event_name == 'workflow_dispatch'/);
+  const approvalLine = workflow.split('\n').find(line => line.includes('MEL_MINI_RESET_APPROVED:')) || '';
+  assert.doesNotMatch(approvalLine, /schedule/);
+  assert.doesNotMatch(approvalLine, /workflow_run/);
   assert.match(runner, /MEL_MINI_RESET_APPROVED/);
   assert.match(runner, /waveshare-esp32-s3/);
   assert.match(runner, /primaryMini\?\.online===false/);
