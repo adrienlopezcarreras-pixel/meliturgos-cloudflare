@@ -152,6 +152,18 @@ jobs:
 
           gradle --no-daemon :app:installDebug
 
+          # Captures must show MEL itself rather than a legitimate Android
+          # permission dialog. Grant only this disposable emulator's declared
+          # runtime permissions; the actual phone still asks its owner.
+          for permission in \
+            android.permission.BLUETOOTH_SCAN \
+            android.permission.BLUETOOTH_CONNECT \
+            android.permission.NEARBY_WIFI_DEVICES \
+            android.permission.RECORD_AUDIO \
+            android.permission.POST_NOTIFICATIONS; do
+            adb shell pm grant fr.veriteinterdite.mel "$permission"
+          done
+
           # Successful instrumented tests do not prove visual screenshots:
           # the emulator has previously shown a Pixel Launcher ANR dialog on
           # every screenshot even while reporting seven passed UI tests.
