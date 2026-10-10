@@ -1,13 +1,18 @@
 name: publish-waveshare-firmware
 
 on:
-  push:
-    branches:
-      - 'release/waveshare-firmware-*'
   workflow_dispatch:
     inputs:
       expected_sha:
         description: Exact validated hardware branch SHA
+        required: true
+        type: string
+      expected_ota_sha256:
+        description: Expected SHA-256 of the validated OTA application image
+        required: true
+        type: string
+      expected_installer_sha256:
+        description: Expected SHA-256 of the validated USB installer image
         required: true
         type: string
       approval:
@@ -27,33 +32,34 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 35
     env:
-      EXPECTED_SHA: ${{ github.event_name == 'workflow_dispatch' && inputs.expected_sha || github.sha }}
-      APPROVAL: ${{ github.event_name == 'workflow_dispatch' && inputs.approval || 'PUBLISH_FIRMWARE' }}
+      EXPECTED_SHA: ${{ inputs.expected_sha }}
+      EXPECTED_OTA_SHA256: ${{ inputs.expected_ota_sha256 }}
+      EXPECTED_INSTALLER_SHA256: ${{ inputs.expected_installer_sha256 }}
+      APPROVAL: ${{ inputs.approval }}
     steps:
       - name: Require explicit firmware publication approval
         shell: bash
         run: |
           set -euo pipefail
+          test "$GITHUB_EVENT_NAME" = "workflow_dispatch"
+          test "$GITHUB_REF_NAME" = "main"
           test "$APPROVAL" = "PUBLISH_FIRMWARE"
           [[ "$EXPECTED_SHA" =~ ^[0-9a-fA-F]{40}$ ]]
-          if [ "$GITHUB_EVENT_NAME" = "push" ]; then
-            [[ "$GITHUB_REF_NAME" == release/waveshare-firmware-* ]]
-          fi
+          [[ "$EXPECTED_OTA_SHA256" =~ ^[0-9a-fA-F]{64}$ ]]
+          [[ "$EXPECTED_INSTALLER_SHA256" =~ ^[0-9a-fA-F]{64}$ ]]
 
       - name: Checkout exact approved SHA
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.expected_sha || github.sha }}
+          ref: ${{ inputs.expected_sha }}
 
       - name: Prove exact checkout and canonical identity
         shell: bash
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
-          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
-            git fetch origin candidate/mel-clean-autonomy --depth=1
-            test "$(git rev-parse FETCH_HEAD)" = "$EXPECTED_SHA"
-          fi
+          git fetch origin main --depth=1
+          git merge-base --is-ancestor "$EXPECTED_SHA" FETCH_HEAD
 
       - name: Prepare pinned Waveshare base
         shell: bash
@@ -145,6 +151,8 @@ jobs:
           OTA_SIZE="$(stat -c '%s' mel-terminal.bin)"
           INSTALL_SHA256="$(sha256sum mini-first-install.bin | awk '{print $1}')"
           INSTALL_SIZE="$(stat -c '%s' mini-first-install.bin)"
+          test "$OTA_SHA256" = "$EXPECTED_OTA_SHA256"
+          test "$INSTALL_SHA256" = "$EXPECTED_INSTALLER_SHA256"
           cat > ../manifest.json <<JSON
           {
             "model": "waveshare-esp32-s3-touch-lcd-3.5-c",
