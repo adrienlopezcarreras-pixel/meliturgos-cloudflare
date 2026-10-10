@@ -3,13 +3,14 @@ import assert from 'node:assert/strict';
 import { sanitizeWorkIndexRows, listPersistentWork } from '../src/capabilities/work-introspection-capabilities.js';
 import { createGen2Runtime } from '../src/core/orchestrator/gen2-runtime.js';
 
-function fakeDb(rows = []) {
+function fakeDb(rows = [], { initialized = true } = {}) {
   return {
     prepare(sql) {
       const state = { sql, values: [] };
       return {
         bind(...values) { state.values = values; return this; },
-        async run() { return { success: true }; },
+        async first() { return sql.includes('sqlite_master') && initialized ? { name: 'work_dags' } : null; },
+        async run() { throw Error('WORK_READ_ATTEMPTED_D1_MUTATION'); },
         async all() {
           let result = rows;
           if (sql.includes("status IN ('RUNNING','WAITING')")) result = result.filter(row => ['RUNNING','WAITING'].includes(row.status));
@@ -55,4 +56,35 @@ test('Gen2 runtime exposes work.list and work.open as low-risk restart discovery
     assert.equal(row.risk, 'LOW');
     assert.equal(row.enabled, true);
   }
+});
+
+test('work listing never creates tables and reports an uninitialized store as empty', async () => {
+  let readQueries = 0;
+  const db = {
+    prepare(sql) {
+      assert.match(sql, /^SELECT name FROM sqlite_master/);
+      readQueries++;
+      return {
+        async first() { return null; },
+        async run() { throw Error('READ_ONLY_D1_MUTATION_FORBIDDEN'); },
+      };
+    },
+  };
+  const list = await listPersistentWork(db, { limit: 1 });
+  assert.equal(list.ok, true);
+  assert.equal(list.store_initialized, false);
+  assert.equal(list.count, 0);
+  assert.deepEqual(list.work, []);
+  const open = await listPersistentWork(db, { openOnly: true, limit: 1 });
+  assert.equal(open.store_initialized, false);
+  assert.equal(open.open_only, true);
+  assert.equal(readQueries, 2);
+});
+
+test('work listing on existing store uses bounded SELECT only and never runs DDL', async () => {
+  const sourceRows = [{ id:'w1',job_id:'j1',status:'WAITING',created_at:10,updated_at:11 }];
+  const list = await listPersistentWork(fakeDb(sourceRows), { limit: 1 });
+  assert.equal(list.store_initialized, true);
+  assert.equal(list.count, 1);
+  assert.equal(list.work[0].id, 'w1');
 });
