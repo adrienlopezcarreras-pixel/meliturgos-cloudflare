@@ -58,7 +58,7 @@ test('Waveshare terminal capability contract does not overclaim unimplemented ha
 });
 
 
-test('device TTS uses self-describing 16 kHz mono linear16 WAV for MINI playback', async () => {
+test('device TTS uses self-describing 48 kHz mono linear16 WAV for MINI playback', async () => {
   let aiCall = null;
   const db = {
     prepare(sql) {
@@ -74,17 +74,38 @@ test('device TTS uses self-describing 16 kHz mono linear16 WAV for MINI playback
       };
     }
   };
+
+  // Real Aura contract: return a self-describing WAV stream instead of naked
+  // bytes that MEL would have to guess about.
+  const wav = new Uint8Array(48);
+  const ascii = (offset, text) => {
+    for (let i=0;i<text.length;i++) wav[offset+i] = text.charCodeAt(i);
+  };
+  const view = new DataView(wav.buffer);
+  ascii(0,'RIFF');
+  view.setUint32(4,40,true);
+  ascii(8,'WAVE');
+  ascii(12,'fmt ');
+  view.setUint32(16,16,true);
+  view.setUint16(20,1,true);
+  view.setUint16(22,1,true);
+  view.setUint32(24,48000,true);
+  view.setUint32(28,96000,true);
+  view.setUint16(32,2,true);
+  view.setUint16(34,16,true);
+  ascii(36,'data');
+  view.setUint32(40,4,true);
+  wav.set([0x00,0x00,0x00,0x01],44);
+
   const env = {
     DB: db,
     AI: {
       async run(model, input, options) {
         aiCall = { model, input, options };
-        return new Response(new Uint8Array([
-          0x52,0x49,0x46,0x46,0x28,0x00,0x00,0x00,0x57,0x41,0x56,0x45,
-          0x66,0x6d,0x74,0x20,0x10,0x00,0x00,0x00,0x01,0x00,0x01,0x00,
-          0x80,0x3e,0x00,0x00,0x00,0x7d,0x00,0x00,0x02,0x00,0x10,0x00,
-          0x64,0x61,0x74,0x61,0x04,0x00,0x00,0x00,0x00,0x00,0x00,0x01
-        ]), { status:200, headers:{'content-type':'audio/wav'} });
+        return new Response(wav, {
+          status:200,
+          headers:{'content-type':'audio/wav'}
+        });
       }
     }
   };
@@ -103,18 +124,17 @@ test('device TTS uses self-describing 16 kHz mono linear16 WAV for MINI playback
   assert.equal(r.status,200);
   assert.equal(r.headers.get('content-type'),'audio/wav');
   assert.equal(r.headers.get('x-mel-audio-format'),'wav-pcm-s16le');
-  assert.equal(r.headers.get('x-mel-audio-rate'),'16000');
+  assert.equal(r.headers.get('x-mel-audio-rate'),'48000');
   assert.equal(r.headers.get('x-mel-audio-channels'),'1');
   const out = new Uint8Array(await r.arrayBuffer());
-  assert.equal(new TextDecoder().decode(out.slice(0,4)),'RIFF');
-  assert.equal(new TextDecoder().decode(out.slice(8,12)),'WAVE');
+  assert.deepEqual(Array.from(out),Array.from(wav));
   assert.equal(aiCall.model,'@cf/deepgram/aura-1');
   assert.deepEqual(aiCall.input,{
     text:'Bonjour MINI',
     speaker:'luna',
     encoding:'linear16',
     container:'wav',
-    sample_rate:16000
+    sample_rate:48000
   });
   assert.deepEqual(aiCall.options,{ returnRawResponse:true });
 });

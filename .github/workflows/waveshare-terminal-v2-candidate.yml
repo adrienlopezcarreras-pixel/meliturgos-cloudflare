@@ -1,10 +1,9 @@
-name: waveshare-terminal-firmware
+name: waveshare-terminal-v2-candidate
 
 on:
-  pull_request:
-    paths:
-      - 'firmware/waveshare-terminal/**'
-      - '.github/workflows/waveshare-terminal-firmware.yml'
+  push:
+    branches:
+      - fix/mini-v0.5.16-stt-flow-control-20261006
   workflow_dispatch:
 
 permissions:
@@ -35,8 +34,6 @@ jobs:
           cp firmware/waveshare-terminal/main/* build/waveshare-mel/main/
           cp firmware/waveshare-terminal/partitions.csv build/waveshare-mel/partitions.csv
           cp firmware/waveshare-terminal/sdkconfig.defaults build/waveshare-mel/sdkconfig.defaults
-          cp firmware/waveshare-terminal/vendor/esp_es8311_port.cpp build/waveshare-mel/components/esp_port/esp_es8311_port.cpp
-          cp firmware/waveshare-terminal/vendor/esp_es8311_port.h build/waveshare-mel/components/esp_port/esp_es8311_port.h
 
           # Harden the Waveshare camera port for IDF 5.4: zero-initialize the
           # whole camera_config_t and actually use MEL's shared I2C port.
@@ -62,6 +59,7 @@ jobs:
           set_cfg_y CONFIG_COMPILER_OPTIMIZATION_PERF
           set_cfg_y CONFIG_LV_ATTRIBUTE_FAST_MEM_USE_IRAM
           set_cfg_y CONFIG_LV_MEMCPY_MEMSET_STD
+          set_cfg_y CONFIG_FREERTOS_TASK_CREATE_ALLOW_EXT_MEM
 
           # ESP32-S3 Wi-Fi and BLE share one 2.4 GHz radio. Lock the
           # coexistence configuration recommended by Espressif instead of
@@ -132,6 +130,7 @@ jobs:
               "CONFIG_COMPILER_OPTIMIZATION_PERF=y",
               "CONFIG_LV_ATTRIBUTE_FAST_MEM_USE_IRAM=y",
               "CONFIG_LV_MEMCPY_MEMSET_STD=y",
+              "CONFIG_FREERTOS_TASK_CREATE_ALLOW_EXT_MEM=y",
               "CONFIG_ESP_COEX_SW_COEXIST_ENABLE=y",
               "CONFIG_BT_NIMBLE_PINNED_TO_CORE_0=y",
               "CONFIG_ESP_WIFI_TASK_PINNED_TO_CORE_1=y",
@@ -167,7 +166,7 @@ jobs:
             "model": "waveshare-esp32-s3-touch-lcd-3.5-c",
             "channel": "stable",
             "firmware": {
-              "version": "0.7.0-audio-zero-proof",
+              "version": "0.5.9-boot-stable-link",
               "available": true,
               "key": "devices/waveshare-esp32-s3-touch-lcd-3.5-c/mel-terminal.bin",
               "sha256": "${OTA_SHA256}",
