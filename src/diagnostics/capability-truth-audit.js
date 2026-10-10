@@ -42,7 +42,7 @@ const SAFE_SAMPLES = Object.freeze({
   'github.repository.read': {},
   'github.actions.runs.read': { limit: 1 },
   'cloudflare.workers.read': {},
-  'cloudflare.deployments.read': {},
+  'cloudflare.deployments.read': { script: 'meliturgos', limit: 1 },
   'gmail.messages.search': { query: 'newer_than:1d', limit: 1 },
   'calendar.events.read': { limit: 1 },
   'tasks.tasklists.read': { limit: 1 },
@@ -168,7 +168,7 @@ const SAFE_SAMPLES = Object.freeze({
   'conversation.messages.list': async ({ runtime, context }) => {
     const rows = await sampleRead(runtime, context, 'conversation.list', {});
     const row = firstArray(rows, '')[0];
-    return row?.id ? { conversationId: String(row.id), limit: 1 } : undefined;
+    return row?.id ? { conversationId: String(row.id) } : undefined;
   },
   'knowledge.file.read': async ({ runtime, context }) => {
     const result = await sampleRead(runtime, context, 'knowledge.search', { query: 'MELITURGOS', limit: 1 });
@@ -225,6 +225,13 @@ const COST_SENSITIVE_CAPABILITIES = new Set([
   'sites.read',
 ]);
 
+// Recovery drills and standby preparation explicitly require owner approval in
+// their own input contracts. An unattended audit must not try to forge this.
+const OWNER_APPROVAL_SENSITIVE_CAPABILITIES = new Set([
+  'resilience.recovery.drill.latest',
+  'resilience.cold-standby.prepare.latest',
+]);
+
 const DECLARED_IMPLEMENTATION_STATUSES = new Set([
   'IMPLEMENTED',
   'PARTIAL',
@@ -262,6 +269,7 @@ function autoExecutionBlockReason({ deep, record, sample, declared, costSensitiv
   if (declared === 'STUB' || declared === 'NOT_IMPLEMENTED') return 'DECLARED_NON_EXECUTABLE';
   if (record?.enabled === false) return 'DISABLED';
   if (record?.risk !== 'LOW') return 'RISK_NOT_LOW';
+  if (record?.approval?.required === true || OWNER_APPROVAL_SENSITIVE_CAPABILITIES.has(record?.id)) return 'OWNER_APPROVAL_REQUIRED';
   const health = String(record?.health || '').toUpperCase();
   if (['UNAVAILABLE','OFFLINE','DISABLED','BLOCKED','DOWN','BROKEN'].includes(health)) return 'HEALTH_UNAVAILABLE';
   if (sample === undefined) return 'NO_BOUNDED_SAMPLE';
