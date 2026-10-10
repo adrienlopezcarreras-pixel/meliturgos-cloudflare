@@ -15,10 +15,10 @@ import androidx.core.content.ContextCompat
 @SuppressLint("MissingPermission")
 class MelCompanionPresenceService : CompanionDeviceService() {
     private fun ensureBridge(reason: String) {
-        MelBleBridgeService.bridgeState.value = "MINI PRÉSENTE · $reason"
+        MelLinkV2ClientService.bridgeState.value = "MINI PRÉSENTE · $reason"
         ContextCompat.startForegroundService(
             this,
-            Intent(this, MelBleBridgeService::class.java)
+            Intent(this, MelLinkV2ClientService::class.java)
         )
     }
 
@@ -31,7 +31,7 @@ class MelCompanionPresenceService : CompanionDeviceService() {
     @Deprecated("API 31-32 compatibility")
     override fun onDeviceDisappeared(address: String) {
         super.onDeviceDisappeared(address)
-        MelBleBridgeService.bridgeState.value = "MINI HORS PORTÉE"
+        MelLinkV2ClientService.bridgeState.value = "MINI HORS PORTÉE"
     }
 
     override fun onDeviceAppeared(associationInfo: AssociationInfo) {
@@ -41,6 +41,6 @@ class MelCompanionPresenceService : CompanionDeviceService() {
 
     override fun onDeviceDisappeared(associationInfo: AssociationInfo) {
         super.onDeviceDisappeared(associationInfo)
-        MelBleBridgeService.bridgeState.value = "MINI HORS PORTÉE"
+        MelLinkV2ClientService.bridgeState.value = "MINI HORS PORTÉE"
     }
 }

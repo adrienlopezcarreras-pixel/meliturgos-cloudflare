@@ -1,0 +1,105 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+
+const root = new URL('../', import.meta.url);
+const read = path => readFile(new URL(path, root), 'utf8');
+
+test('MINI Link V2 rejects unencrypted control and bulk GATT writes', async () => {
+  const server = await read('firmware/waveshare-terminal/main/mel_link_v2_server.cpp');
+  assert.match(server, /BLE_GATT_CHR_F_WRITE \| BLE_GATT_CHR_F_WRITE_ENC/);
+  assert.match(server, /BLE_GATT_CHR_F_WRITE \| BLE_GATT_CHR_F_WRITE_NO_RSP \| BLE_GATT_CHR_F_WRITE_ENC/);
+  assert.match(server, /ble_hs_cfg\.sm_bonding = 1/);
+  assert.match(server, /ble_hs_cfg\.sm_sc = 1/);
+  assert.match(server, /ble_gap_security_initiate\(g_conn\)/);
+  assert.match(server, /ble_store_config_init\(\)/);
+  assert.match(server, /extern "C" void ble_store_config_init\(void\);/);
+  assert.match(server, /ble_hs_cfg\.store_status_cb = ble_store_util_status_rr/);
+  assert.match(server, /ble_gap_terminate\(g_conn, BLE_ERR_REM_USER_CONN_TERM\)/);
+  const workflow = await read('.github/workflows/waveshare-terminal-firmware.yml');
+  assert.match(workflow, /set_cfg_y CONFIG_BT_NIMBLE_NVS_PERSIST/);
+  assert.match(workflow, /set_cfg_int CONFIG_BT_NIMBLE_SM_SC_ONLY 1/);
+  const defaults = await read('firmware/waveshare-terminal/sdkconfig.defaults');
+  assert.match(defaults, /CONFIG_BT_NIMBLE_NVS_PERSIST=y/);
+  assert.match(defaults, /CONFIG_BT_NIMBLE_SM_SC_ONLY=1/);
+
+  assert.match(server, /BLE_GAP_EVENT_ENC_CHANGE/);
+  assert.match(server, /g_link_encrypted\.load\(\) &&/);
+  assert.match(server, /const bool now_ready = g_event_subscribed && g_link_encrypted\.load\(\)/);
+});
+
+test('MINI refuses invalid SESSION clock and sessionless media channel credentials', async () => {
+  const transport = await read('firmware/waveshare-terminal/main/mel_link_v2_transport.cpp');
+  assert.match(transport, /if \(!clock_ok \|\| !mel_link_v2_server_ready\(\)\)/);
+  assert.match(transport, /g_session_ready\.store\(false\)/);
+  assert.match(transport, /if \(!g_session_ready\.load\(\) \|\| !mel_link_v2_server_ready\(\)\)/);
+  assert.match(transport, /MEDIA_CONFIG rejected: Android V2 session not verified/);
+});
+
+test('Android requests system BLE pairing before MTU, not an advertising GATT server', async () => {
+  const service = await read('android-companion/app/src/main/java/fr/veriteinterdite/mel/MelLinkV2ClientService.kt');
+  const activity = await read('android-companion/app/src/main/java/fr/veriteinterdite/mel/MainActivity.kt');
+  const manifest = await read('android-companion/app/src/main/AndroidManifest.xml');
+  assert.match(service, /BluetoothDevice\.ACTION_BOND_STATE_CHANGED/);
+  assert.match(service, /BluetoothDevice\.BOND_BONDED -> beginMtuNegotiation\(client\)/);
+  assert.match(service, /client\.device\.createBond\(\)/);
+  assert.match(activity, /Manifest\.permission\.BLUETOOTH_SCAN/);
+  assert.match(activity, /Intent\(this, MelLinkV2ClientService::class\.java\)/);
+  assert.doesNotMatch(activity, /Intent\(this, MelBleBridgeService::class\.java\)/);
+  assert.match(manifest, /android\.permission\.BLUETOOTH_SCAN/);
+  assert.match(manifest, /android:name="\.MelBleBridgeService"\s+android:enabled="false"/);
+});
+
+test('scheduled Companion relay cannot flash or reset a MINI', async () => {
+  const api = await read('src/devices/computer-companion-api.js');
+  const relay = await read('scripts/cloudflare-api-relay-runner.mjs');
+  const workflow = await read('.github/workflows/cloudflare-api-relay.yml');
+  const updater = await read('.github/workflows/mini-windows-updater.yml');
+  assert.doesNotMatch(api.split('const PC_CONTROL_PROOF_ACTIONS=new Set(')[1]?.split(';')[0] || '', /serial\.hard_reset/);
+  assert.doesNotMatch(relay, /action:'serial\.hard_reset'/);
+  assert.doesNotMatch(workflow, /MEL_MINI_RESET_APPROVED/);
+  assert.match(updater, /legacy_approval/);
+  assert.doesNotMatch(updater, /\n  push:\s*\n/);
+  assert.match(updater, /BUILD_LEGACY_0_4_37/);
+});
+
+test('MINI firmware boot preserves NVS on migration failure instead of auto erasing identity', async () => {
+  const app = await read('firmware/waveshare-terminal/main/main.cpp');
+  assert.match(app, /const esp_err_t ret = nvs_flash_init\(\)/);
+  assert.match(app, /if \(ret != ESP_OK\)/);
+  assert.match(app, /No automatic erase; preserve NVS for manual recovery/);
+  assert.doesNotMatch(app, /nvs_flash_erase\(\)/);
+});
+
+test('MINI and Android require explicit SESSION_OK acknowledgment before reporting protocol ready', async () => {
+  const mini = await read('firmware/waveshare-terminal/main/mel_link_v2_transport.cpp');
+  const android = await read('android-companion/app/src/main/java/fr/veriteinterdite/mel/MelLinkV2ClientService.kt');
+  assert.match(mini, /g_session_ack_pending\.store\(true\)/);
+  assert.match(mini, /MEL_LINK_V2_ACK, 0, 0/);
+  assert.match(mini, /kSessionAccepted\[\] = "SESSION_OK"/);
+  assert.match(mini, /g_session_ack_pending\.store\(false\)/);
+  assert.match(android, /MelLinkV2Protocol\.ACK ->/);
+  assert.match(android, /frame\.payload\.toString\(Charsets\.UTF_8\) != "SESSION_OK"/);
+  assert.match(android, /SESSION_ACK_TIMEOUT/);
+  assert.match(android, /!miniReady\.value \|\| !sessionAckTimeoutArmed/);
+  assert.match(android, /MINI_SESSION_NOT_READY/);
+  assert.match(android, /if \(!protocolReady\.value \|\| !miniReady\.value\)/);
+  assert.match(android, /if \(gatt !== sessionGatt \|\| !miniReady\.value \|\| !protocolReady\.value\) return@execute/);
+  const hello = android.slice(android.indexOf('MelLinkV2Protocol.HELLO ->'), android.indexOf('MelLinkV2Protocol.ACK ->'));
+  assert.match(hello, /protocolReady\.value = false/);
+  assert.doesNotMatch(hello, /protocolReady\.value = true/);
+  const ack = android.slice(android.indexOf('MelLinkV2Protocol.ACK ->'), android.indexOf('MelLinkV2Protocol.PING ->'));
+  assert.match(ack, /protocolReady\.value = true/);
+  assert.match(ack, /validateMelSession\(\)/);
+});
+
+test('Android prevents queued control frames and delayed hotspot credentials crossing BLE reconnection', async () => {
+  const client = await read('android-companion/app/src/main/java/fr/veriteinterdite/mel/MelLinkV2ClientService.kt');
+  assert.match(client, /val intendedGatt = gatt \?: return/);
+  assert.match(client, /if \(gatt === intendedGatt\) sendControlBlocking\(frame\)/);
+  assert.match(client, /val mediaRequestGatt = gatt \?: return/);
+  assert.match(client, /if \(gatt !== mediaRequestGatt \|\| !miniReady\.value \|\| !protocolReady\.value\)/);
+  assert.match(client, /MEDIA_CONFIG_STALE_SESSION/);
+  assert.match(client, /sendErrorAsync\(streamId: Int, code: String\)/);
+  assert.match(client, /sendControlAsync\(\s*MelLinkV2Protocol\.encode\(/);
+});

@@ -11,6 +11,11 @@
 #include "host/ble_hs.h"
 #include "host/ble_uuid.h"
 #include "host/util/util.h"
+#include "store/config/ble_store_config.h"
+
+// ESP-IDF NimBLE exports this from the C store/config component but does not
+// declare it in its public config header for C++ translation units.
+extern "C" void ble_store_config_init(void);
 #include "nimble/nimble_port.h"
 #include "nimble/nimble_port_freertos.h"
 #include "os/os_mbuf.h"
@@ -28,6 +33,7 @@ static const ble_uuid16_t UUID_BULK_RX = BLE_UUID16_INIT(0xabf3);
 
 static std::atomic<bool> g_started{false};
 static std::atomic<bool> g_ready{false};
+static std::atomic<bool> g_link_encrypted{false};
 static uint16_t g_conn = BLE_HS_CONN_HANDLE_NONE;
 static uint16_t g_control_handle = 0;
 static uint16_t g_event_handle = 0;
@@ -96,7 +102,7 @@ static const struct ble_gatt_svc_def g_services[] = {
             {
                 .uuid = &UUID_CONTROL_RX.u,
                 .access_cb = access_cb,
-                .flags = BLE_GATT_CHR_F_WRITE,
+                .flags = BLE_GATT_CHR_F_WRITE | BLE_GATT_CHR_F_WRITE_ENC,
                 .val_handle = &g_control_handle,
             },
             {
@@ -108,7 +114,7 @@ static const struct ble_gatt_svc_def g_services[] = {
             {
                 .uuid = &UUID_BULK_RX.u,
                 .access_cb = access_cb,
-                .flags = BLE_GATT_CHR_F_WRITE | BLE_GATT_CHR_F_WRITE_NO_RSP,
+                .flags = BLE_GATT_CHR_F_WRITE | BLE_GATT_CHR_F_WRITE_NO_RSP | BLE_GATT_CHR_F_WRITE_ENC,
                 .val_handle = &g_bulk_handle,
             },
             {0}
@@ -153,9 +159,18 @@ static int gap_event(struct ble_gap_event *event, void *arg) {
             if (event->connect.status == 0) {
                 g_conn = event->connect.conn_handle;
                 g_ready.store(false);
+                g_link_encrypted.store(false);
                 g_event_subscribed = false;
                 g_mtu = ble_att_mtu(g_conn);
                 ESP_LOGI(TAG, "Android connected conn=%u mtu=%u", g_conn, g_mtu);
+                // Without actively initiating security, both ends can wait
+                // forever: MINI withholds HELLO until encrypted, while Android
+                // awaits HELLO before sending any encrypted application write.
+                const int security_rc = ble_gap_security_initiate(g_conn);
+                if (security_rc != 0 && security_rc != BLE_HS_EALREADY) {
+                    ESP_LOGE(TAG, "BLE security initiate failed rc=%d", security_rc);
+                    ble_gap_terminate(g_conn, BLE_ERR_REM_USER_CONN_TERM);
+                }
             } else {
                 g_conn = BLE_HS_CONN_HANDLE_NONE;
                 start_advertising();
@@ -166,6 +181,7 @@ static int gap_event(struct ble_gap_event *event, void *arg) {
             ESP_LOGW(TAG, "Android disconnected reason=%d", event->disconnect.reason);
             g_conn = BLE_HS_CONN_HANDLE_NONE;
             g_mtu = 23;
+            g_link_encrypted.store(false);
             g_event_subscribed = false;
             const bool was_ready = g_ready.exchange(false);
             if (g_state_cb && was_ready) g_state_cb(false, g_state_ctx);
@@ -176,7 +192,7 @@ static int gap_event(struct ble_gap_event *event, void *arg) {
         case BLE_GAP_EVENT_SUBSCRIBE:
             if (event->subscribe.attr_handle == g_event_handle) {
                 g_event_subscribed = event->subscribe.cur_notify || event->subscribe.cur_indicate;
-                const bool now_ready = g_event_subscribed;
+                const bool now_ready = g_event_subscribed && g_link_encrypted.load();
                 const bool was_ready = g_ready.exchange(now_ready);
                 ESP_LOGI(TAG, "event subscription notify=%d indicate=%d ready=%d",
                          event->subscribe.cur_notify, event->subscribe.cur_indicate,
@@ -184,6 +200,24 @@ static int gap_event(struct ble_gap_event *event, void *arg) {
                 if (g_state_cb && was_ready != now_ready) g_state_cb(now_ready, g_state_ctx);
             }
             return 0;
+
+        case BLE_GAP_EVENT_ENC_CHANGE: {
+            if (event->enc_change.conn_handle != g_conn) return 0;
+            struct ble_gap_conn_desc desc = {};
+            const bool encrypted = event->enc_change.status == 0 &&
+                ble_gap_conn_find(g_conn, &desc) == 0 && desc.sec_state.encrypted;
+            g_link_encrypted.store(encrypted);
+            if (!encrypted) {
+                // Fail closed rather than serving an unauthenticated SESSION.
+                ESP_LOGW(TAG, "BLE encryption did not become active status=%d", event->enc_change.status);
+                ble_gap_terminate(g_conn, BLE_ERR_REM_USER_CONN_TERM);
+            }
+            const bool now_ready = encrypted && g_event_subscribed;
+            const bool was_ready = g_ready.exchange(now_ready);
+            ESP_LOGI(TAG, "Link V2 BLE encrypted=%d", encrypted ? 1 : 0);
+            if (g_state_cb && was_ready != now_ready) g_state_cb(now_ready, g_state_ctx);
+            return 0;
+        }
 
         case BLE_GAP_EVENT_MTU:
             if (event->mtu.conn_handle == g_conn) {
@@ -218,6 +252,7 @@ static void on_reset(int reason) {
     g_conn = BLE_HS_CONN_HANDLE_NONE;
     g_mtu = 23;
     g_event_subscribed = false;
+    g_link_encrypted.store(false);
     g_ready.store(false);
     if (g_state_cb) g_state_cb(false, g_state_ctx);
 }
@@ -273,7 +308,16 @@ esp_err_t mel_link_v2_server_start(void) {
         return ESP_FAIL;
     }
 
+    // Require bonded BLE encryption for all Android -> MINI writes. Just Works
+    // pairing protects confidentiality but is not an authenticated MITM proof.
+    ble_hs_cfg.sm_bonding = 1;
+    ble_hs_cfg.sm_sc = 1;
+    ble_hs_cfg.sm_our_key_dist |= BLE_SM_PAIR_KEY_DIST_ENC | BLE_SM_PAIR_KEY_DIST_ID;
+    ble_hs_cfg.sm_their_key_dist |= BLE_SM_PAIR_KEY_DIST_ENC | BLE_SM_PAIR_KEY_DIST_ID;
     ble_hs_cfg.reset_cb = on_reset;
+    ble_hs_cfg.store_status_cb = ble_store_util_status_rr;
+    // Register NimBLE's persistent bond-store callbacks before starting host.
+    ble_store_config_init();
     ble_hs_cfg.sync_cb = on_sync;
     ble_att_set_preferred_mtu(MEL_LINK_V2_DEFAULT_MTU);
     nimble_port_freertos_init(host_task);
@@ -281,7 +325,8 @@ esp_err_t mel_link_v2_server_start(void) {
 }
 
 bool mel_link_v2_server_ready(void) {
-    return g_ready.load() && g_conn != BLE_HS_CONN_HANDLE_NONE && g_event_subscribed;
+    return g_ready.load() && g_link_encrypted.load() &&
+        g_conn != BLE_HS_CONN_HANDLE_NONE && g_event_subscribed;
 }
 
 uint16_t mel_link_v2_server_mtu(void) {

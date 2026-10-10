@@ -131,6 +131,9 @@ jobs:
           adb shell settings put global window_animation_scale 0
           adb shell settings put global transition_animation_scale 0
           adb shell settings put global animator_duration_scale 0
+          # Suppress first-run immersive-mode coachmark, which obscured the
+          # previously accepted 'complete-screen.png' screenshot.
+          adb shell settings put secure immersive_mode_confirmations confirmed
           adb shell input keyevent 82 || true
 
       - name: Run instrumented Compose UI tests
@@ -140,7 +143,7 @@ jobs:
           set -euo pipefail
           gradle --no-daemon --stacktrace :app:connectedDebugAndroidTest
 
-      - name: Capture real MEL UI screenshots
+      - name: Capture and inspect unobstructed MEL UI screenshots
         shell: bash
         working-directory: android-companion
         run: |
@@ -149,23 +152,64 @@ jobs:
 
           gradle --no-daemon :app:installDebug
 
+          # Captures must show MEL itself rather than a legitimate Android
+          # permission dialog. Grant only this disposable emulator's declared
+          # runtime permissions; the actual phone still asks its owner.
+          for permission in \
+            android.permission.BLUETOOTH_SCAN \
+            android.permission.BLUETOOTH_CONNECT \
+            android.permission.NEARBY_WIFI_DEVICES \
+            android.permission.RECORD_AUDIO \
+            android.permission.POST_NOTIFICATIONS; do
+            adb shell pm grant fr.veriteinterdite.mel "$permission"
+          done
+
+          # Successful instrumented tests do not prove visual screenshots:
+          # the emulator has previously shown a Pixel Launcher ANR dialog on
+          # every screenshot even while reporting seven passed UI tests.
+          capture_verified_ui() {
+            local name="$1" expected_package="$2"
+            local screenshot="dist/emulator/${name}.png"
+            local hierarchy="dist/emulator/${name}.ui.xml"
+            for attempt in 1 2 3; do
+              if ! timeout 20s adb shell uiautomator dump /sdcard/mel-visual-proof.xml > /dev/null 2>&1; then
+                echo "::warning::uiautomator hierarchy unavailable for ${name} attempt ${attempt}"
+                sleep 2
+                continue
+              fi
+              adb shell cat /sdcard/mel-visual-proof.xml > "$hierarchy"
+              if grep -Eiq "(isn.t responding|not responding|ne répond pas|viewing full screen|Got it)" "$hierarchy"; then
+                echo "::warning::System ANR/fullscreen overlay obscures ${name} on attempt ${attempt}"
+                adb shell input keyevent KEYCODE_BACK || true
+                sleep 2
+                continue
+              fi
+              if ! grep -Fq "package=\"${expected_package}\"" "$hierarchy"; then
+                echo "::warning::Expected ${expected_package} is not visible in ${name} UI tree, attempt ${attempt}"
+                sleep 2
+                continue
+              fi
+              adb exec-out screencap -p > "$screenshot"
+              test -s "$screenshot"
+              echo "VISUAL_PROOF_VALID: ${name} package=${expected_package}"
+              return 0
+            done
+            echo "::error::INVALID_VISUAL_PROOF: ${name}; no unobstructed app UI screenshot after 3 attempts"
+            return 1
+          }
+
           adb shell am start -W -a android.settings.APPLICATION_DETAILS_SETTINGS -d package:fr.veriteinterdite.mel
-          sleep 1
-          adb exec-out screencap -p > dist/emulator/launcher-icon-proof.png
-          test -s dist/emulator/launcher-icon-proof.png
+          sleep 2
+          capture_verified_ui launcher-icon-proof com.android.settings
 
           adb shell am force-stop fr.veriteinterdite.mel
           adb shell am start -W -n fr.veriteinterdite.mel/.MainActivity
-          sleep 1
-          adb shell dumpsys activity activities | grep -q "fr.veriteinterdite.mel/.MainActivity"
-          adb exec-out screencap -p > dist/emulator/login-screen.png
-          test -s dist/emulator/login-screen.png
+          sleep 2
+          capture_verified_ui login-screen fr.veriteinterdite.mel
 
-          adb shell am start -W             -n fr.veriteinterdite.mel/.MelUiHarnessActivity             --es mode complete             --ez diagnostics true
-          sleep 1
-          adb shell dumpsys activity activities | grep -q "fr.veriteinterdite.mel/.MelUiHarnessActivity"
-          adb exec-out screencap -p > dist/emulator/complete-screen.png
-          test -s dist/emulator/complete-screen.png
+          adb shell am start -W -n fr.veriteinterdite.mel/.MelUiHarnessActivity --es mode complete --ez diagnostics true
+          sleep 2
+          capture_verified_ui complete-screen fr.veriteinterdite.mel
 
           cp "$RUNNER_TEMP/mel-emulator.log" dist/emulator/emulator.log || true
 

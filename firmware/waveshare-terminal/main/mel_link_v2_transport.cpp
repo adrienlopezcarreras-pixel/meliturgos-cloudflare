@@ -36,6 +36,7 @@ struct ActiveExchange {
 
 static std::atomic<bool> g_started{false};
 static std::atomic<bool> g_session_ready{false};
+static std::atomic<bool> g_session_ack_pending{false};
 static std::atomic<bool> g_server_ready{false};
 static std::atomic<uint16_t> g_next_stream{1};
 static std::atomic<uint16_t> g_active_stream_id{0};
@@ -158,12 +159,24 @@ static void rx_frame(const uint8_t *frame, size_t len, void *ctx) {
 
     if (header.type == MEL_LINK_V2_SESSION && header.stream_id == 0) {
         const bool clock_ok = apply_android_session_clock(payload, header.payload_len);
+        if (!clock_ok || !mel_link_v2_server_ready()) {
+            g_session_ready.store(false);
+            g_session_ack_pending.store(false);
+            ESP_LOGW(TAG, "Rejected unauthenticated/invalid Android V2 SESSION");
+            return;
+        }
         g_session_ready.store(true);
+        // Send ACK from handshake task, never block the NimBLE GATT write callback.
+        g_session_ack_pending.store(true);
         ESP_LOGI(TAG, "Android V2 session ready clock=%s", clock_ok ? "OK" : "UNAVAILABLE");
         return;
     }
 
     if (header.type == MEL_LINK_V2_MEDIA_CONFIG) {
+        if (!g_session_ready.load() || !mel_link_v2_server_ready()) {
+            ESP_LOGW(TAG, "MEDIA_CONFIG rejected: Android V2 session not verified");
+            return;
+        }
         std::string raw(reinterpret_cast<const char *>(payload), header.payload_len);
         cJSON *root = cJSON_Parse(raw.c_str());
         cJSON *ssid = root ? cJSON_GetObjectItemCaseSensitive(root, "ssid") : nullptr;
@@ -366,7 +379,10 @@ static void rx_frame(const uint8_t *frame, size_t len, void *ctx) {
 static void state_changed(bool ready, void *ctx) {
     (void)ctx;
     g_server_ready.store(ready);
-    if (!ready) g_session_ready.store(false);
+    if (!ready) {
+        g_session_ready.store(false);
+        g_session_ack_pending.store(false);
+    }
 }
 
 static void handshake_task(void *arg) {
@@ -385,7 +401,19 @@ static void handshake_task(void *arg) {
                 true
             );
         }
-        vTaskDelay(pdMS_TO_TICKS(g_session_ready.load() ? 1000 : 400));
+        if (g_server_ready.load() && g_session_ready.load() &&
+            g_session_ack_pending.load()) {
+            static constexpr char kSessionAccepted[] = "SESSION_OK";
+            const bool sent = send_v2(
+                MEL_LINK_V2_ACK, 0, 0,
+                reinterpret_cast<const uint8_t *>(kSessionAccepted),
+                sizeof(kSessionAccepted) - 1, false
+            );
+            if (sent) g_session_ack_pending.store(false);
+        }
+        vTaskDelay(pdMS_TO_TICKS(
+            g_session_ack_pending.load() ? 100 : (g_session_ready.load() ? 1000 : 400)
+        ));
     }
 }
 

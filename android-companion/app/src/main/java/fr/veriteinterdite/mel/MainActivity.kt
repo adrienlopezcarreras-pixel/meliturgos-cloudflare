@@ -259,7 +259,7 @@ class MainActivity : ComponentActivity() {
         model = ViewModelProvider(this, factory)[MelViewModel::class.java]
         setContent {
             val state by model.state.collectAsStateWithLifecycle()
-            val wakeProfileRevision by MelBleBridgeService.wakeProfileRevision.collectAsStateWithLifecycle()
+            val wakeProfileRevision by MelLinkV2ClientService.wakeProfileRevision.collectAsStateWithLifecycle()
             LaunchedEffect(wakeProfileRevision) {
                 refreshWakeEnrollmentState()
                 if (wakeEnrolled.value && state.session == SessionStage.CONNECTED && !state.busy && !state.speaking) {
@@ -372,18 +372,18 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun ensureMobileBridge(forceRestart: Boolean = false) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            val permissions = arrayOf(
-                Manifest.permission.BLUETOOTH_ADVERTISE,
-                Manifest.permission.BLUETOOTH_CONNECT
-            )
-            val missing = permissions.filter {
-                ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
-            }
-            if (missing.isNotEmpty()) {
-                bluetoothPermissions.launch(missing.toTypedArray())
-                return
-            }
+        val permissions = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            arrayOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_CONNECT)
+        } else {
+            // Android 6–11 require location runtime permission for BLE service discovery.
+            arrayOf(Manifest.permission.ACCESS_FINE_LOCATION)
+        }
+        val missing = permissions.filter {
+            ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
+        }
+        if (missing.isNotEmpty()) {
+            bluetoothPermissions.launch(missing.toTypedArray())
+            return
         }
         val adapter = getSystemService(BluetoothManager::class.java)?.adapter ?: return
         if (!adapter.isEnabled) {
@@ -394,8 +394,8 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun startMobileBridge(forceRestart: Boolean = false) {
-        val intent = Intent(this, MelBleBridgeService::class.java)
-        if (forceRestart) intent.action = MelBleBridgeService.ACTION_RESTART
+        val intent = Intent(this, MelLinkV2ClientService::class.java)
+        if (forceRestart) intent.action = MelLinkV2ClientService.ACTION_RESTART
         ContextCompat.startForegroundService(this, intent)
     }
 
@@ -2740,11 +2740,11 @@ private fun CompanionPanel(
     onConnectMini: () -> Unit,
     onMiniPairCode: (String, String) -> Unit
 ) {
-    val bridgeState by MelBleBridgeService.bridgeState.collectAsStateWithLifecycle()
-    val bleReady by MelBleBridgeService.miniLinkReady.collectAsStateWithLifecycle()
-    val phoneInternetReady by MelBleBridgeService.phoneInternetAvailable.collectAsStateWithLifecycle()
-    val internetReady by MelBleBridgeService.internetReady.collectAsStateWithLifecycle()
-    val pairingComplete by MelBleBridgeService.miniPairingComplete.collectAsStateWithLifecycle()
+    val bridgeState by MelLinkV2ClientService.bridgeState.collectAsStateWithLifecycle()
+    val bleReady by MelLinkV2ClientService.miniLinkReady.collectAsStateWithLifecycle()
+    val phoneInternetReady by MelLinkV2ClientService.phoneInternetAvailable.collectAsStateWithLifecycle()
+    val internetReady by MelLinkV2ClientService.internetReady.collectAsStateWithLifecycle()
+    val pairingComplete by MelLinkV2ClientService.miniPairingComplete.collectAsStateWithLifecycle()
     var showPairRecovery by rememberSaveable { mutableStateOf(false) }
     var miniPairUser by rememberSaveable { mutableStateOf("adrien") }
     var miniPairSecret by rememberSaveable { mutableStateOf("") }
