@@ -62,3 +62,11 @@ test('scheduled Companion relay cannot flash or reset a MINI', async () => {
   assert.doesNotMatch(updater, /\n  push:\s*\n/);
   assert.match(updater, /BUILD_LEGACY_0_4_37/);
 });
+
+test('MINI firmware boot preserves NVS on migration failure instead of auto erasing identity', async () => {
+  const app = await read('firmware/waveshare-terminal/main/main.cpp');
+  assert.match(app, /const esp_err_t ret = nvs_flash_init\(\)/);
+  assert.match(app, /if \(ret != ESP_OK\)/);
+  assert.match(app, /No automatic erase; preserve NVS for manual recovery/);
+  assert.doesNotMatch(app, /nvs_flash_erase\(\)/);
+});
