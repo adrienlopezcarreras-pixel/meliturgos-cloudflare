@@ -870,3 +870,13 @@ test('Android Link V2 never waits indefinitely for Bluetooth pairing or service 
   assert.match(src,/if \(!runCatching \{ client\.discoverServices\(\) \}\.getOrDefault\(false\)\)/);
   assert.match(src,/SERVICE_DISCOVERY_START_FAILED/);
 });
+
+test('Android GATT ACKs are characteristic-scoped and cannot accept audio-noresponse callbacks', async () => {
+  const src=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelLinkV2ClientService.kt',root),'utf8');
+  assert.match(src, /@Volatile private var pendingAckCharacteristicUuid: UUID\? = null/);
+  assert.match(src, /if \(pendingAckCharacteristicUuid == characteristic\.uuid\) writeAck\.offer\(status\)/);
+  assert.match(src, /pendingAckCharacteristicUuid = target\.uuid/);
+  assert.match(src, /finally \{\s+pendingAckCharacteristicUuid = null/);
+  assert.match(src, /GATT_WRITE_ACK_TIMEOUT/);
+  assert.match(src, /private fun clearSession\(reason: String\) \{\s+pendingAckCharacteristicUuid = null\s+writeAck\.clear\(\)/);
+});

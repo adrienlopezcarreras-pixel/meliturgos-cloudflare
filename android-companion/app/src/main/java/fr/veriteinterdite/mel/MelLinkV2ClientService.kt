@@ -109,6 +109,9 @@ class MelLinkV2ClientService : Service() {
     private val executor = Executors.newSingleThreadExecutor()
     private val bleWriter = Executors.newSingleThreadExecutor()
     private val writeAck = ArrayBlockingQueue<Int>(1)
+    // Only a matching characteristic may acknowledge a blocking GATT write.
+    // Audio WRITE_TYPE_NO_RESPONSE callbacks must not consume control ACKs.
+    @Volatile private var pendingAckCharacteristicUuid: UUID? = null
     private val writeLock = Any()
     private val requests = HashMap<Int, IncomingRequest>()
     private val audioStreams = HashMap<Int, IncomingAudio>()
@@ -516,8 +519,10 @@ class MelLinkV2ClientService : Service() {
 
         override fun onCharacteristicWrite(client: BluetoothGatt, characteristic: BluetoothGattCharacteristic, status: Int) {
             if (gatt !== client) return
-            writeAck.offer(status)
             if (status != BluetoothGatt.GATT_SUCCESS) lastError.value = "WRITE_$status"
+            // The AUDIO_DATA path uses bulkRx without waiting for an ACK.
+            // Do not let its callback impersonate a CONTROL_RX write completion.
+            if (pendingAckCharacteristicUuid == characteristic.uuid) writeAck.offer(status)
         }
     }
 
@@ -1299,19 +1304,28 @@ class MelLinkV2ClientService : Service() {
             val target = characteristic ?: return false
             if (!hasBlePermissions()) return false
             while (writeAck.poll() != null) { }
-            val queued = if (Build.VERSION.SDK_INT >= 33) {
-                client.writeCharacteristic(target, value, writeType) == BluetoothGatt.GATT_SUCCESS
-            } else {
-                @Suppress("DEPRECATION")
-                run {
-                    target.writeType = writeType
-                    target.value = value
-                    client.writeCharacteristic(target)
+            pendingAckCharacteristicUuid = target.uuid
+            try {
+                val queued = if (Build.VERSION.SDK_INT >= 33) {
+                    client.writeCharacteristic(target, value, writeType) == BluetoothGatt.GATT_SUCCESS
+                } else {
+                    @Suppress("DEPRECATION")
+                    run {
+                        target.writeType = writeType
+                        target.value = value
+                        client.writeCharacteristic(target)
+                    }
                 }
+                if (!queued) return false
+                val status = writeAck.poll(5, TimeUnit.SECONDS)
+                if (status == null) {
+                    failAndReconnect(client, "GATT_WRITE_ACK_TIMEOUT")
+                    return false
+                }
+                return status == BluetoothGatt.GATT_SUCCESS
+            } finally {
+                pendingAckCharacteristicUuid = null
             }
-            if (!queued) return false
-            val status = writeAck.poll(5, TimeUnit.SECONDS) ?: return false
-            return status == BluetoothGatt.GATT_SUCCESS
         }
     }
 
@@ -1332,6 +1346,8 @@ class MelLinkV2ClientService : Service() {
     }
 
     private fun clearSession(reason: String) {
+        pendingAckCharacteristicUuid = null
+        writeAck.clear()
         miniReady.value = false
         protocolReady.value = false
         sessionAckTimeoutArmed = false
