@@ -819,3 +819,14 @@ test('Android V2 ignores stale GATT callbacks and recovers when disconnect never
   assert.match(service, /if \(client != null\) \{\s+if \(hasBlePermissions\(\)\)/);
   assert.match(service, /if \(protocolReady\.value\) return\s+\/\/ HELLO proves/);
 });
+
+test('Android V2 rejects every stale GATT state callback before mutating session readiness', async () => {
+  const service = await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelLinkV2ClientService.kt',root),'utf8');
+  const start = service.indexOf('override fun onConnectionStateChange(');
+  const end = service.indexOf('override fun onMtuChanged(', start);
+  const cb = service.slice(start,end);
+  assert.match(cb,/if \(gatt !== client\) \{\s+runCatching \{ client\.close\(\) \}\s+return/);
+  assert.ok(cb.indexOf('if (gatt !== client)') < cb.indexOf('miniReady.value = false'));
+  assert.match(cb,/GATT_STATE_ERROR_\$status/);
+  assert.match(cb,/if \(newState == BluetoothProfile\.STATE_DISCONNECTED\)/);
+});

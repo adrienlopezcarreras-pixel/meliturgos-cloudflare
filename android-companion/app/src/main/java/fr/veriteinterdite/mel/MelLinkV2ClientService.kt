@@ -373,6 +373,18 @@ class MelLinkV2ClientService : Service() {
 
     private val gattCallback = object : BluetoothGattCallback() {
         override fun onConnectionStateChange(client: BluetoothGatt, status: Int, newState: Int) {
+            // Older Android GATT callbacks may arrive after a new connection
+            // has already become current. Ignore every state mutation from
+            // the old client, not only its DISCONNECTED event.
+            if (gatt !== client) {
+                runCatching { client.close() }
+                return
+            }
+            if (status != BluetoothGatt.GATT_SUCCESS &&
+                newState != BluetoothProfile.STATE_DISCONNECTED) {
+                failAndReconnect(client, "GATT_STATE_ERROR_$status")
+                return
+            }
             if (newState == BluetoothProfile.STATE_CONNECTED && status == BluetoothGatt.GATT_SUCCESS) {
                 reconnectAttempt = 0
                 mtuRetryAttempted = false
