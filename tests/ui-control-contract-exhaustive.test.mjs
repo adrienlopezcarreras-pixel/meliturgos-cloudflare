@@ -196,3 +196,14 @@ test('all anonymous canonical buttons use a declared delegated control family', 
   assert.match(source, /modeTabs\.forEach\(tab=>tab\.onclick=/);
   assert.match(source, /qsa\('\[data-pd-connect\]'\)\.forEach/);
 });
+
+test('capabilities view never promotes healthy registration to verified execution', async () => {
+  const source = await readFile(new URL('../src/pages/full-interface-v2.js', import.meta.url), 'utf8');
+  assert.ok(source.includes("function capabilityHealthGood(x)"));
+  assert.ok(source.includes("SANTÉ SEULEMENT · "));
+  assert.ok(source.includes("exécution non démontrée par ce contrôle."));
+  assert.ok(source.includes("santé ≠ preuve d’exécution"));
+  assert.ok(!source.includes('100 % OPÉRATIONNEL · '));
+  assert.ok(source.includes('Les XP témoignent de la progression'));
+  assert.ok(source.includes('Santé OK (non testé)'));
+});
