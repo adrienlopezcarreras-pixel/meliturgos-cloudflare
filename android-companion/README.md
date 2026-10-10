@@ -1,27 +1,43 @@
-# MEL Android Companion
+# MEL Android — architecture MINI Link V2 (candidat 0.7.10)
 
-Premier lot natif de **GEN2-27**.
+L'APK de la branche de correction `fix/mini-linkv2-android-main-20261010`
+emploie Android en **central GATT** et la MINI en **périphérique GATT**
+(service ABF0 ; RX ABF1, event TX ABF2, bulk RX ABF3).
+Elle conserve la navigation actuelle Compose, le chat, les médias,
+les tâches Android et les fonctions de son interface principale.
 
-## Sécurité
+La branche `main` et les anciens APK `0.6.58-mini-stable-bridge`
+employaient un serveur GATT Android incompatible avec la nouvelle MINI.
+Ce système ancien est désormais désactivé dans le manifeste du candidat.
 
-- Le téléphone n'enregistre jamais le mot de passe propriétaire.
-- Le propriétaire génère un code de pairing à usage unique via `POST /api/android/v1/pair-code`.
-- L'app échange ce code contre un jeton appareil via `POST /api/android/v1/pair`.
-- Le jeton est chiffré avec une clé AES/GCM non exportable d'Android Keystore.
-- Le manifeste interdit le trafic HTTP en clair.
-- Le serveur ne conserve que le hash SHA-256 du jeton.
-- Le propriétaire peut révoquer un appareil avec `POST /api/android/v1/revoke`.
+## Sécurité et appairage
 
-## Protocole
+L'application demande `BLUETOOTH_SCAN` et `BLUETOOTH_CONNECT` sur
+Android 12+, découvre le service ABF0, demande l'appairage système
+avant le MTU et attend ensuite la souscription GATT. Les écritures
+vers la MINI doivent être **chiffrées**. Le code préserve Android Keystore
+pour ses tokens et refuse les transferts hors session.
 
-- `POST /api/android/v1/heartbeat`
-- `POST /api/android/v1/chat`
-- `GET /api/android/v1/sync?conversation_id=...`
-- `POST /api/android/v1/sync/ack`
-- `POST /api/android/v1/voice/transcribe`
+L'appairage Bluetooth *Just Works* protège contre l'écoute passive,
+pas contre toutes les attaques de type homme-du-milieu. Ne pas diffuser
+d'APK stable avant preuve physique et décision de sécurité sur
+l'authentification renforcée.
 
-La synchronisation est incrémentale : le checkpoint représente le dernier message effectivement acquitté. Les polls suivants retournent uniquement les messages de timestamp strictement supérieur.
+## Voix
 
-## État
+STT : ES8311 / 48 kHz -> décimation 16 kHz -> ADPCM -> BLE ->
+Android WAV16k -> serveur MEL.
+TTS : Android voix française locale -> PCM48 -> ADPCM -> BLE -> ES8311.
+Secours vocal Android : voix système française, PCM48 et MP3.
+STOP VOIX et déconnexion doivent interrompre les transferts proprement.
 
-Ce lot livre le protocole, le stockage sécurisé du jeton et une Activity native minimale pour pairing/chat/sync. La capture micro Android continue, les notifications, le service de fond et la construction APK signée restent des lots suivants avant `DONE_VERIFIED`.
+## Tests avant publication
+
+CI : compilation `:app:assembleDebug`, tests Kotlin, tests
+d'interface émulateur, fuzzing 10 000 trames, 1 000 blocs ADPCM,
+contrats croisés et paquet Companion Windows.
+Physique : 30 connexions/reconnexions, 10 STT, 10 TTS, BLE/wi-fi
+simultanés, caméra, arrêt de voix, réveil, perte réseau et récupération.
+
+**Statut : candidat, NON DONE_VERIFIED matériellement.**
+Voir `docs/MINI-ANDROID-WINDOWS-TRIAD-AUDIT-2026-10-10.md`.
