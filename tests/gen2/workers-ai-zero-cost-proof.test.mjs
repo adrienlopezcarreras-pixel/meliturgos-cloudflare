@@ -165,3 +165,18 @@ test('release zero-cost proof authorizes the accessible Council fallback pool', 
   assert.doesNotMatch(workflow, /@cf\/moonshotai\/kimi-k2\.7-code/);
   assert.match(workflow, /expires_at:new Date\(now\+60\*60\*1000\)\.toISOString\(\)/);
 });
+
+test('scheduled zero-cost proof refresh authenticates BOTH Cloudflare secret updates on the same environment', async () => {
+  const workflow = await readFile(new URL('../../.github/workflows/workers-ai-zero-cost-proof-refresh.yml', import.meta.url), 'utf8');
+  const browserStep = workflow.split('      - name: Re-prove Browser Run Workers Free hard-limit status\n')[1]
+    ?.split('      - name: Upload sanitized refresh evidence\n')[0];
+  assert.ok(browserStep, 'Browser Run refresh step must exist');
+  assert.ok(browserStep.includes('CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}'),
+    'each GitHub Actions step must explicitly receive its own Cloudflare token');
+  assert.ok(browserStep.includes('test -n "${CLOUDFLARE_API_TOKEN:-}"'),
+    'missing token must fail clearly before touching the Browser Run proof');
+  assert.ok(browserStep.includes('wrangler secret put MEL_BROWSER_RUN_ZERO_COST_PROOF_JSON --name meliturgos --env=""'),
+    'Browser Run proof secret must target the canonical top-level Worker environment');
+  assert.ok(workflow.includes('wrangler secret put MEL_WORKERS_AI_ZERO_COST_PROOF_JSON --name meliturgos --env=""'),
+    'Workers AI proof must target the same environment');
+});
