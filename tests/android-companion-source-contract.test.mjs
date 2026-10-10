@@ -806,3 +806,16 @@ test('Android Link V2 HTTP relay and ADPCM streams have strict memory bounds', a
   assert.match(client,/audio\.pcm16\.size\(\) \/ 2 \+ pcm\.size > expectedSamples/);
   assert.match(client,/AUDIO_SAMPLES_OVERFLOW/);
 });
+
+test('Android V2 ignores stale GATT callbacks and recovers when disconnect never arrives', async () => {
+  const service = await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelLinkV2ClientService.kt',root),'utf8');
+  assert.match(service, /@Volatile private var gatt: BluetoothGatt\? = null/);
+  assert.match(service, /if \(gatt !== client\) \{[\s\S]*?A late callback from an old GATT/);
+  assert.match(service, /override fun onMtuChanged[\s\S]*?if \(gatt !== client \|\| !hasBlePermissions\(\)\) return/);
+  assert.match(service, /override fun onServicesDiscovered[\s\S]*?if \(gatt !== client\) return/);
+  assert.match(service, /override fun onCharacteristicWrite[\s\S]*?if \(gatt !== client\) return/);
+  assert.match(service, /GATT_DISCONNECT_TIMEOUT_\$reason/);
+  assert.match(service, /}, 3_000L\)/);
+  assert.match(service, /if \(client != null\) \{\s+if \(hasBlePermissions\(\)\)/);
+  assert.match(service, /if \(protocolReady\.value\) return\s+\/\/ HELLO proves/);
+});

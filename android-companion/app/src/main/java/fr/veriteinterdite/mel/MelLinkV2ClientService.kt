@@ -99,7 +99,7 @@ class MelLinkV2ClientService : Service() {
     private var connectivityManager: ConnectivityManager? = null
     private var networkCallbackRegistered = false
     @Volatile private var melSessionReady = false
-    private var gatt: BluetoothGatt? = null
+    @Volatile private var gatt: BluetoothGatt? = null
     private var controlRx: BluetoothGattCharacteristic? = null
     private var eventTx: BluetoothGattCharacteristic? = null
     private var bulkRx: BluetoothGattCharacteristic? = null
@@ -116,7 +116,7 @@ class MelLinkV2ClientService : Service() {
     private var scanActive = false
     private var reconnectAttempt = 0
     private var mtuRetryAttempted = false
-    private var sessionAckTimeoutArmed = false
+    @Volatile private var sessionAckTimeoutArmed = false
     private val handler by lazy { android.os.Handler(mainLooper) }
 
     private val bondReceiver = object : BroadcastReceiver() {
@@ -391,10 +391,14 @@ class MelLinkV2ClientService : Service() {
             }
 
             if (newState == BluetoothProfile.STATE_DISCONNECTED) {
-                if (gatt === client) {
+                if (gatt !== client) {
+                    // A late callback from an old GATT must never tear down
+                    // the newly established Android/MINI session.
                     runCatching { client.close() }
-                    gatt = null
+                    return
                 }
+                gatt = null
+                runCatching { client.close() }
                 clearSession("DISCONNECTED_$status")
                 connecting.set(false)
                 scheduleReconnect()
@@ -402,7 +406,7 @@ class MelLinkV2ClientService : Service() {
         }
 
         override fun onMtuChanged(client: BluetoothGatt, mtu: Int, status: Int) {
-            if (!hasBlePermissions()) return
+            if (gatt !== client || !hasBlePermissions()) return
             if (status != BluetoothGatt.GATT_SUCCESS || mtu < MelLinkV2Protocol.MIN_AUDIO_MTU) {
                 if (!mtuRetryAttempted) {
                     mtuRetryAttempted = true
@@ -425,6 +429,7 @@ class MelLinkV2ClientService : Service() {
         }
 
         override fun onServicesDiscovered(client: BluetoothGatt, status: Int) {
+            if (gatt !== client) return
             if (status != BluetoothGatt.GATT_SUCCESS) {
                 failAndReconnect(client, "SERVICE_DISCOVERY_$status")
                 return
@@ -459,7 +464,7 @@ class MelLinkV2ClientService : Service() {
         }
 
         override fun onDescriptorWrite(client: BluetoothGatt, descriptor: BluetoothGattDescriptor, status: Int) {
-            if (descriptor.uuid != CCCD_UUID) return
+            if (gatt !== client || descriptor.uuid != CCCD_UUID) return
             if (status != BluetoothGatt.GATT_SUCCESS) {
                 failAndReconnect(client, "CCCD_STATUS_$status")
                 return
@@ -482,6 +487,7 @@ class MelLinkV2ClientService : Service() {
         }
 
         override fun onCharacteristicWrite(client: BluetoothGatt, characteristic: BluetoothGattCharacteristic, status: Int) {
+            if (gatt !== client) return
             writeAck.offer(status)
             if (status != BluetoothGatt.GATT_SUCCESS) lastError.value = "WRITE_$status"
         }
@@ -494,6 +500,9 @@ class MelLinkV2ClientService : Service() {
         }
         when (frame.type) {
             MelLinkV2Protocol.HELLO -> {
+                // An in-flight duplicate HELLO must not demote a session that
+                // already received its SESSION_OK acknowledgment.
+                if (protocolReady.value) return
                 // HELLO proves a BLE notification, not acceptance of MINI SESSION.
                 protocolReady.value = false
                 melSessionReady = false
@@ -1257,9 +1266,19 @@ class MelLinkV2ClientService : Service() {
     }
 
     private fun failAndReconnect(client: BluetoothGatt, reason: String) {
+        if (gatt !== client) return
         lastError.value = reason
         state.value = "ERREUR V2"
         runCatching { if (hasBlePermissions()) client.disconnect() }
+        // Some Android BLE stacks never report DISCONNECTED after a failed
+        // pairing, revoked permission or GATT timeout. Do not leave gatt
+        // permanently non-null and block all future discovery attempts.
+        handler.postDelayed({
+            if (gatt === client && !isDestroyedCompat()) {
+                resetPhysicalLink("GATT_DISCONNECT_TIMEOUT_$reason")
+                scheduleReconnect()
+            }
+        }, 3_000L)
     }
 
     private fun clearSession(reason: String) {
@@ -1287,8 +1306,10 @@ class MelLinkV2ClientService : Service() {
         val client = gatt
         gatt = null
         connecting.set(false)
-        if (client != null && hasBlePermissions()) {
-            runCatching { client.disconnect() }
+        if (client != null) {
+            if (hasBlePermissions()) runCatching { client.disconnect() }
+            // Closing a local GATT client releases its Android resources even
+            // when the user withdrew runtime Bluetooth permission.
             runCatching { client.close() }
         }
     }
