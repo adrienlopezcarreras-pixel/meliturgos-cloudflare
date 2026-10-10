@@ -138,6 +138,8 @@ jobs:
           MICROSOFT_MAIL_OK=0
           MICROSOFT_ONEDRIVE_OK=0
           MICROSOFT_SHAREPOINT_OK=0
+          MICROSOFT_SHAREPOINT_READ_PROVEN=0
+          MICROSOFT_SHAREPOINT_PROOF_SOURCE="UNVERIFIED"
 
           if probe google_gmail /api/gen2/connections/google/test '{"connector_id":"gmail"}'; then
             GOOGLE_GMAIL_OK=1
@@ -233,9 +235,15 @@ jobs:
 
           if probe microsoft_sharepoint /api/gen2/connections/microsoft/test '{"connector_id":"microsoft-sharepoint"}'; then
             MICROSOFT_SHAREPOINT_OK=1
+            MICROSOFT_SHAREPOINT_READ_PROVEN=1
+            MICROSOFT_SHAREPOINT_PROOF_SOURCE="NATIVE_GRAPH_SITE_SEARCH"
           elif [ "${PIPEDREAM_OK}" = "1" ] && has_pd_app sharepoint; then
+            # A connected OAuth account is not evidence that Graph supports
+            # SharePoint site reads for this user/tenant. Personal Microsoft
+            # accounts do not support GET /sites?search= or /me/followedSites.
             MICROSOFT_SHAREPOINT_OK=1
-            echo 'microsoft_sharepoint: {"ok":true,"provider":"pipedream","app":"sharepoint","linked_account":true}'
+            MICROSOFT_SHAREPOINT_PROOF_SOURCE="PIPEDREAM_LINKED_ACCOUNT_ONLY"
+            echo 'microsoft_sharepoint: {"ok":true,"provider":"pipedream","app":"sharepoint","linked_account":true,"graph_site_read_proven":false}'
           fi
           if [ "${MICROSOFT_SHAREPOINT_OK}" != "1" ]; then FAILURES=$((FAILURES+1)); fi
 
@@ -260,7 +268,7 @@ jobs:
             echo 'vercel: {"ok":false,"required":false,"status":"OPTIONAL_NOT_CONFIGURED"}'
           fi
 
-          GOOGLE_GMAIL_OK="${GOOGLE_GMAIL_OK}" GOOGLE_CALENDAR_OK="${GOOGLE_CALENDAR_OK}" GOOGLE_TASKS_OK="${GOOGLE_TASKS_OK}" GOOGLE_DRIVE_OK="${GOOGLE_DRIVE_OK}" MICROSOFT_MAIL_OK="${MICROSOFT_MAIL_OK}" MICROSOFT_ONEDRIVE_OK="${MICROSOFT_ONEDRIVE_OK}" MICROSOFT_SHAREPOINT_OK="${MICROSOFT_SHAREPOINT_OK}" YAHOO_OK="${YAHOO_OK}" VERCEL_OK="${VERCEL_OK}" VERCEL_STATUS="${VERCEL_STATUS}" FAILURES="${FAILURES}" node - <<'NODE'
+          GOOGLE_GMAIL_OK="${GOOGLE_GMAIL_OK}" GOOGLE_CALENDAR_OK="${GOOGLE_CALENDAR_OK}" GOOGLE_TASKS_OK="${GOOGLE_TASKS_OK}" GOOGLE_DRIVE_OK="${GOOGLE_DRIVE_OK}" MICROSOFT_MAIL_OK="${MICROSOFT_MAIL_OK}" MICROSOFT_ONEDRIVE_OK="${MICROSOFT_ONEDRIVE_OK}" MICROSOFT_SHAREPOINT_OK="${MICROSOFT_SHAREPOINT_OK}" MICROSOFT_SHAREPOINT_READ_PROVEN="${MICROSOFT_SHAREPOINT_READ_PROVEN}" MICROSOFT_SHAREPOINT_PROOF_SOURCE="${MICROSOFT_SHAREPOINT_PROOF_SOURCE}" YAHOO_OK="${YAHOO_OK}" VERCEL_OK="${VERCEL_OK}" VERCEL_STATUS="${VERCEL_STATUS}" FAILURES="${FAILURES}" node - <<'NODE'
           const fs=require('fs');
           const proof={
             schema:'mel.live-connections-production-proof/v1',
@@ -276,7 +284,9 @@ jobs:
             microsoft:{
               outlook:process.env.MICROSOFT_MAIL_OK==='1',
               onedrive:process.env.MICROSOFT_ONEDRIVE_OK==='1',
-              sharepoint:process.env.MICROSOFT_SHAREPOINT_OK==='1'
+              sharepoint:process.env.MICROSOFT_SHAREPOINT_OK==='1',
+              sharepoint_graph_read_proven:process.env.MICROSOFT_SHAREPOINT_READ_PROVEN==='1',
+              sharepoint_proof_source:process.env.MICROSOFT_SHAREPOINT_PROOF_SOURCE||'UNVERIFIED'
             },
             mail:{
               yahoo_or_ymail:process.env.YAHOO_OK==='1'
@@ -287,6 +297,8 @@ jobs:
               status:process.env.VERCEL_STATUS||'OPTIONAL_NOT_CONFIGURED'
             },
             secret_values_exposed:false,
+            connection_proof_scope:'account_linked_or_direct_target_probe_as_labeled',
+            capability_execution_not_implied:true,
             mutation_scope:'read_only_parallel_proof_auth'
           };
           fs.writeFileSync('live-connections-proof.json',JSON.stringify(proof,null,2));

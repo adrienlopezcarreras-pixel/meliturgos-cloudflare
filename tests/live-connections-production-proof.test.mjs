@@ -105,3 +105,16 @@ test('live connection proof reports sanitized Pipedream environment and upstream
   assert.match(source,/action_required/);
   assert.doesNotMatch(source,/client_secret[^_]/);
 });
+
+test('linked Pipedream SharePoint account is never labeled a proven Graph site read',async()=>{
+  const source=await readFile(workflowUrl,'utf8');
+  const block=source.slice(source.indexOf('if probe microsoft_sharepoint '),source.indexOf('YAHOO_OK=0'));
+  assert.match(block,/MICROSOFT_SHAREPOINT_READ_PROVEN=1/);
+  assert.match(block,/MICROSOFT_SHAREPOINT_PROOF_SOURCE="NATIVE_GRAPH_SITE_SEARCH"/);
+  assert.match(block,/MICROSOFT_SHAREPOINT_PROOF_SOURCE="PIPEDREAM_LINKED_ACCOUNT_ONLY"/);
+  assert.doesNotMatch(block.split('elif \u005b "\u0024{PIPEDREAM_OK}"')[1]||'',/MICROSOFT_SHAREPOINT_READ_PROVEN=1/,
+    'fallback linked accounts must not claim target read proof');
+  assert.match(source,/sharepoint_graph_read_proven:process\.env\.MICROSOFT_SHAREPOINT_READ_PROVEN==='1'/);
+  assert.match(source,/sharepoint_proof_source:process\.env\.MICROSOFT_SHAREPOINT_PROOF_SOURCE/);
+  assert.match(source,/capability_execution_not_implied:true/);
+});

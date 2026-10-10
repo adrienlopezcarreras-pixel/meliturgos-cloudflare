@@ -25,6 +25,14 @@ export function validateTerminal(body, jobId) {
   const status = String(r?.status || '');
   assert(status !== 'FAILED', 'CAPABILITY_STRESS_JOB_FAILED:' + String(r?.error || 'UNKNOWN'));
   assert(['COMPLETE', 'COMPLETE_WITH_FAILURES'].includes(status), 'CAPABILITY_STRESS_NOT_TERMINAL');
+  // GitHub Actions must not be green merely because a durable report was
+  // written. An internally failed stress is NOT a successful production proof.
+  // Approval-/cost-blocked actions are not runtime failures.
+  const failures = Array.isArray(r?.summary?.remaining_runtime_failures)
+    ? r.summary.remaining_runtime_failures
+    : [];
+  assert(status === 'COMPLETE' && failures.length === 0,
+    'CAPABILITY_STRESS_RUNTIME_FAILURES:' + failures.map(String).join(',').slice(0, 350));
   const done = Number(r?.progress?.done || 0);
   const total = Number(r?.progress?.total || 0);
   assert(total > 0 && done === total, 'CAPABILITY_STRESS_PROGRESS_INCOMPLETE');

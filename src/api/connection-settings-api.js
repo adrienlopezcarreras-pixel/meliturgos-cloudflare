@@ -358,7 +358,7 @@ async function testOAuthConnector(env, provider, connectorId, contextOwner, sign
     token = await createMailOAuthRuntime({ providerId: 'microsoft', env: resolved }).accessTokenResolver(connectorId, context);
     if (connectorId === 'microsoft-mail') url = 'https://graph.microsoft.com/v1.0/me/messages?$top=1&$select=id';
     else if (connectorId === 'microsoft-onedrive') url = 'https://graph.microsoft.com/v1.0/me/drive/root?$select=id,name';
-    else if (connectorId === 'microsoft-sharepoint') url = 'https://graph.microsoft.com/v1.0/sites/root?$select=id,name';
+    else if (connectorId === 'microsoft-sharepoint') url = 'https://graph.microsoft.com/v1.0/sites?search=mel';
   } else if (provider === 'yahoo' && connectorId === 'yahoo-mail') {
     token = await createMailOAuthRuntime({ providerId: 'yahoo', env: resolved }).accessTokenResolver(connectorId, context);
     url = 'https://api.login.yahoo.com/openid/v1/userinfo';
