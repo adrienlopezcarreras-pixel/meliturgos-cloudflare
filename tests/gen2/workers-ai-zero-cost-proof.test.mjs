@@ -180,3 +180,12 @@ test('scheduled zero-cost proof refresh authenticates BOTH Cloudflare secret upd
   assert.ok(workflow.includes('wrangler secret put MEL_WORKERS_AI_ZERO_COST_PROOF_JSON --name meliturgos --env=""'),
     'Workers AI proof must target the same environment');
 });
+
+test('zero-cost proofs refresh immediately after an approved release or workflow update as well as on the recurring schedule', async () => {
+  const workflow = await readFile(new URL('../../.github/workflows/workers-ai-zero-cost-proof-refresh.yml', import.meta.url), 'utf8');
+  assert.match(workflow, /push:\s*\n\s+branches: \[main\]/);
+  assert.match(workflow, /- '\.github\/workflows\/workers-ai-zero-cost-proof-refresh\.yml'/);
+  assert.match(workflow, /workflow_run:\s*\n\s+workflows: \['deploy-cloudflare-release'\]/);
+  assert.match(workflow, /github\.event\.workflow_run\.conclusion == 'success'/);
+  assert.match(workflow, /cron: '\*\/15 \* \* \* \*'/);
+});
