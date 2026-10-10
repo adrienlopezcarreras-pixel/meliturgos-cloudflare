@@ -158,12 +158,21 @@ static void rx_frame(const uint8_t *frame, size_t len, void *ctx) {
 
     if (header.type == MEL_LINK_V2_SESSION && header.stream_id == 0) {
         const bool clock_ok = apply_android_session_clock(payload, header.payload_len);
+        if (!clock_ok || !mel_link_v2_server_ready()) {
+            g_session_ready.store(false);
+            ESP_LOGW(TAG, "Rejected unauthenticated/invalid Android V2 SESSION");
+            return;
+        }
         g_session_ready.store(true);
         ESP_LOGI(TAG, "Android V2 session ready clock=%s", clock_ok ? "OK" : "UNAVAILABLE");
         return;
     }
 
     if (header.type == MEL_LINK_V2_MEDIA_CONFIG) {
+        if (!g_session_ready.load() || !mel_link_v2_server_ready()) {
+            ESP_LOGW(TAG, "MEDIA_CONFIG rejected: Android V2 session not verified");
+            return;
+        }
         std::string raw(reinterpret_cast<const char *>(payload), header.payload_len);
         cJSON *root = cJSON_Parse(raw.c_str());
         cJSON *ssid = root ? cJSON_GetObjectItemCaseSensitive(root, "ssid") : nullptr;
