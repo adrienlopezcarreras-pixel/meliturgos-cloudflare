@@ -167,75 +167,13 @@ async function main(){
         throw Object.assign(new Error('MINI_SERIAL_READ_FAILED'),{code:'MINI_SERIAL_READ_FAILED'});
       }
 
-      const resetApproved=String(process.env.MEL_MINI_RESET_APPROVED||'')==='1';
-      const miniLooksLikeWaveshare=String(primaryMini?.model||'').toLowerCase().includes('waveshare-esp32-s3');
-      const miniOffline=primaryMini?.online===false;
-      const engineVersion=String(computer?.metadata?.engine_version||'').trim();
-      const engineMatch=engineVersion.match(/^(\d+)\.(\d+)\.(\d+)/);
-      const engineReadyForReset=Boolean(engineMatch)&&(
-        Number(engineMatch[1])>1 ||
-        (Number(engineMatch[1])===1 && (
-          Number(engineMatch[2])>4 ||
-          (Number(engineMatch[2])===4 && Number(engineMatch[3])>=1)
-        ))
-      );
-      if(resetApproved&&miniLooksLikeWaveshare&&miniOffline&&engineReadyForReset){
-        const resetSubmit=await worker('/api/computer/v1/pc-control',{
-          computer_id:computer.id,
-          action:'serial.hard_reset',
-          payload:{port,duration_ms:6000},
-        });
-        const resetCommandId=String(resetSubmit?.command_id||'');
-        const resetDeadline=Date.now()+25000;
-        let resetCommand=null;
-        while(Date.now()<resetDeadline){
-          await new Promise(resolve=>setTimeout(resolve,1000));
-          const poll=await worker('/api/computer/v1/status?computer_id='+encodeURIComponent(computer.id),{},'GET');
-          const commands=Array.isArray(poll?.commands)?poll.commands:[];
-          resetCommand=commands.find(cmd=>String(cmd?.id||'')===resetCommandId)||null;
-          if(['SUCCEEDED','FAILED'].includes(String(resetCommand?.status||''))) break;
-        }
-        const resetOutput=Array.isArray(resetCommand?.result?.outputs)
-          ? resetCommand.result.outputs.find(row=>row?.action==='serial.hard_reset')
-          : null;
-        const resetRaw=String(resetOutput?.text||'');
-        const resetDiagnostics=resetRaw.split(/\r?\n/)
-          .filter(line=>/(MEL|ESP|boot|error|fail|panic|watchdog|audio|I2S|ES8311|BLE|Link V2|transcription|STEP|WIFI|camera|storage|READY|NVS|LCD|TOUCH|AXP2101)/i.test(line))
-          .slice(0,120).join('\n').slice(0,12000);
-        console.log('MINI_SERIAL_HARD_RESET_PROOF='+JSON.stringify({
-          port,
-          status:String(resetCommand?.status||'TIMEOUT'),
-          error_code:resetCommand?.error_code||null,
-          baud:Number(resetOutput?.baud||115200),
-          duration_ms:Number(resetOutput?.duration_ms||0),
-          reset_mode:resetOutput?.reset_mode||null,
-          flash_written:resetOutput?.flash_written===true,
-          nvs_modified:resetOutput?.nvs_modified===true,
-          chars:Number(resetOutput?.chars||0),
-          diagnostics:resetDiagnostics,
-          trace:resetRaw.slice(0,16000),
-        }));
-        if(String(resetCommand?.status||'')==='FAILED'){
-          throw Object.assign(new Error('MINI_SERIAL_HARD_RESET_FAILED'),{code:'MINI_SERIAL_HARD_RESET_FAILED'});
-        }
-        await new Promise(resolve=>setTimeout(resolve,8000));
-        const miniAfter=await worker('/api/internal/cloudflare-api-relay/mini-status',{});
-        console.log('MINI_DEVICE_STATUS_AFTER_RESET='+JSON.stringify({
-          devices:(Array.isArray(miniAfter?.devices)?miniAfter.devices:[]).slice(0,5),
-        }));
-      }else if(resetApproved){
-        console.log('MINI_SERIAL_HARD_RESET_PROOF='+JSON.stringify({
-          skipped:true,
-          reason:!miniLooksLikeWaveshare
-            ? 'MINI_MODEL_NOT_CONFIRMED'
-            : (!miniOffline
-              ? 'MINI_ALREADY_ONLINE'
-              : (!engineReadyForReset ? 'COMPANION_ENGINE_REFRESH_REQUIRED' : 'RESET_GUARD_REJECTED')),
-          engine_version:engineVersion||null,
-          engine_refresh_status:computer?.metadata?.engine_refresh_status||null,
-          engine_refresh_error:computer?.metadata?.engine_refresh_error||null,
-        }));
-      }
+      // Scheduled/OIDC diagnostics must remain read-only. In particular,
+      // no environment variable can authorize a MINI reset or flash.
+      console.log('MINI_RESET_POLICY='+JSON.stringify({
+        automatic_reset_allowed:false,
+        manual_local_presence_required:true
+      }));
+
     }else{
       console.log('MINI_SERIAL_READ_PROOF='+JSON.stringify({
         skipped:true,
