@@ -17,6 +17,9 @@ import android.bluetooth.le.ScanFilter
 import android.bluetooth.le.ScanResult
 import android.bluetooth.le.ScanSettings
 import android.content.Intent
+import android.content.Context
+import android.content.BroadcastReceiver
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.net.ConnectivityManager
 import android.net.Network
@@ -113,6 +116,36 @@ class MelLinkV2ClientService : Service() {
     private var mtuRetryAttempted = false
     private val handler by lazy { android.os.Handler(mainLooper) }
 
+    private val bondReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action != BluetoothDevice.ACTION_BOND_STATE_CHANGED) return
+            val device: BluetoothDevice? = if (Build.VERSION.SDK_INT >= 33) {
+                intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE, BluetoothDevice::class.java)
+            } else {
+                @Suppress("DEPRECATION")
+                intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE)
+            }
+            val client = gatt ?: return
+            if (device == null || device.address != client.device.address) return
+            when (intent.getIntExtra(BluetoothDevice.EXTRA_BOND_STATE, BluetoothDevice.BOND_NONE)) {
+                BluetoothDevice.BOND_BONDED -> beginMtuNegotiation(client)
+                BluetoothDevice.BOND_NONE -> {
+                    val previous = intent.getIntExtra(BluetoothDevice.EXTRA_PREVIOUS_BOND_STATE, BluetoothDevice.BOND_NONE)
+                    if (previous == BluetoothDevice.BOND_BONDING) failAndReconnect(client, "BLE_PAIRING_REJECTED")
+                }
+            }
+        }
+    }
+
+    private fun beginMtuNegotiation(client: BluetoothGatt) {
+        if (gatt !== client || !hasBlePermissions()) return
+        state.value = "NEGOCIATION V2 SECURISEE"
+        val requested = runCatching { client.requestMtu(MelLinkV2Protocol.DEFAULT_MTU) }.getOrDefault(false)
+        if (!requested) failAndReconnect(client, "MTU_REQUEST_FAILED")
+    }
+
+
+
     private val networkCallback = object : ConnectivityManager.NetworkCallback() {
         override fun onAvailable(network: Network) = refreshInternetState()
         override fun onLost(network: Network) = refreshInternetState()
@@ -130,6 +163,10 @@ class MelLinkV2ClientService : Service() {
         miniPairingComplete.value = getSharedPreferences("mel_link_v2", MODE_PRIVATE)
             .getBoolean("mini_pairing_complete", false)
         registerNetworkWatch()
+        ContextCompat.registerReceiver(
+            this, bondReceiver, IntentFilter(BluetoothDevice.ACTION_BOND_STATE_CHANGED),
+            ContextCompat.RECEIVER_EXPORTED
+        )
         startForeground(
             NOTIFICATION_ID,
             NotificationCompat.Builder(this, CHANNEL_ID)
@@ -169,6 +206,7 @@ class MelLinkV2ClientService : Service() {
         bleWriter.shutdownNow()
         if (::mediaReceiver.isInitialized) mediaReceiver.close()
         unregisterNetworkWatch()
+        runCatching { unregisterReceiver(bondReceiver) }
         miniReady.value = false
         protocolReady.value = false
         phoneInternetAvailable.value = false
@@ -311,13 +349,18 @@ class MelLinkV2ClientService : Service() {
                 state.value = "NEGOCIATION"
                 miniReady.value = false
                 protocolReady.value = false
-                if (!hasBlePermissions()) return
-                val mtuQueued = runCatching {
-                    client.requestMtu(MelLinkV2Protocol.DEFAULT_MTU)
-                }.getOrDefault(false)
-                if (!mtuQueued) {
-                    lastError.value = "MTU_REQUEST_FAILED"
-                    failAndReconnect(client, "MTU_REQUEST_FAILED")
+                if (!hasBlePermissions()) {
+                    failAndReconnect(client, "BLUETOOTH_PERMISSION_MISSING")
+                    return
+                }
+                when (client.device.bondState) {
+                    BluetoothDevice.BOND_BONDED -> beginMtuNegotiation(client)
+                    BluetoothDevice.BOND_BONDING -> state.value = "APPARIEMENT BLUETOOTH"
+                    else -> {
+                        state.value = "CONFIRMER APPARIEMENT MINI"
+                        val started = runCatching { client.device.createBond() }.getOrDefault(false)
+                        if (!started) failAndReconnect(client, "BLE_PAIRING_START_FAILED")
+                    }
                 }
                 return
             }
