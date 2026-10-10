@@ -63,8 +63,9 @@ async function requestJson(fetchImpl, token, url, { method = 'GET', body, code =
       redirect: 'error',
       signal: signal || AbortSignal.timeout(10000),
     });
-  } catch {
-    throw error(code, 503);
+  } catch (cause) {
+    const kind = String(cause?.name || '');
+    throw error(code + (kind === 'TimeoutError' || kind === 'AbortError' ? '_TIMEOUT' : '_NETWORK'), 503);
   }
   if (response.status === 401 || response.status === 403) {
     await response.body?.cancel?.();
