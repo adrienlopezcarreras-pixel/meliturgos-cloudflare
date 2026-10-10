@@ -394,6 +394,7 @@ test('Yahoo probe surfaces SMTP authentication rejection and does not retry anot
 
 test('Pipedream Connect credentials are encrypted at rest and status never returns secrets', async () => {
   const runtimeEnv = env();
+  runtimeEnv.MEL_ALLOW_PAID_PROVIDERS = 'true'; // explicit legacy paid-path test only
   const response = await call('/api/gen2/connections/pipedream/save', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -849,4 +850,22 @@ test('Pipedream route boundary preserves sanitized upstream diagnostics for acti
   assert.match(source,/RECONNECT_PIPEDREAM_DEVELOPMENT/);
   const degraded=source.split('async function pipedreamAccounts')[1]?.split('export async function testPipedreamGoogleTasksRead')[0]||'';
   assert.doesNotMatch(degraded,/testPipedreamCredentials\(stored/);
+});
+
+test('Pipedream paid production environment is rejected in the default free-only MEL config', async () => {
+  const runtimeEnv = env();
+  const response = await call('/api/gen2/connections/pipedream/save', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      project_id: 'proj_demo123',
+      client_id: 'client-id',
+      client_secret: 'client-secret',
+      environment: 'production',
+    }),
+  }, runtimeEnv);
+  assert.equal(response.status, 409);
+  const body = await response.json();
+  assert.equal(body.code, 'PAID_PROVIDER_DISABLED_FREE_ONLY');
+  assert.equal(runtimeEnv.DB.tokens.size, 0);
 });

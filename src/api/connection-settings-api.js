@@ -553,9 +553,17 @@ async function savePipedreamConfig(env, contextOwner, body) {
   const projectId = clean(body.project_id, 300);
   const clientId = clean(body.client_id, 1000);
   const clientSecret = clean(body.client_secret, 2000);
-  // Pipedream Free supports Connect in development. Production is opt-in and
-  // requires a paid Connect plan, so never make it the implicit default.
+  // Pipedream Free provides Connect in development only. Prevent a paid
+  // environment selection from silently becoming a billed dependency.
+  // Previously connected paid accounts remain readable until explicitly
+  // reconfigured; new paid configurations require the owner's dedicated opt-in.
   const environment = body.environment === 'production' ? 'production' : 'development';
+  if (environment === 'production' && String(env?.MEL_ALLOW_PAID_PROVIDERS || '').toLowerCase() !== 'true') {
+    const error = new Error('PAID_PROVIDER_DISABLED_FREE_ONLY');
+    error.code = 'PAID_PROVIDER_DISABLED_FREE_ONLY';
+    error.status = 409;
+    throw error;
+  }
   if (!/^proj_[A-Za-z0-9_-]+$/.test(projectId) || !clientId || !clientSecret) {
     const error = new Error('PIPEDREAM_CONFIGURATION_INVALID');
     error.code = 'PIPEDREAM_CONFIGURATION_INVALID';

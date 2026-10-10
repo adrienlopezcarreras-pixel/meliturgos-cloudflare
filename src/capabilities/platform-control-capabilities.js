@@ -165,7 +165,7 @@ function deploymentRow(row = {}) {
   };
 }
 
-export function registerPlatformControlCapabilities(bus, { env = {}, fetchImpl = fetch, repository = '', resolveVercelConfig = null, cloudflareRelayStore = null } = {}) {
+export function registerPlatformControlCapabilities(bus, { env = {}, fetchImpl = fetch, repository = '', resolveVercelConfig = null, cloudflareRelayStore = null, includeVercel = true } = {}) {
   if (!bus || typeof bus.discover !== 'function') throw new TypeError('CAPABILITY_BUS_REQUIRED');
 
   const githubRepository = repository || env.MEL_GITHUB_REPOSITORY || '';
@@ -511,6 +511,7 @@ export function registerPlatformControlCapabilities(bus, { env = {}, fetchImpl =
     };
   });
 
+  if (includeVercel) {
   bus.discover({
     id: 'vercel.deployments.redeploy',
     name: 'Vercel deployment redeploy',
@@ -577,9 +578,10 @@ export function registerPlatformControlCapabilities(bus, { env = {}, fetchImpl =
     };
   });
 
+  }
   return Object.freeze([
     'github.actions.workflow.dispatch',
     'cloudflare.deployments.create',
-    'vercel.deployments.redeploy',
+    ...(includeVercel ? ['vercel.deployments.redeploy'] : []),
   ]);
 }

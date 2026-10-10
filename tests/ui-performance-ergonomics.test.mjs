@@ -179,7 +179,8 @@ test('Professor uses Free-compatible Pipedream defaults and explicit bounded req
   const html = await (await renderProfessor()).text();
   const source = await read('src/pages/full-interface-v2.js');
   assert.match(html, /id="pipedreamEnvironment"[^>]*>[\s\S]*value="development" selected>Development · gratuit/);
-  assert.match(html, /value="production">Production · plan Pipedream payant/);
+  assert.doesNotMatch(html, /value="production">Production · plan Pipedream payant/);
+  assert.match(html, /Development · gratuit uniquement/);
   assert.match(html, /id="chatInput"[^>]*maxlength="100000"/);
   assert.match(source, /function requestTimeoutMs\(url,method\)/);
   assert.match(source, /includes\('\/api\/chat'\)\)return 120000/);

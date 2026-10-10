@@ -42,13 +42,35 @@ function safePath(value) {
   return parts.map(part => encodeURIComponent(part)).join('/');
 }
 
+// Coalesce identical in-flight GET health probes. Parallel capability refreshes
+// must not multiply Pipedream requests or give list/read/write contradictory
+// health solely because one duplicate probe encountered a transient failure.
+// Only the pending promise is shared; completed results are never cached.
+const activeHealthReads = new WeakMap();
+function readHealthOnce(runtime, app, url) {
+  let inflight = activeHealthReads.get(runtime);
+  if (!inflight) {
+    inflight = new Map();
+    activeHealthReads.set(runtime, inflight);
+  }
+  const key = app + '\\n' + url;
+  let pending = inflight.get(key);
+  if (!pending) {
+    pending = Promise.resolve().then(() => runtime.proxy({ app, url, method: 'GET' }));
+    inflight.set(key, pending);
+    pending.finally(() => {
+      if (inflight.get(key) === pending) inflight.delete(key);
+    }).catch(() => {});
+  }
+  return pending;
+}
 function pdHealth(pipedreamRuntime, app, url, { protectedAction = false } = {}) {
   return async () => {
     if (!pipedreamRuntime || typeof pipedreamRuntime.proxy !== 'function') {
       return { status: 'UNAVAILABLE', reason: 'PIPEDREAM_RUNTIME_UNAVAILABLE' };
     }
     try {
-      await pipedreamRuntime.proxy({ app, url, method: 'GET' });
+      await readHealthOnce(pipedreamRuntime, app, url);
       return { status: protectedAction ? 'PROTECTED' : 'HEALTHY' };
     } catch (error) {
       const code = String(error?.code || error?.message || 'PIPEDREAM_LINKED_ACCOUNT_UNAVAILABLE')
@@ -558,10 +580,10 @@ export function registerPipedreamLinkedCapabilities(bus, { pipedreamRuntime = nu
     },
     risk: 'LOW',
     permissions: ['microsoft.sites.read'],
-    healthcheck: pdHealth(pipedreamRuntime, 'sharepoint', GRAPH + '/sites?search=mel&$top=1&$select=id,name'),
+    healthcheck: pdHealth(pipedreamRuntime, 'sharepoint', GRAPH + '/sites?search=mel'),
   }, async (input, context) => {
     const q = text(input.query, 'SHAREPOINT_QUERY_INVALID', 300);
-    const params = new URLSearchParams({ search: q, '$top': String(limit(input.limit)) });
+    const params = new URLSearchParams({ search: q });
     const body = await proxy(pipedreamRuntime, context, 'sharepoint', GRAPH + '/sites?' + params.toString());
     const sites = rows(body).slice(0, limit(input.limit));
     return { provider: 'pipedream', service: 'sharepoint', query: q, sites, count: sites.length };
@@ -581,7 +603,7 @@ export function registerPipedreamLinkedCapabilities(bus, { pipedreamRuntime = nu
     },
     risk: 'LOW',
     permissions: ['microsoft.sites.read'],
-    healthcheck: pdHealth(pipedreamRuntime, 'sharepoint', GRAPH + '/sites?search=mel&$top=1&$select=id,name'),
+    healthcheck: pdHealth(pipedreamRuntime, 'sharepoint', GRAPH + '/sites?search=mel'),
   }, async (input, context) => {
     const id = encodeId(input.site_id, 'SHAREPOINT_SITE_ID_INVALID');
     const site = await proxy(pipedreamRuntime, context, 'sharepoint', GRAPH + '/sites/' + id);
@@ -607,7 +629,7 @@ export function registerPipedreamLinkedCapabilities(bus, { pipedreamRuntime = nu
     risk: 'HIGH',
     permissions: ['microsoft.sites.write'],
     approval: { required: true, scope: 'sites.write', reason: 'SHAREPOINT_FILE_WRITE' },
-    healthcheck: pdHealth(pipedreamRuntime, 'sharepoint', GRAPH + '/sites?search=mel&$top=1&$select=id,name', { protectedAction: true }),
+    healthcheck: pdHealth(pipedreamRuntime, 'sharepoint', GRAPH + '/sites?search=mel', { protectedAction: true }),
   }, async (input, context) => {
     const siteId = encodeId(input.site_id, 'SHAREPOINT_SITE_ID_INVALID');
     const path = safePath(input.path);
