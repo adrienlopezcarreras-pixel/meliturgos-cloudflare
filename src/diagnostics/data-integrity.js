@@ -162,6 +162,23 @@ async function numericRangeCheck({ db, tables, checks, id, table, column, min = 
   pushCheck(checks, { id, status:count===0?'PASS':'FAIL', count, samples, field:`${table}.${column}`, range:[min,max] });
 }
 
+// Run independent read-only checks with bounded D1 concurrency. Each check uses a
+// private output slot so the public report remains deterministic even when
+// queries finish out of order. This does not skip or abbreviate any checks.
+async function appendConcurrentChecks(checks, specs, runner, concurrency = 3) {
+  if (!specs.length) return;
+  const slots = specs.map(() => []);
+  let next = 0;
+  const workers = Array.from({ length: Math.min(concurrency, specs.length) }, async () => {
+    while (next < specs.length) {
+      const index = next++;
+      await runner(specs[index], slots[index]);
+    }
+  });
+  await Promise.all(workers);
+  for (const slot of slots) checks.push(...slot);
+}
+
 export async function auditDataIntegrity(db) {
   if (!db) throw integrityError('DATA_INTEGRITY_DB_REQUIRED');
 
@@ -267,9 +284,9 @@ export async function auditDataIntegrity(db) {
     ['agent_runs.agent','agent_runs','agents','agent_id'],
     ['automation_runs.automation','automation_runs','automations','automation_id'],
   ];
-  for (const [id,childTable,parentTable,childColumn] of orphanSpecs) {
-    await orphanCheck({ db, tables, checks, id, childTable, parentTable, childColumn });
-  }
+  await appendConcurrentChecks(checks, orphanSpecs, async ([id,childTable,parentTable,childColumn], output) => {
+    await orphanCheck({ db, tables, checks:output, id, childTable, parentTable, childColumn });
+  });
 
   await compositeReferenceCheck({
     db, tables, checks,
@@ -303,9 +320,9 @@ export async function auditDataIntegrity(db) {
       LIMIT ${MAX_SAMPLES}`,
   });
 
-  for (const table of ['conversations','devices','plugins','modules','connectors']) {
-    await temporalCheck({ db, tables, checks, id:`${table}.time_order`, table });
-  }
+  await appendConcurrentChecks(checks, ['conversations','devices','plugins','modules','connectors'], async (table, output) => {
+    await temporalCheck({ db, tables, checks:output, id:`${table}.time_order`, table });
+  });
 
   const jsonSpecs = [
     ['conversations.metadata','conversations','metadata',false],
@@ -334,10 +351,9 @@ export async function auditDataIntegrity(db) {
     ['lora_training_runs.artifacts_json','lora_training_runs','artifacts_json',false],
     ['lora_training_events.payload_json','lora_training_events','payload_json',false],
   ];
-  for (const [id,table,column,nullable] of jsonSpecs) {
-    if (!table) continue;
-    await jsonCheck({ db, tables, checks, id, table, column, nullable });
-  }
+  await appendConcurrentChecks(checks, jsonSpecs.filter(([, table]) => Boolean(table)), async ([id,table,column,nullable], output) => {
+    await jsonCheck({ db, tables, checks:output, id, table, column, nullable });
+  });
 
   await valueDomainCheck({
     db, tables, checks,
