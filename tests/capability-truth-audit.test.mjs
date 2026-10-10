@@ -692,3 +692,20 @@ test('a health response belonging to another capability cannot replace the audit
   assert.equal(row.auto_execution_blocked,'HEALTH_REFRESH_UNVERIFIED');
   assert.equal(executed,0);
 });
+
+test('bounded Work introspection fixtures permit real low-risk audit execution', async () => {
+  const rows = [
+    { id:'work.list',name:'Work list',provider:'mel',category:'work',risk:'LOW',enabled:true,health:'HEALTHY' },
+    { id:'work.open',name:'Work open',provider:'mel',category:'work',risk:'LOW',enabled:true,health:'HEALTHY' },
+  ];
+  const calls = [];
+  const report = await auditRuntimeCapabilities({ bus: {
+    list:()=>rows,
+    contract:()=>({valid:true}),
+    refreshHealth:async id=>rows.find(row=>row.id===id),
+    execute:async (id,input)=>{calls.push({id,input});return {ok:true,work:[]};},
+  } }, { deep:true });
+  assert.equal(calls.length, 2);
+  assert.deepEqual(calls.map(x=>x.input),[{limit:1},{limit:1}]);
+  assert.equal(report.counts.EXISTANT_ET_TESTE,2);
+});
