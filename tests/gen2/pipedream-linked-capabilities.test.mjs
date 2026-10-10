@@ -227,7 +227,7 @@ test('SharePoint search sends the documented Graph site-search query without uns
     owner: 'adrien', permissions: ['microsoft.sites.read'],
   });
   assert.equal(result.count, 1);
-  const search = calls.find(call => call.app === 'sharepoint' && call.url.includes('/sites?search='));
+  const search = calls.find(call => call.app === 'sharepoint' && new URL(String(call.url)).searchParams.get('search') === 'a b');
   assert.ok(search);
   const parsed = new URL(search.url);
   assert.equal(parsed.searchParams.get('search'), 'a b');
