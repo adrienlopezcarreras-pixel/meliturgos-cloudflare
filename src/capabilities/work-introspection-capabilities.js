@@ -63,7 +63,7 @@ export async function listPersistentWork(db, { limit = 20, status = null, openOn
 }
 
 export function registerWorkIntrospectionCapabilities(bus, env = {}) {
-  const health = env.DB ? 'HEALTHY' : 'DEGRADED';
+  const health = env.DB ? 'HEALTHY' : 'UNAVAILABLE';
   const listSchema = {
     type: 'object',
     properties: {
