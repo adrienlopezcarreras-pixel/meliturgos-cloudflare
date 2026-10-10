@@ -300,6 +300,7 @@ export async function auditRuntimeCapabilities(runtime, {
   zeroCostCapabilityIds = [],
   onProgress = null,
   executionTimeoutMs = 15_000,
+  healthTimeoutMs = 4_000,
   startIndex = 0,
   maxRecords = null,
   recordIds = null,
@@ -327,7 +328,7 @@ export async function auditRuntimeCapabilities(runtime, {
     : Math.min(totalRecords, rangeStart + requestedMax);
   let records = recordUniverse.slice(rangeStart, rangeEnd);
   if (typeof runtime.bus.refreshHealth === 'function') {
-    const healthTimeoutMs = 4_000;
+    const healthDeadlineMs = Math.max(20, Math.min(60_000, Number(healthTimeoutMs) || 4_000));
     const healthConcurrency = 8;
     const refreshed = new Array(records.length);
     for (let offset = 0; offset < records.length; offset += healthConcurrency) {
@@ -335,22 +336,38 @@ export async function auditRuntimeCapabilities(runtime, {
         const index = offset + localIndex;
         const costSensitive = COST_SENSITIVE_CAPABILITIES.has(record.id);
         if (costSensitive && !provenZeroCost.has(record.id)) {
-          refreshed[index] = record;
+          refreshed[index] = { ...record, health_refresh_verified: null };
           return;
         }
         let timer;
         try {
-          refreshed[index] = await Promise.race([
+          const observed = await Promise.race([
             runtime.bus.refreshHealth(record.id),
             new Promise((_, reject) => {
               timer = setTimeout(() => reject(Object.assign(
                 new Error('CAPABILITY_AUDIT_HEALTH_TIMEOUT'),
                 { code: 'CAPABILITY_AUDIT_HEALTH_TIMEOUT' },
-              )), healthTimeoutMs);
+              )), healthDeadlineMs);
             }),
           ]).finally(() => clearTimeout(timer));
-        } catch {
-          refreshed[index] = record;
+          if (!observed || typeof observed !== 'object' || typeof observed.health !== 'string') {
+            throw Object.assign(new Error('CAPABILITY_AUDIT_HEALTH_RESULT_INVALID'), {
+              code: 'CAPABILITY_AUDIT_HEALTH_RESULT_INVALID',
+            });
+          }
+          refreshed[index] = { ...record, ...observed, health_refresh_verified: true };
+        } catch (error) {
+          // A failed refresh cannot substantiate a previously HEALTHY registration.
+          // Keep approval-protected operations protected; never convert unknown
+          // availability into a green status just because a stale record was green.
+          const code = String(error?.code || error?.message || 'CAPABILITY_AUDIT_HEALTH_REFRESH_FAILED')
+            .replace(/[^A-Za-z0-9_]/g, '_').slice(0, 120);
+          refreshed[index] = {
+            ...record,
+            health: String(record?.health || '').toUpperCase() === 'PROTECTED' ? 'PROTECTED' : 'DEGRADED',
+            health_detail: code,
+            health_refresh_verified: false,
+          };
         }
       }));
     }
@@ -445,6 +462,8 @@ export async function auditRuntimeCapabilities(runtime, {
       risk: record.risk,
       enabled: record.enabled,
       health: record.health,
+      health_detail: record.health_detail || null,
+      health_refresh_verified: record.health_refresh_verified ?? null,
       implementation_status: declared,
       contract_valid: contract?.valid ?? null,
       contract,
