@@ -830,3 +830,15 @@ test('Android V2 rejects every stale GATT state callback before mutating session
   assert.match(cb,/GATT_STATE_ERROR_\$status/);
   assert.match(cb,/if \(newState == BluetoothProfile\.STATE_DISCONNECTED\)/);
 });
+
+test('Local French TTS has bounded PCM capture and rejects overlong 48k playback', async () => {
+  const tts = await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelMiniVoiceSynthesizer.kt',root),'utf8');
+  assert.match(tts,/MAX_AUDIO_SECONDS = 120/);
+  assert.match(tts,/MAX_OUTPUT_SAMPLES = OUTPUT_RATE \* MAX_AUDIO_SECONDS/);
+  assert.match(tts,/MAX_CAPTURE_BYTES = 24 \* 1024 \* 1024/);
+  assert.match(tts,/capturedBytes\.addAndGet\(audio\.size\.toLong\(\)\) > MAX_CAPTURE_BYTES/);
+  assert.match(tts,/MINI_TTS_AUDIO_CAPTURE_LIMIT/);
+  assert.match(tts,/temp\.length\(\) <= MAX_CAPTURE_BYTES/);
+  assert.match(tts,/requiredSamples <= MAX_OUTPUT_SAMPLES/);
+  assert.match(tts,/MINI_TTS_DURATION_LIMIT/);
+});

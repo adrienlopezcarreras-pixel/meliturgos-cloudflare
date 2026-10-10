@@ -18,6 +18,7 @@ import java.util.UUID
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
+import java.util.concurrent.atomic.AtomicLong
 import kotlin.math.floor
 import kotlin.math.roundToInt
 
@@ -30,6 +31,11 @@ import kotlin.math.roundToInt
 object MelMiniVoiceSynthesizer {
     private const val TAG = "MelMiniVoice"
     private const val OUTPUT_RATE = 48_000
+    // The MINI Link V2 AUDIO_BEGIN contract accepts at most 120 s at 48 kHz.
+    // Limit captured mono/stereo and floating-point PCM before aggregation.
+    private const val MAX_AUDIO_SECONDS = 120
+    private const val MAX_OUTPUT_SAMPLES = OUTPUT_RATE * MAX_AUDIO_SECONDS
+    private const val MAX_CAPTURE_BYTES = 24 * 1024 * 1024
 
     private data class Format(
         val sampleRate: Int,
@@ -131,6 +137,7 @@ object MelMiniVoiceSynthesizer {
         val format = AtomicReference<Format?>(null)
         val failure = AtomicReference<Throwable?>(null)
         val chunks = Collections.synchronizedList(mutableListOf<ByteArray>())
+        val capturedBytes = AtomicLong(0)
         val temp = File.createTempFile("mel-mini-tts-", ".wav", context.cacheDir)
 
         Handler(Looper.getMainLooper()).post {
@@ -150,8 +157,15 @@ object MelMiniVoiceSynthesizer {
                     }
 
                     override fun onAudioAvailable(id: String?, audio: ByteArray?) {
-                        if (id == utteranceId && audio != null && audio.isNotEmpty()) {
-                            chunks.add(audio.copyOf())
+                        if (id == utteranceId && audio != null && audio.isNotEmpty() &&
+                            failure.get() == null) {
+                            if (capturedBytes.addAndGet(audio.size.toLong()) > MAX_CAPTURE_BYTES) {
+                                failure.set(IllegalStateException("MINI_TTS_AUDIO_CAPTURE_LIMIT"))
+                                done.countDown()
+                                Handler(Looper.getMainLooper()).post { runCatching { tts.stop() } }
+                            } else {
+                                chunks.add(audio.copyOf())
+                            }
                         }
                     }
 
@@ -212,6 +226,7 @@ object MelMiniVoiceSynthesizer {
             val pcm = if (fmt != null && captured.isNotEmpty()) {
                 decodeRawToMono16(captured, fmt)
             } else {
+                require(temp.length() <= MAX_CAPTURE_BYTES) { "MINI_TTS_WAV_CAPTURE_LIMIT" }
                 decodeWavToMono16(temp.readBytes())
             }
 
@@ -326,11 +341,12 @@ object MelMiniVoiceSynthesizer {
     }
 
     private fun resampleLinear(input: ShortArray, inRate: Int, outRate: Int): ShortArray {
-        if (input.isEmpty() || inRate == outRate) return input.copyOf()
-        val outCount = ((input.size.toLong() * outRate + inRate / 2L) / inRate)
+        if (input.isEmpty()) return input.copyOf()
+        val requiredSamples = ((input.size.toLong() * outRate + inRate / 2L) / inRate)
             .coerceAtLeast(1L)
-            .coerceAtMost(Int.MAX_VALUE.toLong())
-            .toInt()
+        require(requiredSamples <= MAX_OUTPUT_SAMPLES) { "MINI_TTS_DURATION_LIMIT" }
+        if (inRate == outRate) return input.copyOf()
+        val outCount = requiredSamples.toInt()
         val out = ShortArray(outCount)
         val ratio = inRate.toDouble() / outRate.toDouble()
         for (i in 0 until outCount) {
