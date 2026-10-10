@@ -557,3 +557,44 @@ test('external connector reads stay inventoried in global stress without duplica
   }
   assert.deepEqual(calls,['device.policy.preview']);
 });
+
+test('conversation messages audit fixture honors the exact read schema without extra limit field', async () => {
+  const sample = SAFE_SAMPLES['conversation.messages.list'];
+  assert.equal(typeof sample, 'function');
+  const runtime = { bus: { execute: async (id, input) => {
+    assert.equal(id, 'conversation.list');
+    assert.deepEqual(input, {});
+    return [{ id: 'known-existing-conversation' }];
+  } } };
+  const value = await sample({ runtime, context:{} });
+  assert.deepEqual(value, { conversationId:'known-existing-conversation' });
+});
+
+test('automatic capability audit never supplies synthetic approval for recovery or standby', async () => {
+  const ids=['resilience.recovery.drill.latest','resilience.cold-standby.prepare.latest'];
+  const calls=[];
+  const bus={
+    list:()=>ids.map(id=>({id,name:id,category:'resilience',provider:'core',risk:'LOW',enabled:true,health:'HEALTHY'})),
+    execute:async(id)=>{calls.push(id);return {ok:true};},
+  };
+  const report=await auditRuntimeCapabilities({bus},{deep:true,samples:Object.fromEntries(ids.map(id=>[id,{}]))});
+  assert.equal(report.capabilities.length,2);
+  for(const row of report.capabilities){
+    assert.equal(row.auto_execution_blocked,'OWNER_APPROVAL_REQUIRED');
+    assert.equal(row.tested_now,false);
+    assert.equal(row.truth_status,'EXISTANT_NON_TESTE');
+  }
+  assert.deepEqual(calls,[]);
+});
+
+test('Cloudflare read-only deployment fixture supplies required script but stays cost-guarded', async () => {
+  assert.deepEqual(SAFE_SAMPLES['cloudflare.deployments.read'],{script:'meliturgos',limit:1});
+  let calls=0;
+  const bus={
+    list:()=>[{id:'cloudflare.deployments.read',name:'Deployments',provider:'cloudflare',category:'development',risk:'LOW',enabled:true,health:'HEALTHY'}],
+    execute:async()=>{calls++;return {};},
+  };
+  const report=await auditRuntimeCapabilities({bus},{deep:true});
+  assert.equal(report.capabilities[0].auto_execution_blocked,'UNKNOWN_OR_EXTERNAL_COST');
+  assert.equal(calls,0);
+});
