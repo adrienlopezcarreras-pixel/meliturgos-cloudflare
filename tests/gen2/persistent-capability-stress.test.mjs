@@ -127,19 +127,28 @@ test('persistent stress live-proof validators accept a durable terminal report a
   });
   assert.equal(started.job_id, 'cap-stress-proof');
 
-  const terminal = validateTerminal({
+  const completed = {
     ok: true,
     capability: 'capability.audit.status',
     result: {
       persistent: true,
       job_id: 'cap-stress-proof',
-      status: 'COMPLETE_WITH_FAILURES',
+      status: 'COMPLETE',
       progress: { done: 3, total: 3 },
       report: { persistent: true, job_id: 'cap-stress-proof' },
-      summary: { remaining_runtime_failures: ['x'] },
+      summary: { remaining_runtime_failures: [] },
     },
-  }, 'cap-stress-proof');
-  assert.equal(terminal.status, 'COMPLETE_WITH_FAILURES');
+  };
+  const terminal = validateTerminal(completed, 'cap-stress-proof');
+  assert.equal(terminal.status, 'COMPLETE');
+  assert.throws(
+    () => validateTerminal({ ...completed, result: {
+      ...completed.result, status: 'COMPLETE_WITH_FAILURES',
+      summary: { remaining_runtime_failures: ['system.integrity'] },
+    } }, 'cap-stress-proof'),
+    /CAPABILITY_STRESS_RUNTIME_FAILURES:system.integrity/,
+    'a complete but failed audit must fail its GitHub production proof',
+  );
 
   assert.throws(() => validateTerminal({
     ok: true,
@@ -305,4 +314,35 @@ test('retry pass may reset its own cursor while same-pass progress remains monot
     () => validateProgressTransition({ pass:2, done:3 }, { pass:1, done:168 }),
     /CAPABILITY_STRESS_PASS_REGRESSED/,
   );
+});
+
+test('production stress gives every retry a bounded long read-only window and persists between individual attempts', async () => {
+  const source = await readFile(new URL('../../src/diagnostics/persistent-capability-stress.js', import.meta.url), 'utf8');
+  const retry = source.slice(source.indexOf('async function executeRetryPass('), source.indexOf('async function executePersistentStress('));
+  const first = source.slice(source.indexOf('async function executePersistentStress('), source.indexOf('export async function startPersistentCapabilityStress('));
+  assert.match(first, /executionTimeoutMs: 4_000/);
+  assert.match(retry, /executionTimeoutMs: 18_000/);
+  assert.match(retry, /maxRecords: 1/);
+  assert.match(retry, /await store\.update\(id, \{/);
+  assert.match(source, /const STALE_RUN_MS = 45000;/);
+});
+
+test('persistent proof accepts intentionally blocked capabilities but never accepts fake green runtime results', () => {
+  const completed = {
+    ok: true, capability: 'capability.audit.status',
+    result: {
+      persistent: true, job_id: 'blocked-but-safe', status: 'COMPLETE',
+      progress: { done: 2, total: 2 },
+      report: { persistent: true, job_id: 'blocked-but-safe' },
+      summary: { blocked_count: 1, remaining_runtime_failures: [] },
+    },
+  };
+  assert.equal(validateTerminal(completed, 'blocked-but-safe').status, 'COMPLETE');
+  assert.throws(() => validateTerminal({
+    ...completed, result: {
+      ...completed.result,
+      status: 'COMPLETE_WITH_FAILURES',
+      summary: { blocked_count: 1, remaining_runtime_failures: ['self.state'] },
+    },
+  }, 'blocked-but-safe'), /CAPABILITY_STRESS_RUNTIME_FAILURES:self.state/);
 });
