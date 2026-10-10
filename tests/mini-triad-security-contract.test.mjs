@@ -81,6 +81,10 @@ test('MINI and Android require explicit SESSION_OK acknowledgment before reporti
   assert.match(android, /MelLinkV2Protocol\.ACK ->/);
   assert.match(android, /frame\.payload\.toString\(Charsets\.UTF_8\) != "SESSION_OK"/);
   assert.match(android, /SESSION_ACK_TIMEOUT/);
+  assert.match(android, /!miniReady\.value \|\| !sessionAckTimeoutArmed/);
+  assert.match(android, /MINI_SESSION_NOT_READY/);
+  assert.match(android, /if \(!protocolReady\.value \|\| !miniReady\.value\)/);
+  assert.match(android, /if \(gatt !== sessionGatt \|\| !miniReady\.value \|\| !protocolReady\.value\) return@execute/);
   const hello = android.slice(android.indexOf('MelLinkV2Protocol.HELLO ->'), android.indexOf('MelLinkV2Protocol.ACK ->'));
   assert.match(hello, /protocolReady\.value = false/);
   assert.doesNotMatch(hello, /protocolReady\.value = true/);

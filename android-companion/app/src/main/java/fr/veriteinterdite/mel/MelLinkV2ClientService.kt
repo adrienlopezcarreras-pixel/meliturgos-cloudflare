@@ -250,13 +250,18 @@ class MelLinkV2ClientService : Service() {
 
     private fun validateMelSession() {
         if (!phoneInternetAvailable.value || !miniReady.value || !protocolReady.value || melSessionReady) return
+        val sessionGatt = gatt ?: return
         executor.execute {
+            // An HTTP heartbeat from a disconnected MINI must never mark a
+            // later Bluetooth session as authenticated.
+            if (gatt !== sessionGatt || !miniReady.value || !protocolReady.value) return@execute
             val rawId = Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID)
             val androidDeviceId = "android-" + (rawId ?: "unknown").take(64)
             val ok = runCatching {
                 MelApiClient(BuildConfig.MEL_BASE_URL, androidDeviceId, TokenVault(this))
                     .heartbeat(sdkInt = Build.VERSION.SDK_INT, phase = "MINI_LINK_V2_READY")
             }.isSuccess
+            if (gatt !== sessionGatt || !miniReady.value || !protocolReady.value) return@execute
             melSessionReady = ok
             refreshInternetState()
             if (ok) state.value = "MINI V2 · INTERNET OK"
@@ -524,7 +529,7 @@ class MelLinkV2ClientService : Service() {
             MelLinkV2Protocol.ACK -> {
                 if (frame.streamId != 0 ||
                     frame.payload.toString(Charsets.UTF_8) != "SESSION_OK" ||
-                    !miniReady.value) return
+                    !miniReady.value || !sessionAckTimeoutArmed) return
                 sessionAckTimeoutArmed = false
                 protocolReady.value = true
                 refreshInternetState()
@@ -555,6 +560,12 @@ class MelLinkV2ClientService : Service() {
                 }
             }
             MelLinkV2Protocol.MEDIA_CONFIG_REQUEST -> {
+                // Hotspot credentials must not leave Android before the MINI
+                // has authenticated the encrypted Link V2 application session.
+                if (!protocolReady.value || !miniReady.value) {
+                    sendErrorAsync(frame.streamId, "MINI_SESSION_NOT_READY")
+                    return
+                }
                 if (!::mediaReceiver.isInitialized) {
                     sendErrorAsync(frame.streamId, "MEDIA_RECEIVER_UNAVAILABLE")
                     return
