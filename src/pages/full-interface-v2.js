@@ -755,24 +755,34 @@ async function loadFreeLoraStatus(){
               ?'Entraînement Kaggle en cours · cycle '+(visibleCycle==null?'?':visibleCycle)
               :'Pipeline en attente de la prochaine preuve réelle';
   }catch(e){
+    // Treat a failed refresh as a failure, not a new successful 30-second
+    // cache entry. Clear all live-proof fields before permitting a retry.
+    setLoraTag('#freeGpuState','Indisponible','bad');
     setLoraTag('#freeHfState','Indisponible','bad');
     setLoraTag('#freeValidationState','Indisponible','bad');
     setLoraTag('#freeWorkflowState','Indisponible','bad');
     setLoraTag('#freeRuntimeState','Indisponible','bad');
     setLoraTag('#freeAgenticState','Indisponible','bad');
-    qs('#freeKaggleState').textContent='—';
-    qs('#freeKaggleCycle').textContent='—';
-    qs('#freeCheckpointStage').textContent='—';
-    qs('#freeBenchmarkState').textContent='—';
-    qs('#freeLoraTraceState').textContent='—';
-    qs('#freeLoraTraceVerified').textContent='—';
-    qs('#freeLoraDailyState').textContent='—';
+    for(const id of [
+      '#freeKaggleState','#freeKaggleCycle','#freeLoraLessons',
+      '#freeTrainingExamples','#freeCheckpointStage','#freeCompatibleLoras',
+      '#freeBenchmarkState','#freeLoraTraceState','#freeLoraTraceVerified',
+      '#freeLoraDailyState','#freeImpactStage'
+    ])qs(id).textContent='—';
+    qs('#freeLoraFiles').textContent='Fichiers indisponibles.';
     qs('#freeLoraTraceReport').textContent='Trace LoRA indisponible.';
     qs('#freeRuntimeDetail').textContent='État runtime indisponible.';
-    qs('#freeLoraWorkflowDetail').textContent='Erreur : '+e.message;
-    qs('#freeLoraProgressText').textContent='Statut indisponible';
+    qs('#freeLoraWorkflowDetail').textContent='Erreur : '+String(e?.message||'LORA_STATUS_UNAVAILABLE');
+    qs('#freeLoraProgressText').textContent='Statut indisponible · actualisation non validée';
     qs('#freeLoraProgressPercent').textContent='—';
     qs('#freeLoraBar').style.width='0%';
+    const agenticLink=qs('#freeAgenticColab');
+    if(agenticLink){
+      agenticLink.setAttribute('aria-disabled','true');
+      agenticLink.style.pointerEvents='none';
+      agenticLink.style.opacity='.45';
+    }
+    throw e;
   }finally{if(btn)btn.disabled=false}
 }
 qs('#freeLoraRefresh').onclick=()=>{panelLoadedAt.delete('lora');loadFreeLoraStatus().then(()=>panelLoadedAt.set('lora',Date.now())).catch(()=>{})};

@@ -45,3 +45,20 @@ test('LoRA trace proof is computed before the checkpoint and benchmark cards use
   assert.match(panel, /qs\('#freeLoraProgressPercent'\)\.textContent='—'/,
     'failed status must not retain the previous successful percentage');
 });
+
+test('a failed LoRA refresh invalidates all displayed status and does not cache false success', async () => {
+  const source = await read('src/pages/full-interface-v2.js');
+  const panel = source.slice(source.indexOf('async function loadFreeLoraStatus(){'), source.indexOf("qs('#freeLoraRefresh').onclick="));
+  const catchBranch = panel.slice(panel.indexOf('}catch(e){'));
+  assert.ok(catchBranch.includes("setLoraTag('#freeGpuState','Indisponible','bad')"),
+    'GPU completion from a previous run cannot stay green after refresh failure');
+  assert.ok(catchBranch.includes("qs('#freeLoraFiles').textContent='Fichiers indisponibles.'"),
+    'previous files cannot be presented as current after refresh failure');
+  assert.ok(catchBranch.includes("'#freeLoraLessons'"));
+  assert.ok(catchBranch.includes("'#freeTrainingExamples'"));
+  assert.ok(catchBranch.includes("'#freeCompatibleLoras'"));
+  assert.ok(catchBranch.includes("agenticLink.setAttribute('aria-disabled','true')"),
+    'stale agentic promotion link must become unavailable');
+  assert.match(catchBranch, /throw e;\s*}\s*finally/,
+    'loadPanel must not set its success cache timestamp on failed LoRA refresh');
+});
