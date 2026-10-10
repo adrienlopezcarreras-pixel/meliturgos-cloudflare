@@ -191,3 +191,32 @@ test('SharePoint read health uses the same bounded endpoints as list and search'
   assert.ok(calls.some(call => call.app === 'sharepoint' && call.url.includes('/sites?search=mel')));
   assert.equal(calls.some(call => call.url.includes('/sites/root') && (call.method || 'GET') === 'GET'), false);
 });
+
+test('SharePoint health does not probe an unsupported tenant root site', async () => {
+  const { bus, calls } = fixture();
+  const read = await bus.refreshHealth('sites.read');
+  const write = await bus.refreshHealth('sites.write');
+  assert.equal(read.health, 'HEALTHY');
+  assert.equal(write.health, 'PROTECTED');
+  assert.ok(calls.some(call => call.app === 'sharepoint' && call.url.includes('/sites?search=mel')));
+  assert.ok(!calls.some(call => call.app === 'sharepoint' && call.url.includes('/sites/root')),
+    'a nonexistent tenant root must not mark healthy SharePoint accounts unavailable');
+});
+
+test('Pipedream SharePoint health retains sanitized HTTP errors for actionable repair', async () => {
+  const bus = new CapabilityBus();
+  const pipedreamRuntime = {
+    async proxy() {
+      const err = Object.assign(new Error('PIPEDREAM_PROXY_FAILED'), {
+        code: 'PIPEDREAM_PROXY_FAILED', upstream_status: 403,
+        upstream_code: 'Authorization_RequestDenied',
+      });
+      throw err;
+    },
+  };
+  registerPipedreamLinkedCapabilities(bus, { pipedreamRuntime });
+  const health = await bus.refreshHealth('sites.search');
+  assert.equal(health.health, 'UNAVAILABLE');
+  assert.equal(health.health_detail, 'PIPEDREAM_PROXY_FAILED_HTTP_403_Authorization_RequestDenied');
+  assert.ok(!health.health_detail.includes('Bearer '));
+});
