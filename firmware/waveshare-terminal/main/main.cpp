@@ -2356,12 +2356,18 @@ static void wifi_fallback_after_ble_task(void *) {
 extern "C" void app_main(void) {
     ESP_LOGI(TAG, "MINI ULTRA SAFE BOOT");
 
-    esp_err_t ret = nvs_flash_init();
-    if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
-        ESP_ERROR_CHECK(nvs_flash_erase());
-        ESP_ERROR_CHECK(nvs_flash_init());
-    } else {
-        ESP_ERROR_CHECK(ret);
+    const esp_err_t ret = nvs_flash_init();
+    if (ret != ESP_OK) {
+        // Never auto-format user NVS during a firmware update. It may hold
+        // Wi-Fi credentials, MINI identity, bonded BLE keys and settings.
+        // Stop before accessing peripherals; require explicit offline backup
+        // and supervised USB recovery if the storage layout is incompatible.
+        ESP_LOGE(
+            TAG,
+            "NVS init failed (%s). No automatic erase; preserve NVS for manual recovery.",
+            esp_err_to_name(ret)
+        );
+        return;
     }
     ESP_LOGI(TAG, "STEP 0 OK: NVS");
 
