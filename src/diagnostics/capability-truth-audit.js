@@ -30,6 +30,10 @@ const SAFE_SAMPLES = Object.freeze({
   'conversation.list': {},
   'rag.search': { query: 'MELITURGOS', limit: 1 },
   'autonomy.status': {},
+  // Read-only, bounded D1 introspection: never invoke autonomy.tick/resume,
+  // even when the scheduler is paused or the local Companion is offline.
+  'autonomy.bridge.status': { limit: 1 },
+  'autonomy.activity': { limit: 1 },
   'mentor.recent': { limit: 1 },
   'evolution.gap.detect': { goal: 'rechercher des informations récentes sur le web', threshold: 2 },
   'evolution.module.propose': { goal: 'prévisualiser une capacité locale de diagnostic sans écrire ni activer de code', threshold: 2 },
