@@ -103,6 +103,29 @@ jobs:
           }
           ./scripts/build-windows-release.ps1 -Version '2.3.12' -SourceSha '${{ github.sha }}'
           ./scripts/verify-windows-release.ps1 -PackageDir 'artifacts/windows' -Version '2.3.12' -SourceSha '${{ github.sha }}'
+      - name: Execute real Windows Companion self-test without pairing
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $zip = 'artifacts/windows/MEL-Windows-2.3.12.zip'
+          if (!(Test-Path $zip)) { throw 'COMPANION_PACKAGE_MISSING' }
+          $dir = Join-Path $env:RUNNER_TEMP 'mel-desktop-smoke'
+          Expand-Archive -Path $zip -DestinationPath $dir -Force
+          $exe = Join-Path $dir 'MEL-Companion.exe'
+          if (!(Test-Path $exe)) { throw 'COMPANION_EXE_MISSING' }
+          $reportPath = Join-Path $env:LOCALAPPDATA 'MEL/self-test.json'
+          if (Test-Path $reportPath) { Remove-Item $reportPath -Force }
+          $process = Start-Process -FilePath $exe -ArgumentList '--self-test' -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw "COMPANION_SELF_TEST_EXIT_$($process.ExitCode)" }
+          if (!(Test-Path $reportPath)) { throw 'COMPANION_SELF_TEST_REPORT_MISSING' }
+          $report = Get-Content -Path $reportPath -Raw | ConvertFrom-Json
+          if ($report.schema -ne 'mel.windows-companion-self-test.v1') { throw 'COMPANION_SELF_TEST_SCHEMA_INVALID' }
+          if ($report.version -ne '2.3.12') { throw 'COMPANION_SELF_TEST_VERSION_INVALID' }
+          if ($report.remote_access_enabled -ne $false) { throw 'COMPANION_REMOTE_ACCESS_UNEXPECTEDLY_ENABLED' }
+          if ($report.config_loaded -ne $false) { throw 'COMPANION_RUNNER_HAS_UNEXPECTED_PAIRING' }
+          Write-Host "COMPANION_REAL_EXE_SELF_TEST_PASS version=$($report.version) remote_access=false"
+          New-Item -ItemType Directory -Force -Path artifacts/windows | Out-Null
+          Copy-Item $reportPath 'artifacts/windows/windows-real-exe-self-test.json'
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
