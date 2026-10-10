@@ -114,6 +114,7 @@ class MelLinkV2ClientService : Service() {
     private var scanActive = false
     private var reconnectAttempt = 0
     private var mtuRetryAttempted = false
+    private var sessionAckTimeoutArmed = false
     private val handler by lazy { android.os.Handler(mainLooper) }
 
     private val bondReceiver = object : BroadcastReceiver() {
@@ -469,10 +470,12 @@ class MelLinkV2ClientService : Service() {
         @Deprecated("Deprecated by Android")
         override fun onCharacteristicChanged(client: BluetoothGatt, characteristic: BluetoothGattCharacteristic) {
             @Suppress("DEPRECATION")
+            if (gatt !== client) return
             handleEventFrame(characteristic.value ?: return)
         }
 
         override fun onCharacteristicChanged(client: BluetoothGatt, characteristic: BluetoothGattCharacteristic, value: ByteArray) {
+            if (gatt !== client) return
             handleEventFrame(value)
         }
 
@@ -489,11 +492,33 @@ class MelLinkV2ClientService : Service() {
         }
         when (frame.type) {
             MelLinkV2Protocol.HELLO -> {
+                // HELLO proves a BLE notification, not acceptance of MINI SESSION.
+                protocolReady.value = false
+                melSessionReady = false
+                refreshInternetState()
+                state.value = "MINI V2 · VALIDATION SESSION"
+                sendControlAsync(MelLinkV2Protocol.encode(MelLinkV2Protocol.SESSION, 0, 0, 0, sessionPayload()))
+                val awaiting = gatt
+                if (!sessionAckTimeoutArmed && awaiting != null) {
+                    sessionAckTimeoutArmed = true
+                    handler.postDelayed({
+                        if (sessionAckTimeoutArmed && gatt === awaiting &&
+                            miniReady.value && !protocolReady.value) {
+                            sessionAckTimeoutArmed = false
+                            failAndReconnect(awaiting, "SESSION_ACK_TIMEOUT")
+                        }
+                    }, 10_000L)
+                }
+            }
+            MelLinkV2Protocol.ACK -> {
+                if (frame.streamId != 0 ||
+                    frame.payload.toString(Charsets.UTF_8) != "SESSION_OK" ||
+                    !miniReady.value) return
+                sessionAckTimeoutArmed = false
                 protocolReady.value = true
                 refreshInternetState()
                 validateMelSession()
                 state.value = if (internetReady.value) "MINI V2 · INTERNET OK" else "MINI V2 PRETE"
-                sendControlAsync(MelLinkV2Protocol.encode(MelLinkV2Protocol.SESSION, 0, 0, 0, sessionPayload()))
             }
             MelLinkV2Protocol.PING -> {
                 sendControlAsync(MelLinkV2Protocol.encode(MelLinkV2Protocol.PONG, 0, frame.streamId, frame.seq))
@@ -1227,6 +1252,7 @@ class MelLinkV2ClientService : Service() {
     private fun clearSession(reason: String) {
         miniReady.value = false
         protocolReady.value = false
+        sessionAckTimeoutArmed = false
         melSessionReady = false
         internetReady.value = false
         state.value = reason

@@ -70,3 +70,21 @@ test('MINI firmware boot preserves NVS on migration failure instead of auto eras
   assert.match(app, /No automatic erase; preserve NVS for manual recovery/);
   assert.doesNotMatch(app, /nvs_flash_erase\(\)/);
 });
+
+test('MINI and Android require explicit SESSION_OK acknowledgment before reporting protocol ready', async () => {
+  const mini = await read('firmware/waveshare-terminal/main/mel_link_v2_transport.cpp');
+  const android = await read('android-companion/app/src/main/java/fr/veriteinterdite/mel/MelLinkV2ClientService.kt');
+  assert.match(mini, /g_session_ack_pending\.store\(true\)/);
+  assert.match(mini, /MEL_LINK_V2_ACK, 0, 0/);
+  assert.match(mini, /kSessionAccepted\[\] = "SESSION_OK"/);
+  assert.match(mini, /g_session_ack_pending\.store\(false\)/);
+  assert.match(android, /MelLinkV2Protocol\.ACK ->/);
+  assert.match(android, /frame\.payload\.toString\(Charsets\.UTF_8\) != "SESSION_OK"/);
+  assert.match(android, /SESSION_ACK_TIMEOUT/);
+  const hello = android.slice(android.indexOf('MelLinkV2Protocol.HELLO ->'), android.indexOf('MelLinkV2Protocol.ACK ->'));
+  assert.match(hello, /protocolReady\.value = false/);
+  assert.doesNotMatch(hello, /protocolReady\.value = true/);
+  const ack = android.slice(android.indexOf('MelLinkV2Protocol.ACK ->'), android.indexOf('MelLinkV2Protocol.PING ->'));
+  assert.match(ack, /protocolReady\.value = true/);
+  assert.match(ack, /validateMelSession\(\)/);
+});
