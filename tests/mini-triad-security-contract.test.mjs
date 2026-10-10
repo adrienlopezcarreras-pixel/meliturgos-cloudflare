@@ -13,10 +13,10 @@ test('MINI Link V2 rejects unencrypted control and bulk GATT writes', async () =
   assert.match(server, /ble_hs_cfg\.sm_sc = 1/);
   const workflow = await read('.github/workflows/waveshare-terminal-firmware.yml');
   assert.match(workflow, /set_cfg_y CONFIG_BT_NIMBLE_NVS_PERSIST/);
-  assert.match(workflow, /set_cfg_y CONFIG_BT_NIMBLE_SM_SC_ONLY/);
+  assert.match(workflow, /set_cfg_int CONFIG_BT_NIMBLE_SM_SC_ONLY 1/);
   const defaults = await read('firmware/waveshare-terminal/sdkconfig.defaults');
   assert.match(defaults, /CONFIG_BT_NIMBLE_NVS_PERSIST=y/);
-  assert.match(defaults, /CONFIG_BT_NIMBLE_SM_SC_ONLY=y/);
+  assert.match(defaults, /CONFIG_BT_NIMBLE_SM_SC_ONLY=1/);
 
   assert.match(server, /BLE_GAP_EVENT_ENC_CHANGE/);
   assert.match(server, /g_link_encrypted\.load\(\) &&/);
