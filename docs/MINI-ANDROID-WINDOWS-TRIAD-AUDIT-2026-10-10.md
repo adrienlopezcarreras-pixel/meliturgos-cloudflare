@@ -65,6 +65,25 @@ validation exacte-SHA et tests interopérables.
 5. Avoir la **même révision de protocole** dans les deux binaires exact-SHA,
    puis test physique sur MINI/téléphone en présence de l'utilisateur.
 
+## Risque supplémentaire P0 — confiance du canal GATT MINI
+
+Dans `mel_link_v2_server.cpp`, les caractéristiques de contrôle et de
+données ont actuellement les droits `BLE_GATT_CHR_F_WRITE` et
+`BLE_GATT_CHR_F_WRITE_NO_RSP`, sans exigence explicite d'écriture BLE
+chiffrée/authentifiée dans cette définition. Dans
+`mel_link_v2_transport.cpp`, la réception d'un paquet `SESSION`
+met `g_session_ready=true` même si l'analyse de l'horloge renvoie
+`false` ; `MEDIA_CONFIG` peut aussi fournir des identifiants réseau.
+
+**Conclusion conservatrice :** avant tout appairage final, établir et
+tester une identité du central Android, une protection du transport
+ou une authentification applicative des sessions et configurations.
+Le simple CRC16 détecte des corruptions mais **ne constitue pas une
+authentification**. Aucun test de sécurité matériel/pentest BLE n'a
+été réalisé ; il ne faut pas prétendre qu'une exploitation distante a
+été démontrée. Le script d'audit exige désormais un verrou explicite
+sur ces deux invariants.
+
 ## Sécurité Companion / MINI
 
 - `remote_access_enabled=false` reste le défaut au premier appairage
