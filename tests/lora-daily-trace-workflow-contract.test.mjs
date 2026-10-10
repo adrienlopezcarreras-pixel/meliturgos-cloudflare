@@ -60,3 +60,13 @@ test('MEL exposes durable trace history and daily status to the authenticated le
   assert.match(entry,/markMissingLoraTrainingDay/);
   assert.doesNotMatch(entry,/FREE_LORA_COLLECTOR_WORKFLOW/);
 });
+
+test('Kaggle LoRA monitor cannot expire before the configured 3-hour GPU kernel limit',()=> {
+  assert.match(workflow, /kaggle kernels push[\\s\\S]{0,200}?--accelerator NvidiaTeslaT4[\\s\\S]{0,100}?-t 10800/);
+  assert.match(workflow, /KAGGLE_KERNEL_TIMEOUT_SECONDS=10800/);
+  assert.match(workflow, /KAGGLE_MONITOR_GRACE_SECONDS=600/);
+  assert.match(workflow, /MONITOR_DEADLINE_EPOCH=\\$\\(\\( \\$\\(date \\+%s\\) \\+ KAGGLE_KERNEL_TIMEOUT_SECONDS \\+ KAGGLE_MONITOR_GRACE_SECONDS \\)\\)/);
+  assert.match(workflow, /KAGGLE_MONITOR_DEADLINE_EXHAUSTED/);
+  assert.doesNotMatch(workflow, /for attempt in \\$\\(seq 1 300\\); do/);
+  assert.match(workflow, /KAGGLE_GPU_RUN_TIMEOUT:[^\\n]*no terminal success observed/);
+});
