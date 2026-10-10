@@ -56,7 +56,9 @@ class MelLinkV2ClientService : Service() {
         private const val CHANNEL_ID = "mel_link_v2"
         private const val NOTIFICATION_ID = 705
         private const val MAX_STT_RESPONSE_BYTES = 512 * 1024
-        private const val MAX_API_RESPONSE_BYTES = 8 * 1024 * 1024
+        // MINI receiver MAX_RESPONSE_BYTES is 1 MiB. Larger visual/media
+        // payloads use the dedicated Wi-Fi media channel, not GATT.
+        private const val MAX_API_RESPONSE_BYTES = 1024 * 1024
 
         val SERVICE_UUID: UUID = UUID.fromString("0000abf0-0000-1000-8000-00805f9b34fb")
         val CONTROL_RX_UUID: UUID = UUID.fromString("0000abf1-0000-1000-8000-00805f9b34fb")

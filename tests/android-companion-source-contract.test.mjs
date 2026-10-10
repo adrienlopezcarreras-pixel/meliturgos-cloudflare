@@ -794,7 +794,7 @@ test('Android V2 scanner recovery clears state after revoked BLE permissions, st
 test('Android Link V2 HTTP relay and ADPCM streams have strict memory bounds', async () => {
   const client = await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelLinkV2ClientService.kt',root),'utf8');
   assert.match(client,/MAX_STT_RESPONSE_BYTES = 512 \* 1024/);
-  assert.match(client,/MAX_API_RESPONSE_BYTES = 8 \* 1024 \* 1024/);
+  assert.match(client,/MAX_API_RESPONSE_BYTES = 1024 \* 1024/);
   assert.match(client,/private fun readHttpResponseBounded\(/);
   const bounds = await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MiniHttpResponseBounds.kt',root),'utf8');
   assert.match(client,/MiniHttpResponseBounds\.read\(stream, maxBytes\)/);
@@ -841,4 +841,12 @@ test('Local French TTS has bounded PCM capture and rejects overlong 48k playback
   assert.match(tts,/temp\.length\(\) <= MAX_CAPTURE_BYTES/);
   assert.match(tts,/requiredSamples <= MAX_OUTPUT_SAMPLES/);
   assert.match(tts,/MINI_TTS_DURATION_LIMIT/);
+});
+
+test('Android relay response cap matches MINI firmware transport capacity', async () => {
+  const client = await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelLinkV2ClientService.kt',root),'utf8');
+  const mini = await readFile(new URL('../firmware/waveshare-terminal/main/mel_link_v2_transport.cpp',import.meta.url),'utf8');
+  assert.match(client,/MAX_API_RESPONSE_BYTES = 1024 \* 1024/);
+  assert.match(mini,/MAX_RESPONSE_BYTES = 1024 \* 1024/);
+  assert.match(client,/readHttpResponseBounded\(stream, MAX_API_RESPONSE_BYTES\)/);
 });
