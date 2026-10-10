@@ -377,12 +377,16 @@ test('Android owner password state is not saveable and emulator smoke tests are 
   assert.match(workflow,/:app:installDebug/);
   assert.match(workflow,/fr\.veriteinterdite\.mel\/\.MainActivity/);
   assert.match(workflow,/fr\.veriteinterdite\.mel\/\.MelUiHarnessActivity/);
-  assert.match(workflow,/launcher-icon-proof\.png/);
+  assert.match(workflow,/capture_verified_ui launcher-icon-proof com\.android\.settings/);
   assert.match(workflow,/APPLICATION_DETAILS_SETTINGS/);
-  assert.match(workflow,/login-screen\.png/);
-  assert.match(workflow,/complete-screen\.png/);
+  assert.match(workflow,/capture_verified_ui login-screen fr\.veriteinterdite\.mel/);
+  assert.match(workflow,/capture_verified_ui complete-screen fr\.veriteinterdite\.mel/);
+  assert.match(workflow,/local screenshot="dist\/emulator\/\$\{name\}\.png"/);
   assert.match(workflow,/screencap -p/);
-  assert.match(workflow,/dumpsys activity activities/);
+  assert.match(workflow,/uiautomator dump/);
+  assert.match(workflow,/INVALID_VISUAL_PROOF/);
+  assert.match(workflow,/System ANR\/fullscreen overlay/);
+  assert.match(workflow,/package=/);
   assert.match(workflow,/system-images;android-35;google_apis;x86_64/);
 });
 
