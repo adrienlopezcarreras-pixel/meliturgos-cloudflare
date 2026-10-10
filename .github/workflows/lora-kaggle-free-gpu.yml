@@ -610,7 +610,15 @@ jobs:
           LAST_TRACE_PROGRESS=""
           mkdir -p artifacts
           : > artifacts/kaggle-live.log
-          for attempt in $(seq 1 300); do
+          # The Kaggle submission uses --timeout 10800 (3 hours). The old
+          # 300 x 30-second poll budget ended at ~2h40 while Kaggle still
+          # reported RUNNING, falsely failing a valid long GPU cycle.
+          # Monitor for the full kernel budget plus 10 minutes of API
+          # propagation, independently of variable status/log request times.
+          KAGGLE_KERNEL_TIMEOUT_SECONDS=10800
+          KAGGLE_MONITOR_GRACE_SECONDS=600
+          MONITOR_DEADLINE_EPOCH=$(( $(date +%s) + KAGGLE_KERNEL_TIMEOUT_SECONDS + KAGGLE_MONITOR_GRACE_SECONDS ))
+          for attempt in $(seq 1 450); do
             STATUS="$(kaggle kernels status "$KERNEL_REF" 2>&1 || true)"
             echo "[$attempt] $STATUS"
             LOGS="$(kaggle kernels logs "$KERNEL_REF" 2>&1 || true)"
@@ -703,9 +711,18 @@ jobs:
               echo "::error title=Kaggle GPU run failed::$STATUS"
               exit 1
             fi
+            if (( $(date +%s) >= MONITOR_DEADLINE_EPOCH )); then
+              echo "KAGGLE_MONITOR_DEADLINE_EXHAUSTED: kernel not terminal after configured Kaggle GPU runtime plus grace"
+              break
+            fi
             sleep 30
           done
-          [[ "$COMPLETE" == "1" ]] || { echo "KAGGLE_GPU_RUN_TIMEOUT"; exit 1; }
+          [[ "$COMPLETE" == "1" ]] || {
+            echo "KAGGLE_GPU_RUN_TIMEOUT: no terminal success observed within the full three-hour Kaggle kernel budget plus grace"
+            # Failing here is correct: no trained artifact or benchmark was
+            # verified. The terminal LoRA trace preserves this uncertainty.
+            exit 1
+          }
 
       - name: Download trained bundle
         if: env.SMOKE_ONLY != 'true'
