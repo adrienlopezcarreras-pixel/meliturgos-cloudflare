@@ -301,11 +301,16 @@ async function executeRetryPass({ bus, store, job, context = {} }) {
   const retry = await auditRuntimeCapabilities({ bus }, {
     deep: true,
     context: executionContext(context),
-    executionTimeoutMs: 4_000,
+    // First pass stays fast (4 s). Real D1 integrity and self-introspection
+    // span multiple independent reads and exceeded that budget in production.
+    // Retry one read-only capability at a time with a bounded 18 s envelope:
+    // below Worker waitUntil lifetime, and shorter than the 45 s stale lease.
+    // Still execute the COMPLETE handler and record a real timeout if it hangs.
+    executionTimeoutMs: 18_000,
     samples: retrySamples,
     recordIds: retryIds,
     startIndex: retryStart,
-    maxRecords: STRESS_CHUNK_SIZE,
+    maxRecords: 1,
     onProgress: async ({ index, total, row }) => {
       await store.update(id, {
         status: 'RETRYING',
