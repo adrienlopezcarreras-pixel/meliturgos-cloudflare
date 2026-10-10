@@ -271,7 +271,8 @@ function autoExecutionBlockReason({ deep, record, sample, declared, costSensitiv
   if (record?.risk !== 'LOW') return 'RISK_NOT_LOW';
   if (record?.approval?.required === true || OWNER_APPROVAL_SENSITIVE_CAPABILITIES.has(record?.id)) return 'OWNER_APPROVAL_REQUIRED';
   const health = String(record?.health || '').toUpperCase();
-  if (['UNAVAILABLE','OFFLINE','DISABLED','BLOCKED','DOWN','BROKEN'].includes(health)) return 'HEALTH_UNAVAILABLE';
+  if (['UNAVAILABLE','OFFLINE','DISABLED','BLOCKED','DOWN','BROKEN','ERROR','FAILED','FAIL','UNHEALTHY'].includes(health)) return 'HEALTH_UNAVAILABLE';
+  if (record?.health_refresh_verified === false) return 'HEALTH_REFRESH_UNVERIFIED';
   if (sample === undefined) return 'NO_BOUNDED_SAMPLE';
   if (costSensitive && !costApproved) return 'UNKNOWN_OR_EXTERNAL_COST';
   return null;
@@ -350,7 +351,8 @@ export async function auditRuntimeCapabilities(runtime, {
               )), healthDeadlineMs);
             }),
           ]).finally(() => clearTimeout(timer));
-          if (!observed || typeof observed !== 'object' || typeof observed.health !== 'string') {
+          if (!observed || typeof observed !== 'object' || typeof observed.health !== 'string'
+              || (observed.id != null && String(observed.id) !== String(record.id))) {
             throw Object.assign(new Error('CAPABILITY_AUDIT_HEALTH_RESULT_INVALID'), {
               code: 'CAPABILITY_AUDIT_HEALTH_RESULT_INVALID',
             });
@@ -362,9 +364,17 @@ export async function auditRuntimeCapabilities(runtime, {
           // availability into a green status just because a stale record was green.
           const code = String(error?.code || error?.message || 'CAPABILITY_AUDIT_HEALTH_REFRESH_FAILED')
             .replace(/[^A-Za-z0-9_]/g, '_').slice(0, 120);
+          // An unsuccessful health probe must never upgrade UNAVAILABLE or
+          // any other hard error into merely DEGRADED. Keep the last known
+          // blocking state, and prevent deep execution even for stale HEALTHY.
+          const previous = String(record?.health || '').toUpperCase();
+          const blocking = new Set([
+            'UNAVAILABLE','OFFLINE','DISABLED','BLOCKED','DOWN','BROKEN',
+            'ERROR','FAILED','FAIL','UNHEALTHY',
+          ]);
           refreshed[index] = {
             ...record,
-            health: String(record?.health || '').toUpperCase() === 'PROTECTED' ? 'PROTECTED' : 'DEGRADED',
+            health: previous === 'PROTECTED' || blocking.has(previous) ? previous : 'DEGRADED',
             health_detail: code,
             health_refresh_verified: false,
           };
