@@ -631,6 +631,8 @@ async function loadFreeLoraStatus(){
     const trainWf=trainWfKnown?d.training_workflow:{};
     const checkpoint=d?.checkpoint&&typeof d.checkpoint==='object'?d.checkpoint:null;
     const dailyTrace=d?.daily_trace&&typeof d.daily_trace==='object'?d.daily_trace:null;
+    const traceStatus=String(dailyTrace?.status||'').toUpperCase();
+    const traceSuccess=traceStatus==='SUCCEEDED'&&Number(dailyTrace?.trace_verified)===1;
     const dailyStatus=d?.daily_status&&typeof d.daily_status==='object'?d.daily_status:null;
     const trainStatus=trainWfKnown&&trainWf.status!=null?String(trainWf.status).toUpperCase():'UNKNOWN';
     const trainConclusion=String(trainWf.conclusion||'').toUpperCase();
@@ -655,8 +657,6 @@ async function loadFreeLoraStatus(){
     qs('#freeBenchmarkState').textContent=benchKnown
       ?(bench.status!=null?String(bench.status):'—')+(bench.latest_score!=null?' · '+Math.round(Number(bench.latest_score)*1000)/10+'%':'')
       :(traceSuccess?'VALIDATION TECHNIQUE RÉUSSIE':'—');
-    const traceStatus=String(dailyTrace?.status||'').toUpperCase();
-    const traceSuccess=traceStatus==='SUCCEEDED'&&Number(dailyTrace?.trace_verified)===1;
     qs('#freeLoraTraceState').textContent=dailyTrace?.run_id
       ?String(dailyTrace.run_id)+' · '+(traceStatus||'ÉTAT INCONNU')
       :'AUCUNE TRACE';
@@ -772,6 +772,8 @@ async function loadFreeLoraStatus(){
     qs('#freeRuntimeDetail').textContent='État runtime indisponible.';
     qs('#freeLoraWorkflowDetail').textContent='Erreur : '+e.message;
     qs('#freeLoraProgressText').textContent='Statut indisponible';
+    qs('#freeLoraProgressPercent').textContent='—';
+    qs('#freeLoraBar').style.width='0%';
   }finally{if(btn)btn.disabled=false}
 }
 qs('#freeLoraRefresh').onclick=()=>{panelLoadedAt.delete('lora');loadFreeLoraStatus().then(()=>panelLoadedAt.set('lora',Date.now())).catch(()=>{})};
