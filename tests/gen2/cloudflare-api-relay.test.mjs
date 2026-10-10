@@ -66,26 +66,18 @@ test('Cloudflare relay exposes only sanitized MINI heartbeat fields to its scope
 });
 
 
-test('MINI reset is manual-only, model-guarded and followed by heartbeat proof', async () => {
+test('MINI reset policy rejects scheduled and dispatch-triggered serial resets', async () => {
   const runner = await readFile(new URL('../../scripts/cloudflare-api-relay-runner.mjs', import.meta.url), 'utf8');
   const workflow = await readFile(new URL('../../.github/workflows/cloudflare-api-relay.yml', import.meta.url), 'utf8');
-  assert.match(workflow, /MEL_MINI_RESET_APPROVED:/);
-  assert.match(workflow, /github\.event_name == 'workflow_dispatch'/);
-  const approvalLine = workflow.split('\n').find(line => line.includes('MEL_MINI_RESET_APPROVED:')) || '';
-  assert.doesNotMatch(approvalLine, /schedule/);
-  assert.doesNotMatch(approvalLine, /workflow_run/);
-  assert.match(runner, /MEL_MINI_RESET_APPROVED/);
-  assert.match(runner, /waveshare-esp32-s3/);
-  assert.match(runner, /primaryMini\?\.online===false/);
-  assert.match(runner, /action:'serial\.hard_reset'/);
-  assert.match(runner, /MINI_SERIAL_HARD_RESET_PROOF=/);
-  assert.match(runner, /MINI_DEVICE_STATUS_AFTER_RESET=/);
-  assert.match(runner, /MINI_USB_INSPECT=/);
-  assert.match(runner, /engineReadyForReset/);
-  assert.match(runner, /COMPANION_ENGINE_REFRESH_REQUIRED/);
-  assert.match(runner, /engine_refresh_status/);
+  const api = await readFile(new URL('../../src/devices/computer-companion-api.js', import.meta.url), 'utf8');
+  assert.ok(!workflow.includes('MEL_MINI_RESET_APPROVED'));
+  assert.ok(!runner.includes('MEL_MINI_RESET_APPROVED'));
+  assert.ok(!runner.includes("action:'serial.hard_reset'"));
+  assert.ok(runner.includes('automatic_reset_allowed:false'));
+  const oidcAllowed = api.split('const PC_CONTROL_PROOF_ACTIONS=new Set(')[1]?.split(';')[0] || '';
+  assert.ok(!oidcAllowed.includes('"serial.hard_reset"'));
+  assert.ok(oidcAllowed.includes('"serial.read"'));
 });
-
 
 test('Cloudflare relay exposes only sanitized published MINI firmware metadata', async () => {
   const api = await readFile(new URL('../../src/api/cloudflare-api-relay.js', import.meta.url), 'utf8');
