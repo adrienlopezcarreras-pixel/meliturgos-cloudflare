@@ -36,7 +36,21 @@ test('deep capability audit executes every automatically-safe sample and none ma
   assert.ok(attempted.length >= 5, 'deep audit should exercise several bounded LOW-risk capabilities');
 
   const failed = attempted.filter(row => row.execution?.ok !== true);
-  assert.deepEqual(failed.map(row => ({ id: row.id, execution: row.execution })), []);
+  // This unit harness deliberately has no DB binding. Unlike the deployed
+  // Worker, the two new read-only autonomy observations cannot connect to D1.
+  // Demand an explicit dependency error, never disguise it as execution proof.
+  // Their successful execution WITH SQLite D1 is separately tested by
+  // tests/autonomy-capabilities.test.mjs.
+  const offlineDependencyFailures = failed.map(row => ({
+    id: row.id,
+    code: row.execution?.code,
+  })).sort((a, b) => a.id.localeCompare(b.id));
+  assert.deepEqual(offlineDependencyFailures, [
+    { id: 'autonomy.activity', code: 'DB_BINDING_MISSING' },
+    { id: 'autonomy.bridge.status', code: 'DB_BINDING_MISSING' },
+  ]);
+  assert.ok(failed.every(row => row.truth_status === 'EXISTANT_MAIS_ECHEC_RUNTIME'),
+    'missing offline dependencies must never be presented as executed successfully');
 
   for (const row of report.capabilities) {
     if (row.risk !== 'LOW') {
