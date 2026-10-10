@@ -88,3 +88,10 @@ test('work listing on existing store uses bounded SELECT only and never runs DDL
   assert.equal(list.count, 1);
   assert.equal(list.work[0].id, 'w1');
 });
+
+test('Work capabilities are blocked by health when no D1 is configured', async () => {
+  const runtime = createGen2Runtime({ env: { MEL_GITHUB_FETCH: async () => new Response('{}', { status: 500 }) } });
+  const rows = runtime.bus.list().filter(row => ['work.list','work.open'].includes(row.id));
+  assert.equal(rows.length, 2);
+  for(const row of rows) assert.equal(row.health, 'UNAVAILABLE');
+});
