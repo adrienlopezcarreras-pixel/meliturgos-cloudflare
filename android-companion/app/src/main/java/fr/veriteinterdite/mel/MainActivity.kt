@@ -372,18 +372,18 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun ensureMobileBridge(forceRestart: Boolean = false) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            val permissions = arrayOf(
-                Manifest.permission.BLUETOOTH_SCAN,
-                Manifest.permission.BLUETOOTH_CONNECT
-            )
-            val missing = permissions.filter {
-                ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
-            }
-            if (missing.isNotEmpty()) {
-                bluetoothPermissions.launch(missing.toTypedArray())
-                return
-            }
+        val permissions = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            arrayOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_CONNECT)
+        } else {
+            // Android 6–11 require location runtime permission for BLE service discovery.
+            arrayOf(Manifest.permission.ACCESS_FINE_LOCATION)
+        }
+        val missing = permissions.filter {
+            ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
+        }
+        if (missing.isNotEmpty()) {
+            bluetoothPermissions.launch(missing.toTypedArray())
+            return
         }
         val adapter = getSystemService(BluetoothManager::class.java)?.adapter ?: return
         if (!adapter.isEnabled) {
