@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 
 import { classifyOAuthProbeFailure, maybeHandleConnectionSettingsApi, probeYahooDirect, pipedreamAccessToken, pipedreamAccountStatus, testPipedreamCredentials, testPipedreamGoogleTasksRead } from '../../src/api/connection-settings-api.js';
 
@@ -868,4 +869,10 @@ test('Pipedream paid production environment is rejected in the default free-only
   const body = await response.json();
   assert.equal(body.code, 'PAID_PROVIDER_DISABLED_FREE_ONLY');
   assert.equal(runtimeEnv.DB.tokens.size, 0);
+});
+
+test('native SharePoint proof uses documented Graph tenant site search instead of non-universal /sites/root',async()=>{
+  const source=await readFile(new URL('../../src/api/connection-settings-api.js',import.meta.url),'utf8');
+  assert.match(source,/connectorId === 'microsoft-sharepoint'\) url = 'https:\/\/graph\.microsoft\.com\/v1\.0\/sites\?search=mel'/);
+  assert.doesNotMatch(source,/microsoft-sharepoint'\) url = 'https:\/\/graph\.microsoft\.com\/v1\.0\/sites\/root/);
 });
