@@ -32,3 +32,16 @@ test('Professor LoRA panel does not render empty benchmark pseudo-metrics', asyn
     'freeImpactDelta',
   ]) assert.ok(!source.includes(`id="${id}"`), `empty pseudo-metric should be hidden: ${id}`);
 });
+
+test('LoRA trace proof is computed before the checkpoint and benchmark cards use it', async () => {
+  const source = await read('src/pages/full-interface-v2.js');
+  const panel = source.slice(source.indexOf('async function loadFreeLoraStatus(){'), source.indexOf("qs('#freeLoraRefresh').onclick="));
+  const traceDeclaration = panel.indexOf('const traceSuccess=');
+  const checkpointCard = panel.indexOf("qs('#freeCheckpointStage').textContent=");
+  assert.ok(traceDeclaration >= 0 && checkpointCard > traceDeclaration,
+    'traceSuccess must be initialized before any UI branch can use it (avoid TDZ ReferenceError)');
+  assert.match(panel, /qs\('#freeLoraBar'\)\.style\.width='0%'/,
+    'stale green LoRA progress must be cleared after a failed status load');
+  assert.match(panel, /qs\('#freeLoraProgressPercent'\)\.textContent='—'/,
+    'failed status must not retain the previous successful percentage');
+});
