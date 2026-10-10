@@ -11,6 +11,7 @@
 #include "host/ble_hs.h"
 #include "host/ble_uuid.h"
 #include "host/util/util.h"
+#include "store/config/ble_store_config.h"
 #include "nimble/nimble_port.h"
 #include "nimble/nimble_port_freertos.h"
 #include "os/os_mbuf.h"
@@ -158,6 +159,14 @@ static int gap_event(struct ble_gap_event *event, void *arg) {
                 g_event_subscribed = false;
                 g_mtu = ble_att_mtu(g_conn);
                 ESP_LOGI(TAG, "Android connected conn=%u mtu=%u", g_conn, g_mtu);
+                // Without actively initiating security, both ends can wait
+                // forever: MINI withholds HELLO until encrypted, while Android
+                // awaits HELLO before sending any encrypted application write.
+                const int security_rc = ble_gap_security_initiate(g_conn);
+                if (security_rc != 0 && security_rc != BLE_HS_EALREADY) {
+                    ESP_LOGE(TAG, "BLE security initiate failed rc=%d", security_rc);
+                    ble_gap_terminate(g_conn, BLE_ERR_REM_USER_CONN_TERM);
+                }
             } else {
                 g_conn = BLE_HS_CONN_HANDLE_NONE;
                 start_advertising();
@@ -194,6 +203,11 @@ static int gap_event(struct ble_gap_event *event, void *arg) {
             const bool encrypted = event->enc_change.status == 0 &&
                 ble_gap_conn_find(g_conn, &desc) == 0 && desc.sec_state.encrypted;
             g_link_encrypted.store(encrypted);
+            if (!encrypted) {
+                // Fail closed rather than serving an unauthenticated SESSION.
+                ESP_LOGW(TAG, "BLE encryption did not become active status=%d", event->enc_change.status);
+                ble_gap_terminate(g_conn, BLE_ERR_REM_USER_CONN_TERM);
+            }
             const bool now_ready = encrypted && g_event_subscribed;
             const bool was_ready = g_ready.exchange(now_ready);
             ESP_LOGI(TAG, "Link V2 BLE encrypted=%d", encrypted ? 1 : 0);
@@ -297,6 +311,9 @@ esp_err_t mel_link_v2_server_start(void) {
     ble_hs_cfg.sm_our_key_dist |= BLE_SM_PAIR_KEY_DIST_ENC | BLE_SM_PAIR_KEY_DIST_ID;
     ble_hs_cfg.sm_their_key_dist |= BLE_SM_PAIR_KEY_DIST_ENC | BLE_SM_PAIR_KEY_DIST_ID;
     ble_hs_cfg.reset_cb = on_reset;
+    ble_hs_cfg.store_status_cb = ble_store_util_status_rr;
+    // Register NimBLE's persistent bond-store callbacks before starting host.
+    ble_store_config_init();
     ble_hs_cfg.sync_cb = on_sync;
     ble_att_set_preferred_mtu(MEL_LINK_V2_DEFAULT_MTU);
     nimble_port_freertos_init(host_task);
