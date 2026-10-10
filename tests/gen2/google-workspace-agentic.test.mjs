@@ -427,3 +427,21 @@ test('Google Tasks mutation keeps explicit approval before Pipedream fallback ca
   assert.equal(result.task_id, 'task-pd-create');
   assert.ok(proxyCalls.some(call => call.app === 'google_tasks' && call.method === 'POST'));
 });
+
+test('Gmail health distinguishes upstream network and timeout failures without pretending success', async () => {
+  for (const [cause, expected] of [
+    [new TypeError('fetch failed'), 'GMAIL_HEALTH_FAILED_NETWORK'],
+    [Object.assign(new Error('deadline reached'), { name: 'TimeoutError' }), 'GMAIL_HEALTH_FAILED_TIMEOUT'],
+  ]) {
+    const bus = new CapabilityBus();
+    registerGoogleWorkspaceCapabilities(bus, {
+      env: { MELITURGOS_USER: 'owner' },
+      resolveAccessToken: async () => 'non-secret-test-token',
+      fetchImpl: async () => { throw cause; },
+    });
+    const health = await bus.refreshHealth('gmail.messages.search');
+    assert.equal(health.health, 'DEGRADED');
+    assert.equal(health.health_detail, expected);
+    assert.ok(!health.health_detail.includes('non-secret-test-token'));
+  }
+});
