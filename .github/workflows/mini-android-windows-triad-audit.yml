@@ -3,6 +3,7 @@ name: mini-android-windows-triad-audit
 on:
   pull_request:
     paths:
+      - 'docs/MINI-ANDROID-WINDOWS-TRIAD-AUDIT-2026-10-10.md'
       - 'scripts/mini-triad-audit.mjs'
       - 'tests/mini-triad-protocol-stress.cpp'
       - 'tests/computer-companion-api.test.mjs'

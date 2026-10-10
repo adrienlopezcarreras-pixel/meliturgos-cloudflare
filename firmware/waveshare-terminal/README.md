@@ -12,6 +12,9 @@ audio ADPCM avec CRC, séquences et crédits. Le candidat de correction
 impose une liaison chiffrée avec appairage/bonding BLE pour les
 caractéristiques d'écriture, une SESSION horodatée valide et une
 MEDIA_CONFIG uniquement après session sécurisée.
+Une réception HELLO n'est **jamais** suffisante pour annoncer la
+session opérationnelle. La MINI émet `ACK / SESSION_OK` uniquement
+après validation de la SESSION et de l'horloge, hors du callback NimBLE.
 
 Le transport reste en **candidat** : l'appairage Just Works doit encore
 faire l'objet d'une analyse MITM et être testé avec le vrai téléphone.

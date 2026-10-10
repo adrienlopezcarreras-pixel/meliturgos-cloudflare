@@ -18,6 +18,11 @@ avant le MTU et attend ensuite la souscription GATT. Les écritures
 vers la MINI doivent être **chiffrées**. Le code préserve Android Keystore
 pour ses tokens et refuse les transferts hors session.
 
+HELLO ne suffit pas : Android attend maintenant une confirmation
+`ACK / SESSION_OK` envoyée après la validation de la SESSION par la
+MINI. Une attente de plus de dix secondes est diagnostiquée comme
+`SESSION_ACK_TIMEOUT` et déclenche la reconnexion.
+
 L'appairage Bluetooth *Just Works* protège contre l'écoute passive,
 pas contre toutes les attaques de type homme-du-milieu. Ne pas diffuser
 d'APK stable avant preuve physique et décision de sécurité sur
@@ -30,6 +35,9 @@ Android WAV16k -> serveur MEL.
 TTS : Android voix française locale -> PCM48 -> ADPCM -> BLE -> ES8311.
 Secours vocal Android : voix système française, PCM48 et MP3.
 STOP VOIX et déconnexion doivent interrompre les transferts proprement.
+Les réponses HTTP sont lues avec un plafond de 512 Kio (STT) ou
+8 Mio (API générale), et les échantillons ADPCM reçus ne peuvent pas
+dépasser la longueur annoncée.
 
 ## Tests avant publication
 
