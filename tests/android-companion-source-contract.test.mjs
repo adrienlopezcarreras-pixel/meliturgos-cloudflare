@@ -861,3 +861,12 @@ test('Local MINI French TTS cannot silently select network-only voices', async (
   assert.match(tts,/MINI_TTS_TEXT_TOO_LONG/);
   assert.doesNotMatch(tts,/if \(!it\.isNetworkConnectionRequired\) score \+= 100/);
 });
+
+test('Android Link V2 never waits indefinitely for Bluetooth pairing or service discovery',async()=>{
+  const src=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelLinkV2ClientService.kt',root),'utf8');
+  assert.match(src,/if \(gatt === client && !protocolReady\.value && !isDestroyedCompat\(\)\)/);
+  assert.match(src,/BLE_HANDSHAKE_TIMEOUT/);
+  assert.match(src,/}, 90_000L\)/);
+  assert.match(src,/if \(!runCatching \{ client\.discoverServices\(\) \}\.getOrDefault\(false\)\)/);
+  assert.match(src,/SERVICE_DISCOVERY_START_FAILED/);
+});

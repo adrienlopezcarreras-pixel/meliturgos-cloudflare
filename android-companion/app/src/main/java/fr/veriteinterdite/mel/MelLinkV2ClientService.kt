@@ -388,6 +388,13 @@ class MelLinkV2ClientService : Service() {
                 return
             }
             if (newState == BluetoothProfile.STATE_CONNECTED && status == BluetoothGatt.GATT_SUCCESS) {
+                // OS pairing, MTU negotiation and service discovery can lose
+                // callbacks on some vendor BLE stacks; never stall indefinitely.
+                handler.postDelayed({
+                    if (gatt === client && !protocolReady.value && !isDestroyedCompat()) {
+                        failAndReconnect(client, "BLE_HANDSHAKE_TIMEOUT")
+                    }
+                }, 90_000L)
                 reconnectAttempt = 0
                 mtuRetryAttempted = false
                 state.value = "NEGOCIATION"
@@ -444,7 +451,9 @@ class MelLinkV2ClientService : Service() {
             }
             Log.i(TAG, "Link V2 MTU negotiated: " + mtu)
             state.value = "DECOUVERTE SERVICES"
-            client.discoverServices()
+            if (!runCatching { client.discoverServices() }.getOrDefault(false)) {
+                failAndReconnect(client, "SERVICE_DISCOVERY_START_FAILED")
+            }
         }
 
         override fun onServicesDiscovered(client: BluetoothGatt, status: Int) {
