@@ -773,3 +773,16 @@ test('Android V2 retains local wake-profile synchronization and bounded result c
   assert.match(renderer,/safeMiniImageUrl/);
   assert.match(renderer,/url\.protocol\.equals\("https"/);
 });
+
+test('Android V2 scanner recovery clears state after revoked BLE permissions, startup errors and null GATT', async () => {
+  const service = await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelLinkV2ClientService.kt',root),'utf8');
+  assert.match(service,/val scanError = runCatching \{/);
+  assert.match(service,/scanner\.startScan\(listOf\(filter\), settings, scanCallback\)/);
+  assert.match(service,/lastError\.value = "SCAN_START_" \+ scanError\.javaClass\.simpleName/);
+  const stop = service.slice(service.indexOf('private fun stopScan()'),service.indexOf('private val scanCallback'));
+  assert.match(stop,/if \(!scanActive\) return/);
+  assert.match(stop,/scanActive = false\s+if \(!hasBlePermissions\(\)\) return/);
+  assert.match(service,/if \(client == null\) \{\s+connecting\.set\(false\)/);
+  assert.match(service,/CONNECT_GATT_/);
+  assert.match(service,/scheduleReconnect\(\)/);
+});
