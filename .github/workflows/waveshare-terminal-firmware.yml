@@ -35,6 +35,8 @@ jobs:
           cp firmware/waveshare-terminal/main/* build/waveshare-mel/main/
           cp firmware/waveshare-terminal/partitions.csv build/waveshare-mel/partitions.csv
           cp firmware/waveshare-terminal/sdkconfig.defaults build/waveshare-mel/sdkconfig.defaults
+          cp firmware/waveshare-terminal/vendor/esp_es8311_port.cpp build/waveshare-mel/components/esp_port/esp_es8311_port.cpp
+          cp firmware/waveshare-terminal/vendor/esp_es8311_port.h build/waveshare-mel/components/esp_port/esp_es8311_port.h
 
           # Harden the Waveshare camera port for IDF 5.4: zero-initialize the
           # whole camera_config_t and actually use MEL's shared I2C port.
@@ -61,14 +63,26 @@ jobs:
           set_cfg_y CONFIG_LV_ATTRIBUTE_FAST_MEM_USE_IRAM
           set_cfg_y CONFIG_LV_MEMCPY_MEMSET_STD
 
+          # ESP32-S3 Wi-Fi and BLE share one 2.4 GHz radio. Lock the
+          # coexistence configuration recommended by Espressif instead of
+          # inheriting whatever the pinned vendor sdkconfig happened to contain.
+          set_cfg_y CONFIG_ESP_COEX_SW_COEXIST_ENABLE
+          set_cfg_y CONFIG_BT_NIMBLE_PINNED_TO_CORE_0
+          set_cfg_n CONFIG_ESP_WIFI_TASK_PINNED_TO_CORE_0
+          set_cfg_y CONFIG_ESP_WIFI_TASK_PINNED_TO_CORE_1
+
           set_cfg_y CONFIG_BT_ENABLED
           set_cfg_y CONFIG_BTDM_CTRL_MODE_BLE_ONLY
           set_cfg_n CONFIG_BTDM_CTRL_MODE_BR_EDR_ONLY
           set_cfg_n CONFIG_BTDM_CTRL_MODE_BTDM
           set_cfg_n CONFIG_BT_BLUEDROID_ENABLED
           set_cfg_y CONFIG_BT_NIMBLE_ENABLED
-          set_cfg_y CONFIG_BT_NIMBLE_ROLE_CENTRAL
-          set_cfg_n CONFIG_BT_NIMBLE_ROLE_PERIPHERAL
+          set_cfg_n CONFIG_BT_NIMBLE_ROLE_CENTRAL
+          set_cfg_y CONFIG_BT_NIMBLE_ROLE_PERIPHERAL
+          set_cfg_n CONFIG_BT_NIMBLE_ROLE_OBSERVER
+          set_cfg_y CONFIG_BT_NIMBLE_ROLE_BROADCASTER
+          set_cfg_n CONFIG_BT_NIMBLE_GATT_CLIENT
+          set_cfg_y CONFIG_BT_NIMBLE_GATT_SERVER
 
           set_cfg_n CONFIG_OV7670_SUPPORT
           set_cfg_n CONFIG_OV7725_SUPPORT
@@ -118,9 +132,17 @@ jobs:
               "CONFIG_COMPILER_OPTIMIZATION_PERF=y",
               "CONFIG_LV_ATTRIBUTE_FAST_MEM_USE_IRAM=y",
               "CONFIG_LV_MEMCPY_MEMSET_STD=y",
+              "CONFIG_ESP_COEX_SW_COEXIST_ENABLE=y",
+              "CONFIG_BT_NIMBLE_PINNED_TO_CORE_0=y",
+              "CONFIG_ESP_WIFI_TASK_PINNED_TO_CORE_1=y",
+              "# CONFIG_ESP_WIFI_TASK_PINNED_TO_CORE_0 is not set",
               "CONFIG_BT_ENABLED=y",
               "CONFIG_BT_NIMBLE_ENABLED=y",
-              "CONFIG_BT_NIMBLE_ROLE_CENTRAL=y",
+              "# CONFIG_BT_NIMBLE_ROLE_CENTRAL is not set",
+              "CONFIG_BT_NIMBLE_ROLE_PERIPHERAL=y",
+              "# CONFIG_BT_NIMBLE_ROLE_OBSERVER is not set",
+              "CONFIG_BT_NIMBLE_ROLE_BROADCASTER=y",
+              "CONFIG_BT_NIMBLE_GATT_SERVER=y",
               "# CONFIG_BT_BLUEDROID_ENABLED is not set",
           }
           missing = sorted(required - cfg)
@@ -133,6 +155,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          FW_VERSION="$(sed -n 's/^#define MEL_FW_VERSION "\([^"]*\)".*/\1/p' firmware/waveshare-terminal/main/mel_terminal.h)"
+          SOURCE_SHA="${{ github.event.pull_request.head.sha || github.sha }}"
+          BUILD_SHA="${GITHUB_SHA}"
+          test -n "$FW_VERSION"
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$BUILD_SHA" =~ ^[0-9a-f]{40}$ ]]
           cd build/waveshare-mel/build
           test -s mel-terminal.bin
           test -s mini-first-install.bin
@@ -143,18 +171,19 @@ jobs:
           cat > ../firmware-manifest.json <<JSON
           {
             "model": "waveshare-esp32-s3-touch-lcd-3.5-c",
-            "channel": "stable",
+            "channel": "candidate",
             "firmware": {
-              "version": "0.4.38-unified",
-              "available": true,
+              "version": "${FW_VERSION}",
+              "available": false,
               "key": "devices/waveshare-esp32-s3-touch-lcd-3.5-c/mel-terminal.bin",
               "sha256": "${OTA_SHA256}",
               "size": ${OTA_SIZE},
-              "source_sha": "${GITHUB_SHA}",
+              "source_sha": "${SOURCE_SHA}",
+              "build_sha": "${BUILD_SHA}",
               "waveshare_upstream_sha": "283ec84c566c096f8c30493b93dcd4b0bb608de7"
             },
             "installer": {
-              "available": true,
+              "available": false,
               "key": "devices/waveshare-esp32-s3-touch-lcd-3.5-c/mini-first-install.bin",
               "sha256": "${INSTALL_SHA256}",
               "size": ${INSTALL_SIZE}
@@ -163,6 +192,20 @@ jobs:
           }
           JSON
           sha256sum mel-terminal.bin mini-first-install.bin lvgl_system.elf lvgl_system.map ../firmware-manifest.json > ../SHA256SUMS.txt
+          python - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+          manifest = json.loads(Path("../firmware-manifest.json").read_text())
+          assert manifest["channel"] == "candidate"
+          assert not manifest["firmware"]["available"]
+          assert not manifest["installer"]["available"]
+          for part, filename in (("firmware", "mel-terminal.bin"), ("installer", "mini-first-install.bin")):
+              payload = Path(filename).read_bytes()
+              assert len(payload) == manifest[part]["size"]
+              assert hashlib.sha256(payload).hexdigest() == manifest[part]["sha256"]
+          print("Candidate binary SHA-256 and lengths verified")
+          PY
+          sha256sum -c ../SHA256SUMS.txt
 
       - name: Upload flash-ready artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02

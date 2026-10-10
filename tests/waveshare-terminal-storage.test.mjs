@@ -23,12 +23,13 @@ test('MINI uses internal flash FAT storage for assets and rendered media', async
   assert.match(runtime, /"storage_free_bytes"/);
   assert.match(cmake, /\bfatfs\b/);
   assert.match(cmake, /\bwear_levelling\b/);
-  assert.match(header, /MEL_FW_VERSION "0\.4\.38-unified"/);
+  assert.match(header, /MEL_FW_VERSION "0\.6\.14-pa-ctrl"/);
   assert.match(api, /"storage\.internal"/);
   assert.match(api, /internal_storage: body\.internal_storage/);
-  assert.match(workflow, /"version": "0\.4\.38-unified"/);
+  assert.match(workflow, /"version": "\$\{FW_VERSION\}"/);
   assert.match(runtime, /esp_vfs_fat_spiflash_unmount_rw_wl\("\/melstore", g_storage_wl\)/);
   assert.match(runtime, /static void storage_reset_after_failure\(\)/);
   assert.match(runtime, /static void storage_refresh_info\(\)/);
+  assert.match(runtime, /INTERNAL STORAGE self-test open failed errno=%d/);
   assert.match(runtime, /if \(g_storage_ok\) storage_refresh_info\(\);[\s\S]*"storage_free_bytes"/);
 });
