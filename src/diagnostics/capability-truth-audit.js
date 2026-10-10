@@ -59,6 +59,10 @@ const SAFE_SAMPLES = Object.freeze({
   'chatgpt.history.search': { query: 'MELITURGOS', limit: 1 },
   'computer.status': {},
   'work.plan.list': { limit: 1 },
+  // Real low-risk Work metadata reads. Read-only even on a virgin D1 store:
+  // no CREATE TABLE in the listing handlers.
+  'work.list': { limit: 1 },
+  'work.open': { limit: 1 },
   'openloop.due': { limit: 1 },
   'timeline.list': { limit: 1 },
   'project.list': { limit: 1 },
