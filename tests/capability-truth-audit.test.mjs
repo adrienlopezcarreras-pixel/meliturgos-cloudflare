@@ -640,3 +640,55 @@ test('malformed health refresh payload cannot masquerade as fresh evidence',asyn
   assert.equal(row.health_refresh_verified,false);
   assert.equal(row.health_detail,'CAPABILITY_AUDIT_HEALTH_RESULT_INVALID');
 });
+
+test('failed health refresh preserves unavailable states and blocks any automatic deep execution', async () => {
+  const states = ['HEALTHY','UNAVAILABLE','OFFLINE','ERROR','FAILED','BLOCKED','PROTECTED'];
+  const records = states.map((health,index) => ({
+    id: 'health-guard-' + index, name: 'Health guard ' + index,
+    category: 'test', provider: 'core', risk: 'LOW',
+    enabled: true, health,
+  }));
+  let executed = 0;
+  const report = await auditRuntimeCapabilities({
+    bus: {
+      list: () => records,
+      contract: () => ({valid:true}),
+      refreshHealth: async () => { throw Object.assign(new Error('proxy timed out'), {code:'UPSTREAM_TIMEOUT'}); },
+      execute: async () => { executed++;return {ok:true}; },
+    },
+  }, {
+    deep: true,
+    samples: Object.fromEntries(records.map(row => [row.id, {}])),
+  });
+  const byHealth = Object.fromEntries(report.capabilities.map((row,i)=>[states[i],row]));
+  assert.equal(executed, 0);
+  assert.equal(byHealth.HEALTHY.health,'DEGRADED');
+  assert.equal(byHealth.HEALTHY.auto_execution_blocked,'HEALTH_REFRESH_UNVERIFIED');
+  for(const health of ['UNAVAILABLE','OFFLINE','ERROR','FAILED','BLOCKED']){
+    assert.equal(byHealth[health].health,health);
+    assert.equal(byHealth[health].auto_execution_blocked,'HEALTH_UNAVAILABLE');
+    assert.equal(byHealth[health].health_refresh_verified,false);
+    assert.equal(byHealth[health].tested_now,false);
+  }
+  assert.equal(byHealth.UNAVAILABLE.truth_status,'BLOCKED_EXTERNAL');
+  assert.equal(byHealth.PROTECTED.health,'PROTECTED');
+  assert.equal(byHealth.PROTECTED.auto_execution_blocked,'HEALTH_REFRESH_UNVERIFIED');
+});
+
+test('a health response belonging to another capability cannot replace the audited record', async () => {
+  let executed = 0;
+  const record = {id:'health-audit-expected',name:'Expected',category:'test',provider:'core',risk:'LOW',enabled:true,health:'HEALTHY'};
+  const report = await auditRuntimeCapabilities({bus:{
+    list:()=>[record],
+    contract:()=>({valid:true}),
+    refreshHealth:async()=>({...record,id:'different-capability',health:'HEALTHY'}),
+    execute:async()=>{executed++;return {ok:true};},
+  }},{deep:true,samples:{'health-audit-expected':{}}});
+  assert.equal(report.capabilities.length,1);
+  const row=report.capabilities[0];
+  assert.equal(row.id,'health-audit-expected');
+  assert.equal(row.health,'DEGRADED');
+  assert.equal(row.health_detail,'CAPABILITY_AUDIT_HEALTH_RESULT_INVALID');
+  assert.equal(row.auto_execution_blocked,'HEALTH_REFRESH_UNVERIFIED');
+  assert.equal(executed,0);
+});
