@@ -92,3 +92,14 @@ test('MINI and Android require explicit SESSION_OK acknowledgment before reporti
   assert.match(ack, /protocolReady\.value = true/);
   assert.match(ack, /validateMelSession\(\)/);
 });
+
+test('Android prevents queued control frames and delayed hotspot credentials crossing BLE reconnection', async () => {
+  const client = await read('android-companion/app/src/main/java/fr/veriteinterdite/mel/MelLinkV2ClientService.kt');
+  assert.match(client, /val intendedGatt = gatt \?: return/);
+  assert.match(client, /if \(gatt === intendedGatt\) sendControlBlocking\(frame\)/);
+  assert.match(client, /val mediaRequestGatt = gatt \?: return/);
+  assert.match(client, /if \(gatt !== mediaRequestGatt \|\| !miniReady\.value \|\| !protocolReady\.value\)/);
+  assert.match(client, /MEDIA_CONFIG_STALE_SESSION/);
+  assert.match(client, /sendErrorAsync\(streamId: Int, code: String\)/);
+  assert.match(client, /sendControlAsync\(\s*MelLinkV2Protocol\.encode\(/);
+});

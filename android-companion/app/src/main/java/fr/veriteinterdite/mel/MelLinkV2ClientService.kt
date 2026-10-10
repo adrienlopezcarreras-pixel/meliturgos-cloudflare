@@ -570,8 +570,15 @@ class MelLinkV2ClientService : Service() {
                     sendErrorAsync(frame.streamId, "MEDIA_RECEIVER_UNAVAILABLE")
                     return
                 }
+                val mediaRequestGatt = gatt ?: return
                 mediaReceiver.ensureStarted(
-                    onReady = { cfg ->
+                    onReady = ready@{ cfg ->
+                        // Hotspot startup is asynchronous: if BLE reconnected,
+                        // refuse to disclose credentials to the next device.
+                        if (gatt !== mediaRequestGatt || !miniReady.value || !protocolReady.value) {
+                            lastError.value = "MEDIA_CONFIG_STALE_SESSION"
+                            return@ready
+                        }
                         val payload = JSONObject()
                             .put("ssid", cfg.ssid)
                             .put("pass", cfg.passphrase)
@@ -1171,11 +1178,20 @@ class MelLinkV2ClientService : Service() {
     }
 
     private fun sendErrorAsync(streamId: Int, code: String) {
-        if (!bleWriter.isShutdown) bleWriter.execute { sendError(streamId, code) }
+        sendControlAsync(
+            MelLinkV2Protocol.encode(
+                MelLinkV2Protocol.ERROR, 0, streamId, 0, code.toByteArray(Charsets.UTF_8)
+            )
+        )
     }
 
     private fun sendControlAsync(frame: ByteArray) {
-        if (!bleWriter.isShutdown) bleWriter.execute { sendControlBlocking(frame) }
+        val intendedGatt = gatt ?: return
+        if (!bleWriter.isShutdown) bleWriter.execute {
+            // Commands and provisioning frames queued before a disconnect must
+            // never be sent to a different MINI after a rapid reconnection.
+            if (gatt === intendedGatt) sendControlBlocking(frame)
+        }
     }
 
     private fun sendControlBlocking(frame: ByteArray): Boolean =
