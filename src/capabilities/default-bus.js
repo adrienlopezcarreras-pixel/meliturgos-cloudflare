@@ -141,6 +141,10 @@ export function createDefaultCapabilityBus({ audit, env, repository, branch, tok
   const githubToken = token ?? runtimeEnv.MEL_GITHUB_TOKEN ?? '';
   const githubFetch = fetchImpl || runtimeEnv.MEL_GITHUB_FETCH || fetch;
   const platformFetch = fetchImpl || runtimeEnv.MEL_PLATFORM_FETCH || fetch;
+  // Commercial MEL runs free-first. Vercel Hobby is non-commercial only;
+  // exclude optional Vercel capabilities from the active inventory unless
+  // the operator explicitly opts in to using an eligible paid Vercel plan.
+  const includeVercel = String(runtimeEnv.MEL_ENABLE_OPTIONAL_VERCEL || '').trim().toLowerCase() === 'true';
   registerGitHubCodeCapabilities(bus, {
     repository: githubRepository,
     branch: githubBranch,
@@ -153,12 +157,14 @@ export function createDefaultCapabilityBus({ audit, env, repository, branch, tok
     repository: githubRepository,
     fetchImpl: platformFetch,
     resolveVercelConfig: typeof vercelConfigResolver === 'function' ? vercelConfigResolver : null,
+    includeVercel,
   });
   registerPlatformControlCapabilities(bus, {
     env: runtimeEnv,
     repository: githubRepository,
     fetchImpl: platformFetch,
     resolveVercelConfig: typeof vercelConfigResolver === 'function' ? vercelConfigResolver : null,
+    includeVercel,
   });
   registerGoogleWorkspaceCapabilities(bus, {
     env: runtimeEnv,
@@ -341,7 +347,9 @@ export function createDefaultCapabilityBus({ audit, env, repository, branch, tok
       ? 'direct-token'
       : (runtimeEnv.DB && runtimeEnv.MEL_GITHUB_WRITABLE_WORKFLOWS ? 'd1-actions-relay' : 'unconfigured'),
     cloudflare_control_configured: Boolean(runtimeEnv.CLOUDFLARE_API_TOKEN && runtimeEnv.CLOUDFLARE_ACCOUNT_ID && runtimeEnv.MEL_CLOUDFLARE_SCRIPT),
-    vercel_control_configured: Boolean(runtimeEnv.VERCEL_TOKEN && runtimeEnv.MEL_VERCEL_PROJECT_ID && runtimeEnv.MEL_VERCEL_PROJECT_NAME),
+    vercel_optional_excluded_free_only: !includeVercel,
+    free_deployment_provider: 'cloudflare',
+    vercel_control_configured: includeVercel && Boolean(runtimeEnv.VERCEL_TOKEN && runtimeEnv.MEL_VERCEL_PROJECT_ID && runtimeEnv.MEL_VERCEL_PROJECT_NAME),
     owner_configured: Boolean(runtimeEnv.MELITURGOS_USER),
     browser_companion: Boolean(runtimeEnv.MEL_BROWSER_COMPANION?.fetch),
   }));
