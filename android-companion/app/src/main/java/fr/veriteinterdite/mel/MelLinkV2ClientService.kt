@@ -880,6 +880,54 @@ class MelLinkV2ClientService : Service() {
             return
         }
 
+        // Keep locally trained OK MEL / wake profile sync working after V2 migration.
+        if (method == "POST" && path == "/api/device/v1/wake-profile/import") {
+            val imported = runCatching {
+                require(request.body.size() <= 128 * 1024) { "WAKE_PROFILE_TOO_LARGE" }
+                WakePhraseProfileStore(this).importProfile(
+                    JSONObject(request.body.toByteArray().toString(Charsets.UTF_8))
+                )
+            }.getOrDefault(false)
+            if (imported) wakeProfileRevision.value = wakeProfileRevision.value + 1
+            sendResponse(
+                request.streamId, if (imported) 200 else 400, "application/json",
+                JSONObject().put("ok", imported).put("restored", imported)
+                    .put("source", "mini-nvs").toString().toByteArray(Charsets.UTF_8)
+            )
+            return
+        }
+        if (method == "GET" && path == "/api/device/v1/wake-profile") {
+            val now = System.currentTimeMillis()
+            val zone = TimeZone.getDefault()
+            val store = WakePhraseProfileStore(this)
+            val body = store.load()
+                .put("reset_requested", store.resetRequested())
+                .put("device_id", miniDeviceId)
+                .put("epoch_ms", now)
+                .put("utc_offset_seconds", zone.getOffset(now) / 1000)
+                .put("timezone", zone.id)
+                .toString().toByteArray(Charsets.UTF_8)
+            sendResponse(request.streamId, 200, "application/json", body)
+            return
+        }
+        if (method == "POST" && path == "/api/device/v1/render/card") {
+            val card = runCatching {
+                require(request.body.size() <= 16 * 1024) { "MINI_CARD_TOO_LARGE" }
+                val json = JSONObject(request.body.toByteArray().toString(Charsets.UTF_8))
+                MiniCardRenderer.renderMiniCardMimg(
+                    json.optString("title", "Résultat MEL"),
+                    json.optString("snippet", ""),
+                    json.optString("url", ""),
+                    json.optString("image_url", "")
+                )
+            }.getOrElse {
+                sendError(request.streamId, "RENDER_CARD_FAILED")
+                return
+            }
+            sendResponse(request.streamId, 200, "application/x-mel-mimg", card)
+            return
+        }
+
         // Preferred MINI voice path: synthesize French speech locally on Android.
         // This runs before server/token routing, so a healthy phone+BLE link can
         // speak even if cloud TTS or the MINI API token is unavailable.

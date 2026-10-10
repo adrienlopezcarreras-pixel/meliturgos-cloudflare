@@ -760,3 +760,16 @@ test('Android local French MINI TTS build version is explicit', async () => {
   assert.match(build,/versionCode = 88/);
   assert.match(build,/versionName = "0\.7\.10-mini-v2-integration"/);
 });
+
+test('Android V2 retains local wake-profile synchronization and bounded result cards', async () => {
+  const service = await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelLinkV2ClientService.kt',root),'utf8');
+  const renderer = await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MiniCardRenderer.kt',root),'utf8');
+  assert.match(service,/WakePhraseProfileStore\(this\)\.importProfile/);
+  assert.match(service,/WakePhraseProfileStore\(this\)/);
+  assert.match(service,/wakeProfileRevision\.value = wakeProfileRevision\.value \+ 1/);
+  assert.match(service,/path == "\/api\/device\/v1\/render\/card"/);
+  assert.match(service,/MiniCardRenderer\.renderMiniCardMimg/);
+  assert.match(renderer,/application\/x-mel-mimg|out\.put\(byteArrayOf\('M'\.code/);
+  assert.match(renderer,/safeMiniImageUrl/);
+  assert.match(renderer,/url\.protocol\.equals\("https"/);
+});
