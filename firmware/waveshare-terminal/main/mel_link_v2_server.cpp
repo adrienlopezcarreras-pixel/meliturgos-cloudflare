@@ -12,6 +12,10 @@
 #include "host/ble_uuid.h"
 #include "host/util/util.h"
 #include "store/config/ble_store_config.h"
+
+// ESP-IDF NimBLE exports this from the C store/config component but does not
+// declare it in its public config header for C++ translation units.
+extern "C" void ble_store_config_init(void);
 #include "nimble/nimble_port.h"
 #include "nimble/nimble_port_freertos.h"
 #include "os/os_mbuf.h"
