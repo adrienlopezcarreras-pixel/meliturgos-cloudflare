@@ -792,7 +792,9 @@ test('Android Link V2 HTTP relay and ADPCM streams have strict memory bounds', a
   assert.match(client,/MAX_STT_RESPONSE_BYTES = 512 \* 1024/);
   assert.match(client,/MAX_API_RESPONSE_BYTES = 8 \* 1024 \* 1024/);
   assert.match(client,/private fun readHttpResponseBounded\(/);
-  assert.match(client,/count > maxBytes - total/);
+  const bounds = await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MiniHttpResponseBounds.kt',root),'utf8');
+  assert.match(client,/MiniHttpResponseBounds\.read\(stream, maxBytes\)/);
+  assert.match(bounds,/count > maxBytes - total/);
   assert.match(client,/MEL_RESPONSE_TOO_LARGE/);
   assert.match(client,/readHttpResponseBounded\(stream, MAX_STT_RESPONSE_BYTES\)/);
   assert.match(client,/readHttpResponseBounded\(stream, MAX_API_RESPONSE_BYTES\)/);

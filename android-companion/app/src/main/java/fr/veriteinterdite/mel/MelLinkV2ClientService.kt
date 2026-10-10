@@ -835,28 +835,8 @@ class MelLinkV2ClientService : Service() {
         }
     }
 
-    private fun readHttpResponseBounded(
-        stream: java.io.InputStream?,
-        maxBytes: Int
-    ): ByteArray {
-        if (stream == null) return byteArrayOf()
-        return stream.use { input ->
-            val result = ByteArrayOutputStream()
-            val chunk = ByteArray(8192)
-            var total = 0
-            while (true) {
-                val count = input.read(chunk)
-                if (count < 0) break
-                if (count == 0) continue
-                if (count > maxBytes - total) {
-                    throw IllegalStateException("MEL_RESPONSE_TOO_LARGE")
-                }
-                result.write(chunk, 0, count)
-                total += count
-            }
-            result.toByteArray()
-        }
-    }
+    private fun readHttpResponseBounded(stream: java.io.InputStream?, maxBytes: Int): ByteArray =
+        MiniHttpResponseBounds.read(stream, maxBytes)
 
     private fun sendResponse(streamId: Int, status: Int, contentType: String, body: ByteArray): Boolean {
         val begin = JSONObject()
