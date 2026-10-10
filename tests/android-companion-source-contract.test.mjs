@@ -850,3 +850,14 @@ test('Android relay response cap matches MINI firmware transport capacity', asyn
   assert.match(mini,/MAX_RESPONSE_BYTES = 1024 \* 1024/);
   assert.match(client,/readHttpResponseBounded\(stream, MAX_API_RESPONSE_BYTES\)/);
 });
+
+test('Local MINI French TTS cannot silently select network-only voices', async () => {
+  const tts = await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelMiniVoiceSynthesizer.kt',root),'utf8');
+  assert.match(tts,/val offlineFrenchVoices = ready\.voices/);
+  assert.match(tts,/!it\.isNetworkConnectionRequired/);
+  assert.match(tts,/offlineFrenchVoices\.maxByOrNull/);
+  assert.match(tts,/MINI_TTS_OFFLINE_FRENCH_UNAVAILABLE/);
+  assert.match(tts,/clean\.length <= TextToSpeech\.getMaxSpeechInputLength\(\)/);
+  assert.match(tts,/MINI_TTS_TEXT_TOO_LONG/);
+  assert.doesNotMatch(tts,/if \(!it\.isNetworkConnectionRequired\) score \+= 100/);
+});

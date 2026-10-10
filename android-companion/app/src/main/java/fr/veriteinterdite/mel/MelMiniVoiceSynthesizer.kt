@@ -86,15 +86,20 @@ object MelMiniVoiceSynthesizer {
                             throw IllegalStateException("MINI_TTS_FRENCH_UNAVAILABLE")
                         }
 
-                        val voice = ready.voices
-                            ?.filter { it.locale?.language.equals("fr", ignoreCase = true) }
-                            ?.maxByOrNull {
-                                var score = it.quality * 10 - it.latency
-                                if (it.locale?.country.equals("FR", ignoreCase = true)) score += 10_000
-                                if (!it.isNetworkConnectionRequired) score += 100
-                                score
+                        // Offline means offline: a higher-quality network voice must
+                        // never win over an installed local French voice.
+                        val offlineFrenchVoices = ready.voices
+                            ?.filter {
+                                it.locale?.language.equals("fr", ignoreCase = true) &&
+                                    !it.isNetworkConnectionRequired
                             }
-                        if (voice != null) ready.voice = voice
+                            .orEmpty()
+                        val voice = offlineFrenchVoices.maxByOrNull {
+                            var score = it.quality * 10 - it.latency
+                            if (it.locale?.country.equals("FR", ignoreCase = true)) score += 10_000
+                            score
+                        } ?: throw IllegalStateException("MINI_TTS_OFFLINE_FRENCH_UNAVAILABLE")
+                        ready.voice = voice
                         ready.setSpeechRate(0.96f)
                         ready.setPitch(1.0f)
 
@@ -130,6 +135,9 @@ object MelMiniVoiceSynthesizer {
     fun synthesizePcm48kMono(context: Context, text: String): ShortArray = synchronized(synthLock) {
         val clean = text.trim()
         require(clean.isNotEmpty()) { "MINI_TTS_TEXT_EMPTY" }
+        require(clean.length <= TextToSpeech.getMaxSpeechInputLength()) {
+            "MINI_TTS_TEXT_TOO_LONG"
+        }
 
         val tts = ensureFrenchEngine(context.applicationContext)
         val utteranceId = "mel-mini-" + UUID.randomUUID().toString()
