@@ -46,6 +46,9 @@ jobs:
       - run: npm ci
       - name: Backend, Companion, Android and MINI contracts
         run: node --test tests/computer-companion-api.test.mjs tests/android-companion-api.test.mjs tests/android-companion-source-contract.test.mjs tests/waveshare-terminal-api.test.mjs tests/waveshare-terminal-owner-routes.test.mjs tests/waveshare-terminal-android-sync-contract.test.mjs tests/waveshare-terminal-mobile-status.test.mjs tests/waveshare-terminal-storage.test.mjs tests/waveshare-terminal-release-safety.test.mjs tests/mini-triad-security-contract.test.mjs
+      - name: Isolated candidate branch context for full suite
+        if: github.event_name == 'pull_request'
+        run: git checkout -b "candidate/mini-triad-pr-${{ github.event.pull_request.number }}"
       - name: Repository full regression suite
         run: npm test
 
