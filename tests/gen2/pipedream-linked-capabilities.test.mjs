@@ -220,3 +220,70 @@ test('Pipedream SharePoint health retains sanitized HTTP errors for actionable r
   assert.equal(health.health_detail, 'PIPEDREAM_PROXY_FAILED_HTTP_403_Authorization_RequestDenied');
   assert.ok(!health.health_detail.includes('Bearer '));
 });
+
+test('SharePoint search sends the documented Graph site-search query without unsupported OData options', async () => {
+  const { bus, calls } = fixture();
+  const result = await bus.execute('sites.search', { query: 'a b', limit: 1 }, {
+    owner: 'adrien', permissions: ['microsoft.sites.read'],
+  });
+  assert.equal(result.count, 1);
+  const search = calls.find(call => call.app === 'sharepoint' && call.url.includes('/sites?search='));
+  assert.ok(search);
+  const parsed = new URL(search.url);
+  assert.equal(parsed.searchParams.get('search'), 'a b');
+  assert.equal(parsed.searchParams.has('$top'), false);
+  assert.equal(parsed.searchParams.has('$select'), false);
+  await Promise.all(['sites.search', 'sites.read', 'sites.write'].map(id => bus.refreshHealth(id)));
+  const healthUrls = calls.filter(call => call.app === 'sharepoint' && call.url.includes('/sites?')).map(call => call.url);
+  assert.ok(healthUrls.every(url => !url.includes('$top') && !url.includes('$select')));
+});
+
+test('identical Pipedream read-only health probes are coalesced without caching success', async () => {
+  const counts = [];
+  const pipedreamRuntime = {
+    async proxy(call) {
+      counts.push(call);
+      await new Promise(resolve => setTimeout(resolve, 5));
+      return { body: { id: 'drive-root' } };
+    },
+  };
+  const bus = new CapabilityBus();
+  registerPipedreamLinkedCapabilities(bus, { pipedreamRuntime });
+  const [list, read, search] = await Promise.all([
+    bus.refreshHealth('files.list'),
+    bus.refreshHealth('files.read'),
+    bus.refreshHealth('files.search'),
+  ]);
+  assert.deepEqual([list.health,read.health,search.health], ['HEALTHY','HEALTHY','HEALTHY']);
+  assert.equal(counts.filter(c => c.app === 'microsoft_onedrive' && c.url.includes('/me/drive/root?$select=id')).length, 1);
+  await bus.refreshHealth('files.read');
+  assert.equal(counts.filter(c => c.app === 'microsoft_onedrive').length, 2, 'completed health must not be cached');
+});
+
+test('shared Pipedream probe failures remain unavailable for every consumer and do not bypass approvals', async () => {
+  let calls = 0;
+  const pipedreamRuntime = {
+    async proxy() {
+      calls++;
+      await new Promise(resolve => setTimeout(resolve, 5));
+      const e = Object.assign(new Error('PIPEDREAM_PROXY_FAILED'), {
+        code: 'PIPEDREAM_PROXY_FAILED', upstream_status: 403, upstream_code: 'accessDenied',
+      });
+      throw e;
+    },
+  };
+  const bus = new CapabilityBus();
+  registerPipedreamLinkedCapabilities(bus, { pipedreamRuntime });
+  const [a, b] = await Promise.all([bus.refreshHealth('files.list'),bus.refreshHealth('files.read')]);
+  assert.equal(calls,1);
+  assert.equal(a.health, 'UNAVAILABLE');
+  assert.equal(b.health, 'UNAVAILABLE');
+  assert.equal(a.health_detail, 'PIPEDREAM_PROXY_FAILED_HTTP_403_accessDenied');
+  await assert.rejects(
+    () => bus.execute('files.write',{ path: 'note.txt', content: 'secret' },{
+      owner:'adrien', permissions:['microsoft.files.write'],
+    }),
+    { code:'EXPLICIT_APPROVAL_REQUIRED' },
+  );
+  assert.equal(calls,1);
+});
