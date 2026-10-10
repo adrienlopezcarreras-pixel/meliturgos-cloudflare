@@ -51,9 +51,15 @@ function pdHealth(pipedreamRuntime, app, url, { protectedAction = false } = {}) 
       await pipedreamRuntime.proxy({ app, url, method: 'GET' });
       return { status: protectedAction ? 'PROTECTED' : 'HEALTHY' };
     } catch (error) {
+      const code = String(error?.code || error?.message || 'PIPEDREAM_LINKED_ACCOUNT_UNAVAILABLE')
+        .replace(/[^A-Za-z0-9_]/g, '_').slice(0, 100);
+      const upstreamStatus = Number(error?.upstream_status || 0);
+      const httpSuffix = Number.isInteger(upstreamStatus) && upstreamStatus >= 400 && upstreamStatus <= 599
+        ? '_HTTP_' + upstreamStatus : '';
+      const upstreamCode = String(error?.upstream_code || '').replace(/[^A-Za-z0-9_]/g, '_').slice(0, 60);
       return {
         status: 'UNAVAILABLE',
-        reason: String(error?.code || error?.message || 'PIPEDREAM_LINKED_ACCOUNT_UNAVAILABLE').slice(0, 180),
+        reason: (code + httpSuffix + (upstreamCode ? '_' + upstreamCode : '')).slice(0, 180),
       };
     }
   };
@@ -575,7 +581,7 @@ export function registerPipedreamLinkedCapabilities(bus, { pipedreamRuntime = nu
     },
     risk: 'LOW',
     permissions: ['microsoft.sites.read'],
-    healthcheck: pdHealth(pipedreamRuntime, 'sharepoint', GRAPH + '/sites/root?$select=id,name'),
+    healthcheck: pdHealth(pipedreamRuntime, 'sharepoint', GRAPH + '/sites?search=mel&$top=1&$select=id,name'),
   }, async (input, context) => {
     const id = encodeId(input.site_id, 'SHAREPOINT_SITE_ID_INVALID');
     const site = await proxy(pipedreamRuntime, context, 'sharepoint', GRAPH + '/sites/' + id);
@@ -601,7 +607,7 @@ export function registerPipedreamLinkedCapabilities(bus, { pipedreamRuntime = nu
     risk: 'HIGH',
     permissions: ['microsoft.sites.write'],
     approval: { required: true, scope: 'sites.write', reason: 'SHAREPOINT_FILE_WRITE' },
-    healthcheck: pdHealth(pipedreamRuntime, 'sharepoint', GRAPH + '/sites/root?$select=id,name', { protectedAction: true }),
+    healthcheck: pdHealth(pipedreamRuntime, 'sharepoint', GRAPH + '/sites?search=mel&$top=1&$select=id,name', { protectedAction: true }),
   }, async (input, context) => {
     const siteId = encodeId(input.site_id, 'SHAREPOINT_SITE_ID_INVALID');
     const path = safePath(input.path);
