@@ -294,7 +294,16 @@ class MelLinkV2ClientService : Service() {
             .build()
         scanActive = true
         state.value = "RECHERCHE MINI"
-        scanner.startScan(listOf(filter), settings, scanCallback)
+        val scanError = runCatching {
+            scanner.startScan(listOf(filter), settings, scanCallback)
+        }.exceptionOrNull()
+        if (scanError != null) {
+            scanActive = false
+            lastError.value = "SCAN_START_" + scanError.javaClass.simpleName
+            state.value = "ERREUR SCAN"
+            scheduleReconnect()
+            return
+        }
         handler.postDelayed({
             if (scanActive) {
                 stopScan()
@@ -304,10 +313,13 @@ class MelLinkV2ClientService : Service() {
     }
 
     private fun stopScan() {
-        if (!scanActive || !hasBlePermissions()) return
+        if (!scanActive) return
+        // Always clear local state, even when the user revokes Bluetooth permission
+        // while a scan is active; otherwise future reauthorization can deadlock.
+        scanActive = false
+        if (!hasBlePermissions()) return
         val scanner = getSystemService(BluetoothManager::class.java)?.adapter?.bluetoothLeScanner
         runCatching { scanner?.stopScan(scanCallback) }
-        scanActive = false
     }
 
     private val scanCallback = object : ScanCallback() {
@@ -329,20 +341,26 @@ class MelLinkV2ClientService : Service() {
     private fun connect(device: BluetoothDevice) {
         if (!hasBlePermissions()) {
             connecting.set(false)
+            state.value = "AUTORISATION BLUETOOTH"
             return
         }
-        runCatching {
-            gatt = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+        val opened = runCatching {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                 device.connectGatt(this, false, gattCallback, BluetoothDevice.TRANSPORT_LE)
             } else {
                 @Suppress("DEPRECATION")
                 device.connectGatt(this, false, gattCallback)
             }
-        }.onFailure {
-            connecting.set(false)
-            lastError.value = it.message.orEmpty()
-            scheduleReconnect()
         }
+        val client = opened.getOrNull()
+        if (client == null) {
+            connecting.set(false)
+            lastError.value = "CONNECT_GATT_" + (opened.exceptionOrNull()?.javaClass?.simpleName ?: "NULL")
+            state.value = "ERREUR CONNEXION MINI"
+            scheduleReconnect()
+            return
+        }
+        gatt = client
     }
 
     private val gattCallback = object : BluetoothGattCallback() {
