@@ -32,6 +32,18 @@ export function validateTerminal(body, jobId) {
   return r;
 }
 
+export function validateProgressTransition(previous = { pass: 1, done: 0 }, current = { pass: 1, done: 0 }) {
+  const previousPass = Math.max(1, Number(previous?.pass || 1));
+  const currentPass = Math.max(1, Number(current?.pass || 1));
+  const previousDone = Math.max(0, Number(previous?.done || 0));
+  const currentDone = Math.max(0, Number(current?.done || 0));
+  assert(currentPass >= previousPass, 'CAPABILITY_STRESS_PASS_REGRESSED');
+  if (currentPass === previousPass) {
+    assert(currentDone >= previousDone, 'CAPABILITY_STRESS_PROGRESS_REGRESSED');
+  }
+  return { pass: currentPass, done: currentDone };
+}
+
 async function callCapability(payload, outputPath) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 90_000);
@@ -75,6 +87,7 @@ async function main() {
 
   let terminalBody = null;
   let lastDone = 0;
+  let lastPass = 1;
   for (let attempt = 1; attempt <= 240; attempt += 1) {
     const result = await callCapability({ id: 'capability.audit.status', input: { job_id: jobId } }, 'stress-status.json');
     if (result.status !== 200) {
@@ -87,10 +100,15 @@ async function main() {
     assert(r?.persistent === true && String(r?.job_id || '') === jobId, 'CAPABILITY_STRESS_JOB_MISMATCH');
     const done = Number(r?.progress?.done || 0);
     const total = Number(r?.progress?.total || 0);
-    assert(done >= lastDone, 'CAPABILITY_STRESS_PROGRESS_REGRESSED');
-    lastDone = done;
+    const progressState = validateProgressTransition(
+      { pass: lastPass, done: lastDone },
+      { pass: r?.progress?.pass, done },
+    );
+    const pass = progressState.pass;
+    lastPass = progressState.pass;
+    lastDone = progressState.done;
     const status = String(r?.status || '');
-    console.log(`Persistent stress ${jobId}: status=${status} progress=${done}/${total} current=${String(r?.progress?.current_capability||"none").slice(0,160)} pass=${Number(r?.progress?.pass||1)}`);
+    console.log(`Persistent stress ${jobId}: status=${status} progress=${done}/${total} current=${String(r?.progress?.current_capability||"none").slice(0,160)} pass=${pass}`);
     if (['COMPLETE', 'COMPLETE_WITH_FAILURES', 'FAILED'].includes(status)) {
       terminalBody = result.body;
       break;

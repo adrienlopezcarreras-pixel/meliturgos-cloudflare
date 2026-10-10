@@ -6,7 +6,7 @@ import {
   readPersistentCapabilityStress,
   startPersistentCapabilityStress,
 } from '../../src/diagnostics/persistent-capability-stress.js';
-import { validateStart, validateTerminal } from '../../scripts/persistent-capability-stress-live-proof.mjs';
+import { validateStart, validateTerminal, validateProgressTransition } from '../../scripts/persistent-capability-stress-live-proof.mjs';
 
 function echoRecord() {
   return {
@@ -194,21 +194,22 @@ test('persistent stress advances in durable chunks instead of restarting from ze
 
     let persisted = await readPersistentCapabilityStress({ db, jobId: first.job_id });
     assert.equal(persisted.status, 'QUEUED');
-    assert.equal(persisted.progress.done, 12);
+    assert.equal(persisted.progress.done, 6);
     assert.equal(persisted.progress.total, 25);
-    assert.equal(persisted.report.capabilities.length, 12);
+    assert.equal(persisted.report.capabilities.length, 6);
 
-    const second = await startPersistentCapabilityStress({ bus, db, context });
-    assert.equal(second.resumed, true);
-    await background;
+    for (const expectedDone of [12, 18, 24]) {
+      const resumed = await startPersistentCapabilityStress({ bus, db, context });
+      assert.equal(resumed.resumed, true);
+      await background;
+      persisted = await readPersistentCapabilityStress({ db, jobId: first.job_id });
+      assert.equal(persisted.status, 'QUEUED');
+      assert.equal(persisted.progress.done, expectedDone);
+      assert.equal(persisted.report.capabilities.length, expectedDone);
+    }
 
-    persisted = await readPersistentCapabilityStress({ db, jobId: first.job_id });
-    assert.equal(persisted.status, 'QUEUED');
-    assert.equal(persisted.progress.done, 24);
-    assert.equal(persisted.report.capabilities.length, 24);
-
-    const third = await startPersistentCapabilityStress({ bus, db, context });
-    assert.equal(third.resumed, true);
+    const final = await startPersistentCapabilityStress({ bus, db, context });
+    assert.equal(final.resumed, true);
     await background;
 
     persisted = await readPersistentCapabilityStress({ db, jobId: first.job_id });
@@ -262,8 +263,8 @@ test('legacy non-zero cursor without a partial report restarts safely from zero'
 
     const persisted = await readPersistentCapabilityStress({ db, jobId: job.job_id });
     assert.equal(persisted.status, 'QUEUED');
-    assert.equal(persisted.progress.done, 12);
-    assert.equal(persisted.report.capabilities.length, 12);
+    assert.equal(persisted.progress.done, 6);
+    assert.equal(persisted.report.capabilities.length, 6);
     assert.equal(persisted.report.capabilities[0].id, 'legacy-0');
   } finally {
     db.close();
@@ -284,4 +285,24 @@ test('persistent stress stale lease exceeds the bounded per-row execution envelo
   const source = await readFile(new URL('../../src/diagnostics/persistent-capability-stress.js', import.meta.url), 'utf8');
   assert.match(source, /const STALE_RUN_MS = 45000;/);
   assert.doesNotMatch(source, /const STALE_RUN_MS = 15000;/);
+});
+
+
+test('retry pass may reset its own cursor while same-pass progress remains monotonic', () => {
+  assert.deepEqual(
+    validateProgressTransition({ pass:1, done:162 }, { pass:2, done:0 }),
+    { pass:2, done:0 },
+  );
+  assert.deepEqual(
+    validateProgressTransition({ pass:2, done:0 }, { pass:2, done:3 }),
+    { pass:2, done:3 },
+  );
+  assert.throws(
+    () => validateProgressTransition({ pass:2, done:3 }, { pass:2, done:2 }),
+    /CAPABILITY_STRESS_PROGRESS_REGRESSED/,
+  );
+  assert.throws(
+    () => validateProgressTransition({ pass:2, done:3 }, { pass:1, done:168 }),
+    /CAPABILITY_STRESS_PASS_REGRESSED/,
+  );
 });

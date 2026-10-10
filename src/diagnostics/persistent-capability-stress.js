@@ -5,7 +5,7 @@ const STALE_RUN_MS = 45000;
 // sample preparation, execution and durable progress writes. A 15 s stale
 // lease lets the polling proof reclaim the same chunk while the original
 // Worker waitUntil is still alive. Keep a >3x margin to avoid duplicate work.
-const STRESS_CHUNK_SIZE = 12;
+const STRESS_CHUNK_SIZE = 6;
 
 function stressError(code) {
   return Object.assign(new Error(code), { code });
