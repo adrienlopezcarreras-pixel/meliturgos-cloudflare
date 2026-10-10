@@ -156,7 +156,11 @@ jobs:
         run: |
           set -euo pipefail
           FW_VERSION="$(sed -n 's/^#define MEL_FW_VERSION "\([^"]*\)".*/\1/p' firmware/waveshare-terminal/main/mel_terminal.h)"
+          SOURCE_SHA="${{ github.event.pull_request.head.sha || github.sha }}"
+          BUILD_SHA="${GITHUB_SHA}"
           test -n "$FW_VERSION"
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$BUILD_SHA" =~ ^[0-9a-f]{40}$ ]]
           cd build/waveshare-mel/build
           test -s mel-terminal.bin
           test -s mini-first-install.bin
@@ -167,18 +171,19 @@ jobs:
           cat > ../firmware-manifest.json <<JSON
           {
             "model": "waveshare-esp32-s3-touch-lcd-3.5-c",
-            "channel": "stable",
+            "channel": "candidate",
             "firmware": {
               "version": "${FW_VERSION}",
-              "available": true,
+              "available": false,
               "key": "devices/waveshare-esp32-s3-touch-lcd-3.5-c/mel-terminal.bin",
               "sha256": "${OTA_SHA256}",
               "size": ${OTA_SIZE},
-              "source_sha": "${GITHUB_SHA}",
+              "source_sha": "${SOURCE_SHA}",
+              "build_sha": "${BUILD_SHA}",
               "waveshare_upstream_sha": "283ec84c566c096f8c30493b93dcd4b0bb608de7"
             },
             "installer": {
-              "available": true,
+              "available": false,
               "key": "devices/waveshare-esp32-s3-touch-lcd-3.5-c/mini-first-install.bin",
               "sha256": "${INSTALL_SHA256}",
               "size": ${INSTALL_SIZE}
@@ -187,6 +192,20 @@ jobs:
           }
           JSON
           sha256sum mel-terminal.bin mini-first-install.bin lvgl_system.elf lvgl_system.map ../firmware-manifest.json > ../SHA256SUMS.txt
+          python - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+          manifest = json.loads(Path("../firmware-manifest.json").read_text())
+          assert manifest["channel"] == "candidate"
+          assert not manifest["firmware"]["available"]
+          assert not manifest["installer"]["available"]
+          for part, filename in (("firmware", "mel-terminal.bin"), ("installer", "mini-first-install.bin")):
+              payload = Path(filename).read_bytes()
+              assert len(payload) == manifest[part]["size"]
+              assert hashlib.sha256(payload).hexdigest() == manifest[part]["sha256"]
+          print("Candidate binary SHA-256 and lengths verified")
+          PY
+          sha256sum -c ../SHA256SUMS.txt
 
       - name: Upload flash-ready artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
