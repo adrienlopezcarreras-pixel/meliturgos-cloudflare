@@ -598,3 +598,45 @@ test('Cloudflare read-only deployment fixture supplies required script but stays
   assert.equal(report.capabilities[0].auto_execution_blocked,'UNKNOWN_OR_EXTERNAL_COST');
   assert.equal(calls,0);
 });
+
+test('health refresh failures cannot silently reuse a stale HEALTHY registration', async () => {
+  const records = [
+    { id:'hung-health', name:'Hung', category:'test', provider:'test', risk:'LOW', enabled:true, health:'HEALTHY' },
+    { id:'failed-health', name:'Failed', category:'test', provider:'test', risk:'LOW', enabled:true, health:'HEALTHY' },
+    { id:'good-health', name:'Good', category:'test', provider:'test', risk:'LOW', enabled:true, health:'HEALTHY' },
+    { id:'protected-health', name:'Protected', category:'test', provider:'test', risk:'HIGH', enabled:true, health:'PROTECTED' },
+  ];
+  const report = await auditRuntimeCapabilities({
+    bus:{
+      list:()=>records,
+      refreshHealth:async id=>{
+        if(id==='hung-health')return new Promise(()=>{});
+        if(id==='failed-health')throw Object.assign(new Error('provider unavailable'),{code:'UPSTREAM_OFFLINE'});
+        if(id==='protected-health')throw Object.assign(new Error('offline'),{code:'UPSTREAM_OFFLINE'});
+        return {...records.find(x=>x.id===id),health_detail:null};
+      },
+    },
+  },{ deep:false, healthTimeoutMs:25 });
+  const byId=Object.fromEntries(report.capabilities.map(row=>[row.id,row]));
+  assert.equal(byId['hung-health'].health,'DEGRADED');
+  assert.equal(byId['hung-health'].health_detail,'CAPABILITY_AUDIT_HEALTH_TIMEOUT');
+  assert.equal(byId['hung-health'].health_refresh_verified,false);
+  assert.equal(byId['hung-health'].truth_status,'PARTIEL');
+  assert.equal(byId['failed-health'].health,'DEGRADED');
+  assert.equal(byId['failed-health'].health_detail,'UPSTREAM_OFFLINE');
+  assert.equal(byId['failed-health'].health_refresh_verified,false);
+  assert.equal(byId['good-health'].health,'HEALTHY');
+  assert.equal(byId['good-health'].health_refresh_verified,true);
+  assert.equal(byId['protected-health'].health,'PROTECTED');
+  assert.equal(byId['protected-health'].health_refresh_verified,false);
+  assert.equal(report.total,records.length);
+});
+
+test('malformed health refresh payload cannot masquerade as fresh evidence',async()=>{
+  const record={id:'invalid-health',name:'Invalid',category:'test',provider:'test',risk:'LOW',enabled:true,health:'HEALTHY'};
+  const report=await auditRuntimeCapabilities({bus:{list:()=>[record],refreshHealth:async()=>({status:'OK'})}},{deep:false});
+  const row=report.capabilities[0];
+  assert.equal(row.health,'DEGRADED');
+  assert.equal(row.health_refresh_verified,false);
+  assert.equal(row.health_detail,'CAPABILITY_AUDIT_HEALTH_RESULT_INVALID');
+});
