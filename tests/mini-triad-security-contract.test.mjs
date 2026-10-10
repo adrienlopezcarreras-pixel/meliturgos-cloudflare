@@ -13,6 +13,7 @@ test('MINI Link V2 rejects unencrypted control and bulk GATT writes', async () =
   assert.match(server, /ble_hs_cfg\.sm_sc = 1/);
   assert.match(server, /ble_gap_security_initiate\(g_conn\)/);
   assert.match(server, /ble_store_config_init\(\)/);
+  assert.match(server, /extern "C" void ble_store_config_init\(void\);/);
   assert.match(server, /ble_hs_cfg\.store_status_cb = ble_store_util_status_rr/);
   assert.match(server, /ble_gap_terminate\(g_conn, BLE_ERR_REM_USER_CONN_TERM\)/);
   const workflow = await read('.github/workflows/waveshare-terminal-firmware.yml');
