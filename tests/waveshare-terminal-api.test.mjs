@@ -58,7 +58,7 @@ test('Waveshare terminal capability contract does not overclaim unimplemented ha
 });
 
 
-test('device TTS uses self-describing 16 kHz mono linear16 WAV for MINI playback', async () => {
+test('device TTS uses self-describing 48 kHz mono linear16 WAV for MINI playback', async () => {
   let aiCall = null;
   const db = {
     prepare(sql) {
@@ -82,7 +82,7 @@ test('device TTS uses self-describing 16 kHz mono linear16 WAV for MINI playback
         return new Response(new Uint8Array([
           0x52,0x49,0x46,0x46,0x28,0x00,0x00,0x00,0x57,0x41,0x56,0x45,
           0x66,0x6d,0x74,0x20,0x10,0x00,0x00,0x00,0x01,0x00,0x01,0x00,
-          0x80,0x3e,0x00,0x00,0x00,0x7d,0x00,0x00,0x02,0x00,0x10,0x00,
+          0x80,0xbb,0x00,0x00,0x00,0x77,0x01,0x00,0x02,0x00,0x10,0x00,
           0x64,0x61,0x74,0x61,0x04,0x00,0x00,0x00,0x00,0x00,0x00,0x01
         ]), { status:200, headers:{'content-type':'audio/wav'} });
       }
@@ -103,7 +103,7 @@ test('device TTS uses self-describing 16 kHz mono linear16 WAV for MINI playback
   assert.equal(r.status,200);
   assert.equal(r.headers.get('content-type'),'audio/wav');
   assert.equal(r.headers.get('x-mel-audio-format'),'wav-pcm-s16le');
-  assert.equal(r.headers.get('x-mel-audio-rate'),'16000');
+  assert.equal(r.headers.get('x-mel-audio-rate'),'48000');
   assert.equal(r.headers.get('x-mel-audio-channels'),'1');
   const out = new Uint8Array(await r.arrayBuffer());
   assert.equal(new TextDecoder().decode(out.slice(0,4)),'RIFF');
@@ -114,7 +114,7 @@ test('device TTS uses self-describing 16 kHz mono linear16 WAV for MINI playback
     speaker:'luna',
     encoding:'linear16',
     container:'wav',
-    sample_rate:16000
+    sample_rate:48000
   });
   assert.deepEqual(aiCall.options,{ returnRawResponse:true });
 });

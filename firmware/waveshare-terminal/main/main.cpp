@@ -47,7 +47,30 @@ static i2c_master_bus_handle_t i2c_bus_handle = nullptr;
 static esp_lcd_panel_io_handle_t io_handle = nullptr;
 static esp_lcd_panel_handle_t panel_handle = nullptr;
 static esp_io_expander_handle_t expander_handle = nullptr;
+static bool speaker_amp_on = false;
 static esp_lcd_touch_handle_t touch_handle = nullptr;
+
+void mini_speaker_amp_set(bool enabled) {
+    if (!expander_handle) {
+        ESP_LOGW(TAG, "PA_CTRL request ignored before TCA9554 init");
+        return;
+    }
+    const esp_err_t err = esp_io_expander_set_level(
+        expander_handle,
+        IO_EXPANDER_PIN_NUM_2,
+        enabled ? 1 : 0
+    );
+    if (err == ESP_OK) {
+        speaker_amp_on = enabled;
+        ESP_LOGI(TAG, "PA_CTRL=%s (TCA9554 P2)", enabled ? "ON" : "OFF");
+    } else {
+        ESP_LOGE(TAG, "PA_CTRL write failed: %s", esp_err_to_name(err));
+    }
+}
+
+bool mini_speaker_amp_enabled() {
+    return speaker_amp_on;
+}
 static lv_display_t *lvgl_disp = nullptr;
 static lv_obj_t *status_label = nullptr;
 static lv_obj_t *runtime_status_label = nullptr;
@@ -841,9 +864,13 @@ static void settings_audio_test_task(void *) {
     const bool signal_ok = span > 20 && transitions > (sample_count / 200);
 
     settings_set_status("HP : lecture de ta voix pendant 2 secondes...");
+    mini_speaker_amp_set(true);
+    vTaskDelay(pdMS_TO_TICKS(20));
     esp_codec_dev_set_out_vol(output_dev, 75.0);
     const int wrc = esp_codec_dev_write(output_dev, pcm, byte_count);
     esp_codec_dev_set_out_vol(output_dev, 0.0);
+    vTaskDelay(pdMS_TO_TICKS(10));
+    mini_speaker_amp_set(false);
 
     char msg[280];
     snprintf(msg, sizeof(msg),
@@ -1620,12 +1647,19 @@ static void io_expander_init() {
         ESP_IO_EXPANDER_I2C_TCA9554_ADDRESS_000,
         &expander_handle
     ));
+    // P1 is the Waveshare display/reset sequence used by the reference BSP.
     ESP_ERROR_CHECK(esp_io_expander_set_dir(expander_handle, IO_EXPANDER_PIN_NUM_1, IO_EXPANDER_OUTPUT));
     ESP_ERROR_CHECK(esp_io_expander_set_level(expander_handle, IO_EXPANDER_PIN_NUM_1, 0));
     vTaskDelay(pdMS_TO_TICKS(100));
     ESP_ERROR_CHECK(esp_io_expander_set_level(expander_handle, IO_EXPANDER_PIN_NUM_1, 1));
     vTaskDelay(pdMS_TO_TICKS(100));
-    ESP_LOGI(TAG, "STEP 2 OK");
+
+    // Waveshare documents PA_CTRL on TCA9554 P2. Keep the NS4150B muted
+    // unless a speaker transaction is actively in progress.
+    ESP_ERROR_CHECK(esp_io_expander_set_dir(expander_handle, IO_EXPANDER_PIN_NUM_2, IO_EXPANDER_OUTPUT));
+    ESP_ERROR_CHECK(esp_io_expander_set_level(expander_handle, IO_EXPANDER_PIN_NUM_2, 0));
+    speaker_amp_on = false;
+    ESP_LOGI(TAG, "STEP 2 OK: display reset + PA_CTRL P2 ready");
 }
 
 static void lv_port_init() {

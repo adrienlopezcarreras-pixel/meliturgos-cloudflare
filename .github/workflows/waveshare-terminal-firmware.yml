@@ -43,6 +43,16 @@ jobs:
           grep -q 'camera_config_t config = {};' build/waveshare-mel/components/esp_port/esp_camera_port.cpp
           grep -q 'config.sccb_i2c_port = i2c_port;' build/waveshare-mel/components/esp_port/esp_camera_port.cpp
 
+          # Waveshare's pinned ES8311 port initializes the physical I2S clock at
+          # 16 kHz but opens esp_codec_dev at 48 kHz. MEL's canonical hardware
+          # contract is 48 kHz end-to-end at the codec/I2S boundary; conversion
+          # to 16 kHz happens explicitly in firmware only for STT/wake features.
+          AUDIO_PORT=build/waveshare-mel/components/esp_port/esp_es8311_port.cpp
+          grep -q 'I2S_STD_CLK_DEFAULT_CONFIG(16000)' "$AUDIO_PORT"
+          sed -i 's/I2S_STD_CLK_DEFAULT_CONFIG(16000)/I2S_STD_CLK_DEFAULT_CONFIG(48000)/' "$AUDIO_PORT"
+          grep -q 'I2S_STD_CLK_DEFAULT_CONFIG(48000)' "$AUDIO_PORT"
+          grep -q 'fs.sample_rate = 48000;' "$AUDIO_PORT"
+
           # The pinned Waveshare sample ships a complete sdkconfig. Apply MINI overrides
           # directly so they cannot be shadowed by that checked-in sdkconfig.
           cd build/waveshare-mel
@@ -145,7 +155,7 @@ jobs:
             "model": "waveshare-esp32-s3-touch-lcd-3.5-c",
             "channel": "stable",
             "firmware": {
-              "version": "0.4.38-unified",
+              "version": "0.6.0-audio-foundation",
               "available": true,
               "key": "devices/waveshare-esp32-s3-touch-lcd-3.5-c/mel-terminal.bin",
               "sha256": "${OTA_SHA256}",

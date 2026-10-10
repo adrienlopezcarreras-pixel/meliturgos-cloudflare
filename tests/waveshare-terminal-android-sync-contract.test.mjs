@@ -25,7 +25,7 @@ test('MINI second voice action stops and finalizes an active recording', async (
   );
 });
 
-test('MINI TTS transport is 16 kHz while playback remains PCM 16-bit mono at 48 kHz', async () => {
+test('MINI TTS transport and playback share canonical PCM 16-bit mono at 48 kHz', async () => {
   const [runtime, apiTests] = await Promise.all([
     readFile(new URL('../firmware/waveshare-terminal/main/mel_terminal.cpp', import.meta.url), 'utf8'),
     readFile(new URL('./waveshare-terminal-api.test.mjs', import.meta.url), 'utf8'),
@@ -36,7 +36,7 @@ test('MINI TTS transport is 16 kHz while playback remains PCM 16-bit mono at 48 
   assert.match(runtime, /bits_per_sample != 16/);
   assert.match(apiTests, /@cf\/deepgram\/aura-1/);
   assert.match(apiTests, /speaker:'luna'/);
-  assert.match(apiTests, /sample_rate:16000/);
+  assert.match(apiTests, /sample_rate:48000/);
 });
 
 test('MINI and Android BLE bridge UUIDs stay aligned', async () => {

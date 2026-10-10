@@ -69,6 +69,44 @@ static const int WAKE_FEATURE_COUNT = WAKE_FEATURE_SEGMENTS * WAKE_FEATURE_BANDS
 extern esp_codec_dev_handle_t input_dev;
 extern esp_codec_dev_handle_t output_dev;
 
+extern void mini_speaker_amp_set(bool enabled);
+extern bool mini_speaker_amp_enabled();
+
+// Canonical physical audio boundary is 48 kHz PCM16 mono. STT and wake-word
+// processing use a real anti-alias FIR before decimation by 3 to 16 kHz.
+static constexpr int VOICE_DECIMATOR_TAPS = 31;
+static constexpr int16_t VOICE_DECIMATOR_Q15[VOICE_DECIMATOR_TAPS] = {
+     56,   39,  -30, -139, -178,    0,  372,  609,
+    270, -696,-1604,-1297,  978, 4755, 8340, 9814,
+   8340, 4755,  978,-1297,-1604, -696,  270,  609,
+    372,    0, -178, -139,  -30,   39,   56
+};
+
+static int decimate_48k_to_16k(
+    const int16_t *input,
+    int input_samples,
+    int32_t dc,
+    int16_t *output,
+    int output_capacity
+) {
+    if (!input || !output || input_samples <= 0 || output_capacity <= 0) return 0;
+    const int wanted = std::min(output_capacity, (input_samples + 2) / 3);
+    constexpr int half = VOICE_DECIMATOR_TAPS / 2;
+    for (int i = 0; i < wanted; ++i) {
+        const int center = i * 3;
+        int64_t acc = 0;
+        for (int k = 0; k < VOICE_DECIMATOR_TAPS; ++k) {
+            const int idx = std::max(0, std::min(input_samples - 1, center + k - half));
+            const int32_t sample = (int32_t)input[idx] - dc;
+            acc += (int64_t)sample * VOICE_DECIMATOR_Q15[k];
+        }
+        int32_t v = (int32_t)((acc + (1LL << 14)) >> 15);
+        v = std::max<int32_t>(-32768, std::min<int32_t>(32767, v));
+        output[i] = (int16_t)v;
+    }
+    return wanted;
+}
+
 struct MelConfig {
     char ssid[33];
     char password[65];
@@ -420,11 +458,17 @@ static void wake_detector_task(void *) {
             continue;
         }
 
-        for (int i = 0; i < WAKE_HOP_SAMPLES; ++i) {
-            const int j = i * 3;
-            int32_t v = ((int32_t)raw[j] + raw[j + 1] + raw[j + 2]) / 3;
-            v = std::max<int32_t>(-32768, std::min<int32_t>(32767, v));
-            hop[i] = (int16_t)v;
+        const int wake_out = decimate_48k_to_16k(
+            raw,
+            WAKE_HOP_SAMPLES * 3,
+            0,
+            hop,
+            WAKE_HOP_SAMPLES
+        );
+        if (wake_out != WAKE_HOP_SAMPLES) {
+            ESP_LOGE(TAG, "WAKE decimator size mismatch out=%d expected=%d", wake_out, WAKE_HOP_SAMPLES);
+            filled = 0;
+            continue;
         }
         if (filled < WAKE_WINDOW_SAMPLES) {
             const int copy = std::min(WAKE_HOP_SAMPLES, WAKE_WINDOW_SAMPLES - filled);
@@ -757,6 +801,8 @@ static bool speak_text(const std::string &text) {
         MobileTtsContext ctx;
         ctx.started_us = esp_timer_get_time();
         int status = 0;
+        mini_speaker_amp_set(true);
+        vTaskDelay(pdMS_TO_TICKS(20));
         esp_codec_dev_set_out_vol(output_dev, 100.0);
         esp_err_t err = mel_mobile_bridge_request_stream(
             HTTP_METHOD_POST,
@@ -771,6 +817,8 @@ static bool speak_text(const std::string &text) {
             &ctx
         );
         esp_codec_dev_set_out_vol(output_dev, 0.0);
+        vTaskDelay(pdMS_TO_TICKS(10));
+        mini_speaker_amp_set(false);
         const bool ok = err == ESP_OK && status == 200 && ctx.ok && !ctx.have_carry;
         if (!ok) ESP_LOGW(TAG, "MOBILE TTS failed err=%s status=%d", esp_err_to_name(err), status);
         return ok;
@@ -810,6 +858,8 @@ static bool speak_text(const std::string &text) {
                 } else {
                     uint8_t *buffer = static_cast<uint8_t *>(heap_caps_malloc(4097, MALLOC_CAP_8BIT));
                     if (buffer) {
+                        mini_speaker_amp_set(true);
+                        vTaskDelay(pdMS_TO_TICKS(20));
                         esp_codec_dev_set_out_vol(output_dev, 100.0);
                         ok = true;
                         bool have_carry = false;
@@ -852,6 +902,8 @@ static bool speak_text(const std::string &text) {
                         }
                         if (have_carry || remaining != 0) ok = false;
                         esp_codec_dev_set_out_vol(output_dev, 0.0);
+                        vTaskDelay(pdMS_TO_TICKS(10));
+                        mini_speaker_amp_set(false);
                         heap_caps_free(buffer);
                     }
                 }
@@ -1281,7 +1333,7 @@ static std::string record_and_transcribe() {
              (long)((int32_t)raw_max - (int32_t)raw_min),
              (unsigned)raw_mean_abs, (long)dc);
 
-    const int speech_samples = captured_samples / 3;
+    int speech_samples = (captured_samples + 2) / 3;
     const int speech_bytes = speech_samples * (int)sizeof(int16_t);
     auto *speech = static_cast<int16_t *>(heap_caps_malloc(speech_bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
     if (!speech) speech = static_cast<int16_t *>(heap_caps_malloc(speech_bytes, MALLOC_CAP_8BIT));
@@ -1292,21 +1344,28 @@ static std::string record_and_transcribe() {
         return "";
     }
 
-    // 48 kHz -> 16 kHz mono: average each group of three samples while
-    // removing the measured DC offset.
+    speech_samples = decimate_48k_to_16k(
+        capture,
+        captured_samples,
+        dc,
+        speech,
+        speech_samples
+    );
+    heap_caps_free(capture);
+    if (speech_samples <= 0) {
+        heap_caps_free(speech);
+        voice_error("DECIMATION STT");
+        return "";
+    }
+
     int32_t peak = 0;
     uint64_t speech_abs_sum = 0;
     for (int i = 0; i < speech_samples; ++i) {
-        const int j = i * 3;
-        int32_t v = ((int32_t)capture[j] + capture[j + 1] + capture[j + 2]) / 3 - dc;
-        if (v > 32767) v = 32767;
-        if (v < -32768) v = -32768;
-        speech[i] = (int16_t)v;
+        const int32_t v = speech[i];
         const int32_t a = v < 0 ? -v : v;
         if (a > peak) peak = a;
         speech_abs_sum += (uint32_t)a;
     }
-    heap_caps_free(capture);
 
     uint32_t speech_mean_abs = (uint32_t)(speech_abs_sum / speech_samples);
     if (peak < 90 || speech_mean_abs < 18) {
