@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { onRequestGet as normalPage } from '../src/pages/mvp-interface.js';
+import { onRequestGet as normalPage } from '../src/pages/mvp-interface-v3.js';
 import { onRequestGet as professorPage } from '../src/pages/full-interface-v2.js';
 import { finalizeVisualResponse } from '../src/visual-final-entry.js';
 
@@ -46,7 +46,7 @@ test('normal mode has exactly one canonical visual owner and the clean eight-the
 
   assert.match(body, /data-visual-owner="mel-normal-v3"/);
   assert.equal((body.match(/id="mel-normal-v3-style"/g) || []).length, 1);
-  assert.equal((body.match(/src="\/normal-runtime\.js\?v=8"/g) || []).length, 1);
+  assert.equal((body.match(/src="\/normal-runtime\.js\?v=9"/g) || []).length, 1);
   assert.equal((body.match(/id="melAvatarImage"/g) || []).length, 1);
   for (const id of LEGACY_IDS) assert.equal(body.includes('id="' + id + '"'), false, id + ' must be absent');
 

@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { getMelAvatarRoute } from '../src/pages/mel-avatar-assets.js';
 import { readFile } from 'node:fs/promises';
 import { enhanceThemeAvatars } from '../src/pages/theme-avatar-enhancer.js';
-import { onRequestGet as renderNormalMode } from '../src/pages/mvp-interface.js';
+import { onRequestGet as renderNormalMode } from '../src/pages/mvp-interface-v3.js';
 
 const AVATARS = [
   ['classic', '/assets/avatars/mel-classic.webp', 'avatarClassic'],
@@ -46,7 +46,7 @@ test('legacy theme enhancer stays transparent while canonical normal page owns e
   const html = await (await renderNormalMode()).text();
   assert.match(html, /data-visual-owner="mel-normal-v3"/);
   assert.match(html, /id="mel-normal-v3-style"/);
-  assert.match(html, /src="\/normal-runtime\.js\?v=8"/);
+  assert.match(html, /src="\/normal-runtime\.js\?v=9"/);
   assert.doesNotMatch(html, /mel-theme-avatar-runtime/);
   assert.doesNotMatch(html, /mel-theme-decor-style/);
 

@@ -7,10 +7,16 @@ on:
       - 'src/core/security.js'
       - 'src/router.js'
       - '.github/workflows/deploy-cloudflare-release.yml'
+      - 'release-tools/predeploy-backup-refresh/runner.mjs'
+      - 'tests/release-predeploy-r2-retry.test.mjs'
       - 'tests/operator-auth.test.mjs'
       - 'tests/release-production-smoke-routes.test.mjs'
       - '.github/workflows/release-observability-smoke-ci.yml'
+      - '.github/workflows/release-downstream-proof-decoupled.yml'
+      - 'tests/gen2/release-downstream-proof-decoupled.test.mjs'
       - 'scripts/check-release-proof-shell.mjs'
+      - '.github/workflows/mel-sov-ai-auto-close.yml'
+      - 'tests/gen2/sov-ai-auto-close.test.mjs'
   push:
     branches:
       - 'fix/release-observability-smoke'
@@ -36,13 +42,17 @@ jobs:
         run: >
           node --check src/core/security.js &&
           node --check src/router.js &&
+          node --check release-tools/predeploy-backup-refresh/runner.mjs &&
           node scripts/check-release-proof-shell.mjs
       - name: Targeted release observability tests
         run: >
           node --test
           tests/operator-auth.test.mjs
+          tests/release-predeploy-r2-retry.test.mjs
           tests/release-production-smoke-routes.test.mjs
           tests/gen2/runtime-observability.test.mjs
+          tests/gen2/release-downstream-proof-decoupled.test.mjs
+          tests/gen2/sov-ai-auto-close.test.mjs
           tests/system-readiness.test.mjs
 
   release-observability-full-suite:

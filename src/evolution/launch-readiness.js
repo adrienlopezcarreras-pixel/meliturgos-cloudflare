@@ -11,7 +11,7 @@ import {
 } from '../backup/system-backup-runtime.js';
 import { verifyRestoreCandidate } from '../backup/restore-service.js';
 import { createEnvBackupEncryptionCodec } from '../backup/encrypted-backup-storage.js';
-import { getShardVaultStatus, syncShardVaultCodeExternally } from '../continuity/shardvault-runtime.js';
+import { getShardVaultStatus, syncShardVaultCodeExternally, verifyShardVaultCodeReconstruction } from '../continuity/shardvault-runtime.js';
 import { D1DevJobRepository } from '../dev/d1-dev-job-repository.js';
 import {
   AutonomySupervisor,
@@ -20,6 +20,9 @@ import {
 } from './autonomy-supervisor.js';
 
 export const AUTONOMY_LAUNCH_READINESS_SCHEMA = 'mel.autonomy-launch-readiness.v1';
+export const AUTONOMY_PUBLIC_READINESS_CACHE_SCHEMA = 'mel.autonomy-launch-readiness-cache.v1';
+export const AUTONOMY_PUBLIC_READINESS_CACHE_MAX_AGE_MS = 30 * 60 * 1000;
+const AUTONOMY_PUBLIC_READINESS_CACHE_KEY = 'current';
 
 const TERMINAL = new Set(['COMPLETED', 'COMMITTED', 'CANCELLED', 'FAILED']);
 const MAX_PUBLIC_FAILURE_GROUPS = 20;
@@ -327,23 +330,194 @@ export async function evaluateShardVaultLaunchReadiness(env) {
   const activeExternal = Array.isArray(status?.active_external_registry) ? status.active_external_registry.length : 0;
   const externalCode = status?.code_survival?.external;
   const externalEndpoints = Array.isArray(externalCode?.endpoints) ? externalCode.endpoints.length : 0;
+  const dataShards = Number(externalCode?.data_shards || status?.scheme?.data_shards || 4);
+  const targetCount = Number(externalCode?.target_count || status?.scheme?.total_shards || 7);
+  const releaseQuorum = Math.min(targetCount, Math.max(dataShards, 5));
+  const reconstruction = await verifyShardVaultCodeReconstruction(env)
+    .catch(error => ({ ok: false, status: 'CODE_RECONSTRUCTION_CHECK_FAILED', error: String(error?.message || error) }));
+  const codeReconstructible = reconstruction?.ok === true
+    && reconstruction?.status === 'CODE_RECONSTRUCTION_VERIFIED';
+  const fullReplication = activeExternal >= targetCount
+    && externalCode?.status === 'COPIED'
+    && externalEndpoints >= targetCount;
+  const quorumReplication = activeExternal >= releaseQuorum
+    && ['COPIED', 'QUORUM_COPIED'].includes(String(externalCode?.status || ''))
+    && externalEndpoints >= releaseQuorum
+    && codeReconstructible;
   const ok = status?.ok === true
     && status?.enabled === true
     && status?.health?.recoverable === true
-    && activeExternal >= 7
-    && externalCode?.status === 'COPIED'
-    && externalEndpoints >= 7;
+    && quorumReplication;
 
   return {
     ok,
-    status: ok ? 'SHARDVAULT_7X_CODE_SURVIVAL_VERIFIED' : 'SHARDVAULT_LAUNCH_PROOF_INCOMPLETE',
+    status: ok
+      ? fullReplication ? 'SHARDVAULT_7X_CODE_SURVIVAL_VERIFIED' : 'SHARDVAULT_QUORUM_CODE_SURVIVAL_VERIFIED'
+      : 'SHARDVAULT_LAUNCH_PROOF_INCOMPLETE',
     vault_status: status?.status || null,
     recoverable: status?.health?.recoverable === true,
     active_external_count: activeExternal,
     external_code_status: externalCode?.status || null,
     external_code_endpoints: externalEndpoints,
-    target_count: 7,
+    target_count: targetCount,
+    release_quorum: releaseQuorum,
+    code_reconstruction_verified: codeReconstructible,
+    repair_pending: ok && !fullReplication,
   };
+}
+
+function publicReadinessCachePayload(value) {
+  return {
+    ok: value?.ok === true,
+    schema: value?.schema || AUTONOMY_LAUNCH_READINESS_SCHEMA,
+    status: value?.status || 'NO_GO',
+    launch_ready: value?.launch_ready === true,
+    candidate_branch: value?.candidate_branch || null,
+    teacher_branch: value?.teacher_branch || null,
+    candidate_sha: value?.candidate_sha || null,
+    gate_digest: value?.gate_digest || null,
+    gates: value?.gates || {},
+    blockers: Array.isArray(value?.blockers) ? value.blockers.slice(0, 20) : [],
+    failure_hygiene: {
+      ok: value?.failure_hygiene?.ok === true,
+      historical_failed_count: Number(value?.failure_hygiene?.historical_failed_count || 0),
+      retry_cap: Number(value?.failure_hygiene?.retry_cap || 0),
+      quarantined_roadmap_ids: Array.isArray(value?.failure_hygiene?.quarantined_roadmap_ids)
+        ? value.failure_hygiene.quarantined_roadmap_ids.slice(0, 30)
+        : [],
+      unbounded_failed_count: Number(value?.failure_hygiene?.unbounded_failed_count || 0),
+      code: value?.failure_hygiene?.code || null,
+    },
+    restore: {
+      ok: value?.restore?.ok === true,
+      status: value?.restore?.status || null,
+      snapshot_id: value?.restore?.snapshot_id || null,
+      deployed_sha: value?.restore?.deployed_sha || null,
+      backup_deployed_sha: value?.restore?.backup_deployed_sha || null,
+      sha_matches: value?.restore?.sha_matches === true,
+    },
+    shardvault: {
+      ok: value?.shardvault?.ok === true,
+      status: value?.shardvault?.status || null,
+      paused: value?.shardvault?.paused === true,
+      temporary: value?.shardvault?.temporary === true,
+      resume_condition: value?.shardvault?.resume_condition || null,
+      recoverable: value?.shardvault?.recoverable === true,
+      active_external_count: Number(value?.shardvault?.active_external_count || 0),
+      external_code_status: value?.shardvault?.external_code_status || null,
+      external_code_endpoints: Number(value?.shardvault?.external_code_endpoints || 0),
+      target_count: Number(value?.shardvault?.target_count || 7),
+      release_quorum: Number(value?.shardvault?.release_quorum || 5),
+      code_reconstruction_verified: value?.shardvault?.code_reconstruction_verified === true,
+      repair_pending: value?.shardvault?.repair_pending === true,
+    },
+    invariants: value?.invariants || {},
+    evaluated_at: value?.evaluated_at || null,
+  };
+}
+
+export async function writeAutonomyLaunchReadinessPublicCache(env, value, { now = Date.now() } = {}) {
+  if (!env?.DB || typeof env.DB.prepare !== 'function') {
+    return { ok: false, status: 'PUBLIC_LAUNCH_READINESS_CACHE_DB_UNAVAILABLE' };
+  }
+  const readiness = publicReadinessCachePayload(value);
+  const candidateSha = String(readiness.candidate_sha || '').trim().toLowerCase();
+  if (!/^[0-9a-f]{40}$/.test(candidateSha)) {
+    return { ok: false, status: 'PUBLIC_LAUNCH_READINESS_CACHE_SHA_INVALID' };
+  }
+  try {
+    await env.DB.prepare(`CREATE TABLE IF NOT EXISTS mel_autonomy_launch_readiness_cache (
+      cache_key TEXT PRIMARY KEY,
+      candidate_sha TEXT NOT NULL,
+      payload_json TEXT NOT NULL,
+      updated_at INTEGER NOT NULL
+    )`).run();
+    await env.DB.prepare(`INSERT OR REPLACE INTO mel_autonomy_launch_readiness_cache
+      (cache_key,candidate_sha,payload_json,updated_at) VALUES(?,?,?,?)`)
+      .bind(AUTONOMY_PUBLIC_READINESS_CACHE_KEY, candidateSha, JSON.stringify(readiness), Number(now))
+      .run();
+    return {
+      ok: true,
+      status: 'PUBLIC_LAUNCH_READINESS_CACHE_WRITTEN',
+      candidate_sha: candidateSha,
+      updated_at: Number(now),
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      status: 'PUBLIC_LAUNCH_READINESS_CACHE_WRITE_FAILED',
+      code: String(error?.code || error?.message || error).slice(0, 180),
+    };
+  }
+}
+
+export async function readAutonomyLaunchReadinessPublicCache(env, {
+  now = Date.now(),
+  maxAgeMs = AUTONOMY_PUBLIC_READINESS_CACHE_MAX_AGE_MS,
+} = {}) {
+  if (!env?.DB || typeof env.DB.prepare !== 'function') {
+    return { ok: false, status: 'PUBLIC_LAUNCH_READINESS_CACHE_DB_UNAVAILABLE', readiness: null };
+  }
+  const expectedSha = runtimeCandidateSha(env);
+  if (!/^[0-9a-f]{40}$/.test(expectedSha)) {
+    return { ok: false, status: 'PUBLIC_LAUNCH_READINESS_DEPLOYED_SHA_INVALID', readiness: null };
+  }
+  try {
+    const row = await env.DB.prepare(`SELECT candidate_sha,payload_json,updated_at
+      FROM mel_autonomy_launch_readiness_cache WHERE cache_key=? LIMIT 1`)
+      .bind(AUTONOMY_PUBLIC_READINESS_CACHE_KEY)
+      .first();
+    if (!row) {
+      return { ok: false, status: 'PUBLIC_LAUNCH_READINESS_CACHE_MISSING', readiness: null };
+    }
+    const rowSha = String(row.candidate_sha || '').trim().toLowerCase();
+    if (rowSha !== expectedSha) {
+      return {
+        ok: false,
+        status: 'PUBLIC_LAUNCH_READINESS_CACHE_SHA_MISMATCH',
+        candidate_sha: rowSha || null,
+        expected_sha: expectedSha,
+        readiness: null,
+      };
+    }
+    const updatedAt = Number(row.updated_at || 0);
+    const ageMs = updatedAt > 0 ? Math.max(0, Number(now) - updatedAt) : Number.POSITIVE_INFINITY;
+    if (!Number.isFinite(ageMs) || ageMs > Math.max(1000, Number(maxAgeMs || 0))) {
+      return {
+        ok: false,
+        status: 'PUBLIC_LAUNCH_READINESS_CACHE_STALE',
+        candidate_sha: rowSha,
+        cache_age_ms: Number.isFinite(ageMs) ? ageMs : null,
+        readiness: null,
+      };
+    }
+    const parsed = JSON.parse(String(row.payload_json || '{}'));
+    const readiness = publicReadinessCachePayload(parsed);
+    if (String(readiness.candidate_sha || '').trim().toLowerCase() !== expectedSha) {
+      return {
+        ok: false,
+        status: 'PUBLIC_LAUNCH_READINESS_CACHE_PAYLOAD_SHA_MISMATCH',
+        candidate_sha: String(readiness.candidate_sha || '') || null,
+        expected_sha: expectedSha,
+        readiness: null,
+      };
+    }
+    return {
+      ok: true,
+      status: 'PUBLIC_LAUNCH_READINESS_CACHE_HIT',
+      candidate_sha: expectedSha,
+      cache_age_ms: ageMs,
+      cache_schema: AUTONOMY_PUBLIC_READINESS_CACHE_SCHEMA,
+      readiness,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      status: 'PUBLIC_LAUNCH_READINESS_CACHE_MISSING',
+      code: String(error?.code || error?.message || error).slice(0, 180),
+      readiness: null,
+    };
+  }
 }
 
 export async function getAutonomyLaunchReadiness(env, {
@@ -452,6 +626,9 @@ export function summarizeAutonomyLaunchCodeSync(value) {
     },
     reason: external?.reason || null,
     next_retry_at: external?.next_retry_at || null,
+    relay_pending: external?.relay_pending === true,
+    relay_job_id: external?.relay_job_id || null,
+    relay_status: external?.relay_status || null,
     code_pool_exhaustions: Number(external?.code_pool_exhaustions || 0),
     code_pool_refreshes: Number(external?.code_pool_refreshes || 0),
     failures: Array.isArray(external?.failures)
@@ -465,6 +642,9 @@ export function summarizeAutonomyLaunchCodeSync(value) {
         }))
       : [],
     verified_roundtrip: external?.verified_roundtrip === true,
+    reconstruction_verified: external?.reconstruction_verified === true,
+    release_quorum: Number(external?.release_quorum || 5),
+    repair_pending: external?.repair_pending === true,
     critical_status: value?.critical_status || null,
   };
 }

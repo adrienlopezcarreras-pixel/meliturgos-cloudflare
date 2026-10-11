@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import { __shardvaultTest } from '../src/continuity/shardvault-runtime.js';
 
 const data = Array.from({ length: 4 }, (_, index) => {
@@ -93,6 +94,14 @@ assert.deepEqual(failoverResult.pending_indices, []);
 assert.ok(failoverResult.failures.some(x=>x.endpoint_id==='e2'));
 assert.deepEqual(failoverResult.attempted_endpoints, ['e1','e2','e3','e4']);
 
+const shardVaultSource=await readFile(new URL('../src/continuity/shardvault-runtime.js',import.meta.url),'utf8');
+const collectStart=shardVaultSource.indexOf('async function collect(env,c,m)');
+const collectEnd=shardVaultSource.indexOf('async function repair(',collectStart);
+assert.ok(collectStart>=0&&collectEnd>collectStart);
+const collectSource=shardVaultSource.slice(collectStart,collectEnd);
+assert.match(collectSource,/await Promise\.all\(\(m\.shards\|\|\[\]\)\.map\(async d=>/);
+assert.doesNotMatch(collectSource,/for\(const d of m\.shards\|\|\[\]\)/);
+
 console.log('ShardVault continuity tests: OK');
 
 
@@ -116,6 +125,22 @@ assert.equal(__shardvaultTest.codeTargetAvailableNow(retryState,{id:'retry-a'},1
 assert.equal(__shardvaultTest.codeTargetAvailableNow(retryState,{id:'retry-a'},7000), true);
 assert.equal(__shardvaultTest.codeTargetRetryDelayMs(1), 5000);
 assert.equal(__shardvaultTest.codeTargetRetryDelayMs(8), 120000);
+const retryCandidate={
+  id:'retry-a',urlTemplate:'https://retry.example/{objectId}',method:'POST',
+  maxBytes:1048576,operatorDomain:'retry.example',providerId:'retry',
+  expectedRetentionDays:365
+};
+retryState.endpoint_failures['retry-a'].retry_after_at='2999-01-01T00:00:00.000Z';
+assert.equal(
+  __shardvaultTest.roundtripCodeFallbackCandidates({},[retryCandidate],[],retryState,new Set(),65536).length,
+  0
+);
+retryState.endpoint_failures['retry-a'].retry_after_at=new Date(0).toISOString();
+assert.deepEqual(
+  __shardvaultTest.roundtripCodeFallbackCandidates({},[retryCandidate],[],retryState,new Set(),65536)
+    .map(x=>x.id),
+  ['retry-a']
+);
 
 const permanentState = { attempted_endpoints:[], failed_endpoint_ids:[], endpoint_failures:{} };
 const permanentFailure = __shardvaultTest.recordCodeTargetFailure(

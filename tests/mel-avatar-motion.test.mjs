@@ -53,7 +53,7 @@ test('MEL-AVATAR-01 page has idle initial state, state CSS and reduced-motion fa
   assert.match(html, /@keyframes melAvatarSpeaking/);
   assert.match(html, /@keyframes melAvatarError/);
   assert.match(html, /prefers-reduced-motion:reduce/);
-  assert.match(html, /\/normal-runtime\.js\?v=8/);
+  assert.match(html, /\/normal-runtime\.js\?v=9/);
 });
 
 test('MEL-AVATAR-01 does not alter the avatar image crop contract', async () => {

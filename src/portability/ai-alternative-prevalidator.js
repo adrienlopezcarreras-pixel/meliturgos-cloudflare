@@ -1,6 +1,6 @@
 import { probeLowRefusalAdapter } from './ai-low-refusal-probe.js';
 import {
-  createHttpChatAdapter,
+  createConfiguredAiAdapter,
   parseHttpChatProviderDescriptors,
 } from '../augmentio/http-chat-adapter.js';
 import { createAlternativeRegistry } from './prevalidated-alternative-registry.js';
@@ -36,7 +36,7 @@ export async function prevalidateConfiguredAiAlternatives({
 
     let adapter;
     try{
-      adapter=createHttpChatAdapter({
+      adapter=createConfiguredAiAdapter({
         env,
         ...descriptor,
         fetchImpl,
@@ -79,7 +79,9 @@ export async function prevalidateConfiguredAiAlternatives({
       layer:'ai',
       provider:descriptor.providerId,
       adapter_id:id,
-      endpoint_class:'provider-neutral-http-chat',
+      endpoint_class:descriptor.transport==='gemini-generate-content'
+        ? 'always-on-google-gemini-api'
+        : 'provider-neutral-http-chat',
       cost_mode:'ZERO_EURO_VERIFIED',
       added_cost_eur:0,
       credential_ref:descriptor.secretEnv||null,

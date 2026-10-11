@@ -3,8 +3,10 @@ const OIDC_TOKEN=String(process.env.MEL_CLOUDFLARE_RELAY_OIDC||'');
 const CF_TOKEN=String(process.env.CLOUDFLARE_API_TOKEN||'');
 const ACCOUNT_ID=String(process.env.CLOUDFLARE_ACCOUNT_ID||'');
 function assert(v,c){if(!v)throw Object.assign(new Error(c),{code:c});}
-async function worker(path,body={}){
-  const r=await fetch(BASE_URL+path,{method:'POST',headers:{'x-mel-github-oidc':OIDC_TOKEN,'content-type':'application/json'},body:JSON.stringify(body),signal:AbortSignal.timeout(60000)});
+async function worker(path,body={},method='POST'){
+  const init={method,headers:{'x-mel-github-oidc':OIDC_TOKEN,'content-type':'application/json'},signal:AbortSignal.timeout(60000)};
+  if(method!=='GET')init.body=JSON.stringify(body);
+  const r=await fetch(BASE_URL+path,init);
   const t=await r.text();let d={};try{d=t?JSON.parse(t):{}}catch{}
   if(!r.ok||d?.ok===false)throw Object.assign(new Error(d?.code||'CLOUDFLARE_RELAY_WORKER_REQUEST_FAILED'),{code:d?.code||'CLOUDFLARE_RELAY_WORKER_REQUEST_FAILED',status:r.status});
   return d;
@@ -28,6 +30,161 @@ async function main(){
   assert(CF_TOKEN.length>=20,'CLOUDFLARE_API_TOKEN_REQUIRED');
   assert(/^[A-Za-z0-9_-]{8,80}$/.test(ACCOUNT_ID),'CLOUDFLARE_ACCOUNT_ID_INVALID');
   await worker('/api/internal/cloudflare-api-relay/heartbeat',{run_id:Number(process.env.GITHUB_RUN_ID||0)||null});
+
+  const miniStatus=await worker('/api/internal/cloudflare-api-relay/mini-status',{});
+  const miniDevices=(Array.isArray(miniStatus?.devices)?miniStatus.devices:[]).slice(0,5);
+  const primaryMini=miniDevices[0]||null;
+  console.log('MINI_DEVICE_STATUS='+JSON.stringify({devices:miniDevices}));
+  const publishedMiniFirmware=await worker('/api/internal/cloudflare-api-relay/mini-firmware-status',{});
+  console.log('MINI_PUBLISHED_FIRMWARE_STATUS='+JSON.stringify(publishedMiniFirmware));
+
+  // Scoped live proof for the Windows Companion. The Worker accepts this OIDC
+  // identity only for read-only status plus system.info / serial.list.
+  const pcStatus=await worker('/api/computer/v1/status',{},'GET');
+  const windowsDevices=(Array.isArray(pcStatus?.devices)?pcStatus.devices:[]).filter(row=>
+    String(row?.platform||'').toLowerCase()==='windows'
+  );
+  console.log('PC_CONTROL_DEVICE_STATUS='+JSON.stringify(windowsDevices.map(row=>({
+    id:row?.id||null,
+    name:row?.name||null,
+    online:row?.online===true,
+    last_seen_at:Number(row?.last_seen_at||0)||null,
+    remote_access_enabled:row?.metadata?.remote_access_enabled===true,
+    engine_version:row?.metadata?.engine_version||null,
+    engine_heartbeat_at:Number(row?.metadata?.engine_heartbeat_at||0)||null,
+    engine_refresh_status:row?.metadata?.engine_refresh_status||null,
+    engine_refresh_at:Number(row?.metadata?.engine_refresh_at||0)||null,
+    engine_refresh_error:row?.metadata?.engine_refresh_error||null,
+    native_version:row?.metadata?.version||null,
+  }))));
+  const computer=windowsDevices.find(row=>row?.online===true);
+  if(computer){
+    const submitted=[];
+    for(const action of ['system.info','serial.list']){
+      const row=await worker('/api/computer/v1/pc-control',{computer_id:computer.id,action,payload:{}});
+      submitted.push({action,command_id:String(row?.command_id||'')});
+    }
+    const deadline=Date.now()+45000;
+    let completed=[];
+    while(Date.now()<deadline){
+      await new Promise(resolve=>setTimeout(resolve,1500));
+      const poll=await worker('/api/computer/v1/status?computer_id='+encodeURIComponent(computer.id),{},'GET');
+      const commands=Array.isArray(poll?.commands)?poll.commands:[];
+      completed=submitted.map(item=>({item,row:commands.find(cmd=>String(cmd?.id||'')===item.command_id)||null}));
+      if(completed.every(entry=>['SUCCEEDED','FAILED'].includes(String(entry.row?.status||''))))break;
+    }
+    const proof=completed.map(entry=>({
+      action:entry.item.action,
+      command_id:entry.item.command_id,
+      status:String(entry.row?.status||'TIMEOUT'),
+      error_code:entry.row?.error_code||null,
+      result:entry.row?.result??null,
+    }));
+    console.log('PC_CONTROL_LIVE_PROOF='+JSON.stringify({
+      device:{id:computer.id,name:computer.name||null,online:true,remote_access_enabled:true,version:computer?.metadata?.version||null},
+      commands:proof,
+    }));
+    if(proof.some(row=>row.status!=='SUCCEEDED')) throw Object.assign(new Error('PC_CONTROL_LIVE_PROOF_FAILED'),{code:'PC_CONTROL_LIVE_PROOF_FAILED'});
+
+    const serialListResult=proof.find(row=>row.action==='serial.list')?.result;
+    const serialOutput=Array.isArray(serialListResult?.outputs)
+      ? serialListResult.outputs.find(row=>row?.action==='serial.list')
+      : null;
+    const ports=(Array.isArray(serialOutput?.ports)?serialOutput.ports:[])
+      .map(value=>String(value||'').trim().toUpperCase())
+      .filter(value=>/^COM\d{1,3}$/.test(value));
+
+    const nonLegacyPorts=ports.filter(port=>port!=='COM1');
+    const diagnosticPort=ports.length===1
+      ? ports[0]
+      : (nonLegacyPorts.length===1 ? nonLegacyPorts[0] : null);
+    if(diagnosticPort){
+      const port=diagnosticPort;
+
+      const inspectSubmit=await worker('/api/computer/v1/pc-control',{
+        computer_id:computer.id,
+        action:'serial.inspect',
+        payload:{port},
+      });
+      const inspectCommandId=String(inspectSubmit?.command_id||'');
+      const inspectDeadline=Date.now()+20000;
+      let inspectCommand=null;
+      while(Date.now()<inspectDeadline){
+        await new Promise(resolve=>setTimeout(resolve,1000));
+        const poll=await worker('/api/computer/v1/status?computer_id='+encodeURIComponent(computer.id),{},'GET');
+        const commands=Array.isArray(poll?.commands)?poll.commands:[];
+        inspectCommand=commands.find(cmd=>String(cmd?.id||'')===inspectCommandId)||null;
+        if(['SUCCEEDED','FAILED'].includes(String(inspectCommand?.status||''))) break;
+      }
+      const inspectOutput=Array.isArray(inspectCommand?.result?.outputs)
+        ? inspectCommand.result.outputs.find(row=>row?.action==='system.exec')
+        : null;
+      let inspectJson=null;
+      try{inspectJson=JSON.parse(String(inspectOutput?.stdout||'').trim()||'null')}catch{}
+      console.log('MINI_USB_INSPECT='+JSON.stringify({
+        port,
+        status:String(inspectCommand?.status||'TIMEOUT'),
+        error_code:inspectCommand?.error_code||null,
+        exit_code:Number(inspectOutput?.exit_code??-1),
+        details:inspectJson,
+      }));
+      if(String(inspectCommand?.status||'')==='FAILED'){
+        throw Object.assign(new Error('MINI_USB_INSPECT_FAILED'),{code:'MINI_USB_INSPECT_FAILED'});
+      }
+
+      const submit=await worker('/api/computer/v1/pc-control',{
+        computer_id:computer.id,
+        action:'serial.read',
+        payload:{port,duration_ms:3000},
+      });
+      const commandId=String(submit?.command_id||'');
+      const serialDeadline=Date.now()+20000;
+      let serialCommand=null;
+      while(Date.now()<serialDeadline){
+        await new Promise(resolve=>setTimeout(resolve,1000));
+        const poll=await worker('/api/computer/v1/status?computer_id='+encodeURIComponent(computer.id),{},'GET');
+        const commands=Array.isArray(poll?.commands)?poll.commands:[];
+        serialCommand=commands.find(cmd=>String(cmd?.id||'')===commandId)||null;
+        if(['SUCCEEDED','FAILED'].includes(String(serialCommand?.status||''))) break;
+      }
+      const output=Array.isArray(serialCommand?.result?.outputs)
+        ? serialCommand.result.outputs.find(row=>row?.action==='serial.read')
+        : null;
+      const raw=String(output?.text||'');
+      const diagnostics=raw.split(/\r?\n/)
+        .filter(line=>/(MEL|ESP|boot|error|fail|panic|watchdog|audio|I2S|ES8311|BLE|Link V2|transcription|STEP|WIFI|camera|storage|READY|NVS|LCD|TOUCH|AXP2101)/i.test(line))
+        .slice(0,80).join('\n').slice(0,8000);
+      console.log('MINI_SERIAL_READ_PROOF='+JSON.stringify({
+        port,
+        status:String(serialCommand?.status||'TIMEOUT'),
+        error_code:serialCommand?.error_code||null,
+        baud:Number(output?.baud||115200),
+        chars:Number(output?.chars||0),
+        diagnostics,
+        trace:raw.slice(0,12000),
+      }));
+      if(String(serialCommand?.status||'')==='FAILED'){
+        throw Object.assign(new Error('MINI_SERIAL_READ_FAILED'),{code:'MINI_SERIAL_READ_FAILED'});
+      }
+
+      // Scheduled/OIDC diagnostics must remain read-only. In particular,
+      // no environment variable can authorize a MINI reset or flash.
+      console.log('MINI_RESET_POLICY='+JSON.stringify({
+        automatic_reset_allowed:false,
+        manual_local_presence_required:true
+      }));
+
+    }else{
+      console.log('MINI_SERIAL_READ_PROOF='+JSON.stringify({
+        skipped:true,
+        reason:ports.length===0?'NO_SERIAL_PORT':'AMBIGUOUS_NON_LEGACY_SERIAL_PORTS',
+        ports,
+        non_legacy_ports:nonLegacyPorts,
+      }));
+    }
+  }else{
+    console.log('PC_CONTROL_LIVE_PROOF='+JSON.stringify({skipped:true,reason:'NO_ONLINE_REMOTE_WINDOWS_COMPANION'}));
+  }
   for(let i=0;i<5;i++){
     const claim=await worker('/api/internal/cloudflare-api-relay/claim');
     const job=claim?.job;if(!job)break;

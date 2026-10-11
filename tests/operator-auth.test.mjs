@@ -58,6 +58,19 @@ test('requireAuth distinguishes unconfigured auth from rejected credentials with
   assert.equal(JSON.stringify(payload).includes('hidden-value'), false);
 });
 
+test('release smoke auth remains available when owner password binding is temporarily absent', () => {
+  const token = 'r'.repeat(64);
+  const request = new Request('https://meliturgos.test/api/gen2/shardvault/status', {
+    method: 'GET',
+    headers: {
+      'x-mel-release-smoke': '1',
+      'x-mel-launch-bootstrap': token,
+    },
+  });
+  const result = requireAuth(request, { MELITURGOS_USER: 'adrien', MEL_LAUNCH_BOOTSTRAP_TOKEN: token });
+  assert.equal(result.ok, true);
+});
+
 
 test('ephemeral release smoke auth is restricted to exact verification routes and bounded smoke entry points', () => {
   const token = 'b'.repeat(64);
@@ -134,4 +147,58 @@ test('release smoke token shorter than 32 characters is never accepted', () => {
     MELITURGOS_PASSWORD:'owner-password',
     MEL_LAUNCH_BOOTSTRAP_TOKEN:token,
   }), false);
+});
+
+
+test('parallel production proof token is immutable, narrow and cannot use broad release-smoke routes', () => {
+  const token = 'p'.repeat(64);
+  const env = {
+    MELITURGOS_USER: 'adrien',
+    MELITURGOS_PASSWORD: 'owner-password',
+    MEL_PARALLEL_PROOF_TOKEN: token,
+  };
+  const request = (path, method='GET', supplied=token) => new Request('https://meliturgos.test' + path, {
+    method,
+    headers: {
+      'x-mel-release-smoke':'1',
+      'x-mel-parallel-proof': supplied,
+      ...(method === 'POST' ? {'content-type':'application/json'} : {}),
+    },
+    ...(method === 'POST' ? {body:'{}'} : {}),
+  });
+
+  for (const [method,path] of [
+    ['GET','/api/gen2/code/self-check'],
+    ['GET','/api/gen2/autonomy/sovereignty'],
+    ['GET','/api/gen2/connections/google/status'],
+    ['GET','/api/gen2/connections/pipedream/accounts'],
+    ['GET','/'],
+    ['GET','/professor'],
+    ['GET','/normal-runtime.js'],
+    ['POST','/api/chat'],
+    ['POST','/api/gen2/capabilities/execute'],
+    ['POST','/api/gen2/connections/google/test'],
+    ['POST','/api/gen2/connections/microsoft/test'],
+    ['POST','/api/gen2/connections/yahoo/test'],
+    ['POST','/api/gen2/connections/yahoo-imap/test'],
+    ['POST','/api/gen2/connections/vercel/test'],
+    ['POST','/api/gen2/connections/pipedream/test'],
+    ['POST','/api/files/upload'],
+  ]) {
+    assert.equal(isReleaseSmokeRequest(request(path, method), env), true, method + ' ' + path);
+    assert.equal(authorized(request(path, method), env), true, method + ' ' + path);
+  }
+
+  for (const [method,path] of [
+    ['GET','/api/gen2/readiness'],
+    ['GET','/api/memory/status'],
+    ['POST','/api/gen2/connections/google/save'],
+    ['POST','/api/gen2/connections/vercel/save'],
+    ['POST','/api/gen2/connections/pipedream/save'],
+  ]) {
+    assert.equal(isReleaseSmokeRequest(request(path, method), env), false, method + ' ' + path);
+    assert.equal(authorized(request(path, method), env), false, method + ' ' + path);
+  }
+
+  assert.equal(isReleaseSmokeRequest(request('/api/gen2/code/self-check','GET','x'.repeat(64)), env), false);
 });

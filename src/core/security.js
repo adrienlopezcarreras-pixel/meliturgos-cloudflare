@@ -1,3 +1,35 @@
+
+const SAFE_BROWSER_METHODS = new Set(['GET','HEAD','OPTIONS']);
+const CROSS_SITE_PUBLIC_POST_PATHS = new Set([
+  '/api/public/wordpress/chat',
+  '/api/public/fides/chat',
+  '/__preview/login',
+]);
+
+export function rejectCrossSiteMutation(request) {
+  const method = String(request?.method || 'GET').toUpperCase();
+  if (SAFE_BROWSER_METHODS.has(method)) return null;
+  const url = new URL(request.url);
+  if (CROSS_SITE_PUBLIC_POST_PATHS.has(url.pathname)) return null;
+
+  const origin = String(request.headers.get('origin') || '').trim();
+  if (origin && origin !== url.origin) {
+    return new Response(JSON.stringify({ ok:false, error:'CROSS_SITE_MUTATION_FORBIDDEN', code:'CROSS_SITE_MUTATION_FORBIDDEN' }), {
+      status: 403,
+      headers: { 'content-type':'application/json; charset=utf-8', 'cache-control':'no-store' },
+    });
+  }
+
+  const fetchSite = String(request.headers.get('sec-fetch-site') || '').toLowerCase();
+  if (fetchSite === 'cross-site') {
+    return new Response(JSON.stringify({ ok:false, error:'CROSS_SITE_MUTATION_FORBIDDEN', code:'CROSS_SITE_MUTATION_FORBIDDEN' }), {
+      status: 403,
+      headers: { 'content-type':'application/json; charset=utf-8', 'cache-control':'no-store' },
+    });
+  }
+  return null;
+}
+
 export function isApiRequest(request) {
   const url = new URL(request.url);
   return url.pathname.startsWith("/api/");
@@ -69,16 +101,54 @@ const RELEASE_SMOKE_ALLOWLIST = Object.freeze(new Map([
     '/api/v1/version',
     '/api/gen2/code/self-check',
     '/api/gen2/connections/google/status',
+    '/api/gen2/connections/pipedream/status',
     '/api/gen2/connections/pipedream/accounts',
     '/api/gen2/capabilities',
     '/api/gen2/readiness',
     '/api/gen2/autonomy/sovereignty',
+    '/api/learning/progress',
     '/api/gen2/migration/gen1-status',
     '/api/gen2/migration/chatgpt-memory-status',
     '/api/gen2/import/chatgpt-status',
     '/api/gen2/shardvault/status',
     '/api/gen2/import/chatgpt-status',
     '/api/memory/status',
+    '/',
+    '/professor',
+    '/normal-runtime.js',
+  ])],
+]));
+
+const PARALLEL_PROOF_ALLOWLIST = Object.freeze(new Map([
+  ['POST', new Set([
+    // Browser-rendered post-release proof needs the deterministic native-chat
+    // smoke path. handleNativeChat keeps release-smoke requests constrained to
+    // inferred code.read/code.search and ignores injected body capabilities.
+    '/api/chat',
+    '/api/gen2/capabilities/execute',
+    // Read-only/diagnostic connector probes used by the exact-SHA
+    // post-release proof. Configuration mutation routes such as /save are
+    // intentionally excluded.
+    '/api/gen2/connections/google/test',
+    '/api/gen2/connections/microsoft/test',
+    '/api/gen2/connections/yahoo/test',
+    '/api/gen2/connections/yahoo-imap/test',
+    '/api/gen2/connections/vercel/test',
+    '/api/gen2/connections/pipedream/test',
+    // Exact-SHA MEL-FILE proof uses this route only under additional
+    // payload/name/size restrictions enforced inside handleFileUpload.
+    '/api/files/upload',
+  ])],
+  ['GET', new Set([
+    '/api/gen2/code/self-check',
+    // Read-only CapabilityBus inventory/health refresh for exact-SHA
+    // downstream diagnostics. It returns bounded capability metadata only.
+    '/api/gen2/capabilities',
+    '/api/gen2/connections/google/status',
+    '/api/gen2/connections/pipedream/status',
+    '/api/gen2/connections/pipedream/accounts',
+    '/api/gen2/autonomy/sovereignty',
+    '/api/learning/progress',
     '/',
     '/professor',
     '/normal-runtime.js',
@@ -93,7 +163,16 @@ export function isReleaseSmokeRequest(request, env) {
   if (request.headers.get('x-mel-release-smoke') !== '1') return false;
   const expected = withoutTerminalNewline(env?.MEL_LAUNCH_BOOTSTRAP_TOKEN || '');
   const supplied = withoutTerminalNewline(request.headers.get('x-mel-launch-bootstrap') || '');
-  return expected.length >= 32 && supplied.length === expected.length && safeEqual(supplied, expected);
+  const primaryAuthorized = expected.length >= 32 && supplied.length === expected.length && safeEqual(supplied, expected);
+  if (primaryAuthorized) return true;
+
+  const parallelExpected = withoutTerminalNewline(env?.MEL_PARALLEL_PROOF_TOKEN || '');
+  const parallelSupplied = withoutTerminalNewline(request.headers.get('x-mel-parallel-proof') || '');
+  const parallelAuthorized = parallelExpected.length >= 32
+    && parallelSupplied.length === parallelExpected.length
+    && safeEqual(parallelSupplied, parallelExpected);
+  if (!parallelAuthorized) return false;
+  return PARALLEL_PROOF_ALLOWLIST.get(method)?.has(url.pathname) === true;
 }
 
 function decodeBasicPayload(encoded) {
@@ -157,6 +236,10 @@ export function authorized(request, env) {
 }
 
 export function requireAuth(request, env) {
+  // Release proofs authenticate with their own narrow, allowlisted token.
+  // Evaluate that path before the owner-password configuration check so a
+  // missing operator secret cannot block exact-SHA release verification.
+  if (isReleaseSmokeRequest(request, env)) return { ok: true };
   if (!env.MELITURGOS_PASSWORD) return { ok: false, response: notConfiguredResponse(request) };
   if (!authorized(request, env)) return { ok: false, response: unauthorizedResponse(request) };
   return { ok: true };

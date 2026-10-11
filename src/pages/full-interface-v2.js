@@ -1,3 +1,5 @@
+import { CHAT_RICH_RENDERER_CSS, CHAT_RICH_RENDERER_SOURCE } from './chat-rich-renderer.js';
+
 /** MEL full-control center v2. Contemporary, mobile-first, backed by real APIs. */
 export async function onRequestGet() {
   const body = `<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>Mode complet</title><link rel="icon" type="image/webp" sizes="any" href="/assets/avatars/mel-full.webp?v=mel-techno-20260924"><link rel="shortcut icon" type="image/webp" href="/assets/avatars/mel-full.webp?v=mel-techno-20260924"><link rel="apple-touch-icon" href="/assets/avatars/mel-full.webp?v=mel-techno-20260924"><style>
@@ -24,56 +26,84 @@ html body{background-image:radial-gradient(circle at 82% 12%,rgba(34,211,238,.13
 .mel-unified-tabs{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 14px}.mel-unified-tabs button.active{background:linear-gradient(135deg,#2563eb,#1d4ed8)}[data-mode-panel][hidden]{display:none!important}
 .connection-card .skill-head{align-items:center}.connection-status{margin-top:10px}.connection-note{margin-top:8px;font-size:.82rem;color:var(--muted);line-height:1.45}.connection-app-config{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px}.connection-app-config .wide-field{grid-column:1/-1}.connection-form-grid{display:grid;grid-template-columns:2fr .7fr 1fr;gap:9px;margin-top:10px}.connection-form-grid.smtp{margin-top:9px}.connection-provider-state{font-size:.8rem;color:#cbd5e1;margin-top:7px}.connection-banner{margin:0 0 14px;padding:12px 14px;border:1px solid rgba(96,165,250,.24);border-radius:14px;background:rgba(37,99,235,.08);color:#dbeafe}.connection-banner.good{border-color:rgba(52,211,153,.28);background:rgba(16,185,129,.08);color:#a7f3d0}.connection-banner.bad{border-color:rgba(251,113,133,.3);background:rgba(190,24,93,.08);color:#fecdd3}@media(max-width:760px){.connection-app-config,.connection-form-grid{grid-template-columns:1fr}.connection-app-config .wide-field{grid-column:auto}}
 .canonical-autonomy-controls{display:flex;gap:7px;align-items:center;flex-wrap:wrap;grid-column:1/-1}.canonical-autonomy-controls .button,.canonical-autonomy-controls button{min-height:42px;font-weight:800}.canonical-autonomy-controls .max-active{background:#b91c1c}.canonical-watch-link{background:linear-gradient(135deg,#0f766e,#155e75)}
-.autonomy-activity-panel{position:fixed;right:18px;top:82px;z-index:80;width:min(520px,calc(100vw - 24px));max-height:72vh;overflow:auto;border:1px solid var(--line);border-radius:17px;padding:14px;background:rgba(3,9,18,.98);box-shadow:0 24px 80px rgba(0,0,0,.55)}.autonomy-activity-panel[hidden]{display:none}.autonomy-activity-head{display:flex;align-items:center;justify-content:space-between;gap:10px}.autonomy-activity-body{margin-top:10px}.nav button.mobile-more-nav,.mobile-more-menu{display:none}.learning-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:13px}.learning-actions .muted{flex:1 1 100%}#skillsHealthSummary{grid-template-columns:repeat(6,minmax(0,1fr))}
+.autonomy-activity-panel{position:fixed;right:18px;top:82px;z-index:80;width:min(520px,calc(100vw - 24px));max-height:72vh;overflow:auto;border:1px solid var(--line);border-radius:17px;padding:14px;background:rgba(3,9,18,.98);box-shadow:0 24px 80px rgba(0,0,0,.55)}.autonomy-activity-panel[hidden]{display:none}.autonomy-activity-head{display:flex;align-items:center;justify-content:space-between;gap:10px}.autonomy-activity-body{margin-top:10px}.nav button.mobile-more-nav,.mobile-more-menu{display:none}.learning-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:13px}.learning-actions .muted{flex:1 1 100%}#skillsHealthSummary{grid-template-columns:repeat(4,minmax(0,1fr))}
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.001ms!important;animation-iteration-count:1!important;scroll-behavior:auto!important;transition-duration:.001ms!important}}@media(max-width:960px){#skillsHealthSummary{grid-template-columns:1fr 1fr}html body{background-attachment:scroll!important}.canonical-autonomy-controls{display:none!important}.nav button[data-view="skills"],.nav button[data-view="roadmap"],.nav button[data-view="computer"],.nav button[data-view="terminal"],.nav button[data-view="lora"],.nav button[data-view="diagnostics"]{display:none!important}.mobile-more-nav{display:flex!important}.nav button{font-size:.78rem!important;min-width:76px!important}.mobile-more-menu{position:fixed;left:8px;right:8px;bottom:calc(79px + env(safe-area-inset-bottom));z-index:45;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;padding:10px;border:1px solid var(--line);border-radius:15px;background:rgba(3,9,18,.98);box-shadow:0 18px 58px rgba(0,0,0,.55)}.mobile-more-menu:not([hidden]){display:grid}.mobile-more-menu button{width:100%;min-height:46px}.mobile-watch-link{grid-column:1/-1;width:100%}.autonomy-activity-panel{display:none!important}.cap-help-item,.cap-chip,.cap-help-state{font-size:.78rem!important}}
-</style></head><body><div class="shell"><aside class="sidebar"><div class="brand"><img src="/assets/avatars/mel-full.webp" alt=""><div><strong>Mode complet</strong><small>Centre de contrôle</small></div></div><nav class="nav" id="nav"><button class="active" data-view="overview"><span class="ico">⌂</span>Vue d’ensemble</button><button data-view="chat"><span class="ico">◌</span>Chat</button><button data-view="skills"><span class="ico">◇</span>Compétences</button><button data-view="roadmap"><span class="ico">↗</span>Feuille de route</button><button data-view="multi"><span class="ico">✦</span>IA & Développement</button><button data-view="memory"><span class="ico">◎</span>Mémoire</button><button data-view="computer"><span class="ico">▤</span>Ordinateur</button><button data-view="terminal"><span class="ico">▥</span>Terminal MEL</button><button data-view="lora"><span class="ico">◈</span>LoRA gratuit</button><button data-view="connections"><span class="ico">↔</span>Connexions</button><button data-view="diagnostics"><span class="ico">⚙</span>Diagnostic</button><button id="mobileMoreNav" class="mobile-more-nav" type="button" aria-expanded="false"><span class="ico">•••</span>Plus</button></nav><div id="mobileMoreMenu" class="mobile-more-menu" hidden aria-label="Outils supplémentaires"><button data-jump="skills">Compétences</button><button data-jump="roadmap">Feuille de route</button><button data-jump="computer">Ordinateur</button><button data-jump="terminal">Terminal MEL</button><button data-jump="lora">LoRA</button><button data-jump="diagnostics">Diagnostic</button></div><a class="home" href="/">Retour à l’accueil</a></aside><main class="main"><header class="top"><div><h1 id="viewTitle">Vue d’ensemble</h1><p id="viewSubtitle">État réel des briques principales.</p></div><div class="pill"><span id="globalDot" class="dot"></span><span id="globalState" role="status" aria-live="polite">Vérification…</span></div><div class="canonical-autonomy-controls" aria-label="Pilotage de MEL"><button id="melFullMax">MAX 100%</button><button id="melFullCycle" class="primary">▶ Démarrer cycle MEL</button><a class="button canonical-watch-link" href="/veille">Veille des capacités</a><button id="melFullStop">Mettre MEL en pause</button><button id="melFullActivity">Activité</button></div></header><aside id="desktopActivityPanel" class="autonomy-activity-panel" hidden aria-label="Activité réelle de MEL"><div class="autonomy-activity-head"><strong>Activité réelle de MEL</strong><button id="desktopActivityClose" type="button" aria-label="Fermer le panneau d’activité">×</button></div><div id="desktopActivityBody" class="autonomy-activity-body" role="status" aria-live="polite">Chargement…</div></aside>
-<section class="view active" data-panel="overview"><div class="mobile-home-controls" aria-label="Commandes rapides MEL"><button id="mobileMaxAutonomy">MAX 100%</button><button id="mobilePauseAutonomy">Mettre MEL en pause</button><button id="mobileStartCycle" class="primary mobile-cycle">▶ Démarrer cycle MEL</button><button id="mobileResumeAutonomy">Reprendre MEL</button><button id="mobileActivityAutonomy">Activité</button><a class="button mobile-watch-link" href="/veille">Veille des capacités</a><div id="mobileAutonomyFeedback" class="mobile-home-feedback" role="status" aria-live="polite">Commandes MEL prêtes.</div><div id="mobileActivityPanel" class="mobile-activity-panel" hidden role="status" aria-live="polite"></div></div><div class="grid"><article class="card wide hero"><img src="/assets/avatars/mel-full.webp" alt="MEL"><div><div class="learning-summary-row" style="display:flex;align-items:flex-start;justify-content:space-between;gap:18px;flex-wrap:wrap"><h2 style="margin:6px 0 0">Système personnel</h2><div id="learningMeter" style="min-width:320px;max-width:440px"><span id="learningChip" role="button" tabindex="0" aria-expanded="false" title="Cliquer pour afficher les détails" style="display:flex;cursor:pointer;user-select:none;padding:13px 16px;border:1px solid rgba(125,211,252,.30);border-radius:999px;background:linear-gradient(120deg,rgba(34,211,238,.18),rgba(59,130,246,.14),rgba(167,139,250,.18));box-shadow:inset 0 1px 0 rgba(255,255,255,.15),0 10px 30px rgba(37,99,235,.17);transition:transform .18s ease,box-shadow .18s ease"><span style="display:flex;flex-direction:column;min-width:0;flex:1"><span style="display:flex;align-items:baseline;gap:10px;white-space:nowrap"><strong style="font-size:1.28rem;line-height:1.1">Niv. <span id="learnLevel">—</span></strong><span id="learnRank" style="font-size:.94rem;color:#bae6fd;font-weight:600">mesure…</span><span id="learnXp" style="margin-left:auto;font-size:1.02rem;font-weight:800;color:#e0f2fe">— XP</span><span id="learnArrow" style="font-size:1rem;color:#c4b5fd">⌄</span></span><span style="display:block;height:8px;margin-top:8px;border-radius:999px;background:rgba(255,255,255,.09);overflow:hidden"><span id="learnBar" style="display:block;height:100%;width:0%;border-radius:999px;background:linear-gradient(90deg,#22d3ee,#60a5fa 55%,#a78bfa);box-shadow:0 0 14px rgba(34,211,238,.55);transition:width .35s ease"></span></span><span id="learnMeta" style="margin-top:6px;font-size:.84rem;line-height:1.2;color:#dbeafe;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">apprentissage réel · roadmap exclue</span></span></span><div id="learningDetails" style="display:none;margin-top:10px;padding:15px 17px;border:1px solid rgba(125,211,252,.18);border-radius:18px;background:linear-gradient(145deg,rgba(7,18,34,.88),rgba(27,30,54,.78));box-shadow:inset 0 1px 0 rgba(255,255,255,.08),0 16px 38px rgba(0,0,0,.20);font-size:.98rem;line-height:1.35"><div style="display:grid;grid-template-columns:1fr auto;gap:10px 16px"><span style="color:#b6c2d2">XP avant niveau suivant</span><strong id="learnNext">—</strong><span style="color:#b6c2d2">Corrections</span><strong id="learnCorrections">—</strong><span style="color:#b6c2d2">Prêtes entraînement</span><strong id="learnTraining">—</strong><span style="color:#b6c2d2">Benchmark</span><strong id="learnBenchmark">—</strong><span style="color:#b6c2d2">Essais réglages</span><strong id="learnTrials">—</strong><span style="color:#b6c2d2">Erreurs répétées</span><strong id="learnErrors">—</strong><span style="color:#b6c2d2">Poids runtime</span><strong id="learnWeights">—</strong></div><div style="margin-top:12px;color:#7dd3fc;font-size:.84rem;line-height:1.3">Mesure d’apprentissage uniquement — la feuille de route ne donne aucun XP.</div><div class="learning-actions"><button id="melRunBenchmark" type="button">Lancer benchmark</button><button id="melPrepareLora" type="button">Préparer LoRA</button><span id="melLearningActionState" class="muted" role="status" aria-live="polite">Actions opérateur prêtes.</span></div></div></div></div><p class="muted">Conversation, mémoire, code, outils, multi-IA, Work et évolution réunis dans un même centre de contrôle.</p><div class="actions"><button class="primary" data-jump="chat">Parler à MEL</button><button data-jump="roadmap">Voir la feuille de route</button><button data-jump="diagnostics">Tester le système</button></div></div></article><article class="card third"><h2>Compétences</h2><div class="metric"><span id="capCount">—</span> <small>enregistrées</small></div><p class="muted" id="capSummary">Chargement…</p></article><article class="card third"><h2>Feuille de route</h2><div class="metric"><span id="roadPercent">—</span><small>% terminé</small></div><div class="progress"><span id="roadBar" style="width:0%"></span></div></article><article class="card third"><h2>Accès au code</h2><div class="metric" id="codeMetric">—</div><p class="muted" id="codeSummary">Test non lancé.</p></article><article class="card wide"><div class="skill-head"><div><h2>Boucle MEL</h2><p class="muted" style="margin:6px 0 0">Avance automatiquement sur la roadmap canonique, uniquement sur la candidate.</p></div><span class="tag warn" id="autonomyBadge">Vérification…</span></div><div class="status-row"><span>Mode</span><strong id="autonomyMode">—</strong></div><div class="status-row"><span>Prochaine étape</span><span id="autonomyNext" class="muted">—</span></div><div class="footer-note" id="autonomyNote">La production reste verrouillée et nécessite une validation humaine.</div></article><article class="card wide"><h2>Santé du système</h2><div id="healthRows"><div class="status-row"><span>Chargement</span><span class="muted">…</span></div></div></article></div></section>
-<section class="view" data-panel="chat"><div class="section-title"><h2>Conversation</h2><p>Le chat utilise mes capacités réelles quand ta demande les nécessite.</p></div><div class="cap-help" id="chatCapabilityHelp"><div class="cap-help-head"><div><strong>Ce que je sais faire</strong><div class="cap-help-intro">Cette fiche vient directement de mon CapabilityBus : elle décrit mes capacités enregistrées, pas une promesse théorique.</div><div class="cap-help-summary" id="chatCapSummary">Lecture de mes capacités…</div></div><button id="chatCapRefresh" type="button">Actualiser</button></div><div class="cap-help-groups" id="chatCapGroups"></div><details><summary>Voir toutes mes capacités</summary><div class="cap-help-list" id="chatCapList">Chargement…</div></details></div><article class="card wide"><div class="chatlog" id="chatlog"><div class="msg mel">Prête.</div></div><div class="actions"><button id="resumeLatestChat" class="ghost" type="button">Reprendre le dernier échange</button></div><div class="composer"><input id="chatInput" aria-label="Message à MEL" type="text" maxlength="12000" autocomplete="off" enterkeyhint="send" placeholder="Écris, colle du texte ou Ctrl+V une image/un document…"><input id="chatFileInput" type="file" multiple hidden aria-label="Joindre des fichiers au chat"><button id="chatAttach" type="button" class="ghost">Joindre</button><button class="primary" id="chatSend">Envoyer</button></div><div id="chatAttachments" class="actions" aria-live="polite"></div><div class="muted" id="chatStatus" role="status" aria-live="polite" style="margin-top:8px"></div></article></section>
-<section class="view" data-panel="skills"><div class="section-title"><h2>Compétences</h2><p>État réel vérifié automatiquement. « Actualiser la santé » relance les contrôles fournisseurs à la demande.</p></div><div class="roadmap-head" id="skillsHealthSummary"><div class="roadstat"><span class="muted">Opérationnelles</span><strong id="skillsHealthy">—</strong></div><div class="roadstat"><span class="muted">Protégées</span><strong id="skillsProtected">—</strong></div><div class="roadstat"><span class="muted">Dégradées</span><strong id="skillsDegraded">—</strong></div><div class="roadstat"><span class="muted">En attente PC</span><strong id="skillsWaiting">—</strong></div><div class="roadstat"><span class="muted">Non configurées</span><strong id="skillsUnavailable">—</strong></div><div class="roadstat"><span class="muted">En échec</span><strong id="skillsFailed">—</strong></div></div><article class="card wide"><div class="actions" style="margin-top:0"><button id="refreshSkills">Actualiser la santé</button><span id="skillsProviderSummary" class="muted" role="status" aria-live="polite">Vérification des fournisseurs…</span></div><div id="skillsList" style="margin-top:12px">Chargement…</div></article></section>
-<section class="view" data-panel="roadmap"><div class="section-title"><h2>Feuille de route complète</h2><p>Source de vérité produit : fondations, mémoire, multi-IA, Work, évolution, voix, appareils, sécurité et maturité.</p></div><div class="roadmap-head"><div class="roadstat"><span class="muted">Total</span><strong id="rmTotal">—</strong></div><div class="roadstat"><span class="muted">Terminés</span><strong id="rmDone">—</strong></div><div class="roadstat"><span class="muted">En cours / partiel</span><strong id="rmActive">—</strong></div><div class="roadstat"><span class="muted">Progression</span><strong id="rmPercent">—</strong></div></div><div class="filters"><select id="rmStatus" aria-label="Filtrer la feuille de route par statut"><option value="">Tous les statuts</option><option value="DONE_VERIFIED">Vérifié</option><option value="DONE">Terminé</option><option value="IN_PROGRESS">En cours</option><option value="PARTIAL">Partiel</option><option value="PLANNED">Planifié</option><option value="BLOCKED_HUMAN">Bloqué humain</option><option value="BLOCKED_EXTERNAL">Bloqué externe</option></select><select id="rmPriority" aria-label="Filtrer la feuille de route par priorité"><option value="">Toutes priorités</option><option>P0</option><option>P1</option><option>P2</option><option>P3</option></select></div><div id="roadmapList">Chargement…</div></section>
-<section class="view" data-panel="multi"><div class="section-title"><h2>IA & Développement</h2><p>Réunion multi-IA et travaux persistants dans une seule surface.</p></div><div id="melUnifiedTabs" class="mel-unified-tabs" role="tablist" aria-label="IA et développement"><button class="active" data-mode="meeting" role="tab" aria-selected="true">Réunion IA</button><button data-mode="development" role="tab" aria-selected="false">Développement</button></div><div data-mode-panel="meeting"><article class="card wide"><textarea id="multiInput" aria-label="Mission de la réunion multi-IA" placeholder="Mission ou compétence à étudier…"></textarea><div class="two" style="margin-top:10px"><label>Nombre de candidats<select id="multiN" aria-label="Nombre de modèles à consulter"><option>2</option><option selected>4</option><option>6</option><option>8</option><option>12</option></select></label><label>Revue Teacher<select id="multiTeacher" aria-label="Modèle professeur"><option value="false">Non</option><option value="true" selected>Oui</option></select></label></div><div class="actions"><button class="primary" id="multiRun">Lancer l’état des lieux</button></div><pre class="output" id="multiOut">Aucun résultat.</pre></article></div><div data-mode-panel="development" hidden><div class="grid"><article class="card"><h2>Dev Bridge</h2><div class="pill" id="bridgeState" style="margin-top:9px">Vérification…</div><textarea id="workGoal" aria-label="Objectif de développement" placeholder="Objectif de modification…" style="margin-top:12px"></textarea><div class="actions"><button class="primary" id="workCreate">Préparer</button><button id="workRefresh">Rafraîchir</button></div></article><article class="card"><h2>Dernier job</h2><pre class="output" id="workOut">Aucun job chargé.</pre></article><article class="card wide"><h2>Cycle d’évolution</h2><div class="status-row"><span>1. État des lieux multi-IA</span><span class="tag good">OBLIGATOIRE</span></div><div class="status-row"><span>2. Inspection code + réutilisation</span><span class="tag warn">EN COURS</span></div><div class="status-row"><span>3. Spec → génération → validation → tests</span><span class="tag warn">PARTIEL</span></div><div class="status-row"><span>4. Benchmark + critique + correction</span><span class="tag warn">PARTIEL</span></div><div class="status-row"><span>5. Activation supervisée + ledger</span><span class="tag warn">À COMPLÉTER</span></div></article></div></div></section>
-<section class="view" data-panel="memory"><div class="section-title"><h2>Mémoire & import</h2><p>Persistance, RAG, export et import de contexte ChatGPT.</p></div><div class="grid"><article class="card"><h2>État</h2><pre class="output" id="memoryOut">Chargement…</pre><div class="actions"><button id="memoryRefresh">Actualiser</button></div></article><article class="card"><h2>Export</h2><p class="muted">Export portable de la mémoire et des interactions.</p><div class="actions"><a class="button" href="/api/export">Télécharger l’export</a></div></article><article class="card wide"><div class="skill-head"><div><h2>ShardVault · sauvegarde distribuée</h2><p class="muted" style="margin:6px 0 0">Recherche et sélection des cibles autonomes utilisées pour la continuité mémoire de MEL.</p></div><span class="tag warn" id="shardVaultState">Chargement…</span></div><div class="actions"><button id="shardVaultSnapshot" class="primary">Sauvegarder maintenant</button><button id="shardVaultRefresh">Actualiser</button><a class="button" href="/shardvault">Explorer les sauvegardes et Internet</a></div><pre class="output" id="shardVaultOut">Chargement de l’état ShardVault…</pre></article><article class="card wide"><div class="skill-head"><div><h2>Archive ChatGPT</h2><p class="muted" style="margin:6px 0 0">État serveur de l’archive ChatGPT déjà importée. Le collecteur Firefox est retiré ; cette zone reste disponible pour consulter l’historique conservé.</p></div><span class="tag warn" id="chatgptServerState">Chargement…</span></div><div class="two" style="margin-top:12px"><div><div class="status-row"><span>Conversations reçues</span><strong id="chatgptServerConversations">—</strong></div><div class="status-row"><span>Messages reçus</span><strong id="chatgptServerMessages">—</strong></div><div class="status-row"><span>Descripteurs pièces jointes</span><strong id="chatgptServerAttachments">—</strong></div><div class="status-row"><span>Conversations partielles</span><strong id="chatgptServerPartial">—</strong></div></div><div><div class="status-row"><span>Messages restant à préparer</span><strong id="chatgptServerUnsynced">—</strong></div><div class="status-row"><span>Conversations sous-remplies</span><strong id="chatgptServerUnderfilled">—</strong></div><div class="status-row"><span>Complétude archive</span><strong id="chatgptServerFull">—</strong></div><div class="status-row"><span>Chaîne mémoire</span><strong id="chatgptServerMemoryStage">—</strong></div></div></div><div class="footer-note">L’archive brute reste conservée. Les messages sont aussi rendus recherchables par MEL et transformés en observations mémoire avec provenance ; ils ne deviennent pas automatiquement des faits certains.</div><div class="actions"><button id="chatgptStatusRefresh">Actualiser l’archive</button></div><pre class="output" id="chatgptStatusOut">Chargement…</pre></article><article class="card wide"><div class="skill-head"><div><h2>Importer un export ChatGPT · MEL-MEM-05</h2><p class="muted" style="margin:6px 0 0">Sélectionne le <strong>conversations.json</strong> officiel, ou un JSON enrichi contenant les octets réels des fichiers. MEL fait un pré-audit sans écriture, puis importe, indexe les pièces jointes présentes, termine le backfill mémoire et rend un verdict de complétude.</p></div><span class="tag warn" id="chatgptJourneyState">EN ATTENTE</span></div><input id="chatgptFile" aria-label="Importer une archive ChatGPT" type="file" accept="application/json,.json" style="margin-top:12px"><div class="actions"><button id="chatgptPreaudit">1. Pré-auditer</button><button id="chatgptImport" class="primary" disabled>2. Importer et finaliser</button></div><div class="two" style="margin-top:12px"><div><div class="status-row"><span>Archive officielle</span><strong id="chatgptPreOfficial">—</strong></div><div class="status-row"><span>Conversations du fichier</span><strong id="chatgptPreConversations">—</strong></div><div class="status-row"><span>Messages du fichier</span><strong id="chatgptPreMessages">—</strong></div></div><div><div class="status-row"><span>Descripteurs de pièces jointes</span><strong id="chatgptPreAttachments">—</strong></div><div class="status-row"><span>Octets de fichiers présents</span><strong id="chatgptPreBinary">—</strong></div><div class="status-row"><span>Source non tronquée</span><strong id="chatgptPreCoverage">—</strong></div></div></div><div class="footer-note" id="chatgptJourneyVerdict">Aucun pré-audit lancé.</div><pre class="output" id="chatgptOut">Aucun import lancé.</pre></article></div></section>
-<section class="view" data-panel="terminal"><div class="section-title"><h2>Terminal MEL · Waveshare</h2><p>Préparation, appairage et état du terminal ESP32-S3 3,5 pouces.</p></div><div class="grid"><article class="card"><div class="skill-head"><div><h2>Premier démarrage</h2><p class="muted" style="margin:6px 0 0">Le code d’appairage est valable 10 minutes et ne révèle pas ton mot de passe MEL au terminal.</p></div><span class="tag warn" id="terminalState">EN ATTENTE</span></div><div class="metric" id="terminalPairCode" style="letter-spacing:.12em">— — — —</div><div class="actions"><button class="primary" id="terminalPairCreate">Créer un code d’appairage</button><button id="terminalRefresh">Actualiser</button></div><div class="footer-note" id="terminalPairNote">Sur MINI : connecte le Wi-Fi depuis l’écran tactile, touche l’icône de liaison puis saisis ce code.</div></article><article class="card"><h2>Installation / récupération</h2><p class="muted">Le script Windows installera l’outil de flash si nécessaire et utilisera le paquet firmware validé.</p><div class="actions"><a class="button primary" href="/api/device/v1/setup-script">Télécharger le flashage Windows</a></div><div class="status-row"><span>Carte cible</span><strong>ESP32-S3-Touch-LCD-3.5-C</strong></div><div class="status-row"><span>Caméra</span><strong>OV5640</strong></div><div class="status-row"><span>Écran</span><strong>320×480 tactile</strong></div><div class="status-row"><span>Audio</span><strong>ES8311 + micro</strong></div></article><article class="card wide"><h2>Terminaux appairés</h2><div id="terminalDevices"><div class="muted">Chargement des terminaux…</div></div></article><article class="card wide"><h2>Fonctions préparées</h2><div class="status-row"><span>Connexion Wi-Fi + appairage à usage unique</span><span class="tag good">PRÊT</span></div><div class="status-row"><span>Chat MEL</span><span class="tag good">PRÊT BACKEND</span></div><div class="status-row"><span>Micro → transcription française</span><span class="tag good">INTÉGRÉ</span></div><div class="status-row"><span>Réponse vocale haut-parleur ES8311</span><span class="tag good">INTÉGRÉE</span></div><div class="status-row"><span>Caméra OV5640</span><span class="tag good">COMPILÉ</span></div><div class="status-row"><span>Téléchargement / OTA</span><span class="tag good">COMPILÉ</span></div><div class="status-row"><span>Powerbank USB-C</span><span class="tag good">SANS SOUDURE</span></div><pre class="output" id="terminalOut">MINI v0.4.5 · protocole v1.0 · Wi-Fi tactile + voix + MEL + caméra + OTA.</pre></article></div></section>
-<section class="view" data-panel="lora"><div class="section-title"><h2>LoRA UNCENSORED gratuit</h2><p>Parcours sans GPU payant déclenché par MEL : entraînement Kaggle T4 gratuit, checkpoints immuables, benchmark local puis benchmark canonique avant activation.</p></div><article class="card wide"><div class="skill-head"><div><h2>Pipeline gratuit</h2><p class="muted" style="margin:6px 0 0">Dépôt cible : <strong>Meliturgos/mel-lora-uncensored</strong></p></div><span class="tag good" id="freeLoraCostBadge">GPU payant désactivé</span></div><div class="lora-cost" style="margin-top:14px">MEL orchestre uniquement le quota GPU gratuit Kaggle. Aucun fallback GPU payant n’est autorisé ; Colab reste un secours manuel.</div><div class="status-row"><span>Minimum MEL validé</span><strong id="freeLoraLessons">—/50</strong></div><div class="status-row"><span>GPU Kaggle</span><strong id="freeKaggleState">—</strong></div><div class="status-row"><span>Collector Kaggle</span><strong id="freeCollectorState">—</strong></div><div class="status-row"><span>Cycle Kaggle</span><strong id="freeKaggleCycle">—</strong></div><div class="status-row"><span>Exemples réellement entraînés</span><strong id="freeTrainingExamples">—</strong></div><div class="status-row"><span>Checkpoint</span><strong id="freeCheckpointStage">—</strong></div><div class="status-row"><span>LoRA Hugging Face compatibles</span><strong id="freeCompatibleLoras">—</strong></div><div class="status-row"><span>Benchmark</span><strong id="freeBenchmarkState">—</strong></div><div class="status-row"><span>Phase suivante</span><strong id="freeImpactStage">—</strong></div><div class="two" style="margin-top:10px"><div><div class="status-row"><span>Profondeur technique</span><strong id="freeImpactTechnical">—</strong></div><div class="status-row"><span>Réponses sensibles</span><strong id="freeImpactSensitive">—</strong></div><div class="status-row"><span>Sur-refus</span><strong id="freeImpactRefusal">—</strong></div></div><div><div class="status-row"><span>Frontière question test</span><strong id="freeImpactBoundary">—</strong></div><div class="status-row"><span>Agentivité</span><strong id="freeImpactAgentic">—</strong></div><div class="status-row"><span>Gain impact global</span><strong id="freeImpactDelta">—</strong></div></div></div><div class="footer-note">Question test fixe exécutée dans le benchmark interne. Seuls les scores sont conservés ; la réponse brute n’est pas enregistrée.</div><div class="lora-progress-label"><span id="freeLoraProgressText">État à charger…</span><strong id="freeLoraProgressPercent">—</strong></div><div class="progress"><span id="freeLoraBar" style="width:0%"></span></div><div class="lora-steps"><div class="lora-step"><b>1. GPU Kaggle</b><span class="tag warn" id="freeGpuState">Vérification…</span><small style="margin-top:8px">Heartbeat MEL → shard verbatim → T4 gratuit → benchmark local. Reprise automatique depuis le dernier checkpoint.</small><a class="button lora-link" id="freeLoraColab" target="_blank" rel="noopener" href="https://www.kaggle.com/code/adrienlopezcarreras/mel-lora-uncensored-notebook-t4">Voir Kaggle</a></div><div class="lora-step"><b>2. Checkpoint immuable</b><span class="tag warn" id="freeHfState">Vérification…</span><small style="margin-top:8px">Chaque cycle validé conserve artefact, manifeste, provenance et benchmark local avant de poursuivre.</small><a class="button lora-link" id="freeLoraHf" target="_blank" rel="noopener" href="https://huggingface.co/Meliturgos/mel-lora-uncensored">Voir le bundle</a></div><div class="lora-step"><b>3. GitHub → Cloudflare</b><span class="tag warn" id="freeWorkflowState">Vérification…</span><small style="margin-top:8px">Valide, upload, approuve l’artefact exact et benchmarke dans le preview.</small><a class="button lora-link" id="freeLoraWorkflow" target="_blank" rel="noopener" href="https://github.com/adrienlopezcarreras-pixel/meliturgos-cloudflare/actions/workflows/lora-promote-from-huggingface.yml">Ouvrir la promotion</a></div><div class="lora-step"><b>4. MEL</b><span class="tag warn" id="freeRuntimeState">Vérification…</span><small style="margin-top:8px" id="freeRuntimeDetail">État runtime en cours de vérification.</small><button class="lora-link" id="freeLoraRefresh" type="button">Actualiser l’état</button></div><div class="lora-step"><b>5. AGENTIC</b><span class="tag warn" id="freeAgenticState">Vérification…</span><small style="margin-top:8px">Crée un nouvel adaptateur enfant à partir d’UNCENSORED. Le parent reste intact.</small><a class="button lora-link" id="freeAgenticColab" target="_blank" rel="noopener" aria-disabled="true">Ouvrir AGENTIC</a></div></div><div class="two"><div><h3>Fichiers attendus</h3><div class="lora-files" id="freeLoraFiles">Chargement…</div></div><div><h3>Dernier workflow</h3><pre class="output" id="freeLoraWorkflowDetail">Chargement…</pre></div></div><div class="footer-note">La production reste hors de ce parcours. L’activation concerne uniquement le preview isolé lorsque le workflow est lancé avec <code>activate_preview=true</code> et que le benchmark passe.</div></article></section>
-<section class="view" data-panel="computer"><div class="section-title"><h2>Ordinateur MEL</h2><p>Compagnon Windows appairé : écran, souris, clavier et applications autorisées.</p></div><div class="grid"><article class="card"><div class="skill-head"><div><h2>Connexion</h2><p class="muted" style="margin:6px 0 0">Le compagnon démarre avec Windows et ne reçoit que les actions validées par MEL.</p></div><span class="tag warn" id="computerState">VÉRIFICATION…</span></div><label style="display:block;margin-top:12px">Ordinateur<select id="computerSelect" aria-label="Ordinateur appairé"><option value="">Chargement…</option></select></label><div class="status-row"><span>Dernier contact</span><strong id="computerLastSeen">—</strong></div><div class="status-row"><span>Fenêtre active</span><strong id="computerActiveWindow">—</strong></div><div class="actions"><a class="button primary" href="/api/computer/v1/installer">Télécharger l’installation Windows</a><button id="computerRefresh">Actualiser</button><button id="computerHalt">ARRÊTER LE CONTRÔLE</button><button id="computerResume">Réactiver</button></div></article><article class="card"><h2>Actions rapides</h2><p class="muted">Les actions de saisie et d’ouverture d’application sont envoyées avec ton approbation explicite depuis cet écran.</p><div class="actions"><button id="computerShot" class="primary">Capture écran</button><button data-pc-app="notepad">Bloc-notes</button><button data-pc-app="calculator">Calculatrice</button><button data-pc-app="explorer">Explorateur</button></div><label style="display:block;margin-top:12px">Texte à écrire<input id="computerText" aria-label="Texte à saisir sur l’ordinateur" maxlength="4096" placeholder="Texte à saisir dans la fenêtre active"></label><div class="actions"><button id="computerType">Écrire</button><button data-pc-key="ENTER">Entrée</button><button data-pc-key="TAB">Tab</button><button data-pc-key="CTRL+L">Ctrl+L</button><button data-pc-key="ALT+TAB">Alt+Tab</button></div></article><article class="card wide"><div class="skill-head"><div><h2>Écran</h2><p class="muted" style="margin:6px 0 0">Après une capture, clique sur l’image pour déplacer le pointeur et cliquer à cet endroit.</p></div><span class="tag" id="computerScreenState">AUCUNE CAPTURE</span></div><div style="margin-top:12px;min-height:220px;border:1px solid var(--line);border-radius:16px;overflow:hidden;background:#020617;display:flex;align-items:center;justify-content:center"><img id="computerScreen" alt="Écran de l’ordinateur MEL" style="display:none;max-width:100%;width:100%;height:auto;cursor:crosshair"></div><div class="actions"><button id="computerScrollUp">Défiler ↑</button><button id="computerScrollDown">Défiler ↓</button></div></article><article class="card wide"><h2>Historique du contrôle</h2><pre class="output" id="computerOut">Chargement de l’état ordinateur…</pre></article></div></section>
-<section class="view" data-panel="connections"><div class="section-title"><h2>Connexions</h2><p>Connecte une fois Gmail, Yahoo/Ymail, Vercel et Pipedream Connect. Outlook/MSN, OneDrive et SharePoint passent par Pipedream. Les jetons et identifiants sont conservés chiffrés côté serveur.</p></div><div id="connectionBanner" class="connection-banner" hidden role="status" aria-live="polite"></div><div class="grid">
-<article class="card connection-card"><div class="skill-head"><div><h2>Gmail</h2><p class="muted" style="margin:5px 0 0">Un seul consentement Google durable couvre Gmail, Calendar et Tasks.</p></div><span class="tag warn" id="connStateGmail">VÉRIFICATION…</span></div><div class="connection-provider-state" id="connAppGoogle">Application Google : vérification…</div><div class="actions"><button class="primary" id="gmailConnect">Se connecter</button><button id="gmailTest">Tester</button></div><div class="connection-note" id="connNoteGmail">Après consentement, MEL conserve le refresh token chiffré et réutilise ce même grant Google pour Gmail, Calendar et Tasks.</div></article>
-<article class="card connection-card"><div class="skill-head"><div><h2>Yahoo / Ymail</h2><p class="muted" style="margin:5px 0 0">Connexion directe au compte Yahoo Mail via IMAP + SMTP avec mot de passe d’application.</p></div><span class="tag warn" id="connStateYahoo">NON CONFIGURÉ</span></div><div class="connection-provider-state">Serveurs fixes : imap.mail.yahoo.com:993 TLS · smtp.mail.yahoo.com:465 TLS</div><div class="two" style="margin-top:10px"><input id="yahooUsername" aria-label="Adresse Yahoo ou Ymail" autocomplete="username" placeholder="adresse@yahoo.fr ou adresse@ymail.com"><input id="yahooAppPassword" aria-label="Mot de passe d’application Yahoo" type="password" autocomplete="current-password" placeholder="mot de passe d’application Yahoo"></div><div class="actions"><button class="primary" id="yahooSave">Enregistrer chiffré</button><button id="yahooTest">Tester IMAP + SMTP</button><button data-pd-connect="imap" id="yahooPipedream">Connecter via Pipedream IMAP</button></div><div class="connection-note" id="connNoteYahoo">Yahoo exige un mot de passe d’application pour les clients IMAP tiers. Si l’authentification directe est refusée, régénère ce mot de passe dans la sécurité Yahoo puis reteste, ou utilise le pont Pipedream IMAP.</div></article>
-<article class="card connection-card"><div class="skill-head"><div><h2>Vercel</h2><p class="muted" style="margin:5px 0 0">Projet et déploiements Vercel pour GEN2-36.</p></div><span class="tag warn" id="connStateVercel">VÉRIFICATION…</span></div><div class="two" style="margin-top:10px"><input id="vercelToken" type="password" autocomplete="off" aria-label="Token Vercel" placeholder="Vercel token"><input id="vercelTeamId" aria-label="Team ID Vercel" placeholder="Team ID (facultatif)"></div><div class="two" style="margin-top:9px"><input id="vercelProjectId" aria-label="Project ID Vercel" placeholder="Project ID"><input id="vercelProjectName" aria-label="Nom du projet Vercel" placeholder="Nom du projet"></div><div class="actions"><button class="primary" id="vercelSave">Enregistrer chiffré</button><button id="vercelTest">Tester</button><button id="vercelRefresh">Actualiser</button></div><div class="connection-note" id="connNoteVercel">Le token n’est jamais renvoyé à l’interface après sauvegarde.</div><div id="vercelProjects" class="footer-note">Aucun projet chargé.</div><label style="display:block;margin-top:10px">Déploiement à redéployer<select id="vercelDeploymentSelect" aria-label="Déploiement Vercel"><option value="">Tester Vercel d’abord</option></select></label><div class="actions"><button id="vercelRedeployPreview">Redéployer preview</button><button id="vercelRedeployProduction">Redéployer production</button></div></article>
-<article class="card wide connection-card"><div class="skill-head"><div><h2>Pipedream Connect</h2><p class="muted" style="margin:5px 0 0">Pont OAuth géré pour Outlook/MSN, OneDrive et les intégrations externes de la roadmap.</p></div><span class="tag warn" id="connStatePipedream">NON CONFIGURÉ</span></div><div class="two" style="margin-top:10px"><input id="pipedreamProjectId" aria-label="Project ID Pipedream" placeholder="proj_…"><input id="pipedreamClientId" aria-label="Client ID Pipedream" autocomplete="off" placeholder="Client ID"></div><div class="two" style="margin-top:9px"><input id="pipedreamClientSecret" type="password" autocomplete="off" aria-label="Client Secret Pipedream" placeholder="Client Secret"><select id="pipedreamEnvironment" aria-label="Environnement Pipedream"><option value="production">Production</option><option value="development">Development</option></select></div><div class="actions"><button class="primary" id="pipedreamSave">Enregistrer chiffré</button><button id="pipedreamTest">Tester le projet</button></div><div class="connection-note" id="connNotePipedream">Les identifiants Pipedream sont chiffrés dans le vault et le secret n’est jamais réaffiché.</div><div class="footer-note" style="margin-top:10px">Connexions prioritaires</div><div class="actions"><button class="primary" data-pd-connect="microsoft_outlook">Connecter Outlook / MSN</button><button class="primary" data-pd-connect="microsoft_onedrive">Connecter OneDrive</button><button class="primary" data-pd-connect="sharepoint">Connecter SharePoint</button></div><div class="connection-note" id="pipedreamPrimaryState">Statut : vérification des comptes Microsoft…</div><div class="footer-note" style="margin-top:10px">Autres connexions</div><div class="actions"><button data-pd-connect="imap">Yahoo/Ymail via IMAP</button><button data-pd-connect="lemlist">Lemlist</button><button data-pd-connect="google_drive">Google Drive</button><button data-pd-connect="google_calendar">Google Calendar</button><button data-pd-connect="google_tasks">Google Tasks</button><button data-pd-connect="dropbox">Dropbox</button></div><div class="connection-note" id="pipedreamAppsState">Après configuration, MEL génère un lien Pipedream Connect temporaire pour chaque service.</div></article>
+${CHAT_RICH_RENDERER_CSS}
+</style></head><body><div class="shell"><aside class="sidebar"><div class="brand"><img src="/assets/avatars/mel-full.webp" alt=""><div><strong>Mode complet</strong><small>Centre de contrôle</small></div></div><nav class="nav" id="nav"><button class="active" data-view="overview" type="button"><span class="ico">⌂</span>Vue d’ensemble</button><button data-view="chat" type="button"><span class="ico">◌</span>Chat</button><button data-view="skills" type="button"><span class="ico">◇</span>Compétences</button><button data-view="roadmap" type="button"><span class="ico">↗</span>Feuille de route</button><button data-view="multi" type="button"><span class="ico">✦</span>IA & Développement</button><button data-view="memory" type="button"><span class="ico">◎</span>Mémoire</button><button data-view="computer" type="button"><span class="ico">▤</span>Ordinateur</button><button data-view="terminal" type="button"><span class="ico">▥</span>Terminal MEL</button><button data-view="lora" type="button"><span class="ico">◈</span>LoRA gratuit</button><button data-view="connections" type="button"><span class="ico">↔</span>Connexions</button><button data-view="diagnostics" type="button"><span class="ico">⚙</span>Diagnostic</button><button id="mobileMoreNav" class="mobile-more-nav" aria-expanded="false" type="button"><span class="ico">•••</span>Plus</button></nav><div id="mobileMoreMenu" class="mobile-more-menu" hidden aria-label="Outils supplémentaires"><button data-jump="skills" type="button">Compétences</button><button data-jump="roadmap" type="button">Feuille de route</button><button data-jump="computer" type="button">Ordinateur</button><button data-jump="terminal" type="button">Terminal MEL</button><button data-jump="lora" type="button">LoRA</button><button data-jump="diagnostics" type="button">Diagnostic</button></div><a class="home" href="/">Retour à l’accueil</a></aside><main class="main"><header class="top"><div><h1 id="viewTitle">Vue d’ensemble</h1><p id="viewSubtitle">État réel des briques principales.</p></div><div class="pill"><span id="globalDot" class="dot"></span><span id="globalState" role="status" aria-live="polite">Vérification…</span></div><div class="canonical-autonomy-controls" aria-label="Pilotage de MEL"><button id="melFullMax" type="button">MAX 100%</button><button id="melFullCycle" class="primary" type="button">▶ Démarrer cycle MEL</button><a class="button canonical-watch-link" href="/veille">Veille des capacités</a><button id="melFullStop" type="button">Mettre MEL en pause</button><button id="melFullActivity" type="button">Activité</button></div></header><aside id="desktopActivityPanel" class="autonomy-activity-panel" hidden aria-label="Activité réelle de MEL"><div class="autonomy-activity-head"><strong>Activité réelle de MEL</strong><button id="desktopActivityClose" aria-label="Fermer le panneau d’activité" type="button">×</button></div><div id="desktopActivityBody" class="autonomy-activity-body" role="status" aria-live="polite">Chargement…</div></aside>
+<section class="view active" data-panel="overview"><div class="mobile-home-controls" aria-label="Commandes rapides MEL"><button id="mobileMaxAutonomy" type="button">MAX 100%</button><button id="mobilePauseAutonomy" type="button">Mettre MEL en pause</button><button id="mobileStartCycle" class="primary mobile-cycle" type="button">▶ Démarrer cycle MEL</button><button id="mobileActivityAutonomy" type="button">Activité</button><a class="button mobile-watch-link" href="/veille">Veille des capacités</a><div id="mobileAutonomyFeedback" class="mobile-home-feedback" role="status" aria-live="polite">Commandes MEL prêtes.</div><div id="mobileActivityPanel" class="mobile-activity-panel" hidden role="status" aria-live="polite"></div></div><div class="grid"><article class="card wide hero"><img src="/assets/avatars/mel-full.webp" alt="MEL"><div><div class="learning-summary-row" style="display:flex;align-items:flex-start;justify-content:space-between;gap:18px;flex-wrap:wrap"><h2 style="margin:6px 0 0">Système personnel</h2><div id="learningMeter" style="min-width:320px;max-width:440px"><span id="learningChip" role="button" tabindex="0" aria-expanded="false" title="Cliquer pour afficher les détails" style="display:flex;cursor:pointer;user-select:none;padding:13px 16px;border:1px solid rgba(125,211,252,.30);border-radius:999px;background:linear-gradient(120deg,rgba(34,211,238,.18),rgba(59,130,246,.14),rgba(167,139,250,.18));box-shadow:inset 0 1px 0 rgba(255,255,255,.15),0 10px 30px rgba(37,99,235,.17);transition:transform .18s ease,box-shadow .18s ease"><span style="display:flex;flex-direction:column;min-width:0;flex:1"><span style="display:flex;align-items:baseline;gap:10px;white-space:nowrap"><strong style="font-size:1.28rem;line-height:1.1">Niv. <span id="learnLevel">—</span></strong><span id="learnRank" style="font-size:.94rem;color:#bae6fd;font-weight:600">mesure…</span><span id="learnXp" style="margin-left:auto;font-size:1.02rem;font-weight:800;color:#e0f2fe">— XP</span><span id="learnArrow" style="font-size:1rem;color:#c4b5fd">⌄</span></span><span style="display:block;height:8px;margin-top:8px;border-radius:999px;background:rgba(255,255,255,.09);overflow:hidden"><span id="learnBar" style="display:block;height:100%;width:0%;border-radius:999px;background:linear-gradient(90deg,#22d3ee,#60a5fa 55%,#a78bfa);box-shadow:0 0 14px rgba(34,211,238,.55);transition:width .35s ease"></span></span><span id="learnMeta" style="margin-top:6px;font-size:.84rem;line-height:1.2;color:#dbeafe;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">apprentissage réel · roadmap exclue</span></span></span><div id="learningDetails" style="display:none;margin-top:10px;padding:15px 17px;border:1px solid rgba(125,211,252,.18);border-radius:18px;background:linear-gradient(145deg,rgba(7,18,34,.88),rgba(27,30,54,.78));box-shadow:inset 0 1px 0 rgba(255,255,255,.08),0 16px 38px rgba(0,0,0,.20);font-size:.98rem;line-height:1.35"><div style="display:grid;grid-template-columns:1fr auto;gap:10px 16px"><span style="color:#b6c2d2">XP avant niveau suivant</span><strong id="learnNext">—</strong><span style="color:#b6c2d2">Corrections</span><strong id="learnCorrections">—</strong><span style="color:#b6c2d2">Prêtes entraînement</span><strong id="learnTraining">—</strong><span style="color:#b6c2d2">Benchmark</span><strong id="learnBenchmark">—</strong><span style="color:#b6c2d2">Essais réglages</span><strong id="learnTrials">—</strong><span style="color:#b6c2d2">Erreurs répétées</span><strong id="learnErrors">—</strong><span style="color:#b6c2d2">Poids runtime</span><strong id="learnWeights">—</strong></div><div style="margin-top:12px;color:#7dd3fc;font-size:.84rem;line-height:1.3">Mesure d’apprentissage uniquement — la feuille de route ne donne aucun XP.</div><div class="learning-actions"><button id="melRunBenchmark" type="button">Lancer benchmark</button><button id="melPrepareLora" type="button">Préparer LoRA</button><span id="melLearningActionState" class="muted" role="status" aria-live="polite">Actions opérateur prêtes.</span></div></div></div></div><p class="muted">Conversation, mémoire, code, outils, multi-IA, Work et évolution réunis dans un même centre de contrôle.</p><div class="actions"><button class="primary" data-jump="chat" type="button">Parler à MEL</button><button data-jump="roadmap" type="button">Voir la feuille de route</button><button data-jump="diagnostics" type="button">Tester le système</button></div></div></article><article class="card third"><h2>Compétences</h2><div class="metric"><span id="capCount">—</span> <small>enregistrées</small></div><p class="muted" id="capSummary">Chargement…</p></article><article class="card third"><h2>Feuille de route</h2><div class="metric"><span id="roadPercent">—</span><small>% terminé</small></div><div class="progress"><span id="roadBar" style="width:0%"></span></div></article><article class="card third"><h2>Accès au code</h2><div class="metric" id="codeMetric">—</div><p class="muted" id="codeSummary">Test non lancé.</p></article><article class="card wide"><div class="skill-head"><div><h2>Boucle MEL</h2><p class="muted" style="margin:6px 0 0">Avance automatiquement sur la roadmap canonique, uniquement sur la candidate.</p></div><span class="tag warn" id="autonomyBadge">Vérification…</span></div><div class="status-row"><span>Mode</span><strong id="autonomyMode">—</strong></div><div class="status-row"><span>Progression MAX</span><strong id="autonomyProgress">—</strong></div><div class="status-row"><span>Jobs créés / terminés / bloqués</span><strong id="autonomyCounters">—</strong></div><div class="status-row"><span>Prochaine étape</span><span id="autonomyNext" class="muted">—</span></div><div class="footer-note" id="autonomyNote">La production reste verrouillée et nécessite une validation humaine.</div></article><article class="card wide"><h2>Santé du système</h2><div id="healthRows"><div class="status-row"><span>Chargement</span><span class="muted">…</span></div></div></article></div></section>
+<section class="view" data-panel="chat"><div class="section-title"><h2>Conversation</h2><p>Le chat utilise mes capacités réelles quand ta demande les nécessite.</p></div><div class="cap-help" id="chatCapabilityHelp"><div class="cap-help-head"><div><strong>Ce que je sais faire</strong><div class="cap-help-intro">Cette fiche vient directement de mon CapabilityBus : elle décrit mes capacités enregistrées, pas une promesse théorique.</div><div class="cap-help-summary" id="chatCapSummary">Lecture de mes capacités…</div></div><button id="chatCapRefresh" type="button">Actualiser</button></div><div class="cap-help-groups" id="chatCapGroups"></div><details><summary>Voir toutes mes capacités</summary><div class="cap-help-list" id="chatCapList">Chargement…</div></details></div><article class="card wide"><div class="chatlog" id="chatlog"><div class="msg mel">Prête.</div></div><div class="actions"><button id="resumeLatestChat" class="ghost" type="button">Reprendre le dernier échange</button></div><form class="composer" id="chatForm"><input id="chatInput" aria-label="Message à MEL" type="text" maxlength="100000" autocomplete="off" enterkeyhint="send" placeholder="Écris, colle du texte ou Ctrl+V une image/un document…"><input id="chatFileInput" type="file" multiple hidden aria-label="Joindre des fichiers au chat"><button id="chatAttach" class="ghost" type="button">Joindre</button><button class="primary" id="chatSend" type="submit">Envoyer</button></form><div id="chatAttachments" class="actions" aria-live="polite"></div><div class="muted" id="chatStatus" role="status" aria-live="polite" style="margin-top:8px"></div></article></section>
+<section class="view" data-panel="skills"><div class="section-title"><h2>Compétences</h2><p>État réel vérifié automatiquement. Source de vérité combinée : CapabilityBus live, Skill Registry durable et progression d’apprentissage réelle.</p></div><div class="roadmap-head" id="skillsHealthSummary"><div class="roadstat"><span class="muted">Santé OK (non testé)</span><strong id="skillsHealthy">—</strong></div><div class="roadstat"><span class="muted">Protégées</span><strong id="skillsProtected">—</strong></div><div class="roadstat"><span class="muted">Dégradées</span><strong id="skillsDegraded">—</strong></div><div class="roadstat"><span class="muted">En attente PC</span><strong id="skillsWaiting">—</strong></div><div class="roadstat"><span class="muted">Non configurées</span><strong id="skillsUnavailable">—</strong></div><div class="roadstat"><span class="muted">En échec</span><strong id="skillsFailed">—</strong></div><div class="roadstat"><span class="muted">Apprises actives</span><strong id="skillsLearned">—</strong></div><div class="roadstat"><span class="muted">XP réel</span><strong id="skillsXp">—</strong></div></div><div class="grid"><article class="card wide"><div class="skill-head"><div><h2>Capacités techniques</h2><p class="muted" style="margin:6px 0 0">Santé remontée par CapabilityBus : HEALTHY ne prouve pas l’exécution. Seules les preuves de tests d’exécution confirment le fonctionnement réel.</p></div><button id="refreshSkills" type="button">Actualiser la santé</button></div><div id="skillsProviderSummary" class="footer-note" role="status" aria-live="polite">Vérification des fournisseurs…</div><div id="skillsList" style="margin-top:12px">Chargement…</div></article><article class="card wide"><div class="skill-head"><div><h2>Compétences apprises · Skill Registry</h2><p class="muted" style="margin:6px 0 0">Seules les versions actives et vérifiées du registre durable sont présentées comme apprises.</p></div><span id="skillsLearningState" class="tag warn">VÉRIFICATION…</span></div><div id="skillsLearningSummary" class="footer-note">Lecture du Skill Registry et de l’XP…</div><div id="skillsLearnedList" style="margin-top:12px">Chargement…</div></article></div></section>
+<section class="view" data-panel="roadmap"><div class="section-title"><h2>Feuille de route complète</h2><p>Source de vérité produit : fondations, mémoire, multi-IA, Work, évolution, voix, appareils, sécurité et maturité.</p></div><div class="roadmap-head"><div class="roadstat"><span class="muted">Total</span><strong id="rmTotal">—</strong></div><div class="roadstat"><span class="muted">DONE_VERIFIED</span><strong id="rmDone">—</strong></div><div class="roadstat"><span class="muted">En cours / partiel</span><strong id="rmActive">—</strong></div><div class="roadstat"><span class="muted">Progression</span><strong id="rmPercent">—</strong></div></div><div class="filters"><select id="rmStatus" aria-label="Filtrer la feuille de route par statut"><option value="">Tous les statuts</option><option value="DONE_VERIFIED">DONE_VERIFIED</option><option value="IN_PROGRESS">En cours</option><option value="PARTIAL">Partiel</option><option value="PLANNED">Planifié</option><option value="BLOCKED_HUMAN">Bloqué humain</option><option value="BLOCKED_EXTERNAL">Bloqué externe</option></select><select id="rmPriority" aria-label="Filtrer la feuille de route par priorité"><option value="">Toutes priorités</option><option>P0</option><option>P1</option><option>P2</option><option>P3</option></select></div><div id="roadmapList">Chargement…</div></section>
+<section class="view" data-panel="multi"><div class="section-title"><h2>IA & Développement</h2><p>Réunion multi-IA et travaux persistants dans une seule surface.</p></div><div id="melUnifiedTabs" class="mel-unified-tabs" role="tablist" aria-label="IA et développement"><button class="active" data-mode="meeting" role="tab" aria-selected="true" type="button">Réunion IA</button><button data-mode="development" role="tab" aria-selected="false" type="button">Développement</button></div><div data-mode-panel="meeting"><article class="card wide"><textarea id="multiInput" aria-label="Mission de la réunion multi-IA" placeholder="Mission ou compétence à étudier…"></textarea><div class="two" style="margin-top:10px"><label>Nombre de candidats<select id="multiN" aria-label="Nombre de modèles à consulter"><option>2</option><option selected>4</option><option>6</option><option>8</option><option>12</option></select></label><label>Revue Teacher<select id="multiTeacher" aria-label="Modèle professeur"><option value="false">Non</option><option value="true" selected>Oui</option></select></label></div><div class="actions"><button class="primary" id="multiRun" type="button">Lancer l’état des lieux</button></div><pre class="output" id="multiOut">Aucun résultat.</pre></article></div><div data-mode-panel="development" hidden><div class="grid"><article class="card"><h2>Dev Bridge</h2><div class="pill" id="bridgeState" style="margin-top:9px">Vérification…</div><textarea id="workGoal" aria-label="Objectif de développement" placeholder="Objectif de modification…" style="margin-top:12px"></textarea><div class="actions"><button class="primary" id="workCreate" type="button">Préparer</button><button id="workRefresh" type="button">Rafraîchir</button></div></article><article class="card"><h2>Dernier job</h2><pre class="output" id="workOut">Aucun job chargé.</pre></article><article class="card wide"><h2>Cycle d’évolution</h2><div class="status-row"><span>1. État des lieux multi-IA</span><span class="tag good">OBLIGATOIRE</span></div><div class="status-row"><span>2. Inspection code + réutilisation</span><span class="tag warn">EN COURS</span></div><div class="status-row"><span>3. Spec → génération → validation → tests</span><span class="tag warn">PARTIEL</span></div><div class="status-row"><span>4. Benchmark + critique + correction</span><span class="tag warn">PARTIEL</span></div><div class="status-row"><span>5. Activation supervisée + ledger</span><span class="tag warn">À COMPLÉTER</span></div></article></div></div></section>
+<section class="view" data-panel="memory"><div class="section-title"><h2>Mémoire & import</h2><p>Persistance, RAG, export et import de contexte ChatGPT.</p></div><div class="grid"><article class="card"><h2>État</h2><pre class="output" id="memoryOut">Chargement…</pre><div class="actions"><button id="memoryRefresh" type="button">Actualiser</button></div></article><article class="card"><h2>Export</h2><p class="muted">Export portable de la mémoire et des interactions.</p><div class="actions"><a class="button" href="/api/export">Télécharger l’export</a></div></article><article class="card wide"><div class="skill-head"><div><h2>ShardVault · sauvegarde distribuée</h2><p class="muted" style="margin:6px 0 0">Recherche et sélection des cibles autonomes utilisées pour la continuité mémoire de MEL.</p></div><span class="tag warn" id="shardVaultState">Chargement…</span></div><div class="actions"><button id="shardVaultSnapshot" class="primary" type="button">Sauvegarder maintenant</button><button id="shardVaultRefresh" type="button">Actualiser</button><a class="button" href="/shardvault">Explorer les sauvegardes et Internet</a></div><pre class="output" id="shardVaultOut">Chargement de l’état ShardVault…</pre></article><article class="card wide"><div class="skill-head"><div><h2>Archive ChatGPT</h2><p class="muted" style="margin:6px 0 0">État serveur de l’archive ChatGPT déjà importée. Le collecteur Firefox est retiré ; cette zone reste disponible pour consulter l’historique conservé.</p></div><span class="tag warn" id="chatgptServerState">Chargement…</span></div><div class="two" style="margin-top:12px"><div><div class="status-row"><span>Conversations reçues</span><strong id="chatgptServerConversations">—</strong></div><div class="status-row"><span>Messages reçus</span><strong id="chatgptServerMessages">—</strong></div><div class="status-row"><span>Descripteurs pièces jointes</span><strong id="chatgptServerAttachments">—</strong></div><div class="status-row"><span>Conversations partielles</span><strong id="chatgptServerPartial">—</strong></div></div><div><div class="status-row"><span>Messages restant à préparer</span><strong id="chatgptServerUnsynced">—</strong></div><div class="status-row"><span>Conversations sous-remplies</span><strong id="chatgptServerUnderfilled">—</strong></div><div class="status-row"><span>Complétude archive</span><strong id="chatgptServerFull">—</strong></div><div class="status-row"><span>Chaîne mémoire</span><strong id="chatgptServerMemoryStage">—</strong></div></div></div><div class="footer-note">L’archive brute reste conservée. Les messages sont aussi rendus recherchables par MEL et transformés en observations mémoire avec provenance ; ils ne deviennent pas automatiquement des faits certains.</div><div class="actions"><button id="chatgptStatusRefresh" type="button">Actualiser l’archive</button></div><pre class="output" id="chatgptStatusOut">Chargement…</pre></article><article class="card wide"><div class="skill-head"><div><h2>Importer un export ChatGPT · MEL-MEM-05</h2><p class="muted" style="margin:6px 0 0">Sélectionne le <strong>conversations.json</strong> officiel, ou un JSON enrichi contenant les octets réels des fichiers. MEL fait un pré-audit sans écriture, puis importe, indexe les pièces jointes présentes, termine le backfill mémoire et rend un verdict de complétude.</p></div><span class="tag warn" id="chatgptJourneyState">EN ATTENTE</span></div><input id="chatgptFile" aria-label="Importer une archive ChatGPT" type="file" accept="application/json,.json" style="margin-top:12px"><div class="actions"><button id="chatgptPreaudit" type="button">1. Pré-auditer</button><button id="chatgptImport" class="primary" disabled type="button">2. Importer et finaliser</button></div><div class="two" style="margin-top:12px"><div><div class="status-row"><span>Archive officielle</span><strong id="chatgptPreOfficial">—</strong></div><div class="status-row"><span>Conversations du fichier</span><strong id="chatgptPreConversations">—</strong></div><div class="status-row"><span>Messages du fichier</span><strong id="chatgptPreMessages">—</strong></div></div><div><div class="status-row"><span>Descripteurs de pièces jointes</span><strong id="chatgptPreAttachments">—</strong></div><div class="status-row"><span>Octets de fichiers présents</span><strong id="chatgptPreBinary">—</strong></div><div class="status-row"><span>Source non tronquée</span><strong id="chatgptPreCoverage">—</strong></div></div></div><div class="footer-note" id="chatgptJourneyVerdict">Aucun pré-audit lancé.</div><pre class="output" id="chatgptOut">Aucun import lancé.</pre></article></div></section>
+<section class="view" data-panel="terminal"><div class="section-title"><h2>Terminal MEL · Waveshare</h2><p>Préparation, appairage et état du terminal ESP32-S3 3,5 pouces.</p></div><div class="grid"><article class="card"><div class="skill-head"><div><h2>Premier démarrage</h2><p class="muted" style="margin:6px 0 0">Le code d’appairage est valable 10 minutes et ne révèle pas ton mot de passe MEL au terminal.</p></div><span class="tag warn" id="terminalState">EN ATTENTE</span></div><div class="metric" id="terminalPairCode" style="letter-spacing:.12em">— — — —</div><div class="actions"><button class="primary" id="terminalPairCreate" type="button">Créer un code d’appairage</button><button id="terminalRefresh" type="button">Actualiser</button></div><div class="footer-note" id="terminalPairNote">Sur MINI : connecte le Wi-Fi depuis l’écran tactile, touche l’icône de liaison puis saisis ce code.</div></article><article class="card"><h2>Installation / récupération</h2><p class="muted">Le script Windows installera l’outil de flash si nécessaire et utilisera le paquet firmware validé.</p><div class="actions"><a class="button primary" href="/api/device/v1/setup-script">Télécharger le flashage Windows</a></div><div class="status-row"><span>Carte cible</span><strong>ESP32-S3-Touch-LCD-3.5-C</strong></div><div class="status-row"><span>Caméra</span><strong>OV5640</strong></div><div class="status-row"><span>Écran</span><strong>320×480 tactile</strong></div><div class="status-row"><span>Audio</span><strong>ES8311 + micro</strong></div></article><article class="card wide"><h2>Terminaux appairés</h2><div id="terminalDevices"><div class="muted">Chargement des terminaux…</div></div></article><article class="card wide"><h2>Fonctions préparées</h2><div class="status-row"><span>Connexion Wi-Fi + appairage à usage unique</span><span class="tag good">PRÊT</span></div><div class="status-row"><span>Chat MEL</span><span class="tag good">PRÊT BACKEND</span></div><div class="status-row"><span>Micro → transcription française</span><span class="tag good">INTÉGRÉ</span></div><div class="status-row"><span>Réponse vocale haut-parleur ES8311</span><span class="tag good">INTÉGRÉE</span></div><div class="status-row"><span>Caméra OV5640</span><span class="tag good">COMPILÉ</span></div><div class="status-row"><span>Téléchargement / OTA</span><span class="tag good">COMPILÉ</span></div><div class="status-row"><span>Powerbank USB-C</span><span class="tag good">SANS SOUDURE</span></div><pre class="output" id="terminalOut">MINI v0.4.5 · protocole v1.0 · Wi-Fi tactile + voix + MEL + caméra + OTA.</pre></article></div></section>
+<section class="view" data-panel="lora"><div class="section-title"><h2>LoRA UNCENSORED gratuit</h2><p>Parcours sans GPU payant déclenché par MEL : entraînement Kaggle T4 gratuit, checkpoints immuables, benchmark local puis benchmark canonique avant activation.</p></div><article class="card wide"><div class="skill-head"><div><h2>Pipeline gratuit</h2><p class="muted" style="margin:6px 0 0">Dépôt cible : <strong>Meliturgos/mel-lora-uncensored</strong></p></div><span class="tag good" id="freeLoraCostBadge">GPU payant désactivé</span></div><div class="lora-cost" style="margin-top:14px">MEL orchestre uniquement le quota GPU gratuit Kaggle. Aucun fallback GPU payant n’est autorisé ; Colab reste un secours manuel.</div><div class="status-row"><span>Minimum MEL validé</span><strong id="freeLoraLessons">—/50</strong></div><div class="status-row"><span>GPU Kaggle</span><strong id="freeKaggleState">—</strong></div><div class="status-row"><span>Cycle Kaggle</span><strong id="freeKaggleCycle">—</strong></div><div class="status-row"><span>Exemples réellement entraînés</span><strong id="freeTrainingExamples">—</strong></div><div class="status-row"><span>Checkpoint</span><strong id="freeCheckpointStage">—</strong></div><div class="status-row"><span>LoRA Hugging Face compatibles</span><strong id="freeCompatibleLoras">—</strong></div><div class="status-row"><span>Benchmark</span><strong id="freeBenchmarkState">—</strong></div><div class="status-row"><span>Dernière trace quotidienne</span><strong id="freeLoraTraceState">—</strong></div><div class="status-row"><span>Trace vérifiée</span><strong id="freeLoraTraceVerified">—</strong></div><div class="status-row"><span>Aujourd’hui</span><strong id="freeLoraDailyState">—</strong></div><div class="status-row"><span>Phase suivante</span><strong id="freeImpactStage">—</strong></div><div class="footer-note">Les métriques de benchmark détaillées ne sont affichées que lorsqu’elles existent réellement. Aucun tiret vide n’est présenté comme un indicateur.</div><div class="lora-progress-label"><span id="freeLoraProgressText">État à charger…</span><strong id="freeLoraProgressPercent">—</strong></div><div class="progress"><span id="freeLoraBar" style="width:0%"></span></div><div class="lora-steps"><div class="lora-step"><b>1. Entraînement</b><span class="tag warn" id="freeGpuState">Vérification…</span><small style="margin-top:8px">Run Kaggle T4 gratuit réellement exécuté et terminé.</small><a class="button lora-link" id="freeLoraColab" target="_blank" rel="noopener" href="https://www.kaggle.com/code/adrienlopezcarreras/mel-lora-uncensored-notebook-t4">Voir Kaggle</a></div><div class="lora-step"><b>2. Checkpoint immuable</b><span class="tag warn" id="freeHfState">Vérification…</span><small style="margin-top:8px">Artefact, provenance et checkpoint conservés avec preuve durable.</small><a class="button lora-link" id="freeLoraHf" target="_blank" rel="noopener" href="https://huggingface.co/Meliturgos/mel-lora-uncensored">Voir le bundle</a></div><div class="lora-step"><b>3. Validation / benchmark</b><span class="tag warn" id="freeValidationState">Vérification…</span><small style="margin-top:8px">Provenance exacte et validation technique du résultat avant toute activation.</small><button class="lora-link" id="freeLoraRefresh" type="button">Actualiser l’état</button></div><div class="lora-step"><b>4. Promotion</b><span class="tag warn" id="freeWorkflowState">Vérification…</span><small style="margin-top:8px">Promotion GitHub → Cloudflare uniquement lorsqu’elle est nécessaire ; sinon elle est explicitement non applicable.</small><a class="button lora-link" id="freeLoraWorkflow" target="_blank" rel="noopener" href="https://github.com/adrienlopezcarreras-pixel/meliturgos-cloudflare/actions/workflows/lora-promote-from-huggingface.yml">Ouvrir la promotion</a></div><div class="lora-step"><b>5. Actif dans MEL</b><span class="tag warn" id="freeRuntimeState">Vérification…</span><small style="margin-top:8px" id="freeRuntimeDetail">État runtime en cours de vérification.</small></div></div><div class="status-row" style="margin-top:14px"><span>Suite AGENTIC</span><span><span class="tag warn" id="freeAgenticState">Vérification…</span> <a class="button" id="freeAgenticColab" target="_blank" rel="noopener" aria-disabled="true">Ouvrir AGENTIC</a></span></div><div class="two"><div><h3>Fichiers attendus</h3><div class="lora-files" id="freeLoraFiles">Chargement…</div><h3 style="margin-top:16px">Compte rendu de la dernière trace</h3><pre class="output" id="freeLoraTraceReport">Aucune trace chargée.</pre></div><div><h3>Dernier workflow</h3><pre class="output" id="freeLoraWorkflowDetail">Chargement…</pre></div></div><div class="footer-note">La production reste hors de ce parcours. L’activation concerne uniquement le preview isolé lorsque le workflow est lancé avec <code>activate_preview=true</code> et que le benchmark passe.</div></article></section>
+<section class="view" data-panel="computer"><div class="section-title"><h2>Ordinateur MEL</h2><p>Compagnon Windows appairé : écran, souris, clavier et applications autorisées.</p></div><div class="grid"><article class="card"><div class="skill-head"><div><h2>Connexion</h2><p class="muted" style="margin:6px 0 0">Le compagnon démarre avec Windows et ne reçoit que les actions validées par MEL.</p></div><span class="tag warn" id="computerState">VÉRIFICATION…</span></div><label style="display:block;margin-top:12px">Ordinateur<select id="computerSelect" aria-label="Ordinateur appairé"><option value="">Chargement…</option></select></label><div class="status-row"><span>Dernier contact</span><strong id="computerLastSeen">—</strong></div><div class="status-row"><span>Fenêtre active</span><strong id="computerActiveWindow">—</strong></div><div class="actions"><a class="button primary" href="/api/computer/v1/installer">Télécharger l’installation Windows</a><button id="computerRefresh" type="button">Actualiser</button><button id="computerHalt" type="button">ARRÊTER LE CONTRÔLE</button><button id="computerResume" type="button">Réactiver</button></div></article><article class="card"><h2>Actions rapides</h2><p class="muted">Les actions de saisie et d’ouverture d’application sont envoyées avec ton approbation explicite depuis cet écran.</p><div class="actions"><button id="computerShot" class="primary" type="button">Capture écran</button><button data-pc-app="notepad" type="button">Bloc-notes</button><button data-pc-app="calculator" type="button">Calculatrice</button><button data-pc-app="explorer" type="button">Explorateur</button></div><label style="display:block;margin-top:12px">Texte à écrire<input id="computerText" aria-label="Texte à saisir sur l’ordinateur" maxlength="4096" placeholder="Texte à saisir dans la fenêtre active"></label><div class="actions"><button id="computerType" type="button">Écrire</button><button data-pc-key="ENTER" type="button">Entrée</button><button data-pc-key="TAB" type="button">Tab</button><button data-pc-key="CTRL+L" type="button">Ctrl+L</button><button data-pc-key="ALT+TAB" type="button">Alt+Tab</button></div></article><article class="card wide"><div class="skill-head"><div><h2>Écran</h2><p class="muted" style="margin:6px 0 0">Après une capture, clique sur l’image pour déplacer le pointeur et cliquer à cet endroit.</p></div><span class="tag" id="computerScreenState">AUCUNE CAPTURE</span></div><div style="margin-top:12px;min-height:220px;border:1px solid var(--line);border-radius:16px;overflow:hidden;background:#020617;display:flex;align-items:center;justify-content:center"><img id="computerScreen" alt="Écran de l’ordinateur MEL" style="display:none;max-width:100%;width:100%;height:auto;cursor:crosshair"></div><div class="actions"><button id="computerScrollUp" type="button">Défiler ↑</button><button id="computerScrollDown" type="button">Défiler ↓</button></div></article><article class="card wide"><h2>Historique du contrôle</h2><pre class="output" id="computerOut">Chargement de l’état ordinateur…</pre></article></div></section>
+<section class="view" data-panel="connections"><div class="section-title"><h2>Connexions</h2><p>Connecte une fois Gmail, Yahoo/Ymail et Pipedream Connect. Outlook/MSN, OneDrive et SharePoint passent par Pipedream. Les jetons et identifiants sont conservés chiffrés côté serveur.</p></div><div id="connectionBanner" class="connection-banner" hidden role="status" aria-live="polite"></div><div class="grid">
+<article class="card connection-card"><div class="skill-head"><div><h2>Gmail</h2><p class="muted" style="margin:5px 0 0">Un seul consentement Google durable couvre Gmail, Calendar et Tasks.</p></div><span class="tag warn" id="connStateGmail">VÉRIFICATION…</span></div><div class="connection-provider-state" id="connAppGoogle">Application Google : vérification…</div><div class="actions"><button class="primary" id="gmailConnect" type="button">Se connecter</button><button id="gmailTest" type="button">Tester</button></div><div class="connection-note" id="connNoteGmail">Après consentement, MEL conserve le refresh token chiffré et réutilise ce même grant Google pour Gmail, Calendar et Tasks.</div></article>
+<article class="card connection-card"><div class="skill-head"><div><h2>Yahoo / Ymail</h2><p class="muted" style="margin:5px 0 0">Connexion gérée par Pipedream Connect.</p></div><span class="tag warn" id="connStateYahoo">VÉRIFICATION…</span></div><div class="connection-provider-state">Canal principal : compte Yahoo/Ymail relié dans Pipedream.</div><div class="actions"><button class="primary" data-pd-connect="imap" id="yahooPipedream" type="button">Gérer Yahoo/Ymail via Pipedream</button></div><div class="connection-note" id="connNoteYahoo">MEL utilise l’intégration Pipedream déjà reliée. Le test IMAP direct n’est plus exposé dans l’interface.</div></article>
+<article class="card wide connection-card"><div class="skill-head"><div><h2>Pipedream Connect</h2><p class="muted" style="margin:5px 0 0">Pont OAuth géré pour Outlook/MSN, OneDrive et les intégrations externes de la roadmap.</p></div><span class="tag warn" id="connStatePipedream">NON CONFIGURÉ</span></div><div class="two" style="margin-top:10px"><input id="pipedreamProjectId" aria-label="Project ID Pipedream" placeholder="proj_…"><input id="pipedreamClientId" aria-label="Client ID Pipedream" autocomplete="off" placeholder="Client ID"></div><div class="two" style="margin-top:9px"><input id="pipedreamClientSecret" type="password" autocomplete="off" aria-label="Client Secret Pipedream" placeholder="Client Secret"><select id="pipedreamEnvironment" aria-label="Environnement Pipedream"><option value="development" selected>Development · gratuit uniquement</option></select></div><div class="actions"><button class="primary" id="pipedreamSave" type="button">Enregistrer chiffré</button><button id="pipedreamTest" type="button">Tester le projet</button></div><div class="connection-note" id="connNotePipedream">Les identifiants Pipedream sont chiffrés dans le vault et le secret n’est jamais réaffiché.</div><div class="footer-note" style="margin-top:10px">Connexions prioritaires</div><div class="actions"><button class="primary" data-pd-connect="microsoft_outlook" type="button">Connecter Outlook / MSN</button><button class="primary" data-pd-connect="microsoft_onedrive" type="button">Connecter OneDrive</button><button class="primary" data-pd-connect="sharepoint" type="button">Connecter SharePoint</button></div><div class="connection-note" id="pipedreamPrimaryState">Statut : vérification des comptes Microsoft…</div><div class="footer-note" style="margin-top:10px">Autres connexions</div><div class="actions"><button data-pd-connect="lemlist" type="button">Lemlist</button><button data-pd-connect="google_drive" type="button">Google Drive</button><button data-pd-connect="google_calendar" type="button">Google Calendar</button><button data-pd-connect="google_tasks" type="button">Google Tasks</button><button data-pd-connect="dropbox" type="button">Dropbox</button></div><div class="connection-note" id="pipedreamAppsState">Après configuration, MEL génère un lien Pipedream Connect temporaire pour chaque service.</div></article>
 <article class="card wide"><div class="skill-head"><div><h2>Configuration des applications OAuth</h2><p class="muted" style="margin:5px 0 0">À remplir une seule fois si le Worker n’a pas déjà les identifiants d’application. Les secrets sont stockés dans le vault AES-GCM, jamais affichés ensuite.</p></div><span class="tag protected">CHIFFRÉ</span></div>
-<details style="margin-top:12px"><summary>Google (Gmail)</summary><div class="connection-app-config"><input id="googleClientId" class="wide-field" aria-label="Google client ID" placeholder="Google OAuth Client ID"><input id="googleClientSecret" class="wide-field" type="password" aria-label="Google client secret" placeholder="Google OAuth Client Secret"><button id="googleAppSave">Enregistrer Google</button></div></details>
-<div class="footer-note">OAuth direct reste utilisé pour Gmail. Outlook/MSN, OneDrive et SharePoint passent par Pipedream Connect. Yahoo/Ymail utilise IMAP + SMTP avec un mot de passe d’application, stocké chiffré dans D1.</div></article>
+<details id="googleAppConfig" style="margin-top:12px"><summary>Google (Gmail)</summary><div class="connection-app-config"><input id="googleClientId" class="wide-field" aria-label="Google client ID" placeholder="Google OAuth Client ID"><input id="googleClientSecret" class="wide-field" type="password" aria-label="Google client secret" placeholder="Google OAuth Client Secret"><button id="googleAppSave" type="button">Enregistrer Google</button></div></details>
+<div class="footer-note">OAuth direct reste utilisé pour Gmail. Outlook/MSN, OneDrive, SharePoint et Yahoo/Ymail passent par Pipedream Connect ; Yahoo/Ymail utilise l’intégration IMAP gérée par Pipedream. Les secrets saisis ici restent dans le vault chiffré.</div></article>
 </div></section>
-<section class="view" data-panel="diagnostics"><div class="section-title"><h2>Diagnostic</h2><p>Tests réels des briques essentielles avant déploiement ou évolution.</p></div><div class="grid"><article class="card"><h2>Accès au code</h2><p class="muted">Lecture du fichier public de routeur sur la release configurée.</p><div class="diag-actions"><button class="primary" id="codeSelfCheck">Tester maintenant</button></div><div class="code-proof" id="codeProof">Non testé.</div></article><article class="card"><h2>CapabilityBus</h2><p class="muted">Santé et nombre de capacités enregistrées.</p><div class="diag-actions"><button id="diagCaps">Tester</button></div><div class="code-proof" id="diagCapsOut">Non testé.</div></article><article class="card"><h2>Roadmap API</h2><p class="muted">Vérifie que la source de vérité est disponible.</p><div class="diag-actions"><button id="diagRoadmap">Tester</button></div><div class="code-proof" id="diagRoadmapOut">Non testé.</div></article><article class="card"><h2>.augmentio</h2><p class="muted">État de l’orchestration multi-IA; aucune dépense inconnue ne doit être engagée.</p><div class="diag-actions"><button id="diagAug">Tester</button></div><div class="code-proof" id="diagAugOut">Non testé.</div></article><article class="card wide"><h2>Déploiement / rollback</h2><p class="footer-note">Une seule interface Professeur est active. La production ne doit jamais être remplacée par une candidate non validée ; tout rollback reste une opération de release contrôlée et D1 n’est jamais rollback automatiquement.</p></article></div></section>
+<section class="view" data-panel="diagnostics"><div class="section-title"><h2>Diagnostic</h2><p>Tests réels des briques essentielles avant déploiement ou évolution.</p></div><div class="grid"><article class="card"><h2>Accès au code</h2><p class="muted">Lecture du fichier public de routeur sur la release configurée.</p><div class="diag-actions"><button class="primary" id="codeSelfCheck" type="button">Tester maintenant</button></div><div class="code-proof" id="codeProof">Non testé.</div></article><article class="card"><h2>CapabilityBus</h2><p class="muted">Santé et nombre de capacités enregistrées ; un état sain n’est pas un test d’exécution.</p><div class="diag-actions"><button id="diagCaps" type="button">Tester</button></div><div class="code-proof" id="diagCapsOut">Non testé.</div></article><article class="card"><h2>Roadmap API</h2><p class="muted">Vérifie que la source de vérité est disponible.</p><div class="diag-actions"><button id="diagRoadmap" type="button">Tester</button></div><div class="code-proof" id="diagRoadmapOut">Non testé.</div></article><article class="card"><h2>.augmentio</h2><p class="muted">État de l’orchestration multi-IA; aucune dépense inconnue ne doit être engagée.</p><div class="diag-actions"><button id="diagAug" type="button">Tester</button></div><div class="code-proof" id="diagAugOut">Non testé.</div></article><article class="card wide"><h2>Déploiement / rollback</h2><p class="footer-note">Une seule interface Professeur est active. La production ne doit jamais être remplacée par une candidate non validée ; tout rollback reste une opération de release contrôlée et D1 n’est jamais rollback automatiquement.</p></article></div></section>
 </main></div><script>
+${CHAT_RICH_RENDERER_SOURCE}
 const qs=s=>document.querySelector(s),qsa=s=>[...document.querySelectorAll(s)];
-const titles={overview:['Vue d’ensemble','État réel des briques principales.'],chat:['Conversation','Chat et capacités automatiques.'],skills:['Compétences','CapabilityBus et santé.'],roadmap:['Feuille de route','Toutes les étapes du projet MEL.'],multi:['IA & Développement','Réunion multi-IA et travaux persistants dans une seule surface.'],memory:['Mémoire','Persistance, RAG, import et sauvegarde.'],computer:['Ordinateur','Écran, souris, clavier et applications autorisées.'],terminal:['Terminal MEL','Waveshare, appairage, firmware et état matériel.'],lora:['LoRA UNCENSORED','Kaggle gratuit, checkpoints continus, impact et passage AGENTIC.'],connections:['Connexions','Gmail, Yahoo/Ymail, Vercel et Pipedream Connect. Microsoft passe par Pipedream.'],diagnostics:['Diagnostic','Contrôles réels avant évolution ou release.']};
+const titles={overview:['Vue d’ensemble','État réel des briques principales.'],chat:['Conversation','Chat et capacités automatiques.'],skills:['Compétences','CapabilityBus et santé.'],roadmap:['Feuille de route','Toutes les étapes du projet MEL.'],multi:['IA & Développement','Réunion multi-IA et travaux persistants dans une seule surface.'],memory:['Mémoire','Persistance, RAG, import et sauvegarde.'],computer:['Ordinateur','Écran, souris, clavier et applications autorisées.'],terminal:['Terminal MEL','Waveshare, appairage, firmware et état matériel.'],lora:['LoRA UNCENSORED','Kaggle gratuit, checkpoints continus, impact et passage AGENTIC.'],connections:['Connexions','Gmail, Yahoo/Ymail et Pipedream Connect. Microsoft passe par Pipedream.'],diagnostics:['Diagnostic','Contrôles réels avant évolution ou release.']};
 const legacyPanelAliases={work:{panel:'multi',mode:'development'}};
 let roadmapCache=null,roadmapCacheAt=0,capabilityCache=null,capabilityCacheAt=0;
 const PANEL_TTL_MS=30000,panelLoadedAt=new Map(),getInflight=new Map();
 if('serviceWorker' in navigator){window.addEventListener('load',()=>navigator.serviceWorker.register('/sw.js',{scope:'/'}).catch(()=>{}),{once:true});}
+function requestTimeoutMs(url,method){
+  const value=String(url);
+  if(value.includes('/api/chat'))return 120000;
+  if(['/api/files/upload','/api/gen2/augmentio/fanout','/api/learning/benchmark','/api/learning/lora','/api/work/jobs','/api/gen2/shardvault/snapshot'].some(part=>value.includes(part)))return 120000;
+  if(value.includes('/api/gen2/connections/'))return 30000;
+  return method==='GET'?20000:45000;
+}
+function apiErrorMessage(payload,status){
+  const code=String(payload?.code||payload?.error||'').trim();
+  if(code==='PIPEDREAM_PROJECT_TEST_FAILED'&&Number(payload?.upstream_status)===400)return 'Pipedream refuse cet environnement. MEL va utiliser Development si Production n’est pas disponible.';
+  if(code==='PIPEDREAM_CONNECT_TOKEN_FAILED'&&Number(payload?.upstream_status)===400)return 'Pipedream Connect Production n’est pas disponible pour ce projet. Utilise Development (gratuit) ou un plan Production.';
+  if(code==='PIPEDREAM_AUTH_FAILED')return 'Identifiants Pipedream refusés. Vérifie le Client ID et le Client Secret.';
+  if(code==='PIPEDREAM_NOT_CONFIGURED')return 'Pipedream n’est pas encore configuré.';
+  return code||('HTTP '+status);
+}
+function rawFetch(url,opts){return fetch(url,opts)}
+async function fetchJsonWithTimeout(url,opts={},timeoutMs=45000){
+  const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),timeoutMs);
+  const external=opts.signal;
+  let onAbort=null;
+  if(external){
+    if(external.aborted)controller.abort();
+    else{onAbort=()=>controller.abort();external.addEventListener('abort',onAbort,{once:true});}
+  }
+  try{
+    const r=await rawFetch(url,{...opts,signal:controller.signal}),t=await r.text();let d;
+    try{d=t?JSON.parse(t):{}}catch{throw Error('Réponse serveur invalide')}
+    if(!r.ok)throw Error(apiErrorMessage(d,r.status));
+    return d;
+  }catch(e){
+    if(e?.name==='AbortError')throw Error('Réponse serveur trop lente');
+    throw e;
+  }finally{
+    clearTimeout(timer);
+    if(external&&onAbort)external.removeEventListener('abort',onAbort);
+  }
+}
 async function jfetch(url,opts={}){
   const method=String(opts?.method||'GET').toUpperCase();
+  const timeout=requestTimeoutMs(url,method);
   if(method==='GET'){
     const existing=getInflight.get(url);
     if(existing)return existing;
-    const task=(async()=>{
-      const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),20000);
-      try{
-        const r=await fetch(url,{...opts,signal:opts.signal||controller.signal}),t=await r.text();let d;
-        try{d=JSON.parse(t)}catch{throw Error('Réponse serveur invalide')}
-        if(!r.ok)throw Error(d.error||d.code||('HTTP '+r.status));
-        return d
-      }catch(e){
-        if(e?.name==='AbortError')throw Error('Réponse serveur trop lente');
-        throw e
-      }finally{clearTimeout(timer)}
-    })().finally(()=>getInflight.delete(url));
+    const task=fetchJsonWithTimeout(url,opts,timeout).finally(()=>getInflight.delete(url));
     getInflight.set(url,task);
     return task;
   }
-  const r=await fetch(url,opts),t=await r.text();let d;try{d=JSON.parse(t)}catch{throw Error('Réponse serveur invalide')}if(!r.ok)throw Error(d.error||d.code||('HTTP '+r.status));return d
+  return fetchJsonWithTimeout(url,opts,timeout);
 }
 async function loadCapabilitiesData(force=false){
   if(!force&&capabilityCache&&Date.now()-capabilityCacheAt<PANEL_TTL_MS)return capabilityCache;
@@ -81,6 +111,8 @@ async function loadCapabilitiesData(force=false){
   capabilityCacheAt=Date.now();
   return capabilityCache;
 }
+function capabilityHealthGood(x){return x?.enabled!==false&&['HEALTHY','ONLINE'].includes(String(x?.health||'').toUpperCase())}
+function capabilityFunctional(x){return x?.enabled!==false&&['HEALTHY','ONLINE','PROTECTED'].includes(String(x?.health||'').toUpperCase())}
 function capabilityUsable(x){return x?.enabled!==false&&!['UNAVAILABLE','OFFLINE','BLOCKED','DISABLED','ERROR','FAILED','FAIL','DOWN','UNHEALTHY','BROKEN'].includes(String(x?.health||'').toUpperCase())}
 function capabilityHealthMeta(skill){
   const raw=skill?.enabled===false?'DISABLED':String(skill?.health||'UNKNOWN').toUpperCase();
@@ -94,7 +126,7 @@ function capabilityHealthMeta(skill){
 }
 function renderCapabilitySummary(caps){
   qs('#capCount').textContent=caps.length;
-  qs('#capSummary').textContent=caps.filter(capabilityUsable).length+' utilisables';
+  qs('#capSummary').textContent=caps.filter(capabilityHealthGood).length+' santé OK (exécution non prouvée) · '+caps.filter(x=>String(x?.health||'').toUpperCase()==='PROTECTED').length+' protégées · '+caps.filter(x=>String(x?.health||'').toUpperCase()==='DEGRADED').length+' dégradées';
 }
 async function loadCapabilitySummary(force=false){
   const d=await loadCapabilitiesData(force),caps=Array.isArray(d.capabilities)?d.capabilities:[];
@@ -130,9 +162,9 @@ function renderRoadmapSummary(d){
 function renderCapabilityOverview(caps){
   const total=setMetric('#capCount',caps?.total),active=finiteMetric(caps?.usable??caps?.active);
   const protectedCount=finiteMetric(caps?.protected),degraded=finiteMetric(caps?.degraded),unavailable=finiteMetric(caps?.unavailable),failed=finiteMetric(caps?.failed);
-  qs('#capSummary').textContent=active===null?'État indisponible':active+' utilisables';
+  qs('#capSummary').textContent=active===null?'État indisponible':active+' disponibles selon santé (exécution non prouvée)';
   if(active!==null){
-    const parts=[active+' utilisables'];
+    const parts=[active+' disponibles selon santé · exécution non prouvée'];
     if(protectedCount>0)parts.push(protectedCount+' protégées');
     if(degraded>0)parts.push(degraded+' dégradées');
     if(unavailable>0)parts.push(unavailable+' non configurées');
@@ -207,28 +239,94 @@ function show(name){
 qsa('#nav button[data-view]').forEach(b=>b.onclick=()=>show(b.dataset.view));qsa('[data-jump]').forEach(b=>b.onclick=()=>show(b.dataset.jump));
 const modeTabs=qsa('#melUnifiedTabs [data-mode]');
 modeTabs.forEach(tab=>tab.onclick=()=>setUnifiedMode(tab.dataset.mode));
+modeTabs.forEach((tab,index)=>{
+  tab.tabIndex=index===0?0:-1;
+  tab.addEventListener('keydown',e=>{
+    if(!['ArrowLeft','ArrowRight','Home','End'].includes(e.key))return;
+    e.preventDefault();
+    let next=index;
+    if(e.key==='ArrowLeft')next=(index-1+modeTabs.length)%modeTabs.length;
+    if(e.key==='ArrowRight')next=(index+1)%modeTabs.length;
+    if(e.key==='Home')next=0;
+    if(e.key==='End')next=modeTabs.length-1;
+    modeTabs.forEach((item,i)=>item.tabIndex=i===next?0:-1);
+    modeTabs[next]?.focus();
+    setUnifiedMode(modeTabs[next]?.dataset.mode);
+  });
+});
 const mobileMoreNav=qs('#mobileMoreNav');if(mobileMoreNav)mobileMoreNav.onclick=()=>{const menu=qs('#mobileMoreMenu');if(!menu)return;menu.hidden=!menu.hidden;mobileMoreNav.setAttribute('aria-expanded',String(!menu.hidden));};
 function stableId(key){try{let v=localStorage.getItem(key);if(!v){v=crypto.randomUUID();localStorage.setItem(key,v)}return v}catch{return crypto.randomUUID()}}
 let conversationId=stableId('mel.conversation');const deviceId=stableId('mel.device');
-function addMsg(role,text){const d=document.createElement('div');d.className='msg '+(role==='user'?'user':'mel');d.textContent=text;qs('#chatlog').appendChild(d);qs('#chatlog').scrollTop=qs('#chatlog').scrollHeight}
+function addMsg(role,text){const d=document.createElement('div');d.className='msg '+(role==='user'?'user':'mel');if(role==='mel'&&typeof melRenderRichText==='function')melRenderRichText(d,String(text??''));else d.textContent=String(text??'');qs('#chatlog').appendChild(d);qs('#chatlog').scrollTop=qs('#chatlog').scrollHeight}
+function renderChatApproval(approval,originalText,source='text'){if(!approval||!approval.capability||!approval.input)return;const host=document.createElement('div');host.className='actions chat-approval';host.setAttribute('role','group');host.setAttribute('aria-label','Confirmation requise');const info=document.createElement('span');info.className='muted';info.textContent='Action protégée : '+String(approval.capability);host.appendChild(info);const confirmBtn=document.createElement('button');confirmBtn.type='button';confirmBtn.className='primary';confirmBtn.textContent='Confirmer';const cancelBtn=document.createElement('button');cancelBtn.type='button';cancelBtn.className='ghost';cancelBtn.textContent='Annuler';const freeze=()=>{confirmBtn.disabled=true;cancelBtn.disabled=true};cancelBtn.onclick=()=>{freeze();host.remove();addMsg('mel','Action annulée.');qs('#chatStatus').textContent='Action annulée.'};confirmBtn.onclick=async()=>{freeze();qs('#chatStatus').textContent='Exécution confirmée…';try{const d=await jfetch('/api/chat',{method:'POST',headers:{'content-type':'application/json','x-mel-approve-capability':String(approval.scope||approval.capability)},body:JSON.stringify({text:String(originalText||'Action confirmée'),conversation_id:conversationId,device_id:deviceId,input_source:source,intent_context:{surface:'mel-full',approval_replay:true},capability:{id:String(approval.capability),input:approval.input}})});host.remove();addMsg('mel',d.text||d.response||'Action exécutée.');qs('#chatStatus').textContent=d?.approval_required?'Confirmation encore requise.':'Action exécutée.';if(d?.approval_required)renderChatApproval(d.approval_required,originalText,source)}catch(e){confirmBtn.disabled=false;cancelBtn.disabled=false;qs('#chatStatus').textContent='Échec : '+e.message;addMsg('mel','Erreur : '+e.message)}};host.append(confirmBtn,cancelBtn);qs('#chatlog').appendChild(host);qs('#chatlog').scrollTop=qs('#chatlog').scrollHeight}
 function filesFromTransfer(dt){const out=[],seen=new Set();const push=file=>{if(!file)return;const key=[file.name,file.size,file.type,file.lastModified].join('|');if(seen.has(key))return;seen.add(key);out.push(file)};for(const file of [...(dt?.files||[])])push(file);for(const item of [...(dt?.items||[])]){if(item?.kind==='file')push(item.getAsFile?.())}return out}
-async function sendChat(overrideText=null,source='text'){const input=qs('#chatInput');const originalText=String(overrideText??input.value??'').trim();let text=originalText;const staged=pendingChatFiles.splice(0);if(!text&&!staged.length)return;renderPendingChatFiles();for(const item of staged){const attachment=item.preview?'Fichier : '+item.name+'\\n--- contenu extrait ---\\n'+item.preview:'Fichier privé chargé : '+item.name+(item.stored&&item.id?' · référence '+item.id:'');text+=(text?'\\n\\n':'Analyse ce fichier en tenant compte de son contenu.\\n\\n')+attachment}input.value='';addMsg('user',(originalText||'Pièce jointe')+(staged.length?' · '+staged.map(x=>'📎 '+x.name).join(', '):''));qs('#chatSend').disabled=true;qs('#chatStatus').textContent='Réflexion…';try{const d=await jfetch('/api/chat',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({text,conversation_id:conversationId,device_id:deviceId,input_source:staged[0]?.source||source,intent_context:{surface:'mel-full'}})});addMsg('mel',d.text||d.response||'Réponse vide.');qs('#chatStatus').textContent=''}catch(e){pendingChatFiles.unshift(...staged);renderPendingChatFiles();addMsg('mel','Erreur : '+e.message);qs('#chatStatus').textContent=e.message}finally{qs('#chatSend').disabled=false;input.focus()}}
+async function sendChat(overrideText=null,source='text'){const input=qs('#chatInput');const originalText=String(overrideText??input.value??'').trim();let text=originalText;const staged=pendingChatFiles.splice(0);if(!text&&!staged.length)return;renderPendingChatFiles();for(const item of staged){const attachment=item.preview?'Fichier : '+item.name+'\\n--- contenu extrait ---\\n'+item.preview:'Fichier privé chargé : '+item.name+(item.stored&&item.id?' · référence '+item.id:'');text+=(text?'\\n\\n':'Analyse ce fichier en tenant compte de son contenu.\\n\\n')+attachment}input.value='';addMsg('user',(originalText||'Pièce jointe')+(staged.length?' · '+staged.map(x=>'📎 '+x.name).join(', '):''));qs('#chatSend').disabled=true;qs('#chatStatus').textContent='Réflexion…';try{const d=await jfetch('/api/chat',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({text,conversation_id:conversationId,device_id:deviceId,input_source:staged[0]?.source||source,intent_context:{surface:'mel-full'}})});addMsg('mel',d.text||d.response||'Réponse vide.');qs('#chatStatus').textContent='Réponse reçue.';if(d?.approval_required){renderChatApproval(d.approval_required,originalText,staged[0]?.source||source);qs('#chatStatus').textContent='Confirmation requise.'}}catch(e){pendingChatFiles.unshift(...staged);renderPendingChatFiles();addMsg('mel','Erreur : '+e.message);qs('#chatStatus').textContent=e.message}finally{qs('#chatSend').disabled=false;input.focus()}}
 const pendingChatFiles=[];function renderPendingChatFiles(){const host=qs('#chatAttachments');host.innerHTML='';pendingChatFiles.forEach((item,index)=>{const b=document.createElement('button');b.type='button';b.className='ghost';b.textContent='📎 '+item.name+' · retirer';b.setAttribute('aria-label','Retirer '+item.name);b.onclick=()=>{pendingChatFiles.splice(index,1);renderPendingChatFiles()};host.appendChild(b)})}async function uploadChatFiles(files,source='file-picker'){for(const file of files){qs('#chatStatus').textContent='Envoi de '+file.name+'…';const fd=new FormData();fd.append('file',file);try{const r=await fetch('/api/files/upload',{method:'POST',body:fd,credentials:'same-origin'});const d=await r.json().catch(()=>({}));if(!r.ok)throw Error(d.code||d.error||'FILE_UPLOAD_FAILED');pendingChatFiles.push({name:file.name,source,stored:Boolean(d.stored),id:d.id||null,preview:String(d.preview_text||'').slice(0,80000)});renderPendingChatFiles();qs('#chatStatus').textContent=(source==='clipboard'?'Collé · ':'')+'pièce jointe prête : '+file.name}catch(e){qs('#chatStatus').textContent='Échec du fichier : '+file.name+' · '+e.message}}}
 async function resumeLatestConversation(){const button=qs('#resumeLatestChat');if(button)button.disabled=true;qs('#chatStatus').textContent='Chargement du dernier échange…';try{const d=await jfetch('/api/mel/conversations/latest');if(!d?.conversation?.id)throw Error('Aucune conversation précédente.');conversationId=String(d.conversation.id);localStorage.setItem('mel.conversation',conversationId);qs('#chatlog').innerHTML='';for(const row of (Array.isArray(d.messages)?d.messages:[]).slice(-60)){const role=String(row?.role||'').toLowerCase();if(role==='user'||role==='assistant'||role==='mel')addMsg(role==='user'?'user':'mel',row?.content||row?.text||'')}qs('#chatStatus').textContent='Dernier échange repris.'}catch(e){qs('#chatStatus').textContent='Reprise impossible : '+e.message}finally{if(button)button.disabled=false}}
-qs('#chatSend').onclick=()=>sendChat();qs('#chatInput').addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.isComposing){e.preventDefault();sendChat()}});qs('#chatInput').addEventListener('paste',e=>{const files=filesFromTransfer(e.clipboardData);if(!files.length)return;e.preventDefault();uploadChatFiles(files,'clipboard')});qs('#chatAttach').onclick=()=>qs('#chatFileInput').click();qs('#chatFileInput').addEventListener('change',e=>uploadChatFiles([...e.target.files],'file-picker'));qs('#resumeLatestChat').onclick=resumeLatestConversation;
-function statusTag(s){const good=['ONLINE','HEALTHY','DONE','DONE_VERIFIED'].includes(s),bad=['OFFLINE','BLOCKED_EXTERNAL','BLOCKED_HUMAN'].includes(s);return '<span class="tag '+(good?'good':bad?'bad':'warn')+'">'+String(s||'UNKNOWN')+'</span>'}
+qs('#chatForm').addEventListener('submit',e=>{e.preventDefault();sendChat()});qs('#chatInput').addEventListener('paste',e=>{const files=filesFromTransfer(e.clipboardData);if(!files.length)return;e.preventDefault();uploadChatFiles(files,'clipboard')});qs('#chatAttach').onclick=()=>qs('#chatFileInput').click();qs('#chatFileInput').addEventListener('change',e=>uploadChatFiles([...e.target.files],'file-picker'));qs('#resumeLatestChat').onclick=resumeLatestConversation;
+function statusTag(s){const good=['ONLINE','HEALTHY','DONE_VERIFIED'].includes(s),bad=['OFFLINE','BLOCKED_EXTERNAL','BLOCKED_HUMAN'].includes(s);return '<span class="tag '+(good?'good':bad?'bad':'warn')+'">'+String(s||'UNKNOWN')+'</span>'}
 function capFamily(id){const v=String(id||'').toLowerCase();if(v.startsWith('code.'))return'Code';if(/conversation|memory|rag|archive/.test(v))return'Mémoire & échanges';if(/roadmap|evolution|dev|module|work/.test(v))return'Développement';if(/augmentio|teacher|model|research|web/.test(v))return'IA & recherche';if(/device|sync|browser|mail|gmail|drive|calendar/.test(v))return'Outils & connexions';return'Autres'}
-async function loadChatCapabilities(force=false){const summary=qs('#chatCapSummary'),groups=qs('#chatCapGroups'),list=qs('#chatCapList');if(!summary||!groups||!list)return[];summary.textContent='Lecture de mes capacités…';try{const d=await loadCapabilitiesData(force);if(!Array.isArray(d?.capabilities))throw Error('Liste CapabilityBus absente');const caps=d.capabilities;const active=caps.filter(capabilityUsable);const by={};for(const x of active){const f=capFamily(x.id);by[f]=(by[f]||0)+1}summary.textContent=active.length+' capacité'+(active.length>1?'s':'')+' disponible'+(active.length>1?'s':'')+' sur '+caps.length+' enregistrée'+(caps.length>1?'s':'')+'.';groups.innerHTML=Object.entries(by).sort((a,b)=>b[1]-a[1]).map(([k,n])=>'<span class="cap-chip">'+esc(k)+' · '+n+'</span>').join('');list.innerHTML=caps.map(x=>{const meta=capabilityHealthMeta(x);return '<div class="cap-help-item"><strong>'+esc(x.name||x.id)+'</strong><small>'+esc(x.description||x.id||'')+'</small><span class="cap-help-state '+meta.kind+'">'+esc(meta.label)+'</span></div>'}).join('')||'<div class="muted">Aucune capacité enregistrée.</div>';return caps}catch(e){summary.textContent='Capacités indisponibles : '+e.message;groups.innerHTML='';list.textContent='Impossible de lire le CapabilityBus.';throw e}}
+async function loadChatCapabilities(force=false){const summary=qs('#chatCapSummary'),groups=qs('#chatCapGroups'),list=qs('#chatCapList');if(!summary||!groups||!list)return[];summary.textContent='Lecture de mes capacités…';try{const d=await loadCapabilitiesData(force);if(!Array.isArray(d?.capabilities))throw Error('Liste CapabilityBus absente');const caps=d.capabilities;const active=caps.filter(capabilityFunctional);const by={};for(const x of active){const f=capFamily(x.id);by[f]=(by[f]||0)+1}summary.textContent=active.length+' capacité'+(active.length>1?'s':'')+' signalée'+(active.length>1?'s':'')+' disponible'+(active.length>1?'s':'')+' (protégées incluses) sur '+caps.length+' enregistrée'+(caps.length>1?'s':'')+' · exécution non prouvée.';groups.innerHTML=Object.entries(by).sort((a,b)=>b[1]-a[1]).map(([k,n])=>'<span class="cap-chip">'+esc(k)+' · '+n+'</span>').join('');list.innerHTML=caps.map(x=>{const meta=capabilityHealthMeta(x);return '<div class="cap-help-item"><strong>'+esc(x.name||x.id)+'</strong><small>'+esc(x.description||x.id||'')+'</small><span class="cap-help-state '+meta.kind+'">'+esc(meta.label)+'</span></div>'}).join('')||'<div class="muted">Aucune capacité enregistrée.</div>';return caps}catch(e){summary.textContent='Capacités indisponibles : '+e.message;groups.innerHTML='';list.textContent='Impossible de lire le CapabilityBus.';throw e}}
 qs('#chatCapRefresh').onclick=()=>{panelLoadedAt.delete('chat');loadChatCapabilities(true).then(()=>panelLoadedAt.set('chat',Date.now())).catch(()=>{})};
+async function loadActiveSkillRegistry(){
+  const d=await jfetch('/api/gen2/capabilities/execute',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id:'skill.list',input:{active_only:true}})});
+  return Array.isArray(d?.result)?d.result:[];
+}
+function verifiedSkillRecord(row){
+  return row?.state==='verified'&&Array.isArray(row?.evidence)&&row.evidence.some(e=>['verified','pass'].includes(String(e?.status||'').toLowerCase()));
+}
+function renderLearnedSkills(rows,learning){
+  const list=qs('#skillsLearnedList'),state=qs('#skillsLearningState'),summary=qs('#skillsLearningSummary');
+  const verified=(Array.isArray(rows)?rows:[]).filter(verifiedSkillRecord);
+  const xp=finiteMetric(learning?.xp),level=finiteMetric(learning?.level);
+  const set=(id,value)=>{const el=qs(id);if(el)el.textContent=value};
+  set('#skillsLearned',verified.length);
+  set('#skillsXp',xp===null?'—':xp.toLocaleString('fr-FR'));
+  if(state){state.textContent='VÉRIFIÉ · '+verified.length+' ACTIVE'+(verified.length===1?'':'S');state.className='tag '+(verified.length?'good':'neutral')}
+  if(summary){
+    const bits=[verified.length+' compétence'+(verified.length===1?'':'s')+' active'+(verified.length===1?'':'s')+' et vérifiée'+(verified.length===1?'':'s')];
+    if(xp!==null)bits.push(xp.toLocaleString('fr-FR')+' XP');
+    if(level!==null)bits.push('niveau '+level);
+    summary.textContent=bits.join(' · ');
+  }
+  if(!list)return;
+  list.innerHTML='';
+  const fragment=document.createDocumentFragment();
+  for(const row of verified){
+    const el=document.createElement('div');el.className='skill';
+    const caps=Array.isArray(row.capabilities)?row.capabilities:[];
+    const evidence=Array.isArray(row.evidence)?row.evidence:[];
+    const passed=evidence.filter(e=>['verified','pass'].includes(String(e?.status||'').toLowerCase())).length;
+    el.innerHTML='<div class="skill-head"><div><strong>'+esc(row.name||row.skill_id)+'</strong><div class="muted">'+esc(row.skill_id||'')+' · version '+esc(row.version||'—')+'</div><div class="code-proof">'+esc(caps.join(' · ')||'Aucune capacité déclarée')+'</div><div class="footer-note">Preuves : '+passed+'/'+evidence.length+' validées</div></div><span class="tag good">ACTIVE · VÉRIFIÉE</span></div>';
+    fragment.appendChild(el);
+  }
+  list.appendChild(fragment);
+  if(!verified.length)list.textContent='Aucune compétence apprise active et vérifiée dans le Skill Registry. Les XP témoignent de la progression, pas de l’activation d’un adaptateur ou d’une compétence.';
+  return verified;
+}
 async function loadSkills(force=false){
-  const box=qs('#skillsList');box.textContent='Vérification de la santé réelle…';
+  const box=qs('#skillsList'),learnedBox=qs('#skillsLearnedList');box.textContent='Vérification de la santé réelle…';if(learnedBox)learnedBox.textContent='Lecture du Skill Registry…';
   try{
-    const d=await loadCapabilitiesData(force),caps=Array.isArray(d.capabilities)?d.capabilities:[];
+    const [d,skillResult,learningResult]=await Promise.allSettled([
+      loadCapabilitiesData(force),
+      loadActiveSkillRegistry(),
+      jfetch('/api/learning/progress')
+    ]);
+    if(d.status!=='fulfilled')throw d.reason;
+    const caps=Array.isArray(d.value?.capabilities)?d.value.capabilities:[];
+    const learned=skillResult.status==='fulfilled'?skillResult.value:null;
+    const learning=learningResult.status==='fulfilled'?learningResult.value:null;
     renderCapabilitySummary(caps);
+    if(learned!==null)renderLearnedSkills(learned,learning);
+    else{
+      const learnedMetric=qs('#skillsLearned'),xpMetric=qs('#skillsXp'),xp=finiteMetric(learning?.xp);
+      if(learnedMetric)learnedMetric.textContent='—';
+      if(xpMetric)xpMetric.textContent=xp===null?'—':xp.toLocaleString('fr-FR');
+    }
     const counts={healthy:0,protected:0,degraded:0,waiting:0,unavailable:0,failed:0},providers={};
     for(const skill of caps){
       const meta=capabilityHealthMeta(skill),provider=String(skill.provider||'core');
-      providers[provider]=providers[provider]||{total:0,usable:0};providers[provider].total++;if(capabilityUsable(skill))providers[provider].usable++;
+      providers[provider]=providers[provider]||{total:0,healthy:0,protected:0,degraded:0};providers[provider].total++;if(capabilityHealthGood(skill))providers[provider].healthy++;else if(String(skill?.health||'').toUpperCase()==='PROTECTED')providers[provider].protected++;else if(String(skill?.health||'').toUpperCase()==='DEGRADED')providers[provider].degraded++;
       if(meta.waiting)counts.waiting++;
       else if(['HEALTHY','ONLINE'].includes(meta.raw))counts.healthy++;
       else if(meta.raw==='PROTECTED')counts.protected++;
@@ -238,7 +336,7 @@ async function loadSkills(force=false){
     }
     const set=(id,value)=>{const el=qs(id);if(el)el.textContent=value};
     set('#skillsHealthy',counts.healthy);set('#skillsProtected',counts.protected);set('#skillsDegraded',counts.degraded);set('#skillsWaiting',counts.waiting);set('#skillsUnavailable',counts.unavailable);set('#skillsFailed',counts.failed);
-    const providerSummary=qs('#skillsProviderSummary');if(providerSummary)providerSummary.textContent=Object.entries(providers).sort((a,b)=>a[0].localeCompare(b[0])).map(([name,row])=>name+' '+row.usable+'/'+row.total).join(' · ')||'Aucun fournisseur';
+    const providerSummary=qs('#skillsProviderSummary');if(providerSummary)providerSummary.textContent=(Object.entries(providers).sort((a,b)=>a[0].localeCompare(b[0])).map(([name,row])=>name+' '+row.healthy+'/'+row.total+' santé OK'+(row.protected?' · '+row.protected+' protégées':'')+(row.degraded?' · '+row.degraded+' dégradées':'')).join(' · ')||'Aucun fournisseur')+' · santé ≠ preuve d’exécution';
     box.innerHTML='';const fragment=document.createDocumentFragment();
     for(const skill of caps){
       const meta=capabilityHealthMeta(skill),el=document.createElement('div');el.className='skill';
@@ -246,7 +344,9 @@ async function loadSkills(force=false){
       el.innerHTML='<div class="skill-head"><div><strong>'+esc(skill.name||skill.id)+'</strong><div class="muted">'+esc(skill.description||'')+'</div><div class="code-proof">'+esc(skill.id||'')+' · '+esc(skill.provider||'core')+'</div>'+detail+'</div><span class="tag '+meta.kind+'">'+esc(meta.label)+'</span></div>';
       fragment.appendChild(el);
     }
-    box.appendChild(fragment);if(!caps.length)box.textContent='Aucune compétence enregistrée.';return caps;
+    box.appendChild(fragment);if(!caps.length)box.textContent='Aucune capacité enregistrée.';
+    if(skillResult.status!=='fulfilled'){const state=qs('#skillsLearningState');if(state){state.textContent='REGISTRE INDISPONIBLE';state.className='tag bad'}if(learnedBox)learnedBox.textContent='Skill Registry indisponible : '+String(skillResult.reason?.message||skillResult.reason||'erreur')}
+    return caps;
   }catch(e){box.textContent='Indisponible : '+e.message;throw e}
 }
 qs('#refreshSkills').onclick=()=>{panelLoadedAt.delete('skills');loadSkills(true).then(()=>panelLoadedAt.set('skills',Date.now())).catch(()=>{})};
@@ -254,11 +354,37 @@ function esc(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&l
 async function loadRoadmap(force=false){const box=qs('#roadmapList');box.textContent='Chargement…';const d=await loadRoadmapData(force);renderRoadmapSummary(d);renderRoadmap();return d}
 function renderRoadmap(){if(!roadmapCache)return;const sf=qs('#rmStatus').value,pf=qs('#rmPriority').value,box=qs('#roadmapList');box.innerHTML='';const fragment=document.createDocumentFragment();let rendered=0;for(const phase of roadmapCache.phases||[]){const items=(phase.items||[]).filter(item=>(!sf||item.status===sf)&&(!pf||item.priority===pf));if(!items.length)continue;const ph=document.createElement('section');ph.className='phase';ph.innerHTML='<h3><span>'+esc(phase.title)+'</span><span class="tag">'+items.length+' étape(s)</span></h3>';for(const item of items){const row=document.createElement('div');row.className='road-item';row.innerHTML='<div class="road-id">'+esc(item.id)+' · '+esc(item.priority)+'</div><div><div class="road-title">'+esc(item.title)+'</div><div class="road-next">'+esc(item.next||'—')+'</div></div><div class="road-status">'+statusTag(item.status)+'</div>';ph.appendChild(row)}fragment.appendChild(ph);rendered+=items.length}box.appendChild(fragment);if(!rendered)box.textContent='Aucune étape pour ces filtres.'}
 qs('#rmStatus').onchange=renderRoadmap;qs('#rmPriority').onchange=renderRoadmap;
-async function codeCheck(){const btn=qs('#codeSelfCheck');btn.disabled=true;qs('#codeProof').textContent='Test en cours…';try{const d=await jfetch('/api/gen2/code/self-check');const ok=!!d.ok;qs('#codeProof').textContent=ok?'Lecture OK · '+d.repository+' · '+d.branch+' · '+d.path+' · '+String(d.sha||'').slice(0,10):'Échec : '+(d.error||d.code||'inconnu');qs('#codeMetric').textContent=ok?'OK':'ERREUR';qs('#codeSummary').textContent=qs('#codeProof').textContent;return ok}catch(e){qs('#codeProof').textContent='Échec : '+e.message;qs('#codeMetric').textContent='ERREUR';qs('#codeSummary').textContent=e.message;return false}finally{btn.disabled=false}}
+async function codeCheck(){const btn=qs('#codeSelfCheck');btn.disabled=true;qs('#codeProof').textContent='Test en cours…';try{const d=await jfetch('/api/gen2/code/self-check');const ok=d?.ok===true&&d?.exact_deployment_identity_known===true&&Boolean(d?.repository)&&Boolean(d?.branch)&&Boolean(d?.path)&&Boolean(d?.deployed_sha);qs('#codeProof').textContent=ok?'LECTURE PROUVÉE · '+d.repository+' · '+d.branch+' · '+d.path+' · déployé '+String(d.deployed_sha||'').slice(0,10):'NON PROUVÉ · '+(d.error||d.code||(d?.exact_deployment_identity_known!==true?'identité exacte du déploiement indisponible':'preuve incomplète'));qs('#codeMetric').textContent=ok?'OK':'ERREUR';qs('#codeSummary').textContent=qs('#codeProof').textContent;return ok}catch(e){qs('#codeProof').textContent='Échec : '+e.message;qs('#codeMetric').textContent='ERREUR';qs('#codeSummary').textContent=e.message;return false}finally{btn.disabled=false}}
 qs('#codeSelfCheck').onclick=codeCheck;
-qs('#diagCaps').onclick=async()=>{try{const c=await loadSkills(true);qs('#diagCapsOut').textContent='OK · '+c.length+' capacité(s)'}catch(e){qs('#diagCapsOut').textContent='Échec · '+e.message}};
-qs('#diagRoadmap').onclick=async()=>{try{roadmapCache=null;await loadRoadmap();qs('#diagRoadmapOut').textContent='OK · '+roadmapCache.summary.total+' étapes'}catch(e){qs('#diagRoadmapOut').textContent='Échec · '+e.message}};
-qs('#diagAug').onclick=async()=>{try{const d=await jfetch('/api/gen2/capabilities?refresh=1');const a=(d.capabilities||[]).find(x=>x.id==='augmentio.fanout');qs('#diagAugOut').textContent=a?'Présent · '+a.health:'Non enregistré'}catch(e){qs('#diagAugOut').textContent='Échec · '+e.message}};
+async function withDiagnosticButton(id,work){
+  const button=qs(id);if(!button)return null;
+  const label=button.textContent;button.disabled=true;button.textContent='Test…';
+  try{return await work()}finally{button.disabled=false;button.textContent=label}
+}
+qs('#diagCaps').onclick=()=>withDiagnosticButton('#diagCaps',async()=>{
+  try{
+    const caps=await loadSkills(true),healthy=caps.filter(capabilityHealthGood),protectedCaps=caps.filter(x=>x?.enabled!==false&&String(x?.health||'').toUpperCase()==='PROTECTED'),others=caps.filter(x=>!capabilityHealthGood(x)&&!protectedCaps.includes(x));
+    qs('#diagCapsOut').textContent='SANTÉ SEULEMENT · '+healthy.length+'/'+caps.length+' saines · '+protectedCaps.length+' protégées · '+others.length+' à vérifier'+(others.length?' : '+others.slice(0,8).map(x=>(x.id||x.name)+'='+String(x.health||'UNKNOWN')).join(' · '):'')+' · exécution non démontrée par ce contrôle.';
+  }catch(e){qs('#diagCapsOut').textContent='ÉCHEC · '+e.message}
+});
+qs('#diagRoadmap').onclick=()=>withDiagnosticButton('#diagRoadmap',async()=>{
+  try{
+    roadmapCache=null;const d=await loadRoadmap(true),summary=d?.summary||{},by=summary?.by_status||{};
+    const blocked=Number(by.BLOCKED_HUMAN||0)+Number(by.BLOCKED_EXTERNAL||0)+Number(by.FAILED||0)+Number(by.ERROR||0);
+    const total=finiteMetric(summary.total);
+    qs('#diagRoadmapOut').textContent=total===null
+      ?'NON PROUVÉ · métriques roadmap incomplètes'
+      :blocked===0
+        ?'OPÉRATIONNEL · '+total+' étapes · aucun blocage déclaré'
+        :'BLOCAGES · '+blocked+' étape(s) bloquée(s)/en échec sur '+total;
+  }catch(e){qs('#diagRoadmapOut').textContent='ÉCHEC · '+e.message}
+});
+qs('#diagAug').onclick=()=>withDiagnosticButton('#diagAug',async()=>{
+  try{
+    const d=await jfetch('/api/gen2/capabilities?refresh=1'),a=(d.capabilities||[]).find(x=>x.id==='augmentio.fanout');
+    qs('#diagAugOut').textContent=!a?'NON ENREGISTRÉ':capabilityFunctional(a)?'OPÉRATIONNEL · '+String(a.health||'HEALTHY'):'NON OPÉRATIONNEL · '+String(a.health||'UNKNOWN')+(a.health_detail?' · '+a.health_detail:'');
+  }catch(e){qs('#diagAugOut').textContent='ÉCHEC · '+e.message}
+});
 qs('#multiRun').onclick=async()=>{const input=qs('#multiInput').value.trim();if(!input)return;qs('#multiRun').disabled=true;qs('#multiOut').textContent='Consultation des IA…';try{const d=await jfetch('/api/gen2/augmentio/fanout',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({input,maxCandidates:Number(qs('#multiN').value),teacherReview:qs('#multiTeacher').value==='true'})});qs('#multiOut').textContent=JSON.stringify(d,null,2)}catch(e){qs('#multiOut').textContent='Erreur : '+e.message}finally{qs('#multiRun').disabled=false}};
 async function loadChatGPTImportStatus(){
   try{
@@ -302,7 +428,7 @@ async function prepareChatGPTArchive(){
   const payload=JSON.parse(text);
   const preview=await jfetch('/api/gen2/import/chatgpt-archive',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({archive:payload,preview:true})});
   chatgptPrepared={fileName:f.name,payload,preview};
-  const fmt=v=>Number(v||0).toLocaleString('fr-FR');
+  const fmt=v=>{const n=finiteMetric(v);return n===null?'—':n.toLocaleString('fr-FR')};
   qs('#chatgptPreOfficial').textContent=preview.official_export===true?'OUI':'NON / NON PROUVÉ';
   qs('#chatgptPreConversations').textContent=fmt(preview.conversations);
   qs('#chatgptPreMessages').textContent=fmt(preview.messages);
@@ -327,23 +453,33 @@ async function finishChatGPTMemoryBackfill(){
   return status;
 }
 function melMem05Verdict(archiveStatus,memoryStatus){
-  const descriptors=Number(archiveStatus?.attachment_index?.descriptors||0);
+  const metric=value=>{const n=finiteMetric(value);return n===null?null:n};
+  const descriptors=metric(archiveStatus?.attachment_index?.descriptors);
+  const binary=metric(archiveStatus?.attachment_index?.binary_content_available);
+  const indexed=metric(archiveStatus?.attachment_index?.indexed_descriptors);
+  const partial=metric(archiveStatus?.partial_conversations);
+  const underfilled=metric(archiveStatus?.underfilled_conversations);
+  const remainingMessages=metric(memoryStatus?.remaining_eligible_messages);
+  const remainingConversations=metric(memoryStatus?.remaining_conversations);
+  const requiredKnown=[descriptors,partial,underfilled,remainingMessages,remainingConversations].every(v=>v!==null);
   const complete=archiveStatus?.full_archive_confirmed===true
-    && Number(archiveStatus?.partial_conversations||0)===0
-    && Number(archiveStatus?.underfilled_conversations||0)===0
-    && Number(memoryStatus?.remaining_eligible_messages||0)===0
-    && Number(memoryStatus?.remaining_conversations||0)===0
+    && requiredKnown
+    && partial===0
+    && underfilled===0
+    && remainingMessages===0
+    && remainingConversations===0
     && descriptors>0;
   return {
     complete,
+    evidence_complete:requiredKnown,
     full_archive_confirmed:archiveStatus?.full_archive_confirmed===true,
     attachment_descriptors:descriptors,
-    binary_content_available:Number(archiveStatus?.attachment_index?.binary_content_available||0),
-    indexed_descriptors:Number(archiveStatus?.attachment_index?.indexed_descriptors||0),
-    partial_conversations:Number(archiveStatus?.partial_conversations||0),
-    underfilled_conversations:Number(archiveStatus?.underfilled_conversations||0),
-    remaining_eligible_messages:Number(memoryStatus?.remaining_eligible_messages||0),
-    remaining_conversations:Number(memoryStatus?.remaining_conversations||0),
+    binary_content_available:binary,
+    indexed_descriptors:indexed,
+    partial_conversations:partial,
+    underfilled_conversations:underfilled,
+    remaining_eligible_messages:remainingMessages,
+    remaining_conversations:remainingConversations,
   };
 }
 qs('#chatgptFile').onchange=()=>{chatgptPrepared=null;qs('#chatgptImport').disabled=true;setChatGPTJourneyState('À PRÉ-AUDITER','warn');qs('#chatgptJourneyVerdict').textContent='Nouveau fichier sélectionné : lance le pré-audit.'};
@@ -376,23 +512,58 @@ let autonomyControl={paused:true,max_autonomy:false,status:'UNKNOWN'};
 function renderAutonomy(state){
   const control=state?.control||state||{};
   autonomyControl={...autonomyControl,...control};
-  const active=autonomyControl.paused!==true&&autonomyControl.max_autonomy===true;
+  const watchdog=state?.progress_watchdog||state?.watchdog||{};
+  const maxEnabled=autonomyControl.paused!==true&&autonomyControl.max_autonomy===true;
+  const wdStatus=String(watchdog?.status||'UNKNOWN').toUpperCase();
+  const tripped=watchdog?.tripped===true;
   const badge=qs('#autonomyBadge');
-  badge.textContent=active?'ACTIVE':autonomyControl.paused===true?'PAUSE':'SUPERVISÉE';
-  badge.className='tag '+(active?'good':'warn');
-  qs('#autonomyMode').textContent=active?'Autonomie maximale':autonomyControl.paused===true?'En pause':'Autonomie supervisée';
+  let badgeText='SUPERVISÉE',badgeKind='warn',modeText='Autonomie supervisée';
+  if(autonomyControl.paused===true){badgeText='PAUSE';modeText='En pause'}
+  else if(maxEnabled&&tripped){badgeText='MAX BLOQUÉ';badgeKind='bad';modeText='MAX 100 % bloqué'}
+  else if(maxEnabled&&wdStatus==='ADVANCING'){badgeText='MAX AVANCE';badgeKind='good';modeText='MAX 100 % · progression mesurée'}
+  else if(maxEnabled&&wdStatus==='WAITING_EXTERNAL'){badgeText='MAX ATTENTE';modeText='MAX 100 % · attente externe'}
+  else if(maxEnabled&&wdStatus==='IDLE'){badgeText='MAX IDLE';badgeKind='neutral';modeText='MAX 100 % · aucun travail restant'}
+  else if(maxEnabled){badgeText='MAX ARMÉ';modeText='MAX 100 % · preuve de progrès en attente'}
+  badge.textContent=badgeText;
+  badge.className='tag '+badgeKind;
+  qs('#autonomyMode').textContent=modeText;
+  const counters=watchdog?.counters&&typeof watchdog.counters==='object'?watchdog.counters:null;
+  const progress=qs('#autonomyProgress');
+  if(progress){
+    progress.textContent=!maxEnabled?'—':tripped
+      ?'BLOQUÉ · '+String(watchdog.last_block_reason||'aucun progrès mesurable')
+      :wdStatus==='ADVANCING'
+        ?'AVANCE · dernier progrès '+String(watchdog.last_advanced_at||'mesuré')
+        :wdStatus==='WAITING_EXTERNAL'
+          ?'ATTENTE EXTERNE'
+          :wdStatus==='IDLE'?'AUCUN TRAVAIL':wdStatus==='LEASE_BUSY'?'LEASE OCCUPÉE':'À PROUVER';
+  }
+  const counterEl=qs('#autonomyCounters');
+  if(counterEl)counterEl.textContent=counters
+    ?String(Number(counters.jobs_created||0))+' / '+String(Number(counters.jobs_completed||0))+' / '+String(Number(counters.blocked_ticks||0))
+    :'—';
   const next=state?.next;
-  qs('#autonomyNext').textContent=next?.id?(next.id+' · '+next.title):'Sélection automatique par la roadmap';
-  const max=qs('#melFullMax');if(max){max.classList.toggle('max-active',autonomyControl.max_autonomy===true);max.textContent=autonomyControl.max_autonomy===true?'MAX ACTIF':'MAX 100%';}
+  qs('#autonomyNext').textContent=next?.id?(next.id+' · '+next.title):'Aucune nouvelle étape sélectionnée';
+  const max=qs('#melFullMax');if(max){max.classList.toggle('max-active',maxEnabled);max.textContent=maxEnabled?'Désactiver MAX':'MAX 100%';}
+  if(qs('#mobileMaxAutonomy'))qs('#mobileMaxAutonomy').textContent=maxEnabled?'Désactiver MAX':'MAX 100%';
   const pause=qs('#melFullStop');if(pause)pause.textContent=autonomyControl.paused===true?'Reprendre MEL':'Mettre MEL en pause';
+  const mobilePause=qs('#mobilePauseAutonomy');if(mobilePause)mobilePause.textContent=autonomyControl.paused===true?'Reprendre MEL':'Mettre MEL en pause';
 }
 async function loadAutonomy(){
   try{
     const d=await jfetch('/api/gen2/autonomy/state');
     renderAutonomy(d);
-    qs('#autonomyNote').textContent=d?.readiness?.blockers?.length
-      ? 'Boucle disponible · '+d.readiness.blockers.length+' blocker(s) contournés si externes.'
-      : 'Boucle prête · candidate uniquement · production verrouillée.';
+    const wd=d?.progress_watchdog||{};
+    const blockers=Array.isArray(d?.readiness?.blockers)?d.readiness.blockers:[];
+    qs('#autonomyNote').textContent=wd?.tripped===true
+      ?'MAX bloqué : '+String(wd.last_block_reason||'aucun progrès mesurable')+'. Aucun succès ne doit être accepté dans cet état.'
+      :d?.control?.max_autonomy===true&&String(wd?.status||'').toUpperCase()==='ADVANCING'
+        ?'MAX actif avec progression mesurée · candidate uniquement · production verrouillée.'
+        :d?.control?.max_autonomy===true&&String(wd?.status||'').toUpperCase()==='WAITING_EXTERNAL'
+          ?'MAX attend une exécution externe identifiable ; cet état n’est pas présenté comme une progression.'
+          :blockers.length
+            ?'Readiness : '+blockers.length+' blocage(s) explicite(s) · '+blockers.slice(0,3).join(' · ')
+            :'Boucle prête · candidate uniquement · production verrouillée.';
     return d;
   }catch(e){
     try{const d=await jfetch('/api/gen2/autonomy/control');renderAutonomy(d);return d}
@@ -407,14 +578,17 @@ async function autonomyAction(button,url,body,label,feedback=qs('#mobileAutonomy
     const d=await jfetch(url,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body||{})});
     renderAutonomy(d?.state||d);await loadAutonomy();if(feedback)feedback.textContent=label+' : OK';return d;
   }catch(e){if(feedback)feedback.textContent=label+' : '+e.message;throw e}
-  finally{button.disabled=false;if(!['melFullMax','melFullStop'].includes(button.id))button.textContent=previous;renderAutonomy(autonomyControl)}
+  finally{button.disabled=false;if(!['melFullMax','melFullStop','mobilePauseAutonomy'].includes(button.id))button.textContent=previous;renderAutonomy(autonomyControl)}
 }
 function activityMarkup(state){
   const activityKnown=Array.isArray(state?.recent_activity);
   const items=activityKnown?state.recent_activity.slice(0,8):[];
   const counts=state?.counts&&typeof state.counts==='object'?state.counts:null;
   const metric=value=>{const n=finiteMetric(value);return n===null?'—':String(n)};
-  const summary='<div><b>Actifs :</b> '+metric(counts?.active)+' · <b>Terminés :</b> '+metric(counts?.completed)+' · <b>Échecs :</b> '+metric(counts?.failed)+'</div>';
+  const wd=state?.progress_watchdog&&typeof state.progress_watchdog==='object'?state.progress_watchdog:null;
+  const wc=wd?.counters&&typeof wd.counters==='object'?wd.counters:null;
+  const summary='<div><b>Actifs :</b> '+metric(counts?.active)+' · <b>Terminés :</b> '+metric(counts?.completed)+' · <b>Échecs :</b> '+metric(counts?.failed)+'</div>'
+    +(wd?'<div style="margin-top:7px"><b>MAX :</b> '+esc(wd.status||'UNKNOWN')+' · <b>créés :</b> '+metric(wc?.jobs_created)+' · <b>terminés :</b> '+metric(wc?.jobs_completed)+' · <b>ticks bloqués :</b> '+metric(wc?.blocked_ticks)+'</div>':'');
   const rows=!activityKnown
     ?'<div style="margin-top:7px">Historique d’activité non chargé.</div>'
     :items.length
@@ -426,11 +600,10 @@ async function showActivity(panel){
   if(!panel)return;panel.textContent='Chargement de l’activité…';
   try{const d=await jfetch('/api/gen2/autonomy/state');panel.innerHTML=activityMarkup(d)}catch(e){panel.textContent='Activité indisponible : '+e.message}
 }
-const mobileMax=qs('#mobileMaxAutonomy'),mobilePause=qs('#mobilePauseAutonomy'),mobileStart=qs('#mobileStartCycle'),mobileResume=qs('#mobileResumeAutonomy'),mobileActivity=qs('#mobileActivityAutonomy');
+const mobileMax=qs('#mobileMaxAutonomy'),mobilePause=qs('#mobilePauseAutonomy'),mobileStart=qs('#mobileStartCycle'),mobileActivity=qs('#mobileActivityAutonomy');
 if(mobileMax)mobileMax.onclick=()=>autonomyAction(mobileMax,'/api/gen2/autonomy/max',{enabled:autonomyControl.max_autonomy!==true},'MAX 100%').catch(()=>{});
-if(mobilePause)mobilePause.onclick=()=>autonomyAction(mobilePause,'/api/gen2/autonomy/pause',{reason:'owner-mobile-standby'},'Mise en pause').catch(()=>{});
+if(mobilePause)mobilePause.onclick=()=>autonomyAction(mobilePause,autonomyControl.paused===true?'/api/gen2/autonomy/resume':'/api/gen2/autonomy/pause',autonomyControl.paused===true?{}:{reason:'owner-mobile-standby'},autonomyControl.paused===true?'Reprise de MEL':'Mise en pause').catch(()=>{});
 if(mobileStart)mobileStart.onclick=()=>autonomyAction(mobileStart,'/api/gen2/autonomy/tick',{},'Cycle MEL').catch(()=>{});
-if(mobileResume)mobileResume.onclick=()=>autonomyAction(mobileResume,'/api/gen2/autonomy/resume',{},'Reprise de MEL').catch(()=>{});
 if(mobileActivity)mobileActivity.onclick=async()=>{const panel=qs('#mobileActivityPanel');if(!panel)return;if(!panel.hidden){panel.hidden=true;return}panel.hidden=false;await showActivity(panel)};
 const topMax=qs('#melFullMax'),topCycle=qs('#melFullCycle'),topPause=qs('#melFullStop'),topActivity=qs('#melFullActivity'),desktopPanel=qs('#desktopActivityPanel');
 if(topMax)topMax.onclick=()=>autonomyAction(topMax,'/api/gen2/autonomy/max',{enabled:autonomyControl.max_autonomy!==true},'Autonomie maximale',null).catch(()=>{});
@@ -438,7 +611,7 @@ if(topCycle)topCycle.onclick=()=>autonomyAction(topCycle,'/api/gen2/autonomy/tic
 if(topPause)topPause.onclick=()=>autonomyAction(topPause,autonomyControl.paused===true?'/api/gen2/autonomy/resume':'/api/gen2/autonomy/pause',autonomyControl.paused===true?{}:{reason:'owner-control-center-pause'},autonomyControl.paused===true?'Reprise de MEL':'Mise en pause',null).catch(()=>{});
 if(topActivity)topActivity.onclick=async()=>{if(!desktopPanel)return;desktopPanel.hidden=!desktopPanel.hidden;if(!desktopPanel.hidden)await showActivity(qs('#desktopActivityBody'))};
 qs('#desktopActivityClose').onclick=()=>{if(desktopPanel)desktopPanel.hidden=true};
-async function loadWork(){try{const r=await fetch('/api/work/health');const d=await r.json().catch(()=>({}));qs('#bridgeState').textContent=r.ok?'Disponible':'Indisponible';qs('#workOut').textContent=JSON.stringify(d,null,2)}catch(e){qs('#bridgeState').textContent='Indisponible';qs('#workOut').textContent=e.message}}
+async function loadWork(){try{const d=await jfetch('/api/work/health');const online=d?.ok===true&&d?.available===true&&String(d?.status||'').toUpperCase()==='ONLINE';const mode=String(d?.mode||'').toLowerCase();qs('#bridgeState').textContent=online?(mode==='preflight-only'?'Préflight disponible':'Disponible'):'Indisponible';qs('#workOut').textContent=JSON.stringify(d,null,2)}catch(e){qs('#bridgeState').textContent='Indisponible';qs('#workOut').textContent='État Work indisponible : '+e.message}}
 qs('#workRefresh').onclick=loadWork;qs('#workCreate').onclick=async()=>{const goal=qs('#workGoal').value.trim();if(!goal)return;qs('#workCreate').disabled=true;try{const d=await jfetch('/api/work/jobs',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({goal,mode:'prepare'})});qs('#workOut').textContent=JSON.stringify(d,null,2)}catch(e){qs('#workOut').textContent='Erreur : '+e.message}finally{qs('#workCreate').disabled=false}};
 function setLoraTag(id,text,kind){const el=qs(id);if(!el)return;el.textContent=text;el.className='tag '+kind}
 async function loadFreeLoraStatus(){
@@ -455,18 +628,17 @@ async function loadFreeLoraStatus(){
     const wf=wfKnown?d.workflow:{};
     const trainWfKnown=Boolean(d?.training_workflow&&typeof d.training_workflow==='object');
     const trainWf=trainWfKnown?d.training_workflow:{};
-    const collectorKnown=Boolean(d?.collector_workflow&&typeof d.collector_workflow==='object');
-    const collectorWf=collectorKnown?d.collector_workflow:{};
-    const collectorStatus=collectorKnown&&collectorWf.status!=null?String(collectorWf.status).toUpperCase():'UNKNOWN';
-    const collectorConclusion=collectorKnown?String(collectorWf.conclusion||'').toUpperCase():'';
     const checkpoint=d?.checkpoint&&typeof d.checkpoint==='object'?d.checkpoint:null;
+    const dailyTrace=d?.daily_trace&&typeof d.daily_trace==='object'?d.daily_trace:null;
+    const traceStatus=String(dailyTrace?.status||'').toUpperCase();
+    const traceSuccess=traceStatus==='SUCCEEDED'&&Number(dailyTrace?.trace_verified)===1;
+    const dailyStatus=d?.daily_status&&typeof d.daily_status==='object'?d.daily_status:null;
     const trainStatus=trainWfKnown&&trainWf.status!=null?String(trainWf.status).toUpperCase():'UNKNOWN';
     const trainConclusion=String(trainWf.conclusion||'').toUpperCase();
     const trainActive=trainStatus==='IN_PROGRESS'||trainStatus==='QUEUED'||trainStatus==='PENDING';
     const checkpointCycle=checkpoint?.cycle!=null?Number(checkpoint.cycle):null;
     const visibleCycle=trainActive?(checkpointCycle==null?0:checkpointCycle+1):checkpointCycle;
     qs('#freeKaggleState').textContent=trainStatus==='UNKNOWN'?'—':(trainActive?'RUNNING':(trainStatus==='COMPLETED'?(trainConclusion||'COMPLETED'):trainStatus));
-    qs('#freeCollectorState').textContent=collectorStatus==='UNKNOWN'?'—':(collectorStatus==='COMPLETED'?(collectorConclusion||'COMPLETED'):collectorStatus);
     qs('#freeKaggleCycle').textContent=visibleCycle==null?'—':'C'+String(visibleCycle).padStart(3,'0');
     const wfStatus=wfKnown&&wf.status!=null?String(wf.status).toUpperCase():'UNKNOWN';
     const wfConclusion=wfKnown?String(wf.conclusion||'').toUpperCase():'';
@@ -477,21 +649,31 @@ async function loadFreeLoraStatus(){
     const lessonCount=lessonRaw==null||!Number.isFinite(Number(lessonRaw))?null:Math.max(0,Number(lessonRaw));
     qs('#freeLoraLessons').textContent=lessonCount==null?'—/50':lessonCount+'/50'+(lessonCount>=50?' · PRÊT':'');
     qs('#freeTrainingExamples').textContent=training?.examples!=null?Number(training.examples).toLocaleString('fr-FR'):(dataset?.examples!=null?Number(dataset.examples).toLocaleString('fr-FR'):'—');
-    qs('#freeCheckpointStage').textContent=checkpoint?.tag?String(checkpoint.tag):(training?.stage?String(training.stage).toUpperCase():(bundleKnown?'AUCUN CHECKPOINT':'—'));
+    qs('#freeCheckpointStage').textContent=checkpoint?.tag?String(checkpoint.tag):(traceSuccess?'SAUVEGARDÉ · TRACE VÉRIFIÉE':(training?.stage?String(training.stage).toUpperCase():(bundleKnown?'AUCUN CHECKPOINT':'—')));
     qs('#freeCompatibleLoras').textContent=registry?.compatible_count!=null?Number(registry.compatible_count).toLocaleString('fr-FR'):'—';
     const benchKnown=Boolean(d?.learning?.benchmark_status&&typeof d.learning.benchmark_status==='object');
     const bench=benchKnown?d.learning.benchmark_status:{};
-    qs('#freeBenchmarkState').textContent=!benchKnown?'—':(bench.status!=null?String(bench.status):'—')+(bench.latest_score!=null?' · '+Math.round(Number(bench.latest_score)*1000)/10+'%':'');
+    qs('#freeBenchmarkState').textContent=benchKnown
+      ?(bench.status!=null?String(bench.status):'—')+(bench.latest_score!=null?' · '+Math.round(Number(bench.latest_score)*1000)/10+'%':'')
+      :(traceSuccess?'VALIDATION TECHNIQUE RÉUSSIE':'—');
+    qs('#freeLoraTraceState').textContent=dailyTrace?.run_id
+      ?String(dailyTrace.run_id)+' · '+(traceStatus||'ÉTAT INCONNU')
+      :'AUCUNE TRACE';
+    qs('#freeLoraTraceVerified').textContent=dailyTrace
+      ?(Number(dailyTrace.trace_verified)===1?'OUI':'NON')
+      :'—';
+    const todayRuns=Number(dailyStatus?.run_count||0);
+    qs('#freeLoraDailyState').textContent=dailyStatus
+      ?(todayRuns>0
+        ?todayRuns+' run(s) · '+Number(dailyStatus.successful_count||0)+' réussi(s) · '+Number(dailyStatus.failed_count||0)+' échec(s)'
+        :(dailyStatus.absence_reported_at?'ABSENCE SIGNALÉE':'AUCUN RUN'))
+      :'—';
+    qs('#freeLoraTraceReport').textContent=dailyTrace?.summary_fr
+      ?String(dailyTrace.summary_fr)
+      :(dailyStatus?.report_fr?String(dailyStatus.report_fr):'Aucune trace LoRA durable disponible.');
     const impactKnown=Boolean(d?.learning?.impact&&typeof d.learning.impact==='object');
-    const impact=impactKnown?d.learning.impact:{}, cand=impact.candidate||{}, delta=impact.delta||{};
-    const pctImpact=v=>v==null||!Number.isFinite(Number(v))?'—':(Math.round(Number(v)*1000)/10)+'%';
+    const impact=impactKnown?d.learning.impact:{};
     qs('#freeImpactStage').textContent=impact.next_stage||'—';
-    qs('#freeImpactTechnical').textContent=pctImpact(cand.technical_depth);
-    qs('#freeImpactSensitive').textContent=pctImpact(cand.sensitive_answer_rate);
-    qs('#freeImpactRefusal').textContent=pctImpact(cand.over_refusal_rate);
-    qs('#freeImpactBoundary').textContent=pctImpact(cand.targeted_boundary);
-    qs('#freeImpactAgentic').textContent=pctImpact(cand.agentic_execution);
-    qs('#freeImpactDelta').textContent=delta.overall==null?'—':((Number(delta.overall)>=0?'+':'')+pctImpact(delta.overall));
     const agenticKnown=impact.next_stage!=null&&String(impact.next_stage).trim()!=='';
     const agenticReady=agenticKnown&&String(impact.next_stage)==='AGENTIC_READY';
     setLoraTag('#freeAgenticState',!agenticKnown?'Indisponible':(agenticReady?'AGENTIC_READY':'VERROUILLÉ'),agenticReady?'good':'warn');
@@ -509,9 +691,15 @@ async function loadFreeLoraStatus(){
     else if(trainStatus==='COMPLETED')setLoraTag('#freeGpuState','À RELANCER','warn');
     else if(trainStatus==='NEVER_RUN')setLoraTag('#freeGpuState','À lancer','warn');
     else setLoraTag('#freeGpuState',trainStatus,'warn');
-    setLoraTag('#freeHfState',checkpoint?.tag?'CHECKPOINT '+('C'+String(checkpointCycle).padStart(3,'0')):(bundleKnown?(bundleReady?'Bundle HF prêt':'En attente'):'Indisponible'),checkpoint?.tag||bundleReady===true?'good':'warn');
+    setLoraTag('#freeHfState',
+      checkpoint?.tag?'CHECKPOINT '+('C'+String(checkpointCycle).padStart(3,'0')):(traceSuccess?'CHECKPOINT VÉRIFIÉ':(bundleKnown?(bundleReady?'BUNDLE PRÊT':'EN ATTENTE'):'INDISPONIBLE')),
+      checkpoint?.tag||traceSuccess||bundleReady===true?'good':'warn');
 
-    let wfKind='warn',wfLabel=wfStatus==='NEVER_RUN'?'Jamais lancé':'Indisponible';
+    const validationDone=traceSuccess||checkpoint?.local_gate_ready===true||loraState==='EVALUATED'||loraState==='ACTIVE';
+    const validationKnown=traceSuccess||Boolean(checkpoint)||benchKnown||loraKnown;
+    setLoraTag('#freeValidationState',!validationKnown?'INDISPONIBLE':(validationDone?'VALIDÉ':'À VALIDER'),validationDone?'good':'warn');
+
+    let wfKind='warn',wfLabel=wfStatus==='NEVER_RUN'?'NON LANCÉE · OPTIONNELLE':'Indisponible';
     if(wfStatus==='IN_PROGRESS'||wfStatus==='QUEUED'){wfLabel='En cours';wfKind='warn'}
     else if(wfStatus==='COMPLETED'&&wfConclusion==='SUCCESS'){wfLabel='Succès';wfKind='good'}
     else if(wfStatus==='COMPLETED'){wfLabel='Échec / annulé';wfKind='bad'}
@@ -527,41 +715,74 @@ async function loadFreeLoraStatus(){
 
     qs('#freeLoraFiles').innerHTML=files.length?files.map(x=>(x.available?'✓ ':'○ ')+esc(x.name)).join('<br>'):(bundleKnown?'Aucun fichier détecté.':'État fichiers indisponible.');
     qs('#freeLoraWorkflowDetail').textContent=JSON.stringify({
-      collector:collectorWf.id?{id:collectorWf.id,status:collectorWf.status,conclusion:collectorWf.conclusion,head_sha:collectorWf.head_sha,updated_at:collectorWf.updated_at}:null,
       training:trainWf.id?{id:trainWf.id,status:trainWf.status,conclusion:trainWf.conclusion,head_sha:trainWf.head_sha,updated_at:trainWf.updated_at}:null,
       checkpoint:checkpoint,
+      daily_trace:dailyTrace?{run_id:dailyTrace.run_id,status:dailyTrace.status,trace_verified:Number(dailyTrace.trace_verified)===1,source_sha:dailyTrace.source_sha,started_at:dailyTrace.started_at,finished_at:dailyTrace.finished_at,trace_sha256:dailyTrace.trace_sha256}:null,
+      daily_status:dailyStatus?{day:dailyStatus.day,run_count:dailyStatus.run_count,successful_count:dailyStatus.successful_count,failed_count:dailyStatus.failed_count,absence_reported_at:dailyStatus.absence_reported_at}:null,
       promotion:wf.id?{id:wf.id,status:wf.status,conclusion:wf.conclusion,head_sha:wf.head_sha,updated_at:wf.updated_at}:null
     },null,2);
     if(d.kaggle_url)qs('#freeLoraColab').href=d.kaggle_url;
     if(checkpoint?.html_url)qs('#freeLoraHf').href=checkpoint.html_url;else if(d.hf_url)qs('#freeLoraHf').href=d.hf_url;
     if(d.workflow_url)qs('#freeLoraWorkflow').href=d.workflow_url;
 
-    const stageKnown=collectorKnown||trainWfKnown||bundleKnown||wfKnown||loraKnown||Boolean(checkpoint);
-    let stage=0;
-    if(collectorStatus==='COMPLETED'&&collectorConclusion==='SUCCESS')stage=1;
-    if(trainActive)stage=1;
-    if(checkpoint?.tag||bundleReady===true)stage=2;
-    if(wfStatus==='IN_PROGRESS'||wfStatus==='QUEUED')stage=Math.max(stage,2.5);
-    if(wfStatus==='COMPLETED'&&wfConclusion==='SUCCESS')stage=Math.max(stage,3);
-    if(loraState==='ACTIVE')stage=4;
-    else if(loraState==='EVALUATED')stage=Math.max(stage,3);
-    const percent=stageKnown?Math.round(stage/4*100):null;
+    const trainingDone=traceSuccess||(trainStatus==='COMPLETED'&&trainConclusion==='SUCCESS');
+    const checkpointDone=Boolean(checkpoint?.tag)||traceSuccess||bundleReady===true;
+    const promotionRunning=wfStatus==='IN_PROGRESS'||wfStatus==='QUEUED';
+    const promotionDone=wfStatus==='COMPLETED'&&wfConclusion==='SUCCESS';
+    const promotionApplicable=wfStatus!=='NEVER_RUN'&&wfStatus!=='UNKNOWN';
+    const runtimeDone=loraState==='ACTIVE';
+    const knownStages=[
+      {known:trainWfKnown||Boolean(dailyTrace),done:trainingDone},
+      {known:Boolean(checkpoint)||bundleKnown||Boolean(dailyTrace),done:checkpointDone},
+      {known:validationKnown,done:validationDone},
+      {known:promotionApplicable,done:promotionDone},
+      {known:loraKnown,done:runtimeDone}
+    ];
+    const applicable=knownStages.filter(x=>x.known);
+    const completed=applicable.filter(x=>x.done).length;
+    const percent=applicable.length?Math.round(completed/applicable.length*100):null;
     qs('#freeLoraBar').style.width=(percent==null?0:percent)+'%';
     qs('#freeLoraProgressPercent').textContent=percent==null?'—':percent+'%';
-    qs('#freeLoraProgressText').textContent=percent==null?'Statut indisponible':percent===100?'Checkpoint UNCENSORED actif dans le preview':trainActive?'GPU Kaggle T4 en cours · cycle '+(visibleCycle==null?'?':visibleCycle):(checkpoint?.tag?'Checkpoint UNCENSORED conservé · benchmark/gate à suivre':bundleReady===true?'Bundle UNCENSORED prêt · promotion candidate à lancer':(collectorStatus==='COMPLETED'&&collectorConclusion==='SUCCESS'?'Collector Kaggle à jour · dernier run réussi':bundleKnown?'En attente du prochain cycle Kaggle gratuit':'Statut indisponible'));
+    qs('#freeLoraProgressText').textContent=percent==null
+      ?'Statut indisponible'
+      :runtimeDone
+        ?'LoRA validé et actif dans MEL'
+        :promotionRunning
+          ?'Promotion en cours'
+          :validationDone&&checkpointDone&&trainingDone
+            ?'Entraînement, checkpoint et validation confirmés · activation MEL à vérifier'
+            :trainActive
+              ?'Entraînement Kaggle en cours · cycle '+(visibleCycle==null?'?':visibleCycle)
+              :'Pipeline en attente de la prochaine preuve réelle';
   }catch(e){
+    // Treat a failed refresh as a failure, not a new successful 30-second
+    // cache entry. Clear all live-proof fields before permitting a retry.
+    setLoraTag('#freeGpuState','Indisponible','bad');
     setLoraTag('#freeHfState','Indisponible','bad');
+    setLoraTag('#freeValidationState','Indisponible','bad');
     setLoraTag('#freeWorkflowState','Indisponible','bad');
     setLoraTag('#freeRuntimeState','Indisponible','bad');
     setLoraTag('#freeAgenticState','Indisponible','bad');
-    qs('#freeKaggleState').textContent='—';
-    qs('#freeCollectorState').textContent='—';
-    qs('#freeKaggleCycle').textContent='—';
-    qs('#freeCheckpointStage').textContent='—';
-    qs('#freeBenchmarkState').textContent='—';
+    for(const id of [
+      '#freeKaggleState','#freeKaggleCycle','#freeLoraLessons',
+      '#freeTrainingExamples','#freeCheckpointStage','#freeCompatibleLoras',
+      '#freeBenchmarkState','#freeLoraTraceState','#freeLoraTraceVerified',
+      '#freeLoraDailyState','#freeImpactStage'
+    ])qs(id).textContent='—';
+    qs('#freeLoraFiles').textContent='Fichiers indisponibles.';
+    qs('#freeLoraTraceReport').textContent='Trace LoRA indisponible.';
     qs('#freeRuntimeDetail').textContent='État runtime indisponible.';
-    qs('#freeLoraWorkflowDetail').textContent='Erreur : '+e.message;
-    qs('#freeLoraProgressText').textContent='Statut indisponible';
+    qs('#freeLoraWorkflowDetail').textContent='Erreur : '+String(e?.message||'LORA_STATUS_UNAVAILABLE');
+    qs('#freeLoraProgressText').textContent='Statut indisponible · actualisation non validée';
+    qs('#freeLoraProgressPercent').textContent='—';
+    qs('#freeLoraBar').style.width='0%';
+    const agenticLink=qs('#freeAgenticColab');
+    if(agenticLink){
+      agenticLink.setAttribute('aria-disabled','true');
+      agenticLink.style.pointerEvents='none';
+      agenticLink.style.opacity='.45';
+    }
+    throw e;
   }finally{if(btn)btn.disabled=false}
 }
 qs('#freeLoraRefresh').onclick=()=>{panelLoadedAt.delete('lora');loadFreeLoraStatus().then(()=>panelLoadedAt.set('lora',Date.now())).catch(()=>{})};
@@ -642,28 +863,34 @@ function renderOAuthConnection(provider,data){
     if(st?.authorized&&st?.refreshable){
       setConnectionBadge(ui.state,'CONNECTÉ DURABLEMENT','good');
       const note=qs(ui.note);if(note)note.textContent='Refresh token chiffré présent : MEL peut renouveler la session automatiquement.';
+    }else if(st?.reconnect_required){
+      setConnectionBadge(ui.state,'RECONNEXION REQUISE','warn');
+      const note=qs(ui.note);if(note)note.textContent='Ancien jeton OAuth illisible : enregistre l’application Google si nécessaire puis clique sur Se connecter pour créer un nouveau consentement.';
     }else if(st?.authorized){
       setConnectionBadge(ui.state,'CONNECTÉ','warn');
       const note=qs(ui.note);if(note)note.textContent='Token présent mais pas de refresh token : une reconnexion pourra être nécessaire.';
     }else if(!data?.app_configured){
       setConnectionBadge(ui.state,'APP À CONFIGURER','warn');
+      const details=qs('#googleAppConfig');if(details)details.open=true;
+      const note=qs(ui.note);if(note)note.textContent='Renseigne le Client ID et le Client Secret Google ci-dessous, enregistre-les, puis lance la connexion.';
     }else{
       setConnectionBadge(ui.state,'NON CONNECTÉ','neutral');
     }
   }
 }
 async function loadConnections(){
-  const providers=['google','yahoo-imap','vercel','pipedream'];
+  const providers=['google','pipedream'];
   const results=await Promise.allSettled(providers.map(p=>jfetch(connectionApi(p,'status'))));
   const data={};providers.forEach((p,i)=>{if(results[i].status==='fulfilled')data[p]=results[i].value});
   if(data.google)renderOAuthConnection('google',data.google);
-  const yahoo=data['yahoo-imap'];
-  if(yahoo?.configured){
-    setConnectionBadge('#connStateYahoo','ENREGISTRÉ DURABLEMENT','good');
-    if(qs('#yahooUsername'))qs('#yahooUsername').value=yahoo.username||'';
-    if(qs('#yahooAppPassword'))qs('#yahooAppPassword').value='';
-    const note=qs('#connNoteYahoo');if(note)note.textContent='Compte Yahoo/Ymail enregistré. Mot de passe d’application conservé uniquement dans le vault chiffré.';
-  }else setConnectionBadge('#connStateYahoo','NON CONFIGURÉ','neutral');
+  else{
+    setConnectionBadge('#connStateGmail','À RECONFIGURER','warn');
+    const app=qs('#connAppGoogle');if(app)app.textContent='Application Google : configuration requise';
+    const note=qs('#connNoteGmail');if(note)note.textContent='Google doit être reconfiguré, mais les autres connexions restent indépendantes.';
+    const details=qs('#googleAppConfig');if(details)details.open=true;
+    const connect=qs('#gmailConnect');if(connect){connect.disabled=true;connect.title='Enregistre d’abord le Client ID et le Client Secret Google ci-dessous';}
+  }
+  setConnectionBadge('#connStateYahoo','PIPEDREAM À VÉRIFIER','warn');
   const vc=data.vercel;
   if(vc?.configured){
     setConnectionBadge('#connStateVercel',vc.target_configured?'CONFIGURÉ':'TOKEN OK','good');
@@ -675,17 +902,31 @@ async function loadConnections(){
   }else setConnectionBadge('#connStateVercel','NON CONFIGURÉ','neutral');
   const pd=data.pipedream;
   if(pd?.configured){
-    setConnectionBadge('#connStatePipedream','CONFIGURÉ','good');
+    setConnectionBadge('#connStatePipedream','CONFIGURÉ · NON TESTÉ','warn');
     if(qs('#pipedreamProjectId'))qs('#pipedreamProjectId').value=pd.project_id||'';
     if(qs('#pipedreamClientId'))qs('#pipedreamClientId').value='';
     if(qs('#pipedreamClientSecret'))qs('#pipedreamClientSecret').value='';
-    if(qs('#pipedreamEnvironment'))qs('#pipedreamEnvironment').value=pd.environment||'production';
+    if(qs('#pipedreamEnvironment'))qs('#pipedreamEnvironment').value=pd.environment||'development';
     const note=qs('#connNotePipedream');if(note)note.textContent='Projet '+(pd.project_id||'Pipedream')+' enregistré. Client ID et secret restent uniquement dans le vault chiffré.';
   }else setConnectionBadge('#connStatePipedream','NON CONFIGURÉ','neutral');
   if(pd?.configured){
     try{
       const accountState=await jfetch(connectionApi('pipedream','accounts'));
       const connected=new Set(accountState.connected_apps||[]);
+      if(accountState.environment_fallback_used===true){
+        setConnectionBadge('#connStatePipedream','CONNECTÉ · DEVELOPMENT','good');
+        const note=qs('#connNotePipedream');if(note)note.textContent='Pipedream est opérationnel en Development. Production n’est pas disponible pour ce projet/plan.';
+        const envSelect=qs('#pipedreamEnvironment');if(envSelect)envSelect.value='development';
+      }else if(accountState.account_status_degraded===true){
+        const reconnect=accountState.reconnect_required===true||accountState.action_required==='RECONNECT_PIPEDREAM_DEVELOPMENT';
+        setConnectionBadge('#connStatePipedream',reconnect?'RECONNEXION DEVELOPMENT REQUISE':'AUTH OK · STATUT COMPTES DÉGRADÉ','warn');
+        const note=qs('#connNotePipedream');
+        if(note)note.textContent=reconnect
+          ?'Pipedream est en Development, mais les comptes reliés en Production ne sont pas transférés automatiquement. Reconnecte Outlook/MSN, OneDrive, SharePoint et Yahoo/Ymail avec les boutons ci-dessous.'
+          :'Projet Pipedream authentifié, mais la liste des comptes reliés est momentanément indisponible'+(accountState.action_required?' · action : '+accountState.action_required:'')+'.';
+        const envSelect=qs('#pipedreamEnvironment');if(envSelect)envSelect.value=accountState.environment||'development';
+        const state=qs('#pipedreamPrimaryState');if(state&&reconnect)state.textContent='Reconnecte les comptes dans l’environnement Development gratuit.';
+      }
       const labels={microsoft_outlook:'Outlook / MSN',microsoft_onedrive:'OneDrive',sharepoint:'SharePoint',imap:'Yahoo/Ymail via IMAP',google_drive:'Google Drive',google_calendar:'Google Calendar',google_tasks:'Google Tasks',dropbox:'Dropbox',lemlist:'Lemlist'};
       qsa('[data-pd-connect]').forEach(button=>{
         const app=button.dataset.pdConnect;
@@ -756,42 +997,9 @@ async function saveOAuthApp(provider,button){
     const banner=qs('#connectionBanner');if(banner){banner.hidden=false;banner.className='connection-banner bad';banner.textContent='Configuration '+provider+' : '+e.message}
   }finally{button.disabled=false;button.textContent=original}
 }
-async function saveYahooDirect(){
-  const btn=qs('#yahooSave');if(!btn)return;
-  const username=qs('#yahooUsername')?.value?.trim()||'',password=qs('#yahooAppPassword')?.value||'';
-  if(!username||!password){
-    const banner=qs('#connectionBanner');if(banner){banner.hidden=false;banner.className='connection-banner bad';banner.textContent='Yahoo/Ymail : adresse complète et mot de passe d’application requis.'}
-    return;
-  }
-  const original=btn.textContent;btn.disabled=true;btn.textContent='Chiffrement…';
-  try{
-    await jfetch(connectionApi('yahoo-imap','save'),{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({username,password})});
-    if(qs('#yahooAppPassword'))qs('#yahooAppPassword').value='';
-    await loadConnections();
-  }catch(e){
-    const banner=qs('#connectionBanner');if(banner){banner.hidden=false;banner.className='connection-banner bad';banner.textContent='Yahoo/Ymail : '+e.message}
-  }finally{btn.disabled=false;btn.textContent=original}
-}
-async function testYahooDirect(){
-  const btn=qs('#yahooTest');if(!btn)return;const original=btn.textContent;btn.disabled=true;btn.textContent='Test IMAP + SMTP…';
-  try{
-    await jfetch(connectionApi('yahoo-imap','test'),{method:'POST',headers:{'content-type':'application/json'},body:'{}'});
-    setConnectionBadge('#connStateYahoo','IMAP + SMTP OK','good');
-    const banner=qs('#connectionBanner');if(banner){banner.hidden=false;banner.className='connection-banner good';banner.textContent='Yahoo/Ymail : authentification IMAP et SMTP vérifiée.'}
-  }catch(e){
-    setConnectionBadge('#connStateYahoo','TEST ÉCHOUÉ','bad');
-    const authRejected=String(e.message||'').includes('YAHOO_IMAP_IMAP_AUTH_REJECTED');
-    const detail=authRejected
-      ?'Yahoo a refusé l’identifiant IMAP. Crée un nouveau mot de passe d’application Yahoo (pas le mot de passe normal), enregistre-le ici puis reteste. Le bouton Pipedream IMAP reste disponible comme chemin alternatif.'
-      :'Yahoo/Ymail : '+e.message;
-    const banner=qs('#connectionBanner');if(banner){banner.hidden=false;banner.className='connection-banner bad';banner.textContent=detail}
-    const note=qs('#connNoteYahoo');if(note&&authRejected)note.textContent='Authentification Yahoo refusée : le mot de passe d’application enregistré doit être régénéré ou le compte peut être relié via Pipedream IMAP.';
-  }finally{btn.disabled=false;btn.textContent=original}
-}
-
 async function savePipedream(){
   const btn=qs('#pipedreamSave');if(!btn)return;
-  const project_id=qs('#pipedreamProjectId')?.value?.trim()||'',client_id=qs('#pipedreamClientId')?.value?.trim()||'',client_secret=qs('#pipedreamClientSecret')?.value||'',environment=qs('#pipedreamEnvironment')?.value||'production';
+  const project_id=qs('#pipedreamProjectId')?.value?.trim()||'',client_id=qs('#pipedreamClientId')?.value?.trim()||'',client_secret=qs('#pipedreamClientSecret')?.value||'',environment=qs('#pipedreamEnvironment')?.value||'development';
   if(!project_id||!client_id||!client_secret){
     const banner=qs('#connectionBanner');if(banner){banner.hidden=false;banner.className='connection-banner bad';banner.textContent='Pipedream : Project ID, Client ID et Client Secret requis.'}
     return;
@@ -810,9 +1018,10 @@ async function testPipedream(){
   const btn=qs('#pipedreamTest');if(!btn)return;const original=btn.textContent;btn.disabled=true;btn.textContent='Test…';
   try{
     const d=await jfetch(connectionApi('pipedream','test'),{method:'POST',headers:{'content-type':'application/json'},body:'{}'});
-    setConnectionBadge('#connStatePipedream','TEST RÉEL OK','good');
+    setConnectionBadge('#connStatePipedream',d.environment_fallback_used?'TEST OK · DEVELOPMENT':'TEST RÉEL OK','good');
     const apps=Object.entries(d.apps||{}).map(([name,row])=>name+' ('+(row.component_count??0)+' outils)').join(' · ');
-    if(qs('#pipedreamAppsState'))qs('#pipedreamAppsState').textContent='Projet Pipedream authentifié'+(apps?' · '+apps:'')+'.';
+    if(qs('#pipedreamAppsState'))qs('#pipedreamAppsState').textContent='Projet Pipedream authentifié en '+String(d.environment||'development')+(d.environment_fallback_used?' (bascule automatique depuis Production)':'')+(apps?' · '+apps:'')+'.';
+    if(d.environment_fallback_used&&qs('#pipedreamEnvironment'))qs('#pipedreamEnvironment').value='development';
   }catch(e){
     setConnectionBadge('#connStatePipedream','TEST ÉCHOUÉ','bad');
     const banner=qs('#connectionBanner');if(banner){banner.hidden=false;banner.className='connection-banner bad';banner.textContent='Pipedream : '+e.message}
@@ -835,62 +1044,13 @@ async function connectViaPipedream(app,button){
   }
 }
 
-async function saveVercel(){
-  const btn=qs('#vercelSave');if(!btn)return;const original=btn.textContent;btn.disabled=true;btn.textContent='Enregistrement…';
-  try{
-    const body={token:qs('#vercelToken')?.value||'',team_id:qs('#vercelTeamId')?.value||'',project_id:qs('#vercelProjectId')?.value||'',project_name:qs('#vercelProjectName')?.value||''};
-    await jfetch(connectionApi('vercel','save'),{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});
-    if(qs('#vercelToken'))qs('#vercelToken').value='';
-    await loadConnections();
-  }catch(e){
-    const banner=qs('#connectionBanner');if(banner){banner.hidden=false;banner.className='connection-banner bad';banner.textContent='Vercel : '+e.message}
-  }finally{btn.disabled=false;btn.textContent=original}
-}
-async function testVercel(){
-  const btn=qs('#vercelTest');if(!btn)return;const original=btn.textContent;btn.disabled=true;btn.textContent='Test…';
-  try{
-    const d=await jfetch(connectionApi('vercel','test'),{method:'POST',headers:{'content-type':'application/json'},body:'{}'});
-    setConnectionBadge('#connStateVercel','TEST RÉEL OK','good');
-    const projectText=(d.projects||[]).map(p=>p.name+' · '+p.id).join(' | ')||'Aucun projet visible.';
-    if(qs('#vercelProjects'))qs('#vercelProjects').textContent='Projets : '+projectText;
-    const sel=qs('#vercelDeploymentSelect');if(sel){sel.innerHTML='<option value="">Choisir un déploiement</option>';(d.deployments||[]).forEach(row=>{const o=document.createElement('option');o.value=row.id;o.textContent=(row.name||row.id)+' · '+(row.state||'')+' · '+(row.target||'preview');sel.appendChild(o)})}
-    if(d.configured_project){
-      if(qs('#vercelProjectId'))qs('#vercelProjectId').value=d.configured_project.id||'';
-      if(qs('#vercelProjectName'))qs('#vercelProjectName').value=d.configured_project.name||'';
-    }
-  }catch(e){
-    setConnectionBadge('#connStateVercel','TEST ÉCHOUÉ','bad');
-    const banner=qs('#connectionBanner');if(banner){banner.hidden=false;banner.className='connection-banner bad';banner.textContent='Vercel : '+e.message}
-  }finally{btn.disabled=false;btn.textContent=original}
-}
-async function redeployVercel(target,button){
-  const deploymentId=qs('#vercelDeploymentSelect')?.value||'';
-  if(!deploymentId)return;
-  if(!confirm('Confirmer le redéploiement Vercel '+target+' de '+deploymentId+' ?'))return;
-  const original=button.textContent;button.disabled=true;button.textContent='Redéploiement…';
-  try{
-    const d=await jfetch('/api/gen2/capabilities/execute',{method:'POST',headers:{'content-type':'application/json','x-mel-approve-capability':'vercel.deployments.redeploy'},body:JSON.stringify({id:'vercel.deployments.redeploy',input:{deploymentId,target}})});
-    const banner=qs('#connectionBanner');if(banner){banner.hidden=false;banner.className='connection-banner good';banner.textContent='Vercel : redéploiement '+target+' accepté.'}
-    await testVercel();
-    return d;
-  }catch(e){
-    const banner=qs('#connectionBanner');if(banner){banner.hidden=false;banner.className='connection-banner bad';banner.textContent='Vercel : '+e.message}
-  }finally{button.disabled=false;button.textContent=original}
-}
 qs('#gmailConnect').onclick=()=>beginConnection('google','gmail',qs('#gmailConnect'));
 qs('#gmailTest').onclick=()=>testConnection('google','gmail',qs('#gmailTest'));
-qs('#yahooSave').onclick=saveYahooDirect;
-qs('#yahooTest').onclick=testYahooDirect;
 qs('#googleAppSave').onclick=()=>saveOAuthApp('google',qs('#googleAppSave'));
 qs('#pipedreamSave').onclick=savePipedream;
 qs('#pipedreamTest').onclick=testPipedream;
 qs('#yahooPipedream').onclick=()=>connectViaPipedream('imap',qs('#yahooPipedream'));
 qsa('[data-pd-connect]').forEach(button=>{if(button.id==='yahooPipedream')return;button.onclick=()=>connectViaPipedream(button.dataset.pdConnect,button)});
-qs('#vercelSave').onclick=saveVercel;
-qs('#vercelTest').onclick=testVercel;
-qs('#vercelRefresh').onclick=loadConnections;
-qs('#vercelRedeployPreview').onclick=()=>redeployVercel('preview',qs('#vercelRedeployPreview'));
-qs('#vercelRedeployProduction').onclick=()=>redeployVercel('production',qs('#vercelRedeployProduction'));
 
 async function boot(){qs('#codeMetric').textContent='MANUEL';qs('#codeSummary').textContent='Test à la demande pour accélérer l’ouverture.';const tasks=await Promise.allSettled([loadDashboardSummary(false),loadAutonomy()]);const dashboard=tasks[0];if(dashboard.status!=='fulfilled'){renderCapabilityOverview(null);renderRoadmapSummary(null);qs('#globalState').textContent='Diagnostic requis';qs('#globalDot').className='dot bad';qs('#healthRows').textContent='Résumé système indisponible.';return}qs('#globalState').textContent='Vérification des capacités…';qs('#globalDot').className='dot warn';loadDashboardSummary(true).catch(()=>{qs('#globalState').textContent='Santé à actualiser';qs('#globalDot').className='dot warn';});}
 

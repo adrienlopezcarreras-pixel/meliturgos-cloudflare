@@ -1,4 +1,6 @@
 export const LOCAL_SOVEREIGNTY_ACTIONS=Object.freeze([
+  "sovereignty.ai.health",
+  "sovereignty.ai.invoke",
   "sovereignty.source_control.seed",
   "sovereignty.source_control.health",
   "sovereignty.source_control.read_ref",

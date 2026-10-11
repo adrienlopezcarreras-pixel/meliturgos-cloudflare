@@ -7,6 +7,7 @@ import {
   evaluateRestoreReadiness,
   evaluateShardVaultLaunchReadiness,
   getAutonomyLaunchReadiness,
+  writeAutonomyLaunchReadinessPublicCache,
   prepareAutonomyLaunchCodeSync,
   prepareAutonomyLaunchBackup,
   summarizeAutonomyLaunchCodeSync,
@@ -284,19 +285,77 @@ test('prepareAutonomyLaunch reuses exact SHA-bound compact restore proof without
   }
 });
 
-test('public launch-readiness proof is read-only and minimized', async () => {
-  const response = await maybeHandlePublicTeacherBridge(
-    new Request('http://mel/api/teacher/launch-readiness'),
-    {},
-    { repository: new D1DevJobRepository(null, { memoryStore: new Map() }) },
-  );
-  assert.equal(response.status, 200);
-  const body = await response.json();
-  assert.equal(body.mutation_allowed, false);
-  assert.equal(body.exposes_secrets, false);
-  assert.equal(body.exposes_memory, false);
-  assert.equal(Array.isArray(body.blockers), true);
-  assert.equal('active_work' in body, false);
+test('public launch-readiness proof is exact-SHA cached, read-only and never re-runs repository work', async () => {
+  const DB = sqliteD1();
+  const sha = 'f'.repeat(40);
+  try {
+    const cached = await writeAutonomyLaunchReadinessPublicCache({
+      DB,
+      MEL_DEPLOYED_GIT_SHA: sha,
+    }, {
+      ok: true,
+      status: 'GO_FOR_SUPERVISED_AUTONOMY',
+      launch_ready: true,
+      candidate_branch: 'candidate/mel-clean-autonomy',
+      candidate_sha: sha,
+      gate_digest: 'a'.repeat(64),
+      gates: { verified_restore_dry_run: true, shardvault_critical_survival: true },
+      blockers: [],
+      failure_hygiene: { ok: true, retry_cap: 3, historical_failed_count: 2, unbounded_failed_count: 0 },
+      restore: { ok: true, status: 'RELEASE_BOUND_SYSTEM_BACKUP_RESTORE_PROOF_VERIFIED', snapshot_id: 'system-1', deployed_sha: sha, backup_deployed_sha: sha, sha_matches: true },
+      shardvault: { ok: true, status: 'SHARDVAULT_QUORUM_CODE_SURVIVAL_VERIFIED', recoverable: true, active_external_count: 5, external_code_status: 'QUORUM_COPIED', external_code_endpoints: 5, target_count: 7, release_quorum: 5, code_reconstruction_verified: true },
+      invariants: { owner_shutdown_wins: true },
+      evaluated_at: new Date().toISOString(),
+    });
+    assert.equal(cached.ok, true);
+
+    const response = await maybeHandlePublicTeacherBridge(
+      new Request('http://mel/api/teacher/launch-readiness'),
+      { DB, MEL_DEPLOYED_GIT_SHA: sha },
+      { repository: { list: async () => { throw new Error('PUBLIC_READINESS_MUST_NOT_LIST_JOBS'); } } },
+    );
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.equal(body.launch_ready, true);
+    assert.equal(body.status, 'GO_FOR_SUPERVISED_AUTONOMY');
+    assert.equal(body.candidate_sha, sha);
+    assert.equal(body.proof_source, 'internal-exact-sha-cache');
+    assert.equal(body.mutation_allowed, false);
+    assert.equal(body.exposes_secrets, false);
+    assert.equal(body.exposes_memory, false);
+    assert.equal(Array.isArray(body.blockers), true);
+    assert.equal('active_work' in body, false);
+  } finally {
+    DB.close();
+  }
+});
+
+test('public launch-readiness cache fails closed on deployed SHA mismatch without heavy recomputation', async () => {
+  const DB = sqliteD1();
+  const cachedSha = 'a'.repeat(40);
+  const deployedSha = 'b'.repeat(40);
+  try {
+    const cached = await writeAutonomyLaunchReadinessPublicCache({ DB, MEL_DEPLOYED_GIT_SHA: cachedSha }, {
+      ok: true,
+      status: 'GO_FOR_SUPERVISED_AUTONOMY',
+      launch_ready: true,
+      candidate_sha: cachedSha,
+      blockers: [],
+    });
+    assert.equal(cached.ok, true);
+    const response = await maybeHandlePublicTeacherBridge(
+      new Request('http://mel/api/teacher/launch-readiness'),
+      { DB, MEL_DEPLOYED_GIT_SHA: deployedSha },
+      { repository: { list: async () => { throw new Error('PUBLIC_READINESS_MUST_NOT_LIST_JOBS'); } } },
+    );
+    assert.equal(response.status, 503);
+    const body = await response.json();
+    assert.equal(body.launch_ready, false);
+    assert.equal(body.status, 'PUBLIC_LAUNCH_READINESS_CACHE_SHA_MISMATCH');
+    assert.equal(body.proof_source, 'internal-exact-sha-cache');
+  } finally {
+    DB.close();
+  }
 });
 
 

@@ -1,3 +1,23 @@
+async function sampleRead(runtime, context, id, input = {}) {
+  const result = await runtime.bus.execute(id, input, {
+    owner: context?.owner || 'capability-audit',
+    permissions: context?.permissions || [],
+    requestId: context?.requestId || crypto.randomUUID(),
+  });
+  return result;
+}
+
+function firstArray(value, ...paths) {
+  if (Array.isArray(value)) return value;
+  for (const path of paths) {
+    if (!path) continue;
+    let cursor = value;
+    for (const key of path.split('.')) cursor = cursor?.[key];
+    if (Array.isArray(cursor)) return cursor;
+  }
+  return [];
+}
+
 const SAFE_SAMPLES = Object.freeze({
   echo: { value: 'capability-audit' },
   'roadmap.read': {},
@@ -10,11 +30,159 @@ const SAFE_SAMPLES = Object.freeze({
   'conversation.list': {},
   'rag.search': { query: 'MELITURGOS', limit: 1 },
   'autonomy.status': {},
+  // Read-only, bounded D1 introspection: never invoke autonomy.tick/resume,
+  // even when the scheduler is paused or the local Companion is offline.
+  'autonomy.bridge.status': { limit: 1 },
+  'autonomy.activity': { limit: 1 },
   'mentor.recent': { limit: 1 },
   'evolution.gap.detect': { goal: 'rechercher des informations récentes sur le web', threshold: 2 },
   'evolution.module.propose': { goal: 'prévisualiser une capacité locale de diagnostic sans écrire ni activer de code', threshold: 2 },
   'device.policy.preview': { deviceId: 'audit-preview', capabilities: ['status.read'], action: 'status.read', ownerApproved: false, ownerShutdown: false, adapter: 'audit-preview' },
   'web.research': { query: 'Cloudflare Workers documentation', depth: 1 },
+
+  // Bounded read-only production probes. These samples intentionally avoid
+  // mutations and use tiny result windows so the persistent stress can prove
+  // real execution instead of stopping at contract inspection.
+  'github.repository.read': {},
+  'github.actions.runs.read': { limit: 1 },
+  'cloudflare.workers.read': {},
+  'cloudflare.deployments.read': { script: 'meliturgos', limit: 1 },
+  'gmail.messages.search': { query: 'newer_than:1d', limit: 1 },
+  'calendar.events.read': { limit: 1 },
+  'tasks.tasklists.read': { limit: 1 },
+  'mail.messages.search': { limit: 1 },
+  'files.list': { limit: 1 },
+  'files.search': { query: 'mel', limit: 1 },
+  'drive.files.list': { limit: 1 },
+  'drive.files.search': { query: 'mel', limit: 1 },
+  'sites.list': { limit: 1 },
+  'sites.search': { query: 'mel', limit: 1 },
+  'roadmap.human-actions-required': {},
+  'system.integrity': {},
+  'system.maturity': {},
+  'chatgpt.history.search': { query: 'MELITURGOS', limit: 1 },
+  'computer.status': {},
+  'work.plan.list': { limit: 1 },
+  // Real low-risk Work metadata reads. Read-only even on a virgin D1 store:
+  // no CREATE TABLE in the listing handlers.
+  'work.list': { limit: 1 },
+  'work.open': { limit: 1 },
+  'openloop.due': { limit: 1 },
+  'timeline.list': { limit: 1 },
+  'project.list': { limit: 1 },
+  'decision.list': { limit: 1 },
+  'lesson.list': { limit: 1 },
+  'skill.list': { active_only: true },
+  'skill.snapshot.export': {},
+  'self.audit.status': {},
+  'memory.status': {},
+  'memory.retrieve': { query: 'MELITURGOS', limit: 1, semantic: false },
+  'memory.consolidate': { limit: 1 },
+  'knowledge.search': { query: 'MELITURGOS', limit: 1 },
+  'evolution.ledger.list': { limit: 1 },
+  'evolution.ledger.verify': { limit: 50 },
+  'resilience.recovery.drill.latest': {},
+  'resilience.cold-standby.prepare.latest': {},
+  'event.list': { limit: 1 },
+  'self.state': {},
+  'presentation.layout.plan': { kind: 'chat' },
+  'work.plan': {
+    goal: 'Audit borné sans effet de bord',
+    steps: [{ id: 'step-1', title: 'Lire la roadmap', capability: 'roadmap.read', input: {}, dependsOn: [], idempotent: true }],
+  },
+
+  // Dynamic read-only fixtures: derive a real identifier from a bounded list
+  // instead of inventing IDs that would create false runtime failures.
+  'gmail.messages.read': async ({ runtime, context }) => {
+    const result = await sampleRead(runtime, context, 'gmail.messages.search', { query: 'newer_than:30d', limit: 1 });
+    const id = firstArray(result, 'messages')[0]?.id;
+    return id ? { message_id: String(id) } : undefined;
+  },
+  'tasks.tasks.read': async ({ runtime, context }) => {
+    const result = await sampleRead(runtime, context, 'tasks.tasklists.read', { limit: 1 });
+    const id = firstArray(result, 'tasklists')[0]?.id;
+    return id ? { tasklist_id: String(id), limit: 1 } : undefined;
+  },
+  'mail.messages.read': async ({ runtime, context }) => {
+    const result = await sampleRead(runtime, context, 'mail.messages.search', { limit: 1 });
+    const id = firstArray(result, 'messages')[0]?.id;
+    return id ? { message_id: String(id) } : undefined;
+  },
+  'files.read': async ({ runtime, context }) => {
+    const result = await sampleRead(runtime, context, 'files.list', { limit: 1 });
+    const id = firstArray(result, 'files')[0]?.id;
+    return id ? { file_id: String(id), include_content: false } : undefined;
+  },
+  'drive.files.read': async ({ runtime, context }) => {
+    const result = await sampleRead(runtime, context, 'drive.files.list', { limit: 1 });
+    const id = firstArray(result, 'files')[0]?.id;
+    return id ? { file_id: String(id), include_content: false } : undefined;
+  },
+  'sites.read': async ({ runtime, context }) => {
+    const result = await sampleRead(runtime, context, 'sites.list', { limit: 1 });
+    const id = firstArray(result, 'sites')[0]?.id;
+    return id ? { site_id: String(id) } : undefined;
+  },
+  'timeline.get': async ({ runtime, context }) => {
+    const rows = await sampleRead(runtime, context, 'timeline.list', { limit: 1 });
+    const id = firstArray(rows, '')[0]?.event_id;
+    return id ? { event_id: String(id) } : undefined;
+  },
+  'project.get': async ({ runtime, context }) => {
+    const rows = await sampleRead(runtime, context, 'project.list', { limit: 1 });
+    const id = firstArray(rows, '')[0]?.project_id;
+    return id ? { project_id: String(id) } : undefined;
+  },
+  'decision.get': async ({ runtime, context }) => {
+    const rows = await sampleRead(runtime, context, 'decision.list', { limit: 1 });
+    const id = firstArray(rows, '')[0]?.decision_id;
+    return id ? { decision_id: String(id) } : undefined;
+  },
+  'lesson.get': async ({ runtime, context }) => {
+    const rows = await sampleRead(runtime, context, 'lesson.list', { limit: 1 });
+    const id = firstArray(rows, '')[0]?.lesson_id;
+    return id ? { lesson_id: String(id) } : undefined;
+  },
+  'event.get': async ({ runtime, context }) => {
+    const result = await sampleRead(runtime, context, 'event.list', { limit: 1 });
+    const id = firstArray(result, 'events', 'items')[0]?.event_id;
+    return id ? { event_id: String(id) } : undefined;
+  },
+  'skill.resolve': async ({ runtime, context }) => {
+    const rows = await sampleRead(runtime, context, 'skill.list', { active_only: true });
+    const row = firstArray(rows, '')[0];
+    return row?.skill_id ? { skill_id: String(row.skill_id), version: row.version ? String(row.version) : undefined } : undefined;
+  },
+  'skill.history': async ({ runtime, context }) => {
+    const rows = await sampleRead(runtime, context, 'skill.list', { active_only: true });
+    const row = firstArray(rows, '')[0];
+    return row?.skill_id ? { skill_id: String(row.skill_id) } : undefined;
+  },
+  'work.plan.get': async ({ runtime, context }) => {
+    const result = await sampleRead(runtime, context, 'work.plan.list', { limit: 1 });
+    const id = firstArray(result, 'plans')[0]?.id;
+    return id ? { id: String(id) } : undefined;
+  },
+  'work.plan.history': async ({ runtime, context }) => {
+    const result = await sampleRead(runtime, context, 'work.plan.list', { limit: 1 });
+    const id = firstArray(result, 'plans')[0]?.id;
+    return id ? { id: String(id), limit: 1 } : undefined;
+  },
+  'conversation.get': async ({ runtime, context }) => {
+    const rows = await sampleRead(runtime, context, 'conversation.list', {});
+    const row = firstArray(rows, '')[0];
+    return row?.id ? { id: String(row.id) } : undefined;
+  },
+  'conversation.messages.list': async ({ runtime, context }) => {
+    const rows = await sampleRead(runtime, context, 'conversation.list', {});
+    const row = firstArray(rows, '')[0];
+    return row?.id ? { conversationId: String(row.id) } : undefined;
+  },
+  'knowledge.file.read': async ({ runtime, context }) => {
+    const result = await sampleRead(runtime, context, 'knowledge.search', { query: 'MELITURGOS', limit: 1 });
+    const row = firstArray(result, 'artifacts')[0];
+    return row?.id ? { id: String(row.id) } : row?.filename ? { filename: String(row.filename) } : undefined;
+  },
 });
 
 // Automatic deep audits must be zero-added-cost by proof, not assumption.
@@ -24,10 +192,15 @@ const SAFE_SAMPLES = Object.freeze({
 // zeroCostCapabilityIds for the current run.
 const COST_SENSITIVE_CAPABILITIES = new Set([
   'augmentio.fanout',
+  'model.council',
   'council.state-of-play',
   'evolution.preflight',
+  'work.plan.generate',
+  'media.audio.transcribe',
   'evolution.enqueue',
   'web.research',
+  'github.repository.read',
+  'github.actions.runs.read',
   'code.read',
   'code.search',
   'code.integrity',
@@ -35,6 +208,36 @@ const COST_SENSITIVE_CAPABILITIES = new Set([
   'rag.search',
   'autonomy.status',
   'mentor.recent',
+
+  // Live external connectors are proved by the exact-SHA platform/connections
+  // production gates. The persistent global stress must inventory them
+  // truthfully without reissuing network calls that can outlive a Worker
+  // waitUntil and turn the global proof into a duplicate integration test.
+  'cloudflare.workers.read',
+  'cloudflare.deployments.read',
+  'gmail.messages.search',
+  'gmail.messages.read',
+  'calendar.events.read',
+  'tasks.tasklists.read',
+  'tasks.tasks.read',
+  'mail.messages.search',
+  'mail.messages.read',
+  'files.list',
+  'files.search',
+  'files.read',
+  'drive.files.list',
+  'drive.files.search',
+  'drive.files.read',
+  'sites.list',
+  'sites.search',
+  'sites.read',
+]);
+
+// Recovery drills and standby preparation explicitly require owner approval in
+// their own input contracts. An unattended audit must not try to forge this.
+const OWNER_APPROVAL_SENSITIVE_CAPABILITIES = new Set([
+  'resilience.recovery.drill.latest',
+  'resilience.cold-standby.prepare.latest',
 ]);
 
 const DECLARED_IMPLEMENTATION_STATUSES = new Set([
@@ -74,6 +277,10 @@ function autoExecutionBlockReason({ deep, record, sample, declared, costSensitiv
   if (declared === 'STUB' || declared === 'NOT_IMPLEMENTED') return 'DECLARED_NON_EXECUTABLE';
   if (record?.enabled === false) return 'DISABLED';
   if (record?.risk !== 'LOW') return 'RISK_NOT_LOW';
+  if (record?.approval?.required === true || OWNER_APPROVAL_SENSITIVE_CAPABILITIES.has(record?.id)) return 'OWNER_APPROVAL_REQUIRED';
+  const health = String(record?.health || '').toUpperCase();
+  if (['UNAVAILABLE','OFFLINE','DISABLED','BLOCKED','DOWN','BROKEN','ERROR','FAILED','FAIL','UNHEALTHY'].includes(health)) return 'HEALTH_UNAVAILABLE';
+  if (record?.health_refresh_verified === false) return 'HEALTH_REFRESH_UNVERIFIED';
   if (sample === undefined) return 'NO_BOUNDED_SAMPLE';
   if (costSensitive && !costApproved) return 'UNKNOWN_OR_EXTERNAL_COST';
   return null;
@@ -102,6 +309,10 @@ export async function auditRuntimeCapabilities(runtime, {
   zeroCostCapabilityIds = [],
   onProgress = null,
   executionTimeoutMs = 15_000,
+  healthTimeoutMs = 4_000,
+  startIndex = 0,
+  maxRecords = null,
+  recordIds = null,
 } = {}) {
   if (!runtime?.bus) throw new TypeError('CAPABILITY_BUS_REQUIRED');
 
@@ -111,9 +322,22 @@ export async function auditRuntimeCapabilities(runtime, {
       : []
   );
 
-  let records = runtime.bus.list();
+  const allRecords = runtime.bus.list();
+  const wantedIds = Array.isArray(recordIds) && recordIds.length
+    ? new Set(recordIds.map(value => String(value)))
+    : null;
+  const recordUniverse = wantedIds
+    ? allRecords.filter(record => wantedIds.has(String(record?.id || '')))
+    : allRecords;
+  const totalRecords = recordUniverse.length;
+  const rangeStart = Math.max(0, Math.min(totalRecords, Number(startIndex) || 0));
+  const requestedMax = maxRecords == null ? null : Math.max(0, Number(maxRecords) || 0);
+  const rangeEnd = requestedMax == null
+    ? totalRecords
+    : Math.min(totalRecords, rangeStart + requestedMax);
+  let records = recordUniverse.slice(rangeStart, rangeEnd);
   if (typeof runtime.bus.refreshHealth === 'function') {
-    const healthTimeoutMs = 4_000;
+    const healthDeadlineMs = Math.max(20, Math.min(60_000, Number(healthTimeoutMs) || 4_000));
     const healthConcurrency = 8;
     const refreshed = new Array(records.length);
     for (let offset = 0; offset < records.length; offset += healthConcurrency) {
@@ -121,22 +345,47 @@ export async function auditRuntimeCapabilities(runtime, {
         const index = offset + localIndex;
         const costSensitive = COST_SENSITIVE_CAPABILITIES.has(record.id);
         if (costSensitive && !provenZeroCost.has(record.id)) {
-          refreshed[index] = record;
+          refreshed[index] = { ...record, health_refresh_verified: null };
           return;
         }
         let timer;
         try {
-          refreshed[index] = await Promise.race([
+          const observed = await Promise.race([
             runtime.bus.refreshHealth(record.id),
             new Promise((_, reject) => {
               timer = setTimeout(() => reject(Object.assign(
                 new Error('CAPABILITY_AUDIT_HEALTH_TIMEOUT'),
                 { code: 'CAPABILITY_AUDIT_HEALTH_TIMEOUT' },
-              )), healthTimeoutMs);
+              )), healthDeadlineMs);
             }),
           ]).finally(() => clearTimeout(timer));
-        } catch {
-          refreshed[index] = record;
+          if (!observed || typeof observed !== 'object' || typeof observed.health !== 'string'
+              || (observed.id != null && String(observed.id) !== String(record.id))) {
+            throw Object.assign(new Error('CAPABILITY_AUDIT_HEALTH_RESULT_INVALID'), {
+              code: 'CAPABILITY_AUDIT_HEALTH_RESULT_INVALID',
+            });
+          }
+          refreshed[index] = { ...record, ...observed, health_refresh_verified: true };
+        } catch (error) {
+          // A failed refresh cannot substantiate a previously HEALTHY registration.
+          // Keep approval-protected operations protected; never convert unknown
+          // availability into a green status just because a stale record was green.
+          const code = String(error?.code || error?.message || 'CAPABILITY_AUDIT_HEALTH_REFRESH_FAILED')
+            .replace(/[^A-Za-z0-9_]/g, '_').slice(0, 120);
+          // An unsuccessful health probe must never upgrade UNAVAILABLE or
+          // any other hard error into merely DEGRADED. Keep the last known
+          // blocking state, and prevent deep execution even for stale HEALTHY.
+          const previous = String(record?.health || '').toUpperCase();
+          const blocking = new Set([
+            'UNAVAILABLE','OFFLINE','DISABLED','BLOCKED','DOWN','BROKEN',
+            'ERROR','FAILED','FAIL','UNHEALTHY',
+          ]);
+          refreshed[index] = {
+            ...record,
+            health: previous === 'PROTECTED' || blocking.has(previous) ? previous : 'DEGRADED',
+            health_detail: code,
+            health_refresh_verified: false,
+          };
         }
       }));
     }
@@ -153,12 +402,12 @@ export async function auditRuntimeCapabilities(runtime, {
       try { contract = runtime.bus.contract(record.id); }
       catch { contract = { valid:false, inspection_error:true }; }
     }
-    const sample = samples?.[record.id];
+    let sample = samples?.[record.id];
     const declared = declaredImplementationStatus(record);
     const declaredNonExecutable = declared === 'STUB' || declared === 'NOT_IMPLEMENTED';
     const costSensitive = COST_SENSITIVE_CAPABILITIES.has(record.id);
     const costApproved = !costSensitive || provenZeroCost.has(record.id);
-    const blockedReason = autoExecutionBlockReason({
+    let blockedReason = autoExecutionBlockReason({
       deep,
       record,
       sample,
@@ -166,9 +415,29 @@ export async function auditRuntimeCapabilities(runtime, {
       costSensitive,
       costApproved,
     });
+    if (deep && blockedReason == null && typeof sample === 'function') {
+      try {
+        const sampleTimeoutMs = Math.max(50, Math.min(60_000, Number(executionTimeoutMs) || 15_000));
+        let sampleTimer;
+        sample = await Promise.race([
+          sample({ runtime, context, record }),
+          new Promise((_, reject) => {
+            sampleTimer = setTimeout(() => reject(Object.assign(
+              new Error('CAPABILITY_AUDIT_SAMPLE_TIMEOUT'),
+              { code: 'CAPABILITY_AUDIT_SAMPLE_TIMEOUT' },
+            )), sampleTimeoutMs);
+          }),
+        ]).finally(() => clearTimeout(sampleTimer));
+        if (sample === undefined) blockedReason = 'NO_RUNTIME_FIXTURE';
+      } catch (error) {
+        blockedReason = 'SAMPLE_PREPARATION_FAILED:' + String(error?.code || error?.message || 'UNKNOWN').slice(0, 120);
+        sample = undefined;
+      }
+    }
     const executable = deep
       && !declaredNonExecutable
       && record.enabled !== false
+      && blockedReason == null
       && record.risk === 'LOW'
       && sample !== undefined
       && costApproved;
@@ -211,6 +480,8 @@ export async function auditRuntimeCapabilities(runtime, {
       risk: record.risk,
       enabled: record.enabled,
       health: record.health,
+      health_detail: record.health_detail || null,
+      health_refresh_verified: record.health_refresh_verified ?? null,
       implementation_status: declared,
       contract_valid: contract?.valid ?? null,
       contract,
@@ -220,7 +491,24 @@ export async function auditRuntimeCapabilities(runtime, {
       truth_status: classifyCapabilityTruth(record, execution),
     };
     rows.push(row);
-    if (progress) await progress({ index: index + 1, total: records.length, row });
+    if (progress) {
+      let progressTimer;
+      try {
+        await Promise.race([
+          progress({ index: rangeStart + index + 1, total: totalRecords, row }),
+          new Promise((_, reject) => {
+            progressTimer = setTimeout(() => reject(Object.assign(
+              new Error('CAPABILITY_AUDIT_PROGRESS_TIMEOUT'),
+              { code: 'CAPABILITY_AUDIT_PROGRESS_TIMEOUT' },
+            )), 2_000);
+          }),
+        ]).finally(() => clearTimeout(progressTimer));
+      } catch (error) {
+        // Progress persistence is diagnostic bookkeeping, not capability
+        // execution. A stalled D1/status write must never freeze the entire
+        // global audit. The final report remains authoritative.
+      }
+    }
   }
 
   const counts = rows.reduce((acc, row) => {
@@ -232,7 +520,21 @@ export async function auditRuntimeCapabilities(runtime, {
     valid: rows.filter(row => row.contract_valid === true).length,
     invalid: rows.filter(row => row.contract_valid === false).length,
   };
-  return { ok: true, total: rows.length, deep: Boolean(deep), counts, contracts, capabilities: rows };
+  return {
+    ok: true,
+    total: totalRecords,
+    deep: Boolean(deep),
+    counts,
+    contracts,
+    capabilities: rows,
+    range: {
+      start_index: rangeStart,
+      end_index: rangeEnd,
+      next_index: rangeEnd,
+      processed: rows.length,
+      complete: rangeEnd >= totalRecords,
+    },
+  };
 }
 
 export { SAFE_SAMPLES, COST_SENSITIVE_CAPABILITIES, DECLARED_IMPLEMENTATION_STATUSES };

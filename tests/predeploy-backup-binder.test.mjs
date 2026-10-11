@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {
+import binderWorker, {
   bindingCanonical,
   diagnoseCandidates,
   preparePredeployRelease,
@@ -147,4 +147,24 @@ test('predeploy prepare pauses autonomy and proves a real restore backup without
   assert.equal(result.backup.backup_object_present,true);
   assert.equal(result.backup.backup_object_bytes,4096);
   assert.equal(result.backup.snapshot_deployed_sha,sha);
+});
+
+
+test('predeploy binder health proves the current secret is live without touching D1 or R2',async()=>{
+  const env={
+    MEL_PREDEPLOY_BINDER_TOKEN:'ready-secret',
+    DB:{prepare(){throw new Error('HEALTH_MUST_NOT_TOUCH_D1');}},
+    MEDIA_BUCKET:{head(){throw new Error('HEALTH_MUST_NOT_TOUCH_R2');}},
+  };
+  const ok=await binderWorker.fetch(new Request('https://binder.test/health',{
+    headers:{'x-mel-predeploy-binder':'ready-secret'},
+  }),env);
+  assert.equal(ok.status,200);
+  assert.deepEqual(await ok.json(),{ok:true,status:'BINDER_READY'});
+
+  const unauthorized=await binderWorker.fetch(new Request('https://binder.test/health',{
+    headers:{'x-mel-predeploy-binder':'wrong-secret'},
+  }),env);
+  assert.equal(unauthorized.status,401);
+  assert.deepEqual(await unauthorized.json(),{ok:false,status:'BINDER_AUTH_REQUIRED'});
 });

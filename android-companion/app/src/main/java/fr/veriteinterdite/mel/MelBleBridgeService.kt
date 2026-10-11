@@ -26,6 +26,9 @@ import android.graphics.Paint
 import android.graphics.Rect
 import android.graphics.RectF
 import android.graphics.Typeface
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
@@ -73,6 +76,7 @@ class MelBleBridgeService : Service() {
         private const val OP_BODY = 0x02
         private const val OP_END = 0x03
         private const val OP_PING = 0x04
+        private const val OP_META_CHUNK = 0x05
         private const val OP_RESPONSE_BEGIN = 0x11
         private const val OP_RESPONSE_BODY = 0x12
         private const val OP_RESPONSE_END = 0x13
@@ -81,6 +85,7 @@ class MelBleBridgeService : Service() {
         const val ACTION_RESTART = "fr.veriteinterdite.mel.action.RESTART_MINI_BRIDGE"
         val bridgeState = MutableStateFlow("OFF")
         val miniLinkReady = MutableStateFlow(false)
+        val phoneInternetAvailable = MutableStateFlow(false)
         val internetReady = MutableStateFlow(false)
         val miniPairingComplete = MutableStateFlow(false)
         val wakeProfileRevision = MutableStateFlow(0)
@@ -100,11 +105,15 @@ class MelBleBridgeService : Service() {
     private val executor = Executors.newSingleThreadExecutor()
     private val diagExecutor = Executors.newSingleThreadExecutor()
     private val requests = ConcurrentHashMap<String, PendingRequest>()
+    private val metaFrames = ConcurrentHashMap<String, ByteArrayOutputStream>()
+    private val metaFrameIds = ConcurrentHashMap<String, Int>()
     private val connectedAtMs = ConcurrentHashMap<String, Long>()
+    private val connectedDevices = ConcurrentHashMap<String, BluetoothDevice>()
     private val mtus = ConcurrentHashMap<String, Int>()
     private val subscribed = ConcurrentHashMap<String, Boolean>()
     private val pullFrames = ConcurrentHashMap<String, ConcurrentLinkedQueue<ByteArray>>()
     private val latestResponseIds = ConcurrentHashMap<String, Int>()
+    private val pullOnlyResponseIds = ConcurrentHashMap<String, Int>()
     private val notificationAck = ArrayBlockingQueue<Int>(1)
 
     private var bluetoothManager: BluetoothManager? = null
@@ -113,6 +122,58 @@ class MelBleBridgeService : Service() {
     private var txCharacteristic: BluetoothGattCharacteristic? = null
     private var advertiseCallback: AdvertiseCallback? = null
     private var wakeLock: PowerManager.WakeLock? = null
+    private var connectivityManager: ConnectivityManager? = null
+    private var networkCallbackRegistered = false
+    @Volatile private var melValidationInFlight = false
+    private val bridgeHandler by lazy { android.os.Handler(mainLooper) }
+    private val bridgeWatchdog = object : Runnable {
+        override fun run() {
+            try {
+                val activeAdapter = adapter
+                if (activeAdapter == null || !activeAdapter.isEnabled) {
+                    miniLinkReady.value = false
+                    internetReady.value = false
+                    bridgeState.value = "BLUETOOTH OFF"
+                } else if (gattServer == null) {
+                    Log.w(TAG, "BLE watchdog: GATT server missing; rebuilding bridge")
+                    startBridge()
+                } else if (connectedDevices.isEmpty()) {
+                    if (advertiseCallback == null) {
+                        Log.i(TAG, "BLE watchdog: no MINI connected; restarting advertising")
+                        startAdvertising()
+                    }
+                } else {
+                    val now = System.currentTimeMillis()
+                    connectedDevices.forEach { (address, device) ->
+                        val ready = subscribed[address] == true
+                        val age = now - (connectedAtMs[address] ?: now)
+                        if (!ready && age > 20_000L) {
+                            Log.w(TAG, "BLE watchdog: stale unready GATT link $address age=${age}ms; recycling")
+                            runCatching { gattServer?.cancelConnection(device) }
+                        }
+                    }
+                }
+            } catch (error: Throwable) {
+                Log.w(TAG, "BLE watchdog failed: ${error.message}")
+            } finally {
+                bridgeHandler.postDelayed(this, 5_000L)
+            }
+        }
+    }
+
+    private val networkCallback = object : ConnectivityManager.NetworkCallback() {
+        override fun onAvailable(network: Network) {
+            refreshPhoneInternetState()
+        }
+
+        override fun onLost(network: Network) {
+            refreshPhoneInternetState()
+        }
+
+        override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) {
+            refreshPhoneInternetState()
+        }
+    }
 
     override fun onCreate() {
         super.onCreate()
@@ -121,21 +182,26 @@ class MelBleBridgeService : Service() {
             ?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "MEL:BleBridge")
             ?.apply { acquire() }
         miniLinkReady.value = false
+        phoneInternetAvailable.value = false
         internetReady.value = false
+        connectivityManager = getSystemService(ConnectivityManager::class.java)
+        registerNetworkWatch()
         miniPairingComplete.value = getSharedPreferences("mel_mobile_bridge", MODE_PRIVATE)
             .getBoolean("mini_pairing_complete", false)
-        bridgeState.value = "D├ëMARRAGE"
+        bridgeState.value = "DEMARRAGE"
         startForeground(
             NOTIFICATION_ID,
             NotificationCompat.Builder(this, CHANNEL_ID)
                 .setSmallIcon(R.drawable.ic_mel_avatar)
                 .setContentTitle("MEL Mobile")
-                .setContentText("Pont Bluetooth pr├¬t pour la MINI")
+                .setContentText("Pont Bluetooth pret pour la MINI")
                 .setOngoing(true)
                 .setSilent(true)
                 .build()
         )
         startBridge()
+        bridgeHandler.removeCallbacks(bridgeWatchdog)
+        bridgeHandler.postDelayed(bridgeWatchdog, 5_000L)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -148,10 +214,15 @@ class MelBleBridgeService : Service() {
             gattServer = null
             txCharacteristic = null
             requests.clear()
+            metaFrames.clear()
+            metaFrameIds.clear()
+            connectedAtMs.clear()
+            connectedDevices.clear()
             mtus.clear()
             subscribed.clear()
             pullFrames.clear()
             latestResponseIds.clear()
+            pullOnlyResponseIds.clear()
             android.os.Handler(mainLooper).postDelayed({ startBridge() }, 250L)
         } else if (gattServer == null) {
             startBridge()
@@ -162,10 +233,13 @@ class MelBleBridgeService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onDestroy() {
+        bridgeHandler.removeCallbacks(bridgeWatchdog)
+        unregisterNetworkWatch()
         stopAdvertising()
         runCatching { gattServer?.close() }
         gattServer = null
         miniLinkReady.value = false
+        phoneInternetAvailable.value = false
         internetReady.value = false
         bridgeState.value = "OFF"
         if (wakeLock?.isHeld == true) wakeLock?.release()
@@ -173,6 +247,42 @@ class MelBleBridgeService : Service() {
         executor.shutdownNow()
         diagExecutor.shutdownNow()
         super.onDestroy()
+    }
+
+    private fun registerNetworkWatch() {
+        val cm = connectivityManager ?: return
+        if (networkCallbackRegistered) return
+        runCatching {
+            cm.registerDefaultNetworkCallback(networkCallback)
+            networkCallbackRegistered = true
+        }.onFailure {
+            Log.w(TAG, "Network callback registration failed: ${it.message}")
+        }
+        refreshPhoneInternetState()
+    }
+
+    private fun unregisterNetworkWatch() {
+        val cm = connectivityManager ?: return
+        if (!networkCallbackRegistered) return
+        runCatching { cm.unregisterNetworkCallback(networkCallback) }
+        networkCallbackRegistered = false
+    }
+
+    private fun refreshPhoneInternetState() {
+        val cm = connectivityManager ?: return
+        val active = cm.activeNetwork
+        val caps = active?.let { cm.getNetworkCapabilities(it) }
+        val available = caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true &&
+            caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+        phoneInternetAvailable.value = available
+        if (!available) {
+            internetReady.value = false
+            if (miniLinkReady.value) bridgeState.value = "MINI CONNECTÉE · TÉLÉPHONE HORS LIGNE"
+        } else if (miniLinkReady.value && !internetReady.value) {
+            bridgeState.value = "MINI CONNECTÉE · MEL À VALIDER"
+            validatePhoneMelSession()
+        }
+        Log.i(TAG, "Phone Internet validated=$available miniLink=${miniLinkReady.value} melInternet=${internetReady.value}")
     }
 
     private fun rememberMiniPairingComplete() {
@@ -183,6 +293,48 @@ class MelBleBridgeService : Service() {
             .putBoolean("mini_pairing_complete", true)
             .apply()
         Log.i(TAG, "MINI pairing persisted; future reconnects are automatic")
+    }
+
+    private fun validatePhoneMelSession() {
+        if (!miniLinkReady.value || !phoneInternetAvailable.value || melValidationInFlight) return
+        melValidationInFlight = true
+        diagExecutor.execute {
+            try {
+            val rawAndroidId = Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID)
+            val androidDeviceId = "android-" + (rawAndroidId ?: "unknown").take(64)
+            val vault = TokenVault(this@MelBleBridgeService)
+            if (vault.load().isNullOrBlank()) {
+                internetReady.value = false
+                bridgeState.value = "MINI CONNECTÉE · APPLI MEL À RÉAPPAIRER"
+                Log.w(TAG, "MINI bridge cannot sponsor pairing: Android MEL token missing")
+                return@execute
+            }
+            runCatching {
+                MelApiClient(BuildConfig.MEL_BASE_URL, androidDeviceId, vault)
+                    .heartbeat(sdkInt = Build.VERSION.SDK_INT, phase = "MINI_BRIDGE_READY")
+            }.onSuccess {
+                // This is a real authenticated request to MEL, not a local BLE
+                // assumption. Together with miniLinkReady it proves the phone can
+                // act as MINI's Internet relay immediately.
+                internetReady.value = miniLinkReady.value && phoneInternetAvailable.value
+                bridgeState.value = if (internetReady.value)
+                    "MINI CONNECTÉE · INTERNET OK"
+                else
+                    "MINI CONNECTÉE · MEL PRÊT"
+                Log.i(TAG, "Android MEL session validated; MINI relay Internet ready=${internetReady.value}")
+            }.onFailure { error ->
+                internetReady.value = false
+                bridgeState.value = if (error is MelApiException && (error.status == 401 || error.status == 403)) {
+                    "MINI CONNECTÉE · APPLI MEL À RÉAPPAIRER"
+                } else {
+                    "MINI CONNECTÉE · MEL INJOIGNABLE"
+                }
+                Log.w(TAG, "Android MEL validation failed: ${error.message}")
+            }
+            } finally {
+                melValidationInFlight = false
+            }
+        }
     }
 
     private fun hasBluetoothPermissions(): Boolean {
@@ -246,6 +398,7 @@ class MelBleBridgeService : Service() {
 
     private fun startAdvertising() {
         if (!hasBluetoothPermissions()) return
+        if (advertiseCallback != null) return
         val activeAdapter = adapter ?: return
         val advertiser = activeAdapter.bluetoothLeAdvertiser ?: return
         val settings = AdvertiseSettings.Builder()
@@ -260,12 +413,13 @@ class MelBleBridgeService : Service() {
             .build()
         val callback = object : AdvertiseCallback() {
             override fun onStartSuccess(settingsInEffect: AdvertiseSettings?) {
-                bridgeState.value = "PR├èT"
+                bridgeState.value = "PRET"
                 Log.i(TAG, "MEL Mobile advertising started")
             }
             override fun onStartFailure(errorCode: Int) {
+                advertiseCallback = null
                 bridgeState.value = "ERREUR BLE $errorCode"
-                Log.e(TAG, "MEL Mobile advertising failed code=$errorCode")
+                Log.e(TAG, "MEL Mobile advertising failed code=$errorCode; watchdog will retry")
             }
         }
         advertiseCallback = callback
@@ -316,24 +470,36 @@ class MelBleBridgeService : Service() {
         override fun onConnectionStateChange(device: BluetoothDevice, status: Int, newState: Int) {
             Log.i(TAG, "MINI BLE state=${device.address} status=$status newState=$newState")
             if (newState == BluetoothGatt.STATE_CONNECTED) {
+                stopAdvertising()
                 connectedAtMs[device.address] = System.currentTimeMillis()
+                connectedDevices[device.address] = device
                 subscribed[device.address] = false
                 miniLinkReady.value = false
                 internetReady.value = false
-                bridgeState.value = "MINI LI├ëE ┬À INITIALISATION CANAL"
+                bridgeState.value = "MINI LIEE | INITIALISATION CANAL"
                 publishBleDiagnostic(status, newState, null)
             } else {
                 val started = connectedAtMs.remove(device.address)
+                connectedDevices.remove(device.address)
                 val duration = started?.let { System.currentTimeMillis() - it }
                 publishBleDiagnostic(status, newState, duration)
                 miniLinkReady.value = false
                 internetReady.value = false
-                bridgeState.value = if (adapter?.isEnabled == true) "PR├èT" else "BLUETOOTH OFF"
+                bridgeState.value = if (adapter?.isEnabled == true) "PRET" else "BLUETOOTH OFF"
                 requests.remove(device.address)
+                metaFrames.remove(device.address)
+                metaFrameIds.remove(device.address)
                 mtus.remove(device.address)
                 subscribed.remove(device.address)
                 pullFrames.remove(device.address)
                 latestResponseIds.remove(device.address)
+                pullOnlyResponseIds.remove(device.address)
+                bridgeHandler.postDelayed({
+                    if (adapter?.isEnabled == true && connectedDevices.isEmpty()) {
+                        stopAdvertising()
+                        startAdvertising()
+                    }
+                }, 350L)
             }
         }
 
@@ -366,13 +532,18 @@ class MelBleBridgeService : Service() {
                 descriptor.value = value.copyOf()
                 val enabled = value.contentEquals(BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE)
                 subscribed[device.address] = enabled
+                if (enabled) mtus.putIfAbsent(device.address, 23)
                 miniLinkReady.value = enabled
                 if (!enabled) internetReady.value = false
                 if (enabled) {
-                    bridgeState.value = "MINI CONNECT├ëE ┬À RELAIS PR├èT"
+                    refreshPhoneInternetState()
+                    bridgeState.value = if (phoneInternetAvailable.value)
+                        "MINI CONNECTÉE · MEL À VALIDER"
+                    else
+                        "MINI CONNECTÉE · TÉLÉPHONE HORS LIGNE"
                     Log.i(TAG, "MINI BLE response channel ready ${device.address}")
                 } else {
-                    bridgeState.value = "MINI LI├ëE ┬À CANAL INACTIF"
+                    bridgeState.value = "MINI LIEE | CANAL INACTIF"
                 }
             }
         }
@@ -446,6 +617,7 @@ class MelBleBridgeService : Service() {
         val requestId = ByteBuffer.wrap(frame, 1, 4).order(ByteOrder.LITTLE_ENDIAN).int
         val payload = frame.copyOfRange(5, frame.size)
         when (op) {
+            OP_META_CHUNK -> appendMetaChunk(device, requestId, payload)
             OP_BEGIN -> beginRequest(device, requestId, payload)
             OP_BODY -> appendBody(device, requestId, payload)
             OP_END -> finishRequest(device, requestId)
@@ -458,9 +630,36 @@ class MelBleBridgeService : Service() {
         }
     }
 
+    private fun appendMetaChunk(device: BluetoothDevice, requestId: Int, payload: ByteArray) {
+        val address = device.address
+        val previousId = metaFrameIds[address]
+        if (previousId != requestId) {
+            metaFrames[address] = ByteArrayOutputStream()
+            metaFrameIds[address] = requestId
+        }
+        val buffer = metaFrames.computeIfAbsent(address) { ByteArrayOutputStream() }
+        if (buffer.size() + payload.size > 4096) {
+            metaFrames.remove(address)
+            metaFrameIds.remove(address)
+            executor.execute { sendError(device, requestId, "META_TOO_LARGE") }
+            return
+        }
+        buffer.write(payload)
+    }
+
     private fun beginRequest(device: BluetoothDevice, requestId: Int, payload: ByteArray) {
         runCatching {
-            val meta = JSONObject(payload.toString(Charsets.UTF_8))
+            val completePayload = if (payload.isNotEmpty()) {
+                metaFrames.remove(device.address)
+                metaFrameIds.remove(device.address)
+                payload
+            } else {
+                val expectedId = metaFrameIds.remove(device.address)
+                val buffered = metaFrames.remove(device.address)?.toByteArray()
+                require(expectedId == requestId && buffered != null && buffered.isNotEmpty()) { "META" }
+                buffered
+            }
+            val meta = JSONObject(completePayload.toString(Charsets.UTF_8))
             val method = meta.optString("m", meta.optString("method", "POST")).uppercase()
             val path = meta.optString("p", meta.optString("path"))
             val contentType = meta.optString("c", meta.optString("contentType", "application/json"))
@@ -474,6 +673,7 @@ class MelBleBridgeService : Service() {
             require(deviceId.length in 3..128) { "DEVICE_ID" }
             require(length in 0..MAX_REQUEST_BYTES) { "SIZE" }
             latestResponseIds[device.address] = requestId
+            pullOnlyResponseIds.remove(device.address)
             pullFrames.computeIfAbsent(device.address) { ConcurrentLinkedQueue() }.clear()
             requests[device.address] = PendingRequest(requestId, method, path, contentType, token, deviceId, length)
         }.onFailure {
@@ -588,7 +788,7 @@ class MelBleBridgeService : Service() {
             .put("audioChannels", 1)
         if (!sendJsonFrame(device, OP_RESPONSE_BEGIN, requestId, meta)) return false
 
-        val mtu = mtus[device.address] ?: 247
+        val mtu = mtus[device.address] ?: 23
         val maxPayload = (mtu - 8).coerceIn(12, 500)
         val inputBuffer = ByteArray(maxPayload * 3)
         val outputBuffer = ByteArray(maxPayload)
@@ -629,6 +829,14 @@ class MelBleBridgeService : Service() {
     }
 
     private fun relay(device: BluetoothDevice, request: PendingRequest) {
+        // Redmi/Xiaomi can acknowledge GATT notifications even when the peer never
+        // receives them. Session-critical responses therefore use the TX
+        // characteristic read queue only. MINI already polls that queue every 60 ms.
+        if (request.path == "/api/device/v1/pair" || request.path == "/api/device/v1/heartbeat") {
+            pullOnlyResponseIds[device.address] = request.id
+            Log.i(TAG, "MEL MINI control response forced to pull-only path=${request.path} id=${request.id}")
+        }
+
         // The MINI uses /manifest only as its first authenticated liveness check.
         // Serving this tiny manifest locally avoids blocking the BLE link on the
         // firmware-manifest R2 lookup; real heartbeat/chat/voice traffic still
@@ -738,7 +946,7 @@ class MelBleBridgeService : Service() {
             }
         }.getOrElse {
             internetReady.value = false
-            bridgeState.value = "MINI CONNECT├ëE ┬À INTERNET ERREUR"
+            bridgeState.value = "MINI CONNECTEE | INTERNET ERREUR"
             Log.e(TAG, "MEL relay open failed ${request.method} ${request.path}", it)
             sendError(device, request.id, "NETWORK_OPEN")
             return
@@ -755,7 +963,12 @@ class MelBleBridgeService : Service() {
                 rememberMiniPairingComplete()
             }
             internetReady.value = miniLinkReady.value && success
-            bridgeState.value = if (internetReady.value) "MINI CONNECTÉE · INTERNET OK" else "MINI CONNECTÉE · MEL HTTP $status"
+            bridgeState.value = when {
+                internetReady.value -> "MINI CONNECTÉE · INTERNET OK"
+                request.path == "/api/device/v1/pair" && (status == 401 || status == 403) ->
+                    "MINI CONNECTÉE · APPLI MEL À RÉAPPAIRER"
+                else -> "MINI CONNECTÉE · MEL HTTP $status"
+            }
             Log.i(TAG, "MEL relay HTTP ${request.method} ${request.path} -> $status")
             val contentType = connection.contentType ?: "application/octet-stream"
             val stream = if (status in 200..299) connection.inputStream else connection.errorStream
@@ -772,6 +985,59 @@ class MelBleBridgeService : Service() {
                 return
             }
 
+            // MINI pairing only needs token + protocol_version. Compacting a successful
+            // pair response keeps the credential body inside one BLE payload, eliminating
+            // a multi-frame failure mode during first/recovery authentication.
+            if (request.path == "/api/device/v1/pair" && status in 200..299 && stream != null) {
+                val rawPairBody = stream.use { it.readBytes() }
+                val pairJson = runCatching { JSONObject(rawPairBody.toString(Charsets.UTF_8)) }.getOrNull()
+                val compactPairBody = if (pairJson != null &&
+                    pairJson.optString("token").isNotBlank() &&
+                    pairJson.optString("protocol_version").isNotBlank()
+                ) {
+                    JSONObject()
+                        .put("token", pairJson.getString("token"))
+                        .put("protocol_version", pairJson.getString("protocol_version"))
+                        .toString()
+                        .toByteArray(Charsets.UTF_8)
+                } else rawPairBody
+                val pairMeta = JSONObject()
+                    .put("status", status)
+                    .put("contentType", "application/json")
+                    .put("length", compactPairBody.size)
+                if (!sendJsonFrame(device, OP_RESPONSE_BEGIN, request.id, pairMeta)) return
+                if (!sendBodyFrames(device, request.id, compactPairBody)) return
+                sendFrame(device, packet(OP_RESPONSE_END, request.id, byteArrayOf()))
+                Log.i(TAG, "MEL MINI pair response compacted to ${compactPairBody.size} bytes")
+                return
+            }
+
+            // MINI session validation uses heartbeat. Return only the tiny
+            // liveness payload that MINI actually needs, rather than relaying the
+            // full accepted/status object over many GATT frames.
+            if (request.path == "/api/device/v1/heartbeat" && status in 200..299 && stream != null) {
+                val rawHeartbeat = stream.use { it.readBytes() }
+                val heartbeatJson = runCatching { JSONObject(rawHeartbeat.toString(Charsets.UTF_8)) }.getOrNull()
+                val nowMs = System.currentTimeMillis()
+                val zone = TimeZone.getDefault()
+                val compactHeartbeat = JSONObject()
+                    .put("ok", true)
+                    .put("epoch_ms", heartbeatJson?.optLong("server_time", 0L)?.takeIf { it > 0L } ?: nowMs)
+                    .put("utc_offset_seconds", zone.getOffset(nowMs) / 1000)
+                    .put("timezone", zone.id)
+                    .toString()
+                    .toByteArray(Charsets.UTF_8)
+                val heartbeatMeta = JSONObject()
+                    .put("status", status)
+                    .put("contentType", "application/json")
+                    .put("length", compactHeartbeat.size)
+                if (!sendJsonFrame(device, OP_RESPONSE_BEGIN, request.id, heartbeatMeta)) return
+                if (!sendBodyFrames(device, request.id, compactHeartbeat)) return
+                sendFrame(device, packet(OP_RESPONSE_END, request.id, byteArrayOf()))
+                Log.i(TAG, "MEL MINI heartbeat response compacted to ${compactHeartbeat.size} bytes")
+                return
+            }
+
             val rawContentLength = connection.contentLengthLong.coerceAtLeast(-1L)
             val meta = JSONObject()
                 .put("status", status)
@@ -780,7 +1046,7 @@ class MelBleBridgeService : Service() {
             if (!sendJsonFrame(device, OP_RESPONSE_BEGIN, request.id, meta)) return
             if (stream != null) {
                 stream.use { input ->
-                    val mtu = mtus[device.address] ?: 247
+                    val mtu = mtus[device.address] ?: 23
                     val maxPayload = (mtu - 8).coerceIn(12, 500)
                     val buffer = ByteArray(maxPayload)
                     while (true) {
@@ -794,7 +1060,7 @@ class MelBleBridgeService : Service() {
             sendFrame(device, packet(OP_RESPONSE_END, request.id, byteArrayOf()))
         } catch (error: Throwable) {
             internetReady.value = false
-            bridgeState.value = "MINI CONNECT├ëE ┬À INTERNET ERREUR"
+            bridgeState.value = "MINI CONNECTEE | INTERNET ERREUR"
             Log.e(TAG, "Relay failed ${request.method} ${request.path}", error)
             sendError(device, request.id, "NETWORK_READ")
         } finally {
@@ -980,7 +1246,7 @@ class MelBleBridgeService : Service() {
 
     private fun sendBodyFrames(device: BluetoothDevice, requestId: Int, body: ByteArray): Boolean {
         if (body.isEmpty()) return true
-        val mtu = mtus[device.address] ?: 247
+        val mtu = mtus[device.address] ?: 23
         val maxPayload = (mtu - 8).coerceIn(12, 500)
         var offset = 0
         while (offset < body.size) {
@@ -992,11 +1258,22 @@ class MelBleBridgeService : Service() {
     }
 
     private fun sendError(device: BluetoothDevice, requestId: Int, code: String) {
-        sendJsonFrame(device, OP_ERROR, requestId, JSONObject().put("error", code))
+        val mtu = mtus[device.address] ?: 23
+        val maxPayload = (mtu - 8).coerceIn(12, 500)
+        val raw = code.toByteArray(Charsets.UTF_8)
+        val compact = raw.copyOfRange(0, minOf(raw.size, maxPayload))
+        sendFrame(device, packet(OP_ERROR, requestId, compact))
     }
 
     private fun sendJsonFrame(device: BluetoothDevice, op: Int, requestId: Int, json: JSONObject): Boolean {
-        return sendFrame(device, packet(op, requestId, json.toString().toByteArray(Charsets.UTF_8)))
+        // MINI only needs HTTP status from RESPONSE_BEGIN. Keeping this frame below
+        // the 20-byte ATT payload limit makes the relay work even at MTU 23.
+        val payload = if (op == OP_RESPONSE_BEGIN) {
+            JSONObject().put("status", json.optInt("status", 0)).toString()
+        } else {
+            json.toString()
+        }.toByteArray(Charsets.UTF_8)
+        return sendFrame(device, packet(op, requestId, payload))
     }
 
     private fun packet(op: Int, requestId: Int, payload: ByteArray): ByteArray {
@@ -1019,7 +1296,12 @@ class MelBleBridgeService : Service() {
         }
         val server = gattServer ?: return false
         val characteristic = txCharacteristic ?: return false
-        if (subscribed[device.address] == true) {
+
+        // Never mix notification and pull ordering after one notification has failed.
+        // Otherwise BODY can be queued for pull while END is delivered by notification,
+        // making MINI complete the response before it has received the BODY/token.
+        val pullOnly = pullOnlyResponseIds[device.address] == responseId
+        if (subscribed[device.address] == true && !pullOnly) {
             while (notificationAck.poll() != null) { }
             @Suppress("DEPRECATION")
             run { characteristic.value = frame.copyOf() }
@@ -1028,8 +1310,11 @@ class MelBleBridgeService : Service() {
             if (queued) {
                 val status = notificationAck.poll(750, TimeUnit.MILLISECONDS)
                 if (status == BluetoothGatt.GATT_SUCCESS) return true
-                Log.w(TAG, "BLE push notify failed/timeout status=$status; falling back to pull")
+                Log.w(TAG, "BLE push notify failed/timeout status=$status; switching response $responseId to pull-only")
+            } else {
+                Log.w(TAG, "BLE push notify could not queue; switching response $responseId to pull-only")
             }
+            pullOnlyResponseIds[device.address] = responseId
         }
         val queue = pullFrames.computeIfAbsent(device.address) { ConcurrentLinkedQueue() }
         queue.offer(frame.copyOf())
@@ -1041,7 +1326,7 @@ class MelBleBridgeService : Service() {
             val manager = getSystemService(NotificationManager::class.java)
             manager.createNotificationChannel(
                 NotificationChannel(CHANNEL_ID, "MEL Mobile", NotificationManager.IMPORTANCE_LOW).apply {
-                    description = "Connexion itin├®rante de la MINI via Bluetooth"
+                    description = "Connexion itinerante de la MINI via Bluetooth"
                 }
             )
         }

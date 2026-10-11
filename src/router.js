@@ -9,7 +9,7 @@ import { json, html } from "./core/http.js";
 import { createGen2Runtime } from "./core/orchestrator/gen2-runtime.js";
 import handleResearch from "./api/research-api.js";
 import handleAugmentio from "./api/augmentio-api.js";
-import { onRequestGet as handleMvp } from "./pages/mvp-interface.js";
+import { onRequestGet as handleMvp } from "./pages/mvp-interface-v3.js";
 import { onRequestGet as handleFullModeV2 } from "./pages/full-interface-v2.js";
 import { onRequestGet as handleWatchInterface } from "./pages/watch-interface.js";
 import { SERVICE_WORKER_SOURCE } from "./pages/service-worker.js";
@@ -18,6 +18,8 @@ import { handlePublicWordPressChat, publicWordPressChatCors } from "./api/public
 import { renderPublicWordPressChatPage } from "./pages/public-wordpress-chat-page.js";
 import { renderPrivacyPolicyPage } from "./pages/privacy-policy.js";
 import { renderPublicMelHomePage } from "./pages/public-mel-home.js";
+import { renderFidesGuestPage } from "./pages/fides-guest-page.js";
+import { handlePublicFidesChat } from "./api/public-fides-chat.js";
 import { NORMAL_RUNTIME_SOURCE } from "./pages/mvp-runtime.js";
 import { devRuntime } from "./dev/runtime-api.js";
 import { githubActionRelayApi } from "./api/github-action-relay-api.js";
@@ -185,20 +187,29 @@ async function handleConversationApi(request, env, url = new URL(request.url), c
     const refresh = url.searchParams.get("refresh") === "1";
     const capabilities = refresh ? await runtime.bus.refreshHealthAll() : runtime.bus.list();
     const roadmap = await runtime.bus.execute("roadmap.read", {}, capabilityContext(env));
-    const badStates = new Set(["ERROR","FAILED","FAIL","DOWN","UNHEALTHY","BROKEN"]);
-    const unavailableStates = new Set(["OFFLINE","UNAVAILABLE","BLOCKED","DISABLED"]);
+    const healthyStates = new Set(["HEALTHY","ONLINE"]);
+    const badStates = new Set(["ERROR","FAILED","FAIL","DOWN","UNHEALTHY","BROKEN","BLOCKED"]);
+    const unavailableStates = new Set(["OFFLINE","UNAVAILABLE","DISABLED"]);
     const degradedStates = new Set(["DEGRADED","UNKNOWN","UNTESTED","NOT_TESTED"]);
     const protectedStates = new Set(["PROTECTED"]);
+    const normalizedCapabilityState = row => row?.enabled === false
+      ? "DISABLED"
+      : String(row?.health || "UNKNOWN").toUpperCase();
+    const waitsForPc = row => String(row?.id || "").toLowerCase().startsWith("computer.")
+      && ["UNAVAILABLE","OFFLINE","DEGRADED"].includes(normalizedCapabilityState(row));
     const health = capabilities.reduce((acc,row)=>{
-      const state = row?.enabled === false ? "DISABLED" : String(row?.health || "UNKNOWN").toUpperCase();
+      const state = normalizedCapabilityState(row);
       acc[state] = (acc[state] || 0) + 1;
       return acc;
     },{});
-    const failed = capabilities.filter(row => badStates.has(String(row?.health || "").toUpperCase())).length;
-    const unavailable = capabilities.filter(row => row?.enabled === false || unavailableStates.has(String(row?.health || "").toUpperCase())).length;
-    const degraded = capabilities.filter(row => degradedStates.has(String(row?.health || "").toUpperCase())).length;
-    const protectedCount = capabilities.filter(row => row?.enabled !== false && protectedStates.has(String(row?.health || "").toUpperCase())).length;
-    const active = Math.max(0, capabilities.length - unavailable - failed);
+    const healthy = capabilities.filter(row => row?.enabled !== false && healthyStates.has(normalizedCapabilityState(row))).length;
+    const protectedCount = capabilities.filter(row => row?.enabled !== false && protectedStates.has(normalizedCapabilityState(row))).length;
+    const waitingPc = capabilities.filter(waitsForPc).length;
+    const failed = capabilities.filter(row => badStates.has(normalizedCapabilityState(row))).length;
+    const unavailable = capabilities.filter(row => !waitsForPc(row) && (row?.enabled === false || unavailableStates.has(normalizedCapabilityState(row)))).length;
+    const degraded = capabilities.filter(row => !waitsForPc(row) && degradedStates.has(normalizedCapabilityState(row))).length;
+    const functional = healthy + protectedCount;
+    const active = functional;
     const roadmapSummary = roadmap?.summary || {};
     const roadmapBlocked = Number(roadmapSummary?.by_status?.BLOCKED_HUMAN || 0)
       + Number(roadmapSummary?.by_status?.BLOCKED_EXTERNAL || 0);
@@ -209,9 +220,9 @@ async function handleConversationApi(request, env, url = new URL(request.url), c
       ? String(MEL_DEPLOYED_GIT_SHA || "")
       : String(env.MEL_DEPLOYED_GIT_SHA || "");
     const deploymentExact = Boolean(deployedBranch && /^[0-9a-f]{40}$/i.test(deployedSha));
-    const state = failed > 0 || (capabilities.length > 0 && active === 0)
+    const state = failed > 0 || (capabilities.length > 0 && functional === 0)
       ? "ERROR"
-      : degraded > 0 || roadmapBlocked > 0 || !deploymentExact
+      : degraded > 0 || waitingPc > 0 || unavailable > 0 || roadmapBlocked > 0 || !deploymentExact
         ? "WARN"
         : "OK";
     return json({
@@ -219,7 +230,7 @@ async function handleConversationApi(request, env, url = new URL(request.url), c
       state,
       generated_at: new Date().toISOString(),
       health_refreshed: refresh,
-      capabilities: { total: capabilities.length, active, usable: active, failed, unavailable, degraded, protected: protectedCount, health },
+      capabilities: { total: capabilities.length, active, usable: functional, functional, healthy, protected: protectedCount, degraded, waiting_pc: waitingPc, unavailable, failed, health },
       roadmap: roadmapSummary,
       deployment: {
         branch: deployedBranch || null,
@@ -230,14 +241,13 @@ async function handleConversationApi(request, env, url = new URL(request.url), c
         {
           id:"capabilities",
           label:"CapabilityBus",
-          status: failed > 0 ? "ERROR" : degraded > 0 ? "WARN" : unavailable > 0 ? "INFO" : "OK",
-          detail: failed > 0
-            ? failed+" capacité(s) en échec · "+active+"/"+capabilities.length+" utilisables"
-            : degraded > 0
-              ? active+"/"+capabilities.length+" utilisables · "+degraded+" dégradée(s) · "+protectedCount+" protégée(s) · "+unavailable+" non configurée(s)"
-              : unavailable > 0
-                ? active+"/"+capabilities.length+" utilisables · "+protectedCount+" protégée(s) · "+unavailable+" non configurée(s)"
-                : capabilities.length+" capacité(s) opérationnelle(s)"
+          status: failed > 0 ? "ERROR" : (degraded > 0 || waitingPc > 0 || unavailable > 0) ? "WARN" : "OK",
+          detail: functional+"/"+capabilities.length+" fonctionnelles · "
+            +protectedCount+" protégée(s) · "
+            +degraded+" dégradée(s) · "
+            +waitingPc+" en attente PC · "
+            +unavailable+" non configurée(s) · "
+            +failed+" en échec"
         },
         {
           id:"roadmap",
@@ -388,12 +398,24 @@ async function routeResolvedRequest(request, env, ctx) {
     if (request.method === "GET" && url.pathname === "/public/wordpress-chat") return new Response(renderPublicWordPressChatPage(), { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "public, max-age=300", "content-security-policy": "default-src 'self'; connect-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; frame-ancestors https://verite-interdite.fr" } });
     if (url.pathname === "/api/public/wordpress/chat" && request.method === "OPTIONS") return publicWordPressChatCors(request);
     if (url.pathname === "/api/public/wordpress/chat" && request.method === "POST") return handlePublicWordPressChat(request, env);
+    if (request.method === "GET" && (url.pathname === "/fides" || url.pathname === "/fides/invite" || url.pathname === "/guest/fides")) {
+      return new Response(renderFidesGuestPage(), {
+        headers: {
+          "content-type": "text/html; charset=utf-8",
+          "cache-control": "public, max-age=120",
+          "content-security-policy": "default-src 'self'; connect-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src 'self' data:; frame-ancestors 'none'",
+          "x-content-type-options": "nosniff",
+          "referrer-policy": "no-referrer",
+        }
+      });
+    }
+    if (url.pathname === "/api/public/fides/chat" && request.method === "POST") return handlePublicFidesChat(request, env);
 
     const auth = requireAuth(request, env);
     if (!auth.ok) return auth.response;
     if (request.method === "GET" && url.pathname === "/sw.js") return new Response(SERVICE_WORKER_SOURCE, { headers: { "content-type": "application/javascript; charset=utf-8", "cache-control": "no-cache" } });
     if (request.method === "GET" && url.pathname === "/manifest.webmanifest") return new Response(PWA_MANIFEST_JSON, { headers: { "content-type": "application/manifest+json; charset=utf-8", "cache-control": "public, max-age=3600" } });
-    if (request.method === "GET" && url.pathname === "/normal-runtime.js") return new Response(NORMAL_RUNTIME_SOURCE, { headers: { "content-type": "application/javascript; charset=utf-8", "cache-control": "public, max-age=86400, stale-while-revalidate=604800" } });
+    if (request.method === "GET" && url.pathname === "/normal-runtime.js") return new Response(NORMAL_RUNTIME_SOURCE, { headers: { "content-type": "application/javascript; charset=utf-8", "cache-control": "no-store, no-cache, must-revalidate" } });
     if (!isDevBridge) {
       const devResponse = devRuntime(request, env);
       if (devResponse) return await devResponse;
@@ -429,7 +451,11 @@ async function routeResolvedRequest(request, env, ctx) {
         const response = await handleConversationApi(request, env, url, ctx);
         if (response) return response;
       } catch (e) {
-        return json({ error: e.message, code: e.code || "INTERNAL_ERROR" }, e.status || 500);
+        return json({
+          error: e.message,
+          code: e.code || "INTERNAL_ERROR",
+          ...(e?.step_id ? { failed_step_id: String(e.step_id).slice(0, 200) } : {}),
+        }, e.status || 500);
       }
     }
 

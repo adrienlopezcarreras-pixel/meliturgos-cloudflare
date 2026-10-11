@@ -29,7 +29,11 @@ export function createAutonomyControlMemoryState() {
 
 function readMemoryControl(memoryState) {
   const value = memoryState?.control;
-  return value && typeof value === 'object' ? { ...value } : defaultControl();
+  const control = value && typeof value === 'object' ? { ...value } : defaultControl();
+  if (control.paused === true) {
+    return { ...control, max_autonomy: false, owner_override: false, status: 'PAUSED' };
+  }
+  return control;
 }
 
 export async function getAutonomyControl(db, { memoryState = null } = {}) {
@@ -43,7 +47,8 @@ export async function getAutonomyControl(db, { memoryState = null } = {}) {
   const metadata = parseMetadata(row.metadata_json);
   const status = String(row.status || 'RUNNING').toUpperCase();
   const paused = status === 'PAUSED' || metadata.paused === true;
-  const maxAutonomy = metadata.max_autonomy === true || metadata.owner_override === true || status === 'MAX_AUTONOMY';
+  const storedMaxAutonomy = metadata.max_autonomy === true || metadata.owner_override === true || status === 'MAX_AUTONOMY';
+  const maxAutonomy = paused ? false : storedMaxAutonomy;
   return {
     paused,
     max_autonomy: maxAutonomy,
@@ -81,11 +86,12 @@ export async function setAutonomyControl(db, {
   const requestedMax = typeof max_autonomy === 'boolean'
     ? max_autonomy
     : (typeof owner_override === 'boolean' ? owner_override : current.max_autonomy === true);
+  const nextMax = nextPaused ? false : requestedMax;
   const next = {
     paused: nextPaused,
-    max_autonomy: requestedMax,
-    owner_override: requestedMax,
-    status: nextPaused ? 'PAUSED' : (requestedMax ? 'MAX_AUTONOMY' : 'RUNNING'),
+    max_autonomy: nextMax,
+    owner_override: nextMax,
+    status: nextPaused ? 'PAUSED' : (nextMax ? 'MAX_AUTONOMY' : 'RUNNING'),
     updated_at: Date.now(),
     source: String(source || 'owner-ui').slice(0, 100),
     reason: reason === undefined ? (current.reason || null) : (reason ? String(reason).slice(0, 500) : null),

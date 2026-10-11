@@ -24,6 +24,7 @@ sealed class MelCompanionCommand {
     data object BluetoothSettings : MelCompanionCommand()
     data object LocationSettings : MelCompanionCommand()
     data object Camera : MelCompanionCommand()
+    data object VideoCamera : MelCompanionCommand()
     data object FilePicker : MelCompanionCommand()
     data object EnableNotifications : MelCompanionCommand()
     data class OpenApp(val target: MelAppTarget, val label: String) : MelCompanionCommand()
@@ -120,6 +121,10 @@ object MelCompanionCommands {
         if (Regex("""\b(?:gps|localisation|position)\b""").containsMatchIn(lower) &&
             Regex("""\b(?:ouvre|r[eé]glages?|param[eè]tres?|active)\b""").containsMatchIn(lower)) {
             return MelCompanionCommand.LocationSettings
+        }
+
+        if (Regex("""\b(?:filme|filmer|enregistre|enregistrer|prends?|prendre|ouvre)\b.*\b(?:vid[eé]o|cam[eé]ra\s+vid[eé]o)\b""").containsMatchIn(lower)) {
+            return MelCompanionCommand.VideoCamera
         }
 
         if (Regex("""\b(?:prends?|prendre|ouvre)\b.*\b(?:photo|cam[eé]ra)\b""").containsMatchIn(lower)) {

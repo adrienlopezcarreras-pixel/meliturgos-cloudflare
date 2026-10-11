@@ -148,7 +148,7 @@ function deploymentRow(row = {}) {
   };
 }
 
-export function registerPlatformReadCapabilities(bus, { env = {}, fetchImpl = fetch, repository = '', resolveVercelConfig = null, cloudflareRelayStore = null, githubRelayStore = null } = {}) {
+export function registerPlatformReadCapabilities(bus, { env = {}, fetchImpl = fetch, repository = '', resolveVercelConfig = null, cloudflareRelayStore = null, githubRelayStore = null, includeVercel = true } = {}) {
   const githubRepository = repository || env.MEL_GITHUB_REPOSITORY || '';
   const githubToken = String(env.MEL_GITHUB_TOKEN || '').trim();
   const cloudflareToken = String(env.CLOUDFLARE_API_TOKEN || '').trim();
@@ -450,6 +450,7 @@ export function registerPlatformReadCapabilities(bus, { env = {}, fetchImpl = fe
     return { provider: 'cloudflare', script, deployments, count: deployments.length };
   });
 
+  if (includeVercel) {
   bus.discover({
     id: 'vercel.projects.read',
     name: 'Vercel projects list',
@@ -537,12 +538,12 @@ export function registerPlatformReadCapabilities(bus, { env = {}, fetchImpl = fe
     return { provider: 'vercel', project_id: projectId, deployments, count: deployments.length };
   });
 
+  }
   return Object.freeze([
     'github.repository.read',
     'github.actions.runs.read',
     'cloudflare.workers.read',
     'cloudflare.deployments.read',
-    'vercel.projects.read',
-    'vercel.deployments.read',
+    ...(includeVercel ? ['vercel.projects.read', 'vercel.deployments.read'] : []),
   ]);
 }

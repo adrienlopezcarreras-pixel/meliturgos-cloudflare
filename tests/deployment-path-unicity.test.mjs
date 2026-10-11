@@ -38,20 +38,28 @@ test('canonical production release requires human approval and exact immutable i
   assert.match(source, /test "\$RELEASE_SHA" = "\$EXPECTED_SHA"/);
   assert.match(source, /git fetch origin main/);
   assert.match(source, /git merge-base --is-ancestor "\$EXPECTED_SHA" "\$SOURCE_SHA"/);
-  assert.match(source, /git rev-list --count "\$EXPECTED_SHA\.\.\$SOURCE_SHA"/);
+  assert.match(source, /git rev-list --parents -n 1 "\$EXPECTED_SHA"/);
+  assert.match(source, /RELEASE_TREE="\$\(git rev-parse "\$EXPECTED_SHA\^\{tree\}"\)"/);
+  assert.match(source, /PARENT_TREE="\$\(git rev-parse "\$PARENT_SHA\^\{tree\}"\)"/);
+  assert.match(source, /test -n "\$CANONICAL_MAIN_SHA"/);
+  assert.match(source, /git rev-list --count "\$CANONICAL_MAIN_SHA\.\.\$SOURCE_SHA"/);
   assert.match(source, /test "\$MAIN_ADVANCE_COUNT" -le 25/);
   assert.match(source, /for PAUSE_ATTEMPT in \$\(seq 1 12\); do/);
   assert.match(source, /--data '\{"phase":"pause"\}'/);
   assert.match(source, /test "\$PAUSE_READY" = "1"/);
   assert.match(source, /for BACKUP_ATTEMPT in \$\(seq 1 3\); do/);
   assert.match(source, /--data '\{"phase":"backup"\}'/);
-  assert.match(source, /timeout-minutes: 45/);
-  assert.match(source, /CODE_SYNC_MAX_ATTEMPTS=32/);
+  const timeout=/timeout-minutes:\s*(\d+)/.exec(source);
+  assert.ok(timeout,'canonical release timeout must be explicit');
+  assert.ok(Number(timeout[1])>=75,'canonical release timeout must cover bounded ShardVault retry windows');
+  assert.match(source, /CODE_SYNC_MAX_ACTIVE_ATTEMPTS=32/);
   assert.match(source, /CODE_SYNC_MAX_STALL=12/);
-  assert.match(source, /for CODE_SYNC_ATTEMPT in \$\(seq 1 "\$CODE_SYNC_MAX_ATTEMPTS"\); do/);
+  assert.match(source, /CODE_SYNC_DEADLINE_EPOCH=\$\(\( \$\(date \+%s\) \+ 1200 \)\)/);
+  assert.match(source, /while \[ "\$CODE_SYNC_READY" != "1" \] && \[ "\$\(date \+%s\)" -lt "\$CODE_SYNC_DEADLINE_EPOCH" \]; do/);
   assert.match(source, /PRODUCTION_CODE_SYNC_FINAL_NOT_COMPLETE/);
-  assert.match(source, /PRODUCTION_CODE_SYNC_FINAL_NOT_COPIED/);
-  assert.match(source, /PRODUCTION_CODE_SYNC_SUCCESSFUL_ENDPOINTS_LT_7/);
+  assert.match(source, /PRODUCTION_CODE_SYNC_FINAL_NOT_RELEASE_SAFE/);
+  assert.match(source, /PRODUCTION_CODE_SYNC_SUCCESSFUL_ENDPOINTS_LT_RELEASE_QUORUM/);
+  assert.match(source, /PRODUCTION_CODE_SYNC_QUORUM_RECONSTRUCTION_NOT_VERIFIED/);
   assert.match(source, /PRODUCTION_CODE_SYNC_ROUNDTRIP_NOT_VERIFIED/);
   assert.match(source, /CODE_SYNC_CODE="\$\(curl --silent --show-error --max-time 170 \\\n\s+--header "x-mel-launch-bootstrap: \$\{BOOTSTRAP_TOKEN\}"/);
   assert.match(source, /--data '\{"phase":"code-sync"\}'/);
@@ -82,13 +90,42 @@ test('canonical production release requires human approval and exact immutable i
       source.indexOf('Production code self-check + memory + UI smoke passed.'),
     'chat self-code smoke must complete before the broader production smoke bundle',
   );
-  assert.ok(
-    source.indexOf('Production code self-check + memory + UI smoke passed.') <
-      source.indexOf('cleanup_secret\n          trap - EXIT'),
-    'all authenticated release smokes must run before the temporary bootstrap secret is deleted',
+  const exactDeploy = source.indexOf('      - name: Deploy exact approved SHA to production');
+  const autonomyProof = source.indexOf('      - name: Prepare and prove production autonomy launch evidence', exactDeploy);
+  assert.ok(exactDeploy >= 0 && autonomyProof > exactDeploy, 'autonomy proof must run after the exact immutable deploy');
+  assert.match(source.slice(0, exactDeploy), /MEL_LAUNCH_BOOTSTRAP_TOKEN:String\(process\.env\.BOOTSTRAP_TOKEN\|\|''\)/);
+  assert.doesNotMatch(source.slice(exactDeploy, autonomyProof), /wrangler secret (?:put|delete) MEL_LAUNCH_BOOTSTRAP_TOKEN/);
+  const preparation = source.slice(
+    source.indexOf('      - name: Prepare encrypted Media Vault secrets for exact deployment'),
+    source.indexOf('      - name: Install pinned Browser Rendering adapter'),
   );
+  assert.doesNotMatch(preparation, /secrets\.MELITURGOS_PASSWORD/);
+  assert.doesNotMatch(preparation, /MELITURGOS_PASSWORD:String\(process\.env\.MELITURGOS_PASSWORD\|\|''\)/);
+  assert.doesNotMatch(preparation, /!payload\.MELITURGOS_PASSWORD/);
+
+  const immutableDeploy = source.slice(
+    source.indexOf('      - name: Deploy exact approved SHA to production'),
+    source.indexOf('      - name: Verify bundled Workers AI zero-cost proof'),
+  );
+  assert.match(immutableDeploy, /--keep-vars/);
+  assert.match(immutableDeploy, /--secrets-file media-vault-release-secrets\.json/);
+  assert.match(source, /Require persistent production secrets before exact deploy/);
+  assert.match(source, /wrangler secret list --name meliturgos --format json/);
+  assert.match(source, /readFileSync\('media-vault-release-secrets\.json'/);
+  assert.match(source, /Object\.keys\(staged\|\|\{\}\)/);
+  assert.match(source, /PRODUCTION_REQUIRED_SECRETS_MISSING/);
+  assert.match(source, /omitted remote secrets are preserved/);
+  assert.match(source, /Verify owner auth binding and exact deployment immediately/);
+  assert.match(source, /AUTH_NOT_CONFIGURED/);
+  assert.match(source, /ROOT_CODE.*401/);
+  assert.match(source, /RELEASE_IDENTITY_VERIFIED/);
   assert.match(source, /MEL_DEPLOYED_GIT_SHA/);
   assert.match(source, /MEL_DEPLOYED_GIT_BRANCH/);
+
+  const wrangler = await readFile(path.join(process.cwd(), 'wrangler.jsonc'), 'utf8');
+  assert.match(wrangler, /"secrets"\s*:\s*\{[\s\S]*"required"\s*:\s*\[[\s\S]*"MELITURGOS_PASSWORD"/);
+  assert.match(wrangler, /"required"\s*:\s*\[[\s\S]*"MEL_BACKUP_ENCRYPTION_KEY_ID"/);
+  assert.match(wrangler, /"required"\s*:\s*\[[\s\S]*"MEL_BACKUP_ENCRYPTION_KEY_B64"/);
 });
 
 

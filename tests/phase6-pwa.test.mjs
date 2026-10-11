@@ -22,7 +22,7 @@ test('service worker never persists private HTML as an offline fallback', () => 
 
 test('normal client actually registers the service worker and revalidation is kept alive', () => {
   assert.match(NORMAL_RUNTIME_SOURCE, /navigator\.serviceWorker\.register\('\/sw\.js'/);
-  assert.match(SERVICE_WORKER_SOURCE, /meliturgos-static-v8/);
+  assert.match(SERVICE_WORKER_SOURCE, /meliturgos-static-v9/);
   assert.match(SERVICE_WORKER_SOURCE, /event\.waitUntil\(update/);
 });
 
@@ -43,7 +43,8 @@ test('GEN2-26 exposes an installable manifest without embedding credentials or p
 });
 
 test('GEN2-26 pre-cache is restricted to safe runtime assets and never private HTML/API', () => {
-  assert.match(SERVICE_WORKER_SOURCE,/const PRECACHE=\['\/normal-runtime\.js','\/assets\/avatars\/mel-full\.webp/);
+  assert.match(SERVICE_WORKER_SOURCE,/const PRECACHE=\['\/assets\/avatars\/mel-full\.webp/);
+  assert.match(SERVICE_WORKER_SOURCE,/url\.pathname==='\/normal-runtime\.js'[\s\S]{0,120}fetch\(request,\{cache:'no-store'\}\)/);
   assert.doesNotMatch(SERVICE_WORKER_SOURCE,/PRECACHE=.*['"]\/(?:mvp|professor|api\/)/);
   assert.match(SERVICE_WORKER_SOURCE,/credentials:'same-origin'/);
   assert.match(SERVICE_WORKER_SOURCE,/cache:'no-store'/);

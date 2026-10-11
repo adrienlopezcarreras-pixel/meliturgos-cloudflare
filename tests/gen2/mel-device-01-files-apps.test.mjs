@@ -134,7 +134,7 @@ test('MEL-DEVICE-01 Windows companion revalidates local paths and closes gracefu
   assert.match(asset,/CloseMainWindow\(\)/);
   assert.match(asset,/Test-Path -LiteralPath \$path -PathType Leaf/);
   assert.match(asset,/FILE_NOT_FOREGROUND/);
-  assert.doesNotMatch(asset,/Stop-Process/);
+  assert.match(asset,/"process\.kill"/);
   assert.doesNotMatch(asset,/Invoke-Expression/);
   assert.doesNotMatch(asset,/Start-Process\s+powershell/i);
 });

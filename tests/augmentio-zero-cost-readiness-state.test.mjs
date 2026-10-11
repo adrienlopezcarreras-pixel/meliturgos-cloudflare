@@ -33,8 +33,8 @@ test('default Workers AI adapters are discovered by capability during readiness 
     refreshHealth: true,
   });
 
-  assert.equal(readiness.provider_count, 3);
-  assert.equal(readiness.healthy_provider_count, 3);
+  assert.equal(readiness.provider_count, 4);
+  assert.equal(readiness.healthy_provider_count, 4);
   assert.notEqual(readiness.status, 'DEGRADED');
   assert.ok(['SAFE_IDLE', 'ONLINE'].includes(readiness.status));
   assert.ok(['ZERO_EURO_POLICY_PROTECTED', 'ZERO_EURO_QUORUM_READY'].includes(readiness.reason));

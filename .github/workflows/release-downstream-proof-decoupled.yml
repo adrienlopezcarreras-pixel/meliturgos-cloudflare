@@ -1,0 +1,1302 @@
+name: release-downstream-proof-decoupled
+
+on:
+  workflow_dispatch:
+    inputs:
+      expected_sha:
+        description: "Exact deployed release SHA to prove"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  TARGET_SHA: ${{ inputs.expected_sha }}
+  BASE_URL: https://meliturgos.adrien-lopezcarreras.workers.dev
+
+jobs:
+  readiness:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    env:
+      PROOF_KEY_B64: ${{ secrets.MEL_BACKUP_ENCRYPTION_KEY_B64 }}
+    steps:
+      - name: Wait for stable exact-SHA production identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "${TARGET_SHA}" =~ ^[0-9a-fA-F]{40}$ ]]
+          TOKEN="$(PROOF_KEY_B64="${PROOF_KEY_B64}" TARGET_SHA="${TARGET_SHA}" node - <<'NODE'
+          const crypto=require('crypto');
+          const source=Buffer.from(String(process.env.PROOF_KEY_B64||''),'base64');
+          const sha=String(process.env.TARGET_SHA||'').toLowerCase();
+          if(source.length!==32) throw new Error('PARALLEL_PROOF_SOURCE_KEY_INVALID');
+          if(!/^[0-9a-f]{40}$/.test(sha)) throw new Error('PARALLEL_PROOF_SHA_INVALID');
+          process.stdout.write(Buffer.from(crypto.hkdfSync(
+            'sha256',source,
+            Buffer.from('meliturgos-parallel-proof-salt-v1','utf8'),
+            Buffer.from('MEL_PARALLEL_PROOF_V1:'+sha,'utf8'),
+            32,
+          )).toString('base64url'));
+          NODE
+          )"
+          echo "::add-mask::${TOKEN}"
+
+          READY=0
+          ATTEMPT=0
+          DEADLINE_EPOCH=$(( $(date +%s) + 360 ))
+          while [ "${READY}" != "1" ] && [ "$(date +%s)" -lt "${DEADLINE_EPOCH}" ]; do
+            ATTEMPT=$((ATTEMPT + 1))
+            CODE="$(curl --silent --show-error --max-time 30 \
+              --header "x-mel-parallel-proof: ${TOKEN}" \
+              --header "content-type: application/json" \
+              --data '{"phase":"identity"}' \
+              --output downstream-readiness-identity.json --write-out '%{http_code}' \
+              "${BASE_URL}/api/internal/release-launch-bootstrap" || true)"
+            if [ "${CODE}" = "200" ] && TARGET_SHA="${TARGET_SHA}" node - <<'NODE'
+          const d=require('./downstream-readiness-identity.json');
+          const expected=String(process.env.TARGET_SHA||'').toLowerCase();
+          const actual=String(d?.deployed_sha||'').toLowerCase();
+          process.exit(d?.ok===true && d?.status==='RELEASE_IDENTITY_VERIFIED' && actual===expected ? 0 : 1);
+          NODE
+            then
+              READY=1
+              break
+            fi
+            echo "Downstream exact-SHA readiness not stable yet (HTTP ${CODE}); attempt ${ATTEMPT} within 360s budget."
+            sleep 5
+          done
+          if [ "${READY}" != "1" ]; then
+            echo "Downstream exact-SHA readiness did not stabilize within 360 seconds."
+            test ! -s downstream-readiness-identity.json || cat downstream-readiness-identity.json
+            exit 30
+          fi
+
+  http:
+    needs: readiness
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    env:
+      PROOF_KEY_B64: ${{ secrets.MEL_BACKUP_ENCRYPTION_KEY_B64 }}
+    steps:
+      - name: Verify exact deployed SHA and production HTTP
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "${TARGET_SHA}" =~ ^[0-9a-fA-F]{40}$ ]]
+          TOKEN="$(PROOF_KEY_B64="${PROOF_KEY_B64}" TARGET_SHA="${TARGET_SHA}" node - <<'NODE'
+          const crypto=require('crypto');
+          const source=Buffer.from(String(process.env.PROOF_KEY_B64||''),'base64');
+          const sha=String(process.env.TARGET_SHA||'').toLowerCase();
+          if(source.length!==32) throw new Error('PARALLEL_PROOF_SOURCE_KEY_INVALID');
+          if(!/^[0-9a-f]{40}$/.test(sha)) throw new Error('PARALLEL_PROOF_SHA_INVALID');
+          process.stdout.write(Buffer.from(crypto.hkdfSync(
+            'sha256',source,
+            Buffer.from('meliturgos-parallel-proof-salt-v1','utf8'),
+            Buffer.from('MEL_PARALLEL_PROOF_V1:'+sha,'utf8'),
+            32,
+          )).toString('base64url'));
+          NODE
+          )"
+          echo "::add-mask::${TOKEN}"
+
+          IDENTITY_READY=0
+          for ATTEMPT in $(seq 1 12); do
+            CODE="$(curl --silent --show-error --max-time 30 \
+              --header "x-mel-parallel-proof: ${TOKEN}" \
+              --header "content-type: application/json" \
+              --data '{"phase":"identity"}' \
+              --output identity.json --write-out '%{http_code}' \
+              "${BASE_URL}/api/internal/release-launch-bootstrap" || true)"
+            if [ "${CODE}" = "200" ]; then IDENTITY_READY=1; break; fi
+            sleep 2
+          done
+          test "${IDENTITY_READY}" = "1"
+          TARGET_SHA="${TARGET_SHA}" node - <<'NODE'
+          const d=require('./identity.json');
+          const expected=String(process.env.TARGET_SHA).toLowerCase();
+          const actual=String(d?.deployed_sha||'').toLowerCase();
+          if(d?.ok!==true||d?.status!=='RELEASE_IDENTITY_VERIFIED'||actual!==expected) {
+            throw new Error('DEPLOYED_SHA_MISMATCH:'+actual+':'+expected);
+          }
+          NODE
+
+          ROOT_CODE="$(curl --silent --show-error --location --retry 5 --retry-all-errors --retry-delay 3 --max-time 30 \
+            --output production-root.html --write-out '%{http_code}' "${BASE_URL}")"
+          case "${ROOT_CODE}" in
+            2??|3??|401) ;;
+            *) echo "Unexpected production HTTP status: ${ROOT_CODE}"; exit 22 ;;
+          esac
+          TARGET_SHA="${TARGET_SHA}" ROOT_CODE="${ROOT_CODE}" node - <<'NODE'
+          const fs=require('fs');
+          fs.writeFileSync('http-production-proof.json',JSON.stringify({
+            schema:'mel.release-downstream-http-proof/v2',
+            source_sha:String(process.env.TARGET_SHA).toLowerCase(),
+            http_status:Number(process.env.ROOT_CODE),
+            transport_ok:true,
+            exact_sha_verified:true,
+            secret_values_exposed:false,
+          },null,2));
+          NODE
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: downstream-http-proof-${{ env.TARGET_SHA }}
+          path: http-production-proof.json
+          if-no-files-found: error
+          retention-days: 14
+
+  capabilities:
+    needs: readiness
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    env:
+      TARGET_SHA: ${{ inputs.expected_sha }}
+      BASE_URL: https://meliturgos.adrien-lopezcarreras.workers.dev
+      PROOF_KEY_B64: ${{ secrets.MEL_BACKUP_ENCRYPTION_KEY_B64 }}
+    steps:
+      - name: Capture exact-SHA CapabilityBus health
+        shell: bash
+        run: |
+          set -euo pipefail
+          TOKEN="$(PROOF_KEY_B64="${PROOF_KEY_B64}" TARGET_SHA="${TARGET_SHA}" node - <<'NODE'
+          const crypto=require('crypto');
+          const source=Buffer.from(String(process.env.PROOF_KEY_B64||''),'base64');
+          const sha=String(process.env.TARGET_SHA||'').toLowerCase();
+          if(source.length!==32||!/^[0-9a-f]{40}$/.test(sha)) throw new Error('PARALLEL_PROOF_DERIVATION_INVALID');
+          process.stdout.write(Buffer.from(crypto.hkdfSync('sha256',source,Buffer.from('meliturgos-parallel-proof-salt-v1'),Buffer.from('MEL_PARALLEL_PROOF_V1:'+sha),32)).toString('base64url'));
+          NODE
+          )"
+          echo "::add-mask::${TOKEN}"
+
+          SELF_READY=0
+          for ATTEMPT in $(seq 1 12); do
+            SELF_CODE="$(curl --silent --show-error --max-time 45 \
+              --header "x-mel-release-smoke: 1" \
+              --header "x-mel-parallel-proof: ${TOKEN}" \
+              --output capability-self-check.json --write-out '%{http_code}' \
+              "${BASE_URL}/api/gen2/code/self-check" || true)"
+            if [ "${SELF_CODE}" = "200" ] && TARGET_SHA="${TARGET_SHA}" node - <<'NODE'
+          const d=require('./capability-self-check.json');
+          process.exit(d?.ok===true
+            && String(d?.deployed_sha||'').toLowerCase()===String(process.env.TARGET_SHA||'').toLowerCase()
+            ? 0 : 1);
+          NODE
+            then
+              SELF_READY=1
+              break
+            fi
+            case "${SELF_CODE}" in
+              000|401|408|409|429|500|502|503|504)
+                echo "CapabilityBus exact-SHA readiness not ready (HTTP ${SELF_CODE}); retry ${ATTEMPT}/12."
+                sleep $((ATTEMPT < 6 ? ATTEMPT : 6))
+                ;;
+              *) break ;;
+            esac
+          done
+          if [ "${SELF_READY}" != "1" ]; then
+            TARGET_SHA="${TARGET_SHA}" SELF_CODE="${SELF_CODE:-000}" node - <<'NODE'
+          const fs=require('fs');
+          let raw={};try{raw=JSON.parse(fs.readFileSync('capability-self-check.json','utf8'))}catch{}
+          fs.writeFileSync('capability-health.json',JSON.stringify({
+            schema:'mel.downstream-capability-health/v2',
+            source_sha:String(process.env.TARGET_SHA||'').toLowerCase(),
+            status:'EXACT_SHA_READINESS_FAILED',
+            http_status:Number(process.env.SELF_CODE||0),
+            response_code:String(raw?.code||raw?.error||raw?.status||'UNKNOWN').slice(0,160),
+            exact_sha_verified:false,
+            secret_values_exposed:false,
+          },null,2));
+          NODE
+            exit 31
+          fi
+
+          CAP_READY=0
+          CODE="000"
+          for ATTEMPT in $(seq 1 8); do
+            CODE="$(curl --silent --show-error --max-time 120 \
+              --header "x-mel-release-smoke: 1" \
+              --header "x-mel-parallel-proof: ${TOKEN}" \
+              --output capability-health-raw.json --write-out '%{http_code}' \
+              "${BASE_URL}/api/gen2/capabilities?refresh=1" || true)"
+            if [ "${CODE}" = "200" ]; then
+              CAP_READY=1
+              break
+            fi
+            ERROR_CODE="$(node -e 'const fs=require("fs");let d={};try{d=JSON.parse(fs.readFileSync("capability-health-raw.json","utf8"))}catch{};process.stdout.write(String(d?.code||d?.error||d?.status||"UNKNOWN").slice(0,160))')"
+            case "${CODE}" in
+              000|401|408|409|429|500|502|503|504)
+                echo "Transient CapabilityBus health status ${CODE} (${ERROR_CODE}); retry ${ATTEMPT}/8."
+                sleep $((ATTEMPT * 2))
+                ;;
+              *)
+                echo "Non-retryable CapabilityBus health status ${CODE} (${ERROR_CODE})."
+                break
+                ;;
+            esac
+          done
+
+          if [ "${CAP_READY}" != "1" ]; then
+            TARGET_SHA="${TARGET_SHA}" CODE="${CODE}" node - <<'NODE'
+          const fs=require('fs');
+          let raw={};try{raw=JSON.parse(fs.readFileSync('capability-health-raw.json','utf8'))}catch{}
+          fs.writeFileSync('capability-health.json',JSON.stringify({
+            schema:'mel.downstream-capability-health/v2',
+            source_sha:String(process.env.TARGET_SHA||'').toLowerCase(),
+            status:'CAPABILITY_HEALTH_REQUEST_FAILED',
+            http_status:Number(process.env.CODE||0),
+            response_code:String(raw?.code||raw?.error||raw?.status||'UNKNOWN').slice(0,160),
+            exact_sha_verified:true,
+            secret_values_exposed:false,
+          },null,2));
+          NODE
+            exit 32
+          fi
+
+          TARGET_SHA="${TARGET_SHA}" node - <<'NODE'
+          const fs=require('fs');
+          const d=JSON.parse(fs.readFileSync('capability-health-raw.json','utf8'));
+          const caps=Array.isArray(d?.capabilities)?d.capabilities:[];
+          if(d?.ok!==true||!caps.length) throw new Error('CAPABILITY_HEALTH_EMPTY');
+          const rows=caps.map(row=>({
+            id:String(row?.id||'').slice(0,180),
+            provider:String(row?.provider||'core').slice(0,80),
+            health:String(row?.health||'UNKNOWN').toUpperCase().slice(0,80),
+            enabled:row?.enabled!==false,
+            health_detail:String(row?.health_detail||'').slice(0,240),
+          }));
+          const by_provider={};
+          const by_health={};
+          for(const row of rows){
+            by_provider[row.provider]??={total:0,usable:0,states:{}};
+            by_provider[row.provider].total++;
+            by_provider[row.provider].states[row.health]=(by_provider[row.provider].states[row.health]||0)+1;
+            if(row.enabled&&!['UNAVAILABLE','OFFLINE','BLOCKED','DISABLED','ERROR','FAILED','FAIL','DOWN','UNHEALTHY','BROKEN'].includes(row.health))by_provider[row.provider].usable++;
+            by_health[row.health]=(by_health[row.health]||0)+1;
+          }
+          const sanitized={
+            schema:'mel.downstream-capability-health/v2',
+            source_sha:String(process.env.TARGET_SHA||'').toLowerCase(),
+            status:'CAPABILITY_HEALTH_CAPTURED',
+            exact_sha_verified:true,
+            health_refreshed:d?.health_refreshed===true,
+            total:rows.length,
+            by_health,
+            by_provider,
+            capabilities:rows,
+            secret_values_exposed:false,
+          };
+          fs.writeFileSync('capability-health.json',JSON.stringify(sanitized,null,2));
+          if((by_health.ERROR||0)+(by_health.FAILED||0)+(by_health.FAIL||0)+(by_health.DOWN||0)+(by_health.UNHEALTHY||0)+(by_health.BROKEN||0)>0){
+            throw new Error('CAPABILITY_HEALTH_HAS_FAILURES');
+          }
+          NODE
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: downstream-capability-health-${{ inputs.expected_sha }}
+          path: capability-health.json
+          if-no-files-found: error
+          retention-days: 14
+
+  skills:
+    needs: readiness
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      TARGET_SHA: ${{ inputs.expected_sha }}
+      BASE_URL: https://meliturgos.adrien-lopezcarreras.workers.dev
+      PROOF_KEY_B64: ${{ secrets.MEL_BACKUP_ENCRYPTION_KEY_B64 }}
+    steps:
+      - name: Prove exact-SHA Compétences truth surface
+        shell: bash
+        run: |
+          set -euo pipefail
+          TOKEN="$(PROOF_KEY_B64="${PROOF_KEY_B64}" TARGET_SHA="${TARGET_SHA}" node - <<'NODE'
+          const crypto=require('crypto');
+          const source=Buffer.from(String(process.env.PROOF_KEY_B64||''),'base64');
+          const sha=String(process.env.TARGET_SHA||'').toLowerCase();
+          if(source.length!==32||!/^[0-9a-f]{40}$/.test(sha)) throw new Error('PARALLEL_PROOF_DERIVATION_INVALID');
+          process.stdout.write(Buffer.from(crypto.hkdfSync('sha256',source,Buffer.from('meliturgos-parallel-proof-salt-v1'),Buffer.from('MEL_PARALLEL_PROOF_V1:'+sha),32)).toString('base64url'));
+          NODE
+          )"
+          echo "::add-mask::${TOKEN}"
+
+          SKILLS_SHA_READY=0
+          for ATTEMPT in $(seq 1 12); do
+            SHA_CODE="$(curl --silent --show-error --max-time 45 \
+              --header "x-mel-release-smoke: 1" \
+              --header "x-mel-parallel-proof: ${TOKEN}" \
+              --output skills-self-check.json --write-out '%{http_code}' \
+              "${BASE_URL}/api/gen2/code/self-check" || true)"
+            if [ "${SHA_CODE}" = "200" ] && TARGET_SHA="${TARGET_SHA}" node - <<'NODE'
+          const fs=require('fs');
+          let d={}; try{d=JSON.parse(fs.readFileSync('skills-self-check.json','utf8'))}catch{}
+          if(String(d?.deployed_sha||'').toLowerCase()!==String(process.env.TARGET_SHA||'').toLowerCase()) process.exit(1);
+          NODE
+            then
+              SKILLS_SHA_READY=1
+              break
+            fi
+            case "${SHA_CODE}" in
+              000|200|401|408|409|429|500|502|503|504)
+                echo "Compétences exact-SHA identity still propagating (HTTP ${SHA_CODE}); retry ${ATTEMPT}/12."
+                sleep $((ATTEMPT < 4 ? ATTEMPT : 4))
+                ;;
+              *)
+                echo "Non-retryable Compétences exact-SHA identity status ${SHA_CODE}."
+                exit 29
+                ;;
+            esac
+          done
+          test "${SKILLS_SHA_READY}" = "1"
+
+          SKILL_CODE="$(curl --silent --show-error --max-time 60 \
+            --header "x-mel-release-smoke: 1" \
+            --header "x-mel-parallel-proof: ${TOKEN}" \
+            --header "content-type: application/json" \
+            --data '{"id":"skill.list","input":{"active_only":true}}' \
+            --output skills-registry-raw.json --write-out '%{http_code}' \
+            "${BASE_URL}/api/gen2/capabilities/execute" || true)"
+          test "${SKILL_CODE}" = "200"
+
+          XP_CODE="$(curl --silent --show-error --max-time 60 \
+            --header "x-mel-release-smoke: 1" \
+            --header "x-mel-parallel-proof: ${TOKEN}" \
+            --output skills-learning-raw.json --write-out '%{http_code}' \
+            "${BASE_URL}/api/learning/progress" || true)"
+          test "${XP_CODE}" = "200"
+
+          TARGET_SHA="${TARGET_SHA}" node - <<'NODE'
+          const fs=require('fs');
+          const skills=require('./skills-registry-raw.json');
+          const learning=require('./skills-learning-raw.json');
+          const rows=Array.isArray(skills?.result)?skills.result:null;
+          if(!rows)throw new Error('SKILLS_REGISTRY_RESULT_INVALID');
+          const verified=rows.filter(row=>row?.state==='verified'
+            && Array.isArray(row?.evidence)
+            && row.evidence.some(e=>['verified','pass'].includes(String(e?.status||'').toLowerCase())));
+          const xp=Number(learning?.xp),level=Number(learning?.level);
+          if(learning?.ok!==true||!Number.isFinite(xp)||xp<0||!Number.isFinite(level)||level<1)throw new Error('SKILLS_LEARNING_PROGRESS_INVALID');
+          fs.writeFileSync('skills-expected.json',JSON.stringify({
+            source_sha:String(process.env.TARGET_SHA||'').toLowerCase(),
+            active_registry_count:rows.length,
+            verified_active_count:verified.length,
+            xp:Math.trunc(xp),
+            level:Math.trunc(level),
+            xp_source:String(learning?.xp_source||'').slice(0,80),
+          },null,2));
+          NODE
+
+          SESSION="skills-proof-${TARGET_SHA:0:12}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          export SESSION TOKEN TARGET_SHA
+
+          # Keep the rendered Compétences proof atomic. A split navigate/wait/read
+          # sequence can lose the in-memory Browser session between separate
+          # browser.execute calls even though the exact-SHA APIs are healthy.
+          # Replaying this read-only composite plan is safe and remains bounded.
+          SKILLS_BROWSER_READY=0
+          for ATTEMPT in $(seq 1 8); do
+            SKILLS_BODY="$(node - <<'NODE'
+          const origin='https://meliturgos.adrien-lopezcarreras.workers.dev';
+          const s=process.env.SESSION,t=process.env.TOKEN,sha=process.env.TARGET_SHA;
+          process.stdout.write(JSON.stringify({id:'browser.execute',input:{
+            session_id:s,
+            device:{id:'cloudflare-browser',capabilities:['browser.control']},
+            sandbox:{allowed_origins:[origin],max_steps:7},
+            approvals:[{approved:true,session_id:s,step_id:'headers',action:'browser.set-headers'}],
+            steps:[
+              {id:'headers',action:'browser.set-headers',headers:{'x-mel-release-smoke':'1','x-mel-parallel-proof':t}},
+              {id:'skills-page',action:'browser.navigate',url:origin+'/professor?view=skills&proof_sha='+sha},
+              {id:'skills-ready',action:'browser.wait-text',selector:'#skillsLearningState',text:'VÉRIFIÉ',timeout_ms:20000},
+              {id:'learned',action:'browser.read-text',selector:'#skillsLearned'},
+              {id:'xp',action:'browser.read-text',selector:'#skillsXp'},
+              {id:'learning-summary',action:'browser.read-text',selector:'#skillsLearningSummary'},
+              {id:'provider-summary',action:'browser.read-text',selector:'#skillsProviderSummary'}
+            ],
+          }}));
+          NODE
+          )"
+            SKILLS_BROWSER_CODE="$(curl --silent --show-error --max-time 90 \
+              --header "x-mel-release-smoke: 1" \
+              --header "x-mel-parallel-proof: ${TOKEN}" \
+              --header "content-type: application/json" \
+              --data "${SKILLS_BODY}" --output skills-browser-read.json --write-out '%{http_code}' \
+              "${BASE_URL}/api/gen2/capabilities/execute" || true)"
+            if [ "${SKILLS_BROWSER_CODE}" = "200" ] && node - <<'NODE'
+          const d=require('./skills-browser-read.json'),r=d?.result||{};
+          process.exit(d?.ok===true&&r?.ok===true&&Number(r?.steps_completed||0)===7?0:1);
+          NODE
+            then
+              SKILLS_BROWSER_READY=1
+              break
+            fi
+            if [ -s skills-browser-read.json ]; then
+              node -e 'const fs=require("fs");let d={};try{d=JSON.parse(fs.readFileSync("skills-browser-read.json","utf8"))}catch{};console.log(JSON.stringify({ok:d?.ok===true,status:d?.status||null,error:d?.error||d?.code||null,failed_step_id:d?.failed_step_id||null,steps_completed:Number(d?.result?.steps_completed||0)}))'
+            fi
+            case "${SKILLS_BROWSER_CODE}" in
+              000|400|401|403|404|408|409|429|500|502|503|504)
+                echo "Compétences atomic browser proof not ready (HTTP ${SKILLS_BROWSER_CODE}); retry ${ATTEMPT}/8."
+                sleep $((ATTEMPT * 2))
+                ;;
+              *)
+                echo "Non-retryable Compétences atomic browser proof status ${SKILLS_BROWSER_CODE}."
+                exit 31
+                ;;
+            esac
+          done
+          test "${SKILLS_BROWSER_READY}" = "1"
+
+          TARGET_SHA="${TARGET_SHA}" node - <<'NODE'
+          const fs=require('fs');
+          const expected=require('./skills-expected.json');
+          const browser=require('./skills-browser-read.json'),r=browser?.result||{};
+          const out=id=>(r.outputs||[]).find(x=>x?.step_id===id)?.output||{};
+          const text=id=>String(out(id)?.text||'').trim();
+          const learned=Number(text('learned').replace(/[^0-9-]/g,''));
+          const xp=Number(text('xp').replace(/[^0-9-]/g,''));
+          if(browser?.ok!==true||r?.ok!==true||Number(r?.steps_completed||0)!==7)throw new Error('SKILLS_BROWSER_READ_INCOMPLETE');
+          if(!Number.isFinite(learned)||learned!==expected.verified_active_count)throw new Error('SKILLS_LEARNED_COUNT_MISMATCH');
+          if(!Number.isFinite(xp)||xp!==expected.xp)throw new Error('SKILLS_XP_MISMATCH');
+          if(!text('learning-summary'))throw new Error('SKILLS_LEARNING_SUMMARY_EMPTY');
+          if(!text('provider-summary')||/Vérification des fournisseurs/i.test(text('provider-summary')))throw new Error('SKILLS_PROVIDER_SUMMARY_NOT_READY');
+          fs.writeFileSync('skills-control-center-production-proof.json',JSON.stringify({
+            schema:'mel.skills-control-center-production-proof/v1',
+            source_sha:String(process.env.TARGET_SHA||'').toLowerCase(),
+            exact_sha_verified:true,
+            capability_bus_live:true,
+            skill_registry_live:true,
+            learning_progress_live:true,
+            browser_rendered:true,
+            verified_active_count:expected.verified_active_count,
+            xp:expected.xp,
+            level:expected.level,
+            xp_source:expected.xp_source,
+            secret_values_exposed:false,
+          },null,2));
+          NODE
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: downstream-skills-control-center-${{ inputs.expected_sha }}
+          path: skills-control-center-production-proof.json
+          if-no-files-found: error
+          retention-days: 30
+
+  browser:
+    needs: readiness
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    env:
+      PROOF_KEY_B64: ${{ secrets.MEL_BACKUP_ENCRYPTION_KEY_B64 }}
+    steps:
+      - name: Prove exact deployed SHA and real browser.execute
+        shell: bash
+        run: |
+          set -euo pipefail
+          TOKEN="$(PROOF_KEY_B64="${PROOF_KEY_B64}" TARGET_SHA="${TARGET_SHA}" node - <<'NODE'
+          const crypto=require('crypto');
+          const source=Buffer.from(String(process.env.PROOF_KEY_B64||''),'base64');
+          const sha=String(process.env.TARGET_SHA||'').toLowerCase();
+          if(source.length!==32||!/^[0-9a-f]{40}$/.test(sha)) throw new Error('PARALLEL_PROOF_DERIVATION_INVALID');
+          process.stdout.write(Buffer.from(crypto.hkdfSync('sha256',source,Buffer.from('meliturgos-parallel-proof-salt-v1'),Buffer.from('MEL_PARALLEL_PROOF_V1:'+sha),32)).toString('base64url'));
+          NODE
+          )"
+          echo "::add-mask::${TOKEN}"
+          SHA_READY=0
+          for ATTEMPT in $(seq 1 12); do
+            CODE="$(curl --silent --show-error --max-time 45 \
+              --header "x-mel-release-smoke: 1" \
+              --header "x-mel-parallel-proof: ${TOKEN}" \
+              --output sha-status.json --write-out '%{http_code}' \
+              "${BASE_URL}/api/gen2/code/self-check" || true)"
+            if [ "${CODE}" = "200" ] && TARGET_SHA="${TARGET_SHA}" node - <<'NODE'
+          const fs=require('fs');
+          let d={}; try{d=JSON.parse(fs.readFileSync('sha-status.json','utf8'))}catch{}
+          const actual=String(d?.deployed_sha||d?.sha||'').toLowerCase();
+          process.exit(actual===String(process.env.TARGET_SHA||'').toLowerCase()?0:1);
+          NODE
+            then
+              SHA_READY=1
+              break
+            fi
+            case "${CODE}" in
+              000|200|401|408|409|429|500|502|503|504)
+                echo "Exact-SHA identity still propagating (HTTP ${CODE}); retry ${ATTEMPT}/12."
+                sleep $((ATTEMPT < 4 ? ATTEMPT : 4))
+                ;;
+              *)
+                echo "Non-retryable exact-SHA identity status ${CODE}."
+                exit 29
+                ;;
+            esac
+          done
+          test "${SHA_READY}" = "1"
+
+          SESSION="decoupled-browser-${TARGET_SHA:0:12}"
+          export SESSION
+          BODY="$(node -e 'process.stdout.write(JSON.stringify({id:"browser.execute",input:{session_id:process.env.SESSION,device:{id:"cloudflare-browser",capabilities:["browser.control"]},sandbox:{allowed_origins:["https://meliturgos.adrien-lopezcarreras.workers.dev"],max_steps:2},approvals:[],steps:[{id:"navigate",action:"browser.navigate",url:"https://meliturgos.adrien-lopezcarreras.workers.dev/about"},{id:"read",action:"browser.read-text",selector:"body"}]}}))')"
+          BROWSER_READY=0
+          for ATTEMPT in $(seq 1 6); do
+            CODE="$(curl --silent --show-error --max-time 90 \
+              --header "x-mel-release-smoke: 1" \
+              --header "x-mel-parallel-proof: ${TOKEN}" \
+              --header "content-type: application/json" \
+              --data "${BODY}" \
+              --output browser-proof.json --write-out '%{http_code}' \
+              "${BASE_URL}/api/gen2/capabilities/execute" || true)"
+            if [ "${CODE}" = "200" ]; then BROWSER_READY=1; break; fi
+            case "${CODE}" in
+              408|409|429|500|502|503|504)
+                echo "Transient browser.execute proof status ${CODE}; retry ${ATTEMPT}/6."
+                sleep $((ATTEMPT * 2))
+                ;;
+              *)
+                echo "Non-retryable browser.execute proof status ${CODE}."
+                if [ -s browser-proof.json ]; then
+                  node -e 'const fs=require("fs");let d={};try{d=JSON.parse(fs.readFileSync("browser-proof.json","utf8"))}catch{};console.log(JSON.stringify({ok:d?.ok===true,error:d?.error||d?.code||d?.status||"UNKNOWN"}))'
+                fi
+                exit 30
+                ;;
+            esac
+          done
+          test "${BROWSER_READY}" = "1"
+          TARGET_SHA="${TARGET_SHA}" node - <<'NODE'
+          const fs=require('fs'),d=require('./browser-proof.json'),r=d?.result||{};
+          if(d?.ok!==true||d?.capability!=='browser.execute'||r?.ok!==true||Number(r?.steps_completed||0)!==2) throw new Error('BROWSER_PROOF_FAILED');
+          const read=(r.outputs||[]).find(x=>x?.step_id==='read')?.output;
+          if(read?.kind!=='text'||!String(read?.text||'').includes('Assistant personnel connecté')) throw new Error('BROWSER_TEXT_MISSING');
+          fs.writeFileSync('browser-production-proof.json',JSON.stringify({
+            schema:'mel.decoupled-browser-proof/v2',
+            source_sha:String(process.env.TARGET_SHA).toLowerCase(),
+            exact_sha_verified:true,browser_execute:true,secret_values_exposed:false,
+          },null,2));
+          NODE
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: downstream-browser-proof-${{ env.TARGET_SHA }}
+          path: browser-production-proof.json
+          if-no-files-found: error
+          retention-days: 14
+
+  file:
+    needs: readiness
+    runs-on: ubuntu-24.04
+    # The autonomy launch proof can legitimately spend most of its bounded
+    # 20-minute ShardVault window. Keep MEL-FILE decoupled and patient enough
+    # to wait for exact-SHA readiness before applying browser pressure.
+    timeout-minutes: 45
+    env:
+      PROOF_KEY_B64: ${{ secrets.MEL_BACKUP_ENCRYPTION_KEY_B64 }}
+    steps:
+      - name: Prove exact deployed SHA and MEL-FILE-01 in real production browser
+        shell: bash
+        run: |
+          set -euo pipefail
+          TOKEN="$(PROOF_KEY_B64="${PROOF_KEY_B64}" TARGET_SHA="${TARGET_SHA}" node - <<'NODE'
+          const crypto=require('crypto');
+          const source=Buffer.from(String(process.env.PROOF_KEY_B64||''),'base64');
+          const sha=String(process.env.TARGET_SHA||'').toLowerCase();
+          if(source.length!==32||!/^[0-9a-f]{40}$/.test(sha)) throw new Error('PARALLEL_PROOF_DERIVATION_INVALID');
+          process.stdout.write(Buffer.from(crypto.hkdfSync('sha256',source,Buffer.from('meliturgos-parallel-proof-salt-v1'),Buffer.from('MEL_PARALLEL_PROOF_V1:'+sha),32)).toString('base64url'));
+          NODE
+          )"
+          echo "::add-mask::${TOKEN}"
+          SHA_READY=0
+          for ATTEMPT in $(seq 1 12); do
+            CODE="$(curl --silent --show-error --max-time 45 \
+              --header "x-mel-release-smoke: 1" \
+              --header "x-mel-parallel-proof: ${TOKEN}" \
+              --output sha-status.json --write-out '%{http_code}' \
+              "${BASE_URL}/api/gen2/code/self-check" || true)"
+            if [ "${CODE}" = "200" ] && TARGET_SHA="${TARGET_SHA}" node - <<'NODE'
+          const fs=require('fs');
+          let d={}; try{d=JSON.parse(fs.readFileSync('sha-status.json','utf8'))}catch{}
+          const actual=String(d?.deployed_sha||d?.sha||'').toLowerCase();
+          process.exit(actual===String(process.env.TARGET_SHA||'').toLowerCase()?0:1);
+          NODE
+            then
+              SHA_READY=1
+              break
+            fi
+            case "${CODE}" in
+              000|200|401|408|409|429|500|502|503|504)
+                echo "Exact-SHA identity still propagating (HTTP ${CODE}); retry ${ATTEMPT}/12."
+                sleep $((ATTEMPT < 4 ? ATTEMPT : 4))
+                ;;
+              *)
+                echo "Non-retryable exact-SHA identity status ${CODE}."
+                exit 29
+                ;;
+            esac
+          done
+          test "${SHA_READY}" = "1"
+
+          RELEASE_READY=0
+          for ATTEMPT in $(seq 1 180); do
+            READY_CODE="$(curl --silent --show-error --max-time 30 \
+              --output launch-readiness.json --write-out '%{http_code}' \
+              "${BASE_URL}/api/teacher/launch-readiness" || true)"
+            if [ "${READY_CODE}" = "200" ] && TARGET_SHA="${TARGET_SHA}" node - <<'NODE'
+          const d=require('./launch-readiness.json');
+          const expected=String(process.env.TARGET_SHA||'').toLowerCase();
+          const actual=String(d?.candidate_sha||'').toLowerCase();
+          process.exit(d?.launch_ready===true && d?.status==='GO_FOR_SUPERVISED_AUTONOMY' && actual===expected ? 0 : 1);
+          NODE
+            then
+              RELEASE_READY=1
+              break
+            fi
+            if (( ATTEMPT % 3 == 0 )); then
+              CURRENT_SHA_CODE="$(curl --silent --show-error --max-time 20 \
+                --header "x-mel-release-smoke: 1" \
+                --header "x-mel-parallel-proof: ${TOKEN}" \
+                --output mel-file-current-sha.json --write-out '%{http_code}' \
+                "${BASE_URL}/api/gen2/code/self-check" || true)"
+              if [ "${CURRENT_SHA_CODE}" = "200" ] && ! TARGET_SHA="${TARGET_SHA}" node - <<'NODE'
+          const fs=require('fs');let d={};try{d=JSON.parse(fs.readFileSync('mel-file-current-sha.json','utf8'))}catch{}
+          const actual=String(d?.deployed_sha||d?.sha||'').toLowerCase();
+          process.exit(actual===String(process.env.TARGET_SHA||'').toLowerCase()?0:1);
+          NODE
+              then
+                echo "MEL-FILE target SHA is no longer deployed; stopping obsolete downstream proof."
+                exit 42
+              fi
+            fi
+            echo "MEL-FILE proof waiting for exact-SHA release readiness; attempt ${ATTEMPT}/180."
+            sleep 5
+          done
+          test "${RELEASE_READY}" = "1"
+
+          # Prove the parallel exact-SHA upload contract directly before the UI
+          # path so an auth/payload/storage rejection is distinguishable from a
+          # browser event-binding failure.
+          printf 'MEL_FILE_NORMAL_PROOF_%s' "${TARGET_SHA}" > mel-file-preflight.txt
+          PREFLIGHT_CODE="$(curl --silent --show-error --max-time 60 \
+            --header "x-mel-release-smoke: 1" \
+            --header "x-mel-parallel-proof: ${TOKEN}" \
+            --form "file=@mel-file-preflight.txt;type=text/plain;filename=mel-file-normal-proof.txt" \
+            --output mel-file-preflight.json --write-out '%{http_code}' \
+            "${BASE_URL}/api/files/upload" || true)"
+          if [ "${PREFLIGHT_CODE}" != "200" ]; then
+            echo "MEL-FILE exact-SHA API preflight failed with HTTP ${PREFLIGHT_CODE}."
+            node -e 'const fs=require("fs");let d={};try{d=JSON.parse(fs.readFileSync("mel-file-preflight.json","utf8"))}catch{};console.log(JSON.stringify({code:d?.code||d?.error||"UNKNOWN",stored:d?.stored===true}))'
+            exit 32
+          fi
+          node - <<'NODE'
+          const d=require('./mel-file-preflight.json');
+          if(d?.ok!==true||d?.stored!==true)throw new Error('MEL_FILE_PARALLEL_API_PREFLIGHT_FAILED');
+          NODE
+
+          # Mirror the browser shape proven by canonical release #600:
+          # stable session across retries, exact production URLs, and the full
+          # upload+DOM wait sequence inside one browser.execute.
+          SESSION="decoupled-file-${TARGET_SHA:0:12}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          export TOKEN SESSION TARGET_SHA
+          FILE_READY=0
+          for ATTEMPT in $(seq 1 12); do
+            FILE_BODY="$(node - <<'NODE'
+          const origin='https://meliturgos.adrien-lopezcarreras.workers.dev';
+          const s=process.env.SESSION,t=process.env.TOKEN,sha=process.env.TARGET_SHA;
+          const approvals=[
+            {approved:true,session_id:s,step_id:'headers',action:'browser.set-headers'},
+            {approved:true,session_id:s,step_id:'upload-normal',action:'browser.upload-file'},
+            {approved:true,session_id:s,step_id:'upload-full',action:'browser.upload-file'},
+          ];
+          const steps=[
+            {id:'headers',action:'browser.set-headers',headers:{'x-mel-release-smoke':'1','x-mel-parallel-proof':t}},
+            {id:'normal',action:'browser.navigate',url:origin+'/'},
+            {id:'upload-normal',action:'browser.upload-file',selector:'#fileInput',file_name:'mel-file-normal-proof.txt',mime_type:'text/plain',file_text:'MEL_FILE_NORMAL_PROOF_'+sha},
+            {id:'wait-normal',action:'browser.wait-text',selector:'#attachments',text:'mel-file-normal-proof.txt',timeout_ms:60000},
+            {id:'full',action:'browser.navigate',url:origin+'/professor'},
+            {id:'upload-full',action:'browser.upload-file',selector:'#chatFileInput',file_name:'mel-file-full-proof.txt',mime_type:'text/plain',file_text:'MEL_FILE_FULL_PROOF_'+sha},
+            {id:'wait-full',action:'browser.wait-text',selector:'#chatAttachments',text:'mel-file-full-proof.txt',timeout_ms:60000},
+          ];
+          process.stdout.write(JSON.stringify({id:'browser.execute',input:{
+            session_id:s,
+            device:{id:'cloudflare-browser',capabilities:['browser.control']},
+            sandbox:{allowed_origins:[origin],max_steps:7},
+            approvals,
+            steps,
+          }}));
+          NODE
+          )"
+            FILE_CODE="$(curl --silent --show-error --max-time 180 \
+              --header "x-mel-release-smoke: 1" \
+              --header "x-mel-parallel-proof: ${TOKEN}" \
+              --header "content-type: application/json" \
+              --data "${FILE_BODY}" --output file-browser-proof.json --write-out '%{http_code}' \
+              "${BASE_URL}/api/gen2/capabilities/execute" || true)"
+
+            if [ "${FILE_CODE}" = "200" ] && node - <<'NODE'
+          const fs=require('fs');
+          const d=JSON.parse(fs.readFileSync('file-browser-proof.json','utf8'));
+          const r=d?.result||{};
+          const out=id=>(r.outputs||[]).find(x=>x?.step_id===id)?.output||{};
+          const ok=d?.ok===true
+            && r?.ok===true
+            && Number(r?.steps_completed||0)===7
+            && out('upload-normal')?.kind==='upload'
+            && out('upload-normal')?.file_name==='mel-file-normal-proof.txt'
+            && out('wait-normal')?.kind==='wait'
+            && out('wait-normal')?.matched===true
+            && out('upload-full')?.kind==='upload'
+            && out('upload-full')?.file_name==='mel-file-full-proof.txt'
+            && out('wait-full')?.kind==='wait'
+            && out('wait-full')?.matched===true;
+          process.exit(ok?0:1);
+          NODE
+            then
+              FILE_READY=1
+              break
+            fi
+
+            if [ -s file-browser-proof.json ]; then
+              node -e 'const fs=require("fs");let d={};try{d=JSON.parse(fs.readFileSync("file-browser-proof.json","utf8"))}catch{};console.log(JSON.stringify({ok:d?.ok===true,error:d?.error||d?.code||d?.status||"UNKNOWN",failed_step_id:d?.failed_step_id||null,steps_completed:Number(d?.result?.steps_completed||0)}))'
+            fi
+
+            # Best-effort same-session UI diagnostic. This never satisfies the
+            # proof; it only reveals whether the page reports upload/auth error.
+            DIAG_BODY="$(node - <<'NODE'
+          const origin='https://meliturgos.adrien-lopezcarreras.workers.dev';
+          const s=process.env.SESSION,t=process.env.TOKEN;
+          const steps=[
+            {id:'diag-headers',action:'browser.set-headers',headers:{'x-mel-release-smoke':'1','x-mel-parallel-proof':t}},
+            {id:'diag-status',action:'browser.read-text',selector:'#status'},
+            {id:'diag-attachments',action:'browser.read-text',selector:'#attachments'},
+          ];
+          process.stdout.write(JSON.stringify({id:'browser.execute',input:{
+            session_id:s,
+            device:{id:'cloudflare-browser',capabilities:['browser.control']},
+            sandbox:{allowed_origins:[origin],max_steps:steps.length},
+            approvals:[{approved:true,session_id:s,step_id:'diag-headers',action:'browser.set-headers'}],
+            steps,
+          }}));
+          NODE
+          )"
+            curl --silent --show-error --max-time 30 \
+              --header "x-mel-release-smoke: 1" \
+              --header "x-mel-parallel-proof: ${TOKEN}" \
+              --header "content-type: application/json" \
+              --data "${DIAG_BODY}" \
+              --output mel-file-ui-diagnostic.json \
+              "${BASE_URL}/api/gen2/capabilities/execute" || true
+            node - <<'NODE' || true
+          const fs=require('fs');let d={};try{d=JSON.parse(fs.readFileSync('mel-file-ui-diagnostic.json','utf8'))}catch{}
+          const out=id=>(d?.result?.outputs||[]).find(x=>x?.step_id===id)?.output||{};
+          console.log(JSON.stringify({ui_status:String(out('diag-status')?.text||'').slice(0,240),attachments:String(out('diag-attachments')?.text||'').slice(0,240)}));
+          NODE
+
+            case "${FILE_CODE}" in
+              000|200|408|409|429|500|502|503|504)
+                echo "Transient MEL-FILE canonical-shape proof status ${FILE_CODE}; retry ${ATTEMPT}/12 in the stable browser session."
+                sleep $((ATTEMPT * 2))
+                ;;
+              *)
+                echo "Non-retryable MEL-FILE canonical-shape proof status ${FILE_CODE}."
+                exit 31
+                ;;
+            esac
+          done
+          test "${FILE_READY}" = "1"
+
+          TARGET_SHA="${TARGET_SHA}" node - <<'NODE'
+          const fs=require('fs');
+          const d=require('./file-browser-proof.json');
+          const r=d?.result||{};
+          const out=id=>(r.outputs||[]).find(x=>x?.step_id===id)?.output||{};
+          if(d?.ok!==true||r?.ok!==true||Number(r?.steps_completed||0)!==7)throw new Error('MEL_FILE_BROWSER_EXECUTION_INCOMPLETE');
+          if(out('upload-normal')?.kind!=='upload'||out('wait-normal')?.matched!==true)throw new Error('MEL_FILE_NORMAL_STAGE_FAILED');
+          if(out('upload-full')?.kind!=='upload'||out('wait-full')?.matched!==true)throw new Error('MEL_FILE_FULL_STAGE_FAILED');
+          fs.writeFileSync('mel-file-browser-production-proof.json',JSON.stringify({
+            schema:'mel.file-browser-production-proof/v4',
+            source_sha:String(process.env.TARGET_SHA||'').toLowerCase(),
+            exact_sha_verified:true,
+            monolithic_browser_session:true,
+            canonical_page_shape:true,
+            stable_session_across_retries:true,
+            normal:{upload:true,staged:true},
+            full:{upload:true,staged:true},
+            browser_execute:true,
+            secret_values_exposed:false,
+          },null,2));
+          NODE
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: downstream-file-proof-${{ env.TARGET_SHA }}
+          path: mel-file-browser-production-proof.json
+          if-no-files-found: error
+          retention-days: 14
+
+  sovereignty:
+    needs: readiness
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      PROOF_KEY_B64: ${{ secrets.MEL_BACKUP_ENCRYPTION_KEY_B64 }}
+      GITHUB_TOKEN: ${{ github.token }}
+    steps:
+      - name: Capture exact-SHA sovereignty status and prove MEL-SOV-01
+        shell: bash
+        run: |
+          set -euo pipefail
+          TOKEN="$(PROOF_KEY_B64="${PROOF_KEY_B64}" TARGET_SHA="${TARGET_SHA}" node - <<'NODE'
+          const crypto=require('crypto');
+          const source=Buffer.from(String(process.env.PROOF_KEY_B64||''),'base64');
+          const sha=String(process.env.TARGET_SHA||'').toLowerCase();
+          if(source.length!==32||!/^[0-9a-f]{40}$/.test(sha)) throw new Error('PARALLEL_PROOF_DERIVATION_INVALID');
+          process.stdout.write(Buffer.from(crypto.hkdfSync('sha256',source,Buffer.from('meliturgos-parallel-proof-salt-v1'),Buffer.from('MEL_PARALLEL_PROOF_V1:'+sha),32)).toString('base64url'));
+          NODE
+          )"
+          echo "::add-mask::${TOKEN}"
+
+          SHA_READY=0
+          for ATTEMPT in $(seq 1 12); do
+            SHA_CODE="$(curl --silent --show-error --max-time 45 \
+              --header "x-mel-release-smoke: 1" \
+              --header "x-mel-parallel-proof: ${TOKEN}" \
+              --output sovereignty-sha-status.json --write-out '%{http_code}' \
+              "${BASE_URL}/api/gen2/code/self-check" || true)"
+            if [ "${SHA_CODE}" = "200" ] && TARGET_SHA="${TARGET_SHA}" node - <<'NODE'
+          const fs=require('fs');
+          let d={}; try{d=JSON.parse(fs.readFileSync('sovereignty-sha-status.json','utf8'))}catch{}
+          const actual=String(d?.deployed_sha||d?.sha||'').toLowerCase();
+          process.exit(actual===String(process.env.TARGET_SHA||'').toLowerCase()?0:1);
+          NODE
+            then
+              SHA_READY=1
+              break
+            fi
+            case "${SHA_CODE}" in
+              000|200|401|408|409|429|500|502|503|504)
+                echo "Exact-SHA SOV identity still propagating (HTTP ${SHA_CODE}); retry ${ATTEMPT}/12."
+                sleep $((ATTEMPT < 4 ? ATTEMPT : 4))
+                ;;
+              *)
+                echo "Non-retryable SOV identity status ${SHA_CODE}."
+                exit 29
+                ;;
+            esac
+          done
+          test "${SHA_READY}" = "1"
+
+          # The release dispatches this downstream proof before ShardVault/autonomy
+          # finalization. Since deploy-cloudflare-release now includes post-release
+          # health jobs, the workflow itself may legitimately end red after the exact
+          # Worker deployment succeeded (for example, a disconnected optional/owner
+          # integration). Sovereignty must therefore wait for the exact-SHA *deploy
+          # job*, not for the aggregate workflow conclusion.
+          RELEASE_DEPLOY_SUCCESS=0
+          for ATTEMPT in $(seq 1 90); do
+            RELEASE_API_CODE="$(curl --silent --show-error --max-time 15 \
+              --header "Accept: application/vnd.github+json" \
+              --header "Authorization: Bearer ${GITHUB_TOKEN}" \
+              --header "X-GitHub-Api-Version: 2022-11-28" \
+              --output sovereignty-release-runs.json --write-out '%{http_code}' \
+              "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/deploy-cloudflare-release.yml/runs?head_sha=${TARGET_SHA}&per_page=10" || true)"
+            RELEASE_RUN_ID=""
+            RELEASE_RUN_NUMBER="0"
+            RELEASE_WORKFLOW_STATE="unknown"
+            if [ "${RELEASE_API_CODE}" = "200" ]; then
+              RELEASE_META="$(TARGET_SHA="${TARGET_SHA}" node -e 'const fs=require("fs");let d={};try{d=JSON.parse(fs.readFileSync("sovereignty-release-runs.json","utf8"))}catch{};const expected=String(process.env.TARGET_SHA||"").toLowerCase();const runs=(Array.isArray(d?.workflow_runs)?d.workflow_runs:[]).filter(run=>String(run?.head_sha||"").toLowerCase()===expected).sort((a,b)=>Number(a?.run_number||0)-Number(b?.run_number||0));const latest=runs.at(-1)||{};process.stdout.write([String(latest?.id||""),String(Number(latest?.run_number||0)),String(latest?.status||"")+":"+String(latest?.conclusion||"")].join(" "))')"
+              IFS=' ' read -r RELEASE_RUN_ID RELEASE_RUN_NUMBER RELEASE_WORKFLOW_STATE <<< "${RELEASE_META}"
+            fi
+
+            DEPLOY_JOB_STATE="unknown"
+            if [ -n "${RELEASE_RUN_ID}" ]; then
+              JOBS_CODE="$(curl --silent --show-error --max-time 15 \
+                --header "Accept: application/vnd.github+json" \
+                --header "Authorization: Bearer ${GITHUB_TOKEN}" \
+                --header "X-GitHub-Api-Version: 2022-11-28" \
+                --output sovereignty-release-jobs.json --write-out '%{http_code}' \
+                "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/runs/${RELEASE_RUN_ID}/jobs?per_page=100" || true)"
+              if [ "${JOBS_CODE}" = "200" ]; then
+                DEPLOY_JOB_STATE="$(node - <<'NODE'
+          const fs=require('fs');
+          let d={};try{d=JSON.parse(fs.readFileSync('sovereignty-release-jobs.json','utf8'))}catch{}
+          const deploy=(Array.isArray(d?.jobs)?d.jobs:[]).find(job=>String(job?.name||'')==='deploy')||{};
+          process.stdout.write(String(deploy?.status||'')+':'+String(deploy?.conclusion||''));
+          NODE
+                )"
+                case "${DEPLOY_JOB_STATE}" in
+                  completed:success)
+                    RELEASE_DEPLOY_SUCCESS=1
+                    break
+                    ;;
+                  completed:failure)
+                    echo "Canonical exact-SHA deploy job failed; stopping downstream SOV proof."
+                    exit 41
+                    ;;
+                  completed:cancelled)
+                    # If a later release exists, this exact-SHA proof became obsolete.
+                    NEWER_RELEASE_CODE="$(curl --silent --show-error --max-time 15 \
+                      --header "Accept: application/vnd.github+json" \
+                      --header "Authorization: Bearer ${GITHUB_TOKEN}" \
+                      --header "X-GitHub-Api-Version: 2022-11-28" \
+                      --output sovereignty-newer-release-runs.json --write-out '%{http_code}' \
+                      "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/deploy-cloudflare-release.yml/runs?per_page=20" || true)"
+                    if [ "${NEWER_RELEASE_CODE}" = "200" ] && RELEASE_RUN_NUMBER="${RELEASE_RUN_NUMBER}" TARGET_SHA="${TARGET_SHA}" node - <<'NODE'
+          const fs=require('fs');
+          const targetNumber=Number(process.env.RELEASE_RUN_NUMBER||0);
+          const expected=String(process.env.TARGET_SHA||'').toLowerCase();
+          const d=JSON.parse(fs.readFileSync('sovereignty-newer-release-runs.json','utf8'));
+          const newer=(Array.isArray(d?.workflow_runs)?d.workflow_runs:[])
+            .some(run=>Number(run?.run_number||0)>targetNumber
+              && String(run?.head_sha||'').toLowerCase()!==expected);
+          process.exit(targetNumber>0&&newer?0:1);
+          NODE
+                    then
+                      TARGET_SHA="${TARGET_SHA}" node - <<'NODE'
+          const fs=require('fs');
+          fs.writeFileSync('sovereignty-production-status.json',JSON.stringify({
+            schema:'mel.decoupled-sovereignty-status/v5',
+            source_sha:String(process.env.TARGET_SHA||'').toLowerCase(),
+            status:'SUPERSEDED_BY_NEW_RELEASE',
+            exact_sha_was_deployed:false,
+            sovereignty_regression:false,
+            secret_values_exposed:false,
+          },null,2));
+          NODE
+                      echo "Exact-SHA deploy was superseded before completion; downstream SOV proof is obsolete."
+                      exit 0
+                    fi
+                    echo "Canonical exact-SHA deploy job was cancelled without a newer release; stopping downstream SOV proof."
+                    exit 41
+                    ;;
+                esac
+              fi
+            fi
+            echo "SOV proof waiting for canonical exact-SHA deploy job success; attempt ${ATTEMPT}/90 (runs_api=${RELEASE_API_CODE:-000}, workflow=${RELEASE_WORKFLOW_STATE}, deploy=${DEPLOY_JOB_STATE})."
+            sleep 10
+          done
+          test "${RELEASE_DEPLOY_SUCCESS}" = "1"
+
+          # Fast path after canonical exact-SHA release success: if the final exact-SHA
+          # sovereignty proof is already complete, do not re-run the expensive
+          # provider prevalidations in this decoupled workflow.
+          FAST_SOV_CODE="$(curl --silent --show-error --max-time 20 \
+            --header "x-mel-parallel-proof: ${TOKEN}" \
+            --header "content-type: application/json" \
+            --data '{"phase":"sovereignty-proof"}' \
+            --output mel-sov-fast.json --write-out '%{http_code}' \
+            "${BASE_URL}/api/internal/release-launch-bootstrap" || true)"
+          if [ "${FAST_SOV_CODE}" = "200" ] && TARGET_SHA="${TARGET_SHA}" node - <<'NODE'
+          const d=require('./mel-sov-fast.json');
+          const expected=String(process.env.TARGET_SHA||'').toLowerCase();
+          process.exit(
+            d?.ok===true
+            && d?.status==='MEL_SOV_01_DONE_VERIFIED_ELIGIBLE'
+            && d?.done_verified_eligible===true
+            && String(d?.deployed_sha||'').toLowerCase()===expected
+            && d?.secret_values_exposed===false
+            && d?.autonomy_started===false
+          ? 0 : 1);
+          NODE
+          then
+            TARGET_SHA="${TARGET_SHA}" FAST_SOV_CODE="${FAST_SOV_CODE}" node - <<'NODE'
+          const fs=require('fs');
+          const d=require('./mel-sov-fast.json');
+          const expected=String(process.env.TARGET_SHA||'').toLowerCase();
+          fs.writeFileSync('mel-sov-01-production-proof.json',JSON.stringify({
+            schema:'mel.sov-01-decoupled-production-proof/v2',
+            source_sha:expected,
+            http_status:Number(process.env.FAST_SOV_CODE||200),
+            ok:true,
+            status:d.status,
+            done_verified_eligible:true,
+            ready_layer_count:Number(d?.ready_layer_count||0),
+            layer_count:Number(d?.layer_count||0),
+            registry_count:Number(d?.registry_count||0),
+            ai_low_refusal_ready:d?.ai_low_refusal_ready===true,
+            autonomy_started:false,
+            owner_launch_required:d?.owner_launch_required===true,
+            exact_sha_verified:true,
+            exact_sha_fast_path:true,
+            secret_values_exposed:false,
+          },null,2));
+          fs.writeFileSync('sovereignty-production-status.json',JSON.stringify({
+            schema:'mel.decoupled-sovereignty-status/v4',
+            source_sha:expected,
+            fully_sovereign:d?.architecture_fully_sovereign===true,
+            covered_layers:d?.covered_layers||[],
+            uncovered_layers:d?.uncovered_layers||[],
+            ready_layer_count:Number(d?.ready_layer_count||0),
+            layer_count:Number(d?.layer_count||0),
+            registry_count:Number(d?.registry_count||0),
+            exact_sha_verified:true,
+            exact_sha_fast_path:true,
+            secret_values_exposed:false,
+          },null,2));
+          NODE
+            echo "Decoupled SOV fast path: exact-SHA final proof already valid."
+            exit 0
+          fi
+
+          layer_covered() {
+            local LAYER="$1"
+            LAYER="${LAYER}" node - <<'NODE'
+          const fs=require('fs');
+          let d={};
+          try{d=JSON.parse(fs.readFileSync('mel-sov-fast.json','utf8'))}catch{}
+          const layer=String(process.env.LAYER||'');
+          const covered=new Set(Array.isArray(d?.covered_layers)?d.covered_layers:[]);
+          const row=d?.layers?.[layer];
+          process.exit(covered.has(layer)||row?.ready===true?0:1);
+          NODE
+          }
+
+          mark_refresh_skipped() {
+            local TARGET="$1"
+            local STEP="${2:-}"
+            local LAYER="${3:-$TARGET}"
+            local KEY="$TARGET"
+            if [ -n "$STEP" ]; then KEY="$TARGET-$STEP"; fi
+            TARGET="$TARGET" STEP="$STEP" LAYER="$LAYER" KEY="$KEY" node - <<'NODE'
+          const fs=require('fs');
+          const target=process.env.TARGET,step=process.env.STEP||null,layer=process.env.LAYER;
+          const out={
+            ok:true,status:'MEL_SOV_01_REFRESH_STEP_VERIFIED',
+            refresh_target:target,refresh_step:step,
+            refresh:{ok:true,skipped:true,status:'ALREADY_COVERED',layer,processed:0,prevalidated:0,blocked:0},
+            secret_values_exposed:false,autonomy_started:false
+          };
+          fs.writeFileSync('sovereignty-refresh-'+process.env.KEY+'.json',JSON.stringify(out,null,2));
+          NODE
+            echo "Decoupled SOV skip: ${LAYER} already covered."
+          }
+
+          # Populate every bounded sovereignty prevalidation domain before reading
+          # the final 10-layer registry. Each refresh is isolated in its own
+          # Worker request to preserve the CPU-splitting invariant from MEL-SOV-01.
+          refresh_sov_target() {
+            local TARGET="$1"
+            local STEP="${2:-}"
+            local KEY="${TARGET}"
+            local QUERY="refresh=${TARGET}"
+            if [ -n "${STEP}" ]; then
+              KEY="${TARGET}-${STEP}"
+              QUERY="${QUERY}&step=${STEP}"
+            fi
+            local REFRESH_CODE="000"
+            local REFRESH_READY=0
+            local MAX_ATTEMPTS=4
+            if [ "${TARGET}" = "ai_local" ]; then
+              MAX_ATTEMPTS=8
+            fi
+            for ATTEMPT in $(seq 1 "${MAX_ATTEMPTS}"); do
+              REFRESH_CODE="$(curl --silent --show-error --max-time 55 \
+                --header "x-mel-parallel-proof: ${TOKEN}" \
+                --header "content-type: application/json" \
+                --data '{"phase":"sovereignty-proof"}' \
+                --output "sovereignty-refresh-${KEY}.json" --write-out '%{http_code}' \
+                "${BASE_URL}/api/internal/release-launch-bootstrap?${QUERY}" || true)"
+              if [ "${REFRESH_CODE}" = "200" ]; then
+                REFRESH_READY=1
+                break
+              fi
+              REFRESH_ERROR="$(KEY="${KEY}" node -e 'const fs=require("fs");let d={};try{d=JSON.parse(fs.readFileSync("sovereignty-refresh-"+process.env.KEY+".json","utf8"))}catch{};process.stdout.write(String(d?.refresh?.reason||d?.code||d?.error||d?.status||"UNKNOWN").slice(0,160))')"
+              if [ "${REFRESH_CODE}" = "401" ] && [ "${REFRESH_ERROR}" = "BOOTSTRAP_AUTH_REQUIRED" ]; then
+                echo "Decoupled SOV proof auth is still propagating for ${KEY}; retry ${ATTEMPT}/4."
+                sleep 2
+                continue
+              fi
+              case "${REFRESH_ERROR}" in
+                COMPANION_ENGINE_UPDATE_REQUIRED:*|SOVEREIGNTY_AI_LOCAL_BOOTSTRAP_FAILED:COMPANION_ENGINE_UPDATE_REQUIRED:*)
+                  if [ "${ATTEMPT}" -lt "${MAX_ATTEMPTS}" ]; then
+                    echo "Companion engine update required for ${KEY}; retry ${ATTEMPT}/${MAX_ATTEMPTS} after bounded refresh window."
+                    sleep 45
+                    continue
+                  fi
+                  ;;
+                SOV_BACKUP_GOOGLE_DRIVE_RECONSENT_REQUIRED)
+                  echo "Google Drive OAuth re-consent is required for ${KEY}; this is not transient."
+                  break
+                  ;;
+                SOV_BACKUP_GOOGLE_DRIVE_API_DISABLED)
+                  echo "Google Drive API is disabled for ${KEY}; this is not transient."
+                  break
+                  ;;
+                SOV_BACKUP_GOOGLE_DRIVE_PERMISSION_DENIED)
+                  echo "Google Drive permission is denied for ${KEY}; this is not transient."
+                  break
+                  ;;
+                SOV_BACKUP_GOOGLE_DRIVE_QUOTA_EXCEEDED)
+                  echo "Google Drive quota is exceeded for ${KEY}; this is not transient."
+                  break
+                  ;;
+              esac
+              case "${REFRESH_CODE}" in
+                000|409|429|500|502|503|504)
+                  echo "Transient decoupled SOV refresh ${KEY} status ${REFRESH_CODE} (${REFRESH_ERROR}); retry ${ATTEMPT}/4."
+                  sleep $((ATTEMPT * 2))
+                  ;;
+                *)
+                  echo "Non-retryable decoupled SOV refresh ${KEY} status ${REFRESH_CODE} (${REFRESH_ERROR})."
+                  break
+                  ;;
+              esac
+            done
+            if [ "${REFRESH_READY}" != "1" ]; then
+              TARGET="${TARGET}" STEP="${STEP}" KEY="${KEY}" REFRESH_CODE="${REFRESH_CODE}" TARGET_SHA="${TARGET_SHA}" node - <<'NODE'
+          const fs=require('fs');
+          let d={};
+          try{d=JSON.parse(fs.readFileSync('./sovereignty-refresh-'+process.env.KEY+'.json','utf8'))}catch{}
+          fs.writeFileSync('sovereignty-production-status.json',JSON.stringify({
+            schema:'mel.decoupled-sovereignty-status/v3',
+            source_sha:String(process.env.TARGET_SHA||'').toLowerCase(),
+            status:'MEL_SOV_01_REFRESH_FAILED',
+            refresh_target:process.env.TARGET,
+            refresh_step:process.env.STEP||null,
+            http_status:Number(process.env.REFRESH_CODE||0),
+            refresh_error:String(d?.refresh?.reason||d?.code||d?.error||d?.status||'UNKNOWN').slice(0,160),
+            exact_sha_verified:true,
+            secret_values_exposed:false,
+          },null,2));
+          NODE
+              return 31
+            fi
+            TARGET="${TARGET}" STEP="${STEP}" KEY="${KEY}" node - <<'NODE'
+          const d=require('./sovereignty-refresh-'+process.env.KEY+'.json');
+          if(d?.ok!==true || d?.status!=='MEL_SOV_01_REFRESH_STEP_VERIFIED') throw new Error('MEL_SOV_01_REFRESH_FAILED:'+process.env.KEY);
+          if(d?.refresh_target!==process.env.TARGET) throw new Error('MEL_SOV_01_REFRESH_TARGET_MISMATCH');
+          if(process.env.STEP && d?.refresh_step!==process.env.STEP) throw new Error('MEL_SOV_01_REFRESH_STEP_MISMATCH');
+          if(d?.secret_values_exposed!==false || d?.autonomy_started!==false) throw new Error('MEL_SOV_01_REFRESH_SAFETY_FAILED');
+          NODE
+          }
+
+          if layer_covered "ai"; then
+            mark_refresh_skipped "ai" "" "ai"
+            mark_refresh_skipped "ai_local" "" "ai"
+          else
+            # Local sovereign AI is the primary proof path. Validate it first so
+            # Ollama bootstrap failures remain observable instead of being masked
+            # by a missing configured alternate provider.
+            if refresh_sov_target "ai_local"; then
+              mark_refresh_skipped "ai" "" "ai_local"
+            else
+              AI_LOCAL_RC=$?
+              AI_LOCAL_REASON="$(node -e 'const fs=require("fs");let d={};try{d=JSON.parse(fs.readFileSync("sovereignty-refresh-ai_local.json","utf8"))}catch{};process.stdout.write(String(d?.refresh?.reason||d?.code||d?.error||d?.status||"UNKNOWN").slice(0,160))')"
+              cp sovereignty-production-status.json sovereignty-ai-local-failure.json
+
+              echo "Local sovereign AI proof failed rc=${AI_LOCAL_RC} reason=${AI_LOCAL_REASON}; checking configured AI fallback."
+
+              if refresh_sov_target "ai"; then
+                echo "Configured AI fallback verified after local AI failure (${AI_LOCAL_REASON})."
+              else
+                AI_CONFIGURED_RC=$?
+                AI_CONFIGURED_REASON="$(node -e 'const fs=require("fs");let d={};try{d=JSON.parse(fs.readFileSync("sovereignty-refresh-ai.json","utf8"))}catch{};process.stdout.write(String(d?.refresh?.reason||d?.code||d?.error||d?.status||"UNKNOWN").slice(0,160))')"
+
+                if [ "${AI_CONFIGURED_REASON}" = "NO_ALTERNATE_AI_CONFIG" ]; then
+                  # The configured fallback is absent by design. Restore the
+                  # primary local-AI failure so stage-specific Ollama diagnostics
+                  # such as OLLAMA_BOOTSTRAP_PROCESS_EXITED_AT_* are preserved.
+                  cp sovereignty-ai-local-failure.json sovereignty-production-status.json
+                  echo "No alternate AI is configured; preserving primary local AI diagnostic: ${AI_LOCAL_REASON}."
+                  exit "${AI_LOCAL_RC}"
+                fi
+
+                echo "Configured AI fallback also failed rc=${AI_CONFIGURED_RC} reason=${AI_CONFIGURED_REASON}."
+                exit "${AI_CONFIGURED_RC}"
+              fi
+            fi
+          fi
+          if layer_covered "source_control"; then
+            mark_refresh_skipped "source_control" "" "source_control"
+          else
+            refresh_sov_target "source_control" || exit $?
+          fi
+          for STEP in runtime storage database ci_cd secrets_identity scheduler observability; do
+            if layer_covered "${STEP}"; then
+              mark_refresh_skipped "infrastructure" "${STEP}" "${STEP}"
+            else
+              refresh_sov_target "infrastructure" "${STEP}" || exit $?
+            fi
+          done
+          for STEP in resolve prepare readback rollback finalize; do
+            if layer_covered "backup_restore"; then
+              mark_refresh_skipped "backup_restore" "${STEP}" "backup_restore"
+            else
+              refresh_sov_target "backup_restore" "${STEP}" || exit $?
+            fi
+          done
+
+          CODE="$(curl --silent --show-error --max-time 60 \
+            --header "x-mel-release-smoke: 1" \
+            --header "x-mel-parallel-proof: ${TOKEN}" \
+            --output sovereignty.json --write-out '%{http_code}' \
+            "${BASE_URL}/api/gen2/autonomy/sovereignty" || true)"
+          test "${CODE}" = "200"
+          TARGET_SHA="${TARGET_SHA}" node - <<'NODE'
+          const fs=require('fs'),d=require('./sovereignty.json'),expected=String(process.env.TARGET_SHA).toLowerCase();
+          if(d?.ok!==true||d?.status!=='TECHNICAL_SOVEREIGNTY_STATUS')throw new Error('SOVEREIGNTY_STATUS_INVALID');
+          fs.writeFileSync('sovereignty-production-status.json',JSON.stringify({
+            schema:'mel.decoupled-sovereignty-status/v2',source_sha:expected,
+            fully_sovereign:d?.fully_sovereign===true,
+            covered_layers:d?.alternative_coverage?.covered_layers||[],
+            uncovered_layers:d?.alternative_coverage?.uncovered_layers||[],
+            ready_layer_count:Number(d?.architecture_contract?.ready_layer_count||0),
+            layer_count:Number(d?.architecture_contract?.layer_count||0),
+            registry_count:Number(d?.registry_count||0),
+            exact_sha_verified:true,secret_values_exposed:false,
+          },null,2));
+          NODE
+
+          SOV_CODE="$(curl --silent --show-error --max-time 180 \
+            --header "x-mel-parallel-proof: ${TOKEN}" \
+            --header "content-type: application/json" \
+            --data '{"phase":"sovereignty-proof"}' \
+            --output mel-sov-01.json --write-out '%{http_code}' \
+            "${BASE_URL}/api/internal/release-launch-bootstrap" || true)"
+          TARGET_SHA="${TARGET_SHA}" SOV_CODE="${SOV_CODE}" node - <<'NODE'
+          const fs=require('fs');
+          const d=JSON.parse(fs.readFileSync('mel-sov-01.json','utf8'));
+          const expected=String(process.env.TARGET_SHA).toLowerCase();
+          const sanitized={
+            schema:'mel.sov-01-decoupled-production-proof/v1',
+            source_sha:expected,http_status:Number(process.env.SOV_CODE),
+            ok:d?.ok===true,status:d?.status||null,
+            done_verified_eligible:d?.done_verified_eligible===true,
+            ready_layer_count:Number(d?.ready_layer_count||0),
+            layer_count:Number(d?.layer_count||0),
+            registry_count:Number(d?.registry_count||0),
+            ai_low_refusal_ready:d?.ai_low_refusal_ready===true,
+            autonomy_started:d?.autonomy_started===true,
+            owner_launch_required:d?.owner_launch_required===true,
+            exact_sha_verified:String(d?.deployed_sha||'').toLowerCase()===expected,
+            secret_values_exposed:false,
+          };
+          fs.writeFileSync('mel-sov-01-production-proof.json',JSON.stringify(sanitized,null,2));
+          if(Number(process.env.SOV_CODE)!==200||d?.ok!==true||d?.status!=='MEL_SOV_01_DONE_VERIFIED_ELIGIBLE'||d?.done_verified_eligible!==true) throw new Error('MEL_SOV_01_NOT_DONE_VERIFIED');
+          if(String(d?.deployed_sha||'').toLowerCase()!==expected) throw new Error('MEL_SOV_01_SHA_MISMATCH');
+          if(d?.autonomy_started!==false||d?.secret_values_exposed===true) throw new Error('MEL_SOV_01_SAFETY_INVARIANT_FAILED');
+          NODE
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: downstream-sovereignty-proof-${{ env.TARGET_SHA }}
+          path: |
+            sovereignty-production-status.json
+            mel-sov-01-production-proof.json
+          if-no-files-found: warn
+          retention-days: 14
+
+  summary:
+    runs-on: ubuntu-24.04
+    if: always()
+    needs: [http, browser, file, sovereignty]
+    steps:
+      - name: Require every independent downstream proof
+        shell: bash
+        env:
+          HTTP_RESULT: ${{ needs.http.result }}
+          BROWSER_RESULT: ${{ needs.browser.result }}
+          FILE_RESULT: ${{ needs.file.result }}
+          SOV_RESULT: ${{ needs.sovereignty.result }}
+        run: |
+          set -euo pipefail
+          printf 'HTTP=%s\nBROWSER=%s\nFILE=%s\nSOV=%s\n' "${HTTP_RESULT}" "${BROWSER_RESULT}" "${FILE_RESULT}" "${SOV_RESULT}"
+          test "${HTTP_RESULT}" = "success"
+          test "${BROWSER_RESULT}" = "success"
+          test "${FILE_RESULT}" = "success"
+          test "${SOV_RESULT}" = "success"
+          echo "All exact-SHA downstream production proofs passed independently of ShardVault."

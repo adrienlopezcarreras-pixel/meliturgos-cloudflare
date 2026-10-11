@@ -21,6 +21,28 @@ test('paired-companion executor queues only sovereignty schema commands and wait
   assert.match(source,/COMPUTER_OFFLINE/);
 });
 
+test('local AI fails closed until the stage-aware Companion engine is active',async()=>{
+  const source=await readFile(new URL('../../src/portability/companion-sovereignty-executor.js',import.meta.url),'utf8');
+  assert.match(source,/MIN_LOCAL_AI_ENGINE_VERSION='1\.3\.2'/);
+  assert.match(source,/COMPANION_ENGINE_UPDATE_REQUIRED:/);
+  assert.match(source,/capabilityId==='sovereignty\.ai'/);
+  assert.match(source,/metadata\.engine_version/);
+  assert.match(source,/native_version/);
+  assert.match(source,/refresh_status/);
+  assert.match(source,/refresh_error/);
+
+  const aiRuntime=await readFile(new URL('../../src/portability/companion-ai-prevalidation-runtime.js',import.meta.url),'utf8');
+  assert.match(aiRuntime,/native_version/);
+  assert.match(aiRuntime,/required_engine_version/);
+  assert.match(aiRuntime,/refresh_error/);
+
+  const api=await readFile(new URL('../../src/devices/computer-companion-api.js',import.meta.url),'utf8');
+  assert.match(api,/MIN_SOVEREIGN_AI_ENGINE_VERSION="1\.4\.1"/);
+  assert.match(api,/engine_update_required/);
+  assert.match(api,/engine_refresh_status/);
+  assert.match(api,/required_engine_version/);
+});
+
 test('local Git runtime seeds from ShardVault before provider proof',async()=>{
   const source=await readFile(new URL('../../src/portability/companion-source-control-prevalidation-runtime.js',import.meta.url),'utf8');
   const seed=source.indexOf("action:'sovereignty.source_control.seed'");

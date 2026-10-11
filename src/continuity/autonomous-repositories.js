@@ -11,6 +11,20 @@ const DISCOVERY_LATEST_KEY='shardvault/discovery/latest.json';
 const REPRESENTATIVE_PROOF_KEY='shardvault/discovery/representative-proofs.json';
 const REPRESENTATIVE_MIN_BYTES=64*1024;
 const REPRESENTATIVE_MAX_BYTES=8*1024*1024;
+const BOUNDED_PROVIDER_PRIORITY = Object.freeze([
+  'catbox-public',
+  'dpaste-org-public',
+  'dpaste-public',
+  'paste-c-net-public',
+  'pastegg-public',
+  'markdownpaste-public',
+  'udrop-dev-public',
+  '0x0-st-public',
+  '1c3-public',
+  'pastehtml-public',
+  'msk-paste-public',
+  'pst-rs-abhicracker-public'
+]);
 const QUERY_SETS = Object.freeze([
   ['anonymous file hosting api in:name,description,readme','temporary file upload api in:name,description,readme','free file hosting api in:name,description,readme'],
   ['guest upload rest api in:name,description,readme','no signup file upload api in:name,description,readme','free object storage api in:name,description,readme'],
@@ -249,6 +263,27 @@ const DOCUMENTED_CANDIDATES = Object.freeze([
     evidenceMode:'documented_api',
     evidenceReviewedAt:'2026-09-19T00:00:00.000Z',
     evidenceUrls:['https://pastebox.ai/api','https://pastebox.ai/pricing']
+  },
+  {
+    id:'pst-rs-abhicracker-public',
+    adapter:'pst_rs_b64',
+    urlTemplate:'https://pst.rs.abhicracker.com/?mel_object={objectId}',
+    method:'POST',
+    maxObjectBytes:1048576,
+    operatorDomain:'pst.rs.abhicracker.com',
+    providerId:'pst-rs-abhicracker',
+    jurisdiction:'UNKNOWN',
+    expectedRetentionDays:365,
+    retentionModel:'fixed',
+    authMode:'none',
+    anonymousWriteDeclared:true,
+    publicReadDeclared:true,
+    automationAllowedDeclared:true,
+    freeDeclared:true,
+    writeProbeAllowed:true,
+    evidenceMode:'documented_api',
+    evidenceReviewedAt:'2026-10-02T00:00:00.000Z',
+    evidenceUrls:['https://pst.rs.abhicracker.com/']
   },
   {
     id:'paste-c-net-public',
@@ -1025,13 +1060,18 @@ async function candidateWrite(c,url,payload,objectId,env){
     return {readUrl:responseRemoteUrl(raw,r.headers,endpoint)};
   }
   if(c.adapter==='dpaste_b64'){
-    const current=fixedApiUrl(url),body=new URLSearchParams({content:b64u(payload),expiry_days:'365'});
-    let r=await fetchTimed(current,{method:'POST',headers:{'content-type':'application/x-www-form-urlencoded','user-agent':'MEL-ShardVault/1.0','accept':'text/plain'},body:body.toString()},15000);
-    let endpoint=current;
-    if(r.status===400||r.status===404||r.status===405){
-      endpoint='https://dpaste.com/api/';
-      r=await fetchTimed(endpoint,{method:'POST',headers:{'content-type':'application/x-www-form-urlencoded','user-agent':'MEL-ShardVault/1.0','accept':'text/plain'},body:body.toString()},15000);
-    }
+    const endpoint=fixedApiUrl(url);
+    const body=new URLSearchParams({
+      content:b64u(payload),
+      title:objectId,
+      syntax:'text',
+      expiry_days:'365',
+    });
+    const r=await fetchTimed(endpoint,{method:'POST',headers:{
+      'content-type':'application/x-www-form-urlencoded',
+      'user-agent':'MEL-ShardVault/1.0',
+      'accept':'text/plain',
+    },body:body.toString()},15000);
     if(!r.ok)throw new Error('WRITE_HTTP_'+r.status);
     const raw=await r.text(),page=responseRemoteUrl(raw,r.headers,endpoint);
     return {readUrl:page.endsWith('.txt')?page:page.replace(/\/$/,'')+'.txt'};
@@ -1067,6 +1107,21 @@ async function candidateWrite(c,url,payload,objectId,env){
     const raw=await r.text();
     return {readUrl:responseRemoteUrl(raw,r.headers,endpoint)};
   }
+  if(c.adapter==='pst_rs_b64'){
+    const endpoint=fixedApiUrl(url);
+    const r=await fetchTimed(endpoint,{method:'POST',headers:{
+      'content-type':'application/octet-stream',
+      'accept':'application/json',
+      'x-paste-ttl':'1y',
+      'x-paste-title':objectId,
+      'user-agent':'MEL-ShardVault/1.0'
+    },body:b64u(payload)},15000);
+    if(!r.ok)throw new Error('WRITE_HTTP_'+r.status);
+    const data=await r.json().catch(()=>null);
+    const id=String(data?.id||'').trim();
+    if(!id)throw new Error('WRITE_REMOTE_ID_MISSING');
+    return {readUrl:publicHttps('https://pst.rs.abhicracker.com/raw/'+encodeURIComponent(id),'PST_RS_READ').toString()};
+  }
   if(c.adapter==='pastehtml_b64'){
     const endpoint=fixedApiUrl(url);
     const body='<pre data-mel-shard="1">'+b64u(payload)+'</pre>';
@@ -1081,7 +1136,7 @@ async function candidateWrite(c,url,payload,objectId,env){
     const body={
       name:objectId,
       visibility:'unlisted',
-      files:[{name:'shard.bin',content:{format:'base64',value:b64(payload)}}]
+      files:[{name:'shard.txt',content:{format:'text',value:b64u(payload)}}]
     };
     const r=await fetchTimed(endpoint,{method:'POST',headers:{'content-type':'application/json','accept':'application/json','user-agent':'MEL-ShardVault/1.0'},body:JSON.stringify(body)},15000);
     if(!r.ok)throw new Error('WRITE_HTTP_'+r.status);
@@ -1142,7 +1197,11 @@ async function candidateWrite(c,url,payload,objectId,env){
   }
   if(c.adapter==='paste_c_net'){
     const endpoint=fixedApiUrl(url);
-    const r=await fetchTimed(endpoint,{method:'PUT',headers:{'content-type':'application/octet-stream','accept':'application/json, */*','x-uuid':'1','user-agent':'curl/8.0 MEL-ShardVault/1.0'},body:payload},15000);
+    const r=await fetchTimed(endpoint,{method:'POST',headers:{
+      'content-type':'application/octet-stream',
+      'accept':'text/plain, */*',
+      'user-agent':'MEL-ShardVault/1.0',
+    },body:payload},15000);
     if(!r.ok)throw new Error('WRITE_HTTP_'+r.status);
     const raw=await r.text();
     return {readUrl:responseRemoteUrl(raw,r.headers,endpoint)};
@@ -1181,7 +1240,7 @@ async function candidateReadBytes(c,url){
     if(!code)throw new Error('READ_CONTENT_MISSING');
     return unb64u(code);
   }
-  if(['pastebin_ai_b64','dpaste_b64','dpaste_org_b64','onec3_b64','msk_paste_b64','pastebox_b64','fileditch_b64'].includes(c.adapter)){
+  if(['pastebin_ai_b64','dpaste_b64','dpaste_org_b64','onec3_b64','msk_paste_b64','pastebox_b64','fileditch_b64','pst_rs_b64'].includes(c.adapter)){
     const r=await fetchTimed(url,{method:'GET',headers:{'accept':'text/plain,application/json','user-agent':'MEL-ShardVault/1.0'}},12000);
     if(!r.ok)throw new Error('READ_HTTP_'+r.status);
     const text=String(await r.text()).trim();
@@ -1364,7 +1423,7 @@ function choose(candidates,count,maxPerOperator,maxPerProvider){
   return selected;
 }
 
-export async function discoverAutonomousRepositories(env,{masterKey,vaultId,requiredBytes=0,selectionCount=7,probeLimit:requestedProbeLimit=null,probeOffset=0,internetDiscovery=true}={}){
+export async function discoverAutonomousRepositories(env,{masterKey,vaultId,requiredBytes=0,selectionCount=7,probeLimit:requestedProbeLimit=null,probeOffset=0,internetDiscovery=true,excludeEndpointIds=[]}={}){
   const master=bytes(masterKey);if(master.length<32)throw new Error('AUTONOMOUS_MASTER_KEY_INVALID');
   const loaded=await loadCandidates(env,master,String(vaultId),{internetDiscovery});
   const selectionTarget=Math.max(1,Math.min(7,Math.trunc(Number(selectionCount)||7)));
@@ -1377,10 +1436,22 @@ export async function discoverAutonomousRepositories(env,{masterKey,vaultId,requ
   const maxPerOperator=Math.max(1,Number(env?.MEL_WATCH_MAX_PER_OPERATOR)||2);
   const maxPerProvider=Math.max(1,Number(env?.MEL_WATCH_MAX_PER_PROVIDER)||2);
   const minRetentionDays=Math.max(1,Number(env?.MEL_AUTONOMOUS_MIN_RETENTION_DAYS)||90);
+  const excluded=new Set((Array.isArray(excludeEndpointIds)?excludeEndpointIds:[]).map(x=>String(x||'').trim()).filter(Boolean));
   const eligibleRows=[],rejected=[...loaded.rejected];
-  for(const c of loaded.candidates){const e=eligible(c,{requiredBytes,policyMaxAgeDays,minRetentionDays});if(e.ok)eligibleRows.push(c);else rejected.push({source:c.source,id:c.id,reason:e.reasons.join(',')});}
+  for(const c of loaded.candidates){
+    if(excluded.has(c.id)){rejected.push({source:c.source,id:c.id,reason:'EXCLUDED_ENDPOINT'});continue;}
+    const e=eligible(c,{requiredBytes,policyMaxAgeDays,minRetentionDays});if(e.ok)eligibleRows.push(c);else rejected.push({source:c.source,id:c.id,reason:e.reasons.join(',')});
+  }
   const probed=[];
-  for(const c of eligibleRows.slice(boundedProbeOffset,boundedProbeOffset+probeLimit)){try{probed.push(await probe(c,requiredBytes,policyMaxAgeDays,env));}catch(error){rejected.push({source:c.source,id:c.id,reason:String(error?.message||error)});}}
+  const probePool=requestedProbeLimit==null
+    ? eligibleRows
+    : [...eligibleRows].sort((a,b)=>{
+        const ai=BOUNDED_PROVIDER_PRIORITY.indexOf(a.id),bi=BOUNDED_PROVIDER_PRIORITY.indexOf(b.id);
+        const ar=ai<0?BOUNDED_PROVIDER_PRIORITY.length:ai;
+        const br=bi<0?BOUNDED_PROVIDER_PRIORITY.length:bi;
+        return ar-br||a.id.localeCompare(b.id);
+      });
+  for(const c of probePool.slice(boundedProbeOffset,boundedProbeOffset+probeLimit)){try{probed.push(await probe(c,requiredBytes,policyMaxAgeDays,env));}catch(error){rejected.push({source:c.source,id:c.id,reason:String(error?.message||error)});}}
   const representativeProofs=await readRepresentativeProofs(env);
   const qualified=[];
   let representativeProbed=0;

@@ -11,10 +11,14 @@ test('LoRA trainer preserves source content and turn order when native chat temp
   assert.ok(!source.includes('content = content.strip()'), 'fallback must not trim source text');
 });
 
-test('LoRA status endpoint reads the latest collector across current branches', async () => {
+test('LoRA status exposes training workflow plus durable daily trace instead of obsolete Collector UI state', async () => {
   const source = await readFile(new URL('../src/professor-live-learning-entry.js', import.meta.url), 'utf8');
-  assert.match(source, /FREE_LORA_COLLECTOR_WORKFLOW = 'lora-kaggle-free-collect\.yml'/);
-  assert.match(source, /collector_workflow:/);
+  assert.match(source, /FREE_LORA_TRAINING_WORKFLOW = 'lora-kaggle-free-gpu\.yml'/);
   assert.match(source, /actions\/workflows\/\$\{workflowName\}\/runs\?per_page=10/);
-  assert.doesNotMatch(source, /runs\?branch=candidate%2Fmel-clean-autonomy&per_page=1/);
+  assert.match(source, /daily_trace: dailyTrace/);
+  assert.match(source, /daily_status: dailyStatus/);
+  assert.match(source, /\/api\/learning\/lora\/traces/);
+  assert.match(source, /\/api\/learning\/lora\/daily-status/);
+  assert.doesNotMatch(source, /FREE_LORA_COLLECTOR_WORKFLOW/);
+  assert.doesNotMatch(source, /collector_workflow:/);
 });

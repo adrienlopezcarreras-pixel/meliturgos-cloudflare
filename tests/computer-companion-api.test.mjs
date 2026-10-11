@@ -221,14 +221,14 @@ test('Windows desktop v2 keeps tray UI, headless engine, and packaged EXE contra
   assert.match(desktop,/self-test\.json/);
   assert.match(desktop,/\/api\/computer\/v1\/companions/);
   assert.match(desktop,/Lancer MEL Companion avec Windows/);
-  assert.match(desktop,/RÉAPPAIRER/);
-  assert.match(desktop,/DÉSINSTALLER/);
+  assert.match(desktop,/Réappairer/i);
+  assert.match(desktop,/Désinstaller/i);
   assert.match(desktop,/RegisterHotKey/);
   assert.match(desktop,/UnregisterHotKey/);
   assert.match(desktop,/Ctrl\+Alt\+M/);
   assert.match(desktop,/WM_HOTKEY/);
   assert.match(desktop,/class PermissionsForm/);
-  assert.match(desktop,/AUTORISATIONS LOCALES/);
+  assert.match(desktop,/Autorisations locales/i);
   assert.match(desktop,/SavePermissions/);
   assert.match(desktop,/RestartCompanion/);
   assert.match(desktop,/allowed_app_count/);
@@ -265,6 +265,30 @@ test('Windows installer clears owner password before token-based companion downl
 });
 
 
+test('authenticated native supervisor heartbeat keeps already-installed Windows engine online',async()=>{
+  const DB=sqliteD1();
+  try{
+    const env={DB,MELITURGOS_USER:'adrien',MELITURGOS_PASSWORD:'test'};
+    const codeRes=await maybeHandleComputerApi(ownerRequest('/api/computer/v1/pair-code','POST',{}),env);
+    const code=(await codeRes.json()).code;
+    const pairRes=await maybeHandleComputerApi(new Request('https://mel.test/api/computer/v1/pair',{
+      method:'POST',headers:{'content-type':'application/json'},
+      body:JSON.stringify({pair_code:code,computer_id:'pc-native-supervisor'})
+    }),env);
+    const paired=await pairRes.json();
+    const headers={authorization:'Bearer '+paired.token,'x-mel-computer-id':'pc-native-supervisor','content-type':'application/json'};
+    const before=Date.now();
+    const response=await maybeHandleComputerApi(new Request('https://mel.test/api/computer/v1/heartbeat',{
+      method:'POST',headers,
+      body:JSON.stringify({version:'2.3.7',hostname:'PC',user:'adrien',screen:{x:0,y:0,width:1920,height:1080}})
+    }),env);
+    const payload=await response.json();
+    assert.equal(payload.ok,true);
+    assert.equal(payload.engine_online,true);
+    assert.ok(Number(payload.engine_last_seen_at)>=before);
+  }finally{DB.close();}
+});
+
 test('Windows command engine heartbeat is independently fresh from the desktop UI heartbeat',async()=>{
   const DB=sqliteD1();
   try{
@@ -297,15 +321,45 @@ test('Windows command engine heartbeat is independently fresh from the desktop U
   }finally{DB.close();}
 });
 
-test('Windows Companion 2.3.7 watchdogs the engine and implements local runtime sovereignty',async()=>{
+test('Windows Companion 2.3.12 watchdogs and self-refreshes the engine for local runtime sovereignty',async()=>{
   const desktop=await readFile(new URL('../windows-companion/MEL-Companion.cs',import.meta.url),'utf8');
   const companion=await readFile(new URL('../assets/MEL-Computer-Companion.ps1',import.meta.url),'utf8');
-  assert.match(desktop,/Version = "2\.3\.7"/);
+  assert.match(desktop,/Version = "2\.3\.12"/);
   assert.match(desktop,/EnsureCompanion/);
   assert.match(desktop,/CompanionRunning/);
-  assert.match(companion,/\$Version = "1\.3\.0"/);
+  assert.match(desktop,/StartBackgroundSupervisor/);
+  assert.match(desktop,/System\.Threading\.Timer/);
+  assert.match(companion,/\$Version = "1\.4\.1"/);
+  assert.match(companion,/remote_access_enabled\s*=\s*\(\$config\.remote_access_enabled -eq \$true\)/);
   assert.match(companion,/engine_heartbeat_at/);
   assert.match(companion,/function Perform-SovereigntyRuntime/);
   assert.match(companion,/sovereignty\.runtime\./);
   assert.match(companion,/SOVEREIGNTY_RUNTIME_SOURCE_SHA_MISMATCH/);
+});
+
+
+test('scoped OIDC MINI USB inspection maps only serial.inspect to a fixed local system probe',async()=>{
+  const api=await readFile(new URL('../src/devices/computer-companion-api.js',import.meta.url),'utf8');
+  const relay=await readFile(new URL('../scripts/cloudflare-api-relay-runner.mjs',import.meta.url),'utf8');
+  assert.match(api,/PC_CONTROL_PROOF_ACTIONS=new Set\(\["system\.info","serial\.list","serial\.read","serial\.inspect"\]\)/);
+  assert.match(api,/action==="serial\.inspect"/);
+  assert.match(api,/effectiveAction="system\.exec"/);
+  assert.match(api,/Get-CimInstance Win32_PnPEntity/);
+  assert.match(api,/Get-CimInstance Win32_SerialPort/);
+  assert.match(api,/SERIAL_PORT_INVALID/);
+  assert.match(relay,/MINI_USB_INSPECT=/);
+  assert.match(relay,/action:'serial\.inspect'/);
+});
+
+
+test('scheduled OIDC diagnostics cannot reset MINI even with a legacy environment flag', async () => {
+  const source = await readFile(new URL('../src/devices/computer-companion-api.js', import.meta.url), 'utf8');
+  const relay = await readFile(new URL('../scripts/cloudflare-api-relay-runner.mjs', import.meta.url), 'utf8');
+  const allowed = source.split('const PC_CONTROL_PROOF_ACTIONS=new Set(')[1]?.split(';')[0] || '';
+  assert.ok(allowed.includes('"serial.inspect"'));
+  assert.ok(!allowed.includes('"serial.hard_reset"'));
+  assert.ok(source.includes('device.metadata?.remote_access_enabled!==true&&a.kind!=="github-oidc"'));
+  assert.ok(!relay.includes("action:'serial.hard_reset'"));
+  assert.ok(!relay.includes("MEL_MINI_RESET_APPROVED"));
+  assert.ok(relay.includes('automatic_reset_allowed:false'));
 });

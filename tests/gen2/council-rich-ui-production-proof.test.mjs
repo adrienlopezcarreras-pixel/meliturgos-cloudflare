@@ -21,26 +21,99 @@ test('production proof exercises live Model Council with negative-feedback recov
   assert.match(workflow, /synthesis_status/);
 });
 
+test('production Council proof uses all four authorized zero-cost models with a bounded latency budget', () => {
+  assert.match(workflow, /"maxCandidates":4,"timeoutMs":12000/);
+  assert.match(workflow, /COUNCIL_MAX_ATTEMPTS=2/);
+  assert.match(workflow, /--max-time 90/);
+  assert.match(workflow, /independent_response_count\|\|0\)>=2/);
+});
+
 test('production proof verifies rich renderer in Normal and Full browser surfaces', () => {
   assert.match(workflow, /#promptInput/);
   assert.match(workflow, /#messages \.msg\.mel > div\[data-rich-rendered="true"\]/);
-  assert.match(workflow, /\.nav button\[data-view="chat"\]/);
+  assert.match(workflow, /\/professor\?view=chat/);
   assert.match(workflow, /#chatInput/);
   assert.match(workflow, /#chatlog \.msg\.mel\[data-rich-rendered="true"\]:last-child/);
   assert.match(workflow, /RELEASE_CODE_SMOKE_OK/);
+  assert.match(workflow, /lis src\/index\.js dans ton code/);
+  assert.doesNotMatch(workflow, /Lis src\/router\.js/);
 });
 
-test('temporary production bootstrap secret is always cleaned up', () => {
-  assert.match(workflow, /trap cleanup EXIT/);
-  assert.match(workflow, /wrangler secret delete MEL_LAUNCH_BOOTSTRAP_TOKEN/);
+test('production proof uses immutable exact-SHA proof auth and never mutates Worker secrets', () => {
+  assert.match(workflow, /MEL_BACKUP_ENCRYPTION_KEY_B64/);
+  assert.match(workflow, /MEL_PARALLEL_PROOF_V1:/);
+  assert.match(workflow, /x-mel-parallel-proof/);
+  assert.doesNotMatch(workflow, /wrangler secret put/);
+  assert.doesNotMatch(workflow, /wrangler secret delete/);
+  assert.doesNotMatch(workflow, /MEL_LAUNCH_BOOTSTRAP_TOKEN/);
   assert.match(workflow, /secret_values_exposed:false/);
 });
 
 
-test('production proof tolerates only bounded transient bootstrap auth propagation', () => {
+test('production proof tolerates only bounded transient proof-auth propagation', () => {
   assert.match(workflow, /for ATTEMPT in \$\(seq 1 12\)/);
   assert.match(workflow, /COUNCIL_ERROR_CODE/);
-  assert.match(workflow, /BROWSER_ERROR_CODE/);
+  assert.match(workflow, /FULL_ERROR_CODE/);
   assert.match(workflow, /AUTH_REQUIRED/);
   assert.match(workflow, /sleep 2/);
+});
+
+test('rich UI proof enters the full chat deterministically before typing', () => {
+  const full=fs.readFileSync('src/pages/full-interface-v2.js','utf8');
+  assert.match(workflow, /\/professor\?view=chat/);
+  assert.match(workflow, /id:'wait-full-chat'[\s\S]{0,120}#viewTitle[\s\S]{0,80}Conversation/);
+  assert.match(workflow, /\.view\.active\[data-panel="chat"\] #chatInput/);
+  assert.doesNotMatch(workflow, /id:'open-full-chat'/);
+  assert.match(full, /new URLSearchParams\(location\.search\)\.get\('view'\)/);
+});
+
+test('Normal and Full rich UI proofs use independent sessions while each surface remains monolithic', () => {
+  assert.match(workflow, /NORMAL_SESSION="council-rich-normal-/);
+  assert.match(workflow, /FULL_SESSION="council-rich-full-/);
+  assert.match(workflow, /rich-ui-normal\.json/);
+  assert.match(workflow, /rich-ui-full\.json/);
+  assert.match(workflow, /id:'send-normal'/);
+  assert.match(workflow, /id:'wait-normal'/);
+  assert.match(workflow, /id:'read-normal-rich'/);
+  assert.match(workflow, /id:'submit-full'/);
+  assert.match(workflow, /id:'wait-full-submit'/);
+  assert.match(workflow, /id:'wait-full'/);
+  assert.match(workflow, /selector:'#chatStatus',text:'Réponse reçue\.'/);
+  assert.match(workflow, /id:'read-full-rich'/);
+  assert.ok(workflow.includes("Number(r?.steps_completed||0)===6"));
+  assert.ok(workflow.includes("Number(r?.steps_completed||0)===8"));
+  assert.match(workflow, /independent_surface_sessions:true/);
+  assert.match(workflow, /monolithic_per_surface:true/);
+  assert.match(workflow, /response_nonempty:true/);
+  const fullBody=workflow.split('FULL_BODY=')[1]?.split('FULL_CODE=')[0]||'';
+  assert.match(fullBody, /id:'submit-full'/);
+  assert.match(fullBody, /action:'browser\.submit',selector:'#chatForm'/);
+  assert.match(fullBody, /id:'wait-full-submit'/);
+  assert.match(fullBody, /id:'wait-full'/);
+  assert.match(fullBody, /id:'read-full-rich'/);
+  assert.match(workflow, /rich-ui-full-diagnostic\.json/);
+  assert.match(workflow, /diag-status/);
+});
+
+test('rich UI browser proof retries bounded transient runtime pressure instead of failing one-shot', () => {
+  assert.match(workflow, /408\|409\|429\|500\|502\|503\|504/);
+  assert.match(workflow, /Transient Full rich UI proof status/);
+  assert.match(workflow, /FULL_FAILED_STEP_ID/);
+  assert.match(workflow, /failed_step_id/);
+  assert.match(workflow, /Non-retryable Full rich UI proof status/);
+  assert.match(workflow, /retry \$\{ATTEMPT\}\/6 with a fresh Full session/);
+});
+
+
+test('Full chat uses a semantic form submit path for click and keyboard reliability', () => {
+  const page=fs.readFileSync('src/pages/full-interface-v2.js','utf8');
+  assert.match(page,/<form class="composer" id="chatForm">/);
+  assert.match(page,/<button class="primary" id="chatSend" type="submit">Envoyer<\/button>/);
+  assert.match(page,/qs\('#chatForm'\)\.addEventListener\('submit',e=>\{e\.preventDefault\(\);sendChat\(\)\}\)/);
+  assert.doesNotMatch(page,/qs\('#chatSend'\)\.onclick=/);
+});
+
+test('Full chat exposes a deterministic completion marker after rendering MEL response', async () => {
+  const page=fs.readFileSync(new URL('../../src/pages/full-interface-v2.js',import.meta.url),'utf8');
+  assert.match(page,/addMsg\('mel',d\.text\|\|d\.response\|\|'Réponse vide\.'\);qs\('#chatStatus'\)\.textContent='Réponse reçue\.'/);
 });

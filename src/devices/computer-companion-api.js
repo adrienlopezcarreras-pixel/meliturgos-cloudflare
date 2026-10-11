@@ -1,4 +1,5 @@
 import { requireAuth } from "../core/security.js";
+import { authorizeGitHubActionsOidcRequest } from "../security/github-actions-oidc.js";
 import { evaluateComputerUsePlan } from "./computer-use.js";
 import { getVerifiedShardVaultCodeArchive } from "../continuity/shardvault-runtime.js";
 import { isLocalSovereigntyAction } from "../portability/local-sovereignty-actions.js";
@@ -18,12 +19,25 @@ export const COMPUTER_ROUTES=Object.freeze({
  screenshot:"/api/computer/v1/screenshot",
  power:"/api/computer/v1/power",
  sovereigntyArchive:"/api/computer/v1/sovereignty-code-archive",
- sovereigntyCommand:"/api/computer/v1/sovereignty-command"
+ sovereigntyCommand:"/api/computer/v1/sovereignty-command",
+ pcControl:"/api/computer/v1/pc-control"
 });
 const DEFAULT_APPS=["notepad","calculator","explorer","msedge","firefox","chrome"];
 const PAIR_TTL_MS=10*60*1000;
 const MINI_ONLINE_MS=60*1000;
 const ANDROID_ONLINE_MS=35*60*1000;
+const MIN_SOVEREIGN_AI_ENGINE_VERSION="1.4.1";
+
+function versionAtLeast(actual,required){
+ const a=String(actual||"").match(/^\d+(?:\.\d+){0,3}/)?.[0]?.split(".").map(Number)||[];
+ const r=String(required||"").match(/^\d+(?:\.\d+){0,3}/)?.[0]?.split(".").map(Number)||[];
+ if(!a.length||!r.length)return false;
+ for(let i=0;i<Math.max(a.length,r.length);i++){
+  const av=Number(a[i]||0),rv=Number(r[i]||0);
+  if(av>rv)return true;if(av<rv)return false;
+ }
+ return true;
+}
 
 
 function json(v,s=200,h={}){return Response.json(v,{status:s,headers:{"cache-control":"no-store",...h}})}
@@ -85,7 +99,7 @@ async function pair(request,env){
 }
 
 async function ownerStatus(request,env,url){
- const a=requireAuth(request,env);if(!a.ok)return a.response;await tables(env);
+ const a=await authorizeOwnerOrPcProof(request,env);if(!a.ok)return a.response;await tables(env);
  const rows=await env.DB.prepare("SELECT * FROM computer_devices ORDER BY last_seen_at DESC LIMIT 20").all();const devices=(rows.results||[]).map(normalizeDevice);
  const id=url.searchParams.get("computer_id")||devices[0]?.id||"";let commands=[];
  if(id){const q=await env.DB.prepare("SELECT * FROM computer_commands WHERE device_id=? ORDER BY created_at DESC LIMIT 30").bind(id).all();commands=(q.results||[]).map(normalizeCommand)}
@@ -109,6 +123,68 @@ async function ownerCommand(request,env){
 }
 
 async function ownerHalt(request,env,halted){const a=requireAuth(request,env);if(!a.ok)return a.response;await tables(env);const b=await request.json().catch(()=>({}));const id=safe(b.computer_id);await env.DB.prepare("UPDATE computer_devices SET halted=? WHERE id=?").bind(halted?1:0,id).run();const row=await env.DB.prepare("SELECT * FROM computer_devices WHERE id=?").bind(id).first();return row?json({ok:true,computer:normalizeDevice(row)}):json({ok:false,code:"COMPUTER_NOT_FOUND"},404)}
+
+const PC_CONTROL_ACTIONS=new Set([
+ "serial.list","serial.read","serial.inspect","serial.hard_reset",
+ "process.list","process.start","process.kill",
+ "file.list","file.read_text","file.write_text",
+ "system.info","system.exec"
+]);
+const PC_CONTROL_PROOF_ACTIONS=new Set(["system.info","serial.list","serial.read","serial.inspect"]);
+
+async function authorizeOwnerOrPcProof(request,env,{action=null}={}){
+ const owner=requireAuth(request,env);if(owner.ok)return {ok:true,kind:"owner"};
+ if(action&&!PC_CONTROL_PROOF_ACTIONS.has(action))return owner;
+ const oidc=await authorizeGitHubActionsOidcRequest(request,env,{
+  allowedWorkflows:["cloudflare-api-relay.yml"],
+  allowedEvents:["workflow_dispatch","schedule","workflow_run"]
+ });
+ if(oidc.ok)return {ok:true,kind:"github-oidc",identity:oidc.identity};
+ return owner;
+}
+
+async function ownerPcControl(request,env){
+ const b=await request.json().catch(()=>({}));
+ const id=safe(b.computer_id),action=safe(b.action,160);
+ const a=await authorizeOwnerOrPcProof(request,env,{action});if(!a.ok)return a.response;await tables(env);
+ const payload=b.payload&&typeof b.payload==="object"?b.payload:{};
+ if(!id)return json({ok:false,code:"COMPUTER_ID_REQUIRED"},400);
+ if(!PC_CONTROL_ACTIONS.has(action))return json({ok:false,code:"PC_CONTROL_ACTION_NOT_ALLOWED"},403);
+ const row=await env.DB.prepare("SELECT * FROM computer_devices WHERE id=? LIMIT 1").bind(id).first();
+ const device=normalizeDevice(row);
+ if(!device)return json({ok:false,code:"COMPUTER_NOT_FOUND"},404);
+ if(device.halted)return json({ok:false,code:"OWNER_HALT_ACTIVE"},409);
+ if(String(device.platform||"").toLowerCase()!=="windows")return json({ok:false,code:"PC_CONTROL_WINDOWS_REQUIRED"},409);
+ if(!device.online)return json({ok:false,code:"COMPUTER_OFFLINE"},409);
+ if(device.metadata?.remote_access_enabled!==true&&a.kind!=="github-oidc")return json({ok:false,code:"REMOTE_ACCESS_DISABLED_LOCALLY"},403);
+ let effectiveAction=action;
+ let effectivePayload=payload;
+ if(a.kind==="github-oidc"){
+  if(action==="serial.read"){
+   const port=safe(payload.port,16).toUpperCase();
+   if(!/^COM\d{1,3}$/.test(port))return json({ok:false,code:"SERIAL_PORT_INVALID"},400);
+   const durationMs=Math.max(250,Math.min(3000,Number(payload.duration_ms)||1500));
+   effectivePayload={port,baud:115200,duration_ms:durationMs};
+  }else if(action==="serial.inspect"){
+   const port=safe(payload.port,16).toUpperCase();
+   if(!/^COM\d{1,3}$/.test(port))return json({ok:false,code:"SERIAL_PORT_INVALID"},400);
+   effectiveAction="system.exec";
+   const escaped=port.replace(/'/g,"''");
+   effectivePayload={
+    command:`$port='${escaped}';$pnp=@(Get-CimInstance Win32_PnPEntity -ErrorAction SilentlyContinue | Where-Object { ([string]$_.Name) -like "*($port)*" -or ([string]$_.Caption) -like "*($port)*" } | Select-Object -First 5 Name,Caption,PNPDeviceID,Manufacturer,Status,Service,ClassGuid);$serial=@(Get-CimInstance Win32_SerialPort -ErrorAction SilentlyContinue | Where-Object { ([string]$_.DeviceID).ToUpperInvariant() -eq $port } | Select-Object -First 5 DeviceID,Name,PNPDeviceID,ProviderType,Status);$py=@(Get-Command py,python,python3 -ErrorAction SilentlyContinue | Select-Object -First 3 Name,Source);[ordered]@{action='serial.inspect';port=$port;pnp=$pnp;serial=$serial;python=$py}|ConvertTo-Json -Depth 5 -Compress`,
+    timeout_ms:15000
+   };
+  }else{
+   effectivePayload={};
+  }
+ }
+ const session=safe(b.session_id)||crypto.randomUUID();
+ const cid=crypto.randomUUID();
+ const plan={schema:"mel.devices.pc-control.v1",owner_authorized:true,steps:[{id:"pc-control-1",action:effectiveAction,payload:effectivePayload}]};
+ await env.DB.prepare("INSERT INTO computer_commands(id,device_id,session_id,plan_json,status,created_at) VALUES(?,?,?,?,?,?)")
+  .bind(cid,device.id,session,JSON.stringify(plan),"PENDING",Date.now()).run();
+ return json({ok:true,command_id:cid,status:"PENDING",action,device_id:device.id},202);
+}
 
 async function ownerSovereigntyCommand(request,env){
  const a=requireAuth(request,env);if(!a.ok)return a.response;await tables(env);
@@ -272,25 +348,47 @@ async function heartbeat(request,env,a){
  const b=await request.json().catch(()=>({}));
  const row=await env.DB.prepare("SELECT metadata FROM computer_devices WHERE id=? LIMIT 1").bind(a.device.id).first();
  let metadata={};try{metadata=JSON.parse(row?.metadata||"{}")}catch{}
+ const now=Date.now();
  const patch={};
  if(b.version!==undefined)patch.version=b.version||null;
  if(b.engine_version!==undefined)patch.engine_version=b.engine_version||null;
- if(b.engine_heartbeat_at!==undefined&&Number.isFinite(Number(b.engine_heartbeat_at)))patch.engine_heartbeat_at=Number(b.engine_heartbeat_at);
+ if(b.engine_refresh_status!==undefined)patch.engine_refresh_status=safe(b.engine_refresh_status,80)||null;
+ if(b.engine_refresh_at!==undefined&&Number.isFinite(Number(b.engine_refresh_at)))patch.engine_refresh_at=Number(b.engine_refresh_at);
+ if(b.engine_refresh_error!==undefined)patch.engine_refresh_error=safe(b.engine_refresh_error,180)||null;
+ if(b.engine_heartbeat_at!==undefined&&Number.isFinite(Number(b.engine_heartbeat_at))){
+   patch.engine_heartbeat_at=Number(b.engine_heartbeat_at);
+ }else if(
+   b.version!==undefined
+   && typeof b.hostname==="string" && b.hostname.trim()
+   && b.screen && typeof b.screen==="object"
+ ){
+   // Native Windows Companion heartbeats are emitted only after
+   // EnsureCompanion() supervises the authenticated PowerShell engine.
+   // Treat that authenticated supervisor heartbeat as fresh engine presence
+   // for compatibility with already-installed native clients.
+   patch.engine_heartbeat_at=now;
+ }
  if(b.hostname!==undefined)patch.hostname=b.hostname||null;
  if(b.user!==undefined)patch.user=b.user||null;
  if(b.screen&&typeof b.screen==="object")patch.screen=b.screen;
  if(b.active_window!==undefined)patch.active_window=b.active_window||null;
  metadata={...metadata,...patch};
- const now=Date.now();
  await env.DB.prepare("UPDATE computer_devices SET last_seen_at=?,metadata=? WHERE id=?").bind(now,JSON.stringify(metadata),a.device.id).run();
  const engineHeartbeatAt=Number(metadata.engine_heartbeat_at||0);
  const engineOnline=engineHeartbeatAt>0&&now-engineHeartbeatAt<35000;
+ const engineVersion=safe(metadata.engine_version,80)||null;
+ const engineUpdateRequired=!versionAtLeast(engineVersion,MIN_SOVEREIGN_AI_ENGINE_VERSION);
  return json({
    ok:true,
    server_time:now,
    engine_online:engineOnline,
-   engine_version:safe(metadata.engine_version,80)||null,
-   engine_last_seen_at:engineHeartbeatAt||null
+   engine_version:engineVersion,
+   engine_last_seen_at:engineHeartbeatAt||null,
+   required_engine_version:MIN_SOVEREIGN_AI_ENGINE_VERSION,
+   engine_update_required:engineUpdateRequired,
+   engine_refresh_status:safe(metadata.engine_refresh_status,80)||null,
+   engine_refresh_at:Number(metadata.engine_refresh_at||0)||null,
+   engine_refresh_error:safe(metadata.engine_refresh_error,180)||null
  })
 }
 async function claim(env,a){if(a.device.halted)return json({ok:true,halted:true,command:null});const r=await env.DB.prepare("SELECT * FROM computer_commands WHERE device_id=? AND status=? ORDER BY created_at ASC LIMIT 1").bind(a.device.id,"PENDING").first();if(!r)return json({ok:true,halted:false,command:null});await env.DB.prepare("UPDATE computer_commands SET status=?,claimed_at=? WHERE id=? AND status=?").bind("RUNNING",Date.now(),r.id,"PENDING").run();return json({ok:true,halted:false,command:{id:r.id,session_id:r.session_id,plan:parse(r.plan_json,{})}})}
@@ -308,6 +406,7 @@ export async function maybeHandleComputerApi(request,env){
  if(url.pathname===COMPUTER_ROUTES.resume&&request.method==="POST")return ownerHalt(request,env,false);
  if(url.pathname===COMPUTER_ROUTES.power&&request.method==="POST")return ownerPower(request,env);
  if(url.pathname===COMPUTER_ROUTES.sovereigntyCommand&&request.method==="POST")return ownerSovereigntyCommand(request,env);
+ if(url.pathname===COMPUTER_ROUTES.pcControl&&request.method==="POST")return ownerPcControl(request,env);
  if(url.pathname===COMPUTER_ROUTES.installer&&request.method==="GET")return asset(request,env,"MEL-Computer-Setup.ps1");
  if(url.pathname===COMPUTER_ROUTES.companion&&request.method==="GET")return asset(request,env,"MEL-Computer-Companion.ps1",{allowDevice:true});
  if(url.pathname===COMPUTER_ROUTES.screenshot&&request.method==="GET")return screenshotView(request,env,url);

@@ -95,11 +95,17 @@ export function eligibleAlternatives(registry,layer,{maxAddedCostEur=0,now=Date.
   });
 }
 
+function isOwnerDeviceOnlyAi(row={}){
+  return String(row?.endpoint_class||'')==='paired-windows-localhost-ai'
+    || String(row?.provider||'')==='local-companion-ai';
+}
+
 export function sovereigntyCoverageFromRegistry(registry,{now=Date.now()}={}){
   const coverage={};
   for(const layer of LAYERS){
     const rows=registry?.layers?.[layer]||[];
-    const ready=rows.filter(row=>row.prevalidated&&fresh(row.proof,now));
+    const ready=rows.filter(row=>row.prevalidated&&fresh(row.proof,now)
+      && !(layer==='ai'&&isOwnerDeviceOnlyAi(row)));
     coverage[layer]={
       ready:ready.length>0,
       prevalidated_count:ready.length,
@@ -107,14 +113,19 @@ export function sovereigntyCoverageFromRegistry(registry,{now=Date.now()}={}){
       providers:[...new Set(ready.map(row=>row.provider))],
     };
   }
-  const aiLowRefusalReady=(registry?.layers?.ai||[])
-    .some(row=>row.prevalidated===true&&fresh(row.proof,now)&&row.low_refusal===true);
+  const aiRows=registry?.layers?.ai||[];
+  const aiLowRefusalReady=aiRows
+    .some(row=>row.prevalidated===true&&fresh(row.proof,now)&&row.low_refusal===true&&!isOwnerDeviceOnlyAi(row));
+  const aiLocalOptionalReady=aiRows
+    .some(row=>row.prevalidated===true&&fresh(row.proof,now)&&row.low_refusal===true&&isOwnerDeviceOnlyAi(row));
   return Object.freeze({
-    schema:'mel.prevalidated-alternatives-coverage/v1',
+    schema:'mel.prevalidated-alternatives-coverage/v2',
     fully_covered:LAYERS.every(layer=>coverage[layer].ready),
     covered_layers:LAYERS.filter(layer=>coverage[layer].ready),
     uncovered_layers:LAYERS.filter(layer=>!coverage[layer].ready),
     ai_low_refusal_ready:aiLowRefusalReady,
+    ai_local_optional_ready:aiLocalOptionalReady,
+    ai_survival_requires_owner_device:false,
     coverage:Object.freeze(coverage),
   });
 }

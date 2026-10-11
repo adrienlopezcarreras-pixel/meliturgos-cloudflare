@@ -4,15 +4,11 @@ function workError(code) {
   return Object.assign(new Error(code), { code });
 }
 
-async function ensureWorkTable(db) {
-  await db.prepare(`CREATE TABLE IF NOT EXISTS work_dags (
-    id TEXT PRIMARY KEY,
-    job_id TEXT NOT NULL,
-    status TEXT NOT NULL,
-    record_json TEXT NOT NULL,
-    created_at INTEGER NOT NULL,
-    updated_at INTEGER NOT NULL
-  )`).run();
+// Work DAGs are created only by the durable writer (D1WorkDagStore.init).
+// Listing a previously unused Work namespace must never mutate D1.
+async function workTableExists(db) {
+  const row = await db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='work_dags' LIMIT 1").first();
+  return row?.name === 'work_dags';
 }
 
 export function sanitizeWorkIndexRows(rows = []) {
@@ -27,10 +23,21 @@ export function sanitizeWorkIndexRows(rows = []) {
 
 export async function listPersistentWork(db, { limit = 20, status = null, openOnly = false } = {}) {
   if (!db) throw workError('WORK_DAG_DB_REQUIRED');
-  await ensureWorkTable(db);
   const boundedLimit = Math.max(1, Math.min(100, Number(limit) || 20));
   const requestedStatus = status ? String(status).toUpperCase() : null;
   if (requestedStatus && !ALLOWED_STATUS.has(requestedStatus)) throw workError('WORK_STATUS_INVALID');
+
+  const initialized = await workTableExists(db);
+  if (!initialized) {
+    return {
+      ok: true,
+      open_only: Boolean(openOnly),
+      filter_status: requestedStatus,
+      count: 0,
+      work: [],
+      store_initialized: false,
+    };
+  }
 
   let sql = 'SELECT id,job_id,status,created_at,updated_at FROM work_dags';
   const values = [];
@@ -51,11 +58,12 @@ export async function listPersistentWork(db, { limit = 20, status = null, openOn
     filter_status: requestedStatus,
     count: work.length,
     work,
+    store_initialized: true,
   };
 }
 
 export function registerWorkIntrospectionCapabilities(bus, env = {}) {
-  const health = env.DB ? 'HEALTHY' : 'DEGRADED';
+  const health = env.DB ? 'HEALTHY' : 'UNAVAILABLE';
   const listSchema = {
     type: 'object',
     properties: {

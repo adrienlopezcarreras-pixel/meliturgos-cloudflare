@@ -69,7 +69,7 @@ jobs:
             > oauth-table.raw.json
           if grep -q 'mel_oauth_tokens' oauth-table.raw.json; then
             npx wrangler d1 execute DB --remote --json \
-              --command "SELECT connector_id,COUNT(*) AS token_rows,MAX(updated_at) AS updated_at FROM mel_oauth_tokens WHERE connector_id IN ('gmail','google-calendar','google-tasks') GROUP BY connector_id ORDER BY connector_id" \
+              --command "SELECT connector_id,COUNT(*) AS token_rows,MAX(updated_at) AS updated_at FROM mel_oauth_tokens WHERE connector_id IN ('gmail','google-calendar','google-tasks','google-drive') GROUP BY connector_id ORDER BY connector_id" \
               > oauth-token-metadata.raw.json
           else
             printf '[]\n' > oauth-token-metadata.raw.json
@@ -132,17 +132,23 @@ jobs:
               'GOOGLE_OAUTH_CLIENT_SECRET',
               'MEL_OAUTH_ENCRYPTION_KEY_ID',
               'MEL_OAUTH_ENCRYPTION_KEY_B64',
+              'MEL_BACKUP_ENCRYPTION_KEY_ID',
+              'MEL_BACKUP_ENCRYPTION_KEY_B64',
           ]
           secret_presence = {name: name in secret_names for name in required_secret_names}
           connectors = {
               name: tokens.get(name, {'present': False, 'updated_at': None})
-              for name in ('gmail', 'google-calendar', 'google-tasks')
+              for name in ('gmail', 'google-calendar', 'google-tasks', 'google-drive')
           }
 
           oauth_app_ready = secret_presence['GOOGLE_OAUTH_CLIENT_ID'] and secret_presence['GOOGLE_OAUTH_CLIENT_SECRET']
-          vault_crypto_ready = secret_presence['MEL_OAUTH_ENCRYPTION_KEY_ID'] and secret_presence['MEL_OAUTH_ENCRYPTION_KEY_B64']
+          dedicated_vault_crypto_ready = secret_presence['MEL_OAUTH_ENCRYPTION_KEY_ID'] and secret_presence['MEL_OAUTH_ENCRYPTION_KEY_B64']
+          backup_vault_crypto_ready = secret_presence['MEL_BACKUP_ENCRYPTION_KEY_ID'] and secret_presence['MEL_BACKUP_ENCRYPTION_KEY_B64']
+          vault_crypto_ready = dedicated_vault_crypto_ready or backup_vault_crypto_ready
+          vault_crypto_source = 'dedicated_oauth_key' if dedicated_vault_crypto_ready else ('backup_derived' if backup_vault_crypto_ready else 'none')
           vault_table_present = any(str(row.get('name') or '') == 'mel_oauth_tokens' for row in table_rows)
           connected_count = sum(1 for row in connectors.values() if row['present'])
+          shared_google_grant_present = connected_count >= 1
 
           if not oauth_app_ready:
               status = 'BLOCKED_HUMAN_OAUTH_APP_CREDENTIALS_MISSING'
@@ -150,7 +156,7 @@ jobs:
               status = 'BLOCKED_CONFIGURATION_OAUTH_VAULT_KEY_MISSING'
           elif not vault_table_present:
               status = 'BLOCKED_CONFIGURATION_OAUTH_VAULT_TABLE_MISSING'
-          elif connected_count < 3:
+          elif not shared_google_grant_present:
               status = 'BLOCKED_HUMAN_GOOGLE_CONSENT_INCOMPLETE'
           else:
               status = 'READY_FOR_LIVE_GOOGLE_API_PROBES'
@@ -162,10 +168,14 @@ jobs:
               'status': status,
               'oauth_app_ready': oauth_app_ready,
               'vault_crypto_ready': vault_crypto_ready,
+              'vault_crypto_source': vault_crypto_source,
+              'dedicated_vault_crypto_ready': dedicated_vault_crypto_ready,
+              'backup_vault_crypto_ready': backup_vault_crypto_ready,
               'vault_table_present': vault_table_present,
               'secret_presence': secret_presence,
               'connectors': connectors,
               'connected_count': connected_count,
+              'shared_google_grant_present': shared_google_grant_present,
               'rules': {
                   'secret_values_exposed': False,
                   'token_values_exposed': False,
@@ -185,9 +195,9 @@ jobs:
                   h.write('### GEN2-33 Google OAuth proof\n\n')
                   h.write(f'- Status: **{status}**\n')
                   h.write(f'- OAuth app credentials present: {oauth_app_ready}\n')
-                  h.write(f'- OAuth vault crypto present: {vault_crypto_ready}\n')
+                  h.write(f'- OAuth vault crypto present: {vault_crypto_ready} ({vault_crypto_source})\n')
                   h.write(f'- OAuth token table present: {vault_table_present}\n')
-                  h.write(f'- Persisted Google connectors: {connected_count}/3\n')
+                  h.write(f'- Persisted Google connector rows: {connected_count}/4 (a single shared grant is valid)\n')
           PY
 
       - name: Upload sanitized proof

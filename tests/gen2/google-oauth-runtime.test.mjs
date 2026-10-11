@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
-import { createGoogleOAuthRuntime } from '../../src/connectors/google-oauth-runtime.js';
+import { createGoogleAccessTokenResolver, createGoogleOAuthRuntime } from '../../src/connectors/google-oauth-runtime.js';
 import { maybeHandleGoogleOAuthApi } from '../../src/api/google-oauth-api.js';
 
 class TransactionVault {
@@ -91,8 +91,8 @@ function fixture() {
             'https://www.googleapis.com/auth/gmail.readonly',
             'https://www.googleapis.com/auth/gmail.compose',
             'https://www.googleapis.com/auth/gmail.send',
-            'https://www.googleapis.com/auth/calendar.events.readonly',
-            'https://www.googleapis.com/auth/tasks.readonly',
+            'https://www.googleapis.com/auth/calendar.events',
+            'https://www.googleapis.com/auth/tasks',
           ].join(' '),
         });
       }
@@ -165,6 +165,32 @@ test('Google OAuth callback stores tokens in vault but returns only safe status'
   assert.equal(JSON.stringify(status).includes('refresh-secret'), false);
 });
 
+test('Google refresh accepts the shared read-only Calendar and Tasks scopes already present in an existing Gmail grant', async () => {
+  const { runtime, vaults } = fixture();
+  await vaults.tokenVault.put({
+    owner: 'adrien',
+    connector_id: 'gmail',
+    token_set: {
+      access_token: 'expired-access',
+      refresh_token: 'refresh-secret-1',
+      token_type: 'Bearer',
+      scopes: [
+        'https://www.googleapis.com/auth/gmail.readonly',
+        'https://www.googleapis.com/auth/gmail.compose',
+        'https://www.googleapis.com/auth/gmail.send',
+        'https://www.googleapis.com/auth/calendar.events.readonly',
+        'https://www.googleapis.com/auth/tasks.readonly',
+      ],
+      expires_at: Date.now() - 1,
+    },
+  });
+  const token = await runtime.accessTokenResolver('gmail', { owner: 'adrien' });
+  assert.equal(token, 'access-secret-2');
+  const stored = await vaults.tokenVault.get({ owner: 'adrien', connector_id: 'gmail' });
+  assert.equal(stored.scopes.includes('https://www.googleapis.com/auth/calendar.events.readonly'), true);
+  assert.equal(stored.scopes.includes('https://www.googleapis.com/auth/tasks.readonly'), true);
+});
+
 test('Google access-token resolver automatically refreshes an expiring token', async () => {
   const { runtime, vaults, calls } = fixture();
   await vaults.tokenVault.put({
@@ -191,6 +217,41 @@ test('Google access-token resolver automatically refreshes an expiring token', a
   }), true);
 });
 
+test('Google Drive refreshes an expired shared Gmail grant instead of requiring re-consent', async () => {
+  const { runtime, vaults, calls } = fixture();
+  await vaults.tokenVault.put({
+    owner: 'adrien',
+    connector_id: 'gmail',
+    token_set: {
+      access_token: 'expired-shared-access',
+      refresh_token: 'shared-google-refresh',
+      token_type: 'Bearer',
+      scopes: [
+        'https://www.googleapis.com/auth/gmail.readonly',
+        'https://www.googleapis.com/auth/drive.file',
+      ],
+      expires_at: Date.now() - 1,
+    },
+  });
+
+  const status = await runtime.status('google-drive', { owner: 'adrien' });
+  assert.equal(status.authorized, true);
+  assert.equal(status.refreshable, true);
+  assert.equal(status.token_source, 'shared_google_grant');
+
+  const token = await runtime.accessTokenResolver('google-drive', { owner: 'adrien' });
+  assert.equal(token, 'access-secret-2');
+  assert.equal(calls.some(call => {
+    if (call.url !== 'https://oauth2.googleapis.com/token') return false;
+    const form = new URLSearchParams(String(call.init.body || ''));
+    return form.get('grant_type') === 'refresh_token';
+  }), true);
+
+  const stored = await vaults.tokenVault.get({ owner: 'adrien', connector_id: 'gmail' });
+  assert.equal(stored.refresh_token, 'shared-google-refresh');
+  assert.equal(stored.scopes.includes('https://www.googleapis.com/auth/drive.file'), true);
+});
+
 test('Google access-token resolver reuses another Google token only when target required scopes are granted', async () => {
   const { runtime, vaults } = fixture();
   await vaults.tokenVault.put({
@@ -202,8 +263,9 @@ test('Google access-token resolver reuses another Google token only when target 
       token_type: 'Bearer',
       scopes: [
         'https://www.googleapis.com/auth/gmail.readonly',
-        'https://www.googleapis.com/auth/calendar.events.readonly',
-        'https://www.googleapis.com/auth/tasks.readonly',
+        'https://www.googleapis.com/auth/calendar.events',
+        'https://www.googleapis.com/auth/tasks',
+        'https://www.googleapis.com/auth/drive.file',
       ],
       expires_at: Date.now() + 300_000,
     },
@@ -217,6 +279,15 @@ test('Google access-token resolver reuses another Google token only when target 
     await runtime.accessTokenResolver('google-tasks', { owner: 'adrien' }),
     'shared-google-access',
   );
+  assert.equal(
+    await runtime.accessTokenResolver('google-drive', { owner: 'adrien' }),
+    'shared-google-access',
+  );
+  const tasksStatus = await runtime.status('google-tasks', { owner: 'adrien' });
+  assert.equal(tasksStatus.authorized, true);
+  assert.equal(tasksStatus.token_source, 'shared_google_grant');
+  assert.equal(tasksStatus.scopes.includes('https://www.googleapis.com/auth/tasks'), true);
+  assert.equal(JSON.stringify(tasksStatus).includes('shared-google-access'), false);
 
   await vaults.tokenVault.put({
     owner: 'adrien',
@@ -235,7 +306,7 @@ test('Google access-token resolver reuses another Google token only when target 
   );
 });
 
-test('Gmail full-access API requests the shared Google suite read scopes', async () => {
+test('Gmail full-access API requests the shared Google suite read/write scopes', async () => {
   const f = fixture();
   const request = new Request('https://mel.example/api/gen2/oauth/google/gmail/begin', {
     method: 'POST',
@@ -247,10 +318,13 @@ test('Gmail full-access API requests the shared Google suite read scopes', async
   const body = await response.json();
   assert.equal(body.ok, true);
   assert.deepEqual(body.scopes, [
+    'https://www.googleapis.com/auth/calendar.events',
     'https://www.googleapis.com/auth/calendar.events.readonly',
+    'https://www.googleapis.com/auth/drive.file',
     'https://www.googleapis.com/auth/gmail.compose',
     'https://www.googleapis.com/auth/gmail.readonly',
     'https://www.googleapis.com/auth/gmail.send',
+    'https://www.googleapis.com/auth/tasks',
     'https://www.googleapis.com/auth/tasks.readonly',
   ]);
 });
@@ -359,5 +433,37 @@ test('Google OAuth API derives public origin from the live HTTPS request when Wo
   assert.equal(
     authorization.searchParams.get('redirect_uri'),
     'https://meliturgos.example/api/gen2/oauth/google/gmail/callback',
+  );
+});
+
+
+test('Google capability token resolver accepts the canonical backup-derived OAuth vault', async () => {
+  const calls = [];
+  const vaults = {
+    accessTokenResolver() {
+      return async (connectorId, context) => {
+        calls.push({ connectorId, owner: context.owner });
+        return 'vault-access-token';
+      };
+    },
+  };
+  const resolver = createGoogleAccessTokenResolver({
+    DB: {},
+    MEL_BACKUP_ENCRYPTION_KEY_ID: 'backup-key-v1',
+    MEL_BACKUP_ENCRYPTION_KEY_B64: Buffer.alloc(32, 7).toString('base64'),
+  }, { vaults });
+
+  assert.equal(typeof resolver, 'function');
+  assert.equal(await resolver('gmail', { owner: 'adrien' }), 'vault-access-token');
+  assert.deepEqual(calls, [{ connectorId: 'gmail', owner: 'adrien' }]);
+});
+
+test('Google capability token resolver fails closed on partial backup-vault configuration', () => {
+  assert.throws(
+    () => createGoogleAccessTokenResolver({
+      DB: {},
+      MEL_BACKUP_ENCRYPTION_KEY_ID: 'backup-key-v1',
+    }),
+    /OAUTH_VAULT_RECOVERY_CONFIGURATION_INCOMPLETE/,
   );
 });

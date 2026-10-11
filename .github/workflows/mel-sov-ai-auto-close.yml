@@ -1,0 +1,207 @@
+name: MEL SOV AI auto-close
+
+on:
+  schedule:
+    - cron: '11 * * * *'
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/mel-sov-ai-auto-close.yml'
+      - 'src/portability/**'
+      - 'src/evolution/release-launch-bootstrap.js'
+      - 'tests/gen2/sov-ai-auto-close.test.mjs'
+
+permissions:
+  contents: read
+  actions: read
+  id-token: write
+
+concurrency:
+  group: mel-sov-ai-auto-close
+  cancel-in-progress: false
+
+jobs:
+  close-ai-gap:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      GH_TOKEN: ${{ github.token }}
+      BASE_URL: https://meliturgos.adrien-lopezcarreras.workers.dev
+    steps:
+      - name: Close only the remaining AI sovereignty gap
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          release_transition_active() {
+            gh api "repos/$GITHUB_REPOSITORY/actions/workflows/deploy-cloudflare-release.yml/runs?per_page=20" > release-transition.json
+            node - <<'NODE'
+          const d=require('./release-transition.json');
+          const active=(d.workflow_runs||[]).some(r=>['queued','in_progress','waiting','pending'].includes(String(r?.status||'')));
+          process.exit(active?0:1);
+          NODE
+          }
+
+          if release_transition_active; then
+            echo "MEL_SOV_AI_SUPERSEDED_BY_ACTIVE_RELEASE"
+            exit 0
+          fi
+
+          OIDC_RESPONSE="$(curl --silent --show-error --fail --retry 3 --retry-all-errors --retry-delay 2 --max-time 30 \
+            --header "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=meliturgos-worker")"
+          OIDC_TOKEN="$(printf '%s' "${OIDC_RESPONSE}" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const j=JSON.parse(s);if(!j.value)process.exit(2);process.stdout.write(j.value)})')"
+          echo "::add-mask::${OIDC_TOKEN}"
+
+          call_proof() {
+            local url="$1"
+            local file="$2"
+            curl --silent --show-error --max-time 150 \
+              --header "x-mel-github-oidc: ${OIDC_TOKEN}" \
+              --header "content-type: application/json" \
+              --data '{"phase":"sovereignty-proof"}' \
+              --output "$file" --write-out '%{http_code}' \
+              "$url" || true
+          }
+
+          reason_from() {
+            local file="$1"
+            FILE="$file" node - <<'NODE'
+          const fs=require('fs');let d={};try{d=JSON.parse(fs.readFileSync(process.env.FILE,'utf8'))}catch{}
+          process.stdout.write(String(d?.refresh?.reason||d?.refresh?.status||d?.code||d?.status||'UNKNOWN').slice(0,180));
+          NODE
+          }
+
+          BEFORE_CODE="$(call_proof "$BASE_URL/api/internal/release-launch-bootstrap" sov-before.json)"
+          if [ "$BEFORE_CODE" != "200" ]; then
+            BEFORE_REASON="$(reason_from sov-before.json)"
+            if release_transition_active; then
+              echo "MEL_SOV_AI_SUPERSEDED_BY_ACTIVE_RELEASE"
+              exit 0
+            fi
+            if [ "${GITHUB_EVENT_NAME}" = "push" ] && [ "$BEFORE_CODE" = "401" ] && [ "$BEFORE_REASON" = "BOOTSTRAP_AUTH_REQUIRED" ]; then
+              echo "MEL_SOV_AI_WAITING_FOR_OIDC_PRODUCTION_DEPLOYMENT"
+              exit 0
+            fi
+            echo "MEL_SOV_AI_INITIAL_PROOF_FAILED http=$BEFORE_CODE reason=$BEFORE_REASON"
+            test ! -s sov-before.json || cat sov-before.json
+            exit 46
+          fi
+
+          TARGET_SHA="$(node - <<'NODE'
+          const d=require('./sov-before.json');
+          const sha=String(d?.deployed_sha||'').toLowerCase();
+          if(!/^[0-9a-f]{40}$/.test(sha)) throw new Error('SOV_DEPLOYED_SHA_INVALID');
+          process.stdout.write(sha);
+          NODE
+          )"
+          echo "TARGET_SHA=$TARGET_SHA" >> "$GITHUB_ENV"
+
+          read_state() {
+            local file="$1"
+            TARGET_SHA="$TARGET_SHA" FILE="$file" node - <<'NODE'
+          const fs=require('fs');
+          let d={};
+          try{d=JSON.parse(fs.readFileSync(process.env.FILE,'utf8'))}catch{}
+          const expected=String(process.env.TARGET_SHA||'').toLowerCase();
+          const exact=String(d?.deployed_sha||'').toLowerCase()===expected;
+          console.log('SOV_DONE='+(d?.done_verified_eligible===true&&exact?'1':'0'));
+          console.log('AI_LOW_REFUSAL_READY='+(d?.ai_low_refusal_ready===true?'1':'0'));
+          console.log('SOV_STATUS='+String(d?.status||d?.code||'UNKNOWN').replace(/[^A-Za-z0-9_.:-]/g,'_').slice(0,180));
+          NODE
+          }
+
+          read_state sov-before.json > sov-before.env
+          . ./sov-before.env
+
+          if [ "$SOV_DONE" = "1" ]; then
+            echo "MEL_SOV_AI_ALREADY_CLOSED sha=$TARGET_SHA"
+            exit 0
+          fi
+
+          AI_REFRESH_OK=0
+          CONFIGURED_AI_REASON="NOT_ATTEMPTED"
+
+          # Survival invariant: never require or auto-start an owner PC to close
+          # the global AI sovereignty gate. The Windows/Ollama path remains an
+          # optional local accelerator, never an auto-close dependency.
+          if [ "$AI_LOW_REFUSAL_READY" = "1" ]; then
+            echo "MEL_SOV_AI_ALWAYS_ON_LOW_REFUSAL_ALREADY_READY"
+            AI_REFRESH_OK=1
+          else
+            CONFIGURED_AI_CODE="$(call_proof "$BASE_URL/api/internal/release-launch-bootstrap?refresh=ai" sov-ai-configured.json)"
+            CONFIGURED_AI_REASON="$(reason_from sov-ai-configured.json)"
+            if [ "$CONFIGURED_AI_CODE" != "200" ] && release_transition_active; then
+              echo "MEL_SOV_AI_SUPERSEDED_BY_ACTIVE_RELEASE"
+              exit 0
+            fi
+
+            if [ "$CONFIGURED_AI_CODE" = "200" ]; then
+              TARGET_SHA="$TARGET_SHA" node - <<'NODE'
+          const d=require('./sov-ai-configured.json');
+          const expected=String(process.env.TARGET_SHA||'').toLowerCase();
+          if(d?.ok!==true||d?.status!=='MEL_SOV_01_REFRESH_STEP_VERIFIED') throw new Error('AI_CONFIGURED_REFRESH_NOT_VERIFIED');
+          if(String(d?.deployed_sha||'').toLowerCase()!==expected) throw new Error('AI_CONFIGURED_REFRESH_SHA_CHANGED');
+          if(d?.secret_values_exposed!==false||d?.autonomy_started!==false) throw new Error('AI_CONFIGURED_REFRESH_SAFETY_FAILED');
+          NODE
+              AI_REFRESH_OK=1
+              echo "MEL_SOV_AI_ALWAYS_ON_PREVALIDATED"
+            else
+              echo "MEL_SOV_AI_ALWAYS_ON_NOT_READY http=$CONFIGURED_AI_CODE reason=$CONFIGURED_AI_REASON"
+            fi
+          fi
+
+          if [ "$AI_REFRESH_OK" != "1" ]; then
+            echo "MEL_SOV_AI_ALWAYS_ON_ALTERNATIVE_REQUIRED configured_reason=$CONFIGURED_AI_REASON"
+            echo "MEL_SOV_AI_LOCAL_OPTIONAL_NOT_AUTO_STARTED"
+            exit 47
+          fi
+
+          FINAL_CODE="$(call_proof "$BASE_URL/api/internal/release-launch-bootstrap" sov-final.json)"
+          FINAL_REASON="$(reason_from sov-final.json)"
+          if [ "$FINAL_CODE" != "200" ] && release_transition_active; then
+            echo "MEL_SOV_AI_SUPERSEDED_BY_ACTIVE_RELEASE"
+            exit 0
+          fi
+
+          TARGET_SHA="$TARGET_SHA" FINAL_CODE="$FINAL_CODE" node - <<'NODE'
+          const d=require('./sov-final.json');
+          const expected=String(process.env.TARGET_SHA||'').toLowerCase();
+          const ok=Number(process.env.FINAL_CODE)===200
+            && d?.ok===true
+            && d?.status==='MEL_SOV_01_DONE_VERIFIED_ELIGIBLE'
+            && d?.done_verified_eligible===true
+            && d?.ai_low_refusal_ready===true
+            && Number(d?.ready_layer_count||0)===10
+            && Number(d?.layer_count||0)===10
+            && String(d?.deployed_sha||'').toLowerCase()===expected
+            && d?.secret_values_exposed===false
+            && d?.autonomy_started===false;
+          if(!ok){
+            console.error('MEL_SOV_AI_FINAL_GATE_NOT_CLOSED',JSON.stringify({
+              http:Number(process.env.FINAL_CODE),
+              status:d?.status||d?.code||null,
+              done_verified_eligible:d?.done_verified_eligible===true,
+              ai_low_refusal_ready:d?.ai_low_refusal_ready===true,
+              ready_layer_count:Number(d?.ready_layer_count||0),
+              layer_count:Number(d?.layer_count||0),
+              deployed_sha:String(d?.deployed_sha||'').toLowerCase(),
+              expected_sha:expected,
+            }));
+            process.exit(45);
+          }
+          console.log('MEL_SOV_AI_CLOSED_10_OF_10');
+          NODE
+      - name: Summary
+        if: always()
+        shell: bash
+        run: |
+          echo '### MEL SOV AI auto-close' >> "$GITHUB_STEP_SUMMARY"
+          echo '- Scope: AI layer only' >> "$GITHUB_STEP_SUMMARY"
+          echo '- Non-AI layers are not revalidated here' >> "$GITHUB_STEP_SUMMARY"
+          echo '- Owner-PC / Ollama is optional and is never auto-started by this gate' >> "$GITHUB_STEP_SUMMARY"
+          echo '- Global AI coverage requires an always-on prevalidated alternative' >> "$GITHUB_STEP_SUMMARY"
+          echo '- The workflow fails if SOV 10/10 is not actually closed' >> "$GITHUB_STEP_SUMMARY"
+          echo '- Green means MEL_SOV_AI_CLOSED_10_OF_10 or already closed without owner-device dependency' >> "$GITHUB_STEP_SUMMARY"

@@ -14,12 +14,12 @@ test('full mode exposes phone-only autonomy controls without replacing desktop l
   assert.match(html, /id="mobileMaxAutonomy"/);
   assert.match(html, /id="mobileStartCycle"/);
   assert.match(html, /id="mobilePauseAutonomy"/);
-  assert.match(html, /id="mobileResumeAutonomy"/);
+  assert.doesNotMatch(html, /id="mobileResumeAutonomy"/);
   assert.match(html, /id="mobileActivityAutonomy"/);
   assert.match(html, /\/api\/gen2\/autonomy\/max/);
   assert.match(html, /\/api\/gen2\/autonomy\/tick/);
   assert.match(html, /\/api\/gen2\/autonomy\/pause/);
-  assert.match(html, /\/api\/gen2\/autonomy\/resume/);
+  assert.match(html, /mobilePause[^\n]*\/api\/gen2\/autonomy\/resume/);
   assert.match(html, /\.mobile-home-controls\{display:none\}/);
   assert.match(html, /@media\(max-width:960px\)[\s\S]*\.mobile-home-controls\{display:grid/);
   assert.match(html, /production verrouillée/i);

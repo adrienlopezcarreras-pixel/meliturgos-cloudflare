@@ -175,3 +175,17 @@ test('GEN2-55 does not require sync checkpoint device ids to be pre-registered',
     assert.equal(result.checks.find(check=>check.id==='sync_checkpoints.message_conversation_pair').status,'PASS');
   } finally { db.close(); }
 });
+
+test('bounded concurrent integrity checks keep complete deterministic check ordering', async () => {
+  const { sqliteD1 } = await import('./helpers/sqlite-d1.mjs');
+  const { prepareGen2 } = await import('../src/persistence/gen2-schema.js');
+  const db = sqliteD1();
+  await prepareGen2(db);
+  const first = await auditDataIntegrity(db);
+  const second = await auditDataIntegrity(db);
+  assert.deepEqual(first.checks.map(x => x.id), second.checks.map(x => x.id));
+  assert.equal(first.summary.total, first.checks.length);
+  assert.equal(new Set(first.checks.map(x => x.id)).size, first.checks.length);
+  assert.ok(first.checks.some(x => x.id === 'archive_messages.conversation'));
+  assert.ok(first.checks.some(x => x.id === 'lora_training_events.payload_json'));
+});

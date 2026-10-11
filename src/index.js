@@ -13,10 +13,12 @@ import { runEcosystemCapabilityWatch } from "./evaluation/capability-watch-runti
 import { runDependencyLongevityWatchRuntime } from "./evaluation/dependency-longevity-watch-runtime.js";
 import { runSovereigntyReplacementWatchRuntime } from "./evaluation/sovereignty-watch-runtime.js";
 import { runConfiguredAiCandidateValidationRuntime } from "./portability/configured-ai-candidate-validation-runtime.js";
+import { runCompanionAiPrevalidationRuntime } from "./portability/companion-ai-prevalidation-runtime.js";
 import { runCompanionSourceControlPrevalidationRuntime } from "./portability/companion-source-control-prevalidation-runtime.js";
 import { runCompanionInfrastructurePrevalidationRuntime } from "./portability/companion-infrastructure-prevalidation-runtime.js";
 import { maybeHandleAutonomyApi } from "./evolution/autonomy-api.js";
 import { maybeHandleReleaseLaunchBootstrap } from "./evolution/release-launch-bootstrap.js";
+import { maybeHandleSovBackupDownload } from "./portability/google-drive-backup-restore-prevalidation-runtime.js";
 import { runLoraTrainingHeartbeat } from "./learning/lora-training-heartbeat.js";
 import { runMelSelfAuditSupervisor } from "./diagnostics/self-audit-supervisor.js";
 import { handleVoiceTranscription } from "./api/voice-transcribe.js";
@@ -409,6 +411,11 @@ async function fetchResolvedRequest(request, env, ctx) {
         if (releaseBootstrapResponse) return releaseBootstrapResponse;
       }
 
+      if (path === '/api/internal/sov-backup-download') {
+        const sovBackupDownloadResponse = await maybeHandleSovBackupDownload(request, env);
+        if (sovBackupDownloadResponse) return sovBackupDownloadResponse;
+      }
+
       if (path.startsWith('/api/teacher/')) {
         const publicTeacherResponse = await maybeHandlePublicTeacherBridge(request, env);
         if (publicTeacherResponse) return publicTeacherResponse;
@@ -565,6 +572,15 @@ export default {
             console.error('[MEL sovereignty] configured AI candidate validation failed:', error?.code || error?.message || error);
             return null;
           }),
+          runCompanionAiPrevalidationRuntime(env, { sourceSha: deployedWatchSourceSha() }).then((result) => {
+            if (result?.status === 'LOCAL_AI_SOVEREIGNTY_BLOCKED') {
+              console.error('[MEL sovereignty] local AI prevalidation blocked.');
+            }
+            return result;
+          }).catch((error) => {
+            console.error('[MEL sovereignty] local AI prevalidation failed:', error?.code || error?.message || error);
+            return null;
+          }),
           runCompanionSourceControlPrevalidationRuntime(env).then((result) => {
             if (result?.status === 'BLOCKED') {
               console.error('[MEL sovereignty] local Git prevalidation blocked.');
@@ -583,14 +599,14 @@ export default {
             console.error('[MEL sovereignty] local infrastructure prevalidation failed:', error?.code || error?.message || error);
             return null;
           }),
-          runShardVaultCycle(env).then((result) => {
+          runShardVaultCycle(env,{activeRegistryOnly:true}).then((result) => {
             if (result?.ok === false) console.error('[MEL ShardVault] cycle reported:', result.reason || result.error || 'NOT_OK');
             return result;
           }).catch((error) => {
             console.error('[MEL ShardVault] scheduled continuity cycle failed:', error?.code || error?.message || error);
             return null;
           }),
-          searchAutonomousShardVaultRepositories(env).then((result) => {
+          searchAutonomousShardVaultRepositories(env,{maxNewEndpoints:1,probeLimit:1,probeOffset:Math.floor(Date.now()/3600000)%13,knownCandidatesOnly:true}).then((result) => {
             if (result?.ok === false) console.error('[MEL ShardVault] hourly Internet discovery reported:', result.status || result.error || 'NOT_OK');
             return result;
           }).catch((error) => {

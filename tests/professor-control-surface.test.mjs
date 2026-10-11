@@ -5,7 +5,7 @@ import { readFile } from 'node:fs/promises';
 const read = (path) => readFile(new URL(`../${path}`, import.meta.url), 'utf8');
 
 const canonicalButtonHandlers = Object.freeze({
-  chatSend: ['#chatSend', 'sendChat'],
+  chatSend: ['#chatForm', 'sendChat'],
   refreshSkills: ['#refreshSkills', 'loadSkills'],
   multiRun: ['#multiRun', '/api/gen2/augmentio/fanout'],
   workCreate: ['#workCreate', '/api/work/jobs'],
@@ -160,4 +160,28 @@ test('IA and Work share one canonical surface and development tab loads Work on 
   assert.ok(!page.includes('mel-control-center-runtime'));
   assert.ok(page.includes("if(development){await loadWork().catch(()=>{})"));
   assert.ok(page.includes('/api/gen2/dashboard-summary'));
+});
+
+
+test('Compétences combines CapabilityBus, verified active Skill Registry and real XP', async () => {
+  const page = await read('src/pages/full-interface-v2.js');
+  for (const id of ['skillsHealthy','skillsProtected','skillsDegraded','skillsWaiting','skillsUnavailable','skillsFailed','skillsLearned','skillsXp','skillsLearnedList','skillsLearningState']) {
+    assert.ok(sourceHasHtmlId(page,id), `missing Compétences truth field #${id}`);
+  }
+  assert.ok(page.includes("id:'skill.list'"), 'Compétences must read the durable Skill Registry through CapabilityBus');
+  assert.ok(page.includes("active_only:true"), 'Compétences must only present active learned skills');
+  assert.ok(page.includes('/api/learning/progress'), 'Compétences must read real learning XP');
+  assert.ok(page.includes("row?.state==='verified'"), 'learned skill rendering must require verified state');
+  assert.ok(page.includes("['verified','pass']"), 'learned skill rendering must require passing evidence');
+  assert.ok(page.includes('ACTIVE · VÉRIFIÉE'), 'verified active skills must be labelled explicitly');
+  assert.ok(page.includes('Aucune compétence apprise active et vérifiée'), 'empty registry must fail closed instead of inventing skills');
+});
+
+
+test('connections UI isolates Google reconfiguration from the other provider cards', async()=>{
+  const source=await import('node:fs/promises').then(fs=>fs.readFile(new URL('../src/pages/full-interface-v2.js',import.meta.url),'utf8'));
+  assert.match(source,/id="googleAppConfig"/);
+  assert.match(source,/RECONNEXION REQUISE/);
+  assert.match(source,/Google doit être reconfiguré, mais les autres connexions restent indépendantes/);
+  assert.match(source,/details\.open=true/);
 });

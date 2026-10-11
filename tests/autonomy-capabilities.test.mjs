@@ -110,3 +110,31 @@ test('autonomy.bridge.status reads live local bridge heartbeat and READY package
     DB.close();
   }
 });
+
+test('persistent stress executes both bounded autonomy observation endpoints while paused', async () => {
+  const { auditRuntimeCapabilities, SAFE_SAMPLES } = await import('../src/diagnostics/capability-truth-audit.js');
+  assert.deepEqual(SAFE_SAMPLES['autonomy.bridge.status'], { limit: 1 });
+  assert.deepEqual(SAFE_SAMPLES['autonomy.activity'], { limit: 1 });
+  const DB = sqliteD1();
+  try {
+    const runtime = createGen2Runtime({ env: { DB } });
+    const pause = await runtime.bus.execute('autonomy.pause', { reason: 'stress-read-only-fixture' }, context);
+    const rows = await auditRuntimeCapabilities({ bus: runtime.bus }, {
+      deep: true,
+      recordIds: ['autonomy.bridge.status', 'autonomy.activity'],
+      executionTimeoutMs: 3000,
+      context,
+    });
+    assert.equal(rows.capabilities.length, 2);
+    for (const row of rows.capabilities) {
+      assert.equal(row.contract_valid, true, row.id);
+      assert.equal(row.auto_execution_blocked, null, row.id);
+      assert.equal(row.execution?.ok, true, row.id);
+      assert.equal(row.truth_status, 'EXISTANT_ET_TESTE', row.id);
+    }
+    const control = await runtime.bus.execute('autonomy.status', {}, context);
+    assert.equal(control.control.paused, true, 'inspection must not resume autonomy');
+  } finally {
+    DB.close();
+  }
+});

@@ -1,8 +1,21 @@
-import { requireAuth } from '../core/security.js';
+import { requireAuth, isReleaseSmokeRequest } from '../core/security.js';
 import { createEnvMediaVaultCodec } from '../media/media-vault-crypto.js';
+import {
+  MAX_INLINE_TRANSCRIPTION_BYTES,
+  WORKERS_AI_TRANSCRIPTION_MODEL,
+  transcribeAudioBytes,
+} from '../media/workers-ai-media-capabilities.js';
 
 const MAX_FILE_BYTES = 25_000_000;
 const DEFAULT_MEDIA_TTL_SECONDS = 7 * 24 * 60 * 60;
+
+function exactDeployedSha(env = {}) {
+  const defined = typeof MEL_DEPLOYED_GIT_SHA !== 'undefined'
+    ? String(MEL_DEPLOYED_GIT_SHA || '')
+    : '';
+  const candidate = String(defined || env?.MEL_DEPLOYED_GIT_SHA || '').trim().toLowerCase();
+  return /^[a-f0-9]{40}$/.test(candidate) ? candidate : '';
+}
 
 async function sha256Hex(bytes) {
   const digest = await crypto.subtle.digest('SHA-256', bytes);
@@ -53,6 +66,11 @@ function isImageLike(type, name) {
   return /^image\//i.test(type) || ['jpeg','jpg','png','webp','svg','gif','bmp'].includes(extension(name));
 }
 
+function isAudioLike(type, name) {
+  return /^audio\//i.test(type)
+    || ['mp3','wav','m4a','aac','ogg','oga','opus','webm','flac','mp4'].includes(extension(name));
+}
+
 function isRichConversionCandidate(type, name) {
   return RICH_CONVERSION_MIMES.has(String(type || '').toLowerCase())
     || RICH_CONVERSION_EXTENSIONS.has(extension(name));
@@ -77,6 +95,37 @@ function normalizeMarkdownConversionResult(value) {
   if (String(row.format || '').toLowerCase() === 'error') return null;
   const data = String(row.data || '').trim();
   return data ? data.slice(0, 120_000) : null;
+}
+
+async function transcribeUploadedAudio({ env, bytes, name, mime }) {
+  if (!isAudioLike(mime, name)) return { preview_text:null, analysis_status:null, analysis_provider:null };
+  if (bytes.byteLength > MAX_INLINE_TRANSCRIPTION_BYTES) {
+    return {
+      preview_text:null,
+      analysis_status:'AUDIO_TRANSCRIPTION_REQUIRES_CHUNKING',
+      analysis_provider:null,
+    };
+  }
+  try {
+    const result = await transcribeAudioBytes(env, bytes, {});
+    return {
+      preview_text:String(result?.text || '').slice(0, 120_000) || null,
+      analysis_status:result?.text ? 'AUDIO_TRANSCRIBED' : 'AUDIO_TRANSCRIPTION_EMPTY',
+      analysis_provider:result?.text ? WORKERS_AI_TRANSCRIPTION_MODEL : null,
+    };
+  } catch (error) {
+    const code = String(error?.code || '');
+    if (code === 'WORKERS_AI_ZERO_COST_PROOF_REQUIRED') {
+      return { preview_text:null, analysis_status:'AUDIO_TRANSCRIPTION_ZERO_COST_PROOF_REQUIRED', analysis_provider:null };
+    }
+    if (code === 'AI_BINDING_MISSING') {
+      return { preview_text:null, analysis_status:'AUDIO_TRANSCRIPTION_UNAVAILABLE', analysis_provider:null };
+    }
+    if (code === 'AUDIO_TRANSCRIPTION_REQUIRES_CHUNKING') {
+      return { preview_text:null, analysis_status:'AUDIO_TRANSCRIPTION_REQUIRES_CHUNKING', analysis_provider:null };
+    }
+    return { preview_text:null, analysis_status:'AUDIO_TRANSCRIPTION_FAILED', analysis_provider:null };
+  }
 }
 
 async function convertRichFile({ env, bytes, name, mime }) {
@@ -121,6 +170,9 @@ export async function handleFileUpload(request, env, options = {}) {
     if (!auth.ok) return auth.response;
   }
 
+  const parallelProofUpload = Boolean(request.headers.get('x-mel-parallel-proof'))
+    && isReleaseSmokeRequest(request, env);
+
   const type = String(request.headers.get('content-type') || '').toLowerCase();
   if (!type.includes('multipart/form-data')) {
     return Response.json({ ok:false, code:'FILE_REQUIRED' }, { status:415 });
@@ -138,10 +190,31 @@ export async function handleFileUpload(request, env, options = {}) {
   const name = safeName(file.name);
   const mime = String(file.type || 'application/octet-stream').slice(0, 160);
   const bytes = new Uint8Array(await file.arrayBuffer());
+
+  if (parallelProofUpload) {
+    const proofName = /^mel-file-(normal|full)-proof\.txt$/i.exec(name);
+    if (!proofName || mime.toLowerCase() !== 'text/plain' || bytes.byteLength > 16_384) {
+      return Response.json({ ok:false, code:'MEL_FILE_PROOF_UPLOAD_REJECTED' }, {
+        status:403, headers:{'cache-control':'no-store'}
+      });
+    }
+    const proofText = new TextDecoder('utf-8', { fatal:false }).decode(bytes).trim();
+    const proofMatch = /^MEL_FILE_(NORMAL|FULL)_PROOF_([a-f0-9]{40})$/i.exec(proofText);
+    const expectedKind = proofName[1].toUpperCase();
+    const deployedSha = exactDeployedSha(env);
+    if (!proofMatch || proofMatch[1].toUpperCase() !== expectedKind
+      || !/^[a-f0-9]{40}$/.test(deployedSha)
+      || proofMatch[2].toLowerCase() !== deployedSha) {
+      return Response.json({ ok:false, code:'MEL_FILE_PROOF_PAYLOAD_INVALID' }, {
+        status:403, headers:{'cache-control':'no-store'}
+      });
+    }
+  }
+
   const sha256 = await sha256Hex(bytes);
   const id = crypto.randomUUID();
   const createdAt = new Date();
-  const ttlSeconds = mediaTtlSeconds(env);
+  const ttlSeconds = parallelProofUpload ? 300 : mediaTtlSeconds(env);
   const expiresAt = new Date(createdAt.getTime() + ttlSeconds * 1000);
   const key = `uploads/${new Date().toISOString().slice(0,10)}/${id}-${name}`;
   let stored = false;
@@ -194,7 +267,14 @@ export async function handleFileUpload(request, env, options = {}) {
     } catch {}
   }
 
-  if (preview_text === null) {
+  if (preview_text === null && isAudioLike(mime, name)) {
+    const audio = await transcribeUploadedAudio({ env, bytes, name, mime });
+    preview_text = audio.preview_text;
+    analysis_status = audio.analysis_status;
+    analysis_provider = audio.analysis_provider || null;
+  }
+
+  if (preview_text === null && !isAudioLike(mime, name)) {
     const rich = await convertRichFile({ env, bytes, name, mime });
     preview_text = rich.preview_text;
     analysis_status = rich.analysis_status;

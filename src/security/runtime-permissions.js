@@ -8,6 +8,17 @@ export const PERSONAL_AGENT_OWNER_PERMISSIONS = Object.freeze([
   'google.tasks.read',
   'google.tasks.write',
   'google.tasks.delete',
+  'google.drive.read',
+  'google.drive.write',
+  'google.drive.delete',
+  'microsoft.mail.read',
+  'microsoft.mail.send',
+  'microsoft.mail.move',
+  'microsoft.files.read',
+  'microsoft.files.write',
+  'microsoft.files.delete',
+  'microsoft.sites.read',
+  'microsoft.sites.write',
 ]);
 
 function normalize(value) {

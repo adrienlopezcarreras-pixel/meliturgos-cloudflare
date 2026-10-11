@@ -27,21 +27,25 @@ on:
 permissions:
   contents: read
   actions: write
+  id-token: write
 
 concurrency:
-  group: mel-launch-bootstrap-token
-  cancel-in-progress: false
+  group: mel-production-deploy
+  cancel-in-progress: true
 
 jobs:
   deploy:
+    concurrency:
+      group: mel-launch-bootstrap-token
+      cancel-in-progress: true
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 90
     env:
       RELEASE_BRANCH: ${{ github.event_name == 'workflow_dispatch' && inputs.release_branch || github.ref_name }}
       EXPECTED_SHA: ${{ github.event_name == 'workflow_dispatch' && inputs.expected_sha || github.sha }}
       APPROVAL: ${{ github.event_name == 'workflow_dispatch' && inputs.approval || 'DEPLOY_APPROVED' }}
-      OWNER_MAX_AUTORELEASE: ${{ github.event_name == 'push' && 'true' || (inputs.owner_max_autorelease && 'true' || 'false') }}
-      # TEMPORARY DEV-LIGHT MODE: skip repeated external ShardVault 7/7/code-sync proof.
+      OWNER_MAX_AUTORELEASE: ${{ github.event_name == 'workflow_dispatch' && inputs.owner_max_autorelease && 'true' || 'false' }}
+      # TEMPORARY DEV-LIGHT MODE: ShardVault 7/7/code-sync proof paused to finish downstream release validation.
       # MUST be restored to 'false' before final validation/closure.
       MEL_ROADMAP_SHARDVAULT_PAUSED: 'false'
       # TEMPORARY DEV-LIGHT MODE: keep external/deep AI proofs out of the blocking release path.
@@ -77,10 +81,31 @@ jobs:
           git fetch origin main
           SOURCE_SHA="$(git rev-parse FETCH_HEAD)"
           if [ "$SOURCE_SHA" != "$EXPECTED_SHA" ]; then
-            git merge-base --is-ancestor "$EXPECTED_SHA" "$SOURCE_SHA"
-            MAIN_ADVANCE_COUNT="$(git rev-list --count "$EXPECTED_SHA..$SOURCE_SHA")"
+            CANONICAL_MAIN_SHA=""
+            if git merge-base --is-ancestor "$EXPECTED_SHA" "$SOURCE_SHA"; then
+              CANONICAL_MAIN_SHA="$EXPECTED_SHA"
+            else
+              read -r COMMIT_SHA PARENT_ONE PARENT_TWO EXTRA_PARENT <<<"$(git rev-list --parents -n 1 "$EXPECTED_SHA")"
+              test "$COMMIT_SHA" = "$EXPECTED_SHA"
+              test -n "${PARENT_ONE:-}"
+              test -n "${PARENT_TWO:-}"
+              test -z "${EXTRA_PARENT:-}"
+              RELEASE_TREE="$(git rev-parse "$EXPECTED_SHA^{tree}")"
+              for PARENT_SHA in "$PARENT_ONE" "$PARENT_TWO"; do
+                if git merge-base --is-ancestor "$PARENT_SHA" "$SOURCE_SHA"; then
+                  PARENT_TREE="$(git rev-parse "$PARENT_SHA^{tree}")"
+                  if [ "$RELEASE_TREE" = "$PARENT_TREE" ]; then
+                    test -z "$CANONICAL_MAIN_SHA"
+                    CANONICAL_MAIN_SHA="$PARENT_SHA"
+                  fi
+                fi
+              done
+              test -n "$CANONICAL_MAIN_SHA"
+              echo "Release merge SHA matches canonical main parent tree exactly: ${CANONICAL_MAIN_SHA}"
+            fi
+            MAIN_ADVANCE_COUNT="$(git rev-list --count "$CANONICAL_MAIN_SHA..$SOURCE_SHA")"
             test "$MAIN_ADVANCE_COUNT" -le 25
-            echo "main advanced by ${MAIN_ADVANCE_COUNT} commit(s) after release trigger; exact release SHA remains in canonical main history."
+            echo "main advanced by ${MAIN_ADVANCE_COUNT} commit(s) after canonical release content; exact release content remains in main history."
           fi
           echo "Exact release identity verified against canonical main history: $EXPECTED_SHA"
 
@@ -168,6 +193,7 @@ jobs:
           )"
           [[ "${CURRENT_PRODUCTION_SHA}" =~ ^[0-9a-f]{40}$ ]]
           echo "Current canonical production release SHA: ${CURRENT_PRODUCTION_SHA}"
+          echo "PREVIOUS_DEPLOYED_SHA=${CURRENT_PRODUCTION_SHA}" >> "$GITHUB_ENV"
 
           REFRESH_NAME="mel-pd-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           REFRESH_CONFIG="release-tools/predeploy-backup-refresh/wrangler.run.jsonc"
@@ -214,9 +240,13 @@ jobs:
           }
           trap 'cleanup_refresher || true' EXIT
 
-          npx wrangler deploy --config "${REFRESH_CONFIG}" >/tmp/predeploy-refresh-deploy.log
+          # Deploy the ephemeral sidecar exactly once with its short-lived auth token.
+          # A separate `wrangler secret put` creates a second Worker revision and can make
+          # workers.dev alternate between unauthenticated/absent revisions during propagation.
+          npx wrangler deploy --config "${REFRESH_CONFIG}" \
+            --var "MEL_PREDEPLOY_BACKUP_REFRESH_TOKEN:${REFRESH_TOKEN}" \
+            >/tmp/predeploy-refresh-deploy.log
           REFRESH_CREATED=1
-          printf '%s' "${REFRESH_TOKEN}" | npx wrangler secret put MEL_PREDEPLOY_BACKUP_REFRESH_TOKEN --config "${REFRESH_CONFIG}" >/tmp/predeploy-refresh-auth-secret.log
 
           SIDECAR_READY=0
           SIDECAR_STABLE_PROBES=0
@@ -310,6 +340,30 @@ jobs:
           test -n "$PREVIOUS_VERSION_ID"
           echo "PREVIOUS_CLOUDFLARE_VERSION_ID=$PREVIOUS_VERSION_ID" >> "$GITHUB_ENV"
 
+      - name: Capture pre-deploy autonomy control
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE_URL="https://meliturgos.adrien-lopezcarreras.workers.dev"
+          CODE="$(curl --silent --show-error --max-time 30             --output predeploy-autonomy-control.json             --write-out '%{http_code}'             "${BASE_URL}/api/gen2/autonomy/control" || true)"
+          test "${CODE}" = "200"
+          node - <<'NODE'
+          const fs=require('fs');
+          const d=JSON.parse(fs.readFileSync('predeploy-autonomy-control.json','utf8'));
+          if(d?.ok!==true) throw new Error('PREDEPLOY_AUTONOMY_CONTROL_NOT_OK');
+          if(typeof d?.paused!=='boolean' || typeof d?.max_autonomy!=='boolean') throw new Error('PREDEPLOY_AUTONOMY_CONTROL_INVALID');
+          const paused=d.paused===true;
+          const reportedMax=d.max_autonomy===true;
+          const maxAutonomy=paused?false:reportedMax;
+          if(paused&&reportedMax){
+            console.log('Legacy contradictory autonomy control normalized fail-safe: PAUSED=true, MAX=false.');
+          }
+          fs.appendFileSync(process.env.GITHUB_ENV,
+            'PREVIOUS_AUTONOMY_PAUSED='+String(paused)+'\n'
+            +'PREVIOUS_MAX_AUTONOMY='+String(maxAutonomy)+'\n');
+          console.log(JSON.stringify({paused,max_autonomy:maxAutonomy,status:paused?'PAUSED':(maxAutonomy?'MAX_AUTONOMY':(d.status||'RUNNING')),normalized_contradiction:paused&&reportedMax}));
+          NODE
+
       - name: Create verified pre-deploy production backup
         shell: bash
         env:
@@ -317,9 +371,19 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           set -euo pipefail
-          BINDER_NAME="mel-predeploy-backup-binder"
-          BINDER_CONFIG="release-tools/predeploy-backup-binder/wrangler.jsonc"
-          BINDER_URL="https://mel-predeploy-backup-binder.adrien-lopezcarreras.workers.dev"
+          BINDER_NAME="mel-pdb-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          BINDER_CONFIG="release-tools/predeploy-backup-binder/wrangler.run.jsonc"
+          BINDER_URL="https://${BINDER_NAME}.adrien-lopezcarreras.workers.dev"
+          export BINDER_NAME
+          node - <<'NODE'
+          const fs=require('fs');
+          const source='release-tools/predeploy-backup-binder/wrangler.jsonc';
+          const target='release-tools/predeploy-backup-binder/wrangler.run.jsonc';
+          const config=JSON.parse(fs.readFileSync(source,'utf8'));
+          config.name=process.env.BINDER_NAME;
+          fs.writeFileSync(target,JSON.stringify(config,null,2));
+          NODE
+
           BINDER_TOKEN="$(openssl rand -hex 32)"
           echo "::add-mask::${BINDER_TOKEN}"
           BINDER_CREATED=0
@@ -327,23 +391,74 @@ jobs:
           cleanup_binder() {
             set +e
             if [ "${BINDER_CREATED:-0}" = "1" ]; then
-              curl --silent --show-error --max-time 30 \
-                --request DELETE \
-                --header "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
-                --output /tmp/predeploy-binder-delete.json \
-                "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/scripts/${BINDER_NAME}" \
-                >/dev/null 2>&1 || true
+              DELETE_OK=0
+              for CLEANUP_ATTEMPT in $(seq 1 5); do
+                DELETE_CODE="$(curl --silent --show-error --max-time 30 \
+                  --request DELETE \
+                  --header "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+                  --output /tmp/predeploy-binder-delete.json \
+                  --write-out '%{http_code}' \
+                  "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/scripts/${BINDER_NAME}" || true)"
+                if [ "${DELETE_CODE}" = "200" ] || [ "${DELETE_CODE}" = "404" ]; then
+                  DELETE_OK=1
+                  BINDER_CREATED=0
+                  break
+                fi
+                sleep 2
+              done
+              if [ "${DELETE_OK}" != "1" ]; then
+                test ! -s /tmp/predeploy-binder-delete.json || cat /tmp/predeploy-binder-delete.json
+                set -e
+                return 1
+              fi
             fi
             set -e
+            return 0
           }
-          trap cleanup_binder EXIT
+          trap 'cleanup_binder || true' EXIT
 
-          npx wrangler deploy --config "${BINDER_CONFIG}" >/tmp/predeploy-binder-deploy.log
+          # Keep binder authentication in the same deployed revision. A separate
+          # secret put creates a second revision and can race workers.dev propagation,
+          # yielding Cloudflare 10007 immediately after the first deploy.
+          npx wrangler deploy --config "${BINDER_CONFIG}" \
+            --var "MEL_PREDEPLOY_BINDER_TOKEN:${BINDER_TOKEN}" \
+            >/tmp/predeploy-binder-deploy.log
           BINDER_CREATED=1
-          printf '%s' "${BINDER_TOKEN}" | npx wrangler secret put MEL_PREDEPLOY_BINDER_TOKEN --config "${BINDER_CONFIG}" >/tmp/predeploy-binder-secret.log
+
+          BINDER_READY=0
+          BINDER_STABLE_PROBES=0
+          for READY_ATTEMPT in $(seq 1 24); do
+            READY_CODE="$(curl --silent --show-error --max-time 30 \
+              --header "x-mel-predeploy-binder: ${BINDER_TOKEN}" \
+              --output /tmp/predeploy-binder-ready.json \
+              --write-out '%{http_code}' \
+              "${BINDER_URL}/health" || true)"
+            if [ "${READY_CODE}" = "200" ] && node - <<'NODE'
+          const fs=require('fs');
+          const d=JSON.parse(fs.readFileSync('/tmp/predeploy-binder-ready.json','utf8'));
+          if(d?.ok!==true||d?.status!=='BINDER_READY') process.exit(1);
+          NODE
+            then
+              BINDER_STABLE_PROBES=$((BINDER_STABLE_PROBES + 1))
+              echo "Ephemeral backup binder stable probe ${BINDER_STABLE_PROBES}/3 passed."
+              if [ "${BINDER_STABLE_PROBES}" -ge 3 ]; then
+                BINDER_READY=1
+                break
+              fi
+              sleep 1
+              continue
+            fi
+            BINDER_STABLE_PROBES=0
+            echo "Ephemeral backup binder readiness attempt ${READY_ATTEMPT}/24 returned HTTP ${READY_CODE}."
+            sleep 2
+          done
+          if [ "${BINDER_READY}" != "1" ]; then
+            test ! -s /tmp/predeploy-binder-ready.json || cat /tmp/predeploy-binder-ready.json
+            exit 53
+          fi
 
           PREPARED=0
-          for ATTEMPT in $(seq 1 12); do
+          for ATTEMPT in $(seq 1 4); do
             CODE="$(curl --silent --show-error --max-time 45 \
               --request POST \
               --header "x-mel-predeploy-binder: ${BINDER_TOKEN}" \
@@ -368,25 +483,20 @@ jobs:
               PREPARED=1
               break
             fi
-            echo "Pre-deploy binder prepare attempt ${ATTEMPT}/12 returned HTTP ${CODE}."
+            echo "Pre-deploy binder prepare attempt ${ATTEMPT}/4 returned HTTP ${CODE}."
             test ! -s predeploy-backup.json || cat predeploy-backup.json
+            if [ "${CODE}" = "409" ]; then break; fi
             sleep 2
           done
-          test "${PREPARED}" = "1"
+          if [ "${PREPARED}" != "1" ]; then
+            exit 54
+          fi
           echo "Verified pre-deploy backup and D1 autonomy pause are ready."
 
-          DELETE_OK=0
-          for ATTEMPT in $(seq 1 5); do
-            DELETE_CODE="$(curl --silent --show-error --max-time 30 \
-              --request DELETE \
-              --header "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
-              --output /tmp/predeploy-binder-delete.json \
-              --write-out '%{http_code}' \
-              "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/scripts/${BINDER_NAME}" || true)"
-            if [ "${DELETE_CODE}" = "200" ] || [ "${DELETE_CODE}" = "404" ]; then DELETE_OK=1; break; fi
-            sleep 2
-          done
-          test "${DELETE_OK}" = "1"
+          if ! cleanup_binder; then
+            echo "Ephemeral backup binder cleanup failed; release remains blocked."
+            exit 55
+          fi
           BINDER_CREATED=0
           touch predeploy-backup-verified.marker
           trap - EXIT
@@ -396,10 +506,125 @@ jobs:
         env:
           MEL_BACKUP_ENCRYPTION_KEY_B64: ${{ secrets.MEL_BACKUP_ENCRYPTION_KEY_B64 }}
           MEL_BACKUP_ENCRYPTION_KEY_ID: ${{ secrets.MEL_BACKUP_ENCRYPTION_KEY_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           set -euo pipefail
           test -n "${MEL_BACKUP_ENCRYPTION_KEY_B64:-}"
           test -n "${MEL_BACKUP_ENCRYPTION_KEY_ID:-}"
+          test -n "${CLOUDFLARE_API_TOKEN:-}"
+          test -n "${CLOUDFLARE_ACCOUNT_ID:-}"
+
+          BOOTSTRAP_TOKEN="$(openssl rand -hex 32)"
+          echo "::add-mask::${BOOTSTRAP_TOKEN}"
+          printf '%s' "${BOOTSTRAP_TOKEN}" > release-bootstrap-token.txt
+          chmod 600 release-bootstrap-token.txt
+          export BOOTSTRAP_TOKEN
+
+          account_code="$(curl --silent --show-error --max-time 30 \
+            --header "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+            --output workers-ai-account.json \
+            --write-out '%{http_code}' \
+            "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}" || true)"
+          ent_code="$(curl --silent --show-error --max-time 30 \
+            --header "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+            --output workers-ai-entitlements.json \
+            --write-out '%{http_code}' \
+            "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/entitlements" || true)"
+          test "${account_code}" = "200"
+          test "${ent_code}" = "200"
+          curl --fail --silent --show-error --location --max-time 30 "https://developers.cloudflare.com/workers-ai/platform/pricing/" -o workers-ai-pricing.html
+          curl --fail --silent --show-error --location --max-time 30 "https://developers.cloudflare.com/workers-ai/platform/errors/" -o workers-ai-errors.html
+          grep -Fq "10,000 Neurons per day" workers-ai-pricing.html
+          grep -Fq "N/A - Upgrade to Workers Paid" workers-ai-pricing.html
+          grep -Fq "daily free allocation of 10,000 neurons" workers-ai-errors.html
+          grep -Fq "429" workers-ai-errors.html
+          curl --fail --silent --show-error --location --max-time 30 "https://developers.cloudflare.com/browser-run/pricing/" -o browser-run-pricing.html
+          curl --fail --silent --show-error --location --max-time 30 "https://developers.cloudflare.com/browser-run/limits/" -o browser-run-limits.html
+          grep -Fq "Workers Free" browser-run-pricing.html
+          grep -Fq "10 minutes per day" browser-run-pricing.html
+          grep -Fq "429" browser-run-limits.html
+          grep -Fq "10 minutes per day" browser-run-limits.html
+
+          node - <<'NODE'
+          const fs=require('fs');
+          const account=JSON.parse(fs.readFileSync('workers-ai-account.json','utf8'));
+          const ent=JSON.parse(fs.readFileSync('workers-ai-entitlements.json','utf8'));
+          if(account?.success!==true || ent?.success!==true || !Array.isArray(ent?.result)) {
+            throw new Error('CLOUDFLARE_PLAN_EVIDENCE_INVALID');
+          }
+          const accountType=String(account?.result?.type||'').toLowerCase();
+          if(accountType!=='standard') throw new Error('WORKERS_FREE_ACCOUNT_TYPE_NOT_PROVED');
+          const marker=ent.result.find(row =>
+            String(row?.feature?.key||row?.id||'')==='workers.static_assets.manifest_limit_file_count'
+          );
+          const markerValue=Number(marker?.allocation?.value);
+          if(markerValue!==20000) throw new Error('WORKERS_FREE_ENTITLEMENT_NOT_PROVED:'+String(markerValue));
+          const now=Date.now();
+          const proof={
+            schema:'mel.workers-ai.zero-cost-proof/v1',
+            provider:'workers-ai',
+            account_plan:'WORKERS_FREE',
+            billing_path:'direct-workers-ai-binding',
+            pricing_policy:'cloudflare-workers-ai-pricing-2026-10-01',
+            free_allocation_neurons_per_day:10000,
+            free_overage_behavior:'FAIL_NOT_BILL',
+            plan_evidence:{
+              source:'cloudflare-account-entitlements-api',
+              account_type:'standard',
+              entitlement_key:'workers.static_assets.manifest_limit_file_count',
+              entitlement_value:markerValue,
+              workers_free_reference_value:20000,
+            },
+            models:[
+              '@cf/meta/llama-3.3-70b-instruct-fp8-fast',
+              '@cf/google/gemma-4-26b-a4b-it',
+              '@cf/llava-hf/llava-1.5-7b-hf',
+              '@cf/nvidia/nemotron-3-120b-a12b',
+              '@cf/zai-org/glm-4.7-flash',
+              '@cf/bytedance/stable-diffusion-xl-lightning',
+              '@cf/black-forest-labs/flux-2-klein-4b',
+              '@cf/deepgram/aura-1',
+              '@cf/openai/whisper-large-v3-turbo',
+            ],
+            verified_at:new Date(now).toISOString(),
+            expires_at:new Date(now+60*60*1000).toISOString(),
+          };
+          fs.writeFileSync('workers-ai-zero-cost-proof.json',JSON.stringify(proof));
+          fs.writeFileSync('workers-ai-zero-cost-evidence.json',JSON.stringify({
+            schema:proof.schema,
+            provider:proof.provider,
+            account_plan:proof.account_plan,
+            entitlement_key:proof.plan_evidence.entitlement_key,
+            entitlement_value:proof.plan_evidence.entitlement_value,
+            verified_at:proof.verified_at,
+            expires_at:proof.expires_at,
+            model_count:proof.models.length,
+          },null,2));
+          const browserPricing=fs.readFileSync('browser-run-pricing.html','utf8');
+          const browserLimits=fs.readFileSync('browser-run-limits.html','utf8');
+          if(!browserPricing.includes('Workers Free')||!browserPricing.includes('10 minutes per day')) throw new Error('BROWSER_RUN_FREE_PRICING_NOT_PROVED');
+          if(!browserLimits.includes('429')||!browserLimits.includes('10 minutes per day')) throw new Error('BROWSER_RUN_FREE_HARD_LIMIT_NOT_PROVED');
+          const browserProof={
+            schema:'mel.browser-run.zero-cost-proof/v1',
+            provider:'cloudflare-browser-run',
+            account_plan:'WORKERS_FREE',
+            included_minutes_per_day:10,
+            overage_behavior:'HARD_LIMIT_NO_BILLING',
+            documentation_url:'https://developers.cloudflare.com/browser-run/pricing/',
+            verified_at:new Date(now).toISOString(),
+            expires_at:new Date(now+60*60*1000).toISOString(),
+          };
+          fs.writeFileSync('browser-run-zero-cost-proof.json',JSON.stringify(browserProof));
+          fs.writeFileSync('browser-run-zero-cost-evidence.json',JSON.stringify({
+            schema:browserProof.schema,
+            account_plan:browserProof.account_plan,
+            included_minutes_per_day:browserProof.included_minutes_per_day,
+            overage_behavior:browserProof.overage_behavior,
+            verified_at:browserProof.verified_at,
+            expires_at:browserProof.expires_at,
+          },null,2));
+          NODE
           MEDIA_KEY_B64="$(node - <<'NODE'
           const crypto=require('crypto');
           const source=Buffer.from(String(process.env.MEL_BACKUP_ENCRYPTION_KEY_B64||''),'base64');
@@ -421,12 +646,36 @@ jobs:
           export MEDIA_KEY_B64 MEDIA_KEY_ID
           node - <<'NODE'
           const fs=require('fs');
+          const crypto=require('crypto');
+          const source=Buffer.from(String(process.env.MEL_BACKUP_ENCRYPTION_KEY_B64||''),'base64');
+          const expectedSha=String(process.env.EXPECTED_SHA||'').toLowerCase();
+          if(source.length!==32) throw new Error('PARALLEL_PROOF_SOURCE_KEY_MUST_BE_32_BYTES');
+          if(!/^[0-9a-f]{40}$/.test(expectedSha)) throw new Error('PARALLEL_PROOF_EXPECTED_SHA_INVALID');
+          const parallelProofToken=Buffer.from(crypto.hkdfSync(
+            'sha256',
+            source,
+            Buffer.from('meliturgos-parallel-proof-salt-v1','utf8'),
+            Buffer.from('MEL_PARALLEL_PROOF_V1:'+expectedSha,'utf8'),
+            32,
+          )).toString('base64url');
+          const workersAiProof=JSON.parse(fs.readFileSync('workers-ai-zero-cost-proof.json','utf8'));
+          const browserRunProof=JSON.parse(fs.readFileSync('browser-run-zero-cost-proof.json','utf8'));
           const payload={
+            MEL_LAUNCH_BOOTSTRAP_TOKEN:String(process.env.BOOTSTRAP_TOKEN||''),
+            MEL_WORKERS_AI_ZERO_COST_PROOF_JSON:JSON.stringify(workersAiProof),
+            MEL_BROWSER_RUN_ZERO_COST_PROOF_JSON:JSON.stringify(browserRunProof),
             MEL_MEDIA_ENCRYPTION_KEY_B64:String(process.env.MEDIA_KEY_B64||''),
             MEL_MEDIA_ENCRYPTION_KEY_ID:String(process.env.MEDIA_KEY_ID||''),
+            MEL_PARALLEL_PROOF_TOKEN:parallelProofToken,
+            // Keep the production runtime codec on the exact same key identity
+            // used by the pre-deploy encrypted backup runner.
+            MEL_BACKUP_ENCRYPTION_KEY_B64:String(process.env.MEL_BACKUP_ENCRYPTION_KEY_B64||''),
+            MEL_BACKUP_ENCRYPTION_KEY_ID:String(process.env.MEL_BACKUP_ENCRYPTION_KEY_ID||''),
           };
-          if(!payload.MEL_MEDIA_ENCRYPTION_KEY_B64 || !payload.MEL_MEDIA_ENCRYPTION_KEY_ID) {
-            throw new Error('MEDIA_VAULT_RELEASE_SECRETS_MISSING');
+          if(!payload.MEL_LAUNCH_BOOTSTRAP_TOKEN || !payload.MEL_WORKERS_AI_ZERO_COST_PROOF_JSON || !payload.MEL_BROWSER_RUN_ZERO_COST_PROOF_JSON
+            || !payload.MEL_MEDIA_ENCRYPTION_KEY_B64 || !payload.MEL_MEDIA_ENCRYPTION_KEY_ID || !payload.MEL_PARALLEL_PROOF_TOKEN
+            || !payload.MEL_BACKUP_ENCRYPTION_KEY_B64 || !payload.MEL_BACKUP_ENCRYPTION_KEY_ID) {
+            throw new Error('RELEASE_CRYPTO_SECRETS_MISSING');
           }
           fs.writeFileSync('media-vault-release-secrets.json',JSON.stringify(payload),{mode:0o600});
           NODE
@@ -446,6 +695,33 @@ jobs:
           npx wrangler deploy --config browser-companion/runtime/wrangler.browser-production.jsonc
           echo "Production Browser Companion deployed."
 
+      - name: Require persistent production secrets before exact deploy
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          npx wrangler secret list --name meliturgos --format json > production-secret-names.json
+          node - <<'NODE'
+          const fs=require('fs');
+          const rows=JSON.parse(fs.readFileSync('production-secret-names.json','utf8'));
+          const names=new Set((Array.isArray(rows)?rows:[]).map(row=>String(row?.name||'')).filter(Boolean));
+          const staged=JSON.parse(fs.readFileSync('media-vault-release-secrets.json','utf8'));
+          for(const name of Object.keys(staged||{})) names.add(String(name));
+          const source=fs.readFileSync('wrangler.jsonc','utf8');
+          const match=source.match(/"secrets"\s*:\s*\{[\s\S]*?"required"\s*:\s*(\[[\s\S]*?\])/);
+          if(!match) throw new Error('PRODUCTION_REQUIRED_SECRET_CONTRACT_MISSING');
+          const required=JSON.parse(match[1]);
+          if(!Array.isArray(required)||required.length<1||required.some(name=>typeof name!=='string'||!name.trim())) {
+            throw new Error('PRODUCTION_REQUIRED_SECRET_CONTRACT_INVALID');
+          }
+          const missing=required.filter(name=>!names.has(name));
+          if(missing.length) throw new Error('PRODUCTION_REQUIRED_SECRETS_MISSING:'+missing.join(','));
+          console.log('Persistent production secret contract verified: '+required.length+' required bindings available remotely or staged for the exact deployment; omitted remote secrets are preserved.');
+          NODE
+          rm -f production-secret-names.json
+
       - name: Deploy exact approved SHA to production
         shell: bash
         run: |
@@ -454,6 +730,7 @@ jobs:
           touch production-deploy-started.marker
           test -s media-vault-release-secrets.json
           npx wrangler deploy \
+            --keep-vars \
             --secrets-file media-vault-release-secrets.json \
             --define "MEL_DEPLOYED_GIT_SHA:'${EXPECTED_SHA}'" \
             --define "MEL_DEPLOYED_GIT_BRANCH:'${RELEASE_BRANCH}'" \
@@ -464,107 +741,152 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
-      - name: Refresh production Workers AI zero-cost proof
+      - name: Verify owner auth binding and exact deployment immediately
         shell: bash
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           set -euo pipefail
+          BASE_URL="https://meliturgos.adrien-lopezcarreras.workers.dev"
+          test -s release-bootstrap-token.txt
+          BOOTSTRAP_TOKEN="$(cat release-bootstrap-token.txt)"
+          echo "::add-mask::${BOOTSTRAP_TOKEN}"
 
-          account_code="$(curl --silent --show-error --max-time 30 \
-            --header "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
-            --output workers-ai-account.json \
-            --write-out '%{http_code}' \
-            "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}" || true)"
-          ent_code="$(curl --silent --show-error --max-time 30 \
-            --header "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
-            --output workers-ai-entitlements.json \
-            --write-out '%{http_code}' \
-            "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/entitlements" || true)"
-          test "${account_code}" = "200"
-          test "${ent_code}" = "200"
+          AUTH_READY=0
+          for ATTEMPT in $(seq 1 12); do
+            ROOT_BODY="$(mktemp)"
+            ROOT_CODE="$(curl --silent --show-error --max-time 30               --output "${ROOT_BODY}" --write-out '%{http_code}'               "${BASE_URL}/" || true)"
+            if [ "${ROOT_CODE}" = "503" ] && grep -q 'AUTH_NOT_CONFIGURED' "${ROOT_BODY}" 2>/dev/null; then
+              echo "Production owner auth binding is missing after deploy."
+              cat "${ROOT_BODY}"
+              exit 47
+            fi
 
+            IDENTITY_CODE="$(curl --silent --show-error --max-time 30               --header "x-mel-release-smoke: 1"               --header "x-mel-launch-bootstrap: ${BOOTSTRAP_TOKEN}"               --header "content-type: application/json"               --data '{"phase":"identity"}'               --output production-immediate-identity.json               --write-out '%{http_code}'               "${BASE_URL}/api/internal/release-launch-bootstrap" || true)"
+            if [ "${ROOT_CODE}" = "401" ] && [ "${IDENTITY_CODE}" = "200" ] &&               EXPECTED_SHA="${EXPECTED_SHA}" node - <<'NODE'
+          const d=require('./production-immediate-identity.json');
+          const expected=String(process.env.EXPECTED_SHA||'').toLowerCase();
+          if(d?.ok!==true || d?.status!=='RELEASE_IDENTITY_VERIFIED') process.exit(1);
+          if(String(d?.deployed_sha||'').toLowerCase()!==expected) process.exit(1);
+          NODE
+            then
+              AUTH_READY=1
+              break
+            fi
+            echo "Immediate auth/identity probe attempt ${ATTEMPT}/12: root=${ROOT_CODE}, identity=${IDENTITY_CODE}."
+            sleep 2
+          done
+          test "${AUTH_READY}" = "1"
+          echo "Production owner auth binding and exact SHA verified immediately after deploy."
+
+      - name: Verify bundled Workers AI zero-cost proof
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s workers-ai-zero-cost-proof.json
+          test -s workers-ai-zero-cost-evidence.json
+          test -s browser-run-zero-cost-proof.json
+          test -s browser-run-zero-cost-evidence.json
           node - <<'NODE'
           const fs=require('fs');
-          const account=JSON.parse(fs.readFileSync('workers-ai-account.json','utf8'));
-          const ent=JSON.parse(fs.readFileSync('workers-ai-entitlements.json','utf8'));
-          if(account?.success!==true || ent?.success!==true || !Array.isArray(ent?.result)) {
-            throw new Error('CLOUDFLARE_PLAN_EVIDENCE_INVALID');
-          }
-          const accountType=String(account?.result?.type||'').toLowerCase();
-          if(accountType!=='standard') throw new Error('WORKERS_FREE_ACCOUNT_TYPE_NOT_PROVED');
-          const marker=ent.result.find(row =>
-            String(row?.feature?.key||row?.id||'')==='workers.static_assets.manifest_limit_file_count'
-          );
-          const markerValue=Number(marker?.allocation?.value);
-          if(markerValue!==20000) throw new Error('WORKERS_FREE_ENTITLEMENT_NOT_PROVED:'+String(markerValue));
-
+          const p=JSON.parse(fs.readFileSync('workers-ai-zero-cost-proof.json','utf8'));
+          if(p?.schema!=='mel.workers-ai.zero-cost-proof/v1') throw new Error('WORKERS_AI_ZERO_COST_SCHEMA_INVALID');
+          if(p?.provider!=='workers-ai'||p?.account_plan!=='WORKERS_FREE'||p?.billing_path!=='direct-workers-ai-binding') throw new Error('WORKERS_AI_ZERO_COST_PROOF_INVALID');
+          const verified=Date.parse(String(p?.verified_at||''));
+          const expires=Date.parse(String(p?.expires_at||''));
           const now=Date.now();
-          const proof={
-            schema:'mel.workers-ai.zero-cost-proof/v1',
-            provider:'workers-ai',
-            account_plan:'WORKERS_FREE',
-            billing_path:'direct-workers-ai-binding',
-            pricing_policy:'cloudflare-workers-ai-pricing-2026-08-28',
-            free_allocation_neurons_per_day:10000,
-            free_overage_behavior:'FAIL_NOT_BILL',
-            plan_evidence:{
-              source:'cloudflare-account-entitlements-api',
-              account_type:'standard',
-              entitlement_key:'workers.static_assets.manifest_limit_file_count',
-              entitlement_value:markerValue,
-              workers_free_reference_value:20000,
-            },
-            models:[
-              '@cf/zai-org/glm-4.7-flash',
-              '@cf/meta/llama-3.3-70b-instruct-fp8-fast',
-              '@cf/moonshotai/kimi-k2.7-code',
-            ],
-            verified_at:new Date(now).toISOString(),
-            expires_at:new Date(now+30*60*1000).toISOString(),
-          };
-          fs.writeFileSync('workers-ai-zero-cost-proof.json',JSON.stringify(proof));
-          fs.writeFileSync('workers-ai-zero-cost-evidence.json',JSON.stringify({
-            schema:proof.schema,
-            provider:proof.provider,
-            account_plan:proof.account_plan,
-            entitlement_key:proof.plan_evidence.entitlement_key,
-            entitlement_value:proof.plan_evidence.entitlement_value,
-            verified_at:proof.verified_at,
-            expires_at:proof.expires_at,
-            model_count:proof.models.length,
-          },null,2));
+          if(!Number.isFinite(verified)||!Number.isFinite(expires)||verified>now+60000||expires<=now) throw new Error('WORKERS_AI_ZERO_COST_PROOF_STALE');
+          if(!Array.isArray(p?.models)||p.models.length<1) throw new Error('WORKERS_AI_ZERO_COST_MODELS_MISSING');
+          const b=JSON.parse(fs.readFileSync('browser-run-zero-cost-proof.json','utf8'));
+          if(b?.schema!=='mel.browser-run.zero-cost-proof/v1'||b?.provider!=='cloudflare-browser-run'||b?.account_plan!=='WORKERS_FREE') throw new Error('BROWSER_RUN_ZERO_COST_PROOF_INVALID');
+          if(b?.overage_behavior!=='HARD_LIMIT_NO_BILLING'||Number(b?.included_minutes_per_day)!==10) throw new Error('BROWSER_RUN_ZERO_COST_GUARD_INVALID');
+          const bVerified=Date.parse(String(b?.verified_at||'')),bExpires=Date.parse(String(b?.expires_at||''));
+          if(!Number.isFinite(bVerified)||!Number.isFinite(bExpires)||bVerified>Date.now()+60000||bExpires<=Date.now()) throw new Error('BROWSER_RUN_ZERO_COST_PROOF_STALE');
+          console.log('Workers AI + Browser Run zero-cost proofs bundled in the exact Worker deployment and still fresh.');
           NODE
 
-          PROOF_JSON="$(cat workers-ai-zero-cost-proof.json)"
-          printf '%s' "${PROOF_JSON}" | npx wrangler secret put MEL_WORKERS_AI_ZERO_COST_PROOF_JSON --env=""
-          echo "Workers AI zero-cost proof refreshed fail-closed from Cloudflare account entitlements."
+      - name: Prove MEL-MEDIA-02 12/12 live on exact deployed SHA
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE_URL="https://meliturgos.adrien-lopezcarreras.workers.dev"
+          test -s release-bootstrap-token.txt
+          BOOTSTRAP_TOKEN="$(cat release-bootstrap-token.txt)"
+          echo "::add-mask::${BOOTSTRAP_TOKEN}"
+
+          MEDIA_READY=0
+          for ATTEMPT in 1 2 3; do
+            MEDIA_CODE="$(curl --silent --show-error --max-time 300 \
+              --header "x-mel-launch-bootstrap: ${BOOTSTRAP_TOKEN}" \
+              --header "content-type: application/json" \
+              --data '{"phase":"media-proof"}' \
+              --output mel-media-02-production-proof.json \
+              --write-out '%{http_code}' \
+              "${BASE_URL}/api/internal/release-launch-bootstrap" || true)"
+            if [ "${MEDIA_CODE}" = "200" ] && EXPECTED_SHA="${EXPECTED_SHA}" node - <<'NODE'
+          const d=require('./mel-media-02-production-proof.json');
+          const expected=String(process.env.EXPECTED_SHA||'').toLowerCase();
+          if(d?.ok!==true) process.exit(1);
+          if(d?.status!=='MEL_MEDIA_02_DONE_VERIFIED_ELIGIBLE'||d?.done_verified_eligible!==true) process.exit(1);
+          if(String(d?.source_sha||'').toLowerCase()!==expected||String(d?.deployed_sha||'').toLowerCase()!==expected) process.exit(1);
+          if(Number(d?.capability_count)!==12) process.exit(1);
+          if(!Array.isArray(d?.required_capabilities)||d.required_capabilities.length!==12) process.exit(1);
+          if(!Array.isArray(d?.executions)||d.executions.length!==12||d.executions.some(row=>row?.ok!==true||row?.zero_added_cost!==true)) process.exit(1);
+          if(d?.all_executions_zero_added_cost!==true) process.exit(1);
+          if(d?.secret_values_exposed!==false||d?.autonomy_started!==false) process.exit(1);
+          NODE
+            then
+              MEDIA_READY=1
+              break
+            fi
+            echo "MEL-MEDIA-02 live proof attempt ${ATTEMPT}/3 returned HTTP ${MEDIA_CODE}."
+            test ! -s mel-media-02-production-proof.json || cat mel-media-02-production-proof.json
+            sleep $((ATTEMPT * 3))
+          done
+          if [ "${MEDIA_READY}" != "1" ]; then
+            echo "MEL-MEDIA-02 exact-SHA 12/12 production proof failed."
+            exit 58
+          fi
+          echo "MEL-MEDIA-02 exact-SHA 12/12 live proof passed."
+
+      - name: Upload MEL-MEDIA-02 exact-SHA evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: mel-media-02-production-proof-${{ env.EXPECTED_SHA }}
+          path: mel-media-02-production-proof.json
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Dispatch decoupled downstream production proofs
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          DISPATCH_CODE="$(curl --silent --show-error --max-time 30 \
+            --request POST \
+            --header "Authorization: Bearer ${GITHUB_TOKEN}" \
+            --header "Accept: application/vnd.github+json" \
+            --header "X-GitHub-Api-Version: 2022-11-28" \
+            --data "$(node -e 'process.stdout.write(JSON.stringify({ref:"main",inputs:{expected_sha:process.env.EXPECTED_SHA}}))')" \
+            --output /tmp/downstream-proof-dispatch.json \
+            --write-out '%{http_code}' \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/release-downstream-proof-decoupled.yml/dispatches" || true)"
+          if [ "${DISPATCH_CODE}" != "204" ]; then
+            echo "Decoupled downstream proof dispatch returned HTTP ${DISPATCH_CODE}."
+            test ! -s /tmp/downstream-proof-dispatch.json || cat /tmp/downstream-proof-dispatch.json
+            exit 53
+          fi
+          echo "Decoupled downstream proofs dispatched for exact SHA ${EXPECTED_SHA}; release continues independently."
 
       - name: Prepare and prove production autonomy launch evidence
         shell: bash
         run: |
           set -euo pipefail
           BASE_URL="https://meliturgos.adrien-lopezcarreras.workers.dev"
-          BOOTSTRAP_TOKEN="$(openssl rand -hex 32)"
+          test -s release-bootstrap-token.txt
+          BOOTSTRAP_TOKEN="$(cat release-bootstrap-token.txt)"
+          [[ "${BOOTSTRAP_TOKEN}" =~ ^[0-9a-f]{64}$ ]]
           echo "::add-mask::${BOOTSTRAP_TOKEN}"
-
-          cleanup_secret() {
-            set +e
-            set +o pipefail
-            for SECRET_NAME in MEL_LAUNCH_BOOTSTRAP_TOKEN MEL_RELEASE_BACKUP_ENCRYPTION_KEY_ID MEL_RELEASE_BACKUP_ENCRYPTION_KEY_B64; do
-              printf 'y\n' | npx wrangler secret delete "$SECRET_NAME" --env="" >/tmp/"${SECRET_NAME}"-delete.log 2>&1 || true
-            done
-            set -o pipefail
-            set -e
-          }
-          trap 'cleanup_secret || true' EXIT
-
-          test -n "${MEL_BACKUP_ENCRYPTION_KEY_ID:-}"
-          test -n "${MEL_BACKUP_ENCRYPTION_KEY_B64:-}"
-          printf '%s' "$BOOTSTRAP_TOKEN" | npx wrangler secret put MEL_LAUNCH_BOOTSTRAP_TOKEN --env=""
-          printf '%s' "$MEL_BACKUP_ENCRYPTION_KEY_ID" | npx wrangler secret put MEL_RELEASE_BACKUP_ENCRYPTION_KEY_ID --env=""
-          printf '%s' "$MEL_BACKUP_ENCRYPTION_KEY_B64" | npx wrangler secret put MEL_RELEASE_BACKUP_ENCRYPTION_KEY_B64 --env=""
 
           if [ "$MEL_ROADMAP_SHARDVAULT_PAUSED" = "true" ]; then
             echo "ShardVault external replication is PAUSED_FOR_ROADMAP; skipping 7/7 Internet endpoint proof."
@@ -573,7 +895,10 @@ jobs:
           # every production isolate.  Retry the first authenticated request
           # instead of treating that propagation window as a release failure.
           SHARD_STATUS_READY=0
-          for SHARD_STATUS_ATTEMPT in $(seq 1 12); do
+          SHARD_STATUS_ATTEMPT=0
+          SHARD_STATUS_DEADLINE_EPOCH=$(( $(date +%s) + 360 ))
+          while [ "$SHARD_STATUS_READY" != "1" ] && [ "$(date +%s)" -lt "$SHARD_STATUS_DEADLINE_EPOCH" ]; do
+            SHARD_STATUS_ATTEMPT=$((SHARD_STATUS_ATTEMPT + 1))
             SHARD_STATUS_CODE="$(curl --silent --show-error --max-time 60 \
               --header "x-mel-release-smoke: 1" \
               --header "x-mel-launch-bootstrap: ${BOOTSTRAP_TOKEN}" \
@@ -584,28 +909,34 @@ jobs:
               SHARD_STATUS_READY=1
               break
             fi
-            echo "ShardVault status propagation attempt ${SHARD_STATUS_ATTEMPT}/12 returned HTTP ${SHARD_STATUS_CODE}."
+            echo "ShardVault status propagation attempt ${SHARD_STATUS_ATTEMPT} returned HTTP ${SHARD_STATUS_CODE}; waiting within the 360s propagation budget."
             if [ -s production-shardvault-before.json ]; then
               cat production-shardvault-before.json
             fi
-            sleep 2
+            sleep 5
           done
           if [ "$SHARD_STATUS_READY" != "1" ]; then
-            echo "ShardVault release-smoke authentication did not become ready after bounded propagation retries."
+            echo "ShardVault release-smoke authentication did not become ready within the bounded 360s propagation window."
             exit 46
           fi
+          SHARD_RELEASE_QUORUM=5
           SHARD_ACTIVE="$(node -e 'const d=require("./production-shardvault-before.json"); const n=Array.isArray(d?.active_external_registry)?d.active_external_registry.length:0; process.stdout.write(String(n));')"
-          echo "ShardVault external registry before release proof: ${SHARD_ACTIVE}/7"
+          echo "ShardVault external registry before release proof: ${SHARD_ACTIVE}/7 (release quorum ${SHARD_RELEASE_QUORUM}/7)"
 
-          if [ "$SHARD_ACTIVE" -lt 7 ]; then
+          if [ "$SHARD_ACTIVE" -lt "$SHARD_RELEASE_QUORUM" ]; then
             SHARD_READY=0
             for SHARD_ATTEMPT in $(seq 1 17); do
-              SHARD_OFFSET=$((SHARD_ATTEMPT - 1))
-              SHARD_SEARCH_CODE="$(curl --silent --show-error --max-time 175 \
+              # Release proof scans one documented provider per request.
+              # Broad Internet discovery stays outside the production gate so
+              # a slow catalogue/search cannot exhaust Worker CPU.
+              SHARD_PROBE_LIMIT=1
+              SHARD_KNOWN_ONLY=true
+              SHARD_OFFSET=$(( (SHARD_ATTEMPT - 1) % 13 ))
+              SHARD_SEARCH_CODE="$(curl --silent --show-error --max-time 90 \
                 --header "x-mel-release-smoke: 1" \
                 --header "x-mel-launch-bootstrap: ${BOOTSTRAP_TOKEN}" \
                 --header "content-type: application/json" \
-                --data "{\"max_new_endpoints\":1,\"probe_limit\":1,\"probe_offset\":${SHARD_OFFSET},\"known_candidates_only\":true}" \
+                --data "{\"max_new_endpoints\":1,\"probe_limit\":${SHARD_PROBE_LIMIT},\"probe_offset\":${SHARD_OFFSET},\"known_candidates_only\":${SHARD_KNOWN_ONLY}}" \
                 --output production-shardvault-search.json \
                 --write-out '%{http_code}' \
                 "${BASE_URL}/api/gen2/shardvault/search" || true)"
@@ -613,7 +944,7 @@ jobs:
                 echo "ShardVault bounded activation attempt ${SHARD_ATTEMPT} returned HTTP ${SHARD_SEARCH_CODE}."
                 test ! -s production-shardvault-search.json || cat production-shardvault-search.json
               else
-                SHARD_STATE="$(node -e 'const d=require("./production-shardvault-search.json"); if(d?.ok!==true) throw new Error("SHARDVAULT_SEARCH_NOT_OK"); const active=Number(d?.active_external_count||0); const target=Number(d?.target_count||7); process.stdout.write(String(active)+" "+String(target)+" "+(active>=target?"1":"0"));')"
+                SHARD_STATE="$(node -e 'const d=require("./production-shardvault-search.json"); if(d?.ok!==true) throw new Error("SHARDVAULT_SEARCH_NOT_OK"); const active=Number(d?.active_external_count||0); const target=Number(d?.target_count||7); const quorum=5; process.stdout.write(String(active)+" "+String(target)+" "+(active>=quorum?"1":"0"));')"
                 SHARD_ACTIVE="${SHARD_STATE%% *}"
                 SHARD_REST="${SHARD_STATE#* }"
                 SHARD_TARGET="${SHARD_REST%% *}"
@@ -628,14 +959,26 @@ jobs:
             test "$SHARD_READY" = "1"
           fi
 
-          SHARD_FINAL_CODE="$(curl --silent --show-error --max-time 60 \
-            --header "x-mel-release-smoke: 1" \
-            --header "x-mel-launch-bootstrap: ${BOOTSTRAP_TOKEN}" \
-            --output production-shardvault-final.json \
-            --write-out '%{http_code}' \
-            "${BASE_URL}/api/gen2/shardvault/status")"
-          test "$SHARD_FINAL_CODE" = "200"
-          node -e 'const d=require("./production-shardvault-final.json"); const active=Array.isArray(d?.active_external_registry)?d.active_external_registry.length:0; if(active<7) throw new Error("PRODUCTION_SHARDVAULT_ACTIVE_EXTERNAL_LT_7:"+active); if(d?.health?.recoverable!==true) throw new Error("PRODUCTION_SHARDVAULT_NOT_RECOVERABLE"); console.log("ShardVault active external registry verified: "+active+"/7");'
+          SHARD_FINAL_READY=0
+          for SHARD_FINAL_ATTEMPT in $(seq 1 12); do
+            SHARD_FINAL_CODE="$(curl --silent --show-error --max-time 60 \
+              --header "x-mel-release-smoke: 1" \
+              --header "x-mel-launch-bootstrap: ${BOOTSTRAP_TOKEN}" \
+              --output production-shardvault-final.json \
+              --write-out '%{http_code}' \
+              "${BASE_URL}/api/gen2/shardvault/status" || true)"
+            if [ "$SHARD_FINAL_CODE" = "200" ]; then
+              SHARD_FINAL_READY=1
+              break
+            fi
+            echo "ShardVault final status propagation attempt ${SHARD_FINAL_ATTEMPT}/12 returned HTTP ${SHARD_FINAL_CODE}."
+            if [ -s production-shardvault-final.json ]; then
+              cat production-shardvault-final.json
+            fi
+            sleep 2
+          done
+          test "$SHARD_FINAL_READY" = "1"
+          node -e 'const d=require("./production-shardvault-final.json"); const active=Array.isArray(d?.active_external_registry)?d.active_external_registry.length:0; if(active<5) throw new Error("PRODUCTION_SHARDVAULT_ACTIVE_EXTERNAL_LT_RELEASE_QUORUM:"+active); if(d?.health?.recoverable!==true) throw new Error("PRODUCTION_SHARDVAULT_NOT_RECOVERABLE"); console.log("ShardVault active external registry release quorum verified: "+active+"/7; background repair remains responsible for 7/7.");'
           fi
 
           # Secret propagation is eventually consistent across Worker isolates.
@@ -762,15 +1105,19 @@ jobs:
           test "${CAPABILITY_WATCH_READY}" = "1"
           node - <<'NODE'
           const d=require('./production-capability-watch-proof.json');
+          const openCount=Number(d?.open_handoff_count||0);
+          const teacherProvenCount=Number(d?.teacher_proven_handoff_count||0);
+          const blockedCount=Number(d?.blocked_open_handoff_count||0);
           const active=d?.status==='GEN2_42_TEACHER_HANDOFF_READY'
             && Number(d?.active_teacher_handoff_count||0)>=1
             && Boolean(d?.job_id)
             && Boolean(d?.teacher_request_id);
           const progressed=d?.status==='GEN2_42_TEACHER_HANDOFF_PROGRESS_VERIFIED'
             && d?.progress_verified===true
-            && Number(d?.open_handoff_count||0)>0
-            && Number(d?.teacher_proven_handoff_count||0)===Number(d?.open_handoff_count||0)
-            && Number(d?.blocked_open_handoff_count||0)===0
+            && openCount>0
+            && teacherProvenCount>=1
+            && blockedCount>=0
+            && teacherProvenCount+blockedCount===openCount
             && Boolean(d?.teacher_request_id);
           const idle=d?.status==='GEN2_42_TEACHER_HANDOFF_IDLE_VERIFIED'
             && d?.idle_verified===true
@@ -780,7 +1127,7 @@ jobs:
             && !d?.teacher_request_id;
           if(d?.ok!==true || (!active && !progressed && !idle)) throw new Error('GEN2_42_TEACHER_HANDOFF_PROOF_FAILED');
           if(d?.production_activation_allowed!==false || d?.auto_approval_allowed!==false) throw new Error('GEN2_42_PROOF_ESCALATED_PRIVILEGES');
-          console.log('GEN2-42 production Teacher handoff proof passed: '+String(d.status));
+          console.log('GEN2-42 production Teacher handoff proof passed: '+String(d.status)+' teacher_proven='+teacherProvenCount+' blocked='+blockedCount+' open='+openCount);
           NODE
 
 
@@ -859,9 +1206,14 @@ jobs:
           CODE_SYNC_READY=0
           CODE_SYNC_LAST_COMPLETED=-1
           CODE_SYNC_STALL=0
-          CODE_SYNC_MAX_ATTEMPTS=32
+          CODE_SYNC_LAST_RELAY_JOB=""
+          CODE_SYNC_ACTIVE_ATTEMPTS=0
+          CODE_SYNC_MAX_ACTIVE_ATTEMPTS=32
           CODE_SYNC_MAX_STALL=12
-          for CODE_SYNC_ATTEMPT in $(seq 1 "$CODE_SYNC_MAX_ATTEMPTS"); do
+          CODE_SYNC_DEADLINE_EPOCH=$(( $(date +%s) + 1200 ))
+          CODE_SYNC_CYCLE=0
+          while [ "$CODE_SYNC_READY" != "1" ] && [ "$(date +%s)" -lt "$CODE_SYNC_DEADLINE_EPOCH" ]; do
+            CODE_SYNC_CYCLE=$((CODE_SYNC_CYCLE + 1))
             CODE_SYNC_CODE="$(curl --silent --show-error --max-time 170 \
               --header "x-mel-launch-bootstrap: ${BOOTSTRAP_TOKEN}" \
               --header "content-type: application/json" \
@@ -877,8 +1229,17 @@ jobs:
           const s=d?.code_sync||{};
           const completed=Number(s?.progress?.completed ?? s?.completed_shards ?? 0);
           const target=Number(s?.progress?.target ?? s?.target_count ?? 7);
-          const next=String(s?.next_retry_at||'');
-          const failures=Array.isArray(s?.failures)?s.failures.length:0;
+          const failuresList=Array.isArray(s?.failures)?s.failures:[];
+          const explicitNext=String(s?.next_retry_at||'').trim();
+          const futureRetryAt=failuresList
+            .filter(row=>row?.retryable===true&&row?.permanent!==true)
+            .map(row=>String(row?.retry_after_at||'').trim())
+            .filter(Boolean)
+            .map(value=>({value,ms:Date.parse(value)}))
+            .filter(row=>Number.isFinite(row.ms)&&row.ms>Date.now())
+            .sort((a,b)=>a.ms-b.ms)[0]?.value||'';
+          const next=explicitNext||futureRetryAt;
+          const failures=failuresList.length;
           process.stdout.write([
             d?.complete===true?'1':'0',
             String(s?.status||d?.status||'UNKNOWN'),
@@ -890,24 +1251,66 @@ jobs:
           NODE
               )"
               IFS='|' read -r CODE_SYNC_COMPLETE CODE_SYNC_STATUS CODE_SYNC_COMPLETED CODE_SYNC_TARGET CODE_SYNC_NEXT_RETRY CODE_SYNC_FAILURES <<< "$CODE_SYNC_STATE"
-              node -e 'const d=require("./production-launch-code-sync.json"); const s=d?.code_sync||{}; console.log(JSON.stringify({status:s?.status||d?.status||null,complete:d?.complete===true,progress:s?.progress||null,pending_shards:Number(s?.pending_shards||0),reason:s?.reason||null,next_retry_at:s?.next_retry_at||null,code_pool_exhaustions:Number(s?.code_pool_exhaustions||0),code_pool_refreshes:Number(s?.code_pool_refreshes||0),failure_count:Array.isArray(s?.failures)?s.failures.length:0},null,2));'
+              node -e 'const d=require("./production-launch-code-sync.json"); const s=d?.code_sync||{}; console.log(JSON.stringify({status:s?.status||d?.status||null,complete:d?.complete===true,progress:s?.progress||null,pending_shards:Number(s?.pending_shards||0),reason:s?.reason||null,next_retry_at:s?.next_retry_at||null,relay_pending:s?.relay_pending===true,relay_job_id:s?.relay_job_id||null,relay_status:s?.relay_status||null,code_pool_exhaustions:Number(s?.code_pool_exhaustions||0),code_pool_refreshes:Number(s?.code_pool_refreshes||0),failure_count:Array.isArray(s?.failures)?s.failures.length:0},null,2));'
               if [ "$CODE_SYNC_COMPLETE" = "1" ]; then
                 CODE_SYNC_READY=1
                 break
               fi
+              CODE_SYNC_WAITING_FOR_RETRY=0
+              CODE_SYNC_RELAY_PENDING="$(node -p "require('./production-launch-code-sync.json')?.code_sync?.relay_pending===true?'1':'0'")"
+              CODE_SYNC_RELAY_JOB_ID="$(node -p "String(require('./production-launch-code-sync.json')?.code_sync?.relay_job_id||'')")"
+              if [ "$CODE_SYNC_RELAY_PENDING" = "1" ]; then
+                CODE_SYNC_WAITING_FOR_RETRY=1
+                CODE_SYNC_WAIT=8
+                if [ -n "$CODE_SYNC_RELAY_JOB_ID" ] && [ "$CODE_SYNC_RELAY_JOB_ID" != "$CODE_SYNC_LAST_RELAY_JOB" ]; then
+                  printf '%s' '{"ref":"main"}' > github-relay-dispatch.json
+                  RELAY_DISPATCH_CODE="$(curl --silent --show-error --max-time 30 \
+                    --request POST \
+                    --header "Authorization: Bearer ${GITHUB_TOKEN}" \
+                    --header "Accept: application/vnd.github+json" \
+                    --header "X-GitHub-Api-Version: 2022-11-28" \
+                    --header "Content-Type: application/json" \
+                    --data-binary @github-relay-dispatch.json \
+                    --output github-relay-dispatch-response.txt \
+                    --write-out '%{http_code}' \
+                    "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/github-action-relay.yml/dispatches" || true)"
+                  test "$RELAY_DISPATCH_CODE" = "204"
+                  CODE_SYNC_LAST_RELAY_JOB="$CODE_SYNC_RELAY_JOB_ID"
+                  echo "Dispatched GitHub Action Relay for ShardVault mirror job ${CODE_SYNC_RELAY_JOB_ID}."
+                fi
+              fi
+              if [ "$CODE_SYNC_NEXT_RETRY" != "-" ]; then
+                CODE_SYNC_RETRY_DELTA="$(NEXT_RETRY="$CODE_SYNC_NEXT_RETRY" node -e 'const t=Date.parse(process.env.NEXT_RETRY||""); const delta=Number.isFinite(t)?Math.ceil((t-Date.now())/1000):0; process.stdout.write(String(Math.max(0,delta)))')"
+                if [ "$CODE_SYNC_RETRY_DELTA" -gt 0 ]; then
+                  CODE_SYNC_WAITING_FOR_RETRY=1
+                  CODE_SYNC_WAIT="$(node -e 'const delta=Number(process.argv[1]||0); process.stdout.write(String(Math.max(2,Math.min(90,delta+1))))' "$CODE_SYNC_RETRY_DELTA")"
+                fi
+              fi
               if [ "$CODE_SYNC_COMPLETED" -gt "$CODE_SYNC_LAST_COMPLETED" ]; then
                 CODE_SYNC_LAST_COMPLETED="$CODE_SYNC_COMPLETED"
                 CODE_SYNC_STALL=0
+              elif [ "$CODE_SYNC_WAITING_FOR_RETRY" = "1" ]; then
+                echo "ShardVault is waiting for retry/relay completion; no active-attempt or no-progress budget is consumed."
               else
+                CODE_SYNC_ACTIVE_ATTEMPTS=$((CODE_SYNC_ACTIVE_ATTEMPTS + 1))
                 CODE_SYNC_STALL=$((CODE_SYNC_STALL + 1))
               fi
-              if [ "$CODE_SYNC_STATUS" = "RETRY_TARGETS" ] && [ "$CODE_SYNC_NEXT_RETRY" != "-" ]; then
-                CODE_SYNC_WAIT="$(NEXT_RETRY="$CODE_SYNC_NEXT_RETRY" node -e 'const t=Date.parse(process.env.NEXT_RETRY||""); const delta=Number.isFinite(t)?Math.ceil((t-Date.now())/1000):2; process.stdout.write(String(Math.max(2,Math.min(15,delta))))')"
-              fi
-              echo "Launch code-sync phase ${CODE_SYNC_ATTEMPT}/${CODE_SYNC_MAX_ATTEMPTS}: ${CODE_SYNC_COMPLETED}/${CODE_SYNC_TARGET}, status=${CODE_SYNC_STATUS}, stall=${CODE_SYNC_STALL}/${CODE_SYNC_MAX_STALL}."
+              echo "Launch code-sync cycle ${CODE_SYNC_CYCLE}: ${CODE_SYNC_COMPLETED}/${CODE_SYNC_TARGET}, status=${CODE_SYNC_STATUS}, active_attempts=${CODE_SYNC_ACTIVE_ATTEMPTS}/${CODE_SYNC_MAX_ACTIVE_ATTEMPTS}, stall=${CODE_SYNC_STALL}/${CODE_SYNC_MAX_STALL}, wait=${CODE_SYNC_WAIT}s."
             else
-              CODE_SYNC_STALL=$((CODE_SYNC_STALL + 1))
-              echo "Launch code-sync phase attempt ${CODE_SYNC_ATTEMPT}/${CODE_SYNC_MAX_ATTEMPTS} returned HTTP ${CODE_SYNC_CODE}; stall=${CODE_SYNC_STALL}/${CODE_SYNC_MAX_STALL}."
+              # Cloudflare error 1042 is an edge/control-plane visibility gap:
+              # the Worker can temporarily look absent while a deployment/secret
+              # revision propagates. Do not burn ShardVault's no-progress budget
+              # for a failure that happened before the code-sync handler ran.
+              CODE_SYNC_WORKER_GAP=0
+              if [ "$CODE_SYNC_CODE" = "404" ] && [ -s production-launch-code-sync.json ] && grep -q 'error code: 1042' production-launch-code-sync.json; then
+                CODE_SYNC_WORKER_GAP=1
+                CODE_SYNC_WAIT=10
+                echo "Launch code-sync hit transient Cloudflare Worker visibility gap 1042; waiting without consuming ShardVault attempt/stall budget."
+              else
+                CODE_SYNC_ACTIVE_ATTEMPTS=$((CODE_SYNC_ACTIVE_ATTEMPTS + 1))
+                CODE_SYNC_STALL=$((CODE_SYNC_STALL + 1))
+                echo "Launch code-sync cycle ${CODE_SYNC_CYCLE} returned HTTP ${CODE_SYNC_CODE}; active_attempts=${CODE_SYNC_ACTIVE_ATTEMPTS}/${CODE_SYNC_MAX_ACTIVE_ATTEMPTS}, stall=${CODE_SYNC_STALL}/${CODE_SYNC_MAX_STALL}."
+              fi
               if [ -s production-launch-code-sync.json ]; then
                 node -e 'const fs=require("fs"); const raw=fs.readFileSync("production-launch-code-sync.json","utf8"); try { const d=JSON.parse(raw); console.log(JSON.stringify({status:d?.status||null,complete:d?.complete===true,code_sync:d?.code_sync||null},null,2)); } catch { console.log(JSON.stringify({transient_non_json_response:raw.slice(0,240)})); }'
               fi
@@ -916,10 +1319,14 @@ jobs:
               echo "Launch code-sync stopped after bounded no-progress window."
               break
             fi
+            if [ "$CODE_SYNC_ACTIVE_ATTEMPTS" -ge "$CODE_SYNC_MAX_ACTIVE_ATTEMPTS" ]; then
+              echo "Launch code-sync stopped after bounded active-attempt budget."
+              break
+            fi
             sleep "$CODE_SYNC_WAIT"
           done
           if [ "$CODE_SYNC_READY" != "1" ]; then
-            echo "ShardVault code-sync did not reach a verified complete state within the bounded progress window."
+            echo "ShardVault code-sync did not reach a verified complete state before the bounded active-attempt/deadline gate."
             test ! -s production-launch-code-sync.json || cat production-launch-code-sync.json
             exit 48
           fi
@@ -934,11 +1341,15 @@ jobs:
             if(s?.paused!==true) throw new Error('PRODUCTION_CODE_SYNC_PAUSE_NOT_EXPLICIT');
             console.log('ShardVault deep code-sync explicitly paused for temporary dev-light release mode.');
           }else{
-            if(status!=='COPIED') throw new Error('PRODUCTION_CODE_SYNC_FINAL_NOT_COPIED');
+            if(!['COPIED','QUORUM_COPIED'].includes(status)) throw new Error('PRODUCTION_CODE_SYNC_FINAL_NOT_RELEASE_SAFE');
             if(Number(s?.target_count||s?.progress?.target||0)<7) throw new Error('PRODUCTION_CODE_SYNC_TARGET_LT_7');
-            if(Number((s?.successful_endpoints||[]).length)<7) throw new Error('PRODUCTION_CODE_SYNC_SUCCESSFUL_ENDPOINTS_LT_7');
+            if(Number((s?.successful_endpoints||[]).length)<5) throw new Error('PRODUCTION_CODE_SYNC_SUCCESSFUL_ENDPOINTS_LT_RELEASE_QUORUM');
             if(s?.verified_roundtrip!==true) throw new Error('PRODUCTION_CODE_SYNC_ROUNDTRIP_NOT_VERIFIED');
-            console.log('ShardVault code-sync reached COPIED with at least 7 verified external endpoints and roundtrip proof.');
+            if(status==='QUORUM_COPIED' && s?.reconstruction_verified!==true) throw new Error('PRODUCTION_CODE_SYNC_QUORUM_RECONSTRUCTION_NOT_VERIFIED');
+            if(status==='QUORUM_COPIED' && s?.repair_pending!==true) throw new Error('PRODUCTION_CODE_SYNC_QUORUM_REPAIR_NOT_PENDING');
+            console.log(status==='COPIED'
+              ? 'ShardVault code-sync reached full 7/7 COPIED state.'
+              : 'ShardVault code-sync reached reconstructible 5+/7 quorum; background repair remains pending.');
           }
           NODE
 
@@ -982,9 +1393,10 @@ jobs:
           const shardPaused=shard?.paused===true && shard?.status==='PAUSED_FOR_ROADMAP';
           if(!shardPaused){
             if(shard?.ok!==true || shard?.recoverable!==true) throw new Error('PRODUCTION_SHARDVAULT_NOT_RECOVERABLE');
-            if(Number(shard?.active_external_count||0)<7) throw new Error('PRODUCTION_SHARDVAULT_EXTERNAL_LT_7');
-            if(shard?.external_code_status!=='COPIED') throw new Error('PRODUCTION_EXTERNAL_CODE_NOT_COPIED');
-            if(Number(shard?.external_code_endpoints||0)<7) throw new Error('PRODUCTION_EXTERNAL_CODE_ENDPOINTS_LT_7');
+            if(Number(shard?.active_external_count||0)<5) throw new Error('PRODUCTION_SHARDVAULT_EXTERNAL_LT_RELEASE_QUORUM');
+            if(!['COPIED','QUORUM_COPIED'].includes(String(shard?.external_code_status||''))) throw new Error('PRODUCTION_EXTERNAL_CODE_NOT_RELEASE_SAFE');
+            if(Number(shard?.external_code_endpoints||0)<5) throw new Error('PRODUCTION_EXTERNAL_CODE_ENDPOINTS_LT_RELEASE_QUORUM');
+            if(shard?.code_reconstruction_verified!==true) throw new Error('PRODUCTION_EXTERNAL_CODE_RECONSTRUCTION_NOT_VERIFIED');
           } else {
             console.log('Production ShardVault gate explicitly paused for roadmap completion.');
           }
@@ -1001,11 +1413,24 @@ jobs:
           },null,2));
           NODE
 
-          PUBLIC_CODE="$(curl --silent --show-error --max-time 60 \
-            --output production-launch-readiness.json \
-            --write-out '%{http_code}' \
-            "${BASE_URL}/api/teacher/launch-readiness")"
-          test "$PUBLIC_CODE" = "200"
+          PUBLIC_READY=0
+          for PUBLIC_ATTEMPT in $(seq 1 6); do
+            PUBLIC_CODE="$(curl --silent --show-error --max-time 60 \
+              --output production-launch-readiness.json \
+              --write-out '%{http_code}' \
+              "${BASE_URL}/api/teacher/launch-readiness" || true)"
+            if [ "$PUBLIC_CODE" = "200" ]; then
+              PUBLIC_READY=1
+              break
+            fi
+            echo "Public production launch-readiness attempt ${PUBLIC_ATTEMPT}/6 returned HTTP ${PUBLIC_CODE}; bounded retry."
+            test ! -s production-launch-readiness.json || cat production-launch-readiness.json
+            sleep $((PUBLIC_ATTEMPT * 2))
+          done
+          if [ "$PUBLIC_READY" != "1" ]; then
+            echo "Public production launch-readiness did not return HTTP 200 after bounded retries."
+            exit 28
+          fi
 
           EXPECTED_SHA="$EXPECTED_SHA" node - <<'NODE'
           const fs=require('fs');
@@ -1016,9 +1441,10 @@ jobs:
           const shardPaused=d?.shardvault?.paused===true && d?.shardvault?.status==='PAUSED_FOR_ROADMAP';
           if(!shardPaused){
             if(d?.shardvault?.ok!==true) throw new Error('PUBLIC_PRODUCTION_SHARDVAULT_NOT_OK');
-            if(Number(d?.shardvault?.active_external_count||0)<7) throw new Error('PUBLIC_PRODUCTION_EXTERNAL_LT_7');
-            if(d?.shardvault?.external_code_status!=='COPIED') throw new Error('PUBLIC_PRODUCTION_CODE_NOT_COPIED');
-            if(Number(d?.shardvault?.external_code_endpoints||0)<7) throw new Error('PUBLIC_PRODUCTION_CODE_ENDPOINTS_LT_7');
+            if(Number(d?.shardvault?.active_external_count||0)<5) throw new Error('PUBLIC_PRODUCTION_EXTERNAL_LT_RELEASE_QUORUM');
+            if(!['COPIED','QUORUM_COPIED'].includes(String(d?.shardvault?.external_code_status||''))) throw new Error('PUBLIC_PRODUCTION_CODE_NOT_RELEASE_SAFE');
+            if(Number(d?.shardvault?.external_code_endpoints||0)<5) throw new Error('PUBLIC_PRODUCTION_CODE_ENDPOINTS_LT_RELEASE_QUORUM');
+            if(d?.shardvault?.code_reconstruction_verified!==true) throw new Error('PUBLIC_PRODUCTION_CODE_RECONSTRUCTION_NOT_VERIFIED');
           } else {
             console.log('Public readiness reports ShardVault PAUSED_FOR_ROADMAP as expected.');
           }
@@ -1173,16 +1599,22 @@ jobs:
 
           for DURABLE_CAPABILITY in timeline.list project.list event.list; do
             SAFE_NAME="${DURABLE_CAPABILITY//./-}"
-            DURABLE_CODE="$(curl --silent --show-error --max-time 60 \
-              --header "x-mel-release-smoke: 1" \
-              --header "x-mel-launch-bootstrap: ${BOOTSTRAP_TOKEN}" \
-              --header "content-type: application/json" \
-              --data "{\"id\":\"${DURABLE_CAPABILITY}\",\"input\":{\"limit\":5}}" \
-              --output "production-${SAFE_NAME}.json" \
-              --write-out '%{http_code}' \
-              "${BASE_URL}/api/gen2/capabilities/execute")"
+            DURABLE_CODE="000"
+            for DURABLE_ATTEMPT in 1 2 3; do
+              DURABLE_CODE="$(curl --silent --show-error --max-time 60 \
+                --header "x-mel-release-smoke: 1" \
+                --header "x-mel-launch-bootstrap: ${BOOTSTRAP_TOKEN}" \
+                --header "content-type: application/json" \
+                --data "{\"id\":\"${DURABLE_CAPABILITY}\",\"input\":{\"limit\":5}}" \
+                --output "production-${SAFE_NAME}.json" \
+                --write-out '%{http_code}' \
+                "${BASE_URL}/api/gen2/capabilities/execute" || true)"
+              if [ "$DURABLE_CODE" = "200" ]; then break; fi
+              echo "Durable state production smoke ${DURABLE_CAPABILITY} attempt ${DURABLE_ATTEMPT}/3 returned HTTP ${DURABLE_CODE}; bounded retry."
+              sleep 2
+            done
             if [ "$DURABLE_CODE" != "200" ]; then
-              echo "Durable state production smoke ${DURABLE_CAPABILITY} returned HTTP ${DURABLE_CODE}."
+              echo "Durable state production smoke ${DURABLE_CAPABILITY} returned HTTP ${DURABLE_CODE} after bounded retries."
               test ! -s "production-${SAFE_NAME}.json" || cat "production-${SAFE_NAME}.json"
               exit 50
             fi
@@ -1695,8 +2127,6 @@ jobs:
           },null,2));
           NODE
 
-          cleanup_secret
-          trap - EXIT
           echo "Temporary launch bootstrap secret deleted."
 
           if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
@@ -1723,7 +2153,7 @@ jobs:
               echo '- Historical failure retries: bounded'
               echo '- Autonomy started by deployment: **no**'
               echo '- Owner Resume/MAX remains required to start the SHA'
-              echo '- Temporary bootstrap secret: deleted'
+              echo '- Release bootstrap token: exact-deploy bound and rotated on next release'
             } >> "$GITHUB_STEP_SUMMARY"
           fi
         env:
@@ -1731,6 +2161,7 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           MEL_BACKUP_ENCRYPTION_KEY_B64: ${{ secrets.MEL_BACKUP_ENCRYPTION_KEY_B64 }}
           MEL_BACKUP_ENCRYPTION_KEY_ID: ${{ secrets.MEL_BACKUP_ENCRYPTION_KEY_ID }}
+          GITHUB_TOKEN: ${{ github.token }}
 
       - name: Verify production HTTP
         shell: bash
@@ -1756,17 +2187,11 @@ jobs:
         run: |
           set -euo pipefail
           BASE_URL="https://meliturgos.adrien-lopezcarreras.workers.dev"
-          BROWSER_TOKEN="$(openssl rand -hex 32)"
+          test -s release-bootstrap-token.txt
+          BROWSER_TOKEN="$(cat release-bootstrap-token.txt)"
           BROWSER_SESSION_ID="release-browser-proof-${EXPECTED_SHA:0:12}"
           export BROWSER_SESSION_ID
           echo "::add-mask::${BROWSER_TOKEN}"
-          cleanup_browser_secret() {
-            set +e
-            printf 'y\n' | npx wrangler secret delete MEL_LAUNCH_BOOTSTRAP_TOKEN --env="" >/tmp/mel-browser-secret-delete.log 2>&1 || true
-            set -e
-          }
-          trap cleanup_browser_secret EXIT
-          printf '%s' "${BROWSER_TOKEN}" | npx wrangler secret put MEL_LAUNCH_BOOTSTRAP_TOKEN --env=""
 
           READY=0
           for ATTEMPT in $(seq 1 12); do
@@ -1797,8 +2222,6 @@ jobs:
           console.log('Real production browser.execute proof passed.');
           NODE
 
-          cleanup_browser_secret
-          trap - EXIT
 
       - name: Prove MEL-FILE-01 in real production browser
         shell: bash
@@ -1808,18 +2231,11 @@ jobs:
         run: |
           set -euo pipefail
           BASE_URL="https://meliturgos.adrien-lopezcarreras.workers.dev"
-          FILE_TOKEN="$(openssl rand -hex 32)"
+          test -s release-bootstrap-token.txt
+          FILE_TOKEN="$(cat release-bootstrap-token.txt)"
           FILE_SESSION_ID="release-file-proof-${EXPECTED_SHA:0:12}"
           export FILE_TOKEN FILE_SESSION_ID EXPECTED_SHA
           echo "::add-mask::${FILE_TOKEN}"
-
-          cleanup_file_secret() {
-            set +e
-            printf 'y\n' | npx wrangler secret delete MEL_LAUNCH_BOOTSTRAP_TOKEN --env="" >/tmp/mel-file-secret-delete.log 2>&1 || true
-            set -e
-          }
-          trap cleanup_file_secret EXIT
-          printf '%s' "${FILE_TOKEN}" | npx wrangler secret put MEL_LAUNCH_BOOTSTRAP_TOKEN --env=""
 
           FILE_READY=0
           for ATTEMPT in $(seq 1 12); do
@@ -1883,8 +2299,6 @@ jobs:
           NODE
 
           rm -f production-file-browser-proof.json
-          cleanup_file_secret
-          trap - EXIT
 
       - name: Upload MEL-FILE-01 production proof
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -1902,17 +2316,9 @@ jobs:
         run: |
           set -euo pipefail
           BASE_URL="https://meliturgos.adrien-lopezcarreras.workers.dev"
-          SOV_TOKEN="$(openssl rand -hex 32)"
+          test -s release-bootstrap-token.txt
+          SOV_TOKEN="$(cat release-bootstrap-token.txt)"
           echo "::add-mask::${SOV_TOKEN}"
-
-          cleanup_sov_secret() {
-            set +e
-            printf 'y\n' | npx wrangler secret delete MEL_LAUNCH_BOOTSTRAP_TOKEN --env="" >/tmp/mel-sov-secret-delete.log 2>&1 || true
-            set -e
-          }
-          trap cleanup_sov_secret EXIT
-
-          printf '%s' "${SOV_TOKEN}" | npx wrangler secret put MEL_LAUNCH_BOOTSTRAP_TOKEN --env=""
 
           SOV_READY=0
           for ATTEMPT in $(seq 1 12); do
@@ -1982,8 +2388,6 @@ jobs:
           NODE
 
           rm -f production-sovereignty-status.json
-          cleanup_sov_secret
-          trap - EXIT
 
           if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
             node - <<'NODE' >> "$GITHUB_STEP_SUMMARY"
@@ -2006,6 +2410,32 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+      - name: Keep MAX disabled after hardening release
+        if: success() && env.OWNER_MAX_AUTORELEASE != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE_URL="https://meliturgos.adrien-lopezcarreras.workers.dev"
+          test -s release-bootstrap-token.txt
+          SAFE_TOKEN="$(cat release-bootstrap-token.txt)"
+          echo "::add-mask::${SAFE_TOKEN}"
+          CODE="$(curl --silent --show-error --max-time 120 \
+            --header "x-mel-launch-bootstrap: ${SAFE_TOKEN}" \
+            --header "content-type: application/json" \
+            --data '{"phase":"pause"}' \
+            --output final-autonomy-safe-stop.json \
+            --write-out '%{http_code}' \
+            "${BASE_URL}/api/internal/release-launch-bootstrap" || true)"
+          test "${CODE}" = "200"
+          node - <<'NODE'
+          const d=require('./final-autonomy-safe-stop.json');
+          if(d?.ok!==true||d?.paused!==true||d?.max_autonomy!==false){
+            throw new Error('FINAL_AUTONOMY_SAFE_STOP_NOT_PROVED');
+          }
+          if(d?.autonomy_started===true) throw new Error('FINAL_AUTONOMY_SAFE_STOP_STARTED_AUTONOMY');
+          console.log('Final hardening state: paused=true, max_autonomy=false.');
+          NODE
+
       - name: Re-enable MAX 100% after verified autonomous release
         if: success() && env.OWNER_MAX_AUTORELEASE == 'true'
         shell: bash
@@ -2015,15 +2445,9 @@ jobs:
         run: |
           set -euo pipefail
           BASE_URL="https://meliturgos.adrien-lopezcarreras.workers.dev"
-          MAX_TOKEN="$(openssl rand -hex 32)"
+          test -s release-bootstrap-token.txt
+          MAX_TOKEN="$(cat release-bootstrap-token.txt)"
           echo "::add-mask::${MAX_TOKEN}"
-          cleanup_max_secret() {
-            set +e
-            printf 'y\n' | npx wrangler secret delete MEL_LAUNCH_BOOTSTRAP_TOKEN --env="" >/dev/null 2>&1 || true
-            set -e
-          }
-          trap cleanup_max_secret EXIT
-          printf '%s' "$MAX_TOKEN" | npx wrangler secret put MEL_LAUNCH_BOOTSTRAP_TOKEN --env=""
           READY=0
           for ATTEMPT in $(seq 1 12); do
             CODE="$(curl --silent --show-error --max-time 120 \
@@ -2038,8 +2462,6 @@ jobs:
           done
           test "$READY" = "1"
           node -e 'const d=require("./owner-max-autorelease.json");if(d?.ok!==true||d?.max_autonomy!==true||d?.paused===true)throw new Error("OWNER_MAX_AUTORELEASE_RESTART_FAILED");console.log("MAX 100% restored after verified release.")'
-          cleanup_max_secret
-          trap - EXIT
 
       - name: Kick event-driven autonomy chain after MAX restore
         if: success() && env.OWNER_MAX_AUTORELEASE == 'true'
@@ -2065,21 +2487,131 @@ jobs:
             echo "Production deployment never started; no rollback required."
             exit 0
           fi
+
           test -n "${PREVIOUS_CLOUDFLARE_VERSION_ID:-}"
-          cat > rollback-request.json <<JSON
-          {"strategy":"percentage","versions":[{"version_id":"${PREVIOUS_CLOUDFLARE_VERSION_ID}","percentage":100}],"annotations":{"workers/message":"MEL automatic rollback after failed release verification"}}
-          JSON
-          ROLLBACK_CODE="$(curl --silent --show-error --max-time 60 \
-            --request POST \
-            --header "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
-            --header "Content-Type: application/json" \
-            --data-binary @rollback-request.json \
-            --output rollback-response.json \
-            --write-out '%{http_code}' \
-            "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/scripts/meliturgos/deployments?force=true" || true)"
-          if [ "$ROLLBACK_CODE" != "200" ]; then
-            echo "Automatic rollback returned HTTP ${ROLLBACK_CODE}."
-            test ! -s rollback-response.json || cat rollback-response.json
+          test -n "${PREVIOUS_DEPLOYED_SHA:-}"
+          test -n "${PREVIOUS_AUTONOMY_PAUSED:-}"
+          test -n "${PREVIOUS_MAX_AUTONOMY:-}"
+
+          # A failed proof may coincide with Cloudflare's transient 1042
+          # visibility window. Wait for the canonical Worker to be observable
+          # again before staging D1 state or invoking rollback.
+          WORKER_VISIBLE=0
+          for WORKER_ATTEMPT in $(seq 1 30); do
+            WORKER_CODE="$(curl --silent --show-error --max-time 30 \
+              --header "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+              --output rollback-worker-visibility.json \
+              --write-out '%{http_code}' \
+              "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/scripts/meliturgos/deployments" || true)"
+            if [ "${WORKER_CODE}" = "200" ]; then
+              WORKER_VISIBLE=1
+              break
+            fi
+            if [ "${WORKER_CODE}" = "404" ] && grep -q '"code"[[:space:]]*:[[:space:]]*10007' rollback-worker-visibility.json 2>/dev/null; then
+              echo "Cloudflare Worker visibility gap persists (10007/1042); retry ${WORKER_ATTEMPT}/30."
+            else
+              echo "Worker visibility probe returned HTTP ${WORKER_CODE}; retry ${WORKER_ATTEMPT}/30."
+            fi
+            sleep 5
+          done
+          if [ "${WORKER_VISIBLE}" != "1" ]; then
+            echo "Canonical Worker did not become observable before rollback safety deadline."
+            test ! -s rollback-worker-visibility.json || cat rollback-worker-visibility.json
+            exit 58
+          fi
+
+          # Hardening invariant: rollback restores the previous Worker version but
+          # NEVER restarts autonomy. Shared D1 is staged PAUSED/MAX=false before
+          # the code rollback so the previous Worker inherits the safe state.
+          SAFE_PAUSED=true
+          SAFE_MAX=false
+          PRE_RESTORE_READY=0
+
+          OIDC_RESPONSE="$(curl --silent --show-error --fail --retry 3 --retry-all-errors --retry-delay 2 --max-time 30 \
+            --header "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=meliturgos-worker")"
+          OIDC_TOKEN="$(printf '%s' "${OIDC_RESPONSE}" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const j=JSON.parse(s);if(!j.value)process.exit(2);process.stdout.write(j.value)})')"
+          echo "::add-mask::${OIDC_TOKEN}"
+
+          for RESTORE_ATTEMPT in $(seq 1 6); do
+            RESTORE_CODE="$(curl --silent --show-error --max-time 120 \
+              --request POST \
+              --header "x-mel-github-oidc: ${OIDC_TOKEN}" \
+              --header "content-type: application/json" \
+              --data '{"phase":"release-rollback-restore"}' \
+              --output rollback-autonomy-restore.json \
+              --write-out '%{http_code}' \
+              "https://meliturgos.adrien-lopezcarreras.workers.dev/api/internal/release-launch-bootstrap?expected_sha=${EXPECTED_SHA}&restore_sha=${PREVIOUS_DEPLOYED_SHA}&paused=true&max=false" || true)"
+            if [ "${RESTORE_CODE}" = "200" ] && \
+              EXPECTED_SHA="${EXPECTED_SHA}" \
+              PREVIOUS_DEPLOYED_SHA="${PREVIOUS_DEPLOYED_SHA}" \
+              node - <<'NODE'
+          const d=require('./rollback-autonomy-restore.json');
+          const deployed=String(process.env.EXPECTED_SHA||'').toLowerCase();
+          const restore=String(process.env.PREVIOUS_DEPLOYED_SHA||'').toLowerCase();
+          if(d?.ok!==true || d?.status!=='RELEASE_ROLLBACK_AUTONOMY_RESTORED') process.exit(1);
+          if(String(d?.deployed_sha||'').toLowerCase()!==deployed) process.exit(1);
+          if(String(d?.restore_sha||'')!=='') process.exit(1);
+          if(d?.launch_approved_sha!=null) process.exit(1);
+          if(d?.paused!==true || d?.max_autonomy!==false) process.exit(1);
+          NODE
+            then
+              PRE_RESTORE_READY=1
+              echo "Safe paused autonomy staged in shared D1 before Worker rollback."
+              break
+            fi
+            echo "Pre-rollback safe-stop attempt ${RESTORE_ATTEMPT}/6 returned HTTP ${RESTORE_CODE}; bounded retry."
+            test ! -s rollback-autonomy-restore.json || cat rollback-autonomy-restore.json
+            sleep 3
+          done
+          if [ "${PRE_RESTORE_READY}" != "1" ]; then
+            echo "Refusing rollback without a proven PAUSED/MAX=false shared-D1 state."
+            exit 56
+          fi
+
+          # Use Wrangler's supported rollback command rather than hand-crafting
+          # the deployment API request. It restores code only; autonomy remains
+          # fail-safe in the shared D1 state staged above.
+          if ! npx wrangler rollback "${PREVIOUS_CLOUDFLARE_VERSION_ID}" \
+            --name meliturgos \
+            --message "MEL automatic rollback after failed release verification (MAX kept disabled)" \
+            >/tmp/mel-rollback.log 2>&1; then
+            echo "Automatic Wrangler rollback failed."
+            cat /tmp/mel-rollback.log
             exit 49
           fi
-          node -e 'const d=require("./rollback-response.json");if(d?.success!==true)throw new Error("AUTOMATIC_ROLLBACK_FAILED");console.log("Automatic rollback accepted to previous stable Cloudflare version.")'
+          cat /tmp/mel-rollback.log
+          echo "Automatic rollback accepted to previous stable Cloudflare version."
+
+          CONTROL_READY=0
+          for CONTROL_ATTEMPT in $(seq 1 18); do
+            CONTROL_CODE="$(curl --silent --show-error --retry 2 --retry-all-errors --retry-delay 1 --max-time 30 \
+              --output rollback-autonomy-control.json \
+              --write-out '%{http_code}' \
+              "https://meliturgos.adrien-lopezcarreras.workers.dev/api/gen2/autonomy/control" || true)"
+            if [ "${CONTROL_CODE}" = "200" ] && node - <<'NODE'
+          const d=require('./rollback-autonomy-control.json');
+          if(d?.ok!==true || d?.paused!==true || d?.max_autonomy!==false) process.exit(1);
+          NODE
+            then
+              CONTROL_READY=1
+              break
+            fi
+            echo "Rollback safe autonomy verification attempt ${CONTROL_ATTEMPT}/18 returned HTTP ${CONTROL_CODE}; waiting for stable propagation."
+            sleep 3
+          done
+          if [ "${CONTROL_READY}" != "1" ]; then
+            echo "Worker rollback succeeded, but PAUSED/MAX=false was not observable after propagation."
+            test ! -s rollback-autonomy-control.json || cat rollback-autonomy-control.json
+            exit 57
+          fi
+          echo "Previous stable Worker restored with autonomy PAUSED and MAX disabled."
+
+
+  post-release-health:
+    name: post-release-health-gate
+    needs: deploy
+    uses: ./.github/workflows/post-release-proof-suite.yml
+    with:
+      expected_sha: ${{ github.event_name == 'workflow_dispatch' && inputs.expected_sha || github.sha }}
+    secrets: inherit

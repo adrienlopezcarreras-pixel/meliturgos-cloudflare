@@ -12,7 +12,10 @@ import { registerSelfAuditCapabilities } from './self-audit-capability.js';
 import { registerBrowserRuntimeCapabilities } from './browser-runtime-capabilities.js';
 import { registerComputerRuntimeCapabilities } from './computer-runtime-capabilities.js';
 import { registerGoogleWorkspaceCapabilities } from './google-workspace-capabilities.js';
+import { registerPipedreamLinkedCapabilities } from './pipedream-linked-capabilities.js';
 import { registerCreativeMediaCapabilities } from './creative-media-capabilities.js';
+import { createWorkersAiZeroCostMediaCapabilities } from '../media/workers-ai-media-capabilities.js';
+import { createProceduralAudioCapabilities } from '../media/procedural-audio-capabilities.js';
 import { createDefaultAugmentioPool } from '../augmentio/default-pool.js';
 import { Augmentio } from '../augmentio/augmentio.js';
 import { inspectZeroCostProviderReadiness } from '../augmentio/zero-cost-readiness.js';
@@ -118,7 +121,7 @@ function zeroCostHealth(runtimeEnv, minimum = 1) {
 }
 
 /** Safe capability bus used by MEL's Gen2 runtime. Only real executable handlers are registered. */
-export function createDefaultCapabilityBus({ audit, env, repository, branch, token, fetchImpl, googleAccessTokenResolver = null, vercelConfigResolver = null } = {}) {
+export function createDefaultCapabilityBus({ audit, env, repository, branch, token, fetchImpl, googleAccessTokenResolver = null, vercelConfigResolver = null, pipedreamRuntime = null } = {}) {
   const runtimeEnv = env || {};
   const bus = new CapabilityBus({ audit });
 
@@ -138,6 +141,10 @@ export function createDefaultCapabilityBus({ audit, env, repository, branch, tok
   const githubToken = token ?? runtimeEnv.MEL_GITHUB_TOKEN ?? '';
   const githubFetch = fetchImpl || runtimeEnv.MEL_GITHUB_FETCH || fetch;
   const platformFetch = fetchImpl || runtimeEnv.MEL_PLATFORM_FETCH || fetch;
+  // Commercial MEL runs free-first. Vercel Hobby is non-commercial only;
+  // exclude optional Vercel capabilities from the active inventory unless
+  // the operator explicitly opts in to using an eligible paid Vercel plan.
+  const includeVercel = String(runtimeEnv.MEL_ENABLE_OPTIONAL_VERCEL || '').trim().toLowerCase() === 'true';
   registerGitHubCodeCapabilities(bus, {
     repository: githubRepository,
     branch: githubBranch,
@@ -150,18 +157,22 @@ export function createDefaultCapabilityBus({ audit, env, repository, branch, tok
     repository: githubRepository,
     fetchImpl: platformFetch,
     resolveVercelConfig: typeof vercelConfigResolver === 'function' ? vercelConfigResolver : null,
+    includeVercel,
   });
   registerPlatformControlCapabilities(bus, {
     env: runtimeEnv,
     repository: githubRepository,
     fetchImpl: platformFetch,
     resolveVercelConfig: typeof vercelConfigResolver === 'function' ? vercelConfigResolver : null,
+    includeVercel,
   });
   registerGoogleWorkspaceCapabilities(bus, {
     env: runtimeEnv,
     fetchImpl: platformFetch,
     resolveAccessToken: typeof googleAccessTokenResolver === 'function' ? googleAccessTokenResolver : null,
+    pipedreamRuntime,
   });
+  registerPipedreamLinkedCapabilities(bus, { pipedreamRuntime });
 
   registerPresentationCapabilities(bus);
 
@@ -336,7 +347,9 @@ export function createDefaultCapabilityBus({ audit, env, repository, branch, tok
       ? 'direct-token'
       : (runtimeEnv.DB && runtimeEnv.MEL_GITHUB_WRITABLE_WORKFLOWS ? 'd1-actions-relay' : 'unconfigured'),
     cloudflare_control_configured: Boolean(runtimeEnv.CLOUDFLARE_API_TOKEN && runtimeEnv.CLOUDFLARE_ACCOUNT_ID && runtimeEnv.MEL_CLOUDFLARE_SCRIPT),
-    vercel_control_configured: Boolean(runtimeEnv.VERCEL_TOKEN && runtimeEnv.MEL_VERCEL_PROJECT_ID && runtimeEnv.MEL_VERCEL_PROJECT_NAME),
+    vercel_optional_excluded_free_only: !includeVercel,
+    free_deployment_provider: 'cloudflare',
+    vercel_control_configured: includeVercel && Boolean(runtimeEnv.VERCEL_TOKEN && runtimeEnv.MEL_VERCEL_PROJECT_ID && runtimeEnv.MEL_VERCEL_PROJECT_NAME),
     owner_configured: Boolean(runtimeEnv.MELITURGOS_USER),
     browser_companion: Boolean(runtimeEnv.MEL_BROWSER_COMPANION?.fetch),
   }));
@@ -393,7 +406,7 @@ export function createDefaultCapabilityBus({ audit, env, repository, branch, tok
       additionalProperties: false
     },
     output_schema: { type: 'object', additionalProperties: true },
-    risk: 'LOW', permissions: [], health: runtimeEnv.DB ? 'HEALTHY' : 'DEGRADED', enabled: true
+    risk: 'LOW', permissions: [], health: runtimeEnv.DB ? 'HEALTHY' : 'UNAVAILABLE', enabled: true
   }, async input => {
     if (!runtimeEnv.DB) throw capabilityError('DB_BINDING_MISSING');
     if (!runtimeEnv.MELITURGOS_USER) throw capabilityError('MELITURGOS_USER_MISSING');
@@ -422,7 +435,17 @@ export function createDefaultCapabilityBus({ audit, env, repository, branch, tok
     risk: 'LOW', permissions: [], health: 'HEALTHY', enabled: true
   }, async input => ({ ok: true, preview: true, ...normalizeChatGPTArchive(input.archive ?? input).summary }));
 
-  registerCreativeMediaCapabilities(bus, { env: runtimeEnv });
+  const builtInZeroCostMedia = createWorkersAiZeroCostMediaCapabilities(runtimeEnv);
+  const builtInProceduralMedia = createProceduralAudioCapabilities(runtimeEnv);
+  const mediaEnv = {
+    ...runtimeEnv,
+    MEL_MEDIA_CAPABILITIES: {
+      ...builtInProceduralMedia,
+      ...builtInZeroCostMedia,
+      ...(runtimeEnv.MEL_MEDIA_CAPABILITIES || {}),
+    },
+  };
+  registerCreativeMediaCapabilities(bus, { env: mediaEnv });
   registerBrowserRuntimeCapabilities(bus, {
     binding: runtimeEnv.MEL_BROWSER_COMPANION,
     endpoint: runtimeEnv.MEL_BROWSER_COMPANION_ENDPOINT,

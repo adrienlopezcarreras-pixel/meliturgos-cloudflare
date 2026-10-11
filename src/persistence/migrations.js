@@ -302,6 +302,78 @@ export const MIGRATIONS = [
     await db.prepare("DELETE FROM mel_oauth_tokens WHERE connector_id='generic-imap-smtp'").run();
     await db.prepare("DELETE FROM mel_oauth_transactions WHERE connector_id='generic-imap-smtp'").run();
   }},
+  { version: 16, name: 'runtime_query_indexes_and_public_rate_limits', run: async db => {
+    await db.prepare(`CREATE INDEX IF NOT EXISTS idx_conversations_owner_updated
+      ON conversations(owner, updated_at DESC)`).run();
+    await db.prepare(`CREATE INDEX IF NOT EXISTS idx_knowledge_entities_type
+      ON knowledge_entities(type)`).run();
+    await db.prepare(`CREATE INDEX IF NOT EXISTS idx_timeline_events_occurred
+      ON timeline_events(occurred_at ASC)`).run();
+    await db.prepare(`CREATE INDEX IF NOT EXISTS idx_automation_runs_automation_created
+      ON automation_runs(automation_id, created_at ASC)`).run();
+    await db.prepare(`CREATE TABLE IF NOT EXISTS public_rate_limits (
+      key TEXT PRIMARY KEY,
+      window_started INTEGER NOT NULL,
+      count INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    )`).run();
+    await db.prepare(`CREATE INDEX IF NOT EXISTS idx_public_rate_limits_updated
+      ON public_rate_limits(updated_at DESC)`).run();
+  }},
+  { version: 17, name: 'lora_daily_trace', run: async db => {
+    await db.prepare(`CREATE TABLE IF NOT EXISTS lora_training_runs (
+      run_id TEXT PRIMARY KEY,
+      workflow_run_id INTEGER,
+      workflow_run_number INTEGER,
+      workflow_attempt INTEGER NOT NULL DEFAULT 1,
+      source_sha TEXT NOT NULL,
+      workflow_sha TEXT,
+      model_version TEXT NOT NULL DEFAULT '',
+      base_model TEXT NOT NULL DEFAULT '',
+      cycle INTEGER,
+      status TEXT NOT NULL,
+      started_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      finished_at INTEGER,
+      dataset_json TEXT NOT NULL DEFAULT '{}',
+      training_json TEXT NOT NULL DEFAULT '{}',
+      results_json TEXT NOT NULL DEFAULT '{}',
+      errors_json TEXT NOT NULL DEFAULT '[]',
+      artifacts_json TEXT NOT NULL DEFAULT '[]',
+      summary_fr TEXT NOT NULL DEFAULT '',
+      trace_sha256 TEXT NOT NULL DEFAULT '',
+      last_seq INTEGER NOT NULL DEFAULT 0,
+      trace_verified INTEGER NOT NULL DEFAULT 0
+    )`).run();
+    await db.prepare(`CREATE INDEX IF NOT EXISTS idx_lora_training_runs_started
+      ON lora_training_runs(started_at DESC)`).run();
+    await db.prepare(`CREATE INDEX IF NOT EXISTS idx_lora_training_runs_status
+      ON lora_training_runs(status, updated_at DESC)`).run();
+    await db.prepare(`CREATE TABLE IF NOT EXISTS lora_training_events (
+      run_id TEXT NOT NULL,
+      seq INTEGER NOT NULL,
+      event_type TEXT NOT NULL,
+      occurred_at INTEGER NOT NULL,
+      payload_json TEXT NOT NULL DEFAULT '{}',
+      payload_sha256 TEXT NOT NULL,
+      PRIMARY KEY(run_id, seq)
+    )`).run();
+    await db.prepare(`CREATE INDEX IF NOT EXISTS idx_lora_training_events_time
+      ON lora_training_events(occurred_at ASC)`).run();
+    await db.prepare(`CREATE TABLE IF NOT EXISTS lora_daily_status (
+      day TEXT PRIMARY KEY,
+      first_run_at INTEGER,
+      last_run_at INTEGER,
+      run_count INTEGER NOT NULL DEFAULT 0,
+      successful_count INTEGER NOT NULL DEFAULT 0,
+      failed_count INTEGER NOT NULL DEFAULT 0,
+      absence_reported_at INTEGER,
+      last_run_id TEXT,
+      report_fr TEXT NOT NULL DEFAULT '',
+      updated_at INTEGER NOT NULL
+    )`).run();
+  }},
+
 ];
 
 export async function migrate(db, targetVersion = DB_SCHEMA_VERSION) {

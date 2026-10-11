@@ -1,7 +1,7 @@
 import { ZERO_EURO_POLICY } from './zero-euro-governor.js';
 
 export const WORKERS_AI_ZERO_COST_PROOF_SCHEMA = 'mel.workers-ai.zero-cost-proof/v1';
-export const WORKERS_AI_ZERO_COST_PRICING_POLICY = 'cloudflare-workers-ai-pricing-2026-08-28';
+export const WORKERS_AI_ZERO_COST_PRICING_POLICY = 'cloudflare-workers-ai-pricing-2026-10-01';
 export const WORKERS_FREE_STATIC_ASSET_LIMIT_KEY = 'workers.static_assets.manifest_limit_file_count';
 export const WORKERS_FREE_STATIC_ASSET_LIMIT = 20000;
 export const WORKERS_FREE_AI_ALLOCATION_NEURONS = 10000;

@@ -7,6 +7,9 @@ const CLIENT_FILES = [
   '../src/pages/full-interface-v2.js',
   '../src/pages/full-mode-control-enhancer.js',
   '../src/pages/watch-interface.js',
+  '../src/pages/fides-guest-page.js',
+  '../src/pages/public-wordpress-chat-page.js',
+  '../src/pages/shardvault-status.js',
   '../src/professor-live-learning-entry.js',
   '../src/learning-entry.js',
 ];
@@ -20,6 +23,8 @@ const SERVER_FILES = [
   '../src/api/voice-transcribe.js',
   '../src/api/file-upload.js',
   '../src/pages/shardvault-status.js',
+  '../src/api/public-fides-chat.js',
+  '../src/api/public-wordpress-chat.js',
   '../src/devices/computer-companion-api.js',
   '../src/devices/waveshare-terminal-api.js',
 ];

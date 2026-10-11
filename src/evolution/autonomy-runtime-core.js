@@ -395,8 +395,12 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
   }));
 
   const supervisor = new AutonomySupervisor({ repository: jobRepository, ...(roadmap ? { roadmap } : {}) });
+  const stateBefore = await supervisor.state();
   const ensured = await supervisor.ensureNextJob();
   let job = ensured.job;
+  const initialJobId = job?.id || null;
+  const initialJobStatus = String(job?.status || '').toUpperCase() || null;
+  const initialCompletedCount = Array.isArray(stateBefore?.completedIds) ? stateBefore.completedIds.length : 0;
   let teacher = null;
   let teacherMirror = null;
   let runtimeProof = null;
@@ -577,8 +581,52 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
   }
 
   const state = await supervisor.state();
+  const finalJobStatus = String(job?.status || '').toUpperCase() || null;
+  const progressEvents = [];
+  if (ensured?.created === true) progressEvents.push('JOB_CREATED');
+  if (Array.isArray(reconciliation?.applied) && reconciliation.applied.length > 0) progressEvents.push('TEACHER_REPLY_RECONCILED');
+  if (Array.isArray(completions?.completed) && completions.completed.length > 0) progressEvents.push('JOB_COMPLETED');
+  if (Array.isArray(completions?.rejected) && completions.rejected.length > 0) progressEvents.push('COMPLETION_REJECTED_AND_DIAGNOSED');
+  if (teacher?.status === 'WAITING_TEACHER') progressEvents.push('TEACHER_REQUEST_CREATED');
+  if (String(teacherMirror?.status || '').toUpperCase() === 'MIRRORED') progressEvents.push('TEACHER_REQUEST_MIRRORED');
+  if (implementation?.status === 'READY' && implementation?.reused !== true) progressEvents.push('IMPLEMENTATION_PREPARED');
+  if (bridgePreparation?.status === 'READY' && bridgePreparation?.reused !== true) progressEvents.push('BRIDGE_PACKAGE_PREPARED');
+  if (initialJobId && job?.id === initialJobId && initialJobStatus && finalJobStatus && initialJobStatus !== finalJobStatus) {
+    progressEvents.push('JOB_STATE_ADVANCED');
+  }
+  if ((Array.isArray(state?.completedIds) ? state.completedIds.length : 0) > initialCompletedCount) {
+    progressEvents.push('ROADMAP_COMPLETION_ADVANCED');
+  }
+  const activeCount = Array.isArray(state?.active) ? state.active.length : 0;
+  const workRemaining = activeCount > 0 || Boolean(state?.next);
+  const waitingExternal = finalJobStatus === 'WAITING_TEACHER'
+    || String(ensured?.external_progress?.status || '').length > 0;
+  const blockReason = bridgePreparation?.status === 'NOT_READY'
+    ? (bridgePreparation.code || 'BRIDGE_PREPARATION_NOT_READY')
+    : implementation?.status === 'NOT_READY'
+      ? (implementation.code || 'IMPLEMENTATION_NOT_READY')
+      : runtimeProof?.status === 'NOT_VERIFIED'
+        ? (runtimeProof.code || 'RUNTIME_WORK_DAG_PROOF_NOT_VERIFIED')
+        : waitingExternal
+          ? (ensured?.external_progress?.status || 'WAITING_EXTERNAL_PROGRESS')
+          : null;
+  const advanced = progressEvents.length > 0;
+
   return {
     ok: true,
+    advanced,
+    progress: {
+      advanced,
+      events: progressEvents,
+      work_remaining: workRemaining,
+      waiting_external: waitingExternal,
+      block_reason: blockReason,
+      active_jobs: activeCount,
+      completed_roadmap_items: Array.isArray(state?.completedIds) ? state.completedIds.length : 0,
+      next_roadmap_id: state?.next?.id || null,
+      job_id: job?.id || null,
+      job_status: finalJobStatus,
+    },
     reconciliation,
     completions,
     runtime_proof: runtimeProof ? {

@@ -4,6 +4,12 @@ on:
   workflow_run:
     workflows: ["deploy-cloudflare-release"]
     types: [completed]
+  workflow_dispatch:
+    inputs:
+      expected_sha:
+        description: Exact deployed SHA to prove
+        required: true
+        type: string
   pull_request:
     branches: [main]
     paths:
@@ -35,17 +41,17 @@ jobs:
       - run: node --test tests/gen2/self-audit-production-proof.test.mjs tests/gen2/self-audit-supervisor.test.mjs
 
   production-proof:
-    if: github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success'
+    if: (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success') || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
     timeout-minutes: 12
     env:
-      EXPECTED_SHA: ${{ github.event.workflow_run.head_sha }}
+      EXPECTED_SHA: ${{ github.event_name == 'workflow_dispatch' && inputs.expected_sha || github.event.workflow_run.head_sha }}
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: ${{ github.event.workflow_run.head_sha }}
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.expected_sha || github.event.workflow_run.head_sha }}
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
         with:
           node-version: '22'
@@ -81,11 +87,31 @@ jobs:
           done
           test "${READY}" = "1"
 
-          RUN_CODE="$(curl --silent --show-error --max-time 60             --header "x-mel-release-smoke: 1"             --header "x-mel-launch-bootstrap: ${TOKEN}"             --header "content-type: application/json"             --data '{"id":"self.audit.run","input":{"level":"HEARTBEAT"}}'             --output self-audit-run.json             --write-out '%{http_code}'             "${BASE_URL}/api/gen2/capabilities/execute" || true)"
-          test "${RUN_CODE}" = "200"
+          RUN_READY=0
+          for ATTEMPT in $(seq 1 12); do
+            RUN_CODE="$(curl --silent --show-error --max-time 60               --header "x-mel-release-smoke: 1"               --header "x-mel-launch-bootstrap: ${TOKEN}"               --header "content-type: application/json"               --data '{"id":"self.audit.run","input":{"level":"HEARTBEAT"}}'               --output self-audit-run.json               --write-out '%{http_code}'               "${BASE_URL}/api/gen2/capabilities/execute" || true)"
+            if [ "${RUN_CODE}" = "200" ]; then
+              RUN_READY=1
+              break
+            fi
+            echo "Self-audit run propagation attempt ${ATTEMPT}/12 returned HTTP ${RUN_CODE}."
+            test ! -s self-audit-run.json || cat self-audit-run.json
+            sleep 2
+          done
+          test "${RUN_READY}" = "1"
 
-          STATUS_CODE="$(curl --silent --show-error --max-time 45             --header "x-mel-release-smoke: 1"             --header "x-mel-launch-bootstrap: ${TOKEN}"             --header "content-type: application/json"             --data '{"id":"self.audit.status","input":{}}'             --output self-audit-status.json             --write-out '%{http_code}'             "${BASE_URL}/api/gen2/capabilities/execute" || true)"
-          test "${STATUS_CODE}" = "200"
+          STATUS_READY=0
+          for ATTEMPT in $(seq 1 12); do
+            STATUS_CODE="$(curl --silent --show-error --max-time 45               --header "x-mel-release-smoke: 1"               --header "x-mel-launch-bootstrap: ${TOKEN}"               --header "content-type: application/json"               --data '{"id":"self.audit.status","input":{}}'               --output self-audit-status.json               --write-out '%{http_code}'               "${BASE_URL}/api/gen2/capabilities/execute" || true)"
+            if [ "${STATUS_CODE}" = "200" ]; then
+              STATUS_READY=1
+              break
+            fi
+            echo "Self-audit status propagation attempt ${ATTEMPT}/12 returned HTTP ${STATUS_CODE}."
+            test ! -s self-audit-status.json || cat self-audit-status.json
+            sleep 2
+          done
+          test "${STATUS_READY}" = "1"
 
           EXPECTED_SHA="${EXPECTED_SHA}" node - <<'NODE'
           const fs=require('fs');

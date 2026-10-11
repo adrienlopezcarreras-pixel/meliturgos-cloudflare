@@ -7,7 +7,7 @@ test('MEL scheduled maintenance runs dependency longevity watch inside the Worke
   assert.match(source,/runDependencyLongevityWatchRuntime/);
   const scheduled=source.slice(source.indexOf('async scheduled'));
   assert.match(scheduled,/runDependencyLongevityWatchRuntime\(env\)/);
-  assert.match(scheduled,/runShardVaultCycle\(env\)/);
+  assert.match(scheduled,/runShardVaultCycle\(env,\{activeRegistryOnly:true\}\)/);
 });
 
 test('longevity watch is not dependent on GitHub Actions for execution', async()=>{

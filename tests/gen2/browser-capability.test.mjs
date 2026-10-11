@@ -234,6 +234,31 @@ test('owner halt is terminal before controller authorization or adapter work', a
   assert.equal(audits.at(-1).reason, 'OWNER_HALT_ACTIVE');
 });
 
+test('controller preserves the bounded failed step id without leaking adapter detail', async () => {
+  const controller=createBrowserController({
+    adapter:{
+      async perform(step){
+        if(step.id==='read'){
+          const error=new Error('private adapter detail');
+          error.code='BROWSER_TEXT_NOT_FOUND';
+          error.status=408;
+          throw error;
+        }
+        return {ok:true};
+      },
+    },
+    authorize:async()=>true,
+    audit:async()=>{},
+  });
+  await assert.rejects(
+    ()=>controller.execute(baseRequest(),{owner:'adrien',permissions:['browser.control']}),
+    error=>error?.code==='BROWSER_TEXT_NOT_FOUND'
+      && error?.status===408
+      && error?.step_id==='read'
+      && !String(error?.message||'').includes('private adapter detail'),
+  );
+});
+
 test('controller preserves companion status and audits only structured step metadata', async () => {
   const audits = [];
   const controller = createBrowserController({

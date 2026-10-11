@@ -3,6 +3,7 @@ import { handleNativeChat } from "../api/native-chat.js";
 import { handleVoiceTranscription } from "../api/voice-transcribe.js";
 import { handleFileUpload } from "../api/file-upload.js";
 import { createConversationService } from "../conversations/conversation-service.js";
+import { handleAndroidDelegatedMiniRequest } from "./waveshare-terminal-api.js";
 
 export const ANDROID_API_BASE = "/api/android/v1";
 export const ANDROID_PROTOCOL_VERSION = "1.0";
@@ -378,6 +379,15 @@ export async function maybeHandleAndroidCompanionApi(request,env) {
 
   const auth = await authorizeDevice(request,env);
   if (!auth.ok) return auth.response;
+
+  if (url.pathname.startsWith(ANDROID_API_BASE+"/mini/")) {
+    const miniDeviceId = safe(request.headers.get("x-mel-mini-device-id"),200);
+    if (!miniDeviceId) return json({ok:false,code:"MINI_DEVICE_ID_REQUIRED"},400);
+    const suffix = url.pathname.slice((ANDROID_API_BASE+"/mini").length);
+    const miniPath = "/api/device/v1" + suffix;
+    return handleAndroidDelegatedMiniRequest(request,env,auth.deviceId,miniDeviceId,miniPath);
+  }
+
   if (url.pathname === ANDROID_API_BASE+"/heartbeat" && request.method === "POST") return heartbeat(request,env,auth);
   if (url.pathname === ANDROID_API_BASE+"/companions" && request.method === "GET") return companionDevices(env);
   if (url.pathname === ANDROID_API_BASE+"/chat" && request.method === "POST") return deviceChat(request,env,auth);

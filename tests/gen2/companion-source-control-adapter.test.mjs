@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import { createCompanionSourceControlAdapter } from '../../src/portability/companion-source-control-adapter.js';
 import { proveSourceControlAdapter } from '../../src/portability/source-control-adapter.js';
 
@@ -39,3 +40,12 @@ test('companion Git adapter reports offline executor as unavailable',async()=>{
   assert.equal(health.status,'UNAVAILABLE');
   assert.equal(health.code,'DEVICE_OFFLINE');
 });
+
+test('source-control prevalidation revalidates and scopes the exact local Git candidate',async()=>{
+  const source=await readFile(new URL('../../src/portability/companion-source-control-prevalidation-runtime.js',import.meta.url),'utf8');
+  assert.match(source,/scopeSovereigntyCandidateStore/);
+  assert.match(source,/keys:\['source_control::companion-local-git'\]/);
+  assert.match(source,/id:'companion-local-git',[\s\S]*status:'UNVERIFIED'/);
+  assert.match(source,/candidateStore:scopedCandidateStore/);
+});
+

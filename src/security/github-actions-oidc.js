@@ -57,11 +57,16 @@ async function loadOidcMetadata(fetchImpl, now) {
   return oidcCache;
 }
 
-function expectedWorkflowRefs(repository, workflows) {
-  return new Set((Array.isArray(workflows) ? workflows : [])
+function expectedWorkflowRefs(repository, workflows, branches = ['main']) {
+  const names=(Array.isArray(workflows) ? workflows : [])
     .map(name => String(name || '').trim())
-    .filter(Boolean)
-    .map(name => `${repository}/.github/workflows/${name}@refs/heads/main`));
+    .filter(Boolean);
+  const refs=(Array.isArray(branches) ? branches : ['main'])
+    .map(branch => String(branch || '').trim().replace(/^refs\/heads\//,''))
+    .filter(Boolean);
+  return new Set(names.flatMap(name => refs.map(branch =>
+    `${repository}/.github/workflows/${name}@refs/heads/${branch}`
+  )));
 }
 
 export async function verifyGitHubActionsOidcToken(token, {
@@ -70,6 +75,7 @@ export async function verifyGitHubActionsOidcToken(token, {
   now = Date.now(),
   audience = DEFAULT_AUDIENCE,
   allowedWorkflows = [],
+  allowedWorkflowBranches = ['main'],
   allowedEvents = [],
 } = {}) {
   const raw = String(token || '').trim();
@@ -98,7 +104,7 @@ export async function verifyGitHubActionsOidcToken(token, {
   if (Number.isFinite(nbf) && nbf > nowSeconds + 30) throw error('GITHUB_OIDC_NOT_YET_VALID');
   if (Number.isFinite(iat) && iat > nowSeconds + 30) throw error('GITHUB_OIDC_IAT_INVALID');
 
-  const allowedRefs = expectedWorkflowRefs(repository, allowedWorkflows);
+  const allowedRefs = expectedWorkflowRefs(repository, allowedWorkflows, allowedWorkflowBranches);
   if (allowedRefs.size && !allowedRefs.has(String(claims?.workflow_ref || ''))) {
     throw error('GITHUB_OIDC_WORKFLOW_DENIED', 403);
   }

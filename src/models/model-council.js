@@ -7,6 +7,16 @@ export const methods = ['queryMultiple', 'compare', 'score', 'synthesize'];
 
 const DEFAULT_TIMEOUT_MS = 30000;
 const DEFAULT_MAX_CANDIDATES = 4;
+const COUNCIL_CRITIQUE_INFERENCE_SETTINGS = Object.freeze({
+  temperature: 0.2,
+  top_p: 0.9,
+  max_tokens: 384,
+});
+const COUNCIL_SYNTHESIS_INFERENCE_SETTINGS = Object.freeze({
+  temperature: 0.1,
+  top_p: 0.9,
+  max_tokens: 512,
+});
 
 function clean(value) {
   return typeof value === 'string' ? value.trim() : '';
@@ -279,6 +289,7 @@ async function synthesizeCouncil({
             purpose: 'model-council-synthesis',
             coordinator: 'MEL',
             independent_response_count: critiques.length,
+            inference_settings: COUNCIL_SYNTHESIS_INFERENCE_SETTINGS,
           },
           capability: 'GENERAL',
           signal: meta.signal,
@@ -368,6 +379,7 @@ export async function runModelCouncil({
       context: {
         purpose: 'model-council-independent-critique',
         independence_policy: 'ONE_CRITIQUE_PER_UNIQUE_PROVIDER_MODEL',
+        inference_settings: COUNCIL_CRITIQUE_INFERENCE_SETTINGS,
       },
       capability,
       signal: meta.signal,

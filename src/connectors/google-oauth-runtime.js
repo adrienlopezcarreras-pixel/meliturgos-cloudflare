@@ -24,10 +24,15 @@ const MANIFESTS = Object.freeze({
         'https://www.googleapis.com/auth/gmail.compose',
         'https://www.googleapis.com/auth/gmail.send',
         // The single Google connect button intentionally grants the read-only
-        // suite scopes too, so Calendar and Tasks can reuse the same durable
-        // Google grant instead of requiring impossible connector-local tokens.
+        // suite scopes too, so Calendar, Tasks and Drive can reuse the same
+        // durable Google grant instead of requiring connector-local tokens.
         'https://www.googleapis.com/auth/calendar.events.readonly',
+        'https://www.googleapis.com/auth/calendar.events',
         'https://www.googleapis.com/auth/tasks.readonly',
+        'https://www.googleapis.com/auth/tasks',
+        // drive.file is deliberately narrower than full Drive access: MEL may
+        // manage only files it creates or that the user explicitly opens with it.
+        'https://www.googleapis.com/auth/drive.file',
       ]),
     }),
   }),
@@ -62,6 +67,21 @@ const MANIFESTS = Object.freeze({
     scopes: Object.freeze({
       required: Object.freeze(['https://www.googleapis.com/auth/tasks.readonly']),
       optional: Object.freeze(['https://www.googleapis.com/auth/tasks']),
+    }),
+  }),
+  'google-drive': Object.freeze({
+    id: 'google-drive',
+    name: 'Google Drive',
+    version: '1.0.0',
+    auth: 'oauth2',
+    capabilities: Object.freeze([
+      'drive.files.create',
+      'drive.files.read-created',
+      'drive.files.delete-created',
+    ]),
+    scopes: Object.freeze({
+      required: Object.freeze(['https://www.googleapis.com/auth/drive.file']),
+      optional: Object.freeze([]),
     }),
   }),
 });
@@ -103,7 +123,11 @@ function tokenHasRequiredScopes(tokenSet, connectorId) {
       ? tokenSet.scopes.map(scope => clean(scope, 500)).filter(Boolean)
       : [],
   );
-  return required.every(scope => granted.has(scope));
+  const impliedByBroaderGrant = new Map([
+    ['https://www.googleapis.com/auth/calendar.events.readonly', 'https://www.googleapis.com/auth/calendar.events'],
+    ['https://www.googleapis.com/auth/tasks.readonly', 'https://www.googleapis.com/auth/tasks'],
+  ]);
+  return required.every(scope => granted.has(scope) || granted.has(impliedByBroaderGrant.get(scope)));
 }
 
 async function reusableGoogleToken(tokenVault, owner, connectorId) {
@@ -112,8 +136,13 @@ async function reusableGoogleToken(tokenVault, owner, connectorId) {
     const candidate = await tokenVault.get({ owner, connector_id: candidateId });
     if (!candidate?.access_token || !tokenHasRequiredScopes(candidate, connectorId)) continue;
     const expiresAt = Number(candidate.expires_at);
-    if (Number.isFinite(expiresAt) && expiresAt <= Date.now() + 60_000) continue;
-    return candidate;
+    const expiring = Number.isFinite(expiresAt) && expiresAt <= Date.now() + 60_000;
+    if (expiring && !candidate.refresh_token) continue;
+    return Object.freeze({
+      source_connector_id: candidateId,
+      token_set: candidate,
+      expiring,
+    });
   }
   return null;
 }
@@ -207,8 +236,18 @@ export function createGoogleOAuthRuntime({ env = {}, fetcher = fetch, vaults = n
     requireValue(owner, 'OAUTH_OWNER_REQUIRED', 401);
     let tokenSet = await durableVaults.tokenVault.get({ owner, connector_id: id });
     if (!tokenSet?.access_token) {
-      tokenSet = await reusableGoogleToken(durableVaults.tokenVault, owner, id);
-      return clean(tokenSet?.access_token, 20000);
+      const reusable = await reusableGoogleToken(durableVaults.tokenVault, owner, id);
+      if (!reusable) return '';
+      if (reusable.expiring) {
+        await oauth.refresh({ connector_id: reusable.source_connector_id }, context);
+        tokenSet = await durableVaults.tokenVault.get({
+          owner,
+          connector_id: reusable.source_connector_id,
+        });
+        if (!tokenSet?.access_token || !tokenHasRequiredScopes(tokenSet, id)) return '';
+        return clean(tokenSet.access_token, 20000);
+      }
+      return clean(reusable.token_set?.access_token, 20000);
     }
     const expiresAt = Number(tokenSet.expires_at);
     const shouldRefresh = Number.isFinite(expiresAt)
@@ -226,10 +265,17 @@ export function createGoogleOAuthRuntime({ env = {}, fetcher = fetch, vaults = n
     connectorManifest(id);
     const owner = clean(context.owner, 200);
     requireValue(owner, 'OAUTH_OWNER_REQUIRED', 401);
-    const tokenSet = await durableVaults.tokenVault.get({ owner, connector_id: id });
+    const directTokenSet = await durableVaults.tokenVault.get({ owner, connector_id: id });
+    const reusable = directTokenSet?.access_token
+      ? null
+      : await reusableGoogleToken(durableVaults.tokenVault, owner, id);
+    const tokenSet = directTokenSet?.access_token ? directTokenSet : reusable?.token_set;
     return Object.freeze({
       connector_id: id,
       authorized: Boolean(tokenSet?.access_token),
+      token_source: directTokenSet?.access_token
+        ? 'connector'
+        : reusable?.token_set?.access_token ? 'shared_google_grant' : 'none',
       scopes: Array.isArray(tokenSet?.scopes) ? [...tokenSet.scopes] : [],
       expires_at: Number.isFinite(Number(tokenSet?.expires_at)) ? Number(tokenSet.expires_at) : null,
       refreshable: Boolean(tokenSet?.refresh_token),
@@ -248,10 +294,22 @@ export function createGoogleOAuthRuntime({ env = {}, fetcher = fetch, vaults = n
 
 export function createGoogleAccessTokenResolver(env = {}, options = {}) {
   if (!env?.DB) return null;
-  const hasKeyId = Boolean(clean(env.MEL_OAUTH_ENCRYPTION_KEY_ID, 200));
-  const hasKey = Boolean(clean(env.MEL_OAUTH_ENCRYPTION_KEY_B64, 1000));
-  if (!hasKeyId && !hasKey) return null;
-  requireValue(hasKeyId && hasKey, 'OAUTH_VAULT_CONFIGURATION_INCOMPLETE', 503);
+  const hasDedicatedKeyId = Boolean(clean(env.MEL_OAUTH_ENCRYPTION_KEY_ID, 200));
+  const hasDedicatedKey = Boolean(clean(env.MEL_OAUTH_ENCRYPTION_KEY_B64, 1000));
+  if (hasDedicatedKeyId !== hasDedicatedKey) {
+    requireValue(false, 'OAUTH_VAULT_CONFIGURATION_INCOMPLETE', 503);
+  }
+
+  const hasRecoveryKeyId = Boolean(clean(env.MEL_BACKUP_ENCRYPTION_KEY_ID, 200));
+  const hasRecoveryKey = Boolean(clean(env.MEL_BACKUP_ENCRYPTION_KEY_B64, 1000));
+  if (!hasDedicatedKeyId && hasRecoveryKeyId !== hasRecoveryKey) {
+    requireValue(false, 'OAUTH_VAULT_RECOVERY_CONFIGURATION_INCOMPLETE', 503);
+  }
+  if (!hasDedicatedKeyId && !hasRecoveryKeyId) return null;
+
+  // Use the exact same vault resolver as the connection-settings API. This
+  // preserves legacy dedicated OAuth keys and otherwise derives the OAuth vault
+  // key from MEL's canonical backup root.
   const vaults = options.vaults || createD1OAuthVaults(env, options);
   const fullOAuth = Boolean(
     clean(env.GOOGLE_OAUTH_CLIENT_ID, 1000)

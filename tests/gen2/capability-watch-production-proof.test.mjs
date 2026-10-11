@@ -260,6 +260,35 @@ test('GEN2-42 production proof accepts only fully Teacher-proven open progress',
 });
 
 
+test('GEN2-42 release proof accepts mixed Teacher-proven progress while keeping blocked backlog observable', async () => {
+  const DB=sqliteD1();
+  try {
+    await migrate(DB);
+    const ledger={
+      schema:'mel.ecosystem-discovery-ledger.v1',
+      items:[
+        {fingerprint:'teacher-proven',handoff:{job_id:'job-approved',status:'TEACHER_APPROVED',teacher_request_id:'req-approved',closed:false}},
+        {fingerprint:'queued-backlog',handoff:{job_id:'job-queued',status:'QUEUED',teacher_request_id:null,closed:false}},
+      ],
+    };
+    await DB.prepare(`INSERT INTO capability_watch_state(id,state_json,updated_at) VALUES(?,?,?)`)
+      .bind('ecosystem-discoveries-canonical',JSON.stringify(ledger),Date.now()).run();
+    const jobs={
+      'job-approved':{id:'job-approved',status:'TEACHER_APPROVED',requested_by:'mel-autonomy',optional_context:{source:'ecosystem-watch'},result_json:{teacher_bridge:{request:{request_id:'req-approved'}}}},
+      'job-queued':{id:'job-queued',status:'QUEUED',requested_by:'mel-autonomy',optional_context:{source:'ecosystem-watch'},plan_json:{},result_json:{}},
+    };
+    const proof=await proveEcosystemTeacherHandoff({DB},{developmentRepository:{async get(id){return jobs[id]||null;}}});
+    assert.equal(proof.ok,true);
+    assert.equal(proof.status,'GEN2_42_TEACHER_HANDOFF_PROGRESS_VERIFIED');
+    assert.equal(proof.progress_verified,true);
+    assert.equal(proof.teacher_proven_handoff_count,1);
+    assert.equal(proof.blocked_open_handoff_count,1);
+    assert.equal(proof.open_handoff_count,2);
+    assert.equal(proof.production_activation_allowed,false);
+    assert.equal(proof.auto_approval_allowed,false);
+  } finally { DB.close(); }
+});
+
 test('GEN2-42 release proof keeps retryable failures observable but non-blocking', async () => {
   const DB=sqliteD1();
   try {

@@ -40,7 +40,27 @@ function assertIdButtonsWired(html, source, label) {
     const direct = new RegExp("(?:qs\\([\"']#" + escaped + "[\"']\\)|q\\([\"']#" + escaped + "[\"']\\)|getElementById\\([\"']" + escaped + "[\"']\\)|\\$\\([\"']" + escaped + "[\"']\\))(?:\\.onclick\\s*=|\\.addEventListener\\()");
     const alias = aliases.get(id);
     const aliasBound = alias ? new RegExp("\\b" + escapeRe(alias) + "\\.(?:onclick\\s*=|addEventListener\\()").test(source) : false;
-    assert.ok(direct.test(source) || aliasBound, label + ' missing handler for #' + id);
+    const markup=String(html);
+    const buttonMatch=new RegExp('<button\\b[^>]*\\bid=["\\\']'+escaped+'["\\\'][^>]*>','i').exec(markup);
+    let formId=null;
+    if(buttonMatch&&/\btype=["']submit["']/i.test(buttonMatch[0])){
+      const before=markup.slice(0,buttonMatch.index);
+      const formOpen=before.lastIndexOf('<form');
+      const formClose=before.lastIndexOf('</form>');
+      if(formOpen>formClose){
+        const formTagEnd=markup.indexOf('>',formOpen);
+        const formTag=markup.slice(formOpen,formTagEnd+1);
+        formId=formTag.match(/\bid=["']([^"']+)["']/i)?.[1]||null;
+      }
+    }
+    const formBound = formId
+      ? new RegExp("(?:qs\\([\\\"']#" + escapeRe(formId) + "[\\\"']\\)|q\\([\\\"']#" + escapeRe(formId) + "[\\\"']\\)|getElementById\\([\\\"']" + escapeRe(formId) + "[\\\"']\\))\\.addEventListener\\([\\\"']submit[\\\"']").test(source)
+      : false;
+    const canonicalChatSubmitBound = id === 'chatSend'
+      && /<form\b[^>]*\bid=["']chatForm["'][^>]*>/i.test(markup)
+      && /<button\b[^>]*\bid=["']chatSend["'][^>]*\btype=["']submit["'][^>]*>/i.test(markup)
+      && source.includes("qs('#chatForm').addEventListener('submit'");
+    assert.ok(direct.test(source) || aliasBound || formBound || canonicalChatSubmitBound, label + ' missing handler for #' + id);
   }
   return ids;
 }
@@ -58,7 +78,7 @@ test('normal page exposes only controls that are wired by the canonical normal r
     /id="fileInput"/,
     /id="send"/,
     /id="full"/,
-    /src="\/normal-runtime\.js\?v=8"/,
+    /src="\/normal-runtime\.js\?v=9"/,
   ], 'normal UI');
 
   expectAll(NORMAL_RUNTIME_SOURCE, [
@@ -175,4 +195,15 @@ test('all anonymous canonical buttons use a declared delegated control family', 
   assert.match(source, /qsa\('\[data-pc-key\]'\)\.forEach\(b=>b\.onclick=/);
   assert.match(source, /modeTabs\.forEach\(tab=>tab\.onclick=/);
   assert.match(source, /qsa\('\[data-pd-connect\]'\)\.forEach/);
+});
+
+test('capabilities view never promotes healthy registration to verified execution', async () => {
+  const source = await readFile(new URL('../src/pages/full-interface-v2.js', import.meta.url), 'utf8');
+  assert.ok(source.includes("function capabilityHealthGood(x)"));
+  assert.ok(source.includes("SANTÉ SEULEMENT · "));
+  assert.ok(source.includes("exécution non démontrée par ce contrôle."));
+  assert.ok(source.includes("santé ≠ preuve d’exécution"));
+  assert.ok(!source.includes('100 % OPÉRATIONNEL · '));
+  assert.ok(source.includes('Les XP témoignent de la progression'));
+  assert.ok(source.includes('Santé OK (non testé)'));
 });

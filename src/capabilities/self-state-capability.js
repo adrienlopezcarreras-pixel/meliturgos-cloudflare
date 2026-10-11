@@ -133,6 +133,10 @@ export async function collectSelfState({ bus, env = {}, context = {} } = {}) {
   // Keep DB-backed observations ordered so local/test SQLite adapters do not
   // race schema migrations. Each sub-observation is fail-soft and names only
   // the source that could not be observed.
+  // Code identity does not depend on D1 observation ordering. Start it early
+  // and overlap its bounded network work with sequential SQLite/D1 reads.
+  // DB-backed observations remain ordered to avoid schema migration races.
+  const codeObservation = observeCapability(bus, 'code.integrity', { paths: ['src/index.js'] }, context);
   const chatgpt = await observeChatGPT(env);
   const memory = await observeCapability(bus, 'memory.status', {}, context);
   const work = await observeCapability(bus, 'work.open', { limit: 20 }, context);
@@ -140,12 +144,7 @@ export async function collectSelfState({ bus, env = {}, context = {} } = {}) {
   const communicationQuality = await observeCapability(bus, 'conversation.quality.recent', { limit: 10 }, context);
   const autonomy = compactAutonomyObservation(await observeCapability(bus, 'autonomy.status', {}, context));
   const system = await observeCapability(bus, 'system.bindings', {}, context);
-  const code = compactCodeObservation(await observeCapability(
-    bus,
-    'code.integrity',
-    { paths: ['src/index.js'] },
-    context,
-  ));
+  const code = compactCodeObservation(await codeObservation);
 
   const sections = { code, work, recent_work: recentWork, memory, chatgpt_import: chatgpt, communication_quality: communicationQuality, autonomy, system };
   return {

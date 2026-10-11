@@ -31,11 +31,14 @@ export function createVerifiedBackupService({ sources = {}, storage, now = () =>
       const createdAt = normalizeTimestamp(input.createdAt || now());
       const exported = {};
 
-      // Collect everything before persisting: one failed exporter must not leave
-      // a partial snapshot that looks recoverable.
-      for (const [name, exporter] of sourceEntries) {
-        exported[name] = sanitize(await exporter(input, context));
-      }
+      // Collect every read-only source concurrently, but still persist only after
+      // all exporters have succeeded. A failed exporter therefore keeps the same
+      // fail-closed semantics while avoiding serial D1/R2 backup latency.
+      const exportedRows = await Promise.all(sourceEntries.map(async ([name, exporter]) => [
+        name,
+        sanitize(await exporter(input, context)),
+      ]));
+      for (const [name, payload] of exportedRows) exported[name] = payload;
 
       const entries = [];
       const canonicalByName = new Map();

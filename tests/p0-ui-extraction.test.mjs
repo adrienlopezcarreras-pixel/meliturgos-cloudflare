@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { onRequestGet as normalMvp } from '../src/pages/mvp-interface.js';
+import { onRequestGet as normalMvp } from '../src/pages/mvp-interface-v3.js';
 import { onRequestGet as professorPage } from '../src/pages/full-interface-v2.js';
 import { NORMAL_RUNTIME_SOURCE } from '../src/pages/mvp-runtime.js';
 
@@ -14,7 +14,7 @@ test('normal public MEL entry remains self-contained and links to canonical /pro
   assert.match(html, /<title>MEL<\/title>/);
   assert.match(html, /id="melAvatar"/);
   assert.match(html, /id="full"/);
-  assert.match(html, /\/normal-runtime\.js\?v=8/);
+  assert.match(html, /\/normal-runtime\.js\?v=9/);
   assert.match(NORMAL_RUNTIME_SOURCE, /location\.href='\/professor'/);
 });
 

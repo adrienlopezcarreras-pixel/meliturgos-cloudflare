@@ -47,11 +47,15 @@ test('GEN2-46 keeps only explicit read-only public and delegated strong-auth exc
   assert.equal(classifyHttpAuthSurface(req('/api/device/v1/pair', { method: 'POST' })).kind, 'DELEGATED_STRONG_AUTH');
   assert.equal(classifyHttpAuthSurface(req('/api/computer/v1/pair', { method: 'POST' })).kind, 'DELEGATED_STRONG_AUTH');
   assert.equal(classifyHttpAuthSurface(req('/api/internal/release-launch-bootstrap', { method: 'POST' })).kind, 'DELEGATED_STRONG_AUTH');
+  assert.equal(classifyHttpAuthSurface(req('/api/internal/sov-backup-download')).kind, 'DELEGATED_STRONG_AUTH');
   assert.equal(classifyHttpAuthSurface(req('/api/dev-bridge/heartbeat')).kind, 'DEV_BRIDGE_TOKEN');
   assert.equal(classifyHttpAuthSurface(req('/professor')).kind, 'NON_API');
 
   assert.equal(HTTP_AUTH_POLICY.default_api_policy, 'OWNER_AUTH');
-  assert.deepEqual(HTTP_AUTH_POLICY.delegated_exact, ['/api/internal/release-launch-bootstrap']);
+  assert.deepEqual(HTTP_AUTH_POLICY.delegated_exact, [
+    '/api/internal/release-launch-bootstrap',
+    '/api/internal/sov-backup-download',
+  ]);
 });
 
 test('GEN2-46 owner preflight fails closed before sensitive handlers can touch runtime bindings', async () => {
@@ -92,6 +96,10 @@ test('GEN2-46 delegated protocols still enforce their purpose-specific credentia
   const bootstrap = await app.fetch(req('/api/internal/release-launch-bootstrap', { method: 'POST' }), ownerEnv, {});
   assert.equal(bootstrap.status, 401);
   assert.equal((await bootstrap.json()).code, 'BOOTSTRAP_AUTH_REQUIRED');
+
+  const download = await app.fetch(req('/api/internal/sov-backup-download'), ownerEnv, {});
+  assert.equal(download.status, 403);
+  assert.equal((await download.json()).code, 'SOV_BACKUP_DOWNLOAD_TOKEN_INVALID');
 
   const bridge = enforceHttpAuthPolicy(req('/api/dev-bridge/heartbeat'), ownerEnv);
   assert.ok(bridge instanceof Response);

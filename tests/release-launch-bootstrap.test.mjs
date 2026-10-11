@@ -2,7 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { maybeHandleReleaseLaunchBootstrap, __launchBootstrapTest } from '../src/evolution/release-launch-bootstrap.js';
+import { readAutonomyLaunchReadinessPublicCache } from '../src/evolution/launch-readiness.js';
 import { sqliteD1 } from './helpers/sqlite-d1.mjs';
+import { createAlternativeRegistry } from '../src/portability/prevalidated-alternative-registry.js';
+import { D1AlternativeRegistryStore } from '../src/portability/d1-alternative-registry-store.js';
 
 const TOKEN='a'.repeat(64);
 
@@ -29,6 +32,112 @@ test('release bootstrap fails closed without exact temporary secret', async () =
     assert.equal((await response.json()).code,'BOOTSTRAP_AUTH_REQUIRED');
   }
   assert.equal(__launchBootstrapTest.equalToken(TOKEN,TOKEN),true);
+});
+
+test('exact-SHA source-control reuse accepts only fresh matching zero-cost prevalidation', () => {
+  const now=Date.now();
+  const sha='7'.repeat(40);
+  const proof=(sourceSha,expiresAt=new Date(now+60000).toISOString())=>({
+    isolated_test:true,smoke:true,rollback:true,export:true,import:true,activate:true,
+    verified_at:new Date(now-1000).toISOString(),
+    expires_at:expiresAt,
+    evidence_ref:'runtime://test',
+    source_sha:sourceSha,
+  });
+  const registry=createAlternativeRegistry([
+    {id:'source.exact',layer:'source_control',provider:'local-git',added_cost_eur:0,proof:proof(sha)},
+    {id:'source.other',layer:'source_control',provider:'local-git-2',added_cost_eur:0,proof:proof('8'.repeat(40))},
+    {id:'source.expired',layer:'source_control',provider:'local-git-3',added_cost_eur:0,proof:proof('9'.repeat(40),new Date(now-1000).toISOString())},
+  ],{now});
+
+  assert.equal(__launchBootstrapTest.exactShaReusableAlternative(registry,'source_control',sha,{now})?.id,'source.exact');
+  assert.equal(__launchBootstrapTest.exactShaReusableAlternative(registry,'source_control','8'.repeat(40),{now})?.id,'source.other');
+  assert.equal(__launchBootstrapTest.exactShaReusableAlternative(registry,'source_control','9'.repeat(40),{now}),null);
+  assert.equal(__launchBootstrapTest.exactShaReusableAlternative(registry,'source_control','bad-sha',{now}),null);
+});
+
+test('sovereignty source-control refresh reuses exact-SHA proof offline and rejects mismatched proof', async () => {
+  const now=Date.now();
+  const deployedSha='6'.repeat(40);
+  const proofSha=sha=>({
+    isolated_test:true,smoke:true,rollback:true,export:true,import:true,activate:true,
+    verified_at:new Date(now-1000).toISOString(),
+    expires_at:new Date(now+86400000).toISOString(),
+    evidence_ref:'runtime://source-control-offline-proof',
+    source_sha:sha,
+  });
+  const request=()=>new Request('https://mel.test/api/internal/release-launch-bootstrap?refresh=source_control',{
+    method:'POST',
+    headers:{'x-mel-launch-bootstrap':TOKEN,'content-type':'application/json'},
+    body:JSON.stringify({phase:'sovereignty-proof'}),
+  });
+
+  for (const [sourceSha,expectedStatus,expectedReuse] of [
+    [deployedSha,200,true],
+    ['5'.repeat(40),409,false],
+  ]) {
+    const DB=sqliteD1();
+    try {
+      const store=new D1AlternativeRegistryStore(DB);
+      await store.save(createAlternativeRegistry([{
+        id:'source.offline',
+        layer:'source_control',
+        provider:'local-companion-git',
+        adapter_id:'companion-local-git',
+        added_cost_eur:0,
+        proof:proofSha(sourceSha),
+      }],{now}));
+
+      const response=await maybeHandleReleaseLaunchBootstrap(request(),{
+        MEL_LAUNCH_BOOTSTRAP_TOKEN:TOKEN,
+        MEL_DEPLOYED_GIT_SHA:deployedSha,
+        DB,
+      });
+      assert.equal(response.status,expectedStatus);
+      const body=await response.json();
+      assert.equal(body.autonomy_started,false);
+      assert.equal(body.secret_values_exposed,false);
+      assert.equal(body.deployed_sha,deployedSha);
+      if(expectedReuse){
+        assert.equal(body.ok,true);
+        assert.equal(body.status,'MEL_SOV_01_REFRESH_STEP_VERIFIED');
+        assert.equal(body.refresh?.status,'EXACT_SHA_PREVALIDATED_REUSED');
+        assert.equal(body.refresh?.reused_exact_sha_prevalidation,true);
+        assert.equal(body.refresh?.proof_source_sha,deployedSha);
+      }else{
+        assert.equal(body.ok,false);
+        assert.equal(body.status,'MEL_SOV_01_REFRESH_STEP_FAILED');
+        assert.notEqual(body.refresh?.reused_exact_sha_prevalidation,true);
+      }
+    } finally {
+      DB.close();
+    }
+  }
+});
+
+test('AI sovereignty refresh fails closed when no concrete prevalidated AI alternative is produced', async () => {
+  const deployedSha='6'.repeat(40);
+  const DB=sqliteD1();
+  try {
+    const response=await maybeHandleReleaseLaunchBootstrap(
+      new Request('https://mel.test/api/internal/release-launch-bootstrap?refresh=ai_local',{
+        method:'POST',
+        headers:{'x-mel-launch-bootstrap':TOKEN,'content-type':'application/json'},
+        body:JSON.stringify({phase:'sovereignty-proof'}),
+      }),
+      {MEL_LAUNCH_BOOTSTRAP_TOKEN:TOKEN,MEL_DEPLOYED_GIT_SHA:deployedSha,DB},
+    );
+    assert.equal(response.status,409);
+    const body=await response.json();
+    assert.equal(body.ok,false);
+    assert.equal(body.status,'MEL_SOV_01_REFRESH_STEP_FAILED');
+    assert.equal(body.refresh_target,'ai_local');
+    assert.equal(body.refresh?.verified,false);
+    assert.equal(Number(body.refresh?.prevalidated||0),0);
+    assert.equal(body.autonomy_started,false);
+  } finally {
+    DB.close();
+  }
 });
 
 test('release bootstrap pauses inherited autonomy before preparing exact-SHA launch evidence', async () => {
@@ -133,6 +242,53 @@ test('release backup phase reuses exact SHA-bound restore proof without rebuildi
   assert.equal(backupCalls,0);
 });
 
+test('release readiness phase persists a fresh exact-SHA public proof cache', async () => {
+  const DB=sqliteD1();
+  const sha='d'.repeat(40);
+  const readiness={
+    ok:true,
+    status:'GO_FOR_SUPERVISED_AUTONOMY',
+    launch_ready:true,
+    candidate_branch:'candidate/mel-clean-autonomy',
+    candidate_sha:sha,
+    gate_digest:'e'.repeat(64),
+    gates:{verified_restore_dry_run:true,shardvault_critical_survival:true},
+    blockers:[],
+    failure_hygiene:{ok:true,retry_cap:3,historical_failed_count:0,unbounded_failed_count:0,code:'FAILURE_HISTORY_BOUNDED'},
+    restore:{ok:true,status:'RELEASE_BOUND_SYSTEM_BACKUP_RESTORE_PROOF_VERIFIED',snapshot_id:'system-cache',deployed_sha:sha,backup_deployed_sha:sha,sha_matches:true},
+    shardvault:{ok:true,status:'SHARDVAULT_QUORUM_CODE_SURVIVAL_VERIFIED',recoverable:true,active_external_count:5,external_code_status:'QUORUM_COPIED',external_code_endpoints:5,target_count:7,release_quorum:5,code_reconstruction_verified:true},
+    evaluated_at:new Date().toISOString(),
+  };
+  try {
+    const response=await maybeHandleReleaseLaunchBootstrap(
+      new Request('https://mel.test/api/internal/release-launch-bootstrap',{
+        method:'POST',
+        headers:{'x-mel-launch-bootstrap':TOKEN,'content-type':'application/json'},
+        body:JSON.stringify({phase:'readiness'}),
+      }),
+      {MEL_LAUNCH_BOOTSTRAP_TOKEN:TOKEN,MEL_DEPLOYED_GIT_SHA:sha,DB},
+      {
+        setControl:async()=>({paused:true,max_autonomy:false}),
+        readReadiness:async()=>readiness,
+        prepareBackup:async()=>{throw new Error('CACHE_TEST_MUST_NOT_REPAIR_BACKUP');},
+      },
+    );
+    assert.equal(response.status,200);
+    const body=await response.json();
+    assert.equal(body.ok,true);
+    assert.equal(body.public_cache?.ok,true);
+    assert.equal(body.public_cache?.candidate_sha,sha);
+
+    const cached=await readAutonomyLaunchReadinessPublicCache({DB,MEL_DEPLOYED_GIT_SHA:sha});
+    assert.equal(cached.ok,true,JSON.stringify(cached));
+    assert.equal(cached.readiness?.launch_ready,true);
+    assert.equal(cached.readiness?.candidate_sha,sha);
+    assert.equal(cached.readiness?.status,'GO_FOR_SUPERVISED_AUTONOMY');
+  } finally {
+    DB.close();
+  }
+});
+
 test('release bootstrap exposes bounded pause, backup, code-sync and readiness phases', async () => {
   const calls=[];
   const ready={
@@ -161,7 +317,11 @@ test('release bootstrap exposes bounded pause, backup, code-sync and readiness p
 
   const pause=await maybeHandleReleaseLaunchBootstrap(request('pause'),{MEL_LAUNCH_BOOTSTRAP_TOKEN:TOKEN,DB:{}},deps);
   assert.equal(pause.status,200);
-  assert.equal((await pause.json()).status,'RELEASE_PAUSED');
+  const pauseBody=await pause.json();
+  assert.equal(pauseBody.status,'RELEASE_PAUSED');
+  assert.equal(pauseBody.paused,true);
+  assert.equal(pauseBody.max_autonomy,false);
+  assert.equal(pauseBody.autonomy_started,false);
 
   const backup=await maybeHandleReleaseLaunchBootstrap(request('backup'),{MEL_LAUNCH_BOOTSTRAP_TOKEN:TOKEN,DB:{}},deps);
   assert.equal(backup.status,200);
@@ -894,6 +1054,126 @@ test('GEN2-42 owner MAX bootstrap approves only the gated SHA then runs one cano
   assert.equal(controls[0].launch_gate_digest,digest);
 });
 
+test('release rollback restore is OIDC-scoped, exact-SHA bound and never reopens candidate launch gates', async () => {
+  const sha='9'.repeat(40);
+  const controls=[];
+  const oidc=[];
+  let prepareCalls=0;
+  const response=await maybeHandleReleaseLaunchBootstrap(
+    new Request('https://mel.test/api/internal/release-launch-bootstrap?expected_sha='+sha+'&paused=false&max=true',{
+      method:'POST',
+      headers:{'x-mel-github-oidc':'fixture-oidc','content-type':'application/json'},
+      body:JSON.stringify({phase:'release-rollback-restore'}),
+    }),
+    {MEL_DEPLOYED_GIT_SHA:sha,MEL_DEPLOYED_GIT_BRANCH:'release/mel-hardware-v0.1.0',DB:{prepare(){}}},
+    {
+      authorizeOidc:async(_request,_env,options)=>{oidc.push(options);return {ok:true};},
+      prepare:async()=>{prepareCalls+=1;throw new Error('rollback restore must not reopen candidate readiness');},
+      setControl:async(_db,input)=>{controls.push(input);return input;},
+    },
+  );
+  assert.equal(response.status,200);
+  const body=await response.json();
+  assert.equal(body.status,'RELEASE_ROLLBACK_AUTONOMY_RESTORED');
+  assert.equal(body.deployed_sha,sha);
+  assert.equal(body.paused,false);
+  assert.equal(body.max_autonomy,true);
+  assert.equal(body.launch_approved_sha,sha);
+  assert.equal(body.oidc_authorized,true);
+  assert.deepEqual(oidc[0].allowedWorkflows,['deploy-cloudflare-release.yml']);
+  assert.deepEqual(oidc[0].allowedWorkflowBranches,['main','release/mel-hardware-v0.1.0']);
+  assert.deepEqual(oidc[0].allowedEvents,['push','workflow_dispatch']);
+  assert.equal(prepareCalls,0);
+  assert.equal(controls.length,1);
+  assert.equal(controls[0].source,'release-rollback-restore');
+  assert.equal(controls[0].launch_approved_sha,sha);
+  assert.equal(controls[0].launch_gate_digest,null);
+  assert.ok(controls[0].launch_approved_at);
+  assert.equal(body.restore_sha,sha);
+});
+
+test('release rollback restore can stage the previous stable SHA while the candidate is still deployed', async () => {
+  const candidate='8'.repeat(40);
+  const previous='7'.repeat(40);
+  const digest='b'.repeat(64);
+  const controls=[];
+  const response=await maybeHandleReleaseLaunchBootstrap(
+    new Request('https://mel.test/api/internal/release-launch-bootstrap?expected_sha='+candidate+'&restore_sha='+previous+'&paused=false&max=true',{
+      method:'POST',
+      headers:{'x-mel-github-oidc':'fixture-oidc','content-type':'application/json'},
+      body:JSON.stringify({phase:'release-rollback-restore'}),
+    }),
+    {MEL_DEPLOYED_GIT_SHA:candidate,DB:{prepare(){}}},
+    {
+      authorizeOidc:async()=>({ok:true}),
+      prepare:async()=>{throw new Error('candidate launch gates must not block rollback staging');},
+      setControl:async(_db,input)=>{controls.push(input);return input;},
+    },
+  );
+  assert.equal(response.status,200);
+  const body=await response.json();
+  assert.equal(body.deployed_sha,candidate);
+  assert.equal(body.restore_sha,previous);
+  assert.equal(body.launch_approved_sha,previous);
+  assert.equal(body.paused,false);
+  assert.equal(body.max_autonomy,true);
+  assert.equal(controls.length,1);
+  assert.equal(controls[0].launch_approved_sha,previous);
+  assert.equal(controls[0].launch_gate_digest,null);
+  assert.ok(controls[0].launch_approved_at);
+});
+
+test('release rollback restore refuses SHA mismatch before touching readiness or control', async () => {
+  const deployed='1'.repeat(40),expected='2'.repeat(40);
+  let prepareCalls=0,controlCalls=0;
+  const response=await maybeHandleReleaseLaunchBootstrap(
+    new Request('https://mel.test/api/internal/release-launch-bootstrap?expected_sha='+expected+'&paused=false&max=true',{
+      method:'POST',
+      headers:{'x-mel-github-oidc':'fixture-oidc','content-type':'application/json'},
+      body:JSON.stringify({phase:'release-rollback-restore'}),
+    }),
+    {MEL_DEPLOYED_GIT_SHA:deployed,DB:{prepare(){}}},
+    {
+      authorizeOidc:async()=>({ok:true}),
+      prepare:async()=>{prepareCalls+=1;throw new Error('must not run');},
+      setControl:async()=>{controlCalls+=1;throw new Error('must not run');},
+    },
+  );
+  assert.equal(response.status,409);
+  const body=await response.json();
+  assert.equal(body.code,'ROLLBACK_RESTORE_SHA_MISMATCH');
+  assert.equal(body.deployed_sha,deployed);
+  assert.equal(body.expected_sha,expected);
+  assert.equal(prepareCalls,0);
+  assert.equal(controlCalls,0);
+});
+
+test('release rollback restore can preserve an already-paused stable release without reopening readiness', async () => {
+  const sha='3'.repeat(40);
+  let prepareCalls=0;
+  const controls=[];
+  const response=await maybeHandleReleaseLaunchBootstrap(
+    new Request('https://mel.test/api/internal/release-launch-bootstrap?expected_sha='+sha+'&paused=true&max=false',{
+      method:'POST',
+      headers:{'x-mel-github-oidc':'fixture-oidc','content-type':'application/json'},
+      body:JSON.stringify({phase:'release-rollback-restore'}),
+    }),
+    {MEL_DEPLOYED_GIT_SHA:sha,DB:{prepare(){}}},
+    {
+      authorizeOidc:async()=>({ok:true}),
+      prepare:async()=>{prepareCalls+=1;throw new Error('paused restore must not prepare');},
+      setControl:async(_db,input)=>{controls.push(input);return input;},
+    },
+  );
+  assert.equal(response.status,200);
+  const body=await response.json();
+  assert.equal(body.paused,true);
+  assert.equal(body.max_autonomy,false);
+  assert.equal(prepareCalls,0);
+  assert.equal(controls.length,1);
+  assert.equal(controls[0].launch_approved_sha,null);
+});
+
 test('release identity phase returns exact deployed SHA without touching autonomy or providers', async () => {
   const sha='4'.repeat(40);
   const response=await maybeHandleReleaseLaunchBootstrap(
@@ -998,16 +1278,30 @@ test('release bootstrap sovereignty proof reads only sanitized 10-layer status a
   assert.equal(body.done_verified_eligible,true);
   assert.equal(body.ready_layer_count,10);
   assert.equal(body.registry_count,10);
-  assert.equal(typeof body.prevalidation_refresh,'object');
-  assert.ok(body.prevalidation_refresh.ai);
-  assert.ok(body.prevalidation_refresh.source_control);
-  assert.ok(body.prevalidation_refresh.infrastructure);
+  assert.deepEqual(body.prevalidation_refresh,{});
   assert.equal(body.ai_low_refusal_ready,true);
   assert.equal(body.secret_values_exposed,false);
   assert.equal(body.autonomy_started,false);
   DB.close();
 });
 
+
+test('release bootstrap sovereignty refresh rejects unknown targets without running autonomy', async () => {
+  const response=await maybeHandleReleaseLaunchBootstrap(
+    new Request('https://mel.test/api/internal/release-launch-bootstrap?refresh=unknown-layer',{
+      method:'POST',
+      headers:{'x-mel-launch-bootstrap':TOKEN,'content-type':'application/json'},
+      body:JSON.stringify({phase:'sovereignty-proof'}),
+    }),
+    {MEL_LAUNCH_BOOTSTRAP_TOKEN:TOKEN,DB:sqliteD1()},
+    {setControl:async()=>{throw new Error('refresh proof must not touch autonomy control');}},
+  );
+  assert.equal(response.status,400);
+  const body=await response.json();
+  assert.equal(body.code,'MEL_SOV_01_REFRESH_TARGET_INVALID');
+  assert.deepEqual(body.allowed_refresh_targets,['ai','ai_local','source_control','infrastructure','backup_restore']);
+  assert.equal(body.autonomy_started,false);
+});
 
 test('GEN2-42 runtime tick exposes a READY package for cloud fallback when local bridge is stale', async () => {
   const DB=sqliteD1();
@@ -1076,4 +1370,171 @@ test('GEN2-42 runtime tick uses a dedicated bootstrap token without opening othe
   const denied=await maybeHandleReleaseLaunchBootstrap(request('identity'),env);
   assert.equal(denied.status,403);
   assert.equal((await denied.json()).code,'BOOTSTRAP_SCOPE_DENIED');
+});
+
+
+test('parallel production proof token can read exact identity but cannot mutate launch state', async () => {
+  const parallelToken='p'.repeat(64);
+  const sha='e'.repeat(40);
+  const env={MEL_PARALLEL_PROOF_TOKEN:parallelToken,MEL_DEPLOYED_GIT_SHA:sha,DB:{}};
+  const call=phase=>maybeHandleReleaseLaunchBootstrap(
+    new Request('https://mel.test/api/internal/release-launch-bootstrap',{
+      method:'POST',
+      headers:{'x-mel-parallel-proof':parallelToken,'content-type':'application/json'},
+      body:JSON.stringify({phase}),
+    }),
+    env,
+  );
+
+  const identity=await call('identity');
+  assert.equal(identity.status,200);
+  const body=await identity.json();
+  assert.equal(body.deployed_sha,sha);
+  assert.equal(body.autonomy_started,false);
+
+  const denied=await call('pause');
+  assert.equal(denied.status,403);
+  assert.equal((await denied.json()).code,'BOOTSTRAP_SCOPE_DENIED');
+});
+
+
+test('release bootstrap media proof requires exact-SHA 12/12 live execution and never starts autonomy', async () => {
+  const sha='4'.repeat(40);
+  const request=()=>new Request('https://mel.test/api/internal/release-launch-bootstrap',{
+    method:'POST',
+    headers:{'x-mel-launch-bootstrap':TOKEN,'content-type':'application/json'},
+    body:JSON.stringify({phase:'media-proof'}),
+  });
+
+  const ok=await maybeHandleReleaseLaunchBootstrap(request(),{
+    MEL_LAUNCH_BOOTSTRAP_TOKEN:TOKEN,
+    MEL_DEPLOYED_GIT_SHA:sha,
+  },{
+    proveMedia:async(_env,{sourceSha})=>({
+      ok:true,
+      status:'MEL_MEDIA_02_DONE_VERIFIED_ELIGIBLE',
+      done_verified_eligible:true,
+      source_sha:sourceSha,
+      capability_count:12,
+      all_executions_zero_added_cost:true,
+      required_capabilities:Array.from({length:12},(_,i)=>'media.test.'+i),
+      executions:Array.from({length:12},(_,i)=>({id:'media.test.'+i,ok:true,zero_added_cost:true})),
+      secret_values_exposed:false,
+      autonomy_started:false,
+    }),
+  });
+  assert.equal(ok.status,200);
+  const body=await ok.json();
+  assert.equal(body.ok,true);
+  assert.equal(body.status,'MEL_MEDIA_02_DONE_VERIFIED_ELIGIBLE');
+  assert.equal(body.done_verified_eligible,true);
+  assert.equal(body.capability_count,12);
+  assert.equal(body.all_executions_zero_added_cost,true);
+  assert.equal(body.deployed_sha,sha);
+  assert.equal(body.autonomy_started,false);
+  assert.equal(body.secret_values_exposed,false);
+
+  const incomplete=await maybeHandleReleaseLaunchBootstrap(request(),{
+    MEL_LAUNCH_BOOTSTRAP_TOKEN:TOKEN,
+    MEL_DEPLOYED_GIT_SHA:sha,
+  },{
+    proveMedia:async()=>({
+      ok:true,
+      status:'MEL_MEDIA_02_DONE_VERIFIED_ELIGIBLE',
+      done_verified_eligible:true,
+      source_sha:sha,
+      capability_count:11,
+    }),
+  });
+  assert.equal(incomplete.status,409);
+  assert.equal((await incomplete.json()).ok,false);
+
+  const billable=await maybeHandleReleaseLaunchBootstrap(request(),{
+    MEL_LAUNCH_BOOTSTRAP_TOKEN:TOKEN,
+    MEL_DEPLOYED_GIT_SHA:sha,
+  },{
+    proveMedia:async()=>({
+      ok:true,
+      status:'MEL_MEDIA_02_DONE_VERIFIED_ELIGIBLE',
+      done_verified_eligible:true,
+      source_sha:sha,
+      capability_count:12,
+      all_executions_zero_added_cost:false,
+    }),
+  });
+  assert.equal(billable.status,409);
+  assert.equal((await billable.json()).ok,false);
+
+  const failed=await maybeHandleReleaseLaunchBootstrap(request(),{
+    MEL_LAUNCH_BOOTSTRAP_TOKEN:TOKEN,
+    MEL_DEPLOYED_GIT_SHA:sha,
+  },{
+    proveMedia:async()=>{throw Object.assign(new Error('MEDIA_FAILURE'),{
+      code:'MEDIA_FAILURE',
+      status:503,
+      capability:'media.video.generate',
+      step:'media.video.generate',
+      cause_code:'5006',
+      cause_message:"Additional or unevaluated properties '/max_tokens' at '/' not allowed",
+    });},
+  });
+  assert.equal(failed.status,503);
+  const failedBody=await failed.json();
+  assert.equal(failedBody.ok,false);
+  assert.equal(failedBody.status,'MEL_MEDIA_02_NOT_VERIFIED');
+  assert.equal(failedBody.capability,'media.video.generate');
+  assert.equal(failedBody.step,'media.video.generate');
+  assert.equal(failedBody.cause_code,'5006');
+  assert.match(failedBody.cause_message,/max_tokens/);
+  assert.equal(failedBody.autonomy_started,false);
+});
+
+
+test('SOV auto-close OIDC is limited to proof phases and main workflow identity', async () => {
+  const sha='c'.repeat(40);
+  const oidcCalls=[];
+  const identity=await maybeHandleReleaseLaunchBootstrap(
+    new Request('https://mel.test/api/internal/release-launch-bootstrap',{
+      method:'POST',
+      headers:{'x-mel-github-oidc':'fixture-oidc','content-type':'application/json'},
+      body:JSON.stringify({phase:'identity'}),
+    }),
+    {MEL_DEPLOYED_GIT_SHA:sha},
+    {
+      authorizeOidc:async(_request,_env,options)=>{
+        oidcCalls.push(options);
+        return {ok:true};
+      },
+    },
+  );
+  assert.equal(identity.status,200);
+  const identityBody=await identity.json();
+  assert.equal(identityBody.status,'RELEASE_IDENTITY_VERIFIED');
+  assert.equal(identityBody.deployed_sha,sha);
+  assert.equal(oidcCalls.length,1);
+  assert.deepEqual(oidcCalls[0],{
+    allowedWorkflows:['mel-sov-ai-auto-close.yml'],
+    allowedWorkflowBranches:['main'],
+    allowedEvents:['schedule','workflow_dispatch','push'],
+  });
+
+  let deniedOidcCalls=0;
+  const denied=await maybeHandleReleaseLaunchBootstrap(
+    new Request('https://mel.test/api/internal/release-launch-bootstrap',{
+      method:'POST',
+      headers:{'x-mel-github-oidc':'fixture-oidc','content-type':'application/json'},
+      body:JSON.stringify({phase:'pause'}),
+    }),
+    {MEL_DEPLOYED_GIT_SHA:sha},
+    {
+      authorizeOidc:async()=>{
+        deniedOidcCalls+=1;
+        return {ok:true};
+      },
+      setControl:async()=>{throw new Error('OIDC proof workflow must never reach pause control');},
+    },
+  );
+  assert.equal(denied.status,401);
+  assert.equal((await denied.json()).code,'BOOTSTRAP_AUTH_REQUIRED');
+  assert.equal(deniedOidcCalls,0);
 });

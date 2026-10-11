@@ -10,7 +10,7 @@ const OAUTH_APP_KEYS = Object.freeze({
   yahoo: Object.freeze({ id: 'oauth-app-yahoo', clientIdEnv: 'YAHOO_OAUTH_CLIENT_ID', clientSecretEnv: 'YAHOO_OAUTH_CLIENT_SECRET' }),
 });
 const PROVIDER_CONNECTORS = Object.freeze({
-  google: Object.freeze(['gmail','google-calendar','google-tasks']),
+  google: Object.freeze(['gmail','google-calendar','google-tasks','google-drive']),
   microsoft: Object.freeze(['microsoft-mail','microsoft-onedrive','microsoft-sharepoint']),
   yahoo: Object.freeze(['yahoo-mail']),
 });
@@ -56,6 +56,10 @@ function b64Utf8(value) {
     binary += String.fromCharCode(...bytes.subarray(i, Math.min(bytes.length, i + 0x8000)));
   }
   return btoa(binary);
+}
+
+function b64UrlUtf8(value) {
+  return b64Utf8(value).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/g, '');
 }
 
 function quotedImap(value) {
@@ -244,7 +248,26 @@ async function oauthStatus(env, provider, contextOwner) {
     : createMailOAuthRuntime({ providerId: provider, env: resolved });
   const connectors = {};
   for (const connectorId of PROVIDER_CONNECTORS[provider]) {
-    connectors[connectorId] = await runtime.status(connectorId, { owner: contextOwner });
+    try {
+      connectors[connectorId] = await runtime.status(connectorId, { owner: contextOwner });
+    } catch (error) {
+      const code=clean(error?.code || error?.message || 'CONNECTION_STATUS_UNAVAILABLE',160);
+      if (code==='OAUTH_VAULT_LEGACY_KEY_UNAVAILABLE_RECONNECT_REQUIRED') {
+        connectors[connectorId] = {
+          connector_id: connectorId,
+          authorized: false,
+          token_source: 'legacy_unreadable',
+          scopes: [],
+          expires_at: null,
+          refreshable: false,
+          reconnect_required: true,
+          action_required: provider==='google' ? 'RECONNECT_GOOGLE' : provider==='microsoft' ? 'RECONNECT_MICROSOFT' : 'RECONNECT_YAHOO',
+          reason: code,
+        };
+        continue;
+      }
+      throw error;
+    }
   }
   return {
     provider,
@@ -253,6 +276,71 @@ async function oauthStatus(env, provider, contextOwner) {
     client_secret_present: Boolean(clean(resolved[cfg.clientSecretEnv], 2000)),
     connectors,
   };
+}
+
+export function classifyOAuthProbeFailure({ provider, connectorId, status, body } = {}) {
+  const upstreamStatus = Number(status) || 0;
+  const serialized = (() => {
+    try { return JSON.stringify(body || {}).toLowerCase(); }
+    catch { return ''; }
+  })();
+  let code = 'CONNECTION_LIVE_PROBE_FAILED';
+  let actionRequired = null;
+
+  if (provider === 'google' && connectorId === 'google-calendar') {
+    if (upstreamStatus === 401) {
+      code = 'GOOGLE_CALENDAR_REAUTH_REQUIRED';
+      actionRequired = 'RECONNECT_GOOGLE';
+    } else if (upstreamStatus === 403 && /(accessnotconfigured|service_disabled|has not been used in project|api[^a-z0-9]+(?:is )?disabled)/i.test(serialized)) {
+      code = 'GOOGLE_CALENDAR_API_NOT_ENABLED';
+      actionRequired = 'ENABLE_GOOGLE_CALENDAR_API';
+    } else if (upstreamStatus === 403 && /(insufficientpermissions|insufficient[^a-z0-9]+(?:authentication )?scopes|access_token_scope_insufficient)/i.test(serialized)) {
+      code = 'GOOGLE_CALENDAR_RECONSENT_REQUIRED';
+      actionRequired = 'RECONNECT_GOOGLE_WITH_CALENDAR_SCOPE';
+    } else if (upstreamStatus === 403) {
+      code = 'GOOGLE_CALENDAR_ACCESS_FORBIDDEN';
+      actionRequired = 'VERIFY_GOOGLE_CALENDAR_API_AND_CONSENT';
+    }
+  }
+
+  if (provider === 'google' && connectorId === 'google-tasks') {
+    if (upstreamStatus === 401) {
+      code = 'GOOGLE_TASKS_REAUTH_REQUIRED';
+      actionRequired = 'RECONNECT_GOOGLE';
+    } else if (upstreamStatus === 403 && /(accessnotconfigured|service_disabled|has not been used in project|api[^a-z0-9]+(?:is )?disabled)/i.test(serialized)) {
+      code = 'GOOGLE_TASKS_API_NOT_ENABLED';
+      actionRequired = 'ENABLE_GOOGLE_TASKS_API';
+    } else if (upstreamStatus === 403 && /(insufficientpermissions|insufficient[^a-z0-9]+(?:authentication )?scopes|access_token_scope_insufficient)/i.test(serialized)) {
+      code = 'GOOGLE_TASKS_RECONSENT_REQUIRED';
+      actionRequired = 'RECONNECT_GOOGLE_WITH_TASKS_SCOPE';
+    } else if (upstreamStatus === 403) {
+      code = 'GOOGLE_TASKS_ACCESS_FORBIDDEN';
+      actionRequired = 'VERIFY_GOOGLE_TASKS_API_AND_CONSENT';
+    }
+  }
+
+  if (provider === 'google' && connectorId === 'google-drive') {
+    if (upstreamStatus === 401) {
+      code = 'GOOGLE_DRIVE_REAUTH_REQUIRED';
+      actionRequired = 'RECONNECT_GOOGLE';
+    } else if (upstreamStatus === 403 && /(accessnotconfigured|service_disabled|has not been used in project|api[^a-z0-9]+(?:is )?disabled)/i.test(serialized)) {
+      code = 'GOOGLE_DRIVE_API_NOT_ENABLED';
+      actionRequired = 'ENABLE_GOOGLE_DRIVE_API';
+    } else if (upstreamStatus === 403 && /(insufficientpermissions|insufficient[^a-z0-9]+(?:authentication )?scopes|access_token_scope_insufficient)/i.test(serialized)) {
+      code = 'GOOGLE_DRIVE_RECONSENT_REQUIRED';
+      actionRequired = 'RECONNECT_GOOGLE_WITH_DRIVE_SCOPE';
+    } else if (upstreamStatus === 403) {
+      code = 'GOOGLE_DRIVE_ACCESS_FORBIDDEN';
+      actionRequired = 'VERIFY_GOOGLE_DRIVE_API_AND_CONSENT';
+    }
+  }
+
+  return Object.freeze({
+    code,
+    status: upstreamStatus === 401 || upstreamStatus === 403 ? 409 : 502,
+    upstream_status: upstreamStatus || null,
+    action_required: actionRequired,
+  });
 }
 
 async function testOAuthConnector(env, provider, connectorId, contextOwner, signal) {
@@ -265,11 +353,12 @@ async function testOAuthConnector(env, provider, connectorId, contextOwner, sign
     if (connectorId === 'gmail') url = 'https://gmail.googleapis.com/gmail/v1/users/me/profile';
     else if (connectorId === 'google-calendar') url = 'https://www.googleapis.com/calendar/v3/calendars/primary/events?maxResults=1&singleEvents=true';
     else if (connectorId === 'google-tasks') url = 'https://tasks.googleapis.com/tasks/v1/users/@me/lists?maxResults=1';
+    else if (connectorId === 'google-drive') url = 'https://www.googleapis.com/drive/v3/files?pageSize=1&fields=files(id)';
   } else if (provider === 'microsoft') {
     token = await createMailOAuthRuntime({ providerId: 'microsoft', env: resolved }).accessTokenResolver(connectorId, context);
     if (connectorId === 'microsoft-mail') url = 'https://graph.microsoft.com/v1.0/me/messages?$top=1&$select=id';
     else if (connectorId === 'microsoft-onedrive') url = 'https://graph.microsoft.com/v1.0/me/drive/root?$select=id,name';
-    else if (connectorId === 'microsoft-sharepoint') url = 'https://graph.microsoft.com/v1.0/sites/root?$select=id,name';
+    else if (connectorId === 'microsoft-sharepoint') url = 'https://graph.microsoft.com/v1.0/sites?search=mel';
   } else if (provider === 'yahoo' && connectorId === 'yahoo-mail') {
     token = await createMailOAuthRuntime({ providerId: 'yahoo', env: resolved }).accessTokenResolver(connectorId, context);
     url = 'https://api.login.yahoo.com/openid/v1/userinfo';
@@ -286,10 +375,23 @@ async function testOAuthConnector(env, provider, connectorId, contextOwner, sign
     signal: signal || AbortSignal.timeout(12_000),
   });
   if (!response.ok) {
-    await response.body?.cancel?.();
-    const error = new Error('CONNECTION_LIVE_PROBE_FAILED');
-    error.code = 'CONNECTION_LIVE_PROBE_FAILED';
-    error.status = response.status === 401 || response.status === 403 ? 409 : 502;
+    const text = await response.text().catch(() => '');
+    let providerBody = {};
+    if (text) {
+      try { providerBody = JSON.parse(text); }
+      catch { providerBody = {}; }
+    }
+    const failure = classifyOAuthProbeFailure({
+      provider,
+      connectorId,
+      status: response.status,
+      body: providerBody,
+    });
+    const error = new Error(failure.code);
+    error.code = failure.code;
+    error.status = failure.status;
+    error.upstream_status = failure.upstream_status;
+    error.action_required = failure.action_required;
     throw error;
   }
   await response.body?.cancel?.();
@@ -376,6 +478,62 @@ async function pipedreamStoredConfig(env, contextOwner) {
   return vaults.tokenVault.get({ owner: contextOwner, connector_id: PIPEDREAM_CONFIG_ID });
 }
 
+function configuredPipedreamEnvironment(config = {}) {
+  return config?.environment === 'production' ? 'production' : 'development';
+}
+
+function pipedreamEnvironmentCandidates(config = {}) {
+  const configured = configuredPipedreamEnvironment(config);
+  return configured === 'production' ? ['production', 'development'] : ['development'];
+}
+
+function canFallbackPipedreamEnvironment(error, environment, operation = 'generic') {
+  const status = Number(error?.upstream_status);
+  if (environment !== 'production') return false;
+  if (status === 400) return true;
+  // The server OAuth token is acquired before account inventory runs. A 401/403
+  // from /accounts can therefore represent a Production-vs-Development user
+  // namespace mismatch rather than invalid client credentials. Retry only this
+  // read-only account operation in Development; never broaden auth fallback.
+  return operation === 'accounts' && (status === 401 || status === 403);
+}
+
+function classifyPipedreamUpstreamAction(error, environment = '') {
+  const detail = [
+    clean(error?.upstream_code, 160),
+    clean(error?.upstream_message, 240),
+  ].filter(Boolean).join(' ').toLowerCase();
+  if (environment === 'development' && /(no matching external user|external user[^a-z0-9]+(?:id )?(?:was )?not found|user[^a-z0-9]+not found[^a-z0-9]+development)/i.test(detail)) {
+    return 'RECONNECT_PIPEDREAM_DEVELOPMENT';
+  }
+  if (/(production environment|production).*?(?:not available|not enabled|upgrade|plan|billing)/i.test(detail)) {
+    return 'USE_PIPEDREAM_DEVELOPMENT';
+  }
+  if (/(project).*?(?:not found|invalid|unknown|mismatch)/i.test(detail)) {
+    return 'VERIFY_PIPEDREAM_PROJECT_ID';
+  }
+  if (Number(error?.upstream_status) === 400 && environment === 'development') {
+    return 'VERIFY_PIPEDREAM_DEVELOPMENT_PROJECT_AND_RECONNECT';
+  }
+  return '';
+}
+
+async function persistPipedreamEnvironment(env, contextOwner, stored, environment) {
+  const normalized = environment === 'production' ? 'production' : 'development';
+  if (configuredPipedreamEnvironment(stored) === normalized) return false;
+  const vaults = createD1OAuthVaults(env);
+  await vaults.tokenVault.put({
+    owner: contextOwner,
+    connector_id: PIPEDREAM_CONFIG_ID,
+    token_set: {
+      ...stored,
+      environment: normalized,
+      updated_at: Date.now(),
+    },
+  });
+  return true;
+}
+
 async function pipedreamStatus(env, contextOwner) {
   const stored = await pipedreamStoredConfig(env, contextOwner).catch(() => null);
   return {
@@ -385,7 +543,7 @@ async function pipedreamStatus(env, contextOwner) {
     project_id: clean(stored?.project_id, 300) || null,
     client_id_present: Boolean(clean(stored?.client_id, 1000)),
     client_secret_present: Boolean(clean(stored?.client_secret, 2000)),
-    environment: stored?.environment === 'development' ? 'development' : 'production',
+    environment: configuredPipedreamEnvironment(stored),
     external_user_id: contextOwner,
     supported_apps: [...PIPEDREAM_ALLOWED_APPS],
   };
@@ -395,7 +553,17 @@ async function savePipedreamConfig(env, contextOwner, body) {
   const projectId = clean(body.project_id, 300);
   const clientId = clean(body.client_id, 1000);
   const clientSecret = clean(body.client_secret, 2000);
-  const environment = body.environment === 'development' ? 'development' : 'production';
+  // Pipedream Free provides Connect in development only. Prevent a paid
+  // environment selection from silently becoming a billed dependency.
+  // Previously connected paid accounts remain readable until explicitly
+  // reconfigured; new paid configurations require the owner's dedicated opt-in.
+  const environment = body.environment === 'production' ? 'production' : 'development';
+  if (environment === 'production' && String(env?.MEL_ALLOW_PAID_PROVIDERS || '').toLowerCase() !== 'true') {
+    const error = new Error('PAID_PROVIDER_DISABLED_FREE_ONLY');
+    error.code = 'PAID_PROVIDER_DISABLED_FREE_ONLY';
+    error.status = 409;
+    throw error;
+  }
   if (!/^proj_[A-Za-z0-9_-]+$/.test(projectId) || !clientId || !clientSecret) {
     const error = new Error('PIPEDREAM_CONFIGURATION_INVALID');
     error.code = 'PIPEDREAM_CONFIGURATION_INVALID';
@@ -447,6 +615,11 @@ async function pipedreamJson(fetcher, url, init, code) {
     const error = new Error(code);
     error.code = code;
     error.status = response.status === 401 || response.status === 403 ? 409 : 502;
+    error.upstream_status = Number(response.status) || null;
+    const upstreamCode = clean(body?.code || body?.error?.code || body?.error, 160);
+    const upstreamMessage = clean(body?.message || body?.error?.message, 240);
+    if (upstreamCode) error.upstream_code = upstreamCode;
+    if (upstreamMessage) error.upstream_message = upstreamMessage;
     throw error;
   }
   return body;
@@ -456,16 +629,14 @@ export async function pipedreamAccessToken(config, options = {}) {
   const fetcher = options.fetcher || fetch;
   const projectId = clean(config?.project_id, 300);
   const environment = config?.environment === 'development' ? 'development' : 'production';
-  const form = new URLSearchParams();
-  form.set('grant_type', 'client_credentials');
-  form.set('client_id', clean(config?.client_id, 1000));
-  form.set('client_secret', clean(config?.client_secret, 2000));
-  form.set('project_id', projectId);
-  form.set('environment', environment);
   const body = await pipedreamJson(fetcher, 'https://api.pipedream.com/v1/oauth/token', {
     method: 'POST',
-    headers: { 'content-type': 'application/x-www-form-urlencoded', accept: 'application/json' },
-    body: form.toString(),
+    headers: { 'content-type': 'application/json', accept: 'application/json' },
+    body: JSON.stringify({
+      grant_type: 'client_credentials',
+      client_id: clean(config?.client_id, 1000),
+      client_secret: clean(config?.client_secret, 2000),
+    }),
     signal: options.signal,
   }, 'PIPEDREAM_AUTH_FAILED');
   const accessToken = clean(body?.access_token, 10000);
@@ -482,37 +653,58 @@ export async function testPipedreamCredentials(config, options = {}) {
   const fetcher = options.fetcher || fetch;
   const token = await pipedreamAccessToken(config, { fetcher, signal: options.signal });
   const projectId = clean(config?.project_id, 300);
-  const environment = config?.environment === 'development' ? 'development' : 'production';
-  const checks = {};
-  for (const app of ['microsoft_outlook', 'microsoft_onedrive']) {
-    const url = 'https://api.pipedream.com/v1/connect/' + encodeURIComponent(projectId)
-      + '/components?app=' + encodeURIComponent(app) + '&component_type=action';
-    const body = await pipedreamJson(fetcher, url, {
-      method: 'GET',
-      headers: {
-        authorization: 'Bearer ' + token,
-        accept: 'application/json',
-        'x-pd-environment': environment,
-      },
-      signal: options.signal,
-    }, 'PIPEDREAM_PROJECT_TEST_FAILED');
-    const components = Array.isArray(body?.data) ? body.data
-      : Array.isArray(body?.components) ? body.components
-        : Array.isArray(body) ? body : [];
-    checks[app] = { reachable: true, component_count: components.length };
+  const configuredEnvironment = configuredPipedreamEnvironment(config);
+  let lastError = null;
+
+  for (const environment of pipedreamEnvironmentCandidates(config)) {
+    try {
+      const checks = {};
+      for (const app of ['microsoft_outlook', 'microsoft_onedrive']) {
+        const url = 'https://api.pipedream.com/v1/connect/' + encodeURIComponent(projectId)
+          + '/components?app=' + encodeURIComponent(app) + '&component_type=action';
+        const body = await pipedreamJson(fetcher, url, {
+          method: 'GET',
+          headers: {
+            authorization: 'Bearer ' + token,
+            accept: 'application/json',
+            'x-pd-environment': environment,
+          },
+          signal: options.signal,
+        }, 'PIPEDREAM_PROJECT_TEST_FAILED');
+        const components = Array.isArray(body?.data) ? body.data
+          : Array.isArray(body?.components) ? body.components
+            : Array.isArray(body) ? body : [];
+        checks[app] = { reachable: true, component_count: components.length };
+      }
+      return {
+        ok: true,
+        provider: 'pipedream',
+        authenticated: true,
+        project_id: projectId,
+        configured_environment: configuredEnvironment,
+        environment,
+        environment_fallback_used: environment !== configuredEnvironment,
+        apps: checks,
+      };
+    } catch (error) {
+      lastError = error;
+      if (!canFallbackPipedreamEnvironment(error, environment)) {
+        const actionRequired = classifyPipedreamUpstreamAction(error, environment);
+        if (actionRequired) error.action_required = actionRequired;
+        throw error;
+      }
+    }
   }
-  return {
-    ok: true,
-    provider: 'pipedream',
-    authenticated: true,
-    project_id: projectId,
-    environment,
-    apps: checks,
-  };
+  if (lastError) {
+    const actionRequired = classifyPipedreamUpstreamAction(lastError, 'development');
+    if (actionRequired) lastError.action_required = actionRequired;
+    throw lastError;
+  }
+  throw Object.assign(new Error('PIPEDREAM_PROJECT_TEST_FAILED'), { code: 'PIPEDREAM_PROJECT_TEST_FAILED', status: 502 });
 }
 
 async function createPipedreamUserToken(stored, contextOwner, requestUrl, signal, app = '') {
-  const environment = stored.environment === 'development' ? 'development' : 'production';
+  const configuredEnvironment = configuredPipedreamEnvironment(stored);
   const accessToken = await pipedreamAccessToken(stored, { signal });
   const success = new URL('/professor', requestUrl.origin);
   success.searchParams.set('view', 'connections');
@@ -523,31 +715,46 @@ async function createPipedreamUserToken(stored, contextOwner, requestUrl, signal
   failure.searchParams.set('pd', 'error');
   if (app) failure.searchParams.set('app', app);
 
-  const tokenBody = await pipedreamJson(fetch, 'https://api.pipedream.com/v1/connect/' + encodeURIComponent(stored.project_id) + '/tokens', {
-    method: 'POST',
-    headers: {
-      authorization: 'Bearer ' + accessToken,
-      'content-type': 'application/json',
-      accept: 'application/json',
-      'x-pd-environment': environment,
-    },
-    body: JSON.stringify({
-      external_user_id: contextOwner,
-      external_id: contextOwner,
-      allowed_origins: [requestUrl.origin],
-      success_redirect_uri: success.toString(),
-      error_redirect_uri: failure.toString(),
-    }),
-    signal,
-  }, 'PIPEDREAM_CONNECT_TOKEN_FAILED');
-  const connectToken = clean(tokenBody?.token, 1000);
-  if (!connectToken) {
-    const error = new Error('PIPEDREAM_CONNECT_TOKEN_MISSING');
-    error.code = 'PIPEDREAM_CONNECT_TOKEN_MISSING';
-    error.status = 502;
-    throw error;
+  let lastError = null;
+  for (const environment of pipedreamEnvironmentCandidates(stored)) {
+    try {
+      const tokenBody = await pipedreamJson(fetch, 'https://api.pipedream.com/v1/connect/' + encodeURIComponent(stored.project_id) + '/tokens', {
+        method: 'POST',
+        headers: {
+          authorization: 'Bearer ' + accessToken,
+          'content-type': 'application/json',
+          accept: 'application/json',
+          'x-pd-environment': environment,
+        },
+        body: JSON.stringify({
+          external_user_id: contextOwner,
+          external_id: contextOwner,
+          allowed_origins: [requestUrl.origin],
+          success_redirect_uri: success.toString(),
+          error_redirect_uri: failure.toString(),
+        }),
+        signal,
+      }, 'PIPEDREAM_CONNECT_TOKEN_FAILED');
+      const connectToken = clean(tokenBody?.token, 1000);
+      if (!connectToken) {
+        const error = new Error('PIPEDREAM_CONNECT_TOKEN_MISSING');
+        error.code = 'PIPEDREAM_CONNECT_TOKEN_MISSING';
+        error.status = 502;
+        throw error;
+      }
+      return {
+        tokenBody,
+        connectToken,
+        configured_environment: configuredEnvironment,
+        environment,
+        environment_fallback_used: environment !== configuredEnvironment,
+      };
+    } catch (error) {
+      lastError = error;
+      if (!canFallbackPipedreamEnvironment(error, environment)) throw error;
+    }
   }
-  return { tokenBody, connectToken, environment };
+  throw lastError || Object.assign(new Error('PIPEDREAM_CONNECT_TOKEN_FAILED'), { code: 'PIPEDREAM_CONNECT_TOKEN_FAILED', status: 502 });
 }
 
 async function createPipedreamConnectLink(env, contextOwner, body, requestUrl, signal) {
@@ -565,7 +772,8 @@ async function createPipedreamConnectLink(env, contextOwner, body, requestUrl, s
     error.status = 400;
     throw error;
   }
-  const { tokenBody } = await createPipedreamUserToken(stored, contextOwner, requestUrl, signal, app);
+  const { tokenBody, environment, configured_environment, environment_fallback_used } = await createPipedreamUserToken(stored, contextOwner, requestUrl, signal, app);
+  if (environment_fallback_used) await persistPipedreamEnvironment(env, contextOwner, stored, environment);
   const rawLink = clean(tokenBody?.connect_link_url || tokenBody?.connectLinkUrl, 4000);
   if (!rawLink) {
     const error = new Error('PIPEDREAM_CONNECT_LINK_MISSING');
@@ -588,39 +796,72 @@ async function createPipedreamConnectLink(env, contextOwner, body, requestUrl, s
     provider: 'pipedream',
     app,
     connect_link_url: link.toString(),
+    configured_environment,
+    environment,
+    environment_fallback_used,
     expires_at: clean(tokenBody?.expires_at || tokenBody?.expiresAt, 200) || null,
   };
 }
 
 export async function pipedreamAccountStatus(config, contextOwner, options = {}) {
   const fetcher = options.fetcher || fetch;
-  const environment = config?.environment === 'development' ? 'development' : 'production';
+  const configuredEnvironment = configuredPipedreamEnvironment(config);
   const projectId = clean(config?.project_id, 300);
-  const accessToken = await pipedreamAccessToken(config, { fetcher, signal: options.signal });
+  const accessToken = clean(options.accessToken, 10000)
+    || await pipedreamAccessToken(config, { fetcher, signal: options.signal });
   const params = new URLSearchParams({ external_user_id: contextOwner, limit: '100' });
-  const body = await pipedreamJson(fetcher, 'https://api.pipedream.com/v1/connect/' + encodeURIComponent(projectId) + '/accounts?' + params.toString(), {
-    method: 'GET',
-    headers: {
-      authorization: 'Bearer ' + accessToken,
-      accept: 'application/json',
-      'x-pd-environment': environment,
-    },
-    signal: options.signal,
-  }, 'PIPEDREAM_ACCOUNTS_FAILED');
-  const rows = Array.isArray(body?.data) ? body.data : [];
-  const accounts = rows.map(row => ({
-    id: clean(row?.id, 300),
-    app: clean(row?.app?.name_slug || row?.app?.nameSlug || row?.app, 160),
-    name: clean(row?.name || row?.external_id, 300),
-    healthy: row?.healthy !== false && row?.dead !== true && !row?.error,
-  })).filter(row => row.id && row.app);
-  return {
-    ok: true,
-    provider: 'pipedream',
-    project_id: projectId,
-    accounts,
-    connected_apps: [...new Set(accounts.filter(row => row.healthy).map(row => row.app))],
-  };
+  let lastError = null;
+
+  for (const environment of pipedreamEnvironmentCandidates(config)) {
+    try {
+      const body = await pipedreamJson(
+        fetcher,
+        'https://api.pipedream.com/v1/connect/' + encodeURIComponent(projectId) + '/accounts?' + params.toString(),
+        {
+          method: 'GET',
+          headers: {
+            authorization: 'Bearer ' + accessToken,
+            accept: 'application/json',
+            'x-pd-environment': environment,
+          },
+          signal: options.signal,
+        },
+        'PIPEDREAM_ACCOUNTS_FAILED',
+      );
+      const rows = Array.isArray(body?.data) ? body.data
+        : Array.isArray(body?.accounts) ? body.accounts
+          : Array.isArray(body) ? body : [];
+      const accounts = rows.map(row => ({
+        id: clean(row?.id, 300),
+        app: clean(row?.app?.name_slug || row?.app?.nameSlug || row?.app, 160),
+        name: clean(row?.name || row?.external_id, 300),
+        healthy: row?.healthy !== false && row?.dead !== true && !row?.error,
+      })).filter(row => row.id && row.app);
+      return {
+        ok: true,
+        provider: 'pipedream',
+        project_id: projectId,
+        configured_environment: configuredEnvironment,
+        environment,
+        environment_fallback_used: environment !== configuredEnvironment,
+        accounts,
+        connected_apps: [...new Set(accounts.filter(row => row.healthy).map(row => row.app))],
+      };
+    } catch (error) {
+      lastError = error;
+      if (!canFallbackPipedreamEnvironment(error, environment, 'accounts')) {
+        const actionRequired = classifyPipedreamUpstreamAction(error, environment);
+        if (actionRequired) error.action_required = actionRequired;
+        throw error;
+      }
+    }
+  }
+  if (lastError) {
+    const actionRequired = classifyPipedreamUpstreamAction(lastError, 'development');
+    if (actionRequired) lastError.action_required = actionRequired;
+    throw lastError;
+  }
+  throw Object.assign(new Error('PIPEDREAM_ACCOUNTS_FAILED'), { code: 'PIPEDREAM_ACCOUNTS_FAILED', status: 502 });
 }
 
 async function pipedreamAccounts(env, contextOwner, requestUrl, signal) {
@@ -631,17 +872,46 @@ async function pipedreamAccounts(env, contextOwner, requestUrl, signal) {
     error.status = 409;
     throw error;
   }
-  return pipedreamAccountStatus(stored, contextOwner, { signal });
+  try {
+    const result = await pipedreamAccountStatus(stored, contextOwner, { signal });
+    if (result.environment_fallback_used) await persistPipedreamEnvironment(env, contextOwner, stored, result.environment);
+    return result;
+  } catch (error) {
+    if (error?.code !== 'PIPEDREAM_ACCOUNTS_FAILED') throw error;
+    const configuredEnvironment = configuredPipedreamEnvironment(stored);
+    const actionRequired = clean(error?.action_required || classifyPipedreamUpstreamAction(error, configuredEnvironment), 160) || null;
+    return {
+      ok: true,
+      provider: 'pipedream',
+      project_id: clean(stored.project_id, 300),
+      accounts: [],
+      connected_apps: [],
+      account_status_available: false,
+      account_status_degraded: true,
+      authenticated: true,
+      configured_environment: configuredEnvironment,
+      environment: configuredEnvironment,
+      environment_fallback_used: false,
+      reconnect_required: actionRequired === 'RECONNECT_PIPEDREAM_DEVELOPMENT',
+      action_required: actionRequired,
+      upstream_status: Number(error?.upstream_status) || null,
+      upstream_code: clean(error?.upstream_code, 160) || null,
+      upstream_message: clean(error?.upstream_message, 240) || null,
+      connect_link_supported: true,
+      actions_supported: true,
+      proxy_supported: true,
+    };
+  }
 }
 
 export async function testPipedreamGoogleTasksRead(config, contextOwner, options = {}) {
   const fetcher = options.fetcher || fetch;
-  const environment = config?.environment === 'development' ? 'development' : 'production';
   const projectId = clean(config?.project_id, 300);
   const accounts = await pipedreamAccountStatus(config, contextOwner, {
     fetcher,
     signal: options.signal,
   });
+  const environment = accounts.environment || configuredPipedreamEnvironment(config);
   const account = accounts.accounts.find(row => row.app === 'google_tasks' && row.healthy === true);
   if (!account?.id) {
     const error = new Error('PIPEDREAM_GOOGLE_TASKS_ACCOUNT_REQUIRED');
@@ -652,32 +922,66 @@ export async function testPipedreamGoogleTasksRead(config, contextOwner, options
 
   const accessToken = await pipedreamAccessToken(config, { fetcher, signal: options.signal });
   const actionId = 'google_tasks-list-task-lists';
-  await pipedreamJson(fetcher, 'https://api.pipedream.com/v1/connect/' + encodeURIComponent(projectId) + '/actions/run', {
-    method: 'POST',
-    headers: {
-      authorization: 'Bearer ' + accessToken,
-      'content-type': 'application/json',
-      accept: 'application/json',
-      'x-pd-environment': environment,
-    },
-    body: JSON.stringify({
-      external_user_id: contextOwner,
-      id: actionId,
-      configured_props: {
-        google_tasks: { authProvisionId: account.id },
+  let transport = 'action';
+  try {
+    await pipedreamJson(fetcher, 'https://api.pipedream.com/v1/connect/' + encodeURIComponent(projectId) + '/actions/run', {
+      method: 'POST',
+      headers: {
+        authorization: 'Bearer ' + accessToken,
+        'content-type': 'application/json',
+        accept: 'application/json',
+        'x-pd-environment': environment,
       },
-    }),
-    signal: options.signal,
-  }, 'PIPEDREAM_GOOGLE_TASKS_READ_FAILED');
+      body: JSON.stringify({
+        external_user_id: contextOwner,
+        id: actionId,
+        configured_props: {
+          app: { authProvisionId: account.id },
+          maxResults: 1,
+        },
+      }),
+      signal: options.signal,
+    }, 'PIPEDREAM_GOOGLE_TASKS_READ_FAILED');
+  } catch {
+    // The pre-built action can temporarily reject a healthy managed account
+    // even though the Connect API proxy can still authenticate it. Prove a
+    // real read-only Google Tasks request through the same linked account.
+    const target = 'https://www.googleapis.com/tasks/v1/users/@me/lists?maxResults=1';
+    const params = new URLSearchParams({
+      external_user_id: contextOwner,
+      account_id: account.id,
+    });
+    await pipedreamJson(
+      fetcher,
+      'https://api.pipedream.com/v1/connect/' + encodeURIComponent(projectId)
+        + '/proxy/' + b64UrlUtf8(target) + '?' + params.toString(),
+      {
+        method: 'GET',
+        headers: {
+          authorization: 'Bearer ' + accessToken,
+          accept: 'application/json',
+          'x-pd-environment': environment,
+        },
+        signal: options.signal,
+      },
+      'PIPEDREAM_GOOGLE_TASKS_PROXY_READ_FAILED',
+    );
+    transport = 'proxy';
+  }
 
   return {
     ok: true,
     provider: 'pipedream',
     app: 'google_tasks',
     action_id: actionId,
-    live_action: true,
+    transport,
+    live_action: transport === 'action',
+    live_proxy: transport === 'proxy',
     read_only: true,
     account_connected: true,
+    configured_environment: accounts.configured_environment,
+    environment,
+    environment_fallback_used: accounts.environment_fallback_used === true,
     private_content_returned: false,
   };
 }
@@ -750,7 +1054,19 @@ async function testVercelConnection(env, contextOwner, signal) {
   let project = projects.find(row => row.id === cfg.project_id)
     || projects.find(row => row.name === cfg.project_name)
     || null;
+  if (!project) {
+    const repositoryProjectName = clean(env.MEL_GITHUB_REPOSITORY, 300).split('/').filter(Boolean).at(-1) || '';
+    if (repositoryProjectName) project = projects.find(row => row.name === repositoryProjectName) || null;
+  }
   if (!project && projects.length === 1) project = projects[0];
+
+  if (project?.id && project?.name && (!cfg.project_id || !cfg.project_name)) {
+    await saveVercelConnectionConfig(env, {
+      team_id: cfg.team_id,
+      project_id: project.id,
+      project_name: project.name,
+    }, contextOwner);
+  }
 
   let deployments = [];
   if (project?.id) {
@@ -888,9 +1204,13 @@ export async function maybeHandleConnectionSettingsApi(request, env = {}, url = 
         if (!stored) return json({ ok: false, code: 'PIPEDREAM_NOT_CONFIGURED' }, 409);
         const body = await bodyObject(request);
         if (clean(body?.probe, 120) === 'google_tasks_read') {
-          return json(await testPipedreamGoogleTasksRead(stored, contextOwner, { signal: request.signal }));
+          const result = await testPipedreamGoogleTasksRead(stored, contextOwner, { signal: request.signal });
+          if (result.environment_fallback_used) await persistPipedreamEnvironment(env, contextOwner, stored, result.environment);
+          return json(result);
         }
-        return json(await testPipedreamCredentials(stored, { signal: request.signal }));
+        const result = await testPipedreamCredentials(stored, { signal: request.signal });
+        if (result.environment_fallback_used) await persistPipedreamEnvironment(env, contextOwner, stored, result.environment);
+        return json(result);
       }
       const body = await bodyObject(request);
       const connectorId = clean(body.connector_id, 160);
@@ -900,10 +1220,18 @@ export async function maybeHandleConnectionSettingsApi(request, env = {}, url = 
 
     return json({ ok: false, code: 'NOT_FOUND' }, 404);
   } catch (error) {
+    const code=clean(error?.code || 'CONNECTION_OPERATION_FAILED',160);
+    const inferredAction = code==='OAUTH_VAULT_LEGACY_KEY_UNAVAILABLE_RECONNECT_REQUIRED'
+      ? (provider==='google' ? 'RECONNECT_GOOGLE' : provider==='microsoft' ? 'RECONNECT_MICROSOFT' : provider==='yahoo' ? 'RECONNECT_YAHOO' : 'RECONNECT_CONNECTION')
+      : '';
     return json({
       ok: false,
       error: clean(error?.code || error?.message || 'CONNECTION_OPERATION_FAILED', 160),
-      code: clean(error?.code || 'CONNECTION_OPERATION_FAILED', 160),
+      code,
+      ...(Number.isFinite(Number(error?.upstream_status)) ? { upstream_status: Number(error.upstream_status) } : {}),
+      ...(clean(error?.upstream_code, 160) ? { upstream_code: clean(error.upstream_code, 160) } : {}),
+      ...(clean(error?.upstream_message, 240) ? { upstream_message: clean(error.upstream_message, 240) } : {}),
+      ...(clean(error?.action_required || inferredAction, 160) ? { action_required: clean(error?.action_required || inferredAction, 160) } : {}),
     }, Number(error?.status) || 500);
   }
 }

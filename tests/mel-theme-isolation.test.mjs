@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { onRequestGet as normalMvp } from '../src/pages/mvp-interface.js';
+import { onRequestGet as normalMvp } from '../src/pages/mvp-interface-v3.js';
 import { onRequestGet as professorPage } from '../src/pages/full-interface-v2.js';
 import { enhanceThemeAvatars } from '../src/pages/theme-avatar-enhancer.js';
 import { applyMelThemeBackgrounds } from '../src/pages/mel-theme-backgrounds.js';
@@ -17,7 +17,7 @@ test('normal mode has one visual owner and exactly the eight requested themes', 
   const html = await response.text();
   assert.equal(response.status, 200);
   assert.equal(count(html, 'id="mel-normal-v3-style"'), 1);
-  assert.equal(count(html, 'src="/normal-runtime.js?v=8"'), 1);
+  assert.equal(count(html, 'src="/normal-runtime.js?v=9"'), 1);
   assert.equal(count(html, 'data-mel-theme-choice='), 8);
   for (const theme of expectedThemes) assert.match(html, new RegExp(`data-mel-theme-choice="${theme}"`));
   assert.match(html, /Bibliothèque/);

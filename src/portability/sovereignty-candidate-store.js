@@ -1,6 +1,26 @@
 function clean(v,max=500){return String(v||'').trim().slice(0,max);}
 function key(layer,id){return `${clean(layer,80)}::${clean(id,220)}`; }
 
+export function scopeSovereigntyCandidateStore(store,{keys=[]}={}){
+  if(!store||typeof store.list!=='function'||typeof store.setStatus!=='function'){
+    throw Object.assign(new TypeError('SOVEREIGNTY_CANDIDATE_STORE_REQUIRED'),{code:'SOVEREIGNTY_CANDIDATE_STORE_REQUIRED'});
+  }
+  const wanted=new Set((Array.isArray(keys)?keys:[]).map(value=>clean(value,320)).filter(Boolean));
+  if(!wanted.size){
+    throw Object.assign(new TypeError('SOVEREIGNTY_CANDIDATE_SCOPE_REQUIRED'),{code:'SOVEREIGNTY_CANDIDATE_SCOPE_REQUIRED'});
+  }
+  return Object.freeze({
+    async list({status=null,limit=200}={}){
+      const cap=Math.max(1,Math.min(500,Number(limit)||200));
+      const rows=await store.list({status,limit:500});
+      return (Array.isArray(rows)?rows:[])
+        .filter(row=>wanted.has(key(row?.layer,row?.id)))
+        .slice(0,cap);
+    },
+    setStatus(input){return store.setStatus(input);},
+  });
+}
+
 export class SovereigntyCandidateStore{
   constructor(db){
     if(!db)throw Object.assign(new Error('SOVEREIGNTY_CANDIDATE_DB_REQUIRED'),{code:'SOVEREIGNTY_CANDIDATE_DB_REQUIRED'});
@@ -55,6 +75,7 @@ export class SovereigntyCandidateStore{
           provider_hint=excluded.provider_hint,
           source_url=excluded.source_url,
           source_title=excluded.source_title,
+          status=excluded.status,
           last_seen_at=excluded.last_seen_at,
           seen_count=mel_sovereignty_candidates.seen_count+1,
           metadata_json=excluded.metadata_json`)

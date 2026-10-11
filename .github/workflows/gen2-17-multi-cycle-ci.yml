@@ -6,6 +6,11 @@ on:
     paths:
       - 'tests/autonomy-runtime.test.mjs'
       - 'src/evolution/**'
+      - 'src/security/github-actions-oidc.js'
+      - 'src/evaluation/capability-watch-runtime.js'
+      - 'tests/gen2/github-actions-oidc.test.mjs'
+      - 'tests/gen2/capability-watch-production-proof.test.mjs'
+      - 'tests/release-launch-bootstrap.test.mjs'
       - 'src/roadmap/master-roadmap.js'
       - '.github/workflows/gen2-17-multi-cycle-ci.yml'
   push:
@@ -33,7 +38,10 @@ jobs:
         run: >
           node --check src/evolution/autonomy-runtime.js &&
           node --check src/evolution/autonomy-supervisor.js &&
-          node --check src/evolution/evolution-proof-runner.js
+          node --check src/evolution/evolution-proof-runner.js &&
+          node --check src/evolution/release-launch-bootstrap.js &&
+          node --check src/security/github-actions-oidc.js &&
+          node --check src/evaluation/capability-watch-runtime.js
       - name: Targeted supervised autonomy proof
         run: >
           node --test
@@ -41,6 +49,9 @@ jobs:
           tests/autonomy-completion-gates.test.mjs
           tests/autonomy-supervisor.test.mjs
           tests/evolution-proof-runner.test.mjs
+          tests/release-launch-bootstrap.test.mjs
+          tests/gen2/github-actions-oidc.test.mjs
+          tests/gen2/capability-watch-production-proof.test.mjs
 
   gen2-17-full-suite:
     # TEMPORARY DEV-LIGHT MODE: targeted autonomy proof remains automatic;

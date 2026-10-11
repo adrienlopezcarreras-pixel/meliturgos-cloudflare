@@ -1,6 +1,6 @@
 import { createCompanionSovereigntyExecutor } from './companion-sovereignty-executor.js';
 import { createCompanionSourceControlAdapter } from './companion-source-control-adapter.js';
-import { SovereigntyCandidateStore } from './sovereignty-candidate-store.js';
+import { SovereigntyCandidateStore, scopeSovereigntyCandidateStore } from './sovereignty-candidate-store.js';
 import { D1AlternativeRegistryStore } from './d1-alternative-registry-store.js';
 import { validateSovereigntyCandidates } from './sovereignty-candidate-validator.js';
 
@@ -77,6 +77,18 @@ export async function runCompanionSourceControlPrevalidationRuntime(env,{
       }],
     }],
   },{now});
+  // A forced or due revalidation must exercise this exact local adapter again.
+  // PREVALIDATED candidates are otherwise intentionally preserved by the shared
+  // store and would disappear from the validator's UNVERIFIED queue.
+  await candidateStore.setStatus({
+    layer:'source_control',
+    id:'companion-local-git',
+    status:'UNVERIFIED',
+    metadata:{prevalidated:false,activation_allowed:false,revalidation_requested:true,source_sha:sourceSha},
+  });
+  const scopedCandidateStore=scopeSovereigntyCandidateStore(candidateStore,{
+    keys:['source_control::companion-local-git'],
+  });
 
   let device;
   try{device=await latestOnlineWindows(env.DB,{now});}catch{}
@@ -97,7 +109,7 @@ export async function runCompanionSourceControlPrevalidationRuntime(env,{
   });
 
   const validation=await validateSovereigntyCandidates({
-    candidateStore,
+    candidateStore:scopedCandidateStore,
     registryStore,
     env,
     now,
@@ -150,9 +162,14 @@ export async function runCompanionSourceControlPrevalidationRuntime(env,{
     },
   });
 
+  const blockedResult=(validation.results||[]).find(row=>row?.status==='BLOCKED')||null;
+  const blockedReason=blockedResult
+    ? String(blockedResult.code||blockedResult.validation_status||blockedResult.reason||'SOURCE_CONTROL_PREVALIDATION_BLOCKED').slice(0,180)
+    : null;
   const state={
     last_run_at:now,
     status:validation.prevalidated>0?'PREVALIDATED':validation.blocked>0?'BLOCKED':'NOOP',
+    reason:validation.prevalidated>0?null:blockedReason,
     device_id:device.id,
     source_sha:sourceSha,
     processed:validation.processed,

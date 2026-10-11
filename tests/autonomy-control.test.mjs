@@ -22,7 +22,7 @@ test('autonomy emergency pause persists only in explicitly injected fallback sta
   resetAutonomyControlForTests(autonomyControlState);
 });
 
-test('MAX autonomy is independent from emergency pause and survives pause/resume with explicit fallback state', async () => {
+test('emergency pause dominates MAX and resume stays normal until MAX is explicitly re-enabled', async () => {
   const autonomyControlState = createAutonomyControlMemoryState();
   resetAutonomyControlForTests(autonomyControlState);
   const maximum = await setOwnerMaxAutonomy(null, { enabled: true, source: 'test', memoryState: autonomyControlState });
@@ -32,18 +32,35 @@ test('MAX autonomy is independent from emergency pause and survives pause/resume
 
   const paused = await setAutonomyControl(null, { paused: true, source: 'test', memoryState: autonomyControlState });
   assert.equal(paused.paused, true);
-  assert.equal(paused.max_autonomy, true);
+  assert.equal(paused.max_autonomy, false);
+  assert.equal(paused.owner_override, false);
   assert.equal(paused.status, 'PAUSED');
 
   const resumed = await setAutonomyControl(null, { paused: false, source: 'test', reason: null, memoryState: autonomyControlState });
   assert.equal(resumed.paused, false);
-  assert.equal(resumed.max_autonomy, true);
-  assert.equal(resumed.status, 'MAX_AUTONOMY');
+  assert.equal(resumed.max_autonomy, false);
+  assert.equal(resumed.status, 'RUNNING');
 
-  const normal = await setOwnerMaxAutonomy(null, { enabled: false, source: 'test', memoryState: autonomyControlState });
-  assert.equal(normal.max_autonomy, false);
-  assert.equal(normal.status, 'RUNNING');
+  const maximumAgain = await setOwnerMaxAutonomy(null, { enabled: true, paused: false, source: 'test', memoryState: autonomyControlState });
+  assert.equal(maximumAgain.max_autonomy, true);
+  assert.equal(maximumAgain.status, 'MAX_AUTONOMY');
   resetAutonomyControlForTests(autonomyControlState);
+});
+
+test('legacy contradictory paused plus MAX memory state is normalized fail-safe to PAUSED', async () => {
+  const autonomyControlState = createAutonomyControlMemoryState();
+  autonomyControlState.control = {
+    paused: true,
+    max_autonomy: true,
+    owner_override: true,
+    status: 'PAUSED',
+    source: 'legacy-test',
+  };
+  const control = await getAutonomyControl(null, { memoryState: autonomyControlState });
+  assert.equal(control.paused, true);
+  assert.equal(control.max_autonomy, false);
+  assert.equal(control.owner_override, false);
+  assert.equal(control.status, 'PAUSED');
 });
 
 

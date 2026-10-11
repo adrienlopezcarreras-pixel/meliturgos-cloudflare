@@ -22,14 +22,16 @@ test('ShardVault provider adapters reflect current official API contracts', () =
   assert.match(autonomous,/language:'Plain Text'/);
   assert.match(autonomous,/expiry_days:'365'/);
   assert.match(autonomous,/https:\/\/dpaste\.com\/api\//);
-  assert.match(autonomous,/form\.append\('content',b64u\(payload\)\)/);
+  assert.match(autonomous,/content:b64u\(payload\)/);
+  assert.match(autonomous,/application\/x-www-form-urlencoded/);
   assert.match(autonomous,/adapter:'fileditch_b64'/);
   assert.match(autonomous,/filename=\{objectId\}\.txt/);
-  assert.match(autonomous,/x-uuid':'1'/);
+  assert.match(autonomous,/adapter:'paste_c_net'/);
+  assert.match(autonomous,/method:'POST'/);
   assert.match(autonomous,/adapter:'pastegg_b64'/);
   assert.match(autonomous,/api\.paste\.gg\/v1\/pastes/);
   assert.match(autonomous,/PASTEGG_CONTENT_MISSING[\s\S]*content\?\.format[\s\S]*unb64u\(encoded\)[\s\S]*unb64\(encoded\)/);
-  assert.match(autonomous,/format:'base64',value:b64\(payload\)/);
+  assert.match(autonomous,/format:'text',value:b64u\(payload\)/);
   assert.match(autonomous,/adapter:'markdownpaste_b64'/);
   assert.match(autonomous,/markdownpasteit\.vercel\.app\/api\/paste/);
   assert.doesNotMatch(autonomous,/expires_in:0/);
@@ -42,11 +44,57 @@ test('ShardVault provider adapters reflect current official API contracts', () =
   assert.match(autonomous,/api\.telegra\.ph\/createPage/);
   assert.match(autonomous,/adapter:'pastehtml_b64'/);
   assert.match(autonomous,/pastehtml\.dev\/api\/pastes/);
+  assert.match(autonomous,/id:'pst-rs-abhicracker-public'/);
+  assert.match(autonomous,/adapter:'pst_rs_b64'/);
+  assert.match(autonomous,/pst\.rs\.abhicracker\.com/);
+  assert.match(autonomous,/x-paste-ttl':'1y'/);
+  assert.match(autonomous,/content-type':'application\/octet-stream'/);
+  assert.match(runtime,/content-type':'application\/octet-stream'/);
   assert.match(autonomous,/c\.authMode==='none'\|\|c\.authMode==='ephemeral_account_token'/);
 });
 
+test('dpaste.com v2 uses the official urlencoded form contract and never falls back to the legacy API path', () => {
+  for (const source of [autonomous, runtime]) {
+    const start=source.indexOf("adapter==='dpaste_b64'");
+    assert.ok(start>=0);
+    const end=source.indexOf("if(",start+30);
+    const body=source.slice(start,end>start?end:start+2600);
+    assert.match(body,/new URLSearchParams\(/);
+    assert.match(body,/content:b64u\(payload\)/);
+    assert.match(body,/title:objectId/);
+    assert.match(body,/syntax:'text'/);
+    assert.match(body,/expiry_days:'365'/);
+    assert.match(body,/application\/x-www-form-urlencoded/);
+    assert.match(body,/body:body\.toString\(\)/);
+    assert.doesNotMatch(body,/new FormData\(\)/);
+    assert.doesNotMatch(body,/https:\/\/dpaste\.com\/api\/['"]/);
+  }
+  assert.match(autonomous,/https:\/\/dpaste\.com\/api\/v2\//);
+});
+
+test('paste.gg anonymous adapter uses text-safe base64url because anonymous binary content is forbidden', () => {
+  assert.match(autonomous,/format:'text',value:b64u\(payload\)/);
+  assert.match(runtime,/format:'text',value:b64u\(payload\)/);
+  assert.match(autonomous,/format:'text',value:b64u\(payload\)/);
+  assert.match(runtime,/format:'text',value:b64u\(payload\)/);
+});
+
+test('paste.c-net adapter uses the documented direct binary POST without synthetic UUID headers', () => {
+  for (const source of [autonomous, runtime]) {
+    const start=source.indexOf("adapter==='paste_c_net'");
+    assert.ok(start>=0);
+    const end=source.indexOf("if(",start+30);
+    const body=source.slice(start,end>start?end:start+2200);
+    assert.match(body,/method:'POST'/);
+    assert.match(body,/content-type':'application\/octet-stream'/);
+    assert.match(body,/accept':'text\/plain, \*\/\*'/);
+    assert.doesNotMatch(body,/x-uuid/);
+    assert.doesNotMatch(body,/method:'PUT'/);
+  }
+});
+
 test('snapshot runtime can write and read every repaired adapter selected by discovery', () => {
-  for (const adapter of ['zero_x0_binary','dpaste_org_b64','dpaste_b64','pastemyst_b64','onec3_b64','paste_c_net','fileditch_b64','pastegg_b64','markdownpaste_b64','udrop_dev_b64','waifuvault_b64','telegraph_b64','pastehtml_b64']) {
+  for (const adapter of ['zero_x0_binary','dpaste_org_b64','dpaste_b64','pastemyst_b64','onec3_b64','paste_c_net','fileditch_b64','pastegg_b64','markdownpaste_b64','udrop_dev_b64','waifuvault_b64','telegraph_b64','pastehtml_b64','pst_rs_b64']) {
     assert.ok(runtime.includes(`e.adapter==='${adapter}'`) || runtime.includes(`'${adapter}'`), adapter);
   }
   assert.match(runtime,/zero_x0_binary/);
@@ -58,7 +106,7 @@ test('snapshot runtime can write and read every repaired adapter selected by dis
   assert.match(runtime,/user-agent':'curl\/8\.0 MEL-ShardVault\/1\.0'/);
   assert.match(runtime,/fileditch_b64/);
   assert.match(runtime,/api\.paste\.gg\/v1\/pastes\//);
-  assert.match(runtime,/format:'base64',value:b64\(payload\)/);
+  assert.match(runtime,/format:'text',value:b64u\(payload\)/);
   assert.match(runtime,/PASTEGG_CONTENT_MISSING[\s\S]*content\?\.format[\s\S]*unb64u\(encoded\)[\s\S]*unb64\(encoded\)/);
   assert.match(runtime,/markdownpasteit\.vercel\.app\/api\/paste\//);
   assert.match(runtime,/udrop_dev_b64/);
@@ -68,6 +116,9 @@ test('snapshot runtime can write and read every repaired adapter selected by dis
   assert.match(runtime,/TELEGRAPH_CONTENT_MISSING/);
   assert.match(runtime,/pastehtml_b64/);
   assert.match(runtime,/PASTEHTML_CONTENT_MISSING/);
+  assert.match(runtime,/pst_rs_b64/);
+  assert.match(runtime,/pst\.rs\.abhicracker\.com\/raw\//);
+  assert.match(runtime,/x-paste-ttl':'1y'/);
 });
 
 
@@ -92,7 +143,7 @@ test('code archive replication is separately gated after seven live targets are 
   assert.match(runtime,/codeSyncExternalView\(state,goal,'COPIED'\)/);
   assert.match(runtime,/if\(result\.target_reached\)/);
   assert.match(runtime,/DEFERRED_SEPARATE_OPERATION/);
-  assert.match(runtime,/runShardVaultCycle\(env,\{force:true,skipExternalCode:true\}\)/);
+  assert.match(runtime,/promoteExternalEndpointWithExistingShard/);
 });
 
 
@@ -153,7 +204,7 @@ test('critical code bundle is preferred while exact-SHA archive remains a previe
   assert.match(runtime,/verifyShardVaultCodeReconstruction/);
   assert.match(runtime,/independent_of_local_archive:true/);
   assert.match(runtime,/syncShardVaultCodeExternally/);
-  assert.match(runtime,/skipExternalCode:true/);
+  assert.match(runtime,/DEFERRED_SEPARATE_OPERATION/);
 });
 
 
@@ -181,6 +232,8 @@ test('code replication uses resumable RS 4-of-7 shards with one external shard p
   assert.ok(runtime.includes("rememberCodeCandidateEndpoints(env,[...(report.qualified||[]),...(report.selected||[]),...(report.eligible||[])])"));
   assert.match(runtime,/CODE_CANDIDATES_KEY/);
   assert.match(body,/readCodeCandidateEndpoints/);
+  assert.match(body,/const codeCandidateSeeds=\[\.\.\.fresh,\.\.\.\(discoveryRefresh\?\.eligible\|\|\[\]\)\]/);
+  assert.match(body,/if\(codeCandidateSeeds\.length\)await rememberCodeCandidateEndpoints\(env,codeCandidateSeeds\)/);
   assert.match(body,/const provenEndpoint=\{\.\.\.e,/);
   assert.match(body,/rememberValidatedExternalEndpoints\(env,\[provenEndpoint\]\)/);
   assert.match(body,/NO_READY_VALIDATED_CODE_TARGETS/);
@@ -264,10 +317,24 @@ test('code sync prefers representative proof metadata and timing over legacy reg
 });
 
 
+test('retryable code targets are not permanently quarantined or dequalified', () => {
+  assert.match(runtime,/if\(classification\.permanent\)failed\.add\(id\)/);
+  assert.match(runtime,/else failed\.delete\(id\)/);
+  assert.match(runtime,/if\(failureState\.permanent===true\)await invalidateCodeTargetQualification/);
+  assert.match(runtime,/codeTargetAvailableNow\(state,e\)/);
+});
+
+test('code sync discovers replacements after all currently ready retry targets were attempted', () => {
+  assert.match(runtime,/const retryCycleExhausted=candidates\.length>0&&codeTargetDiscoveryRefreshNeeded\(candidates,state\)/);
+  assert.match(runtime,/if\(!candidates\.length\|\|retryCycleExhausted\)/);
+  assert.match(runtime,/retryCycleExhausted\?\(state\.attempted_endpoints\|\|\[\]\):\[\]/);
+  assert.match(runtime,/excludeEndpointIds:refreshExclusions/);
+});
+
 test('active durable code targets can self-qualify through the exact live roundtrip when size proof cache is missing', () => {
   assert.match(runtime,/activeCodeTargets=await readActiveExternalEndpoints\(env\)/);
-  assert.match(runtime,/uniqueExternalCandidates\(env,activeCodeTargets\)/);
-  assert.match(runtime,/state\.active_roundtrip_fallback_used=true/);
+  assert.match(runtime,/roundtripCodeFallbackCandidates\(env,codeCandidates,activeCodeTargets,state,used,shard\.length\)/);
+  assert.match(runtime,/state\.candidate_roundtrip_fallback_used=true/);
   assert.match(runtime,/const roundtrip=await downloadFragment\(env,e,d\)/);
   assert.match(runtime,/CODE_FRAGMENT_ROUNDTRIP_MISMATCH/);
   assert.match(runtime,/representativeVerifiedAt:new Date\(\)\.toISOString\(\)/);

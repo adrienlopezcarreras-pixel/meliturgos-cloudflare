@@ -14,6 +14,19 @@ test('full interface emits parseable browser runtime and keeps core navigation b
   assert.match(match[1], /Sauvegardes réelles[\s\S]*\\n/, 'ShardVault status output newline must remain escaped in browser JS');
 });
 
+test('canonical Full chat ships and uses the shared safe rich renderer', async () => {
+  const response = await onRequestGet();
+  const html = await response.text();
+  const match = html.match(/<script>([\s\S]*?)<\/script>/);
+  assert.ok(match);
+  assert.match(html, /\.mel-rich-table-wrap/);
+  assert.match(match[1], /window\.melRenderRichText=renderRichText/);
+  assert.match(match[1], /role==='mel'&&typeof melRenderRichText==='function'/);
+  assert.match(match[1], /melRenderRichText\(d,String\(text\?\?''\)\)/);
+  assert.match(match[1], /target\.dataset\.richRendered='true'/);
+});
+
+
 
 test('full interface keeps capabilities while avoiding eager heavy hidden-panel loading', async () => {
   const response = await onRequestGet();
@@ -38,7 +51,7 @@ test('full interface keeps capabilities while avoiding eager heavy hidden-panel 
 });
 
 
-test('full interface exposes persistent Gmail and Yahoo controls while Microsoft is consolidated in Pipedream', async () => {
+test('full interface exposes Gmail plus Yahoo/Ymail through Pipedream while Microsoft remains consolidated there', async () => {
   const response = await onRequestGet();
   const html = await response.text();
   assert.match(html, /data-view="connections"/);
@@ -46,11 +59,11 @@ test('full interface exposes persistent Gmail and Yahoo controls while Microsoft
   assert.match(html, />Gmail</);
   assert.match(html, />Yahoo \/ Ymail</);
   assert.match(html, /id="gmailConnect"/);
-  assert.match(html, /id="yahooUsername"/);
-  assert.match(html, /id="yahooAppPassword"/);
-  assert.match(html, /id="yahooSave"/);
-  assert.match(html, /imap\.mail\.yahoo\.com/);
-  assert.match(html, /smtp\.mail\.yahoo\.com/);
+  assert.doesNotMatch(html, /id="yahooUsername"/);
+  assert.doesNotMatch(html, /id="yahooAppPassword"/);
+  assert.doesNotMatch(html, /id="yahooSave"/);
+  assert.doesNotMatch(html, /imap\.mail\.yahoo\.com/);
+  assert.doesNotMatch(html, /smtp\.mail\.yahoo\.com/);
   assert.doesNotMatch(html, /id="outlookConnect"/);
   assert.doesNotMatch(html, /id="oneDriveConnect"/);
   assert.doesNotMatch(html, /id="sharePointConnect"/);
@@ -61,26 +74,22 @@ test('full interface exposes persistent Gmail and Yahoo controls while Microsoft
   assert.match(html, /data-pd-connect="sharepoint"/);
   assert.match(html, /data-pd-connect="imap"/);
   assert.match(html, /id="yahooPipedream"/);
-  assert.match(html, /CONNECTÉ DURABLEMENT/);
+  assert.match(html, /Gérer Yahoo\/Ymail via Pipedream/);
   assert.match(html, /initialView=new URLSearchParams\(location\.search\)\.get\('view'\)/);
 });
 
 
-test('full interface exposes Vercel connection controls and bounded redeploy actions', async () => {
+test('full interface keeps optional Vercel backend out of the canonical owner control surface', async () => {
   const response = await onRequestGet();
   const html = await response.text();
-  assert.match(html, />Vercel</);
-  assert.match(html, /id="vercelToken"/);
-  assert.match(html, /id="vercelTeamId"/);
-  assert.match(html, /id="vercelProjectId"/);
-  assert.match(html, /id="vercelProjectName"/);
-  assert.match(html, /id="vercelSave"/);
-  assert.match(html, /id="vercelTest"/);
-  assert.match(html, /id="vercelDeploymentSelect"/);
-  assert.match(html, /id="vercelRedeployPreview"/);
-  assert.match(html, /id="vercelRedeployProduction"/);
-  assert.match(html, /x-mel-approve-capability/);
-  assert.match(html, /vercel\.deployments\.redeploy/);
+  assert.doesNotMatch(html, /<h2>Vercel<\/h2>/);
+  for (const id of [
+    'vercelToken','vercelTeamId','vercelProjectId','vercelProjectName',
+    'vercelSave','vercelTest','vercelDeploymentSelect',
+    'vercelRedeployPreview','vercelRedeployProduction',
+  ]) {
+    assert.doesNotMatch(html, new RegExp('id="' + id + '"'));
+  }
 });
 
 
@@ -124,10 +133,13 @@ test('full interface exposes encrypted Pipedream Connect bridge and roadmap app 
   assert.match(html, /DONE_VERIFIED · PIPEDREAM IMAP/);
 });
 
-test('LoRA interface exposes the current collector status instead of only a stale training run', async () => {
+test('LoRA interface no longer exposes the retired Collector workflow and keeps live training/checkpoint state only', async () => {
   const response = await onRequestGet();
   const html = await response.text();
-  assert.match(html, /id="freeCollectorState"/);
-  assert.match(html, /collector_workflow/);
-  assert.match(html, /Collector Kaggle à jour/);
+  assert.doesNotMatch(html, /id="freeCollectorState"/);
+  assert.doesNotMatch(html, /collector_workflow/);
+  assert.doesNotMatch(html, /Collector Kaggle/);
+  assert.match(html, /training_workflow/);
+  assert.match(html, /checkpoint/);
+  assert.match(html, /promotion/);
 });

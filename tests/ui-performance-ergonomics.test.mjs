@@ -53,26 +53,28 @@ test('normal mode is keyboard accessible, voice-discoverable and runtime is vers
   assert.match(html,/class="mic-hint"/);
   assert.match(html,/↩ Reprendre le dernier échange/);
   assert.match(html,/class="window empty-chat"/);
-  assert.match(html,/normal-runtime\.js\?v=8/);
+  assert.match(html,/normal-runtime\.js\?v=9/);
   assert.match(NORMAL_RUNTIME_SOURCE,/drop\.addEventListener\('keydown'/);
   assert.match(NORMAL_RUNTIME_SOURCE,/navigator\.serviceWorker\.register\('\/sw\.js'/);
 });
 
 test('service worker caches only static resources, persists revalidation and leaves private HTML to the network', () => {
-  assert.match(SERVICE_WORKER_SOURCE,/meliturgos-static-v8/);
+  assert.match(SERVICE_WORKER_SOURCE,/meliturgos-static-v9/);
   assert.match(SERVICE_WORKER_SOURCE,/staleWhileRevalidate/);
   assert.match(SERVICE_WORKER_SOURCE,/event\.waitUntil\(update/);
   assert.match(SERVICE_WORKER_SOURCE,/url\.pathname\.startsWith\('\/assets\/'\)/);
   assert.match(SERVICE_WORKER_SOURCE,/request\.mode==='navigate'.*return/);
-  assert.match(SERVICE_WORKER_SOURCE,/const PRECACHE=\['\/normal-runtime\.js','\/assets\/avatars\/mel-full\.webp/);
+  assert.match(SERVICE_WORKER_SOURCE,/const PRECACHE=\['\/assets\/avatars\/mel-full\.webp/);
+  assert.match(SERVICE_WORKER_SOURCE,/url\.pathname==='\/normal-runtime\.js'[\s\S]{0,120}fetch\(request,\{cache:'no-store'\}\)/);
   assert.doesNotMatch(SERVICE_WORKER_SOURCE,/PRECACHE=.*['"]\/(?:mvp|professor|api\/)/);
   assert.doesNotMatch(SERVICE_WORKER_SOURCE,/cache\.add\('\/'\)|FALLBACK='\/'/);
 });
 
-test('normal runtime HTTP route has reusable cache headers', async () => {
+test('normal runtime HTTP route is always network-fresh', async () => {
   const router = await read('src/router.js');
   assert.match(router,/normal-runtime\.js/);
-  assert.match(router,/public, max-age=86400, stale-while-revalidate=604800/);
+  assert.match(router,/no-store, no-cache, must-revalidate/);
+  assert.doesNotMatch(router,/normal-runtime\.js[^\n]*public, max-age=86400/);
 });
 
 test('Professor IA and Work are rendered as one canonical tabbed surface with real Work loading', async () => {
@@ -153,7 +155,11 @@ test('Professor capability health semantics distinguish protected, degraded, non
   assert.match(router, /const capabilities = refresh \? await runtime\.bus\.refreshHealthAll\(\) : runtime\.bus\.list\(\);/);
   assert.match(router, /const protectedStates = new Set\(\["PROTECTED"\]\)/);
   assert.doesNotMatch(router, /degradedStates = new Set\(\[[^\]]*"PROTECTED"/);
-  assert.match(router, /unavailable > 0 \? "INFO" : "OK"/);
+  assert.match(router, /const healthyStates = new Set\(\["HEALTHY","ONLINE"\]\)/);
+  assert.match(router, /const functional = healthy \+ protectedCount/);
+  assert.match(router, /const waitsForPc = row => String\(row\?\.id \|\| ""\)\.toLowerCase\(\)\.startsWith\("computer\."\)/);
+  assert.match(router, /status: failed > 0 \? "ERROR" : \(degraded > 0 \|\| waitingPc > 0 \|\| unavailable > 0\) \? "WARN" : "OK"/);
+  assert.doesNotMatch(router, /unavailable > 0 \? "INFO" : "OK"/);
 });
 
 
@@ -166,4 +172,29 @@ test('Professor avoids expensive visual effects and blocking health probes on th
   assert.doesNotMatch(router,/url\.searchParams\.get\("refresh"\) !== "0"/);
   assert.match(html,/Réponse serveur trop lente/);
   assert.match(html,/loadChatGPTImportStatus\(\)\.catch\(\(\)=>\{\}\);loadShardVaultStatus\(\)\.catch\(\(\)=>\{\}\)/);
+});
+
+
+test('Professor uses Free-compatible Pipedream defaults and explicit bounded request timeouts', async () => {
+  const html = await (await renderProfessor()).text();
+  const source = await read('src/pages/full-interface-v2.js');
+  assert.match(html, /id="pipedreamEnvironment"[^>]*>[\s\S]*value="development" selected>Development · gratuit/);
+  assert.doesNotMatch(html, /value="production">Production · plan Pipedream payant/);
+  assert.match(html, /Development · gratuit uniquement/);
+  assert.match(html, /id="chatInput"[^>]*maxlength="100000"/);
+  assert.match(source, /function requestTimeoutMs\(url,method\)/);
+  assert.match(source, /includes\('\/api\/chat'\)\)return 120000/);
+  assert.match(source, /includes\('\/api\/gen2\/connections\/'\)\)return 30000/);
+  assert.match(source, /fetchJsonWithTimeout/);
+});
+
+test('Professor declares button semantics and keyboard navigation for its tablist', async () => {
+  const html = await (await renderProfessor()).text();
+  const buttons = [...html.matchAll(/<button\b([^>]*)>/gi)];
+  assert.ok(buttons.length >= 80);
+  assert.equal(buttons.every(match => /\btype=["'](?:button|submit)["']/i.test(match[1])), true);
+  assert.match(html, /role="tablist"/);
+  assert.match(html, /ArrowLeft/);
+  assert.match(html, /ArrowRight/);
+  assert.match(html, /\.tabIndex=/);
 });

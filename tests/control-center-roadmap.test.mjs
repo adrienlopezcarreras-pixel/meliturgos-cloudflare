@@ -43,6 +43,10 @@ test('canonical control center exposes one Work, roadmap, diagnostics, multi-AI 
   assert.match(page, /id="melUnifiedTabs"/);
   assert.match(page, /data-mode-panel="development" hidden/);
   assert.match(page, /\/api\/gen2\/roadmap/);
+  assert.match(page, /<option value="DONE_VERIFIED">DONE_VERIFIED<\/option>/);
+  assert.doesNotMatch(page, /<option value="DONE">/);
+  assert.doesNotMatch(page, /\['ONLINE','HEALTHY','DONE','DONE_VERIFIED'\]/);
+  assert.match(page, /<span class="muted">DONE_VERIFIED<\/span><strong id="rmDone">/);
   assert.match(page, /\/api\/gen2\/code\/self-check/);
   assert.doesNotMatch(page, /Ouvrir l’ancien Professeur|href="\/professor-legacy"/);
   assert.match(router, /handleFullModeV2/);

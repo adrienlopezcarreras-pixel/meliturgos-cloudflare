@@ -58,7 +58,7 @@ test('Waveshare terminal capability contract does not overclaim unimplemented ha
 });
 
 
-test('device TTS uses self-describing 48 kHz mono linear16 WAV for MINI playback', async () => {
+test('device TTS uses self-describing 16 kHz mono linear16 WAV for MINI playback', async () => {
   let aiCall = null;
   const db = {
     prepare(sql) {
@@ -82,7 +82,7 @@ test('device TTS uses self-describing 48 kHz mono linear16 WAV for MINI playback
         return new Response(new Uint8Array([
           0x52,0x49,0x46,0x46,0x28,0x00,0x00,0x00,0x57,0x41,0x56,0x45,
           0x66,0x6d,0x74,0x20,0x10,0x00,0x00,0x00,0x01,0x00,0x01,0x00,
-          0x80,0xbb,0x00,0x00,0x00,0x77,0x01,0x00,0x02,0x00,0x10,0x00,
+          0x80,0x3e,0x00,0x00,0x00,0x7d,0x00,0x00,0x02,0x00,0x10,0x00,
           0x64,0x61,0x74,0x61,0x04,0x00,0x00,0x00,0x00,0x00,0x00,0x01
         ]), { status:200, headers:{'content-type':'audio/wav'} });
       }
@@ -103,7 +103,7 @@ test('device TTS uses self-describing 48 kHz mono linear16 WAV for MINI playback
   assert.equal(r.status,200);
   assert.equal(r.headers.get('content-type'),'audio/wav');
   assert.equal(r.headers.get('x-mel-audio-format'),'wav-pcm-s16le');
-  assert.equal(r.headers.get('x-mel-audio-rate'),'48000');
+  assert.equal(r.headers.get('x-mel-audio-rate'),'16000');
   assert.equal(r.headers.get('x-mel-audio-channels'),'1');
   const out = new Uint8Array(await r.arrayBuffer());
   assert.equal(new TextDecoder().decode(out.slice(0,4)),'RIFF');
@@ -114,20 +114,20 @@ test('device TTS uses self-describing 48 kHz mono linear16 WAV for MINI playback
     speaker:'luna',
     encoding:'linear16',
     container:'wav',
-    sample_rate:48000
+    sample_rate:16000
   });
   assert.deepEqual(aiCall.options,{ returnRawResponse:true });
 });
 
 
-test('MINI prefers Wi-Fi for large STT uploads and uses MEL Mobile only as fallback', async () => {
+test('MINI prefers MEL Mobile and uses Wi-Fi only as transport fallback', async () => {
   const source = await readFile(
     new URL('../firmware/waveshare-terminal/main/mel_terminal.cpp', import.meta.url),
     'utf8'
   );
-  assert.match(source,/if \(!g_wifi_connected && mel_mobile_bridge_ready\(\)\) \{/);
-  assert.match(source,/Wi-Fi HTTP failed .*falling back to MEL MOBILE/);
-  assert.doesNotMatch(source,/if \(mel_mobile_bridge_ready\(\)\) \{\s*return mobile_request\(\);\s*\}/);
+  assert.match(source,/if \(mel_mobile_bridge_ready\(\)\) \{/);
+  assert.match(source,/MEL MOBILE transport failed .*falling back to Wi-Fi/);
+  assert.match(source,/if \(!g_wifi_connected\) return ESP_ERR_INVALID_STATE/);
 });
 
 test('MINI BLE transport keeps reconnect protections enabled', async () => {
@@ -165,4 +165,42 @@ test('MINI firmware validates the WAV contract before writing to ES8311', async 
   assert.match(source,/bits_per_sample != 16/);
   assert.match(source,/TTS WAV header invalid; refusing audio playback/);
   assert.match(source,/TTS_MAX_PCM_BYTES/);
+});
+
+
+test('MINI device chat preserves voice mode for fast spoken replies', async () => {
+  const source = await readFile(
+    new URL('../src/devices/waveshare-terminal-api.js', import.meta.url),
+    'utf8'
+  );
+  assert.match(source, /input_source: inputSource/);
+  assert.match(source, /voice_reply: voiceReply/);
+  assert.match(source, /parallel: voiceReply \? false : body\.parallel === true/);
+});
+
+
+test('MINI spoken chat selects the bounded fast inference route', async () => {
+  const source = await readFile(
+    new URL('../src/api/native-chat.js', import.meta.url),
+    'utf8'
+  );
+  assert.match(source, /taskOverride: voiceReply \? 'FAST'/);
+  assert.match(source, /'@cf\/zai-org\/glm-4\.7-flash'/);
+  assert.match(source, /timeoutMs: voiceReply \? 6000 : null/);
+  assert.match(source, /maxCalls: voiceReply \? 1 : null/);
+  assert.match(source, /VOICE_FAST_FALLBACK_TIMEOUT/);
+});
+
+
+test('MINI simple spoken chat has a direct low-latency route before native-chat', async () => {
+  const source = await readFile(
+    new URL('../src/devices/waveshare-terminal-api.js', import.meta.url),
+    'utf8'
+  );
+  assert.match(source, /runMiniDirectVoice/);
+  assert.match(source, /miniVoiceNeedsFullRuntime/);
+  assert.match(source, /@cf\/zai-org\/glm-4\.7-flash/);
+  assert.match(source, /timeoutMs: 4500/);
+  assert.match(source, /response_mode: "mini-voice-fast"/);
+  assert.match(source, /voiceReply && inputSource === "voice-server-transcription"/);
 });

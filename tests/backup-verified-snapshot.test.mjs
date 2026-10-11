@@ -108,3 +108,47 @@ test('GEN2-47 lists only storage-provided snapshot metadata', async () => {
     integritySha256: created.integritySha256,
   }]);
 });
+
+
+test('GEN2-47 runs read-only exporters concurrently but still persists only after all finish', async () => {
+  const storage = memoryStorage();
+  const started = [];
+  let releaseAlpha;
+  let releaseBeta;
+  const alphaGate = new Promise(resolve => { releaseAlpha = resolve; });
+  const betaGate = new Promise(resolve => { releaseBeta = resolve; });
+
+  const service = createVerifiedBackupService({
+    sources: {
+      alpha: async () => {
+        started.push('alpha');
+        await alphaGate;
+        return { source: 'alpha' };
+      },
+      beta: async () => {
+        started.push('beta');
+        await betaGate;
+        return { source: 'beta' };
+      },
+    },
+    storage,
+    now: () => '2026-10-09T16:00:00.000Z',
+  });
+
+  const creating = service.create({ id: 'parallel-read-snapshot' });
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.deepEqual([...started].sort(), ['alpha', 'beta']);
+  assert.equal(storage.rows.size, 0);
+
+  releaseAlpha();
+  await Promise.resolve();
+  assert.equal(storage.rows.size, 0);
+
+  releaseBeta();
+  const created = await creating;
+  assert.equal(created.verified, true);
+  assert.equal(storage.rows.size, 1);
+  assert.deepEqual(storage.rows.get(created.id).entries.map(row => row.name), ['alpha', 'beta']);
+});

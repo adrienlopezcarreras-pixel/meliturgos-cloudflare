@@ -3,8 +3,8 @@ const INVENTORY_PATH = '/inventory';
 const D1_TABLES_PATH = '/d1/tables';
 const D1_ROWS_PATH = '/d1/rows';
 const REGISTER_PATH = '/register';
-const R2_PAGE_LIMIT = 250;
-const D1_PAGE_LIMIT = 100;
+const R2_PAGE_LIMIT = 1000;
+const D1_PAGE_LIMIT = 500;
 
 function json(value, status = 200) {
   return new Response(JSON.stringify(value), {

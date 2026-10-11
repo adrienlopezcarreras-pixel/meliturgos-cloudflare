@@ -59,3 +59,26 @@ test('canary rollback verification stays tied to the recorded real proof', () =>
   assert.equal(row.status, 'DONE_VERIFIED');
   assert.match(row.next, /Actions run 35093195456/i);
 });
+
+test('canonical roadmap forbids bare DONE and requires exact production proof for promoted items', () => {
+  const rows = flattenRoadmap();
+  assert.equal(rows.some(row => row.status === 'DONE'), false);
+
+  for (const id of ['MEL-COUNCIL-05','GEN2-33','MEL-SOV-01','MEL-UI-07']) {
+    const row = byId(id);
+    assert.equal(row.status, 'DONE_VERIFIED', id);
+    assert.match(row.next, /1054e06986bc00d09eef29344df6f95ac7d557ba|release #669/i, id);
+  }
+
+  const media = byId('MEL-MEDIA-02');
+  assert.equal(media.status, 'DONE_VERIFIED');
+  assert.match(media.next, /release #693|71d028320aabd9240478993629ed36f32344df7e|12\/12|#1193/i);
+
+  const loraTrace = byId('MEL-LORA-TRACE-01');
+  assert.ok(loraTrace);
+  assert.equal(loraTrace.status, 'DONE_VERIFIED');
+  assert.match(loraTrace.next, /37923410226|11615521167|verifyLoraDailyTrace|trace_verified=1/i);
+
+  const nonVerified = rows.filter(row => row.status !== 'DONE_VERIFIED');
+  assert.deepEqual(nonVerified.map(row => row.id), []);
+});

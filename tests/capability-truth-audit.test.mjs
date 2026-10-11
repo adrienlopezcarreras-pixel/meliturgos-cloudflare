@@ -26,7 +26,14 @@ test('safe smoke catalogue covers core read-only and preview-only capabilities',
   for (const id of [
     'echo','roadmap.read','system.bindings','code.read','code.search','conversation.list','rag.search',
     'chatgpt.archive.preview','capability.audit','autonomy.status','mentor.recent','evolution.gap.detect',
-    'evolution.module.propose','device.policy.preview','web.research'
+    'evolution.module.propose','device.policy.preview','web.research',
+    'github.repository.read','github.actions.runs.read','cloudflare.workers.read','cloudflare.deployments.read',
+    'gmail.messages.search','calendar.events.read','tasks.tasklists.read','mail.messages.search',
+    'files.list','files.search','drive.files.list','drive.files.search','sites.list','sites.search',
+    'roadmap.human-actions-required','system.integrity','system.maturity','chatgpt.history.search',
+    'computer.status','work.plan.list','openloop.due','timeline.list','project.list','decision.list',
+    'lesson.list','skill.list','skill.snapshot.export','self.audit.status','memory.status','knowledge.search',
+    'evolution.ledger.list','resilience.recovery.drill.latest','resilience.cold-standby.prepare.latest'
   ]) {
     assert.ok(Object.hasOwn(SAFE_SAMPLES, id), `missing bounded smoke sample for ${id}`);
   }
@@ -222,6 +229,141 @@ test('declared STUB and NOT_IMPLEMENTED capabilities cannot masquerade as health
 });
 
 
+test('deep audit never executes a capability whose refreshed health is unavailable', async () => {
+  let executions = 0;
+  const record = {
+    id:'external.read',
+    name:'External read',
+    category:'test',
+    provider:'external',
+    risk:'LOW',
+    enabled:true,
+    health:'UNAVAILABLE',
+  };
+  const bus = {
+    list: () => [record],
+    refreshHealth: async () => record,
+    contract: () => ({ valid:true }),
+    execute: async () => { executions += 1; return { ok:true }; },
+  };
+  const report = await auditRuntimeCapabilities({ bus }, {
+    deep:true,
+    samples:{ 'external.read':{} },
+  });
+  const row = report.capabilities[0];
+  assert.equal(row.tested_now,false);
+  assert.equal(row.auto_execution_blocked,'HEALTH_UNAVAILABLE');
+  assert.equal(row.truth_status,'BLOCKED_EXTERNAL');
+  assert.equal(executions,0);
+});
+
+
+test('deep audit can derive a real bounded fixture before testing an ID-based read', async () => {
+  const records = [
+    { id:'thing.list', name:'List', category:'test', provider:'core', risk:'LOW', enabled:true, health:'HEALTHY' },
+    { id:'thing.get', name:'Get', category:'test', provider:'core', risk:'LOW', enabled:true, health:'HEALTHY' },
+  ];
+  const calls=[];
+  const runtime={
+    bus:{
+      list:()=>records,
+      contract:()=>({valid:true}),
+      execute:async(id,input)=>{
+        calls.push({id,input});
+        if(id==='thing.list') return [{ id:'real-1' }];
+        if(id==='thing.get') return { id:input.id };
+        throw new Error('unexpected');
+      },
+    },
+  };
+  const report=await auditRuntimeCapabilities(runtime,{
+    deep:true,
+    samples:{
+      'thing.list':{},
+      'thing.get':async({runtime,context})=>{
+        const rows=await runtime.bus.execute('thing.list',{},context);
+        return rows[0]?.id?{id:rows[0].id}:undefined;
+      },
+    },
+  });
+  const get=report.capabilities.find(row=>row.id==='thing.get');
+  assert.equal(get.tested_now,true);
+  assert.equal(get.truth_status,'EXISTANT_ET_TESTE');
+  assert.ok(calls.some(call=>call.id==='thing.get'&&call.input.id==='real-1'));
+});
+
+test('deep audit bounds a hung progress sink and continues capability execution', async () => {
+  const records = [
+    { id:'first', name:'First', category:'test', provider:'core', risk:'LOW', enabled:true, health:'HEALTHY' },
+    { id:'second', name:'Second', category:'test', provider:'core', risk:'LOW', enabled:true, health:'HEALTHY' },
+  ];
+  const calls=[];
+  const runtime={bus:{
+    list:()=>records,
+    contract:()=>({valid:true}),
+    execute:async(id)=>{calls.push(id);return {ok:true};},
+  }};
+  let progressCalls=0;
+  const started=Date.now();
+  const report=await auditRuntimeCapabilities(runtime,{
+    deep:true,
+    samples:{first:{},second:{}},
+    executionTimeoutMs:50,
+    onProgress:async()=>{
+      progressCalls += 1;
+      if(progressCalls===1) return new Promise(()=>{});
+    },
+  });
+  assert.equal(report.total,2);
+  assert.equal(report.capabilities.every(row=>row.truth_status==='EXISTANT_ET_TESTE'),true);
+  assert.deepEqual(calls,['first','second']);
+  assert.ok(Date.now()-started<3500,'hung progress sink must be bounded');
+});
+
+test('deep audit bounds a hung dynamic fixture and continues with later capabilities', async () => {
+  const records = [
+    { id:'fixture-hung', name:'Fixture hung', category:'test', provider:'core', risk:'LOW', enabled:true, health:'HEALTHY' },
+    { id:'after-fixture', name:'After fixture', category:'test', provider:'core', risk:'LOW', enabled:true, health:'HEALTHY' },
+  ];
+  const calls=[];
+  const runtime={bus:{
+    list:()=>records,
+    contract:()=>({valid:true}),
+    execute:async(id)=>{calls.push(id);return {ok:true};},
+  }};
+  const report=await auditRuntimeCapabilities(runtime,{
+    deep:true,
+    executionTimeoutMs:50,
+    samples:{
+      'fixture-hung':async()=>new Promise(()=>{}),
+      'after-fixture':{},
+    },
+  });
+  const hung=report.capabilities.find(row=>row.id==='fixture-hung');
+  const after=report.capabilities.find(row=>row.id==='after-fixture');
+  assert.equal(hung.tested_now,false);
+  assert.equal(hung.auto_execution_blocked,'SAMPLE_PREPARATION_FAILED:CAPABILITY_AUDIT_SAMPLE_TIMEOUT');
+  assert.equal(after.tested_now,true);
+  assert.equal(after.truth_status,'EXISTANT_ET_TESTE');
+  assert.deepEqual(calls,['after-fixture']);
+});
+
+test('dynamic bounded fixture absence is reported without manufacturing a runtime failure', async () => {
+  const record={ id:'thing.get', name:'Get', category:'test', provider:'core', risk:'LOW', enabled:true, health:'HEALTHY' };
+  let executions=0;
+  const runtime={bus:{list:()=>[record],contract:()=>({valid:true}),execute:async()=>{executions+=1;return{};}}};
+  const report=await auditRuntimeCapabilities(runtime,{
+    deep:true,
+    samples:{'thing.get':async()=>undefined},
+  });
+  const row=report.capabilities[0];
+  assert.equal(row.tested_now,false);
+  assert.equal(row.auto_execution_blocked,'NO_RUNTIME_FIXTURE');
+  assert.equal(row.truth_status,'EXISTANT_NON_TESTE');
+  assert.equal(executions,0);
+});
+
+
 test('CapabilityBus contract proof is non-executing and validates guarded structure', async () => {
   let executions = 0;
   const bus = new CapabilityBus();
@@ -317,4 +459,253 @@ test('deep audit bounds and parallelizes health refresh while preserving capabil
   assert.ok(peak>1,'health refresh should run concurrently');
   assert.ok(peak<=8,'health refresh concurrency must stay bounded');
   assert.equal(refreshed.length,10);
+});
+
+
+test('deep audit can process a bounded absolute range and report the durable next cursor', async () => {
+  const records = Array.from({ length: 7 }, (_, index) => ({
+    id:'range-'+index,
+    name:'Range '+index,
+    category:'test',
+    provider:'core',
+    risk:'LOW',
+    enabled:true,
+    health:'HEALTHY',
+  }));
+  const progress=[];
+  const bus={
+    list:()=>records,
+    contract:()=>({valid:true}),
+    execute:async(id)=>({id}),
+  };
+  const report=await auditRuntimeCapabilities({bus},{
+    deep:true,
+    startIndex:2,
+    maxRecords:3,
+    samples:Object.fromEntries(records.map(row=>[row.id,{}])),
+    onProgress:async p=>progress.push({index:p.index,total:p.total,id:p.row.id}),
+  });
+  assert.equal(report.total,7);
+  assert.deepEqual(report.capabilities.map(row=>row.id),['range-2','range-3','range-4']);
+  assert.deepEqual(report.range,{
+    start_index:2,
+    end_index:5,
+    next_index:5,
+    processed:3,
+    complete:false,
+  });
+  assert.deepEqual(progress.map(row=>row.index),[3,4,5]);
+  assert.equal(progress.every(row=>row.total===7),true);
+});
+
+test('targeted audit ranges only refresh and inspect requested capability ids', async () => {
+  const records = Array.from({ length: 6 }, (_, index) => ({
+    id:'target-'+index,
+    name:'Target '+index,
+    category:'test',
+    provider:'core',
+    risk:'LOW',
+    enabled:true,
+    health:'HEALTHY',
+  }));
+  const refreshed=[];
+  const bus={
+    list:()=>records,
+    refreshHealth:async id=>{
+      refreshed.push(id);
+      return records.find(row=>row.id===id);
+    },
+    contract:()=>({valid:true}),
+    execute:async(id)=>({id}),
+  };
+  const report=await auditRuntimeCapabilities({bus},{
+    deep:true,
+    recordIds:['target-1','target-4'],
+    samples:{'target-1':{},'target-4':{}},
+  });
+  assert.equal(report.total,2);
+  assert.deepEqual(report.capabilities.map(row=>row.id),['target-1','target-4']);
+  assert.deepEqual(refreshed,['target-1','target-4']);
+  assert.equal(report.range.complete,true);
+});
+
+
+test('external connector reads stay inventoried in global stress without duplicate live execution', async () => {
+  const calls=[];
+  const records=[
+    { id:'files.search', name:'OneDrive files search', category:'files', provider:'pipedream', risk:'LOW', enabled:true, health:'HEALTHY' },
+    { id:'sites.search', name:'SharePoint sites search', category:'files', provider:'pipedream', risk:'LOW', enabled:true, health:'HEALTHY' },
+    { id:'device.policy.preview', name:'Device preview', category:'device', provider:'local', risk:'LOW', enabled:true, health:'HEALTHY' },
+  ];
+  const fake={bus:{
+    list:()=>records,
+    execute:async(id)=>{calls.push(id);return {ok:true};},
+  }};
+  const report=await auditRuntimeCapabilities(fake,{
+    deep:true,
+    samples:{
+      'files.search':{query:'mel',limit:1},
+      'sites.search':{query:'mel',limit:1},
+      'device.policy.preview':{},
+    },
+  });
+  for(const id of ['files.search','sites.search']){
+    const row=report.capabilities.find(item=>item.id===id);
+    assert.equal(row.tested_now,false);
+    assert.equal(row.auto_execution_blocked,'UNKNOWN_OR_EXTERNAL_COST');
+    assert.equal(row.truth_status,'EXISTANT_NON_TESTE');
+  }
+  assert.deepEqual(calls,['device.policy.preview']);
+});
+
+test('conversation messages audit fixture honors the exact read schema without extra limit field', async () => {
+  const sample = SAFE_SAMPLES['conversation.messages.list'];
+  assert.equal(typeof sample, 'function');
+  const runtime = { bus: { execute: async (id, input) => {
+    assert.equal(id, 'conversation.list');
+    assert.deepEqual(input, {});
+    return [{ id: 'known-existing-conversation' }];
+  } } };
+  const value = await sample({ runtime, context:{} });
+  assert.deepEqual(value, { conversationId:'known-existing-conversation' });
+});
+
+test('automatic capability audit never supplies synthetic approval for recovery or standby', async () => {
+  const ids=['resilience.recovery.drill.latest','resilience.cold-standby.prepare.latest'];
+  const calls=[];
+  const bus={
+    list:()=>ids.map(id=>({id,name:id,category:'resilience',provider:'core',risk:'LOW',enabled:true,health:'HEALTHY'})),
+    execute:async(id)=>{calls.push(id);return {ok:true};},
+  };
+  const report=await auditRuntimeCapabilities({bus},{deep:true,samples:Object.fromEntries(ids.map(id=>[id,{}]))});
+  assert.equal(report.capabilities.length,2);
+  for(const row of report.capabilities){
+    assert.equal(row.auto_execution_blocked,'OWNER_APPROVAL_REQUIRED');
+    assert.equal(row.tested_now,false);
+    assert.equal(row.truth_status,'EXISTANT_NON_TESTE');
+  }
+  assert.deepEqual(calls,[]);
+});
+
+test('Cloudflare read-only deployment fixture supplies required script but stays cost-guarded', async () => {
+  assert.deepEqual(SAFE_SAMPLES['cloudflare.deployments.read'],{script:'meliturgos',limit:1});
+  let calls=0;
+  const bus={
+    list:()=>[{id:'cloudflare.deployments.read',name:'Deployments',provider:'cloudflare',category:'development',risk:'LOW',enabled:true,health:'HEALTHY'}],
+    execute:async()=>{calls++;return {};},
+  };
+  const report=await auditRuntimeCapabilities({bus},{deep:true});
+  assert.equal(report.capabilities[0].auto_execution_blocked,'UNKNOWN_OR_EXTERNAL_COST');
+  assert.equal(calls,0);
+});
+
+test('health refresh failures cannot silently reuse a stale HEALTHY registration', async () => {
+  const records = [
+    { id:'hung-health', name:'Hung', category:'test', provider:'test', risk:'LOW', enabled:true, health:'HEALTHY' },
+    { id:'failed-health', name:'Failed', category:'test', provider:'test', risk:'LOW', enabled:true, health:'HEALTHY' },
+    { id:'good-health', name:'Good', category:'test', provider:'test', risk:'LOW', enabled:true, health:'HEALTHY' },
+    { id:'protected-health', name:'Protected', category:'test', provider:'test', risk:'HIGH', enabled:true, health:'PROTECTED' },
+  ];
+  const report = await auditRuntimeCapabilities({
+    bus:{
+      list:()=>records,
+      refreshHealth:async id=>{
+        if(id==='hung-health')return new Promise(()=>{});
+        if(id==='failed-health')throw Object.assign(new Error('provider unavailable'),{code:'UPSTREAM_OFFLINE'});
+        if(id==='protected-health')throw Object.assign(new Error('offline'),{code:'UPSTREAM_OFFLINE'});
+        return {...records.find(x=>x.id===id),health_detail:null};
+      },
+    },
+  },{ deep:false, healthTimeoutMs:25 });
+  const byId=Object.fromEntries(report.capabilities.map(row=>[row.id,row]));
+  assert.equal(byId['hung-health'].health,'DEGRADED');
+  assert.equal(byId['hung-health'].health_detail,'CAPABILITY_AUDIT_HEALTH_TIMEOUT');
+  assert.equal(byId['hung-health'].health_refresh_verified,false);
+  assert.equal(byId['hung-health'].truth_status,'PARTIEL');
+  assert.equal(byId['failed-health'].health,'DEGRADED');
+  assert.equal(byId['failed-health'].health_detail,'UPSTREAM_OFFLINE');
+  assert.equal(byId['failed-health'].health_refresh_verified,false);
+  assert.equal(byId['good-health'].health,'HEALTHY');
+  assert.equal(byId['good-health'].health_refresh_verified,true);
+  assert.equal(byId['protected-health'].health,'PROTECTED');
+  assert.equal(byId['protected-health'].health_refresh_verified,false);
+  assert.equal(report.total,records.length);
+});
+
+test('malformed health refresh payload cannot masquerade as fresh evidence',async()=>{
+  const record={id:'invalid-health',name:'Invalid',category:'test',provider:'test',risk:'LOW',enabled:true,health:'HEALTHY'};
+  const report=await auditRuntimeCapabilities({bus:{list:()=>[record],refreshHealth:async()=>({status:'OK'})}},{deep:false});
+  const row=report.capabilities[0];
+  assert.equal(row.health,'DEGRADED');
+  assert.equal(row.health_refresh_verified,false);
+  assert.equal(row.health_detail,'CAPABILITY_AUDIT_HEALTH_RESULT_INVALID');
+});
+
+test('failed health refresh preserves unavailable states and blocks any automatic deep execution', async () => {
+  const states = ['HEALTHY','UNAVAILABLE','OFFLINE','ERROR','FAILED','BLOCKED','PROTECTED'];
+  const records = states.map((health,index) => ({
+    id: 'health-guard-' + index, name: 'Health guard ' + index,
+    category: 'test', provider: 'core', risk: 'LOW',
+    enabled: true, health,
+  }));
+  let executed = 0;
+  const report = await auditRuntimeCapabilities({
+    bus: {
+      list: () => records,
+      contract: () => ({valid:true}),
+      refreshHealth: async () => { throw Object.assign(new Error('proxy timed out'), {code:'UPSTREAM_TIMEOUT'}); },
+      execute: async () => { executed++;return {ok:true}; },
+    },
+  }, {
+    deep: true,
+    samples: Object.fromEntries(records.map(row => [row.id, {}])),
+  });
+  const byHealth = Object.fromEntries(report.capabilities.map((row,i)=>[states[i],row]));
+  assert.equal(executed, 0);
+  assert.equal(byHealth.HEALTHY.health,'DEGRADED');
+  assert.equal(byHealth.HEALTHY.auto_execution_blocked,'HEALTH_REFRESH_UNVERIFIED');
+  for(const health of ['UNAVAILABLE','OFFLINE','ERROR','FAILED','BLOCKED']){
+    assert.equal(byHealth[health].health,health);
+    assert.equal(byHealth[health].auto_execution_blocked,'HEALTH_UNAVAILABLE');
+    assert.equal(byHealth[health].health_refresh_verified,false);
+    assert.equal(byHealth[health].tested_now,false);
+  }
+  assert.equal(byHealth.UNAVAILABLE.truth_status,'BLOCKED_EXTERNAL');
+  assert.equal(byHealth.PROTECTED.health,'PROTECTED');
+  assert.equal(byHealth.PROTECTED.auto_execution_blocked,'HEALTH_REFRESH_UNVERIFIED');
+});
+
+test('a health response belonging to another capability cannot replace the audited record', async () => {
+  let executed = 0;
+  const record = {id:'health-audit-expected',name:'Expected',category:'test',provider:'core',risk:'LOW',enabled:true,health:'HEALTHY'};
+  const report = await auditRuntimeCapabilities({bus:{
+    list:()=>[record],
+    contract:()=>({valid:true}),
+    refreshHealth:async()=>({...record,id:'different-capability',health:'HEALTHY'}),
+    execute:async()=>{executed++;return {ok:true};},
+  }},{deep:true,samples:{'health-audit-expected':{}}});
+  assert.equal(report.capabilities.length,1);
+  const row=report.capabilities[0];
+  assert.equal(row.id,'health-audit-expected');
+  assert.equal(row.health,'DEGRADED');
+  assert.equal(row.health_detail,'CAPABILITY_AUDIT_HEALTH_RESULT_INVALID');
+  assert.equal(row.auto_execution_blocked,'HEALTH_REFRESH_UNVERIFIED');
+  assert.equal(executed,0);
+});
+
+test('bounded Work introspection fixtures permit real low-risk audit execution', async () => {
+  const rows = [
+    { id:'work.list',name:'Work list',provider:'mel',category:'work',risk:'LOW',enabled:true,health:'HEALTHY' },
+    { id:'work.open',name:'Work open',provider:'mel',category:'work',risk:'LOW',enabled:true,health:'HEALTHY' },
+  ];
+  const calls = [];
+  const report = await auditRuntimeCapabilities({ bus: {
+    list:()=>rows,
+    contract:()=>({valid:true}),
+    refreshHealth:async id=>rows.find(row=>row.id===id),
+    execute:async (id,input)=>{calls.push({id,input});return {ok:true,work:[]};},
+  } }, { deep:true });
+  assert.equal(calls.length, 2);
+  assert.deepEqual(calls.map(x=>x.input),[{limit:1},{limit:1}]);
+  assert.equal(report.counts.EXISTANT_ET_TESTE,2);
 });

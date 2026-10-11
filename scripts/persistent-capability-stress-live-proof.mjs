@@ -25,11 +25,31 @@ export function validateTerminal(body, jobId) {
   const status = String(r?.status || '');
   assert(status !== 'FAILED', 'CAPABILITY_STRESS_JOB_FAILED:' + String(r?.error || 'UNKNOWN'));
   assert(['COMPLETE', 'COMPLETE_WITH_FAILURES'].includes(status), 'CAPABILITY_STRESS_NOT_TERMINAL');
+  // GitHub Actions must not be green merely because a durable report was
+  // written. An internally failed stress is NOT a successful production proof.
+  // Approval-/cost-blocked actions are not runtime failures.
+  const failures = Array.isArray(r?.summary?.remaining_runtime_failures)
+    ? r.summary.remaining_runtime_failures
+    : [];
+  assert(status === 'COMPLETE' && failures.length === 0,
+    'CAPABILITY_STRESS_RUNTIME_FAILURES:' + failures.map(String).join(',').slice(0, 350));
   const done = Number(r?.progress?.done || 0);
   const total = Number(r?.progress?.total || 0);
   assert(total > 0 && done === total, 'CAPABILITY_STRESS_PROGRESS_INCOMPLETE');
   assert(r?.report?.persistent === true && String(r?.report?.job_id || '') === String(r?.job_id || ''), 'CAPABILITY_STRESS_REPORT_NOT_DURABLE');
   return r;
+}
+
+export function validateProgressTransition(previous = { pass: 1, done: 0 }, current = { pass: 1, done: 0 }) {
+  const previousPass = Math.max(1, Number(previous?.pass || 1));
+  const currentPass = Math.max(1, Number(current?.pass || 1));
+  const previousDone = Math.max(0, Number(previous?.done || 0));
+  const currentDone = Math.max(0, Number(current?.done || 0));
+  assert(currentPass >= previousPass, 'CAPABILITY_STRESS_PASS_REGRESSED');
+  if (currentPass === previousPass) {
+    assert(currentDone >= previousDone, 'CAPABILITY_STRESS_PROGRESS_REGRESSED');
+  }
+  return { pass: currentPass, done: currentDone };
 }
 
 async function callCapability(payload, outputPath) {
@@ -75,10 +95,11 @@ async function main() {
 
   let terminalBody = null;
   let lastDone = 0;
-  for (let attempt = 1; attempt <= 60; attempt += 1) {
+  let lastPass = 1;
+  for (let attempt = 1; attempt <= 240; attempt += 1) {
     const result = await callCapability({ id: 'capability.audit.status', input: { job_id: jobId } }, 'stress-status.json');
     if (result.status !== 200) {
-      console.log(`Stress status attempt ${attempt}/60 returned HTTP ${result.status}.`);
+      console.log(`Stress status attempt ${attempt}/240 returned HTTP ${result.status}.`);
       await sleep(2000);
       continue;
     }
@@ -87,13 +108,31 @@ async function main() {
     assert(r?.persistent === true && String(r?.job_id || '') === jobId, 'CAPABILITY_STRESS_JOB_MISMATCH');
     const done = Number(r?.progress?.done || 0);
     const total = Number(r?.progress?.total || 0);
-    assert(done >= lastDone, 'CAPABILITY_STRESS_PROGRESS_REGRESSED');
-    lastDone = done;
+    const progressState = validateProgressTransition(
+      { pass: lastPass, done: lastDone },
+      { pass: r?.progress?.pass, done },
+    );
+    const pass = progressState.pass;
+    lastPass = progressState.pass;
+    lastDone = progressState.done;
     const status = String(r?.status || '');
-    console.log(`Persistent stress ${jobId}: status=${status} progress=${done}/${total}`);
+    console.log(`Persistent stress ${jobId}: status=${status} progress=${done}/${total} current=${String(r?.progress?.current_capability||"none").slice(0,160)} pass=${pass}`);
     if (['COMPLETE', 'COMPLETE_WITH_FAILURES', 'FAILED'].includes(status)) {
       terminalBody = result.body;
       break;
+    }
+
+    // A completed chunk is persisted as QUEUED. Re-enter capability.audit to
+    // claim the next bounded chunk. A periodic re-entry also lets a stale
+    // RUNNING lease recover after a Worker background task disappears.
+    if (status === 'QUEUED' || (status === 'RUNNING' && attempt % 5 === 0) || status === 'RETRYING') {
+      const resume = await callCapability(
+        { id: 'capability.audit', input: { deep: true } },
+        'stress-resume.json'
+      );
+      if (resume.status !== 200) {
+        console.log(`Persistent stress resume attempt returned HTTP ${resume.status}.`);
+      }
     }
     await sleep(2000);
   }

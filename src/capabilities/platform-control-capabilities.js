@@ -165,7 +165,7 @@ function deploymentRow(row = {}) {
   };
 }
 
-export function registerPlatformControlCapabilities(bus, { env = {}, fetchImpl = fetch, repository = '', resolveVercelConfig = null, cloudflareRelayStore = null } = {}) {
+export function registerPlatformControlCapabilities(bus, { env = {}, fetchImpl = fetch, repository = '', resolveVercelConfig = null, cloudflareRelayStore = null, includeVercel = true } = {}) {
   if (!bus || typeof bus.discover !== 'function') throw new TypeError('CAPABILITY_BUS_REQUIRED');
 
   const githubRepository = repository || env.MEL_GITHUB_REPOSITORY || '';
@@ -198,6 +198,41 @@ export function registerPlatformControlCapabilities(bus, { env = {}, fetchImpl =
       projectId: String(dynamic?.project_id || staticVercel.projectId || '').trim(),
       projectName: String(dynamic?.project_name || staticVercel.projectName || '').trim(),
     };
+  };
+  const resolveVercelTarget = async () => {
+    const cfg = await getVercelConfig();
+    if (!cfg.token || (cfg.projectId && cfg.projectName)) return cfg;
+
+    const expectedName = String(
+      cfg.projectName
+      || staticVercel.projectName
+      || githubRepository.split('/').filter(Boolean).at(-1)
+      || ''
+    ).trim();
+    if (!expectedName) return cfg;
+
+    const params = new URLSearchParams({ limit: '50' });
+    if (cfg.teamId) params.set('teamId', cfg.teamId);
+    try {
+      const body = await requestJson(fetchImpl, `${VERCEL_API}/v9/projects?${params.toString()}`, {
+        token: cfg.token,
+        method: 'GET',
+        code: 'VERCEL_PROJECT_DISCOVERY_FAILED',
+      });
+      const projects = Array.isArray(body?.projects) ? body.projects : [];
+      const exact = projects.find(row =>
+        String(row?.name || '').trim() === expectedName
+        || (cfg.projectId && String(row?.id || '').trim() === cfg.projectId)
+      );
+      if (!exact?.id || !exact?.name) return cfg;
+      return {
+        ...cfg,
+        projectId: String(exact.id).trim(),
+        projectName: String(exact.name).trim(),
+      };
+    } catch {
+      return cfg;
+    }
   };
 
   bus.discover({
@@ -476,6 +511,7 @@ export function registerPlatformControlCapabilities(bus, { env = {}, fetchImpl =
     };
   });
 
+  if (includeVercel) {
   bus.discover({
     id: 'vercel.deployments.redeploy',
     name: 'Vercel deployment redeploy',
@@ -498,7 +534,7 @@ export function registerPlatformControlCapabilities(bus, { env = {}, fetchImpl =
     approval: { required: true, scope: 'vercel.deployments.redeploy', reason: 'VERCEL_DEPLOYMENT_MUTATION' },
     health: (staticVercel.token && staticVercel.projectId && staticVercel.projectName) || typeof resolveVercelConfig === 'function' ? 'DEGRADED' : 'UNAVAILABLE',
     healthcheck: async () => {
-      const cfg = await getVercelConfig();
+      const cfg = await resolveVercelTarget();
       return probeHealth(
         () => {
           const params = new URLSearchParams({ limit: '1' });
@@ -514,7 +550,7 @@ export function registerPlatformControlCapabilities(bus, { env = {}, fetchImpl =
     },
     enabled: true,
   }, async input => {
-    const cfg = await getVercelConfig();
+    const cfg = await resolveVercelTarget();
     if (!cfg.token || !cfg.projectId || !cfg.projectName) throw capabilityError('VERCEL_CONTROL_NOT_CONFIGURED', 503);
     const deploymentId = safeResource(input.deploymentId, 'VERCEL_DEPLOYMENT_ID_INVALID', 200);
     const projectId = safeResource(cfg.projectId, 'VERCEL_PROJECT_ID_INVALID', 200);
@@ -542,9 +578,10 @@ export function registerPlatformControlCapabilities(bus, { env = {}, fetchImpl =
     };
   });
 
+  }
   return Object.freeze([
     'github.actions.workflow.dispatch',
     'cloudflare.deployments.create',
-    'vercel.deployments.redeploy',
+    ...(includeVercel ? ['vercel.deployments.redeploy'] : []),
   ]);
 }

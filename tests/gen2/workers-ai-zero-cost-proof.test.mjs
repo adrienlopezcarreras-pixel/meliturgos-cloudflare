@@ -154,8 +154,38 @@ test('default provider pool remains blocked when no runtime proof is configured'
 
 test('release zero-cost proof authorizes the accessible Council fallback pool', async () => {
   const workflow = await readFile(new URL('../../.github/workflows/deploy-cloudflare-release.yml', import.meta.url), 'utf8');
-  assert.match(workflow, /@cf\/moonshotai\/kimi-k2\.7-code/);
-  assert.match(workflow, /@cf\/zai-org\/glm-4\.7-flash/);
   assert.match(workflow, /@cf\/meta\/llama-3\.3-70b-instruct-fp8-fast/);
-  assert.doesNotMatch(workflow, /@cf\/google\/gemma-3-12b-it/);
+  assert.match(workflow, /@cf\/google\/gemma-4-26b-a4b-it/);
+  assert.match(workflow, /@cf\/llava-hf\/llava-1\.5-7b-hf/);
+  assert.match(workflow, /@cf\/nvidia\/nemotron-3-120b-a12b/);
+  assert.match(workflow, /@cf\/zai-org\/glm-4\.7-flash/);
+  assert.match(workflow, /@cf\/bytedance\/stable-diffusion-xl-lightning/);
+  assert.match(workflow, /@cf\/deepgram\/aura-1/);
+  assert.match(workflow, /@cf\/openai\/whisper-large-v3-turbo/);
+  assert.doesNotMatch(workflow, /@cf\/moonshotai\/kimi-k2\.7-code/);
+  assert.match(workflow, /expires_at:new Date\(now\+60\*60\*1000\)\.toISOString\(\)/);
+});
+
+test('scheduled zero-cost proof refresh authenticates BOTH Cloudflare secret updates on the same environment', async () => {
+  const workflow = await readFile(new URL('../../.github/workflows/workers-ai-zero-cost-proof-refresh.yml', import.meta.url), 'utf8');
+  const browserStep = workflow.split('      - name: Re-prove Browser Run Workers Free hard-limit status\n')[1]
+    ?.split('      - name: Upload sanitized refresh evidence\n')[0];
+  assert.ok(browserStep, 'Browser Run refresh step must exist');
+  assert.ok(browserStep.includes('CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}'),
+    'each GitHub Actions step must explicitly receive its own Cloudflare token');
+  assert.ok(browserStep.includes('test -n "${CLOUDFLARE_API_TOKEN:-}"'),
+    'missing token must fail clearly before touching the Browser Run proof');
+  assert.ok(browserStep.includes('wrangler secret put MEL_BROWSER_RUN_ZERO_COST_PROOF_JSON --name meliturgos --env=""'),
+    'Browser Run proof secret must target the canonical top-level Worker environment');
+  assert.ok(workflow.includes('wrangler secret put MEL_WORKERS_AI_ZERO_COST_PROOF_JSON --name meliturgos --env=""'),
+    'Workers AI proof must target the same environment');
+});
+
+test('zero-cost proofs refresh immediately after an approved release or workflow update as well as on the recurring schedule', async () => {
+  const workflow = await readFile(new URL('../../.github/workflows/workers-ai-zero-cost-proof-refresh.yml', import.meta.url), 'utf8');
+  assert.match(workflow, /push:\s*\n\s+branches: \[main\]/);
+  assert.match(workflow, /- '\.github\/workflows\/workers-ai-zero-cost-proof-refresh\.yml'/);
+  assert.match(workflow, /workflow_run:\s*\n\s+workflows: \['deploy-cloudflare-release'\]/);
+  assert.match(workflow, /github\.event\.workflow_run\.conclusion == 'success'/);
+  assert.match(workflow, /cron: '\*\/15 \* \* \* \*'/);
 });

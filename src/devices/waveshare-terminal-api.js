@@ -74,6 +74,13 @@ async function ensureTables(env) {
     payload_json TEXT NOT NULL DEFAULT '{}',
     updated_at INTEGER NOT NULL
   )`).run();
+  await env.DB.prepare(`CREATE TABLE IF NOT EXISTS android_mini_links (
+    android_device_id TEXT NOT NULL,
+    mini_device_id TEXT NOT NULL,
+    linked_at INTEGER NOT NULL,
+    last_seen_at INTEGER NOT NULL,
+    PRIMARY KEY(android_device_id, mini_device_id)
+  )`).run();
 }
 
 async function registerRuntimeDevice(env, body) {
@@ -380,10 +387,86 @@ async function serveSetupScript(request, env) {
   return new Response(response.body, { status: 200, headers });
 }
 
+
+function miniVoiceNeedsFullRuntime(text) {
+  const value = String(text || "").toLowerCase();
+  return /\b(?:ouvre|ouvrir|cherche|recherche|internet|web|m[ée]t[ée]o|temps|temp[ée]rature|actualit[ée]|news|mail|email|gmail|outlook|agenda|calendrier|rendez-vous|rappel|souviens|m[ée]moire|photo|vid[ée]o|cam[ée]ra|fichier|document|t[ée]l[ée]charge|navigateur|site|page|prix|bourse|score|horaire|aujourd'hui|demain|maintenant)\b/i.test(value);
+}
+
+async function runMiniDirectVoice(text, env) {
+  if (!env?.AI || typeof env.AI.run !== "function") {
+    return { ok: false, code: "AI_BINDING_MISSING", status: 503 };
+  }
+  const messages = [
+    {
+      role: "system",
+      content: "Tu es MEL, compagnon vocal d'Adrien. Réponds en français, en tutoyant Adrien, directement, naturellement, en 1 à 3 phrases courtes. Pas de listes, pas de préambule, pas de markdown. Si la demande exige une information actuelle, un outil, un fichier, une action ou une mémoire personnelle, réponds seulement que tu passes au mode complet."
+    },
+    { role: "user", content: String(text || "").slice(0, 4000) }
+  ];
+
+  const attempts = [
+    { model: "@cf/zai-org/glm-4.7-flash", timeoutMs: 4500 },
+    { model: "@cf/meta/llama-3.3-70b-instruct-fp8-fast", timeoutMs: 4500 }
+  ];
+
+  let lastError = null;
+  for (const attempt of attempts) {
+    let timer = null;
+    try {
+      const result = await Promise.race([
+        env.AI.run(attempt.model, { messages, max_tokens: 120, temperature: 0.3 }),
+        new Promise((_, reject) => {
+          timer = setTimeout(() => {
+            const error = new Error("MINI_VOICE_MODEL_TIMEOUT");
+            error.code = "MINI_VOICE_MODEL_TIMEOUT";
+            reject(error);
+          }, attempt.timeoutMs);
+        })
+      ]);
+      const reply = typeof result === "string"
+        ? result
+        : result?.response ?? result?.text ?? result?.message?.content
+          ?? result?.choices?.[0]?.message?.content ?? result?.choices?.[0]?.text ?? "";
+      if (String(reply || "").trim()) {
+        return {
+          ok: true,
+          text: String(reply).trim().slice(0, 700),
+          model: attempt.model,
+          provider: "workers-ai",
+          response_mode: "mini-voice-fast"
+        };
+      }
+      lastError = new Error("MINI_VOICE_EMPTY");
+    } catch (error) {
+      lastError = error;
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+
+  return {
+    ok: false,
+    code: "MINI_VOICE_FAST_FAILED",
+    detail: String(lastError?.code || lastError?.message || "UNKNOWN").slice(0, 120),
+    status: 503
+  };
+}
+
 async function deviceChat(request, env, auth) {
   const body = await request.json().catch(() => ({}));
   const text = String(body.text || body.message || "").trim();
   if (!text) return json({ ok: false, code: "MESSAGE_REQUIRED" }, 400);
+  const inputSource = body.input_source === "voice-server-transcription"
+    ? "voice-server-transcription"
+    : "text";
+  const voiceReply = body.voice_reply === true || body.voice_mode === true;
+
+  if (voiceReply && inputSource === "voice-server-transcription" && !miniVoiceNeedsFullRuntime(text)) {
+    const fast = await runMiniDirectVoice(text, env);
+    if (fast.ok) return json(fast, 200);
+  }
+
   const internal = new Request(new URL("/api/chat", request.url), {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -392,7 +475,9 @@ async function deviceChat(request, env, auth) {
       device_id: auth.deviceId,
       conversation_id: body.conversation_id || `terminal-${auth.deviceId}`,
       ui_theme: body.ui_theme || "default",
-      parallel: body.parallel === true
+      input_source: inputSource,
+      voice_reply: voiceReply,
+      parallel: voiceReply ? false : body.parallel === true
     })
   });
   return handleNativeChat(internal, env, { authorized: true, source: "waveshare-terminal", device_id: auth.deviceId });
@@ -427,7 +512,7 @@ async function deviceTts(request, env, auth) {
       speaker,
       encoding: "linear16",
       container: "wav",
-      sample_rate: 48000
+      sample_rate: 16000
     }, { returnRawResponse: true });
 
     if (result instanceof Response) {
@@ -435,7 +520,7 @@ async function deviceTts(request, env, auth) {
       headers.set("content-type", "audio/wav");
       headers.set("cache-control", "no-store");
       headers.set("x-mel-audio-format", "wav-pcm-s16le");
-      headers.set("x-mel-audio-rate", "48000");
+      headers.set("x-mel-audio-rate", "16000");
       headers.set("x-mel-audio-channels", "1");
       return new Response(result.body, { status: result.status, headers });
     }
@@ -447,7 +532,7 @@ async function deviceTts(request, env, auth) {
           "content-type": "audio/wav",
           "cache-control": "no-store",
           "x-mel-audio-format": "wav-pcm-s16le",
-          "x-mel-audio-rate": "48000",
+          "x-mel-audio-rate": "16000",
           "x-mel-audio-channels": "1"
         }
       });
@@ -457,6 +542,82 @@ async function deviceTts(request, env, auth) {
   } catch (error) {
     return json({ ok: false, code: "TTS_FAILED", detail: String(error?.message || error).slice(0, 180) }, 503);
   }
+}
+
+async function linkAndroidMini(env, androidDeviceId, miniDeviceId) {
+  await ensureTables(env);
+  const now = Date.now();
+  await env.DB.prepare(`INSERT INTO android_mini_links(android_device_id,mini_device_id,linked_at,last_seen_at)
+    VALUES(?,?,?,?)
+    ON CONFLICT(android_device_id,mini_device_id) DO UPDATE SET last_seen_at=excluded.last_seen_at`)
+    .bind(androidDeviceId, miniDeviceId, now, now).run();
+}
+
+async function authorizeAndroidMiniLink(env, androidDeviceId, miniDeviceId) {
+  await ensureTables(env);
+  const row = await env.DB.prepare(`SELECT android_device_id,mini_device_id
+    FROM android_mini_links WHERE android_device_id=? AND mini_device_id=? LIMIT 1`)
+    .bind(androidDeviceId, miniDeviceId).first();
+  if (row) {
+    await env.DB.prepare(`UPDATE android_mini_links SET last_seen_at=?
+      WHERE android_device_id=? AND mini_device_id=?`)
+      .bind(Date.now(), androidDeviceId, miniDeviceId).run();
+    return true;
+  }
+
+  const existingLink = await env.DB.prepare(
+    "SELECT android_device_id FROM android_mini_links WHERE mini_device_id=? LIMIT 1"
+  ).bind(miniDeviceId).first();
+  if (existingLink) return false;
+
+  const mini = await env.DB.prepare(
+    "SELECT device_id,revoked_at FROM device_tokens WHERE device_id=? LIMIT 1"
+  ).bind(miniDeviceId).first();
+  if (!mini || mini.revoked_at != null) return false;
+
+  await linkAndroidMini(env, androidDeviceId, miniDeviceId);
+  return true;
+}
+
+export async function handleAndroidDelegatedMiniRequest(
+  request,
+  env,
+  androidDeviceId,
+  miniDeviceId,
+  miniPath
+) {
+  const androidId = String(androidDeviceId || "").trim().slice(0, 200);
+  const requestedMiniId = String(miniDeviceId || "").trim().slice(0, 200);
+  const path = String(miniPath || "");
+  if (!androidId || !requestedMiniId) return json({ok:false,code:"MINI_LINK_ID_REQUIRED"},400);
+  if (!path.startsWith(WAVESHARE_TERMINAL_API + "/")) {
+    return json({ok:false,code:"MINI_DELEGATED_PATH_INVALID"},400);
+  }
+
+  if (path === WAVESHARE_TERMINAL_API + "/pair" && request.method === "POST") {
+    await ensureTables(env);
+    const body = await request.clone().json().catch(()=>({}));
+    body.device_id = requestedMiniId;
+    const response = await issueDeviceToken(env, body);
+    if (response.ok) await linkAndroidMini(env, androidId, requestedMiniId);
+    return response;
+  }
+
+  if (!(await authorizeAndroidMiniLink(env, androidId, requestedMiniId))) {
+    return json({ok:false,code:"ANDROID_MINI_LINK_REQUIRED"},403);
+  }
+
+  const auth = {ok:true,deviceId:requestedMiniId,model:WAVESHARE_TERMINAL_MODEL};
+  const url = new URL(request.url);
+  if (path === WAVESHARE_TERMINAL_API + "/manifest" && request.method === "GET") {
+    return json({ok:true,device_id:requestedMiniId,...(await loadManifest(env,url.origin))});
+  }
+  if (path === WAVESHARE_TERMINAL_API + "/heartbeat" && request.method === "POST") return updateHeartbeat(request,env,auth);
+  if (path === WAVESHARE_TERMINAL_API + "/chat" && request.method === "POST") return deviceChat(request,env,auth);
+  if (path === WAVESHARE_TERMINAL_API + "/voice/transcribe" && request.method === "POST") return deviceVoice(request,env,auth);
+  if (path === WAVESHARE_TERMINAL_API + "/voice/tts" && request.method === "POST") return deviceTts(request,env,auth);
+  if (path === WAVESHARE_TERMINAL_API + "/download" && (request.method === "GET" || request.method === "HEAD")) return serveDownload(request,env,url);
+  return json({ok:false,code:"MINI_DELEGATED_ROUTE_NOT_FOUND"},404);
 }
 
 export async function maybeHandleWaveshareTerminalApi(request, env) {

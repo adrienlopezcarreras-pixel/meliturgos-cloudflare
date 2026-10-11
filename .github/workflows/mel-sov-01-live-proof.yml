@@ -24,7 +24,7 @@ jobs:
   production-proof:
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -38,62 +38,249 @@ jobs:
       - name: Contract tests
         run: node --test tests/release-launch-bootstrap.test.mjs tests/gen2/technical-sovereignty-live.test.mjs tests/gen2/prevalidated-alternative-registry.test.mjs
 
-      - name: Resolve authorized Cloudflare account
-        shell: bash
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-        run: |
-          set -euo pipefail
-          curl --silent --show-error --fail \
-            --header "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
-            "https://api.cloudflare.com/client/v4/accounts?per_page=50" \
-            > cloudflare-accounts.json
-          ACCOUNT_ID="$(node - <<'NODE'
-          const fs=require('fs');
-          const d=JSON.parse(fs.readFileSync('cloudflare-accounts.json','utf8'));
-          if(d?.success!==true || !Array.isArray(d?.result) || d.result.length<1) process.exit(2);
-          const row=d.result[0];
-          if(!row?.id) process.exit(3);
-          process.stdout.write(String(row.id));
-          NODE
-          )"
-          echo "CLOUDFLARE_ACCOUNT_ID=${ACCOUNT_ID}" >> "$GITHUB_ENV"
-
       - name: Prove MEL-SOV-01 from production Worker binding
         shell: bash
         env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          PROOF_KEY_B64: ${{ secrets.MEL_BACKUP_ENCRYPTION_KEY_B64 }}
           EXPECTED_SHA: ${{ inputs.expected_sha || github.sha }}
         run: |
           set -euo pipefail
           BASE_URL="https://meliturgos.adrien-lopezcarreras.workers.dev"
-          TOKEN="$(openssl rand -hex 32)"
+          TOKEN="$(PROOF_KEY_B64="${PROOF_KEY_B64}" TARGET_SHA="${EXPECTED_SHA}" node - <<'NODE'
+          const crypto=require('crypto');
+          const source=Buffer.from(String(process.env.PROOF_KEY_B64||''),'base64');
+          const sha=String(process.env.TARGET_SHA||'').toLowerCase();
+          if(source.length!==32||!/^[0-9a-f]{40}$/.test(sha)) throw new Error('PARALLEL_PROOF_DERIVATION_INVALID');
+          process.stdout.write(Buffer.from(crypto.hkdfSync(
+            'sha256',
+            source,
+            Buffer.from('meliturgos-parallel-proof-salt-v1'),
+            Buffer.from('MEL_PARALLEL_PROOF_V1:'+sha),
+            32,
+          )).toString('base64url'));
+          NODE
+          )"
           echo "::add-mask::${TOKEN}"
 
-          cleanup() {
-            set +e
-            printf 'y\n' | npx wrangler secret delete MEL_LAUNCH_BOOTSTRAP_TOKEN --env="" >/tmp/mel-sov-secret-delete.log 2>&1 || true
+          # Fast path: the canonical release may already have populated a fresh
+          # 10-layer sovereignty registry for this exact deployed SHA. Prove the
+          # final state first and avoid re-running 16 expensive live refreshes.
+          FAST_CODE="$(curl --silent --show-error --max-time 20 \
+            --header "x-mel-parallel-proof: ${TOKEN}" \
+            --header "content-type: application/json" \
+            --data '{"phase":"sovereignty-proof"}' \
+            --output mel-sov-fast.json --write-out '%{http_code}' \
+            "${BASE_URL}/api/internal/release-launch-bootstrap" || true)"
+          if [ "${FAST_CODE}" = "200" ] && EXPECTED_SHA="${EXPECTED_SHA}" node - <<'NODE'
+          const d=require('./mel-sov-fast.json');
+          const expected=String(process.env.EXPECTED_SHA||'').toLowerCase();
+          process.exit(
+            d?.ok===true
+            && d?.status==='MEL_SOV_01_DONE_VERIFIED_ELIGIBLE'
+            && d?.done_verified_eligible===true
+            && String(d?.deployed_sha||'').toLowerCase()===expected
+            && d?.secret_values_exposed===false
+            && d?.autonomy_started===false
+          ? 0 : 1);
+          NODE
+          then
+            cp mel-sov-fast.json mel-sov-01-live-proof.json
+            echo "MEL-SOV-01 fast path: exact-SHA final proof already valid."
+            exit 0
+          fi
+
+          layer_covered() {
+            local LAYER="$1"
+            LAYER="${LAYER}" node - <<'NODE'
+          const fs=require('fs');
+          let d={};
+          try{d=JSON.parse(fs.readFileSync('mel-sov-fast.json','utf8'))}catch{}
+          const layer=String(process.env.LAYER||'');
+          const covered=new Set(Array.isArray(d?.covered_layers)?d.covered_layers:[]);
+          const row=d?.layers?.[layer];
+          process.exit(covered.has(layer)||row?.ready===true?0:1);
+          NODE
           }
-          trap cleanup EXIT
 
-          printf '%s' "${TOKEN}" | npx wrangler secret put MEL_LAUNCH_BOOTSTRAP_TOKEN --env=""
+          mark_refresh_skipped() {
+            local TARGET="$1"
+            local STEP="${2:-}"
+            local LAYER="${3:-$TARGET}"
+            local KEY="$TARGET"
+            if [ -n "$STEP" ]; then KEY="$TARGET-$STEP"; fi
+            TARGET="$TARGET" STEP="$STEP" LAYER="$LAYER" KEY="$KEY" node - <<'NODE'
+          const fs=require('fs');
+          const target=process.env.TARGET,step=process.env.STEP||null,layer=process.env.LAYER;
+          const out={
+            ok:true,status:'MEL_SOV_01_REFRESH_STEP_VERIFIED',
+            refresh_target:target,refresh_step:step,
+            refresh:{ok:true,skipped:true,status:'ALREADY_COVERED',layer,processed:0,prevalidated:0,blocked:0},
+            secret_values_exposed:false,autonomy_started:false
+          };
+          fs.writeFileSync('mel-sov-refresh-'+process.env.KEY+'.json',JSON.stringify(out,null,2));
+          NODE
+            echo "MEL-SOV-01 skip: ${LAYER} already covered."
+          }
 
-          READY=0
-          for ATTEMPT in $(seq 1 12); do
-            CODE="$(curl --silent --show-error --max-time 300 \
-              --header "x-mel-launch-bootstrap: ${TOKEN}" \
-              --header "content-type: application/json" \
-              --data '{"phase":"sovereignty-proof"}' \
-              --output mel-sov-01-live-proof.json \
-              --write-out '%{http_code}' \
-              "${BASE_URL}/api/internal/release-launch-bootstrap" || true)"
-            if [ "${CODE}" = "200" ] || [ "${CODE}" = "409" ]; then
-              READY=1
-              break
+          # Refresh each expensive sovereignty prevalidation domain in its own
+          # Worker request so no single request can consume the full CPU budget.
+          # Runtime pressure can make one isolated refresh transiently fail, so
+          # retry only bounded transient statuses and preserve a sanitized
+          # diagnostic artifact instead of losing the whole proof.
+          refresh_sov_target() {
+            local TARGET="$1"
+            local STEP="${2:-}"
+            local KEY="${TARGET}"
+            local QUERY="refresh=${TARGET}"
+            if [ -n "${STEP}" ]; then
+              KEY="${TARGET}-${STEP}"
+              QUERY="${QUERY}&step=${STEP}"
             fi
-            sleep 2
+            local CODE="000"
+            local REFRESH_READY=0
+            local MAX_ATTEMPTS=4
+            if [ "${TARGET}" = "ai_local" ]; then MAX_ATTEMPTS=60; fi
+            for ATTEMPT in $(seq 1 "${MAX_ATTEMPTS}"); do
+              CODE="$(curl --silent --show-error --max-time 55 \
+                --header "x-mel-parallel-proof: ${TOKEN}" \
+                --header "content-type: application/json" \
+                --data '{"phase":"sovereignty-proof"}' \
+                --output "mel-sov-refresh-${KEY}.json" \
+                --write-out '%{http_code}' \
+                "${BASE_URL}/api/internal/release-launch-bootstrap?${QUERY}" || true)"
+              if [ "${CODE}" = "200" ]; then
+                REFRESH_READY=1
+                break
+              fi
+              REFRESH_ERROR_CODE="$(KEY="${KEY}" node -e 'const fs=require("fs");let d={};try{d=JSON.parse(fs.readFileSync("mel-sov-refresh-"+process.env.KEY+".json","utf8"))}catch{};process.stdout.write(String(d?.refresh?.reason||d?.code||d?.error||d?.status||"UNKNOWN"))')"
+              if [ "${REFRESH_ERROR_CODE}" = "SOV_BACKUP_GOOGLE_DRIVE_RECONSENT_REQUIRED" ]; then
+                echo "Google Drive OAuth re-consent is required for ${KEY}; this is not transient."
+                break
+              fi
+              case "${REFRESH_ERROR_CODE}" in
+                SOVEREIGNTY_AI_LOCAL_BOOTSTRAP_PENDING)
+                  echo "Local AI bootstrap is still running; retry ${ATTEMPT}/${MAX_ATTEMPTS} after bounded backoff."
+                  sleep 30
+                  continue
+                  ;;
+                SOVEREIGNTY_AI_LOCAL_BOOTSTRAP_FAILED:*)
+                  echo "Local AI bootstrap failed with ${REFRESH_ERROR_CODE}; stop retrying and preserve the exact diagnostic."
+                  break
+                  ;;
+              esac
+              case "${CODE}" in
+                000|409|429|500|502|503|504)
+                  echo "Transient MEL-SOV-01 refresh ${KEY} status ${CODE} (${REFRESH_ERROR_CODE}); retry ${ATTEMPT}/${MAX_ATTEMPTS}."
+                  sleep $((ATTEMPT * 2))
+                  ;;
+                *)
+                  echo "Non-retryable MEL-SOV-01 refresh ${KEY} status ${CODE} (${REFRESH_ERROR_CODE})."
+                  break
+                  ;;
+              esac
+            done
+            if [ "${REFRESH_READY}" != "1" ]; then
+              TARGET="${TARGET}" STEP="${STEP}" KEY="${KEY}" CODE="${CODE}" EXPECTED_SHA="${EXPECTED_SHA}" node - <<'NODE'
+          const fs=require('fs');
+          let row={};
+          try{row=JSON.parse(fs.readFileSync('./mel-sov-refresh-'+process.env.KEY+'.json','utf8'))}catch{}
+          const proof={
+            ok:false,
+            status:'MEL_SOV_01_REFRESH_FAILED',
+            source_sha:process.env.EXPECTED_SHA||null,
+            refresh_target:process.env.TARGET,
+            refresh_step:process.env.STEP||null,
+            http_status:Number(process.env.CODE||0),
+            refresh_error:String(row?.code||row?.error||row?.status||'UNKNOWN').slice(0,160),
+            secret_values_exposed:false,
+            autonomy_started:false,
+          };
+          fs.writeFileSync('mel-sov-01-live-proof.json',JSON.stringify(proof,null,2));
+          console.log(JSON.stringify(proof));
+          NODE
+              return 31
+            fi
+            TARGET="${TARGET}" STEP="${STEP}" KEY="${KEY}" node - <<'NODE'
+          const d=require('./mel-sov-refresh-'+process.env.KEY+'.json');
+          if(d?.ok!==true || d?.status!=='MEL_SOV_01_REFRESH_STEP_VERIFIED') throw new Error('MEL_SOV_01_REFRESH_FAILED:'+process.env.KEY);
+          if(d?.refresh_target!==process.env.TARGET) throw new Error('MEL_SOV_01_REFRESH_TARGET_MISMATCH');
+          if(process.env.STEP && d?.refresh_step!==process.env.STEP) throw new Error('MEL_SOV_01_REFRESH_STEP_MISMATCH');
+          if(d?.secret_values_exposed!==false || d?.autonomy_started!==false) throw new Error('MEL_SOV_01_REFRESH_SAFETY_FAILED');
+          NODE
+          }
+
+          if layer_covered "ai"; then
+            mark_refresh_skipped "ai" "" "ai"
+            mark_refresh_skipped "ai_local" "" "ai"
+          else
+            # Prefer the local Companion path first because a valid local proof
+            # is intrinsically zero-cost and must pass the low-refusal probe.
+            # If it is unavailable, fall back to any explicitly configured
+            # provider-neutral zero-cost AI candidate.
+            if refresh_sov_target "ai_local"; then
+              mark_refresh_skipped "ai" "" "ai"
+            else
+              refresh_sov_target "ai" || exit $?
+            fi
+          fi
+          if layer_covered "source_control"; then
+            mark_refresh_skipped "source_control" "" "source_control"
+          else
+            refresh_sov_target "source_control" || exit $?
+          fi
+          for STEP in runtime storage database ci_cd secrets_identity scheduler observability; do
+            if layer_covered "${STEP}"; then
+              mark_refresh_skipped "infrastructure" "${STEP}" "${STEP}"
+            else
+              refresh_sov_target "infrastructure" "${STEP}" || exit $?
+            fi
           done
-          test "${READY}" = "1"
+          for STEP in resolve prepare readback rollback finalize; do
+            if layer_covered "backup_restore"; then
+              mark_refresh_skipped "backup_restore" "${STEP}" "backup_restore"
+            else
+              refresh_sov_target "backup_restore" "${STEP}" || exit $?
+            fi
+          done
+
+          CODE="$(curl --silent --show-error --max-time 60 \
+            --header "x-mel-parallel-proof: ${TOKEN}" \
+            --header "content-type: application/json" \
+            --data '{"phase":"sovereignty-proof"}' \
+            --output mel-sov-01-live-proof.json \
+            --write-out '%{http_code}' \
+            "${BASE_URL}/api/internal/release-launch-bootstrap" || true)"
+          if [ "${CODE}" != "200" ] && [ "${CODE}" != "409" ]; then
+            echo "Final MEL-SOV-01 status returned HTTP ${CODE}."
+            exit 31
+          fi
+
+          node - <<'NODE'
+          const fs=require('fs');
+          const d=JSON.parse(fs.readFileSync('mel-sov-01-live-proof.json','utf8'));
+          const refresh={};
+          const read=key=>JSON.parse(fs.readFileSync('mel-sov-refresh-'+key+'.json','utf8'));
+          for(const id of ['ai','ai_local','source_control']){
+            const row=read(id);
+            refresh[id]=row?.refresh||null;
+          }
+          const collect=(target,steps)=>{
+            const rows=steps.map(step=>[step,read(target+'-'+step)]);
+            return {
+              ok:rows.every(([,row])=>row?.ok===true&&row?.status==='MEL_SOV_01_REFRESH_STEP_VERIFIED'),
+              skipped:false,
+              status:'BOUNDED_STEP_REFRESH',
+              processed:rows.reduce((n,[,row])=>n+Number(row?.refresh?.processed||0),0),
+              prevalidated:rows.reduce((n,[,row])=>n+Number(row?.refresh?.prevalidated||0),0),
+              blocked:rows.reduce((n,[,row])=>n+Number(row?.refresh?.blocked||0),0),
+              steps:Object.fromEntries(rows.map(([step,row])=>[step,row?.refresh||null])),
+            };
+          };
+          refresh.infrastructure=collect('infrastructure',['runtime','storage','database','ci_cd','secrets_identity','scheduler','observability']);
+          refresh.backup_restore=collect('backup_restore',['resolve','prepare','readback','rollback','finalize']);
+          d.prevalidation_refresh=refresh;
+          fs.writeFileSync('mel-sov-01-live-proof.json',JSON.stringify(d,null,2));
+          NODE
 
           node - <<'NODE'
           const fs=require('fs');
@@ -123,8 +310,6 @@ jobs:
           if(d?.done_verified_eligible!==true) process.exit(1);
           NODE
 
-          cleanup
-          trap - EXIT
 
       - name: Upload sanitized MEL-SOV-01 proof
         if: always()

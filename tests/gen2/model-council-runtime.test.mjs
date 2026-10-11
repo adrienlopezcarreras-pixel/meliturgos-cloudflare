@@ -130,6 +130,9 @@ test('default connected Council uses the configured Workers AI adapter path', as
   assert.equal(calls.length, 3);
   assert.ok(calls.every(row => row.model.startsWith('@cf/')));
   assert.ok(calls.every(row => Array.isArray(row.payload.messages) && row.payload.messages.length > 0));
+  assert.equal(calls.filter(row => row.payload.max_tokens === 384).length, 2);
+  assert.equal(calls.filter(row => row.payload.max_tokens === 512).length, 1);
+  assert.ok(calls.every(row => Number(row.payload.max_tokens || 0) <= 512));
 });
 
 test('Model Council is registered in the production CapabilityBus and executes through Workers AI adapters', async () => {
@@ -507,12 +510,22 @@ test('transient provider critique failure is retried once without reducing Counc
 });
 
 
-test('production Council registry prefers accessible Kimi fallback and excludes unavailable Gemma', () => {
+test('production Council registry exposes the current four-model Workers AI pool and excludes paid Kimi', () => {
   const models = standardRegistry.list();
-  const kimi = models.find(row => row.id === '@cf/moonshotai/kimi-k2.7-code');
-  const gemma = models.find(row => row.id === '@cf/google/gemma-3-12b-it');
-  assert.equal(kimi?.enabled, true);
-  assert.ok((kimi?.capabilities || []).includes('GENERAL'));
-  assert.equal(gemma?.enabled, false);
-  assert.equal(gemma?.health, 'UNAVAILABLE');
+  const ids = new Set(models.map(row => row.id));
+  assert.ok(ids.has('@cf/meta/llama-3.3-70b-instruct-fp8-fast'));
+  assert.ok(ids.has('@cf/google/gemma-4-26b-a4b-it'));
+  assert.ok(ids.has('@cf/nvidia/nemotron-3-120b-a12b'));
+  assert.ok(ids.has('@cf/zai-org/glm-4.7-flash'));
+  assert.equal(ids.has('@cf/moonshotai/kimi-k2.7-code'), false);
+  for (const id of [
+    '@cf/meta/llama-3.3-70b-instruct-fp8-fast',
+    '@cf/google/gemma-4-26b-a4b-it',
+    '@cf/nvidia/nemotron-3-120b-a12b',
+    '@cf/zai-org/glm-4.7-flash',
+  ]) {
+    const model = models.find(row => row.id === id);
+    assert.equal(model?.enabled, true);
+    assert.ok((model?.capabilities || []).includes('GENERAL'));
+  }
 });

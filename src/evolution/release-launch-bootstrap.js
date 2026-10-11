@@ -1,6 +1,7 @@
 import {
   evaluateRestoreReadiness,
   getAutonomyLaunchReadiness,
+  writeAutonomyLaunchReadinessPublicCache,
   prepareAutonomyLaunch,
   prepareAutonomyLaunchBackup,
   prepareAutonomyLaunchCodeSync,
@@ -22,16 +23,18 @@ import { proveEcosystemTeacherHandoff } from '../evaluation/capability-watch-run
 import { runAutonomyRuntimeTick } from './autonomy-runtime.js';
 import { maybeHandleConnectionSettingsApi } from '../api/connection-settings-api.js';
 import { D1AlternativeRegistryStore } from '../portability/d1-alternative-registry-store.js';
-import { sovereigntyCoverageFromRegistry } from '../portability/prevalidated-alternative-registry.js';
+import { eligibleAlternatives, sovereigntyCoverageFromRegistry } from '../portability/prevalidated-alternative-registry.js';
 import { liveTechnicalSovereigntyReport } from '../portability/technical-sovereignty-live.js';
 import { runConfiguredAiCandidateValidationRuntime } from '../portability/configured-ai-candidate-validation-runtime.js';
+import { runCompanionAiPrevalidationRuntime } from '../portability/companion-ai-prevalidation-runtime.js';
 import { runCompanionSourceControlPrevalidationRuntime } from '../portability/companion-source-control-prevalidation-runtime.js';
 import { runCompanionInfrastructurePrevalidationRuntime } from '../portability/companion-infrastructure-prevalidation-runtime.js';
 import { runGoogleDriveBackupRestorePrevalidationRuntime } from '../portability/google-drive-backup-restore-prevalidation-runtime.js';
 import { authorizeGitHubActionsOidcRequest } from '../security/github-actions-oidc.js';
+import { runMelMedia02LiveProof } from '../media/media-roadmap-proof.js';
 
 const PATH = '/api/internal/release-launch-bootstrap';
-const PHASES = new Set(['all', 'identity', 'pause', 'backup', 'code-sync', 'readiness', 'sovereignty-proof', 'skill-registry-proof', 'plugin-sdk-proof', 'evolution-ledger-proof', 'agent-automation-proof', 'provider-escape-proof', 'long-context-proof', 'capability-watch-proof', 'connection-proof', 'gen2-42-runtime-tick', 'gen2-42-owner-max']);
+const PHASES = new Set(['all', 'identity', 'pause', 'backup', 'code-sync', 'readiness', 'sovereignty-proof', 'skill-registry-proof', 'plugin-sdk-proof', 'evolution-ledger-proof', 'agent-automation-proof', 'provider-escape-proof', 'long-context-proof', 'capability-watch-proof', 'connection-proof', 'media-proof', 'gen2-42-runtime-tick', 'gen2-42-owner-max', 'release-rollback-restore']);
 
 function exactDeployedSha(env = {}) {
   const direct = String(env?.MEL_DEPLOYED_GIT_SHA || '').trim().toLowerCase();
@@ -44,6 +47,13 @@ function exactDeployedSha(env = {}) {
   } catch {
     return '';
   }
+}
+
+function exactShaReusableAlternative(registry, layer, deployedSha, { now = Date.now() } = {}) {
+  const sha = String(deployedSha || '').trim().toLowerCase();
+  if (!/^[0-9a-f]{40}$/.test(sha)) return null;
+  const rows = eligibleAlternatives(registry, layer, { maxAddedCostEur: 0, now });
+  return rows.find((row) => String(row?.proof?.source_sha || '').trim().toLowerCase() === sha) || null;
 }
 
 function exactDeployedBranch(env = {}) {
@@ -259,6 +269,9 @@ function safeReadiness(value) {
       external_code_status: value?.shardvault?.external_code_status || null,
       external_code_endpoints: Number(value?.shardvault?.external_code_endpoints || 0),
       target_count: Number(value?.shardvault?.target_count || 7),
+      release_quorum: Number(value?.shardvault?.release_quorum || 5),
+      code_reconstruction_verified: value?.shardvault?.code_reconstruction_verified === true,
+      repair_pending: value?.shardvault?.repair_pending === true,
     },
   };
 }
@@ -272,6 +285,8 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
   proveCapabilityWatch = proveEcosystemTeacherHandoff,
   runAutonomyTick = runAutonomyRuntimeTick,
   connectionHandler = maybeHandleConnectionSettingsApi,
+  proveMedia = runMelMedia02LiveProof,
+  authorizeOidc = authorizeGitHubActionsOidcRequest,
 } = {}) {
   const url = new URL(request.url);
   if (url.pathname !== PATH) return null;
@@ -289,22 +304,115 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
   const gen2Expected = String(env?.MEL_GEN2_42_BOOTSTRAP_TOKEN || '');
   const gen2Supplied = String(request.headers.get('x-mel-gen2-42-bootstrap') || '');
   const primaryAuthorized = equalToken(expected, supplied);
+  const parallelExpected = String(env?.MEL_PARALLEL_PROOF_TOKEN || '');
+  const parallelSupplied = String(request.headers.get('x-mel-parallel-proof') || '');
+  const parallelAuthorized = equalToken(parallelExpected, parallelSupplied);
+  const proofPhase = phase === 'identity' || phase === 'sovereignty-proof';
+  const sovAutoCloseOidc = proofPhase
+    ? await authorizeOidc(request, env, {
+        allowedWorkflows: ['mel-sov-ai-auto-close.yml'],
+        allowedWorkflowBranches: ['main'],
+        allowedEvents: ['schedule', 'workflow_dispatch', 'push'],
+      })
+    : { ok: false };
+  const sovAutoCloseAuthorized = sovAutoCloseOidc.ok === true;
   const gen2SecretAuthorized = equalToken(gen2Expected, gen2Supplied);
   const gen2ChallengeAuthorized = phase === 'gen2-42-runtime-tick'
     ? await consumeBootstrapChallenge(env, gen2Supplied, 'gen2-42-runtime-tick')
     : false;
   const gen2Oidc = phase === 'gen2-42-runtime-tick'
-    ? await authorizeGitHubActionsOidcRequest(request, env, {
+    ? await authorizeOidc(request, env, {
         allowedWorkflows: ['gen2-42-runtime-tick.yml'],
         allowedEvents: ['schedule', 'workflow_dispatch'],
       })
     : { ok: false };
+  const rollbackOidc = phase === 'release-rollback-restore'
+    ? await authorizeOidc(request, env, {
+        allowedWorkflows: ['deploy-cloudflare-release.yml'],
+        allowedWorkflowBranches: [...new Set(['main', exactDeployedBranch(env)].filter(Boolean))],
+        allowedEvents: ['push', 'workflow_dispatch'],
+      })
+    : { ok: false };
   const gen2Authorized = gen2SecretAuthorized || gen2ChallengeAuthorized || gen2Oidc.ok === true;
-  if (!primaryAuthorized && !gen2Authorized) {
+  const rollbackAuthorized = rollbackOidc.ok === true;
+  if (!primaryAuthorized && !gen2Authorized && !parallelAuthorized && !rollbackAuthorized && !sovAutoCloseAuthorized) {
     return Response.json({ ok: false, code: 'BOOTSTRAP_AUTH_REQUIRED' }, { status: 401, headers: { 'cache-control': 'no-store' } });
+  }
+  if (parallelAuthorized && !primaryAuthorized && !gen2Authorized && !rollbackAuthorized && !sovAutoCloseAuthorized && !proofPhase) {
+    return Response.json({ ok: false, code: 'BOOTSTRAP_SCOPE_DENIED' }, { status: 403, headers: { 'cache-control': 'no-store' } });
+  }
+  if (sovAutoCloseAuthorized && !primaryAuthorized && !gen2Authorized && !rollbackAuthorized && !parallelAuthorized && !proofPhase) {
+    return Response.json({ ok: false, code: 'BOOTSTRAP_SCOPE_DENIED' }, { status: 403, headers: { 'cache-control': 'no-store' } });
   }
   if (gen2Authorized && !primaryAuthorized && phase !== 'gen2-42-runtime-tick') {
     return Response.json({ ok: false, code: 'BOOTSTRAP_SCOPE_DENIED' }, { status: 403, headers: { 'cache-control': 'no-store' } });
+  }
+  if (rollbackAuthorized && !primaryAuthorized && phase !== 'release-rollback-restore') {
+    return Response.json({ ok: false, code: 'BOOTSTRAP_SCOPE_DENIED' }, { status: 403, headers: { 'cache-control': 'no-store' } });
+  }
+
+  if (phase === 'release-rollback-restore') {
+    const deployedSha = exactDeployedSha(env);
+    const expectedSha = String(url.searchParams.get('expected_sha') || '').trim().toLowerCase();
+    const restoreShaRaw = String(url.searchParams.get('restore_sha') || '').trim().toLowerCase();
+    const pausedRaw = String(url.searchParams.get('paused') || '').trim().toLowerCase();
+    const maxRaw = String(url.searchParams.get('max') || '').trim().toLowerCase();
+    if (!/^[0-9a-f]{40}$/.test(expectedSha)
+      || (restoreShaRaw && !/^[0-9a-f]{40}$/.test(restoreShaRaw))
+      || !['true','false'].includes(pausedRaw)
+      || !['true','false'].includes(maxRaw)) {
+      return Response.json({ ok: false, code: 'ROLLBACK_RESTORE_INPUT_INVALID', phase }, { status: 400, headers: { 'cache-control': 'no-store' } });
+    }
+    const restorePaused = pausedRaw === 'true';
+    const restoreMax = maxRaw === 'true';
+    const restoreSha = restoreShaRaw || expectedSha;
+    if (restorePaused && restoreMax) {
+      return Response.json({ ok: false, code: 'ROLLBACK_RESTORE_STATE_INVALID', phase }, { status: 400, headers: { 'cache-control': 'no-store' } });
+    }
+    if (!deployedSha || deployedSha !== expectedSha) {
+      return Response.json({
+        ok: false,
+        code: 'ROLLBACK_RESTORE_SHA_MISMATCH',
+        phase,
+        deployed_sha: deployedSha || null,
+        expected_sha: expectedSha,
+      }, { status: 409, headers: { 'cache-control': 'no-store' } });
+    }
+    if (!env?.DB || typeof env.DB.prepare !== 'function') {
+      return Response.json({ ok: false, code: 'D1_NOT_BOUND', phase }, { status: 503, headers: { 'cache-control': 'no-store' } });
+    }
+
+    // Rollback restore is a recovery operation, not a launch authorization for
+    // the failing candidate. Re-opening candidate readiness here can deadlock
+    // recovery on the very gate that caused the release to fail (for example
+    // ShardVault launch proof). Authorization is instead bound to the trusted
+    // release workflow through OIDC and to the exact candidate SHA currently
+    // deployed above. After the Worker rollback, the autonomy runtime still
+    // enforces that launch_approved_sha matches the exact deployed stable SHA.
+    const launch = restorePaused
+      ? { sha: null, at: null, digest: null }
+      : { sha: restoreSha, at: new Date().toISOString(), digest: null };
+
+    const control = await setControl(env.DB, {
+      paused: restorePaused,
+      max_autonomy: restoreMax,
+      source: 'release-rollback-restore',
+      reason: 'restore-predeploy-autonomy-state',
+      launch_approved_sha: launch.sha,
+      launch_approved_at: launch.at,
+      launch_gate_digest: launch.digest,
+    });
+    return Response.json({
+      ok: true,
+      status: 'RELEASE_ROLLBACK_AUTONOMY_RESTORED',
+      phase,
+      deployed_sha: deployedSha,
+      restore_sha: restorePaused ? null : restoreSha,
+      paused: control?.paused === true,
+      max_autonomy: control?.max_autonomy === true,
+      launch_approved_sha: control?.launch_approved_sha || null,
+      oidc_authorized: rollbackAuthorized,
+    }, { headers: { 'cache-control': 'no-store' } });
   }
 
   if (phase === 'identity') {
@@ -327,6 +435,45 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
     return Response.json({ ...result, phase, deployed_sha: exactDeployedSha(env) || null, autonomy_started: false, owner_launch_required: true }, { status: 200, headers: { 'cache-control': 'no-store' } });
   }
 
+  if (phase === 'media-proof') {
+    const deployedSha = exactDeployedSha(env);
+    try {
+      const result = await proveMedia(env, { sourceSha: deployedSha });
+      const ok = result?.ok === true
+        && result?.status === 'MEL_MEDIA_02_DONE_VERIFIED_ELIGIBLE'
+        && result?.done_verified_eligible === true
+        && result?.capability_count === 12
+        && result?.all_executions_zero_added_cost === true
+        && String(result?.source_sha || '').toLowerCase() === deployedSha;
+      return Response.json({
+        ...result,
+        ok,
+        phase,
+        deployed_sha: deployedSha || null,
+        autonomy_started: false,
+        owner_launch_required: true,
+        secret_values_exposed: false,
+      }, { status: ok ? 200 : 409, headers: { 'cache-control': 'no-store' } });
+    } catch (error) {
+      return Response.json({
+        ok: false,
+        status: 'MEL_MEDIA_02_NOT_VERIFIED',
+        code: String(error?.code || error?.message || 'MEL_MEDIA_02_PROOF_FAILED').slice(0,180),
+        capability: error?.capability || null,
+        step: error?.step || null,
+        cause_code: error?.cause_code || null,
+        cause_message: error?.cause_message || null,
+        health: error?.health || null,
+        detail: error?.detail || null,
+        phase,
+        deployed_sha: deployedSha || null,
+        autonomy_started: false,
+        owner_launch_required: true,
+        secret_values_exposed: false,
+      }, { status: Number(error?.status) || 503, headers: { 'cache-control': 'no-store' } });
+    }
+  }
+
   if (phase === 'sovereignty-proof') {
     if (!env?.DB || typeof env.DB.prepare !== 'function') {
       return Response.json({ ok: false, code: 'D1_NOT_BOUND', phase }, { status: 503, headers: { 'cache-control': 'no-store' } });
@@ -345,6 +492,16 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
           processed: Number(result?.processed || 0),
           prevalidated: Number(result?.prevalidated || 0),
           blocked: Number(result?.blocked || 0),
+          results: Array.isArray(result?.results)
+            ? result.results.slice(0,20).map((row)=>({
+                layer: String(row?.layer || '').slice(0,80) || null,
+                id: String(row?.id || '').slice(0,160) || null,
+                status: String(row?.status || '').slice(0,80) || null,
+                validation_status: String(row?.validation_status || '').slice(0,160) || null,
+                code: String(row?.code || '').slice(0,180) || null,
+                reason: String(row?.reason || '').slice(0,180) || null,
+              }))
+            : [],
         };
       } catch (error) {
         refresh[id] = {
@@ -358,13 +515,179 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
         };
       }
     };
-    await runRefresh('ai', runConfiguredAiCandidateValidationRuntime);
-    await runRefresh('source_control', (runtimeEnv, options) =>
-      runCompanionSourceControlPrevalidationRuntime(runtimeEnv, { ...options, sourceSha: deployedSha }));
-    await runRefresh('infrastructure', (runtimeEnv, options) =>
-      runCompanionInfrastructurePrevalidationRuntime(runtimeEnv, { ...options, sourceSha: deployedSha }));
-    await runRefresh('backup_restore', (runtimeEnv, options) =>
-      runGoogleDriveBackupRestorePrevalidationRuntime(runtimeEnv, { ...options, sourceSha: deployedSha }));
+    const requestedRefresh = String(url.searchParams.get('refresh') || '').trim().toLowerCase();
+    const requestedRefreshStep = String(url.searchParams.get('step') || '').trim().toLowerCase();
+    const backupRestoreSteps = new Set(['resolve','prepare','readback','rollback','finalize']);
+    const infrastructureRefreshSteps = new Set(['runtime','storage','database','ci_cd','secrets_identity','scheduler','observability','backup_restore']);
+    if (requestedRefresh === 'backup_restore' && requestedRefreshStep && !backupRestoreSteps.has(requestedRefreshStep)) {
+      return Response.json({
+        ok: false,
+        code: 'MEL_SOV_01_BACKUP_RESTORE_STEP_INVALID',
+        phase,
+        allowed_refresh_steps: [...backupRestoreSteps],
+        autonomy_started: false,
+      }, { status: 400, headers: { 'cache-control': 'no-store' } });
+    }
+    if (requestedRefresh === 'infrastructure' && requestedRefreshStep && !infrastructureRefreshSteps.has(requestedRefreshStep)) {
+      return Response.json({
+        ok: false,
+        code: 'MEL_SOV_01_INFRASTRUCTURE_STEP_INVALID',
+        phase,
+        allowed_refresh_steps: [...infrastructureRefreshSteps],
+        autonomy_started: false,
+      }, { status: 400, headers: { 'cache-control': 'no-store' } });
+    }
+    const refreshers = {
+      ai: runConfiguredAiCandidateValidationRuntime,
+      ai_local: (runtimeEnv, options) =>
+        runCompanionAiPrevalidationRuntime(runtimeEnv, { ...options, sourceSha: deployedSha }),
+      source_control: (runtimeEnv, options) =>
+        runCompanionSourceControlPrevalidationRuntime(runtimeEnv, { ...options, sourceSha: deployedSha }),
+      infrastructure: (runtimeEnv, options) =>
+        runCompanionInfrastructurePrevalidationRuntime(runtimeEnv, {
+          ...options,
+          sourceSha: deployedSha,
+          targetLayer: requestedRefreshStep || null,
+        }),
+      backup_restore: (runtimeEnv, options) =>
+        runGoogleDriveBackupRestorePrevalidationRuntime(runtimeEnv, {
+          ...options,
+          sourceSha: deployedSha,
+          stage: requestedRefreshStep || 'all',
+        }),
+    };
+    if (requestedRefresh) {
+      const refresher = refreshers[requestedRefresh];
+      if (!refresher) {
+        return Response.json({
+          ok: false,
+          code: 'MEL_SOV_01_REFRESH_TARGET_INVALID',
+          phase,
+          allowed_refresh_targets: Object.keys(refreshers),
+          autonomy_started: false,
+        }, { status: 400, headers: { 'cache-control': 'no-store' } });
+      }
+
+      // Post-release proofs must not re-run expensive provider prevalidations
+      // when a fresh zero-cost proof already exists for this exact deployed SHA.
+      // This is deliberately fail-closed: eligibleAlternatives enforces proof
+      // freshness/shape and exactShaReusableAlternative binds it to deployedSha.
+      const reusableLayer = requestedRefresh === 'source_control'
+        ? 'source_control'
+        : requestedRefresh === 'infrastructure' && requestedRefreshStep
+          ? requestedRefreshStep
+          : requestedRefresh === 'backup_restore'
+            ? 'backup_restore'
+            : requestedRefresh === 'ai'
+              ? 'ai'
+              : null;
+      if (reusableLayer) {
+        try {
+          const registryStore = new D1AlternativeRegistryStore(env.DB);
+          const registry = await registryStore.load();
+          const reusable = exactShaReusableAlternative(registry, reusableLayer, deployedSha, { now });
+          if (reusable) {
+            refresh[requestedRefresh] = {
+              ok: true,
+              skipped: false,
+              status: 'EXACT_SHA_PREVALIDATED_REUSED',
+              reason: null,
+              processed: 0,
+              prevalidated: 1,
+              blocked: 0,
+              reused_exact_sha_prevalidation: true,
+              reused_alternative_id: reusable.id,
+              reused_provider: reusable.provider,
+              proof_source_sha: reusable.proof?.source_sha || null,
+              reusable_layer: reusableLayer,
+            };
+          }
+        } catch {
+          // Fall through to the bounded live refresh below.
+        }
+      }
+
+      if (!refresh[requestedRefresh]) {
+        await runRefresh(requestedRefresh, refresher);
+      }
+      let row = refresh[requestedRefresh];
+
+      // Source-control may already have a fresh, zero-cost prevalidated proof
+      // for this exact deployed SHA even when the paired Windows Companion is
+      // temporarily offline. Reuse is deliberately limited to source_control.
+      const offlineSourceControl = requestedRefresh === 'source_control'
+        && row?.skipped === true
+        && ['COMPANION_OFFLINE','DEVICE_OFFLINE'].includes(String(row?.reason || ''));
+      if (offlineSourceControl) {
+        try {
+          const registryStore = new D1AlternativeRegistryStore(env.DB);
+          const registry = await registryStore.load();
+          const reusable = exactShaReusableAlternative(registry, 'source_control', deployedSha, { now });
+          if (reusable) {
+            row = {
+              ...row,
+              ok: true,
+              skipped: false,
+              status: 'EXACT_SHA_PREVALIDATED_REUSED',
+              reason: null,
+              prevalidated: Math.max(1, Number(row?.prevalidated || 0)),
+              blocked: 0,
+              reused_exact_sha_prevalidation: true,
+              reused_alternative_id: reusable.id,
+              reused_provider: reusable.provider,
+              proof_source_sha: reusable.proof?.source_sha || null,
+            };
+            refresh[requestedRefresh] = row;
+          }
+        } catch {
+          // Fail closed below if exact-SHA registry reuse cannot be proven.
+        }
+      }
+
+      const requiresConcreteLiveProof = requestedRefresh === 'ai'
+        || requestedRefresh === 'ai_local'
+        || requestedRefresh === 'source_control'
+        || requestedRefresh === 'infrastructure'
+        || requestedRefresh === 'backup_restore';
+      const requiresPrevalidatedResult = requestedRefresh === 'ai'
+        || requestedRefresh === 'ai_local'
+        || requestedRefresh === 'source_control'
+        || requestedRefresh === 'infrastructure'
+        || (requestedRefresh === 'backup_restore' && (!requestedRefreshStep || requestedRefreshStep === 'finalize'));
+      const verifiedRefresh = row?.ok !== false
+        && (!requiresConcreteLiveProof || row?.skipped !== true)
+        && (!requiresPrevalidatedResult || Number(row?.prevalidated || 0) > 0);
+      const concreteFailureCode = row?.reason
+        || row?.results?.find?.(result=>result?.status==='BLOCKED')?.code
+        || row?.results?.find?.(result=>result?.status==='BLOCKED')?.validation_status
+        || null;
+      const verifiedRow = {
+        ...row,
+        verified: verifiedRefresh,
+        verification_reason: verifiedRefresh
+          ? null
+          : concreteFailureCode || (row?.skipped === true ? 'LIVE_PROOF_SKIPPED' : 'LIVE_PREVALIDATION_REQUIRED'),
+      };
+      return Response.json({
+        ok: verifiedRefresh,
+        code: verifiedRefresh ? null : (concreteFailureCode || 'MEL_SOV_01_REFRESH_STEP_FAILED'),
+        status: verifiedRefresh ? 'MEL_SOV_01_REFRESH_STEP_VERIFIED' : 'MEL_SOV_01_REFRESH_STEP_FAILED',
+        phase,
+        refresh_target: requestedRefresh,
+        refresh_step: (requestedRefresh === 'backup_restore' || requestedRefresh === 'infrastructure')
+          ? (requestedRefreshStep || 'all')
+          : null,
+        refresh: verifiedRow,
+        deployed_sha: deployedSha || null,
+        secret_values_exposed: false,
+        autonomy_started: false,
+        owner_launch_required: true,
+      }, { status: verifiedRefresh ? 200 : 409, headers: { 'cache-control': 'no-store' } });
+    }
+
+    // The final proof is deliberately lightweight: all expensive live
+    // prevalidation refreshes are executed as separate bounded requests above.
+    // Coverage still rejects stale/incomplete registry evidence.
     const store = new D1AlternativeRegistryStore(env.DB);
     const registry = await store.load();
     const coverage = sovereigntyCoverageFromRegistry(registry, { now });
@@ -422,6 +745,26 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
       phase,
       tick_status: tick?.status || null,
       advanced: tick?.advanced === true,
+      progress: tick?.progress && typeof tick.progress === 'object' ? {
+        advanced: tick.progress.advanced === true,
+        events: Array.isArray(tick.progress.events) ? tick.progress.events.slice(0, 20) : [],
+        work_remaining: tick.progress.work_remaining === true,
+        waiting_external: tick.progress.waiting_external === true,
+        block_reason: tick.progress.block_reason || null,
+        active_jobs: Number.isFinite(Number(tick.progress.active_jobs)) ? Number(tick.progress.active_jobs) : null,
+        completed_roadmap_items: Number.isFinite(Number(tick.progress.completed_roadmap_items)) ? Number(tick.progress.completed_roadmap_items) : null,
+        next_roadmap_id: tick.progress.next_roadmap_id || null,
+        job_id: tick.progress.job_id || null,
+        job_status: tick.progress.job_status || null,
+      } : null,
+      watchdog: tick?.watchdog && typeof tick.watchdog === 'object' ? {
+        status: tick.watchdog.status || null,
+        tripped: tick.watchdog.tripped === true,
+        consecutive_stalls: Number(tick.watchdog.consecutive_stalls || 0),
+        stall_limit: Number(tick.watchdog.stall_limit || 0),
+        last_block_reason: tick.watchdog.last_block_reason || null,
+        counters: tick.watchdog.counters || null,
+      } : null,
       paused: tick?.paused === true || tick?.control?.paused === true,
       max_autonomy: tick?.control?.max_autonomy === true,
       bridge_preparation_ready: bridgeReady,
@@ -442,7 +785,7 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
         code: String(row?.code || '').slice(0, 180),
       })).slice(0, 20),
       control_unchanged_by_bootstrap: true,
-    }, { headers: { 'cache-control': 'no-store' } });
+    }, { status: tick?.ok === false ? 409 : 200, headers: { 'cache-control': 'no-store' } });
   }
 
   if (phase === 'gen2-42-owner-max') {
@@ -488,6 +831,26 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
       launch_approved_sha: control?.launch_approved_sha || null,
       tick_status: tick?.status || null,
       advanced: tick?.advanced === true,
+      progress: tick?.progress && typeof tick.progress === 'object' ? {
+        advanced: tick.progress.advanced === true,
+        events: Array.isArray(tick.progress.events) ? tick.progress.events.slice(0, 20) : [],
+        work_remaining: tick.progress.work_remaining === true,
+        waiting_external: tick.progress.waiting_external === true,
+        block_reason: tick.progress.block_reason || null,
+        active_jobs: Number.isFinite(Number(tick.progress.active_jobs)) ? Number(tick.progress.active_jobs) : null,
+        completed_roadmap_items: Number.isFinite(Number(tick.progress.completed_roadmap_items)) ? Number(tick.progress.completed_roadmap_items) : null,
+        next_roadmap_id: tick.progress.next_roadmap_id || null,
+        job_id: tick.progress.job_id || null,
+        job_status: tick.progress.job_status || null,
+      } : null,
+      watchdog: tick?.watchdog && typeof tick.watchdog === 'object' ? {
+        status: tick.watchdog.status || null,
+        tripped: tick.watchdog.tripped === true,
+        consecutive_stalls: Number(tick.watchdog.consecutive_stalls || 0),
+        stall_limit: Number(tick.watchdog.stall_limit || 0),
+        last_block_reason: tick.watchdog.last_block_reason || null,
+        counters: tick.watchdog.counters || null,
+      } : null,
       bridge_preparation_ready: bridgeReady,
       bridge_job: bridgeReady ? {
         job_id: String(bridgeJob.id).slice(0, 180),
@@ -506,13 +869,13 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
         code: String(row?.code || '').slice(0, 180),
       })).slice(0, 20),
       owner_authorized_bootstrap: true,
-    }, { headers: { 'cache-control': 'no-store' } });
+    }, { status: tick?.ok === false ? 409 : 200, headers: { 'cache-control': 'no-store' } });
   }
 
   // A deployment may inherit RUNNING/MAX control state from the previous SHA.
   // Force the new release into PAUSED before any preparation. Only the normal
   // owner-authenticated Resume/MAX endpoint may approve and start this SHA.
-  await setControl(env?.DB, {
+  const releaseControl = await setControl(env?.DB, {
     paused: true,
     max_autonomy: false,
     source: 'release-launch-bootstrap',
@@ -1096,13 +1459,18 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
   }
 
   if (phase === 'pause') {
+    const paused = releaseControl?.paused === true;
+    const maxDisabled = releaseControl?.max_autonomy === false;
     return Response.json({
-      ok: true,
-      status: 'RELEASE_PAUSED',
+      ok: paused && maxDisabled,
+      status: paused && maxDisabled ? 'RELEASE_PAUSED' : 'RELEASE_PAUSE_FAILED',
       phase,
+      paused,
+      max_autonomy: releaseControl?.max_autonomy === true,
+      control_status: releaseControl?.status || null,
       autonomy_started: false,
       owner_launch_required: true,
-    }, { status: 200, headers: { 'cache-control': 'no-store' } });
+    }, { status: paused && maxDisabled ? 200 : 409, headers: { 'cache-control': 'no-store' } });
   }
 
   if (phase === 'backup') {
@@ -1201,12 +1569,42 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
       }
     }
 
+    const publicCache = env?.DB && typeof env.DB.prepare === 'function'
+      ? await writeAutonomyLaunchReadinessPublicCache(env, readiness)
+      : { ok: false, status: 'PUBLIC_LAUNCH_READINESS_CACHE_DB_UNAVAILABLE' };
+    if (readiness.launch_ready === true
+      && env?.DB && typeof env.DB.prepare === 'function'
+      && publicCache?.ok !== true) {
+      return Response.json({
+        ok: false,
+        status: 'PUBLIC_LAUNCH_READINESS_CACHE_WRITE_FAILED',
+        phase,
+        readiness,
+        backup_repair: backupRepair,
+        public_cache: {
+          ok: false,
+          status: publicCache?.status || 'PUBLIC_LAUNCH_READINESS_CACHE_WRITE_FAILED',
+          code: publicCache?.code || null,
+        },
+        autonomy_started: false,
+        owner_launch_required: true,
+      }, {
+        status: 503,
+        headers: { 'cache-control': 'no-store' },
+      });
+    }
+
     return Response.json({
       ok: readiness.launch_ready === true,
       status: readiness.launch_ready ? 'LAUNCH_EVIDENCE_READY' : 'LAUNCH_EVIDENCE_INCOMPLETE',
       phase,
       readiness,
       backup_repair: backupRepair,
+      public_cache: {
+        ok: publicCache?.ok === true,
+        status: publicCache?.status || null,
+        candidate_sha: publicCache?.candidate_sha || null,
+      },
       autonomy_started: false,
       owner_launch_required: true,
     }, {
@@ -1244,4 +1642,4 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
 }
 
 export const __launchBootstrapTest = Object.freeze({
-  runConnectionProof, equalToken, safeReadiness, requestPhase });
+  runConnectionProof, equalToken, safeReadiness, requestPhase, exactShaReusableAlternative });

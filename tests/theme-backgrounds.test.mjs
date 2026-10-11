@@ -5,7 +5,7 @@ import {
   HD_BACKGROUNDS,
   HD_BACKGROUND_MEDIA,
 } from '../src/assets/generated/hd-backgrounds.js';
-import { onRequestGet as renderNormalMode } from '../src/pages/mvp-interface.js';
+import { onRequestGet as renderNormalMode } from '../src/pages/mvp-interface-v3.js';
 import { finalizeVisualResponse } from '../src/visual-final-entry.js';
 
 const LEGACY_THEMES = ['classic', 'crusade', 'religious', 'granada', 'aviation', 'paladin', 'amazon'];
@@ -52,7 +52,7 @@ test('final normal response uses the clean eight-background pack without a secon
   }
 
   assert.match(html, /data-visual-owner="mel-normal-v3"/);
-  assert.match(html, /src="\/normal-runtime\.js\?v=8"/);
+  assert.match(html, /src="\/normal-runtime\.js\?v=9"/);
   assert.doesNotMatch(html, /id="mel-normal-canonical-runtime"/);
   assert.doesNotMatch(html, /id="mel-normal-canonical-visuals"/);
   assert.doesNotMatch(html, /mel-theme-avatar-runtime/);

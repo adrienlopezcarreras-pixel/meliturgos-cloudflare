@@ -1,7 +1,100 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 
-import { maybeHandleConnectionSettingsApi, probeYahooDirect, pipedreamAccessToken, pipedreamAccountStatus, testPipedreamCredentials, testPipedreamGoogleTasksRead } from '../../src/api/connection-settings-api.js';
+import { classifyOAuthProbeFailure, maybeHandleConnectionSettingsApi, probeYahooDirect, pipedreamAccessToken, pipedreamAccountStatus, testPipedreamCredentials, testPipedreamGoogleTasksRead } from '../../src/api/connection-settings-api.js';
+
+test('Google Tasks live probe failures become actionable without exposing provider payloads', () => {
+  const disabled = classifyOAuthProbeFailure({
+    provider: 'google',
+    connectorId: 'google-tasks',
+    status: 403,
+    body: { error: { message: 'Google Tasks API has not been used in project 123 before or it is disabled.' } },
+  });
+  assert.deepEqual(disabled, {
+    code: 'GOOGLE_TASKS_API_NOT_ENABLED',
+    status: 409,
+    upstream_status: 403,
+    action_required: 'ENABLE_GOOGLE_TASKS_API',
+  });
+
+  const scope = classifyOAuthProbeFailure({
+    provider: 'google',
+    connectorId: 'google-tasks',
+    status: 403,
+    body: { error: { status: 'PERMISSION_DENIED', message: 'Request had insufficient authentication scopes.' } },
+  });
+  assert.equal(scope.code, 'GOOGLE_TASKS_RECONSENT_REQUIRED');
+  assert.equal(scope.action_required, 'RECONNECT_GOOGLE_WITH_TASKS_SCOPE');
+
+  const serialized = JSON.stringify(scope);
+  assert.equal(serialized.includes('project 123'), false);
+  assert.equal(serialized.includes('Request had'), false);
+});
+
+test('Google Drive live probe failures become actionable without exposing provider payloads', () => {
+  const disabled = classifyOAuthProbeFailure({
+    provider: 'google',
+    connectorId: 'google-drive',
+    status: 403,
+    body: { error: { message: 'Google Drive API has not been used in project 456 before or it is disabled.' } },
+  });
+  assert.deepEqual(disabled, {
+    code: 'GOOGLE_DRIVE_API_NOT_ENABLED',
+    status: 409,
+    upstream_status: 403,
+    action_required: 'ENABLE_GOOGLE_DRIVE_API',
+  });
+test('Google Calendar live probe failures become actionable without exposing provider payloads', () => {
+  const disabled = classifyOAuthProbeFailure({
+    provider: 'google',
+    connectorId: 'google-calendar',
+    status: 403,
+    body: { error: { message: 'Google Calendar API has not been used in project 789 before or it is disabled.' } },
+  });
+  assert.deepEqual(disabled, {
+    code: 'GOOGLE_CALENDAR_API_NOT_ENABLED',
+    status: 409,
+    upstream_status: 403,
+    action_required: 'ENABLE_GOOGLE_CALENDAR_API',
+  });
+
+  const scope = classifyOAuthProbeFailure({
+    provider: 'google',
+    connectorId: 'google-calendar',
+    status: 403,
+    body: { error: { message: 'Request had insufficient authentication scopes.' } },
+  });
+  assert.equal(scope.code, 'GOOGLE_CALENDAR_RECONSENT_REQUIRED');
+  assert.equal(scope.action_required, 'RECONNECT_GOOGLE_WITH_CALENDAR_SCOPE');
+
+  const generic = classifyOAuthProbeFailure({
+    provider: 'google',
+    connectorId: 'google-calendar',
+    status: 403,
+    body: { error: { message: 'Permission denied.' } },
+  });
+  assert.equal(generic.code, 'GOOGLE_CALENDAR_ACCESS_FORBIDDEN');
+  assert.equal(generic.action_required, 'VERIFY_GOOGLE_CALENDAR_API_AND_CONSENT');
+  assert.equal(JSON.stringify(disabled).includes('project 789'), false);
+});
+
+
+
+  const scope = classifyOAuthProbeFailure({
+    provider: 'google',
+    connectorId: 'google-drive',
+    status: 403,
+    body: { error: { status: 'PERMISSION_DENIED', message: 'Request had insufficient authentication scopes.' } },
+  });
+  assert.equal(scope.code, 'GOOGLE_DRIVE_RECONSENT_REQUIRED');
+  assert.equal(scope.action_required, 'RECONNECT_GOOGLE_WITH_DRIVE_SCOPE');
+
+  const serialized = JSON.stringify(disabled) + JSON.stringify(scope);
+  assert.equal(serialized.includes('project 456'), false);
+  assert.equal(serialized.includes('Request had'), false);
+});
+
 
 function compact(sql) {
   return String(sql).replace(/\s+/g, ' ').trim();
@@ -100,6 +193,7 @@ test('OAuth app credentials are encrypted at rest and never returned by status',
   assert.equal(state.connectors.gmail.authorized, false);
   assert.equal(state.connectors['google-calendar'].authorized, false);
   assert.equal(state.connectors['google-tasks'].authorized, false);
+  assert.equal(state.connectors['google-drive'].authorized, false);
 });
 
 
@@ -139,6 +233,63 @@ test('Vercel token is encrypted at rest and status never returns it', async () =
   assert.equal(state.configured, true);
   assert.equal(state.target_configured, true);
   assert.equal(state.project_name, 'meliturgos');
+  assert.equal(state.token, undefined);
+});
+
+test('Vercel live test infers and persists the MEL repository project target', async () => {
+  const runtimeEnv = {
+    ...env(),
+    MEL_GITHUB_REPOSITORY: 'owner/meliturgos-cloudflare',
+  };
+  const saved = await call('/api/gen2/connections/vercel/save', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      token: 'vercel-secret-token-value',
+      team_id: 'team_123',
+    }),
+  }, runtimeEnv);
+  assert.equal(saved.status, 200);
+
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async url => {
+    const value = String(url);
+    if (value === 'https://api.vercel.com/v2/user') {
+      return Response.json({ user: { id: 'usr_123' } });
+    }
+    if (/^https:\/\/api\.vercel\.com\/v9\/projects\?/.test(value)) {
+      return Response.json({ projects: [
+        { id: 'prj_other', name: 'other-project' },
+        { id: 'prj_mel', name: 'meliturgos-cloudflare' },
+      ] });
+    }
+    if (/^https:\/\/api\.vercel\.com\/v6\/deployments\?/.test(value)) {
+      return Response.json({ deployments: [] });
+    }
+    throw new Error('UNEXPECTED_FETCH:' + value);
+  };
+
+  try {
+    const tested = await call('/api/gen2/connections/vercel/test', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: '{}',
+    }, runtimeEnv);
+    assert.equal(tested.status, 200);
+    const proof = await tested.json();
+    assert.equal(proof.authenticated, true);
+    assert.equal(proof.configured_project.id, 'prj_mel');
+    assert.equal(proof.configured_project.name, 'meliturgos-cloudflare');
+    assert.equal(proof.target_ready, true);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  const status = await call('/api/gen2/connections/vercel/status', { method: 'GET' }, runtimeEnv);
+  const state = await status.json();
+  assert.equal(state.target_configured, true);
+  assert.equal(state.project_id, 'prj_mel');
+  assert.equal(state.project_name, 'meliturgos-cloudflare');
   assert.equal(state.token, undefined);
 });
 
@@ -244,6 +395,7 @@ test('Yahoo probe surfaces SMTP authentication rejection and does not retry anot
 
 test('Pipedream Connect credentials are encrypted at rest and status never returns secrets', async () => {
   const runtimeEnv = env();
+  runtimeEnv.MEL_ALLOW_PAID_PROVIDERS = 'true'; // explicit legacy paid-path test only
   const response = await call('/api/gen2/connections/pipedream/save', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -304,13 +456,54 @@ test('Pipedream access token exchange matches the official SDK client-credential
   assert.equal(calls[0].url, 'https://api.pipedream.com/v1/oauth/token');
   assert.equal(calls[0].init.method, 'POST');
   assert.equal(calls[0].init.redirect, 'manual');
-  assert.equal(calls[0].init.headers['content-type'], 'application/x-www-form-urlencoded');
-  const body = new URLSearchParams(String(calls[0].init.body));
-  assert.equal(body.get('grant_type'), 'client_credentials');
-  assert.equal(body.get('client_id'), 'client-id');
-  assert.equal(body.get('client_secret'), 'client-secret');
-  assert.equal(body.get('project_id'), 'proj_demo123');
-  assert.equal(body.get('environment'), 'production');
+  assert.equal(calls[0].init.headers['content-type'], 'application/json');
+  const body = JSON.parse(String(calls[0].init.body));
+  assert.equal(body.grant_type, 'client_credentials');
+  assert.equal(body.client_id, 'client-id');
+  assert.equal(body.client_secret, 'client-secret');
+  assert.equal('project_id' in body, false);
+  assert.equal('environment' in body, false);
+});
+
+test('Pipedream defaults new Connect configuration to development for Free-compatible setup', async () => {
+  const runtimeEnv = env();
+  const response = await call('/api/gen2/connections/pipedream/save', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      project_id: 'proj_demo123',
+      client_id: 'client-id',
+      client_secret: 'client-secret',
+    }),
+  }, runtimeEnv);
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.environment, 'development');
+});
+
+test('Pipedream production probe falls back to development on upstream 400', async () => {
+  const calls = [];
+  const result = await testPipedreamCredentials({
+    project_id: 'proj_demo123',
+    client_id: 'client-id',
+    client_secret: 'client-secret',
+    environment: 'production',
+  }, {
+    fetcher: async (url, init) => {
+      calls.push({ url: String(url), init });
+      if (String(url).endsWith('/v1/oauth/token')) return Response.json({ access_token: 'access' });
+      if (init.headers['x-pd-environment'] === 'production') {
+        return Response.json({ error: 'production_not_available' }, { status: 400 });
+      }
+      return Response.json({ data: [{ key: 'one' }] });
+    },
+  });
+  assert.equal(result.authenticated, true);
+  assert.equal(result.configured_environment, 'production');
+  assert.equal(result.environment, 'development');
+  assert.equal(result.environment_fallback_used, true);
+  assert.ok(calls.some(call => call.init?.headers?.['x-pd-environment'] === 'production'));
+  assert.ok(calls.some(call => call.init?.headers?.['x-pd-environment'] === 'development'));
 });
 
 test('Pipedream real project probe checks Outlook and OneDrive component catalogs', async () => {
@@ -360,11 +553,69 @@ test('Pipedream account status uses the server access token and filters by MEL e
   assert.deepEqual(result.connected_apps.sort(), ['microsoft_onedrive', 'microsoft_outlook']);
   const accountsCall = calls.find(call => call.url.includes('/accounts?'));
   assert.ok(accountsCall);
+  assert.match(accountsCall.url, /\/v1\/connect\/proj_demo123\/accounts\?external_user_id=adrien&limit=100$/);
   assert.match(accountsCall.url, /external_user_id=adrien/);
   assert.equal(accountsCall.init.headers.authorization, 'Bearer server-token');
   assert.equal(accountsCall.init.headers['x-pd-environment'], 'production');
 });
 
+
+test('Pipedream account status accepts alternate accounts response shape and production fallback', async () => {
+  const calls = [];
+  const result = await pipedreamAccountStatus({
+    project_id: 'proj_demo123',
+    client_id: 'client-id',
+    client_secret: 'client-secret',
+    environment: 'production',
+  }, 'adrien', {
+    fetcher: async (url, init) => {
+      calls.push({ url: String(url), init });
+      if (String(url).endsWith('/v1/oauth/token')) return Response.json({ access_token: 'server-token' });
+      if (init.headers['x-pd-environment'] === 'production') {
+        return Response.json({ error: 'production_not_available' }, { status: 400 });
+      }
+      return Response.json({
+        accounts: [
+          { id: 'apn_outlook', healthy: true, app: { name_slug: 'microsoft_outlook' } },
+        ],
+      });
+    },
+  });
+  assert.equal(result.environment, 'development');
+  assert.equal(result.environment_fallback_used, true);
+  assert.deepEqual(result.connected_apps, ['microsoft_outlook']);
+});
+
+test('Pipedream account status retries Development when Production account inventory returns 401', async () => {
+  const calls = [];
+  const result = await pipedreamAccountStatus({
+    project_id: 'proj_demo123',
+    client_id: 'client-id',
+    client_secret: 'client-secret',
+    environment: 'production',
+  }, 'adrien', {
+    fetcher: async (url, init) => {
+      calls.push({ url: String(url), init });
+      if (String(url).endsWith('/v1/oauth/token')) return Response.json({ access_token: 'server-token' });
+      if (init.headers['x-pd-environment'] === 'production') {
+        return Response.json({ error: 'Unauthorized' }, { status: 401 });
+      }
+      return Response.json({
+        data: [
+          { id: 'apn_outlook', healthy: true, app: { name_slug: 'microsoft_outlook' } },
+          { id: 'apn_onedrive', healthy: true, app: { name_slug: 'microsoft_onedrive' } },
+          { id: 'apn_sharepoint', healthy: true, app: { name_slug: 'sharepoint' } },
+          { id: 'apn_imap', healthy: true, app: { name_slug: 'imap' } },
+        ],
+      });
+    },
+  });
+  assert.equal(result.environment, 'development');
+  assert.equal(result.environment_fallback_used, true);
+  assert.deepEqual(result.connected_apps.sort(), ['imap', 'microsoft_onedrive', 'microsoft_outlook', 'sharepoint']);
+  assert.ok(calls.some(call => call.init?.headers?.['x-pd-environment'] === 'production'));
+  assert.ok(calls.some(call => call.init?.headers?.['x-pd-environment'] === 'development'));
+});
 
 test('Pipedream Google Tasks proof executes the read-only List Task Lists action without returning private content', async () => {
   const calls = [];
@@ -409,7 +660,89 @@ test('Pipedream Google Tasks proof executes the read-only List Task Lists action
   const body = JSON.parse(run.init.body);
   assert.equal(body.external_user_id, 'adrien');
   assert.equal(body.id, 'google_tasks-list-task-lists');
-  assert.deepEqual(body.configured_props.google_tasks, { authProvisionId: 'apn_tasks' });
+  assert.deepEqual(body.configured_props.app, { authProvisionId: 'apn_tasks' });
+  assert.equal('google_tasks' in body.configured_props, false);
+  assert.equal(body.configured_props.maxResults, 1);
+});
+
+test('Pipedream Google Tasks proof falls back to the read-only Connect proxy when the action rejects the linked account', async () => {
+  const calls = [];
+  const result = await testPipedreamGoogleTasksRead({
+    project_id: 'proj_demo123',
+    client_id: 'client-id',
+    client_secret: 'client-secret',
+    environment: 'production',
+  }, 'adrien', {
+    fetcher: async (url, init = {}) => {
+      calls.push({ url: String(url), init });
+      if (String(url).endsWith('/v1/oauth/token')) {
+        return Response.json({ access_token: 'server-token', token_type: 'Bearer', expires_in: 3600 });
+      }
+      if (String(url).includes('/accounts?')) {
+        return Response.json({
+          data: [
+            { id: 'apn_tasks', name: 'Google Tasks', healthy: true, dead: false, app: { name_slug: 'google_tasks' } },
+          ],
+        });
+      }
+      if (String(url).endsWith('/actions/run')) {
+        return Response.json({ error: 'managed action rejected account' }, { status: 409 });
+      }
+      if (String(url).includes('/proxy/')) {
+        return Response.json({ items: [{ id: 'private-list-id', title: 'Private title' }] });
+      }
+      return Response.json({}, { status: 404 });
+    },
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.transport, 'proxy');
+  assert.equal(result.live_action, false);
+  assert.equal(result.live_proxy, true);
+  assert.equal(result.read_only, true);
+  assert.equal(result.private_content_returned, false);
+  assert.equal(JSON.stringify(result).includes('private-list-id'), false);
+  assert.equal(JSON.stringify(result).includes('Private title'), false);
+
+  const proxy = calls.find(call => call.url.includes('/proxy/'));
+  assert.ok(proxy);
+  assert.equal(proxy.init.method, 'GET');
+  assert.equal(proxy.init.headers.authorization, 'Bearer server-token');
+  assert.match(proxy.url, /external_user_id=adrien/);
+  assert.match(proxy.url, /account_id=apn_tasks/);
+  const encoded = proxy.url.split('/proxy/')[1].split('?')[0];
+  const padded = encoded.replaceAll('-', '+').replaceAll('_', '/') + '='.repeat((4 - encoded.length % 4) % 4);
+  const decoded = atob(padded);
+  assert.equal(decoded, 'https://www.googleapis.com/tasks/v1/users/@me/lists?maxResults=1');
+});
+
+test('Pipedream Google Tasks fallback preserves only sanitized upstream status on failure', async () => {
+  await assert.rejects(
+    testPipedreamGoogleTasksRead({
+      project_id: 'proj_demo123',
+      client_id: 'client-id',
+      client_secret: 'client-secret',
+      environment: 'production',
+    }, 'adrien', {
+      fetcher: async (url) => {
+        if (String(url).endsWith('/v1/oauth/token')) return Response.json({ access_token: 'server-token' });
+        if (String(url).includes('/accounts?')) {
+          return Response.json({
+            data: [{ id: 'apn_tasks', healthy: true, app: { name_slug: 'google_tasks' } }],
+          });
+        }
+        if (String(url).endsWith('/actions/run')) return Response.json({ private: 'do-not-surface' }, { status: 409 });
+        if (String(url).includes('/proxy/')) return Response.json({ private: 'do-not-surface' }, { status: 403 });
+        return Response.json({}, { status: 404 });
+      },
+    }),
+    error => {
+      assert.equal(error.code, 'PIPEDREAM_GOOGLE_TASKS_PROXY_READ_FAILED');
+      assert.equal(error.upstream_status, 403);
+      assert.equal(String(error.message).includes('do-not-surface'), false);
+      return true;
+    },
+  );
 });
 
 test('Pipedream Google Tasks proof fails closed without a healthy linked account', async () => {
@@ -428,4 +761,118 @@ test('Pipedream Google Tasks proof fails closed without a healthy linked account
     }),
     error => error?.code === 'PIPEDREAM_GOOGLE_TASKS_ACCOUNT_REQUIRED',
   );
+});
+
+
+test('legacy OAuth vault failures expose a reconnect action instead of an opaque 409', async()=>{
+  const source=await import('node:fs/promises').then(fs=>fs.readFile(new URL('../../src/api/connection-settings-api.js',import.meta.url),'utf8'));
+  assert.match(source,/OAUTH_VAULT_LEGACY_KEY_UNAVAILABLE_RECONNECT_REQUIRED/);
+  assert.match(source,/RECONNECT_GOOGLE/);
+  assert.match(source,/RECONNECT_MICROSOFT/);
+  assert.match(source,/RECONNECT_YAHOO/);
+});
+
+
+test('Google status isolates unreadable legacy connector tokens instead of failing the provider status', async()=>{
+  const source=await import('node:fs/promises').then(fs=>fs.readFile(new URL('../../src/api/connection-settings-api.js',import.meta.url),'utf8'));
+  assert.match(source,/legacy_unreadable/);
+  assert.match(source,/reconnect_required:\s*true/);
+  assert.match(source,/RECONNECT_GOOGLE/);
+});
+
+
+test('Pipedream accounts endpoint degrades gracefully when account listing is unavailable', async()=>{
+  const source=await import('node:fs/promises').then(fs=>fs.readFile(new URL('../../src/api/connection-settings-api.js',import.meta.url),'utf8'));
+  assert.match(source,/error\?\.code !== 'PIPEDREAM_ACCOUNTS_FAILED'/);
+  assert.match(source,/account_status_degraded:\s*true/);
+  assert.match(source,/connect_link_supported:\s*true/);
+  assert.match(source,/actions_supported:\s*true/);
+  assert.match(source,/proxy_supported:\s*true/);
+});
+
+test('Pipedream account status uses the project accounts endpoint scoped by external_user_id', async()=>{
+  const source=await import('node:fs/promises').then(fs=>fs.readFile(new URL('../../src/api/connection-settings-api.js',import.meta.url),'utf8'));
+  assert.match(source,/\/accounts\?/);
+  assert.match(source,/external_user_id: contextOwner/);
+});
+
+test('Pipedream development account mismatch stays degraded and actionable instead of being masked by catalogue testing', async () => {
+  const runtimeEnv = env();
+  const saved = await call('/api/gen2/connections/pipedream/save', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      project_id: 'proj_demo123',
+      client_id: 'client-id',
+      client_secret: 'client-secret',
+      environment: 'development',
+    }),
+  }, runtimeEnv);
+  assert.equal(saved.status, 200);
+
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, init = {}) => {
+    calls.push({ url: String(url), init });
+    if (String(url).endsWith('/v1/oauth/token')) {
+      return Response.json({ access_token: 'server-token', expires_in: 3600 });
+    }
+    if (String(url).includes('/accounts?')) {
+      return Response.json({
+        error: { code: 'external_user_not_found', message: 'No matching external user ID found for adrien in development' },
+      }, { status: 400 });
+    }
+    throw new Error('UNEXPECTED_FETCH:' + String(url));
+  };
+
+  try {
+    const response = await call('/api/gen2/connections/pipedream/accounts', { method: 'GET' }, runtimeEnv);
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.equal(body.ok, true);
+    assert.equal(body.account_status_degraded, true);
+    assert.equal(body.reconnect_required, true);
+    assert.equal(body.action_required, 'RECONNECT_PIPEDREAM_DEVELOPMENT');
+    assert.equal(body.environment, 'development');
+    assert.equal(body.upstream_status, 400);
+    assert.equal(body.upstream_code, 'external_user_not_found');
+    assert.match(body.upstream_message, /No matching external user ID/);
+    assert.deepEqual(body.connected_apps, []);
+    assert.equal(calls.some(call => call.url.includes('/components?app=')), false);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('Pipedream route boundary preserves sanitized upstream diagnostics for actionable failures', async () => {
+  const source=await import('node:fs/promises').then(fs=>fs.readFile(new URL('../../src/api/connection-settings-api.js',import.meta.url),'utf8'));
+  assert.match(source,/upstream_code: clean\(error\.upstream_code, 160\)/);
+  assert.match(source,/upstream_message: clean\(error\.upstream_message, 240\)/);
+  assert.match(source,/RECONNECT_PIPEDREAM_DEVELOPMENT/);
+  const degraded=source.split('async function pipedreamAccounts')[1]?.split('export async function testPipedreamGoogleTasksRead')[0]||'';
+  assert.doesNotMatch(degraded,/testPipedreamCredentials\(stored/);
+});
+
+test('Pipedream paid production environment is rejected in the default free-only MEL config', async () => {
+  const runtimeEnv = env();
+  const response = await call('/api/gen2/connections/pipedream/save', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      project_id: 'proj_demo123',
+      client_id: 'client-id',
+      client_secret: 'client-secret',
+      environment: 'production',
+    }),
+  }, runtimeEnv);
+  assert.equal(response.status, 409);
+  const body = await response.json();
+  assert.equal(body.code, 'PAID_PROVIDER_DISABLED_FREE_ONLY');
+  assert.equal(runtimeEnv.DB.tokens.size, 0);
+});
+
+test('native SharePoint proof uses documented Graph tenant site search instead of non-universal /sites/root',async()=>{
+  const source=await readFile(new URL('../../src/api/connection-settings-api.js',import.meta.url),'utf8');
+  assert.match(source,/connectorId === 'microsoft-sharepoint'\) url = 'https:\/\/graph\.microsoft\.com\/v1\.0\/sites\?search=mel'/);
+  assert.doesNotMatch(source,/microsoft-sharepoint'\) url = 'https:\/\/graph\.microsoft\.com\/v1\.0\/sites\/root/);
 });

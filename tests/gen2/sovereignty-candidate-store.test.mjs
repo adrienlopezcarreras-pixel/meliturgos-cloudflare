@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { SovereigntyCandidateStore } from '../../src/portability/sovereignty-candidate-store.js';
+import { SovereigntyCandidateStore, scopeSovereigntyCandidateStore } from '../../src/portability/sovereignty-candidate-store.js';
 
 function fakeDb(){
   const rows=new Map();
@@ -16,7 +16,7 @@ function fakeDb(){
                 const before=rows.get(candidate_key);
                 rows.set(candidate_key,{
                   candidate_key,layer,candidate_id,provider_hint,source_url,source_title,
-                  status:before?.status||status,
+                  status,
                   first_seen_at:before?.first_seen_at||first_seen_at,
                   last_seen_at,
                   seen_count:(before?.seen_count||0)+1,
@@ -74,6 +74,26 @@ test('watch discoveries persist and deduplicate by layer+candidate id',async()=>
   assert.equal(rows[0].metadata.activation_allowed,false);
 });
 
+test('BLOCKED candidate is reset to UNVERIFIED when rediscovered so transient failures can recover',async()=>{
+  const store=new SovereigntyCandidateStore(fakeDb());
+  const report={results:[{layer:'source_control',candidate_hints:[{id:'companion-local-git',status:'UNVERIFIED'}]}]};
+  await store.upsertFromWatch(report,{now:1000});
+  await store.setStatus({layer:'source_control',id:'companion-local-git',status:'BLOCKED',metadata:{reason:'COMPANION_OFFLINE'}});
+  await store.upsertFromWatch(report,{now:2000});
+  const rows=await store.list({layer:'source_control'});
+  assert.equal(rows[0].status,'UNVERIFIED');
+});
+
+test('REJECTED candidate remains rejected when rediscovered',async()=>{
+  const store=new SovereigntyCandidateStore(fakeDb());
+  const report={results:[{layer:'runtime',candidate_hints:[{id:'bad.example',status:'UNVERIFIED'}]}]};
+  await store.upsertFromWatch(report,{now:1000});
+  await store.setStatus({layer:'runtime',id:'bad.example',status:'REJECTED',metadata:{reason:'OWNER_REJECTED'}});
+  await store.upsertFromWatch(report,{now:2000});
+  const rows=await store.list({layer:'runtime'});
+  assert.equal(rows[0].status,'REJECTED');
+});
+
 test('PREVALIDATED candidate status is not downgraded by later watch observations',async()=>{
   const store=new SovereigntyCandidateStore(fakeDb());
   const report={results:[{layer:'ai',candidate_hints:[{id:'ai.example',status:'UNVERIFIED'}]}]};
@@ -91,3 +111,32 @@ test('invalid candidate lifecycle status is rejected',async()=>{
     error=>error?.code==='SOVEREIGNTY_CANDIDATE_STATUS_INVALID',
   );
 });
+
+test('scoped candidate store excludes unrelated global candidates while preserving lifecycle writes',async()=>{
+  const store=new SovereigntyCandidateStore(fakeDb());
+  await store.upsertFromWatch({results:[
+    {layer:'runtime',candidate_hints:[{id:'unrelated-runtime',status:'UNVERIFIED'}]},
+    {layer:'source_control',candidate_hints:[{id:'companion-local-git',status:'UNVERIFIED'}]},
+  ]},{now:1000});
+  const scoped=scopeSovereigntyCandidateStore(store,{keys:['source_control::companion-local-git']});
+  const rows=await scoped.list({status:'UNVERIFIED',limit:10});
+  assert.deepEqual(rows.map(row=>[row.layer,row.id]),[['source_control','companion-local-git']]);
+  await scoped.setStatus({
+    layer:'source_control',
+    id:'companion-local-git',
+    status:'PREVALIDATED',
+    metadata:{proof:'ok'},
+  });
+  const all=await store.list({});
+  assert.equal(all.find(row=>row.id==='companion-local-git').status,'PREVALIDATED');
+  assert.equal(all.find(row=>row.id==='unrelated-runtime').status,'UNVERIFIED');
+});
+
+test('empty candidate scope is rejected',()=>{
+  const store=new SovereigntyCandidateStore(fakeDb());
+  assert.throws(
+    ()=>scopeSovereigntyCandidateStore(store,{keys:[]}),
+    error=>error?.code==='SOVEREIGNTY_CANDIDATE_SCOPE_REQUIRED',
+  );
+});
+

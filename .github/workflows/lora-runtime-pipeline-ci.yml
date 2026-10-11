@@ -7,6 +7,7 @@ on:
       - 'fix/lora-*'
   pull_request:
     branches:
+      - main
       - 'candidate/mel-clean-autonomy'
     paths:
       - 'src/learning/**'
@@ -53,7 +54,12 @@ jobs:
         run: python -m py_compile scripts/train-mel-lora.py
 
       - name: Targeted LoRA runtime tests
-        run: node --test tests/lora-runtime-pipeline.test.mjs tests/learning-engine.test.mjs
+        run: >-
+          node --test
+          tests/lora-runtime-pipeline.test.mjs
+          tests/lora-training-heartbeat.test.mjs
+          tests/lora-daily-trace.test.mjs
+          tests/learning-engine.test.mjs
 
       - name: Canonical plan digest parity
         shell: bash

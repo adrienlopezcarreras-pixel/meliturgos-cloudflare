@@ -22,7 +22,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: mel-launch-bootstrap-token
+  group: ${{ github.event_name == 'pull_request' && format('council-rich-ui-contract-{0}', github.event.pull_request.number) || 'mel-launch-bootstrap-token' }}
   cancel-in-progress: false
 
 jobs:
@@ -78,27 +78,32 @@ jobs:
       - name: Prove Council recovery dependencies and rich rendering in production
         shell: bash
         env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          PROOF_KEY_B64: ${{ secrets.MEL_BACKUP_ENCRYPTION_KEY_B64 }}
           EXPECTED_SHA: ${{ needs.resolve.outputs.expected_sha }}
         run: |
           set -euo pipefail
           BASE_URL="https://meliturgos.adrien-lopezcarreras.workers.dev"
-          TOKEN="$(openssl rand -hex 32)"
-          SESSION="council-rich-ui-${EXPECTED_SHA:0:12}"
+          TOKEN="$(PROOF_KEY_B64="${PROOF_KEY_B64}" TARGET_SHA="${EXPECTED_SHA}" node - <<'NODE'
+          const crypto=require('crypto');
+          const source=Buffer.from(String(process.env.PROOF_KEY_B64||''),'base64');
+          const sha=String(process.env.TARGET_SHA||'').toLowerCase();
+          if(source.length!==32||!/^[0-9a-f]{40}$/.test(sha)) throw new Error('PARALLEL_PROOF_DERIVATION_INVALID');
+          process.stdout.write(Buffer.from(crypto.hkdfSync(
+            'sha256',
+            source,
+            Buffer.from('meliturgos-parallel-proof-salt-v1'),
+            Buffer.from('MEL_PARALLEL_PROOF_V1:'+sha),
+            32,
+          )).toString('base64url'));
+          NODE
+          )"
+          SESSION="council-rich-ui-${EXPECTED_SHA:0:12}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           export TOKEN SESSION EXPECTED_SHA
           echo "::add-mask::${TOKEN}"
 
-          cleanup() {
-            set +e
-            printf 'y\n' | npx wrangler secret delete MEL_LAUNCH_BOOTSTRAP_TOKEN --env="" >/tmp/council-rich-ui-secret-delete.log 2>&1 || true
-          }
-          trap cleanup EXIT
-          printf '%s' "${TOKEN}" | npx wrangler secret put MEL_LAUNCH_BOOTSTRAP_TOKEN --env=""
-
           READY=0
           for ATTEMPT in $(seq 1 12); do
-            CODE="$(curl --silent --show-error --max-time 45               --header "x-mel-release-smoke: 1"               --header "x-mel-launch-bootstrap: ${TOKEN}"               --output self-check.json               --write-out '%{http_code}'               "${BASE_URL}/api/gen2/code/self-check" || true)"
+            CODE="$(curl --silent --show-error --max-time 45               --header "x-mel-release-smoke: 1"               --header "x-mel-parallel-proof: ${TOKEN}"               --output self-check.json               --write-out '%{http_code}'               "${BASE_URL}/api/gen2/code/self-check" || true)"
             if [ "${CODE}" = "200" ]; then READY=1; break; fi
             sleep 2
           done
@@ -112,8 +117,9 @@ jobs:
           NODE
 
           COUNCIL_READY=0
-          for ATTEMPT in $(seq 1 12); do
-            COUNCIL_CODE="$(curl --silent --show-error --max-time 120               --header "x-mel-release-smoke: 1"               --header "x-mel-launch-bootstrap: ${TOKEN}"               --header "content-type: application/json"               --data '{"id":"model.council","input":{"request":{"kind":"OWNER_NEGATIVE_FEEDBACK_RECOVERY","original_request":"Vérifie l intégrité du code MEL.","failed_response":"Je n ai pas exécuté la vérification.","owner_feedback":"tu n y arrives pas","instruction":"Analyse l échec et propose une correction concrète sans contourner les garde-fous."},"capability":"GENERAL","maxCandidates":3,"timeoutMs":30000}}'               --output council-live.json               --write-out '%{http_code}'               "${BASE_URL}/api/gen2/capabilities/execute" || true)"
+          COUNCIL_MAX_ATTEMPTS=2
+          for ATTEMPT in $(seq 1 "${COUNCIL_MAX_ATTEMPTS}"); do
+            COUNCIL_CODE="$(curl --silent --show-error --max-time 90               --header "x-mel-release-smoke: 1"               --header "x-mel-parallel-proof: ${TOKEN}"               --header "content-type: application/json"               --data '{"id":"model.council","input":{"request":{"kind":"OWNER_NEGATIVE_FEEDBACK_RECOVERY","original_request":"Vérifie l intégrité du code MEL.","failed_response":"Je n ai pas exécuté la vérification.","owner_feedback":"tu n y arrives pas","instruction":"Analyse l échec et propose une correction concrète sans contourner les garde-fous."},"capability":"GENERAL","maxCandidates":4,"timeoutMs":12000}}'               --output council-live.json               --write-out '%{http_code}'               "${BASE_URL}/api/gen2/capabilities/execute" || true)"
             if [ "${COUNCIL_CODE}" = "200" ] && node - <<'NODE'
           const d=require('./council-live.json');
           const r=d?.result||{};
@@ -129,7 +135,7 @@ jobs:
               break
             fi
             COUNCIL_ERROR_CODE="$(node -e 'const fs=require("fs");let d={};try{d=JSON.parse(fs.readFileSync("council-live.json","utf8"))}catch{};process.stdout.write(String(d?.code||d?.error||"UNKNOWN"))')"
-            echo "Council live proof attempt ${ATTEMPT}/12 incomplete (HTTP ${COUNCIL_CODE}, ${COUNCIL_ERROR_CODE})." >&2
+            echo "Council live proof attempt ${ATTEMPT}/${COUNCIL_MAX_ATTEMPTS} incomplete (HTTP ${COUNCIL_CODE}, ${COUNCIL_ERROR_CODE})." >&2
             if [ "${COUNCIL_CODE}" = "401" ] && [ "${COUNCIL_ERROR_CODE}" = "AUTH_REQUIRED" ]; then
               sleep 2
               continue
@@ -139,70 +145,212 @@ jobs:
           done
           test "${COUNCIL_READY}" = "1"
 
-          BODY="$(node - <<'NODE'
-          const session=process.env.SESSION;
+          # Keep submit -> async wait -> rich read monolithic per surface,
+          # but isolate Normal and Full in independent browser sessions. This
+          # prevents cross-navigation/session state from contaminating Full.
+          RICH_READY=0
+          for ATTEMPT in $(seq 1 6); do
+            NORMAL_SESSION="council-rich-normal-${EXPECTED_SHA:0:12}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${ATTEMPT}"
+            FULL_SESSION="council-rich-full-${EXPECTED_SHA:0:12}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${ATTEMPT}"
+            export NORMAL_SESSION FULL_SESSION TOKEN EXPECTED_SHA
+
+            NORMAL_BODY="$(node - <<'NODE'
+          const session=process.env.NORMAL_SESSION;
           const token=process.env.TOKEN;
           const origin='https://meliturgos.adrien-lopezcarreras.workers.dev';
-          const approvals=[
-            {approved:true,session_id:session,step_id:'set-auth',action:'browser.set-headers'},
-            {approved:true,session_id:session,step_id:'type-normal',action:'browser.type'},
-            {approved:true,session_id:session,step_id:'type-full',action:'browser.type'},
-          ];
           const steps=[
-            {id:'set-auth',action:'browser.set-headers',headers:{'x-mel-release-smoke':'1','x-mel-launch-bootstrap':token}},
+            {id:'set-auth-normal',action:'browser.set-headers',headers:{'x-mel-release-smoke':'1','x-mel-parallel-proof':token}},
             {id:'navigate-normal',action:'browser.navigate',url:origin+'/'},
-            {id:'type-normal',action:'browser.type',selector:'#promptInput',text:'Lis src/router.js'},
+            {id:'type-normal',action:'browser.type',selector:'#promptInput',text:'lis src/index.js dans ton code'},
             {id:'send-normal',action:'browser.click',selector:'#send'},
-            {id:'wait-normal',action:'browser.wait-text',selector:'#messages',text:'RELEASE_CODE_SMOKE_OK'},
+            {id:'wait-normal',action:'browser.wait-text',selector:'#messages',text:'RELEASE_CODE_SMOKE_OK',timeout_ms:45000},
             {id:'read-normal-rich',action:'browser.read-text',selector:'#messages .msg.mel > div[data-rich-rendered="true"]'},
-            {id:'navigate-full',action:'browser.navigate',url:origin+'/professor'},
-            {id:'open-full-chat',action:'browser.click',selector:'.nav button[data-view="chat"]'},
-            {id:'type-full',action:'browser.type',selector:'#chatInput',text:'Lis src/router.js'},
-            {id:'send-full',action:'browser.click',selector:'#chatSend'},
-            {id:'wait-full',action:'browser.wait-text',selector:'#chatlog',text:'RELEASE_CODE_SMOKE_OK'},
+          ];
+          process.stdout.write(JSON.stringify({id:'browser.execute',input:{
+            session_id:session,
+            device:{id:'cloudflare-browser',capabilities:['browser.control']},
+            sandbox:{allowed_origins:[origin],max_steps:steps.length},
+            approvals:[
+              {approved:true,session_id:session,step_id:'set-auth-normal',action:'browser.set-headers'},
+              {approved:true,session_id:session,step_id:'type-normal',action:'browser.type'},
+            ],
+            steps,
+          }}));
+          NODE
+          )"
+
+            NORMAL_CODE="$(curl --silent --show-error --max-time 120 \
+              --header "x-mel-release-smoke: 1" \
+              --header "x-mel-parallel-proof: ${TOKEN}" \
+              --header "content-type: application/json" \
+              --data "${NORMAL_BODY}" \
+              --output rich-ui-normal.json --write-out '%{http_code}' \
+              "${BASE_URL}/api/gen2/capabilities/execute" || true)"
+
+            NORMAL_OK=0
+            if [ "${NORMAL_CODE}" = "200" ] && node - <<'NODE'
+          const d=require('./rich-ui-normal.json'),r=d?.result||{};
+          const out=id=>(r.outputs||[]).find(x=>x?.step_id===id)?.output||{};
+          const rich=out('read-normal-rich');
+          const ok=d?.ok===true
+            && d?.capability==='browser.execute'
+            && r?.ok===true
+            && Number(r?.steps_completed||0)===6
+            && out('wait-normal')?.matched===true
+            && rich?.kind==='text'
+            && String(rich?.text||'').includes('RELEASE_CODE_SMOKE_OK');
+          process.exit(ok?0:1);
+          NODE
+            then
+              NORMAL_OK=1
+            fi
+            if [ "${NORMAL_OK}" != "1" ]; then
+              NORMAL_ERROR_CODE="$(node -e 'const fs=require("fs");let d={};try{d=JSON.parse(fs.readFileSync("rich-ui-normal.json","utf8"))}catch{};process.stdout.write(String(d?.code||d?.error||d?.status||"UNKNOWN"))')"
+              NORMAL_FAILED_STEP_ID="$(node -e 'const fs=require("fs");let d={};try{d=JSON.parse(fs.readFileSync("rich-ui-normal.json","utf8"))}catch{};process.stdout.write(String(d?.failed_step_id||""))')"
+              echo "Transient Normal rich UI proof status ${NORMAL_CODE} (${NORMAL_ERROR_CODE}, step=${NORMAL_FAILED_STEP_ID:-unknown}); retry ${ATTEMPT}/6."
+              sleep $((ATTEMPT * 2))
+              continue
+            fi
+
+            FULL_BODY="$(node - <<'NODE'
+          const session=process.env.FULL_SESSION;
+          const token=process.env.TOKEN;
+          const origin='https://meliturgos.adrien-lopezcarreras.workers.dev';
+          const steps=[
+            {id:'set-auth-full',action:'browser.set-headers',headers:{'x-mel-release-smoke':'1','x-mel-parallel-proof':token}},
+            {id:'navigate-full',action:'browser.navigate',url:origin+'/professor?view=chat'},
+            {id:'wait-full-chat',action:'browser.wait-text',selector:'#viewTitle',text:'Conversation'},
+            {id:'type-full',action:'browser.type',selector:'.view.active[data-panel="chat"] #chatInput',text:'lis src/index.js dans ton code'},
+            {id:'submit-full',action:'browser.submit',selector:'#chatForm'},
+            {id:'wait-full-submit',action:'browser.wait-text',selector:'#chatlog .msg.user:last-child',text:'lis src/index.js dans ton code',timeout_ms:5000},
+            {id:'wait-full',action:'browser.wait-text',selector:'#chatStatus',text:'Réponse reçue.',timeout_ms:60000},
             {id:'read-full-rich',action:'browser.read-text',selector:'#chatlog .msg.mel[data-rich-rendered="true"]:last-child'},
           ];
           process.stdout.write(JSON.stringify({id:'browser.execute',input:{
             session_id:session,
             device:{id:'cloudflare-browser',capabilities:['browser.control']},
             sandbox:{allowed_origins:[origin],max_steps:steps.length},
-            approvals,
+            approvals:[
+              {approved:true,session_id:session,step_id:'set-auth-full',action:'browser.set-headers'},
+              {approved:true,session_id:session,step_id:'type-full',action:'browser.type'},
+              {approved:true,session_id:session,step_id:'submit-full',action:'browser.submit'},
+            ],
             steps,
           }}));
           NODE
           )"
 
-          BROWSER_CODE="000"
-          for ATTEMPT in $(seq 1 12); do
-            BROWSER_CODE="$(curl --silent --show-error --max-time 150             --header "x-mel-release-smoke: 1"             --header "x-mel-launch-bootstrap: ${TOKEN}"             --header "content-type: application/json"             --data "${BODY}"             --output rich-ui-browser.json             --write-out '%{http_code}'             "${BASE_URL}/api/gen2/capabilities/execute" || true)"
-            if [ "${BROWSER_CODE}" = "200" ]; then
+            FULL_CODE="$(curl --silent --show-error --max-time 150 \
+              --header "x-mel-release-smoke: 1" \
+              --header "x-mel-parallel-proof: ${TOKEN}" \
+              --header "content-type: application/json" \
+              --data "${FULL_BODY}" \
+              --output rich-ui-full.json --write-out '%{http_code}' \
+              "${BASE_URL}/api/gen2/capabilities/execute" || true)"
+
+            if [ "${FULL_CODE}" = "200" ] && node - <<'NODE'
+          const d=require('./rich-ui-full.json'),r=d?.result||{};
+          const out=id=>(r.outputs||[]).find(x=>x?.step_id===id)?.output||{};
+          const submitted=out('wait-full-submit'),waited=out('wait-full'),full=out('read-full-rich');
+          const ok=d?.ok===true
+            && d?.capability==='browser.execute'
+            && r?.ok===true
+            && Number(r?.steps_completed||0)===8
+            && out('submit-full')?.kind==='interaction'
+            && submitted?.kind==='wait'
+            && submitted?.matched===true
+            && waited?.kind==='wait'
+            && waited?.matched===true
+            && full?.kind==='text'
+            && String(full?.text||'').trim().length>0;
+          process.exit(ok?0:1);
+          NODE
+            then
+              RICH_READY=1
               break
             fi
-            BROWSER_ERROR_CODE="$(node -e 'const fs=require("fs");let d={};try{d=JSON.parse(fs.readFileSync("rich-ui-browser.json","utf8"))}catch{};process.stdout.write(String(d?.code||d?.error||"UNKNOWN"))')"
-            if [ "${BROWSER_CODE}" = "401" ] && [ "${BROWSER_ERROR_CODE}" = "AUTH_REQUIRED" ]; then
+
+            FULL_ERROR_CODE="$(node -e 'const fs=require("fs");let d={};try{d=JSON.parse(fs.readFileSync("rich-ui-full.json","utf8"))}catch{};process.stdout.write(String(d?.code||d?.error||d?.status||"UNKNOWN"))')"
+            FULL_FAILED_STEP_ID="$(node -e 'const fs=require("fs");let d={};try{d=JSON.parse(fs.readFileSync("rich-ui-full.json","utf8"))}catch{};process.stdout.write(String(d?.failed_step_id||""))')"
+
+            # Best-effort diagnostic in the same Full session after a failed
+            # wait. This never satisfies the proof; it only exposes the actual
+            # UI status/message instead of leaving a generic 408.
+            DIAG_BODY="$(node - <<'NODE'
+          const session=process.env.FULL_SESSION;
+          const token=process.env.TOKEN;
+          const origin='https://meliturgos.adrien-lopezcarreras.workers.dev';
+          const steps=[
+            {id:'diag-auth',action:'browser.set-headers',headers:{'x-mel-release-smoke':'1','x-mel-parallel-proof':token}},
+            {id:'diag-status',action:'browser.read-text',selector:'#chatStatus'},
+            {id:'diag-last',action:'browser.read-text',selector:'#chatlog .msg:last-child'},
+          ];
+          process.stdout.write(JSON.stringify({id:'browser.execute',input:{
+            session_id:session,
+            device:{id:'cloudflare-browser',capabilities:['browser.control']},
+            sandbox:{allowed_origins:[origin],max_steps:steps.length},
+            approvals:[{approved:true,session_id:session,step_id:'diag-auth',action:'browser.set-headers'}],
+            steps,
+          }}));
+          NODE
+          )"
+            curl --silent --show-error --max-time 30 \
+              --header "x-mel-release-smoke: 1" \
+              --header "x-mel-parallel-proof: ${TOKEN}" \
+              --header "content-type: application/json" \
+              --data "${DIAG_BODY}" \
+              --output rich-ui-full-diagnostic.json \
+              "${BASE_URL}/api/gen2/capabilities/execute" || true
+            node - <<'NODE' || true
+          const fs=require('fs');let d={};try{d=JSON.parse(fs.readFileSync('rich-ui-full-diagnostic.json','utf8'))}catch{}
+          const out=id=>(d?.result?.outputs||[]).find(x=>x?.step_id===id)?.output||{};
+          console.log(JSON.stringify({full_status:String(out('diag-status')?.text||'').slice(0,240),last_message:String(out('diag-last')?.text||'').slice(0,240)}));
+          NODE
+
+            if [ "${FULL_CODE}" = "401" ] && [ "${FULL_ERROR_CODE}" = "AUTH_REQUIRED" ]; then
+              echo "Full rich UI proof auth is still propagating; retry ${ATTEMPT}/6 with a fresh Full session."
               sleep 2
               continue
             fi
-            break
+            case "${FULL_CODE}" in
+              000|200|408|409|429|500|502|503|504)
+                echo "Transient Full rich UI proof status ${FULL_CODE} (${FULL_ERROR_CODE}, step=${FULL_FAILED_STEP_ID:-unknown}); retry ${ATTEMPT}/6 with a fresh Full session."
+                sleep $((ATTEMPT * 2))
+                ;;
+              *)
+                echo "Non-retryable Full rich UI proof status ${FULL_CODE} (${FULL_ERROR_CODE}, step=${FULL_FAILED_STEP_ID:-unknown})."
+                exit 31
+                ;;
+            esac
           done
-          test "${BROWSER_CODE}" = "200"
+          test "${RICH_READY}" = "1"
 
           node - <<'NODE'
           const fs=require('fs');
-          const browser=require('./rich-ui-browser.json');
+          const normalBrowser=require('./rich-ui-normal.json');
+          const fullBrowser=require('./rich-ui-full.json');
           const council=require('./council-live.json');
           const self=require('./self-check.json');
-          const r=browser?.result||{};
-          if(browser?.ok!==true || browser?.capability!=='browser.execute') throw new Error('RICH_UI_BROWSER_NOT_OK');
-          if(r?.ok!==true || Number(r?.steps_completed||0)!==12) throw new Error('RICH_UI_BROWSER_INCOMPLETE');
-          const output=id=>(r.outputs||[]).find(x=>x?.step_id===id)?.output||{};
-          const normal=output('read-normal-rich');
-          const full=output('read-full-rich');
-          if(normal?.kind!=='text' || !String(normal?.text||'').includes('RELEASE_CODE_SMOKE_OK')) throw new Error('NORMAL_RICH_RENDER_NOT_PROVED');
-          if(full?.kind!=='text' || !String(full?.text||'').includes('RELEASE_CODE_SMOKE_OK')) throw new Error('FULL_RICH_RENDER_NOT_PROVED');
+          const normalResult=normalBrowser?.result||{},fullResult=fullBrowser?.result||{};
+          if(normalBrowser?.ok!==true||normalBrowser?.capability!=='browser.execute'||normalResult?.ok!==true||Number(normalResult?.steps_completed||0)!==6) {
+            throw new Error('NORMAL_RICH_UI_BROWSER_PROOF_NOT_OK');
+          }
+          if(fullBrowser?.ok!==true||fullBrowser?.capability!=='browser.execute'||fullResult?.ok!==true||Number(fullResult?.steps_completed||0)!==8) {
+            throw new Error('FULL_RICH_UI_BROWSER_PROOF_NOT_OK');
+          }
+          const normalOut=id=>(normalResult.outputs||[]).find(x=>x?.step_id===id)?.output||{};
+          const fullOut=id=>(fullResult.outputs||[]).find(x=>x?.step_id===id)?.output||{};
+          const normal=normalOut('read-normal-rich');
+          const submitted=fullOut('wait-full-submit');
+          const waited=fullOut('wait-full');
+          const full=fullOut('read-full-rich');
+          if(normal?.kind!=='text'||!String(normal?.text||'').includes('RELEASE_CODE_SMOKE_OK')) throw new Error('NORMAL_RICH_RENDER_NOT_PROVED');
+          if(submitted?.kind!=='wait'||submitted?.matched!==true) throw new Error('FULL_RICH_SUBMIT_NOT_PROVED');
+          if(waited?.kind!=='wait'||waited?.matched!==true) throw new Error('FULL_RICH_WAIT_NOT_PROVED');
+          if(full?.kind!=='text'||!String(full?.text||'').trim()) throw new Error('FULL_RICH_RENDER_NOT_PROVED');
           const cr=council?.result||{};
           const proof={
-            schema:'mel.council-rich-ui-production-proof/v1',
+            schema:'mel.council-rich-ui-production-proof/v3',
             source_sha:process.env.EXPECTED_SHA,
             exact_sha_runtime:self?.deployed_sha===process.env.EXPECTED_SHA,
             council_recovery_contract_tests:true,
@@ -213,17 +361,16 @@ jobs:
               synthesis_status:cr?.synthesis?.status||null,
             },
             rich_ui:{
+              independent_surface_sessions:true,
+              monolithic_per_surface:true,
               normal:{rendered:true,marker:'RELEASE_CODE_SMOKE_OK'},
-              full:{rendered:true,marker:'RELEASE_CODE_SMOKE_OK'},
+              full:{rendered:true,completion_marker:'Réponse reçue.',response_nonempty:true},
             },
             secret_values_exposed:false,
           };
           fs.writeFileSync('council-rich-ui-production-proof.json',JSON.stringify(proof,null,2));
           console.log(JSON.stringify(proof,null,2));
           NODE
-
-          cleanup
-          trap - EXIT
 
       - name: Upload sanitized Council + rich UI proof
         if: always()

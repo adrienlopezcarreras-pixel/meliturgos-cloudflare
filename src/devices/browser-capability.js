@@ -55,7 +55,7 @@ const MAX_FILE_NAME = 200;
 const MAX_MIME_TYPE = 120;
 const MAX_FILE_TEXT = 16384;
 const MAX_HEADER_VALUE = 2048;
-const ALLOWED_BROWSER_HEADERS = new Set(['authorization','x-mel-release-smoke','x-mel-launch-bootstrap']);
+const ALLOWED_BROWSER_HEADERS = new Set(['authorization','x-mel-release-smoke','x-mel-launch-bootstrap','x-mel-parallel-proof']);
 
 function boundedText(value, max = MAX_ID) {
   return typeof value === 'string' ? value.trim().slice(0, max) : '';
@@ -112,11 +112,13 @@ function actionNeedsUrl(action) {
   return action === BROWSER_ACTIONS.NAVIGATE;
 }
 
-function browserError(code, status = 500) {
+function browserError(code, status = 500, stepId = '') {
   const error = new Error(code);
   error.name = 'BrowserCapabilityError';
   error.code = code;
   if (Number.isInteger(status)) error.status = status;
+  const safeStepId = boundedText(stepId, MAX_ID);
+  if (safeStepId) error.step_id = safeStepId;
   return error;
 }
 
@@ -144,6 +146,7 @@ export function normalizeBrowserRequest(input = {}) {
       headers: normalizeHeaders(step?.headers),
       delta_x: numeric(step?.delta_x),
       delta_y: numeric(step?.delta_y),
+      timeout_ms: Math.max(0,Math.min(60000,Math.trunc(numeric(step?.timeout_ms)))),
     };
   });
 
@@ -263,7 +266,7 @@ export function createBrowserController({ adapter, authorize = async () => false
           const status = Number.isInteger(error?.status) ? error.status : 502;
           outputs.push({ step_id: step.id, ok: false, code });
           await audit(makeAudit(plan, 'FAILED', code, outputs));
-          throw browserError(code, status);
+          throw browserError(code, status, step.id);
         }
       }
 
