@@ -29,3 +29,19 @@ The sanitized Wrangler artifact `preview-d1-migration-diagnostic` reported:
 - MAX stays disabled. No hardware flash or production release is authorized by a preview success.
 
 References: [Cloudflare D1 environments](https://developers.cloudflare.com/d1/configuration/environments/), [D1 Wrangler migrations](https://developers.cloudflare.com/d1/wrangler-commands/), [Cloudflare API tokens](https://developers.cloudflare.com/d1/tutorials/import-to-d1-with-rest-api/).
+
+## Expected blocked-state reporting
+
+If `MEL_PREVIEW_D1_DATABASE_ID` or `MEL_PREVIEW_R2_BUCKET` is absent,
+`Require isolated preview resource identities before any mutation` must fail.
+This is an **operator configuration blocker**, not a broken SQL migration,
+SharePoint bug, or failure of the already-green full candidate CI.
+
+Diagnostic artifact uploads and preview-autonomy pause must only run when their
+respective producing steps actually started. Skipped stages must not invent
+missing D1/HTTP diagnostics or produce a secondary red job that obscures the
+primary resource-identity error. Once those stages do execute, missing required
+diagnostics remain errors.
+
+No fallback to production resource identities is permitted. Do not mark the PR
+release-ready until an authenticated isolated preview run completes on the exact SHA.

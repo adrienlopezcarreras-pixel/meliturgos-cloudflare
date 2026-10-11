@@ -110,6 +110,7 @@ jobs:
       # replace the preview runtime and only then fail the migration.
       # Never touch the production D1 database from this workflow.
       - name: Initialize isolated preview D1
+        id: preview_d1_migrate
         shell: bash
         run: |
           set +e
@@ -128,7 +129,7 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
       - name: Sanitize D1 migration diagnostic
-        if: always()
+        if: ${{ always() && steps.preview_d1_migrate.outcome != 'skipped' }}
         shell: bash
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -159,7 +160,7 @@ jobs:
           PY
 
       - name: Upload sanitized D1 migration diagnostic
-        if: always()
+        if: ${{ always() && steps.preview_d1_migrate.outcome != 'skipped' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: preview-d1-migration-diagnostic-${{ github.sha }}
@@ -291,6 +292,7 @@ jobs:
           NODE
 
       - name: Smoke test isolated preview HTTP
+        id: preview_http_smoke
         shell: bash
         run: |
           set +e
@@ -427,7 +429,7 @@ jobs:
           NODE
 
       - name: Upload preview HTTP diagnostic
-        if: always()
+        if: ${{ always() && steps.preview_http_smoke.outcome != 'skipped' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: preview-http-diagnostic-${{ github.sha }}
@@ -436,6 +438,7 @@ jobs:
           retention-days: 3
 
       - name: Prove preview is paused then enable isolated autonomy proof
+        id: preview_autonomy_proof
         shell: bash
         run: |
           set -euo pipefail
@@ -1114,7 +1117,7 @@ jobs:
           retention-days: 7
 
       - name: Pause isolated preview after autonomy proof
-        if: always()
+        if: ${{ always() && steps.preview_autonomy_proof.outcome != 'skipped' }}
         shell: bash
         run: |
           BASE_URL="https://meliturgos-preview.adrien-lopezcarreras.workers.dev"

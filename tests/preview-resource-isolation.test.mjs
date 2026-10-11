@@ -29,3 +29,16 @@ test('preview isolation never borrows incomplete binding as a live D1 identity',
   assert.ok(workflow.includes("database_id: d1,"));
   assert.ok(workflow.includes("config.env.preview.r2_buckets = [{ binding: 'MEDIA_BUCKET', bucket_name: bucket }]"));
 });
+
+test('skipped preview stages do not invent diagnostic artifacts or call the autonomy pause endpoint', async () => {
+  const workflow = await readFile(new URL('../.github/workflows/deploy-candidate-preview.yml', import.meta.url), 'utf8');
+  assert.ok(workflow.includes('id: preview_d1_migrate'));
+  assert.ok(workflow.includes("if: ${{ always() && steps.preview_d1_migrate.outcome != 'skipped' }}"));
+  assert.ok(workflow.includes('id: preview_http_smoke'));
+  assert.ok(workflow.includes("if: ${{ always() && steps.preview_http_smoke.outcome != 'skipped' }}"));
+  assert.ok(workflow.includes('id: preview_autonomy_proof'));
+  assert.ok(workflow.includes("if: ${{ always() && steps.preview_autonomy_proof.outcome != 'skipped' }}"));
+  assert.ok(workflow.includes('if-no-files-found: error'), 'missing required diagnostic remains an error if its stage ran');
+  assert.ok(workflow.indexOf('name: Require isolated preview resource identities before any mutation')
+    < workflow.indexOf('name: Initialize isolated preview D1'));
+});
