@@ -5,6 +5,13 @@ name: mel-autonomous-production-release
 # explicitly after a verified, non-forced release-pointer update.
 on:
   workflow_dispatch:
+  # After a fully successful production release, reconcile later main commits.
+  # Failed/cancelled releases cannot start another deploy.
+  workflow_run:
+    workflows:
+      - deploy-cloudflare-release
+    types:
+      - completed
 
 permissions:
   contents: write
@@ -16,7 +23,7 @@ concurrency:
 
 jobs:
   promote-and-dispatch:
-    if: ${{ github.actor == 'adrienlopezcarreras-pixel' || github.actor == 'github-actions[bot]' }}
+    if: ${{ (github.actor == 'adrienlopezcarreras-pixel' || github.actor == 'github-actions[bot]') && (github.event_name == 'workflow_dispatch' || (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'release/mel-hardware-v0.1.0')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
