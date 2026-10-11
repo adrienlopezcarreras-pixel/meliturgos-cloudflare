@@ -51,11 +51,11 @@ test('D1 and HTTP artifacts never publish raw preview response content', async (
     workflow.indexOf('name: Upload sanitized D1 migration diagnostic'));
   const http = workflow.slice(workflow.indexOf('name: Smoke test isolated preview HTTP'),
     workflow.indexOf('name: Smoke all canonical UI surfaces'));
-  assert.doesNotMatch(migrate, /cat wrangler-d1-preview\\.log/);
+  assert.ok(!migrate.includes('cat wrangler-d1-preview.log'));
   assert.ok(sanitize.includes('GITHUB_STEP_SUMMARY'));
   assert.ok(sanitize.includes('wrangler-d1-preview.sanitized.log'));
-  assert.doesNotMatch(http, /cat preview-headers\\.txt/);
-  assert.doesNotMatch(http, /head -c 1200 preview-root\\.html/);
+  assert.ok(!http.includes('cat preview-headers.txt'));
+  assert.ok(!http.includes('head -c 1200 preview-root.html'));
   assert.ok(http.includes('body_bytes='));
   assert.ok(http.includes('html_received='));
 });
