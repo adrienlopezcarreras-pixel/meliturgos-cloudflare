@@ -14,6 +14,7 @@ on:
       - 'tests/autonomous-release-exact-main.test.mjs'
       - 'tests/mel-autonomous-release-dispatch.test.mjs'
       - 'scripts/mel-autonomous-release-dispatch.mjs'
+      - '.github/workflows/mel-autonomous-production-release.yml'
       - '.github/workflows/release-observability-smoke-ci.yml'
       - '.github/workflows/release-downstream-proof-decoupled.yml'
       - 'tests/gen2/release-downstream-proof-decoupled.test.mjs'
