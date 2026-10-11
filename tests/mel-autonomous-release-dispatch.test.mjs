@@ -14,7 +14,7 @@ test('MEL automation fast-forwards the release pointer then dispatches without h
     operations.push({ path, method: request.method, body: request.body && JSON.parse(request.body) });
     if (path.endsWith('/branches/main')) return { ok: true, status: 200, json: async () => ({ commit: { sha: MAIN_SHA } }) };
     if (path.endsWith('/branches/' + RELEASE_BRANCH)) return { ok: true, status: 200, json: async () => ({ commit: { sha: releaseSha } }) };
-    if (path.endsWith('/actions/runs')) return { ok: true, status: 200, json: async () => ({ workflow_runs: [] }) };
+    if (path.endsWith('/actions/workflows/deploy-cloudflare-release.yml/runs')) return { ok: true, status: 200, json: async () => ({ workflow_runs: [] }) };
     if (path.endsWith('/git/refs/heads/' + RELEASE_BRANCH)) {
       releaseSha = JSON.parse(request.body).sha;
       return { ok: true, status: 200, json: async () => ({}) };
@@ -31,7 +31,7 @@ test('MEL automation fast-forwards the release pointer then dispatches without h
   assert.equal(dispatch.body.inputs.approval, 'AUTONOMOUS_POLICY');
   assert.equal(dispatch.body.inputs.autonomous_release, 'true');
   assert.equal(dispatch.body.inputs.owner_max_autorelease, 'false');
-  assert.ok(operations.filter(x => x.path.endsWith('/actions/runs')).length === 2);
+  assert.ok(operations.filter(x => x.path.endsWith('/actions/workflows/deploy-cloudflare-release.yml/runs')).length === 2);
   assert.ok(!operations.some(x => x.path.includes('branches/release%2F')), 'run preflight must not filter away main-ref dispatches');
 });
 
