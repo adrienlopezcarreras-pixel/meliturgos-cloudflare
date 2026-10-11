@@ -11,7 +11,7 @@ export function assertNoActiveDeploy(runs) {
   }
 }
 
-export async function requestAutonomousRelease({ token, fetchImpl = fetch, repo = REPO } = {}) {
+export async function requestAutonomousRelease({ token, fetchImpl = fetch, repo = REPO, requireProtectedRefs = false } = {}) {
   if (repo !== REPO) throw new Error('UNEXPECTED_RELEASE_REPOSITORY');
   if (typeof token !== 'string' || !token) throw new Error('GH_TOKEN_REQUIRED');
   const base = 'https://api.github.com/repos/' + repo;
@@ -34,6 +34,11 @@ export async function requestAutonomousRelease({ token, fetchImpl = fetch, repo 
   const release = await api('/branches/' + RELEASE_BRANCH);
   const releaseSha = String(release?.commit?.sha || '');
   if (!SHA40.test(releaseSha)) throw new Error('RELEASE_SHA_INVALID');
+  // Push-initiated unattended production promotions need real GitHub branch
+  // safeguards, not just a green commit or a repository-variable toggle.
+  if (requireProtectedRefs && (main?.protected !== true || release?.protected !== true)) {
+    throw new Error('PROTECTED_MAIN_AND_RELEASE_BRANCHES_REQUIRED');
+  }
 
   // Workflow_dispatch runs use head_branch=main, while push runs use the
   // release branch. Scan recent runs across both events, not only release pushes.
@@ -72,7 +77,10 @@ export async function requestAutonomousRelease({ token, fetchImpl = fetch, repo 
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  requestAutonomousRelease({ token: process.env.GH_TOKEN || process.env.GITHUB_TOKEN })
+  requestAutonomousRelease({
+    token: process.env.GH_TOKEN || process.env.GITHUB_TOKEN,
+    requireProtectedRefs: process.env.MEL_REQUIRE_PROTECTED_REFS === 'true',
+  })
     .then(result => console.log(JSON.stringify(result)))
     .catch(error => { console.error(error.message); process.exitCode = 1; });
 }
