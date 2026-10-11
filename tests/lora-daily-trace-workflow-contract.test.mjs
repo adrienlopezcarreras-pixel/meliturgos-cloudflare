@@ -36,9 +36,11 @@ test('normal LoRA success is gated by the durable terminal SUCCEEDED write',()=>
 });
 
 test('smoke-only is traceable but cannot masquerade as a successful checkpointed training run',()=>{
-  assert.match(workflow,/Finalize durable LoRA smoke trace/);
+  assert.match(workflow,/Verify actual Kaggle one-step smoke evidence before recording success/);
+  assert.match(workflow,/verify-kaggle-smoke-proof\.mjs/);
   assert.match(workflow,/SMOKE_COMPLETED/);
-  assert.match(workflow,/Aucun checkpoint ni adaptateur n’est déclaré comme entraînement réussi/);
+  assert.ok(!workflow.includes('training:{steps:1,global_step:1,duration_seconds:0,smoke_only:true}'));
+  assert.match(workflow,/kaggle kernels output "\$KERNEL_REF" -p artifacts\/kaggle-smoke-output --force/);
 });
 
 test('trace client durably journals and spools locally before flushing remote delivery and requires OIDC',()=>{
@@ -62,10 +64,11 @@ test('MEL exposes durable trace history and daily status to the authenticated le
 });
 
 test('Kaggle LoRA monitor cannot expire before the configured 3-hour GPU kernel limit',()=> {
-  assert.ok(workflow.includes('-t 10800'), 'Kaggle GPU runtime is three hours');
+  assert.ok(workflow.includes('KAGGLE_KERNEL_TIMEOUT_SECONDS="10800"'), 'normal Kaggle GPU budget remains three hours');
+  assert.ok(workflow.includes('-t "$KAGGLE_KERNEL_TIMEOUT_SECONDS"'), 'submission respects the configured kernel time budget');
   assert.ok(workflow.includes('timeout-minutes: 240'), 'GitHub job stays longer than GPU training plus monitoring grace');
-  assert.ok(workflow.includes('KAGGLE_KERNEL_TIMEOUT_SECONDS=10800'));
-  assert.ok(workflow.includes('KAGGLE_MONITOR_GRACE_SECONDS=600'));
+  assert.ok(workflow.includes('KAGGLE_KERNEL_TIMEOUT_SECONDS="10800"'));
+  assert.ok(workflow.includes('KAGGLE_MONITOR_GRACE_SECONDS="600"'));
   assert.ok(workflow.includes('MONITOR_DEADLINE_EPOCH=$(( $(date +%s) + KAGGLE_KERNEL_TIMEOUT_SECONDS + KAGGLE_MONITOR_GRACE_SECONDS ))'));
   assert.ok(workflow.includes('KAGGLE_MONITOR_DEADLINE_EXHAUSTED'));
   assert.ok(!workflow.includes('for attempt in $(seq 1 300); do'), 'old early cutoff must be gone');
@@ -84,5 +87,5 @@ test('Kaggle RUNNING without optimizer evidence is recorded as a distinct perman
   assert.match(workflow,/adapter_validated:false/);
   assert.match(workflow,/benchmark_verified:false/);
   assert.match(workflow,/attempt == 60/);
-  assert.ok(workflow.includes('KAGGLE_KERNEL_TIMEOUT_SECONDS=10800'), 'kernel budget is not shortened by this diagnostic');
+  assert.ok(workflow.includes('KAGGLE_KERNEL_TIMEOUT_SECONDS="10800"'), 'normal kernel budget is not shortened by smoke diagnostics');
 });
