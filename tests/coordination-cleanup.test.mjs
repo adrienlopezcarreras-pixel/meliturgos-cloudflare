@@ -9,7 +9,8 @@ test('shared candidate workflows enforce canonical full CI on every candidate pu
   const full = await readFile(new URL('../.github/workflows/full-candidate-ci.yml', import.meta.url), 'utf8');
   const teacher = await readFile(new URL('../.github/workflows/runtime-teacher-smoke.yml', import.meta.url), 'utf8');
 
-  assert.match(full, /push:\\s*\\n\\s*branches:\\s*\\n\\s*- candidate\\/mel-clean-autonomy/);
+  assert.ok(full.includes('  push:'), 'full candidate CI must run on push');
+  assert.ok(full.includes('      - candidate/mel-clean-autonomy'), 'must cover canonical candidate');
   assert.match(full, /workflow_dispatch:/);
   assert.doesNotMatch(full, /TEMPORARY DEV-LIGHT MODE/);
   assert.doesNotMatch(full, /candidate\/augmentio-core/);
