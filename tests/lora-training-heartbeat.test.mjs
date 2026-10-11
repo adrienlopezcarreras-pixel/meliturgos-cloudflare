@@ -228,8 +228,10 @@ test('canonical Kaggle collector allows scoped main-push recovery and remains bo
 
 test('canonical Kaggle GPU workflow allows multi-step QLoRA runtime', async () => {
   const source = await readFile(new URL('../.github/workflows/lora-kaggle-free-gpu.yml', import.meta.url), 'utf8');
-  assert.match(source, /kaggle kernels push[\s\S]*-t 10800/);
-  assert.doesNotMatch(source, /kaggle kernels push[\s\S]*-t 120(?:\s|$)/);
+  assert.ok(source.includes('KAGGLE_KERNEL_TIMEOUT_SECONDS="10800"'), 'normal training has its full 3-hour budget');
+  assert.ok(source.includes('KAGGLE_KERNEL_TIMEOUT_SECONDS="1800"'), 'one-step Kaggle smoke is bounded to 30min');
+  assert.ok(source.includes('-t "$KAGGLE_KERNEL_TIMEOUT_SECONDS"'), 'submission respects selected budget');
+  assert.doesNotMatch(source, /kaggle kernels push[^\n]*-t 120(?:\s|$)/);
 });
 
 test('canonical Kaggle GPU workflow retries one transient cancellation and then fails closed', async () => {
