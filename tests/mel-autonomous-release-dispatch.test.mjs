@@ -32,6 +32,7 @@ test('MEL automation fast-forwards the release pointer then dispatches without h
   assert.equal(dispatch.body.inputs.autonomous_release, 'true');
   assert.equal(dispatch.body.inputs.owner_max_autorelease, 'false');
   assert.ok(operations.filter(x => x.path.endsWith('/actions/runs')).length === 2);
+  assert.ok(!operations.some(x => x.path.includes('branches/release%2F')), 'run preflight must not filter away main-ref dispatches');
 });
 
 test('MEL automation refuses to overlap active deployment', () => {
