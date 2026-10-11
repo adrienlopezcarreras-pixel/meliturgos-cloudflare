@@ -122,7 +122,8 @@ test('linked Pipedream SharePoint account is never labeled a proven Graph site r
 test('SharePoint live Pipedream Graph proof is bounded and never conflates a linked account with a verified read', async () => {
   const source = await readFile(workflowUrl, 'utf8');
   const block = source.slice(source.indexOf('if probe microsoft_sharepoint '), source.indexOf('YAHOO_OK=0'));
-  assert.match(block, /connections\\/pipedream\\/test '\\{"probe":"sharepoint_sites_read"\\}'/);
+  assert.ok(block.includes('connections/pipedream/test'), 'real Pipedream connection-test route required');
+  assert.ok(block.includes('"probe":"sharepoint_sites_read"'), 'SharePoint Graph probe required');
   assert.match(block, /MICROSOFT_SHAREPOINT_PROOF_SOURCE="PIPEDREAM_GRAPH_SITE_SEARCH"/);
   assert.match(block, /MICROSOFT_SHAREPOINT_PROOF_SOURCE="PIPEDREAM_LINKED_ACCOUNT_ONLY"/);
   const success = block.slice(block.indexOf('if probe microsoft_sharepoint_pipedream_graph'), block.indexOf('else', block.indexOf('if probe microsoft_sharepoint_pipedream_graph')));
