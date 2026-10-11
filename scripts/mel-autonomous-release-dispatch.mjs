@@ -39,6 +39,11 @@ export async function requestAutonomousRelease({ token, fetchImpl = fetch, repo 
   // release branch. Scan recent runs across both events, not only release pushes.
   const activeRunsRoute = '/actions/workflows/deploy-cloudflare-release.yml/runs?per_page=100';
   assertNoActiveDeploy((await api(activeRunsRoute))?.workflow_runs);
+  // A successful release must not recursively re-dispatch itself when
+  // production and canonical main already have the same release pointer.
+  if (releaseSha === mainSha) {
+    return { accepted: false, reason: 'ALREADY_CURRENT', main_sha: mainSha, release_branch: RELEASE_BRANCH };
+  }
   if (releaseSha !== mainSha) {
     // A non-force update rejects diverged refs; never rewrite deployed history.
     await api('/git/refs/heads/' + RELEASE_BRANCH, {
