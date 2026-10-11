@@ -18,6 +18,11 @@ on:
         description: Type DEPLOY_APPROVED to authorize the production mutation
         required: true
         type: string
+      autonomous_release:
+        description: Authorized MEL automation; requires exact latest main SHA and dedicated release pointer
+        required: false
+        default: false
+        type: boolean
       owner_max_autorelease:
         description: Re-enable MAX 100% automatically after a fully verified autonomous release
         required: false
@@ -47,6 +52,7 @@ jobs:
       # Owner-authorized autonomous policy: a push of the dedicated release pointer
       # is permitted only after the exact-SHA and canonical-main gates below.
       AUTONOMOUS_RELEASE_POLICY: 'enabled'
+      AUTONOMOUS_DISPATCH: ${{ github.event_name == 'workflow_dispatch' && inputs.autonomous_release && 'true' || 'false' }}
       OWNER_MAX_AUTORELEASE: ${{ github.event_name == 'workflow_dispatch' && inputs.owner_max_autorelease && 'true' || 'false' }}
       # TEMPORARY DEV-LIGHT MODE: ShardVault 7/7/code-sync proof paused to finish downstream release validation.
       # MUST be restored to 'false' before final validation/closure.
@@ -63,6 +69,15 @@ jobs:
             test "$AUTONOMOUS_RELEASE_POLICY" = "enabled"
             test "$GITHUB_REF" = "refs/heads/release/mel-hardware-v0.1.0"
             echo "Autonomous release policy authorized for dedicated release pointer."
+          elif [ "$AUTONOMOUS_DISPATCH" = "true" ]; then
+            test "$AUTONOMOUS_RELEASE_POLICY" = "enabled"
+            test "$APPROVAL" = "AUTONOMOUS_POLICY"
+            test "$RELEASE_BRANCH" = "release/mel-hardware-v0.1.0"
+            case "$GITHUB_ACTOR" in
+              adrienlopezcarreras-pixel|github-actions\[bot\]) ;;
+              *) echo "::error title=Autonomous dispatch denied::Unrecognized release identity"; exit 2 ;;
+            esac
+            echo "Autonomous workflow_dispatch accepted; exact current main SHA is mandatory."
           else
             test "$APPROVAL" = "DEPLOY_APPROVED"
           fi
@@ -89,7 +104,7 @@ jobs:
           test "$RELEASE_SHA" = "$EXPECTED_SHA"
           git fetch origin main
           SOURCE_SHA="$(git rev-parse FETCH_HEAD)"
-          if [ "$GITHUB_EVENT_NAME" = "push" ] && [ "$SOURCE_SHA" != "$EXPECTED_SHA" ]; then
+          if { [ "$GITHUB_EVENT_NAME" = "push" ] || [ "$AUTONOMOUS_DISPATCH" = "true" ]; } && [ "$SOURCE_SHA" != "$EXPECTED_SHA" ]; then
             echo "::error title=Autonomous release rejected::Automatic releases must deploy the exact current main SHA."
             exit 2
           fi
