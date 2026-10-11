@@ -11,6 +11,7 @@ on:
       - 'tests/release-predeploy-r2-retry.test.mjs'
       - 'tests/operator-auth.test.mjs'
       - 'tests/release-production-smoke-routes.test.mjs'
+      - 'tests/autonomous-release-exact-main.test.mjs'
       - '.github/workflows/release-observability-smoke-ci.yml'
       - '.github/workflows/release-downstream-proof-decoupled.yml'
       - 'tests/gen2/release-downstream-proof-decoupled.test.mjs'
@@ -50,6 +51,7 @@ jobs:
           tests/operator-auth.test.mjs
           tests/release-predeploy-r2-retry.test.mjs
           tests/release-production-smoke-routes.test.mjs
+          tests/autonomous-release-exact-main.test.mjs
           tests/gen2/runtime-observability.test.mjs
           tests/gen2/release-downstream-proof-decoupled.test.mjs
           tests/gen2/sov-ai-auto-close.test.mjs
