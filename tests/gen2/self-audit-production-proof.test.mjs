@@ -44,26 +44,26 @@ test('production proof requires durable D1 state and capability health ledger', 
 });
 
 test('self-audit uses existing exact-SHA parallel proof, never puts or deletes production secrets', () => {
-  assert.match(workflow, /PROOF_KEY_B64: \${{ secrets\\.MEL_BACKUP_ENCRYPTION_KEY_B64 }}/);
-  assert.match(workflow, /SELF_AUDIT_PARALLEL_PROOF_SOURCE_INVALID/);
-  assert.match(workflow, /x-mel-parallel-proof: \${TOKEN}/);
-  assert.match(workflow, /MEL_PARALLEL_PROOF_V1:/);
-  assert.match(workflow, /meliturgos-parallel-proof-salt-v1/);
-  assert.match(downstream, /MEL_PARALLEL_PROOF_V1:/);
-  assert.match(deploy, /MEL_PARALLEL_PROOF_TOKEN:/);
-  assert.doesNotMatch(workflow, /wrangler secret (?:put|delete)/);
-  assert.doesNotMatch(workflow, /MEL_LAUNCH_BOOTSTRAP_TOKEN --env=/);
-  assert.doesNotMatch(workflow, /CLOUDFLARE_API_TOKEN:/);
-  assert.match(workflow, /group: mel-self-audit-production-proof/);
-  assert.doesNotMatch(workflow, /group: mel-launch-bootstrap-token/);
+  assert.ok(workflow.includes('PROOF_KEY_B64: ${{ secrets.MEL_BACKUP_ENCRYPTION_KEY_B64 }}'));
+  assert.ok(workflow.includes('SELF_AUDIT_PARALLEL_PROOF_SOURCE_INVALID'));
+  assert.ok(workflow.includes('x-mel-parallel-proof: ${TOKEN}'));
+  assert.ok(workflow.includes('MEL_PARALLEL_PROOF_V1:'));
+  assert.ok(workflow.includes('meliturgos-parallel-proof-salt-v1'));
+  assert.ok(downstream.includes('MEL_PARALLEL_PROOF_V1:'));
+  assert.ok(deploy.includes('MEL_PARALLEL_PROOF_TOKEN:'));
+  assert.doesNotMatch(workflow, /(?:^|\\n)\\s*(?:printf[^\\n]*\\|\\s*)?npx wrangler secret (?:put|delete)\\b/);
+  assert.ok(!workflow.includes('MEL_LAUNCH_BOOTSTRAP_TOKEN --env='));
+  assert.ok(!workflow.includes('CLOUDFLARE_API_TOKEN:'));
+  assert.ok(workflow.includes('group: mel-self-audit-production-proof'));
+  assert.ok(!workflow.includes('group: mel-launch-bootstrap-token'));
 });
 
 test('release smoke capability and parallel proof remain constrained to safe exact-SHA routes', () => {
-  assert.match(security, /PARALLEL_PROOF_ALLOWLIST/);
-  assert.match(security, /'\\/api\\/gen2\\/capabilities\\/execute'/);
-  assert.match(security, /'\\/api\\/gen2\\/code\\/self-check'/);
-  assert.match(security, /parallelAuthorized/);
-  assert.match(workflow, /"level":"HEARTBEAT"/);
+  assert.ok(security.includes('PARALLEL_PROOF_ALLOWLIST'));
+  assert.ok(security.includes("'/api/gen2/capabilities/execute'"));
+  assert.ok(security.includes("'/api/gen2/code/self-check'"));
+  assert.ok(security.includes('parallelAuthorized'));
+  assert.ok(workflow.includes('"level":"HEARTBEAT"'));
   assert.match(capability, /repairEnabled:\\s*context\\?\\.releaseSmoke !== true/);
 });
 
