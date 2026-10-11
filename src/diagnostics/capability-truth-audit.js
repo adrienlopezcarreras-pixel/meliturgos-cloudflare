@@ -67,6 +67,7 @@ const SAFE_SAMPLES = Object.freeze({
   // no CREATE TABLE in the listing handlers.
   'work.list': { limit: 1 },
   'work.open': { limit: 1 },
+  'conversation.quality.recent': { limit: 1 },
   'openloop.due': { limit: 1 },
   'timeline.list': { limit: 1 },
   'project.list': { limit: 1 },
@@ -157,6 +158,18 @@ const SAFE_SAMPLES = Object.freeze({
     const rows = await sampleRead(runtime, context, 'skill.list', { active_only: true });
     const row = firstArray(rows, '')[0];
     return row?.skill_id ? { skill_id: String(row.skill_id) } : undefined;
+  },
+  // These are read-only and use an actual Work DAG id, never a fabricated
+  // placeholder. A virgin store yields NO_RUNTIME_FIXTURE, not fake success.
+  'work.status': async ({ runtime, context }) => {
+    const result = await sampleRead(runtime, context, 'work.list', { limit: 1 });
+    const id = firstArray(result, 'work')[0]?.id;
+    return id ? { id: String(id) } : undefined;
+  },
+  'work.artifacts': async ({ runtime, context }) => {
+    const result = await sampleRead(runtime, context, 'work.list', { limit: 1 });
+    const id = firstArray(result, 'work')[0]?.id;
+    return id ? { id: String(id) } : undefined;
   },
   'work.plan.get': async ({ runtime, context }) => {
     const result = await sampleRead(runtime, context, 'work.plan.list', { limit: 1 });
