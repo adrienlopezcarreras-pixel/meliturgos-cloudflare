@@ -1034,7 +1034,9 @@ export async function testPipedreamSharePointRead(config, contextOwner, options 
     if (error?.upstream_status === 403) error.action_required = 'VERIFY_WORK_SCHOOL_ACCOUNT_AND_SITES_READ_ALL';
     throw error;
   }
-  if (!Array.isArray(body?.value)) {
+  if (!Array.isArray(body?.value)
+    || body.value.some(site => !site || typeof site !== 'object'
+      || typeof site.id !== 'string' || !site.id.trim())) {
     throw Object.assign(new Error('PIPEDREAM_SHAREPOINT_GRAPH_RESPONSE_INVALID'), {
       code: 'PIPEDREAM_SHAREPOINT_GRAPH_RESPONSE_INVALID',
       status: 502,
