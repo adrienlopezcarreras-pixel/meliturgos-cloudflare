@@ -238,12 +238,19 @@ jobs:
             MICROSOFT_SHAREPOINT_READ_PROVEN=1
             MICROSOFT_SHAREPOINT_PROOF_SOURCE="NATIVE_GRAPH_SITE_SEARCH"
           elif [ "${PIPEDREAM_OK}" = "1" ] && has_pd_app sharepoint; then
-            # A connected OAuth account is not evidence that Graph supports
-            # SharePoint site reads for this user/tenant. Personal Microsoft
-            # accounts do not support GET /sites?search= or /me/followedSites.
+            # A linked OAuth account is not evidence of Graph site read access.
+            # Execute one bounded read-only search via the actual linked account.
             MICROSOFT_SHAREPOINT_OK=1
-            MICROSOFT_SHAREPOINT_PROOF_SOURCE="PIPEDREAM_LINKED_ACCOUNT_ONLY"
-            echo 'microsoft_sharepoint: {"ok":true,"provider":"pipedream","app":"sharepoint","linked_account":true,"graph_site_read_proven":false}'
+            if probe microsoft_sharepoint_pipedream_graph /api/gen2/connections/pipedream/test '{"probe":"sharepoint_sites_read"}'; then
+              MICROSOFT_SHAREPOINT_READ_PROVEN=1
+              MICROSOFT_SHAREPOINT_PROOF_SOURCE="PIPEDREAM_GRAPH_SITE_SEARCH"
+              echo 'microsoft_sharepoint: {"ok":true,"provider":"pipedream","app":"sharepoint","linked_account":true,"graph_site_read_proven":true,"read_only":true}'
+            else
+              # Personal Microsoft accounts cannot use Graph site search; a
+              # missing Sites.Read.All grant also keeps this proof blocked.
+              MICROSOFT_SHAREPOINT_PROOF_SOURCE="PIPEDREAM_LINKED_ACCOUNT_ONLY"
+              echo 'microsoft_sharepoint: {"ok":true,"provider":"pipedream","app":"sharepoint","linked_account":true,"graph_site_read_proven":false}'
+            fi
           fi
           if [ "${MICROSOFT_SHAREPOINT_OK}" != "1" ]; then FAILURES=$((FAILURES+1)); fi
 
