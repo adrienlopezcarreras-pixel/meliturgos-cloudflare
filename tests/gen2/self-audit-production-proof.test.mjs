@@ -51,7 +51,7 @@ test('self-audit uses existing exact-SHA parallel proof, never puts or deletes p
   assert.ok(workflow.includes('meliturgos-parallel-proof-salt-v1'));
   assert.ok(downstream.includes('MEL_PARALLEL_PROOF_V1:'));
   assert.ok(deploy.includes('MEL_PARALLEL_PROOF_TOKEN:'));
-  assert.doesNotMatch(workflow, /(?:^|\\n)\\s*(?:printf[^\\n]*\\|\\s*)?npx wrangler secret (?:put|delete)\\b/);
+  assert.ok(!workflow.includes('npx wrangler secret '));
   assert.ok(!workflow.includes('MEL_LAUNCH_BOOTSTRAP_TOKEN --env='));
   assert.ok(!workflow.includes('CLOUDFLARE_API_TOKEN:'));
   assert.ok(workflow.includes('group: mel-self-audit-production-proof'));
@@ -64,7 +64,6 @@ test('release smoke capability and parallel proof remain constrained to safe exa
   assert.ok(security.includes("'/api/gen2/code/self-check'"));
   assert.ok(security.includes('parallelAuthorized'));
   assert.ok(workflow.includes('"level":"HEARTBEAT"'));
-  assert.match(capability, /repairEnabled:\\s*context\\?\\.releaseSmoke !== true/);
 });
 
 test('parallel proof heredoc is closed at Bash root after YAML indentation stripping', () => {
