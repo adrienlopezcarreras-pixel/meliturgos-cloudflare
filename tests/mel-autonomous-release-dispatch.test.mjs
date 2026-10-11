@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { assertNoActiveDeploy, requestAutonomousRelease, RELEASE_BRANCH } from '../scripts/mel-autonomous-release-dispatch.mjs';
 
 const MAIN_SHA = 'a'.repeat(40);
@@ -42,4 +43,15 @@ test('MEL automation refuses to overlap active deployment', () => {
 test('MEL automation refuses missing token and wrong repository', async () => {
   await assert.rejects(() => requestAutonomousRelease({ token: '' }), /GH_TOKEN_REQUIRED/);
   await assert.rejects(() => requestAutonomousRelease({ token: 'TEST', repo: 'other/repo' }), /UNEXPECTED_RELEASE_REPOSITORY/);
+});
+
+test('MEL autonomous workflow has narrow scoped token and no hardware/MAX side effects', () => {
+  const yaml = readFileSync(new URL('../.github/workflows/mel-autonomous-production-release.yml', import.meta.url), 'utf8');
+  assert.ok(yaml.includes('on:\\n  workflow_dispatch:'));
+  assert.ok(yaml.includes('  contents: write'));
+  assert.ok(yaml.includes('  actions: write'));
+  assert.ok(yaml.includes("github.actor == 'adrienlopezcarreras-pixel'"));
+  assert.ok(yaml.includes('node scripts/mel-autonomous-release-dispatch.mjs'));
+  assert.ok(!yaml.includes('wrangler deploy'));
+  assert.ok(!yaml.includes('owner_max_autorelease: true'));
 });
