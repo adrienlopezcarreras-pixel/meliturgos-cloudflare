@@ -411,7 +411,54 @@ def main():
     run(cmd)
     print(json.dumps({"status":"TRAINING_COMMAND_DONE","global_smoke":SMOKE_ONLY,"max_steps":CYCLE_MAX_STEPS}), flush=True)
     if SMOKE_ONLY:
-        print(json.dumps({"status":"KAGGLE_SINGLE_STEP_SMOKE_PASSED","max_steps":CYCLE_MAX_STEPS}), flush=True)
+        # A completed Python process is not a measured optimizer step.
+        # Only Kaggle-side Trainer evidence and STEP records can authorize a
+        # smoke-success claim. Publish the proof as a /kaggle/working output.
+        evidence_file = OUTPUT / "training-evidence.json"
+        started_file = OUTPUT / "training-started.json"
+        progress_file = OUTPUT / "training-progress.jsonl"
+        if not all(p.is_file() and p.stat().st_size > 0 for p in (
+            evidence_file, started_file, progress_file,
+        )):
+            raise SystemExit("KAGGLE_SMOKE_TRAINING_EVIDENCE_MISSING")
+        evidence = json.loads(evidence_file.read_text(encoding="utf-8"))
+        started = json.loads(started_file.read_text(encoding="utf-8"))
+        progress = [
+            json.loads(line)
+            for line in progress_file.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+        metrics = evidence.get("training_metrics") or {}
+        steps = int(metrics.get("global_step") or 0)
+        optimizer_steps = [
+            int(row.get("global_step") or 0)
+            for row in progress if row.get("event") == "STEP"
+        ]
+        if CYCLE_MAX_STEPS != 1 or steps != 1 or 1 not in optimizer_steps:
+            raise SystemExit("KAGGLE_SMOKE_OPTIMIZER_STEP_NOT_PROVEN")
+        if started.get("cuda_available") is not True or not started.get("gpu"):
+            raise SystemExit("KAGGLE_SMOKE_REAL_GPU_NOT_PROVEN")
+        if int(started.get("max_steps") or 0) != 1:
+            raise SystemExit("KAGGLE_SMOKE_MAX_STEPS_MISMATCH")
+        proof = {
+            "schema": "mel.kaggle-real-smoke-proof/v1",
+            "status": "KAGGLE_SINGLE_STEP_SMOKE_PASSED",
+            "source_sha": TARGET_SHA,
+            "cycle": CYCLE,
+            "global_step": steps,
+            "optimizer_step_events": optimizer_steps,
+            "gpu": started["gpu"],
+            "cuda_available": True,
+            "train_loss": metrics.get("train_loss"),
+            "training_evidence_sha256": sha256_file(evidence_file),
+            "training_progress_sha256": sha256_file(progress_file),
+            "benchmark_verified": False,
+            "adapter_activated": False,
+        }
+        (WORK / "kaggle-smoke-proof.json").write_text(
+            json.dumps(proof, indent=2) + "\n", encoding="utf-8"
+        )
+        print(json.dumps(proof, ensure_ascii=False), flush=True)
         return
 
     impact_path = OUTPUT / "local-impact-benchmark.json"
