@@ -609,6 +609,9 @@ jobs:
           COMPLETE=0
           CANCEL_RETRY_USED=0
           LAST_TRACE_PROGRESS=""
+          LAST_MONITOR_STATUS=""
+          PROGRESS_OBSERVATION_COUNT=0
+          LAST_KAGGLE_LOG_BYTES=0
           mkdir -p artifacts
           : > artifacts/kaggle-live.log
           # The Kaggle submission uses --timeout 10800 (3 hours). The old
@@ -621,8 +624,10 @@ jobs:
           MONITOR_DEADLINE_EPOCH=$(( $(date +%s) + KAGGLE_KERNEL_TIMEOUT_SECONDS + KAGGLE_MONITOR_GRACE_SECONDS ))
           for attempt in $(seq 1 450); do
             STATUS="$(kaggle kernels status "$KERNEL_REF" 2>&1 || true)"
+            LAST_MONITOR_STATUS="$STATUS"
             echo "[$attempt] $STATUS"
             LOGS="$(kaggle kernels logs "$KERNEL_REF" 2>&1 || true)"
+            LAST_KAGGLE_LOG_BYTES="${#LOGS}"
             if [[ -n "$LOGS" ]]; then
               printf '%s\n' "$LOGS" > artifacts/kaggle-live.log
               LATEST="$(printf '%s\n' "$LOGS" | grep -E 'MEL_TRAINING_PROGRESS |MEL_TRAINING_STAGE |TRAINING_COMMAND_|LOCAL_IMPACT_' | tail -n 1 || true)"
@@ -648,16 +653,20 @@ jobs:
                     exit 70
                   fi
                   LAST_TRACE_PROGRESS="$LATEST"
+                  PROGRESS_OBSERVATION_COUNT=$((PROGRESS_OBSERVATION_COUNT + 1))
                 fi
               fi
             fi
             if (( attempt == 1 || attempt % 4 == 0 )); then
-              TRACE_STATUS_TEXT="$STATUS" TRACE_ATTEMPT="$attempt" node - <<'NODE'
+              TRACE_STATUS_TEXT="$STATUS" TRACE_ATTEMPT="$attempt" TRACE_PROGRESS_COUNT="$PROGRESS_OBSERVATION_COUNT" TRACE_LOG_BYTES="$LAST_KAGGLE_LOG_BYTES" node - <<'NODE'
               const fs=require('fs');
               fs.writeFileSync('artifacts/lora-trace-heartbeat.json',JSON.stringify({
                 training:{
                   kaggle_status:String(process.env.TRACE_STATUS_TEXT||'').slice(0,1200),
                   monitor_attempt:Number(process.env.TRACE_ATTEMPT||0),
+                  observed_training_progress_count:Number(process.env.TRACE_PROGRESS_COUNT||0),
+                  kaggle_log_characters:Number(process.env.TRACE_LOG_BYTES||0),
+                  kernel_status_is_not_training_proof:true,
                   heartbeat_at:new Date().toISOString(),
                 },
               },null,2)+'\n');
@@ -712,18 +721,48 @@ jobs:
               echo "::error title=Kaggle GPU run failed::$STATUS"
               exit 1
             fi
+            # Kaggle's RUNNING status is evidence of an active kernel only,
+            # never evidence that an optimizer step completed. Emit a bounded
+            # diagnostic, without cancelling a potentially valid slow startup.
+            if (( attempt == 60 )) && [[ "$PROGRESS_OBSERVATION_COUNT" == "0" ]]; then
+              echo "::warning title=LoRA progress unconfirmed::Kaggle remained RUNNING for approximately 30 minutes without a retrievable training-stage/progress marker."
+            fi
             if (( $(date +%s) >= MONITOR_DEADLINE_EPOCH )); then
               echo "KAGGLE_MONITOR_DEADLINE_EXHAUSTED: kernel not terminal after configured Kaggle GPU runtime plus grace"
               break
             fi
             sleep 30
           done
-          [[ "$COMPLETE" == "1" ]] || {
+          if [[ "$COMPLETE" != "1" ]]; then
+            TRACE_LAST_STATUS="$LAST_MONITOR_STATUS" TRACE_PROGRESS_COUNT="$PROGRESS_OBSERVATION_COUNT" TRACE_LOG_BYTES="$LAST_KAGGLE_LOG_BYTES" node - <<'NODE'
+          const fs=require('fs');
+          const count=Number(process.env.TRACE_PROGRESS_COUNT||0);
+          const noProgress=count===0;
+          const payload={
+            errors:[{
+              code:noProgress?'KAGGLE_GPU_RUN_TIMEOUT_NO_PROGRESS':'KAGGLE_GPU_RUN_TIMEOUT_NO_TERMINAL',
+              message:noProgress
+                ?'Kaggle kernel was RUNNING, but no retrievable training-stage or optimizer-step progress was observed within the 3-hour GPU budget plus grace.'
+                :'Kaggle reported training progress but did not reach a terminal success state within the 3-hour GPU budget plus grace.',
+              recoverable:false,
+            }],
+            training:{
+              observed_training_progress_count:count,
+              last_kaggle_status:String(process.env.TRACE_LAST_STATUS||'').slice(0,1200),
+              kaggle_log_characters:Number(process.env.TRACE_LOG_BYTES||0),
+              timeout_observed_at:new Date().toISOString(),
+              benchmark_verified:false,
+              adapter_validated:false,
+            },
+          };
+          fs.writeFileSync('artifacts/lora-trace-timeout.json',JSON.stringify(payload,null,2)+'\n');
+          NODE
+            # Persist the specific cause in MEL before the generic terminal
+            # FAILED record; no checkpoint or benchmark may be inferred.
+            node .mel-trace-control/scripts/lora-daily-trace-client.mjs TRAINING_ERROR artifacts/lora-trace-timeout.json RUNNING || true
             echo "KAGGLE_GPU_RUN_TIMEOUT: no terminal success observed within the full three-hour Kaggle kernel budget plus grace"
-            # Failing here is correct: no trained artifact or benchmark was
-            # verified. The terminal LoRA trace preserves this uncertainty.
             exit 1
-          }
+          fi
 
       - name: Download trained bundle
         if: env.SMOKE_ONLY != 'true'
@@ -1047,14 +1086,24 @@ jobs:
             const text=fs.readFileSync('artifacts/kaggle-live.log','utf8');
             logTail=text.slice(-8000);
           }catch{}
+          let timeoutFailure=null;
+          try{
+            timeoutFailure=JSON.parse(fs.readFileSync('artifacts/lora-trace-timeout.json','utf8'));
+          }catch{}
+          const timeoutError=Array.isArray(timeoutFailure?.errors)?timeoutFailure.errors[0]:null;
           const payload={
             status:terminal,
             errors:[{
-              code:terminal==='CANCELLED'?'WORKFLOW_CANCELLED':'WORKFLOW_FAILED',
-              message:logTail||'Le workflow LoRA s’est interrompu avant validation complète.',
+              code:terminal==='CANCELLED'?'WORKFLOW_CANCELLED':(timeoutError?.code||'WORKFLOW_FAILED'),
+              message:timeoutError?.message||logTail||'Le workflow LoRA s’est interrompu avant validation complète.',
               recoverable:terminal==='CANCELLED',
             }],
-            training:{interrupted_at:new Date().toISOString()},
+            training:{
+              interrupted_at:new Date().toISOString(),
+              observed_training_progress_count:timeoutFailure?.training?.observed_training_progress_count??null,
+              benchmark_verified:false,
+              adapter_validated:false,
+            },
             summary_fr:terminal==='CANCELLED'
               ?'Entraînement LoRA interrompu ou annulé. La trace conserve toutes les étapes écrites avant l’arrêt et la cause disponible.'
               :'Entraînement LoRA en échec. La trace conserve les étapes déjà exécutées, le dernier journal Kaggle disponible et la cause observée.',

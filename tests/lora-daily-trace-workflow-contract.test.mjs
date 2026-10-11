@@ -71,3 +71,18 @@ test('Kaggle LoRA monitor cannot expire before the configured 3-hour GPU kernel 
   assert.ok(!workflow.includes('for attempt in $(seq 1 300); do'), 'old early cutoff must be gone');
   assert.ok(workflow.includes('KAGGLE_GPU_RUN_TIMEOUT: no terminal success observed'));
 });
+
+test('Kaggle RUNNING without optimizer evidence is recorded as a distinct permanent LoRA failure',()=> {
+  assert.match(workflow,/LAST_MONITOR_STATUS="\$STATUS"/);
+  assert.match(workflow,/PROGRESS_OBSERVATION_COUNT=0/);
+  assert.match(workflow,/kernel_status_is_not_training_proof:true/);
+  assert.match(workflow,/KAGGLE_GPU_RUN_TIMEOUT_NO_PROGRESS/);
+  assert.match(workflow,/KAGGLE_GPU_RUN_TIMEOUT_NO_TERMINAL/);
+  assert.match(workflow,/artifacts\/lora-trace-timeout\.json/);
+  assert.match(workflow,/lora-daily-trace-client\.mjs TRAINING_ERROR artifacts\/lora-trace-timeout\.json RUNNING/);
+  assert.match(workflow,/timeoutError\?\.code\|\|'WORKFLOW_FAILED'/);
+  assert.match(workflow,/adapter_validated:false/);
+  assert.match(workflow,/benchmark_verified:false/);
+  assert.match(workflow,/attempt == 60/);
+  assert.ok(workflow.includes('KAGGLE_KERNEL_TIMEOUT_SECONDS=10800'), 'kernel budget is not shortened by this diagnostic');
+});
