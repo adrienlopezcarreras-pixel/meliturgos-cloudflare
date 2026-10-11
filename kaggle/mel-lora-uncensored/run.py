@@ -289,6 +289,60 @@ def ensure_dependencies():
             + ",".join(sorted(import_failures))
         )
 
+def unpack_parent_archive(archive: Path, destination: Path) -> None:
+    """Fail closed on unexpected parent artifacts before writing any files.
+
+    All canonical MEL bundles contain a small flat set of regular files.
+    Never trust TarFile.extractall on an artifact fetched from a release.
+    """
+    allowed = {
+        "adapter_model.safetensors",
+        "adapter_config.json",
+        "training-evidence.json",
+        "training-started.json",
+        "training-progress.jsonl",
+        "artifact-evidence.json",
+        "lora-plan.json",
+        "dataset-metadata.json",
+        "shard-metadata.json",
+        "local-impact-benchmark.json",
+        "kaggle-run.json",
+    }
+    max_file_bytes = 512 * 1024 * 1024
+    max_total_bytes = 1024 * 1024 * 1024
+    with tarfile.open(archive, "r:gz") as tar:
+        members = tar.getmembers()
+        if not members or len(members) > len(allowed):
+            raise SystemExit("KAGGLE_PARENT_ARCHIVE_MEMBER_COUNT_INVALID")
+        seen = set()
+        total = 0
+        for item in members:
+            name = item.name
+            if (
+                name not in allowed
+                or "/" in name
+                or "\\" in name
+                or name in seen
+                or not item.isfile()
+            ):
+                raise SystemExit("KAGGLE_PARENT_ARCHIVE_UNSAFE_MEMBER")
+            if item.size <= 0 or item.size > max_file_bytes:
+                raise SystemExit("KAGGLE_PARENT_ARCHIVE_MEMBER_SIZE_INVALID")
+            total += item.size
+            if total > max_total_bytes:
+                raise SystemExit("KAGGLE_PARENT_ARCHIVE_TOTAL_SIZE_EXCEEDED")
+            seen.add(name)
+
+        destination.mkdir(parents=True, exist_ok=True)
+        for item in members:
+            source = tar.extractfile(item)
+            if source is None:
+                raise SystemExit("KAGGLE_PARENT_ARCHIVE_EXTRACT_FAILED")
+            # x mode refuses to clobber a previous extraction or symlink.
+            with source, (destination / item.name).open("xb") as target:
+                shutil.copyfileobj(source, target)
+
+
 def extract_parent(payload: Path) -> str | None:
     payload_meta_path = _payload_file(payload, "payload.json")
     payload_meta = {}
@@ -305,15 +359,31 @@ def extract_parent(payload: Path) -> str | None:
 
     PARENT.mkdir(parents=True, exist_ok=True)
     if archive and archive.is_file():
-        with tarfile.open(archive, "r:gz") as tar:
-            tar.extractall(PARENT)
+        unpack_parent_archive(archive, PARENT)
     elif expanded is not None:
+        # Expanded Kaggle sources use the same root-only allowlist and cannot
+        # inject symlinks, hidden folders, or arbitrary files into workdir.
+        if expanded.is_symlink():
+            raise SystemExit("KAGGLE_PARENT_EXPANDED_SYMLINK_FORBIDDEN")
+        allowed = {
+            "adapter_model.safetensors", "adapter_config.json",
+            "training-evidence.json", "training-started.json",
+            "training-progress.jsonl", "artifact-evidence.json",
+            "lora-plan.json", "dataset-metadata.json", "shard-metadata.json",
+            "local-impact-benchmark.json", "kaggle-run.json",
+        }
         for source in expanded.rglob("*"):
+            if source.is_symlink():
+                raise SystemExit("KAGGLE_PARENT_EXPANDED_SYMLINK_FORBIDDEN")
             if not source.is_file():
                 continue
-            target = PARENT / source.relative_to(expanded)
-            target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(source, target)
+            name = source.relative_to(expanded).as_posix()
+            if name not in allowed or source.stat().st_size > 512 * 1024 * 1024:
+                raise SystemExit("KAGGLE_PARENT_EXPANDED_UNSAFE_MEMBER")
+            target = PARENT / name
+            # Use exclusive creation rather than overwriting a prior file.
+            with source.open("rb") as data, target.open("xb") as output:
+                shutil.copyfileobj(data, output)
     elif parent_expected:
         available = sorted(str(p.relative_to(payload)) for p in payload.rglob("*") if p.is_file())[:200]
         print(json.dumps({
