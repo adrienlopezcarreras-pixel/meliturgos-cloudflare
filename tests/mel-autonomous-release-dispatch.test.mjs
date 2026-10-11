@@ -56,3 +56,29 @@ test('MEL autonomous workflow has narrow scoped token and no hardware/MAX side e
   assert.ok(!yaml.includes('wrangler deploy'));
   assert.ok(!yaml.includes('owner_max_autorelease: true'));
 });
+
+test('successful releases do not recursively re-dispatch when main is already current', async () => {
+  const touched = [];
+  const fakeFetch = async (url, req) => {
+    const path = new URL(url).pathname;
+    touched.push(req.method + ' ' + path);
+    if (path.endsWith('/branches/main') || path.endsWith('/branches/' + RELEASE_BRANCH))
+      return { ok: true, status: 200, json: async () => ({ commit: { sha: MAIN_SHA } }) };
+    if (path.endsWith('/actions/workflows/deploy-cloudflare-release.yml/runs'))
+      return { ok: true, status: 200, json: async () => ({ workflow_runs: [] }) };
+    throw new Error('Unexpected production mutation: ' + path);
+  };
+  const result = await requestAutonomousRelease({ token: 'TEST_ONLY', fetchImpl: fakeFetch });
+  assert.equal(result.accepted, false);
+  assert.equal(result.reason, 'ALREADY_CURRENT');
+  assert.ok(touched.every(line => line.startsWith('GET ')));
+});
+
+test('only successful completed release workflows with the canonical release branch can automatically reconcile', () => {
+  const yaml = readFileSync(new URL('../.github/workflows/mel-autonomous-production-release.yml', import.meta.url), 'utf8');
+  assert.ok(yaml.includes('  workflow_run:'));
+  assert.ok(yaml.includes('    types:'));
+  assert.ok(yaml.includes('      - completed'));
+  assert.ok(yaml.includes("github.event.workflow_run.conclusion == 'success'"));
+  assert.ok(yaml.includes("github.event.workflow_run.head_branch == 'release/mel-hardware-v0.1.0'"));
+});
