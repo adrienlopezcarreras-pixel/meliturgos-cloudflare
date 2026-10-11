@@ -117,12 +117,6 @@ jobs:
           npx wrangler d1 migrations apply DB --env preview --remote \
             > wrangler-d1-preview.log 2>&1
           status=$?
-          {
-            echo '### Wrangler D1 preview'
-            echo '```text'
-            cat wrangler-d1-preview.log
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
           exit "$status"
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -152,6 +146,12 @@ jobs:
           text = re.sub(r"(?i)(authorization\s*[:=]\s*bearer\s+)[^\s]+", r"\1[REDACTED]", text)
           text = re.sub(r"(?i)((?:api[_ -]?token|access[_ -]?token|password|secret)\s*[:=]\s*)[^\s]+", r"\1[REDACTED]", text)
           clean.write_text(text, encoding="utf-8")
+          summary = os.environ.get("GITHUB_STEP_SUMMARY")
+          if summary:
+              with open(summary, "a", encoding="utf-8") as output:
+                  output.write("### Wrangler D1 preview (sanitized)\n\n```text\n")
+                  output.write("\n".join(text.splitlines()[-100:]))
+                  output.write("\n```\n")
           if 'Authentication error [code: 10000]' in text:
               print('PREVIEW_D1_API_TOKEN_PERMISSION_MISSING: grant only the preview database D1 edit permissions to the CI token.')
               print('PREVIEW_D1_MUTATIONS_ABORTED: no R2 upload or Worker deployment should follow.')
@@ -321,15 +321,14 @@ jobs:
             sleep 3
           done
           {
-            echo "curl_exit=${CURL_STATUS}"
-            echo "http_status=${HTTP_STATUS}"
-            echo '--- headers ---'
-            cat preview-headers.txt 2>/dev/null || true
-            echo '--- curl stderr ---'
-            cat preview-curl.err 2>/dev/null || true
-            echo '--- body sample ---'
-            head -c 1200 preview-root.html 2>/dev/null || true
-            echo
+            printf 'curl_exit=%s\n' "$CURL_STATUS"
+            printf 'http_status=%s\n' "$HTTP_STATUS"
+            if [ -s preview-root.html ]; then
+              echo 'html_received=true'
+            else
+              echo 'html_received=false'
+            fi
+            printf 'body_bytes=%s\n' "$(wc -c < preview-root.html)"
           } > preview-http-diagnostic.txt
           test "$CURL_STATUS" -eq 0 || exit "$CURL_STATUS"
           case "$HTTP_STATUS" in

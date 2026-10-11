@@ -45,3 +45,11 @@ diagnostics remain errors.
 
 No fallback to production resource identities is permitted. Do not mark the PR
 release-ready until an authenticated isolated preview run completes on the exact SHA.
+
+## Diagnostic confidentiality
+
+The raw D1 migration output is retained only as a temporary runner-local log.
+It is sanitized before any job-summary excerpt or uploaded diagnostic. The
+preview HTTP artifact records only curl exit status, HTTP status and HTML byte
+presence/length, never response headers, cookies or HTML body excerpts.
+Missing expected diagnostics still fail when the producing stage actually ran.

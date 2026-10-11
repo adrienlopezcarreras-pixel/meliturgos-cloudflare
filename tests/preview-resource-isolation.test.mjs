@@ -42,3 +42,20 @@ test('skipped preview stages do not invent diagnostic artifacts or call the auto
   assert.ok(workflow.indexOf('name: Require isolated preview resource identities before any mutation')
     < workflow.indexOf('name: Initialize isolated preview D1'));
 });
+
+test('D1 and HTTP artifacts never publish raw preview response content', async () => {
+  const workflow = await readFile(new URL('../.github/workflows/deploy-candidate-preview.yml', import.meta.url), 'utf8');
+  const migrate = workflow.slice(workflow.indexOf('name: Initialize isolated preview D1'),
+    workflow.indexOf('name: Sanitize D1 migration diagnostic'));
+  const sanitize = workflow.slice(workflow.indexOf('name: Sanitize D1 migration diagnostic'),
+    workflow.indexOf('name: Upload sanitized D1 migration diagnostic'));
+  const http = workflow.slice(workflow.indexOf('name: Smoke test isolated preview HTTP'),
+    workflow.indexOf('name: Smoke all canonical UI surfaces'));
+  assert.doesNotMatch(migrate, /cat wrangler-d1-preview\\.log/);
+  assert.ok(sanitize.includes('GITHUB_STEP_SUMMARY'));
+  assert.ok(sanitize.includes('wrangler-d1-preview.sanitized.log'));
+  assert.doesNotMatch(http, /cat preview-headers\\.txt/);
+  assert.doesNotMatch(http, /head -c 1200 preview-root\\.html/);
+  assert.ok(http.includes('body_bytes='));
+  assert.ok(http.includes('html_received='));
+});
