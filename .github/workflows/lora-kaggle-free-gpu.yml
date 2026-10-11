@@ -110,6 +110,13 @@ jobs:
           SMOKE_ONLY="${INPUT_SMOKE_ONLY:-false}"
           MAX_STEPS="32"
           if [[ "$SMOKE_ONLY" == "true" ]]; then MAX_STEPS="1"; fi
+          KAGGLE_KERNEL_TIMEOUT_SECONDS="10800"
+          KAGGLE_MONITOR_GRACE_SECONDS="600"
+          if [[ "$SMOKE_ONLY" == "true" ]]; then
+            # A one-step diagnostic is bounded: never occupy free GPU for 3h.
+            KAGGLE_KERNEL_TIMEOUT_SECONDS="1800"
+            KAGGLE_MONITOR_GRACE_SECONDS="300"
+          fi
 
           [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "INVALID_SOURCE_SHA"; exit 1; }
           [[ "$CYCLE" =~ ^[0-9]+$ ]] || { echo "INVALID_CYCLE"; exit 1; }
@@ -129,6 +136,8 @@ jobs:
           echo "BENCHMARK_PREVIEW=$BENCHMARK_PREVIEW" >> "$GITHUB_ENV"
           echo "SMOKE_ONLY=$SMOKE_ONLY" >> "$GITHUB_ENV"
           echo "MAX_STEPS=$MAX_STEPS" >> "$GITHUB_ENV"
+          echo "KAGGLE_KERNEL_TIMEOUT_SECONDS=$KAGGLE_KERNEL_TIMEOUT_SECONDS" >> "$GITHUB_ENV"
+          echo "KAGGLE_MONITOR_GRACE_SECONDS=$KAGGLE_MONITOR_GRACE_SECONDS" >> "$GITHUB_ENV"
 
       - name: Checkout exact training SHA
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -551,7 +560,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          kaggle kernels push             -p artifacts/kaggle-kernel             --accelerator NvidiaTeslaT4             -t 10800
+          kaggle kernels push             -p artifacts/kaggle-kernel             --accelerator NvidiaTeslaT4             -t "$KAGGLE_KERNEL_TIMEOUT_SECONDS"
           echo "Submitted $KERNEL_REF cycle $CYCLE with internet disabled."
 
       - name: Trace Kaggle training submission
@@ -614,13 +623,10 @@ jobs:
           LAST_KAGGLE_LOG_BYTES=0
           mkdir -p artifacts
           : > artifacts/kaggle-live.log
-          # The Kaggle submission uses --timeout 10800 (3 hours). The old
-          # 300 x 30-second poll budget ended at ~2h40 while Kaggle still
-          # reported RUNNING, falsely failing a valid long GPU cycle.
-          # Monitor for the full kernel budget plus 10 minutes of API
-          # propagation, independently of variable status/log request times.
-          KAGGLE_KERNEL_TIMEOUT_SECONDS=10800
-          KAGGLE_MONITOR_GRACE_SECONDS=600
+          # Monitor the exact submitted kernel budget plus propagation grace.
+          # Smoke only: 30 min + 5 min. Normal training: 3h + 10 min.
+          [[ "$KAGGLE_KERNEL_TIMEOUT_SECONDS" =~ ^[0-9]+$ ]]
+          [[ "$KAGGLE_MONITOR_GRACE_SECONDS" =~ ^[0-9]+$ ]]
           MONITOR_DEADLINE_EPOCH=$(( $(date +%s) + KAGGLE_KERNEL_TIMEOUT_SECONDS + KAGGLE_MONITOR_GRACE_SECONDS ))
           for attempt in $(seq 1 450); do
             STATUS="$(kaggle kernels status "$KERNEL_REF" 2>&1 || true)"
@@ -685,7 +691,7 @@ jobs:
               mkdir -p artifacts/kaggle-error
               kaggle kernels output "$KERNEL_REF" -p artifacts/kaggle-error --force || true
               find artifacts/kaggle-error -type f -maxdepth 4 -print || true
-              if [[ "$CANCEL_RETRY_USED" == "0" ]]; then
+              if [[ "$CANCEL_RETRY_USED" == "0" && "$SMOKE_ONLY" != "true" ]]; then
                 echo "::warning title=Kaggle GPU run cancelled::Retrying the same immutable cycle once"
                 node - <<'NODE'
                 const fs=require('fs');
@@ -699,7 +705,7 @@ jobs:
                 kaggle kernels push \
                   -p artifacts/kaggle-kernel \
                   --accelerator NvidiaTeslaT4 \
-                  -t 10800
+                  -t "$KAGGLE_KERNEL_TIMEOUT_SECONDS"
                 sleep 30
                 continue
               fi
@@ -760,7 +766,7 @@ jobs:
             # Persist the specific cause in MEL before the generic terminal
             # FAILED record; no checkpoint or benchmark may be inferred.
             node .mel-trace-control/scripts/lora-daily-trace-client.mjs TRAINING_ERROR artifacts/lora-trace-timeout.json RUNNING || true
-            echo "KAGGLE_GPU_RUN_TIMEOUT: no terminal success observed within the full three-hour Kaggle kernel budget plus grace"
+            echo "KAGGLE_GPU_RUN_TIMEOUT: no terminal success observed within the configured Kaggle kernel budget plus grace"
             exit 1
           fi
 
@@ -1013,20 +1019,17 @@ jobs:
           gh workflow run lora-kaggle-free-gpu.yml             --repo "$GITHUB_REPOSITORY"             --ref main             -f source_sha="$SOURCE_SHA"             -f cycle="$NEXT_CYCLE"             -f parent_release_tag="$CHECKPOINT_TAG"             -f shard_size="$SHARD_SIZE"             -f max_cycles="$MAX_CYCLES"             -f benchmark_preview="$NEXT_BENCHMARK_PREVIEW"
           echo "Submitted next cycle: $NEXT_CYCLE (benchmark_preview=$NEXT_BENCHMARK_PREVIEW)"
 
-      - name: Finalize durable LoRA smoke trace
+      - name: Verify actual Kaggle one-step smoke evidence before recording success
         if: success() && env.SMOKE_ONLY == 'true'
         shell: bash
         run: |
           set -euo pipefail
-          node - <<'NODE'
-          const fs=require('fs');
-          const payload={
-            summary_fr:'Run LoRA smoke terminé volontairement après une étape optimiseur. Aucun checkpoint ni adaptateur n’est déclaré comme entraînement réussi.',
-            training:{steps:1,global_step:1,duration_seconds:0,smoke_only:true},
-            results:{tests:{single_optimizer_step:true},comparison:{summary:'Non applicable au smoke test.'}},
-          };
-          fs.writeFileSync('artifacts/lora-trace-smoke-final.json',JSON.stringify(payload,null,2)+'\n');
-          NODE
+          mkdir -p artifacts/kaggle-smoke-output
+          kaggle kernels output "$KERNEL_REF" -p artifacts/kaggle-smoke-output --force
+          # A terminal Kaggle status alone never proves an optimizer step.
+          node scripts/verify-kaggle-smoke-proof.mjs \
+            artifacts/kaggle-smoke-output "$SOURCE_SHA" "$CYCLE" \
+            artifacts/lora-trace-smoke-final.json
           node .mel-trace-control/scripts/lora-daily-trace-client.mjs SMOKE_COMPLETED artifacts/lora-trace-smoke-final.json SMOKE_COMPLETED
 
       - name: Finalize durable LoRA success trace
