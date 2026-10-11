@@ -73,6 +73,68 @@ jobs:
           echo "Critical candidate code bundle bytes: $BUNDLE_BYTES"
           echo "Representative code shard bytes: $SHARD_BYTES"
 
+      # D1 permissions and migrations must be verified before ANY preview
+      # Worker or R2 mutation. Otherwise a token lacking D1 edit access can
+      # replace the preview runtime and only then fail the migration.
+      # Never touch the production D1 database from this workflow.
+      - name: Initialize isolated preview D1
+        shell: bash
+        run: |
+          set +e
+          npx wrangler d1 migrations apply DB --env preview --remote \
+            > wrangler-d1-preview.log 2>&1
+          status=$?
+          {
+            echo '### Wrangler D1 preview'
+            echo '```text'
+            cat wrangler-d1-preview.log
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$status"
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Sanitize D1 migration diagnostic
+        if: always()
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import os
+          import re
+
+          raw = Path("wrangler-d1-preview.log")
+          clean = Path(os.environ["RUNNER_TEMP"]) / "wrangler-d1-preview.sanitized.log"
+          text = raw.read_text(encoding="utf-8", errors="replace") if raw.exists() else "D1 migration produced no log file.\n"
+
+          for name in ("CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID"):
+              value = os.environ.get(name, "")
+              if value:
+                  text = text.replace(value, f"[REDACTED_{name}]")
+
+          text = re.sub(r"(?i)(authorization\s*[:=]\s*bearer\s+)[^\s]+", r"\1[REDACTED]", text)
+          text = re.sub(r"(?i)((?:api[_ -]?token|access[_ -]?token|password|secret)\s*[:=]\s*)[^\s]+", r"\1[REDACTED]", text)
+          clean.write_text(text, encoding="utf-8")
+          if 'Authentication error [code: 10000]' in text:
+              print('PREVIEW_D1_API_TOKEN_PERMISSION_MISSING: grant only the preview database D1 edit permissions to the CI token.')
+              print('PREVIEW_D1_MUTATIONS_ABORTED: no R2 upload or Worker deployment should follow.')
+          else:
+              print('Preview D1 migration diagnostic:', "\n".join(text.splitlines()[-15:]))
+          PY
+
+      - name: Upload sanitized D1 migration diagnostic
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: preview-d1-migration-diagnostic-${{ github.sha }}
+          path: ${{ runner.temp }}/wrangler-d1-preview.sanitized.log
+          if-no-files-found: error
+          retention-days: 3
+
       - name: Upload exact-SHA critical MEL code bundle to preview R2
         shell: bash
         run: |
@@ -144,59 +206,6 @@ jobs:
         with:
           name: preview-deploy-diagnostic-${{ github.sha }}
           path: ${{ runner.temp }}/wrangler-preview.sanitized.log
-          if-no-files-found: error
-          retention-days: 3
-
-      - name: Initialize isolated preview D1
-        shell: bash
-        run: |
-          set +e
-          npx wrangler d1 migrations apply DB --env preview --remote \
-            > wrangler-d1-preview.log 2>&1
-          status=$?
-          {
-            echo '### Wrangler D1 preview'
-            echo '```text'
-            cat wrangler-d1-preview.log
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
-          exit "$status"
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-
-      - name: Sanitize D1 migration diagnostic
-        if: always()
-        shell: bash
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-          import os
-          import re
-
-          raw = Path("wrangler-d1-preview.log")
-          clean = Path(os.environ["RUNNER_TEMP"]) / "wrangler-d1-preview.sanitized.log"
-          text = raw.read_text(encoding="utf-8", errors="replace") if raw.exists() else "D1 migration produced no log file.\n"
-
-          for name in ("CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID"):
-              value = os.environ.get(name, "")
-              if value:
-                  text = text.replace(value, f"[REDACTED_{name}]")
-
-          text = re.sub(r"(?i)(authorization\s*[:=]\s*bearer\s+)[^\s]+", r"\1[REDACTED]", text)
-          text = re.sub(r"(?i)((?:api[_ -]?token|access[_ -]?token|password|secret)\s*[:=]\s*)[^\s]+", r"\1[REDACTED]", text)
-          clean.write_text(text, encoding="utf-8")
-          PY
-
-      - name: Upload sanitized D1 migration diagnostic
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
-        with:
-          name: preview-d1-migration-diagnostic-${{ github.sha }}
-          path: ${{ runner.temp }}/wrangler-d1-preview.sanitized.log
           if-no-files-found: error
           retention-days: 3
 
