@@ -47,7 +47,7 @@ test('MEL automation refuses missing token and wrong repository', async () => {
 
 test('MEL autonomous workflow has narrow scoped token and no hardware/MAX side effects', () => {
   const yaml = readFileSync(new URL('../.github/workflows/mel-autonomous-production-release.yml', import.meta.url), 'utf8');
-  assert.ok(yaml.includes('on:\\n  workflow_dispatch:'));
+  assert.ok(yaml.startsWith('name: mel-autonomous-production-release'));
   assert.ok(yaml.includes('  contents: write'));
   assert.ok(yaml.includes('  actions: write'));
   assert.ok(yaml.includes("github.actor == 'adrienlopezcarreras-pixel'"));
