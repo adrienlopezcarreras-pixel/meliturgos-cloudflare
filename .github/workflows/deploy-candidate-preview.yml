@@ -73,6 +73,38 @@ jobs:
           echo "Critical candidate code bundle bytes: $BUNDLE_BYTES"
           echo "Representative code shard bytes: $SHARD_BYTES"
 
+      - name: Require isolated preview resource identities before any mutation
+        shell: bash
+        env:
+          MEL_PREVIEW_D1_DATABASE_ID: ${{ vars.MEL_PREVIEW_D1_DATABASE_ID || secrets.MEL_PREVIEW_D1_DATABASE_ID }}
+          MEL_PREVIEW_R2_BUCKET: ${{ vars.MEL_PREVIEW_R2_BUCKET || secrets.MEL_PREVIEW_R2_BUCKET }}
+        run: |
+          set -euo pipefail
+          node --input-type=module - <<'NODE'
+          import fs from 'node:fs';
+          const config = JSON.parse(fs.readFileSync('wrangler.jsonc', 'utf8'));
+          const d1 = String(process.env.MEL_PREVIEW_D1_DATABASE_ID || '').trim();
+          const bucket = String(process.env.MEL_PREVIEW_R2_BUCKET || '').trim();
+          const uuid = /^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/i;
+          const productionD1 = config.d1_databases?.find(x => x.binding === 'DB');
+          const productionR2 = config.r2_buckets?.find(x => x.binding === 'MEDIA_BUCKET');
+          if (!uuid.test(d1) || d1.toLowerCase() === String(productionD1?.database_id || '').toLowerCase()) {
+            throw Error('PREVIEW_D1_ISOLATED_UUID_REQUIRED: set MEL_PREVIEW_D1_DATABASE_ID to the existing distinct preview D1 UUID in GitHub vars/secrets');
+          }
+          if (!/^[a-z0-9][a-z0-9-]{2,62}$/.test(bucket) || bucket === productionR2?.bucket_name) {
+            throw Error('PREVIEW_R2_ISOLATED_BUCKET_REQUIRED: set MEL_PREVIEW_R2_BUCKET to an existing bucket distinct from production');
+          }
+          config.env.preview.d1_databases = [{
+            binding: 'DB',
+            database_name: 'meliturgos-preview-db',
+            database_id: d1,
+          }];
+          config.env.preview.r2_buckets = [{ binding: 'MEDIA_BUCKET', bucket_name: bucket }];
+          fs.writeFileSync('wrangler.jsonc', JSON.stringify(config, null, 2) + '\n');
+          fs.appendFileSync(process.env.GITHUB_ENV, 'MEL_PREVIEW_R2_BUCKET=' + bucket + '\n');
+          console.log('PREVIEW_RESOURCES_ISOLATED: distinct D1 UUID and R2 bucket validated; no production resource identity reused.');
+          NODE
+
       # D1 permissions and migrations must be verified before ANY preview
       # Worker or R2 mutation. Otherwise a token lacking D1 edit access can
       # replace the preview runtime and only then fail the migration.
@@ -140,7 +172,7 @@ jobs:
         run: |
           set -euo pipefail
           REPO_KEY="${GITHUB_REPOSITORY//\//__}"
-          OBJECT_PATH="meliturgos-private-media/shardvault/code-critical/${REPO_KEY}/${GITHUB_SHA}.tar.gz"
+          OBJECT_PATH="${MEL_PREVIEW_R2_BUCKET}/shardvault/code-critical/${REPO_KEY}/${GITHUB_SHA}.tar.gz"
           npx wrangler r2 object put "$OBJECT_PATH" \
             --file mel-critical-code.tar.gz \
             --content-type application/gzip \
