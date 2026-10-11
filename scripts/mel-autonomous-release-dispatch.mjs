@@ -37,7 +37,7 @@ export async function requestAutonomousRelease({ token, fetchImpl = fetch, repo 
 
   // Workflow_dispatch runs use head_branch=main, while push runs use the
   // release branch. Scan recent runs across both events, not only release pushes.
-  const activeRunsRoute = '/actions/runs?per_page=100';
+  const activeRunsRoute = '/actions/workflows/deploy-cloudflare-release.yml/runs?per_page=100';
   assertNoActiveDeploy((await api(activeRunsRoute))?.workflow_runs);
   if (releaseSha !== mainSha) {
     // A non-force update rejects diverged refs; never rewrite deployed history.
