@@ -69,3 +69,12 @@ test('Graph response must contain an actual sites collection', async () => {
     code: 'PIPEDREAM_SHAREPOINT_GRAPH_RESPONSE_INVALID',
   });
 });
+
+test('SharePoint Graph read cannot be proven by a 200 response containing malformed site objects', async () => {
+  for (const value of [[null], ['not-a-site'], [{}], [{ id: '  ' }]]) {
+    const { fetcher } = mockFetcher({ value });
+    await assert.rejects(testPipedreamSharePointRead(config, 'owner', { fetcher }), {
+      code: 'PIPEDREAM_SHAREPOINT_GRAPH_RESPONSE_INVALID',
+    });
+  }
+});
