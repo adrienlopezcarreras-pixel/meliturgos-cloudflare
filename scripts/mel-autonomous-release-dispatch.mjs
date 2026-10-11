@@ -35,7 +35,9 @@ export async function requestAutonomousRelease({ token, fetchImpl = fetch, repo 
   const releaseSha = String(release?.commit?.sha || '');
   if (!SHA40.test(releaseSha)) throw new Error('RELEASE_SHA_INVALID');
 
-  const activeRunsRoute = '/actions/runs?branch=release%2Fmel-hardware-v0.1.0&per_page=100';
+  // Workflow_dispatch runs use head_branch=main, while push runs use the
+  // release branch. Scan recent runs across both events, not only release pushes.
+  const activeRunsRoute = '/actions/runs?per_page=100';
   assertNoActiveDeploy((await api(activeRunsRoute))?.workflow_runs);
   if (releaseSha !== mainSha) {
     // A non-force update rejects diverged refs; never rewrite deployed history.
