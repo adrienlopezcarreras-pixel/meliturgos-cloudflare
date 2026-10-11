@@ -82,3 +82,51 @@ test('only successful completed release workflows with the canonical release bra
   assert.ok(yaml.includes("github.event.workflow_run.conclusion == 'success'"));
   assert.ok(yaml.includes("github.event.workflow_run.head_branch == 'release/mel-hardware-v0.1.0'"));
 });
+
+test('unattended main-push deployments are opt-in and restricted to protected branches', () => {
+  const yaml = readFileSync(new URL('../.github/workflows/mel-autonomous-production-release.yml', import.meta.url), 'utf8');
+  assert.ok(yaml.includes('  push:'));
+  assert.ok(yaml.includes('      - main'));
+  assert.ok(yaml.includes("vars.MEL_AUTONOMOUS_MAIN_PUSH_ENABLED == 'true'"));
+  assert.ok(yaml.includes("github.ref == 'refs/heads/main'"));
+  assert.ok(yaml.includes("MEL_REQUIRE_PROTECTED_REFS: ${{ github.event_name == 'push' && 'true' || 'false' }}"));
+});
+
+test('unprotected main or release refuses unattended promotion before any mutation', async () => {
+  for (const pair of [[false, true], [true, false], [false, false]]) {
+    const requests = [];
+    const fetchImpl = async (url, options) => {
+      const path = new URL(url).pathname;
+      requests.push({ path, method: options.method });
+      if (path.endsWith('/branches/main'))
+        return { ok: true, status: 200, json: async () => ({ protected: pair[0], commit: { sha: MAIN_SHA } }) };
+      if (path.endsWith('/branches/' + RELEASE_BRANCH))
+        return { ok: true, status: 200, json: async () => ({ protected: pair[1], commit: { sha: OLD_SHA } }) };
+      throw new Error('MUTATION_ATTEMPTED_WITH_UNPROTECTED_BRANCH');
+    };
+    await assert.rejects(
+      () => requestAutonomousRelease({ token: 'TEST_ONLY', fetchImpl, requireProtectedRefs: true }),
+      /PROTECTED_MAIN_AND_RELEASE_BRANCHES_REQUIRED/,
+    );
+    assert.ok(requests.every(x => x.method === 'GET'));
+  }
+});
+
+test('both protected refs continue through existing exact-SHA and concurrency gates', async () => {
+  let reads = 0;
+  const fetchImpl = async (url, options) => {
+    const path = new URL(url).pathname;
+    reads += 1;
+    if (path.endsWith('/branches/main'))
+      return { ok: true, status: 200, json: async () => ({ protected: true, commit: { sha: MAIN_SHA } }) };
+    if (path.endsWith('/branches/' + RELEASE_BRANCH))
+      return { ok: true, status: 200, json: async () => ({ protected: true, commit: { sha: MAIN_SHA } }) };
+    if (path.endsWith('/actions/workflows/deploy-cloudflare-release.yml/runs'))
+      return { ok: true, status: 200, json: async () => ({ workflow_runs: [] }) };
+    throw new Error('UNEXPECTED_PRODUCTION_MUTATION:' + path);
+  };
+  const result = await requestAutonomousRelease({ token: 'TEST_ONLY', fetchImpl, requireProtectedRefs: true });
+  assert.equal(result.reason, 'ALREADY_CURRENT');
+  assert.equal(result.accepted, false);
+  assert.equal(reads, 3);
+});
