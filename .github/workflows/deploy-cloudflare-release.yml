@@ -43,7 +43,7 @@ jobs:
     env:
       RELEASE_BRANCH: ${{ github.event_name == 'workflow_dispatch' && inputs.release_branch || github.ref_name }}
       EXPECTED_SHA: ${{ github.event_name == 'workflow_dispatch' && inputs.expected_sha || github.sha }}
-      APPROVAL: ${{ github.event_name == 'workflow_dispatch' && inputs.approval || 'DEPLOY_APPROVED' }}
+      APPROVAL: ${{ github.event_name == 'workflow_dispatch' && inputs.approval || 'NOT_APPROVED' }}
       OWNER_MAX_AUTORELEASE: ${{ github.event_name == 'workflow_dispatch' && inputs.owner_max_autorelease && 'true' || 'false' }}
       # TEMPORARY DEV-LIGHT MODE: ShardVault 7/7/code-sync proof paused to finish downstream release validation.
       # MUST be restored to 'false' before final validation/closure.

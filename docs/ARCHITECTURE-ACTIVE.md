@@ -1,6 +1,6 @@
 # Gen2 — architecture active (source of truth)
 
-Entrypoint: `wrangler.jsonc` → `src/index.js` → `src/router.js` → `src/core/security.js`.
+Entrypoint configured in `wrangler.jsonc`: `src/visual-final-entry.js`. The earlier `src/index.js` chain is not the configured deploy entrypoint. Verify actual imports and routes separately before describing their runtime status.
 `/` and `/mvp` are served by `src/pages/mvp-interface.js`; validated contract: 401 without auth, 200 HTML with auth. `worker.js` is a compatibility dependency for APIs still being extracted, never an entrypoint or primary UI. `src/pages/index.html` and old routers are `LEGACY_DO_NOT_USE`.
 
 Ports use `src/core/contracts.js`: `method(input, context)`, fail-closed `NOT_IMPLEMENTED` without an injected adapter. D1 is `DB`; binaries are R2 `MEDIA_BUCKET`; AI is injected and mockable. Existing tables are reused; `migrations/0004_gen2_foundations.sql` is ADD-ONLY and was not applied to production.
