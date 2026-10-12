@@ -9,8 +9,7 @@ from pathlib import Path
 ESP_IMAGE_MAGIC = 0xE9
 ESP32S3_CHIP_ID = 9
 
-def inspect(path: Path):
-    blob = path.read_bytes()
+def inspect_bytes(blob: bytes, filename: str = '<memory>'):
     if len(blob) < 24 or blob[0] != ESP_IMAGE_MAGIC:
         raise ValueError("ESP_IMAGE_HEADER_INVALID")
     count = blob[1]
@@ -54,12 +53,15 @@ def inspect(path: Path):
     elif len(blob) != body_end:
         raise ValueError("ESP_IMAGE_TRAILING_DATA")
 
-    return {"file": path.name, "size_bytes": len(blob),
+    return {"file": filename, "size_bytes": len(blob),
             "sha256": hashlib.sha256(blob).hexdigest(),
             "chip_id": chip_id, "segment_count": count,
             "segments": segments, "checksum_valid": True,
             "embedded_sha256_valid": bool(appended),
             "structurally_valid": True, "flash_allowed": False}
+
+def inspect(path: Path):
+    return inspect_bytes(path.read_bytes(), path.name)
 
 def main():
     p = argparse.ArgumentParser(description=__doc__)
