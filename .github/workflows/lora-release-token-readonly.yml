@@ -39,6 +39,20 @@ jobs:
             console.log('LORA_RELEASE_PAT_AUTH='+String(identity===200?'VALID':identity===401?'REJECTED':'UNCONFIRMED'));
             console.log('LORA_RELEASE_PAT_REPOSITORY_READ='+String(repository===200?'GRANTED':'DENIED_OR_UNKNOWN'));
             console.log('LORA_RELEASE_HISTORICAL_TAG='+String(tag===404?'ABSENT':tag===200?'EXISTS':'UNCONFIRMED'));
+            // GET-only diagnostics: never print headers, credentials or any user data.
+            const repoRes=await fetch('https://api.github.com/repos/'+repo,{
+              method:'GET',headers,redirect:'error',signal:AbortSignal.timeout(15000),
+            });
+            if(repoRes.ok) {
+              const body=await repoRes.json();
+              const scope=body?.permissions;
+              console.log('LORA_RELEASE_PAT_REPO_PUSH_PERMISSION='+String(scope?.push===true?'TRUE':scope?.push===false?'FALSE':'NOT_REPORTED'));
+              console.log('LORA_RELEASE_PAT_REPO_ADMIN_PERMISSION='+String(scope?.admin===true?'TRUE':scope?.admin===false?'FALSE':'NOT_REPORTED'));
+            }
+            const releaseList=await check('/repos/'+repo+'/releases?per_page=1');
+            console.log('LORA_RELEASE_PAT_RELEASE_LIST_GET='+String(releaseList===200?'GRANTED':'DENIED_OR_UNKNOWN'));
+            const tagsList=await check('/repos/'+repo+'/git/matching-refs/tags/mel-lora-kaggle-635c4786b39b-c000');
+            console.log('LORA_RELEASE_PAT_MATCHING_TAGS_GET='+String(tagsList===200?'GRANTED':'DENIED_OR_UNKNOWN'));
             console.log('LORA_RELEASE_PAT_WORKFLOWS_WRITE_NOT_TESTABLE_WITH_READ_ONLY_CALLS');
             if(identity!==200||repository!==200||tag!==404)process.exitCode=1;
           }
