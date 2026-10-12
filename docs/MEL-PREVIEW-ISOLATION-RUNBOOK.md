@@ -63,3 +63,37 @@ It is sanitized before any job-summary excerpt or uploaded diagnostic. The
 preview HTTP artifact records only curl exit status, HTTP status and HTML byte
 presence/length, never response headers, cookies or HTML body excerpts.
 Missing expected diagnostics still fail when the producing stage actually ran.
+
+
+## 2026-10-12 — exact authorization diagnostic, no resource mutation
+
+Read-only owner-approved probe in PR #1256, Actions run `38306212764`:
+- `GET /user/tokens/verify`: `PREVIEW_CF_TOKEN_ACTIVE`.
+- `GET /accounts/{account_id}/d1/database?per_page=10000`: `PREVIEW_D1_LIST_ACCESS_DENIED`.
+- `GET /accounts/{account_id}/d1/database/{database_id}`: `PREVIEW_D1_ACCOUNT_OR_TOKEN_UNAUTHORIZED`.
+- Four offline tests of the D1 list probe passed independently in run `38306369222`.
+
+The token is **active**, but cannot list D1 databases at the configured account;
+the failed list does NOT establish that an individual database is absent or in
+the wrong account. The preview resource identities were discovered from the
+existing preview Worker settings; both explicit GitHub preview identity variables
+were empty in this diagnostic execution. This is an account-scoped D1
+permission/resource-assignment blocker, not a proven application-code defect.
+
+The owner must check, without copying credentials into issues or CI logs:
+1. Confirm the expected Cloudflare account is the account owning the isolated
+   preview database; do not switch the workflow to a production database.
+2. Configure a narrowly scoped token with account D1 Read for preflight and the
+   needed D1 Write access for actual preview migrations. Confirm that it applies
+   to the account of the existing preview database and does not reuse production
+   D1/R2 identities.
+3. Optionally set explicit `MEL_PREVIEW_D1_DATABASE_ID` and
+   `MEL_PREVIEW_R2_BUCKET` GitHub vars to their **existing preview** identities
+   (never production values), to avoid relying on Worker-setting discovery.
+4. First repeat **read-only** D1 list and single-base GET checks. Only after
+   those succeed, run the isolated preview migration and HTTP proof.
+5. Keep MAX off; do not promote PR #1228 or confuse contract-only CI with real
+   production capability/SharePoint validation.
+
+There is no safe code-only workaround for the Cloudflare permission refusal:
+fail closed, do not add a production fallback or broader default token scope.
