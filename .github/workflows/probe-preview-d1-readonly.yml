@@ -48,6 +48,7 @@ jobs:
           import fs from 'node:fs';
           import { resolvePreviewBindings } from './scripts/resolve-preview-bindings.mjs';
           import { checkPreviewD1Access } from './scripts/check-preview-d1-account.mjs';
+          import { probePreviewD1List } from './scripts/probe-preview-d1-list.mjs';
           const config=JSON.parse(fs.readFileSync('wrangler.jsonc', 'utf8'));
           let found;
           try {
@@ -63,6 +64,12 @@ jobs:
               console.log('PREVIEW_PROBE_PRODUCTION_RESOURCE_FORBIDDEN');
               process.exitCode=1;
             } else {
+              const listResult=await probePreviewD1List({
+                accountId:process.env.CLOUDFLARE_ACCOUNT_ID,
+                databaseId:found.d1,
+                apiToken:process.env.CLOUDFLARE_API_TOKEN,
+              });
+              console.log(listResult);
               const result=await checkPreviewD1Access({
                 accountId:process.env.CLOUDFLARE_ACCOUNT_ID,
                 databaseId:found.d1,
