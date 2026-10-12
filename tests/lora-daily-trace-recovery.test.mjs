@@ -27,7 +27,7 @@ weights=b'fixture-only-weights'
 config=b'{"peft_type":"LORA"}'
 hash_w=hashlib.sha256(weights).hexdigest()
 hash_c=hashlib.sha256(config).hexdigest()
-g.update(ADAPTER_SHA=hash_w, CONFIG_SHA=hash_c, ADAPTER_SIZE=len(weights), CONFIG_SIZE=len(config))
+g.update(ADAPTER_SHA=hash_w, CONFIG_SHA=hash_c, ADAPTER_SIZE=len(weights), CONFIG_SIZE=len(config), IMPACT_SHA=hashlib.sha256(b'{}').hexdigest())
 source=g['SOURCE_SHA']
 docs={
  'adapter_model.safetensors':weights,
@@ -60,6 +60,14 @@ with tempfile.TemporaryDirectory() as td:
   raise AssertionError('tampered adapter unexpectedly passed')
  except ValueError as exc:
   assert 'HASH_MISMATCH' in str(exc)
+ modified=dict(docs)
+ modified['local-impact-benchmark.json']=b'{"local_uncensored_gate":true}'
+ make(path,modified)
+ try:
+  verify(path)
+  raise AssertionError('tampered local impact evidence unexpectedly passed')
+ except ValueError as exc:
+  assert 'LOCAL_IMPACT_HASH_MISMATCH' in str(exc)
  modified=dict(docs)
  modified['../adapter_model.safetensors']=modified.pop('adapter_model.safetensors')
  make(path,modified)
