@@ -111,6 +111,22 @@ jobs:
       # Worker or R2 mutation. Otherwise a token lacking D1 edit access can
       # replace the preview runtime and only then fail the migration.
       # Never touch the production D1 database from this workflow.
+      - name: Verify isolated preview D1 account access (read-only)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          node --input-type=module <<'NODE'
+          import { checkPreviewD1Access } from './scripts/check-preview-d1-account.mjs';
+          const result = await checkPreviewD1Access({
+            accountId: process.env.CLOUDFLARE_ACCOUNT_ID,
+            databaseId: process.env.MEL_PREVIEW_D1_DATABASE_ID,
+            apiToken: process.env.CLOUDFLARE_API_TOKEN,
+          });
+          console.log(result.code);
+          if (!result.ok) process.exitCode = 1;
+          NODE
+
       - name: Initialize isolated preview D1
         id: preview_d1_migrate
         shell: bash
