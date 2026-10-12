@@ -75,6 +75,18 @@ jobs:
           set -euo pipefail
           test -n "${GH_TOKEN:-}" || { echo 'MEL_LORA_RELEASE_TOKEN_REQUIRED_WORKFLOWS_WRITE_FOR_HISTORICAL_SHA' >&2; exit 1; }
           TAG=mel-lora-kaggle-635c4786b39b-c000
+          # A pre-existing bare Git tag is as dangerous as a pre-existing
+          # Release: GitHub would silently ignore --target in that case.
+          TAG_HTTP="$(curl --silent --show-error --max-time 20 \
+            --output /dev/null --write-out '%{http_code}' \
+            --header "Accept: application/vnd.github+json" \
+            --header "Authorization: Bearer ${GH_TOKEN}" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/git/ref/tags/${TAG}")"
+          case "$TAG_HTTP" in
+            404) : ;;
+            200) echo 'CHECKPOINT_TAG_ALREADY_EXISTS_STOP' >&2; exit 1 ;;
+            *) echo "CHECKPOINT_TAG_PROBE_DENIED_OR_UNAVAILABLE_HTTP_${TAG_HTTP}" >&2; exit 1 ;;
+          esac
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             echo 'CHECKPOINT_RELEASE_ALREADY_EXISTS_NO_CLOBBER_CHECK_EXISTING_ASSET_MANUALLY' >&2
             exit 1
@@ -90,4 +102,24 @@ jobs:
               echo 'CHECKPOINT_DRAFT_RELEASE_CREATE_FAILED_CHECK_GITHUB_TOKEN_SCOPE_OR_REPO_POLICY' >&2
               exit 1
           fi
-          echo 'CHECKPOINT_DRAFT_RELEASE_CREATED_NO_PROMOTION'
+          # Prove an unpublished draft at the exact historical training SHA
+          # and exactly the two expected nonempty assets, without exposing URLs.
+          gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}" \
+            --jq '{draft, tag_name, target_commitish, assets: [.assets[] | {name, size}]}' \
+            | node -e '
+              let source="";
+              process.stdin.on("data", chunk => source += chunk);
+              process.stdin.on("end", () => {
+                const d = JSON.parse(source);
+                const wanted = new Set(["mel-lora-bundle.tar.gz", "checkpoint-draft-proof.json"]);
+                if (d.draft !== true || d.tag_name !== "mel-lora-kaggle-635c4786b39b-c000" ||
+                    d.target_commitish !== "635c4786b39b9c3a5458126d64ec7bb726a282e7" ||
+                    !Array.isArray(d.assets) || d.assets.length !== wanted.size ||
+                    d.assets.some(a => !wanted.has(a.name) || !Number.isInteger(a.size) || a.size < 1)) {
+                  console.error("CHECKPOINT_DRAFT_POSTCREATE_PROOF_FAILED");
+                  process.exitCode = 1;
+                } else {
+                  console.log("CHECKPOINT_DRAFT_RELEASE_AND_ASSETS_VERIFIED_NO_PROMOTION");
+                }
+              });
+            '
