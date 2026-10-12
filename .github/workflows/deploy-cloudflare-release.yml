@@ -18,6 +18,11 @@ on:
         description: Type DEPLOY_APPROVED to authorize the production mutation
         required: true
         type: string
+      autonomous_release:
+        description: Authorized MEL automation; requires exact latest main SHA and dedicated release pointer
+        required: false
+        default: false
+        type: boolean
       owner_max_autorelease:
         description: Re-enable MAX 100% automatically after a fully verified autonomous release
         required: false
@@ -43,7 +48,11 @@ jobs:
     env:
       RELEASE_BRANCH: ${{ github.event_name == 'workflow_dispatch' && inputs.release_branch || github.ref_name }}
       EXPECTED_SHA: ${{ github.event_name == 'workflow_dispatch' && inputs.expected_sha || github.sha }}
-      APPROVAL: ${{ github.event_name == 'workflow_dispatch' && inputs.approval || 'DEPLOY_APPROVED' }}
+      APPROVAL: ${{ github.event_name == 'workflow_dispatch' && inputs.approval || 'NOT_APPROVED' }}
+      # Owner-authorized autonomous policy: a push of the dedicated release pointer
+      # is permitted only after the exact-SHA and canonical-main gates below.
+      AUTONOMOUS_RELEASE_POLICY: 'enabled'
+      AUTONOMOUS_DISPATCH: ${{ github.event_name == 'workflow_dispatch' && inputs.autonomous_release && 'true' || 'false' }}
       OWNER_MAX_AUTORELEASE: ${{ github.event_name == 'workflow_dispatch' && inputs.owner_max_autorelease && 'true' || 'false' }}
       # TEMPORARY DEV-LIGHT MODE: ShardVault 7/7/code-sync proof paused to finish downstream release validation.
       # MUST be restored to 'false' before final validation/closure.
@@ -56,7 +65,22 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$APPROVAL" = "DEPLOY_APPROVED"
+          if [ "$GITHUB_EVENT_NAME" = "push" ]; then
+            test "$AUTONOMOUS_RELEASE_POLICY" = "enabled"
+            test "$GITHUB_REF" = "refs/heads/release/mel-hardware-v0.1.0"
+            echo "Autonomous release policy authorized for dedicated release pointer."
+          elif [ "$AUTONOMOUS_DISPATCH" = "true" ]; then
+            test "$AUTONOMOUS_RELEASE_POLICY" = "enabled"
+            test "$APPROVAL" = "AUTONOMOUS_POLICY"
+            test "$RELEASE_BRANCH" = "release/mel-hardware-v0.1.0"
+            case "$GITHUB_ACTOR" in
+              adrienlopezcarreras-pixel|github-actions\[bot\]) ;;
+              *) echo "::error title=Autonomous dispatch denied::Unrecognized release identity"; exit 2 ;;
+            esac
+            echo "Autonomous workflow_dispatch accepted; exact current main SHA is mandatory."
+          else
+            test "$APPROVAL" = "DEPLOY_APPROVED"
+          fi
           case "$RELEASE_BRANCH" in
             release/*) ;;
             *) echo "release_branch must start with release/"; exit 2 ;;
@@ -80,6 +104,10 @@ jobs:
           test "$RELEASE_SHA" = "$EXPECTED_SHA"
           git fetch origin main
           SOURCE_SHA="$(git rev-parse FETCH_HEAD)"
+          if { [ "$GITHUB_EVENT_NAME" = "push" ] || [ "$AUTONOMOUS_DISPATCH" = "true" ]; } && [ "$SOURCE_SHA" != "$EXPECTED_SHA" ]; then
+            echo "::error title=Autonomous release rejected::Automatic releases must deploy the exact current main SHA."
+            exit 2
+          fi
           if [ "$SOURCE_SHA" != "$EXPECTED_SHA" ]; then
             CANONICAL_MAIN_SHA=""
             if git merge-base --is-ancestor "$EXPECTED_SHA" "$SOURCE_SHA"; then
@@ -807,45 +835,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          BASE_URL="https://meliturgos.adrien-lopezcarreras.workers.dev"
           test -s release-bootstrap-token.txt
-          BOOTSTRAP_TOKEN="$(cat release-bootstrap-token.txt)"
-          echo "::add-mask::${BOOTSTRAP_TOKEN}"
-
-          MEDIA_READY=0
-          for ATTEMPT in 1 2 3; do
-            MEDIA_CODE="$(curl --silent --show-error --max-time 300 \
-              --header "x-mel-launch-bootstrap: ${BOOTSTRAP_TOKEN}" \
-              --header "content-type: application/json" \
-              --data '{"phase":"media-proof"}' \
-              --output mel-media-02-production-proof.json \
-              --write-out '%{http_code}' \
-              "${BASE_URL}/api/internal/release-launch-bootstrap" || true)"
-            if [ "${MEDIA_CODE}" = "200" ] && EXPECTED_SHA="${EXPECTED_SHA}" node - <<'NODE'
-          const d=require('./mel-media-02-production-proof.json');
-          const expected=String(process.env.EXPECTED_SHA||'').toLowerCase();
-          if(d?.ok!==true) process.exit(1);
-          if(d?.status!=='MEL_MEDIA_02_DONE_VERIFIED_ELIGIBLE'||d?.done_verified_eligible!==true) process.exit(1);
-          if(String(d?.source_sha||'').toLowerCase()!==expected||String(d?.deployed_sha||'').toLowerCase()!==expected) process.exit(1);
-          if(Number(d?.capability_count)!==12) process.exit(1);
-          if(!Array.isArray(d?.required_capabilities)||d.required_capabilities.length!==12) process.exit(1);
-          if(!Array.isArray(d?.executions)||d.executions.length!==12||d.executions.some(row=>row?.ok!==true||row?.zero_added_cost!==true)) process.exit(1);
-          if(d?.all_executions_zero_added_cost!==true) process.exit(1);
-          if(d?.secret_values_exposed!==false||d?.autonomy_started!==false) process.exit(1);
-          NODE
-            then
-              MEDIA_READY=1
-              break
-            fi
-            echo "MEL-MEDIA-02 live proof attempt ${ATTEMPT}/3 returned HTTP ${MEDIA_CODE}."
-            test ! -s mel-media-02-production-proof.json || cat mel-media-02-production-proof.json
-            sleep $((ATTEMPT * 3))
-          done
-          if [ "${MEDIA_READY}" != "1" ]; then
-            echo "MEL-MEDIA-02 exact-SHA 12/12 production proof failed."
-            exit 58
-          fi
-          echo "MEL-MEDIA-02 exact-SHA 12/12 live proof passed."
+          # Use the same token that was proven at the immediate exact-SHA
+          # identity gate. Cloudflare isolates can briefly retain an old
+          # secret during rollout: only known 401 BOOTSTRAP_AUTH_REQUIRED
+          # gets a bounded propagation retry, everything else fails closed.
+          node scripts/prove-media-02-release.mjs
 
       - name: Upload MEL-MEDIA-02 exact-SHA evidence
         if: always()

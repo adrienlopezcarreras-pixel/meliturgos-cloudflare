@@ -51,6 +51,8 @@ jobs:
           node --test
           tests/lora-daily-trace.test.mjs
           tests/lora-daily-trace-workflow-contract.test.mjs
+          tests/lora-daily-trace-kaggle-smoke.test.mjs
+          tests/lora-daily-trace-parent-archive.test.mjs
           tests/lora-training-heartbeat.test.mjs
       - name: Normalize branch for candidate-only integration tests
         shell: bash

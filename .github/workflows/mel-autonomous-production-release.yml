@@ -1,0 +1,52 @@
+name: mel-autonomous-production-release
+
+# A narrow MEL entrypoint. The GitHub Actions GITHUB_TOKEN cannot trigger
+# another workflow by pushing a ref; the Node script dispatches production
+# explicitly after a verified, non-forced release-pointer update.
+on:
+  # Owner-authorized, protection-gated reconciliation of new main commits.
+  # Push-triggered releases require real GitHub protection on both refs;
+  # the dispatch script enforces these safeguards before any mutation.
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - 'docs/**'
+      - '**/*.md'
+  workflow_dispatch:
+  # After a fully successful production release, reconcile later main commits.
+  # Failed/cancelled releases cannot start another deploy.
+  workflow_run:
+    workflows:
+      - deploy-cloudflare-release
+    types:
+      - completed
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: mel-autonomous-production-release-promotion
+  cancel-in-progress: false
+
+jobs:
+  promote-and-dispatch:
+    if: ${{ (github.actor == 'adrienlopezcarreras-pixel' || github.actor == 'github-actions[bot]') && (github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'release/mel-hardware-v0.1.0')) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout canonical main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: main
+          persist-credentials: false
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '22'
+      - name: Authorize and dispatch MEL autonomous release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MEL_REQUIRE_PROTECTED_REFS: ${{ github.event_name == 'push' && 'true' || 'false' }}
+        run: node scripts/mel-autonomous-release-dispatch.mjs

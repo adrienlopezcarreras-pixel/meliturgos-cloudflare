@@ -289,6 +289,60 @@ def ensure_dependencies():
             + ",".join(sorted(import_failures))
         )
 
+def unpack_parent_archive(archive: Path, destination: Path) -> None:
+    """Fail closed on unexpected parent artifacts before writing any files.
+
+    All canonical MEL bundles contain a small flat set of regular files.
+    Never trust TarFile.extractall on an artifact fetched from a release.
+    """
+    allowed = {
+        "adapter_model.safetensors",
+        "adapter_config.json",
+        "training-evidence.json",
+        "training-started.json",
+        "training-progress.jsonl",
+        "artifact-evidence.json",
+        "lora-plan.json",
+        "dataset-metadata.json",
+        "shard-metadata.json",
+        "local-impact-benchmark.json",
+        "kaggle-run.json",
+    }
+    max_file_bytes = 512 * 1024 * 1024
+    max_total_bytes = 1024 * 1024 * 1024
+    with tarfile.open(archive, "r:gz") as tar:
+        members = tar.getmembers()
+        if not members or len(members) > len(allowed):
+            raise SystemExit("KAGGLE_PARENT_ARCHIVE_MEMBER_COUNT_INVALID")
+        seen = set()
+        total = 0
+        for item in members:
+            name = item.name
+            if (
+                name not in allowed
+                or "/" in name
+                or "\\" in name
+                or name in seen
+                or not item.isfile()
+            ):
+                raise SystemExit("KAGGLE_PARENT_ARCHIVE_UNSAFE_MEMBER")
+            if item.size <= 0 or item.size > max_file_bytes:
+                raise SystemExit("KAGGLE_PARENT_ARCHIVE_MEMBER_SIZE_INVALID")
+            total += item.size
+            if total > max_total_bytes:
+                raise SystemExit("KAGGLE_PARENT_ARCHIVE_TOTAL_SIZE_EXCEEDED")
+            seen.add(name)
+
+        destination.mkdir(parents=True, exist_ok=True)
+        for item in members:
+            source = tar.extractfile(item)
+            if source is None:
+                raise SystemExit("KAGGLE_PARENT_ARCHIVE_EXTRACT_FAILED")
+            # x mode refuses to clobber a previous extraction or symlink.
+            with source, (destination / item.name).open("xb") as target:
+                shutil.copyfileobj(source, target)
+
+
 def extract_parent(payload: Path) -> str | None:
     payload_meta_path = _payload_file(payload, "payload.json")
     payload_meta = {}
@@ -305,15 +359,31 @@ def extract_parent(payload: Path) -> str | None:
 
     PARENT.mkdir(parents=True, exist_ok=True)
     if archive and archive.is_file():
-        with tarfile.open(archive, "r:gz") as tar:
-            tar.extractall(PARENT)
+        unpack_parent_archive(archive, PARENT)
     elif expanded is not None:
+        # Expanded Kaggle sources use the same root-only allowlist and cannot
+        # inject symlinks, hidden folders, or arbitrary files into workdir.
+        if expanded.is_symlink():
+            raise SystemExit("KAGGLE_PARENT_EXPANDED_SYMLINK_FORBIDDEN")
+        allowed = {
+            "adapter_model.safetensors", "adapter_config.json",
+            "training-evidence.json", "training-started.json",
+            "training-progress.jsonl", "artifact-evidence.json",
+            "lora-plan.json", "dataset-metadata.json", "shard-metadata.json",
+            "local-impact-benchmark.json", "kaggle-run.json",
+        }
         for source in expanded.rglob("*"):
+            if source.is_symlink():
+                raise SystemExit("KAGGLE_PARENT_EXPANDED_SYMLINK_FORBIDDEN")
             if not source.is_file():
                 continue
-            target = PARENT / source.relative_to(expanded)
-            target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(source, target)
+            name = source.relative_to(expanded).as_posix()
+            if name not in allowed or source.stat().st_size > 512 * 1024 * 1024:
+                raise SystemExit("KAGGLE_PARENT_EXPANDED_UNSAFE_MEMBER")
+            target = PARENT / name
+            # Use exclusive creation rather than overwriting a prior file.
+            with source.open("rb") as data, target.open("xb") as output:
+                shutil.copyfileobj(data, output)
     elif parent_expected:
         available = sorted(str(p.relative_to(payload)) for p in payload.rglob("*") if p.is_file())[:200]
         print(json.dumps({
@@ -411,7 +481,54 @@ def main():
     run(cmd)
     print(json.dumps({"status":"TRAINING_COMMAND_DONE","global_smoke":SMOKE_ONLY,"max_steps":CYCLE_MAX_STEPS}), flush=True)
     if SMOKE_ONLY:
-        print(json.dumps({"status":"KAGGLE_SINGLE_STEP_SMOKE_PASSED","max_steps":CYCLE_MAX_STEPS}), flush=True)
+        # A completed Python process is not a measured optimizer step.
+        # Only Kaggle-side Trainer evidence and STEP records can authorize a
+        # smoke-success claim. Publish the proof as a /kaggle/working output.
+        evidence_file = OUTPUT / "training-evidence.json"
+        started_file = OUTPUT / "training-started.json"
+        progress_file = OUTPUT / "training-progress.jsonl"
+        if not all(p.is_file() and p.stat().st_size > 0 for p in (
+            evidence_file, started_file, progress_file,
+        )):
+            raise SystemExit("KAGGLE_SMOKE_TRAINING_EVIDENCE_MISSING")
+        evidence = json.loads(evidence_file.read_text(encoding="utf-8"))
+        started = json.loads(started_file.read_text(encoding="utf-8"))
+        progress = [
+            json.loads(line)
+            for line in progress_file.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+        metrics = evidence.get("training_metrics") or {}
+        steps = int(metrics.get("global_step") or 0)
+        optimizer_steps = [
+            int(row.get("global_step") or 0)
+            for row in progress if row.get("event") == "STEP"
+        ]
+        if CYCLE_MAX_STEPS != 1 or steps != 1 or 1 not in optimizer_steps:
+            raise SystemExit("KAGGLE_SMOKE_OPTIMIZER_STEP_NOT_PROVEN")
+        if started.get("cuda_available") is not True or not started.get("gpu"):
+            raise SystemExit("KAGGLE_SMOKE_REAL_GPU_NOT_PROVEN")
+        if int(started.get("max_steps") or 0) != 1:
+            raise SystemExit("KAGGLE_SMOKE_MAX_STEPS_MISMATCH")
+        proof = {
+            "schema": "mel.kaggle-real-smoke-proof/v1",
+            "status": "KAGGLE_SINGLE_STEP_SMOKE_PASSED",
+            "source_sha": TARGET_SHA,
+            "cycle": CYCLE,
+            "global_step": steps,
+            "optimizer_step_events": optimizer_steps,
+            "gpu": started["gpu"],
+            "cuda_available": True,
+            "train_loss": metrics.get("train_loss"),
+            "training_evidence_sha256": sha256_file(evidence_file),
+            "training_progress_sha256": sha256_file(progress_file),
+            "benchmark_verified": False,
+            "adapter_activated": False,
+        }
+        (WORK / "kaggle-smoke-proof.json").write_text(
+            json.dumps(proof, indent=2) + "\n", encoding="utf-8"
+        )
+        print(json.dumps(proof, ensure_ascii=False), flush=True)
         return
 
     impact_path = OUTPUT / "local-impact-benchmark.json"
