@@ -5,8 +5,8 @@ import json
 import struct
 from pathlib import Path
 
-ENTRY_MAGIC = b"\\xaa\\x50"
-MD5_MAGIC = b"\\xeb\\xeb"
+ENTRY_MAGIC = b"\xaa\x50"
+MD5_MAGIC = b"\xeb\xeb"
 ENTRY_SIZE = 32
 
 def inspect(data: bytes):
@@ -16,14 +16,14 @@ def inspect(data: bytes):
     seen = set()
     for pos in range(0, len(data), ENTRY_SIZE):
         entry = data[pos:pos + ENTRY_SIZE]
-        if entry == b"\\xff" * ENTRY_SIZE:
+        if entry == b"\xff" * ENTRY_SIZE:
             break
         if entry[:2] == MD5_MAGIC:
             break
         if entry[:2] != ENTRY_MAGIC:
             raise ValueError("PARTITION_TABLE_MAGIC_INVALID")
         _magic, kind, subtype, offset, size, label, flags = struct.unpack("<2sBBII16sI", entry)
-        name = label.split(b"\\x00", 1)[0].decode("ascii", "strict")
+        name = label.split(b"\x00", 1)[0].decode("ascii", "strict")
         if not name or size == 0 or offset % 4096 or size % 4096:
             raise ValueError("PARTITION_ENTRY_INVALID")
         if offset + size > 0x100000000:
