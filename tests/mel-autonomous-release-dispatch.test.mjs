@@ -83,11 +83,11 @@ test('only successful completed release workflows with the canonical release bra
   assert.ok(yaml.includes("github.event.workflow_run.head_branch == 'release/mel-hardware-v0.1.0'"));
 });
 
-test('unattended main-push deployments are opt-in and restricted to protected branches', () => {
+test('unattended main-push deployments require protected branches', () => {
   const yaml = readFileSync(new URL('../.github/workflows/mel-autonomous-production-release.yml', import.meta.url), 'utf8');
   assert.ok(yaml.includes('  push:'));
   assert.ok(yaml.includes('      - main'));
-  assert.ok(yaml.includes("vars.MEL_AUTONOMOUS_MAIN_PUSH_ENABLED == 'true'"));
+  assert.ok(!yaml.includes("vars.MEL_AUTONOMOUS_MAIN_PUSH_ENABLED == 'true'"));
   assert.ok(yaml.includes("github.ref == 'refs/heads/main'"));
   assert.ok(yaml.includes("MEL_REQUIRE_PROTECTED_REFS: ${{ github.event_name == 'push' && 'true' || 'false' }}"));
 });
