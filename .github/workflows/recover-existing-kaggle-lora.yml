@@ -2,6 +2,11 @@ name: Recover existing Kaggle LoRA checkpoint (no GPU)
 
 on:
   workflow_dispatch:
+    inputs:
+      kernel_version:
+        description: 'Optional immutable Kaggle kernel version (digits only); blank uses latest'
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -24,12 +29,18 @@ jobs:
         shell: bash
         env:
           KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+          KAGGLE_KERNEL_VERSION: ${{ inputs.kernel_version }}
         run: |
           set -euo pipefail
           test -n "${KAGGLE_API_TOKEN:-}" || { echo "KAGGLE_API_TOKEN_REQUIRED"; exit 1; }
           python -m pip install -q kaggle
           mkdir -p artifacts/kaggle-recovery
-          kaggle kernels output adrienlopezcarreras/mel-lora-uncensored-notebook-t4 \
+          REF=adrienlopezcarreras/mel-lora-uncensored-notebook-t4
+          if [[ -n "${KAGGLE_KERNEL_VERSION:-}" ]]; then
+            [[ "$KAGGLE_KERNEL_VERSION" =~ ^[0-9]{1,8}$ ]] || { echo 'RECOVERY_KERNEL_VERSION_INVALID'; exit 1; }
+            REF="${REF}/${KAGGLE_KERNEL_VERSION}"
+          fi
+          kaggle kernels output "$REF" \
             -p artifacts/kaggle-recovery --force
           python - <<'PY'
           from pathlib import Path
