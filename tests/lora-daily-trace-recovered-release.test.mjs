@@ -33,6 +33,12 @@ test('creates at most a private draft and cannot deploy or overwrite assets',()=
   assert.match(yaml, /GH_TOKEN: \$\{\{ secrets\.MEL_LORA_RELEASE_TOKEN \}\}/);
   assert.match(yaml, /GH_TOKEN: \$\{\{ github\.token \}\}/);
   assert.doesNotMatch(yaml, /secrets\.MEL_LORA_RELEASE_TOKEN\s*\|\|\s*github\.token/);
+  assert.match(yaml, /CHECKPOINT_TAG_ALREADY_EXISTS_STOP/);
+  assert.match(yaml, /git\/ref\/tags\/\$\{TAG\}/);
+  assert.match(yaml, /CHECKPOINT_TAG_PROBE_DENIED_OR_UNAVAILABLE_HTTP_/);
+  assert.match(yaml, /CHECKPOINT_DRAFT_POSTCREATE_PROOF_FAILED/);
+  assert.match(yaml, /CHECKPOINT_DRAFT_RELEASE_AND_ASSETS_VERIFIED_NO_PROMOTION/);
+  assert.match(yaml, /new Set\(d\.assets\.map\(a => a\.name\)\)\.size/);
 });
 
 test('original Kaggle training chain also protects historical release with a dedicated token',()=>{
