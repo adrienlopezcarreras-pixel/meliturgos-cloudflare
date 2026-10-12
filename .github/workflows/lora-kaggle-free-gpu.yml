@@ -958,6 +958,26 @@ jobs:
           print(json.dumps(result,indent=2))
           PY
 
+      # The six-case local gate is separate from the canonical preview gate.
+      # Never upload or activate a locally rejected adapter just because the
+      # preview/benchmark flag was requested.
+      - name: Require local quality gate before Cloudflare preview mutation
+        if: env.SMOKE_ONLY != 'true' && env.BENCHMARK_PREVIEW == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          run=json.loads(Path('artifacts/kaggle-run.json').read_text())
+          impact=json.loads(Path('artifacts/lora-incoming/local-impact-benchmark.json').read_text())
+          if (run.get('local_uncensored_gate') is not True or
+              impact.get('local_uncensored_gate') is not True or
+              impact.get('candidate',{}).get('metrics',{}).get('uncensored_gate') is not True):
+              raise SystemExit('MEL_LOCAL_IMPACT_GATE_NOT_PASSED_BEFORE_PREVIEW')
+          print('MEL_LOCAL_IMPACT_GATE_PROVEN_CANONICAL_BENCHMARK_STILL_REQUIRED')
+          PY
+
       - name: Upload adapter to Cloudflare open-beta LoRA
         if: env.SMOKE_ONLY != 'true' && env.BENCHMARK_PREVIEW == 'true'
         shell: bash
