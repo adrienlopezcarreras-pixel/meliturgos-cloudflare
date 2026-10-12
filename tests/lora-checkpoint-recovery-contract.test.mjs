@@ -16,3 +16,13 @@ test('verified LoRA weights are preserved as an Actions artifact before GitHub R
   assert.match(section, /retention-days: 30/);
   assert.doesNotMatch(section, /activate true|gh release create/);
 });
+
+test('immutable LoRA release cannot be clobbered on duplicate tag', () => {
+  const yaml = readFileSync('.github/workflows/lora-kaggle-free-gpu.yml', 'utf8');
+  const start = yaml.indexOf('- name: Save immutable checkpoint release');
+  const end = yaml.indexOf('- name: Create zero-cost training result', start);
+  assert.ok(start >= 0 && end > start);
+  const step = yaml.slice(start, end);
+  assert.match(step, /LORA_CHECKPOINT_RELEASE_ALREADY_EXISTS/);
+  assert.doesNotMatch(step, /gh release upload|--clobber/);
+});
