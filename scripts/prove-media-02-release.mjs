@@ -75,7 +75,7 @@ export async function proveMedia02({
           'cache-control': 'no-store',
         },
         body: JSON.stringify({ phase: 'media-proof' }),
-        signal: AbortSignal.timeout(90000),
+        signal: AbortSignal.timeout(300000), // Preserve the prior per-request 5-minute budget for 12 sequential capabilities.
       });
       status = response.status;
       try { body = await response.json(); } catch { body = null; }
