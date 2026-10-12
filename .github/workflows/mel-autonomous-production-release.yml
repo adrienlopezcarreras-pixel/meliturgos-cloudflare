@@ -5,8 +5,8 @@ name: mel-autonomous-production-release
 # explicitly after a verified, non-forced release-pointer update.
 on:
   # Owner-authorized, protection-gated reconciliation of new main commits.
-  # Repository variable MEL_AUTONOMOUS_MAIN_PUSH_ENABLED must be 'true';
-  # the script also checks actual GitHub branch protection before mutation.
+  # Push-triggered releases require real GitHub protection on both refs;
+  # the dispatch script enforces these safeguards before any mutation.
   push:
     branches:
       - main
@@ -32,7 +32,7 @@ concurrency:
 
 jobs:
   promote-and-dispatch:
-    if: ${{ (github.actor == 'adrienlopezcarreras-pixel' || github.actor == 'github-actions[bot]') && (github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.MEL_AUTONOMOUS_MAIN_PUSH_ENABLED == 'true') || (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'release/mel-hardware-v0.1.0')) }}
+    if: ${{ (github.actor == 'adrienlopezcarreras-pixel' || github.actor == 'github-actions[bot]') && (github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'release/mel-hardware-v0.1.0')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
