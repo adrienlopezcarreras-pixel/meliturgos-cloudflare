@@ -1,0 +1,14 @@
+{
+  "version": "0.6.14",
+  "status": "OTA_CANDIDATE_UNFLASHED",
+  "source": "User-provided candidate image; verified byte-for-byte against Windows USB ZIP",
+  "file": "mel-mini-0.6.14.bin",
+  "size_bytes": 1938560,
+  "sha256": "64e6ccd53bd28395eba50323b45e296db69c5d4c07499526e86d334fe2f244b3",
+  "chip": "esp32s3",
+  "chip_id": 9,
+  "segment_count": 6,
+  "embedded_sha256_valid": true,
+  "partition_table_verified_on_device": false,
+  "flash_allowed": false
+}
