@@ -1,0 +1,56 @@
+name: Recover existing Kaggle LoRA checkpoint (no GPU)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mel-lora-checkpoint-recovery-c000
+  cancel-in-progress: false
+
+jobs:
+  recover-existing:
+    runs-on: ubuntu-24.04
+    environment: preview
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.11"
+      - name: Download existing completed Kaggle kernel output (read-only)
+        shell: bash
+        env:
+          KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "${KAGGLE_API_TOKEN:-}" || { echo "KAGGLE_API_TOKEN_REQUIRED"; exit 1; }
+          python -m pip install -q kaggle
+          mkdir -p artifacts/kaggle-recovery
+          kaggle kernels output adrienlopezcarreras/mel-lora-uncensored-notebook-t4 \
+            -p artifacts/kaggle-recovery --force
+          python - <<'PY'
+          from pathlib import Path
+          files=list(Path('artifacts/kaggle-recovery').rglob('mel-lora-bundle.tar.gz'))
+          if len(files)!=1 or not files[0].is_file():
+              raise SystemExit('RECOVERY_SINGLE_EXISTING_BUNDLE_REQUIRED')
+          path=Path('artifacts/mel-lora-bundle.tar.gz')
+          path.write_bytes(files[0].read_bytes())
+          PY
+      - name: Verify exact existing training output before retaining
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/verify-existing-kaggle-lora-bundle.py artifacts/mel-lora-bundle.tar.gz \
+            | tee artifacts/existing-lora-recovery-proof.json
+      - name: Retain verified checkpoint (no activation)
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: mel-lora-c000-existing-verified-checkpoint
+          path: |
+            artifacts/mel-lora-bundle.tar.gz
+            artifacts/existing-lora-recovery-proof.json
+          if-no-files-found: error
+          retention-days: 30
