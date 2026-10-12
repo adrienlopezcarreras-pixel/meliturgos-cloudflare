@@ -6,6 +6,8 @@ on:
       - 'tests/mini-partition-python-fixtures.test.mjs'
       - 'tests/mini-local-readonly-preflight.test.mjs'
       - 'tools/mini-updater/local_readonly_preflight.py'
+      - 'tools/mini-updater/inspect_image.py'
+      - 'tests/mini-firmware-image-preflight.test.mjs'
       - '.github/workflows/mini-partition-preflight-ci.yml'
   push:
     branches: [main]
@@ -14,6 +16,8 @@ on:
       - 'tests/mini-partition-python-fixtures.test.mjs'
       - 'tests/mini-local-readonly-preflight.test.mjs'
       - 'tools/mini-updater/local_readonly_preflight.py'
+      - 'tools/mini-updater/inspect_image.py'
+      - 'tests/mini-firmware-image-preflight.test.mjs'
       - '.github/workflows/mini-partition-preflight-ci.yml'
 permissions:
   contents: read
@@ -30,6 +34,6 @@ jobs:
         with:
           python-version: '3.11'
       - run: python3 -m py_compile tools/mini-updater/inspect_partitions.py
-      - run: python3 -m py_compile tools/mini-updater/local_readonly_preflight.py
+      - run: python3 -m py_compile tools/mini-updater/local_readonly_preflight.py tools/mini-updater/inspect_image.py
       - run: python3 tools/mini-updater/local_readonly_preflight.py --help
-      - run: node --test tests/mini-partition-python-fixtures.test.mjs tests/mini-local-readonly-preflight.test.mjs
+      - run: node --test tests/mini-partition-python-fixtures.test.mjs tests/mini-local-readonly-preflight.test.mjs tests/mini-firmware-image-preflight.test.mjs
