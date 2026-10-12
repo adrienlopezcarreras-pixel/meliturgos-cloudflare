@@ -20,8 +20,10 @@ def inspect(data: bytes):
         if entry == b"\xff" * ENTRY_SIZE:
             break
         if entry[:2] == MD5_MAGIC:
-            if entry[2:16] != bytes(14) or entry[16:32] != hashlib.md5(data[:pos]).digest():
+            if entry[2:16] not in (bytes(14), b"\xff" * 14) or entry[16:32] != hashlib.md5(data[:pos]).digest():
                 raise ValueError("PARTITION_TABLE_MD5_INVALID")
+            if any(byte != 0xff for byte in data[pos + ENTRY_SIZE:]):
+                raise ValueError("PARTITION_TABLE_TRAILING_DATA")
             break
         if entry[:2] != ENTRY_MAGIC:
             raise ValueError("PARTITION_TABLE_MAGIC_INVALID")
