@@ -6,6 +6,8 @@ import { spawnSync } from 'node:child_process';
 test('existing LoRA recovery never submits Kaggle GPU, deploys, or activates', () => {
   const text = readFileSync('.github/workflows/recover-existing-kaggle-lora.yml', 'utf8');
   assert.match(text, /workflow_dispatch:/);
+  assert.match(text, /kernel_version:/);
+  assert.match(text, /RECOVERY_KERNEL_VERSION_INVALID/);
   assert.doesNotMatch(text, /kaggle kernels push|--accelerator|wrangler deploy|gh release create|--activate true/);
   assert.match(text, /kaggle kernels output/);
   assert.match(text, /verify-existing-kaggle-lora-bundle\.py/);
