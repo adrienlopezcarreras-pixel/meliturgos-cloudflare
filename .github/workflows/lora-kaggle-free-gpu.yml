@@ -905,7 +905,8 @@ jobs:
           TAG="mel-lora-kaggle-${SHORT}-c$(printf '%03d' "$CYCLE")"
           echo "CHECKPOINT_TAG=$TAG" >> "$GITHUB_ENV"
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release upload "$TAG" artifacts/mel-lora-bundle.tar.gz artifacts/kaggle-run.json --clobber --repo "$GITHUB_REPOSITORY"
+            echo "LORA_CHECKPOINT_RELEASE_ALREADY_EXISTS: refusing overwrite of immutable checkpoint" >&2
+            exit 1
           else
             gh release create "$TAG" artifacts/mel-lora-bundle.tar.gz artifacts/kaggle-run.json               --repo "$GITHUB_REPOSITORY"               --target "$SOURCE_SHA"               --title "MEL LoRA Kaggle UNCENSORED cycle $CYCLE"               --notes "Free offline Kaggle GPU checkpoint. No production deployment. No paid fallback."
           fi
