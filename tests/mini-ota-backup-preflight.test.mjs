@@ -21,12 +21,12 @@ function parts(){
 function ota(){
  const result=Buffer.alloc(8192,0xff), first=Buffer.alloc(32,0xff);
  first.writeUInt32LE(1,0);first.writeUInt32LE(2,24);
- let crc=0xffffffff;
+ let crc=0;
  for(const x of first.subarray(0,4)) {
   crc ^=x;
   for(let j=0;j<8;j++)crc=(crc&1)?(crc>>>1)^0xedb88320:crc>>>1;
  }
- first.writeUInt32LE(crc>>>0,28);first.copy(result);return result;
+ first.writeUInt32LE((crc^0xffffffff)>>>0,28);first.copy(result);return result;
 }
 function backup(){
  const b=Buffer.alloc(0x600000,0xff);
