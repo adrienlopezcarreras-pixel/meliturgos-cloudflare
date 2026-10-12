@@ -1,6 +1,12 @@
 name: Recover existing Kaggle LoRA checkpoint (no GPU)
 
 on:
+  # One-branch read-only recovery run; no GPU submission, no deployment.
+  push:
+    branches:
+      - fix/lora-preserve-checkpoint-before-release-20261012
+    paths:
+      - ".github/workflows/recover-existing-kaggle-lora.yml"
   workflow_dispatch:
     inputs:
       kernel_version:
