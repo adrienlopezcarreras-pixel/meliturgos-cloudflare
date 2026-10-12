@@ -115,6 +115,7 @@ jobs:
                 if (d.draft !== true || d.tag_name !== "mel-lora-kaggle-635c4786b39b-c000" ||
                     d.target_commitish !== "635c4786b39b9c3a5458126d64ec7bb726a282e7" ||
                     !Array.isArray(d.assets) || d.assets.length !== wanted.size ||
+                    new Set(d.assets.map(a => a.name)).size !== wanted.size ||
                     d.assets.some(a => !wanted.has(a.name) || !Number.isInteger(a.size) || a.size < 1)) {
                   console.error("CHECKPOINT_DRAFT_POSTCREATE_PROOF_FAILED");
                   process.exitCode = 1;
