@@ -1,0 +1,57 @@
+name: Diagnose GitHub LoRA release restrictions (read-only)
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/lora-release-policy-readonly.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    if: ${{ github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'fix/lora-preserve-checkpoint-before-release-20261012' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Probe tag rulesets and workflow permission defaults without mutation
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          const repo=process.env.GITHUB_REPOSITORY;
+          if(repo!=='adrienlopezcarreras-pixel/meliturgos-cloudflare') process.exit(2);
+          const headers={
+            Authorization:'Bearer '+process.env.GH_TOKEN,
+            Accept:'application/vnd.github+json',
+            'X-GitHub-Api-Version':'2022-11-28',
+          };
+          async function read(path) {
+            try {
+              const response=await fetch('https://api.github.com/repos/'+repo+path,{
+                method:'GET',redirect:'error',signal:AbortSignal.timeout(15000),headers,
+              });
+              if(!response.ok) return {ok:false,status:response.status};
+              return {ok:true,json:await response.json()};
+            } catch { return {ok:false,status:'NETWORK_ERROR'}; }
+          }
+          const rules=await read('/rulesets?includes_parents=true');
+          if(rules.ok && Array.isArray(rules.json)) {
+            const active=rules.json.filter(r=>r?.target==='tag'&&r?.enforcement==='active');
+            console.log('LORA_RELEASE_TAG_ACTIVE_RULESET_COUNT='+active.length);
+            console.log('LORA_RELEASE_TAG_RULESETS_REQUIRE_OWNER_REVIEW='+String(active.length>0));
+          } else {
+            console.log('LORA_RELEASE_RULESETS_READ_STATUS='+String(rules.status||'INVALID_RESPONSE'));
+          }
+          const defaults=await read('/actions/permissions/workflow');
+          if(defaults.ok) {
+            const setting=defaults.json?.default_workflow_permissions;
+            console.log('LORA_RELEASE_REPO_DEFAULT_WORKFLOW_PERMISSIONS='+(
+              setting==='write'?'write':setting==='read'?'read':'unknown'));
+          } else {
+            console.log('LORA_RELEASE_WORKFLOW_SETTINGS_READ_STATUS='+String(defaults.status||'INVALID_RESPONSE'));
+          }
+          console.log('LORA_RELEASE_DIAGNOSTIC_GET_ONLY_NO_PUBLISH');
+          NODE
