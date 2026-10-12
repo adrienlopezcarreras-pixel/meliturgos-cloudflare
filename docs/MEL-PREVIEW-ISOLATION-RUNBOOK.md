@@ -11,6 +11,16 @@ The sanitized Wrangler artifact `preview-d1-migration-diagnostic` reported:
 
 ## Guarded remediation — no automatic resource creation
 
+When explicit preview identity variables are missing, the preflight first reads
+the existing `meliturgos-preview` Worker settings through one bounded Cloudflare
+GET request. It accepts only unique DB/D1 and MEDIA_BUCKET/R2 bindings, with
+valid identifiers distinct from every production binding. It does not create
+resources, expose settings/secrets, or change account permissions. Missing or
+shared bindings and denied API access still stop before any mutation. Explicit
+variables remain the operator override; configure them as below if discovery fails.
+
+API reference: https://developers.cloudflare.com/api/resources/workers/subresources/scripts/subresources/script_and_version_settings/methods/get/
+
 1. In Cloudflare, identify an **existing, separate preview D1 database** and record its UUID. The account owner must verify that this UUID is different from the top-level production D1 UUID in `wrangler.jsonc`.
 2. Identify an **existing, separate preview R2 bucket** (not the production `meliturgos-private-media` bucket). Its name must be different from the production binding.
 3. Set GitHub Actions repository/environment variables (or secrets) `MEL_PREVIEW_D1_DATABASE_ID` and `MEL_PREVIEW_R2_BUCKET`. Never copy the production ID or production bucket.
