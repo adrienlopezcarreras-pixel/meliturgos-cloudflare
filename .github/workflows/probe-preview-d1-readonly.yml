@@ -1,0 +1,59 @@
+name: probe-isolated-preview-d1-readonly
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/probe-preview-d1-readonly.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  probe-preview-identity:
+    if: ${{ github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'probe/preview-d1-readonly-20261012' && github.event.pull_request.base.ref == 'candidate/mel-clean-autonomy' && github.actor == 'adrienlopezcarreras-pixel' }}
+    runs-on: ubuntu-24.04
+    environment: preview
+    timeout-minutes: 8
+    env:
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      MEL_PREVIEW_D1_DATABASE_ID: ${{ vars.MEL_PREVIEW_D1_DATABASE_ID || secrets.MEL_PREVIEW_D1_DATABASE_ID }}
+      MEL_PREVIEW_R2_BUCKET: ${{ vars.MEL_PREVIEW_R2_BUCKET || secrets.MEL_PREVIEW_R2_BUCKET }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '22'
+      - name: Resolve isolated binding identities without mutation
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import { resolvePreviewBindings } from './scripts/resolve-preview-bindings.mjs';
+          import { checkPreviewD1Access } from './scripts/check-preview-d1-account.mjs';
+          const config=JSON.parse(fs.readFileSync('wrangler.jsonc', 'utf8'));
+          let found;
+          try {
+            found=await resolvePreviewBindings({config});
+          } catch(e) {
+            console.log(String(e?.message || 'PREVIEW_DISCOVERY_FAILED').replace(/[^A-Z0-9_:-]/g, '').slice(0,120));
+            process.exitCode=1;
+          }
+          if (found) {
+            const pD1=config.d1_databases?.find(x=>x.binding==='DB')?.database_id;
+            const pR2=config.r2_buckets?.find(x=>x.binding==='MEDIA_BUCKET')?.bucket_name;
+            if (found.d1===pD1 || found.bucket===pR2) {
+              console.log('PREVIEW_PROBE_PRODUCTION_RESOURCE_FORBIDDEN');
+              process.exitCode=1;
+            } else {
+              const result=await checkPreviewD1Access({
+                accountId:process.env.CLOUDFLARE_ACCOUNT_ID,
+                databaseId:found.d1,
+                apiToken:process.env.CLOUDFLARE_API_TOKEN,
+              });
+              console.log(result.code);
+              if (!result.ok) process.exitCode=1;
+            }
+          }
+          NODE
