@@ -1,0 +1,45 @@
+name: LoRA owner release-token preflight (READ ONLY)
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/lora-release-token-readonly.yml
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    if: ${{ github.repository == 'adrienlopezcarreras-pixel/meliturgos-cloudflare' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'probe/lora-release-token-readonly-20261012' && github.event.pull_request.base.ref == 'fix/lora-preserve-checkpoint-before-release-20261012' && github.actor == 'adrienlopezcarreras-pixel' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    env:
+      MEL_RELEASE_PAT: ${{ secrets.MEL_LORA_RELEASE_TOKEN }}
+    steps:
+      - name: Check repository-scoped secret and token identity without printing them
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          const token=process.env.MEL_RELEASE_PAT||'';
+          if(!token) {
+            console.error('LORA_RELEASE_TOKEN_SECRET_MISSING');
+            process.exitCode=1;
+          } else {
+            const repo='adrienlopezcarreras-pixel/meliturgos-cloudflare';
+            const headers={Authorization:'Bearer '+token,Accept:'application/vnd.github+json','X-GitHub-Api-Version':'2022-11-28'};
+            async function check(path) {
+              try {
+                const res=await fetch('https://api.github.com'+path,{method:'GET',headers,redirect:'error',signal:AbortSignal.timeout(15000)});
+                return res.status;
+              } catch { return 0; }
+            }
+            const identity=await check('/user');
+            const repository=await check('/repos/'+repo);
+            const tag=await check('/repos/'+repo+'/git/ref/tags/mel-lora-kaggle-635c4786b39b-c000');
+            console.log('LORA_RELEASE_PAT_AUTH='+String(identity===200?'VALID':identity===401?'REJECTED':'UNCONFIRMED'));
+            console.log('LORA_RELEASE_PAT_REPOSITORY_READ='+String(repository===200?'GRANTED':'DENIED_OR_UNKNOWN'));
+            console.log('LORA_RELEASE_HISTORICAL_TAG='+String(tag===404?'ABSENT':tag===200?'EXISTS':'UNCONFIRMED'));
+            console.log('LORA_RELEASE_PAT_WORKFLOWS_WRITE_NOT_TESTABLE_WITH_READ_ONLY_CALLS');
+            if(identity!==200||repository!==200||tag!==404)process.exitCode=1;
+          }
+          NODE
