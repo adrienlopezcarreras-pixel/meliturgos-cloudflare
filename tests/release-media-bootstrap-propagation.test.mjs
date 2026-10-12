@@ -103,6 +103,16 @@ test('non-authentication HTTP errors retry at most three times', async () => {
   assert.equal(fail.calls.length, 3);
 });
 
+test('MEDIA-02 retains the prior five-minute request timeout while auth propagation stays bounded', async () => {
+  const t = rig([response(200, verifiedProof())]);
+  await t.prove();
+  assert.equal(t.calls[0].options.signal.reason, undefined);
+  const script=readFileSync(new URL('../scripts/prove-media-02-release.mjs', import.meta.url), 'utf8');
+  assert.ok(script.includes('AbortSignal.timeout(300000)'));
+  assert.ok(script.includes('authPropagationBudgetMs = 180000'));
+  assert.ok(!script.includes('AbortSignal.timeout(90000)'));
+});
+
 test('new release gate retains MEDIA-02 artifact evidence and automatic rollback', () => {
   const yaml = readFileSync(new URL('../.github/workflows/deploy-cloudflare-release.yml', import.meta.url), 'utf8');
   assert.ok(yaml.includes('node scripts/prove-media-02-release.mjs'));
