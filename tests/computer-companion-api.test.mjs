@@ -363,3 +363,12 @@ test('scheduled OIDC diagnostics cannot reset MINI even with a legacy environmen
   assert.ok(!relay.includes("MEL_MINI_RESET_APPROVED"));
   assert.ok(relay.includes('automatic_reset_allowed:false'));
 });
+
+
+test('native Companion implements read-only serial.inspect for PC Control', () => {
+  const companion = readFileSync(new URL('../dist/MEL-Computer-Companion.ps1', import.meta.url), 'utf8');
+  assert.match(companion, /function PcControl-SerialInspect\\(\\$payload\\)/);
+  assert.match(companion, /"serial\\.inspect" \\{ return PcControl-SerialInspect \\$payload \\}/);
+  assert.match(companion, /flash_performed=\\$false/);
+  assert.match(companion, /SERIAL_PORT_INVALID/);
+});
