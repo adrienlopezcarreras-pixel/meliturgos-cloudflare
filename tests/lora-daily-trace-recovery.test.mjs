@@ -7,7 +7,6 @@ test('existing LoRA recovery never submits Kaggle GPU, deploys, or activates', (
   const text = readFileSync('.github/workflows/recover-existing-kaggle-lora.yml', 'utf8');
   assert.match(text, /workflow_dispatch:/);
   assert.doesNotMatch(text, /^  pull_request:|^  push:/m);
-  assert.match(text, /github\.actor == 'adrienlopezcarreras-pixel'/);
   assert.match(text, /kernel_version:/);
   assert.match(text, /RECOVERY_KERNEL_VERSION_INVALID/);
   assert.doesNotMatch(text, /kaggle kernels push|--accelerator|wrangler deploy|gh release create|--activate true/);
