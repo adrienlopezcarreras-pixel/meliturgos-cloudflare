@@ -1795,6 +1795,20 @@ function PcControl-SerialList {
   return @{ action="serial.list"; ports=$ports; count=$ports.Count }
 }
 
+function PcControl-SerialInspect($payload) {
+  $portName = ([string]$payload.port).Trim().ToUpperInvariant()
+  if ($portName -notmatch '^COM\d{1,3}$') { throw "SERIAL_PORT_INVALID" }
+  $available = @([IO.Ports.SerialPort]::GetPortNames())
+  if ($available -notcontains $portName) { throw "SERIAL_PORT_NOT_FOUND" }
+  $pnp = @(Get-CimInstance Win32_PnPEntity -ErrorAction SilentlyContinue |
+    Where-Object { ([string]$_.Name) -like "*($portName)*" -or ([string]$_.Caption) -like "*($portName)*" } |
+    Select-Object -First 5 Name,Caption,PNPDeviceID,Manufacturer,Status)
+  $serial = @(Get-CimInstance Win32_SerialPort -ErrorAction SilentlyContinue |
+    Where-Object { ([string]$_.DeviceID).ToUpperInvariant() -eq $portName } |
+    Select-Object -First 5 DeviceID,Name,PNPDeviceID,Status)
+  return @{ action="serial.inspect"; port=$portName; present=$true; pnp=$pnp; serial=$serial; flash_performed=$false }
+}
+
 function PcControl-SerialRead($payload) {
   $portName = ([string]$payload.port).Trim().ToUpperInvariant()
   if ($portName -notmatch '^COM\d{1,3}$') { throw "SERIAL_PORT_INVALID" }
@@ -1985,6 +1999,7 @@ function Perform-PcControl([string]$action,$payload) {
   switch ($action) {
     "serial.list" { return PcControl-SerialList }
     "serial.read" { return PcControl-SerialRead $payload }
+    "serial.inspect" { return PcControl-SerialInspect $payload }
     "serial.hard_reset" { return PcControl-SerialHardReset $payload }
     "process.list" { return PcControl-ProcessList }
     "process.start" { return PcControl-ProcessStart $payload }

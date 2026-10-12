@@ -370,6 +370,9 @@ async function heartbeat(request,env,a){
  }
  if(b.hostname!==undefined)patch.hostname=b.hostname||null;
  if(b.user!==undefined)patch.user=b.user||null;
+ // Reflect the local Companion toggle on every authenticated heartbeat.
+ // Never elevate permission from a non-boolean or absent value.
+ if(typeof b.remote_access_enabled==="boolean")patch.remote_access_enabled=b.remote_access_enabled;
  if(b.screen&&typeof b.screen==="object")patch.screen=b.screen;
  if(b.active_window!==undefined)patch.active_window=b.active_window||null;
  metadata={...metadata,...patch};
