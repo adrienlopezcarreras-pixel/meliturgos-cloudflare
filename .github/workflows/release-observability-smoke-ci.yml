@@ -19,6 +19,8 @@ on:
       - '.github/workflows/release-downstream-proof-decoupled.yml'
       - 'tests/gen2/release-downstream-proof-decoupled.test.mjs'
       - 'scripts/check-release-proof-shell.mjs'
+      - 'scripts/prove-media-02-release.mjs'
+      - 'tests/release-media-bootstrap-propagation.test.mjs'
       - '.github/workflows/mel-sov-ai-auto-close.yml'
       - 'tests/gen2/sov-ai-auto-close.test.mjs'
   push:
@@ -54,6 +56,7 @@ jobs:
           tests/operator-auth.test.mjs
           tests/release-predeploy-r2-retry.test.mjs
           tests/release-production-smoke-routes.test.mjs
+          tests/release-media-bootstrap-propagation.test.mjs
           tests/autonomous-release-exact-main.test.mjs
           tests/mel-autonomous-release-dispatch.test.mjs
           tests/gen2/runtime-observability.test.mjs

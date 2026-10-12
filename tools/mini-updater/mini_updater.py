@@ -1,10 +1,7 @@
-import os
 import sys
-import traceback
 from pathlib import Path
 
 VERSION = "0.4.37-diagnostic-live"
-APP_OFFSETS = ("0x20000", "0x620000")
 
 def asset_path(name: str) -> Path:
     root = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
@@ -63,23 +60,8 @@ def choose_port():
         print("Choix invalide.")
 
 def flash(port: str, firmware: Path):
-    import esptool
-    args = [
-        "--chip", "esp32s3",
-        "--port", port,
-        "--baud", "460800",
-        "--before", "default_reset",
-        "--after", "hard_reset",
-        "write_flash",
-        "-z",
-        APP_OFFSETS[0], str(firmware),
-        APP_OFFSETS[1], str(firmware),
-    ]
-    print()
-    print("Flash de la MINI...")
-    print("Ne debranche pas le cable USB.")
-    print()
-    esptool.main(args)
+    # No writes until chip identity, partition table and image hash are verified.
+    raise RuntimeError("MINI_FLASH_BLOCKED_UNVERIFIED_PARTITION_LAYOUT")
 
 def main():
     banner()
@@ -92,47 +74,12 @@ def main():
         print(f"SELF-TEST OK - {VERSION} - {firmware.stat().st_size} octets")
         return 0
 
-    port = choose_port()
-    if not port:
-        input("\nAppuie sur Entree pour fermer...")
-        return 21
+    # Refuse any flash attempt until an authenticated physical preflight can
+    # establish exact offsets, chip identity and the approved firmware digest.
+    print("FLASH BLOQUE : table de partitions MINI non verifiee.")
+    print("Ne pas ecrire aux offsets historiques sans preuve materielle.")
+    return 22
 
-    print()
-    print(f"Firmware : {VERSION}")
-    print(f"Port     : {port}")
-    print("NVS      : conserve")
-    print("Slots    : OTA_0 + OTA_1")
-    print()
-    input("Appuie sur Entree pour lancer le flash...")
-
-    try:
-        flash(port, firmware)
-        print()
-        print("=" * 62)
-        print(" FLASH TERMINE AVEC SUCCES")
-        print(" La MINI doit redemarrer automatiquement.")
-        print("=" * 62)
-        return 0
-    except SystemExit as exc:
-        code = exc.code if isinstance(exc.code, int) else 1
-        if code == 0:
-            print("\nFLASH TERMINE AVEC SUCCES")
-            return 0
-        print(f"\nECHEC DU FLASH (code {code}).")
-        print("Passe la MINI en bootloader : BOOT maintenu -> RESET bref -> relache BOOT.")
-        return code
-    except Exception:
-        print("\nECHEC DU FLASH.")
-        traceback.print_exc()
-        print()
-        print("Passe la MINI en bootloader : BOOT maintenu -> RESET bref -> relache BOOT.")
-        return 1
-    finally:
-        if "--self-test" not in sys.argv:
-            try:
-                input("\nAppuie sur Entree pour fermer...")
-            except EOFError:
-                pass
 
 if __name__ == "__main__":
     raise SystemExit(main())

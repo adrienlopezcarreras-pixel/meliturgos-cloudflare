@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { maybeHandleComputerApi, COMPUTER_API_BASE } from '../src/devices/computer-companion-api.js';
 import { sqliteD1 } from './helpers/sqlite-d1.mjs';
 import { readFile } from 'node:fs/promises';
+import { readFileSync } from 'node:fs';
 
 test('computer companion API uses the canonical namespace',()=>assert.equal(COMPUTER_API_BASE,'/api/computer/v1'));
 
@@ -362,4 +363,13 @@ test('scheduled OIDC diagnostics cannot reset MINI even with a legacy environmen
   assert.ok(!relay.includes("action:'serial.hard_reset'"));
   assert.ok(!relay.includes("MEL_MINI_RESET_APPROVED"));
   assert.ok(relay.includes('automatic_reset_allowed:false'));
+});
+
+
+test('native Companion implements read-only serial.inspect for PC Control', () => {
+  const companion = readFileSync(new URL('../dist/MEL-Computer-Companion.ps1', import.meta.url), 'utf8');
+  assert.ok(companion.includes('function PcControl-SerialInspect($payload)'));
+  assert.ok(companion.includes('"serial.inspect" { return PcControl-SerialInspect $payload }'));
+  assert.ok(companion.includes('flash_performed=$false'));
+  assert.ok(companion.includes('SERIAL_PORT_INVALID'));
 });
