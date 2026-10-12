@@ -68,8 +68,8 @@ jobs:
           set -euo pipefail
           TAG=mel-lora-kaggle-635c4786b39b-c000
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            echo 'CHECKPOINT_RELEASE_ALREADY_EXISTS_NO_CLOBBER'
-            exit 0
+            echo 'CHECKPOINT_RELEASE_ALREADY_EXISTS_NO_CLOBBER_CHECK_EXISTING_ASSET_MANUALLY' >&2
+            exit 1
           fi
           if ! gh release create "$TAG" \
             artifacts/existing-recovery/mel-lora-bundle.tar.gz \
