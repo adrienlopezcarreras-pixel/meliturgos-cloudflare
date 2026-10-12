@@ -4,7 +4,7 @@ import traceback
 from pathlib import Path
 
 VERSION = "0.4.37-diagnostic-live"
-APP_OFFSETS = ("0x20000", "0x620000")
+APP_OFFSETS = ("0x20000", "0x620000")  # Legacy only; NEVER used without partition validation
 
 def asset_path(name: str) -> Path:
     root = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
@@ -63,6 +63,9 @@ def choose_port():
         print("Choix invalide.")
 
 def flash(port: str, firmware: Path):
+    # Fail closed: OTA slot layout and target chip must be verified on the physical board.
+    # The former hard-coded dual-slot write risks corrupting a different partition map.
+    raise RuntimeError("MINI_FLASH_BLOCKED_UNVERIFIED_PARTITION_LAYOUT")
     import esptool
     args = [
         "--chip", "esp32s3",
@@ -91,6 +94,12 @@ def main():
     if "--self-test" in sys.argv:
         print(f"SELF-TEST OK - {VERSION} - {firmware.stat().st_size} octets")
         return 0
+
+    # Refuse any flash attempt until an authenticated physical preflight can
+    # establish exact offsets, chip identity and the approved firmware digest.
+    print("FLASH BLOQUE : table de partitions MINI non verifiee.")
+    print("Ne pas ecrire aux offsets historiques sans preuve materielle.")
+    return 22
 
     port = choose_port()
     if not port:
