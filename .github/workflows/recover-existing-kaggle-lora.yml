@@ -7,6 +7,9 @@ on:
       - fix/lora-preserve-checkpoint-before-release-20261012
     paths:
       - ".github/workflows/recover-existing-kaggle-lora.yml"
+  pull_request:
+    paths:
+      - ".github/workflows/recover-existing-kaggle-lora.yml"
   workflow_dispatch:
     inputs:
       kernel_version:
@@ -23,6 +26,8 @@ concurrency:
 
 jobs:
   recover-existing:
+    # PR-origin guard: only the owner's internal recovery branch can access preview secrets.
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'fix/lora-preserve-checkpoint-before-release-20261012' && github.actor == 'adrienlopezcarreras-pixel') }}
     runs-on: ubuntu-24.04
     environment: preview
     timeout-minutes: 20
