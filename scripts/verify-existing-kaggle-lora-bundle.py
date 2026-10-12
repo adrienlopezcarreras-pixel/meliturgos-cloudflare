@@ -18,6 +18,7 @@ SHA256 = re.compile(r"^(?:sha256:)?[0-9a-f]{64}$")
 SOURCE_SHA = "635c4786b39b9c3a5458126d64ec7bb726a282e7"
 ADAPTER_SHA = "9c9957a6ab31b7c43f4ee0a3699b9d9292cbdd3fd3fd7368ace74657fb83f6aa"
 CONFIG_SHA = "d3757ba7a01af18e474afc90048795dbd1b12f193144239c09939ae75173e2ce"
+IMPACT_SHA = "7758c3e0acb249b3ecd3f403bb6249fd417d7fe7d14934de6ae695fe7045e7e4"
 ADAPTER_SIZE = 13648432
 CONFIG_SIZE = 1063
 
@@ -58,6 +59,8 @@ def verify(path):
                 if member.size != CONFIG_SIZE or digests[member.name] != CONFIG_SHA:
                     raise ValueError("RECOVERY_CONFIG_HASH_MISMATCH")
 
+    if digests["local-impact-benchmark.json"] != IMPACT_SHA:
+        raise ValueError("RECOVERY_LOCAL_IMPACT_HASH_MISMATCH")
     run = documents["kaggle-run.json"]
     training = documents["training-evidence.json"]
     artifact = documents["artifact-evidence.json"]
