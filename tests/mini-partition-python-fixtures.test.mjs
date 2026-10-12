@@ -50,3 +50,32 @@ test('invalid partition magic is rejected',()=>{
   assert.notEqual(r.status,0);
   assert.match(r.stderr,/PARTITION_TABLE_MAGIC_INVALID/);
 });
+
+
+test('ESP-IDF 16MB MINI layout: six partitions, FF-reserved MD5 and erased tail',()=>{
+  const parts=[
+    entry('nvs',0x9000,0x6000,1,2),
+    entry('otadata',0xf000,0x2000,1,0),
+    entry('phy_init',0x11000,0x1000,1,1),
+    entry('ota_0',0x20000,0x600000,0,0x10),
+    entry('ota_1',0x620000,0x600000,0,0x11),
+    entry('storage',0xc20000,0x3d0000,1,0x81),
+  ];
+  const payload=Buffer.concat(parts);
+  const md5=Buffer.alloc(32,0xff);md5.writeUInt16LE(0xebeb,0);
+  createHash('md5').update(payload).digest().copy(md5,16);
+  const full=Buffer.alloc(4096,0xff);
+  Buffer.concat([payload,md5]).copy(full);
+  const r=check([full]);assert.equal(r.status,0,r.stderr);
+  const j=JSON.parse(r.stdout);
+  assert.deepEqual(j.partitions.map(p=>p.name),['nvs','otadata','phy_init','ota_0','ota_1','storage']);
+  assert.equal(j.partitions.find(p=>p.name==='ota_0').size,6291456);
+  assert.equal(j.partitions.find(p=>p.name==='ota_1').offset,0x620000);
+  assert.equal(j.flash_allowed,false);
+  const tampered=Buffer.from(full);tampered[199]^=1;
+  assert.match(check([tampered]).stderr,/PARTITION_TABLE_MD5_INVALID/);
+  const invalidReserved=Buffer.from(full);invalidReserved[194]=0x42;
+  assert.match(check([invalidReserved]).stderr,/PARTITION_TABLE_MD5_INVALID/);
+  const invalidTail=Buffer.from(full);invalidTail[300]=0x42;
+  assert.match(check([invalidTail]).stderr,/PARTITION_TABLE_TRAILING_DATA/);
+});
