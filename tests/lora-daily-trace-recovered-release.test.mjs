@@ -34,3 +34,17 @@ test('creates at most a private draft and cannot deploy or overwrite assets',()=
   assert.match(yaml, /GH_TOKEN: \$\{\{ github\.token \}\}/);
   assert.doesNotMatch(yaml, /secrets\.MEL_LORA_RELEASE_TOKEN\s*\|\|\s*github\.token/);
 });
+
+test('original Kaggle training chain also protects historical release with a dedicated token',()=>{
+  const full=readFileSync('.github/workflows/lora-kaggle-free-gpu.yml','utf8');
+  const start=full.indexOf('- name: Save immutable checkpoint release');
+  const end=full.indexOf('- name: Create zero-cost training result',start);
+  assert.ok(start>0&&end>start);
+  const step=full.slice(start,end);
+  assert.ok(step.includes('GH_TOKEN: ${{ secrets.MEL_LORA_RELEASE_TOKEN }}'));
+  assert.ok(step.includes('MEL_LORA_RELEASE_TOKEN_REQUIRED_WORKFLOWS_WRITE_FOR_HISTORICAL_SHA'));
+  assert.match(step,/gh release create/);
+  assert.match(step,/--target "\$SOURCE_SHA"/);
+  assert.match(step,/--draft/);
+  assert.doesNotMatch(step,/--clobber|\|\|\s*github\.token/);
+});
