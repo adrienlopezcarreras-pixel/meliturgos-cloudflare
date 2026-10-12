@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Read-only offline ESP-IDF partition-table inspector. Never accesses a serial port."""
 import argparse
+import hashlib
 import json
 import struct
 from pathlib import Path
@@ -19,6 +20,8 @@ def inspect(data: bytes):
         if entry == b"\xff" * ENTRY_SIZE:
             break
         if entry[:2] == MD5_MAGIC:
+            if entry[2:16] != bytes(14) or entry[16:32] != hashlib.md5(data[:pos]).digest():
+                raise ValueError("PARTITION_TABLE_MD5_INVALID")
             break
         if entry[:2] != ENTRY_MAGIC:
             raise ValueError("PARTITION_TABLE_MAGIC_INVALID")
