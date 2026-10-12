@@ -24,8 +24,6 @@ jobs:
     if: ${{ inputs.confirm_draft_release == true && github.repository == 'adrienlopezcarreras-pixel/meliturgos-cloudflare' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
-    env:
-      GH_TOKEN: ${{ secrets.MEL_LORA_RELEASE_TOKEN || github.token }}
     steps:
       - name: Checkout verifier
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -33,6 +31,8 @@ jobs:
         with:
           python-version: "3.11"
       - name: Fetch already verified checkpoint from exact GitHub run (no GPU)
+        env:
+          GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
@@ -62,10 +62,18 @@ jobs:
           assert proof['benchmark_verified'] is False and proof['activated'] is False
           print('CHECKPOINT_ARCHIVE_BYTES_AND_PROVENANCE_VERIFIED')
           PY
+      # GitHub's release API needs Workflows:write when --target selects a
+      # non-default-branch commit that changes .github/workflows. GITHUB_TOKEN
+      # cannot have that permission, even when Contents:write is granted.
+      # Require an owner-configured narrowly scoped token; never downgrade
+      # to github.token or retarget to main to bypass provenance.
       - name: Create an immutable DRAFT release; never overwrite existing tag or publish
+        env:
+          GH_TOKEN: ${{ secrets.MEL_LORA_RELEASE_TOKEN }}
         shell: bash
         run: |
           set -euo pipefail
+          test -n "${GH_TOKEN:-}" || { echo 'MEL_LORA_RELEASE_TOKEN_REQUIRED_WORKFLOWS_WRITE_FOR_HISTORICAL_SHA' >&2; exit 1; }
           TAG=mel-lora-kaggle-635c4786b39b-c000
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             echo 'CHECKPOINT_RELEASE_ALREADY_EXISTS_NO_CLOBBER_CHECK_EXISTING_ASSET_MANUALLY' >&2
