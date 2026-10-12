@@ -69,3 +69,19 @@ test('full Kaggle cycle must fail before GPU submission when release token is mi
   assert.ok(step.includes('LORA_RELEASE_TOKEN: ${{ secrets.MEL_LORA_RELEASE_TOKEN }}'));
   assert.doesNotMatch(step,/kaggle kernels push|--accelerator|gh release create|--clobber/);
 });
+
+test('local quality gate blocks preview upload and activation until genuinely passed',()=>{
+  const full=readFileSync('.github/workflows/lora-kaggle-free-gpu.yml','utf8');
+  const gate=full.indexOf('- name: Require local quality gate before Cloudflare preview mutation');
+  const upload=full.indexOf('- name: Upload adapter to Cloudflare open-beta LoRA');
+  const preview=full.indexOf('- name: Benchmark isolated preview');
+  assert.ok(gate>0 && upload>gate && preview>upload,
+    'no upload or preview can run before local quality gate');
+  const section=full.slice(gate,upload);
+  assert.match(section,/BENCHMARK_PREVIEW == 'true'/);
+  assert.match(section,/MEL_LOCAL_IMPACT_GATE_NOT_PASSED_BEFORE_PREVIEW/);
+  assert.ok(section.includes("run.get('local_uncensored_gate') is not True"));
+  assert.ok(section.includes("impact.get('local_uncensored_gate') is not True"));
+  assert.ok(section.includes("get('uncensored_gate') is not True"));
+  assert.doesNotMatch(section,/--activate true|upload-cloudflare-lora/);
+});
