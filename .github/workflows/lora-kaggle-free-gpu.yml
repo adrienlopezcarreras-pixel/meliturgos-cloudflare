@@ -139,6 +139,22 @@ jobs:
           echo "KAGGLE_KERNEL_TIMEOUT_SECONDS=$KAGGLE_KERNEL_TIMEOUT_SECONDS" >> "$GITHUB_ENV"
           echo "KAGGLE_MONITOR_GRACE_SECONDS=$KAGGLE_MONITOR_GRACE_SECONDS" >> "$GITHUB_ENV"
 
+      # Fail before GPU provisioning or Kaggle submission when the release
+      # cannot be archived under the historical workflow SHA. This checks
+      # only presence, not scopes: the release step still fails closed.
+      - name: Require release token before full Kaggle GPU cycle
+        if: env.SMOKE_ONLY != 'true'
+        shell: bash
+        env:
+          LORA_RELEASE_TOKEN: ${{ secrets.MEL_LORA_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${LORA_RELEASE_TOKEN:-}" ]]; then
+            echo "MEL_LORA_RELEASE_TOKEN_REQUIRED_BEFORE_GPU" >&2
+            exit 1
+          fi
+          echo "MEL_LORA_RELEASE_TOKEN_PRESENT_SCOPE_NOT_YET_VERIFIED"
+
       - name: Checkout exact training SHA
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
