@@ -24,6 +24,8 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
         with:
           node-version: '22'
+      - name: Verify D1 list probe behavior offline (no Cloudflare calls)
+        run: node --test tests/preview-d1-list-probe.test.mjs
       - name: Verify Cloudflare API token status without printing identifiers
         continue-on-error: true
         run: |
