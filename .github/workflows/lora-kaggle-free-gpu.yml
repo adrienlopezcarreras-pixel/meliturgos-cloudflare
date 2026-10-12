@@ -896,11 +896,17 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+      # A historical source SHA may differ in .github/workflows from main.
+      # GitHub's release API then requires Workflows:write, unavailable to
+      # GITHUB_TOKEN. Do not silently fall back or publish trained weights.
       - name: Save immutable checkpoint release
         if: env.SMOKE_ONLY != 'true'
         shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.MEL_LORA_RELEASE_TOKEN }}
         run: |
           set -euo pipefail
+          test -n "${GH_TOKEN:-}" || { echo "MEL_LORA_RELEASE_TOKEN_REQUIRED_WORKFLOWS_WRITE_FOR_HISTORICAL_SHA" >&2; exit 1; }
           SHORT="${SOURCE_SHA:0:12}"
           TAG="mel-lora-kaggle-${SHORT}-c$(printf '%03d' "$CYCLE")"
           echo "CHECKPOINT_TAG=$TAG" >> "$GITHUB_ENV"
@@ -908,7 +914,7 @@ jobs:
             echo "LORA_CHECKPOINT_RELEASE_ALREADY_EXISTS: refusing overwrite of immutable checkpoint" >&2
             exit 1
           else
-            gh release create "$TAG" artifacts/mel-lora-bundle.tar.gz artifacts/kaggle-run.json               --repo "$GITHUB_REPOSITORY"               --target "$SOURCE_SHA"               --title "MEL LoRA Kaggle UNCENSORED cycle $CYCLE"               --notes "Free offline Kaggle GPU checkpoint. No production deployment. No paid fallback."
+            gh release create "$TAG" artifacts/mel-lora-bundle.tar.gz artifacts/kaggle-run.json               --repo "$GITHUB_REPOSITORY"               --target "$SOURCE_SHA"               --title "MEL LoRA Kaggle UNCENSORED cycle $CYCLE"               --notes "Free offline Kaggle GPU checkpoint. No production deployment. No paid fallback."               --draft
           fi
 
       - name: Create zero-cost training result
