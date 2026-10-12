@@ -117,10 +117,13 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           node --input-type=module <<'NODE'
+          import fs from 'node:fs';
           import { checkPreviewD1Access } from './scripts/check-preview-d1-account.mjs';
+          const config = JSON.parse(fs.readFileSync('wrangler.jsonc', 'utf8'));
+          const databaseId = config.env?.preview?.d1_databases?.find(x => x.binding === 'DB')?.database_id;
           const result = await checkPreviewD1Access({
             accountId: process.env.CLOUDFLARE_ACCOUNT_ID,
-            databaseId: process.env.MEL_PREVIEW_D1_DATABASE_ID,
+            databaseId,
             apiToken: process.env.CLOUDFLARE_API_TOKEN,
           });
           console.log(result.code);
