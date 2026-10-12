@@ -48,3 +48,15 @@ test('original Kaggle training chain also protects historical release with a ded
   assert.match(step,/--draft/);
   assert.doesNotMatch(step,/--clobber|\|\|\s*github\.token/);
 });
+
+test('full Kaggle cycle must fail before GPU submission when release token is missing',()=>{
+  const full=readFileSync('.github/workflows/lora-kaggle-free-gpu.yml','utf8');
+  const gate=full.indexOf('- name: Require release token before full Kaggle GPU cycle');
+  const submit=full.indexOf('- name: Submit free offline Kaggle T4 training');
+  assert.ok(gate>0&&submit>gate);
+  const step=full.slice(gate, full.indexOf('- name:',gate+9));
+  assert.match(step,/MEL_LORA_RELEASE_TOKEN_REQUIRED_BEFORE_GPU/);
+  assert.match(step,/if: env.SMOKE_ONLY != 'true'/);
+  assert.ok(step.includes('LORA_RELEASE_TOKEN: ${{ secrets.MEL_LORA_RELEASE_TOKEN }}'));
+  assert.doesNotMatch(step,/kaggle kernels push|--accelerator|gh release create|--clobber/);
+});
