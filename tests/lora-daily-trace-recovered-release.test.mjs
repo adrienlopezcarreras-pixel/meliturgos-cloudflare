@@ -59,7 +59,10 @@ test('full Kaggle cycle must fail before GPU submission when release token is mi
   const full=readFileSync('.github/workflows/lora-kaggle-free-gpu.yml','utf8');
   const gate=full.indexOf('- name: Require release token before full Kaggle GPU cycle');
   const submit=full.indexOf('- name: Submit free offline Kaggle T4 training');
-  assert.ok(gate>0&&submit>gate);
+  const checkout=full.indexOf('- name: Checkout current trace control plane');
+  const trace=full.indexOf('- name: Initialize durable LoRA daily trace');
+  assert.ok(checkout>0 && trace>checkout && gate>trace && submit>gate,
+    'durable trace must begin before authorization preflight, with GPU only afterwards');
   const step=full.slice(gate, full.indexOf('- name:',gate+9));
   assert.match(step,/MEL_LORA_RELEASE_TOKEN_REQUIRED_BEFORE_GPU/);
   assert.match(step,/if: env.SMOKE_ONLY != 'true'/);
