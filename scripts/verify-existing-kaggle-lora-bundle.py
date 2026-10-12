@@ -6,6 +6,7 @@ import json
 import re
 import sys
 import tarfile
+from pathlib import Path
 
 FILES = {
     "adapter_model.safetensors", "adapter_config.json", "training-evidence.json",
@@ -21,6 +22,8 @@ ADAPTER_SIZE = 13648432
 CONFIG_SIZE = 1063
 
 def verify(path):
+    if Path(path).stat().st_size > 320_000_000:
+        raise ValueError("RECOVERY_ARCHIVE_TOO_LARGE")
     digests = {}
     documents = {}
     with tarfile.open(path, "r:gz") as archive:
@@ -78,13 +81,17 @@ def verify(path):
     if (training.get("promotion", {}).get("approved") is not False or
         plan.get("id") != training.get("plan_id")):
         raise ValueError("RECOVERY_PROMOTION_OR_PLAN_MISMATCH")
+    bundle_digest = hashlib.sha256()
+    with open(path, "rb") as original:
+        for block in iter(lambda: original.read(1024 * 1024), b""):
+            bundle_digest.update(block)
     return {
         "status": "CHECKPOINT_BYTES_RECOVERED_UNBENCHMARKED",
         "source_sha": SOURCE_SHA,
         "cycle": 0,
         "global_step": 32,
         "adapter_sha256": ADAPTER_SHA,
-        "bundle_sha256": hashlib.sha256(open(path, "rb").read()).hexdigest(),
+        "bundle_sha256": bundle_digest.hexdigest(),
         "benchmark_verified": False,
         "activated": False,
     }
