@@ -30,7 +30,7 @@ test('creates at most a private draft and cannot deploy or overwrite assets',()=
   assert.match(yaml, /actions: read/);
   assert.match(yaml, /contents: write/);
   assert.match(yaml, /MEL_LORA_RELEASE_TOKEN_REQUIRED_WORKFLOWS_WRITE_FOR_HISTORICAL_SHA/);
-  assert.match(yaml, /GH_TOKEN: \\$\{\{ secrets\.MEL_LORA_RELEASE_TOKEN \}\}/);
-  assert.match(yaml, /GH_TOKEN: \\$\{\{ github\.token \}\}/);
+  assert.match(yaml, /GH_TOKEN: \$\{\{ secrets\.MEL_LORA_RELEASE_TOKEN \}\}/);
+  assert.match(yaml, /GH_TOKEN: \$\{\{ github\.token \}\}/);
   assert.doesNotMatch(yaml, /secrets\.MEL_LORA_RELEASE_TOKEN\s*\|\|\s*github\.token/);
 });
