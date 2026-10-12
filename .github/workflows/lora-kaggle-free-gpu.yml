@@ -883,6 +883,19 @@ jobs:
           NODE
           node .mel-trace-control/scripts/lora-daily-trace-client.mjs TRAINING_RESULT artifacts/lora-trace-result.json RUNNING
 
+      # Preserve verified checkpoint bytes independently of GitHub Releases permissions.
+      # Never mark LoRA activated or benchmarked solely because this upload succeeds.
+      - name: Preserve verified checkpoint as private workflow artifact
+        if: env.SMOKE_ONLY != 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: mel-lora-recovery-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            artifacts/mel-lora-bundle.tar.gz
+            artifacts/kaggle-run.json
+          if-no-files-found: error
+          retention-days: 30
+
       - name: Save immutable checkpoint release
         if: env.SMOKE_ONLY != 'true'
         shell: bash
