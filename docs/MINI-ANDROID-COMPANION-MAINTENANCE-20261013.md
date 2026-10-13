@@ -24,3 +24,15 @@ Les actions de copie et d'installation nécessitent l'authentification propriét
 Le Bluetooth Link V2 sert à la communication et aux diagnostics entre l'APK Android et la MINI. Il ne peut pas installer silencieusement un APK sur Android. Une autre voie via PackageInstaller exigerait une validation explicite sur le téléphone.
 
 La sauvegarde pré-installation ne copie que le paquet APK existant et **pas les données privées**. Le rollback et les tests réels de voix, BLE, caméra, permissions et 30 reconnexions restent à valider. Aucun flash MINI, effacement Android ou réinitialisation de données n'est introduit.
+
+## Appairage guidé, livré avec Companion Windows
+
+Le paquet Windows contient désormais `MEL-Android-WiFi-Pairing.ps1`. Sur le PC, avec le SDK Android officiel installé :
+
+- Exécuter localement le script sans argument pour vérifier les appareils et les prérequis ADB.
+- Ouvrir les paramètres Android du téléphone : **Paramètres → Paramètres supplémentaires → Options pour les développeurs → Débogage sans fil**. Sur certains Xiaomi, il faut d'abord toucher sept fois « Version MIUI » dans « À propos du téléphone » pour rendre les options développeur visibles.
+- Choisir « Associer un appareil avec un code d'appairage ». Exécuter **localement** `powershell.exe -NoProfile -File .\MEL-Android-WiFi-Pairing.ps1 -Pair`.
+- Entrer dans le terminal Windows l'adresse et le port **d'appairage** affichés sur Android, puis saisir le code uniquement quand ADB le demande. Ensuite entrer l'adresse et le **port de connexion** indiqués sur l'écran principal de débogage sans fil.
+- Le script refuse les adresses extérieures au réseau privé et ne transmet jamais le code d'appairage à MEL, GitHub ou Cloudflare. Il ne copie ni n'installe aucun APK. Quand ADB indique `device`, la commande Companion `android.maintenance.assess` peut en apporter la preuve.
+
+**Limites :** cette méthode d'appairage Android sans fil nécessite Android 11 ou ultérieur et le support du constructeur. Un Android plus ancien peut nécessiter un premier branchement USB pour activer ADB TCP/IP. Ne jamais activer ADB sur un réseau Wi‑Fi public ou non fiable.
