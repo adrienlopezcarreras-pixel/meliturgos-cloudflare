@@ -3,14 +3,25 @@ import assert from 'node:assert/strict';
 import { D1DevJobRepository } from '../src/dev/d1-dev-job-repository.js';
 import { getAutonomyReadiness } from '../src/evolution/autonomy-readiness.js';
 
-function council(costB = 0) {
+function council(costB = 0, { sameProvider = false, missingProof = false, wrongPolicy = false } = {}) {
+  const respondingB = sameProvider ? 'workers-ai:a' : 'workers-ai:b';
+  const provenance = id => ({
+    provider_id:id,provider:'workers-ai',model:id,verified:true,added_cost:0,
+    source:'fixture-verified-free-account',
+    authorization:{
+      approved:true,policy:wrongPolicy?'UNKNOWN':'MEL_ZERO_EURO_V1',
+      authority:'fixture-owner',adapter_id:id,provider:'workers-ai',model:id,
+    },
+  });
   return {
     status: 'COMPLETE',
     phase: 'STATE_OF_PLAY_BEFORE_DEVELOPMENT',
     responses: [
-      { member: 'workers-ai:a', answer: { estimated_cost: 0, content: 'a' } },
-      { member: 'workers-ai:b', answer: { estimated_cost: costB, content: 'b' } },
+      { member: 'architecture-role', answer: { provider_id:'workers-ai:a', estimated_cost: 0, content: 'a' } },
+      { member: 'tests-role', answer: { provider_id:respondingB, estimated_cost: costB, content: 'b' } },
     ],
+    providers_succeeded: [...new Set(['workers-ai:a',respondingB])],
+    zero_cost_provenance: missingProof ? [] : [...new Set(['workers-ai:a',respondingB])].map(provenance),
   };
 }
 
@@ -25,7 +36,7 @@ function workDagProof() {
   };
 }
 
-async function completeEvidenceRepository({ secondCost = 0, includeImplementation = true, requestedBy = 'mel-autonomy' } = {}) {
+async function completeEvidenceRepository({ secondCost = 0, includeImplementation = true, requestedBy = 'mel-autonomy', sameProvider = false, missingProof = false, wrongPolicy = false } = {}) {
   const repository = new D1DevJobRepository(null, { memoryStore: new Map() });
   const job = await repository.create({
     id: 'ready-job',
@@ -36,7 +47,7 @@ async function completeEvidenceRepository({ secondCost = 0, includeImplementatio
   await repository.update(job.id, {
     status: 'COMPLETED',
     candidate_branch: 'candidate/augmentio-core',
-    plan_json: { preflight: { council: council(secondCost) } },
+    plan_json: { preflight: { council: council(secondCost, { sameProvider, missingProof, wrongPolicy }) } },
     result_json: {
       autonomy_proofs: { work_dag_resume: workDagProof() },
       teacher_bridge: {
@@ -182,4 +193,22 @@ test('unknown Council cost is never accepted as zero-cost readiness evidence', a
   assert.equal(state.gates.live_council_zero_cost, false);
   assert.equal(state.gates.coherent_single_job_loop, false);
   assert.ok(state.blockers.includes('LIVE_COUNCIL_ZERO_COST_NOT_PROVEN'));
+});
+
+test('two independent Council roles routed to one provider are not two independent live AIs', async()=>{
+  const repository=await completeEvidenceRepository({sameProvider:true});
+  const state=await getAutonomyReadiness({repository});
+  assert.equal(state.gates.live_council_zero_cost,false);
+  assert.equal(state.self_development_ready,false);
+  assert.ok(state.blockers.includes('LIVE_COUNCIL_ZERO_COST_NOT_PROVEN'));
+});
+
+test('cost zero without actual verified provider authorization is not live Council evidence',async()=>{
+  for(const options of [{missingProof:true},{wrongPolicy:true}]){
+    const repository=await completeEvidenceRepository(options);
+    const state=await getAutonomyReadiness({repository});
+    assert.equal(state.gates.live_council_zero_cost,false);
+    assert.equal(state.gates.coherent_single_job_loop,false);
+    assert.equal(state.self_development_ready,false);
+  }
 });
