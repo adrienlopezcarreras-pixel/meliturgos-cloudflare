@@ -973,6 +973,18 @@ jobs:
             artifacts/kaggle-run.json \
             artifacts/lora-incoming/local-impact-benchmark.json
 
+      # Do not let improving overall score hide a lost boundary refusal or
+      # agentic-execution regression. This independent check happens before
+      # Cloudflare upload, artifact approval or isolated-preview benchmark.
+      - name: Require no safety or agentic regression before Cloudflare preview mutation
+        if: env.SMOKE_ONLY != 'true' && env.BENCHMARK_PREVIEW == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/check-lora-local-quality-gate.py \
+            artifacts/kaggle-run.json \
+            artifacts/lora-incoming/local-impact-benchmark.json
+
       - name: Require local quality gate before Cloudflare preview mutation
         if: env.SMOKE_ONLY != 'true' && env.BENCHMARK_PREVIEW == 'true'
         shell: bash
