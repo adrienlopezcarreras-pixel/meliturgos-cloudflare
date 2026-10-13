@@ -402,7 +402,7 @@ jobs:
 
           echo "Canonical UI surface and read-only control smoke passed."
 
-      - name: Deep-audit runtime capabilities on isolated preview
+      - name: Inspect capability contracts without starting persistent stress
         shell: bash
         run: |
           set -euo pipefail
@@ -410,7 +410,7 @@ jobs:
           curl --fail-with-body --show-error --silent --max-time 165 \
             --header "Authorization: Bearer ${MEL_PREVIEW_PASSWORD}" \
             --header "content-type: application/json" \
-            --data '{"id":"capability.audit","input":{"deep":true}}' \
+            --data '{"id":"capability.audit","input":{"deep":false}}' \
             "$BASE_URL/api/gen2/capabilities/execute" \
             > preview-capability-audit.json
 
