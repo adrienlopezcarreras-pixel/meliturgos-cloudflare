@@ -9,10 +9,9 @@ import {
 } from '../../src/backup/encrypted-backup-storage.js';
 import { inspectRestoreCandidate } from '../../src/backup/restore-service.js';
 import { APP_VERSION, DB_SCHEMA_VERSION } from '../../src/core/config.js';
+import { exportD1 } from './d1-export.mjs';
 
 const SYSTEM_BACKUP_PREFIX = 'backups/system/';
-const D1_PAGE_SIZE = 500;
-const MAX_ROWS_PER_TABLE = 50_000;
 const MAX_R2_PAGES = 1000;
 
 function required(name) {
@@ -48,51 +47,6 @@ async function sidecarJson({ baseUrl, token }, path, init = {}, { attempts = 12 
     if (attempt < attempts) await sleep(Math.min(2000, 500 * attempt));
   }
   throw lastError || new Error('SIDECAR_REQUEST_FAILED');
-}
-
-async function exportD1(sidecar) {
-  const discovered = await sidecarJson(sidecar, '/d1/tables');
-  if (discovered?.status !== 'D1_TABLES' || !Array.isArray(discovered.tables)) {
-    throw new Error('D1_TABLE_DISCOVERY_INVALID');
-  }
-
-  const tables = [];
-  for (const descriptor of discovered.tables) {
-    const name = String(descriptor?.name || '').trim();
-    if (!name || name.startsWith('_cf_')) continue;
-    const tableRows = [];
-    let offset = 0;
-
-    while (true) {
-      const qs = new URLSearchParams({
-        table: name,
-        offset: String(offset),
-        limit: String(D1_PAGE_SIZE),
-      });
-      const page = await sidecarJson(sidecar, `/d1/rows?${qs.toString()}`);
-      if (page?.status !== 'D1_ROWS_PAGE' || String(page?.table || '') !== name || !Array.isArray(page.rows)) {
-        throw new Error(`D1_ROWS_PAGE_INVALID:${name}`);
-      }
-      tableRows.push(...page.rows);
-      if (tableRows.length > MAX_ROWS_PER_TABLE) throw new Error(`BACKUP_TABLE_ROW_LIMIT:${name}`);
-      if (page.has_more !== true) break;
-      offset += page.rows.length;
-      if (page.rows.length === 0) throw new Error(`D1_PAGINATION_STALLED:${name}`);
-    }
-
-    tables.push({
-      name,
-      schema: descriptor?.schema || null,
-      rowCount: tableRows.length,
-      rows: tableRows,
-    });
-  }
-
-  return {
-    type: 'MEL_D1_LOGICAL_EXPORT_V1',
-    tableCount: tables.length,
-    tables,
-  };
 }
 
 async function fetchInventory(sidecar) {
@@ -201,7 +155,7 @@ async function createBackup() {
   const workdir = await mkdtemp(join(tmpdir(), 'mel-predeploy-backup-'));
 
   const sources = {
-    database: () => exportD1(sidecar),
+    database: () => exportD1(sidecar, sidecarJson),
     r2_inventory: () => fetchInventory(sidecar),
     runtime: async () => ({
       type: 'MEL_RUNTIME_DESCRIPTOR_V1',

@@ -8,6 +8,8 @@ on:
       - 'src/router.js'
       - '.github/workflows/deploy-cloudflare-release.yml'
       - 'release-tools/predeploy-backup-refresh/runner.mjs'
+      - 'release-tools/predeploy-backup-refresh/d1-export.mjs'
+      - 'tests/predeploy-d1-backup-large-table.test.mjs'
       - 'tests/release-predeploy-r2-retry.test.mjs'
       - 'tests/operator-auth.test.mjs'
       - 'tests/release-production-smoke-routes.test.mjs'
@@ -49,12 +51,14 @@ jobs:
           node --check src/core/security.js &&
           node --check src/router.js &&
           node --check release-tools/predeploy-backup-refresh/runner.mjs &&
+          node --check release-tools/predeploy-backup-refresh/d1-export.mjs &&
           node scripts/check-release-proof-shell.mjs
       - name: Targeted release observability tests
         run: >
           node --test
           tests/operator-auth.test.mjs
           tests/release-predeploy-r2-retry.test.mjs
+          tests/predeploy-d1-backup-large-table.test.mjs
           tests/release-production-smoke-routes.test.mjs
           tests/release-media-bootstrap-propagation.test.mjs
           tests/autonomous-release-exact-main.test.mjs
