@@ -38,3 +38,9 @@ test('arbitrary command and unknown arguments rejected',async()=>{
  assert.equal(results[0].error.code,-32602);
  assert.equal(results[1].error.code,-32602);
 });
+
+test('oversized JSON-RPC line is rejected before parsing',async()=>{
+ const huge='x'.repeat(17000);
+ const results=await request([{jsonrpc:'2.0',id:6,method:'tools/call',params:{name:'mel_companion_status',arguments:{computer_id:huge}}}]);
+ assert.equal(results[0].error.code,-32600);
+});
