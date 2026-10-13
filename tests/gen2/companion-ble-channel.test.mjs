@@ -9,6 +9,9 @@ test("owner BLE diagnostic is fixed, bounded, read only",()=>{
  assert.match(command,/mel\.companion\.ble\.diagnostics\.v1/);
  assert.match(command,/logcat -d -t 1500/);
  assert.match(command,/MULTIPLE_ADB_DEVICES_REFUSED/);
+ assert.match(command,/\$serial=\$Matches\[1\]/);
+ assert.match(command,/if\(\$serial -match/);
+ assert.doesNotMatch(command,/\$Matches\[1\] -match/);
  assert.match(command,/serial_opened=\$false/);
  assert.match(command,/flash_performed=\$false/);
  assert.doesNotMatch(command,/\b(?:install|reboot|erase_flash|write_flash|adb pair|adb connect)\b/i);
