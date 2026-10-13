@@ -44,3 +44,20 @@ test('oversized JSON-RPC line is rejected before parsing',async()=>{
  const results=await request([{jsonrpc:'2.0',id:6,method:'tools/call',params:{name:'mel_companion_status',arguments:{computer_id:huge}}}]);
  assert.equal(results[0].error.code,-32600);
 });
+
+test('HTTP endpoint is rejected without attempting to connect',async()=>{
+ const results=await request([{jsonrpc:'2.0',id:7,method:'tools/call',params:{name:'mel_companion_status',arguments:{}}}],{
+  MEL_MCP_SERVER_URL:'http://127.0.0.1:8787/',MEL_MCP_OWNER_TOKEN:'test-only'
+ });
+ assert.equal(results[0].result.isError,true);
+ assert.match(results[0].result.content[0].text,/MEL_MCP_SERVER_URL_MUST_BE_HTTPS_ORIGIN/);
+});
+
+test('MCP initialize, ping and unsupported method are explicit',async()=>{
+ const results=await request([
+  {jsonrpc:'2.0',id:8,method:'ping'},
+  {jsonrpc:'2.0',id:9,method:'not-a-tool'}
+ ]);
+ assert.deepEqual(results[0].result,{});
+ assert.equal(results[1].error.code,-32601);
+});
