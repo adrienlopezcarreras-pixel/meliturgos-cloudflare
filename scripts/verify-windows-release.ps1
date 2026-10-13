@@ -29,6 +29,8 @@ try {
   Expand-Archive -LiteralPath $zip -DestinationPath $temp -Force
   $manifestPath = Join-Path $temp "release-manifest.json"
   if (-not (Test-Path -LiteralPath $manifestPath)) { throw "WINDOWS_MANIFEST_MISSING" }
+  $androidPair = Join-Path $temp "MEL-Android-WiFi-Pairing.ps1"
+  if (-not (Test-Path -LiteralPath $androidPair -PathType Leaf)) { throw "WINDOWS_ANDROID_WIFI_PAIRING_HELPER_MISSING" }
   $desktopExe = Join-Path $temp "MEL-Companion.exe"
   if (-not (Test-Path -LiteralPath $desktopExe -PathType Leaf)) { throw "WINDOWS_DESKTOP_EXE_MISSING" }
   if ((Get-Item -LiteralPath $desktopExe).Length -lt 50000) { throw "WINDOWS_DESKTOP_EXE_INVALID" }
