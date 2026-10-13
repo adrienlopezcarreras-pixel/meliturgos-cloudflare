@@ -5,6 +5,7 @@ on:
       - feature/mel-chatgpt-companion-mcp-20261013
     paths:
       - 'tools/mel-companion-mcp.mjs'
+      - 'tools/Check-MEL-Companion-OAuth.mjs'
       - 'tests/mel-companion-mcp.test.mjs'
       - 'tools/Test-MEL-Companion-MCP.ps1'
       - 'src/devices/companion-mcp-http.js'
@@ -60,7 +61,9 @@ jobs:
         with:
           node-version: '22'
       - name: Syntax
-        run: node --check tools/mel-companion-mcp.mjs
+        run: |
+          node --check tools/mel-companion-mcp.mjs
+          node --check tools/Check-MEL-Companion-OAuth.mjs
       - name: Check Windows preflight avoids policy changes and writes
         run: |
           node -e "const fs=require('fs'); const s=fs.readFileSync('tools/Test-MEL-Companion-MCP.ps1','utf8'); if(/Set-ExecutionPolicy|Invoke-Expression|Start-Process|winget install|Invoke-RestMethod|ConvertFrom-SecureString|Get-Content/i.test(s))process.exit(1)"
