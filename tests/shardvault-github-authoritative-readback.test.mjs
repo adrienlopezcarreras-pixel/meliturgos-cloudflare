@@ -80,3 +80,38 @@ test('scoped preview GitHub token is passed only to the fixed Contents API as an
   assert.equal(rejected,null);
   assert.equal(badCalls,0);
 });
+
+test('realistic GitHub Content-Length with escaped wrapped base64 is accepted for 275 KiB fragments',async()=>{
+  const bytes=Uint8Array.from({length:274554},(_,i)=>((i*79+11)%256));
+  const b64=Buffer.from(bytes).toString('base64');
+  const wrapped=b64.match(/.{1,60}/g).join(String.fromCharCode(10));
+  const body=JSON.stringify({type:'file',encoding:'base64',size:bytes.length,content:wrapped,name:'code-a-shard-06-github.bin'});
+  const oldHeaderLimit=Math.ceil(bytes.length/3)*4+4096+2048;
+  assert.ok(Buffer.byteLength(body)>oldHeaderLimit,'reproduce previous false rejection');
+  let requests=0;
+  const output=await readAuthoritativeGitHubMirror(url,{
+    maxBytes:bytes.length,
+    fetchImpl:async (requested,opts)=>{
+      requests++;
+      assert.ok(requested.startsWith('https://api.github.com/repos/'));
+      assert.equal(opts.redirect,'error');
+      return new Response(body,{status:200,headers:{'content-type':'application/json','content-length':String(Buffer.byteLength(body))}});
+    },
+  });
+  assert.equal(requests,1);
+  assert.ok(output instanceof Uint8Array);
+  assert.equal(Buffer.compare(Buffer.from(output),Buffer.from(bytes)),0);
+});
+
+test('body still fails closed when GitHub JSON is too large or decoded content exceeds shard size',async()=>{
+  const data=Uint8Array.from({length:100},(_,i)=>i);
+  const body=JSON.stringify({type:'file',encoding:'base64',size:100,content:Buffer.from(data).toString('base64')});
+  const excessive=await readAuthoritativeGitHubMirror(url,{
+    maxBytes:100,fetchImpl:async()=>new Response(body,{status:200,headers:{'content-length':'99999999'}}),
+  });
+  assert.equal(excessive,null);
+  const oversizedBytes=await readAuthoritativeGitHubMirror(url,{
+    maxBytes:99,fetchImpl:async()=>Response.json({type:'file',encoding:'base64',size:100,content:Buffer.from(data).toString('base64')}),
+  });
+  assert.equal(oversizedBytes,null);
+});
