@@ -44,3 +44,11 @@ test('OIDC is audit only; installs and stages require owner + explicit approval 
  assert.match(relay,/ANDROID_COMPANION_MAINTENANCE_ASSESS=/);
  assert.doesNotMatch(relay,/action:'android\.maintenance\.install'|action:'android\.maintenance\.stage'/);
 });
+test('Windows Companion honors strict exit codes for every Android maintenance route',()=>{
+ const asset=readFileSync('assets/MEL-Computer-Companion.ps1','utf8');
+ const dist=readFileSync('dist/MEL-Computer-Companion.ps1','utf8');
+ assert.equal(asset,dist);
+ assert.match(asset,/if \(\$payload\.require_success_exit -eq \$true -and \$p\.ExitCode -ne 0\)/);
+ assert.match(asset,/SYSTEM_EXEC_NONZERO_EXIT_CODE/);
+ assert.equal((api.match(/require_success_exit:true/g)||[]).length,4);
+});
