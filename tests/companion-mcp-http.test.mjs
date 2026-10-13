@@ -93,3 +93,10 @@ test('malformed JSON-RPC ids cannot call Companion status',async()=>{
  }
  assert.equal(called,0);
 });
+
+test('oversized and unsafe numeric RPC ids are denied',async()=>{
+ for(const id of ['x'.repeat(129),Number.MAX_SAFE_INTEGER+1,1.5]){
+  const res=await companionMcpHttp(request('POST',{jsonrpc:'2.0',id,method:'tools/list'}),services);
+  assert.equal(res.status,400);
+ }
+});
