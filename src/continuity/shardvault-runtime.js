@@ -1,6 +1,7 @@
 import { buildShardVaultMemoryPayload } from './shardvault-memory-export.js';
 import { discoverAutonomousRepositories, invalidateRepresentativeProof } from './autonomous-repositories.js';
 import { D1GitHubActionRelayStore } from '../platform/github-action-relay.js';
+import { allowCodeEndpointForShard } from './shardvault-code-target-policy.js';
 
 const te = new TextEncoder();
 const HOUR = 60 * 60 * 1000;
@@ -1405,12 +1406,14 @@ async function ensureExternalCodeArchive(env,c,codeBackup){
         ranked=roundtripCodeFallbackCandidates(env,codeCandidates,activeCodeTargets,state,used,shard.length);
         if(ranked.length)state.candidate_roundtrip_fallback_used=true;
       }
-      return prioritizeExternalCodeCandidates(ranked,state);
+      // A mirror cached from any earlier snapshot must not take shard 0..5.
+      // This applies to both validated candidates and fallback candidates.
+      return prioritizeExternalCodeCandidates(ranked.filter(e=>allowCodeEndpointForShard(e,i,goal)),state);
     };
     let candidates=buildCandidates();
     if(i===goal-1){
       const githubMirror=githubCodeMirrorEndpoint(env,id,shard.length);
-      if(githubMirror&&!used.has(githubMirror.id)&&codeTargetAvailableNow(state,githubMirror)){
+      if(githubMirror&&allowCodeEndpointForShard(githubMirror,i,goal)&&!used.has(githubMirror.id)&&codeTargetAvailableNow(state,githubMirror)){
         candidates=[githubMirror,...candidates.filter(endpoint=>endpoint.id!==githubMirror.id)];
       }
     }
@@ -1480,6 +1483,7 @@ async function ensureExternalCodeArchive(env,c,codeBackup){
       }
     }
     const e=candidates[0];
+    if(!allowCodeEndpointForShard(e,i,goal))throw new Error('CODE_MIRROR_NON_FINAL_SHARD_FORBIDDEN');
     state.attempted_endpoints=[...new Set([...(state.attempted_endpoints||[]),e.id])];
     try{
       const shardKey=await hkdf(c.master,utf8(state.snapshotId),utf8('MEL-ShardVault/v1/code-shard-mac'));

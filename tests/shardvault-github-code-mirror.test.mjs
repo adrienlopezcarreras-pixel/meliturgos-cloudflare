@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { summarizeAutonomyLaunchCodeSync } from '../src/evolution/launch-readiness.js';
+import { allowCodeEndpointForShard } from '../src/continuity/shardvault-code-target-policy.js';
 
 const runtime=await readFile(new URL('../src/continuity/shardvault-runtime.js',import.meta.url),'utf8');
 const mirrorWorkflow=await readFile(new URL('../.github/workflows/shardvault-github-code-mirror.yml',import.meta.url),'utf8');
@@ -15,6 +16,23 @@ test('GitHub code mirror is code-sync-only and gated to the final missing shard'
   assert.match(runtime,/i===goal-1/);
   assert.match(runtime,/githubCodeMirrorEndpoint\(env,id,shard\.length\)/);
   assert.doesNotMatch(runtime,/active_external_endpoint.*github-actions-code-mirror/);
+});
+
+test('cached GitHub mirror is never eligible for shards 0 to 5',()=>{
+  const byId={id:'github-actions-code-mirror',adapter:'generic'};
+  const byAdapter={id:'cached-mirror-from-prior-snapshot',adapter:'github_actions_code_mirror'};
+  const normal={id:'external-verified-provider',adapter:'catbox'};
+  for(let index=0;index<7;index++){
+    assert.equal(allowCodeEndpointForShard(byId,index,7),index===6);
+    assert.equal(allowCodeEndpointForShard(byAdapter,index,7),index===6);
+    assert.equal(allowCodeEndpointForShard(normal,index,7),true);
+  }
+  assert.equal(allowCodeEndpointForShard(byId,0,5),false);
+  assert.equal(allowCodeEndpointForShard(normal,0,5),true);
+  assert.equal(allowCodeEndpointForShard(normal,-1,7),false);
+  assert.equal(allowCodeEndpointForShard(normal,7,7),false);
+  assert.match(runtime,/ranked\.filter\(e=>allowCodeEndpointForShard\(e,i,goal\)\)/);
+  assert.match(runtime,/CODE_MIRROR_NON_FINAL_SHARD_FORBIDDEN/);
 });
 
 test('GitHub code mirror remains fail-closed until public byte-for-byte roundtrip succeeds',()=>{
