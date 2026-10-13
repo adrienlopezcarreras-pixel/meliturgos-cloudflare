@@ -14,6 +14,11 @@ export function createCompanionMcpEndpoint({issuer,jwks,revoked,db,allowedOrigin
  return request=>{
   const gate=checkCompanionMcpTransport(request,{allowedOrigin});
   if(!gate.ok)return Response.json({error:gate.code},{status:gate.status,headers:{'cache-control':'no-store'}});
-  return companionMcpHttp(request,{authenticate,authorizeDevice,readStatus});
+  return companionMcpHttp(request,{authenticate,authorizeDevice,readStatus}).then(response=>{
+   if(response.status!==401)return response;
+   const headers=new Headers(response.headers);
+   headers.set('www-authenticate',`Bearer resource_metadata="${allowedOrigin}/.well-known/oauth-protected-resource/mcp/companion/v1"`);
+   return new Response(response.body,{status:401,headers});
+  });
  };
 }
