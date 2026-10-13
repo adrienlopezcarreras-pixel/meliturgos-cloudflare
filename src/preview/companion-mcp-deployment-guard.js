@@ -7,6 +7,7 @@ export function validateCompanionMcpPreviewEnv(env){
  if(typeof env?.DB?.prepare!=='function')throw Error('MCP_PREVIEW_D1_REQUIRED');
  const origin=String(env.MCP_PREVIEW_ORIGIN||'');
  const issuer=String(env.MCP_OAUTH_ISSUER||'');
+ if(/REPLACE|\.invalid(?:$|\/)/i.test(origin+' '+issuer))throw Error('MCP_PREVIEW_PLACEHOLDER_CONFIG');
  if(!/^https:\/\/[^/]+$/.test(origin)||!/^https:\/\/[^/]+$/.test(issuer))throw Error('MCP_PREVIEW_HTTPS_REQUIRED');
  return true;
 }
