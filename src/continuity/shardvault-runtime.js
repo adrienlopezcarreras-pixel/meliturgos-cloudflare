@@ -366,7 +366,7 @@ async function githubCodeMirrorUpload(env,e,objectId,payload){
   await env.MEDIA_BUCKET.put(stagingKey,payload,{httpMetadata:{contentType:'application/octet-stream'},customMetadata:{git_sha:id.sha,object_id:objectId,sha256:digest,kind:'github-code-mirror-staging'}});
   const mirrorPath='shardvault-code/'+id.sha+'/'+objectId+'.bin';
   const job=await relay.enqueue({workflow:GITHUB_CODE_MIRROR_WORKFLOW,ref:'main',inputs:{
-    r2_key:stagingKey,mirror_path:mirrorPath,expected_sha256:digest,byte_length:String(payload.length),
+    r2_key:stagingKey,r2_bucket:env?.MEL_PREVIEW_ISOLATED==='true'?'meliturgos-preview-media-bucket':'meliturgos-private-media',mirror_path:mirrorPath,expected_sha256:digest,byte_length:String(payload.length),
   }});
   pending={relay_job_id:job.id,staging_key:stagingKey,mirror_path:mirrorPath,expected_sha256:digest,byte_length:payload.length,remote_url:remoteUrl,created_at:new Date().toISOString()};
   await env.MEDIA_BUCKET.put(pendingKey,JSON.stringify(pending),{httpMetadata:{contentType:'application/json'}});
