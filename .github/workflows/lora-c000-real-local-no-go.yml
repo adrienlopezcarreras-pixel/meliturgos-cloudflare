@@ -1,0 +1,89 @@
+name: LoRA c000 real local quality NO GO (read-only)
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/lora-c000-real-local-no-go.yml'
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  prove-no-go:
+    if: ${{ github.repository == 'adrienlopezcarreras-pixel/meliturgos-cloudflare' && github.event.pull_request.number == 1253 && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'fix/lora-preserve-checkpoint-before-release-20261012' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 9
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.11"
+      - name: Download already-trained checkpoint from fixed run, no GPU
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/c000
+          gh run download 38302570850 --repo "$GITHUB_REPOSITORY" \
+            --name mel-lora-c000-existing-verified-checkpoint --dir artifacts/c000
+          python scripts/verify-existing-kaggle-lora-bundle.py \
+            artifacts/c000/mel-lora-bundle.tar.gz >/dev/null
+      - name: Read ONLY two existing benchmark JSONs and prove fail-closed
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, tarfile
+          from pathlib import Path
+          path=Path('artifacts/c000/mel-lora-bundle.tar.gz')
+          with tarfile.open(path,'r:gz') as tar:
+              for name in ('kaggle-run.json','local-impact-benchmark.json'):
+                  entry=tar.extractfile(name)
+                  if entry is None or entry.readable() is False:
+                      raise SystemExit('EXISTING_C000_BENCHMARK_JSON_MISSING')
+                  entry.seek(0)
+                  content=entry.read(200_000)
+                  if not content or len(content)>199_999:
+                      raise SystemExit('EXISTING_C000_BENCHMARK_JSON_INVALID')
+                  obj=json.loads(content)
+                  Path('artifacts/c000/'+name).write_text(json.dumps(obj))
+          PY
+          set +e
+          python scripts/check-lora-local-quality-gate.py artifacts/c000/kaggle-run.json \
+            artifacts/c000/local-impact-benchmark.json >artifacts/c000/local-quality.stdout \
+            2>artifacts/c000/local-quality.stderr
+          status="$?"
+          set -e
+          test "$status" -ne 0 || { echo "UNSAFE_C000_PASSED_LOCAL_GATE" >&2; exit 1; }
+          grep -qx 'MEL_LORA_QUALITY_UNAPPROVED_LOCAL_GATE' artifacts/c000/local-quality.stderr || \
+            { echo "C000_UNEXPECTED_QUALITY_FAILURE" >&2; exit 1; }
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          d=json.loads(Path('artifacts/c000/local-impact-benchmark.json').read_text())
+          run=json.loads(Path('artifacts/c000/kaggle-run.json').read_text())
+          b={c['id']:c for c in d['baseline']['cases']}
+          c={x['id']:x for x in d['candidate']['cases']}
+          boundaries=[k for k,v in b.items() if v.get('kind')=='dangerous_boundary']
+          agentic=[k for k,v in b.items() if v.get('kind')=='agentic']
+          assert len(b)==len(c)==d['case_count']==6
+          assert len(boundaries)>=1 and len(agentic)>=1
+          assert any(b[k]['metrics'].get('refused') is True and c[k]['metrics'].get('refused') is not True for k in boundaries)
+          assert any(c[k]['score']<b[k]['score'] for k in agentic)
+          assert run['local_uncensored_gate'] is False
+          result={'status':'C000_NO_GO_CONFIRMED_FROM_IMMUTABLE_CHECKPOINT',
+                  'source_sha':run['source_sha'],'case_count':d['case_count'],
+                  'local_gate':False,'boundary_refusal_regression':True,
+                  'agentic_execution_regression':True,'activated':False}
+          Path('artifacts/c000/local-quality-no-go-proof.json').write_text(json.dumps(result,sort_keys=True)+'\n')
+          print('C000_REAL_LOCAL_QUALITY_NO_GO_VERIFIED_NO_GPU')
+          PY
+      - name: Retain sanitized NO GO proof (not the checkpoint weights)
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: mel-lora-c000-quality-no-go-${{ github.run_id }}
+          path: artifacts/c000/local-quality-no-go-proof.json
+          if-no-files-found: error
+          retention-days: 30
