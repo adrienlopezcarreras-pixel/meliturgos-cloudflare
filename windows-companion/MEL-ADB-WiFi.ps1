@@ -46,6 +46,7 @@ function Scan {
   if ($id) {
     $status.android_model=((Run-Adb -arglist @("-s",$id,"shell","getprop","ro.product.model")) -join " ").Trim()
     $status.android_version=((Run-Adb -arglist @("-s",$id,"shell","getprop","ro.build.version.release")) -join " ").Trim()
+    if ([string]::IsNullOrWhiteSpace($status.android_model) -or [string]::IsNullOrWhiteSpace($status.android_version) -or $status.android_model -match "(?i)^(error|device offline|unauthorized)" -or $status.android_version -match "(?i)^(error|device offline|unauthorized)") { throw "ADB_DEVICE_IDENTITY_UNVERIFIED" }
     $packages=(Run-Adb -arglist @("-s",$id,"shell","pm","list","packages","fr.veriteinterdite.mel")) -join "`n"
     $status.mel_installed=[bool]($packages -match '(?m)^package:fr\.veriteinterdite\.mel\s*$')
     if ($status.mel_installed) {
