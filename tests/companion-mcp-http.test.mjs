@@ -44,3 +44,16 @@ test('HTTP GET refuses tool access even when authenticated',async()=>{
  const res=await companionMcpHttp(request('GET'),services);
  assert.equal(res.status,405);
 });
+
+test('unsupported MCP protocol version is rejected',async()=>{
+ const res=await companionMcpHttp(request('POST',{jsonrpc:'2.0',id:7,method:'tools/list'},{'mcp-protocol-version':'2099-01-01'}),services);
+ assert.equal(res.status,400);
+});
+test('non-json media type is rejected',async()=>{
+ const res=await companionMcpHttp(request('POST',{jsonrpc:'2.0',id:8,method:'tools/list'},{'content-type':'text/plain'}),services);
+ assert.equal(res.status,415);
+});
+test('oversize content length denied',async()=>{
+ const res=await companionMcpHttp(request('POST',{jsonrpc:'2.0',id:9,method:'tools/list'},{'content-length':'20000'}),services);
+ assert.equal(res.status,413);
+});
