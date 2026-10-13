@@ -65,7 +65,7 @@ test('successful releases do not recursively re-dispatch when main is already cu
     if (path.endsWith('/branches/main') || path.endsWith('/branches/' + RELEASE_BRANCH))
       return { ok: true, status: 200, json: async () => ({ commit: { sha: MAIN_SHA } }) };
     if (path.endsWith('/actions/workflows/deploy-cloudflare-release.yml/runs'))
-      return { ok: true, status: 200, json: async () => ({ workflow_runs: [] }) };
+      return { ok: true, status: 200, json: async () => ({ workflow_runs: [{ name: 'deploy-cloudflare-release', head_sha: MAIN_SHA, status: 'completed', conclusion: 'success' }] }) };
     throw new Error('Unexpected production mutation: ' + path);
   };
   const result = await requestAutonomousRelease({ token: 'TEST_ONLY', fetchImpl: fakeFetch });
@@ -122,11 +122,69 @@ test('both protected refs continue through existing exact-SHA and concurrency ga
     if (path.endsWith('/branches/' + RELEASE_BRANCH))
       return { ok: true, status: 200, json: async () => ({ protected: true, commit: { sha: MAIN_SHA } }) };
     if (path.endsWith('/actions/workflows/deploy-cloudflare-release.yml/runs'))
-      return { ok: true, status: 200, json: async () => ({ workflow_runs: [] }) };
+      return { ok: true, status: 200, json: async () => ({ workflow_runs: [{ name: 'deploy-cloudflare-release', head_sha: MAIN_SHA, status: 'completed', conclusion: 'success' }] }) };
     throw new Error('UNEXPECTED_PRODUCTION_MUTATION:' + path);
   };
   const result = await requestAutonomousRelease({ token: 'TEST_ONLY', fetchImpl, requireProtectedRefs: true });
   assert.equal(result.reason, 'ALREADY_CURRENT');
   assert.equal(result.accepted, false);
   assert.equal(reads, 3);
+});
+
+test('already-moved release pointer without successful production proof must still dispatch', async () => {
+  const calls=[];
+  const fakeFetch=async(url,request)=>{
+    const path=new URL(url).pathname;
+    calls.push({path,method:request.method});
+    if(path.endsWith('/branches/main')||path.endsWith('/branches/'+RELEASE_BRANCH))
+      return {ok:true,status:200,json:async()=>({protected:true,commit:{sha:MAIN_SHA}})};
+    if(path.endsWith('/actions/workflows/deploy-cloudflare-release.yml/runs'))
+      return {ok:true,status:200,json:async()=>({workflow_runs:[{name:'deploy-cloudflare-release',head_sha:OLD_SHA,status:'completed',conclusion:'success'}]})};
+    if(path.endsWith('/dispatches'))return {ok:true,status:204,json:async()=>null};
+    throw Error('UNEXPECTED:'+path);
+  };
+  const result=await requestAutonomousRelease({token:'TEST_ONLY',fetchImpl:fakeFetch,requireProtectedRefs:true});
+  assert.equal(result.accepted,true);
+  assert.ok(calls.some(x=>x.path.endsWith('/dispatches')&&x.method==='POST'));
+  assert.ok(!calls.some(x=>x.method==='PATCH'));
+});
+
+test('release pointer confirmation tolerates stale branch reads but never bypasses exact SHA',async()=>{
+  let releaseSha=OLD_SHA,staleRemaining=2,waits=0,dispatches=0;
+  const fakeFetch=async(url,request)=>{
+    const path=new URL(url).pathname;
+    if(path.endsWith('/branches/main'))return {ok:true,status:200,json:async()=>({commit:{sha:MAIN_SHA}})};
+    if(path.endsWith('/branches/'+RELEASE_BRANCH)){
+      const visibleSha=releaseSha===MAIN_SHA&&staleRemaining-->0?OLD_SHA:releaseSha;
+      return {ok:true,status:200,json:async()=>({commit:{sha:visibleSha}})};
+    }
+    if(path.endsWith('/actions/workflows/deploy-cloudflare-release.yml/runs'))
+      return {ok:true,status:200,json:async()=>({workflow_runs:[]})};
+    if(path.endsWith('/git/refs/heads/'+RELEASE_BRANCH)){
+      releaseSha=JSON.parse(request.body).sha;
+      return {ok:true,status:200,json:async()=>({})};
+    }
+    if(path.endsWith('/dispatches')){dispatches++;return {ok:true,status:204,json:async()=>null};}
+    throw Error('UNEXPECTED:'+path);
+  };
+  const result=await requestAutonomousRelease({token:'TEST_ONLY',fetchImpl:fakeFetch,sleepImpl:async()=>{waits++;}});
+  assert.equal(result.accepted,true);
+  assert.equal(dispatches,1);
+  assert.equal(waits,2);
+});
+
+test('release pointer mismatch after retries refuses any deployment',async()=>{
+  let dispatched=false;
+  const fakeFetch=async(url,request)=>{
+    const path=new URL(url).pathname;
+    if(path.endsWith('/branches/main'))return {ok:true,status:200,json:async()=>({commit:{sha:MAIN_SHA}})};
+    if(path.endsWith('/branches/'+RELEASE_BRANCH))return {ok:true,status:200,json:async()=>({commit:{sha:OLD_SHA}})};
+    if(path.endsWith('/actions/workflows/deploy-cloudflare-release.yml/runs'))
+      return {ok:true,status:200,json:async()=>({workflow_runs:[]})};
+    if(path.endsWith('/git/refs/heads/'+RELEASE_BRANCH))return {ok:true,status:200,json:async()=>({})};
+    if(path.endsWith('/dispatches')){dispatched=true;return {ok:true,status:204,json:async()=>null};}
+    throw Error('UNEXPECTED:'+path);
+  };
+  await assert.rejects(()=>requestAutonomousRelease({token:'TEST_ONLY',fetchImpl:fakeFetch,sleepImpl:async()=>{}}),/RELEASE_POINTER_NOT_VERIFIED/);
+  assert.equal(dispatched,false);
 });
