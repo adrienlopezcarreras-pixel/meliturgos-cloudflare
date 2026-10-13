@@ -1,0 +1,53 @@
+name: MEL integration merge conflict diagnosis
+on:
+  push:
+    branches:
+      - integration/mel-main-candidate-20261013
+    paths:
+      - '.github/workflows/mel-integration-merge-diagnostic.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Attempt isolated non-committing merge
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin main
+          echo "integration_sha=$(git rev-parse HEAD)" >> "$GITHUB_STEP_SUMMARY"
+          echo "main_sha=$(git rev-parse origin/main)" >> "$GITHUB_STEP_SUMMARY"
+          git config user.name "MEL merge diagnostic"
+          git config user.email "mel-merge-diagnostic@users.noreply.github.com"
+          set +e
+          git merge --no-commit --no-ff origin/main > merge-output.txt 2>&1
+          code=$?
+          set -e
+          printf 'merge_exit_code=%s\n' "$code" > merge-result.txt
+          git ls-files -u | cut -f2 | sort -u > merge-unmerged-paths.txt
+          git status --short > merge-status.txt
+          cat merge-output.txt >> merge-result.txt
+          printf '\n## Merge diagnosis\n' >> "$GITHUB_STEP_SUMMARY"
+          printf 'Merge exit code: %s\n\n' "$code" >> "$GITHUB_STEP_SUMMARY"
+          printf '### Unmerged paths\n' >> "$GITHUB_STEP_SUMMARY"
+          if [ -s merge-unmerged-paths.txt ]; then
+            sed 's/^/- /' merge-unmerged-paths.txt >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo 'None' >> "$GITHUB_STEP_SUMMARY"
+          fi
+          git merge --abort >/dev/null 2>&1 || true
+          # Read-only diagnosis: no commit, push, secret access, or production deployment.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mel-integration-merge-diagnostic
+          path: |
+            merge-result.txt
+            merge-unmerged-paths.txt
+            merge-status.txt
