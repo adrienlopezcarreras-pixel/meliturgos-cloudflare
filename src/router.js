@@ -230,7 +230,13 @@ async function handleConversationApi(request, env, url = new URL(request.url), c
       state,
       generated_at: new Date().toISOString(),
       health_refreshed: refresh,
-      capabilities: { total: capabilities.length, active, usable: functional, functional, healthy, protected: protectedCount, degraded, waiting_pc: waitingPc, unavailable, failed, health },
+      // Backward-compatible `functional` / `usable` fields are a health
+      // estimate only, not evidence that the registered operation ran. No
+      // per-capability execution trace is gathered by this fast dashboard.
+      capabilities: { total: capabilities.length, active, usable: functional, functional, healthy, protected: protectedCount, degraded, waiting_pc: waitingPc, unavailable, failed, health,
+        proof_scope: "REGISTERED_HEALTH_ONLY",
+        individual_execution_proof_included: false,
+      },
       roadmap: roadmapSummary,
       deployment: {
         branch: deployedBranch || null,
@@ -242,7 +248,7 @@ async function handleConversationApi(request, env, url = new URL(request.url), c
           id:"capabilities",
           label:"CapabilityBus",
           status: failed > 0 ? "ERROR" : (degraded > 0 || waitingPc > 0 || unavailable > 0) ? "WARN" : "OK",
-          detail: functional+"/"+capabilities.length+" fonctionnelles · "
+          detail: functional+"/"+capabilities.length+" saines/protégées (statut, non exécution) · "
             +protectedCount+" protégée(s) · "
             +degraded+" dégradée(s) · "
             +waitingPc+" en attente PC · "
