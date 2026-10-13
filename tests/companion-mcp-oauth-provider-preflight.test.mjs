@@ -16,3 +16,8 @@ test('provider rejects omitted public client support and missing grant metadata'
  assert.throws(()=>check({...metadata,token_endpoint_auth_methods_supported:undefined},{issuer}),/MCP_OAUTH_PUBLIC_CLIENT_REQUIRED/);
  assert.throws(()=>check({...metadata,grant_types_supported:undefined},{issuer}),/MCP_OAUTH_GRANT_REQUIRED/);
 });
+
+test('OAuth endpoint origin substitution is refused',()=>{
+ assert.throws(()=>check({...metadata,token_endpoint:'https://attacker.example.test/token'},{issuer}),/MCP_OAUTH_ENDPOINT_ORIGIN_MISMATCH/);
+ assert.throws(()=>check({...metadata,jwks_uri:'https://issuer.example.test@attacker.example.test/keys'},{issuer}),/MCP_OAUTH_ENDPOINT_ORIGIN_MISMATCH/);
+});
