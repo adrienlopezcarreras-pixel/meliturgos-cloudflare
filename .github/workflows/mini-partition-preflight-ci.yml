@@ -10,6 +10,7 @@ on:
       - 'tools/mini-updater/inspect_ota_state.py'
       - 'tests/mini-ota-select-preflight.test.mjs'
       - 'tools/mini-updater/inspect_ota_backup.py'
+      - 'tools/mini-updater/ota_backup_worker.py'
       - 'tests/mini-ota-backup-preflight.test.mjs'
       - 'tests/mini-companion-owner-readonly.test.mjs'
       - 'src/devices/mini-readonly-companion.js'
@@ -29,6 +30,7 @@ on:
       - 'tools/mini-updater/inspect_ota_state.py'
       - 'tests/mini-ota-select-preflight.test.mjs'
       - 'tools/mini-updater/inspect_ota_backup.py'
+      - 'tools/mini-updater/ota_backup_worker.py'
       - 'tests/mini-ota-backup-preflight.test.mjs'
       - 'tests/mini-companion-owner-readonly.test.mjs'
       - 'src/devices/mini-readonly-companion.js'
@@ -52,6 +54,7 @@ jobs:
         with:
           python-version: '3.11'
       - run: python3 -m py_compile tools/mini-updater/inspect_partitions.py
-      - run: python3 -m py_compile tools/mini-updater/local_readonly_preflight.py tools/mini-updater/inspect_image.py tools/mini-updater/inspect_ota_state.py tools/mini-updater/inspect_ota_backup.py
+      - run: python3 -m py_compile tools/mini-updater/local_readonly_preflight.py tools/mini-updater/inspect_image.py tools/mini-updater/inspect_ota_state.py tools/mini-updater/inspect_ota_backup.py tools/mini-updater/ota_backup_worker.py
+      - run: python3 tools/mini-updater/ota_backup_worker.py --help
       - run: python3 tools/mini-updater/local_readonly_preflight.py --help
       - run: node --test tests/mini-partition-python-fixtures.test.mjs tests/mini-local-readonly-preflight.test.mjs tests/mini-firmware-image-preflight.test.mjs tests/mini-ota-select-preflight.test.mjs tests/mini-ota-backup-preflight.test.mjs tests/mini-companion-owner-readonly.test.mjs
