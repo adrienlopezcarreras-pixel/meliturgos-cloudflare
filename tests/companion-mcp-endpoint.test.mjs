@@ -19,4 +19,5 @@ test('unsigned bearer is rejected by assembled endpoint',async()=>{
  });
  const response=await endpoint(req);
  assert.equal(response.status,401);
+ assert.equal(response.headers.get('www-authenticate'),'Bearer resource_metadata="https://mel.example.test/.well-known/oauth-protected-resource/mcp/companion/v1"');
 });
