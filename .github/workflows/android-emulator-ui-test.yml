@@ -180,8 +180,19 @@ jobs:
               adb shell cat /sdcard/mel-visual-proof.xml > "$hierarchy"
               if grep -Eiq "(isn.t responding|not responding|ne répond pas|viewing full screen|Got it)" "$hierarchy"; then
                 echo "::warning::System ANR/fullscreen overlay obscures ${name} on attempt ${attempt}"
-                adb shell input keyevent KEYCODE_BACK || true
-                sleep 2
+                # Recover disposable emulator launcher ANR without accepting an overlay as proof.
+                # The evidence gate still requires the expected package and unobstructed hierarchy.
+                adb shell am force-stop com.google.android.apps.nexuslauncher || true
+                adb shell am force-stop com.android.launcher3 || true
+                adb shell input keyevent KEYCODE_HOME || true
+                if [[ "$name" == "launcher-icon-proof" ]]; then
+                  adb shell am start -W -a android.settings.APPLICATION_DETAILS_SETTINGS -d package:fr.veriteinterdite.mel || true
+                elif [[ "$name" == "login-screen" ]]; then
+                  adb shell am start -W -n fr.veriteinterdite.mel/.MainActivity || true
+                else
+                  adb shell am start -W -n fr.veriteinterdite.mel/.MelUiHarnessActivity --es mode complete --ez diagnostics true || true
+                fi
+                sleep 4
                 continue
               fi
               if ! grep -Fq "package=\"${expected_package}\"" "$hierarchy"; then
