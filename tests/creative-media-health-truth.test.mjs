@@ -14,9 +14,28 @@ test('unconfigured media providers report unavailability reasons but never healt
     const record=bus.describe(id);
     assert.equal(record.enabled,true);
     assert.equal(record.health,'UNAVAILABLE',id);
-    assert.equal(record.health_detail,'MEDIA_ADAPTER_NOT_CONFIGURED_OR_FREE_PROOF_MISSING',id);
+    assert.equal(record.health_detail,
+      id==='media.video.process'
+        ? 'MEDIA_VAULT_CONFIGURATION_MISSING'
+        : 'MEDIA_AI_BINDING_MISSING',id);
   }
 });
+test('AI binding alone is NOT a zero-cost media model proof',()=>{
+  let invoked=false;
+  const bus=createGen2Runtime({env:{AI:{run:async()=>{invoked=true;throw Error('UNEXPECTED_CALL');}}}}).bus;
+  assert.equal(bus.describe('media.image.generate').health,'UNAVAILABLE');
+  assert.equal(bus.describe('media.image.generate').health_detail,'MEDIA_ZERO_COST_MODEL_PROOF_MISSING');
+  assert.equal(bus.describe('media.audio.transcribe').health_detail,'MEDIA_ZERO_COST_MODEL_PROOF_MISSING');
+  assert.equal(invoked,false);
+});
+test('video processing distinguishes missing encrypted vault from missing browser provenance',()=>{
+  const env={MEDIA_BUCKET:{put:async()=>{throw Error('UNEXPECTED_WRITE');}},
+    MEL_MEDIA_ENCRYPTION_KEY_ID:'fixture-id',MEL_MEDIA_ENCRYPTION_KEY_B64:'fixture-key'};
+  const bus=createGen2Runtime({env}).bus;
+  assert.equal(bus.describe('media.video.process').health_detail,
+    'MEDIA_BROWSER_PROVENANCE_OR_BINDING_MISSING');
+});
+
 test('explicitly configured adapter is healthy while unrelated media remains unavailable',()=>{
   const bus=createGen2Runtime({env:{MEL_MEDIA_CAPABILITIES:{
     'media.image.analyze':async()=>({ok:true}),
