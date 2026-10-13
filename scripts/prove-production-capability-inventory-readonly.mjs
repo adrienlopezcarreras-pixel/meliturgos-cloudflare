@@ -62,7 +62,7 @@ export function assessInventory(selfCheck,inventory,expectedSha){
     degraded_capability_ids:degradedIds.sort(),
     unavailable_capability_ids:unavailableIds.sort(),
     capability_execution_tested:false,stress_job_started:false,
-    mutation_scope:'GET_ONLY_NO_REFRESH_NO_D1_WRITE'};
+    mutation_scope:'GET_ONLY_ENDPOINTS_AUDIT_RECEIPTS_POSSIBLE'};
 }
 
 export async function probeLiveInventory({
