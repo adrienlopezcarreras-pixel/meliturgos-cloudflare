@@ -10,7 +10,7 @@ test('preview worker without credentials cannot expose MCP',async()=>{
 
 test('OAuth discovery is available only after explicit preview opt-in',async()=>{
  const env={
-  MCP_PREVIEW_ENABLED:'true',MCP_PREVIEW_ISOLATED:'true',MCP_PREVIEW_D1_ISOLATED:'true',
+  MCP_PREVIEW_ENABLED:'true',MCP_PREVIEW_ISOLATED:'true',MCP_PREVIEW_D1_ISOLATED:'true',MCP_PREVIEW_WORKER_NAME:'mcp-preview',MCP_PRODUCTION_WORKER_NAME:'mel-prod',MCP_PREVIEW_D1_DATABASE_ID:'d1-preview',MCP_PRODUCTION_D1_DATABASE_ID:'d1-prod',
   MCP_PREVIEW_ORIGIN:'https://mcp.example.test',
   MCP_OAUTH_ISSUER:'https://issuer.example.test',
   DB:{prepare:()=>({})}
