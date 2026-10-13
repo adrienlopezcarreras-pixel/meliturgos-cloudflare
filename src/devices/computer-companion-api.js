@@ -128,7 +128,7 @@ const PC_CONTROL_ACTIONS=new Set([
  "serial.list","serial.read","serial.inspect","serial.hard_reset",
  "process.list","process.start","process.kill",
  "file.list","file.read_text","file.write_text",
- "system.info","system.exec"
+ "system.info","system.exec","mini.readonly.discover","mini.readonly.security","mini.readonly.backup"
 ]);
 const PC_CONTROL_PROOF_ACTIONS=new Set(["system.info","serial.list","serial.read","serial.inspect"]);
 
@@ -150,6 +150,9 @@ async function ownerPcControl(request,env){
  const payload=b.payload&&typeof b.payload==="object"?b.payload:{};
  if(!id)return json({ok:false,code:"COMPUTER_ID_REQUIRED"},400);
  if(!PC_CONTROL_ACTIONS.has(action))return json({ok:false,code:"PC_CONTROL_ACTION_NOT_ALLOWED"},403);
+ if(action.startsWith("mini.readonly.")&&a.kind!=="owner")return json({ok:false,code:"MINI_READONLY_OWNER_ONLY"},403);
+ if((action==="mini.readonly.security"||action==="mini.readonly.backup")&&payload.ack_bootloader_reset!==true)return json({ok:false,code:"MINI_BOOTLOADER_RESET_ACK_REQUIRED"},400);
+ if(action==="mini.readonly.backup"&&payload.ack_local_backup!==true)return json({ok:false,code:"MINI_BACKUP_ACK_REQUIRED"},400);
  const row=await env.DB.prepare("SELECT * FROM computer_devices WHERE id=? LIMIT 1").bind(id).first();
  const device=normalizeDevice(row);
  if(!device)return json({ok:false,code:"COMPUTER_NOT_FOUND"},404);
