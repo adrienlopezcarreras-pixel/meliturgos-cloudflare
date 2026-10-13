@@ -33,22 +33,13 @@ jobs:
       - name: Verify approved preview source
         shell: bash
         run: |
-          if [ "${GITHUB_EVENT_NAME}" = "push" ]; then
-            test "${GITHUB_REF_NAME}" = "candidate/mel-clean-autonomy"
-          else
-            case "${GITHUB_REF_NAME}" in
-              main|candidate/mel-clean-autonomy) ;;
-              *) echo "Manual preview is restricted to main or the canonical candidate branch"; exit 2 ;;
-            esac
+          set -euo pipefail
+          if [ "${GITHUB_REF_NAME}" != "candidate/mel-clean-autonomy" ]; then
+            echo "PREVIEW_CANDIDATE_BRANCH_REQUIRED: main and other refs are not authorized."
+            exit 2
           fi
-          echo "Preparing isolated preview for ${GITHUB_SHA} from ${GITHUB_REF_NAME}"
-
-      - name: Preserve candidate-only local test assumptions on manual main preview
-        if: github.event_name == 'workflow_dispatch' && github.ref_name == 'main'
-        shell: bash
-        run: |
-          git switch -c "candidate/manual-main-preview-${GITHUB_RUN_ID}"
           test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+          echo "Preparing isolated candidate preview for exact SHA ${GITHUB_SHA}"
 
       - name: Syntax gate
         run: npm run check
@@ -73,16 +64,145 @@ jobs:
           echo "Critical candidate code bundle bytes: $BUNDLE_BYTES"
           echo "Representative code shard bytes: $SHARD_BYTES"
 
+      - name: Require isolated preview resource identities before any mutation
+        shell: bash
+        env:
+          MEL_PREVIEW_D1_DATABASE_ID: ${{ vars.MEL_PREVIEW_D1_DATABASE_ID || secrets.MEL_PREVIEW_D1_DATABASE_ID }}
+          MEL_PREVIEW_R2_BUCKET: ${{ vars.MEL_PREVIEW_R2_BUCKET || secrets.MEL_PREVIEW_R2_BUCKET }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          node --input-type=module - <<'NODE'
+          import fs from 'node:fs';
+          import { resolvePreviewBindings } from './scripts/resolve-preview-bindings.mjs';
+          const config = JSON.parse(fs.readFileSync('wrangler.jsonc', 'utf8'));
+          const { d1, bucket } = await resolvePreviewBindings({ config });
+          const uuid = /^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/i;
+          const productionD1 = config.d1_databases?.find(x => x.binding === 'DB');
+          const productionR2 = config.r2_buckets?.find(x => x.binding === 'MEDIA_BUCKET');
+          if (!uuid.test(d1) || d1.toLowerCase() === String(productionD1?.database_id || '').toLowerCase()) {
+            throw Error('PREVIEW_D1_ISOLATED_UUID_REQUIRED: set MEL_PREVIEW_D1_DATABASE_ID to the existing distinct preview D1 UUID in GitHub vars/secrets');
+          }
+          if (!/^[a-z0-9][a-z0-9-]{2,62}$/.test(bucket) || bucket === productionR2?.bucket_name) {
+            throw Error('PREVIEW_R2_ISOLATED_BUCKET_REQUIRED: set MEL_PREVIEW_R2_BUCKET to an existing bucket distinct from production');
+          }
+          config.env.preview.d1_databases = [{
+            binding: 'DB',
+            database_name: 'meliturgos-preview-db',
+            database_id: d1,
+          }];
+          config.env.preview.r2_buckets = [{ binding: 'MEDIA_BUCKET', bucket_name: bucket }];
+          fs.writeFileSync('wrangler.jsonc', JSON.stringify(config, null, 2) + '\n');
+          fs.appendFileSync(process.env.GITHUB_ENV, 'MEL_PREVIEW_R2_BUCKET=' + bucket + '\n');
+          console.log('PREVIEW_RESOURCES_ISOLATED: distinct D1 UUID and R2 bucket validated; no production resource identity reused.');
+          NODE
+
+      # D1 permissions and migrations must be verified before ANY preview
+      # Worker or R2 mutation. Otherwise a token lacking D1 edit access can
+      # replace the preview runtime and only then fail the migration.
+      # Never touch the production D1 database from this workflow.
+      - name: Verify isolated preview D1 account access (read-only)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import { checkPreviewD1Access } from './scripts/check-preview-d1-account.mjs';
+          const config = JSON.parse(fs.readFileSync('wrangler.jsonc', 'utf8'));
+          const databaseId = config.env?.preview?.d1_databases?.find(x => x.binding === 'DB')?.database_id;
+          const result = await checkPreviewD1Access({
+            accountId: process.env.CLOUDFLARE_ACCOUNT_ID,
+            databaseId,
+            apiToken: process.env.CLOUDFLARE_API_TOKEN,
+          });
+          console.log(result.code);
+          if (!result.ok) process.exitCode = 1;
+          NODE
+
+      - name: Initialize isolated preview D1
+        id: preview_d1_migrate
+        shell: bash
+        run: |
+          set +e
+          npx wrangler d1 migrations apply DB --env preview --remote \
+            > wrangler-d1-preview.log 2>&1
+          status=$?
+          exit "$status"
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Sanitize D1 migration diagnostic
+        if: ${{ always() && steps.preview_d1_migrate.outcome != 'skipped' }}
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import os
+          import re
+
+          raw = Path("wrangler-d1-preview.log")
+          clean = Path(os.environ["RUNNER_TEMP"]) / "wrangler-d1-preview.sanitized.log"
+          text = raw.read_text(encoding="utf-8", errors="replace") if raw.exists() else "D1 migration produced no log file.\n"
+
+          for name in ("CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID"):
+              value = os.environ.get(name, "")
+              if value:
+                  text = text.replace(value, f"[REDACTED_{name}]")
+
+          text = re.sub(r"(?i)(authorization\s*[:=]\s*bearer\s+)[^\s]+", r"\1[REDACTED]", text)
+          text = re.sub(r"(?i)((?:api[_ -]?token|access[_ -]?token|password|secret)\s*[:=]\s*)[^\s]+", r"\1[REDACTED]", text)
+          clean.write_text(text, encoding="utf-8")
+          summary = os.environ.get("GITHUB_STEP_SUMMARY")
+          if summary:
+              with open(summary, "a", encoding="utf-8") as output:
+                  output.write("### Wrangler D1 preview (sanitized)\n\n```text\n")
+                  output.write("\n".join(text.splitlines()[-100:]))
+                  output.write("\n```\n")
+          if 'Authentication error [code: 10000]' in text:
+              print('PREVIEW_D1_API_TOKEN_PERMISSION_MISSING: grant only the preview database D1 edit permissions to the CI token.')
+              print('PREVIEW_D1_MUTATIONS_ABORTED: no R2 upload or Worker deployment should follow.')
+          else:
+              print('Preview D1 migration diagnostic:', "\n".join(text.splitlines()[-15:]))
+          PY
+
+      - name: Upload sanitized D1 migration diagnostic
+        if: ${{ always() && steps.preview_d1_migrate.outcome != 'skipped' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: preview-d1-migration-diagnostic-${{ github.sha }}
+          path: ${{ runner.temp }}/wrangler-d1-preview.sanitized.log
+          if-no-files-found: error
+          retention-days: 3
+
       - name: Upload exact-SHA critical MEL code bundle to preview R2
         shell: bash
         run: |
           set -euo pipefail
           REPO_KEY="${GITHUB_REPOSITORY//\//__}"
-          OBJECT_PATH="meliturgos-private-media/shardvault/code-critical/${REPO_KEY}/${GITHUB_SHA}.tar.gz"
-          npx wrangler r2 object put "$OBJECT_PATH" \
-            --file mel-critical-code.tar.gz \
-            --content-type application/gzip \
-            --remote
+          OBJECT_PATH="${MEL_PREVIEW_R2_BUCKET}/shardvault/code-critical/${REPO_KEY}/${GITHUB_SHA}.tar.gz"
+          # The same exact-SHA key makes bounded retries idempotent on the isolated bucket.
+          uploaded=0
+          for attempt in 1 2 3; do
+            if npx wrangler r2 object put "$OBJECT_PATH" \
+              --file mel-critical-code.tar.gz \
+              --content-type application/gzip \
+              --remote; then
+              uploaded=1
+              break
+            fi
+            echo "PREVIEW_R2_UPLOAD_RETRY: attempt ${attempt}/3 failed."
+            if [ "$attempt" -lt 3 ]; then sleep $((attempt * 10)); fi
+          done
+          if [ "$uploaded" -ne 1 ]; then
+            echo "PREVIEW_R2_UPLOAD_FAILED_AFTER_BOUNDED_RETRIES"
+            exit 1
+          fi
           echo "Critical candidate bundle uploaded for ${GITHUB_SHA}."
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -147,59 +267,6 @@ jobs:
           if-no-files-found: error
           retention-days: 3
 
-      - name: Initialize isolated preview D1
-        shell: bash
-        run: |
-          set +e
-          npx wrangler d1 migrations apply DB --env preview --remote \
-            > wrangler-d1-preview.log 2>&1
-          status=$?
-          {
-            echo '### Wrangler D1 preview'
-            echo '```text'
-            cat wrangler-d1-preview.log
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
-          exit "$status"
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-
-      - name: Sanitize D1 migration diagnostic
-        if: always()
-        shell: bash
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-          import os
-          import re
-
-          raw = Path("wrangler-d1-preview.log")
-          clean = Path(os.environ["RUNNER_TEMP"]) / "wrangler-d1-preview.sanitized.log"
-          text = raw.read_text(encoding="utf-8", errors="replace") if raw.exists() else "D1 migration produced no log file.\n"
-
-          for name in ("CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID"):
-              value = os.environ.get(name, "")
-              if value:
-                  text = text.replace(value, f"[REDACTED_{name}]")
-
-          text = re.sub(r"(?i)(authorization\s*[:=]\s*bearer\s+)[^\s]+", r"\1[REDACTED]", text)
-          text = re.sub(r"(?i)((?:api[_ -]?token|access[_ -]?token|password|secret)\s*[:=]\s*)[^\s]+", r"\1[REDACTED]", text)
-          clean.write_text(text, encoding="utf-8")
-          PY
-
-      - name: Upload sanitized D1 migration diagnostic
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
-        with:
-          name: preview-d1-migration-diagnostic-${{ github.sha }}
-          path: ${{ runner.temp }}/wrangler-d1-preview.sanitized.log
-          if-no-files-found: error
-          retention-days: 3
-
       - name: Configure preview GitHub read token
         shell: bash
         run: |
@@ -227,22 +294,71 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
+      - name: Wait for exact-SHA critical bundle expectation on isolated preview
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE_URL="https://meliturgos-preview.adrien-lopezcarreras.workers.dev"
+          ready=0
+          for attempt in {1..15}; do
+            HTTP_CODE="$(curl --show-error --silent --max-time 15 \
+              --header "Authorization: Bearer ${MEL_PREVIEW_PASSWORD}" \
+              --output preview-code-expectation.json \
+              --write-out '%{http_code}' \
+              "${BASE_URL}/api/gen2/shardvault/code-source/expectation" || true)"
+            if [ "${HTTP_CODE}" = "200" ] && node - <<'NODE'
+          const fs=require('fs');
+          let d;
+          try { d=JSON.parse(fs.readFileSync('preview-code-expectation.json','utf8')); }
+          catch { process.exit(1); }
+          if(d?.ok!==true||d?.status!=='EXACT_DEPLOYMENT_EXPECTATION'
+            ||String(d?.deployed_sha||'')!==String(process.env.GITHUB_SHA||'')
+            ||Number(d?.declared_bytes)!==Number(process.env.MEL_CRITICAL_CODE_BUNDLE_BYTES))process.exit(1);
+          NODE
+            then
+              ready=1
+              echo "PREVIEW_EXACT_SHA_AND_BUNDLE_SIZE_CONFIRMED"
+              break
+            fi
+            echo "PREVIEW_EXACT_CODE_EXPECTATION_NOT_READY attempt ${attempt}/15 HTTP ${HTTP_CODE}"
+            if [ "${attempt}" -lt 15 ]; then sleep 5; fi
+          done
+          if [ "${ready}" -ne 1 ]; then
+            echo "PREVIEW_EXACT_SHA_BUNDLE_EXPECTATION_FAILED"
+            exit 1
+          fi
+          rm -f preview-code-expectation.json
+
       - name: Bind exact critical bundle through preview Worker
         shell: bash
         run: |
           set -euo pipefail
           BASE_URL="https://meliturgos-preview.adrien-lopezcarreras.workers.dev"
-          curl --fail-with-body --show-error --silent --max-time 120 \
+          HTTP_CODE="$(curl --show-error --silent --max-time 120 \
             --header "Authorization: Bearer ${MEL_PREVIEW_PASSWORD}" \
             --header "content-type: application/gzip" \
             --data-binary @mel-critical-code.tar.gz \
+            --write-out '%{http_code}' \
             "${BASE_URL}/api/gen2/shardvault/code-source" \
-            --output shardvault-code-source.json
+            --output shardvault-code-source.json)"
 
-          EXPECTED_BYTES="${MEL_CRITICAL_CODE_BUNDLE_BYTES}" GITHUB_SHA="${GITHUB_SHA}" node - <<'NODE'
+          HTTP_CODE="${HTTP_CODE}" EXPECTED_BYTES="${MEL_CRITICAL_CODE_BUNDLE_BYTES}" GITHUB_SHA="${GITHUB_SHA}" node - <<'NODE'
           const fs=require('fs');
-          const d=JSON.parse(fs.readFileSync('shardvault-code-source.json','utf8'));
-          if(d?.ok!==true||d?.status!=='COPIED'||d?.verified_roundtrip!==true) throw new Error('CRITICAL_BUNDLE_RUNTIME_BIND_FAILED:'+String(d?.status||d?.error));
+          let d;
+          try { d=JSON.parse(fs.readFileSync('shardvault-code-source.json','utf8')); }
+          catch { throw new Error('CRITICAL_BUNDLE_RUNTIME_RESPONSE_INVALID'); }
+          const safeCode=v=>/^[A-Z0-9_:-]{1,100}$/.test(String(v||''))?String(v):'UNSPECIFIED';
+          const status=safeCode(d?.status);
+          if(process.env.HTTP_CODE!=='200'||d?.ok!==true||status!=='COPIED'||d?.verified_roundtrip!==true){
+            console.error(JSON.stringify({
+              diagnostic:'CRITICAL_BUNDLE_BIND_REJECTED',
+              http_code:/^[0-9]{3}$/.test(process.env.HTTP_CODE||'')?process.env.HTTP_CODE:'UNSPECIFIED',
+              status,uploaded_bytes:Number(d?.bytes)||null,
+              declared_bytes:Number(d?.declared_bytes)||null,
+              expected_bytes:Number(process.env.EXPECTED_BYTES)||null
+            }));
+            throw new Error('CRITICAL_BUNDLE_RUNTIME_BIND_FAILED:'+status);
+          }
           if(Number(d?.bytes||0)!==Number(process.env.EXPECTED_BYTES||0)) throw new Error('CRITICAL_BUNDLE_RUNTIME_SIZE_MISMATCH');
           if(String(d?.sha||'')!==String(process.env.GITHUB_SHA||'')) throw new Error('CRITICAL_BUNDLE_RUNTIME_SHA_MISMATCH');
           if(!/^[0-9a-f]{64}$/i.test(String(d?.sha256||''))) throw new Error('CRITICAL_BUNDLE_RUNTIME_HASH_INVALID');
@@ -250,6 +366,7 @@ jobs:
           NODE
 
       - name: Smoke test isolated preview HTTP
+        id: preview_http_smoke
         shell: bash
         run: |
           set +e
@@ -278,15 +395,14 @@ jobs:
             sleep 3
           done
           {
-            echo "curl_exit=${CURL_STATUS}"
-            echo "http_status=${HTTP_STATUS}"
-            echo '--- headers ---'
-            cat preview-headers.txt 2>/dev/null || true
-            echo '--- curl stderr ---'
-            cat preview-curl.err 2>/dev/null || true
-            echo '--- body sample ---'
-            head -c 1200 preview-root.html 2>/dev/null || true
-            echo
+            printf 'curl_exit=%s\n' "$CURL_STATUS"
+            printf 'http_status=%s\n' "$HTTP_STATUS"
+            if [ -s preview-root.html ]; then
+              echo 'html_received=true'
+            else
+              echo 'html_received=false'
+            fi
+            printf 'body_bytes=%s\n' "$(wc -c < preview-root.html)"
           } > preview-http-diagnostic.txt
           test "$CURL_STATUS" -eq 0 || exit "$CURL_STATUS"
           case "$HTTP_STATUS" in
@@ -348,7 +464,7 @@ jobs:
 
           echo "Canonical UI surface and read-only control smoke passed."
 
-      - name: Deep-audit runtime capabilities on isolated preview
+      - name: Inspect capability contracts without starting persistent stress
         shell: bash
         run: |
           set -euo pipefail
@@ -356,7 +472,7 @@ jobs:
           curl --fail-with-body --show-error --silent --max-time 165 \
             --header "Authorization: Bearer ${MEL_PREVIEW_PASSWORD}" \
             --header "content-type: application/json" \
-            --data '{"id":"capability.audit","input":{"deep":true}}' \
+            --data '{"id":"capability.audit","input":{"deep":false}}' \
             "$BASE_URL/api/gen2/capabilities/execute" \
             > preview-capability-audit.json
 
@@ -364,7 +480,21 @@ jobs:
           const fs=require('fs');
           const payload=JSON.parse(fs.readFileSync('preview-capability-audit.json','utf8'));
           const report=payload?.result;
-          if(!payload?.ok || !report?.ok) throw new Error('CAPABILITY_AUDIT_FAILED');
+          if(!payload?.ok || !report?.ok) {
+            const safeCode = value => /^[A-Z0-9_:-]{1,80}$/.test(String(value || ''))
+              ? String(value) : 'UNSPECIFIED';
+            console.error(JSON.stringify({
+              diagnostic: 'CAPABILITY_AUDIT_FAILED',
+              outer_ok: payload?.ok === true,
+              report_present: Boolean(report && typeof report === 'object'),
+              report_ok: report?.ok === true,
+              outer_code: safeCode(payload?.code),
+              report_code: safeCode(report?.code),
+              total_numeric: Number.isFinite(Number(report?.total)) ? Number(report.total) : null,
+              capability_rows: Array.isArray(report?.capabilities) ? report.capabilities.length : null
+            }));
+            throw new Error('CAPABILITY_AUDIT_FAILED');
+          }
           if(Number(report.total||0)<25) throw new Error('CAPABILITY_REGISTRY_TOO_SMALL:'+report.total);
           const rows=Array.isArray(report.capabilities)?report.capabilities:[];
           if(rows.length!==Number(report.total)) throw new Error('CAPABILITY_INVENTORY_MISMATCH');
@@ -386,7 +516,7 @@ jobs:
           NODE
 
       - name: Upload preview HTTP diagnostic
-        if: always()
+        if: ${{ always() && steps.preview_http_smoke.outcome != 'skipped' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: preview-http-diagnostic-${{ github.sha }}
@@ -395,6 +525,7 @@ jobs:
           retention-days: 3
 
       - name: Prove preview is paused then enable isolated autonomy proof
+        id: preview_autonomy_proof
         shell: bash
         run: |
           set -euo pipefail
@@ -565,43 +696,46 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
-      - name: Rebase GEN2-42 Teacher handoff through canonical tick
+      - name: Initialize isolated ShardVault snapshot before external promotions
         shell: bash
         run: |
           set -euo pipefail
           BASE_URL="https://meliturgos-preview.adrien-lopezcarreras.workers.dev"
-
-          curl --fail-with-body --show-error --silent \
-            --max-time 180 \
+          HTTP_CODE="$(curl --show-error --silent --max-time 180 \
             --header "Authorization: Bearer ${MEL_PREVIEW_PASSWORD}" \
             --header "content-type: application/json" \
-            --data '{}' \
-            "${BASE_URL}/api/gen2/autonomy/tick" \
-            --output gen2-42-autonomy-tick.raw.json
+            --data '{"preview_bootstrap":true}' \
+            --output shardvault-bootstrap.json \
+            --write-out '%{http_code}' \
+            "${BASE_URL}/api/gen2/shardvault/snapshot")"
+          python - "$HTTP_CODE" <<'PY'
+          import json, sys
+          from pathlib import Path
+          try:
+              d=json.loads(Path('shardvault-bootstrap.json').read_text(encoding='utf-8'))
+          except Exception:
+              raise SystemExit('SHARDVAULT_BOOTSTRAP_RESPONSE_INVALID')
+          summary={'ok':d.get('ok') is True,'status':str(d.get('status') or 'UNSPECIFIED')[:80],
+                   'shards':d.get('shards'),'seed_only':d.get('seed_only') is True,
+                   'verified_roundtrip':d.get('verified_roundtrip') is True,
+                   'storage_mode':d.get('storage_mode')}
+          print('SHARDVAULT_BOOTSTRAP:',json.dumps(summary))
+          if (sys.argv[1]!='200' or d.get('ok') is not True or not d.get('snapshot_id')
+              or d.get('status') not in ('PREVIEW_SEED_VERIFIED','SIGNED_SNAPSHOT_EXISTS')
+              or int(d.get('shards') or 0)!=7):
+              raise SystemExit('SHARDVAULT_BOOTSTRAP_REQUIRED')
+          PY
+          rm -f shardvault-bootstrap.json
 
-          curl --fail-with-body --show-error --silent \
-            --max-time 60 \
-            "${BASE_URL}/api/teacher/pending" \
-            --output gen2-42-teacher-pending.raw.json
-
-          node .github/scripts/gen2-42-teacher-rebase-proof.mjs
-          rm -f gen2-42-autonomy-tick.raw.json gen2-42-teacher-pending.raw.json
-
-      - name: Upload GEN2-42 Teacher rebase proof
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
-        with:
-          name: gen2-42-teacher-rebase-${{ github.sha }}
-          path: gen2-42-teacher-rebase.json
-          if-no-files-found: warn
-          retention-days: 7
       - name: Live ShardVault external target probe
         shell: bash
         run: |
           set -euo pipefail
           BASE_URL="https://meliturgos-preview.adrien-lopezcarreras.workers.dev"
           ready=0
-          for attempt in 1 2 3 4; do
+          # One real, verified shard promotion per request; seven active targets
+          # need at least seven requests. Allow bounded retries for transient hosts.
+          for attempt in {1..10}; do
             HTTP_CODE="$(curl --show-error --silent --max-time 180 \
               --header "Authorization: Bearer ${MEL_PREVIEW_PASSWORD}" \
               --header "content-type: application/json" \
@@ -610,21 +744,51 @@ jobs:
               --write-out '%{http_code}' \
               "${BASE_URL}/api/gen2/shardvault/search" || true)"
             echo "ShardVault discovery attempt ${attempt}: HTTP ${HTTP_CODE}"
+            # Preserve the first seven genuinely qualified endpoints as one
+            # bounded proof. Subsequent calls promote them one shard at a time,
+            # so the latest response alone need not qualify seven NEW targets.
+            if [ "${HTTP_CODE}" = "200" ]; then
+              python - <<'PY'
+          import json, os
+          from pathlib import Path
+          try:
+              d=json.loads(Path('shardvault-live-probe.json').read_text(encoding='utf-8'))
+              expected=int(os.environ.get('MEL_CRITICAL_CODE_SHARD_BYTES') or 0)
+              valid=(d.get('ok') is True
+                  and int(d.get('required_bytes') or 0)>=expected
+                  and int(d.get('probed') or 0)>=6
+                  and int(d.get('representative_validated_count') or 0)>=7
+                  and len(d.get('representative_validated_endpoint_ids') or [])>=7
+                  and d.get('representative_archive_source')=='CRITICAL_BUNDLE'
+                  and d.get('representative_critical_status')=='COPIED')
+              if valid:
+                  keys=('discovered','probed','representative_probed','representative_qualified',
+                        'representative_validated_count','representative_validated_endpoint_ids',
+                        'required_bytes','representative_archive_bytes')
+                  Path('shardvault-qualification-proof.json').write_text(
+                      json.dumps({k:d.get(k) for k in keys}),encoding='utf-8')
+                  print('SHARDVAULT_SEVEN_QUALIFIED_PROOF_SAVED')
+          except Exception:
+              print('SHARDVAULT_QUALIFICATION_NOT_PROVEN')
+          PY
+            fi
             if [ "${HTTP_CODE}" = "200" ] && python - <<'PY'
           import json, os
           from pathlib import Path
           try:
               d=json.loads(Path('shardvault-live-probe.json').read_text(encoding='utf-8'))
+              proof=Path('shardvault-qualification-proof.json')
           except Exception:
               raise SystemExit(1)
           expected=int(os.environ.get('MEL_CRITICAL_CODE_SHARD_BYTES') or 0)
           raise SystemExit(0 if (
-              d.get('ok') is True
+              proof.is_file()
+              and d.get('ok') is True
               and int(d.get('required_bytes') or 0) >= expected
-              and int(d.get('probed') or 0) >= 6
-              and int(d.get('representative_validated_count') or 0) >= 7
-              and len(d.get('representative_validated_endpoint_ids') or []) >= 7
+              and int(d.get('active_external_count') or 0) >= 7
+              and len(d.get('active_endpoint_ids') or []) >= 7
               and d.get('target_reached') is True
+              and (d.get('code_sync') or {}).get('status') == 'DEFERRED_SEPARATE_OPERATION'
           ) else 1)
           PY
             then
@@ -632,8 +796,23 @@ jobs:
               break
             fi
             echo "ShardVault target not yet proven; next bounded discovery generation."
-            head -c 600 shardvault-live-probe.json 2>/dev/null || true
-            echo
+            python - <<'PY'
+          import json
+          from pathlib import Path
+          try:
+              d=json.loads(Path('shardvault-live-probe.json').read_text(encoding='utf-8'))
+              keys=('ok','required_bytes','discovered','probed','representative_probed',
+                    'representative_qualified','representative_validated_count','active_external_count','cached_validated_staged','target_count','target_reached')
+              print('SHARDVAULT_SAFE_COUNTS:', json.dumps({k:d.get(k) for k in keys}))
+              activation=d.get('activation_cycle') or {}
+              if isinstance(activation,dict):
+                  print('SHARDVAULT_ACTIVATION:', json.dumps({
+                      'ok':activation.get('ok') is True,
+                      'status':str(activation.get('status') or 'UNSPECIFIED')[:80]
+                  }))
+          except Exception:
+              print('SHARDVAULT_DIAGNOSTIC_RESPONSE_INVALID')
+          PY
             sleep 2
           done
           test "${ready}" -eq 1
@@ -642,18 +821,19 @@ jobs:
           import json, os
           from pathlib import Path
           data=json.loads(Path('shardvault-live-probe.json').read_text(encoding='utf-8'))
-          discovered=int(data.get('discovered') or 0)
-          probed=int(data.get('probed') or 0)
+          qualification=json.loads(Path('shardvault-qualification-proof.json').read_text(encoding='utf-8'))
+          discovered=int(qualification.get('discovered') or 0)
+          probed=int(qualification.get('probed') or 0)
           active=int(data.get('active_external_count') or 0)
           required_bytes=int(data.get('required_bytes') or 0)
           expected_required_bytes=int(os.environ.get('MEL_CRITICAL_CODE_SHARD_BYTES') or 0)
           archive_source=str(data.get('representative_archive_source') or '')
           archive_bytes=int(data.get('representative_archive_bytes') or 0)
           critical_status=str(data.get('representative_critical_status') or '')
-          representative_probed=int(data.get('representative_probed') or 0)
-          representative_qualified=int(data.get('representative_qualified') or 0)
-          representative_validated=int(data.get('representative_validated_count') or 0)
-          representative_ids=list(data.get('representative_validated_endpoint_ids') or [])
+          representative_probed=int(qualification.get('representative_probed') or 0)
+          representative_qualified=int(qualification.get('representative_qualified') or 0)
+          representative_validated=int(qualification.get('representative_validated_count') or 0)
+          representative_ids=list(qualification.get('representative_validated_endpoint_ids') or [])
           selected=len(data.get('selected') or [])
           if data.get('ok') is not True:
               raise SystemExit('SHARDVAULT_SEARCH_FAILED: '+str(data.get('error') or data.get('status')))
@@ -671,6 +851,8 @@ jobs:
               raise SystemExit(f'SHARDVAULT_REPRESENTATIVE_VALIDATED_LT_7: representative_validated={representative_validated} active_historical={active}')
           if len(representative_ids) < 7:
               raise SystemExit(f'SHARDVAULT_REPRESENTATIVE_IDS_LT_7: ids={representative_ids}')
+          if int(data.get('active_external_count') or 0)<7 or len(data.get('active_endpoint_ids') or [])<7:
+              raise SystemExit('SHARDVAULT_ACTIVE_REGISTRY_LT_7')
           if data.get('target_reached') is not True:
               raise SystemExit('SHARDVAULT_TARGET_NOT_REACHED')
           if (data.get('code_sync') or {}).get('status') != 'DEFERRED_SEPARATE_OPERATION':
@@ -1072,8 +1254,38 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
-      - name: Pause isolated preview after autonomy proof
+      - name: Rebase GEN2-42 Teacher handoff through canonical tick
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE_URL="https://meliturgos-preview.adrien-lopezcarreras.workers.dev"
+
+          curl --fail-with-body --show-error --silent \
+            --max-time 180 \
+            --header "Authorization: Bearer ${MEL_PREVIEW_PASSWORD}" \
+            --header "content-type: application/json" \
+            --data '{}' \
+            "${BASE_URL}/api/gen2/autonomy/tick" \
+            --output gen2-42-autonomy-tick.raw.json
+
+          curl --fail-with-body --show-error --silent \
+            --max-time 60 \
+            "${BASE_URL}/api/teacher/pending" \
+            --output gen2-42-teacher-pending.raw.json
+
+          node .github/scripts/gen2-42-teacher-rebase-proof.mjs
+          rm -f gen2-42-autonomy-tick.raw.json gen2-42-teacher-pending.raw.json
+
+      - name: Upload GEN2-42 Teacher rebase proof
         if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: gen2-42-teacher-rebase-${{ github.sha }}
+          path: gen2-42-teacher-rebase.json
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Pause isolated preview after autonomy proof
+        if: ${{ always() && steps.preview_autonomy_proof.outcome != 'skipped' }}
         shell: bash
         run: |
           BASE_URL="https://meliturgos-preview.adrien-lopezcarreras.workers.dev"

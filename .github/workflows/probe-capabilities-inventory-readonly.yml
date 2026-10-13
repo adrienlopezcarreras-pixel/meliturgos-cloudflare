@@ -1,0 +1,54 @@
+name: MEL capabilities production inventory (read-only GET)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/probe-capabilities-inventory-readonly.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  actual-inventory:
+    if: ${{ github.repository == 'adrienlopezcarreras-pixel/meliturgos-cloudflare' && github.event.pull_request.number == 1228 && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'candidate/mel-clean-autonomy' && github.actor == 'adrienlopezcarreras-pixel' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: "22"
+      - name: Prove exact GET-only/no-execution inventory contract offline
+        run: node --test tests/capability-production-readonly-inventory.test.mjs
+      - name: Resolve current production release pointer via GitHub GET
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          SHA="$(node --input-type=module <<'NODE'
+          const res=await fetch('https://api.github.com/repos/adrienlopezcarreras-pixel/meliturgos-cloudflare/branches/release%2Fmel-hardware-v0.1.0',{
+            method:'GET',redirect:'error',signal:AbortSignal.timeout(15000),
+            headers:{Authorization:'Bearer '+process.env.GH_TOKEN,Accept:'application/vnd.github+json'},
+          });
+          if(!res.ok)throw Error('CAPABILITY_RELEASE_REF_READ_DENIED');
+          const data=await res.json();
+          const sha=String(data?.commit?.sha||'');
+          if(!/^[a-f0-9]{40}$/.test(sha))throw Error('CAPABILITY_RELEASE_REF_SHA_INVALID');
+          process.stdout.write(sha);
+          NODE
+          )"
+          echo "EXPECTED_SHA=${SHA}" >> "$GITHUB_ENV"
+      - name: Prove current deployed inventory without any mutation
+        env:
+          PROOF_KEY_B64: ${{ secrets.MEL_BACKUP_ENCRYPTION_KEY_B64 }}
+        run: node scripts/prove-production-capability-inventory-readonly.mjs
+      - name: Retain sanitized inventory proof, not private capability data
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: mel-capabilities-readonly-inventory-${{ github.run_id }}
+          path: capability-inventory-readonly-proof.json
+          if-no-files-found: warn
+          retention-days: 14

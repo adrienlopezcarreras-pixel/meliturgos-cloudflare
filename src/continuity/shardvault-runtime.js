@@ -1563,6 +1563,47 @@ async function ensureExternalCodeArchive(env,c,codeBackup){
     verified_roundtrip:true,created_at:manifest.createdAt
   }};
 }
+/**
+ * Prepare genuine signed, encrypted RS(4/7) donor shards in the isolated preview
+ * before external endpoint promotion. This seed is NOT a user-memory backup and
+ * never performs public discovery, code sync or production writes.
+ */
+export async function bootstrapIsolatedShardVaultSnapshot(env){
+  if(String(env?.MEL_RUNTIME_ENV||'')!=='preview'||String(env?.MEL_PREVIEW_ISOLATED||'')!=='true'){
+    return {ok:false,status:'PREVIEW_ONLY'};
+  }
+  if(String(env?.MEL_SHARDVAULT_ENABLED||'false')!=='true')return {ok:false,status:'SHARDVAULT_DISABLED'};
+  try{
+    const base=await config(env);
+    if(!base.ok)return {ok:false,status:'CONFIG_MISSING'};
+    const local=[
+      ...(env?.MEDIA_BUCKET?.put&&env?.MEDIA_BUCKET?.get&&env?.MEDIA_BUCKET?.list?[r2FallbackEndpoint()]:[]),
+      ...(env?.DB?.prepare?[d1FallbackEndpoint()]:[])
+    ];
+    if(!local.length)return {ok:false,status:'LOCAL_PREVIEW_STORAGE_REQUIRED'};
+    const c={...base,allEndpoints:local,endpoints:local,storageMode:'CLOUDFLARE_FALLBACK',degraded:true};
+    const previous=await latestShardVaultSnapshotFast(env,c);
+    if(previous){
+      if(!Array.isArray(previous.shards)||previous.shards.length!==c.n)return {ok:false,status:'PREVIEW_SNAPSHOT_SHARD_COUNT_INVALID'};
+      // The existing manifest MAC was checked by latestShardVaultSnapshotFast.
+      // Do not create a competing snapshot that would erase promotion progress.
+      return {ok:true,status:'SIGNED_SNAPSHOT_EXISTS',snapshot_id:previous.snapshotId,
+        shards:previous.shards.length,verified_roundtrip:false,storage_mode:'CLOUDFLARE_FALLBACK'};
+    }
+    const payload={format:'MEL-ShardVault-preview-seed',version:1,
+      exported_at:new Date().toISOString(),memories:[],conversations:[],archive_messages:[],
+      preview_seed_only:true};
+    const manifest=await publishSnapshot(env,c,payload);
+    const health=await checkAndRepair(env,c,manifest);
+    return {ok:health.healthy===true,status:health.healthy===true?'PREVIEW_SEED_VERIFIED':'PREVIEW_SEED_UNHEALTHY',
+      snapshot_id:manifest.snapshotId,shards:manifest.totalShards,verified_roundtrip:health.healthy===true,
+      storage_mode:'CLOUDFLARE_FALLBACK',seed_only:true};
+  }catch(error){
+    const code=String(error?.code||error?.message||'PREVIEW_BOOTSTRAP_FAILED');
+    return {ok:false,status:'PREVIEW_BOOTSTRAP_FAILED',
+      error:/^[A-Z0-9_:-]{1,80}$/.test(code)?code:'INTERNAL_ERROR'};
+  }
+}
 export async function runShardVaultCycle(env,{force=false,skipExternalCode=false,excludeEndpointIds=[],activeRegistryOnly=false}={}){
   if(String(env?.MEL_SHARDVAULT_ENABLED||'false')!=='true')return {ok:true,enabled:false,skipped:true,reason:'DISABLED'};
   let c;
@@ -2023,7 +2064,7 @@ async function promoteExternalEndpointWithExistingShard(env,c,last,endpoint){
     const donorEndpoint=endpointById(c,d.endpointId,d);
     if(!donorEndpoint||d.endpointId===endpoint.id)return false;
     const safe=Boolean(donorEndpoint.backend)||(counts.get(d.endpointId)||0)>1;
-    return safe&&Array.isArray(d.parts)&&d.parts.length>0;
+    return safe&&((Array.isArray(d.parts)&&d.parts.length>0)||(Boolean(donorEndpoint.backend)&&Boolean(d.objectId)));
   }).sort((a,b)=>{
     const ac=counts.get(a.endpointId)||0,bc=counts.get(b.endpointId)||0;
     if(ac!==bc)return bc-ac;
@@ -2038,7 +2079,10 @@ async function promoteExternalEndpointWithExistingShard(env,c,last,endpoint){
   const parts=[];
   let total=0,targetPartIndex=0;
 
-  for(const sourcePart of donor.parts){
+  const donorParts=Array.isArray(donor.parts)&&donor.parts.length
+    ?donor.parts
+    :[{objectId:donor.objectId,remoteUrl:donor.remoteUrl||null,byteLength:donor.byteLength}];
+  for(const sourcePart of donorParts){
     const source=await download(env,donorEndpoint,sourcePart.objectId,{
       ...donor,objectId:sourcePart.objectId,remoteUrl:sourcePart.remoteUrl||null,parts:null
     });

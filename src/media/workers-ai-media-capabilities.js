@@ -832,6 +832,40 @@ async function audioTranscribe(env, input = {}) {
 }
 
 /**
+ * Non-sensitive, synchronous provider readiness diagnostics for the eight
+ * media adapters. No inference, remote probe, file access or paid fallback.
+ * Does not imply that runtime inference has been performed successfully.
+ */
+export function inspectWorkersAiMediaMissingReasons(env = {}) {
+  const ai=typeof env?.AI?.run === 'function';
+  const vault=mediaStorageReady(env);
+  const browser=browserMediaReady(env);
+  const free=(adapter,model)=>Boolean(ai && freshZeroCostProof(env,adapter,model));
+  const image=free(IMAGE_ADAPTER_ID,WORKERS_AI_IMAGE_MODEL);
+  const vision=free(IMAGE_ANALYZE_ADAPTER_ID,WORKERS_AI_VISION_MODEL);
+  const edit=free(IMAGE_PROCESS_ADAPTER_ID,WORKERS_AI_IMAGE_EDIT_MODEL);
+  const tts=free(TTS_ADAPTER_ID,WORKERS_AI_TTS_MODEL);
+  const whisper=free(TRANSCRIPTION_ADAPTER_ID,WORKERS_AI_TRANSCRIPTION_MODEL);
+  const missing=(requiresAi,freeProof,storage,companion)=>{
+    if(requiresAi&&!ai)return 'MEDIA_AI_BINDING_MISSING';
+    if(requiresAi&&!freeProof)return 'MEDIA_ZERO_COST_MODEL_PROOF_MISSING';
+    if(storage&&!vault)return 'MEDIA_VAULT_CONFIGURATION_MISSING';
+    if(companion&&!browser)return 'MEDIA_BROWSER_PROVENANCE_OR_BINDING_MISSING';
+    return null;
+  };
+  return Object.freeze({
+    'media.image.analyze':missing(true,vision,false,false),
+    'media.image.process':missing(true,edit,true,true),
+    'media.image.generate':missing(true,image,true,false),
+    'media.audio.transcribe':missing(true,whisper,false,false),
+    'media.audio.synthesize':missing(true,tts,true,false),
+    'media.video.analyze':missing(true,vision&&whisper,false,true),
+    'media.video.process':missing(false,true,true,true),
+    'media.video.generate':missing(true,image,true,true),
+  });
+}
+
+/**
  * Returns only adapters that are executable at zero added cost right now.
  * Missing/stale proof or Media Vault configuration leaves the capability
  * unavailable instead of silently falling back to a billable provider.

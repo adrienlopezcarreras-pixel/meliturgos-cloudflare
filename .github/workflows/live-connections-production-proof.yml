@@ -6,6 +6,7 @@ on:
     paths:
       - '.github/workflows/live-connections-production-proof.yml'
       - 'tests/live-connections-production-proof.test.mjs'
+      - 'tests/sharepoint-live-proof-gate.test.mjs'
   workflow_dispatch:
     inputs:
       expected_sha:
@@ -37,7 +38,7 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: node --test tests/live-connections-production-proof.test.mjs
+      - run: node --test tests/live-connections-production-proof.test.mjs tests/pipedream-sharepoint-graph-proof.test.mjs tests/sharepoint-live-proof-gate.test.mjs
 
   production-proof:
     if: github.event_name != 'pull_request'
@@ -89,7 +90,7 @@ jobs:
               node -e 'const fs=require("fs");let d={};try{d=JSON.parse(fs.readFileSync(process.argv[1],"utf8"))}catch{};console.log(process.argv[2]+": "+JSON.stringify({ok:false,http:Number(process.argv[3]),code:d?.code||d?.error||"UNKNOWN",upstream_status:Number(d?.upstream_status||0)||null,upstream_code:d?.upstream_code||null,upstream_message:d?.upstream_message||null,action_required:d?.action_required||null}))' "${out}" "${name}" "${code}"
               return 1
             fi
-            node -e 'const fs=require("fs");const d=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));if(d?.ok!==true)process.exit(2);console.log(process.argv[2]+": "+JSON.stringify({ok:true,provider:d?.provider||null,connector_id:d?.connector_id||null,live_probe:d?.live_probe===true,persistent:d?.persistent===true,authenticated:d?.authenticated===true,project_found:d?.project_found===true,project_count:Number(d?.project_count||0),deployment_count:Number(d?.deployment_count||0)}))' "${out}" "${name}"
+            node -e 'const fs=require("fs");const d=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));if(d?.ok!==true)process.exit(2);const name=process.argv[2];const native=name==="microsoft_sharepoint";const pd=name==="microsoft_sharepoint_pipedream_graph";const graphVerified=native?(d?.connector_id==="microsoft-sharepoint"&&d?.live_probe===true):pd?(d?.graph_site_read_proven===true&&d?.read_only===true&&d?.private_content_returned===false):null;if(graphVerified===false){console.log(name+": "+JSON.stringify({ok:false,code:"SHAREPOINT_GRAPH_TARGET_READ_UNVERIFIED",linked_account_not_sufficient:true,live_probe:d?.live_probe===true,graph_site_read_proven:d?.graph_site_read_proven===true,read_only:d?.read_only===true}));process.exit(3);}console.log(name+": "+JSON.stringify({ok:true,provider:d?.provider||null,connector_id:d?.connector_id||null,live_probe:d?.live_probe===true,graph_site_read_proven:graphVerified===true,persistent:d?.persistent===true,authenticated:d?.authenticated===true,project_found:d?.project_found===true,project_count:Number(d?.project_count||0),deployment_count:Number(d?.deployment_count||0)}))' "${out}" "${name}"
           }
 
           # Prove exact-SHA immutable parallel-proof authentication here.
@@ -238,14 +239,21 @@ jobs:
             MICROSOFT_SHAREPOINT_READ_PROVEN=1
             MICROSOFT_SHAREPOINT_PROOF_SOURCE="NATIVE_GRAPH_SITE_SEARCH"
           elif [ "${PIPEDREAM_OK}" = "1" ] && has_pd_app sharepoint; then
-            # A connected OAuth account is not evidence that Graph supports
-            # SharePoint site reads for this user/tenant. Personal Microsoft
-            # accounts do not support GET /sites?search= or /me/followedSites.
+            # A linked OAuth account is not evidence of Graph site read access.
+            # Execute one bounded read-only search via the actual linked account.
             MICROSOFT_SHAREPOINT_OK=1
-            MICROSOFT_SHAREPOINT_PROOF_SOURCE="PIPEDREAM_LINKED_ACCOUNT_ONLY"
-            echo 'microsoft_sharepoint: {"ok":true,"provider":"pipedream","app":"sharepoint","linked_account":true,"graph_site_read_proven":false}'
+            if probe microsoft_sharepoint_pipedream_graph /api/gen2/connections/pipedream/test '{"probe":"sharepoint_sites_read"}'; then
+              MICROSOFT_SHAREPOINT_READ_PROVEN=1
+              MICROSOFT_SHAREPOINT_PROOF_SOURCE="PIPEDREAM_GRAPH_SITE_SEARCH"
+              echo 'microsoft_sharepoint: {"ok":true,"provider":"pipedream","app":"sharepoint","linked_account":true,"graph_site_read_proven":true,"read_only":true}'
+            else
+              # Personal Microsoft accounts cannot use Graph site search; a
+              # missing Sites.Read.All grant also keeps this proof blocked.
+              MICROSOFT_SHAREPOINT_PROOF_SOURCE="PIPEDREAM_LINKED_ACCOUNT_ONLY"
+              echo 'microsoft_sharepoint: {"ok":true,"provider":"pipedream","app":"sharepoint","linked_account":true,"graph_site_read_proven":false}'
+            fi
           fi
-          if [ "${MICROSOFT_SHAREPOINT_OK}" != "1" ]; then FAILURES=$((FAILURES+1)); fi
+          if [ "${MICROSOFT_SHAREPOINT_OK}" != "1" ] || [ "${MICROSOFT_SHAREPOINT_READ_PROVEN}" != "1" ]; then FAILURES=$((FAILURES+1)); fi
 
           YAHOO_OK=0
           if probe yahoo_oauth /api/gen2/connections/yahoo/test '{"connector_id":"yahoo-mail"}'; then
@@ -286,6 +294,7 @@ jobs:
               onedrive:process.env.MICROSOFT_ONEDRIVE_OK==='1',
               sharepoint:process.env.MICROSOFT_SHAREPOINT_OK==='1',
               sharepoint_graph_read_proven:process.env.MICROSOFT_SHAREPOINT_READ_PROVEN==='1',
+              sharepoint_graph_read_required:true,
               sharepoint_proof_source:process.env.MICROSOFT_SHAREPOINT_PROOF_SOURCE||'UNVERIFIED'
             },
             mail:{

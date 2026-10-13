@@ -5,13 +5,14 @@ import { stripLegacyNormalVisualLayers } from '../src/professor-live-learning-en
 import { enhanceThemeAvatars } from '../src/pages/theme-avatar-enhancer.js';
 import { BOOTSTRAP_CORRECTIONS } from '../src/learning/bootstrap-corrections.js';
 
-test('shared candidate workflows keep canonical coordination while dev-light mode is temporary', async () => {
+test('shared candidate workflows enforce canonical full CI on every candidate push', async () => {
   const full = await readFile(new URL('../.github/workflows/full-candidate-ci.yml', import.meta.url), 'utf8');
   const teacher = await readFile(new URL('../.github/workflows/runtime-teacher-smoke.yml', import.meta.url), 'utf8');
 
-  assert.match(full, /TEMPORARY DEV-LIGHT MODE/);
+  assert.ok(full.includes('  push:'), 'full candidate CI must run on push');
+  assert.ok(full.includes('      - candidate/mel-clean-autonomy'), 'must cover canonical candidate');
   assert.match(full, /workflow_dispatch:/);
-  assert.match(full, /Re-enable candidate branch push before final closure/);
+  assert.doesNotMatch(full, /TEMPORARY DEV-LIGHT MODE/);
   assert.doesNotMatch(full, /candidate\/augmentio-core/);
   assert.doesNotMatch(full, /candidate\/mel-ui-selfaware-integration/);
 

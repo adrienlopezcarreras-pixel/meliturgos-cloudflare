@@ -108,3 +108,22 @@ test('bounded ShardVault probing prioritizes durable replacement providers', () 
   assert.match(source,/paste-c-net-public/);
   assert.match(source,/const probePool=requestedProbeLimit==null/);
 });
+
+test('isolated preview reserves at least seven real ShardVault promotion rounds', () => {
+  const workflow=fs.readFileSync(new URL('../.github/workflows/deploy-candidate-preview.yml',import.meta.url),'utf8');
+  const section=workflow.split('      - name: Live ShardVault external target probe')[1]
+    ?.split('      - name: Upload ShardVault live probe evidence')[0]||'';
+  assert.match(section,/for attempt in \{1\.\.10\}; do/);
+  assert.match(section,/d\.get\('target_reached'\) is True/);
+});
+
+test('preview ShardVault retains seven qualification receipts until seven distinct live activations', () => {
+  const workflow=fs.readFileSync(new URL('../.github/workflows/deploy-candidate-preview.yml',import.meta.url),'utf8');
+  const section=workflow.split('      - name: Live ShardVault external target probe')[1]
+    ?.split('      - name: Upload ShardVault live probe evidence')[0]||'';
+  assert.ok(section.includes('shardvault-qualification-proof.json'));
+  assert.ok(section.includes("int(d.get('active_external_count') or 0) >= 7"));
+  assert.ok(section.includes("len(d.get('active_endpoint_ids') or []) >= 7"));
+  assert.ok(section.includes("qualification.get('representative_validated_count')"));
+  assert.ok(section.includes('SHARDVAULT_ACTIVE_REGISTRY_LT_7'));
+});
