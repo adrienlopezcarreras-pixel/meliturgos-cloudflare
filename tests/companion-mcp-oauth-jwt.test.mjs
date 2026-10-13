@@ -29,3 +29,8 @@ test('HS256 and unknown key are denied',async()=>{
  await assert.rejects(verifyCompanionJwt(make({}, {alg:'HS256'}),settings),/JWT_ALGORITHM_DENIED/);
  await assert.rejects(verifyCompanionJwt(make({}, {kid:'untrusted'}),settings),/JWT_KEY_UNAVAILABLE/);
 });
+
+test('long lived or future-issued access tokens are rejected',async()=>{
+ await assert.rejects(verifyCompanionJwt(make({iat:1769999000,exp:1770000300}),settings),/JWT_LIFETIME_INVALID/);
+ await assert.rejects(verifyCompanionJwt(make({iat:1770000030,exp:1770000300}),settings),/JWT_LIFETIME_INVALID/);
+});
