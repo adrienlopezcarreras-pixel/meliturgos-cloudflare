@@ -1257,9 +1257,11 @@ jobs:
             const text=String(value||'UNKNOWN').toUpperCase();
             return /^[A-Z][A-Z0-9_]{0,79}$/.test(text)?text:'UNKNOWN';
           };
-          const integer=n=>Number.isInteger(Number(n))&&Number(n)>=0&&Number(n)<=6?Number(n):null;
+          const integer=n=>n===null||n===undefined||n===''?null:
+            (Number.isInteger(Number(n))&&Number(n)>=0&&Number(n)<=6?Number(n):null);
           const issues=(Array.isArray(d.errors)?d.errors:[]).slice(0,7).map(row=>({
-            index:integer(row?.index),code:safeToken(String(row?.error||'').split(/[_:0-9]/).slice(0,3).join('_')),
+            index:integer(row?.index),
+            reason: /^(READ|WRITE|CODE|SHARD|GITHUB)_/i.exec(String(row?.error||''))?.[1]?.toUpperCase()||'OTHER',
           }));
           const record={
             http:Number(process.env.HTTP_CODE)||0,curl_exit:Number(process.env.CURL_EXIT)||0,
@@ -1269,8 +1271,9 @@ jobs:
             healthy_shards:Number.isInteger(Number(d.healthy_shards))?Number(d.healthy_shards):null,
             required_shards:Number.isInteger(Number(d.required_shards))?Number(d.required_shards):null,
             failed_indexes:issues.map(row=>row.index).filter(v=>v!==null),
+            failure_categories:issues.filter(row=>row.index!==null),
           };
-          fs.appendFileSync('stress-reconstruction-failures.ndjson',JSON.stringify(record)+'\\n');
+          fs.appendFileSync('stress-reconstruction-failures.ndjson',JSON.stringify(record)+String.fromCharCode(10));
           console.log('SHARDVAULT_STRESS_SAFE_FAILURE:'+JSON.stringify(record));
           NODE
               sleep 2
