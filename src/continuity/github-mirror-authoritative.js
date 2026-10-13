@@ -15,15 +15,19 @@ export function githubMirrorContentsApiUrl(rawUrl) {
     +'/contents/shardvault-code/'+m[4]+'/'+m[5]+'.bin?ref='+m[3];
 }
 
-export async function readAuthoritativeGitHubMirror(rawUrl,{fetchImpl=fetch,maxBytes=8*1024*1024}={}){
+export async function readAuthoritativeGitHubMirror(rawUrl,{fetchImpl=fetch,maxBytes=8*1024*1024,readToken=null}={}){
   const url=githubMirrorContentsApiUrl(rawUrl);
   if(!url||typeof fetchImpl!=='function'||!Number.isSafeInteger(maxBytes)||maxBytes<1)return null;
+  // The fixed GitHub API URL has already passed the repository/branch/SHA
+  // allowlist. A short-lived Actions token is available to the isolated
+  // preview and avoids GitHub's low anonymous rate limit. Never put it in
+  // the URL, log it, or follow a redirect to an unexpected origin.
+  const headers={'accept':'application/vnd.github+json','cache-control':'no-cache','user-agent':'MEL-ShardVault/1.0'};
+  const token=typeof readToken==='string'?readToken.trim():'';
+  if(token&&!/[\r\n]/.test(token))headers.authorization='Bearer '+token;
   let response;
   try{
-    response=await fetchImpl(url,{
-      method:'GET',redirect:'error',
-      headers:{'accept':'application/vnd.github+json','cache-control':'no-cache','user-agent':'MEL-ShardVault/1.0'},
-    },12000);
+    response=await fetchImpl(url,{method:'GET',redirect:'error',headers},12000);
   }catch{return null;}
   if(!response?.ok)return null;
   const headerSize=Number(response.headers?.get?.('content-length')||0);
