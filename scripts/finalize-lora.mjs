@@ -22,6 +22,11 @@ async function main() {
   const dir = path.resolve(args.get('--dir') || '');
   const activateRaw = String(args.get('--activate') ?? 'false').trim().toLowerCase();
   const activate = !['false', '0', 'no', 'off'].includes(activateRaw);
+  // A benchmark is not a promotion. Explicit activation needs an independent
+  // owner authorization that the scheduled Kaggle workflow never provides.
+  if (activate && process.env.MEL_LORA_ACTIVATION_APPROVED !== 'true') {
+    throw new Error('LORA_ACTIVATION_REQUIRES_EXPLICIT_AUTHORIZATION');
+  }
   const allowNotActivatedRaw = String(args.get('--allow-not-activated') ?? 'false').trim().toLowerCase();
   const allowNotActivated = ['true', '1', 'yes', 'on'].includes(allowNotActivatedRaw);
   const baseUrl = String(args.get('--url') || process.env.MEL_BASE_URL || '').replace(/\/+$/, '');
