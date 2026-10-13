@@ -13,6 +13,7 @@ on:
       - 'src/devices/companion-mcp-endpoint.js'
       - 'src/devices/companion-mcp-device-authorization.js'
       - 'src/devices/companion-mcp-d1-lookup.js'
+      - 'migrations/20261013_companion_mcp_device_grants.sql'
       - 'tests/companion-mcp-d1-lookup.test.mjs'
       - 'tests/companion-mcp-device-authorization.test.mjs'
       - 'tests/companion-mcp-endpoint.test.mjs'
