@@ -35,7 +35,7 @@ if(Test-Path -LiteralPath $backupRoot -PathType Container){
    if($state -eq 'RUNNING'){
     $runningCount++
     $matches=@($candidates | Where-Object { ([string]$_.CommandLine).Contains($dir.FullName) })
-    if(-not $inventoryLimited -and $matches.Count -eq 0 -and $age -gt 240){$row.assessment='STALE_CANDIDATE';$staleCount++}
+    if(-not $inventoryLimited -and $matches.Count -eq 0 -and $age -gt 240){$row.assessment='STALE_CANDIDATE';$row.reconciliation_required=$true;$row.reconciliation_reason='RUNNING_WITH_NO_MATCHING_WORKER_AFTER_240S';$staleCount++}
     else{$row.assessment='RUNNING_OR_UNCERTAIN'}
    }elseif($state -eq 'SUCCESS'){
     $image=Join-Path $dir.FullName 'ota_0.bin'
@@ -79,6 +79,9 @@ elseif($verifiedCount -gt 0){$state='BACKUP_AVAILABLE_BUT_FLASH_NOT_AUTHORIZED'}
  espressif_port_candidates=$espPortNames
  espressif_device_count=$espDevices.Count
  backup_jobs=$jobs
+ stale_job_ids=@($jobs | Where-Object { $_.assessment -eq 'STALE_CANDIDATE' } | ForEach-Object { $_.job_id })
+ reconciliation_required=($staleCount -gt 0)
+ reconciliation_mode='MANUAL_REVIEW_REQUIRED_NO_STATE_MUTATION'
  backup_verified_count=$verifiedCount
  backup_unverified_count=$unverifiedCount
  running_job_count=$runningCount
