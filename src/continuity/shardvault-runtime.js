@@ -310,6 +310,11 @@ async function telegraphAccessToken(env,seed='melshardvault'){
 const GITHUB_CODE_MIRROR_ID='github-actions-code-mirror';
 const GITHUB_CODE_MIRROR_WORKFLOW='shardvault-github-code-mirror.yml';
 const GITHUB_CODE_MIRROR_BRANCH='shardvault-mirror';
+function githubCodeMirrorBranch(env){
+  // Preview code is never written to the production mirror branch.
+  return env?.MEL_RUNTIME_ENV==='preview'&&env?.MEL_PREVIEW_ISOLATED==='true'
+    ? 'shardvault-preview-mirror' : GITHUB_CODE_MIRROR_BRANCH;
+}
 
 function configuredWritableWorkflows(env){
   return String(env?.MEL_GITHUB_WRITABLE_WORKFLOWS||'').split(',').map(x=>x.trim()).filter(Boolean);
@@ -319,7 +324,7 @@ function githubCodeMirrorEndpoint(env,id,requiredBytes=0){
   if(!configuredWritableWorkflows(env).includes(GITHUB_CODE_MIRROR_WORKFLOW))return null;
   const maxBytes=8*1024*1024;
   if(Math.max(0,Number(requiredBytes)||0)>maxBytes)return null;
-  const urlTemplate='https://raw.githubusercontent.com/'+id.repository+'/refs/heads/'+GITHUB_CODE_MIRROR_BRANCH+'/shardvault-code/'+id.sha+'/{objectId}.bin';
+  const urlTemplate='https://raw.githubusercontent.com/'+id.repository+'/refs/heads/'+githubCodeMirrorBranch(env)+'/shardvault-code/'+id.sha+'/{objectId}.bin';
   return normalizeEndpoint({
     id:GITHUB_CODE_MIRROR_ID,adapter:'github_actions_code_mirror',urlTemplate,method:'PUT',maxBytes,
     operatorDomain:'raw.githubusercontent.com',providerId:'github',jurisdiction:'UNKNOWN',
@@ -366,7 +371,7 @@ async function githubCodeMirrorUpload(env,e,objectId,payload){
   await env.MEDIA_BUCKET.put(stagingKey,payload,{httpMetadata:{contentType:'application/octet-stream'},customMetadata:{git_sha:id.sha,object_id:objectId,sha256:digest,kind:'github-code-mirror-staging'}});
   const mirrorPath='shardvault-code/'+id.sha+'/'+objectId+'.bin';
   const job=await relay.enqueue({workflow:GITHUB_CODE_MIRROR_WORKFLOW,ref:'main',inputs:{
-    r2_key:stagingKey,r2_bucket:env?.MEL_PREVIEW_ISOLATED==='true'?'meliturgos-preview-media-bucket':'meliturgos-private-media',mirror_path:mirrorPath,expected_sha256:digest,byte_length:String(payload.length),
+    r2_key:stagingKey,r2_bucket:githubCodeMirrorBranch(env)==='shardvault-preview-mirror'?'meliturgos-preview-media-bucket':'meliturgos-private-media',mirror_branch:githubCodeMirrorBranch(env),mirror_path:mirrorPath,expected_sha256:digest,byte_length:String(payload.length),
   }});
   pending={relay_job_id:job.id,staging_key:stagingKey,mirror_path:mirrorPath,expected_sha256:digest,byte_length:payload.length,remote_url:remoteUrl,created_at:new Date().toISOString()};
   await env.MEDIA_BUCKET.put(pendingKey,JSON.stringify(pending),{httpMetadata:{contentType:'application/json'}});
