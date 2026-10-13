@@ -48,7 +48,7 @@ test('/api/gen2/autonomy/status is an authenticated alias with evidence-based re
   assert.ok(body.readiness.blockers.includes('LIVE_COUNCIL_ZERO_COST_NOT_PROVEN'));
 });
 
-test('manual tick records the one-time Work DAG runtime proof and reports that gate as verified', async () => {
+test('manual tick without independently verified live Council remains unverified', async () => {
   const f = fixture();
   const response = await maybeHandleAutonomyApi(
     new Request('http://mel/api/gen2/autonomy/tick', { method: 'POST', headers: { authorization: auth } }),
@@ -57,10 +57,11 @@ test('manual tick records the one-time Work DAG runtime proof and reports that g
   );
   assert.equal(response.status, 200);
   const body = await response.json();
-  assert.equal(body.tick.runtime_proof.status, 'VERIFIED');
-  assert.equal(body.tick.runtime_proof.recovered_interrupted_node, true);
-  assert.ok(body.tick.runtime_proof.providers_attempted >= 2);
-  assert.equal(body.state.readiness.gates.runtime_work_dag_resume, true);
-  assert.equal(body.state.readiness.gates.live_council_zero_cost, true);
+  // The AI fixture returns strings but has no authenticated zero-cost
+  // governor receipts, so it must never be treated as real live Council.
+  assert.equal(body.tick.runtime_proof.status, 'NOT_VERIFIED');
+  assert.equal(body.state.readiness.gates.live_council_zero_cost, false);
+  assert.equal(body.state.readiness.gates.runtime_work_dag_resume, false);
   assert.equal(body.state.readiness.gates.runtime_teacher_round_trip, false);
+  assert.equal(body.state.readiness.self_development_ready, false);
 });
