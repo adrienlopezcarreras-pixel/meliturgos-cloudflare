@@ -45,6 +45,7 @@ async function getStatus(args){
 }
 const rl=readline.createInterface({input:process.stdin,crlfDelay:Infinity});
 for await(const line of rl){
+ if(line.length>16384){error(null,-32600,'Request too large');continue;}
  let msg;
  try{msg=JSON.parse(line);}catch{error(null,-32700,'Parse error');continue;}
  if(!msg||msg.jsonrpc!=='2.0'||typeof msg.method!=='string'){error(msg?.id??null,-32600,'Invalid request');continue;}
