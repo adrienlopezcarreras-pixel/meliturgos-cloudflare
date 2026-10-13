@@ -121,9 +121,9 @@ test('preview ShardVault retains seven qualification receipts until seven distin
   const workflow=fs.readFileSync(new URL('../.github/workflows/deploy-candidate-preview.yml',import.meta.url),'utf8');
   const section=workflow.split('      - name: Live ShardVault external target probe')[1]
     ?.split('      - name: Upload ShardVault live probe evidence')[0]||'';
-  assert.match(section,/shardvault-qualification-proof\\.json/);
-  assert.match(section,/int\\(d\\.get\\('active_external_count'\\) or 0\\) >= 7/);
-  assert.match(section,/len\\(d\\.get\\('active_endpoint_ids'\\) or \\[\\]\\) >= 7/);
-  assert.match(section,/qualification\\.get\\('representative_validated_count'\\)/);
-  assert.match(section,/SHARDVAULT_ACTIVE_REGISTRY_LT_7/);
+  assert.ok(section.includes('shardvault-qualification-proof.json'));
+  assert.ok(section.includes("int(d.get('active_external_count') or 0) >= 7"));
+  assert.ok(section.includes("len(d.get('active_endpoint_ids') or []) >= 7"));
+  assert.ok(section.includes("qualification.get('representative_validated_count')"));
+  assert.ok(section.includes('SHARDVAULT_ACTIVE_REGISTRY_LT_7'));
 });
