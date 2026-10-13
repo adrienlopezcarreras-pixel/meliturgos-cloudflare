@@ -50,7 +50,10 @@ test('GEN2-59 workflow packages on windows-latest and requires exact SHA for man
   assert.match(workflow, /MEL_WINDOWS_SIGNING_PFX_PASSWORD/);
   assert.match(workflow, /Get-AuthenticodeSignature/);
   assert.match(workflow, /actions\/upload-artifact@/);
-  assert.doesNotMatch(workflow, /android-companion/);
+  // Windows release may bundle an interactive Android Wi-Fi pairing helper,
+  // but must never silently build, ship or install Android APK binaries.
+  assert.match(workflow, /tools\/android-companion\/MEL-Android-WiFi-Pairing\.ps1/);
+  assert.doesNotMatch(workflow, /gradle|android-apk-build|adb install|\.apk\b/i);
 });
 
 
