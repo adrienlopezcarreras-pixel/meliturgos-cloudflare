@@ -29,7 +29,7 @@ test('scheduled MINI maintenance assessment never flashes, resets, launches or m
 
 test('owner and scoped OIDC can request only fixed read-only maintenance assessment',()=>{
  assert.match(api,/import \{ miniMaintenanceAssessCommand \} from "\.\/mini-maintenance-companion\.js"/);
- assert.match(api,/const PC_CONTROL_PROOF_ACTIONS=new Set\([^;]*"mini\.maintenance\.assess"\]/);
+ assert.match(api,/const PC_CONTROL_PROOF_ACTIONS=new Set\([^;]*"mini\.maintenance\.assess"[^;]*\]/);
  assert.match(api,/action==="mini\.maintenance\.assess"&&device\.metadata\?\.remote_access_enabled!==true/);
  assert.match(api,/action==="mini\.maintenance\.assess"[\s\S]*effectiveAction="system\.exec";[\s\S]*effectivePayload=miniMaintenanceAssessCommand\(\)/);
  assert.doesNotMatch(api.split('const PC_CONTROL_PROOF_ACTIONS=new Set(')[1].split(';')[0],/serial\.hard_reset|mini\.readonly\.backup"\b|power\.restart/);
