@@ -647,6 +647,34 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
+      - name: Initialize isolated ShardVault snapshot before external promotions
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE_URL="https://meliturgos-preview.adrien-lopezcarreras.workers.dev"
+          HTTP_CODE="$(curl --show-error --silent --max-time 180 \
+            --header "Authorization: Bearer ${MEL_PREVIEW_PASSWORD}" \
+            --header "content-type: application/json" \
+            --data '{}' \
+            --output shardvault-bootstrap.json \
+            --write-out '%{http_code}' \
+            "${BASE_URL}/api/gen2/shardvault/snapshot")"
+          python - "$HTTP_CODE" <<'PY'
+          import json, sys
+          from pathlib import Path
+          try:
+              d=json.loads(Path('shardvault-bootstrap.json').read_text(encoding='utf-8'))
+          except Exception:
+              raise SystemExit('SHARDVAULT_BOOTSTRAP_RESPONSE_INVALID')
+          summary={'ok':d.get('ok') is True,'skipped':d.get('skipped') is True,
+                   'reason':str(d.get('reason') or 'UNSPECIFIED')[:80],
+                   'shards':d.get('shards'),'storage_mode':d.get('storage_mode')}
+          print('SHARDVAULT_BOOTSTRAP:',json.dumps(summary))
+          if sys.argv[1]!='200' or d.get('ok') is not True or d.get('skipped') is True or not d.get('snapshot_id'):
+              raise SystemExit('SHARDVAULT_BOOTSTRAP_REQUIRED')
+          PY
+          rm -f shardvault-bootstrap.json
+
       - name: Live ShardVault external target probe
         shell: bash
         run: |
