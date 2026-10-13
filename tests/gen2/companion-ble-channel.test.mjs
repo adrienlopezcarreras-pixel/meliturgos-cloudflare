@@ -50,5 +50,8 @@ test("relay requests the fixed BLE action and never prints raw Android Bluetooth
  assert.match(relay,/pairing_failure_seen/);
  assert.match(relay,/newState=2/);
  assert.match(relay,/session_ok_seen/);
+ assert.match(relay,/Array\.isArray\(bleProof\.mel_log_events\)/);
+ assert.match(relay,/const signalLines=bleLines\.concat\(melBleLines\)/);
+ assert.match(relay,/session_ok_seen:signalLines\.some/);
  assert.doesNotMatch(relay,/console\.log\([^\n]*(?:bleProof\.log_events|bleOutput\.stdout)/);
 });
