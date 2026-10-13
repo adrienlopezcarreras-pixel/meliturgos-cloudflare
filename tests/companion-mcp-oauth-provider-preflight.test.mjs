@@ -11,3 +11,8 @@ test('reject different issuer, HTTP token endpoint and missing PKCE',()=>{
  assert.throws(()=>check({...metadata,grant_types_supported:['client_credentials']},{issuer}),/MCP_OAUTH_GRANT_REQUIRED/);
  assert.throws(()=>check({...metadata,code_challenge_methods_supported:['plain']},{issuer}),/MCP_OAUTH_PKCE_REQUIRED/);
 });
+
+test('provider rejects omitted public client support and missing grant metadata',()=>{
+ assert.throws(()=>check({...metadata,token_endpoint_auth_methods_supported:undefined},{issuer}),/MCP_OAUTH_PUBLIC_CLIENT_REQUIRED/);
+ assert.throws(()=>check({...metadata,grant_types_supported:undefined},{issuer}),/MCP_OAUTH_GRANT_REQUIRED/);
+});
