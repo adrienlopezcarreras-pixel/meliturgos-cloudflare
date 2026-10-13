@@ -6,6 +6,7 @@ on:
     paths:
       - '.github/workflows/live-connections-production-proof.yml'
       - 'tests/live-connections-production-proof.test.mjs'
+      - 'tests/sharepoint-live-proof-gate.test.mjs'
   workflow_dispatch:
     inputs:
       expected_sha:
@@ -37,7 +38,7 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: node --test tests/live-connections-production-proof.test.mjs tests/pipedream-sharepoint-graph-proof.test.mjs
+      - run: node --test tests/live-connections-production-proof.test.mjs tests/pipedream-sharepoint-graph-proof.test.mjs tests/sharepoint-live-proof-gate.test.mjs
 
   production-proof:
     if: github.event_name != 'pull_request'
