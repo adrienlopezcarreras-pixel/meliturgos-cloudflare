@@ -1,6 +1,7 @@
 name: workers-ai-zero-cost-proof-refresh
 
 on:
+  workflow_call:
   workflow_dispatch:
   push:
     branches: [main]
@@ -17,7 +18,7 @@ permissions:
 
 concurrency:
   group: workers-ai-zero-cost-proof-refresh
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   refresh:
