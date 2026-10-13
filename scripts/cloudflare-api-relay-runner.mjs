@@ -86,6 +86,30 @@ async function main(){
     }));
     if(proof.some(row=>row.status!=='SUCCEEDED')) throw Object.assign(new Error('PC_CONTROL_LIVE_PROOF_FAILED'),{code:'PC_CONTROL_LIVE_PROOF_FAILED'});
 
+    // Scheduled, read-only check: never kill processes or reset COM3.
+    const processSubmit=await worker('/api/computer/v1/pc-control',{
+      computer_id:computer.id,action:'process.list',payload:{}
+    });
+    const processId=String(processSubmit?.command_id||'');
+    let processCommand=null;
+    const processDeadline=Date.now()+20000;
+    while(Date.now()<processDeadline){
+      await new Promise(resolve=>setTimeout(resolve,1000));
+      const poll=await worker('/api/computer/v1/status?computer_id='+encodeURIComponent(computer.id),{},'GET');
+      processCommand=(Array.isArray(poll?.commands)?poll.commands:[])
+        .find(cmd=>String(cmd?.id||'')===processId)||null;
+      if(['SUCCEEDED','FAILED'].includes(String(processCommand?.status||'')))break;
+    }
+    const processOutput=(Array.isArray(processCommand?.result?.outputs)?processCommand.result.outputs:[])
+      .find(row=>row?.action==='process.list');
+    const matchingProcesses=(Array.isArray(processOutput?.processes)?processOutput.processes:[])
+      .filter(row=>/esptool|python|powershell/i.test(String(row?.name||'')))
+      .map(row=>({name:String(row.name||''),pid:Number(row.id||0)})).slice(0,30);
+    console.log('MINI_BACKUP_PROCESS_PROOF='+JSON.stringify({
+      device_id:computer.id,status:String(processCommand?.status||'TIMEOUT'),
+      candidates:matchingProcesses,process_inventory_is_not_commandline_proof:true,
+      flash_performed:false,reset_performed:false
+    }));
     const serialListResult=proof.find(row=>row.action==='serial.list')?.result;
     const serialOutput=Array.isArray(serialListResult?.outputs)
       ? serialListResult.outputs.find(row=>row?.action==='serial.list')
