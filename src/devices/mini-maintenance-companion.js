@@ -20,7 +20,7 @@ if(Test-Path -LiteralPath $backupRoot -PathType Container){
   Where-Object { $_.Name -match '^[a-fA-F0-9]{32}$' } |
   Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 30)
  $candidates=@(Get-CimInstance Win32_Process -ErrorAction Stop |
-  Where-Object { $_.Name -match '^(python|pythonw|esptool|powershell|pwsh)(\\.exe)?$' -and ([string]$_.CommandLine) -match 'ota_backup_worker\.py|mini-backups' })
+  Where-Object { $_.Name -match '^(python|pythonw|esptool|powershell|pwsh)(\.exe)?$' -and ([string]$_.CommandLine) -match 'ota_backup_worker\.py|mini-backups' })
  $inventoryLimited=$candidates.Count -gt 30
  foreach($dir in $directories){
   $statusFile=Join-Path $dir.FullName 'status.json'
