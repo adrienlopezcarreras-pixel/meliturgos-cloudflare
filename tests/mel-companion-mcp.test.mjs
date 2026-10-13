@@ -92,3 +92,12 @@ test('rejects HTML masquerading as successful status',async()=>{
  assert.equal(results[0].result.isError,true);
  assert.match(results[0].result.content[0].text,/MEL_STATUS_NOT_JSON/);
 });
+
+test('read-only MCP never advertises a command execution tool',async()=>{
+ const results=await request([{jsonrpc:'2.0',id:13,method:'tools/list'}]);
+ const names=results[0].result.tools.map(t=>t.name);
+ assert.deepEqual(names,['mel_companion_status']);
+ for(const forbidden of ['system.exec','mel_companion_run','mel_companion_flash','mel_companion_install']){
+  assert.equal(names.includes(forbidden),false);
+ }
+});
