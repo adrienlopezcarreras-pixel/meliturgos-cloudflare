@@ -36,6 +36,11 @@ foreach ($name in $files) {
   Copy-Item -LiteralPath $src -Destination (Join-Path $stage $name)
 }
 
+# Package the local interactive Wi-Fi pairing wizard (never invoked by a cloud job).
+$androidPairSource = Join-Path $repoRoot "tools\android-companion\MEL-Android-WiFi-Pairing.ps1"
+if (-not (Test-Path -LiteralPath $androidPairSource -PathType Leaf)) { throw "ANDROID_WIFI_PAIRING_HELPER_MISSING" }
+Copy-Item -LiteralPath $androidPairSource -Destination (Join-Path $stage "MEL-Android-WiFi-Pairing.ps1")
+
 $desktopSource = Join-Path $repoRoot "windows-companion\MEL-Companion.cs"
 if (-not (Test-Path -LiteralPath $desktopSource -PathType Leaf)) { throw "WINDOWS_DESKTOP_SOURCE_MISSING" }
 $companionSource = Join-Path $assetDir "MEL-Computer-Companion.ps1"
