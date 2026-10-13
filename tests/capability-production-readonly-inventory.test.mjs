@@ -21,7 +21,7 @@ test('real GET-only inventory is truth-labeled, not executed capabilities',()=>{
   assert.equal(proof.capability_count,31);
   assert.equal(proof.capability_execution_tested,false);
   assert.equal(proof.stress_job_started,false);
-  assert.equal(proof.mutation_scope,'GET_ONLY_NO_REFRESH_NO_D1_WRITE');
+  assert.equal(proof.mutation_scope,'GET_ONLY_ENDPOINTS_AUDIT_RECEIPTS_POSSIBLE');
   assert.equal(proof.low_risk_count+proof.protected_count,31);
 });
 test('wrong deployed SHA or absent exact identity blocks proof',()=>{
