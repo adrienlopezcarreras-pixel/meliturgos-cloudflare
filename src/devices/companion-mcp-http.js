@@ -1,14 +1,46 @@
-// Remote MCP HTTP transport: narrow protocol shell, deliberately disabled until OAuth gateway exists.
-// This is a library, not a deployed route. No owner token, device control or API exposure.
+// Injectable, non-mounted MCP Streamable HTTP prototype. Does not authenticate itself.
+// Deployment requires audited OAuth validator + owner-device authorization (injections).
 export const MCP_HTTP_PATH='/mcp/companion/v1';
 export const MCP_HTTP_PROTOCOL='2025-03-26';
-export const MCP_HTTP_STATUS='AUTH_NOT_CONFIGURED';
-const json=(value,status=200)=>Response.json(value,{status,headers:{'cache-control':'no-store','x-content-type-options':'nosniff'}});
-export function companionMcpHttp(request,{authorize}={}){
+const tool={name:'mel_companion_status',description:'Read the authorized Windows Companion status only',inputSchema:{type:'object',properties:{computer_id:{type:'string',maxLength:200}},additionalProperties:false}};
+const headers={'cache-control':'no-store','x-content-type-options':'nosniff','content-type':'application/json'};
+function json(data,status=200,extra={}){return new Response(JSON.stringify(data),{status,headers:{...headers,...extra}});}
+function rpc(id,result){return {jsonrpc:'2.0',id,result};}
+function rpcError(id,code,message){return {jsonrpc:'2.0',id,error:{code,message}};}
+function validArgs(a){return a===undefined||(a&&typeof a==='object'&&!Array.isArray(a)&&Object.keys(a).every(k=>k==='computer_id')&&(a.computer_id===undefined||(typeof a.computer_id==='string'&&a.computer_id.length<=200)));}
+export async function companionMcpHttp(request,{authenticate,authorizeDevice,readStatus}={}){
  const url=new URL(request.url);
  if(url.pathname!==MCP_HTTP_PATH)return json({error:'NOT_FOUND'},404);
- if(typeof authorize!=='function')return json({error:MCP_HTTP_STATUS},503);
- // Fail closed even when a caller supplies a hypothetical authorization callback:
- // OAuth and per-user device binding must be implemented and reviewed before enabling tools.
- return json({error:'MCP_REMOTE_NOT_ENABLED'},503);
+ // Never expose MCP unless all three independently reviewed services exist.
+ if(typeof authenticate!=='function'||typeof authorizeDevice!=='function'||typeof readStatus!=='function')return json({error:'MCP_REMOTE_NOT_CONFIGURED'},503);
+ if(request.method!=='POST')return json({error:'METHOD_NOT_ALLOWED'},405,{allow:'POST'});
+ const type=(request.headers.get('content-type')||'').toLowerCase();
+ if(!type.startsWith('application/json'))return json({error:'JSON_REQUIRED'},415);
+ if(Number(request.headers.get('content-length')||0)>16384)return json({error:'REQUEST_TOO_LARGE'},413);
+ let principal;
+ try{principal=await authenticate(request);}
+ catch{return json({error:'AUTH_REQUIRED'},401,{'www-authenticate':'Bearer'});}
+ if(!principal||typeof principal.subject!=='string'||!principal.subject.trim())return json({error:'AUTH_REQUIRED'},401,{'www-authenticate':'Bearer'});
+ let body;
+ try{const raw=await request.text();if(raw.length>16384)return json({error:'REQUEST_TOO_LARGE'},413);body=JSON.parse(raw);}
+ catch{return json(rpcError(null,-32700,'Parse error'),400);}
+ if(!body||body.jsonrpc!=='2.0'||typeof body.method!=='string'||Array.isArray(body))return json(rpcError(body?.id??null,-32600,'Invalid Request'),400);
+ if(body.id===undefined)return new Response(null,{status:202,headers});
+ if(body.method==='initialize')return json(rpc(body.id,{protocolVersion:MCP_HTTP_PROTOCOL,capabilities:{tools:{}},serverInfo:{name:'mel-companion-remote-preview',version:'0.1.0'}}));
+ if(body.method==='ping')return json(rpc(body.id,{}));
+ if(body.method==='tools/list')return json(rpc(body.id,{tools:[tool]}));
+ if(body.method!=='tools/call')return json(rpcError(body.id,-32601,'Method not found'));
+ if(body.params?.name!==tool.name||!validArgs(body.params?.arguments))return json(rpcError(body.id,-32602,'Invalid tool arguments'));
+ const id=body.params?.arguments?.computer_id;
+ if(typeof id!=='string'||!id.trim())return json(rpcError(body.id,-32602,'computer_id required'));
+ let allowed=false;
+ try{allowed=await authorizeDevice(principal,id);}
+ catch{return json({error:'AUTHZ_UNAVAILABLE'},503);}
+ if(allowed!==true)return json({error:'DEVICE_FORBIDDEN'},403);
+ try{
+  const state=await readStatus(principal,id);
+  if(!state||state.id!==id||typeof state.online!=='boolean')throw Error('BAD_STATUS');
+  const safe={id,online:state.online,halted:state.halted===true,last_seen_at:Number(state.last_seen_at||0)};
+  return json(rpc(body.id,{content:[{type:'text',text:JSON.stringify(safe)}]}));
+ }catch{return json(rpc(body.id,{isError:true,content:[{type:'text',text:'COMPANION_STATUS_UNAVAILABLE'}]}));}
 }
