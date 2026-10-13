@@ -1,0 +1,53 @@
+name: MEL four low-risk capabilities live execution proof
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/probe-capability-execution-readonly.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  low-risk-proof:
+    if: ${{ github.repository == 'adrienlopezcarreras-pixel/meliturgos-cloudflare' && github.event.pull_request.number == 1228 && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'candidate/mel-clean-autonomy' && github.actor == 'adrienlopezcarreras-pixel' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: "22"
+      - name: Verify execution is limited to low-risk read and echo cases
+        run: node --test tests/capability-production-safe-execution.test.mjs tests/capability-production-readonly-inventory.test.mjs
+      - name: Resolve exact production release SHA via GitHub GET
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          SHA="$(node --input-type=module <<'NODE'
+          const r=await fetch('https://api.github.com/repos/adrienlopezcarreras-pixel/meliturgos-cloudflare/branches/release%2Fmel-hardware-v0.1.0',{
+            method:'GET',redirect:'error',signal:AbortSignal.timeout(15000),
+            headers:{Authorization:'Bearer '+process.env.GH_TOKEN,Accept:'application/vnd.github+json'},
+          });
+          if(!r.ok)throw Error('SAFE_RELEASE_SHA_READ_FAILED');
+          const body=await r.json();
+          const sha=String(body?.commit?.sha||'');
+          if(!/^[a-f0-9]{40}$/.test(sha))throw Error('SAFE_RELEASE_SHA_INVALID');
+          process.stdout.write(sha);
+          NODE
+          )"
+          echo "EXPECTED_SHA=${SHA}" >> "$GITHUB_ENV"
+      - name: Prove four exact SHA low-risk capability executions without leaking output
+        env:
+          PROOF_KEY_B64: ${{ secrets.MEL_BACKUP_ENCRYPTION_KEY_B64 }}
+        run: node scripts/prove-production-safe-capabilities-readonly.mjs
+      - name: Retain sanitized execution evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: mel-low-risk-capability-execution-${{ github.run_id }}
+          path: capability-safe-execution-proof.json
+          if-no-files-found: warn
+          retention-days: 14
