@@ -6,6 +6,9 @@ on:
     branches: [main]
     paths:
       - 'scripts/cloudflare-api-relay-runner.mjs'
+      - 'src/devices/companion-ble-diagnostics.js'
+      - 'src/devices/computer-companion-api.js'
+      - 'tests/gen2/companion-ble-channel.test.mjs'
       - 'src/api/cloudflare-api-relay.js'
       - 'src/security/http-auth-policy.js'
       - 'tests/gen2/cloudflare-api-relay.test.mjs'
@@ -39,7 +42,7 @@ jobs:
           cache: npm
       - run: npm ci
       - run: node --check scripts/cloudflare-api-relay-runner.mjs
-      - run: node --test tests/gen2/cloudflare-api-relay.test.mjs
+      - run: node --test tests/gen2/cloudflare-api-relay.test.mjs tests/gen2/companion-ble-channel.test.mjs
 
   relay:
     if: github.event_name != 'pull_request' && (github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success')
