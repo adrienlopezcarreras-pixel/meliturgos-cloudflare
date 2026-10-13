@@ -13,7 +13,9 @@ on:
   schedule:
     - cron: '*/5 * * * *'
   workflow_run:
-    workflows: ["deploy-cloudflare-release"]
+    # The downstream proof can finish even when a separate post-release gate fails.
+    # Give the read-only MINI backup audit a fresh OIDC opportunity in that case.
+    workflows: ["deploy-cloudflare-release", "release-downstream-proof-decoupled"]
     types: [completed]
 
 permissions:
