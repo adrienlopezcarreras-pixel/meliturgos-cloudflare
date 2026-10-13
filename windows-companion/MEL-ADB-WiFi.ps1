@@ -63,7 +63,13 @@ do {
       Move-Item -LiteralPath "$report.tmp" -Destination $report -Force
     } else { Scan }
   } catch {
-    Add-Content -LiteralPath $log -Encoding UTF8 -Value ("{0} error={1}" -f (Get-Date).ToUniversalTime().ToString("o"),$_.Exception.Message)
+    $reason=$_.Exception.Message
+    $status=[ordered]@{schema="mel.adb-wifi-status.v1";observed_at_utc=(Get-Date).ToUniversalTime().ToString("o");adb_available=[bool]$adb;connected=$false;serial=$null;android_model=$null;android_version=$null;mel_package="fr.veriteinterdite.mel";mel_installed=$false;mel_version=$null;mel_version_code=$null;error="ADB_DIAGNOSTIC_FAILED"}
+    try {
+      [IO.File]::WriteAllText("$report.tmp",($status | ConvertTo-Json -Depth 5),(New-Object Text.UTF8Encoding($false)))
+      Move-Item -LiteralPath "$report.tmp" -Destination $report -Force
+    } catch { }
+    Add-Content -LiteralPath $log -Encoding UTF8 -Value ("{0} error={1}" -f (Get-Date).ToUniversalTime().ToString("o"),$reason)
   }
   if (-not $Once) { Start-Sleep -Seconds $IntervalSeconds }
 } while (-not $Once)
