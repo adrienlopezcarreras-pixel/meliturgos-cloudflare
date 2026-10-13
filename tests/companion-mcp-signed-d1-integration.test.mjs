@@ -38,4 +38,8 @@ test('signed token plus D1 grant permits only scoped Companion status',async()=>
  grantRevoked=0;
  grantExpiresAt=Date.now()-1000;
  assert.equal((await call('win-1')).status,403);
+ // A revoked grant must not revive merely because its expiration is changed.
+ grantRevoked=1;
+ grantExpiresAt=Date.now()+300000;
+ assert.equal((await call('win-1')).status,403);
 });
