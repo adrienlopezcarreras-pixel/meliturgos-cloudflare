@@ -26,7 +26,7 @@ if($adb){
    if($status -eq 'ADB_CONNECTED'){
     $raw=@(& $adb -s $id logcat -d -t 1500 -v time 2>&1 | ForEach-Object { [string]$_ })
     if($LASTEXITCODE -ne 0){$status='ADB_LOGCAT_FAILED'}
-    else {$events=@($raw | Where-Object { $_ -match 'BluetoothGatt|BondState|BtGatt|MelLinkV2|SESSION_OK|btm_sec|SMP|pairing' } | Select-Object -Last 45)}
+    else {$events=@($raw | Where-Object { $_ -match 'BluetoothGatt|BondState|BtGatt|MelLinkV2|SESSION_OK|btm_sec|SMP|pairing' } | Select-Object -Last 45 | ForEach-Object { ([string]$_ -replace '(?i)\b(?:[0-9a-f]{2}:){5}[0-9a-f]{2}\b','[BLE_ADDRESS_REDACTED]' -replace '(?i)\b(?:[0-9a-f]{2}-){5}[0-9a-f]{2}\b','[BLE_ADDRESS_REDACTED]').Substring(0,[Math]::Min(280,([string]$_).Length)) })}
    }
   }elseif($serials.Count -gt 1){$status='MULTIPLE_ADB_DEVICES_REFUSED'}else{$status='NO_PAIRED_ADB_WIFI_DEVICE'}
  }
