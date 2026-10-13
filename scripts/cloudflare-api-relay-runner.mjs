@@ -123,6 +123,121 @@ async function main(){
     const auditOutput=(Array.isArray(auditCommand?.result?.outputs)?auditCommand.result.outputs:[]).find(row=>row?.action==='system.exec');
     let backupAudit=null;try{backupAudit=JSON.parse(String(auditOutput?.stdout||'').trim())}catch{}
     console.log('MINI_BACKUP_STALE_AUDIT='+JSON.stringify({status:String(auditCommand?.status||'TIMEOUT'),proof:backupAudit,read_only:true}));
+    // Fixed, OIDC-scoped, read-only assessment of USB and OTA backup integrity.
+    // This never authorizes flashing or device reset; missing proof remains visible.
+    const assessSubmit=await worker('/api/computer/v1/pc-control',{
+      computer_id:computer.id,action:'mini.maintenance.assess',payload:{}
+    });
+    const assessId=String(assessSubmit?.command_id||'');
+    const assessDeadline=Date.now()+50000;
+    let assessCommand=null;
+    while(Date.now()<assessDeadline){
+      await new Promise(resolve=>setTimeout(resolve,1500));
+      const poll=await worker('/api/computer/v1/status?computer_id='+encodeURIComponent(computer.id),{},'GET');
+      assessCommand=(Array.isArray(poll?.commands)?poll.commands:[])
+        .find(row=>String(row?.id||'')===assessId)||null;
+      if(['SUCCEEDED','FAILED'].includes(String(assessCommand?.status||'')))break;
+    }
+    const assessOutput=(Array.isArray(assessCommand?.result?.outputs)?assessCommand.result.outputs:[])
+      .find(row=>row?.action==='system.exec');
+    let maintenance=null;
+    try{maintenance=JSON.parse(String(assessOutput?.stdout||'').trim())}catch{}
+    console.log('MINI_MAINTENANCE_ASSESS='+JSON.stringify({
+      status:String(assessCommand?.status||'TIMEOUT'),
+      proof:maintenance,
+      read_only:true,
+      flash_performed:false,
+      reset_performed:false
+    }));
+
+    // Scoped COM3 / ADB Wi-Fi Bluetooth investigation; NEVER print raw logcat or MACs.
+    // Relies on server-side allowlist, local Companion opt-in and OIDC identity.
+    try {
+      const bleSubmit=await worker('/api/computer/v1/pc-control',{
+        computer_id:computer.id,action:'mini.android.ble.diagnose',payload:{}
+      });
+      const bleId=String(bleSubmit?.command_id||'');
+      if(!bleId)throw Object.assign(new Error('BLE_COMMAND_NOT_QUEUED'),{code:'BLE_COMMAND_NOT_QUEUED'});
+      let bleCommand=null;
+      const bleDeadline=Date.now()+35000;
+      while(Date.now()<bleDeadline){
+        await new Promise(resolve=>setTimeout(resolve,1200));
+        const poll=await worker('/api/computer/v1/status?computer_id='+encodeURIComponent(computer.id),{},'GET');
+        bleCommand=(Array.isArray(poll?.commands)?poll.commands:[])
+          .find(row=>String(row?.id||'')===bleId)||null;
+        if(['SUCCEEDED','FAILED'].includes(String(bleCommand?.status||'')))break;
+      }
+      const bleOutput=(Array.isArray(bleCommand?.result?.outputs)?bleCommand.result.outputs:[])
+        .find(row=>row?.action==='system.exec');
+      let bleProof=null;
+      try{bleProof=JSON.parse(String(bleOutput?.stdout||'').trim())}catch{}
+      const accepted=bleCommand?.status==='SUCCEEDED'&&bleProof?.schema==='mel.companion.ble.diagnostics.v1'&&
+        bleProof?.read_only===true&&bleProof?.serial_opened===false&&bleProof?.flash_performed===false&&
+        bleProof?.apk_install_performed===false&&bleOutput?.exit_code===0;
+      const targetReady=accepted&&bleProof?.com_present===true&&bleProof?.esp_identity_verified===true&&bleProof?.adb_status==='ADB_CONNECTED'&&
+        Array.isArray(bleProof?.android_models)&&bleProof.android_models.length===1&&
+        bleProof.android_models[0]==='M2103K19G';
+      const bleLines=accepted&&Array.isArray(bleProof.log_events)?bleProof.log_events.map(value=>String(value)):[];
+      const bleSignals={
+        gatt_connection_seen:bleLines.some(line=>/(?:onClientConnectionState|onConnectionStateChange).*status=0.*(?:newState=2|connected=true|state=CONNECTED)/i.test(line)),
+        pairing_removed_seen:bleLines.some(line=>/Bond removed|bondState=10|BOND_NONE/i.test(line)),
+        pairing_started_seen:bleLines.some(line=>/bondState=11|BOND_BONDING/i.test(line)),
+        session_ok_seen:bleLines.some(line=>/SESSION_OK/i.test(line)),
+        pairing_failure_seen:bleLines.some(line=>/smp_proc_pairing_cmpl.*(?:status=(?!0\b)[1-9]\d*|failed)|pairing failed|auth(?:entication)? fail/i.test(line)),
+        service_discovery_seen:bleLines.some(line=>/discoverServices|onServicesDiscovered/i.test(line))
+      };
+      console.log('COMPANION_BLE_DIAGNOSTICS='+JSON.stringify({
+        status:String(bleCommand?.status||'TIMEOUT'),
+        evidence_valid:accepted,
+        target_ready:targetReady,
+        com3_present:accepted?bleProof.com_present===true:null,
+        esp_identity_verified:accepted?bleProof.esp_identity_verified===true:null,
+        adb_status:accepted?String(bleProof.adb_status||'UNKNOWN').slice(0,60):null,
+        bluetooth_log_line_count:bleLines.length,signals:accepted?bleSignals:null,
+        read_only:true,flash_performed:false
+      }));
+    }catch(error){
+      console.log('COMPANION_BLE_DIAGNOSTICS='+JSON.stringify({
+        status:'UNVERIFIED',reason:String(error?.code||'BLE_DIAGNOSTIC_UNAVAILABLE').slice(0,80),
+        read_only:true,flash_performed:false
+      }));
+    }
+
+    // Scheduled Windows APK transport audit. OIDC cannot install or pair Android.
+    try {
+      const androidSubmit=await worker('/api/computer/v1/pc-control',{
+        computer_id:computer.id,action:'android.maintenance.assess',payload:{}
+      });
+      const androidId=String(androidSubmit?.command_id||'');
+      const androidDeadline=Date.now()+30000;
+      let androidCommand=null;
+      while(Date.now()<androidDeadline){
+        await new Promise(resolve=>setTimeout(resolve,1200));
+        const poll=await worker('/api/computer/v1/status?computer_id='+encodeURIComponent(computer.id),{},'GET');
+        androidCommand=(Array.isArray(poll?.commands)?poll.commands:[])
+          .find(row=>String(row?.id||'')===androidId)||null;
+        if(['SUCCEEDED','FAILED'].includes(String(androidCommand?.status||'')))break;
+      }
+      const androidOutput=(Array.isArray(androidCommand?.result?.outputs)?androidCommand.result.outputs:[])
+        .find(row=>row?.action==='system.exec');
+      let androidProof=null;
+      try{androidProof=JSON.parse(String(androidOutput?.stdout||'').trim())}catch{}
+      const sanitized=androidProof?.schema==='mel.android.maintenance.assess/v1'
+        ? {schema:androidProof.schema,authorized_wifi_count:Number(androidProof.wifi_adb_paired_count)||0,device_count:Array.isArray(androidProof.devices)?androidProof.devices.length:0}
+        : null;
+      console.log('ANDROID_COMPANION_MAINTENANCE_ASSESS='+JSON.stringify({
+        status:String(androidCommand?.status||'TIMEOUT'),
+        exit_code:androidOutput?.exit_code??null,
+        proof:sanitized,
+        install_performed:false
+      }));
+    }catch(error){
+      console.log('ANDROID_COMPANION_MAINTENANCE_ASSESS='+JSON.stringify({
+        status:'UNVERIFIED',
+        reason:String(error?.code||'ANDROID_ASSESS_UNAVAILABLE').slice(0,80),
+        install_performed:false
+      }));
+    }
     const serialListResult=proof.find(row=>row.action==='serial.list')?.result;
     const serialOutput=Array.isArray(serialListResult?.outputs)
       ? serialListResult.outputs.find(row=>row?.action==='serial.list')

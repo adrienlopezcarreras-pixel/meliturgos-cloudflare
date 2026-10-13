@@ -1,6 +1,7 @@
 package fr.veriteinterdite.mel
 
 import android.media.AudioAttributes
+import android.media.AudioManager
 import android.media.AudioFormat
 import android.media.AudioTrack
 import android.media.MediaPlayer
@@ -63,12 +64,16 @@ object MelVoicePlayer {
             Handler(Looper.getMainLooper()).post {
                 val ref = AtomicReference<TextToSpeech?>(null)
                 val engine = TextToSpeech(context.applicationContext) { status ->
-                    val tts = ref.get()
-                    try {
-                        if (status != TextToSpeech.SUCCESS || tts == null) {
-                            throw IllegalStateException("ANDROID_TTS_INIT_FAILED")
-                        }
-                        val languageResult = tts.setLanguage(Locale.FRANCE)
+                    // Defer one main-loop turn so the engine reference is
+                    // published even when a TTS implementation initializes
+                    // unusually quickly.
+                    Handler(Looper.getMainLooper()).post {
+                        val tts = ref.get()
+                        try {
+                            if (status != TextToSpeech.SUCCESS || tts == null) {
+                                throw IllegalStateException("ANDROID_TTS_INIT_FAILED")
+                            }
+                            val languageResult = tts.setLanguage(Locale.FRANCE)
                         if (languageResult == TextToSpeech.LANG_MISSING_DATA ||
                             languageResult == TextToSpeech.LANG_NOT_SUPPORTED) {
                             throw IllegalStateException("ANDROID_TTS_FRENCH_UNAVAILABLE")
@@ -92,7 +97,7 @@ object MelVoicePlayer {
                         tts.setPitch(1.0f)
                         tts.setAudioAttributes(
                             AudioAttributes.Builder()
-                                .setUsage(AudioAttributes.USAGE_ASSISTANT)
+                                .setUsage(AudioAttributes.USAGE_MEDIA)
                                 .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
                                 .build()
                         )
@@ -103,9 +108,10 @@ object MelVoicePlayer {
                     } catch (error: Throwable) {
                         synchronized(ttsLock) { ttsInitError = error }
                         runCatching { tts?.shutdown() }
-                    } finally {
-                        synchronized(ttsLock) { ttsInitLatch = null }
-                        latch.countDown()
+                        } finally {
+                            synchronized(ttsLock) { ttsInitLatch = null }
+                            latch.countDown()
+                        }
                     }
                 }
                 ref.set(engine)
@@ -132,7 +138,7 @@ object MelVoicePlayer {
         val track = AudioTrack.Builder()
             .setAudioAttributes(
                 AudioAttributes.Builder()
-                    .setUsage(AudioAttributes.USAGE_ASSISTANT)
+                    .setUsage(AudioAttributes.USAGE_MEDIA)
                     .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
                     .build()
             )
@@ -321,6 +327,8 @@ object MelVoicePlayer {
                 })
                 val params = Bundle().apply {
                     putFloat(TextToSpeech.Engine.KEY_PARAM_VOLUME, 1.0f)
+                    @Suppress("DEPRECATION")
+                    putInt(TextToSpeech.Engine.KEY_PARAM_STREAM, AudioManager.STREAM_MUSIC)
                 }
                 val result = tts.speak(text, TextToSpeech.QUEUE_FLUSH, params, utteranceId)
                 if (result == TextToSpeech.ERROR) throw IllegalStateException("ANDROID_TTS_SPEAK_FAILED")

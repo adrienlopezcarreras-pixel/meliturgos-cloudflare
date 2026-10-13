@@ -288,9 +288,9 @@ class MelViewModel(
         ).any { normalized.contains(it) }
         if (!diagnosticIntent) return null
 
-        val bridge = MelBleBridgeService.bridgeState.value
-        val linked = MelBleBridgeService.miniLinkReady.value
-        val internet = MelBleBridgeService.internetReady.value
+        val bridge = MelLinkV2ClientService.bridgeState.value
+        val linked = MelLinkV2ClientService.miniLinkReady.value
+        val internet = MelLinkV2ClientService.internetReady.value
         return when {
             linked && internet ->
                 "Oui. Je vois la MINI, son canal Bluetooth réel est actif et son relais Internet fonctionne."
@@ -357,7 +357,7 @@ class MelViewModel(
                     MelChatMessage("mel", localAnswer)
             )
             viewModelScope.launch(Dispatchers.IO) {
-                appendDiagnosticLine("MINI local fast-path: ${MelBleBridgeService.bridgeState.value}")
+                appendDiagnosticLine("MINI local fast-path: ${MelLinkV2ClientService.bridgeState.value}")
                 speakAnswer(localAnswer, mode)
             }
             return
@@ -429,7 +429,7 @@ class MelViewModel(
                             MelChatMessage("user", transcript, voice = true) +
                             MelChatMessage("mel", localAnswer)
                     )
-                    appendDiagnosticLine("MINI voice fast-path: ${MelBleBridgeService.bridgeState.value}")
+                    appendDiagnosticLine("MINI voice fast-path: ${MelLinkV2ClientService.bridgeState.value}")
                     speakAnswer(localAnswer, mode)
                     appendDiagnosticLine("Micro réel: OK · réponse MINI locale")
                     return@launch
@@ -506,14 +506,47 @@ class MelViewModel(
             MelVoicePlayer.stop()
         }
 
-        // Last-resort compatibility path only. Luna is not the preferred French voice.
+        var pcmFailure: Throwable? = null
+        try {
+            val pcm = client.tts(answer, speaker = "luna", format = "pcm")
+            if (pcm.isEmpty() || (pcm.size and 1) != 0) throw MelApiException("TTS_PCM_INVALID", 502)
+            _state.value = _state.value.copy(
+                busy = true,
+                speaking = true,
+                status = "MEL parle · PCM…",
+                error = null
+            )
+            MelVoicePlayer.playPcm48kMono(pcm)
+            _state.value = _state.value.copy(
+                busy = false,
+                speaking = false,
+                status = "MEL connectée · mode ${mode.label}",
+                error = null
+            )
+            appendDiagnosticLine("Audio MEL: secours PCM 48 kHz")
+            return
+        } catch (error: MelPlaybackInterruptedException) {
+            _state.value = _state.value.copy(
+                busy = false,
+                speaking = false,
+                status = "Je t’écoute…",
+                error = null
+            )
+            appendDiagnosticLine("Audio MEL: interruption volontaire pendant PCM")
+            return
+        } catch (error: Throwable) {
+            pcmFailure = error
+            MelVoicePlayer.stop()
+        }
+
+        // Final compatibility path for devices where raw PCM playback is unavailable.
         try {
             val audio = client.tts(answer, speaker = "luna", format = "mp3")
             if (audio.isEmpty()) throw MelApiException("TTS_AUDIO_EMPTY", 502)
             _state.value = _state.value.copy(
                 busy = true,
                 speaking = true,
-                status = "MEL parle · secours…",
+                status = "MEL parle · secours MP3…",
                 error = null
             )
             MelVoicePlayer.playMp3(appContext, audio)
@@ -523,7 +556,7 @@ class MelViewModel(
                 status = "MEL connectée · mode ${mode.label}",
                 error = null
             )
-            appendDiagnosticLine("Audio MEL: secours serveur")
+            appendDiagnosticLine("Audio MEL: secours MP3")
         } catch (fallbackError: MelPlaybackInterruptedException) {
             _state.value = _state.value.copy(
                 busy = false,
@@ -531,7 +564,7 @@ class MelViewModel(
                 status = "Je t’écoute…",
                 error = null
             )
-            appendDiagnosticLine("Audio MEL: interruption volontaire pendant secours")
+            appendDiagnosticLine("Audio MEL: interruption volontaire pendant secours MP3")
             return
         } catch (fallbackError: Throwable) {
             MelVoicePlayer.stop()
@@ -540,7 +573,7 @@ class MelViewModel(
                 speaking = false,
                 status = "MEL connectée · audio indisponible",
                 error = "Réponse reçue · audio indisponible · " +
-                    explain(frenchFailure ?: fallbackError)
+                    explain(pcmFailure ?: frenchFailure ?: fallbackError)
             )
         }
     }

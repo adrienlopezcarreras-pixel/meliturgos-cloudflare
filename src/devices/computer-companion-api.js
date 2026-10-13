@@ -4,6 +4,11 @@ import { evaluateComputerUsePlan } from "./computer-use.js";
 import { getVerifiedShardVaultCodeArchive } from "../continuity/shardvault-runtime.js";
 import { isLocalSovereigntyAction } from "../portability/local-sovereignty-actions.js";
 import { miniReadOnlyPcCommand } from "./mini-readonly-companion.js";
+import { miniMaintenanceAssessCommand } from "./mini-maintenance-companion.js";
+import { companionBleDiagnosticsCommand } from "./companion-ble-diagnostics.js";
+import { miniFirmwareStageCommand } from "./mini-firmware-stage-companion.js";
+import { androidMaintenancePcCommand } from "./android-maintenance-companion.js";
+import { androidStagePcCommand } from "./android-apk-stage-companion.js";
 
 export const COMPUTER_API_BASE="/api/computer/v1";
 export const COMPUTER_ROUTES=Object.freeze({
@@ -129,9 +134,9 @@ const PC_CONTROL_ACTIONS=new Set([
  "serial.list","serial.read","serial.inspect","serial.hard_reset",
  "process.list","process.start","process.kill",
  "file.list","file.read_text","file.write_text",
- "system.info","system.exec","mini.readonly.discover","mini.readonly.security","mini.readonly.backup","mini.readonly.backup.status","mini.readonly.backup.audit"
+ "system.info","system.exec","mini.readonly.discover","mini.readonly.security","mini.readonly.backup","mini.readonly.backup.status","mini.readonly.backup.audit","mini.maintenance.assess","mini.android.ble.diagnose","mini.maintenance.stage","android.maintenance.assess","android.maintenance.stage","android.maintenance.install"
 ]);
-const PC_CONTROL_PROOF_ACTIONS=new Set(["system.info","serial.list","serial.read","serial.inspect","mini.readonly.discover","process.list","mini.readonly.backup.audit"]);
+const PC_CONTROL_PROOF_ACTIONS=new Set(["system.info","serial.list","serial.read","serial.inspect","mini.readonly.discover","process.list","mini.readonly.backup.audit","mini.maintenance.assess","mini.android.ble.diagnose","android.maintenance.assess"]);
 
 async function authorizeOwnerOrPcProof(request,env,{action=null}={}){
  const owner=requireAuth(request,env);if(owner.ok)return {ok:true,kind:"owner"};
@@ -154,6 +159,16 @@ async function ownerPcControl(request,env){
  if(action.startsWith("mini.readonly.")&&a.kind!=="owner"&&!["mini.readonly.discover","mini.readonly.backup.audit"].includes(action))return json({ok:false,code:"MINI_READONLY_OWNER_ONLY"},403);
  if((action==="mini.readonly.security"||action==="mini.readonly.backup")&&payload.ack_bootloader_reset!==true)return json({ok:false,code:"MINI_BOOTLOADER_RESET_ACK_REQUIRED"},400);
  if(action==="mini.readonly.backup"&&payload.ack_local_backup!==true)return json({ok:false,code:"MINI_BACKUP_ACK_REQUIRED"},400);
+ if(action==="mini.maintenance.stage"&&(a.kind!=="owner"||payload.ack_local_firmware_stage!==true))
+  return json({ok:false,code:"MINI_FIRMWARE_STAGE_OWNER_CONFIRMATION_REQUIRED"},403);
+ if(action==="android.maintenance.stage"&&
+    (a.kind!=="owner"||payload.ack_local_apk_stage!==true))
+  return json({ok:false,code:"ANDROID_APK_STAGE_OWNER_CONFIRMATION_REQUIRED"},403);
+ if(action==="android.maintenance.install"){
+  if(a.kind!=="owner")return json({ok:false,code:"ANDROID_INSTALL_OWNER_ONLY"},403);
+  if(payload.confirmation!=="INSTALL_MEL_ANDROID_APPROVED"||payload.ack_wifi_adb_pairing!==true||payload.ack_local_apk_backup!==true)
+   return json({ok:false,code:"ANDROID_APK_INSTALL_CONFIRMATION_REQUIRED"},403);
+ }
  const row=await env.DB.prepare("SELECT * FROM computer_devices WHERE id=? LIMIT 1").bind(id).first();
  const device=normalizeDevice(row);
  if(!device)return json({ok:false,code:"COMPUTER_NOT_FOUND"},404);
@@ -161,6 +176,7 @@ async function ownerPcControl(request,env){
  if(String(device.platform||"").toLowerCase()!=="windows")return json({ok:false,code:"PC_CONTROL_WINDOWS_REQUIRED"},409);
  if(!device.online)return json({ok:false,code:"COMPUTER_OFFLINE"},409);
  if(["mini.readonly.discover","mini.readonly.backup.audit"].includes(action)&&device.metadata?.remote_access_enabled!==true)return json({ok:false,code:"REMOTE_ACCESS_DISABLED_LOCALLY"},403);
+ if(["mini.maintenance.assess","mini.android.ble.diagnose","mini.maintenance.stage","android.maintenance.assess","android.maintenance.stage","android.maintenance.install"].includes(action)&&device.metadata?.remote_access_enabled!==true)return json({ok:false,code:"REMOTE_ACCESS_DISABLED_LOCALLY"},403);
  if(device.metadata?.remote_access_enabled!==true&&a.kind!=="github-oidc")return json({ok:false,code:"REMOTE_ACCESS_DISABLED_LOCALLY"},403);
  let effectiveAction=action;
  let effectivePayload=payload;
@@ -179,6 +195,15 @@ async function ownerPcControl(request,env){
     command:`$port='${escaped}';$pnp=@(Get-CimInstance Win32_PnPEntity -ErrorAction SilentlyContinue | Where-Object { ([string]$_.Name) -like "*($port)*" -or ([string]$_.Caption) -like "*($port)*" } | Select-Object -First 5 Name,Caption,PNPDeviceID,Manufacturer,Status,Service,ClassGuid);$serial=@(Get-CimInstance Win32_SerialPort -ErrorAction SilentlyContinue | Where-Object { ([string]$_.DeviceID).ToUpperInvariant() -eq $port } | Select-Object -First 5 DeviceID,Name,PNPDeviceID,ProviderType,Status);$py=@(Get-Command py,python,python3 -ErrorAction SilentlyContinue | Select-Object -First 3 Name,Source);[ordered]@{action='serial.inspect';port=$port;pnp=$pnp;serial=$serial;python=$py}|ConvertTo-Json -Depth 5 -Compress`,
     timeout_ms:15000
    };
+  }else if(action==="android.maintenance.assess"){
+   effectiveAction="system.exec";
+   effectivePayload={...androidMaintenancePcCommand(action),require_success_exit:true};
+  }else if(action==="mini.android.ble.diagnose"){
+   effectiveAction="system.exec";
+   effectivePayload=companionBleDiagnosticsCommand("COM3");
+  }else if(action==="mini.maintenance.assess"){
+   effectiveAction="system.exec";
+   effectivePayload=miniMaintenanceAssessCommand();
   }else if(action==="mini.readonly.backup.audit"){
    effectiveAction="system.exec";
    effectivePayload=miniReadOnlyPcCommand(action,"COM3");
@@ -191,7 +216,25 @@ async function ownerPcControl(request,env){
    effectivePayload={};
   }
  }
- if(action==="mini.readonly.backup.audit"&&a.kind==="owner"){
+ if(action==="mini.android.ble.diagnose"&&a.kind==="owner"){
+  effectiveAction="system.exec";
+  effectivePayload=companionBleDiagnosticsCommand("COM3");
+ }else if(action==="android.maintenance.assess"&&a.kind==="owner"){
+  effectiveAction="system.exec";
+  effectivePayload={...androidMaintenancePcCommand(action),require_success_exit:true};
+ }else if(action==="android.maintenance.stage"&&a.kind==="owner"){
+  effectiveAction="system.exec";
+  effectivePayload={...androidStagePcCommand({filename:safe(payload.filename,125),sha256:safe(payload.sha256,64)}),require_success_exit:true};
+ }else if(action==="android.maintenance.install"&&a.kind==="owner"){
+  effectiveAction="system.exec";
+  effectivePayload={...androidMaintenancePcCommand(action,{serial:safe(payload.serial,32),sha256:safe(payload.sha256,64)}),require_success_exit:true};
+ }else if(action==="mini.maintenance.stage"&&a.kind==="owner"){
+  effectiveAction="system.exec";
+  effectivePayload={...miniFirmwareStageCommand({filename:safe(payload.filename,125),sha256:safe(payload.sha256,64)}),require_success_exit:true};
+ }else if(action==="mini.maintenance.assess"&&a.kind==="owner"){
+  effectiveAction="system.exec";
+  effectivePayload=miniMaintenanceAssessCommand();
+ }else if(action==="mini.readonly.backup.audit"&&a.kind==="owner"){
   effectiveAction="system.exec";
   effectivePayload=miniReadOnlyPcCommand(action,"COM3");
  }else if(action.startsWith("mini.readonly.")&&a.kind==="owner"){

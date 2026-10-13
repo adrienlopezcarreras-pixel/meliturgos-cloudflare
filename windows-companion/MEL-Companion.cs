@@ -15,11 +15,12 @@ using System.Web.Script.Serialization;
 static class MelApp
 {
     public const string DefaultServer = "https://meliturgos.adrien-lopezcarreras.workers.dev";
-    public const string Version = "2.3.12";
+    public const string Version = "2.3.13";
     public static readonly string MelDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "MEL");
     public static readonly string ConfigPath = Path.Combine(MelDir, "computer.json");
     public static readonly string InstalledExe = Path.Combine(MelDir, "MEL-Companion.exe");
     public static readonly string CompanionPath = Path.Combine(MelDir, "MEL-Computer-Companion.ps1");
+    public static readonly string AdbWifiPath = Path.Combine(MelDir, "MEL-ADB-WiFi.ps1");
     public static readonly string StartupCmd = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Startup), "MEL-Companion.cmd");
     public static readonly string LegacyStartupCmd = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Startup), "MEL-Computer-Companion.cmd");
     public static readonly string SelfTestPath = Path.Combine(MelDir, "self-test.json");
@@ -29,6 +30,7 @@ static class MelApp
     public static string Server;
     public static string ComputerId;
     public static Process CompanionProcess;
+    public static Process AdbWifiProcess;
     public static System.Threading.Timer SupervisorTimer;
     static int SupervisorBusy;
     public static DateTime LastEngineRefreshUtc = DateTime.MinValue;
@@ -40,6 +42,7 @@ static class MelApp
     public static MainForm Main;
     public static bool Exiting;
     const string CompanionB64 = "__COMPANION_B64__";
+    const string AdbWifiB64 = "__ADB_WIFI_B64__";
 
     [DllImport("user32.dll")] static extern bool SetProcessDpiAwarenessContext(IntPtr value);
     [DllImport("user32.dll")] static extern bool SetProcessDPIAware();
@@ -396,6 +399,7 @@ static class MelApp
     {
         Directory.CreateDirectory(MelDir);
         File.WriteAllBytes(CompanionPath, Convert.FromBase64String(CompanionB64));
+        File.WriteAllBytes(AdbWifiPath, Convert.FromBase64String(AdbWifiB64));
         var current = Application.ExecutablePath;
         if (!string.Equals(Path.GetFullPath(current), Path.GetFullPath(InstalledExe), StringComparison.OrdinalIgnoreCase))
             File.Copy(current, InstalledExe, true);
@@ -448,6 +452,29 @@ static class MelApp
         StartCompanion();
     }
 
+    public static void StartAdbWifiMonitor()
+    {
+        try
+        {
+            if (AdbWifiProcess != null && !AdbWifiProcess.HasExited) return;
+            if (!File.Exists(AdbWifiPath)) return;
+            var psi = new ProcessStartInfo("powershell.exe");
+            psi.Arguments = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File \"" + AdbWifiPath + "\"";
+            psi.UseShellExecute = false;
+            psi.CreateNoWindow = true;
+            psi.WindowStyle = ProcessWindowStyle.Hidden;
+            AdbWifiProcess = Process.Start(psi);
+        }
+        catch { }
+    }
+
+    public static void StopAdbWifiMonitor()
+    {
+        try { if (AdbWifiProcess != null && !AdbWifiProcess.HasExited) AdbWifiProcess.Kill(); }
+        catch { }
+        AdbWifiProcess = null;
+    }
+
     public static void StartBackgroundSupervisor()
     {
         if (SupervisorTimer != null) return;
@@ -457,6 +484,7 @@ static class MelApp
             try
             {
                 EnsureCompanion();
+                StartAdbWifiMonitor();
                 Heartbeat();
             }
             catch { }
@@ -476,6 +504,7 @@ static class MelApp
             if (timer != null) timer.Dispose();
         }
         catch { }
+        StopAdbWifiMonitor();
     }
 
     static Dictionary<string,string> DeviceHeaders()
@@ -1085,6 +1114,7 @@ class PermissionsForm : Form
 class MainForm : Form
 {
     Label connection;
+    Label adbWifiStatus;
     Panel cards;
     CheckBox autostart;
     System.Windows.Forms.Timer poll;
@@ -1136,8 +1166,8 @@ class MainForm : Form
         pc.Anchor=AnchorStyles.Top|AnchorStyles.Left|AnchorStyles.Right;
         LabelAt(pc,"CET ORDINATEUR",20,14,310,36,10,true,blue);
         LabelAt(pc,Environment.MachineName,20,57,pc.Width-40,40,12,true).Anchor=AnchorStyles.Top|AnchorStyles.Left|AnchorStyles.Right;
-        LabelAt(pc,"Moteur local · Autorisations · Connexion MEL",20,109,pc.Width-40,31,9,false,gray)
-            .Anchor=AnchorStyles.Top|AnchorStyles.Left|AnchorStyles.Right;
+        adbWifiStatus=LabelAt(pc,"ADB Wi-Fi : recherche du téléphone…",20,109,pc.Width-40,31,9,false,gray);
+        adbWifiStatus.Anchor=AnchorStyles.Top|AnchorStyles.Left|AnchorStyles.Right;
         LabelAt(this,"Appareils MEL",28,302,390,47,12,true);
         var permissions=ButtonAt(this,"Autorisations",0,302,170,delegate{using(var dlg=new PermissionsForm())dlg.ShowDialog(this);});
         var refresh=ButtonAt(this,"Actualiser",0,302,150,delegate{RefreshAll();});
@@ -1206,6 +1236,29 @@ class MainForm : Form
             connection.Text=online?"Connecté à MEL":"Serveur indisponible — reconnexion automatique";
             connection.ForeColor=online?Color.FromArgb(25,125,85):gray;
             if(MelApp.Tray!=null)MelApp.Tray.Text=online?"MEL Companion — connecté":"MEL Companion — reconnexion";
+            var adbReport = Path.Combine(MelApp.MelDir, "android-adb-wifi.json");
+            adbWifiStatus.Text = "ADB Wi-Fi : en attente du premier diagnostic";
+            if (File.Exists(adbReport))
+            {
+                try
+                {
+                    var a = MelApp.Json.Deserialize<Dictionary<string,object>>(File.ReadAllText(adbReport));
+                    object observed, connected, model, installed;
+                    DateTime when;
+                    bool fresh = a.TryGetValue("observed_at_utc", out observed)
+                        && DateTime.TryParse(Convert.ToString(observed), out when)
+                        && Math.Abs((DateTime.UtcNow - when.ToUniversalTime()).TotalMinutes) < 2;
+                    bool isConnected = a.TryGetValue("connected", out connected) && Convert.ToBoolean(connected);
+                    string name = a.TryGetValue("android_model", out model) ? Convert.ToString(model) : "";
+                    bool hasMel = a.TryGetValue("mel_installed", out installed) && Convert.ToBoolean(installed);
+                    adbWifiStatus.Text = !fresh ? "ADB Wi-Fi : diagnostic ancien"
+                        : isConnected ? "ADB Wi-Fi : connecté · " + name + " · MEL " + (hasMel ? "installée" : "absente")
+                        : "ADB Wi-Fi : déconnecté · reconnexion automatique";
+                    adbWifiStatus.ForeColor = fresh && isConnected ? Color.FromArgb(25,125,85) : gray;
+                }
+                catch { adbWifiStatus.Text = "ADB Wi-Fi : rapport indisponible"; }
+            }
+
             var devices=MelApp.Devices();
             cards.SuspendLayout();cards.Controls.Clear();
             if(devices.Count==0){

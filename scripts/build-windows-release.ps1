@@ -36,12 +36,20 @@ foreach ($name in $files) {
   Copy-Item -LiteralPath $src -Destination (Join-Path $stage $name)
 }
 
+# Package the local interactive Wi-Fi pairing wizard (never invoked by a cloud job).
+$androidPairSource = Join-Path $repoRoot "tools\android-companion\MEL-Android-WiFi-Pairing.ps1"
+if (-not (Test-Path -LiteralPath $androidPairSource -PathType Leaf)) { throw "ANDROID_WIFI_PAIRING_HELPER_MISSING" }
+Copy-Item -LiteralPath $androidPairSource -Destination (Join-Path $stage "MEL-Android-WiFi-Pairing.ps1")
+
 $desktopSource = Join-Path $repoRoot "windows-companion\MEL-Companion.cs"
 if (-not (Test-Path -LiteralPath $desktopSource -PathType Leaf)) { throw "WINDOWS_DESKTOP_SOURCE_MISSING" }
 $companionSource = Join-Path $assetDir "MEL-Computer-Companion.ps1"
 $desktopText = [IO.File]::ReadAllText($desktopSource,[Text.Encoding]::UTF8)
 if ($desktopText -notmatch "__COMPANION_B64__") { throw "WINDOWS_DESKTOP_EMBED_PLACEHOLDER_MISSING" }
 $companionB64 = [Convert]::ToBase64String([IO.File]::ReadAllBytes($companionSource))
+$adbWifiSource = Join-Path $repoRoot "windows-companion\MEL-ADB-WiFi.ps1"
+if (-not (Test-Path -LiteralPath $adbWifiSource -PathType Leaf)) { throw "WINDOWS_ADB_WIFI_SOURCE_MISSING" }
+$adbWifiB64 = [Convert]::ToBase64String([IO.File]::ReadAllBytes($adbWifiSource))
 $desktopBuildSource = Join-Path $stage "MEL-Companion.build.cs"
 $desktopExe = Join-Path $stage "MEL-Companion.exe"
 $unicodeEscape = [Text.RegularExpressions.MatchEvaluator]{
@@ -49,7 +57,7 @@ $unicodeEscape = [Text.RegularExpressions.MatchEvaluator]{
   return ('\u{0:X4}' -f [int][char]$match.Value[0])
 }
 $asciiDesktop = [Text.RegularExpressions.Regex]::Replace($desktopText,'[^\x00-\x7F]',$unicodeEscape)
-$expandedSource = $asciiDesktop.Replace("__COMPANION_B64__",$companionB64)
+$expandedSource = $asciiDesktop.Replace("__COMPANION_B64__",$companionB64).Replace("__ADB_WIFI_B64__",$adbWifiB64)
 [IO.File]::WriteAllText($desktopBuildSource,$expandedSource,[Text.Encoding]::ASCII)
 $cscCandidates = @(
   (Join-Path $env:WINDIR "Microsoft.NET\Framework64\v4.0.30319\csc.exe"),

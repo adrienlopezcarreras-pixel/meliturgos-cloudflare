@@ -1,0 +1,60 @@
+name: Android Companion maintenance CI
+on:
+  pull_request:
+    paths:
+      - 'tools/android-companion/MEL-Android-WiFi-Pairing.ps1'
+      - 'assets/MEL-Computer-Companion.ps1'
+      - 'dist/MEL-Computer-Companion.ps1'
+      - 'src/devices/mini-firmware-stage-companion.js'
+      - 'tests/mini-firmware-stage-companion.test.mjs'
+      - 'src/devices/android-maintenance-companion.js'
+      - 'src/devices/android-apk-stage-companion.js'
+      - 'src/devices/computer-companion-api.js'
+      - 'scripts/cloudflare-api-relay-runner.mjs'
+      - 'tests/android-companion-maintenance.test.mjs'
+      - 'tests/write-android-maintenance-scripts.mjs'
+      - '.github/workflows/android-companion-maintenance-ci.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'tools/android-companion/MEL-Android-WiFi-Pairing.ps1'
+      - 'assets/MEL-Computer-Companion.ps1'
+      - 'dist/MEL-Computer-Companion.ps1'
+      - 'src/devices/mini-firmware-stage-companion.js'
+      - 'tests/mini-firmware-stage-companion.test.mjs'
+      - 'src/devices/android-maintenance-companion.js'
+      - 'src/devices/android-apk-stage-companion.js'
+      - 'src/devices/computer-companion-api.js'
+      - 'scripts/cloudflare-api-relay-runner.mjs'
+      - 'tests/android-companion-maintenance.test.mjs'
+      - 'tests/write-android-maintenance-scripts.mjs'
+      - '.github/workflows/android-companion-maintenance-ci.yml'
+permissions:
+  contents: read
+jobs:
+  windows-maintenance-contract:
+    runs-on: windows-2022
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '22'
+      - run: npm ci
+      - run: node --test tests/android-companion-maintenance.test.mjs tests/mini-firmware-stage-companion.test.mjs
+      - run: node tests/write-android-maintenance-scripts.mjs
+      - name: PowerShell parser proof (no ADB access)
+        shell: pwsh
+        run: |
+          $scripts = @((Get-ChildItem -LiteralPath '.ci-android-maintenance' -Filter '*.ps1' -File) + (Get-Item 'assets/MEL-Computer-Companion.ps1') + (Get-Item 'dist/MEL-Computer-Companion.ps1') + (Get-Item 'tools/android-companion/MEL-Android-WiFi-Pairing.ps1'))
+          if ($scripts.Count -ne 7) { throw 'ANDROID_MAINTENANCE_SCRIPT_COUNT_INVALID' }
+          foreach ($script in $scripts) {
+            $tokens = $null
+            $errors = $null
+            [void][System.Management.Automation.Language.Parser]::ParseFile($script.FullName,[ref]$tokens,[ref]$errors)
+            if (@($errors).Count -ne 0) {
+              $errors | ForEach-Object { Write-Error "Parse: $($_.Message)" }
+              throw "ANDROID_MAINTENANCE_POWERSHELL_PARSE_FAILED"
+            }
+          }
+          Write-Output 'ANDROID_MAINTENANCE_WINDOWS_SYNTAX_SUCCESS'

@@ -1,13 +1,12 @@
-name: mini-windows-updater
+name: mini-windows-updater-LEGACY-ARCHIVED
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - fix/mini-wifi-internet-diagnostics
-    paths:
-      - "tools/mini-updater/**"
-      - ".github/workflows/mini-windows-updater.yml"
+    inputs:
+      legacy_approval:
+        description: Explicitly request the obsolete historical 0.4.37 updater; NOT current MINI
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -15,6 +14,7 @@ permissions:
 
 jobs:
   build:
+    if: ${{ inputs.legacy_approval == 'BUILD_LEGACY_0_4_37' }}
     runs-on: windows-latest
     steps:
       - name: Checkout

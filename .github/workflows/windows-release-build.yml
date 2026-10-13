@@ -8,6 +8,8 @@ on:
       - 'tests/computer-companion-api.test.mjs'
       - 'scripts/*windows-release*.ps1'
       - 'tests/gen2/windows-release-contract.test.mjs'
+      - 'tests/gen2/windows-adb-wifi-contract.test.mjs'
+      - 'tests/gen2/companion-ble-channel.test.mjs'
       - '.github/workflows/windows-release-build.yml'
       - 'src/roadmap/master-roadmap.js'
   push:
@@ -30,7 +32,7 @@ on:
       version:
         description: Windows companion release version
         required: true
-        default: '2.3.10'
+        default: '2.3.13'
         type: string
       signed_release:
         description: Build a signed Authenticode release
@@ -54,7 +56,7 @@ jobs:
       - name: Install exact lockfile
         run: npm ci
       - name: GEN2-59 contract tests
-        run: node --test tests/gen2/windows-release-contract.test.mjs
+        run: node --test tests/gen2/windows-release-contract.test.mjs tests/gen2/windows-adb-wifi-contract.test.mjs tests/gen2/companion-ble-channel.test.mjs
       - name: Repository syntax
         run: npm run check
 
@@ -63,7 +65,7 @@ jobs:
     timeout-minutes: 20
     needs: contract
     env:
-      RELEASE_VERSION: ${{ github.event_name == 'workflow_dispatch' && inputs.version || '2.3.10' }}
+      RELEASE_VERSION: ${{ github.event_name == 'workflow_dispatch' && inputs.version || '2.3.13' }}
       EXPECTED_SHA: ${{ github.event_name == 'workflow_dispatch' && inputs.expected_sha || github.sha }}
       SIGNED_RELEASE: ${{ github.event_name == 'workflow_dispatch' && inputs.signed_release || false }}
     steps:
@@ -85,6 +87,8 @@ jobs:
           $files = @(
             'assets/MEL-Computer-Setup.ps1',
             'assets/MEL-Computer-Companion.ps1',
+            'windows-companion/MEL-ADB-WiFi.ps1',
+            'tools/android-companion/MEL-Android-WiFi-Pairing.ps1',
             'scripts/build-windows-release.ps1',
             'scripts/sign-windows-release.ps1',
             'scripts/verify-windows-release.ps1'
