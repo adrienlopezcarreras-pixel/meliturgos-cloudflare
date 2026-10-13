@@ -3,6 +3,7 @@ import { discoverAutonomousRepositories, invalidateRepresentativeProof } from '.
 import { D1GitHubActionRelayStore } from '../platform/github-action-relay.js';
 import { allowCodeEndpointForShard } from './shardvault-code-target-policy.js';
 import { readAuthoritativeGitHubMirror } from './github-mirror-authoritative.js';
+import { downloadCodeFragmentWithRetry } from './shardvault-code-read-retry.js';
 
 const te = new TextEncoder();
 const HOUR = 60 * 60 * 1000;
@@ -1125,7 +1126,7 @@ async function reconstructExternalCodeArchive(env,c,manifest,{dropIndexes=[]}={}
       try{
         const e=endpointById(c,d.endpointId,d);
         if(!e)throw new Error('ENDPOINT_UNKNOWN');
-        const cipher=await downloadFragment(env,e,d);
+        const cipher=await downloadCodeFragmentWithRetry(()=>downloadFragment(env,e,d));
         if(Number(manifest.ciphertextLength)>0&&cipher.length!==Number(manifest.ciphertextLength))throw new Error('CODE_REPLICA_LENGTH_INVALID');
         const cipherSha256=await sha256Hex(cipher);
         if(String(d.cipherSha256||'')!==cipherSha256)throw new Error('CODE_REPLICA_HASH_INVALID');
@@ -1168,7 +1169,7 @@ async function reconstructExternalCodeArchive(env,c,manifest,{dropIndexes=[]}={}
     try{
       const e=endpointById(c,d.endpointId,d);
       if(!e)throw new Error('ENDPOINT_UNKNOWN');
-      const b=await downloadFragment(env,e,d);
+      const b=await downloadCodeFragmentWithRetry(()=>downloadFragment(env,e,d));
       const mac=b64u(await hmac(shardKey,concat(utf8(`${manifest.snapshotId}:${index}:`),b)));
       if(b.length!==size)throw new Error('CODE_SHARD_LENGTH_INVALID');
       if(mac!==d.mac)throw new Error('CODE_SHARD_MAC_INVALID');
