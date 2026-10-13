@@ -11,7 +11,7 @@ test('cannot construct endpoint without revocation lookup',()=>{
 test('unsigned bearer is rejected by assembled endpoint',async()=>{
  const endpoint=createCompanionMcpEndpoint({
   issuer:'https://issuer.example.test',jwks:{keys:[]},revoked:async()=>false,
-  lookupOwnerDevice:async(subject,id)=>({owner_subject:subject,device_id:id,paired:true}),readStatus:async()=>({id:'win-1',online:true})
+  db:{prepare:()=>({bind:()=>({first:async()=>({owner_subject:'owner-1',device_id:'win-1',revoked:0,expires_at:Date.now()+60000,paired_id:'win-1'})})})},readStatus:async()=>({id:'win-1',online:true})
  });
  const req=new Request('https://mel.example.test/mcp/companion/v1',{
   method:'POST',headers:{'content-type':'application/json',authorization:'Bearer unsigned.invalid.token'},
