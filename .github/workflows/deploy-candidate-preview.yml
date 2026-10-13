@@ -299,17 +299,31 @@ jobs:
         run: |
           set -euo pipefail
           BASE_URL="https://meliturgos-preview.adrien-lopezcarreras.workers.dev"
-          curl --fail-with-body --show-error --silent --max-time 120 \
+          HTTP_CODE="$(curl --show-error --silent --max-time 120 \
             --header "Authorization: Bearer ${MEL_PREVIEW_PASSWORD}" \
             --header "content-type: application/gzip" \
             --data-binary @mel-critical-code.tar.gz \
+            --write-out '%{http_code}' \
             "${BASE_URL}/api/gen2/shardvault/code-source" \
-            --output shardvault-code-source.json
+            --output shardvault-code-source.json)"
 
-          EXPECTED_BYTES="${MEL_CRITICAL_CODE_BUNDLE_BYTES}" GITHUB_SHA="${GITHUB_SHA}" node - <<'NODE'
+          HTTP_CODE="${HTTP_CODE}" EXPECTED_BYTES="${MEL_CRITICAL_CODE_BUNDLE_BYTES}" GITHUB_SHA="${GITHUB_SHA}" node - <<'NODE'
           const fs=require('fs');
-          const d=JSON.parse(fs.readFileSync('shardvault-code-source.json','utf8'));
-          if(d?.ok!==true||d?.status!=='COPIED'||d?.verified_roundtrip!==true) throw new Error('CRITICAL_BUNDLE_RUNTIME_BIND_FAILED:'+String(d?.status||d?.error));
+          let d;
+          try { d=JSON.parse(fs.readFileSync('shardvault-code-source.json','utf8')); }
+          catch { throw new Error('CRITICAL_BUNDLE_RUNTIME_RESPONSE_INVALID'); }
+          const safeCode=v=>/^[A-Z0-9_:-]{1,100}$/.test(String(v||''))?String(v):'UNSPECIFIED';
+          const status=safeCode(d?.status);
+          if(process.env.HTTP_CODE!=='200'||d?.ok!==true||status!=='COPIED'||d?.verified_roundtrip!==true){
+            console.error(JSON.stringify({
+              diagnostic:'CRITICAL_BUNDLE_BIND_REJECTED',
+              http_code:/^[0-9]{3}$/.test(process.env.HTTP_CODE||'')?process.env.HTTP_CODE:'UNSPECIFIED',
+              status,uploaded_bytes:Number(d?.bytes)||null,
+              declared_bytes:Number(d?.declared_bytes)||null,
+              expected_bytes:Number(process.env.EXPECTED_BYTES)||null
+            }));
+            throw new Error('CRITICAL_BUNDLE_RUNTIME_BIND_FAILED:'+status);
+          }
           if(Number(d?.bytes||0)!==Number(process.env.EXPECTED_BYTES||0)) throw new Error('CRITICAL_BUNDLE_RUNTIME_SIZE_MISMATCH');
           if(String(d?.sha||'')!==String(process.env.GITHUB_SHA||'')) throw new Error('CRITICAL_BUNDLE_RUNTIME_SHA_MISMATCH');
           if(!/^[0-9a-f]{64}$/i.test(String(d?.sha256||''))) throw new Error('CRITICAL_BUNDLE_RUNTIME_HASH_INVALID');
