@@ -359,7 +359,7 @@ async function githubCodeMirrorUpload(env,e,objectId,payload){
   // workflow relay has not consumed its queued marker yet. No local R2
   // bytes are counted as external mirror proof.
   try{
-    const published=await readAuthoritativeGitHubMirror(remoteUrl,{fetchImpl:fetchTimed,maxBytes:payload.length});
+    const published=await readAuthoritativeGitHubMirror(remoteUrl,{fetchImpl:fetchTimed,maxBytes:payload.length,readToken:env?.MEL_GITHUB_TOKEN});
     if(published&&byteArraysEqual(published,payload))return {remoteUrl};
   }catch{}
   const pendingKey=githubMirrorPendingKey(id,objectId);
@@ -640,7 +640,7 @@ async function download(env,e,objectId,descriptor=null){
     // The exact public GitHub object may precede raw CDN propagation.
     // Recovery still verifies shard MAC and reconstruction independently.
     const published=await readAuthoritativeGitHubMirror(remote,{fetchImpl:fetchTimed,
-      maxBytes:Number(descriptor?.byteLength)||8*1024*1024});
+      maxBytes:Number(descriptor?.byteLength)||8*1024*1024,readToken:env?.MEL_GITHUB_TOKEN});
     if(!published)throw new Error(`READ_${e.id}_EXTERNAL_MIRROR_UNAVAILABLE`);
     return published;
   }
