@@ -26,6 +26,15 @@ jobs:
           git fetch --no-tags origin main
           echo "Provisional integration only; production and candidate are never pushed."
           git merge --no-commit --no-ff -X ours origin/main
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('tests/release-predeploy-backup-reuse.test.mjs')
+          src=p.read_text()
+          block = "  const d1Export = delegatedD1\n    ? await readFile(new URL('../release-tools/predeploy-backup-refresh/d1-export.mjs', import.meta.url), 'utf8')\n    : runner;\n"
+          if src.count(block)!=1: raise SystemExit('D1_BACKUP_CONFLICT_SHAPE_CHANGED')
+          p.write_text(src.replace(block,"  // Reuse the canonical d1Export declaration above.\n"))
+          PY
+          git add tests/release-predeploy-backup-reuse.test.mjs
           test -z "$(git ls-files -u)"
           git diff --cached --check
           for f in src/continuity/shardvault-runtime.js scripts/fulfill-preview-code-mirror.mjs; do node --check "$f"; done
