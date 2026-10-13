@@ -3,7 +3,7 @@ name: cloudflare-api-relay
 on:
   workflow_dispatch:
   pull_request:
-    branches: [main]
+    branches: [main, integration/mini-android-companion-adb-20261013]
     paths:
       - 'scripts/cloudflare-api-relay-runner.mjs'
       - 'src/devices/companion-ble-diagnostics.js'
