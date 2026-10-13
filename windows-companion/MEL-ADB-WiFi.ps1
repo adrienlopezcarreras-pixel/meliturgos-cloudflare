@@ -9,7 +9,11 @@ $log=Join-Path $dir "android-adb-wifi.log"
 $saved=Join-Path $dir "android-adb-last-endpoint.txt"
 $adb=@((Join-Path $env:LOCALAPPDATA "Android\platform-tools\adb.exe"),(Join-Path $env:LOCALAPPDATA "Android\Sdk\platform-tools\adb.exe")) | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } | Select-Object -First 1
 if (-not $adb) { $cmd=Get-Command adb.exe -ErrorAction SilentlyContinue; if ($cmd) { $adb=$cmd.Source } }
-function Run-Adb([string[]]$arglist) { @(& $adb @arglist 2>&1 | ForEach-Object { [string]$_ }) }
+function Run-Adb([string[]]$arglist) {
+  $output=@(& $adb @arglist 2>&1 | ForEach-Object { [string]$_ })
+  if ($LASTEXITCODE -ne 0) { throw ("ADB_COMMAND_FAILED exit={0}" -f $LASTEXITCODE) }
+  return $output
+}
 function Serial {
   foreach ($line in (Run-Adb -arglist @("devices","-l"))) {
     if ($line -match '^([^\s]+)\s+device(?:\s|$)') {
