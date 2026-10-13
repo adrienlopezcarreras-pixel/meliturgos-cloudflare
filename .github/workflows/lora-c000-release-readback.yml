@@ -24,12 +24,23 @@ jobs:
           const token=process.env.RELEASE_TOKEN;
           if(!token){console.error('LORA_READBACK_TOKEN_MISSING');process.exit(1);}
           const headers={Authorization:'Bearer '+token,Accept:'application/vnd.github+json','X-GitHub-Api-Version':'2022-11-28'};
-          let res;
-          try{res=await fetch('https://api.github.com/repos/'+repo+'/releases/tags/'+tag,{method:'GET',headers,redirect:'error',signal:AbortSignal.timeout(15000)});}
-          catch{console.error('LORA_READBACK_NETWORK_ERROR');process.exit(1);}
-          console.log('LORA_RELEASE_READBACK_HTTP='+res.status);
-          if(!res.ok){process.exitCode=1;}else{
-            const data=await res.json();
+          let matched=null, total=0;
+          for(let page=1;page<=3&&!matched;page++){
+            let res;
+            try{res=await fetch('https://api.github.com/repos/'+repo+'/releases?per_page=100&page='+page,{method:'GET',headers,redirect:'error',signal:AbortSignal.timeout(15000)});}
+            catch{console.error('LORA_RELEASE_LIST_NETWORK_ERROR');process.exit(1);}
+            console.log('LORA_RELEASE_LIST_HTTP='+res.status);
+            if(!res.ok){process.exitCode=1;break;}
+            const rows=await res.json();
+            if(!Array.isArray(rows)){console.error('LORA_RELEASE_LIST_INVALID');process.exitCode=1;break;}
+            total+=rows.length;
+            matched=rows.find(r=>r?.tag_name===tag)??null;
+            if(rows.length<100)break;
+          }
+          console.log('LORA_RELEASE_LIST_EXAMINED_COUNT='+total);
+          console.log('LORA_RELEASE_DRAFT_TAG_FOUND='+String(!!matched));
+          if(!matched){process.exitCode=1;}else{
+            const data=matched;
             const assets=Array.isArray(data.assets)?data.assets:[];
             const names=assets.map(a=>({name:String(a.name||'').slice(0,100),bytes:Number(a.size||0)}));
             console.log('LORA_RELEASE_DRAFT='+String(data.draft===true));
@@ -38,10 +49,10 @@ jobs:
             console.log('LORA_RELEASE_TARGET_SHA_MATCH='+String(data.target_commitish===expected));
             console.log('LORA_RELEASE_TARGET_COMMITISH_TYPE='+String(/^[0-9a-f]{40}$/.test(data.target_commitish||'')?'SHA40':'NON_SHA'));
             console.log('LORA_RELEASE_ASSETS='+JSON.stringify(names));
-            console.log('LORA_RELEASE_CREATED_AT_PRESENT='+String(!!data.created_at));
             const allowed=new Set(['mel-lora-bundle.tar.gz','checkpoint-draft-proof.json']);
             const okay=data.draft===true&&data.tag_name===tag&&assets.length===2&&new Set(assets.map(a=>a.name)).size===2&&assets.every(a=>allowed.has(a.name)&&Number(a.size)>0);
             console.log('LORA_RELEASE_DRAFT_ASSET_SAFETY='+String(okay?'PASS':'FAIL'));
-            if(!okay)process.exitCode=1;
+            console.log('LORA_RELEASE_TARGET_INTEGRITY='+String(data.target_commitish===expected?'PASS':'FAIL'));
+            if(!okay||data.target_commitish!==expected)process.exitCode=1;
           }
           NODE
