@@ -7,6 +7,7 @@ test('preview requires explicit enablement and isolation',()=>{
  assert.throws(()=>validateCompanionMcpPreviewEnv({...valid,MCP_PREVIEW_ENABLED:'false'}),/MCP_PREVIEW_DISABLED/);
  assert.throws(()=>validateCompanionMcpPreviewEnv({...valid,MCP_PREVIEW_ISOLATED:'false'}),/MCP_PREVIEW_NOT_ISOLATED/);
  assert.throws(()=>validateCompanionMcpPreviewEnv({...valid,MCP_PREVIEW_D1_ISOLATED:'false'}),/MCP_PREVIEW_D1_ISOLATION_UNVERIFIED/);
+ assert.throws(()=>validateCompanionMcpPreviewEnv({...valid,MCP_PREVIEW_ORIGIN:'https://REPLACE-preview.example.invalid'}),/MCP_PREVIEW_PLACEHOLDER_CONFIG/);
  assert.equal(validateCompanionMcpPreviewEnv(valid),true);
 });
 test('preview cannot use insecure HTTP issuer or origin',()=>{
