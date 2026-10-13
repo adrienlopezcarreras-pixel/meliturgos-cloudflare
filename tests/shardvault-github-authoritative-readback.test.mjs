@@ -40,7 +40,7 @@ test('remote absence, invalid base64 or inconsistent byte length never prove a m
   const a=await readAuthoritativeGitHubMirror(url,{fetchImpl:async()=>new Response('missing',{status:404})});
   assert.equal(a,null);
   for(const body of [
-    {type:'file',encoding:'base64',size:3,content:'AAEC'},
+    {type:'file',encoding:'base64',size:4,content:'AAEC'},
     {type:'file',encoding:'base64',size:1,content:'\u0000'},
     {type:'symlink',encoding:'base64',size:2,content:'AAE='},
     {type:'file',encoding:'base64',size:12,content:'AAE='},
