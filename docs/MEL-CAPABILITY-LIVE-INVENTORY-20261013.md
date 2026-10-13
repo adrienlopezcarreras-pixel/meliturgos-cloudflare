@@ -33,3 +33,15 @@ The four approved bounded capability executions **are not** the persistent full 
 3. For SharePoint, Pipedream linked-account status is confirmed but Graph site search is **not yet proven** by production. Candidate strict proof guard is ready.
 4. Preview D1 remains blocked on the configured Cloudflare account's read/write permission. No production D1/R2 fallback is permitted.
 5. Enable a persistent full stress mechanism only after it no longer mutates Cloudflare production secrets and its exact authorization / cost / risk scope has independently passed security tests.
+
+## Media availability and dashboard truth correction (2026-10-13)
+
+The candidate registry now supplies `health_detail` for media capability failures without guessing the provider state:
+
+- `MEDIA_ADAPTER_NOT_CONFIGURED_OR_FREE_PROOF_MISSING` when no approved direct adapter / companion / generation provider is configured. This does NOT assert which individual Cloudflare zero-cost proof is missing.
+- `MEDIA_COMPANION_HEALTH_NOT_YET_VERIFIED` when a Companion binding exists, before a health probe.
+- `MEDIA_COMPANION_HEALTH_REJECTED` for a negative bounded Companion health response, or `MEDIA_COMPANION_HEALTH_UNREACHABLE` for a transport failure. Errors are not logged verbatim, and neither state is promoted to HEALTHY.
+
+The dashboard `/api/gen2/dashboard-summary` previously labeled healthy/protected registry states `fonctionnelles`. Because those do not provide execution traces, its display now says `saines/protégées (statut, non exécution)`. Existing numeric fields remain for clients, but the API adds `proof_scope: REGISTERED_HEALTH_ONLY` and `individual_execution_proof_included: false`; the four separately observed low-risk executions are not reinterpreted as complete runtime validation.
+
+Both changes are limited to PR #1228 and NOT deployed. The dedicated contract workflow #38366763955 succeeded with 11 passing tests, zero failing. Do not claim that these fixes make any of the eight media capabilities functional; missing free Workers AI/Media Vault/Companion conditions still require verified configuration and appropriate owner approvals.
