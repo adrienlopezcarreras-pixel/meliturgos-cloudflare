@@ -131,7 +131,7 @@ const PC_CONTROL_ACTIONS=new Set([
  "file.list","file.read_text","file.write_text",
  "system.info","system.exec","mini.readonly.discover","mini.readonly.security","mini.readonly.backup","mini.readonly.backup.status"
 ]);
-const PC_CONTROL_PROOF_ACTIONS=new Set(["system.info","serial.list","serial.read","serial.inspect","mini.readonly.discover"]);
+const PC_CONTROL_PROOF_ACTIONS=new Set(["system.info","serial.list","serial.read","serial.inspect","mini.readonly.discover","process.list"]);
 
 async function authorizeOwnerOrPcProof(request,env,{action=null}={}){
  const owner=requireAuth(request,env);if(owner.ok)return {ok:true,kind:"owner"};
