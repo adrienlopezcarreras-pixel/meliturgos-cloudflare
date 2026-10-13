@@ -78,16 +78,16 @@ test('launch code-sync summary preserves mirror relay metadata needed by release
 });
 
 test('isolated preview dispatches its own relay queue through an allowlisted OIDC GitHub workflow',()=>{
-  assert.match(previewWorkflow,/actions: write/);
-  assert.match(previewWorkflow,/GH_PREVIEW_DISPATCH_TOKEN:/);
-  assert.match(previewWorkflow,/CODE_SYNC_RELAY_JOB/);
-  assert.match(previewWorkflow,/github-action-relay\\.yml\\/dispatches/);
-  assert.match(previewWorkflow,/\\"target\\":\\"preview\\"/);
-  assert.match(previewWorkflow,/CODE_SYNC_LAST_RELAY_JOB/);
-  assert.match(relayWorkflow,/type: choice/);
-  assert.match(relayWorkflow,/default: production/);
-  assert.match(relayWorkflow,/MEL_RELAY_BASE_URL:/);
-  assert.match(relayWorkflow,/inputs\\.target == 'preview'/);
-  assert.match(relayWorkflow,/meliturgos-preview\\.adrien-lopezcarreras\\.workers\\.dev/);
-  assert.doesNotMatch(relayWorkflow,/MEL_DEV_BRIDGE_TOKEN/);
+  assert.ok(previewWorkflow.includes('actions: write'));
+  assert.ok(previewWorkflow.includes('GH_PREVIEW_DISPATCH_TOKEN:'));
+  assert.ok(previewWorkflow.includes('CODE_SYNC_RELAY_JOB'));
+  assert.ok(previewWorkflow.includes('actions/workflows/github-action-relay.yml/dispatches'));
+  assert.ok(previewWorkflow.includes('"target":"preview"'));
+  assert.ok(previewWorkflow.includes('CODE_SYNC_LAST_RELAY_JOB'));
+  assert.ok(relayWorkflow.includes('type: choice'));
+  assert.ok(relayWorkflow.includes('default: production'));
+  assert.ok(relayWorkflow.includes('MEL_RELAY_BASE_URL:'));
+  assert.ok(relayWorkflow.includes("inputs.target == 'preview'"));
+  assert.ok(relayWorkflow.includes('meliturgos-preview.adrien-lopezcarreras.workers.dev'));
+  assert.ok(!relayWorkflow.includes('MEL_DEV_BRIDGE_TOKEN'));
 });
