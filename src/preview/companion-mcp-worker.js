@@ -1,12 +1,12 @@
 // Isolated worker entrypoint. Not referenced by production build or routes.
 // Deployment requires an explicit owner-approved preview configuration.
 import {createPreviewCompanionMcpHandler} from '../devices/companion-mcp-preview-runtime.js';
-import {validateCompanionMcpPreviewEnv} from './companion-mcp-deployment-guard.js';
+import {companionMcpPreviewPreflight} from './companion-mcp-resource-preflight.js';
 import {companionMcpProtectedResourceMetadata} from './companion-mcp-resource-metadata.js';
 export default {
  async fetch(request,env){
   try{
-   validateCompanionMcpPreviewEnv(env);
+   companionMcpPreviewPreflight(env);
    const metadata=companionMcpProtectedResourceMetadata(request,env);
    if(metadata)return metadata;
    const handler=createPreviewCompanionMcpHandler(env);
