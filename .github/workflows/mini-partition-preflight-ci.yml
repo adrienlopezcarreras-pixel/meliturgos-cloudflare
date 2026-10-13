@@ -70,4 +70,4 @@ jobs:
       - run: python3 tools/mini-updater/ota_backup_worker.py --help
       - run: python3 tools/mini-updater/local_readonly_preflight.py --help
       - run: python3 tools/mini-updater/plan_ota_upgrade.py --help
-      - run: node --test tests/mini-partition-python-fixtures.test.mjs tests/mini-local-readonly-preflight.test.mjs tests/mini-firmware-image-preflight.test.mjs tests/mini-ota-select-preflight.test.mjs tests/mini-ota-backup-preflight.test.mjs tests/mini-companion-owner-readonly.test.mjs tests/mini-companion-async-backup.test.mjs tests/mini-companion-maintenance-assess.test.mjs
+      - run: node --test tests/mini-partition-python-fixtures.test.mjs tests/mini-local-readonly-preflight.test.mjs tests/mini-firmware-image-preflight.test.mjs tests/mini-ota-select-preflight.test.mjs tests/mini-ota-backup-preflight.test.mjs tests/mini-companion-owner-readonly.test.mjs tests/mini-companion-async-backup.test.mjs tests/mini-companion-maintenance-assess.test.mjs tests/mini-ota-upgrade-plan.test.mjs
