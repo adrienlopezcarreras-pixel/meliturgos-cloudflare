@@ -8,7 +8,7 @@ $root=Join-Path $env:LOCALAPPDATA 'MEL'
 $backupRoot=Join-Path $root 'mini-backups'
 $ports=@([IO.Ports.SerialPort]::GetPortNames() | Where-Object { $_ -match '^COM[0-9]{1,3}$' } | Sort-Object)
 $espDevices=@(Get-CimInstance Win32_PnPEntity -ErrorAction Stop | Where-Object { ([string]$_.PNPDeviceID) -match '^USB\\VID_303A&PID_1001' })
-$espPortNames=@($espDevices | ForEach-Object { if(([string]$_.Name) -match '\\((COM[0-9]{1,3})\\)'){ $Matches[1] } } | Sort-Object -Unique)
+$espPortNames=@($espDevices | ForEach-Object { if(([string]$_.Name) -match '\((COM[0-9]{1,3})\)'){ $Matches[1] } } | Sort-Object -Unique)
 $jobs=@()
 $runningCount=0
 $staleCount=0
@@ -20,7 +20,7 @@ if(Test-Path -LiteralPath $backupRoot -PathType Container){
   Where-Object { $_.Name -match '^[a-fA-F0-9]{32}$' } |
   Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 30)
  $candidates=@(Get-CimInstance Win32_Process -ErrorAction Stop |
-  Where-Object { $_.Name -match '^(python|pythonw|esptool|powershell|pwsh)(\\.exe)?$' -and ([string]$_.CommandLine) -match 'ota_backup_worker\\.py|mini-backups' })
+  Where-Object { $_.Name -match '^(python|pythonw|esptool|powershell|pwsh)(\\.exe)?$' -and ([string]$_.CommandLine) -match 'ota_backup_worker\.py|mini-backups' })
  $inventoryLimited=$candidates.Count -gt 30
  foreach($dir in $directories){
   $statusFile=Join-Path $dir.FullName 'status.json'
