@@ -6,6 +6,7 @@ on:
     paths:
       - 'tools/mel-companion-mcp.mjs'
       - 'tests/mel-companion-mcp.test.mjs'
+      - 'tools/Test-MEL-Companion-MCP.ps1'
       - '.github/workflows/mel-companion-mcp-ci.yml'
   workflow_dispatch:
 permissions:
@@ -21,5 +22,8 @@ jobs:
           node-version: '22'
       - name: Syntax
         run: node --check tools/mel-companion-mcp.mjs
+      - name: Check Windows preflight avoids policy changes and writes
+        run: |
+          node -e "const fs=require('fs'); const s=fs.readFileSync('tools/Test-MEL-Companion-MCP.ps1','utf8'); if(/Set-ExecutionPolicy|Invoke-Expression|Start-Process|winget install|Invoke-RestMethod|ConvertFrom-SecureString|Get-Content/i.test(s))process.exit(1)"
       - name: Offline MCP security contract
         run: node --test tests/mel-companion-mcp.test.mjs
