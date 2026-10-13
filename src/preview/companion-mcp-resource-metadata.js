@@ -3,7 +3,8 @@ export function companionMcpProtectedResourceMetadata(request,env){
  const origin=String(env?.MCP_PREVIEW_ORIGIN||'');
  const issuer=String(env?.MCP_OAUTH_ISSUER||'');
  const url=new URL(request.url);
- if(!['/.well-known/oauth-protected-resource','/.well-known/oauth-protected-resource/mcp/companion/v1'].includes(url.pathname))return null;
+ const path=url.pathname;
+ if(!['/.well-known/oauth-protected-resource','/.well-known/oauth-protected-resource/mcp/companion/v1'].includes(path))return null;
  if(request.method!=='GET')return new Response(null,{status:405,headers:{allow:'GET'}});
  if(!/^https:\/\/[^/]+$/.test(origin)||!/^https:\/\/[^/]+$/.test(issuer)||url.origin!==origin)
   return Response.json({error:'MCP_METADATA_UNAVAILABLE'},{status:503,headers:{'cache-control':'no-store'}});
