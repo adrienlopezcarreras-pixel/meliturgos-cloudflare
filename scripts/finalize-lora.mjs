@@ -20,7 +20,7 @@ function argsMap(argv) {
 async function main() {
   const args = argsMap(process.argv.slice(2));
   const dir = path.resolve(args.get('--dir') || '');
-  const activateRaw = String(args.get('--activate') ?? 'true').trim().toLowerCase();
+  const activateRaw = String(args.get('--activate') ?? 'false').trim().toLowerCase();
   const activate = !['false', '0', 'no', 'off'].includes(activateRaw);
   const allowNotActivatedRaw = String(args.get('--allow-not-activated') ?? 'false').trim().toLowerCase();
   const allowNotActivated = ['true', '1', 'yes', 'on'].includes(allowNotActivatedRaw);
@@ -62,7 +62,10 @@ async function main() {
       timeout: 1_230_000,
     }));
   } catch (error) {
-    throw new Error(`LORA_BENCHMARK_TRANSPORT_FAILED: ${String(error?.message || error)}`);
+    // execFile errors can include the full curl command, including its
+    // Authorization header. Never print error.message or the command string.
+    const reason = error?.code === 'ETIMEDOUT' ? 'TIMEOUT' : 'CURL_FAILED';
+    throw new Error('LORA_BENCHMARK_TRANSPORT_FAILED_' + reason);
   }
 
   const marker = '\n__MEL_HTTP_STATUS__:';
@@ -84,6 +87,12 @@ async function main() {
   }, null, 2) + '\n', 'utf8');
   if (!responseOk || data?.ok === false) {
     throw new Error(data?.detail || data?.error || `HTTP_${httpStatus}`);
+  }
+
+  // A read-only benchmark must never silently activate a model. Fail closed
+  // even if the remote endpoint improperly reports an activation.
+  if (!activate && data?.activated === true) {
+    throw new Error('LORA_UNREQUESTED_ACTIVATION_REPORTED');
   }
 
   const summary = {
