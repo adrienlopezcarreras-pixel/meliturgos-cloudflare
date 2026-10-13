@@ -1995,6 +1995,269 @@ function PcControl-SystemExec($payload) {
   return @{ action="system.exec"; exit_code=$p.ExitCode; stdout=(PcControl-LimitText $out 65536); stderr=(PcControl-LimitText $err 32768) }
 }
 
+
+# Owner-only MINI diagnostics: read flash to private local folder, never write ESP flash.
+function PcControl-MiniFindTool($payload) {
+  $expected = "069db0f1e4d8f929f36d0f60243499eb670626c03a686376728998aaaad2f664"
+  $paths = @()
+  if (-not [string]::IsNullOrWhiteSpace([string]$payload.esptool_path)) {
+    $specified = PcControl-ResolveLocalPath ([string]$payload.esptool_path)
+    if ([IO.Path]::GetFileName($specified).ToLowerInvariant() -ne "esptool.exe") { throw "MINI_READONLY_TOOL_NAME_INVALID" }
+    $paths = @($specified)
+  } else {
+    foreach ($root in @((Join-Path $env:USERPROFILE "Downloads"),(Join-Path $env:LOCALAPPDATA "MEL"))) {
+      if (Test-Path -LiteralPath $root -PathType Container) {
+        $paths += @(Get-ChildItem -LiteralPath $root -Filter "esptool.exe" -Recurse -File -ErrorAction SilentlyContinue | Select-Object -First 25 | ForEach-Object { $_.FullName })
+      }
+    }
+  }
+  foreach ($path in $paths) {
+    if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { continue }
+    $actual = (Get-FileHash -LiteralPath $path -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant()
+    if ($actual -eq $expected) { return @{ path=$path; sha256=$actual } }
+  }
+  throw "MINI_READONLY_VERIFIED_ESPTOOL_NOT_FOUND"
+}
+
+function PcControl-MiniReadOnly($payload,[string]$mode) {
+  if ($config.remote_access_enabled -ne $true) { throw "REMOTE_ACCESS_DISABLED_LOCALLY" }
+  $portName = ([string]$payload.port).Trim().ToUpperInvariant()
+  if ($portName -notmatch '^COM\d{1,3}
+  switch ($action) {
+    "serial.list" { return PcControl-SerialList }
+    "serial.read" { return PcControl-SerialRead $payload }
+    "serial.inspect" { return PcControl-SerialInspect $payload }
+    "mini.readonly.discover" { return PcControl-MiniReadOnly $payload "discover" }
+    "mini.readonly.security" { return PcControl-MiniReadOnly $payload "security" }
+    "mini.readonly.backup" { return PcControl-MiniReadOnly $payload "backup" }
+    "serial.hard_reset" { return PcControl-SerialHardReset $payload }
+    "process.list" { return PcControl-ProcessList }
+    "process.start" { return PcControl-ProcessStart $payload }
+    "process.kill" { return PcControl-ProcessKill $payload }
+    "file.list" { return PcControl-FileList $payload }
+    "file.read_text" { return PcControl-FileReadText $payload }
+    "file.write_text" { return PcControl-FileWriteText $payload }
+    "system.info" { return PcControl-SystemInfo }
+    "system.exec" { return PcControl-SystemExec $payload }
+    default { throw "PC_CONTROL_ACTION_NOT_SUPPORTED" }
+  }
+}
+
+function Perform-Step($step, [string]$commandId, [string]$planSchema="") {
+  $action = [string]$step.action
+  if ($planSchema -eq "mel.devices.pc-control.v1") {
+    if ($config.remote_access_enabled -ne $true) { throw "REMOTE_ACCESS_DISABLED_LOCALLY" }
+    if (-not ($step.PSObject.Properties.Name -contains "payload")) { throw "PC_CONTROL_PAYLOAD_REQUIRED" }
+    return Perform-PcControl $action $step.payload
+  }
+  if ($action.StartsWith("sovereignty.")) {
+    if ($planSchema -ne "mel.sovereignty.local-command/v1") { throw "SOVEREIGNTY_COMMAND_SCHEMA_REQUIRED" }
+    if ($action.StartsWith("sovereignty.ai.")) {
+      $op = $action.Substring("sovereignty.ai.".Length)
+      return Perform-SovereigntyAi $op $step.payload
+    }
+    if ($action.StartsWith("sovereignty.runtime.")) {
+      $op = $action.Substring("sovereignty.runtime.".Length)
+      return Perform-SovereigntyRuntime $op $step.payload
+    }
+    if ($action.StartsWith("sovereignty.source_control.")) {
+      $op = $action.Substring("sovereignty.source_control.".Length)
+      return Perform-SovereigntySourceControl $op $step.payload
+    }
+    if ($action.StartsWith("sovereignty.ci.")) {
+      $op = $action.Substring("sovereignty.ci.".Length)
+      return Perform-SovereigntyCi $op $step.payload
+    }
+    if ($action.StartsWith("sovereignty.storage.")) {
+      $op = $action.Substring("sovereignty.storage.".Length)
+      return Perform-SovereigntyStorage $op $step.payload
+    }
+    if ($action.StartsWith("sovereignty.database.")) {
+      $op = $action.Substring("sovereignty.database.".Length)
+      return Perform-SovereigntyDatabase $op $step.payload
+    }
+    if ($action.StartsWith("sovereignty.observability.")) {
+      $op = $action.Substring("sovereignty.observability.".Length)
+      return Perform-SovereigntyObservability $op $step.payload
+    }
+    if ($action.StartsWith("sovereignty.scheduler.")) {
+      $op = $action.Substring("sovereignty.scheduler.".Length)
+      return Perform-SovereigntyScheduler $op $step.payload
+    }
+    if ($action.StartsWith("sovereignty.secrets.")) {
+      $op = $action.Substring("sovereignty.secrets.".Length)
+      return Perform-SovereigntySecrets $op $step.payload
+    }
+    throw "SOVEREIGNTY_ACTION_NOT_SUPPORTED"
+  }
+  $action = [string]$step.action
+  switch ($action) {
+    "screen.capture" {
+      $shot = Upload-Screenshot $commandId
+      return @{ action=$action; screenshot_key=$shot.key; view_url=$shot.view_url }
+    }
+    "cursor.move" {
+      if (-not [MelNative]::SetCursorPos([int]$step.x, [int]$step.y)) { throw "CURSOR_MOVE_FAILED" }
+      return @{ action=$action; x=[int]$step.x; y=[int]$step.y }
+    }
+    "pointer.click" {
+      [MelNative]::mouse_event($MOUSE_LEFTDOWN,0,0,0,[UIntPtr]::Zero)
+      Start-Sleep -Milliseconds 35
+      [MelNative]::mouse_event($MOUSE_LEFTUP,0,0,0,[UIntPtr]::Zero)
+      return @{ action=$action }
+    }
+    "pointer.scroll" {
+      $delta = [int]$step.delta_y
+      if ($delta -eq 0) { $delta = -120 }
+      [MelNative]::mouse_event($MOUSE_WHEEL,0,0,$delta,[UIntPtr]::Zero)
+      return @{ action=$action; delta_y=$delta }
+    }
+    "keyboard.press" {
+      [System.Windows.Forms.SendKeys]::SendWait((Key-Token ([string]$step.key)))
+      return @{ action=$action; key=[string]$step.key }
+    }
+    "keyboard.type" {
+      Type-Text ([string]$step.text)
+      return @{ action=$action; chars=([string]$step.text).Length }
+    }
+    "app.open" {
+      $exe = Resolve-App ([string]$step.app)
+      Start-Process $exe
+      return @{ action=$action; app=[string]$step.app }
+    }
+    "app.close" {
+      $count = Close-AppGracefully ([string]$step.app)
+      return @{ action=$action; app=[string]$step.app; windows_requested_close=$count }
+    }
+    "file.open" {
+      $path = Resolve-AllowedPath ([string]$step.path)
+      if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "FILE_NOT_FOUND" }
+      Start-Process -FilePath $path
+      return @{ action=$action; path=$path }
+    }
+    "file.close" {
+      $closed = Close-ForegroundFile ([string]$step.path)
+      return @{ action=$action; path=$closed.path; active_window=$closed.active_window }
+    }
+    "clipboard.read" {
+      $v = ""
+      try { $v = [string](Get-Clipboard -Raw -ErrorAction Stop) } catch {}
+      if ($v.Length -gt 4096) { $v = $v.Substring(0,4096) }
+      return @{ action=$action; text=$v }
+    }
+    "clipboard.write" {
+      Set-Clipboard -Value ([string]$step.text)
+      return @{ action=$action; chars=([string]$step.text).Length }
+    }
+    "power.off" {
+      return Invoke-ShutdownCommand $action
+    }
+    "power.restart" {
+      return Invoke-ShutdownCommand $action
+    }
+    default { throw "ACTION_NOT_SUPPORTED" }
+  }
+}
+
+function Process-Command($command) {
+  $outputs = @()
+  try {
+    foreach ($step in @($command.plan.steps)) {
+      $outputs += ,(Perform-Step $step ([string]$command.id) ([string]$command.plan.schema))
+    }
+    $body = @{ command_id=$command.id; ok=$true; result=@{ outputs=$outputs; active_window=(Active-Window) } }
+    [void](Invoke-MelJson -Path "/api/computer/v1/result" -Method "POST" -Body $body)
+  } catch {
+    $code = [string]$_.Exception.Message
+    $body = @{ command_id=$command.id; ok=$false; error_code=$code; result=@{ outputs=$outputs } }
+    try { [void](Invoke-MelJson -Path "/api/computer/v1/result" -Method "POST" -Body $body) } catch {}
+  }
+}
+
+$trayResources = $null
+if (-not $Headless) { $trayResources = New-MelTrayIcon }
+$lastHeartbeat = Get-Date "2000-01-01"
+while (-not $script:MelExitRequested) {
+  if ($Headless -and $ParentPid -gt 0 -and -not (Get-Process -Id $ParentPid -ErrorAction SilentlyContinue)) { break }
+  if (-not $Headless) { [System.Windows.Forms.Application]::DoEvents() }
+  try {
+    if (((Get-Date) - $lastHeartbeat).TotalSeconds -ge 10) {
+      Send-Heartbeat
+      $lastHeartbeat = Get-Date
+    }
+    $reply = Invoke-MelJson -Path "/api/computer/v1/commands" -Method "GET"
+    if ($reply.halted -eq $true) {
+      Start-Sleep -Seconds 2
+      continue
+    }
+    if ($null -ne $reply.command) {
+      Process-Command $reply.command
+      continue
+    }
+  } catch {
+    Start-Sleep -Seconds 3
+  }
+  Start-Sleep -Milliseconds 1200
+}
+if ($trayResources) {
+  try { $trayResources.notify.Visible = $false } catch {}
+  try { $trayResources.notify.Dispose() } catch {}
+  try { $trayResources.menu.Dispose() } catch {}
+  try { $trayResources.icon.Dispose() } catch {}
+  try { $trayResources.bitmap.Dispose() } catch {}
+}
+) { throw "MINI_READONLY_PORT_INVALID" }
+  if (@([IO.Ports.SerialPort]::GetPortNames()) -notcontains $portName) { throw "MINI_READONLY_PORT_OFFLINE" }
+  $matches = @(Get-CimInstance Win32_PnPEntity -ErrorAction SilentlyContinue | Where-Object {
+    ([string]$_.Name -like "*($portName)*") -and ([string]$_.PNPDeviceID -match '^USB\\VID_303A&PID_1001')
+  })
+  if ($matches.Count -ne 1) { throw "MINI_READONLY_ESPRESSIF_USB_NOT_CONFIRMED" }
+  $tool = PcControl-MiniFindTool $payload
+  if ($mode -eq "discover") {
+    return @{ action="mini.readonly.discover"; port=$portName; tool_verified=$true; tool_sha256=$tool.sha256; flash_performed=$false; board_reset=$false }
+  }
+  if ($payload.ack_bootloader_reset -ne $true) { throw "MINI_READONLY_RESET_ACK_REQUIRED" }
+  if ($mode -eq "backup" -and $payload.ack_local_backup -ne $true) { throw "MINI_READONLY_BACKUP_ACK_REQUIRED" }
+  $stamp = [DateTime]::UtcNow.ToString("yyyyMMddTHHmmssfff") + "-" + [Guid]::NewGuid().ToString("N").Substring(0,8)
+  $dest = Join-Path (Join-Path $env:LOCALAPPDATA "MEL\mini-readonly") $stamp
+  [IO.Directory]::CreateDirectory($dest) | Out-Null
+  function Invoke-MiniReadOnlyTool([string]$name,[string]$argsText,[int]$timeoutMs) {
+    $stdoutPath = Join-Path $dest ($name + ".stdout.txt")
+    $stderrPath = Join-Path $dest ($name + ".stderr.txt")
+    $proc = Start-Process -FilePath $tool.path -ArgumentList $argsText -NoNewWindow -PassThru -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath -ErrorAction Stop
+    if (-not $proc.WaitForExit($timeoutMs)) {
+      try { $proc.Kill() } catch {}
+      throw "MINI_READONLY_PROCESS_TIMEOUT"
+    }
+    if ($proc.ExitCode -ne 0) { throw ("MINI_READONLY_" + $name.ToUpperInvariant() + "_FAILED") }
+    return @{ log=$stdoutPath; exit_code=0; stdout_sha256=(Get-FileHash -LiteralPath $stdoutPath -Algorithm SHA256).Hash.ToLowerInvariant() }
+  }
+  $common = "--chip esp32s3 --port $portName --before default_reset --after hard_reset"
+  $security = Invoke-MiniReadOnlyTool "security" ($common + " get_security_info") 60000
+  if ($mode -eq "security") {
+    return @{ action="mini.readonly.security"; port=$portName; security_proof=$security; evidence_dir=$dest; flash_performed=$false; board_reset_possible=$true; flash_allowed=$false }
+  }
+  $partitionPath = Join-Path $dest "partitions-0x8000-4096.bin"
+  $otaPath = Join-Path $dest "otadata-0xf000-8192.bin"
+  [void](Invoke-MiniReadOnlyTool "partitions" ($common + " read_flash 0x8000 0x1000 " + '"' + $partitionPath + '"') 60000)
+  [void](Invoke-MiniReadOnlyTool "otadata" ($common + " read_flash 0xF000 0x2000 " + '"' + $otaPath + '"') 60000)
+  if ((Get-Item -LiteralPath $partitionPath).Length -ne 4096 -or (Get-Item -LiteralPath $otaPath).Length -ne 8192) { throw "MINI_READONLY_METADATA_SIZE_MISMATCH" }
+  $partsHash = (Get-FileHash -LiteralPath $partitionPath -Algorithm SHA256).Hash.ToLowerInvariant()
+  $otaHash = (Get-FileHash -LiteralPath $otaPath -Algorithm SHA256).Hash.ToLowerInvariant()
+  if ($partsHash -ne "1834b10629687fcd519a35bbb87765d2a2c31ca90d002ce6fe3d037c0122a258") { throw "MINI_READONLY_PARTITIONS_CHANGED" }
+  if ($otaHash -ne "8ba3b110139f45443d4f268d1a3373ef99a1718b71d51664531b83ee2d4b91a3") { throw "MINI_READONLY_OTA_CHANGED" }
+  $backup = Join-Path $dest "ota_0-backup-0x20000-6291456.bin"
+  [void](Invoke-MiniReadOnlyTool "ota0-backup" ($common + " read_flash 0x20000 0x600000 " + '"' + $backup + '"') 900000)
+  if ((Get-Item -LiteralPath $backup).Length -ne 6291456) { throw "MINI_READONLY_BACKUP_SIZE_INVALID" }
+  return @{
+    action="mini.readonly.backup"; port=$portName; security_proof=$security; evidence_dir=$dest
+    partition_sha256=$partsHash; otadata_sha256=$otaHash
+    backup_path=$backup; backup_size_bytes=6291456
+    backup_sha256=(Get-FileHash -LiteralPath $backup -Algorithm SHA256).Hash.ToLowerInvariant()
+    backup_image_validated=$false; rollback_tested=$false; flash_performed=$false; flash_allowed=$false; board_reset_possible=$true
+  }
+}
+
 function Perform-PcControl([string]$action,$payload) {
   switch ($action) {
     "serial.list" { return PcControl-SerialList }
