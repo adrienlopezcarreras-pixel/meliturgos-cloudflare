@@ -49,3 +49,15 @@ test('backup success requires image size, three integrity booleans and matching 
  assert.match(script,/INTEGRITY_FAILED/);
  assert.match(script,/firmware_write_authorized=\$false/);
 });
+
+test('stale backup reconciliation proof remains read-only and never promotes an incomplete image',()=>{
+ const command=miniMaintenanceAssessCommand().command;
+ assert.match(command,/reconciliation_required=\(\$staleCount -gt 0\)/);
+ assert.match(command,/reconciliation_mode='MANUAL_REVIEW_REQUIRED_NO_STATE_MUTATION'/);
+ assert.match(command,/stale_job_ids=@\(\$jobs/);
+ assert.match(command,/RUNNING_WITH_NO_MATCHING_WORKER_AFTER_240S/);
+ assert.match(command,/\$row\.reconciliation_required=\$true/);
+ assert.match(command,/\$row\.assessment='STALE_CANDIDATE'/);
+ assert.match(command,/autonomous_flash_ready=\$false/);
+ assert.doesNotMatch(command,/Set-Content|Remove-Item|Move-Item|Stop-Process|write_flash|erase_flash/);
+});
