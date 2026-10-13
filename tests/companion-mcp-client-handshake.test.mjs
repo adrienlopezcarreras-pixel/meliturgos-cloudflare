@@ -15,3 +15,13 @@ test('Streamable HTTP client handshake then status call',async()=>{
  assert.equal(call.status,200);
  assert.equal(JSON.parse((await call.json()).result.content[0].text).online,true);
 });
+
+test('client cannot initialize or discover tools without OAuth',async()=>{
+ let reads=0;
+ const denied={...services,authenticate:async()=>{throw Error('NO_TOKEN');},readStatus:async()=>{reads++;return null;}};
+ for(const method of ['initialize','tools/list']){
+  const res=await companionMcpHttp(new Request(endpoint,{method:'POST',headers:{'content-type':'application/json',accept:'application/json, text/event-stream'},body:JSON.stringify({jsonrpc:'2.0',id:10,method,params:{protocolVersion:'2025-03-26'}})}),denied);
+  assert.equal(res.status,401);
+ }
+ assert.equal(reads,0);
+});
