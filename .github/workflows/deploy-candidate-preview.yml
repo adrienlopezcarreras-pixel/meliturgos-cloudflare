@@ -690,8 +690,14 @@ jobs:
           try:
               d=json.loads(Path('shardvault-live-probe.json').read_text(encoding='utf-8'))
               keys=('ok','required_bytes','discovered','probed','representative_probed',
-                    'representative_qualified','representative_validated_count','target_reached')
+                    'representative_qualified','representative_validated_count','active_external_count','cached_validated_staged','target_count','target_reached')
               print('SHARDVAULT_SAFE_COUNTS:', json.dumps({k:d.get(k) for k in keys}))
+              activation=d.get('activation_cycle') or {}
+              if isinstance(activation,dict):
+                  print('SHARDVAULT_ACTIVATION:', json.dumps({
+                      'ok':activation.get('ok') is True,
+                      'status':str(activation.get('status') or 'UNSPECIFIED')[:80]
+                  }))
           except Exception:
               print('SHARDVAULT_DIAGNOSTIC_RESPONSE_INVALID')
           PY
