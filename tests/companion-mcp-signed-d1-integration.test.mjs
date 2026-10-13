@@ -22,7 +22,10 @@ test('signed token plus D1 grant permits only scoped Companion status',async()=>
  }));
  const allowed=await call('win-1');
  assert.equal(allowed.status,200);
- const body=JSON.stringify(await allowed.json());
- assert.match(body,/"online"/);assert.equal(body.includes('UNSAFE'),false);
+ const payload=await allowed.json();
+ const status=JSON.parse(payload.result.content[0].text);
+ assert.equal(status.online,true);
+ assert.equal(status.id,'win-1');
+ assert.equal(JSON.stringify(payload).includes('UNSAFE'),false);
  assert.equal((await call('win-2')).status,403);
 });
