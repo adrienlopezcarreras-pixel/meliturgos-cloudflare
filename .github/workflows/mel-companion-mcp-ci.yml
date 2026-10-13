@@ -22,6 +22,8 @@ on:
       - 'src/preview/companion-mcp-resource-preflight.js'
       - 'src/preview/companion-mcp-resource-metadata.js'
       - 'src/preview/companion-mcp-oauth-provider-preflight.js'
+      - 'src/preview/companion-mcp-oauth-discovery.js'
+      - 'tests/companion-mcp-oauth-discovery.test.mjs'
       - 'tests/companion-mcp-oauth-provider-preflight.test.mjs'
       - 'tests/companion-mcp-wrangler-preview.test.mjs'
       - 'tests/companion-mcp-jwks-config.test.mjs'
@@ -63,4 +65,4 @@ jobs:
         run: |
           node -e "const fs=require('fs'); const s=fs.readFileSync('tools/Test-MEL-Companion-MCP.ps1','utf8'); if(/Set-ExecutionPolicy|Invoke-Expression|Start-Process|winget install|Invoke-RestMethod|ConvertFrom-SecureString|Get-Content/i.test(s))process.exit(1)"
       - name: Offline MCP security contract
-        run: node --test tests/mel-companion-mcp.test.mjs tests/companion-mcp-http.test.mjs tests/companion-mcp-client-handshake.test.mjs tests/companion-mcp-oauth-jwt.test.mjs tests/companion-mcp-authenticator.test.mjs tests/companion-mcp-endpoint.test.mjs tests/companion-mcp-device-authorization.test.mjs tests/companion-mcp-d1-lookup.test.mjs tests/companion-mcp-migration.test.mjs tests/companion-mcp-d1-status.test.mjs tests/companion-mcp-signed-d1-integration.test.mjs tests/companion-mcp-transport-gate.test.mjs tests/companion-mcp-preview-runtime.test.mjs tests/companion-mcp-preview-worker.test.mjs tests/companion-mcp-preview-worker-integration.test.mjs tests/companion-mcp-deployment-guard.test.mjs tests/companion-mcp-resource-preflight.test.mjs tests/companion-mcp-resource-metadata.test.mjs tests/companion-mcp-oauth-provider-preflight.test.mjs tests/companion-mcp-wrangler-preview.test.mjs tests/companion-mcp-jwks-config.test.mjs
+        run: node --test tests/mel-companion-mcp.test.mjs tests/companion-mcp-http.test.mjs tests/companion-mcp-client-handshake.test.mjs tests/companion-mcp-oauth-jwt.test.mjs tests/companion-mcp-authenticator.test.mjs tests/companion-mcp-endpoint.test.mjs tests/companion-mcp-device-authorization.test.mjs tests/companion-mcp-d1-lookup.test.mjs tests/companion-mcp-migration.test.mjs tests/companion-mcp-d1-status.test.mjs tests/companion-mcp-signed-d1-integration.test.mjs tests/companion-mcp-transport-gate.test.mjs tests/companion-mcp-preview-runtime.test.mjs tests/companion-mcp-preview-worker.test.mjs tests/companion-mcp-preview-worker-integration.test.mjs tests/companion-mcp-deployment-guard.test.mjs tests/companion-mcp-resource-preflight.test.mjs tests/companion-mcp-resource-metadata.test.mjs tests/companion-mcp-oauth-provider-preflight.test.mjs tests/companion-mcp-oauth-discovery.test.mjs tests/companion-mcp-wrangler-preview.test.mjs tests/companion-mcp-jwks-config.test.mjs
