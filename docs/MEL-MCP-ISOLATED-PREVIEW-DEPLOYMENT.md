@@ -20,3 +20,6 @@ Do not reuse the production Worker name, route, zone, secrets, D1 ID or deployme
 - A Streamable HTTP protocol compliance review is required before a public endpoint is enabled.
 
 No commands should be run on the user's PC until an independent local consent, audit and Stop flow is verified. No production deployment without explicit approval.
+
+## Exact acceptance evidence for connection
+Record an actual HTTPS request to `/.well-known/oauth-protected-resource/mcp/companion/v1`, then a 401 challenge with `resource_metadata`, and a valid OAuth authorization-code + PKCE consent ceremony. Obtain a short-lived signed access token from the configured issuer, verify it against the pinned JWKS, and verify that an explicitly granted device reports a current heartbeat. Verify revoked token, expired grant and cross-owner denial. Do not log tokens or the Windows Companion's stored credentials. Only after these proofs should the owner register the HTTPS endpoint as a ChatGPT custom connector.
