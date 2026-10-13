@@ -143,14 +143,26 @@ test('predeploy refresh creates the backup on the GitHub runner and keeps the Wo
 
   assert.match(refresher, /const R2_PAGE_LIMIT = 1000;/);
   assert.match(refresher, /const D1_PAGE_LIMIT = 500;/);
-  assert.match(runner, /const D1_PAGE_SIZE = 500;/);
+  // The canonical base may delegate D1 export to d1-export.mjs.
+  // Require the same bounded paging guarantees in either implementation.
+  const delegatedD1 = /import\s*\{\s*exportD1\s*\}\s*from\s*['"]\.\/d1-export\.mjs['"]/.test(runner);
+  const d1Export = delegatedD1
+    ? await readFile(new URL('../release-tools/predeploy-backup-refresh/d1-export.mjs', import.meta.url), 'utf8')
+    : runner;
+  assert.match(d1Export, /(?:export )?const D1_PAGE_SIZE = 500;/);
+  if (delegatedD1) {
+    assert.match(d1Export, /export const MAX_ROWS_PER_TABLE = 250_000;/);
+    assert.match(d1Export, /page\.rows\.length > pageSize/);
+    assert.match(d1Export, /page\.has_more && page\.rows\.length !== pageSize/);
+    assert.match(runner, /exportD1\(sidecar, sidecarJson/);
+  }
   assert.match(runner, /createVerifiedBackupService/);
   assert.match(runner, /createBackupEncryptionCodec/);
   assert.match(runner, /inspectRestoreCandidate/);
   assert.match(runner, /attempts = 12/);
   assert.match(runner, /Math\.min\(2000, 500 \* attempt\)/);
-  assert.match(runner, /'\/d1\/tables'/);
-  assert.match(runner, /\/d1\/rows/);
+  assert.match(d1Export, /'\/d1\/tables'/);
+  assert.match(d1Export, /\/d1\/rows/);
   assert.match(runner, /'\/register'/);
   assert.doesNotMatch(runner, /\/d1\/database\//);
   assert.match(runner, /'r2', 'object', 'put'/);
