@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import { summarizeAutonomyLaunchCodeSync } from '../src/evolution/launch-readiness.js';
 
 const runtime=await readFile(new URL('../src/continuity/shardvault-runtime.js',import.meta.url),'utf8');
@@ -73,7 +74,7 @@ test('launch code-sync summary preserves mirror relay metadata needed by release
 });
 
 test('preview mirror never targets main or production storage and requires exact 7th fragment',async()=>{
-  const {validatePreviewContext,previewMirrorPending,publishPreviewMirror,PREVIEW_MIRROR_BRANCH}=
+  const {validatePreviewContext,previewMirrorPending,validatePreviewMirrorMetadata,publishPreviewMirror,PREVIEW_MIRROR_BRANCH}=
     await import('../scripts/fulfill-preview-code-mirror.mjs');
   const sha='a'.repeat(40);
   const env={GITHUB_SHA:sha,GITHUB_REPOSITORY:'adrienlopezcarreras-pixel/meliturgos-cloudflare',
@@ -100,8 +101,20 @@ test('preview mirror never targets main or production storage and requires exact
   const out=previewMirrorPending(pending,ctx);
   assert.match(out.key,/^shardvault\/github-code-mirror-staging\/.*\/code-a{12}-shard-06-github\.bin$/);
   assert.match(out.path,/^shardvault-code\/.*\/code-a{12}-shard-06-github\.bin$/);
+  assert.match(out.metadataKey,/^shardvault\/github-code-mirror-pending\/.*\.json$/);
+  assert.equal(out.relayJobId,'gh-relay-preview-123');
   assert.throws(()=>previewMirrorPending({...pending,external:{...pending.external,completed_shards:5}},ctx),/PENDING_PROOF_INVALID/);
   const bytes=new Uint8Array(65536);bytes.fill(17);
+  const sha256=createHash('sha256').update(bytes).digest('hex');
+  const durable={relay_job_id:out.relayJobId,staging_key:out.key,mirror_path:out.path,
+    byte_length:bytes.length,expected_sha256:sha256};
+  const verified=validatePreviewMirrorMetadata(ctx,out,durable);
+  assert.equal(verified.expectedBytes,65536);
+  assert.equal(verified.expectedSha256,sha256);
+  assert.throws(()=>validatePreviewMirrorMetadata(ctx,out,{...durable,relay_job_id:'other'}),/IDENTITY_MISMATCH/);
+  assert.throws(()=>validatePreviewMirrorMetadata(ctx,out,{...durable,mirror_path:'shardvault-code/production.bin'}),/IDENTITY_MISMATCH/);
+  assert.throws(()=>validatePreviewMirrorMetadata(ctx,out,{...durable,byte_length:0}),/BYTES_INVALID/);
+  assert.throws(()=>validatePreviewMirrorMetadata(ctx,out,{...durable,expected_sha256:'bad'}),/SHA256_INVALID/);
   const calls=[];
   const request=async(url,token,method='GET',data=null)=>{
     calls.push({url,method,data});
@@ -114,9 +127,11 @@ test('preview mirror never targets main or production storage and requires exact
     }
     throw Error('UNEXPECTED_GITHUB_PATH');
   };
-  await assert.rejects(publishPreviewMirror(ctx,out,new Uint8Array(65540),'x'.repeat(40),request),/FRAGMENT_SIZE_INVALID/);
-  await assert.rejects(publishPreviewMirror(ctx,out,new Uint8Array(65535),'x'.repeat(40),request),/FRAGMENT_SIZE_INVALID/);
-  const result=await publishPreviewMirror(ctx,out,bytes,'x'.repeat(40),request);
+  await assert.rejects(publishPreviewMirror(ctx,verified,new Uint8Array(65540),'x'.repeat(40),request),/FRAGMENT_SIZE_INVALID/);
+  await assert.rejects(publishPreviewMirror(ctx,verified,new Uint8Array(65535),'x'.repeat(40),request),/FRAGMENT_SIZE_INVALID/);
+  const wrongHash=new Uint8Array(bytes);wrongHash[3]^=1;
+  await assert.rejects(publishPreviewMirror(ctx,verified,wrongHash,'x'.repeat(40),request),/SHA256_MISMATCH/);
+  const result=await publishPreviewMirror(ctx,verified,bytes,'x'.repeat(40),request);
   assert.equal(result.status,'EXACT_FRAGMENT_PUBLISHED_VERIFIED');
   assert.equal(calls.filter(x=>x.method==='PUT').length,1);
   assert.ok(calls.filter(x=>x.method==='PUT').every(x=>x.data.branch==='shardvault-preview-mirror'));
@@ -129,4 +144,23 @@ test('candidate preview uses only its own R2 and mirror path to finish 7/7',asyn
   assert.match(workflow,/SYNC_STATUS.*COPIED.*SYNC_ENDPOINTS.*-ge 7/);
   const runtime=await readFile(new URL('../src/continuity/shardvault-runtime.js',import.meta.url),'utf8');
   assert.match(runtime,/isolatedPreview\?'shardvault-preview-mirror':GITHUB_CODE_MIRROR_BRANCH/);
+});
+
+test('preview metadata is authoritative even when the tarball-based shard estimate differs',async()=>{
+  const {validatePreviewMirrorMetadata,publishPreviewMirror} =
+    await import('../scripts/fulfill-preview-code-mirror.mjs');
+  const ctx={repo:'adrienlopezcarreras-pixel/meliturgos-cloudflare',
+    sha:'a'.repeat(40),exactShardBytes:65536};
+  const bytes=new Uint8Array(65540);bytes.fill(41);
+  const pending={relayJobId:'gh-relay-preview-123',key:'staging',path:'shardvault-code/a/file.bin'};
+  const durable={relay_job_id:pending.relayJobId,staging_key:pending.key,mirror_path:pending.path,
+    byte_length:bytes.length,expected_sha256:createHash('sha256').update(bytes).digest('hex')};
+  const verified=validatePreviewMirrorMetadata(ctx,pending,durable);
+  const remote=async(url,token,method='GET')=>{
+    if(url.endsWith('/git/ref/heads/shardvault-preview-mirror'))return {status:200,body:{}};
+    if(url.includes('/contents/')&&method==='GET')return {status:200,body:{encoding:'base64',content:Buffer.from(bytes).toString('base64')}};
+    throw Error('PREVIEW_MIRROR_NO_UNEXPECTED_WRITES');
+  };
+  const result=await publishPreviewMirror(ctx,verified,bytes,'x'.repeat(40),remote);
+  assert.equal(result.status,'EXISTING_EXACT_FRAGMENT_VERIFIED');
 });
