@@ -13,3 +13,9 @@ test('discovery fails closed on origin mismatch or invalid issuer',async()=>{
  }
  assert.equal(companionMcpProtectedResourceMetadata(new Request('https://preview.example.test/.well-known/oauth-protected-resource',{method:'POST'}),env).status,405);
 });
+
+test('path-specific protected resource discovery is served',async()=>{
+ const res=companionMcpProtectedResourceMetadata(new Request('https://preview.example.test/.well-known/oauth-protected-resource/mcp/companion/v1'),env);
+ assert.equal(res.status,200);
+ assert.equal((await res.json()).resource,'https://preview.example.test/mcp/companion/v1');
+});
