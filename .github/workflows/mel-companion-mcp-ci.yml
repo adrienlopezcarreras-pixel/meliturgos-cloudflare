@@ -1,0 +1,25 @@
+name: MEL Companion MCP isolated CI
+on:
+  push:
+    branches:
+      - feature/mel-chatgpt-companion-mcp-20261013
+    paths:
+      - 'tools/mel-companion-mcp.mjs'
+      - 'tests/mel-companion-mcp.test.mjs'
+      - '.github/workflows/mel-companion-mcp-ci.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  mcp-readonly:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '22'
+      - name: Syntax
+        run: node --check tools/mel-companion-mcp.mjs
+      - name: Offline MCP security contract
+        run: node --test tests/mel-companion-mcp.test.mjs
