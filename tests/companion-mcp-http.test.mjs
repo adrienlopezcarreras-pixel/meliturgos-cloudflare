@@ -105,6 +105,8 @@ test('initialize validates protocol version type',async()=>{
  const bad=await companionMcpHttp(request('POST',{jsonrpc:'2.0',id:40,method:'initialize',params:{protocolVersion:{unexpected:true}}}),services);
  assert.equal(bad.status,400);
  assert.equal((await bad.json()).error.code,-32602);
+ const unsupported=await companionMcpHttp(request('POST',{jsonrpc:'2.0',id:42,method:'initialize',params:{protocolVersion:'2099-01-01'}}),services);
+ assert.equal(unsupported.status,400);
  const good=await companionMcpHttp(request('POST',{jsonrpc:'2.0',id:41,method:'initialize',params:{protocolVersion:'2025-03-26'}}),services);
  assert.equal(good.status,200);
 });
