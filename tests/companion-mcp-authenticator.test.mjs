@@ -17,3 +17,11 @@ test('unverifiable signatures must never authorize a session',async()=>{
  const req=new Request('https://example.test',{headers:{authorization:'Bearer abc.def.xyz'}});
  await assert.rejects(auth(req));
 });
+
+test('revocation storage contract requires hashed token rather than bearer secret',async()=>{
+ const source=await import('node:fs/promises');
+ const code=await source.readFile('src/devices/companion-mcp-authenticator.js','utf8');
+ assert.match(code,/SHA-256/);
+ assert.match(code,/revoked\(tokenFingerprint,principal\)/);
+ assert.equal(code.includes('revoked(match[1],principal)'),false);
+});
