@@ -19,5 +19,7 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
         with:
           node-version: '22'
-      - name: Check shell transport retries with local simulated curl
-        run: node --test tests/preview-learning-transport-retry.test.mjs
+      - name: Install exact lockfile for Council integration fixture
+        run: npm ci
+      - name: Check transport retries and independent Council readiness
+        run: node --test tests/preview-learning-transport-retry.test.mjs tests/autonomy-readiness-api.test.mjs
