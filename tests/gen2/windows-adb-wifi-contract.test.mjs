@@ -24,3 +24,11 @@ test("ADB Wi-Fi monitor never auto-installs APKs or flashes firmware", async () 
   assert.doesNotMatch(script, /\b(?:install|uninstall|flash|erase|reboot|root)\b/i);
   assert.doesNotMatch(script, /tcpip 5555/);
 });
+
+
+test("ADB Wi-Fi status includes installed Android versionCode and handles unavailable ADB explicitly", async () => {
+  const script = await source("windows-companion/MEL-ADB-WiFi.ps1");
+  assert.match(script, /mel_version_code/);
+  assert.match(script, /versionCode=\\d\+/);
+  assert.match(script, /ADB_PLATFORM_TOOLS_MISSING/);
+});
