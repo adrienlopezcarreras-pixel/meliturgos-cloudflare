@@ -1,6 +1,6 @@
 // Strictly GET-only inventory proof for the already-deployed MEL Worker.
 // Never call capability.audit, execute, refresh=1 or create/delete secrets.
-import {createHmac, hkdfSync} from 'node:crypto';
+import {hkdfSync} from 'node:crypto';
 import {pathToFileURL} from 'node:url';
 import process from 'node:process';
 import {writeFile} from 'node:fs/promises';
@@ -53,7 +53,7 @@ export function assessInventory(selfCheck,inventory,expectedSha){
     capability_count:ids.length,enabled_count:enabled,
     low_risk_count:low,protected_count:protectedCount,health,
     capability_execution_tested:false,stress_job_started:false,
-    mutation_scope:'GET_ONLY_NO_REFRESH_NO_D1_WRITE',max_enabled:false};
+    mutation_scope:'GET_ONLY_NO_REFRESH_NO_D1_WRITE'};
 }
 
 export async function probeLiveInventory({
