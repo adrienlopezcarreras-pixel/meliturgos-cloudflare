@@ -41,9 +41,14 @@ jobs:
           npm ci --ignore-scripts --no-audit --no-fund
           node --test tests/shardvault-github-code-mirror.test.mjs tests/shardvault-github-authoritative-readback.test.mjs tests/release-predeploy-backup-reuse.test.mjs tests/preview-resource-isolation.test.mjs
           npm run check
+          git commit -m "merge(integration): provisional main merge pending full suite (artifact only)"
+          # The Dev Bridge contract requires candidate/*; validate the exact same
+          # merged tree under a temporary local candidate ref, never pushed.
+          git switch -c candidate/mel-isolated-validation
           npm test
           node scripts/runtime-security-gate.mjs
-          git commit -m "merge(integration): full-suite validated provisional main merge (artifact only)"
+          git switch integration/mel-main-candidate-20261013
+          test "$(git rev-parse HEAD)" = "$(git rev-parse candidate/mel-isolated-validation)"
           mkdir -p integration-handoff
           git bundle create integration-handoff/mel-isolated-merge.bundle origin/main..HEAD
           git rev-parse HEAD > integration-handoff/merged-sha.txt
