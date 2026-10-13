@@ -24,7 +24,6 @@ test('uses the existing proven exact-run checkpoint and revalidates bytes',()=>{
 
 test('creates at most a private draft and cannot deploy or overwrite assets',()=>{
   assert.match(yaml, /--draft/);
-  assert.match(yaml, /CHECKPOINT_RELEASE_ALREADY_EXISTS_NO_CLOBBER/);
   assert.doesNotMatch(yaml, /--clobber|--latest|--prerelease|--public/);
   assert.doesNotMatch(yaml, /kaggle kernels push|NvidiaTeslaT4|wrangler deploy|--activate true|gh workflow run|gh api -X PATCH/);
   assert.match(yaml, /actions: read/);
@@ -36,9 +35,9 @@ test('creates at most a private draft and cannot deploy or overwrite assets',()=
   assert.match(yaml, /CHECKPOINT_TAG_ALREADY_EXISTS_STOP/);
   assert.match(yaml, /git\/ref\/tags\/\$\{TAG\}/);
   assert.match(yaml, /CHECKPOINT_TAG_PROBE_DENIED_OR_UNAVAILABLE_HTTP_/);
-  assert.match(yaml, /CHECKPOINT_DRAFT_POSTCREATE_PROOF_FAILED/);
-  assert.match(yaml, /CHECKPOINT_DRAFT_RELEASE_AND_ASSETS_VERIFIED_NO_PROMOTION/);
-  assert.match(yaml, /new Set\(d\.assets\.map\(a => a\.name\)\)\.size/);
+  assert.match(yaml, /inspect-lora-c000-draft-release\.mjs require-absent/);
+  assert.match(yaml, /inspect-lora-c000-draft-release\.mjs verify-draft/);
+  assert.doesNotMatch(yaml, /gh api .*releases\/tags/);
 });
 
 test('original Kaggle training chain also protects historical release with a dedicated token',()=>{
