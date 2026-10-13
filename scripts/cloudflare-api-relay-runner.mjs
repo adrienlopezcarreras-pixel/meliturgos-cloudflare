@@ -123,6 +123,32 @@ async function main(){
     const auditOutput=(Array.isArray(auditCommand?.result?.outputs)?auditCommand.result.outputs:[]).find(row=>row?.action==='system.exec');
     let backupAudit=null;try{backupAudit=JSON.parse(String(auditOutput?.stdout||'').trim())}catch{}
     console.log('MINI_BACKUP_STALE_AUDIT='+JSON.stringify({status:String(auditCommand?.status||'TIMEOUT'),proof:backupAudit,read_only:true}));
+    // Fixed, OIDC-scoped, read-only assessment of USB and OTA backup integrity.
+    // This never authorizes flashing or device reset; missing proof remains visible.
+    const assessSubmit=await worker('/api/computer/v1/pc-control',{
+      computer_id:computer.id,action:'mini.maintenance.assess',payload:{}
+    });
+    const assessId=String(assessSubmit?.command_id||'');
+    const assessDeadline=Date.now()+50000;
+    let assessCommand=null;
+    while(Date.now()<assessDeadline){
+      await new Promise(resolve=>setTimeout(resolve,1500));
+      const poll=await worker('/api/computer/v1/status?computer_id='+encodeURIComponent(computer.id),{},'GET');
+      assessCommand=(Array.isArray(poll?.commands)?poll.commands:[])
+        .find(row=>String(row?.id||'')===assessId)||null;
+      if(['SUCCEEDED','FAILED'].includes(String(assessCommand?.status||'')))break;
+    }
+    const assessOutput=(Array.isArray(assessCommand?.result?.outputs)?assessCommand.result.outputs:[])
+      .find(row=>row?.action==='system.exec');
+    let maintenance=null;
+    try{maintenance=JSON.parse(String(assessOutput?.stdout||'').trim())}catch{}
+    console.log('MINI_MAINTENANCE_ASSESS='+JSON.stringify({
+      status:String(assessCommand?.status||'TIMEOUT'),
+      proof:maintenance,
+      read_only:true,
+      flash_performed:false,
+      reset_performed:false
+    }));
     const serialListResult=proof.find(row=>row.action==='serial.list')?.result;
     const serialOutput=Array.isArray(serialListResult?.outputs)
       ? serialListResult.outputs.find(row=>row?.action==='serial.list')
