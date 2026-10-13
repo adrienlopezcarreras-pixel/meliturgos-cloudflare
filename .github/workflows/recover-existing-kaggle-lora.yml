@@ -56,6 +56,12 @@ jobs:
           set -euo pipefail
           python scripts/verify-existing-kaggle-lora-bundle.py artifacts/mel-lora-bundle.tar.gz \
             | tee artifacts/existing-lora-recovery-proof.json
+      - name: Verify safetensors matrix structure and exact rank offline
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/verify-c000-lora-structure.py artifacts/mel-lora-bundle.tar.gz \
+            | tee artifacts/existing-lora-structure-proof.json
       - name: Retain verified checkpoint (no activation)
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
@@ -63,5 +69,6 @@ jobs:
           path: |
             artifacts/mel-lora-bundle.tar.gz
             artifacts/existing-lora-recovery-proof.json
+            artifacts/existing-lora-structure-proof.json
           if-no-files-found: error
           retention-days: 30
