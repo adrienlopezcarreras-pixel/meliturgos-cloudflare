@@ -10,6 +10,8 @@ test("owner BLE diagnostic is fixed, bounded, read only",()=>{
  assert.match(command,/logcat -d -t 1500/);
  assert.match(command,/MULTIPLE_ADB_DEVICES_REFUSED/);
  assert.match(command,/ADB_TARGET_MODEL_NOT_APPROVED/);
+ assert.match(command,/esp_identity_verified=\$espIdentityVerified/);
+ assert.match(command,/VID_303A&PID_1001/);
  assert.match(command,/M2103K19G/);
  assert.match(command,/if\(\$status -eq 'ADB_CONNECTED'\)\{/);
  assert.match(command,/\$serial=\$Matches\[1\]/);
@@ -33,6 +35,7 @@ test("relay requests the fixed BLE action and never prints raw Android Bluetooth
  assert.match(relay,/COMPANION_BLE_DIAGNOSTICS/);
  assert.match(relay,/bluetooth_log_line_count/);
  assert.match(relay,/target_ready:targetReady/);
+ assert.match(relay,/bleProof\?\.esp_identity_verified===true/);
  assert.match(relay,/bleOutput\?\.exit_code===0/);
  assert.match(relay,/bleProof\?\.apk_install_performed===false/);
  assert.match(relay,/bleProof\.android_models\[0\]==='M2103K19G'/);
