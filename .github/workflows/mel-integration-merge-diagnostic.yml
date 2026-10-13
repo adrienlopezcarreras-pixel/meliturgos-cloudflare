@@ -34,6 +34,11 @@ jobs:
           git ls-files -u | cut -f2 | sort -u > merge-unmerged-paths.txt
           git status --short > merge-status.txt
           cat merge-output.txt >> merge-result.txt
+          echo "=== MERGE OUTPUT ==="
+          cat merge-output.txt
+          echo "=== UNMERGED PATHS ==="
+          cat merge-unmerged-paths.txt
+          echo "=== END DIAGNOSIS ==="
           printf '\n## Merge diagnosis\n' >> "$GITHUB_STEP_SUMMARY"
           printf 'Merge exit code: %s\n\n' "$code" >> "$GITHUB_STEP_SUMMARY"
           printf '### Unmerged paths\n' >> "$GITHUB_STEP_SUMMARY"
