@@ -108,3 +108,11 @@ test('bounded ShardVault probing prioritizes durable replacement providers', () 
   assert.match(source,/paste-c-net-public/);
   assert.match(source,/const probePool=requestedProbeLimit==null/);
 });
+
+test('isolated preview reserves at least seven real ShardVault promotion rounds', () => {
+  const workflow=fs.readFileSync(new URL('../.github/workflows/deploy-candidate-preview.yml',import.meta.url),'utf8');
+  const section=workflow.split('      - name: Live ShardVault external target probe')[1]
+    ?.split('      - name: Upload ShardVault live probe evidence')[0]||'';
+  assert.match(section,/for attempt in \{1\.\.10\}; do/);
+  assert.match(section,/d\.get\('target_reached'\) is True/);
+});

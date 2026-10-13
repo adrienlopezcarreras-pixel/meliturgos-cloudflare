@@ -698,7 +698,9 @@ jobs:
           set -euo pipefail
           BASE_URL="https://meliturgos-preview.adrien-lopezcarreras.workers.dev"
           ready=0
-          for attempt in 1 2 3 4; do
+          # One real, verified shard promotion per request; seven active targets
+          # need at least seven requests. Allow bounded retries for transient hosts.
+          for attempt in {1..10}; do
             HTTP_CODE="$(curl --show-error --silent --max-time 180 \
               --header "Authorization: Bearer ${MEL_PREVIEW_PASSWORD}" \
               --header "content-type: application/json" \
