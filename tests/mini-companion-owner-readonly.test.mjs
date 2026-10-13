@@ -22,7 +22,7 @@ test('OIDC permits discovery and fixed audit, not security or flash backup',()=>
  assert.ok(!allowed.includes('"mini.readonly.backup"'));
  assert.ok(!allowed.includes('"mini.readonly.backup.status"'));
  assert.ok(allowed.includes('"mini.readonly.backup.audit"'));
- assert.match(api,/action==="mini.readonly.discover"&&device\.metadata\?\.remote_access_enabled!==true/);
+ assert.ok(api.includes('["mini.readonly.discover","mini.readonly.backup.audit"].includes(action)&&device.metadata?.remote_access_enabled!==true'));
  assert.ok(relay.includes("action:'mini.readonly.discover'"));
  assert.ok(!relay.includes("action:'mini.readonly.security'"));
  assert.ok(!relay.includes("action:'mini.readonly.backup'"));
@@ -54,4 +54,13 @@ test('fixed stale-job audit is read-only and does not use COM3',()=>{
  assert.match(audit.command,/status.json/);
  assert.doesNotMatch(audit.command,/read_flash|write_flash|erase_flash|Stop-Process|SerialPort/);
  assert.match(relay,/MINI_BACKUP_STALE_AUDIT=/);
+});
+
+test('audit fails closed on process inventory errors and truncated results',()=>{
+ const audit=miniReadOnlyPcCommand('mini.readonly.backup.audit','COM3').command;
+ assert.match(audit,/Get-CimInstance Win32_Process -ErrorAction Stop/);
+ assert.match(audit,/powershell\|pwsh/);
+ assert.match(audit,/\$workerOverflow=\(\$candidates\.Count -gt 30\)/);
+ assert.match(audit,/-not \$workerOverflow -and \$age -gt 240/);
+ assert.match(audit,/inventory_limited=\$workerOverflow/);
 });
