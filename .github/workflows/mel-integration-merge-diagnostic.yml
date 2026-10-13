@@ -49,6 +49,8 @@ jobs:
           fi
           # Preserve full, bounded conflict context for manual resolution.
           git diff --cc -- .github/workflows/deploy-candidate-preview.yml src/continuity/shardvault-runtime.js tests/release-predeploy-backup-reuse.test.mjs tests/shardvault-github-code-mirror.test.mjs > merge-conflict-hunks.diff || true
+          echo '=== CONFLICT HUNKS (first 360 lines) ==='
+          sed -n '1,360p' merge-conflict-hunks.diff
           echo '=== CONFLICT HUNK COUNTS ==='
           for p in .github/workflows/deploy-candidate-preview.yml src/continuity/shardvault-runtime.js tests/release-predeploy-backup-reuse.test.mjs tests/shardvault-github-code-mirror.test.mjs; do
             printf '%s: ' "$p"; grep -c '^<<<<<<<' "$p" || true
