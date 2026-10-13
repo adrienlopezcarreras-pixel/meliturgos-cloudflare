@@ -191,7 +191,10 @@ async function ownerPcControl(request,env){
    effectivePayload={};
   }
  }
- if(action.startsWith("mini.readonly.")&&a.kind==="owner"){
+ if(action==="mini.readonly.backup.audit"&&a.kind==="owner"){
+  effectiveAction="system.exec";
+  effectivePayload=miniReadOnlyPcCommand(action,"COM3");
+ }else if(action.startsWith("mini.readonly.")&&a.kind==="owner"){
   if(action==="mini.readonly.backup.status"){ const jobId=safe(payload.job_id,32).toLowerCase();if(!/^[a-f0-9]{32}$/.test(jobId))return json({ok:false,code:"MINI_BACKUP_JOB_ID_INVALID"},400); }
   if(action==="mini.readonly.backup"&&payload.ack_local_backup!==true)return json({ok:false,code:"MINI_BACKUP_ACK_REQUIRED"},400);
   const port=safe(payload.port,16).toUpperCase();
