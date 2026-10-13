@@ -4,7 +4,7 @@ import {companionMcpHttp,MCP_HTTP_PATH} from '../src/devices/companion-mcp-http.
 const endpoint='https://mel.example.test'+MCP_HTTP_PATH;
 function request(method,body,headers={}){return new Request(endpoint,{method,headers:{'content-type':'application/json',...headers},...(body?{body:JSON.stringify(body)}:{})});}
 const services={
- authenticate:async()=>({subject:'owner-1'}),
+ authenticate:async()=>({subject:'owner-1',audience:'mel-companion-mcp',scope:'companion:status:read'}),
  authorizeDevice:async(user,id)=>user.subject==='owner-1'&&id==='win-1',
  readStatus:async(user,id)=>({id,online:true,halted:false,last_seen_at:1720000000000,secret:'HIDDEN'})
 };
@@ -56,4 +56,17 @@ test('non-json media type is rejected',async()=>{
 test('oversize content length denied',async()=>{
  const res=await companionMcpHttp(request('POST',{jsonrpc:'2.0',id:9,method:'tools/list'},{'content-length':'20000'}),services);
  assert.equal(res.status,413);
+});
+
+test('OAuth principal with wrong audience is denied',async()=>{
+ const res=await companionMcpHttp(request('POST',{jsonrpc:'2.0',id:10,method:'tools/list'}),{
+  ...services,authenticate:async()=>({subject:'owner-1',audience:'another-service',scope:'companion:status:read'})
+ });
+ assert.equal(res.status,403);
+});
+test('OAuth principal missing read scope is denied',async()=>{
+ const res=await companionMcpHttp(request('POST',{jsonrpc:'2.0',id:11,method:'tools/list'}),{
+  ...services,authenticate:async()=>({subject:'owner-1',audience:'mel-companion-mcp',scope:'other:read'})
+ });
+ assert.equal(res.status,403);
 });
