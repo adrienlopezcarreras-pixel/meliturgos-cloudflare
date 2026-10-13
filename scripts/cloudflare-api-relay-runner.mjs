@@ -132,6 +132,34 @@ async function main(){
         throw Object.assign(new Error('MINI_USB_INSPECT_FAILED'),{code:'MINI_USB_INSPECT_FAILED'});
       }
 
+      // Scoped no-reset discovery; untrusted binaries are rejected by SHA-256.
+      const toolSubmit=await worker('/api/computer/v1/pc-control',{
+        computer_id:computer.id,
+        action:'mini.readonly.discover',
+        payload:{port},
+      });
+      const toolId=String(toolSubmit?.command_id||'');
+      const toolDeadline=Date.now()+45000;
+      let toolCommand=null;
+      while(Date.now()<toolDeadline){
+        await new Promise(resolve=>setTimeout(resolve,1500));
+        const poll=await worker('/api/computer/v1/status?computer_id='+encodeURIComponent(computer.id),{},'GET');
+        const commands=Array.isArray(poll?.commands)?poll.commands:[];
+        toolCommand=commands.find(cmd=>String(cmd?.id||'')===toolId)||null;
+        if(['SUCCEEDED','FAILED'].includes(String(toolCommand?.status||''))) break;
+      }
+      const toolOutput=Array.isArray(toolCommand?.result?.outputs)
+        ? toolCommand.result.outputs.find(row=>row?.action==='system.exec')
+        : null;
+      let toolProof=null;
+      try{toolProof=JSON.parse(String(toolOutput?.stdout||'').trim()||'null')}catch{}
+      console.log('MINI_TOOL_DISCOVERY='+JSON.stringify({
+        port,status:String(toolCommand?.status||'TIMEOUT'),
+        error_code:toolCommand?.error_code||null,
+        exit_code:toolOutput?.exit_code??null,
+        proof:toolProof,automatic_reset_allowed:false,
+      }));
+
       const submit=await worker('/api/computer/v1/pc-control',{
         computer_id:computer.id,
         action:'serial.read',
