@@ -38,7 +38,7 @@ export async function companionMcpHttp(request,{authenticate,authorizeDevice,rea
  try{const raw=await request.text();if(raw.length>16384)return json({error:'REQUEST_TOO_LARGE'},413);body=JSON.parse(raw);}
  catch{return json(rpcError(null,-32700,'Parse error'),400);}
  if(!body||body.jsonrpc!=='2.0'||typeof body.method!=='string'||Array.isArray(body))return json(rpcError(body?.id??null,-32600,'Invalid Request'),400);
- if(body.id!==undefined && !(typeof body.id==='string'||typeof body.id==='number'&&Number.isFinite(body.id)))return json(rpcError(null,-32600,'Invalid Request id'),400);
+ if(body.id!==undefined && !(typeof body.id==='string'&&body.id.length<=128||typeof body.id==='number'&&Number.isSafeInteger(body.id)))return json(rpcError(null,-32600,'Invalid Request id'),400);
  if(body.id===undefined){
   // Only the MCP initialization acknowledgement is permitted as a notification.
   if(body.method==='notifications/initialized')return new Response(null,{status:202,headers});
