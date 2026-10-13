@@ -23,3 +23,9 @@ test('OAuth discovery is available only after explicit preview opt-in',async()=>
  const disabled=await worker.fetch(new Request('https://mcp.example.test/.well-known/oauth-protected-resource/mcp/companion/v1'),{...env,MCP_PREVIEW_ENABLED:'false'});
  assert.equal(disabled.status,503);
 });
+
+test('preview refuses collision with production database before OAuth discovery',async()=>{
+ const env={MCP_PREVIEW_ENABLED:'true',MCP_PREVIEW_ISOLATED:'true',MCP_PREVIEW_D1_ISOLATED:'true',MCP_PREVIEW_ORIGIN:'https://mcp.example.test',MCP_OAUTH_ISSUER:'https://issuer.example.test',MCP_PREVIEW_WORKER_NAME:'mcp-preview',MCP_PRODUCTION_WORKER_NAME:'mel-prod',MCP_PREVIEW_D1_DATABASE_ID:'d1-prod',MCP_PRODUCTION_D1_DATABASE_ID:'d1-prod',DB:{prepare:()=>({})}};
+ const response=await worker.fetch(new Request('https://mcp.example.test/.well-known/oauth-protected-resource'),env);
+ assert.equal(response.status,503);
+});
