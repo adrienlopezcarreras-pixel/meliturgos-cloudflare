@@ -1,0 +1,38 @@
+name: MEL isolated provisional merge
+on:
+  push:
+    branches:
+      - integration/mel-main-candidate-20261013
+    paths:
+      - '.github/workflows/mel-integration-provisional-merge.yml'
+permissions:
+  contents: write
+jobs:
+  integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+      - name: Merge main into isolated branch and validate
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF_NAME" = "integration/mel-main-candidate-20261013"
+          git config user.name "MEL isolated integration"
+          git config user.email "mel-integration@users.noreply.github.com"
+          git fetch --no-tags origin main
+          echo "Provisional integration only; production and candidate are never pushed."
+          git merge --no-commit --no-ff -X ours origin/main
+          test -z "$(git ls-files -u)"
+          git diff --cached --check
+          for f in src/continuity/shardvault-runtime.js scripts/fulfill-preview-code-mirror.mjs; do node --check "$f"; done
+          npm ci --ignore-scripts --no-audit --no-fund
+          node --test tests/shardvault-github-code-mirror.test.mjs tests/shardvault-github-authoritative-readback.test.mjs tests/release-predeploy-backup-reuse.test.mjs tests/preview-resource-isolation.test.mjs
+          git commit -m "merge(integration): provisional main sync preserving candidate conflict hunks"
+          git push origin HEAD:refs/heads/integration/mel-main-candidate-20261013
+          echo "### Provisional integration commit" >> "$GITHUB_STEP_SUMMARY"
+          git rev-parse HEAD >> "$GITHUB_STEP_SUMMARY"
+          echo "MANDATORY: full CI and fresh exact-SHA isolated preview before promotion." >> "$GITHUB_STEP_SUMMARY"
