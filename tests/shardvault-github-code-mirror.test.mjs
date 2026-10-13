@@ -33,7 +33,12 @@ test('GitHub mirror workflow is tightly bounded and proves the public raw object
   assert.match(mirrorWorkflow,/permissions:\s*\n\s*contents: write/);
   assert.match(mirrorWorkflow,/^\s*\[\[ "\$R2_KEY" =~ \^shardvault\/github-code-mirror-staging\//m);
   assert.match(mirrorWorkflow,/^\s*\[\[ "\$MIRROR_PATH" =~ \^shardvault-code\//m);
-  assert.match(runtime,/r2_bucket:env\?\.MEL_PREVIEW_ISOLATED==='true'\?'meliturgos-preview-media-bucket':'meliturgos-private-media'/);
+  assert.ok(runtime.includes("githubCodeMirrorBranch(env)==='shardvault-preview-mirror'?'meliturgos-preview-media-bucket':'meliturgos-private-media'"));
+  assert.ok(runtime.includes('mirror_branch:githubCodeMirrorBranch(env)'));
+  assert.ok(runtime.includes("'shardvault-preview-mirror' : GITHUB_CODE_MIRROR_BRANCH"));
+  assert.ok(mirrorWorkflow.includes('test "$MIRROR_BRANCH" = "shardvault-preview-mirror"'));
+  assert.ok(mirrorWorkflow.includes('test "$MIRROR_BRANCH" = "shardvault-mirror"'));
+  assert.ok(mirrorWorkflow.includes('MIRROR_BRANCH: ${{ inputs.mirror_branch }}'));
   assert.match(mirrorWorkflow,/\[\[ "\$R2_BUCKET" = "meliturgos-private-media" \|\| "\$R2_BUCKET" = "meliturgos-preview-media-bucket" \]\]/);
   assert.match(mirrorWorkflow,/\$\{R2_BUCKET\}\/\$\{R2_KEY\}/);
   assert.match(mirrorWorkflow,/wrangler r2 object get/);
