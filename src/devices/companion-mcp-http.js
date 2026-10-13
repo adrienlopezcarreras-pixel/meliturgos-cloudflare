@@ -44,7 +44,11 @@ export async function companionMcpHttp(request,{authenticate,authorizeDevice,rea
   if(body.method==='notifications/initialized')return new Response(null,{status:202,headers});
   return json(rpcError(null,-32600,'Unsupported notification'),400);
  }
- if(body.method==='initialize')return json(rpc(body.id,{protocolVersion:MCP_HTTP_PROTOCOL,capabilities:{tools:{}},serverInfo:{name:'mel-companion-remote-preview',version:'0.1.0'}}));
+ if(body.method==='initialize'){
+  const requested=body.params?.protocolVersion;
+  if(requested!==undefined&&typeof requested!=='string')return json(rpcError(body.id,-32602,'Invalid protocol version'),400);
+  return json(rpc(body.id,{protocolVersion:MCP_HTTP_PROTOCOL,capabilities:{tools:{}},serverInfo:{name:'mel-companion-remote-preview',version:'0.1.0'}}));
+ }
  if(body.method==='ping')return json(rpc(body.id,{}));
  if(body.method==='tools/list')return json(rpc(body.id,{tools:[tool]}));
  if(body.method!=='tools/call')return json(rpcError(body.id,-32601,'Method not found'));
