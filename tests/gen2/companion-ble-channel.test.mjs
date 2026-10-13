@@ -7,7 +7,7 @@ test("owner BLE diagnostic is fixed, bounded, read only",()=>{
  assert.equal(timeout_ms,25000);
  assert.equal(require_success_exit,true);
  assert.match(command,/mel\.companion\.ble\.diagnostics\.v1/);
- assert.match(command,/logcat -d -t 8000/);
+ assert.match(command,/logcat -d -t 2000/);
  assert.match(command,/MULTIPLE_ADB_DEVICES_REFUSED/);
  assert.match(command,/MelBleBridgeService/);
  assert.match(command,/mel_log_events=\$melEvents/);
