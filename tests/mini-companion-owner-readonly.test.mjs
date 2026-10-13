@@ -13,7 +13,7 @@ test('existing Companion is unchanged and supports pinned owner-only security vi
  assert.ok(api.includes('miniReadOnlyPcCommand(action,port)'));
  assert.match(api,/action\.startsWith\("mini\.readonly\."\)&&a\.kind!=="owner"&&action!=="mini\.readonly\.discover"/);
  assert.match(api,/MINI_BOOTLOADER_RESET_ACK_REQUIRED/);
- assert.match(api,/MINI_BACKUP_NEEDS_ASYNC_WORKER/);
+ assert.match(api,/mini.readonly.backup.status/);
 });
 test('OIDC permits only non-reset MINI discovery, not security or backup',()=>{
  const allowed=api.split('const PC_CONTROL_PROOF_ACTIONS=new Set(')[1].split(';')[0];
@@ -40,6 +40,6 @@ test('fixed read-only commands reject path injection and never approve flashing'
  const security=miniReadOnlyPcCommand('mini.readonly.security','COM3').command;
  assert.match(security,/get_security_info/);
  assert.match(security,/board_reset_possible=\$true/);
- assert.throws(()=>miniReadOnlyPcCommand('mini.readonly.backup','COM3'),/MINI_READONLY_ACTION_NOT_IMPLEMENTED/);
+ assert.match(miniReadOnlyPcCommand('mini.readonly.backup','COM3').command,/ota_backup_worker.py/);
  assert.throws(()=>miniReadOnlyPcCommand('mini.readonly.discover',"COM3';evil"),/MINI_READONLY_PORT_INVALID/);
 });

@@ -129,7 +129,7 @@ const PC_CONTROL_ACTIONS=new Set([
  "serial.list","serial.read","serial.inspect","serial.hard_reset",
  "process.list","process.start","process.kill",
  "file.list","file.read_text","file.write_text",
- "system.info","system.exec","mini.readonly.discover","mini.readonly.security","mini.readonly.backup"
+ "system.info","system.exec","mini.readonly.discover","mini.readonly.security","mini.readonly.backup","mini.readonly.backup.status"
 ]);
 const PC_CONTROL_PROOF_ACTIONS=new Set(["system.info","serial.list","serial.read","serial.inspect","mini.readonly.discover"]);
 
@@ -189,11 +189,12 @@ async function ownerPcControl(request,env){
   }
  }
  if(action.startsWith("mini.readonly.")&&a.kind==="owner"){
-  if(action==="mini.readonly.backup")return json({ok:false,code:"MINI_BACKUP_NEEDS_ASYNC_WORKER"},501);
+  if(action==="mini.readonly.backup.status"){ const jobId=safe(payload.job_id,32).toLowerCase();if(!/^[a-f0-9]{32}$/.test(jobId))return json({ok:false,code:"MINI_BACKUP_JOB_ID_INVALID"},400); }
+  if(action==="mini.readonly.backup"&&payload.ack_local_backup!==true)return json({ok:false,code:"MINI_BACKUP_ACK_REQUIRED"},400);
   const port=safe(payload.port,16).toUpperCase();
   if(!/^COM\d{1,3}$/.test(port))return json({ok:false,code:"MINI_READONLY_PORT_INVALID"},400);
   effectiveAction="system.exec";
-  effectivePayload=miniReadOnlyPcCommand(action,port);
+  effectivePayload=miniReadOnlyPcCommand(action,port,action==="mini.readonly.backup.status"?safe(payload.job_id,32).toLowerCase():null);
  }
  const session=safe(b.session_id)||crypto.randomUUID();
  const cid=crypto.randomUUID();
