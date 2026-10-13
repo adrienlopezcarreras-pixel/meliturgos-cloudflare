@@ -7,6 +7,8 @@ on:
       - 'tools/mel-companion-mcp.mjs'
       - 'tests/mel-companion-mcp.test.mjs'
       - 'tools/Test-MEL-Companion-MCP.ps1'
+      - 'src/devices/companion-mcp-http.js'
+      - 'tests/companion-mcp-http.test.mjs'
       - '.github/workflows/mel-companion-mcp-ci.yml'
   workflow_dispatch:
 permissions:
@@ -26,4 +28,4 @@ jobs:
         run: |
           node -e "const fs=require('fs'); const s=fs.readFileSync('tools/Test-MEL-Companion-MCP.ps1','utf8'); if(/Set-ExecutionPolicy|Invoke-Expression|Start-Process|winget install|Invoke-RestMethod|ConvertFrom-SecureString|Get-Content/i.test(s))process.exit(1)"
       - name: Offline MCP security contract
-        run: node --test tests/mel-companion-mcp.test.mjs
+        run: node --test tests/mel-companion-mcp.test.mjs tests/companion-mcp-http.test.mjs
