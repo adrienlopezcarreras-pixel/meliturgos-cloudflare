@@ -29,9 +29,14 @@ function Attempt-Reconnect {
     if ($last -match '^\d{1,3}(?:\.\d{1,3}){3}:\d{2,5}$') { $targets += $last }
   }
   foreach ($endpoint in ($targets | Select-Object -Unique | Select-Object -First 5)) {
-    $null=Run-Adb -arglist @("connect",$endpoint)
-    Set-Content -LiteralPath $saved -Value $endpoint -Encoding ASCII
-    if (Serial) { break }
+    $result=(Run-Adb -arglist @("connect",$endpoint)) -join "`n"
+    if ($result -match "(?i)(?:connected to|already connected to)\s+" -and $result -notmatch "(?i)(?:failed|unable|refused)") {
+      $serials=(Run-Adb -arglist @("devices","-l")) -join "`n"
+      if ($serials -match "(?m)^$([regex]::Escape($endpoint))\s+device(?:\s|$)") {
+        Set-Content -LiteralPath $saved -Value $endpoint -Encoding ASCII
+        break
+      }
+    }
   }
 }
 function Scan {
