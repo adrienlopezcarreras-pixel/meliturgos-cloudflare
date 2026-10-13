@@ -5,6 +5,8 @@ export const MCP_HTTP_PROTOCOL='2025-03-26';
 const tool={name:'mel_companion_status',description:'Read the authorized Windows Companion status only',inputSchema:{type:'object',properties:{computer_id:{type:'string',maxLength:200}},additionalProperties:false}};
 const headers={'cache-control':'no-store','x-content-type-options':'nosniff','content-type':'application/json'};
 const ALLOWED_PROTOCOLS=new Set(['2025-03-26']);
+const REQUIRED_AUDIENCE='mel-companion-mcp';
+const REQUIRED_SCOPE='companion:status:read';
 function json(data,status=200,extra={}){return new Response(JSON.stringify(data),{status,headers:{...headers,...extra}});}
 function rpc(id,result){return {jsonrpc:'2.0',id,result};}
 function rpcError(id,code,message){return {jsonrpc:'2.0',id,error:{code,message}};}
@@ -24,6 +26,11 @@ export async function companionMcpHttp(request,{authenticate,authorizeDevice,rea
  try{principal=await authenticate(request);}
  catch{return json({error:'AUTH_REQUIRED'},401,{'www-authenticate':'Bearer'});}
  if(!principal||typeof principal.subject!=='string'||!principal.subject.trim())return json({error:'AUTH_REQUIRED'},401,{'www-authenticate':'Bearer'});
+ // authenticate() must validate JWT signature, issuer, expiry and revocation.
+ // This boundary independently requires dedicated MCP audience and least-privilege scope.
+ const audiences=Array.isArray(principal.audience)?principal.audience:[principal.audience];
+ const scopes=Array.isArray(principal.scopes)?principal.scopes:String(principal.scope||'').split(/\\s+/);
+ if(!audiences.includes(REQUIRED_AUDIENCE)||!scopes.includes(REQUIRED_SCOPE))return json({error:'MCP_SCOPE_DENIED'},403);
  let body;
  try{const raw=await request.text();if(raw.length>16384)return json({error:'REQUEST_TOO_LARGE'},413);body=JSON.parse(raw);}
  catch{return json(rpcError(null,-32700,'Parse error'),400);}
