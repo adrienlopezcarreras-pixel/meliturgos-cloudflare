@@ -46,7 +46,20 @@ check('Android release version beyond legacy',!!appVersion&&!appVersion.startsWi
 check('MINI README describes current firmware',!!firmwareVersion&&firmwareReadme.includes(firmwareVersion),'warning','README must describe '+firmwareVersion);
 check('Android README describes actual UI',/Compose/.test(androidReadme)&&!/Activity native minimale/.test(androidReadme),'warning','README currently refers to an early prototype');
 check('Windows remote consent defaults off',/d\["remote_access_enabled"\] = false/.test(windows),'blocker','Local opt-in must be explicit');
-check('OIDC cannot hard reset MINI',/PC_CONTROL_PROOF_ACTIONS=new Set\(\["system.info","serial.list","serial.read","serial.inspect"\]\)/.test(api)&&!/action:'serial.hard_reset'/.test(relay),'blocker','Periodic GitHub relay is read-only');
+// The production OIDC proof set may gain new *read-only* diagnoses. Never
+// require a stale exact string or let reset/flash/install sneak into the relay.
+const allowedOidcReadOnly = new Set([
+ 'system.info','serial.list','serial.read','serial.inspect',
+ 'process.list','mini.readonly.discover','mini.readonly.backup.audit',
+ 'mini.maintenance.assess','android.maintenance.assess'
+]);
+const proofSetText = api.match(/const PC_CONTROL_PROOF_ACTIONS=new Set\\(\\[([^\\]]*)\\]\\)/)?.[1] || '';
+const proofActions = [...proofSetText.matchAll(/"([^"]+)"/g)].map(row=>row[1]);
+const safeOidcProofSet = proofActions.length > 0 &&
+ proofActions.every(action=>allowedOidcReadOnly.has(action)) &&
+ !proofActions.includes('serial.hard_reset') &&
+ !/action:'serial.hard_reset'|action:'mini.maintenance.flash'|action:'android.maintenance.install'/.test(relay);
+check('OIDC cannot hard reset MINI',safeOidcProofSet,'blocker','Periodic GitHub relay allows approved read-only diagnosis only');
 check('Legacy updater is not current',!/MEL-MINI-Updater-0\.4\.37/.test(updater),'warning','Old firmware updater must not be used as current');
 check('True OTA rollback proven',/CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y/.test(read('firmware/waveshare-terminal/sdkconfig.defaults')),'warning','Not verifiable on hardware in CI');
 
