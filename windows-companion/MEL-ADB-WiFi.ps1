@@ -37,7 +37,7 @@ function Attempt-Reconnect {
 function Scan {
   $id=Serial
   if (-not $id) { Attempt-Reconnect; $id=Serial }
-  $status=[ordered]@{schema="mel.adb-wifi-status.v1";observed_at_utc=(Get-Date).ToUniversalTime().ToString("o");adb_available=[bool]$adb;connected=[bool]$id;serial=$id;android_model=$null;android_version=$null;mel_package="fr.veriteinterdite.mel";mel_installed=$false;mel_version=$null}
+  $status=[ordered]@{schema="mel.adb-wifi-status.v1";observed_at_utc=(Get-Date).ToUniversalTime().ToString("o");adb_available=[bool]$adb;connected=[bool]$id;serial=$id;android_model=$null;android_version=$null;mel_package="fr.veriteinterdite.mel";mel_installed=$false;mel_version=$null;mel_version_code=$null}
   if ($id) {
     $status.android_model=((Run-Adb -arglist @("-s",$id,"shell","getprop","ro.product.model")) -join " ").Trim()
     $status.android_version=((Run-Adb -arglist @("-s",$id,"shell","getprop","ro.build.version.release")) -join " ").Trim()
@@ -46,6 +46,7 @@ function Scan {
     if ($status.mel_installed) {
       $details=(Run-Adb -arglist @("-s",$id,"shell","dumpsys","package","fr.veriteinterdite.mel")) -join "`n"
       if ($details -match 'versionName=([^\s]+)') { $status.mel_version=$Matches[1] }
+      if ($details -match 'versionCode=(\d+)') { $status.mel_version_code=[int64]$Matches[1] }
     }
   }
   $temp="$report.tmp"
@@ -56,8 +57,11 @@ function Scan {
 }
 do {
   try {
-    if (-not $adb) { throw "ADB_PLATFORM_TOOLS_MISSING" }
-    Scan
+    if (-not $adb) {
+      $status=[ordered]@{schema="mel.adb-wifi-status.v1";observed_at_utc=(Get-Date).ToUniversalTime().ToString("o");adb_available=$false;connected=$false;serial=$null;android_model=$null;android_version=$null;mel_package="fr.veriteinterdite.mel";mel_installed=$false;mel_version=$null;mel_version_code=$null;error="ADB_PLATFORM_TOOLS_MISSING"}
+      [IO.File]::WriteAllText("$report.tmp",($status | ConvertTo-Json -Depth 5),(New-Object Text.UTF8Encoding($false)))
+      Move-Item -LiteralPath "$report.tmp" -Destination $report -Force
+    } else { Scan }
   } catch {
     Add-Content -LiteralPath $log -Encoding UTF8 -Value ("{0} error={1}" -f (Get-Date).ToUniversalTime().ToString("o"),$_.Exception.Message)
   }
