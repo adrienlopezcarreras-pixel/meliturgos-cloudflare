@@ -52,3 +52,18 @@ test('Windows Companion honors strict exit codes for every Android maintenance r
  assert.match(asset,/SYSTEM_EXEC_NONZERO_EXIT_CODE/);
  assert.equal((api.match(/require_success_exit:true/g)||[]).length,4);
 });
+
+test('local Wi-Fi ADB pairing is bundled, interactive and never relays a pairing PIN',()=>{
+ const wizard=readFileSync('tools/android-companion/MEL-Android-WiFi-Pairing.ps1','utf8');
+ const build=readFileSync('scripts/build-windows-release.ps1','utf8');
+ const verify=readFileSync('scripts/verify-windows-release.ps1','utf8');
+ assert.match(wizard,/param\(\s*\[switch\]\$Pair/);
+ assert.match(wizard,/Read-Host 'Adresse IP:port d appairage/);
+ assert.match(wizard,/& \$adb pair \$pairAddress/);
+ assert.match(wizard,/& \$adb connect \$connectAddress/);
+ assert.match(wizard,/ANDROID_WIFI_PRIVATE_LAN_REQUIRED/);
+ assert.match(wizard,/ANDROID_ADB_CONNECTED_DEVICE_NOT_CONFIRMED/);
+ assert.doesNotMatch(wizard,/install -r|--pairing-code|Invoke-RestMethod|x-mel-github-oidc|Authorization=/);
+ assert.match(build,/tools\\android-companion\\MEL-Android-WiFi-Pairing.ps1/);
+ assert.match(verify,/WINDOWS_ANDROID_WIFI_PAIRING_HELPER_MISSING/);
+});
