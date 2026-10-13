@@ -23,6 +23,7 @@ on:
       - 'tests/capability-registry-exhaustive-audit.test.mjs'
       - 'tests/autonomy-capabilities.test.mjs'
       - 'tests/gen2/persistent-capability-stress.test.mjs'
+      - 'tests/persistent-capability-stress-workflow-safety.test.mjs'
 
 permissions:
   contents: read
@@ -44,7 +45,7 @@ jobs:
           cache: npm
       - run: npm ci
       - run: node --check scripts/persistent-capability-stress-live-proof.mjs
-      - run: node --test tests/capability-truth-audit.test.mjs tests/capability-registry-exhaustive-audit.test.mjs tests/autonomy-capabilities.test.mjs tests/gen2/persistent-capability-stress.test.mjs tests/release-production-smoke-routes.test.mjs
+      - run: node --test tests/capability-truth-audit.test.mjs tests/capability-registry-exhaustive-audit.test.mjs tests/autonomy-capabilities.test.mjs tests/gen2/persistent-capability-stress.test.mjs tests/release-production-smoke-routes.test.mjs tests/persistent-capability-stress-workflow-safety.test.mjs
 
   # The previous job wrote and deleted a temporary Cloudflare production secret
   # to launch stress. That is not a read-only proof, and it could remove a
