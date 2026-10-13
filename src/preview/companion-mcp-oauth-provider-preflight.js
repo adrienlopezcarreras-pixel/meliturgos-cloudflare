@@ -4,6 +4,8 @@ export function validateCompanionAuthorizationServerMetadata(metadata,{issuer}={
  for(const key of ['authorization_endpoint','token_endpoint','jwks_uri']){
   const value=metadata?.[key];
   if(typeof value!=='string'||!value.startsWith('https://'))throw Error('MCP_OAUTH_ENDPOINT_INVALID');
+  const endpoint=new URL(value);
+  if(endpoint.username||endpoint.password||endpoint.hash||endpoint.origin!==new URL(issuer).origin)throw Error('MCP_OAUTH_ENDPOINT_ORIGIN_MISMATCH');
  }
  if(!Array.isArray(metadata.token_endpoint_auth_methods_supported)||!metadata.token_endpoint_auth_methods_supported.includes('none'))throw Error('MCP_OAUTH_PUBLIC_CLIENT_REQUIRED');
  if(!Array.isArray(metadata.grant_types_supported)||!metadata.grant_types_supported.includes('authorization_code'))throw Error('MCP_OAUTH_GRANT_REQUIRED');
