@@ -57,13 +57,19 @@ test('manual tick without independently verified live Council remains unverified
   );
   assert.equal(response.status, 200);
   const body = await response.json();
-  // Work DAG's synthetic resume proof can independently be VERIFIED or
-  // NOT_VERIFIED depending on other safe fixture conditions. Neither status
-  // substitutes for a live Council with two proven zero-cost providers,
-  // required role coverage and MEL synthesis.
+  // The full npm test runner deliberately grants signed zero-cost
+  // provenance to Node-only mocked Workers AI; standalone CI does not.
+  // Neither mode is evidence of real paid inference or self-development.
+  const nodeMockGovernor = process.env.MEL_TEST_VERIFIED_ZERO_COST_PROVIDERS === '1';
   assert.ok(['VERIFIED','NOT_VERIFIED'].includes(body.tick.runtime_proof.status));
-  assert.equal(body.state.readiness.gates.live_council_zero_cost, false);
+  assert.equal(body.state.readiness.gates.live_council_zero_cost, nodeMockGovernor);
+  if (nodeMockGovernor) {
+    assert.equal(body.state.readiness.evidence.live_council_zero_cost?.required_roles_complete, true);
+    assert.equal(body.state.readiness.evidence.live_council_zero_cost?.mel_synthesis_complete, true);
+    assert.equal(body.state.readiness.evidence.live_council_zero_cost?.verified_zero_cost_governance, true);
+  } else {
+    assert.ok(body.state.readiness.blockers.includes('LIVE_COUNCIL_ZERO_COST_NOT_PROVEN'));
+  }
   assert.equal(body.state.readiness.gates.runtime_teacher_round_trip, false);
   assert.equal(body.state.readiness.self_development_ready, false);
-  assert.ok(body.state.readiness.blockers.includes('LIVE_COUNCIL_ZERO_COST_NOT_PROVEN'));
 });
