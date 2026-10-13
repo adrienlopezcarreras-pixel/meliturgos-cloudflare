@@ -32,6 +32,10 @@ test("relay requests the fixed BLE action and never prints raw Android Bluetooth
  assert.match(relay,/action:'mini\.android\.ble\.diagnose',payload:\{\}/);
  assert.match(relay,/COMPANION_BLE_DIAGNOSTICS/);
  assert.match(relay,/bluetooth_log_line_count/);
+ assert.match(relay,/target_ready:targetReady/);
+ assert.match(relay,/bleOutput\?\.exit_code===0/);
+ assert.match(relay,/bleProof\?\.apk_install_performed===false/);
+ assert.match(relay,/bleProof\.android_models\[0\]==='M2103K19G'/);
  assert.match(relay,/gatt_connection_seen/);
  assert.match(relay,/pairing_removed_seen/);
  assert.match(relay,/pairing_failure_seen/);
