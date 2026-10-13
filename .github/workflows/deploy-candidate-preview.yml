@@ -709,21 +709,51 @@ jobs:
               --write-out '%{http_code}' \
               "${BASE_URL}/api/gen2/shardvault/search" || true)"
             echo "ShardVault discovery attempt ${attempt}: HTTP ${HTTP_CODE}"
+            # Preserve the first seven genuinely qualified endpoints as one
+            # bounded proof. Subsequent calls promote them one shard at a time,
+            # so the latest response alone need not qualify seven NEW targets.
+            if [ "${HTTP_CODE}" = "200" ]; then
+              python - <<'PY'
+          import json, os
+          from pathlib import Path
+          try:
+              d=json.loads(Path('shardvault-live-probe.json').read_text(encoding='utf-8'))
+              expected=int(os.environ.get('MEL_CRITICAL_CODE_SHARD_BYTES') or 0)
+              valid=(d.get('ok') is True
+                  and int(d.get('required_bytes') or 0)>=expected
+                  and int(d.get('probed') or 0)>=6
+                  and int(d.get('representative_validated_count') or 0)>=7
+                  and len(d.get('representative_validated_endpoint_ids') or [])>=7
+                  and d.get('representative_archive_source')=='CRITICAL_BUNDLE'
+                  and d.get('representative_critical_status')=='COPIED')
+              if valid:
+                  keys=('discovered','probed','representative_probed','representative_qualified',
+                        'representative_validated_count','representative_validated_endpoint_ids',
+                        'required_bytes','representative_archive_bytes')
+                  Path('shardvault-qualification-proof.json').write_text(
+                      json.dumps({k:d.get(k) for k in keys}),encoding='utf-8')
+                  print('SHARDVAULT_SEVEN_QUALIFIED_PROOF_SAVED')
+          except Exception:
+              print('SHARDVAULT_QUALIFICATION_NOT_PROVEN')
+          PY
+            fi
             if [ "${HTTP_CODE}" = "200" ] && python - <<'PY'
           import json, os
           from pathlib import Path
           try:
               d=json.loads(Path('shardvault-live-probe.json').read_text(encoding='utf-8'))
+              proof=Path('shardvault-qualification-proof.json')
           except Exception:
               raise SystemExit(1)
           expected=int(os.environ.get('MEL_CRITICAL_CODE_SHARD_BYTES') or 0)
           raise SystemExit(0 if (
-              d.get('ok') is True
+              proof.is_file()
+              and d.get('ok') is True
               and int(d.get('required_bytes') or 0) >= expected
-              and int(d.get('probed') or 0) >= 6
-              and int(d.get('representative_validated_count') or 0) >= 7
-              and len(d.get('representative_validated_endpoint_ids') or []) >= 7
+              and int(d.get('active_external_count') or 0) >= 7
+              and len(d.get('active_endpoint_ids') or []) >= 7
               and d.get('target_reached') is True
+              and (d.get('code_sync') or {}).get('status') == 'DEFERRED_SEPARATE_OPERATION'
           ) else 1)
           PY
             then
@@ -756,18 +786,19 @@ jobs:
           import json, os
           from pathlib import Path
           data=json.loads(Path('shardvault-live-probe.json').read_text(encoding='utf-8'))
-          discovered=int(data.get('discovered') or 0)
-          probed=int(data.get('probed') or 0)
+          qualification=json.loads(Path('shardvault-qualification-proof.json').read_text(encoding='utf-8'))
+          discovered=int(qualification.get('discovered') or 0)
+          probed=int(qualification.get('probed') or 0)
           active=int(data.get('active_external_count') or 0)
           required_bytes=int(data.get('required_bytes') or 0)
           expected_required_bytes=int(os.environ.get('MEL_CRITICAL_CODE_SHARD_BYTES') or 0)
           archive_source=str(data.get('representative_archive_source') or '')
           archive_bytes=int(data.get('representative_archive_bytes') or 0)
           critical_status=str(data.get('representative_critical_status') or '')
-          representative_probed=int(data.get('representative_probed') or 0)
-          representative_qualified=int(data.get('representative_qualified') or 0)
-          representative_validated=int(data.get('representative_validated_count') or 0)
-          representative_ids=list(data.get('representative_validated_endpoint_ids') or [])
+          representative_probed=int(qualification.get('representative_probed') or 0)
+          representative_qualified=int(qualification.get('representative_qualified') or 0)
+          representative_validated=int(qualification.get('representative_validated_count') or 0)
+          representative_ids=list(qualification.get('representative_validated_endpoint_ids') or [])
           selected=len(data.get('selected') or [])
           if data.get('ok') is not True:
               raise SystemExit('SHARDVAULT_SEARCH_FAILED: '+str(data.get('error') or data.get('status')))
@@ -785,6 +816,8 @@ jobs:
               raise SystemExit(f'SHARDVAULT_REPRESENTATIVE_VALIDATED_LT_7: representative_validated={representative_validated} active_historical={active}')
           if len(representative_ids) < 7:
               raise SystemExit(f'SHARDVAULT_REPRESENTATIVE_IDS_LT_7: ids={representative_ids}')
+          if int(data.get('active_external_count') or 0)<7 or len(data.get('active_endpoint_ids') or [])<7:
+              raise SystemExit('SHARDVAULT_ACTIVE_REGISTRY_LT_7')
           if data.get('target_reached') is not True:
               raise SystemExit('SHARDVAULT_TARGET_NOT_REACHED')
           if (data.get('code_sync') or {}).get('status') != 'DEFERRED_SEPARATE_OPERATION':

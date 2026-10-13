@@ -116,3 +116,14 @@ test('isolated preview reserves at least seven real ShardVault promotion rounds'
   assert.match(section,/for attempt in \{1\.\.10\}; do/);
   assert.match(section,/d\.get\('target_reached'\) is True/);
 });
+
+test('preview ShardVault retains seven qualification receipts until seven distinct live activations', () => {
+  const workflow=fs.readFileSync(new URL('../.github/workflows/deploy-candidate-preview.yml',import.meta.url),'utf8');
+  const section=workflow.split('      - name: Live ShardVault external target probe')[1]
+    ?.split('      - name: Upload ShardVault live probe evidence')[0]||'';
+  assert.match(section,/shardvault-qualification-proof\\.json/);
+  assert.match(section,/int\\(d\\.get\\('active_external_count'\\) or 0\\) >= 7/);
+  assert.match(section,/len\\(d\\.get\\('active_endpoint_ids'\\) or \\[\\]\\) >= 7/);
+  assert.match(section,/qualification\\.get\\('representative_validated_count'\\)/);
+  assert.match(section,/SHARDVAULT_ACTIVE_REGISTRY_LT_7/);
+});
