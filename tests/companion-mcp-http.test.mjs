@@ -84,3 +84,12 @@ test('initialized notification receives 202 but unknown notifications are denied
  const other=await companionMcpHttp(request('POST',{jsonrpc:'2.0',method:'tools/call',params:{name:'mel_companion_status',arguments:{computer_id:'win-1'}}}),services);
  assert.equal(other.status,400);
 });
+
+test('malformed JSON-RPC ids cannot call Companion status',async()=>{
+ let called=0;
+ for(const id of [{nested:1},[],null]){
+  const res=await companionMcpHttp(request('POST',{jsonrpc:'2.0',id,method:'tools/call',params:{name:'mel_companion_status',arguments:{computer_id:'win-1'}}}),{...services,readStatus:async()=>{called++;return {id:'win-1',online:true};}});
+  assert.equal(res.status,400);
+ }
+ assert.equal(called,0);
+});
