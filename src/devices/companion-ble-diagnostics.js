@@ -24,9 +24,9 @@ if($adb){
    if($LASTEXITCODE -ne 0){$status='ADB_MODEL_READ_FAILED'}else{$models=@($model | Select-Object -First 2)}
    if($status -eq 'ADB_CONNECTED' -and ($models.Count -ne 1 -or $models[0].Trim() -cne 'M2103K19G')){$status='ADB_TARGET_MODEL_NOT_APPROVED'}
    if($status -eq 'ADB_CONNECTED'){
-    $raw=@(& $adb -s $id logcat -d -t 1500 -v time 2>&1 | ForEach-Object { [string]$_ })
+    $raw=@(& $adb -s $id logcat -d -t 8000 -v time 2>&1 | ForEach-Object { [string]$_ })
     if($LASTEXITCODE -ne 0){$status='ADB_LOGCAT_FAILED'}
-    else {$events=@($raw | Where-Object { $_ -match 'BluetoothGatt|BondState|BtGatt|MelLinkV2|SESSION_OK|btm_sec|SMP|pairing' } | Select-Object -Last 45 | ForEach-Object { $line=([string]$_ -replace '(?i)\b(?:[0-9a-f]{2}:){5}[0-9a-f]{2}\b','[BLE_ADDRESS_REDACTED]' -replace '(?i)\b(?:[0-9a-f]{2}-){5}[0-9a-f]{2}\b','[BLE_ADDRESS_REDACTED]');$line.Substring(0,[Math]::Min(280,$line.Length)) })}
+    else {$events=@($raw | Where-Object { $_ -match 'BluetoothGatt|BluetoothLeScanner|BondState|BtGatt|MelLinkV2|MelBleBridgeService|SESSION_OK|onServicesDiscovered|onConnectionStateChange|btm_sec|SMP|pairing' } | Select-Object -Last 45 | ForEach-Object { $line=([string]$_ -replace '(?i)\b(?:[0-9a-f]{2}:){5}[0-9a-f]{2}\b','[BLE_ADDRESS_REDACTED]' -replace '(?i)\b(?:[0-9a-f]{2}-){5}[0-9a-f]{2}\b','[BLE_ADDRESS_REDACTED]');$line.Substring(0,[Math]::Min(280,$line.Length)) })}
    }
   }elseif($serials.Count -gt 1){$status='MULTIPLE_ADB_DEVICES_REFUSED'}else{$status='NO_PAIRED_ADB_WIFI_DEVICE'}
  }
