@@ -3,6 +3,7 @@ name: android-apk-build
 on:
   push:
     branches:
+      - fix/android-0711-inapp-updater-no-adb-20261013
       - candidate/mel-clean-autonomy
       - main
     paths:
