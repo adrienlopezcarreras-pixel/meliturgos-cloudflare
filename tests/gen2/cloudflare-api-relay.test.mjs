@@ -89,3 +89,12 @@ test('Cloudflare relay exposes only sanitized published MINI firmware metadata',
   assert.doesNotMatch(api, /mini-firmware-status[\s\S]{0,2500}object\.body/);
   assert.match(runner, /MINI_PUBLISHED_FIRMWARE_STATUS=/);
 });
+
+test('scheduled MINI audit relay can follow successful decoupled production proof independently', async () => {
+  const workflow = await readFile(new URL('../../.github/workflows/cloudflare-api-relay.yml', import.meta.url), 'utf8');
+  assert.match(workflow, /workflows: \["deploy-cloudflare-release", "release-downstream-proof-decoupled"\]/);
+  assert.match(workflow, /github\.event\.workflow_run\.conclusion == 'success'/);
+  assert.match(workflow, /cancel-in-progress: false/);
+  assert.match(workflow, /id-token: write/);
+  assert.doesNotMatch(workflow, /serial\.reset|write_flash|erase_flash/);
+});
