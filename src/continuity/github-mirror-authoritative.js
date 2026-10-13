@@ -24,7 +24,7 @@ export async function readAuthoritativeGitHubMirror(rawUrl,{fetchImpl=fetch,maxB
   // the URL, log it, or follow a redirect to an unexpected origin.
   const headers={'accept':'application/vnd.github+json','cache-control':'no-cache','user-agent':'MEL-ShardVault/1.0'};
   const token=typeof readToken==='string'?readToken.trim():'';
-  if(token&&!/[\\r\\n]/.test(token))headers.authorization='Bearer '+token;
+  if(token&&!/[\r\n]/.test(token))headers.authorization='Bearer '+token;
   let response;
   try{
     response=await fetchImpl(url,{method:'GET',redirect:'error',headers},12000);
