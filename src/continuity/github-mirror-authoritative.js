@@ -31,8 +31,14 @@ export async function readAuthoritativeGitHubMirror(rawUrl,{fetchImpl=fetch,maxB
   }catch{return null;}
   if(!response?.ok)return null;
   const headerSize=Number(response.headers?.get?.('content-length')||0);
-  const maxEncoded=Math.ceil(maxBytes/3)*4+4096;
-  if(headerSize>0&&headerSize>maxEncoded+2048)return null;
+  const maxEncoded=Math.ceil(maxBytes/3)*4;
+  // GitHub Contents JSON line-wraps base64 (typically every 60 chars).
+  // Escaped newlines cost two wire bytes each, plus metadata. The previous
+  // 6 KiB allowance rejected valid ~275 KiB fragments before parsing.
+  // Keep a bounded JSON envelope while separately enforcing the exact
+  // unwrapped base64 and decoded byte limits below.
+  const maxJsonEnvelope=Math.ceil(maxEncoded*1.2)+16384;
+  if(headerSize>0&&(!Number.isSafeInteger(headerSize)||headerSize>maxJsonEnvelope))return null;
   let data;
   try{data=await response.json();}catch{return null;}
   if(data?.type!=='file'||data?.encoding!=='base64'||typeof data?.content!=='string')return null;
