@@ -18,7 +18,7 @@ test('isolated Worker: signed OAuth token, D1 grant, status and revocation',asyn
   if(sql.includes('FROM computer_devices')){reads++;return {id:first,halted:0,last_seen_at:Date.now()-1000,token_hash:'DO_NOT_EXPOSE'};}
   throw Error('Unexpected SQL');
  }})})};
- const env={MCP_PREVIEW_ENABLED:'true',MCP_PREVIEW_ISOLATED:'true',MCP_PREVIEW_D1_ISOLATED:'true',MCP_PREVIEW_ORIGIN:'https://preview.example.test',MCP_OAUTH_ISSUER:'https://issuer.example.test',MCP_OAUTH_JWKS:JSON.stringify({keys:[jwk]}),DB:db};
+ const env={MCP_PREVIEW_ENABLED:'true',MCP_PREVIEW_ISOLATED:'true',MCP_PREVIEW_D1_ISOLATED:'true',MCP_PREVIEW_WORKER_NAME:'mcp-preview',MCP_PRODUCTION_WORKER_NAME:'mel-prod',MCP_PREVIEW_D1_DATABASE_ID:'d1-preview',MCP_PRODUCTION_D1_DATABASE_ID:'d1-prod',MCP_PREVIEW_ORIGIN:'https://preview.example.test',MCP_OAUTH_ISSUER:'https://issuer.example.test',MCP_OAUTH_JWKS:JSON.stringify({keys:[jwk]}),DB:db};
  const request=()=>new Request('https://preview.example.test/mcp/companion/v1',{method:'POST',headers:{authorization:'Bearer '+token,'content-type':'application/json',accept:'application/json, text/event-stream'},body:JSON.stringify({jsonrpc:'2.0',id:1,method:'tools/call',params:{name:'mel_companion_status',arguments:{computer_id:'win-1'}}})});
  const response=await worker.fetch(request(),env);
  assert.equal(response.status,200);
