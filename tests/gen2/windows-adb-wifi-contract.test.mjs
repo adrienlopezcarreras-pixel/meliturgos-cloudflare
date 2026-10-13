@@ -59,3 +59,10 @@ test("ADB identity must be verified before reporting a connected Android phone",
   assert.match(script, /IsNullOrWhiteSpace\(\$status\.android_model\)/);
   assert.match(script, /IsNullOrWhiteSpace\(\$status\.android_version\)/);
 });
+
+
+test("Failed ADB process exit cannot masquerade as successful device telemetry", async () => {
+  const script = await source("windows-companion/MEL-ADB-WiFi.ps1");
+  assert.match(script, /\$LASTEXITCODE -ne 0/);
+  assert.match(script, /ADB_COMMAND_FAILED/);
+});
