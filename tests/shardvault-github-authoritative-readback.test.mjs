@@ -84,7 +84,7 @@ test('scoped preview GitHub token is passed only to the fixed Contents API as an
 test('realistic GitHub Content-Length with escaped wrapped base64 is accepted for 275 KiB fragments',async()=>{
   const bytes=Uint8Array.from({length:274554},(_,i)=>((i*79+11)%256));
   const b64=Buffer.from(bytes).toString('base64');
-  const wrapped=b64.match(/.{1,60}/g).join('\\n');
+  const wrapped=b64.match(/.{1,60}/g).join(String.fromCharCode(10));
   const body=JSON.stringify({type:'file',encoding:'base64',size:bytes.length,content:wrapped,name:'code-a-shard-06-github.bin'});
   const oldHeaderLimit=Math.ceil(bytes.length/3)*4+4096+2048;
   assert.ok(Buffer.byteLength(body)>oldHeaderLimit,'reproduce previous false rejection');
