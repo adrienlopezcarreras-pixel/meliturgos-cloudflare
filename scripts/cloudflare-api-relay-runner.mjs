@@ -110,6 +110,19 @@ async function main(){
       candidates:matchingProcesses,process_inventory_is_not_commandline_proof:true,
       flash_performed:false,reset_performed:false
     }));
+    const auditSubmit=await worker('/api/computer/v1/pc-control',{computer_id:computer.id,action:'mini.readonly.backup.audit',payload:{}});
+    const auditId=String(auditSubmit?.command_id||'');
+    const auditDeadline=Date.now()+25000;
+    let auditCommand=null;
+    while(Date.now()<auditDeadline){
+      await new Promise(resolve=>setTimeout(resolve,1000));
+      const poll=await worker('/api/computer/v1/status?computer_id='+encodeURIComponent(computer.id),{},'GET');
+      auditCommand=(Array.isArray(poll?.commands)?poll.commands:[]).find(row=>String(row?.id||'')===auditId)||null;
+      if(['SUCCEEDED','FAILED'].includes(String(auditCommand?.status||'')))break;
+    }
+    const auditOutput=(Array.isArray(auditCommand?.result?.outputs)?auditCommand.result.outputs:[]).find(row=>row?.action==='system.exec');
+    let backupAudit=null;try{backupAudit=JSON.parse(String(auditOutput?.stdout||'').trim())}catch{}
+    console.log('MINI_BACKUP_STALE_AUDIT='+JSON.stringify({status:String(auditCommand?.status||'TIMEOUT'),proof:backupAudit,read_only:true}));
     const serialListResult=proof.find(row=>row.action==='serial.list')?.result;
     const serialOutput=Array.isArray(serialListResult?.outputs)
       ? serialListResult.outputs.find(row=>row?.action==='serial.list')
