@@ -3,6 +3,7 @@
 export function validateCompanionMcpPreviewEnv(env){
  if(env?.MCP_PREVIEW_ENABLED!=='true')throw Error('MCP_PREVIEW_DISABLED');
  if(env?.MCP_PREVIEW_ISOLATED!=='true')throw Error('MCP_PREVIEW_NOT_ISOLATED');
+ if(env?.MCP_PREVIEW_D1_ISOLATED!=='true')throw Error('MCP_PREVIEW_D1_ISOLATION_UNVERIFIED');
  if(typeof env?.DB?.prepare!=='function')throw Error('MCP_PREVIEW_D1_REQUIRED');
  const origin=String(env.MCP_PREVIEW_ORIGIN||'');
  const issuer=String(env.MCP_OAUTH_ISSUER||'');
