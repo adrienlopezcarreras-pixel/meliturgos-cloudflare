@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createPreviewCompanionMcpHandler} from '../src/devices/companion-mcp-preview-runtime.js';
-const config={MCP_OAUTH_ISSUER:'https://issuer.example.test',MCP_PREVIEW_ORIGIN:'https://mcp.example.test',MCP_OAUTH_JWKS:JSON.stringify({keys:[{kid:'x'}]})};
+const config={MCP_OAUTH_ISSUER:'https://issuer.example.test',MCP_PREVIEW_ORIGIN:'https://mcp.example.test',MCP_OAUTH_JWKS:JSON.stringify({keys:[{kid:'x',kty:'RSA',alg:'RS256',use:'sig',n:'test-public-modulus',e:'AQAB'}]})};
 test('preview runtime refuses absent security bindings',()=>{
  assert.throws(()=>createPreviewCompanionMcpHandler({}),/MCP_PREVIEW_CONFIGURATION_INCOMPLETE/);
  assert.throws(()=>createPreviewCompanionMcpHandler({...config}),/MCP_PREVIEW_CONFIGURATION_INCOMPLETE/);
