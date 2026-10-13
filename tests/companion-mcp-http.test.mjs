@@ -77,3 +77,10 @@ test('explicit Streamable HTTP Accept supports both media types',async()=>{
  const bad=await companionMcpHttp(request('POST',{jsonrpc:'2.0',id:13,method:'tools/list'},{accept:'text/html'}),services);
  assert.equal(bad.status,406);
 });
+
+test('initialized notification receives 202 but unknown notifications are denied',async()=>{
+ const initialized=await companionMcpHttp(request('POST',{jsonrpc:'2.0',method:'notifications/initialized'}),services);
+ assert.equal(initialized.status,202);
+ const other=await companionMcpHttp(request('POST',{jsonrpc:'2.0',method:'tools/call',params:{name:'mel_companion_status',arguments:{computer_id:'win-1'}}}),services);
+ assert.equal(other.status,400);
+});
