@@ -7,7 +7,7 @@ const INSTALL="\n$serial='__SERIAL__';$sha='__SHA__'\nif($serial -notmatch '^([0
 export function androidMaintenancePcCommand(action,{serial='',sha256=''}={}){
  if(action==='android.maintenance.assess')return {command:HEAD+ASSESS,timeout_ms:25000};
  if(action!=='android.maintenance.install')throw new Error('ANDROID_MAINTENANCE_ACTION_NOT_ALLOWED');
- if(!/^([0-9]{1,3}\\.){3}[0-9]{1,3}:[0-9]{4,5}$/.test(serial))throw new Error('ANDROID_WIFI_SERIAL_INVALID');
+ if(!/^([0-9]{1,3}\.){3}[0-9]{1,3}:[0-9]{4,5}$/.test(serial))throw new Error('ANDROID_WIFI_SERIAL_INVALID');
  if(!/^[a-f0-9]{64}$/i.test(sha256))throw new Error('ANDROID_APK_SHA256_INVALID');
  const script=HEAD+INSTALL.replaceAll('__SERIAL__',serial).replaceAll('__SHA__',sha256.toLowerCase());
  if(script.length>8192)throw new Error('ANDROID_MAINTENANCE_COMMAND_TOO_LONG');
