@@ -38,15 +38,15 @@ def read_flash(exe, port, offset, size, destination, stage=None):
             "read_flash", hex(offset), hex(size), str(destination)]
     log = destination.parent / ((stage or destination.stem) + ".esptool.log")
     with log.open("x", encoding="utf-8") as output:
-        output.write("stage=" + (stage or destination.stem) + " offset=" + hex(offset) + " bytes=" + str(size) + "\\n")
+        output.write("stage=" + (stage or destination.stem) + " offset=" + hex(offset) + " bytes=" + str(size) + "\n")
         output.flush()
         try:
             result = subprocess.run(args, stdout=output, stderr=subprocess.STDOUT, timeout=180, check=False)
         except subprocess.TimeoutExpired:
-            output.write("\\nESPTOOL_READ_TIMEOUT\\n")
+            output.write("\nESPTOOL_READ_TIMEOUT\n")
             raise
         if result.returncode:
-            output.write("\\nESPTOOL_READ_FAILED_" + str(result.returncode) + "\\n")
+            output.write("\nESPTOOL_READ_FAILED_" + str(result.returncode) + "\n")
             raise RuntimeError("ESPTOOL_READ_FAILED_" + str(result.returncode))
     if not destination.is_file() or destination.stat().st_size != size:
         raise ValueError("READBACK_SIZE_MISMATCH")
