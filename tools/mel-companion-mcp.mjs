@@ -20,6 +20,7 @@ function error(id,code,message){process.stdout.write(JSON.stringify({jsonrpc:'2.
 async function getStatus(args){
  if(!validUrl)throw new Error('MEL_MCP_SERVER_URL_MUST_BE_HTTPS_ORIGIN');
  if(!ownerToken)throw new Error('MEL_MCP_OWNER_TOKEN_NOT_SET');
+ if(ownerToken.length>4096||/[\r\n]/.test(ownerToken))throw new Error('MEL_MCP_OWNER_TOKEN_INVALID');
  const u=new URL('/api/computer/v1/status',serverUrl);
  if(args.computer_id)u.searchParams.set('computer_id',args.computer_id);
  const controller=new AbortController();
