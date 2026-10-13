@@ -1,8 +1,8 @@
 // Owner-authenticated, fixed PowerShell read-only diagnostic sent through existing Companion system.exec.
 // Never accepts a caller-supplied command, tool path or ESP flash write.
 const EXPECTED_ESPTOOL_SHA="069db0f1e4d8f929f36d0f60243499eb670626c03a686376728998aaaad2f664";
-export function miniReadOnlyPcCommand(action,port){
- if(!["mini.readonly.discover","mini.readonly.security"].includes(action))throw new Error("MINI_READONLY_ACTION_NOT_IMPLEMENTED");
+export function miniReadOnlyPcCommand(action,port,jobId=null){
+ if(!["mini.readonly.discover","mini.readonly.security","mini.readonly.backup","mini.readonly.backup.status"].includes(action))throw new Error("MINI_READONLY_ACTION_NOT_IMPLEMENTED");
  if(!/^COM\d{1,3}$/.test(port))throw new Error("MINI_READONLY_PORT_INVALID");
  const mode=action.split(".")[2];
  const script=String.raw`
