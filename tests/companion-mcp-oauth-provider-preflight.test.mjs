@@ -1,0 +1,11 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {validateCompanionAuthorizationServerMetadata as check} from '../src/preview/companion-mcp-oauth-provider-preflight.js';
+const issuer='https://issuer.example.test';
+const metadata={issuer,authorization_endpoint:issuer+'/authorize',token_endpoint:issuer+'/token',jwks_uri:issuer+'/keys',code_challenge_methods_supported:['S256'],response_types_supported:['code']};
+test('accept reviewed issuer with HTTPS authorization code PKCE S256',()=>assert.equal(check(metadata,{issuer}).pkce,'S256'));
+test('reject different issuer, HTTP token endpoint and missing PKCE',()=>{
+ assert.throws(()=>check({...metadata,issuer:'https://other.example.test'},{issuer}),/MCP_ISSUER_MISMATCH/);
+ assert.throws(()=>check({...metadata,token_endpoint:'http://issuer.example.test/token'},{issuer}),/MCP_OAUTH_ENDPOINT_INVALID/);
+ assert.throws(()=>check({...metadata,code_challenge_methods_supported:['plain']},{issuer}),/MCP_OAUTH_PKCE_REQUIRED/);
+});
