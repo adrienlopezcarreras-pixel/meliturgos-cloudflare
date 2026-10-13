@@ -51,3 +51,11 @@ test("Wi-Fi endpoint is persisted only after confirmed ADB connection to that en
   assert.match(reconnect, /already connected to/);
   assert.ok(reconnect.includes('failed|unable|refused'));
 });
+
+
+test("ADB identity must be verified before reporting a connected Android phone", async () => {
+  const script = await source("windows-companion/MEL-ADB-WiFi.ps1");
+  assert.match(script, /ADB_DEVICE_IDENTITY_UNVERIFIED/);
+  assert.match(script, /IsNullOrWhiteSpace\(\$status\.android_model\)/);
+  assert.match(script, /IsNullOrWhiteSpace\(\$status\.android_version\)/);
+});
