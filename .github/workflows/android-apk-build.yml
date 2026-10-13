@@ -3,6 +3,7 @@ name: android-apk-build
 on:
   push:
     branches:
+      - fix/android-0711-inapp-updater-no-adb-20261013
       - candidate/mel-clean-autonomy
       - main
     paths:
@@ -61,7 +62,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          node --test tests/android-companion-source-contract.test.mjs tests/android-companion-api.test.mjs
+          node --test tests/android-companion-source-contract.test.mjs tests/android-companion-api.test.mjs tests/android-local-apk-update.test.mjs
 
       - name: Run Android companion unit tests
         working-directory: android-companion
