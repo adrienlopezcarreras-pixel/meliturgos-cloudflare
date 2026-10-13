@@ -175,10 +175,11 @@ async function main(){
         bleProof?.read_only===true&&bleProof?.serial_opened===false&&bleProof?.flash_performed===false;
       const bleLines=accepted&&Array.isArray(bleProof.log_events)?bleProof.log_events.map(value=>String(value)):[];
       const bleSignals={
-        gatt_connection_seen:bleLines.some(line=>/onClientConnectionState.*status=0|onConnectionStateChange.*status=0/i.test(line)),
+        gatt_connection_seen:bleLines.some(line=>/(?:onClientConnectionState|onConnectionStateChange).*status=0.*(?:newState=2|connected=true|state=CONNECTED)/i.test(line)),
         pairing_removed_seen:bleLines.some(line=>/Bond removed|bondState=10|BOND_NONE/i.test(line)),
         pairing_started_seen:bleLines.some(line=>/bondState=11|BOND_BONDING/i.test(line)),
         session_ok_seen:bleLines.some(line=>/SESSION_OK/i.test(line)),
+        pairing_failure_seen:bleLines.some(line=>/smp_proc_pairing_cmpl.*(?:status=(?!0\b)[1-9]\d*|failed)|pairing failed|auth(?:entication)? fail/i.test(line)),
         service_discovery_seen:bleLines.some(line=>/discoverServices|onServicesDiscovered/i.test(line))
       };
       console.log('COMPANION_BLE_DIAGNOSTICS='+JSON.stringify({
