@@ -342,7 +342,7 @@ test('Windows Companion 2.3.12 watchdogs and self-refreshes the engine for local
 test('scoped OIDC MINI USB inspection maps only serial.inspect to a fixed local system probe',async()=>{
   const api=await readFile(new URL('../src/devices/computer-companion-api.js',import.meta.url),'utf8');
   const relay=await readFile(new URL('../scripts/cloudflare-api-relay-runner.mjs',import.meta.url),'utf8');
-  assert.ok(api.includes('"mini.readonly.discover","process.list"'));
+  assert.ok(api.includes('"mini.readonly.discover","process.list","mini.readonly.backup.audit"'));
   assert.match(api,/action==="serial\.inspect"/);
   assert.match(api,/effectiveAction="system\.exec"/);
   assert.match(api,/Get-CimInstance Win32_PnPEntity/);
