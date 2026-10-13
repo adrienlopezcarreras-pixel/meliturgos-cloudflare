@@ -26,7 +26,7 @@ test('fixed read-only commands reject path injection and never approve flashing'
   assert.ok(command.length<8192);
   assert.ok(timeout_ms<=120000);
   assert.match(command,/069db0f1e4d8f929f36d0f60243499eb670626c03a686376728998aaaad2f664/);
-  assert.match(command,/USB\\VID_303A/);
+  assert.ok(command.includes('VID_303A&PID_1001'));
   assert.ok(!command.includes('write_flash'));
   assert.ok(!command.includes('erase_flash'));
  }
