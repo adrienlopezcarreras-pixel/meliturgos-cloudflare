@@ -47,7 +47,12 @@ function initialHealthDetail(env, definition) {
   if (directAdapter(env, definition.id)) return null;
   if (companion(env)) return 'MEDIA_COMPANION_HEALTH_NOT_YET_VERIFIED';
   if (definition.operation === 'generate' && generationProvider(env, definition.kind)) return null;
-  return 'MEDIA_ADAPTER_NOT_CONFIGURED_OR_FREE_PROOF_MISSING';
+  // This is a passive, code-only explanation of missing prerequisites,
+  // not a live provider-health or successful model inference claim.
+  const reason=env?.MEL_MEDIA_MISSING_REASONS?.[definition.id];
+  return typeof reason==='string' && /^MEDIA_[A-Z_]{1,100}$/.test(reason)
+    ? reason
+    : 'MEDIA_ADAPTER_NOT_CONFIGURED_OR_FREE_PROOF_MISSING';
 }
 
 async function health(env, definition) {
