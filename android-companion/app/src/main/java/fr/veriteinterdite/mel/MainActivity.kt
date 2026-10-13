@@ -127,6 +127,10 @@ import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import java.io.ByteArrayOutputStream
@@ -233,6 +237,28 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    // No developer options required: Android itself displays the installer.
+    private val melUpdatePicker = registerForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            lifecycleScope.launch {
+                val candidate = runCatching {
+                    withContext(Dispatchers.IO) { MelLocalApkUpdate.prepare(this@MainActivity, uri) }
+                }
+                candidate.onSuccess { prepared ->
+                    runCatching { MelLocalApkUpdate.requestInstaller(this@MainActivity, prepared) }
+                        .onSuccess { opened ->
+                            voiceMessage.value = if (opened)
+                                "Installation MEL proposée par Android · confirme sur le téléphone"
+                            else "Autorise MEL à installer les APK, puis sélectionne le fichier à nouveau"
+                        }
+                        .onFailure { voiceMessage.value = "Installation Android indisponible : ${it.message}" }
+                }.onFailure { voiceMessage.value = "Mise à jour refusée : ${it.message}" }
+            }
+        }
+    }
+
     private val filePicker = registerForActivityResult(
         ActivityResultContracts.OpenDocument()
     ) { uri ->
@@ -317,6 +343,7 @@ class MainActivity : ComponentActivity() {
                     onVoicePress = ::beginPushToTalk,
                     onVoiceRelease = ::endPushToTalk,
                     onFile = ::pickFile,
+                    onLocalApkUpdate = { melUpdatePicker.launch(arrayOf("application/vnd.android.package-archive")) },
                     onNotifications = ::enableNotifications,
                     onDiagnostics = model::runDiagnostics,
                     onCopyDiagnostic = ::copyDiagnostic,
@@ -1417,6 +1444,7 @@ internal fun MelApp(
     onVoicePress: () -> Unit,
     onVoiceRelease: () -> Unit,
     onFile: () -> Unit,
+    onLocalApkUpdate: () -> Unit = {},
     onNotifications: () -> Unit,
     onDiagnostics: () -> Unit,
     onCopyDiagnostic: (String) -> Unit,
@@ -1470,6 +1498,7 @@ internal fun MelApp(
                 onVoicePress = onVoicePress,
                 onVoiceRelease = onVoiceRelease,
                 onFile = onFile,
+                onLocalApkUpdate = onLocalApkUpdate,
                 onNotifications = onNotifications,
                 onDiagnostics = onDiagnostics,
                 onCopyDiagnostic = onCopyDiagnostic,
@@ -1843,6 +1872,7 @@ private fun ConversationScreen(
     onVoicePress: () -> Unit,
     onVoiceRelease: () -> Unit,
     onFile: () -> Unit,
+    onLocalApkUpdate: () -> Unit,
     onNotifications: () -> Unit,
     onDiagnostics: () -> Unit,
     onCopyDiagnostic: (String) -> Unit,
@@ -1954,6 +1984,7 @@ private fun ConversationScreen(
                     onMode = onMode,
                     onSync = onSync,
                     onFile = onFile,
+                    onLocalApkUpdate = onLocalApkUpdate,
                     onNotifications = onNotifications,
                     onDiagnostics = onDiagnostics,
                     onCopyDiagnostic = onCopyDiagnostic,
@@ -2919,6 +2950,7 @@ private fun NativeToolsPanel(
     onMode: (MelMode) -> Unit,
     onSync: () -> Unit,
     onFile: () -> Unit,
+    onLocalApkUpdate: () -> Unit,
     onNotifications: () -> Unit,
     onDiagnostics: () -> Unit,
     onCopyDiagnostic: (String) -> Unit,
@@ -2962,6 +2994,12 @@ private fun NativeToolsPanel(
             OutlinedButton(onClick = onSync, modifier = Modifier.weight(1f), enabled = !state.busy) { Text("Synchroniser") }
             OutlinedButton(onClick = onFile, modifier = Modifier.weight(1f), enabled = !state.busy) { Text("Fichier") }
         }
+        Spacer(Modifier.height(7.dp))
+        OutlinedButton(
+            onClick = onLocalApkUpdate,
+            modifier = Modifier.fillMaxWidth().testTag("local-mel-apk-update-button"),
+            enabled = !state.busy
+        ) { Text("METTRE À JOUR MEL (SANS DÉBOGAGE)") }
         Spacer(Modifier.height(7.dp))
         OutlinedButton(
             onClick = onNotifications,
