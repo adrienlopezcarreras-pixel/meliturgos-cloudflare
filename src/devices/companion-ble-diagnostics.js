@@ -12,7 +12,7 @@ $adb=(Get-Command adb.exe -ErrorAction SilentlyContinue | Select-Object -First 1
 if(-not $adb){
  foreach($candidate in @((Join-Path $env:LOCALAPPDATA 'Android\platform-tools\adb.exe'),(Join-Path $env:LOCALAPPDATA 'Android\Sdk\platform-tools\adb.exe'))){if(Test-Path -LiteralPath $candidate -PathType Leaf){$adb=$candidate;break}}
 }
-$status='ADB_UNAVAILABLE';$models=@();$events=@()
+$status='ADB_UNAVAILABLE';$models=@();$events=@();$melEvents=@()
 if($adb){
  $devices=@(& $adb devices -l 2>&1 | ForEach-Object { [string]$_ })
  if($LASTEXITCODE -ne 0){$status='ADB_DEVICES_FAILED'}
@@ -27,11 +27,12 @@ if($adb){
     $raw=@(& $adb -s $id logcat -d -t 8000 -v time 2>&1 | ForEach-Object { [string]$_ })
     if($LASTEXITCODE -ne 0){$status='ADB_LOGCAT_FAILED'}
     else {$events=@($raw | Where-Object { $_ -match 'BluetoothGatt|BluetoothLeScanner|BondState|BtGatt|MelLinkV2|MelBleBridgeService|SESSION_OK|onServicesDiscovered|onConnectionStateChange|btm_sec|SMP|pairing' } | Select-Object -Last 45 | ForEach-Object { $line=([string]$_ -replace '(?i)\b(?:[0-9a-f]{2}:){5}[0-9a-f]{2}\b','[BLE_ADDRESS_REDACTED]' -replace '(?i)\b(?:[0-9a-f]{2}-){5}[0-9a-f]{2}\b','[BLE_ADDRESS_REDACTED]');$line.Substring(0,[Math]::Min(280,$line.Length)) })}
+    $melEvents=@($raw | Where-Object { $_ -match 'MelLinkV2|MelBleBridgeService|SESSION_OK|onServicesDiscovered|onConnectionStateChange' } | Select-Object -Last 20 | ForEach-Object { $line=([string]$_ -replace '(?i)\b(?:[0-9a-f]{2}:){5}[0-9a-f]{2}\b','[BLE_ADDRESS_REDACTED]' -replace '(?i)\b(?:[0-9a-f]{2}-){5}[0-9a-f]{2}\b','[BLE_ADDRESS_REDACTED]');$line.Substring(0,[Math]::Min(280,$line.Length)) })
    }
   }elseif($serials.Count -gt 1){$status='MULTIPLE_ADB_DEVICES_REFUSED'}else{$status='NO_PAIRED_ADB_WIFI_DEVICE'}
  }
 }
-[ordered]@{schema='mel.companion.ble.diagnostics.v1';action='mini.android.ble.diagnose';observed_at_utc=$stamp;port=$port;com_present=($ports -contains $port);esp_identity_verified=$espIdentityVerified;pnp=$pnp;adb_status=$status;android_models=$models;log_events=$events;read_only=$true;serial_opened=$false;flash_performed=$false;apk_install_performed=$false}|ConvertTo-Json -Depth 6 -Compress`.replaceAll("__PORT__",port);
+[ordered]@{schema='mel.companion.ble.diagnostics.v1';action='mini.android.ble.diagnose';observed_at_utc=$stamp;port=$port;com_present=($ports -contains $port);esp_identity_verified=$espIdentityVerified;pnp=$pnp;adb_status=$status;android_models=$models;log_events=$events;mel_log_events=$melEvents;read_only=$true;serial_opened=$false;flash_performed=$false;apk_install_performed=$false}|ConvertTo-Json -Depth 6 -Compress`.replaceAll("__PORT__",port);
  if(command.length>6500)throw new Error("BLE_DIAGNOSTICS_COMMAND_TOO_LONG");
  return {command,timeout_ms:25000,require_success_exit:true};
 }
