@@ -56,8 +56,10 @@ jobs:
             printf '%s: ' "$p"; grep -c '^<<<<<<<' "$p" || true
           done
           git merge --abort >/dev/null 2>&1 || true
+          if [ "$code" -ne 0 ]; then echo "MERGE_CONFLICTS_REQUIRE_RESOLUTION"; exit 1; fi
           # Read-only diagnosis: no commit, push, secret access, or production deployment.
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: mel-integration-merge-diagnostic
           path: |
