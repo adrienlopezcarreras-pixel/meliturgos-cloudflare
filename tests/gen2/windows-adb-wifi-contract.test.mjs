@@ -32,3 +32,11 @@ test("ADB Wi-Fi status includes installed Android versionCode and handles unavai
   assert.match(script, /versionCode=/);
   assert.match(script, /ADB_PLATFORM_TOOLS_MISSING/);
 });
+
+
+test("ADB diagnostics failures invalidate previously connected status", async () => {
+  const script = await source("windows-companion/MEL-ADB-WiFi.ps1");
+  assert.match(script, /ADB_DIAGNOSTIC_FAILED/);
+  assert.match(script, /connected=\$false/);
+  assert.match(script, /Move-Item -LiteralPath "\$report\.tmp" -Destination \$report -Force/);
+});
