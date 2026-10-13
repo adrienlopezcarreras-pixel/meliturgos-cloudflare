@@ -20,3 +20,11 @@ test("pc-control exposes scoped command but not caller-controlled shell",async()
  assert.match(src,/effectivePayload=companionBleDiagnosticsCommand\("COM3"\)/);
  assert.match(src,/REMOTE_ACCESS_DISABLED_LOCALLY/);
 });
+
+test("relay requests the fixed BLE action and never prints raw Android Bluetooth logs",async()=>{
+ const relay=await readFile(new URL("../../scripts/cloudflare-api-relay-runner.mjs",import.meta.url),"utf8");
+ assert.match(relay,/action:'mini\.android\.ble\.diagnose',payload:\{\}/);
+ assert.match(relay,/COMPANION_BLE_DIAGNOSTICS/);
+ assert.match(relay,/bluetooth_log_line_count/);
+ assert.doesNotMatch(relay,/console\.log\([^\n]*(?:bleProof\.log_events|bleOutput\.stdout)/);
+});
