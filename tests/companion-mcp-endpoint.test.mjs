@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {createCompanionMcpEndpoint} from '../src/devices/companion-mcp-endpoint.js';
 
 test('cannot construct endpoint without device binding',()=>{
- assert.throws(()=>createCompanionMcpEndpoint({issuer:'https://issuer.example.test',jwks:{keys:[]},revoked:async()=>false}),/MCP_DEVICE_BINDING_REQUIRED/);
+ assert.throws(()=>createCompanionMcpEndpoint({issuer:'https://issuer.example.test',jwks:{keys:[]},revoked:async()=>false,readStatus:async()=>({})}),/MCP_DEVICE_LOOKUP_REQUIRED/);
 });
 test('cannot construct endpoint without revocation lookup',()=>{
  assert.throws(()=>createCompanionMcpEndpoint({issuer:'https://issuer.example.test',jwks:{keys:[]},lookupOwnerDevice:async(subject,id)=>({owner_subject:subject,device_id:id,paired:true}),readStatus:async()=>({})}),/MCP_AUTH_CONFIG_INCOMPLETE/);
