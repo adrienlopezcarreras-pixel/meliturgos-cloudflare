@@ -61,3 +61,11 @@ test('MCP initialize, ping and unsupported method are explicit',async()=>{
  assert.deepEqual(results[0].result,{});
  assert.equal(results[1].error.code,-32601);
 });
+
+test('invalid owner token with newline is rejected before network access',async()=>{
+ const results=await request([{jsonrpc:'2.0',id:10,method:'tools/call',params:{name:'mel_companion_status',arguments:{}}}],{
+  MEL_MCP_SERVER_URL:'https://example.com/',MEL_MCP_OWNER_TOKEN:'bad\nheader'
+ });
+ assert.equal(results[0].result.isError,true);
+ assert.match(results[0].result.content[0].text,/MEL_MCP_OWNER_TOKEN_INVALID/);
+});
