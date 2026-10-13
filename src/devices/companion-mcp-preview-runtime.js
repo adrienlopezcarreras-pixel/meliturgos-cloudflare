@@ -8,7 +8,7 @@ export function createPreviewCompanionMcpHandler(env){
  let jwks;
  try {jwks=JSON.parse(env?.MCP_OAUTH_JWKS||'null');}catch{throw Error('MCP_JWKS_CONFIGURATION_INVALID');}
  if(!issuer.startsWith('https://')||!allowedOrigin.startsWith('https://')||
-    !Array.isArray(jwks?.keys)||jwks.keys.length<1||typeof env?.DB?.prepare!=='function')
+    !Array.isArray(jwks?.keys)||jwks.keys.length<1||jwks.keys.some(k=>k?.kty!=='RSA'||k?.alg!=='RS256'||k?.use!=='sig'||typeof k?.kid!=='string'||!k.kid||typeof k?.n!=='string'||typeof k?.e!=='string'||'d' in k)||typeof env?.DB?.prepare!=='function')
   throw Error('MCP_PREVIEW_CONFIGURATION_INCOMPLETE');
  const revoked=async fingerprint=>{
   const row=await env.DB.prepare('SELECT token_hash FROM companion_mcp_token_revocations WHERE token_hash=? LIMIT 1').bind(fingerprint).first();
