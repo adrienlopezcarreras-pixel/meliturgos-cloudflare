@@ -172,7 +172,11 @@ async function main(){
       let bleProof=null;
       try{bleProof=JSON.parse(String(bleOutput?.stdout||'').trim())}catch{}
       const accepted=bleCommand?.status==='SUCCEEDED'&&bleProof?.schema==='mel.companion.ble.diagnostics.v1'&&
-        bleProof?.read_only===true&&bleProof?.serial_opened===false&&bleProof?.flash_performed===false;
+        bleProof?.read_only===true&&bleProof?.serial_opened===false&&bleProof?.flash_performed===false&&
+        bleProof?.apk_install_performed===false&&bleOutput?.exit_code===0;
+      const targetReady=accepted&&bleProof?.com_present===true&&bleProof?.adb_status==='ADB_CONNECTED'&&
+        Array.isArray(bleProof?.android_models)&&bleProof.android_models.length===1&&
+        bleProof.android_models[0]==='M2103K19G';
       const bleLines=accepted&&Array.isArray(bleProof.log_events)?bleProof.log_events.map(value=>String(value)):[];
       const bleSignals={
         gatt_connection_seen:bleLines.some(line=>/(?:onClientConnectionState|onConnectionStateChange).*status=0.*(?:newState=2|connected=true|state=CONNECTED)/i.test(line)),
@@ -185,6 +189,7 @@ async function main(){
       console.log('COMPANION_BLE_DIAGNOSTICS='+JSON.stringify({
         status:String(bleCommand?.status||'TIMEOUT'),
         evidence_valid:accepted,
+        target_ready:targetReady,
         com3_present:accepted?bleProof.com_present===true:null,
         adb_status:accepted?String(bleProof.adb_status||'UNKNOWN').slice(0,60):null,
         bluetooth_log_line_count:bleLines.length,signals:accepted?bleSignals:null,
