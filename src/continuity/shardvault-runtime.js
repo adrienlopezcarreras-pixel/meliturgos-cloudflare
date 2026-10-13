@@ -2,6 +2,7 @@ import { buildShardVaultMemoryPayload } from './shardvault-memory-export.js';
 import { discoverAutonomousRepositories, invalidateRepresentativeProof } from './autonomous-repositories.js';
 import { D1GitHubActionRelayStore } from '../platform/github-action-relay.js';
 import { allowCodeEndpointForShard } from './shardvault-code-target-policy.js';
+import { readAuthoritativeGitHubMirror } from './github-mirror-authoritative.js';
 
 const te = new TextEncoder();
 const HOUR = 60 * 60 * 1000;
@@ -353,6 +354,14 @@ async function githubCodeMirrorUpload(env,e,objectId,payload){
     const existing=await fetchTimed(verifyUrl,{method:'GET',headers:{'accept':'application/octet-stream','cache-control':'no-cache'}},15000);
     if(existing.ok){const got=new Uint8Array(await existing.arrayBuffer());if(byteArraysEqual(got,payload))return {remoteUrl};}
   }catch{}
+  // A successful GitHub Contents read is independent of the raw CDN. A
+  // verified byte-for-byte copy is sufficient even when the optional D1
+  // workflow relay has not consumed its queued marker yet. No local R2
+  // bytes are counted as external mirror proof.
+  try{
+    const published=await readAuthoritativeGitHubMirror(remoteUrl,{fetchImpl:fetchTimed,maxBytes:payload.length});
+    if(published&&byteArraysEqual(published,payload))return {remoteUrl};
+  }catch{}
   const pendingKey=githubMirrorPendingKey(id,objectId);
   const stagingKey=githubMirrorStagingKey(id,objectId);
   let pending=await readJsonObject(env.MEDIA_BUCKET,pendingKey);
@@ -620,9 +629,20 @@ async function download(env,e,objectId,descriptor=null){
     if(!remote)throw new Error(`READ_${e.id}_REMOTE_URL_MISSING`);
     const readUrl=publicUrl(remote,`READ_${e.id}_REMOTE`);
     readUrl.searchParams.set('mel_verify',String(Date.now()));
-    const r=await fetchTimed(readUrl,{method:'GET',headers:{'accept':'application/octet-stream','cache-control':'no-cache'}},20000);
-    if(!r.ok)throw new Error(`READ_${e.id}_${r.status}`);
-    return new Uint8Array(await r.arrayBuffer());
+    try{
+      const r=await fetchTimed(readUrl,{method:'GET',headers:{'accept':'application/octet-stream','cache-control':'no-cache'}},20000);
+      if(r.ok){
+        const rawBytes=new Uint8Array(await r.arrayBuffer());
+        if(!Number.isSafeInteger(descriptor?.byteLength)||descriptor.byteLength===rawBytes.length)
+          return rawBytes;
+      }
+    }catch{}
+    // The exact public GitHub object may precede raw CDN propagation.
+    // Recovery still verifies shard MAC and reconstruction independently.
+    const published=await readAuthoritativeGitHubMirror(remote,{fetchImpl:fetchTimed,
+      maxBytes:Number(descriptor?.byteLength)||8*1024*1024});
+    if(!published)throw new Error(`READ_${e.id}_EXTERNAL_MIRROR_UNAVAILABLE`);
+    return published;
   }
   if(e.adapter==='pastemyst_b64'){
     if(!remote)throw new Error(`READ_${e.id}_REMOTE_URL_MISSING`);
