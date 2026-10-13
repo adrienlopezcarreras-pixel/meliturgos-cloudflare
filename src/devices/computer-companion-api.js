@@ -3,6 +3,7 @@ import { authorizeGitHubActionsOidcRequest } from "../security/github-actions-oi
 import { evaluateComputerUsePlan } from "./computer-use.js";
 import { getVerifiedShardVaultCodeArchive } from "../continuity/shardvault-runtime.js";
 import { isLocalSovereigntyAction } from "../portability/local-sovereignty-actions.js";
+import { miniReadOnlyPcCommand } from "./mini-readonly-companion.js";
 
 export const COMPUTER_API_BASE="/api/computer/v1";
 export const COMPUTER_ROUTES=Object.freeze({
@@ -180,6 +181,13 @@ async function ownerPcControl(request,env){
   }else{
    effectivePayload={};
   }
+ }
+ if(action.startsWith("mini.readonly.")){
+  if(action==="mini.readonly.backup")return json({ok:false,code:"MINI_BACKUP_NEEDS_ASYNC_WORKER"},501);
+  const port=safe(payload.port,16).toUpperCase();
+  if(!/^COM\d{1,3}$/.test(port))return json({ok:false,code:"MINI_READONLY_PORT_INVALID"},400);
+  effectiveAction="system.exec";
+  effectivePayload=miniReadOnlyPcCommand(action,port);
  }
  const session=safe(b.session_id)||crypto.randomUUID();
  const cid=crypto.randomUUID();
