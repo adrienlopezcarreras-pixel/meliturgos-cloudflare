@@ -26,9 +26,9 @@ jobs:
         run: node --test tests/capability-production-readonly-inventory.test.mjs tests/capability-production-safe-execution.test.mjs
 
   actual-readonly-proof:
-    # This gate starts deny-all; after PR creation it will be pinned to its
-    # exact PR number and owner branch to avoid a fork dispatching production probes.
-    if: ${{ false }}
+    # Exact number, owner and same-repo branch only: a fork or unrelated PR
+    # cannot trigger the strictly allowlisted live read/echo evidence.
+    if: ${{ github.repository == 'adrienlopezcarreras-pixel/meliturgos-cloudflare' && github.event_name == 'pull_request' && github.event.pull_request.number == 1292 && github.event.pull_request.base.ref == 'main' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'proof/capability-four-live-readonly-main' && github.event.pull_request.user.login == 'adrienlopezcarreras-pixel' }}
     needs: contract
     runs-on: ubuntu-24.04
     timeout-minutes: 7
