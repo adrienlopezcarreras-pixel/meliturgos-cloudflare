@@ -3,10 +3,11 @@ import {companionMcpHttp} from './companion-mcp-http.js';
 import {makeCompanionMcpAuthenticator} from './companion-mcp-authenticator.js';
 import {createCompanionDeviceAuthorization} from './companion-mcp-device-authorization.js';
 import {makeCompanionD1DeviceLookup} from './companion-mcp-d1-lookup.js';
+import {makeCompanionD1StatusReader} from './companion-mcp-d1-status.js';
 import {checkCompanionMcpTransport} from './companion-mcp-transport-gate.js';
 
-export function createCompanionMcpEndpoint({issuer,jwks,revoked,db,readStatus,allowedOrigin}={}){
- if(typeof readStatus!=='function')throw new Error('MCP_STATUS_PROVIDER_REQUIRED');
+export function createCompanionMcpEndpoint({issuer,jwks,revoked,db,allowedOrigin}={}){
+ const readStatus=makeCompanionD1StatusReader(db);
  const lookupOwnerDevice=makeCompanionD1DeviceLookup(db);
  const authorizeDevice=createCompanionDeviceAuthorization({lookupOwnerDevice});
  const authenticate=makeCompanionMcpAuthenticator({issuer,jwks,revoked});
