@@ -149,6 +149,42 @@ async function main(){
       flash_performed:false,
       reset_performed:false
     }));
+
+    // Scheduled Windows APK transport audit. OIDC cannot install or pair Android.
+    try {
+      const androidSubmit=await worker('/api/computer/v1/pc-control',{
+        computer_id:computer.id,action:'android.maintenance.assess',payload:{}
+      });
+      const androidId=String(androidSubmit?.command_id||'');
+      const androidDeadline=Date.now()+30000;
+      let androidCommand=null;
+      while(Date.now()<androidDeadline){
+        await new Promise(resolve=>setTimeout(resolve,1200));
+        const poll=await worker('/api/computer/v1/status?computer_id='+encodeURIComponent(computer.id),{},'GET');
+        androidCommand=(Array.isArray(poll?.commands)?poll.commands:[])
+          .find(row=>String(row?.id||'')===androidId)||null;
+        if(['SUCCEEDED','FAILED'].includes(String(androidCommand?.status||'')))break;
+      }
+      const androidOutput=(Array.isArray(androidCommand?.result?.outputs)?androidCommand.result.outputs:[])
+        .find(row=>row?.action==='system.exec');
+      let androidProof=null;
+      try{androidProof=JSON.parse(String(androidOutput?.stdout||'').trim())}catch{}
+      const sanitized=androidProof?.schema==='mel.android.maintenance.assess/v1'
+        ? {schema:androidProof.schema,authorized_wifi_count:Number(androidProof.wifi_adb_paired_count)||0,device_count:Array.isArray(androidProof.devices)?androidProof.devices.length:0}
+        : null;
+      console.log('ANDROID_COMPANION_MAINTENANCE_ASSESS='+JSON.stringify({
+        status:String(androidCommand?.status||'TIMEOUT'),
+        exit_code:androidOutput?.exit_code??null,
+        proof:sanitized,
+        install_performed:false
+      }));
+    }catch(error){
+      console.log('ANDROID_COMPANION_MAINTENANCE_ASSESS='+JSON.stringify({
+        status:'UNVERIFIED',
+        reason:String(error?.code||'ANDROID_ASSESS_UNAVAILABLE').slice(0,80),
+        install_performed:false
+      }));
+    }
     const serialListResult=proof.find(row=>row.action==='serial.list')?.result;
     const serialOutput=Array.isArray(serialListResult?.outputs)
       ? serialListResult.outputs.find(row=>row?.action==='serial.list')
