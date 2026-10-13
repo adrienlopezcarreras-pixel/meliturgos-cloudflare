@@ -69,3 +69,18 @@ test('invalid owner token with newline is rejected before network access',async(
  assert.equal(results[0].result.isError,true);
  assert.match(results[0].result.content[0].text,/MEL_MCP_OWNER_TOKEN_INVALID/);
 });
+
+test('owner authenticated status response hides internal details',async()=>{
+ const results=await request([{jsonrpc:'2.0',id:11,method:'tools/call',params:{name:'mel_companion_status',arguments:{computer_id:'win-1'}}}],{
+  MEL_MCP_SERVER_URL:'https://mel.example.test/',
+  MEL_MCP_OWNER_TOKEN:'local-fixture-secret',
+  NODE_OPTIONS:'--import=./tests/fixtures/mel-mcp-fetch-mock.mjs'
+ });
+ assert.equal(results[0].result.isError,undefined);
+ const output=results[0].result.content[0].text;
+ const data=JSON.parse(output);
+ assert.equal(data.devices[0].online,true);
+ assert.equal(data.commands[0].status,'SUCCEEDED');
+ assert.equal(output.includes('DO_NOT_EXPOSE'),false);
+ assert.equal(output.includes('SECRET_HOST'),false);
+});
