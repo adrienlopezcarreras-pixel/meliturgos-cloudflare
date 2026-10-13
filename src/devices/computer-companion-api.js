@@ -5,6 +5,7 @@ import { getVerifiedShardVaultCodeArchive } from "../continuity/shardvault-runti
 import { isLocalSovereigntyAction } from "../portability/local-sovereignty-actions.js";
 import { miniReadOnlyPcCommand } from "./mini-readonly-companion.js";
 import { miniMaintenanceAssessCommand } from "./mini-maintenance-companion.js";
+import { companionBleDiagnosticsCommand } from "./companion-ble-diagnostics.js";
 import { miniFirmwareStageCommand } from "./mini-firmware-stage-companion.js";
 import { androidMaintenancePcCommand } from "./android-maintenance-companion.js";
 import { androidStagePcCommand } from "./android-apk-stage-companion.js";
@@ -133,9 +134,9 @@ const PC_CONTROL_ACTIONS=new Set([
  "serial.list","serial.read","serial.inspect","serial.hard_reset",
  "process.list","process.start","process.kill",
  "file.list","file.read_text","file.write_text",
- "system.info","system.exec","mini.readonly.discover","mini.readonly.security","mini.readonly.backup","mini.readonly.backup.status","mini.readonly.backup.audit","mini.maintenance.assess","mini.maintenance.stage","android.maintenance.assess","android.maintenance.stage","android.maintenance.install"
+ "system.info","system.exec","mini.readonly.discover","mini.readonly.security","mini.readonly.backup","mini.readonly.backup.status","mini.readonly.backup.audit","mini.maintenance.assess","mini.android.ble.diagnose","mini.maintenance.stage","android.maintenance.assess","android.maintenance.stage","android.maintenance.install"
 ]);
-const PC_CONTROL_PROOF_ACTIONS=new Set(["system.info","serial.list","serial.read","serial.inspect","mini.readonly.discover","process.list","mini.readonly.backup.audit","mini.maintenance.assess","android.maintenance.assess"]);
+const PC_CONTROL_PROOF_ACTIONS=new Set(["system.info","serial.list","serial.read","serial.inspect","mini.readonly.discover","process.list","mini.readonly.backup.audit","mini.maintenance.assess","mini.android.ble.diagnose","android.maintenance.assess"]);
 
 async function authorizeOwnerOrPcProof(request,env,{action=null}={}){
  const owner=requireAuth(request,env);if(owner.ok)return {ok:true,kind:"owner"};
@@ -175,7 +176,7 @@ async function ownerPcControl(request,env){
  if(String(device.platform||"").toLowerCase()!=="windows")return json({ok:false,code:"PC_CONTROL_WINDOWS_REQUIRED"},409);
  if(!device.online)return json({ok:false,code:"COMPUTER_OFFLINE"},409);
  if(["mini.readonly.discover","mini.readonly.backup.audit"].includes(action)&&device.metadata?.remote_access_enabled!==true)return json({ok:false,code:"REMOTE_ACCESS_DISABLED_LOCALLY"},403);
- if(["mini.maintenance.assess","mini.maintenance.stage","android.maintenance.assess","android.maintenance.stage","android.maintenance.install"].includes(action)&&device.metadata?.remote_access_enabled!==true)return json({ok:false,code:"REMOTE_ACCESS_DISABLED_LOCALLY"},403);
+ if(["mini.maintenance.assess","mini.android.ble.diagnose","mini.maintenance.stage","android.maintenance.assess","android.maintenance.stage","android.maintenance.install"].includes(action)&&device.metadata?.remote_access_enabled!==true)return json({ok:false,code:"REMOTE_ACCESS_DISABLED_LOCALLY"},403);
  if(device.metadata?.remote_access_enabled!==true&&a.kind!=="github-oidc")return json({ok:false,code:"REMOTE_ACCESS_DISABLED_LOCALLY"},403);
  let effectiveAction=action;
  let effectivePayload=payload;
@@ -197,6 +198,9 @@ async function ownerPcControl(request,env){
   }else if(action==="android.maintenance.assess"){
    effectiveAction="system.exec";
    effectivePayload={...androidMaintenancePcCommand(action),require_success_exit:true};
+  }else if(action==="mini.android.ble.diagnose"){
+   effectiveAction="system.exec";
+   effectivePayload=companionBleDiagnosticsCommand("COM3");
   }else if(action==="mini.maintenance.assess"){
    effectiveAction="system.exec";
    effectivePayload=miniMaintenanceAssessCommand();
@@ -212,7 +216,10 @@ async function ownerPcControl(request,env){
    effectivePayload={};
   }
  }
- if(action==="android.maintenance.assess"&&a.kind==="owner"){
+ if(action==="mini.android.ble.diagnose"&&a.kind==="owner"){
+  effectiveAction="system.exec";
+  effectivePayload=companionBleDiagnosticsCommand("COM3");
+ }else if(action==="android.maintenance.assess"&&a.kind==="owner"){
   effectiveAction="system.exec";
   effectivePayload={...androidMaintenancePcCommand(action),require_success_exit:true};
  }else if(action==="android.maintenance.stage"&&a.kind==="owner"){
