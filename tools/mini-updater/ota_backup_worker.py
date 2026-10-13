@@ -30,15 +30,24 @@ def atomic_status(folder, **state):
     tmp.write_text(json.dumps(dict(schema="mel-mini-ota-backup-job-v1", **state), indent=2) + "\n", encoding="utf-8")
     os.replace(tmp, p)
 
-def read_flash(exe, port, offset, size, destination):
+def read_flash(exe, port, offset, size, destination, stage=None):
     if destination.exists():
         raise ValueError("REFUSING_TO_OVERWRITE_BACKUP")
     args = [str(exe), "--chip", "esp32s3", "--port", port,
             "--before", "default_reset", "--after", "no_reset",
             "read_flash", hex(offset), hex(size), str(destination)]
-    result = subprocess.run(args, capture_output=True, text=True, timeout=480, check=False)
-    if result.returncode:
-        raise RuntimeError("ESPTOOL_READ_FAILED_" + str(result.returncode))
+    log = destination.parent / ((stage or destination.stem) + ".esptool.log")
+    with log.open("x", encoding="utf-8") as output:
+        output.write("stage=" + (stage or destination.stem) + " offset=" + hex(offset) + " bytes=" + str(size) + "\n")
+        output.flush()
+        try:
+            result = subprocess.run(args, stdout=output, stderr=subprocess.STDOUT, timeout=180, check=False)
+        except subprocess.TimeoutExpired:
+            output.write("\nESPTOOL_READ_TIMEOUT\n")
+            raise
+        if result.returncode:
+            output.write("\nESPTOOL_READ_FAILED_" + str(result.returncode) + "\n")
+            raise RuntimeError("ESPTOOL_READ_FAILED_" + str(result.returncode))
     if not destination.is_file() or destination.stat().st_size != size:
         raise ValueError("READBACK_SIZE_MISMATCH")
     return digest(destination)
@@ -64,13 +73,15 @@ def main():
     atomic_status(args.output, **state)
     try:
         part_dump = args.output / "partitions.bin"
-        read_flash(args.esptool, args.port.upper(), 0x8000, 0x1000, part_dump)
+        state["stage"] = "PARTITIONS"; atomic_status(args.output, **state)
+        read_flash(args.esptool, args.port.upper(), 0x8000, 0x1000, part_dump, "partitions")
         parts = inspect(part_dump.read_bytes())["partitions"]
         metadata = [p for p in parts if p["type"] == 1 and p["subtype"] == 0]
         if len(metadata) != 1 or metadata[0]["size"] != 8192:
             raise ValueError("OTA_METADATA_PARTITION_INVALID")
         ota = args.output / "otadata.bin"
-        read_flash(args.esptool, args.port.upper(), metadata[0]["offset"], 8192, ota)
+        state["stage"] = "OTADATA"; atomic_status(args.output, **state)
+        read_flash(args.esptool, args.port.upper(), metadata[0]["offset"], 8192, ota, "otadata")
         proof = analyze(part_dump.read_bytes(), ota.read_bytes())
         if proof["selected_boot_slot_from_otadata"] != "ota_0":
             raise ValueError("OTA_0_NOT_PROVEN_SELECTED_NO_BACKUP_ATTEMPTED")
@@ -82,7 +93,8 @@ def main():
         state["partition_size_bytes"] = slots[0]["size"]
         atomic_status(args.output, **state)
         target = args.output / "ota_0.bin"
-        sha = read_flash(args.esptool, args.port.upper(), slots[0]["offset"], slots[0]["size"], target)
+        state["stage"] = "OTA_0"; atomic_status(args.output, **state)
+        sha = read_flash(args.esptool, args.port.upper(), slots[0]["offset"], slots[0]["size"], target, "ota_0")
         verification = inspect_backup(part_dump.read_bytes(), ota.read_bytes(), target.read_bytes())
         if not verification["app_structure_valid"] or not verification["app_checksum_valid"] or not verification["app_embedded_sha256_valid"]:
             raise ValueError("BACKUP_IMAGE_INTEGRITY_UNVERIFIED")
@@ -94,9 +106,10 @@ def main():
                           "backup_sha256": sha, "backup_bytes": target.stat().st_size,
                           "flash_performed": False}))
         return 0
-    except (ValueError, OSError, RuntimeError, subprocess.TimeoutExpired) as exc:
+    except (ValueError, OSError, RuntimeError, subprocess.TimeoutExpired, KeyboardInterrupt) as exc:
         atomic_status(args.output, **dict(state, state="FAILED", finished_at=time.time(),
-                                          error=type(exc).__name__ + ": " + str(exc)))
+                                          error=type(exc).__name__ + ": " + str(exc),
+                                          last_stage=state.get("stage")))
         print(json.dumps({"status": "FAILED", "code": type(exc).__name__,
                           "evidence_path": str(args.output / "status.json"),
                           "flash_performed": False}), file=sys.stderr)
