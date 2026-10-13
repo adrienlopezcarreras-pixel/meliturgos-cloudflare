@@ -2,10 +2,13 @@
 // Deployment requires an explicit owner-approved preview configuration.
 import {createPreviewCompanionMcpHandler} from '../devices/companion-mcp-preview-runtime.js';
 import {validateCompanionMcpPreviewEnv} from './companion-mcp-deployment-guard.js';
+import {companionMcpProtectedResourceMetadata} from './companion-mcp-resource-metadata.js';
 export default {
  async fetch(request,env){
   try{
    validateCompanionMcpPreviewEnv(env);
+   const metadata=companionMcpProtectedResourceMetadata(request,env);
+   if(metadata)return metadata;
    const handler=createPreviewCompanionMcpHandler(env);
    return await handler(request);
   }catch{
