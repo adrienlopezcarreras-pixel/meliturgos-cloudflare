@@ -1,0 +1,22 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+import { companionBleDiagnosticsCommand } from "../../src/devices/companion-ble-diagnostics.js";
+test("owner BLE diagnostic is fixed, bounded, read only",()=>{
+ const {command,timeout_ms,require_success_exit}=companionBleDiagnosticsCommand("COM3");
+ assert.equal(timeout_ms,25000);
+ assert.equal(require_success_exit,true);
+ assert.match(command,/mel\.companion\.ble\.diagnostics\.v1/);
+ assert.match(command,/logcat -d -t 1500/);
+ assert.match(command,/MULTIPLE_ADB_DEVICES_REFUSED/);
+ assert.match(command,/serial_opened=\$false/);
+ assert.match(command,/flash_performed=\$false/);
+ assert.doesNotMatch(command,/\b(?:install|reboot|erase_flash|write_flash|adb pair|adb connect)\b/i);
+ assert.throws(()=>companionBleDiagnosticsCommand("COM3; echo bad"),/MINI_PORT_INVALID/);
+});
+test("pc-control exposes scoped command but not caller-controlled shell",async()=>{
+ const src=await readFile(new URL("../../src/devices/computer-companion-api.js",import.meta.url),"utf8");
+ assert.match(src,/mini\.android\.ble\.diagnose/);
+ assert.match(src,/effectivePayload=companionBleDiagnosticsCommand\("COM3"\)/);
+ assert.match(src,/REMOTE_ACCESS_DISABLED_LOCALLY/);
+});
