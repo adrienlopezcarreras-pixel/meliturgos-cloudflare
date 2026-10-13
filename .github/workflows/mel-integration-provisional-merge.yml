@@ -10,7 +10,7 @@ permissions:
 jobs:
   integration:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
         with:
@@ -40,7 +40,10 @@ jobs:
           for f in src/continuity/shardvault-runtime.js scripts/fulfill-preview-code-mirror.mjs; do node --check "$f"; done
           npm ci --ignore-scripts --no-audit --no-fund
           node --test tests/shardvault-github-code-mirror.test.mjs tests/shardvault-github-authoritative-readback.test.mjs tests/release-predeploy-backup-reuse.test.mjs tests/preview-resource-isolation.test.mjs
-          git commit -m "merge(integration): validated provisional main merge (artifact only)"
+          npm run check
+          npm test
+          node scripts/runtime-security-gate.mjs
+          git commit -m "merge(integration): full-suite validated provisional main merge (artifact only)"
           mkdir -p integration-handoff
           git bundle create integration-handoff/mel-isolated-merge.bundle origin/main..HEAD
           git rev-parse HEAD > integration-handoff/merged-sha.txt
