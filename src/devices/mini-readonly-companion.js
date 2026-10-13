@@ -94,11 +94,12 @@ if($process.ExitCode -ne 0){throw 'MINI_SECURITY_COMMAND_FAILED'}
  return {command,timeout_ms:90000};
 }
 
-const BACKUP_AUDIT_SCRIPT=String.raw`
-$ErrorActionPreference='Stop'
+const BACKUP_AUDIT_SCRIPT=String.raw`$ErrorActionPreference='Stop'
 $root=Join-Path $env:LOCALAPPDATA 'MEL\mini-backups'
 $now=[DateTime]::UtcNow
-$candidates=@(Get-CimInstance Win32_Process -ErrorAction Stop | Where-Object { $_.Name -match '^(python|pythonw|esptool|powershell|pwsh)(\.exe)?
+$candidates=@(Get-CimInstance Win32_Process -ErrorAction Stop | Where-Object { $_.Name -match '^(python|pythonw|esptool|powershell|pwsh)(\.exe)?$' -and ([string]$_.CommandLine) -match 'ota_backup_worker\.py|mini-backups' })
+$workerOverflow=($candidates.Count -gt 30)
+$workers=@($candidates | Select-Object -First 30 ProcessId,Name,CommandLine)
 $jobs=@()
 if(Test-Path -LiteralPath $root -PathType Container){
  foreach($dir in @(Get-ChildItem -LiteralPath $root -Directory -ErrorAction SilentlyContinue | Where-Object { $_.Name -match '^[a-fA-F0-9]{32}$' } | Select-Object -First 100)){
@@ -114,25 +115,4 @@ if(Test-Path -LiteralPath $root -PathType Container){
   }catch{$jobs+=@{job_id=$dir.Name;assessment='STATUS_UNREADABLE'}}
  }
 }
-[ordered]@{action='mini.readonly.backup.audit';jobs=$jobs;worker_process_count=$workers.Count;inventory_limited=$workerOverflow;read_only=$true;board_reset=$false;flash_performed=$false}|ConvertTo-Json -Depth 5 -Compress
-`;
- -and ([string]$_.CommandLine) -match 'ota_backup_worker\.py|mini-backups' })
-$workerOverflow=($candidates.Count -gt 30)
-$workers=@($candidates | Select-Object -First 30 ProcessId,Name,CommandLine)
-$jobs=@()
-if(Test-Path -LiteralPath $root -PathType Container){
- foreach($dir in @(Get-ChildItem -LiteralPath $root -Directory -ErrorAction SilentlyContinue | Where-Object { $_.Name -match '^[a-fA-F0-9]{32}$' } | Select-Object -First 100)){
-  $file=Join-Path $dir.FullName 'status.json'
-  if(-not(Test-Path -LiteralPath $file -PathType Leaf)){continue}
-  try{
-   $status=Get-Content -LiteralPath $file -Raw | ConvertFrom-Json
-   $age=[int][Math]::Max(0,($now-(Get-Item -LiteralPath $file).LastWriteTimeUtc).TotalSeconds)
-   $matches=@($workers | Where-Object { ([string]$_.CommandLine).Contains($dir.FullName) })
-   $state=[string]$status.state
-   $assessment=if($state -eq 'RUNNING' -and $matches.Count -eq 0 -and $age -gt 240){'STALE_CANDIDATE'}elseif($state -eq 'RUNNING' -and $matches.Count -gt 0){'RUNNING_PROCESS_MATCH'}elseif($state -eq 'RUNNING'){'INDETERMINATE'}else{'TERMINAL_OR_OTHER'}
-   $jobs+=@{job_id=$dir.Name;state=$state;age_seconds=$age;assessment=$assessment;process_match_count=$matches.Count;ota_file_exists=(Test-Path -LiteralPath (Join-Path $dir.FullName 'ota_0.bin') -PathType Leaf)}
-  }catch{$jobs+=@{job_id=$dir.Name;assessment='STATUS_UNREADABLE'}}
- }
-}
-[ordered]@{action='mini.readonly.backup.audit';jobs=$jobs;worker_process_count=$workers.Count;inventory_limited=$true;read_only=$true;board_reset=$false;flash_performed=$false}|ConvertTo-Json -Depth 5 -Compress
-`;
+[ordered]@{action='mini.readonly.backup.audit';jobs=$jobs;worker_process_count=$workers.Count;inventory_limited=$workerOverflow;read_only=$true;board_reset=$false;flash_performed=$false}|ConvertTo-Json -Depth 5 -Compress`;
