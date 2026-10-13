@@ -27,9 +27,9 @@ export function validatePreviewContext(env,config){
   if(!bucket||bucket!==preview||bucket===prod
     ||!/^meliturgos-preview-[a-z0-9-]+$/.test(bucket))fail('PREVIEW_MIRROR_BUCKET_ISOLATION_UNPROVEN');
   if(!previewD1||!prodD1||previewD1===prodD1)fail('PREVIEW_MIRROR_D1_ISOLATION_UNPROVEN');
-  // The workflow's +32 bytes is a conservative representative probe size;
-  // AES-GCM adds exactly 16 bytes to the original archive. The actual
-  // RS(4/7) fragment length must be derived exactly, not equated to the cap.
+  // The workflow's representative estimate is not an authoritative size
+  // for a durable R2 code-sync snapshot. The pending relay record created
+  // by the Worker carries the exact byte length and SHA-256 instead.
   const bundleBytes=Number(env.MEL_CRITICAL_CODE_BUNDLE_BYTES);
   const shardBytes=Number(env.MEL_CRITICAL_CODE_SHARD_BYTES);
   if(!Number.isSafeInteger(bundleBytes)||bundleBytes<=0||bundleBytes>=16*1024*1024)
@@ -51,8 +51,25 @@ export function previewMirrorPending(d,ctx){
   const object='code-'+ctx.sha.slice(0,12)+'-shard-06-github';
   return {
     key:'shardvault/github-code-mirror-staging/'+ctx.repo.replace('/','__')+'/'+ctx.sha+'/'+object+'.bin',
+    metadataKey:'shardvault/github-code-mirror-pending/'+ctx.repo.replace('/','__')+'/'+ctx.sha+'/'+object+'.json',
+    relayJobId:String(e.relay_job_id),
     path:'shardvault-code/'+ctx.sha+'/'+object+'.bin',
   };
+}
+export function validatePreviewMirrorMetadata(ctx,pending,record){
+  if(!record||typeof record!=='object'||Array.isArray(record))
+    fail('PREVIEW_MIRROR_RELAY_METADATA_MISSING');
+  if(record.relay_job_id!==pending.relayJobId
+    ||record.staging_key!==pending.key
+    ||record.mirror_path!==pending.path)
+    fail('PREVIEW_MIRROR_RELAY_METADATA_IDENTITY_MISMATCH');
+  const expectedBytes=Number(record.byte_length);
+  const expectedSha256=String(record.expected_sha256||'');
+  if(!Number.isSafeInteger(expectedBytes)||expectedBytes<65536||expectedBytes>8*1024*1024)
+    fail('PREVIEW_MIRROR_RELAY_METADATA_BYTES_INVALID');
+  if(!/^[0-9a-f]{64}$/.test(expectedSha256))
+    fail('PREVIEW_MIRROR_RELAY_METADATA_SHA256_INVALID');
+  return {...pending,expectedBytes,expectedSha256};
 }
 async function api(url,token,method='GET',data=null){
   const response=await fetch(url,{method,headers:{
@@ -65,8 +82,11 @@ async function api(url,token,method='GET',data=null){
 }
 export async function publishPreviewMirror(ctx,pending,bytes,token,request=api){
   if(!token||token.length<20)fail('PREVIEW_MIRROR_GITHUB_TOKEN_REQUIRED');
-  if(!(bytes instanceof Uint8Array)||bytes.length!==ctx.exactShardBytes)fail('PREVIEW_MIRROR_FRAGMENT_SIZE_INVALID');
+  if(!(bytes instanceof Uint8Array)||bytes.length!==pending.expectedBytes)
+    fail('PREVIEW_MIRROR_FRAGMENT_SIZE_INVALID');
   const hash=createHash('sha256').update(bytes).digest('hex');
+  if(hash!==pending.expectedSha256)
+    fail('PREVIEW_MIRROR_FRAGMENT_SHA256_MISMATCH');
   const base='https://api.github.com/repos/'+ctx.repo+'/';
   const ref=await request(base+'git/ref/heads/'+PREVIEW_MIRROR_BRANCH,token);
   if(ref.status===404){
@@ -106,14 +126,24 @@ async function main(){
   if(!pending){console.log('PREVIEW_MIRROR_NO_PENDING_JOB');return;}
   const directory=await mkdtemp(join(tmpdir(),'mel-preview-mirror-'));
   try{
-    const file=join(directory,'encrypted-shard.bin');
-    const r=spawnSync('npx',['wrangler','r2','object','get',
-      context.bucket+'/'+pending.key,'--file',file,'--remote'],{
-      env,cwd:process.cwd(),encoding:'utf8',timeout:90000,maxBuffer:1048576
-    });
-    if(r.status!==0)fail('PREVIEW_MIRROR_ISOLATED_R2_READ_FAILED');
-    const bytes=new Uint8Array(await readFile(file));
-    const result=await publishPreviewMirror(context,pending,bytes,String(env.GITHUB_TOKEN||''));
+    async function getPreviewObject(key,file){
+      const r=spawnSync('npx',['wrangler','r2','object','get',
+        context.bucket+'/'+key,'--file',file,'--remote'],{
+        env,cwd:process.cwd(),encoding:'utf8',timeout:90000,maxBuffer:1048576
+      });
+      if(r.status!==0)fail('PREVIEW_MIRROR_ISOLATED_R2_READ_FAILED');
+      return readFile(file);
+    }
+    // Read the durable request from the same isolated R2 as the encrypted
+    // bytes. Do not infer the fragment size from a tarball estimate.
+    const recordBytes=await getPreviewObject(pending.metadataKey,join(directory,'relay.json'));
+    let record;
+    try{record=JSON.parse(recordBytes.toString('utf8'));}
+    catch{fail('PREVIEW_MIRROR_RELAY_METADATA_INVALID');}
+    const verifiedPending=validatePreviewMirrorMetadata(context,pending,record);
+    const fileBytes=await getPreviewObject(pending.key,join(directory,'encrypted-shard.bin'));
+    const bytes=new Uint8Array(fileBytes);
+    const result=await publishPreviewMirror(context,verifiedPending,bytes,String(env.GITHUB_TOKEN||''));
     console.log('PREVIEW_MIRROR_'+result.status);
   }finally{await rm(directory,{force:true,recursive:true});}
 }
