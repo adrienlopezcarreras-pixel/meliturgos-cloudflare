@@ -69,6 +69,17 @@ jobs:
             {connector_id:'microsoft-sharepoint'});
           const pipedream=await request('/api/gen2/connections/pipedream/test',
             {probe:'sharepoint_sites_read'});
+          const inventory=await request('/api/gen2/connections/pipedream/accounts');
+          console.log('SHAREPOINT_PIPEDREAM_ACCOUNTS_HTTP_'+inventory.http);
+          console.log('SHAREPOINT_PIPEDREAM_ACCOUNT_LINKED_'+String(
+            inventory.http===200 && inventory.data?.ok===true &&
+            Array.isArray(inventory.data?.connected_apps) &&
+            inventory.data.connected_apps.includes('sharepoint')));
+          // Generic Pipedream account health is NOT proof of a Graph sites GET.
+          console.log('SHAREPOINT_PIPEDREAM_RESPONSE_OK_'+String(pipedream.data?.ok===true));
+          console.log('SHAREPOINT_PIPEDREAM_READ_ONLY_'+String(pipedream.data?.read_only===true));
+          console.log('SHAREPOINT_PIPEDREAM_PRIVATE_CONTENT_OMITTED_'+String(pipedream.data?.private_content_returned===false));
+          console.log('SHAREPOINT_PIPEDREAM_EXPLICIT_GRAPH_PROOF_'+String(pipedream.data?.graph_site_read_proven===true));
           const cleanCode=value=>/^[A-Z][A-Z0-9_]{0,100}$/.test(String(value||''))?value:'UNKNOWN';
           for(const [id,row] of [['NATIVE',native],['PIPEDREAM',pipedream]]){
             console.log('SHAREPOINT_'+id+'_HTTP_'+row.http);
