@@ -1992,6 +1992,7 @@ function PcControl-SystemExec($payload) {
   if (-not $p.WaitForExit($timeoutMs)) { try { $p.Kill() } catch {}; throw "SYSTEM_EXEC_TIMEOUT" }
   $out = $p.StandardOutput.ReadToEnd()
   $err = $p.StandardError.ReadToEnd()
+  if ($payload.require_success_exit -eq $true -and $p.ExitCode -ne 0) { throw "SYSTEM_EXEC_NONZERO_EXIT_CODE_$($p.ExitCode)" }
   return @{ action="system.exec"; exit_code=$p.ExitCode; stdout=(PcControl-LimitText $out 65536); stderr=(PcControl-LimitText $err 32768) }
 }
 
