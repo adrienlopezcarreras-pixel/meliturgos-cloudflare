@@ -319,7 +319,11 @@ function githubCodeMirrorEndpoint(env,id,requiredBytes=0){
   if(!configuredWritableWorkflows(env).includes(GITHUB_CODE_MIRROR_WORKFLOW))return null;
   const maxBytes=8*1024*1024;
   if(Math.max(0,Number(requiredBytes)||0)>maxBytes)return null;
-  const urlTemplate='https://raw.githubusercontent.com/'+id.repository+'/refs/heads/'+GITHUB_CODE_MIRROR_BRANCH+'/shardvault-code/'+id.sha+'/{objectId}.bin';
+  // Never mirror preview-encrypted fragments to the production mirror branch.
+  const isolatedPreview=String(env?.MEL_RUNTIME_ENV||'')==='preview'
+    && String(env?.MEL_PREVIEW_ISOLATED||'')==='true';
+  const mirrorBranch=isolatedPreview?'shardvault-preview-mirror':GITHUB_CODE_MIRROR_BRANCH;
+  const urlTemplate='https://raw.githubusercontent.com/'+id.repository+'/refs/heads/'+mirrorBranch+'/shardvault-code/'+id.sha+'/{objectId}.bin';
   return normalizeEndpoint({
     id:GITHUB_CODE_MIRROR_ID,adapter:'github_actions_code_mirror',urlTemplate,method:'PUT',maxBytes,
     operatorDomain:'raw.githubusercontent.com',providerId:'github',jurisdiction:'UNKNOWN',

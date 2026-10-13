@@ -15,6 +15,10 @@ concurrency:
 
 jobs:
   preview:
+    # Required only for the exact-SHA encrypted preview mirror shard; every
+    # write is restricted by scripts/fulfill-preview-code-mirror.mjs.
+    permissions:
+      contents: write
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
@@ -978,6 +982,10 @@ jobs:
 
       - name: Prove ShardVault external code reconstruction
         shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           set -euo pipefail
           BASE_URL="https://meliturgos-preview.adrien-lopezcarreras.workers.dev"
@@ -990,6 +998,7 @@ jobs:
           CODE_SYNC_HTTP_TIMEOUT_SECONDS=170
           SYNC_DONE=0
           TRANSIENT_FAILURES=0
+          PREVIEW_MIRROR_FULFILLED=0
           for attempt in $(seq 1 32); do
             rm -f shardvault-code-sync.attempt.json
             HTTP_CODE="$(curl --show-error --silent --max-time "${CODE_SYNC_HTTP_TIMEOUT_SECONDS}" \
@@ -1055,6 +1064,22 @@ jobs:
                 exit 23
                 ;;
             esac
+            # The preview D1 relay queue has no production-side consumer.
+            # Fulfill only its exact encrypted fragment through the isolated
+            # preview R2 bucket and dedicated preview mirror branch.
+            if [ "$SYNC_STATUS" = "RETRY_TARGETS" ] && [ "$PREVIEW_MIRROR_FULFILLED" -eq 0 ]; then
+              node scripts/fulfill-preview-code-mirror.mjs
+              if node - <<'NODE'
+          const d=require('./shardvault-code-sync.json');
+          const e=d?.external||{};
+          process.exit(e.reason==='GITHUB_CODE_MIRROR_PENDING'
+            && e.relay_pending===true ? 0 : 1);
+          NODE
+              then
+                PREVIEW_MIRROR_FULFILLED=1
+                echo "PREVIEW_GITHUB_CODE_MIRROR_PUBLISHED_TO_ISOLATED_BRANCH"
+              fi
+            fi
             sleep 1
           done
           test "$SYNC_DONE" -eq 1

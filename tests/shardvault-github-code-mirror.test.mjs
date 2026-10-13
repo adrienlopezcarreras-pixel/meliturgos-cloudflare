@@ -71,3 +71,55 @@ test('launch code-sync summary preserves mirror relay metadata needed by release
   assert.equal(summary.relay_status,'QUEUED');
   assert.equal(summary.reason,'GITHUB_CODE_MIRROR_PENDING');
 });
+
+test('preview mirror never targets main or production storage and requires exact 7th fragment',async()=>{
+  const {validatePreviewContext,previewMirrorPending,publishPreviewMirror,PREVIEW_MIRROR_BRANCH}=
+    await import('../scripts/fulfill-preview-code-mirror.mjs');
+  const sha='a'.repeat(40);
+  const env={GITHUB_SHA:sha,GITHUB_REPOSITORY:'adrienlopezcarreras-pixel/meliturgos-cloudflare',
+    GITHUB_REF:'refs/heads/candidate/mel-clean-autonomy',GITHUB_REF_NAME:'candidate/mel-clean-autonomy',
+    MEL_PREVIEW_R2_BUCKET:'meliturgos-preview-media-bucket',MEL_CRITICAL_CODE_SHARD_BYTES:'65536'};
+  const config={r2_buckets:[{binding:'MEDIA_BUCKET',bucket_name:'meliturgos-private-media'}],
+    d1_databases:[{binding:'DB',database_id:'prod'}],
+    env:{preview:{r2_buckets:[{binding:'MEDIA_BUCKET',bucket_name:'meliturgos-preview-media-bucket'}],
+      d1_databases:[{binding:'DB',database_id:'preview'}],
+      vars:{MEL_RUNTIME_ENV:'preview',MEL_PREVIEW_ISOLATED:'true'}}}};
+  const ctx=validatePreviewContext(env,config);
+  assert.equal(PREVIEW_MIRROR_BRANCH,'shardvault-preview-mirror');
+  assert.throws(()=>validatePreviewContext({...env,GITHUB_REF:'refs/heads/main'},config),/CANDIDATE_ONLY/);
+  assert.throws(()=>validatePreviewContext({...env,MEL_PREVIEW_R2_BUCKET:'meliturgos-private-media'},config),/BUCKET_ISOLATION_UNPROVEN/);
+  assert.throws(()=>validatePreviewContext(env,{...config,env:{preview:{...config.env.preview,
+    d1_databases:[{binding:'DB',database_id:'prod'}]}}}),/D1_ISOLATION_UNPROVEN/);
+  const pending={ok:true,status:'RETRY_TARGETS',sha,external:{reason:'GITHUB_CODE_MIRROR_PENDING',
+    relay_pending:true,relay_job_id:'gh-relay-preview-123',target_count:7,completed_shards:6,pending_shards:1}};
+  const out=previewMirrorPending(pending,ctx);
+  assert.match(out.key,/^shardvault\/github-code-mirror-staging\/.*\/code-a{12}-shard-06-github\.bin$/);
+  assert.match(out.path,/^shardvault-code\/.*\/code-a{12}-shard-06-github\.bin$/);
+  assert.throws(()=>previewMirrorPending({...pending,external:{...pending.external,completed_shards:5}},ctx),/PENDING_PROOF_INVALID/);
+  const bytes=new Uint8Array(65536);bytes.fill(17);
+  const calls=[];
+  const request=async(url,token,method='GET',data=null)=>{
+    calls.push({url,method,data});
+    if(url.endsWith('/git/ref/heads/shardvault-preview-mirror'))return {status:404,body:{}};
+    if(url.endsWith('/git/refs'))return {status:201,body:{}};
+    if(method==='PUT')return {status:201,body:{commit:{sha:'b'.repeat(40)}}};
+    if(url.includes('/contents/')&&url.includes('?ref=')){
+      if(calls.filter(x=>x.url.includes('?ref=')).length===1)return {status:404,body:{}};
+      return {status:200,body:{encoding:'base64',content:Buffer.from(bytes).toString('base64')}};
+    }
+    throw Error('UNEXPECTED_GITHUB_PATH');
+  };
+  const result=await publishPreviewMirror(ctx,out,bytes,'x'.repeat(40),request);
+  assert.equal(result.status,'EXACT_FRAGMENT_PUBLISHED_VERIFIED');
+  assert.equal(calls.filter(x=>x.method==='PUT').length,1);
+  assert.ok(calls.filter(x=>x.method==='PUT').every(x=>x.data.branch==='shardvault-preview-mirror'));
+});
+test('candidate preview uses only its own R2 and mirror path to finish 7/7',async()=>{
+  const workflow=await readFile(new URL('../.github/workflows/deploy-candidate-preview.yml',import.meta.url),'utf8');
+  assert.match(workflow,/node scripts\/fulfill-preview-code-mirror\.mjs/);
+  assert.match(workflow,/PREVIEW_GITHUB_CODE_MIRROR_PUBLISHED_TO_ISOLATED_BRANCH/);
+  assert.match(workflow,/GITHUB_TOKEN: \${{ github\.token }}/);
+  assert.match(workflow,/SYNC_STATUS.*COPIED.*SYNC_ENDPOINTS.*-ge 7/);
+  const runtime=await readFile(new URL('../src/continuity/shardvault-runtime.js',import.meta.url),'utf8');
+  assert.match(runtime,/isolatedPreview\?'shardvault-preview-mirror':GITHUB_CODE_MIRROR_BRANCH/);
+});
