@@ -94,6 +94,15 @@ async function main() {
     throw new Error(data?.detail || data?.error || `HTTP_${httpStatus}`);
   }
 
+  // HTTP 200 by itself is not a benchmark. Require actual finite candidate
+  // and baseline measurements to avoid fake BENCHMARKED_NOT_ACTIVATED results.
+  if (typeof data?.baseline?.overall !== 'number' ||
+      !Number.isFinite(data.baseline.overall) ||
+      typeof data?.candidate?.overall !== 'number' ||
+      !Number.isFinite(data.candidate.overall)) {
+    throw new Error('LORA_BENCHMARK_MEASUREMENTS_MISSING_OR_INVALID');
+  }
+
   // A read-only benchmark must never silently activate a model. Fail closed
   // even if the remote endpoint improperly reports an activation.
   if (!activate && data?.activated === true) {
