@@ -49,5 +49,5 @@ test("Wi-Fi endpoint is persisted only after confirmed ADB connection to that en
   const persist = reconnect.indexOf('Set-Content -LiteralPath $saved');
   assert.ok(verify >= 0 && persist > verify, "endpoint must be verified before storing");
   assert.match(reconnect, /already connected to/);
-  assert.match(reconnect, /failed\|unable\|refused/);
+  assert.ok(reconnect.includes('failed|unable|refused'));
 });
