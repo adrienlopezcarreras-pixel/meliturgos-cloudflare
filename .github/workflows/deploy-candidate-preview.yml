@@ -418,7 +418,21 @@ jobs:
           const fs=require('fs');
           const payload=JSON.parse(fs.readFileSync('preview-capability-audit.json','utf8'));
           const report=payload?.result;
-          if(!payload?.ok || !report?.ok) throw new Error('CAPABILITY_AUDIT_FAILED');
+          if(!payload?.ok || !report?.ok) {
+            const safeCode = value => /^[A-Z0-9_:-]{1,80}$/.test(String(value || ''))
+              ? String(value) : 'UNSPECIFIED';
+            console.error(JSON.stringify({
+              diagnostic: 'CAPABILITY_AUDIT_FAILED',
+              outer_ok: payload?.ok === true,
+              report_present: Boolean(report && typeof report === 'object'),
+              report_ok: report?.ok === true,
+              outer_code: safeCode(payload?.code),
+              report_code: safeCode(report?.code),
+              total_numeric: Number.isFinite(Number(report?.total)) ? Number(report.total) : null,
+              capability_rows: Array.isArray(report?.capabilities) ? report.capabilities.length : null
+            }));
+            throw new Error('CAPABILITY_AUDIT_FAILED');
+          }
           if(Number(report.total||0)<25) throw new Error('CAPABILITY_REGISTRY_TOO_SMALL:'+report.total);
           const rows=Array.isArray(report.capabilities)?report.capabilities:[];
           if(rows.length!==Number(report.total)) throw new Error('CAPABILITY_INVENTORY_MISMATCH');
