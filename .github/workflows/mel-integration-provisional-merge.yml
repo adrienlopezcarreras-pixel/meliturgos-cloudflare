@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -55,7 +55,7 @@ jobs:
           echo "TARGETED TESTS ONLY. Merge is not published. Manual review and authorized promotion required." >> "$GITHUB_STEP_SUMMARY"
       - name: Upload exact merged Git bundle for authorized handoff
         if: success()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: mel-authorized-merge-bundle
           path: integration-handoff/
