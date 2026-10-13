@@ -13,7 +13,7 @@ test('signed token plus D1 grant permits only scoped Companion status',async()=>
  const token=h+'.'+p+'.'+sign('RSA-SHA256',Buffer.from(h+'.'+p),privateKey).toString('base64url');
  const db={prepare:()=>({bind:(owner,id)=>({first:async()=>owner==='owner-1'&&id==='win-1'?{owner_subject:owner,device_id:id,revoked:0,expires_at:Date.now()+300000,paired_id:id}:null})})};
  const endpoint=createCompanionMcpEndpoint({
-  issuer:'https://issuer.example.test',jwks:{keys:[jwk]},revoked:async()=>false,db,
+  allowedOrigin:'https://mel.example.test',issuer:'https://issuer.example.test',jwks:{keys:[jwk]},revoked:async()=>false,db,
   readStatus:async(_principal,id)=>({id,online:true,halted:false,last_seen_at:Date.now(),private_data:'UNSAFE'})
  });
  const call=async id=>endpoint(new Request('https://mel.example.test/mcp/companion/v1',{
