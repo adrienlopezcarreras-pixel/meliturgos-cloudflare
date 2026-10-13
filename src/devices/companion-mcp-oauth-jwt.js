@@ -15,6 +15,7 @@ export async function verifyCompanionJwt(jwt,{issuer,audience='mel-companion-mcp
  if(!valid)throw Error('JWT_SIGNATURE_INVALID');
  if(claims.iss!==issuer||!Array.isArray(claims.aud)&&claims.aud!==audience||Array.isArray(claims.aud)&&!claims.aud.includes(audience))throw Error('JWT_ISSUER_AUDIENCE');
  if(typeof claims.sub!=='string'||!claims.sub||!Number.isFinite(claims.exp)||claims.exp<=now||!Number.isFinite(claims.iat)||claims.iat>now+60)throw Error('JWT_CLAIMS_INVALID');
+ if(claims.iat>now||claims.exp<=claims.iat||claims.exp-claims.iat>900)throw Error('JWT_LIFETIME_INVALID');
  if(claims.nbf!==undefined&&(!Number.isFinite(claims.nbf)||claims.nbf>now+60))throw Error('JWT_NOT_YET_VALID');
  const scopes=String(claims.scope||'').split(/\s+/);
  if(!scopes.includes('companion:status:read'))throw Error('JWT_SCOPE_DENIED');
