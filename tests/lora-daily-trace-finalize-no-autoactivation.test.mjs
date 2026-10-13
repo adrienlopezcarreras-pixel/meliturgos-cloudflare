@@ -37,7 +37,7 @@ test('Kaggle canonical benchmark explicitly prohibits activation',()=>{
   assert.doesNotMatch(section,/--activate true/);
 });
 test('default canonical benchmark never asks for activation',()=>{
-  const shell=`printf '%s\\n' '{"ok":true,"activated":false}' '__MEL_HTTP_STATUS__:200'`;
+  const shell=`printf '%s\\n' '{"ok":true,"activated":false,"baseline":{"overall":0.55},"candidate":{"overall":0.58}}' '__MEL_HTTP_STATUS__:200'`;
   const {run,request}=sandbox(shell,['--allow-not-activated','true']);
   assert.equal(run.status,0,run.stderr);
   assert.equal(request?.activate,false);
@@ -57,9 +57,18 @@ test('curl failures never echo authorization header or passwords',()=>{
   assert.doesNotMatch(run.stderr+run.stdout,/MEL_LORA_FIXTURE_SECRET_NEVER_EXPOSE|SENSITIVE_STDERR_FIXTURE|Authorization: Bearer/);
 });
 test('remote activation despite activate:false is treated as a failure',()=>{
-  const shell=`printf '%s\\n' '{"ok":true,"activated":true}' '__MEL_HTTP_STATUS__:200'`;
+  const shell=`printf '%s\\n' '{"ok":true,"activated":true,"baseline":{"overall":0.55},"candidate":{"overall":0.58}}' '__MEL_HTTP_STATUS__:200'`;
   const {run,request}=sandbox(shell,['--allow-not-activated','true']);
   assert.equal(request?.activate,false);
   assert.equal(run.status,1);
   assert.match(run.stderr,/LORA_UNREQUESTED_ACTIVATION_REPORTED/);
+});
+
+test('a 200 OK response with no measured scores is not a successful benchmark',()=>{
+  const shell=`printf '%s\\n' '{"ok":true,"activated":false}' '__MEL_HTTP_STATUS__:200'`;
+  const {run,request}=sandbox(shell,['--allow-not-activated','true']);
+  assert.equal(request?.activate,false);
+  assert.equal(run.status,1);
+  assert.match(run.stderr,/LORA_BENCHMARK_MEASUREMENTS_MISSING_OR_INVALID/);
+  assert.doesNotMatch(run.stderr, /MEL_LORA_FIXTURE_SECRET_NEVER_EXPOSE/);
 });
