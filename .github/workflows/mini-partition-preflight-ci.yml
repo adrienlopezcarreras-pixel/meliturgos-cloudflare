@@ -15,6 +15,9 @@ on:
       - 'tests/mini-companion-owner-readonly.test.mjs'
       - 'tests/mini-companion-async-backup.test.mjs'
       - 'src/devices/mini-readonly-companion.js'
+      - 'src/devices/mini-maintenance-companion.js'
+      - 'tests/mini-companion-maintenance-assess.test.mjs'
+      - 'scripts/cloudflare-api-relay-runner.mjs'
       - 'assets/MEL-Computer-Companion.ps1'
       - 'dist/MEL-Computer-Companion.ps1'
       - 'src/devices/computer-companion-api.js'
@@ -36,6 +39,9 @@ on:
       - 'tests/mini-companion-owner-readonly.test.mjs'
       - 'tests/mini-companion-async-backup.test.mjs'
       - 'src/devices/mini-readonly-companion.js'
+      - 'src/devices/mini-maintenance-companion.js'
+      - 'tests/mini-companion-maintenance-assess.test.mjs'
+      - 'scripts/cloudflare-api-relay-runner.mjs'
       - 'assets/MEL-Computer-Companion.ps1'
       - 'dist/MEL-Computer-Companion.ps1'
       - 'src/devices/computer-companion-api.js'
@@ -59,4 +65,4 @@ jobs:
       - run: python3 -m py_compile tools/mini-updater/local_readonly_preflight.py tools/mini-updater/inspect_image.py tools/mini-updater/inspect_ota_state.py tools/mini-updater/inspect_ota_backup.py tools/mini-updater/ota_backup_worker.py
       - run: python3 tools/mini-updater/ota_backup_worker.py --help
       - run: python3 tools/mini-updater/local_readonly_preflight.py --help
-      - run: node --test tests/mini-partition-python-fixtures.test.mjs tests/mini-local-readonly-preflight.test.mjs tests/mini-firmware-image-preflight.test.mjs tests/mini-ota-select-preflight.test.mjs tests/mini-ota-backup-preflight.test.mjs tests/mini-companion-owner-readonly.test.mjs tests/mini-companion-async-backup.test.mjs
+      - run: node --test tests/mini-partition-python-fixtures.test.mjs tests/mini-local-readonly-preflight.test.mjs tests/mini-firmware-image-preflight.test.mjs tests/mini-ota-select-preflight.test.mjs tests/mini-ota-backup-preflight.test.mjs tests/mini-companion-owner-readonly.test.mjs tests/mini-companion-async-backup.test.mjs tests/mini-companion-maintenance-assess.test.mjs
