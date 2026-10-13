@@ -11,7 +11,7 @@ export function assertNoActiveDeploy(runs) {
   }
 }
 
-export async function requestAutonomousRelease({ token, fetchImpl = fetch, repo = REPO, requireProtectedRefs = false } = {}) {
+export async function requestAutonomousRelease({ token, fetchImpl = fetch, repo = REPO, requireProtectedRefs = false, sleepImpl = ms => new Promise(resolve => setTimeout(resolve, ms)) } = {}) {
   if (repo !== REPO) throw new Error('UNEXPECTED_RELEASE_REPOSITORY');
   if (typeof token !== 'string' || !token) throw new Error('GH_TOKEN_REQUIRED');
   const base = 'https://api.github.com/repos/' + repo;
@@ -43,19 +43,31 @@ export async function requestAutonomousRelease({ token, fetchImpl = fetch, repo 
   // Workflow_dispatch runs use head_branch=main, while push runs use the
   // release branch. Scan recent runs across both events, not only release pushes.
   const activeRunsRoute = '/actions/workflows/deploy-cloudflare-release.yml/runs?per_page=100';
-  assertNoActiveDeploy((await api(activeRunsRoute))?.workflow_runs);
-  // A successful release must not recursively re-dispatch itself when
-  // production and canonical main already have the same release pointer.
-  if (releaseSha === mainSha) {
+  const releaseRuns = (await api(activeRunsRoute))?.workflow_runs;
+  assertNoActiveDeploy(releaseRuns);
+  // The release ref alone is not proof of a completed production deployment.
+  // A prior pointer update can succeed while the subsequent confirmation or
+  // workflow dispatch fails. Only a successful exact-SHA release is current.
+  const alreadyReleased = releaseRuns.some(row =>
+    row?.name === 'deploy-cloudflare-release' &&
+    row?.head_sha === mainSha &&
+    row?.status === 'completed' && row?.conclusion === 'success'
+  );
+  if (releaseSha === mainSha && alreadyReleased) {
     return { accepted: false, reason: 'ALREADY_CURRENT', main_sha: mainSha, release_branch: RELEASE_BRANCH };
   }
   if (releaseSha !== mainSha) {
-    // A non-force update rejects diverged refs; never rewrite deployed history.
+    // Never force-push a release pointer or dispatch an unverified SHA.
     await api('/git/refs/heads/' + RELEASE_BRANCH, {
       method: 'PATCH', payload: { sha: mainSha, force: false },
     });
-    const updated = await api('/branches/' + RELEASE_BRANCH);
-    if (updated?.commit?.sha !== mainSha) throw new Error('RELEASE_POINTER_NOT_VERIFIED');
+    let confirmed = false;
+    for (let attempt = 0; attempt < 6; attempt++) {
+      const updated = await api('/branches/' + RELEASE_BRANCH);
+      if (updated?.commit?.sha === mainSha) { confirmed = true; break; }
+      if (attempt < 5) await sleepImpl(750 * (attempt + 1));
+    }
+    if (!confirmed) throw new Error('RELEASE_POINTER_NOT_VERIFIED');
   }
   // GITHUB_TOKEN pushes do not start downstream workflows. An explicit
   // workflow_dispatch is necessary for autonomous releases from MEL Actions.
