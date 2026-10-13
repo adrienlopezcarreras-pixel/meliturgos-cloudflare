@@ -129,9 +129,9 @@ const PC_CONTROL_ACTIONS=new Set([
  "serial.list","serial.read","serial.inspect","serial.hard_reset",
  "process.list","process.start","process.kill",
  "file.list","file.read_text","file.write_text",
- "system.info","system.exec","mini.readonly.discover","mini.readonly.security","mini.readonly.backup","mini.readonly.backup.status"
+ "system.info","system.exec","mini.readonly.discover","mini.readonly.security","mini.readonly.backup","mini.readonly.backup.status","mini.readonly.backup.audit"
 ]);
-const PC_CONTROL_PROOF_ACTIONS=new Set(["system.info","serial.list","serial.read","serial.inspect","mini.readonly.discover","process.list"]);
+const PC_CONTROL_PROOF_ACTIONS=new Set(["system.info","serial.list","serial.read","serial.inspect","mini.readonly.discover","process.list","mini.readonly.backup.audit"]);
 
 async function authorizeOwnerOrPcProof(request,env,{action=null}={}){
  const owner=requireAuth(request,env);if(owner.ok)return {ok:true,kind:"owner"};
@@ -151,7 +151,7 @@ async function ownerPcControl(request,env){
  const payload=b.payload&&typeof b.payload==="object"?b.payload:{};
  if(!id)return json({ok:false,code:"COMPUTER_ID_REQUIRED"},400);
  if(!PC_CONTROL_ACTIONS.has(action))return json({ok:false,code:"PC_CONTROL_ACTION_NOT_ALLOWED"},403);
- if(action.startsWith("mini.readonly.")&&a.kind!=="owner"&&action!=="mini.readonly.discover")return json({ok:false,code:"MINI_READONLY_OWNER_ONLY"},403);
+ if(action.startsWith("mini.readonly.")&&a.kind!=="owner"&&!["mini.readonly.discover","mini.readonly.backup.audit"].includes(action))return json({ok:false,code:"MINI_READONLY_OWNER_ONLY"},403);
  if((action==="mini.readonly.security"||action==="mini.readonly.backup")&&payload.ack_bootloader_reset!==true)return json({ok:false,code:"MINI_BOOTLOADER_RESET_ACK_REQUIRED"},400);
  if(action==="mini.readonly.backup"&&payload.ack_local_backup!==true)return json({ok:false,code:"MINI_BACKUP_ACK_REQUIRED"},400);
  const row=await env.DB.prepare("SELECT * FROM computer_devices WHERE id=? LIMIT 1").bind(id).first();
@@ -179,6 +179,9 @@ async function ownerPcControl(request,env){
     command:`$port='${escaped}';$pnp=@(Get-CimInstance Win32_PnPEntity -ErrorAction SilentlyContinue | Where-Object { ([string]$_.Name) -like "*($port)*" -or ([string]$_.Caption) -like "*($port)*" } | Select-Object -First 5 Name,Caption,PNPDeviceID,Manufacturer,Status,Service,ClassGuid);$serial=@(Get-CimInstance Win32_SerialPort -ErrorAction SilentlyContinue | Where-Object { ([string]$_.DeviceID).ToUpperInvariant() -eq $port } | Select-Object -First 5 DeviceID,Name,PNPDeviceID,ProviderType,Status);$py=@(Get-Command py,python,python3 -ErrorAction SilentlyContinue | Select-Object -First 3 Name,Source);[ordered]@{action='serial.inspect';port=$port;pnp=$pnp;serial=$serial;python=$py}|ConvertTo-Json -Depth 5 -Compress`,
     timeout_ms:15000
    };
+  }else if(action==="mini.readonly.backup.audit"){
+   effectiveAction="system.exec";
+   effectivePayload=miniReadOnlyPcCommand(action,"COM3");
   }else if(action==="mini.readonly.discover"){
    const port=safe(payload.port,16).toUpperCase();
    if(!/^COM\d{1,3}$/.test(port))return json({ok:false,code:"SERIAL_PORT_INVALID"},400);
