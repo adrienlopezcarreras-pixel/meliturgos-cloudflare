@@ -173,12 +173,20 @@ async function main(){
       try{bleProof=JSON.parse(String(bleOutput?.stdout||'').trim())}catch{}
       const accepted=bleCommand?.status==='SUCCEEDED'&&bleProof?.schema==='mel.companion.ble.diagnostics.v1'&&
         bleProof?.read_only===true&&bleProof?.serial_opened===false&&bleProof?.flash_performed===false;
+      const bleLines=accepted&&Array.isArray(bleProof.log_events)?bleProof.log_events.map(value=>String(value)):[];
+      const bleSignals={
+        gatt_connection_seen:bleLines.some(line=>/onClientConnectionState.*status=0|onConnectionStateChange.*status=0/i.test(line)),
+        pairing_removed_seen:bleLines.some(line=>/Bond removed|bondState=10|BOND_NONE/i.test(line)),
+        pairing_started_seen:bleLines.some(line=>/bondState=11|BOND_BONDING/i.test(line)),
+        session_ok_seen:bleLines.some(line=>/SESSION_OK/i.test(line)),
+        service_discovery_seen:bleLines.some(line=>/discoverServices|onServicesDiscovered/i.test(line))
+      };
       console.log('COMPANION_BLE_DIAGNOSTICS='+JSON.stringify({
         status:String(bleCommand?.status||'TIMEOUT'),
         evidence_valid:accepted,
         com3_present:accepted?bleProof.com_present===true:null,
         adb_status:accepted?String(bleProof.adb_status||'UNKNOWN').slice(0,60):null,
-        bluetooth_log_line_count:accepted&&Array.isArray(bleProof.log_events)?bleProof.log_events.length:0,
+        bluetooth_log_line_count:bleLines.length,signals:accepted?bleSignals:null,
         read_only:true,flash_performed:false
       }));
     }catch(error){
