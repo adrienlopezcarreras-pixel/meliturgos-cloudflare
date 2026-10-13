@@ -85,6 +85,7 @@ jobs:
           $files = @(
             'assets/MEL-Computer-Setup.ps1',
             'assets/MEL-Computer-Companion.ps1',
+            'tools/android-companion/MEL-Android-WiFi-Pairing.ps1',
             'scripts/build-windows-release.ps1',
             'scripts/sign-windows-release.ps1',
             'scripts/verify-windows-release.ps1'
