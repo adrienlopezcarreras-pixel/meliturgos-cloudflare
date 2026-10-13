@@ -11,6 +11,16 @@ $adb=(Get-Command adb.exe -ErrorAction SilentlyContinue | Select-Object -First 1
 if(-not $adb){
  foreach($candidate in @((Join-Path $env:LOCALAPPDATA 'Android\platform-tools\adb.exe'),(Join-Path $env:LOCALAPPDATA 'Android\Sdk\platform-tools\adb.exe'))){if(Test-Path -LiteralPath $candidate -PathType Leaf){$adb=$candidate;break}}
 }
+if(-not $adb){
+ $monitor=Join-Path $env:LOCALAPPDATA 'MEL\android-adb-wifi.json'
+ if(Test-Path -LiteralPath $monitor -PathType Leaf){
+  try{$info=Get-Content -LiteralPath $monitor -Raw | ConvertFrom-Json -ErrorAction Stop} catch{$info=$null}
+  if($info -and $info.adb_available -eq $true){
+   $sdk=Join-Path $env:LOCALAPPDATA 'Android\Sdk\platform-tools\adb.exe'
+   if(Test-Path -LiteralPath $sdk -PathType Leaf){$adb=$sdk}
+  }
+ }
+}
 $status='ADB_UNAVAILABLE';$models=@();$events=@()
 if($adb){
  $devices=@(& $adb devices -l 2>&1 | ForEach-Object { [string]$_ })
