@@ -37,10 +37,17 @@ export function assessInventory(selfCheck,inventory,expectedSha){
   if(ids.some(id=>typeof id!=='string'||!id.trim()) || new Set(ids).size!==ids.length){
     return {ok:false,code:'CAPABILITY_INVENTORY_DUPLICATE_OR_INVALID_ID'};
   }
+  // Identifiers are capability registry keys, never user records. Still
+  // restrict their character set before any public CI artifact or logging.
+  if(ids.some(id=>!/^[a-z0-9][a-z0-9._:-]{0,100}$/i.test(id)))
+    return {ok:false,code:'CAPABILITY_INVENTORY_ID_NOT_LOG_SAFE'};
   const health={};
+  const degradedIds=[],unavailableIds=[];
   let low=0, protectedCount=0, enabled=0;
   for(const row of inventory.capabilities){
     health[statusBucket(row)]=(health[statusBucket(row)]||0)+1;
+    if(statusBucket(row)==='DEGRADED')degradedIds.push(row.id);
+    if(statusBucket(row)==='UNAVAILABLE')unavailableIds.push(row.id);
     if(row?.risk==='LOW')low++;
     else if(row?.risk==='MEDIUM'||row?.risk==='HIGH')protectedCount++;
     else return {ok:false,code:'CAPABILITY_INVENTORY_RISK_INVALID'};
@@ -52,6 +59,8 @@ export function assessInventory(selfCheck,inventory,expectedSha){
     schema:'mel.capability-production-readonly-inventory/v1',deployed_sha:deployed,
     capability_count:ids.length,enabled_count:enabled,
     low_risk_count:low,protected_count:protectedCount,health,
+    degraded_capability_ids:degradedIds.sort(),
+    unavailable_capability_ids:unavailableIds.sort(),
     capability_execution_tested:false,stress_job_started:false,
     mutation_scope:'GET_ONLY_NO_REFRESH_NO_D1_WRITE'};
 }
