@@ -21,9 +21,12 @@ if($adb){
    $id=$serials[0];$status='ADB_CONNECTED'
    $model=@(& $adb -s $id shell getprop ro.product.model 2>&1 | ForEach-Object { [string]$_ })
    if($LASTEXITCODE -ne 0){$status='ADB_MODEL_READ_FAILED'}else{$models=@($model | Select-Object -First 2)}
-   $raw=@(& $adb -s $id logcat -d -t 1500 -v time 2>&1 | ForEach-Object { [string]$_ })
-   if($LASTEXITCODE -ne 0){$status='ADB_LOGCAT_FAILED'}
-   else {$events=@($raw | Where-Object { $_ -match 'BluetoothGatt|BondState|BtGatt|MelLinkV2|SESSION_OK|btm_sec|SMP|pairing' } | Select-Object -Last 45)}
+   if($status -eq 'ADB_CONNECTED' -and ($models.Count -ne 1 -or $models[0].Trim() -cne 'M2103K19G')){$status='ADB_TARGET_MODEL_NOT_APPROVED'}
+   if($status -eq 'ADB_CONNECTED'){
+    $raw=@(& $adb -s $id logcat -d -t 1500 -v time 2>&1 | ForEach-Object { [string]$_ })
+    if($LASTEXITCODE -ne 0){$status='ADB_LOGCAT_FAILED'}
+    else {$events=@($raw | Where-Object { $_ -match 'BluetoothGatt|BondState|BtGatt|MelLinkV2|SESSION_OK|btm_sec|SMP|pairing' } | Select-Object -Last 45)}
+   }
   }elseif($serials.Count -gt 1){$status='MULTIPLE_ADB_DEVICES_REFUSED'}else{$status='NO_PAIRED_ADB_WIFI_DEVICE'}
  }
 }
