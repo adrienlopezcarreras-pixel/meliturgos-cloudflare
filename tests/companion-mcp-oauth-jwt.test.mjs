@@ -34,3 +34,7 @@ test('long lived or future-issued access tokens are rejected',async()=>{
  await assert.rejects(verifyCompanionJwt(make({iat:1769999000,exp:1770000300}),settings),/JWT_LIFETIME_INVALID/);
  await assert.rejects(verifyCompanionJwt(make({iat:1770000030,exp:1770000300}),settings),/JWT_LIFETIME_INVALID/);
 });
+
+test('excessively long OAuth subject rejected before D1 lookup',async()=>{
+ await assert.rejects(verifyCompanionJwt(make({sub:'x'.repeat(257)}),settings),/JWT_CLAIMS_INVALID/);
+});
