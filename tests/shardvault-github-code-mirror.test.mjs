@@ -31,7 +31,8 @@ test('cached GitHub mirror is never eligible for shards 0 to 5',()=>{
   assert.equal(allowCodeEndpointForShard(normal,0,5),true);
   assert.equal(allowCodeEndpointForShard(normal,-1,7),false);
   assert.equal(allowCodeEndpointForShard(normal,7,7),false);
-  assert.match(runtime,/ranked\.filter\(e=>allowCodeEndpointForShard\(e,i,goal\)\)/);
+  assert.ok(runtime.includes('&&codeTargetAvailableNow(state,e)&&allowCodeEndpointForShard(e,i,goal)'));
+  assert.match(runtime,/rankExternalCodeCandidates\([\s\S]*?\.filter\(eligible\)/);
   assert.match(runtime,/CODE_MIRROR_NON_FINAL_SHARD_FORBIDDEN/);
 });
 

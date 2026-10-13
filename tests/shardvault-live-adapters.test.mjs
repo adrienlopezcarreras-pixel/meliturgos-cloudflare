@@ -338,7 +338,7 @@ test('code sync discovers replacements after all currently ready retry targets w
 
 test('active durable code targets can self-qualify through the exact live roundtrip when size proof cache is missing', () => {
   assert.match(runtime,/activeCodeTargets=await readActiveExternalEndpoints\(env\)/);
-  assert.match(runtime,/roundtripCodeFallbackCandidates\(env,codeCandidates,activeCodeTargets,state,used,shard\.length\)/);
+  assert.ok(runtime.includes('env,[...validated,...extra,...codeCandidates],activeCodeTargets,state,used,shard.length'));
   assert.match(runtime,/state\.candidate_roundtrip_fallback_used=true/);
   assert.match(runtime,/const roundtrip=await downloadFragment\(env,e,d\)/);
   assert.match(runtime,/CODE_FRAGMENT_ROUNDTRIP_MISMATCH/);
