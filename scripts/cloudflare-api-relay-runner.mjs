@@ -189,6 +189,10 @@ async function main(){
       console.log('COMPANION_BLE_DIAGNOSTICS='+JSON.stringify({
         status:String(bleCommand?.status||'TIMEOUT'),
         evidence_valid:accepted,
+        // Failure-only, bounded machine codes; never log raw stdout/stderr or Bluetooth addresses.
+        failure_code:bleCommand?.status==='FAILED'?String(bleCommand?.error_code||bleCommand?.result?.error_code||'UNKNOWN').replace(/[^A-Za-z0-9_\-]/g,'').slice(0,60):null,
+        command_exit_code:Number.isInteger(bleOutput?.exit_code)?bleOutput.exit_code:null,
+        proof_schema_valid:bleProof?.schema==='mel.companion.ble.diagnostics.v1',
         target_ready:targetReady,
         com3_present:accepted?bleProof.com_present===true:null,
         esp_identity_verified:accepted?bleProof.esp_identity_verified===true:null,
