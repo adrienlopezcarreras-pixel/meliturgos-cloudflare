@@ -51,8 +51,32 @@ test('remote absence, invalid base64 or inconsistent byte length never prove a m
 });
 test('runtime preserves exact byte equality before accepting a cached relay marker',async()=>{
   const runtime=await readFile(new URL('../src/continuity/shardvault-runtime.js',import.meta.url),'utf8');
-  assert.ok(runtime.includes('readAuthoritativeGitHubMirror(remoteUrl,{fetchImpl:fetchTimed,maxBytes:payload.length})'));
+  assert.ok(runtime.includes('readAuthoritativeGitHubMirror(remoteUrl,{fetchImpl:fetchTimed,maxBytes:payload.length,readToken:env?.MEL_GITHUB_TOKEN})'));
   assert.ok(runtime.includes('if(published&&byteArraysEqual(published,payload))return {remoteUrl};'));
   assert.ok(runtime.includes("if(!byteArraysEqual(roundtrip,shard))throw new Error('CODE_FRAGMENT_ROUNDTRIP_MISMATCH')"));
   assert.ok(runtime.includes('readAuthoritativeGitHubMirror(remote,{fetchImpl:fetchTimed,'));
+});
+
+test('scoped preview GitHub token is passed only to the fixed Contents API as an HTTP header',async()=>{
+  const secret='github-actions-test-token-NEVER-LOG';
+  let request;
+  let options;
+  const result=await readAuthoritativeGitHubMirror(url,{
+    readToken:secret,maxBytes:3,
+    fetchImpl:async (u,o)=>{request=u;options=o;return Response.json({type:'file',encoding:'base64',size:3,content:'AAEC'});},
+  });
+  assert.deepEqual(Array.from(result),[0,1,2]);
+  assert.ok(request.startsWith('https://api.github.com/repos/adrienlopezcarreras-pixel/meliturgos-cloudflare/contents/'));
+  assert.ok(!request.includes(secret));
+  assert.equal(options.redirect,'error');
+  assert.equal(options.method,'GET');
+  assert.equal(options.headers.authorization,'Bearer '+secret);
+  assert.equal(options.headers['cache-control'],'no-cache');
+  assert.equal(githubMirrorContentsApiUrl(url.replace('shardvault-preview-mirror','main')),null);
+  let badCalls=0;
+  const rejected=await readAuthoritativeGitHubMirror(url.replace('raw.githubusercontent.com','evil.test'),{
+    readToken:secret,fetchImpl:async()=>{badCalls++;return Response.json({ok:true});}
+  });
+  assert.equal(rejected,null);
+  assert.equal(badCalls,0);
 });
