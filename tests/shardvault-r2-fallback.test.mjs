@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { getShardVaultStatus, runShardVaultCycle } from '../src/continuity/shardvault-runtime.js';
+import { handleShardVaultStatus } from '../src/pages/shardvault-status.js';
 
 class FakeR2 {
   constructor(){this.map=new Map();}
@@ -45,4 +46,33 @@ test('ShardVault bootstraps on private R2 without external endpoint configuratio
   assert.equal(status.storage_mode,'CLOUDFLARE_FALLBACK');
   assert.equal(status.selected_endpoints[0].backend,'r2');
   assert.equal(status.health.healthy_shards,7);
+});
+
+test('preview ShardVault seed creates real local RS shards without external discovery, and cannot run in production', async () => {
+  const base={
+    MEL_SHARDVAULT_ENABLED:'true',MEL_SHARDVAULT_AUTONOMOUS:'true',
+    MELITURGOS_PASSWORD:'test-preview-password-different-from-production',
+    MEL_VAULT_ID:'preview-seed-test',MEL_DATA_SHARDS:'4',MEL_TOTAL_SHARDS:'7',
+    MEL_RUNTIME_ENV:'preview',MEL_PREVIEW_ISOLATED:'true',
+    MEDIA_BUCKET:new FakeR2(),DB:null,
+  };
+  const makeRequest=()=>new Request('https://preview.invalid/api/gen2/shardvault/snapshot',{
+    method:'POST',headers:{'content-type':'application/json'},
+    body:JSON.stringify({preview_bootstrap:true}),
+  });
+  const forbidden=await handleShardVaultStatus(makeRequest(),{...base,MEL_RUNTIME_ENV:'production'});
+  assert.equal(forbidden.status,403);
+  assert.equal((await forbidden.json()).status,'PREVIEW_ONLY');
+  assert.equal(base.MEDIA_BUCKET.map.size,0);
+  const response=await handleShardVaultStatus(makeRequest(),base);
+  assert.equal(response.status,200);
+  const first=await response.json();
+  assert.equal(first.status,'PREVIEW_SEED_VERIFIED');
+  assert.equal(first.verified_roundtrip,true);
+  assert.equal(first.seed_only,true);
+  assert.equal(first.shards,7);
+  assert.equal(first.storage_mode,'CLOUDFLARE_FALLBACK');
+  const second=await (await handleShardVaultStatus(makeRequest(),base)).json();
+  assert.equal(second.status,'SIGNED_SNAPSHOT_EXISTS');
+  assert.equal(second.snapshot_id,first.snapshot_id);
 });

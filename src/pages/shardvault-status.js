@@ -1,5 +1,5 @@
 // deployment trigger: ShardVault dashboard
-import { getShardVaultStatus, searchAutonomousShardVaultRepositories, runShardVaultCycle, setPreferredShardVaultEndpoint, activateValidatedShardVaultEndpoint, syncShardVaultCodeExternally, verifyShardVaultCodeReconstruction, storeCriticalCodeBundle } from '../continuity/shardvault-runtime.js';
+import { getShardVaultStatus, searchAutonomousShardVaultRepositories, runShardVaultCycle, setPreferredShardVaultEndpoint, activateValidatedShardVaultEndpoint, syncShardVaultCodeExternally, verifyShardVaultCodeReconstruction, storeCriticalCodeBundle, bootstrapIsolatedShardVaultSnapshot } from '../continuity/shardvault-runtime.js';
 
 function esc(value){return String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 
@@ -209,8 +209,12 @@ export async function handleShardVaultStatus(request,env){
   if(request.method==='GET'&&url.pathname==='/shardvault')return page();
   if(request.method==='GET'&&url.pathname==='/api/gen2/shardvault/status')return Response.json(await getShardVaultStatus(env),{headers:{'cache-control':'no-store'}});
   if(request.method==='POST'&&url.pathname==='/api/gen2/shardvault/snapshot'){
-    const result=await runShardVaultCycle(env,{force:true});
-    return Response.json(result,{status:result.ok?200:503,headers:{'cache-control':'no-store'}});
+    const body=await request.json().catch(()=>({}));
+    const previewSeed=body?.preview_bootstrap===true;
+    const result=previewSeed
+      ?await bootstrapIsolatedShardVaultSnapshot(env)
+      :await runShardVaultCycle(env,{force:true});
+    return Response.json(result,{status:result.ok?200:result.status==='PREVIEW_ONLY'?403:503,headers:{'cache-control':'no-store'}});
   }
   if(request.method==='POST'&&url.pathname==='/api/gen2/shardvault/search'){
     const body=await request.json().catch(()=>({}));
