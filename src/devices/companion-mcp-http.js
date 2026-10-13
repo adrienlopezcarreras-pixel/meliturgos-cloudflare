@@ -38,7 +38,11 @@ export async function companionMcpHttp(request,{authenticate,authorizeDevice,rea
  try{const raw=await request.text();if(raw.length>16384)return json({error:'REQUEST_TOO_LARGE'},413);body=JSON.parse(raw);}
  catch{return json(rpcError(null,-32700,'Parse error'),400);}
  if(!body||body.jsonrpc!=='2.0'||typeof body.method!=='string'||Array.isArray(body))return json(rpcError(body?.id??null,-32600,'Invalid Request'),400);
- if(body.id===undefined)return new Response(null,{status:202,headers});
+ if(body.id===undefined){
+  // Only the MCP initialization acknowledgement is permitted as a notification.
+  if(body.method==='notifications/initialized')return new Response(null,{status:202,headers});
+  return json(rpcError(null,-32600,'Unsupported notification'),400);
+ }
  if(body.method==='initialize')return json(rpc(body.id,{protocolVersion:MCP_HTTP_PROTOCOL,capabilities:{tools:{}},serverInfo:{name:'mel-companion-remote-preview',version:'0.1.0'}}));
  if(body.method==='ping')return json(rpc(body.id,{}));
  if(body.method==='tools/list')return json(rpc(body.id,{tools:[tool]}));
