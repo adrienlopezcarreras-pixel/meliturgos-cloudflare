@@ -1,4 +1,5 @@
 import { AutonomySupervisor, isSupervisedAutonomyJob } from './autonomy-supervisor.js';
+import { REQUIRED_COUNCIL_ROLE_IDS } from '../teachers/augmentio-council.js';
 
 function asArray(value) {
   return Array.isArray(value) ? value : [];
@@ -14,11 +15,48 @@ function councilProof(job) {
     const cost = row?.answer?.estimated_cost;
     return typeof cost === 'number' && Number.isFinite(cost) && cost === 0;
   });
-  if (members.length < 2 || !allExplicitZero) return null;
+  // A Council can assign several independent *roles* to one adapter. Those
+  // rows are not independent model invocations. Require two distinct actual
+  // responding provider IDs backed by the governor's exact-identity,
+  // verified-and-authorized zero-added-cost records.
+  const responding = [...new Set(usable.map(row => String(row?.answer?.provider_id || '').trim()).filter(Boolean))];
+  const succeeded = new Set(asArray(council.providers_succeeded).map(String));
+  const completedRoles = new Set(usable.map(row => String(row?.answer?.role || '').trim()).filter(Boolean));
+  const requiredRolesComplete = council.all_required_roles_satisfied === true
+    && asArray(council.required_roles_missing).length === 0
+    && REQUIRED_COUNCIL_ROLE_IDS.every(role => completedRoles.has(role)
+      && asArray(council.required_roles_succeeded).includes(role))
+    && council.critique_provenance?.all_required_roles_present === true;
+  const synthesisComplete = council.synthesis?.status === 'COMPLETE'
+    && council.synthesis.coordinator === 'MEL'
+    && typeof council.synthesis.text === 'string' && council.synthesis.text.trim().length > 0;
+
+  const proofs = asArray(council.zero_cost_provenance);
+  const zeroCostProvider = (providerId) => proofs.some(row =>
+    row?.provider_id === providerId
+    && row?.verified === true
+    && typeof row?.added_cost === 'number' && Number.isFinite(row.added_cost) && row.added_cost === 0
+    && typeof row?.source === 'string' && row.source.trim().length > 0
+    && row?.authorization?.approved === true
+    && row.authorization.policy === 'MEL_ZERO_EURO_V1'
+    && typeof row.authorization.authority === 'string' && row.authorization.authority.trim().length > 0
+    && row.authorization.adapter_id === providerId
+    && (!row.provider || row.authorization.provider === row.provider)
+    && (!row.model || row.authorization.model === row.model)
+  );
+  if (members.length < 2 || !allExplicitZero || responding.length < 2
+    || !requiredRolesComplete || !synthesisComplete
+    || council.budget_policy !== 'ZERO_ADDED_COST_FAIL_CLOSED'
+    || !responding.every(providerId => succeeded.has(providerId) && zeroCostProvider(providerId))) return null;
   return {
     job_id: job.id,
     response_count: usable.length,
     distinct_members: members.length,
+    distinct_responding_providers: responding.length,
+    responding_provider_ids: responding.slice(0, 12),
+    verified_zero_cost_governance: true,
+    required_roles_complete: true,
+    mel_synthesis_complete: true,
     members: members.slice(0, 12),
     explicit_zero_added_cost: true,
     phase: council.phase,
