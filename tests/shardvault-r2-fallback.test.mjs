@@ -101,3 +101,18 @@ test('preview exact-SHA and bundle-length gate precedes every Worker code-source
   assert.match(source,/PREVIEW_EXACT_SHA_BUNDLE_EXPECTATION_FAILED/);
   assert.match(source,/d\?\.declared_bytes/);
 });
+
+test('preview retries only declared Worker-size propagation races without loosening exact SHA/hash validation', async () => {
+  const workflow=fs.readFileSync(new URL('../.github/workflows/deploy-candidate-preview.yml',import.meta.url),'utf8');
+  const section=workflow.split('      - name: Bind exact critical bundle through preview Worker')[1]
+    ?.split('      - name: ',1)[0]||'';
+  assert.match(section,/for attempt in \\{1\\.\\.10\\}; do/);
+  assert.ok(section.includes("status==='CRITICAL_BUNDLE_DECLARED_SIZE_MISMATCH'"));
+  assert.ok(section.includes('process.exit(10)'));
+  assert.ok(section.includes('PREVIEW_CRITICAL_BUNDLE_EDGE_PROPAGATION_RETRY'));
+  assert.ok(section.includes('PREVIEW_EXACT_SHA_RECHECK_FAILED'));
+  assert.ok(section.includes('CRITICAL_BUNDLE_RUNTIME_SHA_MISMATCH'));
+  assert.ok(section.includes('CRITICAL_BUNDLE_RUNTIME_SIZE_MISMATCH'));
+  assert.ok(section.includes('CRITICAL_BUNDLE_RUNTIME_HASH_INVALID'));
+  assert.ok(section.includes('test "$copied" -eq 1'));
+});

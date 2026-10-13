@@ -338,36 +338,77 @@ jobs:
         run: |
           set -euo pipefail
           BASE_URL="https://meliturgos-preview.adrien-lopezcarreras.workers.dev"
-          HTTP_CODE="$(curl --show-error --silent --max-time 120 \
-            --header "Authorization: Bearer ${MEL_PREVIEW_PASSWORD}" \
-            --header "content-type: application/gzip" \
-            --data-binary @mel-critical-code.tar.gz \
-            --write-out '%{http_code}' \
-            "${BASE_URL}/api/gen2/shardvault/code-source" \
-            --output shardvault-code-source.json)"
+          # Preview deployment propagation can briefly route successive
+          # requests to different exact-SHA Worker revisions. Keep immutable
+          # SHA and archive-length equality mandatory; retry ONLY the explicit
+          # declared-size mismatch, and bound the entire loop.
+          copied=0
+          for attempt in {1..10}; do
+            HTTP_CODE="$(curl --show-error --silent --max-time 120 \
+              --header "Authorization: Bearer ${MEL_PREVIEW_PASSWORD}" \
+              --header "content-type: application/gzip" \
+              --data-binary @mel-critical-code.tar.gz \
+              --write-out '%{http_code}' \
+              "${BASE_URL}/api/gen2/shardvault/code-source" \
+              --output shardvault-code-source.json || true)"
 
-          HTTP_CODE="${HTTP_CODE}" EXPECTED_BYTES="${MEL_CRITICAL_CODE_BUNDLE_BYTES}" GITHUB_SHA="${GITHUB_SHA}" node - <<'NODE'
+            # 0 = strictly verified exact code archive.
+            # 10 = known transient edge-version mismatch, recheck deployment.
+            # 1 = hard fail. Never weaken SHA/size/hash requirements.
+            set +e
+            HTTP_CODE="${HTTP_CODE}" EXPECTED_BYTES="${MEL_CRITICAL_CODE_BUNDLE_BYTES}" GITHUB_SHA="${GITHUB_SHA}" node - <<'NODE'
           const fs=require('fs');
           let d;
           try { d=JSON.parse(fs.readFileSync('shardvault-code-source.json','utf8')); }
           catch { throw new Error('CRITICAL_BUNDLE_RUNTIME_RESPONSE_INVALID'); }
           const safeCode=v=>/^[A-Z0-9_:-]{1,100}$/.test(String(v||''))?String(v):'UNSPECIFIED';
           const status=safeCode(d?.status);
-          if(process.env.HTTP_CODE!=='200'||d?.ok!==true||status!=='COPIED'||d?.verified_roundtrip!==true){
+          if(process.env.HTTP_CODE==='409'&&status==='CRITICAL_BUNDLE_DECLARED_SIZE_MISMATCH'){
             console.error(JSON.stringify({
-              diagnostic:'CRITICAL_BUNDLE_BIND_REJECTED',
-              http_code:/^[0-9]{3}$/.test(process.env.HTTP_CODE||'')?process.env.HTTP_CODE:'UNSPECIFIED',
-              status,uploaded_bytes:Number(d?.bytes)||null,
+              diagnostic:'CRITICAL_BUNDLE_EDGE_VERSION_MISMATCH',
+              http_code:process.env.HTTP_CODE,status,
+              uploaded_bytes:Number(d?.bytes)||null,
               declared_bytes:Number(d?.declared_bytes)||null,
               expected_bytes:Number(process.env.EXPECTED_BYTES)||null
             }));
+            process.exit(10);
+          }
+          if(process.env.HTTP_CODE!=='200'||d?.ok!==true||status!=='COPIED'||d?.verified_roundtrip!==true){
             throw new Error('CRITICAL_BUNDLE_RUNTIME_BIND_FAILED:'+status);
           }
           if(Number(d?.bytes||0)!==Number(process.env.EXPECTED_BYTES||0)) throw new Error('CRITICAL_BUNDLE_RUNTIME_SIZE_MISMATCH');
           if(String(d?.sha||'')!==String(process.env.GITHUB_SHA||'')) throw new Error('CRITICAL_BUNDLE_RUNTIME_SHA_MISMATCH');
           if(!/^[0-9a-f]{64}$/i.test(String(d?.sha256||''))) throw new Error('CRITICAL_BUNDLE_RUNTIME_HASH_INVALID');
-          console.log(JSON.stringify({status:d.status,bytes:d.bytes,sha:d.sha,sha256:d.sha256,verified_roundtrip:d.verified_roundtrip},null,2));
+          console.log(JSON.stringify({status:d.status,bytes:d.bytes,sha:d.sha,sha256:d.sha256,verified_roundtrip:d.verified_roundtrip}));
           NODE
+            result=$?
+            set -e
+            if [ "$result" -eq 0 ]; then
+              copied=1
+              break
+            fi
+            if [ "$result" -ne 10 ]; then exit "$result"; fi
+            echo "PREVIEW_CRITICAL_BUNDLE_EDGE_PROPAGATION_RETRY ${attempt}/10"
+            # Recheck the exact SHA and bytes using the side-effect-free route.
+            EXPECT_HTTP="$(curl --show-error --silent --max-time 20 \
+              --header "Authorization: Bearer ${MEL_PREVIEW_PASSWORD}" \
+              --write-out '%{http_code}' \
+              --output shardvault-code-expectation.retry.json \
+              "${BASE_URL}/api/gen2/shardvault/code-source/expectation" || true)"
+            if [ "${EXPECT_HTTP}" = "200" ]; then
+              EXPECTED_BYTES="${MEL_CRITICAL_CODE_BUNDLE_BYTES}" GITHUB_SHA="${GITHUB_SHA}" node - <<'NODE'
+          const fs=require('fs');
+          const d=JSON.parse(fs.readFileSync('shardvault-code-expectation.retry.json','utf8'));
+          if(d?.ok!==true||d?.status!=='EXACT_DEPLOYMENT_EXPECTATION'
+            ||d?.deployed_sha!==process.env.GITHUB_SHA
+            ||Number(d?.declared_bytes)!==Number(process.env.EXPECTED_BYTES))
+            throw Error('PREVIEW_EXACT_SHA_RECHECK_FAILED');
+          NODE
+            fi
+            if [ "$attempt" -lt 10 ]; then sleep 5; fi
+          done
+          test "$copied" -eq 1
+          rm -f shardvault-code-expectation.retry.json
 
       - name: Smoke test isolated preview HTTP
         id: preview_http_smoke
