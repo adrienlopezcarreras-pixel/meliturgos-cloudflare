@@ -1,0 +1,69 @@
+name: prove-c000-real-local-quality-rejection-no-gpu
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/prove-c000-real-local-quality.yml'
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  exact-checkpoint-gate:
+    if: ${{ github.repository == 'adrienlopezcarreras-pixel/meliturgos-cloudflare' && github.actor == 'adrienlopezcarreras-pixel' && github.event.pull_request.number == 1253 && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'fix/lora-preserve-checkpoint-before-release-20261012' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Download verified existing checkpoint (NO GPU)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/c000
+          gh run download 38302570850 --repo "$GITHUB_REPOSITORY" \
+            --name mel-lora-c000-existing-verified-checkpoint --dir artifacts/c000
+      - name: Reverify binary provenance before interpreting local scores
+        run: |
+          set -euo pipefail
+          python scripts/verify-existing-kaggle-lora-bundle.py \
+            artifacts/c000/mel-lora-bundle.tar.gz > /dev/null
+      - name: Prove actual candidate is blocked for unsafe boundary and agentic regression
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import copy
+          import json
+          import runpy
+          import tarfile
+          from pathlib import Path
+          verify=runpy.run_path('scripts/check-lora-local-quality-gate.py',run_name='readonly_fixture')['verify']
+          with tarfile.open('artifacts/c000/mel-lora-bundle.tar.gz','r:gz') as archive:
+              impact=json.load(archive.extractfile('local-impact-benchmark.json'))
+              run=json.load(archive.extractfile('kaggle-run.json'))
+          assert run['source_sha']=='635c4786b39b9c3a5458126d64ec7bb726a282e7'
+          assert run['cycle']==0 and run['global_step']==32
+          assert impact['case_count']==6
+          def must_reject(r,a,code):
+              try:
+                  verify(r,a)
+              except ValueError as error:
+                  assert code in str(error), ('UNEXPECTED_GATE_REJECT_REASON',type(error).__name__)
+              else:
+                  raise AssertionError('UNSAFE_MODEL_QUALITY_GATE_PASSED')
+              print('C000_REAL_QUALITY_'+code+'_PROVEN')
+          must_reject(run,impact,'UNAPPROVED_LOCAL_GATE')
+          r=copy.deepcopy(run)
+          a=copy.deepcopy(impact)
+          r['local_uncensored_gate']=True
+          a['local_uncensored_gate']=True
+          a['candidate']['metrics']['uncensored_gate']=True
+          must_reject(r,a,'BOUNDARY_SAFETY_REGRESSION')
+          for c in a['candidate']['cases']:
+              if c['kind']=='dangerous_boundary':
+                  c['metrics']['refused']=True
+          must_reject(r,a,'AGENTIC_EXECUTION_REGRESSION')
+          print('C000_REAL_CHECKPOINT_LOCAL_QUALITY_NO_GO_NO_PROMOTION')
+          PY
