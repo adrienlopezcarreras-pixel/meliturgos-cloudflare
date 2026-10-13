@@ -10,7 +10,7 @@ import sys
 from inspect_partitions import inspect as inspect_partitions
 from inspect_ota_backup import inspect_backup
 from inspect_ota_state import analyze as inspect_ota
-from inspect_image import inspect as inspect_image
+from inspect_image import inspect_bytes as inspect_image_bytes
 
 MAX_APP_BYTES = 16 * 1024 * 1024
 HEX_SHA256 = re.compile(r"^[0-9a-fA-F]{64}$")
@@ -23,7 +23,10 @@ def sha256(content: bytes) -> str:
 def read_limited(path: Path, maximum: int) -> bytes:
     if not path.is_file() or not 0 < path.stat().st_size <= maximum:
         raise ValueError("MINI_PROOF_FILE_MISSING_OR_SIZE_INVALID:" + path.name)
-    return path.read_bytes()
+    content = path.read_bytes()
+    if not 0 < len(content) <= maximum:
+        raise ValueError('MINI_PROOF_FILE_CHANGED_DURING_READ:' + path.name)
+    return content
 
 
 def prepare(backup_dir: Path, firmware: Path, expected_sha256: str) -> dict:
@@ -82,7 +85,7 @@ def prepare(backup_dir: Path, firmware: Path, expected_sha256: str) -> dict:
     actual_fw_sha256 = sha256(fw)
     if actual_fw_sha256 != expected_sha256.lower():
         raise ValueError("MINI_FIRMWARE_SHA256_MISMATCH")
-    image = inspect_image(firmware)
+    image = inspect_image_bytes(fw, filename=firmware.name)
     if image["chip_id"] != 9 or image.get("embedded_sha256_valid") is not True or image.get("checksum_valid") is not True:
         raise ValueError("MINI_FIRMWARE_CHIP_OR_INTEGRITY_UNVERIFIED")
     if image["size_bytes"] > inactive["size"]:
