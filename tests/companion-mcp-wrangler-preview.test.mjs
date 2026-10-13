@@ -11,3 +11,11 @@ test('MCP preview deployment template never enables a public endpoint',()=>{
  assert.match(toml,/REPLACE_PREVIEW_D1_ID/);
  assert.doesNotMatch(toml,/BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY/);
 });
+
+test('preview sample cannot accidentally reference a real zone or enable deployment',()=>{
+ const toml=readFileSync('wrangler.companion-mcp-preview.example.toml','utf8');
+ assert.match(toml,/^MCP_PREVIEW_ORIGIN = "https:\/\/REPLACE-preview\.example\.invalid"$/m);
+ assert.match(toml,/^MCP_OAUTH_ISSUER = "https:\/\/REPLACE-issuer\.example\.invalid"$/m);
+ assert.doesNotMatch(toml,/^\s*\[\[?routes?\]?\]\s*$/m);
+ assert.doesNotMatch(toml,/^\s*zone_id\s*=/m);
+});
