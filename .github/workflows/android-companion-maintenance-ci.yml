@@ -2,6 +2,7 @@ name: Android Companion maintenance CI
 on:
   pull_request:
     paths:
+      - 'tools/android-companion/MEL-Android-WiFi-Pairing.ps1'
       - 'assets/MEL-Computer-Companion.ps1'
       - 'dist/MEL-Computer-Companion.ps1'
       - 'src/devices/android-maintenance-companion.js'
@@ -14,6 +15,7 @@ on:
   push:
     branches: [main]
     paths:
+      - 'tools/android-companion/MEL-Android-WiFi-Pairing.ps1'
       - 'assets/MEL-Computer-Companion.ps1'
       - 'dist/MEL-Computer-Companion.ps1'
       - 'src/devices/android-maintenance-companion.js'
@@ -40,8 +42,8 @@ jobs:
       - name: PowerShell parser proof (no ADB access)
         shell: pwsh
         run: |
-          $scripts = @((Get-ChildItem -LiteralPath '.ci-android-maintenance' -Filter '*.ps1' -File) + (Get-Item 'assets/MEL-Computer-Companion.ps1') + (Get-Item 'dist/MEL-Computer-Companion.ps1'))
-          if ($scripts.Count -ne 5) { throw 'ANDROID_MAINTENANCE_SCRIPT_COUNT_INVALID' }
+          $scripts = @((Get-ChildItem -LiteralPath '.ci-android-maintenance' -Filter '*.ps1' -File) + (Get-Item 'assets/MEL-Computer-Companion.ps1') + (Get-Item 'dist/MEL-Computer-Companion.ps1') + (Get-Item 'tools/android-companion/MEL-Android-WiFi-Pairing.ps1'))
+          if ($scripts.Count -ne 6) { throw 'ANDROID_MAINTENANCE_SCRIPT_COUNT_INVALID' }
           foreach ($script in $scripts) {
             $tokens = $null
             $errors = $null
