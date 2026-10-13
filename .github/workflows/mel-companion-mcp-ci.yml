@@ -15,6 +15,7 @@ on:
       - 'src/devices/companion-mcp-d1-lookup.js'
       - 'migrations/20261013_companion_mcp_device_grants.sql'
       - 'tests/companion-mcp-migration.test.mjs'
+      - 'tests/companion-mcp-signed-d1-integration.test.mjs'
       - 'tests/companion-mcp-d1-lookup.test.mjs'
       - 'tests/companion-mcp-device-authorization.test.mjs'
       - 'tests/companion-mcp-endpoint.test.mjs'
@@ -40,4 +41,4 @@ jobs:
         run: |
           node -e "const fs=require('fs'); const s=fs.readFileSync('tools/Test-MEL-Companion-MCP.ps1','utf8'); if(/Set-ExecutionPolicy|Invoke-Expression|Start-Process|winget install|Invoke-RestMethod|ConvertFrom-SecureString|Get-Content/i.test(s))process.exit(1)"
       - name: Offline MCP security contract
-        run: node --test tests/mel-companion-mcp.test.mjs tests/companion-mcp-http.test.mjs tests/companion-mcp-oauth-jwt.test.mjs tests/companion-mcp-authenticator.test.mjs tests/companion-mcp-endpoint.test.mjs tests/companion-mcp-device-authorization.test.mjs tests/companion-mcp-d1-lookup.test.mjs tests/companion-mcp-migration.test.mjs
+        run: node --test tests/mel-companion-mcp.test.mjs tests/companion-mcp-http.test.mjs tests/companion-mcp-oauth-jwt.test.mjs tests/companion-mcp-authenticator.test.mjs tests/companion-mcp-endpoint.test.mjs tests/companion-mcp-device-authorization.test.mjs tests/companion-mcp-d1-lookup.test.mjs tests/companion-mcp-migration.test.mjs tests/companion-mcp-signed-d1-integration.test.mjs
