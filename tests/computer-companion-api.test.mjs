@@ -342,7 +342,7 @@ test('Windows Companion 2.3.12 watchdogs and self-refreshes the engine for local
 test('scoped OIDC MINI USB inspection maps only serial.inspect to a fixed local system probe',async()=>{
   const api=await readFile(new URL('../src/devices/computer-companion-api.js',import.meta.url),'utf8');
   const relay=await readFile(new URL('../scripts/cloudflare-api-relay-runner.mjs',import.meta.url),'utf8');
-  assert.match(api,/PC_CONTROL_PROOF_ACTIONS=new Set\(\["system\.info","serial\.list","serial\.read","serial\.inspect"\]\)/);
+  assert.match(api,/PC_CONTROL_PROOF_ACTIONS=new Set\(\["system\.info","serial\.list","serial\.read","serial\.inspect","mini\.readonly\.discover"\]\)/);
   assert.match(api,/action==="serial\.inspect"/);
   assert.match(api,/effectiveAction="system\.exec"/);
   assert.match(api,/Get-CimInstance Win32_PnPEntity/);
@@ -358,6 +358,9 @@ test('scheduled OIDC diagnostics cannot reset MINI even with a legacy environmen
   const relay = await readFile(new URL('../scripts/cloudflare-api-relay-runner.mjs', import.meta.url), 'utf8');
   const allowed = source.split('const PC_CONTROL_PROOF_ACTIONS=new Set(')[1]?.split(';')[0] || '';
   assert.ok(allowed.includes('"serial.inspect"'));
+  assert.ok(allowed.includes('"mini.readonly.discover"'));
+  assert.ok(!allowed.includes('"mini.readonly.security"'));
+  assert.ok(!allowed.includes('"mini.readonly.backup"'));
   assert.ok(!allowed.includes('"serial.hard_reset"'));
   assert.ok(source.includes('device.metadata?.remote_access_enabled!==true&&a.kind!=="github-oidc"'));
   assert.ok(!relay.includes("action:'serial.hard_reset'"));
