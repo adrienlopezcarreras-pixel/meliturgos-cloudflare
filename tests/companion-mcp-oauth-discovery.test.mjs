@@ -16,3 +16,16 @@ test('does not follow issuer redirects or accept mixed-origin metadata',async()=
  await assert.rejects(discoverCompanionOAuthIssuer({issuer,fetcher:async()=>new Response(null,{status:302,headers:{location:'https://attacker.invalid/'}})}),/MCP_ISSUER_DISCOVERY_DENIED/);
  await assert.rejects(discoverCompanionOAuthIssuer({issuer,fetcher:async()=>Response.json({...metadata,issuer:'https://attacker.invalid'})}),/MCP_ISSUER_MISMATCH/);
 });
+
+test('pathful issuer uses RFC8414 well-known insertion',async()=>{
+ const pathIssuer='https://issuer.example.test/tenant/a';
+ let requested='';
+ await discoverCompanionOAuthIssuer({issuer:pathIssuer,fetcher:async url=>{
+  requested=url;
+  return Response.json({...metadata,issuer:pathIssuer});
+ }});
+ assert.equal(requested,'https://issuer.example.test/.well-known/oauth-authorization-server/tenant/a');
+});
+test('discovery refuses issuer URL credentials',async()=>{
+ await assert.rejects(discoverCompanionOAuthIssuer({issuer:'https://user:secret@issuer.example.test'}),/MCP_ISSUER_CONFIG_INVALID/);
+});
