@@ -51,7 +51,8 @@ check('Windows remote consent defaults off',/d\["remote_access_enabled"\] = fals
 const allowedOidcReadOnly = new Set([
  'system.info','serial.list','serial.read','serial.inspect',
  'process.list','mini.readonly.discover','mini.readonly.backup.audit',
- 'mini.maintenance.assess','android.maintenance.assess'
+ 'mini.maintenance.assess','android.maintenance.assess',
+ 'mini.android.ble.diagnose'
 ]);
 const proofSetText = api.split('const PC_CONTROL_PROOF_ACTIONS=new Set([')[1]?.split(']);')[0] || '';
 const proofActions = [...proofSetText.matchAll(/"([^"]+)"/g)].map(row=>row[1]);
