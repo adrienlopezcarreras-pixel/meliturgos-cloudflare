@@ -1029,7 +1029,31 @@ jobs:
             fi
             case "$SYNC_STATUS" in
               COPYING|RETRY_TARGETS) ;;
-              *) cat shardvault-code-sync.json; exit 23 ;;
+              QUORUM_COPIED)
+                # Recoverable 4/7 or 5/7 is not the required full 7/7.
+                # Quorum carries resumable state; do not stop the remaining
+                # verified external shard writes at the first safe quorum.
+                node - <<'NODE'
+          const fs=require('fs');
+          const d=JSON.parse(fs.readFileSync('shardvault-code-sync.json','utf8'));
+          const e=d?.external||{};
+          const count=new Set(e.endpoints||[]).size;
+          if(d?.ok!==true||d?.status!=='QUORUM_COPIED'
+              ||e.repair_pending!==true||e.reconstruction_verified!==true
+              ||e.next_action!=='CALL_CODE_SYNC_AGAIN'
+              ||count<5||count>=7)throw Error('SHARDVAULT_QUORUM_PROGRESS_INVALID');
+          console.log('SHARDVAULT_QUORUM_PROGRESS_NOT_COMPLETE:',count+'/7');
+          NODE
+                ;;
+              *)
+                node - <<'NODE'
+          const fs=require('fs');
+          const d=JSON.parse(fs.readFileSync('shardvault-code-sync.json','utf8'));
+          const v=String(d?.status||'UNKNOWN');
+          console.error('SHARDVAULT_CODE_SYNC_UNEXPECTED_STATUS:',/^[A-Z0-9_:-]{1,80}$/.test(v)?v:'UNKNOWN');
+          NODE
+                exit 23
+                ;;
             esac
             sleep 1
           done

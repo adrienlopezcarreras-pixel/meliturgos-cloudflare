@@ -108,6 +108,13 @@ test('external code sync is resumable and bounded to one verified RS shard per r
   assert.doesNotMatch(runtime,/assignDistinctExternalTargets\(replicas,candidates/);
   assert.match(workflow,/for attempt in \$\(seq 1 32\)/);
   assert.match(workflow,/COPYING\|RETRY_TARGETS/);
+  assert.match(workflow,/QUORUM_COPIED/);
+  assert.match(workflow,/SHARDVAULT_QUORUM_PROGRESS_NOT_COMPLETE/);
+  assert.match(workflow,/SHARDVAULT_QUORUM_PROGRESS_INVALID/);
+  assert.match(workflow,/e\.repair_pending!==true/);
+  assert.match(workflow,/e\.next_action!=='CALL_CODE_SYNC_AGAIN'/);
+  assert.match(workflow,/SYNC_STATUS.*COPIED.*SYNC_ENDPOINTS.*-ge 7/);
+  assert.match(workflow,/test \"\$SYNC_DONE\" -eq 1/);
   assert.match(workflow,/000\|502\|503\|504/);
   assert.match(workflow,/durable state will be resumed/);
   assert.match(workflow,/SYNC_STATUS.*COPIED/);
