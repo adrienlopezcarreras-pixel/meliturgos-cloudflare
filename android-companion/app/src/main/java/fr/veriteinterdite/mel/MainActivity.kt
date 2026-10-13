@@ -1444,7 +1444,7 @@ internal fun MelApp(
     onVoicePress: () -> Unit,
     onVoiceRelease: () -> Unit,
     onFile: () -> Unit,
-    onLocalApkUpdate: () -> Unit,
+    onLocalApkUpdate: () -> Unit = {},
     onNotifications: () -> Unit,
     onDiagnostics: () -> Unit,
     onCopyDiagnostic: (String) -> Unit,
