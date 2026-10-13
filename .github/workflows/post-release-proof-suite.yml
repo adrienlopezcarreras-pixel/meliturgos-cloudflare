@@ -68,8 +68,14 @@ jobs:
       expected_sha: ${{ needs.resolve.outputs.expected_sha }}
     secrets: inherit
 
-  council-rich-ui:
+  workers-ai-proof-refresh:
     needs: [resolve, persistent-stress]
+    if: always() && needs.resolve.result == 'success' && needs.persistent-stress.result == 'success'
+    uses: ./.github/workflows/workers-ai-zero-cost-proof-refresh.yml
+    secrets: inherit
+
+  council-rich-ui:
+    needs: [resolve, workers-ai-proof-refresh]
     if: always() && needs.resolve.result == 'success'
     uses: ./.github/workflows/council-rich-ui-production-proof.yml
     with:
@@ -93,7 +99,7 @@ jobs:
     secrets: inherit
 
   summary:
-    needs: [resolve, platform, persistent-stress, council-rich-ui, connections, sovereignty]
+    needs: [resolve, platform, persistent-stress, workers-ai-proof-refresh, council-rich-ui, connections, sovereignty]
     if: always() && github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
     steps:
@@ -103,6 +109,7 @@ jobs:
           EXPECTED_SHA: ${{ needs.resolve.outputs.expected_sha }}
           PLATFORM: ${{ needs.platform.result }}
           STRESS: ${{ needs.persistent-stress.result }}
+          WORKERS_AI_PROOF_REFRESH: ${{ needs.workers-ai-proof-refresh.result }}
           COUNCIL_RICH_UI: ${{ needs.council-rich-ui.result }}
           CONNECTIONS: ${{ needs.connections.result }}
           SOVEREIGNTY: ${{ needs.sovereignty.result }}
@@ -114,11 +121,12 @@ jobs:
             expected_sha:process.env.EXPECTED_SHA||null,
             platform:process.env.PLATFORM||'unknown',
             persistent_stress:process.env.STRESS||'unknown',
+            workers_ai_proof_refresh:process.env.WORKERS_AI_PROOF_REFRESH||'unknown',
             council_rich_ui:process.env.COUNCIL_RICH_UI||'unknown',
             connections:process.env.CONNECTIONS||'unknown',
             sovereignty:process.env.SOVEREIGNTY||'unknown',
           };
           console.log(JSON.stringify(proof,null,2));
-          const values=[proof.platform,proof.persistent_stress,proof.council_rich_ui,proof.connections,proof.sovereignty];
+          const values=[proof.platform,proof.persistent_stress,proof.workers_ai_proof_refresh,proof.council_rich_ui,proof.connections,proof.sovereignty];
           if(values.some(value=>value!=='success')) process.exit(1);
           NODE

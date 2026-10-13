@@ -27,10 +27,11 @@ test('post-release suite sequences platform, stress, Council rich UI, connection
   const source = await readFile(new URL('../../.github/workflows/post-release-proof-suite.yml', import.meta.url), 'utf8');
   assert.match(source, /platform:\n[\s\S]*uses: \.\/\.github\/workflows\/activate-platform-capabilities\.yml/);
   assert.match(source, /persistent-stress:\n[\s\S]*needs: \[resolve, platform\][\s\S]*if: always\(\)/);
-  assert.match(source, /council-rich-ui:\n[\s\S]*needs: \[resolve, persistent-stress\][\s\S]*if: always\(\)/);
+  assert.match(source, /workers-ai-proof-refresh:\n[\s\S]*needs: \[resolve, persistent-stress\][\s\S]*uses: \.\/\.github\/workflows\/workers-ai-zero-cost-proof-refresh\.yml/);
+  assert.match(source, /council-rich-ui:\n[\s\S]*needs: \[resolve, workers-ai-proof-refresh\][\s\S]*if: always\(\)/);
   assert.match(source, /connections:\n[\s\S]*needs: \[resolve, council-rich-ui\][\s\S]*if: always\(\)/);
   assert.match(source, /sovereignty:\n[\s\S]*needs: \[resolve, connections\][\s\S]*if: always\(\)/);
-  assert.match(source, /summary:\n[\s\S]*needs: \[resolve, platform, persistent-stress, council-rich-ui, connections, sovereignty\]/);
+  assert.match(source, /summary:\n[\s\S]*needs: \[resolve, platform, persistent-stress, workers-ai-proof-refresh, council-rich-ui, connections, sovereignty\]/);
 });
 
 
@@ -60,4 +61,20 @@ test('canonical deployment cannot be green before the post-release health suite 
   assert.match(suite, /workflow_call:/);
   assert.doesNotMatch(suite, /workflow_run:/);
   assert.match(suite, /resolve:\n\s+if:\s*github\.event_name != 'pull_request'/);
+});
+
+
+test('Council proof refresh is short-lived, fail-closed and not silently cancelled', async () => {
+  const [refresh, suite] = await Promise.all([
+    readFile(new URL('../../.github/workflows/workers-ai-zero-cost-proof-refresh.yml', import.meta.url), 'utf8'),
+    readFile(new URL('../../.github/workflows/post-release-proof-suite.yml', import.meta.url), 'utf8'),
+  ]);
+  assert.match(refresh, /workflow_call:/);
+  assert.match(refresh, /cron: '\*\/15 \* \* \* \*'/);
+  assert.match(refresh, /cancel-in-progress: false/);
+  assert.match(refresh, /accounts\/\$\{CLOUDFLARE_ACCOUNT_ID\}\/entitlements/);
+  assert.match(refresh, /MEL_WORKERS_AI_ZERO_COST_PROOF_JSON/);
+  assert.match(refresh, /expires_at:new Date\(now\+60\*60\*1000\)/);
+  assert.match(suite, /WORKERS_AI_PROOF_REFRESH: \$\{\{ needs\.workers-ai-proof-refresh\.result \}\}/);
+  assert.match(suite, /proof\.workers_ai_proof_refresh/);
 });
