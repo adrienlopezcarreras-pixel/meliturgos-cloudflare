@@ -1366,19 +1366,47 @@ jobs:
           set -euo pipefail
           BASE_URL="https://meliturgos-preview.adrien-lopezcarreras.workers.dev"
 
-          curl --fail --show-error --silent --max-time 180 \
-            --header "Authorization: Bearer ${MEL_PREVIEW_PASSWORD}" \
-            --header "content-type: application/json" \
-            --data '{}' \
-            "${BASE_URL}/api/learning/benchmark/run" \
-            --output benchmark-refresh.json
+          # Only the isolated preview runs these POSTs. A Worker may complete
+          # a request yet drop its HTTP response (curl 56). Replay is strictly
+          # bounded and restricted to transport errors, never application errors.
+          # No adapter activation or promotion is performed by either endpoint.
+          refresh_preview_learning() {
+            local path="$1" output="$2" timeout="$3"
+            local attempt code curl_exit
+            for attempt in 1 2 3; do
+              rm -f "$output"
+              code=""
+              curl_exit=0
+              if code="$(curl --fail-with-body --show-error --silent --max-time "$timeout" \
+                --header "Authorization: Bearer ${MEL_PREVIEW_PASSWORD}" \
+                --header "content-type: application/json" \
+                --data '{}' \
+                --output "$output" \
+                --write-out '%{http_code}' \
+                "${BASE_URL}${path}")"; then
+                if [ "$code" = "200" ]; then return 0; fi
+                echo "PREVIEW_LEARNING_NON_200:${path}:${code}"
+                return 1
+              else
+                curl_exit=$?
+              fi
+              case "$curl_exit" in
+                18|28|52|55|56)
+                  echo "PREVIEW_LEARNING_TRANSIENT_TRANSPORT:${path}:curl=${curl_exit}:attempt=${attempt}"
+                  if [ "$attempt" -eq 3 ]; then return 1; fi
+                  sleep 3
+                  ;;
+                *)
+                  echo "PREVIEW_LEARNING_HARD_FAILURE:${path}:curl=${curl_exit}:http=${code}"
+                  return 1
+                  ;;
+              esac
+            done
+            return 1
+          }
 
-          curl --fail --show-error --silent --max-time 120 \
-            --header "Authorization: Bearer ${MEL_PREVIEW_PASSWORD}" \
-            --header "content-type: application/json" \
-            --data '{}' \
-            "${BASE_URL}/api/learning/lora/prepare" \
-            --output lora-prepare-refresh.json
+          refresh_preview_learning '/api/learning/benchmark/run' benchmark-refresh.json 180
+          refresh_preview_learning '/api/learning/lora/prepare' lora-prepare-refresh.json 120
 
           python - <<'PY'
           import json, os
