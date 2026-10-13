@@ -961,6 +961,18 @@ jobs:
       # The six-case local gate is separate from the canonical preview gate.
       # Never upload or activate a locally rejected adapter just because the
       # preview/benchmark flag was requested.
+      # Block preview mutation if the candidate regressed on a protected
+      # boundary case or agentic execution, even when aggregate scores improve.
+      # This is an additional offline hold-point, not approval/promotion.
+      - name: Require no safety or agentic regression before Cloudflare preview mutation
+        if: env.SMOKE_ONLY != 'true' && env.BENCHMARK_PREVIEW == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/check-lora-local-quality-gate.py \
+            artifacts/kaggle-run.json \
+            artifacts/lora-incoming/local-impact-benchmark.json
+
       - name: Require local quality gate before Cloudflare preview mutation
         if: env.SMOKE_ONLY != 'true' && env.BENCHMARK_PREVIEW == 'true'
         shell: bash
