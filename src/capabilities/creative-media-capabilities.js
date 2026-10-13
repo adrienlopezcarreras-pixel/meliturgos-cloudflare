@@ -41,6 +41,15 @@ function initialHealth(env, definition) {
   return 'UNAVAILABLE';
 }
 
+// A provider-neutral, non-sensitive *configuration* explanation. This does
+// not claim that any provider has performed an inference or processed media.
+function initialHealthDetail(env, definition) {
+  if (directAdapter(env, definition.id)) return null;
+  if (companion(env)) return 'MEDIA_COMPANION_HEALTH_NOT_YET_VERIFIED';
+  if (definition.operation === 'generate' && generationProvider(env, definition.kind)) return null;
+  return 'MEDIA_ADAPTER_NOT_CONFIGURED_OR_FREE_PROOF_MISSING';
+}
+
 async function health(env, definition) {
   if (directAdapter(env, definition.id)) return { status: 'HEALTHY' };
   const binding = companion(env);
@@ -48,13 +57,13 @@ async function health(env, definition) {
     try {
       const response = await binding.fetch(`https://mel-media.local/health?capability=${encodeURIComponent(definition.id)}`);
       if (response?.ok) return { status: 'HEALTHY' };
-      return { status: 'UNAVAILABLE' };
+      return { status: 'UNAVAILABLE', reason: 'MEDIA_COMPANION_HEALTH_REJECTED' };
     } catch {
-      return { status: 'UNAVAILABLE' };
+      return { status: 'UNAVAILABLE', reason: 'MEDIA_COMPANION_HEALTH_UNREACHABLE' };
     }
   }
   if (definition.operation === 'generate' && generationProvider(env, definition.kind)) return { status: 'HEALTHY' };
-  return { status: 'UNAVAILABLE' };
+  return { status: 'UNAVAILABLE', reason: initialHealthDetail(env, definition) };
 }
 
 async function execute(env, definition, input) {
@@ -112,6 +121,8 @@ export function registerCreativeMediaCapabilities(bus, { env = {} } = {}) {
       risk: definition.operation === 'generate' || definition.operation === 'process' || definition.operation === 'synthesize' ? 'MEDIUM' : 'LOW',
       permissions: [],
       health: initialHealth(env, definition),
+      ...(initialHealthDetail(env, definition)
+        ? { health_detail: initialHealthDetail(env, definition) } : {}),
       enabled: true,
     }, input => execute(env, definition, input), () => health(env, definition));
   }
