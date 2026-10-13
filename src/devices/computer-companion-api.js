@@ -4,6 +4,7 @@ import { evaluateComputerUsePlan } from "./computer-use.js";
 import { getVerifiedShardVaultCodeArchive } from "../continuity/shardvault-runtime.js";
 import { isLocalSovereigntyAction } from "../portability/local-sovereignty-actions.js";
 import { miniReadOnlyPcCommand } from "./mini-readonly-companion.js";
+import { miniMaintenanceAssessCommand } from "./mini-maintenance-companion.js";
 
 export const COMPUTER_API_BASE="/api/computer/v1";
 export const COMPUTER_ROUTES=Object.freeze({
@@ -129,9 +130,9 @@ const PC_CONTROL_ACTIONS=new Set([
  "serial.list","serial.read","serial.inspect","serial.hard_reset",
  "process.list","process.start","process.kill",
  "file.list","file.read_text","file.write_text",
- "system.info","system.exec","mini.readonly.discover","mini.readonly.security","mini.readonly.backup","mini.readonly.backup.status","mini.readonly.backup.audit"
+ "system.info","system.exec","mini.readonly.discover","mini.readonly.security","mini.readonly.backup","mini.readonly.backup.status","mini.readonly.backup.audit","mini.maintenance.assess"
 ]);
-const PC_CONTROL_PROOF_ACTIONS=new Set(["system.info","serial.list","serial.read","serial.inspect","mini.readonly.discover","process.list","mini.readonly.backup.audit"]);
+const PC_CONTROL_PROOF_ACTIONS=new Set(["system.info","serial.list","serial.read","serial.inspect","mini.readonly.discover","process.list","mini.readonly.backup.audit","mini.maintenance.assess"]);
 
 async function authorizeOwnerOrPcProof(request,env,{action=null}={}){
  const owner=requireAuth(request,env);if(owner.ok)return {ok:true,kind:"owner"};
@@ -161,6 +162,7 @@ async function ownerPcControl(request,env){
  if(String(device.platform||"").toLowerCase()!=="windows")return json({ok:false,code:"PC_CONTROL_WINDOWS_REQUIRED"},409);
  if(!device.online)return json({ok:false,code:"COMPUTER_OFFLINE"},409);
  if(["mini.readonly.discover","mini.readonly.backup.audit"].includes(action)&&device.metadata?.remote_access_enabled!==true)return json({ok:false,code:"REMOTE_ACCESS_DISABLED_LOCALLY"},403);
+ if(action==="mini.maintenance.assess"&&device.metadata?.remote_access_enabled!==true)return json({ok:false,code:"REMOTE_ACCESS_DISABLED_LOCALLY"},403);
  if(device.metadata?.remote_access_enabled!==true&&a.kind!=="github-oidc")return json({ok:false,code:"REMOTE_ACCESS_DISABLED_LOCALLY"},403);
  let effectiveAction=action;
  let effectivePayload=payload;
@@ -179,6 +181,9 @@ async function ownerPcControl(request,env){
     command:`$port='${escaped}';$pnp=@(Get-CimInstance Win32_PnPEntity -ErrorAction SilentlyContinue | Where-Object { ([string]$_.Name) -like "*($port)*" -or ([string]$_.Caption) -like "*($port)*" } | Select-Object -First 5 Name,Caption,PNPDeviceID,Manufacturer,Status,Service,ClassGuid);$serial=@(Get-CimInstance Win32_SerialPort -ErrorAction SilentlyContinue | Where-Object { ([string]$_.DeviceID).ToUpperInvariant() -eq $port } | Select-Object -First 5 DeviceID,Name,PNPDeviceID,ProviderType,Status);$py=@(Get-Command py,python,python3 -ErrorAction SilentlyContinue | Select-Object -First 3 Name,Source);[ordered]@{action='serial.inspect';port=$port;pnp=$pnp;serial=$serial;python=$py}|ConvertTo-Json -Depth 5 -Compress`,
     timeout_ms:15000
    };
+  }else if(action==="mini.maintenance.assess"){
+   effectiveAction="system.exec";
+   effectivePayload=miniMaintenanceAssessCommand();
   }else if(action==="mini.readonly.backup.audit"){
    effectiveAction="system.exec";
    effectivePayload=miniReadOnlyPcCommand(action,"COM3");
@@ -191,7 +196,10 @@ async function ownerPcControl(request,env){
    effectivePayload={};
   }
  }
- if(action==="mini.readonly.backup.audit"&&a.kind==="owner"){
+ if(action==="mini.maintenance.assess"&&a.kind==="owner"){
+  effectiveAction="system.exec";
+  effectivePayload=miniMaintenanceAssessCommand();
+ }else if(action==="mini.readonly.backup.audit"&&a.kind==="owner"){
   effectiveAction="system.exec";
   effectivePayload=miniReadOnlyPcCommand(action,"COM3");
  }else if(action.startsWith("mini.readonly.")&&a.kind==="owner"){
