@@ -23,6 +23,7 @@ internal object MelLocalApkUpdate {
     private const val MAX_APK_BYTES = 128L * 1024L * 1024L
     data class Candidate(val file: File, val versionCode: Long, val sha256: String)
 
+    @Suppress("DEPRECATION")
     fun prepare(context: Context, source: Uri): Candidate {
         val directory = File(context.filesDir, "mel-local-apk-update")
         check(directory.isDirectory || directory.mkdirs()) { "UPDATE_STAGING_DIRECTORY_FAILED" }
@@ -48,20 +49,16 @@ internal object MelLocalApkUpdate {
             }
             check(total >= 1_048_576) { "UPDATE_APK_TOO_SMALL" }
             val pm = context.packageManager
-            @Suppress("DEPRECATION")
             val candidate = pm.getPackageArchiveInfo(temp.absolutePath, PackageManager.GET_SIGNING_CERTIFICATES)
                 ?: error("UPDATE_APK_INVALID")
             check(candidate.packageName == context.packageName) { "UPDATE_PACKAGE_MISMATCH" }
-            @Suppress("DEPRECATION")
             val installed = pm.getPackageInfo(context.packageName, PackageManager.GET_SIGNING_CERTIFICATES)
-            val candidateVersion = if (Build.VERSION.SDK_INT >= 28) candidate.longVersionCode else @Suppress("DEPRECATION") candidate.versionCode.toLong()
-            val installedVersion = if (Build.VERSION.SDK_INT >= 28) installed.longVersionCode else @Suppress("DEPRECATION") installed.versionCode.toLong()
+            val candidateVersion = if (Build.VERSION.SDK_INT >= 28) candidate.longVersionCode else candidate.versionCode.toLong()
+            val installedVersion = if (Build.VERSION.SDK_INT >= 28) installed.longVersionCode else installed.versionCode.toLong()
             check(candidateVersion > installedVersion) { "UPDATE_VERSION_NOT_NEWER" }
 
-            @Suppress("DEPRECATION")
             val installedSignatures = if (Build.VERSION.SDK_INT >= 28) installed.signingInfo?.apkContentsSigners?.toList()
                 else installed.signatures?.toList()
-            @Suppress("DEPRECATION")
             val candidateSignatures = if (Build.VERSION.SDK_INT >= 28) candidate.signingInfo?.apkContentsSigners?.toList()
                 else candidate.signatures?.toList()
             check(installedSignatures?.size == 1 && candidateSignatures?.size == 1) { "UPDATE_SIGNER_MISSING_OR_AMBIGUOUS" }
@@ -71,7 +68,7 @@ internal object MelLocalApkUpdate {
             val staged = File(directory, "approved-${sha}.apk")
             if (staged.exists()) {
                 check(staged.length() == total && MessageDigest.isEqual(
-                    MessageDigest.getInstance("SHA-256").digest(staged.readBytes()), digestFromHex(sha)
+                    hashFile(staged), digestFromHex(sha)
                 )) { "UPDATE_STAGED_COPY_MISMATCH" }
                 check(temp.delete()) { "UPDATE_TEMP_CLEANUP_FAILED" }
             } else {
@@ -82,6 +79,19 @@ internal object MelLocalApkUpdate {
             temp.delete()
             throw error
         }
+    }
+
+    private fun hashFile(file: File): ByteArray {
+        val digest = MessageDigest.getInstance("SHA-256")
+        file.inputStream().use { input ->
+            val buffer = ByteArray(32768)
+            while (true) {
+                val count = input.read(buffer)
+                if (count < 0) break
+                digest.update(buffer, 0, count)
+            }
+        }
+        return digest.digest()
     }
 
     private fun digestFromHex(hex: String): ByteArray = hex.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
