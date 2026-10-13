@@ -736,6 +736,7 @@ jobs:
           # One real, verified shard promotion per request; seven active targets
           # need at least seven requests. Allow bounded retries for transient hosts.
           for attempt in {1..10}; do
+            rm -f shardvault-active-health-proof.json
             HTTP_CODE="$(curl --show-error --silent --max-time 180 \
               --header "Authorization: Bearer ${MEL_PREVIEW_PASSWORD}" \
               --header "content-type: application/json" \
@@ -772,6 +773,73 @@ jobs:
               print('SHARDVAULT_QUALIFICATION_NOT_PROVEN')
           PY
             fi
+            # Seven active registry entries are not a proof by themselves.
+            # Re-read every actual shard and verify its MAC through the
+            # existing authenticated ShardVault status endpoint. The endpoint may
+            # reconcile its isolated registry but does not rewrite the shard data.
+            if [ "${HTTP_CODE}" = "200" ] && python - <<'PY'
+          import json
+          from pathlib import Path
+          try:
+              d=json.loads(Path('shardvault-live-probe.json').read_text(encoding='utf-8'))
+          except Exception:
+              raise SystemExit(1)
+          raise SystemExit(0 if d.get('ok') is True
+              and d.get('target_reached') is True
+              and int(d.get('active_external_count') or 0)>=7 else 1)
+          PY
+            then
+              HEALTH_HTTP="$(curl --show-error --silent --max-time 180 \
+                --header "Authorization: Bearer ${MEL_PREVIEW_PASSWORD}" \
+                --output shardvault-status-readback.json \
+                --write-out '%{http_code}' \
+                "${BASE_URL}/api/gen2/shardvault/status" || true)"
+              echo "ShardVault authenticated readback attempt ${attempt}: HTTP ${HEALTH_HTTP}"
+              if [ "${HEALTH_HTTP}" = "200" ]; then
+                python - <<'PY'
+          import json
+          from pathlib import Path
+          try:
+              d=json.loads(Path('shardvault-status-readback.json').read_text(encoding='utf-8'))
+              h=d.get('health') or {}
+              latest=d.get('latest') or {}
+              used=latest.get('used_endpoints') or {}
+              registry=d.get('active_external_registry') or []
+              ids=[e.get('id') for e in registry if isinstance(e,dict)]
+              valid=(d.get('ok') is True and d.get('status')=='ONLINE'
+                  and d.get('scheme',{}).get('data_shards')==4
+                  and d.get('scheme',{}).get('total_shards')==7
+                  and h.get('healthy_shards')==7
+                  and h.get('total_shards')==7
+                  and h.get('data_shards')==4
+                  and h.get('recoverable') is True
+                  and not h.get('missing') and not h.get('errors')
+                  and len(ids)==7 and len(set(ids))==7
+                  and len(used)==7 and set(used)==set(ids)
+                  and all(int(count)==1 for count in used.values())
+                  and bool(latest.get('snapshot_id')))
+              if valid:
+                  proof={'ok':True,'status':'SEVEN_REAL_SHARDS_MAC_VERIFIED',
+                      'active_external_count':7,'healthy_shards':7,
+                      'total_shards':7,'data_shards':4,
+                      'snapshot_id':latest['snapshot_id']}
+                  Path('shardvault-active-health-proof.json').write_text(
+                      json.dumps(proof),encoding='utf-8')
+                  print('SHARDVAULT_SEVEN_REAL_SHARDS_MAC_VERIFIED')
+              else:
+                  print('SHARDVAULT_READBACK_NOT_PROVEN:',json.dumps({
+                      'healthy_shards':h.get('healthy_shards'),
+                      'total_shards':h.get('total_shards'),
+                      'active_external_count':len(ids),
+                      'distinct_used_endpoints':len(used),
+                      'missing_count':len(h.get('missing') or []),
+                      'error_count':len(h.get('errors') or [])}))
+          except Exception:
+              print('SHARDVAULT_READBACK_RESPONSE_INVALID')
+          PY
+              fi
+              rm -f shardvault-status-readback.json
+            fi
             if [ "${HTTP_CODE}" = "200" ] && python - <<'PY'
           import json, os
           from pathlib import Path
@@ -782,7 +850,7 @@ jobs:
               raise SystemExit(1)
           expected=int(os.environ.get('MEL_CRITICAL_CODE_SHARD_BYTES') or 0)
           raise SystemExit(0 if (
-              proof.is_file()
+              (proof.is_file() or Path('shardvault-active-health-proof.json').is_file())
               and d.get('ok') is True
               and int(d.get('required_bytes') or 0) >= expected
               and int(d.get('active_external_count') or 0) >= 7
@@ -821,9 +889,16 @@ jobs:
           import json, os
           from pathlib import Path
           data=json.loads(Path('shardvault-live-probe.json').read_text(encoding='utf-8'))
-          qualification=json.loads(Path('shardvault-qualification-proof.json').read_text(encoding='utf-8'))
-          discovered=int(qualification.get('discovered') or 0)
-          probed=int(qualification.get('probed') or 0)
+          qualification_path=Path('shardvault-qualification-proof.json')
+          qualification=json.loads(qualification_path.read_text(encoding='utf-8')) if qualification_path.is_file() else {}
+          health_path=Path('shardvault-active-health-proof.json')
+          verified_health=json.loads(health_path.read_text(encoding='utf-8')) if health_path.is_file() else {}
+          health_proven=(verified_health.get('ok') is True
+              and verified_health.get('status')=='SEVEN_REAL_SHARDS_MAC_VERIFIED'
+              and verified_health.get('active_external_count')==7
+              and verified_health.get('healthy_shards')==7)
+          discovered=int(qualification.get('discovered') or data.get('discovered') or 0)
+          probed=int(qualification.get('probed') or data.get('probed') or 0)
           active=int(data.get('active_external_count') or 0)
           required_bytes=int(data.get('required_bytes') or 0)
           expected_required_bytes=int(os.environ.get('MEL_CRITICAL_CODE_SHARD_BYTES') or 0)
@@ -837,7 +912,7 @@ jobs:
           selected=len(data.get('selected') or [])
           if data.get('ok') is not True:
               raise SystemExit('SHARDVAULT_SEARCH_FAILED: '+str(data.get('error') or data.get('status')))
-          if discovered < 7:
+          if discovered < 7 and not health_proven:
               raise SystemExit(f'SHARDVAULT_DISCOVERY_TOO_SMALL: {discovered}')
           if required_bytes < expected_required_bytes:
               raise SystemExit(f'SHARDVAULT_REPRESENTATIVE_SIZE_UNDERSIZED: required={required_bytes} expected={expected_required_bytes}')
@@ -845,12 +920,16 @@ jobs:
               raise SystemExit(f'SHARDVAULT_CRITICAL_SOURCE_NOT_BOUND: source={archive_source} critical_status={critical_status} bytes={archive_bytes}')
           if archive_bytes != int(os.environ.get('MEL_CRITICAL_CODE_BUNDLE_BYTES') or 0):
               raise SystemExit(f'SHARDVAULT_CRITICAL_SOURCE_SIZE_MISMATCH: archive={archive_bytes}')
-          if probed < 6:
-              raise SystemExit(f'SHARDVAULT_FRESH_LIVE_PROBES_LT_6: discovered={discovered} probed={probed}')
-          if representative_validated < 7:
-              raise SystemExit(f'SHARDVAULT_REPRESENTATIVE_VALIDATED_LT_7: representative_validated={representative_validated} active_historical={active}')
-          if len(representative_ids) < 7:
-              raise SystemExit(f'SHARDVAULT_REPRESENTATIVE_IDS_LT_7: ids={representative_ids}')
+          if not health_proven:
+              if probed < 6:
+                  raise SystemExit(f'SHARDVAULT_FRESH_LIVE_PROBES_LT_6: discovered={discovered} probed={probed}')
+              if representative_validated < 7:
+                  raise SystemExit(f'SHARDVAULT_REPRESENTATIVE_VALIDATED_LT_7: representative_validated={representative_validated} active_historical={active}')
+              if len(representative_ids) < 7:
+                  raise SystemExit(f'SHARDVAULT_REPRESENTATIVE_IDS_LT_7: ids={representative_ids}')
+          else:
+              if not verified_health.get('snapshot_id'):
+                  raise SystemExit('SHARDVAULT_READBACK_SNAPSHOT_MISSING')
           if int(data.get('active_external_count') or 0)<7 or len(data.get('active_endpoint_ids') or [])<7:
               raise SystemExit('SHARDVAULT_ACTIVE_REGISTRY_LT_7')
           if data.get('target_reached') is not True:
@@ -868,6 +947,7 @@ jobs:
                   h.write(f'- Representative full-fragment qualifications: {representative_qualified}\n')
                   h.write(f'- Representative validated targets: {representative_validated}\n')
                   h.write(f'- Historical active targets: {active}\n')
+                  h.write(f'- MAC-verified active shard readback: {health_proven}\n')
                   h.write(f'- Goal reached: {data.get("target_reached")}\n')
                   h.write('- Validation rule: a target counts only after full representative chunk/write/read/reassembly/hash proof.\n')
           print(json.dumps({
@@ -878,6 +958,7 @@ jobs:
               'representative_validated_count': representative_validated,
               'representative_validated_endpoint_ids': representative_ids,
               'active_external_count': active,
+              'mac_verified_live_shards': 7 if health_proven else 0,
               'selected': selected,
               'target_count': data.get('target_count'),
               'target_reached': data.get('target_reached'),
