@@ -12,6 +12,10 @@ on:
       - '.github/workflows/deploy-cloudflare-release.yml'
   workflow_dispatch:
     inputs:
+      r2_bucket:
+        description: Allowlisted source R2 bucket (production or isolated preview)
+        required: true
+        type: string
       r2_key:
         description: Private R2 staging key for one encrypted ShardVault code fragment
         required: true
@@ -57,6 +61,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     env:
+      R2_BUCKET: ${{ inputs.r2_bucket }}
       R2_KEY: ${{ inputs.r2_key }}
       MIRROR_PATH: ${{ inputs.mirror_path }}
       EXPECTED_SHA256: ${{ inputs.expected_sha256 }}
@@ -76,6 +81,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          [[ "$R2_BUCKET" = "meliturgos-private-media" || "$R2_BUCKET" = "meliturgos-preview-media-bucket" ]]
           [[ "$R2_KEY" =~ ^shardvault/github-code-mirror-staging/[A-Za-z0-9_.-]+__[A-Za-z0-9_.-]+/[0-9a-f]{40}/code-[0-9a-f]{12}-shard-[0-9]{2}-github\.bin$ ]]
           [[ "$MIRROR_PATH" =~ ^shardvault-code/[0-9a-f]{40}/code-[0-9a-f]{12}-shard-[0-9]{2}-github\.bin$ ]]
           [[ "$EXPECTED_SHA256" =~ ^[0-9a-f]{64}$ ]]
@@ -92,7 +98,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          npx wrangler r2 object get "meliturgos-private-media/${R2_KEY}" --file mirror-fragment.bin --remote
+          npx wrangler r2 object get "${R2_BUCKET}/${R2_KEY}" --file mirror-fragment.bin --remote
           test -s mirror-fragment.bin
           ACTUAL_BYTES="$(wc -c < mirror-fragment.bin | tr -d ' ')"
           ACTUAL_SHA="$(sha256sum mirror-fragment.bin | awk '{print $1}')"

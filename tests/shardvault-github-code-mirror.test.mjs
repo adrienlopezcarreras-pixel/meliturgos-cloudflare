@@ -6,6 +6,8 @@ import { summarizeAutonomyLaunchCodeSync } from '../src/evolution/launch-readine
 const runtime=await readFile(new URL('../src/continuity/shardvault-runtime.js',import.meta.url),'utf8');
 const mirrorWorkflow=await readFile(new URL('../.github/workflows/shardvault-github-code-mirror.yml',import.meta.url),'utf8');
 const releaseWorkflow=await readFile(new URL('../.github/workflows/deploy-cloudflare-release.yml',import.meta.url),'utf8');
+const previewWorkflow=await readFile(new URL('../.github/workflows/deploy-candidate-preview.yml',import.meta.url),'utf8');
+const relayWorkflow=await readFile(new URL('../.github/workflows/github-action-relay.yml',import.meta.url),'utf8');
 const wrangler=await readFile(new URL('../wrangler.jsonc',import.meta.url),'utf8');
 
 test('GitHub code mirror is code-sync-only and gated to the final missing shard',()=>{
@@ -31,6 +33,9 @@ test('GitHub mirror workflow is tightly bounded and proves the public raw object
   assert.match(mirrorWorkflow,/permissions:\s*\n\s*contents: write/);
   assert.match(mirrorWorkflow,/^\s*\[\[ "\$R2_KEY" =~ \^shardvault\/github-code-mirror-staging\//m);
   assert.match(mirrorWorkflow,/^\s*\[\[ "\$MIRROR_PATH" =~ \^shardvault-code\//m);
+  assert.match(runtime,/r2_bucket:env\?\.MEL_PREVIEW_ISOLATED==='true'\?'meliturgos-preview-media-bucket':'meliturgos-private-media'/);
+  assert.match(mirrorWorkflow,/\[\[ "\$R2_BUCKET" = "meliturgos-private-media" \|\| "\$R2_BUCKET" = "meliturgos-preview-media-bucket" \]\]/);
+  assert.match(mirrorWorkflow,/\$\{R2_BUCKET\}\/\$\{R2_KEY\}/);
   assert.match(mirrorWorkflow,/wrangler r2 object get/);
   assert.match(mirrorWorkflow,/sha256sum mirror-fragment\.bin/);
   assert.match(mirrorWorkflow,/\/contents\/\$\{MIRROR_PATH\}/);
@@ -70,4 +75,19 @@ test('launch code-sync summary preserves mirror relay metadata needed by release
   assert.equal(summary.relay_job_id,'relay-123');
   assert.equal(summary.relay_status,'QUEUED');
   assert.equal(summary.reason,'GITHUB_CODE_MIRROR_PENDING');
+});
+
+test('isolated preview dispatches its own relay queue through an allowlisted OIDC GitHub workflow',()=>{
+  assert.ok(previewWorkflow.includes('actions: write'));
+  assert.ok(previewWorkflow.includes('GH_PREVIEW_DISPATCH_TOKEN:'));
+  assert.ok(previewWorkflow.includes('CODE_SYNC_RELAY_JOB'));
+  assert.ok(previewWorkflow.includes('actions/workflows/github-action-relay.yml/dispatches'));
+  assert.ok(previewWorkflow.includes('"target":"preview"'));
+  assert.ok(previewWorkflow.includes('CODE_SYNC_LAST_RELAY_JOB'));
+  assert.ok(relayWorkflow.includes('type: choice'));
+  assert.ok(relayWorkflow.includes('default: production'));
+  assert.ok(relayWorkflow.includes('MEL_RELAY_BASE_URL:'));
+  assert.ok(relayWorkflow.includes("inputs.target == 'preview'"));
+  assert.ok(relayWorkflow.includes('meliturgos-preview.adrien-lopezcarreras.workers.dev'));
+  assert.ok(!relayWorkflow.includes('MEL_DEV_BRIDGE_TOKEN'));
 });
