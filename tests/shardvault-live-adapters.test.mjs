@@ -165,11 +165,16 @@ test('Telegraph account state is privately reused and code replica deadlines sca
 });
 
 test('preview requires seven representative provider proofs before reconstruction', () => {
-  assert.match(previewWorkflow,/int\(d\.get\('probed'\) or 0\) >= 6/);
-  assert.match(previewWorkflow,/int\(d\.get\('representative_validated_count'\) or 0\) >= 7/);
-  assert.match(previewWorkflow,/SHARDVAULT_FRESH_LIVE_PROBES_LT_6/);
-  assert.match(previewWorkflow,/SHARDVAULT_REPRESENTATIVE_VALIDATED_LT_7/);
-  assert.match(previewWorkflow,/full representative chunk\/write\/read\/reassembly\/hash proof/);
+  const section=previewWorkflow.split('      - name: Live ShardVault external target probe')[1]
+    ?.split('      - name: Upload ShardVault live probe evidence')[0]||'';
+  assert.ok(section.includes("int(d.get('probed') or 0)>=6"));
+  assert.ok(section.includes("int(d.get('representative_validated_count') or 0)>=7"));
+  assert.ok(section.includes('shardvault-qualification-proof.json'));
+  assert.ok(section.includes("int(d.get('active_external_count') or 0) >= 7"));
+  assert.ok(section.includes('SHARDVAULT_FRESH_LIVE_PROBES_LT_6'));
+  assert.ok(section.includes('SHARDVAULT_REPRESENTATIVE_VALIDATED_LT_7'));
+  assert.ok(section.includes('SHARDVAULT_ACTIVE_REGISTRY_LT_7'));
+  assert.match(section,/full representative chunk\/write\/read\/reassembly\/hash proof/);
 });
 
 test('rate-limited providers respect Retry-After before quarantine', () => {
