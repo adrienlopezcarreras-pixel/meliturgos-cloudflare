@@ -22,6 +22,26 @@ const allowedRedirect=(url)=>{
   }catch{return false;}
 };
 
+export async function verifyByteStream(response,expected){
+  if(!response?.ok || !response.body ||
+      /application\/json/i.test(response.headers?.get('content-type')||'')){
+    return {ok:false,code:'DRAFT_ASSET_BINARY_DOWNLOAD_FAILED'};
+  }
+  const digest=createHash('sha256');
+  let bytes=0;
+  try{
+    for await (const block of response.body){
+      bytes+=block.byteLength;
+      if(bytes>expected.size)return {ok:false,code:'DRAFT_ASSET_SIZE_OVERFLOW'};
+      digest.update(block);
+    }
+  }catch{return {ok:false,code:'DRAFT_ASSET_STREAM_FAILED'};}
+  if(bytes!==expected.size || digest.digest('hex')!==expected.sha256){
+    return {ok:false,code:'DRAFT_ASSET_SHA256_OR_SIZE_MISMATCH'};
+  }
+  return {ok:true,code:'DRAFT_ASSET_BYTES_VERIFIED',bytes};
+}
+
 export async function hashGithubAsset({asset,token,fetchImpl=fetch}){
   const expected=ASSETS[asset?.name];
   if(!token || !expected || !Number.isSafeInteger(asset?.id) ||
@@ -44,23 +64,8 @@ export async function hashGithubAsset({asset,token,fetchImpl=fetch}){
       });
     }
   }catch{return {ok:false,code:'DRAFT_ASSET_FETCH_FAILED'};}
-  if(!response?.ok || !response.body ||
-      /application\/json/i.test(response.headers?.get('content-type')||'')){
-    return {ok:false,code:'DRAFT_ASSET_BINARY_DOWNLOAD_FAILED'};
-  }
-  const digest=createHash('sha256');
-  let bytes=0;
-  try{
-    for await (const block of response.body){
-      bytes+=block.byteLength;
-      if(bytes>expected.size)return {ok:false,code:'DRAFT_ASSET_SIZE_OVERFLOW'};
-      digest.update(block);
-    }
-  }catch{return {ok:false,code:'DRAFT_ASSET_STREAM_FAILED'};}
-  if(bytes!==expected.size || digest.digest('hex')!==expected.sha256){
-    return {ok:false,code:'DRAFT_ASSET_SHA256_OR_SIZE_MISMATCH'};
-  }
-  return {ok:true,code:'DRAFT_ASSET_BYTES_VERIFIED',name:asset.name,bytes};
+  const hash=await verifyByteStream(response,expected);
+  return hash.ok ? {...hash,name:asset.name} : hash;
 }
 
 export async function auditC000DraftAssets({token,fetchImpl=fetch}={}){
