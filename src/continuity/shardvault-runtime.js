@@ -1017,7 +1017,7 @@ function clearCodeTargetFailure(state,endpointId){
   state.failed_endpoint_ids=(state.failed_endpoint_ids||[]).filter(value=>value!==id);
   state.cycle_quarantined_endpoint_ids=(state.cycle_quarantined_endpoint_ids||[]).filter(value=>value!==id);
 }
-function roundtripCodeFallbackCandidates(env,codeCandidates,activeCodeTargets,state,used,requiredBytes){
+export function roundtripCodeFallbackCandidates(env,codeCandidates,activeCodeTargets,state,used,requiredBytes){
   const failed=new Set([
     ...(Array.isArray(state?.failed_endpoint_ids)?state.failed_endpoint_ids:[]),
     ...(Array.isArray(state?.cycle_quarantined_endpoint_ids)?state.cycle_quarantined_endpoint_ids:[]),
@@ -1396,19 +1396,24 @@ async function ensureExternalCodeArchive(env,c,codeBackup){
         ...(Array.isArray(state.failed_endpoint_ids)?state.failed_endpoint_ids:[]),
         ...(Array.isArray(state.cycle_quarantined_endpoint_ids)?state.cycle_quarantined_endpoint_ids:[]),
       ]);
+      // First apply final-shard reservations. A cached GitHub mirror must not
+      // hide an eligible non-GitHub destination from the fallback path.
+      const eligible=e=>!used.has(e.id)&&!failed.has(e.id)
+        &&codeTargetAvailableNow(state,e)&&allowCodeEndpointForShard(e,i,goal);
       let ranked=rankExternalCodeCandidates(env,[...validated,...extra,...codeCandidates,...activeCodeTargets],shard.length)
-        .filter(e=>!used.has(e.id)&&!failed.has(e.id)&&codeTargetAvailableNow(state,e));
+        .filter(eligible);
       if(!ranked.length){
-        // A freshly discovered durable code candidate may not have a cached
-        // representative proof yet. The code-sync write/read/hash round-trip
-        // below is itself the exact representative proof, so allow these
-        // candidates to self-qualify instead of creating a circular gate.
-        ranked=roundtripCodeFallbackCandidates(env,codeCandidates,activeCodeTargets,state,used,shard.length);
+        // Cached and freshly discovered durable endpoints may have a valid
+        // representative byte/hash proof for a slightly smaller shard (for
+        // example 262144 bytes versus this snapshot's 273883 bytes). Their
+        // full current-shard upload/read/hash round-trip below is the required
+        // final verification. Never exclude these from the bounded fallback.
+        ranked=roundtripCodeFallbackCandidates(
+          env,[...validated,...extra,...codeCandidates],activeCodeTargets,state,used,shard.length
+        ).filter(eligible);
         if(ranked.length)state.candidate_roundtrip_fallback_used=true;
       }
-      // A mirror cached from any earlier snapshot must not take shard 0..5.
-      // This applies to both validated candidates and fallback candidates.
-      return prioritizeExternalCodeCandidates(ranked.filter(e=>allowCodeEndpointForShard(e,i,goal)),state);
+      return prioritizeExternalCodeCandidates(ranked,state);
     };
     let candidates=buildCandidates();
     if(i===goal-1){
