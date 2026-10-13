@@ -2,6 +2,8 @@ name: Android Companion maintenance CI
 on:
   pull_request:
     paths:
+      - 'assets/MEL-Computer-Companion.ps1'
+      - 'dist/MEL-Computer-Companion.ps1'
       - 'src/devices/android-maintenance-companion.js'
       - 'src/devices/android-apk-stage-companion.js'
       - 'src/devices/computer-companion-api.js'
@@ -12,6 +14,8 @@ on:
   push:
     branches: [main]
     paths:
+      - 'assets/MEL-Computer-Companion.ps1'
+      - 'dist/MEL-Computer-Companion.ps1'
       - 'src/devices/android-maintenance-companion.js'
       - 'src/devices/android-apk-stage-companion.js'
       - 'src/devices/computer-companion-api.js'
@@ -36,8 +40,8 @@ jobs:
       - name: PowerShell parser proof (no ADB access)
         shell: pwsh
         run: |
-          $scripts = @(Get-ChildItem -LiteralPath '.ci-android-maintenance' -Filter '*.ps1' -File)
-          if ($scripts.Count -ne 3) { throw 'ANDROID_MAINTENANCE_SCRIPT_COUNT_INVALID' }
+          $scripts = @((Get-ChildItem -LiteralPath '.ci-android-maintenance' -Filter '*.ps1' -File) + (Get-Item 'assets/MEL-Computer-Companion.ps1') + (Get-Item 'dist/MEL-Computer-Companion.ps1'))
+          if ($scripts.Count -ne 5) { throw 'ANDROID_MAINTENANCE_SCRIPT_COUNT_INVALID' }
           foreach ($script in $scripts) {
             $tokens = $null
             $errors = $null
