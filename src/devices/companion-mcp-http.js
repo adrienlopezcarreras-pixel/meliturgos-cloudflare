@@ -46,7 +46,7 @@ export async function companionMcpHttp(request,{authenticate,authorizeDevice,rea
  }
  if(body.method==='initialize'){
   const requested=body.params?.protocolVersion;
-  if(requested!==undefined&&typeof requested!=='string')return json(rpcError(body.id,-32602,'Invalid protocol version'),400);
+  if(requested!==undefined&&(typeof requested!=='string'||!ALLOWED_PROTOCOLS.has(requested)))return json(rpcError(body.id,-32602,'Unsupported protocol version'),400);
   return json(rpc(body.id,{protocolVersion:MCP_HTTP_PROTOCOL,capabilities:{tools:{}},serverInfo:{name:'mel-companion-remote-preview',version:'0.1.0'}}));
  }
  if(body.method==='ping')return json(rpc(body.id,{}));
