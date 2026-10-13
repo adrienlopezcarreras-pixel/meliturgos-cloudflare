@@ -84,3 +84,11 @@ test('owner authenticated status response hides internal details',async()=>{
  assert.equal(output.includes('DO_NOT_EXPOSE'),false);
  assert.equal(output.includes('SECRET_HOST'),false);
 });
+
+test('rejects HTML masquerading as successful status',async()=>{
+ const results=await request([{jsonrpc:'2.0',id:12,method:'tools/call',params:{name:'mel_companion_status',arguments:{}}}],{
+  MEL_MCP_SERVER_URL:'https://mel.example.test/',MEL_MCP_OWNER_TOKEN:'fixture-token',NODE_OPTIONS:'--import=./tests/fixtures/mel-mcp-invalid-content-mock.mjs'
+ });
+ assert.equal(results[0].result.isError,true);
+ assert.match(results[0].result.content[0].text,/MEL_STATUS_NOT_JSON/);
+});
