@@ -193,7 +193,7 @@ async function ownerPcControl(request,env){
    };
   }else if(action==="android.maintenance.assess"){
    effectiveAction="system.exec";
-   effectivePayload=androidMaintenancePcCommand(action);
+   effectivePayload={...androidMaintenancePcCommand(action),require_success_exit:true};
   }else if(action==="mini.maintenance.assess"){
    effectiveAction="system.exec";
    effectivePayload=miniMaintenanceAssessCommand();
@@ -211,13 +211,13 @@ async function ownerPcControl(request,env){
  }
  if(action==="android.maintenance.assess"&&a.kind==="owner"){
   effectiveAction="system.exec";
-  effectivePayload=androidMaintenancePcCommand(action);
+  effectivePayload={...androidMaintenancePcCommand(action),require_success_exit:true};
  }else if(action==="android.maintenance.stage"&&a.kind==="owner"){
   effectiveAction="system.exec";
-  effectivePayload=androidStagePcCommand({filename:safe(payload.filename,125),sha256:safe(payload.sha256,64)});
+  effectivePayload={...androidStagePcCommand({filename:safe(payload.filename,125),sha256:safe(payload.sha256,64)}),require_success_exit:true};
  }else if(action==="android.maintenance.install"&&a.kind==="owner"){
   effectiveAction="system.exec";
-  effectivePayload=androidMaintenancePcCommand(action,{serial:safe(payload.serial,32),sha256:safe(payload.sha256,64)});
+  effectivePayload={...androidMaintenancePcCommand(action,{serial:safe(payload.serial,32),sha256:safe(payload.sha256,64)}),require_success_exit:true};
  }else if(action==="mini.maintenance.assess"&&a.kind==="owner"){
   effectiveAction="system.exec";
   effectivePayload=miniMaintenanceAssessCommand();
