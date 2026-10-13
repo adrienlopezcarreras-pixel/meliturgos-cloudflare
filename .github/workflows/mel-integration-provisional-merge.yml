@@ -40,7 +40,20 @@ jobs:
           for f in src/continuity/shardvault-runtime.js scripts/fulfill-preview-code-mirror.mjs; do node --check "$f"; done
           npm ci --ignore-scripts --no-audit --no-fund
           node --test tests/shardvault-github-code-mirror.test.mjs tests/shardvault-github-authoritative-readback.test.mjs tests/release-predeploy-backup-reuse.test.mjs tests/preview-resource-isolation.test.mjs
-          echo "Dry-run only: no Git commit or push; workflow modification permission is not available."
+          git commit -m "merge(integration): validated provisional main merge (artifact only)"
+          mkdir -p integration-handoff
+          git bundle create integration-handoff/mel-isolated-merge.bundle origin/main..HEAD
+          git rev-parse HEAD > integration-handoff/merged-sha.txt
+          git rev-parse origin/main > integration-handoff/base-main-sha.txt
+          git bundle verify integration-handoff/mel-isolated-merge.bundle
+          echo "Bundle prepared for authorized import, never automatically pushed."
           echo "### Isolated integration dry-run" >> "$GITHUB_STEP_SUMMARY"
           git rev-parse HEAD >> "$GITHUB_STEP_SUMMARY"
           echo "TARGETED TESTS ONLY. Merge is not published. Manual review and authorized promotion required." >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload exact merged Git bundle for authorized handoff
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mel-authorized-merge-bundle
+          path: integration-handoff/
+          retention-days: 7
