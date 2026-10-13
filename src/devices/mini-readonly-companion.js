@@ -6,6 +6,16 @@ export function miniReadOnlyPcCommand(action,port,jobId=null){
  if(!/^COM\d{1,3}$/.test(port))throw new Error("MINI_READONLY_PORT_INVALID");
  if(action==="mini.readonly.backup"||action==="mini.readonly.backup.status"){
   if(action==="mini.readonly.backup.status"&&!/^[a-f0-9]{32}$/.test(String(jobId||"")))throw new Error("MINI_BACKUP_JOB_ID_INVALID");
+  if(action==="mini.readonly.backup.status"){
+   const command=String.raw`
+$ErrorActionPreference='Stop'
+$status=Join-Path (Join-Path (Join-Path $env:LOCALAPPDATA 'MEL\\mini-backups') '__JOB_ID__') 'status.json'
+if(-not(Test-Path -LiteralPath $status -PathType Leaf)){throw 'MINI_BACKUP_STATUS_NOT_FOUND'}
+$proof=Get-Content -LiteralPath $status -Raw | ConvertFrom-Json
+[ordered]@{action='mini.readonly.backup.status';job_id='__JOB_ID__';state=$proof.state;backup_bytes=$proof.backup_bytes;backup_sha256=$proof.backup_sha256;flash_performed=$false;flash_allowed=$false}|ConvertTo-Json -Compress
+`.replaceAll("__JOB_ID__",jobId);
+   return {command,timeout_ms:15000};
+  }
   const mode=action==="mini.readonly.backup"?"start":"status";
   const script=String.raw`
 $ErrorActionPreference='Stop'
