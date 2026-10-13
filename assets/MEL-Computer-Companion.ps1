@@ -2209,7 +2209,7 @@ if ($trayResources) {
 ) { throw "MINI_READONLY_PORT_INVALID" }
   if (@([IO.Ports.SerialPort]::GetPortNames()) -notcontains $portName) { throw "MINI_READONLY_PORT_OFFLINE" }
   $matches = @(Get-CimInstance Win32_PnPEntity -ErrorAction SilentlyContinue | Where-Object {
-    ([string]$_.Name -like "*($portName)*") -and ([string]$_.PNPDeviceID -match '^USB\\VID_303A&PID_1001')
+    (([string]$_.Name) -like "*($portName)*") -and (([string]$_.PNPDeviceID) -match '^USB\\VID_303A&PID_1001')
   })
   if ($matches.Count -ne 1) { throw "MINI_READONLY_ESPRESSIF_USB_NOT_CONFIRMED" }
   $tool = PcControl-MiniFindTool $payload
