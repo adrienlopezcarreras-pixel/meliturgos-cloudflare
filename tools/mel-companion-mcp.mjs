@@ -28,6 +28,8 @@ async function getStatus(args){
  try{
   const res=await fetch(u,{headers:{authorization:'Bearer '+ownerToken,accept:'application/json'},redirect:'error',signal:controller.signal});
   if(!res.ok)throw new Error('MEL_STATUS_HTTP_'+res.status);
+  const mime=(res.headers.get('content-type')||'').toLowerCase();
+  if(!mime.includes('application/json'))throw new Error('MEL_STATUS_NOT_JSON');
   if(Number(res.headers.get('content-length')||0)>1048576)throw new Error('MEL_STATUS_TOO_LARGE');
   const raw=await res.text();
   if(raw.length>1048576)throw new Error('MEL_STATUS_TOO_LARGE');
