@@ -36,3 +36,12 @@ Le paquet Windows contient désormais `MEL-Android-WiFi-Pairing.ps1`. Sur le PC,
 - Le script refuse les adresses extérieures au réseau privé et ne transmet jamais le code d'appairage à MEL, GitHub ou Cloudflare. Il ne copie ni n'installe aucun APK. Quand ADB indique `device`, la commande Companion `android.maintenance.assess` peut en apporter la preuve.
 
 **Limites :** cette méthode d'appairage Android sans fil nécessite Android 11 ou ultérieur et le support du constructeur. Un Android plus ancien peut nécessiter un premier branchement USB pour activer ADB TCP/IP. Ne jamais activer ADB sur un réseau Wi‑Fi public ou non fiable.
+
+## Copie et planification OTA MINI (sans flash)
+
+- `mini.maintenance.stage` : action propriétaire via Companion Windows, nécessite `filename` (nom simple se terminant par .bin), `sha256` (64 chiffres hexadécimaux) et `ack_local_firmware_stage: true`. Le programme lit uniquement le fichier dans Téléchargements, exige un en-tête ESP32-S3 avec indicateur SHA intégré, vérifie le SHA-256, puis copie vers le cache `%LOCALAPPDATA%\\MEL\\mini-firmware\\<sha256>.bin` avec nouveau contrôle d'intégrité. Le stage ne vérifie pas tous les segments : `flash_allowed=false`.
+- `tools/mini-updater/plan_ota_upgrade.py` : qualification **hors ligne** d'une sauvegarde créée avec succès (partition dump, otadata, ota_0.bin, status.json, verification.json), recompute le hash SHA-256 et les contrôles du binaire original, compare la version candidate et la capacité de `ota_1`. Utilisation : `python plan_ota_upgrade.py --backup-dir <chemin-sauvegarde> --firmware <chemin-bin> --expected-sha256 <empreinte>`.
+- Même quand toutes les preuves hors ligne sont bonnes, le plan retourne `OFFLINE_PLAN_VERIFIED_FLASH_BLOCKED`, `flash_allowed=false`. La sélection otadata ne prouve **pas** le slot réellement exécuté. Les propriétés du bootloader, du chiffrement flash, du secure boot, du rollback et la restauration NVS restent à valider physiquement.
+- La branche **ne fournit pas encore de commande de flash ou restauration exécutable à distance**. Un vieux job `STALE_CANDIDATE` ne doit pas être supprimé pour forcer un succès.
+
+**Important :** le paquet Windows 2.3.13 contient l'assistant de connexion Android, mais pas encore un environnement Python embarqué pour exécuter le plan MINI. Ce plan est testé dans GitHub CI ; ne pas confondre avec un flash MINI automatisé.
