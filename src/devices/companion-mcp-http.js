@@ -29,7 +29,7 @@ export async function companionMcpHttp(request,{authenticate,authorizeDevice,rea
  // authenticate() must validate JWT signature, issuer, expiry and revocation.
  // This boundary independently requires dedicated MCP audience and least-privilege scope.
  const audiences=Array.isArray(principal.audience)?principal.audience:[principal.audience];
- const scopes=Array.isArray(principal.scopes)?principal.scopes:String(principal.scope||'').split(/\\s+/);
+ const scopes=Array.isArray(principal.scopes)?principal.scopes:String(principal.scope||'').split(/\s+/);
  if(!audiences.includes(REQUIRED_AUDIENCE)||!scopes.includes(REQUIRED_SCOPE))return json({error:'MCP_SCOPE_DENIED'},403);
  let body;
  try{const raw=await request.text();if(raw.length>16384)return json({error:'REQUEST_TOO_LARGE'},413);body=JSON.parse(raw);}
