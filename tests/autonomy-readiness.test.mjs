@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { D1DevJobRepository } from '../src/dev/d1-dev-job-repository.js';
 import { getAutonomyReadiness } from '../src/evolution/autonomy-readiness.js';
 
-function council(costB = 0, { sameProvider = false, missingProof = false, wrongPolicy = false } = {}) {
+function council(costB = 0, { sameProvider = false, missingProof = false, wrongPolicy = false, missingRole = false, missingSynthesis = false } = {}) {
   const respondingB = sameProvider ? 'workers-ai:a' : 'workers-ai:b';
   const provenance = id => ({
     provider_id:id,provider:'workers-ai',model:id,verified:true,added_cost:0,
@@ -16,12 +16,24 @@ function council(costB = 0, { sameProvider = false, missingProof = false, wrongP
   return {
     status: 'COMPLETE',
     phase: 'STATE_OF_PLAY_BEFORE_DEVELOPMENT',
+    budget_policy:'ZERO_ADDED_COST_FAIL_CLOSED',
     responses: [
-      { member: 'architecture-role', answer: { provider_id:'workers-ai:a', estimated_cost: 0, content: 'a' } },
-      { member: 'tests-role', answer: { provider_id:respondingB, estimated_cost: costB, content: 'b' } },
+      { member: 'architecture-role', answer: { role:'ARCHITECTURE_REUSE', provider_id:'workers-ai:a', estimated_cost: 0, content: 'a' } },
+      { member: 'security-role', answer: { role:'SECURITY_GOVERNANCE', provider_id:respondingB, estimated_cost: costB, content: 'b' } },
+      { member: 'tests-role', answer: { role:'TESTS_EVIDENCE', provider_id:'workers-ai:a', estimated_cost: 0, content: 'tests' } },
+      ...(!missingRole?[{ member: 'product-role', answer: { role:'PRODUCT_INTEGRATION', provider_id:respondingB, estimated_cost: 0, content:'product' } }]:[]),
     ],
     providers_succeeded: [...new Set(['workers-ai:a',respondingB])],
     zero_cost_provenance: missingProof ? [] : [...new Set(['workers-ai:a',respondingB])].map(provenance),
+    required_roles_succeeded: missingRole
+      ? ['ARCHITECTURE_REUSE','SECURITY_GOVERNANCE','TESTS_EVIDENCE']
+      : ['ARCHITECTURE_REUSE','SECURITY_GOVERNANCE','TESTS_EVIDENCE','PRODUCT_INTEGRATION'],
+    required_roles_missing: missingRole ? ['PRODUCT_INTEGRATION'] : [],
+    all_required_roles_satisfied: !missingRole,
+    critique_provenance:{all_required_roles_present:!missingRole},
+    synthesis: missingSynthesis
+      ? {status:'DEGRADED',coordinator:'MEL',text:''}
+      : {status:'COMPLETE',coordinator:'MEL',text:'Fixture independent critique synthesis'},
   };
 }
 
@@ -36,7 +48,7 @@ function workDagProof() {
   };
 }
 
-async function completeEvidenceRepository({ secondCost = 0, includeImplementation = true, requestedBy = 'mel-autonomy', sameProvider = false, missingProof = false, wrongPolicy = false } = {}) {
+async function completeEvidenceRepository({ secondCost = 0, includeImplementation = true, requestedBy = 'mel-autonomy', sameProvider = false, missingProof = false, wrongPolicy = false, missingRole = false, missingSynthesis = false } = {}) {
   const repository = new D1DevJobRepository(null, { memoryStore: new Map() });
   const job = await repository.create({
     id: 'ready-job',
@@ -47,7 +59,7 @@ async function completeEvidenceRepository({ secondCost = 0, includeImplementatio
   await repository.update(job.id, {
     status: 'COMPLETED',
     candidate_branch: 'candidate/augmentio-core',
-    plan_json: { preflight: { council: council(secondCost, { sameProvider, missingProof, wrongPolicy }) } },
+    plan_json: { preflight: { council: council(secondCost, { sameProvider, missingProof, wrongPolicy, missingRole, missingSynthesis }) } },
     result_json: {
       autonomy_proofs: { work_dag_resume: workDagProof() },
       teacher_bridge: {
@@ -211,4 +223,18 @@ test('cost zero without actual verified provider authorization is not live Counc
     assert.equal(state.gates.coherent_single_job_loop,false);
     assert.equal(state.self_development_ready,false);
   }
+});
+
+test('Council with two distinct authorized models but missing required role cannot prove autonomy readiness',async()=>{
+  const repository=await completeEvidenceRepository({missingRole:true});
+  const state=await getAutonomyReadiness({repository});
+  assert.equal(state.gates.live_council_zero_cost,false);
+  assert.equal(state.self_development_ready,false);
+});
+
+test('Council without completed MEL synthesis cannot prove autonomy readiness',async()=>{
+  const repository=await completeEvidenceRepository({missingSynthesis:true});
+  const state=await getAutonomyReadiness({repository});
+  assert.equal(state.gates.live_council_zero_cost,false);
+  assert.equal(state.gates.coherent_single_job_loop,false);
 });
