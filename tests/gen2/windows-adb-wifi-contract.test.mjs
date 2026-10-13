@@ -40,3 +40,14 @@ test("ADB diagnostics failures invalidate previously connected status", async ()
   assert.match(script, /connected=\$false/);
   assert.match(script, /Move-Item -LiteralPath "\$report\.tmp" -Destination \$report -Force/);
 });
+
+
+test("Wi-Fi endpoint is persisted only after confirmed ADB connection to that endpoint", async () => {
+  const script = await source("windows-companion/MEL-ADB-WiFi.ps1");
+  const reconnect = script.split("function Attempt-Reconnect {")[1].split("function Scan {")[0];
+  const verify = reconnect.indexOf('[regex]::Escape($endpoint)');
+  const persist = reconnect.indexOf('Set-Content -LiteralPath $saved');
+  assert.ok(verify >= 0 && persist > verify, "endpoint must be verified before storing");
+  assert.match(reconnect, /already connected to/);
+  assert.match(reconnect, /failed\|unable\|refused/);
+});
