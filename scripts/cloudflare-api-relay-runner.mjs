@@ -150,6 +150,44 @@ async function main(){
       reset_performed:false
     }));
 
+    // Scoped COM3 / ADB Wi-Fi Bluetooth investigation; NEVER print raw logcat or MACs.
+    // Relies on server-side allowlist, local Companion opt-in and OIDC identity.
+    try {
+      const bleSubmit=await worker('/api/computer/v1/pc-control',{
+        computer_id:computer.id,action:'mini.android.ble.diagnose',payload:{}
+      });
+      const bleId=String(bleSubmit?.command_id||'');
+      if(!bleId)throw Object.assign(new Error('BLE_COMMAND_NOT_QUEUED'),{code:'BLE_COMMAND_NOT_QUEUED'});
+      let bleCommand=null;
+      const bleDeadline=Date.now()+35000;
+      while(Date.now()<bleDeadline){
+        await new Promise(resolve=>setTimeout(resolve,1200));
+        const poll=await worker('/api/computer/v1/status?computer_id='+encodeURIComponent(computer.id),{},'GET');
+        bleCommand=(Array.isArray(poll?.commands)?poll.commands:[])
+          .find(row=>String(row?.id||'')===bleId)||null;
+        if(['SUCCEEDED','FAILED'].includes(String(bleCommand?.status||'')))break;
+      }
+      const bleOutput=(Array.isArray(bleCommand?.result?.outputs)?bleCommand.result.outputs:[])
+        .find(row=>row?.action==='system.exec');
+      let bleProof=null;
+      try{bleProof=JSON.parse(String(bleOutput?.stdout||'').trim())}catch{}
+      const accepted=bleCommand?.status==='SUCCEEDED'&&bleProof?.schema==='mel.companion.ble.diagnostics.v1'&&
+        bleProof?.read_only===true&&bleProof?.serial_opened===false&&bleProof?.flash_performed===false;
+      console.log('COMPANION_BLE_DIAGNOSTICS='+JSON.stringify({
+        status:String(bleCommand?.status||'TIMEOUT'),
+        evidence_valid:accepted,
+        com3_present:accepted?bleProof.com_present===true:null,
+        adb_status:accepted?String(bleProof.adb_status||'UNKNOWN').slice(0,60):null,
+        bluetooth_log_line_count:accepted&&Array.isArray(bleProof.log_events)?bleProof.log_events.length:0,
+        read_only:true,flash_performed:false
+      }));
+    }catch(error){
+      console.log('COMPANION_BLE_DIAGNOSTICS='+JSON.stringify({
+        status:'UNVERIFIED',reason:String(error?.code||'BLE_DIAGNOSTIC_UNAVAILABLE').slice(0,80),
+        read_only:true,flash_performed:false
+      }));
+    }
+
     // Scheduled Windows APK transport audit. OIDC cannot install or pair Android.
     try {
       const androidSubmit=await worker('/api/computer/v1/pc-control',{
