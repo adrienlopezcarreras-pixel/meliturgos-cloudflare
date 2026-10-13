@@ -49,3 +49,13 @@ Companion must support interactive remote desktop assistance on the owner's comp
 - **Hard protections:** always-on local Stop control and emergency keyboard shortcut; automatic expiry; least privilege; authenticated owner, paired device identity and audit log. No silent access, covert persistence, arbitrary shell execution, password capture or unrestricted file deletion.
 - **Transport:** use existing authenticated MEL computer-control and Companion command relay where technically compatible; prefer screen streaming with a bounded consented session over inventing a second unrestricted backdoor. Distinguish a cloud-side authorization from local Windows permission.
 - **Success proof:** operator can request view, user sees an unmistakable approval prompt, a test window can be controlled, Stop instantly revokes keyboard/mouse/screen privileges, and log shows session boundaries. This is not DONE_VERIFIED until measured on the actual Windows Companion.
+
+## Live relay acceptance checklist (pending, not executed)
+1. Deploy only after CI on the exact integration commit is green, owner authorizes deployment, and the local Companion has remote diagnostics enabled.
+2. Confirm Windows Companion is online and has a fresh heartbeat; identify only the owner's paired device.
+3. Submit only `mini.android.ble.diagnose` through the existing authenticated relay. No generic `system.exec` payload from this workflow.
+4. Wait for the same command ID to reach `SUCCEEDED` and verify `schema=mel.companion.ble.diagnostics.v1`, `read_only=true`, `serial_opened=false`, `flash_performed=false`, and `apk_install_performed=false`.
+5. Confirm `com_present=true`, Android target model `M2103K19G`, and `adb_status=ADB_CONNECTED`; otherwise report a blocked or inconclusive test, not success.
+6. Interpret BLE GATT / bonding / session signals only when logs contain relevant events. Absence of `SESSION_OK` in a bounded log is not proof the session never succeeded.
+7. Maintain strict separation between server CI success, command relay success, local Windows execution, and true MINI BLE connectivity.
+8. Stop on unexpected device identity, missing COM3, stale device heartbeat or no owner consent. No flash, erase or pair actions as part of this test.
