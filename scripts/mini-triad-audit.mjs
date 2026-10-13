@@ -53,7 +53,7 @@ const allowedOidcReadOnly = new Set([
  'process.list','mini.readonly.discover','mini.readonly.backup.audit',
  'mini.maintenance.assess','android.maintenance.assess'
 ]);
-const proofSetText = api.match(/const PC_CONTROL_PROOF_ACTIONS=new Set\\(\\[([^\\]]*)\\]\\)/)?.[1] || '';
+const proofSetText = api.split('const PC_CONTROL_PROOF_ACTIONS=new Set([')[1]?.split(']);')[0] || '';
 const proofActions = [...proofSetText.matchAll(/"([^"]+)"/g)].map(row=>row[1]);
 const safeOidcProofSet = proofActions.length > 0 &&
  proofActions.every(action=>allowedOidcReadOnly.has(action)) &&
