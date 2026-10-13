@@ -50,7 +50,8 @@ test('Windows Companion honors strict exit codes for every Android maintenance r
  assert.equal(asset,dist);
  assert.match(asset,/if \(\$payload\.require_success_exit -eq \$true -and \$p\.ExitCode -ne 0\)/);
  assert.match(asset,/SYSTEM_EXEC_NONZERO_EXIT_CODE/);
- assert.equal((api.match(/require_success_exit:true/g)||[]).length,4);
+ assert.equal((api.match(/require_success_exit:true/g)||[]).length,5);
+ assert.match(api,/miniFirmwareStageCommand\(\{filename:safe\(payload.filename,125\),sha256:safe\(payload.sha256,64\)\}\),require_success_exit:true/);
 });
 
 test('local Wi-Fi ADB pairing is bundled, interactive and never relays a pairing PIN',()=>{
