@@ -6,12 +6,12 @@ test('cannot construct endpoint without device binding',()=>{
  assert.throws(()=>createCompanionMcpEndpoint({issuer:'https://issuer.example.test',jwks:{keys:[]},revoked:async()=>false}),/MCP_DEVICE_BINDING_REQUIRED/);
 });
 test('cannot construct endpoint without revocation lookup',()=>{
- assert.throws(()=>createCompanionMcpEndpoint({issuer:'https://issuer.example.test',jwks:{keys:[]},authorizeDevice:async()=>true,readStatus:async()=>({})}),/MCP_AUTH_CONFIG_INCOMPLETE/);
+ assert.throws(()=>createCompanionMcpEndpoint({issuer:'https://issuer.example.test',jwks:{keys:[]},lookupOwnerDevice:async(subject,id)=>({owner_subject:subject,device_id:id,paired:true}),readStatus:async()=>({})}),/MCP_AUTH_CONFIG_INCOMPLETE/);
 });
 test('unsigned bearer is rejected by assembled endpoint',async()=>{
  const endpoint=createCompanionMcpEndpoint({
   issuer:'https://issuer.example.test',jwks:{keys:[]},revoked:async()=>false,
-  authorizeDevice:async()=>true,readStatus:async()=>({id:'win-1',online:true})
+  lookupOwnerDevice:async(subject,id)=>({owner_subject:subject,device_id:id,paired:true}),readStatus:async()=>({id:'win-1',online:true})
  });
  const req=new Request('https://mel.example.test/mcp/companion/v1',{
   method:'POST',headers:{'content-type':'application/json',authorization:'Bearer unsigned.invalid.token'},
