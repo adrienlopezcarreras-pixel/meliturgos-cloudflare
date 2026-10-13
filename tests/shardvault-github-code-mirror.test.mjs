@@ -6,6 +6,8 @@ import { summarizeAutonomyLaunchCodeSync } from '../src/evolution/launch-readine
 const runtime=await readFile(new URL('../src/continuity/shardvault-runtime.js',import.meta.url),'utf8');
 const mirrorWorkflow=await readFile(new URL('../.github/workflows/shardvault-github-code-mirror.yml',import.meta.url),'utf8');
 const releaseWorkflow=await readFile(new URL('../.github/workflows/deploy-cloudflare-release.yml',import.meta.url),'utf8');
+const previewWorkflow=await readFile(new URL('../.github/workflows/deploy-candidate-preview.yml',import.meta.url),'utf8');
+const relayWorkflow=await readFile(new URL('../.github/workflows/github-action-relay.yml',import.meta.url),'utf8');
 const wrangler=await readFile(new URL('../wrangler.jsonc',import.meta.url),'utf8');
 
 test('GitHub code mirror is code-sync-only and gated to the final missing shard',()=>{
@@ -73,4 +75,19 @@ test('launch code-sync summary preserves mirror relay metadata needed by release
   assert.equal(summary.relay_job_id,'relay-123');
   assert.equal(summary.relay_status,'QUEUED');
   assert.equal(summary.reason,'GITHUB_CODE_MIRROR_PENDING');
+});
+
+test('isolated preview dispatches its own relay queue through an allowlisted OIDC GitHub workflow',()=>{
+  assert.match(previewWorkflow,/actions: write/);
+  assert.match(previewWorkflow,/GH_PREVIEW_DISPATCH_TOKEN:/);
+  assert.match(previewWorkflow,/CODE_SYNC_RELAY_JOB/);
+  assert.match(previewWorkflow,/github-action-relay\\.yml\\/dispatches/);
+  assert.match(previewWorkflow,/\\"target\\":\\"preview\\"/);
+  assert.match(previewWorkflow,/CODE_SYNC_LAST_RELAY_JOB/);
+  assert.match(relayWorkflow,/type: choice/);
+  assert.match(relayWorkflow,/default: production/);
+  assert.match(relayWorkflow,/MEL_RELAY_BASE_URL:/);
+  assert.match(relayWorkflow,/inputs\\.target == 'preview'/);
+  assert.match(relayWorkflow,/meliturgos-preview\\.adrien-lopezcarreras\\.workers\\.dev/);
+  assert.doesNotMatch(relayWorkflow,/MEL_DEV_BRIDGE_TOKEN/);
 });
