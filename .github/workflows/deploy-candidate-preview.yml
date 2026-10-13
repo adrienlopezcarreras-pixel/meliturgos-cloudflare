@@ -294,6 +294,41 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
+      - name: Wait for exact-SHA critical bundle expectation on isolated preview
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE_URL="https://meliturgos-preview.adrien-lopezcarreras.workers.dev"
+          ready=0
+          for attempt in {1..15}; do
+            HTTP_CODE="$(curl --show-error --silent --max-time 15 \
+              --header "Authorization: Bearer ${MEL_PREVIEW_PASSWORD}" \
+              --output preview-code-expectation.json \
+              --write-out '%{http_code}' \
+              "${BASE_URL}/api/gen2/shardvault/code-source/expectation" || true)"
+            if [ "${HTTP_CODE}" = "200" ] && node - <<'NODE'
+          const fs=require('fs');
+          let d;
+          try { d=JSON.parse(fs.readFileSync('preview-code-expectation.json','utf8')); }
+          catch { process.exit(1); }
+          if(d?.ok!==true||d?.status!=='EXACT_DEPLOYMENT_EXPECTATION'
+            ||String(d?.deployed_sha||'')!==String(process.env.GITHUB_SHA||'')
+            ||Number(d?.declared_bytes)!==Number(process.env.MEL_CRITICAL_CODE_BUNDLE_BYTES))process.exit(1);
+          NODE
+            then
+              ready=1
+              echo "PREVIEW_EXACT_SHA_AND_BUNDLE_SIZE_CONFIRMED"
+              break
+            fi
+            echo "PREVIEW_EXACT_CODE_EXPECTATION_NOT_READY attempt ${attempt}/15 HTTP ${HTTP_CODE}"
+            if [ "${attempt}" -lt 15 ]; then sleep 5; fi
+          done
+          if [ "${ready}" -ne 1 ]; then
+            echo "PREVIEW_EXACT_SHA_BUNDLE_EXPECTATION_FAILED"
+            exit 1
+          fi
+          rm -f preview-code-expectation.json
+
       - name: Bind exact critical bundle through preview Worker
         shell: bash
         run: |

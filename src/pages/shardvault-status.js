@@ -226,6 +226,18 @@ export async function handleShardVaultStatus(request,env){
     });
     return Response.json(result,{status:result.ok?200:503,headers:{'cache-control':'no-store'}});
   }
+  if(request.method==='GET'&&url.pathname==='/api/gen2/shardvault/code-source/expectation'){
+    const isolated=String(env?.MEL_RUNTIME_ENV||'')==='preview'
+      && String(env?.MEL_PREVIEW_ISOLATED||'')==='true';
+    if(!isolated)return Response.json({ok:false,status:'PREVIEW_ONLY'},{status:403,headers:{'cache-control':'no-store'}});
+    const sha=typeof MEL_DEPLOYED_GIT_SHA!=='undefined'?String(MEL_DEPLOYED_GIT_SHA||''):'';
+    const declared=typeof MEL_CRITICAL_CODE_BUNDLE_BYTES!=='undefined'
+      ?Number(MEL_CRITICAL_CODE_BUNDLE_BYTES):0;
+    const ok=/^[0-9a-f]{40}$/i.test(sha)&&Number.isSafeInteger(declared)&&declared>0;
+    return Response.json({ok,status:ok?'EXACT_DEPLOYMENT_EXPECTATION':'DEPLOYMENT_EXPECTATION_UNAVAILABLE',
+      deployed_sha:ok?sha:null,declared_bytes:ok?declared:null},
+      {status:ok?200:503,headers:{'cache-control':'no-store'}});
+  }
   if(request.method==='POST'&&url.pathname==='/api/gen2/shardvault/code-source'){
     const type=String(request.headers.get('content-type')||'').toLowerCase();
     if(!type.includes('application/octet-stream')&&!type.includes('application/gzip'))return Response.json({ok:false,status:'CRITICAL_BUNDLE_CONTENT_TYPE_INVALID'},{status:415,headers:{'cache-control':'no-store'}});

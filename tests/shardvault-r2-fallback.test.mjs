@@ -76,3 +76,28 @@ test('preview ShardVault seed creates real local RS shards without external disc
   assert.equal(second.status,'SIGNED_SNAPSHOT_EXISTS');
   assert.equal(second.snapshot_id,first.snapshot_id);
 });
+
+test('critical bundle expectation is read-only and unavailable outside isolated preview', async () => {
+  const path='https://preview.invalid/api/gen2/shardvault/code-source/expectation';
+  const denied=await handleShardVaultStatus(new Request(path),{
+    MEL_RUNTIME_ENV:'production',MEL_PREVIEW_ISOLATED:'false',
+  });
+  assert.equal(denied.status,403);
+  assert.equal((await denied.json()).status,'PREVIEW_ONLY');
+  const unavailable=await handleShardVaultStatus(new Request(path),{
+    MEL_RUNTIME_ENV:'preview',MEL_PREVIEW_ISOLATED:'true',
+  });
+  assert.equal(unavailable.status,503);
+  assert.equal((await unavailable.json()).status,'DEPLOYMENT_EXPECTATION_UNAVAILABLE');
+});
+
+test('preview exact-SHA and bundle-length gate precedes every Worker code-source upload', async () => {
+  const fs=await import('node:fs');
+  const source=fs.readFileSync(new URL('../.github/workflows/deploy-candidate-preview.yml',import.meta.url),'utf8');
+  const gate=source.indexOf('      - name: Wait for exact-SHA critical bundle expectation on isolated preview');
+  const upload=source.indexOf('      - name: Bind exact critical bundle through preview Worker');
+  assert.ok(gate>=0&&upload>gate);
+  assert.match(source,/PREVIEW_EXACT_SHA_AND_BUNDLE_SIZE_CONFIRMED/);
+  assert.match(source,/PREVIEW_EXACT_SHA_BUNDLE_EXPECTATION_FAILED/);
+  assert.match(source,/d\?\.declared_bytes/);
+});
