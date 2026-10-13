@@ -9,6 +9,9 @@ test("owner BLE diagnostic is fixed, bounded, read only",()=>{
  assert.match(command,/mel\.companion\.ble\.diagnostics\.v1/);
  assert.match(command,/logcat -d -t 1500/);
  assert.match(command,/MULTIPLE_ADB_DEVICES_REFUSED/);
+ assert.match(command,/ADB_TARGET_MODEL_NOT_APPROVED/);
+ assert.match(command,/M2103K19G/);
+ assert.match(command,/if\(\$status -eq 'ADB_CONNECTED'\)\{/);
  assert.match(command,/\$serial=\$Matches\[1\]/);
  assert.match(command,/if\(\$serial -match/);
  assert.doesNotMatch(command,/\$Matches\[1\] -match/);
