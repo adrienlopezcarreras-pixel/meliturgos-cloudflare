@@ -701,8 +701,17 @@ jobs:
               break
             fi
             echo "ShardVault target not yet proven; next bounded discovery generation."
-            head -c 600 shardvault-live-probe.json 2>/dev/null || true
-            echo
+            python - <<'PY'
+          import json
+          from pathlib import Path
+          try:
+              d=json.loads(Path('shardvault-live-probe.json').read_text(encoding='utf-8'))
+              keys=('ok','required_bytes','discovered','probed','representative_probed',
+                    'representative_qualified','representative_validated_count','target_reached')
+              print('SHARDVAULT_SAFE_COUNTS:', json.dumps({k:d.get(k) for k in keys}))
+          except Exception:
+              print('SHARDVAULT_DIAGNOSTIC_RESPONSE_INVALID')
+          PY
             sleep 2
           done
           test "${ready}" -eq 1
