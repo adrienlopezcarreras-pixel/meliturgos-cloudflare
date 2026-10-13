@@ -40,3 +40,12 @@ These are roadmap action names, **not** an assertion that routes or handlers exi
 - PR #1291: Companion 2.3.13 ADB Wi-Fi monitor integration.
 - PR #1294: candidate read-only BLE diagnostic channel; not deployed.
 - MINI flash and arbitrary delete are not implemented/approved; do not present them as DONE_VERIFIED.
+
+## Owner-authorized Windows computer control
+Companion must support interactive remote desktop assistance on the owner's computer when explicitly requested, while preserving the user's ability to revoke control immediately.
+- **View only:** screen capture, diagnostics and foreground-window identification, with visible local session indicator.
+- **Interactive:** mouse/keyboard input and scoped application/window control, only after explicit local approval for a time-limited session.
+- **Maintenance:** fixed allowlisted workflows for filesystem inspection, services, logs, ADB Wi-Fi and MINI USB; potentially destructive steps require separate confirmation and verified backup.
+- **Hard protections:** always-on local Stop control and emergency keyboard shortcut; automatic expiry; least privilege; authenticated owner, paired device identity and audit log. No silent access, covert persistence, arbitrary shell execution, password capture or unrestricted file deletion.
+- **Transport:** use existing authenticated MEL computer-control and Companion command relay where technically compatible; prefer screen streaming with a bounded consented session over inventing a second unrestricted backdoor. Distinguish a cloud-side authorization from local Windows permission.
+- **Success proof:** operator can request view, user sees an unmistakable approval prompt, a test window can be controlled, Stop instantly revokes keyboard/mouse/screen privileges, and log shows session boundaries. This is not DONE_VERIFIED until measured on the actual Windows Companion.
