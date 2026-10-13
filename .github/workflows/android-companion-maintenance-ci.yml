@@ -5,6 +5,8 @@ on:
       - 'tools/android-companion/MEL-Android-WiFi-Pairing.ps1'
       - 'assets/MEL-Computer-Companion.ps1'
       - 'dist/MEL-Computer-Companion.ps1'
+      - 'src/devices/mini-firmware-stage-companion.js'
+      - 'tests/mini-firmware-stage-companion.test.mjs'
       - 'src/devices/android-maintenance-companion.js'
       - 'src/devices/android-apk-stage-companion.js'
       - 'src/devices/computer-companion-api.js'
@@ -18,6 +20,8 @@ on:
       - 'tools/android-companion/MEL-Android-WiFi-Pairing.ps1'
       - 'assets/MEL-Computer-Companion.ps1'
       - 'dist/MEL-Computer-Companion.ps1'
+      - 'src/devices/mini-firmware-stage-companion.js'
+      - 'tests/mini-firmware-stage-companion.test.mjs'
       - 'src/devices/android-maintenance-companion.js'
       - 'src/devices/android-apk-stage-companion.js'
       - 'src/devices/computer-companion-api.js'
@@ -37,13 +41,13 @@ jobs:
         with:
           node-version: '22'
       - run: npm ci
-      - run: node --test tests/android-companion-maintenance.test.mjs
+      - run: node --test tests/android-companion-maintenance.test.mjs tests/mini-firmware-stage-companion.test.mjs
       - run: node tests/write-android-maintenance-scripts.mjs
       - name: PowerShell parser proof (no ADB access)
         shell: pwsh
         run: |
           $scripts = @((Get-ChildItem -LiteralPath '.ci-android-maintenance' -Filter '*.ps1' -File) + (Get-Item 'assets/MEL-Computer-Companion.ps1') + (Get-Item 'dist/MEL-Computer-Companion.ps1') + (Get-Item 'tools/android-companion/MEL-Android-WiFi-Pairing.ps1'))
-          if ($scripts.Count -ne 6) { throw 'ANDROID_MAINTENANCE_SCRIPT_COUNT_INVALID' }
+          if ($scripts.Count -ne 7) { throw 'ANDROID_MAINTENANCE_SCRIPT_COUNT_INVALID' }
           foreach ($script in $scripts) {
             $tokens = $null
             $errors = $null
