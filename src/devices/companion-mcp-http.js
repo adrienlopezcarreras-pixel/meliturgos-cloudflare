@@ -4,6 +4,7 @@ export const MCP_HTTP_PATH='/mcp/companion/v1';
 export const MCP_HTTP_PROTOCOL='2025-03-26';
 const tool={name:'mel_companion_status',description:'Read the authorized Windows Companion status only',inputSchema:{type:'object',properties:{computer_id:{type:'string',maxLength:200}},additionalProperties:false}};
 const headers={'cache-control':'no-store','x-content-type-options':'nosniff','content-type':'application/json'};
+const ALLOWED_PROTOCOLS=new Set(['2025-03-26']);
 function json(data,status=200,extra={}){return new Response(JSON.stringify(data),{status,headers:{...headers,...extra}});}
 function rpc(id,result){return {jsonrpc:'2.0',id,result};}
 function rpcError(id,code,message){return {jsonrpc:'2.0',id,error:{code,message}};}
@@ -15,7 +16,9 @@ export async function companionMcpHttp(request,{authenticate,authorizeDevice,rea
  if(typeof authenticate!=='function'||typeof authorizeDevice!=='function'||typeof readStatus!=='function')return json({error:'MCP_REMOTE_NOT_CONFIGURED'},503);
  if(request.method!=='POST')return json({error:'METHOD_NOT_ALLOWED'},405,{allow:'POST'});
  const type=(request.headers.get('content-type')||'').toLowerCase();
- if(!type.startsWith('application/json'))return json({error:'JSON_REQUIRED'},415);
+ if(!/^application\/json(?:\s*;|$)/.test(type))return json({error:'JSON_REQUIRED'},415);
+ const protocol=request.headers.get('mcp-protocol-version');
+ if(protocol&&!ALLOWED_PROTOCOLS.has(protocol))return json({error:'MCP_PROTOCOL_UNSUPPORTED'},400);
  if(Number(request.headers.get('content-length')||0)>16384)return json({error:'REQUEST_TOO_LARGE'},413);
  let principal;
  try{principal=await authenticate(request);}
