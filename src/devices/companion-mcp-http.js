@@ -19,7 +19,7 @@ export async function companionMcpHttp(request,{authenticate,authorizeDevice,rea
  if(request.method!=='POST')return json({error:'METHOD_NOT_ALLOWED'},405,{allow:'POST'});
  const type=(request.headers.get('content-type')||'').toLowerCase();
  if(!/^application\/json(?:\s*;|$)/.test(type))return json({error:'JSON_REQUIRED'},415);
- const protocol=request.headers.get('mcp-protocol-version');
+ // Streamable HTTP clients must advertise both JSON and SSE when sending Accept.\n const accept=request.headers.get('accept');\n if(accept&&!((accept.includes('application/json')||accept.includes('*/*'))&&(accept.includes('text/event-stream')||accept.includes('*/*'))))return json({error:'MCP_ACCEPT_UNSUPPORTED'},406);\n const protocol=request.headers.get('mcp-protocol-version');
  if(protocol&&!ALLOWED_PROTOCOLS.has(protocol))return json({error:'MCP_PROTOCOL_UNSUPPORTED'},400);
  if(Number(request.headers.get('content-length')||0)>16384)return json({error:'REQUEST_TOO_LARGE'},413);
  let principal;
