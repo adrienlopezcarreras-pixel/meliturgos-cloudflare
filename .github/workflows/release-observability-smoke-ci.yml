@@ -10,6 +10,7 @@ on:
       - 'release-tools/predeploy-backup-refresh/runner.mjs'
       - 'release-tools/predeploy-backup-refresh/d1-export.mjs'
       - 'tests/predeploy-d1-backup-large-table.test.mjs'
+      - 'tests/release-predeploy-backup-reuse.test.mjs'
       - 'tests/release-predeploy-r2-retry.test.mjs'
       - 'tests/operator-auth.test.mjs'
       - 'tests/release-production-smoke-routes.test.mjs'
@@ -59,6 +60,7 @@ jobs:
           tests/operator-auth.test.mjs
           tests/release-predeploy-r2-retry.test.mjs
           tests/predeploy-d1-backup-large-table.test.mjs
+          tests/release-predeploy-backup-reuse.test.mjs
           tests/release-production-smoke-routes.test.mjs
           tests/release-media-bootstrap-propagation.test.mjs
           tests/autonomous-release-exact-main.test.mjs

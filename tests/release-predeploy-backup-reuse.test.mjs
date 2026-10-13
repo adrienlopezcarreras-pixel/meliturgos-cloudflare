@@ -98,6 +98,7 @@ test('predeploy refresh creates the backup on the GitHub runner and keeps the Wo
     readFile(new URL('../release-tools/predeploy-backup-refresh/worker.js', import.meta.url), 'utf8'),
     readFile(new URL('../release-tools/predeploy-backup-refresh/runner.mjs', import.meta.url), 'utf8'),
   ]);
+  const d1Export = await readFile(new URL('../release-tools/predeploy-backup-refresh/d1-export.mjs', import.meta.url), 'utf8');
   const refresh = source.indexOf('      - name: Refresh current production backup through ephemeral worker');
   const rollback = source.indexOf('      - name: Capture current production rollback target');
   const binder = source.indexOf('      - name: Create verified pre-deploy production backup');
@@ -143,14 +144,17 @@ test('predeploy refresh creates the backup on the GitHub runner and keeps the Wo
 
   assert.match(refresher, /const R2_PAGE_LIMIT = 1000;/);
   assert.match(refresher, /const D1_PAGE_LIMIT = 500;/);
-  assert.match(runner, /const D1_PAGE_SIZE = 500;/);
+  assert.match(d1Export, /export const D1_PAGE_SIZE = 500;/);
+  assert.match(d1Export, /export const MAX_ROWS_PER_TABLE = 250_000;/);
+  assert.match(runner, /import \{ exportD1 \} from '\.\/d1-export\.mjs';/);
+  assert.match(runner, /database: \(\) => exportD1\(sidecar, sidecarJson\)/);
   assert.match(runner, /createVerifiedBackupService/);
   assert.match(runner, /createBackupEncryptionCodec/);
   assert.match(runner, /inspectRestoreCandidate/);
   assert.match(runner, /attempts = 12/);
   assert.match(runner, /Math\.min\(2000, 500 \* attempt\)/);
-  assert.match(runner, /'\/d1\/tables'/);
-  assert.match(runner, /\/d1\/rows/);
+  assert.match(d1Export, /'\/d1\/tables'/);
+  assert.match(d1Export, /\/d1\/rows/);
   assert.match(runner, /'\/register'/);
   assert.doesNotMatch(runner, /\/d1\/database\//);
   assert.match(runner, /'r2', 'object', 'put'/);
