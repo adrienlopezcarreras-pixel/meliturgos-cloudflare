@@ -70,3 +70,10 @@ test('OAuth principal missing read scope is denied',async()=>{
  });
  assert.equal(res.status,403);
 });
+
+test('explicit Streamable HTTP Accept supports both media types',async()=>{
+ const good=await companionMcpHttp(request('POST',{jsonrpc:'2.0',id:12,method:'tools/list'},{accept:'application/json, text/event-stream'}),services);
+ assert.equal(good.status,200);
+ const bad=await companionMcpHttp(request('POST',{jsonrpc:'2.0',id:13,method:'tools/list'},{accept:'text/html'}),services);
+ assert.equal(bad.status,406);
+});
