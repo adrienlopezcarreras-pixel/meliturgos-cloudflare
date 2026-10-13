@@ -27,9 +27,19 @@ export function validatePreviewContext(env,config){
   if(!bucket||bucket!==preview||bucket===prod
     ||!/^meliturgos-preview-[a-z0-9-]+$/.test(bucket))fail('PREVIEW_MIRROR_BUCKET_ISOLATION_UNPROVEN');
   if(!previewD1||!prodD1||previewD1===prodD1)fail('PREVIEW_MIRROR_D1_ISOLATION_UNPROVEN');
+  // The workflow's +32 bytes is a conservative representative probe size;
+  // AES-GCM adds exactly 16 bytes to the original archive. The actual
+  // RS(4/7) fragment length must be derived exactly, not equated to the cap.
+  const bundleBytes=Number(env.MEL_CRITICAL_CODE_BUNDLE_BYTES);
   const shardBytes=Number(env.MEL_CRITICAL_CODE_SHARD_BYTES);
-  if(!Number.isSafeInteger(shardBytes)||shardBytes<65536||shardBytes>8388608)fail('PREVIEW_MIRROR_BYTES_INVALID');
-  return {sha,repo,bucket,shardBytes};
+  if(!Number.isSafeInteger(bundleBytes)||bundleBytes<=0||bundleBytes>=16*1024*1024)
+    fail('PREVIEW_MIRROR_BUNDLE_BYTES_INVALID');
+  const exactShardBytes=Math.ceil((bundleBytes+16)/4);
+  const representativeCap=Math.max(65536,Math.ceil((bundleBytes+32)/4));
+  if(!Number.isSafeInteger(shardBytes)||shardBytes!==representativeCap
+    ||exactShardBytes<65536||exactShardBytes>8388608)
+    fail('PREVIEW_MIRROR_BYTES_INVALID');
+  return {sha,repo,bucket,shardBytes,exactShardBytes,bundleBytes};
 }
 export function previewMirrorPending(d,ctx){
   const e=d?.external||{};
@@ -55,7 +65,7 @@ async function api(url,token,method='GET',data=null){
 }
 export async function publishPreviewMirror(ctx,pending,bytes,token,request=api){
   if(!token||token.length<20)fail('PREVIEW_MIRROR_GITHUB_TOKEN_REQUIRED');
-  if(!(bytes instanceof Uint8Array)||bytes.length!==ctx.shardBytes)fail('PREVIEW_MIRROR_FRAGMENT_SIZE_INVALID');
+  if(!(bytes instanceof Uint8Array)||bytes.length!==ctx.exactShardBytes)fail('PREVIEW_MIRROR_FRAGMENT_SIZE_INVALID');
   const hash=createHash('sha256').update(bytes).digest('hex');
   const base='https://api.github.com/repos/'+ctx.repo+'/';
   const ref=await request(base+'git/ref/heads/'+PREVIEW_MIRROR_BRANCH,token);

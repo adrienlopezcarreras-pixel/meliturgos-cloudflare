@@ -78,7 +78,8 @@ test('preview mirror never targets main or production storage and requires exact
   const sha='a'.repeat(40);
   const env={GITHUB_SHA:sha,GITHUB_REPOSITORY:'adrienlopezcarreras-pixel/meliturgos-cloudflare',
     GITHUB_REF:'refs/heads/candidate/mel-clean-autonomy',GITHUB_REF_NAME:'candidate/mel-clean-autonomy',
-    MEL_PREVIEW_R2_BUCKET:'meliturgos-preview-media-bucket',MEL_CRITICAL_CODE_SHARD_BYTES:'65536'};
+    MEL_PREVIEW_R2_BUCKET:'meliturgos-preview-media-bucket',MEL_CRITICAL_CODE_BUNDLE_BYTES:'262128',
+    MEL_CRITICAL_CODE_SHARD_BYTES:'65540'};
   const config={r2_buckets:[{binding:'MEDIA_BUCKET',bucket_name:'meliturgos-private-media'}],
     d1_databases:[{binding:'DB',database_id:'prod'}],
     env:{preview:{r2_buckets:[{binding:'MEDIA_BUCKET',bucket_name:'meliturgos-preview-media-bucket'}],
@@ -86,6 +87,10 @@ test('preview mirror never targets main or production storage and requires exact
       vars:{MEL_RUNTIME_ENV:'preview',MEL_PREVIEW_ISOLATED:'true'}}}};
   const ctx=validatePreviewContext(env,config);
   assert.equal(PREVIEW_MIRROR_BRANCH,'shardvault-preview-mirror');
+  assert.equal(ctx.shardBytes,65540);
+  assert.equal(ctx.exactShardBytes,65536);
+  assert.throws(()=>validatePreviewContext({...env,MEL_CRITICAL_CODE_SHARD_BYTES:'65536'},config),/BYTES_INVALID/);
+  assert.throws(()=>validatePreviewContext({...env,MEL_CRITICAL_CODE_BUNDLE_BYTES:'262140'},config),/BYTES_INVALID/);
   assert.throws(()=>validatePreviewContext({...env,GITHUB_REF:'refs/heads/main'},config),/CANDIDATE_ONLY/);
   assert.throws(()=>validatePreviewContext({...env,MEL_PREVIEW_R2_BUCKET:'meliturgos-private-media'},config),/BUCKET_ISOLATION_UNPROVEN/);
   assert.throws(()=>validatePreviewContext(env,{...config,env:{preview:{...config.env.preview,
@@ -109,6 +114,8 @@ test('preview mirror never targets main or production storage and requires exact
     }
     throw Error('UNEXPECTED_GITHUB_PATH');
   };
+  await assert.rejects(publishPreviewMirror(ctx,out,new Uint8Array(65540),'x'.repeat(40),request),/FRAGMENT_SIZE_INVALID/);
+  await assert.rejects(publishPreviewMirror(ctx,out,new Uint8Array(65535),'x'.repeat(40),request),/FRAGMENT_SIZE_INVALID/);
   const result=await publishPreviewMirror(ctx,out,bytes,'x'.repeat(40),request);
   assert.equal(result.status,'EXACT_FRAGMENT_PUBLISHED_VERIFIED');
   assert.equal(calls.filter(x=>x.method==='PUT').length,1);
