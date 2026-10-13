@@ -174,7 +174,7 @@ async function main(){
       const accepted=bleCommand?.status==='SUCCEEDED'&&bleProof?.schema==='mel.companion.ble.diagnostics.v1'&&
         bleProof?.read_only===true&&bleProof?.serial_opened===false&&bleProof?.flash_performed===false&&
         bleProof?.apk_install_performed===false&&bleOutput?.exit_code===0;
-      const targetReady=accepted&&bleProof?.com_present===true&&bleProof?.adb_status==='ADB_CONNECTED'&&
+      const targetReady=accepted&&bleProof?.com_present===true&&bleProof?.esp_identity_verified===true&&bleProof?.adb_status==='ADB_CONNECTED'&&
         Array.isArray(bleProof?.android_models)&&bleProof.android_models.length===1&&
         bleProof.android_models[0]==='M2103K19G';
       const bleLines=accepted&&Array.isArray(bleProof.log_events)?bleProof.log_events.map(value=>String(value)):[];
@@ -191,6 +191,7 @@ async function main(){
         evidence_valid:accepted,
         target_ready:targetReady,
         com3_present:accepted?bleProof.com_present===true:null,
+        esp_identity_verified:accepted?bleProof.esp_identity_verified===true:null,
         adb_status:accepted?String(bleProof.adb_status||'UNKNOWN').slice(0,60):null,
         bluetooth_log_line_count:bleLines.length,signals:accepted?bleSignals:null,
         read_only:true,flash_performed:false
