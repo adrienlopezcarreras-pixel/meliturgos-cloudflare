@@ -186,10 +186,23 @@ jobs:
           set -euo pipefail
           REPO_KEY="${GITHUB_REPOSITORY//\//__}"
           OBJECT_PATH="${MEL_PREVIEW_R2_BUCKET}/shardvault/code-critical/${REPO_KEY}/${GITHUB_SHA}.tar.gz"
-          npx wrangler r2 object put "$OBJECT_PATH" \
-            --file mel-critical-code.tar.gz \
-            --content-type application/gzip \
-            --remote
+          # The same exact-SHA key makes bounded retries idempotent on the isolated bucket.
+          uploaded=0
+          for attempt in 1 2 3; do
+            if npx wrangler r2 object put "$OBJECT_PATH" \
+              --file mel-critical-code.tar.gz \
+              --content-type application/gzip \
+              --remote; then
+              uploaded=1
+              break
+            fi
+            echo "PREVIEW_R2_UPLOAD_RETRY: attempt ${attempt}/3 failed."
+            if [ "$attempt" -lt 3 ]; then sleep $((attempt * 10)); fi
+          done
+          if [ "$uploaded" -ne 1 ]; then
+            echo "PREVIEW_R2_UPLOAD_FAILED_AFTER_BOUNDED_RETRIES"
+            exit 1
+          fi
           echo "Critical candidate bundle uploaded for ${GITHUB_SHA}."
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
