@@ -16,7 +16,7 @@ if($adb){
  $devices=@(& $adb devices -l 2>&1 | ForEach-Object { [string]$_ })
  if($LASTEXITCODE -ne 0){$status='ADB_DEVICES_FAILED'}
  else {
-  $serials=@($devices | ForEach-Object { if($_ -match '^([^\s]+)\s+device(?:\s|$)' -and $Matches[1] -match '(:\d{2,5}$|_adb-tls-connect)'){ $Matches[1] } })
+  $serials=@($devices | ForEach-Object { if($_ -match '^([^\s]+)\s+device(?:\s|$)'){ $serial=$Matches[1];if($serial -match '(:\d{2,5}$|_adb-tls-connect)'){ $serial } } })
   if($serials.Count -eq 1){
    $id=$serials[0];$status='ADB_CONNECTED'
    $model=@(& $adb -s $id shell getprop ro.product.model 2>&1 | ForEach-Object { [string]$_ })
