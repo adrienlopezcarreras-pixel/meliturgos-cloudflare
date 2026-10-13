@@ -1023,7 +1023,7 @@ jobs:
           )"
           export MELITURGOS_PASSWORD="$PREVIEW_PASSWORD"
           export MEL_BASE_URL="https://meliturgos-preview.adrien-lopezcarreras.workers.dev"
-          node scripts/finalize-lora.mjs             --dir artifacts/lora-incoming             --url "$MEL_BASE_URL"             --activate true             --allow-not-activated true | tee artifacts/finalize-result.json
+          node scripts/finalize-lora.mjs             --dir artifacts/lora-incoming             --url "$MEL_BASE_URL"             --activate false             --allow-not-activated true | tee artifacts/finalize-result.json
 
       - name: Upload non-secret evidence
         if: always()
