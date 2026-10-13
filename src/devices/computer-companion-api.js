@@ -160,7 +160,7 @@ async function ownerPcControl(request,env){
  if(device.halted)return json({ok:false,code:"OWNER_HALT_ACTIVE"},409);
  if(String(device.platform||"").toLowerCase()!=="windows")return json({ok:false,code:"PC_CONTROL_WINDOWS_REQUIRED"},409);
  if(!device.online)return json({ok:false,code:"COMPUTER_OFFLINE"},409);
- if(action==="mini.readonly.discover"&&device.metadata?.remote_access_enabled!==true)return json({ok:false,code:"REMOTE_ACCESS_DISABLED_LOCALLY"},403);
+ if(["mini.readonly.discover","mini.readonly.backup.audit"].includes(action)&&device.metadata?.remote_access_enabled!==true)return json({ok:false,code:"REMOTE_ACCESS_DISABLED_LOCALLY"},403);
  if(device.metadata?.remote_access_enabled!==true&&a.kind!=="github-oidc")return json({ok:false,code:"REMOTE_ACCESS_DISABLED_LOCALLY"},403);
  let effectiveAction=action;
  let effectivePayload=payload;
@@ -191,7 +191,10 @@ async function ownerPcControl(request,env){
    effectivePayload={};
   }
  }
- if(action.startsWith("mini.readonly.")&&a.kind==="owner"){
+ if(action==="mini.readonly.backup.audit"&&a.kind==="owner"){
+  effectiveAction="system.exec";
+  effectivePayload=miniReadOnlyPcCommand(action,"COM3");
+ }else if(action.startsWith("mini.readonly.")&&a.kind==="owner"){
   if(action==="mini.readonly.backup.status"){ const jobId=safe(payload.job_id,32).toLowerCase();if(!/^[a-f0-9]{32}$/.test(jobId))return json({ok:false,code:"MINI_BACKUP_JOB_ID_INVALID"},400); }
   if(action==="mini.readonly.backup"&&payload.ack_local_backup!==true)return json({ok:false,code:"MINI_BACKUP_ACK_REQUIRED"},400);
   const port=safe(payload.port,16).toUpperCase();
