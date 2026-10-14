@@ -35,3 +35,9 @@ test('microphone failure retries are bounded and respect foreground STOP',()=>{
  assert.match(source,/appResumed && !wakeDetectorStop && !voiceConversationActive\.value/);
  assert.match(source,/wakeRetryFailures = 0/);
 });
+
+test('wake retry UI distinguishes recovery attempts from exhausted listening',()=>{
+ assert.match(source,/tentative de reprise \$wakeRetryFailures\/3/);
+ assert.match(source,/arrêtée après 3 reprises/);
+ assert.match(source,/if \(wakeRetryFailures <= 3\)/);
+});
