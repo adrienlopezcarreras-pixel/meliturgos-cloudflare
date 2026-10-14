@@ -551,6 +551,42 @@ static class MelApp
         catch { return false; }
     }
 
+    // Authenticated, passive cross-device activity view. This is NOT an
+    // authorization to act on Windows and contains no conversation content.
+    public static string AndroidTriadActivityLabel()
+    {
+        const string unavailable = "Android : activité non vérifiée";
+        try
+        {
+            if (string.IsNullOrWhiteSpace(Server) || string.IsNullOrWhiteSpace(Token) ||
+                string.IsNullOrWhiteSpace(ComputerId)) return unavailable;
+            var o = Obj(Http(Server + "/api/computer/v1/triad-activity", "GET", null, DeviceHeaders()));
+            object schema, state, phase, expiry, verified;
+            if (!o.TryGetValue("schema", out schema) ||
+                Convert.ToString(schema) != "mel.triad.android-presence.v1" ||
+                !o.TryGetValue("state", out state) || Convert.ToString(state) != "FRESH" ||
+                !o.TryGetValue("phase", out phase) ||
+                !o.TryGetValue("expires_at_ms", out expiry) ||
+                !o.TryGetValue("owner_control_verified", out verified) ||
+                Convert.ToBoolean(verified)) return unavailable;
+            long end = Convert.ToInt64(expiry);
+            long now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            if (end <= now || end > now + 35000L) return unavailable;
+            switch (Convert.ToString(phase))
+            {
+                case "IDLE": return "Android : prêt (observation récente)";
+                case "CAPTURING": return "Android : écoute (observation récente)";
+                case "TRANSCRIBING": return "Android : transcription (observation récente)";
+                case "THINKING": return "Android : traitement (observation récente)";
+                case "RESPONDING": return "Android : réponse vocale (observation récente)";
+                case "OTHER_BUSY": return "Android : autre opération (observation récente)";
+                case "ERROR": return "Android : erreur (observation récente)";
+                default: return unavailable;
+            }
+        }
+        catch { return unavailable; }
+    }
+
     public static List<Dictionary<string, object>> Devices()
     {
         var list = new List<Dictionary<string, object>>();
@@ -1115,9 +1151,12 @@ class MainForm : Form
 {
     Label connection;
     Label adbWifiStatus;
+    Label triadActivityStatus;
     Panel cards;
     CheckBox autostart;
     System.Windows.Forms.Timer poll;
+    System.Windows.Forms.Timer triadPoll;
+    int triadRefreshing;
     bool refreshing;
     readonly Color text=Color.FromArgb(34,45,60);
     readonly Color gray=Color.FromArgb(88,102,118);
@@ -1159,6 +1198,8 @@ class MainForm : Form
         AutoScroll=false;
         LabelAt(this,"MEL Companion",28,22,620,52,12,true);
         connection=LabelAt(this,"Vérification de la connexion…",28,78,670,30,9,false,gray);
+        triadActivityStatus=LabelAt(this,"Android : activité non vérifiée",28,106,670,23,9,false,gray);
+        triadActivityStatus.Anchor=AnchorStyles.Top|AnchorStyles.Left|AnchorStyles.Right;
         ButtonAt(this,"Ouvrir MEL",0,29,160,delegate{MelApp.OpenMel();}).Anchor=AnchorStyles.Top|AnchorStyles.Right;
         var open=Controls.OfType<Button>().Last();
         open.Left=ClientSize.Width-190;
@@ -1196,8 +1237,29 @@ class MainForm : Form
         };
         poll=new System.Windows.Forms.Timer{Interval=30000};
         poll.Tick+=delegate{RefreshAll();};poll.Start();
-        Shown+=delegate{BeginInvoke((MethodInvoker)delegate{RefreshAll();});};
+        triadPoll=new System.Windows.Forms.Timer{Interval=10000};
+        triadPoll.Tick+=delegate{RefreshTriadActivity();};triadPoll.Start();
+        Shown+=delegate{BeginInvoke((MethodInvoker)delegate{RefreshAll();RefreshTriadActivity();});};
     }
+    void RefreshTriadActivity()
+    {
+        if (!Visible || IsDisposed || Interlocked.Exchange(ref triadRefreshing, 1) != 0) return;
+        // Never block the Windows forms event loop on a remote API request.
+        ThreadPool.QueueUserWorkItem(delegate(object unused) {
+            try
+            {
+                var label=MelApp.AndroidTriadActivityLabel();
+                if (!IsDisposed && IsHandleCreated)
+                    BeginInvoke((MethodInvoker)delegate {
+                        if (!IsDisposed && triadActivityStatus != null)
+                            triadActivityStatus.Text=label;
+                    });
+            }
+            catch { }
+            finally { Interlocked.Exchange(ref triadRefreshing, 0); }
+        });
+    }
+
     void ResizeCards()
     {
         if(cards==null)return;
