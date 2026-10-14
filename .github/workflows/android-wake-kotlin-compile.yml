@@ -19,6 +19,8 @@ jobs:
           java-version: '17'
       - uses: android-actions/setup-android@v3
       - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
       - name: Install Android SDK
         shell: bash
         run: |
@@ -26,4 +28,4 @@ jobs:
           sdkmanager "platforms;android-35" "build-tools;35.0.0"
       - name: Kotlin compilation
         working-directory: android-companion
-        run: ./gradlew --no-daemon --console=plain :app:compileDebugKotlin
+        run: gradle --no-daemon --console=plain :app:compileDebugKotlin
