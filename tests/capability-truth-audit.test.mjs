@@ -795,3 +795,20 @@ test('bounded ledger corruption still fails and cannot be classified as verified
   assert.equal(row.truth_status,'EXISTANT_MAIS_ECHEC_RUNTIME');
   assert.equal(row.execution.code,'CAPABILITY_RETURNED_NOT_OK');
 });
+
+test('one-entry corrupted ledger cannot be hidden by dynamic sample selection', async () => {
+  const calls=[];
+  const record={id:'evolution.ledger.verify',name:'Ledger verify',category:'test',
+    provider:'core',risk:'LOW',enabled:true,health:'HEALTHY'};
+  const bus={list:()=>[record],contract:()=>({valid:true}),
+    execute:async (_id,input)=>{
+      calls.push(input.limit);
+      return {ok:false,code:'ENTRY_HASH_MISMATCH',count:1,verified:1};
+    },
+  };
+  const report=await auditRuntimeCapabilities({bus},{deep:true});
+  assert.deepEqual(calls,[1,1]);
+  assert.equal(report.capabilities[0].truth_status,'EXISTANT_MAIS_ECHEC_RUNTIME');
+  assert.equal(report.capabilities[0].execution.ok,false);
+  assert.equal(report.capabilities[0].auto_execution_blocked,null);
+});
