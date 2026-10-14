@@ -612,6 +612,12 @@ class MainActivity : ComponentActivity() {
             voiceMessage.value = "Enregistre OK MEL et autorise le microphone avant l'écoute en arrière-plan"
             return
         }
+        if (Build.VERSION.SDK_INT >= 33 &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            voiceMessage.value = "Autorise les notifications Android avant l’écoute OK MEL en arrière-plan"
+            return
+        }
         stopWakeWordListening()
         val prefs = getSharedPreferences("mel_wake_background_opt_in", MODE_PRIVATE)
         if (!prefs.edit().putBoolean("microphone_enabled", true).commit()) {
