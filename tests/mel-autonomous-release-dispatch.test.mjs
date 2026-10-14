@@ -143,7 +143,64 @@ test('unattended main-push deployments require protected branches', () => {
   assert.ok(yaml.includes('      - main'));
   assert.ok(!yaml.includes("vars.MEL_AUTONOMOUS_MAIN_PUSH_ENABLED == 'true'"));
   assert.ok(yaml.includes("github.ref == 'refs/heads/main'"));
-  assert.ok(yaml.includes("MEL_REQUIRE_PROTECTED_REFS: ${{ github.event_name == 'push' && 'true' || 'false' }}"));
+  assert.ok(yaml.includes("MEL_REQUIRE_PROTECTED_REFS: ${{ (github.event_name == 'push' || github.event_name == 'schedule') && 'true' || 'false' }}"));
+});
+
+test('hourly promotion safety net uses protected refs and deduplicates failed exact SHAs', () => {
+  const yaml = readFileSync(new URL('../.github/workflows/mel-autonomous-production-release.yml', import.meta.url), 'utf8');
+  assert.ok(yaml.includes("  schedule:\\n    - cron: '17 * * * *'".replace('\\n','\n')));
+  assert.ok(yaml.includes("github.event_name == 'schedule' && github.ref == 'refs/heads/main'"));
+  assert.ok(yaml.includes("MEL_SKIP_ALREADY_ATTEMPTED_SHA: ${{ github.event_name == 'schedule' && 'true' || 'false' }}"));
+  assert.ok(!yaml.includes('owner_max_autorelease: true'));
+});
+
+test('scheduled reconciliation never retries the identical failed main SHA', async () => {
+  const calls=[];
+  const fakeFetch=async(url,req)=>{
+    const path=new URL(url).pathname;
+    calls.push(req.method + ' ' + path);
+    if(path.endsWith('/branches/main')||path.endsWith('/branches/'+RELEASE_BRANCH))
+      return {ok:true,status:200,json:async()=>({protected:true,commit:{sha:MAIN_SHA}})};
+    if(path.endsWith('/actions/workflows/deploy-cloudflare-release.yml/runs'))
+      return {ok:true,status:200,json:async()=>({workflow_runs:[{
+        name:'deploy-cloudflare-release',head_sha:MAIN_SHA,status:'completed',conclusion:'failure',
+      }]})};
+    throw Error('UNSAFE_RETRY:'+path);
+  };
+  const result=await requestAutonomousRelease({
+    token:'TEST_ONLY',fetchImpl:fakeFetch,requireProtectedRefs:true,skipPreviouslyCompletedSha:true,
+  });
+  assert.deepEqual({accepted:result.accepted,reason:result.reason},{accepted:false,reason:'LATEST_MAIN_ALREADY_ATTEMPTED'});
+  assert.ok(calls.every(line=>line.startsWith('GET ')));
+});
+
+test('scheduled reconciliation catches up exactly once after older failed release', async () => {
+  const calls=[];
+  let releaseSha=OLD_SHA;
+  const fakeFetch=async(url,req)=>{
+    const path=new URL(url).pathname;
+    calls.push(req.method+' '+path);
+    if(path.endsWith('/branches/main'))
+      return {ok:true,status:200,json:async()=>({protected:true,commit:{sha:MAIN_SHA}})};
+    if(path.endsWith('/branches/'+RELEASE_BRANCH))
+      return {ok:true,status:200,json:async()=>({protected:true,commit:{sha:releaseSha}})};
+    if(path.endsWith('/actions/workflows/deploy-cloudflare-release.yml/runs'))
+      return {ok:true,status:200,json:async()=>({workflow_runs:[{
+        name:'deploy-cloudflare-release',head_sha:OLD_SHA,status:'completed',conclusion:'failure',
+      }]})};
+    if(path.endsWith('/git/refs/heads/'+RELEASE_BRANCH)){
+      releaseSha=JSON.parse(req.body).sha;
+      return {ok:true,status:200,json:async()=>({})};
+    }
+    if(path.endsWith('/dispatches'))return {ok:true,status:204,json:async()=>null};
+    throw Error('UNEXPECTED:'+path);
+  };
+  const result=await requestAutonomousRelease({
+    token:'TEST_ONLY',fetchImpl:fakeFetch,requireProtectedRefs:true,skipPreviouslyCompletedSha:true,
+  });
+  assert.equal(result.accepted,true);
+  assert.equal(calls.filter(s=>s.startsWith('POST ')).length,1);
+  assert.equal(calls.filter(s=>s.startsWith('PATCH ')).length,1);
 });
 
 test('unprotected main or release refuses unattended promotion before any mutation', async () => {
