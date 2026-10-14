@@ -2140,7 +2140,7 @@ function Process-Command($command) {
           $command.plan.requires_local_stop -ne $true -or
           [string]$command.plan.device_id -ne $ComputerId -or
           [string]$command.plan.session_id -eq '') { throw 'DESKTOP_VIEW_PLAN_INVALID' }
-      if ($Headless -or -not [Environment]::UserInteractive -or $config.remote_access_enabled -ne $true) {
+      if (-not [Environment]::UserInteractive -or $config.remote_access_enabled -ne $true) {
         throw 'DESKTOP_VIEW_LOCAL_UI_UNAVAILABLE'
       }
       $expiry = [long]$command.plan.expires_at
