@@ -18,6 +18,7 @@ export const COMPUTER_ROUTES=Object.freeze({
  revoke:"/api/computer/v1/revoke",
  status:"/api/computer/v1/status",
  commands:"/api/computer/v1/commands",
+ desktopViewRequest:"/api/computer/v1/desktop-view-request",
  halt:"/api/computer/v1/halt",
  resume:"/api/computer/v1/resume",
  installer:"/api/computer/v1/installer",
@@ -127,6 +128,43 @@ async function ownerCommand(request,env){
  if(!plan.allowed)return json({ok:false,code:plan.reason,decisions:plan.decisions},403);const cid=crypto.randomUUID();
  await env.DB.prepare("INSERT INTO computer_commands(id,device_id,session_id,plan_json,status,created_at) VALUES(?,?,?,?,?,?)").bind(cid,device.id,session,JSON.stringify(plan.request),"PENDING",Date.now()).run();
  return json({ok:true,command_id:cid,status:"PENDING",decisions:plan.decisions},202);
+}
+
+async function ownerDesktopViewRequest(request,env){
+ const owner=requireAuth(request,env);if(!owner.ok)return owner.response;
+ await tables(env);
+ const b=await request.json().catch(()=>({}));
+ const id=safe(b.computer_id);
+ if(!id)return json({ok:false,code:"COMPUTER_ID_REQUIRED"},400);
+ const row=await env.DB.prepare("SELECT * FROM computer_devices WHERE id=? LIMIT 1").bind(id).first();
+ const device=normalizeDevice(row);
+ if(!device)return json({ok:false,code:"COMPUTER_NOT_FOUND"},404);
+ if(String(device.platform||"").toLowerCase()!=="windows")return json({ok:false,code:"DESKTOP_VIEW_WINDOWS_REQUIRED"},409);
+ if(device.halted)return json({ok:false,code:"OWNER_HALT_ACTIVE"},409);
+ const now=Date.now();
+ // The prior grant is set locally in the Windows Companion; the caller
+ // cannot authorize its own request by sending local_approved in JSON.
+ // Reject stale UI heartbeat and stale engine presence independently.
+ if(!device.online||device.last_seen_at>now||now-device.last_seen_at>20_000)
+  return json({ok:false,code:"DESKTOP_VIEW_DEVICE_OFFLINE"},409);
+ if(device.metadata?.remote_access_enabled!==true)
+  return json({ok:false,code:"REMOTE_ACCESS_DISABLED_LOCALLY"},403);
+ const engineSeen=Number(device.metadata?.engine_heartbeat_at);
+ if(!Number.isFinite(engineSeen)||engineSeen<=0||engineSeen>now||now-engineSeen>20_000)
+  return json({ok:false,code:"DESKTOP_VIEW_ENGINE_OFFLINE"},409);
+ const commandId=crypto.randomUUID();
+ const sessionId=crypto.randomUUID();
+ const expiresAt=now+90_000;
+ const plan={schema:"mel.companion.desktop-view-request/v1",action:"desktop.view.request",
+  session_id:sessionId,device_id:device.id,expires_at:expiresAt,
+  requires_local_stop:true,screen_capture_only:true};
+ const write=await env.DB.prepare(
+  "INSERT INTO computer_commands(id,device_id,session_id,plan_json,status,created_at) VALUES(?,?,?,?,?,?)"
+ ).bind(commandId,device.id,sessionId,JSON.stringify(plan),"PENDING",now).run();
+ if(!write||write.success===false||Number(write.meta?.changes)!==1)
+  return json({ok:false,code:"DESKTOP_VIEW_QUEUE_WRITE_UNCONFIRMED"},503);
+ return json({ok:true,command_id:commandId,computer_id:device.id,
+  status:"PENDING",expires_at:expiresAt},202);
 }
 
 async function ownerHalt(request,env,halted){const a=requireAuth(request,env);if(!a.ok)return a.response;await tables(env);const b=await request.json().catch(()=>({}));const id=safe(b.computer_id);await env.DB.prepare("UPDATE computer_devices SET halted=? WHERE id=?").bind(halted?1:0,id).run();const row=await env.DB.prepare("SELECT * FROM computer_devices WHERE id=?").bind(id).first();return row?json({ok:true,computer:normalizeDevice(row)}):json({ok:false,code:"COMPUTER_NOT_FOUND"},404)}
@@ -595,6 +633,7 @@ export async function maybeHandleComputerApi(request,env){
  if(url.pathname===COMPUTER_ROUTES.revoke&&request.method==="POST")return ownerRevoke(request,env);
  if(url.pathname===COMPUTER_ROUTES.status&&request.method==="GET")return ownerStatus(request,env,url);
  if(url.pathname===COMPUTER_ROUTES.commands&&request.method==="POST")return ownerCommand(request,env);
+ if(url.pathname===COMPUTER_ROUTES.desktopViewRequest&&request.method==="POST")return ownerDesktopViewRequest(request,env);
  if(url.pathname===COMPUTER_ROUTES.halt&&request.method==="POST")return ownerHalt(request,env,true);
  if(url.pathname===COMPUTER_ROUTES.resume&&request.method==="POST")return ownerHalt(request,env,false);
  if(url.pathname===COMPUTER_ROUTES.power&&request.method==="POST")return ownerPower(request,env);
