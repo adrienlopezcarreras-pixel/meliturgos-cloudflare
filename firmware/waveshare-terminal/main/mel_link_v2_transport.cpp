@@ -1,5 +1,6 @@
 #include "mel_link_v2_transport.h"
 #include "mel_link_v2_protocol.h"
+#include "mel_mini_phase_v1.h"
 #include "mel_link_v2_server.h"
 #include "mel_ima_adpcm.h"
 
@@ -180,7 +181,12 @@ static void rx_frame(const uint8_t *frame, size_t len, void *ctx) {
             ESP_LOGW(TAG, "TRIAD_PHASE rejected: invalid stream or unsecured session");
             return;
         }
-        // A valid Link V2 SESSION alone is NOT opt-in to triad_phase_v1.
+        MelMiniPhaseV1 candidate = {};
+        if (!mel_mini_phase_v1_decode(payload, header.payload_len, &candidate)) {
+            ESP_LOGW(TAG, "TRIAD_PHASE rejected: malformed payload");
+            return;
+        }
+        // Valid syntax and a Link V2 SESSION are NOT opt-in to triad_phase_v1.
         // Do not accept, ACK or display this frame until capability binding,
         // replay protection and expiry handling are deployed together.
         ESP_LOGW(TAG, "TRIAD_PHASE rejected: capability not negotiated");
