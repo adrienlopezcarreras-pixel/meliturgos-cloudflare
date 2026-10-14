@@ -372,6 +372,7 @@ test('Android background heartbeat uses WorkManager without hidden background mi
   assert.match(wakeService,/if \(template == null\) \{[\s\S]*?putBoolean\(OPT_IN_KEY, false\)\.commit\(\)[\s\S]*?stopSelf\(\)/);
   assert.match(wakeService,/putBoolean\(OPT_IN_KEY, false\)/);
   assert.match(wakeService,/intent\?\.action == ACTION_STOP/);
+  assert.match(wakeService,/intent\?\.action == ACTION_STOP\) \{[\s\S]*?\.cancel\(NOTIFICATION_ID \+ 1\)/);
   assert.match(wakeService,/WakePhraseTrainer\.listenForWake/);
   assert.match(wakeService,/shouldContinue = \{ listening && !Thread\.currentThread\(\)\.isInterrupted \}/);
   assert.match(wakeService,/override fun onDestroy\(\)/);
