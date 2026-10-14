@@ -880,3 +880,16 @@ test('Android GATT ACKs are characteristic-scoped and cannot accept audio-noresp
   assert.match(src, /GATT_WRITE_ACK_TIMEOUT/);
   assert.match(src, /private fun clearSession\(reason: String\) \{\s+pendingAckCharacteristicUuid = null\s+writeAck\.clear\(\)/);
 });
+
+test('MINI phase HELLO advertisement never becomes session authority', async () => {
+  const service = await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelLinkV2ClientService.kt',root),'utf8');
+  assert.match(service, /val miniPhaseAdvertised = MutableStateFlow\(false\)/);
+  const hello = service.slice(service.indexOf('MelLinkV2Protocol.HELLO ->'), service.indexOf('MelLinkV2Protocol.ACK ->'));
+  assert.match(hello, /if \(protocolReady\.value\) return/);
+  assert.match(hello, /optBoolean\("triad_phase_v1", false\)/);
+  assert.match(hello, /getOrDefault\(false\)/);
+  assert.match(hello, /protocolReady\.value = false/);
+  assert.doesNotMatch(hello, /protocolReady\.value = true/);
+  assert.match(service, /miniPhaseAdvertised\.value = false/g);
+  assert.match(service, /frame\.payload\.toString\(Charsets\.UTF_8\)/);
+});
