@@ -351,6 +351,8 @@ test('Android background heartbeat uses WorkManager without hidden background mi
   const wakeService=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelWakeForegroundService.kt',root),'utf8');
   assert.match(wakeService,/RECORD_AUDIO/);
   assert.match(wakeService,/START_NOT_STICKY/);
+  assert.match(wakeService,/val foregroundStarted = runCatching/);
+  assert.match(wakeService,/if \(!foregroundStarted\) \{[\s\S]*?putBoolean\(OPT_IN_KEY, false\)\.commit\(\)[\s\S]*?stopSelf\(\)/);
   assert.match(wakeService,/ACTION_STOP/);
   assert.match(activity,/onBackgroundWakeEnable = ::enableBackgroundWake/);
   assert.match(activity,/onBackgroundWakeDisable = ::disableBackgroundWake/);
