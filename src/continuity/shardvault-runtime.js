@@ -1,6 +1,9 @@
 import { buildShardVaultMemoryPayload } from './shardvault-memory-export.js';
 import { discoverAutonomousRepositories, invalidateRepresentativeProof } from './autonomous-repositories.js';
 import { D1GitHubActionRelayStore } from '../platform/github-action-relay.js';
+import { allowCodeEndpointForShard } from './shardvault-code-target-policy.js';
+import { readAuthoritativeGitHubMirror } from './github-mirror-authoritative.js';
+import { downloadCodeFragmentWithRetry } from './shardvault-code-read-retry.js';
 
 const te = new TextEncoder();
 const HOUR = 60 * 60 * 1000;
@@ -310,11 +313,6 @@ async function telegraphAccessToken(env,seed='melshardvault'){
 const GITHUB_CODE_MIRROR_ID='github-actions-code-mirror';
 const GITHUB_CODE_MIRROR_WORKFLOW='shardvault-github-code-mirror.yml';
 const GITHUB_CODE_MIRROR_BRANCH='shardvault-mirror';
-function githubCodeMirrorBranch(env){
-  // Preview code is never written to the production mirror branch.
-  return env?.MEL_RUNTIME_ENV==='preview'&&env?.MEL_PREVIEW_ISOLATED==='true'
-    ? 'shardvault-preview-mirror' : GITHUB_CODE_MIRROR_BRANCH;
-}
 
 function configuredWritableWorkflows(env){
   return String(env?.MEL_GITHUB_WRITABLE_WORKFLOWS||'').split(',').map(x=>x.trim()).filter(Boolean);
@@ -324,7 +322,11 @@ function githubCodeMirrorEndpoint(env,id,requiredBytes=0){
   if(!configuredWritableWorkflows(env).includes(GITHUB_CODE_MIRROR_WORKFLOW))return null;
   const maxBytes=8*1024*1024;
   if(Math.max(0,Number(requiredBytes)||0)>maxBytes)return null;
-  const urlTemplate='https://raw.githubusercontent.com/'+id.repository+'/refs/heads/'+githubCodeMirrorBranch(env)+'/shardvault-code/'+id.sha+'/{objectId}.bin';
+  // Never mirror preview-encrypted fragments to the production mirror branch.
+  const isolatedPreview=String(env?.MEL_RUNTIME_ENV||'')==='preview'
+    && String(env?.MEL_PREVIEW_ISOLATED||'')==='true';
+  const mirrorBranch=isolatedPreview?'shardvault-preview-mirror':GITHUB_CODE_MIRROR_BRANCH;
+  const urlTemplate='https://raw.githubusercontent.com/'+id.repository+'/refs/heads/'+mirrorBranch+'/shardvault-code/'+id.sha+'/{objectId}.bin';
   return normalizeEndpoint({
     id:GITHUB_CODE_MIRROR_ID,adapter:'github_actions_code_mirror',urlTemplate,method:'PUT',maxBytes,
     operatorDomain:'raw.githubusercontent.com',providerId:'github',jurisdiction:'UNKNOWN',
@@ -353,6 +355,14 @@ async function githubCodeMirrorUpload(env,e,objectId,payload){
     const existing=await fetchTimed(verifyUrl,{method:'GET',headers:{'accept':'application/octet-stream','cache-control':'no-cache'}},15000);
     if(existing.ok){const got=new Uint8Array(await existing.arrayBuffer());if(byteArraysEqual(got,payload))return {remoteUrl};}
   }catch{}
+  // A successful GitHub Contents read is independent of the raw CDN. A
+  // verified byte-for-byte copy is sufficient even when the optional D1
+  // workflow relay has not consumed its queued marker yet. No local R2
+  // bytes are counted as external mirror proof.
+  try{
+    const published=await readAuthoritativeGitHubMirror(remoteUrl,{fetchImpl:fetchTimed,maxBytes:payload.length,readToken:env?.MEL_GITHUB_TOKEN});
+    if(published&&byteArraysEqual(published,payload))return {remoteUrl};
+  }catch{}
   const pendingKey=githubMirrorPendingKey(id,objectId);
   const stagingKey=githubMirrorStagingKey(id,objectId);
   let pending=await readJsonObject(env.MEDIA_BUCKET,pendingKey);
@@ -371,7 +381,7 @@ async function githubCodeMirrorUpload(env,e,objectId,payload){
   await env.MEDIA_BUCKET.put(stagingKey,payload,{httpMetadata:{contentType:'application/octet-stream'},customMetadata:{git_sha:id.sha,object_id:objectId,sha256:digest,kind:'github-code-mirror-staging'}});
   const mirrorPath='shardvault-code/'+id.sha+'/'+objectId+'.bin';
   const job=await relay.enqueue({workflow:GITHUB_CODE_MIRROR_WORKFLOW,ref:'main',inputs:{
-    r2_key:stagingKey,r2_bucket:githubCodeMirrorBranch(env)==='shardvault-preview-mirror'?'meliturgos-preview-media-bucket':'meliturgos-private-media',mirror_branch:githubCodeMirrorBranch(env),mirror_path:mirrorPath,expected_sha256:digest,byte_length:String(payload.length),
+    r2_key:stagingKey,mirror_path:mirrorPath,expected_sha256:digest,byte_length:String(payload.length),
   }});
   pending={relay_job_id:job.id,staging_key:stagingKey,mirror_path:mirrorPath,expected_sha256:digest,byte_length:payload.length,remote_url:remoteUrl,created_at:new Date().toISOString()};
   await env.MEDIA_BUCKET.put(pendingKey,JSON.stringify(pending),{httpMetadata:{contentType:'application/json'}});
@@ -620,9 +630,20 @@ async function download(env,e,objectId,descriptor=null){
     if(!remote)throw new Error(`READ_${e.id}_REMOTE_URL_MISSING`);
     const readUrl=publicUrl(remote,`READ_${e.id}_REMOTE`);
     readUrl.searchParams.set('mel_verify',String(Date.now()));
-    const r=await fetchTimed(readUrl,{method:'GET',headers:{'accept':'application/octet-stream','cache-control':'no-cache'}},20000);
-    if(!r.ok)throw new Error(`READ_${e.id}_${r.status}`);
-    return new Uint8Array(await r.arrayBuffer());
+    try{
+      const r=await fetchTimed(readUrl,{method:'GET',headers:{'accept':'application/octet-stream','cache-control':'no-cache'}},20000);
+      if(r.ok){
+        const rawBytes=new Uint8Array(await r.arrayBuffer());
+        if(!Number.isSafeInteger(descriptor?.byteLength)||descriptor.byteLength===rawBytes.length)
+          return rawBytes;
+      }
+    }catch{}
+    // The exact public GitHub object may precede raw CDN propagation.
+    // Recovery still verifies shard MAC and reconstruction independently.
+    const published=await readAuthoritativeGitHubMirror(remote,{fetchImpl:fetchTimed,
+      maxBytes:Number(descriptor?.byteLength)||8*1024*1024,readToken:env?.MEL_GITHUB_TOKEN});
+    if(!published)throw new Error(`READ_${e.id}_EXTERNAL_MIRROR_UNAVAILABLE`);
+    return published;
   }
   if(e.adapter==='pastemyst_b64'){
     if(!remote)throw new Error(`READ_${e.id}_REMOTE_URL_MISSING`);
@@ -1017,7 +1038,7 @@ function clearCodeTargetFailure(state,endpointId){
   state.failed_endpoint_ids=(state.failed_endpoint_ids||[]).filter(value=>value!==id);
   state.cycle_quarantined_endpoint_ids=(state.cycle_quarantined_endpoint_ids||[]).filter(value=>value!==id);
 }
-function roundtripCodeFallbackCandidates(env,codeCandidates,activeCodeTargets,state,used,requiredBytes){
+export function roundtripCodeFallbackCandidates(env,codeCandidates,activeCodeTargets,state,used,requiredBytes){
   const failed=new Set([
     ...(Array.isArray(state?.failed_endpoint_ids)?state.failed_endpoint_ids:[]),
     ...(Array.isArray(state?.cycle_quarantined_endpoint_ids)?state.cycle_quarantined_endpoint_ids:[]),
@@ -1105,7 +1126,7 @@ async function reconstructExternalCodeArchive(env,c,manifest,{dropIndexes=[]}={}
       try{
         const e=endpointById(c,d.endpointId,d);
         if(!e)throw new Error('ENDPOINT_UNKNOWN');
-        const cipher=await downloadFragment(env,e,d);
+        const cipher=await downloadCodeFragmentWithRetry(()=>downloadFragment(env,e,d));
         if(Number(manifest.ciphertextLength)>0&&cipher.length!==Number(manifest.ciphertextLength))throw new Error('CODE_REPLICA_LENGTH_INVALID');
         const cipherSha256=await sha256Hex(cipher);
         if(String(d.cipherSha256||'')!==cipherSha256)throw new Error('CODE_REPLICA_HASH_INVALID');
@@ -1148,7 +1169,7 @@ async function reconstructExternalCodeArchive(env,c,manifest,{dropIndexes=[]}={}
     try{
       const e=endpointById(c,d.endpointId,d);
       if(!e)throw new Error('ENDPOINT_UNKNOWN');
-      const b=await downloadFragment(env,e,d);
+      const b=await downloadCodeFragmentWithRetry(()=>downloadFragment(env,e,d));
       const mac=b64u(await hmac(shardKey,concat(utf8(`${manifest.snapshotId}:${index}:`),b)));
       if(b.length!==size)throw new Error('CODE_SHARD_LENGTH_INVALID');
       if(mac!==d.mac)throw new Error('CODE_SHARD_MAC_INVALID');
@@ -1396,14 +1417,21 @@ async function ensureExternalCodeArchive(env,c,codeBackup){
         ...(Array.isArray(state.failed_endpoint_ids)?state.failed_endpoint_ids:[]),
         ...(Array.isArray(state.cycle_quarantined_endpoint_ids)?state.cycle_quarantined_endpoint_ids:[]),
       ]);
+      // First apply final-shard reservations. A cached GitHub mirror must not
+      // hide an eligible non-GitHub destination from the fallback path.
+      const eligible=e=>!used.has(e.id)&&!failed.has(e.id)
+        &&codeTargetAvailableNow(state,e)&&allowCodeEndpointForShard(e,i,goal);
       let ranked=rankExternalCodeCandidates(env,[...validated,...extra,...codeCandidates,...activeCodeTargets],shard.length)
-        .filter(e=>!used.has(e.id)&&!failed.has(e.id)&&codeTargetAvailableNow(state,e));
+        .filter(eligible);
       if(!ranked.length){
-        // A freshly discovered durable code candidate may not have a cached
-        // representative proof yet. The code-sync write/read/hash round-trip
-        // below is itself the exact representative proof, so allow these
-        // candidates to self-qualify instead of creating a circular gate.
-        ranked=roundtripCodeFallbackCandidates(env,codeCandidates,activeCodeTargets,state,used,shard.length);
+        // Cached and freshly discovered durable endpoints may have a valid
+        // representative byte/hash proof for a slightly smaller shard (for
+        // example 262144 bytes versus this snapshot's 273883 bytes). Their
+        // full current-shard upload/read/hash round-trip below is the required
+        // final verification. Never exclude these from the bounded fallback.
+        ranked=roundtripCodeFallbackCandidates(
+          env,[...validated,...extra,...codeCandidates],activeCodeTargets,state,used,shard.length
+        ).filter(eligible);
         if(ranked.length)state.candidate_roundtrip_fallback_used=true;
       }
       return prioritizeExternalCodeCandidates(ranked,state);
@@ -1411,7 +1439,7 @@ async function ensureExternalCodeArchive(env,c,codeBackup){
     let candidates=buildCandidates();
     if(i===goal-1){
       const githubMirror=githubCodeMirrorEndpoint(env,id,shard.length);
-      if(githubMirror&&!used.has(githubMirror.id)&&codeTargetAvailableNow(state,githubMirror)){
+      if(githubMirror&&allowCodeEndpointForShard(githubMirror,i,goal)&&!used.has(githubMirror.id)&&codeTargetAvailableNow(state,githubMirror)){
         candidates=[githubMirror,...candidates.filter(endpoint=>endpoint.id!==githubMirror.id)];
       }
     }
@@ -1481,6 +1509,7 @@ async function ensureExternalCodeArchive(env,c,codeBackup){
       }
     }
     const e=candidates[0];
+    if(!allowCodeEndpointForShard(e,i,goal))throw new Error('CODE_MIRROR_NON_FINAL_SHARD_FORBIDDEN');
     state.attempted_endpoints=[...new Set([...(state.attempted_endpoints||[]),e.id])];
     try{
       const shardKey=await hkdf(c.master,utf8(state.snapshotId),utf8('MEL-ShardVault/v1/code-shard-mac'));
@@ -1567,6 +1596,47 @@ async function ensureExternalCodeArchive(env,c,codeBackup){
     manifest_key:id.manifestKey,shards:goal,data_shards:Number(state.dataShards),
     verified_roundtrip:true,created_at:manifest.createdAt
   }};
+}
+/**
+ * Prepare genuine signed, encrypted RS(4/7) donor shards in the isolated preview
+ * before external endpoint promotion. This seed is NOT a user-memory backup and
+ * never performs public discovery, code sync or production writes.
+ */
+export async function bootstrapIsolatedShardVaultSnapshot(env){
+  if(String(env?.MEL_RUNTIME_ENV||'')!=='preview'||String(env?.MEL_PREVIEW_ISOLATED||'')!=='true'){
+    return {ok:false,status:'PREVIEW_ONLY'};
+  }
+  if(String(env?.MEL_SHARDVAULT_ENABLED||'false')!=='true')return {ok:false,status:'SHARDVAULT_DISABLED'};
+  try{
+    const base=await config(env);
+    if(!base.ok)return {ok:false,status:'CONFIG_MISSING'};
+    const local=[
+      ...(env?.MEDIA_BUCKET?.put&&env?.MEDIA_BUCKET?.get&&env?.MEDIA_BUCKET?.list?[r2FallbackEndpoint()]:[]),
+      ...(env?.DB?.prepare?[d1FallbackEndpoint()]:[])
+    ];
+    if(!local.length)return {ok:false,status:'LOCAL_PREVIEW_STORAGE_REQUIRED'};
+    const c={...base,allEndpoints:local,endpoints:local,storageMode:'CLOUDFLARE_FALLBACK',degraded:true};
+    const previous=await latestShardVaultSnapshotFast(env,c);
+    if(previous){
+      if(!Array.isArray(previous.shards)||previous.shards.length!==c.n)return {ok:false,status:'PREVIEW_SNAPSHOT_SHARD_COUNT_INVALID'};
+      // The existing manifest MAC was checked by latestShardVaultSnapshotFast.
+      // Do not create a competing snapshot that would erase promotion progress.
+      return {ok:true,status:'SIGNED_SNAPSHOT_EXISTS',snapshot_id:previous.snapshotId,
+        shards:previous.shards.length,verified_roundtrip:false,storage_mode:'CLOUDFLARE_FALLBACK'};
+    }
+    const payload={format:'MEL-ShardVault-preview-seed',version:1,
+      exported_at:new Date().toISOString(),memories:[],conversations:[],archive_messages:[],
+      preview_seed_only:true};
+    const manifest=await publishSnapshot(env,c,payload);
+    const health=await checkAndRepair(env,c,manifest);
+    return {ok:health.healthy===true,status:health.healthy===true?'PREVIEW_SEED_VERIFIED':'PREVIEW_SEED_UNHEALTHY',
+      snapshot_id:manifest.snapshotId,shards:manifest.totalShards,verified_roundtrip:health.healthy===true,
+      storage_mode:'CLOUDFLARE_FALLBACK',seed_only:true};
+  }catch(error){
+    const code=String(error?.code||error?.message||'PREVIEW_BOOTSTRAP_FAILED');
+    return {ok:false,status:'PREVIEW_BOOTSTRAP_FAILED',
+      error:/^[A-Z0-9_:-]{1,80}$/.test(code)?code:'INTERNAL_ERROR'};
+  }
 }
 export async function runShardVaultCycle(env,{force=false,skipExternalCode=false,excludeEndpointIds=[],activeRegistryOnly=false}={}){
   if(String(env?.MEL_SHARDVAULT_ENABLED||'false')!=='true')return {ok:true,enabled:false,skipped:true,reason:'DISABLED'};
@@ -2028,7 +2098,7 @@ async function promoteExternalEndpointWithExistingShard(env,c,last,endpoint){
     const donorEndpoint=endpointById(c,d.endpointId,d);
     if(!donorEndpoint||d.endpointId===endpoint.id)return false;
     const safe=Boolean(donorEndpoint.backend)||(counts.get(d.endpointId)||0)>1;
-    return safe&&Array.isArray(d.parts)&&d.parts.length>0;
+    return safe&&((Array.isArray(d.parts)&&d.parts.length>0)||(Boolean(donorEndpoint.backend)&&Boolean(d.objectId)));
   }).sort((a,b)=>{
     const ac=counts.get(a.endpointId)||0,bc=counts.get(b.endpointId)||0;
     if(ac!==bc)return bc-ac;
@@ -2043,7 +2113,10 @@ async function promoteExternalEndpointWithExistingShard(env,c,last,endpoint){
   const parts=[];
   let total=0,targetPartIndex=0;
 
-  for(const sourcePart of donor.parts){
+  const donorParts=Array.isArray(donor.parts)&&donor.parts.length
+    ?donor.parts
+    :[{objectId:donor.objectId,remoteUrl:donor.remoteUrl||null,byteLength:donor.byteLength}];
+  for(const sourcePart of donorParts){
     const source=await download(env,donorEndpoint,sourcePart.objectId,{
       ...donor,objectId:sourcePart.objectId,remoteUrl:sourcePart.remoteUrl||null,parts:null
     });
