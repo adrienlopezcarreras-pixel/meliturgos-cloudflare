@@ -20,6 +20,34 @@ function firstArray(value, ...paths) {
 
 const SAFE_SAMPLES = Object.freeze({
   echo: { value: 'capability-audit' },
+  // Pure provider-neutral dry-run: all adapters and contracts are invented
+  // in-memory. No provider is called, nothing is migrated or activated.
+  'portability.escape.plan': {
+    manifest: {
+      schema: 'mel.provider-neutral-bundle.v1',
+      generated_at: '2026-10-14T00:00:00.000Z',
+      source: { branch: 'audit-fixture', commit: 'no-production-sha' },
+      contracts: [
+        { id: 'ai', version: '1' },
+        { id: 'storage', version: '1' },
+        { id: 'runtime', version: '1' },
+      ],
+      artifacts: [],
+      adapters: [
+        { id: 'ai-local', contract_id: 'ai', provider: 'fixture-local', optional: true },
+        { id: 'ai-alt', contract_id: 'ai', provider: 'fixture-alt', optional: true },
+        { id: 'storage-local', contract_id: 'storage', provider: 'fixture-local', optional: true },
+        { id: 'storage-alt', contract_id: 'storage', provider: 'fixture-alt', optional: true },
+        { id: 'runtime-local', contract_id: 'runtime', provider: 'fixture-local', optional: true },
+        { id: 'runtime-alt', contract_id: 'runtime', provider: 'fixture-alt', optional: true },
+      ],
+    },
+    layers: {
+      ai: { contract_ids: ['ai'], current_adapter_ids: ['ai-local'] },
+      storage: { contract_ids: ['storage'], current_adapter_ids: ['storage-local'] },
+      runtime: { contract_ids: ['runtime'], current_adapter_ids: ['runtime-local'] },
+    },
+  },
   'roadmap.read': {},
   'system.bindings': {},
   'chatgpt.archive.preview': { archive: { conversations: [] } },

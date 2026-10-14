@@ -22,6 +22,29 @@ test('truth audit inventories every registered runtime capability without omissi
   }
 });
 
+test('provider escape planning is runtime-proved with a fictitious zero-cost and non-mutating manifest', async () => {
+  const runtime = createGen2Runtime({ env: {} });
+  const sample = SAFE_SAMPLES['portability.escape.plan'];
+  assert.ok(sample && sample.manifest && sample.layers, 'missing bounded fixture');
+  const result = await runtime.bus.execute('portability.escape.plan', sample, {
+    owner: 'audit-fixture-owner', permissions: [], requestId: 'dry-run-only',
+  });
+  assert.equal(result.ok, true);
+  assert.equal(result.execution_started, false);
+  assert.equal(result.activation_allowed, false);
+  assert.equal(result.capsule?.policy?.automatic_activation, false);
+  assert.equal(result.capsule?.ready_to_escape, true);
+  const audit = await auditRuntimeCapabilities(runtime, {
+    deep: true,
+    samples: { 'portability.escape.plan': sample },
+    context: { owner: 'audit-fixture-owner', permissions: [], requestId: 'dry-run-audit' },
+  });
+  const row = audit.capabilities.find(record => record.id === 'portability.escape.plan');
+  assert.equal(row?.truth_status, 'EXISTANT_ET_TESTE');
+  assert.equal(row?.auto_execution_blocked, null);
+  assert.equal(row?.execution?.ok, true);
+});
+
 test('safe smoke catalogue covers core read-only and preview-only capabilities', () => {
   for (const id of [
     'echo','roadmap.read','system.bindings','code.read','code.search','conversation.list','rag.search',
