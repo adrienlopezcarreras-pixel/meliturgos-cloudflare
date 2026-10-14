@@ -188,6 +188,9 @@ class MelApiClient(
         return response.optJSONArray("devices") ?: JSONArray()
     }
 
+    fun windowsPresence(): JSONObject =
+        readJson(connection("/api/android/v1/windows-presence", "GET"))
+
     fun chat(
         text: String,
         conversationId: String,
