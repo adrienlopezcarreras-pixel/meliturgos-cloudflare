@@ -382,12 +382,14 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         appResumed = true
+        if (::model.isInitialized) model.setTriadActivityVisible(true, recording.value)
         refreshWakeEnrollmentState()
         if (::model.isInitialized) mainHandler.postDelayed({ ensureWakeWordListening() }, 500L)
     }
 
     override fun onPause() {
         appResumed = false
+        if (::model.isInitialized) model.setTriadActivityVisible(false)
         voiceConversationActive.value = false
         stopBargeInListening()
         stopWakeWordListening()
