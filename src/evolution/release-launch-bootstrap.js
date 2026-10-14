@@ -830,7 +830,7 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
       max_autonomy: control?.max_autonomy === true,
       launch_approved_sha: control?.launch_approved_sha || null,
       tick_status: tick?.status || null,
-      advanced: tick?.advanced === true,
+      advanced: tick?.advanced === true || tick?.progress?.advanced === true,
       progress: tick?.progress && typeof tick.progress === 'object' ? {
         advanced: tick.progress.advanced === true,
         events: Array.isArray(tick.progress.events) ? tick.progress.events.slice(0, 20) : [],
