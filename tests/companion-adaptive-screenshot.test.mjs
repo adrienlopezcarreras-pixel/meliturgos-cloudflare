@@ -13,7 +13,7 @@ test('Companion asset and packaged script use the same bounded PNG capture path'
  assert.ok(start>=0&&end>start);
  const capture=asset.slice(start,end);
  assert.match(capture,/\$maxBytes = 5 \* 1024 \* 1024/);
- assert.match(capture,/if \(\$ms\.Length -le \$maxBytes\) \{ return \$ms\.ToArray\(\) \}/);
+ assert.match(capture,/if \(\$ms\.Length -le \$maxBytes\) \{ return ,\$ms\.ToArray\(\) \}/);
  assert.match(capture,/\$scale \*= 0\.72/);
  assert.match(capture,/for \(\$attempt = 0; \$attempt -lt 9; \$attempt\+\+\)/);
  assert.match(capture,/InterpolationMode\]::HighQualityBicubic/);
