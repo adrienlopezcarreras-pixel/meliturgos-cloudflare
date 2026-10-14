@@ -1,13 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import { summarizeAutonomyLaunchCodeSync } from '../src/evolution/launch-readiness.js';
+import { allowCodeEndpointForShard } from '../src/continuity/shardvault-code-target-policy.js';
 
 const runtime=await readFile(new URL('../src/continuity/shardvault-runtime.js',import.meta.url),'utf8');
 const mirrorWorkflow=await readFile(new URL('../.github/workflows/shardvault-github-code-mirror.yml',import.meta.url),'utf8');
 const releaseWorkflow=await readFile(new URL('../.github/workflows/deploy-cloudflare-release.yml',import.meta.url),'utf8');
-const previewWorkflow=await readFile(new URL('../.github/workflows/deploy-candidate-preview.yml',import.meta.url),'utf8');
-const relayWorkflow=await readFile(new URL('../.github/workflows/github-action-relay.yml',import.meta.url),'utf8');
 const wrangler=await readFile(new URL('../wrangler.jsonc',import.meta.url),'utf8');
 
 test('GitHub code mirror is code-sync-only and gated to the final missing shard',()=>{
@@ -16,6 +16,24 @@ test('GitHub code mirror is code-sync-only and gated to the final missing shard'
   assert.match(runtime,/i===goal-1/);
   assert.match(runtime,/githubCodeMirrorEndpoint\(env,id,shard\.length\)/);
   assert.doesNotMatch(runtime,/active_external_endpoint.*github-actions-code-mirror/);
+});
+
+test('cached GitHub mirror is never eligible for shards 0 to 5',()=>{
+  const byId={id:'github-actions-code-mirror',adapter:'generic'};
+  const byAdapter={id:'cached-mirror-from-prior-snapshot',adapter:'github_actions_code_mirror'};
+  const normal={id:'external-verified-provider',adapter:'catbox'};
+  for(let index=0;index<7;index++){
+    assert.equal(allowCodeEndpointForShard(byId,index,7),index===6);
+    assert.equal(allowCodeEndpointForShard(byAdapter,index,7),index===6);
+    assert.equal(allowCodeEndpointForShard(normal,index,7),true);
+  }
+  assert.equal(allowCodeEndpointForShard(byId,0,5),false);
+  assert.equal(allowCodeEndpointForShard(normal,0,5),true);
+  assert.equal(allowCodeEndpointForShard(normal,-1,7),false);
+  assert.equal(allowCodeEndpointForShard(normal,7,7),false);
+  assert.ok(runtime.includes('&&codeTargetAvailableNow(state,e)&&allowCodeEndpointForShard(e,i,goal)'));
+  assert.match(runtime,/rankExternalCodeCandidates\([\s\S]*?\.filter\(eligible\)/);
+  assert.match(runtime,/CODE_MIRROR_NON_FINAL_SHARD_FORBIDDEN/);
 });
 
 test('GitHub code mirror remains fail-closed until public byte-for-byte roundtrip succeeds',()=>{
@@ -33,14 +51,6 @@ test('GitHub mirror workflow is tightly bounded and proves the public raw object
   assert.match(mirrorWorkflow,/permissions:\s*\n\s*contents: write/);
   assert.match(mirrorWorkflow,/^\s*\[\[ "\$R2_KEY" =~ \^shardvault\/github-code-mirror-staging\//m);
   assert.match(mirrorWorkflow,/^\s*\[\[ "\$MIRROR_PATH" =~ \^shardvault-code\//m);
-  assert.ok(runtime.includes("githubCodeMirrorBranch(env)==='shardvault-preview-mirror'?'meliturgos-preview-media-bucket':'meliturgos-private-media'"));
-  assert.ok(runtime.includes('mirror_branch:githubCodeMirrorBranch(env)'));
-  assert.ok(runtime.includes("'shardvault-preview-mirror' : GITHUB_CODE_MIRROR_BRANCH"));
-  assert.ok(mirrorWorkflow.includes('test "$MIRROR_BRANCH" = "shardvault-preview-mirror"'));
-  assert.ok(mirrorWorkflow.includes('test "$MIRROR_BRANCH" = "shardvault-mirror"'));
-  assert.ok(mirrorWorkflow.includes('MIRROR_BRANCH: ${{ inputs.mirror_branch }}'));
-  assert.match(mirrorWorkflow,/\[\[ "\$R2_BUCKET" = "meliturgos-private-media" \|\| "\$R2_BUCKET" = "meliturgos-preview-media-bucket" \]\]/);
-  assert.match(mirrorWorkflow,/\$\{R2_BUCKET\}\/\$\{R2_KEY\}/);
   assert.match(mirrorWorkflow,/wrangler r2 object get/);
   assert.match(mirrorWorkflow,/sha256sum mirror-fragment\.bin/);
   assert.match(mirrorWorkflow,/\/contents\/\$\{MIRROR_PATH\}/);
@@ -82,17 +92,94 @@ test('launch code-sync summary preserves mirror relay metadata needed by release
   assert.equal(summary.reason,'GITHUB_CODE_MIRROR_PENDING');
 });
 
-test('isolated preview dispatches its own relay queue through an allowlisted OIDC GitHub workflow',()=>{
-  assert.ok(previewWorkflow.includes('actions: write'));
-  assert.ok(previewWorkflow.includes('GH_PREVIEW_DISPATCH_TOKEN:'));
-  assert.ok(previewWorkflow.includes('CODE_SYNC_RELAY_JOB'));
-  assert.ok(previewWorkflow.includes('actions/workflows/github-action-relay.yml/dispatches'));
-  assert.ok(previewWorkflow.includes('"target":"preview"'));
-  assert.ok(previewWorkflow.includes('CODE_SYNC_LAST_RELAY_JOB'));
-  assert.ok(relayWorkflow.includes('type: choice'));
-  assert.ok(relayWorkflow.includes('default: production'));
-  assert.ok(relayWorkflow.includes('MEL_RELAY_BASE_URL:'));
-  assert.ok(relayWorkflow.includes("inputs.target == 'preview'"));
-  assert.ok(relayWorkflow.includes('meliturgos-preview.adrien-lopezcarreras.workers.dev'));
-  assert.ok(!relayWorkflow.includes('MEL_DEV_BRIDGE_TOKEN'));
+test('preview mirror never targets main or production storage and requires exact 7th fragment',async()=>{
+  const {validatePreviewContext,previewMirrorPending,validatePreviewMirrorMetadata,publishPreviewMirror,PREVIEW_MIRROR_BRANCH}=
+    await import('../scripts/fulfill-preview-code-mirror.mjs');
+  const sha='a'.repeat(40);
+  const env={GITHUB_SHA:sha,GITHUB_REPOSITORY:'adrienlopezcarreras-pixel/meliturgos-cloudflare',
+    GITHUB_REF:'refs/heads/candidate/mel-clean-autonomy',GITHUB_REF_NAME:'candidate/mel-clean-autonomy',
+    MEL_PREVIEW_R2_BUCKET:'meliturgos-preview-media-bucket',MEL_CRITICAL_CODE_BUNDLE_BYTES:'262128',
+    MEL_CRITICAL_CODE_SHARD_BYTES:'65540'};
+  const config={r2_buckets:[{binding:'MEDIA_BUCKET',bucket_name:'meliturgos-private-media'}],
+    d1_databases:[{binding:'DB',database_id:'prod'}],
+    env:{preview:{r2_buckets:[{binding:'MEDIA_BUCKET',bucket_name:'meliturgos-preview-media-bucket'}],
+      d1_databases:[{binding:'DB',database_id:'preview'}],
+      vars:{MEL_RUNTIME_ENV:'preview',MEL_PREVIEW_ISOLATED:'true'}}}};
+  const ctx=validatePreviewContext(env,config);
+  assert.equal(PREVIEW_MIRROR_BRANCH,'shardvault-preview-mirror');
+  assert.equal(ctx.shardBytes,65540);
+  assert.equal(ctx.exactShardBytes,65536);
+  assert.throws(()=>validatePreviewContext({...env,MEL_CRITICAL_CODE_SHARD_BYTES:'65536'},config),/BYTES_INVALID/);
+  assert.throws(()=>validatePreviewContext({...env,MEL_CRITICAL_CODE_BUNDLE_BYTES:'262140'},config),/BYTES_INVALID/);
+  assert.throws(()=>validatePreviewContext({...env,GITHUB_REF:'refs/heads/main'},config),/CANDIDATE_ONLY/);
+  assert.throws(()=>validatePreviewContext({...env,MEL_PREVIEW_R2_BUCKET:'meliturgos-private-media'},config),/BUCKET_ISOLATION_UNPROVEN/);
+  assert.throws(()=>validatePreviewContext(env,{...config,env:{preview:{...config.env.preview,
+    d1_databases:[{binding:'DB',database_id:'prod'}]}}}),/D1_ISOLATION_UNPROVEN/);
+  const pending={ok:true,status:'RETRY_TARGETS',sha,external:{reason:'GITHUB_CODE_MIRROR_PENDING',
+    relay_pending:true,relay_job_id:'gh-relay-preview-123',target_count:7,completed_shards:6,pending_shards:1}};
+  const out=previewMirrorPending(pending,ctx);
+  assert.match(out.key,/^shardvault\/github-code-mirror-staging\/.*\/code-a{12}-shard-06-github\.bin$/);
+  assert.match(out.path,/^shardvault-code\/.*\/code-a{12}-shard-06-github\.bin$/);
+  assert.match(out.metadataKey,/^shardvault\/github-code-mirror-pending\/.*\.json$/);
+  assert.equal(out.relayJobId,'gh-relay-preview-123');
+  assert.throws(()=>previewMirrorPending({...pending,external:{...pending.external,completed_shards:5}},ctx),/PENDING_PROOF_INVALID/);
+  const bytes=new Uint8Array(65536);bytes.fill(17);
+  const sha256=createHash('sha256').update(bytes).digest('hex');
+  const durable={relay_job_id:out.relayJobId,staging_key:out.key,mirror_path:out.path,
+    byte_length:bytes.length,expected_sha256:sha256};
+  const verified=validatePreviewMirrorMetadata(ctx,out,durable);
+  assert.equal(verified.expectedBytes,65536);
+  assert.equal(verified.expectedSha256,sha256);
+  assert.throws(()=>validatePreviewMirrorMetadata(ctx,out,{...durable,relay_job_id:'other'}),/IDENTITY_MISMATCH/);
+  assert.throws(()=>validatePreviewMirrorMetadata(ctx,out,{...durable,mirror_path:'shardvault-code/production.bin'}),/IDENTITY_MISMATCH/);
+  assert.throws(()=>validatePreviewMirrorMetadata(ctx,out,{...durable,byte_length:0}),/BYTES_INVALID/);
+  assert.throws(()=>validatePreviewMirrorMetadata(ctx,out,{...durable,expected_sha256:'bad'}),/SHA256_INVALID/);
+  const calls=[];
+  const request=async(url,token,method='GET',data=null)=>{
+    calls.push({url,method,data});
+    if(url.endsWith('/git/ref/heads/shardvault-preview-mirror'))return {status:404,body:{}};
+    if(url.endsWith('/git/refs'))return {status:201,body:{}};
+    if(method==='PUT')return {status:201,body:{commit:{sha:'b'.repeat(40)}}};
+    if(url.includes('/contents/')&&url.includes('?ref=')){
+      if(calls.filter(x=>x.url.includes('?ref=')).length===1)return {status:404,body:{}};
+      return {status:200,body:{encoding:'base64',content:Buffer.from(bytes).toString('base64')}};
+    }
+    throw Error('UNEXPECTED_GITHUB_PATH');
+  };
+  await assert.rejects(publishPreviewMirror(ctx,verified,new Uint8Array(65540),'x'.repeat(40),request),/FRAGMENT_SIZE_INVALID/);
+  await assert.rejects(publishPreviewMirror(ctx,verified,new Uint8Array(65535),'x'.repeat(40),request),/FRAGMENT_SIZE_INVALID/);
+  const wrongHash=new Uint8Array(bytes);wrongHash[3]^=1;
+  await assert.rejects(publishPreviewMirror(ctx,verified,wrongHash,'x'.repeat(40),request),/SHA256_MISMATCH/);
+  const result=await publishPreviewMirror(ctx,verified,bytes,'x'.repeat(40),request);
+  assert.equal(result.status,'EXACT_FRAGMENT_PUBLISHED_VERIFIED');
+  assert.equal(calls.filter(x=>x.method==='PUT').length,1);
+  assert.ok(calls.filter(x=>x.method==='PUT').every(x=>x.data.branch==='shardvault-preview-mirror'));
+});
+test('candidate preview uses only its own R2 and mirror path to finish 7/7',async()=>{
+  const workflow=await readFile(new URL('../.github/workflows/deploy-candidate-preview.yml',import.meta.url),'utf8');
+  assert.match(workflow,/node scripts\/fulfill-preview-code-mirror\.mjs/);
+  assert.match(workflow,/PREVIEW_GITHUB_CODE_MIRROR_PUBLISHED_TO_ISOLATED_BRANCH/);
+  assert.match(workflow,/GITHUB_TOKEN: \${{ github\.token }}/);
+  assert.match(workflow,/SYNC_STATUS.*COPIED.*SYNC_ENDPOINTS.*-ge 7/);
+  const runtime=await readFile(new URL('../src/continuity/shardvault-runtime.js',import.meta.url),'utf8');
+  assert.match(runtime,/isolatedPreview\?'shardvault-preview-mirror':GITHUB_CODE_MIRROR_BRANCH/);
+});
+
+test('preview metadata is authoritative even when the tarball-based shard estimate differs',async()=>{
+  const {validatePreviewMirrorMetadata,publishPreviewMirror} =
+    await import('../scripts/fulfill-preview-code-mirror.mjs');
+  const ctx={repo:'adrienlopezcarreras-pixel/meliturgos-cloudflare',
+    sha:'a'.repeat(40),exactShardBytes:65536};
+  const bytes=new Uint8Array(65540);bytes.fill(41);
+  const pending={relayJobId:'gh-relay-preview-123',key:'staging',path:'shardvault-code/a/file.bin'};
+  const durable={relay_job_id:pending.relayJobId,staging_key:pending.key,mirror_path:pending.path,
+    byte_length:bytes.length,expected_sha256:createHash('sha256').update(bytes).digest('hex')};
+  const verified=validatePreviewMirrorMetadata(ctx,pending,durable);
+  const remote=async(url,token,method='GET')=>{
+    if(url.endsWith('/git/ref/heads/shardvault-preview-mirror'))return {status:200,body:{}};
+    if(url.includes('/contents/')&&method==='GET')return {status:200,body:{encoding:'base64',content:Buffer.from(bytes).toString('base64')}};
+    throw Error('PREVIEW_MIRROR_NO_UNEXPECTED_WRITES');
+  };
+  const result=await publishPreviewMirror(ctx,verified,bytes,'x'.repeat(40),remote);
+  assert.equal(result.status,'EXISTING_EXACT_FRAGMENT_VERIFIED');
 });
