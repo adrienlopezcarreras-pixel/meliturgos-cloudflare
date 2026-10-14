@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {evaluateDesktopSession,DESKTOP_SESSION_SCHEMA} from '../../src/portability/companion-desktop-session-policy.js';
 
 const now=1_800_000_000_000;
-const device={id:'paired-windows',platform:'windows',halted:0};
+const device={id:'paired-windows',platform:'windows',halted:0,last_seen_at:now-1000};
 const session={schema:DESKTOP_SESSION_SCHEMA,device_id:device.id,scope:'interactive',owner_authenticated:true,local_approved:true,issued_at:now-1000,expires_at:now+60_000};
 const check=(overrides={},target=device,requestedScope='interactive')=>evaluateDesktopSession({session:{...session,...overrides},device:target,now,requestedScope});
 
@@ -23,4 +23,10 @@ test('desktop scope cannot escalate and device is pinned to paired Windows',()=>
   assert.equal(check({}, {...device,platform:'android'}).code,'DESKTOP_DEVICE_MISMATCH');
   assert.equal(check({},device,'system.exec').code,'DESKTOP_SCOPE_FORBIDDEN');
   assert.equal(check().ok,true);
+});
+
+test('desktop approval never authorizes a stale, missing or future Windows heartbeat',()=>{
+  assert.equal(check({}, {...device,last_seen_at:now-20_001}).code,'DESKTOP_DEVICE_OFFLINE');
+  assert.equal(check({}, {...device,last_seen_at:undefined}).code,'DESKTOP_DEVICE_OFFLINE');
+  assert.equal(check({}, {...device,last_seen_at:now+1000}).code,'DESKTOP_DEVICE_OFFLINE');
 });
