@@ -41,3 +41,10 @@ test('wake retry UI distinguishes recovery attempts from exhausted listening',()
  assert.match(source,/arrêtée après 3 reprises/);
  assert.match(source,/if \(wakeRetryFailures <= 3\)/);
 });
+
+test('paused wake session cannot activate via a stale result after resume',()=>{
+ assert.match(source,/private var wakeSessionGeneration = 0L/);
+ assert.match(source,/val sessionGeneration = \+\+wakeSessionGeneration/);
+ assert.match(source,/if \(sessionGeneration != wakeSessionGeneration\)/);
+ assert.match(source,/private fun stopWakeWordListening\(\) \{\s*wakeSessionGeneration\+\+/);
+});
