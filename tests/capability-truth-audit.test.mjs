@@ -96,7 +96,7 @@ test('Work planning dry-run compiles a DAG and never starts persistent execution
   assert.equal(output.summary.step_count, 1);
   assert.equal(output.nodes.length, 1);
   assert.equal(output.nodes[0].kind, 'TASK');
-  assert.equal(output.nodes[0].payload?.capability, 'echo');
+  assert.equal(output.nodes[0].payload?.capability, sample.steps[0].capability);
   const audit = await auditRuntimeCapabilities(runtime, {
     deep: true, samples: { 'work.plan': sample },
     context: { owner: 'audit-fixture', permissions: [], requestId: 'work-plan-proof' },
