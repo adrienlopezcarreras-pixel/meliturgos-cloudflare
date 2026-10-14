@@ -4,6 +4,8 @@ on:
     paths:
       - 'firmware/waveshare-terminal/main/mel_mini_phase_session_guard.h'
       - 'tests/mini-phase-session-guard.cpp'
+      - 'firmware/waveshare-terminal/main/mel_mini_phase_capability.h'
+      - 'tests/mini-phase-capability.cpp'
       - '.github/workflows/mini-phase-session-guard.yml'
   workflow_dispatch:
 jobs:
@@ -18,3 +20,7 @@ jobs:
         run: |
           g++ -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer tests/mini-phase-session-guard.cpp -o /tmp/mini-phase-session
           /tmp/mini-phase-session
+      - name: Compile and test explicit phase capability opt-in
+        run: |
+          g++ -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer tests/mini-phase-capability.cpp -o /tmp/mini-phase-capability
+          /tmp/mini-phase-capability
