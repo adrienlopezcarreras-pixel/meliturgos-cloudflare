@@ -213,11 +213,14 @@ function Active-Window {
 }
 
 function Send-Heartbeat {
+  # Advertise the currently persisted owner switch, not its startup value.
+  $remoteEnabled = $false
+  try { Assert-LocalRemoteAccess; $remoteEnabled = $true } catch {}
   $bounds = [System.Windows.Forms.SystemInformation]::VirtualScreen
   $body = @{
     engine_version = $Version
     engine_heartbeat_at = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
-    remote_access_enabled = ($config.remote_access_enabled -eq $true)
+    remote_access_enabled = $remoteEnabled
     hostname = $env:COMPUTERNAME
     user = $env:USERNAME
     screen = @{ x=$bounds.X; y=$bounds.Y; width=$bounds.Width; height=$bounds.Height }
@@ -2014,10 +2017,21 @@ function Perform-PcControl([string]$action,$payload) {
   }
 }
 
+function Assert-LocalRemoteAccess {
+  # Never rely on a process-start snapshot: the owner may revoke access at any time.
+  try {
+    if (-not (Test-Path -LiteralPath $ConfigPath -PathType Leaf)) { throw "REMOTE_ACCESS_DISABLED_LOCALLY" }
+    $current = Get-Content -Raw -Encoding UTF8 -LiteralPath $ConfigPath | ConvertFrom-Json
+    if ($current.remote_access_enabled -ne $true) { throw "REMOTE_ACCESS_DISABLED_LOCALLY" }
+  } catch {
+    throw "REMOTE_ACCESS_DISABLED_LOCALLY"
+  }
+}
+
 function Perform-Step($step, [string]$commandId, [string]$planSchema="") {
   $action = [string]$step.action
   if ($planSchema -eq "mel.devices.pc-control.v1") {
-    if ($config.remote_access_enabled -ne $true) { throw "REMOTE_ACCESS_DISABLED_LOCALLY" }
+    Assert-LocalRemoteAccess
     if (-not ($step.PSObject.Properties.Name -contains "payload")) { throw "PC_CONTROL_PAYLOAD_REQUIRED" }
     return Perform-PcControl $action $step.payload
   }
@@ -2061,6 +2075,8 @@ function Perform-Step($step, [string]$commandId, [string]$planSchema="") {
     }
     throw "SOVEREIGNTY_ACTION_NOT_SUPPORTED"
   }
+  # Legacy desktop actions need the same live local authorization as PC control.
+  Assert-LocalRemoteAccess
   $action = [string]$step.action
   switch ($action) {
     "screen.capture" {
@@ -2140,9 +2156,8 @@ function Process-Command($command) {
           $command.plan.requires_local_stop -ne $true -or
           [string]$command.plan.device_id -ne $ComputerId -or
           [string]$command.plan.session_id -eq '') { throw 'DESKTOP_VIEW_PLAN_INVALID' }
-      if (-not [Environment]::UserInteractive -or $config.remote_access_enabled -ne $true) {
-        throw 'DESKTOP_VIEW_LOCAL_UI_UNAVAILABLE'
-      }
+      if (-not [Environment]::UserInteractive) { throw 'DESKTOP_VIEW_LOCAL_UI_UNAVAILABLE' }
+      Assert-LocalRemoteAccess
       $expiry = [long]$command.plan.expires_at
       $now = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
       if ($expiry -le $now -or $expiry -gt ($now + 300000)) { throw 'DESKTOP_VIEW_CONSENT_EXPIRED' }
