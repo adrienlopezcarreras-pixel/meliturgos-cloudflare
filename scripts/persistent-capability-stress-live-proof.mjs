@@ -60,7 +60,7 @@ async function callCapability(payload, outputPath) {
       method: 'POST',
       headers: {
         'x-mel-release-smoke': '1',
-        'x-mel-launch-bootstrap': TOKEN,
+        'x-mel-parallel-proof': TOKEN,
         'content-type': 'application/json',
       },
       body: JSON.stringify(payload),
@@ -78,6 +78,7 @@ async function callCapability(payload, outputPath) {
 
 async function main() {
   assert(TOKEN.length >= 32, 'CAPABILITY_STRESS_PROOF_TOKEN_REQUIRED');
+  assert(/^[a-f0-9]{40}$/i.test(EXPECTED_SHA), 'CAPABILITY_STRESS_EXACT_SHA_REQUIRED');
 
   let start = null;
   for (let attempt = 1; attempt <= 15; attempt += 1) {
@@ -86,7 +87,10 @@ async function main() {
       start = validateStart(result.body);
       break;
     }
-    console.log(`Persistent stress auth/propagation attempt ${attempt}/15 returned HTTP ${result.status}.`);
+    if (result.status === 401 || result.status === 403) {
+      throw Object.assign(new Error('CAPABILITY_STRESS_AUTH_REJECTED'), { code: 'CAPABILITY_STRESS_AUTH_REJECTED' });
+    }
+    console.log(`Persistent stress bounded start attempt ${attempt}/15 returned HTTP ${result.status}.`);
     await sleep(2000);
   }
   assert(start, 'CAPABILITY_STRESS_START_TIMEOUT');
@@ -98,6 +102,9 @@ async function main() {
   let lastPass = 1;
   for (let attempt = 1; attempt <= 240; attempt += 1) {
     const result = await callCapability({ id: 'capability.audit.status', input: { job_id: jobId } }, 'stress-status.json');
+    if (result.status === 401 || result.status === 403) {
+      throw Object.assign(new Error('CAPABILITY_STRESS_STATUS_AUTH_REJECTED'), { code: 'CAPABILITY_STRESS_STATUS_AUTH_REJECTED' });
+    }
     if (result.status !== 200) {
       console.log(`Stress status attempt ${attempt}/240 returned HTTP ${result.status}.`);
       await sleep(2000);
