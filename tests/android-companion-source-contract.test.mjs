@@ -354,6 +354,10 @@ test('Android background heartbeat uses WorkManager without hidden background mi
   assert.match(wakeService,/ACTION_STOP/);
   assert.match(activity,/onBackgroundWakeEnable = ::enableBackgroundWake/);
   assert.match(activity,/onBackgroundWakeDisable = ::disableBackgroundWake/);
+  // The native tools panel must receive the callbacks and enrollment state.
+  assert.match(activity,/NativeToolsPanel\([\s\S]*?wakeEnrolled = wakeEnrolled,[\s\S]*?onBackgroundWakeEnable = onBackgroundWakeEnable,[\s\S]*?onBackgroundWakeDisable = onBackgroundWakeDisable/);
+  assert.match(activity,/private fun NativeToolsPanel\([\s\S]*?wakeEnrolled: Boolean,[\s\S]*?onBackgroundWakeEnable: \(\) -> Unit,[\s\S]*?onBackgroundWakeDisable: \(\) -> Unit/);
+
   assert.match(activity,/wake-background-enable/);
   assert.match(activity,/wake-background-disable/);
   assert.match(activity,/private fun enableBackgroundWake\(\) \{[\s\S]*?Manifest\.permission\.POST_NOTIFICATIONS[\s\S]*?stopWakeWordListening\(\)/);
