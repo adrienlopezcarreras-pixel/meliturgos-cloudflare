@@ -2,6 +2,7 @@ import fs from 'node:fs/promises';
 
 const BASE_URL = String(process.env.MEL_PROOF_BASE_URL || 'https://meliturgos.adrien-lopezcarreras.workers.dev').replace(/\/$/, '');
 const TOKEN = String(process.env.MEL_PROOF_TOKEN || '');
+const PARALLEL_PROOF_TOKEN = String(process.env.MEL_PARALLEL_PROOF_TOKEN || '');
 const EXPECTED_SHA = String(process.env.EXPECTED_SHA || '');
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -60,7 +61,7 @@ async function callCapability(payload, outputPath) {
       method: 'POST',
       headers: {
         'x-mel-release-smoke': '1',
-        'x-mel-launch-bootstrap': TOKEN,
+        ...(PARALLEL_PROOF_TOKEN ? { 'x-mel-parallel-proof': PARALLEL_PROOF_TOKEN } : { 'x-mel-launch-bootstrap': TOKEN }),
         'content-type': 'application/json',
       },
       body: JSON.stringify(payload),
@@ -77,7 +78,8 @@ async function callCapability(payload, outputPath) {
 }
 
 async function main() {
-  assert(TOKEN.length >= 32, 'CAPABILITY_STRESS_PROOF_TOKEN_REQUIRED');
+  assert((PARALLEL_PROOF_TOKEN || TOKEN).length >= 32, 'CAPABILITY_STRESS_PROOF_TOKEN_REQUIRED');
+  assert(!(PARALLEL_PROOF_TOKEN && TOKEN), 'CAPABILITY_STRESS_AMBIGUOUS_AUTHORIZATION');
 
   let start = null;
   for (let attempt = 1; attempt <= 15; attempt += 1) {
