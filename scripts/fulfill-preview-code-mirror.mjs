@@ -111,7 +111,15 @@ export async function publishPreviewMirror(ctx,pending,bytes,token,request=api){
   });
   if(written.status!==201||!/^[0-9a-f]{40}$/.test(String(written.body?.commit?.sha||'')))
     fail('PREVIEW_MIRROR_GITHUB_WRITE_UNPROVEN');
-  const verify=await request(url+'?ref='+PREVIEW_MIRROR_BRANCH,token);
+  // GitHub's contents endpoint can lag an acknowledged commit. Verify the
+  // immutable Git blob as a fallback (including files >1 MiB, whose contents
+  // endpoint may omit inline Base64), without accepting an unverified write.
+  let verify=await request(url+'?ref='+PREVIEW_MIRROR_BRANCH,token);
+  if(verify.status!==200||verify.body?.encoding!=='base64'){
+    const blobSha=String(written.body?.content?.sha||'');
+    if(!/^[0-9a-f]{40}$/.test(blobSha))fail('PREVIEW_MIRROR_READBACK_FAILED');
+    verify=await request(base+'git/blobs/'+blobSha,token);
+  }
   if(verify.status!==200||verify.body?.encoding!=='base64')fail('PREVIEW_MIRROR_READBACK_FAILED');
   const got=Buffer.from(String(verify.body.content||'').replace(/\s/g,''),'base64');
   if(got.length!==bytes.length||createHash('sha256').update(got).digest('hex')!==hash)
