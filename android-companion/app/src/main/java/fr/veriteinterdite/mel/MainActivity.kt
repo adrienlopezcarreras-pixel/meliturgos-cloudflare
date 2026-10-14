@@ -785,7 +785,11 @@ class MainActivity : ComponentActivity() {
                     voiceConversationActive.value = true
                 } else if (result.isFailure && !wakeDetectorStop) {
                     wakeRetryFailures++
-                    voiceMessage.value = "Écoute OK MEL indisponible · ${result.exceptionOrNull()?.message ?: "micro"}"
+                    voiceMessage.value = if (wakeRetryFailures <= 3) {
+                        "Écoute OK MEL interrompue · tentative de reprise $wakeRetryFailures/3"
+                    } else {
+                        "Écoute OK MEL arrêtée après 3 reprises · rouvre MEL pour réessayer"
+                    }
                     if (wakeRetryFailures <= 3) {
                         val backoffMs = 1_500L * (1L shl (wakeRetryFailures - 1))
                         mainHandler.postDelayed({
