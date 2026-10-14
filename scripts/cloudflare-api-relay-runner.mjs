@@ -1,3 +1,4 @@
+import { selectAuthorizedWindowsCompanion } from '../src/devices/companion-relay-selection.js';
 const BASE_URL=String(process.env.MEL_RELAY_BASE_URL||'https://meliturgos.adrien-lopezcarreras.workers.dev').replace(/\/$/,'');
 const OIDC_TOKEN=String(process.env.MEL_CLOUDFLARE_RELAY_OIDC||'');
 const CF_TOKEN=String(process.env.CLOUDFLARE_API_TOKEN||'');
@@ -104,20 +105,17 @@ async function main(){
   const windowsDevices=(Array.isArray(pcStatus?.devices)?pcStatus.devices:[]).filter(row=>
     String(row?.platform||'').toLowerCase()==='windows'
   );
-  console.log('PC_CONTROL_DEVICE_STATUS='+JSON.stringify(windowsDevices.map(row=>({
-    id:row?.id||null,
-    name:row?.name||null,
-    online:row?.online===true,
-    last_seen_at:Number(row?.last_seen_at||0)||null,
-    remote_access_enabled:row?.metadata?.remote_access_enabled===true,
-    engine_version:row?.metadata?.engine_version||null,
-    engine_heartbeat_at:Number(row?.metadata?.engine_heartbeat_at||0)||null,
-    engine_refresh_status:row?.metadata?.engine_refresh_status||null,
-    engine_refresh_at:Number(row?.metadata?.engine_refresh_at||0)||null,
-    engine_refresh_error:row?.metadata?.engine_refresh_error||null,
-    native_version:row?.metadata?.version||null,
-  }))));
-  const computer=windowsDevices.find(row=>row?.online===true);
+  const {device:computer,eligible_count}=selectAuthorizedWindowsCompanion(windowsDevices);
+  console.log('PC_CONTROL_DEVICE_STATUS='+JSON.stringify({
+    windows_count:windowsDevices.length,
+    online_count:windowsDevices.filter(row=>row?.online===true).length,
+    eligible_count,
+    selected_native_version:computer?.metadata?.version||null,
+    local_opt_in_required:true,
+    fresh_engine_required:true,
+    identifiers_exposed:false,
+  }));
+  if(!computer) console.warn('::warning::PC_CONTROL_LIVE_PROOF_SKIPPED:NO_FRESH_AUTHORIZED_WINDOWS_DEVICE');
   if(computer){
     const submitted=[];
     for(const action of ['system.info','serial.list']){
@@ -141,8 +139,12 @@ async function main(){
       result:entry.row?.result??null,
     }));
     console.log('PC_CONTROL_LIVE_PROOF='+JSON.stringify({
-      device:{id:computer.id,name:computer.name||null,online:true,remote_access_enabled:true,version:computer?.metadata?.version||null},
-      commands:proof,
+      device:{online:true,remote_access_enabled:true,version:computer?.metadata?.version||null},
+      commands:proof.map(row=>({
+        action:row.action,status:row.status,error_code:row.error_code,
+        output_count:Array.isArray(row.result?.outputs)?row.result.outputs.length:0,
+      })),
+      identifiers_exposed:false,
     }));
     if(proof.some(row=>row.status!=='SUCCEEDED')) throw Object.assign(new Error('PC_CONTROL_LIVE_PROOF_FAILED'),{code:'PC_CONTROL_LIVE_PROOF_FAILED'});
 
