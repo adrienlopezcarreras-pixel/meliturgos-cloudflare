@@ -1,0 +1,25 @@
+name: Companion desktop security contract
+on:
+  pull_request:
+    paths:
+      - 'src/portability/companion-desktop-session-policy.js'
+      - 'src/portability/companion-local-consent-proof.js'
+      - 'src/portability/companion-desktop-consent-replay.js'
+      - 'tests/gen2/companion-desktop-session-policy.test.mjs'
+      - 'tests/gen2/companion-local-consent-proof.test.mjs'
+      - 'tests/gen2/companion-desktop-consent-replay.test.mjs'
+      - '.github/workflows/companion-desktop-security-ci.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  companion-desktop-security:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Prove desktop policy, HMAC and replay contracts
+        run: node --test tests/gen2/companion-desktop-session-policy.test.mjs tests/gen2/companion-local-consent-proof.test.mjs tests/gen2/companion-desktop-consent-replay.test.mjs
