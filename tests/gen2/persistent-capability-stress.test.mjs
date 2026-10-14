@@ -135,7 +135,7 @@ test('persistent stress live-proof validators accept a durable terminal report a
       job_id: 'cap-stress-proof',
       status: 'COMPLETE',
       progress: { done: 3, total: 3 },
-      report: { persistent: true, job_id: 'cap-stress-proof' },
+      report: { persistent: true, job_id: 'cap-stress-proof', capabilities: [{id:'a'}, {id:'b'}, {id:'c'}] },
       summary: { remaining_runtime_failures: [] },
     },
   };
@@ -145,6 +145,18 @@ test('persistent stress live-proof validators accept a durable terminal report a
       summary: { remaining_runtime_failures: [], blocked_count: 2 },
     },
   }, 'cap-stress-proof'), /CAPABILITY_STRESS_BLOCKED_CAPABILITIES:2/);
+  assert.throws(() => validateTerminal({
+    ...completed, result: {
+      ...completed.result,
+      report: { ...completed.result.report, capabilities: [{id:'a'}, {id:'a'}, {id:'c'}] },
+    },
+  }, 'cap-stress-proof'), /CAPABILITY_STRESS_REPORT_IDS_INVALID/);
+  assert.throws(() => validateTerminal({
+    ...completed, result: {
+      ...completed.result,
+      report: { ...completed.result.report, capabilities: [{id:'a'}] },
+    },
+  }, 'cap-stress-proof'), /CAPABILITY_STRESS_REPORT_COVERAGE_INCOMPLETE/);
   const terminal = validateTerminal(completed, 'cap-stress-proof');
   assert.equal(terminal.status, 'COMPLETE');
   assert.throws(
