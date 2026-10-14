@@ -35,8 +35,17 @@ test('post-release proof suite is a direct release health gate and calls platfor
   assert.match(platform, /cloudflare\.deployments\.read/);
   assert.match(platform, /cloudflare\.deployments\.create/);
   assert.match(platform, /github\.actions\.workflow\.dispatch/);
-  assert.match(platform, /secrets\.MEL_GITHUB_TOKEN \|\| secrets\.GITHUB_PAT \|\| secrets\.GH_PAT \|\| secrets\.GH_TOKEN/);
-  assert.doesNotMatch(platform, /secrets\.GITHUB_TOKEN/);
+  // The previous proof mutated production Worker secrets merely to run diagnostics.
+  // Canonical release owns credential provisioning; post-release checks are read-only.
+  assert.match(platform, /Verify existing runtime bindings without mutating production/);
+  assert.match(platform, /wrangler secret list --name meliturgos --format json/);
+  assert.match(platform, /PLATFORM_RUNTIME_BINDINGS_MISSING/);
+  assert.match(platform, /GITHUB_RUNTIME_CREDENTIAL=/);
+  assert.match(platform, /GH_TOKEN: \$\{\{ github\.token \}\}/);
+  assert.match(platform, /x-mel-parallel-proof: \$\{TOKEN\}/);
+  assert.match(platform, /PLATFORM_EXACT_SHA_IDENTITY_MISMATCH/);
+  assert.doesNotMatch(platform, /wrangler secret (?:put|delete)/);
+  assert.doesNotMatch(platform, /secrets\.(?:MEL_GITHUB_TOKEN|GITHUB_PAT|GH_PAT|GH_TOKEN|GITHUB_TOKEN)/);
 });
 
 
