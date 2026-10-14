@@ -1,0 +1,19 @@
+name: Android Windows Presence Contract
+on:
+  pull_request:
+    paths:
+      - 'src/devices/android-companion-api.js'
+      - 'tests/android-windows-presence-readonly.test.mjs'
+      - '.github/workflows/android-windows-presence-contract.yml'
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node --test tests/android-windows-presence-readonly.test.mjs
