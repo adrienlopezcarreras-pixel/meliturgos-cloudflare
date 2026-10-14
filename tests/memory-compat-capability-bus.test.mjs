@@ -14,11 +14,45 @@ test('memory status and export are LOW-risk CapabilityBus tools', async () => {
   const status = await runtime.bus.execute('memory.status', {}, context);
   assert.equal(status.status, 'UNAVAILABLE');
   assert.equal(status.db_bound, false);
+  assert.equal(status.counts_verified, false);
   assert.equal(byId.get('memory.export')?.health, 'UNAVAILABLE');
   await assert.rejects(
     () => runtime.bus.execute('memory.export', {}, context),
     error => error.code === 'CAPABILITY_UNAVAILABLE' || error.code === 'DB_BINDING_MISSING',
   );
+});
+
+test('memory.status reports DEGRADED and null rather than invented zero when D1 table is missing', async () => {
+  const db = sqliteD1();
+  try {
+    await db.prepare('CREATE TABLE memories (id INTEGER PRIMARY KEY, content TEXT)').run();
+    await db.prepare('INSERT INTO memories (id,content) VALUES (?,?)').bind(1,'verified-memory').run();
+    await db.prepare('CREATE TABLE conversations (id TEXT PRIMARY KEY)').run();
+    const runtime = createGen2Runtime({ env: { DB: db } });
+    const result = await runtime.bus.execute('memory.status', {}, { owner: 'test', permissions: [] });
+    assert.equal(result.ok, true);
+    assert.equal(result.db_bound, true);
+    assert.equal(result.status, 'DEGRADED');
+    assert.equal(result.counts_verified, false);
+    assert.equal(result.memory_count, 1);
+    assert.equal(result.conversation_count, 0);
+    assert.equal(result.archive_count, null);
+  } finally { db.close(); }
+});
+
+test('memory.status marks genuine empty D1 collections as verified zeros', async () => {
+  const db = sqliteD1();
+  try {
+    for (const table of ['memories','archive_messages','conversations'])
+      await db.prepare(`CREATE TABLE ${table} (id TEXT PRIMARY KEY)`).run();
+    const runtime = createGen2Runtime({ env: { DB: db } });
+    const result = await runtime.bus.execute('memory.status', {}, { owner: 'test', permissions: [] });
+    assert.equal(result.status, 'ONLINE');
+    assert.equal(result.counts_verified, true);
+    assert.equal(result.memory_count, 0);
+    assert.equal(result.archive_count, 0);
+    assert.equal(result.conversation_count, 0);
+  } finally { db.close(); }
 });
 
 test('memory.consolidate is a LOW-risk read/proposal capability and never confirms memory', async () => {
