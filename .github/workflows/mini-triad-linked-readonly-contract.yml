@@ -1,0 +1,20 @@
+name: MINI Linked Triad Readonly Contract
+on:
+  pull_request:
+    paths:
+      - 'src/devices/waveshare-terminal-api.js'
+      - 'src/devices/mini-linked-android-phase.js'
+      - 'tests/mini-triad-linked-readonly.test.mjs'
+      - '.github/workflows/mini-triad-linked-readonly-contract.yml'
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node --test tests/mini-triad-linked-readonly.test.mjs
