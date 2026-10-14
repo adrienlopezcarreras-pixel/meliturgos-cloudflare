@@ -483,8 +483,17 @@ async function uploadShot(request,env,a,url){
  if(!env?.MEDIA_BUCKET)return json({ok:false,code:"MEDIA_BUCKET_UNAVAILABLE"},503);
  const id=safe(url.searchParams.get("command_id"));
  if(!id)return json({ok:false,code:"SCREENSHOT_COMMAND_REQUIRED"},400);
- const command=await env.DB.prepare("SELECT id FROM computer_commands WHERE id=? AND device_id=? AND status=? LIMIT 1").bind(id,a.device.id,"RUNNING").first();
+ const command=await env.DB.prepare("SELECT id,plan_json FROM computer_commands WHERE id=? AND device_id=? AND status=? LIMIT 1").bind(id,a.device.id,"RUNNING").first();
  if(!command)return json({ok:false,code:"SCREENSHOT_COMMAND_NOT_RUNNING"},409);
+ const currentDevice=await env.DB.prepare("SELECT halted FROM computer_devices WHERE id=? LIMIT 1").bind(a.device.id).first();
+ if(!currentDevice||Number(currentDevice.halted)===1)return json({ok:false,code:"SCREENSHOT_OWNER_HALT"},409);
+ const plan=parse(command.plan_json,{});
+ if(plan.schema==="mel.companion.desktop-view-request/v1"||plan.action==="desktop.view.request"){
+  if(plan.schema!=="mel.companion.desktop-view-request/v1"||plan.action!=="desktop.view.request"||
+     plan.screen_capture_only!==true||plan.device_id!==a.device.id||
+     !Number.isFinite(Number(plan.expires_at))||Number(plan.expires_at)<=Date.now())
+   return json({ok:false,code:"SCREENSHOT_VIEW_AUTH_EXPIRED_OR_INVALID"},409);
+ }
  const bytes=new Uint8Array(await request.arrayBuffer());
  if(!bytes.byteLength||bytes.byteLength>5*1024*1024)return json({ok:false,code:"SCREENSHOT_SIZE_INVALID"},413);
  const signature=[137,80,78,71,13,10,26,10];
