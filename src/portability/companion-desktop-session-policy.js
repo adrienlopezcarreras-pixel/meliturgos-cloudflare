@@ -11,6 +11,11 @@ export function evaluateDesktopSession({
   if (!device || device.id !== session.device_id || String(device.platform||'').toLowerCase() !== 'windows') {
     return {ok:false,code:'DESKTOP_DEVICE_MISMATCH'};
   }
+  // Local approval must be backed by a fresh device heartbeat, not a stale record.
+  const lastSeen=Number(device.last_seen_at);
+  if (!Number.isFinite(lastSeen) || lastSeen<=0 || lastSeen>now || now-lastSeen>20_000) {
+    return {ok:false,code:'DESKTOP_DEVICE_OFFLINE'};
+  }
   if (device.halted === true || Number(device.halted) === 1 || session.revoked === true) {
     return {ok:false,code:'DESKTOP_SESSION_REVOKED'};
   }
