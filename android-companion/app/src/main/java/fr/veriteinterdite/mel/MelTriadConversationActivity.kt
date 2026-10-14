@@ -38,3 +38,9 @@ internal fun triadConversationActivity(
         active = phase == "CAPTURING" || phase == "TRANSCRIBING" ||
             phase == "THINKING" || phase == "RESPONDING")
 }
+
+/** A local projection can be published only via an authenticated Android session. */
+internal fun canPublishTriadConversationPhase(session: SessionStage, phase: String): Boolean =
+    session == SessionStage.CONNECTED && phase in setOf(
+        "IDLE", "CAPTURING", "TRANSCRIBING", "THINKING", "RESPONDING", "OTHER_BUSY", "ERROR"
+    )
