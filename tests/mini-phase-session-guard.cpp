@@ -29,4 +29,10 @@ int main() {
     assert(!guard.accept(p,43,true,true,3004)); // wrap forbidden
     guard.clear();
     assert(!guard.active);
+    p.phase_nonce=2;
+    assert(!guard.accept(p,43,true,true,UINT64_MAX - 999)); // deadline would overflow
+    assert(!guard.active);
+    assert(guard.accept(p,43,true,true,UINT64_MAX - 1000)); // exact maximum is safe
+    assert(guard.current(UINT64_MAX - 1,true,true));
+    assert(!guard.current(UINT64_MAX,true,true));
 }
