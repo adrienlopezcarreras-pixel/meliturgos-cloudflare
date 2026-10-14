@@ -43,3 +43,13 @@ test("triad observer accepts native signals through one entry point",()=>{
  assert.equal(o.snapshot(102).readyForCrossDeviceDisplay,true);
  assert.throws(()=>o.observeNative("unknown",{observedAtMs:103}),/SOURCE_INVALID/);
 });
+
+test("future-dated telemetry never produces false live readiness",()=>{
+ const o=createTriadObserver(100,1000);
+ o.observeNative("mini",{observedAtMs:500,gattConnected:true,encrypted:true,sessionOkAck:true});
+ o.observeNative("android",{observedAtMs:500,appRunning:true,authenticated:true,sessionConnected:true});
+ o.observeNative("companion",{observedAtMs:500,processOnline:true,deviceAuthorized:true,channelApproved:true,haltActive:false});
+ assert.equal(o.snapshot(200).readyForCrossDeviceDisplay,false);
+ assert.equal(o.snapshot(500).readyForCrossDeviceDisplay,true);
+ assert.equal(o.snapshot(1501).readyForCrossDeviceDisplay,false);
+});
