@@ -23,7 +23,7 @@ permissions:
   actions: write
 
 concurrency:
-  group: mel-launch-bootstrap-token
+  group: ${{ github.event_name == 'pull_request' && format('platform-auth-contract-{0}', github.event.pull_request.number) || 'mel-launch-bootstrap-token' }}
   cancel-in-progress: false
 
 jobs:
@@ -45,7 +45,6 @@ jobs:
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-      MEL_GITHUB_TOKEN: ${{ secrets.MEL_GITHUB_TOKEN || secrets.GITHUB_PAT || secrets.GH_PAT || secrets.GH_TOKEN }}
       EXPECTED_SHA: ${{ inputs.expected_sha || github.sha }}
 
     steps:
@@ -61,45 +60,81 @@ jobs:
       - name: Install exact lockfile
         run: npm ci
 
-      - name: Provision real runtime platform credentials
+      - name: Verify existing runtime bindings without mutating production
         shell: bash
         run: |
           set -euo pipefail
           test -n "${CLOUDFLARE_API_TOKEN:-}"
           test -n "${CLOUDFLARE_ACCOUNT_ID:-}"
-
-          printf '%s' "${CLOUDFLARE_API_TOKEN}" | npx wrangler secret put CLOUDFLARE_API_TOKEN --env=""
-          printf '%s' "${CLOUDFLARE_ACCOUNT_ID}" | npx wrangler secret put CLOUDFLARE_ACCOUNT_ID --env=""
-
-          if [ -n "${MEL_GITHUB_TOKEN:-}" ]; then
-            printf '%s' "${MEL_GITHUB_TOKEN}" | npx wrangler secret put MEL_GITHUB_TOKEN --env=""
-            echo "GITHUB_RUNTIME_CREDENTIAL=CONFIGURED" >> "${GITHUB_ENV}"
-          else
-            echo "GITHUB_RUNTIME_CREDENTIAL=RELAY" >> "${GITHUB_ENV}"
-          fi
+          # The canonical release is the only production secret writer.
+          # Cloudflare secret list returns names/types, never secret values.
+          npx wrangler secret list --name meliturgos --format json > platform-runtime-secret-names.json
+          node - <<'NODE'
+          const fs=require('node:fs');
+          const rows=JSON.parse(fs.readFileSync('platform-runtime-secret-names.json','utf8'));
+          if(!Array.isArray(rows)) throw Error('PLATFORM_RUNTIME_SECRET_LIST_INVALID');
+          const names=new Set(rows.map(row=>String(row?.name||'')).filter(Boolean));
+          const required=['CLOUDFLARE_API_TOKEN','CLOUDFLARE_ACCOUNT_ID'];
+          const missing=required.filter(name=>!names.has(name));
+          if(missing.length) throw Error('PLATFORM_RUNTIME_BINDINGS_MISSING:'+missing.join(','));
+          const githubConfigured=names.has('MEL_GITHUB_TOKEN');
+          fs.appendFileSync(process.env.GITHUB_ENV,'GITHUB_RUNTIME_CREDENTIAL='+(githubConfigured?'CONFIGURED':'RELAY')+'\n');
+          console.log(JSON.stringify({
+            platform_runtime_bindings_present:true,
+            github_runtime_credential:githubConfigured?'CONFIGURED':'RELAY',
+            proof_mutated_production_secrets:false,
+          }));
+          NODE
+          rm -f platform-runtime-secret-names.json
 
       - name: Prove real production platform capabilities
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
+          PROOF_KEY_B64: ${{ secrets.MEL_BACKUP_ENCRYPTION_KEY_B64 }}
         run: |
           set -euo pipefail
           BASE_URL="https://meliturgos.adrien-lopezcarreras.workers.dev"
-          TOKEN="$(openssl rand -hex 32)"
+          # Use the immutable exact-SHA parallel proof already deployed by
+          # the canonical release. Never rotate a production bootstrap secret
+          # merely to run post-release validation.
+          TOKEN="$(node - <<'NODE'
+          const crypto=require('node:crypto');
+          const key=Buffer.from(String(process.env.PROOF_KEY_B64||''),'base64');
+          const sha=String(process.env.EXPECTED_SHA||'').toLowerCase();
+          if(key.length!==32||!/^[0-9a-f]{40}$/.test(sha)) throw Error('PLATFORM_PARALLEL_PROOF_INPUT_INVALID');
+          process.stdout.write(Buffer.from(crypto.hkdfSync(
+            'sha256',key,Buffer.from('meliturgos-parallel-proof-salt-v1','utf8'),
+            Buffer.from('MEL_PARALLEL_PROOF_V1:'+sha,'utf8'),32
+          )).toString('base64url'));
+          NODE
+          )"
           echo "::add-mask::${TOKEN}"
 
-          cleanup() {
-            set +e
-            printf 'y\n' | npx wrangler secret delete MEL_LAUNCH_BOOTSTRAP_TOKEN --env="" >/tmp/platform-proof-secret-delete.log 2>&1 || true
+          IDENTITY_CODE="$(curl --silent --show-error --max-time 30 \
+            --header "x-mel-parallel-proof: ${TOKEN}" \
+            --header 'content-type: application/json' \
+            --data '{"phase":"identity"}' \
+            --output platform-exact-sha-identity.json --write-out '%{http_code}' \
+            "${BASE_URL}/api/internal/release-launch-bootstrap" || true)"
+          if [ "${IDENTITY_CODE}" != '200' ]; then
+            echo "PLATFORM_EXACT_SHA_IDENTITY_AUTH_FAILED: HTTP ${IDENTITY_CODE}"
+            exit 41
+          fi
+          node - <<'NODE'
+          const fs=require('node:fs');
+          let d={};try{d=JSON.parse(fs.readFileSync('platform-exact-sha-identity.json','utf8'))}catch{}
+          const expected=String(process.env.EXPECTED_SHA||'').toLowerCase();
+          if(d?.ok!==true||d?.status!=='RELEASE_IDENTITY_VERIFIED'
+            ||String(d?.deployed_sha||'').toLowerCase()!==expected) {
+            throw Error('PLATFORM_EXACT_SHA_IDENTITY_MISMATCH');
           }
-          trap cleanup EXIT
-
-          printf '%s' "${TOKEN}" | npx wrangler secret put MEL_LAUNCH_BOOTSTRAP_TOKEN --env=""
+          NODE
 
           api_get() {
             local path="$1"
             local out="$2"
-            curl --silent --show-error --fail-with-body --max-time 60               --header "x-mel-release-smoke: 1"               --header "x-mel-launch-bootstrap: ${TOKEN}"               "${BASE_URL}${path}" > "${out}"
+            curl --silent --show-error --fail-with-body --max-time 60               --header "x-mel-release-smoke: 1"               --header "x-mel-parallel-proof: ${TOKEN}"               "${BASE_URL}${path}" > "${out}"
           }
 
           capability() {
@@ -111,7 +146,7 @@ jobs:
             payload="$(node -e 'const id=process.argv[1],input=JSON.parse(process.argv[2]);process.stdout.write(JSON.stringify({id,input}))' "${id}" "${input}")"
             local -a headers=(
               --header "x-mel-release-smoke: 1"
-              --header "x-mel-launch-bootstrap: ${TOKEN}"
+              --header "x-mel-parallel-proof: ${TOKEN}"
               --header "content-type: application/json"
             )
             if [ -n "${approval}" ]; then
@@ -130,12 +165,10 @@ jobs:
                 # the token, request headers or raw response bodies.
                 AUTH_CODE="$(node -e 'const fs=require("fs");let d={};try{d=JSON.parse(fs.readFileSync(process.argv[1],"utf8"))}catch{};const c=String(d?.code||d?.error?.code||"UNSPECIFIED_401");process.stdout.write(/^[A-Z0-9_:-]{1,96}$/.test(c)?c:"REDACTED_AUTH_ERROR")' "${out}")"
                 echo "Capability ${id} release-token propagation attempt ${attempt}/15: HTTP 401, code=${AUTH_CODE}."
-                # A 401 with an explicit authorization refusal is not propagation;
-                # fail closed instead of retrying an unchangeable credential error.
-                case "${AUTH_CODE}" in
-                  INVALID_BOOTSTRAP_TOKEN|BOOTSTRAP_TOKEN_NOT_READY|UNSPECIFIED_401) sleep 2; continue ;;
-                  *) echo "Non-transient authorization failure; refusing further retries."; break ;;
-                esac
+                # An immutable per-release proof cannot become valid through
+                # propagation retries. Any 401 must fail closed, immediately.
+                echo "Parallel proof authorization rejected; refusing further retries."
+                break
               fi
               break
             done
@@ -364,9 +397,6 @@ jobs:
           fs.writeFileSync('platform-capabilities-proof.json',JSON.stringify(proof,null,2));
           console.log(JSON.stringify(proof,null,2));
           NODE
-
-          cleanup
-          trap - EXIT
 
           if [ "${GITHUB_PROOF}" != "true" ]; then
             echo "GitHub runtime control proof failed."
