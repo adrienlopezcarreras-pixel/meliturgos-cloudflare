@@ -69,6 +69,8 @@ test('250k is an upper bound consistent with sidecar offset policy', async () =>
   const sidecar = await readFile(new URL('../release-tools/predeploy-backup-refresh/worker.js', import.meta.url), 'utf8');
   const runner = await readFile(new URL('../release-tools/predeploy-backup-refresh/runner.mjs', import.meta.url), 'utf8');
   assert.match(sidecar, /safeOffset > 250_000/);
-  assert.match(runner, /database: \(\) => exportD1\(sidecar, sidecarJson\)/);
+  // Either direct delegation or an observed async wrapper must use the bounded exporter.
+  assert.match(runner, /exportD1\(sidecar, sidecarJson\)/);
+  assert.match(runner, /database:\s*(?:\(\) => exportD1\(sidecar, sidecarJson\)|async \(\) => \{)/);
   assert.ok(MAX_ROWS_PER_TABLE <= 250_000);
 });
