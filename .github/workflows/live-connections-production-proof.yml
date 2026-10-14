@@ -254,7 +254,7 @@ jobs:
               # successful, altering credentials, or printing upstream responses.
               if node -e 'const fs=require("fs");let d={};try{d=JSON.parse(fs.readFileSync("/tmp/microsoft_sharepoint_pipedream_graph.json","utf8"))}catch{};const message=String(d?.upstream_message||"");process.exit(d?.upstream_status===400&&/not supported for MSA accounts/i.test(message)?0:1)'; then
                 MICROSOFT_SHAREPOINT_PROOF_SOURCE="MSA_GRAPH_SITE_READ_UNSUPPORTED"
-                echo 'microsoft_sharepoint: {"ok":false,"code":"MSA_GRAPH_SITE_READ_UNSUPPORTED","action_required":"USE_ORGANIZATIONAL_SHAREPOINT_ACCOUNT","graph_site_read_proven":false}'
+                echo 'microsoft_sharepoint: {"ok":false,"code":"MSA_GRAPH_SITE_READ_UNSUPPORTED","account_type":"personal","status":"UNSUPPORTED_ACCOUNT_TYPE","action_required":"USE_ORGANIZATIONAL_SHAREPOINT_ACCOUNT","graph_site_read_proven":false,"site_read_available":false}'
               fi
               echo 'microsoft_sharepoint: {"ok":true,"provider":"pipedream","app":"sharepoint","linked_account":true,"graph_site_read_proven":false}'
             fi
@@ -301,6 +301,9 @@ jobs:
               sharepoint:process.env.MICROSOFT_SHAREPOINT_OK==='1',
               sharepoint_graph_read_proven:process.env.MICROSOFT_SHAREPOINT_READ_PROVEN==='1',
               sharepoint_graph_read_required:true,
+              sharepoint_graph_read_available:process.env.MICROSOFT_SHAREPOINT_READ_PROVEN==='1',
+              sharepoint_account_type:process.env.MICROSOFT_SHAREPOINT_PROOF_SOURCE==='MSA_GRAPH_SITE_READ_UNSUPPORTED'?'personal':'unverified_or_organizational',
+              sharepoint_action_required:process.env.MICROSOFT_SHAREPOINT_PROOF_SOURCE==='MSA_GRAPH_SITE_READ_UNSUPPORTED'?'USE_ORGANIZATIONAL_SHAREPOINT_ACCOUNT':null,
               sharepoint_proof_source:process.env.MICROSOFT_SHAREPOINT_PROOF_SOURCE||'UNVERIFIED'
             },
             mail:{
