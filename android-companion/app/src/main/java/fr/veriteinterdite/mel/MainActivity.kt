@@ -294,6 +294,11 @@ class MainActivity : ComponentActivity() {
                     ensureWakeWordListening()
                 }
             }
+            // Source: actual microphone/voice/chat state driving the native avatar.
+            // Publication is minimal and token-authenticated; never text or audio.
+            LaunchedEffect(state.session, state.busy, state.speaking, state.status, state.error, recording.value) {
+                model.reportLocalConversationActivity(recording.value)
+            }
             LaunchedEffect(state.session, state.busy, state.speaking, state.error, recording.value, voiceConversationActive.value) {
                 if (state.speaking && voiceConversationActive.value && !recording.value) {
                     startBargeInListening()
