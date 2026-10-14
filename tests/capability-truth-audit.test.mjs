@@ -67,6 +67,24 @@ test('plugin proposal dry-run receives a real LOW-risk audit proof without insta
   assert.equal(row?.execution?.ok, true);
 });
 
+test('state-mutating controls remain MEDIUM risk and cannot be invoked by automatic deep probes', async () => {
+  const runtime = createGen2Runtime({ env: {} });
+  const samples = {
+    'openloop.capture': { taskId: 'should-not-write', conversationId: 'audit-only' },
+    'work.plan.sync': { id: 'should-not-sync' },
+    'self.audit.run': { level: 'MONTHLY' },
+  };
+  for (const id of Object.keys(samples)) {
+    assert.equal(runtime.bus.describe(id).risk, 'MEDIUM', id + ' must not be classified as read-only');
+  }
+  const report = await auditRuntimeCapabilities(runtime, { deep: true, samples });
+  for (const id of Object.keys(samples)) {
+    const row = report.capabilities.find(item => item.id === id);
+    assert.equal(row?.auto_execution_blocked, 'RISK_NOT_LOW', id);
+    assert.equal(row?.tested_now, false, id);
+  }
+});
+
 test('safe smoke catalogue covers core read-only and preview-only capabilities', () => {
   for (const id of [
     'echo','roadmap.read','system.bindings','code.read','code.search','conversation.list','rag.search',

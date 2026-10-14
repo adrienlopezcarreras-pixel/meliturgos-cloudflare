@@ -32,7 +32,7 @@ export function registerSelfAuditCapabilities(bus, env = {}) {
       additionalProperties: false,
     },
     output_schema: { type: 'object', additionalProperties: true },
-    risk: 'LOW',
+    risk: 'MEDIUM',
     permissions: [],
     health: env?.DB ? 'HEALTHY' : 'UNAVAILABLE',
     enabled: true,
