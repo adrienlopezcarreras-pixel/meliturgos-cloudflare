@@ -36,13 +36,13 @@ permissions:
 
 concurrency:
   group: mel-production-deploy
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   deploy:
     concurrency:
       group: mel-launch-bootstrap-token
-      cancel-in-progress: true
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     timeout-minutes: 90
     env:
