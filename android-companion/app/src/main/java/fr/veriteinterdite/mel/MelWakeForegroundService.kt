@@ -84,6 +84,8 @@ class MelWakeForegroundService : Service() {
             val store = WakePhraseProfileStore(this)
             val template = store.templateFeatures()
             if (template == null) {
+                getSharedPreferences(OPT_IN_PREFS, MODE_PRIVATE)
+                    .edit().putBoolean(OPT_IN_KEY, false).commit()
                 stopSelf()
                 return START_NOT_STICKY
             }
