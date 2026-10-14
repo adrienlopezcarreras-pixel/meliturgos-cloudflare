@@ -21,3 +21,9 @@ test('OK MEL releases microphone when detector exits',()=>{
 test('activity pause stops wake listener and conversation',()=>{
  assert.match(source,/override fun onPause\(\)\s*\{\s*appResumed\s*=\s*false[\s\S]*?stopWakeWordListening\(\)/);
 });
+
+test('old wake listener cannot clear a newer detector session',()=>{
+ assert.match(source,/wakeDetectorThread\?\.isAlive\s*==\s*true/);
+ assert.match(source,/val completedDetector = Thread\.currentThread\(\)/);
+ assert.match(source,/if \(wakeDetectorThread !== completedDetector\) return@runOnUiThread/);
+});
