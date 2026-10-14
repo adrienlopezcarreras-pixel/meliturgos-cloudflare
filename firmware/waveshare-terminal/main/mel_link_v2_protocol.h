@@ -26,6 +26,8 @@ enum MelLinkV2FrameType : uint8_t {
     MEL_LINK_V2_AUDIO_END = 0x32,
     // Optional read-only Android phase observation; inactive without negotiated capability.
     MEL_LINK_V2_TRIAD_PHASE = 0x50,
+    // Reserved: explicit session-scoped phase capability handshake (not yet enabled).
+    MEL_LINK_V2_TRIAD_CAPABILITY = 0x51,
     MEL_LINK_V2_CREDIT = 0x40,
     MEL_LINK_V2_ACK = 0x41,
     MEL_LINK_V2_ERROR = 0x7e,
