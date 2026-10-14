@@ -2014,10 +2014,21 @@ function Perform-PcControl([string]$action,$payload) {
   }
 }
 
+function Assert-LocalRemoteAccess {
+  # Never rely on a process-start snapshot: the owner may revoke access at any time.
+  try {
+    if (-not (Test-Path -LiteralPath $ConfigPath -PathType Leaf)) { throw "REMOTE_ACCESS_DISABLED_LOCALLY" }
+    $current = Get-Content -Raw -Encoding UTF8 -LiteralPath $ConfigPath | ConvertFrom-Json
+    if ($current.remote_access_enabled -ne $true) { throw "REMOTE_ACCESS_DISABLED_LOCALLY" }
+  } catch {
+    throw "REMOTE_ACCESS_DISABLED_LOCALLY"
+  }
+}
+
 function Perform-Step($step, [string]$commandId, [string]$planSchema="") {
   $action = [string]$step.action
   if ($planSchema -eq "mel.devices.pc-control.v1") {
-    if ($config.remote_access_enabled -ne $true) { throw "REMOTE_ACCESS_DISABLED_LOCALLY" }
+    Assert-LocalRemoteAccess
     if (-not ($step.PSObject.Properties.Name -contains "payload")) { throw "PC_CONTROL_PAYLOAD_REQUIRED" }
     return Perform-PcControl $action $step.payload
   }
@@ -2061,6 +2072,8 @@ function Perform-Step($step, [string]$commandId, [string]$planSchema="") {
     }
     throw "SOVEREIGNTY_ACTION_NOT_SUPPORTED"
   }
+  # Legacy desktop actions need the same live local authorization as PC control.
+  Assert-LocalRemoteAccess
   $action = [string]$step.action
   switch ($action) {
     "screen.capture" {
