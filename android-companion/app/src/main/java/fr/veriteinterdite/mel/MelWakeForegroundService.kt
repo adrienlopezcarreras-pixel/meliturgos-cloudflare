@@ -52,6 +52,8 @@ class MelWakeForegroundService : Service() {
             return START_NOT_STICKY
         }
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            getSharedPreferences(OPT_IN_PREFS, MODE_PRIVATE)
+                .edit().putBoolean(OPT_IN_KEY, false).commit()
             stopSelf()
             return START_NOT_STICKY
         }
