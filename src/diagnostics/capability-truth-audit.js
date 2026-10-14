@@ -81,7 +81,23 @@ const SAFE_SAMPLES = Object.freeze({
   'memory.consolidate': { limit: 1 },
   'knowledge.search': { query: 'MELITURGOS', limit: 1 },
   'evolution.ledger.list': { limit: 1 },
-  'evolution.ledger.verify': { limit: 50 },
+  // A fixed limit of 50 returns {ok:false, code:LIMIT_EXCEEDED} for a healthy
+  // ledger of 51+ rows, which was previously misclassified as runtime failure.
+  // Probe COUNT cheaply with a one-entry cap; never claim a long ledger was
+  // fully cryptographically checked by a short bounded stress sample.
+  'evolution.ledger.verify': async ({ runtime, context }) => {
+    const head = await sampleRead(runtime, context, 'evolution.ledger.verify', { limit: 1 });
+    if (head?.ok === true && Number(head?.count) <= 1) return { limit: 1 };
+    if (head?.code !== 'EVOLUTION_LEDGER_VERIFY_LIMIT_EXCEEDED') {
+      // Real corruption, auth errors or unknown responses must never become a
+      // green fixture. Keep them visible in the specialized ledger proof.
+      return undefined;
+    }
+    const count = Number(head?.count);
+    return Number.isSafeInteger(count) && count > 1 && count <= 50
+      ? { limit: count }
+      : undefined;
+  },
   'resilience.recovery.drill.latest': {},
   'resilience.cold-standby.prepare.latest': {},
   'event.list': { limit: 1 },
