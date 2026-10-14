@@ -47,9 +47,14 @@ class MelApiClient(
         path: String,
         method: String,
         payload: JSONObject,
-        authenticated: Boolean = true
+        authenticated: Boolean = true,
+        timeoutMs: Int? = null
     ): JSONObject {
         val connection = connection(path, method, authenticated)
+        if (timeoutMs != null) {
+            connection.connectTimeout = timeoutMs
+            connection.readTimeout = timeoutMs
+        }
         connection.doOutput = true
         connection.setRequestProperty("Content-Type", "application/json")
         connection.outputStream.use { it.write(payload.toString().toByteArray(Charsets.UTF_8)) }
@@ -187,7 +192,7 @@ class MelApiClient(
     // Never sends message text, audio, conversation IDs or Windows commands.
     fun publishTriadActivity(phase: String): JSONObject =
         jsonRequest("/api/android/v1/triad-activity", "POST",
-            JSONObject().put("phase", phase))
+            JSONObject().put("phase", phase), timeoutMs = 5_000)
 
     fun companions(): JSONArray {
         val response = readJson(connection("/api/android/v1/companions", "GET"))
