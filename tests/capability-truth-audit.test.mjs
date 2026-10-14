@@ -128,6 +128,32 @@ test('shared truth classifier never promotes healthy registration to tested proo
   assert.equal(classifyCapabilityTruth({ enabled:false, health:'HEALTHY' }), 'BLOCKED');
 });
 
+test('deep audit never invokes durable mutations even when declared LOW and supplied a sample', async () => {
+  const forbidden = ['autonomy.pause', 'conversation.audit'];
+  const invocations = [];
+  const records = forbidden.map(id => ({
+    id, name: id, category: 'test', provider: 'core', risk: 'LOW',
+    enabled: true, health: 'HEALTHY',
+  }));
+  const runtime = {
+    bus: {
+      list: () => records,
+      contract: () => ({ valid: true }),
+      execute: async id => { invocations.push(id); return { ok: true }; },
+    },
+  };
+  const report = await auditRuntimeCapabilities(runtime, {
+    deep: true,
+    samples: { 'autonomy.pause': { reason: 'audit-must-not-pause' }, 'conversation.audit': { maxMessages: 100 } },
+  });
+  assert.deepEqual(invocations, [], 'audit must not pause autonomy or start a D1 migration');
+  for (const id of forbidden) {
+    const row = report.capabilities.find(item => item.id === id);
+    assert.equal(row?.auto_execution_blocked, 'REQUIRES_EXPLICIT_INVOCATION', id);
+    assert.equal(row?.tested_now, false, id);
+  }
+});
+
 test('deep audit executes bounded LOW-risk samples and reports failures instead of inventing success', async () => {
   const records = [
     { id:'ok', name:'OK', category:'test', provider:'test', risk:'LOW', enabled:true, health:'HEALTHY' },
