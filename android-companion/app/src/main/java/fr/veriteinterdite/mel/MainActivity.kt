@@ -2838,6 +2838,14 @@ private fun CompanionPanel(
                 Text("Signal local Android uniquement · diffusion MINI/Windows non vérifiée",
                     color = MelMuted, fontSize = 11.sp,
                     modifier = Modifier.testTag("triad-conversation-source"))
+                val miniApiLabel = if (state.session == SessionStage.CONNECTED)
+                    miniDelegatedPhaseLabel(state.miniDelegatedPhase, nowElapsedMs, System.currentTimeMillis())
+                else "API MINI · phase Android non vérifiée"
+                Text(miniApiLabel, color = MelMuted, fontSize = 12.sp,
+                    modifier = Modifier.testTag("triad-mini-delegated-phase"))
+                Text("Lecture serveur du téléphone associé · aucune transmission BLE attestée",
+                    color = MelMuted, fontSize = 11.sp,
+                    modifier = Modifier.testTag("triad-mini-delegated-source"))
             }
         }
 

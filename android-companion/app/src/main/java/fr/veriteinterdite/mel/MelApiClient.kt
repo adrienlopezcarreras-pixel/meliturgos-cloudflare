@@ -199,6 +199,17 @@ class MelApiClient(
         return response.optJSONArray("devices") ?: JSONArray()
     }
 
+    // The server restricts this GET to the phone's paired MINI. This does
+    // not send any BLE frame and must never be shown as physical delivery.
+    fun delegatedMiniTriadPhase(miniDeviceId: String): JSONObject {
+        require(miniDeviceId.isNotBlank() && miniDeviceId.length <= 200) { "MINI_ID_REQUIRED" }
+        val request = connection("/api/android/v1/mini/triad-activity", "GET")
+        request.setRequestProperty("X-MEL-MINI-Device-ID", miniDeviceId)
+        request.connectTimeout = 5_000
+        request.readTimeout = 5_000
+        return readJson(request)
+    }
+
     fun windowsPresence(): JSONObject =
         readJson(connection("/api/android/v1/windows-presence", "GET"))
 

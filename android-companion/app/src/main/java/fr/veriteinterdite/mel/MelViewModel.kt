@@ -68,6 +68,7 @@ data class MelUiState(
     val messages: List<MelChatMessage> = emptyList(),
     val companions: List<MelCompanionDevice> = emptyList(),
     val windowsPresence: MelWindowsPresence = MelWindowsPresence(),
+    val miniDelegatedPhase: MelMiniDelegatedPhase = MelMiniDelegatedPhase(),
     val companionStatus: String = "",
     val miniPairCode: String? = null,
     val miniPairExpiresAt: Long? = null,
@@ -974,13 +975,28 @@ class MelViewModel(
                         )
                     }
                 }
+                // Only one unambiguous MINI is eligible for a read-only
+                // preview. The server performs actual link authorization.
+                val miniPhase = devices.singleOrNull()?.deviceId
+                    ?.takeIf { it.isNotBlank() }
+                    ?.let { id ->
+                        runCatching {
+                            parseMiniDelegatedPhase(
+                                client.delegatedMiniTriadPhase(id),
+                                SystemClock.elapsedRealtime(),
+                                System.currentTimeMillis()
+                            )
+                        }.getOrNull()
+                    } ?: MelMiniDelegatedPhase()
                 _state.value = _state.value.copy(
                     companions = devices,
+                    miniDelegatedPhase = miniPhase,
                     companionStatus = if (devices.isEmpty()) "Aucun MINI appairé" else "${devices.size} compagnon(s) détecté(s)"
                 )
             } catch (error: Throwable) {
                 _state.value = _state.value.copy(
                     companionStatus = "Compagnon indisponible",
+                    miniDelegatedPhase = MelMiniDelegatedPhase(),
                     error = explain(error)
                 )
             }
