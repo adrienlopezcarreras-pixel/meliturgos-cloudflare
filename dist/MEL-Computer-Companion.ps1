@@ -2059,6 +2059,23 @@ function Assert-LocalRemoteAccess {
   }
 }
 
+function Confirm-LegacyScreenCaptureConsent {
+  # This path predates desktop.view.request and must not silently capture a screen.
+  Assert-LocalRemoteAccess
+  if (-not [Environment]::UserInteractive) { throw "SCREENSHOT_LOCAL_UI_UNAVAILABLE" }
+  $choice = [System.Windows.Forms.MessageBox]::Show(
+    'MEL souhaite effectuer une capture unique de votre ecran. Autoriser cet envoi ?',
+    'MEL - autorisation locale de capture',
+    [System.Windows.Forms.MessageBoxButtons]::YesNo,
+    [System.Windows.Forms.MessageBoxIcon]::Question,
+    [System.Windows.Forms.MessageBoxDefaultButton]::Button2)
+  if ($choice -ne [System.Windows.Forms.DialogResult]::Yes) {
+    throw "SCREENSHOT_LOCAL_CONSENT_DENIED"
+  }
+  if ($script:MelExitRequested) { throw "SCREENSHOT_LOCAL_STOP_ACTIVE" }
+  Assert-LocalRemoteAccess
+}
+
 function Perform-Step($step, [string]$commandId, [string]$planSchema="") {
   $action = [string]$step.action
   if ($planSchema -eq "mel.devices.pc-control.v1") {
@@ -2111,7 +2128,13 @@ function Perform-Step($step, [string]$commandId, [string]$planSchema="") {
   $action = [string]$step.action
   switch ($action) {
     "screen.capture" {
+      # Legacy computer-use captures still require explicit approval on this PC.
+      Confirm-LegacyScreenCaptureConsent
       $shot = Upload-Screenshot $commandId
+      if ([string]$shot.key -eq '' -or [string]$shot.view_url -eq '' -or
+          [string]$shot.key -notlike "computer/screenshots/$ComputerId/*") {
+        throw "SCREENSHOT_UPLOAD_UNCONFIRMED"
+      }
       return @{ action=$action; screenshot_key=$shot.key; view_url=$shot.view_url }
     }
     "cursor.move" {
