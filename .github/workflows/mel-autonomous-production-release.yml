@@ -14,8 +14,8 @@ on:
       - 'docs/**'
       - '**/*.md'
   workflow_dispatch:
-  # After a fully successful production release, reconcile later main commits.
-  # Failed/cancelled releases cannot start another deploy.
+  # After a completed release (success or failure), reconcile only newer
+  # main commits. Never retry the same failed SHA or a cancelled release.
   workflow_run:
     workflows:
       - deploy-cloudflare-release
@@ -32,7 +32,7 @@ concurrency:
 
 jobs:
   promote-and-dispatch:
-    if: ${{ (github.actor == 'adrienlopezcarreras-pixel' || github.actor == 'github-actions[bot]') && (github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'release/mel-hardware-v0.1.0')) }}
+    if: ${{ (github.actor == 'adrienlopezcarreras-pixel' || github.actor == 'github-actions[bot]') && (github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_run' && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.event == 'workflow_dispatch' && (github.event.workflow_run.conclusion == 'success' || github.event.workflow_run.conclusion == 'failure'))) }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -49,4 +49,5 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           MEL_REQUIRE_PROTECTED_REFS: ${{ github.event_name == 'push' && 'true' || 'false' }}
+          MEL_CATCHUP_COMPLETED_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || '' }}
         run: node scripts/mel-autonomous-release-dispatch.mjs
