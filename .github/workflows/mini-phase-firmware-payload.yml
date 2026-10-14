@@ -1,0 +1,20 @@
+name: MINI phase firmware payload parser
+on:
+  pull_request:
+    paths:
+      - 'firmware/waveshare-terminal/main/mel_mini_phase_v1.h'
+      - 'tests/mini-phase-v1-firmware-codec.cpp'
+      - '.github/workflows/mini-phase-firmware-payload.yml'
+  workflow_dispatch:
+jobs:
+  parser:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile and run firmware phase parser unit tests
+        run: |
+          g++ -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer tests/mini-phase-v1-firmware-codec.cpp -o /tmp/mini-phase-parser
+          /tmp/mini-phase-parser
