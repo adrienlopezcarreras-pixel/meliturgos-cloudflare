@@ -35,6 +35,7 @@ internal fun triadReadiness(
     // Companion PC authorizations are only verifiable by the owner's local
     // Windows control plane. The Android MINI list does not contain that proof.
     windowsLabel = when {
+        androidSession != SessionStage.CONNECTED -> "Windows · état indisponible sans session Android"
         windowsPresence.halted -> "Windows · HALT actif · contrôle non vérifié"
         windowsPresence.online -> "Windows · en ligne · contrôle local non vérifié"
         windowsPresence.known -> "Windows · hors ligne"
