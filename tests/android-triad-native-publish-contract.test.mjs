@@ -13,6 +13,10 @@ test("Android's real avatar phases connect to authenticated, content-free teleme
     read("android-companion/app/src/main/java/fr/veriteinterdite/mel/MelTriadConversationActivity.kt")
   ]);
   assert.match(activity,/model\.reportLocalConversationActivity\(recording\.value\)/);
+  assert.match(activity,/model\.setTriadActivityVisible\(true, recording\.value\)/);
+  assert.match(activity,/model\.setTriadActivityVisible\(false\)/);
+  assert.match(model,/if \(!triadActivityVisible\)/);
+  assert.match(model,/if \(triadActivityVisible\) \{/);
   assert.match(model,/triadConversationActivity\(stateNow\.session, recording,/);
   assert.match(model,/Channel<String>\(Channel\.CONFLATED\)/);
   assert.match(model,/canPublishTriadConversationPhase\(stateNow\.session, phase\)/);
