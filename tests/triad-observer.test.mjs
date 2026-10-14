@@ -34,3 +34,12 @@ test("triad observer marks stale verified devices degraded",()=>{
  assert.equal(observer.snapshot(1102).readyForCrossDeviceDisplay,false);
  assert.throws(()=>observer.observeDevice({kind:"mini",stage:"CONNECTED",protocolReady:false,observedAtMs:100}),/STALE/);
 });
+
+test("triad observer accepts native signals through one entry point",()=>{
+ const o=createTriadObserver(100);
+ o.observeNative("mini",{observedAtMs:101,gattConnected:true,encrypted:true,sessionOkAck:true});
+ o.observeNative("android",{observedAtMs:101,appRunning:true,authenticated:true,sessionConnected:true});
+ o.observeNative("companion",{observedAtMs:101,processOnline:true,deviceAuthorized:true,channelApproved:true,haltActive:false});
+ assert.equal(o.snapshot(102).readyForCrossDeviceDisplay,true);
+ assert.throws(()=>o.observeNative("unknown",{observedAtMs:103}),/SOURCE_INVALID/);
+});
