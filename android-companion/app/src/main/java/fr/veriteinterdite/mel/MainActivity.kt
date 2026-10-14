@@ -19,6 +19,7 @@ import android.net.Uri
 import android.os.BatteryManager
 import android.os.Build
 import android.os.Bundle
+import android.os.SystemClock
 import android.os.Handler
 import android.os.Looper
 import android.os.Environment
@@ -2778,7 +2779,14 @@ private fun CompanionPanel(
     val internetReady by MelLinkV2ClientService.internetReady.collectAsStateWithLifecycle()
     val pairingComplete by MelLinkV2ClientService.miniPairingComplete.collectAsStateWithLifecycle()
     val miniStatus = miniReadiness(bleReady, protocolReady, internetReady)
-    val triadStatus = triadReadiness(state.session, miniStatus, state.windowsPresence)
+    var nowElapsedMs by remember { mutableStateOf(SystemClock.elapsedRealtime()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(5_000)
+            nowElapsedMs = SystemClock.elapsedRealtime()
+        }
+    }
+    val triadStatus = triadReadiness(state.session, miniStatus, state.windowsPresence, nowElapsedMs)
     var showPairRecovery by rememberSaveable { mutableStateOf(false) }
     var miniPairUser by rememberSaveable { mutableStateOf("adrien") }
     var miniPairSecret by rememberSaveable { mutableStateOf("") }
