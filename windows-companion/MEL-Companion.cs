@@ -1128,15 +1128,24 @@ class MainForm : Form
     Label LabelAt(Control parent,string value,int x,int y,int w,int h,float font=11f,bool bold=false,Color? ink=null)
     {
         var label=new Label {Text=value,Location=new Point(x,y),Size=new Size(w,h),
-            Font=new Font("Segoe UI",Math.Min(font,12f),bold?FontStyle.Bold:FontStyle.Regular),
+            Font=new Font("Segoe UI",font,bold?FontStyle.Bold:FontStyle.Regular),
             ForeColor=ink??text,BackColor=Color.Transparent,AutoSize=false,
             TextAlign=ContentAlignment.TopLeft,AutoEllipsis=true};
         parent.Controls.Add(label);return label;
     }
     Button ButtonAt(Control parent,string title,int x,int y,int w,EventHandler action)
     {
-        var button=new Button {Text=title,Location=new Point(x,y),Size=new Size(w,42),
-            FlatStyle=FlatStyle.System,Font=new Font("Segoe UI",9f),UseVisualStyleBackColor=true};
+        var primary=title=="Ouvrir MEL" || title=="Actualiser";
+        var danger=title=="Désinstaller";
+        var button=new Button {Text=title,Location=new Point(x,y),Size=new Size(w,44),
+            FlatStyle=FlatStyle.Flat,Font=new Font("Segoe UI Semibold",10f,FontStyle.Bold),
+            UseVisualStyleBackColor=false,Cursor=Cursors.Hand,TabStop=true,
+            BackColor=primary?blue:Color.White,
+            ForeColor=primary?Color.White:(danger?Color.FromArgb(154,39,51):text)};
+        button.FlatAppearance.BorderSize=1;
+        button.FlatAppearance.BorderColor=primary?blue:(danger?Color.FromArgb(216,163,169):stroke);
+        button.FlatAppearance.MouseOverBackColor=primary?Color.FromArgb(28,80,150):Color.FromArgb(234,240,248);
+        button.FlatAppearance.MouseDownBackColor=primary?Color.FromArgb(23,67,125):Color.FromArgb(222,232,245);
         button.Click+=action;parent.Controls.Add(button);return button;
     }
     Panel Card(Control parent,int y,int height)
