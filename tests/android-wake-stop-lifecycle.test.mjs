@@ -27,3 +27,11 @@ test('old wake listener cannot clear a newer detector session',()=>{
  assert.match(source,/val completedDetector = Thread\.currentThread\(\)/);
  assert.match(source,/if \(wakeDetectorThread !== completedDetector\) return@runOnUiThread/);
 });
+
+test('microphone failure retries are bounded and respect foreground STOP',()=>{
+ assert.match(source,/wakeRetryFailures\+\+/);
+ assert.match(source,/wakeRetryFailures <= 3/);
+ assert.match(source,/1_500L \* \(1L shl \(wakeRetryFailures - 1\)\)/);
+ assert.match(source,/appResumed && !wakeDetectorStop && !voiceConversationActive\.value/);
+ assert.match(source,/wakeRetryFailures = 0/);
+});
