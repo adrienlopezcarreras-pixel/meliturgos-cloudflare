@@ -2133,10 +2133,35 @@ function Perform-Step($step, [string]$commandId, [string]$planSchema="") {
 function Process-Command($command) {
   $outputs = @()
   try {
-    # This protocol is not yet implemented by the local Windows client.
-    # Never acknowledge a view-only request as successful without capture and local consent.
     if ([string]$command.plan.schema -eq 'mel.companion.desktop-view-request/v1' -or [string]$command.plan.action -eq 'desktop.view.request') {
-      throw 'DESKTOP_VIEW_WINDOWS_HANDLER_UNAVAILABLE'
+      if ([string]$command.plan.schema -ne 'mel.companion.desktop-view-request/v1' -or
+          [string]$command.plan.action -ne 'desktop.view.request' -or
+          $command.plan.screen_capture_only -ne $true -or
+          $command.plan.requires_local_stop -ne $true -or
+          [string]$command.plan.device_id -ne $ComputerId -or
+          [string]$command.plan.session_id -eq '') { throw 'DESKTOP_VIEW_PLAN_INVALID' }
+      if ($Headless -or -not [Environment]::UserInteractive -or $config.remote_access_enabled -ne $true) {
+        throw 'DESKTOP_VIEW_LOCAL_UI_UNAVAILABLE'
+      }
+      $expiry = [long]$command.plan.expires_at
+      $now = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+      if ($expiry -le $now -or $expiry -gt ($now + 300000)) { throw 'DESKTOP_VIEW_CONSENT_EXPIRED' }
+      $choice = [System.Windows.Forms.MessageBox]::Show(
+        'MEL demande une capture unique de votre ecran. Autoriser cet envoi ? Vous pouvez refuser.',
+        'MEL - autorisation locale de capture',
+        [System.Windows.Forms.MessageBoxButtons]::YesNo,
+        [System.Windows.Forms.MessageBoxIcon]::Question,
+        [System.Windows.Forms.MessageBoxDefaultButton]::Button2)
+      if ($choice -ne [System.Windows.Forms.DialogResult]::Yes) { throw 'DESKTOP_VIEW_LOCAL_CONSENT_DENIED' }
+      if ([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() -ge $expiry -or $script:MelExitRequested) {
+        throw 'DESKTOP_VIEW_CONSENT_EXPIRED'
+      }
+      $shot = Upload-Screenshot ([string]$command.id)
+      if ([string]$shot.key -eq '') { throw 'DESKTOP_VIEW_UPLOAD_UNCONFIRMED' }
+      $outputs += ,@{ action='desktop.view.request'; screenshot_key=$shot.key; view_url=$shot.view_url }
+      $body = @{ command_id=$command.id; ok=$true; result=@{ outputs=$outputs; capture_count=1 } }
+      [void](Invoke-MelJson -Path "/api/computer/v1/result" -Method "POST" -Body $body)
+      return
     }
     foreach ($step in @($command.plan.steps)) {
       $outputs += ,(Perform-Step $step ([string]$command.id) ([string]$command.plan.schema))
