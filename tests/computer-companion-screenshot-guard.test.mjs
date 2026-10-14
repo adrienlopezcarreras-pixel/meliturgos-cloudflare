@@ -23,6 +23,17 @@ test('screenshots require matching RUNNING command and valid PNG signature',asyn
   await DB.prepare('INSERT INTO computer_commands(id,device_id,session_id,plan_json,status,created_at) VALUES(?,?,?,?,?,?)').bind('pending','screenshot-pc','s','{}','PENDING',Date.now()).run();
   assert.equal((await post('pending')).status,409);
   await DB.prepare("UPDATE computer_commands SET status='RUNNING' WHERE id='pending'").run();
+  await DB.prepare("UPDATE computer_devices SET halted=1 WHERE id='screenshot-pc'").run();
+  const halted=await post('pending');
+  assert.equal(halted.status,409);
+  assert.equal((await halted.json()).code,'SCREENSHOT_OWNER_HALT');
+  await DB.prepare("UPDATE computer_devices SET halted=0 WHERE id='screenshot-pc'").run();
+  const expired={schema:'mel.companion.desktop-view-request/v1',action:'desktop.view.request',screen_capture_only:true,device_id:'screenshot-pc',expires_at:Date.now()-1000};
+  await DB.prepare("UPDATE computer_commands SET plan_json=? WHERE id='pending'").bind(JSON.stringify(expired)).run();
+  const expiredResponse=await post('pending');
+  assert.equal(expiredResponse.status,409);
+  assert.equal((await expiredResponse.json()).code,'SCREENSHOT_VIEW_AUTH_EXPIRED_OR_INVALID');
+  await DB.prepare("UPDATE computer_commands SET plan_json='{}' WHERE id='pending'").run();
   assert.equal((await post('pending',Uint8Array.from([1,2,3]))).status,415);
   const accepted=await post('pending');
   assert.equal(accepted.status,200);
