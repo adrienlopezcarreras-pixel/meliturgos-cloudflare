@@ -87,6 +87,10 @@ async function main(){
   }
 
 
+  // Companion/MINI diagnostics are a distinct, optional evidence scope.
+  // A local opt-out must remain a hard denial for PC commands, but must not
+  // make previously completed Cloudflare server-side relay work look failed.
+  try {
   const miniStatus=await worker('/api/internal/cloudflare-api-relay/mini-status',{});
   const miniDevices=(Array.isArray(miniStatus?.devices)?miniStatus.devices:[]).slice(0,5);
   const primaryMini=miniDevices[0]||null;
@@ -424,6 +428,15 @@ async function main(){
     }
   }else{
     console.log('PC_CONTROL_LIVE_PROOF='+JSON.stringify({skipped:true,reason:'NO_ONLINE_REMOTE_WINDOWS_COMPANION'}));
+  }
+  } catch (error) {
+    const rawCode=String(error?.code || 'LOCAL_DEVICE_DIAGNOSTICS_UNAVAILABLE');
+    const code=rawCode.toUpperCase().replace(/[^A-Z0-9_]/g,'_').slice(0,100);
+    console.log('LOCAL_DEVICE_DIAGNOSTICS_UNVERIFIED='+JSON.stringify({
+      status:'UNVERIFIED',reason:code,server_relay_jobs_unaffected:true,
+      local_authorization_bypassed:false,pc_proof_verified:false,
+    }));
+    console.warn('::warning::LOCAL_DEVICE_DIAGNOSTICS_UNVERIFIED:'+code);
   }
 }
 main().catch(e=>{console.error(String(e?.code||e?.message||e));process.exit(1)});
