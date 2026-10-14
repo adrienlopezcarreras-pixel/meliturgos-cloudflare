@@ -60,4 +60,18 @@ class MelTriadConversationActivityTest {
             assertFalse(phase.active)
         }
     }
+    @Test fun deviceTelemetryOnlyPermitsAuthenticatedConversationPhases() {
+        for (phase in listOf("IDLE", "CAPTURING", "TRANSCRIBING", "THINKING",
+            "RESPONDING", "OTHER_BUSY", "ERROR")) {
+            assertTrue(canPublishTriadConversationPhase(SessionStage.CONNECTED, phase))
+        }
+        for (session in listOf(SessionStage.DISCONNECTED, SessionStage.VERIFYING, SessionStage.ERROR)) {
+            assertFalse(canPublishTriadConversationPhase(session, "RESPONDING"))
+        }
+        for (illegal in listOf("WAKE_DETECTED", "UNAVAILABLE", "HALTED",
+            "REMOTE_VERIFIED", "texte privé", "")) {
+            assertFalse(canPublishTriadConversationPhase(SessionStage.CONNECTED, illegal))
+        }
+    }
+
 }
