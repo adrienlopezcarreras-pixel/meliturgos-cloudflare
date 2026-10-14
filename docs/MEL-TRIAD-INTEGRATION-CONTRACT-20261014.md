@@ -54,3 +54,7 @@ Ce document est un point de coordination. Les capacités non démontrées resten
 ## Module de réduction d'état livré dans cette PR
 
 `src/devices/triad-conversation-state.js` implémente une machine à états **pure et réutilisable** avec contrôle des transitions, source, identifiant de tour/appareil, expiration de cinq minutes maximum, anti-régression temporelle et interruptions fermées. Aucun I/O : ce module ne pilote pas lui-même le BLE, le microphone ou le PC. Chaque client doit encore y raccorder ses événements réels et traduire ses états dans son langage natif. Les preuves d'exécution matérielle demeurent à obtenir.
+
+## États d'interface et animation livrés comme contrat
+
+`src/devices/triad-presentation-contract.js` expose des libellés français, un état d'animation d'avatar et un indicateur d'affichage du microphone pour chaque état conversationnel. `triadReadinessPresentation()` distingue explicitement **connecté** de **vérifié**. Ce module est pur : aucun appel réseau, BLE ni commande PC. Il reste à le raccorder aux trois moteurs d'interface natifs.
