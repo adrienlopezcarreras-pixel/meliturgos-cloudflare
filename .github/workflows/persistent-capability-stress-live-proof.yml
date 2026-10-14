@@ -47,18 +47,60 @@ jobs:
       - run: node --check scripts/persistent-capability-stress-live-proof.mjs
       - run: node --test tests/capability-truth-audit.test.mjs tests/capability-registry-exhaustive-audit.test.mjs tests/autonomy-capabilities.test.mjs tests/gen2/persistent-capability-stress.test.mjs tests/release-production-smoke-routes.test.mjs tests/persistent-capability-stress-workflow-safety.test.mjs
 
-  # The previous job wrote and deleted a temporary Cloudflare production secret
-  # to launch stress. That is not a read-only proof, and it could remove a
-  # legitimate credential if interrupted. Disable it rather than claiming
-  # that contract CI or a capability inventory is full runtime stress.
+  # Exact-SHA bounded stress. Reuses the immutable per-deployment parallel
+  # proof credential. No writes or deletes to production Cloudflare secrets.
   production-proof:
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
-    timeout-minutes: 2
+    timeout-minutes: 30
+    env:
+      EXPECTED_SHA: ${{ inputs.expected_sha || github.sha }}
+      PROOF_KEY_B64: ${{ secrets.MEL_BACKUP_ENCRYPTION_KEY_B64 }}
+      MEL_PROOF_BASE_URL: https://meliturgos.adrien-lopezcarreras.workers.dev
     steps:
-      - name: Fail closed until the live stress runner uses independent safe authorization
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ inputs.expected_sha || github.sha }}
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '22'
+      - name: Verify exact production SHA and run safe persistent stress
+        shell: bash
         run: |
-          echo 'PERSISTENT_STRESS_LIVE_PROOF_DISABLED_UNSAFE_PRODUCTION_SECRET_MUTATION'
-          echo 'Use GET-only capability inventory and bounded LOW-risk execution proofs.'
-          echo 'Full 165-capability runtime stress is NOT VERIFIED by those lighter checks.'
-          exit 1
+          set -euo pipefail
+          [[ "${EXPECTED_SHA}" =~ ^[0-9a-fA-F]{40}$ ]]
+          TOKEN="$(node - <<'NODE'
+          const crypto=require('node:crypto');
+          const key=Buffer.from(String(process.env.PROOF_KEY_B64||''),'base64');
+          const sha=String(process.env.EXPECTED_SHA||'').toLowerCase();
+          if(key.length!==32||!/^[0-9a-f]{40}$/.test(sha)) throw Error('PARALLEL_PROOF_INPUT_INVALID');
+          process.stdout.write(Buffer.from(crypto.hkdfSync(
+            'sha256',key,Buffer.from('meliturgos-parallel-proof-salt-v1','utf8'),
+            Buffer.from('MEL_PARALLEL_PROOF_V1:'+sha,'utf8'),32
+          )).toString('base64url'));
+          NODE
+          )"
+          echo "::add-mask::${TOKEN}"
+          IDENTITY_STATUS="$(curl --silent --show-error --max-time 35 \
+            --header "x-mel-parallel-proof: ${TOKEN}" \
+            --header 'content-type: application/json' \
+            --data '{"phase":"identity"}' \
+            --output persistent-stress-identity.json --write-out '%{http_code}' \
+            "${MEL_PROOF_BASE_URL}/api/internal/release-launch-bootstrap" || true)"
+          test "${IDENTITY_STATUS}" = '200' || { echo 'STRESS_EXACT_SHA_IDENTITY_AUTH_FAILED'; exit 41; }
+          node - <<'NODE'
+          const fs=require('node:fs');
+          let d={};try{d=JSON.parse(fs.readFileSync('persistent-stress-identity.json','utf8'))}catch{}
+          const sha=String(process.env.EXPECTED_SHA||'').toLowerCase();
+          if(d?.ok!==true||d?.status!=='RELEASE_IDENTITY_VERIFIED'||
+            String(d?.deployed_sha||'').toLowerCase()!==sha) throw Error('STRESS_DEPLOYED_SHA_UNVERIFIED');
+          NODE
+          MEL_PROOF_TOKEN="${TOKEN}" node scripts/persistent-capability-stress-live-proof.mjs
+      - name: Upload sanitized stress proof
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: persistent-stress-exact-sha-${{ inputs.expected_sha || github.sha }}
+          path: persistent-capability-stress-live-proof.json
+          if-no-files-found: warn
+          retention-days: 14
