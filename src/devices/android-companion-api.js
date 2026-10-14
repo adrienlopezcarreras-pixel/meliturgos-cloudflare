@@ -211,6 +211,29 @@ function conversationIdFor(auth,bodyOrUrl) {
   return safe(bodyOrUrl?.conversation_id,200) || `android-${auth.deviceId}`;
 }
 
+// Minimal, device-token-protected Windows presence signal for the APK.
+// Does not reveal names, IDs, secrets, commands or owner control consent.
+async function windowsPresence(env) {
+  const observedAtMs=Date.now();
+  try {
+    const rows=await env.DB.prepare(
+      "SELECT halted,last_seen_at FROM computer_devices WHERE LOWER(platform)='windows' ORDER BY last_seen_at DESC LIMIT 20"
+    ).all();
+    const entries=rows.results||[];
+    const online=entries.some(row=>Number(row.halted)!==1 &&
+      Number.isFinite(Number(row.last_seen_at)) && Number(row.last_seen_at)>0 &&
+      observedAtMs>=Number(row.last_seen_at) && observedAtMs-Number(row.last_seen_at)<35000);
+    const halted=entries.length>0 && entries.every(row=>Number(row.halted)===1);
+    return json({ok:true,schema:"mel.android.windows-presence.v1",observed_at_ms:observedAtMs,
+      known:entries.length>0,online,halted,owner_control_verified:false});
+  } catch {
+    // The Companion table may not exist on a fresh installation.
+    // Fail closed: absence of evidence must not be reported as online.
+    return json({ok:true,schema:"mel.android.windows-presence.v1",observed_at_ms:observedAtMs,
+      known:false,online:false,halted:false,owner_control_verified:false});
+  }
+}
+
 async function companionDevices(env) {
   try {
     const rows = await env.DB.prepare(`SELECT t.device_id,t.model,t.last_seen_at,t.revoked_at,
@@ -390,6 +413,7 @@ export async function maybeHandleAndroidCompanionApi(request,env) {
 
   if (url.pathname === ANDROID_API_BASE+"/heartbeat" && request.method === "POST") return heartbeat(request,env,auth);
   if (url.pathname === ANDROID_API_BASE+"/companions" && request.method === "GET") return companionDevices(env);
+  if (url.pathname === ANDROID_API_BASE+"/windows-presence" && request.method === "GET") return windowsPresence(env);
   if (url.pathname === ANDROID_API_BASE+"/chat" && request.method === "POST") return deviceChat(request,env,auth);
   if (url.pathname === ANDROID_API_BASE+"/sync" && request.method === "GET") return syncMessages(request,env,auth,url);
   if (url.pathname === ANDROID_API_BASE+"/sync/ack" && request.method === "POST") return ackMessages(request,env,auth);
