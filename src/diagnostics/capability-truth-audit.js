@@ -50,12 +50,6 @@ const SAFE_SAMPLES = Object.freeze({
       runtime: { contract_ids: ['runtime'], current_adapter_ids: ['runtime-local'] },
     },
   },
-  // Pure plan compilation: no Work execution, persistence or provider calls.
-  'work.plan': {
-    id: 'audit-work-plan-preview',
-    goal: 'Compile a harmless one-step DAG without executing it',
-    steps: [{ id: 'preview', capability: 'echo', input: { value: 'audit' }, idempotent: true }],
-  },
   'roadmap.read': {},
   'system.bindings': {},
   'chatgpt.archive.preview': { archive: { conversations: [] } },
