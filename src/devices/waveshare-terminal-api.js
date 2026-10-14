@@ -3,6 +3,8 @@ import { createGen2Runtime } from "../core/orchestrator/gen2-runtime.js";
 import { handleNativeChat } from "../api/native-chat.js";
 import { handleVoiceTranscription } from "../api/voice-transcribe.js";
 
+import {readLinkedAndroidActivity} from "./mini-linked-android-phase.js";
+
 export const WAVESHARE_TERMINAL_MODEL = "waveshare-esp32-s3-touch-lcd-3.5-c";
 export const WAVESHARE_TERMINAL_API = "/api/device/v1";
 export const WAVESHARE_TERMINAL_PROTOCOL = "1.0";
@@ -638,6 +640,7 @@ export async function maybeHandleWaveshareTerminalApi(request, env) {
     return json({ ok: true, device_id: auth.deviceId, ...(await loadManifest(env, url.origin)) });
   }
   if (url.pathname === WAVESHARE_TERMINAL_API + "/heartbeat" && request.method === "POST") return updateHeartbeat(request, env, auth);
+  if (url.pathname === WAVESHARE_TERMINAL_API + "/triad-activity" && request.method === "GET") return json(await readLinkedAndroidActivity(env,auth.deviceId));
   if (url.pathname === WAVESHARE_TERMINAL_API + "/chat" && request.method === "POST") return deviceChat(request, env, auth);
   if (url.pathname === WAVESHARE_TERMINAL_API + "/voice/transcribe" && request.method === "POST") return deviceVoice(request, env, auth);
   if (url.pathname === WAVESHARE_TERMINAL_API + "/voice/tts" && request.method === "POST") return deviceTts(request, env, auth);
