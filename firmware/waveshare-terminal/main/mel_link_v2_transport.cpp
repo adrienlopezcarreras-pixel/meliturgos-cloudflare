@@ -198,6 +198,12 @@ static void rx_frame(const uint8_t *frame, size_t len, void *ctx) {
             ESP_LOGW(TAG, "TRIAD_PHASE rejected: malformed payload");
             return;
         }
+        // Match the currently negotiated generation before any possible phase use.
+        // Until a real authenticated opt-in exists, this remains fail-closed.
+        if (!g_phase_capability.permits(candidate.session_generation, g_session_ready.load())) {
+            ESP_LOGW(TAG, "TRIAD_PHASE rejected: generation not granted for this session");
+            return;
+        }
         // Valid syntax and a Link V2 SESSION are NOT opt-in to triad_phase_v1.
         // Do not accept, ACK or display this frame until capability binding,
         // replay protection and expiry handling are deployed together.
