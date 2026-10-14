@@ -43,7 +43,7 @@ export function createTriadObserver(startMs=Date.now(), freshnessMs=30_000) {
       if (!Number.isSafeInteger(atMs) || atMs<startMs) throw new Error("TRIAD_SNAPSHOT_TIME");
       const current=[...devices.values()].map(device=>{
         const last=observedAt.get(device.kind);
-        return last!==undefined && atMs-last>freshnessMs
+        return last!==undefined && (last>atMs || atMs-last>freshnessMs)
           ? {...device,stage:"DEGRADED",protocolReady:false,sessionAckVerified:false,authorized:false}
           : device;
       });
