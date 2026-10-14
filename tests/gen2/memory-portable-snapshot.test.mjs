@@ -92,6 +92,44 @@ test('bounded export declares truncation instead of silently claiming completene
   assert.equal(verification.complete, false);
 });
 
+test('memory.export refuses missing collections instead of manufacturing a complete empty archive', async () => {
+  const db = sqliteD1();
+  try {
+    await db.prepare('CREATE TABLE memories (id INTEGER PRIMARY KEY, content TEXT)').run();
+    const bus = new CapabilityBus();
+    registerMemoryCompatibilityCapabilities(bus, { DB: db });
+    await assert.rejects(
+      () => bus.execute('memory.export', {}, { owner: 'audit', permissions: [] }),
+      error => error.code === 'MEMORY_EXPORT_SOURCE_READ_FAILED' && error.status === 503,
+    );
+  } finally {
+    db.close();
+  }
+});
+
+test('memory.export fails closed when a D1 count fails but rows are readable', async () => {
+  const db = sqliteD1();
+  try {
+    for (const table of ['memories', 'conversations', 'archive_messages']) {
+      await db.prepare(`CREATE TABLE ${table} (id TEXT PRIMARY KEY, content TEXT)`).run();
+    }
+    const broken = {
+      prepare(sql) {
+        if (sql.includes('COUNT(*)') && sql.includes('conversations')) throw new Error('simulated transient D1 failure');
+        return db.prepare(sql);
+      },
+    };
+    const bus = new CapabilityBus();
+    registerMemoryCompatibilityCapabilities(bus, { DB: broken });
+    await assert.rejects(
+      () => bus.execute('memory.export', {}, { owner: 'audit', permissions: [] }),
+      error => error.code === 'MEMORY_EXPORT_SOURCE_READ_FAILED' && error.status === 503,
+    );
+  } finally {
+    db.close();
+  }
+});
+
 test('memory.export capability returns manifest and memory.export.verify validates it', async () => {
   const db = sqliteD1();
   try {
