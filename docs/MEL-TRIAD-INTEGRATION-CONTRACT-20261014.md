@@ -58,3 +58,7 @@ Ce document est un point de coordination. Les capacités non démontrées resten
 ## États d'interface et animation livrés comme contrat
 
 `src/devices/triad-presentation-contract.js` expose des libellés français, un état d'animation d'avatar et un indicateur d'affichage du microphone pour chaque état conversationnel. `triadReadinessPresentation()` distingue explicitement **connecté** de **vérifié**. Ce module est pur : aucun appel réseau, BLE ni commande PC. Il reste à le raccorder aux trois moteurs d'interface natifs.
+
+## Projection commune en lecture seule
+
+Le module `src/devices/triad-snapshot-projection.js` transforme un état conversationnel et les trois états d'appareil en un instantané `mel.triad.presentation.v1` commun. La projection refuse les appareils absents/dupliqués et les déclarations « vérifié » sans preuve de session MINI ou autorisation Companion. L'expiration rend la conversation inactive; un simple ACK BLE ne suffit pas. Ce modèle ne publie pas de messages et n'ouvre ni microphone ni canal PC : les adaptateurs natifs doivent encore l'utiliser.
