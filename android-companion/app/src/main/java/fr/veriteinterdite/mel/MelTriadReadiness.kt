@@ -15,7 +15,8 @@ internal data class MelTriadReadiness(
 
 internal fun triadReadiness(
     androidSession: SessionStage,
-    mini: MelMiniReadiness
+    mini: MelMiniReadiness,
+    windowsPresence: MelWindowsPresence = MelWindowsPresence()
 ): MelTriadReadiness = MelTriadReadiness(
     androidLabel = when (androidSession) {
         SessionStage.CONNECTED -> "Android · session MEL vérifiée"
@@ -33,6 +34,12 @@ internal fun triadReadiness(
     miniVerified = mini.linkV2Verified,
     // Companion PC authorizations are only verifiable by the owner's local
     // Windows control plane. The Android MINI list does not contain that proof.
-    windowsLabel = "Windows · autorisation locale non vérifiée depuis Android",
+    windowsLabel = when {
+        androidSession != SessionStage.CONNECTED -> "Windows · état indisponible sans session Android"
+        windowsPresence.halted -> "Windows · HALT actif · contrôle non vérifié"
+        windowsPresence.online -> "Windows · en ligne · contrôle local non vérifié"
+        windowsPresence.known -> "Windows · hors ligne"
+        else -> "Windows · disponibilité inconnue"
+    },
     windowsVerified = false
 )

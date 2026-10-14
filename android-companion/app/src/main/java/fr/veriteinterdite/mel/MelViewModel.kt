@@ -48,6 +48,12 @@ data class MelCompanionDevice(
     val speaker: Boolean?
 )
 
+data class MelWindowsPresence(
+    val known: Boolean = false,
+    val online: Boolean = false,
+    val halted: Boolean = false
+)
+
 data class MelUiState(
     val session: SessionStage = SessionStage.DISCONNECTED,
     val mode: MelMode = MelMode.NORMAL,
@@ -57,6 +63,7 @@ data class MelUiState(
     val error: String? = null,
     val messages: List<MelChatMessage> = emptyList(),
     val companions: List<MelCompanionDevice> = emptyList(),
+    val windowsPresence: MelWindowsPresence = MelWindowsPresence(),
     val companionStatus: String = "",
     val miniPairCode: String? = null,
     val miniPairExpiresAt: Long? = null,
@@ -832,6 +839,16 @@ class MelViewModel(
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 val rows = client.companions()
+                // A Windows heartbeat proves presence, never local execution consent.
+                // Older server deployments lack this endpoint: fail closed to unknown.
+                val windowsData = runCatching { client.windowsPresence() }.getOrNull()
+                    ?.takeIf { it.optBoolean("ok", false) &&
+                        it.optString("schema") == "mel.android.windows-presence.v1" }
+                val windowsPresence = MelWindowsPresence(
+                    known = windowsData?.optBoolean("known", false) == true,
+                    online = windowsData?.optBoolean("online", false) == true,
+                    halted = windowsData?.optBoolean("halted", false) == true
+                )
                 val devices = buildList {
                     for (i in 0 until rows.length()) {
                         val row = rows.getJSONObject(i)
@@ -856,11 +873,13 @@ class MelViewModel(
                 }
                 _state.value = _state.value.copy(
                     companions = devices,
+                    windowsPresence = windowsPresence,
                     companionStatus = if (devices.isEmpty()) "Aucun MINI appairé" else "${devices.size} compagnon(s) détecté(s)"
                 )
             } catch (error: Throwable) {
                 _state.value = _state.value.copy(
                     companionStatus = "Compagnon indisponible",
+                    windowsPresence = MelWindowsPresence(),
                     error = explain(error)
                 )
             }

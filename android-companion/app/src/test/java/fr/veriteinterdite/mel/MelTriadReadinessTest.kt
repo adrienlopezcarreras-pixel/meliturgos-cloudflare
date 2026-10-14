@@ -11,7 +11,7 @@ class MelTriadReadinessTest {
         assertFalse(view.androidVerified)
         assertFalse(view.miniVerified)
         assertFalse(view.windowsVerified)
-        assertTrue(view.windowsLabel.contains("non vérifiée"))
+        assertEquals("Windows · état indisponible sans session Android", view.windowsLabel)
     }
 
     @Test fun loginDoesNotImplyMiniOrWindowsReadiness() {
@@ -39,4 +39,40 @@ class MelTriadReadinessTest {
         assertFalse(view.androidVerified)
         assertTrue(view.miniVerified)
     }
+    @Test fun windowsHeartbeatIndicatesPresenceNotControlApproval() {
+        val view = triadReadiness(
+            SessionStage.CONNECTED,
+            miniReadiness(true, true, true),
+            MelWindowsPresence(known = true, online = true, halted = false)
+        )
+        assertTrue(view.windowsLabel.contains("en ligne"))
+        assertFalse(view.windowsVerified)
+    }
+
+    @Test fun haltAndOfflineRemainDistinct() {
+        val mini = miniReadiness(false, false, false)
+        val halted = triadReadiness(
+            SessionStage.CONNECTED, mini,
+            MelWindowsPresence(known = true, online = false, halted = true)
+        )
+        assertTrue(halted.windowsLabel.contains("HALT"))
+        assertFalse(halted.windowsVerified)
+        val offline = triadReadiness(
+            SessionStage.CONNECTED, mini,
+            MelWindowsPresence(known = true, online = false, halted = false)
+        )
+        assertTrue(offline.windowsLabel.contains("hors ligne"))
+        assertFalse(offline.windowsVerified)
+    }
+
+    @Test fun cachedWindowsOnlineCannotOutliveAndroidSession() {
+        val view = triadReadiness(
+            SessionStage.DISCONNECTED,
+            miniReadiness(true, true, false),
+            MelWindowsPresence(known = true, online = true, halted = false)
+        )
+        assertTrue(view.windowsLabel.contains("indisponible"))
+        assertFalse(view.windowsVerified)
+    }
+
 }
