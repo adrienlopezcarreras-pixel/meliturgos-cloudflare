@@ -375,9 +375,28 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun handleWakeNotificationTap(intent: Intent?) {
+        if (intent?.getBooleanExtra(MelWakeForegroundService.EXTRA_WAKE_NOTIFICATION_TAP, false) != true) return
+        intent.removeExtra(MelWakeForegroundService.EXTRA_WAKE_NOTIFICATION_TAP)
+        if (!::model.isInitialized || model.state.value.session != SessionStage.CONNECTED) {
+            voiceMessage.value = "OK MEL reconnu · connecte-toi pour parler"
+            return
+        }
+        if (recording.value || model.state.value.busy || model.state.value.speaking) return
+        voiceMessage.value = "OK MEL reconnu · conversation active"
+        voiceConversationActive.value = true
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        if (appResumed) handleWakeNotificationTap(intent)
+    }
+
     override fun onResume() {
         super.onResume()
         appResumed = true
+        handleWakeNotificationTap(intent)
         refreshWakeEnrollmentState()
         if (::model.isInitialized) mainHandler.postDelayed({ ensureWakeWordListening() }, 500L)
     }
