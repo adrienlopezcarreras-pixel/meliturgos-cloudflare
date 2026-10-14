@@ -1,6 +1,7 @@
 import {createTriadTurn,advanceTriadTurn} from "./triad-conversation-state.js";
 import {projectTriadSnapshot} from "./triad-snapshot-projection.js";
 import {miniLinkV2Fact,androidSessionFact,windowsCompanionFact} from "./triad-native-signal-adapters.js";
+import {miniLinkV2ClientFlowFact,androidMelUiStateFact,windowsDeviceRecordFact} from "./triad-existing-source-adapters.js";
 
 // Read-only coordinator: no network, microphone, BLE or PC side effects.
 // Native clients supply observed facts; missing evidence is never promoted to VERIFIED.
@@ -20,6 +21,12 @@ export function createTriadObserver(startMs=Date.now(), freshnessMs=30_000) {
       if (kind === "mini") return this.observeDevice(miniLinkV2Fact(signal));
       if (kind === "android") return this.observeDevice(androidSessionFact(signal));
       if (kind === "companion") return this.observeDevice(windowsCompanionFact(signal));
+      throw new Error("TRIAD_NATIVE_SOURCE_INVALID");
+    },
+    observeExistingSource(kind, signal) {
+      if (kind === "mini") return this.observeDevice(miniLinkV2ClientFlowFact(signal));
+      if (kind === "android") return this.observeDevice(androidMelUiStateFact(signal));
+      if (kind === "companion") return this.observeDevice(windowsDeviceRecordFact(signal));
       throw new Error("TRIAD_NATIVE_SOURCE_INVALID");
     },
     observeDevice(fact) {
