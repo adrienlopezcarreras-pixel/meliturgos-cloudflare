@@ -37,6 +37,8 @@ export function validateTerminal(body, jobId) {
   const done = Number(r?.progress?.done || 0);
   const total = Number(r?.progress?.total || 0);
   assert(total > 0 && done === total, 'CAPABILITY_STRESS_PROGRESS_INCOMPLETE');
+  const blocked = Number(r?.summary?.blocked_count || 0);
+  assert(Number.isFinite(blocked) && blocked === 0, 'CAPABILITY_STRESS_BLOCKED_CAPABILITIES:' + blocked);
   assert(r?.report?.persistent === true && String(r?.report?.job_id || '') === String(r?.job_id || ''), 'CAPABILITY_STRESS_REPORT_NOT_DURABLE');
   return r;
 }
