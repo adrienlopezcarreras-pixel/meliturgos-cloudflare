@@ -19,6 +19,12 @@ test('Companion result endpoint accepts only one RUNNING result for the authenti
   const noId=await report({ok:true});
   assert.equal(noId.status,400);
   assert.equal((await noId.json()).code,'COMPUTER_RESULT_ID_REQUIRED');
+  await DB.prepare('INSERT INTO computer_commands(id,device_id,session_id,plan_json,status,created_at) VALUES(?,?,?,?,?,?)').bind('other-device-command','another-pc','session-other','{}','RUNNING',Date.now()).run();
+  const foreign=await report({command_id:'other-device-command',ok:true});
+  assert.equal(foreign.status,409);
+  assert.equal((await foreign.json()).code,'COMPUTER_RESULT_NOT_RUNNING');
+  const foreignRow=await DB.prepare('SELECT status FROM computer_commands WHERE id=?').bind('other-device-command').first();
+  assert.equal(foreignRow.status,'RUNNING');
   const unknown=await report({command_id:'unknown',ok:true});
   assert.equal(unknown.status,409);
   assert.equal((await unknown.json()).code,'COMPUTER_RESULT_NOT_RUNNING');
