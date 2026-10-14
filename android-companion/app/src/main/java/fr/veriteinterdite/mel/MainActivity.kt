@@ -790,6 +790,9 @@ class MainActivity : ComponentActivity() {
     private fun stopWakeWordListening() {
         wakeDetectorStop = true
         wakeListening = false
+        // Interrupt the active detection worker on pause/STOP. The AudioRecord
+        // loop also observes wakeDetectorStop and releases the mic in finally.
+        wakeDetectorThread?.interrupt()
         val recognizer = wakeRecognizer
         wakeRecognizer = null
         if (recognizer != null) {
