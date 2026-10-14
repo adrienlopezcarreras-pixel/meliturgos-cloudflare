@@ -356,6 +356,7 @@ test('Android background heartbeat uses WorkManager without hidden background mi
   assert.match(activity,/onBackgroundWakeDisable = ::disableBackgroundWake/);
   assert.match(activity,/wake-background-enable/);
   assert.match(activity,/wake-background-disable/);
+  assert.match(activity,/private fun enableBackgroundWake\(\) \{[\s\S]*?Manifest\.permission\.POST_NOTIFICATIONS[\s\S]*?stopWakeWordListening\(\)/);
   assert.match(activity,/ContextCompat\.startForegroundService\(this, intent\)/);
   assert.match(activity,/stopService\(Intent\(this, MelWakeForegroundService::class\.java\)\)/);
 
