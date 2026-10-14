@@ -1,0 +1,38 @@
+package fr.veriteinterdite.mel
+
+/**
+ * Presentation-only evidence snapshot for the three MEL clients.
+ * A phone cannot infer Windows owner approval from MINI pairing or MEL login.
+ */
+internal data class MelTriadReadiness(
+    val androidLabel: String,
+    val androidVerified: Boolean,
+    val miniLabel: String,
+    val miniVerified: Boolean,
+    val windowsLabel: String,
+    val windowsVerified: Boolean
+)
+
+internal fun triadReadiness(
+    androidSession: SessionStage,
+    mini: MelMiniReadiness
+): MelTriadReadiness = MelTriadReadiness(
+    androidLabel = when (androidSession) {
+        SessionStage.CONNECTED -> "Android · session MEL vérifiée"
+        SessionStage.VERIFYING -> "Android · vérification en cours"
+        SessionStage.ERROR -> "Android · connexion en erreur"
+        SessionStage.DISCONNECTED -> "Android · non connecté"
+    },
+    androidVerified = androidSession == SessionStage.CONNECTED,
+    miniLabel = when {
+        mini.melInternetVerified -> "MINI · session et Internet vérifiés"
+        mini.linkV2Verified -> "MINI · Link V2 vérifié"
+        mini.bleConnected -> "MINI · Bluetooth uniquement"
+        else -> "MINI · déconnectée"
+    },
+    miniVerified = mini.linkV2Verified,
+    // Companion PC authorizations are only verifiable by the owner's local
+    // Windows control plane. The Android MINI list does not contain that proof.
+    windowsLabel = "Windows · autorisation locale non vérifiée depuis Android",
+    windowsVerified = false
+)
