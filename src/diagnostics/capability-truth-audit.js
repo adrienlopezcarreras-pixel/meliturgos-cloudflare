@@ -89,9 +89,13 @@ const SAFE_SAMPLES = Object.freeze({
     const head = await sampleRead(runtime, context, 'evolution.ledger.verify', { limit: 1 });
     if (head?.ok === true && Number(head?.count) <= 1) return { limit: 1 };
     if (head?.code !== 'EVOLUTION_LEDGER_VERIFY_LIMIT_EXCEEDED') {
-      // Real corruption, auth errors or unknown responses must never become a
-      // green fixture. Keep them visible in the specialized ledger proof.
-      return undefined;
+      // For zero/one row, the count probe already checked the full chain.
+      // A corrupted short ledger MUST still be executed and classified as
+      // failed, not converted into an unverified-but-harmless fixture.
+      const count=Number(head?.count);
+      return Number.isSafeInteger(count) && count >= 0 && count <= 1
+        ? { limit: 1 }
+        : undefined;
     }
     const count = Number(head?.count);
     return Number.isSafeInteger(count) && count > 1 && count <= 50
