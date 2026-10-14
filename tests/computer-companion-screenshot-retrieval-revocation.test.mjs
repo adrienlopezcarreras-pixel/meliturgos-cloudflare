@@ -39,6 +39,13 @@ test('owner screenshot GET honors per-device HALT, prior opt-in, and full revoke
   assert.equal(response.headers.get('cache-control'),'no-store');
   assert.deepEqual(new Uint8Array(await response.arrayBuffer()),png);
   assert.deepEqual(reads,[key]);
+  await DB.prepare('UPDATE computer_devices SET metadata=? WHERE id=?').bind('{}','screen-pc').run();
+  const noGrant=await invoke(query);
+  assert.equal(noGrant.status,409);
+  assert.equal((await noGrant.json()).code,'SCREENSHOT_LOCAL_ACCESS_REVOKED');
+  assert.equal(reads.length,1);
+  await DB.prepare('UPDATE computer_devices SET metadata=? WHERE id=?')
+   .bind(JSON.stringify({remote_access_enabled:true}),'screen-pc').run();
 
   await DB.prepare("UPDATE computer_devices SET halted=1 WHERE id=?").bind('screen-pc').run();
   response=await invoke(query);
@@ -85,6 +92,8 @@ test('consented desktop view image expires and cannot be retrieved after failed 
    session_id:'session-123',expires_at:Date.now()+120000};
   await DB.prepare("INSERT INTO computer_commands(id,device_id,session_id,plan_json,status,created_at) VALUES(?,?,?,?,?,?)")
    .bind('view-cmd','desktop-pc','session-123',JSON.stringify(plan),'SUCCEEDED',Date.now()).run();
+  await DB.prepare('UPDATE computer_devices SET metadata=? WHERE id=?')
+   .bind(JSON.stringify({remote_access_enabled:true}),'desktop-pc').run();
   const key='computer/screenshots/desktop-pc/view-cmd.png';
   assert.equal((await get(key)).status,200);
   assert.equal(reads,1);
