@@ -13,6 +13,12 @@ import { exportD1 } from './d1-export.mjs';
 
 const SYSTEM_BACKUP_PREFIX = 'backups/system/';
 const MAX_R2_PAGES = 1000;
+const SIDECAR_REQUEST_TIMEOUT_MS = 30_000;
+const WRANGLER_ATTEMPT_TIMEOUT_MS = 180_000;
+
+function reportProgress(stage, details = '') {
+  process.stderr.write(`[predeploy-backup] ${stage}${details ? ` ${details}` : ''}\n`);
+}
 
 function required(name) {
   const value = String(process.env[name] || '').trim();
@@ -31,6 +37,7 @@ async function sidecarJson({ baseUrl, token }, path, init = {}, { attempts = 12 
       const url = new URL(path, baseUrl);
       const response = await fetch(url, {
         ...init,
+        signal: AbortSignal.timeout(SIDECAR_REQUEST_TIMEOUT_MS),
         headers: {
           ...(init.headers || {}),
           'x-mel-predeploy-backup-refresh': token,
@@ -112,12 +119,14 @@ function runWrangler(args, { attempts = 1 } = {}) {
       encoding: 'utf8',
       env: process.env,
       maxBuffer: 32 * 1024 * 1024,
+      timeout: WRANGLER_ATTEMPT_TIMEOUT_MS,
+      killSignal: 'SIGTERM',
     });
     last = result;
     if (result.status === 0) return result;
 
-    const detail = String(result.stderr || result.stdout || '').replace(/\s+/g, ' ').trim();
-    const transient = WRANGLER_TRANSIENT_RE.test(detail);
+    const detail = String(result.stderr || result.stdout || result.error?.message || '').replace(/\s+/g, ' ').trim();
+    const transient = WRANGLER_TRANSIENT_RE.test(detail) || result.error?.code === 'ETIMEDOUT';
     if (!transient || attempt >= attempts) {
       throw new Error(`WRANGLER_FAILED:${args.slice(0, 4).join(':')}:${detail.slice(0, 500)}`);
     }
@@ -155,8 +164,18 @@ async function createBackup() {
   const workdir = await mkdtemp(join(tmpdir(), 'mel-predeploy-backup-'));
 
   const sources = {
-    database: () => exportD1(sidecar, sidecarJson),
-    r2_inventory: () => fetchInventory(sidecar),
+    database: async () => {
+      reportProgress('d1-export:start');
+      const data = await exportD1(sidecar, sidecarJson);
+      reportProgress('d1-export:complete');
+      return data;
+    },
+    r2_inventory: async () => {
+      reportProgress('r2-inventory:start');
+      const data = await fetchInventory(sidecar);
+      reportProgress('r2-inventory:complete', `objects=${data.objectCount}`);
+      return data;
+    },
     runtime: async () => ({
       type: 'MEL_RUNTIME_DESCRIPTOR_V1',
       appVersion: APP_VERSION,
@@ -184,12 +203,14 @@ async function createBackup() {
       const payload = JSON.stringify(envelope);
       await writeFile(uploadPath, payload, 'utf8');
 
+      reportProgress('encrypted-r2-upload:start');
       runWrangler([
         'r2', 'object', 'put', `${bucketName}/${objectKey}`,
         '--file', uploadPath,
         '--content-type', 'application/json; charset=utf-8',
         '--remote',
       ], { attempts: 6 });
+      reportProgress('encrypted-r2-upload:complete');
 
       try {
         runWrangler([
@@ -197,6 +218,7 @@ async function createBackup() {
           '--file', verifyPath,
           '--remote',
         ], { attempts: 6 });
+        reportProgress('encrypted-r2-download:complete');
         const downloaded = await readFile(verifyPath, 'utf8');
         if (downloaded !== payload) throw new Error('BACKUP_R2_ROUNDTRIP_MISMATCH');
 
@@ -218,12 +240,14 @@ async function createBackup() {
           restoreRowCount: Number(restoreProof?.database?.rowCount || 0),
           restoreR2ObjectCount: Number(restoreProof?.r2?.objectCount || 0),
         };
+        reportProgress('metadata-registration:start');
         const registration = await registerMetadata(sidecar, {
           id: snapshot.id,
           object_key: objectKey,
           metadata,
           created_at: Date.parse(snapshot.createdAt) || Date.now(),
         });
+        reportProgress('metadata-registration:complete');
         persisted = {
           id: snapshot.id,
           objectKey,
@@ -244,7 +268,9 @@ async function createBackup() {
 
   try {
     const service = createVerifiedBackupService({ sources, storage, now: () => now });
+    reportProgress('verified-backup:start');
     const created = await service.create({ id }, { requestId: `predeploy-runner:${now}` });
+    reportProgress('verified-backup:complete');
     if (!persisted || persisted.id !== created.id) throw new Error('BACKUP_PERSISTENCE_NOT_CONFIRMED');
     if (!/^[0-9a-f]{64}$/.test(String(created.integritySha256 || '').toLowerCase())) {
       throw new Error('BACKUP_INTEGRITY_INVALID');
