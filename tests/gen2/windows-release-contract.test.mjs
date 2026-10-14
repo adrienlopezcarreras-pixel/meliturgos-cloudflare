@@ -74,7 +74,7 @@ test('native Windows Companion refreshes only its authenticated MEL engine with 
   assert.match(source, /engine_refresh_status/);
   assert.match(source, /engine_update_required/);
   assert.match(source, /MaybeRefreshCompanionEngine\(true\)/);
-  assert.match(source, /public const string Version = "2\.3\.13"/);
+  assert.match(source, /public const string Version = "2\.3\.14"/);
   assert.match(source, /StartBackgroundSupervisor/);
   assert.match(source, /System\.Threading\.Timer/);
 });
