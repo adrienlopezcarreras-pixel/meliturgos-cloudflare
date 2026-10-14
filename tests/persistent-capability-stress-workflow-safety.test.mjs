@@ -27,8 +27,8 @@ test('contract-only tests are not represented as proof of production stress',()=
 
 test('stress script can use separately authorized immutable parallel proof token without Cloudflare secret writes',()=>{
   const runner=readFileSync('scripts/persistent-capability-stress-live-proof.mjs','utf8');
-  assert.match(runner,/MEL_PARALLEL_PROOF_TOKEN/);
-  assert.match(runner,/x-mel-parallel-proof/);
+  assert.match(runner,/MEL_STRESS_PROOF_TOKEN/);
+  assert.match(runner,/x-mel-stress-proof/);
   assert.match(runner,/CAPABILITY_STRESS_AMBIGUOUS_AUTHORIZATION/);
   assert.doesNotMatch(runner,/wrangler\\s+secret\\s+(put|delete)/);
   // The production job still fails closed until authorization is proven.
@@ -37,8 +37,8 @@ test('stress script can use separately authorized immutable parallel proof token
 
 test('standalone stress runner supports isolated parallel-proof credential without exposing it',()=>{
   const runner=readFileSync('scripts/persistent-capability-stress-live-proof.mjs','utf8');
-  assert.match(runner,/MEL_PARALLEL_PROOF_TOKEN/);
-  assert.match(runner,/x-mel-parallel-proof/);
+  assert.match(runner,/MEL_STRESS_PROOF_TOKEN/);
+  assert.match(runner,/x-mel-stress-proof/);
   assert.match(runner,/CAPABILITY_STRESS_AMBIGUOUS_AUTHORIZATION/);
   assert.doesNotMatch(runner,/console\.log\([^\n]*PARALLEL_PROOF_TOKEN/);
   // Separate approval and runtime route checks are mandatory before enabling production-proof.
