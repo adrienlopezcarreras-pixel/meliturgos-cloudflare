@@ -213,11 +213,14 @@ function Active-Window {
 }
 
 function Send-Heartbeat {
+  # Advertise the currently persisted owner switch, not its startup value.
+  $remoteEnabled = $false
+  try { Assert-LocalRemoteAccess; $remoteEnabled = $true } catch {}
   $bounds = [System.Windows.Forms.SystemInformation]::VirtualScreen
   $body = @{
     engine_version = $Version
     engine_heartbeat_at = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
-    remote_access_enabled = ($config.remote_access_enabled -eq $true)
+    remote_access_enabled = $remoteEnabled
     hostname = $env:COMPUTERNAME
     user = $env:USERNAME
     screen = @{ x=$bounds.X; y=$bounds.Y; width=$bounds.Width; height=$bounds.Height }
@@ -2153,9 +2156,8 @@ function Process-Command($command) {
           $command.plan.requires_local_stop -ne $true -or
           [string]$command.plan.device_id -ne $ComputerId -or
           [string]$command.plan.session_id -eq '') { throw 'DESKTOP_VIEW_PLAN_INVALID' }
-      if (-not [Environment]::UserInteractive -or $config.remote_access_enabled -ne $true) {
-        throw 'DESKTOP_VIEW_LOCAL_UI_UNAVAILABLE'
-      }
+      if (-not [Environment]::UserInteractive) { throw 'DESKTOP_VIEW_LOCAL_UI_UNAVAILABLE' }
+      Assert-LocalRemoteAccess
       $expiry = [long]$command.plan.expires_at
       $now = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
       if ($expiry -le $now -or $expiry -gt ($now + 300000)) { throw 'DESKTOP_VIEW_CONSENT_EXPIRED' }
