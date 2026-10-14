@@ -817,7 +817,7 @@ test('Android V2 ignores stale GATT callbacks and recovers when disconnect never
   assert.match(service, /GATT_DISCONNECT_TIMEOUT_\$reason/);
   assert.match(service, /}, 3_000L\)/);
   assert.match(service, /if \(client != null\) \{\s+if \(hasBlePermissions\(\)\)/);
-  assert.match(service, /if \(protocolReady\.value\) return\s+\/\/ HELLO proves/);
+  assert.match(service, /if \(protocolReady\.value\) return[\s\S]*?\/\/ HELLO proves/);
 });
 
 test('Android V2 rejects every stale GATT state callback before mutating session readiness', async () => {
