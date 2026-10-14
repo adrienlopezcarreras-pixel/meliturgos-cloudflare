@@ -386,3 +386,51 @@ test('coverage marks full runtime execution only when every capability was genui
       contracts: { inspected: 2, valid: 2, invalid: 0 } },
   }), /CAPABILITY_COVERAGE_COUNTS_INVALID/);
 });
+
+test('persistent runtime coverage explains unverified rows using sanitized aggregate blocker codes', () => {
+  const coverage = summarizeStressCoverage({
+    progress: { total: 4 },
+    report: {
+      counts: { EXISTANT_ET_TESTE: 1, EXISTANT_NON_TESTE: 2, PARTIEL: 1 },
+      contracts: { inspected: 4, valid: 4, invalid: 0 },
+      capabilities: [
+        { id: 'safe.tested', truth_status: 'EXISTANT_ET_TESTE', auto_execution_blocked: null },
+        { id: 'risk.private', truth_status: 'EXISTANT_NON_TESTE', auto_execution_blocked: 'RISK_NOT_LOW' },
+        { id: 'cloudflare.secret', truth_status: 'EXISTANT_NON_TESTE', auto_execution_blocked: 'UNKNOWN_OR_EXTERNAL_COST' },
+        { id: 'bad.user.text', truth_status: 'PARTIEL', auto_execution_blocked: 'SAMPLE_PREPARATION_FAILED:SECRET_VALUE_NEVER_EXPOSE' },
+      ],
+    },
+  });
+  assert.equal(coverage.runtime_tested, 1);
+  assert.equal(coverage.runtime_unverified, 3);
+  assert.equal(coverage.reason_breakdown_available, true);
+  assert.deepEqual(coverage.runtime_unverified_reasons, {
+    RISK_NOT_LOW: 1,
+    SAMPLE_PREPARATION_FAILED: 1,
+    UNKNOWN_OR_EXTERNAL_COST: 1,
+  });
+  assert.doesNotMatch(JSON.stringify(coverage), /secret|private|SECRET_VALUE_NEVER_EXPOSE/i);
+});
+
+test('runtime blocker breakdown remains absent when persistent row data are unavailable', () => {
+  const coverage = summarizeStressCoverage({
+    progress: { total: 2 },
+    report: { counts: { EXISTANT_ET_TESTE: 1, PARTIEL: 1 },
+      contracts: { inspected: 2, valid: 2, invalid: 0 } },
+  });
+  assert.equal(coverage.reason_breakdown_available, false);
+  assert.equal(coverage.runtime_unverified_reasons, null);
+});
+
+test('runtime blocker breakdown rejects stale or contradictory row evidence', () => {
+  const base = {
+    progress: { total: 2 },
+    report: { counts: { EXISTANT_ET_TESTE: 1, PARTIEL: 1 },
+      contracts: { inspected: 2, valid: 2, invalid: 0 },
+      capabilities: [
+        { truth_status: 'EXISTANT_NON_TESTE', auto_execution_blocked: 'NO_BOUNDED_SAMPLE' },
+        { truth_status: 'PARTIEL', auto_execution_blocked: 'RISK_NOT_LOW' },
+      ] },
+  };
+  assert.throws(() => summarizeStressCoverage(base), /CAPABILITY_COVERAGE_EXECUTION_COUNT_MISMATCH/);
+});
