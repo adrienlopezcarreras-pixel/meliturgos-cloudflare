@@ -709,3 +709,36 @@ test('bounded Work introspection fixtures permit real low-risk audit execution',
   assert.deepEqual(calls.map(x=>x.input),[{limit:1},{limit:1}]);
   assert.equal(report.counts.EXISTANT_ET_TESTE,2);
 });
+
+test('deep audit treats explicitly unsuccessful resolved output as a runtime failure', async () => {
+  const records = [
+    { id:'returned-failure', name:'Returned failure', category:'test', provider:'core', risk:'LOW', enabled:true, health:'HEALTHY' },
+    { id:'successful', name:'Successful', category:'test', provider:'core', risk:'LOW', enabled:true, health:'HEALTHY' },
+    { id:'without-ok', name:'Legitimate read', category:'test', provider:'core', risk:'LOW', enabled:true, health:'HEALTHY' },
+  ];
+  const bus = {
+    list: () => records,
+    contract: () => ({ valid:true }),
+    execute: async id => id === 'returned-failure'
+      ? { ok:false, error:'private provider message must not leak' }
+      : id === 'successful' ? { ok:true } : { items:[] },
+  };
+  const report = await auditRuntimeCapabilities({ bus }, {
+    deep:true, samples:{
+      'returned-failure':{}, successful:{}, 'without-ok':{},
+    },
+  });
+  const failed=report.capabilities.find(row=>row.id==='returned-failure');
+  const succeeded=report.capabilities.find(row=>row.id==='successful');
+  const noOk=report.capabilities.find(row=>row.id==='without-ok');
+  assert.equal(failed.tested_now,true);
+  assert.equal(failed.execution.ok,false);
+  assert.equal(failed.execution.code,'CAPABILITY_RETURNED_NOT_OK');
+  assert.equal(failed.truth_status,'EXISTANT_MAIS_ECHEC_RUNTIME');
+  assert.equal(succeeded.execution.ok,true);
+  assert.equal(succeeded.truth_status,'EXISTANT_ET_TESTE');
+  assert.equal(noOk.execution.ok,true);
+  assert.equal(noOk.truth_status,'EXISTANT_ET_TESTE');
+  assert.deepEqual(report.counts,{EXISTANT_MAIS_ECHEC_RUNTIME:1,EXISTANT_ET_TESTE:2});
+  assert.doesNotMatch(JSON.stringify(failed),/private provider message/);
+});
