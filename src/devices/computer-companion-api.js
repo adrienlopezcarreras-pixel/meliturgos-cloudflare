@@ -482,6 +482,34 @@ async function result(request,env,a){
  const b=await request.json().catch(()=>({}));
  const id=safe(b.command_id);
  if(!id)return json({ok:false,code:"COMPUTER_RESULT_ID_REQUIRED"},400);
+ if(b.ok===true){
+  const current=await env.DB.prepare("SELECT status,plan_json FROM computer_commands WHERE id=? AND device_id=? LIMIT 1").bind(id,a.device.id).first();
+  if(!current||current.status!=="RUNNING")return json({ok:false,code:"COMPUTER_RESULT_NOT_RUNNING"},409);
+  const plan=parse(current.plan_json,{});
+  if(plan.schema==="mel.companion.desktop-view-request/v1"||plan.action==="desktop.view.request"){
+   // A device may only mark a one-shot desktop view as succeeded if the image
+   // actually reached R2 under the exact device/command key.
+   const device=await env.DB.prepare("SELECT halted FROM computer_devices WHERE id=? LIMIT 1").bind(a.device.id).first();
+   if(!device||Number(device.halted)===1||plan.schema!=="mel.companion.desktop-view-request/v1"||
+      plan.action!=="desktop.view.request"||plan.screen_capture_only!==true||
+      plan.device_id!==a.device.id||!Number.isFinite(Number(plan.expires_at))||
+      Number(plan.expires_at)<=Date.now())
+    return json({ok:false,code:"SCREENSHOT_RESULT_AUTH_INVALID"},409);
+   const key=`computer/screenshots/${a.device.id.replace(/[^A-Za-z0-9_.-]/g,"_")}/${id.replace(/[^A-Za-z0-9_.-]/g,"_")}.png`;
+   const expectedUrl=`${new URL(request.url).origin}${COMPUTER_API_BASE}/screenshot?key=${encodeURIComponent(key)}`;
+   const outputs=b.result?.outputs;
+   if(!Array.isArray(outputs)||outputs.length!==1||b.result?.capture_count!==1||
+      outputs[0]?.action!=="desktop.view.request"||outputs[0]?.screenshot_key!==key||
+      outputs[0]?.view_url!==expectedUrl)
+    return json({ok:false,code:"SCREENSHOT_RESULT_PROOF_INVALID"},409);
+   if(typeof env?.MEDIA_BUCKET?.head!=="function")
+    return json({ok:false,code:"SCREENSHOT_RESULT_STORAGE_UNAVAILABLE"},503);
+   let image;
+   try{image=await env.MEDIA_BUCKET.head(key)}catch{return json({ok:false,code:"SCREENSHOT_RESULT_STORAGE_UNAVAILABLE"},503)}
+   if(!image||Number(image.size)<=0)
+    return json({ok:false,code:"SCREENSHOT_RESULT_IMAGE_MISSING"},409);
+  }
+ }
  const update=await env.DB.prepare("UPDATE computer_commands SET status=?,finished_at=?,result_json=?,error_code=? WHERE id=? AND device_id=? AND status=?")
   .bind(b.ok===true?"SUCCEEDED":"FAILED",Date.now(),JSON.stringify(b.result??null),b.error_code?safe(b.error_code):null,id,a.device.id,"RUNNING").run();
  if(!update||update.success===false||Number(update.meta?.changes)!==1)
