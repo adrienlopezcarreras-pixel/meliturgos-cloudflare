@@ -103,6 +103,10 @@ jobs:
         shell: pwsh
         run: ./tests/windows-companion-png-payload.ps1
 
+      - name: Prove unattended opt-in and immediate local revocation on Windows
+        shell: pwsh
+        run: ./tests/windows-companion-unattended-access.ps1
+
       - name: Require signing secrets for signed release
         if: env.SIGNED_RELEASE == 'true'
         shell: pwsh
