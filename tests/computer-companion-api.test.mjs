@@ -332,8 +332,8 @@ test('Windows Companion 2.3.13 watchdogs and self-refreshes the engine for local
   assert.match(desktop,/System\.Threading\.Timer/);
   assert.match(companion,/\$Version = "1\.4\.1"/);
   // Heartbeat must report the current on-disk owner switch, not a cached startup flag.
-  assert.match(companion,/remote_access_enabled\\s*=\\s*\\$remoteEnabled/);
-  assert.match(companion,/try \\{ Assert-LocalRemoteAccess; \\$remoteEnabled = \\$true \\} catch \\{\\}/);
+  assert.match(companion,/remote_access_enabled\s*=\s*\$remoteEnabled/);
+  assert.match(companion,/try \{ Assert-LocalRemoteAccess; \$remoteEnabled = \$true \} catch \{\}/);
   assert.match(companion,/engine_heartbeat_at/);
   assert.match(companion,/function Perform-SovereigntyRuntime/);
   assert.match(companion,/sovereignty\.runtime\./);
