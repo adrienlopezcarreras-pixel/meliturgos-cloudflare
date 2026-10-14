@@ -1,0 +1,19 @@
+name: Windows Native Triad Phase Contract
+on:
+  pull_request:
+    paths:
+      - 'windows-companion/MEL-Companion.cs'
+      - 'tests/windows-native-triad-phase-label.test.mjs'
+      - '.github/workflows/windows-native-triad-phase-contract.yml'
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node --test tests/windows-native-triad-phase-label.test.mjs tests/companion-triad-activity-readonly.test.mjs
