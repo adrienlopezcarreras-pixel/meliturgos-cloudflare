@@ -178,6 +178,14 @@ test('predeploy refresh creates the backup on the GitHub runner and keeps the Wo
   assert.match(runner, /'r2', 'object', 'get'/);
   assert.match(runner, /PREDEPLOY_BACKUP_REFRESH_CREATED/);
 
+  // The backup must report safe stage progress and bound network subprocesses.
+  assert.match(runner, /signal: AbortSignal\.timeout\(SIDECAR_REQUEST_TIMEOUT_MS\)/);
+  assert.match(runner, /timeout: WRANGLER_ATTEMPT_TIMEOUT_MS/);
+  assert.match(runner, /result\.error\?\.code === 'ETIMEDOUT'/);
+  assert.match(runner, /reportProgress\('d1-export:start'\)/);
+  assert.match(runner, /reportProgress\('r2-inventory:start'\)/);
+  assert.match(runner, /reportProgress\('verified-backup:complete'\)/);
+
   const binderEnd = source.indexOf('      - name: Prepare encrypted Media Vault secrets for exact deployment', binder);
   const binderBlock = source.slice(binder, binderEnd);
   assert.match(binderBlock, /mel-pdb-\$\{GITHUB_RUN_ID\}-\$\{GITHUB_RUN_ATTEMPT\}/);
