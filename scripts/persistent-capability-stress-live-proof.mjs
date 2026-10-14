@@ -40,6 +40,12 @@ export function validateTerminal(body, jobId) {
   const blocked = Number(r?.summary?.blocked_count || 0);
   assert(Number.isFinite(blocked) && blocked === 0, 'CAPABILITY_STRESS_BLOCKED_CAPABILITIES:' + blocked);
   assert(r?.report?.persistent === true && String(r?.report?.job_id || '') === String(r?.job_id || ''), 'CAPABILITY_STRESS_REPORT_NOT_DURABLE');
+  // A completed cursor alone does not prove every capability has a distinct report row.
+  const rows = r?.report?.capabilities;
+  assert(Array.isArray(rows) && rows.length === total, 'CAPABILITY_STRESS_REPORT_COVERAGE_INCOMPLETE');
+  const ids = rows.map(row => String(row?.id || ''));
+  assert(ids.every(Boolean) && new Set(ids).size === total, 'CAPABILITY_STRESS_REPORT_IDS_INVALID');
+
   return r;
 }
 
