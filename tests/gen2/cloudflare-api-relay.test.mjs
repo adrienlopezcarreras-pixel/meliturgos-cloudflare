@@ -89,3 +89,19 @@ test('Cloudflare relay exposes only sanitized published MINI firmware metadata',
   assert.doesNotMatch(api, /mini-firmware-status[\s\S]{0,2500}object\.body/);
   assert.match(runner, /MINI_PUBLISHED_FIRMWARE_STATUS=/);
 });
+
+test('queued Cloudflare jobs are processed before unrelated local Companion diagnostics', async () => {
+  const source = await readFile(new URL('../../scripts/cloudflare-api-relay-runner.mjs', import.meta.url), 'utf8');
+  const heartbeat = source.indexOf("await worker('/api/internal/cloudflare-api-relay/heartbeat'");
+  const claim = source.indexOf("await worker('/api/internal/cloudflare-api-relay/claim')");
+  const result = source.indexOf("await worker('/api/internal/cloudflare-api-relay/result'");
+  const device = source.indexOf("await worker('/api/internal/cloudflare-api-relay/mini-status'");
+  const localPc = source.indexOf("await worker('/api/computer/v1/status'");
+  assert.ok(heartbeat >= 0 && claim > heartbeat && result > claim && device > result && localPc > device,
+    'server-side cloudflare queue must be processed before optional device diagnostics');
+  assert.match(source,/if\(job\.operation==='workers\.list'\)/);
+  assert.match(source,/if\(job\.operation==='deployments\.list'\)/);
+  assert.match(source,/if\(job\.operation==='deployments\.create'\)/);
+  assert.match(source,/if\(proof\.some\(row=>row\.status!=='SUCCEEDED'\)\) throw/);
+  assert.doesNotMatch(source,/MEL_MINI_RESET_APPROVED|action:'serial\.hard_reset'/);
+});
