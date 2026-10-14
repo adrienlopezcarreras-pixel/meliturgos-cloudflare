@@ -745,7 +745,7 @@ class MainActivity : ComponentActivity() {
     private fun ensureWakeWordListening() {
         if (voiceConversationActive.value) return
         if (System.currentTimeMillis() - lastWakeActivationMs < 4_000L) return
-        if (!appResumed || wakeListening || recording.value || pushToTalkHeld || wakeEnrollmentActive.value) return
+        if (!appResumed || wakeListening || wakeDetectorThread?.isAlive == true || recording.value || pushToTalkHeld || wakeEnrollmentActive.value) return
         if (!wakePhraseStore.isEnrolled()) return
         if (!wakeEnrolled.value || wakeEnrollmentCount.value < WakePhraseTrainer.REQUIRED_SAMPLES) refreshWakeEnrollmentState()
         if (!::model.isInitialized || model.state.value.session != SessionStage.CONNECTED) return
@@ -768,7 +768,9 @@ class MainActivity : ComponentActivity() {
                     onMatch = { score -> matchedScore = score }
                 )
             }
+            val completedDetector = Thread.currentThread()
             runOnUiThread {
+                if (wakeDetectorThread !== completedDetector) return@runOnUiThread
                 wakeDetectorThread = null
                 wakeListening = false
                 if (matchedScore != null && !wakeDetectorStop && appResumed &&
