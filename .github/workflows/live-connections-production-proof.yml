@@ -250,6 +250,12 @@ jobs:
               # Personal Microsoft accounts cannot use Graph site search; a
               # missing Sites.Read.All grant also keeps this proof blocked.
               MICROSOFT_SHAREPOINT_PROOF_SOURCE="PIPEDREAM_LINKED_ACCOUNT_ONLY"
+              # Classify a personal Microsoft account without declaring a site read
+              # successful, altering credentials, or printing upstream responses.
+              if node -e 'const fs=require("fs");let d={};try{d=JSON.parse(fs.readFileSync("/tmp/microsoft_sharepoint_pipedream_graph.json","utf8"))}catch{};const message=String(d?.upstream_message||"");process.exit(d?.upstream_status===400&&/not supported for MSA accounts/i.test(message)?0:1)'; then
+                MICROSOFT_SHAREPOINT_PROOF_SOURCE="MSA_GRAPH_SITE_READ_UNSUPPORTED"
+                echo 'microsoft_sharepoint: {"ok":false,"code":"MSA_GRAPH_SITE_READ_UNSUPPORTED","action_required":"USE_ORGANIZATIONAL_SHAREPOINT_ACCOUNT","graph_site_read_proven":false}'
+              fi
               echo 'microsoft_sharepoint: {"ok":true,"provider":"pipedream","app":"sharepoint","linked_account":true,"graph_site_read_proven":false}'
             fi
           fi
