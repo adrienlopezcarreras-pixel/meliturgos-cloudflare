@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { isReleaseSmokeRequest } from '../src/core/security.js';
+import worker from '../src/index.js';
 import { readFileSync } from 'node:fs';
 
 const token = 's'.repeat(48);
@@ -25,4 +26,20 @@ test('stress token enforces a separate capability scope', () => {
   assert.ok(router.includes("['capability.audit', 'capability.audit.status']"));
   assert.ok(router.includes("request.headers.has('x-mel-parallel-proof')"));
   assert.ok(router.includes("request.headers.has('x-mel-launch-bootstrap')"));
+});
+
+test('real worker rejects non-audit capability under stress token', async () => {
+  const request = new Request('https://mel.test/api/gen2/capabilities/execute', {
+    method: 'POST',
+    headers: {
+      'x-mel-release-smoke': '1',
+      'x-mel-stress-proof': token,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({ id: 'cloudflare.deployments.create', input: {} }),
+  });
+  const response = await worker.fetch(request, env, {});
+  assert.equal(response.status, 403);
+  const data = await response.json();
+  assert.equal(data.code, 'STRESS_PROOF_SCOPE_DENIED');
 });
