@@ -99,6 +99,10 @@ jobs:
             if ($errors.Count -gt 0) { throw "POWERSHELL_PARSE_FAILED:${file}:$($errors[0].Message)" }
           }
 
+      - name: Prove PNG screenshot upload is a raw byte array
+        shell: pwsh
+        run: ./tests/windows-companion-png-payload.ps1
+
       - name: Require signing secrets for signed release
         if: env.SIGNED_RELEASE == 'true'
         shell: pwsh
