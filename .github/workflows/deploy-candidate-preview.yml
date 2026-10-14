@@ -50,7 +50,16 @@ jobs:
         run: npm run check
 
       - name: Test gate
-        run: npm test
+        shell: bash
+        run: |
+          set -euo pipefail
+          # LocalDevBridge integration tests require a candidate/* checkout.
+          # Only alter the local Git branch label, never the exact source SHA.
+          if [ "${GITHUB_REF_NAME}" = "reconcile/mel-candidate-20261014" ]; then
+            git switch -c candidate/mel-reconciliation-preview-test
+          fi
+          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+          npm test
 
       - name: Build exact-SHA critical MEL code bundle
         shell: bash
