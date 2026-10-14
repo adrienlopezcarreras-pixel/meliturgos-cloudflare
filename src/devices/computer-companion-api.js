@@ -542,7 +542,11 @@ async function claim(env,a){
  if(!r)return json({ok:true,halted:false,command:null});
  const plan=parse(r.plan_json,{});
  if(plan.schema==="mel.companion.desktop-view-request/v1" || plan.action==="desktop.view.request"){
-  const verdict=evaluateDesktopViewClaim({plan,device:a.device,now:Date.now()});
+  // A previously queued request must not outlive a local opt-out reported
+  // after the owner queued it but before the Windows agent claimed it.
+  const verdict=a.device.metadata?.remote_access_enabled===true
+   ?evaluateDesktopViewClaim({plan,device:a.device,now:Date.now()})
+   :{ok:false,code:"REMOTE_ACCESS_DISABLED_LOCALLY"};
   if(!verdict.ok){
    await env.DB.prepare("UPDATE computer_commands SET status=?,finished_at=?,error_code=? WHERE id=? AND device_id=? AND status=?").bind("FAILED",Date.now(),verdict.code,r.id,a.device.id,"PENDING").run();
    return json({ok:true,halted:false,command:null,blocked_command:{id:r.id,code:verdict.code}});

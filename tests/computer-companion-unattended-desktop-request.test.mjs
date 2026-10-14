@@ -131,3 +131,32 @@ test('unattended view claim expires or HALT blocks before reaching the PC',async
   assert.equal((await expired.json()).blocked_command.code,'DESKTOP_VIEW_EXPIRED');
  }finally{DB.close();}
 });
+
+test('pending owner view is refused at claim if owner opted out locally meanwhile',async()=>{
+ const {DB,call,deviceHeaders,grant}=await fixture();
+ try{
+  const requested=await call('desktop-view-request',{method:'POST',body:{computer_id:'remote-pc'}});
+  assert.equal(requested.status,202);
+  const {command_id}=await requested.json();
+  await grant({enabled:false});
+  const attempt=await call('commands',{auth:deviceHeaders.authorization,
+   headers:{'x-mel-computer-id':'remote-pc'}});
+  assert.equal(attempt.status,200);
+  const blocked=await attempt.json();
+  assert.equal(blocked.command,null);
+  assert.equal(blocked.blocked_command.id,command_id);
+  assert.equal(blocked.blocked_command.code,'REMOTE_ACCESS_DISABLED_LOCALLY');
+  const row=await DB.prepare('SELECT status,error_code FROM computer_commands WHERE id=?')
+   .bind(command_id).first();
+  assert.equal(row.status,'FAILED');
+  assert.equal(row.error_code,'REMOTE_ACCESS_DISABLED_LOCALLY');
+
+  await grant({enabled:true});
+  const fresh=await call('desktop-view-request',{method:'POST',body:{computer_id:'remote-pc'}});
+  assert.equal(fresh.status,202);
+  const newId=(await fresh.json()).command_id;
+  const response=await call('commands',{auth:deviceHeaders.authorization,
+   headers:{'x-mel-computer-id':'remote-pc'}});
+  assert.equal((await response.json()).command.id,newId);
+ }finally{DB.close();}
+});
