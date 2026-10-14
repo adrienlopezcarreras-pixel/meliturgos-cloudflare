@@ -261,7 +261,7 @@ function Capture-PngBytes {
         $ms = New-Object IO.MemoryStream
         try {
           $candidate.Save($ms, [System.Drawing.Imaging.ImageFormat]::Png)
-          if ($ms.Length -le $maxBytes) { return $ms.ToArray() }
+          if ($ms.Length -le $maxBytes) { return ,$ms.ToArray() }
         } finally { $ms.Dispose() }
       } finally {
         if ($null -ne $scaled) { $scaled.Dispose() }
@@ -273,7 +273,9 @@ function Capture-PngBytes {
 }
 
 function Upload-Screenshot([string]$commandId) {
-  $bytes = Capture-PngBytes
+  # Preserve a single raw byte[] so Invoke-RestMethod sends binary PNG, not an object stream.
+  [byte[]]$bytes = Capture-PngBytes
+  if ($bytes.Length -lt 8 -or $bytes.Length -gt (5 * 1024 * 1024)) { throw "SCREENSHOT_BINARY_PAYLOAD_INVALID" }
   $uri = "$Server/api/computer/v1/screenshot?command_id=$([uri]::EscapeDataString($commandId))"
   return Invoke-RestMethod -Uri $uri -Method Post -Headers (Headers) -ContentType "image/png" -Body $bytes -TimeoutSec 30
 }
