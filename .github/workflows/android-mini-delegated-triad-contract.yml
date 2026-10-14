@@ -1,0 +1,20 @@
+name: Android MINI Delegated Triad Contract
+on:
+  pull_request:
+    paths:
+      - 'src/devices/waveshare-terminal-api.js'
+      - 'src/devices/mini-linked-android-phase.js'
+      - 'tests/mini-android-delegated-triad-phase.test.mjs'
+      - '.github/workflows/android-mini-delegated-triad-contract.yml'
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node --test tests/mini-android-delegated-triad-phase.test.mjs tests/mini-triad-linked-readonly.test.mjs
