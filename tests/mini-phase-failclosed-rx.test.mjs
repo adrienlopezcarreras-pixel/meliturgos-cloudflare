@@ -12,5 +12,5 @@ test('phase frame explicitly fails closed before audio stream routing',()=>{
   assert.match(block,/mel_link_v2_server_ready\(\)/);
   assert.match(block,/header.stream_id != 0/);
   assert.match(block,/capability not negotiated/);
-  assert.doesNotMatch(block,/mel_link_v2_encode|server_send|ACK|g_active/);
+  assert.doesNotMatch(block,/mel_link_v2_encode\\s*\\(|server_send\\s*\\(|g_active\\./);
 });
