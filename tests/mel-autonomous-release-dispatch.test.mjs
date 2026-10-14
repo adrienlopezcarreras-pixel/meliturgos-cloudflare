@@ -74,13 +74,17 @@ test('successful releases do not recursively re-dispatch when main is already cu
   assert.ok(touched.every(line => line.startsWith('GET ')));
 });
 
-test('only successful completed release workflows with the canonical release branch can automatically reconcile', () => {
+test('completed main-ref production dispatch safely catches up after success or failure', () => {
   const yaml = readFileSync(new URL('../.github/workflows/mel-autonomous-production-release.yml', import.meta.url), 'utf8');
   assert.ok(yaml.includes('  workflow_run:'));
-  assert.ok(yaml.includes('    types:'));
   assert.ok(yaml.includes('      - completed'));
+  assert.ok(yaml.includes("github.event.workflow_run.head_branch == 'main'"));
+  assert.ok(yaml.includes("github.event.workflow_run.event == 'workflow_dispatch'"));
   assert.ok(yaml.includes("github.event.workflow_run.conclusion == 'success'"));
-  assert.ok(yaml.includes("github.event.workflow_run.head_branch == 'release/mel-hardware-v0.1.0'"));
+  assert.ok(yaml.includes("github.event.workflow_run.conclusion == 'failure'"));
+  assert.ok(!yaml.includes("github.event.workflow_run.head_branch == 'release/mel-hardware-v0.1.0'"));
+  assert.ok(yaml.includes('MEL_CATCHUP_COMPLETED_SHA:'));
+  assert.ok(yaml.includes('github.event.workflow_run.head_sha'));
 });
 
 test('unattended main-push deployments require protected branches', () => {
@@ -187,4 +191,79 @@ test('release pointer mismatch after retries refuses any deployment',async()=>{
   };
   await assert.rejects(()=>requestAutonomousRelease({token:'TEST_ONLY',fetchImpl:fakeFetch,sleepImpl:async()=>{}}),/RELEASE_POINTER_NOT_VERIFIED/);
   assert.equal(dispatched,false);
+});
+
+test('catch-up does not dispatch if main has not advanced since the completed release', async () => {
+  const calls=[];
+  const fakeFetch=async (url,options) => {
+    calls.push({url,method:options.method});
+    if(new URL(url).pathname.endsWith('/branches/main'))
+      return {ok:true,status:200,json:async()=>({commit:{sha:MAIN_SHA}})};
+    throw new Error('NO_FURTHER_API_CALLS_EXPECTED');
+  };
+  const result=await requestAutonomousRelease({
+    token:'TEST_ONLY',fetchImpl:fakeFetch,completedReleaseSha:MAIN_SHA,
+  });
+  assert.equal(result.accepted,false);
+  assert.equal(result.reason,'NO_NEW_MAIN_SINCE_COMPLETED_RELEASE');
+  assert.equal(calls.length,1);
+  assert.ok(calls.every(c=>c.method==='GET'));
+});
+
+test('catch-up after older completed release promotes only when a newer main has not already been attempted', async () => {
+  const operations=[];
+  let releaseSha=OLD_SHA;
+  const fakeFetch=async(url,request)=>{
+    const path=new URL(url).pathname;
+    operations.push({path,method:request.method});
+    if(path.endsWith('/branches/main'))
+      return {ok:true,status:200,json:async()=>({commit:{sha:MAIN_SHA}})};
+    if(path.endsWith('/branches/'+RELEASE_BRANCH))
+      return {ok:true,status:200,json:async()=>({commit:{sha:releaseSha}})};
+    if(path.endsWith('/actions/workflows/deploy-cloudflare-release.yml/runs'))
+      return {ok:true,status:200,json:async()=>({workflow_runs:[{
+        name:'deploy-cloudflare-release',head_sha:OLD_SHA,status:'completed',conclusion:'failure',
+      }]})};
+    if(path.endsWith('/git/refs/heads/'+RELEASE_BRANCH)){
+      releaseSha=JSON.parse(request.body).sha;
+      return {ok:true,status:200,json:async()=>({})};
+    }
+    if(path.endsWith('/dispatches'))return {ok:true,status:204,json:async()=>null};
+    throw new Error('UNEXPECTED:'+path);
+  };
+  const result=await requestAutonomousRelease({
+    token:'TEST_ONLY',fetchImpl:fakeFetch,completedReleaseSha:OLD_SHA,
+  });
+  assert.equal(result.accepted,true);
+  assert.equal(result.main_sha,MAIN_SHA);
+  assert.equal(operations.filter(x=>x.method==='POST').length,1);
+});
+
+test('catch-up never retries a previously completed latest main SHA after failure', async () => {
+  const calls=[];
+  const fakeFetch=async(url,req)=>{
+    const path=new URL(url).pathname;
+    calls.push(req.method);
+    if(path.endsWith('/branches/main')||path.endsWith('/branches/'+RELEASE_BRANCH))
+      return {ok:true,status:200,json:async()=>({commit:{sha:MAIN_SHA}})};
+    if(path.endsWith('/actions/workflows/deploy-cloudflare-release.yml/runs'))
+      return {ok:true,status:200,json:async()=>({workflow_runs:[{
+        name:'deploy-cloudflare-release',head_sha:MAIN_SHA,status:'completed',conclusion:'failure',
+      }]})};
+    throw new Error('RETRY_MUTATION_FORBIDDEN:'+path);
+  };
+  const result=await requestAutonomousRelease({
+    token:'TEST_ONLY',fetchImpl:fakeFetch,completedReleaseSha:OLD_SHA,
+  });
+  assert.equal(result.accepted,false);
+  assert.equal(result.reason,'LATEST_MAIN_ALREADY_ATTEMPTED');
+  assert.ok(calls.every(method=>method==='GET'));
+});
+
+test('catch-up validates the source workflow SHA fail closed',async()=>{
+  await assert.rejects(
+    ()=>requestAutonomousRelease({token:'TEST_ONLY',completedReleaseSha:'not-a-sha',
+      fetchImpl:async()=>({ok:true,status:200,json:async()=>({commit:{sha:MAIN_SHA}})})}),
+    /COMPLETED_RELEASE_SHA_INVALID/
+  );
 });
