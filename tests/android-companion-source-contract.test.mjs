@@ -360,6 +360,7 @@ test('Android background heartbeat uses WorkManager without hidden background mi
   assert.match(activity,/stopService\(Intent\(this, MelWakeForegroundService::class\.java\)\)/);
 
   assert.match(wakeService,/getBoolean\(OPT_IN_KEY, false\)/);
+  assert.match(wakeService,/if \(template == null\) \{[\s\S]*?putBoolean\(OPT_IN_KEY, false\)\.commit\(\)[\s\S]*?stopSelf\(\)/);
   assert.match(wakeService,/putBoolean\(OPT_IN_KEY, false\)/);
   assert.match(wakeService,/intent\?\.action == ACTION_STOP/);
   assert.match(wakeService,/WakePhraseTrainer\.listenForWake/);
