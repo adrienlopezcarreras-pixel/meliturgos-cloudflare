@@ -97,6 +97,8 @@ class MelViewModel(
     private var windowsPresencePollStarted = false
     private val triadActivityQueue = Channel<String>(Channel.CONFLATED)
     @Volatile private var observedTriadPhase = "UNAVAILABLE"
+    @Volatile private var triadActivityVisible = false
+    @Volatile private var triadRecordingObserved = false
 
     init {
         verifyExistingSession()
@@ -108,7 +110,22 @@ class MelViewModel(
     // Only observed Android conversation activity is published, never message
     // contents. The conflated queue serializes I/O so old phases cannot build
     // an unbounded backlog during a slow or temporarily unavailable network.
+    fun setTriadActivityVisible(visible: Boolean, recording: Boolean = false) {
+        triadActivityVisible = visible
+        if (!visible) {
+            observedTriadPhase = "UNAVAILABLE"
+            triadRecordingObserved = false
+        } else {
+            reportLocalConversationActivity(recording)
+        }
+    }
+
     fun reportLocalConversationActivity(recording: Boolean) {
+        if (!triadActivityVisible) {
+            observedTriadPhase = "UNAVAILABLE"
+            return
+        }
+        triadRecordingObserved = recording
         val stateNow = _state.value
         val phase = triadConversationActivity(stateNow.session, recording,
             stateNow.busy, stateNow.speaking, stateNow.status, stateNow.error).phase
@@ -125,7 +142,8 @@ class MelViewModel(
     private fun startTriadActivityPublishing() {
         viewModelScope.launch(Dispatchers.IO) {
             for (phase in triadActivityQueue) {
-                if (shouldPollWindowsPresence(_state.value) && phase == observedTriadPhase &&
+                if (triadActivityVisible && shouldPollWindowsPresence(_state.value) &&
+                    phase == observedTriadPhase &&
                     canPublishTriadConversationPhase(_state.value.session, phase)) {
                     runCatching { client.publishTriadActivity(phase) }
                     // Local availability is independent of publication success:
@@ -135,9 +153,14 @@ class MelViewModel(
         }
         viewModelScope.launch {
             while (true) {
-                if (shouldPollWindowsPresence(_state.value) &&
-                    canPublishTriadConversationPhase(_state.value.session, observedTriadPhase)) {
-                    triadActivityQueue.trySend(observedTriadPhase)
+                if (triadActivityVisible) {
+                    // Resample the latest actual ViewModel phase while foreground,
+                    // even when Compose has not recomposed for a long response.
+                    reportLocalConversationActivity(triadRecordingObserved)
+                    if (shouldPollWindowsPresence(_state.value) &&
+                        canPublishTriadConversationPhase(_state.value.session, observedTriadPhase)) {
+                        triadActivityQueue.trySend(observedTriadPhase)
+                    }
                 }
                 delay(10_000)
             }
