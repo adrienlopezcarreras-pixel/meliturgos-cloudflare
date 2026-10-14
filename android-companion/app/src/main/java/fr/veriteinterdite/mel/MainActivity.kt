@@ -776,6 +776,8 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun ensureWakeWordListening() {
+        if (getSharedPreferences("mel_wake_background_opt_in", MODE_PRIVATE)
+                .getBoolean("microphone_enabled", false)) return
         if (voiceConversationActive.value) return
         if (System.currentTimeMillis() - lastWakeActivationMs < 4_000L) return
         if (!appResumed || wakeListening || recording.value || pushToTalkHeld || wakeEnrollmentActive.value) return
