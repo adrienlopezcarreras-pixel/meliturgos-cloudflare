@@ -11,6 +11,8 @@ import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
+import android.os.Handler
+import android.os.Looper
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 
@@ -30,6 +32,10 @@ class MelWakeForegroundService : Service() {
         private const val OPT_IN_PREFS = "mel_wake_background_opt_in"
         private const val OPT_IN_KEY = "microphone_enabled"
     }
+
+    @Volatile private var listening = false
+    private var worker: Thread? = null
+    private val mainHandler = Handler(Looper.getMainLooper())
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -64,7 +70,7 @@ class MelWakeForegroundService : Service() {
         val notification: Notification = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_btn_speak_now)
             .setContentTitle("MEL — microphone autorisé")
-            .setContentText("Préparation du réveil vocal. Détection en arrière-plan non active.")
+            .setContentText("Écoute locale OK MEL activée. Arrêter à tout moment.")
             .setContentIntent(open)
             .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Arrêter", stop)
             .setOngoing(true)
@@ -74,6 +80,60 @@ class MelWakeForegroundService : Service() {
         } else {
             startForeground(NOTIFICATION_ID, notification)
         }
+        if (!listening && worker?.isAlive != true) {
+            val store = WakePhraseProfileStore(this)
+            val template = store.templateFeatures()
+            if (template == null) {
+                stopSelf()
+                return START_NOT_STICKY
+            }
+            val threshold = store.threshold()
+            listening = true
+            worker = Thread({
+                val outcome = runCatching {
+                    WakePhraseTrainer.listenForWake(
+                        template = template,
+                        threshold = threshold,
+                        shouldContinue = { listening && !Thread.currentThread().isInterrupted },
+                        onMatch = { _ ->
+                            listening = false
+                            mainHandler.post {
+                                if (getSharedPreferences(OPT_IN_PREFS, MODE_PRIVATE).getBoolean(OPT_IN_KEY, false)) {
+                                    val launch = Intent(this, MainActivity::class.java)
+                                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                                    // A wake match cannot silently launch an activity from the
+                                    // background. Provide an actionable notification instead.
+                                    val tap = PendingIntent.getActivity(
+                                        this, 2, launch,
+                                        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                                    )
+                                    val ready = NotificationCompat.Builder(this, CHANNEL_ID)
+                                        .setSmallIcon(android.R.drawable.ic_btn_speak_now)
+                                        .setContentTitle("OK MEL reconnu")
+                                        .setContentText("Touchez pour ouvrir la conversation MEL.")
+                                        .setContentIntent(tap)
+                                        .setAutoCancel(true)
+                                        .build()
+                                    getSystemService(NotificationManager::class.java)
+                                        .notify(NOTIFICATION_ID + 1, ready)
+                                }
+                                stopSelf()
+                            }
+                        }
+                    )
+                }
+                if (outcome.isFailure) {
+                    mainHandler.post { stopSelf() }
+                }
+            }, "mel-foreground-wake").apply { isDaemon = true; start() }
+        }
         return START_NOT_STICKY
+    }
+
+    override fun onDestroy() {
+        listening = false
+        worker?.interrupt()
+        worker = null
+        super.onDestroy()
     }
 }
