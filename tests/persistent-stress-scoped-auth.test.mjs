@@ -61,3 +61,17 @@ test('stress-only scope is not inadvertently expanded by the release allowlist',
   assert.ok(!scope.includes('cloudflare.deployments.create'));
   assert.ok(!scope.includes('github.actions.workflow.dispatch'));
 });
+
+test('HTTP router denies destructive capability IDs for scoped stress proof', async () => {
+  const { default: worker } = await import('../src/index.js');
+  for (const id of ['cloudflare.deployments.create', 'github.actions.workflow.dispatch', 'work.plan.save', 'browser.execute', 'echo']) {
+    const response = await worker.fetch(new Request('https://mel.test/api/gen2/capabilities/execute', {
+      method: 'POST',
+      headers: { 'content-type':'application/json', 'x-mel-release-smoke':'1', 'x-mel-stress-proof':token },
+      body: JSON.stringify({ id, input: {} }),
+    }), env, {});
+    assert.equal(response.status, 403, id);
+    const body = await response.json();
+    assert.equal(body.code, 'STRESS_PROOF_SCOPE_DENIED', id);
+  }
+});
