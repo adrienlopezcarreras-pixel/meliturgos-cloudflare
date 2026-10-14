@@ -8,12 +8,14 @@ on:
       - 'src/portability/companion-desktop-authorization-gate.js'
       - 'src/portability/companion-consented-view-queue.js'
       - 'src/portability/companion-desktop-view-claim-policy.js'
+      - 'src/devices/computer-companion-api.js'
       - 'tests/gen2/companion-desktop-session-policy.test.mjs'
       - 'tests/gen2/companion-local-consent-proof.test.mjs'
       - 'tests/gen2/companion-desktop-consent-replay.test.mjs'
       - 'tests/gen2/companion-desktop-authorization-gate.test.mjs'
       - 'tests/gen2/companion-consented-view-queue.test.mjs'
       - 'tests/gen2/companion-desktop-view-claim-policy.test.mjs'
+      - 'tests/gen2/companion-desktop-live-claim-contract.test.mjs'
       - '.github/workflows/companion-desktop-security-ci.yml'
   workflow_dispatch:
 permissions:
@@ -28,4 +30,4 @@ jobs:
         with:
           node-version: '22'
       - name: Prove desktop policy, HMAC and replay contracts
-        run: node --test tests/gen2/companion-desktop-session-policy.test.mjs tests/gen2/companion-local-consent-proof.test.mjs tests/gen2/companion-desktop-consent-replay.test.mjs tests/gen2/companion-desktop-authorization-gate.test.mjs tests/gen2/companion-consented-view-queue.test.mjs tests/gen2/companion-desktop-view-claim-policy.test.mjs
+        run: node --test tests/gen2/companion-desktop-session-policy.test.mjs tests/gen2/companion-local-consent-proof.test.mjs tests/gen2/companion-desktop-consent-replay.test.mjs tests/gen2/companion-desktop-authorization-gate.test.mjs tests/gen2/companion-consented-view-queue.test.mjs tests/gen2/companion-desktop-view-claim-policy.test.mjs tests/gen2/companion-desktop-live-claim-contract.test.mjs
