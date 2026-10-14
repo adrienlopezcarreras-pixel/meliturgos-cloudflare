@@ -40,6 +40,45 @@ export function validateTerminal(body, jobId) {
   return r;
 }
 
+// Audit completion proves that every registry contract was inspected; it
+// does NOT mean that every capability was safely executed against production.
+// Keep these two truths distinct in the immutable proof artifact.
+export function summarizeStressCoverage(result) {
+  const total = Number(result?.progress?.total);
+  const counts = result?.report?.counts;
+  const contracts = result?.report?.contracts;
+  assert(Number.isSafeInteger(total) && total > 0, 'CAPABILITY_COVERAGE_TOTAL_INVALID');
+  assert(counts && typeof counts === 'object' && !Array.isArray(counts), 'CAPABILITY_COVERAGE_COUNTS_MISSING');
+  const entries = Object.entries(counts);
+  assert(entries.length > 0 && entries.every(([key,value]) =>
+    key.length > 0 && Number.isSafeInteger(value) && value >= 0
+  ), 'CAPABILITY_COVERAGE_COUNTS_INVALID');
+  const counted = entries.reduce((sum, [, count]) => sum + count, 0);
+  assert(counted === total, 'CAPABILITY_COVERAGE_COUNTS_INCONSISTENT');
+  const executed = Number(counts.EXISTANT_ET_TESTE || 0);
+  const contractInspected = Number(contracts?.inspected);
+  const contractValid = Number(contracts?.valid);
+  const contractInvalid = Number(contracts?.invalid);
+  assert([contractInspected,contractValid,contractInvalid].every(
+    n => Number.isSafeInteger(n) && n >= 0
+  ), 'CAPABILITY_COVERAGE_CONTRACTS_INVALID');
+  assert(contractInspected === total && contractValid + contractInvalid === total
+    && contractInvalid === 0, 'CAPABILITY_COVERAGE_CONTRACTS_NOT_ALL_VALID');
+  const pending = total - executed;
+  return {
+    schema: 'mel.capability-runtime-coverage/v1',
+    contract_validation_complete: true,
+    inspected_contracts: contractInspected,
+    valid_contracts: contractValid,
+    runtime_tested: executed,
+    runtime_unverified: pending,
+    runtime_coverage_percent: Number((100 * executed / total).toFixed(2)),
+    runtime_validation_complete: pending === 0,
+    evidence_scope: pending === 0 ? 'ALL_RUNTIME_SAMPLES_EXECUTED' : 'PARTIAL_SAFE_RUNTIME_EXECUTION',
+    note: 'Audit completed and contracts validated; unexecuted or blocked capabilities remain unverified.',
+  };
+}
+
 export function validateProgressTransition(previous = { pass: 1, done: 0 }, current = { pass: 1, done: 0 }) {
   const previousPass = Math.max(1, Number(previous?.pass || 1));
   const currentPass = Math.max(1, Number(current?.pass || 1));
@@ -154,6 +193,7 @@ async function main() {
     progress: r.progress,
     counts: r?.report?.counts || {},
     contracts: r?.report?.contracts || {},
+    coverage: summarizeStressCoverage(r),
     retry_pass: r?.report?.retry_pass === true,
     remaining_runtime_failures: Array.isArray(r?.summary?.remaining_runtime_failures)
       ? r.summary.remaining_runtime_failures.slice(0, 100)
