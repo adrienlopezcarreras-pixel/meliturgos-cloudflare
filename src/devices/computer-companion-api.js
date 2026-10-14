@@ -1,3 +1,4 @@
+import {evaluateDesktopViewClaim} from '../portability/companion-desktop-view-claim-policy.js';
 import { requireAuth } from "../core/security.js";
 import { authorizeGitHubActionsOidcRequest } from "../security/github-actions-oidc.js";
 import { evaluateComputerUsePlan } from "./computer-use.js";
@@ -461,7 +462,24 @@ async function heartbeat(request,env,a){
    engine_refresh_error:safe(metadata.engine_refresh_error,180)||null
  })
 }
-async function claim(env,a){if(a.device.halted)return json({ok:true,halted:true,command:null});const r=await env.DB.prepare("SELECT * FROM computer_commands WHERE device_id=? AND status=? ORDER BY created_at ASC LIMIT 1").bind(a.device.id,"PENDING").first();if(!r)return json({ok:true,halted:false,command:null});await env.DB.prepare("UPDATE computer_commands SET status=?,claimed_at=? WHERE id=? AND status=?").bind("RUNNING",Date.now(),r.id,"PENDING").run();return json({ok:true,halted:false,command:{id:r.id,session_id:r.session_id,plan:parse(r.plan_json,{})}})}
+async function claim(env,a){
+ if(a.device.halted)return json({ok:true,halted:true,command:null});
+ const r=await env.DB.prepare("SELECT * FROM computer_commands WHERE device_id=? AND status=? ORDER BY created_at ASC LIMIT 1").bind(a.device.id,"PENDING").first();
+ if(!r)return json({ok:true,halted:false,command:null});
+ const plan=parse(r.plan_json,{});
+ if(plan?.schema==='mel.companion.desktop-view-request/v1'||String(plan?.action||'').startsWith('desktop.')){
+  const verdict=evaluateDesktopViewClaim({plan,device:a.device,now:Date.now()});
+  if(!verdict.ok){
+   await env.DB.prepare("UPDATE computer_commands SET status=?,finished_at=?,error_code=? WHERE id=? AND device_id=? AND status=?")
+    .bind("FAILED",Date.now(),verdict.code,r.id,a.device.id,"PENDING").run();
+   return json({ok:false,code:verdict.code,command:null},409);
+  }
+ }
+ const claimed=await env.DB.prepare("UPDATE computer_commands SET status=?,claimed_at=? WHERE id=? AND device_id=? AND status=?")
+  .bind("RUNNING",Date.now(),r.id,a.device.id,"PENDING").run();
+ if(!claimed||claimed.success===false||Number(claimed.meta?.changes)!==1)return json({ok:false,code:"COMPUTER_COMMAND_CLAIM_UNCONFIRMED",command:null},409);
+ return json({ok:true,halted:false,command:{id:r.id,session_id:r.session_id,plan}});
+}
 async function result(request,env,a){const b=await request.json().catch(()=>({}));const id=safe(b.command_id);await env.DB.prepare("UPDATE computer_commands SET status=?,finished_at=?,result_json=?,error_code=? WHERE id=? AND device_id=?").bind(b.ok===true?"SUCCEEDED":"FAILED",Date.now(),JSON.stringify(b.result??null),b.error_code?safe(b.error_code):null,id,a.device.id).run();return json({ok:true})}
 async function uploadShot(request,env,a,url){if(!env?.MEDIA_BUCKET)return json({ok:false,code:"MEDIA_BUCKET_UNAVAILABLE"},503);const id=safe(url.searchParams.get("command_id"));const bytes=await request.arrayBuffer();if(!bytes.byteLength||bytes.byteLength>5*1024*1024)return json({ok:false,code:"SCREENSHOT_SIZE_INVALID"},413);const key=`computer/screenshots/${a.device.id.replace(/[^A-Za-z0-9_.-]/g,"_")}/${id.replace(/[^A-Za-z0-9_.-]/g,"_")}.png`;await env.MEDIA_BUCKET.put(key,bytes,{httpMetadata:{contentType:"image/png"}});return json({ok:true,key,view_url:`${url.origin}${COMPUTER_API_BASE}/screenshot?key=${encodeURIComponent(key)}`})}
 
