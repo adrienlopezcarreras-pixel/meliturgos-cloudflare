@@ -335,11 +335,25 @@ export function classifyCapabilityTruth(record, execution = null) {
   return 'EXISTANT_NON_TESTE';
 }
 
+// These controls can alter durable state, schedule work, or run migrations.
+// Deep runtime auditing must never invoke them automatically even when a
+// future registry entry accidentally marks one LOW and supplies a sample.
+const EXPLICIT_ONLY_AUDIT_CAPABILITIES = new Set([
+  'autonomy.pause',
+  'autonomy.resume',
+  'autonomy.tick',
+  'conversation.audit',
+  'openloop.capture',
+  'work.plan.sync',
+  'self.audit.run',
+]);
+
 function autoExecutionBlockReason({ deep, record, sample, declared, costSensitive, costApproved }) {
   if (!deep) return null;
   if (declared === 'STUB' || declared === 'NOT_IMPLEMENTED') return 'DECLARED_NON_EXECUTABLE';
   if (record?.enabled === false) return 'DISABLED';
   if (record?.risk !== 'LOW') return 'RISK_NOT_LOW';
+  if (EXPLICIT_ONLY_AUDIT_CAPABILITIES.has(record?.id)) return 'REQUIRES_EXPLICIT_INVOCATION';
   if (record?.approval?.required === true || OWNER_APPROVAL_SENSITIVE_CAPABILITIES.has(record?.id)) return 'OWNER_APPROVAL_REQUIRED';
   const health = String(record?.health || '').toUpperCase();
   if (['UNAVAILABLE','OFFLINE','DISABLED','BLOCKED','DOWN','BROKEN','ERROR','FAILED','FAIL','UNHEALTHY'].includes(health)) return 'HEALTH_UNAVAILABLE';
