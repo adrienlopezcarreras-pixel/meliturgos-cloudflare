@@ -79,10 +79,18 @@ class MelWakeForegroundService : Service() {
             .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Arrêter", stop)
             .setOngoing(true)
             .build()
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE)
-        } else {
-            startForeground(NOTIFICATION_ID, notification)
+        val foregroundStarted = runCatching {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE)
+            } else {
+                startForeground(NOTIFICATION_ID, notification)
+            }
+        }.isSuccess
+        if (!foregroundStarted) {
+            getSharedPreferences(OPT_IN_PREFS, MODE_PRIVATE)
+                .edit().putBoolean(OPT_IN_KEY, false).commit()
+            stopSelf()
+            return START_NOT_STICKY
         }
         if (!listening && worker?.isAlive != true) {
             val store = WakePhraseProfileStore(this)
