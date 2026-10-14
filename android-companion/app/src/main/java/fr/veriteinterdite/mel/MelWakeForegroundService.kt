@@ -19,7 +19,8 @@ import androidx.core.content.ContextCompat
 /**
  * Opt-in foreground microphone lifecycle foundation.
  *
- * Not yet wired to the wake detector: never report background "OK MEL" as active.
+ * The detector is opt-in and local. A match offers a notification handoff;
+ * it does not auto-launch an activity or promise hands-free locked-screen replies.
  * Starting a microphone FGS must happen from a visible user action while the app
  * is eligible under current Android foreground-service restrictions.
  */
@@ -42,6 +43,7 @@ class MelWakeForegroundService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
             getSharedPreferences(OPT_IN_PREFS, MODE_PRIVATE).edit().putBoolean(OPT_IN_KEY, false).apply()
+            getSystemService(NotificationManager::class.java).cancel(NOTIFICATION_ID + 1)
             stopSelf()
             return START_NOT_STICKY
         }
@@ -102,7 +104,7 @@ class MelWakeForegroundService : Service() {
                         onMatch = { _ ->
                             listening = false
                             mainHandler.post {
-                                if (getSharedPreferences(OPT_IN_PREFS, MODE_PRIVATE).getBoolean(OPT_IN_KEY, false)) {
+                                if (listening || getSharedPreferences(OPT_IN_PREFS, MODE_PRIVATE).getBoolean(OPT_IN_KEY, false)) {
                                     val launch = Intent(this, MainActivity::class.java)
                                         .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
                                     // A wake match cannot silently launch an activity from the
