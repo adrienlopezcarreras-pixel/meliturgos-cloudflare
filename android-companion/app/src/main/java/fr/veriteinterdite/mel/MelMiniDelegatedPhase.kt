@@ -4,7 +4,7 @@ import org.json.JSONObject
 
 // Informative preview of the server route. This is NOT proof of delivery to the
 // physical MINI over BLE or of a synchronized conversation turn.
-internal data class MelMiniDelegatedPhase(
+data class MelMiniDelegatedPhase(
     val phase: String? = null,
     val receivedAtElapsedMs: Long = -1L,
     val serverExpiresAtMs: Long = 0L
