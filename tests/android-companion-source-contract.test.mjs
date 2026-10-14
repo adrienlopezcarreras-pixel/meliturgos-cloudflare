@@ -886,7 +886,8 @@ test('MINI phase HELLO advertisement never becomes session authority', async () 
   assert.match(service, /val miniPhaseAdvertised = MutableStateFlow\(false\)/);
   const hello = service.slice(service.indexOf('MelLinkV2Protocol.HELLO ->'), service.indexOf('MelLinkV2Protocol.ACK ->'));
   assert.match(hello, /if \(protocolReady\.value\) return/);
-  assert.match(hello, /optBoolean\("triad_phase_v1", false\)/);
+  assert.match(hello, /opt\("triad_phase_v1"\) == true/);
+  assert.doesNotMatch(hello, /optBoolean\("triad_phase_v1"/);
   assert.match(hello, /getOrDefault\(false\)/);
   assert.match(hello, /protocolReady\.value = false/);
   assert.doesNotMatch(hello, /protocolReady\.value = true/);
