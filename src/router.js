@@ -274,6 +274,14 @@ async function handleConversationApi(request, env, url = new URL(request.url), c
   if (path === "/api/gen2/capabilities/execute" && request.method === "POST") {
     const body = await request.json().catch(() => ({}));
     if (!body?.id) return json({ error: "capability id required", code: "MISSING_CAPABILITY" }, 400);
+    // A stress credential is valid only for the two durable audit operations.
+    // Keep all existing parallel-proof callers unchanged.
+    if (request.headers.has('x-mel-stress-proof') &&
+        (!isReleaseSmokeRequest(request, env) ||
+         request.headers.has('x-mel-parallel-proof') || request.headers.has('x-mel-launch-bootstrap') ||
+         !['capability.audit', 'capability.audit.status'].includes(String(body.id)))) {
+      return json({ error: 'stress proof scope denied', code: 'STRESS_PROOF_SCOPE_DENIED' }, 403);
+    }
     if (isReleaseSmokeRequest(request, env) && !RELEASE_SMOKE_CAPABILITY_ALLOWLIST.includes(String(body.id))) {
       return json({
         error: "release smoke capability denied",
