@@ -29,6 +29,8 @@ object MelLinkV2Protocol {
     const val AUDIO_END = 0x32
     // Reserved for optional read-only Android phase observation; inactive until both peers negotiate capability.
     const val TRIAD_PHASE = 0x50
+    // Reserved negotiation frame, not enabled without mutual authorization.
+    const val TRIAD_CAPABILITY = 0x51
     const val CREDIT = 0x40
     const val ACK = 0x41
     const val ERROR = 0x7e
