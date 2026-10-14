@@ -1,0 +1,20 @@
+name: MINI phase session guard
+on:
+  pull_request:
+    paths:
+      - 'firmware/waveshare-terminal/main/mel_mini_phase_session_guard.h'
+      - 'tests/mini-phase-session-guard.cpp'
+      - '.github/workflows/mini-phase-session-guard.yml'
+  workflow_dispatch:
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile and run phase session state machine
+        run: |
+          g++ -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer tests/mini-phase-session-guard.cpp -o /tmp/mini-phase-session
+          /tmp/mini-phase-session
