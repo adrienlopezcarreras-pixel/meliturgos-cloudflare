@@ -1,5 +1,6 @@
 #pragma once
 #include <stdint.h>
+#include <stddef.h>
 
 // Pure opt-in negotiation state. Not connected to BLE, screen or audio.
 // The transport must authenticate the peer before calling grant(), and
@@ -25,3 +26,24 @@ struct MelMiniPhaseCapability {
                candidate_generation == generation;
     }
 };
+
+ 
+// Strict six-byte proposed opt-in payload. Parsing it NEVER grants capability.
+// The authenticated SESSION and the MINI's own opt-in must still be verified
+// before a caller may invoke MelMiniPhaseCapability::grant().
+struct MelMiniPhaseOptInV1 {
+    uint32_t generation = 0;
+    bool requested = false;
+};
+
+inline bool mel_mini_phase_opt_in_v1_decode(const uint8_t *data, size_t len,
+                                             MelMiniPhaseOptInV1 *out) {
+    if (!data || !out || len != 6 || data[0] != 1 || data[1] != 1) return false;
+    const uint32_t generation = uint32_t(data[2]) |
+        (uint32_t(data[3]) << 8) | (uint32_t(data[4]) << 16) |
+        (uint32_t(data[5]) << 24);
+    if (!generation) return false;
+    out->generation = generation;
+    out->requested = true;
+    return true;
+}
