@@ -38,8 +38,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [ "${GITHUB_REF_NAME}" != "candidate/mel-clean-autonomy" ]; then
-            echo "PREVIEW_CANDIDATE_BRANCH_REQUIRED: main and other refs are not authorized."
+          if [ "${GITHUB_REF_NAME}" != "candidate/mel-clean-autonomy" ] && { [ "${GITHUB_EVENT_NAME}" != "workflow_dispatch" ] || [ "${GITHUB_REF_NAME}" != "reconcile/mel-candidate-20261014" ]; }; then
+            echo "PREVIEW_APPROVED_BRANCH_REQUIRED: only canonical candidate, or manually dispatched reconciliation branch, is authorized."
             exit 2
           fi
           test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
