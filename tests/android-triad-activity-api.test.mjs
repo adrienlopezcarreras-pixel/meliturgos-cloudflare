@@ -53,7 +53,7 @@ test("triad activity requires a paired device token and stores only an enumerate
     assert.equal(JSON.stringify(current).includes(android.device_id),false);
     const stored=await DB.prepare("SELECT phase FROM android_triad_activity WHERE device_id=?")
       .bind(android.device_id).first();
-    assert.deepEqual(stored,{phase:"CAPTURING"});
+    assert.equal(stored.phase,"CAPTURING");
     for(const body of [{phase:"FICTITIOUS"},{phase:"THINKING",text:"sensitive words"},
       {phase:"RESPONDING",turnId:"forged"},{phase:34},null,[]]){
       const invalid=await fetchActivity(env,android,"POST",body);
