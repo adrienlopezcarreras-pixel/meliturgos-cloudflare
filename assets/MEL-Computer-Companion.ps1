@@ -2156,6 +2156,10 @@ function Process-Command($command) {
       if ([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() -ge $expiry -or $script:MelExitRequested) {
         throw 'DESKTOP_VIEW_CONSENT_EXPIRED'
       }
+      # Re-read owner permission after the user has answered the dialog.
+      # An earlier in-memory setting must never override a local revocation.
+      $latestConfig = Get-Content -Raw -Encoding UTF8 -LiteralPath $ConfigPath | ConvertFrom-Json
+      if ($latestConfig.remote_access_enabled -ne $true) { throw 'DESKTOP_VIEW_LOCAL_PERMISSION_REVOKED' }
       $shot = Upload-Screenshot ([string]$command.id)
       if ([string]$shot.key -eq '' -or [string]$shot.view_url -eq '' -or [string]$shot.key -notlike "computer/screenshots/$ComputerId/*") { throw 'DESKTOP_VIEW_UPLOAD_UNCONFIRMED' }
       $outputs += ,@{ action='desktop.view.request'; screenshot_key=$shot.key; view_url=$shot.view_url }
