@@ -16,7 +16,8 @@ internal data class MelTriadReadiness(
 internal fun triadReadiness(
     androidSession: SessionStage,
     mini: MelMiniReadiness,
-    windowsPresence: MelWindowsPresence = MelWindowsPresence()
+    windowsPresence: MelWindowsPresence = MelWindowsPresence(),
+    nowElapsedMs: Long = -1L
 ): MelTriadReadiness = MelTriadReadiness(
     androidLabel = when (androidSession) {
         SessionStage.CONNECTED -> "Android · session MEL vérifiée"
@@ -36,6 +37,10 @@ internal fun triadReadiness(
     // Windows control plane. The Android MINI list does not contain that proof.
     windowsLabel = when {
         androidSession != SessionStage.CONNECTED -> "Windows · état indisponible sans session Android"
+        windowsPresence.receivedAtElapsedMs < 0 ||
+            nowElapsedMs < windowsPresence.receivedAtElapsedMs ||
+            nowElapsedMs - windowsPresence.receivedAtElapsedMs > 35_000L ->
+            "Windows · état à actualiser"
         windowsPresence.halted -> "Windows · HALT actif · contrôle non vérifié"
         windowsPresence.online -> "Windows · en ligne · contrôle local non vérifié"
         windowsPresence.known -> "Windows · hors ligne"

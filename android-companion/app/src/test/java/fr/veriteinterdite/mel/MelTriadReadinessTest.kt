@@ -43,7 +43,8 @@ class MelTriadReadinessTest {
         val view = triadReadiness(
             SessionStage.CONNECTED,
             miniReadiness(true, true, true),
-            MelWindowsPresence(known = true, online = true, halted = false)
+            MelWindowsPresence(known = true, online = true, halted = false, receivedAtElapsedMs = 1_000L),
+            nowElapsedMs = 1_001L
         )
         assertTrue(view.windowsLabel.contains("en ligne"))
         assertFalse(view.windowsVerified)
@@ -53,13 +54,15 @@ class MelTriadReadinessTest {
         val mini = miniReadiness(false, false, false)
         val halted = triadReadiness(
             SessionStage.CONNECTED, mini,
-            MelWindowsPresence(known = true, online = false, halted = true)
+            MelWindowsPresence(known = true, online = false, halted = true, receivedAtElapsedMs = 1_000L),
+            nowElapsedMs = 1_001L
         )
         assertTrue(halted.windowsLabel.contains("HALT"))
         assertFalse(halted.windowsVerified)
         val offline = triadReadiness(
             SessionStage.CONNECTED, mini,
-            MelWindowsPresence(known = true, online = false, halted = false)
+            MelWindowsPresence(known = true, online = false, halted = false, receivedAtElapsedMs = 1_000L),
+            nowElapsedMs = 1_001L
         )
         assertTrue(offline.windowsLabel.contains("hors ligne"))
         assertFalse(offline.windowsVerified)
@@ -72,6 +75,34 @@ class MelTriadReadinessTest {
             MelWindowsPresence(known = true, online = true, halted = false)
         )
         assertTrue(view.windowsLabel.contains("indisponible"))
+        assertFalse(view.windowsVerified)
+    }
+
+    @Test fun windowsOnlineEvidenceExpiresAfter35Seconds() {
+        val mini = miniReadiness(false, false, false)
+        val signal = MelWindowsPresence(known = true, online = true, receivedAtElapsedMs = 1_000L)
+        val justFresh = triadReadiness(SessionStage.CONNECTED, mini, signal, nowElapsedMs = 36_000L)
+        assertTrue(justFresh.windowsLabel.contains("en ligne"))
+        val stale = triadReadiness(SessionStage.CONNECTED, mini, signal, nowElapsedMs = 36_001L)
+        assertEquals("Windows · état à actualiser", stale.windowsLabel)
+        assertFalse(stale.windowsVerified)
+    }
+
+    @Test fun futureOrMissingEvidenceNeverClaimsWindowsIsOnline() {
+        val mini = miniReadiness(false, false, false)
+        val future = MelWindowsPresence(known = true, online = true, receivedAtElapsedMs = 500L)
+        assertEquals("Windows · état à actualiser",
+            triadReadiness(SessionStage.CONNECTED, mini, future, nowElapsedMs = 400L).windowsLabel)
+        val missing = MelWindowsPresence(known = true, online = true)
+        assertEquals("Windows · état à actualiser",
+            triadReadiness(SessionStage.CONNECTED, mini, missing, nowElapsedMs = 500L).windowsLabel)
+    }
+
+    @Test fun staleHaltRemainsUnverifiedAndRequiresRefresh() {
+        val mini = miniReadiness(false, false, false)
+        val halted = MelWindowsPresence(known = true, halted = true, receivedAtElapsedMs = 1_000L)
+        val view = triadReadiness(SessionStage.CONNECTED, mini, halted, nowElapsedMs = 36_010L)
+        assertEquals("Windows · état à actualiser", view.windowsLabel)
         assertFalse(view.windowsVerified)
     }
 
