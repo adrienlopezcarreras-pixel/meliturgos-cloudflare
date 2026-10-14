@@ -12,6 +12,11 @@ on:
       expected_sha:
         required: true
         type: string
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/activate-platform-capabilities.yml'
+      - 'tests/platform-auth-diagnostics-contract.test.mjs'
 
 permissions:
   contents: read
@@ -22,6 +27,17 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  auth-diagnostics-contract:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '22'
+      - run: node --test tests/platform-auth-diagnostics-contract.test.mjs
+
   activate-and-prove:
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
@@ -110,9 +126,16 @@ jobs:
                 return 0
               fi
               if [ "${code}" = "401" ]; then
-                echo "Capability ${id} release-token propagation attempt ${attempt}/15 returned HTTP 401."
-                sleep 2
-                continue
+                # Report only allowlisted, non-sensitive failure fields. Never log
+                # the token, request headers or raw response bodies.
+                AUTH_CODE="$(node -e 'const fs=require("fs");let d={};try{d=JSON.parse(fs.readFileSync(process.argv[1],"utf8"))}catch{};const c=String(d?.code||d?.error?.code||"UNSPECIFIED_401");process.stdout.write(/^[A-Z0-9_:-]{1,96}$/.test(c)?c:"REDACTED_AUTH_ERROR")' "${out}")"
+                echo "Capability ${id} release-token propagation attempt ${attempt}/15: HTTP 401, code=${AUTH_CODE}."
+                # A 401 with an explicit authorization refusal is not propagation;
+                # fail closed instead of retrying an unchangeable credential error.
+                case "${AUTH_CODE}" in
+                  INVALID_BOOTSTRAP_TOKEN|BOOTSTRAP_TOKEN_NOT_READY|UNSPECIFIED_401) sleep 2; continue ;;
+                  *) echo "Non-transient authorization failure; refusing further retries."; break ;;
+                esac
               fi
               break
             done
