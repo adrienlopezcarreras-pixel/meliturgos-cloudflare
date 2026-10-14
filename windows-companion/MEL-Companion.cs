@@ -1064,7 +1064,7 @@ class PermissionsForm : Form
         }
         int pathHeadingY=392;
         remoteAccess=new CheckBox {
-            Text="Autoriser l’accès distant MEL (écran, commandes système, fichiers, processus, ports COM)",
+            Text="Autoriser MEL à accéder à ce PC en mon absence (écran, commandes, fichiers, processus)",
             Checked=MelApp.ConfigBool("remote_access_enabled"),
             Font=new Font("Segoe UI",10f,FontStyle.Bold),ForeColor=ink,AutoSize=false,
             Size=new Size(740,52),Location=new Point(24,320)
