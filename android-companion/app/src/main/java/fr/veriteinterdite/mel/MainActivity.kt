@@ -376,6 +376,7 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         appResumed = true
+        wakeRetryFailures = 0
         refreshWakeEnrollmentState()
         if (::model.isInitialized) mainHandler.postDelayed({ ensureWakeWordListening() }, 500L)
     }
@@ -742,6 +743,8 @@ class MainActivity : ComponentActivity() {
         wakeEnrolled.value = enrolled
     }
 
+    private var wakeRetryFailures = 0
+
     private fun ensureWakeWordListening() {
         if (voiceConversationActive.value) return
         if (System.currentTimeMillis() - lastWakeActivationMs < 4_000L) return
@@ -776,11 +779,19 @@ class MainActivity : ComponentActivity() {
                 if (matchedScore != null && !wakeDetectorStop && appResumed &&
                     !recording.value && model.state.value.session == SessionStage.CONNECTED && !model.state.value.busy
                 ) {
+                    wakeRetryFailures = 0
                     lastWakeActivationMs = System.currentTimeMillis()
                     voiceMessage.value = "OK MEL reconnu · conversation active"
                     voiceConversationActive.value = true
                 } else if (result.isFailure && !wakeDetectorStop) {
+                    wakeRetryFailures++
                     voiceMessage.value = "Écoute OK MEL indisponible · ${result.exceptionOrNull()?.message ?: "micro"}"
+                    if (wakeRetryFailures <= 3) {
+                        val backoffMs = 1_500L * (1L shl (wakeRetryFailures - 1))
+                        mainHandler.postDelayed({
+                            if (appResumed && !wakeDetectorStop && !voiceConversationActive.value) ensureWakeWordListening()
+                        }, backoffMs)
+                    }
                 }
             }
         }, "mel-ok-mel-listener").apply {
