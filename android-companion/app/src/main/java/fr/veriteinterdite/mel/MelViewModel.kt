@@ -73,6 +73,10 @@ data class MelUiState(
     val diagnosticReport: String? = null
 )
 
+// A voice request must not suspend read-only Windows presence observation.
+internal fun shouldPollWindowsPresence(state: MelUiState): Boolean =
+    state.session == SessionStage.CONNECTED
+
 class MelViewModel(
     context: Context,
     private val client: MelApiClient,
@@ -117,7 +121,7 @@ class MelViewModel(
         windowsPresencePollStarted = true
         viewModelScope.launch(Dispatchers.IO) {
             while (true) {
-                if (_state.value.session == SessionStage.CONNECTED) {
+                if (shouldPollWindowsPresence(_state.value)) {
                     val payload = runCatching { client.windowsPresence() }.getOrNull()
                         ?.takeIf { it.optBoolean("ok", false) &&
                             it.optString("schema") == "mel.android.windows-presence.v1" }
