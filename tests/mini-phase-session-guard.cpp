@@ -15,7 +15,7 @@ int main() {
     p.phase_nonce=2;
     assert(guard.accept(p,42,true,true,2000));
     assert(!guard.accept(p,43,true,true,2001)); // no implicit generation switch
-    assert(guard.current(2001,true,true));
+    assert(!guard.current(2001,true,true)); // wrong session clears state
     assert(!guard.current(2002,false,true)); // disconnect clears immediately
     p.phase_nonce=1;
     p.session_generation=43;
