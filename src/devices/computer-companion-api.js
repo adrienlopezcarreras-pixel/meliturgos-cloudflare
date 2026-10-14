@@ -508,6 +508,17 @@ async function uploadShot(request,env,a,url){
  const signature=[137,80,78,71,13,10,26,10];
  if(bytes.length<signature.length||!signature.every((b,i)=>bytes[i]===b))
   return json({ok:false,code:"SCREENSHOT_PNG_INVALID"},415);
+ // Revalidate after reading the body: HALT or completion may occur during the upload.
+ const latest=await env.DB.prepare("SELECT c.status,c.plan_json,d.halted FROM computer_commands c JOIN computer_devices d ON d.id=c.device_id WHERE c.id=? AND c.device_id=? LIMIT 1").bind(id,a.device.id).first();
+ if(!latest||Number(latest.halted)===1||latest.status!=="RUNNING")
+  return json({ok:false,code:"SCREENSHOT_AUTH_REVOKED_DURING_UPLOAD"},409);
+ const latestPlan=parse(latest.plan_json,{});
+ if(latestPlan.schema==="mel.companion.desktop-view-request/v1"||latestPlan.action==="desktop.view.request"){
+  if(latestPlan.schema!=="mel.companion.desktop-view-request/v1"||
+     latestPlan.action!=="desktop.view.request"||latestPlan.screen_capture_only!==true||
+     latestPlan.device_id!==a.device.id||Number(latestPlan.expires_at)<=Date.now())
+   return json({ok:false,code:"SCREENSHOT_AUTH_REVOKED_DURING_UPLOAD"},409);
+ }
  const key=`computer/screenshots/${a.device.id.replace(/[^A-Za-z0-9_.-]/g,"_")}/${id.replace(/[^A-Za-z0-9_.-]/g,"_")}.png`;
  await env.MEDIA_BUCKET.put(key,bytes,{httpMetadata:{contentType:"image/png"}});
  return json({ok:true,key,view_url:`${url.origin}${COMPUTER_API_BASE}/screenshot?key=${encodeURIComponent(key)}`});
