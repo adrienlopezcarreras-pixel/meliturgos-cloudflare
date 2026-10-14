@@ -2157,7 +2157,7 @@ function Process-Command($command) {
         throw 'DESKTOP_VIEW_CONSENT_EXPIRED'
       }
       $shot = Upload-Screenshot ([string]$command.id)
-      if ([string]$shot.key -eq '') { throw 'DESKTOP_VIEW_UPLOAD_UNCONFIRMED' }
+      if ([string]$shot.key -eq '' -or [string]$shot.view_url -eq '' -or [string]$shot.key -notlike "computer/screenshots/$ComputerId/*") { throw 'DESKTOP_VIEW_UPLOAD_UNCONFIRMED' }
       $outputs += ,@{ action='desktop.view.request'; screenshot_key=$shot.key; view_url=$shot.view_url }
       $body = @{ command_id=$command.id; ok=$true; result=@{ outputs=$outputs; capture_count=1 } }
       [void](Invoke-MelJson -Path "/api/computer/v1/result" -Method "POST" -Body $body)
