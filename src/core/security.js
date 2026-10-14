@@ -171,8 +171,14 @@ export function isReleaseSmokeRequest(request, env) {
   const parallelAuthorized = parallelExpected.length >= 32
     && parallelSupplied.length === parallelExpected.length
     && safeEqual(parallelSupplied, parallelExpected);
-  if (!parallelAuthorized) return false;
-  return PARALLEL_PROOF_ALLOWLIST.get(method)?.has(url.pathname) === true;
+  if (parallelAuthorized) return PARALLEL_PROOF_ALLOWLIST.get(method)?.has(url.pathname) === true;
+
+  // Stress has its own scoped credential; never authorize other smoke routes.
+  const stressExpected = withoutTerminalNewline(env?.MEL_STRESS_PROOF_TOKEN || '');
+  const stressSupplied = withoutTerminalNewline(request.headers.get('x-mel-stress-proof') || '');
+  return method === 'POST' && url.pathname === '/api/gen2/capabilities/execute'
+    && stressExpected.length >= 32 && stressSupplied.length === stressExpected.length
+    && safeEqual(stressSupplied, stressExpected);
 }
 
 function decodeBasicPayload(encoded) {
