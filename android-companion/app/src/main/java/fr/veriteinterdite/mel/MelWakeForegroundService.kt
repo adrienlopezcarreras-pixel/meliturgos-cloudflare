@@ -131,6 +131,10 @@ class MelWakeForegroundService : Service() {
     }
 
     override fun onDestroy() {
+        // Clear stale opt-in when Android stops the service so the Activity's
+        // normal foreground detector can resume on the next interaction.
+        getSharedPreferences(OPT_IN_PREFS, MODE_PRIVATE)
+            .edit().putBoolean(OPT_IN_KEY, false).commit()
         listening = false
         worker?.interrupt()
         worker = null
