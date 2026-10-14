@@ -63,6 +63,11 @@ async function ensureTables(env) {
     payload_json TEXT NOT NULL DEFAULT '{}',
     updated_at INTEGER NOT NULL
   )`).run();
+  await env.DB.prepare(`CREATE TABLE IF NOT EXISTS android_triad_activity(
+    device_id TEXT PRIMARY KEY,
+    phase TEXT NOT NULL,
+    observed_at INTEGER NOT NULL
+  )`).run();
 }
 
 async function createPairCode(request,env) {
@@ -204,6 +209,44 @@ async function heartbeat(request,env,auth) {
     ON CONFLICT(device_id) DO UPDATE SET payload_json=excluded.payload_json,updated_at=excluded.updated_at`)
     .bind(auth.deviceId,JSON.stringify(status),now).run();
   return json({ok:true,device_id:auth.deviceId,server_time:now,accepted:status});
+}
+
+// A real Android client publishes one minimal, authenticated conversation phase.
+// This is presence telemetry, NOT a shared conversation, remote ACK or command.
+// Messages, transcripts, microphone buffers, device secrets and turn IDs never
+// enter this table. The server clock, not an untrusted client clock, owns TTL.
+const ANDROID_TRIAD_PHASES=new Set([
+  "IDLE","CAPTURING","TRANSCRIBING","THINKING","RESPONDING","OTHER_BUSY","ERROR"
+]);
+const ANDROID_TRIAD_TTL_MS=30_000;
+
+async function publishTriadActivity(request,env,auth) {
+  const size=Number(request.headers.get("content-length"));
+  if (Number.isFinite(size) && size>512) return json({ok:false,code:"TRIAD_ACTIVITY_TOO_LARGE"},413);
+  const body=await request.json().catch(()=>null);
+  if (!body || typeof body!=="object" || Array.isArray(body) ||
+      Object.keys(body).length!==1 || !ANDROID_TRIAD_PHASES.has(body.phase)) {
+    return json({ok:false,code:"TRIAD_ACTIVITY_INVALID"},400);
+  }
+  const now=Date.now();
+  await env.DB.prepare(`INSERT INTO android_triad_activity(device_id,phase,observed_at) VALUES(?,?,?)
+    ON CONFLICT(device_id) DO UPDATE SET phase=excluded.phase,observed_at=excluded.observed_at`)
+    .bind(auth.deviceId,body.phase,now).run();
+  return json({ok:true,schema:"mel.android.triad-activity.v1",phase:body.phase,
+    observed_at_ms:now,expires_at_ms:now+ANDROID_TRIAD_TTL_MS});
+}
+
+async function ownTriadActivity(env,auth) {
+  const row=await env.DB.prepare(
+    "SELECT phase,observed_at FROM android_triad_activity WHERE device_id=? LIMIT 1"
+  ).bind(auth.deviceId).first();
+  const now=Date.now();
+  const ts=Number(row?.observed_at);
+  const fresh=!!row && Number.isSafeInteger(ts) && ts>0 && now>=ts &&
+    now-ts<=ANDROID_TRIAD_TTL_MS && ANDROID_TRIAD_PHASES.has(row.phase);
+  return json({ok:true,schema:"mel.android.triad-activity.v1",
+    state:fresh?"FRESH":"UNAVAILABLE",phase:fresh?row.phase:null,
+    observed_at_ms:fresh?ts:null,expires_at_ms:fresh?ts+ANDROID_TRIAD_TTL_MS:null});
 }
 
 function conversationIdFor(auth,bodyOrUrl) {
@@ -412,6 +455,8 @@ export async function maybeHandleAndroidCompanionApi(request,env) {
   }
 
   if (url.pathname === ANDROID_API_BASE+"/heartbeat" && request.method === "POST") return heartbeat(request,env,auth);
+  if (url.pathname === ANDROID_API_BASE+"/triad-activity" && request.method === "POST") return publishTriadActivity(request,env,auth);
+  if (url.pathname === ANDROID_API_BASE+"/triad-activity" && request.method === "GET") return ownTriadActivity(env,auth);
   if (url.pathname === ANDROID_API_BASE+"/companions" && request.method === "GET") return companionDevices(env);
   if (url.pathname === ANDROID_API_BASE+"/windows-presence" && request.method === "GET") return windowsPresence(env);
   if (url.pathname === ANDROID_API_BASE+"/chat" && request.method === "POST") return deviceChat(request,env,auth);
