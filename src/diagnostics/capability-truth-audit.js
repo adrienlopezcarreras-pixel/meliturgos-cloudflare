@@ -1,3 +1,5 @@
+import { createPortableMemorySnapshot } from '../memory/portable-export.js';
+
 async function sampleRead(runtime, context, id, input = {}) {
   const result = await runtime.bus.execute(id, input, {
     owner: context?.owner || 'capability-audit',
@@ -47,6 +49,12 @@ const SAFE_SAMPLES = Object.freeze({
       storage: { contract_ids: ['storage'], current_adapter_ids: ['storage-local'] },
       runtime: { contract_ids: ['runtime'], current_adapter_ids: ['runtime-local'] },
     },
+  },
+  // Pure plan compilation: no Work execution, persistence or provider calls.
+  'work.plan': {
+    id: 'audit-work-plan-preview',
+    goal: 'Compile a harmless one-step DAG without executing it',
+    steps: [{ id: 'preview', capability: 'echo', input: { value: 'audit' }, idempotent: true }],
   },
   'roadmap.read': {},
   'system.bindings': {},
@@ -107,6 +115,14 @@ const SAFE_SAMPLES = Object.freeze({
   'skill.snapshot.export': {},
   'self.audit.status': {},
   'memory.status': {},
+  // Cryptographically valid empty snapshot, generated only in memory.
+  // Never inspect an actual owner's exported memories during this probe.
+  'memory.export.verify': async () => createPortableMemorySnapshot({
+    owner: 'audit-fixture',
+    memories: [], conversations: [], archive_messages: [],
+    source_counts: { memories: 0, conversations: 0, archive_messages: 0 },
+    exportedAt: '2026-10-14T00:00:00.000Z',
+  }),
   'memory.retrieve': { query: 'MELITURGOS', limit: 1, semantic: false },
   'memory.consolidate': { limit: 1 },
   'knowledge.search': { query: 'MELITURGOS', limit: 1 },
