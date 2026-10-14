@@ -1,0 +1,105 @@
+name: Archive recovered LoRA checkpoint as private draft release (manual)
+
+# This is NOT a training workflow. No GPU, Cloudflare, promotion or production writes.
+# Draft releases protect checkpoint confidentiality in this public repository.
+on:
+  workflow_dispatch:
+    inputs:
+      confirm_draft_release:
+        description: 'Explicitly permit creating a DRAFT GitHub release for recovered c000'
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  actions: read
+  contents: write
+
+concurrency:
+  group: mel-lora-recovered-c000-draft-release
+  cancel-in-progress: false
+
+jobs:
+  validate-and-archive:
+    if: ${{ inputs.confirm_draft_release == true && github.repository == 'adrienlopezcarreras-pixel/meliturgos-cloudflare' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout verifier
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.11"
+      - name: Fetch already verified checkpoint from exact GitHub run (no GPU)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/existing-recovery
+          gh run download 38302570850 \
+            --repo "$GITHUB_REPOSITORY" \
+            --name mel-lora-c000-existing-verified-checkpoint \
+            --dir artifacts/existing-recovery
+          test -s artifacts/existing-recovery/mel-lora-bundle.tar.gz
+          test -s artifacts/existing-recovery/existing-lora-recovery-proof.json
+      - name: Reverify bytes and fixed training provenance
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/verify-existing-kaggle-lora-bundle.py \
+            artifacts/existing-recovery/mel-lora-bundle.tar.gz \
+            > artifacts/checkpoint-draft-proof.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          proof=json.loads(Path('artifacts/checkpoint-draft-proof.json').read_text())
+          previous=json.loads(Path('artifacts/existing-recovery/existing-lora-recovery-proof.json').read_text())
+          assert proof == previous, 'CHECKPOINT_RECOVERY_PROOF_CHANGED'
+          assert proof['status']=='CHECKPOINT_BYTES_RECOVERED_UNBENCHMARKED'
+          assert proof['bundle_sha256']=='1e15f90e19ab03c5067a543ec78b8bee9f3e29c25f23697fff3a98fad0c801b0'
+          assert proof['adapter_sha256']=='9c9957a6ab31b7c43f4ee0a3699b9d9292cbdd3fd3fd7368ace74657fb83f6aa'
+          assert proof['benchmark_verified'] is False and proof['activated'] is False
+          print('CHECKPOINT_ARCHIVE_BYTES_AND_PROVENANCE_VERIFIED')
+          PY
+      # GitHub's release API needs Workflows:write when --target selects a
+      # non-default-branch commit that changes .github/workflows. GITHUB_TOKEN
+      # cannot have that permission, even when Contents:write is granted.
+      # Require an owner-configured narrowly scoped token; never downgrade
+      # to github.token or retarget to main to bypass provenance.
+      - name: Create an immutable DRAFT release; never overwrite existing tag or publish
+        env:
+          GH_TOKEN: ${{ secrets.MEL_LORA_RELEASE_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${GH_TOKEN:-}" || { echo 'MEL_LORA_RELEASE_TOKEN_REQUIRED_WORKFLOWS_WRITE_FOR_HISTORICAL_SHA' >&2; exit 1; }
+          TAG=mel-lora-kaggle-635c4786b39b-c000
+          # A pre-existing bare Git tag is as dangerous as a pre-existing
+          # Release: GitHub would silently ignore --target in that case.
+          TAG_HTTP="$(curl --silent --show-error --max-time 20 \
+            --output /dev/null --write-out '%{http_code}' \
+            --header "Accept: application/vnd.github+json" \
+            --header "Authorization: Bearer ${GH_TOKEN}" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/git/ref/tags/${TAG}")"
+          case "$TAG_HTTP" in
+            404) : ;;
+            200) echo 'CHECKPOINT_TAG_ALREADY_EXISTS_STOP' >&2; exit 1 ;;
+            *) echo "CHECKPOINT_TAG_PROBE_DENIED_OR_UNAVAILABLE_HTTP_${TAG_HTTP}" >&2; exit 1 ;;
+          esac
+          # Authenticated releases LIST sees unpublished drafts; by-tag GET may 404.
+          node scripts/inspect-lora-c000-draft-release.mjs require-absent
+          if ! gh release create "$TAG" \
+            artifacts/existing-recovery/mel-lora-bundle.tar.gz \
+            artifacts/checkpoint-draft-proof.json \
+            --repo "$GITHUB_REPOSITORY" \
+            --target 635c4786b39b9c3a5458126d64ec7bb726a282e7 \
+            --title "MEL LoRA c000 — trained, unbenchmarked, NOT activated" \
+            --notes "Recovery from existing Kaggle T4 cycle 0; SHA-256 verified. NOT BENCHMARKED, NOT APPROVED, NOT ACTIVATED. This release must remain a draft pending authorized review." \
+            --draft >/dev/null; then
+              echo 'CHECKPOINT_DRAFT_RELEASE_CREATE_FAILED_CHECK_GITHUB_TOKEN_SCOPE_OR_REPO_POLICY' >&2
+              exit 1
+          fi
+          # GitHub draft releases do not always resolve by /releases/tags/{tag}.
+          # Verify via authenticated release listing instead of a false 404.
+          node scripts/inspect-lora-c000-draft-release.mjs verify-draft

@@ -191,6 +191,22 @@ jobs:
           NODE
           node .mel-trace-control/scripts/lora-daily-trace-client.mjs STARTED artifacts/lora-trace-start.json RUNNING
 
+      # After durable trace initialization, fail before GPU provisioning when the release
+      # cannot be archived under the historical workflow SHA. This checks
+      # only presence, not scopes: the release step still fails closed.
+      - name: Require release token before full Kaggle GPU cycle
+        if: env.SMOKE_ONLY != 'true'
+        shell: bash
+        env:
+          LORA_RELEASE_TOKEN: ${{ secrets.MEL_LORA_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${LORA_RELEASE_TOKEN:-}" ]]; then
+            echo "MEL_LORA_RELEASE_TOKEN_REQUIRED_BEFORE_GPU" >&2
+            exit 1
+          fi
+          echo "MEL_LORA_RELEASE_TOKEN_PRESENT_SCOPE_NOT_YET_VERIFIED"
+
       - name: Set up Python
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
@@ -883,18 +899,38 @@ jobs:
           NODE
           node .mel-trace-control/scripts/lora-daily-trace-client.mjs TRAINING_RESULT artifacts/lora-trace-result.json RUNNING
 
+      # Preserve verified checkpoint bytes independently of GitHub Releases permissions.
+      # Never mark LoRA activated or benchmarked solely because this upload succeeds.
+      - name: Preserve verified checkpoint as private workflow artifact
+        if: env.SMOKE_ONLY != 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: mel-lora-recovery-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            artifacts/mel-lora-bundle.tar.gz
+            artifacts/kaggle-run.json
+          if-no-files-found: error
+          retention-days: 30
+
+      # A historical source SHA may differ in .github/workflows from main.
+      # GitHub's release API then requires Workflows:write, unavailable to
+      # GITHUB_TOKEN. Do not silently fall back or publish trained weights.
       - name: Save immutable checkpoint release
         if: env.SMOKE_ONLY != 'true'
         shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.MEL_LORA_RELEASE_TOKEN }}
         run: |
           set -euo pipefail
+          test -n "${GH_TOKEN:-}" || { echo "MEL_LORA_RELEASE_TOKEN_REQUIRED_WORKFLOWS_WRITE_FOR_HISTORICAL_SHA" >&2; exit 1; }
           SHORT="${SOURCE_SHA:0:12}"
           TAG="mel-lora-kaggle-${SHORT}-c$(printf '%03d' "$CYCLE")"
           echo "CHECKPOINT_TAG=$TAG" >> "$GITHUB_ENV"
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release upload "$TAG" artifacts/mel-lora-bundle.tar.gz artifacts/kaggle-run.json --clobber --repo "$GITHUB_REPOSITORY"
+            echo "LORA_CHECKPOINT_RELEASE_ALREADY_EXISTS: refusing overwrite of immutable checkpoint" >&2
+            exit 1
           else
-            gh release create "$TAG" artifacts/mel-lora-bundle.tar.gz artifacts/kaggle-run.json               --repo "$GITHUB_REPOSITORY"               --target "$SOURCE_SHA"               --title "MEL LoRA Kaggle UNCENSORED cycle $CYCLE"               --notes "Free offline Kaggle GPU checkpoint. No production deployment. No paid fallback."
+            gh release create "$TAG" artifacts/mel-lora-bundle.tar.gz artifacts/kaggle-run.json               --repo "$GITHUB_REPOSITORY"               --target "$SOURCE_SHA"               --title "MEL LoRA Kaggle UNCENSORED cycle $CYCLE"               --notes "Free offline Kaggle GPU checkpoint. No production deployment. No paid fallback."               --draft
           fi
 
       - name: Create zero-cost training result
@@ -920,6 +956,50 @@ jobs:
           }
           Path("artifacts/finalize-result.json").write_text(json.dumps(result,indent=2)+"\n")
           print(json.dumps(result,indent=2))
+          PY
+
+      # The six-case local gate is separate from the canonical preview gate.
+      # Never upload or activate a locally rejected adapter just because the
+      # preview/benchmark flag was requested.
+      # Block preview mutation if the candidate regressed on a protected
+      # boundary case or agentic execution, even when aggregate scores improve.
+      # This is an additional offline hold-point, not approval/promotion.
+      - name: Require no safety or agentic regression before Cloudflare preview mutation
+        if: env.SMOKE_ONLY != 'true' && env.BENCHMARK_PREVIEW == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/check-lora-local-quality-gate.py \
+            artifacts/kaggle-run.json \
+            artifacts/lora-incoming/local-impact-benchmark.json
+
+      # Do not let improving overall score hide a lost boundary refusal or
+      # agentic-execution regression. This independent check happens before
+      # Cloudflare upload, artifact approval or isolated-preview benchmark.
+      - name: Require no safety or agentic regression before Cloudflare preview mutation
+        if: env.SMOKE_ONLY != 'true' && env.BENCHMARK_PREVIEW == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/check-lora-local-quality-gate.py \
+            artifacts/kaggle-run.json \
+            artifacts/lora-incoming/local-impact-benchmark.json
+
+      - name: Require local quality gate before Cloudflare preview mutation
+        if: env.SMOKE_ONLY != 'true' && env.BENCHMARK_PREVIEW == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          run=json.loads(Path('artifacts/kaggle-run.json').read_text())
+          impact=json.loads(Path('artifacts/lora-incoming/local-impact-benchmark.json').read_text())
+          if (run.get('local_uncensored_gate') is not True or
+              impact.get('local_uncensored_gate') is not True or
+              impact.get('candidate',{}).get('metrics',{}).get('uncensored_gate') is not True):
+              raise SystemExit('MEL_LOCAL_IMPACT_GATE_NOT_PASSED_BEFORE_PREVIEW')
+          print('MEL_LOCAL_IMPACT_GATE_PROVEN_CANONICAL_BENCHMARK_STILL_REQUIRED')
           PY
 
       - name: Upload adapter to Cloudflare open-beta LoRA
