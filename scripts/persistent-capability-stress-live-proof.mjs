@@ -65,6 +65,36 @@ export function summarizeStressCoverage(result) {
   assert(contractInspected === total && contractValid + contractInvalid === total
     && contractInvalid === 0, 'CAPABILITY_COVERAGE_CONTRACTS_NOT_ALL_VALID');
   const pending = total - executed;
+  // The persisted full report may provide per-capability execution blockers.
+  // Export ONLY sanitized aggregate reason codes, never IDs, inputs, results,
+  // provider messages, stack traces or user content.
+  const rows = result?.report?.capabilities;
+  let reasonCounts = null;
+  if (Array.isArray(rows) && rows.length === total) {
+    const buckets = Object.create(null);
+    let inspectedRuntimeCount = 0;
+    for (const row of rows) {
+      if (row?.truth_status === 'EXISTANT_ET_TESTE') {
+        inspectedRuntimeCount += 1;
+        continue;
+      }
+      const raw = String(row?.auto_execution_blocked || '');
+      const coarse = raw.split(':')[0];
+      const safeReasons = new Set([
+        'RISK_NOT_LOW', 'OWNER_APPROVAL_REQUIRED',
+        'UNKNOWN_OR_EXTERNAL_COST', 'NO_BOUNDED_SAMPLE', 'NO_RUNTIME_FIXTURE',
+        'DISABLED', 'DECLARED_NON_EXECUTABLE', 'HEALTH_UNAVAILABLE',
+        'HEALTH_REFRESH_UNVERIFIED', 'SAMPLE_PREPARATION_FAILED',
+      ]);
+      const reason = safeReasons.has(coarse) ? coarse : 'UNVERIFIED_REASON_UNSPECIFIED';
+      buckets[reason] = (buckets[reason] || 0) + 1;
+    }
+    assert(inspectedRuntimeCount === executed,
+      'CAPABILITY_COVERAGE_EXECUTION_COUNT_MISMATCH');
+    assert(Object.values(buckets).reduce((sum, count) => sum + count, 0) === pending,
+      'CAPABILITY_COVERAGE_REASON_COUNTS_MISMATCH');
+    reasonCounts = Object.fromEntries(Object.entries(buckets).sort(([a],[b]) => a.localeCompare(b)));
+  }
   return {
     schema: 'mel.capability-runtime-coverage/v1',
     contract_validation_complete: true,
@@ -72,6 +102,8 @@ export function summarizeStressCoverage(result) {
     valid_contracts: contractValid,
     runtime_tested: executed,
     runtime_unverified: pending,
+    reason_breakdown_available: reasonCounts !== null,
+    runtime_unverified_reasons: reasonCounts,
     runtime_coverage_percent: Number((100 * executed / total).toFixed(2)),
     runtime_validation_complete: pending === 0,
     evidence_scope: pending === 0 ? 'ALL_RUNTIME_SAMPLES_EXECUTED' : 'PARTIAL_SAFE_RUNTIME_EXECUTION',
