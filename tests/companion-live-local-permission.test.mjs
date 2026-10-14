@@ -12,9 +12,12 @@ for(const path of ['../assets/MEL-Computer-Companion.ps1','../dist/MEL-Computer-
   assert.match(heartbeat,/try \{ Assert-LocalRemoteAccess; \$remoteEnabled = \$true \} catch \{\}/);
   assert.match(heartbeat,/remote_access_enabled = \$remoteEnabled/);
   assert.doesNotMatch(heartbeat,/remote_access_enabled = \(\$config\.remote_access_enabled/);
-  assert.match(view,/if \(-not \[Environment\]::UserInteractive\)/);
-  assert.match(view,/Assert-LocalRemoteAccess/);
-  assert.ok(view.indexOf('Assert-LocalRemoteAccess')<view.indexOf('MessageBox]::Show'));
+  // Owner granted unattended access from Windows settings before leaving.
+  // It is rechecked at every remote action; no modal is required on an empty desk.
+  assert.match(check,/function Assert-UnattendedCapturePermission/);
+  assert.match(view,/Assert-UnattendedCapturePermission/);
+  assert.doesNotMatch(view,/MessageBox\]::Show/);
+  assert.ok(view.indexOf('Assert-UnattendedCapturePermission')<view.indexOf('Upload-Screenshot'));
 
   assert.match(check,/Test-Path -LiteralPath \$ConfigPath -PathType Leaf/);
   assert.match(check,/Get-Content -Raw -Encoding UTF8 -LiteralPath \$ConfigPath/);
