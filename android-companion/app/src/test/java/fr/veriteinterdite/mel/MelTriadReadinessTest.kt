@@ -65,4 +65,14 @@ class MelTriadReadinessTest {
         assertFalse(offline.windowsVerified)
     }
 
+    @Test fun cachedWindowsOnlineCannotOutliveAndroidSession() {
+        val view = triadReadiness(
+            SessionStage.DISCONNECTED,
+            miniReadiness(true, true, false),
+            MelWindowsPresence(known = true, online = true, halted = false)
+        )
+        assertTrue(view.windowsLabel.contains("indisponible"))
+        assertFalse(view.windowsVerified)
+    }
+
 }
