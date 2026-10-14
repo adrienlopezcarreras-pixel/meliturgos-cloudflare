@@ -801,8 +801,9 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun ensureWakeWordListening() {
-        if (getSharedPreferences("mel_wake_background_opt_in", MODE_PRIVATE)
-                .getBoolean("microphone_enabled", false)) return
+        // Persisted opt-in can survive an Android process kill; it does not prove
+        // that the microphone service is actually running in this process.
+        if (MelWakeForegroundService.foregroundMicrophoneActive) return
         if (voiceConversationActive.value) return
         if (System.currentTimeMillis() - lastWakeActivationMs < 4_000L) return
         if (!appResumed || wakeListening || recording.value || pushToTalkHeld || wakeEnrollmentActive.value) return
