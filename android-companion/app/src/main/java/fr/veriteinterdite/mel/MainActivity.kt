@@ -2773,9 +2773,11 @@ private fun CompanionPanel(
 ) {
     val bridgeState by MelLinkV2ClientService.bridgeState.collectAsStateWithLifecycle()
     val bleReady by MelLinkV2ClientService.miniLinkReady.collectAsStateWithLifecycle()
+    val protocolReady by MelLinkV2ClientService.protocolReady.collectAsStateWithLifecycle()
     val phoneInternetReady by MelLinkV2ClientService.phoneInternetAvailable.collectAsStateWithLifecycle()
     val internetReady by MelLinkV2ClientService.internetReady.collectAsStateWithLifecycle()
     val pairingComplete by MelLinkV2ClientService.miniPairingComplete.collectAsStateWithLifecycle()
+    val miniStatus = miniReadiness(bleReady, protocolReady, internetReady)
     var showPairRecovery by rememberSaveable { mutableStateOf(false) }
     var miniPairUser by rememberSaveable { mutableStateOf("adrien") }
     var miniPairSecret by rememberSaveable { mutableStateOf("") }
@@ -2788,7 +2790,7 @@ private fun CompanionPanel(
             Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            HudLabel("COMPAGNON // MINI", if (bleReady) "BLUETOOTH CONNECTÉ" else "BLUETOOTH À CONNECTER", MelViolet)
+            HudLabel("COMPAGNON // MINI", miniStatus.statusLabel, MelViolet)
             Spacer(Modifier.weight(1f))
             OutlinedButton(onClick = onRefresh, shape = RoundedCornerShape(14.dp)) { Text("Actualiser") }
         }
@@ -2802,6 +2804,7 @@ private fun CompanionPanel(
             Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Lien Bluetooth réel", color = MelInk, fontWeight = FontWeight.Bold)
                 Text(bridgeState, color = if (bleReady) MelSuccess else MelMuted, fontSize = 12.sp)
+                Text(miniStatus.sessionDescription, color = if (miniStatus.linkV2Verified) MelSuccess else MelMuted, fontSize = 12.sp, modifier = Modifier.testTag("mini-session-readiness"))
                 Button(
                     onClick = onConnectMini,
                     modifier = Modifier.fillMaxWidth().height(48.dp).testTag("mini-connect-button"),
@@ -2821,17 +2824,19 @@ private fun CompanionPanel(
             Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Internet de la MINI", color = MelInk, fontWeight = FontWeight.Bold)
                 Text(
-                    if (internetReady)
+                    if (miniStatus.melInternetVerified)
                         "Relais Internet MEL actif"
-                    else if (bleReady && !phoneInternetReady)
-                        "MINI connectée · téléphone sans Internet validé"
+                    else if (miniStatus.linkV2Verified && !phoneInternetReady)
+                        "Session Link V2 vérifiée · téléphone sans Internet"
+                    else if (miniStatus.linkV2Verified)
+                        "Session Link V2 vérifiée · validation Internet MEL en cours"
                     else if (bleReady)
-                        "MINI connectée · téléphone en ligne · validation MEL en cours"
+                        "Bluetooth établi · session Link V2 non vérifiée"
                     else if (phoneInternetReady)
                         "Téléphone en ligne · en attente de la MINI"
                     else
                         "Téléphone hors ligne · active Wi-Fi ou données mobiles.",
-                    color = if (internetReady) MelSuccess else MelMuted,
+                    color = if (miniStatus.melInternetVerified) MelSuccess else MelMuted,
                     fontSize = 12.sp
                 )
                 if (pairingComplete) {
