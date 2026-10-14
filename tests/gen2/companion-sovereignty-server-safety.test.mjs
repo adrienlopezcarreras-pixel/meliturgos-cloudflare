@@ -74,3 +74,17 @@ test('approved source-control command is queued, not executed on the server', as
   assert.equal(plan.owner_halt,false);
   assert.equal(plan.steps[0].payload.command,undefined);
 });
+
+test('desktop-control requests cannot bypass the separate authenticated consent gate', async () => {
+  for (const [layer,action] of [
+    ['desktop','view'],['desktop','mouse'],['desktop','keyboard'],
+    ['desktop','shell'],['maintenance','powershell'],['firmware','flash'],
+  ]) {
+    await assert.rejects(
+      enqueueCompanionSovereigntyCommand({}, {
+        layer,action,payload:{local_approved:true,owner_authenticated:true,command:'whoami'},
+      }),
+      {code:'COMPANION_SOVEREIGNTY_ACTION_FORBIDDEN'},
+    );
+  }
+});
