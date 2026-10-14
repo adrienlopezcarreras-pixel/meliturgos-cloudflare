@@ -308,7 +308,43 @@ async function ownerRevoke(request,env){const a=requireAuth(request,env);if(!a.o
 
 async function asset(request,env,name,{allowDevice=false}={}){const owner=requireAuth(request,env);if(!owner.ok){if(!allowDevice)return owner.response;const device=await authDevice(request,env);if(!device.ok)return device.response}if(!env?.ASSETS?.fetch)return json({ok:false,code:"ASSETS_BINDING_UNAVAILABLE"},503);const u=new URL("/"+name,request.url);const r=await env.ASSETS.fetch(new Request(u.toString(),{method:"GET"}));if(!r.ok)return json({ok:false,code:"ASSET_NOT_FOUND"},404);const h=new Headers(r.headers);h.set("content-type","text/plain; charset=utf-8");h.set("content-disposition",`attachment; filename="${name}"`);h.set("cache-control","no-store");return new Response(r.body,{status:200,headers:h})}
 
-async function screenshotView(request,env,url){const a=requireAuth(request,env);if(!a.ok)return a.response;if(!env?.MEDIA_BUCKET)return json({ok:false,code:"MEDIA_BUCKET_UNAVAILABLE"},503);const key=String(url.searchParams.get("key")||"");if(!key.startsWith("computer/screenshots/")||key.includes(".."))return json({ok:false,code:"SCREENSHOT_KEY_INVALID"},400);const o=await env.MEDIA_BUCKET.get(key);if(!o)return json({ok:false,code:"SCREENSHOT_NOT_FOUND"},404);const h=new Headers({"content-type":"image/png","cache-control":"private, max-age=30"});return new Response(o.body,{headers:h})}
+async function screenshotView(request,env,url){
+ const a=requireAuth(request,env);if(!a.ok)return a.response;
+ if(!env?.MEDIA_BUCKET)return json({ok:false,code:"MEDIA_BUCKET_UNAVAILABLE"},503);
+ const key=String(url.searchParams.get("key")||"");
+ // Never treat an owner-authenticated URL as a durable access grant.
+ // Resolve it to the original command/device so HALT and revocation still apply.
+ const match=/^computer\/screenshots\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)\.png$/.exec(key);
+ if(!match||key.includes(".."))return json({ok:false,code:"SCREENSHOT_KEY_INVALID"},400);
+ if(!env?.DB)return json({ok:false,code:"COMPUTER_DB_REQUIRED"},503);
+ const row=await env.DB.prepare(
+  "SELECT c.id,c.device_id,c.status,c.plan_json,d.halted,d.metadata FROM computer_commands c JOIN computer_devices d ON d.id=c.device_id WHERE c.id=? LIMIT 1"
+ ).bind(match[2]).first();
+ if(!row||
+    row.device_id.replace(/[^A-Za-z0-9_.-]/g,"_")!==match[1]||
+    row.id.replace(/[^A-Za-z0-9_.-]/g,"_")!==match[2]||
+    !["RUNNING","SUCCEEDED"].includes(row.status))
+  return json({ok:false,code:"SCREENSHOT_ACCESS_REVOKED_OR_UNKNOWN"},404);
+ if(Number(row.halted)===1)
+  return json({ok:false,code:"SCREENSHOT_OWNER_HALT"},409);
+ const metadata=parse(row.metadata,{});
+ if(metadata.remote_access_enabled===false)
+  return json({ok:false,code:"SCREENSHOT_LOCAL_ACCESS_REVOKED"},409);
+ const plan=parse(row.plan_json,{});
+ if(plan.schema==="mel.companion.desktop-view-request/v1"||plan.action==="desktop.view.request"){
+  if(plan.schema!=="mel.companion.desktop-view-request/v1"||
+     plan.action!=="desktop.view.request"||plan.screen_capture_only!==true||
+     plan.requires_local_stop!==true||plan.device_id!==row.device_id||
+     !Number.isFinite(Number(plan.expires_at))||Number(plan.expires_at)<=Date.now())
+   return json({ok:false,code:"SCREENSHOT_VIEW_EXPIRED_OR_REVOKED"},409);
+ }
+ let object;
+ try{object=await env.MEDIA_BUCKET.get(key)}
+ catch{return json({ok:false,code:"SCREENSHOT_STORAGE_UNAVAILABLE"},503)}
+ if(!object)return json({ok:false,code:"SCREENSHOT_NOT_FOUND"},404);
+ const headers=new Headers({"content-type":"image/png","cache-control":"no-store","x-content-type-options":"nosniff"});
+ return new Response(object.body,{headers});
+}
 
 async function sovereigntyCodeArchive(request,env,url){
  const a=await authDevice(request,env);if(!a.ok)return a.response;
