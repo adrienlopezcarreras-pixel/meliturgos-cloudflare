@@ -32,7 +32,7 @@ on:
       version:
         description: Windows companion release version
         required: true
-        default: '2.3.13'
+        default: '2.3.14'
         type: string
       signed_release:
         description: Build a signed Authenticode release
@@ -65,7 +65,7 @@ jobs:
     timeout-minutes: 20
     needs: contract
     env:
-      RELEASE_VERSION: ${{ github.event_name == 'workflow_dispatch' && inputs.version || '2.3.13' }}
+      RELEASE_VERSION: ${{ github.event_name == 'workflow_dispatch' && inputs.version || '2.3.14' }}
       EXPECTED_SHA: ${{ github.event_name == 'workflow_dispatch' && inputs.expected_sha || github.sha }}
       SIGNED_RELEASE: ${{ github.event_name == 'workflow_dispatch' && inputs.signed_release || false }}
     steps:
