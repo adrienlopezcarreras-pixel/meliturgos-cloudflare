@@ -11,7 +11,7 @@ class MelTriadReadinessTest {
         assertFalse(view.androidVerified)
         assertFalse(view.miniVerified)
         assertFalse(view.windowsVerified)
-        assertTrue(view.windowsLabel.contains("disponibilité inconnue"))
+        assertEquals("Windows · état indisponible sans session Android", view.windowsLabel)
     }
 
     @Test fun loginDoesNotImplyMiniOrWindowsReadiness() {
