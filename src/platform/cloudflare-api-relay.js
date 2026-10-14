@@ -81,10 +81,16 @@ export class D1CloudflareApiRelayStore {
     for(let attempt=0;attempt<3;attempt+=1){
       const row=await this.db.prepare(`SELECT id FROM cloudflare_api_relay_jobs WHERE status='QUEUED' ORDER BY created_at ASC LIMIT 1`).first();
       if(!row?.id)return null;
-      await this.db.prepare(`UPDATE cloudflare_api_relay_jobs SET status='CLAIMED',claimed_at=?,updated_at=? WHERE id=? AND status='QUEUED'`)
+      // A concurrent runner may win this compare-and-swap after our SELECT.
+      // Reading the row afterwards is insufficient: both runners would see
+      // CLAIMED and could execute the same mutation. Only the UPDATE winner
+      // may receive a job, based on D1's actual affected-row count.
+      const mutation=await this.db.prepare(`UPDATE cloudflare_api_relay_jobs SET status='CLAIMED',claimed_at=?,updated_at=? WHERE id=? AND status='QUEUED'`)
         .bind(now,now,row.id).run();
+      if(Number(mutation?.meta?.changes)!==1)continue;
       const claimed=await this.get(row.id);
       if(claimed?.status==='CLAIMED')return claimed;
+      throw relayError('CLOUDFLARE_RELAY_CLAIM_STATE_CHANGED',409);
     }
     return null;
   }

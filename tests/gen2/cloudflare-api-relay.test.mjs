@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { classifyHttpAuthSurface } from '../../src/security/http-auth-policy.js';
 import { cloudflareApiRelay } from '../../src/api/cloudflare-api-relay.js';
+import { D1CloudflareApiRelayStore } from '../../src/platform/cloudflare-api-relay.js';
 
 test('Cloudflare API relay route delegates authentication to scoped OIDC handler', () => {
   const request = new Request('https://mel.example/api/internal/cloudflare-api-relay/heartbeat', { method:'POST' });
@@ -104,4 +105,74 @@ test('queued Cloudflare jobs are processed before unrelated local Companion diag
   assert.match(source,/if\(job\.operation==='deployments\.create'\)/);
   assert.match(source,/if\(proof\.some\(row=>row\.status!=='SUCCEEDED'\)\) throw/);
   assert.doesNotMatch(source,/MEL_MINI_RESET_APPROVED|action:'serial\.hard_reset'/);
+});
+
+test('two concurrent Cloudflare relay runners can claim a queued deployment only once', async () => {
+  const row={id:'cf-relay-unit-1',status:'QUEUED',operation:'deployments.create',
+    input_json:'{}',result_json:null,error:null,created_at:1,updated_at:1,claimed_at:null,completed_at:null};
+  let selected=0;
+  let releaseReads;
+  const bothSelected=new Promise(resolve=>{releaseReads=resolve;});
+  let winningUpdates=0;
+  const db={
+    prepare(sql) {
+      const query=String(sql);
+      return {
+        args:[],
+        bind(...args){this.args=args;return this;},
+        async run(){
+          if(query.includes("UPDATE cloudflare_api_relay_jobs SET status='CLAIMED'")){
+            if(row.status!=='QUEUED')return {meta:{changes:0}};
+            row.status='CLAIMED';
+            row.claimed_at=this.args[0];
+            winningUpdates++;
+            return {meta:{changes:1}};
+          }
+          return {meta:{changes:0}};
+        },
+        async first(){
+          if(query.includes("SELECT id FROM cloudflare_api_relay_jobs WHERE status='QUEUED'")){
+            if(row.status!=='QUEUED')return null;
+            selected++;
+            if(selected===2)releaseReads();
+            await bothSelected;
+            return {id:row.id};
+          }
+          if(query.includes('SELECT * FROM cloudflare_api_relay_jobs WHERE id=?')){
+            return {...row};
+          }
+          return null;
+        },
+      };
+    },
+  };
+  const store=new D1CloudflareApiRelayStore(db);
+  const [a,b]=await Promise.all([store.claim({now:100}),store.claim({now:101})]);
+  assert.equal(winningUpdates,1);
+  const winners=[a,b].filter(Boolean);
+  assert.equal(winners.length,1,'losing runner must not execute the same deployment');
+  assert.equal(winners[0].operation,'deployments.create');
+  assert.equal(winners[0].status,'CLAIMED');
+});
+
+test('Cloudflare relay claim fails closed if D1 omits the affected-row proof', async () => {
+  let reads=0;
+  const db={prepare(sql){
+    const query=String(sql);
+    return {
+      bind(){return this;},
+      async run(){return {};},
+      async first(){
+        if(query.includes("SELECT id FROM cloudflare_api_relay_jobs WHERE status='QUEUED'")){
+          reads++;
+          return reads===1?{id:'cf-relay-missing-meta'}:null;
+        }
+        if(query.includes('SELECT * FROM cloudflare_api_relay_jobs WHERE id=?')){
+          throw new Error('losing claim must never fetch or execute a job');
+        }
+        return null;
+      },
+    };
+  }};
+  assert.equal(await new D1CloudflareApiRelayStore(db).claim(),null);
 });
