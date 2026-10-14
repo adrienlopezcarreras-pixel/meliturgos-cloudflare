@@ -346,13 +346,13 @@ test('Android background heartbeat uses WorkManager without hidden background mi
   assert.doesNotMatch(background,/startForegroundService/);
   // An explicit, stopped-by-default microphone service is permitted; background
   // heartbeat must still never start it or silently capture audio.
-  assert.match(manifest,/android\\.permission\\.FOREGROUND_SERVICE_MICROPHONE/);
-  assert.match(manifest,/android:name="\\.MelWakeForegroundService"[\\s\\S]*?android:foregroundServiceType="microphone"/);
+  assert.match(manifest,/android\.permission\.FOREGROUND_SERVICE_MICROPHONE/);
+  assert.match(manifest,/android:name="\.MelWakeForegroundService"[\s\S]*?android:foregroundServiceType="microphone"/);
   const wakeService=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelWakeForegroundService.kt',root),'utf8');
   assert.match(wakeService,/RECORD_AUDIO/);
   assert.match(wakeService,/START_NOT_STICKY/);
   assert.match(wakeService,/ACTION_STOP/);
-  assert.doesNotMatch(wakeService,/WakePhraseTrainer\\.listenForWake/);
+  assert.doesNotMatch(wakeService,/WakePhraseTrainer\.listenForWake/);
   assert.doesNotMatch(background,/MelWakeForegroundService/);
   assert.match(vm,/MelBackground\.schedule\(appContext\)/);
   assert.match(vm,/MelBackground\.cancel\(appContext\)/);
