@@ -71,6 +71,8 @@ class MelLinkV2ClientService : Service() {
         val state = MutableStateFlow("OFF")
         val miniReady = MutableStateFlow(false)
         val protocolReady = MutableStateFlow(false)
+        // Advertisement only, NEVER a negotiated permission to send phases.
+        val miniPhaseAdvertised = MutableStateFlow(false)
         val phoneInternetAvailable = MutableStateFlow(false)
         val internetReady = MutableStateFlow(false)
         val miniPairingComplete = MutableStateFlow(false)
@@ -217,6 +219,7 @@ class MelLinkV2ClientService : Service() {
         runCatching { unregisterReceiver(bondReceiver) }
         miniReady.value = false
         protocolReady.value = false
+        miniPhaseAdvertised.value = false
         phoneInternetAvailable.value = false
         melSessionReady = false
         internetReady.value = false
@@ -403,6 +406,7 @@ class MelLinkV2ClientService : Service() {
                 state.value = "NEGOCIATION"
                 miniReady.value = false
                 protocolReady.value = false
+        miniPhaseAdvertised.value = false
                 if (!hasBlePermissions()) {
                     failAndReconnect(client, "BLUETOOTH_PERMISSION_MISSING")
                     return
@@ -536,6 +540,10 @@ class MelLinkV2ClientService : Service() {
                 // An in-flight duplicate HELLO must not demote a session that
                 // already received its SESSION_OK acknowledgment.
                 if (protocolReady.value) return
+                // HELLO is only an advertisement, not opt-in or SESSION_OK.
+                miniPhaseAdvertised.value = runCatching {
+                    JSONObject(frame.payload.toString(Charsets.UTF_8)).optBoolean("triad_phase_v1", false)
+                }.getOrDefault(false)
                 // HELLO proves a BLE notification, not acceptance of MINI SESSION.
                 protocolReady.value = false
                 melSessionReady = false
@@ -1350,6 +1358,7 @@ class MelLinkV2ClientService : Service() {
         writeAck.clear()
         miniReady.value = false
         protocolReady.value = false
+        miniPhaseAdvertised.value = false
         sessionAckTimeoutArmed = false
         melSessionReady = false
         internetReady.value = false
