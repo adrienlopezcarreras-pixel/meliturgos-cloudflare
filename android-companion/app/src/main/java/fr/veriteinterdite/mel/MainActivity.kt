@@ -294,6 +294,11 @@ class MainActivity : ComponentActivity() {
                     ensureWakeWordListening()
                 }
             }
+            // Source: actual microphone/voice/chat state driving the native avatar.
+            // Publication is minimal and token-authenticated; never text or audio.
+            LaunchedEffect(state.session, state.busy, state.speaking, state.status, state.error, recording.value) {
+                model.reportLocalConversationActivity(recording.value)
+            }
             LaunchedEffect(state.session, state.busy, state.speaking, state.error, recording.value, voiceConversationActive.value) {
                 if (state.speaking && voiceConversationActive.value && !recording.value) {
                     startBargeInListening()
@@ -377,12 +382,14 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         appResumed = true
+        if (::model.isInitialized) model.setTriadActivityVisible(true, recording.value)
         refreshWakeEnrollmentState()
         if (::model.isInitialized) mainHandler.postDelayed({ ensureWakeWordListening() }, 500L)
     }
 
     override fun onPause() {
         appResumed = false
+        if (::model.isInitialized) model.setTriadActivityVisible(false)
         voiceConversationActive.value = false
         stopBargeInListening()
         stopWakeWordListening()

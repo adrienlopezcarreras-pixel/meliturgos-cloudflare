@@ -9,6 +9,7 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.CreationExtras
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -94,11 +95,76 @@ class MelViewModel(
     val state: StateFlow<MelUiState> = _state.asStateFlow()
     private var companionRefreshLoopStarted = false
     private var windowsPresencePollStarted = false
+    private val triadActivityQueue = Channel<String>(Channel.CONFLATED)
+    @Volatile private var observedTriadPhase = "UNAVAILABLE"
+    @Volatile private var triadActivityVisible = false
+    @Volatile private var triadRecordingObserved = false
 
     init {
         verifyExistingSession()
         startCompanionRefreshLoop()
         startWindowsPresencePoll()
+        startTriadActivityPublishing()
+    }
+
+    // Only observed Android conversation activity is published, never message
+    // contents. The conflated queue serializes I/O so old phases cannot build
+    // an unbounded backlog during a slow or temporarily unavailable network.
+    fun setTriadActivityVisible(visible: Boolean, recording: Boolean = false) {
+        triadActivityVisible = visible
+        if (!visible) {
+            observedTriadPhase = "UNAVAILABLE"
+            triadRecordingObserved = false
+        } else {
+            reportLocalConversationActivity(recording)
+        }
+    }
+
+    fun reportLocalConversationActivity(recording: Boolean) {
+        if (!triadActivityVisible) {
+            observedTriadPhase = "UNAVAILABLE"
+            return
+        }
+        triadRecordingObserved = recording
+        val stateNow = _state.value
+        val phase = triadConversationActivity(stateNow.session, recording,
+            stateNow.busy, stateNow.speaking, stateNow.status, stateNow.error).phase
+        if (!canPublishTriadConversationPhase(stateNow.session, phase)) {
+            observedTriadPhase = "UNAVAILABLE"
+            return
+        }
+        if (phase != observedTriadPhase) {
+            observedTriadPhase = phase
+            triadActivityQueue.trySend(phase)
+        }
+    }
+
+    private fun startTriadActivityPublishing() {
+        viewModelScope.launch(Dispatchers.IO) {
+            for (phase in triadActivityQueue) {
+                if (triadActivityVisible && shouldPollWindowsPresence(_state.value) &&
+                    phase == observedTriadPhase &&
+                    canPublishTriadConversationPhase(_state.value.session, phase)) {
+                    runCatching { client.publishTriadActivity(phase) }
+                    // Local availability is independent of publication success:
+                    // the server expires missing updates; it never invents ACKs.
+                }
+            }
+        }
+        viewModelScope.launch {
+            while (true) {
+                if (triadActivityVisible) {
+                    // Resample the latest actual ViewModel phase while foreground,
+                    // even when Compose has not recomposed for a long response.
+                    reportLocalConversationActivity(triadRecordingObserved)
+                    if (shouldPollWindowsPresence(_state.value) &&
+                        canPublishTriadConversationPhase(_state.value.session, observedTriadPhase)) {
+                        triadActivityQueue.trySend(observedTriadPhase)
+                    }
+                }
+                delay(10_000)
+            }
+        }
     }
 
     private fun startCompanionRefreshLoop() {
