@@ -2778,7 +2778,7 @@ private fun CompanionPanel(
     val internetReady by MelLinkV2ClientService.internetReady.collectAsStateWithLifecycle()
     val pairingComplete by MelLinkV2ClientService.miniPairingComplete.collectAsStateWithLifecycle()
     val miniStatus = miniReadiness(bleReady, protocolReady, internetReady)
-    val triadStatus = triadReadiness(state.session, miniStatus)
+    val triadStatus = triadReadiness(state.session, miniStatus, state.windowsPresence)
     var showPairRecovery by rememberSaveable { mutableStateOf(false) }
     var miniPairUser by rememberSaveable { mutableStateOf("adrien") }
     var miniPairSecret by rememberSaveable { mutableStateOf("") }
