@@ -2059,6 +2059,15 @@ function Assert-LocalRemoteAccess {
   }
 }
 
+function Assert-UnattendedCapturePermission {
+  # Consent is the owner's persisted local switch; a per-command dialog would
+  # make remote access impossible when the Windows PC is unattended.
+  # This switch is false by default and can be revoked locally; owner HALT
+  # is enforced by the server command claim path.
+  if ($script:MelExitRequested) { throw "SCREENSHOT_LOCAL_STOP_ACTIVE" }
+  Assert-LocalRemoteAccess
+}
+
 function Perform-Step($step, [string]$commandId, [string]$planSchema="") {
   $action = [string]$step.action
   if ($planSchema -eq "mel.devices.pc-control.v1") {
@@ -2111,7 +2120,13 @@ function Perform-Step($step, [string]$commandId, [string]$planSchema="") {
   $action = [string]$step.action
   switch ($action) {
     "screen.capture" {
+      # Legacy computer-use captures still require explicit approval on this PC.
+      Assert-UnattendedCapturePermission
       $shot = Upload-Screenshot $commandId
+      if ([string]$shot.key -eq '' -or [string]$shot.view_url -eq '' -or
+          [string]$shot.key -notlike "computer/screenshots/$ComputerId/*") {
+        throw "SCREENSHOT_UPLOAD_UNCONFIRMED"
+      }
       return @{ action=$action; screenshot_key=$shot.key; view_url=$shot.view_url }
     }
     "cursor.move" {
@@ -2187,25 +2202,14 @@ function Process-Command($command) {
           $command.plan.requires_local_stop -ne $true -or
           [string]$command.plan.device_id -ne $ComputerId -or
           [string]$command.plan.session_id -eq '') { throw 'DESKTOP_VIEW_PLAN_INVALID' }
-      if (-not [Environment]::UserInteractive) { throw 'DESKTOP_VIEW_LOCAL_UI_UNAVAILABLE' }
-      Assert-LocalRemoteAccess
+      # The owner has already opted in on this PC via remote_access_enabled.
+      # Do NOT display an interactive dialog on each remote request.
+      Assert-UnattendedCapturePermission
       $expiry = [long]$command.plan.expires_at
       $now = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
       if ($expiry -le $now -or $expiry -gt ($now + 300000)) { throw 'DESKTOP_VIEW_CONSENT_EXPIRED' }
-      $choice = [System.Windows.Forms.MessageBox]::Show(
-        'MEL demande une capture unique de votre ecran. Autoriser cet envoi ? Vous pouvez refuser.',
-        'MEL - autorisation locale de capture',
-        [System.Windows.Forms.MessageBoxButtons]::YesNo,
-        [System.Windows.Forms.MessageBoxIcon]::Question,
-        [System.Windows.Forms.MessageBoxDefaultButton]::Button2)
-      if ($choice -ne [System.Windows.Forms.DialogResult]::Yes) { throw 'DESKTOP_VIEW_LOCAL_CONSENT_DENIED' }
-      if ([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() -ge $expiry -or $script:MelExitRequested) {
-        throw 'DESKTOP_VIEW_CONSENT_EXPIRED'
-      }
-      # Re-read owner permission after the user has answered the dialog.
-      # An earlier in-memory setting must never override a local revocation.
-      $latestConfig = Get-Content -Raw -Encoding UTF8 -LiteralPath $ConfigPath | ConvertFrom-Json
-      if ($latestConfig.remote_access_enabled -ne $true) { throw 'DESKTOP_VIEW_LOCAL_PERMISSION_REVOKED' }
+      Assert-UnattendedCapturePermission
+      if ([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() -ge $expiry) { throw 'DESKTOP_VIEW_CONSENT_EXPIRED' }
       $shot = Upload-Screenshot ([string]$command.id)
       if ([string]$shot.key -eq '' -or [string]$shot.view_url -eq '' -or [string]$shot.key -notlike "computer/screenshots/$ComputerId/*") { throw 'DESKTOP_VIEW_UPLOAD_UNCONFIRMED' }
       $outputs += ,@{ action='desktop.view.request'; screenshot_key=$shot.key; view_url=$shot.view_url }
