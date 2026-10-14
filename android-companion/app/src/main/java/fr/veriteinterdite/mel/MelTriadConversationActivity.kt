@@ -17,6 +17,7 @@ internal fun triadConversationActivity(
     recording: Boolean,
     busy: Boolean,
     speaking: Boolean,
+    status: String,
     error: String?
 ): MelTriadConversationActivity {
     val (phase, label) = when {
@@ -24,9 +25,16 @@ internal fun triadConversationActivity(
         !error.isNullOrBlank() -> "ERROR" to "Android · conversation en erreur"
         recording -> "CAPTURING" to "Android · écoute en cours"
         speaking -> "RESPONDING" to "Android · réponse vocale en cours"
-        busy -> "THINKING" to "Android · traitement en cours"
+        busy && status.startsWith("Transcription de ta voix") ->
+            "TRANSCRIBING" to "Android · transcription en cours"
+        busy && (status.startsWith("MEL réfléchit") ||
+            status.startsWith("Réponse locale MINI") ||
+            status.startsWith("MEL prépare sa voix")) ->
+            "THINKING" to "Android · traitement de la conversation"
+        busy -> "OTHER_BUSY" to "Android · autre opération en cours"
         else -> "IDLE" to "Android · prêt pour la conversation"
     }
     return MelTriadConversationActivity(label = label, phase = phase,
-        active = phase == "CAPTURING" || phase == "THINKING" || phase == "RESPONDING")
+        active = phase == "CAPTURING" || phase == "TRANSCRIBING" ||
+            phase == "THINKING" || phase == "RESPONDING")
 }
