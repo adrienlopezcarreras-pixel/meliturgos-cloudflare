@@ -3,8 +3,10 @@ import {projectTriadSnapshot} from "./triad-snapshot-projection.js";
 
 // Read-only coordinator: no network, microphone, BLE or PC side effects.
 // Native clients supply observed facts; missing evidence is never promoted to VERIFIED.
-export function createTriadObserver(startMs=Date.now()) {
+export function createTriadObserver(startMs=Date.now(), freshnessMs=30_000) {
+  if (!Number.isSafeInteger(freshnessMs) || freshnessMs<1000 || freshnessMs>300_000) throw new Error("TRIAD_FRESHNESS_INVALID");
   let turn=createTriadTurn(startMs);
+  const observedAt=new Map();
   const devices=new Map(["mini","android","companion"].map(kind=>[kind,{
     kind,stage:"UNAVAILABLE",protocolReady:false,sessionAckVerified:false,authorized:false
   }]));
@@ -14,6 +16,8 @@ export function createTriadObserver(startMs=Date.now()) {
       return turn;
     },
     observeDevice(fact) {
+      if (!Number.isSafeInteger(fact?.observedAtMs) || fact.observedAtMs<startMs) throw new Error("TRIAD_OBSERVATION_TIME");
+      if (fact.observedAtMs < (observedAt.get(fact.kind) ?? startMs)) throw new Error("TRIAD_OBSERVATION_STALE");
       if (!fact || !devices.has(fact.kind)) throw new Error("TRIAD_DEVICE_KIND");
       if (!["UNAVAILABLE","CONNECTED","VERIFIED","DEGRADED"].includes(fact.stage)) throw new Error("TRIAD_DEVICE_STAGE");
       const ready=fact.protocolReady===true;
@@ -25,10 +29,18 @@ export function createTriadObserver(startMs=Date.now()) {
       const item=Object.freeze({kind:fact.kind,stage:fact.stage,protocolReady:ready,
         sessionAckVerified:fact.sessionAckVerified===true,authorized:fact.authorized===true});
       devices.set(fact.kind,item);
+      observedAt.set(fact.kind,fact.observedAtMs);
       return item;
     },
     snapshot(atMs=Date.now()) {
-      return projectTriadSnapshot({turn,devices:[...devices.values()],observedAtMs:atMs});
+      if (!Number.isSafeInteger(atMs) || atMs<startMs) throw new Error("TRIAD_SNAPSHOT_TIME");
+      const current=[...devices.values()].map(device=>{
+        const last=observedAt.get(device.kind);
+        return last!==undefined && atMs-last>freshnessMs
+          ? {...device,stage:"DEGRADED",protocolReady:false,sessionAckVerified:false,authorized:false}
+          : device;
+      });
+      return projectTriadSnapshot({turn,devices:current,observedAtMs:atMs});
     }
   });
 }
