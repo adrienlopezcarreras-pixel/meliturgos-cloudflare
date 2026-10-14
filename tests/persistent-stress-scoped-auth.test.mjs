@@ -43,3 +43,21 @@ test('real worker rejects non-audit capability under stress token', async () => 
   const data = await response.json();
   assert.equal(data.code, 'STRESS_PROOF_SCOPE_DENIED');
 });
+
+test('stress token requires smoke marker and complete secret', () => {
+  const noMarker = new Request('https://mel.test/api/gen2/capabilities/execute', {
+    method: 'POST', headers: { 'x-mel-stress-proof': token },
+  });
+  assert.equal(isReleaseSmokeRequest(noMarker, env), false);
+  assert.equal(isReleaseSmokeRequest(req('/api/gen2/capabilities/execute'), {}), false);
+  assert.equal(isReleaseSmokeRequest(req('/api/gen2/capabilities/execute'), { MEL_STRESS_PROOF_TOKEN: 'short' }), false);
+  assert.equal(isReleaseSmokeRequest(req('/api/gen2/capabilities/execute', 'POST', 'x'.repeat(48)), env), false);
+});
+test('stress-only scope is not inadvertently expanded by the release allowlist', () => {
+  const router = readFileSync('src/router.js', 'utf8');
+  const scope = router.slice(router.indexOf('// A stress credential is valid only'), router.indexOf('const runtime = createGen2Runtime', router.indexOf('// A stress credential is valid only')));
+  assert.ok(scope.includes("['capability.audit', 'capability.audit.status']"));
+  assert.ok(scope.includes('STRESS_PROOF_SCOPE_DENIED'));
+  assert.ok(!scope.includes('cloudflare.deployments.create'));
+  assert.ok(!scope.includes('github.actions.workflow.dispatch'));
+});
