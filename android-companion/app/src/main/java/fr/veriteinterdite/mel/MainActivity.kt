@@ -1562,7 +1562,9 @@ internal fun MelApp(
                 wakeEnrollmentActive = wakeEnrollmentActive,
                 wakeEnrolled = wakeEnrolled,
                 onWakeEnroll = onWakeEnroll,
-                onWakeReset = onWakeReset
+                onWakeReset = onWakeReset,
+                onBackgroundWakeEnable = onBackgroundWakeEnable,
+                onBackgroundWakeDisable = onBackgroundWakeDisable
             )
         }
     }
@@ -1936,7 +1938,9 @@ private fun ConversationScreen(
     wakeEnrollmentActive: Boolean,
     wakeEnrolled: Boolean,
     onWakeEnroll: () -> Unit,
-    onWakeReset: () -> Unit
+    onWakeReset: () -> Unit,
+    onBackgroundWakeEnable: () -> Unit,
+    onBackgroundWakeDisable: () -> Unit
 ) {
     var section by rememberSaveable { mutableStateOf(MobileSection.MEL) }
     var settingsOpen by rememberSaveable { mutableStateOf(false) }
