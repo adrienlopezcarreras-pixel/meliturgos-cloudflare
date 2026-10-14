@@ -1,0 +1,74 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {registerComputerRuntimeCapabilities} from '../src/capabilities/computer-runtime-capabilities.js';
+import {sqliteD1} from './helpers/sqlite-d1.mjs';
+
+function fixture(){
+ const db=sqliteD1(),actions=new Map(),health=new Map();
+ const bus={discover(meta,handler,probe){actions.set(meta.id,handler);health.set(meta.id,probe)}};
+ registerComputerRuntimeCapabilities(bus,{db});
+ return {db,actions,health};
+}
+async function device(db,{id,seen=Date.now(),engine=Date.now(),grant=true,halted=0,platform='windows'}){
+ const metadata=JSON.stringify({remote_access_enabled:grant,engine_heartbeat_at:engine,allowed_paths:[]});
+ await db.prepare('INSERT INTO computer_devices(id,token_hash,name,platform,capabilities,allowed_apps,halted,created_at,last_seen_at,metadata) VALUES(?,?,?,?,?,?,?,?,?,?)')
+  .bind(id,'hash-'+id,id,platform,JSON.stringify(['computer.use']),JSON.stringify(['notepad']),halted,Date.now(),seen,metadata).run();
+}
+async function set(db,id,{seen=Date.now(),engine=Date.now(),grant=true,halted=0}={}){
+ await db.prepare('UPDATE computer_devices SET last_seen_at=?,metadata=?,halted=? WHERE id=?')
+  .bind(seen,JSON.stringify({remote_access_enabled:grant,engine_heartbeat_at:engine,allowed_paths:[]}),halted,id).run();
+}
+
+test('chat quick screenshot chooses authorized online PC, not a closer but unauthorized PC',async()=>{
+ const {db,actions,health}=fixture();
+ try{
+  await actions.get('computer.status')({});
+  await device(db,{id:'pc-owner',seen:Date.now()-2000,engine:Date.now()-2000,grant:true});
+  await device(db,{id:'pc-not-approved',seen:Date.now(),engine:Date.now(),grant:false});
+  assert.equal(await health.get('computer.quick')(),'ONLINE');
+  const result=await actions.get('computer.quick')({kind:'screenshot'});
+  assert.equal(result.status,'PENDING');
+  assert.equal(result.device_id,'pc-owner');
+  const row=await db.prepare('SELECT plan_json FROM computer_commands WHERE id=?').bind(result.command_id).first();
+  assert.deepEqual(JSON.parse(row.plan_json).steps.map(x=>x.action),['screen.capture']);
+ }finally{db.close();}
+});
+
+test('quick and explicit chat commands fail closed without current Windows local grant and live engine',async()=>{
+ const {db,actions,health}=fixture();
+ try{
+  await actions.get('computer.status')({});
+  await device(db,{id:'pc-chat',grant:false});
+  assert.equal(await health.get('computer.quick')(),'OFFLINE');
+  await assert.rejects(actions.get('computer.quick')({kind:'screenshot'}),
+   x=>x.code==='COMPUTER_NO_AUTHORIZED_ONLINE_DEVICE');
+  await assert.rejects(actions.get('computer.execute')({computer_id:'pc-chat',steps:[{action:'screen.capture'}]}),
+   x=>x.code==='REMOTE_ACCESS_DISABLED_LOCALLY');
+  await set(db,'pc-chat',{engine:Date.now()-60_000});
+  await assert.rejects(actions.get('computer.execute')({computer_id:'pc-chat',steps:[{action:'screen.capture'}]}),
+   x=>x.code==='COMPUTER_ENGINE_OFFLINE');
+  await set(db,'pc-chat',{seen:Date.now()-60_000});
+  await assert.rejects(actions.get('computer.execute')({computer_id:'pc-chat',steps:[{action:'screen.capture'}]}),
+   x=>x.code==='COMPUTER_OFFLINE');
+  await set(db,'pc-chat',{halted:1});
+  await assert.rejects(actions.get('computer.execute')({computer_id:'pc-chat',steps:[{action:'screen.capture'}]}),
+   x=>x.code==='OWNER_HALT_ACTIVE');
+  await set(db,'pc-chat',{});
+  assert.equal(await health.get('computer.quick')(),'ONLINE');
+  const executed=await actions.get('computer.execute')({computer_id:'pc-chat',steps:[{action:'screen.capture'}]});
+  assert.equal(executed.status,'PENDING');
+  const records=await db.prepare('SELECT * FROM computer_commands').all();
+  assert.equal(records.results.length,1,'Rejected calls must not enqueue any commands');
+ }finally{db.close();}
+});
+
+test('chat quick cannot silently select a non-Windows platform',async()=>{
+ const {db,actions,health}=fixture();
+ try{
+  await actions.get('computer.status')({});
+  await device(db,{id:'android-decoy',platform:'android',grant:true});
+  assert.equal(await health.get('computer.quick')(),'OFFLINE');
+  await assert.rejects(actions.get('computer.quick')({kind:'click',x:10,y:20}),
+   x=>x.code==='COMPUTER_NO_AUTHORIZED_ONLINE_DEVICE');
+ }finally{db.close();}
+});
