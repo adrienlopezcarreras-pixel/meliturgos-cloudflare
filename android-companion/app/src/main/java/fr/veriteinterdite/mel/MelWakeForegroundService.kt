@@ -104,7 +104,7 @@ class MelWakeForegroundService : Service() {
                         onMatch = { _ ->
                             listening = false
                             mainHandler.post {
-                                if (listening || getSharedPreferences(OPT_IN_PREFS, MODE_PRIVATE).getBoolean(OPT_IN_KEY, false)) {
+                                if (getSharedPreferences(OPT_IN_PREFS, MODE_PRIVATE).getBoolean(OPT_IN_KEY, false)) {
                                     val launch = Intent(this, MainActivity::class.java)
                                         .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
                                     // A wake match cannot silently launch an activity from the
