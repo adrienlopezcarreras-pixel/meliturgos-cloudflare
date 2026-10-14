@@ -110,9 +110,16 @@ jobs:
                 return 0
               fi
               if [ "${code}" = "401" ]; then
-                echo "Capability ${id} release-token propagation attempt ${attempt}/15 returned HTTP 401."
-                sleep 2
-                continue
+                # Report only allowlisted, non-sensitive failure fields. Never log
+                # the token, request headers or raw response bodies.
+                AUTH_CODE="$(node -e 'const fs=require("fs");let d={};try{d=JSON.parse(fs.readFileSync(process.argv[1],"utf8"))}catch{};const c=String(d?.code||d?.error?.code||"UNSPECIFIED_401");process.stdout.write(/^[A-Z0-9_:-]{1,96}$/.test(c)?c:"REDACTED_AUTH_ERROR")' "${out}")"
+                echo "Capability ${id} release-token propagation attempt ${attempt}/15: HTTP 401, code=${AUTH_CODE}."
+                # A 401 with an explicit authorization refusal is not propagation;
+                # fail closed instead of retrying an unchangeable credential error.
+                case "${AUTH_CODE}" in
+                  INVALID_BOOTSTRAP_TOKEN|BOOTSTRAP_TOKEN_NOT_READY|UNSPECIFIED_401) sleep 2; continue ;;
+                  *) echo "Non-transient authorization failure; refusing further retries."; break ;;
+                esac
               fi
               break
             done
