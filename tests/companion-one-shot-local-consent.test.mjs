@@ -14,6 +14,9 @@ for(const path of ['../assets/MEL-Computer-Companion.ps1','../dist/MEL-Computer-
   assert.match(handler,/MessageBoxButtons\]::YesNo/);
   assert.match(handler,/MessageBoxDefaultButton\]::Button2/);
   assert.match(handler,/DESKTOP_VIEW_LOCAL_CONSENT_DENIED/);
+  assert.match(handler,/DESKTOP_VIEW_LOCAL_PERMISSION_REVOKED/);
+  assert.match(handler,/Get-Content -Raw -Encoding UTF8 -LiteralPath \$ConfigPath/);
+  assert.ok(handler.indexOf('DESKTOP_VIEW_LOCAL_PERMISSION_REVOKED') < handler.indexOf('Upload-Screenshot'));
   assert.match(handler,/DESKTOP_VIEW_CONSENT_EXPIRED/);
   assert.match(handler,/Upload-Screenshot/);
   assert.match(handler,/capture_count=1/);
