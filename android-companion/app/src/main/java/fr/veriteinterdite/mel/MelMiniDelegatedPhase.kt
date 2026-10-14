@@ -19,21 +19,39 @@ internal fun parseMiniDelegatedPhase(
     payload: JSONObject,
     receivedAtElapsedMs: Long,
     wallClockMs: Long
+): MelMiniDelegatedPhase = validatedMiniDelegatedPhase(
+    schema = payload.optString("schema"),
+    state = payload.optString("state"),
+    synced = payload.optBoolean("conversation_synced", true),
+    source = payload.optString("source"),
+    phase = payload.optString("phase"),
+    observedAtMs = payload.optLong("observed_at_ms", -1L),
+    expiresAtMs = payload.optLong("expires_at_ms", -1L),
+    receivedAtElapsedMs = receivedAtElapsedMs,
+    wallClockMs = wallClockMs
+)
+
+// Pure validator, suitable for JVM tests without Android's JSON runtime.
+internal fun validatedMiniDelegatedPhase(
+    schema: String,
+    state: String,
+    synced: Boolean,
+    source: String,
+    phase: String,
+    observedAtMs: Long,
+    expiresAtMs: Long,
+    receivedAtElapsedMs: Long,
+    wallClockMs: Long
 ): MelMiniDelegatedPhase {
-    if (payload.optString("schema") != "mel.mini.linked-android-phase.v1" ||
-        payload.optString("state") != "FRESH" ||
-        payload.optBoolean("conversation_synced", true) ||
-        payload.optString("source") != "android" ||
-        receivedAtElapsedMs < 0L || wallClockMs < 0L
+    if (schema != "mel.mini.linked-android-phase.v1" ||
+        state != "FRESH" || synced || source != "android" ||
+        receivedAtElapsedMs < 0L || wallClockMs < 0L ||
+        phase !in allowedMiniPhases || observedAtMs <= 0L ||
+        observedAtMs > wallClockMs || expiresAtMs <= wallClockMs ||
+        expiresAtMs - observedAtMs != 30_000L ||
+        expiresAtMs - wallClockMs > 30_000L
     ) return MelMiniDelegatedPhase()
-    val phase = payload.optString("phase")
-    val at = payload.optLong("observed_at_ms", -1L)
-    val expiry = payload.optLong("expires_at_ms", -1L)
-    if (phase !in allowedMiniPhases || at <= 0L || at > wallClockMs ||
-        expiry <= wallClockMs || expiry - at != 30_000L ||
-        expiry - wallClockMs > 30_000L
-    ) return MelMiniDelegatedPhase()
-    return MelMiniDelegatedPhase(phase, receivedAtElapsedMs, expiry)
+    return MelMiniDelegatedPhase(phase, receivedAtElapsedMs, expiresAtMs)
 }
 
 internal fun miniDelegatedPhaseLabel(
