@@ -11,7 +11,7 @@ export function assertNoActiveDeploy(runs) {
   }
 }
 
-export async function requestAutonomousRelease({ token, fetchImpl = fetch, repo = REPO, requireProtectedRefs = false, completedReleaseSha = '', sleepImpl = ms => new Promise(resolve => setTimeout(resolve, ms)) } = {}) {
+export async function requestAutonomousRelease({ token, fetchImpl = fetch, repo = REPO, requireProtectedRefs = false, completedReleaseSha = '', skipPreviouslyCompletedSha = false, sleepImpl = ms => new Promise(resolve => setTimeout(resolve, ms)) } = {}) {
   if (repo !== REPO) throw new Error('UNEXPECTED_RELEASE_REPOSITORY');
   if (typeof token !== 'string' || !token) throw new Error('GH_TOKEN_REQUIRED');
   const base = 'https://api.github.com/repos/' + repo;
@@ -64,7 +64,7 @@ export async function requestAutonomousRelease({ token, fetchImpl = fetch, repo 
   // A previous completed attempt for the latest SHA means a catch-up event
   // must not schedule a duplicate after that SHA failed. A manual dispatch
   // remains possible for an intentional, supervised retry.
-  if (completedSha && releaseRuns.some(row =>
+  if ((completedSha || skipPreviouslyCompletedSha) && releaseRuns.some(row =>
     row?.name === 'deploy-cloudflare-release' && row?.head_sha === mainSha &&
     row?.status === 'completed'
   )) {
@@ -118,6 +118,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     token: process.env.GH_TOKEN || process.env.GITHUB_TOKEN,
     requireProtectedRefs: process.env.MEL_REQUIRE_PROTECTED_REFS === 'true',
     completedReleaseSha: process.env.MEL_CATCHUP_COMPLETED_SHA || '',
+    skipPreviouslyCompletedSha: process.env.MEL_SKIP_ALREADY_ATTEMPTED_SHA === 'true',
   })
     .then(result => console.log(JSON.stringify(result)))
     .catch(error => { console.error(error.message); process.exitCode = 1; });
