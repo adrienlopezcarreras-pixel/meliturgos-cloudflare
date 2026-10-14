@@ -63,13 +63,14 @@ test('memory status compatibility endpoint exists instead of falling through to 
   assert.equal('interaction_count' in body, false);
 });
 
-test('portable memory export endpoint exists and never needs legacy worker.js', async () => {
+test('portable memory export endpoint refuses absent D1 instead of returning a false complete archive', async () => {
   const response = await worker.fetch(new Request('https://mel.test/api/export', { headers: auth() }), baseEnv(), {});
-  assert.equal(response.status, 200);
-  assert.match(response.headers.get('content-disposition') || '', /meliturgos-memory-/);
+  assert.equal(response.status, 503);
+  assert.equal(response.headers.get('content-disposition'), null, 'no empty backup attachment');
   const body = await response.json();
-  assert.equal(body.format, 'meliturgos-memory-export');
-  assert.deepEqual(body.memories, []);
+  assert.equal(body.code, 'CAPABILITY_UNAVAILABLE');
+  assert.equal(body.error, 'CAPABILITY_UNAVAILABLE');
+  assert.equal(body.format, undefined, 'never manufacture a memory export without D1');
 });
 
 test('Work health is safe preflight-only and does not expose the protected write bridge', async () => {
