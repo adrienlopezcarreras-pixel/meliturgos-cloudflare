@@ -478,7 +478,16 @@ async function claim(env,a){
  if(!update || update.success===false || Number(update.meta?.changes)!==1)return json({ok:false,code:"COMPUTER_CLAIM_NOT_CONFIRMED"},409);
  return json({ok:true,halted:false,command:{id:r.id,session_id:r.session_id,plan}});
 }
-async function result(request,env,a){const b=await request.json().catch(()=>({}));const id=safe(b.command_id);await env.DB.prepare("UPDATE computer_commands SET status=?,finished_at=?,result_json=?,error_code=? WHERE id=? AND device_id=?").bind(b.ok===true?"SUCCEEDED":"FAILED",Date.now(),JSON.stringify(b.result??null),b.error_code?safe(b.error_code):null,id,a.device.id).run();return json({ok:true})}
+async function result(request,env,a){
+ const b=await request.json().catch(()=>({}));
+ const id=safe(b.command_id);
+ if(!id)return json({ok:false,code:"COMPUTER_RESULT_ID_REQUIRED"},400);
+ const update=await env.DB.prepare("UPDATE computer_commands SET status=?,finished_at=?,result_json=?,error_code=? WHERE id=? AND device_id=? AND status=?")
+  .bind(b.ok===true?"SUCCEEDED":"FAILED",Date.now(),JSON.stringify(b.result??null),b.error_code?safe(b.error_code):null,id,a.device.id,"RUNNING").run();
+ if(!update||update.success===false||Number(update.meta?.changes)!==1)
+  return json({ok:false,code:"COMPUTER_RESULT_NOT_RUNNING"},409);
+ return json({ok:true});
+}
 async function uploadShot(request,env,a,url){if(!env?.MEDIA_BUCKET)return json({ok:false,code:"MEDIA_BUCKET_UNAVAILABLE"},503);const id=safe(url.searchParams.get("command_id"));const bytes=await request.arrayBuffer();if(!bytes.byteLength||bytes.byteLength>5*1024*1024)return json({ok:false,code:"SCREENSHOT_SIZE_INVALID"},413);const key=`computer/screenshots/${a.device.id.replace(/[^A-Za-z0-9_.-]/g,"_")}/${id.replace(/[^A-Za-z0-9_.-]/g,"_")}.png`;await env.MEDIA_BUCKET.put(key,bytes,{httpMetadata:{contentType:"image/png"}});return json({ok:true,key,view_url:`${url.origin}${COMPUTER_API_BASE}/screenshot?key=${encodeURIComponent(key)}`})}
 
 export async function maybeHandleComputerApi(request,env){
