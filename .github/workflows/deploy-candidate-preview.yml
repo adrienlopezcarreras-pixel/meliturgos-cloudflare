@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - candidate/mel-clean-autonomy
+      - reconcile/mel-candidate-20261014
   workflow_dispatch:
 
 permissions:
@@ -38,7 +39,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [ "${GITHUB_REF_NAME}" != "candidate/mel-clean-autonomy" ] && { [ "${GITHUB_EVENT_NAME}" != "workflow_dispatch" ] || [ "${GITHUB_REF_NAME}" != "reconcile/mel-candidate-20261014" ]; }; then
+          if [ "${GITHUB_REF_NAME}" != "candidate/mel-clean-autonomy" ] && [ "${GITHUB_REF_NAME}" != "reconcile/mel-candidate-20261014" ]; then
             echo "PREVIEW_APPROVED_BRANCH_REQUIRED: only canonical candidate, or manually dispatched reconciliation branch, is authorized."
             exit 2
           fi
