@@ -6,7 +6,7 @@ import {
   readPersistentCapabilityStress,
   startPersistentCapabilityStress,
 } from '../../src/diagnostics/persistent-capability-stress.js';
-import { validateStart, validateTerminal, validateProgressTransition } from '../../scripts/persistent-capability-stress-live-proof.mjs';
+import { validateStart, validateTerminal, validateProgressTransition, summarizeStressCoverage } from '../../scripts/persistent-capability-stress-live-proof.mjs';
 
 function echoRecord() {
   return {
@@ -345,4 +345,44 @@ test('persistent proof accepts intentionally blocked capabilities but never acce
       summary: { blocked_count: 1, remaining_runtime_failures: ['self.state'] },
     },
   }, 'blocked-but-safe'), /CAPABILITY_STRESS_RUNTIME_FAILURES:self.state/);
+});
+
+test('exact production stress coverage distinguishes 165 inspected contracts from 40 executed capabilities', () => {
+  const report = {
+    progress: { done: 165, total: 165 },
+    report: {
+      counts: { EXISTANT_ET_TESTE: 40, PARTIEL: 30, EXISTANT_NON_TESTE: 94, BLOCKED_EXTERNAL: 1 },
+      contracts: { inspected: 165, valid: 165, invalid: 0 },
+    },
+    summary: { blocked_count: 125, remaining_runtime_failures: [] },
+  };
+  const coverage = summarizeStressCoverage(report);
+  assert.equal(coverage.contract_validation_complete, true);
+  assert.equal(coverage.runtime_validation_complete, false);
+  assert.equal(coverage.runtime_tested, 40);
+  assert.equal(coverage.runtime_unverified, 125);
+  assert.equal(coverage.runtime_coverage_percent, 24.24);
+  assert.equal(coverage.evidence_scope, 'PARTIAL_SAFE_RUNTIME_EXECUTION');
+  assert.throws(() => summarizeStressCoverage({
+    ...report, report: {...report.report, counts: {...report.report.counts, EXISTANT_NON_TESTE: 93}},
+  }), /CAPABILITY_COVERAGE_COUNTS_INCONSISTENT/);
+  assert.throws(() => summarizeStressCoverage({
+    ...report, report: {...report.report, contracts: { inspected: 165, valid: 164, invalid: 1 }},
+  }), /CAPABILITY_COVERAGE_CONTRACTS_NOT_ALL_VALID/);
+});
+
+test('coverage marks full runtime execution only when every capability was genuinely tested', () => {
+  const full = summarizeStressCoverage({
+    progress: { total: 2 },
+    report: { counts: { EXISTANT_ET_TESTE: 2 }, contracts: { inspected: 2, valid: 2, invalid: 0 } },
+  });
+  assert.equal(full.runtime_validation_complete, true);
+  assert.equal(full.runtime_unverified, 0);
+  assert.equal(full.runtime_coverage_percent, 100);
+  assert.equal(full.evidence_scope, 'ALL_RUNTIME_SAMPLES_EXECUTED');
+  assert.throws(() => summarizeStressCoverage({
+    progress: { total: 2 },
+    report: { counts: { EXISTANT_ET_TESTE: 1, PARTIEL: -1, EXISTANT_NON_TESTE: 2 },
+      contracts: { inspected: 2, valid: 2, invalid: 0 } },
+  }), /CAPABILITY_COVERAGE_COUNTS_INVALID/);
 });
