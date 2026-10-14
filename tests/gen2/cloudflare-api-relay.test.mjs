@@ -176,3 +176,18 @@ test('Cloudflare relay claim fails closed if D1 omits the affected-row proof', a
   }};
   assert.equal(await new D1CloudflareApiRelayStore(db).claim(),null);
 });
+
+test('optional Companion diagnostics cannot mark unrelated Cloudflare relay operations as failed', async () => {
+  const runner = await readFile(new URL('../../scripts/cloudflare-api-relay-runner.mjs', import.meta.url),'utf8');
+  const claim=runner.indexOf("await worker('/api/internal/cloudflare-api-relay/claim')");
+  const boundary=runner.indexOf('try {\n  const miniStatus=');
+  const pc=runner.indexOf("await worker('/api/computer/v1/status'");
+  const report=runner.indexOf('LOCAL_DEVICE_DIAGNOSTICS_UNVERIFIED=');
+  const terminal=runner.indexOf('main().catch');
+  assert.ok(claim>=0 && boundary>claim && pc>boundary && report>pc && terminal>report);
+  assert.match(runner,/local_authorization_bypassed:false,pc_proof_verified:false/);
+  assert.match(runner,/console\.warn\('::warning::LOCAL_DEVICE_DIAGNOSTICS_UNVERIFIED:'/);
+  assert.match(runner,/if\(proof\.some\(row=>row\.status!=='SUCCEEDED'\)\) throw/);
+  assert.doesNotMatch(runner,/REMOTE_ACCESS_DISABLED_LOCALLY.*?(?:enable|override|bypass)/);
+  assert.doesNotMatch(runner,/MEL_MINI_RESET_APPROVED|action:'serial\.hard_reset'/);
+});
