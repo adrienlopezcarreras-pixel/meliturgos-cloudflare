@@ -183,6 +183,12 @@ class MelApiClient(
         )
     }
 
+    // Minimal event-only telemetry, authorized by the existing Android pairing token.
+    // Never sends message text, audio, conversation IDs or Windows commands.
+    fun publishTriadActivity(phase: String): JSONObject =
+        jsonRequest("/api/android/v1/triad-activity", "POST",
+            JSONObject().put("phase", phase))
+
     fun companions(): JSONArray {
         val response = readJson(connection("/api/android/v1/companions", "GET"))
         return response.optJSONArray("devices") ?: JSONArray()
