@@ -14,10 +14,11 @@ test('memory status and export are LOW-risk CapabilityBus tools', async () => {
   const status = await runtime.bus.execute('memory.status', {}, context);
   assert.equal(status.status, 'UNAVAILABLE');
   assert.equal(status.db_bound, false);
-  const exported = await runtime.bus.execute('memory.export', {}, context);
-  assert.equal(exported.format, 'meliturgos-memory-export');
-  assert.deepEqual(exported.memories, []);
-  assert.deepEqual(exported.conversations, []);
+  assert.equal(byId.get('memory.export')?.health, 'UNAVAILABLE');
+  await assert.rejects(
+    () => runtime.bus.execute('memory.export', {}, context),
+    error => error.code === 'CAPABILITY_UNAVAILABLE' || error.code === 'DB_BINDING_MISSING',
+  );
 });
 
 test('memory.consolidate is a LOW-risk read/proposal capability and never confirms memory', async () => {

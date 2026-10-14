@@ -19,6 +19,36 @@ async function safeRows(db, table, limit = 10000) {
   } catch { return []; }
 }
 
+function exportReadFailure() {
+  // Never present an unreadable/missing D1 source as an empty, complete
+  // memory archive. Preserve the precise upstream exception in server logs,
+  // not in an owner-facing export containing sensitive memory metadata.
+  return Object.assign(new Error('MEMORY_EXPORT_SOURCE_READ_FAILED'), {
+    code: 'MEMORY_EXPORT_SOURCE_READ_FAILED', status: 503,
+  });
+}
+
+async function exportRows(db, table) {
+  try {
+    const result = await db.prepare(`SELECT * FROM ${table} LIMIT ?`).bind(10000).all();
+    if (!Array.isArray(result?.results)) throw exportReadFailure();
+    return result.results;
+  } catch {
+    throw exportReadFailure();
+  }
+}
+
+async function exportCount(db, table) {
+  try {
+    const result = await db.prepare(`SELECT COUNT(*) AS count FROM ${table}`).first();
+    const count = Number(result?.count);
+    if (!Number.isSafeInteger(count) || count < 0) throw exportReadFailure();
+    return count;
+  } catch {
+    throw exportReadFailure();
+  }
+}
+
 export function registerMemoryCompatibilityCapabilities(bus, env = {}) {
   bus.discover({
     id: 'memory.status', name: 'État mémoire', category: 'memory', version: '1.0.0', provider: 'core',
@@ -49,15 +79,16 @@ export function registerMemoryCompatibilityCapabilities(bus, env = {}) {
     description: 'Returns a readable bounded JSON snapshot with schema version, per-collection SHA-256 checksums, completeness metadata and a global manifest checksum.',
     input_schema: { type: 'object', additionalProperties: false },
     output_schema: { type: 'object', additionalProperties: true },
-    risk: 'LOW', permissions: [], health: 'HEALTHY', enabled: true,
+    risk: 'LOW', permissions: [], health: env.DB ? 'HEALTHY' : 'UNAVAILABLE', enabled: true,
   }, async () => {
+    if (!env.DB) throw Object.assign(new Error('DB_BINDING_MISSING'), { code: 'DB_BINDING_MISSING', status: 503 });
     const [memories, archiveMessages, conversations, memoryCount, archiveCount, conversationCount] = await Promise.all([
-      safeRows(env.DB, 'memories'),
-      safeRows(env.DB, 'archive_messages'),
-      safeRows(env.DB, 'conversations'),
-      safeCount(env.DB, 'memories'),
-      safeCount(env.DB, 'archive_messages'),
-      safeCount(env.DB, 'conversations'),
+      exportRows(env.DB, 'memories'),
+      exportRows(env.DB, 'archive_messages'),
+      exportRows(env.DB, 'conversations'),
+      exportCount(env.DB, 'memories'),
+      exportCount(env.DB, 'archive_messages'),
+      exportCount(env.DB, 'conversations'),
     ]);
     return createPortableMemorySnapshot({
       owner: env.MELITURGOS_USER || '',
