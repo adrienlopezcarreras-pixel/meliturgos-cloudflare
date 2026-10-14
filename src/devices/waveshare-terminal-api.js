@@ -615,6 +615,7 @@ export async function handleAndroidDelegatedMiniRequest(
     return json({ok:true,device_id:requestedMiniId,...(await loadManifest(env,url.origin))});
   }
   if (path === WAVESHARE_TERMINAL_API + "/heartbeat" && request.method === "POST") return updateHeartbeat(request,env,auth);
+  if (path === WAVESHARE_TERMINAL_API + "/triad-activity" && request.method === "GET") return json(await readLinkedAndroidActivity(env,requestedMiniId,Date.now(),androidId));
   if (path === WAVESHARE_TERMINAL_API + "/chat" && request.method === "POST") return deviceChat(request,env,auth);
   if (path === WAVESHARE_TERMINAL_API + "/voice/transcribe" && request.method === "POST") return deviceVoice(request,env,auth);
   if (path === WAVESHARE_TERMINAL_API + "/voice/tts" && request.method === "POST") return deviceTts(request,env,auth);
