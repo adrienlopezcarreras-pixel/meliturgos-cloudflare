@@ -139,6 +139,12 @@ test('persistent stress live-proof validators accept a durable terminal report a
       summary: { remaining_runtime_failures: [] },
     },
   };
+  assert.throws(() => validateTerminal({
+    ...completed, result: {
+      ...completed.result,
+      summary: { remaining_runtime_failures: [], blocked_count: 2 },
+    },
+  }, 'cap-stress-proof'), /CAPABILITY_STRESS_BLOCKED_CAPABILITIES:2/);
   const terminal = validateTerminal(completed, 'cap-stress-proof');
   assert.equal(terminal.status, 'COMPLETE');
   assert.throws(
