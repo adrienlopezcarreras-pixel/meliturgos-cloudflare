@@ -695,7 +695,7 @@ export function registerWorkCapabilities(bus, { db } = {}) {
     description: 'Synchronizes persisted Task states from the linked Work DAG, which remains authoritative for execution progress.',
     input_schema: { type: 'object', properties: { id: DAG_ID }, required: ['id'], additionalProperties: false },
     output_schema: { type: 'object', additionalProperties: true },
-    risk: 'LOW', permissions: [], health, enabled: true,
+    risk: 'MEDIUM', permissions: [], health, enabled: true,
   }, async (input) => {
     assertDb(db);
     const planning = new D1PlanningStore(db);
