@@ -2790,7 +2790,7 @@ private fun CompanionPanel(
     }
     val triadStatus = triadReadiness(state.session, miniStatus, state.windowsPresence, nowElapsedMs)
     val conversationActivity = triadConversationActivity(
-        state.session, recording, state.busy, state.speaking, state.error
+        state.session, recording, state.busy, state.speaking, state.status, state.error
     )
     var showPairRecovery by rememberSaveable { mutableStateOf(false) }
     var miniPairUser by rememberSaveable { mutableStateOf("adrien") }
