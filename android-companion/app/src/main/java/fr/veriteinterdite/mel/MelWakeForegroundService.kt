@@ -28,6 +28,7 @@ class MelWakeForegroundService : Service() {
     companion object {
         const val ACTION_STOP = "fr.veriteinterdite.mel.WAKE_STOP"
         const val ACTION_START = "fr.veriteinterdite.mel.WAKE_START"
+        const val EXTRA_WAKE_NOTIFICATION_TAP = "fr.veriteinterdite.mel.WAKE_NOTIFICATION_TAP"
         private const val CHANNEL_ID = "mel_wake_microphone"
         private const val NOTIFICATION_ID = 807
         private const val OPT_IN_PREFS = "mel_wake_background_opt_in"
@@ -115,6 +116,7 @@ class MelWakeForegroundService : Service() {
                                 if (getSharedPreferences(OPT_IN_PREFS, MODE_PRIVATE).getBoolean(OPT_IN_KEY, false)) {
                                     val launch = Intent(this, MainActivity::class.java)
                                         .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                                        .putExtra(EXTRA_WAKE_NOTIFICATION_TAP, true)
                                     // A wake match cannot silently launch an activity from the
                                     // background. Provide an actionable notification instead.
                                     val tap = PendingIntent.getActivity(
