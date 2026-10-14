@@ -158,6 +158,9 @@ const PARALLEL_PROOF_ALLOWLIST = Object.freeze(new Map([
 export function isReleaseSmokeRequest(request, env) {
   const url = new URL(request.url);
   const method = String(request.method || 'GET').toUpperCase();
+  // Never let a stress credential ride alongside a broader release credential.
+  if (request.headers.has('x-mel-stress-proof') &&
+      (request.headers.has('x-mel-parallel-proof') || request.headers.has('x-mel-launch-bootstrap'))) return false;
   const allowedPaths = RELEASE_SMOKE_ALLOWLIST.get(method);
   if (!allowedPaths?.has(url.pathname)) return false;
   if (request.headers.get('x-mel-release-smoke') !== '1') return false;
@@ -171,8 +174,14 @@ export function isReleaseSmokeRequest(request, env) {
   const parallelAuthorized = parallelExpected.length >= 32
     && parallelSupplied.length === parallelExpected.length
     && safeEqual(parallelSupplied, parallelExpected);
-  if (!parallelAuthorized) return false;
-  return PARALLEL_PROOF_ALLOWLIST.get(method)?.has(url.pathname) === true;
+  if (parallelAuthorized) return PARALLEL_PROOF_ALLOWLIST.get(method)?.has(url.pathname) === true;
+
+  // Stress has its own scoped credential; never authorize other smoke routes.
+  const stressExpected = withoutTerminalNewline(env?.MEL_STRESS_PROOF_TOKEN || '');
+  const stressSupplied = withoutTerminalNewline(request.headers.get('x-mel-stress-proof') || '');
+  return method === 'POST' && url.pathname === '/api/gen2/capabilities/execute'
+    && stressExpected.length >= 32 && stressSupplied.length === stressExpected.length
+    && safeEqual(stressSupplied, stressExpected);
 }
 
 function decodeBasicPayload(encoded) {

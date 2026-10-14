@@ -2,6 +2,7 @@ import fs from 'node:fs/promises';
 
 const BASE_URL = String(process.env.MEL_PROOF_BASE_URL || 'https://meliturgos.adrien-lopezcarreras.workers.dev').replace(/\/$/, '');
 const TOKEN = String(process.env.MEL_PROOF_TOKEN || '');
+const STRESS_PROOF_TOKEN = String(process.env.MEL_STRESS_PROOF_TOKEN || '');
 const EXPECTED_SHA = String(process.env.EXPECTED_SHA || '');
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -36,7 +37,17 @@ export function validateTerminal(body, jobId) {
   const done = Number(r?.progress?.done || 0);
   const total = Number(r?.progress?.total || 0);
   assert(total > 0 && done === total, 'CAPABILITY_STRESS_PROGRESS_INCOMPLETE');
+  const blocked = Number(r?.summary?.blocked_count || 0);
+  assert(Number.isFinite(blocked) && blocked === 0, 'CAPABILITY_STRESS_BLOCKED_CAPABILITIES:' + blocked);
   assert(r?.report?.persistent === true && String(r?.report?.job_id || '') === String(r?.job_id || ''), 'CAPABILITY_STRESS_REPORT_NOT_DURABLE');
+  // A completed cursor alone does not prove every capability has a distinct report row.
+  const rows = r?.report?.capabilities;
+  assert(Array.isArray(rows) && rows.length === total, 'CAPABILITY_STRESS_REPORT_COVERAGE_INCOMPLETE');
+  const ids = rows.map(row => String(row?.id || ''));
+  assert(ids.every(Boolean) && new Set(ids).size === total, 'CAPABILITY_STRESS_REPORT_IDS_INVALID');
+  const untested = rows.filter(row => row?.tested_now !== true || row?.execution?.ok !== true).map(row => String(row?.id || 'unknown'));
+  assert(untested.length === 0, 'CAPABILITY_STRESS_NOT_ALL_EXECUTED:' + untested.slice(0, 12).join(','));
+
   return r;
 }
 
@@ -60,7 +71,7 @@ async function callCapability(payload, outputPath) {
       method: 'POST',
       headers: {
         'x-mel-release-smoke': '1',
-        'x-mel-launch-bootstrap': TOKEN,
+        'x-mel-stress-proof': STRESS_PROOF_TOKEN,
         'content-type': 'application/json',
       },
       body: JSON.stringify(payload),
@@ -77,7 +88,8 @@ async function callCapability(payload, outputPath) {
 }
 
 async function main() {
-  assert(TOKEN.length >= 32, 'CAPABILITY_STRESS_PROOF_TOKEN_REQUIRED');
+  assert(STRESS_PROOF_TOKEN.length >= 32, 'CAPABILITY_STRESS_PROOF_TOKEN_REQUIRED');
+  assert(!TOKEN && !process.env.MEL_PARALLEL_PROOF_TOKEN, 'CAPABILITY_STRESS_AMBIGUOUS_AUTHORIZATION');
 
   let start = null;
   for (let attempt = 1; attempt <= 15; attempt += 1) {
