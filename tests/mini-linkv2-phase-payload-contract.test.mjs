@@ -21,3 +21,8 @@ test('payload defines bounded non-sensitive fields', () => {
   assert.match(contract,/30000/);
   assert.match(contract,/no streaming on the audio channel/i);
 });
+
+test('triad capability negotiation opcode is symmetric but remains reserved', () => {
+  assert.match(kotlin, /const val TRIAD_CAPABILITY\s*=\s*0x51/);
+  assert.match(firmware, /MEL_LINK_V2_TRIAD_CAPABILITY\s*=\s*0x51/);
+});
