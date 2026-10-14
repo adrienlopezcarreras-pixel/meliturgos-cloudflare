@@ -2778,6 +2778,7 @@ private fun CompanionPanel(
     val internetReady by MelLinkV2ClientService.internetReady.collectAsStateWithLifecycle()
     val pairingComplete by MelLinkV2ClientService.miniPairingComplete.collectAsStateWithLifecycle()
     val miniStatus = miniReadiness(bleReady, protocolReady, internetReady)
+    val triadStatus = triadReadiness(state.session, miniStatus)
     var showPairRecovery by rememberSaveable { mutableStateOf(false) }
     var miniPairUser by rememberSaveable { mutableStateOf("adrien") }
     var miniPairSecret by rememberSaveable { mutableStateOf("") }
@@ -2793,6 +2794,23 @@ private fun CompanionPanel(
             HudLabel("COMPAGNON // MINI", miniStatus.statusLabel, MelViolet)
             Spacer(Modifier.weight(1f))
             OutlinedButton(onClick = onRefresh, shape = RoundedCornerShape(14.dp)) { Text("Actualiser") }
+        }
+
+        Surface(
+            modifier = Modifier.fillMaxWidth().testTag("triad-readiness-panel"),
+            color = MelPanel,
+            border = BorderStroke(1.dp, MelCyan.copy(alpha = .20f)),
+            shape = RoundedCornerShape(20.dp)
+        ) {
+            Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("État des trois appareils", color = MelInk, fontWeight = FontWeight.Bold)
+                Text(triadStatus.androidLabel, color = if (triadStatus.androidVerified) MelSuccess else MelMuted,
+                    fontSize = 12.sp, modifier = Modifier.testTag("triad-android-readiness"))
+                Text(triadStatus.miniLabel, color = if (triadStatus.miniVerified) MelSuccess else MelMuted,
+                    fontSize = 12.sp, modifier = Modifier.testTag("triad-mini-readiness"))
+                Text(triadStatus.windowsLabel, color = MelMuted,
+                    fontSize = 12.sp, modifier = Modifier.testTag("triad-windows-readiness"))
+            }
         }
 
         Surface(
