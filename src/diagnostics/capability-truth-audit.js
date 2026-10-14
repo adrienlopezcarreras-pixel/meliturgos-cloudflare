@@ -65,6 +65,8 @@ const SAFE_SAMPLES = Object.freeze({
   'mentor.recent': { limit: 1 },
   'evolution.gap.detect': { goal: 'rechercher des informations récentes sur le web', threshold: 2 },
   'evolution.module.propose': { goal: 'prévisualiser une capacité locale de diagnostic sans écrire ni activer de code', threshold: 2 },
+  // Plugin proposal is a pure manifest preview, not an external plugin install.
+  'evolution.plugin.propose': { goal: 'prévisualiser un plugin de diagnostic local sans accès réseau ni modification', threshold: 2 },
   'device.policy.preview': { deviceId: 'audit-preview', capabilities: ['status.read'], action: 'status.read', ownerApproved: false, ownerShutdown: false, adapter: 'audit-preview' },
   'web.research': { query: 'Cloudflare Workers documentation', depth: 1 },
 

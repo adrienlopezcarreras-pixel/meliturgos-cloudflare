@@ -45,6 +45,28 @@ test('provider escape planning is runtime-proved with a fictitious zero-cost and
   assert.equal(row?.execution?.ok, true);
 });
 
+test('plugin proposal dry-run receives a real LOW-risk audit proof without installation', async () => {
+  const runtime = createGen2Runtime({ env: {} });
+  const sample = SAFE_SAMPLES['evolution.plugin.propose'];
+  assert.equal(typeof sample?.goal, 'string');
+  const result = await runtime.bus.execute('evolution.plugin.propose', sample, {
+    owner: 'audit-fixture-owner', permissions: [], requestId: 'plugin-proposal-dry-run',
+  });
+  assert.equal(result.ok, true);
+  assert.equal(result.proposal_only, true);
+  assert.equal(result.activation_allowed, false);
+  assert.ok(['PROPOSE_PLUGIN','REUSE_EXISTING','REVIEW_EXISTING'].includes(result.decision));
+  const report = await auditRuntimeCapabilities(runtime, {
+    deep: true,
+    samples: { 'evolution.plugin.propose': sample },
+    context: { owner: 'audit-fixture-owner', permissions: [], requestId: 'plugin-proposal-audit' },
+  });
+  const row = report.capabilities.find(record => record.id === 'evolution.plugin.propose');
+  assert.equal(row?.truth_status, 'EXISTANT_ET_TESTE');
+  assert.equal(row?.auto_execution_blocked, null);
+  assert.equal(row?.execution?.ok, true);
+});
+
 test('safe smoke catalogue covers core read-only and preview-only capabilities', () => {
   for (const id of [
     'echo','roadmap.read','system.bindings','code.read','code.search','conversation.list','rag.search',
