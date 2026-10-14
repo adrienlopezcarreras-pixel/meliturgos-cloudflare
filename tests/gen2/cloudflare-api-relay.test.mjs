@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { classifyHttpAuthSurface } from '../../src/security/http-auth-policy.js';
 import { cloudflareApiRelay } from '../../src/api/cloudflare-api-relay.js';
 import { D1CloudflareApiRelayStore } from '../../src/platform/cloudflare-api-relay.js';
+import { selectAuthorizedWindowsCompanion } from '../../src/devices/companion-relay-selection.js';
 
 test('Cloudflare API relay route delegates authentication to scoped OIDC handler', () => {
   const request = new Request('https://mel.example/api/internal/cloudflare-api-relay/heartbeat', { method:'POST' });
@@ -190,4 +191,40 @@ test('optional Companion diagnostics cannot mark unrelated Cloudflare relay oper
   assert.match(runner,/if\(proof\.some\(row=>row\.status!=='SUCCEEDED'\)\) throw/);
   assert.doesNotMatch(runner,/REMOTE_ACCESS_DISABLED_LOCALLY.*?(?:enable|override|bypass)/);
   assert.doesNotMatch(runner,/MEL_MINI_RESET_APPROVED|action:'serial\.hard_reset'/);
+});
+
+test('Companion relay selects a fresh authorized Windows engine, never the first online PC blindly', () => {
+  const now=1_800_000_000_000;
+  const device=(id,overrides={})=>({
+    id,platform:'windows',online:true,halted:false,last_seen_at:now-1000,
+    metadata:{remote_access_enabled:true,engine_heartbeat_at:now-1000,version:'2.3.14'},
+    ...overrides,
+  });
+  const revoked=device('revoked',{last_seen_at:now,metadata:{remote_access_enabled:false,engine_heartbeat_at:now}});
+  const staleEngine=device('stale',{last_seen_at:now,metadata:{remote_access_enabled:true,engine_heartbeat_at:now-21000}});
+  const halted=device('halted',{last_seen_at:now,halted:true});
+  const future=device('future',{last_seen_at:now+100});
+  const notWindows=device('android',{platform:'android',last_seen_at:now});
+  const older=device('older',{last_seen_at:now-14000,metadata:{remote_access_enabled:true,engine_heartbeat_at:now-14000}});
+  const freshest=device('fresh',{last_seen_at:now-1500});
+  const selected=selectAuthorizedWindowsCompanion(
+    [revoked,staleEngine,halted,future,notWindows,older,freshest],now);
+  assert.equal(selected.device?.id,'fresh');
+  assert.equal(selected.eligible_count,2);
+  assert.equal(selectAuthorizedWindowsCompanion([revoked,staleEngine,halted,future,notWindows],now).device,null);
+  assert.equal(selectAuthorizedWindowsCompanion(null,now).eligible_count,0);
+});
+
+test('scheduled relay avoids logging personal PC identifiers and skips unauthorised probes', async () => {
+  const runner=await readFile(new URL('../../scripts/cloudflare-api-relay-runner.mjs',import.meta.url),'utf8');
+  const begin=runner.indexOf("console.log('PC_CONTROL_DEVICE_STATUS='");
+  const end=runner.indexOf('if(computer){',begin);
+  assert.ok(begin>0 && end>begin);
+  const section=runner.slice(begin,end);
+  assert.match(section,/identifiers_exposed:false/);
+  assert.match(section,/PC_CONTROL_LIVE_PROOF_SKIPPED:NO_FRESH_AUTHORIZED_WINDOWS_DEVICE/);
+  assert.doesNotMatch(section,/id:row\?\.id|name:row\?\.name/);
+  const live=runner.slice(runner.indexOf("console.log('PC_CONTROL_LIVE_PROOF='"));
+  assert.match(live,/commands:proof\.map/);
+  assert.doesNotMatch(live.slice(0,430),/name:computer\.name|id:computer\.id/);
 });
