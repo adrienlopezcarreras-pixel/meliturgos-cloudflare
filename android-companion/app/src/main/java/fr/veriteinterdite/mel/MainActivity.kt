@@ -1971,6 +1971,7 @@ private fun ConversationScreen(
             MobileSection.COMPANION -> SectionSurface("COMPAGNON // MINI") {
                 CompanionPanel(
                     state = state,
+                    recording = recording,
                     onRefresh = onRefreshCompanions,
                     onConnectMini = onConnectMini,
                     onMiniPairCode = onMiniPairCode
@@ -2768,6 +2769,7 @@ private fun CameraPanel(
 @Composable
 private fun CompanionPanel(
     state: MelUiState,
+    recording: Boolean,
     onRefresh: () -> Unit,
     onConnectMini: () -> Unit,
     onMiniPairCode: (String, String) -> Unit
@@ -2787,6 +2789,9 @@ private fun CompanionPanel(
         }
     }
     val triadStatus = triadReadiness(state.session, miniStatus, state.windowsPresence, nowElapsedMs)
+    val conversationActivity = triadConversationActivity(
+        state.session, recording, state.busy, state.speaking, state.error
+    )
     var showPairRecovery by rememberSaveable { mutableStateOf(false) }
     var miniPairUser by rememberSaveable { mutableStateOf("adrien") }
     var miniPairSecret by rememberSaveable { mutableStateOf("") }
@@ -2818,6 +2823,14 @@ private fun CompanionPanel(
                     fontSize = 12.sp, modifier = Modifier.testTag("triad-mini-readiness"))
                 Text(triadStatus.windowsLabel, color = MelMuted,
                     fontSize = 12.sp, modifier = Modifier.testTag("triad-windows-readiness"))
+                Text("Conversation · activité constatée", color = MelInk,
+                    fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                Text(conversationActivity.label,
+                    color = if (conversationActivity.active) MelCyan else MelMuted,
+                    fontSize = 12.sp, modifier = Modifier.testTag("triad-local-conversation-phase"))
+                Text("Signal local Android uniquement · diffusion MINI/Windows non vérifiée",
+                    color = MelMuted, fontSize = 11.sp,
+                    modifier = Modifier.testTag("triad-conversation-source"))
             }
         }
 
