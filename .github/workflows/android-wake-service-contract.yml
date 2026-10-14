@@ -1,0 +1,21 @@
+name: Android Wake Service Contract
+on:
+  pull_request:
+    paths:
+      - 'android-companion/app/src/main/AndroidManifest.xml'
+      - 'android-companion/app/src/main/java/fr/veriteinterdite/mel/MelWakeForegroundService.kt'
+      - 'tests/android-companion-source-contract.test.mjs'
+      - '.github/workflows/android-wake-service-contract.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  wake-service-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node --test tests/android-companion-source-contract.test.mjs
