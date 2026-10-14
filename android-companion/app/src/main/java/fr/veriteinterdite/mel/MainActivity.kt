@@ -744,6 +744,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private var wakeRetryFailures = 0
+    private var wakeSessionGeneration = 0L
 
     private fun ensureWakeWordListening() {
         if (voiceConversationActive.value) return
@@ -759,6 +760,7 @@ class MainActivity : ComponentActivity() {
         val threshold = wakePhraseStore.threshold()
         wakeDetectorStop = false
         wakeListening = true
+        val sessionGeneration = ++wakeSessionGeneration
         wakeDetectorThread = Thread({
             var matchedScore: Float? = null
             val result = runCatching {
@@ -776,6 +778,10 @@ class MainActivity : ComponentActivity() {
                 if (wakeDetectorThread !== completedDetector) return@runOnUiThread
                 wakeDetectorThread = null
                 wakeListening = false
+                if (sessionGeneration != wakeSessionGeneration) {
+                    if (appResumed) mainHandler.postDelayed({ ensureWakeWordListening() }, 500L)
+                    return@runOnUiThread
+                }
                 if (matchedScore != null && !wakeDetectorStop && appResumed &&
                     !recording.value && model.state.value.session == SessionStage.CONNECTED && !model.state.value.busy
                 ) {
@@ -805,6 +811,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun stopWakeWordListening() {
+        wakeSessionGeneration++
         wakeDetectorStop = true
         wakeListening = false
         // Interrupt the active detection worker on pause/STOP. The AudioRecord
