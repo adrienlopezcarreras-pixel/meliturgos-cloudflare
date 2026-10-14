@@ -231,19 +231,45 @@ function Send-Heartbeat {
 
 function Capture-PngBytes {
   $bounds = [System.Windows.Forms.SystemInformation]::VirtualScreen
+  if ($bounds.Width -le 0 -or $bounds.Height -le 0) { throw "SCREENSHOT_DIMENSIONS_INVALID" }
   $bmp = New-Object System.Drawing.Bitmap $bounds.Width, $bounds.Height
   $g = [System.Drawing.Graphics]::FromImage($bmp)
   try {
     $g.CopyFromScreen($bounds.Left, $bounds.Top, 0, 0, $bmp.Size)
-    $ms = New-Object IO.MemoryStream
-    try {
-      $bmp.Save($ms, [System.Drawing.Imaging.ImageFormat]::Png)
-      return $ms.ToArray()
-    } finally { $ms.Dispose() }
-  } finally {
-    $g.Dispose()
-    $bmp.Dispose()
-  }
+  } finally { $g.Dispose() }
+
+  try {
+    # Server rejects captures above 5 MiB. Keep the whole virtual desktop;
+    # progressively shrink large PNGs instead of sending an oversized payload.
+    $maxBytes = 5 * 1024 * 1024
+    $scale = 1.0
+    for ($attempt = 0; $attempt -lt 9; $attempt++) {
+      $scaled = $null
+      try {
+        $candidate = $bmp
+        if ($attempt -gt 0) {
+          $width = [Math]::Max(1, [int][Math]::Floor($bounds.Width * $scale))
+          $height = [Math]::Max(1, [int][Math]::Floor($bounds.Height * $scale))
+          $scaled = New-Object System.Drawing.Bitmap $width, $height
+          $scaledGraphics = [System.Drawing.Graphics]::FromImage($scaled)
+          try {
+            $scaledGraphics.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+            $scaledGraphics.DrawImage($bmp, 0, 0, $width, $height)
+          } finally { $scaledGraphics.Dispose() }
+          $candidate = $scaled
+        }
+        $ms = New-Object IO.MemoryStream
+        try {
+          $candidate.Save($ms, [System.Drawing.Imaging.ImageFormat]::Png)
+          if ($ms.Length -le $maxBytes) { return $ms.ToArray() }
+        } finally { $ms.Dispose() }
+      } finally {
+        if ($null -ne $scaled) { $scaled.Dispose() }
+      }
+      $scale *= 0.72
+    }
+    throw "SCREENSHOT_SIZE_LIMIT_EXCEEDED"
+  } finally { $bmp.Dispose() }
 }
 
 function Upload-Screenshot([string]$commandId) {
