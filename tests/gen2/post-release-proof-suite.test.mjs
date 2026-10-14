@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
 // Only working post-release proofs may claim an exact expected SHA.
-// Persistent stress deliberately fails closed pending a safe replacement:
-// it must not pretend to have revalidated a deployed commit.
+// Persistent stress must fail closed unless the independently authenticated
+// exact-SHA production proof reaches a durable COMPLETE result.
 const workflows = [
   'activate-platform-capabilities.yml',
   'live-connections-production-proof.yml',
@@ -26,14 +26,15 @@ test('post-release production proofs are reusable and no longer race on workflow
   }
 });
 
-test('disabled live stress stays callable but fails closed with no secret mutation or false SHA proof', async () => {
-  const source=await readFile(new URL('../../.github/workflows/'+disabledProof, import.meta.url),'utf8');
+test('persistent stress is independently authenticated and requires exact SHA proof', async () => {
+  const source=await readFile(new URL('../../.github/workflows/'+disabledProof,import.meta.url),'utf8');
   assert.match(source,/workflow_call:/);
   assert.match(source,/production-proof:\n\s+if: github\.event_name != 'pull_request'/);
-  assert.match(source,/PERSISTENT_STRESS_LIVE_PROOF_DISABLED_UNSAFE_PRODUCTION_SECRET_MUTATION/);
-  assert.match(source,/exit 1/);
+  assert.match(source,/MEL_BACKUP_ENCRYPTION_KEY_B64/);
+  assert.match(source,/x-mel-parallel-proof/);
+  assert.match(source,/STRESS_DEPLOYED_SHA_UNVERIFIED/);
+  assert.match(source,/node scripts\/persistent-capability-stress-live-proof\.mjs/);
   assert.doesNotMatch(source,/wrangler\s+secret\s+(?:put|delete)|MEL_LAUNCH_BOOTSTRAP_TOKEN/);
-  assert.doesNotMatch(source,/MEL_PROOF_TOKEN=|node scripts\/persistent-capability-stress-live-proof\.mjs/);
 });
 
 test('post-release suite sequences platform, stress, Council rich UI, connections and sovereignty even after a red proof', async () => {
