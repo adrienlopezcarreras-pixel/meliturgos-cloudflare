@@ -10,8 +10,11 @@ export async function queueConsentedDesktopView(env,{session,proof,deviceKey,now
   const plan={schema:'mel.companion.desktop-view-request/v1',action:'desktop.view.request',
     session_id:session.session_id,device_id:session.device_id,expires_at:session.expires_at,
     requires_local_stop:true,screen_capture_only:true};
-  await env.DB.prepare(`INSERT INTO computer_commands
+  const write=await env.DB.prepare(`INSERT INTO computer_commands
     (id,device_id,session_id,plan_json,status,created_at)
     VALUES (?,?,?,?,?,?)`).bind(commandId,session.device_id,session.session_id,JSON.stringify(plan),'PENDING',now).run();
+  if (!write || write.success===false || write.meta?.changes===0) {
+    return {ok:false,code:'DESKTOP_VIEW_QUEUE_WRITE_UNCONFIRMED'};
+  }
   return {ok:true,status:'PENDING',command_id:commandId,device_id:session.device_id,expires_at:session.expires_at};
 }
