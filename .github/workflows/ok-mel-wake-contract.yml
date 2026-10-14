@@ -1,0 +1,22 @@
+name: OK MEL wake contract
+on:
+  pull_request:
+    paths:
+      - 'tests/ok-mel-wake-lifecycle-contract.test.mjs'
+      - 'android-companion/app/src/main/java/fr/veriteinterdite/mel/MainActivity.kt'
+      - 'firmware/waveshare-terminal/main/mel_terminal.cpp'
+      - '.github/workflows/ok-mel-wake-contract.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  wake-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify OK MEL wake behavior source contract
+        run: node --test tests/ok-mel-wake-lifecycle-contract.test.mjs
