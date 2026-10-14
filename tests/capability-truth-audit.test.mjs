@@ -742,3 +742,73 @@ test('deep audit treats explicitly unsuccessful resolved output as a runtime fai
   assert.deepEqual(report.counts,{EXISTANT_MAIS_ECHEC_RUNTIME:1,EXISTANT_ET_TESTE:2});
   assert.doesNotMatch(JSON.stringify(failed),/private provider message/);
 });
+
+test('a long valid evolution ledger is unverified, never a false runtime failure from a 50-entry cap', async () => {
+  const calls=[];
+  const record={id:'evolution.ledger.verify',name:'Ledger verify',category:'test',
+    provider:'core',risk:'LOW',enabled:true,health:'HEALTHY'};
+  const bus={list:()=>[record],contract:()=>({valid:true}),
+    execute:async (_id,input)=>{
+      calls.push(input.limit);
+      return input.limit<80
+        ? {ok:false,code:'EVOLUTION_LEDGER_VERIFY_LIMIT_EXCEEDED',count:80,verified:0,failures:[]}
+        : {ok:true,count:80,verified:80,failures:[]};
+    },
+  };
+  const report=await auditRuntimeCapabilities({bus},{deep:true});
+  const row=report.capabilities[0];
+  assert.deepEqual(calls,[1],'the 80-row chain must not be partially verified as a whole');
+  assert.equal(row.auto_execution_blocked,'NO_RUNTIME_FIXTURE');
+  assert.equal(row.tested_now,false);
+  assert.equal(row.truth_status,'EXISTANT_NON_TESTE');
+  assert.equal(report.counts.EXISTANT_MAIS_ECHEC_RUNTIME||0,0);
+});
+
+test('a small evolution ledger is fully verified with its exact actual row count', async () => {
+  const calls=[];
+  const record={id:'evolution.ledger.verify',name:'Ledger verify',category:'test',
+    provider:'core',risk:'LOW',enabled:true,health:'HEALTHY'};
+  const bus={list:()=>[record],contract:()=>({valid:true}),
+    execute:async (_id,input)=>{
+      calls.push(input.limit);
+      return input.limit<2
+        ? {ok:false,code:'EVOLUTION_LEDGER_VERIFY_LIMIT_EXCEEDED',count:2}
+        : {ok:true,count:2,verified:2,failures:[]};
+    },
+  };
+  const report=await auditRuntimeCapabilities({bus},{deep:true});
+  assert.deepEqual(calls,[1,2]);
+  assert.equal(report.capabilities[0].truth_status,'EXISTANT_ET_TESTE');
+});
+
+test('bounded ledger corruption still fails and cannot be classified as verified', async () => {
+  const record={id:'evolution.ledger.verify',name:'Ledger verify',category:'test',
+    provider:'core',risk:'LOW',enabled:true,health:'HEALTHY'};
+  const bus={list:()=>[record],contract:()=>({valid:true}),
+    execute:async (_id,input)=>input.limit===1
+      ? {ok:false,code:'EVOLUTION_LEDGER_VERIFY_LIMIT_EXCEEDED',count:2}
+      : {ok:false,code:'ENTRY_HASH_MISMATCH',count:2,verified:2},
+  };
+  const report=await auditRuntimeCapabilities({bus},{deep:true});
+  const row=report.capabilities[0];
+  assert.equal(row.tested_now,true);
+  assert.equal(row.truth_status,'EXISTANT_MAIS_ECHEC_RUNTIME');
+  assert.equal(row.execution.code,'CAPABILITY_RETURNED_NOT_OK');
+});
+
+test('one-entry corrupted ledger cannot be hidden by dynamic sample selection', async () => {
+  const calls=[];
+  const record={id:'evolution.ledger.verify',name:'Ledger verify',category:'test',
+    provider:'core',risk:'LOW',enabled:true,health:'HEALTHY'};
+  const bus={list:()=>[record],contract:()=>({valid:true}),
+    execute:async (_id,input)=>{
+      calls.push(input.limit);
+      return {ok:false,code:'ENTRY_HASH_MISMATCH',count:1,verified:1};
+    },
+  };
+  const report=await auditRuntimeCapabilities({bus},{deep:true});
+  assert.deepEqual(calls,[1,1]);
+  assert.equal(report.capabilities[0].truth_status,'EXISTANT_MAIS_ECHEC_RUNTIME');
+  assert.equal(report.capabilities[0].execution.ok,false);
+  assert.equal(report.capabilities[0].auto_execution_blocked,null);
+});
