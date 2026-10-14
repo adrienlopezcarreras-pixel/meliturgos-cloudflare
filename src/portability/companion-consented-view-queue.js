@@ -13,7 +13,7 @@ export async function queueConsentedDesktopView(env,{session,proof,deviceKey,now
   const write=await env.DB.prepare(`INSERT INTO computer_commands
     (id,device_id,session_id,plan_json,status,created_at)
     VALUES (?,?,?,?,?,?)`).bind(commandId,session.device_id,session.session_id,JSON.stringify(plan),'PENDING',now).run();
-  if (!write || write.success===false || write.meta?.changes===0) {
+  if (!write || write.success===false || Number(write.meta?.changes)!==1) {
     return {ok:false,code:'DESKTOP_VIEW_QUEUE_WRITE_UNCONFIRMED'};
   }
   return {ok:true,status:'PENDING',command_id:commandId,device_id:session.device_id,expires_at:session.expires_at};
