@@ -1,6 +1,9 @@
+import {verifyCompanionLocalConsent} from './companion-local-consent-proof.js';
 // Fail-closed, persistent replay guard for verified desktop-consent challenges.
 // Call only after verifyCompanionLocalConsent succeeds; DB transaction/uniqueness ensures single use.
-export async function consumeVerifiedDesktopConsent(env,{session,proof,now=Date.now()}={}) {
+export async function consumeVerifiedDesktopConsent(env,{session,device,proof,deviceKey,requestedScope='view',now=Date.now()}={}) {
+  const verified=await verifyCompanionLocalConsent({session,device,proof,deviceKey,requestedScope,now});
+  if (!verified.ok) return verified;
   if (!env?.DB) return {ok:false,code:'DESKTOP_CONSENT_DB_REQUIRED'};
   if (!session || !proof || session.session_id!==proof.session_id || session.challenge!==proof.challenge) {
     return {ok:false,code:'DESKTOP_CONSENT_PROOF_INVALID'};
