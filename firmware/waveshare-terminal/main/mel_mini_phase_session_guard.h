@@ -25,6 +25,7 @@ struct MelMiniPhaseSessionGuard {
         if (!encrypted_session_ready || !capability_granted || !negotiated_generation ||
             candidate.session_generation != negotiated_generation || !candidate.phase_nonce ||
             candidate.phase > 6 || candidate.freshness_ms > 30000 ||
+            now_ms > UINT64_MAX - candidate.validity_ms ||
             !candidate.validity_ms || candidate.validity_ms > 30000 - candidate.freshness_ms) {
             clear();
             return false;
