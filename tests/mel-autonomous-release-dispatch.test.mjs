@@ -41,6 +41,56 @@ test('MEL automation refuses to overlap active deployment', () => {
   assert.doesNotThrow(() => assertNoActiveDeploy([{ name: 'deploy-cloudflare-release', status: 'completed' }]));
 });
 
+test('an already running production release defers main-push promotion without a false-red run or mutations', async () => {
+  for (const status of ['queued', 'in_progress', 'waiting']) {
+    const operations = [];
+    const fetchImpl = async (url, options) => {
+      const path = new URL(url).pathname;
+      operations.push(options.method + ' ' + path);
+      if (path.endsWith('/branches/main')) {
+        return { ok: true, status: 200, json: async () => ({ protected: true, commit: { sha: MAIN_SHA } }) };
+      }
+      if (path.endsWith('/branches/' + RELEASE_BRANCH)) {
+        return { ok: true, status: 200, json: async () => ({ protected: true, commit: { sha: OLD_SHA } }) };
+      }
+      if (path.endsWith('/actions/workflows/deploy-cloudflare-release.yml/runs')) {
+        return { ok: true, status: 200, json: async () => ({
+          workflow_runs: [{ name: 'deploy-cloudflare-release', head_sha: OLD_SHA, status }],
+        }) };
+      }
+      throw new Error('MUTATION_DURING_ACTIVE_RELEASE:' + path);
+    };
+    const result = await requestAutonomousRelease({
+      token: 'TEST_ONLY', fetchImpl, requireProtectedRefs: true,
+    });
+    assert.deepEqual(result, {
+      accepted: false, reason: 'PRODUCTION_DEPLOY_ALREADY_ACTIVE',
+      main_sha: MAIN_SHA, release_branch: RELEASE_BRANCH,
+    });
+    assert.ok(operations.every(op => op.startsWith('GET ')), 'no ref update or dispatch while running');
+  }
+});
+
+test('missing production run list still fails closed instead of being treated as a harmless deferral', async () => {
+  const fetchImpl = async (url, options) => {
+    const path = new URL(url).pathname;
+    if (path.endsWith('/branches/main')) {
+      return { ok: true, status: 200, json: async () => ({ protected: true, commit: { sha: MAIN_SHA } }) };
+    }
+    if (path.endsWith('/branches/' + RELEASE_BRANCH)) {
+      return { ok: true, status: 200, json: async () => ({ protected: true, commit: { sha: OLD_SHA } }) };
+    }
+    if (path.endsWith('/actions/workflows/deploy-cloudflare-release.yml/runs')) {
+      return { ok: true, status: 200, json: async () => ({}) };
+    }
+    throw new Error('UNEXPECTED:' + options.method + ':' + path);
+  };
+  await assert.rejects(
+    () => requestAutonomousRelease({ token: 'TEST_ONLY', fetchImpl, requireProtectedRefs: true }),
+    /RELEASE_RUN_LIST_MISSING/,
+  );
+});
+
 test('MEL automation refuses missing token and wrong repository', async () => {
   await assert.rejects(() => requestAutonomousRelease({ token: '' }), /GH_TOKEN_REQUIRED/);
   await assert.rejects(() => requestAutonomousRelease({ token: 'TEST', repo: 'other/repo' }), /UNEXPECTED_RELEASE_REPOSITORY/);
