@@ -85,6 +85,50 @@ test('state-mutating controls remain MEDIUM risk and cannot be invoked by automa
   }
 });
 
+test('Work planning dry-run compiles a DAG and never starts persistent execution', async () => {
+  const runtime = createGen2Runtime({ env: {} });
+  const sample = SAFE_SAMPLES['work.plan'];
+  const output = await runtime.bus.execute('work.plan', sample, {
+    owner: 'audit-fixture', permissions: [], requestId: 'work-plan-dry-run',
+  });
+  assert.equal(output.ok, true);
+  assert.equal(output.plan.schema, 'mel.work-plan');
+  assert.equal(output.summary.step_count, 1);
+  assert.equal(output.nodes.length, 1);
+  assert.equal(output.nodes[0].kind, 'TASK');
+  assert.equal(output.nodes[0].payload?.capability, sample.steps[0].capability);
+  const audit = await auditRuntimeCapabilities(runtime, {
+    deep: true, samples: { 'work.plan': sample },
+    context: { owner: 'audit-fixture', permissions: [], requestId: 'work-plan-proof' },
+  });
+  const row = audit.capabilities.find(x => x.id === 'work.plan');
+  assert.equal(row?.truth_status, 'EXISTANT_ET_TESTE');
+  assert.equal(row?.execution?.ok, true);
+  assert.equal(row?.auto_execution_blocked, null);
+});
+
+test('portable memory verifier proves checksums on a synthetic zero-record snapshot', async () => {
+  const runtime = createGen2Runtime({ env: {} });
+  const sample = await SAFE_SAMPLES['memory.export.verify']();
+  assert.deepEqual(sample.memories, []);
+  assert.deepEqual(sample.conversations, []);
+  assert.deepEqual(sample.archive_messages, []);
+  const result = await runtime.bus.execute('memory.export.verify', sample, {
+    owner: 'audit-fixture', permissions: [], requestId: 'synthetic-memory-verify',
+  });
+  assert.equal(result.ok, true);
+  assert.equal(result.complete, true);
+  assert.equal(result.total_records, 0);
+  const audit = await auditRuntimeCapabilities(runtime, {
+    deep: true, samples: { 'memory.export.verify': SAFE_SAMPLES['memory.export.verify'] },
+    context: { owner: 'audit-fixture', permissions: [], requestId: 'memory-verify-proof' },
+  });
+  const row = audit.capabilities.find(x => x.id === 'memory.export.verify');
+  assert.equal(row?.truth_status, 'EXISTANT_ET_TESTE');
+  assert.equal(row?.execution?.ok, true);
+  assert.equal(row?.auto_execution_blocked, null);
+});
+
 test('safe smoke catalogue covers core read-only and preview-only capabilities', () => {
   for (const id of [
     'echo','roadmap.read','system.bindings','code.read','code.search','conversation.list','rag.search',
