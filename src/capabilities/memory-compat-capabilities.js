@@ -7,8 +7,12 @@ async function safeCount(db, table) {
   if (!db) return 0;
   try {
     const row = await db.prepare(`SELECT COUNT(*) AS count FROM ${table}`).first();
-    return Number(row?.count || 0);
-  } catch { return 0; }
+    const count = Number(row?.count);
+    return row?.count != null && Number.isSafeInteger(count) && count >= 0 ? count : null;
+  } catch {
+    // A failed D1 count must never be represented as a genuine zero.
+    return null;
+  }
 }
 
 async function safeRows(db, table, limit = 10000) {
@@ -62,10 +66,13 @@ export function registerMemoryCompatibilityCapabilities(bus, env = {}) {
       safeCount(env.DB, 'archive_messages'),
       safeCount(env.DB, 'conversations'),
     ]);
+    const countsVerified = Boolean(env.DB)
+      && [memoryCount, archiveCount, conversationCount].every(count => Number.isSafeInteger(count) && count >= 0);
     return {
       ok: true,
-      status: env.DB ? 'ONLINE' : 'UNAVAILABLE',
+      status: !env.DB ? 'UNAVAILABLE' : countsVerified ? 'ONLINE' : 'DEGRADED',
       db_bound: Boolean(env.DB),
+      counts_verified: countsVerified,
       memory_count: memoryCount,
       archive_count: archiveCount,
       conversation_count: conversationCount,
