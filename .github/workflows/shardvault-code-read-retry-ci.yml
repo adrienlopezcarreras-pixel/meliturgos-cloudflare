@@ -1,0 +1,45 @@
+name: shardvault-code-read-retry-ci
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/shardvault-code-read-retry-ci.yml'
+      - 'src/continuity/shardvault-runtime.js'
+      - 'src/continuity/shardvault-code-read-retry.js'
+      - 'tests/shardvault-code-read-retry.test.mjs'
+
+permissions:
+  contents: read
+
+jobs:
+  strict-transient-retry:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 9
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '22'
+      - name: Verify bounded GET retries and cryptographic reconstruction gates
+        run: node --test tests/shardvault-code-read-retry.test.mjs tests/shardvault-github-authoritative-readback.test.mjs
+      - name: Runtime syntax
+        run: node --check src/continuity/shardvault-runtime.js
+
+  full-repository-compatibility:
+    needs: strict-transient-retry
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install exact lockfile
+        run: npm ci
+      - name: Verify runtime imports
+        run: npm run check
+      - name: Normalize branch name for canonical candidate fixture tests
+        run: git switch -c candidate/strict-code-read-ci
+      - name: Full repository regression
+        run: npm test

@@ -1,0 +1,26 @@
+name: shardvault-github-authoritative-ci
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/shardvault-github-authoritative-ci.yml'
+      - 'src/continuity/shardvault-runtime.js'
+      - 'src/continuity/github-mirror-authoritative.js'
+      - 'tests/shardvault-github-authoritative-readback.test.mjs'
+
+permissions:
+  contents: read
+
+jobs:
+  mirror-roundtrip:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '22'
+      - name: Exact authoritative readback and cached mirror security tests
+        run: node --test tests/shardvault-github-authoritative-readback.test.mjs tests/shardvault-github-code-mirror.test.mjs
+      - name: Runtime syntax
+        run: node --check src/continuity/shardvault-runtime.js

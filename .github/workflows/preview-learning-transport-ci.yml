@@ -1,0 +1,44 @@
+name: preview-learning-transport-ci
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/deploy-candidate-preview.yml'
+      - '.github/workflows/preview-learning-transport-ci.yml'
+      - 'tests/preview-learning-transport-retry.test.mjs'
+
+permissions:
+  contents: read
+
+jobs:
+  bounded-preview-refresh:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '22'
+      - name: Install exact lockfile for Council integration fixture
+        run: npm ci
+      - name: Check transport retries and independent Council readiness
+        run: node --test tests/preview-learning-transport-retry.test.mjs tests/autonomy-readiness-api.test.mjs
+
+  full-compatibility:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    needs: bounded-preview-refresh
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install exact lockfile
+        run: npm ci
+      - name: Repository syntax and imports
+        run: npm run check
+      - name: Normalize CI branch for canonical candidate fixture semantics
+        run: git switch -c candidate/preview-learning-compatibility
+      - name: Full repository regression suite
+        run: npm test
