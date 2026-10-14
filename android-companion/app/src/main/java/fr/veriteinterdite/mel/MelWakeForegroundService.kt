@@ -28,6 +28,8 @@ class MelWakeForegroundService : Service() {
     companion object {
         const val ACTION_STOP = "fr.veriteinterdite.mel.WAKE_STOP"
         const val ACTION_START = "fr.veriteinterdite.mel.WAKE_START"
+        @Volatile var foregroundMicrophoneActive = false
+            private set
         const val EXTRA_WAKE_NOTIFICATION_TAP = "fr.veriteinterdite.mel.WAKE_NOTIFICATION_TAP"
         private const val CHANNEL_ID = "mel_wake_microphone"
         private const val NOTIFICATION_ID = 807
@@ -93,6 +95,7 @@ class MelWakeForegroundService : Service() {
             stopSelf()
             return START_NOT_STICKY
         }
+        foregroundMicrophoneActive = true
         if (!listening && worker?.isAlive != true) {
             val store = WakePhraseProfileStore(this)
             val template = store.templateFeatures()
@@ -147,6 +150,7 @@ class MelWakeForegroundService : Service() {
     }
 
     override fun onDestroy() {
+        foregroundMicrophoneActive = false
         // Clear stale opt-in when Android stops the service so the Activity's
         // normal foreground detector can resume on the next interaction.
         getSharedPreferences(OPT_IN_PREFS, MODE_PRIVATE)
