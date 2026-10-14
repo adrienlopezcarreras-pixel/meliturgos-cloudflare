@@ -50,3 +50,7 @@ Les preuves à conserver comprennent: transition émise, ACK protocole, résulta
 - `windows-companion/MEL-Companion.cs`
 
 Ce document est un point de coordination. Les capacités non démontrées restent **à développer**, pas « terminées ».
+
+## Module de réduction d'état livré dans cette PR
+
+`src/devices/triad-conversation-state.js` implémente une machine à états **pure et réutilisable** avec contrôle des transitions, source, identifiant de tour/appareil, expiration de cinq minutes maximum, anti-régression temporelle et interruptions fermées. Aucun I/O : ce module ne pilote pas lui-même le BLE, le microphone ou le PC. Chaque client doit encore y raccorder ses événements réels et traduire ses états dans son langage natif. Les preuves d'exécution matérielle demeurent à obtenir.
