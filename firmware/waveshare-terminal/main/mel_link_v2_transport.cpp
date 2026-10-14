@@ -1,6 +1,8 @@
 #include "mel_link_v2_transport.h"
 #include "mel_link_v2_protocol.h"
 #include "mel_mini_phase_v1.h"
+#include "mel_mini_phase_capability.h"
+#include "mel_mini_phase_session_guard.h"
 #include "mel_link_v2_server.h"
 #include "mel_ima_adpcm.h"
 
@@ -38,6 +40,14 @@ struct ActiveExchange {
 static std::atomic<bool> g_started{false};
 static std::atomic<bool> g_session_ready{false};
 static std::atomic<bool> g_session_ack_pending{false};
+// Inert until capability negotiation is explicitly implemented.
+static MelMiniPhaseCapability g_phase_capability;
+static MelMiniPhaseSessionGuard g_phase_guard;
+static void revoke_phase_session() {
+    g_phase_capability.clear();
+    g_phase_guard.clear();
+}
+
 static std::atomic<bool> g_server_ready{false};
 static std::atomic<uint16_t> g_next_stream{1};
 static std::atomic<uint16_t> g_active_stream_id{0};
@@ -159,6 +169,8 @@ static void rx_frame(const uint8_t *frame, size_t len, void *ctx) {
     }
 
     if (header.type == MEL_LINK_V2_SESSION && header.stream_id == 0) {
+        // Every SESSION attempt revokes the prior phase opt-in and replay state.
+        revoke_phase_session();
         const bool clock_ok = apply_android_session_clock(payload, header.payload_len);
         if (!clock_ok || !mel_link_v2_server_ready()) {
             g_session_ready.store(false);
@@ -401,6 +413,7 @@ static void state_changed(bool ready, void *ctx) {
     (void)ctx;
     g_server_ready.store(ready);
     if (!ready) {
+        revoke_phase_session();
         g_session_ready.store(false);
         g_session_ack_pending.store(false);
     }
