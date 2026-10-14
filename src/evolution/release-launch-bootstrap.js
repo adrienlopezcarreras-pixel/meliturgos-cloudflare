@@ -744,7 +744,7 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
       status: 'GEN2_42_RUNTIME_TICK_EXECUTED',
       phase,
       tick_status: tick?.status || null,
-      advanced: tick?.advanced === true,
+      advanced: tick?.advanced === true || tick?.progress?.advanced === true,
       progress: tick?.progress && typeof tick.progress === 'object' ? {
         advanced: tick.progress.advanced === true,
         events: Array.isArray(tick.progress.events) ? tick.progress.events.slice(0, 20) : [],
