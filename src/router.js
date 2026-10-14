@@ -460,6 +460,9 @@ async function routeResolvedRequest(request, env, ctx) {
         return json({
           error: e.message,
           code: e.code || "INTERNAL_ERROR",
+          ...(e?.code === 'COUNCIL_SYNTHESIS_FAILED' && Array.isArray(e?.diagnostic_codes)
+            ? { diagnostic_codes: e.diagnostic_codes.filter(code => typeof code === 'string' && /^[A-Z][A-Z0-9_:-]{0,95}$/.test(code)).slice(0, 4) }
+            : {}),
           ...(e?.step_id ? { failed_step_id: String(e.step_id).slice(0, 200) } : {}),
         }, e.status || 500);
       }

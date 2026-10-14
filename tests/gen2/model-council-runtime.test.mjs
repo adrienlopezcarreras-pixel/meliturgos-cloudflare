@@ -456,6 +456,22 @@ test('no available provider fails closed with a deterministic structured error',
   );
 });
 
+test('a failed MEL synthesis reports bounded failure codes without leaking provider exception messages', async () => {
+  const calls = [];
+  const pool = new ProviderPool([
+    provider({ id: 'a', providerId: 'alpha', modelId: 'm1', calls, failSynthesis: true }),
+    provider({ id: 'b', providerId: 'beta', modelId: 'm2', calls, failSynthesis: true }),
+  ]);
+  await assert.rejects(
+    () => runModelCouncil({ pool, request: 'redacted synthesis diagnostics' }),
+    error => error.code === 'COUNCIL_SYNTHESIS_FAILED'
+      && error.status === 503
+      && error.diagnostic_codes?.length === 2
+      && error.diagnostic_codes.every(code => code === 'SYNTHESIS_FAILED')
+      && !JSON.stringify(error.diagnostic_codes).includes('redacted synthesis diagnostics')
+  );
+});
+
 test('all eligible providers failing critiques produces no synthetic answer', async () => {
   const calls = [];
   const pool = new ProviderPool([
