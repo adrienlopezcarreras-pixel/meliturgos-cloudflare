@@ -11,6 +11,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import org.json.JSONObject
 import java.net.SocketTimeoutException
@@ -87,10 +88,12 @@ class MelViewModel(
     private val _state = MutableStateFlow(MelUiState(mode = initialMode))
     val state: StateFlow<MelUiState> = _state.asStateFlow()
     private var companionRefreshLoopStarted = false
+    private var windowsPresencePollStarted = false
 
     init {
         verifyExistingSession()
         startCompanionRefreshLoop()
+        startWindowsPresencePoll()
     }
 
     private fun startCompanionRefreshLoop() {
@@ -100,6 +103,40 @@ class MelViewModel(
             while (true) {
                 if (_state.value.session == SessionStage.CONNECTED && !_state.value.busy) {
                     refreshCompanions()
+                }
+                delay(10_000)
+            }
+        }
+    }
+
+    // Windows presence must refresh independently of chat/voice busy state.
+    // A successful device-token lookup proves a recent heartbeat only, never
+    // owner authorization for local Windows commands.
+    private fun startWindowsPresencePoll() {
+        if (windowsPresencePollStarted) return
+        windowsPresencePollStarted = true
+        viewModelScope.launch(Dispatchers.IO) {
+            while (true) {
+                if (_state.value.session == SessionStage.CONNECTED) {
+                    val payload = runCatching { client.windowsPresence() }.getOrNull()
+                        ?.takeIf { it.optBoolean("ok", false) &&
+                            it.optString("schema") == "mel.android.windows-presence.v1" }
+                    val known = payload?.optBoolean("known", false) == true
+                    val halted = payload?.optBoolean("halted", false) == true
+                    val online = known && !halted && payload?.optBoolean("online", false) == true
+                    val presence = MelWindowsPresence(known = known, online = online, halted = halted)
+                    _state.update { current ->
+                        if (current.session == SessionStage.CONNECTED) {
+                            current.copy(windowsPresence = presence)
+                        } else {
+                            current.copy(windowsPresence = MelWindowsPresence())
+                        }
+                    }
+                } else {
+                    _state.update { current ->
+                        if (current.windowsPresence == MelWindowsPresence()) current
+                        else current.copy(windowsPresence = MelWindowsPresence())
+                    }
                 }
                 delay(10_000)
             }
@@ -839,16 +876,6 @@ class MelViewModel(
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 val rows = client.companions()
-                // A Windows heartbeat proves presence, never local execution consent.
-                // Older server deployments lack this endpoint: fail closed to unknown.
-                val windowsData = runCatching { client.windowsPresence() }.getOrNull()
-                    ?.takeIf { it.optBoolean("ok", false) &&
-                        it.optString("schema") == "mel.android.windows-presence.v1" }
-                val windowsPresence = MelWindowsPresence(
-                    known = windowsData?.optBoolean("known", false) == true,
-                    online = windowsData?.optBoolean("online", false) == true,
-                    halted = windowsData?.optBoolean("halted", false) == true
-                )
                 val devices = buildList {
                     for (i in 0 until rows.length()) {
                         val row = rows.getJSONObject(i)
@@ -873,13 +900,11 @@ class MelViewModel(
                 }
                 _state.value = _state.value.copy(
                     companions = devices,
-                    windowsPresence = windowsPresence,
                     companionStatus = if (devices.isEmpty()) "Aucun MINI appairé" else "${devices.size} compagnon(s) détecté(s)"
                 )
             } catch (error: Throwable) {
                 _state.value = _state.value.copy(
                     companionStatus = "Compagnon indisponible",
-                    windowsPresence = MelWindowsPresence(),
                     error = explain(error)
                 )
             }
