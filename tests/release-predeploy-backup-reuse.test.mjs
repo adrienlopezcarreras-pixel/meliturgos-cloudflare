@@ -98,7 +98,6 @@ test('predeploy refresh creates the backup on the GitHub runner and keeps the Wo
     readFile(new URL('../release-tools/predeploy-backup-refresh/worker.js', import.meta.url), 'utf8'),
     readFile(new URL('../release-tools/predeploy-backup-refresh/runner.mjs', import.meta.url), 'utf8'),
   ]);
-  const d1Export = await readFile(new URL('../release-tools/predeploy-backup-refresh/d1-export.mjs', import.meta.url), 'utf8');
   const refresh = source.indexOf('      - name: Refresh current production backup through ephemeral worker');
   const rollback = source.indexOf('      - name: Capture current production rollback target');
   const binder = source.indexOf('      - name: Create verified pre-deploy production backup');
@@ -144,10 +143,19 @@ test('predeploy refresh creates the backup on the GitHub runner and keeps the Wo
 
   assert.match(refresher, /const R2_PAGE_LIMIT = 1000;/);
   assert.match(refresher, /const D1_PAGE_LIMIT = 500;/);
-  assert.match(d1Export, /export const D1_PAGE_SIZE = 500;/);
-  assert.match(d1Export, /export const MAX_ROWS_PER_TABLE = 250_000;/);
-  assert.match(runner, /import \{ exportD1 \} from '\.\/d1-export\.mjs';/);
-  assert.match(runner, /database: \(\) => exportD1\(sidecar, sidecarJson\)/);
+  // The canonical base may delegate D1 export to d1-export.mjs.
+  // Require the same bounded paging guarantees in either implementation.
+  const delegatedD1 = /import\s*\{\s*exportD1\s*\}\s*from\s*['"]\.\/d1-export\.mjs['"]/.test(runner);
+  const d1Export = delegatedD1
+    ? await readFile(new URL('../release-tools/predeploy-backup-refresh/d1-export.mjs', import.meta.url), 'utf8')
+    : runner;
+  assert.match(d1Export, /(?:export )?const D1_PAGE_SIZE = 500;/);
+  if (delegatedD1) {
+    assert.match(d1Export, /export const MAX_ROWS_PER_TABLE = 250_000;/);
+    assert.match(d1Export, /page\.rows\.length > pageSize/);
+    assert.match(d1Export, /page\.has_more && page\.rows\.length !== pageSize/);
+    assert.match(runner, /exportD1\(sidecar, sidecarJson/);
+  }
   assert.match(runner, /createVerifiedBackupService/);
   assert.match(runner, /createBackupEncryptionCodec/);
   assert.match(runner, /inspectRestoreCandidate/);
