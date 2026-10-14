@@ -10,6 +10,7 @@ import { companionBleDiagnosticsCommand } from "./companion-ble-diagnostics.js";
 import { miniFirmwareStageCommand } from "./mini-firmware-stage-companion.js";
 import { androidMaintenancePcCommand } from "./android-maintenance-companion.js";
 import { androidStagePcCommand } from "./android-apk-stage-companion.js";
+import { readAndroidTriadActivityForCompanion } from "./triad-activity-readonly.js";
 
 export const COMPUTER_API_BASE="/api/computer/v1";
 export const COMPUTER_ROUTES=Object.freeze({
@@ -24,6 +25,7 @@ export const COMPUTER_ROUTES=Object.freeze({
  installer:"/api/computer/v1/installer",
  companion:"/api/computer/v1/companion",
  companions:"/api/computer/v1/companions",
+ triadActivity:"/api/computer/v1/triad-activity",
  screenshot:"/api/computer/v1/screenshot",
  power:"/api/computer/v1/power",
  sovereigntyArchive:"/api/computer/v1/sovereignty-code-archive",
@@ -650,6 +652,10 @@ export async function maybeHandleComputerApi(request,env){
  const a=await authDevice(request,env);if(!a.ok)return a.response;
  if(url.pathname===COMPUTER_API_BASE+"/heartbeat"&&request.method==="POST")return heartbeat(request,env,a);
  if(url.pathname===COMPUTER_ROUTES.companions&&request.method==="GET")return computerCompanions(env);
+ if(url.pathname===COMPUTER_ROUTES.triadActivity&&request.method==="GET"){
+  if(a.device.halted)return json({ok:false,code:"TRIAD_COMPANION_HALTED"},409);
+  return json(await readAndroidTriadActivityForCompanion(env));
+ }
  if(url.pathname===COMPUTER_ROUTES.commands&&request.method==="GET")return claim(env,a);
  if(url.pathname===COMPUTER_API_BASE+"/result"&&request.method==="POST")return result(request,env,a);
  if(url.pathname===COMPUTER_ROUTES.screenshot&&request.method==="POST")return uploadShot(request,env,a,url);
