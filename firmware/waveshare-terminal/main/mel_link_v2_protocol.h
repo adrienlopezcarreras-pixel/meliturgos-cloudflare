@@ -24,6 +24,8 @@ enum MelLinkV2FrameType : uint8_t {
     MEL_LINK_V2_AUDIO_BEGIN = 0x30,
     MEL_LINK_V2_AUDIO_DATA = 0x31,
     MEL_LINK_V2_AUDIO_END = 0x32,
+    // Optional read-only Android phase observation; inactive without negotiated capability.
+    MEL_LINK_V2_TRIAD_PHASE = 0x50,
     MEL_LINK_V2_CREDIT = 0x40,
     MEL_LINK_V2_ACK = 0x41,
     MEL_LINK_V2_ERROR = 0x7e,
