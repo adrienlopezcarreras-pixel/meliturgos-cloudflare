@@ -10,6 +10,8 @@ const [contract, kotlin, firmware] = await Promise.all([
 test('phase extension remains symmetric and opt-in', () => {
   assert.match(kotlin,/const val TRIAD_PHASE\s*=\s*0x50/);
   assert.match(firmware,/MEL_LINK_V2_TRIAD_PHASE\s*=\s*0x50/);
+  assert.match(kotlin,/const val TRIAD_CAPABILITY\s*=\s*0x51/);
+  assert.match(firmware,/MEL_LINK_V2_TRIAD_CAPABILITY\s*=\s*0x51/);
   assert.match(contract,/triad_phase_v1/);
   assert.match(contract,/MUST NOT be sent/);
 });
