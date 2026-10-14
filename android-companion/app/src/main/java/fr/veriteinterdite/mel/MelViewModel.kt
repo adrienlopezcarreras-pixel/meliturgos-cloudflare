@@ -2,6 +2,7 @@ package fr.veriteinterdite.mel
 
 import android.content.Context
 import android.os.Build
+import android.os.SystemClock
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -52,7 +53,8 @@ data class MelCompanionDevice(
 data class MelWindowsPresence(
     val known: Boolean = false,
     val online: Boolean = false,
-    val halted: Boolean = false
+    val halted: Boolean = false,
+    val receivedAtElapsedMs: Long = -1L
 )
 
 data class MelUiState(
@@ -128,7 +130,12 @@ class MelViewModel(
                     val known = payload?.optBoolean("known", false) == true
                     val halted = payload?.optBoolean("halted", false) == true
                     val online = known && !halted && payload?.optBoolean("online", false) == true
-                    val presence = MelWindowsPresence(known = known, online = online, halted = halted)
+                    val presence = MelWindowsPresence(
+                        known = known,
+                        online = online,
+                        halted = halted,
+                        receivedAtElapsedMs = if (payload != null) SystemClock.elapsedRealtime() else -1L
+                    )
                     _state.update { current ->
                         if (current.session == SessionStage.CONNECTED) {
                             current.copy(windowsPresence = presence)
