@@ -75,3 +75,12 @@ test('HTTP router denies destructive capability IDs for scoped stress proof', as
     assert.equal(body.code, 'STRESS_PROOF_SCOPE_DENIED', id);
   }
 });
+
+test('central authorization rejects mixed stress and release credentials', () => {
+  for (const other of ['x-mel-parallel-proof', 'x-mel-launch-bootstrap']) {
+    const headers = { 'x-mel-release-smoke':'1', 'x-mel-stress-proof':token, [other]:'p'.repeat(48) };
+    const mixed = new Request('https://mel.test/api/gen2/capabilities/execute', {method:'POST',headers});
+    const mixedEnv={...env,MEL_PARALLEL_PROOF_TOKEN:'p'.repeat(48),MEL_LAUNCH_BOOTSTRAP_TOKEN:'p'.repeat(48)};
+    assert.equal(isReleaseSmokeRequest(mixed,mixedEnv),false,other);
+  }
+});
