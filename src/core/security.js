@@ -158,6 +158,9 @@ const PARALLEL_PROOF_ALLOWLIST = Object.freeze(new Map([
 export function isReleaseSmokeRequest(request, env) {
   const url = new URL(request.url);
   const method = String(request.method || 'GET').toUpperCase();
+  // Never let a stress credential ride alongside a broader release credential.
+  if (request.headers.has('x-mel-stress-proof') &&
+      (request.headers.has('x-mel-parallel-proof') || request.headers.has('x-mel-launch-bootstrap'))) return false;
   const allowedPaths = RELEASE_SMOKE_ALLOWLIST.get(method);
   if (!allowedPaths?.has(url.pathname)) return false;
   if (request.headers.get('x-mel-release-smoke') !== '1') return false;
