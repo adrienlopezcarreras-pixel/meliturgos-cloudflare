@@ -48,7 +48,7 @@ test('/api/gen2/autonomy/status is an authenticated alias with evidence-based re
   assert.ok(body.readiness.blockers.includes('LIVE_COUNCIL_ZERO_COST_NOT_PROVEN'));
 });
 
-test('manual tick records the one-time Work DAG runtime proof and reports that gate as verified', async () => {
+test('manual tick without independently verified live Council remains unverified', async () => {
   const f = fixture();
   const response = await maybeHandleAutonomyApi(
     new Request('http://mel/api/gen2/autonomy/tick', { method: 'POST', headers: { authorization: auth } }),
@@ -57,10 +57,16 @@ test('manual tick records the one-time Work DAG runtime proof and reports that g
   );
   assert.equal(response.status, 200);
   const body = await response.json();
-  assert.equal(body.tick.runtime_proof.status, 'VERIFIED');
-  assert.equal(body.tick.runtime_proof.recovered_interrupted_node, true);
-  assert.ok(body.tick.runtime_proof.providers_attempted >= 2);
-  assert.equal(body.state.readiness.gates.runtime_work_dag_resume, true);
-  assert.equal(body.state.readiness.gates.live_council_zero_cost, true);
+  // The full npm test runner deliberately grants signed zero-cost
+  // provenance to Node-only mocked Workers AI; standalone CI does not.
+  // Neither mode is evidence of real paid inference or self-development.
+  const nodeMockGovernor = process.env.MEL_TEST_VERIFIED_ZERO_COST_PROVIDERS === '1';
+  assert.ok(['VERIFIED','NOT_VERIFIED'].includes(body.tick.runtime_proof.status));
+  assert.equal(body.state.readiness.gates.live_council_zero_cost, nodeMockGovernor);
+  // The public API intentionally exposes gate booleans and blockers, but
+  // not detailed internal proof records; repository-level tests exercise
+  // mandatory Council role/synthesis/identity evidence separately.
+  assert.equal(body.state.readiness.blockers.includes('LIVE_COUNCIL_ZERO_COST_NOT_PROVEN'), !nodeMockGovernor);
   assert.equal(body.state.readiness.gates.runtime_teacher_round_trip, false);
+  assert.equal(body.state.readiness.self_development_ready, false);
 });

@@ -1,5 +1,5 @@
 // deployment trigger: ShardVault dashboard
-import { getShardVaultStatus, searchAutonomousShardVaultRepositories, runShardVaultCycle, setPreferredShardVaultEndpoint, activateValidatedShardVaultEndpoint, syncShardVaultCodeExternally, verifyShardVaultCodeReconstruction, storeCriticalCodeBundle } from '../continuity/shardvault-runtime.js';
+import { getShardVaultStatus, searchAutonomousShardVaultRepositories, runShardVaultCycle, setPreferredShardVaultEndpoint, activateValidatedShardVaultEndpoint, syncShardVaultCodeExternally, verifyShardVaultCodeReconstruction, storeCriticalCodeBundle, bootstrapIsolatedShardVaultSnapshot } from '../continuity/shardvault-runtime.js';
 
 function esc(value){return String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 
@@ -209,8 +209,12 @@ export async function handleShardVaultStatus(request,env){
   if(request.method==='GET'&&url.pathname==='/shardvault')return page();
   if(request.method==='GET'&&url.pathname==='/api/gen2/shardvault/status')return Response.json(await getShardVaultStatus(env),{headers:{'cache-control':'no-store'}});
   if(request.method==='POST'&&url.pathname==='/api/gen2/shardvault/snapshot'){
-    const result=await runShardVaultCycle(env,{force:true});
-    return Response.json(result,{status:result.ok?200:503,headers:{'cache-control':'no-store'}});
+    const body=await request.json().catch(()=>({}));
+    const previewSeed=body?.preview_bootstrap===true;
+    const result=previewSeed
+      ?await bootstrapIsolatedShardVaultSnapshot(env)
+      :await runShardVaultCycle(env,{force:true});
+    return Response.json(result,{status:result.ok?200:result.status==='PREVIEW_ONLY'?403:503,headers:{'cache-control':'no-store'}});
   }
   if(request.method==='POST'&&url.pathname==='/api/gen2/shardvault/search'){
     const body=await request.json().catch(()=>({}));
@@ -221,6 +225,18 @@ export async function handleShardVaultStatus(request,env){
       knownCandidatesOnly:body?.known_candidates_only===true,
     });
     return Response.json(result,{status:result.ok?200:503,headers:{'cache-control':'no-store'}});
+  }
+  if(request.method==='GET'&&url.pathname==='/api/gen2/shardvault/code-source/expectation'){
+    const isolated=String(env?.MEL_RUNTIME_ENV||'')==='preview'
+      && String(env?.MEL_PREVIEW_ISOLATED||'')==='true';
+    if(!isolated)return Response.json({ok:false,status:'PREVIEW_ONLY'},{status:403,headers:{'cache-control':'no-store'}});
+    const sha=typeof MEL_DEPLOYED_GIT_SHA!=='undefined'?String(MEL_DEPLOYED_GIT_SHA||''):'';
+    const declared=typeof MEL_CRITICAL_CODE_BUNDLE_BYTES!=='undefined'
+      ?Number(MEL_CRITICAL_CODE_BUNDLE_BYTES):0;
+    const ok=/^[0-9a-f]{40}$/i.test(sha)&&Number.isSafeInteger(declared)&&declared>0;
+    return Response.json({ok,status:ok?'EXACT_DEPLOYMENT_EXPECTATION':'DEPLOYMENT_EXPECTATION_UNAVAILABLE',
+      deployed_sha:ok?sha:null,declared_bytes:ok?declared:null},
+      {status:ok?200:503,headers:{'cache-control':'no-store'}});
   }
   if(request.method==='POST'&&url.pathname==='/api/gen2/shardvault/code-source'){
     const type=String(request.headers.get('content-type')||'').toLowerCase();

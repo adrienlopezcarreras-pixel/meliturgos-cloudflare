@@ -1,8 +1,11 @@
 name: full-candidate-ci
 
-# TEMPORARY DEV-LIGHT MODE: heavy suite is manual until final validation.
-# Re-enable candidate branch push before final closure.
+# Full candidate suite is a mandatory exact-SHA gate; never treat targeted
+# tests or a syntax-only run as equivalent to full validation.
 on:
+  push:
+    branches:
+      - candidate/mel-clean-autonomy
   workflow_dispatch:
 
 permissions:
