@@ -172,6 +172,21 @@ static void rx_frame(const uint8_t *frame, size_t len, void *ctx) {
         return;
     }
 
+    // TRIAD_PHASE is reserved but the per-session capability negotiation and
+    // application-level phase ACK are not implemented yet. Fail closed here:
+    // do not accidentally route a phase frame into the audio stream handler.
+    if (header.type == MEL_LINK_V2_TRIAD_PHASE) {
+        if (header.stream_id != 0 || !g_session_ready.load() || !mel_link_v2_server_ready()) {
+            ESP_LOGW(TAG, "TRIAD_PHASE rejected: invalid stream or unsecured session");
+            return;
+        }
+        // A valid Link V2 SESSION alone is NOT opt-in to triad_phase_v1.
+        // Do not accept, ACK or display this frame until capability binding,
+        // replay protection and expiry handling are deployed together.
+        ESP_LOGW(TAG, "TRIAD_PHASE rejected: capability not negotiated");
+        return;
+    }
+
     if (header.type == MEL_LINK_V2_MEDIA_CONFIG) {
         if (!g_session_ready.load() || !mel_link_v2_server_ready()) {
             ESP_LOGW(TAG, "MEDIA_CONFIG rejected: Android V2 session not verified");
