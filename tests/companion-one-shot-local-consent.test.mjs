@@ -15,6 +15,9 @@ for(const path of ['../assets/MEL-Computer-Companion.ps1','../dist/MEL-Computer-
   assert.match(handler,/DESKTOP_VIEW_CONSENT_EXPIRED/);
   assert.match(handler,/Upload-Screenshot/);
   assert.match(handler,/capture_count=1/);
+  assert.match(handler,/DESKTOP_VIEW_UPLOAD_UNCONFIRMED/);
+  assert.match(handler,/computer\/screenshots\/\$ComputerId/);
+  assert.match(handler,/\$shot\.view_url -eq/);
   assert.ok(handler.indexOf('MessageBox]::Show') < handler.indexOf('Upload-Screenshot'));
   assert.ok(handler.indexOf('DESKTOP_VIEW_CONSENT_EXPIRED') < handler.indexOf('Upload-Screenshot'));
  });
