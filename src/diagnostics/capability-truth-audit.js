@@ -472,11 +472,24 @@ export async function auditRuntimeCapabilities(runtime, {
             )), timeoutMs);
           }),
         ]).finally(() => clearTimeout(timer));
-        execution = {
-          ok: true,
-          result_type: Array.isArray(result) ? 'array' : typeof result,
-          duration_ms: Math.max(0, Date.now() - executionStartedAt),
-        };
+        // A resolved handler can still report a domain/runtime failure.
+        // The bus validates the output schema, not whether an explicit
+        // { ok:false } is a successful functional result. Never count that
+        // response as an executed-and-verified capability.
+        if (result && typeof result === 'object' && result.ok === false) {
+          execution = {
+            ok: false,
+            code: 'CAPABILITY_RETURNED_NOT_OK',
+            result_type: Array.isArray(result) ? 'array' : typeof result,
+            duration_ms: Math.max(0, Date.now() - executionStartedAt),
+          };
+        } else {
+          execution = {
+            ok: true,
+            result_type: Array.isArray(result) ? 'array' : typeof result,
+            duration_ms: Math.max(0, Date.now() - executionStartedAt),
+          };
+        }
       } catch (error) {
         execution = {
           ok: false,
