@@ -52,7 +52,15 @@ export async function requestAutonomousRelease({ token, fetchImpl = fetch, repo 
   // release branch. Scan recent runs across both events, not only release pushes.
   const activeRunsRoute = '/actions/workflows/deploy-cloudflare-release.yml/runs?per_page=100';
   const releaseRuns = (await api(activeRunsRoute))?.workflow_runs;
-  assertNoActiveDeploy(releaseRuns);
+  // A push while a release is already running is an expected deferral, not
+  // a deployment failure. The completed-release event performs catch-up.
+  // Keep the separate second check fail-closed for a race after ref promotion.
+  try {
+    assertNoActiveDeploy(releaseRuns);
+  } catch (error) {
+    if (error?.message !== 'PRODUCTION_DEPLOY_ALREADY_ACTIVE') throw error;
+    return { accepted: false, reason: 'PRODUCTION_DEPLOY_ALREADY_ACTIVE', main_sha: mainSha, release_branch: RELEASE_BRANCH };
+  }
   // A previous completed attempt for the latest SHA means a catch-up event
   // must not schedule a duplicate after that SHA failed. A manual dispatch
   // remains possible for an intentional, supervised retry.
