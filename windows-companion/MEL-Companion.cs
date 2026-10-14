@@ -307,6 +307,27 @@ static class MelApp
         return Convert.ToBase64String(ProtectedData.Protect(Encoding.UTF8.GetBytes(token), null, DataProtectionScope.CurrentUser));
     }
 
+    // Keep local authorization readable at every instant. The PowerShell engine
+    // rereads computer.json before *each* remote action; an in-place rewrite
+    // could expose truncated JSON and cause a false local denial.
+    public static void WriteConfigAtomically(Dictionary<string, object> snapshot)
+    {
+        Directory.CreateDirectory(MelDir);
+        var temp = Path.Combine(MelDir, "computer.json." + Guid.NewGuid().ToString("N") + ".tmp");
+        try
+        {
+            File.WriteAllText(temp, Json.Serialize(snapshot), new UTF8Encoding(false));
+            if (File.Exists(ConfigPath))
+                File.Replace(temp, ConfigPath, null, true);
+            else
+                File.Move(temp, ConfigPath);
+        }
+        finally
+        {
+            try { if (File.Exists(temp)) File.Delete(temp); } catch { }
+        }
+    }
+
     public static void SaveConfig(string server, string computerId, string token)
     {
         Directory.CreateDirectory(MelDir);
@@ -322,7 +343,7 @@ static class MelApp
         };
         d["remote_access_enabled"] = false;
         d["installed_at"] = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-        File.WriteAllText(ConfigPath, Json.Serialize(d), new UTF8Encoding(false));
+        WriteConfigAtomically(d);
     }
 
     public static List<string> ConfigList(string key)
@@ -373,10 +394,13 @@ static class MelApp
     public static void SavePermissions(List<string> apps, List<string> paths, bool remoteAccessEnabled)
     {
         if (Config == null && !LoadConfig()) throw new InvalidOperationException("Configuration MEL indisponible.");
-        Config["allowed_apps"] = apps.ToArray();
-        Config["allowed_paths"] = paths.ToArray();
-        Config["remote_access_enabled"] = remoteAccessEnabled;
-        File.WriteAllText(ConfigPath, Json.Serialize(Config), new UTF8Encoding(false));
+        // Publish the new complete snapshot only after its atomic file replace succeeds.
+        var next = new Dictionary<string, object>(Config);
+        next["allowed_apps"] = apps.ToArray();
+        next["allowed_paths"] = paths.ToArray();
+        next["remote_access_enabled"] = remoteAccessEnabled;
+        WriteConfigAtomically(next);
+        Config = next;
         RestartCompanion();
     }
 
