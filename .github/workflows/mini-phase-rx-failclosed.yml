@@ -1,0 +1,20 @@
+name: MINI phase receiver fail-closed
+on:
+  pull_request:
+    paths:
+      - 'firmware/waveshare-terminal/main/mel_link_v2_transport.cpp'
+      - 'tests/mini-phase-failclosed-rx.test.mjs'
+      - '.github/workflows/mini-phase-rx-failclosed.yml'
+  workflow_dispatch:
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node --test tests/mini-phase-failclosed-rx.test.mjs
