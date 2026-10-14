@@ -18,8 +18,9 @@ export function validatePreviewContext(env,config){
   const preview=config?.env?.preview?.r2_buckets?.find(x=>x.binding==='MEDIA_BUCKET')?.bucket_name;
   const prodD1=config?.d1_databases?.find(x=>x.binding==='DB')?.database_id;
   const previewD1=config?.env?.preview?.d1_databases?.find(x=>x.binding==='DB')?.database_id;
-  if(env.GITHUB_REF!=='refs/heads/candidate/mel-clean-autonomy'
-    ||env.GITHUB_REF_NAME!=='candidate/mel-clean-autonomy')fail('PREVIEW_MIRROR_CANDIDATE_ONLY');
+  const approvedPreviewBranch = ['candidate/mel-clean-autonomy','reconcile/mel-candidate-20261014'].includes(env.GITHUB_REF_NAME);
+  if(!approvedPreviewBranch || env.GITHUB_REF!==`refs/heads/${env.GITHUB_REF_NAME}`)
+    fail('PREVIEW_MIRROR_CANDIDATE_ONLY');
   if(!/^[a-f0-9]{40}$/.test(sha))fail('PREVIEW_MIRROR_SHA_INVALID');
   if(repo!=='adrienlopezcarreras-pixel/meliturgos-cloudflare')fail('PREVIEW_MIRROR_REPOSITORY_MISMATCH');
   if(config?.env?.preview?.vars?.MEL_RUNTIME_ENV!=='preview'
