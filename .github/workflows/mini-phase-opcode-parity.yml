@@ -3,6 +3,8 @@ on:
   pull_request:
     paths:
       - 'tests/mini-linkv2-phase-opcode-parity.test.mjs'
+      - 'tests/mini-linkv2-phase-payload-contract.test.mjs'
+      - 'docs/mini-linkv2-triad-phase-v1-contract.md'
       - 'android-companion/app/src/main/java/fr/veriteinterdite/mel/MelLinkV2Protocol.kt'
       - 'firmware/waveshare-terminal/main/mel_link_v2_protocol.h'
       - '.github/workflows/mini-phase-opcode-parity.yml'
@@ -18,4 +20,4 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - run: node --test tests/mini-linkv2-phase-opcode-parity.test.mjs
+      - run: node --test tests/mini-linkv2-phase-*.test.mjs
