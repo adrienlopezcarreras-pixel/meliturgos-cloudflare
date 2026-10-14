@@ -27,12 +27,21 @@ class MelWakeForegroundService : Service() {
         const val ACTION_START = "fr.veriteinterdite.mel.WAKE_START"
         private const val CHANNEL_ID = "mel_wake_microphone"
         private const val NOTIFICATION_ID = 807
+        private const val OPT_IN_PREFS = "mel_wake_background_opt_in"
+        private const val OPT_IN_KEY = "microphone_enabled"
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.action != ACTION_START) {
+        if (intent?.action == ACTION_STOP) {
+            getSharedPreferences(OPT_IN_PREFS, MODE_PRIVATE).edit().putBoolean(OPT_IN_KEY, false).apply()
+            stopSelf()
+            return START_NOT_STICKY
+        }
+        if (intent?.action != ACTION_START ||
+            !getSharedPreferences(OPT_IN_PREFS, MODE_PRIVATE).getBoolean(OPT_IN_KEY, false)
+        ) {
             stopSelf()
             return START_NOT_STICKY
         }
