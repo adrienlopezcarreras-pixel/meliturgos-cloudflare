@@ -2133,6 +2133,11 @@ function Perform-Step($step, [string]$commandId, [string]$planSchema="") {
 function Process-Command($command) {
   $outputs = @()
   try {
+    # This protocol is not yet implemented by the local Windows client.
+    # Never acknowledge a view-only request as successful without capture and local consent.
+    if ([string]$command.plan.schema -eq 'mel.companion.desktop-view-request/v1' -or [string]$command.plan.action -eq 'desktop.view.request') {
+      throw 'DESKTOP_VIEW_WINDOWS_HANDLER_UNAVAILABLE'
+    }
     foreach ($step in @($command.plan.steps)) {
       $outputs += ,(Perform-Step $step ([string]$command.id) ([string]$command.plan.schema))
     }
