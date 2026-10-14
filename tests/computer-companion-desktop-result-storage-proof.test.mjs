@@ -22,6 +22,8 @@ test('desktop view may report SUCCESS only after matching screenshot object exis
   }),env);
   assert.equal(pair.status,200);
   const {token}=await pair.json();
+  await DB.prepare('UPDATE computer_devices SET metadata=? WHERE id=?')
+   .bind(JSON.stringify({remote_access_enabled:true}),'proof-pc').run();
   const headers={authorization:'Bearer '+token,'x-mel-computer-id':'proof-pc','content-type':'application/json'};
   const report=payload=>maybeHandleComputerApi(new Request('https://mel.test/api/computer/v1/result',{
    method:'POST',headers,body:JSON.stringify(payload)

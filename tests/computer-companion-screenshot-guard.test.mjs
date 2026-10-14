@@ -18,6 +18,8 @@ test('screenshots require matching RUNNING command and valid PNG signature',asyn
   const post=(id,body=png)=>maybeHandleComputerApi(new Request('https://mel.test/api/computer/v1/screenshot'+(id?'?command_id='+id:''),{method:'POST',headers,body}),env);
   assert.equal((await post('')).status,400);
   assert.equal((await post('unknown')).status,409);
+  await DB.prepare('UPDATE computer_devices SET metadata=? WHERE id=?')
+   .bind(JSON.stringify({remote_access_enabled:true}),'screenshot-pc').run();
   await DB.prepare('INSERT INTO computer_commands(id,device_id,session_id,plan_json,status,created_at) VALUES(?,?,?,?,?,?)').bind('foreign','other-pc','s','{}','RUNNING',Date.now()).run();
   assert.equal((await post('foreign')).status,409);
   await DB.prepare('INSERT INTO computer_commands(id,device_id,session_id,plan_json,status,created_at) VALUES(?,?,?,?,?,?)').bind('pending','screenshot-pc','s','{}','PENDING',Date.now()).run();

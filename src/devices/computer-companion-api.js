@@ -368,7 +368,7 @@ async function screenshotView(request,env,url){
  if(Number(row.halted)===1)
   return json({ok:false,code:"SCREENSHOT_OWNER_HALT"},409);
  const metadata=parse(row.metadata,{});
- if(metadata.remote_access_enabled===false)
+ if(metadata.remote_access_enabled!==true)
   return json({ok:false,code:"SCREENSHOT_LOCAL_ACCESS_REVOKED"},409);
  const plan=parse(row.plan_json,{});
  if(plan.schema==="mel.companion.desktop-view-request/v1"||plan.action==="desktop.view.request"){
@@ -580,7 +580,7 @@ async function result(request,env,a){
         outputs[i]?.view_url!==expectedUrl)))
     return json({ok:false,code:"SCREENSHOT_RESULT_PROOF_INVALID"},409);
    const device=await env.DB.prepare("SELECT halted,metadata FROM computer_devices WHERE id=? LIMIT 1").bind(a.device.id).first();
-   if(!device||Number(device.halted)===1||parse(device.metadata,{})?.remote_access_enabled===false)
+   if(!device||Number(device.halted)===1||parse(device.metadata,{})?.remote_access_enabled!==true)
     return json({ok:false,code:"SCREENSHOT_RESULT_AUTH_INVALID"},409);
    if(typeof env?.MEDIA_BUCKET?.head!=="function")
     return json({ok:false,code:"SCREENSHOT_RESULT_STORAGE_UNAVAILABLE"},503);
@@ -593,8 +593,8 @@ async function result(request,env,a){
   if(plan.schema==="mel.companion.desktop-view-request/v1"||plan.action==="desktop.view.request"){
    // A device may only mark a one-shot desktop view as succeeded if the image
    // actually reached R2 under the exact device/command key.
-   const device=await env.DB.prepare("SELECT halted FROM computer_devices WHERE id=? LIMIT 1").bind(a.device.id).first();
-   if(!device||Number(device.halted)===1||plan.schema!=="mel.companion.desktop-view-request/v1"||
+   const device=await env.DB.prepare("SELECT halted,metadata FROM computer_devices WHERE id=? LIMIT 1").bind(a.device.id).first();
+   if(!device||Number(device.halted)===1||parse(device.metadata,{})?.remote_access_enabled!==true||plan.schema!=="mel.companion.desktop-view-request/v1"||
       plan.action!=="desktop.view.request"||plan.screen_capture_only!==true||
       plan.device_id!==a.device.id||!Number.isFinite(Number(plan.expires_at))||
       Number(plan.expires_at)<=Date.now())
@@ -626,8 +626,10 @@ async function uploadShot(request,env,a,url){
  if(!id)return json({ok:false,code:"SCREENSHOT_COMMAND_REQUIRED"},400);
  const command=await env.DB.prepare("SELECT id,plan_json FROM computer_commands WHERE id=? AND device_id=? AND status=? LIMIT 1").bind(id,a.device.id,"RUNNING").first();
  if(!command)return json({ok:false,code:"SCREENSHOT_COMMAND_NOT_RUNNING"},409);
- const currentDevice=await env.DB.prepare("SELECT halted FROM computer_devices WHERE id=? LIMIT 1").bind(a.device.id).first();
+ const currentDevice=await env.DB.prepare("SELECT halted,metadata FROM computer_devices WHERE id=? LIMIT 1").bind(a.device.id).first();
  if(!currentDevice||Number(currentDevice.halted)===1)return json({ok:false,code:"SCREENSHOT_OWNER_HALT"},409);
+ if(parse(currentDevice.metadata,{})?.remote_access_enabled!==true)
+  return json({ok:false,code:"SCREENSHOT_LOCAL_ACCESS_REVOKED"},409);
  const plan=parse(command.plan_json,{});
  if(plan.schema==="mel.companion.desktop-view-request/v1"||plan.action==="desktop.view.request"){
   if(plan.schema!=="mel.companion.desktop-view-request/v1"||plan.action!=="desktop.view.request"||
@@ -641,8 +643,8 @@ async function uploadShot(request,env,a,url){
  if(bytes.length<signature.length||!signature.every((b,i)=>bytes[i]===b))
   return json({ok:false,code:"SCREENSHOT_PNG_INVALID"},415);
  // Revalidate after reading the body: HALT or completion may occur during the upload.
- const latest=await env.DB.prepare("SELECT c.status,c.plan_json,d.halted FROM computer_commands c JOIN computer_devices d ON d.id=c.device_id WHERE c.id=? AND c.device_id=? LIMIT 1").bind(id,a.device.id).first();
- if(!latest||Number(latest.halted)===1||latest.status!=="RUNNING")
+ const latest=await env.DB.prepare("SELECT c.status,c.plan_json,d.halted,d.metadata FROM computer_commands c JOIN computer_devices d ON d.id=c.device_id WHERE c.id=? AND c.device_id=? LIMIT 1").bind(id,a.device.id).first();
+ if(!latest||Number(latest.halted)===1||parse(latest.metadata,{})?.remote_access_enabled!==true||latest.status!=="RUNNING")
   return json({ok:false,code:"SCREENSHOT_AUTH_REVOKED_DURING_UPLOAD"},409);
  const latestPlan=parse(latest.plan_json,{});
  if(latestPlan.schema==="mel.companion.desktop-view-request/v1"||latestPlan.action==="desktop.view.request"){

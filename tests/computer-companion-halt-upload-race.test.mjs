@@ -20,6 +20,8 @@ test('HALT activated while screenshot body streams prevents bucket write',async(
   }),env);
   assert.equal(pair.status,200);
   const {token}=await pair.json();
+  await DB.prepare('UPDATE computer_devices SET metadata=? WHERE id=?')
+   .bind(JSON.stringify({remote_access_enabled:true}),'race-pc').run();
   await DB.prepare('INSERT INTO computer_commands(id,device_id,session_id,plan_json,status,created_at) VALUES(?,?,?,?,?,?)')
    .bind('race-command','race-pc','race-session','{}','RUNNING',Date.now()).run();
 

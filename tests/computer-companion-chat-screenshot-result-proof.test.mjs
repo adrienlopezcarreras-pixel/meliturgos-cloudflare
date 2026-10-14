@@ -20,6 +20,8 @@ async function setup(){
  const pair=await send('pair',{auth:null,body:{pair_code:code,computer_id:'chat-pc',platform:'windows'}});
  assert.equal(pair.status,200);
  const {token}=await pair.json();
+ await DB.prepare('UPDATE computer_devices SET metadata=? WHERE id=?')
+  .bind(JSON.stringify({remote_access_enabled:true}),'chat-pc').run();
  const dAuth='Bearer '+token;
  const deviceHeaders={'x-mel-computer-id':'chat-pc'};
  const insert=async(commandId,steps,status='RUNNING')=>{
@@ -64,6 +66,20 @@ test('native chat screen.capture cannot report successful image without R2 objec
   assert.equal(row.status,'SUCCEEDED');
   assert.equal(JSON.parse(row.result_json).outputs[0].screenshot_key,key);
   assert.equal((await report('chat-shot',{outputs:[output]})).status,409);
+ }finally{DB.close();}
+});
+
+test('native chat screenshot refuses missing local permission, even when an R2 object exists',async()=>{
+ const {DB,objects,report,insert,expected}=await setup();
+ try{
+  await insert('missing-grant',[{id:'step-1',action:'screen.capture'}]);
+  const {key,url}=expected('missing-grant');
+  objects.set(key,{size:256});
+  await DB.prepare('UPDATE computer_devices SET metadata=? WHERE id=?')
+   .bind('{}','chat-pc').run();
+  const response=await report('missing-grant',{outputs:[{action:'screen.capture',screenshot_key:key,view_url:url}]});
+  assert.equal(response.status,409);
+  assert.equal((await response.json()).code,'SCREENSHOT_RESULT_AUTH_INVALID');
  }finally{DB.close();}
 });
 
