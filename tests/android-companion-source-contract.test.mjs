@@ -365,6 +365,7 @@ test('Android background heartbeat uses WorkManager without hidden background mi
   assert.match(wakeService,/WakePhraseTrainer\.listenForWake/);
   assert.match(wakeService,/shouldContinue = \{ listening && !Thread\.currentThread\(\)\.isInterrupted \}/);
   assert.match(wakeService,/override fun onDestroy\(\)/);
+  assert.match(wakeService,/override fun onDestroy\(\) \{[\s\S]*?putBoolean\(OPT_IN_KEY, false\)\.commit\(\)/);
   assert.match(wakeService,/worker\?\.interrupt\(\)/);
   assert.doesNotMatch(wakeService,/startActivity\(/);
   assert.doesNotMatch(background,/MelWakeForegroundService/);
