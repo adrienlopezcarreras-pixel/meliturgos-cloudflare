@@ -8,6 +8,8 @@ for(const path of ['../assets/MEL-Computer-Companion.ps1','../dist/MEL-Computer-
   const handler=code.slice(code.indexOf('function Process-Command($command) {'),code.indexOf('$trayResources = $null'));
   assert.match(handler,/DESKTOP_VIEW_PLAN_INVALID/);
   assert.match(handler,/DESKTOP_VIEW_LOCAL_UI_UNAVAILABLE/);
+  assert.match(handler,/\-not \[Environment\]::UserInteractive/);
+  assert.doesNotMatch(handler,/\$Headless -or -not \[Environment\]::UserInteractive/);
   assert.match(handler,/remote_access_enabled/);
   assert.match(handler,/MessageBoxButtons\]::YesNo/);
   assert.match(handler,/MessageBoxDefaultButton\]::Button2/);
