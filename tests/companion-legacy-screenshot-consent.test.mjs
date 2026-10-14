@@ -40,6 +40,8 @@ test('unattended access is opted in from the local Windows settings and defaults
  assert.match(code,/d\["remote_access_enabled"\] = false/);
  assert.match(code,/Checked=MelApp.ConfigBool\("remote_access_enabled"\)/);
  assert.match(code,/SavePermissions\(List<string> apps, List<string> paths, bool remoteAccessEnabled\)/);
- assert.match(code,/Config\["remote_access_enabled"\] = remoteAccessEnabled/);
+ assert.match(code,/next\["remote_access_enabled"\] = remoteAccessEnabled/);
+ assert.match(code,/WriteConfigAtomically\(next\)/);
+ assert.ok(code.indexOf('WriteConfigAtomically(next)') < code.indexOf('Config = next'));
  assert.match(code,/accéder à ce PC en mon absence/);
 });
