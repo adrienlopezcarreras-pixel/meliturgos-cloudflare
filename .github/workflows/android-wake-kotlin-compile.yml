@@ -36,4 +36,13 @@ jobs:
         run: |
           gradle --no-daemon --console=plain :app:assembleDebug
           test -s app/build/outputs/apk/debug/app-debug.apk
-          sha256sum app/build/outputs/apk/debug/app-debug.apk
+          sha256sum app/build/outputs/apk/debug/app-debug.apk | tee app/build/outputs/apk/debug/app-debug.apk.sha256
+      - name: Publish verified debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: mel-wake-debug-apk
+          path: |
+            android-companion/app/build/outputs/apk/debug/app-debug.apk
+            android-companion/app/build/outputs/apk/debug/app-debug.apk.sha256
+          if-no-files-found: error
+          retention-days: 7
