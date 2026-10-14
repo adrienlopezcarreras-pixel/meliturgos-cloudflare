@@ -45,6 +45,8 @@ export function validateTerminal(body, jobId) {
   assert(Array.isArray(rows) && rows.length === total, 'CAPABILITY_STRESS_REPORT_COVERAGE_INCOMPLETE');
   const ids = rows.map(row => String(row?.id || ''));
   assert(ids.every(Boolean) && new Set(ids).size === total, 'CAPABILITY_STRESS_REPORT_IDS_INVALID');
+  const untested = rows.filter(row => row?.tested_now !== true || row?.execution?.ok !== true).map(row => String(row?.id || 'unknown'));
+  assert(untested.length === 0, 'CAPABILITY_STRESS_NOT_ALL_EXECUTED:' + untested.slice(0, 12).join(','));
 
   return r;
 }
