@@ -432,6 +432,9 @@ static void handshake_task(void *arg) {
             cJSON *hello = cJSON_CreateObject();
             cJSON_AddNumberToObject(hello, "protocol", MEL_LINK_V2_PROTOCOL_VERSION);
             cJSON_AddStringToObject(hello, "role", "mini");
+            // Report actual support: a reserved opcode is not a usable capability.
+            // Keep false until authenticated opt-in, replay/expiry, ACK and UI are integrated.
+            cJSON_AddBoolToObject(hello, "triad_phase_v1", false);
             std::string payload = json_string(hello);
             cJSON_Delete(hello);
             send_v2(
