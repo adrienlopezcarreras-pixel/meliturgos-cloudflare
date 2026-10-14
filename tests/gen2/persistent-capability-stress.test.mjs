@@ -354,17 +354,20 @@ test('production stress gives every retry a bounded long read-only window and pe
   assert.match(source, /const STALE_RUN_MS = 45000;/);
 });
 
-test('persistent proof accepts intentionally blocked capabilities but never accepts fake green runtime results', () => {
+test('persistent full proof refuses blocked capabilities and runtime failures', () => {
   const completed = {
     ok: true, capability: 'capability.audit.status',
     result: {
       persistent: true, job_id: 'blocked-but-safe', status: 'COMPLETE',
       progress: { done: 2, total: 2 },
-      report: { persistent: true, job_id: 'blocked-but-safe' },
+      report: { persistent: true, job_id: 'blocked-but-safe', capabilities: [
+        { id:'first', tested_now:true, execution:{ok:true} },
+        { id:'second', tested_now:false, execution:null },
+      ] },
       summary: { blocked_count: 1, remaining_runtime_failures: [] },
     },
   };
-  assert.equal(validateTerminal(completed, 'blocked-but-safe').status, 'COMPLETE');
+  assert.throws(() => validateTerminal(completed, 'blocked-but-safe'), /CAPABILITY_STRESS_BLOCKED_CAPABILITIES:1/);
   assert.throws(() => validateTerminal({
     ...completed, result: {
       ...completed.result,
