@@ -566,6 +566,30 @@ async function result(request,env,a){
   const current=await env.DB.prepare("SELECT status,plan_json FROM computer_commands WHERE id=? AND device_id=? LIMIT 1").bind(id,a.device.id).first();
   if(!current||current.status!=="RUNNING")return json({ok:false,code:"COMPUTER_RESULT_NOT_RUNNING"},409);
   const plan=parse(current.plan_json,{});
+  // Legacy computer.quick uses the computer-use screen.capture step, not the
+  // dedicated desktop.view.request plan. Its success must be equally truthful.
+  const steps=Array.isArray(plan.steps)?plan.steps:[];
+  if(plan.schema==="mel.devices.computer-use.v1"&&steps.some(step=>step?.action==="screen.capture")){
+   const outputs=b.result?.outputs;
+   const key=`computer/screenshots/${a.device.id.replace(/[^A-Za-z0-9_.-]/g,"_")}/${id.replace(/[^A-Za-z0-9_.-]/g,"_")}.png`;
+   const expectedUrl=`${new URL(request.url).origin}${COMPUTER_API_BASE}/screenshot?key=${encodeURIComponent(key)}`;
+   if(!Array.isArray(outputs)||outputs.length!==steps.length||
+      steps.some((step,i)=>step?.action==="screen.capture"&&(
+        outputs[i]?.action!=="screen.capture"||
+        outputs[i]?.screenshot_key!==key||
+        outputs[i]?.view_url!==expectedUrl)))
+    return json({ok:false,code:"SCREENSHOT_RESULT_PROOF_INVALID"},409);
+   const device=await env.DB.prepare("SELECT halted,metadata FROM computer_devices WHERE id=? LIMIT 1").bind(a.device.id).first();
+   if(!device||Number(device.halted)===1||parse(device.metadata,{})?.remote_access_enabled===false)
+    return json({ok:false,code:"SCREENSHOT_RESULT_AUTH_INVALID"},409);
+   if(typeof env?.MEDIA_BUCKET?.head!=="function")
+    return json({ok:false,code:"SCREENSHOT_RESULT_STORAGE_UNAVAILABLE"},503);
+   let image;
+   try{image=await env.MEDIA_BUCKET.head(key)}
+   catch{return json({ok:false,code:"SCREENSHOT_RESULT_STORAGE_UNAVAILABLE"},503)}
+   if(!image||Number(image.size)<=0)
+    return json({ok:false,code:"SCREENSHOT_RESULT_IMAGE_MISSING"},409);
+  }
   if(plan.schema==="mel.companion.desktop-view-request/v1"||plan.action==="desktop.view.request"){
    // A device may only mark a one-shot desktop view as succeeded if the image
    // actually reached R2 under the exact device/command key.
