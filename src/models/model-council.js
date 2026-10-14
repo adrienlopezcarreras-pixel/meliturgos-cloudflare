@@ -274,6 +274,11 @@ async function synthesizeCouncil({
     .map(row => eligibleByIdentity.get(row.identity))
     .filter(Boolean);
   const attempted = [];
+  const diagnostics = [];
+  const safeDiagnostic = error => {
+    const code = clean(error?.code);
+    return /^[A-Z][A-Z0-9_:-]{0,95}$/.test(code) ? code : 'PROVIDER_ERROR_REDACTED';
+  };
 
   for (const provider of providers) {
     const identity = providerIdentity(provider);
@@ -320,8 +325,11 @@ async function synthesizeCouncil({
           ...settled.value,
         };
       }
-    } catch {
-      // Try another already-successful provider, under the same zero-euro gate.
+      diagnostics.push(safeDiagnostic(settled?.reason));
+    } catch (failure) {
+      // Continue to the next already-successful zero-cost provider. Never
+      // expose provider exception messages, prompts or response content.
+      diagnostics.push(safeDiagnostic(failure));
     }
   }
 
@@ -329,6 +337,7 @@ async function synthesizeCouncil({
   error.code = 'COUNCIL_SYNTHESIS_FAILED';
   error.status = 503;
   error.attempted = attempted;
+  error.diagnostic_codes = diagnostics.slice(0, 4);
   throw error;
 }
 
