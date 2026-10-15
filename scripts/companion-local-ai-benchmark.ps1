@@ -2,7 +2,8 @@
 param(
   [string]$ConfigPath = (Join-Path $env:LOCALAPPDATA "MEL\computer.json"),
   [string]$OutputPath = (Join-Path $env:LOCALAPPDATA "MEL\diagnostics\ollama-benchmark.json"),
-  [switch]$DryRun
+  [switch]$DryRun,
+  [switch]$AllowUserActivity
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version 2
@@ -116,30 +117,63 @@ try {
   Write-Diagnostic 'SKIPPED_POWER_UNKNOWN' $settings
   return
 }
-try {
-  $idleMs=Get-LocalBenchmarkIdleMs
-  if ($idleMs -lt 60000) {
+if (-not $AllowUserActivity) {
+  try {
+    $idleMs=Get-LocalBenchmarkIdleMs
+    if ($idleMs -lt 60000) {
+      Write-Diagnostic 'SKIPPED_USER_ACTIVE_OR_UNKNOWN' $settings
+      return
+    }
+  } catch {
     Write-Diagnostic 'SKIPPED_USER_ACTIVE_OR_UNKNOWN' $settings
     return
   }
-} catch {
-  Write-Diagnostic 'SKIPPED_USER_ACTIVE_OR_UNKNOWN' $settings
-  return
 }
 $endpoint = 'http://127.0.0.1:11434'
 try {
   $available = Invoke-RestMethod -Uri ($endpoint+'/api/tags') -Method Get -TimeoutSec 4 -ErrorAction Stop
-  $installed = @($available.models)
+  # Disk weight is an approximate safety filter, not a hard proof of RAM/VRAM
+  # use. Never load an unknown-size or oversized local model for a benchmark.
+  $installed = @($available.models | Where-Object {
+    $null -ne $_ -and -not [string]::IsNullOrWhiteSpace([string]$_.name) -and
+    $null -ne $_.size -and [double]$_.size -gt 0
+  } | Sort-Object -Property @{Expression={[double]$_.size}})
+  if ($installed.Count -lt 1) {
+    Write-Diagnostic 'SKIPPED_NO_SIZED_INSTALLED_MODEL' $settings
+    return
+  }
+  $maxModelMb = if ($profile -eq 'light') {1536} elseif ($profile -eq 'balanced') {4096} else {8192}
+  $limit = [int64]$maxModelMb * 1024 * 1024
   $model = [string]$env:MEL_LOCAL_AI_MODEL
   if (-not $model) {
-    if ($installed.Count -lt 1) {
-      Write-Diagnostic 'SKIPPED_NO_INSTALLED_MODEL' $settings
+    $candidate=@($installed | Where-Object {[double]$_.size -le $limit} | Select-Object -First 1)
+    if ($candidate.Count -eq 0) {
+      Write-Diagnostic 'SKIPPED_MODEL_OVER_PROFILE_BUDGET' $settings
       return
     }
-    $model = [string]$installed[0].name
+    $model=[string]$candidate[0].name
   }
-  if (-not (@($installed | Where-Object { [string]$_.name -eq $model }).Count -gt 0)) {
+  $selected=@($installed | Where-Object {[string]$_.name -ceq $model} | Select-Object -First 1)
+  if ($selected.Count -eq 0) {
     Write-Diagnostic 'SKIPPED_REQUESTED_MODEL_NOT_INSTALLED' $settings
+    return
+  }
+  if ([double]$selected[0].size -gt $limit) {
+    Write-Diagnostic 'SKIPPED_MODEL_OVER_PROFILE_BUDGET' $settings
+    return
+  }
+  # Guard system RAM even when GPU offload is consented: model disk weight
+  # underestimates some runtime allocations, so keep a 1 GiB OS reserve.
+  try {
+    $os=Get-CimInstance Win32_OperatingSystem -ErrorAction Stop
+    $freeMb=[double]$os.FreePhysicalMemory / 1024.0
+    $requiredMb=([double]$selected[0].size / (1024.0*1024.0)) + 1024.0
+    if (([double]::IsNaN($freeMb) -or [double]::IsInfinity($freeMb)) -or $freeMb -lt $requiredMb) {
+      Write-Diagnostic 'SKIPPED_INSUFFICIENT_FREE_RAM' $settings
+      return
+    }
+  } catch {
+    Write-Diagnostic 'SKIPPED_RAM_TELEMETRY_UNKNOWN' $settings
     return
   }
   # Tags discovery is separate from generation. Consent may have been
@@ -148,10 +182,17 @@ try {
     Write-Diagnostic 'SKIPPED_CONSENT_CHANGED' $settings
     return
   }
-  $idleBeforeCall=Get-LocalBenchmarkIdleMs
-  if ($idleBeforeCall -lt 60000) {
-    Write-Diagnostic 'SKIPPED_USER_ACTIVE_OR_UNKNOWN' $settings
-    return
+  if (-not $AllowUserActivity) {
+    try {
+      $idleBeforeCall=Get-LocalBenchmarkIdleMs
+      if ($idleBeforeCall -lt 60000) {
+        Write-Diagnostic 'SKIPPED_USER_ACTIVE_OR_UNKNOWN' $settings
+        return
+      }
+    } catch {
+      Write-Diagnostic 'SKIPPED_USER_ACTIVE_OR_UNKNOWN' $settings
+      return
+    }
   }
   $body = @{
     model=$model;stream=$false;keep_alive='0s'

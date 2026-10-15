@@ -17,6 +17,8 @@ try {
  $r=& $script -ConfigPath $config -OutputPath $out -DryRun | ConvertFrom-Json
  if ($r.requested_gpu_layers -ne 2 -or $r.executed) {throw 'GPU consent and profile not applied'}
  if ($r.prompt_or_reply_recorded -ne $false -or $r.network_scope -ne '127.0.0.1-only') {throw 'Privacy contract failed'}
+ $r=& $script -ConfigPath $config -OutputPath $out -DryRun -AllowUserActivity | ConvertFrom-Json
+ if ($r.status -ne 'DRY_RUN_NO_INFERENCE' -or $r.executed) {throw 'Manual override must never bypass DryRun'}
  Write-Output 'Companion offline benchmark dry-run contract PASS'
 } finally {
  Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue

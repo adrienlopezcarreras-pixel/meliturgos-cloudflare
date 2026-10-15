@@ -6,6 +6,7 @@ on:
       - 'tests/windows/companion-local-ai-benchmark-smoke.ps1'
       - '.github/workflows/companion-local-ai-benchmark-ci.yml'
       - 'tests/gen2/companion-local-ai-benchmark-priority.test.mjs'
+      - 'tests/gen2/companion-local-ai-benchmark-model-budget.test.mjs'
 permissions:
   contents: read
 jobs:
@@ -21,4 +22,4 @@ jobs:
         with:
           node-version: '22'
       - name: Verify owner activity and revocation checks
-        run: node --test tests/gen2/companion-local-ai-benchmark-priority.test.mjs
+        run: node --test tests/gen2/companion-local-ai-benchmark-priority.test.mjs tests/gen2/companion-local-ai-benchmark-model-budget.test.mjs
