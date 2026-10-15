@@ -127,6 +127,7 @@ jobs:
             && d?.capability==='model.council'
             && r?.status==='COMPLETE'
             && Number(r?.independent_response_count||0)>=2
+            && Number(r?.unique_model_count||0)>=2
             && r?.synthesis?.status==='COMPLETE';
           process.exit(ok ? 0 : 1);
           NODE
