@@ -166,6 +166,8 @@ class MainActivity : ComponentActivity() {
     private val recording = mutableStateOf(false)
     private val voiceLevel = mutableStateOf(0f)
     private val voiceMessage = mutableStateOf("Micro prêt")
+    private val speechLanguage = mutableStateOf("auto")
+    private val speechLanguages = listOf("auto", "fr-FR", "es-ES", "pt-PT", "pt-BR")
     private val cameraPhoto = mutableStateOf<Bitmap?>(null)
     private val cameraVideoUri = mutableStateOf<Uri?>(null)
     private var pendingVideoFile: File? = null
@@ -278,6 +280,11 @@ class MainActivity : ComponentActivity() {
 
         vault = TokenVault(this)
         wakePhraseStore = WakePhraseProfileStore(this)
+        val storedSpeechLanguage = getSharedPreferences("mel_voice", MODE_PRIVATE)
+            .getString("recognition_language", "auto")
+        speechLanguage.value = storedSpeechLanguage
+            ?.takeIf { it in speechLanguages && (it != "auto" || Build.VERSION.SDK_INT >= 34) }
+            ?: "fr-FR"
         wakeEnrollmentCount.value = wakePhraseStore.sampleCount()
         wakeEnrolled.value = wakePhraseStore.isEnrolled()
         MelVoicePlayer.initialize(this)
@@ -340,6 +347,8 @@ class MainActivity : ComponentActivity() {
                     recording = recording.value,
                     voiceLevel = voiceLevel.value,
                     voiceMessage = voiceMessage.value,
+                    voiceLanguage = speechLanguage.value,
+                    onVoiceLanguageCycle = ::cycleSpeechLanguage,
                     onLogin = model::pair,
                     onRetrySession = model::verifyExistingSession,
                     onDisconnect = model::disconnect,
@@ -813,6 +822,21 @@ class MainActivity : ComponentActivity() {
         }, 1_500L)
     }
 
+    private fun cycleSpeechLanguage() {
+        if (recording.value || voiceConversationActive.value) {
+            voiceMessage.value = "Termine la conversation vocale avant de changer de langue"
+            return
+        }
+        val modes = if (Build.VERSION.SDK_INT >= 34) speechLanguages else speechLanguages.filter { it != "auto" }
+        val index = modes.indexOf(speechLanguage.value)
+        val next = modes[(index + 1).coerceAtLeast(0) % modes.size]
+        speechLanguage.value = next
+        getSharedPreferences("mel_voice", MODE_PRIVATE).edit()
+            .putString("recognition_language", next).apply()
+        voiceMessage.value = if (next == "auto") "Dictée : automatique (selon le moteur Android)"
+            else "Dictée : $next"
+    }
+
     private fun startNativeSpeech() {
         stopSpeechQuietly()
         val recognizer = runCatching {
@@ -826,7 +850,9 @@ class MainActivity : ComponentActivity() {
         nativeSpeechListening = true
         recording.value = true
         voiceLevel.value = .08f
-        voiceMessage.value = "J’écoute · détection multilingue"
+        val activeLanguage = speechLanguage.value
+        voiceMessage.value = if (activeLanguage == "auto") "J’écoute · détection selon moteur"
+            else "J’écoute · $activeLanguage"
 
         recognizer.setRecognitionListener(object : RecognitionListener {
             override fun onReadyForSpeech(params: Bundle?) {
@@ -853,7 +879,7 @@ class MainActivity : ComponentActivity() {
                     error == SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE
                 ) {
                     voiceConversationActive.value = false
-                    startRecorderFallback("Français Android indisponible · secours MEL")
+                    startRecorderFallback("Dictée $activeLanguage indisponible · secours MEL")
                 } else if (voiceConversationActive.value && error == SpeechRecognizer.ERROR_RECOGNIZER_BUSY) {
                     voiceMessage.value = "Micro occupé · je réessaie…"
                     mainHandler.postDelayed({
@@ -904,9 +930,11 @@ class MainActivity : ComponentActivity() {
 
         val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-            // Do not force fr-FR: the system recognizer must be able to hear
-            // Spanish and Portuguese, as well as French.
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            // Android <34 cannot guarantee automatic language switching.
+            // A visible manual selection is used instead of claiming auto detection.
+            if (activeLanguage != "auto") {
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE, activeLanguage)
+            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
                 putExtra(RecognizerIntent.EXTRA_ENABLE_LANGUAGE_DETECTION, true)
                 putExtra(
                     RecognizerIntent.EXTRA_LANGUAGE_DETECTION_ALLOWED_LANGUAGES,
@@ -1459,6 +1487,8 @@ internal fun MelApp(
     recording: Boolean,
     voiceLevel: Float,
     voiceMessage: String,
+    voiceLanguage: String,
+    onVoiceLanguageCycle: () -> Unit,
     onLogin: (String, String) -> Unit,
     onRetrySession: () -> Unit,
     onDisconnect: () -> Unit,
@@ -1516,6 +1546,8 @@ internal fun MelApp(
                 recording = recording,
                 voiceLevel = voiceLevel,
                 voiceMessage = voiceMessage,
+                voiceLanguage = voiceLanguage,
+                onVoiceLanguageCycle = onVoiceLanguageCycle,
                 onDisconnect = onDisconnect,
                 onMode = onMode,
                 onPreferCompanionCompute = onPreferCompanionCompute,
@@ -1891,6 +1923,8 @@ private fun ConversationScreen(
     recording: Boolean,
     voiceLevel: Float,
     voiceMessage: String,
+    voiceLanguage: String,
+    onVoiceLanguageCycle: () -> Unit,
     onDisconnect: () -> Unit,
     onMode: (MelMode) -> Unit,
     onPreferCompanionCompute: (Boolean) -> Unit,
@@ -1960,6 +1994,8 @@ private fun ConversationScreen(
                 faceState = faceState,
                 voiceLevel = voiceLevel,
                 voiceMessage = voiceMessage,
+                voiceLanguage = voiceLanguage,
+                onVoiceLanguageCycle = onVoiceLanguageCycle,
                 recording = recording,
                 onVoicePress = onVoicePress,
                 onVoiceRelease = onVoiceRelease
@@ -2267,6 +2303,8 @@ private fun MiniHomePanel(
     faceState: MelFaceState,
     voiceLevel: Float,
     voiceMessage: String,
+    voiceLanguage: String,
+    onVoiceLanguageCycle: () -> Unit,
     recording: Boolean,
     onVoicePress: () -> Unit,
     onVoiceRelease: () -> Unit
@@ -2288,6 +2326,17 @@ private fun MiniHomePanel(
 
     Box(Modifier.fillMaxSize().testTag("mini-stage")) {
         MelPortraitStage(faceState = faceState, voiceLevel = voiceLevel)
+
+        OutlinedButton(
+            onClick = onVoiceLanguageCycle,
+            enabled = !recording && !state.busy,
+            modifier = Modifier.align(Alignment.TopEnd)
+                .padding(top = 18.dp, end = 16.dp)
+                .testTag("speech-language-cycle"),
+            shape = RoundedCornerShape(14.dp)
+        ) {
+            Text(if (voiceLanguage == "auto") "AUTO" else voiceLanguage, fontSize = 11.sp)
+        }
 
         VoiceWaveform(
             active = recording || faceState == MelFaceState.SPEAKING,
