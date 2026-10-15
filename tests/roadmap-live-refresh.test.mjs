@@ -49,3 +49,13 @@ test('evolution panel never labels missing operational telemetry as zero inciden
  assert.match(ROADMAP_LIVE_REFRESH_PATCH,/regressed_items/);
  assert.doesNotMatch(ROADMAP_LIVE_REFRESH_PATCH,/active_incidents\?\?0/);
 });
+
+test('owner evolution review needs explicit confirmation, approval header and CAS revision',()=>{
+ assert.match(ROADMAP_LIVE_REFRESH_PATCH,/evolution\.review/);
+ assert.match(ROADMAP_LIVE_REFRESH_PATCH,/x-mel-approve-capability/);
+ assert.match(ROADMAP_LIVE_REFRESH_PATCH,/window\.confirm/);
+ assert.match(ROADMAP_LIVE_REFRESH_PATCH,/expected_revision:item\.revision/);
+ assert.match(ROADMAP_LIVE_REFRESH_PATCH,/button\.disabled=true/);
+ assert.match(ROADMAP_LIVE_REFRESH_PATCH,/data\?\.result\?\.item\?\.status!==action\.next/);
+ assert.doesNotMatch(ROADMAP_LIVE_REFRESH_PATCH,/li\.innerHTML\s*=/);
+});
