@@ -399,6 +399,11 @@ class MelBleBridgeService : Service() {
         if (!server.addService(service)) {
             bridgeState.value = "ERREUR SERVICE BLE"
             Log.e(TAG, "Unable to queue MEL GATT service")
+            runCatching { server.close() }
+            if (gattServer === server) {
+                gattServer = null
+                txCharacteristic = null
+            }
             return
         }
         Log.i(TAG, "MEL GATT service queued; waiting for onServiceAdded")
@@ -472,6 +477,15 @@ class MelBleBridgeService : Service() {
             } else {
                 bridgeState.value = "ERREUR SERVICE BLE $status"
                 Log.e(TAG, "MEL GATT service add failed status=$status")
+                // Do not leave an unusable non-null server blocking watchdog recovery.
+                bridgeHandler.post {
+                    val failedServer = gattServer ?: return@post
+                    runCatching { failedServer.close() }
+                    if (gattServer === failedServer) {
+                        gattServer = null
+                        txCharacteristic = null
+                    }
+                }
             }
         }
 
