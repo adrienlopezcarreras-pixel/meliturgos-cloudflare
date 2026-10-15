@@ -35,3 +35,9 @@ test('explicit configured permissions are preserved and deduplicated', () => {
   assert.ok(permissions.includes('custom.write'));
   assert.equal(permissions.filter(value => value === 'google.gmail.read').length, 1);
 });
+
+test('roadmap proposals require enabled personal owner agent or explicit permission', () => {
+ assert.equal(runtimeCapabilityPermissions({}).includes('roadmap.write'),false);
+ assert.equal(runtimeCapabilityPermissions({MEL_OWNER_PERSONAL_AGENT:'true'}).includes('roadmap.write'),true);
+ assert.equal(runtimeCapabilityPermissions({CAPABILITY_PERMISSIONS:'roadmap.write'}).includes('roadmap.write'),true);
+});
