@@ -6,7 +6,7 @@ const source=await readFile(new URL('../android-companion/app/src/main/java/fr/v
 const mp3=source.slice(source.indexOf('fun playMp3('),source.indexOf('fun playSystemFrench(',source.indexOf('fun playMp3(')));
 test('MP3 cache file cleaned in finally even when stopped, timed out, or prepare fails',()=>{
  assert.match(mp3,/val file = File\.createTempFile/);
- assert.match(mp3,/val player = try \\{[\\s\\S]*MediaPlayer\\(\\)/);
+ assert.match(mp3,/val player = try \{[\s\S]*MediaPlayer\(\)/);
  assert.match(mp3,/try \{[\s\S]*player\.prepare\(\)/);
  assert.match(mp3,/finally \{[\s\S]*file\.delete\(\)/);
  assert.match(mp3,/if \(playbackGeneration != myGeneration\) throw MelPlaybackInterruptedException\(\)/);
