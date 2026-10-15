@@ -215,58 +215,67 @@ object MelVoicePlayer {
         require(isLikelyMp3(bytes)) { "TTS_AUDIO_FORMAT_INVALID" }
         val startedAt = System.currentTimeMillis()
         val file = File.createTempFile("mel-voice-", ".mp3", context.cacheDir)
-        file.writeBytes(bytes)
-        val done = CountDownLatch(1)
-        var failed = false
-
-        val player = MediaPlayer().apply {
-            setAudioAttributes(
+        val player = MediaPlayer()
+        var registered = false
+        try {
+            file.writeBytes(bytes)
+            val done = CountDownLatch(1)
+            var failed = false
+            player.setAudioAttributes(
                 AudioAttributes.Builder()
                     .setUsage(AudioAttributes.USAGE_MEDIA)
                     .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
                     .build()
             )
-            setDataSource(file.absolutePath)
-            setVolume(1f, 1f)
-            setOnCompletionListener { done.countDown() }
-            setOnErrorListener { _, _, _ ->
+            player.setDataSource(file.absolutePath)
+            player.setVolume(1f, 1f)
+            player.setOnCompletionListener { done.countDown() }
+            player.setOnErrorListener { _, _, _ ->
                 failed = true
                 done.countDown()
                 true
             }
-            prepare()
-        }
+            player.prepare()
 
-        val myGeneration = synchronized(lock) {
-            stopLocked()
-            playbackGeneration += 1L
-            activePlayer = player
-            player.start()
-            playbackGeneration
-        }
+            val myGeneration = synchronized(lock) {
+                stopLocked()
+                playbackGeneration += 1L
+                registered = true
+                activePlayer = player
+                player.start()
+                playbackGeneration
+            }
 
-        val timeoutSeconds = ((player.duration.coerceAtLeast(1) / 1000L) + 15L).coerceIn(15L, 600L)
-        val deadline = System.currentTimeMillis() + timeoutSeconds * 1000L
-        var completed = false
-        while (System.currentTimeMillis() < deadline) {
+            val timeoutSeconds = ((player.duration.coerceAtLeast(1) / 1000L) + 15L).coerceIn(15L, 600L)
+            val deadline = System.currentTimeMillis() + timeoutSeconds * 1000L
+            var completed = false
+            while (System.currentTimeMillis() < deadline) {
+                if (playbackGeneration != myGeneration) throw MelPlaybackInterruptedException()
+                if (done.await(120L, TimeUnit.MILLISECONDS)) {
+                    completed = true
+                    break
+                }
+            }
             if (playbackGeneration != myGeneration) throw MelPlaybackInterruptedException()
-            if (done.await(120L, TimeUnit.MILLISECONDS)) {
-                completed = true
-                break
+            if (!completed) throw IllegalStateException("MP3_PLAYBACK_TIMEOUT")
+            if (failed) throw IllegalStateException("MP3_PLAYBACK_FAILED")
+            return (System.currentTimeMillis() - startedAt).coerceAtLeast(1L)
+        } finally {
+            synchronized(lock) {
+                if (activePlayer === player) {
+                    activePlayer = null
+                    runCatching { player.stop() }
+                    player.release()
+                } else if (!registered) {
+                    // MediaPlayer failed before becoming the active playback.
+                    runCatching { player.release() }
+                }
+                // If playback was replaced/stopped, stopLocked owns the release.
             }
+            // Always remove the private cache file, including after barge-in,
+            // player preparation errors and media callbacks reporting failure.
+            file.delete()
         }
-        synchronized(lock) {
-            if (activePlayer === player) {
-                activePlayer = null
-                runCatching { player.stop() }
-                player.release()
-            }
-        }
-        file.delete()
-        if (playbackGeneration != myGeneration) throw MelPlaybackInterruptedException()
-        if (!completed) throw IllegalStateException("MP3_PLAYBACK_TIMEOUT")
-        if (failed) throw IllegalStateException("MP3_PLAYBACK_FAILED")
-        return (System.currentTimeMillis() - startedAt).coerceAtLeast(1L)
     }
 
     fun playSystemFrench(context: Context, text: String): Long {
