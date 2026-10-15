@@ -31,6 +31,11 @@ function baseState() {
   };
 }
 
+function safeCount(value) {
+  const count = Number(value);
+  return Number.isFinite(count) ? Math.max(0, Math.floor(count)) : 0;
+}
+
 function normalize(raw = {}) {
   const initial = baseState();
   const counters = raw?.counters && typeof raw.counters === 'object' ? raw.counters : {};
@@ -38,12 +43,12 @@ function normalize(raw = {}) {
     ...initial,
     ...raw,
     tripped: raw?.tripped === true,
-    consecutive_stalls: Math.max(0, Number(raw?.consecutive_stalls || 0)),
+    consecutive_stalls: safeCount(raw?.consecutive_stalls),
     stall_limit: STALL_LIMIT,
     waiting_external: raw?.waiting_external === true,
     counters: {
       ...initial.counters,
-      ...Object.fromEntries(Object.entries(counters).map(([key, value]) => [key, Math.max(0, Number(value || 0))])),
+      ...Object.fromEntries(Object.entries(counters).map(([key, value]) => [key, safeCount(value)])),
     },
   };
 }
@@ -105,15 +110,15 @@ export async function recordAutonomyProgressWatchdog(db = null, tick = {}, {
 
   const counters = {
     ...previous.counters,
-    ticks: Number(previous.counters?.ticks || 0) + 1,
-    advanced_ticks: Number(previous.counters?.advanced_ticks || 0) + (advanced ? 1 : 0),
-    jobs_created: Number(previous.counters?.jobs_created || 0) + (Array.isArray(progress.events) && progress.events.includes('JOB_CREATED') ? 1 : 0),
-    jobs_completed: Number(previous.counters?.jobs_completed || 0) + (Array.isArray(progress.events) && progress.events.includes('JOB_COMPLETED') ? 1 : 0),
-    blocked_ticks: Number(previous.counters?.blocked_ticks || 0) + (shouldStall ? 1 : 0),
-    lease_busy_skips: Number(previous.counters?.lease_busy_skips || 0) + (leaseBusy ? 1 : 0),
+    ticks: safeCount(previous.counters?.ticks) + 1,
+    advanced_ticks: safeCount(previous.counters?.advanced_ticks) + (advanced ? 1 : 0),
+    jobs_created: safeCount(previous.counters?.jobs_created) + (Array.isArray(progress.events) && progress.events.includes('JOB_CREATED') ? 1 : 0),
+    jobs_completed: safeCount(previous.counters?.jobs_completed) + (Array.isArray(progress.events) && progress.events.includes('JOB_COMPLETED') ? 1 : 0),
+    blocked_ticks: safeCount(previous.counters?.blocked_ticks) + (shouldStall ? 1 : 0),
+    lease_busy_skips: safeCount(previous.counters?.lease_busy_skips) + (leaseBusy ? 1 : 0),
   };
 
-  const consecutiveStalls = shouldStall ? Number(previous.consecutive_stalls || 0) + 1 : 0;
+  const consecutiveStalls = shouldStall ? safeCount(previous.consecutive_stalls) + 1 : 0;
   const tripped = workRemaining && consecutiveStalls >= STALL_LIMIT;
   const status = tripped
     ? 'STALLED'
