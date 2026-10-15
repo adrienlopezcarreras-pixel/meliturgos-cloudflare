@@ -11,6 +11,7 @@ on:
       - "src/professor-live-learning-entry.js"
       - "scripts/validate-lora-benchmark-readiness.mjs"
       - "scripts/check-lora-preview-version.mjs"
+      - "scripts/check-lora-preview-workflow-run.mjs"
   workflow_dispatch:
     inputs:
       activate_preview:
@@ -35,6 +36,7 @@ on:
         type: string
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: mel-lora-kaggle-collect
@@ -286,6 +288,7 @@ jobs:
         shell: bash
         env:
           PREVIEW_EXPECTED_SHA: ${{ github.sha }}
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           BASE_URL="https://meliturgos-preview.adrien-lopezcarreras.workers.dev"
@@ -296,6 +299,25 @@ jobs:
           attempt=0
           while [ "$SECONDS" -lt "$deadline" ]; do
             attempt=$((attempt + 1))
+            # First require the GitHub-isolated preview workflow to have
+            # COMPLETED successfully for this exact SHA. Worker deployment alone
+            # is insufficient: a late GEN2-42/ShardVault failure must block LoRA.
+            API_CODE="$(curl --silent --show-error --max-time 20 --connect-timeout 10 \
+              --header "Authorization: Bearer ${GITHUB_TOKEN}" \
+              --header "Accept: application/vnd.github+json" \
+              --output /tmp/mel-lora-preview-workflow-runs.json \
+              --write-out '%{http_code}' \
+              "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/runs?head_sha=${PREVIEW_EXPECTED_SHA}&per_page=100" || true)"
+            if [ "${API_CODE}" = "401" ] || [ "${API_CODE}" = "403" ] || [ "${API_CODE}" = "404" ]; then
+              echo "LORA_PREVIEW_WORKFLOW_API_AUTH_OR_SCOPE_FAILED"
+              exit 1
+            fi
+            if [ "${API_CODE}" != "200" ] || ! node scripts/check-lora-preview-workflow-run.mjs \
+                /tmp/mel-lora-preview-workflow-runs.json "$PREVIEW_EXPECTED_SHA" > /tmp/mel-lora-preview-workflow-verdict.json; then
+              echo "LORA_PREVIEW_WORKFLOW_NOT_YET_SUCCESSFUL attempt=${attempt}"
+              sleep 15
+              continue
+            fi
             STATUS="$(curl --silent --show-error --max-time 20 --connect-timeout 10 \
               --request POST \
               --header "Authorization: Bearer ${MEL_PREVIEW_PASSWORD}" \
