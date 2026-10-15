@@ -724,8 +724,10 @@ async function uploadShot(request,env,a,url){
  if(parse(currentDevice.metadata,{})?.remote_access_enabled!==true)
   return json({ok:false,code:"SCREENSHOT_LOCAL_ACCESS_REVOKED"},409);
  const plan=parse(command.plan_json,{});
- if(!screenshotPlanAuthorized(plan,a.device.id,command.session_id,Date.now()))
-  return json({ok:false,code:"SCREENSHOT_PLAN_NOT_AUTHORIZED"},409);
+ if(!screenshotPlanAuthorized(plan,a.device.id,command.session_id,Date.now())){
+  const view=plan.schema==="mel.companion.desktop-view-request/v1"||plan.action==="desktop.view.request";
+  return json({ok:false,code:view?"SCREENSHOT_VIEW_AUTH_EXPIRED_OR_INVALID":"SCREENSHOT_PLAN_NOT_AUTHORIZED"},409);
+ }
  const bytes=new Uint8Array(await request.arrayBuffer());
  if(!bytes.byteLength||bytes.byteLength>5*1024*1024)return json({ok:false,code:"SCREENSHOT_SIZE_INVALID"},413);
  const signature=[137,80,78,71,13,10,26,10];
