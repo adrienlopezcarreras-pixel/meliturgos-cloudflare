@@ -1,0 +1,19 @@
+name: Companion Inference Latency Proof CI
+on:
+  pull_request:
+    paths:
+      - 'src/portability/companion-local-ai-adapter.js'
+      - 'tests/gen2/companion-local-ai-latency.test.mjs'
+      - '.github/workflows/companion-local-ai-latency-ci.yml'
+permissions:
+  contents: read
+jobs:
+  latency:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node --test tests/gen2/companion-local-ai-latency.test.mjs tests/gen2/companion-ollama-gpu-proof.test.mjs tests/native-chat-companion-fallback.test.mjs
