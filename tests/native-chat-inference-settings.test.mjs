@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { inferenceGenerationOptions, runNativeInference, loadCognitiveMemory, compactInferenceMessages } from '../src/api/native-chat.js';
+import { inferenceGenerationOptions, runNativeInference, loadCognitiveMemory, compactInferenceMessages, voiceGenerationTokenBudget } from '../src/api/native-chat.js';
 
 test('promoted inference generation settings reach the direct AI payload', async () => {
   const calls = [];
@@ -78,4 +78,15 @@ test('voice-style inference can force a single fast model with a short router ti
   assert.equal(result.task, 'FAST');
   assert.equal(result.model, '@cf/zai-org/glm-4.7-flash');
   assert.equal(calls.length, 1);
+});
+
+
+test('voice token budgets avoid 160-180-token incomplete responses while remaining bounded', () => {
+  assert.equal(voiceGenerationTokenBudget(), 768);
+  assert.equal(voiceGenerationTokenBudget(null, { fallback: true }), 512);
+  assert.equal(voiceGenerationTokenBudget({ max_tokens: 180 }), 384);
+  assert.equal(voiceGenerationTokenBudget({ max_tokens: 180 }, { fallback: true }), 384);
+  assert.equal(voiceGenerationTokenBudget({ max_tokens: 3072 }), 1024);
+  assert.equal(voiceGenerationTokenBudget({ max_tokens: 3072 }, { fallback: true }), 768);
+  assert.equal(voiceGenerationTokenBudget({ max_tokens: -1 }), 768);
 });
