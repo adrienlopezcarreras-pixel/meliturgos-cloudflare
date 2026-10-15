@@ -10,6 +10,9 @@ on:
       - src/evaluation/ecosystem-discovery-planner.js
       - tests/gen2/capability-watch-production-proof.test.mjs
       - tests/gen2/capability-watch.test.mjs
+      - tests/gen2/preview-watch-http-sanitizer.test.mjs
+      - scripts/sanitize-preview-watch-http.mjs
+      - .github/workflows/deploy-candidate-preview.yml
       - .github/workflows/gen2-42-live-proof.yml
   push:
     branches:
@@ -46,7 +49,7 @@ jobs:
         run: npm ci
 
       - name: Run GEN2-42 targeted contract tests
-        run: node --test tests/gen2/capability-watch-production-proof.test.mjs tests/gen2/capability-watch.test.mjs
+        run: node --test tests/gen2/capability-watch-production-proof.test.mjs tests/gen2/capability-watch.test.mjs tests/gen2/preview-watch-http-sanitizer.test.mjs
 
       - name: Read production capability watch state
         if: github.event_name != 'pull_request'
