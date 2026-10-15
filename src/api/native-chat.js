@@ -1,4 +1,6 @@
-import { tryOptionalNativeCompanionFallback } from './native-companion-fallback.js';
+import {
+ tryOptionalNativeCompanionFallback,shouldPreferOptionalCompanionCompute
+} from './native-companion-fallback.js';
 import { createGen2Runtime } from '../core/orchestrator/gen2-runtime.js';
 import { buildContext } from '../core/orchestrator/context-builder.js';
 import { createConversationService } from '../conversations/conversation-service.js';
@@ -1425,7 +1427,25 @@ export async function handleNativeChat(request, env, options = {}) {
     : activeInferenceSettings;
   let ai;
   try {
-    ai = await runNativeInference({
+    // Explicit opt-in to PC-first for ordinary text answers. This is NOT a
+    // default, cannot bypass local owner consent, and never replaces the
+    // ordinary cloud inference when the PC is offline or too busy.
+    const preferLocal=shouldPreferOptionalCompanionCompute({
+      prefer:body.prefer_companion_compute,
+      disabled:body.use_companion_compute===false,
+      voiceReply,personalProfileIntent,releaseSmoke,
+      privateData:privateConnectedDataRequest(activeTaskText),
+      hasToolResults:toolResults.length>0,
+      parallel,hasActiveAdapter:activeAdapter!=null
+    });
+    ai = preferLocal ? await tryOptionalNativeCompanionFallback({
+      env,messages:compactInferenceMessages(messages,{
+        systemChars:4000,historyChars:2500,maxHistoryMessages:4
+      }),
+      inferenceSettings:effectiveInferenceSettings,
+      asPrimary:true,timeoutMs:4000
+    }) : null;
+    if(!ai) ai = await runNativeInference({
       env,
       messages,
       text,
