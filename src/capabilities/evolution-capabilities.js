@@ -37,7 +37,21 @@ export function registerEvolutionCapabilities(bus,{db}={}) {
   risk:'HIGH',permissions:['roadmap.approve'],
   approval:{required:true,scope:'evolution.review',reason:'Explicit owner review required'},
   input_schema:{type:'object',properties:{
-   id:{type:'string',minLength:1,maxLength:100},
+   id:{type:'string',minLength:1,maxLength:70,pattern:'^[A-Za-z0-9][A-Za-z0-9-]{0,69},
+   expected_revision:{type:'integer',minimum:1},
+   next:{type:'string',enum:['TRIAGED','APPROVED','REJECTED']}
+  },required:['id','expected_revision','next'],additionalProperties:false}
+ },async(input,context={})=>{
+  if(!db)throw new Error('EVOLUTION_D1_REQUIRED');
+  const changed=await changeEvolutionStatus(db,context.owner,input.id,input.expected_revision,input.next);
+  return {item:changed.item,revision:changed.revision,authorized_review:true,auto_deployed:false};
+ });
+ bus.discover({...common,id:'evolution.propose',name:'Proposer un développement',description:'Create an evolution proposal, without approving or deploying it',risk:'MEDIUM',permissions:['roadmap.write'],input_schema:{type:'object',properties:{id:{type:'string',minLength:1,maxLength:100},title:{type:'string',minLength:1,maxLength:240},origin:{type:'string',enum:['user','mel','audit','telemetry']}},required:['id','title','origin'],additionalProperties:false}},async(input,context={})=>{
+  if(!db)throw new Error('EVOLUTION_D1_REQUIRED');
+  return saveEvolutionProposal(db,context.owner,input);
+ });
+}
+},
    expected_revision:{type:'integer',minimum:1},
    next:{type:'string',enum:['TRIAGED','APPROVED','REJECTED']}
   },required:['id','expected_revision','next'],additionalProperties:false}
