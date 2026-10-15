@@ -64,3 +64,17 @@ test('evolution listing truthfully describes separate review permission',async()
   await assert.rejects(bus.execute('evolution.review',{id:candidate.id,expected_revision:1,next:'TRIAGED'},{owner,permissions:['roadmap.approve']}),/EXPLICIT_APPROVAL_REQUIRED/);
  }finally{db.close();}
 });
+
+test('API refuses invalid or oversized proposed IDs before any D1 write',async()=>{
+ const {db,bus}=init();
+ try{
+  await initializeEvolutionStorage(db);
+  for(const id of ['invalid id','a'.repeat(71),'-bad','a/b']){
+   await assert.rejects(bus.execute('evolution.propose',{id,title:'New unrelated capability',origin:'user'},{owner,permissions:['roadmap.write']}),/EVOLUTION_INVALID_PROPOSAL|INVALID_LENGTH/);
+  }
+  const after=await bus.execute('evolution.list',{}, {owner,permissions:[]});
+  assert.equal(after.items.length,0);
+  const valid=await bus.execute('evolution.propose',{id:'NEW-FEAT-1',title:'New unrelated capability',origin:'user'},{owner,permissions:['roadmap.write']});
+  assert.equal(valid.item.id,'NEW-FEAT-1');
+ }finally{db.close();}
+});
