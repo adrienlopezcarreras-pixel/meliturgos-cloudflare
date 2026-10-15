@@ -33,8 +33,9 @@ jobs:
     if: >-
       github.event_name == 'workflow_run' &&
       github.event.workflow_run.name == 'deploy-cloudflare-release' &&
-      github.event.workflow_run.head_branch == 'release/mel-hardware-v0.1.0' &&
-      (github.event.workflow_run.event == 'push' || github.event.workflow_run.event == 'workflow_dispatch') &&
+      ((github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'release/mel-hardware-v0.1.0') ||
+       (github.event.workflow_run.event == 'workflow_dispatch' &&
+        (github.event.workflow_run.head_branch == 'main' || github.event.workflow_run.head_branch == 'release/mel-hardware-v0.1.0'))) &&
       github.event.workflow_run.repository.full_name == github.repository &&
       github.event.workflow_run.head_repository.full_name == github.repository
     runs-on: ubuntu-latest
