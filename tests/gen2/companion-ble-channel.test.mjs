@@ -7,9 +7,11 @@ test("owner BLE diagnostic is fixed, bounded, read only",()=>{
  assert.equal(timeout_ms,25000);
  assert.equal(require_success_exit,true);
  assert.match(command,/mel\.companion\.ble\.diagnostics\.v1/);
- assert.match(command,/logcat -d -t 8000/);
+ assert.match(command,/logcat -d -t 2000/);
  assert.match(command,/MULTIPLE_ADB_DEVICES_REFUSED/);
  assert.match(command,/MelBleBridgeService/);
+ assert.match(command,/mel_log_events=\$melEvents/);
+ assert.match(command,/Select-Object -Last 20/);
  assert.match(command,/onConnectionStateChange/);
  assert.match(command,/BLE_ADDRESS_REDACTED/);
  assert.match(command,/\$line\.Substring\(0,\[Math\]::Min\(280,\$line\.Length\)\)/);
@@ -45,6 +47,8 @@ test("relay requests the fixed BLE action and never prints raw Android Bluetooth
  assert.match(relay,/bleOutput\?\.exit_code===0/);
  assert.match(relay,/bleProof\?\.apk_install_performed===false/);
  assert.match(relay,/bleProof\.android_models\[0\]==='M2103K19G'/);
+ assert.match(relay,/Array\.isArray\(bleProof\.mel_log_events\)/);
+ assert.match(relay,/const signalLines=bleLines\.concat\(melBleLines\)/);
  assert.match(relay,/gatt_connection_seen/);
  assert.match(relay,/pairing_removed_seen/);
  assert.match(relay,/pairing_failure_seen/);
