@@ -1759,7 +1759,23 @@ function Get-SovereigntyLocalAiState {
   return @{ endpoint=$base; model=[string]$model; installed_models=$models }
 }
 
+function Get-LocalComputeProfile {
+  # Re-read the atomic owner config before each local inference. An outdated
+  # process snapshot or remote-control permission cannot enable CPU/GPU work.
+  try {
+    $saved = Get-Content -Raw -Encoding UTF8 -LiteralPath $ConfigPath | ConvertFrom-Json
+    $profile = ([string]$saved.local_compute_profile).Trim()
+    if ($saved.local_compute_enabled -ne $true -or @("light","balanced","performance") -notcontains $profile) {
+      throw "LOCAL_COMPUTE_DISABLED"
+    }
+    return $profile
+  } catch { throw "LOCAL_COMPUTE_DISABLED" }
+}
+
 function Perform-SovereigntyAi([string]$operation,$payload) {
+  # Check consent before resolving Ollama: even a health request must not
+  # start model bootstrap/install when the owner turned the boost off.
+  $profile = Get-LocalComputeProfile
   $state = Get-SovereigntyLocalAiState
   switch ($operation) {
     "health" {
@@ -1795,14 +1811,25 @@ function Perform-SovereigntyAi([string]$operation,$payload) {
       $maxTokens = 180
       try { $maxTokens = [int]$payload.max_tokens } catch {}
       $maxTokens = [Math]::Max(1,[Math]::Min(512,$maxTokens))
+      # Ollama is an existing local inference engine. Bound its CPU threads,
+      # context and idle residency; GPU % remains unverified (not a hard cap).
+      $logicalCores = [Math]::Max(1,[Environment]::ProcessorCount)
+      $threadFraction = switch ($profile) { "light" { 0.15 } "balanced" { 0.35 } default { 0.60 } }
+      $threads = [Math]::Max(1,[Math]::Min(8,[int][Math]::Ceiling($logicalCores*$threadFraction)))
+      $contextTokens = switch ($profile) { "light" { 1024 } "balanced" { 2048 } default { 4096 } }
+      $idleRetention = switch ($profile) { "light" { "0s" } "balanced" { "20s" } default { "60s" } }
+      $timeout = switch ($profile) { "light" { 35 } "balanced" { 60 } default { 80 } }
       $body = @{
         model=[string]$state.model
         messages=$messages
         stream=$false
-        options=@{ temperature=$temperature; num_predict=$maxTokens }
+        keep_alive=$idleRetention
+        options=@{ temperature=$temperature; num_predict=$maxTokens; num_thread=$threads; num_ctx=$contextTokens }
       } | ConvertTo-Json -Depth 10 -Compress
+      # The owner may have revoked consent while we prepared the request.
+      if ((Get-LocalComputeProfile) -ne $profile) { throw "LOCAL_COMPUTE_PROFILE_CHANGED" }
       try {
-        $response = Invoke-RestMethod -Uri ($state.endpoint + "/api/chat") -Method "POST" -ContentType "application/json" -Body $body -TimeoutSec 90 -ErrorAction Stop
+        $response = Invoke-RestMethod -Uri ($state.endpoint + "/api/chat") -Method "POST" -ContentType "application/json" -Body $body -TimeoutSec $timeout -ErrorAction Stop
       } catch {
         throw "SOVEREIGNTY_AI_LOCAL_INVOKE_FAILED"
       }
