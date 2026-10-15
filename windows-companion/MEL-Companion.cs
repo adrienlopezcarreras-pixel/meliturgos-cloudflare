@@ -21,6 +21,8 @@ static class MelApp
     public static readonly string InstalledExe = Path.Combine(MelDir, "MEL-Companion.exe");
     public static readonly string CompanionPath = Path.Combine(MelDir, "MEL-Computer-Companion.ps1");
     public static readonly string AdbWifiPath = Path.Combine(MelDir, "MEL-ADB-WiFi.ps1");
+    public static readonly string LocalAiBenchmarkPath = Path.Combine(MelDir, "MEL-Local-AI-Benchmark.ps1");
+    public static readonly string LocalAiBenchmarkReportPath = Path.Combine(MelDir, "diagnostics", "ollama-benchmark.json");
     public static readonly string StartupCmd = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Startup), "MEL-Companion.cmd");
     public static readonly string LegacyStartupCmd = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Startup), "MEL-Computer-Companion.cmd");
     public static readonly string SelfTestPath = Path.Combine(MelDir, "self-test.json");
@@ -489,6 +491,12 @@ static class MelApp
         Directory.CreateDirectory(MelDir);
         File.WriteAllBytes(CompanionPath, Convert.FromBase64String(CompanionB64));
         File.WriteAllBytes(AdbWifiPath, Convert.FromBase64String(AdbWifiB64));
+        // Optional user-initiated benchmark shipped alongside the signed ZIP.
+        // Installation COPIES this script; it never executes it automatically.
+        var packagedBenchmark = Path.Combine(Path.GetDirectoryName(Application.ExecutablePath), "MEL-Local-AI-Benchmark.ps1");
+        if (File.Exists(packagedBenchmark) &&
+            !string.Equals(Path.GetFullPath(packagedBenchmark), Path.GetFullPath(LocalAiBenchmarkPath), StringComparison.OrdinalIgnoreCase))
+            File.Copy(packagedBenchmark, LocalAiBenchmarkPath, true);
         var current = Application.ExecutablePath;
         if (!string.Equals(Path.GetFullPath(current), Path.GetFullPath(InstalledExe), StringComparison.OrdinalIgnoreCase))
             File.Copy(current, InstalledExe, true);
@@ -1356,7 +1364,8 @@ class MainForm : Form
         });
         var rep=ButtonAt(this,"Réappairer",154,0,145,RePair);
         var uninstall=ButtonAt(this,"Désinstaller",311,0,145,delegate{MelApp.Uninstall();});
-        foreach(var btn in new[]{repair,rep,uninstall})btn.Anchor=AnchorStyles.Bottom|AnchorStyles.Left;
+        var aiTest=ButtonAt(this,"Tester IA locale",475,0,175,RunLocalAiBenchmark);
+        foreach(var btn in new[]{repair,rep,uninstall,aiTest})btn.Anchor=AnchorStyles.Bottom|AnchorStyles.Left;
         autostart=new CheckBox{Text="Lancer MEL Companion avec Windows",Left=26,Width=520,Height=42,
             Checked=MelApp.StartupEnabled(),Font=new Font("Segoe UI",9f),Anchor=AnchorStyles.Bottom|AnchorStyles.Left};
         autostart.CheckedChanged+=delegate{MelApp.ConfigureStartup(autostart.Checked);};
@@ -1399,9 +1408,73 @@ class MainForm : Form
     }
     void PositionFooter()
     {
-        var buttons=Controls.OfType<Button>().Where(b=>b.Text=="Réparer"||b.Text=="Réappairer"||b.Text=="Désinstaller").ToArray();
+        var buttons=Controls.OfType<Button>().Where(b=>b.Text=="Réparer"||b.Text=="Réappairer"||b.Text=="Désinstaller"||b.Text=="Tester IA locale").ToArray();
         foreach(var b in buttons)b.Top=ClientSize.Height-145;
         if(autostart!=null)autostart.Top=ClientSize.Height-88;
+    }
+    void RunLocalAiBenchmark(object sender,EventArgs e)
+    {
+        var button=sender as Button;
+        if(button==null||!button.Enabled)return;
+        if(!MelApp.ConfigBool("local_compute_enabled"))
+        {
+            MessageBox.Show("Activez d'abord le calcul local dans Autorisations. Le GPU reste facultatif.",
+                "MEL Companion",MessageBoxButtons.OK,MessageBoxIcon.Information);
+            return;
+        }
+        if(!File.Exists(MelApp.LocalAiBenchmarkPath))
+        {
+            MessageBox.Show("Diagnostic absent. Réinstallez le Companion depuis l'archive Windows récente.",
+                "MEL Companion",MessageBoxButtons.OK,MessageBoxIcon.Warning);
+            return;
+        }
+        if(MessageBox.Show(
+            "Lancer un essai Ollama local sur un modèle déjà installé ? Le test peut utiliser le CPU/GPU autorisé et durer jusqu'à 25 secondes. Aucun dialogue n'est envoyé.",
+            "Diagnostic IA locale",MessageBoxButtons.YesNo,MessageBoxIcon.Question)!=DialogResult.Yes)return;
+        button.Enabled=false;
+        ThreadPool.QueueUserWorkItem(delegate(object unused) {
+            string message="Diagnostic non disponible.";
+            try
+            {
+                var path=MelApp.LocalAiBenchmarkReportPath;
+                try {if(File.Exists(path))File.Delete(path);}catch{}
+                var psi=new ProcessStartInfo("powershell.exe");
+                psi.Arguments="-NoProfile -NonInteractive -ExecutionPolicy Bypass -File \""+
+                    MelApp.LocalAiBenchmarkPath+"\" -ConfigPath \""+MelApp.ConfigPath+
+                    "\" -OutputPath \""+path+"\" -AllowUserActivity";
+                psi.UseShellExecute=false;
+                psi.CreateNoWindow=true;
+                psi.WindowStyle=ProcessWindowStyle.Hidden;
+                using(var process=Process.Start(psi))
+                {
+                    if(process==null)throw new InvalidOperationException("Impossible de démarrer le diagnostic Windows.");
+                    if(!process.WaitForExit(45000))
+                    {
+                        try{process.Kill();}catch{}
+                        throw new TimeoutException("Diagnostic interrompu après expiration du délai.");
+                    }
+                }
+                if(!File.Exists(path))throw new InvalidOperationException("Aucun rapport de diagnostic produit.");
+                var data=MelApp.Json.Deserialize<Dictionary<string,object>>(File.ReadAllText(path));
+                object value;
+                var status=data.TryGetValue("status",out value)?Convert.ToString(value):"UNKNOWN";
+                if(status=="MEASURED")
+                {
+                    string latency=data.TryGetValue("round_trip_latency_ms",out value)?Convert.ToString(value):"?";
+                    string throughput=data.TryGetValue("tokens_per_second",out value)?Convert.ToString(value):"?";
+                    message="Essai local effectué. Délai : "+latency+" ms ; débit : "+throughput+
+                        " jetons/s. Gain GPU non prouvé. Rapport local : "+path;
+                }
+                else message="Diagnostic : "+status+". Aucun gain accélérateur présumé. Rapport local : "+path;
+            }
+            catch(Exception ex){message="Diagnostic indisponible : "+ex.Message;}
+            if(!IsDisposed&&IsHandleCreated)
+                BeginInvoke((MethodInvoker)delegate {
+                    if(IsDisposed)return;
+                    button.Enabled=true;
+                    MessageBox.Show(this,message,"MEL — IA locale",MessageBoxButtons.OK,MessageBoxIcon.Information);
+                });
+        });
     }
     void RePair(object sender,EventArgs e)
     {
