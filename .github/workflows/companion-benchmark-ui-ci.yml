@@ -1,0 +1,19 @@
+name: Companion Windows Benchmark UI CI
+on:
+  pull_request:
+    paths:
+      - 'windows-companion/MEL-Companion.cs'
+      - 'tests/gen2/companion-benchmark-ui.test.mjs'
+      - '.github/workflows/companion-benchmark-ui-ci.yml'
+permissions:
+  contents: read
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node --test tests/gen2/companion-benchmark-ui.test.mjs
