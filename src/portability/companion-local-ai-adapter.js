@@ -1,6 +1,20 @@
 function clean(v,max=4000){return String(v??'').trim().slice(0,max);}
 function error(code,status=503){const e=new Error(code);e.code=code;e.status=status;return e;}
 
+export function normalizeOllamaPerformanceEvidence(raw){
+  if(!raw||typeof raw!=='object')return null;
+  const safeInteger=(v)=>typeof v==='number'&&Number.isSafeInteger(v)&&v>=0?v:null;
+  const output_tokens=safeInteger(raw.output_tokens);
+  const eval_duration_ns=safeInteger(raw.eval_duration_ns);
+  const gpu_vram_bytes=safeInteger(raw.gpu_vram_bytes);
+  const tps=typeof raw.tokens_per_second==='number'&&Number.isFinite(raw.tokens_per_second)&&raw.tokens_per_second>=0&&raw.tokens_per_second<=1e6?raw.tokens_per_second:null;
+  const gpu_evidence=raw.gpu_evidence==='OLLAMA_VRAM_RESIDENCY_REPORTED'&&gpu_vram_bytes>0
+    ?'OLLAMA_VRAM_RESIDENCY_REPORTED':'UNVERIFIED';
+  return {output_tokens,eval_duration_ns,tokens_per_second:tps,
+    gpu_vram_bytes:gpu_evidence==='OLLAMA_VRAM_RESIDENCY_REPORTED'?gpu_vram_bytes:null,
+    gpu_evidence};
+}
+
 function messagesFor(input,context={}){
   const rows=[];
   if(context?.system)rows.push({role:'system',content:clean(context.system,12000)});
@@ -54,6 +68,7 @@ export function createCompanionLocalAiAdapter({execute,model=null}={}){
           model:clean(result?.model,240)||selectedModel||'auto-local',
           transport:'paired-windows-companion',
           backend:clean(result?.backend,120)||'local-ai',
+          performance:normalizeOllamaPerformanceEvidence(result?.inference_metrics),
         },
       };
     },
