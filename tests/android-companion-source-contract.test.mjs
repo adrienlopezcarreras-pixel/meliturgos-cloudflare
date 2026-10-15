@@ -904,3 +904,15 @@ test('native Android speech recognition is not locked to French and requests mul
   for(const tag of ['fr-FR','es-ES','pt-PT','pt-BR']) assert.ok(native.includes('"'+tag+'"'));
   assert.match(native,/Build\.VERSION\.SDK_INT >= Build\.VERSION_CODES\.UPSIDE_DOWN_CAKE/);
 });
+
+test('typed Android chat replies immediately without invoking the blocking voice playback', async () => {
+  const vm = await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelViewModel.kt',root),'utf8');
+  const send = vm.slice(vm.indexOf('fun send(text: String, voice: Boolean = false)'), vm.indexOf('fun sendVoice('));
+  assert.match(send, /if \(voice\) speakAnswer\(answer, mode\)/);
+  assert.match(send, /busy = voice,\s*speaking = false/);
+  assert.match(send, /if \(voice\) "MEL prépare sa voix…" else "MEL connectée/);
+  assert.match(send, /if \(voice\) \{\s*viewModelScope\.launch\(Dispatchers\.IO\) \{[\s\S]*?speakAnswer\(localAnswer, mode\)/);
+  assert.match(send, /\} else \{\s*_state\.value = _state\.value\.copy\(\s*busy = false,\s*speaking = false/);
+  const voice = vm.slice(vm.indexOf('fun sendVoice('), vm.indexOf('private fun speakAnswer('));
+  assert.match(voice, /speakAnswer\(answer, mode\)/);
+});
