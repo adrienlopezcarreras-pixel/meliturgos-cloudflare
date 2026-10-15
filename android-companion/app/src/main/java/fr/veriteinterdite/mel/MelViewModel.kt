@@ -1077,11 +1077,13 @@ class MelViewModel(
                         val row = rows.getJSONObject(i)
                         val role = row.optString("role").lowercase()
                         if (role == "user" || role == "assistant" || role == "mel") {
+                            val messageId = row.optString("id")
+                            if (messageId.isBlank()) throw MelApiException("SYNC_MESSAGE_ID_INVALID", 502)
                             add(
                                 MelChatMessage(
                                     role = if (role == "user") "user" else "mel",
                                     text = row.optString("content", row.optString("text")),
-                                    serverId = row.optString("id").takeIf { it.isNotBlank() }
+                                    serverId = messageId
                                 )
                             )
                         }
@@ -1099,7 +1101,7 @@ class MelViewModel(
                     current.copy(
                         busy = false,
                         status = if (added == 0) "Déjà synchronisé"
-                            else "$"+"{added} message(s) synchronisé(s)",
+                            else "$added message(s) synchronisé(s)",
                         messages = merged
                     )
                 }
