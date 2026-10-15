@@ -48,7 +48,7 @@ function normalizedProfileText(value) {
 
 
 export function profileSecretLike(value) {
-  return /(?:api[_ -]?key\s*[:=]\s*\S+|password\s*[:=]\s*\S+|mot\s+de\s+passe\s*[:=]\s*\S+|bearer\s+[a-z0-9._-]+|\btoken\s*[:=]\s*\S+|\botp\s*[:=]\s*\S+|secret\s*[=:]|private[_ -]?key|authorization\s*:|\bgh[pousr]_[a-z0-9_]{20,}\b|\bgithub_pat_[a-z0-9_]{20,}\b|\bsk-[a-z0-9_-]{20,}\b)/i.test(String(value || ''));
+  return /(?:api[_ -]?key\s*[:=]\s*\S+|password\s*[:=]\s*\S+|mot\s+de\s+passe\s*[:=]\s*\S+|bearer\s+[a-z0-9._-]+|\btoken\s*[:=]\s*\S+|\botp\s*[:=]\s*\S+|secret\s*[=:]\s*\S+|private[_ -]?key\s*[:=]\s*\S+|authorization\s*:\s*\S+|\bgh[pousr]_[a-z0-9_]{20,}\b|\bgithub_pat_[a-z0-9_]{20,}\b|\bsk-[a-z0-9_-]{20,}\b)/i.test(String(value || ''));
 }
 
 function profileCategory(value) {
