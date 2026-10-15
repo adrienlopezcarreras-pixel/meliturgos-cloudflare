@@ -923,7 +923,7 @@ jobs:
             fi
             echo "ShardVault status propagation attempt ${SHARD_STATUS_ATTEMPT} returned HTTP ${SHARD_STATUS_CODE}; waiting within the 360s propagation budget."
             if [ -s production-shardvault-before.json ]; then
-              cat production-shardvault-before.json
+              echo 'ShardVault status response withheld from CI logs; HTTP status is reported above.'
             fi
             sleep 5
           done
@@ -954,7 +954,7 @@ jobs:
                 "${BASE_URL}/api/gen2/shardvault/search" || true)"
               if [ "$SHARD_SEARCH_CODE" != "200" ]; then
                 echo "ShardVault bounded activation attempt ${SHARD_ATTEMPT} returned HTTP ${SHARD_SEARCH_CODE}."
-                test ! -s production-shardvault-search.json || cat production-shardvault-search.json
+                echo 'ShardVault provider search response withheld from CI logs.'
               else
                 SHARD_STATE="$(node -e 'const d=require("./production-shardvault-search.json"); if(d?.ok!==true) throw new Error("SHARDVAULT_SEARCH_NOT_OK"); const active=Number(d?.active_external_count||0); const target=Number(d?.target_count||7); const quorum=5; process.stdout.write(String(active)+" "+String(target)+" "+(active>=quorum?"1":"0"));')"
                 SHARD_ACTIVE="${SHARD_STATE%% *}"
@@ -985,7 +985,7 @@ jobs:
             fi
             echo "ShardVault final status propagation attempt ${SHARD_FINAL_ATTEMPT}/12 returned HTTP ${SHARD_FINAL_CODE}."
             if [ -s production-shardvault-final.json ]; then
-              cat production-shardvault-final.json
+              echo 'ShardVault final status response withheld from CI logs.'
             fi
             sleep 2
           done
