@@ -15,3 +15,18 @@ test('phase frame explicitly fails closed before audio stream routing',()=>{
   assert.ok(!block.includes('mel_link_v2_encode('));
   assert.ok(!block.includes('server_send('));
 });
+
+test('capability request is parsed and denied before phase or audio routing',()=>{
+  const request=source.indexOf('if (header.type == MEL_LINK_V2_TRIAD_CAPABILITY_REQUEST)');
+  const phase=source.indexOf('if (header.type == MEL_LINK_V2_TRIAD_PHASE)');
+  const audio=source.indexOf('const uint16_t active_stream = g_active_stream_id.load()');
+  assert.ok(request > 0 && request < phase && phase < audio);
+  const block=source.slice(request,phase);
+  assert.match(block,/header.stream_id != 0/);
+  assert.match(block,/g_session_ready\.load\(\)/);
+  assert.match(block,/mel_link_v2_server_ready\(\)/);
+  assert.match(block,/mel_mini_phase_capability_request_v1_decode\(payload, header.payload_len, &request\)/);
+  assert.match(block,/local opt-in unavailable/);
+  assert.doesNotMatch(block,/g_phase_capability\.grant\(/);
+  assert.doesNotMatch(block,/mel_link_v2_encode\(|server_send\(/);
+});
