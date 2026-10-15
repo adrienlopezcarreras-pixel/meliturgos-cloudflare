@@ -1,0 +1,22 @@
+name: Android Optional Companion Preference CI
+on:
+  pull_request:
+    paths:
+      - 'android-companion/app/src/main/java/fr/veriteinterdite/mel/MelApiClient.kt'
+      - 'android-companion/app/src/main/java/fr/veriteinterdite/mel/MelViewModel.kt'
+      - 'android-companion/app/src/main/java/fr/veriteinterdite/mel/MainActivity.kt'
+      - 'src/devices/android-companion-api.js'
+      - 'tests/android-companion-compute-preference.test.mjs'
+      - '.github/workflows/android-companion-compute-preference-ci.yml'
+permissions:
+  contents: read
+jobs:
+  optin:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node --test tests/android-companion-compute-preference.test.mjs tests/native-chat-companion-fallback.test.mjs
