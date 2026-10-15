@@ -32,7 +32,12 @@ struct MelMiniPhaseSessionGuard {
         }
         // No wrap, no nonce reuse; a new negotiated generation requires a
         // freshly cleared state, not an implicit reset upon an incoming packet.
-        if (generation != 0 && generation != negotiated_generation) return false;
+        // A new authenticated SESSION may not inherit a phase from the old
+        // generation. Rejecting the new frame must also hide the stale phase.
+        if (generation != 0 && generation != negotiated_generation) {
+            clear();
+            return false;
+        }
         if (candidate.phase_nonce <= last_nonce) return false;
         generation = negotiated_generation;
         last_nonce = candidate.phase_nonce;
