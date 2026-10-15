@@ -11,6 +11,16 @@ const CREATE = `CREATE TABLE IF NOT EXISTS mel_evolution_items (
  PRIMARY KEY (owner_scope, id),
  UNIQUE (owner_scope, canonical_title)
 )`;
+const ARCHIVE = `CREATE TABLE IF NOT EXISTS mel_evolution_initial_archive (
+ archive_id TEXT PRIMARY KEY,
+ source_sha TEXT NOT NULL CHECK (length(source_sha) = 40),
+ verified_count INTEGER NOT NULL CHECK (verified_count >= 0),
+ total_count INTEGER NOT NULL CHECK (total_count >= verified_count),
+ proof_reference TEXT NOT NULL,
+ closed_at TEXT NOT NULL
+)`;
+const ARCHIVE_IMMUTABLE_UPDATE = `CREATE TRIGGER IF NOT EXISTS mel_evolution_archive_no_update BEFORE UPDATE ON mel_evolution_initial_archive BEGIN SELECT RAISE(ABORT, 'ARCHIVE_IMMUTABLE'); END`;
+const ARCHIVE_IMMUTABLE_DELETE = `CREATE TRIGGER IF NOT EXISTS mel_evolution_archive_no_delete BEFORE DELETE ON mel_evolution_initial_archive BEGIN SELECT RAISE(ABORT, 'ARCHIVE_IMMUTABLE'); END`;
 function database(db) {
  if (!db || typeof db.prepare !== 'function' || typeof db.exec !== 'function') throw new Error('EVOLUTION_D1_REQUIRED');
  return db;
@@ -20,7 +30,12 @@ function ownerScope(owner) {
  return owner.trim();
 }
 export async function initializeEvolutionStorage(db) {
- await database(db).exec(CREATE);
+ const store=database(db);
+ await store.exec(CREATE);
+ await store.exec('CREATE INDEX IF NOT EXISTS idx_mel_evolution_owner_updated ON mel_evolution_items(owner_scope,updated_at DESC)');
+ await store.exec(ARCHIVE);
+ await store.exec(ARCHIVE_IMMUTABLE_UPDATE);
+ await store.exec(ARCHIVE_IMMUTABLE_DELETE);
 }
 export async function listEvolutionItems(db, owner) {
  const scope=ownerScope(owner);
