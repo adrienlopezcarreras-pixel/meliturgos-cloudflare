@@ -11,7 +11,7 @@ const publicModelIdentity = value => {
   const identity = String(value ?? '').trim();
   // Public provider/model IDs are useful for routing diagnostics, but never
   // print arbitrary text obtained from a provider error or request payload.
-  return identity.includes('::') && /^[A-Za-z0-9@._:/+\\-]{1,160}$/.test(identity)
+  return identity.includes('::') && /^[A-Za-z0-9@._:/+-]{1,160}$/.test(identity)
     ? identity : 'MODEL_ID_REDACTED';
 };
 
