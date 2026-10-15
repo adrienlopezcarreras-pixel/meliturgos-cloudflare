@@ -50,3 +50,12 @@ MEL peut poursuivre les investigations et préparer du code en autonomie selon s
 8. Des tests de non-régression et de charge couvrent les transitions concurrentes et les boucles de tentative.
 
 Ce document formalise la cible ; **il ne déclare pas les fonctionnalités ci-dessus implémentées ni testées**.
+
+## État de l'implémentation candidate — 2026-10-15
+
+- **Code candidat (non publié)** : `src/roadmap/evolution-inbox.js` et `src/roadmap/evolution-storage.js` ; D1 propriétaire-séparé, dédoublonnage, états, lecture, CAS et preuves.
+- **Migration canonique candidate** : `src/persistence/migrations.js` v18, avec tables `mel_evolution_items` et `mel_evolution_initial_archive`, triggers empêchant UPDATE/DELETE du certificat historique ; `src/core/config.js` et `src/diagnostics/data-integrity.js` alignés à v18.
+- **Capabilities candidates** : `evolution.list` et `evolution.propose` raccordées à `src/capabilities/default-bus.js`. Elles exigent un propriétaire authentifié ; la proposition exige en plus `roadmap.write`. Aucune capacité de validation finale ni de déploiement autonome n'est exposée dans ce lot.
+- **CI dédiée** : tests D1, capacités, permissions, isolation, schéma/immutabilité SQLite. La réussite de cette CI ne remplace pas les gates de la candidate canonique.
+- **Limites actuelles** : l'UI n'est pas raccordée, la migration n'est pas encore appliquée en production, l'archive historique n'est pas encore initialisée par un certificat réel. Le tableau de bord renvoie donc `initial_scope=CURRENT_REGISTRY_NOT_ARCHIVED` et n'annonce pas faussement une archive terminée.
+- **Concurrence** : PR #1471 sur branche de travail distincte ; réconcilier sur `candidate/mel-clean-autonomy` avant toute release. Ne jamais faire de release depuis cette branche.
