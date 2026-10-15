@@ -238,6 +238,24 @@ gates de qualité échouent. Les preuves sont conservées comme artefacts GitHub
 même en cas d'échec. Un benchmark rejeté ne doit jamais devenir
 `DONE_VERIFIED`.
 
+### Diagnostic strict sans chevauchement d'inférence (8008)
+
+Après des essais infructueux à faible concurrence (1 requête par flux, mais
+deux flux exécutés simultanément), le collecteur automatique déclenché par
+un push mesure les flux baseline puis candidat **séquentiellement** pour les
+suites canonique et impact. Il passe `--concurrency 1 --serial true`. Un
+lancement manuel garde par défaut `--serial false` et la concurrence
+habituelle. Le serveur renvoie `benchmark_serial` ; un accusé de réception
+manquant ou différent déclenche
+`LORA_BENCHMARK_SERIAL_NOT_ACKNOWLEDGED`.
+
+Ce mode diagnostic conserve exactement les mêmes scénarios, erreurs, critères
+de qualité, limites de coûts et interdictions d'activation ; il ne réduit pas
+le nombre d'inférences et n'ajoute pas de retries. Il détermine seulement si
+les erreurs `8008` persistent lorsqu'aucune requête baseline et candidat
+ne se chevauche. La compatibilité du LoRA et la cause de `8008` restent à
+prouver par les journaux et tests réels.
+
 ## 10. Gate après entraînement
 
 La présence de poids LoRA ne vaut pas promotion. La séquence reste :
