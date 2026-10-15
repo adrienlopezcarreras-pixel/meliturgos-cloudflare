@@ -27,3 +27,15 @@ test('disabled, no consent, private payload and provider failures always fall ba
  assert.equal(sent,1);
  assert.equal((await run({enabled:true,ownerConsent:true,classification:'public',nodes:[node],now:100200,invokeRemote:async()=>{throw Error('offline')},fallback})).text,'mel-primary');
 });
+
+test('remote GPU timeout aborts and returns to MEL primary',async()=>{
+ let aborted=false;
+ const fallback=()=>({text:'primary-after-timeout'});
+ const result=await run({enabled:true,ownerConsent:true,classification:'public',nodes:[node],now:100200,
+   timeoutMs:8,request:'public-question',
+   invokeRemote:({signal})=>new Promise(resolve=>signal.addEventListener('abort',()=>{aborted=true;resolve({ok:false});},{once:true})),
+   fallback
+ });
+ assert.equal(result.text,'primary-after-timeout');
+ assert.equal(aborted,true);
+});

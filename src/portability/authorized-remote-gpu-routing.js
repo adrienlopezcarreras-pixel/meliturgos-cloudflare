@@ -18,7 +18,7 @@ export function eligibleAuthorizedGpuNodes(nodes=[],{now=Date.now(),classificati
 }
 export async function invokeWithOptionalRemoteGpu({
  enabled=false,ownerConsent=false,classification='private',nodes=[],request,
- invokeRemote,fallback,now=Date.now()
+ invokeRemote,fallback,now=Date.now(),timeoutMs=4000
 }={}){
  if(typeof fallback!=='function')throw new TypeError('PRIMARY_MEL_FALLBACK_REQUIRED');
  const primary=()=>fallback(request);
@@ -27,7 +27,16 @@ export async function invokeWithOptionalRemoteGpu({
  const candidates=eligibleAuthorizedGpuNodes(nodes,{now,classification});
  for(const node of candidates){
    try{
-     const result=await invokeRemote({nodeId:node.id,request});
+     const abort=new AbortController();
+     const deadline=Math.max(5,Math.min(12000,Number.isFinite(timeoutMs)?timeoutMs:4000));
+     let timer;
+     let result;
+     try{
+       result=await Promise.race([
+         Promise.resolve().then(()=>invokeRemote({nodeId:node.id,request,signal:abort.signal})),
+         new Promise((_,reject)=>{timer=setTimeout(()=>reject(new Error('REMOTE_GPU_TIMEOUT')),deadline);})
+       ]);
+     }finally{clearTimeout(timer);abort.abort();}
      // No remote answer is trusted without a successful, usable result.
      if(result?.ok===true&&typeof result.text==='string'&&result.text.trim()&&result.text.length<=32000)
        return {...result,source:'authorized-remote-gpu',node_id:node.id};
