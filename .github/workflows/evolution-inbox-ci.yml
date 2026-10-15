@@ -11,6 +11,8 @@ on:
       - 'tests/roadmap/evolution-*.test.mjs'
       - 'src/pages/roadmap-live-refresh-enhancer.js'
       - 'tests/roadmap-live-refresh.test.mjs'
+      - 'src/security/runtime-permissions.js'
+      - 'tests/gen2/runtime-permissions.test.mjs'
       - '.github/workflows/evolution-inbox-ci.yml'
   workflow_dispatch:
 permissions:
@@ -34,5 +36,6 @@ jobs:
           node --check src/core/config.js
           node --check src/diagnostics/data-integrity.js
           node --check src/pages/roadmap-live-refresh-enhancer.js
+          node --check src/security/runtime-permissions.js
       - name: Run evolution contract tests
         run: node --test tests/roadmap/evolution-inbox.test.mjs tests/roadmap/evolution-storage.test.mjs tests/roadmap/evolution-capabilities.test.mjs tests/roadmap-live-refresh.test.mjs
