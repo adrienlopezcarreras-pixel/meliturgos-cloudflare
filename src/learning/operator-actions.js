@@ -33,6 +33,19 @@ export function resolveOperatorLoraBenchmarkConcurrency(value) {
   return n;
 }
 
+// Default benchmarking remains parallel. Explicit diagnostic mode runs the
+// same baseline/candidate workload serially, including the impact pair.
+// This changes only scheduling: not prompts, scoring, LoRA activation or retries.
+export async function runLoraBenchmarkPair(tasks, serial = false) {
+  if (!Array.isArray(tasks) || tasks.length !== 2 || tasks.some(task => typeof task !== 'function')) {
+    const error = new Error('LORA_BENCHMARK_PAIR_INVALID');
+    error.code = 'LORA_BENCHMARK_PAIR_INVALID';
+    throw error;
+  }
+  if (serial === true) return [await tasks[0](), await tasks[1]()];
+  return Promise.all(tasks.map(task => task()));
+}
+
 function benchmarkModel(env = {}) {
   const modelId = cleanModelId(env.MEL_BENCHMARK_MODEL, DEFAULT_OPERATOR_BENCHMARK_MODEL);
   const model = standardRegistry.get(modelId);
@@ -274,9 +287,10 @@ export async function runOperatorLoraBenchmark(env = {}, options = {}, deps = {}
   const suiteDigest = benchmarkSuiteFingerprint(CANONICAL_LEARNING_BENCHMARK_SUITE);
   const runtimeModel = checkedArtifact.runtime_model;
   const benchmarkConcurrency = resolveOperatorLoraBenchmarkConcurrency(options.benchmark_concurrency);
+  const benchmarkSerial = options.benchmark_serial === true;
 
-  const [baseline, candidate] = await Promise.all([
-    benchmarkRunner({
+  const [baseline, candidate] = await runLoraBenchmarkPair([
+    () => benchmarkRunner({
       metadata: {
         model_id: runtimeModel,
         source_sha: sourceSha,
@@ -286,7 +300,7 @@ export async function runOperatorLoraBenchmark(env = {}, options = {}, deps = {}
       respond: benchmarkResponder(ai, runtimeModel, extractText),
       concurrency: benchmarkConcurrency,
     }),
-    benchmarkRunner({
+    () => benchmarkRunner({
       metadata: {
         model_id: runtimeModel,
         adapter_id: checkedArtifact.finetune_id,
@@ -303,21 +317,21 @@ export async function runOperatorLoraBenchmark(env = {}, options = {}, deps = {}
       respond: benchmarkResponder(ai, runtimeModel, extractText, { lora: checkedArtifact.finetune_id }),
       concurrency: benchmarkConcurrency,
     }),
-  ]);
+  ], benchmarkSerial);
   baseline.passed = Array.isArray(baseline.cases) && baseline.cases.length > 0 && baseline.cases.every((row) => !row?.error);
 
   candidate.passed = Array.isArray(candidate.cases) && candidate.cases.length > 0 && candidate.cases.every((row) => !row?.error);
 
-  const [impactBaseline, impactCandidate] = await Promise.all([
-    impactRunner({
+  const [impactBaseline, impactCandidate] = await runLoraBenchmarkPair([
+    () => impactRunner({
       respond: benchmarkResponder(ai, runtimeModel, extractText),
       concurrency: benchmarkConcurrency,
     }),
-    impactRunner({
+    () => impactRunner({
       respond: benchmarkResponder(ai, runtimeModel, extractText, { lora: checkedArtifact.finetune_id }),
       concurrency: benchmarkConcurrency,
     }),
-  ]);
+  ], benchmarkSerial);
   const impact = compareLoraImpact(impactBaseline, impactCandidate);
 
   const engine = createEngine(env);
@@ -428,6 +442,7 @@ export async function runOperatorLoraBenchmark(env = {}, options = {}, deps = {}
     active,
     activated: Boolean(active),
     benchmark_concurrency: benchmarkConcurrency,
+    benchmark_serial: benchmarkSerial,
     source_sha: sourceSha,
   };
 }
