@@ -27,6 +27,9 @@ async function main() {
   if (activate && process.env.MEL_LORA_ACTIVATION_APPROVED !== 'true') {
     throw new Error('LORA_ACTIVATION_REQUIRES_EXPLICIT_AUTHORIZATION');
   }
+  const concurrencyRaw = String(args.get('--concurrency') ?? '4').trim();
+  if (!/^[1-4]$/.test(concurrencyRaw)) throw new Error('LORA_BENCHMARK_CONCURRENCY_INVALID');
+  const benchmarkConcurrency = Number(concurrencyRaw);
   const allowNotActivatedRaw = String(args.get('--allow-not-activated') ?? 'false').trim().toLowerCase();
   const allowNotActivated = ['true', '1', 'yes', 'on'].includes(allowNotActivatedRaw);
   const baseUrl = String(args.get('--url') || process.env.MEL_BASE_URL || '').replace(/\/+$/, '');
@@ -48,7 +51,7 @@ async function main() {
   // has not produced headers within its transport timeout, so use curl here
   // with an explicit bounded 20-minute request window.
   const requestPath = path.join(dir, '.benchmark-request.json');
-  await writeFile(requestPath, JSON.stringify({ plan, artifact, approval, activate }), 'utf8');
+  await writeFile(requestPath, JSON.stringify({ plan, artifact, approval, activate, benchmark_concurrency: benchmarkConcurrency }), 'utf8');
   let stdout;
   try {
     ({ stdout } = await execFileAsync('curl', [

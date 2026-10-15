@@ -208,6 +208,28 @@ Cette commande exécute le même benchmark canonique deux fois sur le même runt
 
 Après activation, le chat natif charge `LORA_ADAPTER_ACTIVE`, sélectionne le runtime LoRA en priorité et transmet `lora: finetune_id` à Workers AI. En l'absence d'adaptateur actif, le routage standard reste inchangé.
 
+## Diagnostic des erreurs d'inférence pendant le benchmark
+
+Si le modèle candidat renvoie des erreurs internes de fournisseur (par exemple
+`8008`), une CI de collecte terminée ne signifie pas que l'adaptateur est bon :
+`canonical_gate_passed`, `impact_gate_passed` et les erreurs par scénario
+doivent être contrôlés. L'activation reste interdite tant que ces critères
+ne sont pas satisfaits.
+
+Le collecteur automatique sur `main` transmet désormais
+`--concurrency 1` à `finalize-lora.mjs` : il limite chaque flux baseline/candidat
+à une seule requête simultanée (deux au maximum entre ces flux), pour distinguer
+les erreurs potentiellement liées à la charge d'une incompatibilité persistante
+de l'adaptateur. Une exécution manuelle utilise par défaut `--concurrency 4`,
+soit la charge comparative habituelle. Aucun retry supplémentaire n'est ajouté
+et ce diagnostic ne prouve pas à lui seul la compatibilité du modèle.
+
+Le validateur `scripts/validate-lora-benchmark-readiness.mjs` échoue si le
+benchmark contient des erreurs de scénario, si un score est manquant ou si les
+gates de qualité échouent. Les preuves sont conservées comme artefacts GitHub
+même en cas d'échec. Un benchmark rejeté ne doit jamais devenir
+`DONE_VERIFIED`.
+
 ## 10. Gate après entraînement
 
 La présence de poids LoRA ne vaut pas promotion. La séquence reste :

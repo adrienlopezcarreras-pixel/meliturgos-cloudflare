@@ -19,6 +19,20 @@ function cleanQuality(value, fallback = 0.65) {
   return Math.max(0, Math.min(1, number));
 }
 
+// A diagnostic benchmark may intentionally use fewer concurrent requests to
+// distinguish provider saturation from a genuinely poor adapter. The two
+// baseline/candidate streams still run in parallel, so effective peak is 2x.
+export function resolveOperatorLoraBenchmarkConcurrency(value) {
+  if (value === undefined || value === null || value === '') return 4;
+  const n = Number(value);
+  if (!Number.isInteger(n) || n < 1 || n > 4) {
+    const error = new Error('LORA_BENCHMARK_CONCURRENCY_INVALID');
+    error.code = 'LORA_BENCHMARK_CONCURRENCY_INVALID';
+    throw error;
+  }
+  return n;
+}
+
 function benchmarkModel(env = {}) {
   const modelId = cleanModelId(env.MEL_BENCHMARK_MODEL, DEFAULT_OPERATOR_BENCHMARK_MODEL);
   const model = standardRegistry.get(modelId);
@@ -232,6 +246,7 @@ export async function runOperatorLoraBenchmark(env = {}, options = {}, deps = {}
   const sourceSha = benchmarkSourceSha(env, options);
   const suiteDigest = benchmarkSuiteFingerprint(CANONICAL_LEARNING_BENCHMARK_SUITE);
   const runtimeModel = checkedArtifact.runtime_model;
+  const benchmarkConcurrency = resolveOperatorLoraBenchmarkConcurrency(options.benchmark_concurrency);
 
   const [baseline, candidate] = await Promise.all([
     benchmarkRunner({
@@ -242,7 +257,7 @@ export async function runOperatorLoraBenchmark(env = {}, options = {}, deps = {}
         suite_digest: suiteDigest,
       },
       respond: benchmarkResponder(ai, runtimeModel, extractText),
-      concurrency: 4,
+      concurrency: benchmarkConcurrency,
     }),
     benchmarkRunner({
       metadata: {
@@ -259,7 +274,7 @@ export async function runOperatorLoraBenchmark(env = {}, options = {}, deps = {}
         approval_id: checkedApproval.approval_id,
       },
       respond: benchmarkResponder(ai, runtimeModel, extractText, { lora: checkedArtifact.finetune_id }),
-      concurrency: 4,
+      concurrency: benchmarkConcurrency,
     }),
   ]);
   baseline.passed = Array.isArray(baseline.cases) && baseline.cases.length > 0 && baseline.cases.every((row) => !row?.error);
@@ -269,11 +284,11 @@ export async function runOperatorLoraBenchmark(env = {}, options = {}, deps = {}
   const [impactBaseline, impactCandidate] = await Promise.all([
     impactRunner({
       respond: benchmarkResponder(ai, runtimeModel, extractText),
-      concurrency: 4,
+      concurrency: benchmarkConcurrency,
     }),
     impactRunner({
       respond: benchmarkResponder(ai, runtimeModel, extractText, { lora: checkedArtifact.finetune_id }),
-      concurrency: 4,
+      concurrency: benchmarkConcurrency,
     }),
   ]);
   const impact = compareLoraImpact(impactBaseline, impactCandidate);

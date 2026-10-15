@@ -311,6 +311,7 @@ async function operatorLoraBenchmarkResponse(request, env) {
       artifact: body.artifact,
       approval: body.approval,
       activate: body.activate === true,
+      benchmark_concurrency: body.benchmark_concurrency,
     });
     return json({ ok: true, ...result });
   } catch (error) {
