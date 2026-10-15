@@ -515,7 +515,8 @@ jobs:
               break
             fi
             echo "Pre-deploy binder prepare attempt ${ATTEMPT}/20 returned HTTP ${CODE}."
-            test ! -s predeploy-backup.json || cat predeploy-backup.json
+            # Never emit raw backup response bodies into CI logs: they may include metadata or sensitive context.
+            echo "Backup prepare proof not accepted; inspect the sanitized HTTP status and binder readiness above."
             # 409 means no verified backup; auth errors and genuine 404s
             # cannot be healed by retrying the release.
             if [ "${CODE}" = "409" ] || [ "${CODE}" = "401" ] || [ "${CODE}" = "403" ]; then
