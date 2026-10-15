@@ -941,3 +941,16 @@ test('Android shows server-truncated chat answers without altering spoken text',
   assert.match(send,/if \(voice\) speakAnswer\(answer, mode\)/);
   assert.match(voice,/speakAnswer\(answer, mode\)/);
 });
+
+
+test('server transcribed voice latency splits speech recognition from model and playback',async()=>{
+  const vm=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelViewModel.kt',root),'utf8');
+  const voice=vm.slice(vm.indexOf('fun sendVoice('),vm.indexOf('private fun displayChatAnswer('));
+  assert.match(voice,/val voiceRequestStartedAt = SystemClock\.elapsedRealtime\(\)/);
+  assert.match(voice,/Voix transcription · \$\{SystemClock\.elapsedRealtime\(\) - voiceRequestStartedAt\} ms/);
+  assert.match(voice,/val chatStartedAt = SystemClock\.elapsedRealtime\(\)/);
+  assert.match(voice,/Voix chat serveur · \$\{SystemClock\.elapsedRealtime\(\) - chatStartedAt\} ms/);
+  assert.match(voice,/Voix complète · \$\{SystemClock\.elapsedRealtime\(\) - voiceRequestStartedAt\} ms/);
+  assert.match(voice,/Voix échec · \$\{SystemClock\.elapsedRealtime\(\) - voiceRequestStartedAt\} ms/);
+  assert.doesNotMatch(voice,/appendDiagnosticLine\("[^"]*\$\{transcript\}/);
+});
