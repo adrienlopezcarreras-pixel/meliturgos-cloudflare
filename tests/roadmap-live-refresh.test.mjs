@@ -42,3 +42,10 @@ test('injected evolution browser script is syntactically valid JavaScript', () =
  const script=ROADMAP_LIVE_REFRESH_PATCH.replace(/^<script[^>]*>/,'').replace('</script>','');
  assert.doesNotThrow(()=>new Script(script));
 });
+
+test('evolution panel never labels missing operational telemetry as zero incidents',()=>{
+ assert.match(ROADMAP_LIVE_REFRESH_PATCH,/Santé opérationnelle non raccordée/);
+ assert.match(ROADMAP_LIVE_REFRESH_PATCH,/health\.status==='CONNECTED'/);
+ assert.match(ROADMAP_LIVE_REFRESH_PATCH,/regressed_items/);
+ assert.doesNotMatch(ROADMAP_LIVE_REFRESH_PATCH,/active_incidents\?\?0/);
+});
