@@ -164,24 +164,31 @@ object MelVoicePlayer {
             throw IllegalStateException("AUDIO_WRITE_FAILED")
         }
 
-        synchronized(lock) {
+        val myGeneration = synchronized(lock) {
             stopLocked()
+            playbackGeneration += 1L
             activeTrack = track
             track.setVolume(1f)
             track.play()
+            playbackGeneration
         }
 
         val durationMs = ((bytes.size / 2L) * 1000L / SAMPLE_RATE).coerceAtLeast(180L)
+        val deadline = android.os.SystemClock.elapsedRealtime() + durationMs + 180L
         try {
-            Thread.sleep(durationMs + 180L)
+            // STOP VOIX must interrupt the PCM wait too; a single full-length
+            // sleep kept the ViewModel busy even after AudioTrack was stopped.
+            while (android.os.SystemClock.elapsedRealtime() < deadline) {
+                if (playbackGeneration != myGeneration) throw MelPlaybackInterruptedException()
+                val remaining = deadline - android.os.SystemClock.elapsedRealtime()
+                Thread.sleep(remaining.coerceIn(1L, 80L))
+            }
+            if (playbackGeneration != myGeneration) throw MelPlaybackInterruptedException()
         } finally {
             synchronized(lock) {
-                if (activeTrack === track) {
-                    stopLocked()
-                } else {
-                    runCatching { track.stop() }
-                    track.release()
-                }
+                // Another stop/playback already released the former track.
+                // Do not stop or release that handle a second time.
+                if (activeTrack === track) stopLocked()
             }
         }
         return durationMs
