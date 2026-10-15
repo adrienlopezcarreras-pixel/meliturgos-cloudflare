@@ -78,6 +78,8 @@ test('scope and schedule cannot deploy or gain Cloudflare credentials',()=>{
  assert.match(text,/cron: '23 \* \* \* \*'/);
  assert.match(text,/actions: read/);
  assert.match(text,/issues: write/);
+ const reconcileJob=text.slice(text.indexOf('  reconcile:'));
+ assert.match(reconcileJob,/pull-requests: write/); // Issue #1516 is a merged PR.
  assert.match(text,/scripts\/release-outcome-reconcile\.mjs/);
  assert.doesNotMatch(text,/CLOUDFLARE_API_TOKEN|wrangler deploy|force: true|secret put/);
 });
