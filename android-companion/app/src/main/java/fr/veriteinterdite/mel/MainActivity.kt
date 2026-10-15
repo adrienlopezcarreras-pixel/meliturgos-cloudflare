@@ -344,6 +344,7 @@ class MainActivity : ComponentActivity() {
                     onRetrySession = model::verifyExistingSession,
                     onDisconnect = model::disconnect,
                     onMode = model::setMode,
+                    onPreferCompanionCompute = model::setPreferCompanionCompute,
                     onSend = { dispatchCompanionText(it, voice = false) },
                     onSync = model::sync,
                     onVoicePress = ::beginPushToTalk,
@@ -1462,6 +1463,7 @@ internal fun MelApp(
     onRetrySession: () -> Unit,
     onDisconnect: () -> Unit,
     onMode: (MelMode) -> Unit,
+    onPreferCompanionCompute: (Boolean) -> Unit,
     onSend: (String) -> Unit,
     onSync: () -> Unit,
     onVoicePress: () -> Unit,
@@ -1516,6 +1518,7 @@ internal fun MelApp(
                 voiceMessage = voiceMessage,
                 onDisconnect = onDisconnect,
                 onMode = onMode,
+                onPreferCompanionCompute = onPreferCompanionCompute,
                 onSend = onSend,
                 onSync = onSync,
                 onVoicePress = onVoicePress,
@@ -1890,6 +1893,7 @@ private fun ConversationScreen(
     voiceMessage: String,
     onDisconnect: () -> Unit,
     onMode: (MelMode) -> Unit,
+    onPreferCompanionCompute: (Boolean) -> Unit,
     onSend: (String) -> Unit,
     onSync: () -> Unit,
     onVoicePress: () -> Unit,
@@ -2033,6 +2037,7 @@ private fun ConversationScreen(
                 state = state,
                 onClose = { settingsOpen = false },
                 onMode = onMode,
+                onPreferCompanionCompute = onPreferCompanionCompute,
                 onSelect = { section = it },
                 onDisconnect = onDisconnect,
                 wakeEnrollmentCount = wakeEnrollmentCount,
@@ -2150,6 +2155,7 @@ private fun MiniSettingsPanel(
     state: MelUiState,
     onClose: () -> Unit,
     onMode: (MelMode) -> Unit,
+    onPreferCompanionCompute: (Boolean) -> Unit,
     onSelect: (MobileSection) -> Unit,
     onDisconnect: () -> Unit,
     wakeEnrollmentCount: Int,
@@ -2209,6 +2215,14 @@ private fun MiniSettingsPanel(
                     enabled = !wakeEnrollmentActive
                 ) { onWakeReset() }
             }
+            SettingsAction(
+                if (state.preferCompanionCompute) "PC prioritaire : activé (4 s)" else "PC prioritaire : désactivé",
+                "PC", "settings-companion-compute",
+                if (state.preferCompanionCompute) MelSuccess else MelCyan,
+                enabled = !state.busy
+            ) { onPreferCompanionCompute(!state.preferCompanionCompute) }
+            Text("Facultatif · autorisation Windows obligatoire · repli automatique sur MEL",
+                color = MelMuted, fontSize = 10.sp)
             SettingsAction("Tests / Outils", "⌁", "settings-tools") { onSelect(MobileSection.TOOLS) }
             SettingsAction(
                 if (state.mode == MelMode.COMPLETE) "Passer en mode Normal" else "Activer le mode Complet",
