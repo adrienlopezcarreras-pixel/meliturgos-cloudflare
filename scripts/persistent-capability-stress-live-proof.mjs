@@ -216,7 +216,15 @@ async function main() {
         throw Object.assign(new Error('CAPABILITY_STRESS_RESUME_AUTH_REJECTED'),
           { code: 'CAPABILITY_STRESS_RESUME_AUTH_REJECTED' });
       }
-      if (resume.status !== 200) {
+      if (resume.status === 200) {
+        const resumed = resume.body?.result || {};
+        assert(resume.body?.ok === true && resume.body?.capability === 'capability.audit',
+          'CAPABILITY_STRESS_RESUME_NOT_OK');
+        assert(resumed?.persistent === true && String(resumed?.job_id || '') === jobId,
+          'CAPABILITY_STRESS_RESUME_JOB_MISMATCH');
+        assert(['RUNNING', 'QUEUED', 'RETRYING'].includes(String(resumed?.status || '')),
+          'CAPABILITY_STRESS_RESUME_STATUS_INVALID');
+      } else {
         console.log(`Persistent stress resume attempt returned HTTP ${resume.status}.`);
       }
     }
