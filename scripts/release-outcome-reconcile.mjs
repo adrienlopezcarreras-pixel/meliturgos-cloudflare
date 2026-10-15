@@ -27,7 +27,13 @@ export async function reconcileReleaseOutcomes({
    method,headers:{...headers,...(body===undefined?{}:{'content-type':'application/json'})},
    ...(body===undefined?{}:{body:JSON.stringify(body)})
   });
-  if(!response?.ok)throw new Error('RELEASE_RECONCILE_GITHUB_API_FAILED_'+method+'_'+response?.status);
+  if(!response?.ok){
+   // The ledger target is a merged PR, not an ordinary issue. Do not hide
+   // authorization failures or report an unrecorded release as reconciled.
+   if(method==='POST' && response?.status===403)
+    throw new Error('RELEASE_RECONCILE_PR_COMMENT_FORBIDDEN_403');
+   throw new Error('RELEASE_RECONCILE_GITHUB_API_FAILED_'+method+'_'+response?.status);
+  }
   return response.status===204?null:response.json();
  }
  const queried=await call('/actions/workflows/deploy-cloudflare-release.yml/runs?per_page=50&status=completed');
