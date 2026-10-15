@@ -35,7 +35,7 @@ test('an unscheduled preview fails early instead of burning the entire wait budg
   assert.match(gate, /absent_preview_checks=\$\(\(absent_preview_checks \+ 1\)\)/);
   assert.match(gate, /if \[ "\$absent_preview_checks" -ge 8 \]; then/);
   assert.match(gate, /LORA_PREVIEW_EXACT_SHA_NOT_SCHEDULED/);
-  assert.match(gate, /LORA_PREVIEW_WORKFLOW_NOT_SUCCESSFUL/);
+  assert.match(gate, /LORA_PREVIEW_WORKFLOW_NOT_YET_SUCCESSFUL/);
   // A pending exact-SHA run must reset the no-run counter and retain
   // the normal 43-minute bounded wait for actual preview validation.
   assert.match(gate, /absent_preview_checks=0\s*fi\s*echo "LORA_PREVIEW_WORKFLOW_NOT_YET_SUCCESSFUL/);
