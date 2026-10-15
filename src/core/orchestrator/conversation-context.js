@@ -22,7 +22,7 @@ export function dedupeRows(rows = []) {
   for (const row of Array.isArray(rows) ? rows : []) {
     // A malformed retrieval hit must not crash prompt construction.
     if (!row || typeof row !== 'object' || Array.isArray(row)) continue;
-    const source = String(row?.source || (typeof row?.provenance?.table === 'string' ? row.provenance.table : ''));
+    const source = String(typeof row?.source === 'string' ? row.source : (typeof row?.provenance?.table === 'string' ? row.provenance.table : ''));
     const id = row?.id ?? row?.provenance?.id;
     // Identifier-free memory hits must not all collapse into the same ':' key.
     // Keep distinct evidence while deduplicating identical fallback records.

@@ -99,3 +99,8 @@ test('circular provenance table does not break retrieved memory dedupe', () => {
   const row = {content:'Safe evidence',provenance:{table:circular}};
   assert.deepEqual(dedupeRows([row]),[row]);
 });
+
+test('structured source identifiers fall back to scalar provenance', () => {
+  const row = {source:{unexpected:true},provenance:{table:'memory'},content:'Safe context'};
+  assert.deepEqual(dedupeRows([row]), [row]);
+});
