@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { inferenceGenerationOptions, runNativeInference, loadCognitiveMemory, compactInferenceMessages, voiceGenerationTokenBudget } from '../src/api/native-chat.js';
+import { inferenceGenerationOptions, runNativeInference, loadCognitiveMemory, compactInferenceMessages, voiceGenerationTokenBudget, completeTruncatedNativeInference } from '../src/api/native-chat.js';
 
 test('promoted inference generation settings reach the direct AI payload', async () => {
   const calls = [];
@@ -89,4 +89,42 @@ test('voice token budgets avoid 160-180-token incomplete responses while remaini
   assert.equal(voiceGenerationTokenBudget({ max_tokens: 3072 }), 1024);
   assert.equal(voiceGenerationTokenBudget({ max_tokens: 3072 }, { fallback: true }), 768);
   assert.equal(voiceGenerationTokenBudget({ max_tokens: -1 }), 768);
+});
+
+
+test('native chat continues only explicit token-limit truncations, once', async () => {
+  let calls = 0;
+  const messages = [{role:'system',content:'Sois exact'}, {role:'user',content:'Explique le protocole'}];
+  const initial = {text:'Le protocole comprend trois étapes,',truncated:true,finish_reason:'length',model:'test'};
+  const result = await completeTruncatedNativeInference(initial, messages, async nextMessages => {
+    calls += 1;
+    assert.equal(nextMessages.at(-2).role,'assistant');
+    assert.equal(nextMessages.at(-2).content,initial.text);
+    assert.match(nextMessages.at(-1).content,/Continue uniquement/);
+    return {text:'puis il se termine.',truncated:false,finish_reason:'stop'};
+  });
+  assert.equal(calls,1);
+  assert.equal(result.text,'Le protocole comprend trois étapes, puis il se termine.');
+  assert.equal(result.truncated,false);
+  assert.equal(result.continuation_succeeded,true);
+  assert.equal(result.finish_reason,'stop');
+  await completeTruncatedNativeInference({text:'Réponse complète.',truncated:false,finish_reason:'stop'}, messages,async () => {calls++;});
+  assert.equal(calls,1);
+});
+
+test('native chat keeps truncation visible if continuation fails or truncates again',async()=>{
+  const initial={text:'Explication commencée',truncated:true,finish_reason:'length'};
+  const broken=await completeTruncatedNativeInference(initial,[],async()=>{throw Error('network');});
+  assert.equal(broken.text,initial.text);
+  assert.equal(broken.truncated,true);
+  assert.equal(broken.continuation_attempted,true);
+  const repeated=await completeTruncatedNativeInference(initial,[],async()=>({text:' mais pas finie',truncated:true,finish_reason:'length'}));
+  assert.equal(repeated.truncated,true);
+  assert.equal(repeated.text,'Explication commencée mais pas finie');
+});
+
+test('native chat removes direct overlapping continuation text',async()=>{
+  const initial={text:'Un long morceau qui finit avec des mots répétés',truncated:true};
+  const result=await completeTruncatedNativeInference(initial,[],async()=>({text:'avec des mots répétés et une vraie conclusion.',finish_reason:'stop'}));
+  assert.equal(result.text,'Un long morceau qui finit avec des mots répétés et une vraie conclusion.');
 });

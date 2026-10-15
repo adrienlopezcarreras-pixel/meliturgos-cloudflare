@@ -921,6 +921,38 @@ function nativeCapabilityContext(env, request = null, options = {}) {
   };
 }
 
+// At most one continuation: never loop indefinitely or hide an incomplete reply.
+export async function completeTruncatedNativeInference(initial, messages, inferContinuation) {
+  const head = String(initial?.text || '').trim();
+  if (!head || !(initial?.truncated === true || isTruncationFinishReason(initial?.finish_reason)) || typeof inferContinuation !== 'function') return initial;
+  const continuationMessages = [
+    ...(Array.isArray(messages) ? messages : []),
+    { role: 'assistant', content: head.slice(-8000) },
+    { role: 'user', content: 'Continue uniquement la réponse interrompue, à partir du point exact où elle s’arrête. Ne répète pas le début, ne change pas de sujet, termine la phrase.' },
+  ];
+  try {
+    const next = await inferContinuation(continuationMessages);
+    let tail = String(next?.text || '').trim().slice(0, 10000);
+    if (!tail) return { ...initial, continuation_attempted: true, truncated: true };
+    const maxOverlap = Math.min(400, head.length, tail.length);
+    for (let overlap = maxOverlap; overlap >= 16; overlap -= 1) {
+      if (head.slice(-overlap) === tail.slice(0, overlap)) { tail = tail.slice(overlap).trimStart(); break; }
+    }
+    if (!tail) return { ...initial, continuation_attempted: true, truncated: true };
+    const separator = /^[.,;:!?)]/.test(tail) ? '' : ' ';
+    return {
+      ...initial,
+      text: (head + separator + tail).slice(0, 60000),
+      finish_reason: next?.finish_reason || null,
+      truncated: next?.truncated === true || isTruncationFinishReason(next?.finish_reason),
+      continuation_attempted: true,
+      continuation_succeeded: true,
+    };
+  } catch {
+    return { ...initial, continuation_attempted: true, truncated: true };
+  }
+}
+
 export async function runNativeInference({ env, messages, text, parallel = false, maxCandidates = 4, inferenceSettings = null, activeAdapter = null, runtime = null, taskOverride = null, preferredModel = null, timeoutMs = null, maxCalls = null } = {}) {
   if (!env?.AI || typeof env.AI.run !== 'function') {
     const error = new Error('AI_BINDING_MISSING');
@@ -1549,6 +1581,25 @@ export async function handleNativeChat(request, env, options = {}) {
         }, { status: 503, headers: { 'cache-control': 'no-store' } });
       }
     }
+  }
+
+  // Native Android chat bypasses the /api/chat defaults; finish explicitly
+  // reported token-limit truncations with one bounded continuation only.
+  if (ai.truncated === true || isTruncationFinishReason(ai.finish_reason)) {
+    ai = await completeTruncatedNativeInference(ai, messages, continuationMessages => runNativeInference({
+      env,
+      messages: continuationMessages,
+      text: 'Continue la réponse interrompue',
+      parallel: false,
+      maxCandidates: 1,
+      inferenceSettings: effectiveInferenceSettings,
+      activeAdapter,
+      runtime,
+      taskOverride: voiceReply ? 'FAST' : 'REASONING',
+      preferredModel: voiceReply ? '@cf/zai-org/glm-4.7-flash' : (String(ai.model || '').startsWith('@cf/') ? ai.model : null),
+      timeoutMs: voiceReply ? 6000 : 12000,
+      maxCalls: 1,
+    }));
   }
 
   const modelResponseText = stripInternalCounters(ai.text);
