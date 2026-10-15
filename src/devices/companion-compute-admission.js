@@ -36,3 +36,19 @@ export function evaluateMeasuredOptionalCompute({telemetry,now=Date.now(),...req
  return evaluateOptionalCompute({...request,onBattery:on_battery,userBusy:user_busy,
    freeRamMb:free_ram_mb,gpuAvailable:gpu_available,activeJobs:active_jobs});
 }
+
+/**
+ * Companion has TWO authenticated heartbeat senders. The native Windows
+ * supervisor (version field) owns resource samples; PowerShell (engine_version)
+ * reports engine health but has no resource probe. Missing PowerShell telemetry
+ * must not destroy a valid native CPU/RAM sample, while native failures,
+ * explicit invalid telemetry or revoked opt-in must always fail closed.
+ */
+export function shouldInvalidateOptionalComputeTelemetryOnHeartbeat({
+ enabled=false,body={}
+}={}){
+ if(enabled!==true)return true;
+ if(!body||typeof body!=='object')return true;
+ return Object.prototype.hasOwnProperty.call(body,'version')
+   || Object.prototype.hasOwnProperty.call(body,'local_compute_telemetry');
+}
