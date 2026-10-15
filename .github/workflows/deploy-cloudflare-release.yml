@@ -485,8 +485,11 @@ jobs:
             exit 53
           fi
 
+          # A workers.dev route can briefly return Cloudflare edge 1042 (404)
+          # after authenticated /health succeeds. Give edge propagation a
+          # bounded retry window; never accept it as a successful backup.
           PREPARED=0
-          for ATTEMPT in $(seq 1 4); do
+          for ATTEMPT in $(seq 1 20); do
             CODE="$(curl --silent --show-error --max-time 45 \
               --request POST \
               --header "x-mel-predeploy-binder: ${BINDER_TOKEN}" \
@@ -511,10 +514,23 @@ jobs:
               PREPARED=1
               break
             fi
-            echo "Pre-deploy binder prepare attempt ${ATTEMPT}/4 returned HTTP ${CODE}."
+            echo "Pre-deploy binder prepare attempt ${ATTEMPT}/20 returned HTTP ${CODE}."
             test ! -s predeploy-backup.json || cat predeploy-backup.json
-            if [ "${CODE}" = "409" ]; then break; fi
-            sleep 2
+            # 409 means no verified backup; auth errors and genuine 404s
+            # cannot be healed by retrying the release.
+            if [ "${CODE}" = "409" ] || [ "${CODE}" = "401" ] || [ "${CODE}" = "403" ]; then
+              break
+            fi
+            if [ "${CODE}" = "404" ] && ! grep -Eiq 'error code:[[:space:]]*1042' predeploy-backup.json; then
+              echo "Unexpected binder HTTP 404 without Cloudflare edge 1042; refusing to retry."
+              break
+            fi
+            # Allow temporary 1042 edge routing or 5xx service propagation
+            # to settle; all iterations retain exact snapshot and pause proofs.
+            if [ "${CODE}" != "404" ] && [ "${CODE}" != "000" ] && [[ ! "${CODE}" =~ ^5[0-9][0-9]$ ]]; then
+              break
+            fi
+            sleep 4
           done
           if [ "${PREPARED}" != "1" ]; then
             exit 54
