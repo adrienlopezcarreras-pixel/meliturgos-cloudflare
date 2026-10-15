@@ -1,0 +1,25 @@
+name: Evolution inbox CI
+on:
+  pull_request:
+    paths:
+      - 'src/roadmap/evolution-*.js'
+      - 'tests/roadmap/evolution-*.test.mjs'
+      - '.github/workflows/evolution-inbox-ci.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  evolution:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check syntax
+        run: |
+          node --check src/roadmap/evolution-inbox.js
+          node --check src/roadmap/evolution-storage.js
+      - name: Run evolution contract tests
+        run: node --test tests/roadmap/evolution-inbox.test.mjs tests/roadmap/evolution-storage.test.mjs
