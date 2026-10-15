@@ -32,13 +32,13 @@ export function evaluateCouncilReleaseProof(body) {
   const verdict = code => ({ ok: code === 'MEL_COUNCIL_02_VERIFIED', code, summary });
   if (body?.ok !== true || body?.capability !== 'model.council') return verdict('MEL_COUNCIL_02_CAPABILITY_NOT_OK');
   if (critiques.length < 2) return verdict('MEL_COUNCIL_02_INDEPENDENT_CRITIQUES_MISSING');
+  if (critiques.some(c => !c?.identity || !c?.provenance?.provider || !c?.provenance?.model))
+    return verdict('MEL_COUNCIL_02_PROVENANCE_MISSING');
   if (summary.reported_independent_count < 2 || summary.reported_unique_model_count < 2 || uniquePairs < 2)
     return verdict('MEL_COUNCIL_02_UNIQUENESS_FAILED');
   if (r?.synthesis?.status !== 'COMPLETE' || !String(r?.synthesis?.text || '').trim())
     return verdict('MEL_COUNCIL_02_SYNTHESIS_FAILED');
   for (const c of critiques) {
-    if (!c?.identity || !c?.provenance?.provider || !c?.provenance?.model)
-      return verdict('MEL_COUNCIL_02_PROVENANCE_MISSING');
     if (c?.cost?.allowed !== true || c?.cost?.policy !== 'MEL_ZERO_EURO_V1')
       return verdict('MEL_COUNCIL_02_ZERO_COST_PROOF_FAILED');
   }
