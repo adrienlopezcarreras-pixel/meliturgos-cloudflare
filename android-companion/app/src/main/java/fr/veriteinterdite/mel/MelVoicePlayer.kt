@@ -215,7 +215,12 @@ object MelVoicePlayer {
         require(isLikelyMp3(bytes)) { "TTS_AUDIO_FORMAT_INVALID" }
         val startedAt = System.currentTimeMillis()
         val file = File.createTempFile("mel-voice-", ".mp3", context.cacheDir)
-        val player = MediaPlayer()
+        val player = try {
+            MediaPlayer()
+        } catch (error: Throwable) {
+            file.delete()
+            throw error
+        }
         var registered = false
         try {
             file.writeBytes(bytes)
@@ -261,20 +266,22 @@ object MelVoicePlayer {
             if (failed) throw IllegalStateException("MP3_PLAYBACK_FAILED")
             return (System.currentTimeMillis() - startedAt).coerceAtLeast(1L)
         } finally {
-            synchronized(lock) {
-                if (activePlayer === player) {
-                    activePlayer = null
-                    runCatching { player.stop() }
-                    player.release()
-                } else if (!registered) {
-                    // MediaPlayer failed before becoming the active playback.
-                    runCatching { player.release() }
+            try {
+                synchronized(lock) {
+                    if (activePlayer === player) {
+                        activePlayer = null
+                        runCatching { player.stop() }
+                        player.release()
+                    } else if (!registered) {
+                        // MediaPlayer failed before becoming the active playback.
+                        runCatching { player.release() }
+                    }
+                    // If replaced/stopped, stopLocked already released it.
                 }
-                // If playback was replaced/stopped, stopLocked owns the release.
+            } finally {
+                // Cleanup must run even if a vendor MediaPlayer.release() throws.
+                file.delete()
             }
-            // Always remove the private cache file, including after barge-in,
-            // player preparation errors and media callbacks reporting failure.
-            file.delete()
         }
     }
 
