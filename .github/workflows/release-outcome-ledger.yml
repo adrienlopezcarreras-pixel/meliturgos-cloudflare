@@ -4,15 +4,24 @@ on:
   workflow_run:
     workflows: ['deploy-cloudflare-release']
     types: [completed]
+  workflow_dispatch:
+  schedule:
+    - cron: '23 * * * *'
   pull_request:
     branches: [main]
     paths:
       - 'scripts/release-outcome-ledger.mjs'
+      - 'scripts/release-outcome-reconcile.mjs'
       - 'tests/release-outcome-ledger.test.mjs'
+      - 'tests/release-outcome-reconcile.test.mjs'
       - '.github/workflows/release-outcome-ledger.yml'
 
 permissions:
   contents: read
+
+concurrency:
+  group: mel-release-outcome-ledger
+  cancel-in-progress: false
 
 jobs:
   contract:
@@ -27,7 +36,7 @@ jobs:
         with:
           node-version: '22'
       - name: Run scoped release event and formatting tests
-        run: node --test tests/release-outcome-ledger.test.mjs
+        run: node --test tests/release-outcome-ledger.test.mjs tests/release-outcome-reconcile.test.mjs
 
   record:
     if: >-
@@ -64,3 +73,24 @@ jobs:
             -H 'Accept: application/vnd.github+json' \
             "repos/${GITHUB_REPOSITORY}/issues/1516/comments" \
             -f "body=$(cat /tmp/mel-release-outcome.md)" >/dev/null
+
+  reconcile:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+      issues: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: main
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '22'
+      - name: Reconcile recently completed exact-SHA releases without duplicates
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/release-outcome-reconcile.mjs
