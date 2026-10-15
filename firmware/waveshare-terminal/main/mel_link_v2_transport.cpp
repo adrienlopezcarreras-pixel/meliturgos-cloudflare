@@ -2,6 +2,7 @@
 #include "mel_link_v2_protocol.h"
 #include "mel_mini_phase_v1.h"
 #include "mel_mini_phase_capability.h"
+#include "mel_mini_phase_capability_wire_v1.h"
 #include "mel_mini_phase_session_guard.h"
 #include "mel_link_v2_server.h"
 #include "mel_ima_adpcm.h"
@@ -182,6 +183,21 @@ static void rx_frame(const uint8_t *frame, size_t len, void *ctx) {
         // Send ACK from handshake task, never block the NimBLE GATT write callback.
         g_session_ack_pending.store(true);
         ESP_LOGI(TAG, "Android V2 session ready clock=%s", clock_ok ? "OK" : "UNAVAILABLE");
+        return;
+    }
+
+    // Parse capability requests separately from phase/audio traffic, but never
+    // authorize on reception: explicit local support and ACK are not live yet.
+    if (header.type == MEL_LINK_V2_TRIAD_CAPABILITY_REQUEST) {
+        MelMiniPhaseCapabilityRequestV1 request = {};
+        if (header.stream_id != 0 || !g_session_ready.load() ||
+            !mel_link_v2_server_ready() ||
+            !mel_mini_phase_capability_request_v1_decode(payload, header.payload_len, &request)) {
+            ESP_LOGW(TAG, "TRIAD_CAPABILITY_REQUEST rejected: session or payload");
+            return;
+        }
+        // Never call grant() here; this is only an inert wire-format probe.
+        ESP_LOGW(TAG, "TRIAD_CAPABILITY_REQUEST rejected: local opt-in unavailable");
         return;
     }
 
