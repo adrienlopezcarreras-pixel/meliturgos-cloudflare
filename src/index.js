@@ -101,6 +101,7 @@ function aiFinishReason(result) {
 }
 
 function aiWasTruncated(result) {
+  if (result && typeof result === 'object' && (result.truncated === true || result.mel_response_incomplete === true)) return true;
   const reason = aiFinishReason(result);
   if (!reason) return false;
   return ['length','max_tokens','max_token','max_output_tokens','token_limit','context_length','max_length'].includes(reason)
