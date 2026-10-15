@@ -550,8 +550,10 @@ class MelViewModel(
             error = null
         )
         viewModelScope.launch(Dispatchers.IO) {
+            val voiceRequestStartedAt = SystemClock.elapsedRealtime()
             try {
                 val transcript = client.transcribe(audioBytes, mimeType).optString("text").trim()
+                appendDiagnosticLine("Voix transcription · ${SystemClock.elapsedRealtime() - voiceRequestStartedAt} ms")
                 if (transcript.isBlank()) throw MelApiException("TRANSCRIPTION_EMPTY", 502)
                 val mode = _state.value.mode
                 val localAnswer = localMiniAnswer(transcript)
@@ -567,6 +569,7 @@ class MelViewModel(
                     )
                     appendDiagnosticLine("MINI voice fast-path: ${MelLinkV2ClientService.bridgeState.value}")
                     speakAnswer(localAnswer, mode)
+                    appendDiagnosticLine("Voix locale complète · ${SystemClock.elapsedRealtime() - voiceRequestStartedAt} ms")
                     appendDiagnosticLine("Micro réel: OK · réponse MINI locale")
                     return@launch
                 }
@@ -574,11 +577,13 @@ class MelViewModel(
                     status = "MEL réfléchit…",
                     messages = _state.value.messages + MelChatMessage("user", transcript, voice = true)
                 )
+                val chatStartedAt = SystemClock.elapsedRealtime()
                 val response = chatWithRecovery(
                     text = transcript,
                     voice = true,
                     mode = mode
                 )
+                appendDiagnosticLine("Voix chat serveur · ${SystemClock.elapsedRealtime() - chatStartedAt} ms")
                 val answer = response.optString("text", response.optString("response", "")).trim()
                 if (answer.isBlank()) throw MelApiException("EMPTY_RESPONSE", 502)
                 _state.value = _state.value.copy(
@@ -588,8 +593,10 @@ class MelViewModel(
                     messages = _state.value.messages + MelChatMessage("mel", displayChatAnswer(answer, response))
                 )
                 speakAnswer(answer, mode)
+                appendDiagnosticLine("Voix complète · ${SystemClock.elapsedRealtime() - voiceRequestStartedAt} ms")
                 appendDiagnosticLine("Micro réel: OK")
             } catch (error: Throwable) {
+                appendDiagnosticLine("Voix échec · ${SystemClock.elapsedRealtime() - voiceRequestStartedAt} ms · ${error.javaClass.simpleName}")
                 if (isInvalidSession(error)) {
                     vault.clear()
                     MelBackground.cancel(appContext)
