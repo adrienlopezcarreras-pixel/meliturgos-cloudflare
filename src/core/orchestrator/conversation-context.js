@@ -16,7 +16,7 @@ function compactHistoricalRows(rows = []) {
   }));
 }
 
-function dedupeRows(rows = []) {
+export function dedupeRows(rows = []) {
   const seen = new Set();
   const out = [];
   for (const row of rows) {
