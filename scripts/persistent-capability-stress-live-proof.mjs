@@ -221,6 +221,8 @@ async function main() {
         assert(resume.body?.ok === true && resume.body?.capability === 'capability.audit',
           'CAPABILITY_STRESS_RESUME_NOT_OK');
         assert(resumed?.persistent === true, 'CAPABILITY_STRESS_RESUME_NOT_PERSISTENT');
+        assert(/^cap-stress-[a-zA-Z0-9-]+$/.test(String(resumed?.job_id || '')),
+          'CAPABILITY_STRESS_RESUME_JOB_ID_INVALID');
         if (String(resumed?.job_id || '') !== jobId) {
           // The generic start endpoint may return another active audit after the
           // tracked audit transitions to terminal. Do not credit that other job:
