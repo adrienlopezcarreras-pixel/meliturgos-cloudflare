@@ -2428,6 +2428,15 @@ function Perform-Step($step, [string]$commandId, [string]$planSchema="") {
       [System.Windows.Forms.SendKeys]::SendWait("{F5}")
       return @{ action=$action; browser=$browser }
     }
+    "browser.capture" {
+      # Screenshot includes the entire desktop: require local capture opt-in and explicit step approval.
+      $browser = Assert-ForegroundBrowser
+      Assert-UnattendedCapturePermission
+      $shot = Upload-Screenshot $commandId
+      if ([string]$shot.key -eq '' -or [string]$shot.view_url -eq '' -or
+          [string]$shot.key -notlike "computer/screenshots/$ComputerId/*") { throw "SCREENSHOT_UPLOAD_UNCONFIRMED" }
+      return @{ action=$action; browser=$browser; screenshot_key=$shot.key; view_url=$shot.view_url; full_desktop_capture=$true }
+    }
     "browser.inspect" {
       $browser = Assert-ForegroundBrowser
       $title = Active-Window
