@@ -20,5 +20,7 @@ test('Windows inspection does not expose page content or credentials', async () 
   assert.match(handler,/Assert-ForegroundBrowser/);
   assert.match(handler,/Active-Window/);
   assert.match(handler,/read_only=\$true/);
+  assert.match(handler,/observed_at_utc=/);
+  assert.match(handler,/window_handle=/);
   assert.doesNotMatch(handler,/Get-Clipboard|Upload-Screenshot|Invoke-WebRequest|Get-Credential/);
 });
