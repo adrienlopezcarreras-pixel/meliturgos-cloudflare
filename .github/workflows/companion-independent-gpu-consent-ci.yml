@@ -1,0 +1,24 @@
+name: Companion GPU Owner Consent CI
+on:
+  pull_request:
+    paths:
+      - 'windows-companion/MEL-Companion.cs'
+      - 'assets/MEL-Computer-Companion.ps1'
+      - 'dist/MEL-Computer-Companion.ps1'
+      - 'src/devices/computer-companion-api.js'
+      - 'tests/companion-legacy-screenshot-consent.test.mjs'
+      - 'tests/gen2/companion-native-compute-optin.test.mjs'
+      - 'tests/gen2/companion-independent-gpu-consent.test.mjs'
+      - '.github/workflows/companion-independent-gpu-consent-ci.yml'
+permissions:
+  contents: read
+jobs:
+  consent:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node --test tests/gen2/companion-independent-gpu-consent.test.mjs tests/gen2/companion-native-compute-optin.test.mjs tests/companion-legacy-screenshot-consent.test.mjs

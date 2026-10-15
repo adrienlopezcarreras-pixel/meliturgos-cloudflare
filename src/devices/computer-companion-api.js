@@ -527,6 +527,7 @@ async function heartbeat(request,env,a){
  // Fail closed on every heartbeat: legacy clients and malformed values cannot
  // preserve a previous opt-in after the local control disappears.
  patch.local_compute_enabled=b.local_compute_enabled===true;
+ patch.local_compute_gpu_enabled=patch.local_compute_enabled&&b.local_compute_gpu_enabled===true;
  if(["light","balanced","performance"].includes(b.local_compute_profile))
    patch.local_compute_profile=b.local_compute_profile;
  const telemetry=b.local_compute_telemetry;
@@ -563,6 +564,7 @@ async function heartbeat(request,env,a){
    server_time:now,
    engine_online:engineOnline,
    local_compute_enabled:metadata.local_compute_enabled===true,
+   local_compute_gpu_enabled:metadata.local_compute_gpu_enabled===true,
    local_compute_admission:{allowed:computeAdmission.allowed,reason:computeAdmission.reason},
    engine_version:engineVersion,
    engine_last_seen_at:engineHeartbeatAt||null,
