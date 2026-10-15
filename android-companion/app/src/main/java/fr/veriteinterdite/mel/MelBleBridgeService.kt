@@ -431,10 +431,13 @@ class MelBleBridgeService : Service() {
             .build()
         val callback = object : AdvertiseCallback() {
             override fun onStartSuccess(settingsInEffect: AdvertiseSettings?) {
+                // Ignore delayed callbacks from an advertising session already stopped.
+                if (advertiseCallback !== this) return
                 bridgeState.value = "PRET"
                 Log.i(TAG, "MEL Mobile advertising started")
             }
             override fun onStartFailure(errorCode: Int) {
+                if (advertiseCallback !== this) return
                 advertiseCallback = null
                 bridgeState.value = "ERREUR BLE $errorCode"
                 Log.e(TAG, "MEL Mobile advertising failed code=$errorCode; watchdog will retry")
