@@ -50,7 +50,6 @@ test('concurrent same-owner ID case collisions fail atomically',async()=>{
 test('legacy case collisions fail migration with explicit diagnostic',async()=>{
  const db=sqliteD1();
  try{
-  const sql=await readFile(new URL('../../migrations/0018_evolution_development.sql',import.meta.url),'utf8');
   await db.prepare('CREATE TABLE mel_evolution_items(owner_scope TEXT NOT NULL,id TEXT NOT NULL,canonical_title TEXT NOT NULL,payload TEXT NOT NULL,revision INTEGER NOT NULL DEFAULT 1,updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,PRIMARY KEY(owner_scope,id),UNIQUE(owner_scope,canonical_title))').run();
   await db.prepare('INSERT INTO mel_evolution_items(owner_scope,id,canonical_title,payload) VALUES(?,?,?,?)').bind('owner','MEL-ID','title one','{}').run();
   await db.prepare('INSERT INTO mel_evolution_items(owner_scope,id,canonical_title,payload) VALUES(?,?,?,?)').bind('owner','mel-id','title two','{}').run();
