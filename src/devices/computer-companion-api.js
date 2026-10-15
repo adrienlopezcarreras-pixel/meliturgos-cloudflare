@@ -9,6 +9,7 @@ import {
  shouldInvalidateOptionalComputeTelemetryOnHeartbeat,
  evaluateQueuedOptionalComputeClaim,
  evaluateOptionalAiResultDeadline,
+ getOwnerCompanionComputeReadiness,
 } from "./companion-compute-admission.js";
 import { miniReadOnlyPcCommand } from "./mini-readonly-companion.js";
 import { miniMaintenanceAssessCommand } from "./mini-maintenance-companion.js";
@@ -116,7 +117,11 @@ async function pair(request,env){
 
 async function ownerStatus(request,env,url){
  const a=await authorizeOwnerOrPcProof(request,env);if(!a.ok)return a.response;await tables(env);
- const rows=await env.DB.prepare("SELECT * FROM computer_devices ORDER BY last_seen_at DESC LIMIT 20").all();const devices=(rows.results||[]).map(normalizeDevice);
+ const rows=await env.DB.prepare("SELECT * FROM computer_devices ORDER BY last_seen_at DESC LIMIT 20").all();
+ const statusAt=Date.now();
+ const devices=(rows.results||[]).map(normalizeDevice).map(device=>({
+   ...device,local_compute_admission:getOwnerCompanionComputeReadiness(device,{now:statusAt})
+ }));
  const id=url.searchParams.get("computer_id")||devices[0]?.id||"";let commands=[];
  if(id){const q=await env.DB.prepare("SELECT * FROM computer_commands WHERE device_id=? ORDER BY created_at DESC LIMIT 30").bind(id).all();commands=(q.results||[]).map(normalizeCommand)}
  return json({ok:true,devices,selected_id:id||null,commands});

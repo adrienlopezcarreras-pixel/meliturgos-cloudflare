@@ -101,3 +101,33 @@ export function evaluateOptionalAiResultDeadline({plan,now=Date.now()}={}){
   return {ok:false,code:'LOCAL_AI_RESULT_EXPIRED'};
  return {ok:true,reason:'LOCAL_AI_RESULT_ON_TIME'};
 }
+
+/**
+ * Owner-facing, read-only truth about OPTIONAL PC compute readiness.
+ * Neither presence of a GPU toggle nor an online shell is a test of actual
+ * inference; this reports the narrow pre-admission decision and its cause.
+ */
+export function getOwnerCompanionComputeReadiness(device,{now=Date.now()}={}){
+ const m=device?.metadata&&typeof device.metadata==='object'?device.metadata:{};
+ const lastSeen=Number(device?.last_seen_at);
+ const engineSeen=Number(m.engine_heartbeat_at);
+ const nativeOnline=Number.isFinite(lastSeen)&&lastSeen>0&&lastSeen<=now&&now-lastSeen<35000;
+ const engineOnline=Number.isFinite(engineSeen)&&engineSeen>0&&engineSeen<=now&&now-engineSeen<35000;
+ const decision=evaluateMeasuredOptionalCompute({
+   enabled:m.local_compute_enabled===true,
+   profile:m.local_compute_profile||'off',
+   online:nativeOnline&&engineOnline,
+   halted:device?.halted===true||Number(device?.halted)===1,
+   telemetry:m.local_compute_telemetry,
+   now
+ });
+ const observedAt=Number(m.local_compute_telemetry?.observed_at);
+ return{
+   allowed:decision.allowed===true,
+   reason:decision.reason,
+   profile:['light','balanced','performance'].includes(m.local_compute_profile)?m.local_compute_profile:'off',
+   gpu_consent:m.local_compute_enabled===true&&m.local_compute_gpu_enabled===true,
+   gpu_compute_proven:false, // Actual Ollama VRAM evidence is per completed request.
+   telemetry_at:Number.isFinite(observedAt)&&observedAt>0?observedAt:null
+ };
+}
