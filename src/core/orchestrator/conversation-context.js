@@ -28,7 +28,7 @@ export function dedupeRows(rows = []) {
     // Keep distinct evidence while deduplicating identical fallback records.
     const key = id != null && String(id) !== ''
       ? `${source}:${String(id)}`
-      : JSON.stringify([source, row?.conversation_id || row?.provenance?.conversation_id || '', row?.role || '', row?.timestamp ?? row?.provenance?.timestamp ?? '', row?.content || '']);
+      : JSON.stringify([source, String(row?.conversation_id || row?.provenance?.conversation_id || ''), String(row?.role || ''), String(row?.timestamp ?? row?.provenance?.timestamp ?? ''), row?.content || '']);
     if (seen.has(key)) continue;
     seen.add(key);
     out.push(row);
