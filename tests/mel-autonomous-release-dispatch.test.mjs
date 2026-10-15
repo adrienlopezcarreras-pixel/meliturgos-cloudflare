@@ -374,3 +374,36 @@ test('catch-up validates the source workflow SHA fail closed',async()=>{
     /COMPLETED_RELEASE_SHA_INVALID/
   );
 });
+
+test('autonomous release refuses to dispatch if main changes during promotion', async () => {
+  let mainReads = 0;
+  let releaseSha = OLD_SHA;
+  const calls = [];
+  const fakeFetch = async (url, request) => {
+    const path = new URL(url).pathname;
+    calls.push(request.method + ' ' + path);
+    if (path.endsWith('/branches/main')) {
+      mainReads += 1;
+      return { ok: true, status: 200, json: async () => ({
+        commit: { sha: mainReads === 1 ? MAIN_SHA : 'c'.repeat(40) },
+      }) };
+    }
+    if (path.endsWith('/branches/' + RELEASE_BRANCH))
+      return { ok: true, status: 200, json: async () => ({ commit: { sha: releaseSha } }) };
+    if (path.endsWith('/actions/workflows/deploy-cloudflare-release.yml/runs'))
+      return { ok: true, status: 200, json: async () => ({ workflow_runs: [] }) };
+    if (path.endsWith('/git/refs/heads/' + RELEASE_BRANCH)) {
+      releaseSha = JSON.parse(request.body).sha;
+      return { ok: true, status: 200, json: async () => ({}) };
+    }
+    if (path.endsWith('/dispatches'))
+      throw new Error('STALE_RELEASE_DISPATCH_FORBIDDEN');
+    throw new Error('Unexpected endpoint: ' + path);
+  };
+  await assert.rejects(
+    () => requestAutonomousRelease({ token: 'TEST_ONLY', fetchImpl: fakeFetch }),
+    /CANONICAL_MAIN_CHANGED_BEFORE_DISPATCH/,
+  );
+  assert.equal(mainReads, 2);
+  assert.ok(!calls.some(call => call.startsWith('POST ')));
+});
