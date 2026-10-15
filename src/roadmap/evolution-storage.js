@@ -78,9 +78,21 @@ export async function changeEvolutionStatus(db, owner, id, expectedRevision, nex
  if (!write?.success || write.meta?.changes!==1) throw new Error('EVOLUTION_CONFLICT');
  return {item:updated,revision:expectedRevision+1};
 }
+export async function readInitialArchive(db) {
+ const row=await database(db).prepare('SELECT archive_id,source_sha,verified_count,total_count,proof_reference,closed_at FROM mel_evolution_initial_archive ORDER BY closed_at DESC,archive_id DESC LIMIT 1').first();
+ if (!row) return null;
+ const sha=String(row.source_sha||'');
+ if (!/^[a-f0-9]{40}$/.test(sha) || !String(row.archive_id||'').trim() || !String(row.proof_reference||'').trim() || !String(row.closed_at||'').trim() ||
+     !Number.isSafeInteger(row.total_count) || row.total_count<1 ||
+     !Number.isSafeInteger(row.verified_count) || row.verified_count!==row.total_count) {
+  throw new Error('EVOLUTION_ARCHIVE_INVALID');
+ }
+ return Object.freeze({archive_id:row.archive_id,source_sha:sha,proof_reference:row.proof_reference,closed_at:row.closed_at,total:row.total_count,verified:row.verified_count});
+}
 export async function getEvolutionDashboard(db, owner, initial, incidents=[]) {
  const items=await listEvolutionItems(db,owner);
- const snapshot=evolutionSnapshot({initial,items,incidents});
- // A live roadmap count is not an immutable historical close-out certificate.
- return Object.freeze({...snapshot,initial_scope:'CURRENT_REGISTRY_NOT_ARCHIVED'});
+ const archive=await readInitialArchive(db);
+ const verifiedInitial=archive?{total:archive.total,verified:archive.verified}:initial;
+ const snapshot=evolutionSnapshot({initial:verifiedInitial,items,incidents});
+ return Object.freeze({...snapshot,initial_scope:archive?'ARCHIVED_VERIFIED':'CURRENT_REGISTRY_NOT_ARCHIVED',archive:archive??null});
 }
