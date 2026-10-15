@@ -1,3 +1,4 @@
+import { tryOptionalNativeCompanionFallback } from './native-companion-fallback.js';
 import { createGen2Runtime } from '../core/orchestrator/gen2-runtime.js';
 import { buildContext } from '../core/orchestrator/context-builder.js';
 import { createConversationService } from '../conversations/conversation-service.js';
@@ -1566,6 +1567,18 @@ export async function handleNativeChat(request, env, options = {}) {
         if (recovered) break;
       }
 
+      if (!recovered && !personalProfileIntent && !releaseSmoke
+          && toolResults.length === 0
+          && !privateConnectedDataRequest(activeTaskText)
+          && body.use_companion_compute !== false) {
+        // Real native-chat last resort, never a required provider: the local
+        // owner opt-in and fresh PC admission are checked inside the executor.
+        recovered = await tryOptionalNativeCompanionFallback({
+          env, messages:compactInferenceMessages(messages,{
+            systemChars:4000,historyChars:2500,maxHistoryMessages:4
+          }), inferenceSettings:effectiveInferenceSettings
+        });
+      }
       if (recovered) {
         ai = recovered;
       } else {
