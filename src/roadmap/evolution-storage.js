@@ -29,6 +29,16 @@ function ownerScope(owner) {
  if (typeof owner !== 'string' || !owner.trim() || owner.length > 200) throw new Error('EVOLUTION_OWNER_REQUIRED');
  return owner.trim();
 }
+// IDs become lowercase inside supervised job identifiers. Enforce owner-scoped
+// case-insensitive uniqueness at the database level so concurrent writers cannot
+// create ABC and abc and permanently block autonomy.
+export async function enforceEvolutionIdCaseIndex(db) {
+ const store=database(db);
+ const duplicate=await store.prepare('SELECT COUNT(*) AS n FROM mel_evolution_items GROUP BY owner_scope,lower(id) HAVING COUNT(*) > 1 LIMIT 1').first();
+ if (duplicate) throw new Error('EVOLUTION_CASE_COLLISION_MIGRATION_REQUIRED');
+ const result=await store.prepare('CREATE UNIQUE INDEX IF NOT EXISTS idx_mel_evolution_owner_id_nocase ON mel_evolution_items(owner_scope,lower(id))').run();
+ if (!result?.success) throw new Error('EVOLUTION_ID_CASE_INDEX_FAILED');
+}
 export async function initializeEvolutionStorage(db) {
  const store=database(db);
  for(const sql of [CREATE,
@@ -36,6 +46,7 @@ export async function initializeEvolutionStorage(db) {
   ARCHIVE,ARCHIVE_IMMUTABLE_UPDATE,ARCHIVE_IMMUTABLE_DELETE]) {
   await store.prepare(sql).run();
  }
+ await enforceEvolutionIdCaseIndex(store);
 }
 // Creating the loader never interprets a missing DB as an empty queue.
 // The supervisor catches the actual read failure and reports UNAVAILABLE.
@@ -61,7 +72,7 @@ export async function saveEvolutionProposal(db, owner, proposal) {
  const key=evolutionKey(candidate.title);
  const existing=await db.prepare('SELECT id FROM mel_evolution_items WHERE owner_scope = ? AND canonical_title = ?').bind(scope,key).first();
  if (existing) return {created:false,duplicate_of:existing.id};
- const idExisting=await db.prepare('SELECT id FROM mel_evolution_items WHERE owner_scope = ? AND id = ?').bind(scope,candidate.id).first();
+ const idExisting=await db.prepare('SELECT id FROM mel_evolution_items WHERE owner_scope = ? AND lower(id) = lower(?)').bind(scope,candidate.id).first();
  if (idExisting) throw new Error('EVOLUTION_DUPLICATE_ID');
  try {
   const inserted=await db.prepare('INSERT INTO mel_evolution_items (owner_scope,id,canonical_title,payload) VALUES (?,?,?,?)').bind(scope,candidate.id,key,JSON.stringify(candidate)).run();
@@ -70,7 +81,7 @@ export async function saveEvolutionProposal(db, owner, proposal) {
  } catch(error) {
   const collision=await db.prepare('SELECT id FROM mel_evolution_items WHERE owner_scope = ? AND canonical_title = ?').bind(scope,key).first();
   if (collision) return {created:false,duplicate_of:collision.id};
-  const idCollision=await db.prepare('SELECT id FROM mel_evolution_items WHERE owner_scope = ? AND id = ?').bind(scope,candidate.id).first();
+  const idCollision=await db.prepare('SELECT id FROM mel_evolution_items WHERE owner_scope = ? AND lower(id) = lower(?)').bind(scope,candidate.id).first();
   if (idCollision) throw new Error('EVOLUTION_DUPLICATE_ID');
   throw error;
  }
