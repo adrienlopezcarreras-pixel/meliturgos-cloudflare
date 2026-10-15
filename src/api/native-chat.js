@@ -795,7 +795,7 @@ export async function loadCognitiveMemory(env, limit = 12) {
   }
 }
 
-export // Fast voice responses still need enough space to finish a complete thought.
+// Fast voice responses still need enough space to finish a complete thought.
 // A budget is a ceiling, not a request to generate that many tokens.
 export function voiceGenerationTokenBudget(settings = null, { fallback = false } = {}) {
   const requested = Number(settings?.max_tokens);
@@ -805,7 +805,7 @@ export function voiceGenerationTokenBudget(settings = null, { fallback = false }
   return Math.min(fallback ? 768 : 1024, Math.max(384, preferred));
 }
 
-function inferenceGenerationOptions(settings = null) {
+export function inferenceGenerationOptions(settings = null) {
   if (!settings || typeof settings !== 'object') return {};
   const out = {};
   if (Number.isFinite(Number(settings.temperature))) out.temperature = Number(settings.temperature);
