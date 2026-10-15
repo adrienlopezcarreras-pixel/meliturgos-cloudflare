@@ -59,3 +59,10 @@ test('owner evolution review needs explicit confirmation, approval header and CA
  assert.match(ROADMAP_LIVE_REFRESH_PATCH,/data\?\.result\?\.item\?\.status!==action\.next/);
  assert.doesNotMatch(ROADMAP_LIVE_REFRESH_PATCH,/li\.innerHTML\s*=/);
 });
+
+test('evolution UI does not advertise owner review buttons without available permission',()=>{
+ assert.match(ROADMAP_LIVE_REFRESH_PATCH,/result\.review_access\?\.available===true/);
+ assert.match(ROADMAP_LIVE_REFRESH_PATCH,/Revue propriétaire non autorisée/);
+ assert.match(ROADMAP_LIVE_REFRESH_PATCH,/const options=!canReview \? \[\]/);
+ assert.doesNotMatch(ROADMAP_LIVE_REFRESH_PATCH,/li\.innerHTML\s*=/);
+});

@@ -61,12 +61,16 @@ export const ROADMAP_LIVE_REFRESH_PATCH = `<script id="mel-roadmap-live-refresh-
       status.textContent=archiveLabel+' · '+String(initial.verified??'?')+'/'+String(initial.total??'?')+
         ' vérifiés · '+String(evolution.total??0)+' développements évolutifs · '+
         operationalHealth+' · '+String(knownRegressions)+' régression(s) enregistrée(s)';
+      const canReview=result.review_access?.available===true;
       entries.replaceChildren();
+      if(!canReview){
+        status.textContent+=' · Revue propriétaire non autorisée (permission roadmap.approve absente)';
+      }
       for(const item of (Array.isArray(result.items)?result.items:[]).slice(0,30)){
         const li=document.createElement('li');
         li.textContent=String(item.id||'')+' · '+String(item.title||'')+' — '+String(item.status||'UNKNOWN');
         const actionStatus=String(item.status||'');
-        const options=actionStatus==='PROPOSED'
+        const options=!canReview ? [] : actionStatus==='PROPOSED'
           ? [{next:'TRIAGED',label:'Examiner'}]
           : actionStatus==='TRIAGED'
             ? [{next:'APPROVED',label:'Approuver'},{next:'REJECTED',label:'Rejeter'}]

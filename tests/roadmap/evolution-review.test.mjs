@@ -47,3 +47,20 @@ test('review rejects direct approval, unauthorized tenant, unsupported DONE and 
   assert.equal(row.items[0].status,'PROPOSED');
  } finally {db.close();}
 });
+
+test('evolution listing truthfully describes separate review permission',async()=>{
+ const {db,bus}=init();
+ try{
+  await initializeEvolutionStorage(db);
+  const ordinary=await bus.execute('evolution.list',{}, {owner,permissions:['roadmap.write']});
+  assert.deepEqual(ordinary.review_access,{
+   available:false,required_permission:'roadmap.approve',confirmation_required:true,auto_approval:false
+  });
+  const configured=await bus.execute('evolution.list',{}, {owner,permissions:['roadmap.write','roadmap.approve']});
+  assert.equal(configured.review_access.available,true);
+  assert.equal(configured.review_access.auto_approval,false);
+  // Still requires separate per-request approval even when the permission exists.
+  await bus.execute('evolution.propose',candidate,{owner,permissions:['roadmap.write']});
+  await assert.rejects(bus.execute('evolution.review',{id:candidate.id,expected_revision:1,next:'TRIAGED'},{owner,permissions:['roadmap.approve']}),/EXPLICIT_APPROVAL_REQUIRED/);
+ }finally{db.close();}
+});

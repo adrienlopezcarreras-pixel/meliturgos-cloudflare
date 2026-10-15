@@ -17,7 +17,12 @@ export function registerEvolutionCapabilities(bus,{db}={}) {
  bus.discover({...common,id:'evolution.list',name:'Bac de développement MEL',description:'Read current evolutions without changing the historical roadmap',risk:'LOW',permissions:[],input_schema:{type:'object',properties:{},additionalProperties:false}},async(_input,context={})=>{
   if(!db)throw new Error('EVOLUTION_D1_REQUIRED');
   const initial=roadmapSummary();
-  return getEvolutionDashboard(db,context.owner,{total:initial.total,verified:initial.complete});
+  const result=await getEvolutionDashboard(db,context.owner,{total:initial.total,verified:initial.complete});
+  const reviewAllowed=Array.isArray(context.permissions)&&context.permissions.includes('roadmap.approve');
+  return {...result,review_access:{
+   available:reviewAllowed,required_permission:'roadmap.approve',
+   confirmation_required:true,auto_approval:false
+  }};
  });
  bus.discover({...common,id:'evolution.gap.capture',name:'Signaler une compétence absente',description:'Safely assess a capability gap and capture a deduplicated PROPOSED-only evolution',risk:'MEDIUM',permissions:['roadmap.write'],input_schema:{type:'object',properties:{goal:{type:'string',minLength:5,maxLength:240},threshold:{type:'integer',minimum:1,maximum:6}},required:['goal'],additionalProperties:false}},async(input,context={})=>{
   if(!db)throw new Error('EVOLUTION_D1_REQUIRED');
