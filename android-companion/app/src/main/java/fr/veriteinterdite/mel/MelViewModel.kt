@@ -664,14 +664,20 @@ class MelViewModel(
                 status = "MEL parle…",
                 error = null
             )
-            MelVoicePlayer.playSystemFrench(appContext, answer)
+            val storedVoiceLanguage = appContext.getSharedPreferences("mel_voice", Context.MODE_PRIVATE)
+                .getString("recognition_language", "fr-FR")
+            val spokenLanguage = when (storedVoiceLanguage) {
+                "es-ES", "pt-PT", "pt-BR" -> storedVoiceLanguage
+                else -> "fr-FR" // AUTO cannot assert a detected response language.
+            }
+            MelVoicePlayer.playSystemVoice(appContext, answer, spokenLanguage)
             _state.value = _state.value.copy(
                 busy = false,
                 speaking = false,
                 status = "MEL connectée · mode ${mode.label}",
                 error = null
             )
-            appendDiagnosticLine("Audio MEL: meilleure voix Android fr-FR")
+            appendDiagnosticLine("Audio MEL: voix Android " + spokenLanguage)
             return
         } catch (error: MelPlaybackInterruptedException) {
             _state.value = _state.value.copy(
