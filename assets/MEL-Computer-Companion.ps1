@@ -165,6 +165,8 @@ public static class MelNative {
   [DllImport("user32.dll")] public static extern bool GetCursorPos(out POINT lpPoint);
   [DllImport("user32.dll")] public static extern void mouse_event(uint flags, uint dx, uint dy, int data, UIntPtr extra);
   [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+  [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hwnd, out RECT rect);
+  [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left; public int Top; public int Right; public int Bottom; }
   [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
   [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern int GetWindowText(IntPtr hWnd, StringBuilder text, int count);
   [StructLayout(LayoutKind.Sequential)] public struct POINT { public int X; public int Y; }
@@ -245,8 +247,7 @@ function Send-Heartbeat {
   try { [void](Invoke-MelJson -Path "/api/computer/v1/heartbeat" -Method "POST" -Body $body) } catch {}
 }
 
-function Capture-PngBytes {
-  $bounds = [System.Windows.Forms.SystemInformation]::VirtualScreen
+function Capture-PngBytes([System.Drawing.Rectangle]$bounds = [System.Windows.Forms.SystemInformation]::VirtualScreen) {
   if ($bounds.Width -le 0 -or $bounds.Height -le 0) { throw "SCREENSHOT_DIMENSIONS_INVALID" }
   $bmp = New-Object System.Drawing.Bitmap $bounds.Width, $bounds.Height
   $g = [System.Drawing.Graphics]::FromImage($bmp)
@@ -288,11 +289,11 @@ function Capture-PngBytes {
   } finally { $bmp.Dispose() }
 }
 
-function Upload-Screenshot([string]$commandId) {
+function Upload-Screenshot([string]$commandId, [System.Drawing.Rectangle]$bounds = [System.Windows.Forms.SystemInformation]::VirtualScreen) {
   # Check before capture, then again immediately before transmission: capture can be slow.
   Assert-LocalRemoteAccess
   # Preserve a single raw byte[] so Invoke-RestMethod sends binary PNG, not an object stream.
-  [byte[]]$bytes = Capture-PngBytes
+  [byte[]]$bytes = Capture-PngBytes $bounds
   if ($bytes.Length -lt 8 -or $bytes.Length -gt (5 * 1024 * 1024)) { throw "SCREENSHOT_BINARY_PAYLOAD_INVALID" }
   Assert-LocalRemoteAccess
   $uri = "$Server/api/computer/v1/screenshot?command_id=$([uri]::EscapeDataString($commandId))"
@@ -2363,7 +2364,18 @@ function Perform-Step($step, [string]$commandId, [string]$planSchema="") {
     "screen.capture" {
       # Legacy computer-use captures still require explicit approval on this PC.
       Assert-UnattendedCapturePermission
-      $shot = Upload-Screenshot $commandId
+      $window = [MelNative]::GetForegroundWindow()
+      [MelNative+RECT]$rect = New-Object MelNative+RECT
+      if ($window -eq [IntPtr]::Zero -or -not [MelNative]::GetWindowRect($window, [ref]$rect)) { throw "BROWSER_CAPTURE_WINDOW_REQUIRED" }
+      $virtual = [System.Windows.Forms.SystemInformation]::VirtualScreen
+      $left = [Math]::Max($rect.Left, $virtual.Left)
+      $top = [Math]::Max($rect.Top, $virtual.Top)
+      $right = [Math]::Min($rect.Right, $virtual.Right)
+      $bottom = [Math]::Min($rect.Bottom, $virtual.Bottom)
+      if ($right -le $left -or $bottom -le $top) { throw "BROWSER_CAPTURE_WINDOW_BOUNDS_INVALID" }
+      if ([MelNative]::GetForegroundWindow() -ne $window -or (Assert-ForegroundBrowser) -ne $browser) { throw "BROWSER_CAPTURE_FOCUS_CHANGED" }
+      $bounds = New-Object System.Drawing.Rectangle($left, $top, ($right - $left), ($bottom - $top))
+      $shot = Upload-Screenshot $commandId $bounds
       if ([string]$shot.key -eq '' -or [string]$shot.view_url -eq '' -or
           [string]$shot.key -notlike "computer/screenshots/$ComputerId/*") {
         throw "SCREENSHOT_UPLOAD_UNCONFIRMED"
@@ -2435,7 +2447,7 @@ function Perform-Step($step, [string]$commandId, [string]$planSchema="") {
       $shot = Upload-Screenshot $commandId
       if ([string]$shot.key -eq '' -or [string]$shot.view_url -eq '' -or
           [string]$shot.key -notlike "computer/screenshots/$ComputerId/*") { throw "SCREENSHOT_UPLOAD_UNCONFIRMED" }
-      return @{ action=$action; browser=$browser; screenshot_key=$shot.key; view_url=$shot.view_url; full_desktop_capture=$true }
+      return @{ action=$action; browser=$browser; screenshot_key=$shot.key; view_url=$shot.view_url; full_desktop_capture=$false; window_only_capture=$true }
     }
     "browser.inspect" {
       $browser = Assert-ForegroundBrowser
