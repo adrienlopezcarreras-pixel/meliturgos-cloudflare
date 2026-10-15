@@ -825,7 +825,7 @@ class MainActivity : ComponentActivity() {
         nativeSpeechListening = true
         recording.value = true
         voiceLevel.value = .08f
-        voiceMessage.value = "J’écoute · français système"
+        voiceMessage.value = "J’écoute · détection multilingue"
 
         recognizer.setRecognitionListener(object : RecognitionListener {
             override fun onReadyForSpeech(params: Bundle?) {
@@ -903,8 +903,23 @@ class MainActivity : ComponentActivity() {
 
         val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.FRENCH.toLanguageTag())
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, Locale.FRENCH.toLanguageTag())
+            // Do not force fr-FR: the system recognizer must be able to hear
+            // Spanish and Portuguese, as well as French.
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                putExtra(RecognizerIntent.EXTRA_ENABLE_LANGUAGE_DETECTION, true)
+                putExtra(
+                    RecognizerIntent.EXTRA_LANGUAGE_DETECTION_ALLOWED_LANGUAGES,
+                    arrayListOf("fr-FR", "es-ES", "pt-PT", "pt-BR")
+                )
+                putExtra(
+                    RecognizerIntent.EXTRA_LANGUAGE_SWITCH_ALLOWED_LANGUAGES,
+                    arrayListOf("fr-FR", "es-ES", "pt-PT", "pt-BR")
+                )
+                putExtra(
+                    RecognizerIntent.EXTRA_ENABLE_LANGUAGE_SWITCH,
+                    RecognizerIntent.LANGUAGE_SWITCH_BALANCED
+                )
+            }
             putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, false)
             putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
             putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
