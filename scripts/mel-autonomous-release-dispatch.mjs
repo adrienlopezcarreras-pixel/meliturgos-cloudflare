@@ -6,7 +6,7 @@ const SHA40 = /^[0-9a-f]{40}$/i;
 
 export function assertNoActiveDeploy(runs) {
   if (!Array.isArray(runs)) throw new Error('RELEASE_RUN_LIST_MISSING');
-  if (runs.some(row => row?.name === 'deploy-cloudflare-release' && ['queued', 'in_progress', 'waiting', 'pending', 'requested'].includes(row?.status))) {
+  if (runs.some(row => row?.name === 'deploy-cloudflare-release' && ['queued', 'in_progress', 'waiting', 'pending', 'requested'].includes(String(row?.status || '').toLowerCase()))) {
     throw new Error('PRODUCTION_DEPLOY_ALREADY_ACTIVE');
   }
 }
