@@ -1,0 +1,21 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {readFile} from 'node:fs/promises';
+const src=await readFile(new URL('../../assets/MEL-Computer-Companion.ps1',import.meta.url),'utf8');
+const dist=await readFile(new URL('../../dist/MEL-Computer-Companion.ps1',import.meta.url),'utf8');
+test('old and distributed Companion remain bit-for-bit synchronized',()=>assert.equal(src,dist));
+test('deadline and local consent checked both before and after Ollama bootstrap',()=>{
+ const start=src.indexOf('function Perform-SovereigntyAi(');
+ const end=src.indexOf('switch ($operation) {',start);
+ const preflight=src.slice(start,end);
+ const checks=preflight.match(/Assert-SovereigntyAiPreflight -operation \$operation -payload \$payload -profile \$profile/g)||[];
+ assert.equal(checks.length,2);
+ const bootstrap=preflight.indexOf('$state = Get-SovereigntyLocalAiState');
+ assert.ok(preflight.indexOf(checks[0])>=0);
+ const a=preflight.indexOf('Assert-SovereigntyAiPreflight');
+ const b=preflight.lastIndexOf('Assert-SovereigntyAiPreflight');
+ assert.ok(a<bootstrap&&bootstrap<b);
+ assert.match(src,/if \(\$operation -ne "invoke"\) \{ return \}/);
+ assert.match(src,/SOVEREIGNTY_AI_LOCAL_DEADLINE_EXPIRED/);
+ assert.match(src,/LOCAL_COMPUTE_PROFILE_CHANGED/);
+});
