@@ -55,5 +55,5 @@ test('ambiguous and blocked matching capabilities never generate proposals',()=>
 });
 test('malformed goal fails closed',()=>{
  assert.throws(()=>prepareGapProposal({goal:'a'}),/EVOLUTION_GAP_GOAL_INVALID/);
- assert.throws(()=>prepareGapProposal({goal:'   ###   '}),/EVOLUTION_GAP_ID_INVALID/);
+ assert.throws(()=>prepareGapProposal({goal:'#####'}),/EVOLUTION_GAP_ID_INVALID/);
 });
