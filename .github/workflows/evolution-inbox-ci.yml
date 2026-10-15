@@ -5,6 +5,9 @@ on:
       - 'src/roadmap/evolution-*.js'
       - 'src/capabilities/evolution-capabilities.js'
       - 'src/capabilities/default-bus.js'
+      - 'src/persistence/migrations.js'
+      - 'src/core/config.js'
+      - 'src/diagnostics/data-integrity.js'
       - 'tests/roadmap/evolution-*.test.mjs'
       - '.github/workflows/evolution-inbox-ci.yml'
   workflow_dispatch:
@@ -25,5 +28,8 @@ jobs:
           node --check src/roadmap/evolution-storage.js
           node --check src/capabilities/evolution-capabilities.js
           node --check src/capabilities/default-bus.js
+          node --check src/persistence/migrations.js
+          node --check src/core/config.js
+          node --check src/diagnostics/data-integrity.js
       - name: Run evolution contract tests
-        run: node --test tests/roadmap/evolution-inbox.test.mjs tests/roadmap/evolution-storage.test.mjs
+        run: node --test tests/roadmap/evolution-inbox.test.mjs tests/roadmap/evolution-storage.test.mjs tests/roadmap/evolution-capabilities.test.mjs
