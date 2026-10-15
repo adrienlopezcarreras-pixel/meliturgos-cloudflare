@@ -111,7 +111,10 @@ export class ConversationService {
          ON CONFLICT(device_id, conversation_id) DO UPDATE SET
            last_message_id = excluded.last_message_id,
            last_message_timestamp = excluded.last_message_timestamp,
-           updated_at = excluded.updated_at`
+           updated_at = excluded.updated_at
+         WHERE excluded.last_message_timestamp > sync_checkpoints.last_message_timestamp
+            OR (excluded.last_message_timestamp = sync_checkpoints.last_message_timestamp
+                AND excluded.last_message_id > sync_checkpoints.last_message_id)`
       )
       .bind(deviceId, conversationId, lastMessageId, lastMessageTimestamp, now)
       .run();
@@ -157,20 +160,24 @@ export class ConversationService {
     await this.migrate();
     const checkpoint = await this.db
       .prepare(
-        `SELECT last_message_timestamp FROM sync_checkpoints
+        `SELECT last_message_timestamp, last_message_id FROM sync_checkpoints
          WHERE device_id = ? AND conversation_id = ?`
       )
       .bind(deviceId, conversationId)
       .first();
     const since = Number(checkpoint?.last_message_timestamp || 0);
+    // Timestamp alone is not a complete cursor: two messages can have the
+    // same millisecond. Use exactly the sort key (timestamp, immutable id).
+    const lastId = String(checkpoint?.last_message_id || '');
     const rows = await this.db
       .prepare(
         `SELECT * FROM archive_messages
-         WHERE conversation_id = ? AND timestamp > ?
+         WHERE conversation_id = ?
+           AND (timestamp > ? OR (timestamp = ? AND id > ?))
          ORDER BY timestamp ASC, id ASC
          LIMIT 10000`
       )
-      .bind(conversationId, since)
+      .bind(conversationId, since, since, lastId)
       .all();
     return {
       deviceId,
