@@ -39,6 +39,6 @@ test('evolution section reads CapabilityBus and reports absent archive without c
 });
 
 test('injected evolution browser script is syntactically valid JavaScript', () => {
- const script=ROADMAP_LIVE_REFRESH_PATCH.replace(/^<script[^>]*>/,'').replace(/<\\/script>$/,'');
+ const script=ROADMAP_LIVE_REFRESH_PATCH.replace(/^<script[^>]*>/,'').replace('</script>','');
  assert.doesNotThrow(()=>new Script(script));
 });
