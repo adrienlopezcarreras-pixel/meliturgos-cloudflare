@@ -74,5 +74,5 @@ test('both packaged Windows engines recheck remote cancellation at step boundari
   const block=code.slice(code.indexOf('function Process-Command($command) {'),code.indexOf('$trayResources = $null'));
   assert.match(block,/if \(\$isRemoteGui\) \{ Assert-ActiveRemoteCommand/);
   assert.match(block,/Assert-ActiveRemoteCommand \(\[string\]\$command.id\)/);
- });
+  }
 });
