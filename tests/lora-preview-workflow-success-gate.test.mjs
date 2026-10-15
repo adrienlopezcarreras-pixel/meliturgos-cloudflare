@@ -24,7 +24,10 @@ test('a late failed or in-progress preview cannot be masked by an earlier succes
   ]){
     const result=assessLoraPreviewWorkflowRun({workflow_runs:[success(),newer]},sha);
     assert.equal(result.ok,false);
-    assert.equal(result.code,'LORA_PREVIEW_WORKFLOW_NOT_SUCCESSFUL');
+    assert.equal(result.code,
+      newer.status==='completed'
+        ? 'LORA_PREVIEW_WORKFLOW_TERMINAL_FAILURE'
+        : 'LORA_PREVIEW_WORKFLOW_NOT_SUCCESSFUL');
     assert.equal(result.run_id,11);
   }
 });
@@ -51,4 +54,6 @@ test('collector requires completed GitHub preview proof before checking Worker d
   assert.ok(section.indexOf('check-lora-preview-workflow-run.mjs')<section.indexOf('check-lora-preview-version.mjs'));
   assert.match(section,/LORA_PREVIEW_WORKFLOW_API_AUTH_OR_SCOPE_FAILED/);
   assert.match(section,/LORA_PREVIEW_EXACT_SHA_TIMEOUT/);
+  assert.match(section,/LORA_PREVIEW_WORKFLOW_TERMINAL_FAILURE/);
+  assert.match(section,/LORA_PREVIEW_TERMINAL_FAILURE/);
 });
