@@ -220,10 +220,16 @@ async function main() {
         const resumed = resume.body?.result || {};
         assert(resume.body?.ok === true && resume.body?.capability === 'capability.audit',
           'CAPABILITY_STRESS_RESUME_NOT_OK');
-        assert(resumed?.persistent === true && String(resumed?.job_id || '') === jobId,
-          'CAPABILITY_STRESS_RESUME_JOB_MISMATCH');
-        assert(['RUNNING', 'QUEUED', 'RETRYING'].includes(String(resumed?.status || '')),
-          'CAPABILITY_STRESS_RESUME_STATUS_INVALID');
+        assert(resumed?.persistent === true, 'CAPABILITY_STRESS_RESUME_NOT_PERSISTENT');
+        if (String(resumed?.job_id || '') !== jobId) {
+          // The generic start endpoint may return another active audit after the
+          // tracked audit transitions to terminal. Do not credit that other job:
+          // keep polling the original job_id, whose terminal proof is mandatory.
+          console.warn('CAPABILITY_STRESS_RESUME_OTHER_JOB: continue exact job polling');
+        } else {
+          assert(['RUNNING', 'QUEUED', 'RETRYING'].includes(String(resumed?.status || '')),
+            'CAPABILITY_STRESS_RESUME_STATUS_INVALID');
+        }
       } else {
         console.log(`Persistent stress resume attempt returned HTTP ${resume.status}.`);
       }
