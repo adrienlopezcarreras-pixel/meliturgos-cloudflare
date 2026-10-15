@@ -10,6 +10,7 @@ on:
       - "src/learning/operator-actions.js"
       - "src/professor-live-learning-entry.js"
       - "scripts/validate-lora-benchmark-readiness.mjs"
+      - "scripts/check-lora-preview-version.mjs"
   workflow_dispatch:
     inputs:
       activate_preview:
@@ -278,6 +279,34 @@ jobs:
             cat /tmp/preview-auth-probe.json || true
             exit 1
           }
+
+      - name: Wait for isolated preview exact collector SHA
+        if: steps.status.outputs.complete == 'true'
+        shell: bash
+        env:
+          PREVIEW_EXPECTED_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          BASE_URL="https://meliturgos-preview.adrien-lopezcarreras.workers.dev"
+          test -n "${MEL_PREVIEW_PASSWORD:-}"
+          for attempt in $(seq 1 24); do
+            STATUS="$(curl --silent --show-error --max-time 20 --connect-timeout 10 \
+              --request POST \
+              --header "Authorization: Bearer ${MEL_PREVIEW_PASSWORD}" \
+              --header "content-type: application/json" \
+              --data '{"id":"code.read","input":{"path":"src/router.js"}}' \
+              --output /tmp/mel-lora-preview-version.json \
+              --write-out '%{http_code}' \
+              "${BASE_URL}/api/gen2/capabilities/execute" || true)"
+            if [ "${STATUS}" = "200" ] && node scripts/check-lora-preview-version.mjs /tmp/mel-lora-preview-version.json "$PREVIEW_EXPECTED_SHA"; then
+              echo "LORA_PREVIEW_EXACT_SHA_READY"
+              exit 0
+            fi
+            echo "LORA_PREVIEW_EXACT_SHA_WAIT attempt=${attempt}/24"
+            sleep 15
+          done
+          echo "LORA_PREVIEW_EXACT_SHA_TIMEOUT"
+          exit 1
 
       - name: Benchmark exact Kaggle adapter
         if: steps.status.outputs.complete == 'true'
