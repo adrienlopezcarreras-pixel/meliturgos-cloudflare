@@ -5,6 +5,7 @@ on:
       - 'scripts/companion-local-ai-benchmark.ps1'
       - 'tests/windows/companion-local-ai-benchmark-smoke.ps1'
       - '.github/workflows/companion-local-ai-benchmark-ci.yml'
+      - 'tests/gen2/companion-local-ai-benchmark-priority.test.mjs'
 permissions:
   contents: read
 jobs:
@@ -16,3 +17,8 @@ jobs:
       - name: Assert no network and no opt-in inference during dry-run
         shell: powershell
         run: .\tests\windows\companion-local-ai-benchmark-smoke.ps1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify owner activity and revocation checks
+        run: node --test tests/gen2/companion-local-ai-benchmark-priority.test.mjs
