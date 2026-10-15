@@ -1,5 +1,5 @@
 $ErrorActionPreference='Stop'
-$script=Join-Path $PSScriptRoot '..\scripts\companion-local-ai-benchmark.ps1'
+$script=Join-Path $PSScriptRoot '..\..\scripts\companion-local-ai-benchmark.ps1'
 $tmp=Join-Path ([IO.Path]::GetTempPath()) ('mel-local-ai-benchmark-'+[Guid]::NewGuid().ToString('N'))
 [void][IO.Directory]::CreateDirectory($tmp)
 try {
