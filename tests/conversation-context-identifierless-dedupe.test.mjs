@@ -59,3 +59,12 @@ test('password and API key security discussions remain usable memory', () => {
   assert.equal(profileSecretLike('mot de passe : exemple'), true);
   assert.equal(profileSecretLike('api_key=example-private-value'), true);
 });
+
+test('security labels with no assigned value stay in memory', () => {
+  for (const text of ['secret:', 'private key management', 'Authorization:']) {
+    assert.equal(profileSecretLike(text), false);
+  }
+  for (const text of ['secret=abc123', 'private_key: abc123', 'Authorization: Basic abc123']) {
+    assert.equal(profileSecretLike(text), true);
+  }
+});
