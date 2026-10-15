@@ -2,7 +2,7 @@ import { DB_SCHEMA_VERSION } from '../core/config.js';
 import { MIGRATIONS } from '../persistence/migrations.js';
 
 const MAX_SAMPLES = 10;
-const REQUIRED_TABLE_CONTRACT_VERSION = 17;
+const REQUIRED_TABLE_CONTRACT_VERSION = 18;
 const REQUIRED_MIGRATION_TABLES = Object.freeze([
   'schema_migrations',
   'conversations',
@@ -37,6 +37,8 @@ const REQUIRED_MIGRATION_TABLES = Object.freeze([
   'lora_training_runs',
   'lora_training_events',
   'lora_daily_status',
+  'mel_evolution_items',
+  'mel_evolution_initial_archive',
 ]);
 
 function integrityError(code) {
