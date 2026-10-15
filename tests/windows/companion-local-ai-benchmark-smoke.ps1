@@ -19,7 +19,23 @@ try {
  if ($r.prompt_or_reply_recorded -ne $false -or $r.network_scope -ne '127.0.0.1-only') {throw 'Privacy contract failed'}
  $r=& $script -ConfigPath $config -OutputPath $out -DryRun -AllowUserActivity | ConvertFrom-Json
  if ($r.status -ne 'DRY_RUN_NO_INFERENCE' -or $r.executed) {throw 'Manual override must never bypass DryRun'}
- Write-Output 'Companion offline benchmark dry-run contract PASS'
+ # A busy user's PC must be reported honestly, without launching Ollama.
+ # The fake processor reading ends the benchmark before any network call.
+ function Get-CimInstance {
+   [CmdletBinding()]
+   param([string]$ClassName)
+   if($ClassName -eq 'Win32_Processor'){
+     return [pscustomobject]@{ LoadPercentage=93 }
+   }
+   throw 'UNKNOWN_CLASS'
+ }
+ $r=& $script -ConfigPath $config -OutputPath $out -AllowUserActivity | ConvertFrom-Json
+ if ($r.status -ne 'SKIPPED_PC_BUSY' -or $r.executed -or
+     [double]$r.observed_cpu_percent -ne 93){
+   throw ('Busy processor reported incorrectly: '+($r|ConvertTo-Json -Compress))
+ }
+ Remove-Item Function:\Get-CimInstance -Force
+ Write-Output 'Companion offline benchmark dry-run and busy-CPU contracts PASS'
 } finally {
  Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
 }

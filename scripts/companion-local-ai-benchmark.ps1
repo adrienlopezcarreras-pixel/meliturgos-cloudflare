@@ -99,7 +99,8 @@ try {
   $load = @(Get-CimInstance Win32_Processor -ErrorAction Stop | Select-Object -ExpandProperty LoadPercentage)
   $cpuLoad = if ($load.Count -gt 0) { [double](($load | Measure-Object -Average).Average) } else { 100.0 }
   if ($cpuLoad -ge 70) {
-    Write-Diagnostic 'SKIPPED_PC_BUSY' ($settings+@{observed_cpu_percent=$cpuLoad})
+    $settings['observed_cpu_percent']=$cpuLoad
+    Write-Diagnostic 'SKIPPED_PC_BUSY' $settings
     return
   }
 } catch {
