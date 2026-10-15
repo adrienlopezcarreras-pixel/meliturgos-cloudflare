@@ -33,7 +33,7 @@ export function proposeEvolution(items, proposal) {
  if (!Array.isArray(items)) throw new Error('EVOLUTION_INVALID_REGISTRY');
  if (!proposal || !isValidEvolutionId(proposal.id) || !evolutionKey(proposal.title) || !['user','mel','audit','telemetry'].includes(proposal.origin)) throw new Error('EVOLUTION_INVALID_PROPOSAL');
  for (const candidate of items) requireItem(candidate);
- if (items.some(i=>i.id===proposal.id)) throw new Error('EVOLUTION_DUPLICATE_ID');
+ if (items.some(i=>i.id.toLowerCase()===proposal.id.toLowerCase())) throw new Error('EVOLUTION_DUPLICATE_ID');
  const existing=items.find(i=>evolutionKey(i.title)===evolutionKey(proposal.title));
  if (existing) return {created:false, duplicate_of:existing.id,items};
  const candidate=Object.freeze({id:proposal.id,title:String(proposal.title).trim(),origin:proposal.origin,status:'PROPOSED',priority:proposal.priority||'P2',evidence:[],related_initial_id:proposal.related_initial_id||null});
@@ -51,6 +51,6 @@ export function evolutionSnapshot({initial,items=[],incidents=null}) {
  if (!initial || !Number.isInteger(initial.total) || !Number.isInteger(initial.verified) || initial.total<0 || initial.verified<0 || initial.verified>initial.total) throw new Error('EVOLUTION_INVALID_BASELINE');
  if (!Array.isArray(items)||(incidents!==null&&!Array.isArray(incidents))) throw new Error('EVOLUTION_INVALID_REGISTRY');
  items.forEach(requireItem);
- const ids=new Set(); for(const item of items){if(ids.has(item.id))throw new Error('EVOLUTION_DUPLICATE_ID');ids.add(item.id);}
+ const ids=new Set(); for(const item of items){const canonicalId=item.id.toLowerCase();if(ids.has(canonicalId))throw new Error('EVOLUTION_DUPLICATE_ID');ids.add(canonicalId);}
  return Object.freeze({schema:EVOLUTION_SCHEMA,initial:Object.freeze({total:initial.total,verified:initial.verified,percent_verified:initial.total?Math.round(initial.verified/initial.total*100):0}),evolution:Object.freeze({total:items.length,verified:items.filter(i=>i.status==='DONE_VERIFIED').length,proposed:items.filter(i=>i.status==='PROPOSED').length}),health:Object.freeze({status:incidents===null?'NOT_CONNECTED':'CONNECTED',active_incidents:incidents===null?null:incidents.filter(i=>!i.resolved).length,regressed_items:items.filter(i=>i.status==='REGRESSED').length}),items:Object.freeze([...items])});
 }

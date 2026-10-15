@@ -381,7 +381,8 @@ test('GEN2-48 release token reuses exact persisted encrypted evidence without re
     runtimeEnv,
     {},
   );
-  assert.equal(response.status, 200);
+  const diagnostic=response.status===200?null:await response.clone().json().catch(()=>({code:'NON_JSON_ERROR'}));
+  assert.equal(response.status,200,String(diagnostic?.error||diagnostic?.code||'RECOVERY_SMOKE_HTTP_FAILURE'));
   const body = await response.json();
   assert.equal(body.ok, true);
   assert.equal(body.result.state, 'PASSED');

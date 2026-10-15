@@ -95,15 +95,15 @@ test('status writes enforce owner, valid transitions and compare-and-swap revisi
  await assert.rejects(changeEvolutionStatus(db,'owner-A','E-1',2,'DONE_VERIFIED'),/EVOLUTION_INVALID_TRANSITION/);
 });
 
-test('canonical D1 schema v18 migrates with real SQLite and archive stays immutable',async()=>{
+test('canonical D1 schema v19 migrates with real SQLite and archive stays immutable',async()=>{
  const {sqliteD1}=await import('../helpers/sqlite-d1.mjs');
  const {migrate}=await import('../../src/persistence/migrations.js');
  const {DB_SCHEMA_VERSION}=await import('../../src/core/config.js');
  const db=sqliteD1();
  try {
-  assert.equal(DB_SCHEMA_VERSION,18);
+  assert.equal(DB_SCHEMA_VERSION,19);
   const state=await migrate(db);
-  assert.equal(state.currentVersion,18);
+  assert.equal(state.currentVersion,19);
   const tables=(await db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all()).results.map(x=>x.name);
   assert.ok(tables.includes('mel_evolution_items'));
   assert.ok(tables.includes('mel_evolution_initial_archive'));
