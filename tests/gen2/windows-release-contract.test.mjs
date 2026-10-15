@@ -78,3 +78,14 @@ test('native Windows Companion refreshes only its authenticated MEL engine with 
   assert.match(source, /StartBackgroundSupervisor/);
   assert.match(source, /System\.Threading\.Timer/);
 });
+
+test('Windows release includes a benchmark without running it automatically',async()=>{
+ const build=await read('scripts/build-windows-release.ps1');
+ const verify=await read('scripts/verify-windows-release.ps1');
+ const workflow=await read('.github/workflows/windows-release-build.yml');
+ assert.match(build,/WINDOWS_LOCAL_AI_BENCHMARK_MISSING/);
+ assert.match(build,/MEL-Local-AI-Benchmark\.ps1/);
+ assert.match(verify,/MEL-Local-AI-Benchmark\.ps1/);
+ assert.match(workflow,/scripts\/companion-local-ai-benchmark\.ps1/);
+ assert.doesNotMatch(build,/&\s*\$benchmarkSource/);
+});
