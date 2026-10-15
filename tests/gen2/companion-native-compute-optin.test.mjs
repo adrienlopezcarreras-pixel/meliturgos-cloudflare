@@ -8,7 +8,7 @@ test('Windows compute consent defaults off and is separate from remote control',
  assert.match(native,/d\["remote_access_enabled"\] = false;/);
  assert.match(native,/next\["local_compute_enabled"\] = localComputeEnabled && localComputeProfile != "off";/);
  assert.match(native,/next\["remote_access_enabled"\] = remoteAccessEnabled;/);
- assert.match(native,/SavePermissions\(apps,allowedPaths,[\s\S]*localCompute!=null&&localCompute.Checked,profile\);/);
+ assert.match(native,/SavePermissions\(apps,allowedPaths,[\s\S]*localCompute!=null&&localCompute.Checked,profile,[\s\S]*gpuCompute!=null&&gpuCompute.Checked\);/);
 });
 test('both authenticated heartbeat senders forward local owner opt-in',()=>{
  assert.match(native,/\{"local_compute_enabled",ConfigBool\("local_compute_enabled"\)\}/);

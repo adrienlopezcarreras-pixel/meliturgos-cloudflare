@@ -39,7 +39,7 @@ test('unattended access is opted in from the local Windows settings and defaults
  const code=await readFile(new URL('../windows-companion/MEL-Companion.cs',import.meta.url),'utf8');
  assert.match(code,/d\["remote_access_enabled"\] = false/);
  assert.match(code,/Checked=MelApp.ConfigBool\("remote_access_enabled"\)/);
- assert.match(code,/SavePermissions\(List<string> apps, List<string> paths, bool remoteAccessEnabled, bool localComputeEnabled, string localComputeProfile\)/);
+ assert.match(code,/SavePermissions\(List<string> apps, List<string> paths, bool remoteAccessEnabled, bool localComputeEnabled, string localComputeProfile, bool localGpuEnabled\)/);
  assert.match(code,/next\["remote_access_enabled"\] = remoteAccessEnabled/);
  assert.match(code,/next\["local_compute_enabled"\] = localComputeEnabled && localComputeProfile != "off"/);
  assert.match(code,/WriteConfigAtomically\(next\)/);

@@ -219,19 +219,22 @@ function Send-Heartbeat {
   # Re-read the owner-controlled file on every heartbeat; never inherit a
   # remote-access permission as permission for CPU/GPU work.
   $localComputeEnabled = $false
+  $localGpuEnabled = $false
   try {
     $localConfig = Get-Content -Raw -Encoding UTF8 -LiteralPath $ConfigPath | ConvertFrom-Json
     $allowedProfiles = @('light','balanced','performance')
     if ($localConfig.local_compute_enabled -eq $true -and $allowedProfiles -contains [string]$localConfig.local_compute_profile) {
       $localComputeEnabled = $true
+      $localGpuEnabled = $localConfig.local_compute_gpu_enabled -eq $true
     }
-  } catch { $localComputeEnabled = $false }
+  } catch { $localComputeEnabled = $false; $localGpuEnabled = $false }
   $bounds = [System.Windows.Forms.SystemInformation]::VirtualScreen
   $body = @{
     engine_version = $Version
     engine_heartbeat_at = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
     remote_access_enabled = $remoteEnabled
     local_compute_enabled = $localComputeEnabled
+    local_compute_gpu_enabled = ($localComputeEnabled -and $localGpuEnabled)
     hostname = $env:COMPUTERNAME
     user = $env:USERNAME
     screen = @{ x=$bounds.X; y=$bounds.Y; width=$bounds.Width; height=$bounds.Height }
@@ -1772,6 +1775,13 @@ function Get-LocalComputeProfile {
   } catch { throw "LOCAL_COMPUTE_DISABLED" }
 }
 
+function Get-LocalGpuConsent {
+  try {
+    $saved = Get-Content -Raw -Encoding UTF8 -LiteralPath $ConfigPath | ConvertFrom-Json
+    return ($saved.local_compute_enabled -eq $true -and $saved.local_compute_gpu_enabled -eq $true)
+  } catch { return $false }
+}
+
 function Perform-SovereigntyAi([string]$operation,$payload) {
   # Check consent before resolving Ollama: even a health request must not
   # start model bootstrap/install when the owner turned the boost off.
@@ -1816,6 +1826,12 @@ function Perform-SovereigntyAi([string]$operation,$payload) {
       $logicalCores = [Math]::Max(1,[Environment]::ProcessorCount)
       $threadFraction = switch ($profile) { "light" { 0.15 } "balanced" { 0.35 } default { 0.60 } }
       $threads = [Math]::Max(1,[Math]::Min(8,[int][Math]::Ceiling($logicalCores*$threadFraction)))
+      $gpuConsent = Get-LocalGpuConsent
+      # num_gpu counts offloaded model layers, not GPU utilization %. When GPU
+      # consent is off, force Ollama onto CPU instead of silently auto-offloading.
+      $gpuLayers = if (-not $gpuConsent) { 0 } else {
+        switch ($profile) { "light" { 1 } "balanced" { 2 } default { 4 } }
+      }
       $contextTokens = switch ($profile) { "light" { 1024 } "balanced" { 2048 } default { 4096 } }
       $idleRetention = switch ($profile) { "light" { "0s" } "balanced" { "20s" } default { "60s" } }
       $timeout = switch ($profile) { "light" { 35 } "balanced" { 60 } default { 80 } }
@@ -1824,10 +1840,11 @@ function Perform-SovereigntyAi([string]$operation,$payload) {
         messages=$messages
         stream=$false
         keep_alive=$idleRetention
-        options=@{ temperature=$temperature; num_predict=$maxTokens; num_thread=$threads; num_ctx=$contextTokens }
+        options=@{ temperature=$temperature; num_predict=$maxTokens; num_thread=$threads; num_ctx=$contextTokens; num_gpu=$gpuLayers }
       } | ConvertTo-Json -Depth 10 -Compress
       # The owner may have revoked consent while we prepared the request.
       if ((Get-LocalComputeProfile) -ne $profile) { throw "LOCAL_COMPUTE_PROFILE_CHANGED" }
+      if ((Get-LocalGpuConsent) -ne $gpuConsent) { throw "LOCAL_GPU_CONSENT_CHANGED" }
       try {
         $response = Invoke-RestMethod -Uri ($state.endpoint + "/api/chat") -Method "POST" -ContentType "application/json" -Body $body -TimeoutSec $timeout -ErrorAction Stop
       } catch {
