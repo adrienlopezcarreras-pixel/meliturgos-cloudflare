@@ -27,3 +27,14 @@ Les tests de contrat dans `tests/android-manual-speech-locale-contract.test.mjs`
 - https://developer.android.com/develop/background-work/services/fgs/restrictions-bg-start
 
 **Statut : validation CI candidate, pas DONE_VERIFIED matériel.**
+
+
+## Synthèse vocale des réponses (nouvelle passe)
+
+La voix Android suit désormais la sélection manuelle FR / ES / PT-PT / PT-BR. L'appel `TextToSpeech.isLanguageAvailable` puis `setLanguage` refuse explicitement une langue absente ou non prise en charge ; les voix hors ligne disponibles sont préférées. Le chemin français d'origine reste compatible.
+
+Le mode de reconnaissance automatique ne donne pas à MEL une preuve fiable de la langue de la réponse : en `AUTO`, le français reste donc la langue vocale par défaut plutôt qu'une langue devinée. Une absence de moteur TTS ou de données de langue déclenche le secours déjà existant, sans prétendre que le moteur local fonctionne.
+
+Références officielles : https://developer.android.com/reference/android/speech/tts/TextToSpeech et https://developer.android.com/reference/android/speech/tts/Voice
+
+**Qualification matérielle obligatoire :** écouter 10 réponses chacune en FR/ES/PT, vérifier les accents, le changement de langue entre deux tours, l'interruption, le texte long, le fonctionnement sans réseau et les langues non installées. Le test de code ne valide ni la voix physique de la MINI ni le rendu sur le téléphone.
