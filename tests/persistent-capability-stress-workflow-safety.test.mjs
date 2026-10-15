@@ -1,3 +1,4 @@
+import { validateProgressTransition } from '../scripts/persistent-capability-stress-live-proof.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
@@ -39,4 +40,12 @@ test('pull request contract must not run the live production proof',()=>{
   assert.match(contract,/if: github\.event_name == 'pull_request'/);
   assert.match(contract,/node --test/);
   assert.doesNotMatch(contract,/cloudflare\.com|wrangler secret/);
+});
+
+test('stress progress rejects malformed counters rather than silently normalizing them', () => {
+  for (const bad of [NaN, Infinity, -1, 1.5, Number.MAX_SAFE_INTEGER + 1]) {
+    assert.throws(() => validateProgressTransition({pass:1,done:0},{pass:1,done:bad}), /CAPABILITY_STRESS_DONE_INVALID/);
+    assert.throws(() => validateProgressTransition({pass:1,done:0},{pass:bad,done:0}), /CAPABILITY_STRESS_PASS_INVALID/);
+  }
+  assert.deepEqual(validateProgressTransition({pass:1,done:2},{pass:1,done:3}),{pass:1,done:3});
 });

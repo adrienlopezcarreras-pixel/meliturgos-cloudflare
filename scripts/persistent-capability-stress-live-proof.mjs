@@ -112,10 +112,14 @@ export function summarizeStressCoverage(result) {
 }
 
 export function validateProgressTransition(previous = { pass: 1, done: 0 }, current = { pass: 1, done: 0 }) {
-  const previousPass = Math.max(1, Number(previous?.pass || 1));
-  const currentPass = Math.max(1, Number(current?.pass || 1));
-  const previousDone = Math.max(0, Number(previous?.done || 0));
-  const currentDone = Math.max(0, Number(current?.done || 0));
+  const previousPass = Number(previous?.pass ?? 1);
+  const currentPass = Number(current?.pass ?? 1);
+  const previousDone = Number(previous?.done ?? 0);
+  const currentDone = Number(current?.done ?? 0);
+  assert([previousPass, currentPass].every(n => Number.isSafeInteger(n) && n >= 1),
+    'CAPABILITY_STRESS_PASS_INVALID');
+  assert([previousDone, currentDone].every(n => Number.isSafeInteger(n) && n >= 0),
+    'CAPABILITY_STRESS_DONE_INVALID');
   assert(currentPass >= previousPass, 'CAPABILITY_STRESS_PASS_REGRESSED');
   if (currentPass === previousPass) {
     assert(currentDone >= previousDone, 'CAPABILITY_STRESS_PROGRESS_REGRESSED');
