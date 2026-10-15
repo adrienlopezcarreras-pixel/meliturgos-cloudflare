@@ -536,8 +536,9 @@ class MelBleBridgeService : Service() {
                 latestResponseIds.remove(device.address)
                 pullOnlyResponseIds.remove(device.address)
                 bridgeHandler.postDelayed({
-                    if (adapter?.isEnabled == true && connectedDevices.isEmpty()) {
-                        stopAdvertising()
+                    // Do not interrupt an already running advertising session after a
+                    // delayed disconnect callback; only restart when actually missing.
+                    if (adapter?.isEnabled == true && connectedDevices.isEmpty() && advertiseCallback == null) {
                         startAdvertising()
                     }
                 }, 350L)
