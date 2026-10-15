@@ -11,6 +11,8 @@ on:
       - 'windows-companion/**'
       - 'firmware/waveshare-terminal/**'
       - 'src/devices/computer-companion-api.js'
+      - 'src/devices/mini-firmware-stage-companion.js'
+      - 'tests/mini-firmware-stage-*.mjs'
       - 'scripts/cloudflare-api-relay-runner.mjs'
       - '.github/workflows/mini-android-windows-triad-audit.yml'
   workflow_dispatch:
@@ -126,6 +128,8 @@ jobs:
           Write-Host "COMPANION_REAL_EXE_SELF_TEST_PASS version=$($report.version) remote_access=false"
           New-Item -ItemType Directory -Force -Path artifacts/windows | Out-Null
           Copy-Item $reportPath 'artifacts/windows/windows-real-exe-self-test.json'
+      - name: Exercise real PowerShell MINI firmware stage with valid and tampered images
+        run: node --test tests/mini-firmware-stage-windows.e2e.mjs
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:

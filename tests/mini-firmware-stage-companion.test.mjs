@@ -27,3 +27,15 @@ test('MINI stage requires owner, explicit consent, local opt-in and strict exit'
  assert.match(api,/require_success_exit:true/);
  assert.match(api,/remote_access_enabled!==true/);
 });
+
+test('MINI stage validates every ESP32-S3 segment and the actual embedded digest, without enabling writes',()=>{
+ const script=miniFirmwareStageCommand({filename:'integrity.bin',sha256:'a'.repeat(64)}).command;
+ for(const check of ['MINI_FIRMWARE_SEGMENT_HEADER_TRUNCATED',
+  'MINI_FIRMWARE_SEGMENT_DATA_TRUNCATED','MINI_FIRMWARE_PADDING_NONZERO',
+  'MINI_FIRMWARE_SEGMENT_CHECKSUM_INVALID','MINI_FIRMWARE_EMBEDDED_SHA256_INVALID',
+  'STAGED_IMAGE_INTEGRITY_VERIFIED_FLASH_BLOCKED','partition_fit_verified=$false',
+  'image_checksum_valid=$true','embedded_sha256_valid=$true']){
+  assert.ok(script.includes(check),check);
+ }
+ assert.doesNotMatch(script,/erase_flash|write_flash|esptool|serial\.Open|Start-Process|Stop-Process/);
+});
