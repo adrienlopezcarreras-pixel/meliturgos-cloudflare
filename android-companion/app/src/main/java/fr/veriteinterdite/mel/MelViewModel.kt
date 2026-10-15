@@ -438,6 +438,8 @@ class MelViewModel(
             )
         } catch (first: Throwable) {
             if (isInvalidSession(first)) throw first
+            // Do not resubmit a rejected 4xx request: it adds delay without fixing input.
+            if (first is MelApiException && first.status in 400..499) throw first
             appendDiagnosticLine("Chat: première tentative échouée · ${explain(first)}")
             val serverFailure = first is MelApiException && first.status >= 500
             if (!serverFailure) {
