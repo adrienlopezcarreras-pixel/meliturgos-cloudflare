@@ -6,6 +6,7 @@ $ErrorActionPreference = "Stop"
 Add-Type -AssemblyName System.Security
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
+Add-Type -AssemblyName System.Net.Http
 
 $MelDir = Join-Path $env:LOCALAPPDATA "MEL"
 $ConfigPath = Join-Path $MelDir "computer.json"
@@ -1782,6 +1783,47 @@ function Get-LocalGpuConsent {
   } catch { return $false }
 }
 
+function Invoke-OllamaWithCooperativeCancel([string]$uri,[string]$json,[int]$timeoutSec,[string]$profile,[bool]$gpuConsent,[long]$deadlineMs) {
+  # Native PowerShell Invoke-RestMethod is blocking. Use cancellable local
+  # HttpClient I/O and re-check the owner's config while Ollama generates.
+  # Cancellation is requested at the HTTP transport, not falsely asserted
+  # as proof that the model has stopped processing.
+  $nowMs = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+  $maxMs = [long]([Math]::Max(1,[Math]::Min(80,$timeoutSec)) * 1000)
+  $endMs = if ($deadlineMs -gt 0) { [Math]::Min($deadlineMs,$nowMs+$maxMs) } else { $nowMs+$maxMs }
+  if ($endMs -le $nowMs) { throw "SOVEREIGNTY_AI_LOCAL_DEADLINE_EXPIRED" }
+  $client = New-Object System.Net.Http.HttpClient
+  $cts = New-Object System.Threading.CancellationTokenSource
+  $content = [System.Net.Http.StringContent]::new($json,[Text.Encoding]::UTF8,"application/json")
+  try {
+    $pending = $client.PostAsync($uri,$content,$cts.Token)
+    while (-not $pending.IsCompleted) {
+      $nowMs = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+      if ($nowMs -ge $endMs) {
+        $cts.Cancel()
+        throw "SOVEREIGNTY_AI_LOCAL_DEADLINE_EXPIRED"
+      }
+      $liveProfile = $null
+      try { $liveProfile = Get-LocalComputeProfile } catch {}
+      if ($liveProfile -ne $profile -or (Get-LocalGpuConsent) -ne $gpuConsent) {
+        $cts.Cancel()
+        throw "SOVEREIGNTY_AI_LOCAL_CONSENT_REVOKED"
+      }
+      Start-Sleep -Milliseconds 300
+    }
+    $httpResponse = $pending.GetAwaiter().GetResult()
+    try {
+      if (-not $httpResponse.IsSuccessStatusCode) { throw "SOVEREIGNTY_AI_LOCAL_HTTP_FAILED" }
+      $responseText = $httpResponse.Content.ReadAsStringAsync().GetAwaiter().GetResult()
+      return ConvertFrom-Json -InputObject $responseText
+    } finally { $httpResponse.Dispose() }
+  } finally {
+    $cts.Dispose()
+    $content.Dispose()
+    $client.Dispose()
+  }
+}
+
 function Perform-SovereigntyAi([string]$operation,$payload) {
   # Check consent before resolving Ollama: even a health request must not
   # start model bootstrap/install when the owner turned the boost off.
@@ -1845,9 +1887,13 @@ function Perform-SovereigntyAi([string]$operation,$payload) {
       # The owner may have revoked consent while we prepared the request.
       if ((Get-LocalComputeProfile) -ne $profile) { throw "LOCAL_COMPUTE_PROFILE_CHANGED" }
       if ((Get-LocalGpuConsent) -ne $gpuConsent) { throw "LOCAL_GPU_CONSENT_CHANGED" }
+      $deadlineMs = 0L
+      try { $deadlineMs = [long]$payload.owner_inference_deadline_ms } catch {}
       try {
-        $response = Invoke-RestMethod -Uri ($state.endpoint + "/api/chat") -Method "POST" -ContentType "application/json" -Body $body -TimeoutSec $timeout -ErrorAction Stop
+        $response = Invoke-OllamaWithCooperativeCancel -uri ($state.endpoint + "/api/chat") -json $body -timeoutSec $timeout -profile $profile -gpuConsent $gpuConsent -deadlineMs $deadlineMs
       } catch {
+        $code = [string]$_.Exception.Message
+        if ($code -eq "SOVEREIGNTY_AI_LOCAL_DEADLINE_EXPIRED" -or $code -eq "SOVEREIGNTY_AI_LOCAL_CONSENT_REVOKED") { throw $code }
         throw "SOVEREIGNTY_AI_LOCAL_INVOKE_FAILED"
       }
       $text = ([string]$response.message.content).Trim()
