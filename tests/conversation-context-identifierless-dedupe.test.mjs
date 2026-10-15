@@ -23,3 +23,8 @@ test('timestamped user corrections with identical wording retain distinct proven
   const later = { ...earlier, timestamp: 2 };
   assert.deepEqual(dedupeRows([earlier, later, { ...earlier }]), [earlier, later]);
 });
+
+test('malformed retrieval hits cannot poison assembled context', () => {
+  const valid = { source: 'memories', id: 42, content: 'Valid context' };
+  assert.deepEqual(dedupeRows([null, undefined, 0, 'invalid', [], valid]), [valid]);
+});
