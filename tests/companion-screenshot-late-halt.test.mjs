@@ -13,5 +13,7 @@ test('screenshot upload rechecks HALT and command status after body reception',a
  assert.ok(bodyAt>=0&&recheckAt>bodyAt&&putAt>recheckAt);
  assert.match(handler,/latest\.status!=="RUNNING"/);
  assert.match(handler,/Number\(latest\.halted\)===1/);
- assert.match(handler,/Number\(latestPlan\.expires_at\)<=Date\.now\(\)/);
+ assert.match(handler,/screenshotPlanAuthorized\(latestPlan,a\.device\.id,latest\.session_id,Date\.now\(\)\)/);
+ assert.ok(handler.indexOf('screenshotPlanAuthorized(latestPlan') > bodyAt);
+ assert.ok(handler.indexOf('screenshotPlanAuthorized(latestPlan') < putAt);
 });
