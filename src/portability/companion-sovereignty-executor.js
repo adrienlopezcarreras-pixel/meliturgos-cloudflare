@@ -17,17 +17,37 @@ function versionAtLeast(actual,required){
   return true;
 }
 
-async function ensureTables(db){
-  await db.prepare(`CREATE TABLE IF NOT EXISTS computer_devices(
-    id TEXT PRIMARY KEY,token_hash TEXT NOT NULL,name TEXT NOT NULL,platform TEXT NOT NULL,
-    capabilities TEXT NOT NULL,allowed_apps TEXT NOT NULL,halted INTEGER NOT NULL DEFAULT 0,
-    created_at INTEGER NOT NULL,last_seen_at INTEGER NOT NULL,metadata TEXT NOT NULL DEFAULT "{}"
-  )`).run();
-  await db.prepare(`CREATE TABLE IF NOT EXISTS computer_commands(
-    id TEXT PRIMARY KEY,device_id TEXT NOT NULL,session_id TEXT NOT NULL,plan_json TEXT NOT NULL,
-    status TEXT NOT NULL,created_at INTEGER NOT NULL,claimed_at INTEGER,finished_at INTEGER,
-    result_json TEXT,error_code TEXT
-  )`).run();
+// A fresh D1 CREATE TABLE check on every chat adds avoidable round-trips,
+// even if Windows is offline. Cache only a *successful* schema check per D1
+// binding, and share in-flight initialization between simultaneous requests.
+// Weak keys allow a new/rotated binding to initialize its own schema.
+const initializedCompanionTables=new WeakMap();
+export async function ensureCompanionSovereigntyTables(db){
+  if(!db||typeof db.prepare!=='function')
+    throw new TypeError('COMPANION_SOVEREIGNTY_DB_REQUIRED');
+  const existing=initializedCompanionTables.get(db);
+  if(existing)return existing;
+  const initialization=(async()=>{
+    await db.prepare(`CREATE TABLE IF NOT EXISTS computer_devices(
+      id TEXT PRIMARY KEY,token_hash TEXT NOT NULL,name TEXT NOT NULL,platform TEXT NOT NULL,
+      capabilities TEXT NOT NULL,allowed_apps TEXT NOT NULL,halted INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL,last_seen_at INTEGER NOT NULL,metadata TEXT NOT NULL DEFAULT "{}"
+    )`).run();
+    await db.prepare(`CREATE TABLE IF NOT EXISTS computer_commands(
+      id TEXT PRIMARY KEY,device_id TEXT NOT NULL,session_id TEXT NOT NULL,plan_json TEXT NOT NULL,
+      status TEXT NOT NULL,created_at INTEGER NOT NULL,claimed_at INTEGER,finished_at INTEGER,
+      result_json TEXT,error_code TEXT
+    )`).run();
+  })();
+  initializedCompanionTables.set(db,initialization);
+  try{
+    await initialization;
+  }catch(error){
+    // Never cache a rejected D1 operation as a permanent offline status.
+    if(initializedCompanionTables.get(db)===initialization)
+      initializedCompanionTables.delete(db);
+    throw error;
+  }
 }
 
 function engineHeartbeatFresh(row,{now=Date.now(),onlineWithinMs=35000}={}){
@@ -77,7 +97,7 @@ export function createCompanionSovereigntyExecutor(env,{
       return{ok:false,code:'SOVEREIGNTY_ACTION_NOT_ALLOWED'};
     }
 
-    await ensureTables(env.DB);
+    await ensureCompanionSovereigntyTables(env.DB);
     const now=Date.now();
     const device=await chooseDevice(env.DB,{deviceId,now,onlineWithinMs});
     if(!device)return{ok:false,code:'COMPUTER_OFFLINE'};
