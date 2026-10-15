@@ -11,6 +11,14 @@ int main() {
     assert(guard.current(1099,true,true));
     assert(!guard.accept(p,42,true,true,200)); // replay does not prolong deadline
     assert(guard.current(1099,true,true));
+    // Rekeying with a valid new session generation must not leave an old
+    // phase appearing active even when the new frame is rejected.
+    MelMiniPhaseV1 rekey{4, 20, 43, 2, 200};
+    assert(!guard.accept(rekey,43,true,true,1099));
+    assert(!guard.current(1099,true,true));
+    // Reestablish the old generation only after explicit clearing.
+    p.phase_nonce=1;
+    assert(guard.accept(p,42,true,true,100));
     assert(!guard.current(1100,true,true)); // deadline clears everything
     p.phase_nonce=2;
     assert(guard.accept(p,42,true,true,2000));
