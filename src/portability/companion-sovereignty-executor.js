@@ -60,16 +60,42 @@ function engineHeartbeatFresh(row,{now=Date.now(),onlineWithinMs=35000}={}){
   }catch{return false;}
 }
 
-async function chooseDevice(db,{deviceId=null,now=Date.now(),onlineWithinMs=35000}={}){
+/**
+ * Prefer a PC that has actually authorized local inference and supplied fresh
+ * CPU/RAM evidence. A more recently seen Windows PC with no consent must not
+ * mask another owner-paired, capable PC. Explicit pinned devices are never
+ * replaced behind the owner's back.
+ */
+export function chooseReadyCompanionDevice(rows,{
+ now=Date.now(),onlineWithinMs=35000,requireReadyLocalAi=false
+}={}){
+ const list=Array.isArray(rows)?rows:[];
+ return list.find(row=>{
+   if(!engineHeartbeatFresh(row,{now,onlineWithinMs}))return false;
+   if(!requireReadyLocalAi)return true;
+   const metadata=parseJson(row.metadata,{})||{};
+   if(metadata.local_compute_enabled!==true||
+      !versionAtLeast(metadata.engine_version,MIN_LOCAL_AI_ENGINE_VERSION))
+     return false;
+   const admission=evaluateMeasuredOptionalCompute({
+     enabled:true,profile:metadata.local_compute_profile||'off',
+     online:true,halted:Number(row.halted)===1,
+     telemetry:metadata.local_compute_telemetry,now
+   });
+   return admission.allowed===true;
+ })||null;
+}
+
+async function chooseDevice(db,{deviceId=null,now=Date.now(),onlineWithinMs=35000,requireReadyLocalAi=false}={}){
   if(deviceId){
     const row=await db.prepare("SELECT * FROM computer_devices WHERE id=? LIMIT 1").bind(clean(deviceId,200)).first();
     return engineHeartbeatFresh(row,{now,onlineWithinMs})?row:null;
   }
   const rows=await db.prepare(`SELECT * FROM computer_devices
     WHERE lower(platform)='windows' AND halted=0 AND last_seen_at>=?
-    ORDER BY last_seen_at DESC LIMIT 5`)
+    ORDER BY last_seen_at DESC LIMIT 20`)
     .bind(now-onlineWithinMs).all();
-  return (rows?.results||[]).find(row=>engineHeartbeatFresh(row,{now,onlineWithinMs}))||null;
+  return chooseReadyCompanionDevice(rows?.results,{now,onlineWithinMs,requireReadyLocalAi});
 }
 
 function parseJson(v,fallback=null){
@@ -99,7 +125,12 @@ export function createCompanionSovereigntyExecutor(env,{
 
     await ensureCompanionSovereigntyTables(env.DB);
     const now=Date.now();
-    const device=await chooseDevice(env.DB,{deviceId,now,onlineWithinMs});
+    // Only opt-in AI inference needs a machine with a fresh compute budget.
+    // Keep the established choice policy for all other sovereignty actions.
+    const needsReadyLocalAi=qualifiedAction==='sovereignty.ai.invoke';
+    const device=await chooseDevice(env.DB,{
+      deviceId,now,onlineWithinMs,requireReadyLocalAi:needsReadyLocalAi
+    });
     if(!device)return{ok:false,code:'COMPUTER_OFFLINE'};
     if(Number(device.halted)===1)return{ok:false,code:'OWNER_HALT_ACTIVE'};
     if(String(device.platform||'').toLowerCase()!=='windows')return{ok:false,code:'SOVEREIGNTY_WINDOWS_REQUIRED'};

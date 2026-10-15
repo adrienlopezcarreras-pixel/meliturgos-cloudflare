@@ -1,0 +1,19 @@
+name: Companion Ready Device Selection CI
+on:
+  pull_request:
+    paths:
+      - 'src/portability/companion-sovereignty-executor.js'
+      - 'tests/gen2/companion-ready-device-selection.test.mjs'
+      - '.github/workflows/companion-ready-device-selection-ci.yml'
+permissions:
+  contents: read
+jobs:
+  owner-pc-selection:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node --test tests/gen2/companion-ready-device-selection.test.mjs tests/native-chat-companion-fallback.test.mjs
