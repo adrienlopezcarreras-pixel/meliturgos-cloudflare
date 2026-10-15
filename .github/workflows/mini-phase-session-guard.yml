@@ -8,6 +8,8 @@ on:
       - 'tests/mini-phase-capability.cpp'
       - 'firmware/waveshare-terminal/main/mel_mini_phase_capability_wire_v1.h'
       - 'tests/mini-phase-capability-wire-v1.cpp'
+      - 'firmware/waveshare-terminal/main/mel_mini_phase_negotiation_v1.h'
+      - 'tests/mini-phase-negotiation-v1.cpp'
       - '.github/workflows/mini-phase-session-guard.yml'
   workflow_dispatch:
 jobs:
@@ -30,3 +32,7 @@ jobs:
         run: |
           g++ -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer tests/mini-phase-capability-wire-v1.cpp -o /tmp/mini-phase-capability-wire
           /tmp/mini-phase-capability-wire
+      - name: Compile and test independent phase REQUEST/ACCEPT/REJECT wire contract
+        run: |
+          g++ -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer tests/mini-phase-negotiation-v1.cpp -o /tmp/mini-phase-negotiation
+          /tmp/mini-phase-negotiation
