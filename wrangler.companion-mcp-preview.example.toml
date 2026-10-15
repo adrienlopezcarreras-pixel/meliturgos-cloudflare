@@ -1,0 +1,26 @@
+# TEMPLATE ONLY — do not deploy without owner review.
+# Copy to a private, reviewed deployment configuration and replace all placeholders.
+name = "mel-companion-mcp-preview-REPLACE"
+main = "src/preview/companion-mcp-worker.js"
+compatibility_date = "2026-10-13"
+workers_dev = false
+
+[vars]
+MCP_PREVIEW_ENABLED = "false"
+MCP_PREVIEW_ISOLATED = "true"
+MCP_PREVIEW_D1_ISOLATED = "false"
+MCP_PREVIEW_ORIGIN = "https://REPLACE-preview.example.invalid"
+MCP_OAUTH_ISSUER = "https://REPLACE-issuer.example.invalid"
+MCP_PREVIEW_WORKER_NAME = "mel-companion-mcp-preview-REPLACE"
+MCP_PREVIEW_D1_DATABASE_ID = "REPLACE_PREVIEW_D1_ID"
+MCP_PRODUCTION_WORKER_NAME = "REPLACE_PRODUCTION_WORKER_NAME"
+MCP_PRODUCTION_D1_DATABASE_ID = "REPLACE_PRODUCTION_D1_ID"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "mel-companion-mcp-preview-REPLACE"
+database_id = "REPLACE_PREVIEW_D1_ID"
+
+# MCP_OAUTH_JWKS must be provisioned by a reviewed secret/configuration process.
+# Never put bearer tokens, private keys, or production database IDs in Git.
+# This template intentionally defines no public route and disables workers.dev.
