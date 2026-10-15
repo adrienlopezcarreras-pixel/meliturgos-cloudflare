@@ -7,7 +7,7 @@ function fakeD1() {
  const key=(owner,id)=>JSON.stringify([owner,id]);
  let schemaApplied=false;
  const db={
-  async exec(sql){ if(sql.includes('mel_evolution_items')) { assert.match(sql,/PRIMARY KEY \\(owner_scope, id\\)/); schemaApplied=true; } },
+  async exec(sql){ if(sql.includes('mel_evolution_items')) { assert.ok(sql.includes('PRIMARY KEY (owner_scope, id)')); schemaApplied=true; } },
   prepare(sql){
    const query={
     bind(...args){
