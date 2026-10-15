@@ -90,6 +90,7 @@ jobs:
             'assets/MEL-Computer-Setup.ps1',
             'assets/MEL-Computer-Companion.ps1',
             'windows-companion/MEL-ADB-WiFi.ps1',
+            'windows-companion/MEL-MINI-USB-Preflight.ps1',
             'tools/android-companion/MEL-Android-WiFi-Pairing.ps1',
             'scripts/build-windows-release.ps1',
             'scripts/companion-local-ai-benchmark.ps1',
@@ -100,6 +101,19 @@ jobs:
             $tokens=$null; $errors=$null
             [void][System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $file),[ref]$tokens,[ref]$errors)
             if ($errors.Count -gt 0) { throw "POWERSHELL_PARSE_FAILED:${file}:$($errors[0].Message)" }
+          }
+
+      - name: Prove MINI USB helper requires owner confirmation before bootloader access
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $helper = '.windows-release/MEL-Windows-' + $env:RELEASE_VERSION + '/MEL-MINI-USB-Preflight.ps1'
+          if (!(Test-Path -LiteralPath $helper -PathType Leaf)) { throw 'MINI_USB_HELPER_NOT_PACKAGED' }
+          # The stdin is deliberately empty. Neither the runner nor a cloud
+          # relay can pass the attended owner's literal consent accidentally.
+          $output = 'n' | & pwsh -NoProfile -NonInteractive -File $helper -Port COM3 2>&1 | Out-String
+          if ($LASTEXITCODE -eq 0 -or $output -notmatch 'MINI_USB_LOCAL_CONFIRMATION_REQUIRED') {
+            throw "MINI_USB_HELPER_DID_NOT_FAIL_CLOSED:$output"
           }
 
       - name: Prove PNG screenshot upload is a raw byte array

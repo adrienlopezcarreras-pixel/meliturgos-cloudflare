@@ -41,6 +41,23 @@ $androidPairSource = Join-Path $repoRoot "tools\android-companion\MEL-Android-Wi
 if (-not (Test-Path -LiteralPath $androidPairSource -PathType Leaf)) { throw "ANDROID_WIFI_PAIRING_HELPER_MISSING" }
 Copy-Item -LiteralPath $androidPairSource -Destination (Join-Path $stage "MEL-Android-WiFi-Pairing.ps1")
 
+# Package the owner-attended MINI read-only USB inspector and its offline parsers.
+# Never invoked by the setup script, cloud relay or Windows boot.
+$miniInspectorFiles = @(
+  'local_readonly_preflight.py',
+  'inspect_partitions.py',
+  'inspect_ota_state.py',
+  'inspect_image.py'
+)
+foreach ($name in $miniInspectorFiles) {
+  $src = Join-Path $repoRoot (Join-Path 'tools\mini-updater' $name)
+  if (!(Test-Path -LiteralPath $src -PathType Leaf)) { throw "MINI_USB_INSPECTOR_SOURCE_MISSING:$name" }
+  Copy-Item -LiteralPath $src -Destination (Join-Path $stage $name)
+}
+$miniHelper = Join-Path $repoRoot 'windows-companion\MEL-MINI-USB-Preflight.ps1'
+if (!(Test-Path -LiteralPath $miniHelper -PathType Leaf)) { throw 'MINI_USB_HELPER_SOURCE_MISSING' }
+Copy-Item -LiteralPath $miniHelper -Destination (Join-Path $stage 'MEL-MINI-USB-Preflight.ps1')
+
 # Packaged but never executed during installation or build.
 $benchmarkSource = Join-Path $repoRoot "scripts\companion-local-ai-benchmark.ps1"
 if (-not (Test-Path -LiteralPath $benchmarkSource -PathType Leaf)) { throw "WINDOWS_LOCAL_AI_BENCHMARK_MISSING" }
