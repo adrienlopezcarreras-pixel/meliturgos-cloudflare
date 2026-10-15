@@ -7,6 +7,14 @@ const codeOnly = value => {
   return /^[A-Z][A-Z0-9_:-]{0,95}$/.test(code) ? code : 'PROVIDER_FAILURE_REDACTED';
 };
 const count = value => Number.isSafeInteger(Number(value)) && Number(value) >= 0 ? Number(value) : 0;
+const publicModelIdentity = value => {
+  const identity = String(value ?? '').trim();
+  // Public provider/model IDs are useful for routing diagnostics, but never
+  // print arbitrary text obtained from a provider error or request payload.
+  return identity.includes('::') && /^[A-Za-z0-9@._:/+\\-]{1,160}$/.test(identity)
+    ? identity : 'MODEL_ID_REDACTED';
+};
+
 
 // A release Council must have two independent zero-cost critiques and a real
 // synthesis. Failed proofs expose bounded codes and counts, never prompt text.
@@ -26,6 +34,13 @@ export function evaluateCouncilReleaseProof(body) {
     provider_failure_count: count(r.provider_failure_count),
     failure_codes: (Array.isArray(r.failures) ? r.failures : []).slice(0, 8)
       .map(row => codeOnly(row?.code || row?.error_code)),
+    failed_provider_models: (Array.isArray(r.failures) ? r.failures : []).slice(0, 8)
+      .map(row => ({
+        identity: publicModelIdentity(row?.identity),
+        code: codeOnly(row?.code || row?.error_code),
+      })),
+    successful_provider_models: critiques.slice(0, 8)
+      .map(row => publicModelIdentity(row?.identity)),
     rejection_codes: (Array.isArray(r.rejections) ? r.rejections : []).slice(0, 8)
       .map(row => codeOnly(row?.code)),
   };
