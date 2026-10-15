@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import org.json.JSONArray
 import org.json.JSONObject
 import java.net.SocketTimeoutException
 import java.net.UnknownHostException
@@ -34,8 +35,23 @@ enum class SessionStage {
 data class MelChatMessage(
     val role: String,
     val text: String,
-    val voice: Boolean = false
+    val voice: Boolean = false,
+    // Assigned only to archived server messages, never inferred from text.
+    val serverId: String? = null
 )
+
+// Preserve two legitimate identical messages with different server IDs while
+// preventing redelivery of one archived message after a failed ACK.
+internal fun mergeSyncedMessages(
+    existing: List<MelChatMessage>,
+    incoming: List<MelChatMessage>
+): List<MelChatMessage> {
+    val ids = existing.mapNotNull { it.serverId }.toMutableSet()
+    return existing + incoming.filter { message ->
+        val id = message.serverId
+        !id.isNullOrBlank() && ids.add(id)
+    }
+}
 
 data class MelCompanionDevice(
     val deviceId: String,
@@ -1052,26 +1068,55 @@ class MelViewModel(
         _state.value = _state.value.copy(busy = true, status = "Synchronisation…", error = null)
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                val rows = client.syncAndAck(conversationId)
+                // Do not ACK until the downloaded messages have been applied
+                // to the UI. An interrupted or failed ACK can safely retry.
+                val response = client.sync(conversationId)
+                val rows = response.optJSONArray("messages") ?: JSONArray()
                 val incoming = buildList {
                     for (i in 0 until rows.length()) {
                         val row = rows.getJSONObject(i)
                         val role = row.optString("role").lowercase()
                         if (role == "user" || role == "assistant" || role == "mel") {
+                            val messageId = row.optString("id")
+                            if (messageId.isBlank()) throw MelApiException("SYNC_MESSAGE_ID_INVALID", 502)
                             add(
                                 MelChatMessage(
                                     role = if (role == "user") "user" else "mel",
-                                    text = row.optString("content", row.optString("text"))
+                                    text = row.optString("content", row.optString("text")),
+                                    serverId = messageId
                                 )
                             )
                         }
                     }
                 }
-                _state.value = _state.value.copy(
-                    busy = false,
-                    status = if (incoming.isEmpty()) "Déjà synchronisé" else "${incoming.size} message(s) synchronisé(s)",
-                    messages = _state.value.messages + incoming
-                )
+                val last = if (rows.length() > 0) rows.getJSONObject(rows.length() - 1) else null
+                val checkpointId = last?.optString("id").orEmpty()
+                val checkpointTimestamp = last?.optLong("timestamp", -1L) ?: -1L
+                if (last != null && (checkpointId.isBlank() || checkpointTimestamp < 0L)) {
+                    throw MelApiException("SYNC_CHECKPOINT_INVALID", 502)
+                }
+                _state.update { current ->
+                    val merged = mergeSyncedMessages(current.messages, incoming)
+                    val added = merged.size - current.messages.size
+                    current.copy(
+                        busy = false,
+                        status = if (added == 0) "Déjà synchronisé"
+                            else "$added message(s) synchronisé(s)",
+                        messages = merged
+                    )
+                }
+                if (last != null) {
+                    try {
+                        client.ack(conversationId, checkpointId, checkpointTimestamp)
+                    } catch (error: Throwable) {
+                        // The messages are already visible, and a later sync
+                        // will be deduplicated by immutable server ID.
+                        appendDiagnosticLine("Sync ACK en attente · " + explain(error))
+                        _state.update {
+                            it.copy(status = "Messages reçus · accusé de réception à réessayer")
+                        }
+                    }
+                }
             } catch (error: Throwable) {
                 if (isInvalidSession(error)) {
                     vault.clear()
