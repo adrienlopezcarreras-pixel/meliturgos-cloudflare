@@ -7,6 +7,7 @@ import { isLocalSovereigntyAction } from "../portability/local-sovereignty-actio
 import {
  evaluateMeasuredOptionalCompute,
  shouldInvalidateOptionalComputeTelemetryOnHeartbeat,
+ evaluateQueuedOptionalComputeClaim,
 } from "./companion-compute-admission.js";
 import { miniReadOnlyPcCommand } from "./mini-readonly-companion.js";
 import { miniMaintenanceAssessCommand } from "./mini-maintenance-companion.js";
@@ -587,6 +588,16 @@ async function claim(env,a){
  const r=await env.DB.prepare("SELECT * FROM computer_commands WHERE device_id=? AND status=? ORDER BY created_at ASC LIMIT 1").bind(a.device.id,"PENDING").first();
  if(!r)return json({ok:true,halted:false,command:null});
  const plan=parse(r.plan_json,{});
+ const computeVerdict=evaluateQueuedOptionalComputeClaim({
+   plan,device:a.device,now:Date.now()
+ });
+ if(!computeVerdict.ok){
+   const updated=await env.DB.prepare("UPDATE computer_commands SET status=?,finished_at=?,error_code=? WHERE id=? AND device_id=? AND status=?")
+    .bind("FAILED",Date.now(),computeVerdict.code,r.id,a.device.id,"PENDING").run();
+   if(!updated||updated.success===false||Number(updated.meta?.changes)!==1)
+     return json({ok:false,code:"COMPUTER_CLAIM_REVALIDATION_RACE"},409);
+   return json({ok:true,halted:false,command:null,blocked_command:{id:r.id,code:computeVerdict.code}});
+ }
  if(plan.schema==="mel.companion.desktop-view-request/v1" || plan.action==="desktop.view.request"){
   // A previously queued request must not outlive a local opt-out reported
   // after the owner queued it but before the Windows agent claimed it.

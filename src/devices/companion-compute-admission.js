@@ -52,3 +52,35 @@ export function shouldInvalidateOptionalComputeTelemetryOnHeartbeat({
  return Object.prototype.hasOwnProperty.call(body,'version')
    || Object.prototype.hasOwnProperty.call(body,'local_compute_telemetry');
 }
+
+/**
+ * Re-check live consent, telemetry and deadline when Windows CLAIMS a queued
+ * Ollama action, not only when the server first puts it in the queue.
+ * Other command types keep their existing security policies unchanged.
+ */
+export function evaluateQueuedOptionalComputeClaim({plan,device,now=Date.now()}={}){
+ const steps=Array.isArray(plan?.steps)?plan.steps:[];
+ const hasAiInvoke=steps.some(step=>step?.action==='sovereignty.ai.invoke');
+ if(!hasAiInvoke)return {ok:true,reason:'NOT_OPTIONAL_AI'};
+ if(plan?.schema!=='mel.sovereignty.local-command/v1'||steps.length!==1)
+   return {ok:false,code:'LOCAL_AI_PLAN_INVALID'};
+ const deadline=steps[0]?.payload?.owner_inference_deadline_ms;
+ if(typeof deadline!=='number'||!Number.isSafeInteger(deadline)||
+   deadline<=now||deadline>now+120000)
+   return {ok:false,code:'LOCAL_AI_REQUEST_EXPIRED'};
+ if(!device||Number(device.halted)===1)
+   return {ok:false,code:'LOCAL_AI_OWNER_HALT'};
+ let metadata={};
+ try{metadata=typeof device.metadata==='string'?JSON.parse(device.metadata):device.metadata||{}}catch{}
+ const engineHeartbeat=Number(metadata.engine_heartbeat_at);
+ if(!Number.isFinite(engineHeartbeat)||engineHeartbeat>now||now-engineHeartbeat>=35000)
+   return {ok:false,code:'LOCAL_AI_ENGINE_OFFLINE'};
+ const admission=evaluateMeasuredOptionalCompute({
+   enabled:metadata.local_compute_enabled===true,
+   profile:metadata.local_compute_profile||'off',online:true,
+   halted:false,now,telemetry:metadata.local_compute_telemetry
+ });
+ return admission.allowed===true
+   ?{ok:true,reason:'LOCAL_AI_ADMITTED'}
+   :{ok:false,code:'LOCAL_AI_'+admission.reason};
+}
