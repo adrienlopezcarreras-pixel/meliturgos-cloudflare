@@ -37,3 +37,12 @@ test('credential-like imported history is excluded while ordinary context surviv
   ];
   assert.deepEqual(rows.filter(row => !profileSecretLike(row.content)), [rows[0]]);
 });
+
+test('unlabelled provider credentials never enter retrieved context', () => {
+  for (const value of [
+    'ghp_' + 'a'.repeat(36),
+    'github_pat_' + 'b'.repeat(42),
+    'sk-' + 'c'.repeat(32),
+  ]) assert.equal(profileSecretLike(value), true);
+  assert.equal(profileSecretLike('Je préfère une conversation en français'), false);
+});

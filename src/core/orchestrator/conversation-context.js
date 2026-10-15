@@ -48,7 +48,7 @@ function normalizedProfileText(value) {
 
 
 export function profileSecretLike(value) {
-  return /(?:api[_ -]?key|password|mot\s+de\s+passe|bearer\s+[a-z0-9._-]+|\btoken\b|\botp\b|secret\s*[=:]|private[_ -]?key|authorization\s*:)/i.test(String(value || ''));
+  return /(?:api[_ -]?key|password|mot\s+de\s+passe|bearer\s+[a-z0-9._-]+|\btoken\b|\botp\b|secret\s*[=:]|private[_ -]?key|authorization\s*:|\bgh[pousr]_[a-z0-9_]{20,}\b|\bgithub_pat_[a-z0-9_]{20,}\b|\bsk-[a-z0-9_-]{20,}\b)/i.test(String(value || ''));
 }
 
 function profileCategory(value) {
