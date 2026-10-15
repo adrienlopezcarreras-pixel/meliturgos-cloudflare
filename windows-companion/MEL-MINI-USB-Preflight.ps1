@@ -10,7 +10,11 @@ Set-StrictMode -Version Latest
 Write-Host 'MEL MINI — contrôle USB local en lecture seule.'
 Write-Host 'La connexion au bootloader peut redémarrer la MINI.'
 Write-Host 'Une sauvegarde et une vérification matérielle resteront nécessaires avant flash.'
-$approval = Read-Host 'Tapez exactement AUTORISER_LECTURE_USB_MINI pour continuer'
+try {
+  $approval = Read-Host 'Tapez exactement AUTORISER_LECTURE_USB_MINI pour continuer'
+} catch {
+  throw 'MINI_USB_LOCAL_CONFIRMATION_REQUIRED'
+}
 if ($approval -cne 'AUTORISER_LECTURE_USB_MINI') {
   throw 'MINI_USB_LOCAL_CONFIRMATION_REQUIRED'
 }
