@@ -170,7 +170,7 @@ test('Android 0.6.15 matches the MINI reference shell with realistic MEL portrai
   assert.match(activity,/MelFaceState\.SPEAKING -> "MEL"/);
 });
 
-test('Android voice keeps French speech fallback and uses silent personalized OK MEL multi-turn conversation',async()=>{
+test('Android voice keeps selected-language fallback and personalized OK MEL multi-turn conversation',async()=>{
   const activity=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MainActivity.kt',root),'utf8');
   const trainer=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/WakePhraseTrainer.kt',root),'utf8');
   const store=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/WakePhraseProfileStore.kt',root),'utf8');
@@ -207,7 +207,7 @@ test('Android voice keeps French speech fallback and uses silent personalized OK
   const errorBlock=activity.slice(nativeError,activity.indexOf('override fun onResults',nativeError));
   assert.match(errorBlock,/ERROR_LANGUAGE_NOT_SUPPORTED/);
   assert.match(errorBlock,/ERROR_LANGUAGE_UNAVAILABLE/);
-  assert.match(errorBlock,/startRecorderFallback\("Français Android indisponible · secours MEL"\)/);
+  assert.match(errorBlock,/startRecorderFallback\("Dictée \$activeLanguage indisponible · secours MEL"\)/);
   assert.match(activity,/MelFaceState\.LISTENING -> breathe \+ voiceLevel\.coerceIn/);
   assert.match(activity,/translationX = sway/);
   assert.doesNotMatch(activity,/label = "mel-photo-mouth"/);
