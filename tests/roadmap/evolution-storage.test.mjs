@@ -121,3 +121,28 @@ test('canonical D1 schema v18 migrates with real SQLite and archive stays immuta
   await assert.rejects(db.prepare('DELETE FROM mel_evolution_initial_archive WHERE archive_id = ?').bind('initial-v1').run(),/ARCHIVE_IMMUTABLE/);
  } finally {db.close();}
 });
+
+test('Wrangler SQL and code migration create equivalent owner-scoped schema',async()=>{
+ const {DatabaseSync}=await import('node:sqlite');
+ const {readFile}=await import('node:fs/promises');
+ const {sqliteD1}=await import('../helpers/sqlite-d1.mjs');
+ const sql=await readFile(new URL('../../migrations/0018_evolution_development.sql',import.meta.url),'utf8');
+ const wrangler=new DatabaseSync(':memory:');
+ const runtime=sqliteD1();
+ try {
+  wrangler.exec(sql);
+  await initializeEvolutionStorage(runtime);
+  for(const table of ['mel_evolution_items','mel_evolution_initial_archive']){
+   const fromSql=wrangler.prepare('PRAGMA table_info('+table+')').all().map(x=>x.name);
+   const fromRuntime=(await runtime.prepare('PRAGMA table_info('+table+')').all()).results.map(x=>x.name);
+   assert.deepEqual(fromSql,fromRuntime);
+  }
+  for(const trigger of ['mel_evolution_archive_no_update','mel_evolution_archive_no_delete']){
+   assert.ok(wrangler.prepare("SELECT name FROM sqlite_master WHERE type='trigger' AND name=?").get(trigger));
+   assert.ok((await runtime.prepare("SELECT name FROM sqlite_master WHERE type='trigger' AND name=?").bind(trigger).first()));
+  }
+  wrangler.prepare('INSERT INTO mel_evolution_initial_archive(archive_id,source_sha,verified_count,total_count,proof_reference,closed_at) VALUES(?,?,?,?,?,?)')
+   .run('v1','a'.repeat(40),1,1,'run-1','2026-10-15');
+  assert.throws(()=>wrangler.prepare("DELETE FROM mel_evolution_initial_archive WHERE archive_id='v1'").run(),/ARCHIVE_IMMUTABLE/);
+ } finally {wrangler.close();runtime.close();}
+});
