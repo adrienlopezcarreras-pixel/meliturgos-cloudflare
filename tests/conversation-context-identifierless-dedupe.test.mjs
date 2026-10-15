@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { dedupeRows, profileSecretLike } from '../src/core/orchestrator/conversation-context.js';
+import { dedupeRows, profileSecretLike, compactHistoricalRows } from '../src/core/orchestrator/conversation-context.js';
 
 test('retrieved rows without IDs preserve distinct conversation evidence', () => {
   const first = { source: 'memories', conversation_id: 'a', role: 'user', content: 'Je parle espagnol' };
@@ -103,4 +103,16 @@ test('circular provenance table does not break retrieved memory dedupe', () => {
 test('structured source identifiers fall back to scalar provenance', () => {
   const row = {source:{unexpected:true},provenance:{table:'memory'},content:'Safe context'};
   assert.deepEqual(dedupeRows([row]), [row]);
+});
+
+test('provenance details are allowlisted before memory prompt serialization', () => {
+  const rows = compactHistoricalRows([{content:'Ordinary evidence', provenance: {
+    table:'messages',conversation_id:'conv-1',collector_source:'archive',
+    collector_complete:true,access_token:'private-access-token',nested:{key:'private'},
+  }}]);
+  const encoded = JSON.stringify(rows);
+  assert.equal(encoded.includes('private-access-token'),false);
+  assert.equal(encoded.includes('nested'),false);
+  assert.equal(rows[0].provenance.table,'messages');
+  assert.equal(rows[0].provenance.collector_complete,true);
 });
