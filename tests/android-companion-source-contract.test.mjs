@@ -954,3 +954,11 @@ test('server transcribed voice latency splits speech recognition from model and 
   assert.match(voice,/Voix échec · \$\{SystemClock\.elapsedRealtime\(\) - voiceRequestStartedAt\} ms/);
   assert.doesNotMatch(voice,/appendDiagnosticLine\("[^"]*\$\{transcript\}/);
 });
+
+
+test('MINI TTS rejects calls from Android main thread before posting and waiting', async () => {
+  const tts = await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelMiniVoiceSynthesizer.kt',root),'utf8');
+  const entry = tts.slice(tts.indexOf('fun synthesizePcm48kMono('), tts.indexOf('val clean = text.trim()', tts.indexOf('fun synthesizePcm48kMono(')));
+  assert.match(entry, /check\(Looper\.myLooper\(\) != Looper\.getMainLooper\(\)\)/);
+  assert.match(entry, /MINI_TTS_MAIN_THREAD_FORBIDDEN/);
+});
