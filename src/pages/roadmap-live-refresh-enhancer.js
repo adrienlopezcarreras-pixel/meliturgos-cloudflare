@@ -65,6 +65,41 @@ export const ROADMAP_LIVE_REFRESH_PATCH = `<script id="mel-roadmap-live-refresh-
       for(const item of (Array.isArray(result.items)?result.items:[]).slice(0,30)){
         const li=document.createElement('li');
         li.textContent=String(item.id||'')+' · '+String(item.title||'')+' — '+String(item.status||'UNKNOWN');
+        const actionStatus=String(item.status||'');
+        const options=actionStatus==='PROPOSED'
+          ? [{next:'TRIAGED',label:'Examiner'}]
+          : actionStatus==='TRIAGED'
+            ? [{next:'APPROVED',label:'Approuver'},{next:'REJECTED',label:'Rejeter'}]
+            : [];
+        for(const action of options){
+          const button=document.createElement('button');
+          button.type='button';
+          button.textContent=action.label;
+          button.setAttribute('aria-label',action.label+' : '+String(item.title||''));
+          button.style.cssText='margin-left:8px;padding:4px 8px';
+          button.addEventListener('click',async()=>{
+            if(!Number.isSafeInteger(item.revision)||item.revision<1){
+              status.textContent='Révision D1 inconnue : action refusée, actualisez le panneau';
+              return;
+            }
+            if(!window.confirm(action.label+' ce développement : '+String(item.title||'')+' ?'))return;
+            button.disabled=true;
+            try{
+              const reply=await fetch('/api/gen2/capabilities/execute',{
+                method:'POST',credentials:'same-origin',cache:'no-store',
+                headers:{'content-type':'application/json','x-mel-approve-capability':'evolution.review'},
+                body:JSON.stringify({id:'evolution.review',input:{id:item.id,expected_revision:item.revision,next:action.next}})
+              });
+              if(!reply.ok)throw new Error('HTTP_'+reply.status);
+              const data=await reply.json();
+              if(data?.ok!==true||data?.capability!=='evolution.review'||data?.result?.item?.status!==action.next)throw new Error('EVOLUTION_REVIEW_NOT_CONFIRMED');
+              await refreshEvolution();
+            }catch(error){
+              status.textContent='Examen non enregistré (permission, approbation ou révision) : '+String(error?.message||'UNKNOWN');
+            }finally{button.disabled=false}
+          });
+          li.appendChild(button);
+        }
         entries.appendChild(li);
       }
     }catch(error){

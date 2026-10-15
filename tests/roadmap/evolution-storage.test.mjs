@@ -47,11 +47,11 @@ function fakeD1() {
      throw new Error('UNBOUND_LIST');
     }
    };
-   if(sql.startsWith('SELECT payload FROM')) {
+   if(sql.startsWith('SELECT payload') && sql.includes('ORDER BY id')) {
     query.bind=(owner)=>({
      all:async()=>{
       if(!schemaApplied)throw new Error('D1_TABLE_MISSING');
-      return {results:[...rows.values()].filter(x=>x.owner===owner).map(x=>({payload:x.payload}))};
+      return {results:[...rows.values()].filter(x=>x.owner===owner).map(x=>({payload:x.payload,revision:x.revision}))};
      }
     });
    }

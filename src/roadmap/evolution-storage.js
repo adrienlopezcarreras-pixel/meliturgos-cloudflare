@@ -39,9 +39,13 @@ export async function initializeEvolutionStorage(db) {
 }
 export async function listEvolutionItems(db, owner) {
  const scope=ownerScope(owner);
- const result=await database(db).prepare('SELECT payload FROM mel_evolution_items WHERE owner_scope = ? ORDER BY id').bind(scope).all();
+ const result=await database(db).prepare('SELECT payload,revision FROM mel_evolution_items WHERE owner_scope = ? ORDER BY id').bind(scope).all();
  if (!result || !Array.isArray(result.results)) throw new Error('EVOLUTION_STORAGE_READ_FAILED');
- return result.results.map(row => JSON.parse(row.payload));
+ return result.results.map(row => {
+  const item=JSON.parse(row.payload);
+  if (!Number.isSafeInteger(row.revision) || row.revision<1) throw new Error('EVOLUTION_STORAGE_REVISION_INVALID');
+  return {...item,revision:row.revision};
+ });
 }
 export async function saveEvolutionProposal(db, owner, proposal) {
  const scope=ownerScope(owner);
