@@ -312,8 +312,20 @@ jobs:
               echo "LORA_PREVIEW_WORKFLOW_API_AUTH_OR_SCOPE_FAILED"
               exit 1
             fi
-            if [ "${API_CODE}" != "200" ] || ! node scripts/check-lora-preview-workflow-run.mjs \
+            if [ "${API_CODE}" != "200" ]; then
+              echo "LORA_PREVIEW_WORKFLOW_API_TRANSIENT attempt=${attempt} http=${API_CODE}"
+              sleep 15
+              continue
+            fi
+            if ! node scripts/check-lora-preview-workflow-run.mjs \
                 /tmp/mel-lora-preview-workflow-runs.json "$PREVIEW_EXPECTED_SHA" > /tmp/mel-lora-preview-workflow-verdict.json; then
+              # Fail immediately if the newest exact-SHA preview already
+              # completed unsuccessfully. Never mistake a failed preview for a
+              # merely pending one, and never expose workflow response bodies.
+              if node -e 'const fs=require("fs");let d={};try{d=JSON.parse(fs.readFileSync("/tmp/mel-lora-preview-workflow-verdict.json","utf8"))}catch{};process.exit(d?.code==="LORA_PREVIEW_WORKFLOW_TERMINAL_FAILURE"?0:1)'; then
+                echo "LORA_PREVIEW_TERMINAL_FAILURE"
+                exit 1
+              fi
               echo "LORA_PREVIEW_WORKFLOW_NOT_YET_SUCCESSFUL attempt=${attempt}"
               sleep 15
               continue
