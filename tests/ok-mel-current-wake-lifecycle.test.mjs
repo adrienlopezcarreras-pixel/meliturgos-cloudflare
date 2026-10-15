@@ -54,3 +54,21 @@ test('this is a foreground wake contract, not evidence of Android locked-screen 
   assert.match(main, /override fun onPause\(\)/);
   assert.doesNotMatch(main, /startForegroundService\(Intent\(this, MelWakeForegroundService::class\.java\)\)/);
 });
+
+test('transient microphone errors have at most three progressive restarts', () => {
+  const source = method('private fun ensureWakeWordListening()', 'private fun stopWakeWordListening()');
+  assert.match(source, /result\.isFailure && !wakeDetectorStop/);
+  assert.match(source, /wakeRetryFailures = \(wakeRetryFailures \+ 1\)\.coerceAtMost\(4\)/);
+  assert.match(source, /if \(wakeRetryFailures <= 3\)/);
+  assert.match(source, /1_500L \* \(1L shl \(wakeRetryFailures - 1\)\)/);
+  assert.match(source, /wakeRetryFailures = 0/);
+});
+test('a delayed retry is invalidated by STOP or a newer generation', () => {
+  const source = method('private fun ensureWakeWordListening()', 'private fun stopWakeWordListening()');
+  assert.match(source, /val retryGeneration = wakeSessionGeneration/);
+  assert.match(source, /retryGeneration == wakeSessionGeneration/);
+  assert.match(source, /appResumed && !wakeDetectorStop/);
+  assert.match(source, /wakeDetectorThread\?\.isAlive != true/);
+  const resume = method('override fun onResume()', 'override fun onPause()');
+  assert.match(resume, /wakeRetryFailures = 0/);
+});
