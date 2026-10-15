@@ -2256,6 +2256,24 @@ function Perform-PcControl([string]$action,$payload) {
   }
 }
 
+function Assert-ActiveRemoteCommand([string]$commandId) {
+  # A command already claimed may be cancelled by the owner while the engine
+  # is busy. Check the server before each desktop step, and fail closed if
+  # the connection or authorization probe cannot be verified.
+  if ($script:MelExitRequested) { throw "COMPUTER_LOCAL_STOP_ACTIVE" }
+  Assert-LocalRemoteAccess
+  if ([string]::IsNullOrWhiteSpace($commandId)) { throw "COMPUTER_CONTROL_COMMAND_REQUIRED" }
+  try {
+    $uri = "$Server/api/computer/v1/control-state?command_id=$([uri]::EscapeDataString($commandId))"
+    $state = Invoke-RestMethod -Uri $uri -Method GET -Headers (Headers) -TimeoutSec 5
+  } catch {
+    throw "COMPUTER_CONTROL_CHECK_UNAVAILABLE"
+  }
+  if ($state.ok -ne $true -or $state.permitted -ne $true) {
+    throw "COMPUTER_REMOTE_COMMAND_REVOKED"
+  }
+}
+
 function Assert-LocalRemoteAccess {
   # Never rely on a process-start snapshot: the owner may revoke access at any time.
   try {
@@ -2402,6 +2420,7 @@ function Perform-Step($step, [string]$commandId, [string]$planSchema="") {
 
 function Process-Command($command) {
   $outputs = @()
+  $isRemoteGui = [string]$command.plan.schema -in @('mel.devices.computer-use.v1','mel.devices.pc-control.v1')
   try {
     if ([string]$command.plan.schema -eq 'mel.companion.desktop-view-request/v1' -or [string]$command.plan.action -eq 'desktop.view.request') {
       if ([string]$command.plan.schema -ne 'mel.companion.desktop-view-request/v1' -or
@@ -2413,6 +2432,7 @@ function Process-Command($command) {
       # The owner has already opted in on this PC via remote_access_enabled.
       # Do NOT display an interactive dialog on each remote request.
       Assert-UnattendedCapturePermission
+      Assert-ActiveRemoteCommand ([string]$command.id)
       $expiry = [long]$command.plan.expires_at
       $now = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
       if ($expiry -le $now -or $expiry -gt ($now + 300000)) { throw 'DESKTOP_VIEW_CONSENT_EXPIRED' }
@@ -2421,13 +2441,16 @@ function Process-Command($command) {
       $shot = Upload-Screenshot ([string]$command.id)
       if ([string]$shot.key -eq '' -or [string]$shot.view_url -eq '' -or [string]$shot.key -notlike "computer/screenshots/$ComputerId/*") { throw 'DESKTOP_VIEW_UPLOAD_UNCONFIRMED' }
       $outputs += ,@{ action='desktop.view.request'; screenshot_key=$shot.key; view_url=$shot.view_url }
+      Assert-ActiveRemoteCommand ([string]$command.id)
       $body = @{ command_id=$command.id; ok=$true; result=@{ outputs=$outputs; capture_count=1 } }
       [void](Invoke-MelJson -Path "/api/computer/v1/result" -Method "POST" -Body $body)
       return
     }
     foreach ($step in @($command.plan.steps)) {
+      if ($isRemoteGui) { Assert-ActiveRemoteCommand ([string]$command.id) }
       $outputs += ,(Perform-Step $step ([string]$command.id) ([string]$command.plan.schema))
     }
+    if ($isRemoteGui) { Assert-ActiveRemoteCommand ([string]$command.id) }
     $body = @{ command_id=$command.id; ok=$true; result=@{ outputs=$outputs; active_window=(Active-Window) } }
     [void](Invoke-MelJson -Path "/api/computer/v1/result" -Method "POST" -Body $body)
   } catch {
