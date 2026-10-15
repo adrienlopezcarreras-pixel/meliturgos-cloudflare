@@ -1,4 +1,5 @@
 import { isLocalSovereigntyAction } from './local-sovereignty-actions.js';
+import {evaluateMeasuredOptionalCompute} from '../devices/companion-compute-admission.js';
 
 function clean(v,max=300){return String(v||'').trim().slice(0,max);}
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
@@ -84,6 +85,19 @@ export function createCompanionSovereigntyExecutor(env,{
     if(String(device.platform||'').toLowerCase()!=='windows')return{ok:false,code:'SOVEREIGNTY_WINDOWS_REQUIRED'};
     if(capabilityId==='sovereignty.ai'){
       const metadata=parseJson(device.metadata,{})||{};
+      // A paired PC is NOT by itself an inference authorization. The
+      // owner-controlled, fail-closed compute opt-in is mandatory.
+      if(metadata.local_compute_enabled!==true)
+        return {ok:false,code:'LOCAL_COMPUTE_DISABLED'};
+      if(qualifiedAction==='sovereignty.ai.invoke'){
+        const admission=evaluateMeasuredOptionalCompute({
+          enabled:true,profile:metadata.local_compute_profile||'off',
+          online:true,halted:Number(device.halted)===1,
+          telemetry:metadata.local_compute_telemetry,now
+        });
+        if(admission.allowed!==true)
+          return {ok:false,code:'LOCAL_COMPUTE_'+admission.reason};
+      }
       const engineVersion=clean(metadata.engine_version,80);
       if(!versionAtLeast(engineVersion,MIN_LOCAL_AI_ENGINE_VERSION)){
         return{
