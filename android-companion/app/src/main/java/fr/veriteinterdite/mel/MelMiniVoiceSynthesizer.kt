@@ -132,7 +132,9 @@ object MelMiniVoiceSynthesizer {
         ensureFrenchEngine(context.applicationContext)
     }
 
-    fun synthesizePcm48kMono(context: Context, text: String): ShortArray = synchronized(synthLock) {
+    fun synthesizePcm48kMono(context: Context, text: String): ShortArray {
+        check(Looper.myLooper() != Looper.getMainLooper()) { "MINI_TTS_MAIN_THREAD_FORBIDDEN" }
+        return synchronized(synthLock) {
         val clean = text.trim()
         require(clean.isNotEmpty()) { "MINI_TTS_TEXT_EMPTY" }
         require(clean.length <= TextToSpeech.getMaxSpeechInputLength()) {
@@ -245,6 +247,7 @@ object MelMiniVoiceSynthesizer {
             output
         } finally {
             runCatching { temp.delete() }
+        }
         }
     }
 
