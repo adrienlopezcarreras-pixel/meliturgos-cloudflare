@@ -22,7 +22,13 @@ export function assessLoraPreviewWorkflowRun(body, expectedSha) {
   // An old SUCCESS must never mask a newer FAILED or IN_PROGRESS attempt.
   matching.sort((a,b) => b.id - a.id);
   const latest = matching[0];
-  if (latest.status !== 'completed' || latest.conclusion !== 'success') {
+  if (latest.status === 'completed' && latest.conclusion !== 'success') {
+    // Failure, cancellation and timed-out runs are terminal for this exact
+    // run/SHA. Waiting for 43 minutes cannot turn them into proof of success.
+    // Keep the outcome bounded; never echo workflow log contents.
+    return { ok: false, code: 'LORA_PREVIEW_WORKFLOW_TERMINAL_FAILURE', run_id: latest.id };
+  }
+  if (latest.status !== 'completed') {
     return { ok: false, code: 'LORA_PREVIEW_WORKFLOW_NOT_SUCCESSFUL', run_id: latest.id };
   }
   return { ok: true, code: 'LORA_PREVIEW_WORKFLOW_SUCCESS_VERIFIED', run_id: latest.id, sha };
