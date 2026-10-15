@@ -103,19 +103,6 @@ jobs:
             if ($errors.Count -gt 0) { throw "POWERSHELL_PARSE_FAILED:${file}:$($errors[0].Message)" }
           }
 
-      - name: Prove MINI USB helper requires owner confirmation before bootloader access
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $helper = '.windows-release/MEL-Windows-' + $env:RELEASE_VERSION + '/MEL-MINI-USB-Preflight.ps1'
-          if (!(Test-Path -LiteralPath $helper -PathType Leaf)) { throw 'MINI_USB_HELPER_NOT_PACKAGED' }
-          # The stdin is deliberately empty. Neither the runner nor a cloud
-          # relay can pass the attended owner's literal consent accidentally.
-          $output = 'n' | & pwsh -NoProfile -NonInteractive -File $helper -Port COM3 2>&1 | Out-String
-          if ($LASTEXITCODE -eq 0 -or $output -notmatch 'MINI_USB_LOCAL_CONFIRMATION_REQUIRED') {
-            throw "MINI_USB_HELPER_DID_NOT_FAIL_CLOSED:$output"
-          }
-
       - name: Prove PNG screenshot upload is a raw byte array
         shell: pwsh
         run: ./tests/windows-companion-png-payload.ps1
@@ -153,6 +140,19 @@ jobs:
         shell: pwsh
         run: |
           ./scripts/verify-windows-release.ps1 -PackageDir "artifacts/windows" -Version "$env:RELEASE_VERSION" -SourceSha "$env:EXPECTED_SHA"
+
+      - name: Prove MINI USB helper requires owner confirmation before bootloader access
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $helper = '.windows-release/MEL-Windows-' + $env:RELEASE_VERSION + '/MEL-MINI-USB-Preflight.ps1'
+          if (!(Test-Path -LiteralPath $helper -PathType Leaf)) { throw 'MINI_USB_HELPER_NOT_PACKAGED' }
+          # The stdin is deliberately empty. Neither the runner nor a cloud
+          # relay can pass the attended owner's literal consent accidentally.
+          $output = 'n' | & pwsh -NoProfile -NonInteractive -File $helper -Port COM3 2>&1 | Out-String
+          if ($LASTEXITCODE -eq 0 -or $output -notmatch 'MINI_USB_LOCAL_CONFIRMATION_REQUIRED') {
+            throw "MINI_USB_HELPER_DID_NOT_FAIL_CLOSED:$output"
+          }
 
       - name: Verify Authenticode for signed release
         if: env.SIGNED_RELEASE == 'true'
