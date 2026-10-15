@@ -32,7 +32,7 @@ function messagesFor(input,context={}){
   return rows;
 }
 
-export function createCompanionLocalAiAdapter({execute,model=null}={}){
+export function createCompanionLocalAiAdapter({execute,model=null,clock=Date.now}={}){
   if(typeof execute!=='function')throw new TypeError('COMPANION_AI_EXECUTOR_REQUIRED');
   const selectedModel=clean(model,240)||null;
   return Object.freeze({
@@ -48,6 +48,7 @@ export function createCompanionLocalAiAdapter({execute,model=null}={}){
     }),
     async invoke({input,context={}}={}){
       const settings=context?.inference_settings||{};
+      const startedAt=typeof clock==='function'?clock():Date.now();
       const result=await execute({
         capability:'sovereignty.ai',
         action:'invoke',
@@ -58,6 +59,9 @@ export function createCompanionLocalAiAdapter({execute,model=null}={}){
           max_tokens:Number.isFinite(Number(settings.max_tokens))?Math.max(1,Math.min(512,Math.trunc(Number(settings.max_tokens)))):180,
         },
       });
+      const completedAt=typeof clock==='function'?clock():Date.now();
+      const elapsed=Number.isFinite(startedAt)&&Number.isFinite(completedAt)&&completedAt>=startedAt
+        ?Math.min(120000,Math.round(completedAt-startedAt)):null;
       if(result?.ok!==true)throw error(clean(result?.code,180)||'COMPANION_LOCAL_AI_FAILED');
       const text=clean(result?.text,32000);
       if(!text)throw error('COMPANION_LOCAL_AI_EMPTY_RESPONSE',502);
@@ -68,7 +72,13 @@ export function createCompanionLocalAiAdapter({execute,model=null}={}){
           model:clean(result?.model,240)||selectedModel||'auto-local',
           transport:'paired-windows-companion',
           backend:clean(result?.backend,120)||'local-ai',
-          performance:normalizeOllamaPerformanceEvidence(result?.inference_metrics),
+          performance:{
+            ...(normalizeOllamaPerformanceEvidence(result?.inference_metrics)||{gpu_evidence:'UNVERIFIED'}),
+            round_trip_latency_ms:elapsed,
+            // From request dispatch to the result received by MEL, including
+            // device queueing and transport: not equal to GPU execution time.
+            latency_scope:'companion-command-round-trip'
+          },
         },
       };
     },
