@@ -73,11 +73,21 @@ test('GitHub failures and unbounded comment history fail closed',async()=>{
  await assert.rejects(reconcileReleaseOutcomes({...args,fetchImpl:unbounded.fetchImpl}),/RELEASE_RECONCILE_COMMENTS_UNBOUNDED/);
  assert.equal(unbounded.posts.length,0);
 });
+test('merged PR write denial remains a reported failure without invented ledger receipt',async()=>{
+ const f=mock({runs:[run(57)]});
+ const denied=async(url,opts={})=>opts.method==='POST'
+  ? {ok:false,status:403}
+  : f.fetchImpl(url,opts);
+ await assert.rejects(reconcileReleaseOutcomes({...args,fetchImpl:denied}),/RELEASE_RECONCILE_PR_COMMENT_FORBIDDEN_403/);
+ assert.equal(f.posts.length,0);
+});
 test('scope and schedule cannot deploy or gain Cloudflare credentials',()=>{
  const text=readFileSync(new URL('../.github/workflows/release-outcome-ledger.yml',import.meta.url),'utf8');
  assert.match(text,/cron: '23 \* \* \* \*'/);
  assert.match(text,/actions: read/);
  assert.match(text,/issues: write/);
+ const reconcile=text.split('\n  reconcile:\n')[1];
+ assert.match(reconcile,/pull-requests: write/);
  assert.match(text,/scripts\/release-outcome-reconcile\.mjs/);
  assert.doesNotMatch(text,/CLOUDFLARE_API_TOKEN|wrangler deploy|force: true|secret put/);
 });
