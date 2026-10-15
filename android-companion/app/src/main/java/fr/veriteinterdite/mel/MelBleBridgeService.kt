@@ -116,7 +116,9 @@ class MelBleBridgeService : Service() {
     private val pullFrames = ConcurrentHashMap<String, ConcurrentLinkedQueue<ByteArray>>()
     private val latestResponseIds = ConcurrentHashMap<String, Int>()
     private val pullOnlyResponseIds = ConcurrentHashMap<String, Int>()
-    private val notificationAck = ArrayBlockingQueue<Int>(1)
+    // Acknowledgements must be isolated per GATT peer: another MINI must not
+    // acknowledge a notification destined for a different connection.
+    private val notificationAcks = ConcurrentHashMap<String, ArrayBlockingQueue<Int>>()
 
     private var bluetoothManager: BluetoothManager? = null
     private var adapter: BluetoothAdapter? = null
@@ -224,6 +226,7 @@ class MelBleBridgeService : Service() {
             mtus.clear()
             subscribed.clear()
             pullFrames.clear()
+            notificationAcks.clear()
             latestResponseIds.clear()
             pullOnlyResponseIds.clear()
             android.os.Handler(mainLooper).postDelayed({ startBridge() }, 250L)
@@ -237,6 +240,7 @@ class MelBleBridgeService : Service() {
 
     override fun onDestroy() {
         bridgeHandler.removeCallbacks(bridgeWatchdog)
+        notificationAcks.clear()
         staleCancellationRequested.clear()
         unregisterNetworkWatch()
         stopAdvertising()
@@ -477,6 +481,7 @@ class MelBleBridgeService : Service() {
                 stopAdvertising()
                 staleCancellationRequested.remove(device.address)
                 connectedAtMs[device.address] = System.currentTimeMillis()
+                notificationAcks[device.address] = ArrayBlockingQueue(1)
                 connectedDevices[device.address] = device
                 subscribed[device.address] = false
                 miniLinkReady.value = false
@@ -487,6 +492,7 @@ class MelBleBridgeService : Service() {
                 staleCancellationRequested.remove(device.address)
                 val started = connectedAtMs.remove(device.address)
                 connectedDevices.remove(device.address)
+                notificationAcks.remove(device.address)
                 val duration = started?.let { System.currentTimeMillis() - it }
                 publishBleDiagnostic(status, newState, duration)
                 miniLinkReady.value = false
@@ -614,7 +620,7 @@ class MelBleBridgeService : Service() {
         }
 
         override fun onNotificationSent(device: BluetoothDevice, status: Int) {
-            notificationAck.offer(status)
+            notificationAcks[device.address]?.offer(status)
         }
     }
 
@@ -1308,13 +1314,14 @@ class MelBleBridgeService : Service() {
         // making MINI complete the response before it has received the BODY/token.
         val pullOnly = pullOnlyResponseIds[device.address] == responseId
         if (subscribed[device.address] == true && !pullOnly) {
-            while (notificationAck.poll() != null) { }
+            val ackQueue = notificationAcks.computeIfAbsent(device.address) { ArrayBlockingQueue(1) }
+            while (ackQueue.poll() != null) { }
             @Suppress("DEPRECATION")
             run { characteristic.value = frame.copyOf() }
             @Suppress("DEPRECATION")
             val queued = server.notifyCharacteristicChanged(device, characteristic, false)
             if (queued) {
-                val status = notificationAck.poll(750, TimeUnit.MILLISECONDS)
+                val status = ackQueue.poll(750, TimeUnit.MILLISECONDS)
                 if (status == BluetoothGatt.GATT_SUCCESS) return true
                 Log.w(TAG, "BLE push notify failed/timeout status=$status; switching response $responseId to pull-only")
             } else {
