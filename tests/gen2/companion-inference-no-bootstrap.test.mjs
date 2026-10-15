@@ -14,7 +14,7 @@ test('source/distributed PowerShell are identical; inference passes NoBootstrap 
 test('all installation paths are behind non-inference only guards',()=>{
  const paths=state.split('Start-SovereigntyAiBootstrap');
  assert.equal(paths.length,4);
- assert.match(state,/if \(\$null -eq \$tags\) \{\s*#.*\n\s*if \(\$NoBootstrap\) \{ throw "SOVEREIGNTY_AI_LOCAL_ENGINE_UNAVAILABLE" \}/);
+ assert.match(state,/if \(\$null -eq \$tags\) \{\s*#.*\r?\n\s*if \(\$NoBootstrap\) \{ throw "SOVEREIGNTY_AI_LOCAL_ENGINE_UNAVAILABLE" \}/);
  assert.match(state,/if \(\$models.Count -lt 1\) \{\s*if \(\$NoBootstrap\) \{ throw "SOVEREIGNTY_AI_LOCAL_MODEL_MISSING" \}/);
  assert.match(state,/\} elseif \(-not \[string\]::IsNullOrWhiteSpace\(\$requested\)\) \{/);
  assert.match(state,/if \(\$NoBootstrap\) \{/);
