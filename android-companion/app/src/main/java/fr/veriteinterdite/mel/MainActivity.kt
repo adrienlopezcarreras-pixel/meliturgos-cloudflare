@@ -394,6 +394,7 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         appResumed = true
+        wakeRetryFailures = 0
         if (::model.isInitialized) model.setTriadActivityVisible(true, recording.value)
         refreshWakeEnrollmentState()
         if (::model.isInitialized) mainHandler.postDelayed({ ensureWakeWordListening() }, 500L)
@@ -762,6 +763,10 @@ class MainActivity : ComponentActivity() {
         wakeEnrolled.value = enrolled
     }
 
+    // Bound transient microphone failures. A new foreground session resets this
+    // budget, while STOP invalidates callbacks from every earlier generation.
+    private var wakeRetryFailures = 0
+
     private fun ensureWakeWordListening() {
         if (voiceConversationActive.value) return
         if (System.currentTimeMillis() - lastWakeActivationMs < 4_000L) return
@@ -805,11 +810,30 @@ class MainActivity : ComponentActivity() {
                 if (matchedScore != null && !wakeDetectorStop && appResumed &&
                     !recording.value && model.state.value.session == SessionStage.CONNECTED && !model.state.value.busy
                 ) {
+                    wakeRetryFailures = 0
                     lastWakeActivationMs = System.currentTimeMillis()
                     voiceMessage.value = "OK MEL reconnu · conversation active"
                     voiceConversationActive.value = true
                 } else if (result.isFailure && !wakeDetectorStop) {
-                    voiceMessage.value = "Écoute OK MEL indisponible · ${result.exceptionOrNull()?.message ?: "micro"}"
+                    wakeRetryFailures = (wakeRetryFailures + 1).coerceAtMost(4)
+                    voiceMessage.value = if (wakeRetryFailures <= 3) {
+                        "Écoute OK MEL interrompue · reprise $wakeRetryFailures/3"
+                    } else {
+                        "Écoute OK MEL arrêtée après trois reprises · rouvre MEL pour réessayer"
+                    }
+                    if (wakeRetryFailures <= 3) {
+                        val retryGeneration = wakeSessionGeneration
+                        val backoffMs = 1_500L * (1L shl (wakeRetryFailures - 1))
+                        mainHandler.postDelayed({
+                            // STOP, pause, re-enrollment or a newer wake session
+                            // must invalidate the scheduled restart.
+                            if (retryGeneration == wakeSessionGeneration &&
+                                appResumed && !wakeDetectorStop &&
+                                !voiceConversationActive.value && !recording.value &&
+                                wakeDetectorThread?.isAlive != true
+                            ) ensureWakeWordListening()
+                        }, backoffMs)
+                    }
                 }
             }
         }, "mel-ok-mel-listener").apply {
