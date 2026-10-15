@@ -35,7 +35,8 @@ export function shouldSemanticIntentCheck(text, context = '') {
   const devHistory = /\b(?:mel|interface|ui|avatar|th[eè]me|bouton|menu|code|programme|runtime|commit|branche|branch|d[ée]ploiement|jobs?|travaux?|m[ée]moire|chat\s*gpt|r[ée]ponses?|d[ée]veloppement|roadmap|feuille\s+de\s+route|module|capacit[ée]|comp[ée]tence|outil|backend|frontend|api|worker|css|html|javascript|dev\s*bridge|candidate)\b/i.test(history);
   const researchHistory = /\b(?:internet|web|en\s+ligne|actualit[ée]s?|news|recherche\s+web|sources?\s+web|derni[eè]res?\s+infos?)\b/i.test(history);
   const followUp = /\b(?:fais|fait|vas[- ]?y|go|oui|non|comme|ainsi|plut[oô]t|plus|moins|sans|avec|enl[eè]ve|garde|change|mets|rajoute|retire|corrige|continue|reprends|avance|je\s+veux|je\s+pr[eé]f[eè]re|devrait|pourrait|ceci|cela|[cç]a|celui|celle|lesquelles?|tout|toutes?|et\s+maintenant|et\s+aujourd['’]hui)\b/i.test(value);
-  return currentSelfSystem || currentResearch || actionSecondPerson || ((devHistory || researchHistory) && (actionSecondPerson || followUp || value.length <= 260));
+  const explicitEllipticalAction = actionSecondPerson && /\b(?:[cç]a|ceci|cela)\b/i.test(value) && !/\b(?:une?|mon|ma|mes|le|la|les|des)\s+\w+/i.test(value);
+  return currentSelfSystem || currentResearch || explicitEllipticalAction || ((devHistory || researchHistory) && (actionSecondPerson || followUp || value.length <= 260));
 }
 
 export async function classifySemanticOwnerIntent({ text, context = '', env = {}, AI } = {}) {
