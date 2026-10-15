@@ -19,6 +19,7 @@ test('production proof exercises live Model Council with negative-feedback recov
   assert.match(workflow, /OWNER_NEGATIVE_FEEDBACK_RECOVERY/);
   assert.match(workflow, /independent_response_count/);
   assert.match(workflow, /synthesis_status/);
+  assert.match(workflow, /Number\(r\?\.unique_model_count\|\|0\)>=2/);
 });
 
 test('production Council proof uses all four authorized zero-cost models with a bounded latency budget', () => {
