@@ -1794,7 +1794,7 @@ function Invoke-OllamaWithCooperativeCancel([string]$uri,[string]$json,[int]$tim
   if ($endMs -le $nowMs) { throw "SOVEREIGNTY_AI_LOCAL_DEADLINE_EXPIRED" }
   $client = New-Object System.Net.Http.HttpClient
   $cts = New-Object System.Threading.CancellationTokenSource
-  $content = New-Object System.Net.Http.StringContent($json,[Text.Encoding]::UTF8,"application/json")
+  $content = [System.Net.Http.StringContent]::new($json,[Text.Encoding]::UTF8,"application/json")
   try {
     $pending = $client.PostAsync($uri,$content,$cts.Token)
     while (-not $pending.IsCompleted) {
