@@ -17,6 +17,7 @@ test('Windows inspection does not expose page content or credentials', async () 
   const end=source.indexOf('"app.open" {',start);
   assert.ok(start>0&&end>start);
   const handler=source.slice(start,end);
+  assert.match(handler,/Assert-ForegroundBrowser/);
   assert.match(handler,/Active-Window/);
   assert.match(handler,/read_only=\$true/);
   assert.doesNotMatch(handler,/Get-Clipboard|Upload-Screenshot|Invoke-WebRequest|Get-Credential/);
