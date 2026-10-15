@@ -1743,7 +1743,7 @@ private fun MelAvatar(
                     color = if (online) accent.copy(alpha = .88f) else MelMuted.copy(alpha = .45f),
                     shape = CircleShape
                 )
-                .semantics { contentDescription = "Avatar MEL" },
+                .semantics { contentDescription = if (online) "Avatar MEL, connecté" else "Avatar MEL, déconnecté" },
             contentScale = ContentScale.Crop
         )
         Surface(
