@@ -61,6 +61,7 @@ data class MelWindowsPresence(
 data class MelUiState(
     val session: SessionStage = SessionStage.DISCONNECTED,
     val mode: MelMode = MelMode.NORMAL,
+    val preferCompanionCompute: Boolean = false,
     val busy: Boolean = false,
     val speaking: Boolean = false,
     val status: String = "",
@@ -92,7 +93,10 @@ class MelViewModel(
         MelMode.valueOf(prefs.getString("mode", MelMode.NORMAL.name) ?: MelMode.NORMAL.name)
     }.getOrDefault(MelMode.NORMAL)
 
-    private val _state = MutableStateFlow(MelUiState(mode = initialMode))
+    private val _state = MutableStateFlow(MelUiState(
+        mode = initialMode,
+        preferCompanionCompute = prefs.getBoolean("prefer_companion_compute", false)
+    ))
     val state: StateFlow<MelUiState> = _state.asStateFlow()
     private var companionRefreshLoopStarted = false
     private var windowsPresencePollStarted = false
@@ -218,6 +222,16 @@ class MelViewModel(
                 delay(10_000)
             }
         }
+    }
+
+    fun setPreferCompanionCompute(enabled: Boolean) {
+        if (_state.value.busy) return
+        prefs.edit().putBoolean("prefer_companion_compute", enabled).apply()
+        _state.value = _state.value.copy(
+            preferCompanionCompute = enabled,
+            status = if (enabled) "PC prioritaire demandé · autorisation Windows requise" else "Calcul du PC désactivé",
+            error = null
+        )
     }
 
     fun setMode(mode: MelMode) {
@@ -434,7 +448,8 @@ class MelViewModel(
                 text = text,
                 conversationId = conversationId,
                 voice = voice,
-                uiMode = mode.wireValue
+                uiMode = mode.wireValue,
+                preferCompanionCompute = _state.value.preferCompanionCompute && !voice
             )
         } catch (first: Throwable) {
             if (isInvalidSession(first)) throw first
@@ -459,7 +474,8 @@ class MelViewModel(
                 text = text,
                 conversationId = conversationId,
                 voice = voice,
-                uiMode = mode.wireValue
+                uiMode = mode.wireValue,
+                preferCompanionCompute = _state.value.preferCompanionCompute && !voice
             )
         }
     }
