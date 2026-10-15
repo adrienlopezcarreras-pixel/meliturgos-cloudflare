@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { Script } from 'node:vm';
 import { ROADMAP_LIVE_REFRESH_PATCH, enhanceRoadmapLiveRefresh } from '../src/pages/roadmap-live-refresh-enhancer.js';
 import { enhanceMvpBehavior } from '../src/pages/mvp-behavior-enhancer.js';
 
@@ -35,4 +36,9 @@ test('evolution section reads CapabilityBus and reports absent archive without c
  assert.match(ROADMAP_LIVE_REFRESH_PATCH,/CURRENT_REGISTRY_NOT_ARCHIVED|registre courant, clôture non archivée/);
  assert.match(ROADMAP_LIVE_REFRESH_PATCH,/textContent=String\(item\.id/);
  assert.doesNotMatch(ROADMAP_LIVE_REFRESH_PATCH,/entries\.innerHTML\s*=/);
+});
+
+test('injected evolution browser script is syntactically valid JavaScript', () => {
+ const script=ROADMAP_LIVE_REFRESH_PATCH.replace(/^<script[^>]*>/,'').replace(/<\\/script>$/,'');
+ assert.doesNotThrow(()=>new Script(script));
 });
