@@ -916,3 +916,14 @@ test('typed Android chat replies immediately without invoking the blocking voice
   const voice = vm.slice(vm.indexOf('fun sendVoice('), vm.indexOf('private fun speakAnswer('));
   assert.match(voice, /speakAnswer\(answer, mode\)/);
 });
+
+test('Android chat does not retry after HTTP 4xx rejections', async () => {
+  const vm = await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelViewModel.kt',root),'utf8');
+  const start = vm.indexOf('private fun chatWithRecovery(');
+  const end = vm.indexOf('fun send(text: String',start);
+  const chat = vm.slice(start,end);
+  assert.ok(start >= 0 && end > start);
+  assert.match(chat,/if \(first is MelApiException && first\.status in 400\.\.499\) throw first/);
+  assert.ok(chat.indexOf('first.status in 400..499') < chat.indexOf('client.heartbeat('));
+  assert.match(chat,/val serverFailure = first is MelApiException && first\.status >= 500/);
+});
