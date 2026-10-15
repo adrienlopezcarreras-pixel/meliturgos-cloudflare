@@ -1836,12 +1836,45 @@ function Perform-SovereigntyAi([string]$operation,$payload) {
       $text = ([string]$response.message.content).Trim()
       if ([string]::IsNullOrWhiteSpace($text)) { throw "SOVEREIGNTY_AI_LOCAL_EMPTY_RESPONSE" }
       if ($text.Length -gt 32000) { $text = $text.Substring(0,32000) }
+      # Metrics are observed from this completed inference, not estimates.
+      $generatedTokens = 0L
+      $evalDurationNs = 0L
+      try { $generatedTokens = [Math]::Max(0L,[long]$response.eval_count) } catch {}
+      try { $evalDurationNs = [Math]::Max(0L,[long]$response.eval_duration) } catch {}
+      $tokensPerSecond = 0.0
+      if ($generatedTokens -gt 0 -and $evalDurationNs -gt 0) {
+        $tokensPerSecond = [Math]::Round(($generatedTokens * 1000000000.0) / $evalDurationNs,2)
+      }
+      # Ollama's /api/ps reports loaded-model VRAM residency. This is NOT
+      # proof of GPU compute utilization and can be absent after keep_alive=0.
+      $gpuVramBytes = 0L
+      $gpuEvidence = "UNVERIFIED"
+      try {
+        $resident = Invoke-RestMethod -Uri ($state.endpoint + "/api/ps") -Method "GET" -TimeoutSec 3 -ErrorAction Stop
+        foreach ($modelRow in @($resident.models)) {
+          if ([string]$modelRow.name -eq [string]$state.model) {
+            $candidateVram = [Math]::Max(0L,[long]$modelRow.size_vram)
+            if ($candidateVram -gt 0) {
+              $gpuVramBytes = $candidateVram
+              $gpuEvidence = "OLLAMA_VRAM_RESIDENCY_REPORTED"
+            }
+            break
+          }
+        }
+      } catch {}
       return @{
         action="sovereignty.ai.invoke"
         backend="ollama-localhost"
         model=[string]$state.model
         text=$text
         network_scope="localhost-only"
+        inference_metrics=@{
+          output_tokens=$generatedTokens
+          eval_duration_ns=$evalDurationNs
+          tokens_per_second=$tokensPerSecond
+          gpu_vram_bytes=$gpuVramBytes
+          gpu_evidence=$gpuEvidence
+        }
       }
     }
     default { throw "SOVEREIGNTY_AI_OPERATION_NOT_SUPPORTED" }
