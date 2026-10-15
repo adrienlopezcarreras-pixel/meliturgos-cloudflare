@@ -18,7 +18,12 @@ function boundedNumber(value, min, max) {
   return Number.isFinite(n) ? Math.max(min, Math.min(max, n)) : null;
 }
 
-function inferenceOptions(context = {}) {
+const COUNCIL_NON_REASONING_MODELS = new Set([
+  '@cf/google/gemma-4-26b-a4b-it',
+  '@cf/nvidia/nemotron-3-120b-a12b',
+]);
+
+function inferenceOptions(context = {}, modelId = '') {
   const settings = context?.inference_settings && typeof context.inference_settings === 'object'
     ? context.inference_settings
     : null;
@@ -30,6 +35,17 @@ function inferenceOptions(context = {}) {
     if (temperature != null) out.temperature = temperature;
     if (topP != null) out.top_p = topP;
     if (maxTokens != null) out.max_tokens = Math.round(maxTokens);
+  }
+  // Cloudflare documents enable_thinking=false for Gemma 4 and Nemotron 3.
+  // During short Council critique/synthesis probes this reserves max_tokens
+  // for a substantive visible answer rather than reasoning-only output.
+  // Do not change regular chat or other providers, and never fabricate text.
+  if (
+    (context?.purpose === 'model-council-independent-critique'
+      || context?.purpose === 'model-council-synthesis')
+    && COUNCIL_NON_REASONING_MODELS.has(String(modelId || '').trim())
+  ) {
+    out.chat_template_kwargs = { enable_thinking: false };
   }
   // Only an already validated/activated adapter identifier may be supplied by
   // the caller. This adapter never trains, uploads or promotes a LoRA itself.
@@ -67,7 +83,7 @@ export function createWorkersAIAdapter({
     invoke: async ({ input, context = {}, signal } = {}) => {
       if (signal?.aborted) throw Object.assign(new Error('PROVIDER_ABORTED'), { code: 'PROVIDER_ABORTED' });
       const messages = normalizeMessages(input, context);
-      const options = inferenceOptions(context);
+      const options = inferenceOptions(context, modelId);
       const result = await env.AI.run(modelId, { messages, ...options });
       const text = extractText(result);
       if (!text || !String(text).trim()) {
