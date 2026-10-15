@@ -34,7 +34,7 @@ function ownerScope(owner) {
 // create ABC and abc and permanently block autonomy.
 export async function enforceEvolutionIdCaseIndex(db) {
  const store=database(db);
- const duplicate=await store.prepare('SELECT COUNT(*) AS n FROM mel_evolution_items GROUP BY owner_scope,lower(id) HAVING COUNT(*) > 1 LIMIT 1').first();
+ const duplicate=await store.prepare('SELECT a.id FROM mel_evolution_items a JOIN mel_evolution_items b ON a.owner_scope = b.owner_scope AND lower(a.id) = lower(b.id) AND a.id <> b.id LIMIT 1').first();
  if (duplicate) throw new Error('EVOLUTION_CASE_COLLISION_MIGRATION_REQUIRED');
  const result=await store.prepare('CREATE UNIQUE INDEX IF NOT EXISTS idx_mel_evolution_owner_id_nocase ON mel_evolution_items(owner_scope,lower(id))').run();
  if (!result?.success) throw new Error('EVOLUTION_ID_CASE_INDEX_FAILED');
