@@ -477,9 +477,17 @@ class MelViewModel(
                     MelChatMessage("user", clean, voice) +
                     MelChatMessage("mel", localAnswer)
             )
-            viewModelScope.launch(Dispatchers.IO) {
-                appendDiagnosticLine("MINI local fast-path: ${MelLinkV2ClientService.bridgeState.value}")
-                speakAnswer(localAnswer, mode)
+            if (voice) {
+                viewModelScope.launch(Dispatchers.IO) {
+                    appendDiagnosticLine("MINI local fast-path: ${MelLinkV2ClientService.bridgeState.value}")
+                    speakAnswer(localAnswer, mode)
+                }
+            } else {
+                _state.value = _state.value.copy(
+                    busy = false,
+                    speaking = false,
+                    status = "MEL connectée · mode ${mode.label}"
+                )
             }
             return
         }
@@ -502,12 +510,12 @@ class MelViewModel(
                 val answer = response.optString("text", response.optString("response", "")).trim()
                 if (answer.isBlank()) throw MelApiException("EMPTY_RESPONSE", 502)
                 _state.value = _state.value.copy(
-                    busy = true,
+                    busy = voice,
                     speaking = false,
-                    status = "MEL prépare sa voix…",
+                    status = if (voice) "MEL prépare sa voix…" else "MEL connectée · mode ${mode.label}",
                     messages = _state.value.messages + MelChatMessage("mel", answer)
                 )
-                speakAnswer(answer, mode)
+                if (voice) speakAnswer(answer, mode)
                 appendDiagnosticLine("Chat complet · ${SystemClock.elapsedRealtime() - requestStartedAt} ms")
                 if (voice) appendDiagnosticLine("Micro réel: OK · reconnaissance Android")
             } catch (error: Throwable) {
