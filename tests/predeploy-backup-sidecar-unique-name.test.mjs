@@ -33,3 +33,28 @@ test('release backup binder uses a unique Worker name and authenticated stable r
   assert.match(source, /-ge 3/);
   assert.doesNotMatch(source, /BINDER_NAME="mel-predeploy-backup-binder"/);
 });
+
+test('Cloudflare 1042 retries stay bounded and never bypass encrypted backup or MAX pause verification', async () => {
+  const source = await readFile(new URL('../.github/workflows/deploy-cloudflare-release.yml', import.meta.url), 'utf8');
+  const start = source.indexOf('      - name: Create verified pre-deploy production backup');
+  const end = source.indexOf('      - name: Prepare encrypted Media Vault secrets for exact deployment', start);
+  assert.ok(start >= 0 && end > start, 'predeploy backup gate must precede deployment');
+  const binder = source.slice(start, end);
+  assert.match(binder, /for ATTEMPT in \$\(seq 1 20\); do/);
+  assert.match(binder, /--request POST/);
+  assert.match(binder, /\$\{BINDER_URL\}\/prepare/);
+  assert.match(binder, /\[ "\$\{CODE\}" = "200" \] && node - <<'NODE'/);
+  assert.match(binder, /d\?\.ok!==true\|\|d\?\.status!=='PREDEPLOY_RELEASE_PREPARED'/);
+  assert.match(binder, /d\?\.autonomy\?\.paused!==true\|\|d\?\.autonomy\?\.status!=='PAUSED'/);
+  assert.match(binder, /b\?\.restore_candidate_verified!==true/);
+  assert.match(binder, /b\?\.backup_object_present!==true/);
+  assert.match(binder, /b\?\.integrity_sha256/);
+  assert.match(binder, /b\?\.snapshot_deployed_sha/);
+  assert.match(binder, /if \[ "\$\{CODE\}" = "409" \] \|\| \[ "\$\{CODE\}" = "401" \] \|\| \[ "\$\{CODE\}" = "403" \]/);
+  assert.match(binder, /grep -Eiq 'error code:\[\[:space:\]\]\*1042'/);
+  assert.match(binder, /Unexpected binder HTTP 404 without Cloudflare edge 1042/);
+  assert.match(binder, /if \[ "\$\{PREPARED\}" != "1" \]; then\s+exit 54/);
+  assert.match(binder, /predeploy-backup-verified\.marker/);
+  assert.ok(source.indexOf('      - name: Deploy exact approved SHA to production') > end);
+  assert.doesNotMatch(binder, /SKIP_BACKUP|ALLOW_UNVERIFIED_BACKUP|DISABLE_ROLLBACK/);
+});
