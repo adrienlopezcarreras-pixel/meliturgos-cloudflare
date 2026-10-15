@@ -47,7 +47,7 @@ function normalizedProfileText(value) {
 }
 
 
-function profileSecretLike(value) {
+export function profileSecretLike(value) {
   return /(?:api[_ -]?key|password|mot\s+de\s+passe|bearer\s+[a-z0-9._-]+|\btoken\b|\botp\b|secret\s*[=:]|private[_ -]?key|authorization\s*:)/i.test(String(value || ''));
 }
 
