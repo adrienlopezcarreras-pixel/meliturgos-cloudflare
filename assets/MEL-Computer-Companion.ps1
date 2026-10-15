@@ -1722,12 +1722,15 @@ catch {
 
 
 function Get-SovereigntyLocalAiState {
+  param([switch]$NoBootstrap,[string]$Profile="light")
   $base = "http://127.0.0.1:11434"
   $requested = ([string]$env:MEL_LOCAL_AI_MODEL).Trim()
   $bootstrapModel = if ([string]::IsNullOrWhiteSpace($requested)) { "qwen2.5:1.5b" } else { $requested }
 
   $tags = Test-SovereigntyLocalAiEndpoint 4
   if ($null -eq $tags) {
+    # Chat fallback MUST NOT launch an installation, server or model pull.
+    if ($NoBootstrap) { throw "SOVEREIGNTY_AI_LOCAL_ENGINE_UNAVAILABLE" }
     $bootstrap = Start-SovereigntyAiBootstrap $bootstrapModel
     if ($bootstrap -eq "DISABLED") { throw "SOVEREIGNTY_AI_LOCAL_ENGINE_UNAVAILABLE" }
     if ([string]$bootstrap -like "FAILED:*") { throw ("SOVEREIGNTY_AI_LOCAL_BOOTSTRAP_FAILED:" + ([string]$bootstrap).Substring(7)) }
@@ -1741,6 +1744,7 @@ function Get-SovereigntyLocalAiState {
   }
 
   if ($models.Count -lt 1) {
+    if ($NoBootstrap) { throw "SOVEREIGNTY_AI_LOCAL_MODEL_MISSING" }
     $bootstrap = Start-SovereigntyAiBootstrap $bootstrapModel
     if ($bootstrap -eq "DISABLED") { throw "SOVEREIGNTY_AI_LOCAL_MODEL_MISSING" }
     if ([string]$bootstrap -like "FAILED:*") { throw ("SOVEREIGNTY_AI_LOCAL_BOOTSTRAP_FAILED:" + ([string]$bootstrap).Substring(7)) }
@@ -1748,7 +1752,37 @@ function Get-SovereigntyLocalAiState {
   }
 
   $model = $null
-  if (-not [string]::IsNullOrWhiteSpace($requested)) {
+  if ($NoBootstrap) {
+    # No cold download in the 12s conversation timeout. Use only models
+    # already installed whose reported size is known and profile-appropriate.
+    $limitMb = switch ($Profile) { "light" { 1536 } "balanced" { 4096 } "performance" { 8192 } default { 0 } }
+    if ($limitMb -le 0) { throw "SOVEREIGNTY_AI_LOCAL_PROFILE_INVALID" }
+    $maxBytes = [int64]$limitMb * 1024 * 1024
+    $eligible = @($tags.models | Where-Object {
+      $name = ([string]$_.name).Trim()
+      $size = 0L
+      try { $size = [long]$_.size } catch {}
+      -not [string]::IsNullOrWhiteSpace($name) -and $size -gt 0 -and $size -le $maxBytes
+    } | Sort-Object -Property @{Expression={[long]$_.size}})
+    if (-not [string]::IsNullOrWhiteSpace($requested)) {
+      $eligible = @($eligible | Where-Object { [string]$_.name -eq $requested })
+    }
+    if ($eligible.Count -lt 1) { throw "SOVEREIGNTY_AI_LOCAL_MODEL_OVER_BUDGET_OR_NOT_INSTALLED" }
+    $model = [string]$eligible[0].name
+
+    # Do not start a large model when the PC has no safe RAM reserve.
+    try {
+      $os = Get-CimInstance Win32_OperatingSystem -ErrorAction Stop
+      $freeMb = [double]$os.FreePhysicalMemory / 1024.0
+      $needMb = ([double]$eligible[0].size / (1024.0*1024.0)) + 1024.0
+      if ([double]::IsNaN($freeMb) -or [double]::IsInfinity($freeMb) -or $freeMb -lt $needMb) {
+        throw "SOVEREIGNTY_AI_LOCAL_INSUFFICIENT_RAM"
+      }
+    } catch {
+      if ([string]$_.Exception.Message -eq "SOVEREIGNTY_AI_LOCAL_INSUFFICIENT_RAM") { throw }
+      throw "SOVEREIGNTY_AI_LOCAL_RAM_UNVERIFIED"
+    }
+  } elseif (-not [string]::IsNullOrWhiteSpace($requested)) {
     $model = $models | Where-Object { [string]$_ -eq $requested } | Select-Object -First 1
     if ([string]::IsNullOrWhiteSpace([string]$model)) {
       $bootstrap = Start-SovereigntyAiBootstrap $requested
@@ -1762,6 +1796,7 @@ function Get-SovereigntyLocalAiState {
 
   return @{ endpoint=$base; model=[string]$model; installed_models=$models }
 }
+
 
 function Get-LocalComputeProfile {
   # Re-read the atomic owner config before each local inference. An outdated
@@ -1841,7 +1876,7 @@ function Perform-SovereigntyAi([string]$operation,$payload) {
   # Check owner consent and any deadline before Ollama bootstrap/install.
   $profile = Get-LocalComputeProfile
   Assert-SovereigntyAiPreflight -operation $operation -payload $payload -profile $profile
-  $state = Get-SovereigntyLocalAiState
+  $state = Get-SovereigntyLocalAiState -NoBootstrap:($operation -eq "invoke") -Profile $profile
   # Bootstrap is a separate operation and can take time: do not begin
   # generation after the caller's deadline or after an owner opt-out.
   Assert-SovereigntyAiPreflight -operation $operation -payload $payload -profile $profile
