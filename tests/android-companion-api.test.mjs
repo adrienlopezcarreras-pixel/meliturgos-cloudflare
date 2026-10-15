@@ -471,3 +471,43 @@ test('Android Link V2 can sponsor and exclusively relay a paired MINI without a 
     assert.equal((await denied.json()).code,'ANDROID_MINI_LINK_REQUIRED');
   }finally{DB.close();}
 });
+
+
+test('Android accepts two unrelated consecutive questions and preserves their conversation history',async()=>{
+  const DB=sqliteD1();
+  try{
+    const prompts=[];
+    const env={
+      DB,
+      MELITURGOS_USER:'adrien',
+      MELITURGOS_PASSWORD:'test',
+      AI:{async run(model,payload){
+        if(Array.isArray(payload?.messages)) prompts.push(payload.messages);
+        return {response:prompts.length<=1 ? 'La photosynthèse transforme la lumière en énergie.' : 'Une recette de crêpes comporte farine, lait et œufs.'};
+      }}
+    };
+    const paired=await pair(env,'android-two-turns');
+    const headers=deviceHeaders(paired.device_id,paired.token,{'content-type':'application/json'});
+    const conversation_id='android-two-turns-real-conversation';
+    const send=text=>worker.fetch(new Request('https://mel.test/api/android/v1/chat',{
+      method:'POST',headers,body:JSON.stringify({text,conversation_id,ui_mode:'normal'})
+    }),env);
+    const first=await send('Explique brièvement la photosynthèse.');
+    assert.equal(first.status,200);
+    assert.equal((await first.json()).archive_saved,true);
+    const second=await send('Donne une recette simple de crêpes.');
+    assert.equal(second.status,200);
+    const secondBody=await second.json();
+    assert.equal(secondBody.ok,true);
+    assert.equal(secondBody.archive_saved,true);
+    assert.ok(!/hors contexte/i.test(secondBody.text));
+    const messages=await DB.prepare("SELECT role,content FROM archive_messages WHERE conversation_id=?")
+      .bind(conversation_id).all();
+    const values=messages.results||[];
+    assert.ok(values.some(x=>x.role==='user'&&x.content.includes('photosynthèse')));
+    assert.ok(values.some(x=>x.role==='user'&&x.content.includes('crêpes')));
+    assert.ok(values.filter(x=>x.role==='assistant').length>=2);
+    assert.ok(prompts.some(msgs=>msgs.some(m=>m.role==='user'&&String(m.content).includes('photosynthèse'))
+      && msgs.some(m=>m.role==='user'&&String(m.content).includes('crêpes'))),'the second turn should reach inference with previous conversation history');
+  } finally {DB.close();}
+});
