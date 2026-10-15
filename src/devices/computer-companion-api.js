@@ -181,7 +181,26 @@ async function ownerDesktopViewRequest(request,env){
   status:"PENDING",expires_at:expiresAt},202);
 }
 
-async function ownerHalt(request,env,halted){const a=requireAuth(request,env);if(!a.ok)return a.response;await tables(env);const b=await request.json().catch(()=>({}));const id=safe(b.computer_id);await env.DB.prepare("UPDATE computer_devices SET halted=? WHERE id=?").bind(halted?1:0,id).run();const row=await env.DB.prepare("SELECT * FROM computer_devices WHERE id=?").bind(id).first();return row?json({ok:true,computer:normalizeDevice(row)}):json({ok:false,code:"COMPUTER_NOT_FOUND"},404)}
+async function ownerHalt(request,env,halted){
+ const a=requireAuth(request,env);if(!a.ok)return a.response;await tables(env);
+ const b=await request.json().catch(()=>({}));const id=safe(b.computer_id);
+ const updated=await env.DB.prepare("UPDATE computer_devices SET halted=? WHERE id=?").bind(halted?1:0,id).run();
+ if(!updated||updated.success===false)return json({ok:false,code:"COMPUTER_HALT_WRITE_UNCONFIRMED"},503);
+ const row=await env.DB.prepare("SELECT * FROM computer_devices WHERE id=?").bind(id).first();
+ if(!row)return json({ok:false,code:"COMPUTER_NOT_FOUND"},404);
+ let cancelledPending=0;
+ if(halted){
+  // STOP is not a pause: queued work must not resume without new approval.
+  // A command already RUNNING still requires cooperative local cancellation.
+  const cancelled=await env.DB.prepare(
+   "UPDATE computer_commands SET status=?,finished_at=?,error_code=? WHERE device_id=? AND status=?"
+  ).bind("FAILED",Date.now(),"OWNER_HALT_ACTIVE",id,"PENDING").run();
+  if(!cancelled||cancelled.success===false)
+   return json({ok:false,code:"COMPUTER_HALT_QUEUE_CANCELLATION_FAILED"},503);
+  cancelledPending=Number(cancelled.meta?.changes||0);
+ }
+ return json({ok:true,computer:normalizeDevice(row),cancelled_pending:cancelledPending});
+}
 
 const PC_CONTROL_ACTIONS=new Set([
  "serial.list","serial.read","serial.inspect","serial.hard_reset",
@@ -626,7 +645,10 @@ async function claim(env,a){
    return json({ok:true,halted:false,command:null,blocked_command:{id:r.id,code:verdict.code}});
   }
  }
- const update=await env.DB.prepare("UPDATE computer_commands SET status=?,claimed_at=? WHERE id=? AND device_id=? AND status=?").bind("RUNNING",Date.now(),r.id,a.device.id,"PENDING").run();
+ // The authenticated device snapshot is not a lock: owner STOP may race
+ // between the initial SELECT and the final claim.
+ const update=await env.DB.prepare("UPDATE computer_commands SET status=?,claimed_at=? WHERE id=? AND device_id=? AND status=? AND EXISTS (SELECT 1 FROM computer_devices WHERE id=? AND halted=0)")
+  .bind("RUNNING",Date.now(),r.id,a.device.id,"PENDING",a.device.id).run();
  if(!update || update.success===false || Number(update.meta?.changes)!==1)return json({ok:false,code:"COMPUTER_CLAIM_NOT_CONFIRMED"},409);
  return json({ok:true,halted:false,command:{id:r.id,session_id:r.session_id,plan}});
 }
