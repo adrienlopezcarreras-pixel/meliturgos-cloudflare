@@ -21,7 +21,7 @@ export function dedupeRows(rows = []) {
   const out = [];
   for (const row of rows) {
     const source = String(row?.source || row?.provenance?.table || '');
-    const id = row?.id || row?.provenance?.id;
+    const id = row?.id ?? row?.provenance?.id;
     // Identifier-free memory hits must not all collapse into the same ':' key.
     // Keep distinct evidence while deduplicating identical fallback records.
     const key = id != null && String(id) !== ''
