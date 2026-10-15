@@ -212,11 +212,13 @@ async function main(){
       reset_performed:false
     }));
 
-    // Scoped COM3 / ADB Wi-Fi Bluetooth investigation; NEVER print raw logcat or MACs.
+    // Scoped, configurable COM port / ADB Wi-Fi Bluetooth investigation; NEVER print raw logcat or MACs.
     // Relies on server-side allowlist, local Companion opt-in and OIDC identity.
     try {
+      const blePort=String(process.env.MEL_MINI_COM_PORT||'COM3').trim().toUpperCase();
+      if(!/^COM\d{1,3}$/.test(blePort))throw new Error('MINI_DIAGNOSTICS_PORT_INVALID');
       const bleSubmit=await worker('/api/computer/v1/pc-control',{
-        computer_id:computer.id,action:'mini.android.ble.diagnose',payload:{}
+        computer_id:computer.id,action:'mini.android.ble.diagnose',payload:{port:blePort}
       });
       const bleId=String(bleSubmit?.command_id||'');
       if(!bleId)throw Object.assign(new Error('BLE_COMMAND_NOT_QUEUED'),{code:'BLE_COMMAND_NOT_QUEUED'});

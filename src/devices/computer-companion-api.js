@@ -240,8 +240,10 @@ async function ownerPcControl(request,env){
    effectiveAction="system.exec";
    effectivePayload={...androidMaintenancePcCommand(action),require_success_exit:true};
   }else if(action==="mini.android.ble.diagnose"){
+   const port=safe(payload.port,16).toUpperCase();
+   if(!/^COM\d{1,3}$/.test(port))return json({ok:false,code:"MINI_DIAGNOSTICS_PORT_INVALID"},400);
    effectiveAction="system.exec";
-   effectivePayload=companionBleDiagnosticsCommand("COM3");
+   effectivePayload=companionBleDiagnosticsCommand(port);
   }else if(action==="mini.maintenance.assess"){
    effectiveAction="system.exec";
    effectivePayload=miniMaintenanceAssessCommand();
