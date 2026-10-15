@@ -22,7 +22,7 @@ class MainActivitySmokeTest {
 
     @Test
     fun loginScreenLaunchesWithMelIdentity() {
-        compose.onNodeWithContentDescription("Avatar MEL").assertIsDisplayed()
+        compose.onNodeWithContentDescription("Avatar MEL, déconnecté").assertIsDisplayed()
         compose.onNodeWithText("MEL").assertIsDisplayed()
         compose.onNodeWithText("Connexion à MEL").assertIsDisplayed()
         compose.onNodeWithTag("login-user").assertIsDisplayed()
