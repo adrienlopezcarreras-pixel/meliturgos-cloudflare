@@ -128,6 +128,8 @@ export async function runLearningBenchmark({ respond, cases = DEFAULT_CASES, met
         latency_ms: Date.now() - started,
         checks: [],
         error: String(error?.code || error?.message || 'BENCHMARK_CASE_FAILED').slice(0, 300),
+        // Metadata is an allowlisted envelope class, never the model output.
+        error_shape: ['absent', 'blank-string', 'array', 'scalar', 'response-empty-or-invalid', 'choices-empty-or-invalid', 'text-empty-or-invalid', 'unknown-object'].includes(error?.benchmark_response_shape) ? error.benchmark_response_shape : null,
       };
     }
   });
