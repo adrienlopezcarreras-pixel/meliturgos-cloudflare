@@ -1487,8 +1487,10 @@ internal fun MelApp(
     recording: Boolean,
     voiceLevel: Float,
     voiceMessage: String,
-    voiceLanguage: String,
-    onVoiceLanguageCycle: () -> Unit,
+    // Defaults preserve existing debug UI harnesses while the real Activity
+    // supplies the persisted language and a working onClick callback.
+    voiceLanguage: String = "fr-FR",
+    onVoiceLanguageCycle: () -> Unit = {},
     onLogin: (String, String) -> Unit,
     onRetrySession: () -> Unit,
     onDisconnect: () -> Unit,
