@@ -515,7 +515,7 @@ class MelViewModel(
                     busy = voice,
                     speaking = false,
                     status = if (voice) "MEL prépare sa voix…" else "MEL connectée · mode ${mode.label}",
-                    messages = _state.value.messages + MelChatMessage("mel", answer)
+                    messages = _state.value.messages + MelChatMessage("mel", displayChatAnswer(answer, response))
                 )
                 if (voice) speakAnswer(answer, mode)
                 appendDiagnosticLine("Chat complet · ${SystemClock.elapsedRealtime() - requestStartedAt} ms")
@@ -585,7 +585,7 @@ class MelViewModel(
                     busy = true,
                     speaking = false,
                     status = "MEL prépare sa voix…",
-                    messages = _state.value.messages + MelChatMessage("mel", answer)
+                    messages = _state.value.messages + MelChatMessage("mel", displayChatAnswer(answer, response))
                 )
                 speakAnswer(answer, mode)
                 appendDiagnosticLine("Micro réel: OK")
@@ -608,6 +608,12 @@ class MelViewModel(
                 }
             }
         }
+    }
+
+    private fun displayChatAnswer(answer: String, response: JSONObject): String {
+        return if (response.optBoolean("response_truncated", false)) {
+            "$answer\\n\\nRéponse incomplète. Demande « continue » pour obtenir la suite."
+        } else answer
     }
 
     private fun speakAnswer(answer: String, mode: MelMode) {
