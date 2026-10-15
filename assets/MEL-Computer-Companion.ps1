@@ -2389,11 +2389,12 @@ function Perform-Step($step, [string]$commandId, [string]$planSchema="") {
       return @{ action=$action; url=$uri.AbsoluteUri }
     }
     "browser.inspect" {
-      # Return only the active window title: no page content, URL, cookies or passwords.
+      # Only inspect a recognized foreground browser; do not disclose other application titles.
+      $browser = Assert-ForegroundBrowser
       $title = Active-Window
       if ([string]::IsNullOrWhiteSpace($title)) { throw "BROWSER_INSPECT_WINDOW_REQUIRED" }
       if ($title.Length -gt 512) { $title = $title.Substring(0,512) }
-      return @{ action=$action; foreground_title=$title; read_only=$true }
+      return @{ action=$action; browser=$browser; foreground_title=$title; read_only=$true }
     }
     "app.open" {
       $exe = Resolve-App ([string]$step.app)
