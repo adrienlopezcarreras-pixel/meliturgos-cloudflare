@@ -30,7 +30,10 @@ function finiteOrNull(value) {
 }
 
 function errorCode(error, fallback = 'PROVIDER_FAILED') {
-  return clean(error?.code) || clean(error?.message) || fallback;
+  // Provider exception messages may contain prompts, responses or credentials.
+  // Only bounded machine-readable codes are safe in Council audit evidence.
+  const code = clean(error?.code);
+  return /^[A-Z][A-Z0-9_:-]{0,95}$/.test(code) ? code : fallback;
 }
 
 function providerIdentity(provider = {}) {
