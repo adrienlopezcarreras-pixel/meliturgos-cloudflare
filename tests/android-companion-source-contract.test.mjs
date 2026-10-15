@@ -927,3 +927,17 @@ test('Android chat does not retry after HTTP 4xx rejections', async () => {
   assert.ok(chat.indexOf('first.status in 400..499') < chat.indexOf('client.heartbeat('));
   assert.match(chat,/val serverFailure = first is MelApiException && first\.status >= 500/);
 });
+
+
+test('Android shows server-truncated chat answers without altering spoken text',async()=>{
+  const vm=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelViewModel.kt',root),'utf8');
+  const display=vm.slice(vm.indexOf('private fun displayChatAnswer('),vm.indexOf('private fun speakAnswer('));
+  assert.match(display,/response\.optBoolean\("response_truncated", false\)/);
+  assert.match(display,/Réponse incomplète/);
+  const send=vm.slice(vm.indexOf('fun send(text: String'),vm.indexOf('fun sendVoice('));
+  const voice=vm.slice(vm.indexOf('fun sendVoice('),vm.indexOf('private fun displayChatAnswer('));
+  assert.match(send,/MelChatMessage\("mel", displayChatAnswer\(answer, response\)\)/);
+  assert.match(voice,/MelChatMessage\("mel", displayChatAnswer\(answer, response\)\)/);
+  assert.match(send,/if \(voice\) speakAnswer\(answer, mode\)/);
+  assert.match(voice,/speakAnswer\(answer, mode\)/);
+});
