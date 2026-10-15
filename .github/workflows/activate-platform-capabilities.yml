@@ -268,6 +268,7 @@ jobs:
               "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/cloudflare-api-relay.yml/dispatches")"
             test "${CF_RELAY_CODE}" = "204"
 
+            PLATFORM_PROOF_STAGE="cloudflare workers relay polling"
             CF_WORKERS_DONE=0
             for ATTEMPT in $(seq 1 40); do
               CF_STATUS_INPUT="$(CF_WORKERS_RELAY_JOB_ID="${CF_WORKERS_RELAY_JOB_ID}" node -e 'process.stdout.write(JSON.stringify({relay_job_id:process.env.CF_WORKERS_RELAY_JOB_ID}))')"
@@ -284,12 +285,14 @@ jobs:
             node -e 'const d=require("./cloudflare-workers.json");if(!Array.isArray(d?.result?.scripts))process.exit(2);console.log("cloudflare.workers.read relay proof: "+JSON.stringify({transport:d?.result?.transport||null,count:d?.result?.count||0}))'
           fi
 
+          PLATFORM_PROOF_STAGE="cloudflare deployments read"
           capability cloudflare.deployments.read '{"script":"meliturgos","limit":20}' cloudflare-deployments.json
           CF_DEPLOYMENTS_RELAY_JOB_ID="$(node -e 'const d=require("./cloudflare-deployments.json");process.stdout.write(String(d?.result?.relay_job_id||""))')"
           if [ -n "${CF_DEPLOYMENTS_RELAY_JOB_ID}" ]; then
             printf '%s' '{"ref":"main"}' > cloudflare-relay-dispatch.json
             CF_RELAY_CODE="$(curl --silent --show-error --max-time 30 --request POST --header "Authorization: Bearer ${GH_TOKEN}" --header "Accept: application/vnd.github+json" --header "X-GitHub-Api-Version: 2022-11-28" --header "Content-Type: application/json" --data-binary @cloudflare-relay-dispatch.json --output cloudflare-relay-dispatch-response.txt --write-out '%{http_code}' "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/cloudflare-api-relay.yml/dispatches")"
             test "${CF_RELAY_CODE}" = "204"
+            PLATFORM_PROOF_STAGE="cloudflare deployments relay polling"
             CF_DEPLOYMENTS_DONE=0
             # Relay dispatch and R2 handoff can exceed the original 80 s window.
             # Permit bounded eventual consistency without accepting a missing proof.
@@ -311,6 +314,7 @@ jobs:
           # cloudflare.deployments.create is intentionally not invoked here:
           # the canonical release workflow is the sole production deployment mutator.
 
+          PLATFORM_PROOF_STAGE="github workflow dispatch"
           GITHUB_PROOF=false
           GITHUB_BLOCKER=""
           capability             github.actions.workflow.dispatch             '{"workflow":"gen2-36-provider-write-smoke.yml","ref":"main"}'             github-dispatch.json             github.actions.workflow.dispatch
