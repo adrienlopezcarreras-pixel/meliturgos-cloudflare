@@ -6,6 +6,7 @@ on:
       - 'dist/MEL-Computer-Companion.ps1'
       - 'src/portability/companion-sovereignty-executor.js'
       - 'tests/gen2/companion-ollama-cooperative-cancel.test.mjs'
+      - 'tests/windows/companion-ollama-http-cancel-smoke.ps1'
       - '.github/workflows/companion-ollama-cooperative-cancel-ci.yml'
 permissions:
   contents: read
@@ -19,3 +20,12 @@ jobs:
         with:
           node-version: '22'
       - run: node --test tests/gen2/companion-ollama-cooperative-cancel.test.mjs tests/gen2/companion-ollama-consent-gate.test.mjs
+
+  windows-loopback:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check real cooperative HTTP transport against local fake server
+        shell: powershell
+        run: .\tests\windows\companion-ollama-http-cancel-smoke.ps1
