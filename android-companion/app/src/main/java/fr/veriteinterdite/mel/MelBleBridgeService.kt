@@ -1301,6 +1301,9 @@ class MelBleBridgeService : Service() {
         if (gattServer == null || txCharacteristic == null) return false
         if (frame.size < 5) return false
         val responseId = ByteBuffer.wrap(frame, 1, 4).order(ByteOrder.LITTLE_ENDIAN).int
+        // An asynchronous API reply may arrive after MINI disconnects. Never
+        // retain its audio/response frames for the next BLE session.
+        if (connectedDevices[device.address] != device) return false
         val latestId = latestResponseIds[device.address]
         if (latestId != null && latestId != responseId) {
             Log.i(TAG, "Drop stale BLE response id=$responseId latest=$latestId")
@@ -1329,6 +1332,9 @@ class MelBleBridgeService : Service() {
             }
             pullOnlyResponseIds[device.address] = responseId
         }
+        // A disconnect may happen during the 750 ms notification wait.
+        // Do not recreate the pull queue of a disconnected peer.
+        if (connectedDevices[device.address] != device) return false
         val queue = pullFrames.computeIfAbsent(device.address) { ConcurrentLinkedQueue() }
         queue.offer(frame.copyOf())
         return true
