@@ -56,3 +56,21 @@ test('proposal ID contract exactly matches IDs schedulable by autonomy',()=>{
   assert.throws(()=>proposeEvolution([],{id,title:'Missing feature',origin:'mel'}),/EVOLUTION_INVALID_PROPOSAL/);
  }
 });
+
+test('DONE_VERIFIED proof must be actual affirmative booleans, not truthy strings',()=>{
+ let i=proposeEvolution([],{id:'EV-STRICT-1',title:'Measure production voice latency',origin:'audit'}).item;
+ for(const state of ['TRIAGED','APPROVED','IN_PROGRESS','IMPLEMENTED','TESTING'])i=transitionEvolution(i,state);
+ const valid={sha:'a'.repeat(40),ci_passed:true,real_test_passed:true,environment:'production',reference:'actions/runs/123'};
+ for(const invalid of [
+  {...valid,ci_passed:'false'},
+  {...valid,real_test_passed:'false'},
+  {...valid,ci_passed:1},
+  {...valid,real_test_passed:1},
+  {...valid,sha:{toString:()=> 'a'.repeat(40)}},
+  {...valid,environment:'   '},
+  {...valid,reference:'  '}
+ ]) assert.throws(()=>transitionEvolution(i,'DONE_VERIFIED',{proof:invalid}),/EVOLUTION_MISSING_VERIFICATION/);
+ const verified=transitionEvolution(i,'DONE_VERIFIED',{proof:valid});
+ assert.equal(verified.status,'DONE_VERIFIED');
+ assert.equal(verified.evidence[0].ci_passed,true);
+});
