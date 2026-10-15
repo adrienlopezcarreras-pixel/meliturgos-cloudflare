@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { initializeEvolutionStorage, listEvolutionItems, saveEvolutionProposal, changeEvolutionStatus, getEvolutionDashboard } from '../../src/roadmap/evolution-storage.js';
+import { initializeEvolutionStorage, listEvolutionItems, saveEvolutionProposal, changeEvolutionStatus, getEvolutionDashboard, readInitialArchive } from '../../src/roadmap/evolution-storage.js';
 
 function fakeD1() {
  const rows=new Map();
@@ -10,6 +10,7 @@ function fakeD1() {
   async exec(sql){ if(sql.includes('mel_evolution_items')) { assert.ok(sql.includes('PRIMARY KEY (owner_scope, id)')); schemaApplied=true; } },
   prepare(sql){
    const query={
+    async first(){ return null; },
     async run(){if(sql.includes('mel_evolution_items')) schemaApplied=true;return {success:true,meta:{changes:0}};},
     bind(...args){
      return {
@@ -106,8 +107,16 @@ test('canonical D1 schema v18 migrates with real SQLite and archive stays immuta
   const tables=(await db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all()).results.map(x=>x.name);
   assert.ok(tables.includes('mel_evolution_items'));
   assert.ok(tables.includes('mel_evolution_initial_archive'));
+  assert.equal(await readInitialArchive(db),null);
   await db.prepare('INSERT INTO mel_evolution_initial_archive(archive_id,source_sha,verified_count,total_count,proof_reference,closed_at) VALUES(?,?,?,?,?,?)')
    .bind('initial-v1','a'.repeat(40),2,2,'workflow/run-1','2026-10-15').run();
+  const closed=await readInitialArchive(db);
+  assert.equal(closed.total,2);
+  assert.equal(closed.source_sha,'a'.repeat(40));
+  const displayed=await getEvolutionDashboard(db,'owner',{total:6,verified:4});
+  assert.equal(displayed.initial_scope,'ARCHIVED_VERIFIED');
+  assert.equal(displayed.initial.percent_verified,100);
+  assert.equal(displayed.archive.proof_reference,'workflow/run-1');
   await assert.rejects(db.prepare('UPDATE mel_evolution_initial_archive SET verified_count = 1 WHERE archive_id = ?').bind('initial-v1').run(),/ARCHIVE_IMMUTABLE/);
   await assert.rejects(db.prepare('DELETE FROM mel_evolution_initial_archive WHERE archive_id = ?').bind('initial-v1').run(),/ARCHIVE_IMMUTABLE/);
  } finally {db.close();}
