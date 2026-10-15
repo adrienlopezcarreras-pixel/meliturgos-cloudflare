@@ -52,3 +52,10 @@ test('talking about tokens is safe context; credential assignments are not', () 
   assert.equal(profileSecretLike('token: abc123-do-not-store'), true);
   assert.equal(profileSecretLike('OTP=456789'), true);
 });
+
+test('password and API key security discussions remain usable memory', () => {
+  assert.equal(profileSecretLike('Comment sécuriser mes mots de passe et API key ?'), false);
+  assert.equal(profileSecretLike('password=example-private-value'), true);
+  assert.equal(profileSecretLike('mot de passe : exemple'), true);
+  assert.equal(profileSecretLike('api_key=example-private-value'), true);
+});
