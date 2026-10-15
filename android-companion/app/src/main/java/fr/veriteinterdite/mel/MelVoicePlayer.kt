@@ -269,8 +269,18 @@ object MelVoicePlayer {
         return (System.currentTimeMillis() - startedAt).coerceAtLeast(1L)
     }
 
-    fun playSystemFrench(context: Context, text: String): Long {
+    // Retain the original entrypoint for existing callers and default French.
+    fun playSystemFrench(context: Context, text: String): Long =
+        playSystemVoice(context, text, "fr-FR")
+
+    fun playSystemVoice(context: Context, text: String, requestedLanguage: String): Long {
         require(text.isNotBlank()) { "TTS_TEXT_EMPTY" }
+        // AUTO recognition does not prove a detected output language; use
+        // the documented French default rather than guessing from text.
+        val tag = when (requestedLanguage) {
+            "fr-FR", "es-ES", "pt-PT", "pt-BR" -> requestedLanguage
+            else -> "fr-FR"
+        }
         val startedAt = System.currentTimeMillis()
         val tts = ensureSystemFrench(context.applicationContext)
         val main = Handler(Looper.getMainLooper())
@@ -285,6 +295,7 @@ object MelVoicePlayer {
         }
 
         try {
+            selectSystemVoice(tts, main, Locale.forLanguageTag(tag), myGeneration)
             for (chunk in chunks) {
                 if (playbackGeneration != myGeneration) throw MelPlaybackInterruptedException()
                 speakSystemFrenchChunk(tts, main, chunk, myGeneration)
@@ -297,6 +308,48 @@ object MelVoicePlayer {
 
         if (playbackGeneration != myGeneration) throw MelPlaybackInterruptedException()
         return (System.currentTimeMillis() - startedAt).coerceAtLeast(1L)
+    }
+
+    private fun selectSystemVoice(
+        tts: TextToSpeech,
+        main: Handler,
+        locale: Locale,
+        generation: Long
+    ) {
+        val ready = CountDownLatch(1)
+        val failure = AtomicReference<Throwable?>(null)
+        main.post {
+            try {
+                if (playbackGeneration != generation) throw MelPlaybackInterruptedException()
+                val available = tts.isLanguageAvailable(locale)
+                if (available == TextToSpeech.LANG_NOT_SUPPORTED ||
+                    available == TextToSpeech.LANG_MISSING_DATA) {
+                    throw IllegalStateException("ANDROID_TTS_LANGUAGE_UNAVAILABLE_" + locale.language)
+                }
+                val selected = tts.setLanguage(locale)
+                if (selected == TextToSpeech.LANG_NOT_SUPPORTED ||
+                    selected == TextToSpeech.LANG_MISSING_DATA) {
+                    throw IllegalStateException("ANDROID_TTS_LANGUAGE_UNAVAILABLE_" + locale.language)
+                }
+                val voice = tts.voices
+                    ?.filter { it.locale?.language.equals(locale.language, ignoreCase = true) }
+                    ?.maxByOrNull {
+                        var score = it.quality * 10 - it.latency
+                        if (it.locale?.country.equals(locale.country, ignoreCase = true)) score += 1_000
+                        if (!it.isNetworkConnectionRequired) score += 10_000
+                        score
+                    }
+                if (voice != null) tts.voice = voice
+            } catch (error: Throwable) {
+                failure.set(error)
+            } finally {
+                ready.countDown()
+            }
+        }
+        if (!ready.await(5L, TimeUnit.SECONDS))
+            throw IllegalStateException("ANDROID_TTS_LANGUAGE_SELECTION_TIMEOUT")
+        failure.get()?.let { throw it }
+        if (playbackGeneration != generation) throw MelPlaybackInterruptedException()
     }
 
     private fun speakSystemFrenchChunk(
