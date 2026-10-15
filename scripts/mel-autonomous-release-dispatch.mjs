@@ -1,4 +1,5 @@
 import { pathToFileURL } from 'node:url';
+import { appendFileSync } from 'node:fs';
 
 export const RELEASE_BRANCH = 'release/mel-hardware-v0.1.0';
 export const REPO = 'adrienlopezcarreras-pixel/meliturgos-cloudflare';
@@ -126,6 +127,12 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     completedReleaseSha: process.env.MEL_CATCHUP_COMPLETED_SHA || '',
     skipPreviouslyCompletedSha: process.env.MEL_SKIP_ALREADY_ATTEMPTED_SHA === 'true',
   })
-    .then(result => console.log(JSON.stringify(result)))
+    .then(result => {
+      console.log(JSON.stringify(result));
+      const outcome = result.accepted ? 'DISPATCHED' : 'DEFERRED';
+      console.log('::notice title=MEL production release decision::' + outcome + ': ' + String(result.reason || 'ACCEPTED'));
+      if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY,
+        '## MEL release decision\n\n- Outcome: **' + outcome + '**\n- Reason: ' + String(result.reason || 'ACCEPTED') + '\n- SHA: ' + String(result.main_sha || '') + '\n\nWorkflow success is not production deployment proof.\n');
+    })
     .catch(error => { console.error(error.message); process.exitCode = 1; });
 }
