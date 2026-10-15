@@ -7,6 +7,7 @@ on:
     paths:
       - ".github/workflows/lora-kaggle-free-collect.yml"
       - "scripts/finalize-lora.mjs"
+      - "scripts/validate-lora-benchmark-readiness.mjs"
   workflow_dispatch:
     inputs:
       activate_preview:
@@ -287,6 +288,12 @@ jobs:
         run: |
           export MELITURGOS_PASSWORD="$MEL_PREVIEW_PASSWORD"
           node scripts/finalize-lora.mjs             --dir "$BUNDLE_DIR"             --url "$MEL_BASE_URL"             --activate "$ACTIVATE_PREVIEW"             --allow-not-activated true | tee artifacts/finalize-result.json
+
+      - name: Validate LoRA benchmark readiness
+        if: steps.status.outputs.complete == 'true'
+        shell: bash
+        run: |
+          node scripts/validate-lora-benchmark-readiness.mjs artifacts/finalize-result.json
 
       - name: Upload Kaggle training evidence
         if: always()
