@@ -26,7 +26,7 @@ test('production Council proof uses all four authorized zero-cost models with a 
   assert.match(workflow, /COUNCIL_CODE="\$\(curl --silent --show-error --max-time 180/);
   assert.match(workflow, /production-proof:[\s\S]*?timeout-minutes: 20/);
   assert.match(workflow, /COUNCIL_MAX_ATTEMPTS=2/);
-  assert.match(workflow, /--max-time 90/);
+  assert.match(workflow, /--max-time 180/);
   assert.match(workflow, /independent_response_count\|\|0\)>=2/);
 });
 
