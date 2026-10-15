@@ -965,3 +965,22 @@ test('MINI TTS rejects calls from Android main thread before posting and waiting
   assert.match(entry, /check\(Looper\.myLooper\(\) != Looper\.getMainLooper\(\)\)/);
   assert.match(entry, /MINI_TTS_MAIN_THREAD_FORBIDDEN/);
 });
+
+
+test('OK MEL background microphone requires explicit opt-in and provides immediate stop', async () => {
+  const main = await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MainActivity.kt', root), 'utf8');
+  const service = await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelWakeForegroundService.kt', root), 'utf8');
+  const manifest = await readFile(new URL('app/src/main/AndroidManifest.xml', root), 'utf8');
+  assert.match(main, /onBackgroundWakeEnable = ::enableBackgroundWake/);
+  assert.match(main, /onBackgroundWakeDisable = ::disableBackgroundWake/);
+  assert.match(main, /testTag\("wake-background-enable"\)/);
+  assert.match(main, /testTag\("wake-background-disable"\)/);
+  assert.match(main, /!appResumed \|\| !wakePhraseStore\.isEnrolled\(\)/);
+  assert.match(main, /Manifest\.permission\.RECORD_AUDIO/);
+  assert.match(main, /MelWakeForegroundService\.foregroundMicrophoneActive/);
+  assert.match(main, /stopService\(Intent\(this, MelWakeForegroundService::class\.java\)\)/);
+  assert.match(service, /intent\?\.action != ACTION_START/);
+  assert.match(service, /getBoolean\(OPT_IN_KEY, false\)/);
+  assert.match(service, /START_NOT_STICKY/);
+  assert.match(manifest, /android:foregroundServiceType="microphone"/);
+});
