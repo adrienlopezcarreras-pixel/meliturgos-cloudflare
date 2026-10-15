@@ -1111,7 +1111,7 @@ jobs:
               break
             fi
             echo "GEN2-42 handoff proof attempt ${CAPABILITY_WATCH_ATTEMPT}/3 returned HTTP ${CAPABILITY_WATCH_CODE}."
-            test ! -s production-capability-watch-proof.json || cat production-capability-watch-proof.json
+            echo 'Production autonomy proof response withheld from CI logs; see sanitized HTTP/status evidence.'
             sleep 2
           done
           test "${CAPABILITY_WATCH_READY}" = "1"
@@ -1339,7 +1339,7 @@ jobs:
           done
           if [ "$CODE_SYNC_READY" != "1" ]; then
             echo "ShardVault code-sync did not reach a verified complete state before the bounded active-attempt/deadline gate."
-            test ! -s production-launch-code-sync.json || cat production-launch-code-sync.json
+            echo 'Production autonomy proof response withheld from CI logs; see sanitized HTTP/status evidence.'
             exit 48
           fi
 
@@ -1436,7 +1436,7 @@ jobs:
               break
             fi
             echo "Public production launch-readiness attempt ${PUBLIC_ATTEMPT}/6 returned HTTP ${PUBLIC_CODE}; bounded retry."
-            test ! -s production-launch-readiness.json || cat production-launch-readiness.json
+            echo 'Production autonomy proof response withheld from CI logs; see sanitized HTTP/status evidence.'
             sleep $((PUBLIC_ATTEMPT * 2))
           done
           if [ "$PUBLIC_READY" != "1" ]; then
@@ -1473,7 +1473,7 @@ jobs:
             "${BASE_URL}/api/chat")"
           if [ "$READ_CODE" != "200" ]; then
             echo "Production code.read smoke returned HTTP ${READ_CODE}."
-            test ! -s production-code-read-smoke.json || cat production-code-read-smoke.json
+            echo 'Production autonomy proof response withheld from CI logs; see sanitized HTTP/status evidence.'
             exit 31
           fi
 
@@ -1487,7 +1487,7 @@ jobs:
             "${BASE_URL}/api/chat")"
           if [ "$SEARCH_CODE" != "200" ]; then
             echo "Production code.search smoke returned HTTP ${SEARCH_CODE}."
-            test ! -s production-code-search-smoke.json || cat production-code-search-smoke.json
+            echo 'Production autonomy proof response withheld from CI logs; see sanitized HTTP/status evidence.'
             exit 32
           fi
 
@@ -1523,7 +1523,7 @@ jobs:
             "${BASE_URL}/api/gen2/capabilities/execute")"
           if [ "$OBS_ECHO_CODE" != "200" ]; then
             echo "Production observability echo smoke returned HTTP ${OBS_ECHO_CODE}."
-            test ! -s production-observability-echo.json || cat production-observability-echo.json
+            echo 'Production autonomy proof response withheld from CI logs; see sanitized HTTP/status evidence.'
             exit 35
           fi
 
@@ -1537,7 +1537,7 @@ jobs:
             "${BASE_URL}/api/gen2/capabilities/execute")"
           if [ "$RECOVERY_DRILL_CODE" != "200" ]; then
             echo "Production recovery drill returned HTTP ${RECOVERY_DRILL_CODE}."
-            test ! -s production-recovery-drill.json || cat production-recovery-drill.json
+            echo 'Production autonomy proof response withheld from CI logs; see sanitized HTTP/status evidence.'
             exit 37
           fi
 
@@ -1571,7 +1571,7 @@ jobs:
           done
           if [ "$INTEGRITY_CODE" != "200" ]; then
             echo "GEN2-55 production integrity smoke returned HTTP ${INTEGRITY_CODE} after bounded retries."
-            test ! -s production-system-integrity.json || cat production-system-integrity.json
+            echo 'Production autonomy proof response withheld from CI logs; see sanitized HTTP/status evidence.'
             exit 48
           fi
 
@@ -1591,7 +1591,7 @@ jobs:
           done
           if [ "$MATURITY_CODE" != "200" ]; then
             echo "GEN2-55 production maturity smoke returned HTTP ${MATURITY_CODE} after bounded retries."
-            test ! -s production-system-maturity.json || cat production-system-maturity.json
+            echo 'Production autonomy proof response withheld from CI logs; see sanitized HTTP/status evidence.'
             exit 49
           fi
 
@@ -1654,7 +1654,7 @@ jobs:
             "${BASE_URL}/api/gen2/capabilities/execute")"
           if [ "$SKILL_LIST_CODE" != "200" ]; then
             echo "MEL-EVOL-05 production Skill Registry read returned HTTP ${SKILL_LIST_CODE}."
-            test ! -s production-skill-list.json || cat production-skill-list.json
+            echo 'Production autonomy proof response withheld from CI logs; see sanitized HTTP/status evidence.'
             exit 51
           fi
 
@@ -1702,7 +1702,7 @@ jobs:
               "${BASE_URL}/api/gen2/capabilities/execute")"
             if [ "${COUNCIL_CODE}" != "200" ]; then
               echo "MEL-COUNCIL-02 production Council returned HTTP ${COUNCIL_CODE}."
-              test ! -s production-mel-council-02.json || cat production-mel-council-02.json
+              echo 'Production autonomy proof response withheld from CI logs; see sanitized HTTP/status evidence.'
               exit 52
             fi
             node scripts/check-release-council-proof.mjs production-mel-council-02.json
@@ -1720,7 +1720,7 @@ jobs:
             "${BASE_URL}/api/gen2/capabilities/execute")"
           if [ "$PLAN_CODE" != "200" ]; then
             echo "GEN2-38 pure plan returned HTTP ${PLAN_CODE}."
-            test ! -s production-gen2-38-plan.json || cat production-gen2-38-plan.json
+            echo 'Production autonomy proof response withheld from CI logs; see sanitized HTTP/status evidence.'
             exit 54
           fi
 
@@ -1738,7 +1738,7 @@ jobs:
               "${BASE_URL}/api/gen2/capabilities/execute")"
             if [ "$GEN_PLAN_CODE" != "200" ]; then
               echo "GEN2-38 generated plan returned HTTP ${GEN_PLAN_CODE}."
-              test ! -s production-gen2-38-generated.json || cat production-gen2-38-generated.json
+              echo 'Production autonomy proof response withheld from CI logs; see sanitized HTTP/status evidence.'
               exit 55
             fi
   
@@ -1756,7 +1756,7 @@ jobs:
             "${BASE_URL}/api/gen2/capabilities/execute")"
           if [ "$SAVE_CODE" != "200" ]; then
             echo "GEN2-38 durable plan save returned HTTP ${SAVE_CODE}."
-            test ! -s production-gen2-38-saved.json || cat production-gen2-38-saved.json
+            echo 'Production autonomy proof response withheld from CI logs; see sanitized HTTP/status evidence.'
             exit 53
           fi
 
@@ -1771,7 +1771,7 @@ jobs:
             "${BASE_URL}/api/gen2/capabilities/execute")"
           if [ "$GET_CODE" != "200" ]; then
             echo "GEN2-38 durable plan read returned HTTP ${GET_CODE}."
-            test ! -s production-gen2-38-read.json || cat production-gen2-38-read.json
+            echo 'Production autonomy proof response withheld from CI logs; see sanitized HTTP/status evidence.'
             exit 56
           fi
 
@@ -1797,7 +1797,7 @@ jobs:
             "${BASE_URL}/api/gen2/readiness")"
           if [ "$OBS_READINESS_CODE" != "200" ]; then
             echo "Production observability readiness smoke returned HTTP ${OBS_READINESS_CODE}."
-            test ! -s production-observability-readiness.json || cat production-observability-readiness.json
+            echo 'Production autonomy proof response withheld from CI logs; see sanitized HTTP/status evidence.'
             exit 36
           fi
 
@@ -1828,7 +1828,7 @@ jobs:
             "${BASE_URL}/api/gen2/migration/gen1-status")"
           if [ "$GEN1_STATUS_CODE" != "200" ]; then
             echo "Production GEN2-57 status returned HTTP ${GEN1_STATUS_CODE}."
-            test ! -s production-gen1-migration-before.json || cat production-gen1-migration-before.json
+            echo 'Production autonomy proof response withheld from CI logs; see sanitized HTTP/status evidence.'
             exit 37
           fi
 
@@ -1872,7 +1872,7 @@ jobs:
                 "${BASE_URL}/api/gen2/migration/gen1-backfill")"
               if [ "$GEN1_BACKFILL_CODE" != "200" ]; then
                 echo "GEN2-57 backfill batch ${GEN1_BATCH} returned HTTP ${GEN1_BACKFILL_CODE}."
-                test ! -s production-gen1-migration-batch.json || cat production-gen1-migration-batch.json
+                echo 'Production autonomy proof response withheld from CI logs; see sanitized HTTP/status evidence.'
                 exit 39
               fi
               GEN1_BATCH_STATE="$(node -e 'const fs=require("fs"); const d=JSON.parse(fs.readFileSync("production-gen1-migration-batch.json","utf8")); if(d?.ok!==true) throw new Error("GEN1_BACKFILL_NOT_OK"); if(d?.source_preserved!==true) throw new Error("GEN1_BACKFILL_SOURCE_NOT_PRESERVED"); if(d?.schema?.supported!==true) throw new Error("GEN1_BACKFILL_SCHEMA_UNSUPPORTED"); const last=d?.batch?.last_id; const done=d?.coverage_complete===true; if(!done&&(!Number.isInteger(Number(last))||Number(last)<0)) throw new Error("GEN1_BACKFILL_CURSOR_MISSING"); process.stdout.write(String(last==null?0:Number(last))+" "+(done?"1":"0"));')"
@@ -1925,7 +1925,7 @@ jobs:
             "${BASE_URL}/api/gen2/import/chatgpt-status")"
           if [ "$CHATGPT_STATUS_CODE" != "200" ]; then
             echo "Production MEL-MEM-05 status returned HTTP ${CHATGPT_STATUS_CODE}."
-            test ! -s production-chatgpt-archive-status.json || cat production-chatgpt-archive-status.json
+            echo 'Production autonomy proof response withheld from CI logs; see sanitized HTTP/status evidence.'
             exit 40
           fi
 
@@ -1977,7 +1977,7 @@ jobs:
             "${BASE_URL}/api/gen2/migration/chatgpt-memory-status")"
           if [ "$CHATGPT_MEMORY_STATUS_CODE" != "200" ]; then
             echo "Production MEL-MEM-05 memory status returned HTTP ${CHATGPT_MEMORY_STATUS_CODE}."
-            test ! -s production-chatgpt-memory-before.json || cat production-chatgpt-memory-before.json
+            echo 'Production autonomy proof response withheld from CI logs; see sanitized HTTP/status evidence.'
             exit 43
           fi
 
@@ -1994,7 +1994,7 @@ jobs:
                 "${BASE_URL}/api/gen2/migration/chatgpt-memory-backfill")"
               if [ "$CHATGPT_MEMORY_CODE" != "200" ]; then
                 echo "MEL-MEM-05 memory backfill batch ${CHATGPT_MEMORY_BATCH} returned HTTP ${CHATGPT_MEMORY_CODE}."
-                test ! -s production-chatgpt-memory-batch.json || cat production-chatgpt-memory-batch.json
+                echo 'Production autonomy proof response withheld from CI logs; see sanitized HTTP/status evidence.'
                 exit 44
               fi
               CHATGPT_MEMORY_STATE="$(node -e 'const d=require("./production-chatgpt-memory-batch.json"); if(d?.ok!==true) throw new Error("CHATGPT_MEMORY_BACKFILL_NOT_OK"); const remaining=Number(d?.remaining_eligible_messages); if(!Number.isInteger(remaining)||remaining<0) throw new Error("CHATGPT_MEMORY_REMAINING_INVALID"); process.stdout.write((d?.complete===true?"1":"0")+" "+remaining);')"
@@ -2042,7 +2042,7 @@ jobs:
             "${BASE_URL}/api/gen2/code/self-check")"
           if [ "$SELF_CODE" != "200" ]; then
             echo "Production code self-check returned HTTP ${SELF_CODE}."
-            test ! -s production-code-self-check.json || cat production-code-self-check.json
+            echo 'Production autonomy proof response withheld from CI logs; see sanitized HTTP/status evidence.'
             exit 33
           fi
 
@@ -2054,7 +2054,7 @@ jobs:
             "${BASE_URL}/api/memory/status")"
           if [ "$MEMORY_CODE" != "200" ]; then
             echo "Production memory smoke returned HTTP ${MEMORY_CODE}."
-            test ! -s production-memory-status.json || cat production-memory-status.json
+            echo 'Production autonomy proof response withheld from CI logs; see sanitized HTTP/status evidence.'
             exit 34
           fi
 
@@ -2112,7 +2112,7 @@ jobs:
             "${BASE_URL}/api/gen2/web/research")"
           if [ "$GEN2_37_CODE" != "200" ]; then
             echo "GEN2-37 production research proof returned HTTP ${GEN2_37_CODE}."
-            test ! -s production-gen2-37-research.json || cat production-gen2-37-research.json
+            echo 'Production autonomy proof response withheld from CI logs; see sanitized HTTP/status evidence.'
             exit 47
           fi
 
