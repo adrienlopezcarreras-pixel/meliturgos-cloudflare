@@ -70,7 +70,8 @@ object MelMiniVoiceSynthesizer {
         if (startInit) {
             Handler(Looper.getMainLooper()).post {
                 val ref = AtomicReference<TextToSpeech?>(null)
-                val tts = TextToSpeech(context.applicationContext) { status ->
+                try {
+                    val tts = TextToSpeech(context.applicationContext) { status ->
                     // Some engines can complete binding immediately. Defer
                     // configuration by one main-loop turn so ref.set(tts)
                     // below has definitely published the created engine.
@@ -117,7 +118,17 @@ object MelMiniVoiceSynthesizer {
                         }
                     }
                 }
-                ref.set(tts)
+                    ref.set(tts)
+                } catch (error: Throwable) {
+                    // Constructor failures happen before the init listener exists.
+                    // Release every waiter and allow a later warmup to retry.
+                    synchronized(initLock) {
+                        initError = error
+                        initLatch = null
+                    }
+                    latch.countDown()
+                    Log.e(TAG, "MINI TTS engine construction failed", error)
+                }
             }
         }
 
