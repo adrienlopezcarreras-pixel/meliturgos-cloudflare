@@ -1,0 +1,20 @@
+name: Companion Prebootstrap Deadline CI
+on:
+  pull_request:
+    paths:
+      - 'assets/MEL-Computer-Companion.ps1'
+      - 'dist/MEL-Computer-Companion.ps1'
+      - 'tests/gen2/companion-prebootstrap-deadline.test.mjs'
+      - '.github/workflows/companion-prebootstrap-deadline-ci.yml'
+permissions:
+  contents: read
+jobs:
+  proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node --test tests/gen2/companion-prebootstrap-deadline.test.mjs tests/gen2/companion-ollama-cooperative-cancel.test.mjs

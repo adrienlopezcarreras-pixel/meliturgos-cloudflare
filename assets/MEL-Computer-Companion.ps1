@@ -1824,11 +1824,27 @@ function Invoke-OllamaWithCooperativeCancel([string]$uri,[string]$json,[int]$tim
   }
 }
 
+function Assert-SovereigntyAiPreflight([string]$operation,$payload,[string]$profile) {
+  # An expired queued request must not bootstrap or download a local model.
+  # Older direct owner commands without deadlines retain their existing
+  # behavior, while server-originated jobs always carry a bounded deadline.
+  if ($operation -ne "invoke") { return }
+  $deadline = 0L
+  try { $deadline = [long]$payload.owner_inference_deadline_ms } catch {}
+  if ($deadline -gt 0 -and [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() -ge $deadline) {
+    throw "SOVEREIGNTY_AI_LOCAL_DEADLINE_EXPIRED"
+  }
+  if ((Get-LocalComputeProfile) -ne $profile) { throw "LOCAL_COMPUTE_PROFILE_CHANGED" }
+}
+
 function Perform-SovereigntyAi([string]$operation,$payload) {
-  # Check consent before resolving Ollama: even a health request must not
-  # start model bootstrap/install when the owner turned the boost off.
+  # Check owner consent and any deadline before Ollama bootstrap/install.
   $profile = Get-LocalComputeProfile
+  Assert-SovereigntyAiPreflight -operation $operation -payload $payload -profile $profile
   $state = Get-SovereigntyLocalAiState
+  # Bootstrap is a separate operation and can take time: do not begin
+  # generation after the caller's deadline or after an owner opt-out.
+  Assert-SovereigntyAiPreflight -operation $operation -payload $payload -profile $profile
   switch ($operation) {
     "health" {
       return @{
