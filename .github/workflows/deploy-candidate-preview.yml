@@ -658,13 +658,18 @@ jobs:
         run: |
           set -euo pipefail
           BASE_URL="https://meliturgos-preview.adrien-lopezcarreras.workers.dev"
-          curl --fail-with-body --show-error --silent \
+          WATCH_HTTP_CODE="$(curl --show-error --silent \
             --max-time 240 \
             --header "Authorization: Bearer ${MEL_PREVIEW_PASSWORD}" \
             --header "content-type: application/json" \
             --data '{"force":true}' \
             "${BASE_URL}/api/mel/capability-watch/run" \
-            --output capability-watch-run.json
+            --output capability-watch-run.json \
+            --write-out '%{http_code}' || true)"
+          if [ "${WATCH_HTTP_CODE}" != "200" ]; then
+            WATCH_HTTP_CODE="${WATCH_HTTP_CODE}" node scripts/sanitize-preview-watch-http.mjs capability-watch-run.json
+            exit 1
+          fi
 
           python - <<'PY'
           import json
