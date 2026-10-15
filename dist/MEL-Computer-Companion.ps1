@@ -2403,6 +2403,11 @@ function Perform-Step($step, [string]$commandId, [string]$planSchema="") {
       Start-Process -FilePath $uri.AbsoluteUri
       return @{ action=$action; url=$uri.AbsoluteUri }
     }
+    "browser.new-tab" {
+      $browser = Assert-ForegroundBrowser
+      [System.Windows.Forms.SendKeys]::SendWait("^t")
+      return @{ action=$action; browser=$browser }
+    }
     "browser.back" {
       $browser = Assert-ForegroundBrowser
       [System.Windows.Forms.SendKeys]::SendWait("%{LEFT}")
