@@ -16,6 +16,7 @@ export const COMPUTER_USE_ACTIONS = Object.freeze({
   KEY_PRESS: 'keyboard.press',
   TYPE_TEXT: 'keyboard.type',
   OPEN_APP: 'app.open',
+  BROWSER_NAVIGATE: 'browser.navigate',
   CLOSE_APP: 'app.close',
   OPEN_FILE: 'file.open',
   CLOSE_FILE: 'file.close',
@@ -31,6 +32,7 @@ const ACTION_RISK = new Map([
   [COMPUTER_USE_ACTIONS.KEY_PRESS, COMPUTER_USE_RISK.INTERACT],
   [COMPUTER_USE_ACTIONS.TYPE_TEXT, COMPUTER_USE_RISK.SENSITIVE],
   [COMPUTER_USE_ACTIONS.OPEN_APP, COMPUTER_USE_RISK.SENSITIVE],
+  [COMPUTER_USE_ACTIONS.BROWSER_NAVIGATE, COMPUTER_USE_RISK.SENSITIVE],
   [COMPUTER_USE_ACTIONS.CLOSE_APP, COMPUTER_USE_RISK.SENSITIVE],
   [COMPUTER_USE_ACTIONS.OPEN_FILE, COMPUTER_USE_RISK.SENSITIVE],
   [COMPUTER_USE_ACTIONS.CLOSE_FILE, COMPUTER_USE_RISK.SENSITIVE],
@@ -209,6 +211,9 @@ export function evaluateComputerUsePlan(input = {}) {
     } else if (!appAllowed(step.app, request.sandbox.allowed_apps)) {
       allowed = false;
       reason = 'APP_OUTSIDE_SANDBOX';
+    } else if (step.action === COMPUTER_USE_ACTIONS.BROWSER_NAVIGATE && !step.url) {
+      allowed = false;
+      reason = 'NAVIGATION_URL_REQUIRED';
     } else if (!originAllowed(step.url, request.sandbox.allowed_origins)) {
       allowed = false;
       reason = 'ORIGIN_OUTSIDE_SANDBOX';
