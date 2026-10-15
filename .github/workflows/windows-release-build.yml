@@ -149,8 +149,16 @@ jobs:
           if (!(Test-Path -LiteralPath $helper -PathType Leaf)) { throw 'MINI_USB_HELPER_NOT_PACKAGED' }
           # The stdin is deliberately empty. Neither the runner nor a cloud
           # relay can pass the attended owner's literal consent accidentally.
-          $output = 'n' | & pwsh -NoProfile -NonInteractive -File $helper -Port COM3 2>&1 | Out-String
-          if ($LASTEXITCODE -eq 0 -or $output -notmatch 'MINI_USB_LOCAL_CONFIRMATION_REQUIRED') {
+          # Expected denial emits stderr. Capture it without treating it as a
+          # terminating *parent* PowerShell error; then assert the actual code.
+          $ErrorActionPreference = 'Continue'
+          try {
+            $output = 'n' | & pwsh -NoProfile -NonInteractive -File $helper -Port COM3 2>&1 | Out-String
+            $childExitCode = $LASTEXITCODE
+          } finally {
+            $ErrorActionPreference = 'Stop'
+          }
+          if ($childExitCode -eq 0 -or $output -notmatch 'MINI_USB_LOCAL_CONFIRMATION_REQUIRED') {
             throw "MINI_USB_HELPER_DID_NOT_FAIL_CLOSED:$output"
           }
 
