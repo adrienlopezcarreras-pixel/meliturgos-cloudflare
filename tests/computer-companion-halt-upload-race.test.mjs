@@ -23,7 +23,7 @@ test('HALT activated while screenshot body streams prevents bucket write',async(
   await DB.prepare('UPDATE computer_devices SET metadata=? WHERE id=?')
    .bind(JSON.stringify({remote_access_enabled:true}),'race-pc').run();
   await DB.prepare('INSERT INTO computer_commands(id,device_id,session_id,plan_json,status,created_at) VALUES(?,?,?,?,?,?)')
-   .bind('race-command','race-pc','race-session','{}','RUNNING',Date.now()).run();
+   .bind('race-command','race-pc','race-session',JSON.stringify({schema:'mel.devices.computer-use.v1',steps:[{action:'screen.capture'}]}),'RUNNING',Date.now()).run();
 
   let signalPull;
   const bodyReading=new Promise(resolve=>{signalPull=resolve});
