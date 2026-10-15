@@ -1,3 +1,5 @@
+import { createRuntimeEvolutionLoader, initializeEvolutionStorage, saveEvolutionProposal } from '../../src/roadmap/evolution-storage.js';
+import { sqliteD1 } from '../helpers/sqlite-d1.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { D1DevJobRepository } from '../../src/dev/d1-dev-job-repository.js';
@@ -54,4 +56,33 @@ test('proposed-only backlog never starts an autonomous development',async()=>{
  const result=await s.ensureNextJob();
  assert.equal(result.created,false);
  assert.equal(result.complete,true);
+});
+
+test('production D1 missing must not turn exhausted initial roadmap into COMPLETE',async()=>{
+ const loader=createRuntimeEvolutionLoader({MELITURGOS_USER:'owner-a'});
+ const s=new AutonomySupervisor({repository:repo(),roadmap:[],evolutionLoader:loader});
+ const state=await s.state();
+ assert.equal(state.evolution.status,'UNAVAILABLE');
+ assert.equal(state.evolution.actionable_count,null);
+ assert.equal(state.evolution.code,'EVOLUTION_QUEUE_READ_FAILED');
+ const result=await s.ensureNextJob();
+ assert.equal(result.created,false);
+ assert.equal(result.complete,false);
+});
+test('production loader recovers after migration and reads correct owner only',async()=>{
+ const db=sqliteD1();
+ try{
+  const loader=createRuntimeEvolutionLoader({DB:db,MELITURGOS_USER:'owner-a'});
+  const s=new AutonomySupervisor({repository:repo(),roadmap:[],evolutionLoader:loader});
+  assert.equal((await s.state()).evolution.status,'UNAVAILABLE');
+  await initializeEvolutionStorage(db);
+  await saveEvolutionProposal(db,'owner-a',{id:'EV-OWNER-A',title:'Implement search assistant',origin:'user'});
+  await saveEvolutionProposal(db,'owner-b',{id:'EV-OWNER-B',title:'Owner other feature',origin:'user'});
+  const items=await loader();
+  assert.deepEqual(items.map(item=>item.id),['EV-OWNER-A']);
+  const state=await s.state();
+  assert.equal(state.evolution.status,'CONNECTED');
+  assert.equal(state.evolution.actionable_count,0); // proposed is not approved
+  assert.equal((await s.ensureNextJob()).created,false);
+ }finally{db.close();}
 });
