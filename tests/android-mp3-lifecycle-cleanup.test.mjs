@@ -22,7 +22,7 @@ test('only current owner releases active MediaPlayer, or pre-registration failur
  // belongs to the outer finally block, after the generation checks.
  const playback = mp3.slice(mp3.indexOf('val myGeneration'), mp3.indexOf('} finally {', mp3.indexOf('val myGeneration')));
  assert.ok(playback.length > 0, 'playback body must exist');
- assert.match(playback,/if \\(playbackGeneration != myGeneration\\) throw MelPlaybackInterruptedException\\(\\)/);
- assert.doesNotMatch(playback,/file\\.delete\\(\\)/);
- assert.match(mp3,/catch \\(error: Throwable\\) \\{\\s*file\\.delete\\(\\)\\s*throw error/);
+ assert.ok(playback.includes('if (playbackGeneration != myGeneration) throw MelPlaybackInterruptedException()'));
+ assert.ok(!playback.includes('file.delete()'), 'no file cleanup before playback exits');
+ assert.ok(mp3.includes('file.delete()\n            throw error'), 'constructor failure deletes the cache file');
 });
