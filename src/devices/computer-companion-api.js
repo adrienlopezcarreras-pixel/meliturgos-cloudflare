@@ -523,7 +523,9 @@ async function heartbeat(request,env,a){
  if(typeof b.remote_access_enabled==="boolean")patch.remote_access_enabled=b.remote_access_enabled;
  // Separate, locally controlled opt-in for optional MEL compute acceleration.
  // Remote PC access permission does not imply permission to use CPU/GPU.
- if(typeof b.local_compute_enabled==="boolean")patch.local_compute_enabled=b.local_compute_enabled;
+ // Fail closed on every heartbeat: legacy clients and malformed values cannot
+ // preserve a previous opt-in after the local control disappears.
+ patch.local_compute_enabled=b.local_compute_enabled===true;
  if(b.screen&&typeof b.screen==="object")patch.screen=b.screen;
  if(b.active_window!==undefined)patch.active_window=b.active_window||null;
  metadata={...metadata,...patch};
