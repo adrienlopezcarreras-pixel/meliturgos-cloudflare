@@ -154,6 +154,11 @@ class MelBleBridgeService : Service() {
                         if (!ready && age > 20_000L && staleCancellationRequested.add(address)) {
                             Log.w(TAG, "BLE watchdog: stale unready GATT link $address age=${age}ms; recycling")
                             runCatching { gattServer?.cancelConnection(device) }
+                                .onFailure { error ->
+                                    // Allow another watchdog attempt when Android rejected cancellation.
+                                    staleCancellationRequested.remove(address)
+                                    Log.w(TAG, "BLE stale link cancellation failed: ${error.javaClass.simpleName}")
+                                }
                         }
                     }
                 }
