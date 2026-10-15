@@ -612,7 +612,7 @@ class MelViewModel(
 
     private fun displayChatAnswer(answer: String, response: JSONObject): String {
         return if (response.optBoolean("response_truncated", false)) {
-            "$answer\\n\\nRéponse incomplète. Demande « continue » pour obtenir la suite."
+            "$answer\n\nRéponse incomplète. Demande « continue » pour obtenir la suite."
         } else answer
     }
 
