@@ -700,39 +700,44 @@ async function result(request,env,a){
   return json({ok:false,code:"COMPUTER_RESULT_NOT_RUNNING"},409);
  return json({ok:true});
 }
+// A device token never authorizes arbitrary screenshot uploads. The queued, running
+// command itself must explicitly request the image. Local device opt-in is checked separately.
+function screenshotPlanAuthorized(plan,deviceId,sessionId,now){
+ if(!plan||typeof plan!=="object")return false;
+ if(plan.schema==="mel.companion.desktop-view-request/v1"||plan.action==="desktop.view.request")
+  return plan.schema==="mel.companion.desktop-view-request/v1"&&
+   plan.action==="desktop.view.request"&&plan.screen_capture_only===true&&
+   plan.requires_local_stop===true&&plan.device_id===deviceId&&
+   plan.session_id===sessionId&&Number.isSafeInteger(plan.expires_at)&&
+   plan.expires_at>now;
+ return plan.schema==="mel.devices.computer-use.v1"&&Array.isArray(plan.steps)&&
+  plan.steps.some(step=>step?.action==="screen.capture");
+}
 async function uploadShot(request,env,a,url){
  if(!env?.MEDIA_BUCKET)return json({ok:false,code:"MEDIA_BUCKET_UNAVAILABLE"},503);
  const id=safe(url.searchParams.get("command_id"));
  if(!id)return json({ok:false,code:"SCREENSHOT_COMMAND_REQUIRED"},400);
- const command=await env.DB.prepare("SELECT id,plan_json FROM computer_commands WHERE id=? AND device_id=? AND status=? LIMIT 1").bind(id,a.device.id,"RUNNING").first();
+ const command=await env.DB.prepare("SELECT id,plan_json,session_id FROM computer_commands WHERE id=? AND device_id=? AND status=? LIMIT 1").bind(id,a.device.id,"RUNNING").first();
  if(!command)return json({ok:false,code:"SCREENSHOT_COMMAND_NOT_RUNNING"},409);
  const currentDevice=await env.DB.prepare("SELECT halted,metadata FROM computer_devices WHERE id=? LIMIT 1").bind(a.device.id).first();
  if(!currentDevice||Number(currentDevice.halted)===1)return json({ok:false,code:"SCREENSHOT_OWNER_HALT"},409);
  if(parse(currentDevice.metadata,{})?.remote_access_enabled!==true)
   return json({ok:false,code:"SCREENSHOT_LOCAL_ACCESS_REVOKED"},409);
  const plan=parse(command.plan_json,{});
- if(plan.schema==="mel.companion.desktop-view-request/v1"||plan.action==="desktop.view.request"){
-  if(plan.schema!=="mel.companion.desktop-view-request/v1"||plan.action!=="desktop.view.request"||
-     plan.screen_capture_only!==true||plan.device_id!==a.device.id||
-     !Number.isFinite(Number(plan.expires_at))||Number(plan.expires_at)<=Date.now())
-   return json({ok:false,code:"SCREENSHOT_VIEW_AUTH_EXPIRED_OR_INVALID"},409);
- }
+ if(!screenshotPlanAuthorized(plan,a.device.id,command.session_id,Date.now()))
+  return json({ok:false,code:"SCREENSHOT_PLAN_NOT_AUTHORIZED"},409);
  const bytes=new Uint8Array(await request.arrayBuffer());
  if(!bytes.byteLength||bytes.byteLength>5*1024*1024)return json({ok:false,code:"SCREENSHOT_SIZE_INVALID"},413);
  const signature=[137,80,78,71,13,10,26,10];
  if(bytes.length<signature.length||!signature.every((b,i)=>bytes[i]===b))
   return json({ok:false,code:"SCREENSHOT_PNG_INVALID"},415);
  // Revalidate after reading the body: HALT or completion may occur during the upload.
- const latest=await env.DB.prepare("SELECT c.status,c.plan_json,d.halted,d.metadata FROM computer_commands c JOIN computer_devices d ON d.id=c.device_id WHERE c.id=? AND c.device_id=? LIMIT 1").bind(id,a.device.id).first();
+ const latest=await env.DB.prepare("SELECT c.status,c.plan_json,c.session_id,d.halted,d.metadata FROM computer_commands c JOIN computer_devices d ON d.id=c.device_id WHERE c.id=? AND c.device_id=? LIMIT 1").bind(id,a.device.id).first();
  if(!latest||Number(latest.halted)===1||parse(latest.metadata,{})?.remote_access_enabled!==true||latest.status!=="RUNNING")
   return json({ok:false,code:"SCREENSHOT_AUTH_REVOKED_DURING_UPLOAD"},409);
  const latestPlan=parse(latest.plan_json,{});
- if(latestPlan.schema==="mel.companion.desktop-view-request/v1"||latestPlan.action==="desktop.view.request"){
-  if(latestPlan.schema!=="mel.companion.desktop-view-request/v1"||
-     latestPlan.action!=="desktop.view.request"||latestPlan.screen_capture_only!==true||
-     latestPlan.device_id!==a.device.id||Number(latestPlan.expires_at)<=Date.now())
-   return json({ok:false,code:"SCREENSHOT_AUTH_REVOKED_DURING_UPLOAD"},409);
- }
+ if(!screenshotPlanAuthorized(latestPlan,a.device.id,latest.session_id,Date.now()))
+  return json({ok:false,code:"SCREENSHOT_AUTH_REVOKED_DURING_UPLOAD"},409);
  const key=`computer/screenshots/${a.device.id.replace(/[^A-Za-z0-9_.-]/g,"_")}/${id.replace(/[^A-Za-z0-9_.-]/g,"_")}.png`;
  await env.MEDIA_BUCKET.put(key,bytes,{httpMetadata:{contentType:"image/png"}});
  return json({ok:true,key,view_url:`${url.origin}${COMPUTER_API_BASE}/screenshot?key=${encodeURIComponent(key)}`});
