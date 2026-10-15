@@ -382,7 +382,9 @@ class MainActivity : ComponentActivity() {
                     wakeEnrollmentActive = wakeEnrollmentActive.value,
                     wakeEnrolled = wakeEnrolled.value,
                     onWakeEnroll = ::startWakeEnrollment,
-                    onWakeReset = ::resetWakeEnrollment
+                    onWakeReset = ::resetWakeEnrollment,
+                    onBackgroundWakeEnable = ::enableBackgroundWake,
+                    onBackgroundWakeDisable = ::disableBackgroundWake
                 )
             }
         }
@@ -669,6 +671,45 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun enableBackgroundWake() {
+        if (!appResumed || !wakePhraseStore.isEnrolled() ||
+            ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED
+        ) {
+            voiceMessage.value = "Enregistre OK MEL et autorise le microphone"
+            return
+        }
+        if (Build.VERSION.SDK_INT >= 33 &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            voiceMessage.value = "Autorise les notifications avant l'écoute OK MEL"
+            return
+        }
+        stopWakeWordListening()
+        val prefs = getSharedPreferences("mel_wake_background_opt_in", MODE_PRIVATE)
+        if (!prefs.edit().putBoolean("microphone_enabled", true).commit()) {
+            voiceMessage.value = "Activation non enregistrée"
+            return
+        }
+        val started = runCatching {
+            ContextCompat.startForegroundService(
+                this, Intent(this, MelWakeForegroundService::class.java).setAction(MelWakeForegroundService.ACTION_START)
+            )
+        }
+        if (started.isFailure) {
+            prefs.edit().putBoolean("microphone_enabled", false).commit()
+            voiceMessage.value = "Impossible de démarrer le microphone Android"
+        } else {
+            voiceMessage.value = "Écoute arrière-plan demandée · notification visible"
+        }
+    }
+
+    private fun disableBackgroundWake() {
+        getSharedPreferences("mel_wake_background_opt_in", MODE_PRIVATE)
+            .edit().putBoolean("microphone_enabled", false).commit()
+        stopService(Intent(this, MelWakeForegroundService::class.java))
+        voiceMessage.value = "Écoute OK MEL arrêtée"
+    }
+
     private fun resetWakeEnrollment() {
         if (wakeEnrollmentActive.value) return
         stopWakeWordListening()
@@ -768,6 +809,7 @@ class MainActivity : ComponentActivity() {
     private var wakeRetryFailures = 0
 
     private fun ensureWakeWordListening() {
+        if (MelWakeForegroundService.foregroundMicrophoneActive) return
         if (voiceConversationActive.value) return
         if (System.currentTimeMillis() - lastWakeActivationMs < 4_000L) return
         // An AudioRecord blocking read can outlive STOP even after interruption.
@@ -1561,7 +1603,9 @@ internal fun MelApp(
     wakeEnrollmentActive: Boolean = false,
     wakeEnrolled: Boolean = false,
     onWakeEnroll: () -> Unit = {},
-    onWakeReset: () -> Unit = {}
+    onWakeReset: () -> Unit = {},
+    onBackgroundWakeEnable: () -> Unit = {},
+    onBackgroundWakeDisable: () -> Unit = {}
 ) {
     Surface(
         modifier = Modifier.fillMaxSize(),
@@ -1618,7 +1662,9 @@ internal fun MelApp(
                 wakeEnrollmentActive = wakeEnrollmentActive,
                 wakeEnrolled = wakeEnrolled,
                 onWakeEnroll = onWakeEnroll,
-                onWakeReset = onWakeReset
+                onWakeReset = onWakeReset,
+                onBackgroundWakeEnable = onBackgroundWakeEnable,
+                onBackgroundWakeDisable = onBackgroundWakeDisable
             )
         }
     }
@@ -1995,7 +2041,9 @@ private fun ConversationScreen(
     wakeEnrollmentActive: Boolean,
     wakeEnrolled: Boolean,
     onWakeEnroll: () -> Unit,
-    onWakeReset: () -> Unit
+    onWakeReset: () -> Unit,
+    onBackgroundWakeEnable: () -> Unit,
+    onBackgroundWakeDisable: () -> Unit
 ) {
     var section by rememberSaveable { mutableStateOf(MobileSection.MEL) }
     var settingsOpen by rememberSaveable { mutableStateOf(false) }
@@ -2093,6 +2141,9 @@ private fun ConversationScreen(
                     onFile = onFile,
                     onLocalApkUpdate = onLocalApkUpdate,
                     onNotifications = onNotifications,
+                    wakeEnrolled = wakeEnrolled,
+                    onBackgroundWakeEnable = onBackgroundWakeEnable,
+                    onBackgroundWakeDisable = onBackgroundWakeDisable,
                     onDiagnostics = onDiagnostics,
                     onCopyDiagnostic = onCopyDiagnostic,
                     onNormalProbe = onNormalProbe,
@@ -3154,6 +3205,9 @@ private fun NativeToolsPanel(
     onFile: () -> Unit,
     onLocalApkUpdate: () -> Unit,
     onNotifications: () -> Unit,
+    wakeEnrolled: Boolean,
+    onBackgroundWakeEnable: () -> Unit,
+    onBackgroundWakeDisable: () -> Unit,
     onDiagnostics: () -> Unit,
     onCopyDiagnostic: (String) -> Unit,
     onNormalProbe: () -> Unit,
@@ -3208,6 +3262,14 @@ private fun NativeToolsPanel(
             modifier = Modifier.fillMaxWidth(),
             enabled = !state.busy
         ) { Text("Arrière-plan / notifications") }
+        Spacer(Modifier.height(7.dp))
+        OutlinedButton(onClick = onBackgroundWakeEnable, modifier = Modifier.fillMaxWidth().testTag("wake-background-enable"), enabled = !state.busy && wakeEnrolled) {
+            Text("ACTIVER MICRO OK MEL EN ARRIÈRE-PLAN")
+        }
+        Spacer(Modifier.height(5.dp))
+        OutlinedButton(onClick = onBackgroundWakeDisable, modifier = Modifier.fillMaxWidth().testTag("wake-background-disable")) {
+            Text("ARRÊTER MICRO OK MEL")
+        }
         Spacer(Modifier.height(10.dp))
         Button(
             onClick = onDiagnostics,
