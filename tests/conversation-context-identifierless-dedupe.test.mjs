@@ -68,3 +68,9 @@ test('security labels with no assigned value stay in memory', () => {
     assert.equal(profileSecretLike(text), true);
   }
 });
+
+test('invalid non-array retrieval containers yield empty evidence safely', () => {
+  for (const value of [null, false, 0, 'oops', {results:[{id:1}]}]) {
+    assert.deepEqual(dedupeRows(value), []);
+  }
+});

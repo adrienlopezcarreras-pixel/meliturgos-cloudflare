@@ -19,7 +19,7 @@ function compactHistoricalRows(rows = []) {
 export function dedupeRows(rows = []) {
   const seen = new Set();
   const out = [];
-  for (const row of rows) {
+  for (const row of Array.isArray(rows) ? rows : []) {
     // A malformed retrieval hit must not crash prompt construction.
     if (!row || typeof row !== 'object' || Array.isArray(row)) continue;
     const source = String(row?.source || row?.provenance?.table || '');
