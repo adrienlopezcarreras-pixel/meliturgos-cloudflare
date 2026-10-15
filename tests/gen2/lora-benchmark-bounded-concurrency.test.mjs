@@ -16,5 +16,6 @@ test('LoRA benchmark bounds case concurrency and per-inference latency', async (
   assert.match(impact,/mapImpactWithConcurrency/);
   assert.match(operator,/BENCHMARK_INFERENCE_TIMEOUT/);
   assert.match(operator,/Promise\.race\(\[ai\.run\(modelId, input\), timeout\]\)/);
-  assert.ok((block.match(/concurrency: 4/g)||[]).length >= 4);
+  assert.ok((block.match(/concurrency: benchmarkConcurrency/g)||[]).length >= 4);
+  assert.match(block, /resolveOperatorLoraBenchmarkConcurrency\(options\.benchmark_concurrency\)/);
 });
