@@ -2362,24 +2362,10 @@ function Perform-Step($step, [string]$commandId, [string]$planSchema="") {
   $action = [string]$step.action
   switch ($action) {
     "screen.capture" {
-      # Legacy computer-use captures still require explicit approval on this PC.
       Assert-UnattendedCapturePermission
-      $window = [MelNative]::GetForegroundWindow()
-      [MelNative+RECT]$rect = New-Object MelNative+RECT
-      if ($window -eq [IntPtr]::Zero -or -not [MelNative]::GetWindowRect($window, [ref]$rect)) { throw "BROWSER_CAPTURE_WINDOW_REQUIRED" }
-      $virtual = [System.Windows.Forms.SystemInformation]::VirtualScreen
-      $left = [Math]::Max($rect.Left, $virtual.Left)
-      $top = [Math]::Max($rect.Top, $virtual.Top)
-      $right = [Math]::Min($rect.Right, $virtual.Right)
-      $bottom = [Math]::Min($rect.Bottom, $virtual.Bottom)
-      if ($right -le $left -or $bottom -le $top) { throw "BROWSER_CAPTURE_WINDOW_BOUNDS_INVALID" }
-      if ([MelNative]::GetForegroundWindow() -ne $window -or (Assert-ForegroundBrowser) -ne $browser) { throw "BROWSER_CAPTURE_FOCUS_CHANGED" }
-      $bounds = New-Object System.Drawing.Rectangle($left, $top, ($right - $left), ($bottom - $top))
-      $shot = Upload-Screenshot $commandId $bounds
+      $shot = Upload-Screenshot $commandId
       if ([string]$shot.key -eq '' -or [string]$shot.view_url -eq '' -or
-          [string]$shot.key -notlike "computer/screenshots/$ComputerId/*") {
-        throw "SCREENSHOT_UPLOAD_UNCONFIRMED"
-      }
+          [string]$shot.key -notlike "computer/screenshots/$ComputerId/*") { throw "SCREENSHOT_UPLOAD_UNCONFIRMED" }
       return @{ action=$action; screenshot_key=$shot.key; view_url=$shot.view_url }
     }
     "cursor.move" {
@@ -2441,10 +2427,21 @@ function Perform-Step($step, [string]$commandId, [string]$planSchema="") {
       return @{ action=$action; browser=$browser }
     }
     "browser.capture" {
-      # Screenshot includes the entire desktop: require local capture opt-in and explicit step approval.
+      # Capture the foreground browser rectangle only, never the virtual desktop.
       $browser = Assert-ForegroundBrowser
       Assert-UnattendedCapturePermission
-      $shot = Upload-Screenshot $commandId
+      $window = [MelNative]::GetForegroundWindow()
+      $rect = New-Object MelNative+RECT
+      if ($window -eq [IntPtr]::Zero -or -not [MelNative]::GetWindowRect($window, [ref]$rect)) { throw "BROWSER_CAPTURE_WINDOW_REQUIRED" }
+      $virtual = [System.Windows.Forms.SystemInformation]::VirtualScreen
+      $left = [Math]::Max($rect.Left, $virtual.Left)
+      $top = [Math]::Max($rect.Top, $virtual.Top)
+      $right = [Math]::Min($rect.Right, $virtual.Right)
+      $bottom = [Math]::Min($rect.Bottom, $virtual.Bottom)
+      if ($right -le $left -or $bottom -le $top) { throw "BROWSER_CAPTURE_WINDOW_BOUNDS_INVALID" }
+      if ([MelNative]::GetForegroundWindow() -ne $window -or (Assert-ForegroundBrowser) -ne $browser) { throw "BROWSER_CAPTURE_FOCUS_CHANGED" }
+      $bounds = [System.Drawing.Rectangle]::new($left, $top, ($right - $left), ($bottom - $top))
+      $shot = Upload-Screenshot $commandId $bounds
       if ([string]$shot.key -eq '' -or [string]$shot.view_url -eq '' -or
           [string]$shot.key -notlike "computer/screenshots/$ComputerId/*") { throw "SCREENSHOT_UPLOAD_UNCONFIRMED" }
       return @{ action=$action; browser=$browser; screenshot_key=$shot.key; view_url=$shot.view_url; full_desktop_capture=$false; window_only_capture=$true }
