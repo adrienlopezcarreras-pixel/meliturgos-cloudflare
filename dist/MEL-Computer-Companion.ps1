@@ -2429,7 +2429,7 @@ function Perform-Step($step, [string]$commandId, [string]$planSchema="") {
       if ([string]::IsNullOrWhiteSpace($title)) { throw "BROWSER_INSPECT_WINDOW_REQUIRED" }
       if ($title.Length -gt 512) { $title = $title.Substring(0,512) }
       $windowHandle = [MelNative]::GetForegroundWindow()
-      if ($windowHandle -eq [IntPtr]::Zero) { throw "BROWSER_INSPECT_WINDOW_REQUIRED" }
+      if ($windowHandle -eq [IntPtr]::Zero -or (Assert-ForegroundBrowser) -ne $browser) { throw "BROWSER_INSPECT_WINDOW_REQUIRED" }
       return @{ action=$action; browser=$browser; foreground_title=$title; read_only=$true; observed_at_utc=[DateTime]::UtcNow.ToString("o"); window_handle=$windowHandle.ToInt64() }
     }
     "app.open" {
