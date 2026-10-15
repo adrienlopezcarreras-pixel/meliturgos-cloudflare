@@ -67,3 +67,18 @@ test('chat AI wrapper bounds repeated truncation to configured continuation segm
   assert.match(result.response, /segment-1/);
   assert.match(result.response, /segment-2/);
 });
+
+test('chat AI wrapper continues when provider explicitly flags truncation without finish reason', async () => {
+  const replies = [
+    { response: 'Première partie', truncated: true },
+    { response: 'deuxième partie complète', truncated: false, finish_reason: 'stop' }
+  ];
+  let calls = 0;
+  const env = { AI: { async run() { calls++; return replies.shift(); } } };
+  const result = await withChatAiDefaults(env).AI.run('model', {
+    messages: [{ role: 'user', content: 'Donne la réponse complète.' }]
+  });
+  assert.equal(calls, 2);
+  assert.match(result.response, /Première partie[\s\S]*deuxième partie complète/);
+  assert.equal(result.mel_response_incomplete, false);
+});
