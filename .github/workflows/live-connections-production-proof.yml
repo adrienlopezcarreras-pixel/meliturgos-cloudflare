@@ -259,7 +259,13 @@ jobs:
               echo 'microsoft_sharepoint: {"ok":true,"provider":"pipedream","app":"sharepoint","linked_account":true,"graph_site_read_proven":false}'
             fi
           fi
-          if [ "${MICROSOFT_SHAREPOINT_OK}" != "1" ] || [ "${MICROSOFT_SHAREPOINT_READ_PROVEN}" != "1" ]; then FAILURES=$((FAILURES+1)); fi
+          # SharePoint Graph site access requires an eligible work/school account.
+          # Zero-cost MEL must never demand a paid plan for baseline health.
+          # Preserve truth: an unproven SharePoint read remains unverified,
+          # but optional capability availability cannot block the core release.
+          if [ "${MICROSOFT_SHAREPOINT_READ_PROVEN}" != "1" ]; then
+            echo 'microsoft_sharepoint: {"required":false,"status":"OPTIONAL_UNAVAILABLE","free_alternative":"GOOGLE_DRIVE_OR_ONEDRIVE","graph_site_read_proven":false}'
+          fi
 
           YAHOO_OK=0
           if probe yahoo_oauth /api/gen2/connections/yahoo/test '{"connector_id":"yahoo-mail"}'; then
@@ -300,7 +306,9 @@ jobs:
               onedrive:process.env.MICROSOFT_ONEDRIVE_OK==='1',
               sharepoint:process.env.MICROSOFT_SHAREPOINT_OK==='1',
               sharepoint_graph_read_proven:process.env.MICROSOFT_SHAREPOINT_READ_PROVEN==='1',
-              sharepoint_graph_read_required:true,
+              sharepoint_graph_read_required:false,
+              sharepoint_status:process.env.MICROSOFT_SHAREPOINT_READ_PROVEN==='1'?'VERIFIED':'OPTIONAL_UNAVAILABLE',
+              free_document_alternatives:['google_drive','microsoft_onedrive'],
               sharepoint_graph_read_available:process.env.MICROSOFT_SHAREPOINT_READ_PROVEN==='1',
               sharepoint_account_type:process.env.MICROSOFT_SHAREPOINT_PROOF_SOURCE==='MSA_GRAPH_SITE_READ_UNSUPPORTED'?'personal':'unverified_or_organizational',
               sharepoint_action_required:process.env.MICROSOFT_SHAREPOINT_PROOF_SOURCE==='MSA_GRAPH_SITE_READ_UNSUPPORTED'?'USE_ORGANIZATIONAL_SHAREPOINT_ACCOUNT':null,
