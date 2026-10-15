@@ -344,7 +344,10 @@ test('Android background heartbeat uses WorkManager without hidden background mi
   assert.match(background,/client\.heartbeat/);
   assert.match(background,/notifySessionExpired/);
   assert.doesNotMatch(background,/startForegroundService/);
-  assert.doesNotMatch(manifest,/FOREGROUND_SERVICE_MICROPHONE/);
+  // An opt-in service may be declared; the heartbeat must not activate it.
+  assert.match(manifest,/FOREGROUND_SERVICE_MICROPHONE/);
+  assert.match(manifest,/MelWakeForegroundService/);
+  assert.doesNotMatch(background,/MelWakeForegroundService/);
   assert.match(vm,/MelBackground\.schedule\(appContext\)/);
   assert.match(vm,/MelBackground\.cancel\(appContext\)/);
   assert.match(activity,/Manifest\.permission\.POST_NOTIFICATIONS/);
