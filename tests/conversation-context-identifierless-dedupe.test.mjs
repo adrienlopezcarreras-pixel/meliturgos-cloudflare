@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { dedupeRows } from '../src/core/orchestrator/conversation-context.js';
+import { dedupeRows, profileSecretLike } from '../src/core/orchestrator/conversation-context.js';
 
 test('retrieved rows without IDs preserve distinct conversation evidence', () => {
   const first = { source: 'memories', conversation_id: 'a', role: 'user', content: 'Je parle espagnol' };
@@ -27,4 +27,13 @@ test('timestamped user corrections with identical wording retain distinct proven
 test('malformed retrieval hits cannot poison assembled context', () => {
   const valid = { source: 'memories', id: 42, content: 'Valid context' };
   assert.deepEqual(dedupeRows([null, undefined, 0, 'invalid', [], valid]), [valid]);
+});
+
+test('credential-like imported history is excluded while ordinary context survives', () => {
+  const rows = [
+    { content: 'Mon projet est MEL' },
+    { content: 'API_KEY=example-secret-value' },
+    { content: 'mot de passe : exemple' },
+  ];
+  assert.deepEqual(rows.filter(row => !profileSecretLike(row.content)), [rows[0]]);
 });
