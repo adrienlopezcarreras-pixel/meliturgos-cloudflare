@@ -43,7 +43,7 @@ export function transitionEvolution(item,next,{proof=null}={}) {
  requireItem(item);
  if (!allowed[item.status].includes(next)) throw new Error('EVOLUTION_INVALID_TRANSITION');
  if (next==='DONE_VERIFIED') {
-  if (!proof || !/^[a-f0-9]{40}$/.test(String(proof.sha||'')) || !proof.ci_passed || !proof.real_test_passed || !proof.environment || !proof.reference) throw new Error('EVOLUTION_MISSING_VERIFICATION');
+  if (!proof || !/^[a-f0-9]{40}$/.test(proof.sha) || proof.ci_passed !== true || proof.real_test_passed !== true || typeof proof.environment !== 'string' || !proof.environment.trim() || typeof proof.reference !== 'string' || !proof.reference.trim()) throw new Error('EVOLUTION_MISSING_VERIFICATION');
  }
  return Object.freeze({...item,status:next,evidence: next==='DONE_VERIFIED'?[...(item.evidence||[]),Object.freeze({...proof})]:(item.evidence||[])});
 }
