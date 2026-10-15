@@ -79,3 +79,9 @@ Ne pas publier, flasher ou déclarer la MINI terminée si un SHA ne correspond
 pas, si une CI est absente/rouge, si la MINI est inaccessible, si le
 Companion n'autorise pas l'action ou si aucune restauration locale
 réaliste n'est possible.
+
+## Précontrôle USB local — preuve OTA en lecture seule
+
+`python tools/mini-updater/local_readonly_preflight.py --port COM4 --output <dossier-neuf> --ack-bootloader` lit depuis **la MINI branchée** la puce, la mémoire flash, la table de partitions à `0x8000`, puis l'`otadata` à l'adresse tirée de la table (jamais un offset OTA supposé). Cette commande peut provoquer une entrée en bootloader ou un reset USB : ne l'utiliser qu'en présence de l'opérateur et après son accord explicite.
+
+La preuve `preflight.json` conserve les empreintes SHA-256 des deux dumps et la sélection **déduite des métadonnées**, ainsi que les anomalies de lecture. Une sélection ambiguë, une table invalide ou un dump tronqué donnent un échec. Le résultat conserve systématiquement `flash_allowed=false` et `running_slot_verified_on_device=false` : une métadonnée OTA valide ne certifie pas le slot réellement exécuté. Ne jamais utiliser ce précontrôle pour autoriser l'écriture sans sauvegarde et preuve physique complémentaires.
