@@ -400,6 +400,7 @@ export async function runOperatorLoraBenchmark(env = {}, options = {}, deps = {}
     activation_blocker: activationBlocker,
     active,
     activated: Boolean(active),
+    benchmark_concurrency: benchmarkConcurrency,
     source_sha: sourceSha,
   };
 }
