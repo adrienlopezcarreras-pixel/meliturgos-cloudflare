@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {proposeEvolution,transitionEvolution,evolutionSnapshot} from '../../src/roadmap/evolution-inbox.js';
+import {proposeEvolution,transitionEvolution,evolutionSnapshot,isValidEvolutionId} from '../../src/roadmap/evolution-inbox.js';
 test('initial percentage stays fixed when new work is proposed',()=>{
  const base={total:100,verified:100};
  const first=proposeEvolution([],{id:'EV-1',title:'New capability',origin:'mel'});
@@ -43,4 +43,16 @@ test('health telemetry is unknown until connected, distinct from known regressio
  const empty=evolutionSnapshot({initial,items:[],incidents:[]});
  assert.equal(empty.health.status,'CONNECTED');
  assert.equal(empty.health.active_incidents,0);
+});
+
+test('proposal ID contract exactly matches IDs schedulable by autonomy',()=>{
+ const ids=['A','EVOL-cryo-1','a'.repeat(70)];
+ for(const id of ids){
+  assert.equal(isValidEvolutionId(id),true);
+  assert.equal(proposeEvolution([],{id,title:'Missing feature',origin:'mel'}).item.id,id);
+ }
+ for(const id of ['new feature','bad.id','bad/id','-prefix','a'.repeat(71),'évolution', '']){
+  assert.equal(isValidEvolutionId(id),false);
+  assert.throws(()=>proposeEvolution([],{id,title:'Missing feature',origin:'mel'}),/EVOLUTION_INVALID_PROPOSAL/);
+ }
 });
