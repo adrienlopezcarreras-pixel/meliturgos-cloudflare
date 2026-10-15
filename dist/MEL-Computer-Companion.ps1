@@ -216,11 +216,22 @@ function Send-Heartbeat {
   # Advertise the currently persisted owner switch, not its startup value.
   $remoteEnabled = $false
   try { Assert-LocalRemoteAccess; $remoteEnabled = $true } catch {}
+  # Re-read the owner-controlled file on every heartbeat; never inherit a
+  # remote-access permission as permission for CPU/GPU work.
+  $localComputeEnabled = $false
+  try {
+    $localConfig = Get-Content -Raw -Encoding UTF8 -LiteralPath $ConfigPath | ConvertFrom-Json
+    $allowedProfiles = @('light','balanced','performance')
+    if ($localConfig.local_compute_enabled -eq $true -and $allowedProfiles -contains [string]$localConfig.local_compute_profile) {
+      $localComputeEnabled = $true
+    }
+  } catch { $localComputeEnabled = $false }
   $bounds = [System.Windows.Forms.SystemInformation]::VirtualScreen
   $body = @{
     engine_version = $Version
     engine_heartbeat_at = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
     remote_access_enabled = $remoteEnabled
+    local_compute_enabled = $localComputeEnabled
     hostname = $env:COMPUTERNAME
     user = $env:USERNAME
     screen = @{ x=$bounds.X; y=$bounds.Y; width=$bounds.Width; height=$bounds.Height }

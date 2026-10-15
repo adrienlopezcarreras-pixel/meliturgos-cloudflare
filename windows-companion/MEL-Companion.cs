@@ -342,6 +342,8 @@ static class MelApp
             Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads")
         };
         d["remote_access_enabled"] = false;
+        d["local_compute_enabled"] = false;
+        d["local_compute_profile"] = "light";
         d["installed_at"] = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         WriteConfigAtomically(d);
     }
@@ -372,6 +374,13 @@ static class MelApp
         try { return Convert.ToBoolean(value); } catch { return false; }
     }
 
+    public static string ConfigString(string key)
+    {
+        object value;
+        return Config != null && Config.TryGetValue(key, out value) && value != null
+            ? Convert.ToString(value) : "";
+    }
+
     public static bool ContainsIgnoreCase(List<string> values, string candidate)
     {
         foreach (var value in values)
@@ -391,7 +400,7 @@ static class MelApp
         };
     }
 
-    public static void SavePermissions(List<string> apps, List<string> paths, bool remoteAccessEnabled)
+    public static void SavePermissions(List<string> apps, List<string> paths, bool remoteAccessEnabled, bool localComputeEnabled, string localComputeProfile)
     {
         if (Config == null && !LoadConfig()) throw new InvalidOperationException("Configuration MEL indisponible.");
         // Publish the new complete snapshot only after its atomic file replace succeeds.
@@ -399,6 +408,10 @@ static class MelApp
         next["allowed_apps"] = apps.ToArray();
         next["allowed_paths"] = paths.ToArray();
         next["remote_access_enabled"] = remoteAccessEnabled;
+        // This opt-in is independent of remote PC access. Unknown profiles fail closed.
+        if (localComputeProfile != "light" && localComputeProfile != "balanced" && localComputeProfile != "performance") localComputeProfile = "off";
+        next["local_compute_enabled"] = localComputeEnabled && localComputeProfile != "off";
+        next["local_compute_profile"] = localComputeProfile;
         WriteConfigAtomically(next);
         Config = next;
         RestartCompanion();
@@ -552,7 +565,8 @@ static class MelApp
                 {"engine_refresh_status",LastEngineRefreshStatus},
                 {"engine_refresh_at",LastEngineRefreshUtc == DateTime.MinValue ? 0L : new DateTimeOffset(LastEngineRefreshUtc).ToUnixTimeMilliseconds()},
                 {"engine_refresh_error",LastEngineRefreshError},
-                {"remote_access_enabled",ConfigBool("remote_access_enabled")}
+                {"remote_access_enabled",ConfigBool("remote_access_enabled")},
+                {"local_compute_enabled",ConfigBool("local_compute_enabled")}
             };
             // The native shell owns and supervises the authenticated PowerShell
             // engine. If that child process is alive, attest its heartbeat too
@@ -1050,6 +1064,8 @@ class PermissionsForm : Form
     readonly List<CheckBox> appBoxes = new List<CheckBox>();
     readonly List<CheckBox> pathBoxes = new List<CheckBox>();
     CheckBox remoteAccess;
+    CheckBox localCompute;
+    ComboBox computeProfile;
     readonly string[] paths = MelApp.PermissionPaths();
     readonly Color ink = Color.FromArgb(34,45,60);
     readonly Color muted = Color.FromArgb(88,102,118);
@@ -1122,7 +1138,7 @@ class PermissionsForm : Form
                 Size=new Size(320,38),Location=new Point(24+column*350,176+row*48)};
             content.Controls.Add(cb);appBoxes.Add(cb);
         }
-        int pathHeadingY=392;
+        int pathHeadingY=514;
         remoteAccess=new CheckBox {
             Text="Autoriser MEL à accéder à ce PC en mon absence (écran, commandes, fichiers, processus)",
             Checked=MelApp.ConfigBool("remote_access_enabled"),
@@ -1130,6 +1146,24 @@ class PermissionsForm : Form
             Size=new Size(740,52),Location=new Point(24,320)
         };
         content.Controls.Add(remoteAccess);
+        localCompute=new CheckBox {
+            Text="Autoriser MEL a utiliser le CPU/GPU de ce PC (option facultative, moteur a raccorder)",
+            Checked=MelApp.ConfigBool("local_compute_enabled"),
+            Font=new Font("Segoe UI",10f,FontStyle.Bold),ForeColor=ink,AutoSize=false,
+            Size=new Size(740,48),Location=new Point(24,377)
+        };
+        content.Controls.Add(localCompute);
+        var computeLabel=Caption("Profil de charge cible : non encore applique aux ressources Windows",9,false);
+        computeLabel.Dock=DockStyle.None;computeLabel.SetBounds(24,427,720,31);
+        content.Controls.Add(computeLabel);
+        computeProfile=new ComboBox {
+            DropDownStyle=ComboBoxStyle.DropDownList,
+            Font=new Font("Segoe UI",10f),Location=new Point(24,463),Width=250
+        };
+        computeProfile.Items.AddRange(new object[]{"Leger (15% CPU / 20% GPU)","Equilibre (35% CPU / 40% GPU)","Performances (60% CPU / 65% GPU)"});
+        var savedProfile=MelApp.ConfigString("local_compute_profile");
+        computeProfile.SelectedIndex=savedProfile=="balanced"?1:savedProfile=="performance"?2:0;
+        content.Controls.Add(computeProfile);
 
         var folderTitle=Caption("DOSSIERS",11,true);
         folderTitle.Dock=DockStyle.None;folderTitle.SetBounds(22,pathHeadingY,650,40);
@@ -1143,7 +1177,7 @@ class PermissionsForm : Form
                 Location=new Point(24,pathHeadingY+48+i*48)};
             content.Controls.Add(cb);pathBoxes.Add(cb);
         }
-        content.Height=Math.Max(590,pathHeadingY+75+paths.Length*48);
+        content.Height=Math.Max(720,pathHeadingY+75+paths.Length*48);
         scroll.Resize+=delegate {
             content.Width=Math.Max(620,scroll.ClientSize.Width-8);
             header.Width=content.Width-44;subtitle.Width=content.Width-44;
@@ -1160,7 +1194,9 @@ class PermissionsForm : Form
         var allowedPaths=new List<string>();
         foreach(var cb in pathBoxes)if(cb.Checked)allowedPaths.Add(Convert.ToString(cb.Tag));
         try {
-            MelApp.SavePermissions(apps,allowedPaths,remoteAccess!=null&&remoteAccess.Checked);
+            var profile=computeProfile.SelectedIndex==1?"balanced":computeProfile.SelectedIndex==2?"performance":"light";
+            MelApp.SavePermissions(apps,allowedPaths,remoteAccess!=null&&remoteAccess.Checked,
+                localCompute!=null&&localCompute.Checked,profile);
             MessageBox.Show("Autorisations appliquées. Le moteur MEL a été rechargé.",
                 "MEL Companion",MessageBoxButtons.OK,MessageBoxIcon.Information);
             DialogResult=DialogResult.OK;Close();
