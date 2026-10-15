@@ -8,7 +8,7 @@ function makeDB() {
  return {
   exec:async()=>{},
   prepare(sql) {
-   return { bind(...args) {
+   return { async first(){return null;}, bind(...args) {
     const [scope,id] = args;
     return {
      all:async()=>({results:[...entries.values()].filter(r=>r.owner===scope).map(r=>({payload:r.payload}))}),
