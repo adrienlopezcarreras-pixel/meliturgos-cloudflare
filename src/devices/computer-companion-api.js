@@ -595,6 +595,16 @@ async function claim(env,a){
  const r=await env.DB.prepare("SELECT * FROM computer_commands WHERE device_id=? AND status=? ORDER BY created_at ASC LIMIT 1").bind(a.device.id,"PENDING").first();
  if(!r)return json({ok:true,halted:false,command:null});
  const plan=parse(r.plan_json,{});
+ // A queued GUI action must never be handed to a device after its owner has
+ // disabled remote control, even if it was approved before the opt-out.
+ // The Windows agent also checks the local switch before each real step.
+ if(plan.schema==="mel.devices.computer-use.v1"&&a.device.metadata?.remote_access_enabled!==true){
+  const rejected=await env.DB.prepare("UPDATE computer_commands SET status=?,finished_at=?,error_code=? WHERE id=? AND device_id=? AND status=?")
+   .bind("FAILED",Date.now(),"REMOTE_ACCESS_DISABLED_LOCALLY",r.id,a.device.id,"PENDING").run();
+  if(!rejected||rejected.success===false||Number(rejected.meta?.changes)!==1)
+   return json({ok:false,code:"COMPUTER_CLAIM_REVALIDATION_RACE"},409);
+  return json({ok:true,halted:false,command:null,blocked_command:{id:r.id,code:"REMOTE_ACCESS_DISABLED_LOCALLY"}});
+ }
  const computeVerdict=evaluateQueuedOptionalComputeClaim({
    plan,device:a.device,now:Date.now()
  });
