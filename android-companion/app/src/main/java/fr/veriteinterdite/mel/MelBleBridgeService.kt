@@ -137,6 +137,27 @@ class MelBleBridgeService : Service() {
                 if (activeAdapter == null || !activeAdapter.isEnabled) {
                     miniLinkReady.value = false
                     internetReady.value = false
+                    // A disabled adapter invalidates GATT and advertising. Release
+                    // stale handles once so re-enabling Bluetooth rebuilds the bridge.
+                    if (gattServer != null || advertiseCallback != null) {
+                        stopAdvertising()
+                        runCatching { gattServer?.close() }
+                        gattServer = null
+                        txCharacteristic = null
+                        advertiseCallback = null
+                        connectedDevices.clear()
+                        connectedAtMs.clear()
+                        subscribed.clear()
+                        notificationAcks.clear()
+                        staleCancellationRequested.clear()
+                        requests.clear()
+                        metaFrames.clear()
+                        metaFrameIds.clear()
+                        mtus.clear()
+                        pullFrames.clear()
+                        latestResponseIds.clear()
+                        pullOnlyResponseIds.clear()
+                    }
                     bridgeState.value = "BLUETOOTH OFF"
                 } else if (gattServer == null) {
                     Log.w(TAG, "BLE watchdog: GATT server missing; rebuilding bridge")
