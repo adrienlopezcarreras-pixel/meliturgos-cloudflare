@@ -72,6 +72,16 @@ export function extractOperatorBenchmarkText(result, extractText = extractModelT
     }
   }
   const error = new Error('empty_benchmark_response');
+  // Classify the envelope without logging prompt, completion, tokens or provider data.
+  const shape = result === null || result === undefined ? 'absent'
+    : typeof result === 'string' ? 'blank-string'
+    : Array.isArray(result) ? 'array'
+    : typeof result !== 'object' ? 'scalar'
+    : Object.prototype.hasOwnProperty.call(result, 'response') ? 'response-empty-or-invalid'
+    : Object.prototype.hasOwnProperty.call(result, 'choices') ? 'choices-empty-or-invalid'
+    : Object.prototype.hasOwnProperty.call(result, 'text') ? 'text-empty-or-invalid'
+    : 'unknown-object';
+  error.benchmark_response_shape = shape;
   error.code = 'EMPTY_BENCHMARK_RESPONSE';
   throw error;
 }
