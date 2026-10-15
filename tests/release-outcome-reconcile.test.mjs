@@ -55,7 +55,7 @@ test('main dispatch is eligible; foreign repositories and spoofed push branches 
   run(47,{head_sha:'bogus'})
  ]});
  await assert.rejects(reconcileReleaseOutcomes({...args,fetchImpl:f.fetchImpl}),/RELEASE_LEDGER_IDENTITY_INVALID/);
- assert.equal(f.posts.length,1); // Only the valid manual release processed before the invalid payload is encountered.
+ assert.equal(f.posts.length,0); // Preflight validation prevents partial publishing.
 });
 test('no partial writes on malformed candidate receipt',async()=>{
  const f=mock({runs:[run(47,{head_sha:'bogus'}),run(43,{event:'workflow_dispatch',head_branch:'main'})]});
