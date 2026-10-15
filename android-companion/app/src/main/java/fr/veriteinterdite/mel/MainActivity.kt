@@ -2019,7 +2019,9 @@ private fun ConversationScreen(
                     onVoiceRelease = onVoiceRelease,
                     onFile = onFile,
                     recording = recording,
-                    voiceMessage = voiceMessage
+                    voiceMessage = voiceMessage,
+                    voiceLanguage = voiceLanguage,
+                    onVoiceLanguageCycle = onVoiceLanguageCycle
                 )
             }
             MobileSection.CAMERA -> SectionSurface("CAMERA // MEL") {
@@ -2670,7 +2672,9 @@ private fun KeyboardPanel(
     onVoiceRelease: () -> Unit,
     onFile: () -> Unit,
     recording: Boolean,
-    voiceMessage: String
+    voiceMessage: String,
+    voiceLanguage: String,
+    onVoiceLanguageCycle: () -> Unit
 ) {
     val listState = rememberLazyListState()
     LaunchedEffect(state.messages.size, state.busy) {
@@ -2714,7 +2718,27 @@ private fun KeyboardPanel(
             shape = RoundedCornerShape(22.dp)
         ) {
             Column(Modifier.padding(10.dp)) {
-                Text(voiceMessage, color = if (recording) MelCyan else MelMuted, fontSize = 10.sp)
+                Row(
+                    Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        voiceMessage,
+                        modifier = Modifier.weight(1f),
+                        color = if (recording) MelCyan else MelMuted,
+                        fontSize = 10.sp,
+                        maxLines = 2
+                    )
+                    OutlinedButton(
+                        onClick = onVoiceLanguageCycle,
+                        enabled = !recording && !state.busy,
+                        modifier = Modifier.testTag("keyboard-speech-language-cycle"),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Text(if (voiceLanguage == "auto") "AUTO" else voiceLanguage, fontSize = 11.sp)
+                    }
+                }
                 Spacer(Modifier.height(5.dp))
                 OutlinedTextField(
                     value = draft,
