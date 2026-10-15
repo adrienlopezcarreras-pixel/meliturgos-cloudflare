@@ -56,3 +56,14 @@ test("relay requests the fixed BLE action and never prints raw Android Bluetooth
  assert.match(relay,/session_ok_seen/);
  assert.doesNotMatch(relay,/console\.log\([^\n]*(?:bleProof\.log_events|bleOutput\.stdout)/);
 });
+
+test("Android BLE bridge never reuses stale sessions after disconnect or Bluetooth toggle",async()=>{
+ const source=await readFile(new URL("../../android-companion/app/src/main/java/fr/veriteinterdite/mel/MelBleBridgeService.kt",import.meta.url),"utf8");
+ assert.match(source,/if \(connectedDevices\[device\.address\] != device\) return false/);
+ assert.match(source,/notificationAcks\.remove\(device\.address\)/);
+ assert.match(source,/staleCancellationRequested\.remove\(device\.address\)/);
+ assert.match(source,/if \(advertiseCallback !== this\) return/);
+ assert.match(source,/connectedDevices\.clear\(\)/);
+ assert.match(source,/gattServer = null/);
+ assert.match(source,/if \(adapter\?\.isEnabled == true && connectedDevices\.isEmpty\(\) && advertiseCallback == null\)/);
+});
