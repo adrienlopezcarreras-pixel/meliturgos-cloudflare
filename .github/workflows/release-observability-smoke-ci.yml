@@ -22,6 +22,8 @@ on:
       - '.github/workflows/release-downstream-proof-decoupled.yml'
       - 'tests/gen2/release-downstream-proof-decoupled.test.mjs'
       - 'scripts/check-release-proof-shell.mjs'
+      - 'scripts/check-release-council-proof.mjs'
+      - 'tests/release-council-proof.test.mjs'
       - 'scripts/prove-media-02-release.mjs'
       - 'tests/release-media-bootstrap-propagation.test.mjs'
       - '.github/workflows/mel-sov-ai-auto-close.yml'
@@ -53,6 +55,7 @@ jobs:
           node --check src/router.js &&
           node --check release-tools/predeploy-backup-refresh/runner.mjs &&
           node --check release-tools/predeploy-backup-refresh/d1-export.mjs &&
+          node --check scripts/check-release-council-proof.mjs &&
           node scripts/check-release-proof-shell.mjs
       - name: Targeted release observability tests
         run: >
@@ -62,6 +65,7 @@ jobs:
           tests/predeploy-d1-backup-large-table.test.mjs
           tests/release-predeploy-backup-reuse.test.mjs
           tests/release-production-smoke-routes.test.mjs
+          tests/release-council-proof.test.mjs
           tests/release-media-bootstrap-propagation.test.mjs
           tests/autonomous-release-exact-main.test.mjs
           tests/mel-autonomous-release-dispatch.test.mjs
