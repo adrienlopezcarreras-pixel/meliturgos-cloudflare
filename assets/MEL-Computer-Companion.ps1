@@ -2379,6 +2379,15 @@ function Perform-Step($step, [string]$commandId, [string]$planSchema="") {
       Type-Text ([string]$step.text)
       return @{ action=$action; chars=([string]$step.text).Length }
     }
+    "browser.navigate" {
+      $url = [string]$step.url
+      $uri = $null
+      if (-not [Uri]::TryCreate($url, [UriKind]::Absolute, [ref]$uri) -or $uri.Scheme -ne "https" -or $uri.UserInfo -ne "") { throw "BROWSER_NAVIGATION_URL_INVALID" }
+      # The cloud policy has already checked the origin allowlist and step approval.
+      # Opening a URL is distinct from running shell commands or file paths.
+      Start-Process -FilePath $uri.AbsoluteUri
+      return @{ action=$action; url=$uri.AbsoluteUri }
+    }
     "app.open" {
       $exe = Resolve-App ([string]$step.app)
       Start-Process $exe
