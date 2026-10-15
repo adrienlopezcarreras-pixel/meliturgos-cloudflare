@@ -23,6 +23,7 @@ test('Companion rejects navigation without approval, URL or allowed origin', () 
   assert.equal(plan('https://other.example/page').allowed, false);
   assert.equal(plan('http://example.com/page').allowed, false);
   assert.equal(plan('file:///C:/Windows/System32/calc.exe').allowed, false);
+  assert.equal(plan('https://admin:secret@example.com/page').allowed, false);
 });
 
 test('Windows handler validates HTTPS before invoking system browser', async () => {
