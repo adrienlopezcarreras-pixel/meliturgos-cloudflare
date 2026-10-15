@@ -28,10 +28,14 @@ function clip(value, limit = 700) {
 const SHORT_FOLLOW_UP = /^(?:ok|oui|non|go|maj|avance|continue|continues?|reprends?|reprendre|fais[- ]?le|fait[- ]?le|vas[- ]?y|et\s+maintenant|et\s+l[àa]|maintenant|celle[- ]?l[àa]|celui[- ]?l[àa]|comme\s+ça|comme\s+ca|ça|ca|encore|poursuis|termine|finis|ça\s+avance|ca\s+avance|c['’]?est\s+bon|c['’]?est\s+fait|c['’]?est\s+fini|fini|termin[ée]|ça\s+marche|ca\s+marche|ça\s+fonctionne|ca\s+fonctionne|o[uù]\s+en\s+es[- ]?tu|tu\s+as\s+fini|tu\s+as\s+termin[ée])[ ?.!,…]*$/i;
 const BOUNDED_FOLLOW_UP = /^(?:avance|continue|continues?|reprends?|poursuis|corrige|am[ée]liore|termine|finis)(?:\s+(?:encore|ça|ca|cela|ceci|l[àa][- ]?dessus|la[- ]?dessus|dessus|comme\s+ça|comme\s+ca|le|la|les))?[ ?.!,…]*$/i;
 
+// A short contextual question refers back to the last substantive request.
+// A named new topic ("et pour les abeilles ?") remains a fresh user question.
+const CONTEXTUAL_QUESTION = /^(?:pourquoi|et\s+pourquoi|comment\s+ça|comment\s+ca|et\s+(?:lui|elle|eux|elles|pour\s+(?:lui|elle|eux|elles))|qu['’]en\s+est[- ]?il)[ ?.!,…]*$/i;
+
 export function isEllipticalFollowUp(text) {
   const value = clean(text);
   if (!value || value.length > 80) return false;
-  return SHORT_FOLLOW_UP.test(value) || BOUNDED_FOLLOW_UP.test(value);
+  return SHORT_FOLLOW_UP.test(value) || BOUNDED_FOLLOW_UP.test(value) || CONTEXTUAL_QUESTION.test(value);
 }
 
 export function isScopeConstraint(text) {

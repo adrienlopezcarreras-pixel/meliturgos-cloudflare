@@ -112,3 +112,31 @@ test('status-only follow-ups stay attached to the active subject', () => {
     assert.equal(focus.anchor_source,'recent',text);
   }
 });
+
+
+test('natural elliptical questions retain previous topic, without blocking an unrelated new subject', () => {
+  const recent = [
+    { role:'user',content:'Explique-moi le rôle des abeilles dans la pollinisation.' },
+    { role:'assistant',content:'Elles transportent le pollen entre fleurs.' },
+  ];
+  for (const followUp of ['pourquoi ?', 'Et pourquoi ?', 'Et lui ?', 'Et pour elle ?', 'Comment ça ?', "Qu'en est-il ?"]) {
+    assert.equal(isEllipticalFollowUp(followUp), true, followUp);
+    const focus = deriveConversationFocus(recent, followUp);
+    assert.equal(focus.needs_clarification, false, followUp);
+    assert.equal(focus.anchor_source, 'recent', followUp);
+    assert.match(focus.anchor, /pollinisation/, followUp);
+  }
+  for (const freshQuestion of ['Pourquoi les planètes tournent-elles ?', 'Et pour les triangles ?', 'Quelle est la capitale du Portugal ?']) {
+    assert.equal(isEllipticalFollowUp(freshQuestion), false, freshQuestion);
+    const focus = deriveConversationFocus(recent, freshQuestion);
+    assert.equal(focus.needs_clarification, false, freshQuestion);
+    assert.equal(focus.anchor_source, 'current', freshQuestion);
+    assert.equal(focus.anchor, freshQuestion);
+  }
+});
+
+test('elliptical questions with no recent or persisted topic ask for clarification',()=>{
+  const focus=deriveConversationFocus([], 'Pourquoi ?');
+  assert.equal(focus.elliptical,true);
+  assert.equal(focus.needs_clarification,true);
+});

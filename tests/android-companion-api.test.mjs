@@ -511,3 +511,41 @@ test('Android accepts two unrelated consecutive questions and preserves their co
       && msgs.some(m=>m.role==='user'&&String(m.content).includes('crêpes'))),'the second turn should reach inference with previous conversation history');
   } finally {DB.close();}
 });
+
+
+test('Android consecutive questions can change subject and still support an elliptical third turn',async()=>{
+  const DB=sqliteD1();
+  try{
+    const env={
+      DB,
+      MELITURGOS_USER:'adrien',
+      MELITURGOS_PASSWORD:'test',
+      AI:{async run(){ return {response:'Réponse de vérification MEL.'}; }},
+    };
+    const paired=await pair(env,'android-consecutive-questions');
+    const headers=deviceHeaders(paired.device_id,paired.token,{'content-type':'application/json'});
+    const conversation_id='android-subject-switch';
+    const questions=[
+      'Explique-moi comment fonctionne la pollinisation.',
+      'Décris-moi les propriétés d’un rectangle.',
+      'Pourquoi ?',
+    ];
+    const responses=[];
+    for(const text of questions){
+      const response=await worker.fetch(new Request('https://mel.test/api/android/v1/chat',{
+        method:'POST',headers,body:JSON.stringify({text,conversation_id,ui_mode:'normal'}),
+      }),env);
+      assert.equal(response.status,200,text);
+      const body=await response.json();
+      assert.ok(body.text.trim(),text);
+      assert.doesNotMatch(body.text,/hors contexte/i,text);
+      responses.push(body);
+    }
+    assert.equal(responses[1].response_focus.elliptical,false);
+    assert.equal(responses[2].response_focus.elliptical,true);
+    assert.equal(responses[2].response_focus.anchor_from_recent,true);
+    const rows=await DB.prepare("SELECT role, content FROM archive_messages WHERE conversation_id=? AND role='user' ORDER BY timestamp ASC").bind(conversation_id).all();
+    const saved=(rows.results||[]).map(row=>row.content);
+    for(const question of questions) assert.ok(saved.includes(question),question);
+  }finally{DB.close();}
+});
