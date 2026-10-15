@@ -16,12 +16,18 @@ function compactHistoricalRows(rows = []) {
   }));
 }
 
-function dedupeRows(rows = []) {
+export function dedupeRows(rows = []) {
   const seen = new Set();
   const out = [];
   for (const row of rows) {
-    const key = `${row?.source || row?.provenance?.table || ''}:${row?.id || row?.provenance?.id || ''}`;
-    if (!key || seen.has(key)) continue;
+    const source = String(row?.source || row?.provenance?.table || '');
+    const id = row?.id || row?.provenance?.id;
+    // Identifier-free memory hits must not all collapse into the same ':' key.
+    // Keep distinct evidence while deduplicating identical fallback records.
+    const key = id != null && String(id) !== ''
+      ? `${source}:${String(id)}`
+      : JSON.stringify([source, row?.conversation_id || row?.provenance?.conversation_id || '', row?.role || '', row?.content || '']);
+    if (seen.has(key)) continue;
     seen.add(key);
     out.push(row);
   }
