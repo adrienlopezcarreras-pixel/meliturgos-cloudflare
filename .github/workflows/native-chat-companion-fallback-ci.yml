@@ -1,0 +1,20 @@
+name: Native Chat Companion Failover CI
+on:
+  pull_request:
+    paths:
+      - 'src/api/native-chat.js'
+      - 'src/api/native-companion-fallback.js'
+      - 'tests/native-chat-companion-fallback.test.mjs'
+      - '.github/workflows/native-chat-companion-fallback-ci.yml'
+permissions:
+  contents: read
+jobs:
+  fallback-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node --test tests/native-chat-companion-fallback.test.mjs tests/native-chat-inference-settings.test.mjs
