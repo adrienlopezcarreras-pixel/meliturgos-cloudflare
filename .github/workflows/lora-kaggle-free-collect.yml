@@ -297,6 +297,9 @@ jobs:
           # but refuse indefinitely waiting or testing a stale Worker SHA.
           deadline=$((SECONDS + 43 * 60))
           attempt=0
+          # An unscheduled exact-SHA preview cannot become green by waiting.
+          # Count only successful GitHub API responses that prove no matching run.
+          absent_preview_checks=0
           while [ "$SECONDS" -lt "$deadline" ]; do
             attempt=$((attempt + 1))
             # First require the GitHub-isolated preview workflow to have
@@ -325,6 +328,16 @@ jobs:
               if node -e 'const fs=require("fs");let d={};try{d=JSON.parse(fs.readFileSync("/tmp/mel-lora-preview-workflow-verdict.json","utf8"))}catch{};process.exit(d?.code==="LORA_PREVIEW_WORKFLOW_TERMINAL_FAILURE"?0:1)'; then
                 echo "LORA_PREVIEW_TERMINAL_FAILURE"
                 exit 1
+              fi
+              if node -e 'const fs=require("fs");let d={};try{d=JSON.parse(fs.readFileSync("/tmp/mel-lora-preview-workflow-verdict.json","utf8"))}catch{};process.exit(d?.code==="LORA_PREVIEW_WORKFLOW_NOT_FOUND"?0:1)'; then
+                absent_preview_checks=$((absent_preview_checks + 1))
+                if [ "$absent_preview_checks" -ge 8 ]; then
+                  echo "LORA_PREVIEW_EXACT_SHA_NOT_SCHEDULED"
+                  exit 1
+                fi
+              else
+                # A real matching run is pending or active; wait for its proof.
+                absent_preview_checks=0
               fi
               echo "LORA_PREVIEW_WORKFLOW_NOT_YET_SUCCESSFUL attempt=${attempt}"
               sleep 15
