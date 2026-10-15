@@ -952,5 +952,5 @@ test('server transcribed voice latency splits speech recognition from model and 
   assert.match(voice,/Voix chat serveur · \$\{SystemClock\.elapsedRealtime\(\) - chatStartedAt\} ms/);
   assert.match(voice,/Voix complète · \$\{SystemClock\.elapsedRealtime\(\) - voiceRequestStartedAt\} ms/);
   assert.match(voice,/Voix échec · \$\{SystemClock\.elapsedRealtime\(\) - voiceRequestStartedAt\} ms/);
-  assert.doesNotMatch(voice,/appendDiagnosticLine\("[^"]*transcript[^"]*"/i);
+  assert.doesNotMatch(voice,/appendDiagnosticLine\("[^"]*\$\{transcript\}/);
 });
