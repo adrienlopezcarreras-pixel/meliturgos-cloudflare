@@ -97,6 +97,12 @@ export async function requestAutonomousRelease({ token, fetchImpl = fetch, repo 
   // GITHUB_TOKEN pushes do not start downstream workflows. An explicit
   // workflow_dispatch is necessary for autonomous releases from MEL Actions.
   assertNoActiveDeploy((await api(activeRunsRoute))?.workflow_runs);
+  // Main may advance while the release pointer is being verified. Do not
+  // dispatch a stale SHA; the next reconciliation will promote newer main.
+  const latestMainSha = String((await api('/branches/main'))?.commit?.sha || '');
+  if (!SHA40.test(latestMainSha) || latestMainSha !== mainSha) {
+    throw new Error('CANONICAL_MAIN_CHANGED_BEFORE_DISPATCH');
+  }
   await api('/actions/workflows/deploy-cloudflare-release.yml/dispatches', {
     method: 'POST',
     payload: {
