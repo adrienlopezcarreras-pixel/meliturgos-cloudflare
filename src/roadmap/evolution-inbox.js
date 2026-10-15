@@ -1,3 +1,9 @@
+// Shared ID contract: D1 proposal IDs must remain schedulable by the
+// supervised autonomy queue. Namespacing and job IDs are derived from them.
+export const EVOLUTION_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9-]{0,69}$/;
+export function isValidEvolutionId(value) {
+ return typeof value === 'string' && EVOLUTION_ID_PATTERN.test(value);
+}
 // Pure, deterministic evolution inbox. Persistence and authorization are handled by callers.
 export const EVOLUTION_SCHEMA = 'mel.roadmap.evolution.v1';
 export const EVOLUTION_STATUSES = Object.freeze(['PROPOSED','TRIAGED','APPROVED','IN_PROGRESS','IMPLEMENTED','TESTING','DONE_VERIFIED','DUPLICATE','REJECTED','BLOCKED_HUMAN','BLOCKED_EXTERNAL','FAILED','ROLLED_BACK','REGRESSED']);
@@ -25,7 +31,7 @@ function requireItem(item) {
 }
 export function proposeEvolution(items, proposal) {
  if (!Array.isArray(items)) throw new Error('EVOLUTION_INVALID_REGISTRY');
- if (!proposal || !String(proposal.id||'').trim() || !evolutionKey(proposal.title) || !['user','mel','audit','telemetry'].includes(proposal.origin)) throw new Error('EVOLUTION_INVALID_PROPOSAL');
+ if (!proposal || !isValidEvolutionId(proposal.id) || !evolutionKey(proposal.title) || !['user','mel','audit','telemetry'].includes(proposal.origin)) throw new Error('EVOLUTION_INVALID_PROPOSAL');
  for (const candidate of items) requireItem(candidate);
  if (items.some(i=>i.id===proposal.id)) throw new Error('EVOLUTION_DUPLICATE_ID');
  const existing=items.find(i=>evolutionKey(i.title)===evolutionKey(proposal.title));
