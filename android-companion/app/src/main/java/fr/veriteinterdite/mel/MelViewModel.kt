@@ -667,7 +667,9 @@ class MelViewModel(
             val storedVoiceLanguage = appContext.getSharedPreferences("mel_voice", Context.MODE_PRIVATE)
                 .getString("recognition_language", "fr-FR")
             val spokenLanguage = when (storedVoiceLanguage) {
-                "es-ES", "pt-PT", "pt-BR" -> storedVoiceLanguage
+                "es-ES" -> "es-ES"
+                "pt-PT" -> "pt-PT"
+                "pt-BR" -> "pt-BR"
                 else -> "fr-FR" // AUTO cannot assert a detected response language.
             }
             MelVoicePlayer.playSystemVoice(appContext, answer, spokenLanguage)
