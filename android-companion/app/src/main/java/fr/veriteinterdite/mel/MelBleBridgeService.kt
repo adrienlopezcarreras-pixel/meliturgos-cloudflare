@@ -441,7 +441,14 @@ class MelBleBridgeService : Service() {
             }
         }
         advertiseCallback = callback
-        advertiser.startAdvertising(settings, data, callback)
+        runCatching { advertiser.startAdvertising(settings, data, callback) }
+            .onFailure { error ->
+                // A synchronous Android BLE failure must not strand the watchdog:
+                // a non-null callback would prevent later advertising retries.
+                if (advertiseCallback === callback) advertiseCallback = null
+                bridgeState.value = "ERREUR PUBLICITÉ BLE"
+                Log.w(TAG, "BLE advertising startup rejected: ${error.javaClass.simpleName}")
+            }
     }
 
     private fun stopAdvertising() {
