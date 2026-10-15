@@ -545,3 +545,35 @@ test('production Council registry exposes the current four-model Workers AI pool
     assert.ok((model?.capabilities || []).includes('GENERAL'));
   }
 });
+
+test('Council audit never contains an arbitrary provider exception message', async () => {
+  const calls = [];
+  const failed = provider({ id: 'unsafe-err', providerId: 'alpha', modelId: 'm1', calls });
+  failed.invoke = async () => {
+    throw new Error('Provider rejected request with PRIVATE_TOKEN_XYZ and user prompt');
+  };
+  const healthy = provider({ id: 'healthy', providerId: 'beta', modelId: 'm2', calls });
+  const result = await runModelCouncil({
+    pool: new ProviderPool([failed, healthy]),
+    request: { prompt: 'do not expose my secrets' },
+  });
+  assert.equal(result.status, 'DEGRADED_SINGLE_MODEL');
+  assert.equal(result.failures.length, 1);
+  assert.equal(result.failures[0].code, 'PROVIDER_FAILED');
+  assert.doesNotMatch(JSON.stringify(result.failures), /PRIVATE_TOKEN_XYZ|user prompt/);
+});
+
+test('Council preserves known bounded machine codes and rejects unbounded provider codes', async () => {
+  const calls = [];
+  const bad = provider({ id: 'unsafe-code', providerId: 'alpha', modelId: 'm1', calls });
+  bad.invoke = async () => {
+    throw Object.assign(new Error('private request text'), {code: 'PRIVATE CODE: private request text'});
+  };
+  const healthy = provider({ id: 'healthy', providerId: 'beta', modelId: 'm2', calls });
+  const result = await runModelCouncil({
+    pool: new ProviderPool([bad, healthy]),
+    request: 'privacy code test',
+  });
+  assert.deepEqual(result.failures.map(row => row.code), ['PROVIDER_FAILED']);
+  assert.doesNotMatch(JSON.stringify(result.failures), /private request text/);
+});
