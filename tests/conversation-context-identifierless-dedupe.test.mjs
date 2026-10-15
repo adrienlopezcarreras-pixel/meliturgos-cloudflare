@@ -74,3 +74,9 @@ test('invalid non-array retrieval containers yield empty evidence safely', () =>
     assert.deepEqual(dedupeRows(value), []);
   }
 });
+
+test('non-text results cannot be serialized as retrieved prompt content', () => {
+  const rows = [{id:1,content:{secret:'hidden'}},{id:2,content:'Valid memory'}];
+  const safe = dedupeRows(rows).filter(row => typeof row.content === 'string' && !profileSecretLike(row.content));
+  assert.deepEqual(safe, [rows[1]]);
+});
