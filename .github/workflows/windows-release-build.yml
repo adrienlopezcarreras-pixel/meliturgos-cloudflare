@@ -161,6 +161,9 @@ jobs:
           if ($childExitCode -eq 0 -or $output -notmatch 'MINI_USB_LOCAL_CONFIRMATION_REQUIRED') {
             throw "MINI_USB_HELPER_DID_NOT_FAIL_CLOSED:$output"
           }
+          # GitHub's PowerShell runner exits using LASTEXITCODE even after a
+          # deliberately rejected child process was successfully asserted.
+          $global:LASTEXITCODE = 0
 
       - name: Verify Authenticode for signed release
         if: env.SIGNED_RELEASE == 'true'
