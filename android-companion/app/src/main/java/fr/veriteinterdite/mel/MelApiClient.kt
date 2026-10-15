@@ -5,6 +5,8 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
+import java.io.IOException
+import java.io.InputStream
 import java.util.UUID
 
 class MelApiException(
@@ -21,6 +23,10 @@ class MelApiClient(
     companion object {
         const val PROTOCOL_VERSION = "1.0"
         const val APP_VERSION = "0.7.11-mini-v2-local-update"
+        private const val MAX_JSON_RESPONSE_BYTES = 8 * 1024 * 1024
+        private const val MAX_TRANSCRIPTION_RESPONSE_BYTES = 512 * 1024
+        private const val MAX_MEDIA_RESPONSE_BYTES = 8 * 1024 * 1024
+        private const val MAX_ERROR_RESPONSE_BYTES = 64 * 1024
     }
 
     init {
@@ -61,11 +67,34 @@ class MelApiClient(
         return readJson(connection)
     }
 
-    private fun readJson(connection: HttpURLConnection): JSONObject {
+    // Bound every server response, even when Content-Length is absent or incorrect.
+    // Reuse the tested Link V2 stream reader rather than a second byte loop.
+    private fun boundedResponse(
+        stream: InputStream?, limit: Int, status: Int, declaredLength: Long
+    ): ByteArray {
+        if (declaredLength > limit) {
+            stream?.close()
+            throw MelApiException("HTTP_RESPONSE_TOO_LARGE", status)
+        }
+        return try {
+            MiniHttpResponseBounds.read(stream, limit)
+        } catch (error: IOException) {
+            if (error.message == "MEL_RESPONSE_TOO_LARGE")
+                throw MelApiException("HTTP_RESPONSE_TOO_LARGE", status)
+            throw error
+        }
+    }
+
+    private fun readJson(
+        connection: HttpURLConnection,
+        maxBodyBytes: Int = MAX_JSON_RESPONSE_BYTES
+    ): JSONObject {
         try {
             val status = connection.responseCode
             val stream = if (status in 200..299) connection.inputStream else connection.errorStream
-            val body = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
+            val limit = if (status in 200..299) maxBodyBytes else MAX_ERROR_RESPONSE_BYTES
+            val body = boundedResponse(stream, limit, status, connection.contentLengthLong)
+                .toString(Charsets.UTF_8)
             val json = if (body.isBlank()) JSONObject() else runCatching { JSONObject(body) }
                 .getOrElse { throw MelApiException("INVALID_SERVER_RESPONSE", status, body.take(180)) }
             if (status !in 200..299) {
@@ -85,7 +114,10 @@ class MelApiClient(
         try {
             val status = connection.responseCode
             if (status !in 200..299) {
-                val body = connection.errorStream?.bufferedReader()?.use { it.readText() }.orEmpty()
+                val body = boundedResponse(
+                    connection.errorStream, MAX_ERROR_RESPONSE_BYTES,
+                    status, connection.contentLengthLong
+                ).toString(Charsets.UTF_8)
                 val json = runCatching { JSONObject(body) }.getOrNull()
                 throw MelApiException(
                     code = json?.let { it.optString("code", it.optString("error", "HTTP_$status")) }
@@ -94,7 +126,10 @@ class MelApiClient(
                     detail = json?.optString("detail").orEmpty()
                 )
             }
-            return connection.inputStream.use { it.readBytes() }
+            return boundedResponse(
+                connection.inputStream, MAX_MEDIA_RESPONSE_BYTES,
+                status, connection.contentLengthLong
+            )
         } finally {
             connection.disconnect()
         }
@@ -313,7 +348,7 @@ class MelApiClient(
             output.write(audioBytes)
             text("\r\n--$boundary--\r\n")
         }
-        return readJson(connection)
+        return readJson(connection, maxBodyBytes = MAX_TRANSCRIPTION_RESPONSE_BYTES)
     }
 
     fun syncAndAck(conversationId: String): JSONArray {
