@@ -93,3 +93,22 @@ test('status writes enforce owner, valid transitions and compare-and-swap revisi
  await assert.rejects(changeEvolutionStatus(db,'owner-A','E-1',1,'APPROVED'),/EVOLUTION_CONFLICT/);
  await assert.rejects(changeEvolutionStatus(db,'owner-A','E-1',2,'DONE_VERIFIED'),/EVOLUTION_INVALID_TRANSITION/);
 });
+
+test('canonical D1 schema v18 migrates with real SQLite and archive stays immutable',async()=>{
+ const {sqliteD1}=await import('../helpers/sqlite-d1.mjs');
+ const {migrate}=await import('../../src/persistence/migrations.js');
+ const {DB_SCHEMA_VERSION}=await import('../../src/core/config.js');
+ const db=sqliteD1();
+ try {
+  assert.equal(DB_SCHEMA_VERSION,18);
+  const state=await migrate(db);
+  assert.equal(state.currentVersion,18);
+  const tables=(await db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all()).results.map(x=>x.name);
+  assert.ok(tables.includes('mel_evolution_items'));
+  assert.ok(tables.includes('mel_evolution_initial_archive'));
+  await db.prepare('INSERT INTO mel_evolution_initial_archive(archive_id,source_sha,verified_count,total_count,proof_reference,closed_at) VALUES(?,?,?,?,?,?)')
+   .bind('initial-v1','a'.repeat(40),2,2,'workflow/run-1','2026-10-15').run();
+  await assert.rejects(db.prepare('UPDATE mel_evolution_initial_archive SET verified_count = 1 WHERE archive_id = ?').bind('initial-v1').run(),/ARCHIVE_IMMUTABLE/);
+  await assert.rejects(db.prepare('DELETE FROM mel_evolution_initial_archive WHERE archive_id = ?').bind('initial-v1').run(),/ARCHIVE_IMMUTABLE/);
+ } finally {db.close();}
+});
