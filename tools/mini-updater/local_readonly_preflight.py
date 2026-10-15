@@ -59,8 +59,12 @@ def main():
         candidate = args.firmware.read_bytes()
         evidence["candidate"] = {"file": args.firmware.name, "bytes": len(candidate),
                                  "sha256": digest(candidate)}
+    # Every attended read ends with a normal boot attempt, including
+    # failed/incomplete preflights. --after no_reset strands the board in
+    # ROM/stub bootloader mode; this preflight must not silently leave MEL offline.
+    # v4 underscore names are still accepted by esptool v5 (deprecated there).
     common = [sys.executable, "-m", "esptool", "--chip", "esp32s3",
-              "--port", port, "--before", "default_reset", "--after", "no_reset"]
+              "--port", port, "--before", "default_reset", "--after", "hard_reset"]
     ready = False
     try:
         if not probe(common, "chip_id", ["chip_id"], evidence):

@@ -11,10 +11,12 @@ test('local bootloader preflight requires explicit reset acknowledgement',()=>{
   assert.notEqual(r.status,0);
   assert.match(r.stderr,/ack-bootloader required/);
 });
-test('local preflight never contains flash write commands',async()=>{
+test('attended MINI readback requests normal boot after each esptool command without flash',async()=>{
   const s=await readFile(new URL('../tools/mini-updater/local_readonly_preflight.py',import.meta.url),'utf8');
   assert.match(s,/read_flash/);
   assert.match(s,/flash_allowed.*False/);
+  assert.match(s,/"--after", "hard_reset"/);
+  assert.doesNotMatch(s,/"--after", "no_reset"/);
   assert.doesNotMatch(s,/write_flash|erase_flash|erase_region/);
 });
 
@@ -64,6 +66,9 @@ test('read-only live preflight reads OTA from the partition offset and refuses a
   mkdirSync(moduleDir);
   writeFileSync(join(moduleDir,'__main__.py'),`import os,sys,shutil
 args=sys.argv[1:]
+# The local tool must return the board to normal firmware at the end of each read.
+if '--after' not in args or args[args.index('--after')+1]!='hard_reset':
+ sys.exit(80)
 if any(x in args for x in ['write_flash','erase_flash','erase_region']):
  sys.exit(77)
 if 'chip_id' in args:

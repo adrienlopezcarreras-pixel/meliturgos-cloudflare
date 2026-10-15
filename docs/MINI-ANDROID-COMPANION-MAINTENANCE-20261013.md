@@ -58,3 +58,10 @@ Les rapports sont déposés dans `%LOCALAPPDATA%\MEL\mini-usb-evidence\<identifi
 La fenêtre du Companion expose désormais `Contrôle USB MINI` dans la carte **Cet ordinateur**. Le bouton fonctionne uniquement sur le PC local : sélection du vrai port COM détecté, avertissement explicite qu'une connexion au bootloader peut redémarrer la MINI, ouverture d'un PowerShell interactif, puis saisie obligatoire de `AUTORISER_LECTURE_USB_MINI` dans le terminal. Le paquet Windows copie le script et ses parseurs Python vers `%LOCALAPPDATA%\\MEL` à l'installation, sans jamais les exécuter au démarrage. Python 3 et esptool restent requis sur le PC.
 
 **Aucune opération flash n'est exposée par ce bouton.** Les preuves restent dans `%LOCALAPPDATA%\\MEL\\mini-usb-evidence`. L'autorisation d'accès distant ne remplace pas le consentement sur place et ne peut pas lancer le précontrôle USB via le relais.
+
+
+## Sécurité du retour après précontrôle USB
+
+Le précontrôle local utilise désormais `--after hard_reset` pour demander à esptool un redémarrage vers le firmware normal **après chaque lecture**. Avant cette correction, `--after no_reset` laissait normalement la carte dans le bootloader, ce qui pouvait faire paraître MEL déconnectée après un diagnostic. Les actions de lecture peuvent toujours provoquer des redémarrages et l'opérateur doit rester présent ; un reset matériel effectif et un redémarrage du programme ne sont pas encore prouvés sur la MINI réelle.
+
+Le script reste en lecture seule, sans `write_flash`, sans effacement, sans lancement à distance, avec autorisation locale obligatoire et validation des empreintes. Documentation Espressif : https://docs.espressif.com/projects/esptool/en/release-v4/esp32s3/esptool/advanced-options.html
