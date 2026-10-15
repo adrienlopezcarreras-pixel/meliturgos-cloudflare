@@ -1,0 +1,37 @@
+name: Predeploy binder safety CI
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'tests/predeploy-backup-sidecar-unique-name.test.mjs'
+      - 'tests/predeploy-backup-binder.test.mjs'
+      - '.github/workflows/predeploy-binder-safety-ci.yml'
+      - '.github/workflows/deploy-cloudflare-release.yml'
+      - 'release-tools/predeploy-backup-binder/worker.js'
+
+permissions:
+  contents: read
+
+jobs:
+  predeploy-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '22'
+      - name: Verify exact tested SHA
+        shell: bash
+        run: test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha }}"
+      - name: Verify binder tests syntax
+        run: |
+          node --check tests/predeploy-backup-sidecar-unique-name.test.mjs
+          node --check tests/predeploy-backup-binder.test.mjs
+      - name: Verify fail-closed backup gates and Cloudflare 1042 propagation
+        run: |
+          node --test tests/predeploy-backup-sidecar-unique-name.test.mjs tests/predeploy-backup-binder.test.mjs
