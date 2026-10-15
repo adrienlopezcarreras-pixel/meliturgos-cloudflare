@@ -54,9 +54,13 @@ export const ROADMAP_LIVE_REFRESH_PATCH = `<script id="mel-roadmap-live-refresh-
         :'Roadmap initiale : registre courant, clôture non archivée';
       const evolution=result.evolution||{};
       const health=result.health||{};
+      const operationalHealth=health.status==='CONNECTED'&&Number.isInteger(health.active_incidents)
+        ?String(health.active_incidents)+' incident(s) actif(s)'
+        :'Santé opérationnelle non raccordée';
+      const knownRegressions=Number.isInteger(health.regressed_items)?health.regressed_items:0;
       status.textContent=archiveLabel+' · '+String(initial.verified??'?')+'/'+String(initial.total??'?')+
         ' vérifiés · '+String(evolution.total??0)+' développements évolutifs · '+
-        String(health.active_incidents??0)+' incident(s) actif(s)';
+        operationalHealth+' · '+String(knownRegressions)+' régression(s) enregistrée(s)';
       entries.replaceChildren();
       for(const item of (Array.isArray(result.items)?result.items:[]).slice(0,30)){
         const li=document.createElement('li');
