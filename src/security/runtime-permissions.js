@@ -19,6 +19,7 @@ export const PERSONAL_AGENT_OWNER_PERMISSIONS = Object.freeze([
   'microsoft.files.delete',
   'microsoft.sites.read',
   'microsoft.sites.write',
+  'roadmap.write',
 ]);
 
 function normalize(value) {
