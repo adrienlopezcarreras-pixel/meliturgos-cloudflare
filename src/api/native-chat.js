@@ -795,7 +795,17 @@ export async function loadCognitiveMemory(env, limit = 12) {
   }
 }
 
-export function inferenceGenerationOptions(settings = null) {
+export // Fast voice responses still need enough space to finish a complete thought.
+// A budget is a ceiling, not a request to generate that many tokens.
+export function voiceGenerationTokenBudget(settings = null, { fallback = false } = {}) {
+  const requested = Number(settings?.max_tokens);
+  const preferred = Number.isFinite(requested) && requested > 0
+    ? Math.round(requested)
+    : (fallback ? 512 : 768);
+  return Math.min(fallback ? 768 : 1024, Math.max(384, preferred));
+}
+
+function inferenceGenerationOptions(settings = null) {
   if (!settings || typeof settings !== 'object') return {};
   const out = {};
   if (Number.isFinite(Number(settings.temperature))) out.temperature = Number(settings.temperature);
@@ -1377,7 +1387,7 @@ export async function handleNativeChat(request, env, options = {}) {
   const effectiveInferenceSettings = voiceReply
     ? {
         ...(activeInferenceSettings || {}),
-        max_tokens: Math.min(Number(activeInferenceSettings?.max_tokens) || 180, 180),
+        max_tokens: voiceGenerationTokenBudget(activeInferenceSettings),
       }
     : activeInferenceSettings;
   let ai;
@@ -1410,7 +1420,7 @@ export async function handleNativeChat(request, env, options = {}) {
         });
         const generation = {
           ...inferenceGenerationOptions(effectiveInferenceSettings),
-          max_tokens: Math.min(Number(effectiveInferenceSettings?.max_tokens) || 160, 160),
+          max_tokens: voiceGenerationTokenBudget(activeInferenceSettings, { fallback: true }),
         };
         const fallbackResult = await Promise.race([
           env.AI.run(fallbackModel, { messages: compactedMessages, ...generation }),
