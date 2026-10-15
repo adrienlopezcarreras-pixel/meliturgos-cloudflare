@@ -17,3 +17,9 @@ test('zero-valued IDs are not mistaken for missing identifiers', () => {
   const b = { source: 'memories', conversation_id: 'different', content: 'same' };
   assert.deepEqual(dedupeRows([a, b, { ...a }]), [a, b]);
 });
+
+test('timestamped user corrections with identical wording retain distinct provenance', () => {
+  const earlier = { source: 'archive_messages', conversation_id: 'a', role: 'user', timestamp: 1, content: 'Je préfère le français' };
+  const later = { ...earlier, timestamp: 2 };
+  assert.deepEqual(dedupeRows([earlier, later, { ...earlier }]), [earlier, later]);
+});
