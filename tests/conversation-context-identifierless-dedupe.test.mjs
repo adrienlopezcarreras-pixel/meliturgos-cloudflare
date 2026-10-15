@@ -80,3 +80,10 @@ test('non-text results cannot be serialized as retrieved prompt content', () => 
   const safe = dedupeRows(rows).filter(row => typeof row.content === 'string' && !profileSecretLike(row.content));
   assert.deepEqual(safe, [rows[1]]);
 });
+
+test('screen malformed and credential-bearing results before identifier-free dedupe', () => {
+  const circular = {}; circular.self = circular;
+  const rows = [{ content: circular }, { content: 'token: secret-value' }, { content: 'usable context' }];
+  const eligible = rows.filter(row => row && typeof row === 'object' && !Array.isArray(row) && typeof row.content === 'string' && !profileSecretLike(row.content));
+  assert.deepEqual(dedupeRows(eligible).map(row => row.content), ['usable context']);
+});
