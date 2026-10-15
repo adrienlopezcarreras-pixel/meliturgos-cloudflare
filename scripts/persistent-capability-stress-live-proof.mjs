@@ -212,6 +212,10 @@ async function main() {
         { id: 'capability.audit', input: { deep: true } },
         'stress-resume.json'
       );
+      if (resume.status === 401 || resume.status === 403) {
+        throw Object.assign(new Error('CAPABILITY_STRESS_RESUME_AUTH_REJECTED'),
+          { code: 'CAPABILITY_STRESS_RESUME_AUTH_REJECTED' });
+      }
       if (resume.status !== 200) {
         console.log(`Persistent stress resume attempt returned HTTP ${resume.status}.`);
       }

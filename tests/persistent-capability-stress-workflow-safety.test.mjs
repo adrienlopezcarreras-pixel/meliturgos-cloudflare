@@ -49,3 +49,8 @@ test('stress progress rejects malformed counters rather than silently normalizin
   }
   assert.deepEqual(validateProgressTransition({pass:1,done:2},{pass:1,done:3}),{pass:1,done:3});
 });
+
+test('stress resume fails closed after HTTP 401 or 403 rather than polling indefinitely', () => {
+  assert.match(runner, /resume\.status === 401 \|\| resume\.status === 403/);
+  assert.match(runner, /CAPABILITY_STRESS_RESUME_AUTH_REJECTED/);
+});
