@@ -6,6 +6,8 @@ on:
       - 'tests/mini-phase-session-guard.cpp'
       - 'firmware/waveshare-terminal/main/mel_mini_phase_capability.h'
       - 'tests/mini-phase-capability.cpp'
+      - 'firmware/waveshare-terminal/main/mel_mini_phase_capability_wire_v1.h'
+      - 'tests/mini-phase-capability-wire-v1.cpp'
       - '.github/workflows/mini-phase-session-guard.yml'
   workflow_dispatch:
 jobs:
@@ -24,3 +26,7 @@ jobs:
         run: |
           g++ -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer tests/mini-phase-capability.cpp -o /tmp/mini-phase-capability
           /tmp/mini-phase-capability
+      - name: Compile and test phase capability request wire format
+        run: |
+          g++ -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer tests/mini-phase-capability-wire-v1.cpp -o /tmp/mini-phase-capability-wire
+          /tmp/mini-phase-capability-wire
