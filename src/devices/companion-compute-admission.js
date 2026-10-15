@@ -131,3 +131,32 @@ export function getOwnerCompanionComputeReadiness(device,{now=Date.now()}={}){
    telemetry_at:Number.isFinite(observedAt)&&observedAt>0?observedAt:null
  };
 }
+
+/**
+ * The local engine's ok:true alone does not prove it generated an answer.
+ * For owner-approved Ollama only, require one result for the one authorized
+ * step, with usable bounded text and a matching action. Other PC workflows
+ * retain their existing proof policies.
+ */
+export function evaluateOptionalAiResultProof({plan,result}={}){
+ const steps=Array.isArray(plan?.steps)?plan.steps:[];
+ if(!steps.some(s=>s?.action==='sovereignty.ai.invoke'))
+  return {ok:true,reason:'NOT_OPTIONAL_AI'};
+ if(plan?.schema!=='mel.sovereignty.local-command/v1'||steps.length!==1)
+  return {ok:false,code:'LOCAL_AI_RESULT_PLAN_INVALID'};
+ const outputs=result?.outputs;
+ if(!Array.isArray(outputs)||outputs.length!==1)
+  return {ok:false,code:'LOCAL_AI_RESULT_OUTPUTS_INVALID'};
+ const output=outputs[0];
+ if(!output||output.action!=='sovereignty.ai.invoke'||
+    output.backend!=='ollama-localhost'||
+    typeof output.text!=='string'||!output.text.trim()||
+    output.text.length>32000||
+    typeof output.model!=='string'||!output.model.trim()||
+    output.model.length>240)
+  return {ok:false,code:'LOCAL_AI_RESULT_PROOF_INVALID'};
+ const selected=steps[0]?.payload?.model;
+ if(typeof selected==='string'&&selected.trim()&&selected.trim()!==output.model)
+  return {ok:false,code:'LOCAL_AI_RESULT_MODEL_MISMATCH'};
+ return {ok:true,reason:'LOCAL_AI_RESULT_VALID'};
+}

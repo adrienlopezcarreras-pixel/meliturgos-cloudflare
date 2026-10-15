@@ -9,6 +9,7 @@ import {
  shouldInvalidateOptionalComputeTelemetryOnHeartbeat,
  evaluateQueuedOptionalComputeClaim,
  evaluateOptionalAiResultDeadline,
+ evaluateOptionalAiResultProof,
  getOwnerCompanionComputeReadiness,
 } from "./companion-compute-admission.js";
 import { miniReadOnlyPcCommand } from "./mini-readonly-companion.js";
@@ -636,6 +637,14 @@ async function result(request,env,a){
    if(!expired||expired.success===false||Number(expired.meta?.changes)!==1)
     return json({ok:false,code:"COMPUTER_RESULT_NOT_RUNNING"},409);
    return json({ok:false,code:aiResultVerdict.code},409);
+  }
+  const aiProof=evaluateOptionalAiResultProof({plan,result:b.result});
+  if(!aiProof.ok){
+   const denied=await env.DB.prepare("UPDATE computer_commands SET status=?,finished_at=?,error_code=? WHERE id=? AND device_id=? AND status=?")
+    .bind("FAILED",Date.now(),aiProof.code,id,a.device.id,"RUNNING").run();
+   if(!denied||denied.success===false||Number(denied.meta?.changes)!==1)
+    return json({ok:false,code:"COMPUTER_RESULT_NOT_RUNNING"},409);
+   return json({ok:false,code:aiProof.code},409);
   }
   // Legacy computer.quick uses the computer-use screen.capture step, not the
   // dedicated desktop.view.request plan. Its success must be equally truthful.

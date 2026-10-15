@@ -30,11 +30,11 @@ function fixture({deadline=Date.now()+5000,status='RUNNING',action='sovereignty.
  };
  return{env:{DB},updates};
 }
-async function postResult(env,{ok=true}={}){
+async function postResult(env,{ok=true,outputs=[{action:'sovereignty.ai.invoke',backend:'ollama-localhost',model:'qwen2.5:1.5b',text:'Ollama generated answer'}]}={}){
  const req=new Request('https://mel.example/api/computer/v1/result',{
    method:'POST',
    headers:{'authorization':'Bearer owner-token','x-mel-computer-id':'owner-pc','content-type':'application/json'},
-   body:JSON.stringify({command_id:'cmd-test',ok,result:{outputs:[{action:'sovereignty.ai.invoke',text:'Ollama generated answer'}]}})
+   body:JSON.stringify({command_id:'cmd-test',ok,result:{outputs}})
  });
  return maybeHandleComputerApi(req,env);
 }
@@ -75,4 +75,15 @@ test('post-deadline failure is recorded as FAILED, never as a success',async()=>
  const res=await postResult(env,{ok:false});
  assert.equal(res.status,200);
  assert.equal(updates[0].args[0],'FAILED');
+});
+
+test('real result route rejects forged success without Ollama answer',async()=>{
+ for(const outputs of [[],[{}],[{action:'sovereignty.ai.invoke',backend:'ollama-localhost',model:'qwen2.5:1.5b',text:' '}]]){
+   const {env,updates}=fixture({deadline:Date.now()+40000});
+   const res=await postResult(env,{outputs});
+   assert.equal(res.status,409);
+   assert.equal(updates.length,1);
+   assert.equal(updates[0].args[0],'FAILED');
+   assert.notEqual(updates[0].args[0],'SUCCEEDED');
+ }
 });
