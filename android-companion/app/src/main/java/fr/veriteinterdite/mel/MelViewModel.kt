@@ -490,12 +490,15 @@ class MelViewModel(
             messages = _state.value.messages + MelChatMessage("user", clean, voice)
         )
         viewModelScope.launch(Dispatchers.IO) {
+            val requestStartedAt = SystemClock.elapsedRealtime()
             try {
                 val response = chatWithRecovery(
                     text = clean,
                     voice = voice,
                     mode = mode
                 )
+                val serverElapsedMs = SystemClock.elapsedRealtime() - requestStartedAt
+                appendDiagnosticLine("Chat serveur · ${serverElapsedMs} ms · voix=$voice")
                 val answer = response.optString("text", response.optString("response", "")).trim()
                 if (answer.isBlank()) throw MelApiException("EMPTY_RESPONSE", 502)
                 _state.value = _state.value.copy(
@@ -505,8 +508,10 @@ class MelViewModel(
                     messages = _state.value.messages + MelChatMessage("mel", answer)
                 )
                 speakAnswer(answer, mode)
+                appendDiagnosticLine("Chat complet · ${SystemClock.elapsedRealtime() - requestStartedAt} ms")
                 if (voice) appendDiagnosticLine("Micro réel: OK · reconnaissance Android")
             } catch (error: Throwable) {
+                appendDiagnosticLine("Chat échec · ${SystemClock.elapsedRealtime() - requestStartedAt} ms · ${error.javaClass.simpleName}")
                 if (isInvalidSession(error)) {
                     vault.clear()
                     MelBackground.cancel(appContext)
