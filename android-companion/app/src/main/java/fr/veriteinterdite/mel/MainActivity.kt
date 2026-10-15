@@ -158,6 +158,8 @@ class MainActivity : ComponentActivity() {
     @Volatile private var wakeDetectorStop = false
     @Volatile private var lastWakeActivationMs = 0L
     private var wakeDetectorThread: Thread? = null
+    // Accessed on the UI thread: rejects callbacks from a stopped microphone session.
+    private var wakeSessionGeneration = 0L
     private var bargeInThread: Thread? = null
     private var pushToTalkHeld = false
     private var pendingWakeEnrollment = false
@@ -763,7 +765,9 @@ class MainActivity : ComponentActivity() {
     private fun ensureWakeWordListening() {
         if (voiceConversationActive.value) return
         if (System.currentTimeMillis() - lastWakeActivationMs < 4_000L) return
-        if (!appResumed || wakeListening || recording.value || pushToTalkHeld || wakeEnrollmentActive.value) return
+        // An AudioRecord blocking read can outlive STOP even after interruption.
+        // Never start a second recorder while the previous worker is alive.
+        if (!appResumed || wakeListening || wakeDetectorThread?.isAlive == true || recording.value || pushToTalkHeld || wakeEnrollmentActive.value) return
         if (!wakePhraseStore.isEnrolled()) return
         if (!wakeEnrolled.value || wakeEnrollmentCount.value < WakePhraseTrainer.REQUIRED_SAMPLES) refreshWakeEnrollmentState()
         if (!::model.isInitialized || model.state.value.session != SessionStage.CONNECTED) return
@@ -774,6 +778,7 @@ class MainActivity : ComponentActivity() {
         val threshold = wakePhraseStore.threshold()
         wakeDetectorStop = false
         wakeListening = true
+        val wakeGeneration = ++wakeSessionGeneration
         wakeDetectorThread = Thread({
             var matchedScore: Float? = null
             val result = runCatching {
@@ -787,6 +792,14 @@ class MainActivity : ComponentActivity() {
                 )
             }
             runOnUiThread {
+                // A previously stopped worker must not clear the new worker or
+                // turn an outdated score into a wake-up event after resume.
+                if (wakeGeneration != wakeSessionGeneration) {
+                    if (wakeDetectorThread?.isAlive != true && appResumed) {
+                        mainHandler.postDelayed({ ensureWakeWordListening() }, 250L)
+                    }
+                    return@runOnUiThread
+                }
                 wakeDetectorThread = null
                 wakeListening = false
                 if (matchedScore != null && !wakeDetectorStop && appResumed &&
@@ -806,7 +819,9 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun stopWakeWordListening() {
+        wakeSessionGeneration++
         wakeDetectorStop = true
+        wakeDetectorThread?.interrupt()
         wakeListening = false
         val recognizer = wakeRecognizer
         wakeRecognizer = null
