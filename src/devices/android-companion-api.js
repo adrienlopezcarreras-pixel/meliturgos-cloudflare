@@ -339,6 +339,8 @@ async function deviceChat(request,env,auth) {
       ui_mode:uiMode,
       input_source:inputSource,
       voice_reply:body.voice_reply === true || inputSource !== "text",
+      prefer_companion_compute:body.prefer_companion_compute === true && inputSource === "text",
+      use_companion_compute:body.use_companion_compute === true && inputSource === "text",
       intent_context:{
         surface:uiMode === "complete" ? "mel-android-complete" : "mel-android-normal",
         ui_mode:uiMode,

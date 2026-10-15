@@ -217,7 +217,8 @@ class MelApiClient(
         text: String,
         conversationId: String,
         voice: Boolean = false,
-        uiMode: String = "normal"
+        uiMode: String = "normal",
+        preferCompanionCompute: Boolean = false
     ): JSONObject {
         require(text.isNotBlank())
         val mode = if (uiMode.lowercase() == "complete") "complete" else "normal"
@@ -231,6 +232,8 @@ class MelApiClient(
                 .put("ui_theme", "futuristic")
                 .put("input_source", if (voice) "voice-server-transcription" else "text")
                 .put("voice_reply", voice)
+                .put("prefer_companion_compute", preferCompanionCompute && !voice)
+                .put("use_companion_compute", preferCompanionCompute && !voice)
         )
     }
 
