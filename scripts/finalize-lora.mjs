@@ -27,6 +27,7 @@ async function main() {
   if (activate && process.env.MEL_LORA_ACTIVATION_APPROVED !== 'true') {
     throw new Error('LORA_ACTIVATION_REQUIRES_EXPLICIT_AUTHORIZATION');
   }
+  const requireConcurrencyProof = args.has('--concurrency');
   const concurrencyRaw = String(args.get('--concurrency') ?? '4').trim();
   if (!/^[1-4]$/.test(concurrencyRaw)) throw new Error('LORA_BENCHMARK_CONCURRENCY_INVALID');
   const benchmarkConcurrency = Number(concurrencyRaw);
@@ -96,6 +97,9 @@ async function main() {
   if (!responseOk || data?.ok === false) {
     throw new Error(data?.detail || data?.error || `HTTP_${httpStatus}`);
   }
+  if (requireConcurrencyProof && data?.benchmark_concurrency !== benchmarkConcurrency) {
+    throw new Error('LORA_BENCHMARK_CONCURRENCY_NOT_ACKNOWLEDGED');
+  }
 
   // HTTP 200 by itself is not a benchmark. Require actual finite candidate
   // and baseline measurements to avoid fake BENCHMARKED_NOT_ACTIVATED results.
@@ -123,6 +127,7 @@ async function main() {
     gain: data?.decision?.overall_gain ?? data?.decision?.exact_evidence?.measured_gain ?? null,
     decision: data?.decision?.reason || null,
     activated: data.activated === true,
+    benchmark_concurrency: data?.benchmark_concurrency ?? null,
     next_stage: data?.next_stage || data?.impact?.comparison?.next_stage || null,
     impact_gate_passed: data?.impact_gate_passed === true,
     canonical_gate_passed: data?.canonical_gate_passed === true,
