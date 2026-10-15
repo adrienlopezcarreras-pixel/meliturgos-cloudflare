@@ -4,7 +4,6 @@ import { pathToFileURL } from 'node:url';
 const REPO='adrienlopezcarreras-pixel/meliturgos-cloudflare';
 const ISSUE=1516;
 const API='https://api.github.com/repos/'+REPO;
-const APPROVED_EVENTS=new Set(['push','workflow_dispatch']);
 const approvedRun=run=>run?.status==='completed'
  && run?.name==='deploy-cloudflare-release'
  && run?.repository?.full_name===REPO
@@ -35,6 +34,12 @@ export async function reconcileReleaseOutcomes({
  if(!Array.isArray(queried?.workflow_runs))throw new Error('RELEASE_RECONCILE_RUNS_INVALID');
  const candidates=queried.workflow_runs.filter(approvedRun).slice(0,limit);
  if(!candidates.length)return {checked:0,created:0,skipped:0};
+ // Validate every run before any issue comment is written: one malformed
+ // GitHub result must never leave a half-written batch.
+ const receipts=candidates.map(run=>({
+  url:'https://github.com/'+REPO+'/actions/runs/'+run.id,
+  comment:releaseOutcomeComment({action:'completed',workflow_run:run},REPO),
+ }));
  const existing=[];
  let ended=false;
  for(let page=1;page<=5;page++){
@@ -45,13 +50,10 @@ export async function reconcileReleaseOutcomes({
  }
  if(!ended)throw new Error('RELEASE_RECONCILE_COMMENTS_UNBOUNDED');
  let created=0,skipped=0;
- for(const run of [...candidates].reverse()){
-  const mark='https://github.com/'+REPO+'/actions/runs/'+run.id;
-  if(existing.some(body=>body.includes(mark))){skipped++;continue;}
-  // Validate the event *again* in the canonical formatter before writing.
-  const comment=releaseOutcomeComment({action:'completed',workflow_run:run},REPO);
-  await call('/issues/'+ISSUE+'/comments','POST',{body:comment});
-  existing.push(comment);
+ for(const receipt of [...receipts].reverse()){
+  if(existing.some(body=>body.includes(receipt.url))){skipped++;continue;}
+  await call('/issues/'+ISSUE+'/comments','POST',{body:receipt.comment});
+  existing.push(receipt.comment);
   created++;
  }
  return {checked:candidates.length,created,skipped};
