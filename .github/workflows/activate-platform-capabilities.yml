@@ -94,6 +94,11 @@ jobs:
           PROOF_KEY_B64: ${{ secrets.MEL_BACKUP_ENCRYPTION_KEY_B64 }}
         run: |
           set -euo pipefail
+          # Never print commands, tokens or response bodies on proof failure.
+          # Emit a useful stage marker even if strict shell mode exits early.
+          PLATFORM_PROOF_STAGE="initialization"
+          trap 'code=$?; echo "::error title=Platform capability proof failed::stage=${PLATFORM_PROOF_STAGE}; exit=${code}; exact_sha=${EXPECTED_SHA}"; exit "$code"' ERR
+          PLATFORM_PROOF_STAGE="production preflight"
           BASE_URL="https://meliturgos.adrien-lopezcarreras.workers.dev"
           # Use the immutable exact-SHA parallel proof already deployed by
           # the canonical release. Never rotate a production bootstrap secret
