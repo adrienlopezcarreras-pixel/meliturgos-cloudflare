@@ -20,6 +20,9 @@ async function cfJson(url, init) {
     const message = data?.errors?.map?.((x) => x?.message).filter(Boolean).join('; ')
       || data?.error
       || `HTTP_${response.status}`;
+    if (response.status === 401 || response.status === 403 || /authentication error|invalid api token|permission denied/i.test(message)) {
+      throw new Error('CLOUDFLARE_FINETUNE_AUTH_REQUIRED: verify token scope, account and fine-tune permissions (no automatic retry)');
+    }
     throw new Error(message);
   }
   return data;
