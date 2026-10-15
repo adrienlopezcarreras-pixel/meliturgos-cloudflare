@@ -10,3 +10,9 @@ test('specific system requests and contextual development followups remain route
   assert.equal(shouldSemanticIntentCheck('Peux-tu modifier le code de MEL ?'), true);
   assert.equal(shouldSemanticIntentCheck('Continue', 'Nous corrigeons le code et la roadmap MEL'), true);
 });
+
+test('date words alone do not force web research intent', () => {
+  assert.equal(shouldSemanticIntentCheck("Aujourd'hui je suis fatigué"), false);
+  assert.equal(shouldSemanticIntentCheck("Today I feel better"), false);
+  assert.equal(shouldSemanticIntentCheck("Vérifie les actualités sur le web aujourd'hui"), true);
+});
