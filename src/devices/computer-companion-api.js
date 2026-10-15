@@ -26,6 +26,7 @@ export const COMPUTER_ROUTES=Object.freeze({
  pair:"/api/computer/v1/pair",
  revoke:"/api/computer/v1/revoke",
  status:"/api/computer/v1/status",
+ controlState:"/api/computer/v1/control-state",
  commands:"/api/computer/v1/commands",
  desktopViewRequest:"/api/computer/v1/desktop-view-request",
  halt:"/api/computer/v1/halt",
@@ -199,7 +200,19 @@ async function ownerHalt(request,env,halted){
    return json({ok:false,code:"COMPUTER_HALT_QUEUE_CANCELLATION_FAILED"},503);
   cancelledPending=Number(cancelled.meta?.changes||0);
  }
- return json({ok:true,computer:normalizeDevice(row),cancelled_pending:cancelledPending});
+ let cancelledRunning=0;
+ if(halted){
+  // A running command must never report SUCCESS after STOP, even after RESUME.
+  // The Windows engine cooperatively checks between steps; a blocking native
+  // operation may still need to return before its next checkpoint.
+  const cancelled=await env.DB.prepare(
+   "UPDATE computer_commands SET status=?,finished_at=?,error_code=? WHERE device_id=? AND status=?"
+  ).bind("FAILED",Date.now(),"OWNER_HALT_ACTIVE",id,"RUNNING").run();
+  if(!cancelled||cancelled.success===false)
+   return json({ok:false,code:"COMPUTER_HALT_RUNNING_CANCELLATION_FAILED"},503);
+  cancelledRunning=Number(cancelled.meta?.changes||0);
+ }
+ return json({ok:true,computer:normalizeDevice(row),cancelled_pending:cancelledPending,cancelled_running:cancelledRunning});
 }
 
 const PC_CONTROL_ACTIONS=new Set([
@@ -609,6 +622,22 @@ async function heartbeat(request,env,a){
    engine_refresh_error:safe(metadata.engine_refresh_error,180)||null
  })
 }
+async function controlState(request,env,a,url){
+ // Device-authenticated, read only, and scoped to one command on this PC.
+ // A new opt-in does not revive a command cancelled by a prior STOP.
+ const id=safe(url.searchParams.get("command_id"));
+ if(!id)return json({ok:false,code:"COMPUTER_CONTROL_COMMAND_REQUIRED"},400);
+ const command=await env.DB.prepare("SELECT status FROM computer_commands WHERE id=? AND device_id=? LIMIT 1")
+  .bind(id,a.device.id).first();
+ if(!command)return json({ok:true,permitted:false,code:"COMPUTER_CONTROL_COMMAND_NOT_RUNNING"});
+ const device=await env.DB.prepare("SELECT halted,metadata FROM computer_devices WHERE id=? LIMIT 1")
+  .bind(a.device.id).first();
+ const halted=!device||Number(device.halted)===1;
+ const localEnabled=parse(device?.metadata,{})?.remote_access_enabled===true;
+ const permitted=command.status==="RUNNING"&&!halted&&localEnabled;
+ return json({ok:true,permitted,code:permitted?"AUTHORIZED":halted?"OWNER_HALT_ACTIVE":!localEnabled?"REMOTE_ACCESS_DISABLED_LOCALLY":"COMPUTER_CONTROL_COMMAND_NOT_RUNNING"});
+}
+
 async function claim(env,a){
  if(a.device.halted)return json({ok:true,halted:true,command:null});
  const r=await env.DB.prepare("SELECT * FROM computer_commands WHERE device_id=? AND status=? ORDER BY created_at ASC LIMIT 1").bind(a.device.id,"PENDING").first();
@@ -726,8 +755,8 @@ async function result(request,env,a){
     return json({ok:false,code:"SCREENSHOT_RESULT_IMAGE_MISSING"},409);
   }
  }
- const update=await env.DB.prepare("UPDATE computer_commands SET status=?,finished_at=?,result_json=?,error_code=? WHERE id=? AND device_id=? AND status=?")
-  .bind(b.ok===true?"SUCCEEDED":"FAILED",Date.now(),JSON.stringify(b.result??null),b.error_code?safe(b.error_code):null,id,a.device.id,"RUNNING").run();
+ const update=await env.DB.prepare("UPDATE computer_commands SET status=?,finished_at=?,result_json=?,error_code=? WHERE id=? AND device_id=? AND status=? AND EXISTS (SELECT 1 FROM computer_devices WHERE id=? AND halted=0)")
+  .bind(b.ok===true?"SUCCEEDED":"FAILED",Date.now(),JSON.stringify(b.result??null),b.error_code?safe(b.error_code):null,id,a.device.id,"RUNNING",a.device.id).run();
  if(!update||update.success===false||Number(update.meta?.changes)!==1)
   return json({ok:false,code:"COMPUTER_RESULT_NOT_RUNNING"},409);
  return json({ok:true});
@@ -797,6 +826,7 @@ export async function maybeHandleComputerApi(request,env){
  const a=await authDevice(request,env);if(!a.ok)return a.response;
  if(url.pathname===COMPUTER_API_BASE+"/heartbeat"&&request.method==="POST")return heartbeat(request,env,a);
  if(url.pathname===COMPUTER_ROUTES.companions&&request.method==="GET")return computerCompanions(env);
+ if(url.pathname===COMPUTER_ROUTES.controlState&&request.method==="GET")return controlState(request,env,a,url);
  if(url.pathname===COMPUTER_ROUTES.triadActivity&&request.method==="GET"){
   if(a.device.halted)return json({ok:false,code:"TRIAD_COMPANION_HALTED"},409);
   return json(await readAndroidTriadActivityForCompanion(env));
