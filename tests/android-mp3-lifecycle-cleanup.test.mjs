@@ -17,5 +17,12 @@ test('only current owner releases active MediaPlayer, or pre-registration failur
  assert.match(mp3,/registered = true/);
  assert.match(mp3,/if \(activePlayer === player\) \{[\s\S]*activePlayer = null/);
  assert.match(mp3,/else if \(!registered\) \{[\s\S]*player\.release\(\)/);
- assert.doesNotMatch(mp3,/file\.delete\(\)[\s\S]*if \(playbackGeneration != myGeneration\)/);
+ // A delete in the constructor error handler is correct: the file must not
+ // leak if MediaPlayer cannot be created. During normal playback, cleanup
+ // belongs to the outer finally block, after the generation checks.
+ const playback = mp3.slice(mp3.indexOf('val myGeneration'), mp3.indexOf('} finally {', mp3.indexOf('val myGeneration')));
+ assert.ok(playback.length > 0, 'playback body must exist');
+ assert.match(playback,/if \\(playbackGeneration != myGeneration\\) throw MelPlaybackInterruptedException\\(\\)/);
+ assert.doesNotMatch(playback,/file\\.delete\\(\\)/);
+ assert.match(mp3,/catch \\(error: Throwable\\) \\{\\s*file\\.delete\\(\\)\\s*throw error/);
 });
