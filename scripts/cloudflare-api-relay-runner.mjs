@@ -242,13 +242,17 @@ async function main(){
         Array.isArray(bleProof?.android_models)&&bleProof.android_models.length===1&&
         bleProof.android_models[0]==='M2103K19G';
       const bleLines=accepted&&Array.isArray(bleProof.log_events)?bleProof.log_events.map(value=>String(value)):[];
+      // Keep MEL-specific BLE evidence even when generic Android logs are noisy.
+      // Only bounded counts and boolean signals leave this scope, not raw lines.
+      const melBleLines=accepted&&Array.isArray(bleProof.mel_log_events)?bleProof.mel_log_events.slice(-20).map(value=>String(value)):[];
+      const signalLines=bleLines.concat(melBleLines);
       const bleSignals={
-        gatt_connection_seen:bleLines.some(line=>/(?:onClientConnectionState|onConnectionStateChange).*status=0.*(?:newState=2|connected=true|state=CONNECTED)/i.test(line)),
-        pairing_removed_seen:bleLines.some(line=>/Bond removed|bondState=10|BOND_NONE/i.test(line)),
-        pairing_started_seen:bleLines.some(line=>/bondState=11|BOND_BONDING/i.test(line)),
-        session_ok_seen:bleLines.some(line=>/SESSION_OK/i.test(line)),
-        pairing_failure_seen:bleLines.some(line=>/smp_proc_pairing_cmpl.*(?:status=(?!0\b)[1-9]\d*|failed)|pairing failed|auth(?:entication)? fail/i.test(line)),
-        service_discovery_seen:bleLines.some(line=>/discoverServices|onServicesDiscovered/i.test(line))
+        gatt_connection_seen:signalLines.some(line=>/(?:onClientConnectionState|onConnectionStateChange).*status=0.*(?:newState=2|connected=true|state=CONNECTED)/i.test(line)),
+        pairing_removed_seen:signalLines.some(line=>/Bond removed|bondState=10|BOND_NONE/i.test(line)),
+        pairing_started_seen:signalLines.some(line=>/bondState=11|BOND_BONDING/i.test(line)),
+        session_ok_seen:signalLines.some(line=>/SESSION_OK/i.test(line)),
+        pairing_failure_seen:signalLines.some(line=>/smp_proc_pairing_cmpl.*(?:status=(?!0\b)[1-9]\d*|failed)|pairing failed|auth(?:entication)? fail/i.test(line)),
+        service_discovery_seen:signalLines.some(line=>/discoverServices|onServicesDiscovered/i.test(line))
       };
       console.log('COMPANION_BLE_DIAGNOSTICS='+JSON.stringify({
         status:String(bleCommand?.status||'TIMEOUT'),
