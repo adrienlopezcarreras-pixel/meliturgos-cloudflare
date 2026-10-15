@@ -312,6 +312,7 @@ async function operatorLoraBenchmarkResponse(request, env) {
       approval: body.approval,
       activate: body.activate === true,
       benchmark_concurrency: body.benchmark_concurrency,
+      benchmark_serial: body.benchmark_serial === true,
     });
     return json({ ok: true, ...result });
   } catch (error) {

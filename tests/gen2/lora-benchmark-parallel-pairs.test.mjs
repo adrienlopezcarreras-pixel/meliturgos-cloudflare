@@ -8,10 +8,11 @@ test('LoRA canonical and impact baseline/candidate pairs run concurrently', asyn
   const end=source.indexOf('export async function prepareOperatorLora', start);
   const block=source.slice(start,end);
 
-  assert.match(block,/const \[baseline, candidate\] = await Promise\.all\(\[/);
+  assert.match(block,/const \[baseline, candidate\] = await runLoraBenchmarkPair\(\[/);
+  assert.match(block,/\], benchmarkSerial\);/);
   assert.match(block,/trigger: 'lora-gate-baseline'/);
   assert.match(block,/trigger: 'lora-gate-candidate'/);
-  assert.match(block,/const \[impactBaseline, impactCandidate\] = await Promise\.all\(\[/);
+  assert.match(block,/const \[impactBaseline, impactCandidate\] = await runLoraBenchmarkPair\(\[/);
   assert.match(block,/compareLoraImpact\(impactBaseline, impactCandidate\)/);
   assert.match(block,/canonical_gate_passed: decision\.promote === true/);
   assert.match(block,/impact_gate_passed: impactGatePassed/);

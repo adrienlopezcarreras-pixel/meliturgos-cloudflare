@@ -31,6 +31,10 @@ async function main() {
   const concurrencyRaw = String(args.get('--concurrency') ?? '4').trim();
   if (!/^[1-4]$/.test(concurrencyRaw)) throw new Error('LORA_BENCHMARK_CONCURRENCY_INVALID');
   const benchmarkConcurrency = Number(concurrencyRaw);
+  const serialRaw = String(args.get('--serial') ?? 'false').trim().toLowerCase();
+  if (!['true', 'false'].includes(serialRaw)) throw new Error('LORA_BENCHMARK_SERIAL_INVALID');
+  const benchmarkSerial = serialRaw === 'true';
+  const requireSerialProof = args.has('--serial');
   const allowNotActivatedRaw = String(args.get('--allow-not-activated') ?? 'false').trim().toLowerCase();
   const allowNotActivated = ['true', '1', 'yes', 'on'].includes(allowNotActivatedRaw);
   const baseUrl = String(args.get('--url') || process.env.MEL_BASE_URL || '').replace(/\/+$/, '');
@@ -52,7 +56,7 @@ async function main() {
   // has not produced headers within its transport timeout, so use curl here
   // with an explicit bounded 20-minute request window.
   const requestPath = path.join(dir, '.benchmark-request.json');
-  await writeFile(requestPath, JSON.stringify({ plan, artifact, approval, activate, benchmark_concurrency: benchmarkConcurrency }), 'utf8');
+  await writeFile(requestPath, JSON.stringify({ plan, artifact, approval, activate, benchmark_concurrency: benchmarkConcurrency, benchmark_serial: benchmarkSerial }), 'utf8');
   let stdout;
   try {
     ({ stdout } = await execFileAsync('curl', [
@@ -100,6 +104,9 @@ async function main() {
   if (requireConcurrencyProof && data?.benchmark_concurrency !== benchmarkConcurrency) {
     throw new Error('LORA_BENCHMARK_CONCURRENCY_NOT_ACKNOWLEDGED');
   }
+  if (requireSerialProof && data?.benchmark_serial !== benchmarkSerial) {
+    throw new Error('LORA_BENCHMARK_SERIAL_NOT_ACKNOWLEDGED');
+  }
 
   // HTTP 200 by itself is not a benchmark. Require actual finite candidate
   // and baseline measurements to avoid fake BENCHMARKED_NOT_ACTIVATED results.
@@ -128,6 +135,7 @@ async function main() {
     decision: data?.decision?.reason || null,
     activated: data.activated === true,
     benchmark_concurrency: data?.benchmark_concurrency ?? null,
+    benchmark_serial: data?.benchmark_serial ?? null,
     next_stage: data?.next_stage || data?.impact?.comparison?.next_stage || null,
     impact_gate_passed: data?.impact_gate_passed === true,
     canonical_gate_passed: data?.canonical_gate_passed === true,

@@ -7,7 +7,8 @@ const step = source.split('- name: Benchmark exact Kaggle adapter')[1]?.split('\
 
 test('automatic main push benchmarks LoRA without activating the preview', () => {
   assert.match(step, /ACTIVATE_PREVIEW:\s*\$\{\{ github\.event_name == 'workflow_dispatch' && inputs\.activate_preview && 'true' \|\| 'false' \}\}/);
-  assert.doesNotMatch(step, /github\.event_name == 'push' && 'true'/);
+  const activationOnly = step.split('\n').filter(line => /ACTIVATE_PREVIEW:|MEL_LORA_ACTIVATION_APPROVED:/.test(line)).join('\n');
+  assert.doesNotMatch(activationOnly, /github\.event_name == 'push' && 'true'/);
   assert.match(step, /--allow-not-activated true/);
 });
 

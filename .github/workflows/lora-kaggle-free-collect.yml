@@ -288,9 +288,10 @@ jobs:
           MEL_LORA_ACTIVATION_APPROVED: ${{ github.event_name == 'workflow_dispatch' && inputs.activate_preview && 'true' || 'false' }}
           BUNDLE_DIR: ${{ steps.locate.outputs.dir }}
           BENCHMARK_CONCURRENCY: ${{ github.event_name == 'push' && '1' || '4' }}
+          BENCHMARK_SERIAL: ${{ github.event_name == 'push' && 'true' || 'false' }}
         run: |
           export MELITURGOS_PASSWORD="$MEL_PREVIEW_PASSWORD"
-          node scripts/finalize-lora.mjs             --dir "$BUNDLE_DIR"             --url "$MEL_BASE_URL"             --activate "$ACTIVATE_PREVIEW"             --concurrency "$BENCHMARK_CONCURRENCY"             --allow-not-activated true | tee artifacts/finalize-result.json
+          node scripts/finalize-lora.mjs             --dir "$BUNDLE_DIR"             --url "$MEL_BASE_URL"             --activate "$ACTIVATE_PREVIEW"             --concurrency "$BENCHMARK_CONCURRENCY"             --serial "$BENCHMARK_SERIAL"             --allow-not-activated true | tee artifacts/finalize-result.json
 
       - name: Validate LoRA benchmark readiness
         if: steps.status.outputs.complete == 'true'
