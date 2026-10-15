@@ -2418,6 +2418,13 @@ function Perform-Step($step, [string]$commandId, [string]$planSchema="") {
       [System.Windows.Forms.SendKeys]::SendWait("{F5}")
       return @{ action=$action; browser=$browser }
     }
+    "browser.inspect" {
+      $browser = Assert-ForegroundBrowser
+      $title = Active-Window
+      if ([string]::IsNullOrWhiteSpace($title)) { throw "BROWSER_INSPECT_WINDOW_REQUIRED" }
+      if ($title.Length -gt 512) { $title = $title.Substring(0,512) }
+      return @{ action=$action; browser=$browser; foreground_title=$title; read_only=$true }
+    }
     "app.open" {
       $exe = Resolve-App ([string]$step.app)
       Start-Process $exe
