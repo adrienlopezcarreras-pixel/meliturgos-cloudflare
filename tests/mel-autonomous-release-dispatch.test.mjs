@@ -407,3 +407,8 @@ test('autonomous release refuses to dispatch if main changes during promotion', 
   assert.equal(mainReads, 2);
   assert.ok(!calls.some(call => call.startsWith('POST ')));
 });
+
+test('release guard rejects uppercase active workflow state from provider', () => {
+  assert.throws(() => assertNoActiveDeploy([{ name: 'deploy-cloudflare-release', status: 'IN_PROGRESS' }]), /PRODUCTION_DEPLOY_ALREADY_ACTIVE/);
+  assert.throws(() => assertNoActiveDeploy([{ name: 'deploy-cloudflare-release', status: 'QUEUED' }]), /PRODUCTION_DEPLOY_ALREADY_ACTIVE/);
+});
