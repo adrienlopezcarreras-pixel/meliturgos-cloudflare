@@ -6,6 +6,7 @@ on:
       - 'src/evolution/autonomy-supervisor.js'
       - 'src/evolution/autonomy-runtime-core.js'
       - 'src/capabilities/evolution-capabilities.js'
+      - 'src/roadmap/evolution-gap-capture.js'
       - 'src/capabilities/default-bus.js'
       - 'src/persistence/migrations.js'
       - 'migrations/0018_evolution_development.sql'
@@ -36,6 +37,7 @@ jobs:
           node --check src/roadmap/evolution-inbox.js
           node --check src/roadmap/evolution-storage.js
           node --check src/roadmap/evolution-autonomy-queue.js
+          node --check src/roadmap/evolution-gap-capture.js
           node --check src/evolution/autonomy-supervisor.js
           node --check src/evolution/autonomy-runtime-core.js
           node --check src/capabilities/evolution-capabilities.js
@@ -46,7 +48,7 @@ jobs:
           node --check src/pages/roadmap-live-refresh-enhancer.js
           node --check src/security/runtime-permissions.js
       - name: Run evolution contract tests
-        run: node --test tests/roadmap/evolution-autonomy-queue.test.mjs tests/roadmap/evolution-inbox.test.mjs tests/roadmap/evolution-storage.test.mjs tests/roadmap/evolution-capabilities.test.mjs tests/roadmap-live-refresh.test.mjs tests/gen2/runtime-permissions.test.mjs
+        run: node --test tests/roadmap/evolution-gap-capture.test.mjs tests/roadmap/evolution-autonomy-queue.test.mjs tests/roadmap/evolution-inbox.test.mjs tests/roadmap/evolution-storage.test.mjs tests/roadmap/evolution-capabilities.test.mjs tests/roadmap-live-refresh.test.mjs tests/gen2/runtime-permissions.test.mjs
   full-validation:
     runs-on: ubuntu-latest
     timeout-minutes: 30
