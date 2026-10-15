@@ -1,3 +1,4 @@
+import { approvedEvolutionRoadmap } from '../roadmap/evolution-autonomy-queue.js';
 import { flattenRoadmap, ROADMAP_STATUSES } from '../roadmap/master-roadmap.js';
 import { isClaimedPreparedDevBridgeJob } from '../dev/bridge-job-state.js';
 
@@ -151,12 +152,14 @@ export function isSupervisedAutonomyJob(job) {
 }
 
 export class AutonomySupervisor {
-  constructor({ repository, roadmap = flattenRoadmap() } = {}) {
+  constructor({ repository, roadmap = flattenRoadmap(), evolutionLoader = null } = {}) {
     if (!repository || typeof repository.list !== 'function' || typeof repository.create !== 'function') {
       throw Object.assign(new Error('AUTONOMY_JOB_REPOSITORY_REQUIRED'), { code: 'AUTONOMY_JOB_REPOSITORY_REQUIRED' });
     }
     this.repository = repository;
     this.roadmap = roadmap;
+    if (evolutionLoader !== null && typeof evolutionLoader !== 'function') throw new Error('EVOLUTION_QUEUE_INVALID_LOADER');
+    this.evolutionLoader = evolutionLoader;
   }
 
   async state() {
@@ -187,12 +190,24 @@ export class AutonomySupervisor {
       .filter(([, attempts]) => attempts >= MAX_AUTONOMOUS_ROADMAP_ATTEMPTS)
       .map(([roadmapId]) => roadmapId);
     const blockedIds = [...new Set([...explicitlyBlockedIds, ...retryExhaustedIds])];
-    const next = selectNextAutonomyItem({
+    const excludedIds = [...blockedIds, ...activeIds];
+    let next = selectNextAutonomyItem({
       roadmap: this.roadmap,
       completedIds,
-      blockedIds: [...blockedIds, ...activeIds],
+      blockedIds: excludedIds,
     });
-    return {
+    let evolution = { status: this.evolutionLoader ? 'NOT_CHECKED' : 'NOT_CONFIGURED', actionable_count: null, code: null };
+    if (!next && this.evolutionLoader) {
+      try {
+        const items = approvedEvolutionRoadmap(await this.evolutionLoader());
+        next = selectNextAutonomyItem({ roadmap: items, completedIds, blockedIds: excludedIds });
+        evolution = { status: 'CONNECTED', actionable_count: items.length, code: null };
+      } catch(error) {
+        // Failed D1 reads never certify an empty queue or generate unapproved jobs.
+        evolution = { status: 'UNAVAILABLE', actionable_count: null, code: 'EVOLUTION_QUEUE_READ_FAILED' };
+      }
+    }
+    return { evolution,
       jobs,
       supervisedJobs,
       active,
