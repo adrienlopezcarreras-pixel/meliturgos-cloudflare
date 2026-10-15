@@ -1701,7 +1701,7 @@ jobs:
               test ! -s production-mel-council-02.json || cat production-mel-council-02.json
               exit 52
             fi
-            node -e 'const fs=require("fs");const body=JSON.parse(fs.readFileSync("production-mel-council-02.json","utf8"));const r=body?.result||{};if(body?.ok!==true||body?.capability!=="model.council")throw new Error("MEL_COUNCIL_02_CAPABILITY_NOT_OK");if(!Array.isArray(r.critiques)||r.critiques.length<2)throw new Error("MEL_COUNCIL_02_INDEPENDENT_CRITIQUES_MISSING");if(Number(r.independent_response_count||0)<2||Number(r.unique_model_count||0)<2)throw new Error("MEL_COUNCIL_02_UNIQUENESS_FAILED");if(r?.synthesis?.status!=="COMPLETE"||!String(r?.synthesis?.text||"").trim())throw new Error("MEL_COUNCIL_02_SYNTHESIS_FAILED");for(const c of r.critiques){if(!c?.identity||!c?.provenance?.provider||!c?.provenance?.model)throw new Error("MEL_COUNCIL_02_PROVENANCE_MISSING");if(c?.cost?.allowed!==true||c?.cost?.policy!=="MEL_ZERO_EURO_V1")throw new Error("MEL_COUNCIL_02_ZERO_COST_PROOF_FAILED");}console.log("Production MEL-COUNCIL-02 independent critique + synthesis proof passed.")'
+            node scripts/check-release-council-proof.mjs production-mel-council-02.json
           fi
 
           # GEN2-38: prove pure planning, zero-cost provider planning, and durable D1 Goal/Task persistence.
