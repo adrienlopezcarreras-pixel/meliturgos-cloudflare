@@ -261,7 +261,7 @@ export class AutonomySupervisor {
           },
         };
       }
-      return { created: false, job: passiveOwner, next: null, complete: !passiveOwner };
+      return { created: false, job: passiveOwner, next: null, complete: !passiveOwner && current.evolution?.status !== 'UNAVAILABLE', evolution: current.evolution };
     }
 
     const item = current.next;
