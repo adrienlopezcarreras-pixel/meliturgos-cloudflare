@@ -31,6 +31,12 @@ try {
   if (-not (Test-Path -LiteralPath $manifestPath)) { throw "WINDOWS_MANIFEST_MISSING" }
   $androidPair = Join-Path $temp "MEL-Android-WiFi-Pairing.ps1"
   if (-not (Test-Path -LiteralPath $androidPair -PathType Leaf)) { throw "WINDOWS_ANDROID_WIFI_PAIRING_HELPER_MISSING" }
+  foreach ($name in @('MEL-MINI-USB-Preflight.ps1','local_readonly_preflight.py',
+      'inspect_partitions.py','inspect_ota_state.py','inspect_image.py')) {
+    if (!(Test-Path -LiteralPath (Join-Path $temp $name) -PathType Leaf)) {
+      throw "WINDOWS_MINI_USB_PREFLIGHT_FILE_MISSING:$name"
+    }
+  }
   $benchmark = Join-Path $temp "MEL-Local-AI-Benchmark.ps1"
   if (-not (Test-Path -LiteralPath $benchmark -PathType Leaf)) { throw "WINDOWS_LOCAL_AI_BENCHMARK_MISSING" }
   $desktopExe = Join-Path $temp "MEL-Companion.exe"
