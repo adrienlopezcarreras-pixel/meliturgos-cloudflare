@@ -26,6 +26,21 @@ Mise à jour : 2026-10-15. Cette roadmap MINI fait partie du plan global MEL Ord
 | 9 | MINI-ROAD-09 | Optimiser UX, animation, ergonomie, performances, consommation et fiabilité des trois interfaces | NOT_STARTED | Benchmarks avant/après et non-régression sur matériel |
 | 10 | MINI-ROAD-10 | Intégrer les correctifs par petites PR, publier fréquemment sans chevauchement et valider production + versions client | NOT_STARTED | CI, sauvegarde, rollback, SHA exact et health gates ; preuve physique distincte de la publication |
 
+## Journal de réconciliation — contrôle initial du 15 octobre 2026
+
+Contrôle GitHub effectué après fusion de la roadmap, sans inférer l'état d'un appareil physique :
+
+| Composant | Référence observée | Preuve / limite |
+| --- | --- | --- |
+| Code canonique `main` | `f41fe5b1171757ed1af207171e58f37a03869832` | Roadmap #1464 fusionnée ; **pas** de preuve que ce SHA a été déployé |
+| Branche `release/mel-hardware-v0.1.0` | `fe0eb483bf3aa3a54b6d07fb97c145c0858e3c96` | Pointe sur un commit plus ancien |
+| Production Cloudflare | release [#38687748642](https://github.com/adrienlopezcarreras-pixel/meliturgos-cloudflare/actions/runs/38687748642) | Job de déploiement réussi, activation plateforme réussie, stress persistant encore en cours lors du contrôle ; **validation globale non acquise** |
+| APK Android | [build #38688634600](https://github.com/adrienlopezcarreras-pixel/meliturgos-cloudflare/actions/runs/38688634600) sur `872b80c0` | CI `success` ; installation et comportement sur téléphone **non prouvés** |
+| MINI | [partition preflight #38688592548](https://github.com/adrienlopezcarreras-pixel/meliturgos-cloudflare/actions/runs/38688592548) sur `9abef095` | Préflight logiciel réussi ; flash et essai sur carte réelle **non prouvés** |
+| Companion | [maintenance CI #38688592559](https://github.com/adrienlopezcarreras-pixel/meliturgos-cloudflare/actions/runs/38688592559) sur `9abef095` | CI réussie ; installation Windows et commande à distance **non prouvées** |
+
+**Bilan MINI-ROAD-01 : IN_PROGRESS.** Ne pas promouvoir `DONE_VERIFIED` avant le rapprochement des versions effectivement installées et du SHA de production, et avant la clôture des tests post-release. Reprendre la lecture de GitHub au moment de poursuivre : ces valeurs sont un instantané daté, pas un statut temps réel.
+
 ## Dépendances et limites actuelles
 
 - Les fonctions de développement autonome existent déjà (`src/evolution/`). Leur présence n'est pas une validation E2E de leur exécution en production.
