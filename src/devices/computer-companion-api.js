@@ -4,7 +4,10 @@ import { authorizeGitHubActionsOidcRequest } from "../security/github-actions-oi
 import { evaluateComputerUsePlan } from "./computer-use.js";
 import { getVerifiedShardVaultCodeArchive } from "../continuity/shardvault-runtime.js";
 import { isLocalSovereigntyAction } from "../portability/local-sovereignty-actions.js";
-import { evaluateMeasuredOptionalCompute } from "./companion-compute-admission.js";
+import {
+ evaluateMeasuredOptionalCompute,
+ shouldInvalidateOptionalComputeTelemetryOnHeartbeat,
+} from "./companion-compute-admission.js";
 import { miniReadOnlyPcCommand } from "./mini-readonly-companion.js";
 import { miniMaintenanceAssessCommand } from "./mini-maintenance-companion.js";
 import { companionBleDiagnosticsCommand } from "./companion-ble-diagnostics.js";
@@ -542,8 +545,12 @@ async function heartbeat(request,env,a){
      on_battery:telemetry.on_battery,user_busy:telemetry.user_busy,
      gpu_available:telemetry.gpu_available,active_jobs:telemetry.active_jobs
    };
- }else if(!patch.local_compute_enabled || b.version!==undefined){
-   // The native supervisor must refresh a full valid sample on each heartbeat.
+ }else if(shouldInvalidateOptionalComputeTelemetryOnHeartbeat({
+   enabled:patch.local_compute_enabled,body:b
+ })){
+   // Native heartbeat with a missing/invalid sample invalidates it. The
+   // separate PowerShell engine heartbeat carries no CPU sample and MUST NOT
+   // erase a still-fresh native reading; admission still expires after 10 s.
    patch.local_compute_telemetry=null;
  }
  if(b.screen&&typeof b.screen==="object")patch.screen=b.screen;

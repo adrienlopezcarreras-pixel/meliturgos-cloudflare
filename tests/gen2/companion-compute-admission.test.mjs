@@ -1,6 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {evaluateOptionalCompute as decide} from '../../src/devices/companion-compute-admission.js';
+import {
+ evaluateOptionalCompute as decide,
+ shouldInvalidateOptionalComputeTelemetryOnHeartbeat as invalidate,
+} from '../../src/devices/companion-compute-admission.js';
 test('optional compute fails closed and preserves MEL independence',()=>{
  for(const opts of [{},{enabled:false,profile:'performance',online:true,freeRamMb:10000},
   {enabled:true,profile:'unknown',online:true,freeRamMb:10000},
@@ -30,4 +33,15 @@ test('fresh local measurements required before admitting GPU work',async()=>{
  assert.equal(decideMeasured({...request,now,telemetry:{...telemetry,cpu_percent:85}}).reason,'PC_CPU_BUSY');
  assert.equal(decideMeasured({...request,now,telemetry}).allowed,true);
  assert.equal(decideMeasured({...request,now,telemetry:{...telemetry,user_busy:true}}).allowed,false);
+});
+
+test('PowerShell engine heartbeat does not erase fresh Windows resource readings',()=>{
+ // PowerShell sends engine_version and no telemetry; Windows sends version.
+ assert.equal(invalidate({enabled:true,body:{engine_version:'1.4.1',local_compute_enabled:true}}),false);
+ assert.equal(invalidate({enabled:true,body:{version:'1.2.3',local_compute_enabled:true}}),true);
+ assert.equal(invalidate({enabled:true,body:{version:'1.2.3',local_compute_telemetry:{cpu_percent:5}}}),true);
+ assert.equal(invalidate({enabled:true,body:{local_compute_telemetry:null}}),true);
+ assert.equal(invalidate({enabled:true,body:{local_compute_telemetry:{cpu_percent:-5}}}),true);
+ assert.equal(invalidate({enabled:false,body:{engine_version:'1.4.1'}}),true);
+ assert.equal(invalidate({enabled:true,body:null}),true);
 });

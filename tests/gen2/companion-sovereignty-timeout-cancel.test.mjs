@@ -9,7 +9,7 @@ function fakeDb({claimed=false}={}){
     bind(...args){
      return{
       async first(){
-       if(sql.includes('FROM computer_commands'))return {status:claimed?'CLAIMED':'PENDING'};
+       if(sql.includes('FROM computer_commands'))return {status:claimed?'RUNNING':'PENDING'};
        if(sql.includes('FROM computer_devices'))return null;
        return null;
       },
@@ -52,5 +52,5 @@ test('claimed work is not falsely reported as cancelled',async()=>{
  const result=await execute({capability:'sovereignty.source_control',action:'health'});
  assert.equal(result.pending_cancelled,false);
  assert.equal(result.work_may_still_run,true);
- assert.equal(result.last_known_status,'CLAIMED');
+ assert.equal(result.last_known_status,'RUNNING');
 });
