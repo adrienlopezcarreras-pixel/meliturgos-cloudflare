@@ -84,3 +84,20 @@ export function evaluateQueuedOptionalComputeClaim({plan,device,now=Date.now()}=
    ?{ok:true,reason:'LOCAL_AI_ADMITTED'}
    :{ok:false,code:'LOCAL_AI_'+admission.reason};
 }
+
+/**
+ * Successful Ollama reports must arrive before the deadline stamped by MEL.
+ * This avoids claiming a response was usable after the native chat request
+ * had already timed out and taken its independent fallback.
+ */
+export function evaluateOptionalAiResultDeadline({plan,now=Date.now()}={}){
+ const steps=Array.isArray(plan?.steps)?plan.steps:[];
+ if(!steps.some(step=>step?.action==='sovereignty.ai.invoke'))
+  return {ok:true,reason:'NOT_OPTIONAL_AI'};
+ if(plan?.schema!=='mel.sovereignty.local-command/v1'||steps.length!==1)
+  return {ok:false,code:'LOCAL_AI_RESULT_PLAN_INVALID'};
+ const deadline=steps[0]?.payload?.owner_inference_deadline_ms;
+ if(!Number.isSafeInteger(deadline)||deadline<=now||deadline>now+120000)
+  return {ok:false,code:'LOCAL_AI_RESULT_EXPIRED'};
+ return {ok:true,reason:'LOCAL_AI_RESULT_ON_TIME'};
+}

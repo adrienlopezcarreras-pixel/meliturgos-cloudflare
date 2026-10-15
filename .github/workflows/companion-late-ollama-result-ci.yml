@@ -1,0 +1,20 @@
+name: Companion Late Ollama Result CI
+on:
+  pull_request:
+    paths:
+      - 'src/devices/computer-companion-api.js'
+      - 'src/devices/companion-compute-admission.js'
+      - 'tests/gen2/companion-late-ollama-result.test.mjs'
+      - '.github/workflows/companion-late-ollama-result-ci.yml'
+permissions:
+  contents: read
+jobs:
+  truth:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node --test tests/gen2/companion-late-ollama-result.test.mjs tests/gen2/companion-compute-claim-safety.test.mjs
