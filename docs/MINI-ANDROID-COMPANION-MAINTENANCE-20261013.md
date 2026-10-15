@@ -51,3 +51,10 @@ Le paquet Windows contient désormais `MEL-Android-WiFi-Pairing.ps1`. Sur le PC,
 Le ZIP `MEL-Windows-2.3.14.zip` contient désormais `MEL-MINI-USB-Preflight.ps1` et les quatre modules Python du précontrôle. Sur le PC **où la MINI est physiquement branchée**, installer Python 3 et `esptool` dans cet environnement puis ouvrir PowerShell dans le dossier décompressé. Exécuter `powershell.exe -NoProfile -File .\MEL-MINI-USB-Preflight.ps1 -Port COM4` en remplaçant COM4 par le port confirmé. Le programme demande une confirmation **saisie localement** car une connexion bootloader peut réinitialiser l'appareil ; il ne comporte aucune commande de flash et ne démarre pas automatiquement.
 
 Les rapports sont déposés dans `%LOCALAPPDATA%\MEL\mini-usb-evidence\<identifiant>`. Une sélection OTA déduite des métadonnées ne garantit pas le slot réellement exécuté. La fenêtre PowerShell reste distincte du service Companion : il n'existe pas de bouton de flashage distant validé. En l'absence de Python/esptool, d'une table réelle, d'une sauvegarde intégrale et d'un plan de restauration vérifié, **aucun flashage n'est permis**.
+
+
+## Bouton « Contrôle USB MINI » dans le Companion Windows
+
+La fenêtre du Companion expose désormais `Contrôle USB MINI` dans la carte **Cet ordinateur**. Le bouton fonctionne uniquement sur le PC local : sélection du vrai port COM détecté, avertissement explicite qu'une connexion au bootloader peut redémarrer la MINI, ouverture d'un PowerShell interactif, puis saisie obligatoire de `AUTORISER_LECTURE_USB_MINI` dans le terminal. Le paquet Windows copie le script et ses parseurs Python vers `%LOCALAPPDATA%\\MEL` à l'installation, sans jamais les exécuter au démarrage. Python 3 et esptool restent requis sur le PC.
+
+**Aucune opération flash n'est exposée par ce bouton.** Les preuves restent dans `%LOCALAPPDATA%\\MEL\\mini-usb-evidence`. L'autorisation d'accès distant ne remplace pas le consentement sur place et ne peut pas lancer le précontrôle USB via le relais.

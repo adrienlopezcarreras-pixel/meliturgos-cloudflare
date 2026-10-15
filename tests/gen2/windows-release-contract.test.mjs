@@ -89,3 +89,29 @@ test('Windows release includes a benchmark without running it automatically',asy
  assert.match(workflow,/scripts\/companion-local-ai-benchmark\.ps1/);
  assert.doesNotMatch(build,/&\s*\$benchmarkSource/);
 });
+
+
+test('native Companion installs the complete MINI read-only USB bundle and exposes an attended button',async()=>{
+ const source=await read('windows-companion/MEL-Companion.cs');
+ const helper=await read('windows-companion/MEL-MINI-USB-Preflight.ps1');
+ const build=await read('scripts/build-windows-release.ps1');
+ const verify=await read('scripts/verify-windows-release.ps1');
+ assert.match(source,/MiniUsbPreflightFiles/);
+ assert.match(source,/miniUsbBundleComplete/);
+ assert.match(source,/RunMiniUsbPreflight/);
+ assert.match(source,/Contrôle USB MINI/);
+ assert.match(source,/SerialPort\.GetPortNames\(\)/);
+ assert.match(source,/DialogResult\.Yes/);
+ assert.match(source,/UseShellExecute=true/);
+ assert.match(source,/-NoExit -File/);
+ assert.doesNotMatch(source,/\bwrite_flash\b|\berase_flash\b/);
+ for(const file of ['MEL-MINI-USB-Preflight.ps1','local_readonly_preflight.py',
+  'inspect_partitions.py','inspect_ota_state.py','inspect_image.py']){
+  assert.ok(build.includes(file),'package missing: '+file);
+  assert.ok(source.includes(file),'installation missing: '+file);
+ }
+ assert.match(verify,/WINDOWS_MINI_USB_PREFLIGHT_FILE_MISSING/);
+ assert.match(helper,/AUTORISER_LECTURE_USB_MINI/);
+ assert.match(helper,/flash_allowed -ne \$false/);
+ assert.doesNotMatch(helper,/\bwrite_flash\b|\berase_flash\b/);
+});

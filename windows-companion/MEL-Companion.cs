@@ -22,6 +22,17 @@ static class MelApp
     public static readonly string CompanionPath = Path.Combine(MelDir, "MEL-Computer-Companion.ps1");
     public static readonly string AdbWifiPath = Path.Combine(MelDir, "MEL-ADB-WiFi.ps1");
     public static readonly string LocalAiBenchmarkPath = Path.Combine(MelDir, "MEL-Local-AI-Benchmark.ps1");
+    public static readonly string MiniUsbPreflightPath = Path.Combine(MelDir, "MEL-MINI-USB-Preflight.ps1");
+    public static readonly string[] MiniUsbPreflightFiles = new string[] {
+        "MEL-MINI-USB-Preflight.ps1", "local_readonly_preflight.py",
+        "inspect_partitions.py", "inspect_ota_state.py", "inspect_image.py"
+    };
+    public static bool MiniUsbPreflightInstalled()
+    {
+        foreach (var file in MiniUsbPreflightFiles)
+            if (!File.Exists(Path.Combine(MelDir, file))) return false;
+        return true;
+    }
     public static readonly string LocalAiBenchmarkReportPath = Path.Combine(MelDir, "diagnostics", "ollama-benchmark.json");
     public static readonly string StartupCmd = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Startup), "MEL-Companion.cmd");
     public static readonly string LegacyStartupCmd = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Startup), "MEL-Computer-Companion.cmd");
@@ -497,6 +508,20 @@ static class MelApp
         if (File.Exists(packagedBenchmark) &&
             !string.Equals(Path.GetFullPath(packagedBenchmark), Path.GetFullPath(LocalAiBenchmarkPath), StringComparison.OrdinalIgnoreCase))
             File.Copy(packagedBenchmark, LocalAiBenchmarkPath, true);
+        // The local USB helper is optional and never run on startup or by MEL's
+        // remote command relay. Only install a COMPLETE set from the release ZIP.
+        var packageDirectory = Path.GetDirectoryName(Application.ExecutablePath);
+        bool miniUsbBundleComplete = true;
+        foreach (var name in MiniUsbPreflightFiles)
+            if (!File.Exists(Path.Combine(packageDirectory, name))) miniUsbBundleComplete = false;
+        if (miniUsbBundleComplete)
+            foreach (var name in MiniUsbPreflightFiles)
+            {
+                var from = Path.Combine(packageDirectory, name);
+                var to = Path.Combine(MelDir, name);
+                if (!string.Equals(Path.GetFullPath(from), Path.GetFullPath(to),
+                    StringComparison.OrdinalIgnoreCase)) File.Copy(from, to, true);
+            }
         var current = Application.ExecutablePath;
         if (!string.Equals(Path.GetFullPath(current), Path.GetFullPath(InstalledExe), StringComparison.OrdinalIgnoreCase))
             File.Copy(current, InstalledExe, true);
@@ -1346,6 +1371,8 @@ class MainForm : Form
         var pc=Card(this,132,150);pc.Left=22;pc.Width=ClientSize.Width-44;
         pc.Anchor=AnchorStyles.Top|AnchorStyles.Left|AnchorStyles.Right;
         LabelAt(pc,"CET ORDINATEUR",20,14,310,36,10,true,blue);
+        var miniUsb=ButtonAt(pc,"Contrôle USB MINI",Math.Max(350,pc.Width-232),43,205,RunMiniUsbPreflight);
+        miniUsb.Anchor=AnchorStyles.Top|AnchorStyles.Right;
         LabelAt(pc,Environment.MachineName,20,57,pc.Width-40,40,12,true).Anchor=AnchorStyles.Top|AnchorStyles.Left|AnchorStyles.Right;
         adbWifiStatus=LabelAt(pc,"ADB Wi-Fi : recherche du téléphone…",20,109,pc.Width-40,31,9,false,gray);
         adbWifiStatus.Anchor=AnchorStyles.Top|AnchorStyles.Left|AnchorStyles.Right;
@@ -1411,6 +1438,62 @@ class MainForm : Form
         var buttons=Controls.OfType<Button>().Where(b=>b.Text=="Réparer"||b.Text=="Réappairer"||b.Text=="Désinstaller"||b.Text=="Tester IA locale").ToArray();
         foreach(var b in buttons)b.Top=ClientSize.Height-145;
         if(autostart!=null)autostart.Top=ClientSize.Height-88;
+    }
+    void RunMiniUsbPreflight(object sender,EventArgs e)
+    {
+        // Never offer remote flashing: this starts a local, interactive,
+        // read-only bootloader check requiring a second literal confirmation.
+        if (!MelApp.MiniUsbPreflightInstalled())
+        {
+            MessageBox.Show(this,"Précontrôle MINI incomplet. Réinstallez le paquet Windows officiel.",
+                "MEL — USB MINI",MessageBoxButtons.OK,MessageBoxIcon.Warning);
+            return;
+        }
+        string[] available = System.IO.Ports.SerialPort.GetPortNames();
+        var ports = available.Where(p=>System.Text.RegularExpressions.Regex.IsMatch(
+            p,@"^COM[0-9]{1,3}$",System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+            .Select(p=>p.ToUpperInvariant()).Distinct().OrderBy(p=>p).ToArray();
+        if (ports.Length==0)
+        {
+            MessageBox.Show(this,"Aucun port COM détecté. Connectez la MINI par USB et réessayez.",
+                "MEL — USB MINI",MessageBoxButtons.OK,MessageBoxIcon.Information);
+            return;
+        }
+        using (var dialog=new Form())
+        {
+            dialog.Text="Précontrôle local USB MINI";
+            dialog.ClientSize=new Size(480,170);dialog.FormBorderStyle=FormBorderStyle.FixedDialog;
+            dialog.StartPosition=FormStartPosition.CenterParent;dialog.MaximizeBox=false;dialog.MinimizeBox=false;
+            var note=new Label {Text="Sélectionnez le port de la MINI. Lecture seule : la connexion au bootloader peut redémarrer l'appareil. Aucun flashage.",
+                Left=16,Top=12,Width=445,Height=58};
+            var portList=new ComboBox {Left=16,Top=76,Width=220,DropDownStyle=ComboBoxStyle.DropDownList};
+            portList.Items.AddRange(ports.Cast<object>().ToArray());portList.SelectedIndex=0;
+            var cancel=new Button {Text="Annuler",Left=245,Top=118,Width=100,DialogResult=DialogResult.Cancel};
+            var start=new Button {Text="Continuer",Left=356,Top=118,Width=108,DialogResult=DialogResult.OK};
+            dialog.Controls.Add(note);dialog.Controls.Add(portList);
+            dialog.Controls.Add(cancel);dialog.Controls.Add(start);
+            dialog.AcceptButton=start;dialog.CancelButton=cancel;
+            if (dialog.ShowDialog(this)!=DialogResult.OK)return;
+            var port=Convert.ToString(portList.SelectedItem);
+            if (!System.Text.RegularExpressions.Regex.IsMatch(port??"", @"^COM[0-9]{1,3}$"))
+                throw new InvalidOperationException("Port MINI invalide.");
+            if (MessageBox.Show(this,"Le précontrôle peut redémarrer la MINI. Confirmer l'ouverture du terminal local ? Une autorisation textuelle supplémentaire sera demandée.",
+                "MEL — USB MINI",MessageBoxButtons.YesNo,MessageBoxIcon.Warning)!=DialogResult.Yes)return;
+            try
+            {
+                var psi=new ProcessStartInfo("powershell.exe");
+                psi.UseShellExecute=true;psi.WindowStyle=ProcessWindowStyle.Normal;
+                psi.WorkingDirectory=MelApp.MelDir;
+                psi.Arguments="-NoProfile -ExecutionPolicy Bypass -NoExit -File \""+
+                    MelApp.MiniUsbPreflightPath+"\" -Port "+port;
+                Process.Start(psi);
+            }
+            catch(Exception ex)
+            {
+                MessageBox.Show(this,"Impossible d'ouvrir le précontrôle local : "+ex.Message,
+                    "MEL — USB MINI",MessageBoxButtons.OK,MessageBoxIcon.Error);
+            }
+        }
     }
     void RunLocalAiBenchmark(object sender,EventArgs e)
     {
