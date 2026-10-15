@@ -1,0 +1,20 @@
+name: Companion Native Resource Telemetry CI
+on:
+  pull_request:
+    paths:
+      - 'windows-companion/MEL-Companion.cs'
+      - 'src/devices/computer-companion-api.js'
+      - 'tests/gen2/companion-native-resource-telemetry.test.mjs'
+      - '.github/workflows/companion-native-resource-telemetry-ci.yml'
+permissions:
+  contents: read
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node --test tests/gen2/companion-native-resource-telemetry.test.mjs tests/gen2/companion-compute-admission.test.mjs

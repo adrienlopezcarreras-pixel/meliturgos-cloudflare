@@ -46,6 +46,56 @@ static class MelApp
 
     [DllImport("user32.dll")] static extern bool SetProcessDpiAwarenessContext(IntPtr value);
     [DllImport("user32.dll")] static extern bool SetProcessDPIAware();
+    // Small Win32 probes; no subprocess, model download, or expensive GPU scan.
+    [StructLayout(LayoutKind.Sequential)]
+    struct MemoryStatus
+    {
+        public uint length, load;
+        public ulong totalPhys, availPhys, totalPage, availPage, totalVirtual, availVirtual, availExtended;
+    }
+    [StructLayout(LayoutKind.Sequential)]
+    struct LastInputInfo { public uint size, tick; }
+    [DllImport("kernel32.dll", SetLastError=true)] static extern bool GlobalMemoryStatusEx(ref MemoryStatus status);
+    [DllImport("kernel32.dll", SetLastError=true)] static extern bool GetSystemTimes(out long idle, out long kernel, out long user);
+    [DllImport("user32.dll")] static extern bool GetLastInputInfo(ref LastInputInfo info);
+    static long LastIdleTicks, LastKernelTicks, LastUserTicks;
+    static bool HasCpuSample;
+
+    public static Dictionary<string,object> GetLocalComputeTelemetry()
+    {
+        try
+        {
+            long idle, kernel, user;
+            if (!GetSystemTimes(out idle, out kernel, out user)) return null;
+            long previousTotal = LastKernelTicks + LastUserTicks;
+            long total = (kernel + user) - previousTotal;
+            long busyTicks = total - (idle - LastIdleTicks);
+            bool sampled = HasCpuSample && total > 0 && busyTicks >= 0 && busyTicks <= total;
+            LastIdleTicks = idle; LastKernelTicks = kernel; LastUserTicks = user; HasCpuSample = true;
+            if (!sampled) return null; // First heartbeat cannot claim the PC is idle.
+            var memory = new MemoryStatus();
+            memory.length = (uint)Marshal.SizeOf(typeof(MemoryStatus));
+            if (!GlobalMemoryStatusEx(ref memory)) return null;
+            var activity = new LastInputInfo();
+            activity.size = (uint)Marshal.SizeOf(typeof(LastInputInfo));
+            // If activity/power status is unknown, prefer the PC owner's safety.
+            bool busy = !GetLastInputInfo(ref activity) ||
+                unchecked((uint)Environment.TickCount - activity.tick) < 60000U;
+            var line = SystemInformation.PowerStatus.PowerLineStatus;
+            bool onBattery = line != PowerLineStatus.Online;
+            return new Dictionary<string,object> {
+                {"cpu_percent",Math.Round(100.0 * busyTicks / total,1)},
+                {"free_ram_mb",(double)(memory.availPhys / (1024UL * 1024UL))},
+                {"on_battery",onBattery},
+                {"user_busy",busy},
+                {"gpu_available",false}, // Until a local GPU backend is verified.
+                {"active_jobs",0} // No optional compute jobs are dispatched yet.
+            };
+        }
+        catch { return null; }
+    }
+
+
 
     public static void EnableDpiAwareness()
     {
@@ -566,8 +616,16 @@ static class MelApp
                 {"engine_refresh_at",LastEngineRefreshUtc == DateTime.MinValue ? 0L : new DateTimeOffset(LastEngineRefreshUtc).ToUnixTimeMilliseconds()},
                 {"engine_refresh_error",LastEngineRefreshError},
                 {"remote_access_enabled",ConfigBool("remote_access_enabled")},
-                {"local_compute_enabled",ConfigBool("local_compute_enabled")}
+                {"local_compute_enabled",ConfigBool("local_compute_enabled")},
+                {"local_compute_profile",ConfigString("local_compute_profile")}
             };
+            // Optional telemetry is sampled only when explicitly enabled.
+            // No valid sample means fail closed, never an invented 0% CPU.
+            if (ConfigBool("local_compute_enabled"))
+            {
+                var measurement = GetLocalComputeTelemetry();
+                if (measurement != null) heartbeat["local_compute_telemetry"] = measurement;
+            }
             // The native shell owns and supervises the authenticated PowerShell
             // engine. If that child process is alive, attest its heartbeat too
             // so server-side sovereignty checks do not misclassify an open,

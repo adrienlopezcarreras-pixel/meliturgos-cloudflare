@@ -4,6 +4,7 @@ import { authorizeGitHubActionsOidcRequest } from "../security/github-actions-oi
 import { evaluateComputerUsePlan } from "./computer-use.js";
 import { getVerifiedShardVaultCodeArchive } from "../continuity/shardvault-runtime.js";
 import { isLocalSovereigntyAction } from "../portability/local-sovereignty-actions.js";
+import { evaluateMeasuredOptionalCompute } from "./companion-compute-admission.js";
 import { miniReadOnlyPcCommand } from "./mini-readonly-companion.js";
 import { miniMaintenanceAssessCommand } from "./mini-maintenance-companion.js";
 import { companionBleDiagnosticsCommand } from "./companion-ble-diagnostics.js";
@@ -526,6 +527,24 @@ async function heartbeat(request,env,a){
  // Fail closed on every heartbeat: legacy clients and malformed values cannot
  // preserve a previous opt-in after the local control disappears.
  patch.local_compute_enabled=b.local_compute_enabled===true;
+ if(["light","balanced","performance"].includes(b.local_compute_profile))
+   patch.local_compute_profile=b.local_compute_profile;
+ const telemetry=b.local_compute_telemetry;
+ if(patch.local_compute_enabled && telemetry && typeof telemetry==="object" &&
+    Number.isFinite(telemetry.cpu_percent)&&telemetry.cpu_percent>=0&&telemetry.cpu_percent<=100 &&
+    Number.isFinite(telemetry.free_ram_mb)&&telemetry.free_ram_mb>=0 &&
+    Number.isSafeInteger(telemetry.active_jobs)&&telemetry.active_jobs>=0 &&
+    typeof telemetry.on_battery==="boolean"&&typeof telemetry.user_busy==="boolean"&&
+    typeof telemetry.gpu_available==="boolean"){
+   patch.local_compute_telemetry={
+     observed_at:now,cpu_percent:telemetry.cpu_percent,free_ram_mb:telemetry.free_ram_mb,
+     on_battery:telemetry.on_battery,user_busy:telemetry.user_busy,
+     gpu_available:telemetry.gpu_available,active_jobs:telemetry.active_jobs
+   };
+ }else if(!patch.local_compute_enabled || b.version!==undefined){
+   // The native supervisor must refresh a full valid sample on each heartbeat.
+   patch.local_compute_telemetry=null;
+ }
  if(b.screen&&typeof b.screen==="object")patch.screen=b.screen;
  if(b.active_window!==undefined)patch.active_window=b.active_window||null;
  metadata={...metadata,...patch};
@@ -534,11 +553,17 @@ async function heartbeat(request,env,a){
  const engineOnline=engineHeartbeatAt>0&&now-engineHeartbeatAt<35000;
  const engineVersion=safe(metadata.engine_version,80)||null;
  const engineUpdateRequired=!versionAtLeast(engineVersion,MIN_SOVEREIGN_AI_ENGINE_VERSION);
+ const computeAdmission=evaluateMeasuredOptionalCompute({
+   enabled:metadata.local_compute_enabled===true,
+   profile:metadata.local_compute_profile||"off",online:engineOnline,
+   halted:a.device.halted===true,telemetry:metadata.local_compute_telemetry,now
+ });
  return json({
    ok:true,
    server_time:now,
    engine_online:engineOnline,
    local_compute_enabled:metadata.local_compute_enabled===true,
+   local_compute_admission:{allowed:computeAdmission.allowed,reason:computeAdmission.reason},
    engine_version:engineVersion,
    engine_last_seen_at:engineHeartbeatAt||null,
    required_engine_version:MIN_SOVEREIGN_AI_ENGINE_VERSION,
