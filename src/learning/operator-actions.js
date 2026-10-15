@@ -57,6 +57,25 @@ function benchmarkSourceSha(env = {}, options = {}) {
   ).trim() || 'unknown';
 }
 
+// Workers AI may deliver a JSON-only completion as a structured object
+// instead of a string. It is still evidence, but only if it has fields and
+// serializes safely. Never turn null, arrays or empty objects into an answer.
+export function extractOperatorBenchmarkText(result, extractText = extractModelText) {
+  const value = extractText(result);
+  if (typeof value === 'string' && value.trim()) return value.trim();
+  if (value && typeof value === 'object' && !Array.isArray(value) && Object.keys(value).length) {
+    try {
+      const text = JSON.stringify(value);
+      if (text && text.length <= 16384) return text;
+    } catch {
+      // Circular or otherwise unserializable responses are not proof.
+    }
+  }
+  const error = new Error('empty_benchmark_response');
+  error.code = 'EMPTY_BENCHMARK_RESPONSE';
+  throw error;
+}
+
 function benchmarkResponder(ai, modelId, extractText, { lora = null, timeout_ms = 45000 } = {}) {
   return async (prompt) => {
     const input = {
@@ -86,9 +105,7 @@ function benchmarkResponder(ai, modelId, extractText, { lora = null, timeout_ms 
     } finally {
       if (timer) clearTimeout(timer);
     }
-    const text = extractText(result);
-    if (typeof text !== 'string' || !text.trim()) throw new Error('empty_benchmark_response');
-    return text.trim();
+    return extractOperatorBenchmarkText(result, extractText);
   };
 }
 
