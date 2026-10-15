@@ -53,11 +53,26 @@ jobs:
           export ANDROID_AVD_HOME="$AVD_HOME"
 
           yes | sdkmanager --licenses >/dev/null || true
-          sdkmanager \
-            "platforms;android-35" \
-            "build-tools;35.0.0" \
-            "emulator" \
-            "system-images;android-35;google_apis;x86_64"
+          # SDK mirrors can return truncated ZIPs. Retry the installation with
+          # a bounded cleanup rather than accepting an incomplete emulator.
+          installed=0
+          for attempt in 1 2 3; do
+            if sdkmanager \
+              "platforms;android-35" \
+              "build-tools;35.0.0" \
+              "emulator" \
+              "system-images;android-35;google_apis;x86_64"; then
+              installed=1
+              break
+            fi
+            echo "::warning::Android SDK archive install failed (attempt ${attempt}/3)"
+            rm -rf "$ANDROID_SDK_ROOT/.temp" "$ANDROID_SDK_ROOT/system-images/android-35/google_apis/x86_64" || true
+            sleep "$((attempt * 5))"
+          done
+          if [[ "$installed" != "1" ]]; then
+            echo "::error::Android SDK archive failed after 3 bounded retries"
+            exit 1
+          fi
 
           echo "no" | avdmanager create avd \
             --force \
