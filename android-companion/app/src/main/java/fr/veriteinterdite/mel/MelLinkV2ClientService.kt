@@ -542,7 +542,7 @@ class MelLinkV2ClientService : Service() {
                 if (protocolReady.value) return
                 // HELLO is only an advertisement, not opt-in or SESSION_OK.
                 miniPhaseAdvertised.value = runCatching {
-                    JSONObject(frame.payload.toString(Charsets.UTF_8)).optBoolean("triad_phase_v1", false)
+                    (JSONObject(frame.payload.toString(Charsets.UTF_8)).opt("triad_phase_v1") as? Boolean) == true
                 }.getOrDefault(false)
                 // HELLO proves a BLE notification, not acceptance of MINI SESSION.
                 protocolReady.value = false
