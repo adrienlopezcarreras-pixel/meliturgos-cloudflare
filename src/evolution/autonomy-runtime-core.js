@@ -1,3 +1,4 @@
+import { listEvolutionItems } from '../roadmap/evolution-storage.js';
 import { D1DevJobRepository } from '../dev/d1-dev-job-repository.js';
 import { AutonomySupervisor } from './autonomy-supervisor.js';
 import { prepareDevelopmentRequest } from './development-preflight.js';
@@ -394,7 +395,14 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
     rejected: [],
   }));
 
-  const supervisor = new AutonomySupervisor({ repository: jobRepository, ...(roadmap ? { roadmap } : {}) });
+  const evolutionLoader = !roadmap && env?.DB && typeof env.DB.prepare === 'function'
+    ? () => listEvolutionItems(env.DB, String(env.MELITURGOS_USER || 'owner'))
+    : null;
+  const supervisor = new AutonomySupervisor({
+    repository: jobRepository,
+    ...(roadmap ? { roadmap } : {}),
+    evolutionLoader,
+  });
   const stateBefore = await supervisor.state();
   const ensured = await supervisor.ensureNextJob();
   let job = ensured.job;
@@ -624,6 +632,7 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
       active_jobs: activeCount,
       completed_roadmap_items: Array.isArray(state?.completedIds) ? state.completedIds.length : 0,
       next_roadmap_id: state?.next?.id || null,
+      evolution_queue: state?.evolution || null,
       job_id: job?.id || null,
       job_status: finalJobStatus,
     },
