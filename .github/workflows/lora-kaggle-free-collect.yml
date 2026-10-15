@@ -281,7 +281,8 @@ jobs:
         shell: bash
         env:
           MEL_BASE_URL: "https://meliturgos-preview.adrien-lopezcarreras.workers.dev"
-          ACTIVATE_PREVIEW: ${{ github.event_name == 'push' && 'true' || (github.event_name == 'workflow_dispatch' && inputs.activate_preview || false) }}
+          ACTIVATE_PREVIEW: ${{ github.event_name == 'workflow_dispatch' && inputs.activate_preview && 'true' || 'false' }}
+          MEL_LORA_ACTIVATION_APPROVED: ${{ github.event_name == 'workflow_dispatch' && inputs.activate_preview && 'true' || 'false' }}
           BUNDLE_DIR: ${{ steps.locate.outputs.dir }}
         run: |
           export MELITURGOS_PASSWORD="$MEL_PREVIEW_PASSWORD"
