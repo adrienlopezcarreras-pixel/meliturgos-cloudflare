@@ -1,3 +1,4 @@
+import { initializeEvolutionStorage } from '../roadmap/evolution-storage.js';
 import { DB_SCHEMA_VERSION } from "../core/config.js";
 
 export const MIGRATIONS = [
@@ -374,6 +375,9 @@ export const MIGRATIONS = [
     )`).run();
   }},
 
+  { version: 18, name: 'evolution_inbox_owner_scope_and_immutable_archive', run: async db => {
+    await initializeEvolutionStorage(db);
+  }},
 ];
 
 export async function migrate(db, targetVersion = DB_SCHEMA_VERSION) {
