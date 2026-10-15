@@ -165,6 +165,7 @@ public static class MelNative {
   [DllImport("user32.dll")] public static extern bool GetCursorPos(out POINT lpPoint);
   [DllImport("user32.dll")] public static extern void mouse_event(uint flags, uint dx, uint dy, int data, UIntPtr extra);
   [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+  [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
   [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern int GetWindowText(IntPtr hWnd, StringBuilder text, int count);
   [StructLayout(LayoutKind.Sequential)] public struct POINT { public int X; public int Y; }
 }
@@ -2294,6 +2295,20 @@ function Assert-UnattendedCapturePermission {
   Assert-LocalRemoteAccess
 }
 
+function Assert-ForegroundBrowser {
+  $hwnd = [MelNative]::GetForegroundWindow()
+  if ($hwnd -eq [IntPtr]::Zero) { throw "BROWSER_FOREGROUND_REQUIRED" }
+  [uint32]$pidValue = 0
+  [void][MelNative]::GetWindowThreadProcessId($hwnd, [ref]$pidValue)
+  if ($pidValue -eq 0) { throw "BROWSER_FOREGROUND_REQUIRED" }
+  try { $name = (Get-Process -Id $pidValue -ErrorAction Stop).ProcessName.ToLowerInvariant() }
+  catch { throw "BROWSER_FOREGROUND_REQUIRED" }
+  if (@('chrome','msedge','firefox','brave','vivaldi','opera') -notcontains $name) {
+    throw "BROWSER_FOREGROUND_REQUIRED"
+  }
+  return $name
+}
+
 function Perform-Step($step, [string]$commandId, [string]$planSchema="") {
   $action = [string]$step.action
   if ($planSchema -eq "mel.devices.pc-control.v1") {
@@ -2387,6 +2402,21 @@ function Perform-Step($step, [string]$commandId, [string]$planSchema="") {
       # Opening a URL is distinct from running shell commands or file paths.
       Start-Process -FilePath $uri.AbsoluteUri
       return @{ action=$action; url=$uri.AbsoluteUri }
+    }
+    "browser.back" {
+      $browser = Assert-ForegroundBrowser
+      [System.Windows.Forms.SendKeys]::SendWait("%{LEFT}")
+      return @{ action=$action; browser=$browser }
+    }
+    "browser.forward" {
+      $browser = Assert-ForegroundBrowser
+      [System.Windows.Forms.SendKeys]::SendWait("%{RIGHT}")
+      return @{ action=$action; browser=$browser }
+    }
+    "browser.reload" {
+      $browser = Assert-ForegroundBrowser
+      [System.Windows.Forms.SendKeys]::SendWait("{F5}")
+      return @{ action=$action; browser=$browser }
     }
     "app.open" {
       $exe = Resolve-App ([string]$step.app)
