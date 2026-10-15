@@ -1463,7 +1463,7 @@ internal fun MelApp(
     onRetrySession: () -> Unit,
     onDisconnect: () -> Unit,
     onMode: (MelMode) -> Unit,
-    onPreferCompanionCompute: (Boolean) -> Unit,
+    onPreferCompanionCompute: (Boolean) -> Unit = {},
     onSend: (String) -> Unit,
     onSync: () -> Unit,
     onVoicePress: () -> Unit,
