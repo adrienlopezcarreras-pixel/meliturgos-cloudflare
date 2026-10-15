@@ -16,3 +16,9 @@ test('date words alone do not force web research intent', () => {
   assert.equal(shouldSemanticIntentCheck("Today I feel better"), false);
   assert.equal(shouldSemanticIntentCheck("Vérifie les actualités sur le web aujourd'hui"), true);
 });
+
+test('recent and latest adjectives alone are not public-web requests', () => {
+  assert.equal(shouldSemanticIntentCheck('Voici mes dernières idées'), false);
+  assert.equal(shouldSemanticIntentCheck('Mon dernier roman'), false);
+  assert.equal(shouldSemanticIntentCheck('Recherche les dernières actualités sur Internet'), true);
+});
