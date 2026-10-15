@@ -36,10 +36,25 @@ test('screenshots require matching RUNNING command and valid PNG signature',asyn
   assert.equal(expiredResponse.status,409);
   assert.equal((await expiredResponse.json()).code,'SCREENSHOT_VIEW_AUTH_EXPIRED_OR_INVALID');
   await DB.prepare("UPDATE computer_commands SET plan_json='{}' WHERE id='pending'").run();
+  const unauthorized=await post('pending');
+  assert.equal(unauthorized.status,409);
+  assert.equal((await unauthorized.json()).code,'SCREENSHOT_PLAN_NOT_AUTHORIZED');
+  const spoof={schema:'mel.devices.computer-use.v1',steps:[{action:'system.info'}]};
+  await DB.prepare("UPDATE computer_commands SET plan_json=? WHERE id='pending'").bind(JSON.stringify(spoof)).run();
+  assert.equal((await post('pending')).status,409);
+  const view={schema:'mel.companion.desktop-view-request/v1',action:'desktop.view.request',
+   requires_local_stop:true,screen_capture_only:true,device_id:'screenshot-pc',session_id:'s',
+   expires_at:Date.now()+60_000};
+  await DB.prepare("UPDATE computer_commands SET plan_json=? WHERE id='pending'").bind(JSON.stringify({...view,session_id:'other'})).run();
+  assert.equal((await post('pending')).status,409);
+  await DB.prepare("UPDATE computer_commands SET plan_json=? WHERE id='pending'").bind(JSON.stringify(view)).run();
   assert.equal((await post('pending',Uint8Array.from([1,2,3]))).status,415);
   const accepted=await post('pending');
   assert.equal(accepted.status,200);
   assert.match((await accepted.json()).key,/screenshot-pc\/pending\.png$/);
   assert.equal(saved.length,1);
+  await DB.prepare("UPDATE computer_commands SET plan_json=? WHERE id='pending'").bind(JSON.stringify({schema:'mel.devices.computer-use.v1',steps:[{action:'screen.capture'}]})).run();
+  assert.equal((await post('pending')).status,200);
+  assert.equal(saved.length,2);
  }finally{DB.close();}
 });
