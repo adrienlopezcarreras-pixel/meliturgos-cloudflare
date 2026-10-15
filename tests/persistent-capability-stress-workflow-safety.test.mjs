@@ -58,6 +58,7 @@ test('stress resume fails closed after HTTP 401 or 403 rather than polling indef
 test('successful stress resume must verify response identity and job contract', () => {
   assert.match(runner, /CAPABILITY_STRESS_RESUME_NOT_OK/);
   assert.match(runner, /CAPABILITY_STRESS_RESUME_OTHER_JOB/);
+  assert.match(runner, /CAPABILITY_STRESS_RESUME_JOB_ID_INVALID/);
   assert.match(runner, /String\(resumed\?\.job_id \|\| ''\) !== jobId/);
   assert.match(runner, /validateTerminal\(terminalBody, jobId\)/);
   assert.match(runner, /CAPABILITY_STRESS_RESUME_STATUS_INVALID/);
