@@ -270,3 +270,26 @@ test('canonical release accepts Teacher-proven progress while keeping blocked ba
   assert.doesNotMatch(block, /teacher_proven_handoff_count\|\|0\)===Number\(d\?\.open_handoff_count/);
   assert.doesNotMatch(block, /blocked_open_handoff_count\|\|0\)===0/);
 });
+
+test('predeploy binder retries only Cloudflare 1042 propagation while enforcing real verified backup',async()=>{
+ const source=await readFile(new URL('../.github/workflows/deploy-cloudflare-release.yml',import.meta.url),'utf8');
+ const start=source.indexOf('      - name: Create verified pre-deploy production backup');
+ const end=source.indexOf('      - name: Prepare encrypted Media Vault secrets for exact deployment',start);
+ assert.ok(start>=0&&end>start,'predeploy backup must be ordered before real deployment');
+ const block=source.slice(start,end);
+ assert.match(block,/for ATTEMPT in \$\(seq 1 20\)/);
+ assert.match(block,/error code:\[\[:space:\]\]\*1042/);
+ assert.match(block,/Unexpected binder HTTP 404 without Cloudflare edge 1042/);
+ assert.match(block,/\[ "\$\{CODE\}" = "409" \]/);
+ assert.match(block,/\[ "\$\{CODE\}" = "401" \]/);
+ assert.match(block,/\[ "\$\{CODE\}" = "403" \]/);
+ assert.match(block,/sleep 4/);
+ assert.match(block,/d\?\.status!=='PREDEPLOY_RELEASE_PREPARED'/);
+ assert.match(block,/d\?\.autonomy\?\.paused!==true/);
+ assert.match(block,/b\?\.restore_candidate_verified!==true/);
+ assert.match(block,/b\?\.backup_object_present!==true/);
+ assert.match(block,/backup_object_bytes/);
+ assert.match(block,/if \[ "\$\{PREPARED\}" != "1" \]; then\s+exit 54/);
+ assert.match(block,/predeploy-backup-verified\.marker/);
+ assert.doesNotMatch(block,/for ATTEMPT in \$\(seq 1 4\)/);
+});
