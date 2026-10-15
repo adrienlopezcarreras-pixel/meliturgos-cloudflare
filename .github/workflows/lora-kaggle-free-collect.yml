@@ -282,6 +282,7 @@ jobs:
 
       - name: Wait for isolated preview exact collector SHA
         if: steps.status.outputs.complete == 'true'
+        timeout-minutes: 46
         shell: bash
         env:
           PREVIEW_EXPECTED_SHA: ${{ github.sha }}
@@ -289,7 +290,12 @@ jobs:
           set -euo pipefail
           BASE_URL="https://meliturgos-preview.adrien-lopezcarreras.workers.dev"
           test -n "${MEL_PREVIEW_PASSWORD:-}"
-          for attempt in $(seq 1 24); do
+          # Preview's own job is allowed 40 minutes. Permit propagation,
+          # but refuse indefinitely waiting or testing a stale Worker SHA.
+          deadline=$((SECONDS + 43 * 60))
+          attempt=0
+          while [ "$SECONDS" -lt "$deadline" ]; do
+            attempt=$((attempt + 1))
             STATUS="$(curl --silent --show-error --max-time 20 --connect-timeout 10 \
               --request POST \
               --header "Authorization: Bearer ${MEL_PREVIEW_PASSWORD}" \
@@ -302,7 +308,7 @@ jobs:
               echo "LORA_PREVIEW_EXACT_SHA_READY"
               exit 0
             fi
-            echo "LORA_PREVIEW_EXACT_SHA_WAIT attempt=${attempt}/24"
+            echo "LORA_PREVIEW_EXACT_SHA_WAIT attempt=${attempt} remaining_seconds=$((deadline - SECONDS))"
             sleep 15
           done
           echo "LORA_PREVIEW_EXACT_SHA_TIMEOUT"
