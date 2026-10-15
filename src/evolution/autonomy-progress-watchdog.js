@@ -33,7 +33,7 @@ function baseState() {
 
 function safeCount(value) {
   const count = Number(value);
-  return Number.isFinite(count) ? Math.max(0, Math.floor(count)) : 0;
+  return Number.isFinite(count) ? Math.min(Number.MAX_SAFE_INTEGER - 1, Math.max(0, Math.floor(count))) : 0;
 }
 
 function normalize(raw = {}) {
