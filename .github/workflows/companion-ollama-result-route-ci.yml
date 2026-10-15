@@ -1,0 +1,18 @@
+name: Companion Ollama Result Route Integration CI
+on:
+  pull_request:
+    paths:
+      - 'tests/gen2/companion-ollama-result-route.integration.test.mjs'
+      - '.github/workflows/companion-ollama-result-route-ci.yml'
+permissions:
+  contents: read
+jobs:
+  live-route-mock-db:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node --test tests/gen2/companion-ollama-result-route.integration.test.mjs tests/gen2/companion-late-ollama-result.test.mjs
