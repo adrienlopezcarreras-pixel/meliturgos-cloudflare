@@ -8,6 +8,7 @@ import {
  evaluateMeasuredOptionalCompute,
  shouldInvalidateOptionalComputeTelemetryOnHeartbeat,
  evaluateQueuedOptionalComputeClaim,
+ evaluateOptionalAiResultDeadline,
 } from "./companion-compute-admission.js";
 import { miniReadOnlyPcCommand } from "./mini-readonly-companion.js";
 import { miniMaintenanceAssessCommand } from "./mini-maintenance-companion.js";
@@ -621,6 +622,16 @@ async function result(request,env,a){
   const current=await env.DB.prepare("SELECT status,plan_json FROM computer_commands WHERE id=? AND device_id=? LIMIT 1").bind(id,a.device.id).first();
   if(!current||current.status!=="RUNNING")return json({ok:false,code:"COMPUTER_RESULT_NOT_RUNNING"},409);
   const plan=parse(current.plan_json,{});
+  // A late Ollama result is evidence of a finished local call, NOT a timely
+  // MEL response. Mark it failed instead of creating a false SUCCEEDED proof.
+  const aiResultVerdict=evaluateOptionalAiResultDeadline({plan,now:Date.now()});
+  if(!aiResultVerdict.ok){
+   const expired=await env.DB.prepare("UPDATE computer_commands SET status=?,finished_at=?,error_code=? WHERE id=? AND device_id=? AND status=?")
+    .bind("FAILED",Date.now(),aiResultVerdict.code,id,a.device.id,"RUNNING").run();
+   if(!expired||expired.success===false||Number(expired.meta?.changes)!==1)
+    return json({ok:false,code:"COMPUTER_RESULT_NOT_RUNNING"},409);
+   return json({ok:false,code:aiResultVerdict.code},409);
+  }
   // Legacy computer.quick uses the computer-use screen.capture step, not the
   // dedicated desktop.view.request plan. Its success must be equally truthful.
   const steps=Array.isArray(plan.steps)?plan.steps:[];
