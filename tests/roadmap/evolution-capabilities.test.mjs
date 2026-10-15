@@ -11,7 +11,7 @@ function makeDB() {
    return { async first(){return null;}, bind(...args) {
     const [scope,id] = args;
     return {
-     all:async()=>({results:[...entries.values()].filter(r=>r.owner===scope).map(r=>({payload:r.payload}))}),
+     all:async()=>({results:[...entries.values()].filter(r=>r.owner===scope).map(r=>({payload:r.payload,revision:1}))}),
      first:async()=>{
       const hit=[...entries.values()].find(r=>r.owner===scope&&(sql.includes('canonical_title')?r.key===id:r.id===id));
       return hit?{id:hit.id}:null;
