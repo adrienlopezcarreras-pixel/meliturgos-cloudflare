@@ -1,0 +1,21 @@
+name: Companion Ollama Result Proof CI
+on:
+  pull_request:
+    paths:
+      - 'src/devices/companion-compute-admission.js'
+      - 'src/devices/computer-companion-api.js'
+      - 'tests/gen2/companion-ollama-result-proof.test.mjs'
+      - 'tests/gen2/companion-ollama-result-route.integration.test.mjs'
+      - '.github/workflows/companion-ollama-result-proof-ci.yml'
+permissions:
+  contents: read
+jobs:
+  proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node --test tests/gen2/companion-ollama-result-proof.test.mjs tests/gen2/companion-ollama-result-route.integration.test.mjs
