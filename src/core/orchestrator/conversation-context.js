@@ -20,6 +20,8 @@ export function dedupeRows(rows = []) {
   const seen = new Set();
   const out = [];
   for (const row of rows) {
+    // A malformed retrieval hit must not crash prompt construction.
+    if (!row || typeof row !== 'object' || Array.isArray(row)) continue;
     const source = String(row?.source || row?.provenance?.table || '');
     const id = row?.id ?? row?.provenance?.id;
     // Identifier-free memory hits must not all collapse into the same ':' key.
