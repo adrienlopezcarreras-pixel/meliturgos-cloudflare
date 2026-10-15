@@ -36,10 +36,24 @@ test('failed, cancelled and timed-out releases are still visible, never mislabel
   assert.doesNotMatch(body,/WORKFLOW_SUCCESS/);
  }
 });
+test('manual canonical release dispatched from main is captured with correct branch and SHA',()=>{
+ const event=base();
+ event.workflow_run.event='workflow_dispatch';
+ event.workflow_run.head_branch='main';
+ const result=releaseOutcomeComment(event);
+ assert.match(result,/WORKFLOW_SUCCESS/);
+ assert.match(result,/Branche d.exécution :.*main/);
+ assert.match(result,/workflow_dispatch/);
+ const releaseEvent=base();
+ releaseEvent.workflow_run.event='workflow_dispatch';
+ assert.match(releaseOutcomeComment(releaseEvent),/WORKFLOW_SUCCESS/);
+});
 test('untrusted repositories, branches, events and spoofed SHAs fail closed',()=>{
  const cases=[
   x=>{x.workflow_run.head_branch='main';},
   x=>{x.workflow_run.event='pull_request';},
+  x=>{x.workflow_run.head_branch='main';x.workflow_run.event='push';},
+  x=>{x.workflow_run.head_branch='feature/untrusted';x.workflow_run.event='workflow_dispatch';},
   x=>{x.workflow_run.name='test';},
   x=>{x.workflow_run.repository.full_name='other/repo';},
   x=>{x.workflow_run.head_repository.full_name='other/repo';},
