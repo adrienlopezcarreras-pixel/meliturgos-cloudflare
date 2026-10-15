@@ -93,3 +93,9 @@ test('circular metadata is normalized without crashing identifierless dedupe', (
   const row = {content:'Safe context',conversation_id:cycle};
   assert.deepEqual(dedupeRows([row]),[row]);
 });
+
+test('circular provenance table does not break retrieved memory dedupe', () => {
+  const circular = {}; circular.self = circular;
+  const row = {content:'Safe evidence',provenance:{table:circular}};
+  assert.deepEqual(dedupeRows([row]),[row]);
+});
