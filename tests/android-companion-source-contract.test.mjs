@@ -633,7 +633,7 @@ test('Android voice keeps French system TTS primary with PCM48 then MP3 server f
   assert.match(vm,/MelVoicePlayer\.playPcm48kMono\(pcm\)/);
   assert.match(vm,/client\.tts\(answer, speaker = "luna", format = "mp3"\)/);
   assert.match(vm,/MelVoicePlayer\.playMp3\(appContext, audio\)/);
-  assert.match(vm,/MelVoicePlayer\.playSystemFrench\(appContext, answer\)/);
+  assert.match(vm,/MelVoicePlayer\.playSystemVoice\(appContext, answer, spokenLanguage\)/);
   assert.match(vm,/status = "MEL parle…"/);
   assert.match(vm,/Audio MEL: meilleure voix Android fr-FR/);
   assert.match(vm,/Audio MEL: secours PCM 48 kHz/);
