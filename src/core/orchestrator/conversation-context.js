@@ -1,7 +1,7 @@
 import { createMemoryService } from '../../memory/memory-service.js';
 import { createWorkersAiSemanticProvider } from '../../search/rag-service.js';
 
-function compactHistoricalRows(rows = []) {
+export function compactHistoricalRows(rows = []) {
   return rows.map(row => ({
     conversation_id: row.conversation_id || row.provenance?.conversation_id || null,
     conversation_title: row.conversation_title || row.provenance?.conversation_title || null,
@@ -12,7 +12,13 @@ function compactHistoricalRows(rows = []) {
     collector_complete: row.provenance?.collector_complete === true,
     collector_partial: row.provenance?.collector_partial === true,
     timestamp: Number(row.timestamp || 0),
-    provenance: row.provenance,
+    provenance: {
+      table: typeof row.provenance?.table === 'string' ? row.provenance.table : null,
+      conversation_id: typeof row.provenance?.conversation_id === 'string' ? row.provenance.conversation_id : null,
+      collector_source: typeof row.provenance?.collector_source === 'string' ? row.provenance.collector_source : null,
+      collector_complete: row.provenance?.collector_complete === true,
+      collector_partial: row.provenance?.collector_partial === true,
+    },
   }));
 }
 
