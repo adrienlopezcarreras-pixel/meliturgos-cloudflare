@@ -38,7 +38,7 @@ test('native Microsoft SharePoint needs exact connector ID and a true live Graph
   assert.equal(check('microsoft_sharepoint',{...good,connector_id:'microsoft-onedrive'}).status,3);
 });
 test('optional SharePoint never blocks zero-cost MEL, without claiming Graph proof',()=>{
-  assert.ok(!yaml.includes('then FAILURES=$((FAILURES+1)); fi') || !yaml.includes('if [ "${MICROSOFT_SHAREPOINT_OK}" != "1" ] ||'));
+  assert.ok(!yaml.includes('if [ "${MICROSOFT_SHAREPOINT_OK}" != "1" ] || [ "${MICROSOFT_SHAREPOINT_READ_PROVEN}" != "1" ]; then FAILURES='));
   assert.ok(yaml.includes('sharepoint_graph_read_required:false'));
   assert.ok(yaml.includes("sharepoint_status:process.env.MICROSOFT_SHAREPOINT_READ_PROVEN==='1'?'VERIFIED':'OPTIONAL_UNAVAILABLE'"));
   assert.ok(yaml.includes("free_document_alternatives:['google_drive','microsoft_onedrive']"));
