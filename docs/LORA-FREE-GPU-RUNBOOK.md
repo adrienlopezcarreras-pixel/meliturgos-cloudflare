@@ -224,6 +224,14 @@ de l'adaptateur. Une exécution manuelle utilise par défaut `--concurrency 4`,
 soit la charge comparative habituelle. Aucun retry supplémentaire n'est ajouté
 et ce diagnostic ne prouve pas à lui seul la compatibilité du modèle.
 
+Lorsqu'un nombre de requêtes simultanées est explicitement demandé, le
+benchmark doit renvoyer `benchmark_concurrency` avec la valeur réellement
+utilisée. Si le Worker de preview est encore sur un ancien SHA et ignore
+le paramètre, `finalize-lora.mjs` échoue avec
+`LORA_BENCHMARK_CONCURRENCY_NOT_ACKNOWLEDGED` au lieu de prétendre avoir
+mesuré le mode faible charge. La recette requiert donc le déploiement du
+serveur de preview compatible.
+
 Le validateur `scripts/validate-lora-benchmark-readiness.mjs` échoue si le
 benchmark contient des erreurs de scénario, si un score est manquant ou si les
 gates de qualité échouent. Les preuves sont conservées comme artefacts GitHub
