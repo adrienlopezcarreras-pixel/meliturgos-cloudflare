@@ -9,7 +9,7 @@ function mockD1(){
  return {
   rows,
   prepare(sql){
-   return {bind(...args){
+   return {async first(){return null;},bind(...args){
     return {
      async first(){
       const [owner,value]=args;
