@@ -22,3 +22,25 @@ test('invalid and colliding proposals fail closed',()=>{
  const items=proposeEvolution([],{id:'X',title:'Something',origin:'mel'}).items;
  assert.throws(()=>proposeEvolution(items,{id:'X',title:'Other',origin:'mel'}),/EVOLUTION_DUPLICATE_ID/);
 });
+
+test('health telemetry is unknown until connected, distinct from known regressions',()=>{
+ const initial={total:3,verified:3};
+ let item=proposeEvolution([],{id:'E-6',title:'Restore voice answer',origin:'audit'}).item;
+ for(const state of ['TRIAGED','APPROVED','IN_PROGRESS','IMPLEMENTED','TESTING']){
+  item=transitionEvolution(item,state);
+ }
+ item=transitionEvolution(item,'DONE_VERIFIED',{proof:{sha:'c'.repeat(40),ci_passed:true,real_test_passed:true,environment:'prod',reference:'run/123'}});
+ item=transitionEvolution(item,'REGRESSED');
+ const unknown=evolutionSnapshot({initial,items:[item]});
+ assert.equal(unknown.initial.percent_verified,100);
+ assert.equal(unknown.health.status,'NOT_CONNECTED');
+ assert.equal(unknown.health.active_incidents,null);
+ assert.equal(unknown.health.regressed_items,1);
+ const real=evolutionSnapshot({initial,items:[item],incidents:[{resolved:false},{resolved:true}]});
+ assert.equal(real.health.status,'CONNECTED');
+ assert.equal(real.health.active_incidents,1);
+ assert.equal(real.health.regressed_items,1);
+ const empty=evolutionSnapshot({initial,items:[],incidents:[]});
+ assert.equal(empty.health.status,'CONNECTED');
+ assert.equal(empty.health.active_incidents,0);
+});
