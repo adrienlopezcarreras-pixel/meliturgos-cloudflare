@@ -87,3 +87,9 @@ test('screen malformed and credential-bearing results before identifier-free ded
   const eligible = rows.filter(row => row && typeof row === 'object' && !Array.isArray(row) && typeof row.content === 'string' && !profileSecretLike(row.content));
   assert.deepEqual(dedupeRows(eligible).map(row => row.content), ['usable context']);
 });
+
+test('circular metadata is normalized without crashing identifierless dedupe', () => {
+  const cycle = {}; cycle.self = cycle;
+  const row = {content:'Safe context',conversation_id:cycle};
+  assert.deepEqual(dedupeRows([row]),[row]);
+});
