@@ -11,7 +11,9 @@ export function releaseOutcomeComment(payload, repository = REPO) {
  const w = payload.workflow_run;
  if (!w || typeof w !== 'object' || payload.action !== 'completed') throw new Error('RELEASE_LEDGER_EVENT_INVALID');
  if (w.name !== WORKFLOW || w.repository?.full_name !== REPO || w.head_repository?.full_name !== REPO) throw new Error('RELEASE_LEDGER_WORKFLOW_UNTRUSTED');
- if (w.head_branch !== RELEASE_BRANCH || !['push','workflow_dispatch'].includes(w.event)) throw new Error('RELEASE_LEDGER_SCOPE_INVALID');
+ const allowedBranch = (w.event === 'push' && w.head_branch === RELEASE_BRANCH)
+  || (w.event === 'workflow_dispatch' && [RELEASE_BRANCH,'main'].includes(w.head_branch));
+ if (!allowedBranch) throw new Error('RELEASE_LEDGER_SCOPE_INVALID');
  const id = w.id;
  const sha = w.head_sha;
  const conclusion = w.conclusion;
@@ -24,7 +26,7 @@ export function releaseOutcomeComment(payload, repository = REPO) {
   '',
   `- **Exécution :** [#${id}](${url})`,
   `- **SHA exact :** \`${sha}\``,
-  `- **Branche :** \`${RELEASE_BRANCH}\``,
+  `- **Branche d'exécution :** \`${w.head_branch}\``,
   `- **Événement :** \`${w.event}\``,
   `- **Conclusion GitHub Actions :** \`${conclusion}\``,
   `- **État de la release :** \`${status}\``,
