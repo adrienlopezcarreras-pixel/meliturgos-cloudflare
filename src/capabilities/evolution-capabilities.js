@@ -5,7 +5,15 @@ import { roadmapSummary } from '../roadmap/master-roadmap.js';
 // All operations use the existing CapabilityBus permission and validation gates.
 // Schema creation is an explicit deployment migration, never a read side effect.
 export function registerEvolutionCapabilities(bus,{db}={}) {
- const common={category:'roadmap',version:'1.0.0',provider:'core',output_schema:{type:'object',additionalProperties:true},health:db?'HEALTHY':'UNAVAILABLE',enabled:true};
+ const healthcheck=async()=>{
+  if(!db||typeof db.prepare!=='function')return {status:'UNAVAILABLE',reason:'EVOLUTION_D1_REQUIRED'};
+  try {
+   await db.prepare('SELECT 1 FROM mel_evolution_items LIMIT 1').first();
+   await db.prepare('SELECT 1 FROM mel_evolution_initial_archive LIMIT 1').first();
+   return {status:'HEALTHY'};
+  }catch{return {status:'UNAVAILABLE',reason:'EVOLUTION_SCHEMA_V18_NOT_READY'};}
+ };
+ const common={category:'roadmap',version:'1.0.0',provider:'core',output_schema:{type:'object',additionalProperties:true},health:db?'UNTESTED':'UNAVAILABLE',healthcheck,enabled:true};
  bus.discover({...common,id:'evolution.list',name:'Bac de développement MEL',description:'Read current evolutions without changing the historical roadmap',risk:'LOW',permissions:[],input_schema:{type:'object',properties:{},additionalProperties:false}},async(_input,context={})=>{
   if(!db)throw new Error('EVOLUTION_D1_REQUIRED');
   const initial=roadmapSummary();
