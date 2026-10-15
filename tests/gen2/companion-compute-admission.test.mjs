@@ -18,3 +18,16 @@ test('budgets bounded and GPU optional',()=>{
  assert.equal(decide({...base,gpuAvailable:true}).limits.gpu_percent,20);
  assert.equal(decide({...base,profile:'performance',activeJobs:2}).allowed,false);
 });
+
+test('fresh local measurements required before admitting GPU work',async()=>{
+ const {evaluateMeasuredOptionalCompute:decideMeasured}=await import('../../src/devices/companion-compute-admission.js');
+ const now=100000;
+ const request={enabled:true,profile:'light',online:true};
+ const telemetry={observed_at:now,cpu_percent:20,free_ram_mb:8192,on_battery:false,user_busy:false,gpu_available:true,active_jobs:0};
+ assert.equal(decideMeasured({...request,now}).allowed,false);
+ assert.equal(decideMeasured({...request,now,telemetry:{...telemetry,observed_at:now-10001}}).reason,'COMPUTE_TELEMETRY_STALE');
+ assert.equal(decideMeasured({...request,now,telemetry:{...telemetry,on_battery:null}}).reason,'COMPUTE_TELEMETRY_INVALID');
+ assert.equal(decideMeasured({...request,now,telemetry:{...telemetry,cpu_percent:85}}).reason,'PC_CPU_BUSY');
+ assert.equal(decideMeasured({...request,now,telemetry}).allowed,true);
+ assert.equal(decideMeasured({...request,now,telemetry:{...telemetry,user_busy:true}}).allowed,false);
+});

@@ -17,3 +17,22 @@ export function evaluateOptionalCompute({enabled=false,profile='off',online=fals
  if(!Number.isSafeInteger(activeJobs)||activeJobs<0||activeJobs>=limits.max_jobs)return {allowed:false,reason:'COMPUTE_BUSY'};
  return {allowed:true,reason:'ADMITTED',limits:{...limits,gpu_percent:gpuAvailable===true?limits.gpu_percent:0}};
 }
+
+/**
+ * Only real and fresh local Windows measurements may authorize useful compute.
+ * Missing telemetry must never be interpreted as an idle machine.
+ */
+export function evaluateMeasuredOptionalCompute({telemetry,now=Date.now(),...request}={}){
+ if(!telemetry||typeof telemetry!=='object'||!Number.isFinite(now))
+  return {allowed:false,reason:'COMPUTE_TELEMETRY_MISSING'};
+ const {observed_at,cpu_percent,free_ram_mb,on_battery,user_busy,gpu_available,active_jobs}=telemetry;
+ if(!Number.isFinite(observed_at)||observed_at>now||now-observed_at>10000)
+  return {allowed:false,reason:'COMPUTE_TELEMETRY_STALE'};
+ if(!Number.isFinite(cpu_percent)||cpu_percent<0||cpu_percent>100||
+    typeof on_battery!=='boolean'||typeof user_busy!=='boolean'||
+    typeof gpu_available!=='boolean')
+  return {allowed:false,reason:'COMPUTE_TELEMETRY_INVALID'};
+ if(cpu_percent>=70)return {allowed:false,reason:'PC_CPU_BUSY'};
+ return evaluateOptionalCompute({...request,onBattery:on_battery,userBusy:user_busy,
+   freeRamMb:free_ram_mb,gpuAvailable:gpu_available,activeJobs:active_jobs});
+}
