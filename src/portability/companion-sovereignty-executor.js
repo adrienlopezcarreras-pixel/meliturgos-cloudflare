@@ -163,11 +163,33 @@ export function createCompanionSovereigntyExecutor(env,{
       await sleep(Math.max(100,Math.min(1000,Number(pollIntervalMs)||300)));
     }
 
+    // Revoke a still-pending command when the caller gives up. Otherwise a
+    // sleeping Companion might execute a stale request long after fallback.
+    // Already-claimed work is NOT labelled cancelled: we cannot attest a
+    // running local model has stopped without an explicit local stop proof.
+    let pendingCancelled=false;
+    let finalStatus='UNKNOWN';
+    try{
+      const cancelled=await env.DB.prepare(`UPDATE computer_commands
+        SET status='FAILED',error_code='COMPANION_SOVEREIGNTY_TIMEOUT'
+        WHERE id=? AND device_id=? AND status='PENDING'`)
+        .bind(commandId,device.id).run();
+      pendingCancelled=Number(cancelled?.meta?.changes||0)>0;
+      if(pendingCancelled)finalStatus='FAILED';
+      else{
+        const last=await env.DB.prepare('SELECT status FROM computer_commands WHERE id=? AND device_id=? LIMIT 1')
+          .bind(commandId,device.id).first();
+        finalStatus=clean(last?.status,50)||'UNKNOWN';
+      }
+    }catch{finalStatus='UNKNOWN';}
     return{
       ok:false,
       code:'COMPANION_SOVEREIGNTY_TIMEOUT',
       command_id:commandId,
       device_id:device.id,
+      pending_cancelled:pendingCancelled,
+      work_may_still_run:!pendingCancelled,
+      last_known_status:finalStatus,
     };
   };
 }
