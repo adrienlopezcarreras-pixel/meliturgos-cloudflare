@@ -37,8 +37,12 @@ test('native Microsoft SharePoint needs exact connector ID and a true live Graph
   assert.equal(check('microsoft_sharepoint',{ok:true,provider:'microsoft'}).status,3);
   assert.equal(check('microsoft_sharepoint',{...good,connector_id:'microsoft-onedrive'}).status,3);
 });
-test('unproven required SharePoint Graph read keeps total production proof red',()=>{
-  assert.match(yaml,/if \[ "\$\{MICROSOFT_SHAREPOINT_OK\}" != "1" \] \|\| \[ "\$\{MICROSOFT_SHAREPOINT_READ_PROVEN\}" != "1" \]; then FAILURES=\$\(\(FAILURES\+1\)\); fi/);
-  assert.match(yaml,/sharepoint_graph_read_required:true/);
-  assert.match(yaml,/sharepoint_graph_read_proven:process\.env\.MICROSOFT_SHAREPOINT_READ_PROVEN==='1'/);
+test('optional SharePoint never blocks baseline zero-cost MEL, without claiming Graph proof',()=>{
+  assert.doesNotMatch(yaml,/if \\[ "\\\$\\{MICROSOFT_SHAREPOINT_OK\\}" != "1" \\] \\|\\| \\[ "\\\$\\{MICROSOFT_SHAREPOINT_READ_PROVEN\\}" != "1" \\]; then FAILURES=/);
+  assert.match(yaml,/sharepoint_graph_read_required:false/);
+  assert.match(yaml,/sharepoint_status:process\\.env\\.MICROSOFT_SHAREPOINT_READ_PROVEN==='1'\\?'VERIFIED':'OPTIONAL_UNAVAILABLE'/);
+  assert.match(yaml,/free_document_alternatives:\\['google_drive','microsoft_onedrive'\\]/);
+  assert.match(yaml,/sharepoint_graph_read_proven:process\\.env\\.MICROSOFT_SHAREPOINT_READ_PROVEN==='1'/);
+  assert.match(yaml,/MICROSOFT_SHAREPOINT_READ_PROVEN.*!= "1"/);
+  assert.match(yaml,/OPTIONAL_UNAVAILABLE/);
 });
