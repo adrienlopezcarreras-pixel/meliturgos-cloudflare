@@ -1,0 +1,18 @@
+name: Companion Local AI Benchmark Safety CI
+on:
+  pull_request:
+    paths:
+      - 'scripts/companion-local-ai-benchmark.ps1'
+      - 'tests/windows/companion-local-ai-benchmark-smoke.ps1'
+      - '.github/workflows/companion-local-ai-benchmark-ci.yml'
+permissions:
+  contents: read
+jobs:
+  windows-dry-run:
+    runs-on: windows-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: Assert no network and no opt-in inference during dry-run
+        shell: powershell
+        run: .\tests\windows\companion-local-ai-benchmark-smoke.ps1
