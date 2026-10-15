@@ -1683,6 +1683,9 @@ jobs:
           console.log('Production GEN2-51 semantic API proof passed.');
           NODE
 
+          # MEL-COUNCIL-02: four bounded, zero-euro-governed candidates provide
+          # one extra independent provider/model when another Worker fails.
+          # Two actually completed critiques and synthesis are STILL required.
           # MEL-COUNCIL-02: deep provider proof is non-blocking while dev-light mode is active.
           if [ "${MEL_RELEASE_DEEP_AI_PROOFS_PAUSED:-false}" = "true" ]; then
             echo '{"ok":true,"skipped":true,"reason":"DEV_LIGHT_EXTERNAL_AI_PROOFS_PAUSED"}' > production-mel-council-02.json
@@ -1692,7 +1695,7 @@ jobs:
               --header "x-mel-release-smoke: 1" \
               --header "x-mel-launch-bootstrap: ${BOOTSTRAP_TOKEN}" \
               --header "content-type: application/json" \
-              --data '{"id":"model.council","input":{"request":{"prompt":"Production release proof: independently critique whether an exact-SHA deployment gate is safer than an unpinned deployment. Keep the answer concise."},"capability":"GENERAL","maxCandidates":3,"timeoutMs":60000}}' \
+              --data '{"id":"model.council","input":{"request":{"prompt":"Production release proof: independently critique whether an exact-SHA deployment gate is safer than an unpinned deployment. Keep the answer concise."},"capability":"GENERAL","maxCandidates":4,"timeoutMs":60000}}' \
               --output production-mel-council-02.json \
               --write-out '%{http_code}' \
               "${BASE_URL}/api/gen2/capabilities/execute")"
