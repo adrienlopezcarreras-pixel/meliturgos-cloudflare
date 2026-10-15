@@ -10,6 +10,7 @@ function fakeD1() {
   async exec(sql){ if(sql.includes('mel_evolution_items')) { assert.ok(sql.includes('PRIMARY KEY (owner_scope, id)')); schemaApplied=true; } },
   prepare(sql){
    const query={
+    async run(){if(sql.includes('mel_evolution_items')) schemaApplied=true;return {success:true,meta:{changes:0}};},
     bind(...args){
      return {
       async first(){
