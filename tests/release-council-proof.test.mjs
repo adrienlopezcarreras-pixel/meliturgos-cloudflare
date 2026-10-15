@@ -36,6 +36,26 @@ test('single critique blocks publication and prints safe failure diagnostics', (
   assert.deepEqual(result.summary.failure_codes, ['PROVIDER_TIMEOUT', 'PROVIDER_FAILURE_REDACTED']);
   assert.doesNotMatch(JSON.stringify(result), /private-token-abcdef/);
 });
+test('Council failure identifies only public model IDs and bounded error codes', () => {
+  const v = valid();
+  v.result.critiques = [crit('workers-ai', '@cf/meta/llama-3.3-70b-instruct-fp8-fast')];
+  v.result.independent_response_count = 1;
+  v.result.failures = [
+    { identity: 'workers-ai::@cf/google/gemma-4-26b-a4b-it', code: 'EMPTY_WORKERS_AI_RESPONSE', message: 'secret-token-abc' },
+    { identity: 'workers-ai::@cf/nvidia/nemotron-3-120b-a12b', code: 'PROVIDER_FAILED' },
+    { identity: 'provider\\secret-token-abc', code: 'auth secret-token-abc' },
+  ];
+  const proof = evaluateCouncilReleaseProof(v);
+  assert.equal(proof.code, 'MEL_COUNCIL_02_INDEPENDENT_CRITIQUES_MISSING');
+  assert.deepEqual(proof.summary.failed_provider_models, [
+    { identity: 'workers-ai::@cf/google/gemma-4-26b-a4b-it', code: 'EMPTY_WORKERS_AI_RESPONSE' },
+    { identity: 'workers-ai::@cf/nvidia/nemotron-3-120b-a12b', code: 'PROVIDER_FAILED' },
+    { identity: 'MODEL_ID_REDACTED', code: 'PROVIDER_FAILURE_REDACTED' },
+  ]);
+  assert.deepEqual(proof.summary.successful_provider_models, ['workers-ai::@cf/meta/llama-3.3-70b-instruct-fp8-fast']);
+  assert.doesNotMatch(JSON.stringify(proof), /secret-token-abc/);
+});
+
 test('two fabricated copies of the same provider-model cannot fake independence', () => {
   const v = valid();
   v.result.critiques = [crit('workers-ai', 'm1'), crit('workers-ai', 'm1')];
