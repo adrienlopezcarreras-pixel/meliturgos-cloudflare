@@ -1831,6 +1831,17 @@ function Invoke-OllamaWithCooperativeCancel([string]$uri,[string]$json,[int]$tim
   $cts = New-Object System.Threading.CancellationTokenSource
   $content = [System.Net.Http.StringContent]::new($json,[Text.Encoding]::UTF8,"application/json")
   try {
+    # The owner's consent can change between initial admission and POST.
+    $liveProfile = $null
+    try { $liveProfile = Get-LocalComputeProfile } catch {}
+    if ($liveProfile -ne $profile -or (Get-LocalGpuConsent) -ne $gpuConsent) {
+      $cts.Cancel()
+      throw "SOVEREIGNTY_AI_LOCAL_CONSENT_REVOKED"
+    }
+    if ([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() -ge $endMs) {
+      $cts.Cancel()
+      throw "SOVEREIGNTY_AI_LOCAL_DEADLINE_EXPIRED"
+    }
     $pending = $client.PostAsync($uri,$content,$cts.Token)
     while (-not $pending.IsCompleted) {
       $nowMs = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
@@ -1850,6 +1861,18 @@ function Invoke-OllamaWithCooperativeCancel([string]$uri,[string]$json,[int]$tim
     try {
       if (-not $httpResponse.IsSuccessStatusCode) { throw "SOVEREIGNTY_AI_LOCAL_HTTP_FAILED" }
       $responseText = $httpResponse.Content.ReadAsStringAsync().GetAwaiter().GetResult()
+      # The network task may finish between two 300ms polls. A completed
+      # HTTP request must not bypass the same owner and deadline checks.
+      if ([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() -ge $endMs) {
+        $cts.Cancel()
+        throw "SOVEREIGNTY_AI_LOCAL_DEADLINE_EXPIRED"
+      }
+      $liveProfile = $null
+      try { $liveProfile = Get-LocalComputeProfile } catch {}
+      if ($liveProfile -ne $profile -or (Get-LocalGpuConsent) -ne $gpuConsent) {
+        $cts.Cancel()
+        throw "SOVEREIGNTY_AI_LOCAL_CONSENT_REVOKED"
+      }
       return ConvertFrom-Json -InputObject $responseText
     } finally { $httpResponse.Dispose() }
   } finally {

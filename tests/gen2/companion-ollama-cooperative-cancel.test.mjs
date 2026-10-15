@@ -52,3 +52,18 @@ test('server stamps an unspoofable per-inference deadline into the queued plan',
  assert.ok(step.payload.owner_inference_deadline_ms>=before+6000);
  assert.ok(step.payload.owner_inference_deadline_ms<=Date.now()+6000);
 });
+
+test('post-completion HTTP path revalidates deadline and owner consent before answer',()=>{
+ const open=src.indexOf('function Invoke-OllamaWithCooperativeCancel(');
+ const end=src.indexOf('function Assert-SovereigntyAiPreflight(',open);
+ const piece=src.slice(open,end);
+ const completed=piece.indexOf('$responseText = $httpResponse.Content.ReadAsStringAsync()');
+ const returned=piece.indexOf('return ConvertFrom-Json -InputObject $responseText',completed);
+ assert.ok(completed>=0&&returned>completed);
+ const guard=piece.slice(completed,returned);
+ assert.match(guard,/SOVEREIGNTY_AI_LOCAL_DEADLINE_EXPIRED/);
+ assert.match(guard,/SOVEREIGNTY_AI_LOCAL_CONSENT_REVOKED/);
+ assert.match(guard,/Get-LocalGpuConsent/);
+ const send=piece.indexOf('$pending = $client.PostAsync');
+ assert.ok(piece.indexOf('Get-LocalComputeProfile')<send);
+});
