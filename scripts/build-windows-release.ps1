@@ -41,6 +41,11 @@ $androidPairSource = Join-Path $repoRoot "tools\android-companion\MEL-Android-Wi
 if (-not (Test-Path -LiteralPath $androidPairSource -PathType Leaf)) { throw "ANDROID_WIFI_PAIRING_HELPER_MISSING" }
 Copy-Item -LiteralPath $androidPairSource -Destination (Join-Path $stage "MEL-Android-WiFi-Pairing.ps1")
 
+# Packaged but never executed during installation or build.
+$benchmarkSource = Join-Path $repoRoot "scripts\companion-local-ai-benchmark.ps1"
+if (-not (Test-Path -LiteralPath $benchmarkSource -PathType Leaf)) { throw "WINDOWS_LOCAL_AI_BENCHMARK_MISSING" }
+Copy-Item -LiteralPath $benchmarkSource -Destination (Join-Path $stage "MEL-Local-AI-Benchmark.ps1")
+
 $desktopSource = Join-Path $repoRoot "windows-companion\MEL-Companion.cs"
 if (-not (Test-Path -LiteralPath $desktopSource -PathType Leaf)) { throw "WINDOWS_DESKTOP_SOURCE_MISSING" }
 $companionSource = Join-Path $assetDir "MEL-Computer-Companion.ps1"

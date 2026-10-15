@@ -7,6 +7,7 @@ on:
       - 'windows-companion/**'
       - 'tests/computer-companion-api.test.mjs'
       - 'scripts/*windows-release*.ps1'
+      - 'scripts/companion-local-ai-benchmark.ps1'
       - 'tests/gen2/windows-release-contract.test.mjs'
       - 'tests/gen2/windows-adb-wifi-contract.test.mjs'
       - 'tests/gen2/companion-ble-channel.test.mjs'
@@ -20,6 +21,7 @@ on:
       - 'windows-companion/**'
       - 'tests/computer-companion-api.test.mjs'
       - 'scripts/*windows-release*.ps1'
+      - 'scripts/companion-local-ai-benchmark.ps1'
       - 'tests/gen2/windows-release-contract.test.mjs'
       - '.github/workflows/windows-release-build.yml'
       - 'src/roadmap/master-roadmap.js'
@@ -90,6 +92,7 @@ jobs:
             'windows-companion/MEL-ADB-WiFi.ps1',
             'tools/android-companion/MEL-Android-WiFi-Pairing.ps1',
             'scripts/build-windows-release.ps1',
+            'scripts/companion-local-ai-benchmark.ps1',
             'scripts/sign-windows-release.ps1',
             'scripts/verify-windows-release.ps1'
           )
