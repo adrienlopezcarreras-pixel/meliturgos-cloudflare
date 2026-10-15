@@ -285,8 +285,8 @@ async function ownerPcControl(request,env){
  }else if(action.startsWith("mini.readonly.")&&a.kind==="owner"){
   if(action==="mini.readonly.backup.status"){ const jobId=safe(payload.job_id,32).toLowerCase();if(!/^[a-f0-9]{32}$/.test(jobId))return json({ok:false,code:"MINI_BACKUP_JOB_ID_INVALID"},400); }
   if(action==="mini.readonly.backup"&&payload.ack_local_backup!==true)return json({ok:false,code:"MINI_BACKUP_ACK_REQUIRED"},400);
-  const port=safe(payload.port,16).toUpperCase();
-  if(!/^COM\d{1,3}$/.test(port))return json({ok:false,code:"MINI_READONLY_PORT_INVALID"},400);
+  const port=action==="mini.readonly.backup.status"?null:safe(payload.port,16).toUpperCase();
+  if(port!==null&&!/^COM\d{1,3}$/.test(port))return json({ok:false,code:"MINI_READONLY_PORT_INVALID"},400);
   effectiveAction="system.exec";
   effectivePayload=miniReadOnlyPcCommand(action,port,action==="mini.readonly.backup.status"?safe(payload.job_id,32).toLowerCase():null);
  }
