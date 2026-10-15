@@ -893,3 +893,14 @@ test('MINI phase HELLO advertisement never becomes session authority', async () 
   assert.match(service, /miniPhaseAdvertised\.value = false/g);
   assert.match(service, /frame\.payload\.toString\(Charsets\.UTF_8\)/);
 });
+
+test('native Android speech recognition is not locked to French and requests multilingual switching', async () => {
+  const activity=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MainActivity.kt',root),'utf8');
+  const native=activity.slice(activity.indexOf('private fun startNativeSpeech()'),activity.indexOf('private fun startRecorderFallback(',activity.indexOf('private fun startNativeSpeech()')));
+  assert.doesNotMatch(native,/putExtra\(RecognizerIntent\.EXTRA_LANGUAGE, Locale\.FRENCH/);
+  assert.doesNotMatch(native,/putExtra\(RecognizerIntent\.EXTRA_LANGUAGE_PREFERENCE, Locale\.FRENCH/);
+  assert.match(native,/RecognizerIntent\.EXTRA_ENABLE_LANGUAGE_DETECTION/);
+  assert.match(native,/RecognizerIntent\.EXTRA_ENABLE_LANGUAGE_SWITCH/);
+  for(const tag of ['fr-FR','es-ES','pt-PT','pt-BR']) assert.ok(native.includes('"'+tag+'"'));
+  assert.match(native,/Build\.VERSION\.SDK_INT >= Build\.VERSION_CODES\.UPSIDE_DOWN_CAKE/);
+});
