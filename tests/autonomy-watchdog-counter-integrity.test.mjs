@@ -16,3 +16,20 @@ test('malformed persisted watchdog counters do not hide stalled work', async () 
   assert.deepEqual(state.counters,{ticks:1,advanced_ticks:0,jobs_created:0,jobs_completed:0,blocked_ticks:1,lease_busy_skips:1});
   assert.deepEqual(saved.counters,state.counters);
 });
+
+test('very large persisted counters stay safe after increment', async () => {
+  const db = { prepare: () => ({ bind: (...args) => ({
+    first: async () => ({ status:'NO_PROGRESS',last_seen:1,metadata_json: JSON.stringify({
+      consecutive_stalls: Number.MAX_VALUE,
+      counters: { ticks: Number.MAX_VALUE, blocked_ticks: Number.MAX_VALUE }
+    }) }),
+    run: async () => ({ success: true })
+  }) }) };
+  const state = await recordAutonomyProgressWatchdog(db,
+    { status:'NO_PROGRESS', progress: { work_remaining: true } },
+    { maxAutonomy: true, now: 1000 });
+  assert.equal(state.counters.ticks, Number.MAX_SAFE_INTEGER);
+  assert.equal(state.counters.blocked_ticks, Number.MAX_SAFE_INTEGER);
+  assert.equal(state.consecutive_stalls, Number.MAX_SAFE_INTEGER);
+  assert.equal(state.tripped, true);
+});
