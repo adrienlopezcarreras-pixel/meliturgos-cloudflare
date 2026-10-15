@@ -6,6 +6,7 @@ on:
       - 'src/capabilities/evolution-capabilities.js'
       - 'src/capabilities/default-bus.js'
       - 'src/persistence/migrations.js'
+      - 'migrations/0018_evolution_development.sql'
       - 'src/core/config.js'
       - 'src/diagnostics/data-integrity.js'
       - 'tests/roadmap/evolution-*.test.mjs'
