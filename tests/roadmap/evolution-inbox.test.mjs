@@ -1,0 +1,24 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {proposeEvolution,transitionEvolution,evolutionSnapshot} from '../../src/roadmap/evolution-inbox.js';
+test('initial percentage stays fixed when new work is proposed',()=>{
+ const base={total:100,verified:100};
+ const first=proposeEvolution([],{id:'EV-1',title:'New capability',origin:'mel'});
+ const duplicate=proposeEvolution(first.items,{id:'EV-2',title:'new   capability!',origin:'audit'});
+ assert.equal(duplicate.created,false);assert.equal(duplicate.duplicate_of,'EV-1');
+ const snapshot=evolutionSnapshot({initial:base,items:first.items,incidents:[{resolved:false}]});
+ assert.equal(snapshot.initial.percent_verified,100);assert.equal(snapshot.evolution.proposed,1);assert.equal(snapshot.health.active_incidents,1);
+});
+test('no verification without SHA and real evidence',()=>{
+ let i=proposeEvolution([],{id:'EV-1',title:'New capability',origin:'user'}).item;
+ for(const status of ['TRIAGED','APPROVED','IN_PROGRESS','IMPLEMENTED','TESTING']) i=transitionEvolution(i,status);
+ assert.throws(()=>transitionEvolution(i,'DONE_VERIFIED'),/EVOLUTION_MISSING_VERIFICATION/);
+ i=transitionEvolution(i,'DONE_VERIFIED',{proof:{sha:'a'.repeat(40),ci_passed:true,real_test_passed:true,environment:'production',reference:'run/1'}});
+ assert.equal(i.evidence.length,1);assert.equal(transitionEvolution(i,'REGRESSED').status,'REGRESSED');
+ assert.throws(()=>transitionEvolution(i,'PROPOSED'),/EVOLUTION_INVALID_TRANSITION/);
+});
+test('invalid and colliding proposals fail closed',()=>{
+ assert.throws(()=>proposeEvolution([],{id:'X',title:' ',origin:'mel'}),/EVOLUTION_INVALID_PROPOSAL/);
+ const items=proposeEvolution([],{id:'X',title:'Something',origin:'mel'}).items;
+ assert.throws(()=>proposeEvolution(items,{id:'X',title:'Other',origin:'mel'}),/EVOLUTION_DUPLICATE_ID/);
+});
