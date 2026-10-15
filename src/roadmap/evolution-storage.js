@@ -89,7 +89,7 @@ export async function readInitialArchive(db) {
  }
  return Object.freeze({archive_id:row.archive_id,source_sha:sha,proof_reference:row.proof_reference,closed_at:row.closed_at,total:row.total_count,verified:row.verified_count});
 }
-export async function getEvolutionDashboard(db, owner, initial, incidents=[]) {
+export async function getEvolutionDashboard(db, owner, initial, incidents=null) {
  const items=await listEvolutionItems(db,owner);
  const archive=await readInitialArchive(db);
  const verifiedInitial=archive?{total:archive.total,verified:archive.verified}:initial;

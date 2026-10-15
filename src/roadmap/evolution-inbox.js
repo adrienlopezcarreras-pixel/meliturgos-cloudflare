@@ -41,10 +41,10 @@ export function transitionEvolution(item,next,{proof=null}={}) {
  }
  return Object.freeze({...item,status:next,evidence: next==='DONE_VERIFIED'?[...(item.evidence||[]),Object.freeze({...proof})]:(item.evidence||[])});
 }
-export function evolutionSnapshot({initial,items=[],incidents=[]}) {
+export function evolutionSnapshot({initial,items=[],incidents=null}) {
  if (!initial || !Number.isInteger(initial.total) || !Number.isInteger(initial.verified) || initial.total<0 || initial.verified<0 || initial.verified>initial.total) throw new Error('EVOLUTION_INVALID_BASELINE');
- if (!Array.isArray(items)||!Array.isArray(incidents)) throw new Error('EVOLUTION_INVALID_REGISTRY');
+ if (!Array.isArray(items)||(incidents!==null&&!Array.isArray(incidents))) throw new Error('EVOLUTION_INVALID_REGISTRY');
  items.forEach(requireItem);
  const ids=new Set(); for(const item of items){if(ids.has(item.id))throw new Error('EVOLUTION_DUPLICATE_ID');ids.add(item.id);}
- return Object.freeze({schema:EVOLUTION_SCHEMA,initial:Object.freeze({total:initial.total,verified:initial.verified,percent_verified:initial.total?Math.round(initial.verified/initial.total*100):0}),evolution:Object.freeze({total:items.length,verified:items.filter(i=>i.status==='DONE_VERIFIED').length,proposed:items.filter(i=>i.status==='PROPOSED').length}),health:Object.freeze({active_incidents:incidents.filter(i=>!i.resolved).length}),items:Object.freeze([...items])});
+ return Object.freeze({schema:EVOLUTION_SCHEMA,initial:Object.freeze({total:initial.total,verified:initial.verified,percent_verified:initial.total?Math.round(initial.verified/initial.total*100):0}),evolution:Object.freeze({total:items.length,verified:items.filter(i=>i.status==='DONE_VERIFIED').length,proposed:items.filter(i=>i.status==='PROPOSED').length}),health:Object.freeze({status:incidents===null?'NOT_CONNECTED':'CONNECTED',active_incidents:incidents===null?null:incidents.filter(i=>!i.resolved).length,regressed_items:items.filter(i=>i.status==='REGRESSED').length}),items:Object.freeze([...items])});
 }
