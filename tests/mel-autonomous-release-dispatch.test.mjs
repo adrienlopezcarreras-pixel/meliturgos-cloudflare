@@ -412,3 +412,10 @@ test('release guard rejects uppercase active workflow state from provider', () =
   assert.throws(() => assertNoActiveDeploy([{ name: 'deploy-cloudflare-release', status: 'IN_PROGRESS' }]), /PRODUCTION_DEPLOY_ALREADY_ACTIVE/);
   assert.throws(() => assertNoActiveDeploy([{ name: 'deploy-cloudflare-release', status: 'QUEUED' }]), /PRODUCTION_DEPLOY_ALREADY_ACTIVE/);
 });
+
+test('unknown or empty release statuses fail closed before a concurrent deployment', () => {
+  for (const status of ['startup', '', null, 'UNKNOWN']) {
+    assert.throws(() => assertNoActiveDeploy([{ name: 'deploy-cloudflare-release', status }]), /PRODUCTION_DEPLOY_ALREADY_ACTIVE/);
+  }
+  assert.doesNotThrow(() => assertNoActiveDeploy([{ name: 'deploy-cloudflare-release', status: 'completed', conclusion: 'failure' }]));
+});
