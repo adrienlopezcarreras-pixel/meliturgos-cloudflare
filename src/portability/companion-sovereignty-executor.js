@@ -118,6 +118,11 @@ export function createCompanionSovereigntyExecutor(env,{
     const stepPayload={
       ...(payload&&typeof payload==='object'?payload:{}),
     };
+    // Server-authoritative deadline prevents a queued AI inference from
+    // continuing long after the native chat caller has already fallen back.
+    const boundedWaitMs=Math.max(1000,Math.min(120000,Number(timeoutMs)||12000));
+    if(qualifiedAction==='sovereignty.ai.invoke')
+      stepPayload.owner_inference_deadline_ms=now+boundedWaitMs;
     if(repository)stepPayload.repository=clean(repository,200);
     if(namespace)stepPayload.namespace=clean(namespace,200);
     if(database)stepPayload.database=clean(database,240);
@@ -135,7 +140,7 @@ export function createCompanionSovereigntyExecutor(env,{
     ) VALUES(?,?,?,?,?,?)`)
       .bind(commandId,device.id,sessionId,JSON.stringify(plan),'PENDING',now).run();
 
-    const deadline=Date.now()+Math.max(1000,Math.min(120000,Number(timeoutMs)||12000));
+    const deadline=now+boundedWaitMs;
     while(Date.now()<deadline){
       const row=await env.DB.prepare(`SELECT status,result_json,error_code
         FROM computer_commands WHERE id=? AND device_id=? LIMIT 1`)
