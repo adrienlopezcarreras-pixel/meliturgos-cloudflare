@@ -1,0 +1,20 @@
+name: Companion Optional Compute Claim CI
+on:
+  pull_request:
+    paths:
+      - 'src/devices/computer-companion-api.js'
+      - 'src/devices/companion-compute-admission.js'
+      - 'tests/gen2/companion-compute-claim-safety.test.mjs'
+      - '.github/workflows/companion-compute-claim-ci.yml'
+permissions:
+  contents: read
+jobs:
+  claim:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node --test tests/gen2/companion-compute-claim-safety.test.mjs tests/gen2/companion-compute-admission.test.mjs
