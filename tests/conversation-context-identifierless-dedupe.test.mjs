@@ -46,3 +46,9 @@ test('unlabelled provider credentials never enter retrieved context', () => {
   ]) assert.equal(profileSecretLike(value), true);
   assert.equal(profileSecretLike('Je préfère une conversation en français'), false);
 });
+
+test('talking about tokens is safe context; credential assignments are not', () => {
+  assert.equal(profileSecretLike('Je veux comprendre le système de token et OTP'), false);
+  assert.equal(profileSecretLike('token: abc123-do-not-store'), true);
+  assert.equal(profileSecretLike('OTP=456789'), true);
+});
