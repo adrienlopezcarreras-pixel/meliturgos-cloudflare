@@ -37,6 +37,12 @@ export async function initializeEvolutionStorage(db) {
   await store.prepare(sql).run();
  }
 }
+// Creating the loader never interprets a missing DB as an empty queue.
+// The supervisor catches the actual read failure and reports UNAVAILABLE.
+export function createRuntimeEvolutionLoader(env = {}) {
+ return () => listEvolutionItems(env?.DB, String(env?.MELITURGOS_USER || 'owner'));
+}
+
 export async function listEvolutionItems(db, owner) {
  const scope=ownerScope(owner);
  const result=await database(db).prepare('SELECT payload,revision FROM mel_evolution_items WHERE owner_scope = ? ORDER BY id').bind(scope).all();
