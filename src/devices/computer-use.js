@@ -75,7 +75,7 @@ function normalizeOrigin(value) {
   if (!raw) return '';
   try {
     const url = new URL(raw);
-    return url.protocol === 'https:' ? url.origin : '';
+    return url.protocol === 'https:' && !url.username && !url.password ? url.origin : '';
   } catch {
     return '';
   }
