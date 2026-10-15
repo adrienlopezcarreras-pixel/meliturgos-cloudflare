@@ -31,7 +31,8 @@ export function shouldSemanticIntentCheck(text, context = '') {
 
   const currentSelfSystem = explicitSystemNoun;
   const actionSecondPerson = /\b(?:peux[- ]?tu|pourrais[- ]?tu|tu\s+peux|tu\s+pourrais)\b[\s\S]{0,120}\b(?:faire|modifier|corriger|changer|ajouter|enlever|retirer|d[eé]velopper|impl[eé]menter|tester|auditer|v[eé]rifier|reprendre|continuer)\b/i.test(value);
-  const currentResearch = /\b(?:internet|web|en\s+ligne|online|actualit[ée]s?|news|source(?:s)?\s+web)\b/i.test(value);
+  const currentResearch = /\b(?:internet|web|en\s+ligne|online|actualit[ée]s?|news|source(?:s)?\s+web)\b/i.test(value)
+    || /\b(?:derni[eè]res?|r[eé]centes?)\s+(?:infos?|informations?|nouvelles?)\b/i.test(value);
   const devHistory = /\b(?:mel|interface|ui|avatar|th[eè]me|bouton|menu|code|programme|runtime|commit|branche|branch|d[ée]ploiement|jobs?|travaux?|m[ée]moire|chat\s*gpt|r[ée]ponses?|d[ée]veloppement|roadmap|feuille\s+de\s+route|module|capacit[ée]|comp[ée]tence|outil|backend|frontend|api|worker|css|html|javascript|dev\s*bridge|candidate)\b/i.test(history);
   const researchHistory = /\b(?:internet|web|en\s+ligne|actualit[ée]s?|news|recherche\s+web|sources?\s+web|derni[eè]res?\s+infos?)\b/i.test(history);
   const followUp = /\b(?:fais|fait|vas[- ]?y|go|oui|non|comme|ainsi|plut[oô]t|plus|moins|sans|avec|enl[eè]ve|garde|change|mets|rajoute|retire|corrige|continue|reprends|avance|je\s+veux|je\s+pr[eé]f[eè]re|devrait|pourrait|ceci|cela|[cç]a|celui|celle|lesquelles?|tout|toutes?|et\s+maintenant|et\s+aujourd['’]hui)\b/i.test(value);
