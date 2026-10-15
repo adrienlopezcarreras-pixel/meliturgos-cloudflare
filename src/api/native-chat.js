@@ -939,7 +939,7 @@ export async function completeTruncatedNativeInference(initial, messages, inferC
       if (head.slice(-overlap) === tail.slice(0, overlap)) { tail = tail.slice(overlap).trimStart(); break; }
     }
     if (!tail) return { ...initial, continuation_attempted: true, truncated: true };
-    const separator = /\\s$/.test(head) || /^[.,;:!?)]/.test(tail) ? '' : ' ';
+    const separator = /^[.,;:!?)]/.test(tail) ? '' : ' ';
     return {
       ...initial,
       text: (head + separator + tail).slice(0, 60000),
