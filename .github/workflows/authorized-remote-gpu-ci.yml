@@ -1,0 +1,19 @@
+name: MEL Authorized Remote GPU Policy CI
+on:
+  pull_request:
+    paths:
+      - 'src/portability/authorized-remote-gpu-routing.js'
+      - 'tests/gen2/authorized-remote-gpu-routing.test.mjs'
+      - '.github/workflows/authorized-remote-gpu-ci.yml'
+permissions:
+  contents: read
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node --test tests/gen2/authorized-remote-gpu-routing.test.mjs
