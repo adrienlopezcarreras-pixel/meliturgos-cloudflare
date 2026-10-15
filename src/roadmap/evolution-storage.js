@@ -1,54 +1,71 @@
-import { proposeEvolution, transitionEvolution, evolutionSnapshot, evolutionKey } from './evolution-inbox.js';
+import { evolutionKey, proposeEvolution, transitionEvolution, evolutionSnapshot } from './evolution-inbox.js';
+
+// Schema is applied by the release migration; never created as a side effect of a read.
 const CREATE = `CREATE TABLE IF NOT EXISTS mel_evolution_items (
- id TEXT PRIMARY KEY, canonical_title TEXT NOT NULL UNIQUE,
- payload TEXT NOT NULL, revision INTEGER NOT NULL DEFAULT 1,
- updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+ owner_scope TEXT NOT NULL,
+ id TEXT NOT NULL,
+ canonical_title TEXT NOT NULL,
+ payload TEXT NOT NULL,
+ revision INTEGER NOT NULL DEFAULT 1,
+ updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ PRIMARY KEY (owner_scope, id),
+ UNIQUE (owner_scope, canonical_title)
 )`;
-function database(db) { if (!db || typeof db.prepare !== 'function' || typeof db.exec !== 'function') throw new Error('EVOLUTION_D1_REQUIRED'); return db; }
+function database(db) {
+ if (!db || typeof db.prepare !== 'function' || typeof db.exec !== 'function') throw new Error('EVOLUTION_D1_REQUIRED');
+ return db;
+}
+function ownerScope(owner) {
+ if (typeof owner !== 'string' || !owner.trim() || owner.length > 200) throw new Error('EVOLUTION_OWNER_REQUIRED');
+ return owner.trim();
+}
 export async function initializeEvolutionStorage(db) {
  await database(db).exec(CREATE);
 }
-export async function listEvolutionItems(db) {
- const result = await database(db).prepare('SELECT payload FROM mel_evolution_items ORDER BY id').all();
+export async function listEvolutionItems(db, owner) {
+ const scope=ownerScope(owner);
+ const result=await database(db).prepare('SELECT payload FROM mel_evolution_items WHERE owner_scope = ? ORDER BY id').bind(scope).all();
  if (!result || !Array.isArray(result.results)) throw new Error('EVOLUTION_STORAGE_READ_FAILED');
  return result.results.map(row => JSON.parse(row.payload));
 }
-// Storage is intentionally explicit: no silent automatic D1 schema creation at request time.
-export async function saveEvolutionProposal(db, proposal) {
+export async function saveEvolutionProposal(db, owner, proposal) {
+ const scope=ownerScope(owner);
  database(db);
  if (!proposal || !String(proposal.id||'').trim() || !evolutionKey(proposal.title)) throw new Error('EVOLUTION_INVALID_PROPOSAL');
- const key = evolutionKey(proposal.title);
- const existing = await db.prepare('SELECT id FROM mel_evolution_items WHERE canonical_title = ?').bind(key).first();
- if (existing) return { created:false, duplicate_of:existing.id };
- const candidate = proposeEvolution([], proposal).item;
- const sameId=await db.prepare('SELECT id FROM mel_evolution_items WHERE id = ?').bind(candidate.id).first();
- if (sameId) throw new Error('EVOLUTION_DUPLICATE_ID');
+ const candidate=proposeEvolution([],proposal).item;
+ const key=evolutionKey(candidate.title);
+ const existing=await db.prepare('SELECT id FROM mel_evolution_items WHERE owner_scope = ? AND canonical_title = ?').bind(scope,key).first();
+ if (existing) return {created:false,duplicate_of:existing.id};
+ const idExisting=await db.prepare('SELECT id FROM mel_evolution_items WHERE owner_scope = ? AND id = ?').bind(scope,candidate.id).first();
+ if (idExisting) throw new Error('EVOLUTION_DUPLICATE_ID');
  try {
-  const result=await db.prepare('INSERT INTO mel_evolution_items (id, canonical_title, payload) VALUES (?, ?, ?)').bind(candidate.id,key,JSON.stringify(candidate)).run();
-  if (!result?.success) throw new Error('EVOLUTION_STORAGE_WRITE_FAILED');
-  return { created:true,item:candidate };
+  const inserted=await db.prepare('INSERT INTO mel_evolution_items (owner_scope,id,canonical_title,payload) VALUES (?,?,?,?)').bind(scope,candidate.id,key,JSON.stringify(candidate)).run();
+  if (!inserted?.success) throw new Error('EVOLUTION_STORAGE_WRITE_FAILED');
+  return {created:true,item:candidate};
  } catch(error) {
-  // A racing writer may have inserted the same title; avoid masking unrelated SQL failures.
-  const collision=await db.prepare('SELECT id FROM mel_evolution_items WHERE canonical_title = ?').bind(key).first();
+  const collision=await db.prepare('SELECT id FROM mel_evolution_items WHERE owner_scope = ? AND canonical_title = ?').bind(scope,key).first();
   if (collision) return {created:false,duplicate_of:collision.id};
-  const idCollision=await db.prepare('SELECT id FROM mel_evolution_items WHERE id = ?').bind(candidate.id).first();
+  const idCollision=await db.prepare('SELECT id FROM mel_evolution_items WHERE owner_scope = ? AND id = ?').bind(scope,candidate.id).first();
   if (idCollision) throw new Error('EVOLUTION_DUPLICATE_ID');
   throw error;
  }
 }
-export async function changeEvolutionStatus(db,id,expectedRevision,next,proof=null) {
+export async function changeEvolutionStatus(db, owner, id, expectedRevision, next, proof=null) {
+ const scope=ownerScope(owner);
  database(db);
  if (!Number.isInteger(expectedRevision) || expectedRevision<1) throw new Error('EVOLUTION_INVALID_REVISION');
- const row=await db.prepare('SELECT payload, revision FROM mel_evolution_items WHERE id = ?').bind(id).first();
+ const row=await db.prepare('SELECT payload,revision FROM mel_evolution_items WHERE owner_scope = ? AND id = ?').bind(scope,id).first();
  if (!row) throw new Error('EVOLUTION_ITEM_NOT_FOUND');
  if (row.revision!==expectedRevision) throw new Error('EVOLUTION_CONFLICT');
  const updated=transitionEvolution(JSON.parse(row.payload),next,{proof});
- const write=await db.prepare('UPDATE mel_evolution_items SET payload = ?, revision = revision + 1, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND revision = ?')
- .bind(JSON.stringify(updated),id,expectedRevision).run();
+ const write=await db.prepare('UPDATE mel_evolution_items SET payload = ?, revision = revision + 1, updated_at = CURRENT_TIMESTAMP WHERE owner_scope = ? AND id = ? AND revision = ?')
+  .bind(JSON.stringify(updated),scope,id,expectedRevision).run();
  if (!write?.success || write.meta?.changes!==1) throw new Error('EVOLUTION_CONFLICT');
  return {item:updated,revision:expectedRevision+1};
 }
-export async function getEvolutionDashboard(db,initial,incidents=[]) {
- const items=await listEvolutionItems(db);
- return evolutionSnapshot({initial,items,incidents});
+export async function getEvolutionDashboard(db, owner, initial, incidents=[]) {
+ const items=await listEvolutionItems(db,owner);
+ const snapshot=evolutionSnapshot({initial,items,incidents});
+ // A live roadmap count is not an immutable historical close-out certificate.
+ return Object.freeze({...snapshot,initial_scope:'CURRENT_REGISTRY_NOT_ARCHIVED'});
 }
