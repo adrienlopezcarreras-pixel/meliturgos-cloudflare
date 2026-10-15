@@ -1,0 +1,77 @@
+name: production-four-readonly-capability-proof
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/production-four-readonly-capability-proof.yml'
+      - 'scripts/prove-production-capability-inventory-readonly.mjs'
+      - 'scripts/prove-production-safe-capabilities-readonly.mjs'
+      - 'tests/capability-production-readonly-inventory.test.mjs'
+      - 'tests/capability-production-safe-execution.test.mjs'
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '22'
+      - name: Offline exact-SHA and no-private-output contracts
+        run: node --test tests/capability-production-readonly-inventory.test.mjs tests/capability-production-safe-execution.test.mjs
+
+  actual-readonly-proof:
+    # Exact number, owner and same-repo branch only: a fork or unrelated PR
+    # cannot trigger the strictly allowlisted live read/echo evidence.
+    if: ${{ github.repository == 'adrienlopezcarreras-pixel/meliturgos-cloudflare' && github.event_name == 'pull_request' && github.event.pull_request.number == 1292 && github.event.pull_request.base.ref == 'main' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'proof/capability-four-live-readonly-main' && github.event.pull_request.user.login == 'adrienlopezcarreras-pixel' }}
+    needs: contract
+    runs-on: ubuntu-24.04
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '22'
+      - name: Resolve current immutable production release SHA by read-only GitHub API
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          SHA="$(node --input-type=module <<'NODE'
+          const endpoint='https://api.github.com/repos/adrienlopezcarreras-pixel/meliturgos-cloudflare/branches/release%2Fmel-hardware-v0.1.0';
+          const r=await fetch(endpoint,{
+            method:'GET',redirect:'error',signal:AbortSignal.timeout(15000),
+            headers:{Authorization:'Bearer '+process.env.GH_TOKEN,Accept:'application/vnd.github+json'},
+          });
+          if(!r.ok)throw Error('PROOF_RELEASE_REF_UNAVAILABLE');
+          const data=await r.json();
+          const sha=String(data?.commit?.sha||'');
+          if(!/^[a-f0-9]{40}$/.test(sha))throw Error('PROOF_RELEASE_SHA_INVALID');
+          process.stdout.write(sha);
+          NODE
+          )"
+          echo "EXPECTED_SHA=$SHA" >> "$GITHUB_ENV"
+      - name: Prove exact deployed inventory with GET only
+        env:
+          PROOF_KEY_B64: ${{ secrets.MEL_BACKUP_ENCRYPTION_KEY_B64 }}
+        run: node scripts/prove-production-capability-inventory-readonly.mjs
+      - name: Execute only 4 low-risk echo/list operations and retain sanitized receipts
+        env:
+          PROOF_KEY_B64: ${{ secrets.MEL_BACKUP_ENCRYPTION_KEY_B64 }}
+        run: node scripts/prove-production-safe-capabilities-readonly.mjs
+      - name: Upload sanitized nonsecret evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: mel-readonly-four-capabilities-${{ github.run_id }}
+          path: |
+            capability-inventory-readonly-proof.json
+            capability-safe-execution-proof.json
+          retention-days: 14
+          if-no-files-found: warn
