@@ -28,3 +28,11 @@ test('full mode behavior pipeline includes the roadmap live refresher', async ()
   assert.match(body,/mel-full-control-runtime/);
   assert.match(body,/mel-roadmap-live-refresh-runtime/);
 });
+
+test('evolution section reads CapabilityBus and reports absent archive without claiming a deployment', () => {
+ assert.match(ROADMAP_LIVE_REFRESH_PATCH,/melEvolutionDevelopment/);
+ assert.match(ROADMAP_LIVE_REFRESH_PATCH,/evolution\.list/);
+ assert.match(ROADMAP_LIVE_REFRESH_PATCH,/CURRENT_REGISTRY_NOT_ARCHIVED|registre courant, clôture non archivée/);
+ assert.match(ROADMAP_LIVE_REFRESH_PATCH,/textContent=String\(item\.id/);
+ assert.doesNotMatch(ROADMAP_LIVE_REFRESH_PATCH,/entries\.innerHTML\s*=/);
+});
