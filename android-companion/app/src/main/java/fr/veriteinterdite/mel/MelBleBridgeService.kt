@@ -108,6 +108,8 @@ class MelBleBridgeService : Service() {
     private val metaFrames = ConcurrentHashMap<String, ByteArrayOutputStream>()
     private val metaFrameIds = ConcurrentHashMap<String, Int>()
     private val connectedAtMs = ConcurrentHashMap<String, Long>()
+    // One cancel request per stale connection; the 5-second watchdog must not flood GATT.
+    private val staleCancellationRequested = ConcurrentHashMap.newKeySet<String>()
     private val connectedDevices = ConcurrentHashMap<String, BluetoothDevice>()
     private val mtus = ConcurrentHashMap<String, Int>()
     private val subscribed = ConcurrentHashMap<String, Boolean>()
@@ -147,7 +149,7 @@ class MelBleBridgeService : Service() {
                     connectedDevices.forEach { (address, device) ->
                         val ready = subscribed[address] == true
                         val age = now - (connectedAtMs[address] ?: now)
-                        if (!ready && age > 20_000L) {
+                        if (!ready && age > 20_000L && staleCancellationRequested.add(address)) {
                             Log.w(TAG, "BLE watchdog: stale unready GATT link $address age=${age}ms; recycling")
                             runCatching { gattServer?.cancelConnection(device) }
                         }
@@ -217,6 +219,7 @@ class MelBleBridgeService : Service() {
             metaFrames.clear()
             metaFrameIds.clear()
             connectedAtMs.clear()
+            staleCancellationRequested.clear()
             connectedDevices.clear()
             mtus.clear()
             subscribed.clear()
@@ -234,6 +237,7 @@ class MelBleBridgeService : Service() {
 
     override fun onDestroy() {
         bridgeHandler.removeCallbacks(bridgeWatchdog)
+        staleCancellationRequested.clear()
         unregisterNetworkWatch()
         stopAdvertising()
         runCatching { gattServer?.close() }
@@ -471,6 +475,7 @@ class MelBleBridgeService : Service() {
             Log.i(TAG, "MINI BLE state=${device.address} status=$status newState=$newState")
             if (newState == BluetoothGatt.STATE_CONNECTED) {
                 stopAdvertising()
+                staleCancellationRequested.remove(device.address)
                 connectedAtMs[device.address] = System.currentTimeMillis()
                 connectedDevices[device.address] = device
                 subscribed[device.address] = false
@@ -479,6 +484,7 @@ class MelBleBridgeService : Service() {
                 bridgeState.value = "MINI LIEE | INITIALISATION CANAL"
                 publishBleDiagnostic(status, newState, null)
             } else {
+                staleCancellationRequested.remove(device.address)
                 val started = connectedAtMs.remove(device.address)
                 connectedDevices.remove(device.address)
                 val duration = started?.let { System.currentTimeMillis() - it }
