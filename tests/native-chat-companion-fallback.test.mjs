@@ -38,3 +38,35 @@ test('offline, failure, or oversize payload produce quiet primary MEL fallback',
  assert.equal(await fallback({env:{},messages,execute:async()=>{throw Error('offline')}}),null);
  assert.equal(await fallback({env:{},messages:[{role:'user',content:'x'.repeat(25000)}],execute:async()=>{throw Error('MUST_NOT_CALL')}}),null);
 });
+
+test('owner may explicitly prefer a quick optional local-first answer without changing defaults',async()=>{
+ const {shouldPreferOptionalCompanionCompute:prefer}=await import('../src/api/native-companion-fallback.js');
+ assert.equal(prefer({}),false);
+ assert.equal(prefer({prefer:true}),true);
+ for(const constraint of [
+  {disabled:true},{voiceReply:true},{personalProfileIntent:true},{releaseSmoke:true},
+  {privateData:true},{hasToolResults:true},{parallel:true},{hasActiveAdapter:true}
+ ]) assert.equal(prefer({prefer:true,...constraint}),false,JSON.stringify(constraint));
+});
+test('explicit local-first response is not misrepresented as a fallback',async()=>{
+ const {shouldPreferOptionalCompanionCompute:prefer}=await import('../src/api/native-companion-fallback.js');
+ const native=await readFile(new URL('../src/api/native-chat.js',import.meta.url),'utf8');
+ assert.equal(prefer({prefer:true}),true);
+ const local=native.indexOf('ai = preferLocal ? await tryOptionalNativeCompanionFallback({');
+ const primary=native.indexOf('if(!ai) ai = await runNativeInference({',local);
+ assert.ok(local>0&&primary>local);
+ assert.match(native.slice(local,primary),/asPrimary:true,timeoutMs:4000/);
+ const result=await fallback({
+   env:{},messages:[{role:'user',content:'bonjour'}],
+   timeoutMs:4000,asPrimary:true,
+   execute:async()=>({ok:true,text:'Réponse depuis le PC',backend:'ollama-localhost',model:'local-qwen'})
+ });
+ assert.equal(result.text,'Réponse depuis le PC');
+ assert.equal(result.companion_primary,true);
+ assert.equal(result.fallback_used,false);
+});
+test('local-first failures yield null and leave normal remote inference available',async()=>{
+ const result=await fallback({env:{},messages:[{role:'user',content:'hi'}],
+   asPrimary:true,timeoutMs:4000,execute:async()=>({ok:false,code:'COMPUTER_OFFLINE'})});
+ assert.equal(result,null);
+});

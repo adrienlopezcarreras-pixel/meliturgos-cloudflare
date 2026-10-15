@@ -1,10 +1,21 @@
 import {createCompanionSovereigntyExecutor} from '../portability/companion-sovereignty-executor.js';
 import {createCompanionLocalAiAdapter} from '../portability/companion-local-ai-adapter.js';
 
-// Only a last-resort candidate. The primary MEL route never waits for this
-// unless its normal candidate/fallback models have already failed.
+// Optional only. "Prefer PC" must be explicit on the request AND the
+// owner's separate Windows consent must be admitted by the executor.
+// Without this flag MEL keeps its original primary cloud route.
+export function shouldPreferOptionalCompanionCompute({
+ prefer=false,disabled=false,voiceReply=false,personalProfileIntent=false,
+ releaseSmoke=false,privateData=false,hasToolResults=false,parallel=false,
+ hasActiveAdapter=false
+}={}){
+ return prefer===true && disabled!==true && !voiceReply && !personalProfileIntent
+   && !releaseSmoke && !privateData && !hasToolResults && !parallel
+   && !hasActiveAdapter;
+}
+
 export async function tryOptionalNativeCompanionFallback({
- env,messages,inferenceSettings=null,execute=null
+ env,messages,inferenceSettings=null,execute=null,asPrimary=false,timeoutMs=12000
 }={}){
  if(!env?.DB && typeof execute!=='function')return null;
  if(!Array.isArray(messages)||messages.length<1)return null;
@@ -16,8 +27,9 @@ export async function tryOptionalNativeCompanionFallback({
  if(bounded.some(m=>!permitted.has(m.role)||m.content.length>12000))return null;
  if(bounded.reduce((sum,m)=>sum+m.content.length,0)>24000)return null;
  try{
+   const boundedTimeout=Math.max(1000,Math.min(12000,Number(timeoutMs)||12000));
    const executor=execute||createCompanionSovereigntyExecutor(env,{
-     timeoutMs:12000,pollIntervalMs:250
+     timeoutMs:boundedTimeout,pollIntervalMs:250
    });
    const adapter=createCompanionLocalAiAdapter({execute:executor});
    const answer=await adapter.invoke({input:bounded,context:{
@@ -31,7 +43,8 @@ export async function tryOptionalNativeCompanionFallback({
    return {
      text,model:answer?.provenance?.model||'auto-local',
      provider:'local-companion-ai',task:'GENERAL',attempts:1,
-     fallback_used:true,optional_companion_used:true,
+     fallback_used:!asPrimary,optional_companion_used:true,
+     companion_primary:asPrimary===true,
      tool_succeeded:true,finish_reason:null,truncated:false,
      provenance:answer.provenance,
      usage:null
