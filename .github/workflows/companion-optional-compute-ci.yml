@@ -1,0 +1,19 @@
+name: Companion Optional Compute Policy CI
+on:
+  pull_request:
+    paths:
+      - 'src/devices/companion-compute-admission.js'
+      - 'tests/gen2/companion-compute-admission.test.mjs'
+      - '.github/workflows/companion-optional-compute-ci.yml'
+permissions:
+  contents: read
+jobs:
+  policy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node --test tests/gen2/companion-compute-admission.test.mjs
