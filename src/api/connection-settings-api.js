@@ -462,7 +462,6 @@ const PIPEDREAM_CONFIG_ID = 'pipedream-connect-config';
 const PIPEDREAM_ALLOWED_APPS = Object.freeze(new Set([
   'microsoft_outlook',
   'microsoft_onedrive',
-  'sharepoint',
   'imap',
   'lemlist',
   'google_drive',
@@ -1016,7 +1015,7 @@ async function bodyObject(request) {
 }
 
 export async function maybeHandleConnectionSettingsApi(request, env = {}, url = new URL(request.url)) {
-  const match = url.pathname.match(/^\/api\/gen2\/connections\/(google|microsoft|yahoo|yahoo-imap|vercel|pipedream)\/(status|save|test|link|accounts)$/);
+  const match = url.pathname.match(/^\/api\/gen2\/connections\/(google|microsoft|yahoo|yahoo-imap|pipedream)\/(status|save|test|link|accounts)$/);
   if (!match) return null;
   const provider = match[1];
   const action = match[2];
