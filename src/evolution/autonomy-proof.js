@@ -1,5 +1,5 @@
 import { D1DevJobRepository } from '../dev/d1-dev-job-repository.js';
-import { isVerifiedRuntimeWorkProof } from './autonomy-proof-identity.js';
+import { isVerifiedRuntimeWorkProof, distinctModelIdentitiesFromFanout } from './autonomy-proof-identity.js';
 import { Augmentio } from '../augmentio/augmentio.js';
 import { createDefaultAugmentioPool } from '../augmentio/default-pool.js';
 import {
@@ -130,36 +130,15 @@ export async function runRuntimeWorkDagResumeProof(env = {}, {
   const completed = await runner.run();
   const multi = completed.nodes.find((node) => node.id === 'multi-ai-state');
   const recovered = completed.audit?.some((entry) => entry.event === 'WORK_NODE_RECOVERED_FOR_RETRY' && entry.node_id === 'multi-ai-state') === true;
-  const attemptedIds = Array.isArray(multi?.result?.providersAttempted)
-    ? multi.result.providersAttempted : [];
-  const providerHealth = Array.isArray(multi?.result?.providerHealth)
-    ? multi.result.providerHealth : [];
   const successfulCandidates = Array.isArray(multi?.result?.candidates) ? multi.result.candidates.length : 0;
-  // A retry, a duplicate adapter, or two adapters for the same underlying
-  // model must not be counted as independent AI contributions.
-  const identities = attemptedIds.map(id => {
-    const rows = providerHealth.filter(row => row?.id === id);
-    if (rows.length !== 1) return null;
-    const provider = rows[0].provider;
-    const model = rows[0].model;
-    if (typeof provider !== 'string' || typeof model !== 'string'
-      || !provider.trim() || !model.trim()) return null;
-    return { provider: provider.trim(), model: model.trim() };
-  });
-  const uniqueModels = new Set(identities.filter(Boolean)
-    .map(row => JSON.stringify([row.provider, row.model])));
-  const providersAttempted = uniqueModels.size;
+  const identities = distinctModelIdentitiesFromFanout(multi?.result);
+  const providersAttempted = identities.length;
 
   if (completed.status !== WORK_DAG_STATUS.COMPLETED) {
     throw Object.assign(new Error('RUNTIME_WORK_DAG_PROOF_NOT_COMPLETED'), { code: 'RUNTIME_WORK_DAG_PROOF_NOT_COMPLETED' });
   }
   if (!recovered || Number(multi?.attempts || 0) < 2) {
     throw Object.assign(new Error('RUNTIME_WORK_DAG_RECOVERY_NOT_PROVEN'), { code: 'RUNTIME_WORK_DAG_RECOVERY_NOT_PROVEN' });
-  }
-  if (attemptedIds.length < 2 || identities.some(row => !row)
-    || new Set(attemptedIds).size !== attemptedIds.length
-    || providersAttempted !== attemptedIds.length) {
-    throw Object.assign(new Error('RUNTIME_WORK_DAG_MULTI_AI_NOT_PROVEN'), { code: 'RUNTIME_WORK_DAG_MULTI_AI_NOT_PROVEN' });
   }
   if (successfulCandidates < 1) {
     throw Object.assign(new Error('RUNTIME_WORK_DAG_NO_SUCCESSFUL_AI_RESULT'), { code: 'RUNTIME_WORK_DAG_NO_SUCCESSFUL_AI_RESULT' });
