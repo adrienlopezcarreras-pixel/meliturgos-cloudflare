@@ -1692,11 +1692,17 @@ jobs:
             echo '{"ok":true,"skipped":true,"reason":"DEV_LIGHT_EXTERNAL_AI_PROOFS_PAUSED"}' > production-mel-council-02.json
             echo "MEL-COUNCIL-02 deep production proof paused for active roadmap development."
           else
-            COUNCIL_CODE="$(curl --silent --show-error --max-time 120 \
+            # Model Council has two phases: independent critique (one bounded
+            # retry per model), then synthesis with bounded provider fallback.
+            # A 60s timeout PER provider can exceed curl's 120s deadline.
+            # Use 15s per model here; keep >=2 actual independent critiques
+            # plus synthesis mandatory. This proof only reads model answers,
+            # so one bounded retry is safe on transient transport failure.
+            COUNCIL_CODE="$(curl --silent --show-error --max-time 115 --retry 1 --retry-all-errors --retry-delay 2 \
               --header "x-mel-release-smoke: 1" \
               --header "x-mel-launch-bootstrap: ${BOOTSTRAP_TOKEN}" \
               --header "content-type: application/json" \
-              --data '{"id":"model.council","input":{"request":{"prompt":"Production release proof: independently critique whether an exact-SHA deployment gate is safer than an unpinned deployment. Keep the answer concise."},"capability":"GENERAL","maxCandidates":4,"timeoutMs":60000}}' \
+              --data '{"id":"model.council","input":{"request":{"prompt":"Production release proof: independently critique whether an exact-SHA deployment gate is safer than an unpinned deployment. Keep the answer concise."},"capability":"GENERAL","maxCandidates":4,"timeoutMs":15000}}' \
               --output production-mel-council-02.json \
               --write-out '%{http_code}' \
               "${BASE_URL}/api/gen2/capabilities/execute")"
