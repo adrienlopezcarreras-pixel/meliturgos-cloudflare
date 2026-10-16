@@ -22,7 +22,7 @@ async function scanLocalTaskmarket(){
  try{
   if(!currentPcId) await refreshPc();
   if(!currentPcId) throw new Error('COMPANION_WINDOWS_NOT_ONLINE');
-  const start=await fetch('/api/computer/v1/pc-control',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({computer_id:currentPcId,action:'taskmarket.status',payload:{}}),cache:'no-store'});
+  const start=await fetch('/api/revenue/taskmarket-pc-status',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({computer_id:currentPcId}),cache:'no-store'});
   const queued=await start.json();
   if(!start.ok||queued.ok!==true||!queued.command_id)throw new Error(queued.code||queued.error||'PC_TASKMARKET_PROBE_NOT_QUEUED');
   info.textContent='Sonde envoyée au Companion. MEL attend le résultat local…';
