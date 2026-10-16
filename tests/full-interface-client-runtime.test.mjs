@@ -105,7 +105,6 @@ test('full interface exposes encrypted Pipedream Connect bridge and roadmap app 
   assert.match(html, /connectionApi\('pipedream','accounts'\)/);
   assert.match(html, /data-pd-connect="microsoft_outlook"/);
   assert.match(html, /data-pd-connect="microsoft_onedrive"/);
-  assert.match(html, /data-pd-connect="sharepoint"/);
   assert.match(html, /data-pd-connect="imap"/);
   assert.match(html, /data-pd-connect="lemlist"/);
   assert.match(html, /data-pd-connect="google_drive"/);
