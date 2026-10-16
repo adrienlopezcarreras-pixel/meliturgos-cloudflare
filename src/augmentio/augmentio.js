@@ -7,6 +7,7 @@ import { QuotaArbitrator } from './quota-arbitrator.js';
 // Bound untrusted model responses before ranking and caching them. Oversize
 // replies must fail, not silently truncate into a misleading answer.
 export const MAX_AUGMENTIO_RESPONSE_CHARS = 64 * 1024;
+export const PARTIAL_FANOUT_CACHE_TTL_MS = 10_000;
 
 // Match the capability contract: no direct caller can fan out to an
 // unbounded number of models, including Infinity or large numeric strings.
@@ -191,7 +192,13 @@ export class Augmentio {
       cacheHit: false,
     };
     assertNotCancelled(signal);
-    await this.cache.set(cacheKey, result);
+    // A partial fan-out must not hide a recovered model for five minutes.
+    // Keep short-lived fallback caching, but retry failed peers much sooner.
+    if (result.failures > 0) {
+      await this.cache.set(cacheKey, result, PARTIAL_FANOUT_CACHE_TTL_MS);
+    } else {
+      await this.cache.set(cacheKey, result);
+    }
     assertNotCancelled(signal);
     return result;
   }
