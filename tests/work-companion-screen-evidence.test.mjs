@@ -144,3 +144,20 @@ test('revocation during model inference prevents persistence of the analysis',as
   assert.equal(Number(rows.n),0);
  }finally{h.DB.close()}
 });
+
+test('revocation refuses a screenshot whose stored owner or command binding does not match',async()=>{
+ const h=await harness();
+ try{
+  const {command_id,key}=await h.capture();
+  const stored=h.env.MEDIA_BUCKET.objects.get(key);
+  assert.ok(stored);
+  stored.customMetadata.owner='another-owner';
+  await assert.rejects(
+   revokeWorkScreenConsent(h.env,{computer_id:'pc-1',command_id}),
+   error=>error.code==='WORK_SCREEN_IMAGE_OWNER_OR_BINDING_MISMATCH'
+  );
+  assert.ok(await h.env.MEDIA_BUCKET.head(key),'unauthorized object must remain untouched');
+  const consent=await h.DB.prepare('SELECT id,revoked_at FROM work_screen_consents WHERE command_id=? AND device_id=? LIMIT 1').bind(command_id,'pc-1').first();
+  assert.equal(consent,null,'authorization must be checked before creating or revoking any consent record');
+ }finally{h.DB.close()}
+});
