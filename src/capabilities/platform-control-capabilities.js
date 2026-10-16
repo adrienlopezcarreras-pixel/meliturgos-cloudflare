@@ -3,7 +3,6 @@ import { D1CloudflareApiRelayStore } from '../platform/cloudflare-api-relay.js';
 
 const GITHUB_API = 'https://api.github.com';
 const CLOUDFLARE_API = 'https://api.cloudflare.com/client/v4';
-const VERCEL_API = 'https://api.vercel.com';
 const USER_AGENT = 'meliturgos-platform-control';
 const MAX_INPUTS = 25;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -154,16 +153,6 @@ function normalizeVersions(versions) {
   return normalized;
 }
 
-function deploymentRow(row = {}) {
-  return {
-    id: String(row.uid || row.id || ''),
-    name: String(row.name || ''),
-    url: String(row.url || ''),
-    state: String(row.state || row.readyState || ''),
-    target: String(row.target || ''),
-    created_at: Number(row.createdAt || row.created || 0),
-  };
-}
 
 export function registerPlatformControlCapabilities(bus, { env = {}, fetchImpl = fetch, repository = '', cloudflareRelayStore = null } = {}) {
   if (!bus || typeof bus.discover !== 'function') throw new TypeError('CAPABILITY_BUS_REQUIRED');
