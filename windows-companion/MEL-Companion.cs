@@ -1440,11 +1440,15 @@ class MainForm : Form
                     psi.Arguments = "-NoProfile -ExecutionPolicy Bypass -File \"" + MelApp.AdbWifiPath + "\" -Once";
                     psi.UseShellExecute = false;
                     psi.CreateNoWindow = true;
-                    psi.RedirectStandardError = true;
-                    psi.RedirectStandardOutput = true;
+                    // Do not redirect child pipes unless they are drained; ADB output can fill
+                    // the pipe and hang before the timeout is observed.
+                    psi.RedirectStandardError = false;
+                    psi.RedirectStandardOutput = false;
                     using (var process = Process.Start(psi))
                     {
-                        if (!process.WaitForExit(12000))
+                        if (process == null)
+                            message = "ADB Wi-Fi : impossible de démarrer le diagnostic";
+                        else if (!process.WaitForExit(12000))
                         {
                             try { process.Kill(); } catch { }
                             message = "ADB Wi-Fi : diagnostic expiré · réessayez";
