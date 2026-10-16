@@ -26,6 +26,7 @@ export const COMPUTER_USE_ACTIONS = Object.freeze({
   BROWSER_FIND_PREVIOUS: 'browser.find-previous',
   BROWSER_NEXT_TAB: 'browser.next-tab',
   BROWSER_PREVIOUS_TAB: 'browser.previous-tab',
+  BROWSER_SELECT_TAB: 'browser.select-tab',
   BROWSER_SCROLL: 'browser.scroll',
   BROWSER_TYPE: 'browser.type',
   BROWSER_BACK: 'browser.back',
@@ -58,6 +59,7 @@ const ACTION_RISK = new Map([
   [COMPUTER_USE_ACTIONS.BROWSER_FIND_PREVIOUS, COMPUTER_USE_RISK.SENSITIVE],
   [COMPUTER_USE_ACTIONS.BROWSER_NEXT_TAB, COMPUTER_USE_RISK.SENSITIVE],
   [COMPUTER_USE_ACTIONS.BROWSER_PREVIOUS_TAB, COMPUTER_USE_RISK.SENSITIVE],
+  [COMPUTER_USE_ACTIONS.BROWSER_SELECT_TAB, COMPUTER_USE_RISK.SENSITIVE],
   [COMPUTER_USE_ACTIONS.BROWSER_SCROLL, COMPUTER_USE_RISK.SENSITIVE],
   [COMPUTER_USE_ACTIONS.BROWSER_TYPE, COMPUTER_USE_RISK.SENSITIVE],
   [COMPUTER_USE_ACTIONS.BROWSER_BACK, COMPUTER_USE_RISK.SENSITIVE],
@@ -245,6 +247,7 @@ export function normalizeComputerUseRequest(input = {}) {
       delta_y: numeric(step?.delta_y),
       key: boundedText(step?.key, 80),
       // Unmodified inspection HWND: a numeric handle is accepted only when exact in JS.
+      tab_index: numeric(step?.tab_index),
       window_handle: typeof step?.window_handle === 'string'
         ? step.window_handle
         : Number.isSafeInteger(step?.window_handle) ? String(step.window_handle) : '',
@@ -391,6 +394,21 @@ export function evaluateComputerUsePlan(input = {}) {
         !FIND_CYCLE_ALLOWED_FIELDS.has(field))) {
       allowed = false;
       reason = 'BROWSER_TAB_CYCLE_UNEXPECTED_FIELD';
+    } else if (step.action === COMPUTER_USE_ACTIONS.BROWSER_SELECT_TAB
+      && !validBrowserWindowHandle(step.window_handle)) {
+      allowed = false;
+      reason = 'BROWSER_SELECT_TAB_WINDOW_HANDLE_REQUIRED';
+    } else if (step.action === COMPUTER_USE_ACTIONS.BROWSER_SELECT_TAB
+      && (!Number.isInteger(submittedSteps[decisions.length]?.tab_index)
+        || submittedSteps[decisions.length].tab_index < 1
+        || submittedSteps[decisions.length].tab_index > 9)) {
+      allowed = false;
+      reason = 'BROWSER_SELECT_TAB_INDEX_INVALID';
+    } else if (step.action === COMPUTER_USE_ACTIONS.BROWSER_SELECT_TAB
+      && Object.keys(submittedSteps[decisions.length] ?? {}).some(field =>
+        !['id', 'action', 'window_handle', 'tab_index'].includes(field))) {
+      allowed = false;
+      reason = 'BROWSER_SELECT_TAB_UNEXPECTED_FIELD';
     } else if (step.action === COMPUTER_USE_ACTIONS.BROWSER_FIND
       && !validBrowserWindowHandle(step.window_handle)) {
       allowed = false;
