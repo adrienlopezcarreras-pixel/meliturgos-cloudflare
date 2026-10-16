@@ -66,31 +66,21 @@ test('Gen2 roadmap, RAG and conversation-list HTTP routes stay behind Capability
   assert.match(source, /runtime\.bus\.execute\("conversation\.list"/);
 });
 
-test('commercial MEL free-only mode excludes unconfigured paid-optional Vercel capabilities without hiding Cloudflare alternatives', async () => {
+test('paid SharePoint and Vercel capabilities are absent from the default runtime even if credentials are present', () => {
   const bus = createDefaultCapabilityBus({
-    env: { MELITURGOS_USER: 'owner' },
-    fetchImpl: async () => { throw new Error('provider must not be called during inventory'); },
+    env: {
+      MELITURGOS_USER: 'owner',
+      VERCEL_TOKEN: 'configured-but-paid',
+      MEL_ENABLE_OPTIONAL_VERCEL: 'true',
+      MICROSOFT_OAUTH_CLIENT_ID: 'configured-but-paid',
+      MICROSOFT_OAUTH_CLIENT_SECRET: 'not-a-real-secret',
+    },
   });
   const ids = new Set(bus.list().map(row => row.id));
+  for (const id of [
+    'vercel.projects.read', 'vercel.deployments.read', 'vercel.deployments.redeploy',
+    'sites.list', 'sites.read', 'sites.search', 'sites.write',
+  ]) assert.equal(ids.has(id), false, id + ' must remain excluded from active capabilities');
   assert.ok(ids.has('cloudflare.workers.read'));
-  assert.ok(ids.has('cloudflare.deployments.read'));
   assert.ok(ids.has('cloudflare.deployments.create'));
-  assert.equal([...ids].filter(id => id.startsWith('vercel.')).length, 0);
-  const bindings = await bus.execute('system.bindings', {}, { owner:'owner', permissions: [] });
-  assert.equal(bindings.vercel_optional_excluded_free_only, true);
-  assert.equal(bindings.vercel_control_configured, false);
-  assert.equal(bindings.free_deployment_provider, 'cloudflare');
-});
-
-test('optional Vercel capabilities require explicit operator opt-in even if a token exists', () => {
-  for (const flag of [undefined, '', 'false']) {
-    const env = { MELITURGOS_USER:'owner', VERCEL_TOKEN:'configured-but-not-approved', MEL_ENABLE_OPTIONAL_VERCEL:flag };
-    const bus = createDefaultCapabilityBus({ env });
-    assert.equal(bus.list().filter(row => row.provider === 'vercel').length, 0);
-  }
-  const optedIn = createDefaultCapabilityBus({ env: { MEL_ENABLE_OPTIONAL_VERCEL:'true' } });
-  assert.deepEqual(
-    optedIn.list().filter(row => row.provider === 'vercel').map(row => row.id).sort(),
-    ['vercel.deployments.read', 'vercel.deployments.redeploy', 'vercel.projects.read'],
-  );
 });
