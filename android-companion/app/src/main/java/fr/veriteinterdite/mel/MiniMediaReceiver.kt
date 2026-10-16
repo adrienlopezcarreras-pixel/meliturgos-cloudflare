@@ -288,18 +288,22 @@ class MiniMediaReceiver(private val context: Context) {
     ) {
         val temp = File.createTempFile("mel-mini-audio-", ".pcm", context.cacheDir)
         var pcmBytes = 0L
+        val budget = MiniAudioTransferBudget()
         try {
             BufferedOutputStream(FileOutputStream(temp), 64 * 1024).use { output ->
                 while (true) {
+                    if (!budget.withinDeadline()) return
                     val size = input.readInt()
                     if (size == 0) break
-                    if (size !in 1..MAX_AUDIO_CHUNK) return
+                    // Reject over-budget blocks before reading or writing them.
+                    if (!budget.reserve(size)) return
                     val bytes = readFully(input, size)
+                    if (!budget.withinDeadline()) return
                     output.write(bytes)
                     pcmBytes += size
-                    if (pcmBytes > 96_000L * 2L * 2L * 180L) return
                 }
             }
+            if (!budget.withinDeadline()) return
             val uri = createMediaStoreEntry(
                 MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
                 name.ensureSuffix(".wav"),
