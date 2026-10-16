@@ -237,7 +237,7 @@ class MiniMediaReceiver(private val context: Context) {
                 3 -> if (sampleRate in 8_000..96_000 && channels in 1..2) {
                     receiveAudio(input, safeName(name, "mel-mini-audio.wav"), sampleRate, channels, client)
                 }
-                4 -> receiveBrowser(input, DataOutputStream(BufferedOutputStream(client.getOutputStream())), width, height)
+                4 -> receiveBrowser(input, DataOutputStream(BufferedOutputStream(client.getOutputStream())), width, height, client)
             }
         }
     }
@@ -368,16 +368,12 @@ class MiniMediaReceiver(private val context: Context) {
         input: DataInputStream,
         output: DataOutputStream,
         requestedWidth: Int,
-        requestedHeight: Int
+        requestedHeight: Int,
+        socket: Socket
     ) {
-        val urlLen = input.readUnsignedShort()
-        if (urlLen !in 8..2048) {
-            output.writeInt(0)
-            output.flush()
-            return
-        }
-        val url = String(readFully(input, urlLen), Charsets.UTF_8).trim()
-        if (!(url.startsWith("https://") || url.startsWith("http://")) ||
+        // Limit the entire length-prefix and URL payload, not only each socket read.
+        val url = MiniBrowserRequestReader.readUrl(input, socket)
+        if (url == null || !(url.startsWith("https://") || url.startsWith("http://")) ||
             !MiniBrowserUrlPolicy.allows(url)) {
             output.writeInt(0)
             output.flush()
