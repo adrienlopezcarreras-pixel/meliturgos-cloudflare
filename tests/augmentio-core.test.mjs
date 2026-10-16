@@ -1076,3 +1076,61 @@ test('Augmentio fails closed and never caches responses with revoked provenance 
   assert.equal(ai.quota.get('provenance-withdrawn').calls, 1);
   assert.equal(ai.quota.get('provenance-withdrawn').lastStatus, null);
 });
+
+test('Augmentio never echoes secrets or giant untrusted metadata from a provider reply', async () => {
+  const secret = 'SECRET_BEARER_TOKEN_SHOULD_NOT_LEAK';
+  const pool = new ProviderPool([{
+    id: 'limited-provenance', providerId: 'workers-ai', modelId: 'real-model',
+    capabilities: ['GENERAL'], estimatedCost: 0,
+    costProvenance: verifiedFree('limited-provenance', {provider:'workers-ai',model:'real-model'}),
+    invoke: async () => ({
+      text: 'concise valid answer',
+      provenance: {
+        provider: 'fake', model: 'forged', adapter_id: 'fake-adapter',
+        source: 'actual-source',
+        transport: 'https'.repeat(1000),
+        api_key: secret,
+        authorization: { token: secret },
+        raw_response: 'x'.repeat(500_000),
+        inference_settings_applied: Array(100).fill('max_tokens'),
+        lora_applied: false,
+        trace_id: 'trace-1',
+      },
+    }),
+  }]);
+  const ai = new Augmentio({
+    pool, scheduler: new ParallelScheduler({ retries: 0 }),
+  });
+  const first = await ai.fanOut({ input: 'bounded metadata' });
+  assert.equal(first.best.text, 'concise valid answer');
+  assert.equal(first.best.provenance.provider, 'workers-ai');
+  assert.equal(first.best.provenance.model, 'real-model');
+  assert.equal(first.best.provenance.adapter_id, 'limited-provenance');
+  assert.equal(first.best.provenance.source, 'actual-source');
+  assert.equal(first.best.provenance.trace_id, 'trace-1');
+  assert.equal(first.best.provenance.transport.length, 240);
+  assert.equal(first.best.provenance.inference_settings_applied.length, 12);
+  assert.equal(first.best.provenance.lora_applied, false);
+  assert.equal(JSON.stringify(first).includes(secret), false);
+  assert.ok(JSON.stringify(first).length < 2000);
+  const cached = await ai.fanOut({ input: 'bounded metadata' });
+  assert.equal(cached.cacheHit, true);
+  assert.equal(JSON.stringify(cached).includes(secret), false);
+});
+
+test('Augmentio ignores malformed nonobject and nonserializable provenance extras', async () => {
+  const pool = new ProviderPool([{
+    id:'minimal', capabilities:['GENERAL'], estimatedCost:0,
+    costProvenance: verifiedFree('minimal'),
+    invoke: async () => ({
+      text: 'good answer',
+      provenance: { source: 42, transport: { nested: true },
+        malicious: () => 'not serializable', region: 'EU', lora_applied: 'true' },
+    }),
+  }]);
+  const ai = new Augmentio({ pool, scheduler: new ParallelScheduler({ retries: 0 }) });
+  const result = await ai.fanOut({ input: 'malformed metadata' });
+  assert.deepEqual(result.best.provenance, {
+    region: 'EU', provider: 'minimal', model: 'minimal', adapter_id: 'minimal',
+  });
+});
