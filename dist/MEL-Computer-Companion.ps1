@@ -2494,6 +2494,21 @@ function Perform-Step($step, [string]$commandId, [string]$planSchema="") {
       Type-Text ([string]$step.text)
       return @{ action=$action; chars=([string]$step.text).Length }
     }
+    "browser.bookmark-page" {
+      # Ctrl+D may bookmark the current page. Only on the approved inspected
+      # browser HWND with an explicit, sensitive owner step approval.
+      [long]$expectedHandle = 0
+      if (-not [long]::TryParse([string]$step.window_handle, [ref]$expectedHandle) -or $expectedHandle -le 0) {
+        throw "BROWSER_BOOKMARK_PAGE_WINDOW_HANDLE_REQUIRED"
+      }
+      $window = [MelNative]::GetForegroundWindow()
+      if ($window -eq [IntPtr]::Zero -or $window.ToInt64() -ne $expectedHandle) { throw "BROWSER_BOOKMARK_PAGE_FOCUS_CHANGED" }
+      $browser = Assert-ForegroundBrowser
+      Assert-BrowserShortcutTarget $window $browser
+      [System.Windows.Forms.SendKeys]::SendWait("^d")
+      # Acknowledges only the shortcut sent, never a verified bookmark.
+      return @{ action=$action; browser=$browser; window_handle=$expectedHandle; shortcut_sent=$true }
+    }
     "browser.reopen-tab" {
       # Ctrl+Shift+T may restore the last closed tab or browser window,
       # including previous session content. Only explicit owner approval.
