@@ -22,6 +22,8 @@ internal object MiniPhotoDeadlineReader {
             val remainingNanos = MAX_DURATION_NANOS - elapsed
             val remainingMs = ((remainingNanos + 999_999L) / 1_000_000L).coerceIn(1L, 45_000L).toInt()
             beforeRead(remainingMs)
+            // The timeout callback itself can consume the remaining budget.
+            if (clockNanos() - started >= MAX_DURATION_NANOS) throw IOException("MINI_PHOTO_TIMEOUT")
             val count = input.read(result, read, minOf(32 * 1024, expectedBytes - read))
             if (count < 0) throw EOFException("MINI_PHOTO_INCOMPLETE")
             if (count == 0) {
