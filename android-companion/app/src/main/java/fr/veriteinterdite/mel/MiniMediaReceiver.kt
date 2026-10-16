@@ -272,6 +272,8 @@ class MiniMediaReceiver(private val context: Context) {
                     val headerTimeout = budget.remainingSocketTimeoutMs()
                     if (headerTimeout == 0) return
                     socket.soTimeout = headerTimeout
+                    // Socket configuration may exhaust the remaining transfer budget.
+                    if (!budget.withinDeadline()) return
                     val size = input.readInt()
                     if (size == 0) break
                     // Reject oversized streams before allocating/reading another frame.
@@ -279,6 +281,8 @@ class MiniMediaReceiver(private val context: Context) {
                     val frameTimeout = budget.remainingSocketTimeoutMs()
                     if (frameTimeout == 0) return
                     socket.soTimeout = frameTimeout
+                    // Socket configuration may exhaust the remaining transfer budget.
+                    if (!budget.withinDeadline()) return
                     val jpeg = readFully(input, size)
                     // Reading the final frame can itself cross the deadline.
                     if (!budget.withinDeadline()) return
@@ -321,6 +325,8 @@ class MiniMediaReceiver(private val context: Context) {
                     val headerTimeout = budget.remainingSocketTimeoutMs()
                     if (headerTimeout == 0) return
                     socket.soTimeout = headerTimeout
+                    // Socket configuration may exhaust the remaining transfer budget.
+                    if (!budget.withinDeadline()) return
                     val size = input.readInt()
                     if (size == 0) break
                     // Reject over-budget blocks before reading or writing them.
@@ -328,6 +334,8 @@ class MiniMediaReceiver(private val context: Context) {
                     val chunkTimeout = budget.remainingSocketTimeoutMs()
                     if (chunkTimeout == 0) return
                     socket.soTimeout = chunkTimeout
+                    // Socket configuration may exhaust the remaining transfer budget.
+                    if (!budget.withinDeadline()) return
                     val bytes = readFully(input, size)
                     if (!budget.withinDeadline()) return
                     output.write(bytes)
