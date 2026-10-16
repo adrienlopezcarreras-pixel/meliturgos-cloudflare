@@ -37,6 +37,12 @@ try {
       throw "WINDOWS_MINI_USB_PREFLIGHT_FILE_MISSING:$name"
     }
   }
+  # The read-only MCP launcher and runtime must be delivered together.
+  foreach ($name in @('Start-MEL-Companion-MCP.ps1','mel-companion-mcp.mjs')) {
+    if (!(Test-Path -LiteralPath (Join-Path $temp $name) -PathType Leaf)) {
+      throw "WINDOWS_MCP_FILE_MISSING:$name"
+    }
+  }
   $benchmark = Join-Path $temp "MEL-Local-AI-Benchmark.ps1"
   if (-not (Test-Path -LiteralPath $benchmark -PathType Leaf)) { throw "WINDOWS_LOCAL_AI_BENCHMARK_MISSING" }
   $desktopExe = Join-Path $temp "MEL-Companion.exe"
