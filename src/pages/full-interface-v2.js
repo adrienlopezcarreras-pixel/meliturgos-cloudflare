@@ -717,8 +717,8 @@ qs('#workComputerRevokeConsent').onclick=async e=>{
 qs('#workCreate').onclick=async()=>{const goal=qs('#workGoal').value.trim();if(!goal)return;qs('#workCreate').disabled=true;try{
  const pc=selectedWorkComputer();
  const capture=workComputerLastView?{computer_id:workComputerLastView.computer_id,command_id:workComputerLastView.command_id}:null;
- let interpretationId=null;
- if(capture&&qs('#workComputerInterpretConsent')?.checked===true){
+ let interpretationId=workComputerInterpretation?.command_id===capture?.command_id?workComputerInterpretation.interpretation_id:null;
+ if(capture&&qs('#workComputerInterpretConsent')?.checked===true&&!interpretationId){
   const vision=await jfetch('/api/work/screen-interpretation',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({computer_id:capture.computer_id,command_id:capture.command_id,consent:'INTERPRET_SCREEN_WITH_WORKERS_AI',question:goal})});
   if(!vision?.ok||!vision.interpretation_id||!vision.analysis)throw Error(vision?.code||'WORK_SCREEN_INTERPRETATION_UNCONFIRMED');
   workComputerInterpretation={interpretation_id:vision.interpretation_id,command_id:capture.command_id};interpretationId=vision.interpretation_id;
