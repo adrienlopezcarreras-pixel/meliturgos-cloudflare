@@ -8,6 +8,8 @@ test('Windows browser pointer actions reject non-client frame and off-screen coo
   assert.equal(src, dist);
   assert.match(src, /GetClientRect\(IntPtr hwnd, out RECT rect\)/);
   assert.match(src, /ClientToScreen\(IntPtr hwnd, ref POINT point\)/);
+  assert.ok(src.includes('WindowFromPoint(POINT point)'));
+  assert.ok(src.includes('GetAncestor(IntPtr hwnd, uint flags)'));
   const begin = src.indexOf('function Assert-BrowserClickTarget(');
   const end = src.indexOf('function Type-BrowserText(', begin);
   assert.ok(begin > 0 && end > begin);
@@ -22,6 +24,9 @@ test('Windows browser pointer actions reject non-client frame and off-screen coo
     'SystemInformation]::VirtualScreen',
     'BROWSER_CLICK_CLIENT_BOUNDS_REQUIRED',
     'BROWSER_CLICK_OUTSIDE_WINDOW',
+    'WindowFromPoint($hitPoint)',
+    'GetAncestor($hit, 2)',
+    'BROWSER_POINTER_OCCLUDED',
   ]) assert.ok(guard.includes(item), item);
   assert.match(guard, /\[Math\]::Max\(\[Math\]::Max\(\$rect.Left, \$virtual.Left\), \[long\]\$origin.X\)/);
   assert.match(guard, /\[Math\]::Min\(\[Math\]::Min\(\$rect.Right, \$virtual.Right\), \(\[long\]\$origin.X \+ \[long\]\$client.Right\)\)/);
