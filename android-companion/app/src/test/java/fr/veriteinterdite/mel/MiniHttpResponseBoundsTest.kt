@@ -56,4 +56,41 @@ class MiniHttpResponseBoundsTest {
         }
         assertEquals(true, emitted <= 128 * 1024 + 8192)
     }
+
+    @Test fun permanentlyStalledStreamFailsClosedAndCloses() {
+        var attempts = 0
+        var closed = false
+        val stream = object : InputStream() {
+            override fun read(): Int = 0
+            override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
+                attempts++
+                return 0
+            }
+            override fun close() { closed = true }
+        }
+        val error = assertThrows(IOException::class.java) {
+            MiniHttpResponseBounds.read(stream, 1024)
+        }
+        assertEquals("MEL_RESPONSE_STALLED", error.message)
+        assertEquals(16, attempts)
+        assertEquals(true, closed)
+    }
+
+    @Test fun shortZeroReadBurstsDoNotDiscardNetworkData() {
+        val payload = "Bonjour MINI".toByteArray(Charsets.UTF_8)
+        var index = 0
+        var zeros = 0
+        val stream = object : InputStream() {
+            override fun read(): Int = if (index < payload.size) payload[index++].toInt() and 255 else -1
+            override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
+                if (zeros++ % 4 < 2) return 0
+                if (index >= payload.size) return -1
+                val count = minOf(length, 3, payload.size - index)
+                payload.copyInto(buffer, offset, index, index + count)
+                index += count
+                return count
+            }
+        }
+        assertArrayEquals(payload, MiniHttpResponseBounds.read(stream, payload.size))
+    }
 }
