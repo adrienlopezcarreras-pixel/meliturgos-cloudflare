@@ -9,7 +9,7 @@ internal object MiniPhotoDeadlineReader {
     const val MAX_PHOTO_BYTES = 12 * 1024 * 1024
     const val MAX_DURATION_NANOS = 180L * 1_000_000_000L
 
-    fun read(input: InputStream, expectedBytes: Int, clockNanos: () -> Long = System::nanoTime, beforeRead: (Int) -> Unit = {}): ByteArray {
+    fun read(input: InputStream, expectedBytes: Int, beforeRead: (Int) -> Unit = {}, clockNanos: () -> Long = System::nanoTime): ByteArray {
         require(expectedBytes in 1..MAX_PHOTO_BYTES) { "MINI_PHOTO_SIZE_INVALID" }
         val result = ByteArray(expectedBytes)
         val started = clockNanos()
