@@ -52,7 +52,11 @@ for await(const line of rl){
  let msg;
  try{msg=JSON.parse(line);}catch{error(null,-32700,'Parse error');continue;}
  if(!msg||msg.jsonrpc!=='2.0'||typeof msg.method!=='string'){error(msg?.id??null,-32600,'Invalid request');continue;}
- if(msg.id===undefined)continue;
+ if(msg.id===undefined){
+  // Notifications have no response, but must never execute tools.
+  if(msg.method.startsWith('notifications/'))continue;
+  error(null,-32600,'Invalid notification');continue;
+ }
  if(msg.method==='initialize'){
   response(msg.id,{protocolVersion:'2025-03-26',capabilities:{tools:{}},serverInfo:{name:'mel-companion-readonly',version:'0.1.0'}});
  }else if(msg.method==='ping'){response(msg.id,{});}

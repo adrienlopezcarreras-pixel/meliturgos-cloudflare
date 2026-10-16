@@ -113,3 +113,9 @@ test('null tool arguments fail validation without attempting status fetch',async
  const results=await request([{jsonrpc:'2.0',id:15,method:'tools/call',params:{name:'mel_companion_status',arguments:null}}]);
  assert.equal(results[0].error.code,-32602);
 });
+
+
+test('tool call without request ID is rejected rather than executed',async()=>{
+ const results=await request([{jsonrpc:'2.0',method:'tools/call',params:{name:'mel_companion_status',arguments:{}}}]);
+ assert.equal(results[0].error.code,-32600);
+});
