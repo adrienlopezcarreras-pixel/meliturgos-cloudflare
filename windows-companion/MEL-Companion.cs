@@ -581,7 +581,13 @@ static class MelApp
     {
         try
         {
-            if (AdbWifiProcess != null && !AdbWifiProcess.HasExited) return;
+            if (AdbWifiProcess != null)
+            {
+                try { if (!AdbWifiProcess.HasExited) return; }
+                catch { }
+                try { AdbWifiProcess.Dispose(); } catch { }
+                AdbWifiProcess = null;
+            }
             if (!File.Exists(AdbWifiPath)) return;
             var psi = new ProcessStartInfo("powershell.exe");
             psi.Arguments = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File \"" + AdbWifiPath + "\"";
