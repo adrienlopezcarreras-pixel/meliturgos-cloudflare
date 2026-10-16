@@ -191,6 +191,25 @@ jobs:
             Remove-Item Env:MEL_MCP_SERVER_URL -ErrorAction SilentlyContinue
           }
 
+      - name: Verify MCP launcher fails closed without owner configuration
+        shell: pwsh
+        run: |
+          $stage = ".windows-release/MEL-Windows-$env:RELEASE_VERSION"
+          $launcher = Join-Path $stage 'Start-MEL-Companion-MCP.ps1'
+          Remove-Item Env:MEL_MCP_OWNER_TOKEN -ErrorAction SilentlyContinue
+          Remove-Item Env:MEL_MCP_SERVER_URL -ErrorAction SilentlyContinue
+          $ErrorActionPreference = 'Continue'
+          try {
+            $output = & pwsh -NoProfile -NonInteractive -File $launcher 2>&1 | Out-String
+            $code = $LASTEXITCODE
+          } finally {
+            $ErrorActionPreference = 'Stop'
+          }
+          if ($code -eq 0 -or $output -notmatch 'MEL_MCP_CONFIGURATION_MISSING') {
+            throw 'WINDOWS_MCP_MISSING_OWNER_CONFIG_NOT_REJECTED'
+          }
+          $global:LASTEXITCODE = 0
+
       - name: Verify release package
         shell: pwsh
         run: |
