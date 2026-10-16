@@ -28,6 +28,9 @@ test('interactive desktop commands use the authenticated existing Companion rela
   assert.match(page, /\/api\/computer\/v1\/commands/);
   assert.match(page, /action:'cursor\.move'/);
   assert.match(page, /action:'pointer\.click'/);
+  assert.match(page, /addEventListener\('wheel'/);
+  assert.match(page, /action:'pointer\.scroll'/);
+  assert.match(page, /delta_y:delta/);
   assert.match(page, /action:'keyboard\.type'/);
   assert.match(page, /action:'keyboard\.press'/);
   assert.match(page, /approve_sensitive:true/);
