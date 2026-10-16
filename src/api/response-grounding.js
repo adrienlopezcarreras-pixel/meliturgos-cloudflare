@@ -270,11 +270,11 @@ export function formatVerifiedAutonomyRuntimeResponse(result, { fallback = '', o
     return lines.join('\n');
   }
 
-  if (status === 'PAUSED' || control.paused === true) {
-    lines.push('Le cycle n’a exécuté aucune nouvelle tâche : l’autonomie est en pause.');
-  } else if (status === 'LAUNCH_GATE_REQUIRED') {
+  if (status === 'LAUNCH_GATE_REQUIRED') {
     lines.push('Le cycle n’a pas lancé de nouveau travail : le garde-fou de lancement bloque l’exécution.');
     lines.push('L’approbation de lancement ne correspond pas au SHA actuellement déployé. Il faut réconcilier puis approuver explicitement le SHA exact avant de reprendre l’exécution.');
+  } else if (status === 'PAUSED' || (status === 'UNKNOWN' && control.paused === true)) {
+    lines.push('Le cycle n’a exécuté aucune nouvelle tâche : l’autonomie est en pause.');
   } else if (status === 'DEPLOYED_SHA_UNAVAILABLE') {
     lines.push('Le cycle est bloqué : le runtime ne peut pas établir l’identité SHA exacte du déploiement. Aucune nouvelle tâche n’est déclarée exécutée.');
   } else if (status === 'SKIPPED_LEASE_BUSY') {
