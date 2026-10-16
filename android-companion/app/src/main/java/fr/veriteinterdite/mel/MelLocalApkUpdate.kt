@@ -32,19 +32,11 @@ internal object MelLocalApkUpdate {
             val input = context.contentResolver.openInputStream(source)
                 ?: error("UPDATE_SOURCE_NOT_READABLE")
             val digest = MessageDigest.getInstance("SHA-256")
-            var total = 0L
-            input.use { stream ->
+            val total = input.use { stream ->
                 FileOutputStream(temp).use { output ->
-                    val bytes = ByteArray(32768)
-                    while (true) {
-                        val read = stream.read(bytes)
-                        if (read < 0) break
-                        total += read
-                        check(total <= MAX_APK_BYTES) { "UPDATE_APK_TOO_LARGE" }
-                        digest.update(bytes, 0, read)
-                        output.write(bytes, 0, read)
-                    }
+                    val copied = ApkUpdateStreamCopy.copy(stream, output, digest, MAX_APK_BYTES)
                     output.fd.sync()
+                    copied
                 }
             }
             check(total >= 1_048_576) { "UPDATE_APK_TOO_SMALL" }
