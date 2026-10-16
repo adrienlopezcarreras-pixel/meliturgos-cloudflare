@@ -35,6 +35,16 @@ test('browser fullscreen rejects unsupported displays, repetitions and alternate
     assert.equal(result.reason, 'BROWSER_FULLSCREEN_UNEXPECTED_FIELD', field);
   }
 });
+test('generic browser.press cannot bypass the approved fullscreen command', () => {
+  const attempted = {
+    id: 'bypass', action: COMPUTER_USE_ACTIONS.BROWSER_PRESS,
+    window_handle: '41234', key: 'F11',
+  };
+  const result = verdict(attempted, true);
+  assert.equal(result.allowed, false);
+  assert.equal(result.reason, 'BROWSER_PRESS_KEY_NOT_ALLOWED');
+});
+
 test('invalid fullscreen request denies all preceding actions atomically', async () => {
   const performed = [], audits = [];
   const controller = createComputerUseController({
