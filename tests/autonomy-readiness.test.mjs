@@ -40,7 +40,8 @@ function council(costB = 0, { sameProvider = false, missingProof = false, wrongP
 function workDagProof() {
   return {
     status: 'VERIFIED',
-    version: 3,
+    version: 4,
+    runtime_fanout_cache_hit: false,
     verified_at: '2026-09-10T05:00:00Z',
     recovered_interrupted_node: true,
     providers_attempted: 2,
