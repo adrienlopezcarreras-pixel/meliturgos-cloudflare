@@ -27,6 +27,7 @@ import java.net.ServerSocket
 import java.net.Socket
 import java.security.SecureRandom
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -53,6 +54,7 @@ class MiniMediaReceiver(private val context: Context) {
     )
 
     private val started = AtomicBoolean(false)
+    private val hotspotEpoch = AtomicLong(0)
     private val activeClients = ConcurrentHashMap.newKeySet<Socket>()
     private val token = ByteArray(24).also { SecureRandom().nextBytes(it) }
         .let { Base64.encodeToString(it, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING) }
@@ -66,6 +68,7 @@ class MiniMediaReceiver(private val context: Context) {
             return
         }
         if (!started.compareAndSet(false, true)) return
+        val epoch = hotspotEpoch.incrementAndGet()
 
         try {
             serverSocket = ServerSocket(PORT).apply { reuseAddress = true }
@@ -89,30 +92,37 @@ class MiniMediaReceiver(private val context: Context) {
         try {
             wifi.startLocalOnlyHotspot(object : WifiManager.LocalOnlyHotspotCallback() {
                 override fun onStarted(value: WifiManager.LocalOnlyHotspotReservation) {
-                    reservation = value
+                    // Hotspot startup is asynchronous; a STOP or newer startup
+                    // must revoke obsolete callbacks before they expose credentials.
+                    if (!started.get() || hotspotEpoch.get() != epoch) {
+                        runCatching { value.close() }
+                        return
+                    }
                     val pair = credentials(value)
+                    if (!started.get() || hotspotEpoch.get() != epoch) {
+                        runCatching { value.close() }
+                        return
+                    }
                     if (pair == null) {
+                        runCatching { value.close() }
                         close()
                         onError("MEDIA_HOTSPOT_CREDENTIALS")
                         return
                     }
+                    reservation = value
                     val config = Config(pair.first, pair.second, PORT, token)
                     currentConfig = config
                     onReady(config)
                 }
 
                 override fun onStopped() {
-                    currentConfig = null
-                    started.set(false)
-                    // The old accept() otherwise remains blocked on the bound port
-                    // and prevents starting a fresh hotspot/media server.
-                    runCatching { serverSocket?.close() }
-                    serverSocket = null
-                    reservation = null
-                    stopActiveClients()
+                    // Do not tear down a replacement session with an old callback.
+                    if (hotspotEpoch.get() != epoch) return
+                    close()
                 }
 
                 override fun onFailed(reason: Int) {
+                    if (hotspotEpoch.get() != epoch) return
                     close()
                     onError("MEDIA_HOTSPOT_$reason")
                 }
@@ -472,6 +482,8 @@ class MiniMediaReceiver(private val context: Context) {
     }
 
     fun close() {
+        // Invalidate delayed hotspot callbacks before any teardown.
+        hotspotEpoch.incrementAndGet()
         // Stop permission for active sessions before closing the listener.
         started.set(false)
         currentConfig = null
