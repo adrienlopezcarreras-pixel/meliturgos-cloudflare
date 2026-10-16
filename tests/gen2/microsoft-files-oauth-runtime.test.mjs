@@ -3,7 +3,6 @@ import assert from 'node:assert/strict';
 
 import { createMailOAuthRuntime, mailOAuthConnectorIds } from '../../src/connectors/mail-oauth-runtime.js';
 import { definition as oneDrive } from '../../src/connectors/microsoft-onedrive.js';
-import { definition as sharePoint } from '../../src/connectors/microsoft-sharepoint.js';
 
 class TransactionVault {
   constructor(){ this.rows=new Map(); }
@@ -25,11 +24,10 @@ const env={
   MEL_PUBLIC_ORIGIN:'https://mel.example',
 };
 
-test('Microsoft OAuth catalog exposes mail, OneDrive and SharePoint connectors', () => {
+test('Microsoft OAuth catalog exposes only the active mail and OneDrive connectors', () => {
   assert.deepEqual(new Set(mailOAuthConnectorIds('microsoft')), new Set([
     'microsoft-mail',
     'microsoft-onedrive',
-    'microsoft-sharepoint',
   ]));
 });
 
@@ -49,33 +47,9 @@ test('OneDrive begin requests read scope by default and write only when selected
   assert.ok(fullScopes.has('https://graph.microsoft.com/Files.ReadWrite.All'));
 });
 
-test('SharePoint begin requires file and site read scopes and supports bounded writes', async () => {
-  const runtime=createMailOAuthRuntime({providerId:'microsoft',env,vaults:vaults(),fetcher:async()=>{throw new Error('not called')}});
-  const full=await runtime.oauth.begin({
-    connector_id:'microsoft-sharepoint',
-    optional_scopes:[
-      'https://graph.microsoft.com/Files.ReadWrite.All',
-      'https://graph.microsoft.com/Sites.ReadWrite.All',
-    ],
-  },{owner:'adrien'});
-  const scopes=new Set(new URL(full.authorization_url).searchParams.get('scope').split(' '));
-  for(const scope of [
-    'https://graph.microsoft.com/Files.Read.All',
-    'https://graph.microsoft.com/Sites.Read.All',
-    'https://graph.microsoft.com/Files.ReadWrite.All',
-    'https://graph.microsoft.com/Sites.ReadWrite.All',
-    'offline_access',
-  ]) assert.ok(scopes.has(scope),scope);
-});
-
-test('connector manifests stay explicit about Graph probes and capabilities', () => {
+test('active Microsoft connector manifests are explicit about OneDrive Graph probes and capabilities', () => {
   assert.equal(oneDrive.id,'microsoft-onedrive');
   assert.match(oneDrive.probe,/graph\.microsoft\.com\/v1\.0\/me\/drive\/root/);
   assert.ok(oneDrive.capabilities.includes('files.read'));
   assert.ok(oneDrive.capabilities.includes('files.write'));
-
-  assert.equal(sharePoint.id,'microsoft-sharepoint');
-  assert.match(sharePoint.probe,/graph\.microsoft\.com\/v1\.0\/sites\/root/);
-  assert.ok(sharePoint.capabilities.includes('sites.read'));
-  assert.ok(sharePoint.capabilities.includes('sites.write'));
 });
