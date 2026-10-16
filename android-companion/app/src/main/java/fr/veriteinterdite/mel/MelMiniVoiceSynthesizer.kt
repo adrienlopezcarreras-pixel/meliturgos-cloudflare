@@ -334,7 +334,8 @@ object MelMiniVoiceSynthesizer {
             val id = String(wav, offset, 4, Charsets.US_ASCII)
             val size = le32(wav, offset + 4)
             val body = offset + 8
-            require(size >= 0 && body + size <= wav.size) { "MINI_TTS_WAV_CHUNK" }
+            // Subtract instead of adding a supplied chunk size: addition may overflow Int.
+            require(size >= 0 && size <= wav.size - body) { "MINI_TTS_WAV_CHUNK" }
             if (id == "fmt " && size >= 16) {
                 audioFormat = le16(wav, body)
                 channels = le16(wav, body + 2)
