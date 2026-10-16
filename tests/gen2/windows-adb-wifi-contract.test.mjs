@@ -325,3 +325,14 @@ test("Companion rejects incomplete or wrong-schema ADB reports instead of interp
  assert.match(refresh,/!a\.ContainsKey\("connected"\)/);
  assert.match(refresh,/rapport invalide ou indisponible/);
 });
+
+test("Companion backs off repeated ADB monitor startup failures and resets after a successful start", async () => {
+ const native=await source("windows-companion/MEL-Companion.cs");
+ const start=native.indexOf("public static void StartAdbWifiMonitor()");
+ const end=native.indexOf("public static void StopAdbWifiMonitor()",start);
+ const method=native.slice(start,end);
+ assert.match(method,/NextAdbMonitorStartUtc/);
+ assert.match(method,/AdbMonitorStartFailures/);
+ assert.match(method,/Math\.Min\(300, 5 \* \(1 << \(AdbMonitorStartFailures - 1\)\)\)/);
+ assert.match(method,/AdbMonitorStartFailures = 0/);
+});
