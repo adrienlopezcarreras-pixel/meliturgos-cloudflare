@@ -210,3 +210,10 @@ test("Companion never treats an ADB report older than 75 seconds or far in the f
  assert.match(native, /\.TotalSeconds < 75/);
  assert.doesNotMatch(native, /\.TotalMinutes < 2/);
 });
+
+test("ADB monitor sanitizes and bounds diagnostic log error details", async () => {
+ const script = await source("windows-companion/MEL-ADB-WiFi.ps1");
+ assert.match(script, /pairing\\s\*code\|password\|token\|authorization/);
+ assert.match(script, /\[REDACTED\]/);
+ assert.match(script, /Substring\(0,\[Math\]::Min\(240/);
+});
