@@ -300,7 +300,10 @@ async function synthesizeCouncil({
     attempted.push(identity);
     try {
       governor.assertAllowed(provider);
-      const scheduler = createScheduler(timeoutMs, 1);
+      // Independent critiques already receive a bounded retry. MEL synthesis
+      // tries each verified candidate sequentially, so immediate fallback to
+      // the next approved provider avoids exceeding the release HTTP deadline.
+      const scheduler = createScheduler(timeoutMs, 1, 0);
       const [settled] = await scheduler.run([provider], async (candidate, _index, meta = {}) => {
         const startedAt = Date.now();
         const approvedIdentity = providerIdentity(candidate);
