@@ -510,3 +510,67 @@ test('GEN2-38 provider outage remains visible for non-canonical planning goals',
   );
   assert.equal(fanoutCalls, 1);
 });
+
+
+test('GEN2-38 canonical release diagnostic retains the real echo descriptor when relevance ranking crowds it out', async () => {
+  const bus = new CapabilityBus();
+  bus.discover({
+    id: 'echo', name: 'Diagnostic echo', category: 'diagnostic', version: '1.0.0', provider: 'core',
+    description: 'Returns a bounded value to prove the CapabilityBus execution path.',
+    input_schema: {
+      type: 'object',
+      properties: { value: { type: 'string', minLength: 0, maxLength: 1000 } },
+      required: ['value'],
+      additionalProperties: false,
+    },
+    output_schema: { type: 'object', additionalProperties: true },
+    risk: 'LOW', permissions: [], health: 'HEALTHY', enabled: true,
+  }, async input => ({ value: input.value }));
+
+  // These higher-relevance descriptors crowd the normal compact catalog budget,
+  // reproducing a production-sized inventory without inventing any echo capability.
+  for (let index = 0; index < 24; index += 1) {
+    bus.discover({
+      id: `diagnostic.fixture.${index}`,
+      name: `Safe read-only diagnostic plan helper ${index}`,
+      category: 'diagnostic',
+      version: '1.0.0',
+      provider: 'fixture',
+      description: 'Safe read-only diagnostic plan using only an actually available capability '.repeat(3),
+      input_schema: { type: 'object', properties: {}, additionalProperties: false },
+      output_schema: { type: 'object', additionalProperties: true },
+      risk: 'LOW', permissions: [], health: 'HEALTHY', enabled: true,
+    }, async () => ({ ok: true }));
+  }
+
+  let fanoutCalls = 0;
+  bus.discover({
+    id: 'augmentio.fanout', name: 'Fixture multi-AI', category: 'test', version: '1.0.0', provider: 'fixture',
+    description: 'Must not be called for the bounded release diagnostic',
+    input_schema: { type: 'object', properties: { input: { type: 'string' } }, required: ['input'], additionalProperties: false },
+    output_schema: { type: 'object', additionalProperties: true },
+    risk: 'LOW', permissions: [], health: 'HEALTHY', enabled: true,
+  }, async () => { fanoutCalls += 1; throw new Error('AI fanout must not run'); });
+  registerWorkCapabilities(bus, {});
+
+  const fullInventory = bus.list();
+  assert.ok(fullInventory.some(record => record.id === 'echo'));
+  assert.equal(buildPlanningCatalog(fullInventory, {
+    query: 'Produce a one-step safe read-only diagnostic plan using only an actually available capability.',
+    maxChars: 2200,
+  }).some(record => record.id === 'echo'), false, 'fixture must reproduce echo omitted by catalog budget');
+
+  const result = await bus.execute('work.plan.generate', {
+    id: 'release-gen2-38-catalog-pressure',
+    goal: 'Produce a one-step safe read-only diagnostic plan using only an actually available capability.',
+    constraints: ['No side effects', 'Use only listed capabilities'],
+    maxCandidates: 2,
+  }, { owner: 'adrien', requestId: 'release-gen2-38-catalog-pressure-test', permissions: [], releaseSmoke: true });
+
+  assert.equal(fanoutCalls, 0);
+  assert.equal(result.plan.steps.length, 1);
+  assert.equal(result.plan.steps[0].capability, 'echo');
+  assert.equal(result.generator.model, 'bounded-diagnostic-fallback');
+  assert.equal(result.generator.execution_started, false);
+  assert.equal(result.generator.persisted, false);
+});
