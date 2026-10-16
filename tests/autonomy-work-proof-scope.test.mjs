@@ -6,8 +6,13 @@ import { findVerifiedRuntimeWorkProof } from '../src/evolution/autonomy-proof.js
 function proof() {
   return {
     status: 'VERIFIED',
+    version: 3,
     recovered_interrupted_node: true,
     providers_attempted: 2,
+    provider_model_identities: [
+      { provider: 'workers-ai', model: 'model-a' },
+      { provider: 'workers-ai', model: 'model-b' },
+    ],
     successful_candidates: 2,
   };
 }
