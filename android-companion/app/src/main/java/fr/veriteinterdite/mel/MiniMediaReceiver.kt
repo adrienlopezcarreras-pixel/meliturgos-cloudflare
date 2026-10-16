@@ -436,12 +436,15 @@ class MiniMediaReceiver(private val context: Context) {
 
     private fun publish(uri: android.net.Uri) {
         if (Build.VERSION.SDK_INT < 29) return
-        context.contentResolver.update(
+        // MediaStore may refuse to update the pending entry without throwing.
+        // Do not report a successful save unless exactly one item was published.
+        val updated = context.contentResolver.update(
             uri,
             ContentValues().apply { put(MediaStore.MediaColumns.IS_PENDING, 0) },
             null,
             null
         )
+        check(updated == 1) { "MINI_MEDIA_PUBLISH_FAILED" }
     }
 
     private fun String.ensureSuffix(suffix: String): String =
