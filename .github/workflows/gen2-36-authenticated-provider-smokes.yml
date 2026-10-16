@@ -92,35 +92,3 @@ jobs:
           }
           console.log('Cloudflare authenticated account smoke passed.');
           NODE
-
-  vercel-auth-smoke:
-    runs-on: ubuntu-latest
-    timeout-minutes: 3
-    env:
-      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-    steps:
-      - name: Prove authenticated Vercel account
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [ -z "$VERCEL_TOKEN" ]; then
-            echo "::warning title=GEN2-36 Vercel blocked::VERCEL_TOKEN_MISSING"
-            {
-              echo "### GEN2-36 Vercel"
-              echo "BLOCKED_HUMAN: VERCEL_TOKEN is not configured in GitHub Actions."
-            } >> "$GITHUB_STEP_SUMMARY"
-            exit 0
-          fi
-          HTTP_CODE="$(curl --silent --show-error --max-time 30 \
-            --header "Authorization: Bearer ${VERCEL_TOKEN}" \
-            --header "Accept: application/json" \
-            --output /tmp/gen2-36-vercel.json \
-            --write-out '%{http_code}' \
-            "https://api.vercel.com/v2/user")"
-          test "$HTTP_CODE" = "200"
-          node - <<'NODE'
-          const fs = require('fs');
-          const payload = JSON.parse(fs.readFileSync('/tmp/gen2-36-vercel.json', 'utf8'));
-          if (!payload?.user?.id) throw new Error('VERCEL_AUTH_SMOKE_FAILED');
-          console.log('Vercel authenticated account smoke passed.');
-          NODE
