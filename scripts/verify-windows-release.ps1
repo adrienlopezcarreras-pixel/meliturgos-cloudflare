@@ -38,7 +38,7 @@ try {
     }
   }
   # The read-only MCP launcher and runtime must be delivered together.
-  foreach ($name in @('Start-MEL-Companion-MCP.ps1','mel-companion-mcp.mjs')) {
+  foreach ($name in @('Start-MEL-Companion-MCP.ps1','mel-companion-mcp.mjs','MEL-Companion-MCP-README.md')) {
     if (!(Test-Path -LiteralPath (Join-Path $temp $name) -PathType Leaf)) {
       throw "WINDOWS_MCP_FILE_MISSING:$name"
     }
