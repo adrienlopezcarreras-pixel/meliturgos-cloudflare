@@ -29,11 +29,13 @@ export function evaluateRawJob(job, policy = {}) {
   if (!integer(policy.electricityEurMicrosPerKwh, 0, Number.MAX_SAFE_INTEGER)) return reject('ELECTRICITY_RATE_MISSING');
   if (!integer(policy.minimumProfitEurMicros, 0, Number.MAX_SAFE_INTEGER)) return reject('MINIMUM_PROFIT_MISSING');
   if (!integer(policy.minimumMarginBps, 0, 10000)) return reject('MINIMUM_MARGIN_MISSING');
-  const powerCost = Math.ceil(job.powerWatts * job.maxRuntimeSeconds * policy.electricityEurMicrosPerKwh / MICROS_PER_KWH_WATT_SECOND);
-  const estimatedCostEurMicros = powerCost + job.feesEurMicros + job.otherCostEurMicros;
-  if (!Number.isSafeInteger(estimatedCostEurMicros)) return reject('COST_OVERFLOW');
+  const powerCostBig = (BigInt(job.powerWatts) * BigInt(job.maxRuntimeSeconds) * BigInt(policy.electricityEurMicrosPerKwh) + BigInt(MICROS_PER_KWH_WATT_SECOND - 1)) / BigInt(MICROS_PER_KWH_WATT_SECOND);
+  const estimatedCostBig = powerCostBig + BigInt(job.feesEurMicros) + BigInt(job.otherCostEurMicros);
+  if (powerCostBig > BigInt(Number.MAX_SAFE_INTEGER) || estimatedCostBig > BigInt(Number.MAX_SAFE_INTEGER)) return reject('COST_OVERFLOW');
+  const powerCost = Number(powerCostBig);
+  const estimatedCostEurMicros = Number(estimatedCostBig);
   const expectedProfitEurMicros = job.payoutEurMicros - estimatedCostEurMicros;
-  const estimatedMarginBps = Math.floor(expectedProfitEurMicros * 10000 / job.payoutEurMicros);
+  const estimatedMarginBps = Number((BigInt(expectedProfitEurMicros) * 10000n) / BigInt(job.payoutEurMicros));
   const economics = { provider, jobId: job.jobId, payoutEurMicros: job.payoutEurMicros, electricityCostEurMicros: powerCost, estimatedCostEurMicros, expectedProfitEurMicros, estimatedMarginBps };
   if (expectedProfitEurMicros < policy.minimumProfitEurMicros) return reject('PROFIT_TOO_LOW', economics);
   if (estimatedMarginBps < policy.minimumMarginBps) return reject('MARGIN_TOO_LOW', economics);
