@@ -73,7 +73,7 @@ async function boundedJson(response) {
   // Enforce the limit *while receiving*, not after arrayBuffer() has allocated
   // an arbitrarily large response in the Worker.
   const declaredLength = response.headers?.get?.('content-length');
-  if (declaredLength && /^\\d+$/.test(declaredLength)
+  if (declaredLength && /^\d+$/.test(declaredLength)
     && Number(declaredLength) > MAX_RESPONSE_BYTES) {
     response.body?.cancel?.().catch(() => {});
     throw browserCompanionError('BROWSER_COMPANION_RESPONSE_TOO_LARGE');
