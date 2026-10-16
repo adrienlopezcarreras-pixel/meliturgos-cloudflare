@@ -370,6 +370,8 @@ class MiniMediaReceiver(private val context: Context) {
 
     private fun renderWebPage(url: String, width: Int, height: Int): ByteArray? {
         val latch = CountDownLatch(1)
+        val completed = AtomicBoolean(false)
+        val captureScheduled = AtomicBoolean(false)
         var result: ByteArray? = null
         Handler(context.mainLooper).post {
             val web = WebView(context.applicationContext)
@@ -389,40 +391,49 @@ class MiniMediaReceiver(private val context: Context) {
             web.layout(0, 0, width, height)
             web.webViewClient = object : WebViewClient() {
                 override fun onPageFinished(view: WebView, pageUrl: String) {
+                    // Redirects may produce multiple completion callbacks; only
+                    // one may capture and destroy the WebView.
+                    if (completed.get() || !captureScheduled.compareAndSet(false, true)) return
                     Handler(context.mainLooper).postDelayed({
-                        runCatching {
-                            view.measure(
-                                android.view.View.MeasureSpec.makeMeasureSpec(width, android.view.View.MeasureSpec.EXACTLY),
-                                android.view.View.MeasureSpec.makeMeasureSpec(height, android.view.View.MeasureSpec.EXACTLY)
-                            )
-                            view.layout(0, 0, width, height)
-                            val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-                            val canvas = Canvas(bitmap)
-                            view.draw(canvas)
-                            val pixels = IntArray(width * height)
-                            bitmap.getPixels(pixels, 0, width, 0, 0, width, height)
-                            val out = ByteArray(width * height * 2)
-                            var offset = 0
-                            for (pixel in pixels) {
-                                val r = (pixel ushr 16) and 0xff
-                                val g = (pixel ushr 8) and 0xff
-                                val b = pixel and 0xff
-                                val rgb = ((r shr 3) shl 11) or ((g shr 2) shl 5) or (b shr 3)
-                                out[offset++] = (rgb and 0xff).toByte()
-                                out[offset++] = ((rgb ushr 8) and 0xff).toByte()
-                            }
-                            result = out
-                            bitmap.recycle()
+                        if (completed.compareAndSet(false, true)) {
+                            result = runCatching {
+                                view.measure(
+                                    android.view.View.MeasureSpec.makeMeasureSpec(width, android.view.View.MeasureSpec.EXACTLY),
+                                    android.view.View.MeasureSpec.makeMeasureSpec(height, android.view.View.MeasureSpec.EXACTLY)
+                                )
+                                view.layout(0, 0, width, height)
+                                val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+                                try {
+                                    val canvas = Canvas(bitmap)
+                                    view.draw(canvas)
+                                    val pixels = IntArray(width * height)
+                                    bitmap.getPixels(pixels, 0, width, 0, 0, width, height)
+                                    val out = ByteArray(width * height * 2)
+                                    var offset = 0
+                                    for (pixel in pixels) {
+                                        val r = (pixel ushr 16) and 0xff
+                                        val g = (pixel ushr 8) and 0xff
+                                        val b = pixel and 0xff
+                                        val rgb = ((r shr 3) shl 11) or ((g shr 2) shl 5) or (b shr 3)
+                                        out[offset++] = (rgb and 0xff).toByte()
+                                        out[offset++] = ((rgb ushr 8) and 0xff).toByte()
+                                    }
+                                    out
+                                } finally {
+                                    bitmap.recycle()
+                                }
+                            }.getOrNull()
+                            runCatching { view.stopLoading() }
+                            runCatching { view.destroy() }
+                            latch.countDown()
                         }
-                        view.stopLoading()
-                        view.destroy()
-                        latch.countDown()
                     }, 1300L)
                 }
             }
             web.loadUrl(url)
             Handler(context.mainLooper).postDelayed({
-                if (latch.count > 0L) {
+                // A timeout must also revoke any already scheduled capture.
+                if (completed.compareAndSet(false, true)) {
                     runCatching { web.stopLoading() }
                     runCatching { web.destroy() }
                     latch.countDown()
