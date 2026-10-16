@@ -44,25 +44,25 @@ test('media cleanup deletes only expired objects owned by current owner', async 
 });
 
 test('media cleanup scan stays bounded', async () => {
-  let requestedLimit=0;
+  const requestedLimits=[];
   const env={
     MELITURGOS_USER:'adrien',
     MEDIA_BUCKET:{
       async list(options){
-        requestedLimit=options.limit;
+        requestedLimits.push(options.limit);
         return {
           truncated:false,
           objects:Array.from({length:3},(_,i)=>({
             key:options.prefix+i+'.bin',
             customMetadata:{owner:'adrien',expiresAt:'2026-09-30T00:00:00Z'},
-          })),
+          })).slice(0,options.limit),
         };
       },
       async delete(){},
     },
   };
   const result=await runExpiredMediaCleanup(env,{now:Date.parse('2026-10-01T00:00:00Z'),maxObjects:3});
-  assert.equal(requestedLimit,3);
+  assert.deepEqual(requestedLimits,[2,1]);
   assert.equal(result.scanned,3);
   assert.equal(result.deleted,3);
 });
