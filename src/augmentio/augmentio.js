@@ -31,10 +31,8 @@ export class Augmentio {
 
   async fanOut({ capability = 'GENERAL', input, context = {}, maxCandidates = 4, signal } = {}) {
     const limit = boundedAugmentioCandidates(maxCandidates);
-    const cacheKey = { capability, input, context, maxCandidates: limit };
-    const cached = await this.cache.get(cacheKey);
-    if (cached) return { ...cached, cacheHit: true };
-
+    // A cached answer is not an authorization grant. Re-evaluate live model
+    // availability and the zero-added-cost policy before considering cache.
     await this.pool?.refreshHealth?.();
     const providers = this.quota.filter(
       this.pool.list({ capability }).filter((provider) => this.governor.allows(provider)),
@@ -44,6 +42,21 @@ export class Augmentio {
       const error = new Error('NO_ZERO_COST_PROVIDER_AVAILABLE');
       error.code = 'NO_ZERO_COST_PROVIDER_AVAILABLE';
       throw error;
+    }
+
+    // Bind cached answers to the exact currently eligible provider/model
+    // roster. Disabling, replacing or reconfiguring an adapter invalidates
+    // the former roster's cached response.
+    const roster = providers.map((provider) => ({
+      id: provider.id,
+      provider: provider.providerId ?? provider.provider_id ?? provider.id,
+      model: provider.modelId ?? provider.model_id ?? provider.id,
+    }));
+    const cacheKey = { capability, input, context, maxCandidates: limit, roster };
+    const cached = await this.cache.get(cacheKey);
+    // Live authorization can change even between roster selection and lookup.
+    if (cached && providers.every((provider) => this.governor.allows(provider))) {
+      return { ...cached, cacheHit: true };
     }
 
     const settled = await this.scheduler.run(providers, async (provider, _index, meta = {}) => {
