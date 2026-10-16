@@ -58,11 +58,18 @@ export class ProviderAdapter {
   async health() {
     if (!this.enabled) return 'UNAVAILABLE';
     if (typeof this._healthCheck !== 'function') return this.healthStatus;
+    const generation = (this._healthCheckGeneration || 0) + 1;
+    this._healthCheckGeneration = generation;
     try {
       const value = await this._healthCheck();
-      this.healthStatus = typeof value === 'string' ? value : value?.status || 'HEALTHY';
+      if (generation === this._healthCheckGeneration) {
+        this.healthStatus = typeof value === 'string' ? value : value?.status || 'HEALTHY';
+      }
     } catch (error) {
-      this.healthStatus = error?.status === 401 || error?.status === 403 ? 'UNAVAILABLE' : 'DEGRADED';
+      if (generation === this._healthCheckGeneration) {
+        this.healthStatus = error?.status === 401 || error?.status === 403
+          ? 'UNAVAILABLE' : 'DEGRADED';
+      }
     }
     return this.healthStatus;
   }
