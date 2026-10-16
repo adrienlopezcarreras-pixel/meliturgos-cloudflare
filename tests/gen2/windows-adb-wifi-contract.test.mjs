@@ -90,3 +90,10 @@ test("failed post-connect ADB serial probe tries next endpoint", async () => {
   assert.match(reconnect, /try \{ \$serials=\(Run-Adb -arglist @\("devices","-l"\)\)/);
   assert.match(reconnect, /catch \{ continue \}/);
 });
+
+
+test("unreadable saved ADB endpoint does not abort discovered endpoint attempts", async () => {
+  const script = await source("windows-companion/MEL-ADB-WiFi.ps1");
+  const reconnect = script.split("function Attempt-Reconnect {")[1].split("function Scan {")[0];
+  assert.match(reconnect, /try \{ \$last=\(Get-Content -LiteralPath \$saved -Raw\)\.Trim\(\) \} catch \{ \$last="" \}/);
+});

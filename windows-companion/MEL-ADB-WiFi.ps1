@@ -30,7 +30,7 @@ function Attempt-Reconnect {
     if ($line -match '_adb-tls-connect\._tcp' -and $line -match '(\d{1,3}(?:\.\d{1,3}){3}:\d{2,5})') { $targets += $Matches[1] }
   }
   if (Test-Path -LiteralPath $saved) {
-    $last=(Get-Content -LiteralPath $saved -Raw).Trim()
+    try { $last=(Get-Content -LiteralPath $saved -Raw).Trim() } catch { $last="" }
     if ($last -match '^\d{1,3}(?:\.\d{1,3}){3}:\d{2,5}$') { $targets += $last }
   }
   foreach ($endpoint in ($targets | Select-Object -Unique | Select-Object -First 5)) {
