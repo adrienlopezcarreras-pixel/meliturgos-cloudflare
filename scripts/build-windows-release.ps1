@@ -66,6 +66,11 @@ foreach ($entry in @(@{ source='windows-companion\\Start-MEL-Companion-MCP.ps1';
   Copy-Item -LiteralPath $src -Destination (Join-Path $stage $entry.name)
 }
 
+# Include owner-facing MCP setup instructions in the release ZIP.
+$mcpGuide = Join-Path $repoRoot 'docs\\MEL-COMPANION-MCP-WINDOWS-LAUNCH.md'
+if (!(Test-Path -LiteralPath $mcpGuide -PathType Leaf)) { throw 'WINDOWS_MCP_GUIDE_MISSING' }
+Copy-Item -LiteralPath $mcpGuide -Destination (Join-Path $stage 'MEL-Companion-MCP-README.md')
+
 # Packaged but never executed during installation or build.
 $benchmarkSource = Join-Path $repoRoot "scripts\companion-local-ai-benchmark.ps1"
 if (-not (Test-Path -LiteralPath $benchmarkSource -PathType Leaf)) { throw "WINDOWS_LOCAL_AI_BENCHMARK_MISSING" }
