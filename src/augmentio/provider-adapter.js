@@ -64,6 +64,13 @@ export class ProviderAdapter {
     }
   }
 
+  invalidateHealthProbe() {
+    // A pool-level timeout must invalidate an in-flight internal health()
+    // callback. Otherwise that callback may overwrite the quarantine after
+    // the pool has already timed out.
+    this._healthCheckGeneration = (this._healthCheckGeneration || 0) + 1;
+  }
+
   async health() {
     if (!this.enabled) return 'UNAVAILABLE';
     if (typeof this._healthCheck !== 'function') return this.healthStatus;
