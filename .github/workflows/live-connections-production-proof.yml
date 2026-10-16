@@ -234,38 +234,12 @@ jobs:
           fi
           if [ "${MICROSOFT_ONEDRIVE_OK}" != "1" ]; then FAILURES=$((FAILURES+1)); fi
 
-          if probe microsoft_sharepoint /api/gen2/connections/microsoft/test '{"connector_id":"microsoft-sharepoint"}'; then
-            MICROSOFT_SHAREPOINT_OK=1
-            MICROSOFT_SHAREPOINT_READ_PROVEN=1
-            MICROSOFT_SHAREPOINT_PROOF_SOURCE="NATIVE_GRAPH_SITE_SEARCH"
-          elif [ "${PIPEDREAM_OK}" = "1" ] && has_pd_app sharepoint; then
-            # A linked OAuth account is not evidence of Graph site read access.
-            # Execute one bounded read-only search via the actual linked account.
-            MICROSOFT_SHAREPOINT_OK=1
-            if probe microsoft_sharepoint_pipedream_graph /api/gen2/connections/pipedream/test '{"probe":"sharepoint_sites_read"}'; then
-              MICROSOFT_SHAREPOINT_READ_PROVEN=1
-              MICROSOFT_SHAREPOINT_PROOF_SOURCE="PIPEDREAM_GRAPH_SITE_SEARCH"
-              echo 'microsoft_sharepoint: {"ok":true,"provider":"pipedream","app":"sharepoint","linked_account":true,"graph_site_read_proven":true,"read_only":true}'
-            else
-              # Personal Microsoft accounts cannot use Graph site search; a
-              # missing Sites.Read.All grant also keeps this proof blocked.
-              MICROSOFT_SHAREPOINT_PROOF_SOURCE="PIPEDREAM_LINKED_ACCOUNT_ONLY"
-              # Classify a personal Microsoft account without declaring a site read
-              # successful, altering credentials, or printing upstream responses.
-              if node -e 'const fs=require("fs");let d={};try{d=JSON.parse(fs.readFileSync("/tmp/microsoft_sharepoint_pipedream_graph.json","utf8"))}catch{};const message=String(d?.upstream_message||"");process.exit(d?.upstream_status===400&&/not supported for MSA accounts/i.test(message)?0:1)'; then
-                MICROSOFT_SHAREPOINT_PROOF_SOURCE="MSA_GRAPH_SITE_READ_UNSUPPORTED"
-                echo 'microsoft_sharepoint: {"ok":false,"code":"MSA_GRAPH_SITE_READ_UNSUPPORTED","account_type":"personal","status":"UNSUPPORTED_ACCOUNT_TYPE","action_required":"USE_ORGANIZATIONAL_SHAREPOINT_ACCOUNT","graph_site_read_proven":false,"site_read_available":false}'
-              fi
-              echo 'microsoft_sharepoint: {"ok":true,"provider":"pipedream","app":"sharepoint","linked_account":true,"graph_site_read_proven":false}'
-            fi
-          fi
-          # SharePoint Graph site access requires an eligible work/school account.
-          # Zero-cost MEL must never demand a paid plan for baseline health.
-          # Preserve truth: an unproven SharePoint read remains unverified,
-          # but optional capability availability cannot block the core release.
-          if [ "${MICROSOFT_SHAREPOINT_READ_PROVEN}" != "1" ]; then
-            echo 'microsoft_sharepoint: {"required":false,"status":"OPTIONAL_UNAVAILABLE","free_alternative":"GOOGLE_DRIVE_OR_ONEDRIVE","graph_site_read_proven":false}'
-          fi
+          # SharePoint is intentionally excluded from production proof and runtime capabilities.
+          # It can require paid organizational Microsoft licensing; free Drive/OneDrive paths remain.
+          MICROSOFT_SHAREPOINT_OK=0
+          MICROSOFT_SHAREPOINT_READ_PROVEN=0
+          MICROSOFT_SHAREPOINT_PROOF_SOURCE="EXCLUDED_FREE_FIRST_POLICY"
+          echo 'microsoft_sharepoint: {"required":false,"status":"EXCLUDED_FREE_FIRST_POLICY","probed":false,"free_alternatives":["google_drive","microsoft_onedrive"]}'
 
           YAHOO_OK=0
           if probe yahoo_oauth /api/gen2/connections/yahoo/test '{"connector_id":"yahoo-mail"}'; then
@@ -279,14 +253,11 @@ jobs:
           # Vercel is an optional integration. MEL production and sovereignty do
           # not depend on a paid Vercel plan, so an absent token is reported but
           # must not fail the global connection proof.
+          # Vercel is excluded entirely from production connection probes.
+          # Production deploys through Cloudflare; this optional paid service is not required.
           VERCEL_OK=0
-          VERCEL_STATUS="OPTIONAL_NOT_CONFIGURED"
-          if probe vercel /api/gen2/connections/vercel/test '{}'; then
-            VERCEL_OK=1
-            VERCEL_STATUS="CONNECTED"
-          else
-            echo 'vercel: {"ok":false,"required":false,"status":"OPTIONAL_NOT_CONFIGURED"}'
-          fi
+          VERCEL_STATUS="EXCLUDED_FREE_FIRST_POLICY"
+          echo 'vercel: {"required":false,"status":"EXCLUDED_FREE_FIRST_POLICY","probed":false,"deployment_dependency":false}'
 
           GOOGLE_GMAIL_OK="${GOOGLE_GMAIL_OK}" GOOGLE_CALENDAR_OK="${GOOGLE_CALENDAR_OK}" GOOGLE_TASKS_OK="${GOOGLE_TASKS_OK}" GOOGLE_DRIVE_OK="${GOOGLE_DRIVE_OK}" MICROSOFT_MAIL_OK="${MICROSOFT_MAIL_OK}" MICROSOFT_ONEDRIVE_OK="${MICROSOFT_ONEDRIVE_OK}" MICROSOFT_SHAREPOINT_OK="${MICROSOFT_SHAREPOINT_OK}" MICROSOFT_SHAREPOINT_READ_PROVEN="${MICROSOFT_SHAREPOINT_READ_PROVEN}" MICROSOFT_SHAREPOINT_PROOF_SOURCE="${MICROSOFT_SHAREPOINT_PROOF_SOURCE}" YAHOO_OK="${YAHOO_OK}" VERCEL_OK="${VERCEL_OK}" VERCEL_STATUS="${VERCEL_STATUS}" FAILURES="${FAILURES}" node - <<'NODE'
           const fs=require('fs');
