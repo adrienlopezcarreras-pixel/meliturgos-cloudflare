@@ -1,4 +1,5 @@
 import { createGitHubCodeReader } from '../capabilities/github-code-capabilities.js';
+import { hasDistinctProviderAttempts } from './autonomy-provider-attempts.js';
 import { Augmentio } from '../augmentio/augmentio.js';
 import { createDefaultAugmentioPool } from '../augmentio/default-pool.js';
 
@@ -212,7 +213,7 @@ async function reusableProposal(env, existing, bridge, { fetchImpl = fetch } = {
   assertTeacherApprovedBranch(config, bridge);
   if (String(existing.candidate_branch || '') !== config.branch) return null;
   if (String(existing?.consolidation?.canonical_branch || '') !== config.branch) return null;
-  if (!Array.isArray(existing.providers_attempted) || existing.providers_attempted.length < 2) return null;
+  if (!hasDistinctProviderAttempts(existing.providers_attempted)) return null;
 
   const head = await readApprovedHead(reader, bridge);
   if (String(existing.candidate_sha).toLowerCase() !== approvedSha) return null;
@@ -339,7 +340,7 @@ export async function prepareApprovedImplementationProposal({ env, repository, j
     },
     maxCandidates: 2,
   });
-  if (!Array.isArray(fanout.providersAttempted) || fanout.providersAttempted.length < 2) {
+  if (!hasDistinctProviderAttempts(fanout.providersAttempted)) {
     throw Object.assign(new Error('IMPLEMENTATION_MULTI_AI_NOT_PROVEN'), { code: 'IMPLEMENTATION_MULTI_AI_NOT_PROVEN' });
   }
   const rankedCandidates = Array.isArray(fanout.candidates) && fanout.candidates.length
@@ -409,6 +410,10 @@ export async function prepareApprovedImplementationProposal({ env, repository, j
     ...(Array.isArray(fanout.providersAttempted) ? fanout.providersAttempted : []),
     ...(Array.isArray(repairFanout?.providersAttempted) ? repairFanout.providersAttempted : []),
   ])];
+
+  if (!hasDistinctProviderAttempts(allProvidersAttempted)) {
+    throw Object.assign(new Error('IMPLEMENTATION_MULTI_AI_NOT_PROVEN'), { code: 'IMPLEMENTATION_MULTI_AI_NOT_PROVEN' });
+  }
 
   const proposal = {
     status: 'READY',

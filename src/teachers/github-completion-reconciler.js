@@ -1,4 +1,5 @@
 import { createMentorEngine } from '../learning/mentor-engine.js';
+import { hasDistinctProviderAttempts } from '../evolution/autonomy-provider-attempts.js';
 import { createLearningEngine } from '../learning/learning-engine.js';
 import { ingestValidatedHandoffs } from '../learning/handoff-ingestion.js';
 
@@ -157,7 +158,7 @@ function validateMelImplementationProposal(job, record) {
   if (!proposal || proposal.status !== 'READY') return null;
   if (String(proposal.teacher_request_id || '') !== record.request_id) return null;
   if (String(proposal.candidate_branch || '') !== record.candidate_branch) return null;
-  if (!Array.isArray(proposal.providers_attempted) || proposal.providers_attempted.length < 2) return null;
+  if (!hasDistinctProviderAttempts(proposal.providers_attempted)) return null;
   if (!Array.isArray(proposal.inspected_files) || proposal.inspected_files.length < 1) return null;
   if (!proposal.selected?.text || !proposal.selected?.model) return null;
   if (proposal.production_touched !== false || proposal.candidate_write_performed !== false) return null;

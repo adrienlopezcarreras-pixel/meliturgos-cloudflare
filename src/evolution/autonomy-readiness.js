@@ -1,5 +1,6 @@
 import { AutonomySupervisor, isSupervisedAutonomyJob } from './autonomy-supervisor.js';
 import { isVerifiedRuntimeWorkProof } from './autonomy-proof-identity.js';
+import { hasDistinctProviderAttempts } from './autonomy-provider-attempts.js';
 import { REQUIRED_COUNCIL_ROLE_IDS } from '../teachers/augmentio-council.js';
 
 function asArray(value) {
@@ -123,7 +124,7 @@ function implementationPlanProof(job) {
   if (!requestId || requestId !== String(bridge?.request?.request_id || '')) return null;
   if (bridge?.status !== 'ANSWERED' || bridge?.review?.verdict !== 'APPROVE_PLAN' || bridge?.review?.development_allowed !== true) return null;
   if (!String(proposal.candidate_branch || '').startsWith('candidate/')) return null;
-  if (!Array.isArray(proposal.providers_attempted) || proposal.providers_attempted.length < 2) return null;
+  if (!hasDistinctProviderAttempts(proposal.providers_attempted)) return null;
   if (!Array.isArray(proposal.inspected_files) || proposal.inspected_files.length < 1) return null;
   if (!proposal.selected?.text || !proposal.selected?.model) return null;
   if (proposal.production_touched !== false || proposal.candidate_write_performed !== false) return null;
