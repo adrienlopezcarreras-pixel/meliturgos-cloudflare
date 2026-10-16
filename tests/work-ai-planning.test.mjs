@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import { CapabilityBus } from '../src/capabilities/capability-bus.js';
 import { registerWorkCapabilities } from '../src/capabilities/work-capabilities.js';
 import {
@@ -314,4 +315,41 @@ test('work.plan.generate health follows the real Augmentio fanout readiness',asy
   const degraded=await unavailableBus.refreshHealth('work.plan.generate');
   assert.equal(degraded.health,'DEGRADED');
   assert.equal(degraded.health_detail,'AUGMENTIO_FANOUT_UNAVAILABLE');
+});
+
+test('GEN2-38 fails fast when zero-cost providers return no candidates instead of retrying empty fan-outs', async () => {
+  const bus = new CapabilityBus();
+  let fanoutCalls = 0;
+  bus.discover({
+    id:'echo',name:'Echo',category:'test',version:'1.0.0',provider:'fixture',
+    description:'Safe echo capability',
+    input_schema:{type:'object',properties:{value:{type:'string',minLength:1,maxLength:100}},required:['value'],additionalProperties:false},
+    output_schema:{type:'object',additionalProperties:true},
+    risk:'LOW',permissions:[],health:'HEALTHY',enabled:true,
+  }, async input => ({value:input.value}));
+  bus.discover({
+    id:'augmentio.fanout',name:'Fixture multi-AI',category:'test',version:'1.0.0',provider:'fixture',
+    description:'No available providers fixture',
+    input_schema:{type:'object',properties:{capability:{type:'string',minLength:1,maxLength:100},input:{type:'string',minLength:1,maxLength:12000},context:{type:'object',additionalProperties:true},maxCandidates:{type:'integer',minimum:1,maximum:12}},required:['input'],additionalProperties:false},
+    output_schema:{type:'object',additionalProperties:true},
+    risk:'LOW',permissions:[],health:'HEALTHY',enabled:true,
+  }, async () => { fanoutCalls += 1; return {candidates:[],failures:2}; });
+  registerWorkCapabilities(bus,{});
+  await assert.rejects(
+    () => bus.execute('work.plan.generate',{goal:'Create a safe read-only diagnostic plan',maxCandidates:2},{owner:'release-proof',requestId:'gen2-38-provider-outage',permissions:[]}),
+    error => error.code === 'WORK_PLAN_GENERATION_PROVIDERS_UNAVAILABLE',
+  );
+  assert.equal(fanoutCalls,1,'provider outage must not trigger repair and capability-selection fan-outs');
+});
+
+test('GEN2-38 production release probe keeps real planner bounded and reports curl transport failures', async () => {
+  const workflow = await readFile(new URL('../.github/workflows/deploy-cloudflare-release.yml', import.meta.url), 'utf8');
+  const start = workflow.indexOf('GEN_PLAN_CODE="$(curl');
+  const end = workflow.indexOf('if [ "$GEN_PLAN_CODE" != "200" ]', start);
+  assert.ok(start >= 0 && end > start, 'GEN2-38 generated-plan request should remain in the release gate');
+  const block = workflow.slice(start, end);
+  assert.match(block, /maxCandidates":2/);
+  assert.doesNotMatch(block, /--retry 1 --retry-all-errors/);
+  assert.match(block, /\|\| true/);
+  assert.match(workflow.slice(end, end + 500), /GEN2-38 generated plan returned HTTP/);
 });
