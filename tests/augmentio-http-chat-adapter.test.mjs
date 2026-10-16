@@ -106,3 +106,54 @@ test('explicit alternate provider config wins over legacy NinjaChat duplicate',(
   assert.equal(rows.length,1);
   assert.equal(rows[0].id,'ninjachat:custom');
 });
+
+test('remote plaintext HTTP cannot receive model prompts or bearer credentials', () => {
+  for (const endpoint of [
+    'http://public.example/v1/chat/completions',
+    'http://192.0.2.1/api/chat',
+    'http://localhost.evil.example/api',
+    'http://127.0.0.2/api',
+  ]) {
+    assert.throws(() => createHttpChatAdapter({
+      id: 'remote-plaintext', providerId: 'external', modelId: 'model',
+      endpoint,
+      env: { SECRET_TOKEN: 'private-token' }, secretEnv: 'SECRET_TOKEN',
+    }), error => error?.message === 'HTTP_CHAT_ENDPOINT_TLS_REQUIRED', endpoint);
+    assert.throws(() => createHttpChatAdapter({
+      id: 'remote-plaintext', providerId: 'external', modelId: 'model', endpoint,
+    }), error => error?.message === 'HTTP_CHAT_ENDPOINT_TLS_REQUIRED', endpoint);
+  }
+});
+
+test('loopback AI can use plaintext only without configured credentials', async () => {
+  for (const endpoint of ['http://localhost:11434/api/chat',
+    'http://127.0.0.1:11434/api/chat', 'http://[::1]:11434/api/chat']) {
+    let calls = 0;
+    const adapter = createHttpChatAdapter({
+      id: 'local-ollama', providerId: 'local', modelId: 'local-model',
+      endpoint, fetchImpl: async () => {
+        calls += 1;
+        return Response.json({choices:[{message:{content:'local output'}}]});
+      },
+    });
+    const result = await adapter.invoke({input:'local input'});
+    assert.equal(result.text, 'local output');
+    assert.equal(calls, 1);
+    assert.throws(() => createHttpChatAdapter({
+      id: 'insecure-local-secret', providerId: 'local', modelId: 'local-model',
+      endpoint, secretEnv: 'OPTIONAL_TOKEN',
+    }), error => error?.message === 'HTTP_CHAT_ENDPOINT_TLS_REQUIRED');
+  }
+});
+
+test('provider URL rejects embedded Basic Auth and fragments even on HTTPS', () => {
+  for (const endpoint of [
+    'https://username:password@example.invalid/v1/chat',
+    'https://example.invalid/v1/chat#private',
+    'file:///tmp/private-model',
+  ]) {
+    assert.throws(() => createHttpChatAdapter({
+      id:'invalid-endpoint', providerId:'external', modelId:'model', endpoint,
+    }), error => error?.message === 'HTTP_CHAT_ENDPOINT_INVALID');
+  }
+});
