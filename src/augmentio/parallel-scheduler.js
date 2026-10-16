@@ -24,6 +24,19 @@ function providerKey(task, fallback = 'default') {
   return String(task?.providerId ?? task?.provider?.id ?? task?.provider_id ?? task?.id ?? fallback);
 }
 
+function isNonRetryableProviderError(error) {
+  const status = Number(error?.status ?? error?.statusCode);
+  if (status === 401 || status === 403 || status === 429) return true;
+  const code = String(error?.code || '');
+  // Repeating an authorization or deterministic validation failure cannot
+  // repair it; give other independent AI models their chance instead.
+  return code.startsWith('ZERO_EURO_')
+    || code === 'AUGMENTIO_PROVIDER_DISABLED'
+    || code === 'AUGMENTIO_PROVIDER_IDENTITY_CHANGED'
+    || code === 'AI_PROVIDER_RESPONSE_TOO_LARGE'
+    || code === 'EMPTY_PROVIDER_RESPONSE';
+}
+
 function boundedInteger(value, fallback, min, max) {
   const n = Number(value);
   return Number.isFinite(n) ? Math.max(min, Math.min(max, Math.floor(n))) : fallback;
@@ -136,7 +149,11 @@ export class ParallelScheduler {
         if (error?.code === 'SCHEDULER_ABORTED') throw error;
         lastError = error;
         this.markFailure(provider);
-        if (attempt >= this.retries || !this.canRun(provider)) break;
+        // 401/403 need new credentials, 429 needs its quota cooldown, and
+        // invalid zero-euro provenance needs explicit approval. Retrying
+        // immediately only masks the original cause with a new error.
+        if (isNonRetryableProviderError(error)
+          || attempt >= this.retries || !this.canRun(provider)) break;
         // Owner cancellation must interrupt retry backoff, even if a provider
         // was about to retry after a transient failure.
         if (this.backoffMs) await sleep(this.backoffMs * (2 ** attempt), signal);
