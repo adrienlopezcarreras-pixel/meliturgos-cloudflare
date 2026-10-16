@@ -24,9 +24,9 @@ on:
         default: false
         type: boolean
       owner_max_autorelease:
-        description: Re-enable MAX 100% automatically after a fully verified autonomous release
+        description: Re-enable MAX 100% automatically after a fully verified autonomous release; manual dispatch can explicitly opt out
         required: false
-        default: false
+        default: true
         type: boolean
 
 permissions:
@@ -53,7 +53,7 @@ jobs:
       # is permitted only after the exact-SHA and canonical-main gates below.
       AUTONOMOUS_RELEASE_POLICY: 'enabled'
       AUTONOMOUS_DISPATCH: ${{ github.event_name == 'workflow_dispatch' && inputs.autonomous_release && 'true' || 'false' }}
-      OWNER_MAX_AUTORELEASE: ${{ github.event_name == 'workflow_dispatch' && inputs.owner_max_autorelease && 'true' || 'false' }}
+      OWNER_MAX_AUTORELEASE: ${{ github.event_name == 'workflow_dispatch' && inputs.owner_max_autorelease && 'true' || (github.event_name == 'push' && 'true' || 'false') }}
       # TEMPORARY DEV-LIGHT MODE: ShardVault 7/7/code-sync proof paused to finish downstream release validation.
       # MUST be restored to 'false' before final validation/closure.
       MEL_ROADMAP_SHARDVAULT_PAUSED: 'false'
