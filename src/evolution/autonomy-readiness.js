@@ -66,13 +66,19 @@ function councilProof(job) {
 function workDagProof(job) {
   const proof = job?.result_json?.autonomy_proofs?.work_dag_resume;
   if (!proof || proof.status !== 'VERIFIED') return null;
-  if (proof.recovered_interrupted_node !== true || Number(proof.providers_attempted || 0) < 2) return null;
+  const attempted = proof.providers_attempted;
+  const successful = proof.successful_candidates;
+  // Never count NaN, Infinity, numeric strings or impossible success totals as proof.
+  if (proof.recovered_interrupted_node !== true
+    || !Number.isSafeInteger(attempted) || attempted < 2
+    || !Number.isSafeInteger(successful) || successful < 1
+    || successful > attempted) return null;
   return {
     job_id: job.id,
     verified_at: proof.verified_at || null,
     recovered_interrupted_node: true,
-    providers_attempted: Number(proof.providers_attempted || 0),
-    successful_candidates: Number(proof.successful_candidates || 0),
+    providers_attempted: attempted,
+    successful_candidates: successful,
     zero_added_cost_policy: proof.zero_added_cost_policy || null,
   };
 }

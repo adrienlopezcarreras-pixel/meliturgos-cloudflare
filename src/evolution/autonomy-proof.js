@@ -17,9 +17,13 @@ function proofFromJob(job) {
 }
 
 function isVerifiedProof(proof) {
+  const attempted = proof?.providers_attempted;
+  const successful = proof?.successful_candidates;
   return proof?.status === 'VERIFIED'
     && proof?.recovered_interrupted_node === true
-    && Number(proof?.providers_attempted || 0) >= 2;
+    && Number.isSafeInteger(attempted) && attempted >= 2
+    && Number.isSafeInteger(successful) && successful >= 1
+    && successful <= attempted;
 }
 
 /**

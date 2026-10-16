@@ -287,3 +287,30 @@ test('committed job with the same exact evidence remains eligible for readiness'
   assert.equal(state.gates.coherent_single_job_loop, true);
   assert.equal(state.self_development_ready, true);
 });
+
+test('work DAG evidence rejects NaN, infinite, fractional and impossible provider totals', async () => {
+  const variants = [
+    { providers_attempted: 'not-a-number' },
+    { providers_attempted: '2' },
+    { providers_attempted: Infinity },
+    { providers_attempted: 2.5 },
+    { providers_attempted: 1 },
+    { successful_candidates: 0 },
+    { successful_candidates: '1' },
+    { successful_candidates: NaN },
+    { successful_candidates: Infinity },
+    { successful_candidates: 3 },
+    { successful_candidates: 1.2 },
+  ];
+  for (const values of variants) {
+    const repository = await completeEvidenceRepository();
+    const job = await repository.get('ready-job');
+    const result = structuredClone(job.result_json);
+    Object.assign(result.autonomy_proofs.work_dag_resume, values);
+    await repository.update('ready-job', { result_json: result });
+    const readiness = await getAutonomyReadiness({ repository });
+    assert.equal(readiness.gates.runtime_work_dag_resume, false, JSON.stringify(values));
+    assert.equal(readiness.gates.coherent_single_job_loop, false, JSON.stringify(values));
+    assert.equal(readiness.self_development_ready, false, JSON.stringify(values));
+  }
+});
