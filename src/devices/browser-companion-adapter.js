@@ -69,7 +69,7 @@ function assertStepOrigin(step, allowedOrigins) {
   }
 }
 
-async function boundedJson(response) {
+async function boundedJson(response, signal) {
   // Enforce the limit *while receiving*, not after arrayBuffer() has allocated
   // an arbitrarily large response in the Worker.
   const declaredLength = response.headers?.get?.('content-length');
@@ -81,12 +81,17 @@ async function boundedJson(response) {
   const reader = response.body?.getReader?.();
   if (!reader) throw browserCompanionError('BROWSER_COMPANION_INVALID_JSON');
 
+  // The deadline must also interrupt a stream that stalls after HTTP headers.
+  const cancelOnAbort = () => { void reader.cancel().catch(() => {}); };
+  signal?.addEventListener('abort', cancelOnAbort, { once: true });
   const decoder = new TextDecoder();
   let text = '';
   let receivedBytes = 0;
   try {
     while (true) {
+      if (signal?.aborted) throw browserCompanionError('BROWSER_COMPANION_TIMEOUT', 504);
       const { done, value } = await reader.read();
+      if (signal?.aborted) throw browserCompanionError('BROWSER_COMPANION_TIMEOUT', 504);
       if (done) break;
       if (!(value instanceof Uint8Array)) {
         throw browserCompanionError('BROWSER_COMPANION_INVALID_JSON');
@@ -102,9 +107,11 @@ async function boundedJson(response) {
     await reader.cancel().catch(() => {});
     throw error;
   } finally {
+    signal?.removeEventListener('abort', cancelOnAbort);
     reader.releaseLock();
   }
 
+  if (signal?.aborted) throw browserCompanionError('BROWSER_COMPANION_TIMEOUT', 504);
   if (!text.trim()) return {};
   try {
     const parsed = JSON.parse(text);
@@ -138,16 +145,33 @@ export function createBrowserCompanionAdapter({
   const baseUrl = normalizeEndpoint(endpoint);
   const timeout = normalizeTimeout(timeoutMs);
 
-  async function request(path, init = {}) {
+  async function request(path, init = {}, { json = false } = {}) {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeout);
-    try {
-      return await binding.fetch(new Request(`${baseUrl}${path}`, {
+    let timer;
+    // Race the entire operation, not just fetch(): peers may stall after headers
+    // or ignore AbortSignal. Keep the same deadline through streamed JSON parsing.
+    const deadline = new Promise((_, reject) => {
+      timer = setTimeout(() => {
+        controller.abort();
+        reject(browserCompanionError('BROWSER_COMPANION_TIMEOUT', 504));
+      }, timeout);
+    });
+    const operation = (async () => {
+      const response = await binding.fetch(new Request(`${baseUrl}${path}`, {
         ...init,
         signal: controller.signal,
       }));
+      const body = json ? await boundedJson(response, controller.signal) : null;
+      if (controller.signal.aborted) throw browserCompanionError('BROWSER_COMPANION_TIMEOUT', 504);
+      return json ? { response, body } : response;
+    })();
+    try {
+      return await Promise.race([operation, deadline]);
     } catch (error) {
-      if (error?.name === 'AbortError') throw browserCompanionError('BROWSER_COMPANION_TIMEOUT', 504);
+      if (controller.signal.aborted || error?.name === 'AbortError') {
+        throw browserCompanionError('BROWSER_COMPANION_TIMEOUT', 504);
+      }
+      if (error?.name === 'BrowserCompanionError') throw error;
       throw browserCompanionError('BROWSER_COMPANION_UNREACHABLE', 503);
     } finally {
       clearTimeout(timer);
@@ -177,7 +201,7 @@ export function createBrowserCompanionAdapter({
       if (allowedOrigins.length === 0) throw browserCompanionError('BROWSER_ALLOWED_ORIGINS_REQUIRED', 400);
       assertStepOrigin(step, allowedOrigins);
 
-      const response = await request('/v1/browser/perform', {
+      const { response, body } = await request('/v1/browser/perform', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
@@ -187,9 +211,7 @@ export function createBrowserCompanionAdapter({
           step,
           sandbox: { allowed_origins: allowedOrigins },
         }),
-      });
-
-      const body = await boundedJson(response);
+      }, { json: true });
       if (!response.ok) {
         throw browserCompanionError(body.code || `BROWSER_COMPANION_HTTP_${response.status}`, response.status);
       }
