@@ -169,6 +169,8 @@ public static class MelNative {
   [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hwnd, out RECT rect);
   [DllImport("user32.dll")] public static extern bool GetClientRect(IntPtr hwnd, out RECT rect);
   [DllImport("user32.dll")] public static extern bool ClientToScreen(IntPtr hwnd, ref POINT point);
+  [DllImport("user32.dll")] public static extern IntPtr WindowFromPoint(POINT point);
+  [DllImport("user32.dll")] public static extern IntPtr GetAncestor(IntPtr hwnd, uint flags);
   [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left; public int Top; public int Right; public int Bottom; }
   [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
   [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern int GetWindowText(IntPtr hWnd, StringBuilder text, int count);
@@ -2359,6 +2361,15 @@ function Assert-BrowserClickTarget([IntPtr]$window, [string]$browser, [int]$x, [
   if ($right -le $left -or $bottom -le $top) { throw "BROWSER_CLICK_BOUNDS_REQUIRED" }
   if ($x -lt $left -or $x -ge $right -or $y -lt $top -or $y -ge $bottom) {
     throw "BROWSER_CLICK_OUTSIDE_WINDOW"
+  }
+  # An unrelated always-on-top window can cover browser pixels without changing
+  # foreground focus. Ensure the actual hit-tested point belongs to this browser.
+  $hitPoint = New-Object MelNative+POINT
+  $hitPoint.X = $x
+  $hitPoint.Y = $y
+  $hit = [MelNative]::WindowFromPoint($hitPoint)
+  if ($hit -eq [IntPtr]::Zero -or [MelNative]::GetAncestor($hit, 2) -ne $window) {
+    throw "BROWSER_POINTER_OCCLUDED"
   }
 }
 
