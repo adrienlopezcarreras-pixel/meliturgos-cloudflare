@@ -167,6 +167,30 @@ jobs:
             throw 'WINDOWS_MCP_TOOL_SCOPE_INVALID'
           }
 
+      - name: Smoke test packaged MCP PowerShell launcher
+        shell: pwsh
+        run: |
+          $stage = ".windows-release/MEL-Windows-$env:RELEASE_VERSION"
+          $launcher = Join-Path $stage 'Start-MEL-Companion-MCP.ps1'
+          if (!(Test-Path -LiteralPath $launcher -PathType Leaf)) { throw 'WINDOWS_MCP_LAUNCHER_MISSING' }
+          $env:MEL_MCP_SERVER_URL = 'https://mel.example.test/'
+          $env:MEL_MCP_OWNER_TOKEN = 'ci-placeholder-not-a-real-token'
+          try {
+            $requests = @(
+              '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}',
+              '{"jsonrpc":"2.0","id":2,"method":"tools/list"}'
+            ) -join "`n"
+            $responses = $requests | & pwsh -NoProfile -NonInteractive -File $launcher
+            if ($LASTEXITCODE -ne 0) { throw 'WINDOWS_MCP_LAUNCHER_FAILED' }
+            $messages = @($responses | ForEach-Object { $_ | ConvertFrom-Json })
+            if ($messages.Count -ne 2) { throw 'WINDOWS_MCP_LAUNCHER_RESPONSES_INVALID' }
+            if ($messages[0].result.serverInfo.name -ne 'mel-companion-readonly') { throw 'WINDOWS_MCP_LAUNCHER_IDENTITY_INVALID' }
+            if (@($messages[1].result.tools).Count -ne 1 -or $messages[1].result.tools[0].name -ne 'mel_companion_status') { throw 'WINDOWS_MCP_LAUNCHER_TOOL_INVALID' }
+          } finally {
+            Remove-Item Env:MEL_MCP_OWNER_TOKEN -ErrorAction SilentlyContinue
+            Remove-Item Env:MEL_MCP_SERVER_URL -ErrorAction SilentlyContinue
+          }
+
       - name: Verify release package
         shell: pwsh
         run: |
