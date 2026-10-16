@@ -272,10 +272,19 @@ export async function interpretWorkScreenCapture(env, body = {}, {
   const model = clean(analysis?.model, 160) || WORKERS_AI_VISION_MODEL;
   const id = crypto.randomUUID();
   const createdAt = now();
-  const write = await env.DB.prepare('INSERT INTO work_screen_interpretations(id,command_id,device_id,image_sha256,model,question,analysis,created_at) VALUES(?,?,?,?,?,?,?,?)')
-    .bind(id, evidence.command_id, evidence.computer_id, imageSha256, model, question || null, text, createdAt).run();
-  if (!write || write.success === false || Number(write.meta?.changes) !== 1)
+  // Make the final authorization check part of the insert statement. If
+  // revocation races the end of inference, either the insert sees the active
+  // consent and the revoker deletes the row afterwards, or the insert is denied.
+  const write = await env.DB.prepare(
+    'INSERT INTO work_screen_interpretations(id,command_id,device_id,image_sha256,model,question,analysis,created_at) '
+    + 'SELECT ?,?,?,?,?,?,?,? WHERE EXISTS (SELECT 1 FROM work_screen_consents '
+    + 'WHERE id=? AND command_id=? AND device_id=? AND owner_id=? AND image_sha256=? AND revoked_at IS NULL)'
+  ).bind(id, evidence.command_id, evidence.computer_id, imageSha256, model, question || null, text, createdAt,
+    consentId, evidence.command_id, evidence.computer_id, ownerId, imageSha256).run();
+  if (!write || write.success === false)
     throw new WorkScreenError('WORK_SCREEN_INTERPRETATION_WRITE_UNCONFIRMED', 503);
+  if (Number(write.meta?.changes) !== 1)
+    throw new WorkScreenError('WORK_SCREEN_CONSENT_REVOKED_DURING_INTERPRETATION', 409);
   return {
     ok: true, schema: WORK_SCREEN_INTERPRETATION_SCHEMA, interpretation_id: id, scope: 'VIEW_ONLY',
     provider: 'workers-ai', model, image_sha256: imageSha256, analysis: text, untrusted_screen_text: true,
