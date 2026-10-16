@@ -19,9 +19,9 @@ export function inferAutonomyControlIntent(text, context = '') {
   const history = String(context || '').slice(-8000);
 
   const currentAutonomyDomain = /\b(autonom(?:e|ie|isation)|auto[- ]?d[ée]veloppement|self[- ]?development|feuille\s+de\s+route|roadmap|d[ée]veloppement\s+(?:de\s+)?(?:mel|ton|tes|du\s+programme)|programme\s+mel)\b/i.test(value);
-  // Elliptical follow-ups inherit the active MEL development context from this
-  // conversation. Unrelated personal or cultural history is not a trigger.
-  const contextualAutonomyDomain = /\b(?:MELITURGOS|MEL\s+WORK|MEL\s+CORE|d[ée]veloppement\s+(?:autonome|de\s+MEL)|autonomie|roadmap|dev\s*bridge|Companion|APK|MINI|branche|branch|commit|d[ée]ploiement|release|workflow|PR\s*#?\d+)\b/i.test(history);
+  // Elliptical follow-ups inherit only an explicit autonomy/release context.
+  // Generic MEL/code/branch context must still reach semantic task routing.
+  const contextualAutonomyDomain = /\b(?:autonomie|auto[- ]?d[ée]veloppement|self[- ]?development|feuille\s+de\s+route|roadmap|launch\s+gate|DEPLOY_APPROVED|release|d[ée]ploiement|workflow\s+de\s+release|PR\s*#?\d+)\b/i.test(history);
   if (!currentAutonomyDomain && !contextualAutonomyDomain) return null;
 
   const asksAdvance = /\b(?:continue|continuer|reprends?|reprendre|avance|avancer|poursuis|poursuivre|travaille|travailler|encha[iî]ne|encha[iî]ner|relance|relancer|r[ée]concilie(?:r)?|d[ée]ploie(?:r)?|synchronise(?:r)?|termine(?:r)?)\b/i.test(value);
