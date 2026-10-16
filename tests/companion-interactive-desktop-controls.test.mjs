@@ -35,7 +35,7 @@ test('interactive desktop commands use the authenticated existing Companion rela
   assert.match(page, /action:'keyboard\.press'/);
   assert.match(page, /approve_sensitive:true/);
   assert.match(page, /\/api\/computer\/v1\/status/);
-  assert.match(page, /command\.status==='SUCCEEDED'/);
+  assert.match(page, /command\.status!=='SUCCEEDED'/);
   assert.match(page, /command\.status==='FAILED'\|\|command\.status==='CANCELLED'/);
   assert.match(page, /screen_bounds:output\.screen_bounds\|\|null/);
   assert.match(page, /Number\(bounds\.width\)/);
@@ -64,5 +64,5 @@ test('virtual-screen origin and original dimensions survive PNG downscaling for 
     assert.ok(asset.includes(field + ' = [int]$bounds.' + field[0].toUpperCase() + field.slice(1)), 'missing virtual-screen bound: ' + field);
   }
   assert.match(asset, /screen_bounds=\$shot\.screen_bounds/);
-  assert.match(asset, /screen_bounds = \{/);
+  assert.match(asset, /screen_bounds = @\{/);
 });
