@@ -213,6 +213,29 @@ export function evaluateBrowserPlan(input = {}) {
     return result(request, false, 'BROWSER_HEADER_VALUE_LIMIT_EXCEEDED', decisions);
   }
 
+  // Headers are a sensitive action in their own right. Never let a lower-risk
+  // navigation carry allowlisted headers without its own SET_HEADERS approval,
+  // and never silently drop invalid, duplicate or forbidden header fields.
+  if (submittedSteps.some(step => {
+    const headers = step?.headers;
+    if (headers == null) return false;
+    if (typeof headers !== 'object' || Array.isArray(headers)) return true;
+    const entries = Object.entries(headers);
+    if (entries.length === 0) return false;
+    if (step.action !== BROWSER_ACTIONS.SET_HEADERS) return true;
+    const seen = new Set();
+    return entries.some(([name, value]) => {
+      const normalizedName = name.trim().toLowerCase();
+      if (!ALLOWED_BROWSER_HEADERS.has(normalizedName)
+        || typeof value !== 'string' || !value.trim() || value !== value.trim()
+        || seen.has(normalizedName)) return true;
+      seen.add(normalizedName);
+      return false;
+    });
+  })) {
+    return result(request, false, 'BROWSER_HEADER_POLICY_VIOLATION', decisions);
+  }
+
   const stepIds = new Set();
   for (const step of request.steps) {
     const risk = classifyBrowserAction(step.action);
