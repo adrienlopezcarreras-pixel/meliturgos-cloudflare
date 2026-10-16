@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, open, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -15,6 +15,8 @@ const SYSTEM_BACKUP_PREFIX = 'backups/system/';
 const MAX_R2_PAGES = 1000;
 const SIDECAR_REQUEST_TIMEOUT_MS = 30_000;
 const WRANGLER_ATTEMPT_TIMEOUT_MS = 180_000;
+const R2_MULTIPART_CHUNK_BYTES = 16 * 1024 * 1024;
+const R2_MULTIPART_PART_ATTEMPTS = 6;
 
 function reportProgress(stage, details = '') {
   process.stderr.write(`[predeploy-backup] ${stage}${details ? ` ${details}` : ''}\n`);
@@ -104,6 +106,115 @@ async function registerMetadata(sidecar, registration) {
     throw new Error('BACKUP_OBJECT_NOT_PROVEN_AFTER_UPLOAD');
   }
   return result;
+}
+
+
+const R2_MULTIPART_TRANSIENT_RE = /(?:\b(?:408|425|429|500|502|503|504|520|522|524)\b|failed to fetch|fetch failed|econnreset|etimedout|socket hang up|temporar(?:y|ily)|network error)/i;
+
+async function uploadMultipartPart(sidecar, objectKey, uploadId, partNumber, bytes) {
+  const qs = new URLSearchParams({ object_key: objectKey, upload_id: uploadId, part_number: String(partNumber) });
+  let lastError = null;
+  for (let attempt = 1; attempt <= R2_MULTIPART_PART_ATTEMPTS; attempt += 1) {
+    try {
+      const response = await fetch(new URL('/multipart/part?' + qs.toString(), sidecar.baseUrl), {
+        method: 'POST',
+        headers: { 'content-type': 'application/octet-stream', 'x-mel-predeploy-backup-refresh': sidecar.token },
+        body: bytes,
+        signal: AbortSignal.timeout(90_000),
+      });
+      const raw = await response.text();
+      let result = null;
+      try { result = raw ? JSON.parse(raw) : null; } catch {}
+      if (response.ok && result?.ok === true && result?.status === 'R2_MULTIPART_PART_UPLOADED'
+          && Number(result.part_number) === partNumber && typeof result.etag === 'string' && result.etag) return result;
+      lastError = new Error('R2_MULTIPART_PART_HTTP_' + response.status + ':' + String(result?.status || 'INVALID'));
+      if (!R2_MULTIPART_TRANSIENT_RE.test(lastError.message)) throw lastError;
+    } catch (error) {
+      lastError = error;
+      if (!R2_MULTIPART_TRANSIENT_RE.test(String(error?.message || error))) throw error;
+    }
+    if (attempt < R2_MULTIPART_PART_ATTEMPTS) {
+      const delayMs = Math.min(15_000, 1_000 * (2 ** (attempt - 1)));
+      reportProgress('multipart-part-retry', 'part=' + partNumber + ' attempt=' + attempt + '/' + R2_MULTIPART_PART_ATTEMPTS + ' wait_ms=' + delayMs);
+      await sleep(delayMs);
+    }
+  }
+  throw new Error('R2_MULTIPART_PART_FAILED:' + partNumber + ':' + String(lastError?.message || 'UNKNOWN').slice(0, 180));
+}
+
+async function uploadEncryptedBackupMultipart(sidecar, objectKey, uploadPath, expectedBytes) {
+  const created = await sidecarJson(sidecar, '/multipart/create', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ object_key: objectKey }),
+  }, { attempts: 1 });
+  if (created?.status !== 'R2_MULTIPART_CREATED' || created.object_key !== objectKey || !created.upload_id) {
+    throw new Error('R2_MULTIPART_CREATE_FAILED');
+  }
+  const uploadId = String(created.upload_id);
+  const uploadedParts = [];
+  let completed = false;
+  const handle = await open(uploadPath, 'r');
+  try {
+    const fileStat = await handle.stat();
+    if (!Number.isSafeInteger(fileStat.size) || fileStat.size !== expectedBytes || fileStat.size < 1) {
+      throw new Error('R2_MULTIPART_SOURCE_SIZE_MISMATCH');
+    }
+    const partCount = Math.ceil(fileStat.size / R2_MULTIPART_CHUNK_BYTES);
+    if (partCount < 1 || partCount > 10_000) throw new Error('R2_MULTIPART_PART_COUNT_INVALID');
+    for (let partNumber = 1, offset = 0; offset < fileStat.size; partNumber += 1) {
+      const length = Math.min(R2_MULTIPART_CHUNK_BYTES, fileStat.size - offset);
+      const buffer = Buffer.allocUnsafe(length);
+      const { bytesRead } = await handle.read(buffer, 0, length, offset);
+      if (bytesRead !== length) throw new Error('R2_MULTIPART_SOURCE_READ_TRUNCATED');
+      const part = await uploadMultipartPart(sidecar, objectKey, uploadId, partNumber, buffer);
+      uploadedParts.push({ part_number: partNumber, etag: part.etag });
+      offset += length;
+      reportProgress('multipart-part-uploaded', 'part=' + partNumber + '/' + partCount + ' bytes=' + length);
+    }
+  } catch (error) {
+    await handle.close().catch(() => {});
+    try {
+      await sidecarJson(sidecar, '/multipart/abort', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ object_key: objectKey, upload_id: uploadId }),
+      }, { attempts: 1 });
+    } catch {
+      throw new Error('R2_MULTIPART_ABORT_FAILED_AFTER_UPLOAD_ERROR:' + String(error?.message || error).slice(0, 160));
+    }
+    throw error;
+  }
+  await handle.close();
+
+  try {
+    const result = await sidecarJson(sidecar, '/multipart/complete', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ object_key: objectKey, upload_id: uploadId, parts: uploadedParts }),
+    }, { attempts: 1 });
+    if (result?.status !== 'R2_MULTIPART_COMPLETED' || result.object_key !== objectKey
+        || Number(result.size) !== expectedBytes) throw new Error('R2_MULTIPART_COMPLETE_PROOF_INVALID');
+    completed = true;
+    return result;
+  } catch (error) {
+    // A successful completion may lose its response. Recover only from an
+    // authenticated HEAD with the expected length; byte-for-byte verification follows.
+    try {
+      const head = await sidecarJson(sidecar, '/multipart/head?' + new URLSearchParams({ object_key: objectKey }).toString(), {}, { attempts: 2 });
+      if (head?.status === 'R2_OBJECT_HEAD' && head.present === true && Number(head.size) === expectedBytes) {
+        completed = true;
+        return { ok: true, status: 'R2_MULTIPART_COMPLETED', object_key: objectKey, size: expectedBytes, recovered_after_lost_response: true };
+      }
+    } catch {}
+    if (!completed) {
+      try {
+        await sidecarJson(sidecar, '/multipart/abort', {
+          method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ object_key: objectKey, upload_id: uploadId }),
+        }, { attempts: 1 });
+      } catch {}
+    }
+    throw error;
+  }
 }
 
 const WRANGLER_TRANSIENT_RE = /(?:\b(?:429|500|502|503|504|520|522|524)\b|failed to fetch|fetch failed|econnreset|etimedout|socket hang up|temporar(?:y|ily)|network error)/i;
@@ -203,14 +314,13 @@ async function createBackup() {
       const payload = JSON.stringify(envelope);
       await writeFile(uploadPath, payload, 'utf8');
 
-      reportProgress('encrypted-r2-upload:start');
-      runWrangler([
-        'r2', 'object', 'put', `${bucketName}/${objectKey}`,
-        '--file', uploadPath,
-        '--content-type', 'application/json; charset=utf-8',
-        '--remote',
-      ], { attempts: 6 });
-      reportProgress('encrypted-r2-upload:complete');
+      reportProgress('encrypted-r2-multipart-upload:start');
+      const payloadBytes = Buffer.byteLength(payload, 'utf8');
+      const multipartResult = await uploadEncryptedBackupMultipart(sidecar, objectKey, uploadPath, payloadBytes);
+      if (multipartResult?.status !== 'R2_MULTIPART_COMPLETED' || Number(multipartResult.size) !== payloadBytes) {
+        throw new Error('BACKUP_R2_MULTIPART_UPLOAD_NOT_PROVEN');
+      }
+      reportProgress('encrypted-r2-multipart-upload:complete bytes=' + payloadBytes);
 
       try {
         runWrangler([
