@@ -37,14 +37,23 @@ export class ProviderAdapter {
   }
 
   async invoke(args = {}) {
+    const aborted = () => Object.assign(new Error('PROVIDER_ABORTED'), { code: 'PROVIDER_ABORTED' });
+    // Do not call an external model after its execution was already cancelled.
+    if (args.signal?.aborted) throw aborted();
     const started = Date.now();
     this.stats.calls += 1;
     try {
       const result = await this._invoke(args);
+      // Some adapters ignore AbortSignal and return late. A cancelled result
+      // must not be reported as a successful inference or restore HEALTHY.
+      if (args.signal?.aborted) throw aborted();
       this.stats.successes += 1;
       this.healthStatus = 'HEALTHY';
       return result;
     } catch (error) {
+      // Owner cancellation or scheduler timeout is not evidence that the
+      // remote model itself failed; the scheduler records timeouts separately.
+      if (args.signal?.aborted) throw aborted();
       this.stats.failures += 1;
       this.healthStatus = error?.status === 401 || error?.status === 403 ? 'UNAVAILABLE' : 'DEGRADED';
       throw error;
