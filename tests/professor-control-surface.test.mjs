@@ -182,6 +182,7 @@ test('MEL Work is wired to the authorized Windows Companion view-only channel', 
   assert.ok(page.includes("'/api/work/screen-interpretation'"), 'Work must use server-verified interpretation route');
   assert.ok(page.includes("qs('#workComputerInterpretConsent')?.checked===true"), 'interpretation requires explicit owner opt-in');
   assert.ok(page.includes("consent:'INTERPRET_SCREEN_WITH_WORKERS_AI'"), 'vision interpretation requires consent token');
+  assert.ok(page.includes("qs('#workComputerInterpretConsent').checked=false"), 'interpretation consent must reset after each capture attempt');
   assert.ok(page.includes("if(workComputerBusy)throw Error('Capture déjà en cours')"), 'Work must block concurrent captures');
   assert.ok(page.includes('await loadWorkComputer()'), 'refreshing the Work view must load Companion state');
 });
