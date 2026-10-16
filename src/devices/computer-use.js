@@ -27,6 +27,9 @@ export const COMPUTER_USE_ACTIONS = Object.freeze({
   BROWSER_NEXT_TAB: 'browser.next-tab',
   BROWSER_PREVIOUS_TAB: 'browser.previous-tab',
   BROWSER_SELECT_TAB: 'browser.select-tab',
+  BROWSER_ZOOM_IN: 'browser.zoom-in',
+  BROWSER_ZOOM_OUT: 'browser.zoom-out',
+  BROWSER_ZOOM_RESET: 'browser.zoom-reset',
   BROWSER_SCROLL: 'browser.scroll',
   BROWSER_TYPE: 'browser.type',
   BROWSER_BACK: 'browser.back',
@@ -60,6 +63,9 @@ const ACTION_RISK = new Map([
   [COMPUTER_USE_ACTIONS.BROWSER_NEXT_TAB, COMPUTER_USE_RISK.SENSITIVE],
   [COMPUTER_USE_ACTIONS.BROWSER_PREVIOUS_TAB, COMPUTER_USE_RISK.SENSITIVE],
   [COMPUTER_USE_ACTIONS.BROWSER_SELECT_TAB, COMPUTER_USE_RISK.SENSITIVE],
+  [COMPUTER_USE_ACTIONS.BROWSER_ZOOM_IN, COMPUTER_USE_RISK.SENSITIVE],
+  [COMPUTER_USE_ACTIONS.BROWSER_ZOOM_OUT, COMPUTER_USE_RISK.SENSITIVE],
+  [COMPUTER_USE_ACTIONS.BROWSER_ZOOM_RESET, COMPUTER_USE_RISK.SENSITIVE],
   [COMPUTER_USE_ACTIONS.BROWSER_SCROLL, COMPUTER_USE_RISK.SENSITIVE],
   [COMPUTER_USE_ACTIONS.BROWSER_TYPE, COMPUTER_USE_RISK.SENSITIVE],
   [COMPUTER_USE_ACTIONS.BROWSER_BACK, COMPUTER_USE_RISK.SENSITIVE],
@@ -409,6 +415,19 @@ export function evaluateComputerUsePlan(input = {}) {
         !['id', 'action', 'window_handle', 'tab_index'].includes(field))) {
       allowed = false;
       reason = 'BROWSER_SELECT_TAB_UNEXPECTED_FIELD';
+    } else if ([COMPUTER_USE_ACTIONS.BROWSER_ZOOM_IN,
+      COMPUTER_USE_ACTIONS.BROWSER_ZOOM_OUT, COMPUTER_USE_ACTIONS.BROWSER_ZOOM_RESET].includes(step.action)
+      && !validBrowserWindowHandle(step.window_handle)) {
+      allowed = false;
+      reason = 'BROWSER_ZOOM_WINDOW_HANDLE_REQUIRED';
+    } else if ([COMPUTER_USE_ACTIONS.BROWSER_ZOOM_IN,
+      COMPUTER_USE_ACTIONS.BROWSER_ZOOM_OUT, COMPUTER_USE_ACTIONS.BROWSER_ZOOM_RESET].includes(step.action)
+      && Object.keys(submittedSteps[decisions.length] ?? {}).some(field =>
+        !['id', 'action', 'window_handle'].includes(field))) {
+      // One approved zoom shortcut only. Do not silently ignore a desired
+      // zoom percentage, repetition count or an alternate browser target.
+      allowed = false;
+      reason = 'BROWSER_ZOOM_UNEXPECTED_FIELD';
     } else if (step.action === COMPUTER_USE_ACTIONS.BROWSER_FIND
       && !validBrowserWindowHandle(step.window_handle)) {
       allowed = false;
