@@ -70,14 +70,35 @@ export function summarizeStressCoverage(result) {
   // provider messages, stack traces or user content.
   const rows = result?.report?.capabilities;
   let reasonCounts = null;
+  let runtimeTestedByDomain = null;
+  let runtimeUnverifiedByDomain = null;
   if (Array.isArray(rows) && rows.length === total) {
+    // Emit coarse domain-level coverage so engineering can prioritise safe
+    // gaps without publishing individual capability IDs or user/provider data.
+    const classifyDomain = id => {
+      const prefix = String(id || '').split('.')[0].toLowerCase();
+      const groups = {
+        conversation: 'conversation_memory', memory: 'conversation_memory', rag: 'knowledge_research', knowledge: 'knowledge_research', web: 'knowledge_research',
+        code: 'developer_tools', system: 'developer_tools', roadmap: 'developer_tools', skill: 'developer_tools', evolution: 'developer_tools', self: 'developer_tools',
+        work: 'work_automation', autonomy: 'work_automation', openloop: 'work_automation', event: 'work_automation', timeline: 'work_automation', project: 'work_automation', decision: 'work_automation', lesson: 'work_automation',
+        gmail: 'connectors_storage', mail: 'connectors_storage', calendar: 'connectors_storage', tasks: 'connectors_storage', files: 'connectors_storage', drive: 'connectors_storage', sites: 'connectors_storage', github: 'connectors_storage', cloudflare: 'connectors_storage',
+        media: 'media_generation', image: 'media_generation', audio: 'media_generation', video: 'media_generation',
+        computer: 'device_companion', device: 'device_companion',
+      };
+      return groups[prefix] || 'other';
+    };
+    const testedByDomain = Object.create(null);
+    const unverifiedByDomain = Object.create(null);
     const buckets = Object.create(null);
     let inspectedRuntimeCount = 0;
     for (const row of rows) {
+      const domain = classifyDomain(row?.id);
       if (row?.truth_status === 'EXISTANT_ET_TESTE') {
         inspectedRuntimeCount += 1;
+        testedByDomain[domain] = (testedByDomain[domain] || 0) + 1;
         continue;
       }
+      unverifiedByDomain[domain] = (unverifiedByDomain[domain] || 0) + 1;
       const raw = String(row?.auto_execution_blocked || '');
       const coarse = raw.split(':')[0];
       const safeReasons = new Set([
@@ -94,6 +115,8 @@ export function summarizeStressCoverage(result) {
     assert(Object.values(buckets).reduce((sum, count) => sum + count, 0) === pending,
       'CAPABILITY_COVERAGE_REASON_COUNTS_MISMATCH');
     reasonCounts = Object.fromEntries(Object.entries(buckets).sort(([a],[b]) => a.localeCompare(b)));
+    runtimeTestedByDomain = Object.fromEntries(Object.entries(testedByDomain).sort(([a],[b]) => a.localeCompare(b)));
+    runtimeUnverifiedByDomain = Object.fromEntries(Object.entries(unverifiedByDomain).sort(([a],[b]) => a.localeCompare(b)));
   }
   return {
     schema: 'mel.capability-runtime-coverage/v1',
@@ -104,6 +127,8 @@ export function summarizeStressCoverage(result) {
     runtime_unverified: pending,
     reason_breakdown_available: reasonCounts !== null,
     runtime_unverified_reasons: reasonCounts,
+    runtime_tested_by_domain: runtimeTestedByDomain,
+    runtime_unverified_by_domain: runtimeUnverifiedByDomain,
     runtime_coverage_percent: Number((100 * executed / total).toFixed(2)),
     runtime_validation_complete: pending === 0,
     evidence_scope: pending === 0 ? 'ALL_RUNTIME_SAMPLES_EXECUTED' : 'PARTIAL_SAFE_RUNTIME_EXECUTION',
