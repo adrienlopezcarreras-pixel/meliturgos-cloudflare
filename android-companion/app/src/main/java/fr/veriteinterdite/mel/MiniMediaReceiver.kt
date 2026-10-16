@@ -230,7 +230,7 @@ class MiniMediaReceiver(private val context: Context) {
                     receiveVideo(input, safeName(name, "mel-mini-video.avi"), width, height, fps, client)
                 }
                 3 -> if (sampleRate in 8_000..96_000 && channels in 1..2) {
-                    receiveAudio(input, safeName(name, "mel-mini-audio.wav"), sampleRate, channels)
+                    receiveAudio(input, safeName(name, "mel-mini-audio.wav"), sampleRate, channels, client)
                 }
                 4 -> receiveBrowser(input, DataOutputStream(BufferedOutputStream(client.getOutputStream())), width, height)
             }
@@ -308,7 +308,8 @@ class MiniMediaReceiver(private val context: Context) {
         input: DataInputStream,
         name: String,
         sampleRate: Int,
-        channels: Int
+        channels: Int,
+        socket: Socket
     ) {
         val temp = File.createTempFile("mel-mini-audio-", ".pcm", context.cacheDir)
         var pcmBytes = 0L
@@ -317,10 +318,16 @@ class MiniMediaReceiver(private val context: Context) {
             BufferedOutputStream(FileOutputStream(temp), 64 * 1024).use { output ->
                 while (true) {
                     if (!budget.withinDeadline()) return
+                    val headerTimeout = budget.remainingSocketTimeoutMs()
+                    if (headerTimeout == 0) return
+                    socket.soTimeout = headerTimeout
                     val size = input.readInt()
                     if (size == 0) break
                     // Reject over-budget blocks before reading or writing them.
                     if (!budget.reserve(size)) return
+                    val chunkTimeout = budget.remainingSocketTimeoutMs()
+                    if (chunkTimeout == 0) return
+                    socket.soTimeout = chunkTimeout
                     val bytes = readFully(input, size)
                     if (!budget.withinDeadline()) return
                     output.write(bytes)
