@@ -13,19 +13,24 @@ export function isEvolutionDevelopmentIntent(text) {
   return action && target;
 }
 
-export function inferAutonomyControlIntent(text) {
+export function inferAutonomyControlIntent(text, context = '') {
   const value = String(text || '').trim();
   if (!value) return null;
+  const history = String(context || '').slice(-8000);
 
-  const autonomyDomain = /\b(autonom(?:e|ie|isation)|auto[- ]?d[ée]veloppement|self[- ]?development|feuille\s+de\s+route|roadmap|d[ée]veloppement\s+(?:de\s+)?(?:mel|ton|tes|du\s+programme)|programme\s+mel)\b/i.test(value);
-  if (!autonomyDomain) return null;
+  const currentAutonomyDomain = /\b(autonom(?:e|ie|isation)|auto[- ]?d[ée]veloppement|self[- ]?development|feuille\s+de\s+route|roadmap|d[ée]veloppement\s+(?:de\s+)?(?:mel|ton|tes|du\s+programme)|programme\s+mel)\b/i.test(value);
+  // Elliptical follow-ups inherit the active MEL development context from this
+  // conversation. Unrelated personal or cultural history is not a trigger.
+  const contextualAutonomyDomain = /\b(?:MELITURGOS|MEL\s+WORK|MEL\s+CORE|d[ée]veloppement\s+(?:autonome|de\s+MEL)|autonomie|roadmap|dev\s*bridge|Companion|APK|MINI|branche|branch|commit|d[ée]ploiement|release|workflow|PR\s*#?\d+)\b/i.test(history);
+  if (!currentAutonomyDomain && !contextualAutonomyDomain) return null;
+
+  const asksAdvance = /\b(?:continue|continuer|reprends?|reprendre|avance|avancer|poursuis|poursuivre|travaille|travailler|encha[iî]ne|encha[iî]ner|relance|relancer|r[ée]concilie(?:r)?|d[ée]ploie(?:r)?|synchronise(?:r)?|termine(?:r)?)\b/i.test(value);
+  // A request containing both status and action must execute the action.
+  if (asksAdvance) return { id: 'autonomy.tick', input: {} };
 
   const asksStatus = /\b(o[uù]\s+en\s+(?:es|est|sommes)|statut|status|[ée]tat|pr[êe]te?|ready|bloqu[ée]e?|reste|avancement|progression|niveau)\b/i.test(value)
     || /\b(es[- ]tu|est[- ]elle)\b[^.!?]{0,80}\b(autonome|pr[êe]te?|capable)\b/i.test(value);
   if (asksStatus) return { id: 'autonomy.status', input: {} };
-
-  const asksAdvance = /\b(continue|continuer|reprends?|reprendre|avance|avancer|poursuis|poursuivre|travaille|travailler|encha[iî]ne|encha[iî]ner|relance|relancer)\b/i.test(value);
-  if (asksAdvance) return { id: 'autonomy.tick', input: {} };
 
   return null;
 }
@@ -188,7 +193,11 @@ export async function injectEvolutionPreflightCapability(request, env = {}) {
   } else if (isEvolutionDevelopmentIntent(text)) {
     body.capability = enqueueCapability(text, body, requestKey);
   } else {
-    const autonomy = inferAutonomyControlIntent(text);
+    const possibleAdvance = /\b(?:continue|continuer|reprends?|reprendre|avance|avancer|poursuis|poursuivre|travaille|travailler|encha[iî]ne|encha[iî]ner|relance|relancer|r[ée]concilie(?:r)?|d[ée]ploie(?:r)?|synchronise(?:r)?|termine(?:r)?)\b/i.test(text);
+    const contextualRoutingContext = possibleAdvance
+      ? await buildIntentRoutingContext(body, env)
+      : '';
+    const autonomy = inferAutonomyControlIntent(text, contextualRoutingContext);
     const capabilityInspection = autonomy ? null : inferCapabilityInspectionIntent(text);
     const communicationAudit = autonomy || capabilityInspection ? null : inferCommunicationAuditIntent(text);
     const codeIntegrity = autonomy || capabilityInspection || communicationAudit ? null : inferCodeIntegrityIntent(text);
@@ -210,7 +219,7 @@ export async function injectEvolutionPreflightCapability(request, env = {}) {
     else if (webResearch) routeDeterministic(body, webResearch, 'WEB_RESEARCH');
     else if (knowledge) routeDeterministic(body, knowledge, 'KNOWLEDGE');
     else {
-      const semanticContext = await buildIntentRoutingContext(body, env);
+      const semanticContext = contextualRoutingContext || await buildIntentRoutingContext(body, env);
       const semantic = await classifySemanticOwnerIntent({
         text,
         context: semanticContext,
