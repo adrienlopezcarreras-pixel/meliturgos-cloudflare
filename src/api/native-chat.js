@@ -483,13 +483,6 @@ export function inferConnectedDataCapability(value) {
       ? { id: 'drive.files.search', input: { query, limit: 20 } }
       : { id: 'drive.files.list', input: { limit: 20 } };
   }
-  if (/\bsharepoint\b/i.test(raw)) {
-    const wantsSearch = /\b(?:cherche|recherche|trouve)\b/i.test(raw);
-    const query = connectedSearchQuery(raw, /\bsharepoint\b/gi);
-    return wantsSearch && query
-      ? { id: 'sites.search', input: { query, limit: 20 } }
-      : { id: 'sites.list', input: { limit: 20 } };
-  }
   return null;
 }
 
