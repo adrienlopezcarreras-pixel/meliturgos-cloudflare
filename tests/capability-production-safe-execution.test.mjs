@@ -23,6 +23,9 @@ test('echo must return exact expected value; lists must be real arrays',()=>{
   assert.equal(validateExecution({ok:true,capability:'echo',result:{value:ALLOWLIST[0].input.value}},ALLOWLIST[0]).ok,true);
   assert.equal(validateExecution({ok:true,capability:'echo',result:{value:'faked'}},ALLOWLIST[0]).ok,false);
   assert.equal(validateExecution({ok:true,capability:'project.list',result:{}},ALLOWLIST[1]).ok,false);
+  assert.equal(validateExecution({ok:true,capability:'echo',result:{value:ALLOWLIST[0].input.value,error:'TIMEOUT'}},ALLOWLIST[0]).ok,false);
+  assert.equal(validateExecution({ok:true,capability:'echo',result:{value:ALLOWLIST[0].input.value,ok:false}},ALLOWLIST[0]).ok,false);
+  assert.equal(validateExecution({ok:true,capability:'echo',error:'BACKEND_FAILED',result:{value:ALLOWLIST[0].input.value}},ALLOWLIST[0]).ok,false);
   assert.equal(validateExecution({ok:true,capability:'project.list',result:[]},ALLOWLIST[1]).ok,true);
 });
 test('end-to-end offline fixture calls GET then only allowlisted POST without logging data',async()=>{

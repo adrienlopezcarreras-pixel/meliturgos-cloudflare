@@ -24,7 +24,9 @@ export function validateSelectedRecords(items,allowlist=ALLOWLIST){
 }
 export function validateExecution(body,sample){
   if(body?.ok!==true||body?.capability!==sample.id||body.result==null||
-    (body?.result?.error && body?.result?.ok===false)){
+    body?.error != null ||
+    (body?.result && !Array.isArray(body.result) &&
+      (body.result.error != null || body.result.ok===false))){
     return {ok:false,code:'LIVE_SAFE_CAPABILITY_EXECUTION_NOT_PROVEN',id:sample.id};
   }
   if(sample.output==='echo' && body.result?.value!==sample.input.value)
