@@ -432,3 +432,46 @@ test('implementation readiness rejects a candidate branch different from the own
   assert.equal(readiness.gates.mel_multi_ai_implementation_plan, false);
   assert.equal(readiness.self_development_ready, false);
 });
+
+test('autonomous completion gate cannot use another candidate branch even if CI proof agrees with itself', async () => {
+  for (const change of [
+    job => { job.candidate_branch = 'candidate/different-job-branch'; },
+    job => { job.result_json.implementation_proposal.candidate_branch = 'candidate/unapproved'; },
+    job => {
+      job.result_json.autonomy_completion.candidate_branch = 'candidate/different';
+      job.result_json.autonomy_completion.ci.head_branch = 'candidate/different';
+    },
+  ]) {
+    const repository = await completeEvidenceRepository();
+    const job = await repository.get('ready-job');
+    const changed = structuredClone(job);
+    change(changed);
+    await repository.update(job.id, {
+      candidate_branch: changed.candidate_branch,
+      result_json: changed.result_json,
+    });
+    const readiness = await getAutonomyReadiness({ repository });
+    assert.equal(readiness.gates.ci_verified_candidate_completion, false);
+    assert.equal(readiness.gates.coherent_single_job_loop, false);
+    assert.equal(readiness.self_development_ready, false);
+  }
+});
+
+test('a revoked or uncorrelated Teacher review cannot certify verified CI completion', async () => {
+  for (const change of [
+    bridge => { bridge.status = 'PENDING'; },
+    bridge => { bridge.review.request_id = 'another-Teacher-review'; },
+    bridge => { bridge.review.verdict = 'REJECT'; bridge.review.development_allowed = false; },
+    bridge => { bridge.review.development_allowed = false; },
+  ]) {
+    const repository = await completeEvidenceRepository();
+    const job = await repository.get('ready-job');
+    const result = structuredClone(job.result_json);
+    change(result.teacher_bridge);
+    await repository.update(job.id, { result_json: result });
+    const readiness = await getAutonomyReadiness({ repository });
+    assert.equal(readiness.gates.ci_verified_candidate_completion, false);
+    assert.equal(readiness.gates.coherent_single_job_loop, false);
+    assert.equal(readiness.self_development_ready, false);
+  }
+});
