@@ -1,4 +1,5 @@
 import { D1DevJobRepository } from '../dev/d1-dev-job-repository.js';
+import { isVerifiedRuntimeWorkProof } from './autonomy-proof-identity.js';
 import { Augmentio } from '../augmentio/augmentio.js';
 import { createDefaultAugmentioPool } from '../augmentio/default-pool.js';
 import {
@@ -16,17 +17,6 @@ function proofFromJob(job) {
   return job?.result_json?.autonomy_proofs?.[PROOF_KEY] || null;
 }
 
-function isVerifiedProof(proof, jobId) {
-  // A runtime proof pinned to another job cannot certify or be reused by this one.
-  if (proof?.target_job_id != null && String(proof.target_job_id) !== String(jobId)) return false;
-  const attempted = proof?.providers_attempted;
-  const successful = proof?.successful_candidates;
-  return proof?.status === 'VERIFIED'
-    && proof?.recovered_interrupted_node === true
-    && Number.isSafeInteger(attempted) && attempted >= 2
-    && Number.isSafeInteger(successful) && successful >= 1
-    && successful <= attempted;
-}
 
 /**
  * With targetJobId, reuse is deliberately scoped to that exact job. A proof
@@ -40,12 +30,12 @@ export async function findVerifiedRuntimeWorkProof(repository, { targetJobId = n
     if (typeof repository.get !== 'function') return null;
     const job = await repository.get(targetJobId);
     const proof = proofFromJob(job);
-    return isVerifiedProof(proof, job.id) ? { job_id: job.id, proof } : null;
+    return isVerifiedRuntimeWorkProof(proof, job.id) ? { job_id: job.id, proof } : null;
   }
   const jobs = await repository.list();
   for (const job of jobs) {
     const proof = proofFromJob(job);
-    if (isVerifiedProof(proof, job.id)) return { job_id: job.id, proof };
+    if (isVerifiedRuntimeWorkProof(proof, job.id)) return { job_id: job.id, proof };
   }
   return null;
 }
@@ -140,8 +130,25 @@ export async function runRuntimeWorkDagResumeProof(env = {}, {
   const completed = await runner.run();
   const multi = completed.nodes.find((node) => node.id === 'multi-ai-state');
   const recovered = completed.audit?.some((entry) => entry.event === 'WORK_NODE_RECOVERED_FOR_RETRY' && entry.node_id === 'multi-ai-state') === true;
-  const providersAttempted = Array.isArray(multi?.result?.providersAttempted) ? multi.result.providersAttempted.length : 0;
+  const attemptedIds = Array.isArray(multi?.result?.providersAttempted)
+    ? multi.result.providersAttempted : [];
+  const providerHealth = Array.isArray(multi?.result?.providerHealth)
+    ? multi.result.providerHealth : [];
   const successfulCandidates = Array.isArray(multi?.result?.candidates) ? multi.result.candidates.length : 0;
+  // A retry, a duplicate adapter, or two adapters for the same underlying
+  // model must not be counted as independent AI contributions.
+  const identities = attemptedIds.map(id => {
+    const rows = providerHealth.filter(row => row?.id === id);
+    if (rows.length !== 1) return null;
+    const provider = rows[0].provider;
+    const model = rows[0].model;
+    if (typeof provider !== 'string' || typeof model !== 'string'
+      || !provider.trim() || !model.trim()) return null;
+    return { provider: provider.trim(), model: model.trim() };
+  });
+  const uniqueModels = new Set(identities.filter(Boolean)
+    .map(row => JSON.stringify([row.provider, row.model])));
+  const providersAttempted = uniqueModels.size;
 
   if (completed.status !== WORK_DAG_STATUS.COMPLETED) {
     throw Object.assign(new Error('RUNTIME_WORK_DAG_PROOF_NOT_COMPLETED'), { code: 'RUNTIME_WORK_DAG_PROOF_NOT_COMPLETED' });
@@ -149,7 +156,9 @@ export async function runRuntimeWorkDagResumeProof(env = {}, {
   if (!recovered || Number(multi?.attempts || 0) < 2) {
     throw Object.assign(new Error('RUNTIME_WORK_DAG_RECOVERY_NOT_PROVEN'), { code: 'RUNTIME_WORK_DAG_RECOVERY_NOT_PROVEN' });
   }
-  if (providersAttempted < 2) {
+  if (attemptedIds.length < 2 || identities.some(row => !row)
+    || new Set(attemptedIds).size !== attemptedIds.length
+    || providersAttempted !== attemptedIds.length) {
     throw Object.assign(new Error('RUNTIME_WORK_DAG_MULTI_AI_NOT_PROVEN'), { code: 'RUNTIME_WORK_DAG_MULTI_AI_NOT_PROVEN' });
   }
   if (successfulCandidates < 1) {
@@ -159,13 +168,14 @@ export async function runRuntimeWorkDagResumeProof(env = {}, {
   const proof = {
     status: 'VERIFIED',
     schema: 'mel.autonomy-proof/work-dag-resume',
-    version: 2,
+    version: 3,
     verified_at: new Date().toISOString(),
     target_job_id: targetJobId || null,
     recovered_interrupted_node: true,
     interrupted_node_id: 'multi-ai-state',
     attempts_after_recovery: Number(multi.attempts || 0),
     providers_attempted: providersAttempted,
+    provider_model_identities: identities,
     successful_candidates: successfulCandidates,
     zero_added_cost_policy: 'ENFORCED_BY_AUGMENTIO_GOVERNOR',
     candidate_branch_isolated: true,
