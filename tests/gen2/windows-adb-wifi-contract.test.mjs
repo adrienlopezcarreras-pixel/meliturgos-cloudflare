@@ -133,7 +133,7 @@ test("Windows Companion exposes explicit local Android Wi-Fi pairing without col
 test("Windows Companion ADB status provides actionable diagnostics, not false auto-reconnect promises", async () => {
   const native = await source("windows-companion/MEL-Companion.cs");
   assert.match(native, /Android Platform Tools introuvables/);
-  assert.match(native, /diagnostic en échec/);
+  assert.match(native, /ADB Wi-Fi : échec · /);
   assert.match(native, /téléphone non appairé ou déconnecté · utilisez Configurer ADB Wi-Fi/);
 });
 
@@ -216,4 +216,16 @@ test("ADB monitor sanitizes and bounds diagnostic log error details", async () =
  assert.match(script, /pairing\\s\*code\|password\|token\|authorization/);
  assert.match(script, /\[REDACTED\]/);
  assert.match(script, /Substring\(0,\[Math\]::Min\(240/);
+});
+
+test("Companion background ADB status shows the recorded failure detail", async () => {
+ const native = await source("windows-companion/MEL-Companion.cs");
+ const start=native.indexOf("void RefreshAll()");
+ const end=native.indexOf("var devices=MelApp.Devices()",start);
+ const refresh=native.slice(start,end);
+ assert.match(refresh,/error_detail/);
+ assert.match(refresh,/String\.IsNullOrEmpty\(errorDetail\)/);
+ assert.match(refresh,/\.TotalSeconds >= -30/);
+ assert.match(refresh,/\.TotalSeconds < 75/);
+ assert.doesNotMatch(refresh,/\.TotalMinutes < 2/);
 });
