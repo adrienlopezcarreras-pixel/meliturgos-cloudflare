@@ -45,6 +45,19 @@ test('browser.scroll rejects missing or unsafe coordinates and oversized wheel d
   assert.equal(verdict({ ...scroll, x: -400, y: -100, delta_y: 1440 }).allowed, true);
 });
 
+test('browser.scroll rejects unsupported horizontal motion or ignored targets', () => {
+  for (const [field, value] of [
+    ['delta_x', 120], ['horizontal', true], ['text', 'ignored'],
+    ['button', 'right'], ['url', 'https://example.com'],
+    ['selector', '#panel'], ['repeat', 2], ['unknown', null],
+  ]) {
+    const result = verdict({ ...scroll, [field]: value });
+    assert.equal(result.allowed, false, field);
+    assert.equal(result.reason, 'BROWSER_SCROLL_UNEXPECTED_FIELD', field);
+  }
+  assert.equal(verdict(scroll).allowed, true);
+});
+
 test('invalid browser.scroll blocks all earlier plan steps before adapter dispatch', async () => {
   const steps = [{ id: 'observe', action: COMPUTER_USE_ACTIONS.BROWSER_INSPECT },
     { ...scroll, window_handle: '0' }];
