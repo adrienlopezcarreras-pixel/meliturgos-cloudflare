@@ -10,7 +10,9 @@ const councilSection = workflow.slice(workflow.indexOf('# MEL-COUNCIL-02: four b
 
 test('production Council probe selects four bounded independent model candidates', () => {
   assert.match(councilSection, /"id":"model.council"/);
-  assert.match(councilSection, /"maxCandidates":4,"timeoutMs":60000/);
+  assert.match(councilSection, /"maxCandidates":4,"timeoutMs":15000/);
+  assert.match(councilSection, /--max-time 115 --retry 1 --retry-all-errors --retry-delay 2/,
+    'two Council phases must remain bounded below the total network deadline');
   assert.match(councilSection, /node scripts\/check-release-council-proof\.mjs production-mel-council-02\.json/);
   const distinct = new Set(standardRegistry.list().filter(m => m.enabled && m.provider === 'workers-ai' && m.capabilities.includes('GENERAL')).map(m => m.model_id));
   assert.ok(distinct.size >= 4);
