@@ -54,6 +54,19 @@ test('Android requests system BLE pairing before MTU, not an advertising GATT se
   assert.match(manifest, /android:name="\.MelBleBridgeService"\s+android:enabled="false"/);
 });
 
+test('Android validates discovered Link V2 GATT properties and subscribes only to supported event mode', async () => {
+  const service = await read('android-companion/app/src/main/java/fr/veriteinterdite/mel/MelLinkV2ClientService.kt');
+  assert.match(service, /control\.properties and BluetoothGattCharacteristic\.PROPERTY_WRITE\) == 0/);
+  assert.match(service, /bulk\.properties and bulkWriteProperties\) == 0/);
+  assert.match(service, /BluetoothGattCharacteristic\.PROPERTY_WRITE_NO_RESPONSE/);
+  assert.match(service, /BluetoothGattCharacteristic\.PROPERTY_INDICATE/);
+  assert.match(service, /BluetoothGattCharacteristic\.PROPERTY_NOTIFY/);
+  assert.match(service, /if \(indicate\) byteArrayOf\(2, 0\) else byteArrayOf\(1, 0\)/);
+  assert.match(service, /CONTROL_NOT_WRITABLE/);
+  assert.match(service, /BULK_NOT_WRITABLE/);
+  assert.match(service, /EVENT_NOT_SUBSCRIBABLE/);
+});
+
 test('scheduled Companion relay cannot flash or reset a MINI', async () => {
   const api = await read('src/devices/computer-companion-api.js');
   const relay = await read('scripts/cloudflare-api-relay-runner.mjs');
