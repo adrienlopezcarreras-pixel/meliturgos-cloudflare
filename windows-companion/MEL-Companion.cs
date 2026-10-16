@@ -609,7 +609,19 @@ static class MelApp
             {
                 var dir = Path.GetDirectoryName(AdbWifiPath);
                 if (!Directory.Exists(dir)) Directory.CreateDirectory(dir);
-                File.AppendAllText(Path.Combine(dir, "android-adb-monitor-supervisor.log"),
+                var supervisorLog = Path.Combine(dir, "android-adb-monitor-supervisor.log");
+                try
+                {
+                    var info = new FileInfo(supervisorLog);
+                    if (info.Exists && info.Length >= 256 * 1024)
+                    {
+                        var backup = supervisorLog + ".1";
+                        if (File.Exists(backup)) File.Delete(backup);
+                        File.Move(supervisorLog, backup);
+                    }
+                }
+                catch { }
+                File.AppendAllText(supervisorLog,
                     DateTime.UtcNow.ToString("o") + " " + failure + Environment.NewLine, Encoding.UTF8);
             }
             catch { }
