@@ -7,6 +7,8 @@ export const methods = ['queryMultiple', 'compare', 'score', 'synthesize'];
 
 const DEFAULT_TIMEOUT_MS = 30000;
 const DEFAULT_MAX_CANDIDATES = 4;
+export const MAX_COUNCIL_CRITIQUE_CHARS = 16 * 1024;
+export const MAX_COUNCIL_SYNTHESIS_CHARS = 24 * 1024;
 const COUNCIL_CRITIQUE_INFERENCE_SETTINGS = Object.freeze({
   temperature: 0.2,
   top_p: 0.9,
@@ -391,6 +393,11 @@ async function synthesizeCouncil({
           error.code = 'COUNCIL_EMPTY_SYNTHESIS';
           throw error;
         }
+        if (text.length > MAX_COUNCIL_SYNTHESIS_CHARS) {
+          const error = new Error('AI_PROVIDER_RESPONSE_TOO_LARGE');
+          error.code = 'AI_PROVIDER_RESPONSE_TOO_LARGE';
+          throw error;
+        }
         return {
           text,
           latency_ms: Date.now() - startedAt,
@@ -497,6 +504,14 @@ export async function runModelCouncil({
     if (!text) {
       const error = new Error('EMPTY_PROVIDER_RESPONSE');
       error.code = 'EMPTY_PROVIDER_RESPONSE';
+      throw error;
+    }
+    // Untrusted model replies are fed back into a second synthesis prompt.
+    // Reject outsized critiques rather than retrying or silently truncating
+    // them into misleading evidence / unbounded input to other models.
+    if (text.length > MAX_COUNCIL_CRITIQUE_CHARS) {
+      const error = new Error('AI_PROVIDER_RESPONSE_TOO_LARGE');
+      error.code = 'AI_PROVIDER_RESPONSE_TOO_LARGE';
       throw error;
     }
     return {

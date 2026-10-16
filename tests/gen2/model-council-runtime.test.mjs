@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { ProviderPool } from '../../src/augmentio/provider-pool.js';
 import { ZERO_EURO_POLICY } from '../../src/augmentio/zero-euro-governor.js';
-import { runModelCouncil } from '../../src/models/model-council.js';
+import { runModelCouncil, MAX_COUNCIL_CRITIQUE_CHARS, MAX_COUNCIL_SYNTHESIS_CHARS } from '../../src/models/model-council.js';
 import { standardRegistry } from '../../src/models/ModelRegistry.js';
 import { createDefaultCapabilityBus } from '../../src/capabilities/default-bus.js';
 import router from '../../src/router.js';
@@ -796,4 +796,72 @@ test('Council does not report a degraded or all-failed result after owner cancel
   await assert.rejects(request, error => error?.code === 'SCHEDULER_ABORTED');
   assert.equal(critiqueCalls, 1);
   assert.equal(synthesisCalls, 0);
+});
+
+test('Council rejects excessive critique text and retains independent healthy alternatives', async () => {
+  const calls = [];
+  const oversized = provider({ id: 'bad', providerId: 'alpha', modelId: 'huge', calls });
+  const normal = provider({ id: 'good-a', providerId: 'beta', modelId: 'normal', calls });
+  const other = provider({ id: 'good-b', providerId: 'gamma', modelId: 'normal', calls });
+  const original = oversized.invoke;
+  oversized.invoke = async (args) => {
+    if (args.context?.purpose === 'model-council-independent-critique') {
+      calls.push({ id: 'bad', purpose: 'model-council-independent-critique' });
+      return { text: 'X'.repeat(MAX_COUNCIL_CRITIQUE_CHARS + 1) };
+    }
+    return original(args);
+  };
+  const result = await runModelCouncil({
+    pool: new ProviderPool([oversized, normal, other]),
+    request: 'bounded Council evidence', timeoutMs: 2500,
+  });
+  assert.equal(result.status, 'COMPLETE');
+  assert.equal(result.critiques.length, 2);
+  assert.equal(result.provider_failure_count, 1);
+  assert.equal(result.failures[0].code, 'AI_PROVIDER_RESPONSE_TOO_LARGE');
+  assert.equal(result.synthesis.status, 'COMPLETE');
+  assert.ok(result.critiques.every(row => row.text.length <= MAX_COUNCIL_CRITIQUE_CHARS));
+});
+
+test('Council fails closed if all independent critiques exceed the size ceiling', async () => {
+  const calls = [];
+  const adapters = ['a', 'b'].map(id => {
+    const a = provider({ id, providerId: id, modelId: 'huge', calls });
+    a.invoke = async () => {
+      calls.push(id);
+      return { text: 'x'.repeat(MAX_COUNCIL_CRITIQUE_CHARS + 1) };
+    };
+    return a;
+  });
+  await assert.rejects(runModelCouncil({
+    pool: new ProviderPool(adapters), request: 'reject huge evidence',
+    timeoutMs: 2500,
+  }), error => error?.code === 'COUNCIL_ALL_PROVIDERS_FAILED'
+    && error.failures?.length === 2
+    && error.failures.every(row => row.code === 'AI_PROVIDER_RESPONSE_TOO_LARGE'));
+  assert.equal(calls.length, 2, 'oversized responses are not retried');
+});
+
+test('Council falls back if the first synthesis response exceeds its size ceiling', async () => {
+  const calls = [];
+  const first = provider({ id: 'a', providerId: 'alpha', modelId: 'one', calls });
+  const second = provider({ id: 'b', providerId: 'beta', modelId: 'two', calls });
+  const original = first.invoke;
+  first.invoke = async (args) => {
+    if (args.context?.purpose === 'model-council-synthesis') {
+      calls.push({ id: 'a', purpose: 'model-council-synthesis' });
+      return { text: 'x'.repeat(MAX_COUNCIL_SYNTHESIS_CHARS + 1) };
+    }
+    return original(args);
+  };
+  const result = await runModelCouncil({
+    pool: new ProviderPool([first, second]),
+    request: 'synthesis must remain bounded',
+    timeoutMs: 2500,
+  });
+  assert.equal(result.status, 'COMPLETE');
+  assert.equal(result.synthesis.status, 'COMPLETE');
+  assert.deepEqual(result.synthesis.attempted, ['alpha::one', 'beta::two']);
+  assert.ok(result.synthesis.text.length <= MAX_COUNCIL_SYNTHESIS_CHARS);
+  assert.equal(calls.filter(row => row.purpose === 'model-council-synthesis').length, 2);
 });
