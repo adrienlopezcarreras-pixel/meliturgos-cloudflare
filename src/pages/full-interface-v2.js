@@ -711,20 +711,22 @@ qs('#workComputerAnalyze').onclick=async()=>{
  }finally{button.textContent='Faire analyser la capture par MEL';button.disabled=!workComputerLastView?.view_url}
 };
 
-qs('#workCreate').onclick=async()=>{const goal=qs('#workGoal').value.trim();if(!goal)return;qs('#workCreate').disabled=true;try{const pc=selectedWorkComputer();qs('#workCreate').onclick=async()=>{const goal=qs('#workGoal').value.trim();if(!goal)return;qs('#workCreate').disabled=true;try{
+qs('#workCreate').onclick=async()=>{const goal=qs('#workGoal').value.trim();if(!goal)return;qs('#workCreate').disabled=true;try{
  const pc=selectedWorkComputer();
  const capture=workComputerLastView?{computer_id:workComputerLastView.computer_id,command_id:workComputerLastView.command_id}:null;
+ let interpretationId=null;
  if(capture&&qs('#workComputerInterpretConsent')?.checked===true){
   const vision=await jfetch('/api/work/screen-interpretation',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({computer_id:capture.computer_id,command_id:capture.command_id,consent:'INTERPRET_SCREEN_WITH_WORKERS_AI',question:goal})});
   if(!vision?.ok||!vision.interpretation_id||!vision.analysis)throw Error(vision?.code||'WORK_SCREEN_INTERPRETATION_UNCONFIRMED');
-  workComputerInterpretation={interpretation_id:vision.interpretation_id,command_id:capture.command_id};
+  workComputerInterpretation={interpretation_id:vision.interpretation_id,command_id:capture.command_id};interpretationId=vision.interpretation_id;
   qs('#workComputerAnalysis').style.display='block';
-  qs('#workComputerAnalysis').textContent='Lecture vérifiée ('+vision.model+') — texte observé, non exécuté :\\n\\n'+vision.analysis+'\\n\\nsha256 image : '+vision.image_sha256;
+  qs('#workComputerAnalysis').textContent='Lecture vérifiée ('+vision.model+') — texte observé, non exécuté :\n\n'+vision.analysis+'\n\nsha256 image : '+vision.image_sha256;
  }
- const context={origin:'work-ui',computer:pc?{computer_id:pc.id}:null,screen_capture:capture,screen_interpretation:workComputerInterpretation?.interpretation_id||null,share_screen_interpretation_with_council:qs('#workComputerShareText')?.checked===true};
+ const context={origin:'work-ui',computer:pc?{computer_id:pc.id}:null,screen_capture:capture,screen_interpretation:interpretationId,share_screen_interpretation_with_council:qs('#workComputerShareText')?.checked===true};
  const d=await jfetch('/api/work/jobs',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({goal,mode:'prepare',context})});
  qs('#workOut').textContent=JSON.stringify({work:d,screen_capture_verified_by_server:d?.computer_context?.screen_capture?.verified===true,screen_interpretation_verified_by_server:d?.computer_context?.screen_interpretation?.verified===true,executed:false},null,2);
-}catch(e){qs('#workOut').textContent='Erreur : '+e.message}finally{qs('#workCreate').disabled=false;qs('#workComputerInterpretConsent').checked=false;qs('#workComputerShareText').checked=false}};const d=await jfetch('/api/work/jobs',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({goal,mode:'prepare',context})});qs('#workOut').textContent=JSON.stringify({work:d,computer_context_attached:Boolean(context.computer),screen_capture_reference_attached:Boolean(context.screen_capture)},null,2)}catch(e){qs('#workOut').textContent='Erreur : '+e.message}finally{qs('#workCreate').disabled=false}};
+}catch(e){qs('#workOut').textContent='Erreur : '+e.message}finally{qs('#workCreate').disabled=false;qs('#workComputerInterpretConsent').checked=false;qs('#workComputerShareText').checked=false}};
+
 function setLoraTag(id,text,kind){const el=qs(id);if(!el)return;el.textContent=text;el.className='tag '+kind}
 async function loadFreeLoraStatus(){
   const btn=qs('#freeLoraRefresh');if(btn)btn.disabled=true;
