@@ -2469,7 +2469,21 @@ function Perform-Step($step, [string]$commandId, [string]$planSchema="") {
       if ($title.Length -gt 512) { $title = $title.Substring(0,512) }
       $windowHandle = [MelNative]::GetForegroundWindow()
       if ($windowHandle -eq [IntPtr]::Zero -or (Assert-ForegroundBrowser) -ne $browser) { throw "BROWSER_INSPECT_WINDOW_REQUIRED" }
-      return @{ action=$action; browser=$browser; foreground_title=$title; read_only=$true; observed_at_utc=[DateTime]::UtcNow.ToString("o"); window_handle=$windowHandle.ToInt64() }
+      $rect = New-Object MelNative+RECT
+      if (-not [MelNative]::GetWindowRect($windowHandle, [ref]$rect)) { throw "BROWSER_INSPECT_BOUNDS_REQUIRED" }
+      $virtual = [System.Windows.Forms.SystemInformation]::VirtualScreen
+      $left = [Math]::Max($rect.Left, $virtual.Left)
+      $top = [Math]::Max($rect.Top, $virtual.Top)
+      $right = [Math]::Min($rect.Right, $virtual.Right)
+      $bottom = [Math]::Min($rect.Bottom, $virtual.Bottom)
+      if ($right -le $left -or $bottom -le $top) { throw "BROWSER_INSPECT_BOUNDS_REQUIRED" }
+      if ([MelNative]::GetForegroundWindow() -ne $windowHandle -or (Assert-ForegroundBrowser) -ne $browser) { throw "BROWSER_INSPECT_FOCUS_CHANGED" }
+      return @{
+        action=$action; browser=$browser; foreground_title=$title; read_only=$true
+        observed_at_utc=[DateTime]::UtcNow.ToString("o"); window_handle=$windowHandle.ToInt64()
+        visible_bounds=@{ left=$left; top=$top; width=($right - $left); height=($bottom - $top) }
+        coordinate_space="virtual-screen-pixels"
+      }
     }
     "app.open" {
       $exe = Resolve-App ([string]$step.app)
