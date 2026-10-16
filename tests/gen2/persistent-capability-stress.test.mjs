@@ -412,7 +412,7 @@ test('persistent runtime coverage explains unverified rows using sanitized aggre
   });
   assert.deepEqual(coverage.runtime_tested_by_domain, { other: 1 });
   assert.deepEqual(coverage.runtime_unverified_by_domain, { connectors_storage: 1, other: 2 });
-  assert.doesNotMatch(JSON.stringify(coverage), /safe\\.tested|risk\\.private|cloudflare\\.secret|bad\\.user\\.text|SECRET_VALUE_NEVER_EXPOSE/i);
+  assert.doesNotMatch(JSON.stringify(coverage), /safe\.tested|risk\.private|cloudflare\.secret|bad\.user\.text|SECRET_VALUE_NEVER_EXPOSE/i);
 });
 
 test('runtime blocker breakdown remains absent when persistent row data are unavailable', () => {
