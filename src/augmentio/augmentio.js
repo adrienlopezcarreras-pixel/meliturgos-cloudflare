@@ -79,6 +79,10 @@ export class Augmentio {
         // late cost/provenance change cannot race past the zero-euro gate.
         this.governor.assertAllowed(provider);
         const response = await provider.invoke({ input, context, capability, signal: meta.signal });
+        // A late provider response must not be credited after its attempt was
+        // cancelled or timed out by the scheduler.
+        assertNotCancelled(meta.signal);
+        assertNotCancelled(signal);
         const text = typeof response === 'string' ? response : response?.text ?? response?.response;
         // Empty/whitespace responses are failures, never successful Council
         // contributions or cached candidates. Do not stringify arbitrary
@@ -105,6 +109,7 @@ export class Augmentio {
           confidence: response?.confidence ?? 0,
         };
       } catch (error) {
+        if (error?.code === 'SCHEDULER_ABORTED') throw error;
         this.quota.recordFailure(provider.id, error);
         throw error;
       }
