@@ -80,6 +80,7 @@ function workDagProof(job) {
     verified_at: proof.verified_at || null,
     recovered_interrupted_node: true,
     providers_attempted: attempted,
+    runtime_fanout_cache_hit: proof.runtime_fanout_cache_hit,
     provider_model_identities: proof.provider_model_identities.map(row => ({ provider: row.provider, model: row.model })),
     successful_candidates: successful,
     zero_added_cost_policy: proof.zero_added_cost_policy || null,
