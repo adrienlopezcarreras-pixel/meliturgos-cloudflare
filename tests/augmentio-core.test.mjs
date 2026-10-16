@@ -955,7 +955,7 @@ test('Augmentio does not credit a timed-out AI provider when its late output arr
   const started = new Promise(resolve => { slowStarted = resolve; });
   const slow = new ProviderAdapter({
     id: 'slow', priority: 2, estimatedCost: 0,
-    costProvenance: verifiedFree('slow'),
+    costProvenance: verifiedFree('slow', { provider: 'slow', model: 'slow' }),
     invoke: async () => {
       slowStarted();
       return new Promise(resolve => { finishSlow = resolve; });
