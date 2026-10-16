@@ -93,4 +93,76 @@ class MiniHttpResponseBoundsTest {
         }
         assertArrayEquals(payload, MiniHttpResponseBounds.read(stream, payload.size))
     }
+
+    @Test fun slowDripExpiresBeforeReadingMoreChunksAndClosesStream() {
+        var now = 0L
+        var calls = 0
+        var closed = false
+        val stream = object : InputStream() {
+            override fun read(): Int = 65
+            override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
+                calls++
+                buffer[offset] = 65
+                now = MiniHttpResponseBounds.MAX_READ_DURATION_NANOS
+                return 1
+            }
+            override fun close() { closed = true }
+        }
+        val error = assertThrows(IOException::class.java) {
+            MiniHttpResponseBounds.read(stream, 1024) { now }
+        }
+        assertEquals("MEL_RESPONSE_TIMEOUT", error.message)
+        assertEquals(1, calls)
+        assertEquals(true, closed)
+    }
+
+    @Test fun deadlineIncludesTimeSpentWaitingForEof() {
+        var now = 0L
+        val input = object : InputStream() {
+            override fun read(): Int = -1
+            override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
+                now = MiniHttpResponseBounds.MAX_READ_DURATION_NANOS
+                return -1
+            }
+        }
+        val error = assertThrows(IOException::class.java) {
+            MiniHttpResponseBounds.read(input, 16) { now }
+        }
+        assertEquals("MEL_RESPONSE_TIMEOUT", error.message)
+    }
+
+    @Test fun dripCompletedJustBeforeDeadlineIsAccepted() {
+        var now = 0L
+        val backing = ByteArrayInputStream(byteArrayOf(1, 2, 3))
+        val input = object : InputStream() {
+            override fun read(): Int = backing.read()
+            override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
+                val count = backing.read(buffer, offset, minOf(1, length))
+                if (count < 0) now = MiniHttpResponseBounds.MAX_READ_DURATION_NANOS - 1
+                return count
+            }
+        }
+        assertArrayEquals(byteArrayOf(1, 2, 3), MiniHttpResponseBounds.read(input, 3) { now })
+    }
+
+    @Test fun expiredBudgetDoesNotTouchInput() {
+        var now = 0L
+        var reads = 0
+        val input = object : InputStream() {
+            override fun read(): Int { reads++; return -1 }
+            override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
+                reads++
+                return -1
+            }
+        }
+        val error = assertThrows(IOException::class.java) {
+            MiniHttpResponseBounds.read(input, 1) {
+                val current = now
+                now = MiniHttpResponseBounds.MAX_READ_DURATION_NANOS
+                current
+            }
+        }
+        assertEquals("MEL_RESPONSE_TIMEOUT", error.message)
+        assertEquals(0, reads)
+    }
 }
