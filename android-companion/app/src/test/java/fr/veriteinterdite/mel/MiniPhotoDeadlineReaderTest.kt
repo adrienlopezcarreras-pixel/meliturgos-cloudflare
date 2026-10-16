@@ -129,4 +129,23 @@ class MiniPhotoDeadlineReaderTest {
         assertEquals(listOf(45_000, 2), applied)
     }
 
+    @Test fun rejectsExpiredBudgetAfterTimeoutConfigurationWithoutReading() {
+        var now = 0L
+        var reads = 0
+        val input = object : InputStream() {
+            override fun read(): Int { reads++; return 1 }
+            override fun read(bytes: ByteArray, offset: Int, length: Int): Int {
+                reads++
+                return 1
+            }
+        }
+        val error = assertThrows(IOException::class.java) {
+            MiniPhotoDeadlineReader.read(input, 1, beforeRead = {
+                now = MiniPhotoDeadlineReader.MAX_DURATION_NANOS
+            }) { now }
+        }
+        assertEquals("MINI_PHOTO_TIMEOUT", error.message)
+        assertEquals(0, reads)
+    }
+
 }
