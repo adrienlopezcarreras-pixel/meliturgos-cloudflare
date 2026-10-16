@@ -25,6 +25,7 @@ import { handleVoiceTranscription } from "./api/voice-transcribe.js";
 import { handleFileUpload } from "./api/file-upload.js";
 import { runExpiredMediaCleanup } from "./media/media-vault-cleanup.js";
 import { readLastSafeWorkJob, writeLastSafeWorkJob } from "./dev/dev-bridge-state-store.js";
+import { buildVerifiedWorkComputerContext, interpretWorkScreenCapture, workScreenErrorResponse } from "./work/companion-screen-evidence.js";
 import { getChatGPTImportStatus, recordChatGPTCollectorCoverage } from "./persistence/chatgpt-archive-importer.js";
 import { maybeHandleWaveshareTerminalApi } from "./devices/waveshare-terminal-api.js";
 import { maybeHandleComputerApi } from "./devices/computer-companion-api.js";
@@ -218,7 +219,7 @@ function busContext(env, request = null) {
 async function maybeHandleWorkPreflight(request, env) {
   const url = new URL(request.url);
   if (!url.pathname.startsWith('/api/work/')) return null;
-  if (url.pathname !== '/api/work/health' && url.pathname !== '/api/work/jobs') return null;
+  if (url.pathname !== '/api/work/health' && url.pathname !== '/api/work/jobs' && url.pathname !== '/api/work/screen-interpretation') return null;
 
   const auth = requireAuth(request, env);
   if (!auth.ok) return auth.response;
@@ -232,6 +233,16 @@ async function maybeHandleWorkPreflight(request, env) {
       protected_write_bridge: true,
       rule: 'AI_COUNCIL_BEFORE_CODE'
     }, { headers: { 'cache-control': 'no-store' } });
+  }
+
+  if (request.method === 'POST' && url.pathname === '/api/work/screen-interpretation') {
+    // Owner-approved, view-only interpretation of a verified Companion capture.
+    try {
+      const body = await readJsonObject(request);
+      return Response.json(await interpretWorkScreenCapture(env, body), { headers: { 'cache-control': 'no-store' } });
+    } catch (error) {
+      return workScreenErrorResponse(error);
+    }
   }
 
   if (request.method === 'GET' && url.pathname === '/api/work/jobs') {
@@ -251,10 +262,11 @@ async function maybeHandleWorkPreflight(request, env) {
       if (mode !== 'prepare' && mode !== 'preflight') return null;
       const goal = String(body.goal || body.objective || body.prompt || body.description || '').trim();
       if (!goal) return Response.json({ ok: false, error: 'GOAL_REQUIRED', code: 'GOAL_REQUIRED' }, { status: 400 });
+      const verified = await buildVerifiedWorkComputerContext(env, body.context);
       const runtime = createGen2Runtime({ env });
       const preflight = await runtime.bus.execute('evolution.preflight', {
         goal,
-        context: { ...(body.context && typeof body.context === 'object' ? body.context : {}), origin: 'work-ui', rule: 'AI_COUNCIL_BEFORE_CODE' },
+        context: { ...verified.councilContext, origin: 'work-ui', rule: 'AI_COUNCIL_BEFORE_CODE' },
         minResponses: Math.max(2, Math.min(12, Number(body.minResponses) || 2))
       }, busContext(env, request));
       const lastSafeWorkJob = {
@@ -263,6 +275,8 @@ async function maybeHandleWorkPreflight(request, env) {
         status: 'PREPARED',
         goal,
         created_at: new Date().toISOString(),
+        execution: { status: 'NOT_EXECUTED', computer_commands: [], completion_proof: null },
+        computer_context: verified.record,
         preflight
       };
       const persisted = await writeLastSafeWorkJob(env.DB, lastSafeWorkJob);
