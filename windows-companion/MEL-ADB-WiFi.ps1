@@ -9,6 +9,20 @@ $log=Join-Path $dir "android-adb-wifi.log"
 $saved=Join-Path $dir "android-adb-last-endpoint.txt"
 $adb=@((Join-Path $env:LOCALAPPDATA "Android\platform-tools\adb.exe"),(Join-Path $env:LOCALAPPDATA "Android\Sdk\platform-tools\adb.exe")) | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } | Select-Object -First 1
 if (-not $adb) { $cmd=Get-Command adb.exe -ErrorAction SilentlyContinue; if ($cmd) { $adb=$cmd.Source } }
+function Write-AdbLog([string]$message) {
+  # Keep the long-running background monitor's log bounded (current + one backup).
+  try {
+    if (Test-Path -LiteralPath $log -PathType Leaf) {
+      $info = Get-Item -LiteralPath $log
+      if ($info.Length -ge 1MB) {
+        $backup = "$log.1"
+        if (Test-Path -LiteralPath $backup) { Remove-Item -LiteralPath $backup -Force }
+        Move-Item -LiteralPath $log -Destination $backup
+      }
+    }
+    Add-Content -LiteralPath $log -Encoding UTF8 -Value $message
+  } catch { }
+}
 function Run-Adb([string[]]$arglist) {
   $output=@(& $adb @arglist 2>&1 | ForEach-Object { [string]$_ })
   if ($LASTEXITCODE -ne 0) { throw ("ADB_COMMAND_FAILED exit={0}" -f $LASTEXITCODE) }
@@ -64,7 +78,7 @@ function Scan {
   [IO.File]::WriteAllText($temp,($status | ConvertTo-Json -Depth 5),(New-Object Text.UTF8Encoding($false)))
   if (Test-Path -LiteralPath $report) { Remove-Item -LiteralPath $report -Force }
   Move-Item -LiteralPath $temp -Destination $report -Force
-  Add-Content -LiteralPath $log -Encoding UTF8 -Value ("{0} connected={1} model={2} mel_installed={3}" -f $status.observed_at_utc,$status.connected,$status.android_model,$status.mel_installed)
+  Write-AdbLog ("{0} connected={1} model={2} mel_installed={3}" -f $status.observed_at_utc,$status.connected,$status.android_model,$status.mel_installed)
 }
 do {
   try {
@@ -80,7 +94,7 @@ do {
       [IO.File]::WriteAllText("$report.tmp",($status | ConvertTo-Json -Depth 5),(New-Object Text.UTF8Encoding($false)))
       Move-Item -LiteralPath "$report.tmp" -Destination $report -Force
     } catch { }
-    Add-Content -LiteralPath $log -Encoding UTF8 -Value ("{0} error={1}" -f (Get-Date).ToUniversalTime().ToString("o"),$reason)
+    Write-AdbLog ("{0} error={1}" -f (Get-Date).ToUniversalTime().ToString("o"),$reason)
   }
   if (-not $Once) { Start-Sleep -Seconds $IntervalSeconds }
 } while (-not $Once)
