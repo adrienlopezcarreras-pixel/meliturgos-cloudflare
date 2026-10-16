@@ -180,3 +180,14 @@ test("Companion ADB refresh does not redirect and leave child stdout/stderr undr
  assert.match(method, /RedirectStandardError = false/);
  assert.match(method, /process == null/);
 });
+
+test("Companion ADB monitor bounds each adb.exe command and cleans temporary output", async () => {
+ const script = await source("windows-companion/MEL-ADB-WiFi.ps1");
+ const run = script.split("function Run-Adb")[1].split("function Serial")[0];
+ assert.match(run, /WaitForExit\(8000\)/);
+ assert.match(run, /ADB_COMMAND_TIMEOUT/);
+ assert.match(run, /finally/);
+ assert.match(run, /Remove-Item -LiteralPath \$stdout,\$stderr/);
+ assert.match(run, /RedirectStandardOutput \$stdout/);
+ assert.match(run, /RedirectStandardError \$stderr/);
+});
