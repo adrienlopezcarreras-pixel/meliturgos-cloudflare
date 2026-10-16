@@ -1,7 +1,6 @@
 import { createD1OAuthVaults } from '../connectors/d1-oauth-vault.js';
 import { createGoogleOAuthRuntime } from '../connectors/google-oauth-runtime.js';
 import { createMailOAuthRuntime } from '../connectors/mail-oauth-runtime.js';
-import { createVercelConfigResolver, saveVercelConnectionConfig } from '../connectors/vercel-config.js';
 
 const PROVIDERS = new Set(['google','microsoft','yahoo','yahoo-imap','pipedream']);
 const OAUTH_APP_KEYS = Object.freeze({
@@ -358,7 +357,6 @@ async function testOAuthConnector(env, provider, connectorId, contextOwner, sign
     token = await createMailOAuthRuntime({ providerId: 'microsoft', env: resolved }).accessTokenResolver(connectorId, context);
     if (connectorId === 'microsoft-mail') url = 'https://graph.microsoft.com/v1.0/me/messages?$top=1&$select=id';
     else if (connectorId === 'microsoft-onedrive') url = 'https://graph.microsoft.com/v1.0/me/drive/root?$select=id,name';
-    else if (connectorId === 'microsoft-sharepoint') url = 'https://graph.microsoft.com/v1.0/sites?search=mel';
   } else if (provider === 'yahoo' && connectorId === 'yahoo-mail') {
     token = await createMailOAuthRuntime({ providerId: 'yahoo', env: resolved }).accessTokenResolver(connectorId, context);
     url = 'https://api.login.yahoo.com/openid/v1/userinfo';
@@ -986,189 +984,6 @@ export async function testPipedreamGoogleTasksRead(config, contextOwner, options
   };
 }
 
-/**
- * Prove that a linked Pipedream SharePoint account can actually read Microsoft
- * Graph sites. A healthy OAuth link alone is not an API execution proof.
- * Only a bounded, read-only tenant site search is executed; site data is never
- * returned to callers or logged.
- */
-export async function testPipedreamSharePointRead(config, contextOwner, options = {}) {
-  const fetcher = options.fetcher || fetch;
-  const accounts = await pipedreamAccountStatus(config, contextOwner, {
-    fetcher,
-    signal: options.signal,
-  });
-  const account = accounts.accounts.find(row => row.app === 'sharepoint' && row.healthy === true);
-  if (!account?.id) {
-    throw Object.assign(new Error('PIPEDREAM_SHAREPOINT_ACCOUNT_REQUIRED'), {
-      code: 'PIPEDREAM_SHAREPOINT_ACCOUNT_REQUIRED',
-      status: 409,
-      action_required: 'CONNECT_PIPEDREAM_SHAREPOINT',
-    });
-  }
-  const accessToken = await pipedreamAccessToken(config, { fetcher, signal: options.signal });
-  const target = 'https://graph.microsoft.com/v1.0/sites?search=mel';
-  const params = new URLSearchParams({
-    external_user_id: contextOwner,
-    account_id: account.id,
-  });
-  let body;
-  try {
-    body = await pipedreamJson(
-      fetcher,
-      'https://api.pipedream.com/v1/connect/' + encodeURIComponent(clean(config?.project_id, 300))
-        + '/proxy/' + b64UrlUtf8(target) + '?' + params.toString(),
-      {
-        method: 'GET',
-        headers: {
-          authorization: 'Bearer ' + accessToken,
-          accept: 'application/json',
-          'x-pd-environment': accounts.environment,
-        },
-        signal: options.signal,
-      },
-      'PIPEDREAM_SHAREPOINT_GRAPH_READ_FAILED',
-    );
-  } catch (error) {
-    if (error?.upstream_status === 401) error.action_required = 'RECONNECT_PIPEDREAM_SHAREPOINT';
-    if (error?.upstream_status === 403) error.action_required = 'VERIFY_WORK_SCHOOL_ACCOUNT_AND_SITES_READ_ALL';
-    throw error;
-  }
-  if (!Array.isArray(body?.value)
-    || body.value.some(site => !site || typeof site !== 'object'
-      || typeof site.id !== 'string' || !site.id.trim())) {
-    throw Object.assign(new Error('PIPEDREAM_SHAREPOINT_GRAPH_RESPONSE_INVALID'), {
-      code: 'PIPEDREAM_SHAREPOINT_GRAPH_RESPONSE_INVALID',
-      status: 502,
-    });
-  }
-  return {
-    ok: true,
-    provider: 'pipedream',
-    app: 'sharepoint',
-    live_proxy: true,
-    graph_site_read_proven: true,
-    read_only: true,
-    linked_account: true,
-    sites_count: body.value.length,
-    private_content_returned: false,
-    configured_environment: accounts.configured_environment,
-    environment: accounts.environment,
-    environment_fallback_used: accounts.environment_fallback_used === true,
-  };
-}
-
-async function vercelStatus(env, contextOwner) {
-  const cfg = await createVercelConfigResolver(env)(contextOwner);
-  return {
-    provider: 'vercel',
-    configured: Boolean(cfg.token),
-    token_present: Boolean(cfg.token),
-    team_id: clean(cfg.team_id, 200) || null,
-    project_id: clean(cfg.project_id, 200) || null,
-    project_name: clean(cfg.project_name, 200) || null,
-    target_configured: Boolean(cfg.project_id && cfg.project_name),
-    stored_securely: true,
-    source: cfg.source || null,
-  };
-}
-
-async function vercelJson(url, token, signal, code) {
-  let response;
-  try {
-    response = await fetch(url, {
-      headers: { authorization: 'Bearer ' + token, accept: 'application/json' },
-      redirect: 'manual',
-      signal: signal || AbortSignal.timeout(12_000),
-    });
-  } catch {
-    const error = new Error(code);
-    error.code = code;
-    error.status = 503;
-    throw error;
-  }
-  if (!response.ok) {
-    await response.body?.cancel?.();
-    const error = new Error(response.status === 401 || response.status === 403 ? code + '_AUTH' : code);
-    error.code = response.status === 401 || response.status === 403 ? code + '_AUTH' : code;
-    error.status = response.status === 401 || response.status === 403 ? 409 : 502;
-    throw error;
-  }
-  try {
-    return await response.json();
-  } catch {
-    const error = new Error(code + '_INVALID_RESPONSE');
-    error.code = code + '_INVALID_RESPONSE';
-    error.status = 502;
-    throw error;
-  }
-}
-
-async function testVercelConnection(env, contextOwner, signal) {
-  const cfg = await createVercelConfigResolver(env)(contextOwner);
-  if (!cfg.token) {
-    const error = new Error('VERCEL_TOKEN_REQUIRED');
-    error.code = 'VERCEL_TOKEN_REQUIRED';
-    error.status = 409;
-    throw error;
-  }
-  const user = await vercelJson('https://api.vercel.com/v2/user', cfg.token, signal, 'VERCEL_AUTH_TEST_FAILED');
-  const params = new URLSearchParams({ limit: '50' });
-  if (cfg.team_id) params.set('teamId', cfg.team_id);
-  const projectsBody = await vercelJson('https://api.vercel.com/v9/projects?' + params.toString(), cfg.token, signal, 'VERCEL_PROJECTS_TEST_FAILED');
-  const projects = (Array.isArray(projectsBody?.projects) ? projectsBody.projects : []).slice(0, 50).map(row => ({
-    id: clean(row?.id, 200),
-    name: clean(row?.name, 200),
-    framework: clean(row?.framework, 100),
-    updated_at: Number(row?.updatedAt || 0),
-  })).filter(row => row.id && row.name);
-
-  let project = projects.find(row => row.id === cfg.project_id)
-    || projects.find(row => row.name === cfg.project_name)
-    || null;
-  if (!project) {
-    const repositoryProjectName = clean(env.MEL_GITHUB_REPOSITORY, 300).split('/').filter(Boolean).at(-1) || '';
-    if (repositoryProjectName) project = projects.find(row => row.name === repositoryProjectName) || null;
-  }
-  if (!project && projects.length === 1) project = projects[0];
-
-  if (project?.id && project?.name && (!cfg.project_id || !cfg.project_name)) {
-    await saveVercelConnectionConfig(env, {
-      team_id: cfg.team_id,
-      project_id: project.id,
-      project_name: project.name,
-    }, contextOwner);
-  }
-
-  let deployments = [];
-  if (project?.id) {
-    const dp = new URLSearchParams({ projectId: project.id, limit: '10' });
-    if (cfg.team_id) dp.set('teamId', cfg.team_id);
-    const deploymentsBody = await vercelJson('https://api.vercel.com/v6/deployments?' + dp.toString(), cfg.token, signal, 'VERCEL_DEPLOYMENTS_TEST_FAILED');
-    deployments = (Array.isArray(deploymentsBody?.deployments) ? deploymentsBody.deployments : []).slice(0, 10).map(row => ({
-      id: clean(row?.uid || row?.id, 200),
-      name: clean(row?.name, 200),
-      url: clean(row?.url, 500),
-      state: clean(row?.state || row?.readyState, 80),
-      target: clean(row?.target, 80),
-      created_at: Number(row?.createdAt || row?.created || 0),
-    })).filter(row => row.id);
-  }
-
-  return {
-    ok: true,
-    provider: 'vercel',
-    authenticated: Boolean(user?.user?.id),
-    user_id_present: Boolean(user?.user?.id),
-    configured_project: project,
-    projects,
-    project_count: projects.length,
-    deployments,
-    deployment_count: deployments.length,
-    target_ready: Boolean(project?.id && project?.name),
-  };
-}
-
 async function saveOAuthApp(env, provider, contextOwner, body) {
   const clientId = clean(body.client_id, 1000);
   const clientSecret = clean(body.client_secret, 2000);
@@ -1213,11 +1028,9 @@ export async function maybeHandleConnectionSettingsApi(request, env = {}, url = 
       if (request.method !== 'GET') return json({ ok: false, code: 'METHOD_NOT_ALLOWED' }, 405);
       const result = provider === 'yahoo-imap'
         ? await yahooDirectStatus(env, contextOwner)
-          : provider === 'vercel'
-            ? await vercelStatus(env, contextOwner)
-            : provider === 'pipedream'
-              ? await pipedreamStatus(env, contextOwner)
-              : await oauthStatus(env, provider, contextOwner);
+          : provider === 'pipedream'
+            ? await pipedreamStatus(env, contextOwner)
+            : await oauthStatus(env, provider, contextOwner);
       return json({ ok: true, ...result });
     }
 
@@ -1226,11 +1039,9 @@ export async function maybeHandleConnectionSettingsApi(request, env = {}, url = 
       const body = await bodyObject(request);
       const result = provider === 'yahoo-imap'
         ? await saveYahooDirect(env, contextOwner, body)
-          : provider === 'vercel'
-            ? await saveVercelConnectionConfig(env, body, contextOwner)
-            : provider === 'pipedream'
-              ? await savePipedreamConfig(env, contextOwner, body)
-              : await saveOAuthApp(env, provider, contextOwner, body);
+          : provider === 'pipedream'
+            ? await savePipedreamConfig(env, contextOwner, body)
+            : await saveOAuthApp(env, provider, contextOwner, body);
       return json({ ok: true, ...result });
     }
 
@@ -1268,20 +1079,12 @@ export async function maybeHandleConnectionSettingsApi(request, env = {}, url = 
         }
         return json({ ok: true, provider, imap: result.imap, smtp: result.smtp, persistent: true, smtp_fallback: result.smtp_port === 587 });
       }
-      if (provider === 'vercel') {
-        return json(await testVercelConnection(env, contextOwner, request.signal));
-      }
       if (provider === 'pipedream') {
         const stored = await pipedreamStoredConfig(env, contextOwner);
         if (!stored) return json({ ok: false, code: 'PIPEDREAM_NOT_CONFIGURED' }, 409);
         const body = await bodyObject(request);
         if (clean(body?.probe, 120) === 'google_tasks_read') {
           const result = await testPipedreamGoogleTasksRead(stored, contextOwner, { signal: request.signal });
-          if (result.environment_fallback_used) await persistPipedreamEnvironment(env, contextOwner, stored, result.environment);
-          return json(result);
-        }
-        if (clean(body?.probe, 120) === 'sharepoint_sites_read') {
-          const result = await testPipedreamSharePointRead(stored, contextOwner, { signal: request.signal });
           if (result.environment_fallback_used) await persistPipedreamEnvironment(env, contextOwner, stored, result.environment);
           return json(result);
         }
