@@ -24,6 +24,19 @@ test('browser.type requires a non-empty payload and exact approved browser handl
   assert.equal(verdict({ ...type, text: 'x'.repeat(4097) }).reason, 'COMPUTER_USE_TEXT_LIMIT_EXCEEDED');
 });
 
+test('browser.type rejects ignored browser targets and unknown payload fields', () => {
+  for (const [field, value] of [
+    ['url', 'https://example.com'], ['key', 'ENTER'],
+    ['app', 'browser'], ['path', 'C:\\\\Users'], ['x', 100],
+    ['y', 200], ['selector', 'input'], ['repeat', 4], ['unused', null],
+  ]) {
+    const result = verdict({ ...type, [field]: value });
+    assert.equal(result.allowed, false, field);
+    assert.equal(result.reason, 'BROWSER_TYPE_UNEXPECTED_FIELD', field);
+  }
+  assert.equal(verdict(type).allowed, true);
+});
+
 test('browser.type invalid request prevents prior approved actions from executing', async () => {
   const performed = [];
   const audits = [];
