@@ -334,6 +334,1008 @@ async function ownerPcControl(request,env){
   effectiveAction="system.exec";
   effectivePayload=miniReadOnlyPcCommand(action,port,action==="mini.readonly.backup.status"?safe(payload.job_id,32).toLowerCase():null);
  }
+ if(action==="taskmarket.status"&&a.kind==="owner"){
+  effectiveAction="system.exec";
+  effectivePayload={command:"$ErrorActionPreference='Stop';$cli=Get-Command 'taskmarket.cmd' -CommandType Application -ErrorAction SilentlyContinue|Select-Object -First 1;$npm=Get-Command 'npm.cmd' -CommandType Application -ErrorAction SilentlyContinue|Select-Object -First 1;if($null -eq $cli){[ordered]@{action='taskmarket.status';cli_available=$false;npm_available=($null -ne $npm);code='TASKMARKET_CLI_NOT_FOUND';tasks=@();scanned_at=[DateTime]::UtcNow.ToString('o')}|ConvertTo-Json -Depth 5 -Compress;exit 0};try{$out=& $cli.Source task list --status open --limit 20 2>&1;$rc=$LASTEXITCODE;$raw=($out|Out-String).Trim();if($rc -ne 0){[ordered]@{action='taskmarket.status';cli_available=$true;list_available=$false;code='TASKMARKET_LIST_COMMAND_FAILED';exit_code=$rc;detail=$raw.Substring(0,[Math]::Min(1000,$raw.Length));tasks=@();scanned_at=[DateTime]::UtcNow.ToString('o')}|ConvertTo-Json -Depth 5 -Compress;exit 0};$p=$raw|ConvertFrom-Json -ErrorAction Stop;$items=@();if($null -ne $p.data -and $p.data.tasks -is [System.Array]){$items=@($p.data.tasks)}elseif($p.tasks -is [System.Array]){$items=@($p.tasks)}else{throw 'TASKMARKET_RESPONSE_SCHEMA_INVALID'};$tasks=@($items|Select-Object -First 20|ForEach-Object{$desc=[string]$_.description;if($desc.Length -gt 2500){$desc=$desc.Substring(0,2500)};[ordered]@{id=[string]$_.id;referenceCode=[string]$_.referenceCode;description=$desc;reward=[string]$_.reward;status=[string]$_.status;mode=[string]$_.mode;submissionCount=if($null -ne $_.submissionCount -and \"$($_.submissionCount)\" -match '^\\d+
+ await env.DB.prepare("INSERT INTO computer_commands(id,device_id,session_id,plan_json,status,created_at) VALUES(?,?,?,?,?,?)")
+  .bind(cid,device.id,session,JSON.stringify(plan),"PENDING",Date.now()).run();
+ return json({ok:true,command_id:cid,status:"PENDING",action,device_id:device.id},202);
+}
+
+async function ownerSovereigntyCommand(request,env){
+ const a=requireAuth(request,env);if(!a.ok)return a.response;await tables(env);
+ const b=await request.json().catch(()=>({}));
+ const id=safe(b.computer_id);
+ const action=safe(b.action,160);
+ const payload=b.payload&&typeof b.payload==="object"?b.payload:{};
+ if(!id)return json({ok:false,code:"COMPUTER_ID_REQUIRED"},400);
+ if(!isLocalSovereigntyAction(action))return json({ok:false,code:"SOVEREIGNTY_ACTION_NOT_ALLOWED"},403);
+ const row=await env.DB.prepare("SELECT * FROM computer_devices WHERE id=? LIMIT 1").bind(id).first();
+ const device=normalizeDevice(row);
+ if(!device)return json({ok:false,code:"COMPUTER_NOT_FOUND"},404);
+ if(device.halted)return json({ok:false,code:"OWNER_HALT_ACTIVE"},409);
+ if(String(device.platform||"").toLowerCase()!=="windows")return json({ok:false,code:"SOVEREIGNTY_WINDOWS_REQUIRED"},409);
+ if(!device.online)return json({ok:false,code:"COMPUTER_OFFLINE"},409);
+ const session=safe(b.session_id)||crypto.randomUUID();
+ const cid=crypto.randomUUID();
+ const plan={
+   schema:"mel.sovereignty.local-command/v1",
+   owner_authorized:true,
+   max_autonomy:b.max_autonomy===true,
+   emergency:b.emergency===true,
+   steps:[{
+     id:"sovereignty-1",
+     action,
+     payload
+   }]
+ };
+ await env.DB.prepare("INSERT INTO computer_commands(id,device_id,session_id,plan_json,status,created_at) VALUES(?,?,?,?,?,?)")
+   .bind(cid,device.id,session,JSON.stringify(plan),"PENDING",Date.now()).run();
+ return json({ok:true,command_id:cid,status:"PENDING",action,device_id:device.id},202);
+}
+
+async function ownerPower(request,env){
+ const a=requireAuth(request,env);if(!a.ok)return a.response;await tables(env);
+ const b=await request.json().catch(()=>({}));
+ const id=safe(b.computer_id),action=safe(b.action,64),confirmation=safe(b.confirmation,128);
+ if(!id)return json({ok:false,code:"COMPUTER_ID_REQUIRED"},400);
+ if(!["power.off","power.restart"].includes(action))return json({ok:false,code:"POWER_ACTION_INVALID"},400);
+ const expected=action==="power.off"?"POWER_OFF_APPROVED":"POWER_RESTART_APPROVED";
+ if(confirmation!==expected)return json({ok:false,code:"OWNER_CONFIRMATION_REQUIRED"},403);
+ const row=await env.DB.prepare("SELECT * FROM computer_devices WHERE id=? LIMIT 1").bind(id).first();
+ const device=normalizeDevice(row);
+ if(!device)return json({ok:false,code:"COMPUTER_NOT_FOUND"},404);
+ if(String(device.platform||"").toLowerCase()!=="windows")return json({ok:false,code:"POWER_PLATFORM_UNSUPPORTED"},409);
+ const session=crypto.randomUUID(),cid=crypto.randomUUID();
+ const plan={schema:"mel.devices.power-command.v1",owner_approved:true,steps:[{id:"power-1",action}]};
+ await env.DB.prepare("INSERT INTO computer_commands(id,device_id,session_id,plan_json,status,created_at) VALUES(?,?,?,?,?,?)").bind(cid,device.id,session,JSON.stringify(plan),"PENDING",Date.now()).run();
+ return json({ok:true,command_id:cid,status:"PENDING",action,owner_approved:true},202);
+}
+
+async function ownerRevoke(request,env){const a=requireAuth(request,env);if(!a.ok)return a.response;await tables(env);const b=await request.json().catch(()=>({}));const id=safe(b.computer_id);if(!id)return json({ok:false,code:"COMPUTER_ID_REQUIRED"},400);const row=await env.DB.prepare("SELECT id FROM computer_devices WHERE id=?").bind(id).first();if(!row)return json({ok:false,code:"COMPUTER_NOT_FOUND"},404);await env.DB.prepare("DELETE FROM computer_commands WHERE device_id=?").bind(id).run();await env.DB.prepare("DELETE FROM computer_devices WHERE id=?").bind(id).run();return json({ok:true,computer_id:id,revoked:true})}
+
+async function asset(request,env,name,{allowDevice=false}={}){const owner=requireAuth(request,env);if(!owner.ok){if(!allowDevice)return owner.response;const device=await authDevice(request,env);if(!device.ok)return device.response}if(!env?.ASSETS?.fetch)return json({ok:false,code:"ASSETS_BINDING_UNAVAILABLE"},503);const u=new URL("/"+name,request.url);const r=await env.ASSETS.fetch(new Request(u.toString(),{method:"GET"}));if(!r.ok)return json({ok:false,code:"ASSET_NOT_FOUND"},404);const h=new Headers(r.headers);h.set("content-type","text/plain; charset=utf-8");h.set("content-disposition",`attachment; filename="${name}"`);h.set("cache-control","no-store");return new Response(r.body,{status:200,headers:h})}
+
+async function screenshotView(request,env,url){
+ const a=requireAuth(request,env);if(!a.ok)return a.response;
+ if(!env?.MEDIA_BUCKET)return json({ok:false,code:"MEDIA_BUCKET_UNAVAILABLE"},503);
+ const key=String(url.searchParams.get("key")||"");
+ // Never treat an owner-authenticated URL as a durable access grant.
+ // Resolve it to the original command/device so HALT and revocation still apply.
+ const match=/^computer\/screenshots\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)\.png$/.exec(key);
+ if(!match||key.includes(".."))return json({ok:false,code:"SCREENSHOT_KEY_INVALID"},400);
+ if(!env?.DB)return json({ok:false,code:"COMPUTER_DB_REQUIRED"},503);
+ const row=await env.DB.prepare(
+  "SELECT c.id,c.device_id,c.status,c.plan_json,d.halted,d.metadata FROM computer_commands c JOIN computer_devices d ON d.id=c.device_id WHERE c.id=? LIMIT 1"
+ ).bind(match[2]).first();
+ if(!row||
+    row.device_id.replace(/[^A-Za-z0-9_.-]/g,"_")!==match[1]||
+    row.id.replace(/[^A-Za-z0-9_.-]/g,"_")!==match[2]||
+    !["RUNNING","SUCCEEDED"].includes(row.status))
+  return json({ok:false,code:"SCREENSHOT_ACCESS_REVOKED_OR_UNKNOWN"},404);
+ if(Number(row.halted)===1)
+  return json({ok:false,code:"SCREENSHOT_OWNER_HALT"},409);
+ const metadata=parse(row.metadata,{});
+ if(metadata.remote_access_enabled!==true)
+  return json({ok:false,code:"SCREENSHOT_LOCAL_ACCESS_REVOKED"},409);
+ const plan=parse(row.plan_json,{});
+ if(plan.schema==="mel.companion.desktop-view-request/v1"||plan.action==="desktop.view.request"){
+  if(plan.schema!=="mel.companion.desktop-view-request/v1"||
+     plan.action!=="desktop.view.request"||plan.screen_capture_only!==true||
+     plan.requires_local_stop!==true||plan.device_id!==row.device_id||
+     !Number.isFinite(Number(plan.expires_at))||Number(plan.expires_at)<=Date.now())
+   return json({ok:false,code:"SCREENSHOT_VIEW_EXPIRED_OR_REVOKED"},409);
+ }
+ let object;
+ try{object=await env.MEDIA_BUCKET.get(key)}
+ catch{return json({ok:false,code:"SCREENSHOT_STORAGE_UNAVAILABLE"},503)}
+ if(!object)return json({ok:false,code:"SCREENSHOT_NOT_FOUND"},404);
+ const headers=new Headers({"content-type":"image/png","cache-control":"no-store","x-content-type-options":"nosniff"});
+ return new Response(object.body,{headers});
+}
+
+async function sovereigntyCodeArchive(request,env,url){
+ const a=await authDevice(request,env);if(!a.ok)return a.response;
+ if(a.device.halted)return json({ok:false,code:"OWNER_HALT_ACTIVE"},409);
+ if(String(a.device.platform||"").toLowerCase()!=="windows")return json({ok:false,code:"SOVEREIGNTY_ARCHIVE_WINDOWS_REQUIRED"},409);
+ const expected=safe(url.searchParams.get("sha"),80).toLowerCase();
+ const archive=await getVerifiedShardVaultCodeArchive(env);
+ if(!archive?.ok)return json({ok:false,code:archive?.status||"SOVEREIGNTY_ARCHIVE_UNAVAILABLE",details:{status:archive?.status||null}},503);
+ const sourceSha=String(archive.source_sha||"").toLowerCase();
+ if(expected&&expected!==sourceSha)return json({ok:false,code:"SOVEREIGNTY_ARCHIVE_SHA_MISMATCH",expected_sha:expected,source_sha:sourceSha},409);
+ const headers=new Headers({
+   "content-type":"application/gzip",
+   "content-length":String(archive.byte_length||archive.bytes?.length||0),
+   "cache-control":"no-store",
+   "x-content-type-options":"nosniff",
+   "x-mel-source-sha":sourceSha,
+   "x-mel-archive-sha256":String(archive.sha256||""),
+   "x-mel-external-reconstruction-verified":archive.external_reconstruction_verified===true?"1":"0"
+ });
+ return new Response(archive.bytes,{status:200,headers});
+}
+
+async function computerCompanions(env){
+ const now=Date.now();
+ const devices=[];
+ try{
+   const rows=await env.DB.prepare(`SELECT t.device_id,t.model,t.last_seen_at,t.revoked_at,
+     s.payload_json,s.updated_at
+     FROM device_tokens t
+     LEFT JOIN device_status s ON s.device_id=t.device_id
+     ORDER BY t.last_seen_at DESC LIMIT 20`).all();
+   for(const row of rows.results||[]){
+     let status={};try{status=JSON.parse(row.payload_json||"{}")}catch{}
+     devices.push({
+       device_id:row.device_id,
+       name:safe(status.name,80)||"MEL MINI",
+       model:safe(row.model,120)||"waveshare-terminal",
+       kind:"mini",
+       online:row.revoked_at==null&&now-Number(row.last_seen_at||0)<30000,
+       last_seen_at:Number(row.last_seen_at||0),
+       phase:safe(status.phase,40)||null,
+       firmware:safe(status.firmware,80)||null,
+       battery:Number.isFinite(Number(status.battery))?Number(status.battery):null,
+       wifi_rssi:Number.isFinite(Number(status.wifi_rssi))?Number(status.wifi_rssi):null,
+       camera:status.camera??null,
+       microphone:status.microphone??null,
+       speaker:status.speaker??null,
+       live_stream:false
+     });
+   }
+ }catch{}
+ try{
+   const rows=await env.DB.prepare(`SELECT t.device_id,t.name,t.app_version,t.last_seen_at,t.revoked_at,
+     s.payload_json,s.updated_at
+     FROM android_device_tokens t
+     LEFT JOIN android_device_status s ON s.device_id=t.device_id
+     ORDER BY t.last_seen_at DESC LIMIT 50`).all();
+   const androidCandidates=(rows.results||[]).map(row=>{
+     let status={};try{status=JSON.parse(row.payload_json||"{}")}catch{}
+     const name=safe(row.name,80)||"MEL Android";
+     return {
+       device_id:row.device_id,
+       name,
+       model:"android-companion",
+       kind:"android",
+       online:row.revoked_at==null&&now-Number(row.last_seen_at||0)<ANDROID_ONLINE_MS,
+       last_seen_at:Number(row.last_seen_at||0),
+       phase:safe(status.phase,40)||null,
+       firmware:safe(row.app_version,80)||safe(status.app_version,80)||null,
+       battery:Number.isFinite(Number(status.battery))?Number(status.battery):null,
+       wifi_rssi:null,
+       camera:status.camera??true,
+       microphone:true,
+       speaker:true,
+       network:safe(status.network,40)||null,
+       charging:status.charging===true,
+       live_stream:false,
+       dedupe_key:name.toLowerCase()
+     };
+   });
+   const activeKeys=new Set(androidCandidates.filter(device=>device.online).map(device=>device.dedupe_key));
+   const keptOfflineKeys=new Set();
+   for(const candidate of androidCandidates){
+     if(candidate.online){
+       const {dedupe_key,...device}=candidate;
+       devices.push(device);
+       continue;
+     }
+     if(activeKeys.has(candidate.dedupe_key)||keptOfflineKeys.has(candidate.dedupe_key)) continue;
+     keptOfflineKeys.add(candidate.dedupe_key);
+     const {dedupe_key,...device}=candidate;
+     devices.push(device);
+   }
+ }catch{}
+ const miniDevices=devices.filter(device=>device.kind==="mini")
+   .sort((a,b)=>(Number(b.online)-Number(a.online))||Number(b.last_seen_at||0)-Number(a.last_seen_at||0));
+ const androidDevices=devices.filter(device=>device.kind==="android")
+   .sort((a,b)=>(Number(b.online)-Number(a.online))||Number(b.last_seen_at||0)-Number(a.last_seen_at||0));
+ const visibleDevices=[];
+ if(miniDevices[0]) visibleDevices.push(miniDevices[0]);
+ if(androidDevices[0]) visibleDevices.push(androidDevices[0]);
+ return json({ok:true,devices:visibleDevices});
+}
+async function heartbeat(request,env,a){
+ const b=await request.json().catch(()=>({}));
+ const row=await env.DB.prepare("SELECT metadata FROM computer_devices WHERE id=? LIMIT 1").bind(a.device.id).first();
+ let metadata={};try{metadata=JSON.parse(row?.metadata||"{}")}catch{}
+ const now=Date.now();
+ const patch={};
+ if(b.version!==undefined)patch.version=b.version||null;
+ if(b.engine_version!==undefined)patch.engine_version=b.engine_version||null;
+ if(b.engine_refresh_status!==undefined)patch.engine_refresh_status=safe(b.engine_refresh_status,80)||null;
+ if(b.engine_refresh_at!==undefined&&Number.isFinite(Number(b.engine_refresh_at)))patch.engine_refresh_at=Number(b.engine_refresh_at);
+ if(b.engine_refresh_error!==undefined)patch.engine_refresh_error=safe(b.engine_refresh_error,180)||null;
+ if(b.engine_heartbeat_at!==undefined&&Number.isFinite(Number(b.engine_heartbeat_at))){
+   patch.engine_heartbeat_at=Number(b.engine_heartbeat_at);
+ }else if(
+   b.version!==undefined
+   && typeof b.hostname==="string" && b.hostname.trim()
+   && b.screen && typeof b.screen==="object"
+ ){
+   // Native Windows Companion heartbeats are emitted only after
+   // EnsureCompanion() supervises the authenticated PowerShell engine.
+   // Treat that authenticated supervisor heartbeat as fresh engine presence
+   // for compatibility with already-installed native clients.
+   patch.engine_heartbeat_at=now;
+ }
+ if(b.hostname!==undefined)patch.hostname=b.hostname||null;
+ if(b.user!==undefined)patch.user=b.user||null;
+ // Reflect the local Companion toggle on every authenticated heartbeat.
+ // Never elevate permission from a non-boolean or absent value.
+ if(typeof b.remote_access_enabled==="boolean")patch.remote_access_enabled=b.remote_access_enabled;
+ // Separate, locally controlled opt-in for optional MEL compute acceleration.
+ // Remote PC access permission does not imply permission to use CPU/GPU.
+ // Fail closed on every heartbeat: legacy clients and malformed values cannot
+ // preserve a previous opt-in after the local control disappears.
+ patch.local_compute_enabled=b.local_compute_enabled===true;
+ patch.local_compute_gpu_enabled=patch.local_compute_enabled&&b.local_compute_gpu_enabled===true;
+ if(["light","balanced","performance"].includes(b.local_compute_profile))
+   patch.local_compute_profile=b.local_compute_profile;
+ const telemetry=b.local_compute_telemetry;
+ if(patch.local_compute_enabled && telemetry && typeof telemetry==="object" &&
+    Number.isFinite(telemetry.cpu_percent)&&telemetry.cpu_percent>=0&&telemetry.cpu_percent<=100 &&
+    Number.isFinite(telemetry.free_ram_mb)&&telemetry.free_ram_mb>=0 &&
+    Number.isSafeInteger(telemetry.active_jobs)&&telemetry.active_jobs>=0 &&
+    typeof telemetry.on_battery==="boolean"&&typeof telemetry.user_busy==="boolean"&&
+    typeof telemetry.gpu_available==="boolean"){
+   patch.local_compute_telemetry={
+     observed_at:now,cpu_percent:telemetry.cpu_percent,free_ram_mb:telemetry.free_ram_mb,
+     on_battery:telemetry.on_battery,user_busy:telemetry.user_busy,
+     gpu_available:telemetry.gpu_available,active_jobs:telemetry.active_jobs
+   };
+ }else if(shouldInvalidateOptionalComputeTelemetryOnHeartbeat({
+   enabled:patch.local_compute_enabled,body:b
+ })){
+   // Native heartbeat with a missing/invalid sample invalidates it. The
+   // separate PowerShell engine heartbeat carries no CPU sample and MUST NOT
+   // erase a still-fresh native reading; admission still expires after 10 s.
+   patch.local_compute_telemetry=null;
+ }
+ if(b.screen&&typeof b.screen==="object")patch.screen=b.screen;
+ if(b.active_window!==undefined)patch.active_window=b.active_window||null;
+ metadata={...metadata,...patch};
+ await env.DB.prepare("UPDATE computer_devices SET last_seen_at=?,metadata=? WHERE id=?").bind(now,JSON.stringify(metadata),a.device.id).run();
+ const engineHeartbeatAt=Number(metadata.engine_heartbeat_at||0);
+ const engineOnline=engineHeartbeatAt>0&&now-engineHeartbeatAt<35000;
+ const engineVersion=safe(metadata.engine_version,80)||null;
+ const engineUpdateRequired=!versionAtLeast(engineVersion,MIN_SOVEREIGN_AI_ENGINE_VERSION);
+ const computeAdmission=evaluateMeasuredOptionalCompute({
+   enabled:metadata.local_compute_enabled===true,
+   profile:metadata.local_compute_profile||"off",online:engineOnline,
+   halted:a.device.halted===true,telemetry:metadata.local_compute_telemetry,now
+ });
+ return json({
+   ok:true,
+   server_time:now,
+   engine_online:engineOnline,
+   local_compute_enabled:metadata.local_compute_enabled===true,
+   local_compute_gpu_enabled:metadata.local_compute_gpu_enabled===true,
+   local_compute_admission:{allowed:computeAdmission.allowed,reason:computeAdmission.reason},
+   engine_version:engineVersion,
+   engine_last_seen_at:engineHeartbeatAt||null,
+   required_engine_version:MIN_SOVEREIGN_AI_ENGINE_VERSION,
+   engine_update_required:engineUpdateRequired,
+   engine_refresh_status:safe(metadata.engine_refresh_status,80)||null,
+   engine_refresh_at:Number(metadata.engine_refresh_at||0)||null,
+   engine_refresh_error:safe(metadata.engine_refresh_error,180)||null
+ })
+}
+async function controlState(request,env,a,url){
+ // Device-authenticated, read only, and scoped to one command on this PC.
+ // A new opt-in does not revive a command cancelled by a prior STOP.
+ const id=safe(url.searchParams.get("command_id"));
+ if(!id)return json({ok:false,code:"COMPUTER_CONTROL_COMMAND_REQUIRED"},400);
+ const command=await env.DB.prepare("SELECT status FROM computer_commands WHERE id=? AND device_id=? LIMIT 1")
+  .bind(id,a.device.id).first();
+ if(!command)return json({ok:true,permitted:false,code:"COMPUTER_CONTROL_COMMAND_NOT_RUNNING"});
+ const device=await env.DB.prepare("SELECT halted,metadata FROM computer_devices WHERE id=? LIMIT 1")
+  .bind(a.device.id).first();
+ const halted=!device||Number(device.halted)===1;
+ const localEnabled=parse(device?.metadata,{})?.remote_access_enabled===true;
+ const permitted=command.status==="RUNNING"&&!halted&&localEnabled;
+ return json({ok:true,permitted,code:permitted?"AUTHORIZED":halted?"OWNER_HALT_ACTIVE":!localEnabled?"REMOTE_ACCESS_DISABLED_LOCALLY":"COMPUTER_CONTROL_COMMAND_NOT_RUNNING"});
+}
+
+async function claim(env,a){
+ if(a.device.halted)return json({ok:true,halted:true,command:null});
+ const r=await env.DB.prepare("SELECT * FROM computer_commands WHERE device_id=? AND status=? ORDER BY created_at ASC LIMIT 1").bind(a.device.id,"PENDING").first();
+ if(!r)return json({ok:true,halted:false,command:null});
+ const plan=parse(r.plan_json,{});
+ // A queued GUI action must never be handed to a device after its owner has
+ // disabled remote control, even if it was approved before the opt-out.
+ // The Windows agent also checks the local switch before each real step.
+ if(plan.schema==="mel.devices.computer-use.v1"&&a.device.metadata?.remote_access_enabled!==true){
+  const rejected=await env.DB.prepare("UPDATE computer_commands SET status=?,finished_at=?,error_code=? WHERE id=? AND device_id=? AND status=?")
+   .bind("FAILED",Date.now(),"REMOTE_ACCESS_DISABLED_LOCALLY",r.id,a.device.id,"PENDING").run();
+  if(!rejected||rejected.success===false||Number(rejected.meta?.changes)!==1)
+   return json({ok:false,code:"COMPUTER_CLAIM_REVALIDATION_RACE"},409);
+  return json({ok:true,halted:false,command:null,blocked_command:{id:r.id,code:"REMOTE_ACCESS_DISABLED_LOCALLY"}});
+ }
+ const computeVerdict=evaluateQueuedOptionalComputeClaim({
+   plan,device:a.device,now:Date.now()
+ });
+ if(!computeVerdict.ok){
+   const updated=await env.DB.prepare("UPDATE computer_commands SET status=?,finished_at=?,error_code=? WHERE id=? AND device_id=? AND status=?")
+    .bind("FAILED",Date.now(),computeVerdict.code,r.id,a.device.id,"PENDING").run();
+   if(!updated||updated.success===false||Number(updated.meta?.changes)!==1)
+     return json({ok:false,code:"COMPUTER_CLAIM_REVALIDATION_RACE"},409);
+   return json({ok:true,halted:false,command:null,blocked_command:{id:r.id,code:computeVerdict.code}});
+ }
+ if(plan.schema==="mel.companion.desktop-view-request/v1" || plan.action==="desktop.view.request"){
+  // A previously queued request must not outlive a local opt-out reported
+  // after the owner queued it but before the Windows agent claimed it.
+  const verdict=a.device.metadata?.remote_access_enabled===true
+   ?evaluateDesktopViewClaim({plan,device:a.device,now:Date.now()})
+   :{ok:false,code:"REMOTE_ACCESS_DISABLED_LOCALLY"};
+  if(!verdict.ok){
+   await env.DB.prepare("UPDATE computer_commands SET status=?,finished_at=?,error_code=? WHERE id=? AND device_id=? AND status=?").bind("FAILED",Date.now(),verdict.code,r.id,a.device.id,"PENDING").run();
+   return json({ok:true,halted:false,command:null,blocked_command:{id:r.id,code:verdict.code}});
+  }
+ }
+ // The authenticated device snapshot is not a lock: owner STOP may race
+ // between the initial SELECT and the final claim.
+ const update=await env.DB.prepare("UPDATE computer_commands SET status=?,claimed_at=? WHERE id=? AND device_id=? AND status=? AND EXISTS (SELECT 1 FROM computer_devices WHERE id=? AND halted=0)")
+  .bind("RUNNING",Date.now(),r.id,a.device.id,"PENDING",a.device.id).run();
+ if(!update || update.success===false || Number(update.meta?.changes)!==1)return json({ok:false,code:"COMPUTER_CLAIM_NOT_CONFIRMED"},409);
+ return json({ok:true,halted:false,command:{id:r.id,session_id:r.session_id,plan}});
+}
+async function result(request,env,a){
+ const b=await request.json().catch(()=>({}));
+ const id=safe(b.command_id);
+ if(!id)return json({ok:false,code:"COMPUTER_RESULT_ID_REQUIRED"},400);
+ if(b.ok===true){
+  const current=await env.DB.prepare("SELECT status,plan_json FROM computer_commands WHERE id=? AND device_id=? LIMIT 1").bind(id,a.device.id).first();
+  if(!current||current.status!=="RUNNING")return json({ok:false,code:"COMPUTER_RESULT_NOT_RUNNING"},409);
+  const plan=parse(current.plan_json,{});
+  // A late Ollama result is evidence of a finished local call, NOT a timely
+  // MEL response. Mark it failed instead of creating a false SUCCEEDED proof.
+  const aiResultVerdict=evaluateOptionalAiResultDeadline({plan,now:Date.now()});
+  if(!aiResultVerdict.ok){
+   const expired=await env.DB.prepare("UPDATE computer_commands SET status=?,finished_at=?,error_code=? WHERE id=? AND device_id=? AND status=?")
+    .bind("FAILED",Date.now(),aiResultVerdict.code,id,a.device.id,"RUNNING").run();
+   if(!expired||expired.success===false||Number(expired.meta?.changes)!==1)
+    return json({ok:false,code:"COMPUTER_RESULT_NOT_RUNNING"},409);
+   return json({ok:false,code:aiResultVerdict.code},409);
+  }
+  const aiProof=evaluateOptionalAiResultProof({plan,result:b.result});
+  if(!aiProof.ok){
+   const denied=await env.DB.prepare("UPDATE computer_commands SET status=?,finished_at=?,error_code=? WHERE id=? AND device_id=? AND status=?")
+    .bind("FAILED",Date.now(),aiProof.code,id,a.device.id,"RUNNING").run();
+   if(!denied||denied.success===false||Number(denied.meta?.changes)!==1)
+    return json({ok:false,code:"COMPUTER_RESULT_NOT_RUNNING"},409);
+   return json({ok:false,code:aiProof.code},409);
+  }
+  // Legacy computer.quick uses the computer-use screen.capture step, not the
+  // dedicated desktop.view.request plan. Its success must be equally truthful.
+  const steps=Array.isArray(plan.steps)?plan.steps:[];
+  if(plan.schema==="mel.devices.computer-use.v1"&&steps.some(step=>step?.action==="screen.capture")){
+   const outputs=b.result?.outputs;
+   const key=`computer/screenshots/${a.device.id.replace(/[^A-Za-z0-9_.-]/g,"_")}/${id.replace(/[^A-Za-z0-9_.-]/g,"_")}.png`;
+   const expectedUrl=`${new URL(request.url).origin}${COMPUTER_API_BASE}/screenshot?key=${encodeURIComponent(key)}`;
+   if(!Array.isArray(outputs)||outputs.length!==steps.length||
+      steps.some((step,i)=>step?.action==="screen.capture"&&(
+        outputs[i]?.action!=="screen.capture"||
+        outputs[i]?.screenshot_key!==key||
+        outputs[i]?.view_url!==expectedUrl)))
+    return json({ok:false,code:"SCREENSHOT_RESULT_PROOF_INVALID"},409);
+   const device=await env.DB.prepare("SELECT halted,metadata FROM computer_devices WHERE id=? LIMIT 1").bind(a.device.id).first();
+   if(!device||Number(device.halted)===1||parse(device.metadata,{})?.remote_access_enabled!==true)
+    return json({ok:false,code:"SCREENSHOT_RESULT_AUTH_INVALID"},409);
+   if(typeof env?.MEDIA_BUCKET?.head!=="function")
+    return json({ok:false,code:"SCREENSHOT_RESULT_STORAGE_UNAVAILABLE"},503);
+   let image;
+   try{image=await env.MEDIA_BUCKET.head(key)}
+   catch{return json({ok:false,code:"SCREENSHOT_RESULT_STORAGE_UNAVAILABLE"},503)}
+   if(!image||Number(image.size)<=0)
+    return json({ok:false,code:"SCREENSHOT_RESULT_IMAGE_MISSING"},409);
+  }
+  if(plan.schema==="mel.companion.desktop-view-request/v1"||plan.action==="desktop.view.request"){
+   // A device may only mark a one-shot desktop view as succeeded if the image
+   // actually reached R2 under the exact device/command key.
+   const device=await env.DB.prepare("SELECT halted,metadata FROM computer_devices WHERE id=? LIMIT 1").bind(a.device.id).first();
+   if(!device||Number(device.halted)===1||parse(device.metadata,{})?.remote_access_enabled!==true||plan.schema!=="mel.companion.desktop-view-request/v1"||
+      plan.action!=="desktop.view.request"||plan.screen_capture_only!==true||
+      plan.device_id!==a.device.id||!Number.isFinite(Number(plan.expires_at))||
+      Number(plan.expires_at)<=Date.now())
+    return json({ok:false,code:"SCREENSHOT_RESULT_AUTH_INVALID"},409);
+   const key=`computer/screenshots/${a.device.id.replace(/[^A-Za-z0-9_.-]/g,"_")}/${id.replace(/[^A-Za-z0-9_.-]/g,"_")}.png`;
+   const expectedUrl=`${new URL(request.url).origin}${COMPUTER_API_BASE}/screenshot?key=${encodeURIComponent(key)}`;
+   const outputs=b.result?.outputs;
+   if(!Array.isArray(outputs)||outputs.length!==1||b.result?.capture_count!==1||
+      outputs[0]?.action!=="desktop.view.request"||outputs[0]?.screenshot_key!==key||
+      outputs[0]?.view_url!==expectedUrl)
+    return json({ok:false,code:"SCREENSHOT_RESULT_PROOF_INVALID"},409);
+   if(typeof env?.MEDIA_BUCKET?.head!=="function")
+    return json({ok:false,code:"SCREENSHOT_RESULT_STORAGE_UNAVAILABLE"},503);
+   let image;
+   try{image=await env.MEDIA_BUCKET.head(key)}catch{return json({ok:false,code:"SCREENSHOT_RESULT_STORAGE_UNAVAILABLE"},503)}
+   if(!image||Number(image.size)<=0)
+    return json({ok:false,code:"SCREENSHOT_RESULT_IMAGE_MISSING"},409);
+  }
+ }
+ const update=await env.DB.prepare("UPDATE computer_commands SET status=?,finished_at=?,result_json=?,error_code=? WHERE id=? AND device_id=? AND status=? AND EXISTS (SELECT 1 FROM computer_devices WHERE id=? AND halted=0)")
+  .bind(b.ok===true?"SUCCEEDED":"FAILED",Date.now(),JSON.stringify(b.result??null),b.error_code?safe(b.error_code):null,id,a.device.id,"RUNNING",a.device.id).run();
+ if(!update||update.success===false||Number(update.meta?.changes)!==1)
+  return json({ok:false,code:"COMPUTER_RESULT_NOT_RUNNING"},409);
+ return json({ok:true});
+}
+// A device token never authorizes arbitrary screenshot uploads. The queued, running
+// command itself must explicitly request the image. Local device opt-in is checked separately.
+function screenshotPlanAuthorized(plan,deviceId,sessionId,now){
+ if(!plan||typeof plan!=="object")return false;
+ if(plan.schema==="mel.companion.desktop-view-request/v1"||plan.action==="desktop.view.request")
+  return plan.schema==="mel.companion.desktop-view-request/v1"&&
+   plan.action==="desktop.view.request"&&plan.screen_capture_only===true&&
+   plan.requires_local_stop===true&&plan.device_id===deviceId&&
+   plan.session_id===sessionId&&Number.isSafeInteger(plan.expires_at)&&
+   plan.expires_at>now;
+ return plan.schema==="mel.devices.computer-use.v1"&&Array.isArray(plan.steps)&&
+  plan.steps.some(step=>step?.action==="screen.capture");
+}
+async function uploadShot(request,env,a,url){
+ if(!env?.MEDIA_BUCKET)return json({ok:false,code:"MEDIA_BUCKET_UNAVAILABLE"},503);
+ const id=safe(url.searchParams.get("command_id"));
+ if(!id)return json({ok:false,code:"SCREENSHOT_COMMAND_REQUIRED"},400);
+ const command=await env.DB.prepare("SELECT id,plan_json,session_id FROM computer_commands WHERE id=? AND device_id=? AND status=? LIMIT 1").bind(id,a.device.id,"RUNNING").first();
+ if(!command)return json({ok:false,code:"SCREENSHOT_COMMAND_NOT_RUNNING"},409);
+ const currentDevice=await env.DB.prepare("SELECT halted,metadata FROM computer_devices WHERE id=? LIMIT 1").bind(a.device.id).first();
+ if(!currentDevice||Number(currentDevice.halted)===1)return json({ok:false,code:"SCREENSHOT_OWNER_HALT"},409);
+ if(parse(currentDevice.metadata,{})?.remote_access_enabled!==true)
+  return json({ok:false,code:"SCREENSHOT_LOCAL_ACCESS_REVOKED"},409);
+ const plan=parse(command.plan_json,{});
+ if(!screenshotPlanAuthorized(plan,a.device.id,command.session_id,Date.now())){
+  const view=plan.schema==="mel.companion.desktop-view-request/v1"||plan.action==="desktop.view.request";
+  return json({ok:false,code:view?"SCREENSHOT_VIEW_AUTH_EXPIRED_OR_INVALID":"SCREENSHOT_PLAN_NOT_AUTHORIZED"},409);
+ }
+ const bytes=new Uint8Array(await request.arrayBuffer());
+ if(!bytes.byteLength||bytes.byteLength>5*1024*1024)return json({ok:false,code:"SCREENSHOT_SIZE_INVALID"},413);
+ const signature=[137,80,78,71,13,10,26,10];
+ if(bytes.length<signature.length||!signature.every((b,i)=>bytes[i]===b))
+  return json({ok:false,code:"SCREENSHOT_PNG_INVALID"},415);
+ // Revalidate after reading the body: HALT or completion may occur during the upload.
+ const latest=await env.DB.prepare("SELECT c.status,c.plan_json,c.session_id,d.halted,d.metadata FROM computer_commands c JOIN computer_devices d ON d.id=c.device_id WHERE c.id=? AND c.device_id=? LIMIT 1").bind(id,a.device.id).first();
+ if(!latest||Number(latest.halted)===1||parse(latest.metadata,{})?.remote_access_enabled!==true||latest.status!=="RUNNING")
+  return json({ok:false,code:"SCREENSHOT_AUTH_REVOKED_DURING_UPLOAD"},409);
+ const latestPlan=parse(latest.plan_json,{});
+ if(!screenshotPlanAuthorized(latestPlan,a.device.id,latest.session_id,Date.now()))
+  return json({ok:false,code:"SCREENSHOT_AUTH_REVOKED_DURING_UPLOAD"},409);
+ const key=`computer/screenshots/${a.device.id.replace(/[^A-Za-z0-9_.-]/g,"_")}/${id.replace(/[^A-Za-z0-9_.-]/g,"_")}.png`;
+ await env.MEDIA_BUCKET.put(key,bytes,{httpMetadata:{contentType:"image/png"}});
+ return json({ok:true,key,view_url:`${url.origin}${COMPUTER_API_BASE}/screenshot?key=${encodeURIComponent(key)}`});
+}
+
+export async function maybeHandleComputerApi(request,env){
+ const url=new URL(request.url);if(!url.pathname.startsWith(COMPUTER_API_BASE+"/"))return null;
+ if(url.pathname===COMPUTER_ROUTES.pairCode&&request.method==="POST")return createPairCode(request,env);
+ if(url.pathname===COMPUTER_ROUTES.pair&&request.method==="POST")return pair(request,env);
+ if(url.pathname===COMPUTER_ROUTES.revoke&&request.method==="POST")return ownerRevoke(request,env);
+ if(url.pathname===COMPUTER_ROUTES.status&&request.method==="GET")return ownerStatus(request,env,url);
+ if(url.pathname===COMPUTER_ROUTES.commands&&request.method==="POST")return ownerCommand(request,env);
+ if(url.pathname===COMPUTER_ROUTES.desktopViewRequest&&request.method==="POST")return ownerDesktopViewRequest(request,env);
+ if(url.pathname===COMPUTER_ROUTES.halt&&request.method==="POST")return ownerHalt(request,env,true);
+ if(url.pathname===COMPUTER_ROUTES.resume&&request.method==="POST")return ownerHalt(request,env,false);
+ if(url.pathname===COMPUTER_ROUTES.power&&request.method==="POST")return ownerPower(request,env);
+ if(url.pathname===COMPUTER_ROUTES.sovereigntyCommand&&request.method==="POST")return ownerSovereigntyCommand(request,env);
+ if(url.pathname===COMPUTER_ROUTES.pcControl&&request.method==="POST")return ownerPcControl(request,env);
+ if(url.pathname===COMPUTER_ROUTES.installer&&request.method==="GET")return asset(request,env,"MEL-Computer-Setup.ps1");
+ if(url.pathname===COMPUTER_ROUTES.companion&&request.method==="GET")return asset(request,env,"MEL-Computer-Companion.ps1",{allowDevice:true});
+ if(url.pathname===COMPUTER_ROUTES.screenshot&&request.method==="GET")return screenshotView(request,env,url);
+ if(url.pathname===COMPUTER_ROUTES.sovereigntyArchive&&request.method==="GET")return sovereigntyCodeArchive(request,env,url);
+ const a=await authDevice(request,env);if(!a.ok)return a.response;
+ if(url.pathname===COMPUTER_API_BASE+"/heartbeat"&&request.method==="POST")return heartbeat(request,env,a);
+ if(url.pathname===COMPUTER_ROUTES.companions&&request.method==="GET")return computerCompanions(env);
+ if(url.pathname===COMPUTER_ROUTES.controlState&&request.method==="GET")return controlState(request,env,a,url);
+ if(url.pathname===COMPUTER_ROUTES.triadActivity&&request.method==="GET"){
+  if(a.device.halted)return json({ok:false,code:"TRIAD_COMPANION_HALTED"},409);
+  return json(await readAndroidTriadActivityForCompanion(env));
+ }
+ if(url.pathname===COMPUTER_ROUTES.commands&&request.method==="GET")return claim(env,a);
+ if(url.pathname===COMPUTER_API_BASE+"/result"&&request.method==="POST")return result(request,env,a);
+ if(url.pathname===COMPUTER_ROUTES.screenshot&&request.method==="POST")return uploadShot(request,env,a,url);
+ return json({ok:false,code:"COMPUTER_ROUTE_NOT_FOUND"},404);
+}){[int]$_.submissionCount}else{0};expiryTime=[string]$_.expiryTime;platformFeeBps=if($null -ne $_.platformFeeBps -and \"$($_.platformFeeBps)\" -match '^\\d+
+ await env.DB.prepare("INSERT INTO computer_commands(id,device_id,session_id,plan_json,status,created_at) VALUES(?,?,?,?,?,?)")
+  .bind(cid,device.id,session,JSON.stringify(plan),"PENDING",Date.now()).run();
+ return json({ok:true,command_id:cid,status:"PENDING",action,device_id:device.id},202);
+}
+
+async function ownerSovereigntyCommand(request,env){
+ const a=requireAuth(request,env);if(!a.ok)return a.response;await tables(env);
+ const b=await request.json().catch(()=>({}));
+ const id=safe(b.computer_id);
+ const action=safe(b.action,160);
+ const payload=b.payload&&typeof b.payload==="object"?b.payload:{};
+ if(!id)return json({ok:false,code:"COMPUTER_ID_REQUIRED"},400);
+ if(!isLocalSovereigntyAction(action))return json({ok:false,code:"SOVEREIGNTY_ACTION_NOT_ALLOWED"},403);
+ const row=await env.DB.prepare("SELECT * FROM computer_devices WHERE id=? LIMIT 1").bind(id).first();
+ const device=normalizeDevice(row);
+ if(!device)return json({ok:false,code:"COMPUTER_NOT_FOUND"},404);
+ if(device.halted)return json({ok:false,code:"OWNER_HALT_ACTIVE"},409);
+ if(String(device.platform||"").toLowerCase()!=="windows")return json({ok:false,code:"SOVEREIGNTY_WINDOWS_REQUIRED"},409);
+ if(!device.online)return json({ok:false,code:"COMPUTER_OFFLINE"},409);
+ const session=safe(b.session_id)||crypto.randomUUID();
+ const cid=crypto.randomUUID();
+ const plan={
+   schema:"mel.sovereignty.local-command/v1",
+   owner_authorized:true,
+   max_autonomy:b.max_autonomy===true,
+   emergency:b.emergency===true,
+   steps:[{
+     id:"sovereignty-1",
+     action,
+     payload
+   }]
+ };
+ await env.DB.prepare("INSERT INTO computer_commands(id,device_id,session_id,plan_json,status,created_at) VALUES(?,?,?,?,?,?)")
+   .bind(cid,device.id,session,JSON.stringify(plan),"PENDING",Date.now()).run();
+ return json({ok:true,command_id:cid,status:"PENDING",action,device_id:device.id},202);
+}
+
+async function ownerPower(request,env){
+ const a=requireAuth(request,env);if(!a.ok)return a.response;await tables(env);
+ const b=await request.json().catch(()=>({}));
+ const id=safe(b.computer_id),action=safe(b.action,64),confirmation=safe(b.confirmation,128);
+ if(!id)return json({ok:false,code:"COMPUTER_ID_REQUIRED"},400);
+ if(!["power.off","power.restart"].includes(action))return json({ok:false,code:"POWER_ACTION_INVALID"},400);
+ const expected=action==="power.off"?"POWER_OFF_APPROVED":"POWER_RESTART_APPROVED";
+ if(confirmation!==expected)return json({ok:false,code:"OWNER_CONFIRMATION_REQUIRED"},403);
+ const row=await env.DB.prepare("SELECT * FROM computer_devices WHERE id=? LIMIT 1").bind(id).first();
+ const device=normalizeDevice(row);
+ if(!device)return json({ok:false,code:"COMPUTER_NOT_FOUND"},404);
+ if(String(device.platform||"").toLowerCase()!=="windows")return json({ok:false,code:"POWER_PLATFORM_UNSUPPORTED"},409);
+ const session=crypto.randomUUID(),cid=crypto.randomUUID();
+ const plan={schema:"mel.devices.power-command.v1",owner_approved:true,steps:[{id:"power-1",action}]};
+ await env.DB.prepare("INSERT INTO computer_commands(id,device_id,session_id,plan_json,status,created_at) VALUES(?,?,?,?,?,?)").bind(cid,device.id,session,JSON.stringify(plan),"PENDING",Date.now()).run();
+ return json({ok:true,command_id:cid,status:"PENDING",action,owner_approved:true},202);
+}
+
+async function ownerRevoke(request,env){const a=requireAuth(request,env);if(!a.ok)return a.response;await tables(env);const b=await request.json().catch(()=>({}));const id=safe(b.computer_id);if(!id)return json({ok:false,code:"COMPUTER_ID_REQUIRED"},400);const row=await env.DB.prepare("SELECT id FROM computer_devices WHERE id=?").bind(id).first();if(!row)return json({ok:false,code:"COMPUTER_NOT_FOUND"},404);await env.DB.prepare("DELETE FROM computer_commands WHERE device_id=?").bind(id).run();await env.DB.prepare("DELETE FROM computer_devices WHERE id=?").bind(id).run();return json({ok:true,computer_id:id,revoked:true})}
+
+async function asset(request,env,name,{allowDevice=false}={}){const owner=requireAuth(request,env);if(!owner.ok){if(!allowDevice)return owner.response;const device=await authDevice(request,env);if(!device.ok)return device.response}if(!env?.ASSETS?.fetch)return json({ok:false,code:"ASSETS_BINDING_UNAVAILABLE"},503);const u=new URL("/"+name,request.url);const r=await env.ASSETS.fetch(new Request(u.toString(),{method:"GET"}));if(!r.ok)return json({ok:false,code:"ASSET_NOT_FOUND"},404);const h=new Headers(r.headers);h.set("content-type","text/plain; charset=utf-8");h.set("content-disposition",`attachment; filename="${name}"`);h.set("cache-control","no-store");return new Response(r.body,{status:200,headers:h})}
+
+async function screenshotView(request,env,url){
+ const a=requireAuth(request,env);if(!a.ok)return a.response;
+ if(!env?.MEDIA_BUCKET)return json({ok:false,code:"MEDIA_BUCKET_UNAVAILABLE"},503);
+ const key=String(url.searchParams.get("key")||"");
+ // Never treat an owner-authenticated URL as a durable access grant.
+ // Resolve it to the original command/device so HALT and revocation still apply.
+ const match=/^computer\/screenshots\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)\.png$/.exec(key);
+ if(!match||key.includes(".."))return json({ok:false,code:"SCREENSHOT_KEY_INVALID"},400);
+ if(!env?.DB)return json({ok:false,code:"COMPUTER_DB_REQUIRED"},503);
+ const row=await env.DB.prepare(
+  "SELECT c.id,c.device_id,c.status,c.plan_json,d.halted,d.metadata FROM computer_commands c JOIN computer_devices d ON d.id=c.device_id WHERE c.id=? LIMIT 1"
+ ).bind(match[2]).first();
+ if(!row||
+    row.device_id.replace(/[^A-Za-z0-9_.-]/g,"_")!==match[1]||
+    row.id.replace(/[^A-Za-z0-9_.-]/g,"_")!==match[2]||
+    !["RUNNING","SUCCEEDED"].includes(row.status))
+  return json({ok:false,code:"SCREENSHOT_ACCESS_REVOKED_OR_UNKNOWN"},404);
+ if(Number(row.halted)===1)
+  return json({ok:false,code:"SCREENSHOT_OWNER_HALT"},409);
+ const metadata=parse(row.metadata,{});
+ if(metadata.remote_access_enabled!==true)
+  return json({ok:false,code:"SCREENSHOT_LOCAL_ACCESS_REVOKED"},409);
+ const plan=parse(row.plan_json,{});
+ if(plan.schema==="mel.companion.desktop-view-request/v1"||plan.action==="desktop.view.request"){
+  if(plan.schema!=="mel.companion.desktop-view-request/v1"||
+     plan.action!=="desktop.view.request"||plan.screen_capture_only!==true||
+     plan.requires_local_stop!==true||plan.device_id!==row.device_id||
+     !Number.isFinite(Number(plan.expires_at))||Number(plan.expires_at)<=Date.now())
+   return json({ok:false,code:"SCREENSHOT_VIEW_EXPIRED_OR_REVOKED"},409);
+ }
+ let object;
+ try{object=await env.MEDIA_BUCKET.get(key)}
+ catch{return json({ok:false,code:"SCREENSHOT_STORAGE_UNAVAILABLE"},503)}
+ if(!object)return json({ok:false,code:"SCREENSHOT_NOT_FOUND"},404);
+ const headers=new Headers({"content-type":"image/png","cache-control":"no-store","x-content-type-options":"nosniff"});
+ return new Response(object.body,{headers});
+}
+
+async function sovereigntyCodeArchive(request,env,url){
+ const a=await authDevice(request,env);if(!a.ok)return a.response;
+ if(a.device.halted)return json({ok:false,code:"OWNER_HALT_ACTIVE"},409);
+ if(String(a.device.platform||"").toLowerCase()!=="windows")return json({ok:false,code:"SOVEREIGNTY_ARCHIVE_WINDOWS_REQUIRED"},409);
+ const expected=safe(url.searchParams.get("sha"),80).toLowerCase();
+ const archive=await getVerifiedShardVaultCodeArchive(env);
+ if(!archive?.ok)return json({ok:false,code:archive?.status||"SOVEREIGNTY_ARCHIVE_UNAVAILABLE",details:{status:archive?.status||null}},503);
+ const sourceSha=String(archive.source_sha||"").toLowerCase();
+ if(expected&&expected!==sourceSha)return json({ok:false,code:"SOVEREIGNTY_ARCHIVE_SHA_MISMATCH",expected_sha:expected,source_sha:sourceSha},409);
+ const headers=new Headers({
+   "content-type":"application/gzip",
+   "content-length":String(archive.byte_length||archive.bytes?.length||0),
+   "cache-control":"no-store",
+   "x-content-type-options":"nosniff",
+   "x-mel-source-sha":sourceSha,
+   "x-mel-archive-sha256":String(archive.sha256||""),
+   "x-mel-external-reconstruction-verified":archive.external_reconstruction_verified===true?"1":"0"
+ });
+ return new Response(archive.bytes,{status:200,headers});
+}
+
+async function computerCompanions(env){
+ const now=Date.now();
+ const devices=[];
+ try{
+   const rows=await env.DB.prepare(`SELECT t.device_id,t.model,t.last_seen_at,t.revoked_at,
+     s.payload_json,s.updated_at
+     FROM device_tokens t
+     LEFT JOIN device_status s ON s.device_id=t.device_id
+     ORDER BY t.last_seen_at DESC LIMIT 20`).all();
+   for(const row of rows.results||[]){
+     let status={};try{status=JSON.parse(row.payload_json||"{}")}catch{}
+     devices.push({
+       device_id:row.device_id,
+       name:safe(status.name,80)||"MEL MINI",
+       model:safe(row.model,120)||"waveshare-terminal",
+       kind:"mini",
+       online:row.revoked_at==null&&now-Number(row.last_seen_at||0)<30000,
+       last_seen_at:Number(row.last_seen_at||0),
+       phase:safe(status.phase,40)||null,
+       firmware:safe(status.firmware,80)||null,
+       battery:Number.isFinite(Number(status.battery))?Number(status.battery):null,
+       wifi_rssi:Number.isFinite(Number(status.wifi_rssi))?Number(status.wifi_rssi):null,
+       camera:status.camera??null,
+       microphone:status.microphone??null,
+       speaker:status.speaker??null,
+       live_stream:false
+     });
+   }
+ }catch{}
+ try{
+   const rows=await env.DB.prepare(`SELECT t.device_id,t.name,t.app_version,t.last_seen_at,t.revoked_at,
+     s.payload_json,s.updated_at
+     FROM android_device_tokens t
+     LEFT JOIN android_device_status s ON s.device_id=t.device_id
+     ORDER BY t.last_seen_at DESC LIMIT 50`).all();
+   const androidCandidates=(rows.results||[]).map(row=>{
+     let status={};try{status=JSON.parse(row.payload_json||"{}")}catch{}
+     const name=safe(row.name,80)||"MEL Android";
+     return {
+       device_id:row.device_id,
+       name,
+       model:"android-companion",
+       kind:"android",
+       online:row.revoked_at==null&&now-Number(row.last_seen_at||0)<ANDROID_ONLINE_MS,
+       last_seen_at:Number(row.last_seen_at||0),
+       phase:safe(status.phase,40)||null,
+       firmware:safe(row.app_version,80)||safe(status.app_version,80)||null,
+       battery:Number.isFinite(Number(status.battery))?Number(status.battery):null,
+       wifi_rssi:null,
+       camera:status.camera??true,
+       microphone:true,
+       speaker:true,
+       network:safe(status.network,40)||null,
+       charging:status.charging===true,
+       live_stream:false,
+       dedupe_key:name.toLowerCase()
+     };
+   });
+   const activeKeys=new Set(androidCandidates.filter(device=>device.online).map(device=>device.dedupe_key));
+   const keptOfflineKeys=new Set();
+   for(const candidate of androidCandidates){
+     if(candidate.online){
+       const {dedupe_key,...device}=candidate;
+       devices.push(device);
+       continue;
+     }
+     if(activeKeys.has(candidate.dedupe_key)||keptOfflineKeys.has(candidate.dedupe_key)) continue;
+     keptOfflineKeys.add(candidate.dedupe_key);
+     const {dedupe_key,...device}=candidate;
+     devices.push(device);
+   }
+ }catch{}
+ const miniDevices=devices.filter(device=>device.kind==="mini")
+   .sort((a,b)=>(Number(b.online)-Number(a.online))||Number(b.last_seen_at||0)-Number(a.last_seen_at||0));
+ const androidDevices=devices.filter(device=>device.kind==="android")
+   .sort((a,b)=>(Number(b.online)-Number(a.online))||Number(b.last_seen_at||0)-Number(a.last_seen_at||0));
+ const visibleDevices=[];
+ if(miniDevices[0]) visibleDevices.push(miniDevices[0]);
+ if(androidDevices[0]) visibleDevices.push(androidDevices[0]);
+ return json({ok:true,devices:visibleDevices});
+}
+async function heartbeat(request,env,a){
+ const b=await request.json().catch(()=>({}));
+ const row=await env.DB.prepare("SELECT metadata FROM computer_devices WHERE id=? LIMIT 1").bind(a.device.id).first();
+ let metadata={};try{metadata=JSON.parse(row?.metadata||"{}")}catch{}
+ const now=Date.now();
+ const patch={};
+ if(b.version!==undefined)patch.version=b.version||null;
+ if(b.engine_version!==undefined)patch.engine_version=b.engine_version||null;
+ if(b.engine_refresh_status!==undefined)patch.engine_refresh_status=safe(b.engine_refresh_status,80)||null;
+ if(b.engine_refresh_at!==undefined&&Number.isFinite(Number(b.engine_refresh_at)))patch.engine_refresh_at=Number(b.engine_refresh_at);
+ if(b.engine_refresh_error!==undefined)patch.engine_refresh_error=safe(b.engine_refresh_error,180)||null;
+ if(b.engine_heartbeat_at!==undefined&&Number.isFinite(Number(b.engine_heartbeat_at))){
+   patch.engine_heartbeat_at=Number(b.engine_heartbeat_at);
+ }else if(
+   b.version!==undefined
+   && typeof b.hostname==="string" && b.hostname.trim()
+   && b.screen && typeof b.screen==="object"
+ ){
+   // Native Windows Companion heartbeats are emitted only after
+   // EnsureCompanion() supervises the authenticated PowerShell engine.
+   // Treat that authenticated supervisor heartbeat as fresh engine presence
+   // for compatibility with already-installed native clients.
+   patch.engine_heartbeat_at=now;
+ }
+ if(b.hostname!==undefined)patch.hostname=b.hostname||null;
+ if(b.user!==undefined)patch.user=b.user||null;
+ // Reflect the local Companion toggle on every authenticated heartbeat.
+ // Never elevate permission from a non-boolean or absent value.
+ if(typeof b.remote_access_enabled==="boolean")patch.remote_access_enabled=b.remote_access_enabled;
+ // Separate, locally controlled opt-in for optional MEL compute acceleration.
+ // Remote PC access permission does not imply permission to use CPU/GPU.
+ // Fail closed on every heartbeat: legacy clients and malformed values cannot
+ // preserve a previous opt-in after the local control disappears.
+ patch.local_compute_enabled=b.local_compute_enabled===true;
+ patch.local_compute_gpu_enabled=patch.local_compute_enabled&&b.local_compute_gpu_enabled===true;
+ if(["light","balanced","performance"].includes(b.local_compute_profile))
+   patch.local_compute_profile=b.local_compute_profile;
+ const telemetry=b.local_compute_telemetry;
+ if(patch.local_compute_enabled && telemetry && typeof telemetry==="object" &&
+    Number.isFinite(telemetry.cpu_percent)&&telemetry.cpu_percent>=0&&telemetry.cpu_percent<=100 &&
+    Number.isFinite(telemetry.free_ram_mb)&&telemetry.free_ram_mb>=0 &&
+    Number.isSafeInteger(telemetry.active_jobs)&&telemetry.active_jobs>=0 &&
+    typeof telemetry.on_battery==="boolean"&&typeof telemetry.user_busy==="boolean"&&
+    typeof telemetry.gpu_available==="boolean"){
+   patch.local_compute_telemetry={
+     observed_at:now,cpu_percent:telemetry.cpu_percent,free_ram_mb:telemetry.free_ram_mb,
+     on_battery:telemetry.on_battery,user_busy:telemetry.user_busy,
+     gpu_available:telemetry.gpu_available,active_jobs:telemetry.active_jobs
+   };
+ }else if(shouldInvalidateOptionalComputeTelemetryOnHeartbeat({
+   enabled:patch.local_compute_enabled,body:b
+ })){
+   // Native heartbeat with a missing/invalid sample invalidates it. The
+   // separate PowerShell engine heartbeat carries no CPU sample and MUST NOT
+   // erase a still-fresh native reading; admission still expires after 10 s.
+   patch.local_compute_telemetry=null;
+ }
+ if(b.screen&&typeof b.screen==="object")patch.screen=b.screen;
+ if(b.active_window!==undefined)patch.active_window=b.active_window||null;
+ metadata={...metadata,...patch};
+ await env.DB.prepare("UPDATE computer_devices SET last_seen_at=?,metadata=? WHERE id=?").bind(now,JSON.stringify(metadata),a.device.id).run();
+ const engineHeartbeatAt=Number(metadata.engine_heartbeat_at||0);
+ const engineOnline=engineHeartbeatAt>0&&now-engineHeartbeatAt<35000;
+ const engineVersion=safe(metadata.engine_version,80)||null;
+ const engineUpdateRequired=!versionAtLeast(engineVersion,MIN_SOVEREIGN_AI_ENGINE_VERSION);
+ const computeAdmission=evaluateMeasuredOptionalCompute({
+   enabled:metadata.local_compute_enabled===true,
+   profile:metadata.local_compute_profile||"off",online:engineOnline,
+   halted:a.device.halted===true,telemetry:metadata.local_compute_telemetry,now
+ });
+ return json({
+   ok:true,
+   server_time:now,
+   engine_online:engineOnline,
+   local_compute_enabled:metadata.local_compute_enabled===true,
+   local_compute_gpu_enabled:metadata.local_compute_gpu_enabled===true,
+   local_compute_admission:{allowed:computeAdmission.allowed,reason:computeAdmission.reason},
+   engine_version:engineVersion,
+   engine_last_seen_at:engineHeartbeatAt||null,
+   required_engine_version:MIN_SOVEREIGN_AI_ENGINE_VERSION,
+   engine_update_required:engineUpdateRequired,
+   engine_refresh_status:safe(metadata.engine_refresh_status,80)||null,
+   engine_refresh_at:Number(metadata.engine_refresh_at||0)||null,
+   engine_refresh_error:safe(metadata.engine_refresh_error,180)||null
+ })
+}
+async function controlState(request,env,a,url){
+ // Device-authenticated, read only, and scoped to one command on this PC.
+ // A new opt-in does not revive a command cancelled by a prior STOP.
+ const id=safe(url.searchParams.get("command_id"));
+ if(!id)return json({ok:false,code:"COMPUTER_CONTROL_COMMAND_REQUIRED"},400);
+ const command=await env.DB.prepare("SELECT status FROM computer_commands WHERE id=? AND device_id=? LIMIT 1")
+  .bind(id,a.device.id).first();
+ if(!command)return json({ok:true,permitted:false,code:"COMPUTER_CONTROL_COMMAND_NOT_RUNNING"});
+ const device=await env.DB.prepare("SELECT halted,metadata FROM computer_devices WHERE id=? LIMIT 1")
+  .bind(a.device.id).first();
+ const halted=!device||Number(device.halted)===1;
+ const localEnabled=parse(device?.metadata,{})?.remote_access_enabled===true;
+ const permitted=command.status==="RUNNING"&&!halted&&localEnabled;
+ return json({ok:true,permitted,code:permitted?"AUTHORIZED":halted?"OWNER_HALT_ACTIVE":!localEnabled?"REMOTE_ACCESS_DISABLED_LOCALLY":"COMPUTER_CONTROL_COMMAND_NOT_RUNNING"});
+}
+
+async function claim(env,a){
+ if(a.device.halted)return json({ok:true,halted:true,command:null});
+ const r=await env.DB.prepare("SELECT * FROM computer_commands WHERE device_id=? AND status=? ORDER BY created_at ASC LIMIT 1").bind(a.device.id,"PENDING").first();
+ if(!r)return json({ok:true,halted:false,command:null});
+ const plan=parse(r.plan_json,{});
+ // A queued GUI action must never be handed to a device after its owner has
+ // disabled remote control, even if it was approved before the opt-out.
+ // The Windows agent also checks the local switch before each real step.
+ if(plan.schema==="mel.devices.computer-use.v1"&&a.device.metadata?.remote_access_enabled!==true){
+  const rejected=await env.DB.prepare("UPDATE computer_commands SET status=?,finished_at=?,error_code=? WHERE id=? AND device_id=? AND status=?")
+   .bind("FAILED",Date.now(),"REMOTE_ACCESS_DISABLED_LOCALLY",r.id,a.device.id,"PENDING").run();
+  if(!rejected||rejected.success===false||Number(rejected.meta?.changes)!==1)
+   return json({ok:false,code:"COMPUTER_CLAIM_REVALIDATION_RACE"},409);
+  return json({ok:true,halted:false,command:null,blocked_command:{id:r.id,code:"REMOTE_ACCESS_DISABLED_LOCALLY"}});
+ }
+ const computeVerdict=evaluateQueuedOptionalComputeClaim({
+   plan,device:a.device,now:Date.now()
+ });
+ if(!computeVerdict.ok){
+   const updated=await env.DB.prepare("UPDATE computer_commands SET status=?,finished_at=?,error_code=? WHERE id=? AND device_id=? AND status=?")
+    .bind("FAILED",Date.now(),computeVerdict.code,r.id,a.device.id,"PENDING").run();
+   if(!updated||updated.success===false||Number(updated.meta?.changes)!==1)
+     return json({ok:false,code:"COMPUTER_CLAIM_REVALIDATION_RACE"},409);
+   return json({ok:true,halted:false,command:null,blocked_command:{id:r.id,code:computeVerdict.code}});
+ }
+ if(plan.schema==="mel.companion.desktop-view-request/v1" || plan.action==="desktop.view.request"){
+  // A previously queued request must not outlive a local opt-out reported
+  // after the owner queued it but before the Windows agent claimed it.
+  const verdict=a.device.metadata?.remote_access_enabled===true
+   ?evaluateDesktopViewClaim({plan,device:a.device,now:Date.now()})
+   :{ok:false,code:"REMOTE_ACCESS_DISABLED_LOCALLY"};
+  if(!verdict.ok){
+   await env.DB.prepare("UPDATE computer_commands SET status=?,finished_at=?,error_code=? WHERE id=? AND device_id=? AND status=?").bind("FAILED",Date.now(),verdict.code,r.id,a.device.id,"PENDING").run();
+   return json({ok:true,halted:false,command:null,blocked_command:{id:r.id,code:verdict.code}});
+  }
+ }
+ // The authenticated device snapshot is not a lock: owner STOP may race
+ // between the initial SELECT and the final claim.
+ const update=await env.DB.prepare("UPDATE computer_commands SET status=?,claimed_at=? WHERE id=? AND device_id=? AND status=? AND EXISTS (SELECT 1 FROM computer_devices WHERE id=? AND halted=0)")
+  .bind("RUNNING",Date.now(),r.id,a.device.id,"PENDING",a.device.id).run();
+ if(!update || update.success===false || Number(update.meta?.changes)!==1)return json({ok:false,code:"COMPUTER_CLAIM_NOT_CONFIRMED"},409);
+ return json({ok:true,halted:false,command:{id:r.id,session_id:r.session_id,plan}});
+}
+async function result(request,env,a){
+ const b=await request.json().catch(()=>({}));
+ const id=safe(b.command_id);
+ if(!id)return json({ok:false,code:"COMPUTER_RESULT_ID_REQUIRED"},400);
+ if(b.ok===true){
+  const current=await env.DB.prepare("SELECT status,plan_json FROM computer_commands WHERE id=? AND device_id=? LIMIT 1").bind(id,a.device.id).first();
+  if(!current||current.status!=="RUNNING")return json({ok:false,code:"COMPUTER_RESULT_NOT_RUNNING"},409);
+  const plan=parse(current.plan_json,{});
+  // A late Ollama result is evidence of a finished local call, NOT a timely
+  // MEL response. Mark it failed instead of creating a false SUCCEEDED proof.
+  const aiResultVerdict=evaluateOptionalAiResultDeadline({plan,now:Date.now()});
+  if(!aiResultVerdict.ok){
+   const expired=await env.DB.prepare("UPDATE computer_commands SET status=?,finished_at=?,error_code=? WHERE id=? AND device_id=? AND status=?")
+    .bind("FAILED",Date.now(),aiResultVerdict.code,id,a.device.id,"RUNNING").run();
+   if(!expired||expired.success===false||Number(expired.meta?.changes)!==1)
+    return json({ok:false,code:"COMPUTER_RESULT_NOT_RUNNING"},409);
+   return json({ok:false,code:aiResultVerdict.code},409);
+  }
+  const aiProof=evaluateOptionalAiResultProof({plan,result:b.result});
+  if(!aiProof.ok){
+   const denied=await env.DB.prepare("UPDATE computer_commands SET status=?,finished_at=?,error_code=? WHERE id=? AND device_id=? AND status=?")
+    .bind("FAILED",Date.now(),aiProof.code,id,a.device.id,"RUNNING").run();
+   if(!denied||denied.success===false||Number(denied.meta?.changes)!==1)
+    return json({ok:false,code:"COMPUTER_RESULT_NOT_RUNNING"},409);
+   return json({ok:false,code:aiProof.code},409);
+  }
+  // Legacy computer.quick uses the computer-use screen.capture step, not the
+  // dedicated desktop.view.request plan. Its success must be equally truthful.
+  const steps=Array.isArray(plan.steps)?plan.steps:[];
+  if(plan.schema==="mel.devices.computer-use.v1"&&steps.some(step=>step?.action==="screen.capture")){
+   const outputs=b.result?.outputs;
+   const key=`computer/screenshots/${a.device.id.replace(/[^A-Za-z0-9_.-]/g,"_")}/${id.replace(/[^A-Za-z0-9_.-]/g,"_")}.png`;
+   const expectedUrl=`${new URL(request.url).origin}${COMPUTER_API_BASE}/screenshot?key=${encodeURIComponent(key)}`;
+   if(!Array.isArray(outputs)||outputs.length!==steps.length||
+      steps.some((step,i)=>step?.action==="screen.capture"&&(
+        outputs[i]?.action!=="screen.capture"||
+        outputs[i]?.screenshot_key!==key||
+        outputs[i]?.view_url!==expectedUrl)))
+    return json({ok:false,code:"SCREENSHOT_RESULT_PROOF_INVALID"},409);
+   const device=await env.DB.prepare("SELECT halted,metadata FROM computer_devices WHERE id=? LIMIT 1").bind(a.device.id).first();
+   if(!device||Number(device.halted)===1||parse(device.metadata,{})?.remote_access_enabled!==true)
+    return json({ok:false,code:"SCREENSHOT_RESULT_AUTH_INVALID"},409);
+   if(typeof env?.MEDIA_BUCKET?.head!=="function")
+    return json({ok:false,code:"SCREENSHOT_RESULT_STORAGE_UNAVAILABLE"},503);
+   let image;
+   try{image=await env.MEDIA_BUCKET.head(key)}
+   catch{return json({ok:false,code:"SCREENSHOT_RESULT_STORAGE_UNAVAILABLE"},503)}
+   if(!image||Number(image.size)<=0)
+    return json({ok:false,code:"SCREENSHOT_RESULT_IMAGE_MISSING"},409);
+  }
+  if(plan.schema==="mel.companion.desktop-view-request/v1"||plan.action==="desktop.view.request"){
+   // A device may only mark a one-shot desktop view as succeeded if the image
+   // actually reached R2 under the exact device/command key.
+   const device=await env.DB.prepare("SELECT halted,metadata FROM computer_devices WHERE id=? LIMIT 1").bind(a.device.id).first();
+   if(!device||Number(device.halted)===1||parse(device.metadata,{})?.remote_access_enabled!==true||plan.schema!=="mel.companion.desktop-view-request/v1"||
+      plan.action!=="desktop.view.request"||plan.screen_capture_only!==true||
+      plan.device_id!==a.device.id||!Number.isFinite(Number(plan.expires_at))||
+      Number(plan.expires_at)<=Date.now())
+    return json({ok:false,code:"SCREENSHOT_RESULT_AUTH_INVALID"},409);
+   const key=`computer/screenshots/${a.device.id.replace(/[^A-Za-z0-9_.-]/g,"_")}/${id.replace(/[^A-Za-z0-9_.-]/g,"_")}.png`;
+   const expectedUrl=`${new URL(request.url).origin}${COMPUTER_API_BASE}/screenshot?key=${encodeURIComponent(key)}`;
+   const outputs=b.result?.outputs;
+   if(!Array.isArray(outputs)||outputs.length!==1||b.result?.capture_count!==1||
+      outputs[0]?.action!=="desktop.view.request"||outputs[0]?.screenshot_key!==key||
+      outputs[0]?.view_url!==expectedUrl)
+    return json({ok:false,code:"SCREENSHOT_RESULT_PROOF_INVALID"},409);
+   if(typeof env?.MEDIA_BUCKET?.head!=="function")
+    return json({ok:false,code:"SCREENSHOT_RESULT_STORAGE_UNAVAILABLE"},503);
+   let image;
+   try{image=await env.MEDIA_BUCKET.head(key)}catch{return json({ok:false,code:"SCREENSHOT_RESULT_STORAGE_UNAVAILABLE"},503)}
+   if(!image||Number(image.size)<=0)
+    return json({ok:false,code:"SCREENSHOT_RESULT_IMAGE_MISSING"},409);
+  }
+ }
+ const update=await env.DB.prepare("UPDATE computer_commands SET status=?,finished_at=?,result_json=?,error_code=? WHERE id=? AND device_id=? AND status=? AND EXISTS (SELECT 1 FROM computer_devices WHERE id=? AND halted=0)")
+  .bind(b.ok===true?"SUCCEEDED":"FAILED",Date.now(),JSON.stringify(b.result??null),b.error_code?safe(b.error_code):null,id,a.device.id,"RUNNING",a.device.id).run();
+ if(!update||update.success===false||Number(update.meta?.changes)!==1)
+  return json({ok:false,code:"COMPUTER_RESULT_NOT_RUNNING"},409);
+ return json({ok:true});
+}
+// A device token never authorizes arbitrary screenshot uploads. The queued, running
+// command itself must explicitly request the image. Local device opt-in is checked separately.
+function screenshotPlanAuthorized(plan,deviceId,sessionId,now){
+ if(!plan||typeof plan!=="object")return false;
+ if(plan.schema==="mel.companion.desktop-view-request/v1"||plan.action==="desktop.view.request")
+  return plan.schema==="mel.companion.desktop-view-request/v1"&&
+   plan.action==="desktop.view.request"&&plan.screen_capture_only===true&&
+   plan.requires_local_stop===true&&plan.device_id===deviceId&&
+   plan.session_id===sessionId&&Number.isSafeInteger(plan.expires_at)&&
+   plan.expires_at>now;
+ return plan.schema==="mel.devices.computer-use.v1"&&Array.isArray(plan.steps)&&
+  plan.steps.some(step=>step?.action==="screen.capture");
+}
+async function uploadShot(request,env,a,url){
+ if(!env?.MEDIA_BUCKET)return json({ok:false,code:"MEDIA_BUCKET_UNAVAILABLE"},503);
+ const id=safe(url.searchParams.get("command_id"));
+ if(!id)return json({ok:false,code:"SCREENSHOT_COMMAND_REQUIRED"},400);
+ const command=await env.DB.prepare("SELECT id,plan_json,session_id FROM computer_commands WHERE id=? AND device_id=? AND status=? LIMIT 1").bind(id,a.device.id,"RUNNING").first();
+ if(!command)return json({ok:false,code:"SCREENSHOT_COMMAND_NOT_RUNNING"},409);
+ const currentDevice=await env.DB.prepare("SELECT halted,metadata FROM computer_devices WHERE id=? LIMIT 1").bind(a.device.id).first();
+ if(!currentDevice||Number(currentDevice.halted)===1)return json({ok:false,code:"SCREENSHOT_OWNER_HALT"},409);
+ if(parse(currentDevice.metadata,{})?.remote_access_enabled!==true)
+  return json({ok:false,code:"SCREENSHOT_LOCAL_ACCESS_REVOKED"},409);
+ const plan=parse(command.plan_json,{});
+ if(!screenshotPlanAuthorized(plan,a.device.id,command.session_id,Date.now())){
+  const view=plan.schema==="mel.companion.desktop-view-request/v1"||plan.action==="desktop.view.request";
+  return json({ok:false,code:view?"SCREENSHOT_VIEW_AUTH_EXPIRED_OR_INVALID":"SCREENSHOT_PLAN_NOT_AUTHORIZED"},409);
+ }
+ const bytes=new Uint8Array(await request.arrayBuffer());
+ if(!bytes.byteLength||bytes.byteLength>5*1024*1024)return json({ok:false,code:"SCREENSHOT_SIZE_INVALID"},413);
+ const signature=[137,80,78,71,13,10,26,10];
+ if(bytes.length<signature.length||!signature.every((b,i)=>bytes[i]===b))
+  return json({ok:false,code:"SCREENSHOT_PNG_INVALID"},415);
+ // Revalidate after reading the body: HALT or completion may occur during the upload.
+ const latest=await env.DB.prepare("SELECT c.status,c.plan_json,c.session_id,d.halted,d.metadata FROM computer_commands c JOIN computer_devices d ON d.id=c.device_id WHERE c.id=? AND c.device_id=? LIMIT 1").bind(id,a.device.id).first();
+ if(!latest||Number(latest.halted)===1||parse(latest.metadata,{})?.remote_access_enabled!==true||latest.status!=="RUNNING")
+  return json({ok:false,code:"SCREENSHOT_AUTH_REVOKED_DURING_UPLOAD"},409);
+ const latestPlan=parse(latest.plan_json,{});
+ if(!screenshotPlanAuthorized(latestPlan,a.device.id,latest.session_id,Date.now()))
+  return json({ok:false,code:"SCREENSHOT_AUTH_REVOKED_DURING_UPLOAD"},409);
+ const key=`computer/screenshots/${a.device.id.replace(/[^A-Za-z0-9_.-]/g,"_")}/${id.replace(/[^A-Za-z0-9_.-]/g,"_")}.png`;
+ await env.MEDIA_BUCKET.put(key,bytes,{httpMetadata:{contentType:"image/png"}});
+ return json({ok:true,key,view_url:`${url.origin}${COMPUTER_API_BASE}/screenshot?key=${encodeURIComponent(key)}`});
+}
+
+export async function maybeHandleComputerApi(request,env){
+ const url=new URL(request.url);if(!url.pathname.startsWith(COMPUTER_API_BASE+"/"))return null;
+ if(url.pathname===COMPUTER_ROUTES.pairCode&&request.method==="POST")return createPairCode(request,env);
+ if(url.pathname===COMPUTER_ROUTES.pair&&request.method==="POST")return pair(request,env);
+ if(url.pathname===COMPUTER_ROUTES.revoke&&request.method==="POST")return ownerRevoke(request,env);
+ if(url.pathname===COMPUTER_ROUTES.status&&request.method==="GET")return ownerStatus(request,env,url);
+ if(url.pathname===COMPUTER_ROUTES.commands&&request.method==="POST")return ownerCommand(request,env);
+ if(url.pathname===COMPUTER_ROUTES.desktopViewRequest&&request.method==="POST")return ownerDesktopViewRequest(request,env);
+ if(url.pathname===COMPUTER_ROUTES.halt&&request.method==="POST")return ownerHalt(request,env,true);
+ if(url.pathname===COMPUTER_ROUTES.resume&&request.method==="POST")return ownerHalt(request,env,false);
+ if(url.pathname===COMPUTER_ROUTES.power&&request.method==="POST")return ownerPower(request,env);
+ if(url.pathname===COMPUTER_ROUTES.sovereigntyCommand&&request.method==="POST")return ownerSovereigntyCommand(request,env);
+ if(url.pathname===COMPUTER_ROUTES.pcControl&&request.method==="POST")return ownerPcControl(request,env);
+ if(url.pathname===COMPUTER_ROUTES.installer&&request.method==="GET")return asset(request,env,"MEL-Computer-Setup.ps1");
+ if(url.pathname===COMPUTER_ROUTES.companion&&request.method==="GET")return asset(request,env,"MEL-Computer-Companion.ps1",{allowDevice:true});
+ if(url.pathname===COMPUTER_ROUTES.screenshot&&request.method==="GET")return screenshotView(request,env,url);
+ if(url.pathname===COMPUTER_ROUTES.sovereigntyArchive&&request.method==="GET")return sovereigntyCodeArchive(request,env,url);
+ const a=await authDevice(request,env);if(!a.ok)return a.response;
+ if(url.pathname===COMPUTER_API_BASE+"/heartbeat"&&request.method==="POST")return heartbeat(request,env,a);
+ if(url.pathname===COMPUTER_ROUTES.companions&&request.method==="GET")return computerCompanions(env);
+ if(url.pathname===COMPUTER_ROUTES.controlState&&request.method==="GET")return controlState(request,env,a,url);
+ if(url.pathname===COMPUTER_ROUTES.triadActivity&&request.method==="GET"){
+  if(a.device.halted)return json({ok:false,code:"TRIAD_COMPANION_HALTED"},409);
+  return json(await readAndroidTriadActivityForCompanion(env));
+ }
+ if(url.pathname===COMPUTER_ROUTES.commands&&request.method==="GET")return claim(env,a);
+ if(url.pathname===COMPUTER_API_BASE+"/result"&&request.method==="POST")return result(request,env,a);
+ if(url.pathname===COMPUTER_ROUTES.screenshot&&request.method==="POST")return uploadShot(request,env,a,url);
+ return json({ok:false,code:"COMPUTER_ROUTE_NOT_FOUND"},404);
+}){[int]$_.platformFeeBps}else{$null}}});[ordered]@{action='taskmarket.status';cli_available=$true;list_available=$true;task_count=$tasks.Count;tasks=$tasks;scanned_at=[DateTime]::UtcNow.ToString('o');mode='READ_ONLY'}|ConvertTo-Json -Depth 6 -Compress;exit 0}catch{[ordered]@{action='taskmarket.status';cli_available=$true;list_available=$false;code='TASKMARKET_RESPONSE_INVALID';detail=([string]$_.Exception.Message).Substring(0,[Math]::Min(500,([string]$_.Exception.Message).Length));tasks=@();scanned_at=[DateTime]::UtcNow.ToString('o')}|ConvertTo-Json -Depth 5 -Compress;exit 0}",timeout_ms:25000,require_success_exit:true};
+ }
  const session=safe(b.session_id)||crypto.randomUUID();
  const cid=crypto.randomUUID();
  const plan={schema:"mel.devices.pc-control.v1",owner_authorized:true,steps:[{id:"pc-control-1",action:effectiveAction,payload:effectivePayload}]};
