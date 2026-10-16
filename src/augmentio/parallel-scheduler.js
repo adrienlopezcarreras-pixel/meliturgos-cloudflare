@@ -105,8 +105,11 @@ export class ParallelScheduler {
       try {
         const timeout = new Promise((_, reject) => {
           timer = setTimeout(() => {
-            controller.abort('timeout');
+            // Reject the scheduler deadline first. Abort-aware adapters may
+            // synchronously reject with SCHEDULER_ABORTED when signalled;
+            // that must not mask a real timeout or skip timeout retries.
             reject(Object.assign(new Error('PROVIDER_TIMEOUT'), { code: 'PROVIDER_TIMEOUT', provider }));
+            controller.abort('timeout');
           }, this.timeoutMs);
         });
         // Cover a signal aborted between the initial attempt check and
