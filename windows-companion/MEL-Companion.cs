@@ -601,9 +601,23 @@ static class MelApp
 
     public static void StopAdbWifiMonitor()
     {
-        try { if (AdbWifiProcess != null && !AdbWifiProcess.HasExited) AdbWifiProcess.Kill(); }
-        catch { }
+        var process = AdbWifiProcess;
         AdbWifiProcess = null;
+        if (process == null) return;
+        try
+        {
+            if (!process.HasExited)
+            {
+                process.Kill();
+                // Bound shutdown while allowing the child to release file/mutex handles.
+                process.WaitForExit(2000);
+            }
+        }
+        catch { }
+        finally
+        {
+            try { process.Dispose(); } catch { }
+        }
     }
 
     public static void StartBackgroundSupervisor()
