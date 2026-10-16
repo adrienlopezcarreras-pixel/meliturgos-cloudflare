@@ -74,3 +74,11 @@ test("failed Wi-Fi endpoint connection falls through to next candidate", async (
   assert.match(reconnect, /try \{ \$result=\(Run-Adb -arglist @\("connect",\$endpoint\)\)/);
   assert.match(reconnect, /catch \{ continue \}/);
 });
+
+
+test("mDNS discovery failure preserves saved endpoint fallback", async () => {
+  const script = await source("windows-companion/MEL-ADB-WiFi.ps1");
+  const reconnect = script.split("function Attempt-Reconnect {")[1].split("function Scan {")[0];
+  assert.match(reconnect, /try \{ \$discovered=Run-Adb -arglist @\("mdns","services"\) \} catch \{ \$discovered=@\(\) \}/);
+  assert.ok(reconnect.indexOf("foreach ($line in $discovered)") < reconnect.indexOf("if (Test-Path -LiteralPath $saved)"));
+});
