@@ -24,3 +24,23 @@ test('Windows inspection does not expose page content or credentials', async () 
   assert.match(handler,/window_handle=/);
   assert.doesNotMatch(handler,/Get-Clipboard|Upload-Screenshot|Invoke-WebRequest|Get-Credential/);
 });
+
+test('Windows browser inspect returns clipped screen coordinates without accessing private page data', async () => {
+  const source=await readFile(new URL('../assets/MEL-Computer-Companion.ps1',import.meta.url),'utf8');
+  const dist=await readFile(new URL('../dist/MEL-Computer-Companion.ps1',import.meta.url),'utf8');
+  assert.equal(source,dist);
+  const begin=source.indexOf('"browser.inspect" {');
+  const end=source.indexOf('"app.open" {',begin);
+  assert.ok(begin>=0 && end>begin);
+  const handler=source.slice(begin,end);
+  assert.match(handler,/GetWindowRect\(\$windowHandle, \[ref\]\$rect\)/);
+  assert.match(handler,/SystemInformation\]::VirtualScreen/);
+  assert.match(handler,/\[Math\]::Max\(\$rect.Left, \$virtual.Left\)/);
+  assert.match(handler,/\[Math\]::Min\(\$rect.Right, \$virtual.Right\)/);
+  assert.match(handler,/BROWSER_INSPECT_BOUNDS_REQUIRED/);
+  assert.match(handler,/GetForegroundWindow\(\) -ne \$windowHandle/);
+  assert.match(handler,/BROWSER_INSPECT_FOCUS_CHANGED/);
+  assert.match(handler,/visible_bounds=@\{ left=\$left; top=\$top; width=\(\$right - \$left\); height=\(\$bottom - \$top\) \}/);
+  assert.match(handler,/coordinate_space="virtual-screen-pixels"/);
+  assert.doesNotMatch(handler,/Get-Clipboard|Upload-Screenshot|Invoke-WebRequest|Get-Credential/);
+});
