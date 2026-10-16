@@ -29,10 +29,6 @@ function configuredEnv() {
     CLOUDFLARE_API_TOKEN: 'cf-secret',
     CLOUDFLARE_ACCOUNT_ID: 'account123',
     MEL_CLOUDFLARE_SCRIPT: 'meliturgos',
-    VERCEL_TOKEN: 'vercel-secret',
-    VERCEL_TEAM_ID: 'team_123',
-    MEL_VERCEL_PROJECT_ID: 'prj_123',
-    MEL_VERCEL_PROJECT_NAME: 'mel-project',
   };
 }
 
@@ -284,7 +280,7 @@ test('upstream mutation errors never echo response bodies or credentials', async
     fetchImpl: async (_url, init) => {
       if (init?.method === 'GET') return json({});
       return json({
-        error: 'sensitive upstream detail github-secret cf-secret vercel-secret',
+        error: 'sensitive upstream detail github-secret cf-secret',
       }, 403);
     },
   });
