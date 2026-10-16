@@ -136,8 +136,8 @@ test("Windows Companion ADB status provides actionable diagnostics, not false au
 
 test("Android Wi-Fi pairing helper resolves ADB from standard local paths and PATH", async () => {
   const helper = await source("tools/android-companion/MEL-Android-WiFi-Pairing.ps1");
-  assert.match(helper, /Android\\\\platform-tools\\\\adb\.exe/);
-  assert.match(helper, /Android\\\\Sdk\\\\platform-tools\\\\adb\.exe/);
+  assert.match(helper, /Android\\platform-tools\\adb\.exe/);
+  assert.match(helper, /Android\\Sdk\\platform-tools\\adb\.exe/);
   assert.match(helper, /Get-Command -Name 'adb\.exe'/);
   assert.doesNotMatch(helper, /ANDROID_SDK_ROOT_REQUIRED/);
 });
