@@ -218,14 +218,20 @@ class MiniMediaReceiver(private val context: Context) {
             val name = String(readFully(input, nameLen), Charsets.UTF_8)
             val width = input.readUnsignedShort()
             val height = input.readUnsignedShort()
-            val fps = input.readUnsignedByte().coerceIn(1, 30)
-            val sampleRate = input.readInt().coerceIn(8_000, 96_000)
-            val channels = input.readUnsignedByte().coerceIn(1, 2)
+            val fps = input.readUnsignedByte()
+            val sampleRate = input.readInt()
+            val channels = input.readUnsignedByte()
 
+            // Invalid MINI media metadata must not be silently coerced into
+            // a different framerate, sample rate or channel count.
             when (type) {
                 1 -> receivePhoto(input, safeName(name, "mel-mini-photo.jpg"))
-                2 -> receiveVideo(input, safeName(name, "mel-mini-video.avi"), width, height, fps)
-                3 -> receiveAudio(input, safeName(name, "mel-mini-audio.wav"), sampleRate, channels)
+                2 -> if (fps in 1..30) {
+                    receiveVideo(input, safeName(name, "mel-mini-video.avi"), width, height, fps)
+                }
+                3 -> if (sampleRate in 8_000..96_000 && channels in 1..2) {
+                    receiveAudio(input, safeName(name, "mel-mini-audio.wav"), sampleRate, channels)
+                }
                 4 -> receiveBrowser(input, DataOutputStream(BufferedOutputStream(client.getOutputStream())), width, height)
             }
         }
