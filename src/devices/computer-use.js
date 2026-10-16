@@ -445,6 +445,21 @@ export function evaluateComputerUsePlan(input = {}) {
       // Reject guessed search filters, deletion requests or alternate targets.
       allowed = false;
       reason = 'BROWSER_PANEL_UNEXPECTED_FIELD';
+    } else if ([COMPUTER_USE_ACTIONS.BROWSER_BACK,
+      COMPUTER_USE_ACTIONS.BROWSER_FORWARD, COMPUTER_USE_ACTIONS.BROWSER_RELOAD,
+      COMPUTER_USE_ACTIONS.BROWSER_NEW_TAB, COMPUTER_USE_ACTIONS.BROWSER_CLOSE_TAB].includes(step.action)
+      && !validBrowserWindowHandle(step.window_handle)) {
+      allowed = false;
+      reason = 'BROWSER_SHORTCUT_WINDOW_HANDLE_REQUIRED';
+    } else if ([COMPUTER_USE_ACTIONS.BROWSER_BACK,
+      COMPUTER_USE_ACTIONS.BROWSER_FORWARD, COMPUTER_USE_ACTIONS.BROWSER_RELOAD,
+      COMPUTER_USE_ACTIONS.BROWSER_NEW_TAB, COMPUTER_USE_ACTIONS.BROWSER_CLOSE_TAB].includes(step.action)
+      && Object.keys(submittedSteps[decisions.length] ?? {}).some(field =>
+        !['id', 'action', 'window_handle'].includes(field))) {
+      // Legacy shortcuts must not silently act on another browser window,
+      // discard an alternate URL, or ignore any other owner-supplied target.
+      allowed = false;
+      reason = 'BROWSER_SHORTCUT_UNEXPECTED_FIELD';
     } else if (step.action === COMPUTER_USE_ACTIONS.BROWSER_FIND
       && !validBrowserWindowHandle(step.window_handle)) {
       allowed = false;
