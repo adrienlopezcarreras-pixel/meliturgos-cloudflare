@@ -130,7 +130,8 @@ test('Companion USB preflight preserves Windows PowerShell UTF-8 and surfaces re
  assert.match(helper,/Failed probe:/);
  assert.match(helper,/probe\.exit_code/);
  assert.match(helper,/probeName/);
- assert.match(helper,/\$probe\.\$streamName/);
+ assert.match(helper,/streamProperty = \$probe\.PSObject\.Properties\[\$streamName\]/);
+ assert.match(helper,/\$streamProperty\.Value/);
  assert.match(helper,/\[truncated\]/);
  assert.match(helper,/Partition table valid:/);
  assert.match(helper,/OTA metadata unambiguous:/);
