@@ -125,15 +125,16 @@ test('successful releases do not recursively re-dispatch when main is already cu
   assert.ok(touched.every(line => line.startsWith('GET ')));
 });
 
-test('completed main-ref production dispatch safely catches up after success or failure', () => {
+test('completed main dispatches and release-pointer pushes safely catch up after success or failure', () => {
   const yaml = readFileSync(new URL('../.github/workflows/mel-autonomous-production-release.yml', import.meta.url), 'utf8');
   assert.ok(yaml.includes('  workflow_run:'));
   assert.ok(yaml.includes('      - completed'));
   assert.ok(yaml.includes("github.event.workflow_run.head_branch == 'main'"));
   assert.ok(yaml.includes("github.event.workflow_run.event == 'workflow_dispatch'"));
+  assert.ok(yaml.includes("github.event.workflow_run.head_branch == 'release/mel-hardware-v0.1.0'"));
+  assert.ok(yaml.includes("github.event.workflow_run.event == 'push'"));
   assert.ok(yaml.includes("github.event.workflow_run.conclusion == 'success'"));
   assert.ok(yaml.includes("github.event.workflow_run.conclusion == 'failure'"));
-  assert.ok(!yaml.includes("github.event.workflow_run.head_branch == 'release/mel-hardware-v0.1.0'"));
   assert.ok(yaml.includes('MEL_CATCHUP_COMPLETED_SHA:'));
   assert.ok(yaml.includes('github.event.workflow_run.head_sha'));
 });
