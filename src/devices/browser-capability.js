@@ -185,6 +185,35 @@ export function evaluateBrowserPlan(input = {}) {
   if (request.sandbox.allowed_origins.length === 0) return result(request, false, 'BROWSER_ALLOWED_ORIGINS_REQUIRED', decisions);
   if (request.steps.length === 0) return result(request, false, 'BROWSER_STEPS_REQUIRED', decisions);
 
+  // Normalization is lossy: never approve and execute only a prefix of a plan
+  // or a clipped target, typed secret, uploaded file or allowlisted header.
+  const submittedSteps = Array.isArray(input.steps) ? input.steps : [];
+  if (submittedSteps.length > request.sandbox.max_steps) {
+    return result(request, false, 'BROWSER_STEP_LIMIT_EXCEEDED', decisions);
+  }
+  const stringFields = [
+    ['id', MAX_ID], ['action', 160], ['url', MAX_URL],
+    ['selector', MAX_SELECTOR], ['file_name', MAX_FILE_NAME],
+    ['mime_type', MAX_MIME_TYPE],
+  ];
+  if (submittedSteps.some(step => stringFields.some(([field, limit]) =>
+    typeof step?.[field] === 'string' && step[field].length > limit))) {
+    return result(request, false, 'BROWSER_STEP_FIELD_LIMIT_EXCEEDED', decisions);
+  }
+  if (submittedSteps.some(step => typeof step?.text === 'string' && step.text.length > MAX_TEXT)) {
+    return result(request, false, 'BROWSER_TEXT_LIMIT_EXCEEDED', decisions);
+  }
+  if (submittedSteps.some(step => typeof step?.file_text === 'string'
+    && step.file_text.length > MAX_FILE_TEXT)) {
+    return result(request, false, 'BROWSER_FILE_TEXT_LIMIT_EXCEEDED', decisions);
+  }
+  if (submittedSteps.some(step => step?.headers && typeof step.headers === 'object'
+    && !Array.isArray(step.headers) && Object.entries(step.headers).some(([name, value]) =>
+      ALLOWED_BROWSER_HEADERS.has(name.trim().toLowerCase())
+      && typeof value === 'string' && value.length > MAX_HEADER_VALUE))) {
+    return result(request, false, 'BROWSER_HEADER_VALUE_LIMIT_EXCEEDED', decisions);
+  }
+
   const stepIds = new Set();
   for (const step of request.steps) {
     const risk = classifyBrowserAction(step.action);
