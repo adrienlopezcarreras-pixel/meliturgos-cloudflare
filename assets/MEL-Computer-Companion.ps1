@@ -299,9 +299,11 @@ function Upload-Screenshot([string]$commandId) {
   return Invoke-RestMethod -Uri $uri -Method Post -Headers (Headers) -ContentType "image/png" -Body $bytes -TimeoutSec 30
 }
 
-function Upload-BrowserScreenshot([string]$commandId, [System.Drawing.Rectangle]$bounds) {
+function Upload-BrowserScreenshot([string]$commandId, [System.Drawing.Rectangle]$bounds, [IntPtr]$window, [string]$browser) {
   Assert-LocalRemoteAccess
   [byte[]]$bytes = Capture-PngBytes $bounds
+  # Fail closed if another app takes focus while the pixels are being captured.
+  if ([MelNative]::GetForegroundWindow() -ne $window -or (Assert-ForegroundBrowser) -ne $browser) { throw "BROWSER_CAPTURE_FOCUS_CHANGED" }
   if ($bytes.Length -lt 8 -or $bytes.Length -gt (5 * 1024 * 1024)) { throw "SCREENSHOT_BINARY_PAYLOAD_INVALID" }
   Assert-LocalRemoteAccess
   $uri = "$Server/api/computer/v1/screenshot?command_id=$([uri]::EscapeDataString($commandId))"
@@ -2449,7 +2451,7 @@ function Perform-Step($step, [string]$commandId, [string]$planSchema="") {
       if ($right -le $left -or $bottom -le $top) { throw "BROWSER_CAPTURE_WINDOW_BOUNDS_INVALID" }
       if ([MelNative]::GetForegroundWindow() -ne $window -or (Assert-ForegroundBrowser) -ne $browser) { throw "BROWSER_CAPTURE_FOCUS_CHANGED" }
       $bounds = [System.Drawing.Rectangle]::new($left, $top, ($right - $left), ($bottom - $top))
-      $shot = Upload-BrowserScreenshot $commandId $bounds
+      $shot = Upload-BrowserScreenshot $commandId $bounds $window $browser
       if ([string]$shot.key -eq '' -or [string]$shot.view_url -eq '' -or
           [string]$shot.key -notlike "computer/screenshots/$ComputerId/*") { throw "SCREENSHOT_UPLOAD_UNCONFIRMED" }
       return @{ action=$action; browser=$browser; screenshot_key=$shot.key; view_url=$shot.view_url; full_desktop_capture=$false; window_only_capture=$true }
