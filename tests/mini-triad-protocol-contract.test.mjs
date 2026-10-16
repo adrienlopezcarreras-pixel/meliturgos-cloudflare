@@ -39,8 +39,9 @@ test('canonical Link V2 contract agrees with firmware and Android frame ABI', as
 });
 
 test('canonical Link V2 audio, timing, credit and cancellation values agree with implementation', async () => {
-  const [miniAudio, miniAdpcm, androidSynth, androidAdpcm, androidClient] = await Promise.all([
+  const [miniAudio, miniTransport, miniAdpcm, androidSynth, androidAdpcm, androidClient] = await Promise.all([
     read('firmware/waveshare-terminal/main/mel_terminal.cpp'),
+    read('firmware/waveshare-terminal/main/mel_link_v2_transport.cpp'),
     read('firmware/waveshare-terminal/main/mel_ima_adpcm.h'),
     read('android-companion/app/src/main/java/fr/veriteinterdite/mel/MelMiniVoiceSynthesizer.kt'),
     read('android-companion/app/src/main/java/fr/veriteinterdite/mel/MelImaAdpcm.kt'),
@@ -49,6 +50,10 @@ test('canonical Link V2 audio, timing, credit and cancellation values agree with
   assert.match(miniAudio, new RegExp('VOICE_CAPTURE_RATE\\s*=\\s*' + contract.audio.microphoneCaptureRateHz));
   assert.match(miniAudio, new RegExp('VOICE_STT_RATE\\s*=\\s*' + contract.audio.sttInputRateHz));
   assert.match(miniAudio, /decimate_48k_to_16k/);
+  assert.match(miniAudio, new RegExp('sample_rate != ' + contract.audio.physicalPlaybackRateHz));
+  assert.match(miniAudio, new RegExp('bits_per_sample != ' + contract.audio.pcmBitsPerSample));
+  assert.match(miniTransport, new RegExp('rate->valueint == ' + contract.audio.audioMetadataRateHz));
+  assert.match(miniTransport, new RegExp('output_rate->valueint == ' + contract.audio.audioMetadataRateHz));
   assert.match(androidSynth, /OUTPUT_RATE = 48_000/);
   assert.match(miniAdpcm, new RegExp('MEL_IMA_ADPCM_BLOCK_SAMPLES\\s+' + contract.audio.imaAdpcmMaximumBlockSamples));
   assert.match(androidAdpcm, new RegExp('BLOCK_SAMPLES = ' + contract.audio.imaAdpcmMaximumBlockSamples));
