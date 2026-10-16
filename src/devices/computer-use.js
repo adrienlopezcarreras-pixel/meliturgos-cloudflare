@@ -131,6 +131,9 @@ function validBrowserWindowHandle(value) {
     && BigInt(value) <= 9223372036854775807n;
 }
 
+const FIND_CYCLE_IGNORED_FIELDS = Object.freeze([
+  'text', 'url', 'key', 'app', 'path', 'x', 'y', 'delta_x', 'delta_y',
+]);
 const BROWSER_NAVIGATION_KEYS = new Set([
   'ENTER', 'RETURN', 'TAB', 'ESC', 'ESCAPE', 'BACKSPACE', 'DELETE',
   'UP', 'DOWN', 'LEFT', 'RIGHT', 'HOME', 'END', 'PGUP', 'PGDN',
@@ -338,6 +341,12 @@ export function evaluateComputerUsePlan(input = {}) {
       && !validBrowserWindowHandle(step.window_handle)) {
       allowed = false;
       reason = 'BROWSER_FIND_CYCLE_WINDOW_HANDLE_REQUIRED';
+    } else if ((step.action === COMPUTER_USE_ACTIONS.BROWSER_FIND_NEXT
+      || step.action === COMPUTER_USE_ACTIONS.BROWSER_FIND_PREVIOUS)
+      && FIND_CYCLE_IGNORED_FIELDS.some(field =>
+        Object.prototype.hasOwnProperty.call(submittedSteps[decisions.length] ?? {}, field))) {
+      allowed = false;
+      reason = 'BROWSER_FIND_CYCLE_UNEXPECTED_FIELD';
     } else if (step.action === COMPUTER_USE_ACTIONS.BROWSER_FIND
       && !validBrowserWindowHandle(step.window_handle)) {
       allowed = false;
