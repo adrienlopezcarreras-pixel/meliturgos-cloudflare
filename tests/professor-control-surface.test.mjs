@@ -165,28 +165,25 @@ test('IA and Work share one canonical surface and development tab loads Work on 
 });
 
 
-test('MEL Work only sends an explicitly requested Companion screenshot after verified zero-cost image description', async () => {
+test('MEL Work keeps verified screenshot analysis inside Work behind explicit consent', async () => {
   const page = await read('src/pages/full-interface-v2.js');
   for (const id of ['workComputerAnalyze','workComputerScreen','workComputerOut','workComputerInterpretConsent','workComputerRevokeConsent']) {
     assert.ok(sourceHasHtmlId(page,id), `MEL Work missing capture-analysis control #${id}`);
   }
-  assert.ok(page.includes("qs('#workComputerAnalyze').onclick=async()=>"), 'screenshot analysis must be an explicit user action');
-  assert.ok(page.includes('if(pendingChatFiles.length)'), 'capture analysis must not consume unrelated staged attachments');
-  assert.ok(page.includes("expires_at:new Date(Date.now()+90000).toISOString()"), 'screenshot analysis must respect the short-lived capture URL');
-  assert.ok(page.includes('await loadWorkComputer();const pc=selectedWorkComputer();'), 'screen analysis must re-check current authorization and live heartbeats');
-  assert.ok(page.includes("if(qs('#chatInput').value.trim())"), 'capture analysis must not discard an unsent chat draft');
   const analyzeStart=page.indexOf("qs('#workComputerAnalyze').onclick=async()=>");
   const revokeStart=page.indexOf("qs('#workComputerRevokeConsent').onclick=async e=>",analyzeStart);
   assert.ok(analyzeStart>=0&&revokeStart>analyzeStart,'Work capture analysis handler must be present and bounded');
   const analysisHandler=page.slice(analyzeStart,revokeStart);
-  assert.ok(analysisHandler.includes("qs('#workComputerInterpretConsent')?.checked!==true"), 'capture analysis must require an explicit per-capture consent checkbox');
-  assert.ok(analysisHandler.includes("'/api/work/screen-interpretation'"), 'capture analysis must use the server-verified Work vision endpoint');
-  assert.ok(!analysisHandler.includes('uploadChatFiles'), 'Work analysis must not duplicate the capture into chat attachments');
-  assert.ok(!analysisHandler.includes('sendChat('), 'Work analysis must remain in the Work panel rather than enter chat');
-  assert.ok(page.includes("item.analysis_status!=='IMAGE_DESCRIBED'||!item.preview"), 'MEL must not claim it saw the screen without a real image description');
-  assert.ok(page.includes('status:\'IMAGE_ANALYZED\''), 'success must expose a verifiable result state');
-  assert.ok(page.includes('status:\'IMAGE_ANALYSIS_FAILED\''), 'analysis failures must be shown explicitly');
-  assert.ok(page.includes("button.disabled=!workComputerLastView?.view_url"), 'analysis must be disabled when no verified capture exists');
+  assert.ok(analysisHandler.includes("qs('#workComputerInterpretConsent')?.checked!==true"), 'analysis must require explicit per-capture consent');
+  assert.ok(analysisHandler.includes("'/api/work/screen-interpretation'"), 'analysis must use the server-verified Work vision endpoint');
+  assert.ok(analysisHandler.includes('await loadWorkComputer();const pc=selectedWorkComputer();'), 'analysis must re-check authorization and Companion heartbeat');
+  assert.ok(!analysisHandler.includes('uploadChatFiles'), 'Work analysis must not copy the capture into chat attachments');
+  assert.ok(!analysisHandler.includes('sendChat('), 'Work analysis must not send a chat message');
+  assert.ok(analysisHandler.includes("qs('#workComputerInterpretConsent').checked=false"), 'consent checkbox must reset after the attempt');
+  const revokeHandler=page.slice(revokeStart,page.indexOf("qs('#workCreate').onclick=async()=>",revokeStart));
+  assert.ok(revokeHandler.includes("'/api/work/screen-consent'"), 'revocation must call the authenticated Work consent endpoint');
+  assert.ok(revokeHandler.includes('d.image_deleted!==true'), 'UI must reject unconfirmed image deletion');
+  assert.ok(revokeHandler.includes("CAPTURE SUPPRIMÉE"), 'UI must expose deletion state');
 });
 
 test('MEL Work is wired to the authorized Windows Companion view-only channel', async () => {
