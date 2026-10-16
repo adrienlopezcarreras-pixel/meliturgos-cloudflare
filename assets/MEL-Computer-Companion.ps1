@@ -301,6 +301,8 @@ function Upload-Screenshot([string]$commandId) {
 
 function Upload-BrowserScreenshot([string]$commandId, [System.Drawing.Rectangle]$bounds, [IntPtr]$window, [string]$browser) {
   Assert-LocalRemoteAccess
+  # Revalidate the exact approved browser before reading any screen pixels.
+  if ([MelNative]::GetForegroundWindow() -ne $window -or (Assert-ForegroundBrowser) -ne $browser) { throw "BROWSER_CAPTURE_FOCUS_CHANGED" }
   [byte[]]$bytes = Capture-PngBytes $bounds
   # Fail closed if another app takes focus while the pixels are being captured.
   if ([MelNative]::GetForegroundWindow() -ne $window -or (Assert-ForegroundBrowser) -ne $browser) { throw "BROWSER_CAPTURE_FOCUS_CHANGED" }
