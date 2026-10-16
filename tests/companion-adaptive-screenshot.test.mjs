@@ -8,7 +8,7 @@ test('Companion asset and packaged script use the same bounded PNG capture path'
  const api=await readFile(new URL('../src/devices/computer-companion-api.js',import.meta.url),'utf8');
  assert.equal(asset,packaged,'Packaged Companion must include exact same capture code');
  assert.match(api,/bytes\.byteLength>5\*1024\*1024/);
- const start=asset.indexOf('function Capture-PngBytes {');
+ const start=asset.indexOf('function Capture-PngBytes(');
  const end=asset.indexOf('function Upload-Screenshot(',start);
  assert.ok(start>=0&&end>start);
  const capture=asset.slice(start,end);
