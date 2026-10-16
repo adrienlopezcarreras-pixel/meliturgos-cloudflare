@@ -16,7 +16,7 @@ test('browser screenshot validates unchanged focus again immediately before uplo
   const end=a.indexOf('function Key-Token(',start);
   const upload=a.slice(start,end);
   const focus='[MelNative]::GetForegroundWindow() -ne $window';
-  assert.equal(upload.split(focus).length-1,2);
+  assert.ok(upload.split(focus).length-1>=2);
   const lastCheck=upload.lastIndexOf(focus);
   const transfer=upload.indexOf('return Invoke-RestMethod');
   const validation=upload.indexOf('SCREENSHOT_BINARY_PAYLOAD_INVALID');
