@@ -221,7 +221,7 @@ test("ADB monitor applies the same secret redaction and length bound to JSON sta
  assert.match(script, /Write-AdbLog .*\$safeReason/);
  assert.doesNotMatch(script, /error_detail=\(\[string\]\$reason/);
  assert.match(script, /\(\?:\(\?:bearer\|basic\|token\)\\s\+\)\?/);
- const redact = value => value.replace(/(pairing\\s*code|password|token|authorization)\\s*[:=]\\s*(?:(?:bearer|basic|token)\\s+)?\\S+/gi, '$1=[REDACTED]');
+ const redact = value => value.replace(/(pairing\s*code|password|token|authorization)\s*[:=]\s*(?:(?:bearer|basic|token)\s+)?\S+/gi, '$1=[REDACTED]');
  for (const input of [
    'Authorization: Bearer SUPERSENSITIVE123',
    'authorization=Basic SUPERSENSITIVE123',
