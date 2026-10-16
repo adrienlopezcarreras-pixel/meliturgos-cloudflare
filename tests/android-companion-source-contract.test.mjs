@@ -987,7 +987,7 @@ test('OK MEL background microphone requires explicit opt-in and provides immedia
 
 
 test('MINI server TTS fallback reports BLE audio-send failure unless the stream was cancelled', async () => {
-  const service = await readFile(new URL('android-companion/app/src/main/java/fr/veriteinterdite/mel/MelLinkV2ClientService.kt', root), 'utf8');
+  const service = await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelLinkV2ClientService.kt', root), 'utf8');
   const start = service.indexOf('if (status in 200..299 && path == "/api/device/v1/voice/tts")');
   const end = service.indexOf('} catch (error: Throwable)', start);
   const fallback = service.slice(start, end);
