@@ -9,6 +9,9 @@ typedef void (*mel_link_v2_state_cb)(bool ready, void *ctx);
 
 esp_err_t mel_link_v2_server_start(void);
 bool mel_link_v2_server_ready(void);
+// Returns a fresh passkey only while an authenticated BLE passkey pairing is pending.
+// Call from the LVGL UI task; passkeys are never logged or sent over Link V2.
+bool mel_link_v2_server_pairing_passkey(uint32_t *passkey_out);
 uint16_t mel_link_v2_server_mtu(void);
 void mel_link_v2_server_set_rx_callback(mel_link_v2_rx_cb cb, void *ctx);
 void mel_link_v2_server_set_state_callback(mel_link_v2_state_cb cb, void *ctx);
