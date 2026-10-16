@@ -19,6 +19,7 @@ export const COMPUTER_USE_ACTIONS = Object.freeze({
   BROWSER_NAVIGATE: 'browser.navigate',
   BROWSER_INSPECT: 'browser.inspect',
   BROWSER_CAPTURE: 'browser.capture',
+  BROWSER_CLICK: 'browser.click',
   BROWSER_BACK: 'browser.back',
   BROWSER_NEW_TAB: 'browser.new-tab',
   BROWSER_CLOSE_TAB: 'browser.close-tab',
@@ -42,6 +43,7 @@ const ACTION_RISK = new Map([
   [COMPUTER_USE_ACTIONS.BROWSER_NAVIGATE, COMPUTER_USE_RISK.SENSITIVE],
   [COMPUTER_USE_ACTIONS.BROWSER_INSPECT, COMPUTER_USE_RISK.OBSERVE],
   [COMPUTER_USE_ACTIONS.BROWSER_CAPTURE, COMPUTER_USE_RISK.SENSITIVE],
+  [COMPUTER_USE_ACTIONS.BROWSER_CLICK, COMPUTER_USE_RISK.SENSITIVE],
   [COMPUTER_USE_ACTIONS.BROWSER_BACK, COMPUTER_USE_RISK.SENSITIVE],
   [COMPUTER_USE_ACTIONS.BROWSER_NEW_TAB, COMPUTER_USE_RISK.SENSITIVE],
   [COMPUTER_USE_ACTIONS.BROWSER_CLOSE_TAB, COMPUTER_USE_RISK.SENSITIVE],
@@ -189,6 +191,10 @@ export function normalizeComputerUseRequest(input = {}) {
       delta_x: numeric(step?.delta_x),
       delta_y: numeric(step?.delta_y),
       key: boundedText(step?.key, 80),
+      // Unmodified inspection HWND: a numeric handle is accepted only when exact in JS.
+      window_handle: typeof step?.window_handle === 'string'
+        ? step.window_handle
+        : Number.isSafeInteger(step?.window_handle) ? String(step.window_handle) : '',
     })),
   };
 }
@@ -252,6 +258,19 @@ export function evaluateComputerUsePlan(input = {}) {
         || !suppliedSafeInteger(submittedSteps[decisions.length]?.y))) {
       allowed = false;
       reason = 'POINTER_COORDINATES_INVALID';
+    } else if (step.action === COMPUTER_USE_ACTIONS.BROWSER_CLICK
+      && (!suppliedSafeInteger(submittedSteps[decisions.length]?.x)
+        || !suppliedSafeInteger(submittedSteps[decisions.length]?.y)
+        || Number(submittedSteps[decisions.length].x) < -2147483648
+        || Number(submittedSteps[decisions.length].x) > 2147483647
+        || Number(submittedSteps[decisions.length].y) < -2147483648
+        || Number(submittedSteps[decisions.length].y) > 2147483647)) {
+      allowed = false;
+      reason = 'BROWSER_CLICK_COORDINATES_INVALID';
+    } else if (step.action === COMPUTER_USE_ACTIONS.BROWSER_CLICK
+      && !/^[1-9][0-9]{0,18}$/.test(step.window_handle)) {
+      allowed = false;
+      reason = 'BROWSER_CLICK_WINDOW_HANDLE_REQUIRED';
     } else if (step.action === COMPUTER_USE_ACTIONS.SCROLL
       && (!suppliedSafeInteger(submittedSteps[decisions.length]?.delta_y)
         || Number(submittedSteps[decisions.length].delta_y) === 0)) {
