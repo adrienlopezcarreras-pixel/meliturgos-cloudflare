@@ -11,7 +11,7 @@ $adb=@((Join-Path $env:LOCALAPPDATA "Android\platform-tools\adb.exe"),(Join-Path
 if (-not $adb) { $cmd=Get-Command adb.exe -ErrorAction SilentlyContinue; if ($cmd) { $adb=$cmd.Source } }
 function ConvertTo-SafeAdbDetail([string]$value) {
   # Use the same redaction rules for the JSON status and local log.
-  $safe = [string]($value -replace '(?i)(pairing\s*code|password|token|authorization)\s*[:=]\s*\S+', '$1=[REDACTED]' -replace '[\r\n\t]+', ' ')
+  $safe = [string]($value -replace '(?i)(pairing\s*code|password|token|authorization)\s*[:=]\s*(?:(?:bearer|basic|token)\s+)?\S+', '$1=[REDACTED]' -replace '[\r\n\t]+', ' ')
   if ($safe.Length -gt 240) { return $safe.Substring(0,240) }
   return $safe
 }
