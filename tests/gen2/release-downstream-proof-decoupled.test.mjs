@@ -30,7 +30,7 @@ test('decoupled MEL-FILE proof mirrors the successful canonical browser shape af
   assert.match(fileBlock,/GO_FOR_SUPERVISED_AUTONOMY/);
   assert.match(fileBlock,/candidate_sha/);
   assert.match(fileBlock,/for ATTEMPT in \$\(seq 1 300\)/);
-  assert.match(fileBlock,/MEL-FILE proof waiting for exact-SHA release readiness; attempt \\\$\{ATTEMPT\}\/300/);
+  assert.ok(fileBlock.includes('MEL-FILE proof waiting for exact-SHA release readiness; attempt ${ATTEMPT}/300'));
   assert.match(fileBlock,/timeout-minutes:\s*45/);
   assert.match(fileBlock,/MEL-FILE target SHA is no longer deployed/);
   assert.match(fileBlock,/mel-file-current-sha\.json/);
