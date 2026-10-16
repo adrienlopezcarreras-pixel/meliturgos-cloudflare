@@ -99,6 +99,9 @@ export function createGeminiChatAdapter({
       };
       const response=await fetchImpl(target,{
         method:'POST',
+        // Redirects can silently forward prompts or bearer credentials to a
+        // different origin (or downgrade to plaintext). Fail closed.
+        redirect:'error',
         headers:{'content-type':'application/json','x-goog-api-key':secret},
         body:JSON.stringify(payload),
         signal,
@@ -158,6 +161,9 @@ export function createHttpChatAdapter({
       if(secretEnv && !secret) throw Object.assign(new Error('HTTP_CHAT_SECRET_REQUIRED'),{code:'HTTP_CHAT_SECRET_REQUIRED',status:503});
       const response=await fetchImpl(target,{
         method:'POST',
+        // Redirects can silently forward prompts or bearer credentials to a
+        // different origin (or downgrade to plaintext). Fail closed.
+        redirect:'error',
         headers:{
           'content-type':'application/json',
           ...(secret?{authorization:`Bearer ${secret}`}:{}),
