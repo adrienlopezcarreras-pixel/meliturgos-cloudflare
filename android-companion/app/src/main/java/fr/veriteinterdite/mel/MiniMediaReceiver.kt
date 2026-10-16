@@ -209,7 +209,7 @@ class MiniMediaReceiver(private val context: Context) {
     ) {
         if (width !in 80..1920 || height !in 80..1920) return
         val temp = File.createTempFile("mel-mini-video-", ".avi", context.cacheDir)
-        val budget = MiniVideoTransferBudget()
+        val budget = MiniVideoTransferBudget(fps)
         try {
             AviMjpegWriter(temp, width, height, fps).use { avi ->
                 while (true) {
