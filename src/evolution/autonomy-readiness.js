@@ -1,4 +1,5 @@
 import { AutonomySupervisor, isSupervisedAutonomyJob } from './autonomy-supervisor.js';
+import { isVerifiedRuntimeWorkProof } from './autonomy-proof-identity.js';
 import { REQUIRED_COUNCIL_ROLE_IDS } from '../teachers/augmentio-council.js';
 
 function asArray(value) {
@@ -69,23 +70,16 @@ function councilProof(job) {
 
 function workDagProof(job) {
   const proof = job?.result_json?.autonomy_proofs?.work_dag_resume;
-  if (!proof || proof.status !== 'VERIFIED') return null;
-  // Runtime evidence must belong to the job that is claiming readiness.
-  // Legacy evidence without target_job_id remains readable, but a mismatch
-  // is never silently accepted.
-  if (proof.target_job_id != null && String(proof.target_job_id) !== String(job.id)) return null;
+  // Legacy counter-only evidence cannot establish independent AI models.
+  if (!isVerifiedRuntimeWorkProof(proof, job.id)) return null;
   const attempted = proof.providers_attempted;
   const successful = proof.successful_candidates;
-  // Never count NaN, Infinity, numeric strings or impossible success totals as proof.
-  if (proof.recovered_interrupted_node !== true
-    || !Number.isSafeInteger(attempted) || attempted < 2
-    || !Number.isSafeInteger(successful) || successful < 1
-    || successful > attempted) return null;
   return {
     job_id: job.id,
     verified_at: proof.verified_at || null,
     recovered_interrupted_node: true,
     providers_attempted: attempted,
+    provider_model_identities: proof.provider_model_identities.map(row => ({ provider: row.provider, model: row.model })),
     successful_candidates: successful,
     zero_added_cost_policy: proof.zero_added_cost_policy || null,
   };
