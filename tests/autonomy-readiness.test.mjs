@@ -238,3 +238,31 @@ test('Council without completed MEL synthesis cannot prove autonomy readiness',a
   assert.equal(state.gates.live_council_zero_cost,false);
   assert.equal(state.gates.coherent_single_job_loop,false);
 });
+
+test('autonomous readiness rejects mismatched CI identity even when VERIFIED is asserted', async () => {
+  const tamperCases = [
+    completion => { completion.ci.head_sha = 'c'.repeat(40); },
+    completion => { completion.ci.head_branch = 'candidate/different'; },
+    completion => { completion.candidate_sha = 'c'.repeat(40); },
+    completion => { completion.candidate_branch = 'candidate/different'; },
+    completion => { completion.ci.run_id = 0; },
+    completion => { completion.ci.run_id = '4242'; },
+    completion => { delete completion.ci.head_sha; },
+    completion => { delete completion.ci.head_branch; },
+    completion => { delete completion.candidate_sha; },
+    completion => { delete completion.candidate_branch; },
+    completion => { completion.ci.run_id = Number.MAX_SAFE_INTEGER + 1; },
+  ];
+  for (const mutate of tamperCases) {
+    const repository = await completeEvidenceRepository();
+    const job = await repository.get('ready-job');
+    const result = structuredClone(job.result_json);
+    mutate(result.autonomy_completion);
+    await repository.update('ready-job', { result_json: result });
+    const readiness = await getAutonomyReadiness({ repository });
+    assert.equal(readiness.gates.ci_verified_candidate_completion, false);
+    assert.equal(readiness.gates.coherent_single_job_loop, false);
+    assert.equal(readiness.self_development_ready, false);
+    assert.ok(readiness.blockers.includes('CI_VERIFIED_AUTONOMOUS_COMPLETION_NOT_PROVEN'));
+  }
+});
