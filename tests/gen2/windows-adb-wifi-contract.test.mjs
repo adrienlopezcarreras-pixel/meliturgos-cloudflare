@@ -206,7 +206,7 @@ test("ADB status publication writes complete JSON before replacing the prior rep
 
 test("Companion never treats an ADB report older than 75 seconds or far in the future as current", async () => {
  const native = await source("windows-companion/MEL-Companion.cs");
- assert.match(native, /TotalSeconds\) >= -30/);
- assert.match(native, /TotalSeconds\) < 75/);
- assert.doesNotMatch(native, /TotalMinutes\) < 2/);
+ assert.match(native, /\.TotalSeconds >= -30/);
+ assert.match(native, /\.TotalSeconds < 75/);
+ assert.doesNotMatch(native, /\.TotalMinutes < 2/);
 });
