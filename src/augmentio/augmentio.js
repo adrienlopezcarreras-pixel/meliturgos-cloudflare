@@ -212,7 +212,13 @@ export class Augmentio {
         this.quota.recordFailure(provider.id, error);
         throw error;
       }
-    }, { signal });
+    }, {
+      signal,
+      // Independent AI adapters must have independent circuit breakers.
+      // Grouping by providerId ("workers-ai") would let a broken model
+      // disable healthy sibling models sharing the same transport.
+      getProviderId: (provider) => provider.id,
+    });
 
     // A cancelled multi-AI run is never a partial success, even if one
     // provider completed before cancellation. Never cache a cancelled batch.
