@@ -55,6 +55,7 @@ test('stale queued release selection is exact-SHA, release-branch scoped, and ne
 
 test('stale pending release is cancelled only after a fresh status read; active release remains blocking', async () => {
   const calls=[];
+  let cancellationRequested = false;
   let activeRuns = [
     {id:100,name:'deploy-cloudflare-release',head_branch:RELEASE_BRANCH,head_sha:OLD_SHA,status:'in_progress'},
     {id:101,name:'deploy-cloudflare-release',head_branch:RELEASE_BRANCH,head_sha:OLD_SHA,status:'pending'},
@@ -65,8 +66,9 @@ test('stale pending release is cancelled only after a fresh status read; active 
     if(path.endsWith('/branches/main'))return {ok:true,status:200,json:async()=>({protected:true,commit:{sha:MAIN_SHA}})};
     if(path.endsWith('/branches/'+RELEASE_BRANCH))return {ok:true,status:200,json:async()=>({protected:true,commit:{sha:OLD_SHA}})};
     if(path.endsWith('/actions/workflows/deploy-cloudflare-release.yml/runs'))return {ok:true,status:200,json:async()=>({workflow_runs:activeRuns})};
-    if(path.endsWith('/actions/runs/101'))return {ok:true,status:200,json:async()=>({id:101,name:'deploy-cloudflare-release',head_branch:RELEASE_BRANCH,head_sha:OLD_SHA,status:'pending'})};
+    if(path.endsWith('/actions/runs/101'))return {ok:true,status:200,json:async()=>({id:101,name:'deploy-cloudflare-release',head_branch:RELEASE_BRANCH,head_sha:OLD_SHA,status:cancellationRequested?'completed':'pending',conclusion:cancellationRequested?'cancelled':null})};
     if(path.endsWith('/actions/runs/101/cancel')&&request.method==='POST'){
+      cancellationRequested = true;
       activeRuns=activeRuns.filter(row=>row.id!==101);
       return {ok:true,status:202,json:async()=>null};
     }
@@ -80,6 +82,55 @@ test('stale pending release is cancelled only after a fresh status read; active 
   assert.ok(calls.some(x=>x.path.endsWith('/actions/runs/101')&&x.method==='GET'));
   assert.ok(calls.some(x=>x.path.endsWith('/actions/runs/101/cancel')&&x.method==='POST'));
   assert.ok(!calls.some(x=>x.path.endsWith('/dispatches')||x.method==='PATCH'), 'must neither promote nor dispatch while active deployment is running');
+});
+
+test('a cancelled stale run is ignored only after its detail endpoint confirms completion when the run list is stale', async () => {
+  const calls = [];
+  let releaseSha = OLD_SHA;
+  let cancellationRequested = false;
+  const staleRunList = [{
+    id: 201,
+    name: 'deploy-cloudflare-release',
+    head_branch: RELEASE_BRANCH,
+    head_sha: OLD_SHA,
+    status: 'pending',
+  }];
+  const fetchImpl = async (url, request) => {
+    const path = new URL(url).pathname;
+    calls.push({ path, method: request.method, body: request.body && JSON.parse(request.body) });
+    if (path.endsWith('/branches/main')) return { ok: true, status: 200, json: async () => ({ protected: true, commit: { sha: MAIN_SHA } }) };
+    if (path.endsWith('/branches/' + RELEASE_BRANCH)) return { ok: true, status: 200, json: async () => ({ protected: true, commit: { sha: releaseSha } }) };
+    if (path.endsWith('/actions/workflows/deploy-cloudflare-release.yml/runs')) return { ok: true, status: 200, json: async () => ({ workflow_runs: staleRunList }) };
+    if (path.endsWith('/actions/runs/201')) return { ok: true, status: 200, json: async () => ({
+      id: 201,
+      name: 'deploy-cloudflare-release',
+      head_branch: RELEASE_BRANCH,
+      head_sha: OLD_SHA,
+      status: cancellationRequested ? 'completed' : 'pending',
+      conclusion: cancellationRequested ? 'cancelled' : null,
+    }) };
+    if (path.endsWith('/actions/runs/201/cancel') && request.method === 'POST') {
+      cancellationRequested = true;
+      // Simulate GitHub's list endpoint briefly remaining stale after the
+      // individual workflow-run endpoint reports the cancellation.
+      return { ok: true, status: 202, json: async () => null };
+    }
+    if (path.endsWith('/git/refs/heads/' + RELEASE_BRANCH) && request.method === 'PATCH') {
+      releaseSha = request.body ? JSON.parse(request.body).sha : MAIN_SHA;
+      return { ok: true, status: 200, json: async () => ({}) };
+    }
+    if (path.endsWith('/actions/workflows/deploy-cloudflare-release.yml/dispatches')) {
+      return { ok: true, status: 204, json: async () => null };
+    }
+    throw new Error('UNEXPECTED_ROUTE:' + request.method + ':' + path);
+  };
+
+  const result = await requestAutonomousRelease({ token: 'TEST_ONLY', fetchImpl, sleepImpl: async () => {} });
+  assert.equal(result.accepted, true);
+  assert.equal(result.main_sha, MAIN_SHA);
+  assert.ok(calls.some(row => row.path.endsWith('/actions/runs/201/cancel') && row.method === 'POST'));
+  assert.ok(calls.filter(row => row.path.endsWith('/actions/runs/201') && row.method === 'GET').length >= 2);
+  assert.ok(calls.some(row => row.path.endsWith('/dispatches') && row.method === 'POST'));
 });
 
 test('a queued candidate that starts before cancellation is not cancelled', async () => {
