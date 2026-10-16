@@ -11,7 +11,8 @@ const identities = [
 ];
 const validProof = () => ({
   status: 'VERIFIED',
-  version: 3,
+  version: 4,
+  runtime_fanout_cache_hit: false,
   target_job_id: 'job-1',
   recovered_interrupted_node: true,
   providers_attempted: 2,
@@ -31,6 +32,8 @@ test('Work DAG proof requires two distinct actual model identities, not just two
     { providers_attempted: 3 },
     { successful_candidates: 3 },
     { target_job_id: 'job-2' },
+    { runtime_fanout_cache_hit: true },
+    { version: 3 },
   ];
   for (const changes of invalid) {
     assert.equal(isVerifiedRuntimeWorkProof({ ...validProof(), ...changes }, 'job-1'), false,
@@ -40,6 +43,7 @@ test('Work DAG proof requires two distinct actual model identities, not just two
 
 test('real fanout identity extraction rejects duplicated attempts and adapter aliases of the same model', () => {
   const base = {
+    cacheHit: false,
     providersAttempted: ['adapter-a', 'adapter-b'],
     providerHealth: [
       { id: 'adapter-a', provider: 'workers-ai', model: 'llama' },
@@ -48,6 +52,8 @@ test('real fanout identity extraction rejects duplicated attempts and adapter al
   };
   assert.deepEqual(distinctModelIdentitiesFromFanout(base), identities);
   const invalid = [
+    { ...base, cacheHit: true },
+    { ...base, cacheHit: undefined },
     { ...base, providersAttempted: ['adapter-a', 'adapter-a'] },
     { ...base, providerHealth: [
       base.providerHealth[0],
@@ -59,6 +65,7 @@ test('real fanout identity extraction rejects duplicated attempts and adapter al
   ];
   for (const result of invalid) {
     assert.throws(() => distinctModelIdentitiesFromFanout(result),
-      error => error.code === 'RUNTIME_WORK_DAG_MULTI_AI_NOT_PROVEN');
+      error => ['RUNTIME_WORK_DAG_MULTI_AI_NOT_PROVEN',
+        'RUNTIME_WORK_DAG_LIVE_AI_NOT_PROVEN'].includes(error.code));
   }
 });
