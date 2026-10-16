@@ -9,7 +9,7 @@ test('MINI video rejects frame read crossing 180s and never publishes timed-out 
   assert.ok(start>=0 && end>start);
   const fn=src.slice(start,end);
   const reserve=fn.indexOf('if (!budget.reserve(size)) return');
-  const read=fn.indexOf('val jpeg = readFully(input, size)');
+  const read=fn.indexOf('val jpeg = MiniMediaChunkReader.read(input, size, socket, budget::remainingSocketTimeoutMs, budget::withinDeadline)');
   const check=fn.indexOf('if (!budget.withinDeadline()) return',read);
   const add=fn.indexOf('avi.addFrame(jpeg)');
   const last=fn.indexOf('if (framesReceived == 0 || !budget.withinDeadline()) return');
