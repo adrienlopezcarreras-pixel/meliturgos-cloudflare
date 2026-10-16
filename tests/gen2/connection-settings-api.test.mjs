@@ -205,6 +205,31 @@ test('retired direct-mail provider surface is absent', async () => {
   assert.equal(response, null);
 });
 
+test('paid Vercel endpoints fail closed before any provider request', async () => {
+  const runtimeEnv = env();
+  const originalFetch = globalThis.fetch;
+  let providerCalls = 0;
+  globalThis.fetch = async () => {
+    providerCalls += 1;
+    throw new Error('PAID_PROVIDER_REQUEST_MUST_NOT_RUN');
+  };
+  try {
+    for (const [action, method] of [['status','GET'], ['save','POST'], ['test','POST']]) {
+      const response = await call('/api/gen2/connections/vercel/' + action, {
+        method,
+        headers: { 'content-type': 'application/json' },
+        ...(method === 'POST' ? { body: '{}' } : {}),
+      }, runtimeEnv);
+      assert.equal(response.status, 409);
+      const body = await response.json();
+      assert.equal(body.code, 'PAID_PROVIDER_DISABLED_FREE_ONLY');
+    }
+    assert.equal(providerCalls, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('Yahoo/Ymail app password is encrypted and uses fixed IMAP/SMTP endpoints', async () => {
   const runtimeEnv = env();
   const response = await call('/api/gen2/connections/yahoo-imap/save', {
