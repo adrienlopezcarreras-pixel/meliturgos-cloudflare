@@ -444,7 +444,7 @@ test('GEN2-38 does not use the local release fallback for similar user-authored 
     bus.discover({
       id: 'augmentio.fanout', name: 'Fixture multi-AI', category: 'test', version: '1.0.0', provider: 'fixture',
       description: 'Valid generated plan fixture',
-      input_schema: { type: 'object', properties: { input: { type: 'string' } }, required: ['input'], additionalProperties: false },
+      input_schema: { type: 'object', properties: { capability: { type: 'string' }, input: { type: 'string' }, context: { type: 'object', additionalProperties: true }, maxCandidates: { type: 'integer' } }, required: ['capability', 'input', 'context', 'maxCandidates'], additionalProperties: false },
       output_schema: { type: 'object', additionalProperties: true },
       risk: 'LOW', permissions: [], health: 'HEALTHY', enabled: true,
     }, async () => {
@@ -483,7 +483,7 @@ test('GEN2-38 provider outage remains visible for non-canonical planning goals',
   bus.discover({
     id: 'augmentio.fanout', name: 'Fixture multi-AI', category: 'test', version: '1.0.0', provider: 'fixture',
     description: 'Provider outage fixture',
-    input_schema: { type: 'object', properties: { input: { type: 'string' } }, required: ['input'], additionalProperties: false },
+    input_schema: { type: 'object', properties: { capability: { type: 'string' }, input: { type: 'string' }, context: { type: 'object', additionalProperties: true }, maxCandidates: { type: 'integer' } }, required: ['capability', 'input', 'context', 'maxCandidates'], additionalProperties: false },
     output_schema: { type: 'object', additionalProperties: true },
     risk: 'LOW', permissions: [], health: 'HEALTHY', enabled: true,
   }, async () => { fanoutCalls += 1; return { candidates: [], failures: 2 }; });
