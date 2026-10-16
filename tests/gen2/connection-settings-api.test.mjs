@@ -540,7 +540,7 @@ test('Pipedream account status retries Development when Production account inven
         data: [
           { id: 'apn_outlook', healthy: true, app: { name_slug: 'microsoft_outlook' } },
           { id: 'apn_onedrive', healthy: true, app: { name_slug: 'microsoft_onedrive' } },
-          { id: 'apn_unsupported_paid', healthy: true, app: { name_slug: 'unsupported_paid_app' } },
+          { id: 'apn_unsupported_paid', healthy: false, dead: true, app: { name_slug: 'unsupported_paid_app' } },
           { id: 'apn_imap', healthy: true, app: { name_slug: 'imap' } },
         ],
       });
