@@ -1,4 +1,4 @@
-param(
+﻿param(
   [Parameter(Mandatory=$true)][ValidatePattern('^COM[0-9]{1,3}$')][string]$Port
 )
 
@@ -53,9 +53,28 @@ $arguments = @($pythonArgs) + @(
   '--output', $output,
   '--ack-bootloader'
 )
+# Windows PowerShell 5.1 must parse this UTF-8 source with BOM and send UTF-8 to child tools.
+try { [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false) } catch { }
+$OutputEncoding = New-Object System.Text.UTF8Encoding($false)
 & $launcher.Source @arguments
 if ($LASTEXITCODE -ne 0) {
-  Write-Warning "Précontrôle refusé. Examiner le rapport local si présent : $output"
+  $report = Join-Path $output 'preflight.json'
+  Write-Warning "Preflight was refused. Local evidence folder: $output"
+  if (Test-Path -LiteralPath $report -PathType Leaf) {
+    try {
+      $failedProof = Get-Content -LiteralPath $report -Encoding UTF8 -Raw | ConvertFrom-Json
+      if ($failedProof.error) { Write-Host ("Reason: " + $failedProof.error) -ForegroundColor Yellow }
+      Write-Host ("Partition table valid: " + [string]$failedProof.partition_valid)
+      Write-Host ("OTA metadata unambiguous: " + [string]$failedProof.ota_metadata_unambiguous)
+      Write-Host ("Running slot verified on device: " + [string]$failedProof.running_slot_verified_on_device)
+      Write-Host "Flash allowed: False"
+      Write-Host "Next proof required: LIVE_RUNNING_SLOT_SECURITY_BACKUP_AND_RECOVERY"
+    } catch {
+      Write-Warning "Evidence JSON exists but could not be parsed. Keep the folder for diagnosis."
+    }
+  } else {
+    Write-Warning "No preflight.json was written. Keep the evidence folder for diagnosis."
+  }
   throw "MINI_USB_PREFLIGHT_FAILED:$LASTEXITCODE"
 }
 $report = Join-Path $output 'preflight.json'
