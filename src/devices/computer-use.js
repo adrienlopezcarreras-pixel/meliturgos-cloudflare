@@ -93,6 +93,11 @@ function suppliedSafeInteger(value) {
     && Number.isSafeInteger(Number(value));
 }
 
+function validBrowserWindowHandle(value) {
+  return typeof value === 'string' && /^[1-9][0-9]{0,18}$/.test(value)
+    && BigInt(value) <= 9223372036854775807n;
+}
+
 function normalizeOrigin(value) {
   const raw = boundedText(value, 2048);
   if (!raw) return '';
@@ -268,7 +273,7 @@ export function evaluateComputerUsePlan(input = {}) {
       allowed = false;
       reason = 'BROWSER_CLICK_COORDINATES_INVALID';
     } else if (step.action === COMPUTER_USE_ACTIONS.BROWSER_CLICK
-      && !/^[1-9][0-9]{0,18}$/.test(step.window_handle)) {
+      && !validBrowserWindowHandle(step.window_handle)) {
       allowed = false;
       reason = 'BROWSER_CLICK_WINDOW_HANDLE_REQUIRED';
     } else if (step.action === COMPUTER_USE_ACTIONS.SCROLL
