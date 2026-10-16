@@ -39,7 +39,7 @@ test('media cleanup deletes only expired objects owned by current owner', async 
   const result=await runExpiredMediaCleanup(env,{now});
   assert.deepEqual(deleted,['uploads/old.bin','computer/screenshots/pc-1/cmd-old.png']);
   assert.equal(result.scanned,7);
-  assert.equal(result.deleted,1);
+  assert.equal(result.deleted,2);
   assert.equal(result.status,'MEDIA_CLEANUP_COMPLETE');
 });
 
