@@ -212,7 +212,17 @@ jobs:
               fi
               if ! grep -Fq "package=\"${expected_package}\"" "$hierarchy"; then
                 echo "::warning::Expected ${expected_package} is not visible in ${name} UI tree, attempt ${attempt}"
-                sleep 2
+                # Re-launch the expected screen on the disposable emulator before
+                # retrying; never accept a screenshot without the original strict
+                # foreground package and unobstructed-window checks.
+                if [[ "$name" == "launcher-icon-proof" ]]; then
+                  adb shell am start -W -a android.settings.APPLICATION_DETAILS_SETTINGS -d package:fr.veriteinterdite.mel || true
+                elif [[ "$name" == "login-screen" ]]; then
+                  adb shell am start -W -n fr.veriteinterdite.mel/.MainActivity || true
+                else
+                  adb shell am start -W -n fr.veriteinterdite.mel/.MelUiHarnessActivity --es mode complete --ez diagnostics true || true
+                fi
+                sleep 3
                 continue
               fi
               adb exec-out screencap -p > "$screenshot"
