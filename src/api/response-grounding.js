@@ -240,6 +240,67 @@ export function formatVerifiedDevBridgeStatusResponse(state, { fallback = '' } =
 }
 
 
+export function formatVerifiedAutonomyRuntimeResponse(result, { fallback = '', operation = 'tick' } = {}) {
+  if (!result || typeof result !== 'object') return String(fallback || '').trim();
+
+  const status = String(result.status || result.readiness?.status || 'UNKNOWN').toUpperCase();
+  const control = result.control && typeof result.control === 'object' ? result.control : {};
+  const progress = result.progress && typeof result.progress === 'object' ? result.progress : {};
+  const events = Array.isArray(progress.events) ? progress.events : [];
+  const activeJob = progress.job_id || result.job?.id || result.job_id || null;
+  const jobStatus = progress.job_status || result.job?.status || result.job_status || null;
+  const maxText = control.max_autonomy === true ? 'MAX est activé' : 'MAX est désactivé';
+  const pauseText = control.paused === true ? 'le contrôle d’autonomie est en pause' : 'le contrôle d’autonomie n’est pas en pause';
+  const lines = [];
+
+  if (operation === 'status') {
+    lines.push('État d’autonomie vérifié dans le runtime.');
+    lines.push('- Contrôle : ' + pauseText + ' ; ' + maxText + '.');
+    lines.push('- État déclaré : ' + status + '.');
+    const readiness = result.readiness && typeof result.readiness === 'object' ? result.readiness : result;
+    if (readiness.ready === true || readiness.self_development_ready === true) {
+      lines.push('- La préparation à l’autonomie est déclarée prête par le contrôle de readiness.');
+    } else if (readiness.ready === false || readiness.self_development_ready === false) {
+      lines.push('- La préparation à l’autonomie n’est pas validée comme prête.');
+    }
+    if (result.blockers && Array.isArray(result.blockers) && result.blockers.length) {
+      lines.push('- Blocages : ' + result.blockers.slice(0, 6).map(row => typeof row === 'string' ? row : row.code || row.reason || row.id || 'blocage').join(', ') + '.');
+    }
+    lines.push('Cet état décrit la readiness et les contrôles, pas la preuve qu’une tâche vient d’être exécutée.');
+    return lines.join('\n');
+  }
+
+  if (status === 'PAUSED' || control.paused === true) {
+    lines.push('Le cycle n’a exécuté aucune nouvelle tâche : l’autonomie est en pause.');
+  } else if (status === 'LAUNCH_GATE_REQUIRED') {
+    lines.push('Le cycle n’a pas lancé de nouveau travail : le garde-fou de lancement bloque l’exécution.');
+    lines.push('L’approbation de lancement ne correspond pas au SHA actuellement déployé. Il faut réconcilier puis approuver explicitement le SHA exact avant de reprendre l’exécution.');
+  } else if (status === 'DEPLOYED_SHA_UNAVAILABLE') {
+    lines.push('Le cycle est bloqué : le runtime ne peut pas établir l’identité SHA exacte du déploiement. Aucune nouvelle tâche n’est déclarée exécutée.');
+  } else if (status === 'SKIPPED_LEASE_BUSY') {
+    lines.push('Le cycle a été ignoré parce qu’un autre exécuteur détient encore le verrou d’autonomie. Aucune progression n’est prouvée par ce tick.');
+  } else if (status === 'MAX_PROGRESS_STALLED') {
+    lines.push('Le garde-fou a détecté une absence de progression persistante et a bloqué l’autonomie.');
+  } else if (result.advanced === true || progress.advanced === true) {
+    lines.push('Le cycle d’autonomie a enregistré une progression.');
+    if (events.length) lines.push('- Événements confirmés : ' + events.slice(0, 8).map(event => String(event).replace(/_/g, ' ').toLowerCase()).join(', ') + '.');
+  } else {
+    lines.push('Le cycle a répondu, mais aucune nouvelle progression n’est prouvée.');
+    if (progress.block_reason || result.reason || result.error) {
+      lines.push('- Blocage ou raison observée : ' + String(progress.block_reason || result.reason || result.error).slice(0, 180) + '.');
+    }
+  }
+
+  lines.push('- Contrôle : ' + pauseText + ' ; ' + maxText + '.');
+  if (activeJob) lines.push('- Tâche suivie : ' + String(activeJob).slice(0, 160) + (jobStatus ? ' (' + String(jobStatus).slice(0, 60) + ')' : '') + '.');
+  else if (progress.work_remaining === true) lines.push('- Du travail reste en attente, mais aucun identifiant de tâche n’est fourni par ce résultat.');
+  if (result.passive_completions?.completed?.length) {
+    lines.push('- Complétions antérieures vérifiées et réconciliées : ' + result.passive_completions.completed.length + '. Cela ne signifie pas qu’une nouvelle tâche vient d’être exécutée.');
+  }
+  return lines.join('\n');
+}
+
+
 export function formatVerifiedAutonomyActivityResponse(activity, { fallback = '' } = {}) {
   if (!activity || typeof activity !== 'object' || activity.ok !== true) return String(fallback || '').trim();
   const control = activity.control && typeof activity.control === 'object' ? activity.control : {};
