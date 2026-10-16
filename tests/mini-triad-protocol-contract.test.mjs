@@ -14,8 +14,8 @@ test('canonical Link V2 contract agrees with firmware and Android frame ABI', as
   assert.equal(contract.schema, 'mel.link-v2.contract.v1');
   assert.match(miniProtocol, new RegExp('MEL_LINK_V2_PROTOCOL_VERSION\\s+' + contract.protocol.version));
   assert.match(androidProtocol, new RegExp('const val VERSION = ' + contract.protocol.version));
-  assert.match(miniProtocol, /MEL_LINK_V2_MAGIC0\\s+0x4d/);
-  assert.match(miniProtocol, /MEL_LINK_V2_MAGIC1\\s+0x32/);
+  assert.match(miniProtocol, /MEL_LINK_V2_MAGIC0\s+0x4d/);
+  assert.match(miniProtocol, /MEL_LINK_V2_MAGIC1\s+0x32/);
   assert.match(androidProtocol, /const val MAGIC0: Int = 0x4d/);
   assert.match(androidProtocol, /const val MAGIC1: Int = 0x32/);
   assert.match(miniProtocol, new RegExp('MEL_LINK_V2_HEADER_SIZE\\s+' + contract.protocol.headerBytes));
@@ -24,10 +24,10 @@ test('canonical Link V2 contract agrees with firmware and Android frame ABI', as
   assert.match(miniProtocol, /uint16_t payload_len/);
   assert.match(androidProtocol, /payload.size <= 0xffff/);
   assert.match(androidProtocol, /ByteOrder.LITTLE_ENDIAN/);
-  assert.match(miniProtocol, /MEL_LINK_V2_DEFAULT_MTU\\s+185/);
+  assert.match(miniProtocol, /MEL_LINK_V2_DEFAULT_MTU\s+185/);
   assert.match(androidProtocol, /const val DEFAULT_MTU = 185/);
   assert.match(androidProtocol, /const val MIN_AUDIO_MTU = 148/);
-  assert.match(miniProtocol, /MEL_LINK_V2_CREDIT_WINDOW\\s+6/);
+  assert.match(miniProtocol, /MEL_LINK_V2_CREDIT_WINDOW\s+6/);
   assert.match(androidProtocol, /const val CREDIT_WINDOW = 6/);
 
   for (const frame of contract.protocol.frames) {
@@ -55,19 +55,19 @@ test('canonical Link V2 audio, timing, credit and cancellation values agree with
   assert.match(miniAdpcm, new RegExp('MEL_IMA_ADPCM_MAX_ENCODED_BYTES\\s+' + contract.audio.imaAdpcmMaximumEncodedBytes));
   assert.match(androidAdpcm, new RegExp('MAX_ENCODED_BYTES = ' + contract.audio.imaAdpcmMaximumEncodedBytes));
   assert.match(androidClient, new RegExp('audioBlockSamples = ' + contract.audio.androidTtsBlockSamples));
-  assert.match(androidClient, /sessionAckTimeoutArmed[\\s\\S]*?10_000L/);
-  assert.match(androidClient, /BLE_HANDSHAKE_TIMEOUT[\\s\\S]*?90_000L/);
-  assert.match(androidClient, /outboundCancelled\\(streamId\\)/);
-  assert.match(androidClient, /awaitOutboundCredit\\(streamId, credits\\)/);
+  assert.match(androidClient, /sessionAckTimeoutArmed[\s\S]*?10_000L/);
+  assert.match(androidClient, /BLE_HANDSHAKE_TIMEOUT[\s\S]*?90_000L/);
+  assert.match(androidClient, /outboundCancelled\(streamId\)/);
+  assert.match(androidClient, /awaitOutboundCredit\(streamId, credits\)/);
   assert.equal(contract.audio.imaAdpcmMaximumEncodedBytes + contract.protocol.headerBytes + contract.protocol.gattAttOverheadBytes,
     contract.protocol.minimumAudioMtu);
 });
 
 test('Windows Companion stays protocol-neutral and reads authenticated triad/backend state', async () => {
   const windows = await read('windows-companion/MEL-Companion.cs');
-  assert.match(windows, /\\/api\\/computer\\/v1\\/companion/);
-  assert.match(windows, /\\/api\\/computer\\/v1\\/triad-activity/);
-  assert.match(windows, /mel\\.triad\\.android-presence\\.v1/);
+  assert.match(windows, /\/api\/computer\/v1\/companion/);
+  assert.match(windows, /\/api\/computer\/v1\/triad-activity/);
+  assert.match(windows, /mel\.triad\.android-presence\.v1/);
   assert.doesNotMatch(windows, /MEL_LINK_V2_HEADER_SIZE|MelLinkV2Protocol|SESSION_OK/,
     'Windows is not a BLE peer and must not synthesize a MINI Link V2 session');
 });
