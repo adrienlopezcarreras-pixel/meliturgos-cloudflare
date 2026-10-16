@@ -57,7 +57,12 @@ export class ProviderPool {
       const timeout = new Promise((resolve) => {
         timer = setTimeout(() => {
           timedOut = true;
-          if (isCurrent()) item.healthStatus = 'UNAVAILABLE';
+          if (isCurrent()) {
+            // ProviderAdapter.health() itself mutates healthStatus. Invalidate
+            // that internal callback, not merely the pool's outer .then().
+            try { item.invalidateHealthProbe?.(); } catch { /* preserve quarantine */ }
+            item.healthStatus = 'UNAVAILABLE';
+          }
           resolve();
         }, this.healthCheckTimeoutMs);
       });
