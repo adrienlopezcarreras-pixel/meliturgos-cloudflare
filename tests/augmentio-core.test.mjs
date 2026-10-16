@@ -234,3 +234,86 @@ test('direct Augmentio fanout respects a finite 12-model ceiling and cache equiv
   assert.equal(second.cacheHit, true);
   assert.equal(calls, 12, 'equivalent bounded limits reuse identical cache');
 });
+
+test('Augmentio cache never bypasses revoked zero-euro authorization', async () => {
+  let aCalls = 0;
+  let bCalls = 0;
+  const a = {
+    id: 'a', capabilities: ['GENERAL'], priority: 2,
+    estimatedCost: 0, costProvenance: verifiedFree('a'),
+    invoke: async () => 'a response ' + (++aCalls),
+  };
+  const b = {
+    id: 'b', capabilities: ['GENERAL'], priority: 1,
+    estimatedCost: 0, costProvenance: verifiedFree('b'),
+    invoke: async () => 'b response ' + (++bCalls),
+  };
+  const ai = new Augmentio({
+    pool: new ProviderPool([a, b]),
+    scheduler: new ParallelScheduler({ globalConcurrency: 2, retries: 0 }),
+  });
+  const first = await ai.fanOut({ input: 'exact input', maxCandidates: 2 });
+  assert.deepEqual(first.providersAttempted, ['a', 'b']);
+  assert.equal(aCalls, 1);
+  assert.equal(bCalls, 1);
+
+  b.estimatedCost = 1; // Governance changes while old answer remains cached.
+  const second = await ai.fanOut({ input: 'exact input', maxCandidates: 2 });
+  assert.equal(second.cacheHit, false);
+  assert.deepEqual(second.providersAttempted, ['a']);
+  assert.equal(aCalls, 2);
+  assert.equal(bCalls, 1, 'revoked provider must not be invoked again');
+  const repeated = await ai.fanOut({ input: 'exact input', maxCandidates: 2 });
+  assert.equal(repeated.cacheHit, true);
+  assert.deepEqual(repeated.providersAttempted, ['a']);
+
+  a.estimatedCost = 1;
+  await assert.rejects(
+    ai.fanOut({ input: 'exact input', maxCandidates: 2 }),
+    error => error?.code === 'NO_ZERO_COST_PROVIDER_AVAILABLE',
+  );
+});
+
+test('Augmentio cache is invalidated when an eligible adapter changes its model', async () => {
+  let calls = 0;
+  const adapter = {
+    id: 'a', providerId: 'workers-ai', modelId: 'model-old',
+    capabilities: ['GENERAL'], estimatedCost: 0,
+    costProvenance: verifiedFree('a', { provider: 'workers-ai', model: 'model-old' }),
+    invoke: async () => 'answer ' + (++calls),
+  };
+  const ai = new Augmentio({
+    pool: new ProviderPool([adapter]),
+    scheduler: new ParallelScheduler({ retries: 0 }),
+  });
+  assert.equal((await ai.fanOut({ input: 'same prompt' })).providerHealth[0].model, 'model-old');
+  assert.equal((await ai.fanOut({ input: 'same prompt' })).cacheHit, true);
+  adapter.modelId = 'model-new';
+  adapter.costProvenance = verifiedFree('a', { provider: 'workers-ai', model: 'model-new' });
+  const changed = await ai.fanOut({ input: 'same prompt' });
+  assert.equal(changed.cacheHit, false);
+  assert.equal(changed.providerHealth[0].model, 'model-new');
+  assert.equal(calls, 2);
+});
+
+test('Augmentio rechecks authorization at cache read time', async () => {
+  let calls = 0;
+  const adapter = {
+    id: 'a', capabilities: ['GENERAL'], estimatedCost: 0,
+    costProvenance: verifiedFree('a'),
+    invoke: async () => { calls++; return 'should not run'; },
+  };
+  const cache = {
+    async get() {
+      adapter.estimatedCost = 5; // Revoked after selection, before cache return.
+      return { best: { text: 'stale answer' }, candidates: [], providersAttempted: ['a'] };
+    },
+    async set() { throw new Error('invalid cache write'); },
+  };
+  const ai = new Augmentio({ pool: new ProviderPool([adapter]), cache,
+    scheduler: new ParallelScheduler({ retries: 0 }) });
+  await assert.rejects(ai.fanOut({ input: 'cached input' }),
+    error => error?.code === 'ALL_PROVIDERS_FAILED'
+      && error.failures?.some(reason => reason.includes('ZERO_EURO_BUDGET_EXCEEDED')));
+  assert.equal(calls, 0);
+});
