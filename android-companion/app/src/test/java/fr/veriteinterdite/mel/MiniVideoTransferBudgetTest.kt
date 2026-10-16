@@ -49,4 +49,27 @@ class MiniVideoTransferBudgetTest {
         assertFalse(budget.reserve(1))
         assertFalse(budget.reserve(frame))
     }
+
+    @Test fun slowSenderCannotExtendRecordingBeyondMonotonicDeadline() {
+        var now = 1_000_000_000L
+        val budget = MiniVideoTransferBudget(30) { now }
+        assertTrue(budget.reserve(1))
+        now += MiniVideoTransferBudget.MAX_DURATION_NANOS - 1
+        assertTrue(budget.reserve(1))
+        now += 1
+        assertFalse(budget.reserve(1))
+        // Once expired, a sender cannot resume later with another frame.
+        now += 30_000_000_000L
+        assertFalse(budget.reserve(1))
+    }
+
+    @Test fun deadlineIsIndependentOfFpsOrPayloadSize() {
+        for (fps in listOf(1, 10, 30)) {
+            var now = 0L
+            val budget = MiniVideoTransferBudget(fps) { now }
+            assertTrue(budget.reserve(MiniVideoTransferBudget.MAX_FRAME_BYTES))
+            now = MiniVideoTransferBudget.MAX_DURATION_NANOS
+            assertFalse(budget.reserve(1))
+        }
+    }
 }
