@@ -169,3 +169,14 @@ test("ADB monitor writes a sanitized failure detail and the Companion displays i
  assert.match(ui, /errorDetailValue/);
  assert.match(ui, /String\.IsNullOrEmpty\(errorDetail\)/);
 });
+
+test("Companion ADB refresh does not redirect and leave child stdout/stderr undrained", async () => {
+ const native = await source("windows-companion/MEL-Companion.cs");
+ const start = native.indexOf("void RefreshAdbDiagnostics()");
+ const end = native.indexOf("void RefreshTriadActivity()", start);
+ const method = native.slice(start, end);
+ assert.match(method, /WaitForExit\(12000\)/);
+ assert.match(method, /RedirectStandardOutput = false/);
+ assert.match(method, /RedirectStandardError = false/);
+ assert.match(method, /process == null/);
+});
