@@ -42,7 +42,7 @@ test('live connection proof persists precise partial evidence even when a connec
   assert.match(source,/connector_id":"google-drive"/);
   assert.match(source,/drive:process\.env\.GOOGLE_DRIVE_OK==='1'/);
   assert.match(source,/yahoo_or_ymail:process\.env\.YAHOO_OK==='1'/);
-  assert.match(source,/required:false/);
+  assert.doesNotMatch(source,/sharepoint|vercel/i,'paid connectors must not be probed by this workflow');
   assert.match(source,/- name: Upload sanitized live proof\n\s+if: always\(\)/);
   assert.match(source,/secret_values_exposed:false/);
 });
