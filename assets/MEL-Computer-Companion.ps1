@@ -2662,11 +2662,26 @@ function Perform-Step($step, [string]$commandId, [string]$planSchema="") {
       $right = [Math]::Min($rect.Right, $virtual.Right)
       $bottom = [Math]::Min($rect.Bottom, $virtual.Bottom)
       if ($right -le $left -or $bottom -le $top) { throw "BROWSER_INSPECT_BOUNDS_REQUIRED" }
+      # Report the same native client rectangle enforced by browser.click and
+      # browser.scroll; visible_bounds above remains for backward compatibility.
+      $client = New-Object MelNative+RECT
+      $origin = New-Object MelNative+POINT
+      if (-not [MelNative]::GetClientRect($windowHandle, [ref]$client) -or
+          $client.Right -le $client.Left -or $client.Bottom -le $client.Top -or
+          -not [MelNative]::ClientToScreen($windowHandle, [ref]$origin)) {
+        throw "BROWSER_INSPECT_CLIENT_BOUNDS_REQUIRED"
+      }
+      $clientLeft = [Math]::Max([Math]::Max($rect.Left, $virtual.Left), [long]$origin.X)
+      $clientTop = [Math]::Max([Math]::Max($rect.Top, $virtual.Top), [long]$origin.Y)
+      $clientRight = [Math]::Min([Math]::Min($rect.Right, $virtual.Right), ([long]$origin.X + [long]$client.Right))
+      $clientBottom = [Math]::Min([Math]::Min($rect.Bottom, $virtual.Bottom), ([long]$origin.Y + [long]$client.Bottom))
+      if ($clientRight -le $clientLeft -or $clientBottom -le $clientTop) { throw "BROWSER_INSPECT_CLIENT_BOUNDS_REQUIRED" }
       if ([MelNative]::GetForegroundWindow() -ne $windowHandle -or (Assert-ForegroundBrowser) -ne $browser) { throw "BROWSER_INSPECT_FOCUS_CHANGED" }
       return @{
         action=$action; browser=$browser; foreground_title=$title; read_only=$true
         observed_at_utc=[DateTime]::UtcNow.ToString("o"); window_handle=$windowHandle.ToInt64()
         visible_bounds=@{ left=$left; top=$top; width=($right - $left); height=($bottom - $top) }
+        interaction_bounds=@{ left=$clientLeft; top=$clientTop; width=($clientRight - $clientLeft); height=($clientBottom - $clientTop) }
         coordinate_space="virtual-screen-pixels"
       }
     }
