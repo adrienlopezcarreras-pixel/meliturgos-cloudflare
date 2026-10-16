@@ -355,3 +355,21 @@ test('Council readiness requires real nonempty AI contributions for every requir
     assert.ok(readiness.blockers.includes('LIVE_COUNCIL_ZERO_COST_NOT_PROVEN'));
   }
 });
+
+test('duplicate planning provider attempts cannot prove autonomous implementation readiness', async () => {
+  for (const attempts of [
+    ['workers-ai:a', 'workers-ai:a'],
+    ['workers-ai:a', ''],
+    ['workers-ai:a', ' workers-ai:b '],
+  ]) {
+    const repository = await completeEvidenceRepository();
+    const job = await repository.get('ready-job');
+    const result = structuredClone(job.result_json);
+    result.implementation_proposal.providers_attempted = attempts;
+    await repository.update(job.id, { result_json: result });
+    const state = await getAutonomyReadiness({ repository });
+    assert.equal(state.gates.mel_multi_ai_implementation_plan, false, JSON.stringify(attempts));
+    assert.equal(state.gates.coherent_single_job_loop, false, JSON.stringify(attempts));
+    assert.equal(state.self_development_ready, false, JSON.stringify(attempts));
+  }
+});
