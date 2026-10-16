@@ -24,9 +24,14 @@ function providerKey(task, fallback = 'default') {
   return String(task?.providerId ?? task?.provider?.id ?? task?.provider_id ?? task?.id ?? fallback);
 }
 
+function boundedInteger(value, fallback, min, max) {
+  const n = Number(value);
+  return Number.isFinite(n) ? Math.max(min, Math.min(max, Math.floor(n))) : fallback;
+}
+
 function providerConcurrency(task, fallback) {
-  const value = Number(task?.concurrency ?? task?.provider?.concurrency ?? fallback);
-  return Number.isFinite(value) && value > 0 ? Math.max(1, Math.floor(value)) : fallback;
+  return boundedInteger(task?.concurrency ?? task?.provider?.concurrency ?? fallback,
+    fallback, 1, 16);
 }
 
 export class ParallelScheduler {
@@ -40,13 +45,15 @@ export class ParallelScheduler {
     circuitBreakerCooldownMs = 60000,
     now = () => Date.now(),
   } = {}) {
-    this.globalConcurrency = Math.max(1, globalConcurrency);
-    this.perProviderConcurrency = Math.max(1, perProviderConcurrency);
-    this.timeoutMs = Math.max(1, timeoutMs);
-    this.retries = Math.max(0, retries);
-    this.backoffMs = Math.max(0, backoffMs);
-    this.circuitBreakerFailures = Math.max(1, circuitBreakerFailures);
-    this.circuitBreakerCooldownMs = Math.max(1, circuitBreakerCooldownMs);
+    // Retry and concurrency options can be passed from plugins and model
+    // metadata; nonfinite or huge values must never produce unbounded loops.
+    this.globalConcurrency = boundedInteger(globalConcurrency, 8, 1, 32);
+    this.perProviderConcurrency = boundedInteger(perProviderConcurrency, 2, 1, 16);
+    this.timeoutMs = boundedInteger(timeoutMs, 30000, 1, 120000);
+    this.retries = boundedInteger(retries, 1, 0, 5);
+    this.backoffMs = boundedInteger(backoffMs, 100, 0, 30000);
+    this.circuitBreakerFailures = boundedInteger(circuitBreakerFailures, 3, 1, 100);
+    this.circuitBreakerCooldownMs = boundedInteger(circuitBreakerCooldownMs, 60000, 1, 3600000);
     this.now = now;
     this.breakers = new Map();
   }
