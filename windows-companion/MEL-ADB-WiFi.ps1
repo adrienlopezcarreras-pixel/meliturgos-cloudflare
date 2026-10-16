@@ -38,7 +38,7 @@ function Attempt-Reconnect {
     if ($result -match "(?i)(?:connected to|already connected to)\s+" -and $result -notmatch "(?i)(?:failed|unable|refused)") {
       try { $serials=(Run-Adb -arglist @("devices","-l")) -join "`n" } catch { continue }
       if ($serials -match "(?m)^$([regex]::Escape($endpoint))\s+device(?:\s|$)") {
-        Set-Content -LiteralPath $saved -Value $endpoint -Encoding ASCII
+        try { Set-Content -LiteralPath $saved -Value $endpoint -Encoding ASCII } catch { }
         break
       }
     }
