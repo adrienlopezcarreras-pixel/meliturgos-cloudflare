@@ -167,6 +167,8 @@ public static class MelNative {
   [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
   [DllImport("user32.dll")] public static extern uint GetClipboardSequenceNumber();
   [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hwnd, out RECT rect);
+  [DllImport("user32.dll")] public static extern bool GetClientRect(IntPtr hwnd, out RECT rect);
+  [DllImport("user32.dll")] public static extern bool ClientToScreen(IntPtr hwnd, ref POINT point);
   [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left; public int Top; public int Right; public int Bottom; }
   [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
   [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern int GetWindowText(IntPtr hWnd, StringBuilder text, int count);
@@ -2340,11 +2342,20 @@ function Assert-BrowserClickTarget([IntPtr]$window, [string]$browser, [int]$x, [
       (Assert-ForegroundBrowser) -ne $browser) { throw "BROWSER_CLICK_FOCUS_CHANGED" }
   $rect = New-Object MelNative+RECT
   if (-not [MelNative]::GetWindowRect($window, [ref]$rect)) { throw "BROWSER_CLICK_BOUNDS_REQUIRED" }
+  # Avoid injecting mouse input onto the native non-client frame/borders.
+  # Browser-specific toolbar controls can still occupy client pixels.
+  $client = New-Object MelNative+RECT
+  $origin = New-Object MelNative+POINT
+  if (-not [MelNative]::GetClientRect($window, [ref]$client) -or
+      $client.Right -le $client.Left -or $client.Bottom -le $client.Top -or
+      -not [MelNative]::ClientToScreen($window, [ref]$origin)) {
+    throw "BROWSER_CLICK_CLIENT_BOUNDS_REQUIRED"
+  }
   $virtual = [System.Windows.Forms.SystemInformation]::VirtualScreen
-  $left = [Math]::Max($rect.Left, $virtual.Left)
-  $top = [Math]::Max($rect.Top, $virtual.Top)
-  $right = [Math]::Min($rect.Right, $virtual.Right)
-  $bottom = [Math]::Min($rect.Bottom, $virtual.Bottom)
+  $left = [Math]::Max([Math]::Max($rect.Left, $virtual.Left), [long]$origin.X)
+  $top = [Math]::Max([Math]::Max($rect.Top, $virtual.Top), [long]$origin.Y)
+  $right = [Math]::Min([Math]::Min($rect.Right, $virtual.Right), ([long]$origin.X + [long]$client.Right))
+  $bottom = [Math]::Min([Math]::Min($rect.Bottom, $virtual.Bottom), ([long]$origin.Y + [long]$client.Bottom))
   if ($right -le $left -or $bottom -le $top) { throw "BROWSER_CLICK_BOUNDS_REQUIRED" }
   if ($x -lt $left -or $x -ge $right -or $y -lt $top -or $y -ge $bottom) {
     throw "BROWSER_CLICK_OUTSIDE_WINDOW"
