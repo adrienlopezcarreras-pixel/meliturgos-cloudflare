@@ -143,8 +143,25 @@ export class Augmentio {
           error.code = 'AUGMENTIO_PROVIDER_DISABLED';
           throw error;
         }
+        // The exact authorized model must not change between selection and
+        // invocation; an adapter must never be attributed to another model.
+        const identity = roster[_index];
+        const sameIdentity = identity && provider.id === identity.id
+          && (provider.providerId ?? provider.provider_id ?? provider.id) === identity.provider
+          && (provider.modelId ?? provider.model_id ?? provider.id) === identity.model;
+        if (!sameIdentity) {
+          const error = new Error('AUGMENTIO_PROVIDER_IDENTITY_CHANGED');
+          error.code = 'AUGMENTIO_PROVIDER_IDENTITY_CHANGED';
+          throw error;
+        }
         this.governor.assertAllowed(provider);
         const response = await provider.invoke({ input, context, capability, signal: meta.signal });
+        if ((provider.providerId ?? provider.provider_id ?? provider.id) !== identity.provider
+          || (provider.modelId ?? provider.model_id ?? provider.id) !== identity.model) {
+          const error = new Error('AUGMENTIO_PROVIDER_IDENTITY_CHANGED');
+          error.code = 'AUGMENTIO_PROVIDER_IDENTITY_CHANGED';
+          throw error;
+        }
         // A late provider response must not be credited after its attempt was
         // cancelled or timed out by the scheduler.
         assertNotCancelled(meta.signal);
@@ -163,17 +180,23 @@ export class Augmentio {
           error.code = 'AI_PROVIDER_RESPONSE_TOO_LARGE';
           throw error;
         }
+        // Model-supplied provenance is supporting metadata, not authoritative
+        // identity. Pin provider/model/adapter to the invoked authorized route.
+        const source = response?.provenance;
+        const metadata = source && typeof source === 'object' && !Array.isArray(source)
+          ? source : {};
         this.quota.recordSuccess(provider.id);
         return {
-          provider: provider.providerId ?? provider.provider_id ?? provider.id,
-          adapterId: provider.id,
-          model: provider.modelId ?? provider.model_id ?? provider.id,
+          provider: identity.provider,
+          adapterId: identity.id,
+          model: identity.model,
           text: String(text).trim(),
           latencyMs: Date.now() - startedAt,
-          provenance: response?.provenance ?? {
-            provider: provider.providerId ?? provider.provider_id ?? provider.id,
-            model: provider.modelId ?? provider.model_id ?? provider.id,
-            adapter_id: provider.id,
+          provenance: {
+            ...metadata,
+            provider: identity.provider,
+            model: identity.model,
+            adapter_id: identity.id,
           },
           evidenceScore: response?.evidenceScore ?? 0,
           testsPassed: response?.testsPassed,

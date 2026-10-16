@@ -762,3 +762,71 @@ test('Augmentio rechecks provider enabled state immediately before calling a mod
       && error.failures?.some(reason => reason.includes('AUGMENTIO_PROVIDER_DISABLED')));
   assert.equal(invoked, 0);
 });
+
+test('Augmentio replaces false provider/model provenance with the actual authorized route', async () => {
+  const adapter = {
+    id: 'auth-adapter', providerId: 'workers-ai', modelId: 'model-real',
+    capabilities: ['GENERAL'], estimatedCost: 0,
+    costProvenance: verifiedFree('auth-adapter', { provider: 'workers-ai', model: 'model-real' }),
+    invoke: async () => ({
+      text: 'grounded response',
+      provenance: { provider: 'forged-provider', model: 'forged-model',
+        adapter_id: 'forged-adapter', source: 'verified-test-source' },
+    }),
+  };
+  const ai = new Augmentio({
+    pool: new ProviderPool([adapter]),
+    scheduler: new ParallelScheduler({ retries: 0 }),
+  });
+  const result = await ai.fanOut({ input: 'prove actual model provenance' });
+  assert.equal(result.best.provider, 'workers-ai');
+  assert.equal(result.best.model, 'model-real');
+  assert.equal(result.best.adapterId, 'auth-adapter');
+  assert.deepEqual(result.best.provenance, {
+    provider: 'workers-ai', model: 'model-real',
+    adapter_id: 'auth-adapter', source: 'verified-test-source',
+  });
+  assert.equal((await ai.fanOut({ input: 'prove actual model provenance' })).cacheHit, true);
+});
+
+test('Augmentio fails closed when a selected model is replaced before invocation', async () => {
+  let invoked = 0;
+  const adapter = {
+    id: 'replace', providerId: 'workers-ai', modelId: 'original',
+    capabilities: ['GENERAL'], estimatedCost: 0,
+    costProvenance: verifiedFree('replace', { provider: 'workers-ai', model: 'original' }),
+    invoke: async () => { invoked++; return 'untrusted'; },
+  };
+  const scheduler = {
+    async run(tasks, worker) {
+      adapter.modelId = 'replaced';
+      adapter.costProvenance = verifiedFree('replace', { provider: 'workers-ai', model: 'replaced' });
+      return Promise.allSettled(tasks.map((task, index) => worker(task, index, {})));
+    },
+  };
+  const ai = new Augmentio({ pool: new ProviderPool([adapter]), scheduler });
+  await assert.rejects(ai.fanOut({ input: 'exact model proof' }),
+    error => error?.code === 'ALL_PROVIDERS_FAILED'
+      && error.failures?.some(x => x.includes('AUGMENTIO_PROVIDER_IDENTITY_CHANGED')));
+  assert.equal(invoked, 0);
+});
+
+test('Augmentio fails closed when a model identity mutates while generating', async () => {
+  const adapter = {
+    id: 'mutable', providerId: 'workers-ai', modelId: 'original',
+    capabilities: ['GENERAL'], estimatedCost: 0,
+    costProvenance: verifiedFree('mutable', { provider: 'workers-ai', model: 'original' }),
+    invoke: async () => {
+      adapter.modelId = 'unknown-other-model';
+      return { text: 'should not certify', provenance: { provider: 'workers-ai', model: 'original' } };
+    },
+  };
+  const ai = new Augmentio({
+    pool: new ProviderPool([adapter]),
+    scheduler: new ParallelScheduler({ retries: 0 }),
+  });
+  await assert.rejects(ai.fanOut({ input: 'preserve exact route' }),
+    error => error?.code === 'ALL_PROVIDERS_FAILED'
+      && error.failures?.some(x => x.includes('AUGMENTIO_PROVIDER_IDENTITY_CHANGED')));
+  assert.equal(ai.cache.entries.size, 0);
+});
