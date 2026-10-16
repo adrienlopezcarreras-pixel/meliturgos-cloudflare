@@ -105,9 +105,6 @@ async function codeSelfCheck(env) {
 async function handleConversationApi(request, env, url = new URL(request.url), ctx = null) {
   const path = url.pathname;
 
-  const revenueResponse = await handleRevenueApi(request, env);
-  if (revenueResponse) return revenueResponse;
-
   if (path.startsWith("/api/gen2/oauth/")) {
     const googleOAuthResponse = await maybeHandleGoogleOAuthApi(request, env, url);
     if (googleOAuthResponse) return googleOAuthResponse;
@@ -424,6 +421,8 @@ async function routeResolvedRequest(request, env, ctx) {
 
     const auth = requireAuth(request, env);
     if (!auth.ok) return auth.response;
+    const revenueResponse = await handleRevenueApi(request, env);
+    if (revenueResponse) return revenueResponse;
     if (request.method === "GET" && url.pathname === "/sw.js") return new Response(SERVICE_WORKER_SOURCE, { headers: { "content-type": "application/javascript; charset=utf-8", "cache-control": "no-cache" } });
     if (request.method === "GET" && url.pathname === "/manifest.webmanifest") return new Response(PWA_MANIFEST_JSON, { headers: { "content-type": "application/manifest+json; charset=utf-8", "cache-control": "public, max-age=3600" } });
     if (request.method === "GET" && url.pathname === "/normal-runtime.js") return new Response(NORMAL_RUNTIME_SOURCE, { headers: { "content-type": "application/javascript; charset=utf-8", "cache-control": "no-store, no-cache, must-revalidate" } });
