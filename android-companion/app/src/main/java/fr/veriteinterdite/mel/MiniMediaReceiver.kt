@@ -41,7 +41,7 @@ class MiniMediaReceiver(private val context: Context) {
     companion object {
         private const val TAG = "MiniMediaReceiver"
         private const val PORT = 38222
-        private const val MAX_PHOTO_BYTES = 12 * 1024 * 1024
+        private const val MAX_PHOTO_BYTES = MiniPhotoDeadlineReader.MAX_PHOTO_BYTES
         private const val MAX_AUDIO_CHUNK = 512 * 1024
         private const val MAX_ACTIVE_MEDIA_CLIENTS = 4
         private val MAGIC = "MELM1".toByteArray(Charsets.US_ASCII)
