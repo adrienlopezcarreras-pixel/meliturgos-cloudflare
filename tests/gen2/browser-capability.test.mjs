@@ -115,32 +115,70 @@ test('file upload requires exact approval and bounds inline file content', () =>
   assert.equal(bounded.steps[0].file_text.length, 16384);
 });
 
-test('browser header action is approval-gated and strips unapproved header names', () => {
+test('browser headers require an exact sensitive action and reject forbidden names', () => {
   const request = {
     ...baseRequest(),
     steps: [{
-      id:'headers-1',
-      action:BROWSER_ACTIONS.SET_HEADERS,
-      headers:{
-        'x-mel-release-smoke':'1',
-        'x-mel-launch-bootstrap':'token-value',
-        'x-unsafe-header':'must-drop',
+      id: 'headers-1',
+      action: BROWSER_ACTIONS.SET_HEADERS,
+      headers: {
+        'x-mel-release-smoke': '1',
+        'x-mel-launch-bootstrap': 'token-value',
       },
     }],
   };
-  const denied=evaluateBrowserPlan(request);
-  assert.equal(denied.allowed,false);
-  assert.equal(denied.reason,'EXPLICIT_STEP_APPROVAL_REQUIRED');
+  const denied = evaluateBrowserPlan(request);
+  assert.equal(denied.allowed, false);
+  assert.equal(denied.reason, 'EXPLICIT_STEP_APPROVAL_REQUIRED');
 
-  const approved=evaluateBrowserPlan({
+  const approvals = [{ approved: true, session_id: 'session-1',
+    step_id: 'headers-1', action: BROWSER_ACTIONS.SET_HEADERS }];
+  const approved = evaluateBrowserPlan({ ...request, approvals });
+  assert.equal(approved.allowed, true);
+  assert.deepEqual(approved.request.steps[0].headers, request.steps[0].headers);
+
+  const unsafe = evaluateBrowserPlan({
     ...request,
-    approvals:[{approved:true,session_id:'session-1',step_id:'headers-1',action:BROWSER_ACTIONS.SET_HEADERS}],
+    approvals,
+    steps: [{ ...request.steps[0], headers: {
+      ...request.steps[0].headers, 'x-unsafe-header': 'must-not-drop-silently',
+    } }],
   });
-  assert.equal(approved.allowed,true);
-  assert.deepEqual(approved.request.steps[0].headers,{
-    'x-mel-release-smoke':'1',
-    'x-mel-launch-bootstrap':'token-value',
+  assert.equal(unsafe.allowed, false);
+  assert.equal(unsafe.reason, 'BROWSER_HEADER_POLICY_VIOLATION');
+
+  for (const headers of [
+    { authorization: 'Bearer secret' },
+    { 'x-mel-release-smoke': '1' },
+  ]) {
+    const smuggled = evaluateBrowserPlan({
+      ...request,
+      steps: [{ id: 'nav', action: BROWSER_ACTIONS.NAVIGATE,
+        url: 'https://example.com/', headers }],
+    });
+    assert.equal(smuggled.allowed, false);
+    assert.equal(smuggled.reason, 'BROWSER_HEADER_POLICY_VIOLATION');
+  }
+});
+
+test('GEN2-31 refuses header smuggling before authorization or adapter execution', async () => {
+  let adapterCalls = 0;
+  const audits = [];
+  const controller = createBrowserController({
+    adapter: { async perform() { adapterCalls += 1; } },
+    authorize: async () => true,
+    audit: async entry => audits.push(entry),
   });
+  await assert.rejects(controller.execute({
+    ...baseRequest(),
+    steps: [{
+      id: 'nav', action: BROWSER_ACTIONS.NAVIGATE,
+      url: 'https://example.com/', headers: { authorization: 'Bearer secret' },
+    }],
+  }), error => error.code === 'BROWSER_HEADER_POLICY_VIOLATION');
+  assert.equal(adapterCalls, 0);
+  assert.equal(audits.at(-1).status, 'DENIED');
+  assert.equal(audits.at(-1).completed_steps, 0);
 });
 
 test('owner halt and missing device capability always win', () => {
