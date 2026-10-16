@@ -51,12 +51,17 @@ export function createDefaultAugmentioPool(env, { registry = standardRegistry } 
     });
 
   const externalDescriptors = parseHttpChatProviderDescriptors(env);
+  const registeredIds = new Set(adapters.map(adapter => adapter.id));
   for (const descriptor of externalDescriptors) {
+    // Optional providers cannot shadow a core Workers AI adapter or another
+    // optional adapter sharing its ID. Preserve the first trusted identity.
+    if (registeredIds.has(descriptor.id)) continue;
     try {
-      adapters.push(createHttpChatAdapter({
-        env,
-        ...descriptor,
-      }));
+      const adapter = createHttpChatAdapter({ env, ...descriptor });
+      if (!registeredIds.has(adapter.id)) {
+        adapters.push(adapter);
+        registeredIds.add(adapter.id);
+      }
     } catch {
       // A malformed optional provider never breaks the core Workers AI pool.
     }
