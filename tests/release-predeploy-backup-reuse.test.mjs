@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises';
 
 test('canonical release proves a recent restore-verified backup through the ephemeral binder before deploy', async () => {
   const source = await readFile(new URL('../.github/workflows/deploy-cloudflare-release.yml', import.meta.url), 'utf8');
-  assert.match(source, /owner_max_autorelease:[\s\S]{0,220}default: true/);
+  assert.match(source, /owner_max_autorelease:[\s\S]{0,220}default: false/);
   const start = source.indexOf('      - name: Create verified pre-deploy production backup');
   const end = source.indexOf('      - name: Prepare encrypted Media Vault secrets for exact deployment', start);
   const block = source.slice(start, end);
