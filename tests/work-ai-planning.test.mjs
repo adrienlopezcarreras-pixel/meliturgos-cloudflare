@@ -359,3 +359,142 @@ test('GEN2-38 release smoke keeps real planner bounded and surfaces curl transpo
   assert.equal((source.match(/executeBoundedPlanningFanout\(/g) || []).length, 3,
     'initial generation, repair and capability selection share one deadline');
 });
+
+test('GEN2-38 release diagnostic creates a bounded local plan without waiting on AI providers', async () => {
+  const bus = new CapabilityBus();
+  bus.discover({
+    id: 'echo', name: 'Echo', category: 'diagnostic', version: '1.0.0', provider: 'fixture',
+    description: 'No-side-effect diagnostic echo',
+    input_schema: {
+      type: 'object',
+      properties: { value: { type: 'string', minLength: 1, maxLength: 1000 } },
+      required: ['value'],
+      additionalProperties: false,
+    },
+    output_schema: { type: 'object', additionalProperties: true },
+    risk: 'LOW', permissions: [], health: 'HEALTHY', enabled: true,
+  }, async input => ({ value: input.value }));
+  let fanoutCalls = 0;
+  bus.discover({
+    id: 'augmentio.fanout', name: 'Fixture multi-AI', category: 'test', version: '1.0.0', provider: 'fixture',
+    description: 'Must not be called for the bounded release diagnostic',
+    input_schema: { type: 'object', properties: { input: { type: 'string' } }, required: ['input'], additionalProperties: false },
+    output_schema: { type: 'object', additionalProperties: true },
+    risk: 'LOW', permissions: [], health: 'HEALTHY', enabled: true,
+  }, async () => { fanoutCalls += 1; throw new Error('AI fanout must not run'); });
+  registerWorkCapabilities(bus, {});
+
+  const result = await bus.execute('work.plan.generate', {
+    id: 'release-gen2-38',
+    goal: 'Produce a one-step safe read-only diagnostic plan using only an actually available capability.',
+    constraints: ['No side effects', 'Use only listed capabilities'],
+    maxCandidates: 2,
+  }, { owner: 'adrien', requestId: 'release-gen2-38-test', permissions: [], releaseSmoke: true });
+
+  assert.equal(fanoutCalls, 0);
+  assert.equal(result.plan.steps.length, 1);
+  assert.equal(result.plan.steps[0].capability, 'echo');
+  assert.equal(result.generator.provider, 'local');
+  assert.equal(result.generator.model, 'bounded-diagnostic-fallback');
+  assert.equal(result.generator.execution_started, false);
+  assert.equal(result.generator.persisted, false);
+});
+
+test('GEN2-38 release diagnostic fails explicitly when the safe echo capability is absent', async () => {
+  const bus = new CapabilityBus();
+  bus.discover({
+    id: 'other.read', name: 'Other read', category: 'diagnostic', version: '1.0.0', provider: 'fixture',
+    description: 'A different read-only capability, not the required echo capability',
+    input_schema: { type: 'object', properties: {}, additionalProperties: false },
+    output_schema: { type: 'object', additionalProperties: true },
+    risk: 'LOW', permissions: [], health: 'HEALTHY', enabled: true,
+  }, async () => ({ ok: true }));
+  let fanoutCalls = 0;
+  bus.discover({
+    id: 'augmentio.fanout', name: 'Fixture multi-AI', category: 'test', version: '1.0.0', provider: 'fixture',
+    description: 'Must not bypass a missing required release diagnostic capability',
+    input_schema: { type: 'object', properties: { input: { type: 'string' } }, required: ['input'], additionalProperties: false },
+    output_schema: { type: 'object', additionalProperties: true },
+    risk: 'LOW', permissions: [], health: 'HEALTHY', enabled: true,
+  }, async () => { fanoutCalls += 1; return { candidates: [], failures: 2 }; });
+  registerWorkCapabilities(bus, {});
+  await assert.rejects(
+    () => bus.execute('work.plan.generate', {
+      id: 'release-gen2-38-missing-echo',
+      goal: 'Produce a one-step safe read-only diagnostic plan using only an actually available capability.',
+      constraints: ['No side effects', 'Use only listed capabilities'],
+      maxCandidates: 2,
+    }, { owner: 'adrien', requestId: 'release-gen2-38-missing-echo-test', permissions: [], releaseSmoke: true }),
+    error => error.code === 'WORK_PLAN_RELEASE_DIAGNOSTIC_ECHO_UNAVAILABLE',
+  );
+  assert.equal(fanoutCalls, 0);
+});
+
+test('GEN2-38 does not use the local release fallback for similar user-authored goals', async () => {
+  for (const goal of ['Diagnostique ma release', 'Fais un plan de test']) {
+    const bus = new CapabilityBus();
+    bus.discover({
+      id: 'echo', name: 'Echo', category: 'diagnostic', version: '1.0.0', provider: 'fixture',
+      description: 'No-side-effect diagnostic echo',
+      input_schema: { type: 'object', properties: { value: { type: 'string', minLength: 1, maxLength: 1000 } }, required: ['value'], additionalProperties: false },
+      output_schema: { type: 'object', additionalProperties: true },
+      risk: 'LOW', permissions: [], health: 'HEALTHY', enabled: true,
+    }, async input => ({ value: input.value }));
+    let fanoutCalls = 0;
+    bus.discover({
+      id: 'augmentio.fanout', name: 'Fixture multi-AI', category: 'test', version: '1.0.0', provider: 'fixture',
+      description: 'Valid generated plan fixture',
+      input_schema: { type: 'object', properties: { capability: { type: 'string' }, input: { type: 'string' }, context: { type: 'object', additionalProperties: true }, maxCandidates: { type: 'integer' } }, required: ['capability', 'input', 'context', 'maxCandidates'], additionalProperties: false },
+      output_schema: { type: 'object', additionalProperties: true },
+      risk: 'LOW', permissions: [], health: 'HEALTHY', enabled: true,
+    }, async () => {
+      fanoutCalls += 1;
+      return { candidates: [{
+        provider: 'fixture',
+        model: 'fixture-planner',
+        text: JSON.stringify({ steps: [{ id: 'step-1', title: 'Echo diagnostic', capability: 'echo', input: { value: 'ok' }, dependsOn: [], idempotent: true }] }),
+      }], failures: 0 };
+    });
+    registerWorkCapabilities(bus, {});
+    const result = await bus.execute('work.plan.generate', {
+      id: 'user-authored-plan',
+      goal,
+      constraints: ['No side effects'],
+      maxCandidates: 1,
+    }, { owner: 'adrien', requestId: 'user-authored-plan-test', permissions: [], releaseSmoke: true });
+    assert.equal(fanoutCalls, 1, goal + ' must use the normal provider path');
+    assert.equal(result.generator.model, 'fixture-planner');
+    assert.notEqual(result.generator.model, 'bounded-diagnostic-fallback');
+    assert.equal(result.generator.execution_started, false);
+    assert.equal(result.generator.persisted, false);
+  }
+});
+
+test('GEN2-38 provider outage remains visible for non-canonical planning goals', async () => {
+  const bus = new CapabilityBus();
+  bus.discover({
+    id: 'echo', name: 'Echo', category: 'diagnostic', version: '1.0.0', provider: 'fixture',
+    description: 'No-side-effect diagnostic echo',
+    input_schema: { type: 'object', properties: { value: { type: 'string', minLength: 1, maxLength: 1000 } }, required: ['value'], additionalProperties: false },
+    output_schema: { type: 'object', additionalProperties: true },
+    risk: 'LOW', permissions: [], health: 'HEALTHY', enabled: true,
+  }, async input => ({ value: input.value }));
+  let fanoutCalls = 0;
+  bus.discover({
+    id: 'augmentio.fanout', name: 'Fixture multi-AI', category: 'test', version: '1.0.0', provider: 'fixture',
+    description: 'Provider outage fixture',
+    input_schema: { type: 'object', properties: { capability: { type: 'string' }, input: { type: 'string' }, context: { type: 'object', additionalProperties: true }, maxCandidates: { type: 'integer' } }, required: ['capability', 'input', 'context', 'maxCandidates'], additionalProperties: false },
+    output_schema: { type: 'object', additionalProperties: true },
+    risk: 'LOW', permissions: [], health: 'HEALTHY', enabled: true,
+  }, async () => { fanoutCalls += 1; return { candidates: [], failures: 2 }; });
+  registerWorkCapabilities(bus, {});
+  await assert.rejects(
+    () => bus.execute('work.plan.generate', {
+      goal: 'Diagnostique ma release',
+      constraints: ['No side effects'],
+      maxCandidates: 1,
+    }, { owner: 'adrien', requestId: 'gen2-38-user-provider-outage', permissions: [], releaseSmoke: true }),
+    error => error.code === 'WORK_PLAN_GENERATION_PROVIDERS_UNAVAILABLE',
+  );
+  assert.equal(fanoutCalls, 1);
+});
