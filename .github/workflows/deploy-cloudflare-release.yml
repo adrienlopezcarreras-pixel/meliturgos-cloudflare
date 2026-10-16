@@ -189,6 +189,7 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
+      # Bound the disposable encrypted-backup stage; trap cleanup remains fail-closed.
       - name: Refresh current production backup through ephemeral worker
         timeout-minutes: 20
         shell: bash
