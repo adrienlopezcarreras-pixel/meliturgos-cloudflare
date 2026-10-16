@@ -270,13 +270,16 @@ jobs:
           }
           trap 'cleanup_refresher || true' EXIT
 
-          # Deploy the ephemeral sidecar exactly once with its short-lived auth token.
-          # A separate `wrangler secret put` creates a second Worker revision and can make
-          # workers.dev alternate between unauthenticated/absent revisions during propagation.
-          npx wrangler deploy --config "${REFRESH_CONFIG}" \
-            --var "MEL_PREDEPLOY_BACKUP_REFRESH_TOKEN:${REFRESH_TOKEN}" \
-            >/tmp/predeploy-refresh-deploy.log
+          # Arm cleanup before deploy: Cloudflare may create the script even if
+          # the CLI times out or exits nonzero before returning success.
           REFRESH_CREATED=1
+          # Bound CLI startup/network waits and retain actionable logs on failure.
+          if ! timeout 180s npx wrangler deploy --config "${REFRESH_CONFIG}" \
+            --var "MEL_PREDEPLOY_BACKUP_REFRESH_TOKEN:${REFRESH_TOKEN}" \
+            >/tmp/predeploy-refresh-deploy.log 2>&1; then
+            test ! -s /tmp/predeploy-refresh-deploy.log || cat /tmp/predeploy-refresh-deploy.log
+            exit 53
+          fi
 
           SIDECAR_READY=0
           SIDECAR_STABLE_PROBES=0
@@ -447,13 +450,16 @@ jobs:
           }
           trap 'cleanup_binder || true' EXIT
 
-          # Keep binder authentication in the same deployed revision. A separate
-          # secret put creates a second revision and can race workers.dev propagation,
-          # yielding Cloudflare 10007 immediately after the first deploy.
-          npx wrangler deploy --config "${BINDER_CONFIG}" \
-            --var "MEL_PREDEPLOY_BINDER_TOKEN:${BINDER_TOKEN}" \
-            >/tmp/predeploy-binder-deploy.log
+          # Arm cleanup before deploy for the same partial-create/CLI-timeout case.
           BINDER_CREATED=1
+          # Keep binder authentication in the same deployed revision; bound CLI waits
+          # and print captured diagnostics when deployment fails or times out.
+          if ! timeout 180s npx wrangler deploy --config "${BINDER_CONFIG}" \
+            --var "MEL_PREDEPLOY_BINDER_TOKEN:${BINDER_TOKEN}" \
+            >/tmp/predeploy-binder-deploy.log 2>&1; then
+            test ! -s /tmp/predeploy-binder-deploy.log || cat /tmp/predeploy-binder-deploy.log
+            exit 54
+          fi
 
           BINDER_READY=0
           BINDER_STABLE_PROBES=0

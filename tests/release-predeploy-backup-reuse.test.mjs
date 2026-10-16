@@ -118,7 +118,11 @@ test('predeploy refresh creates the backup on the GitHub runner and keeps the Wo
   assert.match(refreshBlock, /MEL_BACKUP_ENCRYPTION_KEY_B64: \$\{\{ secrets\.MEL_BACKUP_ENCRYPTION_KEY_B64 \}\}/);
   assert.match(refreshBlock, /MEL_BACKUP_ENCRYPTION_KEY_ID: \$\{\{ secrets\.MEL_BACKUP_ENCRYPTION_KEY_ID \}\}/);
   assert.match(refreshBlock, /CURRENT_PRODUCTION_RELEASE_SHA_NOT_FOUND/);
-  assert.match(refreshBlock, /wrangler deploy --config/);
+  assert.match(refreshBlock, /timeout 180s npx wrangler deploy --config/);
+  const refreshCleanupArm = refreshBlock.indexOf('REFRESH_CREATED=1', refreshBlock.indexOf('Arm cleanup before deploy'));
+  const refreshDeploy = refreshBlock.indexOf('if ! timeout 180s npx wrangler deploy');
+  assert.ok(refreshCleanupArm >= 0 && refreshDeploy > refreshCleanupArm, 'cleanup must be armed before a bounded refresher deploy');
+  assert.match(refreshBlock, /predeploy-refresh-deploy\.log 2>&1; then[\s\S]*cat \/tmp\/predeploy-refresh-deploy\.log[\s\S]*exit 53/);
   assert.match(refreshBlock, /--var "MEL_PREDEPLOY_BACKUP_REFRESH_TOKEN:\$\{REFRESH_TOKEN\}"/);
   assert.doesNotMatch(refreshBlock, /wrangler secret put MEL_PREDEPLOY_BACKUP_REFRESH_TOKEN/);
   assert.doesNotMatch(refreshBlock, /wrangler secret put MEL_BACKUP_ENCRYPTION_KEY_B64/);
@@ -214,6 +218,10 @@ test('predeploy refresh creates the backup on the GitHub runner and keeps the Wo
   assert.match(binderBlock, /BINDER_STABLE_PROBES/);
   assert.match(binderBlock, /\/prepare/);
   assert.match(binderBlock, /predeploy-backup-verified\.marker/);
+  const binderCleanupArm = binderBlock.indexOf('BINDER_CREATED=1', binderBlock.indexOf('Arm cleanup before deploy'));
+  const binderDeploy = binderBlock.indexOf('if ! timeout 180s npx wrangler deploy');
+  assert.ok(binderCleanupArm >= 0 && binderDeploy > binderCleanupArm, 'cleanup must be armed before a bounded binder deploy');
+  assert.match(binderBlock, /predeploy-binder-deploy\.log 2>&1; then[\s\S]*cat \/tmp\/predeploy-binder-deploy\.log[\s\S]*exit 54/);
   assert.match(binderBlock, /--var "MEL_PREDEPLOY_BINDER_TOKEN:\$\{BINDER_TOKEN\}"/);
   assert.doesNotMatch(binderBlock, /wrangler secret put MEL_PREDEPLOY_BINDER_TOKEN/);
   assert.doesNotMatch(binderBlock, /MEL_LAUNCH_BOOTSTRAP_TOKEN/);
