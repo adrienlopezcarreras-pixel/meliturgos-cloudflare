@@ -19,6 +19,25 @@ async function set(db,id,{seen=Date.now(),engine=Date.now(),grant=true,halted=0}
   .bind(seen,JSON.stringify({remote_access_enabled:grant,engine_heartbeat_at:engine,allowed_paths:[]}),halted,id).run();
 }
 
+test('computer.status remains usable to explain offline/local-consent state without enabling control',async()=>{
+ const {db,actions,health}=fixture();
+ try{
+  assert.equal(await health.get('computer.status')(),'ONLINE');
+  assert.equal((await actions.get('computer.status')({})).devices.length,0);
+  await device(db,{id:'pc-status',grant:false});
+  assert.equal(await health.get('computer.status')(),'ONLINE');
+  const status=await actions.get('computer.status')({});
+  assert.equal(status.devices.length,1);
+  assert.equal(status.devices[0].remote_access_issue,'REMOTE_ACCESS_DISABLED_LOCALLY');
+  assert.equal(await health.get('computer.quick')(),'OFFLINE');
+  assert.equal(await health.get('computer.execute')(),'OFFLINE');
+  await set(db,'pc-status',{});
+  const enabled=await actions.get('computer.status')({});
+  assert.equal(enabled.devices[0].remote_access_issue,null);
+  assert.equal(await health.get('computer.quick')(),'ONLINE');
+ }finally{db.close();}
+});
+
 test('chat quick screenshot chooses authorized online PC, not a closer but unauthorized PC',async()=>{
  const {db,actions,health}=fixture();
  try{
