@@ -219,7 +219,7 @@ const PC_CONTROL_ACTIONS=new Set([
  "serial.list","serial.read","serial.inspect","serial.hard_reset",
  "process.list","process.start","process.kill",
  "file.list","file.read_text","file.write_text",
- "system.info","system.exec","mini.readonly.discover","mini.readonly.security","mini.readonly.backup","mini.readonly.backup.status","mini.readonly.backup.audit","mini.maintenance.assess","mini.android.ble.diagnose","mini.maintenance.stage","android.maintenance.assess","android.maintenance.stage","android.maintenance.install"
+ "system.info","system.exec","taskmarket.status","mini.readonly.discover","mini.readonly.security","mini.readonly.backup","mini.readonly.backup.status","mini.readonly.backup.audit","mini.maintenance.assess","mini.android.ble.diagnose","mini.maintenance.stage","android.maintenance.assess","android.maintenance.stage","android.maintenance.install"
 ]);
 const PC_CONTROL_PROOF_ACTIONS=new Set(["system.info","serial.list","serial.read","serial.inspect","mini.readonly.discover","process.list","mini.readonly.backup.audit","mini.maintenance.assess","mini.android.ble.diagnose","android.maintenance.assess"]);
 
