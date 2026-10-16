@@ -259,3 +259,15 @@ test("Companion supervisor disposes an exited ADB process handle before restarti
  assert.match(method,/AdbWifiProcess = null/);
  assert.ok(method.indexOf("AdbWifiProcess.Dispose()") < method.indexOf("Process.Start(psi)"));
 });
+
+test("Stopping the Companion ADB monitor waits boundedly and always disposes the process handle", async () => {
+ const native=await source("windows-companion/MEL-Companion.cs");
+ const start=native.indexOf("public static void StopAdbWifiMonitor()");
+ const end=native.indexOf("public static void StartBackgroundSupervisor()",start);
+ const method=native.slice(start,end);
+ assert.match(method,/process\.Kill\(\)/);
+ assert.match(method,/process\.WaitForExit\(2000\)/);
+ assert.match(method,/finally/);
+ assert.match(method,/process\.Dispose\(\)/);
+ assert.ok(method.indexOf("AdbWifiProcess = null") < method.indexOf("process.Kill()"));
+});
