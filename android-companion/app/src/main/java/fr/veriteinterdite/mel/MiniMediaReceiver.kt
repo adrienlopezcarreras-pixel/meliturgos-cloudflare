@@ -43,6 +43,7 @@ class MiniMediaReceiver(private val context: Context) {
         private const val PORT = 38222
         private const val MAX_PHOTO_BYTES = 12 * 1024 * 1024
         private const val MAX_AUDIO_CHUNK = 512 * 1024
+        private const val MAX_ACTIVE_MEDIA_CLIENTS = 4
         private val MAGIC = "MELM1".toByteArray(Charsets.US_ASCII)
     }
 
@@ -157,6 +158,12 @@ class MiniMediaReceiver(private val context: Context) {
             if (!started.get()) {
                 runCatching { socket.close() }
                 break
+            }
+            // The accept loop is the sole client registrar. Bound concurrent
+            // sockets/threads before accepting any additional media sessions.
+            if (activeClients.size >= MAX_ACTIVE_MEDIA_CLIENTS) {
+                runCatching { socket.close() }
+                continue
             }
             activeClients.add(socket)
             // Closing can race with accept(): never leave a newly accepted
