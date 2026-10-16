@@ -918,4 +918,20 @@ export const DEVELOPMENT_EXPERIENCE_PACK = Object.freeze([
     created_at: 1790520000000,
   }),
 
+  Object.freeze({
+    id: 'work-device-evidence-server-resolved-20261016',
+    source: 'claude-code',
+    domain: 'device-evidence',
+    task: 'Transmettre à Work un résultat d appareil, notamment une capture d écran Companion.',
+    input: 'Le navigateur fournit un statut et une URL d image au préflight.',
+    before: 'Faire confiance aux champs du navigateur et relayer du texte d écran au Council sans consentement.',
+    after: 'Résoudre la référence contre les commandes et objets stockés, appliquer HALT/révocation/expiration, interpréter avec consentement explicite et limiter le partage au Council par opt-in.',
+    rationale: 'Les champs client sont falsifiables et le texte de l écran est privé et non fiable.',
+    tests: ['tests/work-companion-screen-evidence.test.mjs ; CI exacte en attente'],
+    tags: ['companion', 'work', 'evidence', 'screenshot', 'fail-closed', 'privacy'],
+    validated: false,
+    quality: 0.8,
+    created_at: 1792159200000,
+  }),
+
 ]);

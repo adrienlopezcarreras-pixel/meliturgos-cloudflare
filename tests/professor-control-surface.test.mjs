@@ -165,7 +165,7 @@ test('IA and Work share one canonical surface and development tab loads Work on 
 
 test('MEL Work is wired to the authorized Windows Companion view-only channel', async () => {
   const page = await read('src/pages/full-interface-v2.js');
-  for (const id of ['workComputerCard','workComputerState','workComputerSelect','workComputerPermission','workComputerWindow','workComputerView','workComputerOpen','workComputerScreen','workComputerScreenState','workComputerOut']) {
+  for (const id of ['workComputerCard','workComputerState','workComputerSelect','workComputerPermission','workComputerWindow','workComputerView','workComputerOpen','workComputerInterpretConsent','workComputerShareText','workComputerAnalysis','workComputerScreen','workComputerScreenState','workComputerOut']) {
     assert.ok(sourceHasHtmlId(page,id), `MEL Work missing Companion control #${id}`);
   }
   assert.ok(page.includes("qs('#workComputerState').onclick=()=>loadWorkComputer().catch(()=>{})"), 'Work must refresh the Companion state without adding a redundant button');
@@ -177,7 +177,12 @@ test('MEL Work is wired to the authorized Windows Companion view-only channel', 
   assert.ok(page.includes("if(command.status!=='SUCCEEDED')continue;"), 'Work must ignore pending/nonterminal commands and only display a capture after SUCCEEDED');
   assert.ok(page.includes('DESKTOP_VIEW_TIMEOUT'), 'Work must expose a timeout rather than claim a capture succeeded');
   assert.ok(page.includes("scope:'VIEW_ONLY'"), 'initial Work integration must remain view-only');
-  assert.ok(page.includes('screen_capture:workComputerLastView||null'), 'Work preflight must receive the verified capture reference when one exists');
+  assert.ok(page.includes('screen_capture:workComputerLastView?{computer_id:workComputerLastView.computer_id,command_id:workComputerLastView.command_id}:null'), 'Work must send only a capture reference; server verifies it');
+  assert.ok(!page.includes('remote_access_enabled:pc.metadata?.remote_access_enabled===true,active_window'), 'Work must not assert computer state to server');
+  assert.ok(page.includes("'/api/work/screen-interpretation'"), 'Work must use server-verified interpretation route');
+  assert.ok(page.includes("qs('#workComputerInterpretConsent')?.checked===true"), 'interpretation requires explicit owner opt-in');
+  assert.ok(page.includes("consent:'INTERPRET_SCREEN_WITH_WORKERS_AI'"), 'vision interpretation requires consent token');
+  assert.ok(page.includes("if(workComputerBusy)throw Error('Capture déjà en cours')"), 'Work must block concurrent captures');
   assert.ok(page.includes('await loadWorkComputer()'), 'refreshing the Work view must load Companion state');
 });
 

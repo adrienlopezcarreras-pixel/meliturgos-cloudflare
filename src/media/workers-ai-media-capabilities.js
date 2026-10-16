@@ -288,6 +288,12 @@ function markdownDescription(result) {
   return '';
 }
 
+// Reuse the same zero-cost-gated vision adapter for verified Companion screen captures.
+export async function analyzeImageBytes(env, { bytes, mime = 'image/png', prompt } = {}) {
+  if (!(bytes instanceof Uint8Array)) throw mediaError('IMAGE_INPUT_REQUIRED', 400);
+  return imageAnalyze(env, { bytes, mime, prompt });
+}
+
 async function imageAnalyze(env, input = {}) {
   const provenance = freshZeroCostProof(env, IMAGE_ANALYZE_ADAPTER_ID, WORKERS_AI_VISION_MODEL);
   if (!provenance) throw mediaError('WORKERS_AI_ZERO_COST_PROOF_REQUIRED');

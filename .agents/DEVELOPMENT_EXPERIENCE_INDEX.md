@@ -164,3 +164,5 @@ Chronologie technique et éditoriale datée : `.agents/WEEKLY_HANDOFF_20260927.m
 
 - `bootstrap-encrypted-backup-consumer-codec-parity-20260927` — un recovery drill ou autre consommateur d un backup chiffré doit résoudre le même codec canonique; config partielle fail-closed.
 - `bootstrap-release-bound-recovery-drill-20260927` — un snapshot historique ne vaut pour une release plus récente que via un binding exact vérifié; le snapshot lié doit être retrouvé par identifiant exact, pas seulement dans une fenêtre récente; tout mismatch SHA/snapshot/intégrité reste fail-closed.
+
+- `work-device-evidence-server-resolved-20261016` — une capture Companion transmise à Work est une référence, pas une preuve client ; résolution serveur contre commande/plan/clé canonique/objet stocké, HALT/révocation/expiration fail-closed, partage du texte d’écran au Council uniquement avec consentement explicite.

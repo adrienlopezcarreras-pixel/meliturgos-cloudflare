@@ -14,6 +14,7 @@ const ROUTES = Object.freeze([
   { id:'memory.export', handler:'index', canonical:'/api/v1/memory/export', legacy:['/api/export'], methods:['GET'] },
   { id:'work.health', handler:'index', canonical:'/api/v1/work/health', legacy:['/api/work/health'], methods:['GET'] },
   { id:'work.jobs', handler:'index', canonical:'/api/v1/work/jobs', legacy:['/api/work/jobs'], methods:['GET','POST'] },
+  { id:'work.screen-interpretation', handler:'index', canonical:'/api/v1/work/screen-interpretation', legacy:['/api/work/screen-interpretation'], methods:['POST'] },
   { id:'autonomy', handler:'index', canonical:'/api/v1/autonomy', legacy:['/api/gen2/autonomy'], methods:['GET','POST','PATCH','DELETE'], prefix:true },
   { id:'api.version', handler:'router', canonical:'/api/v1/version', legacy:['/api/gen2/version'], methods:['GET'], meta:true },
   { id:'roadmap.read', handler:'router', canonical:'/api/v1/roadmap', legacy:['/api/gen2/roadmap'], methods:['GET'] },
