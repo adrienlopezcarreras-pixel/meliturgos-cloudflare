@@ -321,16 +321,6 @@ export function registerWorkCapabilities(bus, { db } = {}) {
   }, async (input, context) => {
     const constraintSize = JSON.stringify(input.constraints || []).length;
     const catalogBudget = Math.max(2200, Math.min(5200, 9000 - String(input.goal || '').length - constraintSize));
-    const catalog = buildPlanningCatalog(bus.list(), {
-      query: input.goal,
-      maxChars: catalogBudget,
-    });
-    if (!catalog.length) throw workError('WORK_PLAN_CAPABILITY_CATALOG_EMPTY');
-    const prompt = buildWorkPlanningPrompt({
-      goal: input.goal,
-      constraints: input.constraints || [],
-      catalog,
-    });
     // Deterministic echo is reserved for the release smoke's exact canonical request.
     // User-authored planning goals, even similar diagnostic requests, must use the
     // normal provider path and continue to surface provider outages.
@@ -340,6 +330,19 @@ export function registerWorkCapabilities(bus, { db } = {}) {
       context?.releaseSmoke === true
       && String(input.goal || '').trim() === releaseDiagnosticGoal
       && JSON.stringify(input.constraints || []) === JSON.stringify(releaseDiagnosticConstraints);
+    // The normal relevance-ranked catalog can fill its byte budget with other
+    // descriptors before reaching "echo". The exact release diagnostic must rank
+    // the real echo capability first, while keeping the same eligibility filters.
+    const catalog = buildPlanningCatalog(bus.list(), {
+      query: isBoundedReleaseDiagnostic ? 'echo' : input.goal,
+      maxChars: catalogBudget,
+    });
+    if (!catalog.length) throw workError('WORK_PLAN_CAPABILITY_CATALOG_EMPTY');
+    const prompt = buildWorkPlanningPrompt({
+      goal: input.goal,
+      constraints: input.constraints || [],
+      catalog,
+    });
     if (isBoundedReleaseDiagnostic) {
       const diagnosticEcho = catalog.find((record) =>
         String(record?.id || '') === 'echo'
