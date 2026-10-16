@@ -66,3 +66,11 @@ test("Failed ADB process exit cannot masquerade as successful device telemetry",
   assert.match(script, /\$LASTEXITCODE -ne 0/);
   assert.match(script, /ADB_COMMAND_FAILED/);
 });
+
+
+test("failed Wi-Fi endpoint connection falls through to next candidate", async () => {
+  const script = await source("windows-companion/MEL-ADB-WiFi.ps1");
+  const reconnect = script.split("function Attempt-Reconnect {")[1].split("function Scan {")[0];
+  assert.match(reconnect, /try \{ \$result=\(Run-Adb -arglist @\("connect",\$endpoint\)\)/);
+  assert.match(reconnect, /catch \{ continue \}/);
+});
