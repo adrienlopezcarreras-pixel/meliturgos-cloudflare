@@ -208,7 +208,9 @@ export class Augmentio {
           confidence: response?.confidence ?? 0,
         };
       } catch (error) {
-        if (error?.code === 'SCHEDULER_ABORTED') throw error;
+        // Aborts and timeouts are owned by the scheduler; a late aborted
+        // adapter result must not inflate the provider quota failure count.
+        if (meta.signal?.aborted || signal?.aborted || error?.code === 'SCHEDULER_ABORTED') throw error;
         this.quota.recordFailure(provider.id, error);
         throw error;
       }
