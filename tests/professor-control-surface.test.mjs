@@ -163,6 +163,24 @@ test('IA and Work share one canonical surface and development tab loads Work on 
 });
 
 
+test('MEL Work is wired to the authorized Windows Companion view-only channel', async () => {
+  const page = await read('src/pages/full-interface-v2.js');
+  for (const id of ['workComputerCard','workComputerState','workComputerSelect','workComputerPermission','workComputerWindow','workComputerRefresh','workComputerView','workComputerOpen','workComputerScreen','workComputerScreenState','workComputerOut']) {
+    assert.ok(sourceHasHtmlId(page,id), `MEL Work missing Companion control #${id}`);
+  }
+  assert.ok(page.includes("'/api/computer/v1/status'"), 'Work must read the real paired computer status');
+  assert.ok(page.includes("'/api/computer/v1/desktop-view-request'"), 'Work must use the existing short-lived desktop view request, not create a second command API');
+  assert.ok(page.includes("pc.metadata?.remote_access_enabled!==true"), 'Work must fail closed when local remote access is disabled');
+  assert.ok(page.includes('pc.halted'), 'Work must respect the owner HALT state');
+  assert.ok(page.includes('engine_heartbeat_at'), 'Work must require a fresh Companion engine heartbeat');
+  assert.ok(page.includes("command.status==='SUCCEEDED'"), 'Work must wait for actual completion, not equate queue acceptance with capture success');
+  assert.ok(page.includes('DESKTOP_VIEW_TIMEOUT'), 'Work must expose a timeout rather than claim a capture succeeded');
+  assert.ok(page.includes("scope:'VIEW_ONLY'"), 'initial Work integration must remain view-only');
+  assert.ok(page.includes('screen_capture:workComputerLastView||null'), 'Work preflight must receive the verified capture reference when one exists');
+  assert.ok(page.includes('await loadWorkComputer()'), 'refreshing the Work view must load Companion state');
+});
+
+
 test('Compétences combines CapabilityBus, verified active Skill Registry and real XP', async () => {
   const page = await read('src/pages/full-interface-v2.js');
   for (const id of ['skillsHealthy','skillsProtected','skillsDegraded','skillsWaiting','skillsUnavailable','skillsFailed','skillsLearned','skillsXp','skillsLearnedList','skillsLearningState']) {
