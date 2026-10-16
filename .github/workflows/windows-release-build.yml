@@ -210,6 +210,26 @@ jobs:
           }
           $global:LASTEXITCODE = 0
 
+      - name: Verify packaged MCP rejects malformed owner tokens
+        shell: pwsh
+        run: |
+          $launcher = ".windows-release/MEL-Windows-$env:RELEASE_VERSION/Start-MEL-Companion-MCP.ps1"
+          $env:MEL_MCP_SERVER_URL = 'https://mel.example.test/'
+          $env:MEL_MCP_OWNER_TOKEN = "invalid`nheader"
+          $ErrorActionPreference = 'Continue'
+          try {
+            $output = & pwsh -NoProfile -NonInteractive -File $launcher 2>&1 | Out-String
+            $code = $LASTEXITCODE
+          } finally {
+            Remove-Item Env:MEL_MCP_OWNER_TOKEN -ErrorAction SilentlyContinue
+            Remove-Item Env:MEL_MCP_SERVER_URL -ErrorAction SilentlyContinue
+            $ErrorActionPreference = 'Stop'
+          }
+          if ($code -eq 0 -or $output -notmatch 'MEL_MCP_OWNER_TOKEN_INVALID') {
+            throw 'WINDOWS_MCP_MALFORMED_TOKEN_NOT_REJECTED'
+          }
+          $global:LASTEXITCODE = 0
+
       - name: Verify release package
         shell: pwsh
         run: |
