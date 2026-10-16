@@ -84,6 +84,13 @@ function numeric(value, fallback = 0) {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+// Native Windows pointer operations consume integer coordinates and deltas.
+// Validate the submitted values before numeric() could silently substitute 0.
+function suppliedSafeInteger(value) {
+  return (typeof value === 'number' || (typeof value === 'string' && value.trim() !== ''))
+    && Number.isSafeInteger(Number(value));
+}
+
 function normalizeOrigin(value) {
   const raw = boundedText(value, 2048);
   if (!raw) return '';
@@ -240,6 +247,19 @@ export function evaluateComputerUsePlan(input = {}) {
     } else if (risk === COMPUTER_USE_RISK.DENY) {
       allowed = false;
       reason = 'ACTION_NOT_ALLOWED';
+    } else if (step.action === COMPUTER_USE_ACTIONS.CURSOR_MOVE
+      && (!suppliedSafeInteger(submittedSteps[decisions.length]?.x)
+        || !suppliedSafeInteger(submittedSteps[decisions.length]?.y))) {
+      allowed = false;
+      reason = 'POINTER_COORDINATES_INVALID';
+    } else if (step.action === COMPUTER_USE_ACTIONS.SCROLL
+      && (!suppliedSafeInteger(submittedSteps[decisions.length]?.delta_y)
+        || Number(submittedSteps[decisions.length].delta_y) === 0)) {
+      allowed = false;
+      reason = 'SCROLL_DELTA_INVALID';
+    } else if (step.action === COMPUTER_USE_ACTIONS.KEY_PRESS && !step.key) {
+      allowed = false;
+      reason = 'KEY_REQUIRED';
     } else if (!appAllowed(step.app, request.sandbox.allowed_apps)) {
       allowed = false;
       reason = 'APP_OUTSIDE_SANDBOX';
