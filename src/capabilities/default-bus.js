@@ -143,10 +143,9 @@ export function createDefaultCapabilityBus({ audit, env, repository, branch, tok
   const githubToken = token ?? runtimeEnv.MEL_GITHUB_TOKEN ?? '';
   const githubFetch = fetchImpl || runtimeEnv.MEL_GITHUB_FETCH || fetch;
   const platformFetch = fetchImpl || runtimeEnv.MEL_PLATFORM_FETCH || fetch;
-  // Commercial MEL runs free-first. Vercel Hobby is non-commercial only;
-  // exclude optional Vercel capabilities from the active inventory unless
-  // the operator explicitly opts in to using an eligible paid Vercel plan.
-  const includeVercel = String(runtimeEnv.MEL_ENABLE_OPTIONAL_VERCEL || '').trim().toLowerCase() === 'true';
+  // Owner policy: paid Vercel is excluded from MEL's production capability inventory.
+  // Keep Cloudflare as the deployment provider; no environment flag can re-enable Vercel.
+  const includeVercel = false;
   registerGitHubCodeCapabilities(bus, {
     repository: githubRepository,
     branch: githubBranch,
