@@ -1272,6 +1272,69 @@ export async function handleNativeChat(request, env, options = {}) {
     }
   }
 
+  const autonomyRuntimeObservedRow = toolResults.find((row) =>
+    ['autonomy.tick', 'autonomy.status'].includes(String(row.capability))
+  ) || null;
+  if (!releaseSmoke && autonomyRuntimeObservedRow) {
+    const capabilitySucceeded = autonomyRuntimeObservedRow.status === 'SUCCEEDED';
+    const runtimeResult = capabilitySucceeded && autonomyRuntimeObservedRow.result && typeof autonomyRuntimeObservedRow.result === 'object'
+      ? autonomyRuntimeObservedRow.result
+      : {
+          ok: false,
+          status: 'RUNTIME_ERROR',
+          advanced: false,
+          progress: {
+            advanced: false,
+            events: [],
+            block_reason: String(autonomyRuntimeObservedRow.error || 'AUTONOMY_RUNTIME_FAILED').slice(0, 180),
+          },
+        };
+    const responseText = capabilitySucceeded
+      ? formatVerifiedAutonomyRuntimeResponse(runtimeResult, {
+          operation: autonomyRuntimeObservedRow.capability === 'autonomy.status' ? 'status' : 'tick',
+        })
+      : 'Le cycle d’autonomie n’a pas pu s’exécuter : ' + String(autonomyRuntimeObservedRow.error || 'AUTONOMY_RUNTIME_FAILED').slice(0, 180) + '.';
+    let archiveSaved = false;
+    if (service) {
+      try {
+        await service.archiveMessage({ conversationId, deviceId, role:'user', content:text, timestamp:Date.now(), provenance:userProvenance, metadata:userMetadata });
+        await service.archiveMessage({
+          conversationId,
+          deviceId,
+          role:'assistant',
+          content:responseText,
+          timestamp:Date.now()+1,
+          provenance:'native-chat:autonomy-runtime',
+          metadata:{
+            capability: autonomyRuntimeObservedRow.capability,
+            runtime_status: runtimeResult.status || null,
+            advanced: runtimeResult.advanced === true,
+            response_grounding: 'deterministic-autonomy-runtime',
+          },
+        });
+        archiveSaved = true;
+      } catch {}
+    }
+    return Response.json({
+      ok:true,
+      text:responseText,
+      model:'deterministic-autonomy-runtime',
+      provider:'mel',
+      response_mode: autonomyRuntimeObservedRow.capability === 'autonomy.status' ? 'autonomy-status' : 'autonomy-execution',
+      operation_ok: runtimeResult.ok !== false,
+      advanced: runtimeResult.advanced === true || runtimeResult.progress?.advanced === true,
+      capability_used:[autonomyRuntimeObservedRow.capability],
+      tool_results:toolResults,
+      archive_saved:archiveSaved,
+      response_grounding:{
+        mode:'deterministic-autonomy-runtime',
+        source:autonomyRuntimeObservedRow.capability,
+        status:runtimeResult.status || null,
+        advanced:runtimeResult.advanced === true || runtimeResult.progress?.advanced === true,
+      },
+    }, { headers:{'cache-control':'no-store'} });
+  }
+
   if (!releaseSmoke) capabilityManifest = applyCapabilityExecutionEvidence(capabilityManifest, toolResults);
 
   if (!releaseSmoke && inferredExecutionCapability?.execution_intent === 'GLOBAL_CAPABILITY_STRESS_TEST') {
