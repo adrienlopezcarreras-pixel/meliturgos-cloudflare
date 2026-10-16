@@ -1709,15 +1709,17 @@ class MainForm : Form
                     DateTime when;
                     bool fresh = a.TryGetValue("observed_at_utc", out observed)
                         && DateTime.TryParse(Convert.ToString(observed), out when)
-                        && Math.Abs((DateTime.UtcNow - when.ToUniversalTime()).TotalMinutes) < 2;
+                        && (DateTime.UtcNow - when.ToUniversalTime()).TotalSeconds >= -30
+                        && (DateTime.UtcNow - when.ToUniversalTime()).TotalSeconds < 75;
                     bool isConnected = a.TryGetValue("connected", out connected) && Convert.ToBoolean(connected);
                     bool adbAvailable = a.TryGetValue("adb_available", out available) && Convert.ToBoolean(available);
                     string errorCode = a.TryGetValue("error", out errorValue) && errorValue != null ? Convert.ToString(errorValue) : "";
+                    string errorDetail = a.TryGetValue("error_detail", out errorDetailValue) && errorDetailValue != null ? Convert.ToString(errorDetailValue) : "";
                     string name = a.TryGetValue("android_model", out model) ? Convert.ToString(model) : "";
                     bool hasMel = a.TryGetValue("mel_installed", out installed) && Convert.ToBoolean(installed);
                     adbWifiStatus.Text = !fresh ? "ADB Wi-Fi : diagnostic ancien · actualisez"
                         : !adbAvailable ? "ADB Wi-Fi : Android Platform Tools introuvables"
-                        : !String.IsNullOrEmpty(errorCode) ? "ADB Wi-Fi : diagnostic en échec · " + errorCode
+                        : !String.IsNullOrEmpty(errorCode) ? "ADB Wi-Fi : échec · " + errorCode + (String.IsNullOrEmpty(errorDetail) ? "" : " · " + errorDetail)
                         : isConnected ? "ADB Wi-Fi : connecté · " + name + " · MEL " + (hasMel ? "installée" : "absente")
                         : "ADB Wi-Fi : téléphone non appairé ou déconnecté · utilisez Configurer ADB Wi-Fi";
                     adbWifiStatus.ForeColor = fresh && isConnected ? Color.FromArgb(25,125,85) : gray;
