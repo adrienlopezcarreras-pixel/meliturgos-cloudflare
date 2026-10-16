@@ -42,6 +42,18 @@ test('Work DAG proof requires two distinct actual model identities, not just two
     { target_job_id: 'job-2' },
     { runtime_fanout_cache_hit: true },
     { version: 3 },
+    { schema: 'unknown-schema' },
+    { proof_dag_status: 'RUNNING' },
+    { attempts_after_recovery: 1 },
+    { attempts_after_recovery: '2' },
+    { attempts_after_recovery: Infinity },
+    { candidate_branch_isolated: false },
+    { destructive_effects: true },
+    { production_touched: true },
+    { zero_added_cost_policy: 'SELF_REPORTED' },
+    { proof_dag_audit_events: [] },
+    { proof_dag_audit_events: ['WORK_DAG_COMPLETED'] },
+    { proof_dag_audit_events: ['WORK_NODE_RECOVERED_FOR_RETRY'] },
   ];
   for (const changes of invalid) {
     assert.equal(isVerifiedRuntimeWorkProof({ ...validProof(), ...changes }, 'job-1'), false,
