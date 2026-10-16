@@ -295,13 +295,24 @@ function Capture-PngBytes([System.Drawing.Rectangle]$bounds = [System.Windows.Fo
 }
 
 function Upload-Screenshot([string]$commandId) {
-  # Keep legacy desktop screenshot API stable, including consent revocation checks.
+  # Preserve the original virtual-screen geometry even when PNG size limits force downscaling.
   Assert-LocalRemoteAccess
-  [byte[]]$bytes = Capture-PngBytes
+  $bounds = [System.Windows.Forms.SystemInformation]::VirtualScreen
+  [byte[]]$bytes = Capture-PngBytes $bounds
   if ($bytes.Length -lt 8 -or $bytes.Length -gt (5 * 1024 * 1024)) { throw "SCREENSHOT_BINARY_PAYLOAD_INVALID" }
   Assert-LocalRemoteAccess
   $uri = "$Server/api/computer/v1/screenshot?command_id=$([uri]::EscapeDataString($commandId))"
-  return Invoke-RestMethod -Uri $uri -Method Post -Headers (Headers) -ContentType "image/png" -Body $bytes -TimeoutSec 30
+  $uploaded = Invoke-RestMethod -Uri $uri -Method Post -Headers (Headers) -ContentType "image/png" -Body $bytes -TimeoutSec 30
+  return @{
+    key = [string]$uploaded.key
+    view_url = [string]$uploaded.view_url
+    screen_bounds = @{
+      left = [int]$bounds.Left
+      top = [int]$bounds.Top
+      width = [int]$bounds.Width
+      height = [int]$bounds.Height
+    }
+  }
 }
 
 function Upload-BrowserScreenshot([string]$commandId, [System.Drawing.Rectangle]$bounds, [IntPtr]$window, [string]$browser) {
@@ -2467,8 +2478,10 @@ function Perform-Step($step, [string]$commandId, [string]$planSchema="") {
       Assert-UnattendedCapturePermission
       $shot = Upload-Screenshot $commandId
       if ([string]$shot.key -eq '' -or [string]$shot.view_url -eq '' -or
-          [string]$shot.key -notlike "computer/screenshots/$ComputerId/*") { throw "SCREENSHOT_UPLOAD_UNCONFIRMED" }
-      return @{ action=$action; screenshot_key=$shot.key; view_url=$shot.view_url }
+          [string]$shot.key -notlike "computer/screenshots/$ComputerId/*" -or
+          $null -eq $shot.screen_bounds -or [int]$shot.screen_bounds.width -le 0 -or
+          [int]$shot.screen_bounds.height -le 0) { throw "SCREENSHOT_UPLOAD_UNCONFIRMED" }
+      return @{ action=$action; screenshot_key=$shot.key; view_url=$shot.view_url; screen_bounds=$shot.screen_bounds }
     }
     "cursor.move" {
       if (-not [MelNative]::SetCursorPos([int]$step.x, [int]$step.y)) { throw "CURSOR_MOVE_FAILED" }
@@ -2994,7 +3007,7 @@ function Process-Command($command) {
       if ([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() -ge $expiry) { throw 'DESKTOP_VIEW_CONSENT_EXPIRED' }
       $shot = Upload-Screenshot ([string]$command.id)
       if ([string]$shot.key -eq '' -or [string]$shot.view_url -eq '' -or [string]$shot.key -notlike "computer/screenshots/$ComputerId/*") { throw 'DESKTOP_VIEW_UPLOAD_UNCONFIRMED' }
-      $outputs += ,@{ action='desktop.view.request'; screenshot_key=$shot.key; view_url=$shot.view_url }
+      $outputs += ,@{ action='desktop.view.request'; screenshot_key=$shot.key; view_url=$shot.view_url; screen_bounds=$shot.screen_bounds }
       Assert-ActiveRemoteCommand ([string]$command.id)
       $body = @{ command_id=$command.id; ok=$true; result=@{ outputs=$outputs; capture_count=1 } }
       [void](Invoke-MelJson -Path "/api/computer/v1/result" -Method "POST" -Body $body)
