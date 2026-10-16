@@ -70,11 +70,41 @@ function assertStepOrigin(step, allowedOrigins) {
 }
 
 async function boundedJson(response) {
-  const buffer = await response.arrayBuffer();
-  if (buffer.byteLength > MAX_RESPONSE_BYTES) {
+  // Enforce the limit *while receiving*, not after arrayBuffer() has allocated
+  // an arbitrarily large response in the Worker.
+  const declaredLength = response.headers?.get?.('content-length');
+  if (declaredLength && /^\\d+$/.test(declaredLength)
+    && Number(declaredLength) > MAX_RESPONSE_BYTES) {
+    response.body?.cancel?.().catch(() => {});
     throw browserCompanionError('BROWSER_COMPANION_RESPONSE_TOO_LARGE');
   }
-  const text = new TextDecoder().decode(buffer);
+  const reader = response.body?.getReader?.();
+  if (!reader) throw browserCompanionError('BROWSER_COMPANION_INVALID_JSON');
+
+  const decoder = new TextDecoder();
+  let text = '';
+  let receivedBytes = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!(value instanceof Uint8Array)) {
+        throw browserCompanionError('BROWSER_COMPANION_INVALID_JSON');
+      }
+      receivedBytes += value.byteLength;
+      if (receivedBytes > MAX_RESPONSE_BYTES) {
+        throw browserCompanionError('BROWSER_COMPANION_RESPONSE_TOO_LARGE');
+      }
+      text += decoder.decode(value, { stream: true });
+    }
+    text += decoder.decode();
+  } catch (error) {
+    await reader.cancel().catch(() => {});
+    throw error;
+  } finally {
+    reader.releaseLock();
+  }
+
   if (!text.trim()) return {};
   try {
     const parsed = JSON.parse(text);
