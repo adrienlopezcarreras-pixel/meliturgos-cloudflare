@@ -116,3 +116,29 @@ test('provenance details are allowlisted before memory prompt serialization', ()
   assert.equal(rows[0].provenance.table,'messages');
   assert.equal(rows[0].provenance.collector_complete,true);
 });
+
+test('structured top-level metadata cannot leak into serialized memory context', () => {
+  const secret = { access_token: 'top-level-private-token', nested: { password: 'hidden' } };
+  const rows = compactHistoricalRows([{
+    conversation_id: secret,
+    conversation_title: secret,
+    role: secret,
+    authority: secret,
+    content: 'Ordinary evidence',
+    provenance: {
+      conversation_id: 'conv-safe',
+      conversation_title: 'Safe historical title',
+      collector_source: secret,
+      table: 'messages',
+    },
+  }]);
+  const encoded = JSON.stringify(rows);
+  assert.equal(encoded.includes('top-level-private-token'), false);
+  assert.equal(encoded.includes('hidden'), false);
+  assert.equal(rows[0].conversation_id, 'conv-safe');
+  assert.equal(rows[0].conversation_title, 'Safe historical title');
+  assert.equal(rows[0].role, null);
+  assert.equal(rows[0].authority, null);
+  assert.equal(rows[0].collector_source, null);
+  assert.equal(rows[0].content, 'Ordinary evidence');
+});

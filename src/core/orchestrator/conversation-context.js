@@ -3,12 +3,12 @@ import { createWorkersAiSemanticProvider } from '../../search/rag-service.js';
 
 export function compactHistoricalRows(rows = []) {
   return rows.map(row => ({
-    conversation_id: row.conversation_id || row.provenance?.conversation_id || null,
-    conversation_title: row.conversation_title || row.provenance?.conversation_title || null,
-    role: row.role || null,
-    authority: row.authority || null,
+    conversation_id: typeof row.conversation_id === 'string' ? row.conversation_id : (typeof row.provenance?.conversation_id === 'string' ? row.provenance.conversation_id : null),
+    conversation_title: typeof row.conversation_title === 'string' ? row.conversation_title : (typeof row.provenance?.conversation_title === 'string' ? row.provenance.conversation_title : null),
+    role: typeof row.role === 'string' ? row.role : null,
+    authority: typeof row.authority === 'string' ? row.authority : null,
     content: row.content,
-    collector_source: row.provenance?.collector_source || null,
+    collector_source: typeof row.provenance?.collector_source === 'string' ? row.provenance.collector_source : null,
     collector_complete: row.provenance?.collector_complete === true,
     collector_partial: row.provenance?.collector_partial === true,
     timestamp: Number(row.timestamp || 0),
