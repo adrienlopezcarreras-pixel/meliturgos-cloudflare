@@ -8,6 +8,8 @@ on:
       - 'src/router.js'
       - '.github/workflows/deploy-cloudflare-release.yml'
       - 'release-tools/predeploy-backup-refresh/runner.mjs'
+      - 'release-tools/predeploy-backup-refresh/worker.js'
+      - 'tests/predeploy-backup-refresh-multipart.test.mjs'
       - 'release-tools/predeploy-backup-refresh/d1-export.mjs'
       - 'tests/predeploy-d1-backup-large-table.test.mjs'
       - 'tests/release-predeploy-backup-reuse.test.mjs'
@@ -62,6 +64,7 @@ jobs:
           node --test
           tests/operator-auth.test.mjs
           tests/release-predeploy-r2-retry.test.mjs
+          tests/predeploy-backup-refresh-multipart.test.mjs
           tests/predeploy-d1-backup-large-table.test.mjs
           tests/release-predeploy-backup-reuse.test.mjs
           tests/release-production-smoke-routes.test.mjs
