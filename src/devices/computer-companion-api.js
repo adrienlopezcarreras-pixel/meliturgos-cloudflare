@@ -63,6 +63,7 @@ function json(v,s=200,h={}){return Response.json(v,{status:s,headers:{"cache-con
 function safe(v,n=200){return typeof v==="string"?v.trim().slice(0,n):""}
 function bearer(r){const h=r.headers.get("authorization")||"";return /^Bearer\s+/i.test(h)?h.replace(/^Bearer\s+/i,"").trim():""}
 async function sha(v){const b=new TextEncoder().encode(String(v||""));const d=new Uint8Array(await crypto.subtle.digest("SHA-256",b));return [...d].map(x=>x.toString(16).padStart(2,"0")).join("")}
+async function shaBytes(v){const d=new Uint8Array(await crypto.subtle.digest("SHA-256",v));return [...d].map(x=>x.toString(16).padStart(2,"0")).join("")}
 function parse(v,f){try{return JSON.parse(v)}catch{return f}}
 function pairCode(){const alphabet="ABCDEFGHJKLMNPQRSTUVWXYZ23456789";const bytes=new Uint8Array(8);crypto.getRandomValues(bytes);return [...bytes].map(byte=>alphabet[byte%alphabet.length]).join("")}
 
@@ -430,6 +431,9 @@ async function screenshotView(request,env,url){
  try{object=await env.MEDIA_BUCKET.get(key)}
  catch{return json({ok:false,code:"SCREENSHOT_STORAGE_UNAVAILABLE"},503)}
  if(!object)return json({ok:false,code:"SCREENSHOT_NOT_FOUND"},404);
+ const objectExpiry=Date.parse(String(object.customMetadata?.expiresAt||''));
+ if(Number.isFinite(objectExpiry)&&objectExpiry<=Date.now())
+  return json({ok:false,code:"SCREENSHOT_VIEW_EXPIRED"},410);
  const headers=new Headers({"content-type":"image/png","cache-control":"no-store","x-content-type-options":"nosniff"});
  return new Response(object.body,{headers});
 }
@@ -802,8 +806,21 @@ async function uploadShot(request,env,a,url){
  if(!screenshotPlanAuthorized(latestPlan,a.device.id,latest.session_id,Date.now()))
   return json({ok:false,code:"SCREENSHOT_AUTH_REVOKED_DURING_UPLOAD"},409);
  const key=`computer/screenshots/${a.device.id.replace(/[^A-Za-z0-9_.-]/g,"_")}/${id.replace(/[^A-Za-z0-9_.-]/g,"_")}.png`;
- await env.MEDIA_BUCKET.put(key,bytes,{httpMetadata:{contentType:"image/png"}});
- return json({ok:true,key,view_url:`${url.origin}${COMPUTER_API_BASE}/screenshot?key=${encodeURIComponent(key)}`});
+ const imageSha256=await shaBytes(bytes);
+ const retentionExpiresAt=Number.isSafeInteger(Number(latestPlan.expires_at))
+  ? Number(latestPlan.expires_at) : Date.now()+24*60*60*1000;
+ await env.MEDIA_BUCKET.put(key,bytes,{
+  httpMetadata:{contentType:"image/png"},
+  customMetadata:{
+   owner:String(env.MELITURGOS_USER||"owner"),
+   commandId:id,
+   deviceId:a.device.id,
+   sha256:imageSha256,
+   expiresAt:new Date(retentionExpiresAt).toISOString(),
+   captureScope:latestPlan.action==="desktop.view.request"?"VIEW_ONLY":"SCREEN_CAPTURE"
+  }
+ });
+ return json({ok:true,key,sha256:imageSha256,expires_at:retentionExpiresAt,view_url:`${url.origin}${COMPUTER_API_BASE}/screenshot?key=${encodeURIComponent(key)}`});
 }
 
 export async function maybeHandleComputerApi(request,env){
