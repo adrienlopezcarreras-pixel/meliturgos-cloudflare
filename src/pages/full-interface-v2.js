@@ -611,8 +611,70 @@ if(topCycle)topCycle.onclick=()=>autonomyAction(topCycle,'/api/gen2/autonomy/tic
 if(topPause)topPause.onclick=()=>autonomyAction(topPause,autonomyControl.paused===true?'/api/gen2/autonomy/resume':'/api/gen2/autonomy/pause',autonomyControl.paused===true?{}:{reason:'owner-control-center-pause'},autonomyControl.paused===true?'Reprise de MEL':'Mise en pause',null).catch(()=>{});
 if(topActivity)topActivity.onclick=async()=>{if(!desktopPanel)return;desktopPanel.hidden=!desktopPanel.hidden;if(!desktopPanel.hidden)await showActivity(qs('#desktopActivityBody'))};
 qs('#desktopActivityClose').onclick=()=>{if(desktopPanel)desktopPanel.hidden=true};
-async function loadWork(){try{const d=await jfetch('/api/work/health');const online=d?.ok===true&&d?.available===true&&String(d?.status||'').toUpperCase()==='ONLINE';const mode=String(d?.mode||'').toLowerCase();qs('#bridgeState').textContent=online?(mode==='preflight-only'?'Préflight disponible':'Disponible'):'Indisponible';qs('#workOut').textContent=JSON.stringify(d,null,2)}catch(e){qs('#bridgeState').textContent='Indisponible';qs('#workOut').textContent='État Work indisponible : '+e.message}}
-qs('#workRefresh').onclick=loadWork;qs('#workCreate').onclick=async()=>{const goal=qs('#workGoal').value.trim();if(!goal)return;qs('#workCreate').disabled=true;try{const d=await jfetch('/api/work/jobs',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({goal,mode:'prepare'})});qs('#workOut').textContent=JSON.stringify(d,null,2)}catch(e){qs('#workOut').textContent='Erreur : '+e.message}finally{qs('#workCreate').disabled=false}};
+async function loadWork(){try{const d=await jfetch('/api/work/health');const online=d?.ok===true&&d?.available===true&&String(d?.status||'').toUpperCase()==='ONLINE';const mode=String(d?.mode||'').toLowerCase();qs('#bridgeState').textContent=online?(mode==='preflight-only'?'Préflight disponible':'Disponible'):'Indisponible';qs('#workOut').textContent=JSON.stringify(d,null,2)}catch(e){qs('#bridgeState').textContent='Indisponible';qs('#workOut').textContent='État Work indisponible : '+e.message}try{await loadWorkComputer()}catch(e){qs('#workComputerState').textContent='INDISPONIBLE';qs('#workComputerOut').textContent='Companion inaccessible : '+e.message}}
+qs('#workRefresh').onclick=loadWork;
+let workComputerSnapshot=null,workComputerLastView=null;
+function selectedWorkComputer(){const id=qs('#workComputerSelect')?.value||'';return (workComputerSnapshot?.devices||[]).find(x=>x.id===id)||null}
+function renderWorkComputer(d){
+ workComputerSnapshot=d||{devices:[]};
+ const select=qs('#workComputerSelect'),all=Array.isArray(workComputerSnapshot.devices)?workComputerSnapshot.devices:[],devices=all.filter(x=>String(x.platform||'').toLowerCase()==='windows');
+ const wanted=select?.value||workComputerSnapshot.selected_id||devices[0]?.id||'';
+ if(select){select.innerHTML=devices.length?devices.map(x=>'<option value="'+esc(x.id)+'">'+esc(x.name||x.id)+(x.online?' · en ligne':' · hors ligne')+'</option>').join(''):'<option value="">Aucun Companion Windows appairé</option>';if(wanted&&devices.some(x=>x.id===wanted))select.value=wanted}
+ const pc=selectedWorkComputer(),state=qs('#workComputerState'),permission=qs('#workComputerPermission'),active=qs('#workComputerWindow'),view=qs('#workComputerView'),now=Date.now();
+ const heartbeatAt=Number(pc?.last_seen_at||0),heartbeatFresh=!!pc&&heartbeatAt>0&&heartbeatAt<=now&&now-heartbeatAt<=20000;
+ const engineAt=Number(pc?.metadata?.engine_heartbeat_at||0),engineFresh=engineAt>0&&engineAt<=now&&now-engineAt<=20000;
+ const localGrant=pc?.metadata?.remote_access_enabled===true;
+ if(!pc){state.textContent='NON APPAIRÉ';state.className='tag warn';permission.textContent='Aucun PC';active.textContent='—';view.disabled=true;qs('#workComputerOut').textContent='Appaire le Companion Windows dans la section Ordinateur MEL. Aucun accès n’a été demandé.';return}
+ const canView=heartbeatFresh&&!pc.halted&&localGrant&&engineFresh;
+ state.textContent=pc.halted?'ARRÊTÉ':!heartbeatFresh?'HORS LIGNE':!engineFresh?'MOTEUR NON CONFIRMÉ':localGrant?'CONNECTÉ':'ACCÈS LOCAL DÉSACTIVÉ';
+ state.className='tag '+(canView?'good':pc.halted?'bad':'warn');
+ permission.textContent=!localGrant?'Désactivée localement':!engineFresh?'Moteur non confirmé':'Autorisée localement';
+ active.textContent=pc.metadata?.active_window||'Non remontée';
+ view.disabled=!canView;
+ qs('#workComputerOut').textContent=JSON.stringify({computer_id:pc.id,name:pc.name,online:pc.online===true,heartbeat_fresh:heartbeatFresh,engine_heartbeat_fresh:engineFresh,halted:pc.halted===true,remote_access_enabled:localGrant,screen_capture_scope:'VIEW_ONLY',expires_in_seconds:90,proof:'status snapshot; physical screen capture must be requested separately'},null,2);
+}
+async function loadWorkComputer(){
+ const select=qs('#workComputerSelect'),id=select?.value||'';
+ const d=await jfetch('/api/computer/v1/status'+(id?'?computer_id='+encodeURIComponent(id):''));
+ renderWorkComputer(d);return d;
+}
+async function captureWorkComputerView(){
+ const pc=selectedWorkComputer();if(!pc)throw Error('Aucun Companion Windows appairé');
+ const now=Date.now(),heartbeatAt=Number(pc.last_seen_at||0),engineAt=Number(pc.metadata?.engine_heartbeat_at||0);
+ if(pc.halted)throw Error('ARRÊTER LE CONTRÔLE est actif');
+ if(pc.metadata?.remote_access_enabled!==true)throw Error('Accès distant non autorisé dans le Companion local');
+ if(heartbeatAt<=0||heartbeatAt>now||now-heartbeatAt>20000||engineAt<=0||engineAt>now||now-engineAt>20000)throw Error('Heartbeat du Companion ou de son moteur trop ancien');
+ const button=qs('#workComputerView'),image=qs('#workComputerScreen'),screenState=qs('#workComputerScreenState');
+ button.disabled=true;screenState.textContent='CAPTURE EN COURS';screenState.className='tag warn';image.style.display='none';
+ try{
+  const queued=await jfetch('/api/computer/v1/desktop-view-request',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({computer_id:pc.id})});
+  if(!queued?.ok||!queued.command_id)throw Error(queued?.code||'DESKTOP_VIEW_QUEUE_UNCONFIRMED');
+  let lastStatus=null;
+  for(let attempt=0;attempt<20;attempt++){
+   await new Promise(resolve=>setTimeout(resolve,1000));
+   lastStatus=await jfetch('/api/computer/v1/status?computer_id='+encodeURIComponent(pc.id)+'&work_poll='+Date.now());
+   renderWorkComputer(lastStatus);
+   const command=(lastStatus.commands||[]).find(x=>x?.id===queued.command_id);
+   if(!command)continue;
+   if(command.status==='FAILED'||command.status==='CANCELLED')throw Error(command.error_code||'DESKTOP_VIEW_FAILED');
+   if(command.status!=='SUCCEEDED')continue;
+   const output=(command.result?.outputs||[]).find(x=>typeof x?.view_url==='string'&&x.view_url);
+   if(!output)throw Error('DESKTOP_VIEW_RESULT_MISSING');
+   const url=output.view_url+(output.view_url.includes('?')?'&':'?')+'v='+Date.now();
+   image.src=url;image.style.display='block';screenState.textContent='CAPTURE REÇUE';screenState.className='tag good';
+   workComputerLastView={computer_id:pc.id,captured_at:new Date().toISOString(),view_url:output.view_url,command_id:queued.command_id,scope:'VIEW_ONLY',active_window:pc.metadata?.active_window||null};
+   qs('#workComputerOut').textContent=JSON.stringify({status:'SUCCEEDED',scope:'VIEW_ONLY',captured_at:workComputerLastView.captured_at,computer_id:pc.id,command_id:queued.command_id,active_window:workComputerLastView.active_window},null,2);
+   return workComputerLastView;
+  }
+  throw Error('DESKTOP_VIEW_TIMEOUT: aucune preuve de capture dans les 20 secondes');
+ }catch(e){screenState.textContent='ÉCHEC CAPTURE';screenState.className='tag bad';qs('#workComputerOut').textContent=JSON.stringify({error:e.message,scope:'VIEW_ONLY',halt_remains_available:true},null,2);throw e}
+ finally{button.disabled=!selectedWorkComputer()||selectedWorkComputer()?.halted===true||selectedWorkComputer()?.metadata?.remote_access_enabled!==true}
+}
+qs('#workComputerRefresh').onclick=()=>loadWorkComputer().catch(e=>{qs('#workComputerOut').textContent='Erreur : '+e.message});
+qs('#workComputerSelect').onchange=()=>{workComputerLastView=null;qs('#workComputerScreen').style.display='none';qs('#workComputerScreenState').textContent='AUCUNE CAPTURE';loadWorkComputer().catch(e=>{qs('#workComputerOut').textContent='Erreur : '+e.message})};
+qs('#workComputerView').onclick=()=>captureWorkComputerView().catch(()=>{});
+qs('#workComputerOpen').onclick=()=>qs('[data-view="computer"]')?.click();
+qs('#workCreate').onclick=async()=>{const goal=qs('#workGoal').value.trim();if(!goal)return;qs('#workCreate').disabled=true;try{const pc=selectedWorkComputer();const context={origin:'work-ui',computer:pc?{computer_id:pc.id,name:pc.name,online:pc.online===true,halted:pc.halted===true,remote_access_enabled:pc.metadata?.remote_access_enabled===true,active_window:pc.metadata?.active_window||null}:null,screen_capture:workComputerLastView||null};const d=await jfetch('/api/work/jobs',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({goal,mode:'prepare',context})});qs('#workOut').textContent=JSON.stringify({work:d,computer_context_attached:Boolean(context.computer),screen_capture_reference_attached:Boolean(context.screen_capture)},null,2)}catch(e){qs('#workOut').textContent='Erreur : '+e.message}finally{qs('#workCreate').disabled=false}};
 function setLoraTag(id,text,kind){const el=qs(id);if(!el)return;el.textContent=text;el.className='tag '+kind}
 async function loadFreeLoraStatus(){
   const btn=qs('#freeLoraRefresh');if(btn)btn.disabled=true;
