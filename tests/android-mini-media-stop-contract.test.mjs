@@ -11,8 +11,12 @@ test('MINI media STOP closes accepted sockets and rejects late publishing',async
   assert.match(accept,/finally \{\s*activeClients\.remove\(socket\)/);
   const closed=src.slice(src.indexOf('fun close()'),src.indexOf('private class AviMjpegWriter('));
   assert.ok(closed.indexOf('started.set(false)')>=0);
-  assert.ok(closed.indexOf('client.close()')>closed.indexOf('started.set(false)'));
+  assert.ok(closed.indexOf('stopActiveClients()')>closed.indexOf('started.set(false)'));
+  assert.match(closed,/for \(client in activeClients\) runCatching \{ client\.close\(\) \}/);
   assert.match(closed,/activeClients\.clear\(\)/);
+  const hotspot=src.slice(src.indexOf('override fun onStopped()'),src.indexOf('override fun onFailed('));
+  assert.match(hotspot,/started\.set\(false\)/);
+  assert.match(hotspot,/stopActiveClients\(\)/);
   const helper=src.slice(src.indexOf('private fun writeAndPublish('),src.indexOf('private fun publish('));
   assert.ok(helper.indexOf('if (!started.get()) return false')>=0);
   assert.ok(helper.indexOf('publish(uri)')>helper.indexOf('if (!started.get()) return false'));
