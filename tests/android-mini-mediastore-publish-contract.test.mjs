@@ -27,7 +27,7 @@ test('MINI media sink publishes only after successful write and rolls back faile
     const to=src.indexOf(endLabel,from);
     assert.ok(from>=0&&to>from,startLabel);
     const receiver=src.slice(from,to);
-    assert.match(receiver,/if \(!writeAndPublish\(uri\)/,startLabel);
+    assert.match(receiver,/if \(!writeAndPublish\(uri, sessionEpoch\)/,startLabel);
     assert.doesNotMatch(receiver,/\bpublish\(uri\)/,startLabel);
     assert.doesNotMatch(receiver,/contentResolver\.openOutputStream\(uri/,startLabel);
   }
