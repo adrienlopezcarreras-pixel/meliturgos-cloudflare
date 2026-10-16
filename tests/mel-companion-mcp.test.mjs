@@ -161,3 +161,14 @@ test('401 owner authorization failure cannot be reported as connected Companion 
  assert.equal(responses[0].result.content[0].text,'MEL_STATUS_HTTP_401');
  assert.equal(JSON.stringify(responses).includes('fake'),false);
 });
+
+
+test('network disconnect fails closed and never returns stale online status',async()=>{
+ const responses=await request([{jsonrpc:'2.0',id:25,method:'tools/call',params:{name:'mel_companion_status',arguments:{}}}],{
+  MEL_MCP_SERVER_URL:'https://mel.example.test/',MEL_MCP_OWNER_TOKEN:'fixture-token',
+  NODE_OPTIONS:'--import=./tests/fixtures/mel-mcp-network-down-mock.mjs'
+ });
+ assert.equal(responses[0].result.isError,true);
+ assert.equal(responses[0].result.content[0].text,'MEL_STATUS_UNAVAILABLE');
+ assert.equal(JSON.stringify(responses).includes('SECRET_NETWORK_DETAIL'),false);
+});
