@@ -344,6 +344,7 @@ test('GEN2-38 fails fast when zero-cost providers return no candidates instead o
 
 test('GEN2-38 release smoke keeps real planner bounded and surfaces curl transport failures', async () => {
   const workflow = await readFile(new URL('../.github/workflows/deploy-cloudflare-release.yml', import.meta.url), 'utf8');
+  const source = await readFile(new URL('../src/capabilities/work-capabilities.js', import.meta.url), 'utf8');
   const start = workflow.indexOf('GEN_PLAN_CODE="$(curl');
   const end = workflow.indexOf('if [ "$GEN_PLAN_CODE" != "200" ]', start);
   assert.ok(start >= 0 && end > start, 'GEN2-38 generated-plan request should remain in the release gate');
@@ -352,4 +353,9 @@ test('GEN2-38 release smoke keeps real planner bounded and surfaces curl transpo
   assert.doesNotMatch(block, /--retry 1 --retry-all-errors/);
   assert.match(block, /\|\| true/);
   assert.match(workflow.slice(end, end + 500), /GEN2-38 generated plan returned HTTP/);
+  assert.match(source, /const planningDeadline = Date\.now\(\) \+ 105_000/);
+  assert.match(source, /WORK_PLAN_GENERATION_BUDGET_EXHAUSTED/);
+  assert.match(source, /Promise\.race\(/, 'all planner fan-outs share a cumulative deadline');
+  assert.equal((source.match(/executeBoundedPlanningFanout\(/g) || []).length, 4,
+    'initial generation, repair and capability selection share one deadline');
 });
