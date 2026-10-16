@@ -1757,6 +1757,22 @@ jobs:
               "${BASE_URL}/api/gen2/capabilities/execute" || true)"
             if [ "$GEN_PLAN_CODE" != "200" ]; then
               echo "GEN2-38 generated plan returned HTTP ${GEN_PLAN_CODE}."
+              # Preserve only sanitized application diagnostics; never echo raw provider output,
+              # prompts, credentials, or plan contents into Actions logs.
+              node --input-type=module -e '
+                import { readFileSync } from "node:fs";
+                let body = {};
+                try { body = JSON.parse(readFileSync("production-gen2-38-generated.json", "utf8")); } catch {}
+                const candidates = [
+                  body?.error?.code, body?.code, body?.result?.error?.code,
+                  body?.result?.code, body?.error_code
+                ];
+                const allowed = /^(WORK_PLAN_[A-Z0-9_]+|AUGMENTIO_[A-Z0-9_]+|CAPABILITY_[A-Z0-9_]+|VALIDATION_[A-Z0-9_]+)$/;
+                const code = candidates.find(value => typeof value === "string" && allowed.test(value));
+                console.log("GEN2-38 sanitized diagnostic code:", code || "UNAVAILABLE");
+                const requestId = body?.requestId || body?.request_id || body?.error?.request_id;
+                if (typeof requestId === "string" && /^[a-zA-Z0-9._:-]{1,100}$/.test(requestId)) console.log("GEN2-38 request id:", requestId);
+              '
               echo 'Production autonomy proof response withheld from CI logs; see sanitized HTTP/status evidence.'
               exit 55
             fi
