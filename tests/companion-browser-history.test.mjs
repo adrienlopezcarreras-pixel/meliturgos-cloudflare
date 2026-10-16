@@ -8,7 +8,7 @@ function check(action, approved) {
     session_id: 's1', device: { id: 'paired', capabilities: ['computer.use'] },
     sandbox: { allowed_apps: [], allowed_origins: [], allowed_paths: [] },
     approvals: approved ? [{ session_id: 's1', step_id: 'history', action, approved: true }] : [],
-    steps: [{ id: 'history', action }],
+    steps: [{ id: 'history', action, window_handle: '12345' }],
   });
 }
 
