@@ -113,7 +113,11 @@ export class ComputeCache {
         serialized.length * 2,
       );
       if (bytes > this.maxEntryBytes) return key;
-      const copy = structuredClone(value);
+      // A value can stringify successfully but fail structuredClone (e.g.,
+      // JSON omits function-valued diagnostic metadata). Cache is optional:
+      // never turn an otherwise successful multi-AI reply into a failure.
+      let copy;
+      try { copy = structuredClone(value); } catch { return key; }
       this.entries.set(key, { value: copy, expiresAt: now + ttlMs, bytes });
       this.totalBytes += bytes;
       while (this.entries.size > this.maxEntries || this.totalBytes > this.maxBytes) {
