@@ -121,7 +121,7 @@ MELITURGOS doit pouvoir :
 - Browser capability supervisée, sandboxée, avec consentement.
 
 ### 2.18 Connector SDK
-- Connecteurs déclarés en lecture seule par défaut : Gmail, Google Agenda, Google Drive, Outlook, OneDrive, SharePoint, GitHub, Cloudflare, Vercel.
+- Connecteurs actifs free-first : Gmail, Google Agenda, Google Drive, Outlook, OneDrive, GitHub et Cloudflare. SharePoint et Vercel sont exclus du registre actif et des tests car leur usage prévu ajouterait des coûts.
 - OAuth séparé, jamais de secrets stockés en clair.
 
 ### 2.19 Tasks / Goals / Planning / Agents / Automations
