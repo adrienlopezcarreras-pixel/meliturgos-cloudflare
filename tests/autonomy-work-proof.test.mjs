@@ -18,6 +18,8 @@ test('runtime proof recovers an interrupted idempotent Work DAG node through liv
 
   const proof = await runRuntimeWorkDagResumeProof(env, { repository, targetJobId: job.id });
   assert.equal(proof.status, 'VERIFIED');
+  assert.equal(proof.version, 4);
+  assert.equal(proof.runtime_fanout_cache_hit, false);
   assert.equal(proof.recovered_interrupted_node, true);
   assert.ok(proof.attempts_after_recovery >= 2);
   assert.ok(proof.providers_attempted >= 2);

@@ -40,7 +40,8 @@ function council(costB = 0, { sameProvider = false, missingProof = false, wrongP
 function workDagProof() {
   return {
     status: 'VERIFIED',
-    version: 3,
+    version: 4,
+    runtime_fanout_cache_hit: false,
     verified_at: '2026-09-10T05:00:00Z',
     recovered_interrupted_node: true,
     providers_attempted: 2,
@@ -373,3 +374,18 @@ test('duplicate planning provider attempts cannot prove autonomous implementatio
     assert.equal(state.self_development_ready, false, JSON.stringify(attempts));
   }
 });
+
+test('MEL self-development readiness cannot reuse legacy or cached multi-AI evidence', async () => {
+  for (const changes of [{ version: 3 }, { runtime_fanout_cache_hit: true },
+    { runtime_fanout_cache_hit: undefined }]) {
+    const repository = await completeEvidenceRepository();
+    const job = await repository.get('ready-job');
+    const result = structuredClone(job.result_json);
+    Object.assign(result.autonomy_proofs.work_dag_resume, changes);
+    await repository.update(job.id, { result_json: result });
+    const state = await getAutonomyReadiness({ repository });
+    assert.equal(state.gates.runtime_work_dag_resume, false, JSON.stringify(changes));
+    assert.equal(state.self_development_ready, false, JSON.stringify(changes));
+  }
+});
+
