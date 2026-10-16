@@ -79,7 +79,11 @@ export class ProviderAdapter {
     try {
       const value = await this._healthCheck();
       if (generation === this._healthCheckGeneration) {
-        this.healthStatus = typeof value === 'string' ? value : value?.status || 'HEALTHY';
+        // A structured probe may return {ok:false,status:'HEALTHY'}.
+        // The explicit failure always wins over a contradictory status.
+        this.healthStatus = value?.ok === false ? 'UNAVAILABLE'
+          : typeof value === 'string' ? value
+            : typeof value?.status === 'string' ? value.status : 'DEGRADED';
       }
     } catch (error) {
       if (generation === this._healthCheckGeneration) {
