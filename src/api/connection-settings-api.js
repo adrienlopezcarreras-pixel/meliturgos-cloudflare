@@ -11,7 +11,7 @@ const OAUTH_APP_KEYS = Object.freeze({
 });
 const PROVIDER_CONNECTORS = Object.freeze({
   google: Object.freeze(['gmail','google-calendar','google-tasks','google-drive']),
-  microsoft: Object.freeze(['microsoft-mail','microsoft-onedrive','microsoft-sharepoint']),
+  microsoft: Object.freeze(['microsoft-mail','microsoft-onedrive']),
   yahoo: Object.freeze(['yahoo-mail']),
 });
 
@@ -358,7 +358,6 @@ async function testOAuthConnector(env, provider, connectorId, contextOwner, sign
     token = await createMailOAuthRuntime({ providerId: 'microsoft', env: resolved }).accessTokenResolver(connectorId, context);
     if (connectorId === 'microsoft-mail') url = 'https://graph.microsoft.com/v1.0/me/messages?$top=1&$select=id';
     else if (connectorId === 'microsoft-onedrive') url = 'https://graph.microsoft.com/v1.0/me/drive/root?$select=id,name';
-    else if (connectorId === 'microsoft-sharepoint') url = 'https://graph.microsoft.com/v1.0/sites?search=mel';
   } else if (provider === 'yahoo' && connectorId === 'yahoo-mail') {
     token = await createMailOAuthRuntime({ providerId: 'yahoo', env: resolved }).accessTokenResolver(connectorId, context);
     url = 'https://api.login.yahoo.com/openid/v1/userinfo';
@@ -464,7 +463,6 @@ const PIPEDREAM_CONFIG_ID = 'pipedream-connect-config';
 const PIPEDREAM_ALLOWED_APPS = Object.freeze(new Set([
   'microsoft_outlook',
   'microsoft_onedrive',
-  'sharepoint',
   'imap',
   'lemlist',
   'google_drive',
@@ -986,78 +984,6 @@ export async function testPipedreamGoogleTasksRead(config, contextOwner, options
   };
 }
 
-/**
- * Prove that a linked Pipedream SharePoint account can actually read Microsoft
- * Graph sites. A healthy OAuth link alone is not an API execution proof.
- * Only a bounded, read-only tenant site search is executed; site data is never
- * returned to callers or logged.
- */
-export async function testPipedreamSharePointRead(config, contextOwner, options = {}) {
-  const fetcher = options.fetcher || fetch;
-  const accounts = await pipedreamAccountStatus(config, contextOwner, {
-    fetcher,
-    signal: options.signal,
-  });
-  const account = accounts.accounts.find(row => row.app === 'sharepoint' && row.healthy === true);
-  if (!account?.id) {
-    throw Object.assign(new Error('PIPEDREAM_SHAREPOINT_ACCOUNT_REQUIRED'), {
-      code: 'PIPEDREAM_SHAREPOINT_ACCOUNT_REQUIRED',
-      status: 409,
-      action_required: 'CONNECT_PIPEDREAM_SHAREPOINT',
-    });
-  }
-  const accessToken = await pipedreamAccessToken(config, { fetcher, signal: options.signal });
-  const target = 'https://graph.microsoft.com/v1.0/sites?search=mel';
-  const params = new URLSearchParams({
-    external_user_id: contextOwner,
-    account_id: account.id,
-  });
-  let body;
-  try {
-    body = await pipedreamJson(
-      fetcher,
-      'https://api.pipedream.com/v1/connect/' + encodeURIComponent(clean(config?.project_id, 300))
-        + '/proxy/' + b64UrlUtf8(target) + '?' + params.toString(),
-      {
-        method: 'GET',
-        headers: {
-          authorization: 'Bearer ' + accessToken,
-          accept: 'application/json',
-          'x-pd-environment': accounts.environment,
-        },
-        signal: options.signal,
-      },
-      'PIPEDREAM_SHAREPOINT_GRAPH_READ_FAILED',
-    );
-  } catch (error) {
-    if (error?.upstream_status === 401) error.action_required = 'RECONNECT_PIPEDREAM_SHAREPOINT';
-    if (error?.upstream_status === 403) error.action_required = 'VERIFY_WORK_SCHOOL_ACCOUNT_AND_SITES_READ_ALL';
-    throw error;
-  }
-  if (!Array.isArray(body?.value)
-    || body.value.some(site => !site || typeof site !== 'object'
-      || typeof site.id !== 'string' || !site.id.trim())) {
-    throw Object.assign(new Error('PIPEDREAM_SHAREPOINT_GRAPH_RESPONSE_INVALID'), {
-      code: 'PIPEDREAM_SHAREPOINT_GRAPH_RESPONSE_INVALID',
-      status: 502,
-    });
-  }
-  return {
-    ok: true,
-    provider: 'pipedream',
-    app: 'sharepoint',
-    live_proxy: true,
-    graph_site_read_proven: true,
-    read_only: true,
-    linked_account: true,
-    sites_count: body.value.length,
-    private_content_returned: false,
-    configured_environment: accounts.configured_environment,
-    environment: accounts.environment,
-    environment_fallback_used: accounts.environment_fallback_used === true,
-  };
-}
-
 async function vercelStatus(env, contextOwner) {
   const cfg = await createVercelConfigResolver(env)(contextOwner);
   return {
@@ -1277,11 +1203,6 @@ export async function maybeHandleConnectionSettingsApi(request, env = {}, url = 
         const body = await bodyObject(request);
         if (clean(body?.probe, 120) === 'google_tasks_read') {
           const result = await testPipedreamGoogleTasksRead(stored, contextOwner, { signal: request.signal });
-          if (result.environment_fallback_used) await persistPipedreamEnvironment(env, contextOwner, stored, result.environment);
-          return json(result);
-        }
-        if (clean(body?.probe, 120) === 'sharepoint_sites_read') {
-          const result = await testPipedreamSharePointRead(stored, contextOwner, { signal: request.signal });
           if (result.environment_fallback_used) await persistPipedreamEnvironment(env, contextOwner, stored, result.environment);
           return json(result);
         }
