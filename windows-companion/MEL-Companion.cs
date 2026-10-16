@@ -1779,6 +1779,10 @@ class MainForm : Form
                 try
                 {
                     var a = MelApp.Json.Deserialize<Dictionary<string,object>>(File.ReadAllText(adbReport));
+                    if (a == null || !a.ContainsKey("schema") ||
+                        !String.Equals(Convert.ToString(a["schema"]), "mel.adb-wifi-status.v1", StringComparison.Ordinal) ||
+                        !a.ContainsKey("observed_at_utc") || !a.ContainsKey("connected") || !a.ContainsKey("adb_available"))
+                        throw new InvalidDataException("ADB_STATUS_SCHEMA_INVALID");
                     object observed, connected, model, installed, available, errorValue, errorDetailValue;
                     DateTime when;
                     bool fresh = a.TryGetValue("observed_at_utc", out observed)
@@ -1799,7 +1803,7 @@ class MainForm : Form
                         : "ADB Wi-Fi : téléphone non appairé ou déconnecté · utilisez Configurer ADB Wi-Fi";
                     adbWifiStatus.ForeColor = fresh && isConnected ? Color.FromArgb(25,125,85) : gray;
                 }
-                catch { adbWifiStatus.Text = "ADB Wi-Fi : rapport indisponible"; }
+                catch { adbWifiStatus.Text = "ADB Wi-Fi : rapport invalide ou indisponible · actualisez"; adbWifiStatus.ForeColor = gray; }
             }
 
             var devices=MelApp.Devices();

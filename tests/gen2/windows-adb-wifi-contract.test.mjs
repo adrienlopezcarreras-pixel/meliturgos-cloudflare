@@ -313,3 +313,15 @@ test("Companion parses ADB report timestamps with invariant UTC semantics", asyn
  assert.match(refresh,/DateTimeStyles\.AssumeUniversal \| System\.Globalization\.DateTimeStyles\.AdjustToUniversal/);
  assert.match(refresh,/\.TotalSeconds < 75/);
 });
+
+test("Companion rejects incomplete or wrong-schema ADB reports instead of interpreting them as current", async () => {
+ const native=await source("windows-companion/MEL-Companion.cs");
+ const start=native.indexOf("void RefreshAll()");
+ const end=native.indexOf("var devices=MelApp.Devices()",start);
+ const refresh=native.slice(start,end);
+ assert.match(refresh,/mel\.adb-wifi-status\.v1/);
+ assert.match(refresh,/ADB_STATUS_SCHEMA_INVALID/);
+ assert.match(refresh,/!a\.ContainsKey\("observed_at_utc"\)/);
+ assert.match(refresh,/!a\.ContainsKey\("connected"\)/);
+ assert.match(refresh,/rapport invalide ou indisponible/);
+});
