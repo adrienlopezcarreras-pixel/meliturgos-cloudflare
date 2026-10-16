@@ -31,6 +31,12 @@ export class ProviderPool {
       throw new TypeError('INVALID_PROVIDER_ADAPTER');
     }
     const record = adapter;
+    if (this.adapters.has(record.id)) {
+      // Identity is also used for authorization, quota and circuit breakers.
+      // Silent replacement could let an optional provider impersonate a
+      // registered model or overwrite its verified zero-cost authorization.
+      throw new TypeError('DUPLICATE_PROVIDER_ADAPTER_ID');
+    }
     if (!Array.isArray(record.capabilities)) record.capabilities = [];
     if (record.enabled === undefined) record.enabled = true;
     if (record.priority === undefined) record.priority = 0;
