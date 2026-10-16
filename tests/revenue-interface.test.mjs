@@ -59,4 +59,6 @@ test('Taskmarket PC probe is fixed/read-only, owner-authenticated, and accepts o
   assert.equal(asset, dist, 'the distributed Companion script remains synchronized');
   assert.match(page, /id="scanPcTaskmarket"/);
   assert.match(page, /\/api\/revenue\/taskmarket-pc-status/);
+  assert.match(page, /value\.action==='system\.exec'/);
+  assert.match(page, /JSON\.parse\(String\(probe\.stdout\|\|''\)\)/);
 });
