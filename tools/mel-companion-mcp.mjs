@@ -59,8 +59,8 @@ for await(const line of rl){
  else if(msg.method==='tools/list'){response(msg.id,{tools:[tool]});}
  else if(msg.method==='tools/call'){
   if(msg.params?.name!==toolName){error(msg.id,-32602,'Unknown tool');continue;}
-  const args=msg.params?.arguments||{};
-  if(typeof args!=='object'||Array.isArray(args)||Object.keys(args).some(k=>k!=='computer_id')||(args.computer_id!==undefined&&(typeof args.computer_id!=='string'||(args.computer_id.length>200||/[\x00-\x1f\x7f]/.test(args.computer_id))))){
+  const args=msg.params?.arguments===undefined?{}:msg.params.arguments;
+  if(args===null||typeof args!=='object'||Array.isArray(args)||Object.keys(args).some(k=>k!=='computer_id')||(args.computer_id!==undefined&&(typeof args.computer_id!=='string'||(args.computer_id.length>200||/[\x00-\x1f\x7f]/.test(args.computer_id))))){
    error(msg.id,-32602,'Invalid arguments');continue;
   }
   try{const data=await getStatus(args);response(msg.id,{content:[{type:'text',text:JSON.stringify(data)}]});}
