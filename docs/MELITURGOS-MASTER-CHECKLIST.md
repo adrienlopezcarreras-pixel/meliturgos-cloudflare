@@ -38,8 +38,8 @@
 | GEN2-32 | Connector SDK | PARTIAL | Core | `worker.js` CONNECTOR_REGISTRY | `orchestration-registry.test.mjs` | DÉCLARATIF_UNIQUEMENT | OAuth manquant | Implémenter OAuth flow |
 | GEN2-33 | Gmail / Google connector | NOT_STARTED | Connector SDK | `src/connectors/google.js` | — | NON_PROD | OAuth non configuré |BLOCKER_HUMAN |
 | GEN2-34 | Outlook / Microsoft connector | NOT_STARTED | Connector SDK | `src/connectors/microsoft.js` | — | NON_PROD | OAuth non configuré |BLOCKER_HUMAN |
-| GEN2-35 | OneDrive / SharePoint connector | NOT_STARTED | Connector SDK | `src/connectors/microsoft.js` | — | NON_PROD | OAuth non configuré |BLOCKER_HUMAN |
-| GEN2-36 | GitHub / Cloudflare / Vercel connector | NOT_STARTED | Connector SDK | `src/connectors/dev.js` | — | NON_PROD | tokens requis |BLOCKER_HUMAN |
+| GEN2-35 | OneDrive connector | NOT_STARTED | Connector SDK | `src/connectors/onedrive.js` | — | NON_PROD | OAuth non configuré |BLOCKER_HUMAN |
+| GEN2-36 | GitHub / Cloudflare connector | NOT_STARTED | Capability Bus | `src/capabilities/platform-read-capabilities.js` | — | NON_PROD | credentials/proof required |BLOCKER_HUMAN |
 | GEN2-37 | Web / research connector | PARTIAL | Knowledge Graph | `worker.js` knowledge sources web | — | SIMULATION | scraping limité | Évaluer APIs |
 | GEN2-38 | Tasks / goals / planning | PARTIAL | Core | `worker.js` tasks endpoint | `orchestration-registry.test.mjs` | SIMULATION | exécution réelle bloquée | Spécifier planning engine |
 | GEN2-39 | Agents / automations | NOT_STARTED | Capability Bus, Event Bus | `src/agents/`, `src/automations/` | — | NON_PROD | — | — |
