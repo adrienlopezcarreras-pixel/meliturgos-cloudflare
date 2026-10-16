@@ -4,6 +4,10 @@ import { ResultTournament } from './result-tournament.js';
 import { ComputeCache } from './compute-cache.js';
 import { QuotaArbitrator } from './quota-arbitrator.js';
 
+// Bound untrusted model responses before ranking and caching them. Oversize
+// replies must fail, not silently truncate into a misleading answer.
+export const MAX_AUGMENTIO_RESPONSE_CHARS = 64 * 1024;
+
 // Match the capability contract: no direct caller can fan out to an
 // unbounded number of models, including Infinity or large numeric strings.
 export function boundedAugmentioCandidates(value) {
@@ -90,6 +94,11 @@ export class Augmentio {
         if (typeof text !== 'string' || !text.trim()) {
           const error = new Error('EMPTY_PROVIDER_RESPONSE');
           error.code = 'EMPTY_PROVIDER_RESPONSE';
+          throw error;
+        }
+        if (text.length > MAX_AUGMENTIO_RESPONSE_CHARS) {
+          const error = new Error('AI_PROVIDER_RESPONSE_TOO_LARGE');
+          error.code = 'AI_PROVIDER_RESPONSE_TOO_LARGE';
           throw error;
         }
         this.quota.recordSuccess(provider.id);
