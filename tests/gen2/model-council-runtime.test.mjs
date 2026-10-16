@@ -578,6 +578,75 @@ test('Council preserves known bounded machine codes and rejects unbounded provid
   assert.doesNotMatch(JSON.stringify(result.failures), /private request text/);
 });
 
+test('Council rejects critique when a model loses zero-cost authorization during generation', async () => {
+  const calls = [];
+  const trusted = provider({ id: 'a', providerId: 'alpha', modelId: 'm1', calls });
+  const revoked = provider({ id: 'b', providerId: 'beta', modelId: 'm2', calls });
+  const fallback = provider({ id: 'c', providerId: 'gamma', modelId: 'm3', calls });
+  const originalInvoke = revoked.invoke.bind(revoked);
+  revoked.invoke = async (input) => {
+    const reply = await originalInvoke(input);
+    if (input.context?.purpose === 'model-council-independent-critique') {
+      revoked.estimatedCost = 10;
+    }
+    return reply;
+  };
+  const result = await runModelCouncil({
+    pool: new ProviderPool([trusted, revoked, fallback]),
+    request: { prompt: 'prove live zero-euro Council' },
+    maxCandidates: 3,
+  });
+  assert.equal(result.status, 'COMPLETE');
+  assert.deepEqual(result.critiques.map(row => row.identity), ['alpha::m1', 'gamma::m3']);
+  assert.equal(result.independent_response_count, 2);
+  assert.ok(result.failures.some(row => row.identity === 'beta::m2'));
+  assert.equal(result.synthesis.status, 'COMPLETE');
+  assert.equal(result.critiques.some(row => row.cost.estimated_cost !== 0), false);
+});
+
+test('Council rejects a model whose identity mutates while producing a critique', async () => {
+  const calls = [];
+  const trusted = provider({ id: 'trusted', providerId: 'alpha', modelId: 'model-a', calls });
+  const switched = provider({ id: 'mutable', providerId: 'beta', modelId: 'original', calls });
+  const originalInvoke = switched.invoke.bind(switched);
+  switched.invoke = async (input) => {
+    const result = await originalInvoke(input);
+    if (input.context?.purpose === 'model-council-independent-critique') {
+      switched.modelId = 'replacement';
+    }
+    return result;
+  };
+  const result = await runModelCouncil({
+    pool: new ProviderPool([trusted, switched]), request: 'identity binding',
+  });
+  assert.equal(result.status, 'DEGRADED_SINGLE_MODEL');
+  assert.deepEqual(result.critiques.map(row => row.identity), ['alpha::model-a']);
+  assert.ok(result.failures.some(row => row.code === 'COUNCIL_PROVIDER_IDENTITY_CHANGED'));
+});
+
+test('Council synthesis revalidates zero-cost approval and safely fails over', async () => {
+  const calls = [];
+  const first = provider({ id: 'a', providerId: 'alpha', modelId: 'm1', calls });
+  const second = provider({ id: 'b', providerId: 'beta', modelId: 'm2', calls });
+  const originalInvoke = first.invoke.bind(first);
+  first.invoke = async (input) => {
+    const result = await originalInvoke(input);
+    if (input.context?.purpose === 'model-council-synthesis') {
+      first.costProvenance = null;
+    }
+    return result;
+  };
+  const result = await runModelCouncil({
+    pool: new ProviderPool([first, second]), request: 'synthesis approval',
+  });
+  assert.equal(result.status, 'COMPLETE');
+  assert.equal(result.independent_response_count, 2);
+  assert.equal(result.synthesis.status, 'COMPLETE');
+  assert.equal(result.synthesis.provenance.provider, 'beta');
+  assert.deepEqual(result.synthesis.attempted, ['alpha::m1', 'beta::m2']);
+  assert.equal(result.synthesis.cost.allowed, true);
+});
+
 test('Council synthesis uses each healthy critic at most once before falling back', async () => {
   const calls = [];
   const pool = new ProviderPool([

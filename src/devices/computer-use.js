@@ -39,6 +39,7 @@ export const COMPUTER_USE_ACTIONS = Object.freeze({
   BROWSER_NEW_TAB: 'browser.new-tab',
   BROWSER_CLOSE_TAB: 'browser.close-tab',
   BROWSER_REOPEN_TAB: 'browser.reopen-tab',
+  BROWSER_BOOKMARK_PAGE: 'browser.bookmark-page',
   BROWSER_FORWARD: 'browser.forward',
   BROWSER_RELOAD: 'browser.reload',
   CLOSE_APP: 'app.close',
@@ -81,6 +82,7 @@ const ACTION_RISK = new Map([
   [COMPUTER_USE_ACTIONS.BROWSER_NEW_TAB, COMPUTER_USE_RISK.SENSITIVE],
   [COMPUTER_USE_ACTIONS.BROWSER_CLOSE_TAB, COMPUTER_USE_RISK.SENSITIVE],
   [COMPUTER_USE_ACTIONS.BROWSER_REOPEN_TAB, COMPUTER_USE_RISK.SENSITIVE],
+  [COMPUTER_USE_ACTIONS.BROWSER_BOOKMARK_PAGE, COMPUTER_USE_RISK.SENSITIVE],
   [COMPUTER_USE_ACTIONS.BROWSER_FORWARD, COMPUTER_USE_RISK.SENSITIVE],
   [COMPUTER_USE_ACTIONS.BROWSER_RELOAD, COMPUTER_USE_RISK.SENSITIVE],
   [COMPUTER_USE_ACTIONS.CLOSE_APP, COMPUTER_USE_RISK.SENSITIVE],
@@ -500,6 +502,17 @@ export function evaluateComputerUsePlan(input = {}) {
       // content. Do not ignore a supplied target, region or alternate URL.
       allowed = false;
       reason = 'BROWSER_CAPTURE_UNEXPECTED_FIELD';
+    } else if (step.action === COMPUTER_USE_ACTIONS.BROWSER_BOOKMARK_PAGE
+      && !validBrowserWindowHandle(step.window_handle)) {
+      allowed = false;
+      reason = 'BROWSER_BOOKMARK_PAGE_WINDOW_HANDLE_REQUIRED';
+    } else if (step.action === COMPUTER_USE_ACTIONS.BROWSER_BOOKMARK_PAGE
+      && Object.keys(submittedSteps[decisions.length] ?? {}).some(field =>
+        !['id', 'action', 'window_handle'].includes(field))) {
+      // Ctrl+D may create a bookmark. It does not configure title, target
+      // folder, or arbitrary URL; never silently discard the owner's intent.
+      allowed = false;
+      reason = 'BROWSER_BOOKMARK_PAGE_UNEXPECTED_FIELD';
     } else if (step.action === COMPUTER_USE_ACTIONS.BROWSER_FIND
       && !validBrowserWindowHandle(step.window_handle)) {
       allowed = false;
