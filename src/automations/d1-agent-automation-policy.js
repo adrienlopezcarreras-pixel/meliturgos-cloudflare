@@ -5,14 +5,9 @@ import {
   automationExecutionPolicy,
   authorizeRunRequest,
   listRunsRequest,
+  assertAutomationExecutionGrants,
+  assertAutomationIdempotentReplay,
 } from './agent-automation-policy.js';
-
-const TIER_RANK = Object.freeze({
-  [PERMISSION_TIERS.READ]: 0,
-  [PERMISSION_TIERS.SAFE_WRITE]: 1,
-  [PERMISSION_TIERS.SENSITIVE]: 2,
-  [PERMISSION_TIERS.DESTRUCTIVE]: 3,
-});
 
 function automationError(code, status = 500) {
   return new DomainError(code, status);
@@ -119,30 +114,16 @@ export class D1AgentAutomationPolicyAdapter {
 
     const existingIdem = await this.rowByIdempotency(request.idempotency_key);
     if (existingIdem) {
-      requireValue(
-        existingIdem.automation_id === policy.automation_id
-          && existingIdem.owner === request.owner
-          && existingIdem.run_id === request.run_id,
-        'AUTOMATION_IDEMPOTENCY_CONFLICT',
-        409,
-      );
+      assertAutomationIdempotentReplay({
+        run_id: existingIdem.run_id,
+        owner: existingIdem.owner,
+        policy: parseJson(existingIdem.policy_json, 'AUTOMATION_POLICY_CORRUPT'),
+      }, policy, request);
       return { claim: rowSnapshot(existingIdem), deduplicated: true };
     }
 
     requireValue(!(await this.rowByRunId(request.run_id)), 'AUTOMATION_RUN_ID_EXISTS', 409);
-    requireValue(
-      TIER_RANK[request.granted_tier] >= TIER_RANK[policy.permission_tier],
-      'AUTOMATION_PERMISSION_TIER_DENIED',
-      403,
-    );
-    const grants = new Set(request.granted_capabilities);
-    const missing = policy.required_capabilities.filter(capability => !grants.has(capability));
-    requireValue(missing.length === 0, 'AUTOMATION_CAPABILITY_DENIED', 403);
-    requireValue(
-      policy.permission_tier !== PERMISSION_TIERS.DESTRUCTIVE || request.approved,
-      'AUTOMATION_EXPLICIT_APPROVAL_REQUIRED',
-      403,
-    );
+    assertAutomationExecutionGrants(policy, request);
 
     try {
       await this.db.prepare(`INSERT INTO agent_automation_runs(
@@ -169,13 +150,11 @@ export class D1AgentAutomationPolicyAdapter {
     } catch (error) {
       const racedIdem = await this.rowByIdempotency(request.idempotency_key);
       if (racedIdem) {
-        requireValue(
-          racedIdem.automation_id === policy.automation_id
-            && racedIdem.owner === request.owner
-            && racedIdem.run_id === request.run_id,
-          'AUTOMATION_IDEMPOTENCY_CONFLICT',
-          409,
-        );
+        assertAutomationIdempotentReplay({
+          run_id: racedIdem.run_id,
+          owner: racedIdem.owner,
+          policy: parseJson(racedIdem.policy_json, 'AUTOMATION_POLICY_CORRUPT'),
+        }, policy, request);
         return { claim: rowSnapshot(racedIdem), deduplicated: true };
       }
       if (await this.rowByRunId(request.run_id)) throw automationError('AUTOMATION_RUN_ID_EXISTS', 409);
