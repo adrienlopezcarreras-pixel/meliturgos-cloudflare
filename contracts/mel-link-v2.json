@@ -174,7 +174,8 @@
     "imaAdpcmMaximumEncodedBytes": 132,
     "androidTtsBlockSamples": 128,
     "audioMetadataRateHz": 48000,
-    "minimumMtuCalculation": "132 encoded bytes + 13-byte Link V2 header + 3-byte ATT overhead = 148 bytes"
+    "minimumMtuCalculation": "132 encoded bytes + 13-byte Link V2 header + 3-byte ATT overhead = 148 bytes",
+    "pcmBitsPerSample": 16
   },
   "transfer": {
     "dataFramesAreSequenced": true,
