@@ -272,6 +272,7 @@ object MelMiniVoiceSynthesizer {
             AudioFormat.ENCODING_PCM_16BIT -> {
                 val frameBytes = 2 * fmt.channels
                 require(bytes.size >= frameBytes) { "MINI_TTS_PCM16_EMPTY" }
+                require(bytes.size % frameBytes == 0) { "MINI_TTS_PCM16_FRAME_INCOMPLETE" }
                 frames = bytes.size / frameBytes
                 samples = ShortArray(frames)
                 var p = 0
@@ -288,6 +289,7 @@ object MelMiniVoiceSynthesizer {
             AudioFormat.ENCODING_PCM_8BIT -> {
                 val frameBytes = fmt.channels
                 require(bytes.size >= frameBytes) { "MINI_TTS_PCM8_EMPTY" }
+                require(bytes.size % frameBytes == 0) { "MINI_TTS_PCM8_FRAME_INCOMPLETE" }
                 frames = bytes.size / frameBytes
                 samples = ShortArray(frames)
                 var p = 0
@@ -302,6 +304,7 @@ object MelMiniVoiceSynthesizer {
             AudioFormat.ENCODING_PCM_FLOAT -> {
                 val frameBytes = 4 * fmt.channels
                 require(bytes.size >= frameBytes) { "MINI_TTS_PCM_FLOAT_EMPTY" }
+                require(bytes.size % frameBytes == 0) { "MINI_TTS_PCM_FLOAT_FRAME_INCOMPLETE" }
                 frames = bytes.size / frameBytes
                 samples = ShortArray(frames)
                 val bb = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
