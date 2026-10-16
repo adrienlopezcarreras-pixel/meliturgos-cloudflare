@@ -128,3 +128,19 @@ test('temporary vision failure can be retried only after a fresh explicit Work c
   assert.equal(Number(rows.n),1,'retry reuses the same active per-capture consent record');
  }finally{h.DB.close()}
 });
+
+test('revocation during model inference prevents persistence of the analysis',async()=>{
+ const h=await harness();
+ try{
+  const {command_id,key}=await h.capture();
+  await assert.rejects(
+   interpretWorkScreenCapture(h.env,{computer_id:'pc-1',command_id,consent:WORK_SCREEN_INTERPRETATION_CONSENT},{
+    analyze:async()=>{const revoked=await revokeWorkScreenConsent(h.env,{computer_id:'pc-1',command_id});assert.equal(revoked.image_deleted,true);return {analysis:'This must never persist.',model:'test-vision'}}
+   }),
+   error=>error.code==='WORK_SCREEN_REVOKED_DURING_INTERPRETATION'
+  );
+  assert.equal(await h.env.MEDIA_BUCKET.head(key),null);
+  const rows=await h.DB.prepare('SELECT COUNT(*) AS n FROM work_screen_interpretations WHERE command_id=? AND device_id=?').bind(command_id,'pc-1').first();
+  assert.equal(Number(rows.n),0);
+ }finally{h.DB.close()}
+});
