@@ -29,6 +29,9 @@ export async function findVerifiedRuntimeWorkProof(repository, { targetJobId = n
   if (targetJobId) {
     if (typeof repository.get !== 'function') return null;
     const job = await repository.get(targetJobId);
+    // A deleted, expired or otherwise absent job has no reusable proof.
+    // Do not dereference job.id before checking the repository result.
+    if (!job) return null;
     const proof = proofFromJob(job);
     return isVerifiedRuntimeWorkProof(proof, job.id) ? { job_id: job.id, proof } : null;
   }
