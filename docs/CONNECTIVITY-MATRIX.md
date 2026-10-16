@@ -10,9 +10,7 @@
 | Google Drive | `src/connectors/google-drive.js` | SDK | test:connections | `--real` | BLOCKED_EXTERNAL OAuth2 | OH-040 |
 | Outlook | `src/connectors/outlook.js` | SDK | test:connections | `--real` | BLOCKED_EXTERNAL OAuth2 | OH-041 |
 | OneDrive | `src/connectors/onedrive.js` | SDK | test:connections | `--real` | BLOCKED_EXTERNAL OAuth2 | OH-042 |
-| SharePoint | `src/connectors/sharepoint.js` | SDK | test:connections | `--real` | BLOCKED_EXTERNAL OAuth2 | OH-043 |
 | GitHub | `src/connectors/github.js` | SDK | test:connections | `--real` | BLOCKED_EXTERNAL token | OH-044 |
 | Cloudflare | `src/connectors/cloudflare.js` | SDK | test:connections | `--real` | BLOCKED_EXTERNAL token | OH-045 |
-| Vercel | `src/connectors/vercel.js` | SDK | test:connections | `--real` | BLOCKED_EXTERNAL token | OH-046 |
 
-Current real status for all rows: `AUTH_REQUIRED`; independent mock and implementation tickets remain READY.
+SharePoint and Vercel are excluded from the zero-cost connector registry by owner policy. Remaining rows use their individual mock/real status; no paid-provider probes are required for MEL production.

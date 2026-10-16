@@ -17,8 +17,6 @@ export const PERSONAL_AGENT_OWNER_PERMISSIONS = Object.freeze([
   'microsoft.files.read',
   'microsoft.files.write',
   'microsoft.files.delete',
-  'microsoft.sites.read',
-  'microsoft.sites.write',
   'roadmap.write',
 ]);
 

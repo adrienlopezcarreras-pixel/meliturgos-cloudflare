@@ -246,7 +246,6 @@ test('parallel proof auth permits only bounded read-only connection diagnostics'
     ['POST','/api/gen2/connections/microsoft/test'],
     ['POST','/api/gen2/connections/yahoo/test'],
     ['POST','/api/gen2/connections/yahoo-imap/test'],
-    ['POST','/api/gen2/connections/vercel/test'],
     ['POST','/api/gen2/connections/pipedream/test'],
     ['POST','/api/files/upload'],
     ['GET','/api/gen2/connections/google/status'],
@@ -257,7 +256,6 @@ test('parallel proof auth permits only bounded read-only connection diagnostics'
 
   for (const [method,path] of [
     ['POST','/api/gen2/connections/google/save'],
-    ['POST','/api/gen2/connections/vercel/save'],
     ['POST','/api/gen2/connections/pipedream/save'],
   ]) {
     assert.equal(isReleaseSmokeRequest(parallelSmokeRequest(path, method), runtimeEnv), false, method+' '+path);

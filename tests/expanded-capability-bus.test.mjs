@@ -82,15 +82,10 @@ test('commercial MEL free-only mode excludes unconfigured paid-optional Vercel c
   assert.equal(bindings.free_deployment_provider, 'cloudflare');
 });
 
-test('optional Vercel capabilities require explicit operator opt-in even if a token exists', () => {
-  for (const flag of [undefined, '', 'false']) {
-    const env = { MELITURGOS_USER:'owner', VERCEL_TOKEN:'configured-but-not-approved', MEL_ENABLE_OPTIONAL_VERCEL:flag };
-    const bus = createDefaultCapabilityBus({ env });
-    assert.equal(bus.list().filter(row => row.provider === 'vercel').length, 0);
-  }
-  const optedIn = createDefaultCapabilityBus({ env: { MEL_ENABLE_OPTIONAL_VERCEL:'true' } });
-  assert.deepEqual(
-    optedIn.list().filter(row => row.provider === 'vercel').map(row => row.id).sort(),
-    ['vercel.deployments.read', 'vercel.deployments.redeploy', 'vercel.projects.read'],
-  );
+test('Vercel capabilities stay excluded even when a token and legacy opt-in flag exist', () => {
+  const env = { MELITURGOS_USER:'owner', VERCEL_TOKEN:'configured-but-not-approved', MEL_ENABLE_OPTIONAL_VERCEL:'true' };
+  const bus = createDefaultCapabilityBus({ env });
+  assert.equal(bus.list().filter(row => row.provider === 'vercel').length, 0);
+  const bindings = bus.list().find(row => row.id === 'system.bindings');
+  assert.ok(bindings);
 });

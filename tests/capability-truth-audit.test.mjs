@@ -136,7 +136,7 @@ test('safe smoke catalogue covers core read-only and preview-only capabilities',
     'evolution.module.propose','device.policy.preview','web.research',
     'github.repository.read','github.actions.runs.read','cloudflare.workers.read','cloudflare.deployments.read',
     'gmail.messages.search','calendar.events.read','tasks.tasklists.read','mail.messages.search',
-    'files.list','files.search','drive.files.list','drive.files.search','sites.list','sites.search',
+    'files.list','files.search','drive.files.list','drive.files.search',
     'roadmap.human-actions-required','system.integrity','system.maturity','chatgpt.history.search',
     'computer.status','work.plan.list','openloop.due','timeline.list','project.list','decision.list',
     'lesson.list','skill.list','skill.snapshot.export','self.audit.status','memory.status','knowledge.search',
@@ -667,7 +667,6 @@ test('external connector reads stay inventoried in global stress without duplica
   const calls=[];
   const records=[
     { id:'files.search', name:'OneDrive files search', category:'files', provider:'pipedream', risk:'LOW', enabled:true, health:'HEALTHY' },
-    { id:'sites.search', name:'SharePoint sites search', category:'files', provider:'pipedream', risk:'LOW', enabled:true, health:'HEALTHY' },
     { id:'device.policy.preview', name:'Device preview', category:'device', provider:'local', risk:'LOW', enabled:true, health:'HEALTHY' },
   ];
   const fake={bus:{
@@ -678,11 +677,10 @@ test('external connector reads stay inventoried in global stress without duplica
     deep:true,
     samples:{
       'files.search':{query:'mel',limit:1},
-      'sites.search':{query:'mel',limit:1},
       'device.policy.preview':{},
     },
   });
-  for(const id of ['files.search','sites.search']){
+  for(const id of ['files.search']){
     const row=report.capabilities.find(item=>item.id===id);
     assert.equal(row.tested_now,false);
     assert.equal(row.auto_execution_blocked,'UNKNOWN_OR_EXTERNAL_COST');

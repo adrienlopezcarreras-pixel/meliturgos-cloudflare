@@ -7,6 +7,8 @@ test('connector catalog is declarative, unique and stores only secret references
   assert.ok(connectorDefinitions.length>=10);
   const ids=connectorDefinitions.map(row=>row.id);
   assert.equal(new Set(ids).size,ids.length);
+  assert.equal(ids.includes('sharepoint'), false);
+  assert.equal(ids.includes('vercel'), false);
   for(const row of connectorDefinitions){
     assert.ok(row.id);
     assert.ok(row.auth_type);
