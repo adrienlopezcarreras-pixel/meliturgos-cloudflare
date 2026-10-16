@@ -33,6 +33,19 @@ test('browser.press accepts only bounded navigation keys, never arbitrary shortc
   }
 });
 
+test('browser.press rejects unexpected target or text fields instead of discarding them', () => {
+  for (const [field, value] of [
+    ['text', 'secret'], ['url', 'https://example.com'],
+    ['app', 'browser'], ['path', 'C:\\\\Users'], ['x', 20],
+    ['y', 10], ['selector', '#input'], ['repeat', 2], ['unused', null],
+  ]) {
+    const result = verdict({ ...press, [field]: value });
+    assert.equal(result.allowed, false, field);
+    assert.equal(result.reason, 'BROWSER_PRESS_UNEXPECTED_FIELD', field);
+  }
+  assert.equal(verdict(press).allowed, true);
+});
+
 test('invalid browser.press refuses entire plan before earlier adapter operations', async () => {
   const performed = [], audits = [];
   const controller = createComputerUseController({
