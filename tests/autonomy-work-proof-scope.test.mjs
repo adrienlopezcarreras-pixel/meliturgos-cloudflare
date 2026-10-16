@@ -82,3 +82,9 @@ test('targeted and repository-wide proof lookup reject evidence bound to another
   const valid = await findVerifiedRuntimeWorkProof(repository, { targetJobId: job.id });
   assert.equal(valid.job_id, job.id);
 });
+
+test('targeted proof lookup returns no proof when job is absent or has expired', async () => {
+  const repository = new D1DevJobRepository(null, { memoryStore: new Map() });
+  assert.equal(await findVerifiedRuntimeWorkProof(repository, { targetJobId: 'missing-job' }), null);
+  assert.equal(await findVerifiedRuntimeWorkProof(repository), null);
+});
