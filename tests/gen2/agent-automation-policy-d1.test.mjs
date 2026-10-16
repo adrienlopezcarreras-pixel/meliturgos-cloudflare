@@ -249,3 +249,19 @@ test('D1 automation replays revalidate grants and exact policy, including after 
     {code:'AUTOMATION_IDEMPOTENCY_CONFLICT',status:409});
   assert.equal((await restarted.authorizeRun(original)).deduplicated,true);
 });
+
+test('D1 automation refuses impossible terminal timestamps without mutating state', async () => {
+  const db = new FakeD1();
+  const service = createAgentAutomationPolicy(createD1AgentAutomationPolicyAdapter(db));
+  await service.authorizeRun({ policy:policy(), ...request() });
+  await assert.rejects(
+    () => service.completeRun({ run_id:'run-1', completed_at:999 }),
+    { code:'AUTOMATION_TERMINAL_TIME_BEFORE_REQUEST', status:409 },
+  );
+  await assert.rejects(
+    () => service.failRun({ run_id:'run-1', failed_at:999, error_code:'TEST_FAILURE' }),
+    { code:'AUTOMATION_TERMINAL_TIME_BEFORE_REQUEST', status:409 },
+  );
+  assert.equal((await service.getRun({ run_id:'run-1' })).status, RUN_STATUSES.AUTHORIZED);
+  assert.equal((await service.failRun({ run_id:'run-1', failed_at:1000, error_code:'EXPECTED' })).status, RUN_STATUSES.FAILED);
+});
