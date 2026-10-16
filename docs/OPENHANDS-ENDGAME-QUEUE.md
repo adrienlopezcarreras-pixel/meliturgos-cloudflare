@@ -189,7 +189,7 @@ STATUS: READY except real auth
 PHASE: P8
 PRIORITY: P2
 DEPENDENCIES: OH-015
-GOAL: finish SDK probes and one safe adapter each for Gmail, Calendar, Contacts, Drive, Outlook, OneDrive, SharePoint, GitHub, Cloudflare and Vercel
+GOAL: finish SDK probes and one safe adapter each for Gmail, Calendar, Contacts, Drive, Outlook, OneDrive, GitHub and Cloudflare; paid SharePoint and Vercel are excluded from the active free-first runtime
 FILES: `src/connectors/`, `scripts/test-connections.mjs`, `docs/CONNECTIVITY-MATRIX.md`
 IMPLEMENT: MOCK first; REAL read-only probe only after credentials exist
 DO_NOT: print secrets or claim CONNECTED
