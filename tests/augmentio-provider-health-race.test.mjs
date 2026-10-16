@@ -77,3 +77,58 @@ test('ProviderAdapter ignores older asynchronous health status that resolves las
   await first;
   assert.equal(adapter.healthStatus, 'HEALTHY');
 });
+
+test('a timed-out ProviderAdapter cannot re-enable itself from a late health response', async () => {
+  let releaseOld;
+  let oldStarted;
+  const started = new Promise(resolve => { oldStarted = resolve; });
+  let checks = 0;
+  const adapter = new ProviderAdapter({
+    id: 'late-adapter', capabilities: ['GENERAL'], invoke: async () => 'ok',
+    healthCheck: async () => {
+      if (++checks === 1) {
+        oldStarted();
+        return new Promise(resolve => { releaseOld = resolve; });
+      }
+      return 'HEALTHY';
+    },
+  });
+  const pool = new ProviderPool([adapter], { healthCheckTimeoutMs: 15 });
+  const first = pool.refreshHealth();
+  await started;
+  await first;
+  assert.equal(adapter.healthStatus, 'UNAVAILABLE');
+  assert.equal(pool.list({ capability: 'GENERAL' }).length, 0);
+  releaseOld('HEALTHY');
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(adapter.healthStatus, 'UNAVAILABLE',
+    'late internal adapter health() must not undo pool quarantine');
+  assert.equal(pool.list({ capability: 'GENERAL' }).length, 0);
+
+  await pool.refreshHealth();
+  assert.equal(adapter.healthStatus, 'HEALTHY',
+    'a fresh successful probe is allowed to recover the provider');
+  assert.equal(pool.list({ capability: 'GENERAL' }).length, 1);
+});
+
+test('a late failed ProviderAdapter probe also cannot override timeout quarantine', async () => {
+  let rejectOld;
+  let oldStarted;
+  const started = new Promise(resolve => { oldStarted = resolve; });
+  const adapter = new ProviderAdapter({
+    id: 'late-failure', invoke: async () => 'ok',
+    healthCheck: async () => {
+      oldStarted();
+      return new Promise((_, reject) => { rejectOld = reject; });
+    },
+  });
+  const pool = new ProviderPool([adapter], { healthCheckTimeoutMs: 15 });
+  const first = pool.refreshHealth();
+  await started;
+  await first;
+  assert.equal(adapter.healthStatus, 'UNAVAILABLE');
+  rejectOld(new Error('late transient error'));
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(adapter.healthStatus, 'UNAVAILABLE',
+    'late error must not downgrade UNAVAILABLE to callable DEGRADED');
+});
