@@ -77,3 +77,20 @@ test('Windows find cycles verify unchanged browser HWND, STOP and local consent 
     assert.ok(!handler.includes('query_exposed='));
   }
 });
+
+test('find navigation refuses ignored payload instead of silently dropping owner intent', () => {
+  const optionalFields = [
+    ['text', 'another term'], ['url', 'https://example.com'],
+    ['key', 'ENTER'], ['app', 'browser'], ['path', 'C:\\\\test'],
+    ['x', 25], ['y', 100], ['delta_x', 0], ['delta_y', 120],
+  ];
+  for (const action of actions) {
+    for (const [field, value] of optionalFields) {
+      const step = { id: 'cycle', action, window_handle: '34567', [field]: value };
+      const plan = verdict(step);
+      assert.equal(plan.allowed, false, action + ' ' + field);
+      assert.equal(plan.reason, 'BROWSER_FIND_CYCLE_UNEXPECTED_FIELD', action + ' ' + field);
+    }
+    assert.equal(verdict({ id: 'cycle', action, window_handle: '34567' }).allowed, true);
+  }
+});
