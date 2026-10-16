@@ -23,6 +23,21 @@ function Write-AdbLog([string]$message) {
     Add-Content -LiteralPath $log -Encoding UTF8 -Value $message
   } catch { }
 }
+function Write-StatusReport($status) {
+  # Write complete JSON to a unique temp file before replacing the previous report.
+  $temp = Join-Path $dir ("android-adb-wifi-" + [Guid]::NewGuid().ToString('N') + ".tmp")
+  try {
+    [IO.File]::WriteAllText($temp,($status | ConvertTo-Json -Depth 5),(New-Object Text.UTF8Encoding($false)))
+    if (Test-Path -LiteralPath $report) {
+      try { [IO.File]::Replace($temp,$report,$null) }
+      catch { Move-Item -LiteralPath $temp -Destination $report -Force }
+    } else {
+      Move-Item -LiteralPath $temp -Destination $report -Force
+    }
+  } finally {
+    Remove-Item -LiteralPath $temp -Force -ErrorAction SilentlyContinue
+  }
+}
 function Run-Adb([string[]]$arglist) {
   # Bound each command so a stalled daemon or device cannot freeze this monitor.
   $scratch = Join-Path $dir ("adb-command-" + [Guid]::NewGuid().ToString('N'))
@@ -94,25 +109,20 @@ function Scan {
       if ($details -match 'versionCode=(\d+)') { $status.mel_version_code=[int64]$Matches[1] }
     }
   }
-  $temp="$report.tmp"
-  [IO.File]::WriteAllText($temp,($status | ConvertTo-Json -Depth 5),(New-Object Text.UTF8Encoding($false)))
-  if (Test-Path -LiteralPath $report) { Remove-Item -LiteralPath $report -Force }
-  Move-Item -LiteralPath $temp -Destination $report -Force
+  Write-StatusReport $status
   Write-AdbLog ("{0} connected={1} model={2} mel_installed={3}" -f $status.observed_at_utc,$status.connected,$status.android_model,$status.mel_installed)
 }
 do {
   try {
     if (-not $adb) {
       $status=[ordered]@{schema="mel.adb-wifi-status.v1";observed_at_utc=(Get-Date).ToUniversalTime().ToString("o");adb_available=$false;connected=$false;serial=$null;android_model=$null;android_version=$null;mel_package="fr.veriteinterdite.mel";mel_installed=$false;mel_version=$null;mel_version_code=$null;error="ADB_PLATFORM_TOOLS_MISSING"}
-      [IO.File]::WriteAllText("$report.tmp",($status | ConvertTo-Json -Depth 5),(New-Object Text.UTF8Encoding($false)))
-      Move-Item -LiteralPath "$report.tmp" -Destination $report -Force
+      Write-StatusReport $status
     } else { Scan }
   } catch {
     $reason=$_.Exception.Message
     $status=[ordered]@{schema="mel.adb-wifi-status.v1";observed_at_utc=(Get-Date).ToUniversalTime().ToString("o");adb_available=[bool]$adb;connected=$false;serial=$null;android_model=$null;android_version=$null;mel_package="fr.veriteinterdite.mel";mel_installed=$false;mel_version=$null;mel_version_code=$null;error="ADB_DIAGNOSTIC_FAILED";error_detail=([string]$reason -replace "[\r\n\t]+"," ").Substring(0,[Math]::Min(240,([string]($reason -replace "[\r\n\t]+"," ")).Length))}
     try {
-      [IO.File]::WriteAllText("$report.tmp",($status | ConvertTo-Json -Depth 5),(New-Object Text.UTF8Encoding($false)))
-      Move-Item -LiteralPath "$report.tmp" -Destination $report -Force
+      Write-StatusReport $status
     } catch { }
     Write-AdbLog ("{0} error={1}" -f (Get-Date).ToUniversalTime().ToString("o"),$reason)
   }

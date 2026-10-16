@@ -38,7 +38,8 @@ test("ADB diagnostics failures invalidate previously connected status", async ()
   const script = await source("windows-companion/MEL-ADB-WiFi.ps1");
   assert.match(script, /ADB_DIAGNOSTIC_FAILED/);
   assert.match(script, /connected=\$false/);
-  assert.match(script, /Move-Item -LiteralPath "\$report\.tmp" -Destination \$report -Force/);
+  assert.match(script, /Write-StatusReport \$status/);
+  assert.match(script, /function Write-StatusReport/);
 });
 
 
@@ -192,4 +193,13 @@ test("Companion ADB monitor bounds each adb.exe command and cleans temporary out
  assert.match(run, /Remove-Item -LiteralPath \$stdout,\$stderr/);
  assert.match(run, /RedirectStandardOutput \$stdout/);
  assert.match(run, /RedirectStandardError \$stderr/);
+});
+
+test("ADB status publication writes complete JSON before replacing the prior report", async () => {
+ const script = await source("windows-companion/MEL-ADB-WiFi.ps1");
+ assert.match(script, /function Write-StatusReport/);
+ assert.match(script, /\[IO\.File\]::WriteAllText\(\$temp/);
+ assert.match(script, /\[IO\.File\]::Replace\(\$temp,\$report,\$null\)/);
+ assert.match(script, /Write-StatusReport \$status/);
+ assert.doesNotMatch(script, /Remove-Item -LiteralPath \$report -Force/);
 });
