@@ -1,5 +1,12 @@
 # MEL automated AI content revenue pipeline
 
+## Capability reality check (2026-10-16)
+**Do not make stock-image production the first revenue path.** MEL's code contains creative-media capability descriptors, and the Dreamina/Volcengine adapter has an isolated implementation/documentation, but the integration note explicitly says runtime/capability registration, UI, scheduler, secrets/bindings and paid-access approval persistence are not wired. Paid image generation is disabled by default. Therefore it is not yet a verified end-to-end MEL capability, and this plan must not claim that MEL can generate and publish stock images autonomously.
+
+First monetize work that MEL can already do or can safely extend using configured text/data providers: structured text transformation, JSON/CSV normalization, information extraction, public-data cleaning, transcription/translation only where rights permit, document classification, and machine-verifiable dataset processing. Prefer a marketplace with explicit jobs, clear acceptance criteria, and a documented per-job reward over generating generic content and hoping it sells.
+
+Only revisit visual stock content after a provider adapter is wired into the active runtime, authorized explicitly for paid calls, end-to-end tested, rights/metadata checks are implemented, and net costs are measured.
+
 ## Goal
 Build a low-touch content pipeline that creates original, licenseable digital assets and earns royalties through established marketplaces. No direct buyer support or custom service delivery is intended.
 
