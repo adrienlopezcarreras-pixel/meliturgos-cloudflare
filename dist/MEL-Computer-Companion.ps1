@@ -306,6 +306,8 @@ function Upload-BrowserScreenshot([string]$commandId, [System.Drawing.Rectangle]
   if ([MelNative]::GetForegroundWindow() -ne $window -or (Assert-ForegroundBrowser) -ne $browser) { throw "BROWSER_CAPTURE_FOCUS_CHANGED" }
   if ($bytes.Length -lt 8 -or $bytes.Length -gt (5 * 1024 * 1024)) { throw "SCREENSHOT_BINARY_PAYLOAD_INVALID" }
   Assert-LocalRemoteAccess
+  # Recheck immediately before network transfer after payload validation.
+  if ([MelNative]::GetForegroundWindow() -ne $window -or (Assert-ForegroundBrowser) -ne $browser) { throw "BROWSER_CAPTURE_FOCUS_CHANGED" }
   $uri = "$Server/api/computer/v1/screenshot?command_id=$([uri]::EscapeDataString($commandId))"
   return Invoke-RestMethod -Uri $uri -Method Post -Headers (Headers) -ContentType "image/png" -Body $bytes -TimeoutSec 30
 }
