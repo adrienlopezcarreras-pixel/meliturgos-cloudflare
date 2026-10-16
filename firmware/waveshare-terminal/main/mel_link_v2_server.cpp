@@ -5,8 +5,10 @@
 #include <cstring>
 
 #include "esp_log.h"
+#include "esp_random.h"
 #include "host/ble_att.h"
 #include "host/ble_gap.h"
+#include "host/ble_sm.h"
 #include "host/ble_gatt.h"
 #include "host/ble_hs.h"
 #include "host/ble_uuid.h"
@@ -34,6 +36,8 @@ static const ble_uuid16_t UUID_BULK_RX = BLE_UUID16_INIT(0xabf3);
 static std::atomic<bool> g_started{false};
 static std::atomic<bool> g_ready{false};
 static std::atomic<bool> g_link_encrypted{false};
+static std::atomic<bool> g_pairing_passkey_visible{false};
+static std::atomic<uint32_t> g_pairing_passkey{0};
 static uint16_t g_conn = BLE_HS_CONN_HANDLE_NONE;
 static uint16_t g_control_handle = 0;
 static uint16_t g_event_handle = 0;
@@ -159,6 +163,8 @@ static int gap_event(struct ble_gap_event *event, void *arg) {
                 g_conn = event->connect.conn_handle;
                 g_ready.store(false);
                 g_link_encrypted.store(false);
+                g_pairing_passkey_visible.store(false);
+                g_pairing_passkey.store(0);
                 g_event_subscribed = false;
                 g_mtu = ble_att_mtu(g_conn);
                 ESP_LOGI(TAG, "Android connected conn=%u mtu=%u", g_conn, g_mtu);
@@ -181,6 +187,8 @@ static int gap_event(struct ble_gap_event *event, void *arg) {
             g_conn = BLE_HS_CONN_HANDLE_NONE;
             g_mtu = 23;
             g_link_encrypted.store(false);
+            g_pairing_passkey_visible.store(false);
+            g_pairing_passkey.store(0);
             g_event_subscribed = false;
             const bool was_ready = g_ready.exchange(false);
             if (g_state_cb && was_ready) g_state_cb(false, g_state_ctx);
@@ -200,20 +208,65 @@ static int gap_event(struct ble_gap_event *event, void *arg) {
             }
             return 0;
 
+        case BLE_GAP_EVENT_PASSKEY_ACTION: {
+            if (event->passkey.conn_handle != g_conn) return 0;
+            // Display a random passkey on MINI and require Android's native
+            // passkey-entry sheet; every other pairing IO mode is rejected.
+            if (event->passkey.params.action != BLE_SM_IOACT_DISP) {
+                g_pairing_passkey_visible.store(false);
+                g_pairing_passkey.store(0);
+                ESP_LOGW(TAG, "Unsupported BLE MITM pairing IO action=%d",
+                         event->passkey.params.action);
+                ble_gap_terminate(g_conn, BLE_ERR_REM_USER_CONN_TERM);
+                return 0;
+            }
+            const uint32_t passkey = esp_random() % 1000000U;
+            struct ble_sm_io io = {};
+            io.action = BLE_SM_IOACT_DISP;
+            io.passkey = passkey;
+            g_pairing_passkey.store(passkey);
+            g_pairing_passkey_visible.store(true);
+            const int rc = ble_sm_inject_io(event->passkey.conn_handle, &io);
+            if (rc != 0) {
+                g_pairing_passkey_visible.store(false);
+                g_pairing_passkey.store(0);
+                ESP_LOGE(TAG, "BLE passkey injection failed rc=%d", rc);
+                ble_gap_terminate(g_conn, BLE_ERR_REM_USER_CONN_TERM);
+                return 0;
+            }
+            // Never log the numeric passkey; the MINI display is its only source.
+            ESP_LOGI(TAG, "BLE MITM passkey displayed on MINI; awaiting Android entry");
+            return 0;
+        }
+
         case BLE_GAP_EVENT_ENC_CHANGE: {
             if (event->enc_change.conn_handle != g_conn) return 0;
             struct ble_gap_conn_desc desc = {};
-            const bool encrypted = event->enc_change.status == 0 &&
-                ble_gap_conn_find(g_conn, &desc) == 0 && desc.sec_state.encrypted;
-            g_link_encrypted.store(encrypted);
-            if (!encrypted) {
-                // Fail closed rather than serving an unauthenticated SESSION.
-                ESP_LOGW(TAG, "BLE encryption did not become active status=%d", event->enc_change.status);
-                ble_gap_terminate(g_conn, BLE_ERR_REM_USER_CONN_TERM);
+            bool encrypted = false;
+            bool authenticated = false;
+            bool bonded = false;
+            if (event->enc_change.status == 0 && ble_gap_conn_find(g_conn, &desc) == 0) {
+                encrypted = desc.sec_state.encrypted;
+                authenticated = desc.sec_state.authenticated;
+                bonded = desc.sec_state.bonded;
             }
-            const bool now_ready = encrypted && g_event_subscribed;
+            const bool secure = encrypted && authenticated && bonded;
+            g_link_encrypted.store(secure);
+            if (!secure) {
+                g_pairing_passkey_visible.store(false);
+                g_pairing_passkey.store(0);
+                g_ready.store(false);
+                ESP_LOGW(TAG, "BLE security rejected: encrypted=%d authenticated=%d bonded=%d status=%d",
+                         encrypted ? 1 : 0, authenticated ? 1 : 0, bonded ? 1 : 0,
+                         event->enc_change.status);
+                ble_gap_terminate(g_conn, BLE_ERR_REM_USER_CONN_TERM);
+            } else {
+                g_pairing_passkey_visible.store(false);
+                g_pairing_passkey.store(0);
+                ESP_LOGI(TAG, "Link V2 BLE authenticated, encrypted and bonded");
+            }
+            const bool now_ready = secure && g_event_subscribed;
             const bool was_ready = g_ready.exchange(now_ready);
-            ESP_LOGI(TAG, "Link V2 BLE encrypted=%d", encrypted ? 1 : 0);
             if (g_state_cb && was_ready != now_ready) g_state_cb(now_ready, g_state_ctx);
             return 0;
         }
@@ -307,10 +360,12 @@ esp_err_t mel_link_v2_server_start(void) {
         return ESP_FAIL;
     }
 
-    // Require bonded BLE encryption for all Android -> MINI writes. Just Works
-    // pairing protects confidentiality but is not an authenticated MITM proof.
+    // Require LE Secure Connections with MITM-authenticated passkey pairing.
+    // Just Works is never accepted as a ready Link V2 session.
     ble_hs_cfg.sm_bonding = 1;
     ble_hs_cfg.sm_sc = 1;
+    ble_hs_cfg.sm_mitm = 1;
+    ble_hs_cfg.sm_io_cap = BLE_SM_IO_CAP_DISP_ONLY;
     ble_hs_cfg.sm_our_key_dist |= BLE_SM_PAIR_KEY_DIST_ENC | BLE_SM_PAIR_KEY_DIST_ID;
     ble_hs_cfg.sm_their_key_dist |= BLE_SM_PAIR_KEY_DIST_ENC | BLE_SM_PAIR_KEY_DIST_ID;
     ble_hs_cfg.reset_cb = on_reset;
@@ -326,6 +381,14 @@ esp_err_t mel_link_v2_server_start(void) {
 bool mel_link_v2_server_ready(void) {
     return g_ready.load() && g_link_encrypted.load() &&
         g_conn != BLE_HS_CONN_HANDLE_NONE && g_event_subscribed;
+}
+
+bool mel_link_v2_server_pairing_passkey(uint32_t *passkey_out) {
+    if (!passkey_out || !g_pairing_passkey_visible.load()) return false;
+    const uint32_t passkey = g_pairing_passkey.load();
+    if (!g_pairing_passkey_visible.load()) return false;
+    *passkey_out = passkey;
+    return true;
 }
 
 uint16_t mel_link_v2_server_mtu(void) {
