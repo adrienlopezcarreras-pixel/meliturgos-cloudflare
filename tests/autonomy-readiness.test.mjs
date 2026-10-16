@@ -333,3 +333,20 @@ test('MEL autonomy readiness rejects Work DAG proof owned by a different job', a
   assert.equal(valid.gates.coherent_single_job_loop, true);
   assert.equal(valid.self_development_ready, true);
 });
+
+test('Council readiness requires real nonempty AI contributions for every required role', async () => {
+  for (const content of ['', ' \t ', null]) {
+    const repository = await completeEvidenceRepository();
+    const job = await repository.get('ready-job');
+    const plan = structuredClone(job.plan_json);
+    plan.preflight.council.responses[1].answer.content = content;
+    // Leave status, provider IDs, budget provenance and success lists forged
+    // as COMPLETE to prove they cannot substitute for the missing AI response.
+    await repository.update(job.id, { plan_json: plan });
+    const readiness = await getAutonomyReadiness({ repository });
+    assert.equal(readiness.gates.live_council_zero_cost, false, String(content));
+    assert.equal(readiness.gates.coherent_single_job_loop, false, String(content));
+    assert.equal(readiness.self_development_ready, false, String(content));
+    assert.ok(readiness.blockers.includes('LIVE_COUNCIL_ZERO_COST_NOT_PROVEN'));
+  }
+});
