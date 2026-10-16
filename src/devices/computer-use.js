@@ -20,6 +20,7 @@ export const COMPUTER_USE_ACTIONS = Object.freeze({
   BROWSER_INSPECT: 'browser.inspect',
   BROWSER_CAPTURE: 'browser.capture',
   BROWSER_CLICK: 'browser.click',
+  BROWSER_SCROLL: 'browser.scroll',
   BROWSER_TYPE: 'browser.type',
   BROWSER_BACK: 'browser.back',
   BROWSER_NEW_TAB: 'browser.new-tab',
@@ -45,6 +46,7 @@ const ACTION_RISK = new Map([
   [COMPUTER_USE_ACTIONS.BROWSER_INSPECT, COMPUTER_USE_RISK.OBSERVE],
   [COMPUTER_USE_ACTIONS.BROWSER_CAPTURE, COMPUTER_USE_RISK.SENSITIVE],
   [COMPUTER_USE_ACTIONS.BROWSER_CLICK, COMPUTER_USE_RISK.SENSITIVE],
+  [COMPUTER_USE_ACTIONS.BROWSER_SCROLL, COMPUTER_USE_RISK.SENSITIVE],
   [COMPUTER_USE_ACTIONS.BROWSER_TYPE, COMPUTER_USE_RISK.SENSITIVE],
   [COMPUTER_USE_ACTIONS.BROWSER_BACK, COMPUTER_USE_RISK.SENSITIVE],
   [COMPUTER_USE_ACTIONS.BROWSER_NEW_TAB, COMPUTER_USE_RISK.SENSITIVE],
@@ -299,6 +301,25 @@ export function evaluateComputerUsePlan(input = {}) {
       && !validBrowserWindowHandle(step.window_handle)) {
       allowed = false;
       reason = 'BROWSER_CLICK_WINDOW_HANDLE_REQUIRED';
+    } else if (step.action === COMPUTER_USE_ACTIONS.BROWSER_SCROLL
+      && (!suppliedSafeInteger(submittedSteps[decisions.length]?.x)
+        || !suppliedSafeInteger(submittedSteps[decisions.length]?.y)
+        || Number(submittedSteps[decisions.length].x) < -2147483648
+        || Number(submittedSteps[decisions.length].x) > 2147483647
+        || Number(submittedSteps[decisions.length].y) < -2147483648
+        || Number(submittedSteps[decisions.length].y) > 2147483647)) {
+      allowed = false;
+      reason = 'BROWSER_SCROLL_COORDINATES_INVALID';
+    } else if (step.action === COMPUTER_USE_ACTIONS.BROWSER_SCROLL
+      && !validBrowserWindowHandle(step.window_handle)) {
+      allowed = false;
+      reason = 'BROWSER_SCROLL_WINDOW_HANDLE_REQUIRED';
+    } else if (step.action === COMPUTER_USE_ACTIONS.BROWSER_SCROLL
+      && (!suppliedSafeInteger(submittedSteps[decisions.length]?.delta_y)
+        || Math.abs(Number(submittedSteps[decisions.length].delta_y)) > 1440
+        || Number(submittedSteps[decisions.length].delta_y) === 0)) {
+      allowed = false;
+      reason = 'BROWSER_SCROLL_DELTA_INVALID';
     } else if (step.action === COMPUTER_USE_ACTIONS.BROWSER_TYPE
       && !validBrowserWindowHandle(step.window_handle)) {
       allowed = false;
