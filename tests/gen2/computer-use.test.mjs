@@ -321,3 +321,49 @@ test('GEN2-30 never performs an earlier approved PC command when a later scroll 
   assert.equal(audits.at(-1).status, 'DENIED');
   assert.equal(audits.at(-1).completed_steps, 0);
 });
+
+
+test('GEN2-30 refuses numeric values outside native Windows Int32 rather than overflow', () => {
+  for (const [step, reason] of [
+    [{ id: 'cursor', action: COMPUTER_USE_ACTIONS.CURSOR_MOVE, x: 2147483648, y: 20 }, 'POINTER_COORDINATES_INVALID'],
+    [{ id: 'cursor', action: COMPUTER_USE_ACTIONS.CURSOR_MOVE, x: -2147483649, y: 20 }, 'POINTER_COORDINATES_INVALID'],
+    [{ id: 'cursor', action: COMPUTER_USE_ACTIONS.CURSOR_MOVE, x: 9007199254740991, y: 20 }, 'POINTER_COORDINATES_INVALID'],
+    [{ id: 'scroll', action: COMPUTER_USE_ACTIONS.SCROLL, delta_y: -2147483649 }, 'SCROLL_DELTA_INVALID'],
+    [{ id: 'scroll', action: COMPUTER_USE_ACTIONS.SCROLL, delta_y: '2147483648' }, 'SCROLL_DELTA_INVALID'],
+  ]) {
+    const rejected = evaluateComputerUsePlan({ ...base, steps: [step] });
+    assert.equal(rejected.allowed, false, step.id);
+    assert.equal(rejected.reason, reason, step.id);
+  }
+
+  assert.equal(evaluateComputerUsePlan({
+    ...base,
+    steps: [
+      { id: 'cursor', action: COMPUTER_USE_ACTIONS.CURSOR_MOVE, x: -2147483648, y: 2147483647 },
+      { id: 'scroll', action: COMPUTER_USE_ACTIONS.SCROLL, delta_y: -2147483648 },
+    ],
+  }).allowed, true);
+});
+
+test('GEN2-30 never dispatches a plan with overflowing native Windows coordinates', async () => {
+  const performed = [];
+  const audits = [];
+  const controller = createComputerUseController({
+    adapter: { perform: async step => performed.push(step) },
+    authorize: async () => true,
+    audit: async entry => audits.push(entry),
+  });
+  await assert.rejects(
+    controller.execute({
+      ...base,
+      steps: [
+        { id: 'valid', action: COMPUTER_USE_ACTIONS.SCREENSHOT },
+        { id: 'invalid', action: COMPUTER_USE_ACTIONS.CURSOR_MOVE, x: 2147483648, y: 0 },
+      ],
+    }),
+    error => error.code === 'POINTER_COORDINATES_INVALID',
+  );
+  assert.deepEqual(performed, []);
+  assert.equal(audits.at(-1).status, 'DENIED');
+  assert.equal(audits.at(-1).completed_steps, 0);
+});
