@@ -378,6 +378,15 @@ export function registerWorkCapabilities(bus, { db } = {}) {
 
     tryCandidates(generated, 'augmentio:work.plan.generate');
 
+    // Provider outages are not malformed plans that can be repaired. If the
+    // first fan-out yielded no candidate, further repair/selection fan-outs
+    // only repeat slow failures and can exhaust the production proof deadline.
+    if (!accepted && candidateCount === 0 && providerFailures > 0) {
+      const error = workError('WORK_PLAN_GENERATION_PROVIDERS_UNAVAILABLE');
+      error.provider_failures = Math.min(12, providerFailures);
+      throw error;
+    }
+
     if (!accepted) {
       repairAttempted = true;
       const repairCatalog = catalog
