@@ -566,3 +566,41 @@ test('Augmentio accepts the exact configured response ceiling', async () => {
   const result = await ai.fanOut({ input: 'max model output' });
   assert.equal(result.best.text.length, MAX_AUGMENTIO_RESPONSE_CHARS);
 });
+
+test('Augmentio refuses to call models when pool health refresh never finishes', async () => {
+  let listCalls = 0;
+  const pool = {
+    async refreshHealth() { return new Promise(() => {}); },
+    list() { listCalls++; return []; },
+  };
+  const ai = new Augmentio({ pool, healthRefreshTimeoutMs: 20 });
+  const started = Date.now();
+  await assert.rejects(
+    ai.fanOut({ input: 'do not wait forever' }),
+    error => error?.code === 'AUGMENTIO_HEALTH_REFRESH_TIMEOUT',
+  );
+  assert.ok(Date.now() - started < 2000);
+  assert.equal(listCalls, 0, 'models must not be selected after an unverified health probe');
+});
+
+test('Augmentio immediately cancels a pending health refresh with owner AbortSignal', async () => {
+  let listCalls = 0;
+  const pool = {
+    async refreshHealth() { return new Promise(() => {}); },
+    list() { listCalls++; return []; },
+  };
+  const controller = new AbortController();
+  const ai = new Augmentio({ pool, healthRefreshTimeoutMs: 30_000 });
+  const started = Date.now();
+  const execution = ai.fanOut({ input: 'cancel pending health refresh', signal: controller.signal });
+  setTimeout(() => controller.abort('owner-cancelled'), 15);
+  await assert.rejects(execution, error => error?.code === 'SCHEDULER_ABORTED');
+  assert.ok(Date.now() - started < 2000);
+  assert.equal(listCalls, 0);
+});
+
+test('Augmentio bounds the health refresh deadline configuration', () => {
+  assert.equal(new Augmentio({ healthRefreshTimeoutMs: Infinity }).healthRefreshTimeoutMs, 5000);
+  assert.equal(new Augmentio({ healthRefreshTimeoutMs: -100 }).healthRefreshTimeoutMs, 10);
+  assert.equal(new Augmentio({ healthRefreshTimeoutMs: 200000 }).healthRefreshTimeoutMs, 30000);
+});

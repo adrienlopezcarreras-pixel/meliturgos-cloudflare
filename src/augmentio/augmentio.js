@@ -24,6 +24,42 @@ function assertNotCancelled(signal) {
   }
 }
 
+async function refreshHealthWithinBudget(pool, signal, timeoutMs) {
+  let timer;
+  let onAbort;
+  try {
+    // Health checks can be external and can ignore AbortSignal. A hung health
+    // probe must never hold the entire MEL fan-out indefinitely.
+    const timeout = new Promise((_, reject) => {
+      timer = setTimeout(() => {
+        const error = new Error('AUGMENTIO_HEALTH_REFRESH_TIMEOUT');
+        error.code = 'AUGMENTIO_HEALTH_REFRESH_TIMEOUT';
+        reject(error);
+      }, timeoutMs);
+    });
+    const aborted = new Promise((_, reject) => {
+      onAbort = () => {
+        const error = new Error('SCHEDULER_ABORTED');
+        error.code = 'SCHEDULER_ABORTED';
+        reject(error);
+      };
+      signal?.addEventListener?.('abort', onAbort, { once: true });
+      if (signal?.aborted) onAbort();
+    });
+    await Promise.race([
+      Promise.resolve().then(() => {
+        assertNotCancelled(signal);
+        return pool?.refreshHealth?.();
+      }),
+      timeout,
+      aborted,
+    ]);
+  } finally {
+    clearTimeout(timer);
+    signal?.removeEventListener?.('abort', onAbort);
+  }
+}
+
 export class Augmentio {
   constructor({
     pool,
@@ -32,6 +68,7 @@ export class Augmentio {
     tournament = new ResultTournament(),
     cache = new ComputeCache(),
     quota = new QuotaArbitrator(),
+    healthRefreshTimeoutMs = 5000,
   } = {}) {
     this.pool = pool;
     this.governor = governor;
@@ -39,6 +76,10 @@ export class Augmentio {
     this.tournament = tournament;
     this.cache = cache;
     this.quota = quota;
+    const requestedHealthBudget = Number(healthRefreshTimeoutMs);
+    this.healthRefreshTimeoutMs = Number.isFinite(requestedHealthBudget)
+      ? Math.max(10, Math.min(30_000, Math.floor(requestedHealthBudget)))
+      : 5000;
   }
 
   async fanOut({ capability = 'GENERAL', input, context = {}, maxCandidates = 4, signal } = {}) {
@@ -46,7 +87,7 @@ export class Augmentio {
     const limit = boundedAugmentioCandidates(maxCandidates);
     // A cached answer is not an authorization grant. Re-evaluate live model
     // availability and the zero-added-cost policy before considering cache.
-    await this.pool?.refreshHealth?.();
+    await refreshHealthWithinBudget(this.pool, signal, this.healthRefreshTimeoutMs);
     assertNotCancelled(signal);
     const providers = this.quota.filter(
       this.pool.list({ capability }).filter((provider) => this.governor.allows(provider)),
