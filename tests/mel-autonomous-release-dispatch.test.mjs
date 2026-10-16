@@ -30,7 +30,7 @@ test('MEL automation fast-forwards the release pointer then requests MAX restora
   assert.equal(dispatch.body.inputs.expected_sha, MAIN_SHA);
   assert.equal(dispatch.body.inputs.approval, 'AUTONOMOUS_POLICY');
   assert.equal(dispatch.body.inputs.autonomous_release, 'true');
-  assert.equal(dispatch.body.inputs.owner_max_autorelease, 'true');
+  assert.equal(dispatch.body.inputs.owner_max_autorelease, 'false');
   assert.ok(operations.filter(x => x.path.endsWith('/actions/workflows/deploy-cloudflare-release.yml/runs')).length === 2);
   assert.ok(!operations.some(x => x.path.includes('branches/release%2F')), 'run preflight must not filter away main-ref dispatches');
 });
