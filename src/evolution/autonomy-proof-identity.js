@@ -1,7 +1,8 @@
 // Only evidence containing the exact, distinct provider/model identities from
 // a completed runtime DAG can certify or be reused as multi-AI execution.
 export function isVerifiedRuntimeWorkProof(proof, jobId = null) {
-  if (!proof || proof.status !== 'VERIFIED' || proof.version !== 3
+  if (!proof || proof.status !== 'VERIFIED' || proof.version !== 4
+    || proof.runtime_fanout_cache_hit !== false
     || proof.recovered_interrupted_node !== true) return false;
   if (proof.target_job_id != null
     && String(proof.target_job_id) !== String(jobId)) return false;
@@ -26,6 +27,13 @@ export function isVerifiedRuntimeWorkProof(proof, jobId = null) {
 }
 
 export function distinctModelIdentitiesFromFanout(result) {
+  // Cached model answers document past work but do not prove a new live
+  // provider invocation for the current autonomous recovery.
+  if (result?.cacheHit !== false) {
+    const error = new Error('RUNTIME_WORK_DAG_LIVE_AI_NOT_PROVEN');
+    error.code = 'RUNTIME_WORK_DAG_LIVE_AI_NOT_PROVEN';
+    throw error;
+  }
   const attempted = Array.isArray(result?.providersAttempted) ? result.providersAttempted : [];
   const health = Array.isArray(result?.providerHealth) ? result.providerHealth : [];
   const identities = attempted.map(id => {
