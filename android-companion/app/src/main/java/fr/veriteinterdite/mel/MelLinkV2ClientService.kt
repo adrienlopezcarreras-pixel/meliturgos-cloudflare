@@ -1186,7 +1186,11 @@ class MelLinkV2ClientService : Service() {
                     )
                     return
                 }
-                sendAudioResponse(request.streamId, pcm48, outputRate = 48_000)
+                val sent = sendAudioResponse(request.streamId, pcm48, outputRate = 48_000)
+                if (!sent && !outboundCancelled(request.streamId)) {
+                    lastError.value = "TTS_SERVER_BLE_SEND"
+                    sendError(request.streamId, "TTS_SERVER_BLE_SEND")
+                }
                 return
             }
 

@@ -984,3 +984,15 @@ test('OK MEL background microphone requires explicit opt-in and provides immedia
   assert.match(service, /START_NOT_STICKY/);
   assert.match(manifest, /android:foregroundServiceType="microphone"/);
 });
+
+
+test('MINI server TTS fallback reports BLE audio-send failure unless the stream was cancelled', async () => {
+  const service = await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelLinkV2ClientService.kt', root), 'utf8');
+  const start = service.indexOf('if (status in 200..299 && path == "/api/device/v1/voice/tts")');
+  const end = service.indexOf('} catch (error: Throwable)', start);
+  const fallback = service.slice(start, end);
+  assert.match(fallback, /val sent = sendAudioResponse\(request\.streamId, pcm48, outputRate = 48_000\)/);
+  assert.match(fallback, /if \(!sent && !outboundCancelled\(request\.streamId\)\)/);
+  assert.match(fallback, /lastError\.value = "TTS_SERVER_BLE_SEND"/);
+  assert.match(fallback, /sendError\(request\.streamId, "TTS_SERVER_BLE_SEND"\)/);
+});
