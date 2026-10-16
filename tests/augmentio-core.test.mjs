@@ -698,3 +698,68 @@ test('provider health isolation respects bounded settings and remains fail-close
   assert.equal(new ProviderPool([], { healthCheckTimeoutMs: Infinity }).healthCheckTimeoutMs, 1500);
   assert.equal(new ProviderPool([], { healthCheckTimeoutMs: 999999 }).healthCheckTimeoutMs, 30000);
 });
+
+test('Augmentio refuses a cached response if its provider is disabled during the cache read', async () => {
+  let invoked = 0;
+  const adapter = {
+    id: 'disable-me', capabilities: ['GENERAL'], estimatedCost: 0,
+    costProvenance: verifiedFree('disable-me'),
+    invoke: async () => { invoked++; return 'never'; },
+  };
+  const cache = {
+    async get() {
+      adapter.enabled = false;
+      return { best: { text: 'stale cached answer' }, candidates: [] };
+    },
+    async set() { throw new Error('should not cache'); },
+  };
+  const ai = new Augmentio({
+    pool: new ProviderPool([adapter]), cache,
+    scheduler: new ParallelScheduler({ retries: 0 }),
+  });
+  await assert.rejects(ai.fanOut({ input: 'owner revoked provider' }),
+    error => error?.code === 'AUGMENTIO_PROVIDER_ROSTER_CHANGED');
+  assert.equal(invoked, 0);
+});
+
+test('Augmentio refuses a cached response if the provider model changes mid-lookup', async () => {
+  let invoked = 0;
+  const adapter = {
+    id: 'mutable', providerId: 'workers-ai', modelId: 'previous-model',
+    capabilities: ['GENERAL'], estimatedCost: 0,
+    costProvenance: verifiedFree('mutable', { provider: 'workers-ai', model: 'previous-model' }),
+    invoke: async () => { invoked++; return 'never'; },
+  };
+  const cache = {
+    async get() {
+      adapter.modelId = 'replacement-model';
+      adapter.costProvenance = verifiedFree('mutable', { provider: 'workers-ai', model: 'replacement-model' });
+      return { best: { text: 'old model response' } };
+    },
+    async set() {},
+  };
+  const ai = new Augmentio({ pool: new ProviderPool([adapter]), cache });
+  await assert.rejects(ai.fanOut({ input: 'model swapped' }),
+    error => error?.code === 'AUGMENTIO_PROVIDER_ROSTER_CHANGED');
+  assert.equal(invoked, 0);
+});
+
+test('Augmentio rechecks provider enabled state immediately before calling a model', async () => {
+  let invoked = 0;
+  const adapter = {
+    id: 'late-disable', capabilities: ['GENERAL'], estimatedCost: 0,
+    costProvenance: verifiedFree('late-disable'),
+    invoke: async () => { invoked++; return 'should not be called'; },
+  };
+  const scheduler = {
+    async run(tasks, worker) {
+      adapter.enabled = false;
+      return Promise.allSettled(tasks.map((task, index) => worker(task, index, {})));
+    },
+  };
+  const ai = new Augmentio({ pool: new ProviderPool([adapter]), scheduler });
+  await assert.rejects(ai.fanOut({ input: 'late owner disable' }),
+    error => error?.code === 'ALL_PROVIDERS_FAILED'
+      && error.failures?.some(reason => reason.includes('AUGMENTIO_PROVIDER_DISABLED')));
+  assert.equal(invoked, 0);
+});
