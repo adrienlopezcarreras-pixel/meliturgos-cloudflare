@@ -6,7 +6,7 @@ test('MINI media receives JPEG marker validation before publishing photo or addi
  const src = await readFile(new URL('../android-companion/app/src/main/java/fr/veriteinterdite/mel/MiniMediaReceiver.kt',import.meta.url),'utf8');
  const photo=src.slice(src.indexOf('private fun receivePhoto('),src.indexOf('private fun receiveVideo('));
  const video=src.slice(src.indexOf('private fun receiveVideo('),src.indexOf('private fun receiveAudio('));
- const readPhoto=photo.indexOf('val bytes = MiniPhotoDeadlineReader.read(input, size)');
+ const readPhoto=photo.indexOf('val bytes = MiniPhotoDeadlineReader.read(input, size, beforeRead = { socket.soTimeout = it })');
  const gatePhoto=photo.indexOf('if (!MiniJpegFrameSignature.hasMarkers(bytes)) return');
  const publishPhoto=photo.indexOf('val uri = createMediaStoreEntry(');
  assert.ok(readPhoto>=0 && readPhoto < gatePhoto && gatePhoto < publishPhoto);
