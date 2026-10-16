@@ -168,6 +168,16 @@ export class Augmentio {
           error.code = 'AUGMENTIO_PROVIDER_IDENTITY_CHANGED';
           throw error;
         }
+        // A route can lose zero-added-cost authorization during the await
+        // (provider configuration, quota or owner policy changes). Discard
+        // that result rather than crediting/caching it as a compliant answer.
+        this.governor.assertAllowed(provider);
+        if (provider.enabled === false || provider.healthStatus === 'UNAVAILABLE'
+          || this.quota?.isAvailable?.(provider.id) === false) {
+          const error = new Error('AUGMENTIO_PROVIDER_DISABLED');
+          error.code = 'AUGMENTIO_PROVIDER_DISABLED';
+          throw error;
+        }
         // A late provider response must not be credited after its attempt was
         // cancelled or timed out by the scheduler.
         assertNotCancelled(meta.signal);
