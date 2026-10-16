@@ -42,7 +42,7 @@ async function scanLocalTaskmarket(){
    if(depth>6||value==null)return null;
    if(Array.isArray(value)){for(const item of value){const found=findProbe(item,depth+1);if(found)return found}return null}
    if(typeof value!=='object')return null;
-   if(value.action==='taskmarket.status'||(Array.isArray(value.tasks)&&('cli_available'in value||'list_available'in value)))return value;
+   if(value.action==='system.exec'||value.action==='taskmarket.status'||(Array.isArray(value.tasks)&&('cli_available'in value||'list_available'in value)))return value;
    for(const key of ['result','outputs','steps','output','data','value']){const found=findProbe(value[key],depth+1);if(found)return found}
    return null;
   }
