@@ -41,6 +41,67 @@ test('MEL automation refuses to overlap active deployment', () => {
   assert.doesNotThrow(() => assertNoActiveDeploy([{ name: 'deploy-cloudflare-release', status: 'completed' }]));
 });
 
+test('stale queued release selection is exact-SHA, release-branch scoped, and never includes active jobs', async () => {
+  const { findStaleQueuedDeploys } = await import('../scripts/mel-autonomous-release-dispatch.mjs');
+  const selected = findStaleQueuedDeploys([
+    { id: 10, name: 'deploy-cloudflare-release', head_branch: RELEASE_BRANCH, head_sha: OLD_SHA, status: 'pending' },
+    { id: 11, name: 'deploy-cloudflare-release', head_branch: RELEASE_BRANCH, head_sha: MAIN_SHA, status: 'pending' },
+    { id: 12, name: 'deploy-cloudflare-release', head_branch: RELEASE_BRANCH, head_sha: OLD_SHA, status: 'in_progress' },
+    { id: 13, name: 'deploy-cloudflare-release', head_branch: 'main', head_sha: OLD_SHA, status: 'pending' },
+    { id: 14, name: 'other-workflow', head_branch: RELEASE_BRANCH, head_sha: OLD_SHA, status: 'pending' },
+  ], MAIN_SHA);
+  assert.deepEqual(selected.map(row => row.id), [10]);
+});
+
+test('stale pending release is cancelled only after a fresh status read; active release remains blocking', async () => {
+  const calls=[];
+  let activeRuns = [
+    {id:100,name:'deploy-cloudflare-release',head_branch:RELEASE_BRANCH,head_sha:OLD_SHA,status:'in_progress'},
+    {id:101,name:'deploy-cloudflare-release',head_branch:RELEASE_BRANCH,head_sha:OLD_SHA,status:'pending'},
+  ];
+  const fakeFetch=async(url,request)=>{
+    const path=new URL(url).pathname;
+    calls.push({path,method:request.method,body:request.body&&JSON.parse(request.body)});
+    if(path.endsWith('/branches/main'))return {ok:true,status:200,json:async()=>({protected:true,commit:{sha:MAIN_SHA}})};
+    if(path.endsWith('/branches/'+RELEASE_BRANCH))return {ok:true,status:200,json:async()=>({protected:true,commit:{sha:OLD_SHA}})};
+    if(path.endsWith('/actions/workflows/deploy-cloudflare-release.yml/runs'))return {ok:true,status:200,json:async()=>({workflow_runs:activeRuns})};
+    if(path.endsWith('/actions/runs/101'))return {ok:true,status:200,json:async()=>({id:101,name:'deploy-cloudflare-release',head_branch:RELEASE_BRANCH,head_sha:OLD_SHA,status:'pending'})};
+    if(path.endsWith('/actions/runs/101/cancel')&&request.method==='POST'){
+      activeRuns=activeRuns.filter(row=>row.id!==101);
+      return {ok:true,status:202,json:async()=>null};
+    }
+    throw new Error('UNEXPECTED_MUTATION_OR_ROUTE:'+request.method+':'+path);
+  };
+  const result=await requestAutonomousRelease({token:'TEST_ONLY',fetchImpl:fakeFetch,requireProtectedRefs:true});
+  assert.equal(result.accepted,false);
+  assert.equal(result.reason,'PRODUCTION_DEPLOY_ALREADY_ACTIVE');
+  assert.equal(result.blocking_run_id,100);
+  assert.deepEqual(result.cancelled_stale_queued_run_ids,[101]);
+  assert.ok(calls.some(x=>x.path.endsWith('/actions/runs/101')&&x.method==='GET'));
+  assert.ok(calls.some(x=>x.path.endsWith('/actions/runs/101/cancel')&&x.method==='POST'));
+  assert.ok(!calls.some(x=>x.path.endsWith('/dispatches')||x.method==='PATCH'), 'must neither promote nor dispatch while active deployment is running');
+});
+
+test('a queued candidate that starts before cancellation is not cancelled', async () => {
+  const calls=[];
+  const fetchImpl=async(url,request)=>{
+    const path=new URL(url).pathname;
+    calls.push({path,method:request.method});
+    if(path.endsWith('/branches/main'))return {ok:true,status:200,json:async()=>({protected:true,commit:{sha:MAIN_SHA}})};
+    if(path.endsWith('/branches/'+RELEASE_BRANCH))return {ok:true,status:200,json:async()=>({protected:true,commit:{sha:OLD_SHA}})};
+    if(path.endsWith('/actions/workflows/deploy-cloudflare-release.yml/runs'))return {ok:true,status:200,json:async()=>({workflow_runs:[
+      {id:100,name:'deploy-cloudflare-release',head_branch:RELEASE_BRANCH,head_sha:OLD_SHA,status:'in_progress'},
+      {id:101,name:'deploy-cloudflare-release',head_branch:RELEASE_BRANCH,head_sha:OLD_SHA,status:'pending'},
+    ]})};
+    if(path.endsWith('/actions/runs/101'))return {ok:true,status:200,json:async()=>({id:101,name:'deploy-cloudflare-release',head_branch:RELEASE_BRANCH,head_sha:OLD_SHA,status:'in_progress'})};
+    throw new Error('UNEXPECTED_MUTATION_OR_ROUTE:'+request.method+':'+path);
+  };
+  const result=await requestAutonomousRelease({token:'TEST_ONLY',fetchImpl,requireProtectedRefs:true});
+  assert.equal(result.reason,'PRODUCTION_DEPLOY_ALREADY_ACTIVE');
+  assert.ok(!calls.some(x=>x.path.endsWith('/actions/runs/101/cancel')));
+  assert.ok(calls.every(x=>x.method==='GET'));
+});
+
 test('an already running production release defers main-push promotion without a false-red run or mutations', async () => {
   for (const status of ['queued', 'in_progress', 'waiting']) {
     const operations = [];
