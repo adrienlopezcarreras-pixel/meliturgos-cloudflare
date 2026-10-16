@@ -1207,10 +1207,9 @@ test('connection proof promotes only connectors that pass real live probes and k
     if(url.pathname.endsWith('/pipedream/test')) return Response.json({ok:true,authenticated:true});
     if(url.pathname.endsWith('/pipedream/accounts')) return Response.json({
       ok:true,
-      connected_apps:['microsoft_outlook','microsoft_onedrive','sharepoint','imap'],
+      connected_apps:['microsoft_outlook','microsoft_onedrive','imap'],
       accounts:[{id:'private-id',name:'private@example.test',app:'imap',healthy:true}],
     });
-    if(url.pathname.endsWith('/vercel/test')) return Response.json({ok:true,authenticated:true,target_ready:true,deployment_count:1});
     if(url.pathname.endsWith('/yahoo-imap/test')) return Response.json({ok:false,code:'YAHOO_IMAP_IMAP_AUTH_REJECTED'},{status:409});
     return Response.json({ok:false,code:'UNEXPECTED'},{status:404});
   };
@@ -1225,8 +1224,10 @@ test('connection proof promotes only connectors that pass real live probes and k
   );
   assert.equal(response.status,200);
   const body=await response.json();
-  assert.deepEqual(body.verified_roadmap_ids,['GEN2-33','GEN2-34','GEN2-35','GEN2-36','MEL-CONN-03']);
-  assert.deepEqual(body.pending_roadmap_ids,[]);
+  assert.deepEqual(body.verified_roadmap_ids,['GEN2-33','GEN2-34','GEN2-35','MEL-CONN-03']);
+  assert.deepEqual(body.pending_roadmap_ids,['GEN2-36']);
+  assert.equal(Object.hasOwn(body.proof,'sharepoint'),false);
+  assert.equal(Object.hasOwn(body.proof,'vercel'),false);
   assert.equal(body.proof.yahoo_ymail.verified,true);
   assert.equal(body.proof.yahoo_ymail.via,'pipedream-imap');
   assert.equal(body.private_content_returned,false);
