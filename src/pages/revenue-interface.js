@@ -46,7 +46,11 @@ async function scanLocalTaskmarket(){
    for(const key of ['result','outputs','steps','output','data','value']){const found=findProbe(value[key],depth+1);if(found)return found}
    return null;
   }
-  const probe=findProbe(finished.result);
+  let probe=findProbe(finished.result);
+  if(probe?.action==='system.exec'){
+   if(Number(probe.exit_code)!==0)throw new Error('PC_TASKMARKET_COMMAND_EXIT_'+String(probe.exit_code));
+   try{probe=JSON.parse(String(probe.stdout||''))}catch{throw new Error('PC_TASKMARKET_OUTPUT_JSON_INVALID')}
+  }
   if(!probe)throw new Error('PC_TASKMARKET_RESULT_SCHEMA_INVALID');
   if(probe.cli_available!==true){
    info.className='banner';info.textContent='Taskmarket CLI absent sur ce PC. npm disponible : '+(probe.npm_available?'oui':'non')+'. MEL a identifié le prérequis, sans installer ni modifier le PC.';
