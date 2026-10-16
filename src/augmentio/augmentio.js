@@ -9,6 +9,25 @@ import { QuotaArbitrator } from './quota-arbitrator.js';
 export const MAX_AUGMENTIO_RESPONSE_CHARS = 64 * 1024;
 export const PARTIAL_FANOUT_CACHE_TTL_MS = 10_000;
 
+function safeModelProvenance(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  const safe = {};
+  // Untrusted model metadata can accidentally include tokens, request bodies,
+  // circular structures or huge objects. Only expose small diagnostic fields.
+  for (const key of ['source', 'transport', 'request_id', 'trace_id', 'region', 'lora']) {
+    const field = value[key];
+    if (typeof field === 'string' && field.trim()) safe[key] = field.trim().slice(0, 240);
+  }
+  if (typeof value.lora_applied === 'boolean') safe.lora_applied = value.lora_applied;
+  if (Array.isArray(value.inference_settings_applied)) {
+    safe.inference_settings_applied = value.inference_settings_applied
+      .filter(field => typeof field === 'string' && field.trim())
+      .slice(0, 12)
+      .map(field => field.trim().slice(0, 80));
+  }
+  return safe;
+}
+
 // Match the capability contract: no direct caller can fan out to an
 // unbounded number of models, including Infinity or large numeric strings.
 export function boundedAugmentioCandidates(value) {
@@ -198,9 +217,7 @@ export class Augmentio {
         }
         // Model-supplied provenance is supporting metadata, not authoritative
         // identity. Pin provider/model/adapter to the invoked authorized route.
-        const source = response?.provenance;
-        const metadata = source && typeof source === 'object' && !Array.isArray(source)
-          ? source : {};
+        const metadata = safeModelProvenance(response?.provenance);
         this.quota.recordSuccess(provider.id);
         return {
           provider: identity.provider,
