@@ -38,7 +38,8 @@ export async function proveSafeExecutions({
   token,expectedSha,fetchImpl=fetch,allowlist=ALLOWLIST,
 }={}){
   if(!token || !/^[a-f0-9]{40}$/.test(String(expectedSha||'')) ||
-    !Array.isArray(allowlist)||allowlist.some(item=>!ALLOWLIST.some(a=>a.id===item?.id))){
+    !Array.isArray(allowlist)||allowlist.length!==ALLOWLIST.length||
+    allowlist.some((item,index)=>JSON.stringify(item)!==JSON.stringify(ALLOWLIST[index]))){
     return {ok:false,code:'LIVE_SAFE_EXECUTION_PROBE_INPUT_INVALID'};
   }
   const headers={'x-mel-release-smoke':'1','x-mel-parallel-proof':token,accept:'application/json'};
