@@ -1158,3 +1158,78 @@ test('provider deadlines remain PROVIDER_TIMEOUT when an abort-aware model rejec
   assert.equal(scheduler.breaker('abort-aware-model').failures, 2,
     'timeout must count as a provider failure for circuit-breaker health');
 });
+
+test('parallel scheduler does not retry 401, 403 or 429 model responses', async () => {
+  for (const status of [401, 403, 429]) {
+    let requests = 0;
+    const scheduler = new ParallelScheduler({
+      retries: 4, backoffMs: 1, circuitBreakerFailures: 10,
+    });
+    const settled = await scheduler.run([{ id: 'restricted-model' }], async () => {
+      requests += 1;
+      throw Object.assign(new Error('provider refused request'), { status });
+    });
+    assert.equal(requests, 1, `HTTP ${status} should not be retried`);
+    assert.equal(settled[0].status, 'rejected');
+    assert.equal(settled[0].reason.status, status, 'preserve the original provider failure');
+    assert.equal(scheduler.breaker('restricted-model').failures, 1,
+      'one real refused request should count once for the circuit breaker');
+  }
+});
+
+test('parallel scheduler keeps bounded retries for a genuinely transient 503', async () => {
+  let requests = 0;
+  const scheduler = new ParallelScheduler({
+    retries: 2, backoffMs: 0, circuitBreakerFailures: 10,
+  });
+  const settled = await scheduler.run([{ id: 'transient-model' }], async () => {
+    requests += 1;
+    if (requests < 3) throw Object.assign(new Error('temporary outage'), { status: 503 });
+    return 'recovered model response';
+  });
+  assert.equal(requests, 3);
+  assert.equal(settled[0].status, 'fulfilled');
+  assert.equal(settled[0].value, 'recovered model response');
+});
+
+test('zero-euro policy revocation fails once without redundant provider retries', async () => {
+  let attempts = 0;
+  const scheduler = new ParallelScheduler({
+    retries: 5, backoffMs: 1, circuitBreakerFailures: 10,
+  });
+  const result = await scheduler.run([{ id: 'unauthorized-model' }], async () => {
+    attempts += 1;
+    throw Object.assign(new Error('ZERO_EURO_AUTHORIZATION_REQUIRED'),
+      { code: 'ZERO_EURO_AUTHORIZATION_REQUIRED' });
+  });
+  assert.equal(attempts, 1);
+  assert.equal(result[0].reason.code, 'ZERO_EURO_AUTHORIZATION_REQUIRED');
+});
+
+test('Augmentio keeps 429 cooldown and uses a healthy provider without retrying the limited model', async () => {
+  let limitedCalls = 0;
+  let healthyCalls = 0;
+  const pool = new ProviderPool([
+    { id: 'rate-limited', priority: 2, capabilities: ['GENERAL'],
+      estimatedCost: 0, costProvenance: verifiedFree('rate-limited'),
+      invoke: async () => {
+        limitedCalls += 1;
+        throw Object.assign(new Error('rate limit'), { status: 429 });
+      } },
+    { id: 'healthy', priority: 1, capabilities: ['GENERAL'],
+      estimatedCost: 0, costProvenance: verifiedFree('healthy'),
+      invoke: async () => { healthyCalls += 1; return 'healthy model answer'; } },
+  ]);
+  const ai = new Augmentio({
+    pool, scheduler: new ParallelScheduler({
+      retries: 5, backoffMs: 1, circuitBreakerFailures: 10,
+    }),
+  });
+  const result = await ai.fanOut({ input: 'respect 429 cooldown', maxCandidates: 2 });
+  assert.equal(limitedCalls, 1);
+  assert.equal(healthyCalls, 1);
+  assert.equal(result.best.text, 'healthy model answer');
+  assert.equal(result.failures, 1);
+  assert.equal(ai.quota.get('rate-limited').lastStatus, 429);
+  assert.equal(ai.quota.isAvailable('rate-limited'), false);
+});
