@@ -1453,6 +1453,32 @@ class MainForm : Form
         foreach(var b in buttons)b.Top=ClientSize.Height-145;
         if(autostart!=null)autostart.Top=ClientSize.Height-88;
     }
+    void RunAndroidWifiPairing(object sender,EventArgs e)
+    {
+        if (!File.Exists(MelApp.AndroidWifiPairingPath))
+        {
+            MessageBox.Show(this,"Assistant ADB Wi-Fi absent. Réinstallez le package MEL Companion Windows complet.",
+                "MEL — Android Wi-Fi",MessageBoxButtons.OK,MessageBoxIcon.Warning);
+            return;
+        }
+        if (MessageBox.Show(this,
+            "Cela ouvre un terminal local pour associer ce téléphone à Windows. Le code d'appairage reste uniquement dans ce terminal et ne doit pas être communiqué à MEL. Le téléphone et le PC doivent être sur le même réseau Wi-Fi. Continuer ?",
+            "Configurer ADB Wi-Fi",MessageBoxButtons.YesNo,MessageBoxIcon.Information)!=DialogResult.Yes)return;
+        try
+        {
+            var psi=new ProcessStartInfo("powershell.exe");
+            psi.UseShellExecute=true;psi.WindowStyle=ProcessWindowStyle.Normal;
+            psi.WorkingDirectory=MelApp.MelDir;
+            psi.Arguments="-NoProfile -ExecutionPolicy Bypass -NoExit -File \"" +
+                MelApp.AndroidWifiPairingPath + "\" -Pair";
+            Process.Start(psi);
+        }
+        catch(Exception ex)
+        {
+            MessageBox.Show(this,"Impossible d'ouvrir l'assistant ADB Wi-Fi : "+ex.Message,
+                "MEL — Android Wi-Fi",MessageBoxButtons.OK,MessageBoxIcon.Error);
+        }
+    }
     void RunMiniUsbPreflight(object sender,EventArgs e)
     {
         // Never offer remote flashing: this starts a local, interactive,
