@@ -993,7 +993,7 @@ jobs:
             --data '{"phase":"identity"}' \
             --output sovereignty-post-deploy-identity.json --write-out '%{http_code}' \
             "${BASE_URL}/api/internal/release-launch-bootstrap" || true)"
-          if [ "${POST_DEPLOY_IDENTITY_CODE}" != "200" ] && [ "${POST_DEPLOY_IDENTITY_CODE}" != "409" ]; then
+          if [ "${POST_DEPLOY_IDENTITY_CODE}" != "200" ]; then
             echo "Post-deploy exact-SHA identity recheck unavailable (HTTP ${POST_DEPLOY_IDENTITY_CODE}); stopping downstream SOV proof."
             exit 42
           fi
