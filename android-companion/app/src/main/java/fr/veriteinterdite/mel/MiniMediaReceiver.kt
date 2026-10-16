@@ -204,7 +204,10 @@ class MiniMediaReceiver(private val context: Context) {
     private fun handleClient(socket: Socket) {
         socket.use { client ->
             client.soTimeout = 45_000
-            val input = DataInputStream(BufferedInputStream(client.getInputStream(), 64 * 1024))
+            val handshakeGate = MiniMediaHandshakeReader(
+                BufferedInputStream(client.getInputStream(), 64 * 1024), client
+            )
+            val input = DataInputStream(handshakeGate)
             val magic = readFully(input, MAGIC.size)
             if (!magic.contentEquals(MAGIC)) return
             val type = input.readUnsignedByte()
@@ -221,6 +224,8 @@ class MiniMediaReceiver(private val context: Context) {
             val fps = input.readUnsignedByte()
             val sampleRate = input.readInt()
             val channels = input.readUnsignedByte()
+            // Bound only the handshake; media payloads retain their own transfer budgets.
+            handshakeGate.finishHandshake()
 
             // Invalid MINI media metadata must not be silently coerced into
             // a different framerate, sample rate or channel count.
