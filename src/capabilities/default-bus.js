@@ -160,8 +160,7 @@ export function createDefaultCapabilityBus({ audit, env, repository, branch, tok
     env: runtimeEnv,
     repository: githubRepository,
     fetchImpl: platformFetch,
-    resolveVercelConfig: typeof vercelConfigResolver === 'function' ? vercelConfigResolver : null,
-    includeVercel,
+    includeVercel: false,
   });
   registerGoogleWorkspaceCapabilities(bus, {
     env: runtimeEnv,
