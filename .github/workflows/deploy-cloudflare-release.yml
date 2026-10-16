@@ -891,6 +891,7 @@ jobs:
           echo "Decoupled downstream proofs dispatched for exact SHA ${EXPECTED_SHA}; release continues independently."
 
       - name: Prepare and prove production autonomy launch evidence
+        timeout-minutes: 55
         shell: bash
         run: |
           set -euo pipefail
