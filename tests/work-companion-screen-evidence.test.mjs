@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { maybeHandleComputerApi } from '../src/devices/computer-companion-api.js';
 import {
   verifyWorkScreenCapture, interpretWorkScreenCapture, buildVerifiedWorkComputerContext,
-  companionScreenshotKey, WORK_SCREEN_INTERPRETATION_CONSENT,
+  revokeWorkScreenConsent, companionScreenshotKey, WORK_SCREEN_INTERPRETATION_CONSENT,
 } from '../src/work/companion-screen-evidence.js';
 import { sqliteD1 } from './helpers/sqlite-d1.mjs';
 
@@ -13,9 +13,10 @@ const PNG=new Uint8Array([137,80,78,71,13,10,26,10,0,0,0,13,73,72,68,82,1,2,3,4]
 function mediaBucket(){
  const objects=new Map();
  return {objects,
-  async put(key,bytes){objects.set(key,new Uint8Array(bytes))},
-  async head(key){const b=objects.get(key);return b?{size:b.byteLength}:null},
-  async get(key){const b=objects.get(key);return b?{arrayBuffer:async()=>b.buffer.slice(b.byteOffset,b.byteOffset+b.byteLength)}:null}
+  async put(key,bytes,options={}){objects.set(key,{bytes:new Uint8Array(bytes),customMetadata:{...(options.customMetadata||{})}})},
+  async head(key){const object=objects.get(key);return object?{size:object.bytes.byteLength,customMetadata:object.customMetadata}:null},
+  async get(key){const object=objects.get(key);const b=object?.bytes;return b?{arrayBuffer:async()=>b.buffer.slice(b.byteOffset,b.byteOffset+b.byteLength),customMetadata:object.customMetadata}:null},
+  async delete(keys){for(const key of (Array.isArray(keys)?keys:[keys]))objects.delete(key)}
  };
 }
 async function harness(){
@@ -50,9 +51,9 @@ test('real Companion capture is verified and interpreted only after explicit own
  try{
   const {command_id,key}=await h.capture();
   const evidence=await verifyWorkScreenCapture(h.env,{computer_id:'pc-1',command_id});
-  assert.equal(evidence.verified,true);assert.equal(evidence.scope,'VIEW_ONLY');assert.equal(evidence.screenshot_key,key);
+  assert.equal(evidence.verified,true);assert.equal(evidence.scope,'VIEW_ONLY');assert.equal(evidence.screenshot_key,key);assert.match(evidence.image_sha256,/^[0-9a-f]{64}$/);assert.ok(Date.parse(evidence.expires_at)>Date.now());
   const calls=[];
-  const analyze=async(_env,input)=>{calls.push(input);return {analysis:'Fenêtre Bloc-notes ouverte.',model:'test-vision-model'}};
+  const analyze=async(_env,input)=>{calls.push(input);const consent=await h.DB.prepare('SELECT id,granted_at,revoked_at,image_sha256 FROM work_screen_consents WHERE command_id=? AND device_id=? LIMIT 1').bind(command_id,'pc-1').first();assert.ok(consent,'consent must be persisted before provider inference');assert.ok(consent.granted_at>0);assert.equal(consent.revoked_at,null);return {analysis:'Fenêtre Bloc-notes ouverte.',model:'test-vision-model'}};
   const interpreted=await interpretWorkScreenCapture(h.env,{computer_id:'pc-1',command_id,consent:WORK_SCREEN_INTERPRETATION_CONSENT,question:'Que voit-on ?'},{analyze});
   assert.equal(interpreted.ok,true);assert.equal(calls.length,1);
   assert.deepEqual([...calls[0].bytes],[...PNG]);
@@ -79,5 +80,32 @@ test('forged, revoked, halted, expired or unconsented screen evidence fails clos
   await assert.rejects(verifyWorkScreenCapture(h.env,{computer_id:'pc-1',command_id}),e=>e.code==='WORK_SCREEN_OWNER_HALT');
   const result=await buildVerifiedWorkComputerContext(h.env,{screen_capture:{computer_id:'pc-1',command_id,view_url:'https://evil.test'}}); 
   assert.equal(result.councilContext.screen_capture.verified,false);
+ }finally{h.DB.close()}
+});
+
+test('revocation records the revoke time and confirms deletion of both analysis and capture',async()=>{
+ const h=await harness();
+ try{
+  const {command_id,key}=await h.capture();
+  const interpreted=await interpretWorkScreenCapture(h.env,{computer_id:'pc-1',command_id,consent:WORK_SCREEN_INTERPRETATION_CONSENT},{analyze:async()=>({analysis:'Texte privé de la capture.',model:'test-vision'})});
+  assert.equal(interpreted.ok,true);
+  const before=await h.DB.prepare('SELECT id,granted_at,revoked_at,image_sha256 FROM work_screen_consents WHERE command_id=? AND device_id=? LIMIT 1').bind(command_id,'pc-1').first();
+  assert.ok(before?.id);
+  assert.equal(before.revoked_at,null);
+  assert.ok(h.env.MEDIA_BUCKET.objects.has(key));
+  const result=await revokeWorkScreenConsent(h.env,{computer_id:'pc-1',command_id});
+  assert.equal(result.ok,true);
+  assert.equal(result.consent_revoked,true);
+  assert.equal(result.image_deleted,true);
+  assert.equal(result.interpretation_deleted,1);
+  assert.equal(await h.env.MEDIA_BUCKET.head(key),null);
+  const after=await h.DB.prepare('SELECT revoked_at FROM work_screen_consents WHERE id=?').bind(before.id).first();
+  assert.ok(after.revoked_at>0);
+  const count=await h.DB.prepare('SELECT COUNT(*) AS n FROM work_screen_interpretations WHERE command_id=? AND device_id=?').bind(command_id,'pc-1').first();
+  assert.equal(Number(count.n),0);
+  await assert.rejects(
+    interpretWorkScreenCapture(h.env,{computer_id:'pc-1',command_id,consent:WORK_SCREEN_INTERPRETATION_CONSENT},{analyze:async()=>{throw Error('must not call model')}}),
+    error=>error.code==='WORK_SCREEN_IMAGE_MISSING'
+  );
  }finally{h.DB.close()}
 });
