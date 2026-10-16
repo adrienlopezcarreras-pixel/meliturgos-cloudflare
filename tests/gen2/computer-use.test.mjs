@@ -227,3 +227,50 @@ test('GEN2-30 never executes a truncated plan or audits it as complete', async (
   assert.equal(audits.at(-1).status, 'DENIED');
   assert.equal(audits.at(-1).reason, 'COMPUTER_USE_STEP_LIMIT_EXCEEDED');
 });
+
+test('GEN2-30 denies silently truncated remote PC step targets and key sequences', () => {
+  const limits = [
+    ['id', 'x'.repeat(201)],
+    ['action', 'screen.capture' + 'x'.repeat(160)],
+    ['app', 'browser' + 'x'.repeat(200)],
+    ['path', 'C:\\\\safe\\\\' + 'a'.repeat(4100)],
+    ['url', 'https://example.com/' + 'a'.repeat(2050)],
+    ['key', 'ENTER' + 'x'.repeat(80)],
+  ];
+  for (const [field, value] of limits) {
+    const step = { id: 'safe', action: COMPUTER_USE_ACTIONS.SCREENSHOT, [field]: value };
+    const plan = evaluateComputerUsePlan({ ...base, steps: [step] });
+    assert.equal(plan.allowed, false, field);
+    assert.equal(plan.reason, 'COMPUTER_USE_STEP_FIELD_LIMIT_EXCEEDED', field);
+    assert.equal(plan.decisions.length, 0, field);
+  }
+  assert.equal(evaluateComputerUsePlan({
+    ...base,
+    steps: [{ id: 'x'.repeat(200), action: COMPUTER_USE_ACTIONS.SCREENSHOT }],
+  }).allowed, true, 'exact 200 character step ID remains permitted');
+});
+
+test('GEN2-30 refuses an oversized allowed-origin navigation URL before any adapter call', async () => {
+  const performed = [];
+  const audits = [];
+  const controller = createComputerUseController({
+    adapter: { perform: async step => performed.push(step) },
+    authorize: async () => true,
+    audit: async entry => audits.push(entry),
+  });
+  const step = {
+    id: 'nav',
+    action: COMPUTER_USE_ACTIONS.BROWSER_NAVIGATE,
+    url: 'https://example.com/' + 'x'.repeat(2050),
+  };
+  await assert.rejects(
+    controller.execute({
+      ...base,
+      steps: [step],
+      approvals: [{ session_id: base.session_id, step_id: step.id, action: step.action, approved: true }],
+    }),
+    error => error.code === 'COMPUTER_USE_STEP_FIELD_LIMIT_EXCEEDED',
+  );
+  assert.deepEqual(performed, []);
+  assert.equal(audits.at(-1).status, 'DENIED');
+});
