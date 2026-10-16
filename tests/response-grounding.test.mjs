@@ -9,7 +9,7 @@ test('autonomy tick launch-gate result is explained in natural language without 
     status: 'LAUNCH_GATE_REQUIRED',
     advanced: false,
     progress: { advanced: false, events: [], work_remaining: true, next_roadmap_id: 'MEL-WORK-01', block_reason: 'LAUNCH_GATE_REQUIRED' },
-    control: { paused: false, max_autonomy: false, launch_approved_sha: 'old-sha' },
+    control: { paused: true, max_autonomy: false, launch_approved_sha: 'old-sha' },
     launch_gate: { code: 'LAUNCH_GATE_REQUIRED', deployed_sha: 'a'.repeat(40), approved_sha: 'b'.repeat(40) },
   });
   assert.match(text, /n’a pas lancé de nouveau travail/);
