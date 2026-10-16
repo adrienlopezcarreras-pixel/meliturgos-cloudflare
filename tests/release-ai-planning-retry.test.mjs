@@ -7,16 +7,21 @@ const workflow = readFileSync(
   'utf8',
 );
 
-test('production GEN2-38 model plan proof gets exactly one bounded transport retry', () => {
+test('production GEN2-38 model plan proof uses one bounded request and surfaces transport failures', () => {
   const start = workflow.indexOf('GEN_PLAN_CODE="$(curl');
   const end = workflow.indexOf('if [ "$GEN_PLAN_CODE" != "200" ]; then', start);
   assert.ok(start >= 0 && end > start, 'production plan generation gate exists');
   const proof = workflow.slice(start, end);
-  assert.match(proof, /--max-time 120 --retry 1 --retry-all-errors --retry-delay 2/);
+  assert.match(proof, /--max-time 120/);
+  assert.doesNotMatch(proof, /--retry 1 --retry-all-errors/,
+    'the fan-out already has bounded provider retries; do not add a second 120s curl retry');
   assert.match(proof, /"id":"work\.plan\.generate"/);
+  assert.match(proof, /"maxCandidates":2/);
   assert.match(proof, /--output production-gen2-38-generated\.json/);
+  assert.match(proof, /\|\| true\)"/,
+    'curl transport failure must reach the explicit sanitized non-200 release gate');
   assert.match(workflow.slice(end, end + 500), /exit 55/,
-    'unsuccessful retries must still fail release verification and trigger rollback');
+    'provider or transport failure must still fail release verification and trigger rollback');
 });
 
 test('production release does not repeat mutating Work plan endpoints as transport retries', () => {
