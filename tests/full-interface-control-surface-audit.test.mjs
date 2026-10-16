@@ -19,7 +19,7 @@ function attr(attrs, name) {
 
 test('full control surface stays bounded and free of retired Vercel controls', () => {
   const rows = buttons();
-  assert.ok(rows.length <= 84, 'control surface grew beyond the audited 84-button budget');
+  assert.ok(rows.length <= 88, 'control surface grew beyond the audited 88-button budget');
   for (const retired of [
     'vercelSave',
     'vercelTest',

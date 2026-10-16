@@ -322,10 +322,10 @@ test('Windows command engine heartbeat is independently fresh from the desktop U
   }finally{DB.close();}
 });
 
-test('Windows Companion 2.3.14 watchdogs and self-refreshes the engine for local runtime sovereignty',async()=>{
+test('Windows Companion 2.3.15 adds interactive desktop geometry and keeps engine self-refresh',async()=>{
   const desktop=await readFile(new URL('../windows-companion/MEL-Companion.cs',import.meta.url),'utf8');
   const companion=await readFile(new URL('../assets/MEL-Computer-Companion.ps1',import.meta.url),'utf8');
-  assert.match(desktop,/Version = "2\.3\.14"/);
+  assert.match(desktop,/Version = "2\.3\.15"/);
   assert.match(desktop,/EnsureCompanion/);
   assert.match(desktop,/CompanionRunning/);
   assert.match(desktop,/StartBackgroundSupervisor/);
