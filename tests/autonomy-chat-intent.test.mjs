@@ -31,6 +31,15 @@ test('explicit continue-development language maps to one bounded autonomy tick',
   }
 });
 
+test('context-only generic MEL coding history does not hijack a development follow-up as autonomy tick', () => {
+  const context = 'USER: We are working on MEL code, interface and a candidate branch. The theme and component are identified.';
+  assert.equal(inferAutonomyControlIntent('continue', context), null);
+  assert.deepEqual(
+    inferAutonomyControlIntent('continue', 'USER: We are reconciling the MEL release launch gate and exact deployed SHA.'),
+    { id: 'autonomy.tick', input: {} },
+  );
+});
+
 test('generic continue does not trigger autonomous development without a clear autonomy domain', () => {
   for (const text of ['continue', 'avance', 'reprends', 'où en es-tu ?', 'travaille là-dessus']) {
     assert.equal(inferAutonomyControlIntent(text), null, text);
