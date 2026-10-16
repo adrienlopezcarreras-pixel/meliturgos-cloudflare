@@ -112,4 +112,21 @@ class MiniPhotoDeadlineReaderTest {
         assertEquals(false, touched)
     }
 
+    @Test fun clampsSocketReadTimeoutToRemainingBudget() {
+        var now = 0L
+        val applied = mutableListOf<Int>()
+        var reads = 0
+        val input = object : InputStream() {
+            override fun read(): Int = 1
+            override fun read(bytes: ByteArray, offset: Int, length: Int): Int {
+                bytes[offset] = 1
+                reads++
+                now = if (reads == 1) MiniPhotoDeadlineReader.MAX_DURATION_NANOS - 1_500_000L else now
+                return 1
+            }
+        }
+        MiniPhotoDeadlineReader.read(input, 2, beforeRead = { applied.add(it) }) { now }
+        assertEquals(listOf(45_000, 2), applied)
+    }
+
 }
