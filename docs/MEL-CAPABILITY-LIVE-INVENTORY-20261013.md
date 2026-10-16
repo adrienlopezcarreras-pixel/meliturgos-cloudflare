@@ -30,7 +30,7 @@ The four approved bounded capability executions **are not** the persistent full 
 
 1. For eight media entries, prove which direct adapter or free Workers AI model bindings are configured and authorized, or the media Companion binding. Do not invent an available provider or incur GPU/paid inference without permission.
 2. For 48 DEGRADED entries, prioritize safe read-only targeted probes and explain authentication/provider readiness separately from a true runtime error; protect write and paid capabilities.
-3. For SharePoint, Pipedream linked-account status is confirmed but Graph site search is **not yet proven** by production. Candidate strict proof guard is ready.
+3. SharePoint and Vercel are excluded from the active free-first runtime and ordinary test suite because the planned use would add paid-plan costs. Do not count them as available capabilities.
 4. Preview D1 remains blocked on the configured Cloudflare account's read/write permission. No production D1/R2 fallback is permitted.
 5. Enable a persistent full stress mechanism only after it no longer mutates Cloudflare production secrets and its exact authorization / cost / risk scope has independently passed security tests.
 
