@@ -90,9 +90,12 @@ export class Augmentio {
     // availability and the zero-added-cost policy before considering cache.
     await refreshHealthWithinBudget(this.pool, signal, this.healthRefreshTimeoutMs);
     assertNotCancelled(signal);
-    const providers = this.quota.filter(
+    const eligibleProviders = () => this.quota.filter(
       this.pool.list({ capability }).filter((provider) => this.governor.allows(provider)),
-    ).slice(0, limit);
+    ).filter((provider) => this.scheduler?.canRun?.(provider.id) !== false);
+    // An open circuit is not an available AI model. Fill every requested
+    // slot from healthy, authorized alternatives instead of wasting it.
+    const providers = eligibleProviders().slice(0, limit);
 
     if (!providers.length) {
       const error = new Error('NO_ZERO_COST_PROVIDER_AVAILABLE');
@@ -113,9 +116,7 @@ export class Augmentio {
     // A health check or owner may revoke/replace an adapter during the async
     // cache lookup. Never use stale cache (or execute old selected adapters).
     assertNotCancelled(signal);
-    const current = this.quota.filter(
-      this.pool.list({ capability }).filter((provider) => this.governor.allows(provider)),
-    ).slice(0, limit);
+    const current = eligibleProviders().slice(0, limit);
     const stable = current.length === providers.length && current.every((provider, i) =>
       provider === providers[i]
       && provider.id === roster[i].id
