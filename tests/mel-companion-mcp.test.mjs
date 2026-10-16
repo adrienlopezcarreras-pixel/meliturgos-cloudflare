@@ -119,3 +119,10 @@ test('tool call without request ID is rejected rather than executed',async()=>{
  const results=await request([{jsonrpc:'2.0',method:'tools/call',params:{name:'mel_companion_status',arguments:{}}}]);
  assert.equal(results[0].error.code,-32600);
 });
+
+
+test('invalid structured request id is rejected before tool access',async()=>{
+ const results=await request([{jsonrpc:'2.0',id:{nested:1},method:'tools/call',params:{name:'mel_companion_status',arguments:{}}}]);
+ assert.equal(results[0].error.code,-32600);
+ assert.equal(results[0].id,null);
+});
