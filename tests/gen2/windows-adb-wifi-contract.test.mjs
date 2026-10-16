@@ -104,3 +104,10 @@ test("failed endpoint-cache write does not invalidate verified ADB connection", 
   const reconnect = script.split("function Attempt-Reconnect {")[1].split("function Scan {")[0];
   assert.match(reconnect, /try \{ Set-Content -LiteralPath \$saved -Value \$endpoint -Encoding ASCII \} catch \{ \}/);
 });
+
+
+test("verified saved endpoint is attempted ahead of discovered candidates", async () => {
+  const script = await source("windows-companion/MEL-ADB-WiFi.ps1");
+  const reconnect = script.split("function Attempt-Reconnect {")[1].split("function Scan {")[0];
+  assert.match(reconnect, /\$targets = @\(\$last\) \+ @\(\$targets\)/);
+});

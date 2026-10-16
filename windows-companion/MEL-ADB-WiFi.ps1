@@ -31,7 +31,7 @@ function Attempt-Reconnect {
   }
   if (Test-Path -LiteralPath $saved) {
     try { $last=(Get-Content -LiteralPath $saved -Raw).Trim() } catch { $last="" }
-    if ($last -match '^\d{1,3}(?:\.\d{1,3}){3}:\d{2,5}$') { $targets += $last }
+    if ($last -match '^\d{1,3}(?:\.\d{1,3}){3}:\d{2,5}$') { $targets = @($last) + @($targets) }
   }
   foreach ($endpoint in ($targets | Select-Object -Unique | Select-Object -First 5)) {
     try { $result=(Run-Adb -arglist @("connect",$endpoint)) -join "`n" } catch { continue }
