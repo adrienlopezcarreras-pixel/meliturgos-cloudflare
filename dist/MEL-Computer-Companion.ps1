@@ -2627,6 +2627,29 @@ function Perform-Step($step, [string]$commandId, [string]$planSchema="") {
       [System.Windows.Forms.SendKeys]::SendWait($token)
       return @{ action=$action; browser=$browser; key=$key; window_handle=$expectedHandle }
     }
+    "browser.find" {
+      # Find is consented per step; only use the exact inspected foreground HWND.
+      [long]$expectedHandle = 0
+      if (-not [long]::TryParse([string]$step.window_handle, [ref]$expectedHandle) -or $expectedHandle -le 0) {
+        throw "BROWSER_FIND_WINDOW_HANDLE_REQUIRED"
+      }
+      $needle = [string]$step.text
+      if ([string]::IsNullOrWhiteSpace($needle) -or $needle.Length -gt 256 -or
+          [regex]::IsMatch($needle, '[\x00-\x1F\x7F]')) {
+        throw "BROWSER_FIND_TEXT_INVALID"
+      }
+      $window = [MelNative]::GetForegroundWindow()
+      if ($window -eq [IntPtr]::Zero -or $window.ToInt64() -ne $expectedHandle) {
+        throw "BROWSER_FIND_FOCUS_CHANGED"
+      }
+      $browser = Assert-ForegroundBrowser
+      Assert-BrowserShortcutTarget $window $browser
+      [System.Windows.Forms.SendKeys]::SendWait("^f")
+      # A user may change windows while the browser opens the search bar.
+      Assert-BrowserShortcutTarget $window $browser
+      Type-BrowserText $needle $window $browser
+      return @{ action=$action; browser=$browser; chars=$needle.Length; window_handle=$expectedHandle; query_exposed=$false }
+    }
     "browser.capture" {
       # Capture the foreground browser rectangle only, never the virtual desktop.
       $browser = Assert-ForegroundBrowser
