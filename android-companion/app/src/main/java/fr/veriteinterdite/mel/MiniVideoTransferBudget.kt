@@ -22,6 +22,14 @@ internal class MiniVideoTransferBudget(fps: Int, private val monotonicNanos: () 
 
     fun withinDeadline(): Boolean = monotonicNanos() - startedAtNanos < MAX_DURATION_NANOS
 
+    /** Bound the next socket operation by the remaining total video deadline. */
+    fun remainingSocketTimeoutMs(): Int {
+        val remaining = MAX_DURATION_NANOS - (monotonicNanos() - startedAtNanos)
+        if (remaining <= 0L) return 0
+        return ((remaining / 1_000_000L) + if (remaining % 1_000_000L != 0L) 1 else 0)
+            .coerceIn(1L, 45_000L).toInt()
+    }
+
     fun reserve(frameBytes: Int): Boolean {
         // The FPS-derived count is not a wall-clock cap if the sender stalls.
         if (!withinDeadline()) return false
