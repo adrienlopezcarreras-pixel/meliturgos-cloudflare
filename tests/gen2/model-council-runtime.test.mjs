@@ -865,3 +865,35 @@ test('Council falls back if the first synthesis response exceeds its size ceilin
   assert.ok(result.synthesis.text.length <= MAX_COUNCIL_SYNTHESIS_CHARS);
   assert.equal(calls.filter(row => row.purpose === 'model-council-synthesis').length, 2);
 });
+
+test('Council response provenance cannot echo unbounded inference setting metadata', async () => {
+  const calls = [];
+  const secret = 'SECRET_PRIVATE_API_BEARER_VALUE';
+  const reported = {
+    provider: 'spoof-provider', model: 'spoof-model',
+    inference_settings_applied: [
+      secret.repeat(3000), ...Array(100).fill('temperature'), 42, null,
+    ],
+    api_token: secret,
+    raw_response: 'y'.repeat(100_000),
+  };
+  const result = await runModelCouncil({
+    pool: new ProviderPool([
+      provider({id:'a',providerId:'alpha',modelId:'model-a',calls,reportedProvenance:reported}),
+      provider({id:'b',providerId:'beta',modelId:'model-b',calls,reportedProvenance:reported}),
+    ]),
+    request: 'bounded Council metadata', timeoutMs: 2500,
+  });
+  assert.equal(result.status, 'COMPLETE');
+  assert.equal(result.synthesis.status, 'COMPLETE');
+  for (const row of [...result.critiques, result.synthesis]) {
+    const provenance = row.provenance;
+    assert.ok(provenance.reported);
+    assert.equal(provenance.reported.inference_settings_applied.length, 12);
+    assert.ok(provenance.reported.inference_settings_applied.every(value => value.length <= 80));
+    assert.equal(Object.hasOwn(provenance.reported, 'api_token'), false);
+    assert.equal(Object.hasOwn(provenance.reported, 'raw_response'), false);
+  }
+  assert.equal(JSON.stringify(result).includes(secret), false);
+  assert.ok(JSON.stringify(result).length < 15000);
+});
