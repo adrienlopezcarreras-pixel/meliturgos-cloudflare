@@ -34,9 +34,9 @@ test('MINI refuses invalid SESSION clock and sessionless media channel credentia
   assert.match(transport, /g_session_ready\.store\(false\)/);
   assert.match(transport, /if \(!g_session_ready\.load\(\) \|\| !mel_link_v2_server_ready\(\)\)/);
   assert.match(transport, /MEDIA_CONFIG rejected: Android V2 session not verified/);
-  assert.match(transport, /header\\.payload_len > 512/);
-  assert.match(transport, /std::memchr\\(payload, 0, header\\.payload_len\\) != nullptr/);
-  assert.match(transport, /cJSON_ParseWithOpts\\(raw\\.c_str\\(\\), &parse_end, true\\)/);
+  assert.match(transport, /header\.payload_len > 512/);
+  assert.match(transport, /std::memchr\(payload, 0, header\.payload_len\) != nullptr/);
+  assert.match(transport, /cJSON_ParseWithOpts\(raw\.c_str\(\), &parse_end, true\)/);
   assert.match(transport, /media channel config rejected: invalid JSON/);
 });
 
