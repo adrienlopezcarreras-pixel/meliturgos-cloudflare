@@ -24,9 +24,7 @@ function browserCompanionError(code, status = 502) {
 function normalizeEndpoint(value) {
   try {
     const url = new URL(String(value || DEFAULT_ENDPOINT));
-    if (url.protocol !== 'https:') throw new Error('HTTPS_REQUIRED');
-    url.username = '';
-    url.password = '';
+    if (url.protocol !== 'https:' || url.username || url.password) throw new Error('HTTPS_AND_NO_CREDENTIALS_REQUIRED');
     url.pathname = url.pathname.replace(/\/$/, '');
     url.search = '';
     url.hash = '';
@@ -48,7 +46,8 @@ function normalizeOrigins(value) {
   for (const item of value) {
     try {
       const url = new URL(String(item || ''));
-      if (url.protocol === 'https:' && !origins.includes(url.origin)) origins.push(url.origin);
+      if (url.protocol === 'https:' && !url.username && !url.password
+        && !origins.includes(url.origin)) origins.push(url.origin);
     } catch {
       // Invalid origins are ignored; browser-capability already fails closed.
     }
@@ -61,7 +60,7 @@ function assertStepOrigin(step, allowedOrigins) {
   let origin = '';
   try {
     const url = new URL(step.url);
-    if (url.protocol === 'https:') origin = url.origin;
+    if (url.protocol === 'https:' && !url.username && !url.password) origin = url.origin;
   } catch {
     // handled below
   }
