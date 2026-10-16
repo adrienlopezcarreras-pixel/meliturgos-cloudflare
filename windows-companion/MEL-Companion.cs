@@ -1468,7 +1468,7 @@ class MainForm : Form
                                 bool hasMel = a.TryGetValue("mel_installed", out installed) && Convert.ToBoolean(installed);
                                 message = !fresh ? "ADB Wi-Fi : diagnostic ancien"
                                     : !adbAvailable ? "ADB Wi-Fi : outils ADB introuvables"
-                                    : !String.IsNullOrEmpty(errorCode) ? "ADB Wi-Fi : diagnostic en échec · " + errorCode
+                                    : !String.IsNullOrEmpty(errorCode) ? "ADB Wi-Fi : échec · " + errorCode + (String.IsNullOrEmpty(errorDetail) ? "" : " · " + errorDetail)
                                     : isConnected ? "ADB Wi-Fi : connecté · " + name + " · MEL " + (hasMel ? "installée" : "absente")
                                     : "ADB Wi-Fi : non appairé ou déconnecté · Configurer ADB Wi-Fi";
                                 color = fresh && isConnected && String.IsNullOrEmpty(errorCode) ? Color.FromArgb(25,125,85) : gray;
