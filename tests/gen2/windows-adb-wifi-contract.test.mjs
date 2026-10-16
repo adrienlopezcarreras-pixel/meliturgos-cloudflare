@@ -294,3 +294,12 @@ test("Companion supervisor failure log remains bounded across repeated ADB start
  assert.match(method,/supervisorLog \+ "\.1"/);
  assert.match(method,/File\.AppendAllText\(supervisorLog/);
 });
+
+test("Companion dashboard only presents ADB connected when the report is fresh", async () => {
+ const native=await source("windows-companion/MEL-Companion.cs");
+ const start=native.indexOf("void RefreshAll()");
+ const end=native.indexOf("var devices=MelApp.Devices()",start);
+ const refresh=native.slice(start,end);
+ assert.match(refresh,/bool isConnected = fresh && a\.TryGetValue\("connected"/);
+ assert.match(refresh,/\.TotalSeconds < 75/);
+});
