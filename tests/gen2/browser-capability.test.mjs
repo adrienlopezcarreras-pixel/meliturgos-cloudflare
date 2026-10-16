@@ -292,3 +292,67 @@ test('controller preserves companion status and audits only structured step meta
   }]);
   assert.equal(JSON.stringify(failed).includes('provider detail should not leak'), false);
 });
+
+
+test('GEN2-31 refuses silently truncated browser plans and step targets', () => {
+  const base = baseRequest();
+  const cases = [
+    {
+      steps: [...base.steps, ...Array.from({ length: 9 }, (_, n) =>
+        ({ id: 'extra-' + n, action: BROWSER_ACTIONS.READ_TEXT }))],
+      reason: 'BROWSER_STEP_LIMIT_EXCEEDED',
+    },
+    {
+      steps: [{ id: 'nav', action: BROWSER_ACTIONS.NAVIGATE,
+        url: 'https://example.com/' + 'a'.repeat(4100) }],
+      reason: 'BROWSER_STEP_FIELD_LIMIT_EXCEEDED',
+    },
+    {
+      steps: [{ id: 'read', action: BROWSER_ACTIONS.READ_TEXT, selector: 'a'.repeat(1001) }],
+      reason: 'BROWSER_STEP_FIELD_LIMIT_EXCEEDED',
+    },
+    {
+      steps: [{ id: 'type', action: BROWSER_ACTIONS.TYPE, text: 'S'.repeat(8193) }],
+      reason: 'BROWSER_TEXT_LIMIT_EXCEEDED',
+    },
+    {
+      steps: [{ id: 'upload', action: BROWSER_ACTIONS.UPLOAD_FILE,
+        file_name: 'proof.txt', file_text: 'D'.repeat(16385) }],
+      reason: 'BROWSER_FILE_TEXT_LIMIT_EXCEEDED',
+    },
+    {
+      steps: [{ id: 'header', action: BROWSER_ACTIONS.SET_HEADERS,
+        headers: { 'x-mel-release-smoke': 'H'.repeat(2049) } }],
+      reason: 'BROWSER_HEADER_VALUE_LIMIT_EXCEEDED',
+    },
+  ];
+  for (const { steps, reason } of cases) {
+    const plan = evaluateBrowserPlan({ ...base, steps });
+    assert.equal(plan.allowed, false, reason);
+    assert.equal(plan.reason, reason);
+    assert.equal(plan.decisions.length, 0, reason);
+  }
+});
+
+test('GEN2-31 never performs earlier browser steps if later text would be clipped', async () => {
+  const calls = [];
+  const audits = [];
+  const controller = createBrowserController({
+    adapter: { async perform(step) { calls.push(step.id); return {}; } },
+    authorize: async () => true,
+    audit: async event => audits.push(event),
+  });
+  await assert.rejects(
+    controller.execute({
+      ...baseRequest(),
+      steps: [
+        { id: 'read', action: BROWSER_ACTIONS.READ_TEXT },
+        { id: 'type', action: BROWSER_ACTIONS.TYPE, text: 'X'.repeat(8193) },
+      ],
+    }),
+    error => error.code === 'BROWSER_TEXT_LIMIT_EXCEEDED',
+  );
+  assert.deepEqual(calls, []);
+  assert.equal(audits.at(-1).status, 'DENIED');
+  assert.equal(audits.at(-1).completed_steps, 0);
+});
