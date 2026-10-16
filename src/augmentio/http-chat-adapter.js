@@ -1,8 +1,17 @@
 import { ProviderAdapter } from './provider-adapter.js';
 
-function cleanUrl(value) {
+function cleanUrl(value, { credentialsConfigured = false } = {}) {
   const url = new URL(String(value || ''));
-  if (!['https:','http:'].includes(url.protocol)) throw new TypeError('HTTP_CHAT_ENDPOINT_INVALID');
+  if (!['https:', 'http:'].includes(url.protocol)
+    || url.username || url.password || url.hash) {
+    throw new TypeError('HTTP_CHAT_ENDPOINT_INVALID');
+  }
+  // Do not transmit private prompts or a bearer token over public plaintext
+  // HTTP. Permit local development only without configured credentials.
+  const loopback = ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname.toLowerCase());
+  if (url.protocol !== 'https:' && (!loopback || credentialsConfigured)) {
+    throw new TypeError('HTTP_CHAT_ENDPOINT_TLS_REQUIRED');
+  }
   return url.toString();
 }
 
@@ -125,7 +134,7 @@ export function createHttpChatAdapter({
   const provider=String(providerId||'').trim();
   const model=String(modelId||'').trim();
   if(!adapterId || !provider || !model) throw new TypeError('HTTP_CHAT_DESCRIPTOR_INVALID');
-  const target=cleanUrl(endpoint);
+  const target=cleanUrl(endpoint,{credentialsConfigured:Boolean(secretEnv)});
   const secret=secretFromEnv(env,secretEnv);
 
   return new ProviderAdapter({
