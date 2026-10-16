@@ -14,10 +14,10 @@ on:
       - 'docs/**'
       - '**/*.md'
   workflow_dispatch:
-  # Conservative catch-up safety net if GitHub does not deliver workflow_run.
-  # Off the top of the hour to avoid peak schedule congestion.
+  # Bounded catch-up safety net if GitHub does not deliver workflow_run.
+  # Every 15 minutes; exact-SHA and failed-SHA deduplication prevent blind retries.
   schedule:
-    - cron: '17 * * * *'
+    - cron: '*/15 * * * *'
   # After a completed release (success or failure), reconcile only newer
   # main commits. Never retry the same failed SHA or a cancelled release.
   workflow_run:
