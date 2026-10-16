@@ -42,3 +42,10 @@ test('post-release capability checks read existing bindings and never rotate Wor
   assert.doesNotMatch(workflow,/MEL_GITHUB_TOKEN: \\$\\{\\{ secrets/);
   assert.ok(workflow.indexOf('PLATFORM_RUNTIME_BINDINGS_MISSING') < workflow.indexOf('PLATFORM_EXACT_SHA_IDENTITY_MISMATCH'));
 });
+
+test('GitHub Actions relay dispatch allows enough time for the separate relay worker to drain its durable queue', () => {
+  assert.match(workflow, /GITHUB_RELAY_JOB_ID/);
+  assert.match(workflow, /for ATTEMPT in \$\(seq 1 180\); do/);
+  assert.match(workflow, /RELAY_STATUS.*DISPATCHED/);
+  assert.match(workflow, /test "\$\{RELAY_DONE\}" = "1"/);
+});
