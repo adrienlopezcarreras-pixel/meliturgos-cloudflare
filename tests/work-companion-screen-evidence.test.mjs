@@ -109,3 +109,22 @@ test('revocation records the revoke time and confirms deletion of both analysis 
   );
  }finally{h.DB.close()}
 });
+
+test('temporary vision failure can be retried only after a fresh explicit Work consent',async()=>{
+ const h=await harness();
+ try{
+  const {command_id}=await h.capture();
+  await assert.rejects(
+   interpretWorkScreenCapture(h.env,{computer_id:'pc-1',command_id,consent:WORK_SCREEN_INTERPRETATION_CONSENT},{analyze:async()=>{throw Object.assign(new Error('temporary outage'),{code:'VISION_TEMPORARILY_UNAVAILABLE',status:503})}}),
+   error=>error.code==='VISION_TEMPORARILY_UNAVAILABLE'
+  );
+  const saved=await h.DB.prepare('SELECT id,granted_at,revoked_at,image_sha256 FROM work_screen_consents WHERE command_id=? AND device_id=? LIMIT 1').bind(command_id,'pc-1').first();
+  assert.ok(saved?.id,'consent must remain durably recorded after the provider failure');
+  assert.equal(saved.revoked_at,null);
+  const retry=await interpretWorkScreenCapture(h.env,{computer_id:'pc-1',command_id,consent:WORK_SCREEN_INTERPRETATION_CONSENT},{analyze:async()=>({analysis:'Nouvelle tentative réussie.',model:'test-vision'})});
+  assert.equal(retry.ok,true);
+  assert.equal(retry.analysis,'Nouvelle tentative réussie.');
+  const rows=await h.DB.prepare('SELECT COUNT(*) AS n FROM work_screen_consents WHERE command_id=? AND device_id=?').bind(command_id,'pc-1').first();
+  assert.equal(Number(rows.n),1,'retry reuses the same active per-capture consent record');
+ }finally{h.DB.close()}
+});
