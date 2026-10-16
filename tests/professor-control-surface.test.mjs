@@ -163,6 +163,20 @@ test('IA and Work share one canonical surface and development tab loads Work on 
 });
 
 
+test('MEL Work only sends an explicitly requested Companion screenshot after verified zero-cost image description', async () => {
+  const page = await read('src/pages/full-interface-v2.js');
+  for (const id of ['workComputerAnalyze','workComputerScreen','workComputerOut']) {
+    assert.ok(sourceHasHtmlId(page,id), `MEL Work missing capture-analysis control #${id}`);
+  }
+  assert.ok(page.includes("qs('#workComputerAnalyze').onclick=async()=>"), 'screenshot analysis must be an explicit user action');
+  assert.ok(page.includes("uploadChatFiles([new File([blob],name,{type:mime})],'companion-screen')"), 'capture must pass through the authenticated private file-upload analysis path');
+  assert.ok(page.includes("item.analysis_status!=='IMAGE_DESCRIBED'||!item.preview"), 'MEL must not claim it saw the screen without a real image description');
+  assert.ok(page.includes("sendChat(prompt,'companion-screen')"), 'the verified image description must be sent to MEL for interpretation');
+  assert.ok(page.includes('status:\'IMAGE_ANALYZED\''), 'success must expose a verifiable result state');
+  assert.ok(page.includes('status:\'IMAGE_ANALYSIS_FAILED\''), 'analysis failures must be shown explicitly');
+  assert.ok(page.includes("button.disabled=!workComputerLastView?.view_url"), 'analysis must be disabled when no verified capture exists');
+});
+
 test('MEL Work is wired to the authorized Windows Companion view-only channel', async () => {
   const page = await read('src/pages/full-interface-v2.js');
   for (const id of ['workComputerCard','workComputerState','workComputerSelect','workComputerPermission','workComputerWindow','workComputerView','workComputerOpen','workComputerScreen','workComputerScreenState','workComputerOut']) {
