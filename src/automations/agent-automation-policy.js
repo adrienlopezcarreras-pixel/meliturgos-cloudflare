@@ -216,6 +216,9 @@ export function createInMemoryAgentAutomationPolicyAdapter() {
       const record = requireRun(request.run_id);
       if (record.status === RUN_STATUSES.COMPLETED) return snapshot(record);
       requireValue(record.status === RUN_STATUSES.AUTHORIZED, 'AUTOMATION_RUN_NOT_ACTIVE', 409);
+      requireValue(request.completed_at >= record.requested_at,
+        'AUTOMATION_TERMINAL_TIME_BEFORE_REQUEST', 409);
+
       record.status = RUN_STATUSES.COMPLETED;
       record.completed_at = request.completed_at;
       if (request.result) record.result = request.result;
@@ -230,6 +233,9 @@ export function createInMemoryAgentAutomationPolicyAdapter() {
         return snapshot(record);
       }
       requireValue(record.status === RUN_STATUSES.AUTHORIZED, 'AUTOMATION_RUN_NOT_ACTIVE', 409);
+      requireValue(request.failed_at >= record.requested_at,
+        'AUTOMATION_TERMINAL_TIME_BEFORE_REQUEST', 409);
+
       record.status = RUN_STATUSES.FAILED;
       record.failed_at = request.failed_at;
       record.error_code = request.error_code;

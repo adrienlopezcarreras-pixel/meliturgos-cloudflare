@@ -203,3 +203,18 @@ test('idempotent automation replay cannot inherit elevated old grants or altered
     {code:'AUTOMATION_IDEMPOTENCY_CONFLICT',status:409});
   assert.equal((await service.authorizeRun(original)).deduplicated,true);
 });
+
+test('in-memory automation cannot complete or fail before authorization time', async () => {
+  const service = createAgentAutomationPolicy(createInMemoryAgentAutomationPolicyAdapter());
+  await service.authorizeRun(request());
+  await assert.rejects(
+    () => service.completeRun({ run_id:'run-1', completed_at:999 }),
+    { code:'AUTOMATION_TERMINAL_TIME_BEFORE_REQUEST', status:409 },
+  );
+  await assert.rejects(
+    () => service.failRun({ run_id:'run-1', failed_at:999, error_code:'TEST_FAILURE' }),
+    { code:'AUTOMATION_TERMINAL_TIME_BEFORE_REQUEST', status:409 },
+  );
+  assert.equal((await service.getRun({ run_id:'run-1' })).status, RUN_STATUSES.AUTHORIZED);
+  assert.equal((await service.completeRun({ run_id:'run-1', completed_at:1000 })).status, RUN_STATUSES.COMPLETED);
+});

@@ -173,6 +173,8 @@ export class D1AgentAutomationPolicyAdapter {
     requireValue(current, 'AUTOMATION_RUN_NOT_FOUND', 404);
     if (current.status === RUN_STATUSES.COMPLETED) return rowSnapshot(current);
     requireValue(current.status === RUN_STATUSES.AUTHORIZED, 'AUTOMATION_RUN_NOT_ACTIVE', 409);
+    requireValue(request.completed_at >= Number(current.requested_at),
+      'AUTOMATION_TERMINAL_TIME_BEFORE_REQUEST', 409);
 
     const changed = await this.db.prepare(`UPDATE agent_automation_runs
       SET status=?, completed_at=?, result_json=?, updated_at=?
@@ -198,6 +200,8 @@ export class D1AgentAutomationPolicyAdapter {
       return rowSnapshot(current);
     }
     requireValue(current.status === RUN_STATUSES.AUTHORIZED, 'AUTOMATION_RUN_NOT_ACTIVE', 409);
+    requireValue(request.failed_at >= Number(current.requested_at),
+      'AUTOMATION_TERMINAL_TIME_BEFORE_REQUEST', 409);
 
     const changed = await this.db.prepare(`UPDATE agent_automation_runs
       SET status=?, failed_at=?, error_code=?, result_json=?, updated_at=?
