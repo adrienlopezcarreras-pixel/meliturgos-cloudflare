@@ -102,8 +102,7 @@ test('live connection proof reports sanitized Pipedream environment and upstream
 test('paid SharePoint and Vercel are excluded from zero-cost production probes', async()=>{
   const source=await readFile(workflowUrl,'utf8');
   assert.doesNotMatch(source,/\/api\/gen2\/connections\/vercel\/test/);
-  assert.doesNotMatch(source,/\/api\/gen2\/connections\/microsoft\/test[^\\n]*microsoft-sharepoint/);
-  assert.doesNotMatch(source,/sharepoint_sites_read/);
+  assert.doesNotMatch(source,/microsoft-sharepoint|sharepoint_sites_read/);
   assert.doesNotMatch(source,/VERCEL_OK|MICROSOFT_SHAREPOINT_OK/);
-  assert.match(source,/excluded_by_owner_zero_cost_policy: \\['microsoft_sharepoint','vercel'\\]/);
+  assert.ok(source.includes("excluded_by_owner_zero_cost_policy: ['microsoft_sharepoint','vercel']"));
 });
