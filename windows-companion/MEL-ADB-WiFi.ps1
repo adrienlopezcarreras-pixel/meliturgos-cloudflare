@@ -9,6 +9,12 @@ $log=Join-Path $dir "android-adb-wifi.log"
 $saved=Join-Path $dir "android-adb-last-endpoint.txt"
 $adb=@((Join-Path $env:LOCALAPPDATA "Android\platform-tools\adb.exe"),(Join-Path $env:LOCALAPPDATA "Android\Sdk\platform-tools\adb.exe")) | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } | Select-Object -First 1
 if (-not $adb) { $cmd=Get-Command adb.exe -ErrorAction SilentlyContinue; if ($cmd) { $adb=$cmd.Source } }
+function ConvertTo-SafeAdbDetail([string]$value) {
+  # Use the same redaction rules for the JSON status and local log.
+  $safe = [string]($value -replace '(?i)(pairing\s*code|password|token|authorization)\s*[:=]\s*\S+', '$1=[REDACTED]' -replace '[\r\n\t]+', ' ')
+  if ($safe.Length -gt 240) { return $safe.Substring(0,240) }
+  return $safe
+}
 function Write-AdbLog([string]$message) {
   # Keep the long-running background monitor's log bounded (current + one backup).
   try {
@@ -133,11 +139,12 @@ do {
     } else { Scan }
   } catch {
     $reason=$_.Exception.Message
-    $status=[ordered]@{schema="mel.adb-wifi-status.v1";observed_at_utc=(Get-Date).ToUniversalTime().ToString("o");adb_available=[bool]$adb;connected=$false;serial=$null;android_model=$null;android_version=$null;mel_package="fr.veriteinterdite.mel";mel_installed=$false;mel_version=$null;mel_version_code=$null;error="ADB_DIAGNOSTIC_FAILED";error_detail=([string]$reason -replace "[\r\n\t]+"," ").Substring(0,[Math]::Min(240,([string]($reason -replace "[\r\n\t]+"," ")).Length))}
+    $safeReason = ConvertTo-SafeAdbDetail $reason
+    $status=[ordered]@{schema="mel.adb-wifi-status.v1";observed_at_utc=(Get-Date).ToUniversalTime().ToString("o");adb_available=[bool]$adb;connected=$false;serial=$null;android_model=$null;android_version=$null;mel_package="fr.veriteinterdite.mel";mel_installed=$false;mel_version=$null;mel_version_code=$null;error="ADB_DIAGNOSTIC_FAILED";error_detail=$safeReason}
     try {
       Write-StatusReport $status
     } catch { }
-    Write-AdbLog ("{0} error={1}" -f (Get-Date).ToUniversalTime().ToString("o"),(($reason -replace "(?i)(pairing\s*code|password|token|authorization)\s*[:=]\s*\S+","$1=[REDACTED]" -replace "[\r\n\t]+"," ").Substring(0,[Math]::Min(240,($reason -replace "(?i)(pairing\s*code|password|token|authorization)\s*[:=]\s*\S+","$1=[REDACTED]" -replace "[\r\n\t]+"," ").Length))))
+    Write-AdbLog ("{0} error={1}" -f (Get-Date).ToUniversalTime().ToString("o"),$safeReason)
   }
   if (-not $Once) { Start-Sleep -Seconds $IntervalSeconds }
 } while (-not $Once)
