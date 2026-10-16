@@ -136,9 +136,17 @@ function completionProof(job) {
   if (!completion || completion.status !== 'VERIFIED') return null;
   const ci = completion.ci;
   if (!ci || ci.verified !== true || ci.workflow !== 'full-candidate-ci' || ci.conclusion !== 'success') return null;
-  const sha = String(completion.candidate_sha || ci.head_sha || '');
-  const branch = String(completion.candidate_branch || ci.head_branch || '');
-  if (!/^[a-f0-9]{40}$/i.test(sha) || !branch.startsWith('candidate/')) return null;
+  // Never accept an internally "VERIFIED" result when its pinned candidate
+  // identity diverges from the GitHub CI run's exact head identity.
+  const sha = String(completion.candidate_sha || '');
+  const ciSha = String(ci.head_sha || '');
+  const branch = String(completion.candidate_branch || '');
+  const ciBranch = String(ci.head_branch || '');
+  const ciRunId = Number(ci.run_id);
+  if (!/^[a-f0-9]{40}$/i.test(sha) || !/^[a-f0-9]{40}$/i.test(ciSha)
+    || sha.toLowerCase() !== ciSha.toLowerCase()
+    || !branch.startsWith('candidate/') || branch !== ciBranch
+    || !Number.isSafeInteger(ciRunId) || ciRunId <= 0) return null;
   const requestId = String(completion.request_id || '');
   if (!requestId || requestId !== String(job?.result_json?.teacher_bridge?.request?.request_id || '')) return null;
   if (job?.result_json?.implementation_proposal?.teacher_request_id !== requestId) return null;
@@ -147,7 +155,7 @@ function completionProof(job) {
     request_id: requestId,
     candidate_sha: sha,
     candidate_branch: branch,
-    ci_run_id: ci.run_id || null,
+    ci_run_id: ciRunId,
     workflow: ci.workflow,
     conclusion: ci.conclusion,
     completed_at: completion.completed_at || null,
