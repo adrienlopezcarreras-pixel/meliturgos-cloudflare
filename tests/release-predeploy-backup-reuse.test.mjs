@@ -118,7 +118,9 @@ test('predeploy refresh creates the backup on the GitHub runner and keeps the Wo
   assert.match(refreshBlock, /MEL_BACKUP_ENCRYPTION_KEY_B64: \$\{\{ secrets\.MEL_BACKUP_ENCRYPTION_KEY_B64 \}\}/);
   assert.match(refreshBlock, /MEL_BACKUP_ENCRYPTION_KEY_ID: \$\{\{ secrets\.MEL_BACKUP_ENCRYPTION_KEY_ID \}\}/);
   assert.match(refreshBlock, /CURRENT_PRODUCTION_RELEASE_SHA_NOT_FOUND/);
-  assert.match(refreshBlock, /wrangler deploy --config/);
+  assert.match(refreshBlock, /timeout 180s npx wrangler deploy --config/);
+  assert.match(refreshBlock, /REFRESH_CREATED=1\s+if ! timeout 180s npx wrangler deploy/);
+  assert.match(refreshBlock, /predeploy-refresh-deploy\.log 2>&1; then[\s\S]*cat \/tmp\/predeploy-refresh-deploy\.log[\s\S]*exit 53/);
   assert.match(refreshBlock, /--var "MEL_PREDEPLOY_BACKUP_REFRESH_TOKEN:\$\{REFRESH_TOKEN\}"/);
   assert.doesNotMatch(refreshBlock, /wrangler secret put MEL_PREDEPLOY_BACKUP_REFRESH_TOKEN/);
   assert.doesNotMatch(refreshBlock, /wrangler secret put MEL_BACKUP_ENCRYPTION_KEY_B64/);
@@ -214,6 +216,8 @@ test('predeploy refresh creates the backup on the GitHub runner and keeps the Wo
   assert.match(binderBlock, /BINDER_STABLE_PROBES/);
   assert.match(binderBlock, /\/prepare/);
   assert.match(binderBlock, /predeploy-backup-verified\.marker/);
+  assert.match(binderBlock, /BINDER_CREATED=1\s+if ! timeout 180s npx wrangler deploy/);
+  assert.match(binderBlock, /predeploy-binder-deploy\.log 2>&1; then[\s\S]*cat \/tmp\/predeploy-binder-deploy\.log[\s\S]*exit 54/);
   assert.match(binderBlock, /--var "MEL_PREDEPLOY_BINDER_TOKEN:\$\{BINDER_TOKEN\}"/);
   assert.doesNotMatch(binderBlock, /wrangler secret put MEL_PREDEPLOY_BINDER_TOKEN/);
   assert.doesNotMatch(binderBlock, /MEL_LAUNCH_BOOTSTRAP_TOKEN/);
