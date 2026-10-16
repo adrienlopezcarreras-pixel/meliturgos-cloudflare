@@ -241,6 +241,7 @@ class MiniMediaReceiver(private val context: Context) {
         val size = input.readInt()
         if (size !in 1..MAX_PHOTO_BYTES) return
         val bytes = readFully(input, size)
+        if (!MiniJpegFrameSignature.hasMarkers(bytes)) return
         val uri = createMediaStoreEntry(
             MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
             name.ensureSuffix(".jpg"),
@@ -273,6 +274,7 @@ class MiniMediaReceiver(private val context: Context) {
                     val jpeg = readFully(input, size)
                     // Reading the final frame can itself cross the deadline.
                     if (!budget.withinDeadline()) return
+                    if (!MiniJpegFrameSignature.hasMarkers(jpeg)) return
                     avi.addFrame(jpeg)
                     framesReceived++
                 }
