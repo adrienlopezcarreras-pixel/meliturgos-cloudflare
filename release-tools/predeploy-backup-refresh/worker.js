@@ -3,7 +3,13 @@ const INVENTORY_PATH = '/inventory';
 const D1_TABLES_PATH = '/d1/tables';
 const D1_ROWS_PATH = '/d1/rows';
 const REGISTER_PATH = '/register';
+const UPLOAD_CREATE_PATH = '/upload/create';
+const UPLOAD_PART_PATH = '/upload/part';
+const UPLOAD_COMPLETE_PATH = '/upload/complete';
+const UPLOAD_ABORT_PATH = '/upload/abort';
 const R2_PAGE_LIMIT = 1000;
+const MAX_MULTIPART_PARTS = 10_000;
+const MAX_MULTIPART_PART_BYTES = 24 * 1024 * 1024;
 const D1_PAGE_LIMIT = 500;
 
 function json(value, status = 200) {
@@ -130,6 +136,86 @@ function validRegistration(input) {
   return { id, objectKey, createdAt, metadata };
 }
 
+
+function validSystemObjectKey(value) {
+  const key = String(value || '');
+  if (key.length > 220 || !key.startsWith(SYSTEM_BACKUP_PREFIX) || !key.endsWith('.enc.json')) return false;
+  const name = key.slice(SYSTEM_BACKUP_PREFIX.length);
+  return /^[A-Za-z0-9._-]{1,160}\\.enc\\.json$/.test(name) && !name.includes('..');
+}
+
+async function readSmallJson(request, maxBytes = 64 * 1024) {
+  const length = Number(request.headers.get('content-length') || 0);
+  if (Number.isFinite(length) && length > maxBytes) return { error: 'REQUEST_TOO_LARGE' };
+  try {
+    const raw = await request.text();
+    if (new TextEncoder().encode(raw).byteLength > maxBytes) return { error: 'REQUEST_TOO_LARGE' };
+    return { value: raw ? JSON.parse(raw) : {} };
+  } catch {
+    return { error: 'INVALID_JSON' };
+  }
+}
+
+export async function createBackupMultipart(env, input) {
+  if (!env?.MEDIA_BUCKET?.createMultipartUpload) return { ok: false, status: 'R2_MULTIPART_BINDING_REQUIRED' };
+  const key = String(input?.object_key || '');
+  if (!validSystemObjectKey(key)) return { ok: false, status: 'BACKUP_MULTIPART_KEY_INVALID' };
+  const upload = await env.MEDIA_BUCKET.createMultipartUpload(key, {
+    httpMetadata: { contentType: 'application/json; charset=utf-8' },
+  });
+  if (!upload?.uploadId || upload.key !== key) return { ok: false, status: 'BACKUP_MULTIPART_CREATE_UNCONFIRMED' };
+  return { ok: true, status: 'BACKUP_MULTIPART_CREATED', key, upload_id: String(upload.uploadId) };
+}
+
+export async function uploadBackupMultipartPart(env, request, url) {
+  if (!env?.MEDIA_BUCKET?.resumeMultipartUpload) return { ok: false, status: 'R2_MULTIPART_BINDING_REQUIRED' };
+  const key = String(url.searchParams.get('key') || '');
+  const uploadId = String(url.searchParams.get('upload_id') || '');
+  const partNumber = Number(url.searchParams.get('part_number'));
+  const length = Number(request.headers.get('content-length') || 0);
+  if (!validSystemObjectKey(key) || !uploadId || uploadId.length > 1024) return { ok: false, status: 'BACKUP_MULTIPART_BINDING_INVALID' };
+  if (!Number.isInteger(partNumber) || partNumber < 1 || partNumber > MAX_MULTIPART_PARTS) return { ok: false, status: 'BACKUP_MULTIPART_PART_NUMBER_INVALID' };
+  if (!request.body || !Number.isFinite(length) || length <= 0 || length > MAX_MULTIPART_PART_BYTES) return { ok: false, status: 'BACKUP_MULTIPART_PART_SIZE_INVALID' };
+  const upload = env.MEDIA_BUCKET.resumeMultipartUpload(key, uploadId);
+  const part = await upload.uploadPart(partNumber, request.body);
+  if (Number(part?.partNumber) !== partNumber || !String(part?.etag || '')) return { ok: false, status: 'BACKUP_MULTIPART_PART_UNCONFIRMED' };
+  return { ok: true, status: 'BACKUP_MULTIPART_PART_UPLOADED', part: { partNumber, etag: String(part.etag) }, bytes: length };
+}
+
+export async function completeBackupMultipart(env, input) {
+  if (!env?.MEDIA_BUCKET?.resumeMultipartUpload || !env?.MEDIA_BUCKET?.head) return { ok: false, status: 'R2_MULTIPART_BINDING_REQUIRED' };
+  const key = String(input?.object_key || '');
+  const uploadId = String(input?.upload_id || '');
+  const parts = input?.parts;
+  if (!validSystemObjectKey(key) || !uploadId || uploadId.length > 1024 || !Array.isArray(parts) || parts.length < 1 || parts.length > MAX_MULTIPART_PARTS) {
+    return { ok: false, status: 'BACKUP_MULTIPART_COMPLETION_INVALID' };
+  }
+  const normalized = [];
+  for (let index = 0; index < parts.length; index += 1) {
+    const partNumber = Number(parts[index]?.partNumber);
+    const etag = String(parts[index]?.etag || '');
+    if (partNumber !== index + 1 || !etag || etag.length > 1024) return { ok: false, status: 'BACKUP_MULTIPART_PARTS_INVALID' };
+    normalized.push({ partNumber, etag });
+  }
+  const upload = env.MEDIA_BUCKET.resumeMultipartUpload(key, uploadId);
+  const completed = await upload.complete(normalized);
+  const object = await env.MEDIA_BUCKET.head(key);
+  const bytes = Number(object?.size || 0);
+  if (!completed || !object || bytes <= 0 || (completed.key && completed.key !== key)) {
+    return { ok: false, status: 'BACKUP_MULTIPART_OBJECT_NOT_VERIFIED' };
+  }
+  return { ok: true, status: 'BACKUP_MULTIPART_COMPLETED', object_key: key, object_bytes: bytes, etag: String(object?.httpEtag || completed?.httpEtag || '') };
+}
+
+export async function abortBackupMultipart(env, input) {
+  if (!env?.MEDIA_BUCKET?.resumeMultipartUpload) return { ok: false, status: 'R2_MULTIPART_BINDING_REQUIRED' };
+  const key = String(input?.object_key || '');
+  const uploadId = String(input?.upload_id || '');
+  if (!validSystemObjectKey(key) || !uploadId || uploadId.length > 1024) return { ok: false, status: 'BACKUP_MULTIPART_BINDING_INVALID' };
+  await env.MEDIA_BUCKET.resumeMultipartUpload(key, uploadId).abort();
+  return { ok: true, status: 'BACKUP_MULTIPART_ABORTED' };
+}
+
 export async function registerBackupMetadata(env, input) {
   if (!env?.DB?.prepare) return { ok: false, status: 'D1_BINDING_REQUIRED' };
   if (!env?.MEDIA_BUCKET?.head) return { ok: false, status: 'R2_BINDING_REQUIRED' };
@@ -188,6 +274,32 @@ export default {
           offset: Number(url.searchParams.get('offset') || 0),
           limit: Number(url.searchParams.get('limit') || D1_PAGE_LIMIT),
         });
+        return json(result, result.ok ? 200 : 400);
+      }
+
+      if (url.pathname === UPLOAD_CREATE_PATH && request.method === 'POST') {
+        const parsed = await readSmallJson(request, 4096);
+        if (parsed.error) return json({ ok: false, status: parsed.error }, parsed.error === 'REQUEST_TOO_LARGE' ? 413 : 400);
+        const result = await createBackupMultipart(env, parsed.value);
+        return json(result, result.ok ? 200 : 400);
+      }
+
+      if (url.pathname === UPLOAD_PART_PATH && request.method === 'PUT') {
+        const result = await uploadBackupMultipartPart(env, request, url);
+        return json(result, result.ok ? 200 : 400);
+      }
+
+      if (url.pathname === UPLOAD_COMPLETE_PATH && request.method === 'POST') {
+        const parsed = await readSmallJson(request, 2 * 1024 * 1024);
+        if (parsed.error) return json({ ok: false, status: parsed.error }, parsed.error === 'REQUEST_TOO_LARGE' ? 413 : 400);
+        const result = await completeBackupMultipart(env, parsed.value);
+        return json(result, result.ok ? 200 : 400);
+      }
+
+      if (url.pathname === UPLOAD_ABORT_PATH && request.method === 'POST') {
+        const parsed = await readSmallJson(request, 4096);
+        if (parsed.error) return json({ ok: false, status: parsed.error }, parsed.error === 'REQUEST_TOO_LARGE' ? 413 : 400);
+        const result = await abortBackupMultipart(env, parsed.value);
         return json(result, result.ok ? 200 : 400);
       }
 
