@@ -9,7 +9,7 @@ test('MINI audio receiver reserves budget before reading and writing each PCM ch
   assert.ok(start>=0&&end>start);
   const audio=source.slice(start,end);
   const reserve=audio.indexOf('budget.reserve(size)');
-  const read=audio.indexOf('val bytes = readFully(input, size)');
+  const read=audio.indexOf('val bytes = MiniMediaChunkReader.read(input, size, socket, budget::remainingSocketTimeoutMs, budget::withinDeadline)');
   const written=audio.indexOf('output.write(bytes)');
   const publish=audio.indexOf('val uri = createMediaStoreEntry(');
   assert.ok(reserve>=0 && reserve<read && read<written && written<publish);
