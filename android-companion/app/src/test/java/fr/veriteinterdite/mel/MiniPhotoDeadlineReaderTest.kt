@@ -69,4 +69,47 @@ class MiniPhotoDeadlineReaderTest {
         }
         assertArrayEquals(byteArrayOf(10, 20, 30), MiniPhotoDeadlineReader.read(input, 3) { 0L })
     }
+    @Test fun rejectsPhotoThatFinishesExactlyAtDeadline() {
+        var now = 0L
+        val input = object : InputStream() {
+            override fun read(): Int = 7
+            override fun read(bytes: ByteArray, offset: Int, length: Int): Int {
+                bytes[offset] = 7
+                now = MiniPhotoDeadlineReader.MAX_DURATION_NANOS
+                return 1
+            }
+        }
+        val error = assertThrows(IOException::class.java) {
+            MiniPhotoDeadlineReader.read(input, 1) { now }
+        }
+        assertEquals("MINI_PHOTO_TIMEOUT", error.message)
+    }
+
+    @Test fun acceptsPhotoCompletedJustBeforeDeadline() {
+        var now = 0L
+        val input = object : InputStream() {
+            override fun read(): Int = 7
+            override fun read(bytes: ByteArray, offset: Int, length: Int): Int {
+                bytes[offset] = 7
+                now = MiniPhotoDeadlineReader.MAX_DURATION_NANOS - 1
+                return 1
+            }
+        }
+        assertArrayEquals(byteArrayOf(7), MiniPhotoDeadlineReader.read(input, 1) { now })
+    }
+
+    @Test fun rejectsEmptyDeclaredPhotoBeforeReadingStream() {
+        var touched = false
+        val input = object : InputStream() {
+            override fun read(): Int {
+                touched = true
+                return -1
+            }
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            MiniPhotoDeadlineReader.read(input, 0) { 0L }
+        }
+        assertEquals(false, touched)
+    }
+
 }
