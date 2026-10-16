@@ -4,8 +4,12 @@ export function isVerifiedRuntimeWorkProof(proof, jobId = null) {
   if (!proof || proof.status !== 'VERIFIED' || proof.version !== 4
     || proof.runtime_fanout_cache_hit !== false
     || proof.recovered_interrupted_node !== true) return false;
-  if (proof.target_job_id != null
-    && String(proof.target_job_id) !== String(jobId)) return false;
+  // Persisted v4 evidence must name its exact destination job. A missing
+  // target used to be accepted for *every* job, enabling evidence replay.
+  // Unpersisted standalone runtime diagnostics still have no job ID.
+  if (jobId != null && (typeof proof.target_job_id !== 'string'
+    || !proof.target_job_id.trim()
+    || proof.target_job_id !== String(jobId))) return false;
   // Model counts cannot establish that a resumable DAG actually recovered
   // and finished. Require the audit contract produced by the runtime proof.
   const events = proof.proof_dag_audit_events;
