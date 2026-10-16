@@ -720,7 +720,7 @@ qs('#workCreate').onclick=async()=>{const goal=qs('#workGoal').value.trim();if(!
   if(!vision?.ok||!vision.interpretation_id||!vision.analysis)throw Error(vision?.code||'WORK_SCREEN_INTERPRETATION_UNCONFIRMED');
   workComputerInterpretation={interpretation_id:vision.interpretation_id,command_id:capture.command_id};interpretationId=vision.interpretation_id;
   qs('#workComputerAnalysis').style.display='block';
-  qs('#workComputerAnalysis').textContent='Lecture vérifiée ('+vision.model+') — texte observé, non exécuté :\n\n'+vision.analysis+'\n\nsha256 image : '+vision.image_sha256;
+  qs('#workComputerAnalysis').textContent='Lecture vérifiée ('+vision.model+') — texte observé, non exécuté : '+vision.analysis+' | sha256 image : '+vision.image_sha256;
  }
  const context={origin:'work-ui',computer:pc?{computer_id:pc.id}:null,screen_capture:capture,screen_interpretation:interpretationId,share_screen_interpretation_with_council:qs('#workComputerShareText')?.checked===true};
  const d=await jfetch('/api/work/jobs',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({goal,mode:'prepare',context})});
