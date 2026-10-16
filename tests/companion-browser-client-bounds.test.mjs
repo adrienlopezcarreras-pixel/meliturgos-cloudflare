@@ -16,6 +16,7 @@ test('Windows browser pointer actions reject non-client frame and off-screen coo
   const guard = src.slice(begin, end);
   for (const item of [
     'Assert-LocalRemoteAccess',
+    'BROWSER_POINTER_LOCAL_STOP_ACTIVE',
     'GetForegroundWindow() -ne $window',
     'Assert-ForegroundBrowser',
     'GetWindowRect($window, [ref]$rect)',
@@ -32,6 +33,8 @@ test('Windows browser pointer actions reject non-client frame and off-screen coo
   assert.match(guard, /\[Math\]::Min\(\[Math\]::Min\(\$rect.Right, \$virtual.Right\), \(\[long\]\$origin.X \+ \[long\]\$client.Right\)\)/);
   assert.match(guard, /\$x -lt \$left -or \$x -ge \$right/);
   assert.match(guard, /\$y -lt \$top -or \$y -ge \$bottom/);
+  const shortcutGuard = src.slice(src.indexOf('function Assert-BrowserShortcutTarget('), src.indexOf('function Assert-BrowserClickTarget('));
+  assert.ok(shortcutGuard.includes('BROWSER_SHORTCUT_LOCAL_STOP_ACTIVE'));
   const click = src.slice(src.indexOf('"browser.click" {'), src.indexOf('"browser.scroll" {'));
   const scroll = src.slice(src.indexOf('"browser.scroll" {'), src.indexOf('"browser.type" {'));
   for (const [action, handler, event] of [
