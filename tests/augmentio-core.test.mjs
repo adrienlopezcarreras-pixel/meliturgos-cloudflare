@@ -352,3 +352,28 @@ test('parallel scheduler rejects an already-aborted request without invoking any
   assert.ok(results.every(row => row.status === 'rejected'
     && row.reason.code === 'SCHEDULER_ABORTED'));
 });
+
+test('result tournament retains the strongest provenance among duplicate answers', () => {
+  const tournament = new ResultTournament();
+  const ranked = tournament.rank([
+    { text: 'SAME answer', confidence: 0.1 },
+    { text: ' same   answer ', confidence: 0.95, evidenceScore: 2, provenance: { verified: true } },
+    { text: 'different answer', evidenceScore: 1 },
+  ]);
+  assert.equal(ranked.length, 2);
+  assert.equal(ranked[0].confidence, 0.95);
+  assert.equal(ranked[0].provenance.verified, true);
+  assert.equal(ranked[0].tournamentScore, 3.95);
+});
+
+test('result tournament does not promote NaN, Infinity or huge AI-supplied scores', () => {
+  const tournament = new ResultTournament();
+  const candidates = tournament.rank([
+    { text: 'valid answer', evidenceScore: 5, confidence: 0.6 },
+    { text: 'bad nonfinite', evidenceScore: Infinity, confidence: NaN },
+    { text: 'also nonfinite', evidenceScore: NaN, confidence: -Infinity },
+  ]);
+  assert.equal(candidates[0].text, 'valid answer');
+  assert.ok(candidates.every(row => Number.isFinite(row.tournamentScore)));
+  assert.equal(tournament.score({ evidenceScore: Number.MAX_VALUE, confidence: Number.MAX_VALUE }), 2_000_000);
+});
