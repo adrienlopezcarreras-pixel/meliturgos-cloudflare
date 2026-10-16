@@ -336,3 +336,16 @@ test("Companion backs off repeated ADB monitor startup failures and resets after
  assert.match(method,/Math\.Min\(300, 5 \* \(1 << \(AdbMonitorStartFailures - 1\)\)\)/);
  assert.match(method,/AdbMonitorStartFailures = 0/);
 });
+
+test("Companion watchdog restarts only an old live ADB monitor with a stale report", async () => {
+ const native=await source("windows-companion/MEL-Companion.cs");
+ const start=native.indexOf("static void StartAdbWifiMonitor()");
+ const end=native.indexOf("public static void StopAdbWifiMonitor()",start);
+ const method=native.slice(start,end);
+ assert.match(method,/reportAge\.TotalSeconds >= 120/);
+ assert.match(method,/monitorOldEnough/);
+ assert.match(method,/AdbWifiProcess\.StartTime/);
+ assert.match(method,/AdbWifiProcess\.Kill\(\)/);
+ assert.match(method,/AdbWifiProcess\.WaitForExit\(2000\)/);
+ assert.match(method,/if \(!staleReport \|\| !monitorOldEnough\) return/);
+});

@@ -589,8 +589,30 @@ static class MelApp
         {
             if (AdbWifiProcess != null)
             {
-                try { if (!AdbWifiProcess.HasExited) return; }
-                catch { }
+                bool running = false;
+                try { running = !AdbWifiProcess.HasExited; } catch { }
+                if (running)
+                {
+                    // A live PowerShell process can still be wedged. Restart only after
+                    // a generous grace window and an actually stale/missing report.
+                    bool staleReport = true;
+                    try
+                    {
+                        var report = Path.Combine(MelDir, "android-adb-wifi.json");
+                        if (File.Exists(report))
+                        {
+                            var reportAge = DateTime.UtcNow - File.GetLastWriteTimeUtc(report);
+                            staleReport = reportAge.TotalSeconds >= 120;
+                        }
+                    }
+                    catch { staleReport = true; }
+                    bool monitorOldEnough = false;
+                    try { monitorOldEnough = (DateTime.UtcNow - AdbWifiProcess.StartTime.ToUniversalTime()).TotalSeconds >= 120; }
+                    catch { }
+                    if (!staleReport || !monitorOldEnough) return;
+                    try { AdbWifiProcess.Kill(); } catch { }
+                    try { AdbWifiProcess.WaitForExit(2000); } catch { }
+                }
                 try { AdbWifiProcess.Dispose(); } catch { }
                 AdbWifiProcess = null;
             }
