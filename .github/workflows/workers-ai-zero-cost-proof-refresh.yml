@@ -118,7 +118,7 @@ jobs:
 
           PROOF="$(cat workers-ai-zero-cost-proof.json)"
           test -n "${PROOF}"
-          printf '%s' "${PROOF}" | npx wrangler secret put MEL_WORKERS_AI_ZERO_COST_PROOF_JSON --name meliturgos --env=""
+          printf '%s' "${PROOF}" | npx wrangler versions secret put MEL_WORKERS_AI_ZERO_COST_PROOF_JSON --name meliturgos --env=""
           echo "Workers AI zero-cost runtime proof refreshed without code deployment."
 
       - name: Re-prove Browser Run Workers Free hard-limit status
@@ -167,7 +167,7 @@ jobs:
           NODE
           PROOF="$(cat browser-run-zero-cost-proof.json)"
           test -n "${PROOF}"
-          printf '%s' "${PROOF}" | npx wrangler secret put MEL_BROWSER_RUN_ZERO_COST_PROOF_JSON --name meliturgos --env=""
+          printf '%s' "${PROOF}" | npx wrangler versions secret put MEL_BROWSER_RUN_ZERO_COST_PROOF_JSON --name meliturgos --env=""
           echo "Browser Run zero-cost runtime proof refreshed without code deployment."
 
       - name: Upload sanitized refresh evidence
