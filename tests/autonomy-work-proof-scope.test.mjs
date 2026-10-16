@@ -6,7 +6,8 @@ import { findVerifiedRuntimeWorkProof } from '../src/evolution/autonomy-proof.js
 function proof() {
   return {
     status: 'VERIFIED',
-    version: 3,
+    version: 4,
+    runtime_fanout_cache_hit: false,
     recovered_interrupted_node: true,
     providers_attempted: 2,
     provider_model_identities: [
