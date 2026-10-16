@@ -131,8 +131,6 @@ export async function runRuntimeWorkDagResumeProof(env = {}, {
   const multi = completed.nodes.find((node) => node.id === 'multi-ai-state');
   const recovered = completed.audit?.some((entry) => entry.event === 'WORK_NODE_RECOVERED_FOR_RETRY' && entry.node_id === 'multi-ai-state') === true;
   const successfulCandidates = Array.isArray(multi?.result?.candidates) ? multi.result.candidates.length : 0;
-  const identities = distinctModelIdentitiesFromFanout(multi?.result);
-  const providersAttempted = identities.length;
 
   if (completed.status !== WORK_DAG_STATUS.COMPLETED) {
     throw Object.assign(new Error('RUNTIME_WORK_DAG_PROOF_NOT_COMPLETED'), { code: 'RUNTIME_WORK_DAG_PROOF_NOT_COMPLETED' });
@@ -140,6 +138,8 @@ export async function runRuntimeWorkDagResumeProof(env = {}, {
   if (!recovered || Number(multi?.attempts || 0) < 2) {
     throw Object.assign(new Error('RUNTIME_WORK_DAG_RECOVERY_NOT_PROVEN'), { code: 'RUNTIME_WORK_DAG_RECOVERY_NOT_PROVEN' });
   }
+  const identities = distinctModelIdentitiesFromFanout(multi?.result);
+  const providersAttempted = identities.length;
   if (successfulCandidates < 1) {
     throw Object.assign(new Error('RUNTIME_WORK_DAG_NO_SUCCESSFUL_AI_RESULT'), { code: 'RUNTIME_WORK_DAG_NO_SUCCESSFUL_AI_RESULT' });
   }
