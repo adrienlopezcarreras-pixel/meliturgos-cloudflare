@@ -1,0 +1,13 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { evaluateRawJob } from '../../src/revenue/raw-job-gate.js';
+const job = { provider:'example', jobId:'job-1', kind:'json-transform', imageDigest:'sha256:'+'a'.repeat(64), payoutEurMicros:100000, maxRuntimeSeconds:60, powerWatts:100, feesEurMicros:1000, otherCostEurMicros:500, sandbox:{rootless:true,readOnlyRootFs:true,noHostMounts:true,noPrivileged:true,network:'none'} };
+const policy = { allowedProviders:['example'], maxRuntimeSeconds:300, maxPowerWatts:250, electricityEurMicrosPerKwh:300000, minimumProfitEurMicros:10000, minimumMarginBps:1000, dispatchEnabled:false, sandboxVerified:false };
+test('keeps profitable work observation-only by default', () => { const x=evaluateRawJob(job,policy); assert.equal(x.decision,'OBSERVE_ONLY'); assert.equal(x.expectedProfitEurMicros,98000); assert.equal(x.electricityCostEurMicros,500); });
+test('rejects an unknown provider', () => assert.equal(evaluateRawJob({...job,provider:'other'},policy).reason,'PROVIDER_NOT_ALLOWLISTED'));
+test('rejects mutable images', () => assert.equal(evaluateRawJob({...job,imageDigest:'latest'},policy).reason,'IMAGE_NOT_PINNED'));
+test('rejects a job needing host credentials', () => assert.equal(evaluateRawJob({...job,needsHostCredentials:true},policy).reason,'HOST_ACCESS_FORBIDDEN'));
+test('rejects unsafe sandbox', () => assert.equal(evaluateRawJob({...job,sandbox:{...job.sandbox,noHostMounts:false}},policy).reason,'SANDBOX_UNSAFE'));
+test('never dispatches without a verified sandbox', () => { assert.equal(evaluateRawJob(job,{...policy,dispatchEnabled:true}).reason,'SANDBOX_NOT_VERIFIED'); assert.equal(evaluateRawJob(job,{...policy,dispatchEnabled:true,sandboxVerified:true}).decision,'ELIGIBLE_FOR_DISPATCH'); });
+test('fails closed when electricity cost is missing', () => { const p={...policy}; delete p.electricityEurMicrosPerKwh; assert.equal(evaluateRawJob(job,p).reason,'ELECTRICITY_RATE_MISSING'); });
+test('rejects an unprofitable task', () => assert.equal(evaluateRawJob({...job,payoutEurMicros:1000},policy).reason,'PROFIT_TOO_LOW'));

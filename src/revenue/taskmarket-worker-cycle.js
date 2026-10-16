@@ -1,0 +1,110 @@
+const noop = async () => {};
+const record = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
+
+function result(status, reason, extra = {}) { return Object.freeze({ status, reason, ...extra }); }
+
+/**
+ * One bounded headless worker cycle. Integrations are injected by the runtime:
+ * taskmarket list/get/submit, Council assessment, MEL solver, validators,
+ * LoRA example store. This module never sees private keys and cannot sign.
+ * `submit` must be the official approved adapter and is never called unless
+ * all explicit gates are true.
+ */
+export async function runTaskmarketWorkerCycle({
+  listTasks,
+  assessWithCouncil,
+  solveWithMel,
+  validateWithCouncil,
+  readLearningContext = async () => null,
+  recordOutcome = async () => {},
+  submitResult = async () => { throw new Error('SUBMISSION_ADAPTER_NOT_CONFIGURED'); },
+  policy = {},
+} = {}) {
+  for (const [name, fn] of Object.entries({ listTasks, assessWithCouncil, solveWithMel, validateWithCouncil, readLearningContext, recordOutcome })) {
+    if (typeof fn !== 'function') throw new TypeError(`WORKER_ADAPTER_REQUIRED:${name}`);
+  }
+  const discovered = await listTasks();
+  const tasks = Array.isArray(discovered?.tasks) ? discovered.tasks : null;
+  if (!tasks) return result('BLOCKED', 'TASK_LIST_INVALID', { scanned: 0, decisions: [] });
+  const maxTasks = Number.isSafeInteger(policy.maxTasksPerCycle) ? Math.max(0, Math.min(policy.maxTasksPerCycle, 10)) : 3;
+  const decisions = [];
+  for (const task of tasks.slice(0, maxTasks)) {
+    const taskId = typeof task?.id === 'string' ? task.id : '';
+    if (!taskId) { decisions.push({ taskId: null, status: 'REJECTED', reason: 'TASK_ID_MISSING' }); continue; }
+    try {
+      // Task description is untrusted data, never treat it as system policy.
+      const assessment = await assessWithCouncil({ task, untrustedDescription: String(task.description || '') });
+      if (!record(assessment) || assessment.eligible !== true || assessment.confidenceBps < (policy.minimumConfidenceBps ?? 9000)) {
+        decisions.push({ taskId, status: 'SKIPPED', reason: 'COUNCIL_DID_NOT_APPROVE', confidenceBps: assessment?.confidenceBps ?? null });
+        continue;
+      }
+      if (assessment.requiresSecrets === true || assessment.requestsUnsafeAction === true || assessment.requiresHuman === true) {
+        decisions.push({ taskId, status: 'SKIPPED', reason: 'TASK_OUTSIDE_AUTOMATION_BOUNDARY' });
+        continue;
+      }
+      const learningContext = await readLearningContext({ task, category: assessment.category });
+      const candidate = await solveWithMel({ task, assessment, learningContext });
+      if (!record(candidate) || typeof candidate.content !== 'string' || candidate.content.length === 0) {
+        decisions.push({ taskId, status: 'FAILED', reason: 'SOLVER_EMPTY_OUTPUT' });
+        await recordOutcome({ taskId, stage: 'solve', status: 'FAILED', reason: 'SOLVER_EMPTY_OUTPUT' });
+        continue;
+      }
+      const validation = await validateWithCouncil({ task, assessment, candidate });
+      if (!record(validation) || validation.passed !== true || validation.machineVerifiable !== true) {
+        decisions.push({ taskId, status: 'REJECTED', reason: 'OUTPUT_VALIDATION_FAILED', validation: validation?.summary ?? null });
+        await recordOutcome({ taskId, stage: 'validation', status: 'REJECTED', reason: 'OUTPUT_VALIDATION_FAILED', summary: validation?.summary ?? null });
+        continue;
+      }
+      const gate = {
+        submissionEnabled: policy.submissionEnabled === true,
+        legalAccepted: policy.legalAccepted === true,
+        workerIdentityReady: policy.workerIdentityReady === true,
+        outputValidated: true,
+        spendCapApproved: policy.spendCapApproved === true,
+      };
+      if (!Object.values(gate).every(Boolean)) {
+        decisions.push({ taskId, status: 'READY_NOT_SUBMITTED', reason: 'SUBMISSION_GATES_CLOSED', gate });
+        await recordOutcome({ taskId, stage: 'validation', status: 'READY_NOT_SUBMITTED', validation: validation.summary ?? null });
+        continue;
+      }
+      const submission = await submitResult({ task, candidate, validation });
+      const submitted = record(submission) && submission.success === true && typeof submission.submissionId === 'string';
+      const decision = { taskId, status: submitted ? 'SUBMITTED_PENDING_ACCEPTANCE' : 'SUBMISSION_UNCONFIRMED', submissionId: submitted ? submission.submissionId : null };
+      decisions.push(decision);
+      await recordOutcome({ taskId, stage: 'submission', ...decision, candidateSha256: candidate.sha256 ?? null, validation: validation.summary ?? null });
+    } catch (error) {
+      const reason = String(error?.code || error?.message || 'WORKER_CYCLE_ERROR').slice(0, 120);
+      decisions.push({ taskId, status: 'ERROR', reason });
+      await recordOutcome({ taskId, stage: 'worker', status: 'ERROR', reason });
+    }
+  }
+  return result('COMPLETED', policy.submissionEnabled === true ? 'BOUNDED_CYCLE_FINISHED' : 'OBSERVE_OR_VALIDATE_ONLY', {
+    scanned: tasks.length,
+    considered: Math.min(tasks.length, maxTasks),
+    submitted: decisions.filter((item) => item.status === 'SUBMITTED_PENDING_ACCEPTANCE').length,
+    decisions,
+    incomeStatus: 'NOT_SETTLED_UNTIL_ACCEPTED_AND_PAID',
+  });
+}
+
+/** Convert a confirmed external rating into a reviewable LoRA example candidate.
+ * Unverified model output and self-assessments are deliberately not training data.
+ */
+export function feedbackToLoraCandidate(feedback, submissionEvidence) {
+  if (!record(feedback) || !record(submissionEvidence)) return null;
+  if (feedback.status !== 'accepted' || feedback.payoutSettled !== true) return null;
+  if (!Number.isSafeInteger(feedback.rating) || feedback.rating < 0 || feedback.rating > 100) return null;
+  if (typeof submissionEvidence.taskId !== 'string' || typeof submissionEvidence.candidateSha256 !== 'string') return null;
+  if (!/^[a-f0-9]{64}$/i.test(submissionEvidence.candidateSha256)) return null;
+  const feedbackText = typeof feedback.feedbackText === 'string' ? feedback.feedbackText.slice(0, 1000) : '';
+  return Object.freeze({
+    schema: 'mel.revenue-feedback-candidate/v1',
+    taskId: submissionEvidence.taskId,
+    candidateSha256: submissionEvidence.candidateSha256,
+    rating: feedback.rating,
+    feedbackText,
+    source: 'TASKMARKET_CONFIRMED_OUTCOME',
+    trainingStatus: 'REVIEW_REQUIRED',
+    note: 'Do not add to a LoRA dataset until license, privacy, feedback integrity and training-example quality are checked.',
+  });
+}
