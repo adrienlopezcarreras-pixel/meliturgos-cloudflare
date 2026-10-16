@@ -32,6 +32,7 @@ export const COMPUTER_USE_ACTIONS = Object.freeze({
   BROWSER_ZOOM_RESET: 'browser.zoom-reset',
   BROWSER_OPEN_DOWNLOADS: 'browser.open-downloads',
   BROWSER_OPEN_HISTORY: 'browser.open-history',
+  BROWSER_FOCUS_ADDRESS: 'browser.focus-address',
   BROWSER_SCROLL: 'browser.scroll',
   BROWSER_TYPE: 'browser.type',
   BROWSER_BACK: 'browser.back',
@@ -70,6 +71,7 @@ const ACTION_RISK = new Map([
   [COMPUTER_USE_ACTIONS.BROWSER_ZOOM_RESET, COMPUTER_USE_RISK.SENSITIVE],
   [COMPUTER_USE_ACTIONS.BROWSER_OPEN_DOWNLOADS, COMPUTER_USE_RISK.SENSITIVE],
   [COMPUTER_USE_ACTIONS.BROWSER_OPEN_HISTORY, COMPUTER_USE_RISK.SENSITIVE],
+  [COMPUTER_USE_ACTIONS.BROWSER_FOCUS_ADDRESS, COMPUTER_USE_RISK.SENSITIVE],
   [COMPUTER_USE_ACTIONS.BROWSER_SCROLL, COMPUTER_USE_RISK.SENSITIVE],
   [COMPUTER_USE_ACTIONS.BROWSER_TYPE, COMPUTER_USE_RISK.SENSITIVE],
   [COMPUTER_USE_ACTIONS.BROWSER_BACK, COMPUTER_USE_RISK.SENSITIVE],
@@ -460,6 +462,17 @@ export function evaluateComputerUsePlan(input = {}) {
       // discard an alternate URL, or ignore any other owner-supplied target.
       allowed = false;
       reason = 'BROWSER_SHORTCUT_UNEXPECTED_FIELD';
+    } else if (step.action === COMPUTER_USE_ACTIONS.BROWSER_FOCUS_ADDRESS
+      && !validBrowserWindowHandle(step.window_handle)) {
+      allowed = false;
+      reason = 'BROWSER_FOCUS_ADDRESS_WINDOW_HANDLE_REQUIRED';
+    } else if (step.action === COMPUTER_USE_ACTIONS.BROWSER_FOCUS_ADDRESS
+      && Object.keys(submittedSteps[decisions.length] ?? {}).some(field =>
+        !['id', 'action', 'window_handle'].includes(field))) {
+      // Ctrl+L focuses/selects the address bar; it cannot type, navigate,
+      // replace the URL, or silently honor any alternate target or payload.
+      allowed = false;
+      reason = 'BROWSER_FOCUS_ADDRESS_UNEXPECTED_FIELD';
     } else if (step.action === COMPUTER_USE_ACTIONS.BROWSER_FIND
       && !validBrowserWindowHandle(step.window_handle)) {
       allowed = false;
