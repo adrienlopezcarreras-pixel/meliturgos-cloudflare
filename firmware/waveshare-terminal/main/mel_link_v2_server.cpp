@@ -53,12 +53,11 @@ static int gap_event(struct ble_gap_event *event, void *arg);
 static void start_advertising();
 
 static bool frame_header_valid(const uint8_t *data, size_t len) {
-    if (!data || len < MEL_LINK_V2_HEADER_SIZE) return false;
-    const MelLinkV2Header *h = reinterpret_cast<const MelLinkV2Header *>(data);
-    if (h->magic0 != MEL_LINK_V2_MAGIC0 || h->magic1 != MEL_LINK_V2_MAGIC1) return false;
-    if (h->protocol_version != MEL_LINK_V2_PROTOCOL_VERSION) return false;
-    if ((size_t)h->payload_len + MEL_LINK_V2_HEADER_SIZE != len) return false;
-    return true;
+    // Validate the complete Link V2 frame, including its CRC, before
+    // acknowledging a BLE GATT write or enqueueing any device action.
+    // The shared decoder copies the packed header safely rather than
+    // reinterpreting a potentially unaligned BLE byte buffer as a struct.
+    return mel_link_v2_decode(data, len, nullptr, nullptr);
 }
 
 static int access_cb(
