@@ -75,6 +75,22 @@ export async function proveSafeExecutions({
     if(!verdict.ok)return verdict;
     executions.push(sample.id);
   }
+  // Fail closed if production rolled to another release while the four calls ran.
+  // A successful preflight alone cannot attribute every execution to one SHA.
+  let finalResponse;
+  try{
+    finalResponse=await fetchImpl(DEFAULT_BASE+'/api/gen2/code/self-check',{
+      method:'GET',redirect:'error',headers,signal:AbortSignal.timeout(25000),
+    });
+  }catch{return {ok:false,code:'LIVE_SAFE_FINAL_DEPLOYMENT_CHECK_FAILED'};}
+  if(finalResponse.status!==200)
+    return {ok:false,code:'LIVE_SAFE_FINAL_DEPLOYMENT_HTTP_'+finalResponse.status};
+  let finalIdentity;
+  try{finalIdentity=await finalResponse.json();}
+  catch{return {ok:false,code:'LIVE_SAFE_FINAL_DEPLOYMENT_INVALID_JSON'};}
+  if(finalIdentity?.ok!==true || finalIdentity?.exact_deployment_identity_known!==true ||
+    String(finalIdentity?.deployed_sha||'').toLowerCase()!==expectedSha.toLowerCase())
+    return {ok:false,code:'LIVE_SAFE_DEPLOYMENT_CHANGED_DURING_EXECUTION'};
   return {ok:true,code:'LIVE_SAFE_READ_ONLY_CAPABILITIES_EXECUTED',
     deployed_sha:expectedSha,executed_count:executions.length,
     executed_capability_ids:executions,all_registered_capabilities_tested:false,
