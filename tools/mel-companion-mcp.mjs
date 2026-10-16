@@ -44,7 +44,8 @@ async function getStatus(args){
    }
   }finally{reader.releaseLock();}
   const raw=Buffer.concat(chunks,total).toString('utf8');
-  const data=JSON.parse(raw);
+  let data;
+  try{data=JSON.parse(raw);}catch{throw new Error('MEL_STATUS_INVALID_JSON');}
   if(data.ok!==true||!Array.isArray(data.devices))throw new Error('MEL_STATUS_INVALID');
   return {devices:data.devices.map(d=>({
    id:String(d.id||''),name:String(d.name||''),online:d.online===true,
