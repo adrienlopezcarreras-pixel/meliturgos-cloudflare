@@ -175,10 +175,12 @@ test('scheduled zero-cost proof refresh authenticates BOTH Cloudflare secret upd
     'each GitHub Actions step must explicitly receive its own Cloudflare token');
   assert.ok(browserStep.includes('test -n "${CLOUDFLARE_API_TOKEN:-}"'),
     'missing token must fail clearly before touching the Browser Run proof');
-  assert.ok(browserStep.includes('wrangler secret put MEL_BROWSER_RUN_ZERO_COST_PROOF_JSON --name meliturgos --env=""'),
+  assert.ok(browserStep.includes('wrangler versions secret put MEL_BROWSER_RUN_ZERO_COST_PROOF_JSON --name meliturgos --env=""'),
     'Browser Run proof secret must target the canonical top-level Worker environment');
-  assert.ok(workflow.includes('wrangler secret put MEL_WORKERS_AI_ZERO_COST_PROOF_JSON --name meliturgos --env=""'),
+  assert.ok(workflow.includes('wrangler versions secret put MEL_WORKERS_AI_ZERO_COST_PROOF_JSON --name meliturgos --env=""'),
     'Workers AI proof must target the same environment');
+  assert.doesNotMatch(workflow, /wrangler secret put MEL_(?:BROWSER_RUN|WORKERS_AI)_ZERO_COST_PROOF_JSON/,
+    'proof refresh must update versioned secrets without an implicit production deployment');
 });
 
 test('zero-cost proofs refresh immediately after an approved release or workflow update as well as on the recurring schedule', async () => {
