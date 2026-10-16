@@ -31,8 +31,19 @@ async function getStatus(args){
   const mime=(res.headers.get('content-type')||'').toLowerCase();
   if(!mime.includes('application/json'))throw new Error('MEL_STATUS_NOT_JSON');
   if(Number(res.headers.get('content-length')||0)>1048576)throw new Error('MEL_STATUS_TOO_LARGE');
-  const raw=await res.text();
-  if(Buffer.byteLength(raw,'utf8')>1048576)throw new Error('MEL_STATUS_TOO_LARGE');
+  const reader=res.body?.getReader();
+  if(!reader)throw new Error('MEL_STATUS_INVALID');
+  const chunks=[];let total=0;
+  try{
+   while(true){
+    const {done,value}=await reader.read();
+    if(done)break;
+    total+=value.byteLength;
+    if(total>1048576){await reader.cancel();throw new Error('MEL_STATUS_TOO_LARGE');}
+    chunks.push(Buffer.from(value));
+   }
+  }finally{reader.releaseLock();}
+  const raw=Buffer.concat(chunks,total).toString('utf8');
   const data=JSON.parse(raw);
   if(data.ok!==true||!Array.isArray(data.devices))throw new Error('MEL_STATUS_INVALID');
   return {devices:data.devices.map(d=>({
