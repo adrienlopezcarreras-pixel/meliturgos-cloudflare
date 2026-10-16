@@ -2,7 +2,6 @@ import { D1CloudflareApiRelayStore } from '../platform/cloudflare-api-relay.js';
 import { D1GitHubActionRelayStore } from '../platform/github-action-relay.js';
 const GITHUB_API = 'https://api.github.com';
 const CLOUDFLARE_API = 'https://api.cloudflare.com/client/v4';
-const VERCEL_API = 'https://api.vercel.com';
 const USER_AGENT = 'meliturgos-platform-control';
 const MAX_LIST = 100;
 const MAX_TEXT = 500;
@@ -127,26 +126,7 @@ async function probeHealth(task, unavailableReason = '') {
   }
 }
 
-function projectRow(row = {}) {
-  return {
-    id: String(row.id || ''),
-    name: String(row.name || ''),
-    framework: String(row.framework || ''),
-    updated_at: Number(row.updatedAt || 0),
-    created_at: Number(row.createdAt || 0),
-  };
-}
 
-function deploymentRow(row = {}) {
-  return {
-    id: String(row.uid || row.id || ''),
-    name: String(row.name || ''),
-    url: String(row.url || ''),
-    state: String(row.state || row.readyState || ''),
-    target: String(row.target || ''),
-    created_at: Number(row.createdAt || row.created || 0),
-  };
-}
 
 export function registerPlatformReadCapabilities(bus, { env = {}, fetchImpl = fetch, repository = '', cloudflareRelayStore = null, githubRelayStore = null } = {}) {
   const githubRepository = repository || env.MEL_GITHUB_REPOSITORY || '';
