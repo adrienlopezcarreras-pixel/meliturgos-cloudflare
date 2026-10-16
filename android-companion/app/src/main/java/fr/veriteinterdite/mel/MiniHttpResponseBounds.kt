@@ -9,16 +9,32 @@ import java.io.InputStream
  * Reads progressively even when the server omits Content-Length.
  */
 object MiniHttpResponseBounds {
-    fun read(stream: InputStream?, maxBytes: Int): ByteArray {
+    const val MAX_READ_DURATION_NANOS = 180L * 1_000_000_000L
+
+    fun read(
+        stream: InputStream?,
+        maxBytes: Int,
+        clockNanos: () -> Long = System::nanoTime
+    ): ByteArray {
         require(maxBytes > 0)
         if (stream == null) return byteArrayOf()
         return stream.use { input ->
+            val started = clockNanos()
+            fun checkDeadline() {
+                if (clockNanos() - started >= MAX_READ_DURATION_NANOS) {
+                    throw IOException("MEL_RESPONSE_TIMEOUT")
+                }
+            }
             val out = ByteArrayOutputStream(minOf(maxBytes, 16 * 1024))
             val buffer = ByteArray(8192)
             var total = 0
             var zeroProgressReads = 0
             while (true) {
+                // Existing HTTP read timeouts bound an individual blocking call;
+                // this monotonic timer bounds the complete slow-dripped body.
+                checkDeadline()
                 val count = input.read(buffer)
+                checkDeadline()
                 if (count < 0) break
                 if (count == 0) {
                     // A faulty network stream may return zero indefinitely.
