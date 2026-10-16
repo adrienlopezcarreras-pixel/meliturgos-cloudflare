@@ -2350,6 +2350,34 @@ function Assert-BrowserClickTarget([IntPtr]$window, [string]$browser, [int]$x, [
   }
 }
 
+function Type-BrowserText([string]$text, [IntPtr]$window, [string]$browser) {
+  if ([string]::IsNullOrEmpty($text) -or $text.Length -gt 4096) { throw "BROWSER_TYPE_TEXT_INVALID" }
+  if ($script:MelExitRequested) { throw "BROWSER_TYPE_LOCAL_STOP_ACTIVE" }
+  Assert-BrowserShortcutTarget $window $browser
+  # Snapshot all clipboard formats locally; never send clipboard contents to MEL.
+  try { $priorClipboard = [System.Windows.Forms.Clipboard]::GetDataObject() }
+  catch { throw "BROWSER_TYPE_CLIPBOARD_UNAVAILABLE" }
+  $changed = $false
+  try {
+    [System.Windows.Forms.Clipboard]::SetText($text)
+    $changed = $true
+    # Clipboard operations may take long enough for the foreground window to change.
+    if ($script:MelExitRequested) { throw "BROWSER_TYPE_LOCAL_STOP_ACTIVE" }
+    Assert-BrowserShortcutTarget $window $browser
+    [System.Windows.Forms.SendKeys]::SendWait("^v")
+  } finally {
+    if ($changed) {
+      try {
+        if ($null -ne $priorClipboard) {
+          [System.Windows.Forms.Clipboard]::SetDataObject($priorClipboard, $true)
+        } else {
+          [System.Windows.Forms.Clipboard]::Clear()
+        }
+      } catch { throw "BROWSER_TYPE_CLIPBOARD_RESTORE_FAILED" }
+    }
+  }
+}
+
 function Perform-Step($step, [string]$commandId, [string]$planSchema="") {
   $action = [string]$step.action
   if ($planSchema -eq "mel.devices.pc-control.v1") {
@@ -2504,6 +2532,19 @@ function Perform-Step($step, [string]$commandId, [string]$planSchema="") {
         [MelNative]::mouse_event($MOUSE_LEFTUP,0,0,0,[UIntPtr]::Zero)
       }
       return @{ action=$action; browser=$browser; x=$x; y=$y; window_handle=$expectedHandle; coordinate_space="virtual-screen-pixels" }
+    }
+    "browser.type" {
+      [long]$expectedHandle = 0
+      if (-not [long]::TryParse([string]$step.window_handle, [ref]$expectedHandle) -or $expectedHandle -le 0) {
+        throw "BROWSER_TYPE_WINDOW_HANDLE_REQUIRED"
+      }
+      $window = [MelNative]::GetForegroundWindow()
+      if ($window -eq [IntPtr]::Zero -or $window.ToInt64() -ne $expectedHandle) { throw "BROWSER_TYPE_FOCUS_CHANGED" }
+      $browser = Assert-ForegroundBrowser
+      Assert-BrowserShortcutTarget $window $browser
+      $text = [string]$step.text
+      Type-BrowserText $text $window $browser
+      return @{ action=$action; browser=$browser; chars=$text.Length; window_handle=$expectedHandle; text_exposed=$false }
     }
     "browser.capture" {
       # Capture the foreground browser rectangle only, never the virtual desktop.
