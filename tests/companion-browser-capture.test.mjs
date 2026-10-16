@@ -22,3 +22,5 @@ test('browser screenshot validates unchanged focus again immediately before uplo
   const validation=upload.indexOf('SCREENSHOT_BINARY_PAYLOAD_INVALID');
   assert.ok(lastCheck>validation && transfer>lastCheck);
 });
+
+test('browser screenshot validates foreground before reading any screen pixels',async()=>{const a=await readFile(new URL('../assets/MEL-Computer-Companion.ps1',import.meta.url),'utf8');const b=await readFile(new URL('../dist/MEL-Computer-Companion.ps1',import.meta.url),'utf8');assert.equal(a,b);const start=a.indexOf('function Upload-BrowserScreenshot(');const end=a.indexOf('function Key-Token(',start);const upload=a.slice(start,end);const beforeCapture=upload.slice(0,upload.indexOf('[byte[]]$bytes = Capture-PngBytes $bounds'));assert.match(beforeCapture,/Assert-LocalRemoteAccess/);assert.match(beforeCapture,/GetForegroundWindow\(\) -ne \$window/);assert.match(beforeCapture,/Assert-ForegroundBrowser/);assert.match(beforeCapture,/BROWSER_CAPTURE_FOCUS_CHANGED/)});
