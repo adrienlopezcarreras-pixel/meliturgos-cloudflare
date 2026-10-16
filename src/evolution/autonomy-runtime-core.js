@@ -380,6 +380,19 @@ export async function prepareAutonomyTeacherRequest({ env, repository, job, fetc
  * cycle instead of planning against unreviewed code. Production is never
  * committed or deployed here.
  */
+export function autonomyWorkRemaining(state) {
+  // An inaccessible evolution queue is never proof that MEL has no work.
+  return (Array.isArray(state?.active) && state.active.length > 0)
+    || Boolean(state?.next)
+    || state?.evolution?.status === 'UNAVAILABLE';
+}
+
+export function autonomyQueueReadBlocker(state) {
+  return state?.evolution?.status === 'UNAVAILABLE'
+    ? (state.evolution.code || 'EVOLUTION_QUEUE_READ_FAILED')
+    : null;
+}
+
 export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repository = null, benchmarkEvaluator = null, benchmarkModelId = '', roadmap = null, maxAutonomy = false } = {}) {
   const jobRepository = repository || new D1DevJobRepository(env.DB);
   const reconciliation = await reconcileRuntimeTeacherReplies({ repository: jobRepository, env, fetchImpl }).catch((error) => ({
@@ -604,7 +617,7 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
     progressEvents.push('ROADMAP_COMPLETION_ADVANCED');
   }
   const activeCount = Array.isArray(state?.active) ? state.active.length : 0;
-  const workRemaining = activeCount > 0 || Boolean(state?.next);
+  const workRemaining = autonomyWorkRemaining(state);
   const waitingExternal = finalJobStatus === 'WAITING_TEACHER'
     || String(ensured?.external_progress?.status || '').length > 0;
   const blockReason = bridgePreparation?.status === 'NOT_READY'
@@ -615,7 +628,7 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
         ? (runtimeProof.code || 'RUNTIME_WORK_DAG_PROOF_NOT_VERIFIED')
         : waitingExternal
           ? (ensured?.external_progress?.status || 'WAITING_EXTERNAL_PROGRESS')
-          : null;
+          : autonomyQueueReadBlocker(state);
   const advanced = progressEvents.length > 0;
 
   return {
