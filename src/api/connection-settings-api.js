@@ -1019,11 +1019,11 @@ export async function maybeHandleConnectionSettingsApi(request, env = {}, url = 
   if (!match) return null;
   const provider = match[1];
   const action = match[2];
-  if (!PROVIDERS.has(provider)) return json({ ok: false, code: 'CONNECTION_PROVIDER_UNSUPPORTED' }, 404);
-  const contextOwner = owner(env);
 
   // Owner zero-cost policy: never make a paid Vercel request from MEL.
   if (provider === 'vercel') return json({ ok: false, code: 'PAID_PROVIDER_DISABLED_FREE_ONLY' }, 409);
+  if (!PROVIDERS.has(provider)) return json({ ok: false, code: 'CONNECTION_PROVIDER_UNSUPPORTED' }, 404);
+  const contextOwner = owner(env);
 
   try {
     if (action === 'status') {
