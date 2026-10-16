@@ -938,7 +938,7 @@ jobs:
           NODE
                 )"
                 case "${DEPLOY_JOB_STATE}" in
-                  completed:success)
+                  exact-deployed:success|completed:success)
                     RELEASE_DEPLOY_SUCCESS=1
                     break
                     ;;
