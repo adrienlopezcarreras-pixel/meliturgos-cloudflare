@@ -104,6 +104,11 @@ class MiniMediaReceiver(private val context: Context) {
                 override fun onStopped() {
                     currentConfig = null
                     started.set(false)
+                    // The old accept() otherwise remains blocked on the bound port
+                    // and prevents starting a fresh hotspot/media server.
+                    runCatching { serverSocket?.close() }
+                    serverSocket = null
+                    reservation = null
                     stopActiveClients()
                 }
 
