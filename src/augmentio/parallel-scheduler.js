@@ -172,7 +172,12 @@ export class ParallelScheduler {
       task,
       index,
       provider: getProviderId(task, index),
-      providerConcurrency: getProviderConcurrency(task, index),
+      // Custom provider concurrency callbacks may come from model metadata.
+      // NaN/zero would deadlock a pending task; Infinity or huge values
+      // would bypass the per-provider safety bound. Normalize every result.
+      providerConcurrency: boundedInteger(
+        getProviderConcurrency(task, index), this.perProviderConcurrency, 1, 16,
+      ),
     }));
     const activePerProvider = new Map();
     const active = new Set();
