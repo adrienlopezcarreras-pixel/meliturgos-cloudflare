@@ -40,9 +40,14 @@ function council(costB = 0, { sameProvider = false, missingProof = false, wrongP
 function workDagProof() {
   return {
     status: 'VERIFIED',
+    version: 3,
     verified_at: '2026-09-10T05:00:00Z',
     recovered_interrupted_node: true,
     providers_attempted: 2,
+    provider_model_identities: [
+      { provider: 'workers-ai', model: 'model-a' },
+      { provider: 'workers-ai', model: 'model-b' },
+    ],
     successful_candidates: 2,
     zero_added_cost_policy: 'ENFORCED_BY_AUGMENTIO_GOVERNOR',
   };
