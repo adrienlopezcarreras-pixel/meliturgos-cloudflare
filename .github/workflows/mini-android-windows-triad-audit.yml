@@ -19,6 +19,26 @@ on:
       - 'tests/mini-firmware-stage-*.mjs'
       - 'scripts/cloudflare-api-relay-runner.mjs'
       - '.github/workflows/mini-android-windows-triad-audit.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'docs/MINI-ANDROID-WINDOWS-TRIAD-AUDIT-2026-10-10.md'
+      - 'scripts/mini-triad-audit.mjs'
+      - 'tests/mini-triad-protocol-stress.cpp'
+      - 'tests/computer-companion-api.test.mjs'
+      - 'src/devices/mini-maintenance-companion.js'
+      - 'tests/mini-companion-maintenance-assess.test.mjs'
+      - 'android-companion/**'
+      - '.github/workflows/android-apk-build.yml'
+      - '.github/workflows/android-release-build.yml'
+      - 'windows-companion/**'
+      - 'firmware/waveshare-terminal/**'
+      - 'src/devices/computer-companion-api.js'
+      - 'src/devices/mini-firmware-stage-companion.js'
+      - 'tests/mini-firmware-stage-*.mjs'
+      - 'scripts/cloudflare-api-relay-runner.mjs'
+      - '.github/workflows/mini-android-windows-triad-audit.yml'
   workflow_dispatch:
 
 permissions:
