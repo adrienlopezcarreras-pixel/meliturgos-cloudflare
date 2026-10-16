@@ -41,3 +41,23 @@ test('incomplete target proof is not reusable even when an older valid proof exi
   await repository.update(target.id, { result_json:{ autonomy_proofs:{ work_dag_resume:{ ...proof(), providers_attempted:1 } } } });
   assert.equal(await findVerifiedRuntimeWorkProof(repository, { targetJobId:target.id }), null);
 });
+
+test('a malformed provider count or no successful candidate is never reusable proof', async () => {
+  const broken = [
+    { providers_attempted: Number.POSITIVE_INFINITY },
+    { providers_attempted: '2' },
+    { providers_attempted: 2.5 },
+    { successful_candidates: 0 },
+    { successful_candidates: Number.POSITIVE_INFINITY },
+    { successful_candidates: 3 },
+    { successful_candidates: '1' },
+  ];
+  for (const fields of broken) {
+    const repository = new D1DevJobRepository(null, { memoryStore: new Map() });
+    const target = await repository.create({ id: 'malformed-proof', requested_by: 'mel-autonomy', goal: 'validate proof' });
+    await repository.update(target.id, { result_json: {
+      autonomy_proofs: { work_dag_resume: { ...proof(), ...fields } },
+    } });
+    assert.equal(await findVerifiedRuntimeWorkProof(repository, { targetJobId: target.id }), null);
+  }
+});
