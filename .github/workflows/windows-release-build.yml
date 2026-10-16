@@ -323,6 +323,11 @@ jobs:
           [[ "$declared_hash" =~ ^[0-9a-fA-F]{64}$ ]] || { echo "WINDOWS_RELEASE_CHECKSUM_INVALID"; exit 1; }
           actual_hash="$(sha256sum "signed-windows/MEL-Windows-$RELEASE_VERSION.zip" | cut -d' ' -f1)"
           [[ "${declared_hash,,}" == "${actual_hash,,}" ]] || { echo "WINDOWS_RELEASE_CHECKSUM_MISMATCH"; exit 1; }
+          expected_manifest_hash="$(jq -er '.manifest_sha256' "signed-windows/MEL-Windows-$RELEASE_VERSION.release.json")"
+          [[ "$expected_manifest_hash" =~ ^[0-9a-fA-F]{64}$ ]] || { echo "WINDOWS_RELEASE_INTERNAL_MANIFEST_HASH_INVALID"; exit 1; }
+          unzip -p "signed-windows/MEL-Windows-$RELEASE_VERSION.zip" release-manifest.json > "$RUNNER_TEMP/mel-release-manifest.json"
+          internal_manifest_hash="$(sha256sum "$RUNNER_TEMP/mel-release-manifest.json" | cut -d' ' -f1)"
+          [[ "${expected_manifest_hash,,}" == "${internal_manifest_hash,,}" ]] || { echo "WINDOWS_RELEASE_INTERNAL_MANIFEST_HASH_MISMATCH"; exit 1; }
           tag="mel-companion-windows-v${RELEASE_VERSION}-${EXPECTED_SHA:0:12}"
           if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             echo "WINDOWS_RELEASE_TAG_ALREADY_PUBLISHED"
