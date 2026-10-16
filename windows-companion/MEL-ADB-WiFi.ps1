@@ -112,6 +112,19 @@ function Scan {
   Write-StatusReport $status
   Write-AdbLog ("{0} connected={1} model={2} mel_installed={3}" -f $status.observed_at_utc,$status.connected,$status.android_model,$status.mel_installed)
 }
+$monitorMutex = $null
+$ownsMonitorMutex = $false
+if (-not $Once) {
+  try {
+    $monitorMutex = New-Object System.Threading.Mutex($false, "Local\MEL.Companion.AdbWifiMonitor")
+    try { $ownsMonitorMutex = $monitorMutex.WaitOne(0) }
+    catch [System.Threading.AbandonedMutexException] { $ownsMonitorMutex = $true }
+    if (-not $ownsMonitorMutex) { exit 0 }
+  } catch {
+    # Fail closed: if singleton ownership cannot be established, do not spawn a second monitor.
+    exit 0
+  }
+}
 do {
   try {
     if (-not $adb) {
@@ -128,3 +141,7 @@ do {
   }
   if (-not $Once) { Start-Sleep -Seconds $IntervalSeconds }
 } while (-not $Once)
+if ($ownsMonitorMutex -and $null -ne $monitorMutex) {
+  try { $monitorMutex.ReleaseMutex() } catch { }
+}
+if ($null -ne $monitorMutex) { $monitorMutex.Dispose() }
