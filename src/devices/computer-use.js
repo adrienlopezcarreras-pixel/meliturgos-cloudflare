@@ -87,8 +87,13 @@ function numeric(value, fallback = 0) {
 // Native Windows pointer operations consume integer coordinates and deltas.
 // Validate the submitted values before numeric() could silently substitute 0.
 function suppliedSafeInteger(value) {
-  return (typeof value === 'number' || (typeof value === 'string' && value.trim() !== ''))
-    && Number.isSafeInteger(Number(value));
+  // PowerShell [int] / SetCursorPos / mouse_event consume signed 32-bit values.
+  // Reject rather than overflow when JavaScript's safe integer is wider.
+  if (typeof value !== 'number' && !(typeof value === 'string' && value.trim() !== '')) return false;
+  const numericValue = Number(value);
+  return Number.isInteger(numericValue)
+    && numericValue >= -2147483648
+    && numericValue <= 2147483647;
 }
 
 function normalizeOrigin(value) {
