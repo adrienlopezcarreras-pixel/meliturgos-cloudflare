@@ -852,13 +852,13 @@ test('Augmentio records actual adapter invocations, not circuit-open scheduled p
   const ai = new Augmentio({ pool, scheduler });
   const result = await ai.fanOut({ input: 'prove invoked model only', maxCandidates: 2 });
   assert.equal(result.best.text, 'real model response');
-  assert.equal(result.failures, 1);
+  assert.equal(result.failures, 0, 'known-open circuits are skipped before scheduling');
   assert.equal(blockedCalls, 0);
   assert.equal(healthyCalls, 1);
   assert.deepEqual(result.providersAttempted, ['healthy']);
   assert.deepEqual(result.providerHealth.map(x => [x.id, x.model]), [
-    ['blocked', 'blocked-model'], ['healthy', 'healthy-model'],
-  ], 'diagnostics preserve selected identities without claiming the blocked model ran');
+    ['healthy', 'healthy-model'],
+  ], 'only callable models occupy selection slots');
 });
 
 test('Augmentio never counts an authorization-revoked model as attempted', async () => {
@@ -980,4 +980,44 @@ test('Augmentio does not credit a timed-out AI provider when its late output arr
   assert.equal(slow.stats.successes, 0);
   assert.equal(slow.stats.failures, 0);
   assert.equal(ai.quota.get('slow').calls, 0);
+});
+
+test('Augmentio fills both multi-AI slots even when the highest-priority model has an open circuit', async () => {
+  const calls = [];
+  const pool = new ProviderPool([
+    { id: 'blocked', priority: 3, capabilities: ['GENERAL'], estimatedCost: 0,
+      costProvenance: verifiedFree('blocked'), invoke: async () => { calls.push('blocked'); return 'bad'; } },
+    { id: 'second', priority: 2, capabilities: ['GENERAL'], estimatedCost: 0,
+      costProvenance: verifiedFree('second'), invoke: async () => { calls.push('second'); return 'answer 2'; } },
+    { id: 'third', priority: 1, capabilities: ['GENERAL'], estimatedCost: 0,
+      costProvenance: verifiedFree('third'), invoke: async () => { calls.push('third'); return 'answer 3'; } },
+  ]);
+  const scheduler = new ParallelScheduler({ circuitBreakerFailures: 1, retries: 0 });
+  scheduler.markFailure('blocked');
+  const ai = new Augmentio({ pool, scheduler });
+  const result = await ai.fanOut({ input: 'two independent usable models', maxCandidates: 2 });
+  assert.deepEqual(result.providersAttempted, ['second', 'third']);
+  assert.deepEqual(calls.sort(), ['second', 'third']);
+  assert.equal(result.candidates.length, 2);
+  assert.equal(result.failures, 0);
+  assert.equal(result.cacheHit, false);
+});
+
+test('Augmentio refuses stale cache if a selected AI circuit opens during async lookup', async () => {
+  let called = 0;
+  const adapter = { id: 'model', capabilities: ['GENERAL'], estimatedCost: 0,
+    costProvenance: verifiedFree('model'),
+    invoke: async () => { called++; return 'do not call'; } };
+  const scheduler = new ParallelScheduler({ circuitBreakerFailures: 1, retries: 0 });
+  const cache = {
+    async get() {
+      scheduler.markFailure('model');
+      return { best: { text: 'cached output' }, candidates: [] };
+    },
+    async set() { throw new Error('should not cache'); },
+  };
+  const ai = new Augmentio({ pool: new ProviderPool([adapter]), scheduler, cache });
+  await assert.rejects(ai.fanOut({ input: 'do not serve open-circuit cache' }),
+    error => error?.code === 'AUGMENTIO_PROVIDER_ROSTER_CHANGED');
+  assert.equal(called, 0);
 });
