@@ -125,7 +125,7 @@ class MiniPhotoDeadlineReaderTest {
                 return 1
             }
         }
-        MiniPhotoDeadlineReader.read(input, 2, { now }, { applied.add(it) })
+        MiniPhotoDeadlineReader.read(input, 2, beforeRead = { applied.add(it) }) { now }
         assertEquals(listOf(45_000, 2), applied)
     }
 
