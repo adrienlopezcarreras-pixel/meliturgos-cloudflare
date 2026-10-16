@@ -377,7 +377,8 @@ class MiniMediaReceiver(private val context: Context) {
             return
         }
         val url = String(readFully(input, urlLen), Charsets.UTF_8).trim()
-        if (!(url.startsWith("https://") || url.startsWith("http://"))) {
+        if (!(url.startsWith("https://") || url.startsWith("http://")) ||
+            !MiniBrowserUrlPolicy.allows(url)) {
             output.writeInt(0)
             output.flush()
             return
@@ -416,6 +417,32 @@ class MiniMediaReceiver(private val context: Context) {
             web.setBackgroundColor(android.graphics.Color.WHITE)
             web.layout(0, 0, width, height)
             web.webViewClient = object : WebViewClient() {
+                // Refuse private-network navigation even after public-page redirects.
+                override fun shouldOverrideUrlLoading(
+                    view: WebView,
+                    request: android.webkit.WebResourceRequest
+                ): Boolean = !MiniBrowserUrlPolicy.allows(request.url.toString())
+
+                @Suppress("DEPRECATION")
+                override fun shouldOverrideUrlLoading(view: WebView, url: String): Boolean =
+                    !MiniBrowserUrlPolicy.allows(url)
+
+                // Prevent obvious local-network requests from embedded resources too.
+                override fun shouldInterceptRequest(
+                    view: WebView,
+                    request: android.webkit.WebResourceRequest
+                ): android.webkit.WebResourceResponse? {
+                    val resourceUrl = request.url.toString()
+                    if (resourceUrl.startsWith("http://") || resourceUrl.startsWith("https://")) {
+                        if (!MiniBrowserUrlPolicy.allows(resourceUrl)) {
+                            return android.webkit.WebResourceResponse(
+                                "text/plain", "UTF-8", java.io.ByteArrayInputStream(ByteArray(0))
+                            )
+                        }
+                    }
+                    return null
+                }
+
                 override fun onPageFinished(view: WebView, pageUrl: String) {
                     // Redirects may produce multiple completion callbacks; only
                     // one may capture and destroy the WebView.
