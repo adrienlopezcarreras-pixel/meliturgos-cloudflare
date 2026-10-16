@@ -98,8 +98,12 @@ test('decoupled sovereignty waits for canonical exact-SHA deploy job success ins
   assert.match(block,/actions\/workflows\/deploy-cloudflare-release\.yml\/runs\?head_sha=\$\{TARGET_SHA\}/);
   assert.match(block,/actions\/runs\/\$\{RELEASE_RUN_ID\}\/jobs\?per_page=100/);
   assert.match(block,/String\(job\?\.name\|\|''\)==='deploy'/);
-  assert.match(block,/completed:success/);
-  assert.match(block,/SOV proof waiting for canonical exact-SHA deploy job success/);
+  assert.match(block,/Deploy exact approved SHA to production/);
+  assert.match(block,/Verify owner auth binding and exact deployment immediately/);
+  assert.match(block,/Verify bundled Workers AI zero-cost proof/);
+  assert.match(block,/Prove MEL-MEDIA-02 12\/12 live on exact deployed SHA/);
+  assert.match(block,/exact-deployed:success/);
+  assert.match(block,/SOV proof waiting for exact-SHA deployment and immediate integrity proofs/);
   assert.match(block,/Decoupled SOV fast path: exact-SHA final proof already valid/);
   assert.match(block,/exact_sha_fast_path:true/);
   assert.doesNotMatch(block,/SOV proof waiting for canonical exact-SHA release success/);
