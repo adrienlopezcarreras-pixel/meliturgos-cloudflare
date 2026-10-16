@@ -199,3 +199,42 @@ test('ProviderAdapter treats a missing structured health status as degraded, not
   });
   assert.equal(await adapter.health(), 'DEGRADED');
 });
+
+test('unavailable health aliases and unknown probe values cannot be selected as usable AI', async () => {
+  let invoked = 0;
+  const aliases = [
+    'OFFLINE', 'disabled', 'auth_failed', 'UNAUTHORIZED',
+    'FORBIDDEN', 'FAILED', 'error', 'Unhealthy', 'INDETERMINATE',
+  ];
+  const adapters = aliases.map((status, i) => ({
+    id: 'blocked-' + i,
+    capabilities: ['GENERAL'],
+    health: async () => ({ status }),
+    invoke: async () => { invoked++; return 'must not run'; },
+  }));
+  const available = {
+    id: 'unknown-quota-but-available', capabilities: ['GENERAL'],
+    health: async () => 'UNKNOWN',
+    invoke: async () => { invoked++; return 'valid response'; },
+  };
+  const pool = new ProviderPool([...adapters, available]);
+  await pool.refreshHealth();
+  assert.deepEqual(pool.list({ capability: 'GENERAL' }).map(x => x.id),
+    ['unknown-quota-but-available']);
+  assert.ok(adapters.every(x => x.healthStatus === 'UNAVAILABLE'));
+  assert.equal(invoked, 0);
+});
+
+test('static OFFLINE health and post-registration health changes are not callable', () => {
+  const staticOffline = { id: 'static-offline', health: 'offline',
+    invoke: async () => 'must not run' };
+  const changing = { id: 'changing', healthStatus: 'HEALTHY',
+    invoke: async () => 'not called' };
+  const pool = new ProviderPool([staticOffline, changing]);
+  assert.equal(staticOffline.healthStatus, 'UNAVAILABLE');
+  assert.deepEqual(pool.list().map(x => x.id), ['changing']);
+  changing.healthStatus = 'auth_failed';
+  assert.deepEqual(pool.list(), []);
+  changing.healthStatus = 'healthy';
+  assert.deepEqual(pool.list().map(x => x.id), ['changing']);
+});

@@ -1,3 +1,18 @@
+const KNOWN_HEALTH = new Set(['HEALTHY', 'PROTECTED', 'DEGRADED', 'UNKNOWN']);
+const UNAVAILABLE_HEALTH = new Set([
+  'UNAVAILABLE', 'OFFLINE', 'DISABLED', 'AUTH_FAILED', 'UNAUTHORIZED',
+  'FORBIDDEN', 'FAILED', 'ERROR', 'UNHEALTHY',
+]);
+
+function normalizedHealthStatus(value) {
+  const status = typeof value === 'string' ? value.trim().toUpperCase() : '';
+  // A probe returning an unfamiliar state must not certify that its model
+  // can be called. UNKNOWN is retained only as the explicit supported state
+  // for providers whose quota/transport cannot be probed authoritatively.
+  return KNOWN_HEALTH.has(status) ? status
+    : UNAVAILABLE_HEALTH.has(status) ? 'UNAVAILABLE' : 'UNAVAILABLE';
+}
+
 export class ProviderPool {
   constructor(adapters = [], { healthCheckTimeoutMs = 1500 } = {}) {
     this.adapters = new Map();
@@ -22,10 +37,12 @@ export class ProviderPool {
     if (record.concurrency === undefined) record.concurrency = 1;
     if (record.estimatedCost === undefined) record.estimatedCost = null;
     if (typeof record.health === 'string') {
-      record.healthStatus = record.health;
+      record.healthStatus = normalizedHealthStatus(record.health);
       delete record.health;
     } else if (!record.healthStatus) {
       record.healthStatus = 'UNKNOWN';
+    } else {
+      record.healthStatus = normalizedHealthStatus(record.healthStatus);
     }
     this.adapters.set(record.id, record);
     return record;
@@ -53,7 +70,7 @@ export class ProviderPool {
             const reported = typeof status === 'string' ? status : status?.status;
             item.healthStatus = status?.ok === false ? 'UNAVAILABLE'
               : typeof reported === 'string' && reported.trim()
-                ? reported.trim() : 'DEGRADED';
+                ? normalizedHealthStatus(reported) : 'DEGRADED';
           }
         },
         (error) => {
@@ -90,7 +107,7 @@ export class ProviderPool {
   list({ capability } = {}) {
     return [...this.adapters.values()]
       .filter((item) => item.enabled !== false)
-      .filter((item) => item.healthStatus !== 'UNAVAILABLE')
+      .filter((item) => normalizedHealthStatus(item.healthStatus) !== 'UNAVAILABLE')
       .filter((item) => !capability || item.capabilities.includes(capability))
       .sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0));
   }
