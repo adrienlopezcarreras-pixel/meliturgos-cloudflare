@@ -1,4 +1,6 @@
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, open, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { createReadStream } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -15,6 +17,8 @@ const SYSTEM_BACKUP_PREFIX = 'backups/system/';
 const MAX_R2_PAGES = 1000;
 const SIDECAR_REQUEST_TIMEOUT_MS = 30_000;
 const WRANGLER_ATTEMPT_TIMEOUT_MS = 180_000;
+const MULTIPART_PART_BYTES = 16 * 1024 * 1024;
+const MULTIPART_MAX_PARTS = 10_000;
 
 function reportProgress(stage, details = '') {
   process.stderr.write(`[predeploy-backup] ${stage}${details ? ` ${details}` : ''}\n`);
@@ -104,6 +108,87 @@ async function registerMetadata(sidecar, registration) {
     throw new Error('BACKUP_OBJECT_NOT_PROVEN_AFTER_UPLOAD');
   }
   return result;
+}
+
+
+async function sha256File(path) {
+  const hash = createHash('sha256');
+  for await (const chunk of createReadStream(path)) hash.update(chunk);
+  return hash.digest('hex');
+}
+
+async function uploadEncryptedBackupMultipart(sidecar, { objectKey, uploadPath, expectedBytes }) {
+  let uploadId = '';
+  let fileHandle = null;
+  try {
+    const created = await sidecarJson(sidecar, '/upload/create', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ object_key: objectKey }),
+    });
+    if (created?.status !== 'BACKUP_MULTIPART_CREATED' || created?.key !== objectKey || !created?.upload_id) {
+      throw new Error('BACKUP_MULTIPART_CREATE_UNCONFIRMED');
+    }
+    uploadId = String(created.upload_id);
+    const info = await stat(uploadPath);
+    if (info.size !== expectedBytes || info.size <= 0) throw new Error('BACKUP_MULTIPART_LOCAL_SIZE_MISMATCH');
+    const partCount = Math.ceil(info.size / MULTIPART_PART_BYTES);
+    if (!Number.isInteger(partCount) || partCount < 1 || partCount > MULTIPART_MAX_PARTS) {
+      throw new Error('BACKUP_MULTIPART_PART_COUNT_INVALID');
+    }
+
+    fileHandle = await open(uploadPath, 'r');
+    const parts = [];
+    for (let partNumber = 1; partNumber <= partCount; partNumber += 1) {
+      const position = (partNumber - 1) * MULTIPART_PART_BYTES;
+      const length = Math.min(MULTIPART_PART_BYTES, info.size - position);
+      const bytes = Buffer.allocUnsafe(length);
+      const { bytesRead } = await fileHandle.read(bytes, 0, length, position);
+      if (bytesRead !== length) throw new Error('BACKUP_MULTIPART_LOCAL_READ_INCOMPLETE');
+      const qs = new URLSearchParams({
+        key: objectKey,
+        upload_id: uploadId,
+        part_number: String(partNumber),
+      });
+      const result = await sidecarJson(sidecar, '/upload/part?' + qs.toString(), {
+        method: 'PUT',
+        headers: { 'content-type': 'application/octet-stream' },
+        body: bytes,
+      }, { attempts: 6 });
+      if (result?.status !== 'BACKUP_MULTIPART_PART_UPLOADED' ||
+          Number(result?.part?.partNumber) !== partNumber || !String(result?.part?.etag || '')) {
+        throw new Error('BACKUP_MULTIPART_PART_NOT_CONFIRMED:' + partNumber);
+      }
+      parts.push({ partNumber, etag: String(result.part.etag) });
+      reportProgress('encrypted-r2-upload:part', `${partNumber}/${partCount} bytes=${length}`);
+    }
+
+    const completed = await sidecarJson(sidecar, '/upload/complete', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ object_key: objectKey, upload_id: uploadId, parts }),
+    });
+    const storedBytes = Number(completed?.object_bytes || 0);
+    if (completed?.status !== 'BACKUP_MULTIPART_COMPLETED' || completed?.object_key !== objectKey ||
+        storedBytes !== expectedBytes) {
+      throw new Error('BACKUP_MULTIPART_COMPLETION_NOT_VERIFIED');
+    }
+    uploadId = '';
+    return { parts: partCount, bytes: storedBytes, etag: String(completed?.etag || '') };
+  } catch (error) {
+    if (uploadId) {
+      try {
+        await sidecarJson(sidecar, '/upload/abort', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ object_key: objectKey, upload_id: uploadId }),
+        }, { attempts: 3 });
+      } catch {}
+    }
+    throw error;
+  } finally {
+    await fileHandle?.close().catch(() => {});
+  }
 }
 
 const WRANGLER_TRANSIENT_RE = /(?:\b(?:429|500|502|503|504|520|522|524)\b|failed to fetch|fetch failed|econnreset|etimedout|socket hang up|temporar(?:y|ily)|network error)/i;
@@ -203,14 +288,12 @@ async function createBackup() {
       const payload = JSON.stringify(envelope);
       await writeFile(uploadPath, payload, 'utf8');
 
-      reportProgress('encrypted-r2-upload:start');
-      runWrangler([
-        'r2', 'object', 'put', `${bucketName}/${objectKey}`,
-        '--file', uploadPath,
-        '--content-type', 'application/json; charset=utf-8',
-        '--remote',
-      ], { attempts: 6 });
-      reportProgress('encrypted-r2-upload:complete');
+      const payloadBytes = Buffer.byteLength(payload, 'utf8');
+      reportProgress('encrypted-r2-upload:start', `bytes=${payloadBytes} multipart=true`);
+      const multipart = await uploadEncryptedBackupMultipart(sidecar, {
+        objectKey, uploadPath, expectedBytes: payloadBytes,
+      });
+      reportProgress('encrypted-r2-upload:complete', `parts=${multipart.parts} bytes=${multipart.bytes}`);
 
       try {
         runWrangler([
@@ -219,8 +302,11 @@ async function createBackup() {
           '--remote',
         ], { attempts: 6 });
         reportProgress('encrypted-r2-download:complete');
-        const downloaded = await readFile(verifyPath, 'utf8');
-        if (downloaded !== payload) throw new Error('BACKUP_R2_ROUNDTRIP_MISMATCH');
+        const [uploadedInfo, downloadedInfo, uploadedSha, downloadedSha] = await Promise.all([
+          stat(uploadPath), stat(verifyPath), sha256File(uploadPath), sha256File(verifyPath),
+        ]);
+        if (downloadedInfo.size !== uploadedInfo.size || downloadedInfo.size !== payloadBytes ||
+            downloadedSha !== uploadedSha) throw new Error('BACKUP_R2_ROUNDTRIP_MISMATCH');
 
         const metadata = {
           schema: snapshot.schema,
