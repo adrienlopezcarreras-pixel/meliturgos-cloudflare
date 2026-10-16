@@ -222,7 +222,7 @@ test('predeploy refresh creates the backup on the GitHub runner and keeps the Wo
 
 test('authorized release keeps MAX disabled by default; manual dispatch must explicitly opt in', async () => {
   const source = await readFile(new URL('../.github/workflows/deploy-cloudflare-release.yml', import.meta.url), 'utf8');
-  assert.match(source, /OWNER_MAX_AUTORELEASE: \$\{\{ github\.event_name == 'workflow_dispatch' && inputs\.owner_max_autorelease && 'true' \|\| \(github\.event_name == 'push' && 'true' \|\| 'false'\) \}\}/);
+  assert.match(source, /OWNER_MAX_AUTORELEASE: \\$\\{\\{ github\\.event_name == 'workflow_dispatch' && inputs\\.owner_max_autorelease && 'true' \\|\\| 'false' \\}\\}/);
   const browser = source.indexOf('      - name: Prove real production browser.execute');
   const safeStop = source.indexOf('      - name: Keep MAX disabled after hardening release');
   const max = source.indexOf('      - name: Re-enable MAX 100% after verified autonomous release');
