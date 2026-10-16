@@ -24,9 +24,29 @@ function Write-AdbLog([string]$message) {
   } catch { }
 }
 function Run-Adb([string[]]$arglist) {
-  $output=@(& $adb @arglist 2>&1 | ForEach-Object { [string]$_ })
-  if ($LASTEXITCODE -ne 0) { throw ("ADB_COMMAND_FAILED exit={0}" -f $LASTEXITCODE) }
-  return $output
+  # Bound each command so a stalled daemon or device cannot freeze this monitor.
+  $scratch = Join-Path $dir ("adb-command-" + [Guid]::NewGuid().ToString('N'))
+  $stdout = "$scratch.out"
+  $stderr = "$scratch.err"
+  $process = $null
+  try {
+    $quoted = @($arglist | ForEach-Object { '"' + ([string]$_).Replace('"','\"') + '"' }) -join ' '
+    $process = Start-Process -FilePath $adb -ArgumentList $quoted -PassThru -WindowStyle Hidden -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+    if (-not $process.WaitForExit(8000)) {
+      try { $process.Kill() } catch { }
+      throw 'ADB_COMMAND_TIMEOUT'
+    }
+    $output = @()
+    if (Test-Path -LiteralPath $stdout) { $output += @(Get-Content -LiteralPath $stdout -ErrorAction SilentlyContinue | ForEach-Object { [string]$_ }) }
+    $errorText = ''
+    if (Test-Path -LiteralPath $stderr) { $errorText = Get-Content -LiteralPath $stderr -Raw -ErrorAction SilentlyContinue }
+    $flatError = [string]($errorText -replace '[\r\n]+',' ')
+    if ($process.ExitCode -ne 0) { throw ("ADB_COMMAND_FAILED exit={0} detail={1}" -f $process.ExitCode,$flatError.Substring(0,[Math]::Min(180,$flatError.Length))) }
+    return $output
+  } finally {
+    if ($null -ne $process) { $process.Dispose() }
+    Remove-Item -LiteralPath $stdout,$stderr -Force -ErrorAction SilentlyContinue
+  }
 }
 function Serial {
   foreach ($line in (Run-Adb -arglist @("devices","-l"))) {
