@@ -196,34 +196,30 @@ async function internalConnectionCall(connectionHandler, env, provider, action, 
 }
 
 async function runConnectionProof(env, connectionHandler = maybeHandleConnectionSettingsApi) {
-  const [gmail, pipedream, accounts, vercel, yahoo] = await Promise.all([
+  const [gmail, pipedream, accounts, yahoo] = await Promise.all([
     internalConnectionCall(connectionHandler, env, 'google', 'test', { method: 'POST', body: { connector_id: 'gmail' } }),
     internalConnectionCall(connectionHandler, env, 'pipedream', 'test', { method: 'POST', body: {} }),
     internalConnectionCall(connectionHandler, env, 'pipedream', 'accounts'),
-    internalConnectionCall(connectionHandler, env, 'vercel', 'test', { method: 'POST', body: {} }),
     internalConnectionCall(connectionHandler, env, 'yahoo-imap', 'test', { method: 'POST', body: {} }),
   ]);
   const connectedApps = new Set(Array.isArray(accounts?.body?.connected_apps) ? accounts.body.connected_apps : []);
   const gmailVerified = gmail.ok && gmail.body?.live_probe === true;
   const outlookVerified = pipedream.ok && accounts.ok && connectedApps.has('microsoft_outlook');
   const oneDriveVerified = pipedream.ok && accounts.ok && connectedApps.has('microsoft_onedrive');
-  const sharePointVerified = pipedream.ok && accounts.ok && connectedApps.has('sharepoint');
-  const vercelVerified = vercel.ok && vercel.body?.authenticated === true && vercel.body?.target_ready === true && Number(vercel.body?.deployment_count || 0) >= 1;
   const yahooViaPipedream = pipedream.ok && accounts.ok && connectedApps.has('imap');
   const proof = {
     gmail: { verified: gmailVerified, status: gmail.status, code: gmail.code },
     outlook: { verified: outlookVerified, via: 'pipedream' },
     onedrive: { verified: oneDriveVerified, via: 'pipedream' },
-    sharepoint: { verified: sharePointVerified, via: 'pipedream' },
-    vercel: { verified: vercelVerified, authenticated: vercel.body?.authenticated === true, target_ready: vercel.body?.target_ready === true, has_deployment: Number(vercel.body?.deployment_count || 0) >= 1, status: vercel.status, code: vercel.code },
     yahoo_ymail: { verified: yahoo.ok || yahooViaPipedream, via: yahoo.ok ? 'direct-imap-smtp' : yahooViaPipedream ? 'pipedream-imap' : null, status: yahoo.status, code: yahoo.code },
   };
   const verifiedRoadmapIds = [];
   const pendingRoadmapIds = [];
   if (gmailVerified) verifiedRoadmapIds.push('GEN2-33'); else pendingRoadmapIds.push('GEN2-33');
   if (outlookVerified) verifiedRoadmapIds.push('GEN2-34'); else pendingRoadmapIds.push('GEN2-34');
-  if (oneDriveVerified && sharePointVerified) verifiedRoadmapIds.push('GEN2-35'); else pendingRoadmapIds.push('GEN2-35');
-  if (vercelVerified) verifiedRoadmapIds.push('GEN2-36'); else pendingRoadmapIds.push('GEN2-36');
+  if (oneDriveVerified) verifiedRoadmapIds.push('GEN2-35'); else pendingRoadmapIds.push('GEN2-35');
+  // GEN2-36 remains pending until its remaining GitHub/Cloudflare proof is collected; paid Vercel is not probed.
+  pendingRoadmapIds.push('GEN2-36');
   if (proof.yahoo_ymail.verified) verifiedRoadmapIds.push('MEL-CONN-03'); else pendingRoadmapIds.push('MEL-CONN-03');
   return { ok: true, status: 'MEL_CONNECTIONS_PRODUCTION_PROOF_COLLECTED', proof, verified_roadmap_ids: verifiedRoadmapIds, pending_roadmap_ids: pendingRoadmapIds, private_content_returned: false };
 }
