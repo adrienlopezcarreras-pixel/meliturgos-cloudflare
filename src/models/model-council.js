@@ -22,6 +22,14 @@ function clean(value) {
   return typeof value === 'string' ? value.trim() : '';
 }
 
+function assertCouncilNotCancelled(signal) {
+  if (signal?.aborted) {
+    const error = new Error('SCHEDULER_ABORTED');
+    error.code = 'SCHEDULER_ABORTED';
+    throw error;
+  }
+}
+
 function finiteOrNull(value) {
   if (value == null) return null;
   if (typeof value === 'string' && value.trim() === '') return null;
@@ -346,6 +354,7 @@ async function synthesizeCouncil({
   };
 
   for (const provider of providers) {
+    assertCouncilNotCancelled(signal);
     const identity = providerIdentity(provider);
     attempted.push(identity);
     try {
@@ -394,6 +403,7 @@ async function synthesizeCouncil({
         signal,
       });
 
+      assertCouncilNotCancelled(signal);
       if (settled?.status === 'fulfilled') {
         return {
           status: 'COMPLETE',
@@ -404,12 +414,16 @@ async function synthesizeCouncil({
       }
       diagnostics.push(safeDiagnostic(settled?.reason));
     } catch (failure) {
+      // Owner cancellation must never masquerade as a model failure or
+      // trigger an additional synthesis provider attempt.
+      assertCouncilNotCancelled(signal);
       // Continue to the next already-successful zero-cost provider. Never
       // expose provider exception messages, prompts or response content.
       diagnostics.push(safeDiagnostic(failure));
     }
   }
 
+  assertCouncilNotCancelled(signal);
   const error = new Error('COUNCIL_SYNTHESIS_FAILED');
   error.code = 'COUNCIL_SYNTHESIS_FAILED';
   error.status = 503;
@@ -436,6 +450,7 @@ export async function runModelCouncil({
   benchmarks = {},
   signal,
 } = {}) {
+  assertCouncilNotCancelled(signal);
   const normalizedRequest = normalizedInput(request);
   let providerPool = pool;
   if (!providerPool) {
@@ -499,6 +514,7 @@ export async function runModelCouncil({
     signal,
   });
 
+  assertCouncilNotCancelled(signal);
   const critiques = settled
     .filter(row => row?.status === 'fulfilled')
     .map(row => row.value)
@@ -537,6 +553,7 @@ export async function runModelCouncil({
     signal,
   });
 
+  assertCouncilNotCancelled(signal);
   return {
     schema: 'mel.model-council',
     version: 1,
