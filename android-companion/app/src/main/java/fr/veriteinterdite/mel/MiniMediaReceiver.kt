@@ -195,8 +195,7 @@ class MiniMediaReceiver(private val context: Context) {
             "image/jpeg",
             Environment.DIRECTORY_PICTURES + "/MEL"
         ) ?: return
-        context.contentResolver.openOutputStream(uri, "w")?.use { it.write(bytes) }
-        publish(uri)
+        if (!writeAndPublish(uri) { it.write(bytes) }) return
         Log.i(TAG, "MINI photo saved bytes=$size uri=$uri")
     }
 
@@ -226,10 +225,9 @@ class MiniMediaReceiver(private val context: Context) {
                 "video/x-msvideo",
                 Environment.DIRECTORY_MOVIES + "/MEL"
             ) ?: return
-            context.contentResolver.openOutputStream(uri, "w")?.use { output ->
+            if (!writeAndPublish(uri) { output ->
                 temp.inputStream().use { it.copyTo(output, 128 * 1024) }
-            }
-            publish(uri)
+            }) return
             Log.i(TAG, "MINI video saved bytes=${temp.length()} uri=$uri")
         } finally {
             temp.delete()
@@ -262,11 +260,10 @@ class MiniMediaReceiver(private val context: Context) {
                 "audio/wav",
                 Environment.DIRECTORY_RECORDINGS + "/MEL"
             ) ?: return
-            context.contentResolver.openOutputStream(uri, "w")?.use { output ->
+            if (!writeAndPublish(uri) { output ->
                 writeWavHeader(output, pcmBytes.toInt(), sampleRate, channels)
                 temp.inputStream().use { it.copyTo(output, 64 * 1024) }
-            }
-            publish(uri)
+            }) return
             Log.i(TAG, "MINI audio saved pcm=$pcmBytes uri=$uri")
         } finally {
             temp.delete()
@@ -376,6 +373,24 @@ class MiniMediaReceiver(private val context: Context) {
             }
         }
         return context.contentResolver.insert(collection, values)
+    }
+
+    // Never publish a MediaStore item unless its bytes were actually written.
+    // Revoke incomplete pending entries if the provider refuses an output stream,
+    // copying fails or updating the published state throws.
+    private fun writeAndPublish(uri: android.net.Uri, writer: (OutputStream) -> Unit): Boolean {
+        var completed = false
+        try {
+            val output = context.contentResolver.openOutputStream(uri, "w") ?: return false
+            output.use { writer(it) }
+            publish(uri)
+            completed = true
+            return true
+        } finally {
+            if (!completed) {
+                runCatching { context.contentResolver.delete(uri, null, null) }
+            }
+        }
     }
 
     private fun publish(uri: android.net.Uri) {
