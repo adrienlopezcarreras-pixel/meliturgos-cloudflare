@@ -9,6 +9,8 @@ typedef void (*mel_link_v2_state_cb)(bool ready, void *ctx);
 
 esp_err_t mel_link_v2_server_start(void);
 bool mel_link_v2_server_ready(void);
+// Passkey is ephemeral and visible only during an in-flight authenticated pairing.
+bool mel_link_v2_server_pairing_passkey(uint32_t *passkey_out);
 uint16_t mel_link_v2_server_mtu(void);
 void mel_link_v2_server_set_rx_callback(mel_link_v2_rx_cb cb, void *ctx);
 void mel_link_v2_server_set_state_callback(mel_link_v2_state_cb cb, void *ctx);

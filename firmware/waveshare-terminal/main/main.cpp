@@ -27,6 +27,7 @@
 #include "esp_camera.h"
 #include "esp_codec_dev.h"
 #include "mel_terminal.h"
+#include "mel_link_v2_server.h"
 #include "mel_mobile_bridge.h"
 #include "mel_avatar_mode_complet.h"
 #include "mini_visual.h"
@@ -90,6 +91,9 @@ static lv_obj_t *wifi_keyboard = nullptr;
 static lv_obj_t *wifi_connect_btn = nullptr;
 static lv_obj_t *main_panel = nullptr;
 static lv_obj_t *transport_indicator = nullptr;
+static lv_obj_t *pairing_passkey_label = nullptr;
+static bool pairing_passkey_was_visible = false;
+static uint32_t pairing_passkey_last_value = UINT32_MAX;
 static lv_obj_t *settings_panel = nullptr;
 static volatile bool camera_probe_done = false;
 static lv_obj_t *settings_status = nullptr;
@@ -597,6 +601,29 @@ static void visual_touch_cb(lv_event_t *event) {
 
 static void mini_anim_cb(lv_timer_t *) {
     mini_apply_requested_view();
+
+    // Keep the temporary system-pairing passkey visible across MINI views.
+    // It is rendered locally only and never written to logs or Link V2 frames.
+    if (pairing_passkey_label) {
+        uint32_t passkey = 0;
+        const bool visible = mel_link_v2_server_pairing_passkey(&passkey);
+        if (visible) {
+            if (!pairing_passkey_was_visible || pairing_passkey_last_value != passkey) {
+                lv_label_set_text_fmt(
+                    pairing_passkey_label,
+                    "APPARIEMENT BLE SECURISE\nCode a saisir sur Android : %06lu",
+                    static_cast<unsigned long>(passkey)
+                );
+                pairing_passkey_last_value = passkey;
+            }
+            lv_obj_clear_flag(pairing_passkey_label, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_move_foreground(pairing_passkey_label);
+        } else {
+            lv_obj_add_flag(pairing_passkey_label, LV_OBJ_FLAG_HIDDEN);
+            pairing_passkey_last_value = UINT32_MAX;
+        }
+        pairing_passkey_was_visible = visible;
+    }
 
     if (stress_pair_click_requested && pair_button && active_view == MINI_VIEW_MAIN) {
         stress_pair_click_requested = false;
@@ -2167,6 +2194,25 @@ static void mini_smoke_ui() {
     pair_ui_create(screen);
     settings_ui_create(screen);
     response_ui_create(screen);
+
+    // Overlay remains visible over Settings and MEL UI while Android asks for
+    // the native pairing code; account pairing codes are not replaced.
+    pairing_passkey_label = lv_label_create(screen);
+    lv_label_set_text(pairing_passkey_label, "");
+    lv_obj_set_width(pairing_passkey_label, 292);
+    lv_obj_set_style_bg_color(pairing_passkey_label, lv_color_hex(0x08233C), 0);
+    lv_obj_set_style_bg_opa(pairing_passkey_label, LV_OPA_90, 0);
+    lv_obj_set_style_border_color(pairing_passkey_label, lv_color_hex(0x22D3EE), 0);
+    lv_obj_set_style_border_width(pairing_passkey_label, 2, 0);
+    lv_obj_set_style_radius(pairing_passkey_label, 10, 0);
+    lv_obj_set_style_pad_all(pairing_passkey_label, 8, 0);
+    lv_obj_set_style_text_color(pairing_passkey_label, lv_color_hex(0xF8FAFC), 0);
+    lv_obj_set_style_text_align(pairing_passkey_label, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_style_text_font(pairing_passkey_label, &lv_font_montserrat_14, 0);
+    lv_obj_align(pairing_passkey_label, LV_ALIGN_TOP_MID, 0, 56);
+    lv_obj_add_flag(pairing_passkey_label, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_move_foreground(pairing_passkey_label);
+
     mel_terminal_bind_external_ui(runtime_status_label, answer_label);
     anim_timer = lv_timer_create(mini_anim_cb, 250, nullptr);
     lv_timer_create(clock_timer_cb, 1000, nullptr);
