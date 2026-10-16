@@ -209,6 +209,15 @@ export function evaluateComputerUsePlan(input = {}) {
   if (request.steps.length === 0) {
     return result(request, false, 'COMPUTER_USE_STEPS_REQUIRED', decisions);
   }
+  // Normalization caps steps/text for bounded transport, but authorization
+  // must not silently approve only a prefix of the owner's requested plan.
+  const submittedSteps = Array.isArray(input.steps) ? input.steps : [];
+  if (submittedSteps.length > request.sandbox.max_steps) {
+    return result(request, false, 'COMPUTER_USE_STEP_LIMIT_EXCEEDED', decisions);
+  }
+  if (submittedSteps.some(step => typeof step?.text === 'string' && step.text.length > MAX_TEXT)) {
+    return result(request, false, 'COMPUTER_USE_TEXT_LIMIT_EXCEEDED', decisions);
+  }
 
   const stepIds = new Set();
   for (const step of request.steps) {
