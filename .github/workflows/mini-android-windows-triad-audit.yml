@@ -6,6 +6,8 @@ on:
       - 'docs/MINI-ANDROID-WINDOWS-TRIAD-AUDIT-2026-10-10.md'
       - 'scripts/mini-triad-audit.mjs'
       - 'tests/mini-triad-protocol-stress.cpp'
+      - 'contracts/mel-link-v2.json'
+      - 'tests/mini-triad-protocol-contract.test.mjs'
       - 'tests/computer-companion-api.test.mjs'
       - 'src/devices/mini-maintenance-companion.js'
       - 'tests/mini-companion-maintenance-assess.test.mjs'
@@ -26,6 +28,8 @@ on:
       - 'docs/MINI-ANDROID-WINDOWS-TRIAD-AUDIT-2026-10-10.md'
       - 'scripts/mini-triad-audit.mjs'
       - 'tests/mini-triad-protocol-stress.cpp'
+      - 'contracts/mel-link-v2.json'
+      - 'tests/mini-triad-protocol-contract.test.mjs'
       - 'tests/computer-companion-api.test.mjs'
       - 'src/devices/mini-maintenance-companion.js'
       - 'tests/mini-companion-maintenance-assess.test.mjs'
@@ -74,7 +78,7 @@ jobs:
       - name: MINI stale-backup reconciliation read-only safety contract
         run: node --test tests/mini-companion-maintenance-assess.test.mjs
       - name: Backend, Companion, Android and MINI contracts
-        run: node --test tests/computer-companion-api.test.mjs tests/android-companion-api.test.mjs tests/android-companion-source-contract.test.mjs tests/waveshare-terminal-api.test.mjs tests/waveshare-terminal-owner-routes.test.mjs tests/waveshare-terminal-android-sync-contract.test.mjs tests/waveshare-terminal-mobile-status.test.mjs tests/waveshare-terminal-storage.test.mjs tests/waveshare-terminal-release-safety.test.mjs tests/mini-triad-security-contract.test.mjs
+        run: node --test tests/computer-companion-api.test.mjs tests/android-companion-api.test.mjs tests/android-companion-source-contract.test.mjs tests/waveshare-terminal-api.test.mjs tests/waveshare-terminal-owner-routes.test.mjs tests/waveshare-terminal-android-sync-contract.test.mjs tests/waveshare-terminal-mobile-status.test.mjs tests/waveshare-terminal-storage.test.mjs tests/waveshare-terminal-release-safety.test.mjs tests/mini-triad-security-contract.test.mjs tests/mini-triad-protocol-contract.test.mjs
       - name: Isolated candidate branch context for full suite
         if: github.event_name == 'pull_request'
         run: git checkout -b "candidate/mini-triad-pr-${{ github.event.pull_request.number }}"

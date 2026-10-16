@@ -61,7 +61,13 @@ const safeOidcProofSet = proofActions.length > 0 &&
  !proofActions.includes('serial.hard_reset') &&
  !/action:'serial.hard_reset'|action:'mini.maintenance.flash'|action:'android.maintenance.install'/.test(relay);
 check('OIDC cannot hard reset MINI',safeOidcProofSet,'blocker','Periodic GitHub relay allows approved read-only diagnosis only');
-check('Legacy updater is not current',!/MEL-MINI-Updater-0\.4\.37/.test(updater),'warning','Old firmware updater must not be used as current');
+const legacyUpdaterArchived =
+ /name: mini-windows-updater-LEGACY-ARCHIVED/.test(updater) &&
+ /^\s+workflow_dispatch:/m.test(updater) &&
+ /legacy_approval:/.test(updater) &&
+ /if: \$\{\{ inputs\.legacy_approval == 'BUILD_LEGACY_0_4_37' \}\}/.test(updater) &&
+ !/^\s+push:\s*$/m.test(updater);
+check('Legacy updater safely archived behind explicit manual approval',legacyUpdaterArchived,'blocker','The obsolete updater must never run automatically or appear as the current MINI installer');
 check('True OTA rollback proven',/CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y/.test(read('firmware/waveshare-terminal/sdkconfig.defaults')),'warning','Not verifiable on hardware in CI');
 
 const blockers = checks.filter(c=>c.severity==='blocker'&&!c.pass);
