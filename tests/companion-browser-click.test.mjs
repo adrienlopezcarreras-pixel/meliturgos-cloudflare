@@ -34,6 +34,19 @@ test('browser.click rejects missing, fractional or out-of-range coordinates', ()
   assert.equal(plan({ ...click, x: -100, y: 0 }, true).allowed, true, 'negative virtual-screen coordinates are valid');
 });
 
+test('browser.click refuses unsupported mouse buttons and ignored targets', () => {
+  for (const [field, value] of [
+    ['button', 'right'], ['click_count', 2], ['double', true],
+    ['text', 'ignored'], ['url', 'https://example.com'],
+    ['delta_x', 20], ['selector', '#save'], ['unknown', null],
+  ]) {
+    const result = plan({ ...click, [field]: value }, true);
+    assert.equal(result.allowed, false, field);
+    assert.equal(result.reason, 'BROWSER_CLICK_UNEXPECTED_FIELD', field);
+  }
+  assert.equal(plan(click, true).allowed, true);
+});
+
 test('browser.click denial prevents earlier steps from running', async () => {
   const performed = [];
   const audits = [];
