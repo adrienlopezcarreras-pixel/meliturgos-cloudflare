@@ -301,5 +301,5 @@ test("Companion dashboard only presents ADB connected when the report is fresh",
  const end=native.indexOf("var devices=MelApp.Devices()",start);
  const refresh=native.slice(start,end);
  assert.match(refresh,/bool isConnected = fresh && a\.TryGetValue\("connected"/);
- assert.match(refresh,/TotalSeconds\) < 75/);
+ assert.match(refresh,/\.TotalSeconds < 75/);
 });
