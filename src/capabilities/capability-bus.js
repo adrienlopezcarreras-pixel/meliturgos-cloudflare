@@ -3,6 +3,14 @@ import { validate } from '../security/validation.js';
 import { requireValue } from '../core/contracts.js';
 import { assertCapabilityApproval, isCapabilityApprovalPolicyValid } from '../security/approval-gates.js';
 
+// Health diagnostics are included in API/UI inventory responses. Provider error
+// messages can contain URLs, tokens or private account data; expose codes only.
+function publicHealthDiagnostic(value, fallback = 'HEALTHCHECK_DETAIL_REDACTED') {
+  if (typeof value !== 'string') return fallback;
+  const code = value.trim();
+  return /^[A-Z][A-Z0-9_]{0,79}$/.test(code) ? code : fallback;
+}
+
 /** Construct per composition root; adapters are trusted server code, never client JS. */
 export class CapabilityBus {
   constructor({audit = async () => {}} = {}) { this.records = new Map(); this.audit = audit; }
@@ -58,9 +66,10 @@ export class CapabilityBus {
     try {
       const observed = await entry.healthcheck();
       const status = typeof observed === 'string' ? observed : observed?.status;
-      const detail = typeof observed === 'object' && observed
-        ? String(observed.reason || observed.code || observed.detail || '').trim()
+      const reported = typeof observed === 'object' && observed
+        ? (observed.code || observed.reason || observed.detail || '')
         : '';
+      const detail = reported ? publicHealthDiagnostic(reported) : '';
       entry.record.health = status === 'ONLINE' || status === 'HEALTHY'
         ? 'HEALTHY'
         : status === 'SAFE_IDLE' || status === 'PROTECTED'
@@ -72,7 +81,7 @@ export class CapabilityBus {
       else delete entry.record.health_detail;
     } catch (error) {
       entry.record.health = 'DEGRADED';
-      entry.record.health_detail = String(error?.code || error?.message || 'HEALTHCHECK_FAILED').slice(0, 240);
+      entry.record.health_detail = publicHealthDiagnostic(error?.code, 'HEALTHCHECK_FAILED');
     }
     return this.describe(id);
   }
