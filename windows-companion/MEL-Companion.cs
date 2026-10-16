@@ -1325,6 +1325,7 @@ class MainForm : Form
     System.Windows.Forms.Timer poll;
     System.Windows.Forms.Timer triadPoll;
     int triadRefreshing;
+    int adbRefreshBusy;
     bool refreshing;
     readonly Color text=Color.FromArgb(34,45,60);
     readonly Color gray=Color.FromArgb(88,102,118);
@@ -1392,7 +1393,7 @@ class MainForm : Form
         adbWifiStatus.Anchor=AnchorStyles.Top|AnchorStyles.Left|AnchorStyles.Right;
         LabelAt(this,"Appareils MEL",28,302,390,47,12,true);
         var permissions=ButtonAt(this,"Autorisations",0,302,170,delegate{using(var dlg=new PermissionsForm())dlg.ShowDialog(this);});
-        var refresh=ButtonAt(this,"Actualiser",0,302,150,delegate{RefreshAll();});
+        var refresh=ButtonAt(this,"Actualiser",0,302,150,delegate{RefreshAll();RefreshAdbDiagnostics();});
         permissions.Anchor=AnchorStyles.Right|AnchorStyles.Top;refresh.Anchor=AnchorStyles.Right|AnchorStyles.Top;
         permissions.Left=ClientSize.Width-370;refresh.Left=ClientSize.Width-180;
         LabelAt(this,"Appareils détectés et état transmis au serveur MEL",28,353,700,34,9,false,gray);
@@ -1423,6 +1424,69 @@ class MainForm : Form
         triadPoll.Tick+=delegate{RefreshTriadActivity();};triadPoll.Start();
         Shown+=delegate{BeginInvoke((MethodInvoker)delegate{RefreshAll();RefreshTriadActivity();});};
     }
+    void RefreshAdbDiagnostics()
+    {
+        if (IsDisposed || Interlocked.Exchange(ref adbRefreshBusy, 1) != 0) return;
+        ThreadPool.QueueUserWorkItem(delegate(object unused) {
+            string message = "ADB Wi-Fi : diagnostic indisponible";
+            Color color = gray;
+            try
+            {
+                if (!File.Exists(MelApp.AdbWifiPath))
+                    message = "ADB Wi-Fi : moniteur absent · réinstaller le Companion";
+                else
+                {
+                    var psi = new ProcessStartInfo("powershell.exe");
+                    psi.Arguments = "-NoProfile -ExecutionPolicy Bypass -File \"" + MelApp.AdbWifiPath + "\" -Once";
+                    psi.UseShellExecute = false;
+                    psi.CreateNoWindow = true;
+                    psi.RedirectStandardError = true;
+                    psi.RedirectStandardOutput = true;
+                    using (var process = Process.Start(psi))
+                    {
+                        if (!process.WaitForExit(12000))
+                        {
+                            try { process.Kill(); } catch { }
+                            message = "ADB Wi-Fi : diagnostic expiré · réessayez";
+                        }
+                        else
+                        {
+                            string report = Path.Combine(MelApp.MelDir, "android-adb-wifi.json");
+                            if (File.Exists(report))
+                            {
+                                var a = MelApp.Json.Deserialize<Dictionary<string,object>>(File.ReadAllText(report));
+                                object connected, available, errorValue, model, installed, observed;
+                                DateTime when;
+                                bool fresh = a.TryGetValue("observed_at_utc", out observed)
+                                    && DateTime.TryParse(Convert.ToString(observed), out when)
+                                    && Math.Abs((DateTime.UtcNow - when.ToUniversalTime()).TotalMinutes) < 2;
+                                bool adbAvailable = a.TryGetValue("adb_available", out available) && Convert.ToBoolean(available);
+                                bool isConnected = a.TryGetValue("connected", out connected) && Convert.ToBoolean(connected);
+                                string errorCode = a.TryGetValue("error", out errorValue) && errorValue != null ? Convert.ToString(errorValue) : "";
+                                string name = a.TryGetValue("android_model", out model) ? Convert.ToString(model) : "";
+                                bool hasMel = a.TryGetValue("mel_installed", out installed) && Convert.ToBoolean(installed);
+                                message = !fresh ? "ADB Wi-Fi : diagnostic ancien"
+                                    : !adbAvailable ? "ADB Wi-Fi : outils ADB introuvables"
+                                    : !String.IsNullOrEmpty(errorCode) ? "ADB Wi-Fi : diagnostic en échec · " + errorCode
+                                    : isConnected ? "ADB Wi-Fi : connecté · " + name + " · MEL " + (hasMel ? "installée" : "absente")
+                                    : "ADB Wi-Fi : non appairé ou déconnecté · Configurer ADB Wi-Fi";
+                                color = fresh && isConnected && String.IsNullOrEmpty(errorCode) ? Color.FromArgb(25,125,85) : gray;
+                            }
+                        }
+                    }
+                }
+            }
+            catch { message = "ADB Wi-Fi : échec du diagnostic · ouvrir le journal local"; }
+            finally
+            {
+                try { if (!IsDisposed && IsHandleCreated) BeginInvoke((MethodInvoker)delegate {
+                    if (!IsDisposed && adbWifiStatus != null) { adbWifiStatus.Text = message; adbWifiStatus.ForeColor = color; }
+                }); } catch { }
+                Interlocked.Exchange(ref adbRefreshBusy, 0);
+            }
+        });
+    }
+
     void RefreshTriadActivity()
     {
         if (!Visible || IsDisposed || Interlocked.Exchange(ref triadRefreshing, 1) != 0) return;
