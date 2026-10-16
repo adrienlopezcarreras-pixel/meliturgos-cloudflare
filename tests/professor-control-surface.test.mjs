@@ -173,7 +173,7 @@ test('MEL Work is wired to the authorized Windows Companion view-only channel', 
   assert.ok(page.includes("pc.metadata?.remote_access_enabled!==true"), 'Work must fail closed when local remote access is disabled');
   assert.ok(page.includes('pc.halted'), 'Work must respect the owner HALT state');
   assert.ok(page.includes('engine_heartbeat_at'), 'Work must require a fresh Companion engine heartbeat');
-  assert.ok(page.includes("command.status==='SUCCEEDED'"), 'Work must wait for actual completion, not equate queue acceptance with capture success');
+  assert.ok(page.includes("if(command.status!=='SUCCEEDED')continue;"), 'Work must ignore pending/nonterminal commands and only display a capture after SUCCEEDED');
   assert.ok(page.includes('DESKTOP_VIEW_TIMEOUT'), 'Work must expose a timeout rather than claim a capture succeeded');
   assert.ok(page.includes("scope:'VIEW_ONLY'"), 'initial Work integration must remain view-only');
   assert.ok(page.includes('screen_capture:workComputerLastView||null'), 'Work preflight must receive the verified capture reference when one exists');
