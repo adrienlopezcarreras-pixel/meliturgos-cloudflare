@@ -111,6 +111,15 @@ export function summarizeStressCoverage(result) {
   };
 }
 
+// Fail closed if a durable stress audit stops making progress for too long.
+// Bounded heartbeat/status responses alone are not evidence of execution.
+export function assertStressProgressFresh(lastAdvancedAt, now = Date.now(), maxIdleMs = 12 * 60_000) {
+  assert(Number.isFinite(lastAdvancedAt) && Number.isFinite(now) &&
+    Number.isFinite(maxIdleMs) && maxIdleMs > 0 && now >= lastAdvancedAt,
+    'CAPABILITY_STRESS_PROGRESS_CLOCK_INVALID');
+  assert(now - lastAdvancedAt <= maxIdleMs, 'CAPABILITY_STRESS_PROGRESS_STALLED');
+}
+
 export function validateProgressTransition(previous = { pass: 1, done: 0 }, current = { pass: 1, done: 0 }) {
   const previousPass = Number(previous?.pass ?? 1);
   const currentPass = Number(current?.pass ?? 1);
@@ -175,7 +184,9 @@ async function main() {
   let terminalBody = null;
   let lastDone = 0;
   let lastPass = 1;
+  let lastAdvancedAt = Date.now();
   for (let attempt = 1; attempt <= 240; attempt += 1) {
+    assertStressProgressFresh(lastAdvancedAt);
     const result = await callCapability({ id: 'capability.audit.status', input: { job_id: jobId } }, 'stress-status.json');
     if (result.status === 401 || result.status === 403) {
       throw Object.assign(new Error('CAPABILITY_STRESS_STATUS_AUTH_REJECTED'), { code: 'CAPABILITY_STRESS_STATUS_AUTH_REJECTED' });
@@ -195,6 +206,7 @@ async function main() {
       { pass: r?.progress?.pass, done },
     );
     const pass = progressState.pass;
+    if (progressState.pass > lastPass || progressState.done > lastDone) lastAdvancedAt = Date.now();
     lastPass = progressState.pass;
     lastDone = progressState.done;
     const status = String(r?.status || '');
