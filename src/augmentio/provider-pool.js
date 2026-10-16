@@ -1,6 +1,10 @@
 export class ProviderPool {
-  constructor(adapters = []) {
+  constructor(adapters = [], { healthCheckTimeoutMs = 1500 } = {}) {
     this.adapters = new Map();
+    const ms = Number(healthCheckTimeoutMs);
+    this.healthCheckTimeoutMs = Number.isFinite(ms)
+      ? Math.max(10, Math.min(30000, Math.floor(ms)))
+      : 1500;
     for (const adapter of adapters) this.register(adapter);
   }
 
@@ -26,12 +30,36 @@ export class ProviderPool {
 
   async refreshHealth() {
     await Promise.all([...this.adapters.values()].map(async (item) => {
-      if (typeof item.health === 'function') {
-        try {
-          item.healthStatus = await item.health();
-        } catch {
-          item.healthStatus = 'DEGRADED';
-        }
+      if (typeof item.health !== 'function') return;
+      let timedOut = false;
+      let timer;
+      // A single broken health adapter must not starve all healthy models.
+      // A timed-out provider is quarantined (not merely DEGRADED), because
+      // DEGRADED providers remain eligible for invocation.
+      const health = Promise.resolve().then(() => item.health()).then(
+        (status) => {
+          if (timedOut) {
+            // Late health results must not undo a timeout quarantine.
+            item.healthStatus = 'UNAVAILABLE';
+            return;
+          }
+          item.healthStatus = typeof status === 'string' ? status : 'DEGRADED';
+        },
+        () => {
+          item.healthStatus = timedOut ? 'UNAVAILABLE' : 'DEGRADED';
+        },
+      );
+      const timeout = new Promise((resolve) => {
+        timer = setTimeout(() => {
+          timedOut = true;
+          item.healthStatus = 'UNAVAILABLE';
+          resolve();
+        }, this.healthCheckTimeoutMs);
+      });
+      try {
+        await Promise.race([health, timeout]);
+      } finally {
+        clearTimeout(timer);
       }
     }));
     return this;
