@@ -74,7 +74,9 @@ if ($LASTEXITCODE -ne 0) {
         if ($null -eq $probe -or $null -eq $probe.exit_code -or [int]$probe.exit_code -eq 0) { continue }
         Write-Host ("Failed probe: {0} (exit code {1})" -f $probeName,$probe.exit_code) -ForegroundColor Yellow
         foreach ($streamName in @('stdout','stderr','error')) {
-          $detail = [string]$probe.$streamName
+          $streamProperty = $probe.PSObject.Properties[$streamName]
+          if ($null -eq $streamProperty) { continue }
+          $detail = [string]$streamProperty.Value
           if (-not [string]::IsNullOrWhiteSpace($detail)) {
             $detail = $detail.Trim()
             if ($detail.Length -gt 1600) { $detail = $detail.Substring(0,1600) + ' [truncated]' }
