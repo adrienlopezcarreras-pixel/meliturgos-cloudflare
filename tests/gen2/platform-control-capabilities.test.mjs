@@ -29,10 +29,6 @@ function configuredEnv() {
     CLOUDFLARE_API_TOKEN: 'cf-secret',
     CLOUDFLARE_ACCOUNT_ID: 'account123',
     MEL_CLOUDFLARE_SCRIPT: 'meliturgos',
-    VERCEL_TOKEN: 'vercel-secret',
-    VERCEL_TEAM_ID: 'team_123',
-    MEL_VERCEL_PROJECT_ID: 'prj_123',
-    MEL_VERCEL_PROJECT_NAME: 'mel-project',
   };
 }
 
@@ -46,7 +42,6 @@ test('GEN2-36 registers only explicit-approval HIGH-risk platform mutation capab
   assert.deepEqual(ids, [
     'github.actions.workflow.dispatch',
     'cloudflare.deployments.create',
-    'vercel.deployments.redeploy',
   ]);
 
   for (const id of ids) {
@@ -74,7 +69,6 @@ test('GEN2-36 mutation handlers are never reached without exact owner approval',
     ['cloudflare.deployments.create', {
       versions: [{ version_id: '11111111-1111-4111-8111-111111111111', percentage: 100 }],
     }],
-    ['vercel.deployments.redeploy', { deploymentId: 'dpl_123' }],
   ];
 
   for (const [id, input] of attempts) {
@@ -259,58 +253,6 @@ test('Cloudflare deployment control preserves HIGH approval while using durable 
   assert.equal(completed.deployment.id, 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa');
 });
 
-test('Vercel redeploy is locked to configured project and cannot upload arbitrary files or project settings', async () => {
-  const seen = [];
-  const bus = new CapabilityBus();
-  registerPlatformControlCapabilities(bus, {
-    env: configuredEnv(),
-    fetchImpl: async (url, init) => {
-      seen.push({ url: String(url), init });
-      return json({
-        uid: 'dpl_new',
-        name: 'mel-project',
-        url: 'mel-project-preview.vercel.app',
-        readyState: 'QUEUED',
-        target: null,
-        createdAt: 123,
-      });
-    },
-  });
-
-  const result = await bus.execute('vercel.deployments.redeploy', {
-    deploymentId: 'dpl_existing',
-    target: 'preview',
-  }, approved('vercel.deployments.redeploy'));
-
-  assert.equal(result.project_id, 'prj_123');
-  assert.equal(result.project_name, 'mel-project');
-  assert.equal(result.requested_target, 'preview');
-  const previewCall = seen.find(call => call.init?.method === 'POST' && /^https:\/\/api\.vercel\.com\/v13\/deployments\?/.test(call.url));
-  assert.ok(previewCall);
-  assert.match(previewCall.url, /teamId=team_123/);
-  assert.deepEqual(JSON.parse(previewCall.init.body), {
-    name: 'mel-project',
-    project: 'prj_123',
-    deploymentId: 'dpl_existing',
-  });
-  assert.equal(JSON.stringify(result).includes('vercel-secret'), false);
-
-  await bus.execute('vercel.deployments.redeploy', {
-    deploymentId: 'dpl_existing',
-    target: 'production',
-  }, approved('vercel.deployments.redeploy'));
-  const productionCall = seen.filter(call => call.init?.method === 'POST' && /^https:\/\/api\.vercel\.com\/v13\/deployments\?/.test(call.url))[1];
-  assert.ok(productionCall);
-  assert.equal(JSON.parse(productionCall.init.body).target, 'production');
-
-  await assert.rejects(
-    () => bus.execute('vercel.deployments.redeploy', {
-      deploymentId: '../other-project',
-    }, approved('vercel.deployments.redeploy')),
-    error => error?.code === 'VERCEL_DEPLOYMENT_ID_INVALID',
-  );
-});
-
 test('GEN2-36 control capabilities fail closed when server-side credentials or target configuration are missing', async () => {
   const bus = new CapabilityBus();
   registerPlatformControlCapabilities(bus, {
@@ -323,7 +265,6 @@ test('GEN2-36 control capabilities fail closed when server-side credentials or t
     ['cloudflare.deployments.create', {
       versions: [{ version_id: '11111111-1111-4111-8111-111111111111', percentage: 100 }],
     }],
-    ['vercel.deployments.redeploy', { deploymentId: 'dpl_123' }],
   ]) {
     await assert.rejects(
       () => bus.execute(id, input, approved(id)),
@@ -339,7 +280,7 @@ test('upstream mutation errors never echo response bodies or credentials', async
     fetchImpl: async (_url, init) => {
       if (init?.method === 'GET') return json({});
       return json({
-        error: 'sensitive upstream detail github-secret cf-secret vercel-secret',
+        error: 'sensitive upstream detail github-secret cf-secret',
       }, 403);
     },
   });
@@ -349,7 +290,6 @@ test('upstream mutation errors never echo response bodies or credentials', async
     ['cloudflare.deployments.create', {
       versions: [{ version_id: '11111111-1111-4111-8111-111111111111', percentage: 100 }],
     }, 'CLOUDFLARE_DEPLOYMENT_CREATE_FAILED_AUTH'],
-    ['vercel.deployments.redeploy', { deploymentId: 'dpl_123' }, 'VERCEL_REDEPLOY_FAILED_AUTH'],
   ]) {
     let caught;
     try {
@@ -365,85 +305,6 @@ test('upstream mutation errors never echo response bodies or credentials', async
 });
 
 
-test('Vercel redeploy accepts encrypted runtime resolver when env target is absent', async () => {
-  const seen = [];
-  const bus = new CapabilityBus();
-  registerPlatformControlCapabilities(bus, {
-    env: {},
-    resolveVercelConfig: async () => ({
-      token: 'vault-vercel-token',
-      team_id: 'team_vault',
-      project_id: 'prj_vault',
-      project_name: 'mel-vault',
-    }),
-    fetchImpl: async (url, init) => {
-      seen.push({ url: String(url), init });
-      return json({ uid: 'dpl_new', name: 'mel-vault', readyState: 'QUEUED' });
-    },
-  });
-  const result = await bus.execute('vercel.deployments.redeploy', {
-    deploymentId: 'dpl_existing',
-    target: 'preview',
-  }, approved('vercel.deployments.redeploy'));
-  assert.equal(result.project_id, 'prj_vault');
-  assert.equal(result.project_name, 'mel-vault');
-  const redeployCall = seen.find(call => call.init?.method === 'POST');
-  assert.ok(redeployCall);
-  assert.match(redeployCall.url, /teamId=team_vault/);
-  assert.equal(redeployCall.init.headers.authorization, 'Bearer vault-vercel-token');
-  assert.equal(JSON.stringify(result).includes('vault-vercel-token'), false);
-});
-
-
-test('Vercel redeploy infers the MEL project from the configured repository when target metadata is missing', async () => {
-  const seen = [];
-  const bus = new CapabilityBus();
-  registerPlatformControlCapabilities(bus, {
-    env: {
-      MEL_GITHUB_REPOSITORY: 'owner/meliturgos-cloudflare',
-      VERCEL_TOKEN: 'vercel-secret',
-      VERCEL_TEAM_ID: 'team_123',
-    },
-    resolveVercelConfig: async () => ({
-      token: 'vercel-secret',
-      team_id: 'team_123',
-      project_id: '',
-      project_name: '',
-    }),
-    fetchImpl: async (url, init = {}) => {
-      seen.push({ url: String(url), init });
-      if (String(url).includes('/v9/projects?')) {
-        return json({ projects: [
-          { id: 'prj_other', name: 'other-project' },
-          { id: 'prj_mel', name: 'meliturgos-cloudflare' },
-        ] });
-      }
-      if ((init.method || 'GET') === 'POST') {
-        return json({ uid: 'dpl_new', name: 'meliturgos-cloudflare', readyState: 'QUEUED' });
-      }
-      return json({});
-    },
-  });
-
-  const health = await bus.refreshHealth('vercel.deployments.redeploy');
-  assert.equal(health.health, 'HEALTHY');
-
-  const result = await bus.execute('vercel.deployments.redeploy', {
-    deploymentId: 'dpl_existing',
-    target: 'preview',
-  }, approved('vercel.deployments.redeploy'));
-
-  assert.equal(result.project_id, 'prj_mel');
-  assert.equal(result.project_name, 'meliturgos-cloudflare');
-  const post = seen.find(call => (call.init?.method || 'GET') === 'POST');
-  assert.ok(post);
-  assert.deepEqual(JSON.parse(post.init.body), {
-    name: 'meliturgos-cloudflare',
-    project: 'prj_mel',
-    deploymentId: 'dpl_existing',
-  });
-});
-
 test('platform control healthchecks prove real provider access and keep missing credentials unavailable', async () => {
   const configured = new CapabilityBus();
   registerPlatformControlCapabilities(configured, {
@@ -454,7 +315,6 @@ test('platform control healthchecks prove real provider access and keep missing 
   for (const id of [
     'github.actions.workflow.dispatch',
     'cloudflare.deployments.create',
-    'vercel.deployments.redeploy',
   ]) {
     const row = await configured.refreshHealth(id);
     assert.equal(row.health, 'HEALTHY', id);
@@ -467,5 +327,4 @@ test('platform control healthchecks prove real provider access and keep missing 
   });
   assert.equal((await missing.refreshHealth('github.actions.workflow.dispatch')).health, 'UNAVAILABLE');
   assert.equal((await missing.refreshHealth('cloudflare.deployments.create')).health, 'UNAVAILABLE');
-  assert.equal((await missing.refreshHealth('vercel.deployments.redeploy')).health, 'UNAVAILABLE');
 });
