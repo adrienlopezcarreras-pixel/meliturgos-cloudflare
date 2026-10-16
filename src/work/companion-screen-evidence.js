@@ -233,14 +233,26 @@ export async function interpretWorkScreenCapture(env, body = {}, {
     throw new WorkScreenError('WORK_SCREEN_IMAGE_INTEGRITY_MISMATCH', 409);
   const question = clean(body?.question, 1000);
   await ensureInterpretationTable(env.DB);
-  const consentId = crypto.randomUUID();
-  const consentAt = now();
-  const consentWrite = await env.DB.prepare(
-    'INSERT INTO work_screen_consents(id,command_id,device_id,owner_id,image_sha256,scope,granted_at,revoked_at) VALUES(?,?,?,?,?,?,?,NULL)'
-  ).bind(consentId, evidence.command_id, evidence.computer_id, String(env.MELITURGOS_USER || 'owner'),
-    imageSha256, 'ONE_CAPTURE_WORKERS_AI_VISION', consentAt).run();
-  if (!consentWrite || consentWrite.success === false || Number(consentWrite.meta?.changes) !== 1)
-    throw new WorkScreenError('WORK_SCREEN_CONSENT_ALREADY_RECORDED', 409);
+  const ownerId = String(env.MELITURGOS_USER || 'owner');
+  let consent = await env.DB.prepare(
+    'SELECT id,owner_id,image_sha256,revoked_at FROM work_screen_consents WHERE command_id=? AND device_id=? LIMIT 1'
+  ).bind(evidence.command_id, evidence.computer_id).first();
+  let consentId;
+  if (consent) {
+    if (consent.revoked_at != null) throw new WorkScreenError('WORK_SCREEN_CONSENT_REVOKED', 403);
+    if (consent.owner_id !== ownerId || consent.image_sha256 !== imageSha256)
+      throw new WorkScreenError('WORK_SCREEN_CONSENT_BINDING_MISMATCH', 409);
+    consentId = consent.id;
+  } else {
+    consentId = crypto.randomUUID();
+    const consentAt = now();
+    const consentWrite = await env.DB.prepare(
+      'INSERT INTO work_screen_consents(id,command_id,device_id,owner_id,image_sha256,scope,granted_at,revoked_at) VALUES(?,?,?,?,?,?,?,NULL)'
+    ).bind(consentId, evidence.command_id, evidence.computer_id, ownerId,
+      imageSha256, 'ONE_CAPTURE_WORKERS_AI_VISION', consentAt).run();
+    if (!consentWrite || consentWrite.success === false || Number(consentWrite.meta?.changes) !== 1)
+      throw new WorkScreenError('WORK_SCREEN_CONSENT_WRITE_UNCONFIRMED', 503);
+  }
   let analysis;
   try {
     analysis = await withTimeout(Promise.resolve(analyze(env, { bytes, mime: 'image/png', prompt: interpretationPrompt(question) })), timeoutMs);
