@@ -150,3 +150,14 @@ test('authenticated MCP handshake and status call work in one session without le
  const output=JSON.stringify(responses);
  for(const secret of ['DO_NOT_EXPOSE','SECRET_HOST','local-fixture-secret'])assert.equal(output.includes(secret),false);
 });
+
+
+test('401 owner authorization failure cannot be reported as connected Companion status',async()=>{
+ const responses=await request([{jsonrpc:'2.0',id:24,method:'tools/call',params:{name:'mel_companion_status',arguments:{}}}],{
+  MEL_MCP_SERVER_URL:'https://mel.example.test/',MEL_MCP_OWNER_TOKEN:'rejected-fixture-token',
+  NODE_OPTIONS:'--import=./tests/fixtures/mel-mcp-unauthorized-mock.mjs'
+ });
+ assert.equal(responses[0].result.isError,true);
+ assert.equal(responses[0].result.content[0].text,'MEL_STATUS_HTTP_401');
+ assert.equal(JSON.stringify(responses).includes('fake'),false);
+});
