@@ -314,3 +314,22 @@ test('work DAG evidence rejects NaN, infinite, fractional and impossible provide
     assert.equal(readiness.self_development_ready, false, JSON.stringify(values));
   }
 });
+
+test('MEL autonomy readiness rejects Work DAG proof owned by a different job', async () => {
+  const repository = await completeEvidenceRepository();
+  const job = await repository.get('ready-job');
+  const result = structuredClone(job.result_json);
+  result.autonomy_proofs.work_dag_resume.target_job_id = 'another-autonomy-job';
+  await repository.update(job.id, { result_json: result });
+  const state = await getAutonomyReadiness({ repository });
+  assert.equal(state.gates.runtime_work_dag_resume, false);
+  assert.equal(state.gates.coherent_single_job_loop, false);
+  assert.equal(state.self_development_ready, false);
+
+  result.autonomy_proofs.work_dag_resume.target_job_id = job.id;
+  await repository.update(job.id, { result_json: result });
+  const valid = await getAutonomyReadiness({ repository });
+  assert.equal(valid.gates.runtime_work_dag_resume, true);
+  assert.equal(valid.gates.coherent_single_job_loop, true);
+  assert.equal(valid.self_development_ready, true);
+});

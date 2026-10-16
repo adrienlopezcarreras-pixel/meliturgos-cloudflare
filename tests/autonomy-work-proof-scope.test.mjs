@@ -61,3 +61,19 @@ test('a malformed provider count or no successful candidate is never reusable pr
     assert.equal(await findVerifiedRuntimeWorkProof(repository, { targetJobId: target.id }), null);
   }
 });
+
+test('targeted and repository-wide proof lookup reject evidence bound to another job', async () => {
+  const repository = new D1DevJobRepository(null, { memoryStore: new Map() });
+  const job = await repository.create({ id: 'real-job', requested_by: 'mel-autonomy', goal: 'recover work DAG' });
+  await repository.update(job.id, { result_json: {
+    autonomy_proofs: { work_dag_resume: { ...proof(), target_job_id: 'other-job' } },
+  } });
+  assert.equal(await findVerifiedRuntimeWorkProof(repository, { targetJobId: job.id }), null);
+  assert.equal(await findVerifiedRuntimeWorkProof(repository), null);
+
+  await repository.update(job.id, { result_json: {
+    autonomy_proofs: { work_dag_resume: { ...proof(), target_job_id: job.id } },
+  } });
+  const valid = await findVerifiedRuntimeWorkProof(repository, { targetJobId: job.id });
+  assert.equal(valid.job_id, job.id);
+});

@@ -16,7 +16,9 @@ function proofFromJob(job) {
   return job?.result_json?.autonomy_proofs?.[PROOF_KEY] || null;
 }
 
-function isVerifiedProof(proof) {
+function isVerifiedProof(proof, jobId) {
+  // A runtime proof pinned to another job cannot certify or be reused by this one.
+  if (proof?.target_job_id != null && String(proof.target_job_id) !== String(jobId)) return false;
   const attempted = proof?.providers_attempted;
   const successful = proof?.successful_candidates;
   return proof?.status === 'VERIFIED'
@@ -38,12 +40,12 @@ export async function findVerifiedRuntimeWorkProof(repository, { targetJobId = n
     if (typeof repository.get !== 'function') return null;
     const job = await repository.get(targetJobId);
     const proof = proofFromJob(job);
-    return isVerifiedProof(proof) ? { job_id: job.id, proof } : null;
+    return isVerifiedProof(proof, job.id) ? { job_id: job.id, proof } : null;
   }
   const jobs = await repository.list();
   for (const job of jobs) {
     const proof = proofFromJob(job);
-    if (isVerifiedProof(proof)) return { job_id: job.id, proof };
+    if (isVerifiedProof(proof, job.id)) return { job_id: job.id, proof };
   }
   return null;
 }
