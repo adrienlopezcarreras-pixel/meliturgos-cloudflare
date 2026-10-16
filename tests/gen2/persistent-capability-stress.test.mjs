@@ -387,6 +387,7 @@ test('coverage marks full runtime execution only when every capability was genui
   }), /CAPABILITY_COVERAGE_COUNTS_INVALID/);
 });
 
+// Coverage aggregation is domain-only; individual capability IDs stay out of proof summaries.
 test('persistent runtime coverage explains unverified rows using sanitized aggregate blocker codes', () => {
   const coverage = summarizeStressCoverage({
     progress: { total: 4 },
