@@ -237,8 +237,20 @@ static void rx_frame(const uint8_t *frame, size_t len, void *ctx) {
             ESP_LOGW(TAG, "MEDIA_CONFIG rejected: Android V2 session not verified");
             return;
         }
+        // MEDIA_CONFIG is session-scoped: bound input, reject embedded NULs
+        // and trailing JSON before parsing credentials into persistent state.
+        if (!payload || header.payload_len == 0 || header.payload_len > 512 ||
+            std::memchr(payload, 0, header.payload_len) != nullptr) {
+            ESP_LOGW(TAG, "Android media channel config rejected: invalid payload bounds");
+            return;
+        }
         std::string raw(reinterpret_cast<const char *>(payload), header.payload_len);
-        cJSON *root = cJSON_Parse(raw.c_str());
+        const char *parse_end = nullptr;
+        cJSON *root = cJSON_ParseWithOpts(raw.c_str(), &parse_end, true);
+        if (!root) {
+            ESP_LOGW(TAG, "Android media channel config rejected: invalid JSON");
+            return;
+        }
         cJSON *ssid = root ? cJSON_GetObjectItemCaseSensitive(root, "ssid") : nullptr;
         cJSON *pass = root ? cJSON_GetObjectItemCaseSensitive(root, "pass") : nullptr;
         cJSON *port = root ? cJSON_GetObjectItemCaseSensitive(root, "port") : nullptr;
