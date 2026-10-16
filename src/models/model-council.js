@@ -288,7 +288,12 @@ async function synthesizeCouncil({
     attempted.push(identity);
     try {
       governor.assertAllowed(provider);
-      const scheduler = createScheduler(timeoutMs, 1);
+      // Critique phase already retries transient failures once. During MEL
+      // synthesis, fallback candidates are queried sequentially: retrying
+      // each failed adapter first multiplies the end-to-end deadline and can
+      // overrun the production Council HTTP proof. Try each proven critic
+      // once, then fall through to the next zero-euro-authorized provider.
+      const scheduler = createScheduler(timeoutMs, 1, 0);
       const [settled] = await scheduler.run([provider], async (candidate, _index, meta = {}) => {
         const startedAt = Date.now();
         const response = await candidate.invoke({
