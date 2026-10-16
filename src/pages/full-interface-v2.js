@@ -662,7 +662,7 @@ async function captureWorkComputerView(){
    if(!output)throw Error('DESKTOP_VIEW_RESULT_MISSING');
    const url=output.view_url+(output.view_url.includes('?')?'&':'?')+'v='+Date.now();
    image.src=url;image.style.display='block';qs('#workComputerAnalyze').disabled=false;screenState.textContent='CAPTURE REÇUE';screenState.className='tag good';
-   workComputerLastView={computer_id:pc.id,captured_at:new Date().toISOString(),view_url:output.view_url,command_id:queued.command_id,scope:'VIEW_ONLY',active_window:pc.metadata?.active_window||null};
+   workComputerLastView={computer_id:pc.id,captured_at:new Date().toISOString(),expires_at:new Date(Date.now()+90000).toISOString(),view_url:output.view_url,command_id:queued.command_id,scope:'VIEW_ONLY',active_window:pc.metadata?.active_window||null};
    qs('#workComputerOut').textContent=JSON.stringify({status:'SUCCEEDED',scope:'VIEW_ONLY',captured_at:workComputerLastView.captured_at,computer_id:pc.id,command_id:queued.command_id,active_window:workComputerLastView.active_window},null,2);
    return workComputerLastView;
   }
@@ -675,8 +675,13 @@ qs('#workComputerOpen').onclick=e=>{e.preventDefault();qs('[data-view="computer"
 qs('#workComputerState').title='Cliquer pour actualiser le Companion';qs('#workComputerState').style.cursor='pointer';qs('#workComputerState').onclick=()=>loadWorkComputer().catch(()=>{});
 qs('#workComputerView').onclick=e=>{e.preventDefault();if(e.currentTarget.getAttribute('aria-disabled')==='true')return;captureWorkComputerView().catch(()=>{})};
 qs('#workComputerAnalyze').onclick=async()=>{
- const captured=workComputerLastView,pc=selectedWorkComputer(),button=qs('#workComputerAnalyze'),out=qs('#workComputerOut');
- if(!captured?.view_url||!pc||captured.computer_id!==pc.id)return;
+ const captured=workComputerLastView;const button=qs('#workComputerAnalyze'),out=qs('#workComputerOut');
+ if(!captured?.view_url)return;
+ if(Date.parse(String(captured.expires_at||''))<=Date.now()){button.disabled=true;out.textContent='Analyse refusée : la capture a expiré. Demande une nouvelle capture.';return}
+ await loadWorkComputer();const pc=selectedWorkComputer();
+ if(!pc||captured.computer_id!==pc.id)return;
+ const heartbeatAt=Number(pc.last_seen_at||0),engineAt=Number(pc.metadata?.engine_heartbeat_at||0),now=Date.now();
+ if(pc.halted||pc.metadata?.remote_access_enabled!==true||heartbeatAt<=0||heartbeatAt>now||now-heartbeatAt>20000||engineAt<=0||engineAt>now||now-engineAt>20000){out.textContent='Analyse refusée : autorisation locale, HALT ou heartbeat du Companion invalide.';return}
  if(pendingChatFiles.length){out.textContent='Analyse refusée : envoie ou retire d’abord les autres pièces jointes du chat.';return}
  if(qs('#chatInput').value.trim()){out.textContent='Analyse refusée : envoie ou efface d’abord le brouillon déjà présent dans le chat.';return}
  if(pc.halted||pc.metadata?.remote_access_enabled!==true){out.textContent='Analyse refusée : ARRÊTER LE CONTRÔLE ou autorisation locale désactivée.';return}
