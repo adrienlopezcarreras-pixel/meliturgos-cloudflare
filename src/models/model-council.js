@@ -248,6 +248,56 @@ function assertCouncilResponseAuthorized(provider, governor, expectedIdentity, e
   governor.assertAllowed(provider);
 }
 
+async function refreshCouncilHealthWithinBudget(pool, signal, timeoutMs) {
+  if (signal?.aborted) {
+    const error = new Error('SCHEDULER_ABORTED');
+    error.code = 'SCHEDULER_ABORTED';
+    throw error;
+  }
+  // ProviderPool bounds its own probes, but an externally supplied pool may
+  // ignore AbortSignal and never resolve. Keep Council's whole HTTP request
+  // bounded before model execution even begins.
+  const requested = Number(timeoutMs);
+  const budget = Number.isFinite(requested) && requested > 0
+    ? Math.max(10, Math.min(5000, Math.floor(requested))) : 5000;
+  let timer;
+  let onAbort;
+  try {
+    const timeout = new Promise((_, reject) => {
+      timer = setTimeout(() => {
+        const error = new Error('COUNCIL_HEALTH_REFRESH_TIMEOUT');
+        error.code = 'COUNCIL_HEALTH_REFRESH_TIMEOUT';
+        error.status = 504;
+        reject(error);
+      }, budget);
+    });
+    const cancelled = new Promise((_, reject) => {
+      onAbort = () => {
+        const error = new Error('SCHEDULER_ABORTED');
+        error.code = 'SCHEDULER_ABORTED';
+        reject(error);
+      };
+      signal?.addEventListener?.('abort', onAbort, { once: true });
+      if (signal?.aborted) onAbort();
+    });
+    await Promise.race([
+      Promise.resolve().then(() => {
+        if (signal?.aborted) {
+          const error = new Error('SCHEDULER_ABORTED');
+          error.code = 'SCHEDULER_ABORTED';
+          throw error;
+        }
+        return pool?.refreshHealth?.();
+      }),
+      timeout,
+      cancelled,
+    ]);
+  } finally {
+    clearTimeout(timer);
+    signal?.removeEventListener?.('abort', onAbort);
+  }
+}
+
 function candidateSelection(pool, capability, governor, maxCandidates) {
   const eligible = [];
   const rejections = [];
@@ -364,8 +414,8 @@ async function synthesizeCouncil({
       }
       diagnostics.push(safeDiagnostic(settled?.reason));
     } catch (failure) {
-      // An owner cancellation is not a provider synthesis failure, and must
-      // not trigger additional model attempts or a false Council failure.
+      // Owner cancellation must never masquerade as a model failure or
+      // trigger an additional synthesis provider attempt.
       assertCouncilNotCancelled(signal);
       // Continue to the next already-successful zero-cost provider. Never
       // expose provider exception messages, prompts or response content.
@@ -413,7 +463,7 @@ export async function runModelCouncil({
     }
   }
 
-  await providerPool.refreshHealth?.();
+  await refreshCouncilHealthWithinBudget(providerPool, signal, timeoutMs);
   const { eligible, rejections } = candidateSelection(providerPool, capability, governor, maxCandidates);
   if (!eligible.length) {
     throw noProviderError('COUNCIL_NO_ELIGIBLE_PROVIDER', { rejections });
@@ -464,8 +514,6 @@ export async function runModelCouncil({
     signal,
   });
 
-  // A batch with zero/partial replies after owner cancellation cannot be
-  // reported as COUNCIL_ALL_PROVIDERS_FAILED or a degraded AI answer.
   assertCouncilNotCancelled(signal);
   const critiques = settled
     .filter(row => row?.status === 'fulfilled')

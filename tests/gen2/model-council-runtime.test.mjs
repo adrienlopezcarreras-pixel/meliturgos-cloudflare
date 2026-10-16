@@ -681,6 +681,53 @@ test('a failed Council synthesis makes one bounded attempt per verified model', 
     .map(row => row.id), ['a', 'b']);
 });
 
+test('Council rejects hung external health refresh before invoking any AI model', async () => {
+  let listCalls = 0;
+  const pool = {
+    async refreshHealth() { return new Promise(() => {}); },
+    list() { listCalls += 1; return []; },
+  };
+  const started = Date.now();
+  await assert.rejects(runModelCouncil({
+    pool, request: 'prove the Council health deadline', timeoutMs: 25,
+  }), error => error?.code === 'COUNCIL_HEALTH_REFRESH_TIMEOUT' && error?.status === 504);
+  assert.ok(Date.now() - started < 1500, 'hanging health probes must not block Council');
+  assert.equal(listCalls, 0, 'no model is selected without a verified health refresh');
+});
+
+test('Council cancels a hung health refresh promptly on owner request', async () => {
+  let listCalls = 0;
+  const controller = new AbortController();
+  const pool = {
+    async refreshHealth() { return new Promise(() => {}); },
+    list() { listCalls += 1; return []; },
+  };
+  const started = Date.now();
+  const pending = runModelCouncil({
+    pool, request: 'cancel Council before any provider is used',
+    timeoutMs: 30000, signal: controller.signal,
+  });
+  setTimeout(() => controller.abort('owner-cancelled'), 15);
+  await assert.rejects(pending, error => error?.code === 'SCHEDULER_ABORTED');
+  assert.ok(Date.now() - started < 1500);
+  assert.equal(listCalls, 0);
+});
+
+test('Council rejects an already-cancelled call without invoking a pool probe', async () => {
+  let healthCalls = 0;
+  const controller = new AbortController();
+  controller.abort();
+  await assert.rejects(runModelCouncil({
+    pool: {
+      async refreshHealth() { healthCalls += 1; },
+      list() { return []; },
+    },
+    request: 'already cancelled',
+    signal: controller.signal,
+  }), error => error?.code === 'SCHEDULER_ABORTED');
+  assert.equal(healthCalls, 0);
+});
+
 test('Council returns owner cancellation rather than synthesis failure when synthesis hangs', async () => {
   const controller = new AbortController();
   let startedSynthesis;
