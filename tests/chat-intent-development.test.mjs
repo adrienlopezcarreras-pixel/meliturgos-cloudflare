@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { isEvolutionDevelopmentIntent, inferWebResearchIntent, injectEvolutionPreflightCapability } from '../src/evolution/chat-intent.js';
+import { isEvolutionDevelopmentIntent, inferAutonomyControlIntent, inferWebResearchIntent, injectEvolutionPreflightCapability } from '../src/evolution/chat-intent.js';
 import { shouldSemanticIntentCheck, classifySemanticOwnerIntent } from '../src/evolution/semantic-intent.js';
 
 test('interface modification commands are recognized as real development intent', () => {
@@ -42,6 +42,31 @@ test('chat injector turns an explicit interface edit order into evolution.enqueu
   assert.equal(body.capability?.input?.conversationId, 'conv-1');
   assert.equal(body.capability?.input?.requestKey, 'msg-1');
   assert.match(body.capability?.input?.goal || '', /Modifie l.interface/i);
+});
+
+test('autonomy action wins over status words in a compound request', () => {
+  assert.deepEqual(
+    inferAutonomyControlIntent('Où en est l’autonomie de MEL ? Continue maintenant.'),
+    { id: 'autonomy.tick', input: {} },
+  );
+});
+
+test('contextual deployment continuation routes to the real autonomy tick, not a status response', async () => {
+  const context = 'USER: We are actively reconciling MEL Core release and GitHub PRs. The current task is to keep the MEL deployment moving.';
+  const request = new Request('https://mel.example/api/chat', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      text: "Continue, réconcilie et déploie fréquemment. Ne reste pas bloqué dans une boucle d'analyse / rapport / analyse / rapport.",
+      intent_context: context,
+      conversation_id: 'conv-mel-release-followup',
+      client_message_id: 'msg-mel-release-followup',
+    }),
+  });
+  const prepared = await injectEvolutionPreflightCapability(request);
+  const body = await prepared.json();
+  assert.equal(body.capability?.id, 'autonomy.tick');
+  assert.equal(body.intent_routing?.intent, 'AUTONOMY_CONTROL');
 });
 
 test('explicit current web requests route to sourced web research but private connected-data requests do not', () => {
