@@ -134,6 +134,9 @@ function validBrowserWindowHandle(value) {
 // Find cycling only accepts the inspected window and step identity. Unknown
 // fields must not be silently ignored: they can change the owner's intent.
 const FIND_CYCLE_ALLOWED_FIELDS = new Set(['id', 'action', 'window_handle']);
+// browser.find accepts only the inspected window and search text.
+// Reject unexpected execution targets instead of silently discarding intent.
+const BROWSER_FIND_ALLOWED_FIELDS = new Set(['id', 'action', 'window_handle', 'text']);
 const BROWSER_NAVIGATION_KEYS = new Set([
   'ENTER', 'RETURN', 'TAB', 'ESC', 'ESCAPE', 'BACKSPACE', 'DELETE',
   'UP', 'DOWN', 'LEFT', 'RIGHT', 'HOME', 'END', 'PGUP', 'PGDN',
@@ -351,6 +354,11 @@ export function evaluateComputerUsePlan(input = {}) {
       && !validBrowserWindowHandle(step.window_handle)) {
       allowed = false;
       reason = 'BROWSER_FIND_WINDOW_HANDLE_REQUIRED';
+    } else if (step.action === COMPUTER_USE_ACTIONS.BROWSER_FIND
+      && Object.keys(submittedSteps[decisions.length] ?? {}).some(field =>
+        !BROWSER_FIND_ALLOWED_FIELDS.has(field))) {
+      allowed = false;
+      reason = 'BROWSER_FIND_UNEXPECTED_FIELD';
     } else if (step.action === COMPUTER_USE_ACTIONS.BROWSER_FIND
       && (step.text.length === 0 || step.text.trim().length === 0 || step.text.length > 256
         || /[\x00-\x1f\x7f]/.test(step.text))) {
