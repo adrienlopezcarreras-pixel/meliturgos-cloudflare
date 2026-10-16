@@ -331,7 +331,26 @@ export function registerWorkCapabilities(bus, { db } = {}) {
       constraints: input.constraints || [],
       catalog,
     });
-    const generated = await bus.execute('augmentio.fanout', {
+    // One cumulative budget covers generation, repair and structured selection.
+    // The production smoke has a 120s HTTP deadline; keep the planner itself
+    // below it so a slow model fails closed instead of pinning the release.
+    const planningDeadline = Date.now() + 105_000;
+    const executeBoundedPlanningFanout = async (payload) => {
+      const remainingMs = planningDeadline - Date.now();
+      if (remainingMs <= 0) throw workError('WORK_PLAN_GENERATION_BUDGET_EXHAUSTED');
+      let timer;
+      try {
+        return await Promise.race([
+          bus.execute('augmentio.fanout', payload, context),
+          new Promise((_, reject) => {
+            timer = setTimeout(() => reject(workError('WORK_PLAN_GENERATION_BUDGET_EXHAUSTED')), remainingMs);
+          }),
+        ]);
+      } finally {
+        clearTimeout(timer);
+      }
+    };
+    const generated = await executeBoundedPlanningFanout({
       capability: 'REASONING',
       input: prompt,
       context: {
@@ -340,7 +359,7 @@ export function registerWorkCapabilities(bus, { db } = {}) {
         capability_count: catalog.length,
       },
       maxCandidates: Math.min(4, Math.max(1, Number(input.maxCandidates) || 3)),
-    }, context);
+    });
     const validationFailures = [];
     let accepted = null;
     let acceptedCandidate = null;
@@ -433,7 +452,7 @@ export function registerWorkCapabilities(bus, { db } = {}) {
         JSON.stringify(validationFailures.slice(0, 12)),
       ].join('\n').slice(0, 12000);
 
-      const repaired = await bus.execute('augmentio.fanout', {
+      const repaired = await executeBoundedPlanningFanout({
         capability: 'REASONING',
         input: repairPrompt,
         context: {
@@ -442,7 +461,7 @@ export function registerWorkCapabilities(bus, { db } = {}) {
           capability_count: catalog.length,
         },
         maxCandidates: Math.min(4, Math.max(1, Number(input.maxCandidates) || 3)),
-      }, context);
+      });
       providerFailures += Number(repaired?.failures || 0);
       tryCandidates(repaired, 'augmentio:work.plan.generate:repair');
 
@@ -456,7 +475,7 @@ export function registerWorkCapabilities(bus, { db } = {}) {
           String(input.goal || '').slice(0, 2000),
         ].join('\n').slice(0, 6000);
 
-        const selected = await bus.execute('augmentio.fanout', {
+        const selected = await executeBoundedPlanningFanout({
           capability: 'REASONING',
           input: selectionPrompt,
           context: {
@@ -465,7 +484,7 @@ export function registerWorkCapabilities(bus, { db } = {}) {
             capability_count: constrainedCatalog.length,
           },
           maxCandidates: Math.min(4, Math.max(1, Number(input.maxCandidates) || 3)),
-        }, context);
+        });
         providerFailures += Number(selected?.failures || 0);
         const rankedSelections = Array.isArray(selected?.candidates) && selected.candidates.length
           ? selected.candidates
