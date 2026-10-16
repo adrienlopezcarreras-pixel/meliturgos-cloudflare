@@ -2494,6 +2494,31 @@ function Perform-Step($step, [string]$commandId, [string]$planSchema="") {
       Type-Text ([string]$step.text)
       return @{ action=$action; chars=([string]$step.text).Length }
     }
+    "browser.open-downloads" {
+      # The browser controls which downloads page is shown; do not read files.
+      [long]$expectedHandle = 0
+      if (-not [long]::TryParse([string]$step.window_handle, [ref]$expectedHandle) -or $expectedHandle -le 0) {
+        throw "BROWSER_PANEL_WINDOW_HANDLE_REQUIRED"
+      }
+      $window = [MelNative]::GetForegroundWindow()
+      if ($window -eq [IntPtr]::Zero -or $window.ToInt64() -ne $expectedHandle) { throw "BROWSER_PANEL_FOCUS_CHANGED" }
+      $browser = Assert-ForegroundBrowser
+      Assert-BrowserShortcutTarget $window $browser
+      [System.Windows.Forms.SendKeys]::SendWait("^j")
+      return @{ action=$action; browser=$browser; window_handle=$expectedHandle; shortcut_sent=$true }
+    }
+    "browser.open-history" {
+      [long]$expectedHandle = 0
+      if (-not [long]::TryParse([string]$step.window_handle, [ref]$expectedHandle) -or $expectedHandle -le 0) {
+        throw "BROWSER_PANEL_WINDOW_HANDLE_REQUIRED"
+      }
+      $window = [MelNative]::GetForegroundWindow()
+      if ($window -eq [IntPtr]::Zero -or $window.ToInt64() -ne $expectedHandle) { throw "BROWSER_PANEL_FOCUS_CHANGED" }
+      $browser = Assert-ForegroundBrowser
+      Assert-BrowserShortcutTarget $window $browser
+      [System.Windows.Forms.SendKeys]::SendWait("^h")
+      return @{ action=$action; browser=$browser; window_handle=$expectedHandle; shortcut_sent=$true }
+    }
     "browser.zoom-in" {
       # Ctrl+Numpad + is handled by Chromium, Firefox and Edge zoom controls.
       [long]$expectedHandle = 0
