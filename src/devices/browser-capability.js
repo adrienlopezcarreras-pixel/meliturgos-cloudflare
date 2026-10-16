@@ -71,9 +71,8 @@ function normalizeHttpsUrl(value) {
   if (!raw) return '';
   try {
     const url = new URL(raw);
-    if (url.protocol !== 'https:') return '';
-    url.username = '';
-    url.password = '';
+    // Never silently strip credentials: doing so changes the URL the owner approved.
+    if (url.protocol !== 'https:' || url.username || url.password) return '';
     return url.toString();
   } catch {
     return '';
