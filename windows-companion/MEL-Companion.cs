@@ -1782,7 +1782,8 @@ class MainForm : Form
                     object observed, connected, model, installed, available, errorValue, errorDetailValue;
                     DateTime when;
                     bool fresh = a.TryGetValue("observed_at_utc", out observed)
-                        && DateTime.TryParse(Convert.ToString(observed), out when)
+                        && DateTime.TryParse(Convert.ToString(observed), System.Globalization.CultureInfo.InvariantCulture,
+                            System.Globalization.DateTimeStyles.AssumeUniversal | System.Globalization.DateTimeStyles.AdjustToUniversal, out when)
                         && (DateTime.UtcNow - when.ToUniversalTime()).TotalSeconds >= -30
                         && (DateTime.UtcNow - when.ToUniversalTime()).TotalSeconds < 75;
                     bool isConnected = fresh && a.TryGetValue("connected", out connected) && Convert.ToBoolean(connected);
