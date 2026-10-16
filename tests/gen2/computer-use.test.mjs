@@ -178,3 +178,52 @@ test('GEN2-30 controller is fail-closed globally, executes sequentially and audi
   );
   assert.equal(audits.at(-1).status, 'DENIED');
 });
+
+test('GEN2-30 refuses partial execution if the submitted plan exceeds its step limit', () => {
+  const ten = Array.from({ length: 10 }, (_, i) => ({ id: `step-${i}`, action: COMPUTER_USE_ACTIONS.SCREENSHOT }));
+  const complete = evaluateComputerUsePlan({ ...base, steps: ten });
+  assert.equal(complete.allowed, true);
+  const oversized = evaluateComputerUsePlan({
+    ...base,
+    steps: [...ten, { id: 'extra', action: COMPUTER_USE_ACTIONS.SCREENSHOT }],
+  });
+  assert.equal(oversized.allowed, false);
+  assert.equal(oversized.reason, 'COMPUTER_USE_STEP_LIMIT_EXCEEDED');
+  assert.equal(oversized.decisions.length, 0);
+});
+
+test('GEN2-30 refuses typing when input text would be silently truncated', () => {
+  const make = text => ({
+    ...base,
+    steps: [{ id: 'type', action: COMPUTER_USE_ACTIONS.TYPE_TEXT, app: 'notepad', text }],
+    approvals: [{ session_id: base.session_id, step_id: 'type', action: COMPUTER_USE_ACTIONS.TYPE_TEXT, approved: true }],
+  });
+  assert.equal(evaluateComputerUsePlan(make('A'.repeat(4096))).allowed, true);
+  const rejected = evaluateComputerUsePlan(make('A'.repeat(4097)));
+  assert.equal(rejected.allowed, false);
+  assert.equal(rejected.reason, 'COMPUTER_USE_TEXT_LIMIT_EXCEEDED');
+});
+
+test('GEN2-30 never executes a truncated plan or audits it as complete', async () => {
+  const performed = [];
+  const audits = [];
+  const controller = createComputerUseController({
+    adapter: { perform: async step => performed.push(step.id) },
+    authorize: async () => true,
+    audit: async entry => audits.push(entry),
+  });
+  await assert.rejects(
+    controller.execute({
+      ...base,
+      sandbox: { ...base.sandbox, max_steps: 1 },
+      steps: [
+        { id: 'first', action: COMPUTER_USE_ACTIONS.SCREENSHOT },
+        { id: 'second', action: COMPUTER_USE_ACTIONS.CLICK },
+      ],
+    }),
+    error => error.code === 'COMPUTER_USE_STEP_LIMIT_EXCEEDED',
+  );
+  assert.deepEqual(performed, []);
+  assert.equal(audits.at(-1).status, 'DENIED');
+  assert.equal(audits.at(-1).reason, 'COMPUTER_USE_STEP_LIMIT_EXCEEDED');
+});
