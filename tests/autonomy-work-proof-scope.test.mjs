@@ -3,10 +3,11 @@ import assert from 'node:assert/strict';
 import { D1DevJobRepository } from '../src/dev/d1-dev-job-repository.js';
 import { findVerifiedRuntimeWorkProof } from '../src/evolution/autonomy-proof.js';
 
-function proof() {
+function proof(targetJobId = 'old-job') {
   return {
     status: 'VERIFIED',
     version: 4,
+    target_job_id: targetJobId,
     runtime_fanout_cache_hit: false,
     schema: 'mel.autonomy-proof/work-dag-resume',
     proof_dag_status: 'COMPLETED',
@@ -51,7 +52,7 @@ test('incomplete target proof is not reusable even when an older valid proof exi
   const repository = new D1DevJobRepository(null, { memoryStore: new Map() });
   const oldJob = await repository.create({ id:'old-valid', requested_by:'mel-autonomy', goal:'old proof', optional_context:{ roadmap_id:'MEL-WORK-01' } });
   const target = await repository.create({ id:'target-invalid', requested_by:'mel-autonomy', goal:'new proof', optional_context:{ roadmap_id:'GEN2-17' } });
-  await repository.update(oldJob.id, { result_json:{ autonomy_proofs:{ work_dag_resume: proof() } } });
+  await repository.update(oldJob.id, { result_json:{ autonomy_proofs:{ work_dag_resume: proof(oldJob.id) } } });
   await repository.update(target.id, { result_json:{ autonomy_proofs:{ work_dag_resume:{ ...proof(), providers_attempted:1 } } } });
   assert.equal(await findVerifiedRuntimeWorkProof(repository, { targetJobId:target.id }), null);
 });
@@ -70,7 +71,7 @@ test('a malformed provider count or no successful candidate is never reusable pr
     const repository = new D1DevJobRepository(null, { memoryStore: new Map() });
     const target = await repository.create({ id: 'malformed-proof', requested_by: 'mel-autonomy', goal: 'validate proof' });
     await repository.update(target.id, { result_json: {
-      autonomy_proofs: { work_dag_resume: { ...proof(), ...fields } },
+      autonomy_proofs: { work_dag_resume: { ...proof(target.id), ...fields } },
     } });
     assert.equal(await findVerifiedRuntimeWorkProof(repository, { targetJobId: target.id }), null);
   }

@@ -37,10 +37,11 @@ function council(costB = 0, { sameProvider = false, missingProof = false, wrongP
   };
 }
 
-function workDagProof() {
+function workDagProof(targetJobId = 'ready-job') {
   return {
     status: 'VERIFIED',
     version: 4,
+    target_job_id: targetJobId,
     runtime_fanout_cache_hit: false,
     schema: 'mel.autonomy-proof/work-dag-resume',
     proof_dag_status: 'COMPLETED',
@@ -192,7 +193,7 @@ test('proofs spread across different jobs cannot falsely declare self-developmen
   });
   await repository.update(split.id, {
     status: 'COMPLETED',
-    result_json: { autonomy_proofs: { work_dag_resume: workDagProof() } },
+    result_json: { autonomy_proofs: { work_dag_resume: workDagProof(split.id) } },
   });
 
   const state = await getAutonomyReadiness({ repository });
