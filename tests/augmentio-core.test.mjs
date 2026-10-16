@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { ProviderPool } from '../src/augmentio/provider-pool.js';
+import { ProviderAdapter } from '../src/augmentio/provider-adapter.js';
 import { ZeroEuroGovernor, ZERO_EURO_POLICY } from '../src/augmentio/zero-euro-governor.js';
 import { ParallelScheduler } from '../src/augmentio/parallel-scheduler.js';
 import { ResultTournament } from '../src/augmentio/result-tournament.js';
@@ -909,4 +910,74 @@ test('Augmentio provider health report preserves the selected model identity', a
   assert.deepEqual(result.providersAttempted, ['a', 'b']);
   assert.equal(result.providerHealth[0].model, 'model-a');
   assert.equal(result.candidates.length, 2);
+});
+
+test('ProviderAdapter never starts a pre-cancelled AI request or credits it', async () => {
+  let calls = 0;
+  const adapter = new ProviderAdapter({ id: 'pre-cancelled',
+    invoke: async () => { calls++; return 'invalid success'; } });
+  const controller = new AbortController();
+  controller.abort('owner-cancelled');
+  await assert.rejects(adapter.invoke({ signal: controller.signal }),
+    error => error?.code === 'PROVIDER_ABORTED');
+  assert.equal(calls, 0);
+  assert.equal(adapter.stats.calls, 0);
+  assert.equal(adapter.stats.successes, 0);
+  assert.equal(adapter.stats.failures, 0);
+});
+
+test('ProviderAdapter ignores a late AI success after cancellation without changing health metrics', async () => {
+  let resolveLate;
+  let started;
+  const invoked = new Promise(resolve => { started = resolve; });
+  const adapter = new ProviderAdapter({
+    id: 'ignores-abort',
+    invoke: async () => {
+      started();
+      return new Promise(resolve => { resolveLate = resolve; });
+    },
+  });
+  const controller = new AbortController();
+  const running = adapter.invoke({ signal: controller.signal });
+  await invoked;
+  controller.abort('owner-cancelled');
+  resolveLate('late answer');
+  await assert.rejects(running, error => error?.code === 'PROVIDER_ABORTED');
+  assert.equal(adapter.stats.calls, 1);
+  assert.equal(adapter.stats.successes, 0);
+  assert.equal(adapter.stats.failures, 0);
+  assert.equal(adapter.healthStatus, 'UNKNOWN');
+});
+
+test('Augmentio does not credit a timed-out AI provider when its late output arrives', async () => {
+  let finishSlow;
+  let slowStarted;
+  const started = new Promise(resolve => { slowStarted = resolve; });
+  const slow = new ProviderAdapter({
+    id: 'slow', priority: 2, estimatedCost: 0,
+    costProvenance: verifiedFree('slow', { provider: 'slow', model: 'slow' }),
+    invoke: async () => {
+      slowStarted();
+      return new Promise(resolve => { finishSlow = resolve; });
+    },
+  });
+  const fast = {
+    id: 'fast', priority: 1, capabilities: ['GENERAL'], estimatedCost: 0,
+    costProvenance: verifiedFree('fast'), invoke: async () => 'real reply',
+  };
+  const ai = new Augmentio({
+    pool: new ProviderPool([slow, fast]),
+    scheduler: new ParallelScheduler({ retries: 0, timeoutMs: 25, globalConcurrency: 2 }),
+  });
+  const running = ai.fanOut({ input: 'timeout and late provider', maxCandidates: 2 });
+  await started;
+  const result = await running;
+  assert.equal(result.failures, 1);
+  assert.equal(result.best.text, 'real reply');
+  finishSlow('too late');
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(slow.stats.calls, 1);
+  assert.equal(slow.stats.successes, 0);
+  assert.equal(slow.stats.failures, 0);
+  assert.equal(ai.quota.get('slow').calls, 0);
 });
