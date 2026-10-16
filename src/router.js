@@ -12,6 +12,8 @@ import handleAugmentio from "./api/augmentio-api.js";
 import { onRequestGet as handleMvp } from "./pages/mvp-interface-v3.js";
 import { onRequestGet as handleFullModeV2 } from "./pages/full-interface-v2.js";
 import { onRequestGet as handleWatchInterface } from "./pages/watch-interface.js";
+import { onRequestGet as handleRevenueInterface } from "./pages/revenue-interface.js";
+import { handleRevenueApi } from "./api/revenue-worker-api.js";
 import { SERVICE_WORKER_SOURCE } from "./pages/service-worker.js";
 import { PWA_MANIFEST_JSON } from "./pages/pwa-manifest.js";
 import { handlePublicWordPressChat, publicWordPressChatCors } from "./api/public-wordpress-chat.js";
@@ -102,6 +104,9 @@ async function codeSelfCheck(env) {
 
 async function handleConversationApi(request, env, url = new URL(request.url), ctx = null) {
   const path = url.pathname;
+
+  const revenueResponse = await handleRevenueApi(request, env);
+  if (revenueResponse) return revenueResponse;
 
   if (path.startsWith("/api/gen2/oauth/")) {
     const googleOAuthResponse = await maybeHandleGoogleOAuthApi(request, env, url);
@@ -433,6 +438,10 @@ async function routeResolvedRequest(request, env, ctx) {
 
     if (request.method === "GET" && url.pathname === "/professor") {
       return handleFullModeV2({ env, request, params: {} }).catch(e => html(`Error loading full mode: ${e.message}`, 500));
+    }
+
+    if (request.method === "GET" && (url.pathname === "/revenus" || url.pathname === "/revenue")) {
+      return handleRevenueInterface({ env, request, params: {} }).catch(e => html(`Error loading revenue interface: ${e.message}`, 500));
     }
 
     if (request.method === "GET" && url.pathname === "/veille") {
