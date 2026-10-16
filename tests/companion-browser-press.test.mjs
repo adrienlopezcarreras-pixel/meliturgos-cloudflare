@@ -58,7 +58,7 @@ test('Windows browser.press checks recognized unchanged browser and local stop b
   assert.equal(source, dist);
   assert.ok(api.includes('"browser.press"'), 'owner must explicitly approve the exact browser press step');
   const start = source.indexOf('"browser.press" {');
-  const end = source.indexOf('"browser.capture" {', start);
+  const end = source.indexOf('"browser.find" {', start);
   assert.ok(start > 0 && end > start);
   const handler = source.slice(start, end);
   for (const token of [
