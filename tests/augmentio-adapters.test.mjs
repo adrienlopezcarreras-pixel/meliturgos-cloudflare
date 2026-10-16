@@ -99,3 +99,32 @@ test('teacher escalation exposes MEL answer and all candidates for review', () =
   assert.equal(payload.candidates.length, 2);
   assert.equal(payload.requires_teacher_decision, true);
 });
+test('late success cannot clear a rate-limit cooldown from an overlapping AI call', () => {
+  const quota = new QuotaArbitrator({ cooldownMs: 20_000 });
+  quota.recordFailure('shared', { status: 429, message: 'rate limit' });
+  const firstExpiry = quota.get('shared').cooldownUntil;
+  assert.ok(firstExpiry > Date.now());
+  quota.recordSuccess('shared');
+  assert.equal(quota.get('shared').cooldownUntil, firstExpiry);
+  assert.equal(quota.get('shared').lastStatus, 429);
+  assert.equal(quota.isAvailable('shared'), false);
+  assert.deepEqual(quota.filter([{ id: 'shared' }, { id: 'other' }]).map(x => x.id), ['other']);
+  assert.equal(quota.get('shared').calls, 2, 'both completed calls remain accounted for');
+
+  quota.recordFailure('shared', { status: 429 });
+  assert.ok(quota.get('shared').cooldownUntil >= firstExpiry,
+    'another 429 must not shorten an existing cooldown');
+  quota.state.set('shared', { ...quota.get('shared'), cooldownUntil: Date.now() - 1 });
+  quota.recordSuccess('shared');
+  assert.equal(quota.get('shared').cooldownUntil, 0,
+    'an expired cooldown may be cleared by a genuinely new success');
+  assert.equal(quota.isAvailable('shared'), true);
+});
+
+test('malformed cooldown configuration cannot disable rate limiting or make it infinite', () => {
+  assert.equal(new QuotaArbitrator({ cooldownMs: Infinity }).cooldownMs, 60_000);
+  assert.equal(new QuotaArbitrator({ cooldownMs: NaN }).cooldownMs, 60_000);
+  assert.equal(new QuotaArbitrator({ cooldownMs: -1 }).cooldownMs, 1000);
+  assert.equal(new QuotaArbitrator({ cooldownMs: 0 }).cooldownMs, 1000);
+  assert.equal(new QuotaArbitrator({ cooldownMs: 999999999 }).cooldownMs, 3_600_000);
+});

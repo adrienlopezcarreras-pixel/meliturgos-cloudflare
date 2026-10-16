@@ -1,6 +1,11 @@
 export class QuotaArbitrator {
   constructor({ cooldownMs = 60_000 } = {}) {
-    this.cooldownMs = cooldownMs;
+    const parsed = Number(cooldownMs);
+    // Malformed configuration must not disable rate-limit protection or
+    // indefinitely quarantine every provider.
+    this.cooldownMs = Number.isFinite(parsed)
+      ? Math.max(1000, Math.min(3_600_000, Math.floor(parsed)))
+      : 60_000;
     this.state = new Map();
   }
 
@@ -14,7 +19,15 @@ export class QuotaArbitrator {
 
   recordSuccess(id) {
     const current = this.get(id);
-    this.state.set(id, { ...current, calls: current.calls + 1, lastStatus: 200, cooldownUntil: 0 });
+    // Several calls to one model may finish out of order. A late 200 result
+    // must never revoke a still-active 429 cooldown established by a peer.
+    const cooling = current.cooldownUntil > Date.now();
+    this.state.set(id, {
+      ...current,
+      calls: current.calls + 1,
+      lastStatus: cooling ? current.lastStatus : 200,
+      cooldownUntil: cooling ? current.cooldownUntil : 0,
+    });
   }
 
   recordFailure(id, error) {
@@ -26,7 +39,9 @@ export class QuotaArbitrator {
       calls: current.calls + 1,
       failures: current.failures + 1,
       lastStatus: Number.isFinite(status) ? status : null,
-      cooldownUntil: rateLimited ? Date.now() + this.cooldownMs : current.cooldownUntil,
+      // Repeated 429 responses cannot shorten an existing cooldown.
+      cooldownUntil: rateLimited ? Math.max(current.cooldownUntil, Date.now() + this.cooldownMs)
+        : current.cooldownUntil,
     });
   }
 
