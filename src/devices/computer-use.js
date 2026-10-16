@@ -487,6 +487,17 @@ export function evaluateComputerUsePlan(input = {}) {
       // any silently discarded repeat/count/target.
       allowed = false;
       reason = 'BROWSER_REOPEN_TAB_UNEXPECTED_FIELD';
+    } else if (step.action === COMPUTER_USE_ACTIONS.BROWSER_CAPTURE
+      && !validBrowserWindowHandle(step.window_handle)) {
+      allowed = false;
+      reason = 'BROWSER_CAPTURE_WINDOW_HANDLE_REQUIRED';
+    } else if (step.action === COMPUTER_USE_ACTIONS.BROWSER_CAPTURE
+      && Object.keys(submittedSteps[decisions.length] ?? {}).some(field =>
+        !['id', 'action', 'window_handle'].includes(field))) {
+      // Capturing a different window can expose unrelated private browser
+      // content. Do not ignore a supplied target, region or alternate URL.
+      allowed = false;
+      reason = 'BROWSER_CAPTURE_UNEXPECTED_FIELD';
     } else if (step.action === COMPUTER_USE_ACTIONS.BROWSER_FIND
       && !validBrowserWindowHandle(step.window_handle)) {
       allowed = false;
