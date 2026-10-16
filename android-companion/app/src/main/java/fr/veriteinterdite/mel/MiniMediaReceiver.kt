@@ -56,6 +56,7 @@ class MiniMediaReceiver(private val context: Context) {
 
     private val started = AtomicBoolean(false)
     private val hotspotEpoch = AtomicLong(0)
+    private val publicationGate = Any() // Coordinate STOP with pending MediaStore publication.
     private val activeClients = ConcurrentHashMap.newKeySet<Socket>()
     private fun newSessionToken(): String = ByteArray(24).also { SecureRandom().nextBytes(it) }
         .let { Base64.encodeToString(it, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING) }
@@ -76,7 +77,7 @@ class MiniMediaReceiver(private val context: Context) {
 
         try {
             serverSocket = ServerSocket(PORT).apply { reuseAddress = true }
-            Thread({ acceptLoop() }, "mel-mini-media-sink").apply {
+            Thread({ acceptLoop(epoch) }, "mel-mini-media-sink").apply {
                 isDaemon = true
                 start()
             }
@@ -155,8 +156,8 @@ class MiniMediaReceiver(private val context: Context) {
         }
     }
 
-    private fun acceptLoop() {
-        while (started.get()) {
+    private fun acceptLoop(sessionEpoch: Long) {
+        while (started.get() && hotspotEpoch.get() == sessionEpoch) {
             val socket = try { serverSocket?.accept() } catch (_: Throwable) { null } ?: break
             if (!started.get()) {
                 runCatching { socket.close() }
@@ -168,17 +169,21 @@ class MiniMediaReceiver(private val context: Context) {
                 runCatching { socket.close() }
                 continue
             }
+            if (hotspotEpoch.get() != sessionEpoch) {
+                runCatching { socket.close() }
+                break
+            }
             activeClients.add(socket)
             // Closing can race with accept(): never leave a newly accepted
             // client running after the user stops the MINI media receiver.
-            if (!started.get()) {
+            if (!started.get() || hotspotEpoch.get() != sessionEpoch) {
                 activeClients.remove(socket)
                 runCatching { socket.close() }
                 break
             }
             Thread({
                 try {
-                    handleClient(socket)
+                    handleClient(socket, sessionEpoch)
                 } catch (error: Exception) {
                     Log.w(TAG, "MINI media client interrupted", error)
                 } finally {
@@ -204,7 +209,8 @@ class MiniMediaReceiver(private val context: Context) {
         return if (normalized.isBlank()) fallback else normalized
     }
 
-    private fun handleClient(socket: Socket) {
+    private fun handleClient(socket: Socket, sessionEpoch: Long) {
+        if (!started.get() || hotspotEpoch.get() != sessionEpoch) return
         socket.use { client ->
             client.soTimeout = 45_000
             val handshakeGate = MiniMediaHandshakeReader(
@@ -218,6 +224,7 @@ class MiniMediaReceiver(private val context: Context) {
             if (tokenLen !in 16..96) return
             val suppliedToken = String(readFully(input, tokenLen), Charsets.UTF_8)
             if (!constantTimeEquals(token, suppliedToken)) return
+            if (!started.get() || hotspotEpoch.get() != sessionEpoch) return
 
             val nameLen = input.readUnsignedShort()
             if (nameLen !in 1..128) return
@@ -233,19 +240,19 @@ class MiniMediaReceiver(private val context: Context) {
             // Invalid MINI media metadata must not be silently coerced into
             // a different framerate, sample rate or channel count.
             when (type) {
-                1 -> receivePhoto(input, safeName(name, "mel-mini-photo.jpg"), client)
+                1 -> receivePhoto(input, safeName(name, "mel-mini-photo.jpg"), client, sessionEpoch)
                 2 -> if (fps in 1..30) {
-                    receiveVideo(input, safeName(name, "mel-mini-video.avi"), width, height, fps, client)
+                    receiveVideo(input, safeName(name, "mel-mini-video.avi"), width, height, fps, client, sessionEpoch)
                 }
                 3 -> if (sampleRate in 8_000..96_000 && channels in 1..2) {
-                    receiveAudio(input, safeName(name, "mel-mini-audio.wav"), sampleRate, channels, client)
+                    receiveAudio(input, safeName(name, "mel-mini-audio.wav"), sampleRate, channels, client, sessionEpoch)
                 }
                 4 -> receiveBrowser(input, DataOutputStream(BufferedOutputStream(client.getOutputStream())), width, height, client)
             }
         }
     }
 
-    private fun receivePhoto(input: DataInputStream, name: String, socket: Socket) {
+    private fun receivePhoto(input: DataInputStream, name: String, socket: Socket, sessionEpoch: Long) {
         // Include the size header in the global photo deadline.
         val bytes = MiniPhotoDeadlineReader.readSized(input, beforeRead = { socket.soTimeout = it })
         if (!MiniJpegFrameSignature.hasMarkers(bytes)) return
@@ -255,7 +262,7 @@ class MiniMediaReceiver(private val context: Context) {
             "image/jpeg",
             Environment.DIRECTORY_PICTURES + "/MEL"
         ) ?: return
-        if (!writeAndPublish(uri) { it.write(bytes) }) return
+        if (!writeAndPublish(uri, sessionEpoch) { it.write(bytes) }) return
         Log.i(TAG, "MINI photo saved bytes=${bytes.size} uri=$uri")
     }
 
@@ -265,7 +272,8 @@ class MiniMediaReceiver(private val context: Context) {
         width: Int,
         height: Int,
         fps: Int,
-        socket: Socket
+        socket: Socket,
+        sessionEpoch: Long
     ) {
         if (width !in 80..1920 || height !in 80..1920) return
         val temp = File.createTempFile("mel-mini-video-", ".avi", context.cacheDir)
@@ -305,7 +313,7 @@ class MiniMediaReceiver(private val context: Context) {
                 "video/x-msvideo",
                 Environment.DIRECTORY_MOVIES + "/MEL"
             ) ?: return
-            if (!writeAndPublish(uri) { output ->
+            if (!writeAndPublish(uri, sessionEpoch) { output ->
                 temp.inputStream().use { it.copyTo(output, 128 * 1024) }
             }) return
             Log.i(TAG, "MINI video saved bytes=${temp.length()} uri=$uri")
@@ -319,7 +327,8 @@ class MiniMediaReceiver(private val context: Context) {
         name: String,
         sampleRate: Int,
         channels: Int,
-        socket: Socket
+        socket: Socket,
+        sessionEpoch: Long
     ) {
         val temp = File.createTempFile("mel-mini-audio-", ".pcm", context.cacheDir)
         var pcmBytes = 0L
@@ -357,7 +366,7 @@ class MiniMediaReceiver(private val context: Context) {
                 "audio/wav",
                 Environment.DIRECTORY_RECORDINGS + "/MEL"
             ) ?: return
-            if (!writeAndPublish(uri) { output ->
+            if (!writeAndPublish(uri, sessionEpoch) { output ->
                 writeWavHeader(output, pcmBytes.toInt(), sampleRate, channels)
                 temp.inputStream().use { it.copyTo(output, 64 * 1024) }
             }) return
@@ -516,16 +525,20 @@ class MiniMediaReceiver(private val context: Context) {
     // Never publish a MediaStore item unless its bytes were actually written.
     // Revoke incomplete pending entries if the provider refuses an output stream,
     // copying fails or updating the published state throws.
-    private fun writeAndPublish(uri: android.net.Uri, writer: (OutputStream) -> Unit): Boolean {
+    private fun writeAndPublish(uri: android.net.Uri, sessionEpoch: Long, writer: (OutputStream) -> Unit): Boolean {
         var completed = false
         try {
             val output = context.contentResolver.openOutputStream(uri, "w") ?: return false
             output.use { writer(it) }
-            // STOP or hotspot shutdown must not publish an in-flight recording.
-            if (!started.get()) return false
-            publish(uri)
-            completed = true
-            return true
+            // STOP/restart must not publish an upload from a prior session.
+            // Closing and publication share a gate; no epoch change can slip between check and publish.
+            synchronized(publicationGate) {
+                if (!started.get()) return false
+                if (hotspotEpoch.get() != sessionEpoch) return false
+                publish(uri)
+                completed = true
+                return true
+            }
         } finally {
             if (!completed) {
                 runCatching { context.contentResolver.delete(uri, null, null) }
@@ -585,9 +598,11 @@ class MiniMediaReceiver(private val context: Context) {
 
     fun close() {
         // Invalidate delayed hotspot callbacks before any teardown.
-        hotspotEpoch.incrementAndGet()
-        // Stop permission for active sessions before closing the listener.
-        started.set(false)
+        synchronized(publicationGate) {
+            hotspotEpoch.incrementAndGet()
+            // Stop permission for active sessions before closing the listener.
+            started.set(false)
+        }
         currentConfig = null
         runCatching { reservation?.close() }
         reservation = null
