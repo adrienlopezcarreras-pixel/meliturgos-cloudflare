@@ -33,6 +33,7 @@ function isNonRetryableProviderError(error) {
   return code.startsWith('ZERO_EURO_')
     || code === 'AUGMENTIO_PROVIDER_DISABLED'
     || code === 'AUGMENTIO_PROVIDER_IDENTITY_CHANGED'
+    || code === 'COUNCIL_PROVIDER_IDENTITY_CHANGED'
     || code === 'AI_PROVIDER_RESPONSE_TOO_LARGE'
     || code === 'EMPTY_PROVIDER_RESPONSE';
 }

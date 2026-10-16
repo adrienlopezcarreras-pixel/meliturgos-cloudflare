@@ -228,6 +228,18 @@ function createScheduler(timeoutMs, maxCandidates, retries = 1) {
   });
 }
 
+function assertCouncilResponseAuthorized(provider, governor, expectedIdentity, expectedAdapterId) {
+  // Selection-time authorization is not enough: provider cost or model
+  // identity can change while an asynchronous critique/synthesis is running.
+  if (providerIdentity(provider) !== expectedIdentity
+    || clean(provider?.id) !== expectedAdapterId) {
+    const error = new Error('COUNCIL_PROVIDER_IDENTITY_CHANGED');
+    error.code = 'COUNCIL_PROVIDER_IDENTITY_CHANGED';
+    throw error;
+  }
+  governor.assertAllowed(provider);
+}
+
 function candidateSelection(pool, capability, governor, maxCandidates) {
   const eligible = [];
   const rejections = [];
@@ -291,6 +303,9 @@ async function synthesizeCouncil({
       const scheduler = createScheduler(timeoutMs, 1);
       const [settled] = await scheduler.run([provider], async (candidate, _index, meta = {}) => {
         const startedAt = Date.now();
+        const approvedIdentity = providerIdentity(candidate);
+        const approvedAdapterId = clean(candidate.id);
+        governor.assertAllowed(candidate);
         const response = await candidate.invoke({
           input,
           context: {
@@ -302,6 +317,12 @@ async function synthesizeCouncil({
           capability: 'GENERAL',
           signal: meta.signal,
         });
+        assertCouncilResponseAuthorized(candidate, governor, approvedIdentity, approvedAdapterId);
+        if (meta.signal?.aborted || signal?.aborted) {
+          const error = new Error('SCHEDULER_ABORTED');
+          error.code = 'SCHEDULER_ABORTED';
+          throw error;
+        }
         const text = extractText(response);
         if (!text) {
           const error = new Error('COUNCIL_EMPTY_SYNTHESIS');
@@ -385,6 +406,8 @@ export async function runModelCouncil({
     // Revalidate immediately before each call. Cost metadata is mutable and a
     // selection-time decision must never authorize a later paid invocation.
     governor.assertAllowed(provider);
+    const approvedIdentity = providerIdentity(provider);
+    const approvedAdapterId = clean(provider.id);
     const startedAt = Date.now();
     const response = await provider.invoke({
       input: normalizedRequest,
@@ -396,6 +419,12 @@ export async function runModelCouncil({
       capability,
       signal: meta.signal,
     });
+    assertCouncilResponseAuthorized(provider, governor, approvedIdentity, approvedAdapterId);
+    if (meta.signal?.aborted || signal?.aborted) {
+      const error = new Error('SCHEDULER_ABORTED');
+      error.code = 'SCHEDULER_ABORTED';
+      throw error;
+    }
     const text = extractText(response);
     if (!text) {
       const error = new Error('EMPTY_PROVIDER_RESPONSE');
