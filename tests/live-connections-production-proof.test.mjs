@@ -43,9 +43,7 @@ test('live connection proof persists precise partial evidence even when a connec
   assert.match(source,/connector_id":"google-drive"/);
   assert.match(source,/drive:process\.env\.GOOGLE_DRIVE_OK==='1'/);
   assert.match(source,/yahoo_or_ymail:process\.env\.YAHOO_OK==='1'/);
-  assert.match(source,/required:false/);
   assert.match(source,/authenticated_target_probe:process\.env\.VERCEL_OK==='1'/);
-  assert.match(source,/OPTIONAL_NOT_CONFIGURED/);
   assert.match(source,/- name: Upload sanitized live proof\n\s+if: always\(\)/);
   assert.match(source,/secret_values_exposed:false/);
 });
@@ -85,12 +83,7 @@ test('Google Tasks Pipedream fallback uses the documented proxy host',async()=>{
 });
 
 
-test('Vercel absence is reported but never blocks MEL connection completion', async()=>{
-  const source=await readFile(workflowUrl,'utf8');
-  const block=source.slice(source.indexOf('VERCEL_OK=0'),source.indexOf('GOOGLE_GMAIL_OK="${GOOGLE_GMAIL_OK}"'));
-  assert.match(block,/VERCEL_STATUS="OPTIONAL_NOT_CONFIGURED"/);
-  assert.doesNotMatch(block,/FAILURES=\$\(\(FAILURES\+1\)\)/);
-});
+
 
 test('live connection proof reports sanitized Pipedream environment and upstream diagnostics', async()=>{
   const source=await readFile(workflowUrl,'utf8');
@@ -106,30 +99,11 @@ test('live connection proof reports sanitized Pipedream environment and upstream
   assert.doesNotMatch(source,/client_secret[^_]/);
 });
 
-test('linked Pipedream SharePoint account is never labeled a proven Graph site read',async()=>{
+test('paid SharePoint and Vercel are excluded from zero-cost production probes', async()=>{
   const source=await readFile(workflowUrl,'utf8');
-  const block=source.slice(source.indexOf('if probe microsoft_sharepoint '),source.indexOf('YAHOO_OK=0'));
-  assert.match(block,/MICROSOFT_SHAREPOINT_READ_PROVEN=1/);
-  assert.match(block,/MICROSOFT_SHAREPOINT_PROOF_SOURCE="NATIVE_GRAPH_SITE_SEARCH"/);
-  assert.match(block,/MICROSOFT_SHAREPOINT_PROOF_SOURCE="PIPEDREAM_LINKED_ACCOUNT_ONLY"/);
-  const pdCondition = block.indexOf('if probe microsoft_sharepoint_pipedream_graph');
-  const linkedOnlyBranch = block.slice(block.indexOf('else', pdCondition), block.indexOf('fi', block.indexOf('else', pdCondition)));
-  assert.doesNotMatch(linkedOnlyBranch, /MICROSOFT_SHAREPOINT_READ_PROVEN=1/,
-    'linked account fallback must never claim live Graph target read proof');
-  assert.match(source,/sharepoint_graph_read_proven:process\.env\.MICROSOFT_SHAREPOINT_READ_PROVEN==='1'/);
-  assert.match(source,/sharepoint_proof_source:process\.env\.MICROSOFT_SHAREPOINT_PROOF_SOURCE/);
-  assert.match(source,/capability_execution_not_implied:true/);
-});
-
-test('SharePoint live Pipedream Graph proof is bounded and never conflates a linked account with a verified read', async () => {
-  const source = await readFile(workflowUrl, 'utf8');
-  const block = source.slice(source.indexOf('if probe microsoft_sharepoint '), source.indexOf('YAHOO_OK=0'));
-  assert.ok(block.includes('connections/pipedream/test'), 'real Pipedream connection-test route required');
-  assert.ok(block.includes('"probe":"sharepoint_sites_read"'), 'SharePoint Graph probe required');
-  assert.match(block, /MICROSOFT_SHAREPOINT_PROOF_SOURCE="PIPEDREAM_GRAPH_SITE_SEARCH"/);
-  assert.match(block, /MICROSOFT_SHAREPOINT_PROOF_SOURCE="PIPEDREAM_LINKED_ACCOUNT_ONLY"/);
-  const success = block.slice(block.indexOf('if probe microsoft_sharepoint_pipedream_graph'), block.indexOf('else', block.indexOf('if probe microsoft_sharepoint_pipedream_graph')));
-  const failure = block.slice(block.indexOf('else', block.indexOf('if probe microsoft_sharepoint_pipedream_graph')));
-  assert.match(success, /MICROSOFT_SHAREPOINT_READ_PROVEN=1/);
-  assert.doesNotMatch(failure, /MICROSOFT_SHAREPOINT_READ_PROVEN=1/);
+  assert.doesNotMatch(source,/\/api\/gen2\/connections\/vercel\/test/);
+  assert.doesNotMatch(source,/\/api\/gen2\/connections\/microsoft\/test[^\\n]*microsoft-sharepoint/);
+  assert.doesNotMatch(source,/sharepoint_sites_read/);
+  assert.doesNotMatch(source,/VERCEL_OK|MICROSOFT_SHAREPOINT_OK/);
+  assert.match(source,/excluded_by_owner_zero_cost_policy: \\['microsoft_sharepoint','vercel'\\]/);
 });
