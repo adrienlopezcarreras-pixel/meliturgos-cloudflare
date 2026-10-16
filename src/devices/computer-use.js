@@ -304,14 +304,14 @@ export function evaluateComputerUsePlan(input = {}) {
       reason = 'ACTION_NOT_ALLOWED';
     } else if (step.action === COMPUTER_USE_ACTIONS.CLICK
       && Object.keys(submittedSteps[decisions.length] ?? {}).some(field =>
-        !['id', 'action'].includes(field))) {
+        !['id', 'action', 'app', 'url', 'path'].includes(field))) {
       // Native pointer.click is a single LEFT click at the current cursor.
       // x/y and button are not implemented and cannot be silently ignored.
       allowed = false;
       reason = 'POINTER_CLICK_UNEXPECTED_FIELD';
     } else if (step.action === COMPUTER_USE_ACTIONS.SCROLL
       && Object.keys(submittedSteps[decisions.length] ?? {}).some(field =>
-        !['id', 'action', 'delta_y'].includes(field))) {
+        !['id', 'action', 'delta_y', 'app', 'url', 'path'].includes(field))) {
       // Native pointer.scroll only supports vertical wheel deltas.
       allowed = false;
       reason = 'POINTER_SCROLL_UNEXPECTED_FIELD';
