@@ -98,15 +98,20 @@ test('decoupled sovereignty waits for canonical exact-SHA deploy job success ins
   assert.match(block,/actions\/workflows\/deploy-cloudflare-release\.yml\/runs\?head_sha=\$\{TARGET_SHA\}/);
   assert.match(block,/actions\/runs\/\$\{RELEASE_RUN_ID\}\/jobs\?per_page=100/);
   assert.match(block,/String\(job\?\.name\|\|''\)==='deploy'/);
-  assert.match(block,/completed:success/);
-  assert.match(block,/SOV proof waiting for canonical exact-SHA deploy job success/);
+  assert.match(block,/Deploy exact approved SHA to production/);
+  assert.match(block,/Verify owner auth binding and exact deployment immediately/);
+  assert.match(block,/completed:success:completed:success:/);
+  assert.match(block,/exact deployment and immediate identity-binding steps/);
+  assert.match(block,/sovereignty-post-deploy-identity\.json/);
+  assert.match(block,/POST_DEPLOY_EXACT_SHA_MISMATCH/);
   assert.match(block,/Decoupled SOV fast path: exact-SHA final proof already valid/);
   assert.match(block,/exact_sha_fast_path:true/);
   assert.doesNotMatch(block,/SOV proof waiting for canonical exact-SHA release success/);
   const ready=block.indexOf('test "${RELEASE_DEPLOY_SUCCESS}" = "1"');
+  const recheck=block.indexOf('POST_DEPLOY_IDENTITY_CODE=');
   const fast=block.indexOf('FAST_SOV_CODE=');
   const selective=block.indexOf('if layer_covered "ai"; then');
-  assert.ok(ready>0&&fast>ready&&selective>fast,'SOV fast path and selective missing-layer refresh must start only after canonical exact-SHA deploy job success');
+  assert.ok(ready>0&&recheck>ready&&fast>recheck&&selective>fast,'SOV must await exact deployment steps, recheck live SHA, then use the fast path or refresh missing layers');
 });
 test('source-control prevalidation surfaces a sanitized blocked reason for strict SOV diagnostics', async () => {
   const runtime=await readFile(new URL('../../src/portability/companion-source-control-prevalidation-runtime.js',import.meta.url),'utf8');
