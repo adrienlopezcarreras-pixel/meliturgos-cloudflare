@@ -12,6 +12,14 @@ export function boundedAugmentioCandidates(value) {
   return Math.max(1, Math.min(12, Math.floor(n)));
 }
 
+function assertNotCancelled(signal) {
+  if (signal?.aborted) {
+    const error = new Error('SCHEDULER_ABORTED');
+    error.code = 'SCHEDULER_ABORTED';
+    throw error;
+  }
+}
+
 export class Augmentio {
   constructor({
     pool,
@@ -30,10 +38,12 @@ export class Augmentio {
   }
 
   async fanOut({ capability = 'GENERAL', input, context = {}, maxCandidates = 4, signal } = {}) {
+    assertNotCancelled(signal);
     const limit = boundedAugmentioCandidates(maxCandidates);
     // A cached answer is not an authorization grant. Re-evaluate live model
     // availability and the zero-added-cost policy before considering cache.
     await this.pool?.refreshHealth?.();
+    assertNotCancelled(signal);
     const providers = this.quota.filter(
       this.pool.list({ capability }).filter((provider) => this.governor.allows(provider)),
     ).slice(0, limit);
@@ -55,7 +65,9 @@ export class Augmentio {
     const cacheKey = { capability, input, context, maxCandidates: limit, roster };
     const cached = await this.cache.get(cacheKey);
     // Live authorization can change even between roster selection and lookup.
+    assertNotCancelled(signal);
     if (cached && providers.every((provider) => this.governor.allows(provider))) {
+      assertNotCancelled(signal);
       return { ...cached, cacheHit: true };
     }
 
@@ -98,6 +110,9 @@ export class Augmentio {
       }
     }, { signal });
 
+    // A cancelled multi-AI run is never a partial success, even if one
+    // provider completed before cancellation. Never cache a cancelled batch.
+    assertNotCancelled(signal);
     const candidates = settled.filter((item) => item.status === 'fulfilled').map((item) => item.value);
     if (!candidates.length) {
       const error = new Error('ALL_PROVIDERS_FAILED');
@@ -120,7 +135,9 @@ export class Augmentio {
       })),
       cacheHit: false,
     };
+    assertNotCancelled(signal);
     await this.cache.set(cacheKey, result);
+    assertNotCancelled(signal);
     return result;
   }
 }
