@@ -1049,7 +1049,7 @@ test('Augmentio drops an AI answer when its zero-cost approval is revoked during
   assert.equal(result.candidates.length, 1);
   assert.equal(result.best.text, 'authorized fallback');
   assert.equal(result.failures, 1);
-  assert.equal(ai.quota.get('revoked-during-call').successes, 0);
+  assert.equal(ai.quota.get('revoked-during-call').lastStatus, 500);
 });
 
 test('Augmentio fails closed and never caches responses with revoked provenance after inference', async () => {
@@ -1072,5 +1072,5 @@ test('Augmentio fails closed and never caches responses with revoked provenance 
       && error.failures?.some(x => x.includes('ZERO_EURO_PROVENANCE_REQUIRED')));
   assert.equal(invoked, 1);
   assert.equal(ai.cache.entries.size, 0);
-  assert.equal(ai.quota.get('provenance-withdrawn').successes, 0);
+  assert.equal(ai.quota.get('provenance-withdrawn').lastStatus, 500);
 });
