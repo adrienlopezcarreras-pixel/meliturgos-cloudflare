@@ -477,3 +477,46 @@ test('parallel scheduler exits a long retry backoff promptly when MEL cancels', 
   assert.equal(results[0].status, 'rejected');
   assert.equal(results[0].reason?.code, 'SCHEDULER_ABORTED');
 });
+
+test('parallel AI scheduler clamps untrusted concurrency, retry and timeout options', async () => {
+  const defaults = new ParallelScheduler({
+    globalConcurrency: Infinity, perProviderConcurrency: NaN, retries: Infinity,
+    timeoutMs: Infinity, backoffMs: NaN, circuitBreakerFailures: Infinity,
+    circuitBreakerCooldownMs: Infinity,
+  });
+  assert.equal(defaults.globalConcurrency, 8);
+  assert.equal(defaults.perProviderConcurrency, 2);
+  assert.equal(defaults.retries, 1);
+  assert.equal(defaults.timeoutMs, 30_000);
+  assert.equal(defaults.backoffMs, 100);
+  assert.equal(defaults.circuitBreakerFailures, 3);
+  assert.equal(defaults.circuitBreakerCooldownMs, 60_000);
+
+  const maxed = new ParallelScheduler({
+    globalConcurrency: 1_000_000, perProviderConcurrency: 1_000_000,
+    retries: 1_000_000, timeoutMs: 1_000_000, backoffMs: 1_000_000,
+    circuitBreakerFailures: 1_000_000, circuitBreakerCooldownMs: 1_000_000_000,
+  });
+  assert.equal(maxed.globalConcurrency, 32);
+  assert.equal(maxed.perProviderConcurrency, 16);
+  assert.equal(maxed.retries, 5);
+  assert.equal(maxed.timeoutMs, 120_000);
+  assert.equal(maxed.backoffMs, 30_000);
+  assert.equal(maxed.circuitBreakerFailures, 100);
+  assert.equal(maxed.circuitBreakerCooldownMs, 3_600_000);
+});
+
+test('a huge requested retry count cannot trap MEL in endless failed AI calls', async () => {
+  let calls = 0;
+  const scheduler = new ParallelScheduler({
+    retries: 1_000_000, backoffMs: 0, circuitBreakerFailures: 100,
+  });
+  const settled = await scheduler.run([{ id: 'always-fails' }], async () => {
+    calls += 1;
+    throw new Error('service unavailable');
+  });
+  assert.equal(calls, 6, 'at most five retries after the first attempt');
+  assert.equal(settled.length, 1);
+  assert.equal(settled[0].status, 'rejected');
+  assert.match(settled[0].reason.message, /service unavailable/);
+});
