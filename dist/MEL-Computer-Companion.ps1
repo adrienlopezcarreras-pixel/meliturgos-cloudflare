@@ -2533,6 +2533,32 @@ function Perform-Step($step, [string]$commandId, [string]$planSchema="") {
       }
       return @{ action=$action; browser=$browser; x=$x; y=$y; window_handle=$expectedHandle; coordinate_space="virtual-screen-pixels" }
     }
+    "browser.scroll" {
+      # Scroll only the currently approved and visible browser window.
+      [long]$expectedHandle = 0
+      if (-not [long]::TryParse([string]$step.window_handle, [ref]$expectedHandle) -or $expectedHandle -le 0) {
+        throw "BROWSER_SCROLL_WINDOW_HANDLE_REQUIRED"
+      }
+      [int]$delta = 0
+      if (-not [int]::TryParse([string]$step.delta_y, [ref]$delta) -or
+          $delta -eq 0 -or [Math]::Abs([long]$delta) -gt 1440) { throw "BROWSER_SCROLL_DELTA_INVALID" }
+      $window = [MelNative]::GetForegroundWindow()
+      if ($window -eq [IntPtr]::Zero -or $window.ToInt64() -ne $expectedHandle) { throw "BROWSER_SCROLL_FOCUS_CHANGED" }
+      $browser = Assert-ForegroundBrowser
+      $x = [int]$step.x
+      $y = [int]$step.y
+      Assert-BrowserClickTarget $window $browser $x $y
+      if (-not [MelNative]::SetCursorPos($x, $y)) { throw "BROWSER_SCROLL_CURSOR_MOVE_FAILED" }
+      # The window may change during cursor movement: recheck before wheel input.
+      Assert-BrowserClickTarget $window $browser $x $y
+      $point = New-Object MelNative+POINT
+      if (-not [MelNative]::GetCursorPos([ref]$point) -or $point.X -ne $x -or $point.Y -ne $y) {
+        throw "BROWSER_SCROLL_CURSOR_POSITION_CHANGED"
+      }
+      Assert-BrowserClickTarget $window $browser $x $y
+      [MelNative]::mouse_event($MOUSE_WHEEL,0,0,$delta,[UIntPtr]::Zero)
+      return @{ action=$action; browser=$browser; x=$x; y=$y; delta_y=$delta; window_handle=$expectedHandle; coordinate_space="virtual-screen-pixels" }
+    }
     "browser.type" {
       [long]$expectedHandle = 0
       if (-not [long]::TryParse([string]$step.window_handle, [ref]$expectedHandle) -or $expectedHandle -le 0) {
