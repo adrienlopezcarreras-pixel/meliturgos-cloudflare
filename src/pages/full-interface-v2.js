@@ -1165,7 +1165,7 @@ async function loadConnections(){
   }else if(banner&&pdReturn){
     banner.hidden=false;
     banner.className='connection-banner '+(pdReturn==='connected'?'good':'bad');
-    const labels={microsoft_outlook:'Outlook / MSN',microsoft_onedrive:'OneDrive',sharepoint:'SharePoint',imap:'Yahoo/Ymail via IMAP',lemlist:'Lemlist',google_drive:'Google Drive',google_calendar:'Google Calendar',google_tasks:'Google Tasks',dropbox:'Dropbox'};
+    const labels={microsoft_outlook:'Outlook / MSN',microsoft_onedrive:'OneDrive',imap:'Yahoo/Ymail via IMAP',lemlist:'Lemlist',google_drive:'Google Drive',google_calendar:'Google Calendar',google_tasks:'Google Tasks',dropbox:'Dropbox'};
     banner.textContent=pdReturn==='connected'?'Connexion Pipedream réussie : '+(labels[pdApp]||pdApp||'service')+'.':'Connexion Pipedream interrompue : '+(labels[pdApp]||pdApp||'service')+'.';
   }
   return data;
