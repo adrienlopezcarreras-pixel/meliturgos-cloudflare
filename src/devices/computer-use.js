@@ -20,6 +20,7 @@ export const COMPUTER_USE_ACTIONS = Object.freeze({
   BROWSER_INSPECT: 'browser.inspect',
   BROWSER_CAPTURE: 'browser.capture',
   BROWSER_CLICK: 'browser.click',
+  BROWSER_TYPE: 'browser.type',
   BROWSER_BACK: 'browser.back',
   BROWSER_NEW_TAB: 'browser.new-tab',
   BROWSER_CLOSE_TAB: 'browser.close-tab',
@@ -44,6 +45,7 @@ const ACTION_RISK = new Map([
   [COMPUTER_USE_ACTIONS.BROWSER_INSPECT, COMPUTER_USE_RISK.OBSERVE],
   [COMPUTER_USE_ACTIONS.BROWSER_CAPTURE, COMPUTER_USE_RISK.SENSITIVE],
   [COMPUTER_USE_ACTIONS.BROWSER_CLICK, COMPUTER_USE_RISK.SENSITIVE],
+  [COMPUTER_USE_ACTIONS.BROWSER_TYPE, COMPUTER_USE_RISK.SENSITIVE],
   [COMPUTER_USE_ACTIONS.BROWSER_BACK, COMPUTER_USE_RISK.SENSITIVE],
   [COMPUTER_USE_ACTIONS.BROWSER_NEW_TAB, COMPUTER_USE_RISK.SENSITIVE],
   [COMPUTER_USE_ACTIONS.BROWSER_CLOSE_TAB, COMPUTER_USE_RISK.SENSITIVE],
@@ -281,6 +283,13 @@ export function evaluateComputerUsePlan(input = {}) {
       && !validBrowserWindowHandle(step.window_handle)) {
       allowed = false;
       reason = 'BROWSER_CLICK_WINDOW_HANDLE_REQUIRED';
+    } else if (step.action === COMPUTER_USE_ACTIONS.BROWSER_TYPE
+      && !validBrowserWindowHandle(step.window_handle)) {
+      allowed = false;
+      reason = 'BROWSER_TYPE_WINDOW_HANDLE_REQUIRED';
+    } else if (step.action === COMPUTER_USE_ACTIONS.BROWSER_TYPE && !step.text.length) {
+      allowed = false;
+      reason = 'BROWSER_TYPE_TEXT_REQUIRED';
     } else if (step.action === COMPUTER_USE_ACTIONS.SCROLL
       && (!suppliedSafeInteger(submittedSteps[decisions.length]?.delta_y)
         || Number(submittedSteps[decisions.length].delta_y) === 0)) {
