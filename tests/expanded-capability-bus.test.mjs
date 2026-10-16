@@ -89,11 +89,3 @@ test('Vercel capabilities stay excluded even when a token and legacy opt-in flag
   const bindings = bus.list().find(row => row.id === 'system.bindings');
   assert.ok(bindings);
 });
-    assert.equal(bus.list().filter(row => row.provider === 'vercel').length, 0);
-  }
-  const optedIn = createDefaultCapabilityBus({ env: { MEL_ENABLE_OPTIONAL_VERCEL:'true' } });
-  assert.deepEqual(
-    optedIn.list().filter(row => row.provider === 'vercel').map(row => row.id).sort(),
-    ['vercel.deployments.read', 'vercel.deployments.redeploy', 'vercel.projects.read'],
-  );
-});
