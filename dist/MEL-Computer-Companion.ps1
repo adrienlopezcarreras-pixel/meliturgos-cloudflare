@@ -2326,6 +2326,13 @@ function Assert-ForegroundBrowser {
   return $name
 }
 
+function Assert-BrowserShortcutTarget([IntPtr]$window, [string]$browser) {
+  # Recheck local consent and the same exact window before injecting any keys.
+  Assert-LocalRemoteAccess
+  if ($window -eq [IntPtr]::Zero -or [MelNative]::GetForegroundWindow() -ne $window -or
+      (Assert-ForegroundBrowser) -ne $browser) { throw "BROWSER_SHORTCUT_FOCUS_CHANGED" }
+}
+
 function Perform-Step($step, [string]$commandId, [string]$planSchema="") {
   $action = [string]$step.action
   if ($planSchema -eq "mel.devices.pc-control.v1") {
@@ -2418,27 +2425,37 @@ function Perform-Step($step, [string]$commandId, [string]$planSchema="") {
       return @{ action=$action; url=$uri.AbsoluteUri }
     }
     "browser.close-tab" {
+      $window = [MelNative]::GetForegroundWindow()
       $browser = Assert-ForegroundBrowser
+      Assert-BrowserShortcutTarget $window $browser
       [System.Windows.Forms.SendKeys]::SendWait("^w")
       return @{ action=$action; browser=$browser }
     }
     "browser.new-tab" {
+      $window = [MelNative]::GetForegroundWindow()
       $browser = Assert-ForegroundBrowser
+      Assert-BrowserShortcutTarget $window $browser
       [System.Windows.Forms.SendKeys]::SendWait("^t")
       return @{ action=$action; browser=$browser }
     }
     "browser.back" {
+      $window = [MelNative]::GetForegroundWindow()
       $browser = Assert-ForegroundBrowser
+      Assert-BrowserShortcutTarget $window $browser
       [System.Windows.Forms.SendKeys]::SendWait("%{LEFT}")
       return @{ action=$action; browser=$browser }
     }
     "browser.forward" {
+      $window = [MelNative]::GetForegroundWindow()
       $browser = Assert-ForegroundBrowser
+      Assert-BrowserShortcutTarget $window $browser
       [System.Windows.Forms.SendKeys]::SendWait("%{RIGHT}")
       return @{ action=$action; browser=$browser }
     }
     "browser.reload" {
+      $window = [MelNative]::GetForegroundWindow()
       $browser = Assert-ForegroundBrowser
+      Assert-BrowserShortcutTarget $window $browser
       [System.Windows.Forms.SendKeys]::SendWait("{F5}")
       return @{ action=$action; browser=$browser }
     }
