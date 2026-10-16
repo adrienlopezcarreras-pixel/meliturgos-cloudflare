@@ -110,9 +110,23 @@ export class Augmentio {
     }));
     const cacheKey = { capability, input, context, maxCandidates: limit, roster };
     const cached = await this.cache.get(cacheKey);
-    // Live authorization can change even between roster selection and lookup.
+    // A health check or owner may revoke/replace an adapter during the async
+    // cache lookup. Never use stale cache (or execute old selected adapters).
     assertNotCancelled(signal);
-    if (cached && providers.every((provider) => this.governor.allows(provider))) {
+    const current = this.quota.filter(
+      this.pool.list({ capability }).filter((provider) => this.governor.allows(provider)),
+    ).slice(0, limit);
+    const stable = current.length === providers.length && current.every((provider, i) =>
+      provider === providers[i]
+      && provider.id === roster[i].id
+      && (provider.providerId ?? provider.provider_id ?? provider.id) === roster[i].provider
+      && (provider.modelId ?? provider.model_id ?? provider.id) === roster[i].model);
+    if (!stable) {
+      const error = new Error('AUGMENTIO_PROVIDER_ROSTER_CHANGED');
+      error.code = 'AUGMENTIO_PROVIDER_ROSTER_CHANGED';
+      throw error;
+    }
+    if (cached) {
       assertNotCancelled(signal);
       return { ...cached, cacheHit: true };
     }
@@ -123,6 +137,12 @@ export class Augmentio {
         // Provider metadata is mutable. Selection-time authorization is not
         // enough: revalidate immediately before every external invocation so a
         // late cost/provenance change cannot race past the zero-euro gate.
+        if (provider.enabled === false || provider.healthStatus === 'UNAVAILABLE'
+          || this.quota?.isAvailable?.(provider.id) === false) {
+          const error = new Error('AUGMENTIO_PROVIDER_DISABLED');
+          error.code = 'AUGMENTIO_PROVIDER_DISABLED';
+          throw error;
+        }
         this.governor.assertAllowed(provider);
         const response = await provider.invoke({ input, context, capability, signal: meta.signal });
         // A late provider response must not be credited after its attempt was
