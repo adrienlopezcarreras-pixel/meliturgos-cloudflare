@@ -21,6 +21,7 @@ static class MelApp
     public static readonly string InstalledExe = Path.Combine(MelDir, "MEL-Companion.exe");
     public static readonly string CompanionPath = Path.Combine(MelDir, "MEL-Computer-Companion.ps1");
     public static readonly string AdbWifiPath = Path.Combine(MelDir, "MEL-ADB-WiFi.ps1");
+    public static readonly string AndroidWifiPairingPath = Path.Combine(MelDir, "MEL-Android-WiFi-Pairing.ps1");
     public static readonly string LocalAiBenchmarkPath = Path.Combine(MelDir, "MEL-Local-AI-Benchmark.ps1");
     public static readonly string MiniUsbPreflightPath = Path.Combine(MelDir, "MEL-MINI-USB-Preflight.ps1");
     public static readonly string[] MiniUsbPreflightFiles = new string[] {
@@ -502,6 +503,8 @@ static class MelApp
         Directory.CreateDirectory(MelDir);
         File.WriteAllBytes(CompanionPath, Convert.FromBase64String(CompanionB64));
         File.WriteAllBytes(AdbWifiPath, Convert.FromBase64String(AdbWifiB64));
+        var packagedAndroidPairing = Path.Combine(Path.GetDirectoryName(Application.ExecutablePath), "MEL-Android-WiFi-Pairing.ps1");
+        if (File.Exists(packagedAndroidPairing) && !string.Equals(Path.GetFullPath(packagedAndroidPairing), Path.GetFullPath(AndroidWifiPairingPath), StringComparison.OrdinalIgnoreCase)) File.Copy(packagedAndroidPairing, AndroidWifiPairingPath, true);
         // Optional user-initiated benchmark shipped alongside the signed ZIP.
         // Installation COPIES this script; it never executes it automatically.
         var packagedBenchmark = Path.Combine(Path.GetDirectoryName(Application.ExecutablePath), "MEL-Local-AI-Benchmark.ps1");
@@ -1382,7 +1385,9 @@ class MainForm : Form
         LabelAt(pc,"CET ORDINATEUR",20,14,310,36,10,true,blue);
         var miniUsb=ButtonAt(pc,"Contrôle USB MINI",Math.Max(350,pc.Width-232),43,205,RunMiniUsbPreflight);
         miniUsb.Anchor=AnchorStyles.Top|AnchorStyles.Right;
-        LabelAt(pc,Environment.MachineName,20,57,pc.Width-40,40,12,true).Anchor=AnchorStyles.Top|AnchorStyles.Left|AnchorStyles.Right;
+        var androidPair=ButtonAt(pc,"Configurer ADB Wi-Fi",Math.Max(170,pc.Width-450),43,205,RunAndroidWifiPairing);
+        androidPair.Anchor=AnchorStyles.Top|AnchorStyles.Right;
+        LabelAt(pc,Environment.MachineName,20,57,Math.Max(240,pc.Width-480),40,12,true).Anchor=AnchorStyles.Top|AnchorStyles.Left;
         adbWifiStatus=LabelAt(pc,"ADB Wi-Fi : recherche du téléphone…",20,109,pc.Width-40,31,9,false,gray);
         adbWifiStatus.Anchor=AnchorStyles.Top|AnchorStyles.Left|AnchorStyles.Right;
         LabelAt(this,"Appareils MEL",28,302,390,47,12,true);
@@ -1447,6 +1452,32 @@ class MainForm : Form
         var buttons=Controls.OfType<Button>().Where(b=>b.Text=="Réparer"||b.Text=="Réappairer"||b.Text=="Désinstaller"||b.Text=="Tester IA locale").ToArray();
         foreach(var b in buttons)b.Top=ClientSize.Height-145;
         if(autostart!=null)autostart.Top=ClientSize.Height-88;
+    }
+    void RunAndroidWifiPairing(object sender,EventArgs e)
+    {
+        if (!File.Exists(MelApp.AndroidWifiPairingPath))
+        {
+            MessageBox.Show(this,"Assistant ADB Wi-Fi absent. Réinstallez le package MEL Companion Windows complet.",
+                "MEL — Android Wi-Fi",MessageBoxButtons.OK,MessageBoxIcon.Warning);
+            return;
+        }
+        if (MessageBox.Show(this,
+            "Cela ouvre un terminal local pour associer ce téléphone à Windows. Le code d'appairage reste uniquement dans ce terminal et ne doit pas être communiqué à MEL. Le téléphone et le PC doivent être sur le même réseau Wi-Fi. Continuer ?",
+            "Configurer ADB Wi-Fi",MessageBoxButtons.YesNo,MessageBoxIcon.Information)!=DialogResult.Yes)return;
+        try
+        {
+            var psi=new ProcessStartInfo("powershell.exe");
+            psi.UseShellExecute=true;psi.WindowStyle=ProcessWindowStyle.Normal;
+            psi.WorkingDirectory=MelApp.MelDir;
+            psi.Arguments="-NoProfile -ExecutionPolicy Bypass -NoExit -File \"" +
+                MelApp.AndroidWifiPairingPath + "\" -Pair";
+            Process.Start(psi);
+        }
+        catch(Exception ex)
+        {
+            MessageBox.Show(this,"Impossible d'ouvrir l'assistant ADB Wi-Fi : "+ex.Message,
+                "MEL — Android Wi-Fi",MessageBoxButtons.OK,MessageBoxIcon.Error);
+        }
     }
     void RunMiniUsbPreflight(object sender,EventArgs e)
     {
@@ -1602,17 +1633,21 @@ class MainForm : Form
                 try
                 {
                     var a = MelApp.Json.Deserialize<Dictionary<string,object>>(File.ReadAllText(adbReport));
-                    object observed, connected, model, installed;
+                    object observed, connected, model, installed, available, errorValue;
                     DateTime when;
                     bool fresh = a.TryGetValue("observed_at_utc", out observed)
                         && DateTime.TryParse(Convert.ToString(observed), out when)
                         && Math.Abs((DateTime.UtcNow - when.ToUniversalTime()).TotalMinutes) < 2;
                     bool isConnected = a.TryGetValue("connected", out connected) && Convert.ToBoolean(connected);
+                    bool adbAvailable = a.TryGetValue("adb_available", out available) && Convert.ToBoolean(available);
+                    string errorCode = a.TryGetValue("error", out errorValue) && errorValue != null ? Convert.ToString(errorValue) : "";
                     string name = a.TryGetValue("android_model", out model) ? Convert.ToString(model) : "";
                     bool hasMel = a.TryGetValue("mel_installed", out installed) && Convert.ToBoolean(installed);
-                    adbWifiStatus.Text = !fresh ? "ADB Wi-Fi : diagnostic ancien"
+                    adbWifiStatus.Text = !fresh ? "ADB Wi-Fi : diagnostic ancien · actualisez"
+                        : !adbAvailable ? "ADB Wi-Fi : Android Platform Tools introuvables"
+                        : !String.IsNullOrEmpty(errorCode) ? "ADB Wi-Fi : diagnostic en échec · " + errorCode
                         : isConnected ? "ADB Wi-Fi : connecté · " + name + " · MEL " + (hasMel ? "installée" : "absente")
-                        : "ADB Wi-Fi : déconnecté · reconnexion automatique";
+                        : "ADB Wi-Fi : téléphone non appairé ou déconnecté · utilisez Configurer ADB Wi-Fi";
                     adbWifiStatus.ForeColor = fresh && isConnected ? Color.FromArgb(25,125,85) : gray;
                 }
                 catch { adbWifiStatus.Text = "ADB Wi-Fi : rapport indisponible"; }

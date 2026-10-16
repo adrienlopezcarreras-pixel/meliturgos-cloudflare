@@ -111,3 +111,25 @@ test("verified saved endpoint is attempted ahead of discovered candidates", asyn
   const reconnect = script.split("function Attempt-Reconnect {")[1].split("function Scan {")[0];
   assert.match(reconnect, /\$targets = @\(\$last\) \+ @\(\$targets\)/);
 });
+
+
+test("Windows Companion exposes explicit local Android Wi-Fi pairing without collecting pairing code", async () => {
+  const native = await source("windows-companion/MEL-Companion.cs");
+  const build = await source("scripts/build-windows-release.ps1");
+  const helper = await source("tools/android-companion/MEL-Android-WiFi-Pairing.ps1");
+  assert.match(native, /Configurer ADB Wi-Fi/);
+  assert.match(native, /RunAndroidWifiPairing/);
+  assert.match(native, /AndroidWifiPairingPath/);
+  assert.match(build, /ANDROID_WIFI_PAIRING_HELPER_MISSING/);
+  assert.match(build, /MEL-Android-WiFi-Pairing\.ps1/);
+  assert.match(helper, /\$adb pair \$pairAddress/);
+  assert.match(helper, /ANDROID_LOCAL_PAIRING_FAILED/);
+  assert.doesNotMatch(native, /pairing code|PairingCode|pairCode/i);
+});
+
+test("Windows Companion ADB status provides actionable diagnostics, not false auto-reconnect promises", async () => {
+  const native = await source("windows-companion/MEL-Companion.cs");
+  assert.match(native, /Android Platform Tools introuvables/);
+  assert.match(native, /diagnostic en échec/);
+  assert.match(native, /téléphone non appairé ou déconnecté · utilisez Configurer ADB Wi-Fi/);
+});
