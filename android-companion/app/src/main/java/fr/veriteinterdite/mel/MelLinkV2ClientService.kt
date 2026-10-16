@@ -505,9 +505,14 @@ class MelLinkV2ClientService : Service() {
             }
             val cccd = event.getDescriptor(CCCD_UUID)
                 ?: return failAndReconnect(client, "CCCD_MISSING")
-            // Subscribe only to modes the server actually advertises. Some
-            // Android stacks reject the unsupported bit in a 0x0003 request.
-            val eventCccdValue = if (indicate) byteArrayOf(2, 0) else byteArrayOf(1, 0)
+            // Subscribe to both modes when supported: ordinary Link V2
+            // frames use notifications, while confirmed handshake/control
+            // responses may use indications. Never request an unsupported bit.
+            val eventCccdValue = when {
+                indicate && notify -> byteArrayOf(3, 0)
+                indicate -> byteArrayOf(2, 0)
+                else -> byteArrayOf(1, 0)
+            }
             val queued = if (Build.VERSION.SDK_INT >= 33) {
                 client.writeDescriptor(cccd, eventCccdValue) == BluetoothGatt.GATT_SUCCESS
             } else {
