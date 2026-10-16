@@ -377,3 +377,77 @@ test('result tournament does not promote NaN, Infinity or huge AI-supplied score
   assert.ok(candidates.every(row => Number.isFinite(row.tournamentScore)));
   assert.equal(tournament.score({ evidenceScore: Number.MAX_VALUE, confidence: Number.MAX_VALUE }), 2_000_000);
 });
+
+test('a cancelled request cannot reuse an already cached Augmentio answer', async () => {
+  let calls = 0;
+  const pool = new ProviderPool([{
+    id: 'one', capabilities: ['GENERAL'], priority: 1,
+    estimatedCost: 0, costProvenance: verifiedFree('one'),
+    invoke: async () => { calls += 1; return 'real answer'; },
+  }]);
+  const ai = new Augmentio({ pool, scheduler: new ParallelScheduler({ retries: 0 }) });
+  const first = await ai.fanOut({ input: 'cache then cancel' });
+  assert.equal(first.cacheHit, false);
+  const controller = new AbortController();
+  controller.abort('owner-cancelled');
+  await assert.rejects(ai.fanOut({ input: 'cache then cancel', signal: controller.signal }),
+    error => error?.code === 'SCHEDULER_ABORTED');
+  assert.equal(calls, 1);
+});
+
+test('Augmentio never caches an in-flight multi-model batch cancelled after partial success', async () => {
+  let fastCalls = 0;
+  let slowCalls = 0;
+  const pool = new ProviderPool([
+    {
+      id: 'fast', capabilities: ['GENERAL'], priority: 2,
+      estimatedCost: 0, costProvenance: verifiedFree('fast'),
+      invoke: async () => { fastCalls += 1; return 'fast success'; },
+    },
+    {
+      id: 'slow', capabilities: ['GENERAL'], priority: 1,
+      estimatedCost: 0, costProvenance: verifiedFree('slow'),
+      invoke: async () => { slowCalls += 1; return new Promise(() => {}); },
+    },
+  ]);
+  const ai = new Augmentio({
+    pool,
+    scheduler: new ParallelScheduler({ globalConcurrency: 2, retries: 0, timeoutMs: 60_000 }),
+  });
+  const controller = new AbortController();
+  const started = Date.now();
+  const result = ai.fanOut({ input: 'cancel an incomplete batch', maxCandidates: 2,
+    signal: controller.signal });
+  setTimeout(() => controller.abort('owner-cancelled'), 20);
+  await assert.rejects(result, error => error?.code === 'SCHEDULER_ABORTED');
+  assert.ok(Date.now() - started < 3000);
+  assert.equal(fastCalls, 1);
+  assert.equal(slowCalls, 1);
+  assert.equal(ai.cache.entries.size, 0, 'partial results must not become cache entries');
+});
+
+test('Augmentio ignores a late provider response after its attempt is cancelled', async () => {
+  let finish;
+  let calls = 0;
+  const pool = new ProviderPool([{
+    id: 'late', capabilities: ['GENERAL'], priority: 1,
+    estimatedCost: 0, costProvenance: verifiedFree('late'),
+    invoke: async () => {
+      calls += 1;
+      return new Promise(resolve => { finish = resolve; });
+    },
+  }]);
+  const ai = new Augmentio({
+    pool, scheduler: new ParallelScheduler({ retries: 0, timeoutMs: 60_000 }),
+  });
+  const controller = new AbortController();
+  const running = ai.fanOut({ input: 'late output', signal: controller.signal });
+  while (!finish) await new Promise(resolve => setImmediate(resolve));
+  controller.abort('owner-cancelled');
+  await assert.rejects(running, error => error?.code === 'SCHEDULER_ABORTED');
+  finish('too-late answer');
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(calls, 1);
+  assert.equal(ai.quota.get('late').calls, 0, 'late answer must not be recorded as a success');
+  assert.equal(ai.cache.entries.size, 0);
+});
