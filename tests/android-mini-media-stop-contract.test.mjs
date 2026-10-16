@@ -5,7 +5,7 @@ import {readFile} from 'node:fs/promises';
 test('MINI media STOP closes accepted sockets and rejects late publishing',async()=>{
   const src=await readFile(new URL('../android-companion/app/src/main/java/fr/veriteinterdite/mel/MiniMediaReceiver.kt',import.meta.url),'utf8');
   assert.match(src,/activeClients = ConcurrentHashMap\.newKeySet<Socket>\(\)/);
-  const accept=src.slice(src.indexOf('private fun acceptLoop()'),src.indexOf('private fun readFully('));
+  const accept=src.slice(src.indexOf('private fun acceptLoop(sessionEpoch: Long)'),src.indexOf('private fun readFully('));
   assert.match(accept,/activeClients\.add\(socket\)/);
   assert.match(accept,/if \(!started\.get\(\)\)/);
   assert.match(accept,/finally \{\s*activeClients\.remove\(socket\)/);
