@@ -317,6 +317,12 @@ jobs:
           test -f "signed-windows/MEL-Windows-$RELEASE_VERSION.zip"
           manifest_sha="$(jq -er '.source_sha' "signed-windows/MEL-Windows-$RELEASE_VERSION.release.json")"
           [[ "${manifest_sha,,}" == "${EXPECTED_SHA,,}" ]] || { echo "WINDOWS_RELEASE_MANIFEST_SHA_MISMATCH"; exit 1; }
+          signed="$(jq -er '.signed' "signed-windows/MEL-Windows-$RELEASE_VERSION.release.json")"
+          [[ "$signed" == "true" ]] || { echo "WINDOWS_RELEASE_NOT_SIGNED"; exit 1; }
+          declared_hash="$(jq -er '.package_sha256' "signed-windows/MEL-Windows-$RELEASE_VERSION.release.json")"
+          [[ "$declared_hash" =~ ^[0-9a-fA-F]{64}$ ]] || { echo "WINDOWS_RELEASE_CHECKSUM_INVALID"; exit 1; }
+          actual_hash="$(sha256sum "signed-windows/MEL-Windows-$RELEASE_VERSION.zip" | cut -d' ' -f1)"
+          [[ "${declared_hash,,}" == "${actual_hash,,}" ]] || { echo "WINDOWS_RELEASE_CHECKSUM_MISMATCH"; exit 1; }
           tag="mel-companion-windows-v${RELEASE_VERSION}-${EXPECTED_SHA:0:12}"
           if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             echo "WINDOWS_RELEASE_TAG_ALREADY_PUBLISHED"
