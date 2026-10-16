@@ -4,7 +4,7 @@ import { ProviderPool } from '../src/augmentio/provider-pool.js';
 import { ZeroEuroGovernor, ZERO_EURO_POLICY } from '../src/augmentio/zero-euro-governor.js';
 import { ParallelScheduler } from '../src/augmentio/parallel-scheduler.js';
 import { ResultTournament } from '../src/augmentio/result-tournament.js';
-import { Augmentio, boundedAugmentioCandidates } from '../src/augmentio/augmentio.js';
+import { Augmentio, boundedAugmentioCandidates, MAX_AUGMENTIO_RESPONSE_CHARS } from '../src/augmentio/augmentio.js';
 import { standardRegistry } from '../src/models/ModelRegistry.js';
 
 function verifiedFree(id, { provider = '', model = '', authority = 'augmentio-test-suite' } = {}) {
@@ -519,4 +519,50 @@ test('a huge requested retry count cannot trap MEL in endless failed AI calls', 
   assert.equal(settled.length, 1);
   assert.equal(settled[0].status, 'rejected');
   assert.match(settled[0].reason.message, /service unavailable/);
+});
+
+test('Augmentio rejects oversized model replies without caching them as successes', async () => {
+  const oversized = 'x'.repeat(MAX_AUGMENTIO_RESPONSE_CHARS + 1);
+  let calls = 0;
+  const pool = new ProviderPool([
+    { id: 'huge', capabilities: ['GENERAL'], priority: 2, estimatedCost: 0,
+      costProvenance: verifiedFree('huge'), invoke: async () => { calls++; return oversized; } },
+    { id: 'normal', capabilities: ['GENERAL'], priority: 1, estimatedCost: 0,
+      costProvenance: verifiedFree('normal'), invoke: async () => 'valid model output' },
+  ]);
+  const ai = new Augmentio({
+    pool, scheduler: new ParallelScheduler({ retries: 0, globalConcurrency: 2 }),
+  });
+  const response = await ai.fanOut({ input: 'bounded-output-proof', maxCandidates: 2 });
+  assert.equal(response.failures, 1);
+  assert.equal(response.candidates.length, 1);
+  assert.equal(response.best.text, 'valid model output');
+  assert.equal(calls, 1);
+  assert.equal((await ai.fanOut({ input: 'bounded-output-proof', maxCandidates: 2 })).cacheHit, true);
+});
+
+test('Augmentio fails closed when all AI models exceed the response limit', async () => {
+  const tooLarge = 'x'.repeat(MAX_AUGMENTIO_RESPONSE_CHARS + 1);
+  const pool = new ProviderPool([{
+    id: 'huge', capabilities: ['GENERAL'], estimatedCost: 0,
+    costProvenance: verifiedFree('huge'), invoke: async () => ({ text: tooLarge }),
+  }]);
+  const ai = new Augmentio({ pool, scheduler: new ParallelScheduler({ retries: 0 }) });
+  await assert.rejects(
+    ai.fanOut({ input: 'all outputs oversized' }),
+    error => error?.code === 'ALL_PROVIDERS_FAILED'
+      && error.failures?.some(reason => reason.includes('AI_PROVIDER_RESPONSE_TOO_LARGE')),
+  );
+  assert.equal(ai.cache.entries.size, 0);
+});
+
+test('Augmentio accepts the exact configured response ceiling', async () => {
+  const exact = 'x'.repeat(MAX_AUGMENTIO_RESPONSE_CHARS);
+  const pool = new ProviderPool([{
+    id: 'max', capabilities: ['GENERAL'], estimatedCost: 0,
+    costProvenance: verifiedFree('max'), invoke: async () => exact,
+  }]);
+  const ai = new Augmentio({ pool, scheduler: new ParallelScheduler({ retries: 0 }) });
+  const result = await ai.fanOut({ input: 'max model output' });
+  assert.equal(result.best.text.length, MAX_AUGMENTIO_RESPONSE_CHARS);
 });
