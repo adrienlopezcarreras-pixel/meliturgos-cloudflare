@@ -315,6 +315,8 @@ jobs:
           [[ "$RELEASE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "WINDOWS_RELEASE_VERSION_INVALID"; exit 1; }
           test -f "signed-windows/MEL-Windows-$RELEASE_VERSION.release.json"
           test -f "signed-windows/MEL-Windows-$RELEASE_VERSION.zip"
+          manifest_sha="$(jq -er '.source_sha' "signed-windows/MEL-Windows-$RELEASE_VERSION.release.json")"
+          [[ "${manifest_sha,,}" == "${EXPECTED_SHA,,}" ]] || { echo "WINDOWS_RELEASE_MANIFEST_SHA_MISMATCH"; exit 1; }
           tag="mel-companion-windows-v${RELEASE_VERSION}-${EXPECTED_SHA:0:12}"
           if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             echo "WINDOWS_RELEASE_TAG_ALREADY_PUBLISHED"
