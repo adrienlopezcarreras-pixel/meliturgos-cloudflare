@@ -1021,3 +1021,56 @@ test('Augmentio refuses stale cache if a selected AI circuit opens during async 
     error => error?.code === 'AUGMENTIO_PROVIDER_ROSTER_CHANGED');
   assert.equal(called, 0);
 });
+
+test('Augmentio drops an AI answer when its zero-cost approval is revoked during inference', async () => {
+  let firstCalls = 0;
+  let fallbackCalls = 0;
+  const revoked = {
+    id: 'revoked-during-call', priority: 2, capabilities: ['GENERAL'],
+    estimatedCost: 0, costProvenance: verifiedFree('revoked-during-call'),
+    invoke: async () => {
+      firstCalls += 1;
+      revoked.estimatedCost = 4;
+      return 'answer must not be credited';
+    },
+  };
+  const healthy = {
+    id: 'still-free', priority: 1, capabilities: ['GENERAL'],
+    estimatedCost: 0, costProvenance: verifiedFree('still-free'),
+    invoke: async () => { fallbackCalls += 1; return 'authorized fallback'; },
+  };
+  const ai = new Augmentio({
+    pool: new ProviderPool([revoked, healthy]),
+    scheduler: new ParallelScheduler({ retries: 0, globalConcurrency: 2 }),
+  });
+  const result = await ai.fanOut({ input: 'post invocation cost guard', maxCandidates: 2 });
+  assert.equal(firstCalls, 1);
+  assert.equal(fallbackCalls, 1);
+  assert.equal(result.candidates.length, 1);
+  assert.equal(result.best.text, 'authorized fallback');
+  assert.equal(result.failures, 1);
+  assert.equal(ai.quota.get('revoked-during-call').successes, 0);
+});
+
+test('Augmentio fails closed and never caches responses with revoked provenance after inference', async () => {
+  let invoked = 0;
+  const adapter = {
+    id: 'provenance-withdrawn', capabilities: ['GENERAL'],
+    estimatedCost: 0, costProvenance: verifiedFree('provenance-withdrawn'),
+    invoke: async () => {
+      invoked += 1;
+      adapter.costProvenance = null;
+      return 'must not be considered a valid answer';
+    },
+  };
+  const ai = new Augmentio({
+    pool: new ProviderPool([adapter]),
+    scheduler: new ParallelScheduler({ retries: 0 }),
+  });
+  await assert.rejects(ai.fanOut({ input: 'withdrawn local approval' }),
+    error => error?.code === 'ALL_PROVIDERS_FAILED'
+      && error.failures?.some(x => x.includes('ZERO_EURO_PROVENANCE_REQUIRED')));
+  assert.equal(invoked, 1);
+  assert.equal(ai.cache.entries.size, 0);
+  assert.equal(ai.quota.get('provenance-withdrawn').successes, 0);
+});
