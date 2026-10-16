@@ -2494,6 +2494,19 @@ function Perform-Step($step, [string]$commandId, [string]$planSchema="") {
       Type-Text ([string]$step.text)
       return @{ action=$action; chars=([string]$step.text).Length }
     }
+    "browser.toggle-fullscreen" {
+      # Only explicit owner approval for the exact inspected browser window.
+      [long]$expectedHandle = 0
+      if (-not [long]::TryParse([string]$step.window_handle, [ref]$expectedHandle) -or $expectedHandle -le 0) {
+        throw "BROWSER_FULLSCREEN_WINDOW_HANDLE_REQUIRED"
+      }
+      $window = [MelNative]::GetForegroundWindow()
+      if ($window -eq [IntPtr]::Zero -or $window.ToInt64() -ne $expectedHandle) { throw "BROWSER_FULLSCREEN_FOCUS_CHANGED" }
+      $browser = Assert-ForegroundBrowser
+      Assert-BrowserShortcutTarget $window $browser
+      [System.Windows.Forms.SendKeys]::SendWait("{F11}")
+      return @{ action=$action; browser=$browser; window_handle=$expectedHandle; shortcut_sent=$true }
+    }
     "browser.bookmark-page" {
       # Ctrl+D may bookmark the current page. Only on the approved inspected
       # browser HWND with an explicit, sensitive owner step approval.

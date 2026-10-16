@@ -39,6 +39,7 @@ export const COMPUTER_USE_ACTIONS = Object.freeze({
   BROWSER_NEW_TAB: 'browser.new-tab',
   BROWSER_CLOSE_TAB: 'browser.close-tab',
   BROWSER_REOPEN_TAB: 'browser.reopen-tab',
+  BROWSER_TOGGLE_FULLSCREEN: 'browser.toggle-fullscreen',
   BROWSER_BOOKMARK_PAGE: 'browser.bookmark-page',
   BROWSER_FORWARD: 'browser.forward',
   BROWSER_RELOAD: 'browser.reload',
@@ -82,6 +83,7 @@ const ACTION_RISK = new Map([
   [COMPUTER_USE_ACTIONS.BROWSER_NEW_TAB, COMPUTER_USE_RISK.SENSITIVE],
   [COMPUTER_USE_ACTIONS.BROWSER_CLOSE_TAB, COMPUTER_USE_RISK.SENSITIVE],
   [COMPUTER_USE_ACTIONS.BROWSER_REOPEN_TAB, COMPUTER_USE_RISK.SENSITIVE],
+  [COMPUTER_USE_ACTIONS.BROWSER_TOGGLE_FULLSCREEN, COMPUTER_USE_RISK.SENSITIVE],
   [COMPUTER_USE_ACTIONS.BROWSER_BOOKMARK_PAGE, COMPUTER_USE_RISK.SENSITIVE],
   [COMPUTER_USE_ACTIONS.BROWSER_FORWARD, COMPUTER_USE_RISK.SENSITIVE],
   [COMPUTER_USE_ACTIONS.BROWSER_RELOAD, COMPUTER_USE_RISK.SENSITIVE],
@@ -513,6 +515,15 @@ export function evaluateComputerUsePlan(input = {}) {
       // folder, or arbitrary URL; never silently discard the owner's intent.
       allowed = false;
       reason = 'BROWSER_BOOKMARK_PAGE_UNEXPECTED_FIELD';
+    } else if (step.action === COMPUTER_USE_ACTIONS.BROWSER_TOGGLE_FULLSCREEN
+      && !validBrowserWindowHandle(step.window_handle)) {
+      allowed = false;
+      reason = 'BROWSER_FULLSCREEN_WINDOW_HANDLE_REQUIRED';
+    } else if (step.action === COMPUTER_USE_ACTIONS.BROWSER_TOGGLE_FULLSCREEN
+      && Object.keys(submittedSteps[decisions.length] ?? {}).some(field =>
+        !['id', 'action', 'window_handle'].includes(field))) {
+      allowed = false;
+      reason = 'BROWSER_FULLSCREEN_UNEXPECTED_FIELD';
     } else if (step.action === COMPUTER_USE_ACTIONS.BROWSER_FIND
       && !validBrowserWindowHandle(step.window_handle)) {
       allowed = false;
