@@ -141,3 +141,13 @@ test("Android Wi-Fi pairing helper resolves ADB from standard local paths and PA
   assert.match(helper, /Get-Command -Name 'adb\.exe'/);
   assert.doesNotMatch(helper, /ANDROID_SDK_ROOT_REQUIRED/);
 });
+
+test("Companion manual refresh runs one bounded ADB diagnostic and reports actionable status", async () => {
+ const native = await source("windows-companion/MEL-Companion.cs");
+ assert.match(native, /RefreshAdbDiagnostics\(\)/);
+ assert.match(native, /WaitForExit\(12000\)/);
+ assert.match(native, /diagnostic expiré · réessayez/);
+ assert.match(native, /outils ADB introuvables/);
+ assert.match(native, /Configurer ADB Wi-Fi/);
+ assert.match(native, /adbRefreshBusy/);
+});
