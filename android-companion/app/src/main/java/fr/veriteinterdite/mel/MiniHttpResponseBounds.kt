@@ -16,10 +16,17 @@ object MiniHttpResponseBounds {
             val out = ByteArrayOutputStream(minOf(maxBytes, 16 * 1024))
             val buffer = ByteArray(8192)
             var total = 0
+            var zeroProgressReads = 0
             while (true) {
                 val count = input.read(buffer)
                 if (count < 0) break
-                if (count == 0) continue
+                if (count == 0) {
+                    // A faulty network stream may return zero indefinitely.
+                    // Do not spin forever, but tolerate brief zero-progress reads.
+                    if (++zeroProgressReads >= 16) throw IOException("MEL_RESPONSE_STALLED")
+                    continue
+                }
+                zeroProgressReads = 0
                 if (count > maxBytes - total) throw IOException("MEL_RESPONSE_TOO_LARGE")
                 out.write(buffer, 0, count)
                 total += count
