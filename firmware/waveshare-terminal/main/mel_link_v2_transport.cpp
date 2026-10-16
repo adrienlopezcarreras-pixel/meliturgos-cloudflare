@@ -125,8 +125,13 @@ static bool deliver_audio_48k_native(
 
 static bool apply_android_session_clock(const uint8_t *payload, size_t len) {
     if (!payload || len == 0 || len > 512) return false;
+    // cJSON_Parse uses NUL-terminated strings: reject embedded NULs that
+    // would otherwise hide unparsed trailing bytes in a Link V2 frame.
+    if (std::memchr(payload, 0, len) != nullptr) return false;
     std::string raw(reinterpret_cast<const char *>(payload), len);
-    cJSON *root = cJSON_Parse(raw.c_str());
+    // Reject trailing JSON data as well as truncated/invalid payloads.
+    const char *parse_end = nullptr;
+    cJSON *root = cJSON_ParseWithOpts(raw.c_str(), &parse_end, true);
     if (!root) return false;
     cJSON *epoch = cJSON_GetObjectItemCaseSensitive(root, "epoch_ms");
     cJSON *offset = cJSON_GetObjectItemCaseSensitive(root, "utc_offset_seconds");
