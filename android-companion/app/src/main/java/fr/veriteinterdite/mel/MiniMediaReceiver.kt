@@ -104,6 +104,7 @@ class MiniMediaReceiver(private val context: Context) {
                 override fun onStopped() {
                     currentConfig = null
                     started.set(false)
+                    stopActiveClients()
                 }
 
                 override fun onFailed(reason: Int) {
@@ -476,6 +477,10 @@ class MiniMediaReceiver(private val context: Context) {
         // Closing only the listening socket does not interrupt accepted clients.
         // Close each live socket so blocked reads exit and incomplete media
         // are discarded by writeAndPublish rather than published.
+        stopActiveClients()
+    }
+
+    private fun stopActiveClients() {
         for (client in activeClients) runCatching { client.close() }
         activeClients.clear()
     }
