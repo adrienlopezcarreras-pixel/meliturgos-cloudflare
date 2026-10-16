@@ -336,7 +336,9 @@ jobs:
             test "${RELAY_CODE}" = "204"
 
             RELAY_DONE=0
-            for ATTEMPT in $(seq 1 40); do
+            # The relay is a separate GitHub Actions workflow and can wait behind
+            # other queued runs; allow up to six minutes for its durable job to be dispatched.
+            for ATTEMPT in $(seq 1 180); do
               STATUS_INPUT="$(GITHUB_RELAY_JOB_ID="${GITHUB_RELAY_JOB_ID}" node -e 'process.stdout.write(JSON.stringify({job_id:process.env.GITHUB_RELAY_JOB_ID}))')"
               capability github.actions.workflow.dispatch.status "${STATUS_INPUT}" github-dispatch-status.json
               RELAY_STATUS="$(node -e 'const d=require("./github-dispatch-status.json");process.stdout.write(String(d?.result?.status||""))')"
