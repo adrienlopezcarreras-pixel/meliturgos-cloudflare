@@ -31,7 +31,60 @@ function Attempt-Reconnect {
   }
   if (Test-Path -LiteralPath $saved) {
     try { $last=(Get-Content -LiteralPath $saved -Raw).Trim() } catch { $last="" }
-    if ($last -match '^\d{1,3}(?:\.\d{1,3}){3}:\d{2,5}$') { $targets += $last }
+    if ($last -match '^\d{1,3}(?:\.\d{1,3}){3}:\d{2,5}
+  }
+  foreach ($endpoint in ($targets | Select-Object -Unique | Select-Object -First 5)) {
+    try { $result=(Run-Adb -arglist @("connect",$endpoint)) -join "`n" } catch { continue }
+    if ($result -match "(?i)(?:connected to|already connected to)\s+" -and $result -notmatch "(?i)(?:failed|unable|refused)") {
+      try { $serials=(Run-Adb -arglist @("devices","-l")) -join "`n" } catch { continue }
+      if ($serials -match "(?m)^$([regex]::Escape($endpoint))\s+device(?:\s|$)") {
+        try { Set-Content -LiteralPath $saved -Value $endpoint -Encoding ASCII } catch { }
+        break
+      }
+    }
+  }
+}
+function Scan {
+  $id=Serial
+  if (-not $id) { Attempt-Reconnect; $id=Serial }
+  $status=[ordered]@{schema="mel.adb-wifi-status.v1";observed_at_utc=(Get-Date).ToUniversalTime().ToString("o");adb_available=[bool]$adb;connected=[bool]$id;serial=$id;android_model=$null;android_version=$null;mel_package="fr.veriteinterdite.mel";mel_installed=$false;mel_version=$null;mel_version_code=$null}
+  if ($id) {
+    $status.android_model=((Run-Adb -arglist @("-s",$id,"shell","getprop","ro.product.model")) -join " ").Trim()
+    $status.android_version=((Run-Adb -arglist @("-s",$id,"shell","getprop","ro.build.version.release")) -join " ").Trim()
+    if ([string]::IsNullOrWhiteSpace($status.android_model) -or [string]::IsNullOrWhiteSpace($status.android_version) -or $status.android_model -match "(?i)^(error|device offline|unauthorized)" -or $status.android_version -match "(?i)^(error|device offline|unauthorized)") { throw "ADB_DEVICE_IDENTITY_UNVERIFIED" }
+    $packages=(Run-Adb -arglist @("-s",$id,"shell","pm","list","packages","fr.veriteinterdite.mel")) -join "`n"
+    $status.mel_installed=[bool]($packages -match '(?m)^package:fr\.veriteinterdite\.mel\s*$')
+    if ($status.mel_installed) {
+      $details=(Run-Adb -arglist @("-s",$id,"shell","dumpsys","package","fr.veriteinterdite.mel")) -join "`n"
+      if ($details -match 'versionName=([^\s]+)') { $status.mel_version=$Matches[1] }
+      if ($details -match 'versionCode=(\d+)') { $status.mel_version_code=[int64]$Matches[1] }
+    }
+  }
+  $temp="$report.tmp"
+  [IO.File]::WriteAllText($temp,($status | ConvertTo-Json -Depth 5),(New-Object Text.UTF8Encoding($false)))
+  if (Test-Path -LiteralPath $report) { Remove-Item -LiteralPath $report -Force }
+  Move-Item -LiteralPath $temp -Destination $report -Force
+  Add-Content -LiteralPath $log -Encoding UTF8 -Value ("{0} connected={1} model={2} mel_installed={3}" -f $status.observed_at_utc,$status.connected,$status.android_model,$status.mel_installed)
+}
+do {
+  try {
+    if (-not $adb) {
+      $status=[ordered]@{schema="mel.adb-wifi-status.v1";observed_at_utc=(Get-Date).ToUniversalTime().ToString("o");adb_available=$false;connected=$false;serial=$null;android_model=$null;android_version=$null;mel_package="fr.veriteinterdite.mel";mel_installed=$false;mel_version=$null;mel_version_code=$null;error="ADB_PLATFORM_TOOLS_MISSING"}
+      [IO.File]::WriteAllText("$report.tmp",($status | ConvertTo-Json -Depth 5),(New-Object Text.UTF8Encoding($false)))
+      Move-Item -LiteralPath "$report.tmp" -Destination $report -Force
+    } else { Scan }
+  } catch {
+    $reason=$_.Exception.Message
+    $status=[ordered]@{schema="mel.adb-wifi-status.v1";observed_at_utc=(Get-Date).ToUniversalTime().ToString("o");adb_available=[bool]$adb;connected=$false;serial=$null;android_model=$null;android_version=$null;mel_package="fr.veriteinterdite.mel";mel_installed=$false;mel_version=$null;mel_version_code=$null;error="ADB_DIAGNOSTIC_FAILED"}
+    try {
+      [IO.File]::WriteAllText("$report.tmp",($status | ConvertTo-Json -Depth 5),(New-Object Text.UTF8Encoding($false)))
+      Move-Item -LiteralPath "$report.tmp" -Destination $report -Force
+    } catch { }
+    Add-Content -LiteralPath $log -Encoding UTF8 -Value ("{0} error={1}" -f (Get-Date).ToUniversalTime().ToString("o"),$reason)
+  }
+  if (-not $Once) { Start-Sleep -Seconds $IntervalSeconds }
+} while (-not $Once)
+) { $targets = @($last) + @($targets) }
   }
   foreach ($endpoint in ($targets | Select-Object -Unique | Select-Object -First 5)) {
     try { $result=(Run-Adb -arglist @("connect",$endpoint)) -join "`n" } catch { continue }
