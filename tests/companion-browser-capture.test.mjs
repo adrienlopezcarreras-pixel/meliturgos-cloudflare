@@ -22,3 +22,16 @@ test('browser screenshot validates unchanged focus again immediately before uplo
   const validation=upload.indexOf('SCREENSHOT_BINARY_PAYLOAD_INVALID');
   assert.ok(lastCheck>validation && transfer>lastCheck);
 });
+
+test('browser capture checks locally requested STOP after encoding before upload',async()=>{
+  const a=await readFile(new URL('../assets/MEL-Computer-Companion.ps1',import.meta.url),'utf8');
+  const b=await readFile(new URL('../dist/MEL-Computer-Companion.ps1',import.meta.url),'utf8');
+  assert.equal(a,b);
+  const start=a.indexOf('function Upload-BrowserScreenshot(');
+  const end=a.indexOf('function Key-Token(',start);
+  const upload=a.slice(start,end);
+  const capture=upload.indexOf('Capture-PngBytes $bounds');
+  const stop=upload.lastIndexOf('Assert-UnattendedCapturePermission');
+  const transfer=upload.indexOf('return Invoke-RestMethod');
+  assert.ok(capture>=0 && stop>capture && transfer>stop);
+});
