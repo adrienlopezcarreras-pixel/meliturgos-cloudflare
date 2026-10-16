@@ -1,6 +1,46 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { formatVerifiedSelfStateResponse, formatVerifiedCapabilityAuditResponse, formatCommunicationAuditResponse, formatVerifiedAutonomyActivityResponse, formatVerifiedDevBridgeStatusResponse } from '../src/api/response-grounding.js';
+import { formatVerifiedSelfStateResponse, formatVerifiedCapabilityAuditResponse, formatCommunicationAuditResponse, formatVerifiedAutonomyActivityResponse, formatVerifiedDevBridgeStatusResponse, formatVerifiedAutonomyRuntimeResponse } from '../src/api/response-grounding.js';
+
+
+test('autonomy tick launch-gate result is explained in natural language without raw payload fields', () => {
+  const text = formatVerifiedAutonomyRuntimeResponse({
+    ok: false,
+    status: 'LAUNCH_GATE_REQUIRED',
+    advanced: false,
+    progress: { advanced: false, events: [], work_remaining: true, next_roadmap_id: 'MEL-WORK-01', block_reason: 'LAUNCH_GATE_REQUIRED' },
+    control: { paused: false, max_autonomy: false, launch_approved_sha: 'old-sha' },
+    launch_gate: { code: 'LAUNCH_GATE_REQUIRED', deployed_sha: 'a'.repeat(40), approved_sha: 'b'.repeat(40) },
+  });
+  assert.match(text, /n’a pas lancé de nouveau travail/);
+  assert.match(text, /SHA actuellement déployé/);
+  assert.match(text, /MAX est désactivé/);
+  assert.doesNotMatch(text, /"control"|\\\\?"control\\\\?"/);
+});
+
+test('autonomy tick never claims a selected job was executed without explicit advancement', () => {
+  const text = formatVerifiedAutonomyRuntimeResponse({
+    ok: true,
+    status: 'IDLE',
+    advanced: false,
+    progress: { advanced: false, events: [], work_remaining: true, job_id: 'queued-job', job_status: 'QUEUED' },
+    control: { paused: false, max_autonomy: false },
+  });
+  assert.match(text, /aucune nouvelle progression n’est prouvée/);
+  assert.match(text, /queued-job \\(QUEUED\\)/);
+  assert.doesNotMatch(text, /a enregistré une progression/);
+});
+
+test('autonomy status summarizes controls without suggesting execution happened', () => {
+  const text = formatVerifiedAutonomyRuntimeResponse({
+    status: 'NOT_READY',
+    ready: false,
+    control: { paused: true, max_autonomy: false },
+  }, { operation: 'status' });
+  assert.match(text, /en pause/);
+  assert.match(text, /MAX est désactivé/);
+  assert.match(text, /pas la preuve qu’une tâche vient d’être exécutée/);
+});
 
 test('verified self-state response states evidence and preserves observation boundaries', () => {
   const text = formatVerifiedSelfStateResponse({
