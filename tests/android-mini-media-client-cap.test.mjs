@@ -5,7 +5,7 @@ import {readFile} from 'node:fs/promises';
 test('MINI media receiver caps active connections before starting client workers',async()=>{
   const src=await readFile(new URL('../android-companion/app/src/main/java/fr/veriteinterdite/mel/MiniMediaReceiver.kt',import.meta.url),'utf8');
   assert.match(src,/MAX_ACTIVE_MEDIA_CLIENTS = 4/);
-  const accept=src.slice(src.indexOf('private fun acceptLoop()'),src.indexOf('private fun readFully('));
+  const accept=src.slice(src.indexOf('private fun acceptLoop(sessionEpoch: Long)'),src.indexOf('private fun readFully('));
   const cap=accept.indexOf('activeClients.size >= MAX_ACTIVE_MEDIA_CLIENTS');
   const add=accept.indexOf('activeClients.add(socket)');
   const thread=accept.indexOf('Thread({');
