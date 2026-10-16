@@ -35,16 +35,89 @@ async function runFile(file) {
     }
   });
   let out = "";
+  let completeTapSummary = false;
+  let summaryCleanupTimer = null;
+  let fileDeadlineTimer = null;
+  let forceKillTimer = null;
+
+  const inspectTapSummary = () => {
+    const number = (pattern) => {
+      const match = out.match(pattern);
+      return match ? Number(match[1]) : null;
+    };
+    const tests = number(/^# tests (\d+)\s*$/m);
+    const passed = number(/^# pass (\d+)\s*$/m);
+    const failed = number(/^# fail (\d+)\s*$/m);
+    const cancelled = number(/^# cancelled (\d+)\s*$/m);
+    const skipped = number(/^# skipped (\d+)\s*$/m);
+    const todo = number(/^# todo (\d+)\s*$/m);
+    if ([tests, passed, failed, cancelled, skipped, todo].some(value => value === null)) return;
+    completeTapSummary =
+      failed === 0 && cancelled === 0 && passed + skipped + todo === tests;
+    if (completeTapSummary && summaryCleanupTimer === null) {
+      // Some tests can finish every assertion but leave a Node handle open.
+      // Once the complete passing TAP summary is present, bounded cleanup lets
+      // the serial suite continue without turning an assertion failure green.
+      summaryCleanupTimer = setTimeout(() => {
+        if (cp.exitCode === null && cp.signalCode === null) {
+          console.warn(`⚠ ${file}: complete passing TAP summary but child remained alive; terminating leaked handle`);
+          cp.kill("SIGTERM");
+          forceKillTimer = setTimeout(() => {
+            if (cp.exitCode === null && cp.signalCode === null) cp.kill("SIGKILL");
+          }, 3000);
+          forceKillTimer.unref?.();
+        }
+      }, 1500);
+      summaryCleanupTimer.unref?.();
+    }
+  };
+
+  const cleanup = () => {
+    if (summaryCleanupTimer !== null) clearTimeout(summaryCleanupTimer);
+    if (fileDeadlineTimer !== null) clearTimeout(fileDeadlineTimer);
+    if (forceKillTimer !== null) clearTimeout(forceKillTimer);
+  };
+
   cp.stdout.on("data", (b) => {
-    out += b.toString();
+    const chunk = b.toString();
+    out += chunk;
     process.stdout.write(b);
+    inspectTapSummary();
   });
   cp.stderr.on("data", (b) => {
-    out += b.toString();
+    const chunk = b.toString();
+    out += chunk;
     process.stderr.write(b);
+    inspectTapSummary();
   });
-  const rc = await new Promise((resolve) => cp.on("close", resolve));
-  return { file, rc, out };
+
+  // A file that never produces a complete TAP summary must fail, not hang the
+  // production release indefinitely. Slower integration tests get 3 minutes.
+  fileDeadlineTimer = setTimeout(() => {
+    if (cp.exitCode === null && cp.signalCode === null) {
+      console.error(`::error title=Test file timed out::${file} exceeded 180 seconds`);
+      cp.kill("SIGTERM");
+      forceKillTimer = setTimeout(() => {
+        if (cp.exitCode === null && cp.signalCode === null) cp.kill("SIGKILL");
+      }, 3000);
+      forceKillTimer.unref?.();
+    }
+  }, 180000);
+  fileDeadlineTimer.unref?.();
+
+  const closed = await new Promise((resolve, reject) => {
+    cp.once("error", reject);
+    cp.once("close", (code, signal) => resolve({ code, signal }));
+  });
+  cleanup();
+
+  // A child killed only after a complete passing TAP summary is considered
+  // assertion-successful; keep a warning in the logs for the handle leak.
+  const rc = closed.code === 0 ||
+    (completeTapSummary && closed.code === null && ["SIGTERM", "SIGKILL"].includes(closed.signal))
+      ? 0
+      : (closed.code ?? 1);
+  return { file, rc, out, timed_out: !completeTapSummary && closed.code === null };
 }
 
 for (const file of files) {
