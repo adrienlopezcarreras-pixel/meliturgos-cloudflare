@@ -66,6 +66,7 @@ test('an already running production release defers main-push promotion without a
     assert.deepEqual(result, {
       accepted: false, reason: 'PRODUCTION_DEPLOY_ALREADY_ACTIVE',
       main_sha: MAIN_SHA, release_branch: RELEASE_BRANCH,
+      blocking_run_id: null, blocking_run_sha: OLD_SHA, blocking_run_status: status,
     });
     assert.ok(operations.every(op => op.startsWith('GET ')), 'no ref update or dispatch while running');
   }
