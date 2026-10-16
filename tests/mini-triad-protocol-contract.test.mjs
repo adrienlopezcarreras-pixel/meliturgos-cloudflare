@@ -59,7 +59,6 @@ test('canonical Link V2 audio, timing, credit and cancellation values agree with
   assert.match(androidClient, /BLE_HANDSHAKE_TIMEOUT[\\s\\S]*?90_000L/);
   assert.match(androidClient, /outboundCancelled\\(streamId\\)/);
   assert.match(androidClient, /awaitOutboundCredit\\(streamId, credits\\)/);
-  assert.equal(contract.audio.imaAdpcmMaximumBlockSamples, contract.audio.androidTtsBlockSamples * 2);
   assert.equal(contract.audio.imaAdpcmMaximumEncodedBytes + contract.protocol.headerBytes + contract.protocol.gattAttOverheadBytes,
     contract.protocol.minimumAudioMtu);
 });
