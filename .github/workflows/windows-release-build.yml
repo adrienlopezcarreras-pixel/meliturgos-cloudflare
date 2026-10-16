@@ -15,6 +15,7 @@ on:
       - 'src/roadmap/master-roadmap.js'
   push:
     branches:
+      - main
       - 'roadmap/gen2-59-windows-release-*'
     paths:
       - 'assets/MEL-Computer-*.ps1'
