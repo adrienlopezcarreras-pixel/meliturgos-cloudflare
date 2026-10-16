@@ -478,14 +478,36 @@ class MelLinkV2ClientService : Service() {
             bulkRx = service.getCharacteristic(BULK_RX_UUID)
                 ?: return failAndReconnect(client, "BULK_MISSING")
 
+            // Validate the discovered GATT contract before subscribing or
+            // sending credentials/audio. UUIDs alone do not prove compatible
+            // characteristics if a stale/different MINI firmware is present.
+            val control = controlRx ?: return failAndReconnect(client, "CONTROL_MISSING")
+            if ((control.properties and BluetoothGattCharacteristic.PROPERTY_WRITE) == 0) {
+                return failAndReconnect(client, "CONTROL_NOT_WRITABLE")
+            }
+            val bulk = bulkRx ?: return failAndReconnect(client, "BULK_MISSING")
+            val bulkWriteProperties = BluetoothGattCharacteristic.PROPERTY_WRITE or
+                BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE
+            if ((bulk.properties and bulkWriteProperties) == 0) {
+                return failAndReconnect(client, "BULK_NOT_WRITABLE")
+            }
+
             val event = eventTx ?: return
+            val eventProperties = event.properties
+            val indicate = (eventProperties and BluetoothGattCharacteristic.PROPERTY_INDICATE) != 0
+            val notify = (eventProperties and BluetoothGattCharacteristic.PROPERTY_NOTIFY) != 0
+            if (!indicate && !notify) {
+                return failAndReconnect(client, "EVENT_NOT_SUBSCRIBABLE")
+            }
             if (!hasBlePermissions() || !client.setCharacteristicNotification(event, true)) {
                 failAndReconnect(client, "NOTIFY_LOCAL")
                 return
             }
             val cccd = event.getDescriptor(CCCD_UUID)
                 ?: return failAndReconnect(client, "CCCD_MISSING")
-            val eventCccdValue = byteArrayOf(3, 0)
+            // Subscribe only to modes the server actually advertises. Some
+            // Android stacks reject the unsupported bit in a 0x0003 request.
+            val eventCccdValue = if (indicate) byteArrayOf(2, 0) else byteArrayOf(1, 0)
             val queued = if (Build.VERSION.SDK_INT >= 33) {
                 client.writeDescriptor(cccd, eventCccdValue) == BluetoothGatt.GATT_SUCCESS
             } else {
