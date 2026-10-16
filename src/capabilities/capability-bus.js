@@ -8,6 +8,9 @@ import { assertCapabilityApproval, isCapabilityApprovalPolicyValid } from '../se
 function publicHealthDiagnostic(value, fallback = 'HEALTHCHECK_DETAIL_REDACTED') {
   if (typeof value !== 'string') return fallback;
   const code = value.trim();
+  // Two documented Microsoft Graph diagnostics are safe, allowlisted error
+  // identifiers (not raw upstream messages). Preserve actionable 403 clues.
+  if (/^PIPEDREAM_PROXY_FAILED_HTTP_403_(?:Authorization_RequestDenied|accessDenied)$/.test(code)) return code;
   return /^[A-Z][A-Z0-9_]{0,79}$/.test(code) ? code : fallback;
 }
 
