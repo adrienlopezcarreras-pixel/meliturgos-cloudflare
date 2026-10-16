@@ -165,9 +165,10 @@ test('IA and Work share one canonical surface and development tab loads Work on 
 
 test('MEL Work is wired to the authorized Windows Companion view-only channel', async () => {
   const page = await read('src/pages/full-interface-v2.js');
-  for (const id of ['workComputerCard','workComputerState','workComputerSelect','workComputerPermission','workComputerWindow','workComputerRefresh','workComputerView','workComputerOpen','workComputerScreen','workComputerScreenState','workComputerOut']) {
+  for (const id of ['workComputerCard','workComputerState','workComputerSelect','workComputerPermission','workComputerWindow','workComputerView','workComputerOpen','workComputerScreen','workComputerScreenState','workComputerOut']) {
     assert.ok(sourceHasHtmlId(page,id), `MEL Work missing Companion control #${id}`);
   }
+  assert.ok(page.includes("qs('#workComputerState').onclick=()=>loadWorkComputer().catch(()=>{})"), 'Work must refresh the Companion state without adding a redundant button');
   assert.ok(page.includes("'/api/computer/v1/status'"), 'Work must read the real paired computer status');
   assert.ok(page.includes("'/api/computer/v1/desktop-view-request'"), 'Work must use the existing short-lived desktop view request, not create a second command API');
   assert.ok(page.includes("pc.metadata?.remote_access_enabled!==true"), 'Work must fail closed when local remote access is disabled');
