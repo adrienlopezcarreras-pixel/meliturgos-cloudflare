@@ -4,7 +4,7 @@ import { ProviderPool } from '../src/augmentio/provider-pool.js';
 import { ZeroEuroGovernor, ZERO_EURO_POLICY } from '../src/augmentio/zero-euro-governor.js';
 import { ParallelScheduler } from '../src/augmentio/parallel-scheduler.js';
 import { ResultTournament } from '../src/augmentio/result-tournament.js';
-import { Augmentio, boundedAugmentioCandidates, MAX_AUGMENTIO_RESPONSE_CHARS } from '../src/augmentio/augmentio.js';
+import { Augmentio, boundedAugmentioCandidates, MAX_AUGMENTIO_RESPONSE_CHARS, PARTIAL_FANOUT_CACHE_TTL_MS } from '../src/augmentio/augmentio.js';
 import { standardRegistry } from '../src/models/ModelRegistry.js';
 
 function verifiedFree(id, { provider = '', model = '', authority = 'augmentio-test-suite' } = {}) {
@@ -603,4 +603,51 @@ test('Augmentio bounds the health refresh deadline configuration', () => {
   assert.equal(new Augmentio({ healthRefreshTimeoutMs: Infinity }).healthRefreshTimeoutMs, 5000);
   assert.equal(new Augmentio({ healthRefreshTimeoutMs: -100 }).healthRefreshTimeoutMs, 10);
   assert.equal(new Augmentio({ healthRefreshTimeoutMs: 200000 }).healthRefreshTimeoutMs, 30000);
+});
+
+test('partial fan-out result expires quickly and recovered AI is consulted again', async () => {
+  let failPeer = true;
+  let recoveringCalls = 0;
+  const pool = new ProviderPool([
+    { id: 'reliable', capabilities: ['GENERAL'], priority: 2, estimatedCost: 0,
+      costProvenance: verifiedFree('reliable'), invoke: async () => 'reliable answer' },
+    { id: 'recovering', capabilities: ['GENERAL'], priority: 1, estimatedCost: 0,
+      costProvenance: verifiedFree('recovering'), invoke: async () => {
+        recoveringCalls += 1;
+        if (failPeer) throw new Error('temporary outage');
+        return 'recovered independent answer';
+      } },
+  ]);
+  const ai = new Augmentio({
+    pool, scheduler: new ParallelScheduler({ retries: 0, circuitBreakerFailures: 10 }),
+  });
+  const first = await ai.fanOut({ input: 'retry recovering peer', maxCandidates: 2 });
+  assert.equal(first.failures, 1);
+  assert.equal(recoveringCalls, 1);
+  assert.equal(ai.cache.entries.size, 1);
+  const entry = [...ai.cache.entries.values()][0];
+  const remaining = entry.expiresAt - Date.now();
+  assert.ok(remaining > 0 && remaining <= PARTIAL_FANOUT_CACHE_TTL_MS);
+  failPeer = false;
+  const immediate = await ai.fanOut({ input: 'retry recovering peer', maxCandidates: 2 });
+  assert.equal(immediate.cacheHit, true);
+  assert.equal(recoveringCalls, 1);
+  entry.expiresAt = Date.now() - 1; // Simulate natural TTL expiry without sleeping 10s.
+  const recovered = await ai.fanOut({ input: 'retry recovering peer', maxCandidates: 2 });
+  assert.equal(recovered.cacheHit, false);
+  assert.equal(recovered.failures, 0);
+  assert.equal(recoveringCalls, 2);
+  assert.equal(recovered.candidates.length, 2);
+});
+
+test('fully successful fan-outs retain standard longer-lived caching', async () => {
+  const pool = new ProviderPool([{
+    id: 'healthy', capabilities: ['GENERAL'], estimatedCost: 0,
+    costProvenance: verifiedFree('healthy'), invoke: async () => 'ok',
+  }]);
+  const ai = new Augmentio({ pool, scheduler: new ParallelScheduler({ retries: 0 }) });
+  const response = await ai.fanOut({ input: 'fully healthy' });
+  assert.equal(response.failures, 0);
+  const entry = [...ai.cache.entries.values()][0];
+  assert.ok(entry.expiresAt - Date.now() > PARTIAL_FANOUT_CACHE_TTL_MS);
 });
