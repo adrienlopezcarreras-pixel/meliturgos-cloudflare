@@ -165,6 +165,7 @@ public static class MelNative {
   [DllImport("user32.dll")] public static extern bool GetCursorPos(out POINT lpPoint);
   [DllImport("user32.dll")] public static extern void mouse_event(uint flags, uint dx, uint dy, int data, UIntPtr extra);
   [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+  [DllImport("user32.dll")] public static extern uint GetClipboardSequenceNumber();
   [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hwnd, out RECT rect);
   [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left; public int Top; public int Right; public int Bottom; }
   [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
@@ -2358,9 +2359,11 @@ function Type-BrowserText([string]$text, [IntPtr]$window, [string]$browser) {
   try { $priorClipboard = [System.Windows.Forms.Clipboard]::GetDataObject() }
   catch { throw "BROWSER_TYPE_CLIPBOARD_UNAVAILABLE" }
   $changed = $false
+  [uint32]$writtenSequence = 0
   try {
     [System.Windows.Forms.Clipboard]::SetText($text)
     $changed = $true
+    $writtenSequence = [MelNative]::GetClipboardSequenceNumber()
     # Clipboard operations may take long enough for the foreground window to change.
     if ($script:MelExitRequested) { throw "BROWSER_TYPE_LOCAL_STOP_ACTIVE" }
     Assert-BrowserShortcutTarget $window $browser
@@ -2368,10 +2371,17 @@ function Type-BrowserText([string]$text, [IntPtr]$window, [string]$browser) {
   } finally {
     if ($changed) {
       try {
-        if ($null -ne $priorClipboard) {
-          [System.Windows.Forms.Clipboard]::SetDataObject($priorClipboard, $true)
-        } else {
-          [System.Windows.Forms.Clipboard]::Clear()
+        # Do not overwrite clipboard content that another app or the owner changed
+        # while MEL was pasting. Sequence and text must still match MEL's write.
+        if ($writtenSequence -ne 0 -and
+            [MelNative]::GetClipboardSequenceNumber() -eq $writtenSequence -and
+            [System.Windows.Forms.Clipboard]::ContainsText() -and
+            [System.Windows.Forms.Clipboard]::GetText() -ceq $text) {
+          if ($null -ne $priorClipboard) {
+            [System.Windows.Forms.Clipboard]::SetDataObject($priorClipboard, $true)
+          } else {
+            [System.Windows.Forms.Clipboard]::Clear()
+          }
         }
       } catch { throw "BROWSER_TYPE_CLIPBOARD_RESTORE_FAILED" }
     }
