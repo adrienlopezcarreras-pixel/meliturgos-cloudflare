@@ -63,9 +63,11 @@ function safeReportedProvenance(response = {}) {
   if (Array.isArray(source.inference_settings_applied)) {
     out.inference_settings_applied = source.inference_settings_applied
       .map(clean)
-      .filter(Boolean)
-      .slice(0, 12)
-      .map(value => value.slice(0, 80));
+      // Inference-setting provenance consists of short setting identifiers,
+      // never raw prompt/secret values. Discard oversized or non-identifiers,
+      // rather than truncating and leaking a meaningful secret prefix.
+      .filter(value => /^[a-z][a-z0-9_:-]{0,79}$/i.test(value))
+      .slice(0, 12);
   }
   if (typeof source.lora_applied === 'boolean') out.lora_applied = source.lora_applied;
   return Object.keys(out).length ? out : null;
