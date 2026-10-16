@@ -127,6 +127,12 @@ test('Companion USB preflight preserves Windows PowerShell UTF-8 and surfaces re
  const helper=await read('windows-companion/MEL-MINI-USB-Preflight.ps1');
  assert.match(helper,/\[Console\]::OutputEncoding/);
  assert.match(helper,/failedProof\.error/);
+ assert.match(helper,/Failed probe:/);
+ assert.match(helper,/probe\.exit_code/);
+ assert.match(helper,/probeName/);
+ assert.match(helper,/streamProperty = \$probe\.PSObject\.Properties\[\$streamName\]/);
+ assert.match(helper,/\$streamProperty\.Value/);
+ assert.match(helper,/\[truncated\]/);
  assert.match(helper,/Partition table valid:/);
  assert.match(helper,/OTA metadata unambiguous:/);
  assert.match(helper,/Running slot verified on device:/);
