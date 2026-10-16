@@ -27,6 +27,7 @@ import java.net.ServerSocket
 import java.net.Socket
 import java.security.SecureRandom
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Ephemeral media sink for MEL MINI.
@@ -52,6 +53,7 @@ class MiniMediaReceiver(private val context: Context) {
     )
 
     private val started = AtomicBoolean(false)
+    private val activeClients = ConcurrentHashMap.newKeySet<Socket>()
     private val token = ByteArray(24).also { SecureRandom().nextBytes(it) }
         .let { Base64.encodeToString(it, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING) }
     private var serverSocket: ServerSocket? = null
@@ -136,7 +138,28 @@ class MiniMediaReceiver(private val context: Context) {
     private fun acceptLoop() {
         while (started.get()) {
             val socket = try { serverSocket?.accept() } catch (_: Throwable) { null } ?: break
-            Thread({ handleClient(socket) }, "mel-mini-media-client").apply {
+            if (!started.get()) {
+                runCatching { socket.close() }
+                break
+            }
+            activeClients.add(socket)
+            // Closing can race with accept(): never leave a newly accepted
+            // client running after the user stops the MINI media receiver.
+            if (!started.get()) {
+                activeClients.remove(socket)
+                runCatching { socket.close() }
+                break
+            }
+            Thread({
+                try {
+                    handleClient(socket)
+                } catch (error: Exception) {
+                    Log.w(TAG, "MINI media client interrupted", error)
+                } finally {
+                    activeClients.remove(socket)
+                    runCatching { socket.close() }
+                }
+            }, "mel-mini-media-client").apply {
                 isDaemon = true
                 start()
             }
@@ -383,6 +406,8 @@ class MiniMediaReceiver(private val context: Context) {
         try {
             val output = context.contentResolver.openOutputStream(uri, "w") ?: return false
             output.use { writer(it) }
+            // STOP or hotspot shutdown must not publish an in-flight recording.
+            if (!started.get()) return false
             publish(uri)
             completed = true
             return true
@@ -441,12 +466,18 @@ class MiniMediaReceiver(private val context: Context) {
     }
 
     fun close() {
+        // Stop permission for active sessions before closing the listener.
+        started.set(false)
         currentConfig = null
         runCatching { reservation?.close() }
         reservation = null
         runCatching { serverSocket?.close() }
         serverSocket = null
-        started.set(false)
+        // Closing only the listening socket does not interrupt accepted clients.
+        // Close each live socket so blocked reads exit and incomplete media
+        // are discarded by writeAndPublish rather than published.
+        for (client in activeClients) runCatching { client.close() }
+        activeClients.clear()
     }
 
     private class AviMjpegWriter(
