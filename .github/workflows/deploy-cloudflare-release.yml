@@ -1728,7 +1728,11 @@ jobs:
             echo '{"ok":true,"skipped":true,"reason":"DEV_LIGHT_EXTERNAL_AI_PROOFS_PAUSED"}' > production-gen2-38-generated.json
             echo "GEN2-38 AI-generated planning proof paused for active roadmap development."
           else
-            GEN_PLAN_CODE="$(curl --silent --show-error --max-time 120 \
+            # work.plan.generate is read-only/non-persistent; retry once if the
+            # upstream multi-AI request hits the 120s network deadline.
+            # Keep the real production proof mandatory and preserve rollback
+            # when both attempts fail. Never retry mutating Work endpoints.
+            GEN_PLAN_CODE="$(curl --silent --show-error --max-time 120 --retry 1 --retry-all-errors --retry-delay 2 \
               --header "x-mel-release-smoke: 1" \
               --header "x-mel-launch-bootstrap: ${BOOTSTRAP_TOKEN}" \
               --header "content-type: application/json" \
