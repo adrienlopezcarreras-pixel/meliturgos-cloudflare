@@ -69,6 +69,6 @@ for await(const line of rl){
    error(msg.id,-32602,'Invalid arguments');continue;
   }
   try{const data=await getStatus(args);response(msg.id,{content:[{type:'text',text:JSON.stringify(data)}]});}
-  catch(e){response(msg.id,{isError:true,content:[{type:'text',text:String(e.message||'STATUS_FAILED')}]});}
+  catch(e){response(msg.id,{isError:true,content:[{type:'text',text:(e instanceof TypeError || e?.name==='AbortError')?'MEL_STATUS_UNAVAILABLE':String(e.message||'STATUS_FAILED')}]});}
  }else error(msg.id,-32601,'Method not found');
 }
