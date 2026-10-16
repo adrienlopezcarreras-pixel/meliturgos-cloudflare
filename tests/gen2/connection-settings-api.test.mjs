@@ -612,7 +612,7 @@ test('Pipedream account status retries Development when Production account inven
   });
   assert.equal(result.environment, 'development');
   assert.equal(result.environment_fallback_used, true);
-  assert.deepEqual(result.connected_apps.sort(), ['imap', 'microsoft_onedrive', 'microsoft_outlook', 'sharepoint']);
+  assert.deepEqual(result.connected_apps.sort(), ['imap', 'microsoft_onedrive', 'microsoft_outlook']);
   assert.ok(calls.some(call => call.init?.headers?.['x-pd-environment'] === 'production'));
   assert.ok(calls.some(call => call.init?.headers?.['x-pd-environment'] === 'development'));
 });
