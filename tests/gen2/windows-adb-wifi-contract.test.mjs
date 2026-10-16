@@ -217,3 +217,15 @@ test("ADB monitor sanitizes and bounds diagnostic log error details", async () =
  assert.match(script, /\[REDACTED\]/);
  assert.match(script, /Substring\(0,\[Math\]::Min\(240/);
 });
+
+test("Companion background ADB status shows the recorded failure detail", async () => {
+ const native = await source("windows-companion/MEL-Companion.cs");
+ const start=native.indexOf("void RefreshAll()");
+ const end=native.indexOf("var devices=MelApp.Devices()",start);
+ const refresh=native.slice(start,end);
+ assert.match(refresh,/error_detail/);
+ assert.match(refresh,/String\.IsNullOrEmpty\(errorDetail\)/);
+ assert.match(refresh,/\.TotalSeconds >= -30/);
+ assert.match(refresh,/\.TotalSeconds < 75/);
+ assert.doesNotMatch(refresh,/\.TotalMinutes < 2/);
+});
