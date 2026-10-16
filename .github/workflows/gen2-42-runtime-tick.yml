@@ -31,6 +31,13 @@ permissions:
   actions: write
   id-token: write
 
+# This production tick uses the same runtime lease as release-time stress and
+# platform proofs. Queue it behind those probes instead of failing three times
+# with SKIPPED_LEASE_BUSY while another protected production proof is running.
+concurrency:
+  group: ${{ github.event_name == 'pull_request' && format('gen2-42-contract-{0}', github.event.pull_request.number) || 'mel-launch-bootstrap-token' }}
+  cancel-in-progress: false
+
 jobs:
   contract:
     runs-on: ubuntu-24.04
