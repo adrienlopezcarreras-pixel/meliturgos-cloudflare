@@ -400,12 +400,6 @@ export function evaluateComputerUsePlan(input = {}) {
     } else if (step.action === COMPUTER_USE_ACTIONS.KEY_PRESS && !supportedWindowsKey(step.key)) {
       allowed = false;
       reason = 'KEY_NOT_SUPPORTED';
-    } else if (!appAllowed(step.app, request.sandbox.allowed_apps)) {
-      allowed = false;
-      reason = 'APP_OUTSIDE_SANDBOX';
-    } else if (step.action === COMPUTER_USE_ACTIONS.BROWSER_NAVIGATE && !step.url) {
-      allowed = false;
-      reason = 'NAVIGATION_URL_REQUIRED';
     } else if (step.action === COMPUTER_USE_ACTIONS.BROWSER_NAVIGATE
       && Object.keys(submittedSteps[decisions.length] ?? {}).some(field =>
         !['id', 'action', 'url'].includes(field))) {
@@ -413,6 +407,12 @@ export function evaluateComputerUsePlan(input = {}) {
       // Fail closed rather than claiming to have executed ignored owner intent.
       allowed = false;
       reason = 'BROWSER_NAVIGATE_UNEXPECTED_FIELD';
+    } else if (!appAllowed(step.app, request.sandbox.allowed_apps)) {
+      allowed = false;
+      reason = 'APP_OUTSIDE_SANDBOX';
+    } else if (step.action === COMPUTER_USE_ACTIONS.BROWSER_NAVIGATE && !step.url) {
+      allowed = false;
+      reason = 'NAVIGATION_URL_REQUIRED';
     } else if (!originAllowed(step.url, request.sandbox.allowed_origins)) {
       allowed = false;
       reason = 'ORIGIN_OUTSIDE_SANDBOX';
