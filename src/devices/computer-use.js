@@ -38,6 +38,7 @@ export const COMPUTER_USE_ACTIONS = Object.freeze({
   BROWSER_BACK: 'browser.back',
   BROWSER_NEW_TAB: 'browser.new-tab',
   BROWSER_CLOSE_TAB: 'browser.close-tab',
+  BROWSER_REOPEN_TAB: 'browser.reopen-tab',
   BROWSER_FORWARD: 'browser.forward',
   BROWSER_RELOAD: 'browser.reload',
   CLOSE_APP: 'app.close',
@@ -77,6 +78,7 @@ const ACTION_RISK = new Map([
   [COMPUTER_USE_ACTIONS.BROWSER_BACK, COMPUTER_USE_RISK.SENSITIVE],
   [COMPUTER_USE_ACTIONS.BROWSER_NEW_TAB, COMPUTER_USE_RISK.SENSITIVE],
   [COMPUTER_USE_ACTIONS.BROWSER_CLOSE_TAB, COMPUTER_USE_RISK.SENSITIVE],
+  [COMPUTER_USE_ACTIONS.BROWSER_REOPEN_TAB, COMPUTER_USE_RISK.SENSITIVE],
   [COMPUTER_USE_ACTIONS.BROWSER_FORWARD, COMPUTER_USE_RISK.SENSITIVE],
   [COMPUTER_USE_ACTIONS.BROWSER_RELOAD, COMPUTER_USE_RISK.SENSITIVE],
   [COMPUTER_USE_ACTIONS.CLOSE_APP, COMPUTER_USE_RISK.SENSITIVE],
@@ -473,6 +475,18 @@ export function evaluateComputerUsePlan(input = {}) {
       // replace the URL, or silently honor any alternate target or payload.
       allowed = false;
       reason = 'BROWSER_FOCUS_ADDRESS_UNEXPECTED_FIELD';
+    } else if (step.action === COMPUTER_USE_ACTIONS.BROWSER_REOPEN_TAB
+      && !validBrowserWindowHandle(step.window_handle)) {
+      allowed = false;
+      reason = 'BROWSER_REOPEN_TAB_WINDOW_HANDLE_REQUIRED';
+    } else if (step.action === COMPUTER_USE_ACTIONS.BROWSER_REOPEN_TAB
+      && Object.keys(submittedSteps[decisions.length] ?? {}).some(field =>
+        !['id', 'action', 'window_handle'].includes(field))) {
+      // Reopening a closed tab/window may restore sensitive session content.
+      // Owner must approve a single scoped shortcut, not an implicit URL or
+      // any silently discarded repeat/count/target.
+      allowed = false;
+      reason = 'BROWSER_REOPEN_TAB_UNEXPECTED_FIELD';
     } else if (step.action === COMPUTER_USE_ACTIONS.BROWSER_FIND
       && !validBrowserWindowHandle(step.window_handle)) {
       allowed = false;
