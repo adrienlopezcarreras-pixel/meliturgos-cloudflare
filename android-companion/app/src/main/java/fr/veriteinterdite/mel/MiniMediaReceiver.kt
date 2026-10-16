@@ -279,7 +279,7 @@ class MiniMediaReceiver(private val context: Context) {
                     socket.soTimeout = headerTimeout
                     // Socket configuration may exhaust the remaining transfer budget.
                     if (!budget.withinDeadline()) return
-                    val size = input.readInt()
+                    val size = MiniMediaChunkReader.readInt(input, socket, budget::remainingSocketTimeoutMs, budget::withinDeadline)
                     if (size == 0) break
                     // Reject oversized streams before allocating/reading another frame.
                     if (!budget.reserve(size)) return
@@ -332,7 +332,7 @@ class MiniMediaReceiver(private val context: Context) {
                     socket.soTimeout = headerTimeout
                     // Socket configuration may exhaust the remaining transfer budget.
                     if (!budget.withinDeadline()) return
-                    val size = input.readInt()
+                    val size = MiniMediaChunkReader.readInt(input, socket, budget::remainingSocketTimeoutMs, budget::withinDeadline)
                     if (size == 0) break
                     // Reject over-budget blocks before reading or writing them.
                     if (!budget.reserve(size)) return

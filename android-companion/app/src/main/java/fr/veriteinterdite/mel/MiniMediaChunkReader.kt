@@ -7,6 +7,20 @@ import java.net.Socket
 
 /** Stop fragmented media payloads from extending a global transfer deadline. */
 internal object MiniMediaChunkReader {
+    /** Read a network-order length under the same absolute deadline as payload fragments. */
+    fun readInt(
+        input: InputStream,
+        socket: Socket,
+        remainingTimeoutMs: () -> Int,
+        withinDeadline: () -> Boolean
+    ): Int {
+        val header = read(input, 4, socket, remainingTimeoutMs, withinDeadline)
+        return ((header[0].toInt() and 0xff) shl 24) or
+            ((header[1].toInt() and 0xff) shl 16) or
+            ((header[2].toInt() and 0xff) shl 8) or
+            (header[3].toInt() and 0xff)
+    }
+
     fun read(
         input: InputStream,
         expectedBytes: Int,

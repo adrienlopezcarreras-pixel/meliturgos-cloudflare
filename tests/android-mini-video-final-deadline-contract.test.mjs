@@ -16,5 +16,5 @@ test('MINI video rejects frame read crossing 180s and never publishes timed-out 
   const media=fn.indexOf('val uri = createMediaStoreEntry(');
   assert.ok(reserve>=0 && reserve<read && read<check && check<add);
   assert.ok(last>add && media>last);
-  assert.match(fn,/if \(!budget.withinDeadline\(\)\) return[\s\S]*val size = input\.readInt\(\)/);
+  assert.match(fn,/if \(!budget.withinDeadline\(\)\) return[\s\S]*val size = MiniMediaChunkReader\.readInt\(input, socket, budget::remainingSocketTimeoutMs, budget::withinDeadline\)/);
 });
