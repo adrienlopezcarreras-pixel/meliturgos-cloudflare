@@ -1,6 +1,9 @@
 export class ProviderPool {
   constructor(adapters = [], { healthCheckTimeoutMs = 1500 } = {}) {
     this.adapters = new Map();
+    // Track the newest probe per adapter: overlapping refreshes must never
+    // let an old timeout or late reply overwrite a newer health result.
+    this.healthProbeGeneration = new WeakMap();
     const ms = Number(healthCheckTimeoutMs);
     this.healthCheckTimeoutMs = Number.isFinite(ms)
       ? Math.max(10, Math.min(30000, Math.floor(ms)))
@@ -31,6 +34,9 @@ export class ProviderPool {
   async refreshHealth() {
     await Promise.all([...this.adapters.values()].map(async (item) => {
       if (typeof item.health !== 'function') return;
+      const generation = (this.healthProbeGeneration.get(item) || 0) + 1;
+      this.healthProbeGeneration.set(item, generation);
+      const isCurrent = () => this.healthProbeGeneration.get(item) === generation;
       let timedOut = false;
       let timer;
       // A single broken health adapter must not starve all healthy models.
@@ -38,21 +44,20 @@ export class ProviderPool {
       // DEGRADED providers remain eligible for invocation.
       const health = Promise.resolve().then(() => item.health()).then(
         (status) => {
-          if (timedOut) {
-            // Late health results must not undo a timeout quarantine.
-            item.healthStatus = 'UNAVAILABLE';
-            return;
+          // Ignore both late completions after timeout and stale completions
+          // from an older overlapping refresh.
+          if (!timedOut && isCurrent()) {
+            item.healthStatus = typeof status === 'string' ? status : 'DEGRADED';
           }
-          item.healthStatus = typeof status === 'string' ? status : 'DEGRADED';
         },
         () => {
-          item.healthStatus = timedOut ? 'UNAVAILABLE' : 'DEGRADED';
+          if (!timedOut && isCurrent()) item.healthStatus = 'DEGRADED';
         },
       );
       const timeout = new Promise((resolve) => {
         timer = setTimeout(() => {
           timedOut = true;
-          item.healthStatus = 'UNAVAILABLE';
+          if (isCurrent()) item.healthStatus = 'UNAVAILABLE';
           resolve();
         }, this.healthCheckTimeoutMs);
       });
