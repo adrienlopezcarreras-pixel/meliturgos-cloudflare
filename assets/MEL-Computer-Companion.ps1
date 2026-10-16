@@ -2675,6 +2675,25 @@ function Perform-Step($step, [string]$commandId, [string]$planSchema="") {
       [System.Windows.Forms.SendKeys]::SendWait("^+{TAB}")
       return @{ action=$action; browser=$browser; window_handle=$expectedHandle }
     }
+    "browser.select-tab" {
+      # Ctrl+1..8 select tab positions; Ctrl+9 selects the last tab.
+      [long]$expectedHandle = 0
+      if (-not [long]::TryParse([string]$step.window_handle, [ref]$expectedHandle) -or $expectedHandle -le 0) {
+        throw "BROWSER_SELECT_TAB_WINDOW_HANDLE_REQUIRED"
+      }
+      [int]$tabIndex = 0
+      if (-not [int]::TryParse([string]$step.tab_index, [ref]$tabIndex) -or
+          $tabIndex -lt 1 -or $tabIndex -gt 9) {
+        throw "BROWSER_SELECT_TAB_INDEX_INVALID"
+      }
+      $window = [MelNative]::GetForegroundWindow()
+      if ($window -eq [IntPtr]::Zero -or $window.ToInt64() -ne $expectedHandle) { throw "BROWSER_SELECT_TAB_FOCUS_CHANGED" }
+      $browser = Assert-ForegroundBrowser
+      Assert-BrowserShortcutTarget $window $browser
+      $shortcut = "^$tabIndex"
+      [System.Windows.Forms.SendKeys]::SendWait($shortcut)
+      return @{ action=$action; browser=$browser; tab_index=$tabIndex; window_handle=$expectedHandle }
+    }
     "browser.find-next" {
       [long]$expectedHandle = 0
       if (-not [long]::TryParse([string]$step.window_handle, [ref]$expectedHandle) -or $expectedHandle -le 0) {

@@ -68,7 +68,7 @@ test('native Windows tab shortcuts check HWND and local permission before sendin
   assert.ok(api.includes('"browser.next-tab","browser.previous-tab"'));
   const cases = [
     ['"browser.next-tab" {', '"browser.previous-tab" {', 'SendWait("^{TAB}")'],
-    ['"browser.previous-tab" {', '"browser.find-next" {', 'SendWait("^+{TAB}")'],
+    ['"browser.previous-tab" {', '"browser.select-tab" {', 'SendWait("^+{TAB}")'],
   ];
   for (const [start, end, injection] of cases) {
     const left = source.indexOf(start);
