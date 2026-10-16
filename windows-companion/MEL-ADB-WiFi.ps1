@@ -124,7 +124,7 @@ do {
     try {
       Write-StatusReport $status
     } catch { }
-    Write-AdbLog ("{0} error={1}" -f (Get-Date).ToUniversalTime().ToString("o"),$reason)
+    Write-AdbLog ("{0} error={1}" -f (Get-Date).ToUniversalTime().ToString("o"),(($reason -replace "(?i)(pairing\s*code|password|token|authorization)\s*[:=]\s*\S+","$1=[REDACTED]" -replace "[\r\n\t]+"," ").Substring(0,[Math]::Min(240,($reason -replace "(?i)(pairing\s*code|password|token|authorization)\s*[:=]\s*\S+","$1=[REDACTED]" -replace "[\r\n\t]+"," ").Length))))
   }
   if (-not $Once) { Start-Sleep -Seconds $IntervalSeconds }
 } while (-not $Once)
