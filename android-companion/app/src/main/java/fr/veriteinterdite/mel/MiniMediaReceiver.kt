@@ -259,16 +259,20 @@ class MiniMediaReceiver(private val context: Context) {
         try {
             AviMjpegWriter(temp, width, height, fps).use { avi ->
                 while (true) {
+                    if (!budget.withinDeadline()) return
                     val size = input.readInt()
                     if (size == 0) break
                     // Reject oversized streams before allocating/reading another frame.
                     if (!budget.reserve(size)) return
-                    avi.addFrame(readFully(input, size))
+                    val jpeg = readFully(input, size)
+                    // Reading the final frame can itself cross the deadline.
+                    if (!budget.withinDeadline()) return
+                    avi.addFrame(jpeg)
                     framesReceived++
                 }
             }
-            // A clean end marker with no frames is not a recorded video.
-            if (framesReceived == 0) return
+            // Never publish a video after its timeout, even on a clean EOF.
+            if (framesReceived == 0 || !budget.withinDeadline()) return
             val uri = createMediaStoreEntry(
                 MediaStore.Video.Media.EXTERNAL_CONTENT_URI,
                 name.ensureSuffix(".avi"),
