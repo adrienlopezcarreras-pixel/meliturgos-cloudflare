@@ -16,8 +16,26 @@ Une réception HELLO n'est **jamais** suffisante pour annoncer la
 session opérationnelle. La MINI émet `ACK / SESSION_OK` uniquement
 après validation de la SESSION et de l'horloge, hors du callback NimBLE.
 
-Le transport reste en **candidat** : l'appairage Just Works doit encore
-faire l'objet d'une analyse MITM et être testé avec le vrai téléphone.
+### Appairage sécurisé — candidat non encore validé sur matériel
+
+Le candidat active LE Secure Connections, bonding et l'exigence MITM dans NimBLE.
+La MINI génère un passkey temporaire à six chiffres lors du nouvel appairage,
+l'affiche sur son écran et attend sa saisie dans la fenêtre système Android.
+Le passkey n'est ni journalisé ni transporté dans les trames Link V2; il est
+effacé de l'état visible après chiffrement confirmé ou déconnexion. La session
+n'est marquée prête que si le lien est chiffré, authentifié et bondé.
+
+Les anciens bonds établis en mode Just Works ne sont **pas** convertis en bonds
+MITM par magie : le candidat les refuse s'ils ne possèdent pas l'attribut
+d'authentification requis. Leur migration doit être qualifiée sur le téléphone
+réel; elle peut demander de retirer uniquement l'ancien appairage Bluetooth
+dans les paramètres Android puis de refaire le jumelage avec la MINI en main.
+Ne pas effacer les données MEL/NVS, et ne pas flasher pour effectuer cette
+migration.
+
+Le passkey et le parcours de migration restent **candidats** jusqu'à validation
+sur l'ESP32-S3 physique et le téléphone Android réel. Les CI ne prouvent ni
+l'affichage réel du code, ni la fenêtre Android de saisie, ni la résistance MITM.
 
 ## Validation
 
