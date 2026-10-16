@@ -64,6 +64,24 @@ if ($LASTEXITCODE -ne 0) {
     try {
       $failedProof = Get-Content -LiteralPath $report -Encoding UTF8 -Raw | ConvertFrom-Json
       if ($failedProof.error) { Write-Host ("Reason: " + $failedProof.error) -ForegroundColor Yellow }
+
+      # Surface the actual failed esptool probe locally; the summary error alone
+      # is not enough to distinguish a wrong COM port, busy port, cable issue or bootloader timeout.
+      foreach ($probeName in @('chip_id','flash_id','partition_readback','ota_readback')) {
+        $probeProperty = $failedProof.PSObject.Properties[$probeName]
+        if ($null -eq $probeProperty) { continue }
+        $probe = $probeProperty.Value
+        if ($null -eq $probe -or $null -eq $probe.exit_code -or [int]$probe.exit_code -eq 0) { continue }
+        Write-Host ("Failed probe: {0} (exit code {1})" -f $probeName,$probe.exit_code) -ForegroundColor Yellow
+        foreach ($streamName in @('stdout','stderr','error')) {
+          $detail = [string]$probe.$streamName
+          if (-not [string]::IsNullOrWhiteSpace($detail)) {
+            $detail = $detail.Trim()
+            if ($detail.Length -gt 1600) { $detail = $detail.Substring(0,1600) + ' [truncated]' }
+            Write-Host ("  {0}: {1}" -f $streamName,$detail) -ForegroundColor Gray
+          }
+        }
+      }
       Write-Host ("Partition table valid: " + [string]$failedProof.partition_valid)
       Write-Host ("OTA metadata unambiguous: " + [string]$failedProof.ota_metadata_unambiguous)
       Write-Host ("Running slot verified on device: " + [string]$failedProof.running_slot_verified_on_device)
