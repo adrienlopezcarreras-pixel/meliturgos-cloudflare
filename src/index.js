@@ -25,7 +25,7 @@ import { handleVoiceTranscription } from "./api/voice-transcribe.js";
 import { handleFileUpload } from "./api/file-upload.js";
 import { runExpiredMediaCleanup } from "./media/media-vault-cleanup.js";
 import { readLastSafeWorkJob, writeLastSafeWorkJob } from "./dev/dev-bridge-state-store.js";
-import { buildVerifiedWorkComputerContext, interpretWorkScreenCapture, workScreenErrorResponse } from "./work/companion-screen-evidence.js";
+import { buildVerifiedWorkComputerContext, interpretWorkScreenCapture, revokeWorkScreenConsent, workScreenErrorResponse } from "./work/companion-screen-evidence.js";
 import { getChatGPTImportStatus, recordChatGPTCollectorCoverage } from "./persistence/chatgpt-archive-importer.js";
 import { maybeHandleWaveshareTerminalApi } from "./devices/waveshare-terminal-api.js";
 import { maybeHandleComputerApi } from "./devices/computer-companion-api.js";
@@ -219,7 +219,7 @@ function busContext(env, request = null) {
 async function maybeHandleWorkPreflight(request, env) {
   const url = new URL(request.url);
   if (!url.pathname.startsWith('/api/work/')) return null;
-  if (url.pathname !== '/api/work/health' && url.pathname !== '/api/work/jobs' && url.pathname !== '/api/work/screen-interpretation') return null;
+  if (url.pathname !== '/api/work/health' && url.pathname !== '/api/work/jobs' && url.pathname !== '/api/work/screen-interpretation' && url.pathname !== '/api/work/screen-consent') return null;
 
   const auth = requireAuth(request, env);
   if (!auth.ok) return auth.response;
@@ -240,6 +240,15 @@ async function maybeHandleWorkPreflight(request, env) {
     try {
       const body = await readJsonObject(request);
       return Response.json(await interpretWorkScreenCapture(env, body), { headers: { 'cache-control': 'no-store' } });
+    } catch (error) {
+      return workScreenErrorResponse(error);
+    }
+  }
+
+  if (request.method === 'POST' && url.pathname === '/api/work/screen-consent') {
+    try {
+      const body = await readJsonObject(request);
+      return Response.json(await revokeWorkScreenConsent(env, body), { headers: { 'cache-control': 'no-store' } });
     } catch (error) {
       return workScreenErrorResponse(error);
     }
