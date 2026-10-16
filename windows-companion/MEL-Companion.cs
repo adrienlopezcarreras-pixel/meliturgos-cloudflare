@@ -1635,7 +1635,14 @@ class MainForm : Form
                     var status=LabelAt(p,onlineDevice?"En ligne":"Hors ligne",p.Width-175,16,145,40,9,true,
                         onlineDevice?Color.FromArgb(25,125,85):gray);
                     status.Anchor=AnchorStyles.Right|AnchorStyles.Top;
-                    LabelAt(p,Get(d,"phase")+"  ·  "+Get(d,"firmware"),22,68,p.Width-44,40,9,false,gray)
+                    var phase=Get(d,"phase");
+                    var firmware=Get(d,"firmware");
+                    // A stale phase can still say ONLINE after the current transport went offline.
+                    // Keep the authoritative connection badge and explain the older reported phase.
+                    var detail=!onlineDevice && string.Equals(phase,"ONLINE",StringComparison.OrdinalIgnoreCase)
+                        ? "Dernier état reçu : ONLINE · connexion actuelle hors ligne · "+firmware
+                        : phase+"  ·  "+firmware;
+                    LabelAt(p,detail,22,68,p.Width-44,40,9,false,gray)
                         .Anchor=AnchorStyles.Left|AnchorStyles.Top|AnchorStyles.Right;
                     var cam=ButtonAt(p,"Caméra",22,110,140,delegate{
                         if(Bool(d,"live_stream"))MelApp.OpenMel();
