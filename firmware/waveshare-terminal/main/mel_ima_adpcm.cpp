@@ -125,9 +125,12 @@ bool mel_ima_adpcm_decode_block(
     const size_t sample_count = encoded[3] == 0 ? MEL_IMA_ADPCM_BLOCK_SAMPLES : encoded[3];
     if (sample_count == 0 || sample_count > MEL_IMA_ADPCM_BLOCK_SAMPLES || out_capacity_samples < sample_count) return false;
     if (encoded_size != mel_ima_adpcm_encoded_size(sample_count)) return false;
+    // IMA ADPCM step indices are defined only from 0 to 88. Reject
+    // invalid headers instead of silently decoding with a clamped index.
+    if (encoded[2] > 88) return false;
 
     int predictor = (int16_t)((uint16_t)encoded[0] | ((uint16_t)encoded[1] << 8));
-    int index = clamp_index(encoded[2]);
+    int index = encoded[2];
     out[0] = (int16_t)predictor;
 
     size_t src = 4;
