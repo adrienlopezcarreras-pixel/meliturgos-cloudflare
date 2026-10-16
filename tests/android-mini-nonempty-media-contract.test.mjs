@@ -9,11 +9,12 @@ test('MINI empty video end marker never publishes header-only AVI', async()=>{
   const video=src.slice(src.indexOf('private fun receiveVideo('),src.indexOf('private fun receiveAudio('));
   const counter=video.indexOf('var framesReceived = 0');
   const increment=video.indexOf('framesReceived++');
-  const reject=video.indexOf('if (framesReceived == 0) return');
+  const reject=video.indexOf('if (framesReceived == 0 || !budget.withinDeadline()) return');
   const entry=video.indexOf('val uri = createMediaStoreEntry(');
   assert.ok(counter>=0 && increment>counter && reject>increment && entry>reject);
   assert.match(video,/if \(size == 0\) break/);
-  assert.match(video,/avi\.addFrame\(readFully\(input, size\)\)/);
+  assert.match(video,/val jpeg = readFully\(input, size\)/);
+  assert.match(video,/avi\.addFrame\(jpeg\)/);
 });
 
 test('MINI audio requires nonzero complete PCM16 channel frames before MediaStore', async()=>{

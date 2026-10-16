@@ -72,4 +72,15 @@ class MiniVideoTransferBudgetTest {
             assertFalse(budget.reserve(1))
         }
     }
+
+    @Test fun frameReadThatCrossesDeadlineMustNotBePublished() {
+        var clock = 0L
+        val budget = MiniVideoTransferBudget(30) { clock }
+        assertTrue(budget.reserve(512))
+        // Simulate a slow network read after reserving the last frame.
+        clock = MiniVideoTransferBudget.MAX_DURATION_NANOS - 1
+        assertTrue(budget.withinDeadline())
+        clock++
+        assertFalse(budget.withinDeadline())
+    }
 }

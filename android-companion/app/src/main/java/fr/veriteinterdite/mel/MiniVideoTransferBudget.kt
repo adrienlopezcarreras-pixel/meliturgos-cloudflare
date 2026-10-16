@@ -20,9 +20,11 @@ internal class MiniVideoTransferBudget(fps: Int, private val monotonicNanos: () 
     private var frames = 0
     private var totalBytes = 0L
 
+    fun withinDeadline(): Boolean = monotonicNanos() - startedAtNanos < MAX_DURATION_NANOS
+
     fun reserve(frameBytes: Int): Boolean {
         // The FPS-derived count is not a wall-clock cap if the sender stalls.
-        if (monotonicNanos() - startedAtNanos >= MAX_DURATION_NANOS) return false
+        if (!withinDeadline()) return false
         if (frameBytes !in 1..MAX_FRAME_BYTES) return false
         if (frames >= maxFrames) return false
         if (frameBytes.toLong() > MAX_TOTAL_BYTES - totalBytes) return false
