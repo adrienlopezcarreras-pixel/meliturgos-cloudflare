@@ -26,6 +26,29 @@ test('Companion rejects navigation without approval, URL or allowed origin', () 
   assert.equal(plan('https://admin:secret@example.com/page').allowed, false);
 });
 
+test('Companion rejects ignored browser navigation targets before executing', () => {
+  const baseline = {
+    session_id: 'owner-session',
+    device: { id: 'paired-windows', capabilities: ['computer.use'] },
+    sandbox: { allowed_origins: ['https://example.com'], allowed_apps: [], allowed_paths: [] },
+    approvals: [{ approved: true, session_id: 'owner-session', step_id: 'navigation', action: 'browser.navigate' }],
+  };
+  for (const [field, value] of [
+    ['text', 'do not ignore this'], ['window_handle', '45678'],
+    ['key', 'ENTER'], ['app', 'browser'], ['path', 'C:\\\\test'],
+    ['x', 100], ['y', 200], ['selector', '#login'], ['repeat', 3],
+    ['unknown', null],
+  ]) {
+    const verdict = evaluateComputerUsePlan({
+      ...baseline, steps: [{ id: 'navigation', action: COMPUTER_USE_ACTIONS.BROWSER_NAVIGATE,
+        url: 'https://example.com/page', [field]: value }],
+    });
+    assert.equal(verdict.allowed, false, field);
+    assert.equal(verdict.reason, 'BROWSER_NAVIGATE_UNEXPECTED_FIELD', field);
+  }
+  assert.equal(plan('https://example.com/page').allowed, true);
+});
+
 test('Windows handler validates HTTPS before invoking system browser', async () => {
   const script = await readFile(new URL('../assets/MEL-Computer-Companion.ps1', import.meta.url), 'utf8');
   const start = script.indexOf('"browser.navigate" {');
