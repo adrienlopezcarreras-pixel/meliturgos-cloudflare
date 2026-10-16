@@ -6,6 +6,7 @@
 #include "mel_mini_phase_session_guard.h"
 #include "mel_link_v2_server.h"
 #include "mel_ima_adpcm.h"
+#include "mel_link_v2_session_clock_bounds.h"
 
 #include <atomic>
 #include <cstring>
@@ -129,11 +130,14 @@ static bool apply_android_session_clock(const uint8_t *payload, size_t len) {
     if (!root) return false;
     cJSON *epoch = cJSON_GetObjectItemCaseSensitive(root, "epoch_ms");
     cJSON *offset = cJSON_GetObjectItemCaseSensitive(root, "utc_offset_seconds");
-    bool ok = cJSON_IsNumber(epoch) && cJSON_IsNumber(offset);
+    bool ok = cJSON_IsNumber(epoch) && cJSON_IsNumber(offset) &&
+              mel_link_v2_session_clock_bounds(epoch->valuedouble, offset->valuedouble);
     if (ok) {
-        const int64_t epoch_ms = (int64_t)epoch->valuedouble;
-        const int offset_seconds = offset->valueint;
-        if (epoch_ms >= 1700000000000LL && offset_seconds >= -50400 && offset_seconds <= 50400) {
+        // Numeric bounds, finite values and whole-second offset were checked
+        // above before any float-to-integer conversion.
+        const int64_t epoch_ms = static_cast<int64_t>(epoch->valuedouble);
+        const int offset_seconds = static_cast<int>(offset->valuedouble);
+        {
             struct timeval tv = {};
             tv.tv_sec = (time_t)(epoch_ms / 1000LL);
             tv.tv_usec = (suseconds_t)((epoch_ms % 1000LL) * 1000LL);
