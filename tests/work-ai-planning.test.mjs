@@ -342,6 +342,18 @@ test('GEN2-38 fails fast when zero-cost providers return no candidates instead o
   assert.equal(fanoutCalls,1,'provider outage must not trigger repair and capability-selection fan-outs');
 });
 
+test('GEN2-38 applies a bounded no-retry scheduler only to work-plan fan-outs', async () => {
+  const defaultBus = await readFile(new URL('../src/capabilities/default-bus.js', import.meta.url), 'utf8');
+  assert.match(defaultBus, /purpose = String\(input\.context\?\.purpose \|\| ''\)/);
+  assert.match(defaultBus, /purpose === 'work-plan-generation'/);
+  assert.match(defaultBus, /purpose\.startsWith\('work-plan-generation-'\)/);
+  assert.match(defaultBus, /new ParallelScheduler\(/);
+  assert.match(defaultBus, /timeoutMs: 24_000/);
+  assert.match(defaultBus, /retries: 0/);
+  assert.match(defaultBus, /backoffMs: 0/);
+  assert.match(defaultBus, /Other Augmentio callers retain their established scheduler defaults/);
+});
+
 test('GEN2-38 release smoke keeps real planner bounded and surfaces curl transport failures', async () => {
   const workflow = await readFile(new URL('../.github/workflows/deploy-cloudflare-release.yml', import.meta.url), 'utf8');
   const source = await readFile(new URL('../src/capabilities/work-capabilities.js', import.meta.url), 'utf8');
