@@ -1453,6 +1453,10 @@ class MainForm : Form
                             try { process.Kill(); } catch { }
                             message = "ADB Wi-Fi : diagnostic expiré · réessayez";
                         }
+                        else if (process.ExitCode != 0)
+                        {
+                            message = "ADB Wi-Fi : le diagnostic s’est terminé en erreur";
+                        }
                         else
                         {
                             string report = Path.Combine(MelApp.MelDir, "android-adb-wifi.json");
