@@ -173,3 +173,29 @@ test('transient health failures remain DEGRADED and successful structured probes
   await pool.refreshHealth();
   assert.equal(adapter.healthStatus, 'HEALTHY');
 });
+
+test('ProviderAdapter cannot translate a structured failed probe into HEALTHY', async () => {
+  let recovered = false;
+  const adapter = new ProviderAdapter({
+    id: 'structured-adapter', invoke: async () => 'ok',
+    healthCheck: async () => recovered
+      ? { ok: true, status: 'HEALTHY' }
+      : { ok: false, status: 'HEALTHY' },
+  });
+  const pool = new ProviderPool([adapter]);
+  await pool.refreshHealth();
+  assert.equal(adapter.healthStatus, 'UNAVAILABLE');
+  assert.equal(pool.list().length, 0);
+  recovered = true;
+  await pool.refreshHealth();
+  assert.equal(adapter.healthStatus, 'HEALTHY');
+  assert.equal(pool.list().length, 1);
+});
+
+test('ProviderAdapter treats a missing structured health status as degraded, not healthy', async () => {
+  const adapter = new ProviderAdapter({
+    id: 'missing-status', invoke: async () => 'ok',
+    healthCheck: async () => ({ ok: true }),
+  });
+  assert.equal(await adapter.health(), 'DEGRADED');
+});
