@@ -227,7 +227,7 @@ class MiniMediaReceiver(private val context: Context) {
             when (type) {
                 1 -> receivePhoto(input, safeName(name, "mel-mini-photo.jpg"), client)
                 2 -> if (fps in 1..30) {
-                    receiveVideo(input, safeName(name, "mel-mini-video.avi"), width, height, fps)
+                    receiveVideo(input, safeName(name, "mel-mini-video.avi"), width, height, fps, client)
                 }
                 3 -> if (sampleRate in 8_000..96_000 && channels in 1..2) {
                     receiveAudio(input, safeName(name, "mel-mini-audio.wav"), sampleRate, channels)
@@ -258,7 +258,8 @@ class MiniMediaReceiver(private val context: Context) {
         name: String,
         width: Int,
         height: Int,
-        fps: Int
+        fps: Int,
+        socket: Socket
     ) {
         if (width !in 80..1920 || height !in 80..1920) return
         val temp = File.createTempFile("mel-mini-video-", ".avi", context.cacheDir)
@@ -268,10 +269,16 @@ class MiniMediaReceiver(private val context: Context) {
             AviMjpegWriter(temp, width, height, fps).use { avi ->
                 while (true) {
                     if (!budget.withinDeadline()) return
+                    val headerTimeout = budget.remainingSocketTimeoutMs()
+                    if (headerTimeout == 0) return
+                    socket.soTimeout = headerTimeout
                     val size = input.readInt()
                     if (size == 0) break
                     // Reject oversized streams before allocating/reading another frame.
                     if (!budget.reserve(size)) return
+                    val frameTimeout = budget.remainingSocketTimeoutMs()
+                    if (frameTimeout == 0) return
+                    socket.soTimeout = frameTimeout
                     val jpeg = readFully(input, size)
                     // Reading the final frame can itself cross the deadline.
                     if (!budget.withinDeadline()) return
