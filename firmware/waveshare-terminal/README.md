@@ -1,6 +1,6 @@
 # MEL MINI — Waveshare ESP32-S3 Touch LCD 3.5-C
 
-Firmware de base `0.6.14-pa-ctrl`, ESP-IDF 5.4.2, base officielle
+Firmware de base `0.6.15-secure-passkey`, ESP-IDF 5.4.2, base officielle
 Waveshare commit `283ec84c566c096f8c30493b93dcd4b0bb608de7`.
 Caméra OV5640, écran/tactile, AXP2101, ES8311 et stockage interne FAT.
 
