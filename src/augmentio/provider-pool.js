@@ -47,11 +47,23 @@ export class ProviderPool {
           // Ignore both late completions after timeout and stale completions
           // from an older overlapping refresh.
           if (!timedOut && isCurrent()) {
-            item.healthStatus = typeof status === 'string' ? status : 'DEGRADED';
+            // Some adapters report {status:'UNAVAILABLE'} or {ok:false}
+            // rather than a bare string. Never turn their explicit failure
+            // into a callable DEGRADED model.
+            const reported = typeof status === 'string' ? status : status?.status;
+            item.healthStatus = status?.ok === false ? 'UNAVAILABLE'
+              : typeof reported === 'string' && reported.trim()
+                ? reported.trim() : 'DEGRADED';
           }
         },
-        () => {
-          if (!timedOut && isCurrent()) item.healthStatus = 'DEGRADED';
+        (error) => {
+          if (!timedOut && isCurrent()) {
+            const status = Number(error?.status ?? error?.statusCode);
+            // Authorization failures need new credentials, not another
+            // inference attempt: quarantine rather than using DEGRADED.
+            item.healthStatus = status === 401 || status === 403
+              ? 'UNAVAILABLE' : 'DEGRADED';
+          }
         },
       );
       const timeout = new Promise((resolve) => {
