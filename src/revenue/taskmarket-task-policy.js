@@ -37,12 +37,14 @@ export function screenTaskmarketTask(task, assessment, policy = {}) {
 
   // Taskmarket reward uses 6-decimal USDC base units. Convert net payout to
   // integer micro-USDC and do not label it EUR or settled earnings.
+  if (gross > BigInt(Number.MAX_SAFE_INTEGER)) return reject('REWARD_OVERFLOW');
   const netRewardMicros = (gross * BigInt(10000 - feeBps)) / 10000n;
   if (netRewardMicros > BigInt(Number.MAX_SAFE_INTEGER)) return reject('REWARD_OVERFLOW');
+  const grossNumber = Number(gross);
   const net = Number(netRewardMicros);
   const expectedProfitMicros = net - assessment.estimatedComputeCostMicros;
-  const marginBps = net === 0 ? -10000 : Math.floor(expectedProfitMicros * 10000 / net);
-  const economics = { taskId: task.id, mode: task.mode, grossRewardMicros: Number(gross <= BigInt(Number.MAX_SAFE_INTEGER) ? gross : 0n), netRewardMicros: net, platformFeeBps: feeBps, estimatedComputeCostMicros: assessment.estimatedComputeCostMicros, expectedProfitMicros, marginBps, confidenceBps: assessment.confidenceBps };
+  const marginBps = net === 0 ? -10000 : Number((BigInt(expectedProfitMicros) * 10000n) / BigInt(net));
+  const economics = { taskId: task.id, mode: task.mode, grossRewardMicros: grossNumber, netRewardMicros: net, platformFeeBps: feeBps, estimatedComputeCostMicros: assessment.estimatedComputeCostMicros, expectedProfitMicros, marginBps, confidenceBps: assessment.confidenceBps };
   if (expectedProfitMicros < policy.minimumProfitMicros) return reject('EXPECTED_PROFIT_TOO_LOW', economics);
   if (marginBps < policy.minimumMarginBps) return reject('EXPECTED_MARGIN_TOO_LOW', economics);
   if (policy.automaticSubmissionEnabled !== true) return Object.freeze({ decision: 'OBSERVE_ONLY', reason: 'AUTOMATIC_SUBMISSION_DISABLED', ...economics });
