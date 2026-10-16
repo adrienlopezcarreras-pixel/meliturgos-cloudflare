@@ -11,7 +11,18 @@ test('MINI Link V2 rejects unencrypted control and bulk GATT writes', async () =
   assert.match(server, /BLE_GATT_CHR_F_WRITE \| BLE_GATT_CHR_F_WRITE_NO_RSP \| BLE_GATT_CHR_F_WRITE_ENC/);
   assert.match(server, /ble_hs_cfg\.sm_bonding = 1/);
   assert.match(server, /ble_hs_cfg\.sm_sc = 1/);
+  assert.match(server, /ble_hs_cfg\.sm_mitm = 1/);
+  assert.match(server, /ble_hs_cfg\.sm_io_cap = BLE_SM_IO_CAP_DISP_ONLY/);
+  assert.match(server, /BLE_GAP_EVENT_PASSKEY_ACTION/);
+  assert.match(server, /BLE_SM_IOACT_DISP/);
+  assert.match(server, /esp_random\(\) % 1000000U/);
+  assert.match(server, /ble_sm_inject_io\(event->passkey\.conn_handle, &io\)/);
+  assert.match(server, /desc\.sec_state\.authenticated/);
+  assert.match(server, /desc\.sec_state\.bonded/);
+  assert.match(server, /const bool secure = encrypted && authenticated && bonded/);
   assert.match(server, /ble_gap_security_initiate\(g_conn\)/);
+  assert.doesNotMatch(server, /ESP_LOG[IDWE]\([^;]*passkey[^;]*%0?6[luud]/i,
+    'numeric pairing passkeys must never be emitted to logs');
   assert.match(server, /ble_store_config_init\(\)/);
   assert.match(server, /extern "C" void ble_store_config_init\(void\);/);
   assert.match(server, /ble_hs_cfg\.store_status_cb = ble_store_util_status_rr/);
@@ -26,6 +37,24 @@ test('MINI Link V2 rejects unencrypted control and bulk GATT writes', async () =
   assert.match(server, /BLE_GAP_EVENT_ENC_CHANGE/);
   assert.match(server, /g_link_encrypted\.load\(\) &&/);
   assert.match(server, /const bool now_ready = g_event_subscribed && g_link_encrypted\.load\(\)/);
+});
+
+test('MINI shows the ephemeral MITM passkey without replacing the MEL account-pairing code', async () => {
+  const [server, header, ui] = await Promise.all([
+    read('firmware/waveshare-terminal/main/mel_link_v2_server.cpp'),
+    read('firmware/waveshare-terminal/main/mel_link_v2_server.h'),
+    read('firmware/waveshare-terminal/main/main.cpp'),
+  ]);
+  assert.match(header, /mel_link_v2_server_pairing_passkey\(uint32_t \*passkey_out\)/);
+  assert.match(server, /g_pairing_passkey_visible\.store\(true\)/);
+  assert.match(server, /g_pairing_passkey_visible\.store\(false\)/);
+  assert.match(server, /bool mel_link_v2_server_pairing_passkey\(uint32_t \*passkey_out\)/);
+  assert.match(ui, /#include "mel_link_v2_server\.h"/);
+  assert.match(ui, /pairing_passkey_label = lv_label_create\(screen\)/);
+  assert.match(ui, /APPARIEMENT BLE SECURISE\\nCode a saisir sur Android : %06lu/);
+  assert.match(ui, /mel_link_v2_server_pairing_passkey\(&passkey\)/);
+  assert.match(ui, /lv_obj_move_foreground\(pairing_passkey_label\)/);
+  assert.match(ui, /pair_status,[\s\S]*?Entre le code genere dans MEL > MINI/);
 });
 
 test('MINI refuses invalid SESSION clock and sessionless media channel credentials', async () => {
