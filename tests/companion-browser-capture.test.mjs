@@ -16,7 +16,7 @@ test('browser screenshot validates unchanged focus again immediately before uplo
   const end=a.indexOf('function Key-Token(',start);
   const upload=a.slice(start,end);
   const focus='[MelNative]::GetForegroundWindow() -ne $window';
-  assert.equal(upload.split(focus).length-1,2);
+  assert.ok(upload.split(focus).length-1>=2);
   const lastCheck=upload.lastIndexOf(focus);
   const transfer=upload.indexOf('return Invoke-RestMethod');
   const validation=upload.indexOf('SCREENSHOT_BINARY_PAYLOAD_INVALID');
@@ -34,4 +34,19 @@ test('browser capture checks locally requested STOP after encoding before upload
   const stop=upload.lastIndexOf('Assert-UnattendedCapturePermission');
   const transfer=upload.indexOf('return Invoke-RestMethod');
   assert.ok(capture>=0 && stop>capture && transfer>stop);
+});
+
+test('browser screenshot must verify the approved foreground browser before reading pixels',async()=>{
+  const asset=await readFile(new URL('../assets/MEL-Computer-Companion.ps1',import.meta.url),'utf8');
+  const dist=await readFile(new URL('../dist/MEL-Computer-Companion.ps1',import.meta.url),'utf8');
+  assert.equal(asset,dist);
+  const start=asset.indexOf('function Upload-BrowserScreenshot(');
+  const end=asset.indexOf('function Key-Token(',start);
+  const fn=asset.slice(start,end);
+  const capture=fn.indexOf('[byte[]]$bytes = Capture-PngBytes $bounds');
+  assert.ok(capture>0);
+  const pre=fn.slice(0,capture);
+  assert.match(pre,/GetForegroundWindow\(\) -ne \$window/);
+  assert.match(pre,/Assert-ForegroundBrowser/);
+  assert.match(pre,/BROWSER_CAPTURE_FOCUS_CHANGED/);
 });
