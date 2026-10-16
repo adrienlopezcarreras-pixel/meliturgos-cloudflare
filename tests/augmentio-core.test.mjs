@@ -1233,3 +1233,38 @@ test('Augmentio keeps 429 cooldown and uses a healthy provider without retrying 
   assert.equal(ai.quota.get('rate-limited').lastStatus, 429);
   assert.equal(ai.quota.isAvailable('rate-limited'), false);
 });
+
+test('custom provider concurrency callbacks cannot deadlock scheduling with invalid values', async () => {
+  for (const unsafe of [0, -1, NaN, Infinity, -Infinity, 'invalid']) {
+    let calls = 0;
+    const scheduler = new ParallelScheduler({
+      globalConcurrency: 2, perProviderConcurrency: 2, retries: 0,
+    });
+    const results = await scheduler.run([{ id: 'one' }, { id: 'one' }],
+      async () => { calls += 1; return 'completed'; },
+      { getProviderConcurrency: () => unsafe });
+    assert.equal(calls, 2, `invalid limit ${String(unsafe)} must not block tasks`);
+    assert.ok(results.every(result => result.status === 'fulfilled'),
+      `invalid limit ${String(unsafe)} must not produce SCHEDULER_DEADLOCK`);
+  }
+});
+
+test('custom provider concurrency callbacks cannot bypass per-provider ceiling', async () => {
+  const scheduler = new ParallelScheduler({
+    globalConcurrency: 32, perProviderConcurrency: 2, retries: 0,
+  });
+  let active = 0;
+  let peak = 0;
+  const tasks = Array.from({ length: 30 }, () => ({ id: 'shared-model' }));
+  const results = await scheduler.run(tasks, async () => {
+    active += 1;
+    peak = Math.max(peak, active);
+    await new Promise(resolve => setTimeout(resolve, 3));
+    active -= 1;
+    return 'ok';
+  }, { getProviderConcurrency: () => 1_000_000 });
+  assert.equal(results.length, tasks.length);
+  assert.ok(results.every(result => result.status === 'fulfilled'));
+  assert.ok(peak > 1, 'allow useful bounded concurrency');
+  assert.ok(peak <= 16, 'custom metadata cannot exceed configured safety maximum');
+});
