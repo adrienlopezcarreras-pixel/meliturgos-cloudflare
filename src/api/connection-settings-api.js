@@ -833,7 +833,7 @@ export async function pipedreamAccountStatus(config, contextOwner, options = {})
         app: clean(row?.app?.name_slug || row?.app?.nameSlug || row?.app, 160),
         name: clean(row?.name || row?.external_id, 300),
         healthy: row?.healthy !== false && row?.dead !== true && !row?.error,
-      })).filter(row => row.id && row.app);
+      })).filter(row => row.id && PIPEDREAM_ALLOWED_APPS.has(row.app));
       return {
         ok: true,
         provider: 'pipedream',
