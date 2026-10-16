@@ -670,7 +670,7 @@ async function captureWorkComputerView(){
   }
   throw Error('DESKTOP_VIEW_TIMEOUT: aucune preuve de capture dans les 20 secondes');
  }catch(e){screenState.textContent='ÉCHEC CAPTURE';screenState.className='tag bad';qs('#workComputerOut').textContent=JSON.stringify({error:e.message,scope:'VIEW_ONLY',halt_remains_available:true},null,2);throw e}
- finally{workComputerBusy=false;const current=selectedWorkComputer(),at=Date.now(),disabled=!current||current.halted===true||current.metadata?.remote_access_enabled!==true||at-Number(current.last_seen_at||0)>20000||at-Number(current.metadata?.engine_heartbeat_at||0)>20000;button.setAttribute('aria-disabled',disabled?'true':'false')}
+ finally{workComputerBusy=false;qs('#workComputerInterpretConsent').checked=false;const current=selectedWorkComputer(),at=Date.now(),disabled=!current||current.halted===true||current.metadata?.remote_access_enabled!==true||at-Number(current.last_seen_at||0)>20000||at-Number(current.metadata?.engine_heartbeat_at||0)>20000;button.setAttribute('aria-disabled',disabled?'true':'false')}
 }
 async function interpretWorkComputerView(view){
  const box=qs('#workComputerAnalysis'),screenState=qs('#workComputerScreenState');
