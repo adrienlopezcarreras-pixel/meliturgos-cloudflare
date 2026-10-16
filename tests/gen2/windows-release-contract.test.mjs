@@ -122,3 +122,15 @@ test('Companion device card explains stale ONLINE phase when current status is o
   assert.match(ui, /Dernier état reçu : ONLINE · connexion actuelle hors ligne/);
   assert.match(ui, /string\.Equals\(phase,"ONLINE",StringComparison\.OrdinalIgnoreCase\)/);
 });
+
+test('Companion USB preflight preserves Windows PowerShell UTF-8 and surfaces refusal evidence', async () => {
+ const helper=await read('windows-companion/MEL-MINI-USB-Preflight.ps1');
+ assert.match(helper,/\[Console\]::OutputEncoding/);
+ assert.match(helper,/failedProof\.error/);
+ assert.match(helper,/Partition table valid:/);
+ assert.match(helper,/OTA metadata unambiguous:/);
+ assert.match(helper,/Running slot verified on device:/);
+ assert.match(helper,/Flash allowed: False/);
+ assert.match(helper,/MINI_USB_PREFLIGHT_FAILED/);
+ assert.doesNotMatch(helper,/flash_allowed\s*=\s*\$true/);
+});
