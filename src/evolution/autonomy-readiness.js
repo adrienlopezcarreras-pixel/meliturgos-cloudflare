@@ -132,6 +132,9 @@ function implementationPlanProof(job) {
 }
 
 function completionProof(job) {
+  // Verification evidence is not a successful completed job. An abandoned,
+  // cancelled, failed or still-running job must not certify self-development.
+  if (!['COMPLETED', 'COMMITTED'].includes(String(job?.status || '').toUpperCase())) return null;
   const completion = job?.result_json?.autonomy_completion;
   if (!completion || completion.status !== 'VERIFIED') return null;
   const ci = completion.ci;

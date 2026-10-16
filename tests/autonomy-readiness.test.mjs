@@ -266,3 +266,24 @@ test('autonomous readiness rejects mismatched CI identity even when VERIFIED is 
     assert.ok(readiness.blockers.includes('CI_VERIFIED_AUTONOMOUS_COMPLETION_NOT_PROVEN'));
   }
 });
+
+test('failed, cancelled and nonterminal jobs cannot certify autonomous completion', async () => {
+  for (const status of ['FAILED', 'CANCELLED', 'QUEUED', 'CLAIMED', 'READY_FOR_REVIEW']) {
+    const repository = await completeEvidenceRepository();
+    await repository.update('ready-job', { status });
+    const state = await getAutonomyReadiness({ repository });
+    assert.equal(state.gates.ci_verified_candidate_completion, false, status);
+    assert.equal(state.gates.coherent_single_job_loop, false, status);
+    assert.equal(state.self_development_ready, false, status);
+    assert.ok(state.blockers.includes('CI_VERIFIED_AUTONOMOUS_COMPLETION_NOT_PROVEN'), status);
+  }
+});
+
+test('committed job with the same exact evidence remains eligible for readiness', async () => {
+  const repository = await completeEvidenceRepository();
+  await repository.update('ready-job', { status: 'COMMITTED' });
+  const state = await getAutonomyReadiness({ repository });
+  assert.equal(state.gates.ci_verified_candidate_completion, true);
+  assert.equal(state.gates.coherent_single_job_loop, true);
+  assert.equal(state.self_development_ready, true);
+});
