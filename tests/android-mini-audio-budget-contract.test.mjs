@@ -17,5 +17,9 @@ test('MINI audio receiver reserves budget before reading and writing each PCM ch
   assert.match(audio,/if \(!budget.withinDeadline\(\)\) return/);
   assert.match(audio,/if \(!budget.reserve\(size\)\) return/);
   const outside=audio.slice(written,publish);
-  assert.match(outside,/if \(!budget.withinDeadline\(\)\) return/);
+  // The deadline may be combined with the nonempty-PCM guard.
+  assert.ok(
+    outside.includes('if (!budget.withinDeadline()) return') ||
+    outside.includes('if (!budget.withinDeadline() || pcmBytes == 0L) return')
+  );
 });
