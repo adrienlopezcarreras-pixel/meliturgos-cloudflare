@@ -320,6 +320,13 @@ export function evaluateComputerUsePlan(input = {}) {
       && !validBrowserWindowHandle(step.window_handle)) {
       allowed = false;
       reason = 'BROWSER_CLICK_WINDOW_HANDLE_REQUIRED';
+    } else if (step.action === COMPUTER_USE_ACTIONS.BROWSER_CLICK
+      && Object.keys(submittedSteps[decisions.length] ?? {}).some(field =>
+        !['id', 'action', 'window_handle', 'x', 'y'].includes(field))) {
+      // Native browser.click always performs a LEFT click at x/y.
+      // A requested right click, double click or other target cannot be ignored.
+      allowed = false;
+      reason = 'BROWSER_CLICK_UNEXPECTED_FIELD';
     } else if (step.action === COMPUTER_USE_ACTIONS.BROWSER_SCROLL
       && (!suppliedSafeInteger(submittedSteps[decisions.length]?.x)
         || !suppliedSafeInteger(submittedSteps[decisions.length]?.y)
@@ -339,6 +346,12 @@ export function evaluateComputerUsePlan(input = {}) {
         || Number(submittedSteps[decisions.length].delta_y) === 0)) {
       allowed = false;
       reason = 'BROWSER_SCROLL_DELTA_INVALID';
+    } else if (step.action === COMPUTER_USE_ACTIONS.BROWSER_SCROLL
+      && Object.keys(submittedSteps[decisions.length] ?? {}).some(field =>
+        !['id', 'action', 'window_handle', 'x', 'y', 'delta_y'].includes(field))) {
+      // Native browser.scroll is vertical-only; do not fake horizontal scrolling.
+      allowed = false;
+      reason = 'BROWSER_SCROLL_UNEXPECTED_FIELD';
     } else if ((step.action === COMPUTER_USE_ACTIONS.BROWSER_FIND_NEXT
       || step.action === COMPUTER_USE_ACTIONS.BROWSER_FIND_PREVIOUS)
       && !validBrowserWindowHandle(step.window_handle)) {
