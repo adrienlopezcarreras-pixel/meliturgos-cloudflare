@@ -66,6 +66,10 @@ function councilProof(job) {
 function workDagProof(job) {
   const proof = job?.result_json?.autonomy_proofs?.work_dag_resume;
   if (!proof || proof.status !== 'VERIFIED') return null;
+  // Runtime evidence must belong to the job that is claiming readiness.
+  // Legacy evidence without target_job_id remains readable, but a mismatch
+  // is never silently accepted.
+  if (proof.target_job_id != null && String(proof.target_job_id) !== String(job.id)) return null;
   const attempted = proof.providers_attempted;
   const successful = proof.successful_candidates;
   // Never count NaN, Infinity, numeric strings or impossible success totals as proof.
