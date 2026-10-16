@@ -21,6 +21,7 @@ static class MelApp
     public static readonly string InstalledExe = Path.Combine(MelDir, "MEL-Companion.exe");
     public static readonly string CompanionPath = Path.Combine(MelDir, "MEL-Computer-Companion.ps1");
     public static readonly string AdbWifiPath = Path.Combine(MelDir, "MEL-ADB-WiFi.ps1");
+    public static readonly string AndroidWifiPairingPath = Path.Combine(MelDir, "MEL-Android-WiFi-Pairing.ps1");
     public static readonly string LocalAiBenchmarkPath = Path.Combine(MelDir, "MEL-Local-AI-Benchmark.ps1");
     public static readonly string MiniUsbPreflightPath = Path.Combine(MelDir, "MEL-MINI-USB-Preflight.ps1");
     public static readonly string[] MiniUsbPreflightFiles = new string[] {
@@ -502,6 +503,8 @@ static class MelApp
         Directory.CreateDirectory(MelDir);
         File.WriteAllBytes(CompanionPath, Convert.FromBase64String(CompanionB64));
         File.WriteAllBytes(AdbWifiPath, Convert.FromBase64String(AdbWifiB64));
+        var packagedAndroidPairing = Path.Combine(Path.GetDirectoryName(Application.ExecutablePath), "MEL-Android-WiFi-Pairing.ps1");
+        if (File.Exists(packagedAndroidPairing) && !string.Equals(Path.GetFullPath(packagedAndroidPairing), Path.GetFullPath(AndroidWifiPairingPath), StringComparison.OrdinalIgnoreCase)) File.Copy(packagedAndroidPairing, AndroidWifiPairingPath, true);
         // Optional user-initiated benchmark shipped alongside the signed ZIP.
         // Installation COPIES this script; it never executes it automatically.
         var packagedBenchmark = Path.Combine(Path.GetDirectoryName(Application.ExecutablePath), "MEL-Local-AI-Benchmark.ps1");
@@ -1382,7 +1385,9 @@ class MainForm : Form
         LabelAt(pc,"CET ORDINATEUR",20,14,310,36,10,true,blue);
         var miniUsb=ButtonAt(pc,"Contrôle USB MINI",Math.Max(350,pc.Width-232),43,205,RunMiniUsbPreflight);
         miniUsb.Anchor=AnchorStyles.Top|AnchorStyles.Right;
-        LabelAt(pc,Environment.MachineName,20,57,pc.Width-40,40,12,true).Anchor=AnchorStyles.Top|AnchorStyles.Left|AnchorStyles.Right;
+        var androidPair=ButtonAt(pc,"Configurer ADB Wi-Fi",Math.Max(170,pc.Width-450),43,205,RunAndroidWifiPairing);
+        androidPair.Anchor=AnchorStyles.Top|AnchorStyles.Right;
+        LabelAt(pc,Environment.MachineName,20,57,Math.Max(240,pc.Width-480),40,12,true).Anchor=AnchorStyles.Top|AnchorStyles.Left;
         adbWifiStatus=LabelAt(pc,"ADB Wi-Fi : recherche du téléphone…",20,109,pc.Width-40,31,9,false,gray);
         adbWifiStatus.Anchor=AnchorStyles.Top|AnchorStyles.Left|AnchorStyles.Right;
         LabelAt(this,"Appareils MEL",28,302,390,47,12,true);
