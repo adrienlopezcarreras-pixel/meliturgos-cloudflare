@@ -31,7 +31,7 @@ test('classifies browser actions conservatively', () => {
   assert.equal(classifyBrowserAction('unknown.action'), BROWSER_RISK.DENY);
 });
 
-test('normalization strips credentials and refuses non-HTTPS URLs', () => {
+test('normalization rejects credential-bearing and non-HTTPS URLs instead of modifying them', () => {
   const request = normalizeBrowserRequest({
     ...baseRequest(),
     steps: [
@@ -39,7 +39,8 @@ test('normalization strips credentials and refuses non-HTTPS URLs', () => {
       { id: 'b', action: BROWSER_ACTIONS.NAVIGATE, url: 'http://example.com/' },
     ],
   });
-  assert.equal(request.steps[0].url, 'https://example.com/path');
+  assert.equal(request.steps[0].url, '');
+  assert.equal(request.steps[0].url_supplied, true);
   assert.equal(request.steps[1].url, '');
   assert.equal(request.steps[1].url_supplied, true);
 });
@@ -355,4 +356,37 @@ test('GEN2-31 never performs earlier browser steps if later text would be clippe
   assert.deepEqual(calls, []);
   assert.equal(audits.at(-1).status, 'DENIED');
   assert.equal(audits.at(-1).completed_steps, 0);
+});
+
+
+test('GEN2-31 refuses credential-bearing navigations before any adapter action', async () => {
+  const requests = [
+    {
+      ...baseRequest(),
+      steps: [{ id: 'nav', action: BROWSER_ACTIONS.NAVIGATE,
+        url: 'https://owner:secret@example.com/protected' }],
+    },
+    {
+      ...baseRequest(),
+      sandbox: { allowed_origins: ['https://owner:secret@example.com'] },
+    },
+  ];
+  const reasons = ['HTTPS_URL_REQUIRED', 'BROWSER_ALLOWED_ORIGINS_REQUIRED'];
+  const calls = [];
+  const audits = [];
+  const controller = createBrowserController({
+    adapter: { async perform(step) { calls.push(step.id); } },
+    authorize: async () => true,
+    audit: async event => audits.push(event),
+  });
+  for (const [index, request] of requests.entries()) {
+    const plan = evaluateBrowserPlan(request);
+    assert.equal(plan.allowed, false);
+    assert.equal(plan.reason, reasons[index]);
+    await assert.rejects(controller.execute(request),
+      error => error.code === reasons[index]);
+  }
+  assert.deepEqual(calls, []);
+  assert.equal(audits.length, 2);
+  assert.ok(audits.every(event => event.status === 'DENIED'));
 });
