@@ -272,13 +272,14 @@ export function registerAutonomyCapabilities(bus, env = {}) {
     permissions: [],
     health: env.DB && env.AI ? 'HEALTHY' : 'DEGRADED',
     enabled: true,
-  }, async () => {
+  }, async (_input, context = {}) => {
     if (!env.DB) throw capabilityError('DB_BINDING_MISSING');
     if (!env.AI || typeof env.AI.run !== 'function') throw capabilityError('AI_BINDING_MISSING');
     const repository = new D1DevJobRepository(env.DB);
     return runAutonomyRuntimeTick(env, {
       repository,
       fetchImpl: env.MEL_GITHUB_FETCH || fetch,
+      ...(typeof context?.waitUntil === 'function' ? { waitUntil: context.waitUntil } : {}),
     });
   });
 

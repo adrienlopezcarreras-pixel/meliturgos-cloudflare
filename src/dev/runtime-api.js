@@ -94,7 +94,7 @@ export async function continueAfterVerifiedCompletion({ env = {}, repository, re
     return {
       attempted: true,
       ok: tick?.ok !== false,
-      advanced: tick?.advanced === true || Boolean(job),
+      advanced: tick?.advanced === true || tick?.progress?.advanced === true,
       status: tick?.status || null,
       job,
       next: tick?.next || null,

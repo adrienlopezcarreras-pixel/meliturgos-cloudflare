@@ -635,7 +635,40 @@ export async function runAutonomyRuntimeTick(env, options = {}) {
 
   const launchApproval = launchApprovalValid(env, control, options);
   if (!launchApproval.ok) {
-    const passiveCompletions = await reconcileVerifiedCompletionsBehindLaunchGate(env, options);
+    let passiveCompletions;
+    if (typeof options.waitUntil === 'function') {
+      // The stale launch gate must fail closed immediately. Reconciling old,
+      // already-verified completions can involve remote CI calls, so don't keep
+      // the chat request open while doing that background-only maintenance.
+      const reconciliation = reconcileVerifiedCompletionsBehindLaunchGate(env, options)
+        .catch((error) => ({
+          ok: false,
+          queued: false,
+          reason: String(error?.code || error?.message || 'PASSIVE_COMPLETION_RECONCILIATION_FAILED').slice(0, 180),
+          completed: [],
+          rejected: [],
+        }));
+      try {
+        options.waitUntil(reconciliation);
+        passiveCompletions = {
+          ok: true,
+          queued: true,
+          reason: 'LAUNCH_GATE_BLOCKED_BACKGROUND_RECONCILIATION',
+          completed: [],
+          rejected: [],
+        };
+      } catch {
+        passiveCompletions = {
+          ok: false,
+          queued: false,
+          reason: 'BACKGROUND_RECONCILIATION_SCHEDULING_FAILED',
+          completed: [],
+          rejected: [],
+        };
+      }
+    } else {
+      passiveCompletions = await reconcileVerifiedCompletionsBehindLaunchGate(env, options);
+    }
     const snapshot = repository ? await autonomyProgressSnapshot(repository, options.roadmap || null) : {};
     const base = {
       ok: false,

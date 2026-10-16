@@ -5,6 +5,49 @@ import { runAutonomyRuntimeTick } from '../src/evolution/autonomy-runtime.js';
 import { setAutonomyControl } from '../src/evolution/autonomy-control.js';
 import { sqliteD1 } from './helpers/sqlite-d1.mjs';
 
+
+test('stale launch gate returns promptly while passive remote reconciliation runs in waitUntil', async () => {
+  const DB = sqliteD1();
+  const approvedSha = 'cccccccccccccccccccccccccccccccccccccccc';
+  const deployedSha = 'dddddddddddddddddddddddddddddddddddddddd';
+  let releaseReconciliation;
+  const scheduled = [];
+  try {
+    await setAutonomyControl(DB, {
+      paused: false,
+      max_autonomy: true,
+      source: 'test-owner-max',
+      launch_approved_sha: approvedSha,
+      launch_approved_at: '2026-10-16T20:00:00.000Z',
+    });
+
+    const result = await runAutonomyRuntimeTick({
+      DB,
+      MEL_DEPLOYED_GIT_SHA: deployedSha,
+      MEL_GITHUB_BRANCH: 'candidate/mel-clean-autonomy',
+      MEL_TEACHER_BRANCH: 'candidate/mel-clean-autonomy',
+    }, {
+      repository: {},
+      waitUntil(promise) { scheduled.push(promise); },
+      completionReconciler: () => new Promise(resolve => { releaseReconciliation = resolve; }),
+    });
+
+    assert.equal(result.status, 'LAUNCH_GATE_REQUIRED');
+    assert.equal(result.advanced, false);
+    assert.equal(result.passive_completions.queued, true);
+    assert.equal(scheduled.length, 1);
+    releaseReconciliation({
+      ok: true,
+      records: 1,
+      completed: [{ job_id:'prior-verified-job', candidate_sha:approvedSha, ci_run_id:17 }],
+      rejected: [],
+    });
+    await scheduled[0];
+  } finally {
+    DB.close();
+  }
+});
+
 test('stale launch SHA blocks new autonomy work but still ingests already verified completions', async () => {
   const DB = sqliteD1();
   const approvedSha = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
