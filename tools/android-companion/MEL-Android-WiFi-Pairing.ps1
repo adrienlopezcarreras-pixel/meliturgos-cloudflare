@@ -7,16 +7,23 @@ Set-StrictMode -Version Latest
 # This helper is run locally on the owner's Windows PC. Pairing code is entered
 # only into the interactive ADB terminal, never into MEL, Cloudflare, or logs.
 function Resolve-Adb {
-  $sdk = [string]$env:ANDROID_SDK_ROOT
-  if (-not $sdk) { $sdk = [string]$env:ANDROID_HOME }
-  if (-not $sdk -or -not (Test-Path -LiteralPath $sdk -PathType Container)) {
-    throw 'ANDROID_SDK_ROOT_REQUIRED: install Android SDK Platform Tools and set ANDROID_SDK_ROOT'
+  $candidates = New-Object System.Collections.Generic.List[string]
+  foreach ($sdk in @([string]$env:ANDROID_SDK_ROOT,[string]$env:ANDROID_HOME)) {
+    if (-not [string]::IsNullOrWhiteSpace($sdk)) {
+      $candidates.Add((Join-Path $sdk 'platform-tools\adb.exe'))
+      $candidates.Add((Join-Path $sdk 'adb.exe'))
+    }
   }
-  $adb = Join-Path $sdk 'platform-tools\adb.exe'
-  if (-not (Test-Path -LiteralPath $adb -PathType Leaf)) {
-    throw 'ANDROID_ADB_MISSING: install official Android SDK Platform Tools'
+  if (-not [string]::IsNullOrWhiteSpace([string]$env:LOCALAPPDATA)) {
+    $candidates.Add((Join-Path $env:LOCALAPPDATA 'Android\platform-tools\adb.exe'))
+    $candidates.Add((Join-Path $env:LOCALAPPDATA 'Android\Sdk\platform-tools\adb.exe'))
   }
-  return $adb
+  foreach ($candidate in ($candidates | Select-Object -Unique)) {
+    if (Test-Path -LiteralPath $candidate -PathType Leaf) { return $candidate }
+  }
+  $command = Get-Command -Name 'adb.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
+  if ($null -ne $command -and (Test-Path -LiteralPath $command.Source -PathType Leaf)) { return $command.Source }
+  throw 'ANDROID_ADB_MISSING: install official Android SDK Platform Tools or add adb.exe to PATH'
 }
 function Assert-PrivateWifiEndpoint([string]$value) {
   if ($value -notmatch '^([0-9]{1,3}\.){3}[0-9]{1,3}:([0-9]{1,5})$') {
