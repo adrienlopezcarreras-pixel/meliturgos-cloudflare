@@ -313,8 +313,7 @@ test('Augmentio rechecks authorization at cache read time', async () => {
   const ai = new Augmentio({ pool: new ProviderPool([adapter]), cache,
     scheduler: new ParallelScheduler({ retries: 0 }) });
   await assert.rejects(ai.fanOut({ input: 'cached input' }),
-    error => error?.code === 'ALL_PROVIDERS_FAILED'
-      && error.failures?.some(reason => reason.includes('ZERO_EURO_BUDGET_EXCEEDED')));
+    error => error?.code === 'AUGMENTIO_PROVIDER_ROSTER_CHANGED');
   assert.equal(calls, 0);
 });
 
