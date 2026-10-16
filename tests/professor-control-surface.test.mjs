@@ -170,6 +170,8 @@ test('MEL Work only sends an explicitly requested Companion screenshot after ver
   }
   assert.ok(page.includes("qs('#workComputerAnalyze').onclick=async()=>"), 'screenshot analysis must be an explicit user action');
   assert.ok(page.includes('if(pendingChatFiles.length)'), 'capture analysis must not consume unrelated staged attachments');
+  assert.ok(page.includes("expires_at:new Date(Date.now()+90000).toISOString()"), 'screenshot analysis must respect the short-lived capture URL');
+  assert.ok(page.includes('await loadWorkComputer();const pc=selectedWorkComputer();'), 'screen analysis must re-check current authorization and live heartbeats');
   assert.ok(page.includes("if(qs('#chatInput').value.trim())"), 'capture analysis must not discard an unsent chat draft');
   assert.ok(page.includes("uploadChatFiles([new File([blob],name,{type:mime})],'companion-screen')"), 'capture must pass through the authenticated private file-upload analysis path');
   assert.ok(page.includes("item.analysis_status!=='IMAGE_DESCRIBED'||!item.preview"), 'MEL must not claim it saw the screen without a real image description');
