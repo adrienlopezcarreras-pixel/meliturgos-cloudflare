@@ -69,3 +69,73 @@ test('GEN2-31 preserves credential-free HTTPS origin transport', async () => {
   assert.deepEqual(result, { kind: 'navigation' });
   assert.equal(binding.calls.length, 1);
 });
+
+
+test('GEN2-31 cancels an oversized streamed response before buffering its full body', async () => {
+  let pulls = 0;
+  let canceled = false;
+  const body = new ReadableStream({
+    pull(controller) {
+      pulls += 1;
+      controller.enqueue(new Uint8Array(65536));
+      if (pulls >= 10) controller.close();
+    },
+    cancel() { canceled = true; },
+  }, { highWaterMark: 0 });
+  const adapter = createBrowserCompanionAdapter({
+    binding: { fetch: async () => new Response(body, { status: 200 }) },
+  });
+  await assert.rejects(
+    adapter.perform(step, context),
+    error => error.code === 'BROWSER_COMPANION_RESPONSE_TOO_LARGE',
+  );
+  assert.equal(canceled, true);
+  assert.ok(pulls <= 3, 'the oversized response must not be fully consumed');
+});
+
+test('GEN2-31 rejects a declared oversized response without reading its stream', async () => {
+  let reads = 0;
+  let canceled = false;
+  const body = new ReadableStream({
+    pull(controller) { reads += 1; controller.enqueue(new Uint8Array(1)); },
+    cancel() { canceled = true; },
+  }, { highWaterMark: 0 });
+  const adapter = createBrowserCompanionAdapter({
+    binding: {
+      fetch: async () => new Response(body, {
+        status: 200,
+        headers: { 'content-length': '131073' },
+      }),
+    },
+  });
+  await assert.rejects(
+    adapter.perform(step, context),
+    error => error.code === 'BROWSER_COMPANION_RESPONSE_TOO_LARGE',
+  );
+  assert.equal(reads, 0);
+  assert.equal(canceled, true);
+});
+
+test('GEN2-31 accepts a valid JSON response exactly at the byte ceiling', async () => {
+  const responseText = JSON.stringify({
+    schema: 'mel.devices.browser-companion.v1',
+    ok: true,
+    step_id: step.id,
+    action: step.action,
+    result: { kind: 'navigation' },
+  }).padEnd(131072, ' ');
+  const bytes = new TextEncoder().encode(responseText);
+  assert.equal(bytes.byteLength, 131072);
+  const adapter = createBrowserCompanionAdapter({
+    binding: {
+      fetch: async () => new Response(new ReadableStream({
+        start(controller) {
+          controller.enqueue(bytes.slice(0, 70000));
+          controller.enqueue(bytes.slice(70000));
+          controller.close();
+        },
+      })),
+    },
+  });
+  assert.deepEqual(await adapter.perform(step, context), { kind: 'navigation' });
+});
