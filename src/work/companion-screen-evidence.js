@@ -89,8 +89,21 @@ export async function verifyWorkScreenCapture(env, ref, { now = Date.now() } = {
   try { head = await env.MEDIA_BUCKET.head(key); }
   catch { throw new WorkScreenError('WORK_SCREEN_STORAGE_UNAVAILABLE', 503); }
   if (!head || !(Number(head.size) > 0)) throw new WorkScreenError('WORK_SCREEN_IMAGE_MISSING', 404);
+  if (Number(head.size) > MAX_SCREEN_BYTES) throw new WorkScreenError('WORK_SCREEN_IMAGE_TOO_LARGE', 413);
+  const imageSha256 = clean(head.customMetadata?.sha256, 64).toLowerCase();
+  if (!/^[a-f0-9]{64}$/.test(imageSha256)) throw new WorkScreenError('WORK_SCREEN_IMAGE_HASH_MISSING', 409);
+  const metadataExpiresAt = Date.parse(String(head.customMetadata?.expiresAt || ''));
+  if (!Number.isFinite(metadataExpiresAt) || metadataExpiresAt <= now)
+    throw new WorkScreenError('WORK_SCREEN_IMAGE_EXPIRED', 410);
+  if (String(head.customMetadata?.owner || '') !== String(env.MELITURGOS_USER || 'owner'))
+    throw new WorkScreenError('WORK_SCREEN_IMAGE_OWNER_MISMATCH', 403);
+  if (String(head.customMetadata?.commandId || '') !== commandId
+      || String(head.customMetadata?.deviceId || '') !== computerId)
+    throw new WorkScreenError('WORK_SCREEN_IMAGE_BINDING_MISMATCH', 409);
+  if (metadataExpiresAt > Number(plan.expires_at))
+    throw new WorkScreenError('WORK_SCREEN_IMAGE_EXPIRY_MISMATCH', 409);
   return Object.freeze({
-    schema: WORK_SCREEN_EVIDENCE_SCHEMA, verified: true, scope: 'VIEW_ONLY',
+    schema: WORK_SCREEN_EVIDENCE_SCHEMA, verified: true, scope: 'VIEW_ONLY', image_sha256: imageSha256,
     computer_id: computerId, command_id: commandId, session_id: row.session_id,
     screenshot_key: key, image_size: Number(head.size),
     captured_at: new Date(finishedAt).toISOString(), expires_at: new Date(plan.expires_at).toISOString(),
@@ -124,6 +137,7 @@ async function readComputerSnapshot(env, computerId, now) {
 }
 async function ensureInterpretationTable(db) {
   await db.prepare('CREATE TABLE IF NOT EXISTS work_screen_interpretations(id TEXT PRIMARY KEY,command_id TEXT NOT NULL,device_id TEXT NOT NULL,image_sha256 TEXT NOT NULL,model TEXT NOT NULL,question TEXT,analysis TEXT NOT NULL,created_at INTEGER NOT NULL)').run();
+  await db.prepare('CREATE TABLE IF NOT EXISTS work_screen_consents(id TEXT PRIMARY KEY,command_id TEXT NOT NULL,device_id TEXT NOT NULL,owner_id TEXT NOT NULL,image_sha256 TEXT NOT NULL,scope TEXT NOT NULL,granted_at INTEGER NOT NULL,revoked_at INTEGER,UNIQUE(device_id,command_id))').run();
 }
 async function readInterpretation(env, id, evidence) {
   const interpretationId = clean(id, 80);
@@ -134,8 +148,17 @@ async function readInterpretation(env, id, evidence) {
     row = await env.DB.prepare('SELECT * FROM work_screen_interpretations WHERE id=? LIMIT 1').bind(interpretationId).first();
   } catch { row = null; }
   if (!row) return { interpretation_id: interpretationId, verified: false, code: 'WORK_SCREEN_INTERPRETATION_UNKNOWN' };
-  if (!evidence?.verified || row.command_id !== evidence.command_id || row.device_id !== evidence.computer_id)
+  if (!evidence?.verified || row.command_id !== evidence.command_id || row.device_id !== evidence.computer_id
+      || row.image_sha256 !== evidence.image_sha256)
     return { interpretation_id: interpretationId, verified: false, code: 'WORK_SCREEN_INTERPRETATION_CAPTURE_MISMATCH' };
+  let consent;
+  try {
+    await ensureInterpretationTable(env.DB);
+    consent = await env.DB.prepare('SELECT id,revoked_at,image_sha256 FROM work_screen_consents WHERE command_id=? AND device_id=? LIMIT 1')
+      .bind(row.command_id, row.device_id).first();
+  } catch { consent = null; }
+  if (!consent || consent.revoked_at != null || consent.image_sha256 !== row.image_sha256)
+    return { interpretation_id: interpretationId, verified: false, code: 'WORK_SCREEN_CONSENT_REVOKED_OR_MISSING' };
   return {
     interpretation_id: row.id, verified: true, command_id: row.command_id, image_sha256: row.image_sha256,
     model: row.model, analysis: row.analysis, created_at: new Date(Number(row.created_at)).toISOString(),
@@ -206,7 +229,18 @@ export async function interpretWorkScreenCapture(env, body = {}, {
       || bytes.length < PNG_SIGNATURE.length || !PNG_SIGNATURE.every((byte, i) => bytes[i] === byte))
     throw new WorkScreenError('WORK_SCREEN_IMAGE_INVALID', 422);
   const imageSha256 = await sha256Hex(bytes);
+  if (imageSha256 !== evidence.image_sha256)
+    throw new WorkScreenError('WORK_SCREEN_IMAGE_INTEGRITY_MISMATCH', 409);
   const question = clean(body?.question, 1000);
+  await ensureInterpretationTable(env.DB);
+  const consentId = crypto.randomUUID();
+  const consentAt = now();
+  const consentWrite = await env.DB.prepare(
+    'INSERT INTO work_screen_consents(id,command_id,device_id,owner_id,image_sha256,scope,granted_at,revoked_at) VALUES(?,?,?,?,?,?,?,NULL)'
+  ).bind(consentId, evidence.command_id, evidence.computer_id, String(env.MELITURGOS_USER || 'owner'),
+    imageSha256, 'ONE_CAPTURE_WORKERS_AI_VISION', consentAt).run();
+  if (!consentWrite || consentWrite.success === false || Number(consentWrite.meta?.changes) !== 1)
+    throw new WorkScreenError('WORK_SCREEN_CONSENT_ALREADY_RECORDED', 409);
   let analysis;
   try {
     analysis = await withTimeout(Promise.resolve(analyze(env, { bytes, mime: 'image/png', prompt: interpretationPrompt(question) })), timeoutMs);
@@ -218,10 +252,14 @@ export async function interpretWorkScreenCapture(env, body = {}, {
   if (!text) throw new WorkScreenError('WORK_SCREEN_INTERPRETATION_EMPTY', 502);
   try { await verifyWorkScreenCapture(env, ref, { now: now() }); }
   catch (error) { throw new WorkScreenError('WORK_SCREEN_REVOKED_DURING_INTERPRETATION', 409, { cause: error?.code || null }); }
+  const activeConsent = await env.DB.prepare(
+    'SELECT id,revoked_at,image_sha256 FROM work_screen_consents WHERE id=? AND command_id=? AND device_id=? LIMIT 1'
+  ).bind(consentId, evidence.command_id, evidence.computer_id).first();
+  if (!activeConsent || activeConsent.revoked_at != null || activeConsent.image_sha256 !== imageSha256)
+    throw new WorkScreenError('WORK_SCREEN_CONSENT_REVOKED_DURING_INTERPRETATION', 409);
   const model = clean(analysis?.model, 160) || WORKERS_AI_VISION_MODEL;
   const id = crypto.randomUUID();
   const createdAt = now();
-  await ensureInterpretationTable(env.DB);
   const write = await env.DB.prepare('INSERT INTO work_screen_interpretations(id,command_id,device_id,image_sha256,model,question,analysis,created_at) VALUES(?,?,?,?,?,?,?,?)')
     .bind(id, evidence.command_id, evidence.computer_id, imageSha256, model, question || null, text, createdAt).run();
   if (!write || write.success === false || Number(write.meta?.changes) !== 1)
@@ -232,6 +270,47 @@ export async function interpretWorkScreenCapture(env, body = {}, {
     evidence, created_at: new Date(createdAt).toISOString(),
   };
 }
+/**
+ * Revoke the per-capture vision consent and delete the stored interpretation and PNG.
+ * The consent row is retained as a minimal audit record (owner, capture hash, grant/revoke times).
+ */
+export async function revokeWorkScreenConsent(env, body = {}, { now = Date.now() } = {}) {
+  const computerId = clean(body?.computer_id);
+  const commandId = clean(body?.command_id);
+  if (!computerId || !commandId) throw new WorkScreenError('WORK_SCREEN_REF_INVALID', 400);
+  if (!env?.DB) throw new WorkScreenError('WORK_SCREEN_DB_UNAVAILABLE', 503);
+  await ensureInterpretationTable(env.DB);
+  const consent = await env.DB.prepare(
+    'SELECT id,revoked_at FROM work_screen_consents WHERE command_id=? AND device_id=? LIMIT 1'
+  ).bind(commandId, computerId).first();
+  if (consent && consent.revoked_at == null) {
+    const revoked = await env.DB.prepare(
+      'UPDATE work_screen_consents SET revoked_at=? WHERE id=? AND revoked_at IS NULL'
+    ).bind(now, consent.id).run();
+    if (!revoked || revoked.success === false || Number(revoked.meta?.changes) !== 1)
+      throw new WorkScreenError('WORK_SCREEN_CONSENT_REVOCATION_UNCONFIRMED', 503);
+  }
+  const removed = await env.DB.prepare(
+    'DELETE FROM work_screen_interpretations WHERE command_id=? AND device_id=?'
+  ).bind(commandId, computerId).run();
+  if (!removed || removed.success === false)
+    throw new WorkScreenError('WORK_SCREEN_INTERPRETATION_DELETE_UNCONFIRMED', 503);
+  const key = companionScreenshotKey(computerId, commandId);
+  if (typeof env?.MEDIA_BUCKET?.delete !== 'function' || typeof env?.MEDIA_BUCKET?.head !== 'function')
+    throw new WorkScreenError('WORK_SCREEN_STORAGE_UNAVAILABLE', 503);
+  try { await env.MEDIA_BUCKET.delete(key); }
+  catch { throw new WorkScreenError('WORK_SCREEN_IMAGE_DELETE_FAILED', 503); }
+  let remains;
+  try { remains = await env.MEDIA_BUCKET.head(key); }
+  catch { throw new WorkScreenError('WORK_SCREEN_DELETE_VERIFY_FAILED', 503); }
+  if (remains) throw new WorkScreenError('WORK_SCREEN_DELETE_VERIFY_FAILED', 503);
+  return {
+    ok: true, consent_revoked: Boolean(consent), command_id: commandId, computer_id: computerId,
+    interpretation_deleted: Number(removed.meta?.changes || 0), image_deleted: true,
+    revoked_at: consent ? new Date(now).toISOString() : null,
+  };
+}
+
 export function workScreenErrorResponse(error) {
   const code = error?.code || 'WORK_SCREEN_FAILED';
   const status = Number(error?.status) >= 400 && Number(error?.status) < 600 ? Number(error.status) : 500;
