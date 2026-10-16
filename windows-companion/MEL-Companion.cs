@@ -577,8 +577,13 @@ static class MelApp
         StartCompanion();
     }
 
+    static DateTime NextAdbMonitorStartUtc = DateTime.MinValue;
+    static int AdbMonitorStartFailures;
+
     public static void StartAdbWifiMonitor()
     {
+        // Avoid rapid PowerShell respawns when the helper is missing or Windows refuses creation.
+        if (DateTime.UtcNow < NextAdbMonitorStartUtc) return;
         string failure = null;
         try
         {
@@ -601,6 +606,11 @@ static class MelApp
             psi.WindowStyle = ProcessWindowStyle.Hidden;
             AdbWifiProcess = Process.Start(psi);
             if (AdbWifiProcess == null) failure = "ADB_MONITOR_PROCESS_START_FAILED";
+            else
+            {
+                AdbMonitorStartFailures = 0;
+                NextAdbMonitorStartUtc = DateTime.MinValue;
+            }
         }
         catch (Exception ex)
         {
@@ -628,6 +638,9 @@ static class MelApp
         }
         if (!String.IsNullOrEmpty(failure))
         {
+            AdbMonitorStartFailures = Math.Min(AdbMonitorStartFailures + 1, 8);
+            var delaySeconds = Math.Min(300, 5 * (1 << (AdbMonitorStartFailures - 1)));
+            NextAdbMonitorStartUtc = DateTime.UtcNow.AddSeconds(delaySeconds);
             try
             {
                 var report = Path.Combine(MelDir, "android-adb-wifi.json");
