@@ -58,6 +58,14 @@ $miniHelper = Join-Path $repoRoot 'windows-companion\MEL-MINI-USB-Preflight.ps1'
 if (!(Test-Path -LiteralPath $miniHelper -PathType Leaf)) { throw 'MINI_USB_HELPER_SOURCE_MISSING' }
 Copy-Item -LiteralPath $miniHelper -Destination (Join-Path $stage 'MEL-MINI-USB-Preflight.ps1')
 
+# Ship the read-only owner-launched MCP bridge alongside the Companion.
+# Do not start the bridge during installation or any background service.
+foreach ($entry in @(@{ source='windows-companion\\Start-MEL-Companion-MCP.ps1'; name='Start-MEL-Companion-MCP.ps1' },@{ source='tools\\mel-companion-mcp.mjs'; name='mel-companion-mcp.mjs' })) {
+  $src=Join-Path $repoRoot $entry.source
+  if (-not (Test-Path -LiteralPath $src -PathType Leaf)) { throw "WINDOWS_MCP_SOURCE_MISSING:$($entry.name)" }
+  Copy-Item -LiteralPath $src -Destination (Join-Path $stage $entry.name)
+}
+
 # Packaged but never executed during installation or build.
 $benchmarkSource = Join-Path $repoRoot "scripts\companion-local-ai-benchmark.ps1"
 if (-not (Test-Path -LiteralPath $benchmarkSource -PathType Leaf)) { throw "WINDOWS_LOCAL_AI_BENCHMARK_MISSING" }
