@@ -24,3 +24,26 @@ export function isVerifiedRuntimeWorkProof(proof, jobId = null) {
   }
   return new Set(keys).size === identities.length;
 }
+
+export function distinctModelIdentitiesFromFanout(result) {
+  const attempted = Array.isArray(result?.providersAttempted) ? result.providersAttempted : [];
+  const health = Array.isArray(result?.providerHealth) ? result.providerHealth : [];
+  const identities = attempted.map(id => {
+    const matches = health.filter(row => row?.id === id);
+    if (matches.length !== 1 || typeof id !== 'string' || !id.trim()) return null;
+    const provider = matches[0].provider;
+    const model = matches[0].model;
+    if (typeof provider !== 'string' || typeof model !== 'string'
+      || !provider.trim() || !model.trim()) return null;
+    return { provider: provider.trim(), model: model.trim() };
+  });
+  const unique = new Set(identities.filter(Boolean)
+    .map(row => JSON.stringify([row.provider, row.model])));
+  if (attempted.length < 2 || attempted.length > 64 || identities.some(row => !row)
+    || new Set(attempted).size !== attempted.length || unique.size !== attempted.length) {
+    const error = new Error('RUNTIME_WORK_DAG_MULTI_AI_NOT_PROVEN');
+    error.code = 'RUNTIME_WORK_DAG_MULTI_AI_NOT_PROVEN';
+    throw error;
+  }
+  return identities;
+}
