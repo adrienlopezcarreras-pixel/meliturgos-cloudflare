@@ -122,7 +122,7 @@ function zeroCostHealth(runtimeEnv, minimum = 1) {
 }
 
 /** Safe capability bus used by MEL's Gen2 runtime. Only real executable handlers are registered. */
-export function createDefaultCapabilityBus({ audit, env, repository, branch, token, fetchImpl, googleAccessTokenResolver = null, vercelConfigResolver = null, pipedreamRuntime = null } = {}) {
+export function createDefaultCapabilityBus({ audit, env, repository, branch, token, fetchImpl, googleAccessTokenResolver = null, pipedreamRuntime = null } = {}) {
   const runtimeEnv = env || {};
   const bus = new CapabilityBus({ audit });
 
@@ -142,10 +142,7 @@ export function createDefaultCapabilityBus({ audit, env, repository, branch, tok
   const githubToken = token ?? runtimeEnv.MEL_GITHUB_TOKEN ?? '';
   const githubFetch = fetchImpl || runtimeEnv.MEL_GITHUB_FETCH || fetch;
   const platformFetch = fetchImpl || runtimeEnv.MEL_PLATFORM_FETCH || fetch;
-  // Commercial MEL runs free-first. Vercel Hobby is non-commercial only;
-  // exclude optional Vercel capabilities from the active inventory unless
-  // the operator explicitly opts in to using an eligible paid Vercel plan.
-  const includeVercel = String(runtimeEnv.MEL_ENABLE_OPTIONAL_VERCEL || '').trim().toLowerCase() === 'true';
+  // Paid Vercel capabilities are excluded from the active runtime. Cloudflare is the deployment path.
   registerGitHubCodeCapabilities(bus, {
     repository: githubRepository,
     branch: githubBranch,
@@ -157,8 +154,7 @@ export function createDefaultCapabilityBus({ audit, env, repository, branch, tok
     env: runtimeEnv,
     repository: githubRepository,
     fetchImpl: platformFetch,
-    resolveVercelConfig: typeof vercelConfigResolver === 'function' ? vercelConfigResolver : null,
-    includeVercel,
+    includeVercel: false,
   });
   registerPlatformControlCapabilities(bus, {
     env: runtimeEnv,
@@ -348,9 +344,9 @@ export function createDefaultCapabilityBus({ audit, env, repository, branch, tok
       ? 'direct-token'
       : (runtimeEnv.DB && runtimeEnv.MEL_GITHUB_WRITABLE_WORKFLOWS ? 'd1-actions-relay' : 'unconfigured'),
     cloudflare_control_configured: Boolean(runtimeEnv.CLOUDFLARE_API_TOKEN && runtimeEnv.CLOUDFLARE_ACCOUNT_ID && runtimeEnv.MEL_CLOUDFLARE_SCRIPT),
-    vercel_optional_excluded_free_only: !includeVercel,
+    vercel_optional_excluded_paid: true,
     free_deployment_provider: 'cloudflare',
-    vercel_control_configured: includeVercel && Boolean(runtimeEnv.VERCEL_TOKEN && runtimeEnv.MEL_VERCEL_PROJECT_ID && runtimeEnv.MEL_VERCEL_PROJECT_NAME),
+    vercel_control_configured: false,
     owner_configured: Boolean(runtimeEnv.MELITURGOS_USER),
     browser_companion: Boolean(runtimeEnv.MEL_BROWSER_COMPANION?.fetch),
   }));
