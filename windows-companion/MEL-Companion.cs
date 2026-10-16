@@ -1507,7 +1507,9 @@ class MainForm : Form
             var note=new Label {Text="Sélectionnez le port de la MINI. Lecture seule : la connexion au bootloader peut redémarrer l'appareil. Aucun flashage.",
                 Left=16,Top=12,Width=445,Height=58};
             var portList=new ComboBox {Left=16,Top=76,Width=220,DropDownStyle=ComboBoxStyle.DropDownList};
-            portList.Items.AddRange(ports.Cast<object>().ToArray());portList.SelectedIndex=0;
+            portList.Items.AddRange(ports.Cast<object>().ToArray());
+            int miniPortIndex=Array.IndexOf(ports,"COM3");
+            portList.SelectedIndex=miniPortIndex>=0?miniPortIndex:0;
             var cancel=new Button {Text="Annuler",Left=245,Top=118,Width=100,DialogResult=DialogResult.Cancel};
             var start=new Button {Text="Continuer",Left=356,Top=118,Width=108,DialogResult=DialogResult.OK};
             dialog.Controls.Add(note);dialog.Controls.Add(portList);

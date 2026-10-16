@@ -134,3 +134,9 @@ test('Companion USB preflight preserves Windows PowerShell UTF-8 and surfaces re
  assert.match(helper,/MINI_USB_PREFLIGHT_FAILED/);
  assert.doesNotMatch(helper,/flash_allowed\s*=\s*\$true/);
 });
+
+test('Companion USB MINI preselects COM3 when present while retaining fallback', async () => {
+ const source=await read('windows-companion/MEL-Companion.cs');
+ assert.match(source,/Array\.IndexOf\(ports,"COM3"\)/);
+ assert.match(source,/SelectedIndex=miniPortIndex>=0\?miniPortIndex:0/);
+});
