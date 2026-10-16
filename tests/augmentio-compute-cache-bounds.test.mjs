@@ -91,3 +91,64 @@ test('Augmentio cache refuses cyclic and unsupported non-data inputs rather than
   await assert.rejects(cache.key({ input: () => 'not a cache key' }), { name: 'TypeError', message: 'AUGMENTIO_CACHE_KEY_UNSUPPORTED' });
   await assert.rejects(cache.key({ input: Symbol('ambiguous') }), { name: 'TypeError', message: 'AUGMENTIO_CACHE_KEY_UNSUPPORTED' });
 });
+
+test('Augmentio cache evicts least-recently-used results when total memory budget is reached', async () => {
+  const cache = new ComputeCache({
+    maxEntries: 100, maxBytes: 1400, maxEntryBytes: 700, ttlMs: 60_000,
+  });
+  const response = (text) => ({ answer: text.repeat(250) });
+  await cache.set('first', response('a'));
+  await cache.set('second', response('b'));
+  assert.equal(cache.entries.size, 2);
+  assert.ok(cache.totalBytes > 0 && cache.totalBytes <= 1400);
+  await cache.get('first'); // Protect the newer recently accessed value.
+  await cache.set('third', response('c'));
+  assert.equal(await cache.get('second'), null, 'LRU key is evicted under byte pressure');
+  assert.deepEqual(await cache.get('first'), response('a'));
+  assert.deepEqual(await cache.get('third'), response('c'));
+  assert.ok(cache.totalBytes <= cache.maxBytes);
+});
+
+test('Augmentio cache skips oversized responses without rejecting valid computation', async () => {
+  const cache = new ComputeCache({ maxBytes: 2048, maxEntryBytes: 512 });
+  const key = await cache.set('too large', { answer: 'x'.repeat(800) });
+  assert.equal(typeof key, 'string');
+  assert.equal(await cache.get('too large'), null);
+  assert.equal(cache.entries.size, 0);
+  assert.equal(cache.totalBytes, 0);
+  await cache.set('small', { answer: 'ok' });
+  assert.deepEqual(await cache.get('small'), { answer: 'ok' });
+});
+
+test('Augmentio cache keeps byte accounting correct on replacement and expiry', async () => {
+  const cache = new ComputeCache({ maxBytes: 4096, maxEntryBytes: 2048 });
+  const key = await cache.set('replace', { answer: 'a'.repeat(400) });
+  const initial = cache.totalBytes;
+  assert.ok(initial > 0);
+  await cache.set('replace', { answer: 'short' });
+  assert.ok(cache.totalBytes > 0 && cache.totalBytes < initial);
+  assert.equal(cache.entries.size, 1);
+  cache.entries.get(key).expiresAt = Date.now() - 1;
+  assert.equal(await cache.get('replace'), null);
+  assert.equal(cache.totalBytes, 0);
+  assert.equal(cache.entries.size, 0);
+});
+
+test('Augmentio cache skips uncountable metadata without crashing callers', async () => {
+  const cache = new ComputeCache();
+  const cyclic = {};
+  cyclic.self = cyclic;
+  const key = await cache.set('cyclic-value', cyclic);
+  assert.equal(typeof key, 'string');
+  assert.equal(await cache.get('cyclic-value'), null);
+  assert.equal(cache.totalBytes, 0);
+});
+
+test('Augmentio cache normalizes invalid or extreme memory budgets', () => {
+  const defaults = new ComputeCache({ maxBytes: Infinity, maxEntryBytes: NaN });
+  assert.equal(defaults.maxBytes, 8 * 1024 * 1024);
+  assert.equal(defaults.maxEntryBytes, 2 * 1024 * 1024);
+  const bounded = new ComputeCache({ maxBytes: 999999999, maxEntryBytes: 999999999 });
+  assert.equal(bounded.maxBytes, 32 * 1024 * 1024);
+  assert.equal(bounded.maxEntryBytes, bounded.maxBytes);
+});
