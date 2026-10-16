@@ -61,7 +61,7 @@ test('virtual-screen origin and original dimensions survive PNG downscaling for 
   assert.match(asset, /\$bounds = \[System\.Windows\.Forms\.SystemInformation\]::VirtualScreen/);
   assert.match(asset, /Capture-PngBytes \$bounds/);
   for (const field of ['left', 'top', 'width', 'height']) {
-    assert.ok(asset.includes(field + ' = [int]$bounds.' + field), 'missing virtual-screen bound: ' + field);
+    assert.ok(asset.includes(field + ' = [int]$bounds.' + field[0].toUpperCase() + field.slice(1)), 'missing virtual-screen bound: ' + field);
   }
   assert.match(asset, /screen_bounds=\$shot\.screen_bounds/);
   assert.match(asset, /screen_bounds = \{/);
