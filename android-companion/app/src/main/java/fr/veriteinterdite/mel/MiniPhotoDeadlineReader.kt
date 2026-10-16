@@ -11,8 +11,33 @@ internal object MiniPhotoDeadlineReader {
 
     fun read(input: InputStream, expectedBytes: Int, beforeRead: (Int) -> Unit = {}, clockNanos: () -> Long = System::nanoTime): ByteArray {
         require(expectedBytes in 1..MAX_PHOTO_BYTES) { "MINI_PHOTO_SIZE_INVALID" }
-        val result = ByteArray(expectedBytes)
+        return readBytes(input, expectedBytes, beforeRead, clockNanos, clockNanos())
+    }
+
+    /** Includes the four-byte photo size field in the same 180-second budget. */
+    fun readSized(
+        input: InputStream,
+        beforeRead: (Int) -> Unit = {},
+        clockNanos: () -> Long = System::nanoTime
+    ): ByteArray {
         val started = clockNanos()
+        val header = readBytes(input, 4, beforeRead, clockNanos, started)
+        val size = ((header[0].toInt() and 0xff) shl 24) or
+            ((header[1].toInt() and 0xff) shl 16) or
+            ((header[2].toInt() and 0xff) shl 8) or
+            (header[3].toInt() and 0xff)
+        require(size in 1..MAX_PHOTO_BYTES) { "MINI_PHOTO_SIZE_INVALID" }
+        return readBytes(input, size, beforeRead, clockNanos, started)
+    }
+
+    private fun readBytes(
+        input: InputStream,
+        expectedBytes: Int,
+        beforeRead: (Int) -> Unit,
+        clockNanos: () -> Long,
+        started: Long
+    ): ByteArray {
+        val result = ByteArray(expectedBytes)
         var read = 0
         var emptyReads = 0
         while (read < expectedBytes) {

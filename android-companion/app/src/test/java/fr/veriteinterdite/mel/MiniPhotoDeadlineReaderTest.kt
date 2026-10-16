@@ -148,4 +148,64 @@ class MiniPhotoDeadlineReaderTest {
         assertEquals(0, reads)
     }
 
+    @Test fun framedPhotoHeaderAndBodyShareOneDeadline() {
+        var now = 0L
+        val stream = ByteArrayInputStream(byteArrayOf(0, 0, 0, 2, 11, 12))
+        val input = object : InputStream() {
+            override fun read(): Int = stream.read()
+            override fun read(dst: ByteArray, offset: Int, length: Int): Int {
+                val count = stream.read(dst, offset, minOf(length, 1))
+                if (stream.available() == 2) now = MiniPhotoDeadlineReader.MAX_DURATION_NANOS - 2_000_000L
+                return count
+            }
+        }
+        val timeouts = mutableListOf<Int>()
+        assertArrayEquals(byteArrayOf(11, 12), MiniPhotoDeadlineReader.readSized(
+            input, beforeRead = { timeouts.add(it) }, clockNanos = { now }
+        ))
+        assertEquals(2, timeouts.takeLast(2).first())
+    }
+
+    @Test fun expiredPhotoHeaderNeverReadsBody() {
+        var now = 0L
+        var reads = 0
+        val source = object : InputStream() {
+            override fun read(): Int = 0
+            override fun read(dst: ByteArray, offset: Int, length: Int): Int {
+                reads++
+                dst[offset] = 0
+                now = MiniPhotoDeadlineReader.MAX_DURATION_NANOS
+                return 1
+            }
+        }
+        val error = assertThrows(IOException::class.java) {
+            MiniPhotoDeadlineReader.readSized(source, clockNanos = { now })
+        }
+        assertEquals("MINI_PHOTO_TIMEOUT", error.message)
+        assertEquals(1, reads)
+    }
+
+    @Test fun framedPhotoRejectsInvalidLengthBeforePayload() {
+        var reads = 0
+        val source = object : InputStream() {
+            private val bytes = ByteArrayInputStream(byteArrayOf(0, 0, 0, 0, 1, 2))
+            override fun read(): Int = bytes.read()
+            override fun read(dst: ByteArray, offset: Int, length: Int): Int {
+                reads++
+                return bytes.read(dst, offset, length)
+            }
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            MiniPhotoDeadlineReader.readSized(source)
+        }
+        assertEquals(1, reads)
+    }
+
+    @Test fun incompletePhotoSizeHeaderFailsClosed() {
+        val error = assertThrows(EOFException::class.java) {
+            MiniPhotoDeadlineReader.readSized(ByteArrayInputStream(byteArrayOf(0, 0, 1)))
+        }
+        assertEquals("MINI_PHOTO_INCOMPLETE", error.message)
+    }
+
 }
