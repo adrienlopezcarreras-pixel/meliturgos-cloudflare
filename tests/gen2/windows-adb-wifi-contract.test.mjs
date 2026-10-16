@@ -151,3 +151,12 @@ test("Companion manual refresh runs one bounded ADB diagnostic and reports actio
  assert.match(native, /Configurer ADB Wi-Fi/);
  assert.match(native, /adbRefreshBusy/);
 });
+
+test("ADB Wi-Fi monitor rotates its continuously appended log at a bounded size", async () => {
+ const script = await source("windows-companion/MEL-ADB-WiFi.ps1");
+ assert.match(script, /function Write-AdbLog/);
+ assert.match(script, /\$info\.Length -ge 1MB/);
+ assert.match(script, /\$backup = "\$log\.1"/);
+ assert.equal((script.match(/Add-Content -LiteralPath \$log/g) || []).length, 1);
+ assert.match(script, /Write-AdbLog \(/);
+});
