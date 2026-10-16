@@ -10,7 +10,12 @@ const councilSection = workflow.slice(workflow.indexOf('# MEL-COUNCIL-02: four b
 
 test('production Council probe selects four bounded independent model candidates', () => {
   assert.match(councilSection, /"id":"model.council"/);
-  assert.match(councilSection, /"maxCandidates":4,"timeoutMs":60000/);
+  // The production proof uses a bounded per-model timeout (15s in dev-light mode,
+  // previously 60s); enforce a safe budget rather than a stale exact value.
+  const boundedTimeout = councilSection.match(/"maxCandidates":4,"timeoutMs":(\d+)/);
+  assert.ok(boundedTimeout, 'Council production proof must bound four model candidates');
+  const timeoutMs = Number(boundedTimeout[1]);
+  assert.ok(timeoutMs >= 10_000 && timeoutMs <= 60_000, 'Council model timeout must be bounded');
   assert.match(councilSection, /node scripts\/check-release-council-proof\.mjs production-mel-council-02\.json/);
   const distinct = new Set(standardRegistry.list().filter(m => m.enabled && m.provider === 'workers-ai' && m.capabilities.includes('GENERAL')).map(m => m.model_id));
   assert.ok(distinct.size >= 4);
