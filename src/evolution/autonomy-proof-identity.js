@@ -6,6 +6,20 @@ export function isVerifiedRuntimeWorkProof(proof, jobId = null) {
     || proof.recovered_interrupted_node !== true) return false;
   if (proof.target_job_id != null
     && String(proof.target_job_id) !== String(jobId)) return false;
+  // Model counts cannot establish that a resumable DAG actually recovered
+  // and finished. Require the audit contract produced by the runtime proof.
+  const events = proof.proof_dag_audit_events;
+  if (proof.schema !== 'mel.autonomy-proof/work-dag-resume'
+    || proof.proof_dag_status !== 'COMPLETED'
+    || !Number.isSafeInteger(proof.attempts_after_recovery)
+    || proof.attempts_after_recovery < 2
+    || proof.candidate_branch_isolated !== true
+    || proof.destructive_effects !== false
+    || proof.production_touched !== false
+    || proof.zero_added_cost_policy !== 'ENFORCED_BY_AUGMENTIO_GOVERNOR'
+    || !Array.isArray(events)
+    || !events.includes('WORK_NODE_RECOVERED_FOR_RETRY')
+    || !events.includes('WORK_DAG_COMPLETED')) return false;
   const identities = proof.provider_model_identities;
   const attempted = proof.providers_attempted;
   const successful = proof.successful_candidates;
