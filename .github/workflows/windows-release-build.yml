@@ -146,6 +146,27 @@ jobs:
             if (!(Test-Path -LiteralPath (Join-Path $stage $name) -PathType Leaf)) { throw "WINDOWS_MCP_NOT_PACKAGED:$name" }
           }
 
+      - name: Smoke test packaged MCP stdio handshake
+        shell: pwsh
+        run: |
+          $stage = ".windows-release/MEL-Windows-$env:RELEASE_VERSION"
+          $adapter = Join-Path $stage 'mel-companion-mcp.mjs'
+          if (!(Test-Path -LiteralPath $adapter -PathType Leaf)) { throw 'WINDOWS_MCP_ADAPTER_MISSING' }
+          & node --check $adapter
+          if ($LASTEXITCODE -ne 0) { throw 'WINDOWS_MCP_SYNTAX_FAILED' }
+          $requests = @(
+            '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}',
+            '{"jsonrpc":"2.0","id":2,"method":"tools/list"}'
+          ) -join "`n"
+          $responses = $requests | & node $adapter
+          if ($LASTEXITCODE -ne 0) { throw 'WINDOWS_MCP_HANDSHAKE_FAILED' }
+          $messages = @($responses | ForEach-Object { $_ | ConvertFrom-Json })
+          if ($messages.Count -ne 2) { throw 'WINDOWS_MCP_RESPONSE_COUNT_INVALID' }
+          if ($messages[0].result.serverInfo.name -ne 'mel-companion-readonly') { throw 'WINDOWS_MCP_SERVER_IDENTITY_INVALID' }
+          if (@($messages[1].result.tools).Count -ne 1 -or $messages[1].result.tools[0].name -ne 'mel_companion_status') {
+            throw 'WINDOWS_MCP_TOOL_SCOPE_INVALID'
+          }
+
       - name: Verify release package
         shell: pwsh
         run: |
