@@ -160,3 +160,12 @@ test("ADB Wi-Fi monitor rotates its continuously appended log at a bounded size"
  assert.equal((script.match(/Add-Content -LiteralPath \$log/g) || []).length, 1);
  assert.match(script, /Write-AdbLog \(/);
 });
+
+test("ADB monitor writes a sanitized failure detail and the Companion displays it", async () => {
+ const script = await source("windows-companion/MEL-ADB-WiFi.ps1");
+ const ui = await source("windows-companion/MEL-Companion.cs");
+ assert.match(script, /error_detail=/);
+ assert.match(script, /ADB_DIAGNOSTIC_FAILED/);
+ assert.match(ui, /errorDetailValue/);
+ assert.match(ui, /String\.IsNullOrEmpty\(errorDetail\)/);
+});
