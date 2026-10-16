@@ -240,7 +240,8 @@ class MiniMediaReceiver(private val context: Context) {
     private fun receivePhoto(input: DataInputStream, name: String) {
         val size = input.readInt()
         if (size !in 1..MAX_PHOTO_BYTES) return
-        val bytes = readFully(input, size)
+        // Enforce a total deadline, not just Socket.soTimeout between bytes.
+        val bytes = MiniPhotoDeadlineReader.read(input, size)
         if (!MiniJpegFrameSignature.hasMarkers(bytes)) return
         val uri = createMediaStoreEntry(
             MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
