@@ -894,6 +894,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # Keep explicit, non-sensitive progress markers for long live proof phases.
+          # Do not log credentials or response bodies.
+          echo "MEL_RELEASE_EVIDENCE_PHASE=START $(date -u +%FT%TZ)"
           BASE_URL="https://meliturgos.adrien-lopezcarreras.workers.dev"
           test -s release-bootstrap-token.txt
           BOOTSTRAP_TOKEN="$(cat release-bootstrap-token.txt)"
@@ -992,6 +995,8 @@ jobs:
           test "$SHARD_FINAL_READY" = "1"
           node -e 'const d=require("./production-shardvault-final.json"); const active=Array.isArray(d?.active_external_registry)?d.active_external_registry.length:0; if(active<5) throw new Error("PRODUCTION_SHARDVAULT_ACTIVE_EXTERNAL_LT_RELEASE_QUORUM:"+active); if(d?.health?.recoverable!==true) throw new Error("PRODUCTION_SHARDVAULT_NOT_RECOVERABLE"); console.log("ShardVault active external registry release quorum verified: "+active+"/7; background repair remains responsible for 7/7.");'
           fi
+
+          echo "MEL_RELEASE_EVIDENCE_PHASE=SHARDVAULT_CHECK_COMPLETE $(date -u +%FT%TZ)"
 
           # Secret propagation is eventually consistent across Worker isolates.
           # The proof is idempotent, so retry only this bounded authenticated phase.
@@ -2152,6 +2157,7 @@ jobs:
           },null,2));
           NODE
 
+          echo "MEL_RELEASE_EVIDENCE_PHASE=ALL_PROOFS_COMPLETE $(date -u +%FT%TZ)"
           echo "Temporary launch bootstrap secret deleted."
 
           if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
