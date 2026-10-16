@@ -300,14 +300,35 @@ export async function revokeWorkScreenConsent(env, body = {}, { now = Date.now()
   const commandId = clean(body?.command_id);
   if (!computerId || !commandId) throw new WorkScreenError('WORK_SCREEN_REF_INVALID', 400);
   if (!env?.DB) throw new WorkScreenError('WORK_SCREEN_DB_UNAVAILABLE', 503);
+  if (typeof env?.MEDIA_BUCKET?.delete !== 'function' || typeof env?.MEDIA_BUCKET?.head !== 'function')
+    throw new WorkScreenError('WORK_SCREEN_STORAGE_UNAVAILABLE', 503);
+  const key = companionScreenshotKey(computerId, commandId);
+  let existing;
+  try { existing = await env.MEDIA_BUCKET.head(key); }
+  catch { throw new WorkScreenError('WORK_SCREEN_STORAGE_UNAVAILABLE', 503); }
+  const ownerId = String(env.MELITURGOS_USER || 'owner');
+  // Authorize the exact object binding before making any DB or R2 mutation.
+  if (existing && (String(existing.customMetadata?.owner || '') !== ownerId
+      || String(existing.customMetadata?.commandId || '') !== commandId
+      || String(existing.customMetadata?.deviceId || '') !== computerId))
+    throw new WorkScreenError('WORK_SCREEN_IMAGE_OWNER_OR_BINDING_MISMATCH', 403);
+
   await ensureInterpretationTable(env.DB);
   const consent = await env.DB.prepare(
-    'SELECT id,revoked_at FROM work_screen_consents WHERE command_id=? AND device_id=? LIMIT 1'
+    'SELECT id,owner_id,revoked_at FROM work_screen_consents WHERE command_id=? AND device_id=? LIMIT 1'
   ).bind(commandId, computerId).first();
+  if (consent && consent.owner_id !== ownerId)
+    throw new WorkScreenError('WORK_SCREEN_CONSENT_OWNER_MISMATCH', 403);
+  // If both the owned consent record and the image are absent, there is no
+  // verified object to revoke; do not delete interpretation rows by guessed IDs.
+  if (!consent && !existing) {
+    return { ok: true, consent_revoked: false, command_id: commandId, computer_id: computerId,
+      interpretation_deleted: 0, image_deleted: true, revoked_at: null };
+  }
   if (consent && consent.revoked_at == null) {
     const revoked = await env.DB.prepare(
-      'UPDATE work_screen_consents SET revoked_at=? WHERE id=? AND revoked_at IS NULL'
-    ).bind(now, consent.id).run();
+      'UPDATE work_screen_consents SET revoked_at=? WHERE id=? AND owner_id=? AND revoked_at IS NULL'
+    ).bind(now, consent.id, ownerId).run();
     if (!revoked || revoked.success === false || Number(revoked.meta?.changes) !== 1)
       throw new WorkScreenError('WORK_SCREEN_CONSENT_REVOCATION_UNCONFIRMED', 503);
   }
@@ -316,11 +337,10 @@ export async function revokeWorkScreenConsent(env, body = {}, { now = Date.now()
   ).bind(commandId, computerId).run();
   if (!removed || removed.success === false)
     throw new WorkScreenError('WORK_SCREEN_INTERPRETATION_DELETE_UNCONFIRMED', 503);
-  const key = companionScreenshotKey(computerId, commandId);
-  if (typeof env?.MEDIA_BUCKET?.delete !== 'function' || typeof env?.MEDIA_BUCKET?.head !== 'function')
-    throw new WorkScreenError('WORK_SCREEN_STORAGE_UNAVAILABLE', 503);
-  try { await env.MEDIA_BUCKET.delete(key); }
-  catch { throw new WorkScreenError('WORK_SCREEN_IMAGE_DELETE_FAILED', 503); }
+  if (existing) {
+    try { await env.MEDIA_BUCKET.delete(key); }
+    catch { throw new WorkScreenError('WORK_SCREEN_IMAGE_DELETE_FAILED', 503); }
+  }
   let remains;
   try { remains = await env.MEDIA_BUCKET.head(key); }
   catch { throw new WorkScreenError('WORK_SCREEN_DELETE_VERIFY_FAILED', 503); }
