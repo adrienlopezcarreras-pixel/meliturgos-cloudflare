@@ -651,3 +651,50 @@ test('fully successful fan-outs retain standard longer-lived caching', async () 
   const entry = [...ai.cache.entries.values()][0];
   assert.ok(entry.expiresAt - Date.now() > PARTIAL_FANOUT_CACHE_TTL_MS);
 });
+
+test('one hung model health probe is quarantined while healthy peers remain usable', async () => {
+  let releaseHung;
+  let hungInvocations = 0;
+  let healthyInvocations = 0;
+  const hung = {
+    id: 'hung', capabilities: ['GENERAL'], priority: 5,
+    estimatedCost: 0, costProvenance: verifiedFree('hung'),
+    health: async () => new Promise(resolve => { releaseHung = resolve; }),
+    invoke: async () => { hungInvocations++; return 'should not run'; },
+  };
+  const healthy = {
+    id: 'healthy', capabilities: ['GENERAL'], priority: 1,
+    estimatedCost: 0, costProvenance: verifiedFree('healthy'),
+    health: async () => 'HEALTHY',
+    invoke: async () => { healthyInvocations++; return 'working model'; },
+  };
+  const pool = new ProviderPool([hung, healthy], { healthCheckTimeoutMs: 25 });
+  const ai = new Augmentio({
+    pool,
+    scheduler: new ParallelScheduler({ retries: 0, timeoutMs: 1000 }),
+    healthRefreshTimeoutMs: 500,
+  });
+  const started = Date.now();
+  const result = await ai.fanOut({ input: 'isolate hung health check', maxCandidates: 2 });
+  assert.ok(Date.now() - started < 1500);
+  assert.equal(result.best.text, 'working model');
+  assert.deepEqual(result.providersAttempted, ['healthy']);
+  assert.equal(hung.healthStatus, 'UNAVAILABLE');
+  assert.equal(hungInvocations, 0, 'unverified provider must not be invoked');
+  assert.equal(healthyInvocations, 1);
+  releaseHung('HEALTHY');
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(hung.healthStatus, 'UNAVAILABLE', 'late probe cannot remove timeout quarantine');
+});
+
+test('provider health isolation respects bounded settings and remains fail-closed', async () => {
+  const pool = new ProviderPool([{
+    id: 'unreachable', capabilities: ['GENERAL'],
+    health: async () => new Promise(() => {}),
+    invoke: async () => 'never',
+  }], { healthCheckTimeoutMs: 10 });
+  await pool.refreshHealth();
+  assert.equal(pool.list({ capability: 'GENERAL' }).length, 0);
+  assert.equal(new ProviderPool([], { healthCheckTimeoutMs: Infinity }).healthCheckTimeoutMs, 1500);
+  assert.equal(new ProviderPool([], { healthCheckTimeoutMs: 999999 }).healthCheckTimeoutMs, 30000);
+});
