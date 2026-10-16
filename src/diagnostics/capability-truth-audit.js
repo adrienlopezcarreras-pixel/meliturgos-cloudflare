@@ -87,8 +87,6 @@ const SAFE_SAMPLES = Object.freeze({
   'files.search': { query: 'mel', limit: 1 },
   'drive.files.list': { limit: 1 },
   'drive.files.search': { query: 'mel', limit: 1 },
-  'sites.list': { limit: 1 },
-  'sites.search': { query: 'mel', limit: 1 },
   'roadmap.human-actions-required': {},
   'system.integrity': {},
   'system.maturity': {},
@@ -178,11 +176,6 @@ const SAFE_SAMPLES = Object.freeze({
     const result = await sampleRead(runtime, context, 'drive.files.list', { limit: 1 });
     const id = firstArray(result, 'files')[0]?.id;
     return id ? { file_id: String(id), include_content: false } : undefined;
-  },
-  'sites.read': async ({ runtime, context }) => {
-    const result = await sampleRead(runtime, context, 'sites.list', { limit: 1 });
-    const id = firstArray(result, 'sites')[0]?.id;
-    return id ? { site_id: String(id) } : undefined;
   },
   'timeline.get': async ({ runtime, context }) => {
     const rows = await sampleRead(runtime, context, 'timeline.list', { limit: 1 });
@@ -301,9 +294,6 @@ const COST_SENSITIVE_CAPABILITIES = new Set([
   'drive.files.list',
   'drive.files.search',
   'drive.files.read',
-  'sites.list',
-  'sites.search',
-  'sites.read',
 ]);
 
 // Recovery drills and standby preparation explicitly require owner approval in
