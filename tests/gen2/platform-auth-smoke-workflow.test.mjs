@@ -19,7 +19,7 @@ test('GEN2-36 external provider smoke stays non-destructive outside the harmless
 });
 
 test('GEN2-36 free-first smoke excludes paid Vercel and fails closed for remaining provider credentials or target mismatch', () => {
-  assert.doesNotMatch(workflow, /vercel-auth-smoke|VERCEL_TOKEN|api\\.vercel\\.com/i);
+  assert.doesNotMatch(workflow, /vercel-auth-smoke|VERCEL_TOKEN|api\.vercel\.com/i);
   assert.match(workflow, /test -n "\$CLOUDFLARE_API_TOKEN"/);
   assert.match(workflow, /test -n "\$CLOUDFLARE_ACCOUNT_ID"/);
   assert.match(workflow, /CLOUDFLARE_ACCOUNT_TARGET_MISMATCH/);
