@@ -67,13 +67,23 @@ export async function requestAutonomousRelease({ token, fetchImpl = fetch, repo 
   // Workflow_dispatch runs use head_branch=main, while push runs use the
   // release branch. Scan recent runs across both events, not only release pushes.
   const activeRunsRoute = '/actions/workflows/deploy-cloudflare-release.yml/runs?per_page=100';
-  let releaseRuns = (await api(activeRunsRoute))?.workflow_runs;
-  if (!Array.isArray(releaseRuns)) assertNoActiveDeploy(releaseRuns);
+  const verifiedTerminalStaleRunIds = new Set();
+  async function readActiveReleaseRuns() {
+    const rows = (await api(activeRunsRoute))?.workflow_runs;
+    if (!Array.isArray(rows)) {
+      assertNoActiveDeploy(rows);
+      return rows;
+    }
+    // GitHub's workflow-run list can briefly lag a successful cancel request.
+    // Only omit a row after the individual run endpoint has confirmed a
+    // terminal state; unrelated/current active deployments remain blocking.
+    return rows.filter(row => !verifiedTerminalStaleRunIds.has(row?.id));
+  }
+  let releaseRuns = await readActiveReleaseRuns();
 
   // A concurrency-queued release can become stale when main advances while
   // an older deployment is active. Cancel only known stale runs that are still
-  // queued, after re-reading each run immediately before cancellation. Never
-  // cancel an in-progress production deployment.
+  // queued, after re-reading each run immediately before cancellation.
   const cancelledStaleQueuedRunIds = [];
   for (const candidate of findStaleQueuedDeploys(releaseRuns, mainSha)) {
     const latest = await api('/actions/runs/' + candidate.id);
@@ -85,7 +95,33 @@ export async function requestAutonomousRelease({ token, fetchImpl = fetch, repo 
     cancelledStaleQueuedRunIds.push(candidate.id);
   }
   if (cancelledStaleQueuedRunIds.length) {
-    releaseRuns = (await api(activeRunsRoute))?.workflow_runs;
+    const unconfirmed = [];
+    for (const runId of cancelledStaleQueuedRunIds) {
+      let latest = null;
+      for (let attempt = 0; attempt < 6; attempt++) {
+        latest = await api('/actions/runs/' + runId);
+        if (String(latest?.status || '').toLowerCase() === 'completed') {
+          verifiedTerminalStaleRunIds.add(runId);
+          break;
+        }
+        if (attempt < 5) await sleepImpl(500 * (attempt + 1));
+      }
+      if (!verifiedTerminalStaleRunIds.has(runId)) unconfirmed.push(latest);
+    }
+    if (unconfirmed.length) {
+      const active = unconfirmed[0] || {};
+      return {
+        accepted: false,
+        reason: 'STALE_RELEASE_CANCELLATION_NOT_VERIFIED',
+        main_sha: mainSha,
+        release_branch: RELEASE_BRANCH,
+        blocking_run_id: Number.isSafeInteger(active?.id) ? active.id : cancelledStaleQueuedRunIds[0],
+        blocking_run_sha: SHA40.test(String(active?.head_sha || '')) ? active.head_sha : null,
+        blocking_run_status: String(active?.status || 'unknown').toLowerCase(),
+        cancelled_stale_queued_run_ids: cancelledStaleQueuedRunIds,
+      };
+    }
+    releaseRuns = await readActiveReleaseRuns();
   }
 
   // An active production deployment still owns the lock. Defer and let its
@@ -137,7 +173,7 @@ export async function requestAutonomousRelease({ token, fetchImpl = fetch, repo 
   }
   // GITHUB_TOKEN pushes do not start downstream workflows. An explicit
   // workflow_dispatch is necessary for autonomous releases from MEL Actions.
-  assertNoActiveDeploy((await api(activeRunsRoute))?.workflow_runs);
+  assertNoActiveDeploy(await readActiveReleaseRuns());
   // Main may advance while the release pointer is being verified. Do not
   // dispatch a stale SHA; the next reconciliation will promote newer main.
   const latestMainSha = String((await api('/branches/main'))?.commit?.sha || '');
