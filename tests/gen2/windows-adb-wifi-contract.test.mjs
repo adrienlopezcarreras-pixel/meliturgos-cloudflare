@@ -220,6 +220,16 @@ test("ADB monitor applies the same secret redaction and length bound to JSON sta
  assert.match(script, /error_detail=\$safeReason/);
  assert.match(script, /Write-AdbLog .*\$safeReason/);
  assert.doesNotMatch(script, /error_detail=\(\[string\]\$reason/);
+ assert.match(script, /\(\?:\(\?:bearer\|basic\|token\)\\s\+\)\?/);
+ const redact = value => value.replace(/(pairing\\s*code|password|token|authorization)\\s*[:=]\\s*(?:(?:bearer|basic|token)\\s+)?\\S+/gi, '$1=[REDACTED]');
+ for (const input of [
+   'Authorization: Bearer SUPERSENSITIVE123',
+   'authorization=Basic SUPERSENSITIVE123',
+   'token=SUPERSENSITIVE123',
+   'password: SUPERSENSITIVE123'
+ ]) {
+   assert.doesNotMatch(redact(input), /SUPERSENSITIVE123|Bearer|Basic/);
+ }
 });
 
 test("Companion background ADB status shows the recorded failure detail", async () => {
