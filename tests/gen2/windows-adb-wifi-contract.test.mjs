@@ -271,3 +271,15 @@ test("Stopping the Companion ADB monitor waits boundedly and always disposes the
  assert.match(method,/process\.Dispose\(\)/);
  assert.ok(method.indexOf("AdbWifiProcess = null") < method.indexOf("process.Kill()"));
 });
+
+test("Companion writes actionable local status when the background ADB monitor cannot start", async () => {
+ const native=await source("windows-companion/MEL-Companion.cs");
+ const start=native.indexOf("static void StartAdbWifiMonitor()");
+ const end=native.indexOf("public static void StopAdbWifiMonitor()",start);
+ const method=native.slice(start,end);
+ assert.match(method,/ADB_MONITOR_SCRIPT_MISSING/);
+ assert.match(method,/ADB_MONITOR_PROCESS_START_FAILED/);
+ assert.match(method,/android-adb-monitor-supervisor\.log/);
+ assert.match(method,/\{"connected",false\}/);
+ assert.match(method,/\{"error",failure\}/);
+});

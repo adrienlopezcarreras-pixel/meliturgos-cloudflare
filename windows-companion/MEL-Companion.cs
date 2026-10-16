@@ -579,6 +579,7 @@ static class MelApp
 
     public static void StartAdbWifiMonitor()
     {
+        string failure = null;
         try
         {
             if (AdbWifiProcess != null)
@@ -588,15 +589,52 @@ static class MelApp
                 try { AdbWifiProcess.Dispose(); } catch { }
                 AdbWifiProcess = null;
             }
-            if (!File.Exists(AdbWifiPath)) return;
+            if (!File.Exists(AdbWifiPath))
+            {
+                failure = "ADB_MONITOR_SCRIPT_MISSING";
+                throw new FileNotFoundException("ADB Wi-Fi monitor script is missing", AdbWifiPath);
+            }
             var psi = new ProcessStartInfo("powershell.exe");
             psi.Arguments = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File \"" + AdbWifiPath + "\"";
             psi.UseShellExecute = false;
             psi.CreateNoWindow = true;
             psi.WindowStyle = ProcessWindowStyle.Hidden;
             AdbWifiProcess = Process.Start(psi);
+            if (AdbWifiProcess == null) failure = "ADB_MONITOR_PROCESS_START_FAILED";
         }
-        catch { }
+        catch (Exception ex)
+        {
+            if (String.IsNullOrEmpty(failure)) failure = "ADB_MONITOR_START_FAILED: " + ex.GetType().Name;
+            try
+            {
+                var dir = Path.GetDirectoryName(AdbWifiPath);
+                if (!Directory.Exists(dir)) Directory.CreateDirectory(dir);
+                File.AppendAllText(Path.Combine(dir, "android-adb-monitor-supervisor.log"),
+                    DateTime.UtcNow.ToString("o") + " " + failure + Environment.NewLine, Encoding.UTF8);
+            }
+            catch { }
+        }
+        if (!String.IsNullOrEmpty(failure))
+        {
+            try
+            {
+                var report = Path.Combine(MelDir, "android-adb-wifi.json");
+                var status = new Dictionary<string, object> {
+                    {"schema","mel.adb-wifi-status.v1"},
+                    {"observed_at_utc",DateTime.UtcNow.ToString("o")},
+                    {"adb_available",false},{"connected",false},{"serial",null},
+                    {"android_model",null},{"android_version",null},
+                    {"mel_package","fr.veriteinterdite.mel"},{"mel_installed",false},
+                    {"mel_version",null},{"mel_version_code",null},{"error",failure}
+                };
+                var json = Json.Serialize(status);
+                var temp = report + "." + Guid.NewGuid().ToString("N") + ".tmp";
+                File.WriteAllText(temp,json,new UTF8Encoding(false));
+                if (File.Exists(report)) File.Replace(temp,report,null);
+                else File.Move(temp,report);
+            }
+            catch { }
+        }
     }
 
     public static void StopAdbWifiMonitor()
