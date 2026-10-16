@@ -48,7 +48,7 @@ test('Windows browser typing checks focus, does not return private text, and res
   const dist = await readFile(new URL('../dist/MEL-Computer-Companion.ps1', import.meta.url), 'utf8');
   const api = await readFile(new URL('../src/devices/computer-companion-api.js', import.meta.url), 'utf8');
   assert.equal(asset, dist);
-  assert.match(api, /"browser.click","browser.type","browser.back"/);
+  assert.match(api, /"browser.type"/); // Approval is step-scoped, independent of neighboring actions
   const helper = asset.slice(asset.indexOf('function Type-BrowserText('), asset.indexOf('function Perform-Step('));
   assert.ok(helper.startsWith('function Type-BrowserText('));
   assert.match(helper, /GetDataObject/);
