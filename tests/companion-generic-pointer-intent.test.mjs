@@ -15,7 +15,7 @@ test('pointer.click accepts only its cursor-position left-click contract', () =>
   assert.equal(inspect(step).allowed, true);
   for (const [field, value] of [
     ['x', 50], ['y', 20], ['button', 'right'], ['click_count', 2],
-    ['window_handle', '124'], ['url', 'https://example.com'],
+    ['window_handle', '124'], ['key', 'ENTER'],
     ['target', 'save'], ['unknown', null],
   ]) {
     const decision = inspect({ ...step, [field]: value });
