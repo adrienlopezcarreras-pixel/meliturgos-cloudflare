@@ -283,7 +283,7 @@ class MiniMediaReceiver(private val context: Context) {
                     socket.soTimeout = frameTimeout
                     // Socket configuration may exhaust the remaining transfer budget.
                     if (!budget.withinDeadline()) return
-                    val jpeg = readFully(input, size)
+                    val jpeg = MiniMediaChunkReader.read(input, size, socket, budget::remainingSocketTimeoutMs, budget::withinDeadline)
                     // Reading the final frame can itself cross the deadline.
                     if (!budget.withinDeadline()) return
                     if (!MiniJpegFrameSignature.hasMarkers(jpeg)) return
@@ -336,7 +336,7 @@ class MiniMediaReceiver(private val context: Context) {
                     socket.soTimeout = chunkTimeout
                     // Socket configuration may exhaust the remaining transfer budget.
                     if (!budget.withinDeadline()) return
-                    val bytes = readFully(input, size)
+                    val bytes = MiniMediaChunkReader.read(input, size, socket, budget::remainingSocketTimeoutMs, budget::withinDeadline)
                     if (!budget.withinDeadline()) return
                     output.write(bytes)
                     pcmBytes += size
