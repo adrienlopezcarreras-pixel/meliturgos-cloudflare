@@ -25,7 +25,8 @@ function Serial {
 }
 function Attempt-Reconnect {
   $targets=@()
-  foreach ($line in (Run-Adb -arglist @("mdns","services"))) {
+  try { $discovered=Run-Adb -arglist @("mdns","services") } catch { $discovered=@() }
+  foreach ($line in $discovered) {
     if ($line -match '_adb-tls-connect\._tcp' -and $line -match '(\d{1,3}(?:\.\d{1,3}){3}:\d{2,5})') { $targets += $Matches[1] }
   }
   if (Test-Path -LiteralPath $saved) {
