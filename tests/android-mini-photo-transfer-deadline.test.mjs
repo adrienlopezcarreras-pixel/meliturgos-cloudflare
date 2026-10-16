@@ -8,7 +8,7 @@ test('MINI photo uploads apply transfer deadline before MediaStore insert', asyn
   assert.ok(begin>=0&&end>begin);
   const fn=src.slice(begin,end);
   const size=fn.indexOf('size !in 1..MAX_PHOTO_BYTES');
-  const read=fn.indexOf('MiniPhotoDeadlineReader.read(input, size)');
+  const read=fn.indexOf('MiniPhotoDeadlineReader.read(input, size, beforeRead = { socket.soTimeout = it })');
   const jpeg=fn.indexOf('MiniJpegFrameSignature.hasMarkers(bytes)');
   const create=fn.indexOf('val uri = createMediaStoreEntry(');
   assert.ok(size>=0&&read>size&&jpeg>read&&create>jpeg);
@@ -19,4 +19,5 @@ test('MINI photo uploads apply transfer deadline before MediaStore insert', asyn
   assert.match(reader,/MINI_PHOTO_STALLED/);
   assert.match(reader,/MINI_PHOTO_TIMEOUT/);
   assert.match(reader,/MINI_PHOTO_INCOMPLETE/);
+  assert.match(reader,/beforeRead\(remainingMs\)/);
 });
