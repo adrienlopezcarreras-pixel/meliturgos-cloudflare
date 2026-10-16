@@ -299,6 +299,7 @@ test('GEN2-30 rejects incomplete pointer and keyboard commands instead of making
       { id: 'scroll', action: COMPUTER_USE_ACTIONS.SCROLL, delta_y: '-120' },
       { id: 'press', action: COMPUTER_USE_ACTIONS.KEY_PRESS, key: 'ENTER' },
     ],
+    approvals: [{ approved: true, session_id: base.session_id, step_id: 'press', action: COMPUTER_USE_ACTIONS.KEY_PRESS }],
   }).allowed, true);
 });
 
@@ -383,6 +384,7 @@ test('GEN2-30 permits only Windows Key-Token-safe keypresses', () => {
     const permitted = evaluateComputerUsePlan({
       ...base,
       steps: [{ id: 'press', action: COMPUTER_USE_ACTIONS.KEY_PRESS, key }],
+      approvals: [{ approved: true, session_id: base.session_id, step_id: 'press', action: COMPUTER_USE_ACTIONS.KEY_PRESS }],
     });
     assert.equal(permitted.allowed, true, key);
   }
