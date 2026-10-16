@@ -28,7 +28,7 @@ test('browser.click requires owner approval and exact inspected window identity'
 });
 
 test('browser.click rejects missing, fractional or out-of-range coordinates', () => {
-  for (const coordinates of [{ x: 5 }, { x: null, y: 5 }, { x: 'oops', y: 5 }, { x: 1.5, y: 5 }, { x: 2147483648, y: 5 }, { x: 5, y: -2147483649 }]) {
+  for (const coordinates of [{ x: 5, y: undefined }, { x: undefined, y: 5 }, { x: null, y: 5 }, { x: 'oops', y: 5 }, { x: 1.5, y: 5 }, { x: 2147483648, y: 5 }, { x: 5, y: -2147483649 }]) {
     assert.equal(plan({ ...click, ...coordinates }, true).reason, 'BROWSER_CLICK_COORDINATES_INVALID');
   }
   assert.equal(plan({ ...click, x: -100, y: 0 }, true).allowed, true, 'negative virtual-screen coordinates are valid');
