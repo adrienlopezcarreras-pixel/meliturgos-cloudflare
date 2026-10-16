@@ -66,8 +66,16 @@ export class ParallelScheduler {
       if (!this.canRun(provider)) throw Object.assign(new Error('PROVIDER_CIRCUIT_OPEN'), { code: 'PROVIDER_CIRCUIT_OPEN', provider });
 
       const controller = new AbortController();
-      const onAbort = () => controller.abort(signal?.reason);
-      signal?.addEventListener?.('abort', onAbort, { once: true });
+      let onAbort;
+      // Worker adapters may ignore AbortSignal. Race parent cancellation
+      // explicitly so a cancelled MEL task cannot be reported as successful.
+      const aborted = new Promise((_, reject) => {
+        onAbort = () => {
+          controller.abort(signal?.reason);
+          reject(Object.assign(new Error('SCHEDULER_ABORTED'), { code: 'SCHEDULER_ABORTED' }));
+        };
+        signal?.addEventListener?.('abort', onAbort, { once: true });
+      });
       let timer;
       try {
         const timeout = new Promise((_, reject) => {
@@ -76,9 +84,16 @@ export class ParallelScheduler {
             reject(Object.assign(new Error('PROVIDER_TIMEOUT'), { code: 'PROVIDER_TIMEOUT', provider }));
           }, this.timeoutMs);
         });
+        // Cover a signal aborted between the initial attempt check and
+        // listener registration, including cancellation during scheduling.
+        if (signal?.aborted) onAbort();
         const value = await Promise.race([
-          Promise.resolve(worker(task, index, { attempt, signal: controller.signal, provider })),
+          Promise.resolve().then(() => {
+            if (signal?.aborted) throw Object.assign(new Error('SCHEDULER_ABORTED'), { code: 'SCHEDULER_ABORTED' });
+            return worker(task, index, { attempt, signal: controller.signal, provider });
+          }),
           timeout,
+          aborted,
         ]);
         clearTimeout(timer);
         this.markSuccess(provider);
@@ -87,6 +102,9 @@ export class ParallelScheduler {
       } catch (error) {
         clearTimeout(timer);
         signal?.removeEventListener?.('abort', onAbort);
+        // Parent cancellation is not a provider fault, must not poison its
+        // circuit breaker, and must never enter the retry loop.
+        if (error?.code === 'SCHEDULER_ABORTED') throw error;
         lastError = error;
         this.markFailure(provider);
         if (attempt >= this.retries || !this.canRun(provider)) break;
