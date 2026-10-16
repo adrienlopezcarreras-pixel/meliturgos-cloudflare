@@ -193,3 +193,12 @@ test("Companion ADB monitor bounds each adb.exe command and cleans temporary out
  assert.match(run, /RedirectStandardOutput \$stdout/);
  assert.match(run, /RedirectStandardError \$stderr/);
 });
+
+test("ADB status publication writes complete JSON before replacing the prior report", async () => {
+ const script = await source("windows-companion/MEL-ADB-WiFi.ps1");
+ assert.match(script, /function Write-StatusReport/);
+ assert.match(script, /\[IO\.File\]::WriteAllText\(\$temp/);
+ assert.match(script, /\[IO\.File\]::Replace\(\$temp,\$report,\$null\)/);
+ assert.match(script, /Write-StatusReport \$status/);
+ assert.doesNotMatch(script, /Remove-Item -LiteralPath \$report -Force/);
+});
