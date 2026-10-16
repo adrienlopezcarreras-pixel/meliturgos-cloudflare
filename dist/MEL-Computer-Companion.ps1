@@ -2333,6 +2333,23 @@ function Assert-BrowserShortcutTarget([IntPtr]$window, [string]$browser) {
       (Assert-ForegroundBrowser) -ne $browser) { throw "BROWSER_SHORTCUT_FOCUS_CHANGED" }
 }
 
+function Assert-BrowserClickTarget([IntPtr]$window, [string]$browser, [int]$x, [int]$y) {
+  Assert-LocalRemoteAccess
+  if ($window -eq [IntPtr]::Zero -or [MelNative]::GetForegroundWindow() -ne $window -or
+      (Assert-ForegroundBrowser) -ne $browser) { throw "BROWSER_CLICK_FOCUS_CHANGED" }
+  $rect = New-Object MelNative+RECT
+  if (-not [MelNative]::GetWindowRect($window, [ref]$rect)) { throw "BROWSER_CLICK_BOUNDS_REQUIRED" }
+  $virtual = [System.Windows.Forms.SystemInformation]::VirtualScreen
+  $left = [Math]::Max($rect.Left, $virtual.Left)
+  $top = [Math]::Max($rect.Top, $virtual.Top)
+  $right = [Math]::Min($rect.Right, $virtual.Right)
+  $bottom = [Math]::Min($rect.Bottom, $virtual.Bottom)
+  if ($right -le $left -or $bottom -le $top) { throw "BROWSER_CLICK_BOUNDS_REQUIRED" }
+  if ($x -lt $left -or $x -ge $right -or $y -lt $top -or $y -ge $bottom) {
+    throw "BROWSER_CLICK_OUTSIDE_WINDOW"
+  }
+}
+
 function Perform-Step($step, [string]$commandId, [string]$planSchema="") {
   $action = [string]$step.action
   if ($planSchema -eq "mel.devices.pc-control.v1") {
@@ -2458,6 +2475,35 @@ function Perform-Step($step, [string]$commandId, [string]$planSchema="") {
       Assert-BrowserShortcutTarget $window $browser
       [System.Windows.Forms.SendKeys]::SendWait("{F5}")
       return @{ action=$action; browser=$browser }
+    }
+    "browser.click" {
+      # Exact inspection window handle and virtual-screen coordinates required.
+      [long]$expectedHandle = 0
+      if (-not [long]::TryParse([string]$step.window_handle, [ref]$expectedHandle) -or $expectedHandle -le 0) {
+        throw "BROWSER_CLICK_WINDOW_HANDLE_REQUIRED"
+      }
+      $window = [MelNative]::GetForegroundWindow()
+      if ($window -eq [IntPtr]::Zero -or $window.ToInt64() -ne $expectedHandle) { throw "BROWSER_CLICK_FOCUS_CHANGED" }
+      $browser = Assert-ForegroundBrowser
+      $x = [int]$step.x
+      $y = [int]$step.y
+      Assert-BrowserClickTarget $window $browser $x $y
+      if (-not [MelNative]::SetCursorPos($x, $y)) { throw "BROWSER_CLICK_CURSOR_MOVE_FAILED" }
+      # The owner can switch tabs/windows during cursor movement.
+      Assert-BrowserClickTarget $window $browser $x $y
+      $point = New-Object MelNative+POINT
+      if (-not [MelNative]::GetCursorPos([ref]$point) -or $point.X -ne $x -or $point.Y -ne $y) {
+        throw "BROWSER_CLICK_CURSOR_POSITION_CHANGED"
+      }
+      Assert-BrowserClickTarget $window $browser $x $y
+      try {
+        [MelNative]::mouse_event($MOUSE_LEFTDOWN,0,0,0,[UIntPtr]::Zero)
+        Start-Sleep -Milliseconds 35
+      } finally {
+        # Always release the button even if execution is interrupted.
+        [MelNative]::mouse_event($MOUSE_LEFTUP,0,0,0,[UIntPtr]::Zero)
+      }
+      return @{ action=$action; browser=$browser; x=$x; y=$y; window_handle=$expectedHandle; coordinate_space="virtual-screen-pixels" }
     }
     "browser.capture" {
       # Capture the foreground browser rectangle only, never the virtual desktop.
