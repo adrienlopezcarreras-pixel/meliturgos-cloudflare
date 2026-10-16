@@ -400,6 +400,13 @@ export function evaluateComputerUsePlan(input = {}) {
     } else if (step.action === COMPUTER_USE_ACTIONS.KEY_PRESS && !supportedWindowsKey(step.key)) {
       allowed = false;
       reason = 'KEY_NOT_SUPPORTED';
+    } else if (step.action === COMPUTER_USE_ACTIONS.BROWSER_NAVIGATE
+      && Object.keys(submittedSteps[decisions.length] ?? {}).some(field =>
+        !['id', 'action', 'url'].includes(field))) {
+      // A browser launch has no HWND, typing, click or alternate target support.
+      // Fail closed rather than claiming to have executed ignored owner intent.
+      allowed = false;
+      reason = 'BROWSER_NAVIGATE_UNEXPECTED_FIELD';
     } else if (!appAllowed(step.app, request.sandbox.allowed_apps)) {
       allowed = false;
       reason = 'APP_OUTSIDE_SANDBOX';
