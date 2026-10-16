@@ -97,3 +97,10 @@ test("unreadable saved ADB endpoint does not abort discovered endpoint attempts"
   const reconnect = script.split("function Attempt-Reconnect {")[1].split("function Scan {")[0];
   assert.match(reconnect, /try \{ \$last=\(Get-Content -LiteralPath \$saved -Raw\)\.Trim\(\) \} catch \{ \$last="" \}/);
 });
+
+
+test("failed endpoint-cache write does not invalidate verified ADB connection", async () => {
+  const script = await source("windows-companion/MEL-ADB-WiFi.ps1");
+  const reconnect = script.split("function Attempt-Reconnect {")[1].split("function Scan {")[0];
+  assert.match(reconnect, /try \{ Set-Content -LiteralPath \$saved -Value \$endpoint -Encoding ASCII \} catch \{ \}/);
+});
