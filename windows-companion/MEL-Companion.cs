@@ -1463,6 +1463,7 @@ class MainForm : Form
                                 bool adbAvailable = a.TryGetValue("adb_available", out available) && Convert.ToBoolean(available);
                                 bool isConnected = a.TryGetValue("connected", out connected) && Convert.ToBoolean(connected);
                                 string errorCode = a.TryGetValue("error", out errorValue) && errorValue != null ? Convert.ToString(errorValue) : "";
+                    string errorDetail = a.TryGetValue("error_detail", out errorDetailValue) && errorDetailValue != null ? Convert.ToString(errorDetailValue) : "";
                                 string name = a.TryGetValue("android_model", out model) ? Convert.ToString(model) : "";
                                 bool hasMel = a.TryGetValue("mel_installed", out installed) && Convert.ToBoolean(installed);
                                 message = !fresh ? "ADB Wi-Fi : diagnostic ancien"
@@ -1699,7 +1700,7 @@ class MainForm : Form
                 try
                 {
                     var a = MelApp.Json.Deserialize<Dictionary<string,object>>(File.ReadAllText(adbReport));
-                    object observed, connected, model, installed, available, errorValue;
+                    object observed, connected, model, installed, available, errorValue, errorDetailValue;
                     DateTime when;
                     bool fresh = a.TryGetValue("observed_at_utc", out observed)
                         && DateTime.TryParse(Convert.ToString(observed), out when)
