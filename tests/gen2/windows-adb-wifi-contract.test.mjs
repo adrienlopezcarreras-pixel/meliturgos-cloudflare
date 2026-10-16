@@ -211,11 +211,15 @@ test("Companion never treats an ADB report older than 75 seconds or far in the f
  assert.doesNotMatch(native, /\.TotalMinutes < 2/);
 });
 
-test("ADB monitor sanitizes and bounds diagnostic log error details", async () => {
+test("ADB monitor applies the same secret redaction and length bound to JSON status and local logs", async () => {
  const script = await source("windows-companion/MEL-ADB-WiFi.ps1");
+ assert.match(script, /function ConvertTo-SafeAdbDetail/);
  assert.match(script, /pairing\\s\*code\|password\|token\|authorization/);
  assert.match(script, /\[REDACTED\]/);
- assert.match(script, /Substring\(0,\[Math\]::Min\(240/);
+ assert.match(script, /if \(\$safe\.Length -gt 240\)/);
+ assert.match(script, /error_detail=\$safeReason/);
+ assert.match(script, /Write-AdbLog .*\$safeReason/);
+ assert.doesNotMatch(script, /error_detail=\(\[string\]\$reason/);
 });
 
 test("Companion background ADB status shows the recorded failure detail", async () => {
