@@ -915,7 +915,26 @@ jobs:
           const fs=require('fs');
           let d={};try{d=JSON.parse(fs.readFileSync('sovereignty-release-jobs.json','utf8'))}catch{}
           const deploy=(Array.isArray(d?.jobs)?d.jobs:[]).find(job=>String(job?.name||'')==='deploy')||{};
-          process.stdout.write(String(deploy?.status||'')+':'+String(deploy?.conclusion||''));
+          const steps=Array.isArray(deploy?.steps)?deploy.steps:[];
+          const conclusion=(name)=>steps.find(step=>String(step?.name||'')===name)?.conclusion||'';
+          // A downstream SOV proof must wait for the deployed SHA and its
+          // immediate integrity proofs, not for unrelated long autonomy phases.
+          // Waiting on deploy.status made the 15-minute SOV wait expire while
+          // the bounded autonomy proof was still running.
+          const required=[
+            'Deploy exact approved SHA to production',
+            'Verify owner auth binding and exact deployment immediately',
+            'Verify bundled Workers AI zero-cost proof',
+            'Prove MEL-MEDIA-02 12/12 live on exact deployed SHA',
+          ];
+          const states=required.map(conclusion);
+          if(states.every(value=>value==='success')) {
+            process.stdout.write('exact-deployed:success');
+          } else if(states.some(value=>value==='failure'||value==='cancelled')) {
+            process.stdout.write('completed:failure');
+          } else {
+            process.stdout.write(String(deploy?.status||'')+':'+String(deploy?.conclusion||''));
+          }
           NODE
                 )"
                 case "${DEPLOY_JOB_STATE}" in
@@ -966,7 +985,7 @@ jobs:
                 esac
               fi
             fi
-            echo "SOV proof waiting for canonical exact-SHA deploy job success; attempt ${ATTEMPT}/90 (runs_api=${RELEASE_API_CODE:-000}, workflow=${RELEASE_WORKFLOW_STATE}, deploy=${DEPLOY_JOB_STATE})."
+            echo "SOV proof waiting for exact-SHA deployment and immediate integrity proofs; attempt ${ATTEMPT}/90 (runs_api=${RELEASE_API_CODE:-000}, workflow=${RELEASE_WORKFLOW_STATE}, deploy=${DEPLOY_JOB_STATE})."
             sleep 10
           done
           test "${RELEASE_DEPLOY_SUCCESS}" = "1"
