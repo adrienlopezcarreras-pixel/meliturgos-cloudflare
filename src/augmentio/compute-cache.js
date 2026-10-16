@@ -51,13 +51,29 @@ async function sha256(text) {
 }
 
 export class ComputeCache {
-  constructor({ ttlMs = 5 * 60_000, maxEntries = 256 } = {}) {
+  constructor({
+    ttlMs = 5 * 60_000, maxEntries = 256,
+    maxBytes = 8 * 1024 * 1024, maxEntryBytes = 2 * 1024 * 1024,
+  } = {}) {
     this.ttlMs = ttlMs;
-    // Keep the in-memory AI response cache bounded in long-lived Workers.
-    // Map insertion order is the LRU ordering (oldest first).
+    // Entry count alone is insufficient: a large fan-out can occupy
+    // megabytes. Bound total serialized response bytes in a long-lived Worker.
     this.maxEntries = Number.isSafeInteger(maxEntries)
       ? Math.max(1, Math.min(1024, maxEntries)) : 256;
+    this.maxBytes = Number.isSafeInteger(maxBytes)
+      ? Math.max(1024, Math.min(32 * 1024 * 1024, maxBytes)) : 8 * 1024 * 1024;
+    this.maxEntryBytes = Number.isSafeInteger(maxEntryBytes)
+      ? Math.max(128, Math.min(this.maxBytes, maxEntryBytes))
+      : Math.min(this.maxBytes, 2 * 1024 * 1024);
     this.entries = new Map();
+    this.totalBytes = 0;
+  }
+
+  deleteKey(key) {
+    const entry = this.entries.get(key);
+    if (!entry) return false;
+    this.totalBytes = Math.max(0, this.totalBytes - (entry.bytes || 0));
+    return this.entries.delete(key);
   }
 
   async key(input) {
@@ -69,7 +85,7 @@ export class ComputeCache {
     const hit = this.entries.get(key);
     if (!hit) return null;
     if (Date.now() >= hit.expiresAt) {
-      this.entries.delete(key);
+      this.deleteKey(key);
       return null;
     }
     // Refresh recency only for unexpired cache hits.
@@ -83,13 +99,25 @@ export class ComputeCache {
     const now = Date.now();
     // Expired entries should not accumulate if requests never reuse them.
     for (const [storedKey, entry] of this.entries) {
-      if (entry.expiresAt <= now) this.entries.delete(storedKey);
+      if (entry.expiresAt <= now) this.deleteKey(storedKey);
     }
-    this.entries.delete(key);
+    this.deleteKey(key);
     if (Number.isFinite(ttlMs) && ttlMs > 0) {
-      this.entries.set(key, { value: structuredClone(value), expiresAt: now + ttlMs });
-      while (this.entries.size > this.maxEntries) {
-        this.entries.delete(this.entries.keys().next().value);
+      // A non-JSON/circular output cannot be safely sized: skip the cache
+      // rather than failing the caller's otherwise valid AI response.
+      let serialized;
+      try { serialized = JSON.stringify(value); } catch { return key; }
+      if (typeof serialized !== 'string') return key;
+      const bytes = Math.max(
+        new TextEncoder().encode(serialized).byteLength,
+        serialized.length * 2,
+      );
+      if (bytes > this.maxEntryBytes) return key;
+      const copy = structuredClone(value);
+      this.entries.set(key, { value: copy, expiresAt: now + ttlMs, bytes });
+      this.totalBytes += bytes;
+      while (this.entries.size > this.maxEntries || this.totalBytes > this.maxBytes) {
+        this.deleteKey(this.entries.keys().next().value);
       }
     }
     return key;
