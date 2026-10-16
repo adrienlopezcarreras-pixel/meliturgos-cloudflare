@@ -131,6 +131,10 @@ export class Augmentio {
       return { ...cached, cacheHit: true };
     }
 
+    // Selection is not execution: a scheduler circuit breaker may reject a
+    // provider before its adapter is invoked. Count only real calls as
+    // attempted work in autonomy / multi-AI evidence.
+    const invokedProviderIds = new Set();
     const settled = await this.scheduler.run(providers, async (provider, _index, meta = {}) => {
       const startedAt = Date.now();
       try {
@@ -155,6 +159,7 @@ export class Augmentio {
           throw error;
         }
         this.governor.assertAllowed(provider);
+        invokedProviderIds.add(identity.id);
         const response = await provider.invoke({ input, context, capability, signal: meta.signal });
         if ((provider.providerId ?? provider.provider_id ?? provider.id) !== identity.provider
           || (provider.modelId ?? provider.model_id ?? provider.id) !== identity.model) {
@@ -207,7 +212,13 @@ export class Augmentio {
         this.quota.recordFailure(provider.id, error);
         throw error;
       }
-    }, { signal });
+    }, {
+      signal,
+      // Independent AI adapters must have independent circuit breakers.
+      // Grouping by providerId ("workers-ai") would let a broken model
+      // disable healthy sibling models sharing the same transport.
+      getProviderId: (provider) => provider.id,
+    });
 
     // A cancelled multi-AI run is never a partial success, even if one
     // provider completed before cancellation. Never cache a cancelled batch.
@@ -225,12 +236,12 @@ export class Augmentio {
       best: ranked[0],
       candidates: ranked,
       failures: settled.length - candidates.length,
-      providersAttempted: providers.map((provider) => provider.id),
-      providerHealth: providers.map((provider) => ({
-        id: provider.id,
-        provider: provider.providerId ?? provider.provider_id ?? provider.id,
-        model: provider.modelId ?? provider.model_id ?? provider.id,
-        status: provider.healthStatus || 'UNKNOWN',
+      providersAttempted: roster.filter((row) => invokedProviderIds.has(row.id)).map((row) => row.id),
+      // Stable identities come from the selected, authorized roster, not
+      // mutable adapter objects observed after asynchronous execution.
+      providerHealth: roster.map((row, i) => ({
+        ...row,
+        status: providers[i].healthStatus || 'UNKNOWN',
       })),
       cacheHit: false,
     };
