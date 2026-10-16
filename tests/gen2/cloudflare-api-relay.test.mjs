@@ -228,3 +228,13 @@ test('scheduled relay avoids logging personal PC identifiers and skips unauthori
   assert.match(live,/commands:proof\.map/);
   assert.doesNotMatch(live.slice(0,430),/name:computer\.name|id:computer\.id/);
 });
+
+
+test('scheduled MINI audit relay follows a successful decoupled downstream proof', async () => {
+  const workflow = await readFile(new URL('../../.github/workflows/cloudflare-api-relay.yml', import.meta.url), 'utf8');
+  assert.match(workflow, /workflows: \["deploy-cloudflare-release", "release-downstream-proof-decoupled"\]/);
+  assert.match(workflow, /github\.event\.workflow_run\.conclusion == 'success'/);
+  assert.match(workflow, /cancel-in-progress: false/);
+  assert.match(workflow, /id-token: write/);
+  assert.doesNotMatch(workflow, /serial\.reset|write_flash|erase_flash/);
+});
