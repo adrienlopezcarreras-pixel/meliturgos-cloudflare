@@ -890,6 +890,7 @@ jobs:
           fi
           echo "Decoupled downstream proofs dispatched for exact SHA ${EXPECTED_SHA}; release continues independently."
 
+      # Keep autonomy evidence bounded separately from the overall deploy job.
       - name: Prepare and prove production autonomy launch evidence
         timeout-minutes: 55
         shell: bash
