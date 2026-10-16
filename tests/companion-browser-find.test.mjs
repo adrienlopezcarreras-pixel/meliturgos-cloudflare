@@ -34,6 +34,20 @@ test('browser.find rejects unsafe, empty or oversized searches before executing 
   assert.equal(evaluate({ ...search, text: 'é'.repeat(256) }).allowed, true);
 });
 
+test('browser.find rejects unexpected fields rather than dropping requested targets', () => {
+  for (const [field, value] of [
+    ['url', 'https://example.com'], ['key', 'ENTER'], ['app', 'browser'],
+    ['path', 'C:\\\\Users'], ['x', 15], ['y', 20], ['delta_y', 100],
+    ['selector', 'input[name=q]'], ['target', 'second-window'], ['repeat', 2],
+    ['text_hint', null],
+  ]) {
+    const verdict = evaluate({ ...search, [field]: value });
+    assert.equal(verdict.allowed, false, field);
+    assert.equal(verdict.reason, 'BROWSER_FIND_UNEXPECTED_FIELD', field);
+  }
+  assert.equal(evaluate(search).allowed, true);
+});
+
 test('invalid browser.find denies the whole plan without dispatching earlier actions', async () => {
   const calls = [], audits = [];
   const controller = createComputerUseController({
