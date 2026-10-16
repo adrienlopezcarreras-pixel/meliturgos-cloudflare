@@ -57,6 +57,7 @@ for await(const line of rl){
   if(msg.method.startsWith('notifications/'))continue;
   error(null,-32600,'Invalid notification');continue;
  }
+ if(msg.id!==null && typeof msg.id!=='string' && (typeof msg.id!=='number'||!Number.isFinite(msg.id))){error(null,-32600,'Invalid request id');continue;}
  if(msg.method==='initialize'){
   response(msg.id,{protocolVersion:'2025-03-26',capabilities:{tools:{}},serverInfo:{name:'mel-companion-readonly',version:'0.1.0'}});
  }else if(msg.method==='ping'){response(msg.id,{});}
