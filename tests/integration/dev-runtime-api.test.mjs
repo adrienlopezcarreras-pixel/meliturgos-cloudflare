@@ -96,6 +96,32 @@ test('verified completion triggers exactly one bounded autonomy continuation for
   assert.equal(skipped.reason, 'NO_VERIFIED_COMPLETION');
 });
 
+test('a returned next job does not prove the runtime advanced', async () => {
+  const reconciliation = {
+    completed: [{
+      job_id: 'finished-job',
+      candidate_sha: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      ci_run_id: 42,
+    }],
+  };
+  const continued = await continueAfterVerifiedCompletion({
+    env: {},
+    repository: { list: async () => [] },
+    reconciliation,
+    jobId: 'finished-job',
+    runTick: async () => ({
+      ok: true,
+      status: 'IDLE',
+      advanced: false,
+      job: { id: 'selected-but-not-executed', status: 'QUEUED' },
+    }),
+  });
+
+  assert.equal(continued.ok, true);
+  assert.equal(continued.job.id, 'selected-but-not-executed');
+  assert.equal(continued.advanced, false, 'selection/presence of a job is not execution evidence');
+});
+
 test('completion without exact SHA/CI proof cannot auto-continue', async () => {
   let ticks = 0;
   const runTick = async () => { ticks += 1; return { ok: true }; };
