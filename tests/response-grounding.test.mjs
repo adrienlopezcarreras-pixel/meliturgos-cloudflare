@@ -15,7 +15,7 @@ test('autonomy tick launch-gate result is explained in natural language without 
   assert.match(text, /n’a pas lancé de nouveau travail/);
   assert.match(text, /SHA actuellement déployé/);
   assert.match(text, /MAX est désactivé/);
-  assert.doesNotMatch(text, /"control"|\\\\?"control\\\\?"/);
+  assert.equal(text.includes('"control"'), false);
 });
 
 test('autonomy tick never claims a selected job was executed without explicit advancement', () => {
@@ -27,7 +27,7 @@ test('autonomy tick never claims a selected job was executed without explicit ad
     control: { paused: false, max_autonomy: false },
   });
   assert.match(text, /aucune nouvelle progression n’est prouvée/);
-  assert.match(text, /queued-job \\(QUEUED\\)/);
+  assert.ok(text.includes('queued-job (QUEUED)'));
   assert.doesNotMatch(text, /a enregistré une progression/);
 });
 
