@@ -2,11 +2,13 @@
 // This never connects to a device, writes flash or touches BLE hardware.
 #include "../firmware/waveshare-terminal/main/mel_link_v2_protocol.h"
 #include "../firmware/waveshare-terminal/main/mel_ima_adpcm.h"
+#include "../firmware/waveshare-terminal/main/mel_link_v2_session_clock_bounds.h"
 #include <algorithm>
 #include <cassert>
 #include <cmath>
 #include <cstdint>
 #include <iostream>
+#include <limits>
 #include <vector>
 
 static uint32_t next_random(uint32_t &state) {
@@ -15,6 +17,20 @@ static uint32_t next_random(uint32_t &state) {
 }
 
 int main() {
+    // Validate hostile Android SESSION JSON numeric fields before int casts.
+    assert(mel_link_v2_session_clock_bounds(1700000000000.0, 0.0));
+    assert(mel_link_v2_session_clock_bounds(1800000000000.0, 20700.0));
+    assert(mel_link_v2_session_clock_bounds(4102444800000.0, -50400.0));
+    assert(!mel_link_v2_session_clock_bounds(1e300, 0.0));
+    assert(!mel_link_v2_session_clock_bounds(-1e300, 0.0));
+    assert(!mel_link_v2_session_clock_bounds(std::numeric_limits<double>::infinity(), 0.0));
+    assert(!mel_link_v2_session_clock_bounds(std::numeric_limits<double>::quiet_NaN(), 0.0));
+    assert(!mel_link_v2_session_clock_bounds(1800000000000.5, 0.0));
+    assert(!mel_link_v2_session_clock_bounds(1800000000000.0, 1.0));
+    assert(!mel_link_v2_session_clock_bounds(1800000000000.0, 50401.0));
+    assert(!mel_link_v2_session_clock_bounds(1800000000000.0, -50401.0));
+    assert(!mel_link_v2_session_clock_bounds(1800000000000.0, 60.5));
+    assert(!mel_link_v2_session_clock_bounds(1800000000000.0, std::numeric_limits<double>::infinity()));
     uint32_t seed = 0x1234ABCDu;
     uint64_t checked = 0, rejected = 0, audio = 0;
     for (int cycle = 0; cycle < 10000; ++cycle) {
