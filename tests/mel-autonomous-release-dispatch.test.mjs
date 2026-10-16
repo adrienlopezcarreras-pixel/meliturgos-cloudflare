@@ -209,11 +209,12 @@ test('unattended main-push deployments require protected branches', () => {
   assert.ok(yaml.includes("MEL_REQUIRE_PROTECTED_REFS: ${{ (github.event_name == 'push' || github.event_name == 'schedule') && 'true' || 'false' }}"));
 });
 
-test('hourly promotion safety net uses protected refs and deduplicates failed exact SHAs', () => {
+test('15-minute promotion catch-up uses protected refs and deduplicates failed exact SHAs', () => {
   const yaml = readFileSync(new URL('../.github/workflows/mel-autonomous-production-release.yml', import.meta.url), 'utf8');
-  assert.ok(yaml.includes("  schedule:\\n    - cron: '17 * * * *'".replace('\\n','\n')));
+  assert.ok(yaml.includes("  schedule:\\n    - cron: '*/15 * * * *'".replace('\\n','\n')));
   assert.ok(yaml.includes("github.event_name == 'schedule' && github.ref == 'refs/heads/main'"));
   assert.ok(yaml.includes("MEL_SKIP_ALREADY_ATTEMPTED_SHA: ${{ github.event_name == 'schedule' && 'true' || 'false' }}"));
+  assert.ok(yaml.includes("MEL_REQUIRE_PROTECTED_REFS: ${{ (github.event_name == 'push' || github.event_name == 'schedule') && 'true' || 'false' }}"));
   assert.ok(!yaml.includes('owner_max_autorelease: true'));
 });
 
