@@ -124,7 +124,18 @@ function implementationPlanProof(job) {
   const requestId = String(proposal.teacher_request_id || '');
   if (!requestId || requestId !== String(bridge?.request?.request_id || '')) return null;
   if (bridge?.status !== 'ANSWERED' || bridge?.review?.verdict !== 'APPROVE_PLAN' || bridge?.review?.development_allowed !== true) return null;
-  if (!String(proposal.candidate_branch || '').startsWith('candidate/')) return null;
+  const branch = String(proposal.candidate_branch || '');
+  const sha = String(proposal.candidate_sha || '');
+  const approvedBranch = String(bridge?.request?.candidate?.branch || '');
+  const approvedSha = String(bridge?.request?.candidate?.sha || '');
+  // Readiness must prove the plan was prepared against the exact candidate
+  // commit authorized by the correlated Teacher reply, not an unrelated
+  // or malformed SHA that can be reported as READY without inspection.
+  if (!branch.startsWith('candidate/') || branch !== approvedBranch
+    || (job?.candidate_branch && job.candidate_branch !== branch)
+    || !/^[0-9a-f]{40}$/i.test(sha) || !/^[0-9a-f]{40}$/i.test(approvedSha)
+    || sha.toLowerCase() !== approvedSha.toLowerCase()
+    || bridge?.review?.request_id !== requestId) return null;
   if (!hasDistinctProviderAttempts(proposal.providers_attempted)) return null;
   if (!Array.isArray(proposal.inspected_files) || proposal.inspected_files.length < 1) return null;
   if (!proposal.selected?.text || !proposal.selected?.model) return null;
@@ -132,8 +143,8 @@ function implementationPlanProof(job) {
   return {
     job_id: job.id,
     request_id: requestId,
-    candidate_branch: proposal.candidate_branch,
-    candidate_sha: /^[a-f0-9]{40}$/i.test(String(proposal.candidate_sha || '')) ? String(proposal.candidate_sha) : null,
+    candidate_branch: branch,
+    candidate_sha: sha.toLowerCase(),
     providers_attempted: proposal.providers_attempted.length,
     inspected_files: proposal.inspected_files.map((row) => row?.path).filter(Boolean).slice(0, 8),
     selected_model: proposal.selected.model,
