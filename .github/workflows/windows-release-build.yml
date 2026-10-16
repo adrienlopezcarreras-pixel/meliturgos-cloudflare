@@ -249,6 +249,18 @@ jobs:
             if ($sig.Status -ne 'Valid') { throw "WINDOWS_RELEASE_SIGNATURE_INVALID:$($file.Name):$($sig.Status)" }
           }
 
+      - name: Prove archive metadata matches the packaged SHA
+        shell: pwsh
+        run: |
+          $path = "artifacts/windows/MEL-Windows-$env:RELEASE_VERSION.release.json"
+          if (!(Test-Path -LiteralPath $path -PathType Leaf)) { throw 'WINDOWS_RELEASE_METADATA_NOT_FOUND' }
+          $meta = Get-Content -Raw -LiteralPath $path | ConvertFrom-Json
+          if ($meta.source_sha -ne $env:EXPECTED_SHA.ToLowerInvariant()) { throw 'WINDOWS_RELEASE_ARCHIVE_PROVENANCE_MISMATCH' }
+          if ($env:GITHUB_EVENT_NAME -eq 'push') {
+            if ($env:GITHUB_REF -ne 'refs/heads/main') { throw 'WINDOWS_MAIN_PUBLISH_REF_MISMATCH' }
+            if ($meta.source_sha -ne $env:GITHUB_SHA.ToLowerInvariant()) { throw 'WINDOWS_MAIN_PUBLISH_SHA_MISMATCH' }
+          }
+
       - name: Upload Windows release artifacts
         uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08
         with:
