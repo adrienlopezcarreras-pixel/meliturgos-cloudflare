@@ -15,10 +15,11 @@ test('MINI media STOP closes accepted sockets and rejects late publishing',async
   assert.match(closed,/for \(client in activeClients\) runCatching \{ client\.close\(\) \}/);
   assert.match(closed,/activeClients\.clear\(\)/);
   const hotspot=src.slice(src.indexOf('override fun onStopped()'),src.indexOf('override fun onFailed('));
-  assert.match(hotspot,/started\.set\(false\)/);
-  assert.match(hotspot,/serverSocket\?\.close\(\)/);
-  assert.match(hotspot,/serverSocket = null/);
-  assert.match(hotspot,/stopActiveClients\(\)/);
+  // Stale callbacks must not close a freshly restarted media session.
+  assert.match(hotspot,/hotspotEpoch\.get\(\) != epoch/);
+  assert.match(hotspot,/close\(\)/);
+  assert.match(closed,/serverSocket\?\.close\(\)/);
+  assert.match(closed,/serverSocket = null/);
   const helper=src.slice(src.indexOf('private fun writeAndPublish('),src.indexOf('private fun publish('));
   assert.ok(helper.indexOf('if (!started.get()) return false')>=0);
   assert.ok(helper.indexOf('publish(uri)')>helper.indexOf('if (!started.get()) return false'));
