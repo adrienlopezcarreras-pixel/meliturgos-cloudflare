@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import { onRequestGet } from '../src/pages/revenue-interface.js';
 import { normalizeRevenueTasks } from '../src/api/revenue-worker-api.js';
 
@@ -28,4 +29,14 @@ test('task normalizer supports CLI/API list envelope without inventing offer dat
   assert.equal(tasks.length, 1);
   assert.equal(tasks[0].reward, '2500000');
   assert.equal(tasks[0].referenceCode, '');
+});
+test('canonical MEL navigation and router expose MEL WORK without bypassing owner authentication', async () => {
+  const [router, professor] = await Promise.all([
+    readFile(new URL('../src/router.js', import.meta.url), 'utf8'),
+    readFile(new URL('../src/pages/full-interface-v2.js', import.meta.url), 'utf8'),
+  ]);
+  assert.match(router, /url\.pathname === "\/revenus"/);
+  assert.match(router, /handleRevenueApi\(request, env\)/);
+  assert.match(professor, /href="\/revenus"[\s\S]{0,120}MEL WORK/);
+  assert.match(router, /const auth = requireAuth\(request, env\);[\s\S]{0,120}handleRevenueApi\(request, env\)/);
 });
