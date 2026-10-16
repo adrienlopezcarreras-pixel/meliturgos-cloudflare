@@ -248,3 +248,14 @@ test("Manual ADB refresh refuses to display a previous report when the one-shot 
  assert.ok(method.indexOf("process.ExitCode != 0") < method.indexOf('string report = Path.Combine'));
  assert.match(method,/diagnostic s’est terminé en erreur/);
 });
+
+test("Companion supervisor disposes an exited ADB process handle before restarting the monitor", async () => {
+ const native = await source("windows-companion/MEL-Companion.cs");
+ const start=native.indexOf("static void StartAdbWifiMonitor()");
+ const end=native.indexOf("public static void StopAdbWifiMonitor()",start);
+ const method=native.slice(start,end);
+ assert.match(method,/AdbWifiProcess\.HasExited/);
+ assert.match(method,/AdbWifiProcess\.Dispose\(\)/);
+ assert.match(method,/AdbWifiProcess = null/);
+ assert.ok(method.indexOf("AdbWifiProcess.Dispose()") < method.indexOf("Process.Start(psi)"));
+});
