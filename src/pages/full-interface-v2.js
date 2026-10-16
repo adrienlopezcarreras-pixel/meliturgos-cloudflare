@@ -731,6 +731,21 @@ qs('#workComputerScreen').onclick=async e=>{
   await sendWorkComputerDesktopSteps([{id:'move-pointer',action:'cursor.move',x,y},{id:'left-click',action:'pointer.click'}],'Clic gauche à x='+x+', y='+y);
  }catch(err){qs('#workComputerControlOut').textContent='Clic non exécuté : '+err.message}
 };
+qs('#workComputerScreen').addEventListener('wheel',async e=>{
+ if(!qs('#workComputerControlConsent')?.checked)return;
+ e.preventDefault();
+ try{
+  const image=e.currentTarget,rect=image.getBoundingClientRect(),bounds=workComputerLastView?.screen_bounds;
+  workComputerControlPc();
+  if(rect.width<=0||rect.height<=0||!bounds||![bounds.left,bounds.top,bounds.width,bounds.height].every(v=>Number.isFinite(Number(v)))||Number(bounds.width)<=0||Number(bounds.height)<=0)throw Error('Géométrie du bureau absente ou invalide');
+  const x=Math.round(((e.clientX-rect.left)/rect.width)*Number(bounds.width)+Number(bounds.left));
+  const y=Math.round(((e.clientY-rect.top)/rect.height)*Number(bounds.height)+Number(bounds.top));
+  if(x<Number(bounds.left)||x>=Number(bounds.left)+Number(bounds.width)||y<Number(bounds.top)||y>=Number(bounds.top)+Number(bounds.height))throw Error('Coordonnées hors du bureau capturé');
+  const delta=Math.max(-120,Math.min(120,Math.round(-e.deltaY)));
+  if(delta===0)return;
+  await sendWorkComputerDesktopSteps([{id:'move-pointer-for-scroll',action:'cursor.move',x,y},{id:'scroll-wheel',action:'pointer.scroll',delta_y:delta}],'Défilement souris '+(delta>0?'vers le haut':'vers le bas'));
+ }catch(err){qs('#workComputerControlOut').textContent='Défilement non exécuté : '+err.message}
+},{passive:false});
 qs('#workComputerSendText').onclick=async()=>{
  const text=qs('#workComputerControlText').value;
  if(!text){qs('#workComputerControlOut').textContent='Saisie annulée : le texte est vide.';return}
