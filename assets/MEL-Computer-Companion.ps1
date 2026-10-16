@@ -2572,6 +2572,27 @@ function Perform-Step($step, [string]$commandId, [string]$planSchema="") {
       Type-BrowserText $text $window $browser
       return @{ action=$action; browser=$browser; chars=$text.Length; window_handle=$expectedHandle; text_exposed=$false }
     }
+    "browser.press" {
+      # Only navigation keys, scoped to the same foreground browser inspected by the owner.
+      [long]$expectedHandle = 0
+      if (-not [long]::TryParse([string]$step.window_handle, [ref]$expectedHandle) -or $expectedHandle -le 0) {
+        throw "BROWSER_PRESS_WINDOW_HANDLE_REQUIRED"
+      }
+      $key = ([string]$step.key).Trim().ToUpperInvariant()
+      if (@('ENTER','RETURN','TAB','ESC','ESCAPE','BACKSPACE','DELETE',
+            'UP','DOWN','LEFT','RIGHT','HOME','END','PGUP','PGDN') -notcontains $key) {
+        throw "BROWSER_PRESS_KEY_NOT_ALLOWED"
+      }
+      $window = [MelNative]::GetForegroundWindow()
+      if ($window -eq [IntPtr]::Zero -or $window.ToInt64() -ne $expectedHandle) { throw "BROWSER_PRESS_FOCUS_CHANGED" }
+      $browser = Assert-ForegroundBrowser
+      if ($script:MelExitRequested) { throw "BROWSER_PRESS_LOCAL_STOP_ACTIVE" }
+      Assert-BrowserShortcutTarget $window $browser
+      $token = Key-Token $key
+      Assert-BrowserShortcutTarget $window $browser
+      [System.Windows.Forms.SendKeys]::SendWait($token)
+      return @{ action=$action; browser=$browser; key=$key; window_handle=$expectedHandle }
+    }
     "browser.capture" {
       # Capture the foreground browser rectangle only, never the virtual desktop.
       $browser = Assert-ForegroundBrowser
