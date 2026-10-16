@@ -192,3 +192,13 @@ test('oversized streaming response is rejected without exposing status',async()=
  assert.equal(responses[0].result.isError,true);
  assert.equal(responses[0].result.content[0].text,'MEL_STATUS_TOO_LARGE');
 });
+
+
+test('truncated response JSON fails closed without parser details',async()=>{
+ const responses=await request([{jsonrpc:'2.0',id:28,method:'tools/call',params:{name:'mel_companion_status',arguments:{}}}],{
+  MEL_MCP_SERVER_URL:'https://mel.example.test/',MEL_MCP_OWNER_TOKEN:'fixture-token',
+  NODE_OPTIONS:'--import=./tests/fixtures/mel-mcp-truncated-json-mock.mjs'
+ });
+ assert.equal(responses[0].result.isError,true);
+ assert.equal(responses[0].result.content[0].text,'MEL_STATUS_INVALID_JSON');
+});
