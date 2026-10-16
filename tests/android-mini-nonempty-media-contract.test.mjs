@@ -13,7 +13,7 @@ test('MINI empty video end marker never publishes header-only AVI', async()=>{
   const entry=video.indexOf('val uri = createMediaStoreEntry(');
   assert.ok(counter>=0 && increment>counter && reject>increment && entry>reject);
   assert.match(video,/if \(size == 0\) break/);
-  assert.match(video,/val jpeg = readFully\(input, size\)/);
+  assert.match(video,/val jpeg = MiniMediaChunkReader.read\(input, size, socket, budget::remainingSocketTimeoutMs, budget::withinDeadline\)/);
   assert.match(video,/avi\.addFrame\(jpeg\)/);
 });
 
