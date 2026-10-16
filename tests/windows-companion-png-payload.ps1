@@ -1,5 +1,8 @@
 $ErrorActionPreference = 'Stop'
 
+# Upload-Screenshot now reads the real virtual-screen bounds, so load the same Windows Forms assembly as the running Companion.
+Add-Type -AssemblyName System.Windows.Forms
+
 $source = Get-Content -Raw -Encoding UTF8 -LiteralPath 'assets/MEL-Computer-Companion.ps1'
 $packaged = Get-Content -Raw -Encoding UTF8 -LiteralPath 'dist/MEL-Computer-Companion.ps1'
 if ($source -cne $packaged) { throw 'COMPANION_BINARY_SOURCE_DIST_DIVERGENCE' }
