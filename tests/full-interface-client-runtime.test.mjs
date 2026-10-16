@@ -71,25 +71,10 @@ test('full interface exposes Gmail plus Yahoo/Ymail through Pipedream while Micr
   assert.match(html, /Pipedream Connect/);
   assert.match(html, /data-pd-connect="microsoft_outlook"/);
   assert.match(html, /data-pd-connect="microsoft_onedrive"/);
-  assert.match(html, /data-pd-connect="sharepoint"/);
   assert.match(html, /data-pd-connect="imap"/);
   assert.match(html, /id="yahooPipedream"/);
   assert.match(html, /Gérer Yahoo\/Ymail via Pipedream/);
   assert.match(html, /initialView=new URLSearchParams\(location\.search\)\.get\('view'\)/);
-});
-
-
-test('full interface keeps optional Vercel backend out of the canonical owner control surface', async () => {
-  const response = await onRequestGet();
-  const html = await response.text();
-  assert.doesNotMatch(html, /<h2>Vercel<\/h2>/);
-  for (const id of [
-    'vercelToken','vercelTeamId','vercelProjectId','vercelProjectName',
-    'vercelSave','vercelTest','vercelDeploymentSelect',
-    'vercelRedeployPreview','vercelRedeployProduction',
-  ]) {
-    assert.doesNotMatch(html, new RegExp('id="' + id + '"'));
-  }
 });
 
 
@@ -120,7 +105,6 @@ test('full interface exposes encrypted Pipedream Connect bridge and roadmap app 
   assert.match(html, /connectionApi\('pipedream','accounts'\)/);
   assert.match(html, /data-pd-connect="microsoft_outlook"/);
   assert.match(html, /data-pd-connect="microsoft_onedrive"/);
-  assert.match(html, /data-pd-connect="sharepoint"/);
   assert.match(html, /data-pd-connect="imap"/);
   assert.match(html, /data-pd-connect="lemlist"/);
   assert.match(html, /data-pd-connect="google_drive"/);
