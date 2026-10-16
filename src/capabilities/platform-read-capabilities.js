@@ -149,6 +149,8 @@ function deploymentRow(row = {}) {
 }
 
 export function registerPlatformReadCapabilities(bus, { env = {}, fetchImpl = fetch, repository = '', resolveVercelConfig = null, cloudflareRelayStore = null, githubRelayStore = null, includeVercel = true } = {}) {
+  // Permanent owner policy: Vercel is a paid provider and is not registered in MEL.
+  includeVercel = false;
   const githubRepository = repository || env.MEL_GITHUB_REPOSITORY || '';
   const githubToken = String(env.MEL_GITHUB_TOKEN || '').trim();
   const cloudflareToken = String(env.CLOUDFLARE_API_TOKEN || '').trim();
