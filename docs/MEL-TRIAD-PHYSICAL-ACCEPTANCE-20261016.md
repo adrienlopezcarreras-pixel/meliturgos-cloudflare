@@ -26,6 +26,43 @@ Relever sans modifier les appareils :
 
 Ne pas déduire la version installée de la version présente dans `main` ou d'un artefact téléchargé.
 
+## Recette 0 — appairage BLE authentifié contre MITM
+
+**Cette recette est obligatoire avant le parcours vocal et n'a pas encore été réalisée.**
+
+Le firmware candidat exige LE Secure Connections avec MITM et n'annonce la session
+prête que si l'état BLE indique simultanément chiffrement, authentification et bond.
+Pendant un nouvel appairage, la MINI affiche un passkey aléatoire à six chiffres;
+Android doit présenter sa feuille système de saisie. Le propriétaire doit vérifier
+le code affiché sur la vraie MINI et saisir le même code sur Android.
+
+**Procédure non destructive**
+1. Noter les versions et vérifier l'état initial. Ne pas toucher aux données MEL, NVS,
+   tokens, à la configuration Wi-Fi ni à la flash.
+2. Lors d'un appairage neuf autorisé, vérifier que le code temporaire apparaît sur la
+   MINI et dans aucune sortie de log; vérifier que la feuille Android demande sa saisie.
+   Saisir le code affiché uniquement si les deux côtés le présentent.
+3. Vérifier que le bond est établi et que Link V2 n'affiche « prêt » qu'après le lien
+   chiffré/authentifié et l'ACK `SESSION_OK`.
+4. Si l'ancien bond est réutilisé sans demande de passkey, si le code est absent, si les
+   codes divergent, si Android n'offre pas le champ de saisie, ou si le lien est chiffré
+   sans authentification, arrêter. Ne pas boucler les reconnexions, supprimer des clés
+   ou données à l'aveugle, ni flasher.
+5. La migration d'un ancien bond Just Works est une opération séparée à planifier avec
+   le propriétaire présent. Ne supprimer que l'appairage Bluetooth explicitement identifié;
+   ne jamais effacer les données MEL/NVS. Si la MINI ne peut pas renouveler proprement
+   son bond, garder cette recette en échec et concevoir une procédure dédiée avant installation.
+
+**Preuve attendue**
+- vidéo courte montrant le code temporaire sur la MINI et la demande système Android,
+  sans capturer tokens, notifications, compte ou conversation;
+- logs expurgés prouvant `encrypted=true`, `authenticated=true`, `bonded=true`
+  sans code de passkey, puis un nouvel ACK `SESSION_OK`;
+- preuve négative : aucun état Link V2 « prêt », aucune session MEL ni envoi audio/credential
+  si l'appairage authentifié échoue.
+
+**Statut initial : PREUVE MATÉRIELLE REQUISE — ne pas installer ce build avant recette.**
+
 ## Recette A — haut-parleur ES8311 réellement audible
 
 **Procédure**
