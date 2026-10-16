@@ -2839,10 +2839,19 @@ function Perform-Step($step, [string]$commandId, [string]$planSchema="") {
       return @{ action=$action; browser=$browser; window_handle=$expectedHandle }
     }
     "browser.capture" {
-      # Capture the foreground browser rectangle only, never the virtual desktop.
+      # Capture only the owner-inspected browser HWND, never whichever browser
+      # happened to become foreground after remote approval.
+      [long]$expectedHandle = 0
+      if (-not [long]::TryParse([string]$step.window_handle, [ref]$expectedHandle) -or $expectedHandle -le 0) {
+        throw "BROWSER_CAPTURE_WINDOW_HANDLE_REQUIRED"
+      }
+      $window = [MelNative]::GetForegroundWindow()
+      if ($window -eq [IntPtr]::Zero -or $window.ToInt64() -ne $expectedHandle) { throw "BROWSER_CAPTURE_FOCUS_CHANGED" }
       $browser = Assert-ForegroundBrowser
       Assert-UnattendedCapturePermission
-      $window = [MelNative]::GetForegroundWindow()
+      # Local consent dialogs and owner interaction can change foreground focus.
+      # Recheck the same HWND and STOP before reading pixels or uploading them.
+      Assert-BrowserShortcutTarget $window $browser
       $rect = New-Object MelNative+RECT
       if ($window -eq [IntPtr]::Zero -or -not [MelNative]::GetWindowRect($window, [ref]$rect)) { throw "BROWSER_CAPTURE_WINDOW_REQUIRED" }
       $virtual = [System.Windows.Forms.SystemInformation]::VirtualScreen
@@ -2856,7 +2865,7 @@ function Perform-Step($step, [string]$commandId, [string]$planSchema="") {
       $shot = Upload-BrowserScreenshot $commandId $bounds $window $browser
       if ([string]$shot.key -eq '' -or [string]$shot.view_url -eq '' -or
           [string]$shot.key -notlike "computer/screenshots/$ComputerId/*") { throw "SCREENSHOT_UPLOAD_UNCONFIRMED" }
-      return @{ action=$action; browser=$browser; screenshot_key=$shot.key; view_url=$shot.view_url; full_desktop_capture=$false; window_only_capture=$true }
+      return @{ action=$action; browser=$browser; window_handle=$expectedHandle; screenshot_key=$shot.key; view_url=$shot.view_url; full_desktop_capture=$false; window_only_capture=$true }
     }
     "browser.inspect" {
       $browser = Assert-ForegroundBrowser
