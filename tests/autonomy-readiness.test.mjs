@@ -81,6 +81,10 @@ async function completeEvidenceRepository({ secondCost = 0, includeImplementatio
         reviewed_at: '2026-09-10T05:01:00Z',
         request: {
           request_id: 'runtime-request-1',
+          candidate: {
+            branch: 'candidate/augmentio-core',
+            sha: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+          },
           provenance: { source: 'MEL_RUNTIME_CRON' },
         },
         review: {
@@ -397,3 +401,33 @@ test('MEL self-development readiness cannot reuse legacy or cached multi-AI evid
   }
 });
 
+
+test('implementation readiness requires exact Teacher-approved candidate SHA and branch', async () => {
+  for (const change of [
+    result => { result.implementation_proposal.candidate_sha = ''; },
+    result => { result.implementation_proposal.candidate_sha = 'not-a-sha'; },
+    result => { result.implementation_proposal.candidate_sha = 'cccccccccccccccccccccccccccccccccccccccc'; },
+    result => { result.teacher_bridge.request.candidate.sha = 'cccccccccccccccccccccccccccccccccccccccc'; },
+    result => { result.teacher_bridge.request.candidate.branch = 'candidate/unapproved'; },
+    result => { delete result.teacher_bridge.request.candidate; },
+    result => { result.teacher_bridge.review.request_id = 'different-request'; },
+  ]) {
+    const repository = await completeEvidenceRepository();
+    const job = await repository.get('ready-job');
+    const result = structuredClone(job.result_json);
+    change(result);
+    await repository.update(job.id, { result_json: result });
+    const readiness = await getAutonomyReadiness({ repository });
+    assert.equal(readiness.gates.mel_multi_ai_implementation_plan, false);
+    assert.equal(readiness.gates.coherent_single_job_loop, false);
+    assert.equal(readiness.self_development_ready, false);
+  }
+});
+
+test('implementation readiness rejects a candidate branch different from the owning job', async () => {
+  const repository = await completeEvidenceRepository();
+  await repository.update('ready-job', { candidate_branch: 'candidate/another-branch' });
+  const readiness = await getAutonomyReadiness({ repository });
+  assert.equal(readiness.gates.mel_multi_ai_implementation_plan, false);
+  assert.equal(readiness.self_development_ready, false);
+});
