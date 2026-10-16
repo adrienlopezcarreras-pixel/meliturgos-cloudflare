@@ -451,3 +451,29 @@ test('Augmentio ignores a late provider response after its attempt is cancelled'
   assert.equal(ai.quota.get('late').calls, 0, 'late answer must not be recorded as a success');
   assert.equal(ai.cache.entries.size, 0);
 });
+
+test('parallel scheduler exits a long retry backoff promptly when MEL cancels', async () => {
+  const controller = new AbortController();
+  let attempts = 0;
+  let firstAttemptStarted;
+  const started = new Promise(resolve => { firstAttemptStarted = resolve; });
+  const scheduler = new ParallelScheduler({
+    globalConcurrency: 1, retries: 4, backoffMs: 60_000,
+    timeoutMs: 60_000, circuitBreakerFailures: 10,
+  });
+  const began = Date.now();
+  const running = scheduler.run([{ id: 'retry-provider' }], async () => {
+    attempts += 1;
+    firstAttemptStarted();
+    throw new Error('transient provider failure');
+  }, { signal: controller.signal });
+  await started;
+  await new Promise(resolve => setImmediate(resolve));
+  controller.abort('owner-stopped-work');
+  const results = await running;
+  assert.ok(Date.now() - began < 2500, 'cancel must interrupt a one-minute backoff');
+  assert.equal(attempts, 1, 'no second invocation after cancellation');
+  assert.equal(results.length, 1);
+  assert.equal(results[0].status, 'rejected');
+  assert.equal(results[0].reason?.code, 'SCHEDULER_ABORTED');
+});

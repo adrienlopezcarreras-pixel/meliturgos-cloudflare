@@ -1,5 +1,23 @@
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+function schedulerAborted() {
+  return Object.assign(new Error('SCHEDULER_ABORTED'), { code: 'SCHEDULER_ABORTED' });
+}
+
+function sleep(ms, signal) {
+  if (signal?.aborted) return Promise.reject(schedulerAborted());
+  return new Promise((resolve, reject) => {
+    let timer;
+    const onAbort = () => {
+      clearTimeout(timer);
+      signal?.removeEventListener?.('abort', onAbort);
+      reject(schedulerAborted());
+    };
+    timer = setTimeout(() => {
+      signal?.removeEventListener?.('abort', onAbort);
+      resolve();
+    }, ms);
+    signal?.addEventListener?.('abort', onAbort, { once: true });
+    if (signal?.aborted) onAbort();
+  });
 }
 
 function providerKey(task, fallback = 'default') {
@@ -104,11 +122,14 @@ export class ParallelScheduler {
         signal?.removeEventListener?.('abort', onAbort);
         // Parent cancellation is not a provider fault, must not poison its
         // circuit breaker, and must never enter the retry loop.
+        if (signal?.aborted) throw schedulerAborted();
         if (error?.code === 'SCHEDULER_ABORTED') throw error;
         lastError = error;
         this.markFailure(provider);
         if (attempt >= this.retries || !this.canRun(provider)) break;
-        if (this.backoffMs) await sleep(this.backoffMs * (2 ** attempt));
+        // Owner cancellation must interrupt retry backoff, even if a provider
+        // was about to retry after a transient failure.
+        if (this.backoffMs) await sleep(this.backoffMs * (2 ** attempt), signal);
       }
     }
     throw lastError;
