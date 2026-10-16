@@ -141,7 +141,7 @@ function validSystemObjectKey(value) {
   const key = String(value || '');
   if (key.length > 220 || !key.startsWith(SYSTEM_BACKUP_PREFIX) || !key.endsWith('.enc.json')) return false;
   const name = key.slice(SYSTEM_BACKUP_PREFIX.length);
-  return /^[A-Za-z0-9._-]{1,160}\\.enc\\.json$/.test(name) && !name.includes('..');
+  return /^[A-Za-z0-9._-]{1,160}\.enc\.json$/.test(name) && !name.includes('..');
 }
 
 async function readSmallJson(request, maxBytes = 64 * 1024) {
