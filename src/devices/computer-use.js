@@ -20,6 +20,7 @@ export const COMPUTER_USE_ACTIONS = Object.freeze({
   BROWSER_INSPECT: 'browser.inspect',
   BROWSER_CAPTURE: 'browser.capture',
   BROWSER_CLICK: 'browser.click',
+  BROWSER_PRESS: 'browser.press',
   BROWSER_SCROLL: 'browser.scroll',
   BROWSER_TYPE: 'browser.type',
   BROWSER_BACK: 'browser.back',
@@ -46,6 +47,7 @@ const ACTION_RISK = new Map([
   [COMPUTER_USE_ACTIONS.BROWSER_INSPECT, COMPUTER_USE_RISK.OBSERVE],
   [COMPUTER_USE_ACTIONS.BROWSER_CAPTURE, COMPUTER_USE_RISK.SENSITIVE],
   [COMPUTER_USE_ACTIONS.BROWSER_CLICK, COMPUTER_USE_RISK.SENSITIVE],
+  [COMPUTER_USE_ACTIONS.BROWSER_PRESS, COMPUTER_USE_RISK.SENSITIVE],
   [COMPUTER_USE_ACTIONS.BROWSER_SCROLL, COMPUTER_USE_RISK.SENSITIVE],
   [COMPUTER_USE_ACTIONS.BROWSER_TYPE, COMPUTER_USE_RISK.SENSITIVE],
   [COMPUTER_USE_ACTIONS.BROWSER_BACK, COMPUTER_USE_RISK.SENSITIVE],
@@ -122,6 +124,11 @@ function validBrowserWindowHandle(value) {
   return typeof value === 'string' && /^[1-9][0-9]{0,18}$/.test(value)
     && BigInt(value) <= 9223372036854775807n;
 }
+
+const BROWSER_NAVIGATION_KEYS = new Set([
+  'ENTER', 'RETURN', 'TAB', 'ESC', 'ESCAPE', 'BACKSPACE', 'DELETE',
+  'UP', 'DOWN', 'LEFT', 'RIGHT', 'HOME', 'END', 'PGUP', 'PGDN',
+]);
 
 function normalizeOrigin(value) {
   const raw = boundedText(value, 2048);
@@ -332,6 +339,14 @@ export function evaluateComputerUsePlan(input = {}) {
         || Number(submittedSteps[decisions.length].delta_y) === 0)) {
       allowed = false;
       reason = 'SCROLL_DELTA_INVALID';
+    } else if (step.action === COMPUTER_USE_ACTIONS.BROWSER_PRESS
+      && !validBrowserWindowHandle(step.window_handle)) {
+      allowed = false;
+      reason = 'BROWSER_PRESS_WINDOW_HANDLE_REQUIRED';
+    } else if (step.action === COMPUTER_USE_ACTIONS.BROWSER_PRESS
+      && !BROWSER_NAVIGATION_KEYS.has(step.key.toUpperCase())) {
+      allowed = false;
+      reason = 'BROWSER_PRESS_KEY_NOT_ALLOWED';
     } else if (step.action === COMPUTER_USE_ACTIONS.KEY_PRESS && !step.key) {
       allowed = false;
       reason = 'KEY_REQUIRED';
