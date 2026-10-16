@@ -106,10 +106,31 @@ export function normalizeRevenueTasks(payload, nowMs = Date.now()) {
 
 export async function handleRevenueApi(request, env) {
   const url = new URL(request.url);
-  if (url.pathname !== '/api/revenue/tasks') return null;
-  if (request.method !== 'GET') return json({ ok: false, code: 'METHOD_NOT_ALLOWED' }, 405);
+  if (url.pathname !== '/api/revenue/tasks' && url.pathname !== '/api/revenue/taskmarket-pc-status') return null;
   const auth = requireAuth(request, env);
   if (!auth.ok) return auth.response;
+
+  if (url.pathname === '/api/revenue/taskmarket-pc-status') {
+    if (request.method !== 'POST') return json({ ok: false, code: 'METHOD_NOT_ALLOWED' }, 405);
+    const body = await request.json().catch(() => ({}));
+    const computerId = typeof body?.computer_id === 'string' ? body.computer_id.trim().slice(0, 200) : '';
+    if (!computerId) return json({ ok: false, code: 'COMPUTER_ID_REQUIRED' }, 400);
+    const headers = new Headers(request.headers);
+    headers.delete('content-length');
+    headers.set('content-type', 'application/json');
+    const forwarded = new Request(new URL('/api/computer/v1/pc-control', url.origin), {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        computer_id: computerId,
+        action: 'system.exec',
+        payload: { command: TASKMARKET_PC_PROBE_COMMAND, timeout_ms: 25000, require_success_exit: true },
+      }),
+    });
+    return (await maybeHandleComputerApi(forwarded, env)) || json({ ok: false, code: 'COMPANION_ROUTE_UNAVAILABLE' }, 503);
+  }
+
+  if (request.method !== 'GET') return json({ ok: false, code: 'METHOD_NOT_ALLOWED' }, 405);
   try {
     const apiUrl = new URL(TASKMARKET_API);
     apiUrl.searchParams.set('status', 'open');
