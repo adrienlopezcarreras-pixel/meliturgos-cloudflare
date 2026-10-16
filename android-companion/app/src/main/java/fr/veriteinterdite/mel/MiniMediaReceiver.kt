@@ -225,7 +225,7 @@ class MiniMediaReceiver(private val context: Context) {
             // Invalid MINI media metadata must not be silently coerced into
             // a different framerate, sample rate or channel count.
             when (type) {
-                1 -> receivePhoto(input, safeName(name, "mel-mini-photo.jpg"))
+                1 -> receivePhoto(input, safeName(name, "mel-mini-photo.jpg"), client)
                 2 -> if (fps in 1..30) {
                     receiveVideo(input, safeName(name, "mel-mini-video.avi"), width, height, fps)
                 }
@@ -237,11 +237,11 @@ class MiniMediaReceiver(private val context: Context) {
         }
     }
 
-    private fun receivePhoto(input: DataInputStream, name: String) {
+    private fun receivePhoto(input: DataInputStream, name: String, socket: Socket) {
         val size = input.readInt()
         if (size !in 1..MAX_PHOTO_BYTES) return
         // Enforce a total deadline, not just Socket.soTimeout between bytes.
-        val bytes = MiniPhotoDeadlineReader.read(input, size)
+        val bytes = MiniPhotoDeadlineReader.read(input, size, beforeRead = { socket.soTimeout = it })
         if (!MiniJpegFrameSignature.hasMarkers(bytes)) return
         val uri = createMediaStoreEntry(
             MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
