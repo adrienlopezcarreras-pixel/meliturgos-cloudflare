@@ -107,3 +107,9 @@ test('computer_id rejects control characters before network access',async()=>{
  const results=await request([{jsonrpc:'2.0',id:14,method:'tools/call',params:{name:'mel_companion_status',arguments:{computer_id:'win-1\nforged'}}}],{MEL_MCP_SERVER_URL:'https://example.com/',MEL_MCP_OWNER_TOKEN:'test-token'});
  assert.equal(results[0].error.code,-32602);
 });
+
+
+test('null tool arguments fail validation without attempting status fetch',async()=>{
+ const results=await request([{jsonrpc:'2.0',id:15,method:'tools/call',params:{name:'mel_companion_status',arguments:null}}]);
+ assert.equal(results[0].error.code,-32602);
+});
