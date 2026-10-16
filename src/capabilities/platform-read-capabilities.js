@@ -2,7 +2,6 @@ import { D1CloudflareApiRelayStore } from '../platform/cloudflare-api-relay.js';
 import { D1GitHubActionRelayStore } from '../platform/github-action-relay.js';
 const GITHUB_API = 'https://api.github.com';
 const CLOUDFLARE_API = 'https://api.cloudflare.com/client/v4';
-const VERCEL_API = 'https://api.vercel.com';
 const USER_AGENT = 'meliturgos-platform-control';
 const MAX_LIST = 100;
 const MAX_TEXT = 500;
@@ -127,28 +126,8 @@ async function probeHealth(task, unavailableReason = '') {
   }
 }
 
-function projectRow(row = {}) {
-  return {
-    id: String(row.id || ''),
-    name: String(row.name || ''),
-    framework: String(row.framework || ''),
-    updated_at: Number(row.updatedAt || 0),
-    created_at: Number(row.createdAt || 0),
-  };
-}
 
-function deploymentRow(row = {}) {
-  return {
-    id: String(row.uid || row.id || ''),
-    name: String(row.name || ''),
-    url: String(row.url || ''),
-    state: String(row.state || row.readyState || ''),
-    target: String(row.target || ''),
-    created_at: Number(row.createdAt || row.created || 0),
-  };
-}
-
-export function registerPlatformReadCapabilities(bus, { env = {}, fetchImpl = fetch, repository = '', resolveVercelConfig = null, cloudflareRelayStore = null, githubRelayStore = null, includeVercel = true } = {}) {
+export function registerPlatformReadCapabilities(bus, { env = {}, fetchImpl = fetch, repository = '', cloudflareRelayStore = null, githubRelayStore = null } = {}) {
   const githubRepository = repository || env.MEL_GITHUB_REPOSITORY || '';
   const githubToken = String(env.MEL_GITHUB_TOKEN || '').trim();
   const cloudflareToken = String(env.CLOUDFLARE_API_TOKEN || '').trim();
@@ -159,15 +138,7 @@ export function registerPlatformReadCapabilities(bus, { env = {}, fetchImpl = fe
   const githubRelay = githubRelayStore || (env?.DB && typeof env.DB.prepare === 'function'
     ? new D1GitHubActionRelayStore(env.DB)
     : null);
-  const staticVercelToken = String(env.VERCEL_TOKEN || '').trim();
-  const staticVercelTeamId = String(env.VERCEL_TEAM_ID || '').trim();
-  const getVercelConfig = async () => {
-    const dynamic = typeof resolveVercelConfig === 'function' ? await resolveVercelConfig() : null;
-    return {
-      token: String(dynamic?.token || staticVercelToken || '').trim(),
-      teamId: String(dynamic?.team_id || staticVercelTeamId || '').trim(),
-    };
-  };
+
   const githubRelaySnapshot = async () => {
     if (!githubRelay) return null;
     const health = await githubRelay.health();
@@ -450,100 +421,10 @@ export function registerPlatformReadCapabilities(bus, { env = {}, fetchImpl = fe
     return { provider: 'cloudflare', script, deployments, count: deployments.length };
   });
 
-  if (includeVercel) {
-  bus.discover({
-    id: 'vercel.projects.read',
-    name: 'Vercel projects list',
-    category: 'development',
-    version: '1.0.0',
-    provider: 'vercel',
-    description: 'Reads a bounded project inventory from the configured Vercel account or team.',
-    input_schema: {
-      type: 'object',
-      properties: { limit: { type: 'integer', minimum: 1, maximum: MAX_LIST } },
-      additionalProperties: false,
-    },
-    output_schema: { type: 'object', additionalProperties: true },
-    risk: 'LOW',
-    permissions: [],
-    health: staticVercelToken || typeof resolveVercelConfig === 'function' ? 'DEGRADED' : 'UNAVAILABLE',
-    enabled: true,
-    healthcheck: async () => {
-      const cfg = await getVercelConfig();
-      return probeHealth(
-        () => requestJson(fetchImpl, `${VERCEL_API}/v2/user`, {
-          token: cfg.token,
-          code: 'VERCEL_ACCOUNT_HEALTH_FAILED',
-        }),
-        cfg.token ? '' : 'VERCEL_RUNTIME_CREDENTIALS_NOT_CONFIGURED',
-      );
-    },
-  }, async input => {
-    const cfg = await getVercelConfig();
-    if (!cfg.token) throw capabilityError('VERCEL_AUTH_REQUIRED', 503);
-    const count = limit(input.limit);
-    const params = new URLSearchParams({ limit: String(count) });
-    if (cfg.teamId) params.set('teamId', cfg.teamId);
-    const body = await requestJson(fetchImpl, `${VERCEL_API}/v9/projects?${params.toString()}`, {
-      token: cfg.token,
-      code: 'VERCEL_PROJECTS_READ_FAILED',
-    });
-    const projects = (Array.isArray(body?.projects) ? body.projects : []).slice(0, count).map(projectRow);
-    return { provider: 'vercel', projects, count: projects.length };
-  });
-
-  bus.discover({
-    id: 'vercel.deployments.read',
-    name: 'Vercel deployments list',
-    category: 'development',
-    version: '1.0.0',
-    provider: 'vercel',
-    description: 'Reads bounded deployment metadata for one Vercel project without creating, cancelling or promoting deployments.',
-    input_schema: {
-      type: 'object',
-      properties: {
-        projectId: { type: 'string', minLength: 1, maxLength: 200 },
-        limit: { type: 'integer', minimum: 1, maximum: MAX_LIST },
-      },
-      required: ['projectId'],
-      additionalProperties: false,
-    },
-    output_schema: { type: 'object', additionalProperties: true },
-    risk: 'LOW',
-    permissions: [],
-    health: staticVercelToken || typeof resolveVercelConfig === 'function' ? 'DEGRADED' : 'UNAVAILABLE',
-    enabled: true,
-    healthcheck: async () => {
-      const cfg = await getVercelConfig();
-      return probeHealth(
-        () => requestJson(fetchImpl, `${VERCEL_API}/v2/user`, {
-          token: cfg.token,
-          code: 'VERCEL_ACCOUNT_HEALTH_FAILED',
-        }),
-        cfg.token ? '' : 'VERCEL_RUNTIME_CREDENTIALS_NOT_CONFIGURED',
-      );
-    },
-  }, async input => {
-    const cfg = await getVercelConfig();
-    if (!cfg.token) throw capabilityError('VERCEL_AUTH_REQUIRED', 503);
-    const projectId = safeResource(input.projectId, 'VERCEL_PROJECT_ID_INVALID', 200);
-    const count = limit(input.limit);
-    const params = new URLSearchParams({ projectId, limit: String(count) });
-    if (cfg.teamId) params.set('teamId', cfg.teamId);
-    const body = await requestJson(fetchImpl, `${VERCEL_API}/v6/deployments?${params.toString()}`, {
-      token: cfg.token,
-      code: 'VERCEL_DEPLOYMENTS_READ_FAILED',
-    });
-    const deployments = (Array.isArray(body?.deployments) ? body.deployments : []).slice(0, count).map(deploymentRow);
-    return { provider: 'vercel', project_id: projectId, deployments, count: deployments.length };
-  });
-
-  }
   return Object.freeze([
     'github.repository.read',
     'github.actions.runs.read',
     'cloudflare.workers.read',
     'cloudflare.deployments.read',
-    ...(includeVercel ? ['vercel.projects.read', 'vercel.deployments.read'] : []),
   ]);
 }
