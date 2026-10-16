@@ -283,3 +283,14 @@ test("Companion writes actionable local status when the background ADB monitor c
  assert.match(method,/\{"connected",false\}/);
  assert.match(method,/\{"error",failure\}/);
 });
+
+test("Companion supervisor failure log remains bounded across repeated ADB startup failures", async () => {
+ const native=await source("windows-companion/MEL-Companion.cs");
+ const start=native.indexOf("static void StartAdbWifiMonitor()");
+ const end=native.indexOf("public static void StopAdbWifiMonitor()",start);
+ const method=native.slice(start,end);
+ assert.match(method,/android-adb-monitor-supervisor\.log/);
+ assert.match(method,/256 \* 1024/);
+ assert.match(method,/supervisorLog \+ "\.1"/);
+ assert.match(method,/File\.AppendAllText\(supervisorLog/);
+});
