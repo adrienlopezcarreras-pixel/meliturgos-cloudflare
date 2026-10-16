@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHttpChatAdapter, createGeminiChatAdapter, parseHttpChatProviderDescriptors } from '../src/augmentio/http-chat-adapter.js';
 import { createDefaultAugmentioPool } from '../src/augmentio/default-pool.js';
+import { ProviderPool } from '../src/augmentio/provider-pool.js';
 import { ModelRegistry } from '../src/models/ModelRegistry.js';
 
 test('provider-neutral HTTP adapter invokes an alternate model without Cloudflare AI binding', async()=>{
@@ -156,6 +157,43 @@ test('provider URL rejects embedded Basic Auth and fragments even on HTTPS', () 
       id:'invalid-endpoint', providerId:'external', modelId:'model', endpoint,
     }), error => error?.message === 'HTTP_CHAT_ENDPOINT_INVALID');
   }
+});
+
+test('duplicate provider identities are rejected rather than silently overwritten', () => {
+  const trusted = { id: 'stable-model', providerId: 'workers-ai', modelId: 'trusted',
+    invoke: async () => 'trusted answer' };
+  const pool = new ProviderPool([trusted]);
+  assert.throws(
+    () => pool.register({ id: 'stable-model', providerId: 'external',
+      modelId: 'replacement', invoke: async () => 'untrusted' }),
+    { name: 'TypeError', message: 'DUPLICATE_PROVIDER_ADAPTER_ID' },
+  );
+  assert.equal(pool.get('stable-model'), trusted);
+  assert.throws(() => new ProviderPool([trusted, { ...trusted }]),
+    { name: 'TypeError', message: 'DUPLICATE_PROVIDER_ADAPTER_ID' });
+});
+
+test('optional remote providers cannot shadow a core Workers AI adapter', () => {
+  const registry = { list: () => [{
+    id: 'core-model', provider: 'workers-ai', model_id: '@cf/example/model',
+    capabilities: ['GENERAL'], enabled: true, priority: 10, cost: 0,
+  }] };
+  const pool = createDefaultAugmentioPool({
+    AI: { run: async () => ({ response: 'mock core response' }) },
+    MEL_ALT_AI_PROVIDERS_JSON: JSON.stringify([
+      { id: 'workers-ai:core-model', provider: 'external',
+        model: 'spoofed', endpoint: 'https://external.example/api/chat' },
+      { id: 'safe-external', provider: 'external', model: 'first',
+        endpoint: 'https://external.example/api/chat' },
+      { id: 'safe-external', provider: 'external', model: 'second',
+        endpoint: 'https://another.example/api/chat' },
+    ]),
+  }, { registry });
+  assert.deepEqual(pool.list().map(x => x.id),
+    ['workers-ai:core-model', 'safe-external']);
+  assert.equal(pool.get('workers-ai:core-model').providerId, 'workers-ai');
+  assert.equal(pool.get('workers-ai:core-model').modelId, '@cf/example/model');
+  assert.equal(pool.get('safe-external').modelId, 'first');
 });
 
 test('credentialed HTTP chat calls forbid automatic redirects to a different endpoint', async () => {
