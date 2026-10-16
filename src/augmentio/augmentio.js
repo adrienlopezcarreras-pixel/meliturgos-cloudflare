@@ -4,6 +4,14 @@ import { ResultTournament } from './result-tournament.js';
 import { ComputeCache } from './compute-cache.js';
 import { QuotaArbitrator } from './quota-arbitrator.js';
 
+// Match the capability contract: no direct caller can fan out to an
+// unbounded number of models, including Infinity or large numeric strings.
+export function boundedAugmentioCandidates(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return 4;
+  return Math.max(1, Math.min(12, Math.floor(n)));
+}
+
 export class Augmentio {
   constructor({
     pool,
@@ -22,14 +30,15 @@ export class Augmentio {
   }
 
   async fanOut({ capability = 'GENERAL', input, context = {}, maxCandidates = 4, signal } = {}) {
-    const cacheKey = { capability, input, context, maxCandidates };
+    const limit = boundedAugmentioCandidates(maxCandidates);
+    const cacheKey = { capability, input, context, maxCandidates: limit };
     const cached = await this.cache.get(cacheKey);
     if (cached) return { ...cached, cacheHit: true };
 
     await this.pool?.refreshHealth?.();
     const providers = this.quota.filter(
       this.pool.list({ capability }).filter((provider) => this.governor.allows(provider)),
-    ).slice(0, Math.max(1, maxCandidates));
+    ).slice(0, limit);
 
     if (!providers.length) {
       const error = new Error('NO_ZERO_COST_PROVIDER_AVAILABLE');
