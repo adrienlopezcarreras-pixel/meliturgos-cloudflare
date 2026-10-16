@@ -17,7 +17,7 @@ test('media cleanup deletes only expired objects owned by current owner', async 
     MELITURGOS_USER:'adrien',
     MEDIA_BUCKET:{
       async list(options){
-        assert.equal(options.prefix,'uploads/');
+        assert.ok(['uploads/','computer/screenshots/'].includes(options.prefix));
         assert.deepEqual(options.include,['customMetadata']);
         return {
           truncated:false,
@@ -26,7 +26,10 @@ test('media cleanup deletes only expired objects owned by current owner', async 
             {key:'uploads/future.bin',customMetadata:{owner:'adrien',expiresAt:'2026-10-02T00:00:00Z'}},
             {key:'uploads/other.bin',customMetadata:{owner:'other',expiresAt:'2026-09-30T23:59:59Z'}},
             {key:'uploads/legacy.bin',customMetadata:{owner:'adrien'}},
-          ],
+            {key:'computer/screenshots/pc-1/cmd-old.png',customMetadata:{owner:'adrien',expiresAt:'2026-09-30T23:59:59Z'}},
+            {key:'computer/screenshots/pc-1/cmd-future.png',customMetadata:{owner:'adrien',expiresAt:'2026-10-02T00:00:00Z'}},
+            {key:'computer/screenshots/pc-2/cmd-other.png',customMetadata:{owner:'other',expiresAt:'2026-09-30T23:59:59Z'}},
+          ].filter(object=>object.key.startsWith(options.prefix)),
         };
       },
       async delete(keys){ deleted.push(...keys); },
@@ -34,8 +37,8 @@ test('media cleanup deletes only expired objects owned by current owner', async 
   };
 
   const result=await runExpiredMediaCleanup(env,{now});
-  assert.deepEqual(deleted,['uploads/old.bin']);
-  assert.equal(result.scanned,4);
+  assert.deepEqual(deleted,['uploads/old.bin','computer/screenshots/pc-1/cmd-old.png']);
+  assert.equal(result.scanned,7);
   assert.equal(result.deleted,1);
   assert.equal(result.status,'MEDIA_CLEANUP_COMPLETE');
 });
@@ -50,7 +53,7 @@ test('media cleanup scan stays bounded', async () => {
         return {
           truncated:false,
           objects:Array.from({length:3},(_,i)=>({
-            key:'uploads/'+i+'.bin',
+            key:options.prefix+i+'.bin',
             customMetadata:{owner:'adrien',expiresAt:'2026-09-30T00:00:00Z'},
           })),
         };
