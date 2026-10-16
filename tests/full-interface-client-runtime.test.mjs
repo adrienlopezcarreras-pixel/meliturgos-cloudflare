@@ -82,7 +82,7 @@ test('full interface exposes free-first Gmail and Yahoo/Ymail plus Microsoft Out
 test('full interface keeps optional Vercel backend out of the canonical owner control surface', async () => {
   const response = await onRequestGet();
   const html = await response.text();
-  assert.doesNotMatch(html, /<h2>Vercel<\/h2>/);
+  assert.doesNotMatch(html, /vercel/i);
   for (const id of [
     'vercelToken','vercelTeamId','vercelProjectId','vercelProjectName',
     'vercelSave','vercelTest','vercelDeploymentSelect',
