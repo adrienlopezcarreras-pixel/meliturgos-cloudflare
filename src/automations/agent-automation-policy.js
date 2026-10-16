@@ -116,6 +116,28 @@ export function listRunsRequest(input = {}) {
   };
 }
 
+/** Re-check current grants on every authorization attempt, including idempotent replays. */
+export function assertAutomationExecutionGrants(policy, request) {
+  requireValue(
+    TIER_RANK[request.granted_tier] >= TIER_RANK[policy.permission_tier],
+    'AUTOMATION_PERMISSION_TIER_DENIED', 403,
+  );
+  const grants = new Set(request.granted_capabilities);
+  requireValue(policy.required_capabilities.every(capability => grants.has(capability)),
+    'AUTOMATION_CAPABILITY_DENIED', 403);
+  requireValue(policy.permission_tier !== PERMISSION_TIERS.DESTRUCTIVE || request.approved,
+    'AUTOMATION_EXPLICIT_APPROVAL_REQUIRED', 403);
+}
+
+/** A replay must never inherit a stronger claim from a different policy or stale grants. */
+export function assertAutomationIdempotentReplay(original, policy, request) {
+  requireValue(original.run_id === request.run_id
+    && original.owner === request.owner
+    && JSON.stringify(original.policy) === JSON.stringify(policy),
+    'AUTOMATION_IDEMPOTENCY_CONFLICT', 409);
+  assertAutomationExecutionGrants(policy, request);
+}
+
 function runIdRequest(input = {}) {
   requireValue(isRecord(input) && nonEmptyString(input.run_id), 'AUTOMATION_RUN_ID_INVALID', 400);
   return input.run_id.trim();
@@ -168,27 +190,12 @@ export function createInMemoryAgentAutomationPolicyAdapter() {
       const idemOwner = idempotency.get(request.idempotency_key);
       if (idemOwner) {
         const existing = requireRun(idemOwner);
-        requireValue(
-          existing.policy.automation_id === policy.automation_id
-            && existing.owner === request.owner
-            && existing.run_id === request.run_id,
-          'AUTOMATION_IDEMPOTENCY_CONFLICT',
-          409,
-        );
+        assertAutomationIdempotentReplay(existing, policy, request);
         return { claim: snapshot(existing), deduplicated: true };
       }
 
       requireValue(!runs.has(request.run_id), 'AUTOMATION_RUN_ID_EXISTS', 409);
-      requireValue(
-        TIER_RANK[request.granted_tier] >= TIER_RANK[policy.permission_tier],
-        'AUTOMATION_PERMISSION_TIER_DENIED',
-        403,
-      );
-
-      const grants = new Set(request.granted_capabilities);
-      const missing = policy.required_capabilities.filter(capability => !grants.has(capability));
-      requireValue(missing.length === 0, 'AUTOMATION_CAPABILITY_DENIED', 403);
-      requireValue(policy.permission_tier !== PERMISSION_TIERS.DESTRUCTIVE || request.approved, 'AUTOMATION_EXPLICIT_APPROVAL_REQUIRED', 403);
+      assertAutomationExecutionGrants(policy, request);
 
       const record = {
         run_id: request.run_id,

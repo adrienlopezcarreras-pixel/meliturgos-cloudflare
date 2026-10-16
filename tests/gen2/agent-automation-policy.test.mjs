@@ -186,3 +186,20 @@ test('read models are filterable and defensive; unsafe query ranges are rejected
   assert.throws(() => listRunsRequest({ status: 'RUNNING' }), { code: 'AUTOMATION_RUN_STATUS_INVALID' });
   assert.throws(() => listRunsRequest({ limit: 0 }), { code: 'AUTOMATION_RUN_LIMIT_INVALID' });
 });
+
+test('idempotent automation replay cannot inherit elevated old grants or altered policy',async()=>{
+  const service=createAgentAutomationPolicy(createInMemoryAgentAutomationPolicyAdapter());
+  const p=policy({permission_tier:PERMISSION_TIERS.DESTRUCTIVE,required_capabilities:['files.delete']});
+  const original=request({policy:p,granted_capabilities:['files.delete'],
+    granted_tier:PERMISSION_TIERS.DESTRUCTIVE,approved:true});
+  await service.authorizeRun(original);
+  await assert.rejects(()=>service.authorizeRun({...original,approved:false}),
+    {code:'AUTOMATION_EXPLICIT_APPROVAL_REQUIRED',status:403});
+  await assert.rejects(()=>service.authorizeRun({...original,granted_tier:PERMISSION_TIERS.READ}),
+    {code:'AUTOMATION_PERMISSION_TIER_DENIED',status:403});
+  await assert.rejects(()=>service.authorizeRun({...original,granted_capabilities:[]}),
+    {code:'AUTOMATION_CAPABILITY_DENIED',status:403});
+  await assert.rejects(()=>service.authorizeRun({...original,policy:policy()}),
+    {code:'AUTOMATION_IDEMPOTENCY_CONFLICT',status:409});
+  assert.equal((await service.authorizeRun(original)).deduplicated,true);
+});

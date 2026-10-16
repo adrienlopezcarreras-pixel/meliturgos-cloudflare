@@ -229,3 +229,23 @@ test('D1 automation policy lists deterministically with filters', async()=>{
     ['r3','r1']
   );
 });
+
+test('D1 automation replays revalidate grants and exact policy, including after restart',async()=>{
+  const db=new FakeD1();
+  const a=createAgentAutomationPolicy(createD1AgentAutomationPolicyAdapter(db));
+  const destructive=policy({required_capabilities:['files.delete'],
+    permission_tier:PERMISSION_TIERS.DESTRUCTIVE});
+  const original={policy:destructive,...request({granted_capabilities:['files.delete'],
+    granted_tier:PERMISSION_TIERS.DESTRUCTIVE,approved:true})};
+  await a.authorizeRun(original);
+  const restarted=createAgentAutomationPolicy(createD1AgentAutomationPolicyAdapter(db));
+  await assert.rejects(()=>restarted.authorizeRun({...original,approved:false}),
+    {code:'AUTOMATION_EXPLICIT_APPROVAL_REQUIRED',status:403});
+  await assert.rejects(()=>restarted.authorizeRun({...original,granted_tier:PERMISSION_TIERS.READ}),
+    {code:'AUTOMATION_PERMISSION_TIER_DENIED',status:403});
+  await assert.rejects(()=>restarted.authorizeRun({...original,granted_capabilities:[]}),
+    {code:'AUTOMATION_CAPABILITY_DENIED',status:403});
+  await assert.rejects(()=>restarted.authorizeRun({...original,policy:policy()}),
+    {code:'AUTOMATION_IDEMPOTENCY_CONFLICT',status:409});
+  assert.equal((await restarted.authorizeRun(original)).deduplicated,true);
+});
