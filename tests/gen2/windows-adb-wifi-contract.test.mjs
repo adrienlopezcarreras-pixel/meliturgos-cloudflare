@@ -303,3 +303,13 @@ test("Companion dashboard only presents ADB connected when the report is fresh",
  assert.match(refresh,/bool isConnected = fresh && a\.TryGetValue\("connected"/);
  assert.match(refresh,/\.TotalSeconds < 75/);
 });
+
+test("Companion parses ADB report timestamps with invariant UTC semantics", async () => {
+ const native=await source("windows-companion/MEL-Companion.cs");
+ const start=native.indexOf("void RefreshAll()");
+ const end=native.indexOf("var devices=MelApp.Devices()",start);
+ const refresh=native.slice(start,end);
+ assert.match(refresh,/DateTime\.TryParse\(Convert\.ToString\(observed\), System\.Globalization\.CultureInfo\.InvariantCulture/);
+ assert.match(refresh,/DateTimeStyles\.AssumeUniversal \| System\.Globalization\.DateTimeStyles\.AdjustToUniversal/);
+ assert.match(refresh,/\.TotalSeconds < 75/);
+});
