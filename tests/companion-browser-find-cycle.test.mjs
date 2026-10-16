@@ -91,6 +91,11 @@ test('find navigation refuses ignored payload instead of silently dropping owner
       assert.equal(plan.allowed, false, action + ' ' + field);
       assert.equal(plan.reason, 'BROWSER_FIND_CYCLE_UNEXPECTED_FIELD', action + ' ' + field);
     }
+    for (const [field, value] of [['selector', '#password'], ['target', 'other-tab'], ['repeat', 100], ['count', 3], ['text', null]]) {
+      const plan = verdict({ id: 'cycle', action, window_handle: '34567', [field]: value });
+      assert.equal(plan.allowed, false, action + ' unexpected ' + field);
+      assert.equal(plan.reason, 'BROWSER_FIND_CYCLE_UNEXPECTED_FIELD', action + ' unexpected ' + field);
+    }
     assert.equal(verdict({ id: 'cycle', action, window_handle: '34567' }).allowed, true);
   }
 });
