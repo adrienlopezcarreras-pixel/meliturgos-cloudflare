@@ -172,8 +172,18 @@ function completionProof(job) {
     || !branch.startsWith('candidate/') || branch !== ciBranch
     || !Number.isSafeInteger(ciRunId) || ciRunId <= 0) return null;
   const requestId = String(completion.request_id || '');
-  if (!requestId || requestId !== String(job?.result_json?.teacher_bridge?.request?.request_id || '')) return null;
-  if (job?.result_json?.implementation_proposal?.teacher_request_id !== requestId) return null;
+  const bridge = job?.result_json?.teacher_bridge;
+  if (!requestId || requestId !== String(bridge?.request?.request_id || '')) return null;
+  if (bridge?.status !== 'ANSWERED'
+    || bridge?.review?.request_id !== requestId
+    || bridge?.review?.verdict !== 'APPROVE_PLAN'
+    || bridge?.review?.development_allowed !== true) return null;
+  // Completion is about the exact job-owned canonical branch, not merely an
+  // arbitrary CI run with internally matching branch strings.
+  if (typeof job?.candidate_branch !== 'string'
+    || job.candidate_branch !== branch
+    || job?.result_json?.implementation_proposal?.candidate_branch !== branch
+    || job?.result_json?.implementation_proposal?.teacher_request_id !== requestId) return null;
   return {
     job_id: job.id,
     request_id: requestId,
