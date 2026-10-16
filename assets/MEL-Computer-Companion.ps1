@@ -2566,39 +2566,69 @@ function Perform-Step($step, [string]$commandId, [string]$planSchema="") {
       return @{ action=$action; url=$uri.AbsoluteUri }
     }
     "browser.close-tab" {
+      # Exact inspected browser window is required even for legacy shortcuts.
+      [long]$expectedHandle = 0
+      if (-not [long]::TryParse([string]$step.window_handle, [ref]$expectedHandle) -or $expectedHandle -le 0) {
+        throw "BROWSER_SHORTCUT_WINDOW_HANDLE_REQUIRED"
+      }
       $window = [MelNative]::GetForegroundWindow()
+      if ($window -eq [IntPtr]::Zero -or $window.ToInt64() -ne $expectedHandle) { throw "BROWSER_SHORTCUT_FOCUS_CHANGED" }
       $browser = Assert-ForegroundBrowser
       Assert-BrowserShortcutTarget $window $browser
       [System.Windows.Forms.SendKeys]::SendWait("^w")
-      return @{ action=$action; browser=$browser }
+      return @{ action=$action; browser=$browser; window_handle=$expectedHandle }
     }
     "browser.new-tab" {
+      # Exact inspected browser window is required even for legacy shortcuts.
+      [long]$expectedHandle = 0
+      if (-not [long]::TryParse([string]$step.window_handle, [ref]$expectedHandle) -or $expectedHandle -le 0) {
+        throw "BROWSER_SHORTCUT_WINDOW_HANDLE_REQUIRED"
+      }
       $window = [MelNative]::GetForegroundWindow()
+      if ($window -eq [IntPtr]::Zero -or $window.ToInt64() -ne $expectedHandle) { throw "BROWSER_SHORTCUT_FOCUS_CHANGED" }
       $browser = Assert-ForegroundBrowser
       Assert-BrowserShortcutTarget $window $browser
       [System.Windows.Forms.SendKeys]::SendWait("^t")
-      return @{ action=$action; browser=$browser }
+      return @{ action=$action; browser=$browser; window_handle=$expectedHandle }
     }
     "browser.back" {
+      # Exact inspected browser window is required even for legacy shortcuts.
+      [long]$expectedHandle = 0
+      if (-not [long]::TryParse([string]$step.window_handle, [ref]$expectedHandle) -or $expectedHandle -le 0) {
+        throw "BROWSER_SHORTCUT_WINDOW_HANDLE_REQUIRED"
+      }
       $window = [MelNative]::GetForegroundWindow()
+      if ($window -eq [IntPtr]::Zero -or $window.ToInt64() -ne $expectedHandle) { throw "BROWSER_SHORTCUT_FOCUS_CHANGED" }
       $browser = Assert-ForegroundBrowser
       Assert-BrowserShortcutTarget $window $browser
       [System.Windows.Forms.SendKeys]::SendWait("%{LEFT}")
-      return @{ action=$action; browser=$browser }
+      return @{ action=$action; browser=$browser; window_handle=$expectedHandle }
     }
     "browser.forward" {
+      # Exact inspected browser window is required even for legacy shortcuts.
+      [long]$expectedHandle = 0
+      if (-not [long]::TryParse([string]$step.window_handle, [ref]$expectedHandle) -or $expectedHandle -le 0) {
+        throw "BROWSER_SHORTCUT_WINDOW_HANDLE_REQUIRED"
+      }
       $window = [MelNative]::GetForegroundWindow()
+      if ($window -eq [IntPtr]::Zero -or $window.ToInt64() -ne $expectedHandle) { throw "BROWSER_SHORTCUT_FOCUS_CHANGED" }
       $browser = Assert-ForegroundBrowser
       Assert-BrowserShortcutTarget $window $browser
       [System.Windows.Forms.SendKeys]::SendWait("%{RIGHT}")
-      return @{ action=$action; browser=$browser }
+      return @{ action=$action; browser=$browser; window_handle=$expectedHandle }
     }
     "browser.reload" {
+      # Exact inspected browser window is required even for legacy shortcuts.
+      [long]$expectedHandle = 0
+      if (-not [long]::TryParse([string]$step.window_handle, [ref]$expectedHandle) -or $expectedHandle -le 0) {
+        throw "BROWSER_SHORTCUT_WINDOW_HANDLE_REQUIRED"
+      }
       $window = [MelNative]::GetForegroundWindow()
+      if ($window -eq [IntPtr]::Zero -or $window.ToInt64() -ne $expectedHandle) { throw "BROWSER_SHORTCUT_FOCUS_CHANGED" }
       $browser = Assert-ForegroundBrowser
       Assert-BrowserShortcutTarget $window $browser
       [System.Windows.Forms.SendKeys]::SendWait("{F5}")
-      return @{ action=$action; browser=$browser }
+      return @{ action=$action; browser=$browser; window_handle=$expectedHandle }
     }
     "browser.click" {
       # Exact inspection window handle and virtual-screen coordinates required.
