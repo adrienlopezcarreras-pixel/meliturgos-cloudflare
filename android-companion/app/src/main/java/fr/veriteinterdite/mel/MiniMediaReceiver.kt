@@ -40,7 +40,6 @@ class MiniMediaReceiver(private val context: Context) {
         private const val TAG = "MiniMediaReceiver"
         private const val PORT = 38222
         private const val MAX_PHOTO_BYTES = 12 * 1024 * 1024
-        private const val MAX_FRAME_BYTES = 2 * 1024 * 1024
         private const val MAX_AUDIO_CHUNK = 512 * 1024
         private val MAGIC = "MELM1".toByteArray(Charsets.US_ASCII)
     }
@@ -210,12 +209,14 @@ class MiniMediaReceiver(private val context: Context) {
     ) {
         if (width !in 80..1920 || height !in 80..1920) return
         val temp = File.createTempFile("mel-mini-video-", ".avi", context.cacheDir)
+        val budget = MiniVideoTransferBudget()
         try {
             AviMjpegWriter(temp, width, height, fps).use { avi ->
                 while (true) {
                     val size = input.readInt()
                     if (size == 0) break
-                    if (size !in 1..MAX_FRAME_BYTES) return
+                    // Reject oversized streams before allocating/reading another frame.
+                    if (!budget.reserve(size)) return
                     avi.addFrame(readFully(input, size))
                 }
             }
