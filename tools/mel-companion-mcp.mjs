@@ -46,7 +46,7 @@ async function getStatus(args){
   const raw=Buffer.concat(chunks,total).toString('utf8');
   let data;
   try{data=JSON.parse(raw);}catch{throw new Error('MEL_STATUS_INVALID_JSON');}
-  if(data.ok!==true||!Array.isArray(data.devices))throw new Error('MEL_STATUS_INVALID');
+  if(!data||typeof data!=='object'||data.ok!==true||!Array.isArray(data.devices)||data.devices.some(d=>!d||typeof d!=='object'||Array.isArray(d))||(data.commands!==undefined&&(!Array.isArray(data.commands)||data.commands.some(c=>!c||typeof c!=='object'||Array.isArray(c)))))throw new Error('MEL_STATUS_INVALID');
   return {devices:data.devices.map(d=>({
    id:String(d.id||''),name:String(d.name||''),online:d.online===true,
    halted:d.halted===true,remote_access_enabled:d.metadata?.remote_access_enabled===true,
