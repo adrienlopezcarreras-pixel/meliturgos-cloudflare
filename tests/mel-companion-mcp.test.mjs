@@ -202,3 +202,13 @@ test('truncated response JSON fails closed without parser details',async()=>{
  assert.equal(responses[0].result.isError,true);
  assert.equal(responses[0].result.content[0].text,'MEL_STATUS_INVALID_JSON');
 });
+
+
+test('valid JSON with null device fails closed with stable status error',async()=>{
+ const responses=await request([{jsonrpc:'2.0',id:29,method:'tools/call',params:{name:'mel_companion_status',arguments:{}}}],{
+  MEL_MCP_SERVER_URL:'https://mel.example.test/',MEL_MCP_OWNER_TOKEN:'fixture-token',
+  NODE_OPTIONS:'--import=./tests/fixtures/mel-mcp-malformed-devices-mock.mjs'
+ });
+ assert.equal(responses[0].result.isError,true);
+ assert.equal(responses[0].result.content[0].text,'MEL_STATUS_INVALID');
+});
