@@ -15,11 +15,13 @@ export async function runExpiredMediaCleanup(env = {}, options = {}) {
   let scanned = 0;
   const eligible = [];
   const scannedPrefixes = [];
+  const perPrefixBudget = Math.max(1, Math.ceil(maxObjects / MEDIA_PREFIXES.length));
 
   for (const prefix of MEDIA_PREFIXES) {
     let cursor = null;
+    let prefixScanned = 0;
     do {
-      const remaining = maxObjects - scanned;
+      const remaining = Math.min(maxObjects - scanned, perPrefixBudget - prefixScanned);
       if (remaining <= 0) break;
       const page = await bucket.list({
         prefix,
@@ -29,12 +31,14 @@ export async function runExpiredMediaCleanup(env = {}, options = {}) {
       });
       const objects = Array.isArray(page?.objects) ? page.objects : [];
       scanned += objects.length;
+      prefixScanned += objects.length;
       scannedPrefixes.push(prefix);
       for (const object of objects) {
         if (String(object?.customMetadata?.owner || '') !== owner) continue;
         eligible.push(object);
       }
-      cursor = page?.truncated && page?.cursor && scanned < maxObjects ? String(page.cursor) : null;
+      cursor = page?.truncated && page?.cursor && scanned < maxObjects && prefixScanned < perPrefixBudget
+        ? String(page.cursor) : null;
     } while (cursor);
     if (scanned >= maxObjects) break;
   }
