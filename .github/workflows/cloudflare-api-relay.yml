@@ -16,7 +16,8 @@ on:
   schedule:
     - cron: '*/5 * * * *'
   workflow_run:
-    workflows: ["deploy-cloudflare-release"]
+    # Run the scoped read-only MINI audit after successful downstream production proof, too.
+    workflows: ["deploy-cloudflare-release", "release-downstream-proof-decoupled"]
     types: [completed]
 
 permissions:
