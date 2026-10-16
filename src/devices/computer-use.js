@@ -329,6 +329,13 @@ export function evaluateComputerUsePlan(input = {}) {
     } else if (risk === COMPUTER_USE_RISK.DENY) {
       allowed = false;
       reason = 'ACTION_NOT_ALLOWED';
+    } else if (step.action === COMPUTER_USE_ACTIONS.BROWSER_INSPECT
+      && Object.keys(submittedSteps[decisions.length] ?? {}).some(field =>
+        !['id', 'action'].includes(field))) {
+      // Inspection observes only the foreground browser. It cannot navigate,
+      // choose another HWND, extract page text, or silently honor a target.
+      allowed = false;
+      reason = 'BROWSER_INSPECT_UNEXPECTED_FIELD';
     } else if (step.action === COMPUTER_USE_ACTIONS.CLICK
       && Object.keys(submittedSteps[decisions.length] ?? {}).some(field =>
         !['id', 'action', 'app', 'url', 'path'].includes(field))) {
