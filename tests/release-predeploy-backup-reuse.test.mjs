@@ -143,6 +143,15 @@ test('predeploy refresh creates the backup on the GitHub runner and keeps the Wo
   assert.match(refresher, /D1_TABLES_PATH = '\/d1\/tables'/);
   assert.match(refresher, /D1_ROWS_PATH = '\/d1\/rows'/);
   assert.match(refresher, /REGISTER_PATH = '\/register'/);
+  assert.match(refresher, /UPLOAD_CREATE_PATH = '\/upload\/create'/);
+  assert.match(refresher, /UPLOAD_PART_PATH = '\/upload\/part'/);
+  assert.match(refresher, /UPLOAD_COMPLETE_PATH = '\/upload\/complete'/);
+  assert.match(refresher, /UPLOAD_ABORT_PATH = '\/upload\/abort'/);
+  assert.match(refresher, /createMultipartUpload/);
+  assert.match(refresher, /resumeMultipartUpload/);
+  assert.match(refresher, /uploadPart/);
+  assert.match(refresher, /\.complete\(normalized\)/);
+  assert.match(refresher, /\.abort\(\)/);
   assert.match(refresher, /MEDIA_BUCKET\.list/);
   assert.match(refresher, /env\.DB\.prepare/);
   assert.match(refresher, /INSERT INTO backup_objects/);
@@ -173,8 +182,16 @@ test('predeploy refresh creates the backup on the GitHub runner and keeps the Wo
   assert.match(d1Export, /'\/d1\/tables'/);
   assert.match(d1Export, /\/d1\/rows/);
   assert.match(runner, /'\/register'/);
+  assert.match(runner, /uploadEncryptedBackupMultipart/);
+  assert.match(runner, /MULTIPART_PART_BYTES = 16 \* 1024 \* 1024/);
+  assert.match(runner, /\/upload\/create/);
+  assert.match(runner, /\/upload\/part\?/);
+  assert.match(runner, /\/upload\/complete/);
+  assert.match(runner, /\/upload\/abort/);
+  assert.match(runner, /BACKUP_MULTIPART_COMPLETION_NOT_VERIFIED/);
+  assert.match(runner, /sha256File/);
   assert.doesNotMatch(runner, /\/d1\/database\//);
-  assert.match(runner, /'r2', 'object', 'put'/);
+  assert.doesNotMatch(runner, /'r2', 'object', 'put'/);
   assert.match(runner, /'r2', 'object', 'get'/);
   assert.match(runner, /PREDEPLOY_BACKUP_REFRESH_CREATED/);
 
@@ -185,6 +202,9 @@ test('predeploy refresh creates the backup on the GitHub runner and keeps the Wo
   assert.match(runner, /reportProgress\('d1-export:start'\)/);
   assert.match(runner, /reportProgress\('r2-inventory:start'\)/);
   assert.match(runner, /reportProgress\('verified-backup:complete'\)/);
+  assert.match(runner, /encrypted-r2-upload:part/);
+  assert.match(runner, /downloadedSha !== uploadedSha/);
+  assert.match(runner, /downloadedInfo\.size !== payloadBytes/);
 
   const binderEnd = source.indexOf('      - name: Prepare encrypted Media Vault secrets for exact deployment', binder);
   const binderBlock = source.slice(binder, binderEnd);
