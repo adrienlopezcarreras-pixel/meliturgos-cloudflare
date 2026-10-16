@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
-test('MINI uses internal flash FAT storage for assets and rendered media', async () => {
+test('MINI uses the configured internal flash FAT storage for assets and rendered media', async () => {
   const [runtime, cmake, header, partitions, api, workflow] = await Promise.all([
     readFile(new URL('../firmware/waveshare-terminal/main/mel_terminal.cpp', import.meta.url), 'utf8'),
     readFile(new URL('../firmware/waveshare-terminal/main/CMakeLists.txt', import.meta.url), 'utf8'),
