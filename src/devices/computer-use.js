@@ -72,6 +72,22 @@ const MAX_TEXT = 4096;
 const MAX_ID = 200;
 const MAX_APP = 200;
 
+ // Keep this allowlist aligned with the native Windows Key-Token function.
+ // Raw SendKeys metacharacters (+, ^, %, ~, {, }, etc.) are not safe literals.
+const WINDOWS_KEY_TOKENS = new Set([
+  'ENTER', 'RETURN', 'TAB', 'ESC', 'ESCAPE', 'BACKSPACE', 'DELETE',
+  'UP', 'DOWN', 'LEFT', 'RIGHT', 'HOME', 'END', 'PGUP', 'PGDN',
+  'CTRL+L', 'CTRL+C', 'CTRL+V', 'CTRL+A', 'CTRL+S', 'ALT+TAB',
+]);
+
+function supportedWindowsKey(value) {
+  if (typeof value !== 'string') return false;
+  const key = value.trim().toUpperCase();
+  return /^[A-Z0-9]$/.test(key)
+    || /^F(?:[1-9]|1[0-2])$/.test(key)
+    || WINDOWS_KEY_TOKENS.has(key);
+}
+
 function boundedText(value, max = MAX_ID) {
   return typeof value === 'string' ? value.trim().slice(0, max) : '';
 }
@@ -289,6 +305,9 @@ export function evaluateComputerUsePlan(input = {}) {
     } else if (step.action === COMPUTER_USE_ACTIONS.KEY_PRESS && !step.key) {
       allowed = false;
       reason = 'KEY_REQUIRED';
+    } else if (step.action === COMPUTER_USE_ACTIONS.KEY_PRESS && !supportedWindowsKey(step.key)) {
+      allowed = false;
+      reason = 'KEY_NOT_SUPPORTED';
     } else if (!appAllowed(step.app, request.sandbox.allowed_apps)) {
       allowed = false;
       reason = 'APP_OUTSIDE_SANDBOX';
