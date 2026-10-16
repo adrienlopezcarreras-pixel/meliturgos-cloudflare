@@ -1,0 +1,201 @@
+{
+  "schema": "mel.link-v2.contract.v1",
+  "protocol": {
+    "name": "MEL Link V2",
+    "version": 2,
+    "magicHex": "4d32",
+    "headerBytes": 13,
+    "headerFields": [
+      {
+        "name": "magic0",
+        "bytes": 1
+      },
+      {
+        "name": "magic1",
+        "bytes": 1
+      },
+      {
+        "name": "protocolVersion",
+        "bytes": 1
+      },
+      {
+        "name": "type",
+        "bytes": 1
+      },
+      {
+        "name": "flags",
+        "bytes": 1
+      },
+      {
+        "name": "streamId",
+        "bytes": 2
+      },
+      {
+        "name": "sequence",
+        "bytes": 2
+      },
+      {
+        "name": "payloadLength",
+        "bytes": 2
+      },
+      {
+        "name": "crc16",
+        "bytes": 2
+      }
+    ],
+    "byteOrder": "little-endian",
+    "defaultMtu": 185,
+    "minimumAudioMtu": 148,
+    "gattAttOverheadBytes": 3,
+    "maxFramePayloadBytes": 65535,
+    "creditWindowBlocks": 6,
+    "sessionAckText": "SESSION_OK",
+    "timeoutsMs": {
+      "androidHandshake": 90000,
+      "sessionAck": 10000
+    },
+    "frames": [
+      {
+        "name": "HELLO",
+        "value": 1,
+        "hex": "0x01"
+      },
+      {
+        "name": "SESSION",
+        "value": 2,
+        "hex": "0x02"
+      },
+      {
+        "name": "CLOCK",
+        "value": 3,
+        "hex": "0x03"
+      },
+      {
+        "name": "REQUEST_BEGIN",
+        "value": 16,
+        "hex": "0x10"
+      },
+      {
+        "name": "REQUEST_DATA",
+        "value": 17,
+        "hex": "0x11"
+      },
+      {
+        "name": "REQUEST_END",
+        "value": 18,
+        "hex": "0x12"
+      },
+      {
+        "name": "MEDIA_CONFIG_REQUEST",
+        "value": 19,
+        "hex": "0x13"
+      },
+      {
+        "name": "MEDIA_CONFIG",
+        "value": 20,
+        "hex": "0x14"
+      },
+      {
+        "name": "RESPONSE_BEGIN",
+        "value": 32,
+        "hex": "0x20"
+      },
+      {
+        "name": "RESPONSE_DATA",
+        "value": 33,
+        "hex": "0x21"
+      },
+      {
+        "name": "RESPONSE_END",
+        "value": 34,
+        "hex": "0x22"
+      },
+      {
+        "name": "AUDIO_BEGIN",
+        "value": 48,
+        "hex": "0x30"
+      },
+      {
+        "name": "AUDIO_DATA",
+        "value": 49,
+        "hex": "0x31"
+      },
+      {
+        "name": "AUDIO_END",
+        "value": 50,
+        "hex": "0x32"
+      },
+      {
+        "name": "CREDIT",
+        "value": 64,
+        "hex": "0x40"
+      },
+      {
+        "name": "ACK",
+        "value": 65,
+        "hex": "0x41"
+      },
+      {
+        "name": "TRIAD_PHASE",
+        "value": 80,
+        "hex": "0x50"
+      },
+      {
+        "name": "TRIAD_CAPABILITY_REQUEST",
+        "value": 81,
+        "hex": "0x51"
+      },
+      {
+        "name": "ERROR",
+        "value": 126,
+        "hex": "0x7e"
+      },
+      {
+        "name": "PING",
+        "value": 127,
+        "hex": "0x7f"
+      },
+      {
+        "name": "PONG",
+        "value": 128,
+        "hex": "0x80"
+      }
+    ]
+  },
+  "audio": {
+    "channels": 1,
+    "pcmFormat": "PCM16_LE",
+    "physicalPlaybackRateHz": 48000,
+    "microphoneCaptureRateHz": 48000,
+    "sttInputRateHz": 16000,
+    "resampling": "FIR low-pass and decimation 48 kHz -> 16 kHz for STT",
+    "speechReplyCodec": "ima-adpcm",
+    "imaAdpcmMaximumBlockSamples": 256,
+    "imaAdpcmMaximumEncodedBytes": 132,
+    "androidTtsBlockSamples": 128,
+    "audioMetadataRateHz": 48000,
+    "minimumMtuCalculation": "132 encoded bytes + 13-byte Link V2 header + 3-byte ATT overhead = 148 bytes"
+  },
+  "transfer": {
+    "dataFramesAreSequenced": true,
+    "beginDataEndFrameTriplets": true,
+    "audioCreditWindowBlocks": 6,
+    "cancellationMustBeCheckedBeforeAndAfterCreditWait": true,
+    "cancellationIsNotADeviceReset": true
+  },
+  "componentRoles": {
+    "mini": "BLE GATT peripheral/server; validates encrypted Link V2 session and emits SESSION_OK only after session validation",
+    "android": "BLE GATT central/client; negotiates MTU, validates GATT properties, checks SESSION_OK, resamples local French TTS to 48 kHz and sends bounded credit-controlled audio",
+    "windows": "Protocol-neutral desktop Companion; does not implement BLE Link V2 framing and must use authenticated backend triad/companion state instead of asserting MINI session readiness itself"
+  },
+  "evidence": {
+    "softwareTestsDoNotProvePhysicalSpeakerOrMicrophone": true,
+    "hardwareProofRequired": [
+      "audible ES8311 playback",
+      "real microphone capture",
+      "long BLE transfer",
+      "reconnect",
+      "full voice round-trip"
+    ]
+  }
+}
