@@ -577,3 +577,37 @@ test('Council preserves known bounded machine codes and rejects unbounded provid
   assert.deepEqual(result.failures.map(row => row.code), ['PROVIDER_FAILED']);
   assert.doesNotMatch(JSON.stringify(result.failures), /private request text/);
 });
+
+test('Council synthesis uses each healthy critic at most once before falling back', async () => {
+  const calls = [];
+  const pool = new ProviderPool([
+    provider({ id: 'first', providerId: 'alpha', modelId: 'model-a', calls, failSynthesis: true }),
+    provider({ id: 'next', providerId: 'beta', modelId: 'model-b', calls }),
+  ]);
+  const result = await runModelCouncil({
+    pool, request: 'test fast synthesis fallback', timeoutMs: 50,
+  });
+  assert.equal(result.status, 'COMPLETE');
+  assert.equal(result.independent_response_count, 2);
+  assert.equal(result.synthesis.status, 'COMPLETE');
+  assert.equal(result.synthesis.provenance.provider, 'beta');
+  assert.deepEqual(result.synthesis.attempted, ['alpha::model-a', 'beta::model-b']);
+  const synthesisCalls = calls.filter(row => row.purpose === 'model-council-synthesis');
+  assert.deepEqual(synthesisCalls.map(row => row.id), ['first', 'next'],
+    'bad synthesizer is not needlessly retried before a healthy peer');
+});
+
+test('a failed Council synthesis makes one bounded attempt per verified model', async () => {
+  const calls = [];
+  const pool = new ProviderPool([
+    provider({ id: 'a', providerId: 'alpha', modelId: 'model-a', calls, failSynthesis: true }),
+    provider({ id: 'b', providerId: 'beta', modelId: 'model-b', calls, failSynthesis: true }),
+  ]);
+  await assert.rejects(
+    runModelCouncil({ pool, request: 'all synthesis providers fail', timeoutMs: 50 }),
+    error => error?.code === 'COUNCIL_SYNTHESIS_FAILED'
+      && error?.diagnostic_codes?.length === 2,
+  );
+  assert.deepEqual(calls.filter(row => row.purpose === 'model-council-synthesis')
+    .map(row => row.id), ['a', 'b']);
+});
