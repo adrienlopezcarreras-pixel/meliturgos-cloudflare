@@ -29,3 +29,40 @@ The raw-job gate in src/revenue/raw-job-gate.js performs deterministic allowlist
 
 ## Limitations
 This commit is a safety/economics gate, not a working marketplace integration. Hardware inventory, market selection, adapter, isolated executor, payout reconciliation, tests on the actual Windows device and production deployment still need to be done.
+
+## Taskmarket worker cycle (implementation started)
+
+Taskmarket is currently the best-aligned candidate discovered for paid-by-result tasks: public REST lists open tasks, while work submission uses a worker wallet signature; task claims also require a valid signature. Some operations use x402 fees. Do not claim/submit/bid until the operator has reviewed the versioned legal bundle, set up the local worker identity, and configured an explicit spend ceiling. Official references:
+- API: https://docs.taskmarket.dev/api/reference
+- CLI/legal/identity: https://docs.taskmarket.dev/cli/commands
+- Task schema/lifecycle: https://docs.taskmarket.dev/reference/task-schema
+
+The read-only discovery utility is `scripts/revenue/taskmarket-scan.mjs`. The bounded orchestration contract is `src/revenue/taskmarket-worker-cycle.js`:
+- discover open work;
+- ask the Council adapter for category, confidence and risk assessment;
+- skip tasks needing human judgment, host secrets, unsafe actions, or unverified acceptance criteria;
+- read relevant learning context;
+- solve via a MEL adapter;
+- require an independent machine-verifiable validator;
+- submit only if the operator explicitly enabled submission, legal acceptance is recorded, a worker identity exists, spend-cap approval exists and the validator is verified;
+- record an outcome and distinguish submission from acceptance and settled payout.
+
+This is not yet wired to the live Taskmarket wallet/CLI, the running Windows Companion, Council runtime, or LoRA training runtime. The injected adapters must be implemented against the actual current interfaces rather than guessed.
+
+## Council, LoRA and veille feedback loop
+
+- Council reviews task fit before claiming/solving and independently checks the deliverable against the task's actual acceptance criteria.
+- A rejection, low rating or payout failure becomes a case file with task ID, task text hash, output hash, validation findings and external feedback.
+- Only confirmed external outcomes can create a proposed LoRA example. The helper marks examples `REVIEW_REQUIRED`; it does not train automatically. LoRA data must exclude secrets, private task payloads not licensed for reuse, poisoned instructions and unverified self-ratings.
+- Veille periodically checks the public task list, platform docs/policies and published feedback/reputation schema. Record the source URL, retrieval timestamp and changed claims; don't treat an LLM summary as a verified rule.
+- After a successful validation/acceptance, update a small benchmark suite of sanitized, reusable tasks and compare the next candidate before rollout. Track quality, acceptance rate, payout latency and net income per hour.
+- If failure/low ratings increase, pause that task category, roll back the relevant prompt/model/adapter version and rerun the regression suite.
+
+## Current stage and honest status
+
+Stage: read-only discovery + worker-cycle design. No task has been claimed, submitted, accepted or paid in this branch. There is no verified income yet. A live start requires:
+1. Install/use the official Taskmarket CLI on the user's Windows machine (if compatible with their current Node/runtime).
+2. Check whether a wallet/keystore already exists without displaying or exporting any secret.
+3. Review the current Terms, Privacy, Risk Disclosure and Acceptable Use policies; acceptance is an explicit operator attestation.
+4. Confirm the allowed spending/fee ceiling (submissions/claims can incur x402 fees in some task modes).
+5. Test read-only scan and dry-run solve/validation before enabling paid calls.
