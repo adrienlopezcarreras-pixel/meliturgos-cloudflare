@@ -321,7 +321,8 @@ export function registerWorkCapabilities(bus, { db } = {}) {
   }, async (input, context) => {
     const constraintSize = JSON.stringify(input.constraints || []).length;
     const catalogBudget = Math.max(2200, Math.min(5200, 9000 - String(input.goal || '').length - constraintSize));
-    const catalog = buildPlanningCatalog(bus.list(), {
+    const availableCapabilities = bus.list();
+    let catalog = buildPlanningCatalog(availableCapabilities, {
       query: input.goal,
       maxChars: catalogBudget,
     });
@@ -341,14 +342,22 @@ export function registerWorkCapabilities(bus, { db } = {}) {
       && String(input.goal || '').trim() === releaseDiagnosticGoal
       && JSON.stringify(input.constraints || []) === JSON.stringify(releaseDiagnosticConstraints);
     if (isBoundedReleaseDiagnostic) {
-      const diagnosticEcho = catalog.find((record) =>
+      // The compact planner catalog is ranked and size-bounded; a safe core
+      // diagnostic may legitimately be omitted when many higher-relevance records
+      // fill the budget. Resolve this one canonical release smoke capability from
+      // the live bus inventory, then add its real descriptor for strict validation.
+      const diagnosticEchoSource = availableCapabilities.find((record) =>
         String(record?.id || '') === 'echo'
         && String(record?.risk || '').toUpperCase() === 'LOW'
-        && record?.approval_required !== true
+        && record?.approval?.required !== true
         && record?.enabled === true
         && String(record?.health || '').toUpperCase() !== 'UNAVAILABLE'
       );
+      const diagnosticEcho = diagnosticEchoSource
+        ? buildPlanningCatalog([diagnosticEchoSource], { query: input.goal, maxChars: catalogBudget, maxEntries: 1 })[0]
+        : null;
       if (!diagnosticEcho) throw workError('WORK_PLAN_RELEASE_DIAGNOSTIC_ECHO_UNAVAILABLE');
+      if (!catalog.some((record) => String(record?.id || '') === 'echo')) catalog.unshift(diagnosticEcho);
       const deterministic = parseCapabilityAwareWorkPlan({
         text: JSON.stringify({
           steps: [{
