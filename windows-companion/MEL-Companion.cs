@@ -1463,7 +1463,8 @@ class MainForm : Form
                                 DateTime when;
                                 bool fresh = a.TryGetValue("observed_at_utc", out observed)
                                     && DateTime.TryParse(Convert.ToString(observed), out when)
-                                    && Math.Abs((DateTime.UtcNow - when.ToUniversalTime()).TotalMinutes) < 2;
+                                    && (DateTime.UtcNow - when.ToUniversalTime()).TotalSeconds >= -30
+                        && (DateTime.UtcNow - when.ToUniversalTime()).TotalSeconds < 75;
                                 bool adbAvailable = a.TryGetValue("adb_available", out available) && Convert.ToBoolean(available);
                                 bool isConnected = a.TryGetValue("connected", out connected) && Convert.ToBoolean(connected);
                                 string errorCode = a.TryGetValue("error", out errorValue) && errorValue != null ? Convert.ToString(errorValue) : "";
