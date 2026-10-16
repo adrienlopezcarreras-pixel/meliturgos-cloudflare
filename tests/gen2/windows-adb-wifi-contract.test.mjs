@@ -82,3 +82,11 @@ test("mDNS discovery failure preserves saved endpoint fallback", async () => {
   assert.match(reconnect, /try \{ \$discovered=Run-Adb -arglist @\("mdns","services"\) \} catch \{ \$discovered=@\(\) \}/);
   assert.ok(reconnect.indexOf("foreach ($line in $discovered)") < reconnect.indexOf("if (Test-Path -LiteralPath $saved)"));
 });
+
+
+test("failed post-connect ADB serial probe tries next endpoint", async () => {
+  const script = await source("windows-companion/MEL-ADB-WiFi.ps1");
+  const reconnect = script.split("function Attempt-Reconnect {")[1].split("function Scan {")[0];
+  assert.match(reconnect, /try \{ \$serials=\(Run-Adb -arglist @\("devices","-l"\)\)/);
+  assert.match(reconnect, /catch \{ continue \}/);
+});
