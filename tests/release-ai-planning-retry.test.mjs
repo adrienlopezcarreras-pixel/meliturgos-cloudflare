@@ -20,9 +20,13 @@ test('production GEN2-38 model plan proof uses one bounded request and surfaces 
   assert.match(proof, /--output production-gen2-38-generated\.json/);
   assert.match(proof, /\|\| true\)"/,
     'curl transport failure must reach the explicit sanitized non-200 release gate');
-  const failedPlanGateEnd = workflow.indexOf('\n          fi', end);
-  assert.ok(failedPlanGateEnd > end, 'non-200 generated-plan gate closes cleanly');
-  assert.match(workflow.slice(end, failedPlanGateEnd), /exit 55/,
+  const failureGateEnd = workflow.indexOf('SAVE_BODY=', end);
+  const failureGate = workflow.slice(end, failureGateEnd > end ? failureGateEnd : end + 4000);
+  assert.match(failureGate, /GEN2-38 sanitized diagnostic code:/,
+    'provider failures must emit only sanitized diagnostic evidence');
+  assert.match(failureGate, /Production autonomy proof response withheld from CI logs/,
+    'raw provider responses must remain withheld from CI logs');
+  assert.match(failureGate, /exit 55/,
     'provider or transport failure must still fail release verification and trigger rollback');
 });
 

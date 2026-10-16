@@ -1,0 +1,57 @@
+name: mel-work-free-validation
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "src/api/revenue-worker-api.js"
+      - "src/devices/computer-companion-api.js"
+      - "src/devices/computer-command-status.js"
+      - "src/devices/taskmarket-readonly-companion.js"
+      - "src/pages/revenue-interface.js"
+      - "src/pages/full-interface-v2.js"
+      - "src/router.js"
+      - "tests/revenue-interface.test.mjs"
+      - "tests/taskmarket-readonly-companion.test.mjs"
+      - "package.json"
+      - "package-lock.json"
+      - "wrangler.jsonc"
+      - ".github/workflows/mel-work-free-validation.yml"
+      - ".github/workflows/deploy-cloudflare-release.yml"
+      - "tests/release-ai-planning-retry.test.mjs"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mel-work-free-validation-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    name: MEL WORK free validation (no Vercel, no deployment)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact PR SHA
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install lockfile
+        run: npm ci
+
+      - name: Syntax and runtime-security gate
+        run: |
+          npm run check
+          node scripts/runtime-security-gate.mjs
+
+      - name: MEL WORK route, API and Companion contracts
+        run: node --test tests/revenue-interface.test.mjs tests/taskmarket-readonly-companion.test.mjs tests/release-ai-planning-retry.test.mjs tests/gen2/companion-late-ollama-result.test.mjs tests/release-ai-planning-retry.test.mjs

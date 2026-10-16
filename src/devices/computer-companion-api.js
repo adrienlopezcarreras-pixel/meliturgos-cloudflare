@@ -16,6 +16,8 @@ import { miniReadOnlyPcCommand } from "./mini-readonly-companion.js";
 import { miniMaintenanceAssessCommand } from "./mini-maintenance-companion.js";
 import { companionBleDiagnosticsCommand } from "./companion-ble-diagnostics.js";
 import { miniFirmwareStageCommand } from "./mini-firmware-stage-companion.js";
+import { taskmarketReadonlyPcCommand } from "./taskmarket-readonly-companion.js";
+import { COMPUTER_COMMAND_STATUS } from "./computer-command-status.js";
 import { androidMaintenancePcCommand } from "./android-maintenance-companion.js";
 import { androidStagePcCommand } from "./android-apk-stage-companion.js";
 import { readAndroidTriadActivityForCompanion } from "./triad-activity-readonly.js";
@@ -196,7 +198,7 @@ async function ownerHalt(request,env,halted){
   // A command already RUNNING still requires cooperative local cancellation.
   const cancelled=await env.DB.prepare(
    "UPDATE computer_commands SET status=?,finished_at=?,error_code=? WHERE device_id=? AND status=?"
-  ).bind("FAILED",Date.now(),"OWNER_HALT_ACTIVE",id,"PENDING").run();
+  ).bind(COMPUTER_COMMAND_STATUS.FAILED,Date.now(),"OWNER_HALT_ACTIVE",id,"PENDING").run();
   if(!cancelled||cancelled.success===false)
    return json({ok:false,code:"COMPUTER_HALT_QUEUE_CANCELLATION_FAILED"},503);
   cancelledPending=Number(cancelled.meta?.changes||0);
@@ -208,7 +210,7 @@ async function ownerHalt(request,env,halted){
   // operation may still need to return before its next checkpoint.
   const cancelled=await env.DB.prepare(
    "UPDATE computer_commands SET status=?,finished_at=?,error_code=? WHERE device_id=? AND status=?"
-  ).bind("FAILED",Date.now(),"OWNER_HALT_ACTIVE",id,"RUNNING").run();
+  ).bind(COMPUTER_COMMAND_STATUS.FAILED,Date.now(),"OWNER_HALT_ACTIVE",id,"RUNNING").run();
   if(!cancelled||cancelled.success===false)
    return json({ok:false,code:"COMPUTER_HALT_RUNNING_CANCELLATION_FAILED"},503);
   cancelledRunning=Number(cancelled.meta?.changes||0);
@@ -220,7 +222,7 @@ const PC_CONTROL_ACTIONS=new Set([
  "serial.list","serial.read","serial.inspect","serial.hard_reset",
  "process.list","process.start","process.kill",
  "file.list","file.read_text","file.write_text",
- "system.info","system.exec","mini.readonly.discover","mini.readonly.security","mini.readonly.backup","mini.readonly.backup.status","mini.readonly.backup.audit","mini.maintenance.assess","mini.android.ble.diagnose","mini.maintenance.stage","android.maintenance.assess","android.maintenance.stage","android.maintenance.install"
+ "system.info","taskmarket.readonly.probe","mini.readonly.discover","mini.readonly.security","mini.readonly.backup","mini.readonly.backup.status","mini.readonly.backup.audit","mini.maintenance.assess","mini.android.ble.diagnose","mini.maintenance.stage","android.maintenance.assess","android.maintenance.stage","android.maintenance.install"
 ]);
 const PC_CONTROL_PROOF_ACTIONS=new Set(["system.info","serial.list","serial.read","serial.inspect","mini.readonly.discover","process.list","mini.readonly.backup.audit","mini.maintenance.assess","mini.android.ble.diagnose","android.maintenance.assess"]);
 
@@ -304,7 +306,10 @@ async function ownerPcControl(request,env){
    effectivePayload={};
   }
  }
- if(action==="mini.android.ble.diagnose"&&a.kind==="owner"){
+ if(action==="taskmarket.readonly.probe"&&a.kind==="owner"){
+  effectiveAction="system.exec";
+  effectivePayload=taskmarketReadonlyPcCommand();
+ }else if(action==="mini.android.ble.diagnose"&&a.kind==="owner"){
   const port=safe(payload.port,16).toUpperCase();
   if(!/^COM\d{1,3}$/.test(port))return json({ok:false,code:"MINI_DIAGNOSTICS_PORT_INVALID"},400);
   effectiveAction="system.exec";
@@ -412,7 +417,7 @@ async function screenshotView(request,env,url){
  if(!row||
     row.device_id.replace(/[^A-Za-z0-9_.-]/g,"_")!==match[1]||
     row.id.replace(/[^A-Za-z0-9_.-]/g,"_")!==match[2]||
-    !["RUNNING","SUCCEEDED"].includes(row.status))
+    ![COMPUTER_COMMAND_STATUS.RUNNING,COMPUTER_COMMAND_STATUS.SUCCEEDED].includes(row.status))
   return json({ok:false,code:"SCREENSHOT_ACCESS_REVOKED_OR_UNKNOWN"},404);
  if(Number(row.halted)===1)
   return json({ok:false,code:"SCREENSHOT_OWNER_HALT"},409);
@@ -652,7 +657,7 @@ async function claim(env,a){
  // The Windows agent also checks the local switch before each real step.
  if(plan.schema==="mel.devices.computer-use.v1"&&a.device.metadata?.remote_access_enabled!==true){
   const rejected=await env.DB.prepare("UPDATE computer_commands SET status=?,finished_at=?,error_code=? WHERE id=? AND device_id=? AND status=?")
-   .bind("FAILED",Date.now(),"REMOTE_ACCESS_DISABLED_LOCALLY",r.id,a.device.id,"PENDING").run();
+   .bind(COMPUTER_COMMAND_STATUS.FAILED,Date.now(),"REMOTE_ACCESS_DISABLED_LOCALLY",r.id,a.device.id,"PENDING").run();
   if(!rejected||rejected.success===false||Number(rejected.meta?.changes)!==1)
    return json({ok:false,code:"COMPUTER_CLAIM_REVALIDATION_RACE"},409);
   return json({ok:true,halted:false,command:null,blocked_command:{id:r.id,code:"REMOTE_ACCESS_DISABLED_LOCALLY"}});
@@ -662,7 +667,7 @@ async function claim(env,a){
  });
  if(!computeVerdict.ok){
    const updated=await env.DB.prepare("UPDATE computer_commands SET status=?,finished_at=?,error_code=? WHERE id=? AND device_id=? AND status=?")
-    .bind("FAILED",Date.now(),computeVerdict.code,r.id,a.device.id,"PENDING").run();
+    .bind(COMPUTER_COMMAND_STATUS.FAILED,Date.now(),computeVerdict.code,r.id,a.device.id,"PENDING").run();
    if(!updated||updated.success===false||Number(updated.meta?.changes)!==1)
      return json({ok:false,code:"COMPUTER_CLAIM_REVALIDATION_RACE"},409);
    return json({ok:true,halted:false,command:null,blocked_command:{id:r.id,code:computeVerdict.code}});
@@ -674,7 +679,7 @@ async function claim(env,a){
    ?evaluateDesktopViewClaim({plan,device:a.device,now:Date.now()})
    :{ok:false,code:"REMOTE_ACCESS_DISABLED_LOCALLY"};
   if(!verdict.ok){
-   await env.DB.prepare("UPDATE computer_commands SET status=?,finished_at=?,error_code=? WHERE id=? AND device_id=? AND status=?").bind("FAILED",Date.now(),verdict.code,r.id,a.device.id,"PENDING").run();
+   await env.DB.prepare("UPDATE computer_commands SET status=?,finished_at=?,error_code=? WHERE id=? AND device_id=? AND status=?").bind(COMPUTER_COMMAND_STATUS.FAILED,Date.now(),verdict.code,r.id,a.device.id,"PENDING").run();
    return json({ok:true,halted:false,command:null,blocked_command:{id:r.id,code:verdict.code}});
   }
  }
@@ -698,7 +703,7 @@ async function result(request,env,a){
   const aiResultVerdict=evaluateOptionalAiResultDeadline({plan,now:Date.now()});
   if(!aiResultVerdict.ok){
    const expired=await env.DB.prepare("UPDATE computer_commands SET status=?,finished_at=?,error_code=? WHERE id=? AND device_id=? AND status=?")
-    .bind("FAILED",Date.now(),aiResultVerdict.code,id,a.device.id,"RUNNING").run();
+    .bind(COMPUTER_COMMAND_STATUS.FAILED,Date.now(),aiResultVerdict.code,id,a.device.id,"RUNNING").run();
    if(!expired||expired.success===false||Number(expired.meta?.changes)!==1)
     return json({ok:false,code:"COMPUTER_RESULT_NOT_RUNNING"},409);
    return json({ok:false,code:aiResultVerdict.code},409);
@@ -706,7 +711,7 @@ async function result(request,env,a){
   const aiProof=evaluateOptionalAiResultProof({plan,result:b.result});
   if(!aiProof.ok){
    const denied=await env.DB.prepare("UPDATE computer_commands SET status=?,finished_at=?,error_code=? WHERE id=? AND device_id=? AND status=?")
-    .bind("FAILED",Date.now(),aiProof.code,id,a.device.id,"RUNNING").run();
+    .bind(COMPUTER_COMMAND_STATUS.FAILED,Date.now(),aiProof.code,id,a.device.id,"RUNNING").run();
    if(!denied||denied.success===false||Number(denied.meta?.changes)!==1)
     return json({ok:false,code:"COMPUTER_RESULT_NOT_RUNNING"},409);
    return json({ok:false,code:aiProof.code},409);
@@ -760,7 +765,7 @@ async function result(request,env,a){
   }
  }
  const update=await env.DB.prepare("UPDATE computer_commands SET status=?,finished_at=?,result_json=?,error_code=? WHERE id=? AND device_id=? AND status=? AND EXISTS (SELECT 1 FROM computer_devices WHERE id=? AND halted=0)")
-  .bind(b.ok===true?"SUCCEEDED":"FAILED",Date.now(),JSON.stringify(b.result??null),b.error_code?safe(b.error_code):null,id,a.device.id,"RUNNING",a.device.id).run();
+  .bind(b.ok===true?COMPUTER_COMMAND_STATUS.SUCCEEDED:COMPUTER_COMMAND_STATUS.FAILED,Date.now(),JSON.stringify(b.result??null),b.error_code?safe(b.error_code):null,id,a.device.id,"RUNNING",a.device.id).run();
  if(!update||update.success===false||Number(update.meta?.changes)!==1)
   return json({ok:false,code:"COMPUTER_RESULT_NOT_RUNNING"},409);
  return json({ok:true});
