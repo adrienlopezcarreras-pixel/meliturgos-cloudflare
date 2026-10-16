@@ -746,7 +746,7 @@ qs('#workComputerStop').onclick=async()=>{
  try{
   const d=await jfetch('/api/computer/v1/halt',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({computer_id:pc.id})});
   if(!d?.ok)throw Error(d?.code||'OWNER_HALT_NOT_CONFIRMED');
-  workComputerControlOut.textContent='ARRÊT CONFIRMÉ. Le serveur a activé HALT pour '+pc.id+'.';
+  qs('#workComputerControlOut').textContent='ARRÊT CONFIRMÉ. Le serveur a activé HALT pour '+pc.id+'.';
   await loadWorkComputer();
  }catch(err){qs('#workComputerControlOut').textContent='HALT non confirmé côté serveur : '+err.message+'. Utilise aussi le Stop local dans Companion Windows.'}
 };
