@@ -317,3 +317,38 @@ test('Augmentio rechecks authorization at cache read time', async () => {
       && error.failures?.some(reason => reason.includes('ZERO_EURO_BUDGET_EXCEEDED')));
   assert.equal(calls, 0);
 });
+
+test('parallel scheduler cancels promptly even if active provider ignores abort signal', async () => {
+  const scheduler = new ParallelScheduler({
+    globalConcurrency: 1, retries: 3, backoffMs: 1, timeoutMs: 60000,
+  });
+  const controller = new AbortController();
+  let invoked = 0;
+  const started = Date.now();
+  const run = scheduler.run([{ id: 'active' }, { id: 'pending' }], async () => {
+    invoked += 1;
+    return new Promise(() => {}); // Deliberately ignores AbortSignal.
+  }, { signal: controller.signal });
+  setTimeout(() => controller.abort('owner-cancelled'), 15);
+  const results = await run;
+  assert.ok(Date.now() - started < 2000, 'abort must not wait for provider timeout');
+  assert.equal(invoked, 1, 'pending and retry calls must not run after cancel');
+  assert.deepEqual(results.map(row => row.status), ['rejected', 'rejected']);
+  assert.ok(results.every(row => row.reason.code === 'SCHEDULER_ABORTED'));
+  assert.equal(scheduler.breaker('active').failures, 0,
+    'owner cancellation must not be recorded as a provider failure');
+});
+
+test('parallel scheduler rejects an already-aborted request without invoking any provider', async () => {
+  const controller = new AbortController();
+  controller.abort();
+  let invoked = 0;
+  const results = await new ParallelScheduler({ retries: 2 }).run(
+    [{ id: 'a' }, { id: 'b' }],
+    async () => { invoked += 1; return 'invalid success'; },
+    { signal: controller.signal },
+  );
+  assert.equal(invoked, 0);
+  assert.ok(results.every(row => row.status === 'rejected'
+    && row.reason.code === 'SCHEDULER_ABORTED'));
+});
