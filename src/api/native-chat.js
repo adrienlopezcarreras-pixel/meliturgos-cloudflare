@@ -20,7 +20,7 @@ import { recordLearningXpCheckpoint } from '../learning/xp-journal.js';
 import { MEL_RUNTIME_OPERATING_EXPERIENCE } from '../learning/runtime-operating-experience.js';
 import { stripInternalCounters } from './chat-sanitization.js';
 import { formatPersonalProfileRecall, retrieveContext, retrievePersonalProfileContext } from '../core/orchestrator/conversation-context.js';
-import { formatVerifiedSelfStateResponse, formatVerifiedCapabilityAuditResponse, formatCommunicationAuditResponse, formatVerifiedAutonomyActivityResponse, formatVerifiedDevBridgeStatusResponse } from './response-grounding.js';
+import { formatVerifiedSelfStateResponse, formatVerifiedCapabilityAuditResponse, formatCommunicationAuditResponse, formatVerifiedAutonomyActivityResponse, formatVerifiedDevBridgeStatusResponse, formatVerifiedAutonomyRuntimeResponse } from './response-grounding.js';
 import { buildResponseQualityInstruction, finalizeEvidenceAlignedResponse, inferResponseMode } from './response-quality.js';
 import { buildConversationFocusInstruction, deriveConversationFocus } from './conversation-focus.js';
 import { loadConversationFocusState, saveConversationFocusState } from './conversation-focus-store.js';
@@ -1354,6 +1354,8 @@ export async function handleNativeChat(request, env, options = {}) {
   const developmentQueued = toolResults.find((row) => row.capability === 'evolution.enqueue' && row.status === 'SUCCEEDED')?.result || null;
   const devBridgeStatusObserved = toolResults.find((row) => row.capability === 'autonomy.bridge.status' && row.status === 'SUCCEEDED')?.result || null;
   const autonomyActivityObserved = toolResults.find((row) => row.capability === 'autonomy.activity' && row.status === 'SUCCEEDED')?.result || null;
+  const autonomyRuntimeObservedRow = toolResults.find((row) => ['autonomy.tick','autonomy.status'].includes(String(row.capability)) && row.status === 'SUCCEEDED') || null;
+  const autonomyRuntimeObserved = autonomyRuntimeObservedRow?.result || null;
   const selfStateObserved = toolResults.find((row) => row.capability === 'self.state' && row.status === 'SUCCEEDED')?.result || null;
   const capabilityAuditObserved = toolResults.find((row) => ['capability.audit','capability.audit.status'].includes(row.capability) && row.status === 'SUCCEEDED')?.result || null;
   const communicationAuditObserved = toolResults.find((row) => row.capability === 'conversation.audit' && row.status === 'SUCCEEDED')?.result || null;
@@ -1640,6 +1642,8 @@ export async function handleNativeChat(request, env, options = {}) {
     ? formatCommunicationAuditResponse(communicationAuditObserved, { fallback: modelResponseText })
     : devBridgeStatusObserved
       ? formatVerifiedDevBridgeStatusResponse(devBridgeStatusObserved, { fallback: modelResponseText })
+      : autonomyRuntimeObserved
+        ? formatVerifiedAutonomyRuntimeResponse(autonomyRuntimeObserved, { fallback: modelResponseText, operation: autonomyRuntimeObservedRow?.capability === 'autonomy.status' ? 'status' : 'tick' })
       : autonomyActivityObserved
         ? formatVerifiedAutonomyActivityResponse(autonomyActivityObserved, { fallback: modelResponseText })
         : capabilityAuditObserved
@@ -1744,7 +1748,7 @@ export async function handleNativeChat(request, env, options = {}) {
   }
 
   const effectiveQualityAssessment = automaticRecoveredAssessment || initialQualityAssessment;
-  const qualityGuardedResponseText = (autonomyActivityObserved || devBridgeStatusObserved || capabilityAuditObserved)
+  const qualityGuardedResponseText = (autonomyActivityObserved || autonomyRuntimeObserved || devBridgeStatusObserved || capabilityAuditObserved)
     ? qualityCandidateText
     : enforceResponseQuality({
         responseText:qualityCandidateText,
@@ -1838,6 +1842,8 @@ export async function handleNativeChat(request, env, options = {}) {
         ? { mode: 'deterministic-communication-audit', source: 'conversation.audit', observed_at: communicationAuditObserved.audited_at || null }
       : devBridgeStatusObserved
         ? { mode: 'deterministic-dev-bridge-status', source: 'autonomy.bridge.status', observed_at: devBridgeStatusObserved.observed_at || null }
+      : autonomyRuntimeObserved
+        ? { mode: 'deterministic-autonomy-runtime', source: autonomyRuntimeObservedRow?.capability || 'autonomy.runtime', status: autonomyRuntimeObserved.status || null, advanced: autonomyRuntimeObserved.advanced === true }
       : autonomyActivityObserved
         ? { mode: 'deterministic-autonomy-activity', source: 'autonomy.activity', observed_at: autonomyActivityObserved.observed_at || null }
       : capabilityAuditObserved
