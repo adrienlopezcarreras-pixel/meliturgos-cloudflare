@@ -41,19 +41,22 @@ test('canonical MEL navigation and router expose MEL WORK without bypassing owne
   assert.match(router, /const auth = requireAuth\(request, env\);[\s\S]{0,120}handleRevenueApi\(request, env\)/);
 });
 
-test('Taskmarket PC probe is fixed/read-only, owner-gated, and never accepts a command from UI input', async () => {
+test('Taskmarket PC probe is fixed/read-only, owner-authenticated, and accepts only a PC identity', async () => {
   const [api, asset, dist, page] = await Promise.all([
-    readFile(new URL('../src/devices/computer-companion-api.js', import.meta.url), 'utf8'),
+    readFile(new URL('../src/api/revenue-worker-api.js', import.meta.url), 'utf8'),
     readFile(new URL('../assets/MEL-Computer-Companion.ps1', import.meta.url), 'utf8'),
     readFile(new URL('../dist/MEL-Computer-Companion.ps1', import.meta.url), 'utf8'),
     readFile(new URL('../src/pages/revenue-interface.js', import.meta.url), 'utf8'),
   ]);
-  assert.match(api, /"taskmarket\\.status"/);
-  const block = api.slice(api.indexOf('if(action==="taskmarket.status"&&a.kind==="owner")'), api.indexOf('const session=safe(b.session_id)', api.indexOf('if(action==="taskmarket.status"&&a.kind==="owner")')));
-  assert.match(block, /effectiveAction="system\\.exec"/);
-  assert.match(block, /task list --status open --limit 20/);
-  assert.doesNotMatch(block, /payload\\.command|b\\.command/);
+  assert.match(api, /requireAuth\(request, env\)/);
+  assert.match(api, /TASKMARKET_PC_PROBE_COMMAND/);
+  assert.match(api, /task list --status open --limit 20/);
+  assert.match(api, /action: 'system\.exec'/);
+  assert.match(api, /command: TASKMARKET_PC_PROBE_COMMAND/);
+  const localProbeRoute = api.slice(api.indexOf("if (url.pathname === '/api/revenue/taskmarket-pc-status')"), api.indexOf("if (request.method !== 'GET')", api.indexOf("if (url.pathname === '/api/revenue/taskmarket-pc-status')")));
+  assert.match(localProbeRoute, /computer_id: computerId/);
+  assert.doesNotMatch(localProbeRoute, /body\.command|body\.payload|body\.script/);
   assert.equal(asset, dist, 'the distributed Companion script remains synchronized');
   assert.match(page, /id="scanPcTaskmarket"/);
-  assert.match(page, /action:'taskmarket\\.status'/);
+  assert.match(page, /\/api\/revenue\/taskmarket-pc-status/);
 });
