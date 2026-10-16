@@ -274,3 +274,50 @@ test('GEN2-30 refuses an oversized allowed-origin navigation URL before any adap
   assert.deepEqual(performed, []);
   assert.equal(audits.at(-1).status, 'DENIED');
 });
+
+
+test('GEN2-30 rejects incomplete pointer and keyboard commands instead of making unintended Windows actions', () => {
+  const malformed = [
+    [{ id: 'cursor', action: COMPUTER_USE_ACTIONS.CURSOR_MOVE, x: 12 }, 'POINTER_COORDINATES_INVALID'],
+    [{ id: 'cursor', action: COMPUTER_USE_ACTIONS.CURSOR_MOVE, x: null, y: 10 }, 'POINTER_COORDINATES_INVALID'],
+    [{ id: 'cursor', action: COMPUTER_USE_ACTIONS.CURSOR_MOVE, x: 'NaN', y: 10 }, 'POINTER_COORDINATES_INVALID'],
+    [{ id: 'cursor', action: COMPUTER_USE_ACTIONS.CURSOR_MOVE, x: 12.5, y: 10 }, 'POINTER_COORDINATES_INVALID'],
+    [{ id: 'scroll', action: COMPUTER_USE_ACTIONS.SCROLL }, 'SCROLL_DELTA_INVALID'],
+    [{ id: 'scroll', action: COMPUTER_USE_ACTIONS.SCROLL, delta_y: 'oops' }, 'SCROLL_DELTA_INVALID'],
+    [{ id: 'scroll', action: COMPUTER_USE_ACTIONS.SCROLL, delta_y: 0 }, 'SCROLL_DELTA_INVALID'],
+    [{ id: 'press', action: COMPUTER_USE_ACTIONS.KEY_PRESS }, 'KEY_REQUIRED'],
+  ];
+  for (const [step, expectedReason] of malformed) {
+    const plan = evaluateComputerUsePlan({ ...base, steps: [step] });
+    assert.equal(plan.allowed, false, step.id);
+    assert.equal(plan.reason, expectedReason, step.id);
+  }
+  assert.equal(evaluateComputerUsePlan({
+    ...base,
+    steps: [
+      { id: 'cursor', action: COMPUTER_USE_ACTIONS.CURSOR_MOVE, x: 0, y: -15 },
+      { id: 'scroll', action: COMPUTER_USE_ACTIONS.SCROLL, delta_y: '-120' },
+      { id: 'press', action: COMPUTER_USE_ACTIONS.KEY_PRESS, key: 'ENTER' },
+    ],
+  }).allowed, true);
+});
+
+test('GEN2-30 never performs an earlier approved PC command when a later scroll input is incomplete', async () => {
+  const performed = [];
+  const audits = [];
+  const controller = createComputerUseController({
+    adapter: { perform: async step => performed.push(step.id) },
+    authorize: async () => true,
+    audit: async entry => audits.push(entry),
+  });
+  await assert.rejects(controller.execute({
+    ...base,
+    steps: [
+      { id: 'first', action: COMPUTER_USE_ACTIONS.SCREENSHOT },
+      { id: 'scroll', action: COMPUTER_USE_ACTIONS.SCROLL },
+    ],
+  }), error => error.code === 'SCROLL_DELTA_INVALID');
+  assert.deepEqual(performed, []);
+  assert.equal(audits.at(-1).status, 'DENIED');
+  assert.equal(audits.at(-1).completed_steps, 0);
+});
