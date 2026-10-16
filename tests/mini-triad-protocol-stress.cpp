@@ -68,6 +68,14 @@ int main() {
         assert(mel_ima_adpcm_encode_block(pcm.data(), samples,
             encoded, sizeof(encoded), &bytes));
         assert(bytes == mel_ima_adpcm_encoded_size(samples));
+        // Malformed step indices must be rejected (IMA ADPCM valid range 0..88).
+        encoded[2] = 89;
+        assert(!mel_ima_adpcm_decode_block(encoded, bytes, back.data(), back.size(), &got));
+        encoded[2] = 255;
+        assert(!mel_ima_adpcm_decode_block(encoded, bytes, back.data(), back.size(), &got));
+        encoded[2] = 88;
+        assert(mel_ima_adpcm_decode_block(encoded, bytes, back.data(), back.size(), &got));
+        encoded[2] = 0;
         assert(mel_ima_adpcm_decode_block(encoded, bytes, back.data(), back.size(), &got));
         assert(got == samples);
         assert(pcm[0] == back[0]);
