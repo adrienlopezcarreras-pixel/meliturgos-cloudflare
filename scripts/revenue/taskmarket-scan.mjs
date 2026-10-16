@@ -1,3 +1,5 @@
+import { pathToFileURL } from 'node:url';
+
 const DEFAULT_API = 'https://api.taskmarket.dev';
 const MAX_LIMIT = 100;
 
@@ -52,7 +54,7 @@ export async function fetchOpenTaskCandidates({ fetchImpl = fetch, baseUrl = DEF
   });
 }
 
-if (process.argv[1] && import.meta.url === new URL('file://' + process.argv[1]).href) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   try {
     const result = await fetchOpenTaskCandidates({ limit: Number(process.env.TASKMARKET_SCAN_LIMIT || 50) });
     process.stdout.write(JSON.stringify(result, null, 2) + '\n');
