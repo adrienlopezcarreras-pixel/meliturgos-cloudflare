@@ -115,3 +115,10 @@ test('native Companion installs the complete MINI read-only USB bundle and expos
  assert.match(helper,/flash_allowed -ne \$false/);
  assert.doesNotMatch(helper,/\bwrite_flash\b|\berase_flash\b/);
 });
+
+test('Companion device card explains stale ONLINE phase when current status is offline', async () => {
+  const ui = await read('windows-companion/MEL-Companion.cs');
+  assert.match(ui, /var onlineDevice=Bool\(d,"online"\)/);
+  assert.match(ui, /Dernier état reçu : ONLINE · connexion actuelle hors ligne/);
+  assert.match(ui, /string\.Equals\(phase,"ONLINE",StringComparison\.OrdinalIgnoreCase\)/);
+});
