@@ -51,7 +51,7 @@ test('full interface keeps capabilities while avoiding eager heavy hidden-panel 
 });
 
 
-test('full interface exposes Gmail plus Yahoo/Ymail through Pipedream while Microsoft remains consolidated there', async () => {
+test('full interface exposes free-first Gmail and Yahoo/Ymail plus Microsoft Outlook and OneDrive, excluding paid SharePoint', async () => {
   const response = await onRequestGet();
   const html = await response.text();
   assert.match(html, /data-view="connections"/);
@@ -71,7 +71,7 @@ test('full interface exposes Gmail plus Yahoo/Ymail through Pipedream while Micr
   assert.match(html, /Pipedream Connect/);
   assert.match(html, /data-pd-connect="microsoft_outlook"/);
   assert.match(html, /data-pd-connect="microsoft_onedrive"/);
-  assert.match(html, /data-pd-connect="sharepoint"/);
+  assert.doesNotMatch(html, /sharepoint/i);
   assert.match(html, /data-pd-connect="imap"/);
   assert.match(html, /id="yahooPipedream"/);
   assert.match(html, /Gérer Yahoo\/Ymail via Pipedream/);
@@ -120,7 +120,7 @@ test('full interface exposes encrypted Pipedream Connect bridge and roadmap app 
   assert.match(html, /connectionApi\('pipedream','accounts'\)/);
   assert.match(html, /data-pd-connect="microsoft_outlook"/);
   assert.match(html, /data-pd-connect="microsoft_onedrive"/);
-  assert.match(html, /data-pd-connect="sharepoint"/);
+  assert.doesNotMatch(html, /sharepoint/i);
   assert.match(html, /data-pd-connect="imap"/);
   assert.match(html, /data-pd-connect="lemlist"/);
   assert.match(html, /data-pd-connect="google_drive"/);
