@@ -172,3 +172,38 @@ test('Council CODE registry prefers Llama and exposes the current free fallback 
   assert.ok(codeModels.some((model) => model.id === '@cf/zai-org/glm-4.7-flash'));
   assert.equal(codeModels.some((model) => model.id === '@cf/moonshotai/kimi-k2.7-code'), false);
 });
+
+test('augmentio does not count blank or non-text model results as successful AI work', async () => {
+  for (const invalid of ['   \n  ', { incomplete: true }, [], 123, { text: '   ' }, { response: '' }]) {
+    const pool = new ProviderPool([
+      { id: 'empty', capabilities: ['GENERAL'], priority: 3, estimatedCost: 0,
+        costProvenance: verifiedFree('empty'), invoke: async () => invalid },
+      { id: 'valid', capabilities: ['GENERAL'], priority: 2, estimatedCost: 0,
+        costProvenance: verifiedFree('valid'), invoke: async () => ({ text: 'Real answer' }) },
+    ]);
+    const ai = new Augmentio({
+      pool,
+      scheduler: new ParallelScheduler({ globalConcurrency: 2, retries: 0 }),
+    });
+    const out = await ai.fanOut({ input: 'Require actual model output', maxCandidates: 2 });
+    assert.equal(out.candidates.length, 1);
+    assert.equal(out.best.text, 'Real answer');
+    assert.equal(out.failures, 1);
+    const cached = await ai.fanOut({ input: 'Require actual model output', maxCandidates: 2 });
+    assert.equal(cached.cacheHit, true);
+    assert.equal(cached.candidates.length, 1);
+  }
+});
+
+test('augmentio fails closed and does not cache a false success when all models reply blank', async () => {
+  const pool = new ProviderPool([
+    { id: 'blank', capabilities: ['GENERAL'], priority: 1, estimatedCost: 0,
+      costProvenance: verifiedFree('blank'), invoke: async () => '   ' },
+  ]);
+  const ai = new Augmentio({ pool, scheduler: new ParallelScheduler({ retries: 0 }) });
+  await assert.rejects(
+    ai.fanOut({ input: 'No false success' }),
+    error => error?.code === 'ALL_PROVIDERS_FAILED'
+      && error.failures?.some(x => x.includes('EMPTY_PROVIDER_RESPONSE')),
+  );
+});

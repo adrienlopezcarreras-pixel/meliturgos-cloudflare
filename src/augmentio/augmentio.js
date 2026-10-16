@@ -46,7 +46,14 @@ export class Augmentio {
         this.governor.assertAllowed(provider);
         const response = await provider.invoke({ input, context, capability, signal: meta.signal });
         const text = typeof response === 'string' ? response : response?.text ?? response?.response;
-        if (!text) throw new Error('EMPTY_PROVIDER_RESPONSE');
+        // Empty/whitespace responses are failures, never successful Council
+        // contributions or cached candidates. Do not stringify arbitrary
+        // objects into apparently meaningful "[object Object]" answers.
+        if (typeof text !== 'string' || !text.trim()) {
+          const error = new Error('EMPTY_PROVIDER_RESPONSE');
+          error.code = 'EMPTY_PROVIDER_RESPONSE';
+          throw error;
+        }
         this.quota.recordSuccess(provider.id);
         return {
           provider: provider.providerId ?? provider.provider_id ?? provider.id,
