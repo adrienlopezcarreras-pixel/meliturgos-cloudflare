@@ -582,9 +582,9 @@ jobs:
   file:
     needs: readiness
     runs-on: ubuntu-24.04
-    # The autonomy launch proof can legitimately spend most of its bounded
-    # 20-minute ShardVault window. Keep MEL-FILE decoupled and patient enough
-    # to wait for exact-SHA readiness before applying browser pressure.
+    # The autonomy launch proof can legitimately spend the full bounded
+    # ShardVault qualification window before launch readiness turns GO. Keep
+    # MEL-FILE decoupled and allow a 25-minute wait before applying browser pressure.
     timeout-minutes: 45
     env:
       PROOF_KEY_B64: ${{ secrets.MEL_BACKUP_ENCRYPTION_KEY_B64 }}
@@ -633,7 +633,7 @@ jobs:
           test "${SHA_READY}" = "1"
 
           RELEASE_READY=0
-          for ATTEMPT in $(seq 1 180); do
+          for ATTEMPT in $(seq 1 300); do
             READY_CODE="$(curl --silent --show-error --max-time 30 \
               --output launch-readiness.json --write-out '%{http_code}' \
               "${BASE_URL}/api/teacher/launch-readiness" || true)"
@@ -663,7 +663,7 @@ jobs:
                 exit 42
               fi
             fi
-            echo "MEL-FILE proof waiting for exact-SHA release readiness; attempt ${ATTEMPT}/180."
+            echo "MEL-FILE proof waiting for exact-SHA release readiness; attempt ${ATTEMPT}/300."
             sleep 5
           done
           test "${RELEASE_READY}" = "1"
