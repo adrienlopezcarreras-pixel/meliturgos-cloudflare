@@ -1633,17 +1633,21 @@ class MainForm : Form
                 try
                 {
                     var a = MelApp.Json.Deserialize<Dictionary<string,object>>(File.ReadAllText(adbReport));
-                    object observed, connected, model, installed;
+                    object observed, connected, model, installed, available, errorValue;
                     DateTime when;
                     bool fresh = a.TryGetValue("observed_at_utc", out observed)
                         && DateTime.TryParse(Convert.ToString(observed), out when)
                         && Math.Abs((DateTime.UtcNow - when.ToUniversalTime()).TotalMinutes) < 2;
                     bool isConnected = a.TryGetValue("connected", out connected) && Convert.ToBoolean(connected);
+                    bool adbAvailable = a.TryGetValue("adb_available", out available) && Convert.ToBoolean(available);
+                    string errorCode = a.TryGetValue("error", out errorValue) && errorValue != null ? Convert.ToString(errorValue) : "";
                     string name = a.TryGetValue("android_model", out model) ? Convert.ToString(model) : "";
                     bool hasMel = a.TryGetValue("mel_installed", out installed) && Convert.ToBoolean(installed);
-                    adbWifiStatus.Text = !fresh ? "ADB Wi-Fi : diagnostic ancien"
+                    adbWifiStatus.Text = !fresh ? "ADB Wi-Fi : diagnostic ancien · actualisez"
+                        : !adbAvailable ? "ADB Wi-Fi : Android Platform Tools introuvables"
+                        : !String.IsNullOrEmpty(errorCode) ? "ADB Wi-Fi : diagnostic en échec · " + errorCode
                         : isConnected ? "ADB Wi-Fi : connecté · " + name + " · MEL " + (hasMel ? "installée" : "absente")
-                        : "ADB Wi-Fi : déconnecté · reconnexion automatique";
+                        : "ADB Wi-Fi : téléphone non appairé ou déconnecté · utilisez Configurer ADB Wi-Fi";
                     adbWifiStatus.ForeColor = fresh && isConnected ? Color.FromArgb(25,125,85) : gray;
                 }
                 catch { adbWifiStatus.Text = "ADB Wi-Fi : rapport indisponible"; }
