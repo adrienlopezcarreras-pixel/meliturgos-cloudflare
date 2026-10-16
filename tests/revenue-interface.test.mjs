@@ -62,3 +62,12 @@ test('Taskmarket PC probe is fixed/read-only, owner-authenticated, and accepts o
   assert.match(page, /value\.action==='system\.exec'/);
   assert.match(page, /JSON\.parse\(String\(probe\.stdout\|\|''\)\)/);
 });
+
+test('MEL WORK generated browser JavaScript is syntactically valid', async () => {
+  const response = await (await import('../src/pages/revenue-interface.js')).onRequestGet();
+  assert.equal(response.status, 200);
+  const html = await response.text();
+  const script = html.match(/<script>([\s\S]*?)<\/script>/)?.[1];
+  assert.ok(script, 'MEL WORK inline browser script is present');
+  assert.doesNotThrow(() => new Function(script), 'MEL WORK browser script must parse');
+});
