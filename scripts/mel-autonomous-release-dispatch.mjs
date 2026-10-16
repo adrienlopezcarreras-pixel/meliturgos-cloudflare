@@ -153,7 +153,7 @@ export async function requestAutonomousRelease({ token, fetchImpl = fetch, repo 
         expected_sha: mainSha,
         approval: 'AUTONOMOUS_POLICY',
         autonomous_release: 'true',
-        owner_max_autorelease: 'false',
+        owner_max_autorelease: 'true',
       },
     },
   });

@@ -18,7 +18,7 @@ test('manual release still requires explicit approval and autonomous policy is c
   assert.ok(workflow.includes('test "$APPROVAL" = "DEPLOY_APPROVED"'));
   assert.ok(workflow.includes('test "$GITHUB_REF" = "refs/heads/release/mel-hardware-v0.1.0"'));
   assert.ok(workflow.includes('AUTONOMOUS_RELEASE_POLICY: \'enabled\''));
-  assert.ok(workflow.includes('OWNER_MAX_AUTORELEASE: ${{ github.event_name == \'workflow_dispatch\' && inputs.owner_max_autorelease && \'true\' || \'false\' }}'));
+  assert.ok(workflow.includes('OWNER_MAX_AUTORELEASE: ${{ github.event_name == \'workflow_dispatch\' && inputs.owner_max_autorelease && \'true\' || (github.event_name == \'push\' && \'true\' || \'false\') }}'));
 });
 
 test('MEL autonomous dispatch uses a distinct non-human release policy and restricted actor identity', () => {
