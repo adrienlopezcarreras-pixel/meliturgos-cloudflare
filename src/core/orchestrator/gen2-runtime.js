@@ -25,7 +25,6 @@ import { audit as persistAuditLog } from '../../audit/audit-service.js';
 import { SkillRegistry, MemorySkillRegistryStore } from '../../evolution/skill-registry.js';
 import { D1SkillRegistryStore } from '../../evolution/d1-skill-registry-store.js';
 import { createGoogleAccessTokenResolver } from '../../connectors/google-oauth-runtime.js';
-import { createVercelConfigResolver } from '../../connectors/vercel-config.js';
 import { createPipedreamRuntime } from '../../connectors/pipedream-runtime.js';
 
 function boundedCapabilityAuditEvent(event = {}) {
@@ -62,13 +61,11 @@ export function createGen2Runtime({ audit, env = {} } = {}) {
   } catch (error) {
     googleAccessTokenResolver = async () => { throw error; };
   }
-  const vercelConfigResolver = createVercelConfigResolver(env);
   const pipedreamRuntime = createPipedreamRuntime({ env });
   const bus = createDefaultCapabilityBus({
     audit: runtimeAuditSink(env, audit),
     env,
     googleAccessTokenResolver,
-    vercelConfigResolver,
     pipedreamRuntime,
   });
   const skillRegistryStore = env?.DB && typeof env.DB.prepare === 'function'
