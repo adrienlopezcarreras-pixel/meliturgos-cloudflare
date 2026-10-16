@@ -21,6 +21,7 @@ test('GEN2-36 registers bounded read-only GitHub and Cloudflare capabilities', (
       CLOUDFLARE_ACCOUNT_ID: 'abc123',
     },
     fetchImpl: async () => json({}),
+    includeVercel: true,
   });
 
   assert.deepEqual(ids, [
