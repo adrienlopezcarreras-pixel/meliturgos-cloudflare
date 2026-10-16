@@ -10,7 +10,7 @@ test('MINI media receives JPEG marker validation before publishing photo or addi
  const gatePhoto=photo.indexOf('if (!MiniJpegFrameSignature.hasMarkers(bytes)) return');
  const publishPhoto=photo.indexOf('val uri = createMediaStoreEntry(');
  assert.ok(readPhoto>=0 && readPhoto < gatePhoto && gatePhoto < publishPhoto);
- const readFrame=video.indexOf('val jpeg = readFully(input, size)');
+ const readFrame=video.indexOf('val jpeg = MiniMediaChunkReader.read(input, size, socket, budget::remainingSocketTimeoutMs, budget::withinDeadline)');
  const deadline=video.indexOf('if (!budget.withinDeadline()) return',readFrame);
  const gateFrame=video.indexOf('if (!MiniJpegFrameSignature.hasMarkers(jpeg)) return');
  const writeFrame=video.indexOf('avi.addFrame(jpeg)');
