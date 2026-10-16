@@ -663,7 +663,7 @@ test('targeted audit ranges only refresh and inspect requested capability ids', 
 });
 
 
-test('external connector reads stay inventoried in global stress without duplicate live execution', async () => {
+test('active external connector reads stay inventoried in global stress without duplicate live execution', async () => {
   const calls=[];
   const records=[
     { id:'files.search', name:'OneDrive files search', category:'files', provider:'pipedream', risk:'LOW', enabled:true, health:'HEALTHY' },
@@ -677,11 +677,10 @@ test('external connector reads stay inventoried in global stress without duplica
     deep:true,
     samples:{
       'files.search':{query:'mel',limit:1},
-      'sites.search':{query:'mel',limit:1},
       'device.policy.preview':{},
     },
   });
-  for(const id of ['files.search','sites.search']){
+  for(const id of ['files.search']){
     const row=report.capabilities.find(item=>item.id===id);
     assert.equal(row.tested_now,false);
     assert.equal(row.auto_execution_blocked,'UNKNOWN_OR_EXTERNAL_COST');
