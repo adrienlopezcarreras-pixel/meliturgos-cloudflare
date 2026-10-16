@@ -126,3 +126,27 @@ test('invalid structured request id is rejected before tool access',async()=>{
  assert.equal(results[0].error.code,-32600);
  assert.equal(results[0].id,null);
 });
+
+test('authenticated MCP handshake and status call work in one session without leaking secret fields',async()=>{
+ const responses=await request([
+  {jsonrpc:'2.0',id:21,method:'initialize',params:{protocolVersion:'2025-03-26',capabilities:{},clientInfo:{name:'offline-client',version:'1.0'}}},
+  {jsonrpc:'2.0',method:'notifications/initialized'},
+  {jsonrpc:'2.0',id:22,method:'tools/list'},
+  {jsonrpc:'2.0',id:23,method:'tools/call',params:{name:'mel_companion_status',arguments:{computer_id:'win-1'}}}
+ ],{
+  MEL_MCP_SERVER_URL:'https://mel.example.test/',
+  MEL_MCP_OWNER_TOKEN:'local-fixture-secret',
+  NODE_OPTIONS:'--import=./tests/fixtures/mel-mcp-fetch-mock.mjs'
+ });
+ assert.deepEqual(responses.map(r=>r.id),[21,22,23]);
+ assert.equal(responses[0].result.protocolVersion,'2025-03-26');
+ assert.deepEqual(responses[1].result.tools.map(t=>t.name),['mel_companion_status']);
+ assert.equal(responses[2].result.isError,undefined);
+ const data=JSON.parse(responses[2].result.content[0].text);
+ assert.equal(data.selected_id,'win-1');
+ assert.equal(data.devices[0].online,true);
+ assert.equal(data.devices[0].remote_access_enabled,true);
+ assert.equal(data.commands[0].status,'SUCCEEDED');
+ const output=JSON.stringify(responses);
+ for(const secret of ['DO_NOT_EXPOSE','SECRET_HOST','local-fixture-secret'])assert.equal(output.includes(secret),false);
+});
