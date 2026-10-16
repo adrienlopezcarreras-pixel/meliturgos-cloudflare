@@ -56,3 +56,17 @@ test('misleading wrong SHA fails before capability execution',async()=>{
   assert.equal(r.ok,false);
   assert.equal(calls,2);
 });
+
+test('live capability proof refuses altered or incomplete allowlists before network use', async()=>{
+  const cases=[[],ALLOWLIST.slice(0,3),[...ALLOWLIST].reverse(),
+    ALLOWLIST.map((x,i)=>i===0?{...x,input:{value:'altered'}}:x),
+    ALLOWLIST.map((x,i)=>i===1?{...x,input:{unexpected:true}}:x)];
+  for(const allowlist of cases){
+    let calls=0;
+    const r=await proveSafeExecutions({token:'fixture',expectedSha:SHA,allowlist,
+      fetchImpl:async()=>{calls++;throw Error('network must not be reached');}});
+    assert.equal(r.ok,false);
+    assert.equal(r.code,'LIVE_SAFE_EXECUTION_PROBE_INPUT_INVALID');
+    assert.equal(calls,0);
+  }
+});
