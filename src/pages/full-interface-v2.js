@@ -673,7 +673,7 @@ async function captureWorkComputerView(){
 function workComputerControlPc(){
  const pc=selectedWorkComputer(),now=Date.now(),consent=qs('#workComputerControlConsent');
  if(!pc)throw Error('Aucun Companion Windows sélectionné');
- if(consent?.checked!==true||workComputerControlExpiresAt<=now){if(consent)consent.checked=false;workComputerControlExpiresAt=0;throw Error('Contrôle interactif désactivé ou expiré : coche le consentement pour ouvrir une session de 10 minutes')}
+ if(consent?.checked!==true||workComputerControlExpiresAt<=now){if(consent)consent.checked=false;workComputerControlExpiresAt=0;setWorkComputerControlEnabled(false);throw Error('Contrôle interactif désactivé ou expiré : coche le consentement pour ouvrir une session de 10 minutes')}
  if(pc.halted===true)throw Error('ARRÊTER LE CONTRÔLE est actif côté serveur');
  if(pc.metadata?.remote_access_enabled!==true)throw Error('Accès distant non autorisé dans Companion Windows');
  const heartbeat=Number(pc.last_seen_at||0),engine=Number(pc.metadata?.engine_heartbeat_at||0);
@@ -750,7 +750,7 @@ qs('#workComputerStop').onclick=async()=>{
   await loadWorkComputer();
  }catch(err){qs('#workComputerControlOut').textContent='HALT non confirmé côté serveur : '+err.message+'. Utilise aussi le Stop local dans Companion Windows.'}
 };
-qs('#workComputerSelect').onchange=()=>{workComputerLastView=null;workComputerInterpretation=null;qs('#workComputerAnalysis').style.display='none';qs('#workComputerScreen').style.display='none';qs('#workComputerAnalyze').disabled=true;qs('#workComputerRevokeConsent').setAttribute('aria-disabled','true');qs('#workComputerScreenState').textContent='AUCUNE CAPTURE';loadWorkComputer().catch(e=>{qs('#workComputerOut').textContent='Erreur : '+e.message})};
+qs('#workComputerSelect').onchange=()=>{workComputerControlExpiresAt=0;qs('#workComputerControlConsent').checked=false;setWorkComputerControlEnabled(false);workComputerLastView=null;workComputerInterpretation=null;qs('#workComputerAnalysis').style.display='none';qs('#workComputerScreen').style.display='none';qs('#workComputerAnalyze').disabled=true;qs('#workComputerRevokeConsent').setAttribute('aria-disabled','true');qs('#workComputerScreenState').textContent='AUCUNE CAPTURE';loadWorkComputer().catch(e=>{qs('#workComputerOut').textContent='Erreur : '+e.message})};
 qs('#workComputerOpen').onclick=e=>{e.preventDefault();qs('[data-view="computer"]')?.click()};
 qs('#workComputerState').title='Cliquer pour actualiser le Companion';qs('#workComputerState').style.cursor='pointer';qs('#workComputerState').onclick=()=>loadWorkComputer().catch(()=>{});
 qs('#workComputerView').onclick=e=>{e.preventDefault();if(e.currentTarget.getAttribute('aria-disabled')==='true')return;captureWorkComputerView().catch(()=>{})};
