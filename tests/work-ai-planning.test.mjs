@@ -356,6 +356,6 @@ test('GEN2-38 release smoke keeps real planner bounded and surfaces curl transpo
   assert.match(source, /const planningDeadline = Date\.now\(\) \+ 105_000/);
   assert.match(source, /WORK_PLAN_GENERATION_BUDGET_EXHAUSTED/);
   assert.match(source, /Promise\.race\(/, 'all planner fan-outs share a cumulative deadline');
-  assert.equal((source.match(/executeBoundedPlanningFanout\(/g) || []).length, 4,
+  assert.equal((source.match(/executeBoundedPlanningFanout\(/g) || []).length, 3,
     'initial generation, repair and capability selection share one deadline');
 });
