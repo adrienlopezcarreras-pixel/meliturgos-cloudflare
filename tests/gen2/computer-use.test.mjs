@@ -367,3 +367,46 @@ test('GEN2-30 never dispatches a plan with overflowing native Windows coordinate
   assert.equal(audits.at(-1).status, 'DENIED');
   assert.equal(audits.at(-1).completed_steps, 0);
 });
+
+
+test('GEN2-30 permits only Windows Key-Token-safe keypresses', () => {
+  const invalid = ['^', '+', '%', '~', '{', '}', '(', ')', 'CTRL+X', 'ALT+F4', 'CTRL+ALT+DELETE', 'FOO', 'F13'];
+  for (const key of invalid) {
+    const denied = evaluateComputerUsePlan({
+      ...base,
+      steps: [{ id: 'press', action: COMPUTER_USE_ACTIONS.KEY_PRESS, key }],
+    });
+    assert.equal(denied.allowed, false, key);
+    assert.equal(denied.reason, 'KEY_NOT_SUPPORTED', key);
+  }
+  for (const key of ['a', 'Z', '1', 'ENTER', 'TAB', 'CTRL+S', 'ALT+TAB', 'F12']) {
+    const permitted = evaluateComputerUsePlan({
+      ...base,
+      steps: [{ id: 'press', action: COMPUTER_USE_ACTIONS.KEY_PRESS, key }],
+    });
+    assert.equal(permitted.allowed, true, key);
+  }
+});
+
+test('GEN2-30 never sends SendKeys metacharacters after earlier approved PC steps', async () => {
+  const performed = [];
+  const audits = [];
+  const controller = createComputerUseController({
+    adapter: { perform: async step => performed.push(step) },
+    authorize: async () => true,
+    audit: async entry => audits.push(entry),
+  });
+  await assert.rejects(
+    controller.execute({
+      ...base,
+      steps: [
+        { id: 'first', action: COMPUTER_USE_ACTIONS.SCREENSHOT },
+        { id: 'press', action: COMPUTER_USE_ACTIONS.KEY_PRESS, key: '^' },
+      ],
+    }),
+    error => error.code === 'KEY_NOT_SUPPORTED',
+  );
+  assert.deepEqual(performed, []);
+  assert.equal(audits.at(-1).status, 'DENIED');
+  assert.equal(audits.at(-1).completed_steps, 0);
+});
