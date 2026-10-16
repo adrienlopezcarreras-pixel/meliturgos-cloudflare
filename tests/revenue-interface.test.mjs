@@ -1,0 +1,31 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { onRequestGet } from '../src/pages/revenue-interface.js';
+import { normalizeRevenueTasks } from '../src/api/revenue-worker-api.js';
+
+test('MEL WORK revenue page is an observation-only control center, not a claim/submit UI', async () => {
+  const response = await onRequestGet();
+  assert.equal(response.status, 200);
+  const html = await response.text();
+  for (const token of ['MEL WORK', 'id="refreshAll"', 'id="refreshPc"', 'id="taskList"', '/api/revenue/tasks', '/api/computer/v1/status', 'OBSERVE_ONLY']) assert.ok(html.includes(token), `missing ${token}`);
+  assert.match(html, /id="autonomyToggle" disabled/);
+  assert.doesNotMatch(html, /taskmarket\.cmd|privateKey|seedPhrase|submitResult\(/i);
+});
+
+test('revenue task normalizer accepts only valid open, unexpired paid tasks', () => {
+  const now = Date.parse('2026-10-16T12:00:00.000Z');
+  const valid = { id: 'task-1', referenceCode: 'TSK-1', status: 'open', description: 'Normalize provided JSON.', reward: '1000000', mode: 'bounty', submissionCount: 3, expiryTime: '2026-10-17T12:00:00.000Z', platformFeeBps: 750 };
+  const tasks = normalizeRevenueTasks({ data: { tasks: [valid, { ...valid, id: 'closed', status: 'closed' }, { ...valid, id: 'expired', expiryTime: '2026-10-15T12:00:00.000Z' }, { ...valid, id: 'free', reward: '0' }] } }, now);
+  assert.equal(tasks.length, 1);
+  assert.equal(tasks[0].id, 'task-1');
+  assert.equal(tasks[0].reward, '1000000');
+  assert.equal(tasks[0].platformFeeBps, 750);
+});
+
+test('task normalizer supports CLI/API list envelope without inventing offer data', () => {
+  const valid = { id: 'task-2', status: 'open', description: 'Process a public JSON dataset.', reward: '2500000', expiryTime: '2026-10-18T12:00:00.000Z' };
+  const tasks = normalizeRevenueTasks({ tasks: [valid] }, Date.parse('2026-10-16T12:00:00.000Z'));
+  assert.equal(tasks.length, 1);
+  assert.equal(tasks[0].reward, '2500000');
+  assert.equal(tasks[0].referenceCode, '');
+});
