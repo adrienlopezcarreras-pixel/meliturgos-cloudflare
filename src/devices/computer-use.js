@@ -217,6 +217,16 @@ export function evaluateComputerUsePlan(input = {}) {
   if (submittedSteps.some(step => typeof step?.text === 'string' && step.text.length > MAX_TEXT)) {
     return result(request, false, 'COMPUTER_USE_TEXT_LIMIT_EXCEEDED', decisions);
   }
+  // Reject fields before boundedText can alter the requested target or action.
+  // A clipped URL, path or key must never be authorized as if the owner sent it.
+  const fieldLimits = [
+    ['id', MAX_ID], ['action', 160], ['app', MAX_APP],
+    ['path', 4096], ['url', 2048], ['key', 80],
+  ];
+  if (submittedSteps.some(step => fieldLimits.some(([field, limit]) =>
+    typeof step?.[field] === 'string' && step[field].length > limit))) {
+    return result(request, false, 'COMPUTER_USE_STEP_FIELD_LIMIT_EXCEEDED', decisions);
+  }
 
   const stepIds = new Set();
   for (const step of request.steps) {
