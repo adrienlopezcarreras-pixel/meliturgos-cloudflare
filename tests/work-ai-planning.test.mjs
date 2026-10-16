@@ -386,6 +386,22 @@ test('GEN2-38 release diagnostic creates a bounded local plan without waiting on
     output_schema: { type: 'object', additionalProperties: true },
     risk: 'LOW', permissions: [], health: 'HEALTHY', enabled: true,
   }, async input => ({ value: input.value }));
+  // Simulate catalog pressure: many highly relevant descriptors are ordered before
+  // echo in the ordinary goal-ranked catalog and can consume its complete byte budget.
+  for (let index = 0; index < 30; index += 1) {
+    const suffix = String(index).padStart(2, '0');
+    bus.discover({
+      id: 'diagnostic.safe-read-' + suffix,
+      name: 'Safe read-only diagnostic plan capability ' + suffix,
+      category: 'diagnostic',
+      version: '1.0.0',
+      provider: 'fixture',
+      description: 'Produce a one-step safe read-only diagnostic plan using an actually available capability. '.repeat(3),
+      input_schema: { type: 'object', properties: {}, additionalProperties: false },
+      output_schema: { type: 'object', additionalProperties: true },
+      risk: 'LOW', permissions: [], health: 'HEALTHY', enabled: true,
+    }, async () => ({ ok: true }));
+  }
   let fanoutCalls = 0;
   bus.discover({
     id: 'augmentio.fanout', name: 'Fixture multi-AI', category: 'test', version: '1.0.0', provider: 'fixture',
