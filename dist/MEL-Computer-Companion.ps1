@@ -2494,6 +2494,21 @@ function Perform-Step($step, [string]$commandId, [string]$planSchema="") {
       Type-Text ([string]$step.text)
       return @{ action=$action; chars=([string]$step.text).Length }
     }
+    "browser.reopen-tab" {
+      # Ctrl+Shift+T may restore the last closed tab or browser window,
+      # including previous session content. Only explicit owner approval.
+      [long]$expectedHandle = 0
+      if (-not [long]::TryParse([string]$step.window_handle, [ref]$expectedHandle) -or $expectedHandle -le 0) {
+        throw "BROWSER_REOPEN_TAB_WINDOW_HANDLE_REQUIRED"
+      }
+      $window = [MelNative]::GetForegroundWindow()
+      if ($window -eq [IntPtr]::Zero -or $window.ToInt64() -ne $expectedHandle) { throw "BROWSER_REOPEN_TAB_FOCUS_CHANGED" }
+      $browser = Assert-ForegroundBrowser
+      Assert-BrowserShortcutTarget $window $browser
+      [System.Windows.Forms.SendKeys]::SendWait("^+t")
+      # The browser controls which tab/window is actually restored.
+      return @{ action=$action; browser=$browser; window_handle=$expectedHandle; shortcut_sent=$true }
+    }
     "browser.focus-address" {
       # This only selects the address bar. It never reads, types or opens a URL.
       [long]$expectedHandle = 0
