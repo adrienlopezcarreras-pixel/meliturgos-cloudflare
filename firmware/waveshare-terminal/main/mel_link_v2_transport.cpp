@@ -137,8 +137,7 @@ static bool apply_android_session_clock(const uint8_t *payload, size_t len) {
         // above before any float-to-integer conversion.
         const int64_t epoch_ms = static_cast<int64_t>(epoch->valuedouble);
         const int offset_seconds = static_cast<int>(offset->valuedouble);
-        {
-            struct timeval tv = {};
+        struct timeval tv = {};
             tv.tv_sec = (time_t)(epoch_ms / 1000LL);
             tv.tv_usec = (suseconds_t)((epoch_ms % 1000LL) * 1000LL);
             if (settimeofday(&tv, nullptr) == 0) {
@@ -156,9 +155,6 @@ static bool apply_android_session_clock(const uint8_t *payload, size_t len) {
             } else {
                 ok = false;
             }
-        } else {
-            ok = false;
-        }
     }
     cJSON_Delete(root);
     return ok;
