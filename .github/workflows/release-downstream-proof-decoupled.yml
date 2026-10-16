@@ -914,20 +914,33 @@ jobs:
                 DEPLOY_JOB_STATE="$(node - <<'NODE'
           const fs=require('fs');
           let d={};try{d=JSON.parse(fs.readFileSync('sovereignty-release-jobs.json','utf8'))}catch{}
-          const deploy=(Array.isArray(d?.jobs)?d.jobs:[]).find(job=>String(job?.name||'')==='deploy')||{};
-          process.stdout.write(String(deploy?.status||'')+':'+String(deploy?.conclusion||''));
+          const jobs=Array.isArray(d?.jobs)?d.jobs:[];
+          const deploy=jobs.find(job=>String(job?.name||'')==='deploy')||{};
+          const step=(name)=>((Array.isArray(deploy?.steps)?deploy.steps:[]).find(row=>String(row?.name||'')===name)||{});
+          const deployed=step('Deploy exact approved SHA to production');
+          const bound=step('Verify owner auth binding and exact deployment immediately');
+          process.stdout.write([
+            String(deployed?.status||''),String(deployed?.conclusion||''),
+            String(bound?.status||''),String(bound?.conclusion||''),
+            String(deploy?.status||''),String(deploy?.conclusion||''),
+          ].join(':'));
           NODE
                 )"
                 case "${DEPLOY_JOB_STATE}" in
-                  completed:success)
+                  completed:success:completed:success:*)
+                    # The canonical deploy job continues into post-release autonomy,
+                    # ShardVault and rollback gates. These can take much longer than
+                    # the browser/API deployment itself, and this proof is dispatched
+                    # from inside that same job. Accept only the two exact deploy
+                    # steps succeeding; the full job need not finish first.
                     RELEASE_DEPLOY_SUCCESS=1
                     break
                     ;;
-                  completed:failure)
-                    echo "Canonical exact-SHA deploy job failed; stopping downstream SOV proof."
+                  completed:failure:*|*:completed:failure:*)
+                    echo "Canonical exact-SHA deployment or immediate identity binding failed; stopping downstream SOV proof."
                     exit 41
                     ;;
-                  completed:cancelled)
+                  *:completed:cancelled)
                     # If a later release exists, this exact-SHA proof became obsolete.
                     NEWER_RELEASE_CODE="$(curl --silent --show-error --max-time 15 \
                       --header "Accept: application/vnd.github+json" \
@@ -966,12 +979,33 @@ jobs:
                 esac
               fi
             fi
-            echo "SOV proof waiting for canonical exact-SHA deploy job success; attempt ${ATTEMPT}/90 (runs_api=${RELEASE_API_CODE:-000}, workflow=${RELEASE_WORKFLOW_STATE}, deploy=${DEPLOY_JOB_STATE})."
+            echo "SOV proof waiting for the exact deployment and immediate identity-binding steps; attempt ${ATTEMPT}/90 (runs_api=${RELEASE_API_CODE:-000}, workflow=${RELEASE_WORKFLOW_STATE}, deployment_steps=${DEPLOY_JOB_STATE})."
             sleep 10
           done
           test "${RELEASE_DEPLOY_SUCCESS}" = "1"
 
-          # Fast path after canonical exact-SHA release success: if the final exact-SHA
+          # Recheck the exact deployed SHA after observing the successful canonical
+          # deployment steps. A newer release may have superseded the target while
+          # the downstream proof was waiting.
+          POST_DEPLOY_IDENTITY_CODE="$(curl --silent --show-error --max-time 30 \
+            --header "x-mel-parallel-proof: ${TOKEN}" \
+            --header "content-type: application/json" \
+            --data '{"phase":"identity"}' \
+            --output sovereignty-post-deploy-identity.json --write-out '%{http_code}' \
+            "${BASE_URL}/api/internal/release-launch-bootstrap" || true)"
+          if [ "${POST_DEPLOY_IDENTITY_CODE}" != "200" ] && [ "${POST_DEPLOY_IDENTITY_CODE}" != "409" ]; then
+            echo "Post-deploy exact-SHA identity recheck unavailable (HTTP ${POST_DEPLOY_IDENTITY_CODE}); stopping downstream SOV proof."
+            exit 42
+          fi
+          TARGET_SHA="${TARGET_SHA}" node - <<'NODE'
+          const fs=require('fs');
+          const d=JSON.parse(fs.readFileSync('sovereignty-post-deploy-identity.json','utf8'));
+          const expected=String(process.env.TARGET_SHA||'').toLowerCase();
+          const actual=String(d?.deployed_sha||d?.sha||'').toLowerCase();
+          if(d?.ok!==true||actual!==expected) throw new Error('POST_DEPLOY_EXACT_SHA_MISMATCH:'+actual+':'+expected);
+          NODE
+
+          # Fast path after canonical exact-SHA deployment steps succeeded: if the final exact-SHA
           # sovereignty proof is already complete, do not re-run the expensive
           # provider prevalidations in this decoupled workflow.
           FAST_SOV_CODE="$(curl --silent --show-error --max-time 20 \
