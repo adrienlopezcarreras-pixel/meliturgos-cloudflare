@@ -662,7 +662,7 @@ async function captureWorkComputerView(){
    if(!output)throw Error('DESKTOP_VIEW_RESULT_MISSING');
    const url=output.view_url+(output.view_url.includes('?')?'&':'?')+'v='+Date.now();
    image.src=url;image.style.display='block';qs('#workComputerAnalyze').disabled=false;qs('#workComputerRevokeConsent').setAttribute('aria-disabled','false');screenState.textContent='CAPTURE REÇUE';screenState.className='tag good';
-   workComputerInterpretation=null;qs('#workComputerAnalysis').style.display='none';workComputerLastView={computer_id:pc.id,captured_at:new Date().toISOString(),expires_at:new Date(Date.now()+90000).toISOString(),view_url:output.view_url,command_id:queued.command_id,scope:'VIEW_ONLY',active_window:pc.metadata?.active_window||null};
+   workComputerInterpretation=null;qs('#workComputerAnalysis').style.display='none';workComputerLastView={computer_id:pc.id,captured_at:new Date().toISOString(),expires_at:new Date(Date.now()+90000).toISOString(),view_url:output.view_url,command_id:queued.command_id,scope:'VIEW_ONLY',screen_bounds:output.screen_bounds||null,active_window:pc.metadata?.active_window||null};
    qs('#workComputerOut').textContent=JSON.stringify({status:'SUCCEEDED',scope:'VIEW_ONLY',captured_at:workComputerLastView.captured_at,computer_id:pc.id,command_id:queued.command_id,active_window:workComputerLastView.active_window},null,2);
    return workComputerLastView;
   }
@@ -723,9 +723,11 @@ qs('#workComputerScreen').onclick=async e=>{
  try{
   const pc=workComputerControlPc(),image=e.currentTarget,rect=image.getBoundingClientRect();
   if(!image.naturalWidth||!image.naturalHeight||rect.width<=0||rect.height<=0)throw Error('Dimensions de capture invalides');
-  const scaleX=image.naturalWidth/rect.width,scaleY=image.naturalHeight/rect.height;
-  const x=Math.max(0,Math.min(image.naturalWidth-1,Math.round((e.clientX-rect.left)*scaleX)));
-  const y=Math.max(0,Math.min(image.naturalHeight-1,Math.round((e.clientY-rect.top)*scaleY)));
+  const bounds=workComputerLastView?.screen_bounds;
+  if(!bounds||![bounds.left,bounds.top,bounds.width,bounds.height].every(v=>Number.isFinite(Number(v)))||Number(bounds.width)<=0||Number(bounds.height)<=0)throw Error('Géométrie du bureau absente ou invalide : actualise le Companion');
+  const x=Math.round(((e.clientX-rect.left)/rect.width)*Number(bounds.width)+Number(bounds.left));
+  const y=Math.round(((e.clientY-rect.top)/rect.height)*Number(bounds.height)+Number(bounds.top));
+  if(x<Number(bounds.left)||x>=Number(bounds.left)+Number(bounds.width)||y<Number(bounds.top)||y>=Number(bounds.top)+Number(bounds.height))throw Error('Coordonnées hors du bureau capturé');
   await sendWorkComputerDesktopSteps([{id:'move-pointer',action:'cursor.move',x,y},{id:'left-click',action:'pointer.click'}],'Clic gauche à x='+x+', y='+y);
  }catch(err){qs('#workComputerControlOut').textContent='Clic non exécuté : '+err.message}
 };
