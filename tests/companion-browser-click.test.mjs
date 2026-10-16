@@ -22,7 +22,7 @@ test('browser.click requires owner approval and exact inspected window identity'
   assert.equal(allowed.decisions[0].risk, 'SENSITIVE');
   assert.equal(allowed.request.steps[0].window_handle, '45678');
   assert.equal(plan({ ...click, window_handle: 45678 }, true).allowed, true);
-  for (const handle of ['', '0', '-1', '1e5', ' 45678', 'abc', '9'.repeat(20)]) {
+  for (const handle of ['', '0', '-1', '1e5', ' 45678', 'abc', '9'.repeat(19), '9'.repeat(20)]) {
     assert.equal(plan({ ...click, window_handle: handle }, true).reason, 'BROWSER_CLICK_WINDOW_HANDLE_REQUIRED', handle);
   }
 });
