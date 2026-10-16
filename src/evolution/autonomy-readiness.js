@@ -9,7 +9,11 @@ function councilProof(job) {
   const council = job?.plan_json?.preflight?.council;
   if (!council || council.status !== 'COMPLETE' || council.phase !== 'STATE_OF_PLAY_BEFORE_DEVELOPMENT') return null;
   const responses = asArray(council.responses);
-  const usable = responses.filter((row) => row?.member && row?.answer != null);
+  // A provider identity and estimated cost alone do not prove that any model
+  // actually contributed. Require substantive text for each counted response.
+  const usable = responses.filter((row) => row?.member
+    && typeof row?.answer?.content === 'string'
+    && row.answer.content.trim().length > 0);
   const members = [...new Set(usable.map((row) => String(row.member)))];
   const allExplicitZero = usable.length >= 2 && usable.every((row) => {
     const cost = row?.answer?.estimated_cost;
