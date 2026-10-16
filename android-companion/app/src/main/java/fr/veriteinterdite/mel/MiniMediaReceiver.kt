@@ -255,6 +255,7 @@ class MiniMediaReceiver(private val context: Context) {
         if (width !in 80..1920 || height !in 80..1920) return
         val temp = File.createTempFile("mel-mini-video-", ".avi", context.cacheDir)
         val budget = MiniVideoTransferBudget(fps)
+        var framesReceived = 0
         try {
             AviMjpegWriter(temp, width, height, fps).use { avi ->
                 while (true) {
@@ -263,8 +264,11 @@ class MiniMediaReceiver(private val context: Context) {
                     // Reject oversized streams before allocating/reading another frame.
                     if (!budget.reserve(size)) return
                     avi.addFrame(readFully(input, size))
+                    framesReceived++
                 }
             }
+            // A clean end marker with no frames is not a recorded video.
+            if (framesReceived == 0) return
             val uri = createMediaStoreEntry(
                 MediaStore.Video.Media.EXTERNAL_CONTENT_URI,
                 name.ensureSuffix(".avi"),
@@ -303,7 +307,9 @@ class MiniMediaReceiver(private val context: Context) {
                     pcmBytes += size
                 }
             }
-            if (!budget.withinDeadline()) return
+            if (!budget.withinDeadline() || pcmBytes == 0L) return
+            // WAV PCM16 requires whole samples across all channels.
+            if (pcmBytes % (channels * 2L) != 0L) return
             val uri = createMediaStoreEntry(
                 MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
                 name.ensureSuffix(".wav"),
