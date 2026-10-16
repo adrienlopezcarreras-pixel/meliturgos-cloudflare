@@ -680,3 +680,73 @@ test('a failed Council synthesis makes one bounded attempt per verified model', 
   assert.deepEqual(calls.filter(row => row.purpose === 'model-council-synthesis')
     .map(row => row.id), ['a', 'b']);
 });
+
+test('Council returns owner cancellation rather than synthesis failure when synthesis hangs', async () => {
+  const controller = new AbortController();
+  let startedSynthesis;
+  let synthCalls = 0;
+  const started = new Promise(resolve => { startedSynthesis = resolve; });
+  const adapters = ['model-a', 'model-b'].map((id, index) => ({
+    id,
+    providerId: 'workers-ai',
+    modelId: id,
+    capabilities: ['GENERAL'],
+    priority: 2 - index,
+    estimatedCost: 0,
+    costProvenance: verifiedFree({ id, providerId: 'workers-ai', modelId: id }),
+    enabled: true,
+    healthStatus: 'HEALTHY',
+    async invoke({ context }) {
+      if (context.purpose === 'model-council-independent-critique') {
+        return { text: 'independent critique from ' + id };
+      }
+      synthCalls += 1;
+      startedSynthesis();
+      return new Promise(() => {}); // Deliberately ignores AbortSignal.
+    },
+  }));
+  const council = runModelCouncil({
+    pool: new ProviderPool(adapters),
+    request: 'cancel after completed critiques',
+    timeoutMs: 30_000,
+    signal: controller.signal,
+  });
+  await started;
+  const began = Date.now();
+  controller.abort('owner-stopped');
+  await assert.rejects(council, error => error?.code === 'SCHEDULER_ABORTED');
+  assert.ok(Date.now() - began < 2000, 'owner cancellation must be prompt');
+  assert.equal(synthCalls, 1, 'no extra synthesis provider after owner cancel');
+});
+
+test('Council does not report a degraded or all-failed result after owner cancels critiques', async () => {
+  const controller = new AbortController();
+  let startedCritique;
+  let critiqueCalls = 0;
+  let synthesisCalls = 0;
+  const started = new Promise(resolve => { startedCritique = resolve; });
+  const adapter = {
+    id: 'blocked', providerId: 'workers-ai', modelId: 'blocked',
+    priority: 1, capabilities: ['GENERAL'], estimatedCost: 0,
+    costProvenance: verifiedFree({id:'blocked',providerId:'workers-ai',modelId:'blocked'}),
+    enabled: true, healthStatus: 'HEALTHY',
+    async invoke({ context }) {
+      if (context.purpose === 'model-council-synthesis') {
+        synthesisCalls += 1;
+        return { text: 'not allowed after cancellation' };
+      }
+      critiqueCalls += 1;
+      startedCritique();
+      return new Promise(() => {});
+    },
+  };
+  const request = runModelCouncil({
+    pool: new ProviderPool([adapter]), request: 'cancel before critique completes',
+    timeoutMs: 30_000, signal: controller.signal,
+  });
+  await started;
+  controller.abort('owner-stopped');
+  await assert.rejects(request, error => error?.code === 'SCHEDULER_ABORTED');
+  assert.equal(critiqueCalls, 1);
+  assert.equal(synthesisCalls, 0);
+});
