@@ -73,7 +73,7 @@ test('Windows browser.find validates HWND and never sends search content back to
   assert.equal(asset, dist);
   assert.ok(api.includes('"browser.find"'));
   const begin = asset.indexOf('"browser.find" {');
-  const end = asset.indexOf('"browser.find-next" {', begin);
+  const end = asset.indexOf('"browser.next-tab" {', begin);
   assert.ok(begin > 0 && end > begin);
   const handler = asset.slice(begin, end);
   for (const item of [

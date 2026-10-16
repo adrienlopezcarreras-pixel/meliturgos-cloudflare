@@ -24,6 +24,8 @@ export const COMPUTER_USE_ACTIONS = Object.freeze({
   BROWSER_FIND: 'browser.find',
   BROWSER_FIND_NEXT: 'browser.find-next',
   BROWSER_FIND_PREVIOUS: 'browser.find-previous',
+  BROWSER_NEXT_TAB: 'browser.next-tab',
+  BROWSER_PREVIOUS_TAB: 'browser.previous-tab',
   BROWSER_SCROLL: 'browser.scroll',
   BROWSER_TYPE: 'browser.type',
   BROWSER_BACK: 'browser.back',
@@ -54,6 +56,8 @@ const ACTION_RISK = new Map([
   [COMPUTER_USE_ACTIONS.BROWSER_FIND, COMPUTER_USE_RISK.SENSITIVE],
   [COMPUTER_USE_ACTIONS.BROWSER_FIND_NEXT, COMPUTER_USE_RISK.SENSITIVE],
   [COMPUTER_USE_ACTIONS.BROWSER_FIND_PREVIOUS, COMPUTER_USE_RISK.SENSITIVE],
+  [COMPUTER_USE_ACTIONS.BROWSER_NEXT_TAB, COMPUTER_USE_RISK.SENSITIVE],
+  [COMPUTER_USE_ACTIONS.BROWSER_PREVIOUS_TAB, COMPUTER_USE_RISK.SENSITIVE],
   [COMPUTER_USE_ACTIONS.BROWSER_SCROLL, COMPUTER_USE_RISK.SENSITIVE],
   [COMPUTER_USE_ACTIONS.BROWSER_TYPE, COMPUTER_USE_RISK.SENSITIVE],
   [COMPUTER_USE_ACTIONS.BROWSER_BACK, COMPUTER_USE_RISK.SENSITIVE],
@@ -376,6 +380,17 @@ export function evaluateComputerUsePlan(input = {}) {
         !FIND_CYCLE_ALLOWED_FIELDS.has(field))) {
       allowed = false;
       reason = 'BROWSER_FIND_CYCLE_UNEXPECTED_FIELD';
+    } else if ((step.action === COMPUTER_USE_ACTIONS.BROWSER_NEXT_TAB
+      || step.action === COMPUTER_USE_ACTIONS.BROWSER_PREVIOUS_TAB)
+      && !validBrowserWindowHandle(step.window_handle)) {
+      allowed = false;
+      reason = 'BROWSER_TAB_CYCLE_WINDOW_HANDLE_REQUIRED';
+    } else if ((step.action === COMPUTER_USE_ACTIONS.BROWSER_NEXT_TAB
+      || step.action === COMPUTER_USE_ACTIONS.BROWSER_PREVIOUS_TAB)
+      && Object.keys(submittedSteps[decisions.length] ?? {}).some(field =>
+        !FIND_CYCLE_ALLOWED_FIELDS.has(field))) {
+      allowed = false;
+      reason = 'BROWSER_TAB_CYCLE_UNEXPECTED_FIELD';
     } else if (step.action === COMPUTER_USE_ACTIONS.BROWSER_FIND
       && !validBrowserWindowHandle(step.window_handle)) {
       allowed = false;

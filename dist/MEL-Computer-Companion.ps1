@@ -2650,6 +2650,31 @@ function Perform-Step($step, [string]$commandId, [string]$planSchema="") {
       Type-BrowserText $needle $window $browser
       return @{ action=$action; browser=$browser; chars=$needle.Length; window_handle=$expectedHandle; query_exposed=$false }
     }
+    "browser.next-tab" {
+      # Per-step consent and exact inspected browser HWND, including local STOP.
+      [long]$expectedHandle = 0
+      if (-not [long]::TryParse([string]$step.window_handle, [ref]$expectedHandle) -or $expectedHandle -le 0) {
+        throw "BROWSER_TAB_CYCLE_WINDOW_HANDLE_REQUIRED"
+      }
+      $window = [MelNative]::GetForegroundWindow()
+      if ($window -eq [IntPtr]::Zero -or $window.ToInt64() -ne $expectedHandle) { throw "BROWSER_TAB_CYCLE_FOCUS_CHANGED" }
+      $browser = Assert-ForegroundBrowser
+      Assert-BrowserShortcutTarget $window $browser
+      [System.Windows.Forms.SendKeys]::SendWait("^{TAB}")
+      return @{ action=$action; browser=$browser; window_handle=$expectedHandle }
+    }
+    "browser.previous-tab" {
+      [long]$expectedHandle = 0
+      if (-not [long]::TryParse([string]$step.window_handle, [ref]$expectedHandle) -or $expectedHandle -le 0) {
+        throw "BROWSER_TAB_CYCLE_WINDOW_HANDLE_REQUIRED"
+      }
+      $window = [MelNative]::GetForegroundWindow()
+      if ($window -eq [IntPtr]::Zero -or $window.ToInt64() -ne $expectedHandle) { throw "BROWSER_TAB_CYCLE_FOCUS_CHANGED" }
+      $browser = Assert-ForegroundBrowser
+      Assert-BrowserShortcutTarget $window $browser
+      [System.Windows.Forms.SendKeys]::SendWait("^+{TAB}")
+      return @{ action=$action; browser=$browser; window_handle=$expectedHandle }
+    }
     "browser.find-next" {
       [long]$expectedHandle = 0
       if (-not [long]::TryParse([string]$step.window_handle, [ref]$expectedHandle) -or $expectedHandle -le 0) {
