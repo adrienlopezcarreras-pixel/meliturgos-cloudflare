@@ -60,7 +60,11 @@ export async function requestAutonomousRelease({ token, fetchImpl = fetch, repo 
     assertNoActiveDeploy(releaseRuns);
   } catch (error) {
     if (error?.message !== 'PRODUCTION_DEPLOY_ALREADY_ACTIVE') throw error;
-    return { accepted: false, reason: 'PRODUCTION_DEPLOY_ALREADY_ACTIVE', main_sha: mainSha, release_branch: RELEASE_BRANCH };
+    const active = releaseRuns.find(row => row?.name === 'deploy-cloudflare-release' && String(row?.status || '').toLowerCase() !== 'completed');
+    return { accepted: false, reason: 'PRODUCTION_DEPLOY_ALREADY_ACTIVE', main_sha: mainSha, release_branch: RELEASE_BRANCH,
+      blocking_run_id: Number.isSafeInteger(active?.id) ? active.id : null,
+      blocking_run_sha: SHA40.test(String(active?.head_sha || '')) ? active.head_sha : null,
+      blocking_run_status: ['queued', 'in_progress', 'waiting', 'pending', 'requested'].includes(active?.status) ? active.status : 'unknown' };
   }
   // A previous completed attempt for the latest SHA means a catch-up event
   // must not schedule a duplicate after that SHA failed. A manual dispatch
