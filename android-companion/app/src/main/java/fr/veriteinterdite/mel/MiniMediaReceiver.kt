@@ -357,6 +357,13 @@ class MiniMediaReceiver(private val context: Context) {
             val web = WebView(context.applicationContext)
             web.settings.javaScriptEnabled = true
             web.settings.domStorageEnabled = true
+            // MINI may request arbitrary public URLs; never expose Android's
+            // private file/content providers or allow insecure mixed content.
+            web.settings.allowFileAccess = false
+            web.settings.allowContentAccess = false
+            web.settings.allowFileAccessFromFileURLs = false
+            web.settings.allowUniversalAccessFromFileURLs = false
+            web.settings.mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_NEVER_ALLOW
             web.settings.loadsImagesAutomatically = true
             web.settings.builtInZoomControls = false
             web.settings.displayZoomControls = false
