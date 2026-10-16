@@ -169,6 +169,8 @@ test('MEL Work only sends an explicitly requested Companion screenshot after ver
     assert.ok(sourceHasHtmlId(page,id), `MEL Work missing capture-analysis control #${id}`);
   }
   assert.ok(page.includes("qs('#workComputerAnalyze').onclick=async()=>"), 'screenshot analysis must be an explicit user action');
+  assert.ok(page.includes('if(pendingChatFiles.length)'), 'capture analysis must not consume unrelated staged attachments');
+  assert.ok(page.includes("if(qs('#chatInput').value.trim())"), 'capture analysis must not discard an unsent chat draft');
   assert.ok(page.includes("uploadChatFiles([new File([blob],name,{type:mime})],'companion-screen')"), 'capture must pass through the authenticated private file-upload analysis path');
   assert.ok(page.includes("item.analysis_status!=='IMAGE_DESCRIBED'||!item.preview"), 'MEL must not claim it saw the screen without a real image description');
   assert.ok(page.includes("sendChat(prompt,'companion-screen')"), 'the verified image description must be sent to MEL for interpretation');
