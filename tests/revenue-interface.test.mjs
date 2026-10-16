@@ -41,19 +41,19 @@ test('canonical MEL navigation and router expose MEL WORK without bypassing owne
   assert.match(router, /const auth = requireAuth\(request, env\);[\s\S]{0,120}handleRevenueApi\(request, env\)/);
 });
 
-test('Companion Taskmarket probe is fixed/read-only and distributed source matches', async () => {
+test('Taskmarket PC probe is fixed/read-only, owner-gated, and never accepts a command from UI input', async () => {
   const [api, asset, dist, page] = await Promise.all([
     readFile(new URL('../src/devices/computer-companion-api.js', import.meta.url), 'utf8'),
     readFile(new URL('../assets/MEL-Computer-Companion.ps1', import.meta.url), 'utf8'),
     readFile(new URL('../dist/MEL-Computer-Companion.ps1', import.meta.url), 'utf8'),
     readFile(new URL('../src/pages/revenue-interface.js', import.meta.url), 'utf8'),
   ]);
-  assert.match(api, /"taskmarket\.status"/);
-  assert.match(asset, /function PcControl-TaskmarketStatus/);
-  assert.match(asset, /task list --status open --limit 20/);
-  assert.match(asset, /"taskmarket\.status" \{ return PcControl-TaskmarketStatus \}/);
-  assert.doesNotMatch(asset.slice(asset.indexOf('function PcControl-TaskmarketStatus'), asset.indexOf('function PcControl-SystemInfo')), /task claim|task submit|wallet|private key/i);
-  assert.equal(asset, dist, 'the distributed Companion script must match its source');
+  assert.match(api, /"taskmarket\\.status"/);
+  const block = api.slice(api.indexOf('if(action==="taskmarket.status"&&a.kind==="owner")'), api.indexOf('const session=safe(b.session_id)', api.indexOf('if(action==="taskmarket.status"&&a.kind==="owner")')));
+  assert.match(block, /effectiveAction="system\\.exec"/);
+  assert.match(block, /task list --status open --limit 20/);
+  assert.doesNotMatch(block, /payload\\.command|b\\.command/);
+  assert.equal(asset, dist, 'the distributed Companion script remains synchronized');
   assert.match(page, /id="scanPcTaskmarket"/);
-  assert.match(page, /action:'taskmarket\.status'/);
+  assert.match(page, /action:'taskmarket\\.status'/);
 });
