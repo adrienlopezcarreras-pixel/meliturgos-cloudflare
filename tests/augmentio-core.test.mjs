@@ -830,3 +830,83 @@ test('Augmentio fails closed when a model identity mutates while generating', as
       && error.failures?.some(x => x.includes('AUGMENTIO_PROVIDER_IDENTITY_CHANGED')));
   assert.equal(ai.cache.entries.size, 0);
 });
+
+test('Augmentio records actual adapter invocations, not circuit-open scheduled providers', async () => {
+  let blockedCalls = 0;
+  let healthyCalls = 0;
+  const pool = new ProviderPool([
+    { id: 'blocked', providerId: 'workers-ai', modelId: 'blocked-model',
+      priority: 3, capabilities: ['GENERAL'], estimatedCost: 0,
+      costProvenance: verifiedFree('blocked', { provider: 'workers-ai', model: 'blocked-model' }),
+      invoke: async () => { blockedCalls++; return 'never invoked'; } },
+    { id: 'healthy', providerId: 'workers-ai', modelId: 'healthy-model',
+      priority: 2, capabilities: ['GENERAL'], estimatedCost: 0,
+      costProvenance: verifiedFree('healthy', { provider: 'workers-ai', model: 'healthy-model' }),
+      invoke: async () => { healthyCalls++; return 'real model response'; } },
+  ]);
+  const scheduler = new ParallelScheduler({
+    retries: 0, circuitBreakerFailures: 1, circuitBreakerCooldownMs: 60000,
+  });
+  scheduler.markFailure('blocked'); // The scheduler will not invoke this adapter.
+  const ai = new Augmentio({ pool, scheduler });
+  const result = await ai.fanOut({ input: 'prove invoked model only', maxCandidates: 2 });
+  assert.equal(result.best.text, 'real model response');
+  assert.equal(result.failures, 1);
+  assert.equal(blockedCalls, 0);
+  assert.equal(healthyCalls, 1);
+  assert.deepEqual(result.providersAttempted, ['healthy']);
+  assert.deepEqual(result.providerHealth.map(x => [x.id, x.model]), [
+    ['blocked', 'blocked-model'], ['healthy', 'healthy-model'],
+  ], 'diagnostics preserve selected identities without claiming the blocked model ran');
+});
+
+test('Augmentio never counts an authorization-revoked model as attempted', async () => {
+  let calls = 0;
+  const revoked = {
+    id: 'revoked', priority: 2, capabilities: ['GENERAL'], estimatedCost: 0,
+    costProvenance: verifiedFree('revoked'),
+    invoke: async () => { calls++; return 'invalid'; },
+  };
+  const healthy = {
+    id: 'healthy', priority: 1, capabilities: ['GENERAL'], estimatedCost: 0,
+    costProvenance: verifiedFree('healthy'),
+    invoke: async () => 'valid',
+  };
+  const scheduler = {
+    async run(tasks, worker) {
+      revoked.estimatedCost = 1;
+      return Promise.allSettled(tasks.map((task, index) => worker(task, index, {})));
+    },
+  };
+  const ai = new Augmentio({ pool: new ProviderPool([revoked, healthy]), scheduler });
+  const result = await ai.fanOut({ input: 'no misleading attempts' });
+  assert.deepEqual(result.providersAttempted, ['healthy']);
+  assert.equal(calls, 0);
+  assert.equal(result.failures, 1);
+});
+
+test('Augmentio provider health report preserves the selected model identity', async () => {
+  const first = {
+    id: 'a', providerId: 'workers-ai', modelId: 'model-a', priority: 2,
+    capabilities: ['GENERAL'], estimatedCost: 0,
+    costProvenance: verifiedFree('a', { provider: 'workers-ai', model: 'model-a' }),
+    invoke: async () => 'first reply',
+  };
+  const second = {
+    id: 'b', providerId: 'workers-ai', modelId: 'model-b', priority: 1,
+    capabilities: ['GENERAL'], estimatedCost: 0,
+    costProvenance: verifiedFree('b', { provider: 'workers-ai', model: 'model-b' }),
+    invoke: async () => {
+      first.modelId = 'new-model-not-invoked';
+      return 'second reply';
+    },
+  };
+  const ai = new Augmentio({
+    pool: new ProviderPool([first, second]),
+    scheduler: new ParallelScheduler({ globalConcurrency: 1, retries: 0 }),
+  });
+  const result = await ai.fanOut({ input: 'stable provider evidence', maxCandidates: 2 });
+  assert.deepEqual(result.providersAttempted, ['a', 'b']);
+  assert.equal(result.providerHealth[0].model, 'model-a');
+  assert.equal(result.candidates.length, 2);
+});
