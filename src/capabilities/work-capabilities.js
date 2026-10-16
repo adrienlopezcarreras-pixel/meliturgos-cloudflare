@@ -331,6 +331,60 @@ export function registerWorkCapabilities(bus, { db } = {}) {
       constraints: input.constraints || [],
       catalog,
     });
+    // Deterministic echo is reserved for the release smoke's exact canonical request.
+    // User-authored planning goals, even similar diagnostic requests, must use the
+    // normal provider path and continue to surface provider outages.
+    const releaseDiagnosticGoal = 'Produce a one-step safe read-only diagnostic plan using only an actually available capability.';
+    const releaseDiagnosticConstraints = ['No side effects', 'Use only listed capabilities'];
+    const isBoundedReleaseDiagnostic =
+      context?.releaseSmoke === true
+      && String(input.goal || '').trim() === releaseDiagnosticGoal
+      && JSON.stringify(input.constraints || []) === JSON.stringify(releaseDiagnosticConstraints);
+    if (isBoundedReleaseDiagnostic) {
+      const diagnosticEcho = catalog.find((record) =>
+        String(record?.id || '') === 'echo'
+        && String(record?.risk || '').toUpperCase() === 'LOW'
+        && record?.approval_required !== true
+        && record?.enabled === true
+        && String(record?.health || '').toUpperCase() !== 'UNAVAILABLE'
+      );
+      if (!diagnosticEcho) throw workError('WORK_PLAN_RELEASE_DIAGNOSTIC_ECHO_UNAVAILABLE');
+      const deterministic = parseCapabilityAwareWorkPlan({
+        text: JSON.stringify({
+          steps: [{
+            id: 'step-1',
+            title: 'Read-only diagnostic echo',
+            capability: 'echo',
+            input: minimalCapabilityInput(diagnosticEcho, 'release diagnostic'),
+            dependsOn: [],
+            idempotent: true,
+          }],
+          constraints: releaseDiagnosticConstraints,
+        }),
+        id: input.id,
+        goal: input.goal,
+        constraints: input.constraints || [],
+        catalog,
+        source: 'local:bounded-release-diagnostic-fallback',
+      });
+      return {
+        ok: true,
+        plan: deterministic.plan,
+        summary: summarizeWorkPlan(deterministic.plan),
+        nodes: compileWorkPlanNodes(deterministic.plan),
+        generator: {
+          ...deterministic.generator,
+          provider: 'local',
+          model: 'bounded-diagnostic-fallback',
+          candidate_count: 1,
+          provider_failures: 0,
+          rejected_candidates: [],
+          repair_attempted: false,
+          execution_started: false,
+          persisted: false,
+        },
+      };
+    }
     // One cumulative budget covers generation, repair and structured selection.
     // The production smoke has a 120s HTTP deadline; keep the planner itself
     // below it so a slow model fails closed instead of pinning the release.
