@@ -57,8 +57,9 @@ class MiniMediaReceiver(private val context: Context) {
     private val started = AtomicBoolean(false)
     private val hotspotEpoch = AtomicLong(0)
     private val activeClients = ConcurrentHashMap.newKeySet<Socket>()
-    private val token = ByteArray(24).also { SecureRandom().nextBytes(it) }
+    private fun newSessionToken(): String = ByteArray(24).also { SecureRandom().nextBytes(it) }
         .let { Base64.encodeToString(it, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING) }
+    @Volatile private var token = newSessionToken()
     private var serverSocket: ServerSocket? = null
     private var reservation: WifiManager.LocalOnlyHotspotReservation? = null
     @Volatile private var currentConfig: Config? = null
@@ -70,6 +71,8 @@ class MiniMediaReceiver(private val context: Context) {
         }
         if (!started.compareAndSet(false, true)) return
         val epoch = hotspotEpoch.incrementAndGet()
+        // A STOP revokes previous credentials: rotate before opening the listener.
+        token = newSessionToken()
 
         try {
             serverSocket = ServerSocket(PORT).apply { reuseAddress = true }

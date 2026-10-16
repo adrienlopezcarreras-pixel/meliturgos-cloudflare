@@ -22,3 +22,21 @@ test('MINI hotspot callbacks cannot resurrect revoked or superseded media sessio
   assert.ok(close.indexOf('started.set(false)')>close.indexOf('hotspotEpoch.incrementAndGet()'));
   assert.match(close,/stopActiveClients\(\)/);
 });
+
+test('MINI media token is rotated before each fresh hotspot start and issued consistently',async()=>{
+  const src=await readFile(new URL('../android-companion/app/src/main/java/fr/veriteinterdite/mel/MiniMediaReceiver.kt',import.meta.url),'utf8');
+  assert.match(src,/@Volatile private var token = newSessionToken\(\)/);
+  assert.match(src,/private fun newSessionToken\(\): String = ByteArray\(24\)/);
+  assert.match(src,/SecureRandom\(\)\.nextBytes\(it\)/);
+  const start=src.slice(src.indexOf('fun ensureStarted('),src.indexOf('private fun credentials('));
+  const fresh=start.indexOf('if (!started.compareAndSet(false, true)) return');
+  const rotate=start.indexOf('token = newSessionToken()');
+  const listen=start.indexOf('serverSocket = ServerSocket(PORT)');
+  const expose=start.indexOf('val config = Config(pair.first, pair.second, PORT, token)');
+  assert.ok(fresh>=0&&rotate>fresh&&listen>rotate&&expose>listen);
+  const stop=src.slice(src.indexOf('fun close()'),src.indexOf('private class AviMjpegWriter('));
+  assert.ok(stop.indexOf('started.set(false)')>=0);
+  assert.ok(stop.indexOf('currentConfig = null')>stop.indexOf('started.set(false)'));
+  assert.ok(stop.indexOf('stopActiveClients()')>stop.indexOf('currentConfig = null'));
+  assert.match(src,/constantTimeEquals\(token, suppliedToken\)/);
+});
