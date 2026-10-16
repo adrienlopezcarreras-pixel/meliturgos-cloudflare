@@ -152,3 +152,33 @@ test('Augmentio cache normalizes invalid or extreme memory budgets', () => {
   assert.equal(bounded.maxBytes, 32 * 1024 * 1024);
   assert.equal(bounded.maxEntryBytes, bounded.maxBytes);
 });
+
+test('optional cache refuses function metadata without failing an otherwise valid AI answer', async () => {
+  const cache = new ComputeCache();
+  const result = {
+    answer: 'successful AI result',
+    diagnostics: { callback: () => 'uncloneable function', attempts: 2 },
+  };
+  const key = await cache.set('valid-response-uncloneable-metadata', result);
+  assert.equal(typeof key, 'string');
+  assert.equal(await cache.get('valid-response-uncloneable-metadata'), null);
+  assert.equal(cache.entries.size, 0);
+  assert.equal(cache.totalBytes, 0);
+
+  await cache.set('different-valid-response', { answer: 'still works' });
+  assert.deepEqual(await cache.get('different-valid-response'),
+    { answer: 'still works' });
+});
+
+test('a rejected cache clone cannot leave stale bytes or an overwritten entry', async () => {
+  const cache = new ComputeCache({ maxEntries: 2 });
+  const key = await cache.set('replaced', { answer: 'original' });
+  assert.equal(cache.entries.size, 1);
+  await cache.set('replaced', {
+    answer: 'new result',
+    diagnostics: { uncloneable: () => 'missing from JSON but not cloneable' },
+  });
+  assert.equal(await cache.get('replaced'), null);
+  assert.equal(cache.totalBytes, 0);
+  assert.equal(cache.entries.has(key), false);
+});
