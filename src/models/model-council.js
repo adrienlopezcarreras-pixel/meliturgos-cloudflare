@@ -64,7 +64,8 @@ function safeReportedProvenance(response = {}) {
     out.inference_settings_applied = source.inference_settings_applied
       .map(clean)
       .filter(Boolean)
-      .slice(0, 20);
+      .slice(0, 12)
+      .map(value => value.slice(0, 80));
   }
   if (typeof source.lora_applied === 'boolean') out.lora_applied = source.lora_applied;
   return Object.keys(out).length ? out : null;
