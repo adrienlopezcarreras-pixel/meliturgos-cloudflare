@@ -1747,14 +1747,14 @@ jobs:
             # upstream multi-AI request hits the 120s network deadline.
             # Keep the real production proof mandatory and preserve rollback
             # when both attempts fail. Never retry mutating Work endpoints.
-            GEN_PLAN_CODE="$(curl --silent --show-error --max-time 120 --retry 1 --retry-all-errors --retry-delay 2 \
+            GEN_PLAN_CODE="$(curl --silent --show-error --max-time 120 \
               --header "x-mel-release-smoke: 1" \
               --header "x-mel-launch-bootstrap: ${BOOTSTRAP_TOKEN}" \
               --header "content-type: application/json" \
-              --data '{"id":"work.plan.generate","input":{"goal":"Produce a one-step safe read-only diagnostic plan using only an actually available capability.","constraints":["No side effects","Use only listed capabilities"],"maxCandidates":3}}' \
+              --data '{"id":"work.plan.generate","input":{"goal":"Produce a one-step safe read-only diagnostic plan using only an actually available capability.","constraints":["No side effects","Use only listed capabilities"],"maxCandidates":2}}' \
               --output production-gen2-38-generated.json \
               --write-out '%{http_code}' \
-              "${BASE_URL}/api/gen2/capabilities/execute")"
+              "${BASE_URL}/api/gen2/capabilities/execute" || true)"
             if [ "$GEN_PLAN_CODE" != "200" ]; then
               echo "GEN2-38 generated plan returned HTTP ${GEN_PLAN_CODE}."
               echo 'Production autonomy proof response withheld from CI logs; see sanitized HTTP/status evidence.'
