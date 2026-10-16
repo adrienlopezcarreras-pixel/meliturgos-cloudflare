@@ -387,6 +387,7 @@ test('coverage marks full runtime execution only when every capability was genui
   }), /CAPABILITY_COVERAGE_COUNTS_INVALID/);
 });
 
+// Coverage aggregation is domain-only; individual capability IDs stay out of proof summaries.
 test('persistent runtime coverage explains unverified rows using sanitized aggregate blocker codes', () => {
   const coverage = summarizeStressCoverage({
     progress: { total: 4 },
@@ -409,7 +410,9 @@ test('persistent runtime coverage explains unverified rows using sanitized aggre
     SAMPLE_PREPARATION_FAILED: 1,
     UNKNOWN_OR_EXTERNAL_COST: 1,
   });
-  assert.doesNotMatch(JSON.stringify(coverage), /secret|private|SECRET_VALUE_NEVER_EXPOSE/i);
+  assert.deepEqual(coverage.runtime_tested_by_domain, { other: 1 });
+  assert.deepEqual(coverage.runtime_unverified_by_domain, { connectors_storage: 1, other: 2 });
+  assert.doesNotMatch(JSON.stringify(coverage), /safe\.tested|risk\.private|cloudflare\.secret|bad\.user\.text|SECRET_VALUE_NEVER_EXPOSE/i);
 });
 
 test('runtime blocker breakdown remains absent when persistent row data are unavailable', () => {
@@ -420,6 +423,8 @@ test('runtime blocker breakdown remains absent when persistent row data are unav
   });
   assert.equal(coverage.reason_breakdown_available, false);
   assert.equal(coverage.runtime_unverified_reasons, null);
+  assert.equal(coverage.runtime_tested_by_domain, null);
+  assert.equal(coverage.runtime_unverified_by_domain, null);
 });
 
 test('runtime blocker breakdown rejects stale or contradictory row evidence', () => {
