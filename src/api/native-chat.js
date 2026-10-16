@@ -1417,7 +1417,6 @@ export async function handleNativeChat(request, env, options = {}) {
   const developmentQueued = toolResults.find((row) => row.capability === 'evolution.enqueue' && row.status === 'SUCCEEDED')?.result || null;
   const devBridgeStatusObserved = toolResults.find((row) => row.capability === 'autonomy.bridge.status' && row.status === 'SUCCEEDED')?.result || null;
   const autonomyActivityObserved = toolResults.find((row) => row.capability === 'autonomy.activity' && row.status === 'SUCCEEDED')?.result || null;
-  const autonomyRuntimeObservedRow = toolResults.find((row) => ['autonomy.tick','autonomy.status'].includes(String(row.capability)) && row.status === 'SUCCEEDED') || null;
   const autonomyRuntimeObserved = autonomyRuntimeObservedRow?.result || null;
   const selfStateObserved = toolResults.find((row) => row.capability === 'self.state' && row.status === 'SUCCEEDED')?.result || null;
   const capabilityAuditObserved = toolResults.find((row) => ['capability.audit','capability.audit.status'].includes(row.capability) && row.status === 'SUCCEEDED')?.result || null;
