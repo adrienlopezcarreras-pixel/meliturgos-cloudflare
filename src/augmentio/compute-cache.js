@@ -1,7 +1,47 @@
-function stableStringify(value) {
-  if (value === null || typeof value !== 'object') return JSON.stringify(value);
-  if (Array.isArray(value)) return `[${value.map(stableStringify).join(',')}]`;
-  return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stableStringify(value[key])}`).join(',')}}`;
+function stableStringify(value, active = new WeakSet()) {
+  if (value === null) return 'null';
+  if (value === undefined) return 'undefined';
+  if (typeof value === 'string' || typeof value === 'boolean') return JSON.stringify(value);
+  if (typeof value === 'number') {
+    if (Number.isNaN(value)) return 'NaN';
+    if (value === Infinity) return 'Infinity';
+    if (value === -Infinity) return '-Infinity';
+    if (Object.is(value, -0)) return '-0';
+    return JSON.stringify(value);
+  }
+  if (typeof value === 'bigint') return `${value}n`;
+  // Non-data types cannot safely identify a cached request.
+  if (typeof value !== 'object' || active.has(value)) {
+    throw new TypeError('AUGMENTIO_CACHE_KEY_UNSUPPORTED');
+  }
+  active.add(value);
+  try {
+    if (Array.isArray(value)) {
+      // Array.map() skips holes: [] and [undefined] previously hashed alike.
+      return `[${Array.from({ length: value.length }, (_, i) =>
+        Object.hasOwn(value, i) ? stableStringify(value[i], active) : 'hole').join(',')}]`;
+    }
+    if (value instanceof Date) {
+      if (Number.isNaN(value.getTime())) throw new TypeError('AUGMENTIO_CACHE_KEY_UNSUPPORTED');
+      return `date(${JSON.stringify(value.toISOString())})`;
+    }
+    if (value instanceof URL) return `url(${JSON.stringify(value.href)})`;
+    if (value instanceof Map) {
+      return `map(${[...value].map(([k, v]) =>
+        `[${stableStringify(k, active)},${stableStringify(v, active)}]`).join(',')})`;
+    }
+    if (value instanceof Set) {
+      return `set(${[...value].map(v => stableStringify(v, active)).sort().join(',')})`;
+    }
+    const prototype = Object.getPrototypeOf(value);
+    if (prototype !== Object.prototype && prototype !== null) {
+      throw new TypeError('AUGMENTIO_CACHE_KEY_UNSUPPORTED');
+    }
+    return `{${Object.keys(value).sort().map(key =>
+      `${JSON.stringify(key)}:${stableStringify(value[key], active)}`).join(',')}}`;
+  } finally {
+    active.delete(value);
+  }
 }
 
 async function sha256(text) {
