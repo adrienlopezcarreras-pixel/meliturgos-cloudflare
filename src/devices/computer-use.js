@@ -22,6 +22,8 @@ export const COMPUTER_USE_ACTIONS = Object.freeze({
   BROWSER_CLICK: 'browser.click',
   BROWSER_PRESS: 'browser.press',
   BROWSER_FIND: 'browser.find',
+  BROWSER_FIND_NEXT: 'browser.find-next',
+  BROWSER_FIND_PREVIOUS: 'browser.find-previous',
   BROWSER_SCROLL: 'browser.scroll',
   BROWSER_TYPE: 'browser.type',
   BROWSER_BACK: 'browser.back',
@@ -50,6 +52,8 @@ const ACTION_RISK = new Map([
   [COMPUTER_USE_ACTIONS.BROWSER_CLICK, COMPUTER_USE_RISK.SENSITIVE],
   [COMPUTER_USE_ACTIONS.BROWSER_PRESS, COMPUTER_USE_RISK.SENSITIVE],
   [COMPUTER_USE_ACTIONS.BROWSER_FIND, COMPUTER_USE_RISK.SENSITIVE],
+  [COMPUTER_USE_ACTIONS.BROWSER_FIND_NEXT, COMPUTER_USE_RISK.SENSITIVE],
+  [COMPUTER_USE_ACTIONS.BROWSER_FIND_PREVIOUS, COMPUTER_USE_RISK.SENSITIVE],
   [COMPUTER_USE_ACTIONS.BROWSER_SCROLL, COMPUTER_USE_RISK.SENSITIVE],
   [COMPUTER_USE_ACTIONS.BROWSER_TYPE, COMPUTER_USE_RISK.SENSITIVE],
   [COMPUTER_USE_ACTIONS.BROWSER_BACK, COMPUTER_USE_RISK.SENSITIVE],
@@ -329,6 +333,11 @@ export function evaluateComputerUsePlan(input = {}) {
         || Number(submittedSteps[decisions.length].delta_y) === 0)) {
       allowed = false;
       reason = 'BROWSER_SCROLL_DELTA_INVALID';
+    } else if ((step.action === COMPUTER_USE_ACTIONS.BROWSER_FIND_NEXT
+      || step.action === COMPUTER_USE_ACTIONS.BROWSER_FIND_PREVIOUS)
+      && !validBrowserWindowHandle(step.window_handle)) {
+      allowed = false;
+      reason = 'BROWSER_FIND_CYCLE_WINDOW_HANDLE_REQUIRED';
     } else if (step.action === COMPUTER_USE_ACTIONS.BROWSER_FIND
       && !validBrowserWindowHandle(step.window_handle)) {
       allowed = false;

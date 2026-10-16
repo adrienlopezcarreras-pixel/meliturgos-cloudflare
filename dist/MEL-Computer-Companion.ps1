@@ -2650,6 +2650,30 @@ function Perform-Step($step, [string]$commandId, [string]$planSchema="") {
       Type-BrowserText $needle $window $browser
       return @{ action=$action; browser=$browser; chars=$needle.Length; window_handle=$expectedHandle; query_exposed=$false }
     }
+    "browser.find-next" {
+      [long]$expectedHandle = 0
+      if (-not [long]::TryParse([string]$step.window_handle, [ref]$expectedHandle) -or $expectedHandle -le 0) {
+        throw "BROWSER_FIND_CYCLE_WINDOW_HANDLE_REQUIRED"
+      }
+      $window = [MelNative]::GetForegroundWindow()
+      if ($window -eq [IntPtr]::Zero -or $window.ToInt64() -ne $expectedHandle) { throw "BROWSER_FIND_CYCLE_FOCUS_CHANGED" }
+      $browser = Assert-ForegroundBrowser
+      Assert-BrowserShortcutTarget $window $browser
+      [System.Windows.Forms.SendKeys]::SendWait("{F3}")
+      return @{ action=$action; browser=$browser; window_handle=$expectedHandle }
+    }
+    "browser.find-previous" {
+      [long]$expectedHandle = 0
+      if (-not [long]::TryParse([string]$step.window_handle, [ref]$expectedHandle) -or $expectedHandle -le 0) {
+        throw "BROWSER_FIND_CYCLE_WINDOW_HANDLE_REQUIRED"
+      }
+      $window = [MelNative]::GetForegroundWindow()
+      if ($window -eq [IntPtr]::Zero -or $window.ToInt64() -ne $expectedHandle) { throw "BROWSER_FIND_CYCLE_FOCUS_CHANGED" }
+      $browser = Assert-ForegroundBrowser
+      Assert-BrowserShortcutTarget $window $browser
+      [System.Windows.Forms.SendKeys]::SendWait("+{F3}")
+      return @{ action=$action; browser=$browser; window_handle=$expectedHandle }
+    }
     "browser.capture" {
       # Capture the foreground browser rectangle only, never the virtual desktop.
       $browser = Assert-ForegroundBrowser
