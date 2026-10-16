@@ -406,6 +406,13 @@ export function evaluateComputerUsePlan(input = {}) {
     } else if (step.action === COMPUTER_USE_ACTIONS.BROWSER_NAVIGATE && !step.url) {
       allowed = false;
       reason = 'NAVIGATION_URL_REQUIRED';
+    } else if (step.action === COMPUTER_USE_ACTIONS.BROWSER_NAVIGATE
+      && Object.keys(submittedSteps[decisions.length] ?? {}).some(field =>
+        !['id', 'action', 'url'].includes(field))) {
+      // A browser launch has no HWND, typing, click or alternate target support.
+      // Fail closed rather than claiming to have executed ignored owner intent.
+      allowed = false;
+      reason = 'BROWSER_NAVIGATE_UNEXPECTED_FIELD';
     } else if (!originAllowed(step.url, request.sandbox.allowed_origins)) {
       allowed = false;
       reason = 'ORIGIN_OUTSIDE_SANDBOX';
