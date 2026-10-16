@@ -129,7 +129,7 @@ async function ownerStatus(request,env,url){
  return json({ok:true,devices,selected_id:id||null,commands});
 }
 
-function approvals(session,steps){const sensitive=new Set(["keyboard.type","browser.navigate","browser.capture","browser.back","browser.new-tab","browser.close-tab","browser.forward","browser.reload","app.open","app.close","file.open","file.close","clipboard.read","clipboard.write"]);return steps.filter(x=>sensitive.has(String(x.action||""))).map(x=>({approved:true,session_id:session,step_id:String(x.id),action:String(x.action)}))}
+function approvals(session,steps){const sensitive=new Set(["keyboard.type","browser.navigate","browser.capture","browser.click","browser.back","browser.new-tab","browser.close-tab","browser.forward","browser.reload","app.open","app.close","file.open","file.close","clipboard.read","clipboard.write"]);return steps.filter(x=>sensitive.has(String(x.action||""))).map(x=>({approved:true,session_id:session,step_id:String(x.id),action:String(x.action)}))}
 
 async function ownerCommand(request,env){
  const a=requireAuth(request,env);if(!a.ok)return a.response;await tables(env);const b=await request.json().catch(()=>({}));
