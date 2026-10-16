@@ -1785,7 +1785,7 @@ class MainForm : Form
                         && DateTime.TryParse(Convert.ToString(observed), out when)
                         && (DateTime.UtcNow - when.ToUniversalTime()).TotalSeconds >= -30
                         && (DateTime.UtcNow - when.ToUniversalTime()).TotalSeconds < 75;
-                    bool isConnected = a.TryGetValue("connected", out connected) && Convert.ToBoolean(connected);
+                    bool isConnected = fresh && a.TryGetValue("connected", out connected) && Convert.ToBoolean(connected);
                     bool adbAvailable = a.TryGetValue("adb_available", out available) && Convert.ToBoolean(available);
                     string errorCode = a.TryGetValue("error", out errorValue) && errorValue != null ? Convert.ToString(errorValue) : "";
                     string errorDetail = a.TryGetValue("error_detail", out errorDetailValue) && errorDetailValue != null ? Convert.ToString(errorDetailValue) : "";
