@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createHttpChatAdapter, parseHttpChatProviderDescriptors } from '../src/augmentio/http-chat-adapter.js';
+import { createHttpChatAdapter, createGeminiChatAdapter, parseHttpChatProviderDescriptors } from '../src/augmentio/http-chat-adapter.js';
 import { createDefaultAugmentioPool } from '../src/augmentio/default-pool.js';
 import { ModelRegistry } from '../src/models/ModelRegistry.js';
 
@@ -156,4 +156,53 @@ test('provider URL rejects embedded Basic Auth and fragments even on HTTPS', () 
       id:'invalid-endpoint', providerId:'external', modelId:'model', endpoint,
     }), error => error?.message === 'HTTP_CHAT_ENDPOINT_INVALID');
   }
+});
+
+test('credentialed HTTP chat calls forbid automatic redirects to a different endpoint', async () => {
+  let observed;
+  const adapter = createHttpChatAdapter({
+    env: { ALT_TOKEN: 'test-secret' },
+    id: 'secure-redirect', providerId: 'external', modelId: 'model',
+    endpoint: 'https://provider.example/api/chat', secretEnv: 'ALT_TOKEN',
+    fetchImpl: async (url, options) => {
+      observed = { url, options };
+      return Response.json({ choices: [{ message: { content: 'valid answer' } }] });
+    },
+  });
+  const result = await adapter.invoke({ input: 'private prompt' });
+  assert.equal(result.text, 'valid answer');
+  assert.equal(observed.options.redirect, 'error');
+  assert.equal(observed.options.headers.authorization, 'Bearer test-secret');
+  assert.match(observed.options.body, /private prompt/);
+});
+
+test('Gemini calls forbid redirects even when API key is carried separately', async () => {
+  let observed;
+  const adapter = createGeminiChatAdapter({
+    env: { GEMINI_API_KEY: 'test-gemini-key' },
+    fetchImpl: async (url, options) => {
+      observed = { url, options };
+      return Response.json({ candidates: [{ content: { parts: [{ text: 'Gemini answer' }] } }] });
+    },
+  });
+  const result = await adapter.invoke({ input: 'private Gemini prompt' });
+  assert.equal(result.text, 'Gemini answer');
+  assert.equal(observed.options.redirect, 'error');
+  assert.equal(observed.options.headers['x-goog-api-key'], 'test-gemini-key');
+});
+
+test('HTTP AI adapter fails rather than retrying after a rejected redirect', async () => {
+  let calls = 0;
+  const adapter = createHttpChatAdapter({
+    id: 'redirecting-provider', providerId: 'external', modelId: 'model',
+    endpoint: 'https://provider.example/api/chat',
+    fetchImpl: async (_url, options) => {
+      calls += 1;
+      assert.equal(options.redirect, 'error');
+      throw new TypeError('redirect not allowed');
+    },
+  });
+  await assert.rejects(adapter.invoke({ input: 'private payload' }),
+    error => error?.message === 'redirect not allowed');
+  assert.equal(calls, 1);
 });
