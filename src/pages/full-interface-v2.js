@@ -676,6 +676,7 @@ qs('#workComputerState').title='Cliquer pour actualiser le Companion';qs('#workC
 qs('#workComputerView').onclick=e=>{e.preventDefault();if(e.currentTarget.getAttribute('aria-disabled')==='true')return;captureWorkComputerView().catch(()=>{})};
 qs('#workComputerAnalyze').onclick=async()=>{
  const captured=workComputerLastView,button=qs('#workComputerAnalyze'),out=qs('#workComputerOut');
+ if(qs('#workComputerInterpretConsent')?.checked!==true){out.textContent='Analyse refusée : coche d’abord le consentement d’interprétation de cette capture.';return}
  if(!captured?.command_id||Date.parse(String(captured.expires_at||''))<=Date.now()){button.disabled=true;out.textContent='Analyse refusée : la capture a expiré. Demande une nouvelle capture.';return}
  await loadWorkComputer();const pc=selectedWorkComputer();
  if(!pc||captured.computer_id!==pc.id)return;
@@ -696,7 +697,7 @@ qs('#workComputerAnalyze').onclick=async()=>{
   const code=String(e?.message||'WORK_SCREEN_ANALYSIS_FAILED').match(/^[A-Z0-9_:-]{1,96}$/)?.[0]||'WORK_SCREEN_ANALYSIS_FAILED';
   out.textContent=JSON.stringify({status:'IMAGE_ANALYSIS_FAILED',code,scope:'VIEW_ONLY',halt_remains_available:true},null,2);
   qs('#workComputerScreenState').textContent='ANALYSE INDISPONIBLE';qs('#workComputerScreenState').className='tag bad';
- }finally{button.textContent='Faire analyser la capture par MEL';button.disabled=!workComputerLastView?.command_id}
+ }finally{qs('#workComputerInterpretConsent').checked=false;button.textContent='Faire analyser la capture par MEL';button.disabled=!workComputerLastView?.command_id}
 };
 qs('#workComputerRevokeConsent').onclick=async e=>{
  e.preventDefault();
