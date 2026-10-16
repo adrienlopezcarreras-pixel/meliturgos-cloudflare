@@ -360,6 +360,11 @@ export function evaluateComputerUsePlan(input = {}) {
       && !validBrowserWindowHandle(step.window_handle)) {
       allowed = false;
       reason = 'BROWSER_TYPE_WINDOW_HANDLE_REQUIRED';
+    } else if (step.action === COMPUTER_USE_ACTIONS.BROWSER_TYPE
+      && Object.keys(submittedSteps[decisions.length] ?? {}).some(field =>
+        !['id', 'action', 'window_handle', 'text'].includes(field))) {
+      allowed = false;
+      reason = 'BROWSER_TYPE_UNEXPECTED_FIELD';
     } else if (step.action === COMPUTER_USE_ACTIONS.BROWSER_TYPE && !step.text.length) {
       allowed = false;
       reason = 'BROWSER_TYPE_TEXT_REQUIRED';
@@ -372,6 +377,11 @@ export function evaluateComputerUsePlan(input = {}) {
       && !validBrowserWindowHandle(step.window_handle)) {
       allowed = false;
       reason = 'BROWSER_PRESS_WINDOW_HANDLE_REQUIRED';
+    } else if (step.action === COMPUTER_USE_ACTIONS.BROWSER_PRESS
+      && Object.keys(submittedSteps[decisions.length] ?? {}).some(field =>
+        !['id', 'action', 'window_handle', 'key'].includes(field))) {
+      allowed = false;
+      reason = 'BROWSER_PRESS_UNEXPECTED_FIELD';
     } else if (step.action === COMPUTER_USE_ACTIONS.BROWSER_PRESS
       && !BROWSER_NAVIGATION_KEYS.has(step.key.toUpperCase())) {
       allowed = false;
