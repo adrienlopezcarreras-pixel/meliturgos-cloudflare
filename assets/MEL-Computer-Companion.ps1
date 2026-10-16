@@ -2334,12 +2334,14 @@ function Assert-ForegroundBrowser {
 function Assert-BrowserShortcutTarget([IntPtr]$window, [string]$browser) {
   # Recheck local consent and the same exact window before injecting any keys.
   Assert-LocalRemoteAccess
+  if ($script:MelExitRequested) { throw "BROWSER_SHORTCUT_LOCAL_STOP_ACTIVE" }
   if ($window -eq [IntPtr]::Zero -or [MelNative]::GetForegroundWindow() -ne $window -or
       (Assert-ForegroundBrowser) -ne $browser) { throw "BROWSER_SHORTCUT_FOCUS_CHANGED" }
 }
 
 function Assert-BrowserClickTarget([IntPtr]$window, [string]$browser, [int]$x, [int]$y) {
   Assert-LocalRemoteAccess
+  if ($script:MelExitRequested) { throw "BROWSER_POINTER_LOCAL_STOP_ACTIVE" }
   if ($window -eq [IntPtr]::Zero -or [MelNative]::GetForegroundWindow() -ne $window -or
       (Assert-ForegroundBrowser) -ne $browser) { throw "BROWSER_CLICK_FOCUS_CHANGED" }
   $rect = New-Object MelNative+RECT
