@@ -7,7 +7,7 @@ test('MEL WORK revenue page is an observation-only control center, not a claim/s
   const response = await onRequestGet();
   assert.equal(response.status, 200);
   const html = await response.text();
-  for (const token of ['MEL WORK', 'id="refreshAll"', 'id="refreshPc"', 'id="taskList"', '/api/revenue/tasks', '/api/computer/v1/status', 'OBSERVE_ONLY']) assert.ok(html.includes(token), `missing ${token}`);
+  for (const token of ['MEL WORK', 'id="refreshAll"', 'id="refreshPc"', 'id="taskList"', '/api/revenue/tasks', '/api/computer/v1/status', 'observation uniquement']) assert.ok(html.includes(token), `missing ${token}`);
   assert.match(html, /id="autonomyToggle" disabled/);
   assert.doesNotMatch(html, /taskmarket\.cmd|privateKey|seedPhrase|submitResult\(/i);
 });
