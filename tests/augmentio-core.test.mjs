@@ -4,7 +4,7 @@ import { ProviderPool } from '../src/augmentio/provider-pool.js';
 import { ZeroEuroGovernor, ZERO_EURO_POLICY } from '../src/augmentio/zero-euro-governor.js';
 import { ParallelScheduler } from '../src/augmentio/parallel-scheduler.js';
 import { ResultTournament } from '../src/augmentio/result-tournament.js';
-import { Augmentio } from '../src/augmentio/augmentio.js';
+import { Augmentio, boundedAugmentioCandidates } from '../src/augmentio/augmentio.js';
 import { standardRegistry } from '../src/models/ModelRegistry.js';
 
 function verifiedFree(id, { provider = '', model = '', authority = 'augmentio-test-suite' } = {}) {
@@ -206,4 +206,31 @@ test('augmentio fails closed and does not cache a false success when all models 
     error => error?.code === 'ALL_PROVIDERS_FAILED'
       && error.failures?.some(x => x.includes('EMPTY_PROVIDER_RESPONSE')),
   );
+});
+
+test('direct Augmentio fanout respects a finite 12-model ceiling and cache equivalence', async () => {
+  for (const [input, expected] of [
+    [Number.POSITIVE_INFINITY, 4], [Number.NaN, 4], [1000000, 12],
+    ['200', 12], [0, 1], [-10, 1], [2.7, 2], [3, 3],
+  ]) {
+    assert.equal(boundedAugmentioCandidates(input), expected);
+  }
+  let calls = 0;
+  const pool = new ProviderPool(Array.from({ length: 18 }, (_, index) => {
+    const id = 'safe-' + index;
+    return {
+      id, capabilities: ['GENERAL'], priority: 18 - index,
+      estimatedCost: 0, costProvenance: verifiedFree(id),
+      invoke: async () => { calls++; return 'candidate ' + index; },
+    };
+  }));
+  const ai = new Augmentio({
+    pool, scheduler: new ParallelScheduler({ globalConcurrency: 12, retries: 0 }),
+  });
+  const first = await ai.fanOut({ input: 'Bounded fanout', maxCandidates: 1000000 });
+  assert.equal(first.providersAttempted.length, 12);
+  assert.equal(calls, 12);
+  const second = await ai.fanOut({ input: 'Bounded fanout', maxCandidates: 12 });
+  assert.equal(second.cacheHit, true);
+  assert.equal(calls, 12, 'equivalent bounded limits reuse identical cache');
 });
