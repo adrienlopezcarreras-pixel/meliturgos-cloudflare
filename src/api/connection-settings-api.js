@@ -3,7 +3,7 @@ import { createGoogleOAuthRuntime } from '../connectors/google-oauth-runtime.js'
 import { createMailOAuthRuntime } from '../connectors/mail-oauth-runtime.js';
 import { createVercelConfigResolver, saveVercelConnectionConfig } from '../connectors/vercel-config.js';
 
-const PROVIDERS = new Set(['google','microsoft','yahoo','yahoo-imap','vercel','pipedream']);
+const PROVIDERS = new Set(['google','microsoft','yahoo','yahoo-imap','pipedream']);
 const OAUTH_APP_KEYS = Object.freeze({
   google: Object.freeze({ id: 'oauth-app-google', clientIdEnv: 'GOOGLE_OAUTH_CLIENT_ID', clientSecretEnv: 'GOOGLE_OAUTH_CLIENT_SECRET' }),
   microsoft: Object.freeze({ id: 'oauth-app-microsoft', clientIdEnv: 'MICROSOFT_OAUTH_CLIENT_ID', clientSecretEnv: 'MICROSOFT_OAUTH_CLIENT_SECRET' }),
@@ -11,7 +11,7 @@ const OAUTH_APP_KEYS = Object.freeze({
 });
 const PROVIDER_CONNECTORS = Object.freeze({
   google: Object.freeze(['gmail','google-calendar','google-tasks','google-drive']),
-  microsoft: Object.freeze(['microsoft-mail','microsoft-onedrive','microsoft-sharepoint']),
+  microsoft: Object.freeze(['microsoft-mail','microsoft-onedrive']),
   yahoo: Object.freeze(['yahoo-mail']),
 });
 
