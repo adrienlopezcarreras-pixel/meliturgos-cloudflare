@@ -162,3 +162,14 @@ jobs:
             android-companion/dist/release-preflight.apk.sha256
           if-no-files-found: error
           retention-days: 14
+
+      - name: Upload separately identified persistent-signed test APK
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: MEL-Android-stable-signed-${{ github.sha }}
+          path: |
+            android-companion/dist/MEL-Android-stable-test.apk
+            android-companion/dist/MEL-Android-stable-test.apk.sha256
+            android-companion/dist/stable-test-signature.txt
+          if-no-files-found: error
+          retention-days: 14
