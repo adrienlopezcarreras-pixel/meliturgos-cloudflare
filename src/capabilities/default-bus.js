@@ -19,6 +19,7 @@ import { createWorkersAiZeroCostMediaCapabilities, inspectWorkersAiMediaMissingR
 import { createProceduralAudioCapabilities } from '../media/procedural-audio-capabilities.js';
 import { createDefaultAugmentioPool } from '../augmentio/default-pool.js';
 import { Augmentio } from '../augmentio/augmentio.js';
+import { ParallelScheduler } from '../augmentio/parallel-scheduler.js';
 import { inspectZeroCostProviderReadiness } from '../augmentio/zero-cost-readiness.js';
 import { RAGService } from '../search/rag-service.js';
 import { getRoadmapPayload } from '../roadmap/master-roadmap.js';
@@ -196,7 +197,27 @@ export function createDefaultCapabilityBus({ audit, env, repository, branch, tok
     risk: 'LOW', permissions: [], health: 'DEGRADED', healthcheck: zeroCostHealth(runtimeEnv, 1), enabled: true
   }, async input => {
     if (!runtimeEnv.AI) throw capabilityError('AI_BINDING_MISSING');
-    const augmentio = new Augmentio({ pool: createDefaultAugmentioPool(runtimeEnv) });
+    const purpose = String(input.context?.purpose || '');
+    // Work-plan generation has a shared 105s HTTP/proof deadline and may
+    // make up to three serial fan-outs (generate, repair, select). Bound each
+    // fan-out below 30s including health refresh, without retrying the same
+    // slow provider; independent zero-cost providers still run concurrently.
+    // Other Augmentio callers retain their established scheduler defaults.
+    const isWorkPlanGeneration = purpose === 'work-plan-generation'
+      || purpose.startsWith('work-plan-generation-');
+    const scheduler = isWorkPlanGeneration
+      ? new ParallelScheduler({
+        globalConcurrency: 4,
+        perProviderConcurrency: 1,
+        timeoutMs: 24_000,
+        retries: 0,
+        backoffMs: 0,
+      })
+      : undefined;
+    const augmentio = new Augmentio({
+      pool: createDefaultAugmentioPool(runtimeEnv),
+      ...(scheduler ? { scheduler } : {}),
+    });
     return augmentio.fanOut({
       capability: String(input.capability || 'GENERAL'),
       input: Array.isArray(input.messages) && input.messages.length ? input.messages : input.input,
