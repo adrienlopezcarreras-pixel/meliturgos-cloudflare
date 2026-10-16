@@ -238,3 +238,13 @@ test("Companion background ADB monitor is single-instance while -Once diagnostic
  assert.match(script, /if \(-not \$ownsMonitorMutex\) \{ exit 0 \}/);
  assert.match(script, /ReleaseMutex\(\)/);
 });
+
+test("Manual ADB refresh refuses to display a previous report when the one-shot probe fails", async () => {
+ const native = await source("windows-companion/MEL-Companion.cs");
+ const start=native.indexOf("void RefreshAdbDiagnostics()");
+ const end=native.indexOf("void RefreshTriadActivity()",start);
+ const method=native.slice(start,end);
+ assert.match(method,/process\.ExitCode != 0/);
+ assert.ok(method.indexOf("process.ExitCode != 0") < method.indexOf('string report = Path.Combine'));
+ assert.match(method,/diagnostic s’est terminé en erreur/);
+});
