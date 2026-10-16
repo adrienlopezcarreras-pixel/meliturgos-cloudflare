@@ -289,3 +289,39 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+  publish-signed-release:
+    name: Publish owner-approved signed Windows release
+    needs: package
+    if: github.event_name == 'workflow_dispatch' && inputs.signed_release == true && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      RELEASE_VERSION: ${{ inputs.version }}
+      EXPECTED_SHA: ${{ inputs.expected_sha }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Download exact validated Windows artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: MEL-Windows-workflow_dispatch-${{ inputs.version }}-${{ inputs.expected_sha }}
+          path: signed-windows
+      - name: Verify approved release target and publish signed package
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$EXPECTED_SHA" =~ ^[0-9a-fA-F]{40}$ ]] || { echo "WINDOWS_RELEASE_SHA_INVALID"; exit 1; }
+          [[ "$RELEASE_VERSION" =~ ^[0-9]+\\.[0-9]+\\.[0-9]+$ ]] || { echo "WINDOWS_RELEASE_VERSION_INVALID"; exit 1; }
+          test -f "signed-windows/MEL-Windows-$RELEASE_VERSION.release.json"
+          test -f "signed-windows/MEL-Windows-$RELEASE_VERSION.zip"
+          tag="mel-companion-windows-v${RELEASE_VERSION}-${EXPECTED_SHA:0:12}"
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "WINDOWS_RELEASE_TAG_ALREADY_PUBLISHED"
+            exit 1
+          fi
+          gh release create "$tag" signed-windows/* \\
+            --repo "$GITHUB_REPOSITORY" \\
+            --target "$EXPECTED_SHA" \\
+            --title "MEL Companion Windows $RELEASE_VERSION (${EXPECTED_SHA:0:12})" \\
+            --notes "Signed Windows Companion package built and verified from exact commit $EXPECTED_SHA. Owner-approved workflow_dispatch only." \\
+            --latest=false
