@@ -1,0 +1,6 @@
+export const COMPUTER_COMMAND_STATUS = Object.freeze({
+  PENDING: "PENDING",
+  RUNNING: "RUNNING",
+  SUCCEEDED: "SUCCEEDED",
+  FAILED: "FAILED",
+});

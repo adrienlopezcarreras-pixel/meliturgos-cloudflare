@@ -12,6 +12,8 @@ import handleAugmentio from "./api/augmentio-api.js";
 import { onRequestGet as handleMvp } from "./pages/mvp-interface-v3.js";
 import { onRequestGet as handleFullModeV2 } from "./pages/full-interface-v2.js";
 import { onRequestGet as handleWatchInterface } from "./pages/watch-interface.js";
+import { onRequestGet as handleRevenueInterface } from "./pages/revenue-interface.js";
+import { handleRevenueApi } from "./api/revenue-worker-api.js";
 import { SERVICE_WORKER_SOURCE } from "./pages/service-worker.js";
 import { PWA_MANIFEST_JSON } from "./pages/pwa-manifest.js";
 import { handlePublicWordPressChat, publicWordPressChatCors } from "./api/public-wordpress-chat.js";
@@ -419,6 +421,8 @@ async function routeResolvedRequest(request, env, ctx) {
 
     const auth = requireAuth(request, env);
     if (!auth.ok) return auth.response;
+    const revenueResponse = await handleRevenueApi(request, env);
+    if (revenueResponse) return revenueResponse;
     if (request.method === "GET" && url.pathname === "/sw.js") return new Response(SERVICE_WORKER_SOURCE, { headers: { "content-type": "application/javascript; charset=utf-8", "cache-control": "no-cache" } });
     if (request.method === "GET" && url.pathname === "/manifest.webmanifest") return new Response(PWA_MANIFEST_JSON, { headers: { "content-type": "application/manifest+json; charset=utf-8", "cache-control": "public, max-age=3600" } });
     if (request.method === "GET" && url.pathname === "/normal-runtime.js") return new Response(NORMAL_RUNTIME_SOURCE, { headers: { "content-type": "application/javascript; charset=utf-8", "cache-control": "no-store, no-cache, must-revalidate" } });
@@ -433,6 +437,10 @@ async function routeResolvedRequest(request, env, ctx) {
 
     if (request.method === "GET" && url.pathname === "/professor") {
       return handleFullModeV2({ env, request, params: {} }).catch(e => html(`Error loading full mode: ${e.message}`, 500));
+    }
+
+    if (request.method === "GET" && (url.pathname === "/revenus" || url.pathname === "/revenue")) {
+      return handleRevenueInterface({ env, request, params: {} }).catch(e => html(`Error loading MEL WORK: ${e.message}`, 500));
     }
 
     if (request.method === "GET" && url.pathname === "/veille") {
