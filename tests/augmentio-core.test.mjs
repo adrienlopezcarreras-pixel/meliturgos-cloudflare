@@ -1134,3 +1134,27 @@ test('Augmentio ignores malformed nonobject and nonserializable provenance extra
     region: 'EU', provider: 'minimal', model: 'minimal', adapter_id: 'minimal',
   });
 });
+
+test('provider deadlines remain PROVIDER_TIMEOUT when an abort-aware model rejects synchronously', async () => {
+  let attempts = 0;
+  const scheduler = new ParallelScheduler({
+    globalConcurrency: 1, retries: 1, backoffMs: 1,
+    timeoutMs: 15, circuitBreakerFailures: 5,
+  });
+  const settled = await scheduler.run([{ id: 'abort-aware-model' }],
+    async (_task, _index, { signal }) => {
+      attempts += 1;
+      return new Promise((_resolve, reject) => {
+        signal.addEventListener('abort', () => reject(Object.assign(
+          new Error('SCHEDULER_ABORTED'), { code: 'SCHEDULER_ABORTED' },
+        )), { once: true });
+      });
+    });
+  assert.equal(attempts, 2, 'a real provider timeout must use the configured retry');
+  assert.equal(settled.length, 1);
+  assert.equal(settled[0].status, 'rejected');
+  assert.equal(settled[0].reason.code, 'PROVIDER_TIMEOUT',
+    'child abort rejection must not masquerade as owner cancellation');
+  assert.equal(scheduler.breaker('abort-aware-model').failures, 2,
+    'timeout must count as a provider failure for circuit-breaker health');
+});
