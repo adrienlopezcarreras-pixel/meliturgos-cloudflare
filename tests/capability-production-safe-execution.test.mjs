@@ -43,7 +43,8 @@ test('end-to-end offline fixture calls GET then only allowlisted POST without lo
   assert.equal(r.executed_count,4);
   assert.equal(r.private_content_logged,false);
   assert.equal(JSON.stringify(r).includes('never-returned-to-log'),false);
-  assert.deepEqual(calls.map(x=>x.method),['GET','GET','GET','POST','POST','POST','POST']);
+  assert.deepEqual(calls.map(x=>x.method),['GET','GET','GET','POST','POST','POST','POST','GET']);
+  assert.equal(calls.at(-1).endpoint,'/api/gen2/code/self-check');
   assert.ok(calls.filter(x=>x.method==='POST').every(x=>ALLOWLIST.some(a=>a.id===JSON.parse(x.body).id)));
 });
 test('misleading wrong SHA fails before capability execution',async()=>{
@@ -69,4 +70,45 @@ test('live capability proof refuses altered or incomplete allowlists before netw
     assert.equal(r.code,'LIVE_SAFE_EXECUTION_PROBE_INPUT_INVALID');
     assert.equal(calls,0);
   }
+});
+
+test('live proof fails closed if deployed SHA changes after the four executions',async()=>{
+  let checks=0;
+  let executions=0;
+  const f=async(url,opts)=>{
+    const endpoint=new URL(url).pathname;
+    if(endpoint.endsWith('/self-check')){
+      checks++;
+      return Response.json({ok:true,deployed_sha:checks===1?SHA:'b'.repeat(40),exact_deployment_identity_known:true});
+    }
+    if(opts.method==='GET')return Response.json({ok:true,health_refreshed:false,capabilities:rows});
+    executions++;
+    const payload=JSON.parse(opts.body);
+    return Response.json({ok:true,capability:payload.id,
+      result:payload.id==='echo'?{value:payload.input.value}:[]});
+  };
+  const result=await proveSafeExecutions({token:'fixture',expectedSha:SHA,fetchImpl:f});
+  assert.equal(checks,2);
+  assert.equal(executions,4);
+  assert.equal(result.ok,false);
+  assert.equal(result.code,'LIVE_SAFE_DEPLOYMENT_CHANGED_DURING_EXECUTION');
+});
+
+test('live proof fails closed if final deployment check is unavailable',async()=>{
+  let checks=0;
+  const f=async(url,opts)=>{
+    const endpoint=new URL(url).pathname;
+    if(endpoint.endsWith('/self-check')){
+      if(++checks===2)throw Error('network failure');
+      return Response.json({ok:true,deployed_sha:SHA,exact_deployment_identity_known:true});
+    }
+    if(opts.method==='GET')return Response.json({ok:true,health_refreshed:false,capabilities:rows});
+    const payload=JSON.parse(opts.body);
+    return Response.json({ok:true,capability:payload.id,
+      result:payload.id==='echo'?{value:payload.input.value}:[]});
+  };
+  const result=await proveSafeExecutions({token:'fixture',expectedSha:SHA,fetchImpl:f});
+  assert.equal(checks,2);
+  assert.equal(result.ok,false);
+  assert.equal(result.code,'LIVE_SAFE_FINAL_DEPLOYMENT_CHECK_FAILED');
 });
