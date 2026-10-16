@@ -133,7 +133,7 @@ test("Windows Companion exposes explicit local Android Wi-Fi pairing without col
 test("Windows Companion ADB status provides actionable diagnostics, not false auto-reconnect promises", async () => {
   const native = await source("windows-companion/MEL-Companion.cs");
   assert.match(native, /Android Platform Tools introuvables/);
-  assert.match(native, /diagnostic en échec/);
+  assert.match(native, /ADB Wi-Fi : échec · /);
   assert.match(native, /téléphone non appairé ou déconnecté · utilisez Configurer ADB Wi-Fi/);
 });
 
