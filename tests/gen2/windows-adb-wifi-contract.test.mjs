@@ -229,3 +229,12 @@ test("Companion background ADB status shows the recorded failure detail", async 
  assert.match(refresh,/\.TotalSeconds < 75/);
  assert.doesNotMatch(refresh,/\.TotalMinutes < 2/);
 });
+
+test("Companion background ADB monitor is single-instance while -Once diagnostics remain available", async () => {
+ const script = await source("windows-companion/MEL-ADB-WiFi.ps1");
+ assert.match(script, /Local\\\\MEL\.Companion\.AdbWifiMonitor/);
+ assert.match(script, /\$monitorMutex\.WaitOne\(0\)/);
+ assert.match(script, /if \(-not \$Once\)/);
+ assert.match(script, /if \(-not \$ownsMonitorMutex\) \{ exit 0 \}/);
+ assert.match(script, /ReleaseMutex\(\)/);
+});
