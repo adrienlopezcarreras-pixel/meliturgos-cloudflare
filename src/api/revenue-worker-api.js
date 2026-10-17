@@ -37,7 +37,7 @@ export function normalizeRevenueTasks(payload, nowMs = Date.now()) {
   }));
 }
 
-export async function handleRevenueApi(request, env) {
+export async function handleRevenueApi(request, env, ctx = null) {
   const url = new URL(request.url);
   if (url.pathname !== '/api/revenue/tasks' && url.pathname !== '/api/revenue/taskmarket-pc-status' && url.pathname !== '/api/revenue/drafts' && url.pathname !== '/api/revenue/direct-work' && url.pathname !== '/api/revenue/direct-work/decision') return null;
   const auth = requireAuth(request, env);
@@ -60,6 +60,15 @@ export async function handleRevenueApi(request, env) {
   }
   if(url.pathname==='/api/revenue/direct-work'){
     if(typeof env?.DB?.prepare!=='function')return json({ok:false,code:'WORK_DRAFT_DB_REQUIRED'},503);
+    if(request.method==='GET'&&url.searchParams.has('cycle_id')){
+      const id=url.searchParams.get('cycle_id')||'';
+      if(!/^[0-9a-f-]{36}$/i.test(id))return json({ok:false,code:'WORK_CYCLE_ID_INVALID'},400);
+      try{
+        const cycle=await env.DB.prepare('SELECT id,state,result,updated_at FROM mel_work_cycles WHERE id=?').bind(id).first();
+        if(!cycle)return json({ok:false,code:'WORK_CYCLE_NOT_FOUND'},404);
+        return json({ok:true,cycleId:cycle.id,status:cycle.state,result:cycle.result?JSON.parse(cycle.result):null,updatedAt:cycle.updated_at});
+      }catch{return json({ok:false,code:'WORK_CYCLE_READ_UNAVAILABLE'},503)}
+    }
     if(request.method==='GET'&&url.searchParams.has('artifact_id')){
       const artifactId=url.searchParams.get('artifact_id')||'';
       if(!/^work-[a-f0-9]{64}$/.test(artifactId))return json({ok:false,code:'WORK_ARTIFACT_ID_INVALID'},400);
@@ -77,21 +86,30 @@ export async function handleRevenueApi(request, env) {
       }catch{return json({ok:false,code:'WORK_ARTIFACT_LIST_UNAVAILABLE'},503)}
     }
     if(request.method!=='POST')return json({ok:false,code:'METHOD_NOT_ALLOWED'},405);
-    try{
-      const response=await fetch(TASKMARKET_API+'?status=open&sort=reward_desc&limit=50',{headers:{accept:'application/json'},signal:AbortSignal.timeout(12000)});
-      if(!response.ok)return json({ok:false,code:'TASKMARKET_UPSTREAM_ERROR'},502);
-      const payload=await response.json();
-      if(!Array.isArray(payload?.data?.tasks)&&!Array.isArray(payload?.tasks))return json({ok:false,code:'TASKMARKET_RESPONSE_INVALID'},502);
-      const tasks=normalizeRevenueTasks(payload).map(task=>({...task,eligibleForDraft:task.stakeRequired===false&&task.claimedBy===null&&task.description.length<=6000}));
-      const solve=createTaskmarketCouncilSolverAdapter({env});
-      const assess=createTaskmarketCouncilAssessmentAdapter({env});
-      const result=await runDirectWork({db:env.DB,listMissions:async()=>tasks,assess:({mission})=>assess({task:mission,untrustedDescription:mission.description}),execute:(_,mission,assessment)=>solve({task:mission,assessment})});
-      if(result.status==='NO_ELIGIBLE_MISSION')return json({ok:false,code:'WORK_NO_SAFE_OPEN_TASK'},409);
-      return json({ok:true,result,submitted:false,paid:false});
-    }catch(error){
-      const reason=String(error?.code||error?.message||'WORK_DIRECT_EXECUTION_FAILED');
-      return json({ok:false,code:/^[A-Z_]{4,90}$/.test(reason)?reason:'WORK_DIRECT_EXECUTION_FAILED'},503);
-    }
+    if(typeof ctx?.waitUntil!=='function')return json({ok:false,code:'WORK_BACKGROUND_RUNTIME_REQUIRED'},503);
+    await env.DB.prepare("CREATE TABLE IF NOT EXISTS mel_work_cycles (id TEXT PRIMARY KEY, state TEXT NOT NULL, result TEXT, updated_at TEXT NOT NULL)").run();
+    const active=await env.DB.prepare("SELECT id FROM mel_work_cycles WHERE state='RUNNING' AND updated_at>? LIMIT 1").bind(new Date(Date.now()-15*60*1000).toISOString()).first();
+    if(active)return json({ok:true,cycleId:active.id,status:'RUNNING',reused:true},202);
+    const id=crypto.randomUUID();
+    const startedAt=new Date().toISOString();
+    await env.DB.prepare('INSERT INTO mel_work_cycles (id,state,updated_at) VALUES (?,?,?)').bind(id,'RUNNING',startedAt).run();
+    const job=(async()=>{
+      let state='COMPLETE',result;
+      try{
+        const response=await fetch(TASKMARKET_API+'?status=open&sort=reward_desc&limit=50',{headers:{accept:'application/json'},signal:AbortSignal.timeout(12000)});
+        if(!response.ok)throw new Error('TASKMARKET_UPSTREAM_ERROR');
+        const payload=await response.json();
+        if(!Array.isArray(payload?.data?.tasks)&&!Array.isArray(payload?.tasks))throw new Error('TASKMARKET_RESPONSE_INVALID');
+        const tasks=normalizeRevenueTasks(payload).map(task=>({...task,eligibleForDraft:task.stakeRequired===false&&task.claimedBy===null&&task.description.length<=6000}));
+        const solve=createTaskmarketCouncilSolverAdapter({env});
+        const assess=createTaskmarketCouncilAssessmentAdapter({env});
+        result=await runDirectWork({db:env.DB,listMissions:async()=>tasks,assess:({mission})=>assess({task:mission,untrustedDescription:mission.description}),execute:(_,mission,assessment)=>solve({task:mission,assessment})});
+        if(result.status==='NO_ELIGIBLE_MISSION')state='NO_ELIGIBLE_MISSION';
+      }catch(error){state='FAILED';result={code:String(error?.code||error?.message||'WORK_DIRECT_EXECUTION_FAILED').slice(0,120)}}
+      await env.DB.prepare('UPDATE mel_work_cycles SET state=?,result=?,updated_at=? WHERE id=?').bind(state,JSON.stringify(result),new Date().toISOString(),id).run();
+    })();
+    ctx.waitUntil(job);
+    return json({ok:true,cycleId:id,status:'RUNNING',submitted:false,paid:false},202);
   }
   if (url.pathname === '/api/revenue/drafts') {
     if (request.method !== 'GET') return json({ok:false,code:'METHOD_NOT_ALLOWED'},405);

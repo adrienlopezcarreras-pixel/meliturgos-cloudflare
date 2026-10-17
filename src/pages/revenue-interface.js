@@ -425,15 +425,29 @@ $('runDraftCycle').onclick=async()=>{
   const response=await fetch('/api/revenue/direct-work',{method:'POST',cache:'no-store'});
   const data=await response.json().catch(()=>({}));
   if(!response.ok||data.ok!==true)throw new Error(data.code||'WORK_DIRECT_EXECUTION_FAILED');
-  const artifactId=String(data.result?.artifactId||'');
+  let outcome=data;
+  if(data.cycleId){
+    area.textContent='Cycle MEL WORK enregistré : '+String(data.cycleId)+'. Exécution en cours…';
+    for(let attempt=0;attempt<45;attempt++){
+      await new Promise(resolve=>setTimeout(resolve,2000));
+      const poll=await fetch('/api/revenue/direct-work?cycle_id='+encodeURIComponent(data.cycleId),{cache:'no-store'});
+      const state=await poll.json().catch(()=>({}));
+      if(!poll.ok||state.ok!==true)throw new Error(state.code||'WORK_CYCLE_STATUS_UNAVAILABLE');
+      if(state.status==='RUNNING')continue;
+      if(state.status!=='COMPLETE')throw new Error(state.result?.code||state.status||'WORK_CYCLE_FAILED');
+      outcome=state;break;
+    }
+    if(outcome===data)throw new Error('WORK_STILL_RUNNING_CHECK_AGAIN');
+  }
+  const artifactId=String(outcome.result?.artifactId||'');
   if(!/^work-[a-f0-9]{64}$/.test(artifactId))throw new Error('WORK_ARTIFACT_ID_INVALID');
   const proofResponse=await fetch('/api/revenue/direct-work?artifact_id='+encodeURIComponent(artifactId),{cache:'no-store'});
   const proof=await proofResponse.json().catch(()=>({}));
   if(!proofResponse.ok||proof.artifact?.id!==artifactId)throw new Error('WORK_ARTIFACT_READBACK_FAILED');
   area.replaceChildren();
   const message=document.createElement('pre');message.style.whiteSpace='pre-wrap';message.style.overflowWrap='anywhere';
-  const steps=Array.isArray(data.result?.humanSteps)?data.result.humanSteps:[];
-  message.textContent='Mission Taskmarket : '+String(proof.artifact.mission_id||'')+'\\nStatut : '+String(data.result?.status||proof.artifact.status)+'\\nÉtapes humaines : '+(steps.length?steps.map((x,i)=>(i+1)+'. '+x).join(' ; '):'Vérifier le livrable avant toute publication.')+'\\nNon livré, non payé.\\n\\n'+String(proof.artifact.content||'');
+  const steps=Array.isArray(outcome.result?.humanSteps)?outcome.result.humanSteps:[];
+  message.textContent='Mission Taskmarket : '+String(proof.artifact.mission_id||'')+'\\nStatut : '+String(outcome.result?.status||proof.artifact.status)+'\\nÉtapes humaines : '+(steps.length?steps.map((x,i)=>(i+1)+'. '+x).join(' ; '):'Vérifier le livrable avant toute publication.')+'\\nNon livré, non payé.\\n\\n'+String(proof.artifact.content||'');
   area.appendChild(message);
   const decisionBar=document.createElement('div');decisionBar.className='actions';
   for(const [decision,label] of [['approve','✓ Valider le brouillon'],['reject','✗ Refuser le brouillon']]){
