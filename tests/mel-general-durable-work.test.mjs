@@ -203,3 +203,51 @@ test('only explicit WORK_DAG_NOT_FOUND permits creating a new durable job', asyn
   assert.equal(repeated.created,false);
   assert.equal(createCount,1);
 });
+
+
+test('concurrent creation conflict reuses the winner and never launches a second runner', async () => {
+  let reads = 0;
+  let attempts = 0;
+  const captured = [];
+  const scheduled = [];
+  const bus = { execute: async (capability, input) => {
+    if (capability === 'work.status') {
+      reads++;
+      if (reads === 1) throw Object.assign(new Error('not found'), {code:'WORK_DAG_NOT_FOUND'});
+      return {status:'RUNNING',completed:false,blocked:false,node_counts:{PENDING:1}};
+    }
+    if (capability === 'work.create') {
+      attempts++;
+      throw Object.assign(new Error('already created by another worker'), {code:'WORK_DAG_ALREADY_EXISTS'});
+    }
+    if (capability === 'openloop.capture') { captured.push(input); return {ok:true}; }
+    if (capability === 'work.run') throw Error('DUPLICATE_WORK_EXECUTION');
+    throw Error('UNEXPECTED_'+capability);
+  }};
+  const result = await launchSubstantialMelTask({
+    bus, text:GOAL, conversationId:'concurrent-creation', context:{waitUntil:p=>scheduled.push(p)},
+  });
+  assert.equal(result.ok,true);
+  assert.equal(result.created,false);
+  assert.equal(result.started,false);
+  assert.equal(attempts,1);
+  assert.equal(captured.length,1);
+  assert.equal(scheduled.length,0);
+});
+
+test('concurrent create conflict fails closed if winning DAG cannot be read', async () => {
+  const calls=[];
+  const bus={execute:async capability=>{
+    calls.push(capability);
+    if(capability==='work.status'&&calls.length===1)
+      throw Object.assign(Error('missing'),{code:'WORK_DAG_NOT_FOUND'});
+    if(capability==='work.create')
+      throw Object.assign(Error('already created'),{code:'WORK_DAG_ALREADY_EXISTS'});
+    if(capability==='work.status') throw Object.assign(Error('D1 offline'),{code:'D1_UNAVAILABLE'});
+    throw Error('UNEXPECTED_'+capability);
+  }};
+  const result=await launchSubstantialMelTask({bus,text:GOAL,conversationId:'race-unreadable',context:{}});
+  assert.equal(result.ok,false);
+  assert.equal(result.code,'D1_UNAVAILABLE');
+  assert.deepEqual(calls,['work.status','work.create','work.status']);
+});

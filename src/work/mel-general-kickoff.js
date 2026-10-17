@@ -117,12 +117,22 @@ export async function launchSubstantialMelTask({ bus, text, conversationId, cont
       throw Object.assign(new Error('WORK_DAG_STATUS_INVALID'), { code: 'WORK_DAG_STATUS_INVALID' });
     }
     if (genuinelyMissing) {
-      await bus.execute('work.create', {
-        id, jobId: id, conversationId,
-        goal: ('MEL: travail utilisateur persistant (cycle de production). ' + text).slice(0, 3900),
-        nodes: buildSubstantialMelNodes(text),
-      }, context);
-      created = true;
+      try {
+        await bus.execute('work.create', {
+          id, jobId: id, conversationId,
+          goal: ('MEL: travail utilisateur persistant (cycle de production). ' + text).slice(0, 3900),
+          nodes: buildSubstantialMelNodes(text),
+        }, context);
+        created = true;
+      } catch (error) {
+        if (String(error?.code || '') !== 'WORK_DAG_ALREADY_EXISTS') throw error;
+        // Another request won the atomic insert. Reuse its verified state;
+        // a retry must not schedule a second runner or reset its checkpoint.
+        const raced = await bus.execute('work.status', { id }, context);
+        if (!raced || typeof raced !== 'object') {
+          throw Object.assign(new Error('WORK_DAG_STATUS_INVALID'), { code: 'WORK_DAG_STATUS_INVALID' });
+        }
+      }
     }
     // The durable due loop is the recovery path if waitUntil gets interrupted.
     await bus.execute('openloop.capture', {

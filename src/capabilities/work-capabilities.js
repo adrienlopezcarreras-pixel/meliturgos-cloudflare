@@ -852,7 +852,7 @@ export function registerWorkCapabilities(bus, { db } = {}) {
       nodes,
     });
     const store = new D1WorkDagStore(db, dagId);
-    const saved = await store.save(dag);
+    const saved = await store.createNew(dag);
     await syncWorkOpenLoop(db, saved, context, { passive: true });
     return publicState(saved);
   });

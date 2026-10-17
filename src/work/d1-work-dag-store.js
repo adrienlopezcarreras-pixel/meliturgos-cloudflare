@@ -86,6 +86,27 @@ export class D1WorkDagStore {
     return dag;
   }
 
+  // Creation must never replace a running or completed DAG, even when two
+  // requests both observed WORK_DAG_NOT_FOUND before either wrote to D1.
+  async createNew(dag) {
+    await this.init();
+    validateWorkDag(dag);
+    if (dag.id !== this.dagId) throw workError('WORK_DAG_STORE_ID_MISMATCH');
+    const signed = await signForStorage(dag);
+    const serialized = JSON.stringify(signed);
+    if (new TextEncoder().encode(serialized).length > MAX_RECORD_BYTES) {
+      throw workError('WORK_DAG_STORE_RECORD_TOO_LARGE');
+    }
+    const inserted = await this.db.prepare(`INSERT OR IGNORE INTO work_dags
+      (id,job_id,status,record_json,created_at,updated_at) VALUES(?,?,?,?,?,?)`)
+      .bind(signed.id, signed.job_id, signed.status, serialized, Number(signed.created_at || Date.now()), Number(signed.updated_at || Date.now()))
+      .run();
+    const changed = Number(inserted?.meta?.changes);
+    if (!Number.isFinite(changed)) throw workError('WORK_DAG_CREATE_UNVERIFIED');
+    if (changed !== 1) throw workError('WORK_DAG_ALREADY_EXISTS');
+    return signed;
+  }
+
   async save(dag) {
     await this.init();
     validateWorkDag(dag);
