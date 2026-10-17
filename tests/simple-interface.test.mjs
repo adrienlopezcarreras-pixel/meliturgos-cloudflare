@@ -17,8 +17,8 @@ test('desktop navigation exposes every MEL destination without a nested More gro
   const destinations = [
     'data-view="overview"', 'data-view="chat"', 'data-view="skills"',
     'data-view="roadmap"', 'data-view="multi"', 'data-view="memory"',
-    'data-view="computer"', 'href="/revenus"', 'data-view="terminal"',
-    'data-view="lora"', 'data-view="connections"', 'data-view="diagnostics"'
+    'data-view="computer"', 'data-view="terminal"', 'data-view="lora"',
+    'href="/revenus"', 'data-view="connections"', 'data-view="diagnostics"'
   ];
   let previous = -1;
   for (const destination of destinations) {
