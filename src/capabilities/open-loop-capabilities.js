@@ -119,6 +119,8 @@ export function registerOpenLoopCapabilities(bus, { env } = {}) {
         if (!workDagId) {
           return {
             status: 'resumable',
+            advanced: false,
+            deferred: true,
             resumeAt: Date.now() + 60000,
             nextAction: loop.nextAction || 'resume manually',
             metadata: { ...(loop.metadata || {}), resume_reason: 'WORK_DAG_ID_MISSING' },
