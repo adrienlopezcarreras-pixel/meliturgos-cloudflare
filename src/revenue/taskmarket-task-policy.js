@@ -1,5 +1,7 @@
 const ALLOWED_CATEGORIES = new Set(['information', 'data-processing', 'software', 'analysis', 'benchmark']);
-const MODES = new Set(['bounty', 'claim', 'benchmark', 'auction']);
+// Only direct bounty/benchmark submissions are eligible for future automation.
+// Claim and auction modes have separate lifecycle/spend semantics and stay blocked.
+const MODES = new Set(['bounty', 'benchmark']);
 const record = (x) => x !== null && typeof x === 'object' && !Array.isArray(x);
 const integer = (x, min, max) => Number.isSafeInteger(x) && x >= min && x <= max;
 const reject = (reason, extra = {}) => Object.freeze({ decision: 'REJECT', reason, ...extra });
@@ -15,8 +17,8 @@ export function screenTaskmarketTask(task, assessment, policy = {}) {
   if (typeof task.id !== 'string' || !task.id.trim()) return reject('TASK_ID_MISSING');
   if (typeof task.description !== 'string' || task.description.trim().length < 10) return reject('TASK_DESCRIPTION_INSUFFICIENT');
   if (!MODES.has(task.mode)) return reject('TASK_MODE_NOT_ALLOWED');
-  if (task.stakeRequired === true) return reject('STAKE_REQUIRED');
-  if (task.claimedBy) return reject('TASK_ALREADY_CLAIMED');
+  if (task.stakeRequired !== false) return reject(task.stakeRequired === true ? 'STAKE_REQUIRED' : 'STAKE_REQUIREMENT_UNVERIFIED');
+  if (task.claimedBy !== null) return reject(task.claimedBy ? 'TASK_ALREADY_CLAIMED' : 'CLAIM_STATUS_UNVERIFIED');
   const expiry = Date.parse(task.expiryTime);
   if (!Number.isFinite(expiry) || expiry <= Date.now()) return reject('TASK_EXPIRED_OR_UNDATED');
   if (!/^[0-9]+$/.test(String(task.reward ?? ''))) return reject('REWARD_INVALID');
@@ -35,8 +37,6 @@ export function screenTaskmarketTask(task, assessment, policy = {}) {
   if (!integer(policy.minimumProfitMicros, 0, Number.MAX_SAFE_INTEGER)) return reject('MINIMUM_PROFIT_MISSING');
   if (!integer(policy.minimumMarginBps, 0, 10000)) return reject('MINIMUM_MARGIN_MISSING');
 
-  // Taskmarket reward uses 6-decimal USDC base units. Convert net payout to
-  // integer micro-USDC and do not label it EUR or settled earnings.
   if (gross > BigInt(Number.MAX_SAFE_INTEGER)) return reject('REWARD_OVERFLOW');
   const netRewardMicros = (gross * BigInt(10000 - feeBps)) / 10000n;
   if (netRewardMicros > BigInt(Number.MAX_SAFE_INTEGER)) return reject('REWARD_OVERFLOW');
