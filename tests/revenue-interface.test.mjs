@@ -91,6 +91,10 @@ test('Taskmarket PC probe is fixed/read-only, owner-authenticated, and accepts o
   assert.match(page, /list_available!==true/);
   assert.match(page, /last_seen_at/);
   assert.match(page, /palier 0 — lecture seule/);
+  assert.match(page, /function taskLifecycle\\(t\\)/);
+  assert.match(page, /Stake inconnu — revue requise/);
+  assert.match(page, /Statut de réclamation inconnu — revue requise/);
+  assert.match(page, /Aucun stake · non réclamée confirmé/);
 });
 
 test('MEL WORK creates a durable candidate-only preparation plan without executing or submitting a Taskmarket mission', async () => {
