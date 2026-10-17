@@ -1,0 +1,46 @@
+name: companion-ui-snapshot-windows-ci
+
+# Static PowerShell integrity on GitHub-hosted Windows. A hosted runner does
+# not expose a normal interactive Notepad UIA tree. F5/F6 functional acceptance
+# must run on the user's authorized, interactive Windows Companion.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'assets/MEL-Computer-Companion.ps1'
+      - 'dist/MEL-Computer-Companion.ps1'
+      - 'src/devices/computer-agent*.js'
+      - 'src/devices/computer-use.js'
+      - 'tests/computer-agent.test.mjs'
+      - '.github/workflows/companion-ui-snapshot-windows-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ui-snapshot:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Engine parses and assets/dist are identical
+        shell: powershell
+        run: |
+          $tokens = $null; $errors = $null
+          [void][System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path 'assets/MEL-Computer-Companion.ps1'), [ref]$tokens, [ref]$errors)
+          if ($errors.Count) { $errors | ForEach-Object { Write-Host $_ }; throw "ENGINE_PARSE_FAILED" }
+          if ((Get-FileHash assets/MEL-Computer-Companion.ps1).Hash -ne (Get-FileHash dist/MEL-Computer-Companion.ps1).Hash) { throw "ENGINE_COPIES_DIFFER" }
+      - name: Assert live Windows UIA scenario is reserved for interactive Companion acceptance
+        shell: powershell
+        run: |
+          # GitHub-hosted runners have a non-user desktop; their Notepad window
+          # exposes only anonymous Pane nodes. Do not mislabel CI as a real-PC test.
+          # This job validates engine syntax and distribution parity only.
+          $tokens = $null; $errors = $null
+          $ast = [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path 'assets/MEL-Computer-Companion.ps1'), [ref]$tokens, [ref]$errors)
+          $functions = @($ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $true) | ForEach-Object { $_.Name })
+          foreach ($required in @('Get-UiSnapshot', 'Perform-Step')) {
+            if ($required -notin $functions) { throw "COMPANION_ENTRYPOINT_MISSING:$required" }
+          }
+          Write-Host "::notice title=Real PC acceptance still required::F5/F6 UIA, typing and screenshot need Windows Companion running on an interactive user desktop; this CI does not certify them."

@@ -2423,6 +2423,109 @@ function Type-BrowserText([string]$text, [IntPtr]$window, [string]$browser) {
   }
 }
 
+# Lecture de la fenêtre active via UI Automation : boutons, champs, menus,
+# liens… avec leur centre en coordonnées écran. Permet à MEL de cliquer au bon
+# endroit sans deviner des coordonnées sur une image. Budget borné (temps et
+# nombre d'éléments) ; la valeur des champs est tronquée à 200 caractères.
+function Get-UiSnapshot([IntPtr]$hwnd = [IntPtr]::Zero, [int]$maxElements = 150, [int]$budgetMs = 4000) {
+  Add-Type -AssemblyName UIAutomationClient -ErrorAction Stop
+  Add-Type -AssemblyName UIAutomationTypes -ErrorAction Stop
+  if ($hwnd -eq [IntPtr]::Zero) { $hwnd = [MelNative]::GetForegroundWindow() }
+  if ($hwnd -eq [IntPtr]::Zero) { throw "UI_SNAPSHOT_NO_FOREGROUND_WINDOW" }
+  $root = [System.Windows.Automation.AutomationElement]::FromHandle($hwnd)
+  if ($null -eq $root) { throw "UI_SNAPSHOT_WINDOW_UNREADABLE" }
+  $clock = [System.Diagnostics.Stopwatch]::StartNew()
+  $useful = @('Button','Edit','MenuItem','Hyperlink','ListItem','TabItem','CheckBox','RadioButton','ComboBox','TreeItem','Document','SplitButton','Slider','Spinner','DataItem','Text','HeaderItem','Menu','MenuBar','ToolBar')
+  $items = New-Object System.Collections.Generic.List[object]
+  $snapshotErrors = New-Object System.Collections.Generic.List[string]
+  $observed = New-Object System.Collections.Generic.List[string]
+  $condition = [System.Windows.Automation.Condition]::TrueCondition
+  $descendants = $root.FindAll([System.Windows.Automation.TreeScope]::Descendants, $condition)
+  # The focused editor may be exposed by UIA independently of the window's
+  # descendant tree (e.g. modern, cross-process Windows app hosts).
+  $candidates = New-Object System.Collections.Generic.List[object]
+  foreach ($candidate in $descendants) { $candidates.Add($candidate) }
+  try {
+    $focused = [System.Windows.Automation.AutomationElement]::FocusedElement
+    if ($null -ne $focused) {
+      $focusedControl = $focused.Current
+      $focusedType = [string]$focusedControl.ControlType.ProgrammaticName
+      if ($focusedControl.ProcessId -eq $root.Current.ProcessId -and
+          $focusedType -in @('ControlType.Edit','ControlType.Document')) {
+        $candidates.Add($focused)
+      }
+    }
+  } catch {}
+  foreach ($el in $candidates) {
+    if ($items.Count -ge $maxElements -or $clock.ElapsedMilliseconds -ge $budgetMs) { break }
+    try {
+      $cur = $el.Current
+      $type = ([string]$cur.ControlType.ProgrammaticName) -replace '^ControlType\.', ''
+      if ($observed.Count -lt 12) { $observed.Add(([string]$cur.ControlType.ProgrammaticName) + ':' + ([string]$cur.Name)) }
+      $rect = $cur.BoundingRectangle
+      $name = [string]$cur.Name
+      if ($name.Length -gt 120) { $name = $name.Substring(0, 120) }
+      $visible = (-not $rect.IsEmpty) -and $rect.Width -gt 1 -and $rect.Height -gt 1
+      $relevant = ($useful -contains $type) -and ($name.Length -gt 0 -or $type -in @('Edit','Document','ComboBox'))
+      if ($visible -and $relevant -and -not ($type -eq 'Text' -and $name.Length -lt 2)) {
+        $value = ''
+        if ($type -in @('Edit','Document','ComboBox')) {
+          try {
+            $pattern = $el.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern)
+            $value = [string]$pattern.Current.Value
+          } catch {}
+          if ($type -in @('Document','Edit') -and -not $value) {
+            try {
+              $textPattern = $el.GetCurrentPattern([System.Windows.Automation.TextPattern]::Pattern)
+              $value = [string]$textPattern.DocumentRange.GetText(201)
+            } catch {}
+          }
+          if ($value.Length -gt 200) { $value = $value.Substring(0, 200) }
+        }
+        $items.Add([ordered]@{
+          i = $items.Count + 1
+          type = $type
+          name = $name
+          id = [string]$cur.AutomationId
+          x = [int]($rect.X + $rect.Width / 2)
+          y = [int]($rect.Y + $rect.Height / 2)
+          w = [int]$rect.Width
+          h = [int]$rect.Height
+          enabled = [bool]$cur.IsEnabled
+          focused = [bool]$cur.HasKeyboardFocus
+          value = $value
+        })
+      }
+    } catch {
+      if ($snapshotErrors.Count -lt 5) { $snapshotErrors.Add([string]$_.Exception.Message) }
+    }
+  }
+  if ($items.Count -eq 0) {
+    throw ('UI_SNAPSHOT_NO_CONTROLS: descendants=' + $descendants.Count + '; controls=' + ($observed -join ' | ') + '; errors=' + ($snapshotErrors -join ' | ') + '; interactive=' + [Environment]::UserInteractive)
+  }
+  $truncated = ($descendants.Count -gt $items.Count -or $clock.ElapsedMilliseconds -ge $budgetMs)
+  $title = ''
+  $process = ''
+  try {
+    $title = [string]$root.Current.Name
+    $process = [string](Get-Process -Id $root.Current.ProcessId -ErrorAction Stop).ProcessName
+  } catch {}
+  $windows = @()
+  try {
+    Get-Process | Where-Object { $_.MainWindowTitle } | Select-Object -First 15 | ForEach-Object {
+      $windows += [ordered]@{ process = [string]$_.ProcessName; title = [string]$_.MainWindowTitle }
+    }
+  } catch {}
+  return [ordered]@{
+    window_title = $title
+    process = $process
+    elements = $items.ToArray()
+    truncated = $truncated
+    elapsed_ms = [int]$clock.ElapsedMilliseconds
+    open_windows = @($windows)
+  }
+}
+
 function Perform-Step($step, [string]$commandId, [string]$planSchema="") {
   $action = [string]$step.action
   if ($planSchema -eq "mel.devices.pc-control.v1") {
@@ -2474,6 +2577,11 @@ function Perform-Step($step, [string]$commandId, [string]$planSchema="") {
   Assert-LocalRemoteAccess
   $action = [string]$step.action
   switch ($action) {
+    "ui.snapshot" {
+      Assert-UnattendedCapturePermission
+      $snapshot = Get-UiSnapshot ([IntPtr]::Zero) 150 4000
+      return @{ action=$action; window_title=$snapshot.window_title; process=$snapshot.process; elements=$snapshot.elements; truncated=$snapshot.truncated; elapsed_ms=$snapshot.elapsed_ms; open_windows=$snapshot.open_windows }
+    }
     "screen.capture" {
       Assert-UnattendedCapturePermission
       $shot = Upload-Screenshot $commandId
