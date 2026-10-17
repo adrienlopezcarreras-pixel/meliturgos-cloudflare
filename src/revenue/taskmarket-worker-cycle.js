@@ -187,3 +187,12 @@ export function createD1ValidatedDraftAdapter(db) {
     return {draftId};
   };
 }
+
+// Single entry point for an owner-authorized bounded cycle with D1 draft persistence.
+// All submission gates remain exactly those of runTaskmarketWorkerCycle.
+export async function runTaskmarketWorkerCycleWithD1({ db, ...options } = {}) {
+  return runTaskmarketWorkerCycle({
+    ...options,
+    persistValidatedDraft: createD1ValidatedDraftAdapter(db),
+  });
+}
