@@ -43,7 +43,13 @@ export async function runDirectWork({db,listMissions,assess,execute,verify,maxAs
   if(assessment?.eligible!==true||!Number.isSafeInteger(assessment.confidenceBps)||assessment.confidenceBps<9000||
     assessment.requiresHuman!==false||assessment.requiresPhysicalWorld!==false||
     assessment.requiresSecrets!==false||assessment.requestsUnsafeAction!==false)continue;
-  return executeWorkMission({db,mission,execute:args=>execute(args,mission,assessment),verify});
+  try{
+   return await executeWorkMission({db,mission,execute:args=>execute(args,mission,assessment),verify});
+  }catch(error){
+   // A failed solver can be tried on another task; a broken D1 persistence path cannot.
+   if(error?.message==='WORK_ARTIFACT_EMPTY'||error?.message==='WORK_SOLVER_OUTPUT_INVALID'||error?.message==='WORK_SOLVER_INDEPENDENCE_NOT_PROVEN')continue;
+   throw error;
+  }
  }
  return {status:'NO_ELIGIBLE_MISSION',artifactId:null,submitted:false,paid:false};
 }
