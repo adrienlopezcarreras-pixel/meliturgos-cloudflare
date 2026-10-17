@@ -10,7 +10,7 @@ return `<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="v
 <section class="card wide" style="margin-top:14px"><div class="taskhead"><div><h2>Missions Taskmarket</h2><div class="muted">Filtre les offres qui pourraient être adaptées à un travail automatisé par MEL. La classification reste indicative.</div></div><span id="taskFetched" class="mini">Pas encore actualisé</span></div><div class="filters"><input id="taskSearch" placeholder="Rechercher dans les missions…" aria-label="Rechercher dans les missions"><select id="taskFit"><option value="all">Toutes les offres</option><option value="candidate">Candidats information / code / données</option><option value="exclude">Autres catégories</option></select><select id="taskSort"><option value="reward">Rémunération décroissante</option><option value="competition">Moins de soumissions</option><option value="expiry">Expiration la plus proche</option></select></div><div id="taskError" class="footer" role="status" aria-live="polite"></div><div id="prepPlanInfo" class="footer" role="status" aria-live="polite">Plans de préparation persistants : lecture en cours…</div><div id="taskList"><div class="empty">Clique sur Actualiser pour consulter les offres.</div></div></section>
 <section class="card wide" style="margin-top:14px"><h2>Préparation à l'autonomie</h2><div class="row"><span>Identité Taskmarket / portefeuille</span><span class="tag warn">Non vérifié depuis MEL</span></div><div class="row"><span>Sonde locale Taskmarket depuis le Companion</span><span class="tag warn">Intégrée · preuve sur PC réel requise</span></div><div class="row"><span>Conseil de plusieurs modèles (Council)</span><span class="tag warn">Adaptateur à connecter</span></div><div class="row"><span>Amélioration LoRA depuis les retours</span><span class="tag warn">Pipeline à valider</span></div><div class="row"><span>Historique des résultats et paiement confirmé</span><span class="tag warn">Journal à connecter</span></div><div class="footer">Aucune clé privée ni phrase de récupération ne doit être saisie ou affichée dans cette page. Les frais, signatures et acceptations juridiques devront faire l'objet d'étapes explicites.</div></section>
 <div class="footer">MEL · Revenus autonomes · V1 d'observation. Pas de réclamation, soumission, signature ou dépense depuis cette version.</div></main><script>
-const $=id=>document.getElementById(id);let tasks=[];let lastFetch=null;let currentPcId=null;let taskSource='server';const savedTaskPlans=new Map();const savingTaskPlans=new Set();const savedPlanIds=new Set();
+const $=id=>document.getElementById(id);let tasks=[];let lastFetch=null;let currentPcId=null;let currentPcIssue='COMPUTER_NOT_FOUND';let taskSource='server';const savedTaskPlans=new Map();const savingTaskPlans=new Set();const savedPlanIds=new Set();
 function esc(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
 function usdc(micros){try{return (Number(BigInt(String(micros||'0')))/1e6).toLocaleString('fr-FR',{minimumFractionDigits:2,maximumFractionDigits:6})}catch{return '—'}}
 function likelyCandidate(t){const d=String(t.description||'').toLowerCase();if(/create an original image|image generation|publish on x|publish on medium|animated infographic|video.*mp4|discord|social media|marketing campaign/.test(d))return false;return /json|csv|dataset|data processing|software|code|bug|implement|typescript|javascript|python|audit|benchmark|extract|classif|normalize|algorithm|api endpoint|technical analysis/.test(d)}
@@ -134,14 +134,68 @@ async function createPersistentPrepPlan(task,button){
   savingTaskPlans.delete(taskId);button.disabled=false;
  }
 }
-async function refreshTasks(){const b=$('refreshAll');b.disabled=true;$('taskError').textContent='Lecture des offres publiques…';try{const r=await fetch('/api/revenue/tasks',{cache:'no-store'});const d=await r.json();if(!r.ok||d.ok!==true)throw new Error(d.code||d.error||'TASKMARKET_UNAVAILABLE');tasks=Array.isArray(d.tasks)?d.tasks:[];lastFetch=d.retrievedAt||new Date().toISOString();$('taskFetched').textContent='Mis à jour '+new Date(lastFetch).toLocaleString('fr-FR');$('taskError').textContent='Source : Taskmarket · '+tasks.length+' offres lisibles. La catégorie « candidat » est un filtre indicatif, pas une promesse de réussite.';renderTasks();await loadPersistentPrepPlans();$('globalStatus').innerHTML='<span class="dot good"></span><span>Taskmarket répond · mode observation uniquement</span>'}catch(e){$('taskError').textContent='Impossible de lire les offres : '+String(e.message||e);$('globalStatus').innerHTML='<span class="dot bad"></span><span>Lecture des offres indisponible</span>'}finally{b.disabled=false}}
-async function refreshPc(){const b=$('refreshPc');b.disabled=true;$('pcMessage').textContent='Lecture du statut du Companion…';try{const r=await fetch('/api/computer/v1/status',{cache:'no-store'});const d=await r.json();if(!r.ok||d.ok===false)throw new Error(d.code||d.error||'COMPANION_STATUS_UNAVAILABLE');const devices=Array.isArray(d.devices)?d.devices:[];const pcs=devices.filter(x=>String(x.platform||'').toLowerCase().includes('win')||String(x.name||'').toLowerCase().includes('windows')||String(x.id||'').toLowerCase().startsWith('computer.'));const online=pcs.filter(x=>x.online===true);currentPcId=online[0]?.id||null;$('pcState').textContent=online.length?'En ligne':'Non confirmé';const observedAt=online[0]?.last_seen_at?new Date(Number(online[0].last_seen_at)).toLocaleString('fr-FR'):'horodatage non fourni';$('pcDetail').textContent='Source : API Companion · dernier signal '+observedAt+' · '+online.length+' PC(s) en ligne / '+pcs.length+' appareil(s) correspondant(s).';$('pcMessage').textContent=online.length?'Companion détecté. Cela ne prouve pas encore que le CLI Taskmarket est installé ni que le worker peut soumettre.':'Aucun Companion Windows en ligne n’a été confirmé via l’API.';if(!online.length)$('pcState').style.color='var(--warn)';else $('pcState').style.color='var(--good)'}catch(e){$('pcState').textContent='Indisponible';$('pcDetail').textContent=String(e.message||e);$('pcMessage').textContent='Vérification incomplète. L’état affiché ne permet pas de conclure que le Companion est hors service.';$('pcState').style.color='var(--warn)'}finally{b.disabled=false}}
+async function refreshTasks(){const b=$('refreshAll');b.disabled=true;$('taskError').textContent='Lecture des offres publiques…';try{const r=await fetch('/api/revenue/tasks',{cache:'no-store'});const d=await r.json();if(!r.ok||d.ok!==true)throw new Error(d.code||d.error||'TASKMARKET_UNAVAILABLE');tasks=Array.isArray(d.tasks)?d.tasks:[];lastFetch=d.retrievedAt||new Date().toISOString();$('taskFetched').textContent='Mis à jour '+new Date(lastFetch).toLocaleString('fr-FR');$('taskError').textContent='Source : Taskmarket · '+tasks.length+' offres lisibles. La catégorie « candidat » est un filtre indicatif, pas une promesse de réussite.';renderTasks();await loadPersistentPrepPlans();$('globalStatus').innerHTML='<span class="dot good"></span><span>Taskmarket répond · mode observation uniquement</span>'}catch(e){$('taskError').textContent='Impossible de lire les offres : '+String(e.message||e);$('globalStatus').innerHTML='<span class="dot bad"></span><span>Lecture des offres indisponfunction computerControlIssue(pc,now=Date.now()){
+ if(!pc)return 'COMPUTER_NOT_FOUND';
+ if(pc.halted===true||Number(pc.halted)===1)return 'OWNER_HALT_ACTIVE';
+ const seen=Number(pc.last_seen_at||0);
+ if(pc.online!==true||!Number.isFinite(seen)||seen<=0||seen>now||now-seen>20000)return 'COMPUTER_OFFLINE';
+ const metadata=pc.metadata&&typeof pc.metadata==='object'?pc.metadata:{};
+ if(metadata.remote_access_enabled!==true)return 'REMOTE_ACCESS_DISABLED_LOCALLY';
+ const engine=Number(metadata.engine_heartbeat_at);
+ if(!Number.isFinite(engine)||engine<=0||engine>now||now-engine>20000)return 'COMPUTER_ENGINE_OFFLINE';
+ return null;
+}
+async function refreshPc(){
+ const b=$('refreshPc');b.disabled=true;$('pcMessage').textContent='Lecture du statut du Companion…';
+ try{
+  const r=await fetch('/api/computer/v1/status',{cache:'no-store'});const d=await r.json();
+  if(!r.ok||d.ok===false)throw new Error(d.code||d.error||'COMPANION_STATUS_UNAVAILABLE');
+  const devices=Array.isArray(d.devices)?d.devices:[];
+  const pcs=devices.filter(x=>String(x.platform||'').toLowerCase().includes('win')||String(x.name||'').toLowerCase().includes('windows')||String(x.id||'').toLowerCase().startsWith('computer.'));
+  const ordered=pcs.slice().sort((a,b)=>Number(b.last_seen_at||0)-Number(a.last_seen_at||0));
+  const ready=ordered.find(pc=>computerControlIssue(pc)===null)||null;
+  const selected=ready||ordered[0]||null;
+  const online=pcs.filter(x=>x.online===true);
+  currentPcId=ready?.id||null;
+  currentPcIssue=ready?null:computerControlIssue(selected);
+  const labels={
+   COMPUTER_NOT_FOUND:'aucun PC appairé',
+   OWNER_HALT_ACTIVE:'arrêt d’urgence actif',
+   PC_CONTROL_WINDOWS_REQUIRED:'contrôle distant disponible uniquement sous Windows',
+   COMPUTER_OFFLINE:'aucun signal Companion assez récent',
+   REMOTE_ACCESS_DISABLED_LOCALLY:'autorisation de contrôle distant désactivée localement',
+   COMPUTER_ENGINE_OFFLINE:'moteur de contrôle local inactif ou heartbeat périmé'
+  };
+  $('pcState').textContent=ready?'Contrôle prêt':online.length?'En ligne · contrôle bloqué':pcs.length?'Hors ligne':'Aucun PC appairé';
+  const observedAt=selected?.last_seen_at?new Date(Number(selected.last_seen_at)).toLocaleString('fr-FR'):'horodatage non fourni';
+  $('pcDetail').textContent='Source : API Companion · dernier signal '+observedAt+' · '+online.length+' PC(s) en ligne / '+pcs.length+' appareil(s) correspondant(s) · contrôle : '+(ready?'autorisé':(labels[currentPcIssue]||currentPcIssue||'état non confirmé'))+'.';
+  if(ready){
+   $('pcMessage').textContent='Companion en ligne, consentement local de contrôle actif et moteur récent confirmés. La sonde Taskmarket reste strictement en lecture seule.';
+   $('pcState').style.color='var(--good)';
+  }else{
+   $('pcMessage').textContent=currentPcIssue==='REMOTE_ACCESS_DISABLED_LOCALLY'
+    ?'Le PC répond, mais le contrôle à distance n’est pas autorisé localement. Active l’autorisation dans MEL Companion Windows, puis réactualise cette page.'
+    :currentPcIssue==='COMPUTER_ENGINE_OFFLINE'
+     ?'Le Companion répond, mais son moteur de contrôle n’envoie pas de signal récent. Relance le Companion/moteur local, puis réactualise.'
+     :currentPcIssue==='OWNER_HALT_ACTIVE'
+      ?'L’arrêt d’urgence du Companion est actif. Le contrôle reste bloqué tant que le propriétaire ne l’a pas réactivé localement.'
+      :'Le contrôle du PC n’est pas prêt : '+(labels[currentPcIssue]||currentPcIssue||'état non confirmé')+'. La sonde locale n’est pas envoyée.';
+   $('pcState').style.color='var(--warn)';
+  }
+ }catch(e){
+  currentPcId=null;currentPcIssue=String(e.message||'COMPANION_STATUS_UNAVAILABLE');
+  $('pcState').textContent='Indisponible';$('pcDetail').textContent=currentPcIssue;
+  $('pcMessage').textContent='Vérification incomplète. Aucun contrôle ne sera envoyé tant que l’état local n’a pas été confirmé.';
+  $('pcState').style.color='var(--warn)';
+ }finally{b.disabled=false}
+}
+var(--warn)'}finally{b.disabled=false}}
 async function scanLocalTaskmarket(){
  const button=$('scanPcTaskmarket'),info=$('pcTaskmarketInfo');
  button.disabled=true;info.style.display='block';info.textContent='Demande de lecture en lecture seule au Companion Windows…';
  try{
   if(!currentPcId) await refreshPc();
-  if(!currentPcId) throw new Error('COMPANION_WINDOWS_NOT_ONLINE');
+  if(!currentPcId) throw new Error(currentPcIssue||'COMPANION_WINDOWS_NOT_ONLINE');
   const start=await fetch('/api/revenue/taskmarket-pc-status',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({computer_id:currentPcId}),cache:'no-store'});
   const queued=await start.json();
   if(!start.ok||queued.ok!==true||!queued.command_id)throw new Error(queued.code||queued.error||'PC_TASKMARKET_PROBE_NOT_QUEUED');
