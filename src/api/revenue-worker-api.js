@@ -95,7 +95,11 @@ export async function handleRevenueApi(request, env, ctx = null) {
     if(request.method!=='POST')return json({ok:false,code:'METHOD_NOT_ALLOWED'},405);
     if(typeof ctx?.waitUntil!=='function')return json({ok:false,code:'WORK_BACKGROUND_RUNTIME_REQUIRED'},503);
     await env.DB.prepare("CREATE TABLE IF NOT EXISTS mel_work_cycles (id TEXT PRIMARY KEY, state TEXT NOT NULL, result TEXT, updated_at TEXT NOT NULL)").run();
-    const active=await env.DB.prepare("SELECT id FROM mel_work_cycles WHERE state='RUNNING' AND updated_at>? LIMIT 1").bind(new Date(Date.now()-15*60*1000).toISOString()).first();
+    // A Worker can terminate after waitUntil without writing its terminal state.
+    // Persist interruption honestly before creating the replacement cycle.
+    const staleBefore=new Date(Date.now()-15*60*1000).toISOString();
+    await env.DB.prepare("UPDATE mel_work_cycles SET state='INTERRUPTED',result=?,updated_at=? WHERE state='RUNNING' AND updated_at<=?").bind(JSON.stringify({code:'WORK_EXECUTION_INTERRUPTED',retryable:true}),new Date().toISOString(),staleBefore).run();
+    const active=await env.DB.prepare("SELECT id FROM mel_work_cycles WHERE state='RUNNING' AND updated_at>? LIMIT 1").bind(staleBefore).first();
     if(active)return json({ok:true,cycleId:active.id,status:'RUNNING',reused:true},202);
     const id=crypto.randomUUID();
     const startedAt=new Date().toISOString();
@@ -112,6 +116,7 @@ export async function handleRevenueApi(request, env, ctx = null) {
         const assess=createTaskmarketCouncilAssessmentAdapter({env});
         result=await runDirectWork({db:env.DB,listMissions:async()=>tasks,assess:({mission})=>assess({task:mission,untrustedDescription:mission.description}),execute:(_,mission,assessment)=>solve({task:mission,assessment})});
         if(result.status==='NO_ELIGIBLE_MISSION')state='NO_ELIGIBLE_MISSION';
+        else if(result.status==='FAILED'||result.status==='ERROR')state='FAILED';
       }catch(error){state='FAILED';result={code:String(error?.code||error?.message||'WORK_DIRECT_EXECUTION_FAILED').slice(0,120)}}
       await env.DB.prepare('UPDATE mel_work_cycles SET state=?,result=?,updated_at=? WHERE id=?').bind(state,JSON.stringify(result),new Date().toISOString(),id).run();
     })();
