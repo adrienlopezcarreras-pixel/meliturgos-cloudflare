@@ -34,12 +34,10 @@ permissions:
   actions: write
   id-token: write
 
-concurrency:
-  group: mel-production-deploy
-  cancel-in-progress: false
-
 jobs:
   deploy:
+    # Serialize production mutation only; downstream health proofs must not hold
+    # the release-wide lock after deployment has completed.
     concurrency:
       group: mel-launch-bootstrap-token
       cancel-in-progress: false
