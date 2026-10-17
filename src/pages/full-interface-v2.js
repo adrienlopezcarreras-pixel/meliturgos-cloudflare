@@ -279,6 +279,9 @@ async function followChatComputerScreenshot(command){
     return;
    }
    if(result.status!=='SUCCEEDED')continue;
+   const pc=(snapshot?.devices||[]).find(device=>device?.id===computerId);
+   if(!pc||pc.halted||pc.metadata?.remote_access_enabled!==true)
+    throw Error('COMPUTER_PERMISSION_REVOKED');
    const output=(result.result?.outputs||[]).find(item=>item?.action==='screen.capture'&&typeof item?.view_url==='string');
    if(!output?.view_url)throw Error('COMPUTER_CAPTURE_PROOF_MISSING');
    const verifiedUrl=new URL(output.view_url,location.origin);
@@ -288,10 +291,29 @@ async function followChatComputerScreenshot(command){
    const label=document.createElement('p');label.textContent='Capture réelle du Companion Windows :';wrap.appendChild(label);
    const img=document.createElement('img');img.alt='Capture de l’écran du PC réalisée par MEL Companion';
    img.style.maxWidth='100%';img.style.height='auto';img.style.borderRadius='10px';
+   img.onload=async()=>{
+    try{
+     // A loaded image proves bytes reached the browser, but local opt-in may
+     // have been withdrawn while it was loading. Recheck before claiming proof.
+     const check=await jfetch('/api/computer/v1/status?computer_id='+encodeURIComponent(computerId)+'&command_id='+encodeURIComponent(commandId));
+     const current=(check?.devices||[]).find(device=>device?.id===computerId);
+     const verified=(check?.commands||[]).some(cmd=>cmd?.id===commandId&&cmd.status==='SUCCEEDED');
+     if(!current||current.halted||current.metadata?.remote_access_enabled!==true||!verified)
+      throw Error('COMPUTER_PERMISSION_REVOKED');
+     state.textContent='Capture exécutée et image chargée';
+     label.textContent='Capture réelle du Companion Windows :';
+    }catch{
+     img.remove();
+     state.textContent='Capture masquée : accès local révoqué ou preuve expirée';
+     label.textContent='Capture masquée : autorisation ou preuve non confirmée.';
+    }
+   };
    img.onerror=()=>{state.textContent='Image inaccessible ou autorisation révoquée';label.textContent='Capture exécutée, mais image inaccessible ou autorisation révoquée.';img.remove()};
-   img.src=verifiedUrl.href;wrap.appendChild(img);
+   wrap.appendChild(img);
    qs('#chatlog').appendChild(wrap);qs('#chatlog').scrollTop=qs('#chatlog').scrollHeight;
-   state.textContent='Capture exécutée et preuve vérifiée';return;
+   state.textContent='Capture exécutée, chargement et autorisation en vérification…';
+   img.src=verifiedUrl.href;
+   return;
   }catch(error){
    const message=String(error?.message||'COMPUTER_CAPTURE_STATUS_FAILED');
    state.textContent='Vérification capture impossible : '+message;
