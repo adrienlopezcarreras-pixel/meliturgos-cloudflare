@@ -22,6 +22,15 @@ test('revenue task normalizer accepts only valid open, unexpired paid tasks', ()
   assert.equal(tasks[0].id, 'task-1');
   assert.equal(tasks[0].reward, '1000000');
   assert.equal(tasks[0].platformFeeBps, 750);
+  assert.equal(tasks[0].stakeRequired, null, 'missing stake data must remain unknown');
+  assert.equal(tasks[0].stakeStateKnown, false);
+  assert.equal(tasks[0].claimedBy, undefined, 'missing claim data must remain unknown');
+  assert.equal(tasks[0].claimStateKnown, false);
+  const explicitlySafe = normalizeRevenueTasks({ tasks: [{ ...valid, stakeRequired: false, claimedBy: null }] }, now)[0];
+  assert.equal(explicitlySafe.stakeRequired, false);
+  assert.equal(explicitlySafe.claimedBy, null);
+  assert.equal(explicitlySafe.stakeStateKnown, true);
+  assert.equal(explicitlySafe.claimStateKnown, true);
 });
 
 test('task normalizer supports CLI/API list envelope without inventing offer data', () => {
