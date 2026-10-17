@@ -2459,6 +2459,12 @@ function Get-UiSnapshot([IntPtr]$hwnd = [IntPtr]::Zero, [int]$maxElements = 150,
             $pattern = $el.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern)
             $value = [string]$pattern.Current.Value
           } catch {}
+          if ($type -eq 'Document' -and -not $value) {
+            try {
+              $textPattern = $el.GetCurrentPattern([System.Windows.Automation.TextPattern]::Pattern)
+              $value = [string]$textPattern.DocumentRange.GetText(201)
+            } catch {}
+          }
           if ($value.Length -gt 200) { $value = $value.Substring(0, 200) }
         }
         $items.Add([ordered]@{
