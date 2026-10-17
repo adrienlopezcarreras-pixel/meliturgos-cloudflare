@@ -288,3 +288,33 @@ test('bounded draft cycle never assesses a public task without trusted acceptanc
  assert.equal(cycle.considered,0);
  assert.equal(councilCalls,0);
 });
+
+test('full bounded Council cycle writes and reads an independently verified draft in real SQLite D1', async () => {
+ const { sqliteD1 } = await import('../helpers/sqlite-d1.mjs');
+ const db=sqliteD1();
+ const expectedJson='{"answer":42}';
+ const sha=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(expectedJson))),v=>v.toString(16).padStart(2,'0')).join('');
+ const validateArtifact=createExactJsonAcceptanceValidator({expectedByTaskId:{'0x123':{expectedJson,sha256:sha}}});
+ let modelCalls=0;
+ const council=async({request})=>{
+  modelCalls++;
+  const isSolve=typeof request?.prompt==='string';
+  return {status:'COMPLETE',independent_response_count:2,synthesis:{text:isSolve?expectedJson:JSON.stringify({
+   eligible:true,confidenceBps:9600,category:'data-processing',requiresHuman:false,
+   requiresPhysicalWorld:false,requiresSecrets:false,requestsUnsafeAction:false,estimatedComputeCostMicros:10000,
+  })}};
+ };
+ const cycle=await runBoundedTaskmarketDraftCycle({
+  db,eligibleTaskIds:['0x123'],validateArtifact,council,
+  fetchImpl:async()=>({ok:true,json:async()=>({tasks:[task]})}),
+  policy:{minimumProfitMicros:0,minimumMarginBps:0,maxTasksPerCycle:1},
+ });
+ assert.equal(modelCalls,2);
+ assert.equal(cycle.decisions[0].status,'READY_NOT_SUBMITTED',JSON.stringify(cycle.decisions));
+ assert.match(cycle.decisions[0].draftId,/^melwork-draft-/);
+ const listed=await listD1ValidatedDrafts(db);
+ assert.equal(listed.drafts.length,1);
+ assert.equal(listed.drafts[0].id,cycle.decisions[0].draftId);
+ assert.equal(listed.drafts[0].taskId,'0x123');
+ assert.equal(JSON.stringify(listed).includes(expectedJson),false);
+});
