@@ -15,26 +15,27 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           set -u
+          note(){ printf '::notice title=%s::%s\n' "$1" "$(echo "$2" | tr '\n' ' ' | cut -c1-3500)"; }
           API=https://api.cloudflare.com/client/v4
           H="Authorization: Bearer ${CLOUDFLARE_API_TOKEN}"
           START="$(date -u +%Y-%m-%dT00:00:00Z)"; END="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-          echo "== Window $START -> $END"
+          note window "$START -> $END"
           for Q in \
             "aiInferenceAdaptiveGroups(limit: 50, filter: {datetime_geq: \\\"$START\\\", datetime_leq: \\\"$END\\\"}, orderBy: [sum_totalNeurons_DESC]) { count sum { totalNeurons } dimensions { modelId } }" \
             "aiInferenceAdaptiveGroups(limit: 50, filter: {datetime_geq: \\\"$START\\\", datetime_leq: \\\"$END\\\"}) { count dimensions { modelId } }"; do
             BODY="{\"query\":\"query { viewer { accounts(filter: {accountTag: \\\"${CLOUDFLARE_ACCOUNT_ID}\\\"}) { $Q } } }\"}"
-            curl -s -X POST "$API/graphql" -H "$H" -H 'content-type: application/json' --data "$BODY" | jq -c '.errors // .data.viewer.accounts[0]'
+            note models "$(curl -s -X POST "$API/graphql" -H "$H" -H 'content-type: application/json' --data "$BODY" | jq -c '.errors // .data.viewer.accounts[0]')"
           done
           echo "== Hourly neurons today"
           Q="aiInferenceAdaptiveGroups(limit: 48, filter: {datetime_geq: \\\"$START\\\", datetime_leq: \\\"$END\\\"}, orderBy: [datetimeHour_ASC]) { count sum { totalNeurons } dimensions { datetimeHour } }"
           BODY="{\"query\":\"query { viewer { accounts(filter: {accountTag: \\\"${CLOUDFLARE_ACCOUNT_ID}\\\"}) { $Q } } }\"}"
-          curl -s -X POST "$API/graphql" -H "$H" -H 'content-type: application/json' --data "$BODY" | jq -c '.errors // (.data.viewer.accounts[0].aiInferenceAdaptiveGroups[] | [.dimensions.datetimeHour, .count, .sum.totalNeurons])'
+          note hourly "$(curl -s -X POST "$API/graphql" -H "$H" -H 'content-type: application/json' --data "$BODY" | jq -c '.errors // [.data.viewer.accounts[0].aiInferenceAdaptiveGroups[] | [.dimensions.datetimeHour[11:13], .count, (.sum.totalNeurons|floor)]]')"
           echo "== Worker secret NAMES containing ZERO_COST (values never printed)"
-          curl -s "$API/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/scripts/meliturgos/secrets" -H "$H" | jq -c '[.result[]?.name | select(test("ZERO_COST|PROOF"))]'
+          note secrets "$(curl -s "$API/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/scripts/meliturgos/secrets" -H "$H" | jq -c '[.result[]?.name | select(test("ZERO_COST|PROOF"))]')"
           echo "== One minimal Workers AI call per model (max_tokens 1) to read the real error"
           for M in @cf/meta/llama-3.3-70b-instruct-fp8-fast @cf/google/gemma-3-12b-it @cf/zai-org/glm-4.7-flash @cf/google/gemma-4-26b-a4b-it; do
             S=$(date +%s%3N)
             R=$(curl -s -m 90 -X POST "$API/accounts/${CLOUDFLARE_ACCOUNT_ID}/ai/run/$M" -H "$H" -H 'content-type: application/json' --data '{"messages":[{"role":"user","content":"Réponds OK"}],"max_tokens":3}')
             E=$(( $(date +%s%3N) - S ))
-            echo "$M ${E}ms $(echo "$R" | jq -c '{success, errors: [.errors[]? | {code, message: (.message|tostring|.[0:200])}], out: ((.result.response // .result.choices[0].message.content // "")|tostring|.[0:20])}')"
+            note "$M" "${E}ms $(echo "$R" | jq -c '{success, errors: [.errors[]? | {code, message: (.message|tostring|.[0:200])}], out: ((.result.response // .result.choices[0].message.content // "")|tostring|.[0:20])}')"
           done
