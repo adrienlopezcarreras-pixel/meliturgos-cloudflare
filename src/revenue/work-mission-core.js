@@ -79,11 +79,20 @@ export async function runDirectWork({db,listMissions,assess,execute,verify,maxAs
  for(const mission of candidates.slice(0,budget)){
   let assessment;
   try{assessment=await assess({mission})}catch{continue}
-  if(assessment?.eligible!==true||!Number.isSafeInteger(assessment.confidenceBps)||assessment.confidenceBps<9000||
-    assessment.requiresHuman!==false||assessment.requiresPhysicalWorld!==false||
+  // Preparing a reviewable draft is distinct from publishing or submitting it.
+  // Human action must be explicitly handed back to the owner, never performed by the worker.
+  const draftable=assessment?.draftable===true || (assessment?.eligible===true && assessment?.requiresHuman===true);
+  if((assessment?.eligible!==true&&!draftable)||!Number.isSafeInteger(assessment.confidenceBps)||assessment.confidenceBps<9000||
+    (assessment.requiresHuman!==false&&!draftable)||assessment.requiresPhysicalWorld!==false||
     assessment.requiresSecrets!==false||assessment.requestsUnsafeAction!==false)continue;
+  const humanSteps=assessment.requiresHuman===true
+    ? (Array.isArray(assessment.humanSteps)&&assessment.humanSteps.length
+       ? assessment.humanSteps.filter(step=>typeof step==='string'&&step.trim()).slice(0,8).map(step=>step.slice(0,300))
+       : ['Vérifier le brouillon et effectuer vous-même les étapes de publication ou de remise requises par Taskmarket.'])
+    : [];
   try{
-   return await executeWorkMission({db,mission,execute:args=>execute(args,mission,assessment),verify});
+   const output=await executeWorkMission({db,mission,execute:args=>execute(args,mission,assessment),verify});
+   return {...output,status:humanSteps.length?'DRAFT_FOR_OWNER':output.status,humanSteps,requiresOwnerApproval:true};
   }catch(error){
    // A failed solver can be tried on another task; a broken D1 persistence path cannot.
    if(error?.message==='WORK_ARTIFACT_EMPTY'||error?.message==='WORK_SOLVER_OUTPUT_INVALID'||error?.message==='WORK_SOLVER_INDEPENDENCE_NOT_PROVEN')continue;
