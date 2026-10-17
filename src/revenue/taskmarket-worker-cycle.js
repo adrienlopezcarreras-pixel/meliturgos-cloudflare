@@ -329,3 +329,24 @@ export function createStrictJsonArtifactValidator({requiredKeys=[]}={}){
   return {passed:false,machineVerifiable:true,summary:'JSON_SYNTAX_VALID_SEMANTIC_VALIDATION_REQUIRED'};
  };
 }
+
+/** Machine-verifiable task-specific acceptance, requiring an independent trusted
+ * expected JSON result and its known SHA-256. Never infer expected output from AI.
+ */
+export function createExactJsonAcceptanceValidator({expectedByTaskId={}}={}){
+ const own=(obj,key)=>Object.prototype.hasOwnProperty.call(obj,key);
+ return async({task,candidate})=>{
+  const entry=own(expectedByTaskId,String(task?.id||''))?expectedByTaskId[task.id]:null;
+  if(!entry||typeof entry.expectedJson!=='string'||!/^[a-f0-9]{64}$/i.test(String(entry.sha256||'')))
+   return {passed:false,machineVerifiable:false,summary:'TRUSTED_ACCEPTANCE_FIXTURE_MISSING'};
+  let expected,actual;
+  try{expected=JSON.parse(entry.expectedJson);actual=JSON.parse(candidate?.content)}catch{
+   return {passed:false,machineVerifiable:true,summary:'ACCEPTANCE_JSON_INVALID'};
+  }
+  const canonical=x=>JSON.stringify(x,Object.keys(x||{}).sort());
+  const bytes=new TextEncoder().encode(entry.expectedJson);
+  const sha=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes)),x=>x.toString(16).padStart(2,'0')).join('');
+  if(sha!==entry.sha256.toLowerCase())return {passed:false,machineVerifiable:false,summary:'ACCEPTANCE_FIXTURE_TAMPERED'};
+  return {passed:canonical(expected)===canonical(actual),machineVerifiable:true,summary:canonical(expected)===canonical(actual)?'EXACT_JSON_ACCEPTANCE_PASSED':'EXACT_JSON_ACCEPTANCE_MISMATCH'};
+ };
+}
