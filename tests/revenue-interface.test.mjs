@@ -48,7 +48,7 @@ test('canonical MEL navigation and router expose MEL WORK without bypassing owne
     readFile(new URL('../src/pages/full-interface-v2.js', import.meta.url), 'utf8'),
   ]);
   assert.match(router, /url\.pathname === "\/revenus"/);
-  assert.match(router, /handleRevenueApi\(request, env\)/);
+  assert.match(router, /handleRevenueApi\(request, env, ctx\)/);
   assert.match(professor, /href="\/revenus"[\s\S]{0,120}MEL WORK/);
   assert.match(router, /const auth = requireAuth\(request, env\);[\s\S]{0,120}handleRevenueApi\(request, env\)/);
 });
@@ -372,7 +372,8 @@ test('direct MEL WORK UI offers real draft creation without prior expected answe
  const html=await (await onRequestGet()).text();
  assert.match(html,/Créer un brouillon de mission/);
  assert.match(html,/\/api\/revenue\/direct-work/);
- assert.match(html,/proof[.]artifact[.]status/);
+ assert.match(html,/DRAFT_FOR_OWNER/);
+ assert.match(html,/cycle_id/);
 });
 test('direct MEL WORK API stays owner-only and fails closed without D1',async()=>{
  const url='https://mel.test/api/revenue/direct-work';
@@ -397,6 +398,6 @@ test('owner may read saved direct artifact by exact id; other users and malforme
 });
 test('MEL WORK UI reads saved D1 body instead of presenting only an identifier',async()=>{
  const html=await (await onRequestGet()).text();
- assert.match(html,/WORK_ARTIFACT_READBACK_FAILED/);
- assert.match(html,/proof\.artifact\.content/);
+ assert.match(html,/WORK_ARTIFACT_READ_FAILED/);
+ assert.match(html,/d\.artifact\.content/);
 });
