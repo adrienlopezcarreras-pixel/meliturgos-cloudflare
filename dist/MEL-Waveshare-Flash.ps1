@@ -106,31 +106,3 @@ finally {
   $pass = $null
   $secure = $null
 }
- -or $port -notin $ports) {
-    throw "MINI_USB_PORT_NOT_CONFIRMED"
-  }
-  & $python @pyArgs -m esptool --chip esp32s3 --port $port chip_id
-  if ($LASTEXITCODE -ne 0) { throw "MINI_ESP32S3_IDENTITY_UNVERIFIED" }
-
-  Write-Host ""
-  Write-Host "ATTENTION : PREMIÈRE INSTALLATION UNIQUEMENT — effacement TOTAL, données irrécupérables sans sauvegarde." -ForegroundColor Red
-  $confirmation = Read-Host 'Pour autoriser l’effacement définitif, tapez exactement EFFACER_MINI'
-  if ($confirmation -cne 'EFFACER_MINI') { throw 'MINI_FLASH_LOCAL_APPROVAL_REQUIRED' }
-  Write-Host "Effacement propre de la mémoire flash..." -ForegroundColor Yellow
-  & $python @pyArgs -m esptool --chip esp32s3 --port $port erase_flash
-  if ($LASTEXITCODE -ne 0) { throw "Échec de l'effacement. Essaie en maintenant BOOT pendant la connexion." }
-
-  Write-Host "Flashage du firmware MEL..." -ForegroundColor Yellow
-  & $python @pyArgs -m esptool --chip esp32s3 --port $port --baud 460800 write_flash 0x0 $bin
-  if ($LASTEXITCODE -ne 0) { throw "Échec du flashage." }
-
-  Write-Host ""
-  Write-Host "Firmware MEL installé." -ForegroundColor Green
-  Write-Host "Débranche/rebranche ou appuie sur RESET."
-  Write-Host "MINI démarre directement sur son interface tactile."
-  Write-Host "Choisis le Wi-Fi sur MINI, saisis le mot de passe à l'écran, puis crée un code dans MEL > MINI et saisis-le sur MINI."
-}
-finally {
-  $pass = $null
-  $secure = $null
-}
