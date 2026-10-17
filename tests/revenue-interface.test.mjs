@@ -48,7 +48,7 @@ test('canonical MEL navigation and router expose MEL WORK without bypassing owne
     readFile(new URL('../src/pages/full-interface-v2.js', import.meta.url), 'utf8'),
   ]);
   assert.match(router, /url\.pathname === "\/revenus"/);
-  assert.match(router, /handleRevenueApi\(request, env\)/);
+  assert.match(router, /handleRevenueApi\(request, env, ctx\)/);
   assert.match(professor, /href="\/revenus"[\s\S]{0,120}MEL WORK/);
   assert.match(router, /const auth = requireAuth\(request, env\);[\s\S]{0,120}handleRevenueApi\(request, env\)/);
 });
