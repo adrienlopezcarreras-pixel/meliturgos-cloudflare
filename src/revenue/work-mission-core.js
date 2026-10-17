@@ -3,7 +3,7 @@
  * even when an independent validator cannot certify marketplace acceptance.
  * Drafts are never submissions, earnings or verified marketplace deliverables.
  */
-export async function executeWorkMission({db,mission,execute,verify=async()=>({passed:false}),now=()=>new Date().toISOString()}={}){
+export async function executeWorkMission({db,mission,execute,verify=async()=>({passed:false}),humanSteps=[],now=()=>new Date().toISOString()}={}){
  if(typeof db?.prepare!=='function'||typeof execute!=='function')throw new TypeError('WORK_RUNTIME_REQUIRED');
  const id=typeof mission?.id==='string'?mission.id.trim():'';
  const description=typeof mission?.description==='string'?mission.description.trim():'';
@@ -46,9 +46,10 @@ export async function executeWorkMission({db,mission,execute,verify=async()=>({p
  if(committed?.meta?.changes!==1)throw new Error('WORK_MISSION_OWNERSHIP_LOST');
  const digest=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(id+'\n'+content));
  const artifactId='work-'+Array.from(new Uint8Array(digest),b=>b.toString(16).padStart(2,'0')).join('');
- await db.prepare('CREATE TABLE IF NOT EXISTS mel_work_artifacts (id TEXT PRIMARY KEY, mission_id TEXT NOT NULL, content TEXT NOT NULL, status TEXT NOT NULL, created_at TEXT NOT NULL)').run();
+ await db.prepare('CREATE TABLE IF NOT EXISTS mel_work_artifacts (id TEXT PRIMARY KEY, mission_id TEXT NOT NULL, content TEXT NOT NULL, status TEXT NOT NULL, created_at TEXT NOT NULL, human_steps TEXT NOT NULL DEFAULT \'[]\', owner_note TEXT, decided_at TEXT)').run();
+ for(const column of ["human_steps TEXT NOT NULL DEFAULT '[]'","owner_note TEXT","decided_at TEXT"]){try{await db.prepare('ALTER TABLE mel_work_artifacts ADD COLUMN '+column).run()}catch(error){if(!/duplicate column/i.test(String(error)))throw error}}
  // The result exists before validation; a validator is not a prerequisite for doing useful work.
- const written=await db.prepare("INSERT OR IGNORE INTO mel_work_artifacts (id,mission_id,content,status,created_at) SELECT ?,?,?,?,? WHERE EXISTS (SELECT 1 FROM mel_work_missions WHERE id=? AND state='COMMITTING' AND attempts=?)").bind(artifactId,id,content,'DRAFT_UNVERIFIED',now(),id,attempt).run();
+ const written=await db.prepare("INSERT OR IGNORE INTO mel_work_artifacts (id,mission_id,content,status,created_at,human_steps) SELECT ?,?,?,?,?,? WHERE EXISTS (SELECT 1 FROM mel_work_missions WHERE id=? AND state='COMMITTING' AND attempts=?)").bind(artifactId,id,content,'DRAFT_FOR_OWNER',now(),JSON.stringify(humanSteps),id,attempt).run();
  if(written?.meta?.changes!==1){
   const ownerRow=await db.prepare('SELECT state,attempts FROM mel_work_missions WHERE id=?').bind(id).first();
   if(ownerRow?.attempts!==attempt||ownerRow?.state!=='COMMITTING')throw new Error('WORK_MISSION_OWNERSHIP_LOST');
@@ -57,14 +58,18 @@ export async function executeWorkMission({db,mission,execute,verify=async()=>({p
  if(stored?.id!==artifactId||stored.mission_id!==id||stored.content!==content)throw new Error('WORK_ARTIFACT_PERSISTENCE_UNCONFIRMED');
  let passed=false;
  try{passed=(await verify({mission,content,artifactId}))?.passed===true}catch{}
- if(passed){
-  await db.prepare('UPDATE mel_work_artifacts SET status=? WHERE id=?').bind('VERIFIED_LOCALLY',artifactId).run();
- }
+ // Owner review remains required even when local validation passed.
  const final=await db.prepare('SELECT id, mission_id, content, status FROM mel_work_artifacts WHERE id=?').bind(artifactId).first();
- if(final?.id!==artifactId||final.content!==content||final.status!==(passed?'VERIFIED_LOCALLY':'DRAFT_UNVERIFIED'))throw new Error('WORK_ARTIFACT_PERSISTENCE_UNCONFIRMED');
+ if(final?.id!==artifactId||final.content!==content||final.status!=='DRAFT_FOR_OWNER')throw new Error('WORK_ARTIFACT_PERSISTENCE_UNCONFIRMED');
  const finalized=await db.prepare("UPDATE mel_work_missions SET state=?,artifact_id=?,last_error=NULL,updated_at=? WHERE id=? AND state='COMMITTING' AND attempts=?").bind('DRAFT_READY',artifactId,now(),id,attempt).run();
  if(finalized?.meta?.changes!==1)throw new Error('WORK_MISSION_OWNERSHIP_LOST');
- return {artifactId,missionId:id,status:final.status,submitted:false,paid:false};
+ return {artifactId,missionId:id,status:final.status,humanSteps,submitted:false,paid:false};
+}
+
+export function draftDecision(assessment){
+ if(!assessment||assessment.requestsUnsafeAction===true||assessment.requiresSecrets===true||assessment.requiresPhysicalWorld===true)return {draft:false,reason:'OUTSIDE_SAFE_BOUNDARY'};
+ if(assessment.draftable!==true||!Number.isSafeInteger(assessment.confidenceBps)||assessment.confidenceBps<7000)return {draft:false,reason:'NOT_DRAFTABLE'};
+ return {draft:true,humanSteps:Array.isArray(assessment.humanSteps)?assessment.humanSteps.slice(0,8).map(x=>String(x).slice(0,200)):[]};
 }
 
 /** Provider-independent orchestration: the source supplies missions, the executor produces
@@ -79,11 +84,10 @@ export async function runDirectWork({db,listMissions,assess,execute,verify,maxAs
  for(const mission of candidates.slice(0,budget)){
   let assessment;
   try{assessment=await assess({mission})}catch{continue}
-  if(assessment?.eligible!==true||!Number.isSafeInteger(assessment.confidenceBps)||assessment.confidenceBps<9000||
-    assessment.requiresHuman!==false||assessment.requiresPhysicalWorld!==false||
-    assessment.requiresSecrets!==false||assessment.requestsUnsafeAction!==false)continue;
+  const decision=draftDecision(assessment);
+  if(!decision.draft)continue;
   try{
-   return await executeWorkMission({db,mission,execute:args=>execute(args,mission,assessment),verify});
+   return await executeWorkMission({db,mission,execute:args=>execute(args,mission,assessment),verify,humanSteps:decision.humanSteps});
   }catch(error){
    // A failed solver can be tried on another task; a broken D1 persistence path cannot.
    if(error?.message==='WORK_ARTIFACT_EMPTY'||error?.message==='WORK_SOLVER_OUTPUT_INVALID'||error?.message==='WORK_SOLVER_INDEPENDENCE_NOT_PROVEN')continue;
