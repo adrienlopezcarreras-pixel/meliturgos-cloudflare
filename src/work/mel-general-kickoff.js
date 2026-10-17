@@ -20,7 +20,7 @@ export function findMelWorkReference(text, recent = []) {
   const normalized = normalize(text);
   // Bare continuation is only for the *immediately preceding* explicit MEL
   // durable-work response. Never revive an old job from unrelated history.
-  if (/^(?:continue|poursuis|reprends?)[.!?]*$/.test(normalized)) {
+  if (/^(?:continue|poursuis|reprends?)(?:\s*[.!?])*$/.test(normalized)) {
     const latest = Array.isArray(recent) ? recent.at(-1) : null;
     if (String(latest?.role || '') !== 'assistant') return null;
     const message = String(latest?.content || '');
