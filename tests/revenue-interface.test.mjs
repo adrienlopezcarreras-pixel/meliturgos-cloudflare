@@ -399,5 +399,5 @@ test('owner may read saved direct artifact by exact id; other users and malforme
 test('MEL WORK UI reads saved D1 body instead of presenting only an identifier',async()=>{
  const html=await (await onRequestGet()).text();
  assert.match(html,/WORK_ARTIFACT_READBACK_FAILED/);
- assert.match(html,/d\.artifact\.content/);
+ assert.match(html,/data\.artifact\.content/);
 });
