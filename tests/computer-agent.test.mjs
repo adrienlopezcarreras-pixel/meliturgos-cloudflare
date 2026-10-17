@@ -15,7 +15,8 @@ async function setup({ remote = true, fresh = true } = {}) {
 }
 
 // Simulates the Windows Companion: executes queued commands against a tiny screen model.
-function fakeCompanion(db) {
+function fakeCompanion(db, { failFirstSnapshot = false } = {}) {
+  let snapshotFailurePending = failFirstSnapshot;
   const screen = { app: 'firefox', text: '' };
   const executed = [];
   const snapshot = () => screen.app === 'notepad'
@@ -30,6 +31,12 @@ function fakeCompanion(db) {
       const rows = (await db.prepare("SELECT id, plan_json FROM computer_commands WHERE status='PENDING'").all()).results;
       for (const row of rows) {
         const plan = JSON.parse(row.plan_json);
+        if (snapshotFailurePending && plan.steps.some(step => step.action === 'ui.snapshot')) {
+          snapshotFailurePending = false;
+          executed.push('ui.snapshot');
+          await db.prepare("UPDATE computer_commands SET status='FAILED',error_code='UI_SNAPSHOT_NO_CONTROLS' WHERE id=?").bind(row.id).run();
+          continue;
+        }
         const outputs = [];
         for (const step of plan.steps) {
           executed.push(step.action);
@@ -70,6 +77,24 @@ test('MEL opens Notepad, types the text, verifies it and proves it with a screen
   assert.deepEqual(events.filter(e => e.type === 'step').map(e => e.text), ['Ouvrir notepad', 'Cliquer sur « Éditeur de texte »', 'Taper « bonjour Adrien »']);
   assert.equal(events.find(e => e.type === 'proof')?.url, 'https://mel.example/api/computer/v1/screenshot?key=k');
   assert.equal(events.at(-1).type, 'end');
+  db.close();
+});
+
+test('allowlisted Notepad launch works without initial UIA; result still requires observed verification', async () => {
+  const db = await setup();
+  const pc = fakeCompanion(db, { failFirstSnapshot: true });
+  const ai = scriptedAi([
+    { action: 'type', text: 'bonjour' },
+    { action: 'done', summary: 'Le texte est présent dans le champ.' },
+  ]);
+  const result = await runComputerAgent({
+    env: { DB: db, AI: ai }, goal: 'ouvre le bloc-notes et écris bonjour',
+    sleep: () => pc.tick(),
+  });
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.equal(pc.screen.text, 'bonjour');
+  assert.deepEqual(pc.executed.slice(0, 3), ['ui.snapshot', 'app.open', 'ui.snapshot']);
+  assert.ok(ai.prompts[1].includes('= « bonjour »'), 'done follows a readback of the edited field');
   db.close();
 });
 
