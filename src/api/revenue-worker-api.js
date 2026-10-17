@@ -118,7 +118,7 @@ export async function handleRevenueApi(request, env, ctx = null) {
         if(result.status==='NO_ELIGIBLE_MISSION')state='NO_ELIGIBLE_MISSION';
         else if(result.status==='FAILED'||result.status==='ERROR')state='FAILED';
       }catch(error){state='FAILED';result={code:String(error?.code||error?.message||'WORK_DIRECT_EXECUTION_FAILED').slice(0,120)}}
-      await env.DB.prepare('UPDATE mel_work_cycles SET state=?,result=?,updated_at=? WHERE id=?').bind(state,JSON.stringify(result),new Date().toISOString(),id).run();
+      await env.DB.prepare("UPDATE mel_work_cycles SET state=?,result=?,updated_at=? WHERE id=? AND state='RUNNING'").bind(state,JSON.stringify(result),new Date().toISOString(),id).run();
     })();
     ctx.waitUntil(job);
     return json({ok:true,cycleId:id,status:'RUNNING',submitted:false,paid:false},202);
