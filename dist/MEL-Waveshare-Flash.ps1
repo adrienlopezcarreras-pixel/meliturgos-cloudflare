@@ -93,6 +93,9 @@ try {
   }
 
   Write-Host ""
+  Write-Host "ATTENTION : PREMIÈRE INSTALLATION UNIQUEMENT — effacement TOTAL, données irrécupérables sans sauvegarde." -ForegroundColor Red
+  $confirmation = Read-Host 'Pour autoriser l’effacement définitif, tapez exactement EFFACER_MINI'
+  if ($confirmation -cne 'EFFACER_MINI') { throw 'MINI_FLASH_LOCAL_APPROVAL_REQUIRED' }
   Write-Host "Effacement propre de la mémoire flash..." -ForegroundColor Yellow
   & $python @pyArgs -m esptool --chip esp32s3 --port $port erase_flash
   if ($LASTEXITCODE -ne 0) { throw "Échec de l'effacement. Essaie en maintenant BOOT pendant la connexion." }
