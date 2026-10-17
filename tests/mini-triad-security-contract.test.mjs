@@ -254,3 +254,23 @@ test('Android queued Link V2 controls recheck original GATT under writeLock befo
   assert.ok(writer.indexOf('if (intendedGatt != null && client !== intendedGatt) return false') <
     writer.indexOf('client.writeCharacteristic(target,'), 'check must precede final GATT write');
 });
+
+test('Android cannot finish an old MINI HTTP response on a new BLE session', async () => {
+  const client = await read('android-companion/app/src/main/java/fr/veriteinterdite/mel/MelLinkV2ClientService.kt');
+  const response = client.slice(client.indexOf('private fun sendResponse('), client.indexOf('private fun sendAudioResponse('));
+  assert.match(response, /val intendedGatt = gatt \?: return false/);
+  assert.match(response, /if \(!miniReady\.value \|\| !protocolReady\.value\) return false/);
+  assert.match(response, /MelLinkV2Protocol\.RESPONSE_BEGIN[\s\S]*?\), intendedGatt/);
+  assert.match(response, /MelLinkV2Protocol\.RESPONSE_DATA[\s\S]*?\), intendedGatt/);
+  assert.match(response, /MelLinkV2Protocol\.RESPONSE_END[\s\S]*?\), intendedGatt/);
+  const checks = response.match(/gatt !== intendedGatt \|\| !miniReady\.value \|\| !protocolReady\.value/g) || [];
+  assert.equal(checks.length, 2, 'guard both the data loop and the final response frame');
+  assert.ok(response.indexOf('gatt !== intendedGatt') < response.indexOf('MelLinkV2Protocol.RESPONSE_DATA'));
+  const bulk = client.slice(client.indexOf('private fun sendBulkBlocking('), client.indexOf('private fun beginOutboundTransfer('));
+  assert.match(bulk, /intendedGatt: BluetoothGatt\? = null/);
+  assert.match(bulk, /writeGattBlocking\(bulkRx, frame, BluetoothGattCharacteristic\.WRITE_TYPE_DEFAULT, intendedGatt\)/);
+  const writer = client.slice(client.indexOf('private fun writeGattBlocking('), client.indexOf('private fun clearSession('));
+  assert.match(writer, /if \(intendedGatt != null && client !== intendedGatt\) return false/);
+  assert.ok(writer.indexOf('if (intendedGatt != null && client !== intendedGatt) return false') <
+    writer.indexOf('client.writeCharacteristic(target,'));
+});
