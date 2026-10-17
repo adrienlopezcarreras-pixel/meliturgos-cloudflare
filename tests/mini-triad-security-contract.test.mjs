@@ -181,3 +181,16 @@ test('Android reauthenticates MINI Internet after network loss, handover and sta
     'Do not publish the HTTP ACK before validating the network generation');
   assert.doesNotMatch(validate, /}\.isSuccess/);
 });
+
+test('Android ignores delayed BLE scan callbacks after scan stop or a live GATT connection', async () => {
+  const source = await read('android-companion/app/src/main/java/fr/veriteinterdite/mel/MelLinkV2ClientService.kt');
+  const scan = source.slice(source.indexOf('private val scanCallback = object : ScanCallback()'), source.indexOf('private fun connect(device: BluetoothDevice)'));
+  const result = scan.slice(scan.indexOf('override fun onScanResult('), scan.indexOf('override fun onScanFailed('));
+  const failure = scan.slice(scan.indexOf('override fun onScanFailed('));
+  assert.match(result, /if \(!scanActive \|\| gatt != null\) return/);
+  assert.ok(result.indexOf('if (!scanActive || gatt != null) return') < result.indexOf('connecting.compareAndSet(false, true)'));
+  assert.match(failure, /if \(!scanActive \|\| gatt != null\) return/);
+  assert.ok(failure.indexOf('if (!scanActive || gatt != null) return') < failure.indexOf('scanActive = false'));
+  assert.ok(failure.indexOf('if (!scanActive || gatt != null) return') < failure.indexOf('scheduleReconnect()'));
+  assert.match(source, /private fun stopScan\(\) \{[\s\S]*?scanActive = false/);
+});

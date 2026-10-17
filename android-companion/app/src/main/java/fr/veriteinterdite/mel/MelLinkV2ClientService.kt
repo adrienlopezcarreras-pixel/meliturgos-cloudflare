@@ -377,6 +377,8 @@ class MelLinkV2ClientService : Service() {
 
     private val scanCallback = object : ScanCallback() {
         override fun onScanResult(callbackType: Int, result: ScanResult) {
+            // A callback queued before stopScan() is not a new pairing request.
+            if (!scanActive || gatt != null) return
             if (!connecting.compareAndSet(false, true)) return
             stopScan()
             state.value = "CONNEXION MINI"
@@ -384,6 +386,8 @@ class MelLinkV2ClientService : Service() {
         }
 
         override fun onScanFailed(errorCode: Int) {
+            // Late failures from a stopped scan must not demote a live GATT session.
+            if (!scanActive || gatt != null) return
             scanActive = false
             lastError.value = "SCAN_$errorCode"
             state.value = "ERREUR SCAN"
