@@ -469,3 +469,10 @@ test('eligible discovery is owner-only and fails closed before public lookup wit
  assert.equal(result.matchingTaskCount,0);
  assert.equal(result.code,'WORK_TRUSTED_ACCEPTANCE_NOT_CONFIGURED');
 });
+
+test('MEL WORK interface shows eligible public task discovery without claiming tasks',async()=>{
+ const html=await (await onRequestGet()).text();
+ assert.match(html,/id="draftDiscovery"/);
+ assert.match(html,/\/api\/revenue\/eligible-discovery/);
+ assert.match(html,/Aucune mission réclamée/);
+});
