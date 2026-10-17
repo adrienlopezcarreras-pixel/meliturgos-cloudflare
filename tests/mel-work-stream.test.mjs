@@ -124,3 +124,29 @@ test('owner POST streams NDJSON; anonymous POST is refused', async () => {
   assert.match(response.headers.get('content-type'), /application\/x-ndjson/);
   await response.body.cancel();
 });
+
+test('autonomous cycle keeps only bounties MEL can finish alone and hands the deliverable in herself', async () => {
+  const db = sqliteD1();
+  const verdict = human => 'ok {"eligible":true,"draftable":true,"confidenceBps":9500,"category":"writing","requiresHuman":' + human + ',"requiresPhysicalWorld":false,"requiresSecrets":false,"requestsUnsafeAction":false,"humanSteps":' + (human ? '["Publier"]' : '[]') + ',"reason":"ok"}';
+  const assessed = [];
+  const env = { DB: db, AI: { async run(model, input) {
+    if (input.stream) return sseStream(['Livrable complet.']);
+    const id = /# Mission (\w+)/.exec(input.messages[1].content)[1];
+    assessed.push(id);
+    return { response: verdict(id === 'publish') };
+  } } };
+  const fetchImpl = async () => Response.json({ tasks: [task('publish', 9_000_000, 0), task('claimonly', 8_000_000, 0, 24, { mode: 'claim' }), task('solo', 2_000_000, 0)] });
+  const queued = [];
+  const queueSubmission = async (_env, args) => { queued.push(args); return { status: 'QUEUED' }; };
+  const events = await readEvents(streamDirectWork({ env, fetchImpl, now: () => NOW, autonomous: true, queueSubmission }));
+  const done = events.find(e => e.type === 'done');
+  assert.ok(done, JSON.stringify(events));
+  assert.deepEqual(assessed, ['publish', 'solo']); // non-bounty never assessed; human-step offer skipped
+  assert.equal(done.result.missionId, 'solo');
+  assert.equal(done.result.submission, 'QUEUED');
+  assert.equal(done.result.requiresOwnerApproval, false);
+  assert.deepEqual(done.result.humanSteps, []);
+  assert.equal(queued.length, 1);
+  assert.equal(queued[0].mode, 'bounty');
+  assert.ok(events.some(e => e.type === 'step' && /remets moi-même/.test(e.text)));
+});

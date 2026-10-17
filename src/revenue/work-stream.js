@@ -17,6 +17,7 @@
 import { normalizeRevenueTasks } from '../api/revenue-worker-api.js';
 import { runDirectWork } from './work-mission-core.js';
 import { readWorkersAiSse } from '../api/chat-stream.js';
+import { queueTaskmarketSubmission } from './taskmarket-autosubmit.js';
 
 export const WORK_MODEL = '@cf/meta/llama-3.3-70b-instruct-fp8-fast';
 export const TASKMARKET_TASKS_URL = 'https://api.taskmarket.dev/api/tasks?status=open&sort=reward_desc&limit=50';
@@ -122,6 +123,14 @@ export function createStreamingDrafter({ env, model = WORK_MODEL, onText = () =>
   };
 }
 
+const SUBMISSION_STEP = Object.freeze({
+  QUEUED: 'Livrable terminé. Je le remets moi-même sur Taskmarket depuis ton PC.',
+  COMPANION_OFFLINE: 'Livrable terminé. Je le remettrai dès que ton PC (Companion) sera allumé.',
+  DAILY_LIMIT_REACHED: 'Livrable terminé. Limite de remises du jour atteinte, je continue demain.',
+  ALREADY_SUBMITTED: 'Cette mission a déjà été remise.',
+  AUTOSUBMIT_DISABLED: 'Livrable terminé. La remise automatique est désactivée.',
+});
+
 async function alreadyDraftedIds(db) {
   try {
     const rows = await db.prepare("SELECT id FROM mel_work_missions WHERE state='DRAFT_READY'").all();
@@ -136,7 +145,9 @@ async function recordCycle(db, id, state, result) {
     .bind(id, state, result ? JSON.stringify(result) : null, new Date().toISOString()).run();
 }
 
-export function streamDirectWork({ env, fetchImpl = fetch, now = () => Date.now(), maxAssessments = 3 } = {}) {
+// autonomous: only bounty offers MEL can complete with no human step; the
+// finished deliverable is handed in by MEL herself through the owner's PC.
+export function streamDirectWork({ env, fetchImpl = fetch, now = () => Date.now(), maxAssessments, autonomous = false, queueSubmission = queueTaskmarketSubmission } = {}) {
   const cycleId = crypto.randomUUID();
   const body = new ReadableStream({
     async start(controller) {
@@ -148,7 +159,8 @@ export function streamDirectWork({ env, fetchImpl = fetch, now = () => Date.now(
         const response = await fetchImpl(TASKMARKET_TASKS_URL, { headers: { accept: 'application/json' }, signal: AbortSignal.timeout(12_000) });
         if (!response.ok) throw new Error('TASKMARKET_UPSTREAM_ERROR');
         const tasks = normalizeRevenueTasks(await response.json(), now());
-        const ranked = rankMissions(tasks, { now: now(), alreadyDrafted: await alreadyDraftedIds(env.DB) });
+        const ranked = rankMissions(tasks, { now: now(), alreadyDrafted: await alreadyDraftedIds(env.DB) })
+          .filter(task => !autonomous || (task.mode === 'bounty' && !task.drafted));
         step(tasks.length + ' offre(s) ouverte(s), ' + ranked.length + ' avec assez de temps restant. Je commence par la concurrence la plus faible.');
         const byId = new Map(ranked.map(task => [task.id, task]));
         const assessor = createWorkAssessor({ env });
@@ -164,7 +176,8 @@ export function streamDirectWork({ env, fetchImpl = fetch, now = () => Date.now(
         const draft = createStreamingDrafter({ env, onText: text => send({ type: 'delta', text }) });
         const result = await runDirectWork({
           db: env.DB,
-          maxAssessments,
+          maxAssessments: maxAssessments ?? (autonomous ? 6 : 3),
+          autonomous,
           listMissions: async () => ranked.map(task => ({ ...task, eligibleForDraft: true })),
           assess,
           execute: async (args, mission) => { current = mission; step('Rédaction du brouillon pour « ' + title(mission) + ' »…'); return draft(args); },
@@ -177,7 +190,15 @@ export function streamDirectWork({ env, fetchImpl = fetch, now = () => Date.now(
         }
         const mission = current || byId.get(result.missionId) || {};
         const full = { ...result, title: title(mission), reward: usdc(mission.reward), competitors: Number(mission.submissionCount || 0), expiryTime: mission.expiryTime || null, mode: mission.mode || null };
-        step(result.reused ? 'Brouillon déjà prêt pour cette mission, je le réaffiche.' : 'Brouillon enregistré. À toi de relire, valider, puis publier toi-même sur Taskmarket.');
+        if (autonomous && result.artifactId) {
+          const queued = await queueSubmission(env, { artifactId: result.artifactId, taskId: result.missionId, mode: full.mode, status: result.status, now: now() })
+            .catch(error => ({ status: 'QUEUE_FAILED', code: String(error?.message || '').slice(0, 80) }));
+          full.submission = queued?.status || null;
+          full.requiresOwnerApproval = false;
+          step(SUBMISSION_STEP[full.submission] || ('Livrable enregistré, remise automatique : ' + full.submission + '.'));
+        } else {
+          step(result.reused ? 'Brouillon déjà prêt pour cette mission, je le réaffiche.' : 'Brouillon enregistré. À toi de relire, valider, puis publier toi-même sur Taskmarket.');
+        }
         await recordCycle(env.DB, cycleId, 'COMPLETE', full);
         send({ type: 'done', cycleId, result: full });
       } catch (error) {

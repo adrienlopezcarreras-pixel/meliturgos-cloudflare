@@ -110,7 +110,7 @@ export async function handleRevenueApi(request, env, ctx = null) {
     }
     if(request.method!=='POST')return json({ok:false,code:'METHOD_NOT_ALLOWED'},405);
     // Streamed while the owner watches: no background job that the runtime cuts off after 30 s.
-    return streamDirectWork({env});
+    return streamDirectWork({env, autonomous: true});
   }
   if (url.pathname === '/api/revenue/drafts') {
     if (request.method !== 'GET') return json({ok:false,code:'METHOD_NOT_ALLOWED'},405);

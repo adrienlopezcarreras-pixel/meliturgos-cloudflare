@@ -69,13 +69,13 @@ export async function executeWorkMission({db,mission,execute,verify=async()=>({p
 
 /** Provider-independent orchestration: the source supplies missions, the executor produces
  * content and D1 is the canonical record. Never claims or submits marketplace work. */
-export async function runDirectWork({db,listMissions,assess,execute,verify,maxAssessments=3}={}){
+export async function runDirectWork({db,listMissions,assess,execute,verify,maxAssessments=3,autonomous=false}={}){
  if(typeof listMissions!=='function'||typeof assess!=='function'||typeof execute!=='function')throw new TypeError('WORK_SOURCE_ASSESSOR_EXECUTOR_REQUIRED');
  const missions=await listMissions();
  if(!Array.isArray(missions))throw new TypeError('WORK_MISSION_LIST_INVALID');
  // Selection belongs in the engine. Source metadata alone never approves an autonomous task.
  const candidates=missions.filter(m=>m?.eligibleForDraft===true&&typeof m?.description==='string'&&m.description.trim().length>=10&&m.description.length<=6000);
- const budget=Math.max(0,Math.min(3,Number.isSafeInteger(maxAssessments)?maxAssessments:3));
+ const budget=Math.max(0,Math.min(autonomous?6:3,Number.isSafeInteger(maxAssessments)?maxAssessments:3));
  let assessments=0;
  const seenMissionIds=new Set();
  for(const mission of candidates){
@@ -92,6 +92,8 @@ export async function runDirectWork({db,listMissions,assess,execute,verify,maxAs
   if((assessment?.eligible!==true&&!draftable)||!Number.isSafeInteger(assessment.confidenceBps)||assessment.confidenceBps<9000||
     (assessment.requiresHuman!==false&&!draftable)||assessment.requiresPhysicalWorld!==false||
     assessment.requiresSecrets!==false||assessment.requestsUnsafeAction!==false)continue;
+  // Autonomous mode: MEL only keeps work she can hand in herself, end to end.
+  if(autonomous&&assessment.requiresHuman!==false)continue;
   const humanSteps=assessment.requiresHuman===true
     ? (Array.isArray(assessment.humanSteps)&&assessment.humanSteps.length
        ? assessment.humanSteps.filter(step=>typeof step==='string'&&step.trim()).slice(0,8).map(step=>step.slice(0,300))

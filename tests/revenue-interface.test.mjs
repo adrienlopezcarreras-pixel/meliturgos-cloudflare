@@ -6,14 +6,15 @@ import { readFile } from 'node:fs/promises';
 import { onRequestGet } from '../src/pages/revenue-interface.js';
 import { handleRevenueApi, normalizeRevenueTasks } from '../src/api/revenue-worker-api.js';
 
-test('MEL WORK revenue page is an observation-only control center, not a claim/submit UI', async () => {
+test('MEL WORK page is simple: PC state, hand-ins, live work, nightly watch — nothing to approve', async () => {
   const response = await onRequestGet();
   assert.equal(response.status, 200);
   const html = await response.text();
-  for (const token of ['MEL WORK', 'id="refreshAll"', 'id="refreshPc"', 'id="taskList"', '/api/revenue/tasks', '/api/computer/v1/status', 'observation uniquement']) assert.ok(html.includes(token), `missing ${token}`);
-  assert.match(html, /id="autonomyToggle" disabled/);
-  assert.match(html, /taskmarket\.cmd/i, 'the local Taskmarket probe is described in the page');
-  assert.doesNotMatch(html, /privateKey|seedPhrase|submitResult\(/i, 'the page must not expose signing secrets or submission actions');
+  for (const token of ['MEL WORK', 'id="workNow"', 'id="pcState"', 'id="submissionsList"', 'id="watchList"', 'id="live"', '/api/revenue/submissions', '/api/revenue/watch', '/api/revenue/direct-work?latest_cycle=1', '/api/computer/v1/status', "fetch('/api/revenue/direct-work',{method:'POST'})"]) assert.ok(html.includes(token), `missing ${token}`);
+  for (const gone of ['palier 0', 'pas encore disponible', 'autonomyToggle', 'Valider le brouillon', 'scanPcTaskmarket', 'Préparation à l']) assert.ok(!html.includes(gone), `obsolete ${gone}`);
+  assert.doesNotMatch(html, /privateKey|seedPhrase/i);
+  const script = html.slice(html.indexOf('<script>') + 8, html.lastIndexOf('</script>'));
+  assert.doesNotThrow(() => new Function(script));
 });
 
 test('revenue task normalizer accepts only valid open, unexpired paid tasks', () => {
@@ -71,9 +72,6 @@ test('Taskmarket PC probe is fixed/read-only, owner-authenticated, and accepts o
   assert.match(companionApi, /COMPUTER_COMMAND_STATUS\.SUCCEEDED/);
   assert.match(companionApi, /COMPUTER_COMMAND_STATUS\.FAILED/);
   assert.match(statuses, /SUCCEEDED: \"SUCCEEDED\"/);
-  assert.match(page, /import \{ COMPUTER_COMMAND_STATUS \} from \"\.\.\/devices\/computer-command-status\.js\"/);
-  assert.match(page, /\$\{COMPUTER_COMMAND_STATUS\.SUCCEEDED\}/);
-  assert.doesNotMatch(page, /command\.status==='SUCCESS'/, 'the page must not accept a non-canonical SUCCESS alias');
   assert.match(probe, /task list --status open --limit 20/);
   assert.match(probe, /mode='READ_ONLY'/);
   assert.doesNotMatch(probe, /task (claim|submit)|submitResult|privateKey|seedPhrase/i);
@@ -81,263 +79,6 @@ test('Taskmarket PC probe is fixed/read-only, owner-authenticated, and accepts o
   assert.match(localProbeRoute, /computer_id: computerId/);
   assert.doesNotMatch(localProbeRoute, /body\.command|body\.payload|body\.script/);
   assert.equal(asset, dist, 'the distributed Companion script remains synchronized');
-  assert.match(page, /id="scanPcTaskmarket"/);
-  assert.match(page, /\/api\/revenue\/taskmarket-pc-status/);
-  assert.match(page, /value\.action==='system\.exec'/);
-  assert.match(page, /JSON\.parse\(String\(probe\.stdout\|\|''\)\)/);
-  assert.match(page, /command\.status==='\$\{COMPUTER_COMMAND_STATUS\.SUCCEEDED\}'/);
-  assert.match(page, /PC_TASKMARKET_PROBE_TIMEOUT/);
-  assert.match(page, /PC_TASKMARKET_OUTPUT_JSON_INVALID/);
-  assert.match(page, /attempt<30/);
-  assert.match(page, /cli_available!==true/);
-  assert.match(page, /list_available!==true/);
-  assert.match(page, /last_seen_at/);
-  assert.match(page, /palier 0 — lecture seule/);
-  assert.match(page, /function taskLifecycle\(t\)/);
-  assert.match(page, /Stake inconnu — revue requise/);
-  assert.match(page, /Statut de réclamation inconnu — revue requise/);
-  assert.match(page, /Aucun stake · non réclamée confirmé/);
-});
-
-test('MEL WORK executes its saved candidate-only preparation plan only after an owner click and never submits a mission', async () => {
-  const response = await (await import('../src/pages/revenue-interface.js')).onRequestGet();
-  const html = await response.text();
-  assert.match(html, /data-create-work-plan/);
-  assert.match(html, /Préparer avec MEL/);
-  assert.match(html, /work\.plan\.save/);
-  assert.match(html, /work\.plan\.get/);
-  assert.match(html, /CANDIDATE_ONLY/);
-  assert.match(html, /OBSERVATION/);
-  assert.match(html, /aucune mission n’a été réclamée ou soumise/i);
-  assert.doesNotMatch(html, /task claim|task submit|submitResult\(/i, 'preparation must not expose claim or submission operations');
-  const script = html.match(/<script>([\s\S]*?)<\/script>/)?.[1] || '';
-  const runner = script.slice(script.indexOf('async function executeSavedReadOnlyPreparation'), script.indexOf('async function createPersistentPrepPlan'));
-  const handler = script.slice(script.indexOf('async function createPersistentPrepPlan'), script.indexOf('async function refreshTasks'));
-  assert.match(handler, /executeWorkCapability\('work\.plan\.generate'/);
-  assert.match(handler, /executeWorkCapability\('work\.plan\.save'/);
-  assert.match(handler, /executeWorkCapability\('work\.plan\.get'/);
-  assert.match(runner, /executeWorkCapability\('work\.plan\.materialize'/);
-  assert.match(runner, /executeWorkCapability\('work\.run'/);
-  assert.match(runner, /executeWorkCapability\('work\.plan\.sync'/);
-  assert.match(runner, /safePreparationCapabilities\.has/);
-  assert.match(runner, /PERSISTED_PREP_PLAN_NOT_READ_ONLY/);
-  assert.match(handler, /GENERATED_READ_ONLY_PLAN/);
-  assert.match(handler, /SAFE_LOCAL_DIAGNOSTICS_FALLBACK/);
-  assert.match(handler, /function buildLocalDiagnosticFallback\(bindings\)/);
-  assert.match(handler, /capability:'roadmap\.read'/);
-  assert.match(handler, /capability:'system\.bindings'/);
-  assert.match(handler, /fallbackBindings=await executeWorkCapability\('system\.bindings',\{\}\)/);
-  assert.match(handler, /bindings\?\.db===true/);
-  assert.match(handler, /capability:'system\.integrity'/);
-  assert.match(handler, /capability:'system\.maturity'/);
-  assert.match(handler, /Les diagnostics locaux ne prouvent pas que ces exigences sont satisfaites/);
-  const saveAt = handler.indexOf("executeWorkCapability('work.plan.save'");
-  const runHelperAt = handler.indexOf('await executeSavedReadOnlyPreparation(taskId,planId,title,button,safePreparationCapabilities');
-  const materializeAt = runner.indexOf("executeWorkCapability('work.plan.materialize'");
-  const runAt = runner.indexOf("executeWorkCapability('work.run'");
-  assert.ok(saveAt >= 0 && saveAt < runHelperAt, 'the plan must be persisted before the explicit preparation runner is called');
-  assert.ok(materializeAt >= 0 && materializeAt < runAt, 'the preparation DAG must be materialized before work.run');
-  const pageLoad = script.slice(script.indexOf('Promise.all([refreshTasks(),refreshPc()])'));
-  assert.doesNotMatch(pageLoad, /work\.plan\.materialize|work\.run/, 'no preparation runs automatically on page load');
-  assert.doesNotThrow(() => new Function(script));
-});
-
-test('MEL WORK reloads saved preparation-plan state from the existing persistent plan registry', async () => {
-  const response = await (await import('../src/pages/revenue-interface.js')).onRequestGet();
-  const html = await response.text();
-  assert.match(html, /id="prepPlanInfo"/);
-  assert.match(html, /async function loadPersistentPrepPlans/);
-  assert.match(html, /executeWorkCapability\('work\.plan\.list',\{limit:100\}\)/);
-  assert.match(html, /savedPlanIds\.has\(taskPreparationPlanId\(t\.id\)\)/);
-  assert.match(html, /Plans de préparation persistants récupérés/);
-  const script = html.match(/<script>([\s\S]*?)<\/script>/)?.[1] || '';
-  assert.doesNotThrow(() => new Function(script));
-});
-
-test('MEL WORK renders a per-plan persistent status board without implying delivery or payment', async () => {
-  const response = await (await import('../src/pages/revenue-interface.js')).onRequestGet();
-  const html = await response.text();
-  assert.match(html, /id="savedPrepPlansSection"/);
-  assert.match(html, /id="prepPlanList"/);
-  assert.match(html, /function renderPersistentPrepPlans\(\)/);
-  assert.match(html, /savedPlanRecords\.set\(id,\{id,status:String\(row\?\.status/);
-  assert.match(html, /row\?\.work_dag_id/);
-  assert.match(html, /row\?\.updated_at/);
-  assert.match(html, /Dernière mise à jour/);
-  assert.match(html, /aucune réclamation, soumission, signature ou paiement n’est déduit de cet état/i);
-  const script = html.match(/<script>([\s\S]*?)<\/script>/)?.[1] || '';
-  assert.doesNotThrow(() => new Function(script));
-});
-
-test('MEL WORK resumes a saved read-only preparation through its existing Work DAG without rematerializing it', async () => {
-  const response = await (await import('../src/pages/revenue-interface.js')).onRequestGet();
-  const html = await response.text();
-  assert.match(html, /data-resume-work-plan/);
-  assert.match(html, /async function resumePersistentPrepPlan\(planId,button\)/);
-  assert.match(html, /savedPlanRecords\.get\(planId\)/);
-  assert.match(html, /PERSISTED_READ_ONLY_PLAN/);
-  const script = html.match(/<script>([\s\S]*?)<\/script>/)?.[1] || '';
-  const runner = script.slice(script.indexOf('async function executeSavedReadOnlyPreparation'), script.indexOf('async function resumePersistentPrepPlan'));
-  const resume = script.slice(script.indexOf('async function resumePersistentPrepPlan'), script.indexOf('async function refreshTasks'));
-  assert.match(runner, /const existingDagId=String\(plan\?\.work_dag_id\|\|''\)\.trim\(\);/);
-  assert.match(runner, /if\(!dagId\)\{[\s\S]*?work\.plan\.materialize/);
-  assert.match(runner, /executeWorkCapability\('work\.run',\{id:dagId\}\)/);
-  assert.match(resume, /executeSavedReadOnlyPreparation\(planId,planId/);
-  assert.match(resume, /safePreparationCapabilities/);
-  assert.match(resume, /Aucune mission n’a été réclamée ou soumise/);
-  assert.doesNotThrow(() => new Function(script));
-});
-
-test('MEL WORK requires a fresh local remote-access grant and engine heartbeat before claiming PC control is ready', async () => {
-  const response = await onRequestGet();
-  const html = await response.text();
-  assert.match(html, /function computerControlIssue\(pc,now=Date\.now\(\)\)/);
-  assert.match(html, /metadata\.remote_access_enabled!==true/);
-  assert.match(html, /engine_heartbeat_at/);
-  assert.match(html, /now-engine>20000/);
-  assert.match(html, /REMOTE_ACCESS_DISABLED_LOCALLY/);
-  assert.match(html, /COMPUTER_ENGINE_OFFLINE/);
-  assert.match(html, /OWNER_HALT_ACTIVE/);
-  assert.match(html, /currentPcIssue\|\|'COMPANION_WINDOWS_NOT_ONLINE'/);
-  assert.match(html, /Contrôle prêt/);
-  assert.match(html, /autorisation dans MEL Companion Windows/);
-  const script = html.match(/<script>([\s\S]*?)<\/script>/)?.[1] || '';
-  assert.doesNotThrow(() => new Function(script));
-});
-
-test('MEL WORK can refresh saved preparation plans independently of Taskmarket offers', async () => {
-  const response = await (await import('../src/pages/revenue-interface.js')).onRequestGet();
-  const html = await response.text();
-  assert.match(html, /id="refreshPrepPlans"/);
-  assert.match(html, /Actualiser les préparations/);
-  const script = html.match(/<script>([\s\S]*?)<\/script>/)?.[1] || '';
-  const refresh = script.slice(script.indexOf('async function refreshPersistentPrepPlans'), script.indexOf('async function refreshTasks'));
-  assert.match(refresh, /await loadPersistentPrepPlans\(\)/);
-  assert.match(script, /\$\('refreshPrepPlans'\)\.onclick=refreshPersistentPrepPlans/);
-  assert.doesNotMatch(refresh, /refreshTasks\(\)|\/api\/revenue\/tasks/, 'refreshing persisted plans must not depend on Taskmarket availability');
-  assert.doesNotMatch(refresh, /work\.run|work\.plan\.materialize/, 'refresh is read-only and must not start work');
-  assert.doesNotThrow(() => new Function(script));
-});
-
-test('MEL WORK prequalifies public Taskmarket offers without implying submission eligibility or guaranteed profit', async () => {
-  const response = await (await import('../src/pages/revenue-interface.js')).onRequestGet();
-  const html = await response.text();
-  const script = html.match(/<script>([\s\S]*?)<\/script>/)?.[1] || '';
-  assert.match(script, /function taskQualification\(t\)/);
-  assert.match(script, /CANDIDAT À PRÉPARER/);
-  assert.match(script, /QUALIFICATION INCOMPLÈTE/);
-  assert.match(script, /Commission inconnue : revenu après frais non calculé/);
-  assert.match(script, /avant coûts de calcul, temps de travail et risque de rejet/);
-  assert.match(script, /Préqualification à partir des données publiques uniquement/);
-  const source = script.slice(script.indexOf('function taskQualification'), script.indexOf('function renderTasks'));
-  const likelyCandidate = t => /json|csv|dataset|data processing|software|code|bug|implement|typescript|javascript|python|audit|benchmark|extract|classif|normalize|algorithm|api endpoint|technical analysis/i.test(String(t.description||'')) && !/create an original image|image generation|publish on x|publish on medium|animated infographic|video.*mp4|discord|social media|marketing campaign/i.test(String(t.description||''));
-  const taskLifecycle = t => (t.stakeRequired === false && t.claimedBy === null) ? {kind:'good',text:'Aucun stake · non réclamée confirmé'} : {kind:'warn',text:'Statut inconnu — revue requise'};
-  const usdc = micros => (Number(BigInt(String(micros||'0')))/1e6).toFixed(6);
-  const qualify = new Function('likelyCandidate','taskLifecycle','usdc',source+';return taskQualification;')(likelyCandidate,taskLifecycle,usdc);
-  const base={id:'public-1',description:'Normalize the public JSON dataset into CSV',mode:'bounty',status:'open',stakeRequired:false,claimedBy:null,expiryTime:new Date(Date.now()+3600000).toISOString(),reward:'1000000',platformFeeBps:750};
-  const ready=qualify(base);
-  assert.equal(ready.status,'CANDIDAT À PRÉPARER');
-  assert.match(ready.economics,/0\.925000 USDC/);
-  assert.match(ready.economics,/avant coûts de calcul/);
-  const unknown=qualify({...base,claimedBy:undefined});
-  assert.equal(unknown.status,'QUALIFICATION INCOMPLÈTE');
-  assert.match(unknown.detail,/revue requise/);
-  const feeUnknown=qualify({...base,platformFeeBps:null});
-  assert.match(feeUnknown.economics,/Commission inconnue/);
-  assert.doesNotMatch(feeUnknown.economics,/0\.925000 USDC/);
-  assert.doesNotMatch(script,/task\.(claim|submit)|submitResult\(/i);
-  assert.doesNotThrow(() => new Function(script));
-});
-
-test('MEL WORK generated browser JavaScript is syntactically valid', async () => {
-  const response = await (await import('../src/pages/revenue-interface.js')).onRequestGet();
-  assert.equal(response.status, 200);
-  const html = await response.text();
-  const script = html.match(/<script>([\s\S]*?)<\/script>/)?.[1];
-  assert.ok(script, 'MEL WORK inline browser script is present');
-  assert.doesNotThrow(() => new Function(script), 'MEL WORK browser script must parse');
-});
-
-
-test('MEL WORK shows fetched offers without awaiting persistent preparation lookup', async () => {
-  const html = await (await onRequestGet()).text();
-  const script = html.match(/<script>([\s\S]*?)<\/script>/)?.[1] || '';
-  const refresh = script.slice(script.indexOf('async function refreshTasks'), script.indexOf('function computerControlIssue'));
-  assert.match(refresh, /renderTasks\(\);void loadPersistentPrepPlans\(\);/);
-  assert.doesNotMatch(refresh, /await loadPersistentPrepPlans\(\)/);
-  assert.doesNotThrow(() => new Function(script));
-});
-
-
-test('MEL WORK prefers synchronized persisted status over transient run status', async () => {
-  const html = await (await onRequestGet()).text();
-  const script = html.match(/<script>([\s\S]*?)<\/script>/)?.[1] || '';
-  const runner = script.slice(script.indexOf('async function executeSavedReadOnlyPreparation'),script.indexOf('async function createPersistentPrepPlan'));
-  assert.match(runner, /const status=String\(synced\?\.work\?\.status\|\|executed\?\.status\|\|'UNKNOWN'\)/);
-  assert.doesNotThrow(() => new Function(script));
-});
-
-
-test('MEL WORK lets owner inspect persisted artifact summaries without exposing payloads', async()=>{
- const html=await(await onRequestGet()).text();
- const script=html.match(/<script>([\s\S]*?)<\/script>/)?.[1]||'';
- assert.match(script,/data-view-work-artifacts/);
- assert.match(script,/executeWorkCapability\('work\.artifacts'/);
- assert.match(script,/area\.textContent=rows\.length/);
- assert.doesNotThrow(()=>new Function(script));
-});
-
-
-test('MEL WORK refuses to mistake malformed artifact API output for an empty result', async()=>{
- const html=await(await onRequestGet()).text();
- const script=html.match(/<script>([\s\S]*?)<\/script>/)?.[1]||'';
- assert.match(script,/if\(!Array\.isArray\(result\?\.artifacts\)\)throw new Error\('WORK_ARTIFACTS_INVALID_RESPONSE'\)/);
- assert.doesNotThrow(()=>new Function(script));
-});
-
-
-test('MEL WORK refreshes persisted evidence automatically after a preparation execution',async()=>{
- const html=await(await onRequestGet()).text();
- const script=html.match(/<script>([\s\S]*?)<\/script>/)?.[1]||'';
- const runner=script.slice(script.indexOf('async function executeSavedReadOnlyPreparation'),script.indexOf('async function createPersistentPrepPlan'));
- assert.match(runner,/void viewPersistentWorkArtifacts\(planId,evidenceButton\)/);
- assert.doesNotThrow(()=>new Function(script));
-});
-
-
-test('MEL WORK discards stale evidence after a persisted-plan refresh',async()=>{
- const html=await(await onRequestGet()).text();
- const script=html.match(/<script>([\s\S]*?)<\/script>/)?.[1]||'';
- assert.match(script,/!area\.isConnected \|\| savedPlanRecords\.get\(planId\)\?\.work_dag_id!==record\.work_dag_id/);
- assert.doesNotThrow(()=>new Function(script));
-});
-
-
-test('MEL WORK ignores stale evidence errors after plan cards are refreshed',async()=>{
- const html=await(await onRequestGet()).text();
- const script=html.match(/<script>([\s\S]*?)<\/script>/)?.[1]||'';
- assert.match(script,/catch\(error\)\{if\(area\.isConnected && savedPlanRecords\.get\(planId\)\?\.work_dag_id===record\.work_dag_id\)/);
- assert.doesNotThrow(()=>new Function(script));
-});
-
-
-test('MEL WORK displays quality-verified evidence separately from artifact count',async()=>{
- const html=await(await onRequestGet()).text();
- const script=html.match(/<script>([\s\S]*?)<\/script>/)?.[1]||'';
- assert.match(script,/const verified=rows\.filter/);
- assert.match(script,/Object\.values\(checks\)\.every\(value=>value===true\)/);
- assert.match(script,/contrôles de qualité explicitement réussis/);
- assert.doesNotThrow(()=>new Function(script));
-});
-
-
-test('MEL WORK exposes read-only D1 draft metadata panel',async()=>{
- const html=await(await onRequestGet()).text();
- assert.match(html,/id="savedDraftsSection"/);
- assert.match(html,/\/api\/revenue\/drafts/);
- assert.match(html,/item\.textContent=/);
- const script=html.match(/<script>([\s\S]*?)<\/script>/)?.[1]||'';
- assert.doesNotThrow(()=>new Function(script));
 });
 
 test('MEL WORK authenticated draft API roundtrips with real SQLite D1 adapter',async()=>{
@@ -361,19 +102,6 @@ test('MEL WORK authenticated draft API roundtrips with real SQLite D1 adapter',a
  assert.equal(JSON.stringify(payload).includes('sample validated candidate'),false);
 });
 
-test('MEL WORK direct draft button uses owner-only route and no submission',async()=>{
- const html=await (await onRequestGet()).text();
- assert.match(html,/id="runDraftCycle"/);
- assert.match(html,/\/api\/revenue\/direct-work/);
- assert.doesNotMatch(html,/\/api\/revenue\/taskmarket-submit/);
-});
-
-test('direct MEL WORK UI offers real draft creation without prior expected answer',async()=>{
- const html=await (await onRequestGet()).text();
- assert.match(html,/Créer un brouillon de mission/);
- assert.match(html,/\/api\/revenue\/direct-work/);
- assert.match(html,/proof[.]artifact[.]status/);
-});
 test('direct MEL WORK API stays owner-only and fails closed without D1',async()=>{
  const url='https://mel.test/api/revenue/direct-work';
  const env={MELITURGOS_USER:'adrien',MELITURGOS_PASSWORD:'test'};
@@ -394,9 +122,4 @@ test('owner may read saved direct artifact by exact id; other users and malforme
  assert.equal(res.status,200);
  assert.equal((await res.json()).artifact.content,'REAL D1 BODY');
  assert.equal((await handleRevenueApi(new Request('https://mel.test/api/revenue/direct-work?artifact_id=../../bad',{headers}),env)).status,400);
-});
-test('MEL WORK UI reads saved D1 body instead of presenting only an identifier',async()=>{
- const html=await (await onRequestGet()).text();
- assert.match(html,/WORK_ARTIFACT_READBACK_FAILED/);
- assert.match(html,/proof\.artifact\.content/);
 });
