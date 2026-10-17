@@ -280,3 +280,30 @@ export function createTaskmarketCouncilSolverAdapter({env,council=runModelCounci
   return {content};
  };
 }
+
+/** A single owner-invoked, read-only marketplace cycle. Validation is deliberately
+ * independent of the Council solver and must prove an actual machine-checkable
+ * artifact; unknown validation never passes.
+ */
+export async function runBoundedTaskmarketDraftCycle({
+ db,env,fetchImpl,council=runModelCouncil,validateArtifact,recordOutcome,
+ policy={minimumProfitMicros:0,minimumMarginBps:0,maxTasksPerCycle:1},
+}={}){
+ if(typeof validateArtifact!=='function')throw new TypeError('WORK_INDEPENDENT_VALIDATOR_REQUIRED');
+ return runTaskmarketWorkerCycleWithD1({
+  db,
+  listTasks:createPublicTaskmarketListAdapter({fetchImpl}),
+  assessWithCouncil:createTaskmarketCouncilAssessmentAdapter({env,council}),
+  solveWithMel:createTaskmarketCouncilSolverAdapter({env,council}),
+  validateWithCouncil:async({task,assessment,candidate})=>{
+   const checked=await validateArtifact({task,assessment,candidate});
+   return {
+    passed:checked?.passed===true&&checked?.machineVerifiable===true,
+    machineVerifiable:checked?.machineVerifiable===true,
+    summary:typeof checked?.summary==='string'?checked.summary.slice(0,1000):null,
+   };
+  },
+  recordOutcome:typeof recordOutcome==='function'?recordOutcome:async()=>{},
+  policy:{...policy,submissionEnabled:false,spendCapApproved:false,maxTasksPerCycle:Math.min(1,policy.maxTasksPerCycle??1)},
+ });
+}
