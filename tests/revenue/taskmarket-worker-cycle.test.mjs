@@ -26,7 +26,7 @@ const base = {
     requestsUnsafeAction: false,
     estimatedComputeCostMicros: 100000,
   }),
-  solveWithMel: async () => ({ content: '{}', sha256: 'a'.repeat(64) }),
+  solveWithMel: async () => ({ content: '{}' }),
   validateWithCouncil: async () => ({ passed: true, machineVerifiable: true, summary: 'schema-valid' }),
   recordOutcome: async () => {},
   policy: { minimumProfitMicros: 100000, minimumMarginBps: 1000 },
@@ -218,4 +218,9 @@ test('public Taskmarket discovery supplies only normalized open offers to cycle'
 test('public Taskmarket discovery refuses malformed upstream payload',async()=>{
  const list=createPublicTaskmarketListAdapter({fetchImpl:async()=>({ok:true,json:async()=>({tasks:null})})});
  await assert.rejects(list(),/TASKMARKET_PUBLIC_SCHEMA_INVALID/);
+});
+
+test('rejects a solver-supplied hash that disagrees with actual content',async()=>{
+ const r=await runTaskmarketWorkerCycle({...base,solveWithMel:async()=>({content:'{}',sha256:'a'.repeat(64)})});
+ assert.equal(r.decisions[0].reason,'CANDIDATE_HASH_MISMATCH');
 });
