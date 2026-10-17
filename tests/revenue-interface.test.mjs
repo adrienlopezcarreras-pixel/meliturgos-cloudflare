@@ -456,3 +456,16 @@ test('readiness stays disabled when one of two oracle fixtures is tampered',asyn
  assert.equal(result.trustedFixtureCount,1);
  assert.equal(result.ready,false);
 });
+
+test('eligible discovery is owner-only and fails closed before public lookup without trusted fixtures',async()=>{
+ const url='https://mel.test/api/revenue/eligible-discovery';
+ const env={MELITURGOS_USER:'adrien',MELITURGOS_PASSWORD:'test'};
+ const denied=await handleRevenueApi(new Request(url),env);
+ assert.notEqual(denied.status,200);
+ const headers={authorization:'Basic '+Buffer.from('adrien:test').toString('base64')};
+ const response=await handleRevenueApi(new Request(url,{headers}),env);
+ assert.equal(response.status,409);
+ const result=await response.json();
+ assert.equal(result.matchingTaskCount,0);
+ assert.equal(result.code,'WORK_TRUSTED_ACCEPTANCE_NOT_CONFIGURED');
+});
