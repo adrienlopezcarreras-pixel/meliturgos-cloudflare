@@ -48,7 +48,7 @@ function renderPersistentPrepPlans(){
 }
 function paintSavedPlanCount(){
  const element=$('prepPlanInfo');
- if(element){const count=savedPlanIds.size;element.textContent='Plans persistants récupérés : '+count+'. Les statuts individuels sont affichés ci-dessous ; ce ne sont pas des missions livrées.';}
+ if(element){const count=savedPlanIds.size;element.textContent='Plans de préparation persistants récupérés : '+count+'. Les statuts individuels sont affichés ci-dessous ; ce ne sont pas des missions livrées.';}
  renderPersistentPrepPlans();
 }
 async function loadPersistentPrepPlans(){
