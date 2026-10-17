@@ -35,4 +35,25 @@ class MelMiniReadinessTest {
         assertTrue(status.linkV2Verified)
         assertTrue(status.melInternetVerified)
     }
+
+    @Test fun heartbeatAcceptsOnlyMatchingAuthenticatedAck() {
+        assertTrue(miniHeartbeatAccepted(
+            acknowledged = true,
+            returnedDeviceId = "android-phone123",
+            expectedDeviceId = "android-phone123",
+            returnedPhase = "MINI_LINK_V2_READY"
+        ))
+    }
+
+    @Test fun heartbeatRejectsHttp200WithoutPositiveAck() {
+        assertFalse(miniHeartbeatAccepted(false, "android-phone123", "android-phone123", "MINI_LINK_V2_READY"))
+        assertFalse(miniHeartbeatAccepted(true, "android-phone123", "android-phone123", ""))
+    }
+
+    @Test fun heartbeatRejectsOtherDeviceAndWrongPhase() {
+        assertFalse(miniHeartbeatAccepted(true, "android-other", "android-phone123", "MINI_LINK_V2_READY"))
+        assertFalse(miniHeartbeatAccepted(true, "", "android-phone123", "MINI_LINK_V2_READY"))
+        assertFalse(miniHeartbeatAccepted(true, "android-phone123", "", "MINI_LINK_V2_READY"))
+        assertFalse(miniHeartbeatAccepted(true, "android-phone123", "android-phone123", "ONLINE"))
+    }
 }
