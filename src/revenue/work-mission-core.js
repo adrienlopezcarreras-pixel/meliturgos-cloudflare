@@ -69,7 +69,7 @@ export async function executeWorkMission({db,mission,execute,verify=async()=>({p
 export function draftDecision(assessment){
  if(!assessment||assessment.requestsUnsafeAction===true||assessment.requiresSecrets===true||assessment.requiresPhysicalWorld===true)return {draft:false,reason:'OUTSIDE_SAFE_BOUNDARY'};
  if(assessment.draftable!==true||!Number.isSafeInteger(assessment.confidenceBps)||assessment.confidenceBps<7000)return {draft:false,reason:'NOT_DRAFTABLE'};
- return {draft:true,humanSteps:Array.isArray(assessment.humanSteps)?assessment.humanSteps.slice(0,8).map(x=>String(x).slice(0,200)):[]};
+ return {draft:true,humanSteps:(Array.isArray(assessment.humanSteps)?assessment.humanSteps.slice(0,8).map(x=>String(x).slice(0,200)):[]).concat(assessment.requiresHuman===true&&!(Array.isArray(assessment.humanSteps)&&assessment.humanSteps.length)?['Vérifier le brouillon puis publier ou soumettre vous-même le livrable.']:[])};
 }
 
 /** Provider-independent orchestration: the source supplies missions, the executor produces
@@ -87,7 +87,9 @@ export async function runDirectWork({db,listMissions,assess,execute,verify,maxAs
   const decision=draftDecision(assessment);
   if(!decision.draft)continue;
   try{
-   return await executeWorkMission({db,mission,execute:args=>execute(args,mission,assessment),verify,humanSteps:decision.humanSteps});
+   const output=await executeWorkMission({db,mission,execute:args=>execute(args,mission,assessment),verify,humanSteps:decision.humanSteps});
+   if(['APPROVED_BY_OWNER','REJECTED_BY_OWNER'].includes(output.status))continue;
+   return {...output,requiresOwnerApproval:true};
   }catch(error){
    // A failed solver can be tried on another task; a broken D1 persistence path cannot.
    if(error?.message==='WORK_ARTIFACT_EMPTY'||error?.message==='WORK_SOLVER_OUTPUT_INVALID'||error?.message==='WORK_SOLVER_INDEPENDENCE_NOT_PROVEN')continue;
