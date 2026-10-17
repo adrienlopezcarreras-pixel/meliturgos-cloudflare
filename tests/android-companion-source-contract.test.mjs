@@ -991,7 +991,7 @@ test('MINI server TTS fallback reports BLE audio-send failure unless the stream 
   const start = service.indexOf('if (status in 200..299 && path == "/api/device/v1/voice/tts")');
   const end = service.indexOf('} catch (error: Throwable)', start);
   const fallback = service.slice(start, end);
-  assert.match(fallback, /val sent = sendAudioResponse\(request\.streamId, pcm48, outputRate = 48_000\)/);
+  assert.match(fallback, /val sent = sendAudioResponse\(request\.streamId, pcm48, outputRate = 48_000, expectedGatt = request\.sessionGatt\)/);
   assert.match(fallback, /if \(!sent && !outboundCancelled\(request\.streamId\)\)/);
   assert.match(fallback, /lastError\.value = "TTS_SERVER_BLE_SEND"/);
   assert.match(fallback, /sendError\(request\.streamId, "TTS_SERVER_BLE_SEND"\)/);
