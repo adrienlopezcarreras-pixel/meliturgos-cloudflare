@@ -30,6 +30,10 @@ $files = @(
   "MEL-Computer-Companion.ps1"
 )
 
+$updater = Join-Path $repoRoot 'windows-companion\\Update-MEL-Computer-Companion.ps1'
+if (!(Test-Path -LiteralPath $updater -PathType Leaf)) { throw 'COMPANION_UPDATER_SOURCE_MISSING' }
+Copy-Item -LiteralPath $updater -Destination (Join-Path $stage 'Update-MEL-Computer-Companion.ps1')
+
 foreach ($name in $files) {
   $src = Join-Path $assetDir $name
   if (-not (Test-Path -LiteralPath $src -PathType Leaf)) { throw "WINDOWS_RELEASE_SOURCE_MISSING:$name" }
