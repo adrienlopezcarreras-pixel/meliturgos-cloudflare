@@ -60,6 +60,13 @@ export async function handleRevenueApi(request, env, ctx = null) {
   }
   if(url.pathname==='/api/revenue/direct-work'){
     if(typeof env?.DB?.prepare!=='function')return json({ok:false,code:'WORK_DRAFT_DB_REQUIRED'},503);
+    if(request.method==='GET'&&url.searchParams.has('latest_cycle')){
+      try{
+        await env.DB.prepare("CREATE TABLE IF NOT EXISTS mel_work_cycles (id TEXT PRIMARY KEY, state TEXT NOT NULL, result TEXT, updated_at TEXT NOT NULL)").run();
+        const cycle=await env.DB.prepare('SELECT id,state,result,updated_at FROM mel_work_cycles ORDER BY updated_at DESC LIMIT 1').first();
+        return json({ok:true,cycle:cycle?{cycleId:cycle.id,status:cycle.state,result:cycle.result?JSON.parse(cycle.result):null,updatedAt:cycle.updated_at}:null});
+      }catch{return json({ok:false,code:'WORK_CYCLE_READ_UNAVAILABLE'},503)}
+    }
     if(request.method==='GET'&&url.searchParams.has('cycle_id')){
       const id=url.searchParams.get('cycle_id')||'';
       if(!/^[0-9a-f-]{36}$/i.test(id))return json({ok:false,code:'WORK_CYCLE_ID_INVALID'},400);
