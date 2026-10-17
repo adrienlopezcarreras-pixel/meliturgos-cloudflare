@@ -80,14 +80,16 @@ $ErrorActionPreference='Stop';$ProgressPreference='SilentlyContinue'
 $sha='__SHA__';$url='__URL__';$tag='__TAG__'
 # esptool through the PC's Python and pip (official Espressif distribution); a
 # downloaded-and-launched .exe gets blocked by antivirus heuristics.
-$py=@(Get-ChildItem -LiteralPath (Join-Path $env:LOCALAPPDATA 'Python') -Filter python.exe -Recurse -File -ErrorAction SilentlyContinue|Where-Object{$_.FullName -notmatch 'WindowsApps'}|Sort-Object FullName -Descending|Select-Object -First 1).FullName
-if(-not $py){$py=@(Get-Command python.exe -All -ErrorAction SilentlyContinue|Where-Object{$_.Source -notmatch 'WindowsApps'}|Select-Object -First 1).Source}
-if(-not $py){throw 'PYTHON_NOT_FOUND'}
+# Every installed Python is tried, standard installs first: a very new build
+# can lack ready-made wheels for esptool's dependencies (PyYAML).
+$cands=@(@(Get-ChildItem -LiteralPath (Join-Path $env:LOCALAPPDATA 'Programs\Python') -Filter python.exe -Recurse -File -ErrorAction SilentlyContinue|Sort-Object FullName -Descending|ForEach-Object{$_.FullName})+@(Get-Command python.exe -All -ErrorAction SilentlyContinue|ForEach-Object{$_.Source})+@(Get-ChildItem -LiteralPath (Join-Path $env:LOCALAPPDATA 'Python') -Filter python.exe -Recurse -File -ErrorAction SilentlyContinue|Sort-Object FullName -Descending|ForEach-Object{$_.FullName})|Where-Object{$_ -and $_ -notmatch 'WindowsApps'}|Select-Object -Unique)
+if(-not $cands){throw 'PYTHON_NOT_FOUND'}
 function Py([string[]]$a){$p=$ErrorActionPreference;$ErrorActionPreference='Continue';try{$o=@(& $py @a 2>&1|ForEach-Object{[string]$_})}finally{$ErrorActionPreference=$p};return @{code=$LASTEXITCODE;out=($o -join [string][char]10)}}
-if((Py @('-m','esptool','version')).code -ne 0){
- $i=$null;foreach($a in @(@('--user','esptool=='+$tag.TrimStart('v')),@('--user','esptool>=5'),@('esptool>=5'))){$i=Py (@('-m','pip','install','--disable-pip-version-check')+$a);if($i.code -eq 0){break}}
- if($i.code -ne 0){$t=[string]$i.out;throw ('ESPTOOL_PIP_INSTALL_FAILED:'+$t.Substring([Math]::Max(0,$t.Length-400)))}
-}
+$ready=$null;$i=$null
+foreach($py in $cands){if((Py @('-m','esptool','version')).code -eq 0){$ready=$py;break}}
+if(-not $ready){foreach($py in $cands){foreach($a in @(@('--user','--only-binary=:all:','esptool=='+$tag.TrimStart('v')),@('--user','--only-binary=:all:','esptool>=5'))){$i=Py (@('-m','pip','install','--disable-pip-version-check')+$a);if($i.code -eq 0){$ready=$py;break}};if($ready){break}}}
+if(-not $ready){$t=[string]$i.out;throw ('ESPTOOL_PIP_INSTALL_FAILED:'+$t.Substring([Math]::Max(0,$t.Length-400)))}
+$py=$ready
 $ports=@(Get-CimInstance Win32_PnPEntity -ErrorAction SilentlyContinue | ForEach-Object { if(([string]$_.PNPDeviceID) -match '^USB\\VID_303A&PID_1001' -and ([string]$_.Name) -match '\((COM\d{1,3})\)'){ $Matches[1] } } | Sort-Object -Unique)
 if($ports.Count -ne 1){throw ('MINI_USB_PORT_NOT_UNIQUE:'+$ports.Count)}
 $port=$ports[0]
