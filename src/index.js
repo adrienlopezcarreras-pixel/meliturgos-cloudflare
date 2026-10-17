@@ -1,5 +1,6 @@
 // Canonical core Worker handler. The retired root worker.js stays inert;
 // deployment/auth/UI wrappers delegate here without owning a second runtime.
+import { runScheduledMelWork } from "./revenue/work-schedule.js";
 import router from "./router.js";
 import { requireAuth, isReleaseSmokeRequest } from "./core/security.js";
 import { approvedCapabilitiesFromRequest } from "./security/approval-gates.js";
@@ -593,6 +594,10 @@ export default {
       ? [
           runAutonomyMaintenance(env).catch((error) => {
             console.error('[MEL autonomy] hourly maintenance failed:', error?.code || error?.message || error);
+            return null;
+          }),
+          runScheduledMelWork(env).catch((error) => {
+            console.error('[MEL WORK] scheduled cycle failed:', error?.code || error?.message || error);
             return null;
           }),
           runExpiredMediaCleanup(env).catch((error) => {
