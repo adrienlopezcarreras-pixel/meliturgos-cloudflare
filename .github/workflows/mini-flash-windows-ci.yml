@@ -66,7 +66,7 @@ jobs:
           if ($out -notmatch 'ANDROID_DEVICE_NOT_UNIQUE:0') { echo "::error title=android.update::unexpected stop: $($out.Trim() -replace '\s+',' ')"; throw 'ANDROID_UPDATE_UNEXPECTED_STOP' }
           # The command uses the runner's own adb (Android SDK on PATH): nothing is downloaded in-command.
           if (Select-String -LiteralPath 'android-update.ps1' -Pattern 'dl\.google\.com|Expand-Archive' -Quiet) { throw 'ANDROID_UPDATE_DOWNLOADS_TOOLS' }
-          $adb = (Get-Command adb.exe -ErrorAction Stop).Source
+          $adb = Join-Path $env:ANDROID_HOME 'platform-tools\adb.exe'
           $version = (& $adb version 2>&1 | Select-Object -First 1)
           echo "::notice title=android.update adb::$version"
           & $adb kill-server 2>$null | Out-Null

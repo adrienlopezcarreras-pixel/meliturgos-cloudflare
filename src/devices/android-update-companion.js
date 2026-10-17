@@ -48,7 +48,7 @@ $sha='__SHA__';$url='__URL__';$pair='__PAIR__';$code='__CODE__';$target='__CONNE
 # adb already on this PC (Android SDK, MEL tools, PATH). Nothing is downloaded
 # and unpacked here: Windows Defender flags encoded PowerShell that fetches
 # and expands tools from the internet (Trojan:Win32/ClickFix heuristic).
-$adb=@((Join-Path $env:LOCALAPPDATA 'Android\platform-tools\adb.exe'),(Join-Path $env:LOCALAPPDATA 'MEL\tools\platform-tools\adb.exe'),(Join-Path $env:LOCALAPPDATA 'Android\Sdk\platform-tools\adb.exe'),@(Get-Command adb.exe -All -ErrorAction SilentlyContinue|ForEach-Object{$_.Source}))|Where-Object{$_ -and (Test-Path -LiteralPath $_)}|Select-Object -First 1
+$adb=@((Join-Path $env:LOCALAPPDATA 'Android\platform-tools\adb.exe'),(Join-Path $env:LOCALAPPDATA 'MEL\tools\platform-tools\adb.exe'),(Join-Path $env:LOCALAPPDATA 'Android\Sdk\platform-tools\adb.exe'),$(if($env:ANDROID_HOME){Join-Path $env:ANDROID_HOME 'platform-tools\adb.exe'}),$(if($env:ANDROID_SDK_ROOT){Join-Path $env:ANDROID_SDK_ROOT 'platform-tools\adb.exe'}),@(Get-Command adb.exe -All -ErrorAction SilentlyContinue|ForEach-Object{$_.Source}))|Where-Object{$_ -and (Test-Path -LiteralPath $_)}|Select-Object -First 1
 if(-not $adb){throw 'ADB_NOT_INSTALLED_USE_CONFIGURER_ADB_WIFI'}
 function Run([string[]]$a){$p=$ErrorActionPreference;$ErrorActionPreference='Continue';try{$o=@(& $adb @a 2>&1|ForEach-Object{[string]$_})}finally{$ErrorActionPreference=$p};return ($o -join [string][char]10)}
 # The adb daemon must not inherit a captured pipe, or reading output never ends.
