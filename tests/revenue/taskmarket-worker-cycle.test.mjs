@@ -127,3 +127,19 @@ test('only turns accepted and settled real feedback into a review-required LoRA 
   assert.equal(x.trainingStatus, 'REVIEW_REQUIRED');
   assert.equal(x.rating, 93);
 });
+
+
+test('persists a validated draft without submitting when financial gates are closed',async()=>{
+ let submits=0;let stored=null;
+ const result=await runTaskmarketWorkerCycle({...base,persistValidatedDraft:async draft=>{stored=draft;return {draftId:'local-draft-123'}},submitResult:async()=>{submits++;throw new Error('unexpected submission')}});
+ assert.equal(submits,0);
+ assert.equal(stored.content,'{}');
+ assert.equal(result.decisions[0].status,'READY_NOT_SUBMITTED');
+ assert.equal(result.decisions[0].draftId,'local-draft-123');
+});
+
+test('never claims a durable draft exists when persistence is unconfirmed',async()=>{
+ const result=await runTaskmarketWorkerCycle({...base,persistValidatedDraft:async()=>({})});
+ assert.equal(result.decisions[0].status,'ERROR');
+ assert.equal(result.decisions[0].reason,'WORK_DRAFT_PERSISTENCE_UNCONFIRMED');
+});
