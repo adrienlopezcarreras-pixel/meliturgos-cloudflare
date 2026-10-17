@@ -128,12 +128,25 @@ export function registerOpenLoopCapabilities(bus, { env } = {}) {
         const workStatus = String(result?.status || '').toUpperCase();
         const completed = workStatus === 'COMPLETED';
         const blocked = workStatus === 'BLOCKED';
+        const deferred = result?.lease_busy === true;
+        // A claimed open-loop and a successful capability call are *not*
+        // proof that a Work node advanced. Compare verified checkpoints.
+        const before = loop?.checkpoint?.work || {};
+        const prior = Number(before?.node_counts?.COMPLETED ?? before?.completed_steps ?? 0);
+        const after = Number(result?.node_counts?.COMPLETED);
+        const stepAdvanced = result?.node_counts?.COMPLETED != null
+          && Number.isFinite(prior) && Number.isFinite(after) && after > prior;
+        const terminalAdvanced = completed && String(before?.status || '').toUpperCase() !== 'COMPLETED';
+        const advanced = !deferred && result?.execution_started !== false && (stepAdvanced || terminalAdvanced);
         return {
           completed,
+          advanced,
+          deferred,
           status: completed ? 'completed' : blocked ? 'waiting' : 'resumable',
           resumeAt: completed ? 0 : blocked ? Number.MAX_SAFE_INTEGER : Date.now() + 60000,
           checkpoint: { work: result },
-          metadata: { ...(loop.metadata || {}), workDagId, last_work_status: result?.status || null },
+          metadata: { ...(loop.metadata || {}), workDagId, last_work_status: result?.status || null,
+            last_work_advanced: advanced, last_work_deferred: deferred },
         };
       },
     });
@@ -142,6 +155,8 @@ export function registerOpenLoopCapabilities(bus, { env } = {}) {
       attempted: outcomes.length,
       succeeded: outcomes.filter(row => row.ok).length,
       failed: outcomes.filter(row => !row.ok).length,
+      advanced: outcomes.filter(row => row.advanced === true).length,
+      deferred: outcomes.filter(row => row.deferred === true).length,
       outcomes,
     };
   });
