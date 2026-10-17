@@ -6,6 +6,7 @@ const task = { id:'0x123', status:'open', description:'Transform a public JSON d
 test('normalizes open task records and preserves explicit stake/claim state',()=>{
   const x=normalizePublicTask(task,now);
   assert.equal(x.id,'0x123');
+  assert.equal(x.status,'open');
   assert.equal(x.rewardUsdcBaseUnits,'1000000');
   assert.equal(x.stakeRequired,false);
   assert.equal(x.claimedBy,null);
