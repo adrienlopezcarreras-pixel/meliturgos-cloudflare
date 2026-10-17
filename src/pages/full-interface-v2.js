@@ -1175,7 +1175,7 @@ function renderComputer(d){
   const devices=computerCache.devices||[],sel=qs('#computerSelect'),wanted=computerCache.selected_id||sel?.value||devices[0]?.id||'';
   if(sel){sel.innerHTML=devices.length?devices.map(x=>'<option value="'+esc(x.id)+'">'+esc(x.name||x.id)+(x.online?' · en ligne':' · hors ligne')+'</option>').join(''):'<option value="">Aucun ordinateur</option>';if(wanted&&devices.some(x=>x.id===wanted))sel.value=wanted}
   const pc=selectedComputer(),state=qs('#computerState');
-  if(!pc){state.textContent='NON INSTALLÉ';state.className='tag warn';qs('#computerLastSeen').textContent='—';qs('#computerActiveWindow').textContent='—';qs('#computerOut').textContent='Télécharge puis lance l’installation Windows.';return}
+  if(!pc){const img=qs('#computerScreen');invalidateComputerScreen(img);img.removeAttribute('src');img.style.display='none';qs('#computerScreenState').textContent='AUCUN PC APPAIRÉ';qs('#computerScreenState').className='tag warn';state.textContent='NON INSTALLÉ';state.className='tag warn';qs('#computerLastSeen').textContent='—';qs('#computerActiveWindow').textContent='—';qs('#computerOut').textContent='Télécharge puis lance l’installation Windows.';return}
   const readiness=companionDesktopReadiness(pc);
   state.textContent=readiness.label;state.className='tag '+(readiness.ok?'good':readiness.code==='OWNER_HALT_ACTIVE'?'bad':'warn');
   state.title=readiness.code;
