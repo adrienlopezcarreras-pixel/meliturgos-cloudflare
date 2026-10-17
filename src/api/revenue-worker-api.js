@@ -60,6 +60,17 @@ export async function handleRevenueApi(request, env) {
     try { expectedByTaskId=JSON.parse(env.MEL_WORK_TRUSTED_ACCEPTANCE_JSON); }
     catch { return json({ok:false,code:'WORK_TRUSTED_ACCEPTANCE_INVALID'},503); }
     if(!record(expectedByTaskId)||Object.keys(expectedByTaskId).length>20)return json({ok:false,code:'WORK_TRUSTED_ACCEPTANCE_INVALID'},503);
+    if(typeof env?.DB?.prepare!=='function')return json({ok:false,code:'WORK_DRAFT_DB_REQUIRED'},503);
+    const fixtures=Object.entries(expectedByTaskId);
+    if(fixtures.length===0)return json({ok:false,code:'WORK_TRUSTED_ACCEPTANCE_NOT_CONFIGURED'},409);
+    for(const [taskId,item] of fixtures){
+      if(!taskId||taskId.length>160||!record(item)||typeof item.expectedJson!=='string'||item.expectedJson.length>12000||!/^[a-f0-9]{64}$/i.test(String(item.sha256||'')))
+        return json({ok:false,code:'WORK_TRUSTED_ACCEPTANCE_INVALID'},503);
+      let parsed;try{parsed=JSON.parse(item.expectedJson)}catch{return json({ok:false,code:'WORK_TRUSTED_ACCEPTANCE_INVALID'},503)}
+      const digest=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(item.expectedJson));
+      const actual=Array.from(new Uint8Array(digest),x=>x.toString(16).padStart(2,'0')).join('');
+      if(actual!==item.sha256.toLowerCase())return json({ok:false,code:'WORK_TRUSTED_ACCEPTANCE_TAMPERED'},409);
+    }
     try {
       const cycle=await runBoundedTaskmarketDraftCycle({
         db:env.DB,env,eligibleTaskIds:Object.keys(expectedByTaskId),validateArtifact:createExactJsonAcceptanceValidator({expectedByTaskId}),

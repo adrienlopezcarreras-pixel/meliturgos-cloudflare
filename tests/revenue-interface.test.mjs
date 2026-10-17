@@ -414,3 +414,12 @@ test('MEL WORK draft-cycle API never reports false success for a blocked Council
   assert.equal(payload.code,'WORK_CYCLE_NO_VERIFIED_DRAFT');
  }finally{globalThis.fetch=prior}
 });
+
+test('draft cycle rejects tampered oracle before any external marketplace or Council request',async()=>{
+ const url='https://mel.test/api/revenue/draft-cycle';
+ const env={MELITURGOS_USER:'adrien',MELITURGOS_PASSWORD:'test',DB:{prepare(){throw new Error('SHOULD_NOT_QUERY_DB')}},MEL_WORK_TRUSTED_ACCEPTANCE_JSON:JSON.stringify({job:{expectedJson:'{"answer":1}',sha256:'f'.repeat(64)}})};
+ const headers={authorization:'Basic '+Buffer.from('adrien:test').toString('base64')};
+ const response=await handleRevenueApi(new Request(url,{method:'POST',headers}),env);
+ assert.equal(response.status,409);
+ assert.equal((await response.json()).code,'WORK_TRUSTED_ACCEPTANCE_TAMPERED');
+});
