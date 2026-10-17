@@ -223,7 +223,9 @@ export class ModelRouter {
         void this.recordPerformance(selected,task,false,Date.now()-startedAt);
         failure=error;
         reasons.push(error.reason||error.code||error.message||'unknown');
-        if (!retryable(categorize(error))) break;
+        // An exhausted shared deadline is terminal, even if timer scheduling
+        // fires just before Date.now() reaches the absolute deadline.
+        if (error?.code === 'CHAT_DEADLINE_EXCEEDED' || !retryable(categorize(error))) break;
       }
     }
 
