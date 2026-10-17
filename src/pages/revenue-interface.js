@@ -447,15 +447,18 @@ async function refreshDirectArtifacts(){
   const info=document.createElement('div');
   info.textContent='Brouillons MEL WORK enregistrés : '+items.length+' · '+items.slice(0,3).map(x=>String(x.mission_id)+' ('+String(x.status)+')').join(', ')+(cycle?' · Dernier cycle : '+String(cycle.status):'');
   area.appendChild(info);
-  const artifactId=String(cycle?.result?.artifactId||'');
-  if(/^work-[a-f0-9]{64}$/.test(artifactId)){
-    const button=document.createElement('button');button.type='button';button.textContent='Consulter le dernier livrable';
+  for(const item of items){
+    const artifactId=String(item?.id||'');
+    if(!/^work-[a-f0-9]{64}$/.test(artifactId))continue;
+    const button=document.createElement('button');
+    button.type='button';
+    button.textContent='Ouvrir le brouillon '+String(item.mission_id||artifactId).slice(0,90)+' · '+String(item.status||'');
     button.onclick=async()=>{
-      const response=await fetch('/api/revenue/direct-work?artifact_id='+encodeURIComponent(artifactId),{cache:'no-store'});
-      const data=await response.json().catch(()=>({}));
-      if(!response.ok||!data.artifact)throw new Error('WORK_ARTIFACT_READBACK_FAILED');
-      await showDirectArtifact(artifactId,{result:cycle.result||{}},$('draftList'));
-    };area.appendChild(button);
+      const result=cycle?.result?.artifactId===artifactId?cycle.result:{};
+      try{await showDirectArtifact(artifactId,{result},$('draftList'))}
+      catch(error){$('draftList').textContent='Brouillon indisponible : '+String(error.message||error).slice(0,120)}
+    };
+    area.appendChild(button);
   }
  }catch(e){area.textContent='Brouillons directs indisponibles : '+String(e.message||e).slice(0,100)}
 }
