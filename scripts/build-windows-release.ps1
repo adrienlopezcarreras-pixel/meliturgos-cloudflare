@@ -57,6 +57,9 @@ foreach ($name in $miniInspectorFiles) {
 $miniHelper = Join-Path $repoRoot 'windows-companion\MEL-MINI-USB-Preflight.ps1'
 if (!(Test-Path -LiteralPath $miniHelper -PathType Leaf)) { throw 'MINI_USB_HELPER_SOURCE_MISSING' }
 Copy-Item -LiteralPath $miniHelper -Destination (Join-Path $stage 'MEL-MINI-USB-Preflight.ps1')
+$miniInstaller = Join-Path $repoRoot 'dist\MEL-Waveshare-Flash.ps1'
+if (!(Test-Path -LiteralPath $miniInstaller -PathType Leaf)) { throw 'MINI_FIRST_INSTALL_SOURCE_MISSING' }
+Copy-Item -LiteralPath $miniInstaller -Destination (Join-Path $stage 'MEL-Waveshare-Flash.ps1')
 
 # Ship the read-only owner-launched MCP bridge alongside the Companion.
 # Do not start the bridge during installation or any background service.

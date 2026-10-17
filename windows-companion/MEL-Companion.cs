@@ -23,6 +23,7 @@ static class MelApp
     public static readonly string AdbWifiPath = Path.Combine(MelDir, "MEL-ADB-WiFi.ps1");
     public static readonly string AndroidWifiPairingPath = Path.Combine(MelDir, "MEL-Android-WiFi-Pairing.ps1");
     public static readonly string LocalAiBenchmarkPath = Path.Combine(MelDir, "MEL-Local-AI-Benchmark.ps1");
+    public static readonly string MiniFirstInstallPath = Path.Combine(MelDir, "MEL-Waveshare-Flash.ps1");
     public static readonly string MiniUsbPreflightPath = Path.Combine(MelDir, "MEL-MINI-USB-Preflight.ps1");
     public static readonly string[] MiniUsbPreflightFiles = new string[] {
         "MEL-MINI-USB-Preflight.ps1", "local_readonly_preflight.py",
@@ -1490,7 +1491,7 @@ class MainForm : Form
         var pc=Card(this,132,150);pc.Left=22;pc.Width=ClientSize.Width-44;
         pc.Anchor=AnchorStyles.Top|AnchorStyles.Left|AnchorStyles.Right;
         LabelAt(pc,"CET ORDINATEUR",20,14,310,36,10,true,blue);
-        var miniUsb=ButtonAt(pc,"Contrôle USB MINI",Math.Max(350,pc.Width-232),43,205,RunMiniUsbPreflight);
+        var miniUsb=ButtonAt(pc,"Contrôle USB MINI",Math.Max(350,pc.Width-232),43,205,ChooseMiniUsbAction);
         miniUsb.Anchor=AnchorStyles.Top|AnchorStyles.Right;
         var androidPair=ButtonAt(pc,"Configurer ADB Wi-Fi",Math.Max(170,pc.Width-450),43,205,RunAndroidWifiPairing);
         androidPair.Anchor=AnchorStyles.Top|AnchorStyles.Right;
@@ -1659,6 +1660,41 @@ class MainForm : Form
         {
             MessageBox.Show(this,"Impossible d'ouvrir l'assistant ADB Wi-Fi : "+ex.Message,
                 "MEL — Android Wi-Fi",MessageBoxButtons.OK,MessageBoxIcon.Error);
+        }
+    }
+    void ChooseMiniUsbAction(object sender,EventArgs e)
+    {
+        var choice=MessageBox.Show(this,
+            "OUI : diagnostic USB en lecture seule.\nNON : première installation DESTRUCTIVE (effacement complet) avec confirmation locale supplémentaire.\nANNULER : ne rien faire.",
+            "MEL MINI — opération locale",MessageBoxButtons.YesNoCancel,MessageBoxIcon.Warning);
+        if(choice==DialogResult.Yes)RunMiniUsbPreflight(sender,e);
+        else if(choice==DialogResult.No)RunMiniFirstInstall(sender,e);
+    }
+    void RunMiniFirstInstall(object sender,EventArgs e)
+    {
+        // Explicit local, destructive first-install path only. Never remote dispatch.
+        if (!File.Exists(MelApp.MiniFirstInstallPath))
+        {
+            MessageBox.Show(this,"Installateur MINI absent. Réinstallez le paquet Windows officiel.",
+                "MEL — MINI",MessageBoxButtons.OK,MessageBoxIcon.Warning);
+            return;
+        }
+        if (MessageBox.Show(this,
+            "PREMIÈRE INSTALLATION UNIQUEMENT. L'outil efface intégralement la mémoire de la carte ESP32-S3. Ne l'utilisez PAS pour mettre à jour une MINI configurée. La sauvegarde et la restauration ne sont pas assurées par cet outil. Continuer ?",
+            "MEL — Effacement total de la MINI",MessageBoxButtons.YesNo,MessageBoxIcon.Warning)!=DialogResult.Yes)return;
+        try
+        {
+            var psi=new ProcessStartInfo("powershell.exe");
+            psi.UseShellExecute=true;
+            psi.WindowStyle=ProcessWindowStyle.Normal;
+            psi.WorkingDirectory=MelApp.MelDir;
+            psi.Arguments="-NoProfile -ExecutionPolicy Bypass -NoExit -File \"" + MelApp.MiniFirstInstallPath + "\"";
+            Process.Start(psi);
+        }
+        catch(Exception ex)
+        {
+            MessageBox.Show(this,"Impossible d'ouvrir l'installateur MINI : "+ex.Message,
+                "MEL — MINI",MessageBoxButtons.OK,MessageBoxIcon.Error);
         }
     }
     void RunMiniUsbPreflight(object sender,EventArgs e)
