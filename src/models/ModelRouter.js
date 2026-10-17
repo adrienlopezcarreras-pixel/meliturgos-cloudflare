@@ -185,22 +185,17 @@ export class ModelRouter {
     let failure;
     const reasons=[];
     for (let i=0;i<candidates.length;i++) {
-      let timer;
       const selected=candidates[i];
       const startedAt=Date.now();
-      const remainingMs=this.deadlineAt==null?Infinity:this.deadlineAt-startedAt;
-      if (remainingMs<=0) {
+      if (this.deadlineAt != null && startedAt >= this.deadlineAt) {
         failure=new DomainError('CHAT_DEADLINE_EXCEEDED',504);
         reasons.push('CHAT_DEADLINE_EXCEEDED');
         break;
       }
-      const callTimeoutMs=Math.min(this.timeoutMs,remainingMs);
       this.stats.calls++;
       try {
-        const result=await Promise.race([
-          this.invoke(selected,messages,context),
-          new Promise((_,reject)=>{timer=setTimeout(()=>reject(new DomainError(callTimeoutMs<this.timeoutMs?'CHAT_DEADLINE_EXCEEDED':'timeout',504)),callTimeoutMs);})
-        ]);
+        // Sequential, parallel and final fallback calls share one deadline policy.
+        const result=await this.withinExecutionBudget(() => this.invoke(selected,messages,context));
         const text=extractModelText(result);
         if (typeof text!=='string' || !text.trim()) throw new DomainError('EMPTY_MODEL_RESPONSE',502);
         await this.recordPerformance(selected,task,true,Date.now()-startedAt);
@@ -220,8 +215,6 @@ export class ModelRouter {
         failure=error;
         reasons.push(error.reason||error.code||error.message||'unknown');
         if (!retryable(categorize(error))) break;
-      } finally {
-        clearTimeout(timer);
       }
     }
 
