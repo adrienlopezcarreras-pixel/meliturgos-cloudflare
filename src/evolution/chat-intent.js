@@ -175,6 +175,8 @@ export async function injectEvolutionPreflightCapability(request, env = {}) {
   if (!body || typeof body !== 'object' || body.capability?.id) return request;
   const text = String(body.text ?? body.message ?? body.prompt ?? '').trim();
   if (!text) return request;
+  // Long messages are instructions: no keyword routing to status tools, the model answers.
+  if (text.length > 280) return request;
 
   const requestKey = body.client_message_id ?? body.message_id ?? body.request_id ?? body.id ?? '';
 

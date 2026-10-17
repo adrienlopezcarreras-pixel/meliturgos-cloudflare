@@ -38,6 +38,9 @@ import { createChatDeadline, hasChatBudget, raceChatDeadline, chatDeadlineError,
 import { inferCurrentFactVerificationPolicy, hasAuthoritativeCurrentFactEvidence, currentFactReliabilityInstruction } from './current-fact-reliability.js';
 import { buildPresentationInstruction } from '../presentation/presentation-skill.js';
 
+// Beyond this length a chat message is treated as an instruction (see handleNativeChat).
+export const INSTRUCTION_PROMPT_CHARS = 280;
+
 export function inferChatGPTHistoryCapability(text) {
   const value = String(text || '').trim();
   if (!value) return null;
@@ -1215,7 +1218,10 @@ export async function handleNativeChat(request, env, options = {}) {
   // bounded preparation steps BEFORE the slow general model-inference path.
   // Keep this narrow: ordinary chat, quotations and task-status questions
   // still follow the standard native-chat logic.
-  if (!releaseSmoke && !body.capability?.id && inputSource === 'text' && isMelWorkKickoff(text)) {
+  // A long message is an instruction for MEL, not a status question: it always
+  // gets a real model answer (streamed), never a keyword-routed status sheet.
+  const instructionPrompt = text.length > INSTRUCTION_PROMPT_CHARS;
+  if (!releaseSmoke && !instructionPrompt && !body.capability?.id && inputSource === 'text' && isMelWorkKickoff(text)) {
     const kickoff = await startMelWorkKickoff({
       bus: runtime.bus, text, conversationId,
       context: nativeCapabilityContext(env, request, options),
@@ -1265,6 +1271,8 @@ export async function handleNativeChat(request, env, options = {}) {
   const inferredSelfActivityCapability = releaseSmoke ? null : inferNativeSelfActivityCapability(activeTaskText);
   const ordinaryInferredCapability = releaseSmoke
     ? inferNativeCodeCapability(text, [])
+    : instructionPrompt
+    ? null
     : inferredExecutionCapability
       || inferredSelfActivityCapability
       || inferNativeComputerCapability(activeTaskText)
@@ -1930,7 +1938,9 @@ export async function handleNativeChat(request, env, options = {}) {
   }
 
   const modelResponseText = stripInternalCounters(ai.text);
-  const groundedResponseText = communicationAuditObserved
+  const groundedResponseText = instructionPrompt && modelResponseText.trim()
+    ? modelResponseText
+    : communicationAuditObserved
     ? formatCommunicationAuditResponse(communicationAuditObserved, { fallback: modelResponseText })
     : devBridgeStatusObserved
       ? formatVerifiedDevBridgeStatusResponse(devBridgeStatusObserved, { fallback: modelResponseText })

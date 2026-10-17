@@ -143,7 +143,8 @@ test('missing DAG link and D1 status failures are explicit failures, not false a
 
 test('chat invokes the durable kickoff before any model inference', async () => {
   const source=await readFile(new URL('../src/api/native-chat.js',import.meta.url),'utf8');
-  assert.match(source,/if \(!releaseSmoke && !body\.capability\?\.id && inputSource === 'text' && isMelWorkKickoff\(text\)\)/);
+  // Short explicit kickoff commands only: a long prompt is an instruction answered by the model.
+  assert.match(source,/if \(!releaseSmoke && !instructionPrompt && !body\.capability\?\.id && inputSource === 'text' && isMelWorkKickoff\(text\)\)/);
   assert.match(source,/status: kickoff\.ok \? \(kickoff\.completed \? 200 : 202\) : 503/);
   assert.ok(source.indexOf('startMelWorkKickoff({') < source.indexOf('const [activeInferenceSettings, activeAdapter]'));
 });
