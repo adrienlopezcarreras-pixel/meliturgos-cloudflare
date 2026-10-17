@@ -17,6 +17,8 @@ on:
       - 'src/pages/full-interface-v2.js'
       - 'tests/mel-general-durable-work.test.mjs'
       - 'tests/d1-work-run-lease.test.mjs'
+      - 'src/work/d1-work-dag-store.js'
+      - 'tests/d1-work-dag-leased-checkpoints.test.mjs'
       - '.github/workflows/mel-core-durable-work-ci.yml'
   workflow_dispatch:
 
@@ -44,6 +46,8 @@ jobs:
         run: node --test tests/conversations/work-open-loop-integration.test.mjs
       - name: Validate persistent task creation and bounded resume
         run: node --test tests/mel-general-durable-work.test.mjs
+      - name: Reject expired or superseded Work DAG checkpoint writes
+        run: node --test tests/d1-work-dag-leased-checkpoints.test.mjs
       - name: Validate atomic D1 work run leases
         run: node --test tests/d1-work-run-lease.test.mjs
       - name: Validate existing Work DAG contracts
