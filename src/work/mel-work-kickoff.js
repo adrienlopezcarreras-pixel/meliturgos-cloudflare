@@ -212,9 +212,10 @@ export async function startMelWorkKickoff({ bus, text, conversationId, context }
     const verifiedChunks = new Set(artifacts.filter(row => row?.artifact?.kind === 'computation_sample' && row.artifact.quality_checks?.closed_form_match === true && [1,20001,40001].includes(row.artifact.start) && row.artifact.count === 20000).map(row => row.artifact.start));
     const computationCount = verifiedChunks.size;
     const market = artifacts.find(row => row?.artifact?.kind === 'market_observation')?.artifact || null;
+    const status = String(synced?.work?.status || executed?.status || 'UNKNOWN').toUpperCase();
     return {
-      ok: true, persisted: true, plan_id: id, work_dag_id: workDagId,
-      status: String(synced?.work?.status || executed?.status || 'UNKNOWN'),
+      ok: !['FAILED','CANCELLED','BLOCKED','ERROR'].includes(status), persisted: true, plan_id: id, work_dag_id: workDagId,
+      status,
       training_exercises_verified: trainingCount,
       calculation_chunks_verified: computationCount,
       taskmarket_status: market?.status || 'NOT_EXECUTED',
