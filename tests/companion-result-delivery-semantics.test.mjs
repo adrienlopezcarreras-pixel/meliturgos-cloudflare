@@ -11,6 +11,7 @@ test('Windows companion journals a single encrypted terminal outcome and replays
  const flush=ps.split('function Flush-CommandResult {')[1]?.split('\nfunction Submit-CommandResult')[0];
  assert.ok(flush);
  assert.match(flush,/Invoke-MelJson -Path "\/api\/computer\/v1\/result"/);
+ assert.match(flush,/\$ack\.ok -ne \$true/);
  assert.match(flush,/File]::Delete\(\$script:ResultJournal\)/);
  assert.match(ps,/if \(-not \(Flush-CommandResult\)\) \{ Start-Sleep -Seconds 2; continue \}/);
  const process=ps.split('function Process-Command($command) {')[1]?.split('\n\$trayResources')[0];

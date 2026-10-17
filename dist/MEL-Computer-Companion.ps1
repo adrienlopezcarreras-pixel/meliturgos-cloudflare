@@ -3005,7 +3005,8 @@ function Flush-CommandResult {
     $encrypted = [System.IO.File]::ReadAllBytes($script:ResultJournal)
     $bytes = [System.Security.Cryptography.ProtectedData]::Unprotect($encrypted,$null,[System.Security.Cryptography.DataProtectionScope]::CurrentUser)
     $body = [System.Text.Encoding]::UTF8.GetString($bytes) | ConvertFrom-Json
-    [void](Invoke-MelJson -Path "/api/computer/v1/result" -Method "POST" -Body $body)
+    $ack = Invoke-MelJson -Path "/api/computer/v1/result" -Method "POST" -Body $body
+    if ($null -eq $ack -or $ack.ok -ne $true) { throw "COMPUTER_RESULT_ACK_INVALID" }
     [System.IO.File]::Delete($script:ResultJournal)
     return $true
   } catch {
