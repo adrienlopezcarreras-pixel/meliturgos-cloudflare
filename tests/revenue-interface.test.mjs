@@ -499,7 +499,7 @@ test('direct MEL WORK UI offers real draft creation without prior expected answe
  const html=await (await onRequestGet()).text();
  assert.match(html,/Créer un brouillon de mission/);
  assert.match(html,/\/api\/revenue\/direct-work/);
- assert.match(html,/DRAFT_UNVERIFIED/);
+ assert.match(html,/proof[.]artifact[.]status/);
 });
 test('direct MEL WORK API stays owner-only and fails closed without D1',async()=>{
  const url='https://mel.test/api/revenue/direct-work';
@@ -509,4 +509,21 @@ test('direct MEL WORK API stays owner-only and fails closed without D1',async()=
  const response=await handleRevenueApi(new Request(url,{method:'POST',headers}),env);
  assert.equal(response.status,503);
  assert.equal((await response.json()).code,'WORK_DRAFT_DB_REQUIRED');
+});
+
+test('owner may read saved direct artifact by exact id; other users and malformed ids cannot',async()=>{
+ const env={MELITURGOS_USER:'adrien',MELITURGOS_PASSWORD:'test',DB:{prepare(sql){return {bind(id){return {first:async()=>({id,mission_id:'job',content:'REAL D1 BODY',status:'DRAFT_UNVERIFIED',created_at:'2026-10-17'})}}}}}};
+ const id='work-'+'a'.repeat(64);
+ const url='https://mel.test/api/revenue/direct-work?artifact_id='+id;
+ assert.notEqual((await handleRevenueApi(new Request(url),env)).status,200);
+ const headers={authorization:'Basic '+Buffer.from('adrien:test').toString('base64')};
+ const res=await handleRevenueApi(new Request(url,{headers}),env);
+ assert.equal(res.status,200);
+ assert.equal((await res.json()).artifact.content,'REAL D1 BODY');
+ assert.equal((await handleRevenueApi(new Request('https://mel.test/api/revenue/direct-work?artifact_id=../../bad',{headers}),env)).status,400);
+});
+test('MEL WORK UI reads saved D1 body instead of presenting only an identifier',async()=>{
+ const html=await (await onRequestGet()).text();
+ assert.match(html,/WORK_ARTIFACT_READBACK_FAILED/);
+ assert.match(html,/proof\.artifact\.content/);
 });

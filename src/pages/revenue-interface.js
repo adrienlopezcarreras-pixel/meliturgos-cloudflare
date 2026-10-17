@@ -425,7 +425,12 @@ $('runDraftCycle').onclick=async()=>{
   const response=await fetch('/api/revenue/direct-work',{method:'POST',cache:'no-store'});
   const data=await response.json().catch(()=>({}));
   if(!response.ok||data.ok!==true)throw new Error(data.code||'WORK_DIRECT_EXECUTION_FAILED');
-  area.textContent='Brouillon D1 enregistré : '+String(data.result?.artifactId||'inconnu')+' · '+String(data.result?.status||'DRAFT_UNVERIFIED')+'. Non livré, non payé.';
+  const artifactId=String(data.result?.artifactId||'');
+  if(!/^work-[a-f0-9]{64}$/.test(artifactId))throw new Error('WORK_ARTIFACT_ID_INVALID');
+  const proofResponse=await fetch('/api/revenue/direct-work?artifact_id='+encodeURIComponent(artifactId),{cache:'no-store'});
+  const proof=await proofResponse.json().catch(()=>({}));
+  if(!proofResponse.ok||proof.artifact?.id!==artifactId)throw new Error('WORK_ARTIFACT_READBACK_FAILED');
+  area.textContent='Brouillon D1 vérifié : '+artifactId+' · '+String(proof.artifact.status)+'. Non livré, non payé.'+String.fromCharCode(10,10)+String(proof.artifact.content||'');
   await refreshDirectArtifacts();
  }catch(e){area.textContent='Préparation impossible : '+String(e.message||e).slice(0,140)}
  finally{button.disabled=false}

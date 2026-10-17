@@ -63,6 +63,15 @@ export async function handleRevenueApi(request, env) {
   }
   if(url.pathname==='/api/revenue/direct-work'){
     if(typeof env?.DB?.prepare!=='function')return json({ok:false,code:'WORK_DRAFT_DB_REQUIRED'},503);
+    if(request.method==='GET'&&url.searchParams.has('artifact_id')){
+      const artifactId=url.searchParams.get('artifact_id')||'';
+      if(!/^work-[a-f0-9]{64}$/.test(artifactId))return json({ok:false,code:'WORK_ARTIFACT_ID_INVALID'},400);
+      try{
+        const artifact=await env.DB.prepare('SELECT id, mission_id, content, status, created_at FROM mel_work_artifacts WHERE id=?').bind(artifactId).first();
+        if(!artifact)return json({ok:false,code:'WORK_ARTIFACT_NOT_FOUND'},404);
+        return json({ok:true,artifact,submitted:false,paid:false});
+      }catch{return json({ok:false,code:'WORK_ARTIFACT_READ_UNAVAILABLE'},503)}
+    }
     if(request.method==='GET'){
       try{
         await env.DB.prepare('CREATE TABLE IF NOT EXISTS mel_work_artifacts (id TEXT PRIMARY KEY, mission_id TEXT NOT NULL, content TEXT NOT NULL, status TEXT NOT NULL, created_at TEXT NOT NULL)').run();
