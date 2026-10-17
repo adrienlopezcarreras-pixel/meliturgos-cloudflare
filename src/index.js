@@ -219,10 +219,36 @@ function busContext(env, request = null) {
 async function maybeHandleWorkPreflight(request, env) {
   const url = new URL(request.url);
   if (!url.pathname.startsWith('/api/work/')) return null;
-  if (url.pathname !== '/api/work/health' && url.pathname !== '/api/work/jobs' && url.pathname !== '/api/work/screen-interpretation' && url.pathname !== '/api/work/screen-consent') return null;
+  if (url.pathname !== '/api/work/health' && url.pathname !== '/api/work/jobs' && url.pathname !== '/api/work/goal' && url.pathname !== '/api/work/screen-interpretation' && url.pathname !== '/api/work/screen-consent') return null;
 
   const auth = requireAuth(request, env);
   if (!auth.ok) return auth.response;
+
+  if (url.pathname === '/api/work/goal') {
+    if (request.method !== 'GET') return Response.json({ok:false,code:'METHOD_NOT_ALLOWED'}, {status:405});
+    const id = String(url.searchParams.get('id') || '');
+    if (!/^mel-goal-[0-9a-f]{32}$/.test(id)) return Response.json({ok:false,code:'MEL_GOAL_ID_INVALID'}, {status:400});
+    try {
+      const runtime = createGen2Runtime({env});
+      const context = busContext(env, request);
+      const status = await runtime.bus.execute('work.status', {id}, context);
+      const data = await runtime.bus.execute('work.artifacts', {id}, context);
+      const all = (Array.isArray(data?.artifacts) ? data.artifacts : [])
+        .filter(row => row?.artifact?.kind === 'work_draft_section')
+        .map(row => ({step:String(row.node_id || ''),text:String(row.artifact.text || '').slice(0, 12000)}));
+      const offset = Math.max(0, Math.min(all.length, Number(url.searchParams.get('offset')) || 0));
+      const limit = Math.max(1, Math.min(10, Number(url.searchParams.get('limit')) || 5));
+      const sections = all.slice(offset, offset + limit);
+      return Response.json({
+        ok:true,id,status:status.status,complete_cycle:status.completed === true,
+        blocked:status.blocked === true,node_counts:status.node_counts,
+        total_sections:all.length,offset,sections,
+        next_offset: offset + sections.length < all.length ? offset + sections.length : null,
+      }, {headers:{'cache-control':'no-store'}});
+    } catch (error) {
+      return Response.json({ok:false,code:String(error?.code || error?.message || 'MEL_GOAL_READ_FAILED').slice(0, 140)}, {status:503});
+    }
+  }
 
   if (request.method === 'GET' && url.pathname === '/api/work/health') {
     return Response.json({

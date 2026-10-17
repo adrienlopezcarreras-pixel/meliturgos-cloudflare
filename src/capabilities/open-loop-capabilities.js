@@ -124,7 +124,7 @@ export function registerOpenLoopCapabilities(bus, { env } = {}) {
             metadata: { ...(loop.metadata || {}), resume_reason: 'WORK_DAG_ID_MISSING' },
           };
         }
-        const result = await bus.execute('work.run', { id: workDagId }, context);
+        const result = await bus.execute('work.run', { id: workDagId, maxSteps: 1 }, context);
         const workStatus = String(result?.status || '').toUpperCase();
         const completed = workStatus === 'COMPLETED';
         const blocked = workStatus === 'BLOCKED';

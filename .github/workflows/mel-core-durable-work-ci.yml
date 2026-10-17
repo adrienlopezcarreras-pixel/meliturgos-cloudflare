@@ -1,0 +1,38 @@
+name: MEL Core durable work CI
+
+on:
+  pull_request:
+    paths:
+      - 'src/api/native-chat.js'
+      - 'src/work/mel-general-kickoff.js'
+      - 'src/work/work-dag.js'
+      - 'src/capabilities/work-capabilities.js'
+      - 'src/capabilities/open-loop-capabilities.js'
+      - 'src/index.js'
+      - 'src/pages/full-interface-v2.js'
+      - 'tests/mel-general-durable-work.test.mjs'
+      - '.github/workflows/mel-core-durable-work-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  durable-work:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Verify syntax and imports
+        run: npm run check
+      - name: Validate persistent task creation and bounded resume
+        run: node --test tests/mel-general-durable-work.test.mjs
+      - name: Validate existing Work DAG contracts
+        run: node --test tests/mel-work-kickoff.test.mjs
+      - name: Full regression suite
+        run: npm test

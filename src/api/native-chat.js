@@ -21,6 +21,7 @@ import { MEL_RUNTIME_OPERATING_EXPERIENCE } from '../learning/runtime-operating-
 import { stripInternalCounters } from './chat-sanitization.js';
 import { formatPersonalProfileRecall, retrieveContext, retrievePersonalProfileContext } from '../core/orchestrator/conversation-context.js';
 import { isMelWorkKickoff, startMelWorkKickoff } from '../work/mel-work-kickoff.js';
+import { isSubstantialMelTask, findMelWorkReference, launchSubstantialMelTask, getSubstantialMelStatus } from '../work/mel-general-kickoff.js';
 import { formatVerifiedSelfStateResponse, formatVerifiedCapabilityAuditResponse, formatCommunicationAuditResponse, formatVerifiedAutonomyActivityResponse, formatVerifiedDevBridgeStatusResponse, formatVerifiedAutonomyRuntimeResponse } from './response-grounding.js';
 import { buildResponseQualityInstruction, finalizeEvidenceAlignedResponse, inferResponseMode } from './response-quality.js';
 import { buildConversationFocusInstruction, deriveConversationFocus } from './conversation-focus.js';
@@ -1134,6 +1135,59 @@ export async function handleNativeChat(request, env, options = {}) {
         timestamp: m.timestamp || null,
       }));
     } catch { recent = []; }
+  }
+
+  // General large-work path: archive a durable job and return before a
+  // 90-second browser timeout. A bounded step runs in waitUntil, while the
+  // existing cron/open-loop mechanism resumes remaining checkpoints.
+  if (!releaseSmoke && !body.capability?.id && inputSource === 'text') {
+    const refId = findMelWorkReference(text, recent);
+    const goalRequested = !refId && isSubstantialMelTask(text);
+    if (refId || goalRequested) {
+      const workContext = nativeCapabilityContext(env, request, options);
+      let outcome;
+      if (refId) {
+        try {
+          outcome = {ok: true, ...(await getSubstantialMelStatus({bus: runtime.bus, id: refId, context: workContext}))};
+          if (/^(?:reprends?|continue|poursuis)/i.test(text.trim()) && !outcome.complete_cycle && !outcome.blocked && typeof workContext.waitUntil === 'function') {
+            workContext.waitUntil(runtime.bus.execute('work.run', {id: refId, maxSteps: 1}, workContext)
+              .catch(error => console.error('[MEL large job] resume request failed', String(error?.code || error?.message || 'UNKNOWN'))));
+            outcome.resume_requested = true;
+          }
+        } catch (error) {
+          outcome = {ok: false, id: refId, code: String(error?.code || error?.message || 'MEL_WORK_STATUS_FAILED')};
+        }
+      } else {
+        outcome = await launchSubstantialMelTask({bus: runtime.bus, text, conversationId, context: workContext});
+      }
+      const count = Number(outcome.completed_steps || 0);
+      const lastSection = Array.isArray(outcome.sections) ? outcome.sections.at(-1) : null;
+      const responseText = outcome.ok
+        ? [
+            'MEL — travail persistant ' + outcome.id,
+            'État observé : ' + String(outcome.status || 'ENREGISTRÉ')
+              + '. Étapes vérifiées : ' + count + '; étapes restantes : ' + Number(outcome.remaining_steps || 0) + '.',
+            outcome.started ? 'Le premier cycle d’exécution a été programmé en arrière-plan ; son résultat doit encore être vérifié.' :
+              outcome.resume_requested ? 'Une reprise de l’étape suivante a été demandée.' :
+              outcome.created ? 'Le travail est enregistré et attend sa prochaine reprise.' : 'Résultats relus depuis le travail persistant.',
+            lastSection ? 'Dernière production enregistrée :\n' + String(lastSection.text || '').slice(0, 1600) : 'Les productions apparaîtront au fur et à mesure des étapes terminées.',
+            'Résultats complets : /api/work/goal?id=' + outcome.id,
+            'Aucun achat, publication, contrôle du PC ou modification externe n’est implicitement autorisé. Le statut COMPLETED concerne le cycle enregistré, pas nécessairement la totalité du projet.'
+          ].join('\n\n')
+        : 'MEL n’a pas pu lancer ou lire ce travail : ' + String(outcome.code || 'UNKNOWN') + '. Référence : ' + (outcome.id || 'indisponible') + '.';
+      let archiveSaved = false;
+      if (service) {
+        try {
+          await service.archiveMessage({conversationId, deviceId, role:'user', content:text, timestamp:Date.now(), provenance:userProvenance, metadata:userMetadata});
+          await service.archiveMessage({conversationId, deviceId, role:'assistant', content:responseText, timestamp:Date.now()+1, provenance:'native-chat:durable-goal', metadata:{work_id:outcome.id || null,status:outcome.status || null}});
+          archiveSaved = true;
+        } catch {}
+      }
+      return Response.json({
+        ok:outcome.ok, text:responseText, model:'mel-durable-work',
+        provider:'mel', response_mode:'durable-work', work:outcome, archive_saved:archiveSaved,
+      }, {status:outcome.ok ? 202 : 503, headers:{'cache-control':'no-store'}});
+    }
   }
 
   const persistedFocus = releaseSmoke ? null : await loadConversationFocusState(env, conversationId);
