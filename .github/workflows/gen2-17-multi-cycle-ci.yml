@@ -36,12 +36,24 @@ jobs:
         run: node scripts/runtime-security-gate.mjs
       - name: Evolution syntax
         run: >
+          node --check src/evolution/chat-intent.js &&
+          node --check src/evolution/semantic-intent.js &&
           node --check src/evolution/autonomy-runtime.js &&
           node --check src/evolution/autonomy-supervisor.js &&
           node --check src/evolution/evolution-proof-runner.js &&
           node --check src/evolution/release-launch-bootstrap.js &&
           node --check src/security/github-actions-oidc.js &&
           node --check src/evaluation/capability-watch-runtime.js
+      - name: Chat direct-path and explicit-action regressions
+        run: >
+          node --test
+          tests/evolution-chat-intent.test.mjs
+          tests/chat-intent-development.test.mjs
+          tests/autonomy-chat-intent.test.mjs
+          tests/capability-chat-routing.test.mjs
+          tests/self-state-introspection.test.mjs
+          tests/chat-gap-development-routing.test.mjs
+          tests/evolution-chat-gap-e2e.test.mjs
       - name: Targeted supervised autonomy proof
         run: >
           node --test
