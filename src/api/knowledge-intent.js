@@ -1,3 +1,4 @@
+import { privateConnectedDataRequest } from './connected-data-intent.js';
 function clean(value, limit=4000){
   return String(value||'').replace(/\s+/g,' ').trim().slice(0,limit);
 }
@@ -31,6 +32,8 @@ function fileCreate(value){
 export function inferKnowledgeCapability(text){
   const value=clean(text,4000);
   if(!value)return null;
+  // Personal connected data (mails, agenda, tasks, files) goes to the owner's connectors.
+  if(privateConnectedDataRequest(value))return null;
   const normalized=normalize(value);
   const explicitWeb=/\b(?:internet|web|sources?\s+(?:fiables|officielles?|r[eé]centes?|multiples))\b/i.test(value);
   const codeTarget=/\b(?:ton\s+code|code\s+source|repo|repository|github|branche|branch|commit|src\/|tests\/|\.github\/)\b/i.test(value);
