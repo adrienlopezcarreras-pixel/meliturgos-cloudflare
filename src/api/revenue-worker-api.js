@@ -38,9 +38,19 @@ export function normalizeRevenueTasks(payload, nowMs = Date.now()) {
 
 export async function handleRevenueApi(request, env) {
   const url = new URL(request.url);
-  if (url.pathname !== '/api/revenue/tasks' && url.pathname !== '/api/revenue/taskmarket-pc-status' && url.pathname !== '/api/revenue/drafts' && url.pathname !== '/api/revenue/draft-cycle') return null;
+  if (url.pathname !== '/api/revenue/tasks' && url.pathname !== '/api/revenue/taskmarket-pc-status' && url.pathname !== '/api/revenue/drafts' && url.pathname !== '/api/revenue/draft-cycle' && url.pathname !== '/api/revenue/draft-readiness') return null;
   const auth = requireAuth(request, env);
   if (!auth.ok) return auth.response;
+  if (url.pathname === '/api/revenue/draft-readiness') {
+    if(request.method!=='GET')return json({ok:false,code:'METHOD_NOT_ALLOWED'},405);
+    let trustedFixtureCount=0;
+    try{
+      const fixtures=JSON.parse(env?.MEL_WORK_TRUSTED_ACCEPTANCE_JSON||'null');
+      if(record(fixtures)&&Object.keys(fixtures).length<=20)
+        trustedFixtureCount=Object.values(fixtures).filter(item=>record(item)&&typeof item.expectedJson==='string'&&/^[a-f0-9]{64}$/i.test(String(item.sha256||''))).length;
+    }catch{}
+    return json({ok:true,d1Ready:typeof env?.DB?.prepare==='function',trustedFixtureCount,ready:typeof env?.DB?.prepare==='function'&&trustedFixtureCount>0,executionMode:'DRAFT_ONLY',canClaim:false,canSubmit:false});
+  }
   if (url.pathname === '/api/revenue/draft-cycle') {
     if(request.method!=='POST')return json({ok:false,code:'METHOD_NOT_ALLOWED'},405);
     // A trusted oracle must originate in the server environment, never in browser input.

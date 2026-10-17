@@ -377,3 +377,19 @@ test('MEL WORK draft-cycle button exists without claim or submit routes',async()
  assert.match(html,/api\/revenue\/draft-cycle/);
  assert.doesNotMatch(html,/\/api\/revenue\/taskmarket-submit/);
 });
+
+test('draft readiness reflects real server bindings without exposing acceptance answers',async()=>{
+ const url='https://mel.test/api/revenue/draft-readiness';
+ const env={MELITURGOS_USER:'adrien',MELITURGOS_PASSWORD:'test',DB:{prepare(){}}};
+ const headers={authorization:'Basic '+Buffer.from('adrien:test').toString('base64')};
+ const unauth=await handleRevenueApi(new Request(url),env);
+ assert.notEqual(unauth.status,200);
+ const empty=await (await handleRevenueApi(new Request(url,{headers}),env)).json();
+ assert.equal(empty.ready,false);
+ assert.equal(empty.d1Ready,true);
+ env.MEL_WORK_TRUSTED_ACCEPTANCE_JSON=JSON.stringify({sample:{expectedJson:'{"answer":1}',sha256:'f'.repeat(64)}});
+ const ready=await (await handleRevenueApi(new Request(url,{headers}),env)).json();
+ assert.equal(ready.ready,true);
+ assert.equal(ready.canSubmit,false);
+ assert.equal(JSON.stringify(ready).includes('"answer"'),false);
+});
