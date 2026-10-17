@@ -56,21 +56,43 @@ export const MEL_OPERATING_MANUAL = Object.freeze({
   ])
 });
 
+const CAPABILITY_STATUS_SHORT = Object.freeze({
+  EXISTANT_ET_TESTE: 'ET', EXISTANT_NON_TESTE: 'NT', PARTIEL: 'P', BLOCKED: 'B', BLOCKED_EXTERNAL: 'BX', BLOCKED_HUMAN: 'BH', ABSENT: 'A',
+});
+
+/**
+ * One compact line per capability domain instead of the full JSON manifest.
+ * The full manifest (≈60 000 characters for 165 capabilities) was copied into
+ * every chat prompt, exceeding the context window of the fast models and making
+ * each reply cost ~28 000 tokens. Details stay available through the
+ * deterministic capability-status route and through TOOL_RESULTs.
+ */
+export function summarizeCapabilityManifest(capabilityManifest = []) {
+  const rows = Array.isArray(capabilityManifest) ? capabilityManifest : [];
+  const groups = new Map();
+  for (const row of rows) {
+    const id = String(row?.id || '').trim();
+    if (!id) continue;
+    const domain = String(row?.category || id.split('.')[0] || 'autre').slice(0, 40);
+    const status = String(row?.status || row?.implementation_status || '').toUpperCase();
+    const flags = [CAPABILITY_STATUS_SHORT[status] || status.slice(0, 3) || '?'];
+    if (row?.enabled === false) flags.push('off');
+    const health = String(row?.health || '').toUpperCase();
+    if (health && health !== 'HEALTHY') flags.push(health.toLowerCase().slice(0, 9));
+    if (row?.tested_now === true) flags.push('testé-maintenant');
+    if (!groups.has(domain)) groups.set(domain, []);
+    groups.get(domain).push(id + '[' + flags.join(',') + ']');
+  }
+  const lines = [...groups.entries()].map(([domain, list]) => domain + ': ' + list.join(' '));
+  return [
+    rows.length + ' capacités. Légende : ET=existant et testé, NT=existant non testé, P=partiel, B=bloqué ; off=désactivée.',
+    ...lines,
+  ].join('\n');
+}
+
 export function buildMelOperatingManualPrompt({ capabilityManifest = [], experience = [] } = {}) {
   const caps = Array.isArray(capabilityManifest) ? capabilityManifest : [];
   const exp = Array.isArray(experience) ? experience : [];
-  const compactCaps = caps.slice(0, 96).map(row => ({
-    id: row?.id,
-    status: row?.status,
-    implementation_status: row?.implementation_status || null,
-    health: row?.health,
-    enabled: row?.enabled !== false,
-    provider: row?.provider || null,
-    risk: row?.risk || null,
-    permissions: Array.isArray(row?.permissions) ? row.permissions.slice(0, 8) : [],
-    tested_now: row?.tested_now === true,
-    last_execution: row?.last_execution || null,
-  }));
   const compactExperience = exp.slice(0, 12).map(row => ({
     id: row?.id,
     rule: row?.after || row?.lesson || row?.rationale || '',
@@ -87,7 +109,8 @@ export function buildMelOperatingManualPrompt({ capabilityManifest = [], experie
     ...MEL_OPERATING_MANUAL.canDoConditionally.map(x => '- ' + x),
     'CE QUE JE DOIS TOUJOURS FAIRE:',
     ...MEL_OPERATING_MANUAL.mustAlways.map(x => '- ' + x),
-    'CAPACITÉS RUNTIME ACTUELLES: ' + JSON.stringify(compactCaps),
+    'CAPACITÉS RUNTIME ACTUELLES (résumé ; détail via la route capacités ou un TOOL_RESULT):',
+    summarizeCapabilityManifest(caps),
     'EXPÉRIENCE RELUE POUR CETTE REQUÊTE: ' + JSON.stringify(compactExperience),
     '[/MEL_OPERATING_MANUAL]'
   ].join('\n');

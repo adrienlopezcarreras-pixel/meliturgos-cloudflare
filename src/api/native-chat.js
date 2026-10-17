@@ -1565,7 +1565,9 @@ export async function handleNativeChat(request, env, options = {}) {
   const personalProfileFallback = personalProfileIntent
     ? formatPersonalProfileRecall(personalProfile, { maxFacts: 10 })
     : '';
-  const manifestText = JSON.stringify(capabilityManifest);
+  // The compact summary already lives once in the operating manual. The full JSON
+  // manifest was previously repeated here and made every prompt ~90 000 characters.
+  const manifestText = 'résumé unique dans CAPACITÉS RUNTIME ACTUELLES (MEL_OPERATING_MANUAL) ; ' + (Array.isArray(capabilityManifest) ? capabilityManifest.length : 0) + ' capacités';
   const operationalExperience = await loadOperationalExperience(env, activeTaskText);
   const codeAccess = codeAccessTruth(capabilityManifest);
   const operatingManual = buildMelOperatingManualPrompt({ capabilityManifest, experience: operationalExperience });
