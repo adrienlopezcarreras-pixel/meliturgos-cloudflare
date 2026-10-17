@@ -55,6 +55,16 @@ export class D1WorkDagStore {
     this.db = db;
     this.dagId = String(dagId);
     this.ready = null;
+    this.runLease = null;
+  }
+
+  // Bound only to the Work runner that acquired the D1 execution lease.
+  // Unrelated read-only status and legitimate teacher writes stay unchanged.
+  bindRunLease(lease) {
+    if (!lease || lease.dagId !== this.dagId || !String(lease.token || '').trim()) {
+      throw workError('WORK_DAG_LEASE_ID_MISMATCH');
+    }
+    this.runLease = { dagId: this.dagId, token: lease.token };
   }
 
   async init() {
@@ -115,6 +125,22 @@ export class D1WorkDagStore {
     const serialized = JSON.stringify(signed);
     if (new TextEncoder().encode(serialized).length > MAX_RECORD_BYTES) {
       throw workError('WORK_DAG_STORE_RECORD_TOO_LARGE');
+    }
+    if (this.runLease) {
+      // One conditional D1 statement proves lease ownership *at the instant
+      // of persistence*. An expired worker can never overwrite a successor.
+      const result = await this.db.prepare(`UPDATE work_dags SET
+        job_id=?, status=?, record_json=?, updated_at=?
+        WHERE id=? AND EXISTS (
+          SELECT 1 FROM work_dag_run_leases
+          WHERE dag_id=? AND lease_token=? AND lease_until>?
+        )`)
+        .bind(signed.job_id, signed.status, serialized, Number(signed.updated_at || Date.now()),
+          signed.id, signed.id, this.runLease.token, Date.now())
+        .run();
+      const changes = Number(result?.meta?.changes);
+      if (changes !== 1) throw workError('WORK_DAG_LEASE_LOST');
+      return signed;
     }
     await this.db.prepare(`INSERT INTO work_dags(id,job_id,status,record_json,created_at,updated_at)
       VALUES(?,?,?,?,?,?)
