@@ -44,6 +44,7 @@ $escapedEngine = [regex]::Escape($installedEngine)
 $engines = @(Get-CimInstance Win32_Process -Filter "Name = 'powershell.exe'" |
   Where-Object { $_.ProcessId -ne $PID -and [string]$_.CommandLine -match $escapedEngine -and [string]$_.CommandLine -match '(?i)(?:^|\s)-Run(?:\s|$)' })
 foreach ($process in $engines) { Stop-Process -Id $process.ProcessId -Force -ErrorAction Stop }
+$started = $null
 try {
   # The native executable already implements InstallFiles(): it installs itself,
   # installs its embedded PowerShell engine, and starts the supervised process.
@@ -57,11 +58,23 @@ try {
   }
   Write-Host 'Companion natif mis a jour et demarre. Controlez son etat dans MEL.'
 } catch {
+  # The new packaged process may still hold the installed EXE open. Stop it
+  # before restoring, and retain the original failure even if rollback fails.
+  $upgradeError = $_
+  try {
+    if ($null -ne $started -and -not $started.HasExited) {
+      Stop-Process -Id $started.Id -Force -ErrorAction Stop
+      $started.WaitForExit(5000) | Out-Null
+    }
+    $newInstalled = @(Get-CimInstance Win32_Process -Filter "Name = 'MEL-Companion.exe'" |
+      Where-Object { $_.ExecutablePath -and [string]::Equals([string]$_.ExecutablePath,$exePath,[StringComparison]::OrdinalIgnoreCase) })
+    foreach ($process in $newInstalled) { Stop-Process -Id $process.ProcessId -Force -ErrorAction Stop }
+  } catch { Write-Warning "COMPANION_ROLLBACK_PROCESS_STOP_FAILED:$($_.Exception.Message)" }
   # Restore installed native binary and script before restarting the previous UI.
   Copy-Item -LiteralPath $backupExe -Destination $installedExe -Force
   if (Test-Path -LiteralPath $backupEngine -PathType Leaf) {
     Copy-Item -LiteralPath $backupEngine -Destination $installedEngine -Force
   }
   Start-Process -FilePath $installedExe | Out-Null
-  throw
+  throw $upgradeError
 }
