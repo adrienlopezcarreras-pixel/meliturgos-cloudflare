@@ -37,7 +37,8 @@ export async function readPublishedMiniFirmware(env) {
 // Single-use, 10-minute download tickets for files the Companion must fetch
 // without owner credentials (MINI firmware, Android APK). Only published device
 // files under these prefixes can ever be served.
-const TICKET_KEY_PREFIXES = ['devices/waveshare-esp32-s3-touch-lcd-3.5-c/', 'devices/android/'];
+// 'mel-work:<artifactId>' = a MEL WORK draft stored in D1, fetched by the Companion to submit it.
+const TICKET_KEY_PREFIXES = ['devices/waveshare-esp32-s3-touch-lcd-3.5-c/', 'devices/android/', 'mel-work:'];
 
 async function ticketsTable(db) {
   await db.prepare('CREATE TABLE IF NOT EXISTS device_file_tickets (ticket TEXT PRIMARY KEY, file_key TEXT NOT NULL, sha256 TEXT NOT NULL, expires_at INTEGER NOT NULL, used_at INTEGER)').run();
@@ -62,6 +63,11 @@ export async function serveDeviceFileByTicket(request, env, now = Date.now()) {
   if (claimed?.meta?.changes !== 1) return Response.json({ ok: false, code: 'DEVICE_FILE_TICKET_EXPIRED_OR_USED' }, { status: 403 });
   const row = await env.DB.prepare('SELECT file_key, sha256 FROM device_file_tickets WHERE ticket=?').bind(ticket).first();
   if (!TICKET_KEY_PREFIXES.some(prefix => row.file_key.startsWith(prefix))) return Response.json({ ok: false, code: 'DEVICE_FILE_KEY_NOT_ALLOWED' }, { status: 403 });
+  if (row.file_key.startsWith('mel-work:')) {
+    const artifact = await env.DB.prepare('SELECT content FROM mel_work_artifacts WHERE id=?').bind(row.file_key.slice(9)).first();
+    if (!artifact) return Response.json({ ok: false, code: 'DEVICE_FILE_NOT_FOUND' }, { status: 404 });
+    return new Response(artifact.content, { headers: { 'content-type': 'text/markdown; charset=utf-8', 'cache-control': 'no-store', 'x-mel-sha256': row.sha256 } });
+  }
   const object = await env.MEDIA_BUCKET?.get(row.file_key);
   if (!object) return Response.json({ ok: false, code: 'DEVICE_FILE_NOT_FOUND' }, { status: 404 });
   return new Response(object.body, { headers: { 'content-type': 'application/octet-stream', 'content-length': String(object.size), 'cache-control': 'no-store', 'x-mel-sha256': row.sha256 } });

@@ -176,7 +176,7 @@ export function streamDirectWork({ env, fetchImpl = fetch, now = () => Date.now(
           return;
         }
         const mission = current || byId.get(result.missionId) || {};
-        const full = { ...result, title: title(mission), reward: usdc(mission.reward), competitors: Number(mission.submissionCount || 0), expiryTime: mission.expiryTime || null };
+        const full = { ...result, title: title(mission), reward: usdc(mission.reward), competitors: Number(mission.submissionCount || 0), expiryTime: mission.expiryTime || null, mode: mission.mode || null };
         step(result.reused ? 'Brouillon déjà prêt pour cette mission, je le réaffiche.' : 'Brouillon enregistré. À toi de relire, valider, puis publier toi-même sur Taskmarket.');
         await recordCycle(env.DB, cycleId, 'COMPLETE', full);
         send({ type: 'done', cycleId, result: full });
