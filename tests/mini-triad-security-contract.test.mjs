@@ -194,3 +194,31 @@ test('Android ignores delayed BLE scan callbacks after scan stop or a live GATT 
   assert.ok(failure.indexOf('if (!scanActive || gatt != null) return') < failure.indexOf('scheduleReconnect()'));
   assert.match(source, /private fun stopScan\(\) \{[\s\S]*?scanActive = false/);
 });
+
+test('Android never sends old AUDIO_DATA or AUDIO_END to a reconnected MINI after credit release', async () => {
+  const client = await read('android-companion/app/src/main/java/fr/veriteinterdite/mel/MelLinkV2ClientService.kt');
+  const audio = client.slice(client.indexOf('private fun sendAudioResponse('), client.indexOf('private fun executeRequest('));
+  assert.match(audio, /val intendedGatt = gatt \?: return false/);
+  assert.match(audio, /outboundTransferActive\(streamId, credits, intendedGatt\)/);
+  assert.match(audio, /awaitOutboundCredit\(streamId, credits\)/);
+  const afterCredit = audio.slice(audio.indexOf('if (!awaitOutboundCredit('));
+  assert.ok(afterCredit.indexOf('outboundTransferActive(streamId, credits, intendedGatt)') <
+    afterCredit.indexOf('sendBulkNoResponse('), 'must check original connection after credit wakeup');
+  assert.match(audio, /MelLinkV2Protocol\.AUDIO_DATA[\s\S]*?\), intendedGatt/);
+  assert.match(audio, /MelLinkV2Protocol\.AUDIO_END[\s\S]*?\), intendedGatt/);
+  assert.match(audio, /requestBlePriority\(BluetoothGatt\.CONNECTION_PRIORITY_BALANCED, intendedGatt\)/);
+  const active = client.slice(client.indexOf('private fun outboundTransferActive('), client.indexOf('private fun awaitOutboundCredit('));
+  assert.match(active, /outboundCredits\[streamId\] === sem/);
+  assert.match(active, /!cancelledOutbound\.contains\(streamId\)/);
+  assert.match(active, /gatt === intendedGatt/);
+  assert.match(active, /miniReady\.value && protocolReady\.value/);
+  const ending = client.slice(client.indexOf('private fun endOutboundTransfer('), client.indexOf('private fun outboundTransferActive('));
+  assert.match(ending, /if \(outboundCredits\[streamId\] === sem\) \{[\s\S]*?cancelledOutbound\.remove\(streamId\)/);
+  const reset = client.slice(client.indexOf('private fun clearSession('), client.indexOf('private fun resetPhysicalLink('));
+  assert.match(reset, /outboundCredits\.values\.forEach \{ it\.release/);
+  assert.match(reset, /outboundCredits\.clear\(\)/);
+  for (const fn of ['private fun writeGattNoResponse(', 'private fun writeGattBlocking(']) {
+    const writer = client.slice(client.indexOf(fn), client.indexOf(fn) + 450);
+    assert.match(writer, /if \(intendedGatt != null && client !== intendedGatt\) return false/);
+  }
+});
