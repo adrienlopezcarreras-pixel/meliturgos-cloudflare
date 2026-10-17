@@ -13,8 +13,15 @@ export async function executeWorkMission({db,mission,execute,verify=async()=>({p
  const current=await db.prepare('SELECT id,description,state,attempts,artifact_id FROM mel_work_missions WHERE id=?').bind(id).first();
  if(current?.description!==description)throw new Error('WORK_MISSION_ID_REUSED');
  if(current?.state==='DRAFT_READY'&&current.artifact_id){
-  const saved=await db.prepare('SELECT id,status FROM mel_work_artifacts WHERE id=?').bind(current.artifact_id).first();
-  if(saved?.id===current.artifact_id)return {artifactId:saved.id,missionId:id,status:saved.status,submitted:false,paid:false,reused:true};
+  const saved=await db.prepare('SELECT id,content,status FROM mel_work_artifacts WHERE id=?').bind(current.artifact_id).first();
+  if(saved?.id===current.artifact_id){
+   let status=saved.status;
+   if(status==='DRAFT_UNVERIFIED'){
+    let check=false;try{check=(await verify({mission,content:saved.content,artifactId:saved.id}))?.passed===true}catch{}
+    if(check){await db.prepare('UPDATE mel_work_artifacts SET status=? WHERE id=?').bind('VERIFIED_LOCALLY',saved.id).run();status='VERIFIED_LOCALLY'}
+   }
+   return {artifactId:saved.id,missionId:id,status,submitted:false,paid:false,reused:true};
+  }
  }
  await db.prepare('UPDATE mel_work_missions SET state=?,attempts=attempts+1,last_error=NULL,updated_at=? WHERE id=?').bind('RUNNING',now(),id).run();
  let response;
@@ -24,7 +31,10 @@ export async function executeWorkMission({db,mission,execute,verify=async()=>({p
   throw error;
  }
  const content=typeof response?.content==='string'?response.content:'';
- if(!content.trim()||content.length>12000)throw new Error('WORK_ARTIFACT_EMPTY');
+ if(!content.trim()||content.length>12000){
+  await db.prepare('UPDATE mel_work_missions SET state=?,last_error=?,updated_at=? WHERE id=?').bind('FAILED','WORK_ARTIFACT_EMPTY',now(),id).run();
+  throw new Error('WORK_ARTIFACT_EMPTY');
+ }
  const digest=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(id+'\n'+content));
  const artifactId='work-'+Array.from(new Uint8Array(digest),b=>b.toString(16).padStart(2,'0')).join('');
  await db.prepare('CREATE TABLE IF NOT EXISTS mel_work_artifacts (id TEXT PRIMARY KEY, mission_id TEXT NOT NULL, content TEXT NOT NULL, status TEXT NOT NULL, created_at TEXT NOT NULL)').run();
