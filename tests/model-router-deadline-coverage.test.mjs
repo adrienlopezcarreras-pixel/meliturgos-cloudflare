@@ -182,7 +182,7 @@ test('final fallback receives only providers actually invoked', async () => {
   let observed;
   const router = new ModelRouter({
     registry: { modelsByCapability: () => models, size: () => 2, list: () => models },
-    maxCalls: 2,
+    maxCalls: 1,
     invoke: async () => {
       const error = new Error('provider_unavailable');
       error.reason = 'provider_unavailable';
