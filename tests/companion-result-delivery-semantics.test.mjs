@@ -2,13 +2,17 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
-test('Windows companion retries the immutable execution outcome rather than reporting delivery as execution failure',()=>{
+test('Windows companion journals a single encrypted terminal outcome and replays it before claiming more work',()=>{
  const ps=readFileSync(new URL('../dist/MEL-Computer-Companion.ps1',import.meta.url),'utf8');
- const fn=ps.split('function Submit-CommandResult($body) {')[1]?.split('\nfunction Process-Command')[0];
- assert.ok(fn,'result delivery must have one function');
- assert.match(fn,/for \(\$attempt=1; \$attempt -le 3; \$attempt\+\+\)/);
- assert.match(fn,/Invoke-MelJson -Path "\/api\/computer\/v1\/result"/);
- assert.match(fn,/MEL_RESULT_DELIVERY_UNCONFIRMED/);
+ assert.match(ps,/ProtectedData]::Protect/);
+ assert.match(ps,/ProtectedData]::Unprotect/);
+ assert.match(ps,/function Save-CommandResult\(\$body\)/);
+ assert.match(ps,/function Flush-CommandResult/);
+ const flush=ps.split('function Flush-CommandResult {')[1]?.split('\nfunction Submit-CommandResult')[0];
+ assert.ok(flush);
+ assert.match(flush,/Invoke-MelJson -Path "\/api\/computer\/v1\/result"/);
+ assert.match(flush,/File]::Delete\(\$script:ResultJournal\)/);
+ assert.match(ps,/if \(-not \(Flush-CommandResult\)\) \{ Start-Sleep -Seconds 2; continue \}/);
  const process=ps.split('function Process-Command($command) {')[1]?.split('\n\$trayResources')[0];
  assert.ok(process);
  assert.equal((process.match(/Submit-CommandResult \$body/g)||[]).length,3);
