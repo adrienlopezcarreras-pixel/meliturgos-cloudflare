@@ -48,6 +48,11 @@ const PAIR_TTL_MS=10*60*1000;
 const MINI_ONLINE_MS=60*1000;
 const ANDROID_ONLINE_MS=35*60*1000;
 const MIN_SOVEREIGN_AI_ENGINE_VERSION="1.4.1";
+// Version of the engine served at /api/computer/v1/companion. An older engine on
+// the PC is told to refresh itself (engine_update_required). Bump it together
+// with $Version in assets/MEL-Computer-Companion.ps1 whenever the engine changes,
+// otherwise installed Companions keep the old engine forever.
+export const CURRENT_COMPANION_ENGINE_VERSION="1.5.0";
 
 function versionAtLeast(actual,required){
  const a=String(actual||"").match(/^\d+(?:\.\d+){0,3}/)?.[0]?.split(".").map(Number)||[];
@@ -641,7 +646,7 @@ async function heartbeat(request,env,a){
  const engineHeartbeatAt=Number(metadata.engine_heartbeat_at||0);
  const engineOnline=engineHeartbeatAt>0&&now-engineHeartbeatAt<35000;
  const engineVersion=safe(metadata.engine_version,80)||null;
- const engineUpdateRequired=!versionAtLeast(engineVersion,MIN_SOVEREIGN_AI_ENGINE_VERSION);
+ const engineUpdateRequired=!versionAtLeast(engineVersion,CURRENT_COMPANION_ENGINE_VERSION);
  const computeAdmission=evaluateMeasuredOptionalCompute({
    enabled:metadata.local_compute_enabled===true,
    profile:metadata.local_compute_profile||"off",online:engineOnline,
