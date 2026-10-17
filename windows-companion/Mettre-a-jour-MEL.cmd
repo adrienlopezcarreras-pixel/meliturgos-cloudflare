@@ -6,12 +6,12 @@ if not exist "Update-MEL-Computer-Companion.ps1" (
   pause
   exit /b 1
 )
-if not exist "MEL-Computer-Companion.ps1" (
-  echo ERREUR : le nouveau moteur manque dans ce dossier.
+if not exist "MEL-Companion.exe" (
+  echo ERREUR : le Companion natif manque dans ce dossier.
   pause
   exit /b 1
 )
-echo MEL Companion - mise a jour locale de ce PC
+echo MEL Companion - mise a jour native de ce PC
 echo L'identite et la configuration existantes seront conservees.
 echo Une confirmation explicite sera demandee avant tout changement.
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0Update-MEL-Computer-Companion.ps1"

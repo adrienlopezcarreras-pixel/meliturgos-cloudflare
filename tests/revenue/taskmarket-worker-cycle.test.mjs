@@ -432,8 +432,8 @@ test('direct engine skips a failed solver and persists the next eligible mission
  const {sqliteD1}=await import('../helpers/sqlite-d1.mjs');
  const calls=[];
  const res=await runDirectWork({db:sqliteD1(),listMissions:async()=>[
- {id:'first',description:'Draft one',eligibleForDraft:true},
- {id:'second',description:'Draft two',eligibleForDraft:true}],
+ {id:'first',description:'Draft the first safe report',eligibleForDraft:true},
+ {id:'second',description:'Draft the second safe report',eligibleForDraft:true}],
  assess:async()=>({eligible:true,confidenceBps:9600,requiresHuman:false,requiresPhysicalWorld:false,requiresSecrets:false,requestsUnsafeAction:false}),
  execute:async(_,m)=>{calls.push(m.id);if(m.id==='first')throw new Error('WORK_SOLVER_OUTPUT_INVALID');return {content:'completed second job'};}});
  assert.deepEqual(calls,['first','second']);
