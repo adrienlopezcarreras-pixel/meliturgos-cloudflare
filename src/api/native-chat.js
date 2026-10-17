@@ -2163,7 +2163,6 @@ export async function handleNativeChat(request, env, options = {}) {
     active_theme: theme,
     input_source: inputSource,
     capability_used: capabilitiesUsed,
-    capability_manifest: capabilityManifest,
     tool_results: toolResults,
     display: buildCompanionDisplay(toolResults),
     development_job: developmentQueued ? {

@@ -116,6 +116,38 @@ test('full mode page ships the streaming client and still parses', async () => {
   const html = await (await fullMode({ request: new Request('https://mel.example/full'), env: {} })).text();
   assert.match(html, /async function melChatFetch\(/);
   assert.match(html, /await melChatFetch\(\{text,/);
+  assert.match(html, /function melRenderTrace\(/);
   const main = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map(m => m[1]).find(src => src.includes('melChatFetch'));
   assert.doesNotThrow(() => new vm.Script(main));
+});
+
+test('« Ce que j’ai fait » only reports what the server returned', async () => {
+  const { melTraceModel } = await import('../src/pages/mel-chat-trace.js');
+  const trace = melTraceModel({
+    model: '@cf/meta/llama-3.3-70b-instruct-fp8-fast', elapsed_ms: 3400, archive_saved: true,
+    tool_results: [{ capability: 'code.read', status: 'SUCCEEDED' }, { capability: 'web.research', status: 'FAILED', error: 'WEB_TIMEOUT' }],
+    computer_command: { command_id: 'cmd-1' },
+  });
+  assert.equal(trace.summary, '1 action réussie, 1 en échec · llama-3.3-70b-instruct-fp8-fast · 3,4 s');
+  assert.deepEqual(trace.steps.map(s => s.icon + s.label + s.detail), ['✓code.read', '✗web.researchWEB_TIMEOUT']);
+  assert.deepEqual(trace.outputs, ['Commande PC cmd-1']);
+  assert.ok(trace.notes.includes('enregistrée dans la conversation'));
+  const direct = melTraceModel({ model: '@cf/google/gemma-4-26b-a4b-it', streamed: true, response_truncated: true });
+  assert.equal(direct.summary, 'réponse directe · gemma-4-26b-a4b-it');
+  assert.ok(direct.notes.includes('réponse tronquée'));
+  assert.ok(!direct.notes.includes('enregistrée dans la conversation'), 'no claim without archive proof');
+});
+
+test('chat JSON no longer ships the full capability manifest to the browser', async () => {
+  const DB = sqliteD1();
+  try {
+    const response = await handleNativeChat(new Request('https://mel.example/api/chat', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ text: 'explique les abeilles', conversation_id: 'trace-1', use_companion_compute: false }),
+    }), { DB, AI: { async run() { return { response: 'Les abeilles butinent.' }; } } }, { authorized: true });
+    const payload = await response.json();
+    assert.equal('capability_manifest' in payload, false);
+  } finally {
+    DB.close();
+  }
 });

@@ -18,6 +18,7 @@ export function melParseNdjsonLines(buffer) {
 }
 
 async function melChatFetch(payload, { firstByteMs = 90000, idleMs = 45000 } = {}) {
+  const startedAt = Date.now();
   const controller = new AbortController();
   let timer = setTimeout(() => controller.abort(), firstByteMs);
   const bump = () => { clearTimeout(timer); timer = setTimeout(() => controller.abort(), idleMs); };
@@ -40,6 +41,7 @@ async function melChatFetch(payload, { firstByteMs = 90000, idleMs = 45000 } = {
       let data;
       try { data = raw ? JSON.parse(raw) : {}; } catch { throw Error('Réponse serveur invalide'); }
       if (!response.ok) throw Error(typeof apiErrorMessage === 'function' ? apiErrorMessage(data, response.status) : 'HTTP ' + response.status);
+      if (data && typeof data === 'object') data.elapsed_ms = Date.now() - startedAt;
       return data;
     } catch (error) {
       throw error?.name === 'AbortError' ? Error('Réponse serveur trop lente') : error;
@@ -94,7 +96,7 @@ async function melChatFetch(payload, { firstByteMs = 90000, idleMs = 45000 } = {
     note.textContent = 'Réponse interrompue : ' + String(failure.code || 'STREAM_FAILED') + (meta.archived ? '' : ' · partie reçue conservée');
     bubble.appendChild(note);
   }
-  return { ok: !failure, text, model: meta.model || null, streamed: true, archived: meta.archived === true, response_truncated: meta.truncated === true };
+  return { ok: !failure, text, model: meta.model || null, streamed: true, archive_saved: meta.archived === true, response_truncated: meta.truncated === true, elapsed_ms: Date.now() - startedAt, stream_error: failure ? String(failure.code || 'STREAM_FAILED') : null };
 }
 
 export const MEL_CHAT_STREAM_SOURCE = [melParseNdjsonLines, melChatFetch].map(fn => fn.toString()).join('\n') + '\n';
