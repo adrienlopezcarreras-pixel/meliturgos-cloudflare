@@ -1,6 +1,7 @@
 import { listD1ValidatedDrafts } from '../revenue/taskmarket-worker-cycle.js';
 import { streamDirectWork } from '../revenue/work-stream.js';
 import { readRevenueWatch } from '../revenue/revenue-watch.js';
+import { listTaskmarketSubmissions } from '../revenue/taskmarket-autosubmit.js';
 import { requireAuth } from '../core/security.js';
 import { maybeHandleComputerApi } from '../devices/computer-companion-api.js';
 
@@ -40,9 +41,15 @@ export function normalizeRevenueTasks(payload, nowMs = Date.now()) {
 
 export async function handleRevenueApi(request, env, ctx = null) {
   const url = new URL(request.url);
-  if (url.pathname !== '/api/revenue/watch' && url.pathname !== '/api/revenue/tasks' && url.pathname !== '/api/revenue/taskmarket-pc-status' && url.pathname !== '/api/revenue/drafts' && url.pathname !== '/api/revenue/direct-work' && url.pathname !== '/api/revenue/direct-work/decision') return null;
+  if (url.pathname !== '/api/revenue/submissions' && url.pathname !== '/api/revenue/watch' && url.pathname !== '/api/revenue/tasks' && url.pathname !== '/api/revenue/taskmarket-pc-status' && url.pathname !== '/api/revenue/drafts' && url.pathname !== '/api/revenue/direct-work' && url.pathname !== '/api/revenue/direct-work/decision') return null;
   const auth = requireAuth(request, env);
   if (!auth.ok) return auth.response;
+  if (url.pathname === '/api/revenue/submissions') {
+    if (request.method !== 'GET') return json({ ok: false, code: 'METHOD_NOT_ALLOWED' }, 405);
+    if (typeof env?.DB?.prepare !== 'function') return json({ ok: false, code: 'WORK_DRAFT_DB_REQUIRED' }, 503);
+    try { return json({ ok: true, submissions: await listTaskmarketSubmissions(env.DB) }); }
+    catch { return json({ ok: false, code: 'SUBMISSIONS_UNAVAILABLE' }, 503); }
+  }
   if (url.pathname === '/api/revenue/watch') {
     if (request.method !== 'GET') return json({ ok: false, code: 'METHOD_NOT_ALLOWED' }, 405);
     if (typeof env?.DB?.prepare !== 'function') return json({ ok: false, code: 'WORK_DRAFT_DB_REQUIRED' }, 503);

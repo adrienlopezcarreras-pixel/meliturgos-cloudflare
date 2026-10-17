@@ -11,7 +11,8 @@ const env = (db = sqliteD1()) => ({ DB: db, AI: { run: async () => ({}) } });
 test('runs one draft cycle at scheduled hours and reports its result', async () => {
   let runs = 0;
   const run = async () => { runs += 1; return ndjson([{ type: 'step', text: 'x' }, { type: 'done', result: { status: 'DRAFT_FOR_OWNER', artifactId: 'work-' + 'a'.repeat(64), missionId: 'm1' } }]); };
-  assert.deepEqual(await runScheduledMelWork(env(), { now: at(6), run }), { status: 'DRAFT_FOR_OWNER', artifactId: 'work-' + 'a'.repeat(64), missionId: 'm1' });
+  // A draft needing the owner (DRAFT_FOR_OWNER) on a non-bounty mission is never auto-submitted.
+  assert.deepEqual(await runScheduledMelWork(env(), { now: at(6), run }), { status: 'DRAFT_FOR_OWNER', artifactId: 'work-' + 'a'.repeat(64), missionId: 'm1', submission: 'NOT_A_BOUNTY' });
   assert.equal((await runScheduledMelWork(env(), { now: at(7), run })).status, 'NOT_SCHEDULED_HOUR');
   assert.equal(runs, 1);
 });
