@@ -40,3 +40,16 @@ internal fun miniReadiness(
         }
     )
 }
+
+/**
+ * HTTP 2xx (or a syntactically valid JSON body) is not proof of a successful,
+ * device-scoped MEL session. Fail closed unless the authenticated server ACK
+ * identifies this phone and the exact requested heartbeat phase.
+ */
+internal fun miniHeartbeatAccepted(
+    acknowledged: Boolean,
+    returnedDeviceId: String,
+    expectedDeviceId: String,
+    returnedPhase: String
+): Boolean = acknowledged && expectedDeviceId.isNotBlank() &&
+    returnedDeviceId == expectedDeviceId && returnedPhase == "MINI_LINK_V2_READY"
