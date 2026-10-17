@@ -30,3 +30,20 @@ test('computer controls verify exact command completion before claiming success'
  assert.ok(controls.includes("computerCommand([{action:'keyboard.press',key:b.dataset.pcKey}],true)"),'owner button click approves keyboard action');
  assert.ok(!controls.includes("await new Promise(r=>setTimeout(r,1500))"),'single 1.5-second sleep is not proof of execution');
 });
+
+test('chat captures are only declared verified after image load and second owner opt-in check',async()=>{
+ const page=await onRequestGet();
+ const html=await page.text();
+ const begin=html.indexOf('async function followChatComputerScreenshot(command)');
+ const end=html.indexOf('const melGoalPolls=',begin);
+ assert.ok(begin>=0&&end>begin,'follow-up routine must exist in browser bundle');
+ const fn=html.slice(begin,end);
+ assert.ok(fn.includes("if(!pc||pc.halted||pc.metadata?.remote_access_enabled!==true)"));
+ assert.ok(fn.includes('img.onload=async()=>{'));
+ assert.ok(fn.includes("cmd?.id===commandId&&cmd.status==='SUCCEEDED'"));
+ assert.ok(fn.includes("current.metadata?.remote_access_enabled!==true||!verified"));
+ assert.ok(fn.includes("state.textContent='Capture exécutée et image chargée'"));
+ assert.ok(fn.includes("state.textContent='Capture exécutée, chargement et autorisation en vérification…'"));
+ assert.ok(fn.includes("img.onerror=()=>{state.textContent='Image inaccessible ou autorisation révoquée'"));
+ assert.ok(!fn.includes("state.textContent='Capture exécutée et preuve vérifiée';return;"));
+});
