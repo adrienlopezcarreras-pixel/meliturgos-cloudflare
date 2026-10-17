@@ -8,6 +8,7 @@ on:
       - 'src/work/work-dag.js'
       - 'src/work/d1-work-run-lease.js'
       - 'src/capabilities/work-capabilities.js'
+      - 'tests/work-augmentio-goal-context.test.mjs'
       - 'src/capabilities/open-loop-capabilities.js'
       - 'src/conversations/open-loop-service.js'
       - 'tests/conversations/open-loop-capabilities.test.mjs'
@@ -44,6 +45,8 @@ jobs:
         run: node --test tests/conversations/open-loop-service.test.mjs
       - name: Verify claimed Work DAG integration with open-loop resume
         run: node --test tests/conversations/work-open-loop-integration.test.mjs
+      - name: Verify complete owner objective across durable deliverable steps
+        run: node --test tests/work-augmentio-goal-context.test.mjs
       - name: Validate persistent task creation and bounded resume
         run: node --test tests/mel-general-durable-work.test.mjs
       - name: Reject expired or superseded Work DAG checkpoint writes
