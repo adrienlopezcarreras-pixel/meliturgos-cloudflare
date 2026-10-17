@@ -408,6 +408,25 @@ async function refreshValidatedDrafts(){
   }
  }catch(error){area.textContent='Lecture des brouillons indisponible : '+String(error.message||error).slice(0,120)}
 }
+function appendOwnerDecisionButtons(area,artifactId,status){
+ if(!['DRAFT_FOR_OWNER','DRAFT_UNVERIFIED','VERIFIED_LOCALLY'].includes(status))return;
+ const row=document.createElement('div');row.className='actions';
+ for(const [decision,label] of [['approve','✓ Valider le brouillon'],['reject','✗ Refuser le brouillon']]){
+  const button=document.createElement('button');button.type='button';button.textContent=label;
+  button.onclick=async()=>{
+   for(const child of row.children)child.disabled=true;
+   try{
+    const response=await fetch('/api/revenue/direct-work/decision',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({artifactId,decision}),cache:'no-store'});
+    const result=await response.json().catch(()=>({}));
+    if(!response.ok||result.ok!==true)throw new Error(result.code||'WORK_DECISION_FAILED');
+    row.textContent='Décision enregistrée : '+result.status+'. Aucune soumission automatique.';
+    await refreshDirectArtifacts();
+   }catch(error){row.textContent='Décision non enregistrée : '+String(error.message||error)}
+  };
+  row.appendChild(button);
+ }
+ area.appendChild(row);
+}
 async function refreshDirectArtifacts(){
  const area=$('draftDiscovery');
  try{
@@ -415,50 +434,64 @@ async function refreshDirectArtifacts(){
   const data=await response.json();
   if(!response.ok||data.ok!==true)throw new Error(data.code||'WORK_LIST_FAILED');
   const items=Array.isArray(data.artifacts)?data.artifacts:[];
+  const latestResponse=await fetch('/api/revenue/direct-work?latest_cycle=1',{cache:'no-store'});
+  const latest=await latestResponse.json().catch(()=>({}));
+  const cycle=latestResponse.ok&&latest.ok===true?latest.cycle:null;
   area.replaceChildren();
-  if(!items.length){area.textContent='Aucun brouillon pour le moment.';return}
-  for(const item of items){
-   const card=document.createElement('article');card.className='task';
-   const title=document.createElement('p');title.textContent='Mission Taskmarket '+item.mission_id+' · '+item.status;card.append(title);
-   const steps=Array.isArray(item.humanSteps)?item.humanSteps:[];
-   const list=document.createElement('ul');
-   for(const step of steps){const li=document.createElement('li');li.textContent=step;list.append(li)}
-   if(steps.length){const note=document.createElement('p');note.textContent='Étapes à faire par Adrien :';card.append(note,list)}
-   const see=document.createElement('button');see.textContent='Lire le brouillon';see.onclick=async()=>{
-    const r=await fetch('/api/revenue/direct-work?artifact_id='+encodeURIComponent(item.id));const d=await r.json();
-    if(!r.ok||!d.artifact)throw new Error('WORK_ARTIFACT_READ_FAILED');
-    const pre=document.createElement('pre');pre.style.whiteSpace='pre-wrap';pre.textContent=d.artifact.content;card.append(pre);see.disabled=true;
-   };card.append(see);
-   if(item.status==='DRAFT_FOR_OWNER'){
-    for(const [label,decision] of [['✓ Valider','APPROVED'],['✗ Refuser','REJECTED']]){
-      const button=document.createElement('button');button.textContent=label;button.onclick=async()=>{
-       button.disabled=true;
-       try{const r=await fetch('/api/revenue/drafts/'+encodeURIComponent(item.id)+'/decision',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({decision})});const d=await r.json();if(!r.ok||!d.ok)throw new Error(d.code||'DECISION_FAILED');await refreshDirectArtifacts()}catch(e){button.disabled=false;area.dataset.error=String(e.message||e)}
-      };card.append(button);
-    }
-   }
-   area.append(card);
+  const info=document.createElement('div');
+  info.textContent='Brouillons MEL WORK enregistrés : '+items.length+' · '+items.slice(0,3).map(x=>String(x.mission_id)+' ('+String(x.status)+')').join(', ')+(cycle?' · Dernier cycle : '+String(cycle.status):'');
+  area.appendChild(info);
+  const artifactId=String(cycle?.result?.artifactId||'');
+  if(/^work-[a-f0-9]{64}$/.test(artifactId)){
+    const button=document.createElement('button');button.type='button';button.textContent='Consulter le dernier livrable';
+    button.onclick=async()=>{
+      const response=await fetch('/api/revenue/direct-work?artifact_id='+encodeURIComponent(artifactId),{cache:'no-store'});
+      const data=await response.json().catch(()=>({}));
+      if(!response.ok||!data.artifact)throw new Error('WORK_ARTIFACT_READBACK_FAILED');
+      const display=document.createElement('pre');display.style.whiteSpace='pre-wrap';display.style.overflowWrap='anywhere';
+      const steps=Array.isArray(data.artifact.humanSteps)?data.artifact.humanSteps:[];
+      display.textContent='Mission Taskmarket : '+String(data.artifact.mission_id||'')+String.fromCharCode(10)+'Statut : '+String(data.artifact.status||'')+String.fromCharCode(10)+'Étapes à faire : '+(steps.length?steps.join(' ; '):'Vérifier avant toute publication.')+String.fromCharCode(10,10)+String(data.artifact.content||'');
+      const area=$('draftList');area.replaceChildren(display);
+      appendOwnerDecisionButtons(area,artifactId,data.artifact.status);
+    };area.appendChild(button);
   }
- }catch(e){area.textContent='Brouillons indisponibles : '+String(e.message||e).slice(0,120)}
+ }catch(e){area.textContent='Brouillons directs indisponibles : '+String(e.message||e).slice(0,100)}
 }
 $('runDraftCycle').onclick=async()=>{
  const button=$('runDraftCycle');button.disabled=true;
- const area=$('draftList');area.textContent='Cycle MEL WORK lancé en arrière-plan…';
+ const area=$('draftList');area.textContent='MEL WORK crée un brouillon, sans soumission ni paiement.';
  try{
   const response=await fetch('/api/revenue/direct-work',{method:'POST',cache:'no-store'});
   const data=await response.json().catch(()=>({}));
-  if(!response.ok||!data.ok||!data.cycleId)throw new Error(data.code||'WORK_CYCLE_FAILED');
-  area.textContent='Cycle '+data.cycleId+' · en cours. Tu peux laisser cette page ouverte.';
-  const poll=async()=>{
-   const r=await fetch('/api/revenue/direct-work?cycle_id='+encodeURIComponent(data.cycleId),{cache:'no-store'});
-   const d=await r.json();if(!r.ok||!d.ok)throw new Error(d.code||'WORK_CYCLE_READ_FAILED');
-   const state=d.cycle.state;
-   area.textContent='Cycle MEL WORK : '+state+(d.cycle.error?' · '+d.cycle.error:'');
-   await refreshDirectArtifacts();
-   if(state==='RUNNING')setTimeout(poll,4000);else button.disabled=false;
-  };
-  await poll();
- }catch(e){area.textContent='Cycle non démarré : '+String(e.message||e).slice(0,140);button.disabled=false}
+  if(!response.ok||data.ok!==true)throw new Error(data.code||'WORK_DIRECT_EXECUTION_FAILED');
+  let outcome=data;
+  if(data.cycleId){
+    area.textContent='Cycle MEL WORK enregistré : '+String(data.cycleId)+'. Exécution en cours…';
+    for(let attempt=0;attempt<45;attempt++){
+      await new Promise(resolve=>setTimeout(resolve,2000));
+      const poll=await fetch('/api/revenue/direct-work?cycle_id='+encodeURIComponent(data.cycleId),{cache:'no-store'});
+      const state=await poll.json().catch(()=>({}));
+      if(!poll.ok||state.ok!==true)throw new Error(state.code||'WORK_CYCLE_STATUS_UNAVAILABLE');
+      if(state.status==='RUNNING')continue;
+      if(state.status!=='COMPLETE')throw new Error(state.result?.code||state.status||'WORK_CYCLE_FAILED');
+      outcome=state;break;
+    }
+    if(outcome===data)throw new Error('WORK_STILL_RUNNING_CHECK_AGAIN');
+  }
+  const artifactId=String(outcome.result?.artifactId||'');
+  if(!/^work-[a-f0-9]{64}$/.test(artifactId))throw new Error('WORK_ARTIFACT_ID_INVALID');
+  const proofResponse=await fetch('/api/revenue/direct-work?artifact_id='+encodeURIComponent(artifactId),{cache:'no-store'});
+  const proof=await proofResponse.json().catch(()=>({}));
+  if(!proofResponse.ok||proof.artifact?.id!==artifactId)throw new Error('WORK_ARTIFACT_READBACK_FAILED');
+  area.replaceChildren();
+  const message=document.createElement('pre');message.style.whiteSpace='pre-wrap';message.style.overflowWrap='anywhere';
+  const steps=Array.isArray(proof.artifact.humanSteps)?proof.artifact.humanSteps:Array.isArray(outcome.result?.humanSteps)?outcome.result.humanSteps:[];
+  message.textContent='Mission Taskmarket : '+String(proof.artifact.mission_id||'')+'\\nStatut : '+String(outcome.result?.status||proof.artifact.status)+'\\nÉtapes humaines : '+(steps.length?steps.map((x,i)=>(i+1)+'. '+x).join(' ; '):'Vérifier le livrable avant toute publication.')+'\\nNon livré, non payé.\\n\\n'+String(proof.artifact.content||'');
+  area.appendChild(message);
+  appendOwnerDecisionButtons(area,artifactId,proof.artifact.status);
+  await refreshDirectArtifacts();
+ }catch(e){area.textContent='Préparation impossible : '+String(e.message||e).slice(0,140)}
+ finally{button.disabled=false}
 };
 refreshDirectArtifacts();
 
