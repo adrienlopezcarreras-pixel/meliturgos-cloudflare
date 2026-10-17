@@ -1,5 +1,6 @@
 import { listD1ValidatedDrafts } from '../revenue/taskmarket-worker-cycle.js';
 import { streamDirectWork } from '../revenue/work-stream.js';
+import { channelStatus, saveChannelCredential } from '../revenue/work-channels.js';
 import { readRevenueWatch } from '../revenue/revenue-watch.js';
 import { listTaskmarketSubmissions } from '../revenue/taskmarket-autosubmit.js';
 import { requireAuth } from '../core/security.js';
@@ -41,9 +42,19 @@ export function normalizeRevenueTasks(payload, nowMs = Date.now()) {
 
 export async function handleRevenueApi(request, env, ctx = null) {
   const url = new URL(request.url);
-  if (url.pathname !== '/api/revenue/submissions' && url.pathname !== '/api/revenue/watch' && url.pathname !== '/api/revenue/tasks' && url.pathname !== '/api/revenue/taskmarket-pc-status' && url.pathname !== '/api/revenue/drafts' && url.pathname !== '/api/revenue/direct-work' && url.pathname !== '/api/revenue/direct-work/decision') return null;
+  if (url.pathname !== '/api/revenue/channels' && url.pathname !== '/api/revenue/submissions' && url.pathname !== '/api/revenue/watch' && url.pathname !== '/api/revenue/tasks' && url.pathname !== '/api/revenue/taskmarket-pc-status' && url.pathname !== '/api/revenue/drafts' && url.pathname !== '/api/revenue/direct-work' && url.pathname !== '/api/revenue/direct-work/decision') return null;
   const auth = requireAuth(request, env);
   if (!auth.ok) return auth.response;
+  if (url.pathname === '/api/revenue/channels') {
+    // MEL's own publishing accounts (dev.to, Bluesky): status, or save a key into the encrypted vault.
+    try {
+      if (request.method === 'GET') return json({ ok: true, channels: await channelStatus(env) });
+      if (request.method !== 'POST') return json({ ok: false, code: 'METHOD_NOT_ALLOWED' }, 405);
+      const body = await request.json().catch(() => ({}));
+      await saveChannelCredential(env, String(body?.channel || ''), body);
+      return json({ ok: true, channels: await channelStatus(env) });
+    } catch (error) { return json({ ok: false, code: String(error?.message || 'WORK_CHANNEL_FAILED').slice(0, 80) }, error?.status || 503); }
+  }
   if (url.pathname === '/api/revenue/submissions') {
     if (request.method !== 'GET') return json({ ok: false, code: 'METHOD_NOT_ALLOWED' }, 405);
     if (typeof env?.DB?.prepare !== 'function') return json({ ok: false, code: 'WORK_DRAFT_DB_REQUIRED' }, 503);
