@@ -566,7 +566,9 @@ class MelLinkV2ClientService : Service() {
         }
 
         override fun onDescriptorWrite(client: BluetoothGatt, descriptor: BluetoothGattDescriptor, status: Int) {
-            if (gatt !== client || descriptor.uuid != CCCD_UUID) return
+            if (gatt !== client || descriptor.uuid != CCCD_UUID ||
+                descriptor.characteristic?.uuid != EVENT_TX_UUID ||
+                descriptor.characteristic?.service?.uuid != SERVICE_UUID || eventTx == null) return
             if (status != BluetoothGatt.GATT_SUCCESS) {
                 failAndReconnect(client, "CCCD_STATUS_$status")
                 return
@@ -579,12 +581,12 @@ class MelLinkV2ClientService : Service() {
         @Deprecated("Deprecated by Android")
         override fun onCharacteristicChanged(client: BluetoothGatt, characteristic: BluetoothGattCharacteristic) {
             @Suppress("DEPRECATION")
-            if (gatt !== client) return
+            if (!isCurrentLinkEvent(client, characteristic)) return
             handleEventFrame(characteristic.value ?: return)
         }
 
         override fun onCharacteristicChanged(client: BluetoothGatt, characteristic: BluetoothGattCharacteristic, value: ByteArray) {
-            if (gatt !== client) return
+            if (!isCurrentLinkEvent(client, characteristic)) return
             handleEventFrame(value)
         }
 
@@ -596,6 +598,12 @@ class MelLinkV2ClientService : Service() {
             if (pendingAckCharacteristicUuid == characteristic.uuid) writeAck.offer(status)
         }
     }
+
+    // Only the negotiated Link V2 event characteristic may emit control frames.
+    // Other GATT notifications cannot advertise SESSION_OK, media or credits.
+    private fun isCurrentLinkEvent(client: BluetoothGatt, characteristic: BluetoothGattCharacteristic): Boolean =
+        gatt === client && eventTx != null && characteristic.uuid == EVENT_TX_UUID &&
+            characteristic.service?.uuid == SERVICE_UUID
 
     private fun handleEventFrame(raw: ByteArray) {
         val frame = runCatching { MelLinkV2Protocol.decode(raw) }.getOrElse {
