@@ -44,6 +44,16 @@ try {
       throw "WINDOWS_MCP_FILE_MISSING:$name"
     }
   }
+  # The owner-facing updater and its double-click entry point must both be in the ZIP.
+  foreach ($name in @('Update-MEL-Computer-Companion.ps1','Mettre-a-jour-MEL.cmd','MEL-Computer-Companion.ps1')) {
+    if (!(Test-Path -LiteralPath (Join-Path $temp $name) -PathType Leaf)) {
+      throw "WINDOWS_COMPANION_UPDATE_FILE_MISSING:$name"
+    }
+  }
+  $updateLauncher = Get-Content -LiteralPath (Join-Path $temp 'Mettre-a-jour-MEL.cmd') -Raw
+  if ($updateLauncher -notmatch 'Update-MEL-Computer-Companion\.ps1') {
+    throw 'WINDOWS_COMPANION_UPDATE_LAUNCHER_TARGET_MISMATCH'
+  }
   $benchmark = Join-Path $temp "MEL-Local-AI-Benchmark.ps1"
   if (-not (Test-Path -LiteralPath $benchmark -PathType Leaf)) { throw "WINDOWS_LOCAL_AI_BENCHMARK_MISSING" }
   $desktopExe = Join-Path $temp "MEL-Companion.exe"
