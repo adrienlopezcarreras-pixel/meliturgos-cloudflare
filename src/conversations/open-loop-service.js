@@ -336,7 +336,7 @@ export class OpenLoopService {
           leaseToken: null,
           leaseUntil: null,
         }, now));
-        outcomes.push({ id: candidate.id, ok: true, loop: saved });
+        outcomes.push({ id: candidate.id, ok: true, advanced: result?.advanced === true, deferred: result?.deferred === true, loop: saved });
       } catch (error) {
         const saved = await this.store.upsert(normalizeLoop({
           ...claimed,
@@ -351,7 +351,7 @@ export class OpenLoopService {
           leaseToken: null,
           leaseUntil: null,
         }, now));
-        outcomes.push({ id: candidate.id, ok: false, error: saved.metadata.lastError, loop: saved });
+        outcomes.push({ id: candidate.id, ok: false, advanced: false, deferred: false, error: saved.metadata.lastError, loop: saved });
       }
     }
     return outcomes;
