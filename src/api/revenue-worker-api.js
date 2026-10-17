@@ -113,7 +113,14 @@ export async function handleRevenueApi(request, env) {
         policy:{minimumProfitMicros:0,minimumMarginBps:0,maxTasksPerCycle:1},
       });
       const decisions=Array.isArray(cycle?.decisions)?cycle.decisions:[];
-      const completed=cycle?.status==='COMPLETED' && decisions.length>0 && decisions.every(d=>d.status==='READY_NOT_SUBMITTED'&&typeof d.draftId==='string'&&d.draftId.length>0);
+      let completed=cycle?.status==='COMPLETED' && decisions.length>0 && decisions.every(d=>d.status==='READY_NOT_SUBMITTED'&&typeof d.draftId==='string'&&d.draftId.length>0);
+      // Reconcile success with durable D1 storage, not only worker-reported identifiers.
+      if(completed){
+        for(const decision of decisions){
+          const stored=await env.DB.prepare('SELECT id, task_id FROM mel_work_validated_drafts WHERE id=? AND task_id=?').bind(decision.draftId,decision.taskId).first();
+          if(stored?.id!==decision.draftId||stored.task_id!==decision.taskId){completed=false;break}
+        }
+      }
       return json({ok:completed,cycle,submissionEnabled:false,code:completed?null:'WORK_CYCLE_NO_VERIFIED_DRAFT'},completed?200:409);
     } catch(error) {
       const code=String(error?.code||error?.message||'WORK_CYCLE_FAILED');
