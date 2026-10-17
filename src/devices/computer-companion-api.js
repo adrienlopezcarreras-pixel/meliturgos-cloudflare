@@ -586,6 +586,10 @@ async function heartbeat(request,env,a){
  if(b.engine_refresh_error!==undefined)patch.engine_refresh_error=safe(b.engine_refresh_error,180)||null;
  if(b.engine_heartbeat_at!==undefined&&Number.isFinite(Number(b.engine_heartbeat_at))){
    patch.engine_heartbeat_at=Number(b.engine_heartbeat_at);
+   // Track direct PowerShell callbacks separately from native supervisor
+   // process-presence claims. Only the former proves the engine contacted MEL.
+   if(typeof b.engine_version==="string"&&b.engine_version.trim())
+    patch.engine_direct_heartbeat_at=now;
  }else if(
    b.version!==undefined
    && typeof b.hostname==="string" && b.hostname.trim()
