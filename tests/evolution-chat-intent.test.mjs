@@ -54,3 +54,25 @@ test('explicit capability is never overwritten', async () => {
   const body = await prepared.json();
   assert.equal(body.capability.id, 'echo');
 });
+
+
+test('ordinary MEL chat uses the real conversational path without pre-routing AI or D1 calls', async () => {
+  const env = {
+    AI: { run() { throw new Error('PRECHAT_MODEL_ROUTING_FORBIDDEN'); } },
+    DB: { prepare() { throw new Error('PRECHAT_DB_LOOKUP_FORBIDDEN'); } },
+  };
+  for (const text of [
+    'Bonjour MEL, comment vas-tu ?',
+    'Raconte-moi une histoire sur un personnage appelé MEL.',
+    'Je voudrais comprendre pourquoi certains romans historiques sont émouvants.',
+    'Rédige une étude longue et détaillée de plusieurs pages sur une société imaginaire, la situation de ses habitants, leurs traditions et les conséquences sociales et économiques de leurs décisions. Présente une introduction, une première partie, plusieurs analyses distinctes, des exemples illustratifs cohérents et une conclusion, Ceci est uniquement un document de rédaction créative.',
+  ]) {
+    const request = new Request('https://mel.test/api/chat', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ text, conversation_id: 'conversation-with-history' }),
+    });
+    const routed = await injectEvolutionPreflightCapability(request, env);
+    assert.equal(routed, request, 'ordinary chat must bypass preprocessing without rebuilding the request: ' + text.slice(0, 80));
+  }
+});
