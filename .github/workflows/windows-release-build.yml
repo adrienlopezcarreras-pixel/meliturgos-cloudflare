@@ -5,6 +5,7 @@ on:
     paths:
       - 'assets/MEL-Computer-*.ps1'
       - 'windows-companion/**'
+      - 'dist/MEL-Waveshare-Flash.ps1'
       - 'tests/computer-companion-api.test.mjs'
       - 'scripts/*windows-release*.ps1'
       - 'scripts/companion-local-ai-benchmark.ps1'
@@ -20,6 +21,7 @@ on:
     paths:
       - 'assets/MEL-Computer-*.ps1'
       - 'windows-companion/**'
+      - 'dist/MEL-Waveshare-Flash.ps1'
       - 'tests/computer-companion-api.test.mjs'
       - 'scripts/*windows-release*.ps1'
       - 'scripts/companion-local-ai-benchmark.ps1'
@@ -93,6 +95,7 @@ jobs:
             'windows-companion/MEL-ADB-WiFi.ps1',
             'windows-companion/Start-MEL-Companion-MCP.ps1',
             'windows-companion/MEL-MINI-USB-Preflight.ps1',
+            'dist/MEL-Waveshare-Flash.ps1',
             'tools/android-companion/MEL-Android-WiFi-Pairing.ps1',
             'scripts/build-windows-release.ps1',
             'scripts/companion-local-ai-benchmark.ps1',
