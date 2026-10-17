@@ -443,13 +443,16 @@ $('runDraftCycle').onclick=async()=>{
  const button=$('runDraftCycle');button.disabled=true;
  const area=$('draftList');area.textContent='Exécution bornée en cours : aucune soumission ni dépense autorisée.';
  try{
+  // Discovery and readiness may have changed since the page loaded.
+  await Promise.all([refreshDraftReadiness(),refreshDraftDiscovery()]);
+  if(!(workRuntimeReady&&workMatchingTaskCount>0))throw new Error('WORK_NO_VERIFIABLE_LIVE_TASK');
   const response=await fetch('/api/revenue/draft-cycle',{method:'POST',cache:'no-store'});
   const data=await response.json().catch(()=>({}));
   if(!response.ok||data.ok!==true)throw new Error(data.code||'WORK_CYCLE_UNAVAILABLE');
   area.textContent='Cycle terminé : '+String(data.cycle?.considered??0)+' mission examinée, '+String(data.cycle?.decisions?.[0]?.status||'statut inconnu')+'. Aucune livraison commerciale.';
   await refreshValidatedDrafts();
  }catch(e){area.textContent='Cycle non exécuté : '+String(e.message||e).slice(0,160)+'. Aucun travail présenté comme livré.'}
- finally{button.disabled=false}
+ finally{await Promise.all([refreshDraftReadiness(),refreshDraftDiscovery()]);applyWorkCycleAvailability()}
 };
 $('refreshDrafts').onclick=refreshValidatedDrafts;refreshValidatedDrafts();
 $('refreshPrepPlans').onclick=refreshPersistentPrepPlans;$('prepPlanList').addEventListener('click',event=>{const evidenceButton=event.target.closest('[data-view-work-artifacts]');if(evidenceButton){viewPersistentWorkArtifacts(evidenceButton.getAttribute('data-view-work-artifacts'),evidenceButton);return}const button=event.target.closest('[data-resume-work-plan]');if(!button)return;const planId=button.getAttribute('data-resume-work-plan');if(planId)resumePersistentPrepPlan(planId,button)});$('taskList').addEventListener('click',event=>{const button=event.target.closest('[data-create-work-plan]');if(!button)return;const task=tasks.find(item=>String(item.id)===button.getAttribute('data-create-work-plan'));if(!task){$('taskError').textContent='Offre introuvable dans la liste actuelle. Actualise Taskmarket puis réessaie.';return}createPersistentPrepPlan(task,button)});$('refreshAll').onclick=()=>Promise.all([refreshTasks(),refreshPc()]);$('refreshPc').onclick=refreshPc;$('scanPcTaskmarket').onclick=scanLocalTaskmarket;$('taskSearch').addEventListener('input',renderTasks);$('taskFit').addEventListener('change',renderTasks);$('taskSort').addEventListener('change',renderTasks);
