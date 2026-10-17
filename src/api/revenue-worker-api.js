@@ -47,7 +47,7 @@ export async function handleRevenueApi(request, env) {
     try{
       const fixtures=JSON.parse(env?.MEL_WORK_TRUSTED_ACCEPTANCE_JSON||'null');
       if(record(fixtures)&&Object.keys(fixtures).length<=20)
-        trustedFixtureCount=Object.values(fixtures).filter(item=>record(item)&&typeof item.expectedJson==='string'&&/^[a-f0-9]{64}$/i.test(String(item.sha256||''))).length;
+        trustedFixtureCount=(await Promise.all(Object.values(fixtures).map(async item=>{if(!record(item)||typeof item.expectedJson!=='string'||!/^[a-f0-9]{64}$/i.test(String(item.sha256||'')))return false;const digest=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(item.expectedJson));const actual=Array.from(new Uint8Array(digest),x=>x.toString(16).padStart(2,'0')).join('');return actual===item.sha256.toLowerCase();}))).filter(Boolean).length;
     }catch{}
     return json({ok:true,d1Ready:typeof env?.DB?.prepare==='function',trustedFixtureCount,ready:typeof env?.DB?.prepare==='function'&&trustedFixtureCount>0,executionMode:'DRAFT_ONLY',canClaim:false,canSubmit:false});
   }
