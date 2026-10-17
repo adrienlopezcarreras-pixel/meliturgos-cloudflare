@@ -4,12 +4,13 @@
 
 #define MEL_LCD_H_RES 320
 #define MEL_LCD_V_RES 480
-#define MEL_FW_VERSION "0.6.15-secure-passkey"
+#define MEL_FW_VERSION "0.6.16-usb-ble-passkey"
 #define MEL_PROTOCOL_VERSION "1.0"
 // MINI mobile status is independent from Wi-Fi association.
 
 void mel_terminal_ui_init(lv_disp_t *display);
 void mel_terminal_start(bool force_setup);
+void mel_terminal_start_usb_passkey_relay(void);
 void mel_terminal_set_hardware(bool camera_ok, bool audio_ok, bool sd_ok);
 bool mel_terminal_prepare_voice_worker(void);
 bool mel_terminal_init_storage(void);

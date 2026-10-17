@@ -16,6 +16,7 @@ import { miniReadOnlyPcCommand } from "./mini-readonly-companion.js";
 import { miniMaintenanceAssessCommand } from "./mini-maintenance-companion.js";
 import { companionBleDiagnosticsCommand } from "./companion-ble-diagnostics.js";
 import { miniFirmwareStageCommand } from "./mini-firmware-stage-companion.js";
+import { miniBlePairCommand } from "./mini-usb-provision.js";
 import { MINI_FLASH_CONFIRMATION, readPublishedMiniFirmware, createDeviceFileTicket, serveDeviceFileByTicket, miniFlashCommand } from "./mini-flash-companion.js";
 import { ANDROID_UPDATE_CONFIRMATION, readPublishedAndroidApk, validateAndroidUpdateInput, androidUpdateCommand } from "./android-update-companion.js";
 import { taskmarketReadonlyPcCommand } from "./taskmarket-readonly-companion.js";
@@ -258,7 +259,7 @@ const PC_CONTROL_ACTIONS=new Set([
  "serial.list","serial.read","serial.inspect","serial.hard_reset",
  "process.list","process.start","process.kill",
  "file.list","file.read_text","file.write_text",
- "system.info","taskmarket.readonly.probe","mini.readonly.discover","mini.readonly.security","mini.readonly.backup","mini.readonly.backup.status","mini.readonly.backup.audit","mini.maintenance.assess","mini.android.ble.diagnose","mini.maintenance.stage","mini.flash","android.update","android.maintenance.assess","android.maintenance.stage","android.maintenance.install"
+ "system.info","taskmarket.readonly.probe","mini.readonly.discover","mini.readonly.security","mini.readonly.backup","mini.readonly.backup.status","mini.readonly.backup.audit","mini.maintenance.assess","mini.android.ble.diagnose","mini.maintenance.stage","mini.flash","mini.ble.pair","android.update","android.maintenance.assess","android.maintenance.stage","android.maintenance.install"
 ]);
 const PC_CONTROL_PROOF_ACTIONS=new Set(["system.info","serial.list","serial.read","serial.inspect","mini.readonly.discover","process.list","mini.readonly.backup.audit","mini.maintenance.assess","mini.android.ble.diagnose","android.maintenance.assess"]);
 
@@ -285,6 +286,7 @@ async function ownerPcControl(request,env){
  if(action==="mini.readonly.backup"&&payload.ack_local_backup!==true)return json({ok:false,code:"MINI_BACKUP_ACK_REQUIRED"},400);
  if(action==="android.update"&&(a.kind!=="owner"||payload.confirmation!==ANDROID_UPDATE_CONFIRMATION))
   return json({ok:false,code:"ANDROID_UPDATE_OWNER_CONFIRMATION_REQUIRED"},403);
+ if(action==="mini.ble.pair"&&a.kind!=="owner")return json({ok:false,code:"MINI_BLE_PAIR_OWNER_ONLY"},403);
  if(action==="mini.flash"&&(a.kind!=="owner"||payload.confirmation!==MINI_FLASH_CONFIRMATION))
   return json({ok:false,code:"MINI_FLASH_OWNER_CONFIRMATION_REQUIRED"},403);
  if(action==="mini.maintenance.stage"&&(a.kind!=="owner"||payload.ack_local_firmware_stage!==true))
@@ -390,6 +392,11 @@ async function ownerPcControl(request,env){
   effectiveAction="system.exec";
   // No strict exit: a failed install must still return the adb log; success = installed.
   effectivePayload=androidUpdateCommand({downloadUrl:new URL(request.url).origin+COMPUTER_ROUTES.deviceFile+"?ticket="+ticket,sha256:apk.sha256,pair:input.pair,code:input.code,connect:input.connect});
+ }
+ if(action==="mini.ble.pair"){
+  if(device.metadata?.remote_access_enabled!==true)return json({ok:false,code:"REMOTE_ACCESS_DISABLED_LOCALLY"},403);
+  effectiveAction="system.exec";
+  effectivePayload=miniBlePairCommand();
  }
  if(action==="mini.flash"){
   if(device.metadata?.remote_access_enabled!==true)return json({ok:false,code:"REMOTE_ACCESS_DISABLED_LOCALLY"},403);
