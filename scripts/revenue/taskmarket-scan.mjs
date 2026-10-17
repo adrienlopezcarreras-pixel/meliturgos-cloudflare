@@ -23,7 +23,10 @@ export function normalizePublicTask(task, nowMs = Date.now()) {
     tags: Array.isArray(task.tags) ? task.tags.filter((x) => typeof x === 'string').slice(0, 30) : [],
     expiryTime: new Date(expiryMs).toISOString(),
     submissionCount: Number.isSafeInteger(task.submissionCount) ? task.submissionCount : null,
-    claimedBy: typeof task.claimedBy === 'string' ? task.claimedBy : null,
+    // Preserve UNKNOWN rather than fabricating a free/unclaimed state. The
+    // submission policy requires explicit no-stake and unclaimed evidence.
+    stakeRequired: typeof task.stakeRequired === 'boolean' ? task.stakeRequired : undefined,
+    claimedBy: task.claimedBy === null || typeof task.claimedBy === 'string' ? task.claimedBy : undefined,
     taskVisibility: typeof task.taskVisibility === 'string' ? task.taskVisibility : 'unknown',
   });
 }
