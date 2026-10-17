@@ -207,7 +207,11 @@ export class WorkDagRunner {
     return this.store.save(dag);
   }
 
-  async run(initialDag = null) {
+  async run(initialDag = null, { maxSteps = Infinity } = {}) {
+    // A bounded number of nodes per invocation lets cron resume long jobs
+    // without keeping a single HTTP request or Worker alive for the whole job.
+    const budget = maxSteps === Infinity ? Infinity : Math.max(1, Math.min(16, Number(maxSteps) || 1));
+    let completedNow = 0;
     let dag = initialDag || await this.store.load();
     if (!dag) throw Object.assign(new Error('WORK_DAG_NOT_FOUND'), { code: 'WORK_DAG_NOT_FOUND' });
     this.assertBinding(dag);
@@ -280,6 +284,10 @@ export class WorkDagRunner {
         node.status = WORK_NODE_STATUS.COMPLETED;
         node.error = null;
         dag = await this.persist(dag, 'WORK_NODE_COMPLETED', { node_id: node.id, kind: node.kind, artifact_count: artifacts.length });
+        completedNow += 1;
+        if (completedNow >= budget && dag.nodes.some(item => item.status !== WORK_NODE_STATUS.COMPLETED)) {
+          return this.persist(dag, 'WORK_DAG_YIELDED_FOR_RESUME', { completed_now: completedNow, budget });
+        }
       } catch (error) {
         node.status = WORK_NODE_STATUS.FAILED;
         node.error = String(error?.code || error?.message || error).slice(0, 1000);
