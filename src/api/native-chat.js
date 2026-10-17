@@ -30,6 +30,7 @@ import { assessResponseQuality, enforceResponseQuality, persistResponseQualityEv
 import { inferKnowledgeCapability } from './knowledge-intent.js';
 import { streamChatResponse } from './chat-stream.js';
 import { runLocalPcModel } from '../models/local-pc-model.js';
+import { rankedStreamModels } from '../models/model-tournament.js';
 import { streamComputerAgent } from '../devices/computer-agent.js';
 import { inferComputerAgentGoal } from '../devices/computer-agent-intent.js';
 import { parisTimeWindow } from './assistant-time.js';
@@ -1706,6 +1707,7 @@ export async function handleNativeChat(request, env, options = {}) {
       env,
       messages,
       localFallback: msgs => runLocalPcModel({ env, messages: msgs }),
+      modelOrder: await rankedStreamModels(env).catch(() => null),
       archive: async (fullText, meta = {}) => {
         if (!service) return false;
         await service.archiveMessage({ conversationId, deviceId, role: 'user', content: text, timestamp: Date.now(), provenance: userProvenance, metadata: userMetadata });
