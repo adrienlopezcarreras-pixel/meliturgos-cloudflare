@@ -41,7 +41,8 @@ test('flash command writes only ota_0 and otadata, with pinned official esptool 
   assert.ok(command.length <= 8192);
   assert.match(command, /'write-flash','0x20000',\$bin,'0xF000',\$blank/);
   assert.match(command, /'pip','install'/);
-  assert.match(command, /'--user','esptool=='/);
+  assert.match(command, /'--user','--prefer-binary','esptool=='/);
+  assert.match(command, /foreach\(\$py in \$cands\)/);
   assert.match(command, new RegExp("\\$tag='" + ESPTOOL_TAG.replace(/\./g, '\\.') + "'"));
   assert.match(command, /'esptool=='\+\$tag\.TrimStart\('v'\)/);
   assert.doesNotMatch(command, /esptool\.exe|Expand-Archive/, 'no downloaded executable (blocked by antivirus)');
