@@ -13,7 +13,10 @@ test('normalizes open task records and preserves explicit stake/claim state',()=
   assert.deepEqual(x.tags,['data','json']);
 });
 test('unknown stake or claim state remains unknown and cannot be inferred as safe',()=>{
-  const unknown = { ...task };\n  delete unknown.stakeRequired;\n  delete unknown.claimedBy;\n  const x=normalizePublicTask(unknown,now);
+  const unknown = { ...task };
+  delete unknown.stakeRequired;
+  delete unknown.claimedBy;
+  const x=normalizePublicTask(unknown,now);
   assert.equal(x.stakeRequired,undefined);
   assert.equal(x.claimedBy,undefined);
 });
