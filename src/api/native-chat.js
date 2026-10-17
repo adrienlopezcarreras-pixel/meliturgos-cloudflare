@@ -28,6 +28,7 @@ import { buildConversationFocusInstruction, deriveConversationFocus } from './co
 import { loadConversationFocusState, saveConversationFocusState } from './conversation-focus-store.js';
 import { assessResponseQuality, enforceResponseQuality, persistResponseQualityEvent } from './response-quality-audit.js';
 import { inferKnowledgeCapability } from './knowledge-intent.js';
+import { streamChatResponse } from './chat-stream.js';
 import { createChatDeadline, hasChatBudget, raceChatDeadline, chatDeadlineError, COUNCIL_RECOVERY_MIN_REMAINING_MS, CONTINUATION_MIN_REMAINING_MS, FALLBACK_ATTEMPT_MIN_REMAINING_MS } from './chat-deadline.js';
 import { inferCurrentFactVerificationPolicy, hasAuthoritativeCurrentFactEvidence, currentFactReliabilityInstruction } from './current-fact-reliability.js';
 import { buildPresentationInstruction } from '../presentation/presentation-skill.js';
@@ -1647,6 +1648,23 @@ export async function handleNativeChat(request, env, options = {}) {
         max_tokens: voiceGenerationTokenBudget(activeInferenceSettings),
       }
     : activeInferenceSettings;
+  // Long answers stream to the browser as they are written instead of waiting
+  // for one complete JSON reply (which made long answers hit the browser
+  // timeout). Only for plain conversation: tool results, voice, Council
+  // fan-out, LoRA and release smoke keep the full pipeline below.
+  if (body.stream === true && !voiceReply && !releaseSmoke && !parallel && !personalProfileIntent
+      && toolResults.length === 0 && activeAdapter == null && typeof env?.AI?.run === 'function') {
+    return streamChatResponse({
+      env,
+      messages,
+      archive: async (fullText, meta = {}) => {
+        if (!service) return false;
+        await service.archiveMessage({ conversationId, deviceId, role: 'user', content: text, timestamp: Date.now(), provenance: userProvenance, metadata: userMetadata });
+        await service.archiveMessage({ conversationId, deviceId, role: 'assistant', content: fullText, model: meta.model || null, timestamp: Date.now() + 1, provenance: 'native-chat:stream', metadata: { streamed: true, truncated: meta.truncated === true, ...(meta.error ? { stream_error: meta.error } : {}) } });
+        return true;
+      },
+    });
+  }
   let ai;
   try {
     // Explicit opt-in to PC-first for ordinary text answers. This is NOT a
