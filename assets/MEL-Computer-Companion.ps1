@@ -2989,7 +2989,7 @@ function Submit-CommandResult($body) {
   # Never reinterpret a successful PC action as failed solely because its receipt was lost.
   # Retry the same immutable outcome; the server acknowledges identical terminal results.
   for ($attempt=1; $attempt -le 3; $attempt++) {
-    try { [void](Submit-CommandResult $body); return $true }
+    try { [void](Invoke-MelJson -Path "/api/computer/v1/result" -Method "POST" -Body $body); return $true }
     catch { if ($attempt -lt 3) { Start-Sleep -Milliseconds (400 * $attempt) } }
   }
   Write-Warning "MEL_RESULT_DELIVERY_UNCONFIRMED command_id=$($body.command_id)"
