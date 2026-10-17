@@ -259,12 +259,12 @@ test('Android cannot finish an old MINI HTTP response on a new BLE session', asy
   const client = await read('android-companion/app/src/main/java/fr/veriteinterdite/mel/MelLinkV2ClientService.kt');
   const response = client.slice(client.indexOf('private fun sendResponse('), client.indexOf('private fun sendAudioResponse('));
   assert.match(response, /val intendedGatt = expectedGatt \?: \(gatt \?: return false\)/);
-  assert.match(response, /if \(!miniReady\.value \|\| !protocolReady\.value\) return false/);
+  assert.match(response, /if \(gatt !== intendedGatt \|\| !miniReady\.value \|\| !protocolReady\.value\) return false/);
   assert.match(response, /MelLinkV2Protocol\.RESPONSE_BEGIN[\s\S]*?\), intendedGatt/);
   assert.match(response, /MelLinkV2Protocol\.RESPONSE_DATA[\s\S]*?\), intendedGatt/);
   assert.match(response, /MelLinkV2Protocol\.RESPONSE_END[\s\S]*?\), intendedGatt/);
   const checks = response.match(/gatt !== intendedGatt \|\| !miniReady\.value \|\| !protocolReady\.value/g) || [];
-  assert.equal(checks.length, 2, 'guard both the data loop and the final response frame');
+  assert.equal(checks.length, 3, 'guard response start, data loop and final frame');
   assert.ok(response.indexOf('gatt !== intendedGatt') < response.indexOf('MelLinkV2Protocol.RESPONSE_DATA'));
   const bulk = client.slice(client.indexOf('private fun sendBulkBlocking('), client.indexOf('private fun beginOutboundTransfer('));
   assert.match(bulk, /intendedGatt: BluetoothGatt\? = null/);
