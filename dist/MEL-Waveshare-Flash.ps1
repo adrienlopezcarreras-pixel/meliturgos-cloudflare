@@ -82,7 +82,11 @@ try {
 
   Write-Host "Ports détectés : $($ports -join ', ')"
   $port = (Read-Host "Confirmez le port physique de la MINI (ex: COM7)").Trim().ToUpperInvariant()
-  if ($port -notmatch '^COM[0-9]{1,3}
+  if ($port -notmatch '^COM[0-9]{1,3}$' -or $port -notin $ports) {
+    throw "MINI_USB_PORT_NOT_CONFIRMED"
+  }
+  & $python @pyArgs -m esptool --chip esp32s3 --port $port chip_id
+  if ($LASTEXITCODE -ne 0) { throw "MINI_ESP32S3_IDENTITY_UNVERIFIED" }
 
   Write-Host ""
   Write-Host "ATTENTION : PREMIÈRE INSTALLATION UNIQUEMENT — effacement TOTAL, données irrécupérables sans sauvegarde." -ForegroundColor Red
