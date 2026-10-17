@@ -2,8 +2,8 @@
 //
 // One fixed PowerShell command built here (owner values are validated with
 // strict patterns before being embedded):
-//   1. gets Google's official platform-tools (adb) from dl.google.com, checks the
-//      SHA-1 published in Google's SDK repository index, caches it;
+//   1. uses the adb already installed on the PC (the Companion's « Configurer
+//      ADB Wi-Fi » sets it up); nothing is downloaded and unpacked in-command;
 //   2. optional one-time pairing (Wireless debugging > Pair with code), then
 //      connects (explicit ip:port, or the phone's mDNS announcement);
 //   3. downloads the published, signed MEL APK through a single-use ticket and
@@ -45,23 +45,11 @@ const UPDATE = String.raw`
 $ErrorActionPreference='Stop';$ProgressPreference='SilentlyContinue'
 [Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12
 $sha='__SHA__';$url='__URL__';$pair='__PAIR__';$code='__CODE__';$target='__CONNECT__';$package='fr.veriteinterdite.mel'
-$root=Join-Path $env:LOCALAPPDATA 'MEL\tools'
-$adb=Join-Path $root 'platform-tools\adb.exe'
-if(-not(Test-Path -LiteralPath $adb)){
- [xml]$repo=(Invoke-WebRequest -Uri 'https://dl.google.com/android/repository/repository2-3.xml' -UseBasicParsing -TimeoutSec 30).Content
- $pkg=$repo.SelectNodes("//*[local-name()='remotePackage'][@path='platform-tools']")|Select-Object -First 1
- if(-not $pkg){throw 'ADB_PACKAGE_NOT_FOUND'}
- $arc=@($pkg.archives.archive|Where-Object{$_.'host-os' -eq 'windows'})|Select-Object -First 1
- if(-not $arc){throw 'ADB_WINDOWS_ARCHIVE_NOT_FOUND'}
- $c=$arc.complete.checksum;$sha1=[string]$(if($c -is [string]){$c}else{$c.'#text'})
- if($sha1 -notmatch '^[0-9a-fA-F]{40}$'){throw 'ADB_CHECKSUM_UNAVAILABLE'}
- New-Item -ItemType Directory -Force -Path $root|Out-Null
- $zip=Join-Path $root 'platform-tools.zip'
- Invoke-WebRequest -Uri ('https://dl.google.com/android/repository/'+[string]$arc.complete.url) -OutFile $zip -UseBasicParsing -TimeoutSec 90
- if((Get-FileHash -LiteralPath $zip -Algorithm SHA1).Hash -ne $sha1.ToUpperInvariant()){Remove-Item -LiteralPath $zip -Force;throw 'ADB_CHECKSUM_MISMATCH'}
- Expand-Archive -LiteralPath $zip -DestinationPath $root -Force;Remove-Item -LiteralPath $zip -Force
- if(-not(Test-Path -LiteralPath $adb)){throw 'ADB_EXE_NOT_IN_ARCHIVE'}
-}
+# adb already on this PC (Android SDK, MEL tools, PATH). Nothing is downloaded
+# and unpacked here: Windows Defender flags encoded PowerShell that fetches
+# and expands tools from the internet (Trojan:Win32/ClickFix heuristic).
+$adb=@((Join-Path $env:LOCALAPPDATA 'Android\platform-tools\adb.exe'),(Join-Path $env:LOCALAPPDATA 'MEL\tools\platform-tools\adb.exe'),(Join-Path $env:LOCALAPPDATA 'Android\Sdk\platform-tools\adb.exe'),$(if($env:ANDROID_HOME){Join-Path $env:ANDROID_HOME 'platform-tools\adb.exe'}),$(if($env:ANDROID_SDK_ROOT){Join-Path $env:ANDROID_SDK_ROOT 'platform-tools\adb.exe'}),@(Get-Command adb.exe -All -ErrorAction SilentlyContinue|ForEach-Object{$_.Source}))|Where-Object{$_ -and (Test-Path -LiteralPath $_)}|Select-Object -First 1
+if(-not $adb){throw 'ADB_NOT_INSTALLED_USE_CONFIGURER_ADB_WIFI'}
 function Run([string[]]$a){$p=$ErrorActionPreference;$ErrorActionPreference='Continue';try{$o=@(& $adb @a 2>&1|ForEach-Object{[string]$_})}finally{$ErrorActionPreference=$p};return ($o -join [string][char]10)}
 # The adb daemon must not inherit a captured pipe, or reading output never ends.
 if(-not(Get-Process -Name adb -ErrorAction SilentlyContinue)){Start-Process -FilePath $adb -ArgumentList 'start-server' -WindowStyle Hidden;for($i=0;$i -lt 20 -and -not(Get-Process -Name adb -ErrorAction SilentlyContinue);$i++){Start-Sleep -Milliseconds 500};Start-Sleep -Seconds 2}
@@ -72,11 +60,13 @@ if(-not $target){
  $hits=@([regex]::Matches($m,'_adb-tls-connect\._tcp\.?\s+(\d{1,3}(?:\.\d{1,3}){3}:\d{2,5})')|ForEach-Object{$_.Groups[1].Value}|Sort-Object -Unique)
  if($hits.Count -eq 1){$target=$hits[0]}
 }
-if($target){$r=Run @('connect',$target);$log+='connect: '+$r;if($r -notmatch 'connected to'){throw 'ADB_CONNECT_FAILED'}}
+# The debugging port changes whenever wireless debugging restarts: a stale
+# port falls back to the phone already connected (mDNS name or USB).
+if($target){$r=Run @('connect',$target);$log+='connect: '+$r;if($r -notmatch 'connected to'){$target=''}}
 $list=Run @('devices')
 $devs=@([regex]::Matches($list,'(?m)^(\S+)\s+device\s*$')|ForEach-Object{$_.Groups[1].Value})
 if($target){$devs=@($devs|Where-Object{$_ -eq $target})}
-if($devs.Count -ne 1){throw ('ANDROID_DEVICE_NOT_UNIQUE:'+$devs.Count)}
+if($devs.Count -ne 1){throw ('ANDROID_DEVICE_NOT_UNIQUE:'+$devs.Count+' '+($list -replace '\s+',' '))}
 $serial=$devs[0]
 function Ver{$d=Run @('-s',$serial,'shell','dumpsys','package',$package);$vc=0;$vn='';if($d -match 'versionCode=(\d+)'){$vc=[long]$Matches[1]};if($d -match 'versionName=(\S+)'){$vn=$Matches[1]};return [ordered]@{code=$vc;name=$vn}}
 $before=Ver
