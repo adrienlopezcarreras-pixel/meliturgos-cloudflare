@@ -126,7 +126,13 @@ export function registerOpenLoopCapabilities(bus, { env } = {}) {
             metadata: { ...(loop.metadata || {}), resume_reason: 'WORK_DAG_ID_MISSING' },
           };
         }
-        const result = await bus.execute('work.run', { id: workDagId, maxSteps: 1 }, context);
+        const claimedContext = {
+          ...context,
+          // Symbols cannot be supplied through client JSON. The owning resume
+          // service commits this checkpoint via its lease-checked transaction.
+          [Symbol.for('mel.core.openloop.claim')]: { workDagId, token: loop.leaseToken },
+        };
+        const result = await bus.execute('work.run', { id: workDagId, maxSteps: 1 }, claimedContext);
         const workStatus = String(result?.status || '').toUpperCase();
         const completed = workStatus === 'COMPLETED';
         const blocked = workStatus === 'BLOCKED';
