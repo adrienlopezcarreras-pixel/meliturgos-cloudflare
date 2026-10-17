@@ -2985,15 +2985,37 @@ function Perform-Step($step, [string]$commandId, [string]$planSchema="") {
   }
 }
 
-function Submit-CommandResult($body) {
-  # Never reinterpret a successful PC action as failed solely because its receipt was lost.
-  # Retry the same immutable outcome; the server acknowledges identical terminal results.
-  for ($attempt=1; $attempt -le 3; $attempt++) {
-    try { [void](Invoke-MelJson -Path "/api/computer/v1/result" -Method "POST" -Body $body); return $true }
-    catch { if ($attempt -lt 3) { Start-Sleep -Milliseconds (400 * $attempt) } }
+# One command is executed at a time. Keep its terminal outcome until MEL confirms it.
+# DPAPI protects the local record for the signed-in Windows user.
+$script:ResultJournal = Join-Path (Join-Path $env:LOCALAPPDATA "MEL") ("result-" + ($ComputerId -replace '[^a-zA-Z0-9_.-]','_') + ".bin")
+function Save-CommandResult($body) {
+  $folder = Split-Path -Parent $script:ResultJournal
+  [void][System.IO.Directory]::CreateDirectory($folder)
+  $json = $body | ConvertTo-Json -Depth 12 -Compress
+  $bytes = [System.Text.Encoding]::UTF8.GetBytes($json)
+  $encrypted = [System.Security.Cryptography.ProtectedData]::Protect($bytes,$null,[System.Security.Cryptography.DataProtectionScope]::CurrentUser)
+  $temp = $script:ResultJournal + ".tmp"
+  [System.IO.File]::WriteAllBytes($temp,$encrypted)
+  if ([System.IO.File]::Exists($script:ResultJournal)) { throw "COMPUTER_RESULT_PENDING_ALREADY" }
+  [System.IO.File]::Move($temp,$script:ResultJournal)
+}
+function Flush-CommandResult {
+  if (-not [System.IO.File]::Exists($script:ResultJournal)) { return $true }
+  try {
+    $encrypted = [System.IO.File]::ReadAllBytes($script:ResultJournal)
+    $bytes = [System.Security.Cryptography.ProtectedData]::Unprotect($encrypted,$null,[System.Security.Cryptography.DataProtectionScope]::CurrentUser)
+    $body = [System.Text.Encoding]::UTF8.GetString($bytes) | ConvertFrom-Json
+    [void](Invoke-MelJson -Path "/api/computer/v1/result" -Method "POST" -Body $body)
+    [System.IO.File]::Delete($script:ResultJournal)
+    return $true
+  } catch {
+    Write-Warning "MEL_RESULT_DELIVERY_UNCONFIRMED"
+    return $false
   }
-  Write-Warning "MEL_RESULT_DELIVERY_UNCONFIRMED command_id=$($body.command_id)"
-  return $false
+}
+function Submit-CommandResult($body) {
+  Save-CommandResult $body
+  return Flush-CommandResult
 }
 
 function Process-Command($command) {
@@ -3049,6 +3071,8 @@ while (-not $script:MelExitRequested) {
       Send-Heartbeat
       $lastHeartbeat = Get-Date
     }
+    # Do not claim another action while a completed action has no receipt.
+    if (-not (Flush-CommandResult)) { Start-Sleep -Seconds 2; continue }
     $reply = Invoke-MelJson -Path "/api/computer/v1/commands" -Method "GET"
     if ($reply.halted -eq $true) {
       Start-Sleep -Seconds 2
