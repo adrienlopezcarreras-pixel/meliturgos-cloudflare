@@ -483,3 +483,10 @@ test('draft action demands both readiness and a real matching public job',async(
  assert.match(html,/Aucune mission publique compatible actuellement/);
  assert.match(html,/finally\{applyWorkCycleAvailability\(\)\}/);
 });
+
+test('MEL WORK checks live matching tasks and readiness again before each cycle POST',async()=>{
+ const html=await (await onRequestGet()).text();
+ assert.match(html,/await Promise\.all\(\[refreshDraftReadiness\(\),refreshDraftDiscovery\(\)\]\)/);
+ assert.match(html,/WORK_NO_VERIFIABLE_LIVE_TASK/);
+ assert.match(html,/if\(!\(workRuntimeReady&&workMatchingTaskCount>0\)\)/);
+});
