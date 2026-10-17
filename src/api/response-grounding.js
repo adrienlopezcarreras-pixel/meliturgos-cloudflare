@@ -31,8 +31,9 @@ function flags(question) {
   const autonomy = /autonom|roadmap|feuille\s+de\s+route|self[- ]?development/i.test(text);
   const system = /binding|runtime|syst[eè]me|connexion|acc[eè]s/i.test(text);
   const communication = /r[ée]ponse|coh[ée]ren|contradic|hors\s+sujet|communication|compr[ée]hension/i.test(text);
-  const broad = /[ée]tat\s+(?:r[ée]el|interne|actuel)|tout\s+ce\s+que\s+tu\s+vois|self[- ]?state/i.test(text)
-    || !(memory || code || work || capability || autonomy || system || communication);
+  // Never turn an unrelated chat prompt into a full internal runtime dump.
+  // A broad self-state report requires an explicit self-state question.
+  const broad = /[ée]tat\s+(?:r[ée]el|interne|actuel)|tout\s+ce\s+que\s+tu\s+vois|self[- ]?state/i.test(text);
   return { memory, code, work, capability, autonomy, system, communication, broad };
 }
 
@@ -44,6 +45,7 @@ function errorLine(label, row) {
 export function formatVerifiedSelfStateResponse(state, question = '', { fallback = '' } = {}) {
   if (!state || typeof state !== 'object') return String(fallback || '').trim();
   const wanted = flags(question);
+  if (!Object.values(wanted).some(Boolean)) return String(fallback || '').trim();
   const lines = [];
   const unavailable = [];
 
