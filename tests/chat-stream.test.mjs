@@ -151,3 +151,20 @@ test('chat JSON no longer ships the full capability manifest to the browser', as
     DB.close();
   }
 });
+
+test('page modules survive Wrangler keepNames bundling (__name helper defined in the page)', async () => {
+  const { MEL_PAGE_NAME_SHIM } = await import('../src/pages/page-name-shim.js');
+  // esbuild keepNames rewrites `const bump = () => …` into `const bump = __name(() => …, "bump")`
+  // inside function bodies serialised with toString(); __name only exists in the Worker bundle.
+  const bundledLike = 'function melChatFetchLike(){ const bump = __name(() => 42, "bump"); return bump(); } globalThis.out = melChatFetchLike();';
+  assert.throws(() => vm.runInNewContext(bundledLike, {}), /__name is not defined/);
+  const ctx = {};
+  vm.runInNewContext(MEL_PAGE_NAME_SHIM + '\n' + bundledLike, ctx);
+  assert.equal(ctx.out, 42);
+  const html = await (await fullMode({ request: new Request('https://mel.example/full'), env: {} })).text();
+  const shimAt = html.indexOf('var __name = typeof __name');
+  assert.ok(shimAt > 0, 'shim injected');
+  for (const marker of ['function melChatFetch(', 'function melRenderTrace(', 'function melInstallAutoRelaunch(']) {
+    assert.ok(html.indexOf(marker) > shimAt, marker + ' must come after the __name shim');
+  }
+});

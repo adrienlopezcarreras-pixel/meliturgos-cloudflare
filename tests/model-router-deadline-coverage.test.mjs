@@ -121,3 +121,14 @@ test('model text extraction skips empty alternate provider fields without conver
   assert.equal(extractModelText({ response: { bad: true }, text: 'valid' }), 'valid');
   assert.equal(extractModelText({ response: '  ', text: '' }), null);
 });
+
+
+test('final fallback rejects whitespace output rather than reporting success', async () => {
+  const router = new ModelRouter({
+    registry: modelRegistry(),
+    invoke: async () => { const error = Error('provider_unavailable'); error.reason = 'provider_unavailable'; throw error; },
+    finalFallback: async () => ({ response: '   ' }),
+  });
+  await assert.rejects(router.execute({ task: 'GENERAL', messages }), error =>
+    /EMPTY_MODEL_RESPONSE/.test(String(error.reason || error.code || error.message)));
+});

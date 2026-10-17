@@ -229,7 +229,7 @@ export class ModelRouter {
       try {
         const result=await this.withinExecutionBudget(() => this.finalFallback({messages,task,reason:refusal.reason,previousModels:candidates.map(c=>c.id),previousFailureReasons:reasons,context}));
         const text=extractModelText(result);
-        if(!text) throw new DomainError('provider_unavailable',502);
+        if (typeof text !== 'string' || !text.trim()) throw new DomainError('EMPTY_MODEL_RESPONSE', 502);
         return {
           text:String(text).trim(),
           model:result?.model||'ninjachat-default',
