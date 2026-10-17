@@ -1,36 +1,58 @@
-// MEL WORK on its own: every 6 hours the hourly maintenance cron runs one draft
-// cycle (same engine and safety gates as the owner's button). It never claims,
-// submits or pays, and pauses while 3 drafts already wait for the owner's review.
+// MEL WORK on its own, end to end: every 6 hours the hourly maintenance cron
+// runs one autonomous cycle (bounty offers only, no human step). MEL writes the
+// deliverable and hands it in herself through the owner's PC (Companion). A
+// deliverable that could not be handed in yet (PC off, daily limit) is retried
+// every hour. Nothing here can move funds; rewards land in MEL's wallet.
 
 import { streamDirectWork } from './work-stream.js';
 import { queueTaskmarketSubmission, refreshTaskmarketSubmissions } from './taskmarket-autosubmit.js';
 
 export const MEL_WORK_SCHEDULE_HOURS = Object.freeze([0, 6, 12, 18]);
-export const MEL_WORK_MAX_PENDING_DRAFTS = 3;
+export const MEL_WORK_MAX_DAILY_DRAFTS = 4;
+const RETRYABLE = new Set(['COMPANION_OFFLINE', 'DAILY_LIMIT_REACHED', 'QUEUE_FAILED']);
 
-async function pendingDrafts(db) {
+async function draftsLast24h(db, now) {
   try {
-    const row = await db.prepare("SELECT COUNT(*) AS n FROM mel_work_artifacts WHERE status IN ('DRAFT_UNVERIFIED','VERIFIED_LOCALLY')").first();
+    const row = await db.prepare('SELECT COUNT(*) AS n FROM mel_work_artifacts WHERE created_at > ?').bind(new Date(now.getTime() - 86_400_000).toISOString()).first();
     return Number(row?.n || 0);
-  } catch { return 0; } // table not created yet: nothing pending
+  } catch { return 0; } // table not created yet
+}
+
+// Deliverables finished while the PC was off (or over the daily limit) are handed in later.
+export async function retryPendingSubmissions(env, { now = Date.now(), queue = queueTaskmarketSubmission } = {}) {
+  const db = env.DB;
+  let rows = [];
+  try {
+    rows = (await db.prepare("SELECT id, result FROM mel_work_cycles WHERE state='COMPLETE' AND updated_at > ? ORDER BY updated_at DESC LIMIT 10").bind(new Date(now - 3 * 86_400_000).toISOString()).all())?.results || [];
+  } catch { return { retried: 0 }; }
+  let retried = 0;
+  for (const row of rows) {
+    let result = null;
+    try { result = JSON.parse(row.result || '{}'); } catch { continue; }
+    if (!RETRYABLE.has(result?.submission) || !result.artifactId) continue;
+    const queued = await queue(env, { artifactId: result.artifactId, taskId: result.missionId, mode: result.mode, status: result.status, now }).catch(e => ({ status: 'QUEUE_FAILED', code: String(e?.message || '') }));
+    if (queued?.status === result.submission) continue;
+    result.submission = queued?.status || 'QUEUE_FAILED';
+    await db.prepare('UPDATE mel_work_cycles SET result=?, updated_at=? WHERE id=?').bind(JSON.stringify(result), new Date(now).toISOString(), row.id).run();
+    retried += 1;
+    if (result.submission === 'COMPANION_OFFLINE' || result.submission === 'DAILY_LIMIT_REACHED') break;
+  }
+  return { retried };
 }
 
 export async function runScheduledMelWork(env, { now = new Date(), run = streamDirectWork } = {}) {
   if (String(env?.MEL_WORK_AUTONOMOUS || 'on').toLowerCase() === 'off') return { status: 'DISABLED' };
   if (!env?.DB?.prepare || typeof env?.AI?.run !== 'function') return { status: 'RUNTIME_UNAVAILABLE' };
   await refreshTaskmarketSubmissions(env, { now: now.getTime() }).catch(() => null);
+  await retryPendingSubmissions(env, { now: now.getTime() }).catch(() => null);
   if (!MEL_WORK_SCHEDULE_HOURS.includes(now.getUTCHours())) return { status: 'NOT_SCHEDULED_HOUR' };
-  const pending = await pendingDrafts(env.DB);
-  if (pending >= MEL_WORK_MAX_PENDING_DRAFTS) return { status: 'WAITING_FOR_OWNER_REVIEW', pending };
-  const text = await (await run({ env })).text();
+  const drafts = await draftsLast24h(env.DB, now);
+  if (drafts >= MEL_WORK_MAX_DAILY_DRAFTS) return { status: 'DAILY_DRAFT_LIMIT', drafts };
+  const text = await (await run({ env, autonomous: true })).text();
   const events = text.split('\n').filter(Boolean).map(line => { try { return JSON.parse(line); } catch { return null; } }).filter(Boolean);
   const done = events.find(e => e.type === 'done');
   const error = events.find(e => e.type === 'error');
   if (!done) return { status: 'FAILED', code: error?.code || 'NO_RESULT' };
   const r = done.result || {};
-  // A draft that needs no human step, for a bounty, is submitted by MEL herself on the owner's PC.
-  const submission = r.artifactId
-    ? await queueTaskmarketSubmission(env, { artifactId: r.artifactId, taskId: r.missionId, mode: r.mode, status: r.status, now: now.getTime() }).catch(e => ({ status: 'QUEUE_FAILED', code: String(e?.message || '') }))
-    : null;
-  return { status: r.status || 'DONE', artifactId: r.artifactId || null, missionId: r.missionId || null, submission: submission?.status || null };
+  return { status: r.status || 'DONE', artifactId: r.artifactId || null, missionId: r.missionId || null, submission: r.submission || null };
 }
