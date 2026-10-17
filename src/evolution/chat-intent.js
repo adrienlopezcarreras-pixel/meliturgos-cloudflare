@@ -1,4 +1,4 @@
-import { classifySemanticOwnerIntent } from './semantic-intent.js';
+import { classifySemanticOwnerIntent, shouldSemanticIntentCheck } from './semantic-intent.js';
 import { createConversationService } from '../conversations/conversation-service.js';
 import { inferKnowledgeCapability } from '../api/knowledge-intent.js';
 
@@ -194,9 +194,16 @@ export async function injectEvolutionPreflightCapability(request, env = {}) {
     body.capability = enqueueCapability(text, body, requestKey);
   } else {
     const possibleAdvance = /\b(?:continue|continuer|reprends?|reprendre|avance|avancer|poursuis|poursuivre|travaille|travailler|encha[iî]ne|encha[iî]ner|relance|relancer|r[ée]concilie(?:r)?|d[ée]ploie(?:r)?|synchronise(?:r)?|termine(?:r)?)\b/i.test(text);
-    const contextualRoutingContext = possibleAdvance
+    // D1 history is only needed to resolve an actual elliptical follow-up.
+    // Ordinary conversation goes directly to native chat, without a
+    // preliminary DB lookup and a second model inference.
+    const elliptical = text.length <= 220 && /^(?:fais[- ]?le|fait|oui|non|vas[- ]?y|go|comme ça|plus\b|moins\b|enlève ça|enleve ca|garde|change|mets|rajoute|retire|corrige tout|peux[- ]?tu faire ça|et maintenant|et là|ou en es[- ]?tu)\b/i.test(text);
+    const inlineContext = typeof body.intent_context === 'string' ? body.intent_context : '';
+    const maybeContextual = (possibleAdvance || elliptical) && text.length <= 300;
+    const contextualRoutingContext = maybeContextual
       ? await buildIntentRoutingContext(body, env)
       : '';
+
     const autonomy = inferAutonomyControlIntent(text, contextualRoutingContext);
     const capabilityInspection = autonomy ? null : inferCapabilityInspectionIntent(text);
     const communicationAudit = autonomy || capabilityInspection ? null : inferCommunicationAuditIntent(text);
@@ -219,7 +226,10 @@ export async function injectEvolutionPreflightCapability(request, env = {}) {
     else if (webResearch) routeDeterministic(body, webResearch, 'WEB_RESEARCH');
     else if (knowledge) routeDeterministic(body, knowledge, 'KNOWLEDGE');
     else {
-      const semanticContext = contextualRoutingContext || await buildIntentRoutingContext(body, env);
+      // No semantic fanout for plain chat. The classifier is reserved for
+      // explicit unresolved action/research turns that passed the cheap gate.
+      const semanticContext = contextualRoutingContext || inlineContext;
+      if (!shouldSemanticIntentCheck(text, semanticContext)) return request;
       const semantic = await classifySemanticOwnerIntent({
         text,
         context: semanticContext,
