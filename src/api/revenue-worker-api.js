@@ -39,9 +39,25 @@ export function normalizeRevenueTasks(payload, nowMs = Date.now()) {
 
 export async function handleRevenueApi(request, env) {
   const url = new URL(request.url);
-  if (url.pathname !== '/api/revenue/tasks' && url.pathname !== '/api/revenue/taskmarket-pc-status' && url.pathname !== '/api/revenue/drafts' && url.pathname !== '/api/revenue/direct-work') return null;
+  if (url.pathname !== '/api/revenue/tasks' && url.pathname !== '/api/revenue/taskmarket-pc-status' && url.pathname !== '/api/revenue/drafts' && url.pathname !== '/api/revenue/direct-work' && url.pathname !== '/api/revenue/direct-work/decision') return null;
   const auth = requireAuth(request, env);
   if (!auth.ok) return auth.response;
+  if(url.pathname==='/api/revenue/direct-work/decision'){
+    if(request.method!=='POST')return json({ok:false,code:'METHOD_NOT_ALLOWED'},405);
+    if(typeof env?.DB?.prepare!=='function')return json({ok:false,code:'WORK_DRAFT_DB_REQUIRED'},503);
+    const body=await request.json().catch(()=>({}));
+    const id=String(body?.artifactId||'');
+    const decision=body?.decision;
+    if(!/^work-[a-f0-9]{64}$/.test(id)||!['approve','reject'].includes(decision))return json({ok:false,code:'WORK_DECISION_INVALID'},400);
+    try{
+      const status=decision==='approve'?'APPROVED_BY_OWNER':'REJECTED_BY_OWNER';
+      const changed=await env.DB.prepare("UPDATE mel_work_artifacts SET status=? WHERE id=? AND status IN ('DRAFT_UNVERIFIED','VERIFIED_LOCALLY')").bind(status,id).run();
+      const saved=await env.DB.prepare('SELECT id,status FROM mel_work_artifacts WHERE id=?').bind(id).first();
+      if(saved?.id!==id)return json({ok:false,code:'WORK_ARTIFACT_NOT_FOUND'},404);
+      if(saved.status!==status)return json({ok:false,code:'WORK_DECISION_CONFLICT'},409);
+      return json({ok:true,artifactId:id,status,submitted:false,paid:false});
+    }catch{return json({ok:false,code:'WORK_DECISION_PERSISTENCE_FAILED'},503)}
+  }
   if(url.pathname==='/api/revenue/direct-work'){
     if(typeof env?.DB?.prepare!=='function')return json({ok:false,code:'WORK_DRAFT_DB_REQUIRED'},503);
     if(request.method==='GET'&&url.searchParams.has('artifact_id')){
