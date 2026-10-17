@@ -181,6 +181,10 @@ function contextOwner(context = {}) {
 }
 
 async function syncWorkOpenLoop(db, dag, context = {}, { passive = false } = {}) {
+  // work.run invoked inside an open-loop claim must not clear its own claim
+  // through recordEvent before the outer lease-checked commit completes.
+  const claim = context?.[Symbol.for('mel.core.openloop.claim')];
+  if (!passive && claim?.workDagId === dag?.id && claim?.token) return null;
   const conversationId = String(dag?.conversation_id || '').trim();
   const owner = contextOwner(context);
   if (!db || !conversationId || !owner) return null;
