@@ -287,7 +287,7 @@ export function createTaskmarketCouncilSolverAdapter({env,council=runModelCounci
  * artifact; unknown validation never passes.
  */
 export async function runBoundedTaskmarketDraftCycle({
- db,env,fetchImpl,council=runModelCouncil,validateArtifact,recordOutcome,eligibleTaskIds=[],
+ db,env,fetchImpl,preloadedTasks,council=runModelCouncil,validateArtifact,recordOutcome,eligibleTaskIds=[],
  policy={minimumProfitMicros:0,minimumMarginBps:0,maxTasksPerCycle:1},
 }={}){
  if(typeof validateArtifact!=='function')throw new TypeError('WORK_INDEPENDENT_VALIDATOR_REQUIRED');
@@ -295,7 +295,7 @@ export async function runBoundedTaskmarketDraftCycle({
  const permitted=new Set(eligibleTaskIds);
  return runTaskmarketWorkerCycleWithD1({
   db,
-  listTasks:async()=>{const discovered=await createPublicTaskmarketListAdapter({fetchImpl})();return {tasks:discovered.tasks.filter(task=>permitted.has(task.id))};},
+  listTasks:async()=>{const tasks=Array.isArray(preloadedTasks)?preloadedTasks:(await createPublicTaskmarketListAdapter({fetchImpl})()).tasks;return {tasks:tasks.filter(task=>permitted.has(task.id))};},
   assessWithCouncil:createTaskmarketCouncilAssessmentAdapter({env,council}),
   solveWithMel:createTaskmarketCouncilSolverAdapter({env,council}),
   validateWithCouncil:async({task,assessment,candidate})=>{

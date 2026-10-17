@@ -349,3 +349,17 @@ test('D1 draft IDs are cryptographically scoped to full task identity',async()=>
  assert.match(a.draftId,/^melwork-draft-[a-f0-9]{64}-[a-f0-9]{64}$/);
  assert.equal((await persist({taskId:'task-alpha',content:'same-body',candidateSha256:sha})).draftId,a.draftId);
 });
+
+test('bounded cycle reuses authenticated server marketplace snapshot without second fetch',async()=>{
+ let fetched=0,councilCalls=0;
+ const result=await runBoundedTaskmarketDraftCycle({
+  db:{prepare(){throw new Error('DB_NOT_USED')}},
+  eligibleTaskIds:['different-task'],preloadedTasks:[task],
+  fetchImpl:async()=>{fetched++;throw new Error('DUPLICATE_FETCH')},
+  council:async()=>{councilCalls++;throw new Error('NO_COUNCIL')},
+  validateArtifact:async()=>{throw new Error('NO_VALIDATION')},
+ });
+ assert.equal(result.considered,0);
+ assert.equal(fetched,0);
+ assert.equal(councilCalls,0);
+});

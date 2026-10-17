@@ -94,7 +94,8 @@ export async function handleRevenueApi(request, env) {
       const actual=Array.from(new Uint8Array(digest),x=>x.toString(16).padStart(2,'0')).join('');
       if(actual!==item.sha256.toLowerCase())return json({ok:false,code:'WORK_TRUSTED_ACCEPTANCE_TAMPERED'},409);
     }
-    // Server-side live availability is authoritative; a stale browser may not initiate Council work.
+    // Server-side live availability is authoritative; reuse the exact verified snapshot.
+    let liveTasks;
     try{
       const source=new URL(TASKMARKET_API);
       source.searchParams.set('status','open');source.searchParams.set('sort','reward_desc');source.searchParams.set('limit',String(MAX_LIMIT));
@@ -102,12 +103,13 @@ export async function handleRevenueApi(request, env) {
       if(!response.ok)return json({ok:false,code:'TASKMARKET_UPSTREAM_ERROR'},502);
       const payload=await response.json();
       if(!Array.isArray(payload?.data?.tasks)&&!Array.isArray(payload?.tasks))return json({ok:false,code:'TASKMARKET_RESPONSE_INVALID'},502);
-      if(!normalizeRevenueTasks(payload).some(task=>Object.prototype.hasOwnProperty.call(expectedByTaskId,task.id)))
+      liveTasks=normalizeRevenueTasks(payload);
+      if(!liveTasks.some(task=>Object.prototype.hasOwnProperty.call(expectedByTaskId,task.id)))
         return json({ok:false,code:'WORK_NO_VERIFIABLE_LIVE_TASK'},409);
     }catch{return json({ok:false,code:'TASKMARKET_UNAVAILABLE'},503)}
     try {
       const cycle=await runBoundedTaskmarketDraftCycle({
-        db:env.DB,env,eligibleTaskIds:Object.keys(expectedByTaskId),validateArtifact:createExactJsonAcceptanceValidator({expectedByTaskId}),
+        db:env.DB,env,preloadedTasks:liveTasks,eligibleTaskIds:Object.keys(expectedByTaskId),validateArtifact:createExactJsonAcceptanceValidator({expectedByTaskId}),
         policy:{minimumProfitMicros:0,minimumMarginBps:0,maxTasksPerCycle:1},
       });
       const decisions=Array.isArray(cycle?.decisions)?cycle.decisions:[];
