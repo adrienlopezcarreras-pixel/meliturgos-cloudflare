@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { runTaskmarketWorkerCycle, feedbackToLoraCandidate, createD1ValidatedDraftAdapter } from '../../src/revenue/taskmarket-worker-cycle.js';
+import { runTaskmarketWorkerCycle, feedbackToLoraCandidate, createD1ValidatedDraftAdapter, runTaskmarketWorkerCycleWithD1 } from '../../src/revenue/taskmarket-worker-cycle.js';
 
 const task = {
   id: '0x123',
@@ -165,4 +165,14 @@ test('D1 draft IDs differ across tasks for the same candidate hash',async()=>{
  const a=await save({taskId:'task-a',content:'draft',candidateSha256:'a'.repeat(64)});
  const b=await save({taskId:'task-b',content:'draft',candidateSha256:'a'.repeat(64)});
  assert.notEqual(a.draftId,b.draftId);
+});
+
+
+test('D1-backed cycle persists a validated draft without submitting it',async()=>{
+ let insertedId=null;let submits=0;
+ const db={prepare(sql){return {run:async()=>({success:true}),bind(...values){if(sql.startsWith('INSERT'))insertedId=values[0];return {run:async()=>({success:true}),first:async()=>({id:insertedId})}}}}};
+ const result=await runTaskmarketWorkerCycleWithD1({...base,db,submitResult:async()=>{submits++;throw new Error('must not submit')}});
+ assert.equal(result.decisions[0].status,'READY_NOT_SUBMITTED');
+ assert.equal(result.decisions[0].draftId,insertedId);
+ assert.equal(submits,0);
 });
