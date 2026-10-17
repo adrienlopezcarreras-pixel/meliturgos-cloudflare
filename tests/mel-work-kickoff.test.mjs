@@ -165,3 +165,20 @@ test('kickoff does not report success when persisted execution failed', async ()
   assert.equal(result.ok,false);
   assert.equal(result.persisted,true);
 });
+
+
+test('kickoff returns non-success for an incomplete persisted Work run', async () => {
+  const bus={execute:async(id,input)=>{
+    if(id==='work.plan.save')return {id:input.id};
+    if(id==='work.plan.get')return {plan:{id:input.id}};
+    if(id==='work.plan.materialize')return {plan:{work_dag_id:'running-dag'}};
+    if(id==='work.run')return {status:'RUNNING'};
+    if(id==='work.plan.sync')return {work:{status:'RUNNING'}};
+    if(id==='work.artifacts')return {artifacts:[]};
+    throw new Error('UNEXPECTED_'+id);
+  }};
+  const result=await startMelWorkKickoff({bus,text:PROMPT,conversationId:'running-state',context:{}});
+  assert.equal(result.status,'RUNNING');
+  assert.equal(result.ok,false);
+  assert.equal(result.persisted,true);
+});
