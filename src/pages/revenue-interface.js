@@ -88,7 +88,8 @@ async function viewPersistentWorkArtifacts(planId,button){
  button.disabled=true;area.textContent='Lecture des résultats persistants…';
  try{
   const result=await executeWorkCapability('work.artifacts',{id:String(record.work_dag_id)});
-  const rows=Array.isArray(result?.artifacts)?result.artifacts:[];
+  if(!Array.isArray(result?.artifacts))throw new Error('WORK_ARTIFACTS_INVALID_RESPONSE');
+  const rows=result.artifacts;
   const types=rows.slice(0,50).map(row=>String(row?.artifact?.kind||row?.kind||'type inconnu').slice(0,80));
   area.textContent=rows.length+' artefact(s) persistants. Types : '+(types.join(', ')||'aucun')+(rows.length>50?' (premiers 50 affichés)':'')+'. Aucun paiement ni livraison externe ne sont prouvés par cette lecture.';
  }catch(error){area.textContent='Résultats indisponibles : '+String(error?.message||error).slice(0,160)}
