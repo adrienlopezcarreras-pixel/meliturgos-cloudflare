@@ -63,7 +63,8 @@ if(-not(Test-Path -LiteralPath $adb)){
  if(-not(Test-Path -LiteralPath $adb)){throw 'ADB_EXE_NOT_IN_ARCHIVE'}
 }
 function Run([string[]]$a){$p=$ErrorActionPreference;$ErrorActionPreference='Continue';try{$o=@(& $adb @a 2>&1|ForEach-Object{[string]$_})}finally{$ErrorActionPreference=$p};return ($o -join [string][char]10)}
-Run @('start-server')|Out-Null
+# The adb daemon must not inherit a captured pipe, or reading output never ends.
+if(-not(Get-Process -Name adb -ErrorAction SilentlyContinue)){Start-Process -FilePath $adb -ArgumentList 'start-server' -WindowStyle Hidden;for($i=0;$i -lt 20 -and -not(Get-Process -Name adb -ErrorAction SilentlyContinue);$i++){Start-Sleep -Milliseconds 500};Start-Sleep -Seconds 2}
 $log=@()
 if($pair){$r=Run @('pair',$pair,$code);$log+='pair: '+$r;if($r -notmatch 'Successfully paired'){throw 'ADB_PAIRING_FAILED'}}
 if(-not $target){
