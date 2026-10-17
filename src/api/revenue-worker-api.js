@@ -65,7 +65,9 @@ export async function handleRevenueApi(request, env) {
         db:env.DB,env,validateArtifact:createExactJsonAcceptanceValidator({expectedByTaskId}),
         policy:{minimumProfitMicros:0,minimumMarginBps:0,maxTasksPerCycle:1},
       });
-      return json({ok:true,cycle,submissionEnabled:false});
+      const decisions=Array.isArray(cycle?.decisions)?cycle.decisions:[];
+      const completed=cycle?.status==='COMPLETED' && decisions.length>0 && decisions.every(d=>d.status==='READY_NOT_SUBMITTED'&&typeof d.draftId==='string'&&d.draftId.length>0);
+      return json({ok:completed,cycle,submissionEnabled:false,code:completed?null:'WORK_CYCLE_NO_VERIFIED_DRAFT'},completed?200:409);
     } catch(error) {
       const code=String(error?.code||error?.message||'WORK_CYCLE_FAILED');
       return json({ok:false,code:/^[A-Z_]{4,90}$/.test(code)?code:'WORK_CYCLE_FAILED'},503);
