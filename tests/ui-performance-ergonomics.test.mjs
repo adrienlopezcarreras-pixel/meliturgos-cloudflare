@@ -106,14 +106,15 @@ test('Professor exposes a lightweight dashboard summary route and registers the 
 });
 
 
-test('Professor desktop hides the mobile Plus control and keeps a populated mobile secondary menu', async () => {
+test('Professor keeps everyday views in the bar and the technical ones under one Plus menu', async () => {
   const html = await (await renderProfessor()).text();
-  assert.ok(html.includes('.nav button.mobile-more-nav,.mobile-more-menu{display:none}'));
-  assert.ok(html.includes('.mobile-more-nav{display:flex!important}'));
+  assert.ok(html.includes('.nav button[data-view="computer"],.nav button[data-view="terminal"],.nav button.mobile-more-nav{display:flex!important}'));
   assert.match(html, /id="mobileMoreMenu"[^>]*hidden/);
-  for (const target of ['skills','roadmap','computer','terminal','lora','diagnostics']) {
+  for (const target of ['skills','roadmap','multi','lora','connections','diagnostics']) {
     assert.match(html, new RegExp('data-jump="' + target + '"'));
   }
+  const nav = html.slice(html.indexOf('<nav class="nav" id="nav">'), html.indexOf('</nav>'));
+  assert.deepEqual([...nav.matchAll(/data-view="(\w+)"|href="(\/revenus)"/g)].slice(0, 5).map(m => m[1] || m[2]), ['chat', '/revenus', 'computer', 'terminal', 'memory']);
 });
 
 test('MEL techno avatar is the canonical favicon in normal and Professor modes', async () => {
