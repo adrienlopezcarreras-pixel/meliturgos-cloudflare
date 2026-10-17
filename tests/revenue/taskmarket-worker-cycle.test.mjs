@@ -338,3 +338,14 @@ test('bounded cycle preserves an explicit zero task budget and rejects fractiona
  assert.equal(calls,0);
  assert.equal((await run(-1)).considered,0);
 });
+
+test('D1 draft IDs are cryptographically scoped to full task identity',async()=>{
+ const db={prepare(sql){return {run:async()=>({success:true}),bind(...values){return {run:async()=>({success:true}),first:async()=>({id:values[0],content:'same-body'})}}}}};
+ const persist=createD1ValidatedDraftAdapter(db);
+ const sha='a'.repeat(64);
+ const a=await persist({taskId:'task-alpha',content:'same-body',candidateSha256:sha});
+ const b=await persist({taskId:'task-beta',content:'same-body',candidateSha256:sha});
+ assert.notEqual(a.draftId,b.draftId);
+ assert.match(a.draftId,/^melwork-draft-[a-f0-9]{64}-[a-f0-9]{64}$/);
+ assert.equal((await persist({taskId:'task-alpha',content:'same-body',candidateSha256:sha})).draftId,a.draftId);
+});
