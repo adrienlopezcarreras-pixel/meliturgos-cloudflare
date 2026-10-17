@@ -511,3 +511,18 @@ test('stale worker cannot overwrite recovered mission after losing its D1 owners
  const rows=await db.prepare('SELECT content FROM mel_work_artifacts WHERE mission_id=?').bind(mission.id).all();
  assert.deepEqual(rows.results.map(r=>r.content),['CURRENT OUTPUT']);
 });
+
+test('F4 prepares a human-assisted draft and returns owner steps without submitting', async()=>{
+ const {runDirectWork}=await import('../../src/revenue/work-mission-core.js');
+ const {sqliteD1}=await import('../helpers/sqlite-d1.mjs');
+ const outcome=await runDirectWork({
+  db:sqliteD1(),
+  listMissions:async()=>[{id:'taskmarket-real-pattern',description:'Prepare a public report and publish it',eligibleForDraft:true}],
+  assess:async()=>({eligible:true,draftable:true,confidenceBps:9500,requiresHuman:true,humanSteps:['Review report','Publish personally'],requiresPhysicalWorld:false,requiresSecrets:false,requestsUnsafeAction:false}),
+  execute:async()=>({content:'Reviewable report text'}),
+ });
+ assert.equal(outcome.status,'DRAFT_FOR_OWNER');
+ assert.deepEqual(outcome.humanSteps,['Review report','Publish personally']);
+ assert.equal(outcome.submitted,false);
+ assert.equal(outcome.requiresOwnerApproval,true);
+});
