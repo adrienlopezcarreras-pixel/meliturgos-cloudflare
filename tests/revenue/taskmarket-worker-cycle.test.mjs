@@ -146,7 +146,7 @@ test('never claims a durable draft exists when persistence is unconfirmed',async
 
 test('D1 validated draft adapter confirms stored evidence before returning an id',async()=>{
  const calls=[];let inserted=false;let savedDraftId=null;
- const db={prepare(sql){calls.push(sql);return {bind(...values){if(sql.startsWith('INSERT'))savedDraftId=values[0];return {run:async()=>{inserted=true;return {success:true}},first:async()=>inserted?{id:calls.find(x=>x.startsWith('SELECT'))?savedDraftId:null}:null}},run:async()=>({success:true})}}};
+ const db={prepare(sql){calls.push(sql);return {bind(...values){if(sql.startsWith('INSERT'))savedDraftId=values[0];return {run:async()=>{inserted=true;return {success:true}},first:async()=>inserted?{id:savedDraftId,content:'verified sample'}:null}},run:async()=>({success:true})}}};
  const save=createD1ValidatedDraftAdapter(db);
  const stored=await save({taskId:'0x123',content:'verified sample',candidateSha256:'a'.repeat(64),validation:'schema-valid'});
  assert.match(stored.draftId,/^melwork-draft-[0-9a-f]+-a{64}$/);
@@ -160,7 +160,7 @@ test('D1 validated draft adapter never fabricates persistence confirmation',asyn
 
 test('D1 draft IDs differ across tasks for the same candidate hash',async()=>{
  const ids=[];
- const db={prepare(sql){return {run:async()=>({success:true}),bind(...values){if(sql.startsWith('INSERT'))ids.push(values[0]);return {run:async()=>({success:true}),first:async()=>({id:ids.at(-1)})}}}}};
+ const db={prepare(sql){return {run:async()=>({success:true}),bind(...values){if(sql.startsWith('INSERT'))ids.push(values[0]);return {run:async()=>({success:true}),first:async()=>({id:ids.at(-1),content:'draft'})}}}}};
  const save=createD1ValidatedDraftAdapter(db);
  const a=await save({taskId:'task-a',content:'draft',candidateSha256:'a'.repeat(64)});
  const b=await save({taskId:'task-b',content:'draft',candidateSha256:'a'.repeat(64)});
@@ -170,7 +170,7 @@ test('D1 draft IDs differ across tasks for the same candidate hash',async()=>{
 
 test('D1-backed cycle persists a validated draft without submitting it',async()=>{
  let insertedId=null;let submits=0;
- const db={prepare(sql){return {run:async()=>({success:true}),bind(...values){if(sql.startsWith('INSERT'))insertedId=values[0];return {run:async()=>({success:true}),first:async()=>({id:insertedId})}}}}};
+ const db={prepare(sql){return {run:async()=>({success:true}),bind(...values){if(sql.startsWith('INSERT'))insertedId=values[0];return {run:async()=>({success:true}),first:async()=>({id:insertedId,content:'{}'})}}}}};
  const result=await runTaskmarketWorkerCycleWithD1({...base,db,submitResult:async()=>{submits++;throw new Error('must not submit')}});
  assert.equal(result.decisions[0].status,'READY_NOT_SUBMITTED');
  assert.equal(result.decisions[0].draftId,insertedId);
@@ -317,4 +317,9 @@ test('full bounded Council cycle writes and reads an independently verified draf
  assert.equal(listed.drafts[0].id,cycle.decisions[0].draftId);
  assert.equal(listed.drafts[0].taskId,'0x123');
  assert.equal(JSON.stringify(listed).includes(expectedJson),false);
+});
+
+test('D1 persistence refuses a matching id whose stored body differs',async()=>{
+ const db={prepare(sql){return {run:async()=>({success:true}),bind(...args){return {run:async()=>({success:true}),first:async()=>({id:args[0],content:'corrupted'})}}}}};
+ await assert.rejects(createD1ValidatedDraftAdapter(db)({taskId:'job',content:'verified sample',candidateSha256:'a'.repeat(64)}),/WORK_DRAFT_PERSISTENCE_UNCONFIRMED/);
 });
