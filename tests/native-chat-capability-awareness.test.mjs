@@ -98,10 +98,12 @@ test('connected private-data routing maps natural read requests to real capabili
     inferConnectedDataCapability('Cherche facture dans Google Drive'),
     { id:'drive.files.search', input:{ query:'facture', limit:20 } },
   );
-  assert.deepEqual(
-    inferConnectedDataCapability("Qu'est-ce que j'ai dans mon agenda ?"),
-    { id:'calendar.events.read', input:{ limit:20 } },
-  );
+  const agenda = inferConnectedDataCapability("Qu'est-ce que j'ai dans mon agenda ?");
+  assert.equal(agenda.id, 'calendar.events.read');
+  assert.equal(agenda.input.limit, 20);
+  // Calendar reads now carry a real Paris-time window (default: next 7 days).
+  assert.match(agenda.input.time_min, /^\d{4}-\d{2}-\d{2}T/);
+  assert.match(agenda.input.time_max, /^\d{4}-\d{2}-\d{2}T/);
   assert.deepEqual(
     inferConnectedDataCapability('Montre mes tâches Google Tasks'),
     { id:'tasks.tasklists.read', input:{ limit:20 } },

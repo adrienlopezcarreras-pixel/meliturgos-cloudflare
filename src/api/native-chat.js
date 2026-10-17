@@ -31,6 +31,8 @@ import { inferKnowledgeCapability } from './knowledge-intent.js';
 import { streamChatResponse } from './chat-stream.js';
 import { streamComputerAgent } from '../devices/computer-agent.js';
 import { inferComputerAgentGoal } from '../devices/computer-agent-intent.js';
+import { parisTimeWindow } from './assistant-time.js';
+import { privateConnectedDataRequest } from './connected-data-intent.js';
 import { createChatDeadline, hasChatBudget, raceChatDeadline, chatDeadlineError, COUNCIL_RECOVERY_MIN_REMAINING_MS, CONTINUATION_MIN_REMAINING_MS, FALLBACK_ATTEMPT_MIN_REMAINING_MS } from './chat-deadline.js';
 import { inferCurrentFactVerificationPolicy, hasAuthoritativeCurrentFactEvidence, currentFactReliabilityInstruction } from './current-fact-reliability.js';
 import { buildPresentationInstruction } from '../presentation/presentation-skill.js';
@@ -426,15 +428,14 @@ function actionLikeRequest(value) {
   return /\b(?:fais|faire|lance|lancer|ex[ée]cute|ex[ée]cuter|envoie|envoyer|ouvre|ouvrir|cr[ée]e|cr[ée]er|modifie|modifier|corrige|corriger|r[ée]pare|r[ée]parer|d[ée]ploie|d[ée]ployer|teste|tester|v[ée]rifie|v[ée]rifier|mets?\s+[àa]\s+jour|continue|avance)\b/i.test(String(value || ''));
 }
 
-function privateConnectedDataRequest(value) {
-  return /\b(?:mes\s+(?:mails?|emails?|fichiers?|documents?|photos?|messages?|contacts?|calendriers?|agendas?|t[âa]ches?)|gmail|outlook|onedrive|google\s+drive|google\s+tasks|sharepoint|mon\s+(?:gmail|outlook|drive|agenda|calendrier)|ma\s+(?:bo[iî]te\s+mail|messagerie))\b/i.test(String(value || ''));
-}
 
 function connectedSearchQuery(value, providerPattern) {
   const raw = String(value || '').trim();
   const stripped = raw
     .replace(providerPattern, ' ')
-    .replace(/\b(?:cherche|recherche|trouve|montre|liste|lis|regarde|dans|sur|mes|mails?|emails?|messages?|fichiers?|documents?|sites?)\b/gi, ' ')
+    .replace(/\b(?:cherche|recherche|trouve|montre|liste|lis|regarde|affiche|donne[- ]moi|dans|sur|de|des|du|la|le|les|un|une|mes|mon|ma|mails?|e-?mails?|courriels?|messages?|fichiers?|documents?|sites?|bo[iî]te|r[ée]ception|stp|s['’]il\s+te\s+pla[iî]t)\b/gi, ' ')
+    .replace(/[?!.,;:]+/g, ' ')
+    .replace(/(?:^|\s)(?:ai[- ]je|j['’]ai|est[- ]ce\s+que|y\s+a[- ]t[- ]il|quels?|quelles?|sont|re[çc]us?|non\s+lus?|nouveaux|nouvelles?|derniers?|derni[eè]res?|r[ée]cents?|r[ée]centes?)(?=\s|$)/gi, ' ')
     .replace(/\s+/g, ' ')
     .trim();
   return stripped.length >= 2 ? stripped.slice(0, 300) : '';
@@ -470,8 +471,8 @@ export function inferConnectedDataCapability(value) {
     const query = connectedSearchQuery(raw, /\bgmail\b/gi);
     return { id: 'gmail.messages.search', input: { query: query || 'newer_than:30d', limit: 20 } };
   }
-  if (/\b(?:agenda|calendrier|calendar|rendez[- ]?vous|[ée]v[ée]nements?)\b/i.test(raw)) {
-    return { id: 'calendar.events.read', input: { limit: 20 } };
+  if (/\b(?:agenda|calendrier|calendar|rendez[- ]?vous|rdv|r[ée]unions?|[ée]v[ée]nements?|planning|de\s+pr[ée]vu|au\s+programme)\b/i.test(raw)) {
+    return { id: 'calendar.events.read', input: { ...parisTimeWindow(raw), limit: 20 } };
   }
   if (/\b(?:google\s+tasks|mes\s+t[âa]ches?)\b/i.test(raw)) {
     return { id: 'tasks.tasklists.read', input: { limit: 20 } };
@@ -483,12 +484,18 @@ export function inferConnectedDataCapability(value) {
       ? { id: 'files.search', input: { query, limit: 20 } }
       : { id: 'files.list', input: { limit: 20 } };
   }
-  if (/\bgoogle\s+drive\b/i.test(raw)) {
+  if (/\b(?:google\s+drive|mon\s+drive|drive)\b/i.test(raw)) {
     const wantsSearch = /\b(?:cherche|recherche|trouve)\b/i.test(raw);
     const query = connectedSearchQuery(raw, /\bgoogle\s+drive\b/gi);
     return wantsSearch && query
       ? { id: 'drive.files.search', input: { query, limit: 20 } }
       : { id: 'drive.files.list', input: { limit: 20 } };
+  }
+  // Mail without a named provider: Gmail is the connected Google account.
+  if (/\b(?:mails?|e-?mails?|courriels?|messages?|bo[iî]te\s+(?:mail|de\s+r[ée]ception)|messagerie)\b/i.test(raw)) {
+    const query = connectedSearchQuery(raw, /\b(?:gmail|derniers?|derni[eè]res?|r[ée]cents?|nouveaux|non\s+lus)\b/gi);
+    const unread = /\bnon\s+lus?\b/i.test(raw);
+    return { id: 'gmail.messages.search', input: { query: query ? query : (unread ? 'is:unread newer_than:14d' : 'newer_than:7d'), limit: 15 } };
   }
   return null;
 }

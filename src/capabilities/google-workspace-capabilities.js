@@ -1,4 +1,5 @@
 const GMAIL_API = 'https://gmail.googleapis.com/gmail/v1/users/me';
+const GMAIL_SEARCH_METADATA_MAX = 10;
 const CALENDAR_API = 'https://www.googleapis.com/calendar/v3';
 const TASKS_API = 'https://tasks.googleapis.com/tasks/v1';
 const MAX_LIST = 50;
@@ -370,7 +371,7 @@ export function registerGoogleWorkspaceCapabilities(bus, { env = {}, fetchImpl =
     category: 'communication',
     version: '1.0.0',
     provider: 'google',
-    description: 'Searches Gmail with a bounded Gmail query and returns message identifiers only.',
+    description: 'Searches Gmail with a bounded Gmail query and returns subject, sender, date and snippet of the first messages (never the body).',
     input_schema: {
       type: 'object',
       properties: {
@@ -391,9 +392,30 @@ export function registerGoogleWorkspaceCapabilities(bus, { env = {}, fetchImpl =
     const q = text(input.query, 'GMAIL_QUERY_INVALID', 1000);
     const url = GMAIL_API + '/messages?' + query({ q, maxResults: listLimit(input.limit) });
     const body = await requestJson(fetchImpl, token, url, { code: 'GMAIL_SEARCH_FAILED', signal: context?.signal });
-    const messages = (Array.isArray(body.messages) ? body.messages : []).slice(0, listLimit(input.limit)).map(row => ({
+    const ids = (Array.isArray(body.messages) ? body.messages : []).slice(0, listLimit(input.limit)).map(row => ({
       id: String(row.id || ''),
       thread_id: String(row.threadId || ''),
+    }));
+    // Identifiers alone are useless in a conversation: add subject, sender,
+    // date and Gmail's short snippet for the first messages (metadata only,
+    // never the body). A failed header read keeps the bare identifier.
+    const headerFor = (headers, name) => String((Array.isArray(headers) ? headers : []).find(h => String(h?.name || '').toLowerCase() === name)?.value || '').slice(0, 300);
+    const messages = await Promise.all(ids.map(async (row, index) => {
+      if (index >= GMAIL_SEARCH_METADATA_MAX || !row.id) return row;
+      try {
+        const meta = await requestJson(fetchImpl, token, GMAIL_API + '/messages/' + encodeURIComponent(row.id) + '?' + 'format=metadata&metadataHeaders=Subject&metadataHeaders=From&metadataHeaders=Date', { code: 'GMAIL_METADATA_FAILED', signal: context?.signal });
+        const headers = meta?.payload?.headers;
+        return {
+          ...row,
+          subject: headerFor(headers, 'subject'),
+          from: headerFor(headers, 'from'),
+          date: headerFor(headers, 'date'),
+          snippet: String(meta?.snippet || '').slice(0, 300),
+          unread: Array.isArray(meta?.labelIds) ? meta.labelIds.includes('UNREAD') : null,
+        };
+      } catch {
+        return row;
+      }
     }));
     return { provider: 'google', query: q, messages, count: messages.length };
   });
