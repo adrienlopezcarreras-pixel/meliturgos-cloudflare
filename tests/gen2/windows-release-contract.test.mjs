@@ -154,7 +154,12 @@ test('Companion dashboard preserves functional controls with refreshed visual hi
  assert.match(source,/POSTE DE TRAVAIL/);
  assert.match(source,/Appareils connectés/);
  assert.match(source,/title=="Contrôle USB MINI"/);
- assert.match(source,/Drawing2D\.GraphicsPath/);
+ assert.match(source,/BorderStyle=BorderStyle.FixedSingle/);
+ assert.doesNotMatch(source,/p\.Paint\+=delegate\(object sender,PaintEventArgs ev\)/);
+ assert.match(source,/previousCards=cards\.Controls\.Cast<Control>\(\)\.ToArray\(\)/);
+ assert.match(source,/oldCard\.Dispose\(\)/);
+ assert.match(source,/card\.Anchor=AnchorStyles\.Top\|AnchorStyles\.Left/);
+ assert.match(source,/status\.Name="DeviceStatus"/);
  assert.match(source,/ChooseMiniUsbAction/);
  assert.match(source,/RunAndroidWifiPairing/);
  assert.match(source,/void LayoutDashboard\(\)/);
