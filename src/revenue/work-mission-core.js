@@ -30,12 +30,19 @@ export async function executeWorkMission({db,mission,execute,verify=async()=>({p
 
 /** Provider-independent orchestration: the source supplies missions, the executor produces
  * content and D1 is the canonical record. Never claims or submits marketplace work. */
-export async function runDirectWork({db,listMissions,execute,verify}={}){
- if(typeof listMissions!=='function'||typeof execute!=='function')throw new TypeError('WORK_SOURCE_OR_EXECUTOR_REQUIRED');
+export async function runDirectWork({db,listMissions,assess,execute,verify,maxAssessments=3}={}){
+ if(typeof listMissions!=='function'||typeof assess!=='function'||typeof execute!=='function')throw new TypeError('WORK_SOURCE_ASSESSOR_EXECUTOR_REQUIRED');
  const missions=await listMissions();
  if(!Array.isArray(missions))throw new TypeError('WORK_MISSION_LIST_INVALID');
- // Do not equate a high reward with fitness for autonomous work.
- const mission=missions.find(m=>m?.eligibleForDraft===true&&typeof m?.description==='string'&&m.description.trim()&&m.description.length<=6000);
- if(!mission)return {status:'NO_ELIGIBLE_MISSION',artifactId:null,submitted:false,paid:false};
- return executeWorkMission({db,mission,execute:args=>execute(args,mission),verify});
+ // Selection belongs in the engine. Source metadata alone never approves an autonomous task.
+ for(const mission of missions.slice(0,Math.max(0,Math.min(3,Number.isSafeInteger(maxAssessments)?maxAssessments:3)))){
+  if(mission?.eligibleForDraft!==true||typeof mission?.description!=='string'||!mission.description.trim()||mission.description.length>6000)continue;
+  let assessment;
+  try{assessment=await assess({mission})}catch{continue}
+  if(assessment?.eligible!==true||!Number.isSafeInteger(assessment.confidenceBps)||assessment.confidenceBps<9000||
+    assessment.requiresHuman!==false||assessment.requiresPhysicalWorld!==false||
+    assessment.requiresSecrets!==false||assessment.requestsUnsafeAction!==false)continue;
+  return executeWorkMission({db,mission,execute:args=>execute(args,mission,assessment),verify});
+ }
+ return {status:'NO_ELIGIBLE_MISSION',artifactId:null,submitted:false,paid:false};
 }
