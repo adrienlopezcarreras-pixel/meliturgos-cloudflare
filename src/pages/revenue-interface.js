@@ -133,6 +133,8 @@ async function executeSavedReadOnlyPreparation(taskId,planId,title,button,safePr
  savedTaskPlans.set(taskId,planId);savedPlanIds.add(planId);
  savedPlanRecords.set(planId,{id:planId,goal:String(currentPlan?.goal||title||planId),status:String(currentPlan?.status||status),work_dag_id:dagId,created_at:Number(currentPlan?.created_at||0)||null,updated_at:Number(currentPlan?.updated_at||Date.now())||Date.now()});
  paintSavedPlanCount();
+ const evidenceButton=Array.from(document.querySelectorAll('[data-view-work-artifacts]')).find(el=>el.getAttribute('data-view-work-artifacts')===planId);
+ if(evidenceButton)void viewPersistentWorkArtifacts(planId,evidenceButton);
  if(status==='COMPLETED'){
   button.textContent='Préparation terminée';
   const detail=generationMode==='GENERATED_READ_ONLY_PLAN'
