@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { runTaskmarketWorkerCycle, feedbackToLoraCandidate, createD1ValidatedDraftAdapter, runTaskmarketWorkerCycleWithD1, listD1ValidatedDrafts } from '../../src/revenue/taskmarket-worker-cycle.js';
+import { runTaskmarketWorkerCycle, feedbackToLoraCandidate, createD1ValidatedDraftAdapter, runTaskmarketWorkerCycleWithD1, listD1ValidatedDrafts, createPublicTaskmarketListAdapter } from '../../src/revenue/taskmarket-worker-cycle.js';
 
 const task = {
   id: '0x123',
@@ -195,4 +195,27 @@ test('D1 draft listing initializes an empty database before the first stored wor
  assert.deepEqual(output.drafts,[]);
  assert.match(statements[0],/^CREATE TABLE IF NOT EXISTS mel_work_validated_drafts/);
  assert.match(statements[1],/^SELECT id, task_id/);
+});
+
+test('public Taskmarket discovery supplies only normalized open offers to cycle',async()=>{
+ let seenUrl;let seenMethod;
+ const list=createPublicTaskmarketListAdapter({
+  now:()=>Date.parse('2026-10-17T00:00:00Z'),
+  fetchImpl:async(url,opts)=>{
+   seenUrl=url;seenMethod=opts.method;
+   return {ok:true,json:async()=>({tasks:[
+    {id:'job1',status:'open',description:'safe code audit',reward:'1200000',expiryTime:'2026-11-01T00:00:00Z'},
+    {id:'job2',status:'closed',description:'closed',reward:'1000',expiryTime:'2026-11-01T00:00:00Z'},
+   ]})};
+  },
+ });
+ const result=await list();
+ assert.equal(seenMethod,'GET');
+ assert.match(seenUrl,/status=open/);
+ assert.equal(result.tasks.length,1);
+ assert.equal(result.tasks[0].id,'job1');
+});
+test('public Taskmarket discovery refuses malformed upstream payload',async()=>{
+ const list=createPublicTaskmarketListAdapter({fetchImpl:async()=>({ok:true,json:async()=>({tasks:null})})});
+ await assert.rejects(list(),/TASKMARKET_PUBLIC_SCHEMA_INVALID/);
 });
