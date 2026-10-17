@@ -1465,20 +1465,14 @@ class MainForm : Form
     }
     Panel Card(Control parent,int y,int height)
     {
-        var p=new Panel {Location=new Point(0,y),Size=new Size(Math.Max(350,parent.ClientSize.Width-26),height),
-            BackColor=Color.White,Padding=new Padding(8)};
-        p.Paint+=delegate(object sender,PaintEventArgs ev){
-            ev.Graphics.SmoothingMode=System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
-            using(var pen=new Pen(stroke,1f))
-            using(var path=new System.Drawing.Drawing2D.GraphicsPath()){
-                int radius=12, right=p.Width-1, bottom=p.Height-1;
-                path.AddArc(0,0,radius,radius,180,90);
-                path.AddArc(right-radius,0,radius,radius,270,90);
-                path.AddArc(right-radius,bottom-radius,radius,radius,0,90);
-                path.AddArc(0,bottom-radius,radius,radius,90,90);
-                path.CloseFigure();
-                ev.Graphics.DrawPath(pen,path);
-            }
+        // Built-in border invalidates reliably on resize; custom painted borders
+        // left duplicated edge fragments at Windows display scaling >= 125%.
+        var p=new Panel {
+            Location=new Point(0,y),
+            Size=new Size(Math.Max(350,parent.ClientSize.Width-26),height),
+            BackColor=Color.White,Padding=new Padding(8),
+            BorderStyle=BorderStyle.FixedSingle,
+            Anchor=AnchorStyles.Left|AnchorStyles.Top
         };
         parent.Controls.Add(p);return p;
     }
@@ -1486,11 +1480,11 @@ class MainForm : Form
     {
         Text="MEL Companion — Windows";
         Icon=MelApp.MakeIcon();
-        ClientSize=new Size(1000,790);MinimumSize=new Size(790,650);
+        ClientSize=new Size(1060,820);MinimumSize=new Size(790,650);
         StartPosition=FormStartPosition.CenterScreen;
         AutoScaleMode=AutoScaleMode.None;
         Font=new Font("Segoe UI",10f);BackColor=background;ForeColor=text;
-        AutoScroll=false;
+        AutoScroll=false;DoubleBuffered=true;
         LabelAt(this,"MEL Companion",28,22,620,52,19,true);
         connection=LabelAt(this,"Vérification de la connexion…",28,78,670,30,10,true,gray);
         triadActivityStatus=LabelAt(this,"Android : activité non vérifiée",28,106,670,23,9,false,gray);
@@ -1498,25 +1492,18 @@ class MainForm : Form
         ButtonAt(this,"Ouvrir MEL",0,29,160,delegate{MelApp.OpenMel();}).Anchor=AnchorStyles.Top|AnchorStyles.Right;
         var open=Controls.OfType<Button>().Last();
         open.Left=ClientSize.Width-190;
-        var pc=Card(this,132,150);pc.Left=22;pc.Width=ClientSize.Width-44;
-        pc.Anchor=AnchorStyles.Top|AnchorStyles.Left|AnchorStyles.Right;
+        var pc=Card(this,132,176);pc.Left=22;pc.Width=ClientSize.Width-44;
         LabelAt(pc,"POSTE DE TRAVAIL",20,14,310,36,9,true,blue);
-        var miniUsb=ButtonAt(pc,"Contrôle USB MINI",Math.Max(350,pc.Width-232),43,205,ChooseMiniUsbAction);
-        miniUsb.Anchor=AnchorStyles.Top|AnchorStyles.Right;
-        var androidPair=ButtonAt(pc,"Configurer ADB Wi-Fi",Math.Max(170,pc.Width-450),43,205,RunAndroidWifiPairing);
-        androidPair.Anchor=AnchorStyles.Top|AnchorStyles.Right;
-        LabelAt(pc,Environment.MachineName,20,57,Math.Max(240,pc.Width-480),31,12,true).Anchor=AnchorStyles.Top|AnchorStyles.Left;
-        localAccessStatus=LabelAt(pc,"Accès PC : désactivé  |  Calcul local : désactivé",20,91,pc.Width-40,22,9,false,gray);
-        localAccessStatus.Anchor=AnchorStyles.Top|AnchorStyles.Left|AnchorStyles.Right;
-        adbWifiStatus=LabelAt(pc,"ADB Wi-Fi : recherche du téléphone…",20,118,pc.Width-40,22,9,false,gray);
-        adbWifiStatus.Anchor=AnchorStyles.Top|AnchorStyles.Left|AnchorStyles.Right;
-        LabelAt(this,"Appareils connectés",28,302,390,47,15,true);
-        var permissions=ButtonAt(this,"Autorisations",0,302,170,delegate{using(var dlg=new PermissionsForm())dlg.ShowDialog(this);RefreshAll();});
-        var refresh=ButtonAt(this,"Actualiser",0,302,150,delegate{RefreshAll();RefreshAdbDiagnostics();});
-        permissions.Anchor=AnchorStyles.Right|AnchorStyles.Top;refresh.Anchor=AnchorStyles.Right|AnchorStyles.Top;
-        permissions.Left=ClientSize.Width-370;refresh.Left=ClientSize.Width-180;
-        LabelAt(this,"État en temps réel des appareils liés à MEL",28,353,700,34,9,false,gray);
-        cards=new Panel {Left=22,Top=398,Width=ClientSize.Width-44,Height=ClientSize.Height-545,
+        var miniUsb=ButtonAt(pc,"Contrôle USB MINI",pc.Width-227,54,205,ChooseMiniUsbAction);
+        var androidPair=ButtonAt(pc,"Configurer ADB Wi-Fi",pc.Width-446,54,205,RunAndroidWifiPairing);
+        LabelAt(pc,Environment.MachineName,20,52,260,32,12,true);
+        localAccessStatus=LabelAt(pc,"Accès PC : désactivé  |  Calcul local : désactivé",20,103,pc.Width-40,25,9,false,gray);
+        adbWifiStatus=LabelAt(pc,"ADB Wi-Fi : recherche du téléphone…",20,133,pc.Width-40,25,9,false,gray);
+        LabelAt(this,"Appareils connectés",28,330,410,47,15,true);
+        var permissions=ButtonAt(this,"Autorisations",0,334,174,delegate{using(var dlg=new PermissionsForm())dlg.ShowDialog(this);RefreshAll();});
+        var refresh=ButtonAt(this,"Actualiser",0,334,150,delegate{RefreshAll();RefreshAdbDiagnostics();});
+        LabelAt(this,"État des appareils liés à MEL",28,380,700,34,9,false,gray);
+        cards=new Panel {Left=22,Top=420,Width=ClientSize.Width-44,Height=ClientSize.Height-567,
             BackColor=background,AutoScroll=true,Anchor=AnchorStyles.Top|AnchorStyles.Bottom|AnchorStyles.Left|AnchorStyles.Right};
         Controls.Add(cards);
         var repair=ButtonAt(this,"Réparer",22,0,120,delegate{
@@ -1638,45 +1625,67 @@ class MainForm : Form
     void ResizeCards()
     {
         if(cards==null)return;
-        int width=Math.Max(350,cards.ClientSize.Width-(cards.VerticalScroll.Visible?25:10));
-        foreach(Control c in cards.Controls)
+        int available=Math.Max(350,cards.ClientSize.Width-(cards.VerticalScroll.Visible?24:8));
+        cards.SuspendLayout();
+        foreach(Panel card in cards.Controls.OfType<Panel>())
         {
-            c.Width=width;
-            foreach(Control child in c.Controls)
-            {
-                if(child is Label && child.Left<35)
-                    child.Width=Math.Max(200,width-child.Left-20);
-            }
+            card.SuspendLayout();
+            card.Anchor=AnchorStyles.Top|AnchorStyles.Left;
+            card.Width=available;
+            var title=card.Controls.OfType<Label>().FirstOrDefault(l=>l.Name=="DeviceTitle");
+            var state=card.Controls.OfType<Label>().FirstOrDefault(l=>l.Name=="DeviceStatus");
+            var detail=card.Controls.OfType<Label>().FirstOrDefault(l=>l.Name=="DeviceDetail");
+            if(state!=null)state.Left=Math.Max(210,available-state.Width-22);
+            if(title!=null)title.Width=Math.Max(140,available-245);
+            if(detail!=null)detail.Width=Math.Max(140,available-44);
+            if(title==null)foreach(Label label in card.Controls.OfType<Label>())
+                label.Width=Math.Max(140,available-label.Left-24);
+            card.ResumeLayout(false);
         }
+        cards.ResumeLayout(false);
     }
+    bool dashboardLayoutRunning;
     void LayoutDashboard()
     {
-        // Keep controls aligned when Windows DPI or the available desktop size changes.
-        int width=ClientSize.Width;
-        var open=Controls.OfType<Button>().FirstOrDefault(b=>b.Text=="Ouvrir MEL");
-        if(open!=null)open.Left=width-open.Width-28;
-        var pc=Controls.OfType<Panel>().FirstOrDefault(p=>p!=cards && p.Top==132);
-        if(pc!=null)
+        // One layout owner; never combine auto anchors with manual geometry.
+        if(dashboardLayoutRunning || IsDisposed)return;
+        dashboardLayoutRunning=true;
+        SuspendLayout();
+        try
         {
-            pc.Width=width-44;
-            var usb=pc.Controls.OfType<Button>().FirstOrDefault(b=>b.Text=="Contrôle USB MINI");
-            var adb=pc.Controls.OfType<Button>().FirstOrDefault(b=>b.Text=="Configurer ADB Wi-Fi");
-            if(usb!=null)usb.Left=pc.ClientSize.Width-usb.Width-22;
-            if(adb!=null)adb.Left=pc.ClientSize.Width-(usb!=null?usb.Width+14:0)-adb.Width-22;
-            var machine=pc.Controls.OfType<Label>().FirstOrDefault(l=>l.Text==Environment.MachineName);
-            if(machine!=null)machine.Width=Math.Max(150,(adb!=null?adb.Left:pc.ClientSize.Width)-machine.Left-16);
+            int width=ClientSize.Width;
+            var open=Controls.OfType<Button>().FirstOrDefault(b=>b.Text=="Ouvrir MEL");
+            if(open!=null)open.Left=width-open.Width-28;
+            var pc=Controls.OfType<Panel>().FirstOrDefault(p=>p!=cards && p.Top==132);
+            if(pc!=null)
+            {
+                pc.SuspendLayout();
+                pc.Width=width-44;
+                var usb=pc.Controls.OfType<Button>().FirstOrDefault(b=>b.Text=="Contrôle USB MINI");
+                var adb=pc.Controls.OfType<Button>().FirstOrDefault(b=>b.Text=="Configurer ADB Wi-Fi");
+                if(usb!=null)usb.Left=pc.ClientSize.Width-usb.Width-22;
+                if(adb!=null)adb.Left=pc.ClientSize.Width-(usb!=null?usb.Width+14:0)-adb.Width-22;
+                var machine=pc.Controls.OfType<Label>().FirstOrDefault(l=>l.Text==Environment.MachineName);
+                if(machine!=null)machine.Width=Math.Max(150,(adb!=null?adb.Left:pc.ClientSize.Width)-machine.Left-14);
+                if(localAccessStatus!=null)localAccessStatus.Width=Math.Max(200,pc.ClientSize.Width-40);
+                if(adbWifiStatus!=null)adbWifiStatus.Width=Math.Max(200,pc.ClientSize.Width-40);
+                pc.ResumeLayout(false);
+            }
+            var permissions=Controls.OfType<Button>().FirstOrDefault(b=>b.Text=="Autorisations");
+            var refresh=Controls.OfType<Button>().FirstOrDefault(b=>b.Text=="Actualiser");
+            if(refresh!=null)refresh.Left=width-refresh.Width-28;
+            if(permissions!=null)permissions.Left=width-(refresh!=null?refresh.Width+16:0)-permissions.Width-28;
+            var heading=Controls.OfType<Label>().FirstOrDefault(l=>l.Text=="Appareils connectés");
+            if(heading!=null)heading.Width=Math.Max(260,(permissions!=null?permissions.Left:width)-heading.Left-16);
+            if(cards!=null)
+            {
+                cards.Width=width-44;
+                cards.Height=Math.Max(80,ClientSize.Height-cards.Top-150);
+                ResizeCards();
+            }
+            PositionFooter();
         }
-        var permissions=Controls.OfType<Button>().FirstOrDefault(b=>b.Text=="Autorisations");
-        var refresh=Controls.OfType<Button>().FirstOrDefault(b=>b.Text=="Actualiser");
-        if(refresh!=null)refresh.Left=width-refresh.Width-28;
-        if(permissions!=null)permissions.Left=width-(refresh!=null?refresh.Width+16:0)-permissions.Width-28;
-        if(cards!=null)
-        {
-            cards.Width=width-44;
-            cards.Height=Math.Max(80,ClientSize.Height-cards.Top-150);
-            ResizeCards();
-        }
-        PositionFooter();
+        finally {ResumeLayout(true);dashboardLayoutRunning=false;}
     }
     void PositionFooter()
     {
@@ -1934,7 +1943,10 @@ class MainForm : Form
             }
 
             var devices=MelApp.Devices();
-            cards.SuspendLayout();cards.Controls.Clear();
+            cards.SuspendLayout();
+            var previousCards=cards.Controls.Cast<Control>().ToArray();
+            cards.Controls.Clear();
+            foreach(var oldCard in previousCards)oldCard.Dispose();
             if(devices.Count==0){
                 var p=Card(cards,4,104);
                 LabelAt(p,"Aucun appareil détecté pour le moment",22,15,p.Width-44,38,12,true);
@@ -1944,12 +1956,11 @@ class MainForm : Form
                 foreach(var d in devices){
                     var p=Card(cards,y,160);
                     var kind=Get(d,"kind")=="android"?"Android":"MINI";
-                    LabelAt(p,kind+" — "+Get(d,"name"),22,16,p.Width-235,45,12,true)
-                        .Anchor=AnchorStyles.Left|AnchorStyles.Top|AnchorStyles.Right;
+                    LabelAt(p,kind+" — "+Get(d,"name"),22,16,p.Width-245,45,12,true).Name="DeviceTitle";
                     var onlineDevice=Bool(d,"online");
                     var status=LabelAt(p,onlineDevice?"En ligne":"Hors ligne",p.Width-175,16,145,40,9,true,
                         onlineDevice?Color.FromArgb(25,125,85):gray);
-                    status.Anchor=AnchorStyles.Right|AnchorStyles.Top;
+                    status.Name="DeviceStatus";status.TextAlign=ContentAlignment.MiddleRight;
                     var phase=Get(d,"phase");
                     var firmware=Get(d,"firmware");
                     // A stale phase can still say ONLINE after the current transport went offline.
@@ -1957,8 +1968,7 @@ class MainForm : Form
                     var detail=!onlineDevice && string.Equals(phase,"ONLINE",StringComparison.OrdinalIgnoreCase)
                         ? "Dernier état reçu : ONLINE · connexion actuelle hors ligne · "+firmware
                         : phase+"  ·  "+firmware;
-                    LabelAt(p,detail,22,68,p.Width-44,40,9,false,gray)
-                        .Anchor=AnchorStyles.Left|AnchorStyles.Top|AnchorStyles.Right;
+                    LabelAt(p,detail,22,68,p.Width-44,40,9,false,gray).Name="DeviceDetail";
                     var cam=ButtonAt(p,"Caméra",22,110,140,delegate{
                         if(Bool(d,"live_stream"))MelApp.OpenMel();
                         else MessageBox.Show("Aucun flux vidéo live n'est disponible pour cet appareil.","MEL Companion");
