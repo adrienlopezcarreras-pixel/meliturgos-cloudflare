@@ -56,6 +56,13 @@ try {
       (Get-FileHash -LiteralPath $installedExe -Algorithm SHA256).Hash -ne $newHash) {
     throw 'COMPANION_NATIVE_INSTALL_HASH_MISMATCH'
   }
+  # F5/F6 require that the installed engine matches the native binary's embedded
+  # engine. An EXE-only hash is not proof that the actual command runner upgraded.
+  $expectedEngineHash = (Get-FileHash -LiteralPath $packageEngine -Algorithm SHA256).Hash
+  if (!(Test-Path -LiteralPath $installedEngine -PathType Leaf) -or
+      (Get-FileHash -LiteralPath $installedEngine -Algorithm SHA256).Hash -ne $expectedEngineHash) {
+    throw 'COMPANION_EMBEDDED_ENGINE_INSTALL_HASH_MISMATCH'
+  }
   Write-Host 'Companion natif mis a jour et demarre. Controlez son etat dans MEL.'
 } catch {
   # The new packaged process may still hold the installed EXE open. Stop it
