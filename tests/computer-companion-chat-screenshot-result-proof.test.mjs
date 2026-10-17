@@ -65,7 +65,10 @@ test('native chat screen.capture cannot report successful image without R2 objec
   row=await DB.prepare('SELECT status,result_json FROM computer_commands WHERE id=?').bind('chat-shot').first();
   assert.equal(row.status,'SUCCEEDED');
   assert.equal(JSON.parse(row.result_json).outputs[0].screenshot_key,key);
-  assert.equal((await report('chat-shot',{outputs:[output]})).status,409);
+  // The first report validated R2 proof and stored the immutable result.
+  // Retrying after a lost HTTP acknowledgement must not stall Windows.
+  assert.equal((await report('chat-shot',{outputs:[output]})).status,200);
+  assert.equal((await report('chat-shot',{outputs:[{...output,screenshot_key:'computer/screenshots/other-device/invalid.png'}]})).status,409);
  }finally{DB.close();}
 });
 
