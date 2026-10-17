@@ -43,7 +43,8 @@ export async function runCompanionCommand({ db, device, steps, sessionId, sleep,
   const plan = evaluateComputerUsePlan({
     session_id: sessionId, owner_halt: false,
     device: { id: device.id, capabilities: device.capabilities },
-    sandbox: { allowed_apps: device.allowed_apps, allowed_paths: device.allowed_paths, max_steps: numbered.length },
+    // The owner's own chat request authorizes exactly the pages this command opens.
+    sandbox: { allowed_apps: device.allowed_apps, allowed_paths: device.allowed_paths, allowed_origins: [...new Set(numbered.filter(step => step.url).map(step => new URL(step.url).origin))], max_steps: numbered.length },
     approvals, steps: numbered,
   });
   if (!plan.allowed) return { ok: false, code: plan.reason || 'COMPUTER_PLAN_DENIED' };
@@ -81,6 +82,8 @@ function systemPrompt(device) {
     'Tu pilotes le PC Windows d\'Adrien pour accomplir son objectif. À chaque tour tu reçois la fenêtre active et ses éléments numérotés.',
     'Réponds UNIQUEMENT par un objet JSON, une seule action :',
     '{"action":"open_app","app":"notepad"} — applications autorisées : ' + (device.allowed_apps || []).join(', '),
+    '{"action":"open_url","url":"https://fr.wikipedia.org/wiki/Paris"}  (ouvre une page web dans le navigateur ; https uniquement)',
+    'Pour chercher sur le web : {"action":"open_url","url":"https://duckduckgo.com/?q=mots+cl%C3%A9s"} puis lis les résultats et clique sur le bon lien.',
     '{"action":"click","element":12}  (clic au centre de l\'élément #12)',
     '{"action":"double_click","element":12}',
     '{"action":"type","text":"..."}  (tape dans l\'élément qui a le focus ; clique d\'abord dessus si besoin)',
@@ -101,6 +104,23 @@ export function parseAgentAction(text) {
 }
 
 // Traduit la décision du modèle en étapes Companion validées.
+// Public https pages only: no local network, raw IP, credentials or odd ports.
+export function safeWebUrl(raw) {
+  let url;
+  try { url = new URL(String(raw || '').trim()); } catch { return null; }
+  if (url.protocol !== 'https:' || url.username || url.password || (url.port && url.port !== '443')) return null;
+  const host = url.hostname.toLowerCase();
+  if (!host.includes('.') || /^[\d.]+$/.test(host) || host.includes(':') || /(^|\.)(localhost|local|internal|lan|home|arpa)$/.test(host)) return null;
+  return url.href;
+}
+
+const WEBSITE_IN_GOAL = /https:\/\/[^\s"'<>]+|\b(?:[a-z0-9-]+\.)+(?:fr|com|org|net|io|dev|eu|be|ch|ca|info|app|ai|tv|me)\b(?:\/[^\s"'<>]*)?/i;
+export function websiteFromGoal(objective) {
+  const match = String(objective || '').match(WEBSITE_IN_GOAL);
+  if (!match) return null;
+  return safeWebUrl(/^https:\/\//i.test(match[0]) ? match[0] : 'https://' + match[0]);
+}
+
 const TEXT_FIELD_TYPES = /^(Edit|Document|ComboBox)$/i;
 
 export function actionToSteps(action, snapshot = {}, device = {}) {
@@ -111,6 +131,11 @@ export function actionToSteps(action, snapshot = {}, device = {}) {
       const app = String(action.app || '').toLowerCase();
       if (!(device.allowed_apps || []).map(a => String(a).toLowerCase()).includes(app)) return { error: 'APP_NOT_ALLOWED_BY_ADRIEN' };
       return { steps: [{ action: 'app.open', app }], settleMs: 1500 };
+    }
+    case 'open_url': {
+      const url = safeWebUrl(action.url);
+      if (!url) return { error: 'AGENT_URL_NOT_ALLOWED' };
+      return { steps: [{ action: 'browser.navigate', url }], settleMs: 2500 };
     }
     case 'click':
     case 'double_click': {
@@ -142,6 +167,7 @@ function describeAction(action, snapshot) {
   const el = Number.isInteger(action.element) ? (snapshot.elements || []).find(x => x.i === action.element) : null;
   switch (action.action) {
     case 'open_app': return `Ouvrir ${action.app}`;
+    case 'open_url': { try { return `Ouvrir ${new URL(String(action.url)).hostname}`; } catch { return 'Ouvrir une page'; } }
     case 'click': return `Cliquer sur « ${el?.name || '#' + action.element} »`;
     case 'double_click': return `Double-cliquer sur « ${el?.name || '#' + action.element} »`;
     case 'type': return `Taper « ${String(action.text || '').slice(0, 60)}${String(action.text || '').length > 60 ? '…' : ''} »`;
@@ -176,6 +202,17 @@ export async function runComputerAgent({ env, goal, maxSteps = AGENT_MAX_STEPS, 
   for (let turn = 1; turn <= limit; turn += 1) {
     // Launch an explicitly requested allowlisted application immediately.
     // No UIA round-trip is needed to discover where a known application lives.
+    // A named website opens straight away, like a named application.
+    const site = turn === 1 && /\b(?:va|aller|allez|ouvre|ouvrir|navigue|naviguer|consulte|affiche)\b/i.test(objective) ? websiteFromGoal(objective) : null;
+    if (site) {
+      const opened = await runCompanionCommand({ db, device, steps: [{ action: 'browser.navigate', url: site }], sessionId, sleep, now });
+      history.push('Ouvrir ' + site + (opened.ok ? ' → fait' : ' → échec ' + opened.code));
+      onEvent({ type: 'step', n: turn, ok: opened.ok, text: 'Ouvrir ' + new URL(site).hostname, code: opened.ok ? null : opened.code });
+      if (!opened.ok) { status = 'FAILED'; summary = opened.code; break; }
+      successfulActions += 1;
+      await sleep(2500);
+      continue;
+    }
     if (turn === 1 && /\b(?:ouvre|ouvrir|lance|lancer|d[ée]marre)\b/i.test(objective)) {
       const app = /\b(?:bloc[- ]?notes|notepad)\b/i.test(objective) ? 'notepad' : null;
       if (app && (device.allowed_apps || []).some(value => String(value).toLowerCase() === app)) {
