@@ -8,7 +8,21 @@ export async function executeWorkMission({db,mission,execute,verify=async()=>({p
  const id=typeof mission?.id==='string'?mission.id.trim():'';
  const description=typeof mission?.description==='string'?mission.description.trim():'';
  if(!id||id.length>160||!description||description.length>6000)throw new TypeError('WORK_MISSION_INVALID');
- const response=await execute({id,description});
+ await db.prepare('CREATE TABLE IF NOT EXISTS mel_work_missions (id TEXT PRIMARY KEY, description TEXT NOT NULL, state TEXT NOT NULL, attempts INTEGER NOT NULL, last_error TEXT, artifact_id TEXT, updated_at TEXT NOT NULL)').run();
+ await db.prepare('INSERT OR IGNORE INTO mel_work_missions (id,description,state,attempts,updated_at) VALUES (?,?,?,?,?)').bind(id,description,'NEW',0,now()).run();
+ const current=await db.prepare('SELECT id,description,state,attempts,artifact_id FROM mel_work_missions WHERE id=?').bind(id).first();
+ if(current?.description!==description)throw new Error('WORK_MISSION_ID_REUSED');
+ if(current?.state==='DRAFT_READY'&&current.artifact_id){
+  const saved=await db.prepare('SELECT id,status FROM mel_work_artifacts WHERE id=?').bind(current.artifact_id).first();
+  if(saved?.id===current.artifact_id)return {artifactId:saved.id,missionId:id,status:saved.status,submitted:false,paid:false,reused:true};
+ }
+ await db.prepare('UPDATE mel_work_missions SET state=?,attempts=attempts+1,last_error=NULL,updated_at=? WHERE id=?').bind('RUNNING',now(),id).run();
+ let response;
+ try{response=await execute({id,description})}
+ catch(error){
+  await db.prepare('UPDATE mel_work_missions SET state=?,last_error=?,updated_at=? WHERE id=?').bind('FAILED',String(error?.message||'EXECUTION_FAILED').slice(0,120),now(),id).run();
+  throw error;
+ }
  const content=typeof response?.content==='string'?response.content:'';
  if(!content.trim()||content.length>12000)throw new Error('WORK_ARTIFACT_EMPTY');
  const digest=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(id+'\n'+content));
@@ -25,6 +39,7 @@ export async function executeWorkMission({db,mission,execute,verify=async()=>({p
  }
  const final=await db.prepare('SELECT id, mission_id, content, status FROM mel_work_artifacts WHERE id=?').bind(artifactId).first();
  if(final?.id!==artifactId||final.content!==content||final.status!==(passed?'VERIFIED_LOCALLY':'DRAFT_UNVERIFIED'))throw new Error('WORK_ARTIFACT_PERSISTENCE_UNCONFIRMED');
+ await db.prepare('UPDATE mel_work_missions SET state=?,artifact_id=?,last_error=NULL,updated_at=? WHERE id=?').bind('DRAFT_READY',artifactId,now(),id).run();
  return {artifactId,missionId:id,status:final.status,submitted:false,paid:false};
 }
 
