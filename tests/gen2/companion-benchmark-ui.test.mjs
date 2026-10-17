@@ -7,7 +7,7 @@ test('Windows package installs the benchmark for explicit UI launch only',()=>{
  assert.match(native,/LocalAiBenchmarkPath = Path.Combine\(MelDir, "MEL-Local-AI-Benchmark\.ps1"\)/);
  assert.match(native,/File\.Copy\(packagedBenchmark, LocalAiBenchmarkPath, true\)/);
  assert.match(build,/MEL-Local-AI-Benchmark\.ps1/);
- assert.match(native,/ButtonAt\(this,"Tester IA locale",475,0,175,RunLocalAiBenchmark\)/);
+ assert.match(native,/ActionButton\("Tester IA locale",166,RunLocalAiBenchmark\)/);
  assert.doesNotMatch(native.slice(native.indexOf('public static void InstallFiles('),native.indexOf('public static void ConfigureStartup(')),/Process\.Start\(.*LocalAiBenchmark/);
 });
 test('benchmark button is manual, respects CPU opt-in and never blocks WinForms thread',()=>{
