@@ -20,8 +20,11 @@ $tokens = $null; $errors = $null
 if ($errors.Count) { throw 'COMPANION_PACKAGE_POWERSHELL_INVALID' }
 $previousHash = (Get-FileHash -LiteralPath $installedExe -Algorithm SHA256).Hash
 $newHash = (Get-FileHash -LiteralPath $packageExe -Algorithm SHA256).Hash
-if ($previousHash -eq $newHash) {
-  Write-Host 'Application native deja a jour. Appairage conserve.'
+$expectedEngineHash = (Get-FileHash -LiteralPath $packageEngine -Algorithm SHA256).Hash
+$engineCurrent = (Test-Path -LiteralPath $installedEngine -PathType Leaf) -and
+  ((Get-FileHash -LiteralPath $installedEngine -Algorithm SHA256).Hash -eq $expectedEngineHash)
+if ($previousHash -eq $newHash -and $engineCurrent) {
+  Write-Host 'Application native et moteur deja a jour. Appairage conserve.'
   return
 }
 Write-Host "PC existant : $($config.computer_id)"
