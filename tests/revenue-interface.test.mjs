@@ -371,10 +371,10 @@ test('MEL WORK draft cycle requires owner auth and server-side trusted oracle',a
  assert.equal(response.status,409);
  assert.equal((await response.json()).code,'WORK_TRUSTED_ACCEPTANCE_NOT_CONFIGURED');
 });
-test('MEL WORK draft-cycle button exists without claim or submit routes',async()=>{
+test('MEL WORK direct draft button uses owner-only route and no submission',async()=>{
  const html=await (await onRequestGet()).text();
  assert.match(html,/id="runDraftCycle"/);
- assert.match(html,/api\/revenue\/draft-cycle/);
+ assert.match(html,/\/api\/revenue\/direct-work/);
  assert.doesNotMatch(html,/\/api\/revenue\/taskmarket-submit/);
 });
 
@@ -470,26 +470,11 @@ test('eligible discovery is owner-only and fails closed before public lookup wit
  assert.equal(result.code,'WORK_TRUSTED_ACCEPTANCE_NOT_CONFIGURED');
 });
 
-test('MEL WORK interface shows eligible public task discovery without claiming tasks',async()=>{
- const html=await (await onRequestGet()).text();
- assert.match(html,/id="draftDiscovery"/);
- assert.match(html,/\/api\/revenue\/eligible-discovery/);
- assert.match(html,/Aucune mission réclamée/);
-});
 
-test('draft action demands both readiness and a real matching public job',async()=>{
- const html=await (await onRequestGet()).text();
- assert.match(html,/workRuntimeReady&&workMatchingTaskCount>0/);
- assert.match(html,/Aucune mission publique compatible actuellement/);
- assert.match(html,/finally\{applyWorkCycleAvailability\(\)\}/);
-});
 
-test('MEL WORK checks live matching tasks and readiness again before each cycle POST',async()=>{
- const html=await (await onRequestGet()).text();
- assert.match(html,/await Promise\.all\(\[refreshDraftReadiness\(\),refreshDraftDiscovery\(\)\]\)/);
- assert.match(html,/WORK_NO_VERIFIABLE_LIVE_TASK/);
- assert.match(html,/if\(!\(workRuntimeReady&&workMatchingTaskCount>0\)\)/);
-});
+
+
+
 
 test('server blocks draft cycle without a matching live Taskmarket job before Council invocation',async()=>{
  const url='https://mel.test/api/revenue/draft-cycle';
@@ -508,4 +493,20 @@ test('MEL WORK API requires independent SQL readback to confirm persisted drafts
  const source=await file.readFile(new URL('../src/api/revenue-worker-api.js',import.meta.url),'utf8');
  assert.match(source,/SELECT id, task_id FROM mel_work_validated_drafts WHERE id=\? AND task_id=\?/);
  assert.match(source,/stored\.task_id!==decision\.taskId/);
+});
+
+test('direct MEL WORK UI offers real draft creation without prior expected answer',async()=>{
+ const html=await (await onRequestGet()).text();
+ assert.match(html,/Créer un brouillon de mission/);
+ assert.match(html,/\/api\/revenue\/direct-work/);
+ assert.match(html,/DRAFT_UNVERIFIED/);
+});
+test('direct MEL WORK API stays owner-only and fails closed without D1',async()=>{
+ const url='https://mel.test/api/revenue/direct-work';
+ const env={MELITURGOS_USER:'adrien',MELITURGOS_PASSWORD:'test'};
+ assert.notEqual((await handleRevenueApi(new Request(url),env)).status,200);
+ const headers={authorization:'Basic '+Buffer.from('adrien:test').toString('base64')};
+ const response=await handleRevenueApi(new Request(url,{method:'POST',headers}),env);
+ assert.equal(response.status,503);
+ assert.equal((await response.json()).code,'WORK_DRAFT_DB_REQUIRED');
 });
