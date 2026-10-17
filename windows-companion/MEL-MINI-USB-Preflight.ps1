@@ -32,16 +32,37 @@ foreach ($name in $required) {
     throw "MINI_USB_PREFLIGHT_MODULE_MISSING:$name"
   }
 }
-$launcher = Get-Command -Name 'py.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
+# Prefer a Python interpreter that can actually import esptool. A bare
+# "py -3" may select an unsupported newer Python (e.g. 3.15), even when
+# Python 3.13 and esptool are already installed and working.
+$launcher = $null
 $pythonArgs = @()
-if ($null -ne $launcher) {
-  $pythonArgs = @('-3')
-} else {
-  $launcher = Get-Command -Name 'python.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
+$py = Get-Command -Name 'py.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
+$python = Get-Command -Name 'python.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
+$candidates = @()
+if ($null -ne $py) {
+  foreach ($version in @('3.13','3.12','3.11','3.10','3.14','3.15')) {
+    $candidates += ,@($py, @("-$version"))
+  }
+  $candidates += ,@($py, @('-3'))
+}
+if ($null -ne $python) { $candidates += ,@($python, @()) }
+foreach ($candidate in $candidates) {
+  $probeLauncher = $candidate[0]
+  $probeArgs = @($candidate[1])
+  try {
+    $probeOutput = & $probeLauncher.Source @probeArgs -m esptool version 2>&1
+    if ($LASTEXITCODE -eq 0) {
+      $launcher = $probeLauncher
+      $pythonArgs = $probeArgs
+      break
+    }
+  } catch { }
 }
 if ($null -eq $launcher) {
-  throw 'MINI_USB_PYTHON_REQUIRED'
+  throw 'MINI_USB_ESPTOOL_REQUIRED: install esptool in a supported Python (e.g. py -3.13 -m pip install esptool)'
 }
+Write-Host ("Python/esptool validé : " + $launcher.Source + " " + ($pythonArgs -join ' '))
 
 # Evidence is unique per run; never reuse or overwrite a previous USB dump.
 $evidenceRoot = Join-Path $env:LOCALAPPDATA 'MEL\mini-usb-evidence'
