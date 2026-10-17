@@ -47,3 +47,10 @@ test('source search keeps an explicit file scope instead of scanning an arbitrar
     }
   );
 });
+
+test('MEL reads explicit .agents documentation instead of fabricating a code.read result', () => {
+  assert.deepEqual(
+    inferNativeCodeCapability('We need to invoke code.read. Attempt code.read. { "path": ".agents/ANDROID_APP_100_CYCLES_20260923.md" }'),
+    { id: 'code.read', input: { path: '.agents/ANDROID_APP_100_CYCLES_20260923.md' } }
+  );
+});
