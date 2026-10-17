@@ -343,7 +343,7 @@ export function createExactJsonAcceptanceValidator({expectedByTaskId={}}={}){
   try{expected=JSON.parse(entry.expectedJson);actual=JSON.parse(candidate?.content)}catch{
    return {passed:false,machineVerifiable:true,summary:'ACCEPTANCE_JSON_INVALID'};
   }
-  const canonical=x=>JSON.stringify(x,Object.keys(x||{}).sort());
+  const canonical=x=>Array.isArray(x)?'['+x.map(canonical).join(',')+']':x&&typeof x==='object'?'{'+Object.keys(x).sort().map(k=>JSON.stringify(k)+':'+canonical(x[k])).join(',')+'}':JSON.stringify(x);
   const bytes=new TextEncoder().encode(entry.expectedJson);
   const sha=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes)),x=>x.toString(16).padStart(2,'0')).join('');
   if(sha!==entry.sha256.toLowerCase())return {passed:false,machineVerifiable:false,summary:'ACCEPTANCE_FIXTURE_TAMPERED'};
