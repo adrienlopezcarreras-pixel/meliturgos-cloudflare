@@ -1,4 +1,5 @@
 const ACTIVE_STATUSES = new Set(['open', 'waiting', 'resumable', 'failed']);
+const RECOVERABLE_STATUSES = new Set([...ACTIVE_STATUSES, 'resuming']);
 const TERMINAL_STATUSES = new Set(['completed', 'cancelled']);
 
 function asText(value) {
@@ -196,11 +197,11 @@ export class D1OpenLoopStore {
     const capped = Math.max(1, Math.min(100, Math.trunc(asNumber(limit, 25))));
     const result = owner
       ? await this.db.prepare(`SELECT * FROM mel_open_loops
-          WHERE owner=? AND status IN ('open','waiting','resumable','failed')
+          WHERE owner=? AND status IN ('open','waiting','resumable','failed','resuming')
             AND resume_at<=? AND (lease_until IS NULL OR lease_until<?)
           ORDER BY priority DESC, resume_at ASC, updated_at ASC LIMIT ?`).bind(owner, now, now, capped).all()
       : await this.db.prepare(`SELECT * FROM mel_open_loops
-          WHERE status IN ('open','waiting','resumable','failed')
+          WHERE status IN ('open','waiting','resumable','failed','resuming')
             AND resume_at<=? AND (lease_until IS NULL OR lease_until<?)
           ORDER BY priority DESC, resume_at ASC, updated_at ASC LIMIT ?`).bind(now, now, capped).all();
     return (result.results || []).map(rowToLoop);
@@ -213,7 +214,7 @@ export class D1OpenLoopStore {
     const leaseUntil = now + Math.max(1_000, asNumber(leaseMs, 60_000));
     const result = await this.db.prepare(`UPDATE mel_open_loops
       SET status='resuming', lease_token=?, lease_until=?, updated_at=?
-      WHERE id=? AND status IN ('open','waiting','resumable','failed')
+      WHERE id=? AND status IN ('open','waiting','resumable','failed','resuming')
         AND resume_at<=? AND (lease_until IS NULL OR lease_until<?)`).bind(
       leaseToken, leaseUntil, now, id, now, now,
     ).run();
@@ -252,7 +253,7 @@ export class MemoryOpenLoopStore {
   async listDue({ owner = '', now = Date.now(), limit = 25 } = {}) {
     return [...this.rows.values()]
       .filter((loop) => (!owner || loop.owner === owner)
-        && ACTIVE_STATUSES.has(loop.status)
+        && RECOVERABLE_STATUSES.has(loop.status)
         && loop.resumeAt <= now
         && (!loop.leaseUntil || loop.leaseUntil < now))
       .sort((a, b) => (b.priority - a.priority) || (a.resumeAt - b.resumeAt) || (a.updatedAt - b.updatedAt))
@@ -262,7 +263,7 @@ export class MemoryOpenLoopStore {
 
   async claim(id, { token, now = Date.now(), leaseMs = 60_000 } = {}) {
     const loop = this.rows.get(id);
-    if (!loop || !ACTIVE_STATUSES.has(loop.status) || loop.resumeAt > now || (loop.leaseUntil && loop.leaseUntil >= now)) return null;
+    if (!loop || !RECOVERABLE_STATUSES.has(loop.status) || loop.resumeAt > now || (loop.leaseUntil && loop.leaseUntil >= now)) return null;
     loop.status = 'resuming';
     loop.leaseToken = asText(token);
     loop.leaseUntil = now + leaseMs;
