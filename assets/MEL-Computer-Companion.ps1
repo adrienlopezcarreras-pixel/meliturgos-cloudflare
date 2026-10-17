@@ -2437,6 +2437,7 @@ function Get-UiSnapshot([IntPtr]$hwnd = [IntPtr]::Zero, [int]$maxElements = 150,
   $clock = [System.Diagnostics.Stopwatch]::StartNew()
   $useful = @('Button','Edit','MenuItem','Hyperlink','ListItem','TabItem','CheckBox','RadioButton','ComboBox','TreeItem','Document','SplitButton','Slider','Spinner','DataItem','Text','HeaderItem','Menu','MenuBar','ToolBar')
   $items = New-Object System.Collections.Generic.List[object]
+  $snapshotErrors = New-Object System.Collections.Generic.List[string]
   $condition = [System.Windows.Automation.Condition]::TrueCondition
   $descendants = $root.FindAll([System.Windows.Automation.TreeScope]::Descendants, $condition)
   foreach ($el in $descendants) {
@@ -2472,7 +2473,12 @@ function Get-UiSnapshot([IntPtr]$hwnd = [IntPtr]::Zero, [int]$maxElements = 150,
           value = $value
         })
       }
-    } catch {}
+    } catch {
+      if ($snapshotErrors.Count -lt 5) { $snapshotErrors.Add([string]$_.Exception.Message) }
+    }
+  }
+  if ($items.Count -eq 0) {
+    throw ('UI_SNAPSHOT_NO_CONTROLS: descendants=' + $descendants.Count + '; errors=' + ($snapshotErrors -join ' | ') + '; interactive=' + [Environment]::UserInteractive)
   }
   $truncated = ($descendants.Count -gt $items.Count -or $clock.ElapsedMilliseconds -ge $budgetMs)
   $title = ''
