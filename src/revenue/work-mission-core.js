@@ -24,7 +24,9 @@ export async function executeWorkMission({db,mission,execute,verify=async()=>({p
   }
  }
  // Atomic claim: concurrent invocations may not both execute the same mission.
- const claimed=await db.prepare("UPDATE mel_work_missions SET state=?,attempts=attempts+1,last_error=NULL,updated_at=? WHERE id=? AND state IN ('NEW','FAILED')").bind('RUNNING',now(),id).run();
+ const timestamp=now();
+ const cutoff=new Date(Date.parse(timestamp)-15*60*1000).toISOString();
+ const claimed=await db.prepare("UPDATE mel_work_missions SET state=?,attempts=attempts+1,last_error=NULL,updated_at=? WHERE id=? AND (state IN ('NEW','FAILED') OR (state='RUNNING' AND updated_at<?))").bind('RUNNING',timestamp,id,cutoff).run();
  if(claimed?.meta?.changes!==1)throw new Error('WORK_MISSION_ALREADY_RUNNING');
  let response;
  try{response=await execute({id,description})}
