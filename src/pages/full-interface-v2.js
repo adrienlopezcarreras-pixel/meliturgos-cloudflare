@@ -69,6 +69,7 @@ function apiErrorMessage(payload,status){
   if(code==='PIPEDREAM_CONNECT_TOKEN_FAILED'&&Number(payload?.upstream_status)===400)return 'Pipedream Connect Production n’est pas disponible pour ce projet. Utilise Development (gratuit) ou un plan Production.';
   if(code==='PIPEDREAM_AUTH_FAILED')return 'Identifiants Pipedream refusés. Vérifie le Client ID et le Client Secret.';
   if(code==='PIPEDREAM_NOT_CONFIGURED')return 'Pipedream n’est pas encore configuré.';
+  if(code==='CHAT_DEADLINE_EXCEEDED'||(code==='CHAT_INFERENCE_FAILED'&&String(payload?.detail||'')==='CHAT_DEADLINE_EXCEEDED'))return 'MEL n’a pas pu terminer dans le délai (CHAT_DEADLINE_EXCEEDED). Le serveur s’est arrêté proprement : relance ou découpe la demande.';
   return code||('HTTP '+status);
 }
 function rawFetch(url,opts){return fetch(url,opts)}

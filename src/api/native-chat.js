@@ -27,6 +27,7 @@ import { buildConversationFocusInstruction, deriveConversationFocus } from './co
 import { loadConversationFocusState, saveConversationFocusState } from './conversation-focus-store.js';
 import { assessResponseQuality, enforceResponseQuality, persistResponseQualityEvent } from './response-quality-audit.js';
 import { inferKnowledgeCapability } from './knowledge-intent.js';
+import { createChatDeadline, hasChatBudget, raceChatDeadline, chatDeadlineError, COUNCIL_RECOVERY_MIN_REMAINING_MS, CONTINUATION_MIN_REMAINING_MS, FALLBACK_ATTEMPT_MIN_REMAINING_MS } from './chat-deadline.js';
 import { inferCurrentFactVerificationPolicy, hasAuthoritativeCurrentFactEvidence, currentFactReliabilityInstruction } from './current-fact-reliability.js';
 import { buildPresentationInstruction } from '../presentation/presentation-skill.js';
 
@@ -899,6 +900,7 @@ export function createNativeModelRouter(env, inferenceSettings = null, activeAda
     registry,
     timeoutMs: routerTimeoutMs,
     maxCalls: routerMaxCalls,
+    deadlineAt: routerOptions?.deadlineAt ?? null,
     performanceStore: env?.DB ? new D1ModelPerformanceStore(env.DB) : null,
     invoke: async (selected, messages) => {
       const modelId = selected.model_id || selected.id;
@@ -972,13 +974,14 @@ export async function runBoundedChatFallback(invoke, model, payload, { timeoutMs
   }
 }
 
-export async function runNativeInference({ env, messages, text, parallel = false, maxCandidates = 4, inferenceSettings = null, activeAdapter = null, runtime = null, taskOverride = null, preferredModel = null, timeoutMs = null, maxCalls = null } = {}) {
+export async function runNativeInference({ env, messages, text, parallel = false, maxCandidates = 4, inferenceSettings = null, activeAdapter = null, runtime = null, taskOverride = null, preferredModel = null, timeoutMs = null, maxCalls = null, deadlineAt = null } = {}) {
   if (!env?.AI || typeof env.AI.run !== 'function') {
     const error = new Error('AI_BINDING_MISSING');
     error.code = 'AI_BINDING_MISSING';
     throw error;
   }
-  const router = createNativeModelRouter(env, inferenceSettings, activeAdapter, { timeoutMs, maxCalls });
+  if (deadlineAt != null && !hasChatBudget(deadlineAt, 1)) throw chatDeadlineError();
+  const router = createNativeModelRouter(env, inferenceSettings, activeAdapter, { timeoutMs, maxCalls, deadlineAt });
   const task = taskOverride ? String(taskOverride).toUpperCase() : classifyTask(text || '');
   const boundedCandidates = Math.max(1, Math.min(12, Number(maxCandidates) || 4));
   if (parallel && !activeAdapter) {
@@ -986,13 +989,13 @@ export async function runNativeInference({ env, messages, text, parallel = false
     const boundedMessages = Array.isArray(messages)
       ? messages.map(message => ({ role: String(message?.role || 'user'), content: String(message?.content || '') }))
       : [];
-    const result = await activeRuntime.bus.execute('augmentio.fanout', {
+    const result = await raceChatDeadline(activeRuntime.bus.execute('augmentio.fanout', {
       capability: router.normalizeTask(task),
       input: String(text || 'native-chat'),
       messages: boundedMessages,
       context: { source: 'native-chat', inference_settings: inferenceSettings || null },
       maxCandidates: boundedCandidates,
-    }, nativeCapabilityContext(env));
+    }, nativeCapabilityContext(env)), deadlineAt);
     const best = result?.best || {};
     const finishReason = extractFinishReason(best);
     return {
@@ -1043,6 +1046,8 @@ function inferDirectCurrentWebCapability(text, intentContext = {}) {
 }
 
 export async function handleNativeChat(request, env, options = {}) {
+  // One budget for the whole request, shorter than the browser timeout.
+  const chatDeadlineAt = createChatDeadline(env);
   const trustedInternal = options?.authorized === true;
   const releaseSmoke = isReleaseSmokeRequest(request, env);
   if (!trustedInternal) {
@@ -1620,6 +1625,7 @@ export async function handleNativeChat(request, env, options = {}) {
         : (personalProfileIntent ? '@cf/meta/llama-3.3-70b-instruct-fp8-fast' : null),
       timeoutMs: voiceReply ? 6000 : null,
       maxCalls: voiceReply ? 1 : null,
+      deadlineAt: chatDeadlineAt,
     });
   } catch (error) {
     if (voiceReply) {
@@ -1709,10 +1715,18 @@ export async function handleNativeChat(request, env, options = {}) {
       let recovered = null;
       const fallbackDeadline = Date.now() + 20000;
 
+      let fallbackDeadlineHit = false;
       for (const attempt of attempts) {
         for (const fallbackModel of fallbackModels) {
+          if (!hasChatBudget(chatDeadlineAt, FALLBACK_ATTEMPT_MIN_REMAINING_MS)) {
+            fallbackError = chatDeadlineError();
+            fallbackDeadlineHit = true;
+            break;
+          }
           try {
-            const remainingMs = fallbackDeadline - Date.now();
+            // GPT #1985 bounds the fallback phase to 20 s; the request-wide budget
+            // (src/api/chat-deadline.js) can only shorten it further.
+            const remainingMs = Math.min(fallbackDeadline, chatDeadlineAt) - Date.now();
             if (remainingMs <= 0) break;
             const fallbackResult = await runBoundedChatFallback(
               (model, payload) => env.AI.run(model, payload),
@@ -1747,12 +1761,14 @@ export async function handleNativeChat(request, env, options = {}) {
             break;
           } catch (candidateError) {
             fallbackError = candidateError;
+            if (candidateError?.code === 'CHAT_DEADLINE_EXCEEDED') { fallbackDeadlineHit = true; break; }
           }
         }
-        if (recovered) break;
+        if (recovered || fallbackDeadlineHit) break;
       }
 
-      if (!recovered && !personalProfileIntent && !releaseSmoke
+      if (!recovered && !fallbackDeadlineHit && !personalProfileIntent && !releaseSmoke
+          && hasChatBudget(chatDeadlineAt, FALLBACK_ATTEMPT_MIN_REMAINING_MS)
           && toolResults.length === 0
           && !privateConnectedDataRequest(activeTaskText)
           && body.use_companion_compute !== false) {
@@ -1783,7 +1799,10 @@ export async function handleNativeChat(request, env, options = {}) {
 
   // Native Android chat bypasses the /api/chat defaults; finish explicitly
   // reported token-limit truncations with one bounded continuation only.
-  if (ai.truncated === true || isTruncationFinishReason(ai.finish_reason)) {
+  if ((ai.truncated === true || isTruncationFinishReason(ai.finish_reason))
+      && !hasChatBudget(chatDeadlineAt, CONTINUATION_MIN_REMAINING_MS)) {
+    ai = { ...ai, continuation_attempted: false, continuation_skipped: 'CHAT_DEADLINE' };
+  } else if (ai.truncated === true || isTruncationFinishReason(ai.finish_reason)) {
     ai = await completeTruncatedNativeInference(ai, messages, continuationMessages => runNativeInference({
       env,
       messages: continuationMessages,
@@ -1797,6 +1816,7 @@ export async function handleNativeChat(request, env, options = {}) {
       preferredModel: voiceReply ? '@cf/zai-org/glm-4.7-flash' : (String(ai.model || '').startsWith('@cf/') ? ai.model : null),
       timeoutMs: voiceReply ? 6000 : 12000,
       maxCalls: 1,
+      deadlineAt: chatDeadlineAt,
     }));
   }
 
@@ -1835,7 +1855,7 @@ export async function handleNativeChat(request, env, options = {}) {
   let automaticRecoveredAssessment = null;
   let qualityCandidateText = evidenceAlignedResponseText;
 
-  if (!negativeFeedbackRecovery && shouldEscalateNativeChatToCouncil({
+  if (!negativeFeedbackRecovery && hasChatBudget(chatDeadlineAt, COUNCIL_RECOVERY_MIN_REMAINING_MS) && shouldEscalateNativeChatToCouncil({
     userText:activeTaskText,
     responseText:evidenceAlignedResponseText,
     assessment:initialQualityAssessment,
@@ -1880,6 +1900,7 @@ export async function handleNativeChat(request, env, options = {}) {
           activeAdapter,
           runtime,
           taskOverride:'REASONING',
+          deadlineAt:chatDeadlineAt,
         });
         const recoveredRaw = stripInternalCounters(recoveredAi.text);
         const recoveredAligned = finalizeEvidenceAlignedResponse({
