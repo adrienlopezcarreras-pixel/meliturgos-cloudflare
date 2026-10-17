@@ -1157,23 +1157,39 @@ function mapComputerScreenClick(img,event,pc){
  return {x:b.left+Math.min(b.width-1,Math.floor((event.clientX-r.left)/r.width*b.width)),
          y:b.top+Math.min(b.height-1,Math.floor((event.clientY-r.top)/r.height*b.height))};
 }
+function companionDesktopReadiness(pc,now=Date.now()){
+ if(!pc)return {ok:false,code:'COMPUTER_NOT_PAIRED',label:'NON INSTALLÉ'};
+ if(pc.halted)return {ok:false,code:'OWNER_HALT_ACTIVE',label:'CONTRÔLE ARRÊTÉ'};
+ const last=Number(pc.last_seen_at);
+ if(!pc.online||!Number.isFinite(last)||last<=0||last>now||now-last>35000)
+  return {ok:false,code:'COMPUTER_DEVICE_OFFLINE',label:'COMPANION HORS LIGNE'};
+ if(pc.metadata?.remote_access_enabled!==true)
+  return {ok:false,code:'REMOTE_ACCESS_DISABLED_LOCALLY',label:'ACCÈS LOCAL DÉSACTIVÉ'};
+ const engine=Number(pc.metadata?.engine_heartbeat_at);
+ if(!Number.isFinite(engine)||engine<=0||engine>now||now-engine>20000)
+  return {ok:false,code:'COMPUTER_ENGINE_OFFLINE',label:'MOTEUR WINDOWS HORS LIGNE'};
+ return {ok:true,code:'READY',label:'CONTRÔLE PC PRÊT'};
+}
 function renderComputer(d){
   computerCache=d||computerCache;
   const devices=computerCache.devices||[],sel=qs('#computerSelect'),wanted=computerCache.selected_id||sel?.value||devices[0]?.id||'';
   if(sel){sel.innerHTML=devices.length?devices.map(x=>'<option value="'+esc(x.id)+'">'+esc(x.name||x.id)+(x.online?' · en ligne':' · hors ligne')+'</option>').join(''):'<option value="">Aucun ordinateur</option>';if(wanted&&devices.some(x=>x.id===wanted))sel.value=wanted}
   const pc=selectedComputer(),state=qs('#computerState');
   if(!pc){state.textContent='NON INSTALLÉ';state.className='tag warn';qs('#computerLastSeen').textContent='—';qs('#computerActiveWindow').textContent='—';qs('#computerOut').textContent='Télécharge puis lance l’installation Windows.';return}
-  state.textContent=pc.halted?'ARRÊTÉ':pc.online?'EN LIGNE':'HORS LIGNE';state.className='tag '+(pc.halted?'bad':pc.online?'good':'warn');
+  const readiness=companionDesktopReadiness(pc);
+  state.textContent=readiness.label;state.className='tag '+(readiness.ok?'good':readiness.code==='OWNER_HALT_ACTIVE'?'bad':'warn');
+  state.title=readiness.code;
   qs('#computerLastSeen').textContent=fmtSeen(pc.last_seen_at);qs('#computerActiveWindow').textContent=pc.metadata?.active_window||'—';
   qs('#computerOut').textContent=JSON.stringify({ordinateur:pc,commandes:(computerCache.commands||[]).slice(0,12)},null,2);
-  const latest=!pc.halted&&pc.metadata?.remote_access_enabled===true?(computerCache.commands||[]).find(c=>c?.status==='SUCCEEDED'&&c?.result?.outputs?.some(o=>o?.action==='screen.capture'&&o?.view_url)):null;
+  // A previous image does not prove the command engine remains connected.
+  const latest=readiness.ok?(computerCache.commands||[]).find(c=>c?.status==='SUCCEEDED'&&c?.result?.outputs?.some(o=>o?.action==='screen.capture'&&o?.view_url)):null;
   const output=latest?.result?.outputs?.find(o=>o?.view_url);
   if(output?.view_url){
    try{showVerifiedComputerScreen(output,pc,latest,'CAPTURE DISPONIBLE')}
    catch{const img=qs('#computerScreen');invalidateComputerScreen(img);img.removeAttribute('src');img.style.display='none';qs('#computerScreenState').textContent='CAPTURE NON VÉRIFIÉE';qs('#computerScreenState').className='tag bad'}
   }else{
    const img=qs('#computerScreen');invalidateComputerScreen(img);img.removeAttribute('src');img.style.display='none';
-   qs('#computerScreenState').textContent=pc.halted?'CONTRÔLE ARRÊTÉ':'AUCUNE CAPTURE';
+   qs('#computerScreenState').textContent=readiness.ok?'AUCUNE CAPTURE':readiness.label;
    qs('#computerScreenState').className='tag warn';
   }
 }
@@ -1181,8 +1197,8 @@ async function loadComputer(){try{const id=qs('#computerSelect')?.value||'';cons
 async function computerCommand(steps,approveSensitive=false){
  const pc=selectedComputer();
  if(!pc)throw Error('Aucun ordinateur appairé');
- if(pc.halted)throw Error('OWNER_HALT_ACTIVE');
- if(pc.metadata?.remote_access_enabled!==true)throw Error('REMOTE_ACCESS_DISABLED_LOCALLY');
+ const readiness=companionDesktopReadiness(pc);
+ if(!readiness.ok)throw Error(readiness.code);
  const capture=steps.some(step=>step?.action==='screen.capture');
  const output=qs('#computerOut');
  const queued=await jfetch('/api/computer/v1/commands',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({computer_id:pc.id,steps,approve_sensitive:approveSensitive})});
