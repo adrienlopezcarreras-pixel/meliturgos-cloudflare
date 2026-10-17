@@ -951,6 +951,27 @@ export async function completeTruncatedNativeInference(initial, messages, inferC
   }
 }
 
+// A failing cloud fallback must never stall the chat without its own deadline.
+export async function runBoundedChatFallback(invoke, model, payload, { timeoutMs = 8000 } = {}) {
+  const requested = Number(timeoutMs);
+  const limit = Number.isFinite(requested) ? Math.max(1, Math.min(30000, requested)) : 8000;
+  let timer;
+  try {
+    return await Promise.race([
+      Promise.resolve().then(() => invoke(model, payload)),
+      new Promise((_, reject) => {
+        timer = setTimeout(() => {
+          const error = new Error('CHAT_FALLBACK_TIMEOUT');
+          error.code = 'CHAT_FALLBACK_TIMEOUT';
+          reject(error);
+        }, limit);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export async function runNativeInference({ env, messages, text, parallel = false, maxCandidates = 4, inferenceSettings = null, activeAdapter = null, runtime = null, taskOverride = null, preferredModel = null, timeoutMs = null, maxCalls = null } = {}) {
   if (!env?.AI || typeof env.AI.run !== 'function') {
     const error = new Error('AI_BINDING_MISSING');
@@ -1686,14 +1707,19 @@ export async function handleNativeChat(request, env, options = {}) {
       ];
       let fallbackError = null;
       let recovered = null;
+      const fallbackDeadline = Date.now() + 20000;
 
       for (const attempt of attempts) {
         for (const fallbackModel of fallbackModels) {
           try {
-            const fallbackResult = await env.AI.run(fallbackModel, {
-              messages: attempt.messages,
-              ...attempt.generation,
-            });
+            const remainingMs = fallbackDeadline - Date.now();
+            if (remainingMs <= 0) break;
+            const fallbackResult = await runBoundedChatFallback(
+              (model, payload) => env.AI.run(model, payload),
+              fallbackModel,
+              { messages: attempt.messages, ...attempt.generation },
+              { timeoutMs: Math.min(8000, remainingMs) },
+            );
             const fallbackText = typeof fallbackResult === 'string'
               ? fallbackResult
               : fallbackResult?.response
