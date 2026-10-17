@@ -101,6 +101,18 @@ test('MEL WORK creates a durable candidate-only preparation plan without executi
   assert.doesNotMatch(handler, /work\.plan\.materialize|work\.run|task\.claim|task\.submit/i, 'saving the plan must not materialize or execute its DAG');
 });
 
+test('MEL WORK reloads saved preparation-plan state from the existing persistent plan registry', async () => {
+  const response = await (await import('../src/pages/revenue-interface.js')).onRequestGet();
+  const html = await response.text();
+  assert.match(html, /id="prepPlanInfo"/);
+  assert.match(html, /async function loadPersistentPrepPlans/);
+  assert.match(html, /executeWorkCapability\('work\.plan\.list',\{limit:100\}\)/);
+  assert.match(html, /savedPlanIds\.has\(taskPreparationPlanId\(t\.id\)\)/);
+  assert.match(html, /Plans de préparation persistants récupérés/);
+  const script = html.match(/<script>([\s\S]*?)<\/script>/)?.[1] || '';
+  assert.doesNotThrow(() => new Function(script));
+});
+
 test('MEL WORK generated browser JavaScript is syntactically valid', async () => {
   const response = await (await import('../src/pages/revenue-interface.js')).onRequestGet();
   assert.equal(response.status, 200);
