@@ -87,11 +87,12 @@ export async function handleRevenueApi(request, env, ctx) {
     if(request.method!=='POST')return json({ok:false,code:'METHOD_NOT_ALLOWED'},405);
     if(typeof ctx?.waitUntil!=='function')return json({ok:false,code:'WORK_BACKGROUND_CONTEXT_REQUIRED'},503);
     await env.DB.prepare('CREATE TABLE IF NOT EXISTS mel_work_cycles (id TEXT PRIMARY KEY, state TEXT NOT NULL, error TEXT, artifact_id TEXT, started_at TEXT NOT NULL, updated_at TEXT NOT NULL)').run();
-    const active=await env.DB.prepare("SELECT id FROM mel_work_cycles WHERE state='RUNNING' ORDER BY started_at DESC LIMIT 1").first();
-    if(active)return json({ok:true,cycleId:active.id,state:'RUNNING',reused:true},202);
+    const active=await env.DB.prepare("SELECT id,started_at FROM mel_work_cycles WHERE state='RUNNING' ORDER BY started_at DESC LIMIT 1").first();
+    if(active&&Date.now()-Date.parse(active.started_at)<15*60*1000)return json({ok:true,cycleId:active.id,state:'RUNNING',reused:true},202);
+    if(active)await env.DB.prepare("UPDATE mel_work_cycles SET state='FAILED',error='WORK_CYCLE_INTERRUPTED',updated_at=? WHERE id=? AND state='RUNNING'").bind(new Date().toISOString(),active.id).run();
     const cycleId='cycle-'+crypto.randomUUID(),now=new Date().toISOString();
     await env.DB.prepare('INSERT INTO mel_work_cycles (id,state,started_at,updated_at) VALUES (?,?,?,?)').bind(cycleId,'RUNNING',now,now).run();
-    ctx.waitUntil((async()=>{
+    const operation=(async()=>{
       try{
         const response=await fetch(TASKMARKET_API+'?status=open&sort=reward_desc&limit=50',{headers:{accept:'application/json'},signal:AbortSignal.timeout(12000)});
         if(!response.ok)throw new Error('TASKMARKET_UPSTREAM_ERROR');
@@ -105,8 +106,26 @@ export async function handleRevenueApi(request, env, ctx) {
       }catch(error){
         await env.DB.prepare('UPDATE mel_work_cycles SET state=?,error=?,updated_at=? WHERE id=?').bind('FAILED',String(error?.message||'WORK_CYCLE_FAILED').slice(0,180),new Date().toISOString(),cycleId).run();
       }
-    })());
-    return json({ok:true,cycleId,state:'RUNNING',submitted:false,paid:false},202);
+    })();
+    ctx.waitUntil(operation);
+    // A live response stream keeps slow Council calls alive while MEL WORK runs
+    // asynchronously in the UI. Whitespace heartbeats preserve JSON compatibility.
+    const stream=new ReadableStream({
+      start(controller){
+        const encoder=new TextEncoder();
+        const heartbeat=setInterval(()=>{try{controller.enqueue(encoder.encode(' '))}catch{}},8000);
+        operation.then(()=>{
+          clearInterval(heartbeat);
+          controller.enqueue(encoder.encode(JSON.stringify({ok:true,cycleId,state:'FINISHED',submitted:false,paid:false})));
+          controller.close();
+        },error=>{
+          clearInterval(heartbeat);
+          controller.enqueue(encoder.encode(JSON.stringify({ok:false,cycleId,code:'WORK_BACKGROUND_EXECUTION_INTERRUPTED'})));
+          controller.close();
+        });
+      }
+    });
+    return new Response(stream,{status:202,headers:{'content-type':'application/json; charset=utf-8','cache-control':'no-store'}});
   }
   if (url.pathname === '/api/revenue/drafts') {
     if (request.method !== 'GET') return json({ok:false,code:'METHOD_NOT_ALLOWED'},405);
