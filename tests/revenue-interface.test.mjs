@@ -209,6 +209,36 @@ test('MEL WORK can refresh saved preparation plans independently of Taskmarket o
   assert.doesNotThrow(() => new Function(script));
 });
 
+test('MEL WORK prequalifies public Taskmarket offers without implying submission eligibility or guaranteed profit', async () => {
+  const response = await (await import('../src/pages/revenue-interface.js')).onRequestGet();
+  const html = await response.text();
+  const script = html.match(/<script>([\s\S]*?)<\/script>/)?.[1] || '';
+  assert.match(script, /function taskQualification\(t\)/);
+  assert.match(script, /CANDIDAT À PRÉPARER/);
+  assert.match(script, /QUALIFICATION INCOMPLÈTE/);
+  assert.match(script, /Commission inconnue : revenu après frais non calculé/);
+  assert.match(script, /avant coûts de calcul, temps de travail et risque de rejet/);
+  assert.match(script, /Préqualification à partir des données publiques uniquement/);
+  const source = script.slice(script.indexOf('function taskQualification'), script.indexOf('function renderTasks'));
+  const likelyCandidate = t => /json|csv|dataset|data processing|software|code|bug|implement|typescript|javascript|python|audit|benchmark|extract|classif|normalize|algorithm|api endpoint|technical analysis/i.test(String(t.description||'')) && !/create an original image|image generation|publish on x|publish on medium|animated infographic|video.*mp4|discord|social media|marketing campaign/i.test(String(t.description||''));
+  const taskLifecycle = t => (t.stakeRequired === false && t.claimedBy === null) ? {kind:'good',text:'Aucun stake · non réclamée confirmé'} : {kind:'warn',text:'Statut inconnu — revue requise'};
+  const usdc = micros => (Number(BigInt(String(micros||'0')))/1e6).toFixed(6);
+  const qualify = new Function('likelyCandidate','taskLifecycle','usdc',source+';return taskQualification;')(likelyCandidate,taskLifecycle,usdc);
+  const base={id:'public-1',description:'Normalize the public JSON dataset into CSV',mode:'bounty',status:'open',stakeRequired:false,claimedBy:null,expiryTime:new Date(Date.now()+3600000).toISOString(),reward:'1000000',platformFeeBps:750};
+  const ready=qualify(base);
+  assert.equal(ready.status,'CANDIDAT À PRÉPARER');
+  assert.match(ready.economics,/0\.925000 USDC/);
+  assert.match(ready.economics,/avant coûts de calcul/);
+  const unknown=qualify({...base,claimedBy:undefined});
+  assert.equal(unknown.status,'QUALIFICATION INCOMPLÈTE');
+  assert.match(unknown.detail,/revue requise/);
+  const feeUnknown=qualify({...base,platformFeeBps:null});
+  assert.match(feeUnknown.economics,/Commission inconnue/);
+  assert.doesNotMatch(feeUnknown.economics,/0\.925000 USDC/);
+  assert.doesNotMatch(script,/task\.(claim|submit)|submitResult\(/i);
+  assert.doesNotThrow(() => new Function(script));
+});
+
 test('MEL WORK generated browser JavaScript is syntactically valid', async () => {
   const response = await (await import('../src/pages/revenue-interface.js')).onRequestGet();
   assert.equal(response.status, 200);
