@@ -39,21 +39,23 @@ export function normalizeRevenueTasks(payload, nowMs = Date.now()) {
 
 export async function handleRevenueApi(request, env, ctx) {
   const url = new URL(request.url);
-  if (url.pathname !== '/api/revenue/tasks' && url.pathname !== '/api/revenue/taskmarket-pc-status' && url.pathname !== '/api/revenue/drafts' && url.pathname !== '/api/revenue/direct-work' && !/^\/api\/revenue\/drafts\/work-[a-f0-9]{64}\/decision$/.test(url.pathname)) return null;
+  if (url.pathname !== '/api/revenue/tasks' && url.pathname !== '/api/revenue/taskmarket-pc-status' && url.pathname !== '/api/revenue/drafts' && url.pathname !== '/api/revenue/direct-work' && url.pathname !== '/api/revenue/direct-work/decision' && !/^\/api\/revenue\/drafts\/work-[a-f0-9]{64}\/decision$/.test(url.pathname)) return null;
   const auth = requireAuth(request, env);
   if (!auth.ok) return auth.response;
 
-  if(/^\/api\/revenue\/drafts\/work-[a-f0-9]{64}\/decision$/.test(url.pathname)){
+  if(url.pathname==='/api/revenue/direct-work/decision'||/^\/api\/revenue\/drafts\/work-[a-f0-9]{64}\/decision$/.test(url.pathname)){
     if(request.method!=='POST')return json({ok:false,code:'METHOD_NOT_ALLOWED'},405);
-    const id=url.pathname.split('/')[4];
     const body=await request.json().catch(()=>({}));
-    if(!['APPROVED','REJECTED'].includes(body.decision))return json({ok:false,code:'WORK_OWNER_DECISION_INVALID'},400);
+    const id=url.pathname==='/api/revenue/direct-work/decision'?String(body.artifactId||''):url.pathname.split('/')[4];
+    if(!/^work-[a-f0-9]{64}$/.test(id))return json({ok:false,code:'WORK_ARTIFACT_ID_INVALID'},400);
+    const normalizedDecision=body.decision==='approve'?'APPROVED':body.decision==='reject'?'REJECTED':body.decision;
+    if(!['APPROVED','REJECTED'].includes(normalizedDecision))return json({ok:false,code:'WORK_OWNER_DECISION_INVALID'},400);
     try{
-      const status=body.decision==='APPROVED'?'APPROVED_BY_OWNER':'REJECTED_BY_OWNER';
-      const changed=await env.DB.prepare("UPDATE mel_work_artifacts SET status=?,owner_note=?,decided_at=? WHERE id=? AND status='DRAFT_FOR_OWNER'")
+      const status=normalizedDecision==='APPROVED'?'APPROVED_BY_OWNER':'REJECTED_BY_OWNER';
+      const changed=await env.DB.prepare("UPDATE mel_work_artifacts SET status=?,owner_note=?,decided_at=? WHERE id=? AND status IN ('DRAFT_FOR_OWNER','DRAFT_UNVERIFIED','VERIFIED_LOCALLY')")
        .bind(status,String(body.note||'').slice(0,1000),new Date().toISOString(),id).run();
       if(Number(changed?.meta?.changes)!==1)return json({ok:false,code:'WORK_DRAFT_NOT_PENDING'},409);
-      return json({ok:true,id,status,submitted:false,paid:false});
+      return json({ok:true,id,artifactId:id,status,submitted:false,paid:false});
     }catch{return json({ok:false,code:'WORK_OWNER_DECISION_UNAVAILABLE'},503)}
   }
   if(url.pathname==='/api/revenue/direct-work'){
