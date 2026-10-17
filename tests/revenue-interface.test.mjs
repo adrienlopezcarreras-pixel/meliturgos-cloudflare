@@ -166,12 +166,12 @@ test('MEL WORK resumes a saved read-only preparation through its existing Work D
   assert.match(html, /async function resumePersistentPrepPlan\(planId,button\)/);
   assert.match(html, /savedPlanRecords\.get\(planId\)/);
   assert.match(html, /PERSISTED_READ_ONLY_PLAN/);
-  const script = html.match(/<script>([\\s\\S]*?)<\\/script>/)?.[1] || '';
+  const script = html.match(/<script>([\s\S]*?)<\/script>/)?.[1] || '';
   const runner = script.slice(script.indexOf('async function executeSavedReadOnlyPreparation'), script.indexOf('async function resumePersistentPrepPlan'));
   const resume = script.slice(script.indexOf('async function resumePersistentPrepPlan'), script.indexOf('async function refreshTasks'));
-  assert.match(runner, /const existingDagId=String\(plan\?\.work_dag_id\|\|' '\.trim\(\);/);
-  assert.match(runner, /if\(!dagId\)\{[\\s\\S]*?work\.plan\.materialize/);
-  assert.match(runner, /executeWorkCapability\('work\\.run',\{id:dagId\}\)/);
+  assert.match(runner, /const existingDagId=String\(plan\?\.work_dag_id\|\|''\)\.trim\(\);/);
+  assert.match(runner, /if\(!dagId\)\{[\s\S]*?work\.plan\.materialize/);
+  assert.match(runner, /executeWorkCapability\('work\.run',\{id:dagId\}\)/);
   assert.match(resume, /executeSavedReadOnlyPreparation\(planId,planId/);
   assert.match(resume, /safePreparationCapabilities/);
   assert.match(resume, /Aucune mission n’a été réclamée ou soumise/);
