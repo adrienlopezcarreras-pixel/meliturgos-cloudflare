@@ -1,3 +1,4 @@
+import { computeRoadmapTruth } from '../roadmap/roadmap-truth.js';
 import { CapabilityBus } from './capability-bus.js';
 import { registerGitHubCodeCapabilities } from './github-code-capabilities.js';
 import { registerPlatformReadCapabilities } from './platform-read-capabilities.js';
@@ -345,7 +346,13 @@ export function createDefaultCapabilityBus({ audit, env, repository, branch, tok
     input_schema: { type: 'object', additionalProperties: false },
     output_schema: { type: 'object', additionalProperties: true },
     risk: 'LOW', permissions: [], health: 'HEALTHY', enabled: true
-  }, async () => getRoadmapPayload());
+  }, async () => {
+    const payload = getRoadmapPayload();
+    // Real status from production executions (7 days), next to the declared one.
+    try { payload.truth = await computeRoadmapTruth(env?.DB, payload.phases); }
+    catch (error) { payload.truth = { available: false, reason: String(error?.code || error?.message || 'ROADMAP_TRUTH_FAILED').slice(0, 120) }; }
+    return payload;
+  });
 
   bus.discover({
     id: 'roadmap.human-actions-required', name: 'Actions humaines requises', category: 'planning', version: '1.0.0', provider: 'core',
