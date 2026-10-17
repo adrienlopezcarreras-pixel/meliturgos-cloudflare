@@ -1,0 +1,59 @@
+name: companion-ui-snapshot-windows-ci
+
+# Functional proof on a real Windows desktop: the Companion engine's
+# ui.snapshot reads Notepad's accessible elements (text area, menus) with
+# screen coordinates, which the computer agent uses to click precisely.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'assets/MEL-Computer-Companion.ps1'
+      - 'dist/MEL-Computer-Companion.ps1'
+      - 'src/devices/computer-agent*.js'
+      - 'src/devices/computer-use.js'
+      - 'tests/computer-agent.test.mjs'
+      - '.github/workflows/companion-ui-snapshot-windows-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ui-snapshot:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Engine parses and assets/dist are identical
+        shell: powershell
+        run: |
+          $tokens = $null; $errors = $null
+          [void][System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path 'assets/MEL-Computer-Companion.ps1'), [ref]$tokens, [ref]$errors)
+          if ($errors.Count) { $errors | ForEach-Object { Write-Host $_ }; throw "ENGINE_PARSE_FAILED" }
+          if ((Get-FileHash assets/MEL-Computer-Companion.ps1).Hash -ne (Get-FileHash dist/MEL-Computer-Companion.ps1).Hash) { throw "ENGINE_COPIES_DIFFER" }
+      - name: ui.snapshot reads Notepad on a real Windows desktop
+        shell: powershell
+        run: |
+          $tokens = $null; $errors = $null
+          $ast = [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path 'assets/MEL-Computer-Companion.ps1'), [ref]$tokens, [ref]$errors)
+          $fn = $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Get-UiSnapshot' }, $true) | Select-Object -First 1
+          if (-not $fn) { throw "GET_UISNAPSHOT_MISSING" }
+          Invoke-Expression $fn.Extent.Text
+          $p = Start-Process notepad -PassThru
+          $hwnd = [IntPtr]::Zero
+          for ($i = 0; $i -lt 40 -and $hwnd -eq [IntPtr]::Zero; $i++) {
+            Start-Sleep -Milliseconds 250
+            $proc = Get-Process -Name notepad -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1
+            if ($proc) { $hwnd = $proc.MainWindowHandle }
+          }
+          if ($hwnd -eq [IntPtr]::Zero) { throw "NOTEPAD_WINDOW_NOT_FOUND" }
+          $snap = Get-UiSnapshot $hwnd 150 6000
+          $count = @($snap.elements).Count
+          $types = (@($snap.elements) | ForEach-Object { $_.type } | Sort-Object -Unique) -join ','
+          Write-Host "::notice title=ui.snapshot Notepad::window='$($snap.window_title)' process=$($snap.process) elements=$count types=$types elapsed_ms=$($snap.elapsed_ms)"
+          $json = $snap | ConvertTo-Json -Depth 12 -Compress
+          if ($json.Length -lt 50) { throw "SNAPSHOT_JSON_EMPTY" }
+          $text = @($snap.elements) | Where-Object { $_.type -in @('Document','Edit') } | Select-Object -First 1
+          if (-not $text) { throw "NOTEPAD_TEXT_AREA_NOT_FOUND: $types" }
+          if ($text.x -le 0 -or $text.y -le 0) { throw "TEXT_AREA_COORDINATES_INVALID" }
+          Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue

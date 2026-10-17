@@ -156,7 +156,7 @@ async function ownerCommand(request,env){
  // Desktop control is live only when the Windows command engine, not merely
  // the Companion shell, has a recent heartbeat. Fail before queuing commands
  // that would otherwise remain PENDING and time out after 30 seconds.
- const desktopActions=new Set(["screen.capture","cursor.move","pointer.click","pointer.scroll","keyboard.press","keyboard.type"]);
+ const desktopActions=new Set(["screen.capture","ui.snapshot","cursor.move","pointer.click","pointer.scroll","keyboard.press","keyboard.type"]);
  if(steps.some(step=>desktopActions.has(String(step.action||"")))){
   const now=Date.now();
   if(!device.online||device.last_seen_at>now||now-device.last_seen_at>35_000)

@@ -10,6 +10,7 @@ export const COMPUTER_USE_RISK = Object.freeze({
 
 export const COMPUTER_USE_ACTIONS = Object.freeze({
   SCREENSHOT: 'screen.capture',
+  UI_SNAPSHOT: 'ui.snapshot',
   CURSOR_MOVE: 'cursor.move',
   CLICK: 'pointer.click',
   SCROLL: 'pointer.scroll',
@@ -52,6 +53,8 @@ export const COMPUTER_USE_ACTIONS = Object.freeze({
 
 const ACTION_RISK = new Map([
   [COMPUTER_USE_ACTIONS.SCREENSHOT, COMPUTER_USE_RISK.OBSERVE],
+  // Reads the foreground window's accessible elements (names, types, positions).
+  [COMPUTER_USE_ACTIONS.UI_SNAPSHOT, COMPUTER_USE_RISK.OBSERVE],
   [COMPUTER_USE_ACTIONS.CURSOR_MOVE, COMPUTER_USE_RISK.INTERACT],
   [COMPUTER_USE_ACTIONS.CLICK, COMPUTER_USE_RISK.INTERACT],
   [COMPUTER_USE_ACTIONS.SCROLL, COMPUTER_USE_RISK.INTERACT],

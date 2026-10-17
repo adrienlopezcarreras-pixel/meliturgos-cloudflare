@@ -55,6 +55,14 @@ async function melChatFetch(payload, { firstByteMs = 90000, idleMs = 45000 } = {
   addMsg('mel', '');
   const bubble = log ? log.lastElementChild : null;
   if (bubble) bubble.classList.add('streaming');
+  // Live agent steps and proof image live in their own boxes; text goes in textBox.
+  let stepsBox = null;
+  const textBox = document.createElement('div');
+  if (bubble) { bubble.textContent = ''; bubble.appendChild(textBox); }
+  const ensureSteps = () => {
+    if (!stepsBox && bubble) { stepsBox = document.createElement('div'); stepsBox.className = 'mel-agent-steps'; bubble.insertBefore(stepsBox, textBox); }
+    return stepsBox;
+  };
   let text = '';
   let meta = {};
   let failure = null;
@@ -71,9 +79,23 @@ async function melChatFetch(payload, { firstByteMs = 90000, idleMs = 45000 } = {
       buffer = parsed.rest;
       for (const event of parsed.events) {
         if (event.type === 'start') { if (status) status.textContent = 'MEL écrit…'; }
-        else if (event.type === 'delta') {
+        else if (event.type === 'step') {
+          const box = ensureSteps();
+          if (box) { const line = document.createElement('div'); line.textContent = String(event.text || ''); box.appendChild(line); }
+          if (status) status.textContent = 'MEL agit sur ton PC… étape ' + String(event.n || '');
+          if (log) log.scrollTop = log.scrollHeight;
+        } else if (event.type === 'proof') {
+          const url = new URL(String(event.url || ''), location.origin);
+          if (bubble && url.origin === location.origin && url.pathname === '/api/computer/v1/screenshot') {
+            const img = document.createElement('img');
+            img.alt = 'Capture de ton écran après l’action de MEL';
+            img.src = url.href;
+            img.style.maxWidth = '100%'; img.style.height = 'auto'; img.style.borderRadius = '10px'; img.style.marginTop = '.5rem';
+            bubble.appendChild(img);
+          }
+        } else if (event.type === 'delta') {
           text += String(event.text || '');
-          if (bubble) bubble.textContent = text;
+          textBox.textContent = text;
           if (log) log.scrollTop = log.scrollHeight;
         } else if (event.type === 'done') meta = event;
         else if (event.type === 'error') failure = event;
@@ -85,7 +107,7 @@ async function melChatFetch(payload, { firstByteMs = 90000, idleMs = 45000 } = {
     clearTimeout(timer);
     if (bubble) bubble.classList.remove('streaming');
   }
-  if (bubble && text && typeof melRenderRichText === 'function') { bubble.textContent = ''; melRenderRichText(bubble, text); }
+  if (text && typeof melRenderRichText === 'function') { textBox.textContent = ''; melRenderRichText(textBox, text); }
   if (failure && !text) {
     if (bubble) bubble.remove();
     throw Error(String(failure.code || 'STREAM_FAILED'));
@@ -96,7 +118,7 @@ async function melChatFetch(payload, { firstByteMs = 90000, idleMs = 45000 } = {
     note.textContent = 'Réponse interrompue : ' + String(failure.code || 'STREAM_FAILED') + (meta.archived ? '' : ' · partie reçue conservée');
     bubble.appendChild(note);
   }
-  return { ok: !failure, text, model: meta.model || null, streamed: true, archive_saved: meta.archived === true, response_truncated: meta.truncated === true, elapsed_ms: Date.now() - startedAt, stream_error: failure ? String(failure.code || 'STREAM_FAILED') : null };
+  return { ok: !failure, text, model: meta.model || null, streamed: true, agent_steps: meta.steps || 0, proof_url: meta.proof_url || null, archive_saved: meta.archived === true, response_truncated: meta.truncated === true, elapsed_ms: Date.now() - startedAt, stream_error: failure ? String(failure.code || 'STREAM_FAILED') : null };
 }
 
 export const MEL_CHAT_STREAM_SOURCE = [melParseNdjsonLines, melChatFetch].map(fn => fn.toString()).join('\n') + '\n';

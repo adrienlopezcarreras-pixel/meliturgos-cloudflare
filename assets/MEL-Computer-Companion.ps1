@@ -2423,6 +2423,91 @@ function Type-BrowserText([string]$text, [IntPtr]$window, [string]$browser) {
   }
 }
 
+# Lecture de la fenêtre active via UI Automation : boutons, champs, menus,
+# liens… avec leur centre en coordonnées écran. Permet à MEL de cliquer au bon
+# endroit sans deviner des coordonnées sur une image. Budget borné (temps et
+# nombre d'éléments) ; la valeur des champs est tronquée à 200 caractères.
+function Get-UiSnapshot([IntPtr]$hwnd = [IntPtr]::Zero, [int]$maxElements = 150, [int]$budgetMs = 4000) {
+  Add-Type -AssemblyName UIAutomationClient -ErrorAction Stop
+  Add-Type -AssemblyName UIAutomationTypes -ErrorAction Stop
+  if ($hwnd -eq [IntPtr]::Zero) { $hwnd = [MelNative]::GetForegroundWindow() }
+  if ($hwnd -eq [IntPtr]::Zero) { throw "UI_SNAPSHOT_NO_FOREGROUND_WINDOW" }
+  $root = [System.Windows.Automation.AutomationElement]::FromHandle($hwnd)
+  if ($null -eq $root) { throw "UI_SNAPSHOT_WINDOW_UNREADABLE" }
+  $walker = [System.Windows.Automation.TreeWalker]::ControlViewWalker
+  $clock = [System.Diagnostics.Stopwatch]::StartNew()
+  $useful = @('Button','Edit','MenuItem','Hyperlink','ListItem','TabItem','CheckBox','RadioButton','ComboBox','TreeItem','Document','SplitButton','Slider','Spinner','DataItem','Text','HeaderItem','Menu','MenuBar','ToolBar')
+  $items = New-Object System.Collections.Generic.List[object]
+  $queue = New-Object System.Collections.Generic.Queue[object]
+  $queue.Enqueue([object[]]@($root, 0))
+  while ($queue.Count -gt 0 -and $items.Count -lt $maxElements -and $clock.ElapsedMilliseconds -lt $budgetMs) {
+    $pair = $queue.Dequeue()
+    $el = $pair[0]
+    $depth = [int]$pair[1]
+    try {
+      $cur = $el.Current
+      $type = ([string]$cur.ControlType.ProgrammaticName) -replace '^ControlType\.', ''
+      $rect = $cur.BoundingRectangle
+      $name = [string]$cur.Name
+      if ($name.Length -gt 120) { $name = $name.Substring(0, 120) }
+      $visible = (-not $cur.IsOffscreen) -and (-not $rect.IsEmpty) -and $rect.Width -gt 1 -and $rect.Height -gt 1
+      $relevant = ($useful -contains $type) -and ($name.Length -gt 0 -or $type -in @('Edit','Document','ComboBox'))
+      if ($visible -and $relevant -and -not ($type -eq 'Text' -and $name.Length -lt 2)) {
+        $value = ''
+        if ($type -in @('Edit','Document','ComboBox')) {
+          try {
+            $pattern = $el.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern)
+            $value = [string]$pattern.Current.Value
+          } catch {}
+          if ($value.Length -gt 200) { $value = $value.Substring(0, 200) }
+        }
+        $items.Add([ordered]@{
+          i = $items.Count + 1
+          type = $type
+          name = $name
+          id = [string]$cur.AutomationId
+          x = [int]($rect.X + $rect.Width / 2)
+          y = [int]($rect.Y + $rect.Height / 2)
+          w = [int]$rect.Width
+          h = [int]$rect.Height
+          enabled = [bool]$cur.IsEnabled
+          focused = [bool]$cur.HasKeyboardFocus
+          value = $value
+        })
+      }
+    } catch {}
+    if ($depth -lt 30) {
+      try {
+        $child = $walker.GetFirstChild($el)
+        while ($null -ne $child) {
+          $queue.Enqueue([object[]]@($child, ($depth + 1)))
+          $child = $walker.GetNextSibling($child)
+        }
+      } catch {}
+    }
+  }
+  $title = ''
+  $process = ''
+  try {
+    $title = [string]$root.Current.Name
+    $process = [string](Get-Process -Id $root.Current.ProcessId -ErrorAction Stop).ProcessName
+  } catch {}
+  $windows = @()
+  try {
+    Get-Process | Where-Object { $_.MainWindowTitle } | Select-Object -First 15 | ForEach-Object {
+      $windows += [ordered]@{ process = [string]$_.ProcessName; title = [string]$_.MainWindowTitle }
+    }
+  } catch {}
+  return [ordered]@{
+    window_title = $title
+    process = $process
+    elements = @($items)
+    truncated = ($queue.Count -gt 0)
+    elapsed_ms = [int]$clock.ElapsedMilliseconds
+    open_windows = @($windows)
+  }
+}
+
 function Perform-Step($step, [string]$commandId, [string]$planSchema="") {
   $action = [string]$step.action
   if ($planSchema -eq "mel.devices.pc-control.v1") {
@@ -2474,6 +2559,11 @@ function Perform-Step($step, [string]$commandId, [string]$planSchema="") {
   Assert-LocalRemoteAccess
   $action = [string]$step.action
   switch ($action) {
+    "ui.snapshot" {
+      Assert-UnattendedCapturePermission
+      $snapshot = Get-UiSnapshot ([IntPtr]::Zero) 150 4000
+      return @{ action=$action; window_title=$snapshot.window_title; process=$snapshot.process; elements=$snapshot.elements; truncated=$snapshot.truncated; elapsed_ms=$snapshot.elapsed_ms; open_windows=$snapshot.open_windows }
+    }
     "screen.capture" {
       Assert-UnattendedCapturePermission
       $shot = Upload-Screenshot $commandId

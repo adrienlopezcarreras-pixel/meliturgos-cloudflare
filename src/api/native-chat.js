@@ -29,6 +29,8 @@ import { loadConversationFocusState, saveConversationFocusState } from './conver
 import { assessResponseQuality, enforceResponseQuality, persistResponseQualityEvent } from './response-quality-audit.js';
 import { inferKnowledgeCapability } from './knowledge-intent.js';
 import { streamChatResponse } from './chat-stream.js';
+import { streamComputerAgent } from '../devices/computer-agent.js';
+import { inferComputerAgentGoal } from '../devices/computer-agent-intent.js';
 import { createChatDeadline, hasChatBudget, raceChatDeadline, chatDeadlineError, COUNCIL_RECOVERY_MIN_REMAINING_MS, CONTINUATION_MIN_REMAINING_MS, FALLBACK_ATTEMPT_MIN_REMAINING_MS } from './chat-deadline.js';
 import { inferCurrentFactVerificationPolicy, hasAuthoritativeCurrentFactEvidence, currentFactReliabilityInstruction } from './current-fact-reliability.js';
 import { buildPresentationInstruction } from '../presentation/presentation-skill.js';
@@ -1229,6 +1231,22 @@ export async function handleNativeChat(request, env, options = {}) {
       response_mode: 'mel-work-execution', mel_work: kickoff,
       archive_saved: archiveSaved,
     }, { status: kickoff.ok ? (kickoff.completed ? 200 : 202) : 503, headers: { 'cache-control': 'no-store' } });
+  }
+
+  // MEL takes control of Adrien's PC for multi-step goals (observe → act →
+  // verify → screenshot proof), streamed step by step to the chat.
+  const computerAgentGoal = (!releaseSmoke && !voiceReply && body.stream === true) ? inferComputerAgentGoal(text) : null;
+  if (computerAgentGoal) {
+    return streamComputerAgent({
+      env,
+      goal: computerAgentGoal,
+      archive: async (summaryText, meta = {}) => {
+        if (!service) return false;
+        await service.archiveMessage({ conversationId, deviceId, role: 'user', content: text, timestamp: Date.now(), provenance: userProvenance, metadata: userMetadata });
+        await service.archiveMessage({ conversationId, deviceId, role: 'assistant', content: summaryText, model: 'mel-computer-agent', timestamp: Date.now() + 1, provenance: 'native-chat:computer-agent', metadata: { agent_status: meta.status || null, proof: meta.proof || null } });
+        return true;
+      },
+    });
   }
 
   const negativeFeedbackRecovery = releaseSmoke ? null : inferNegativeFeedbackCouncilRecovery(text, recent);
