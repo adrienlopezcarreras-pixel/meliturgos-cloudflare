@@ -474,3 +474,19 @@ test('MEL WORK atomically claims a mission: concurrent solver calls cannot both 
  assert.equal(saved.state,'DRAFT_READY');
  assert.equal(saved.attempts,1);
 });
+
+test('MEL WORK reclaims stale RUNNING mission atomically but refuses fresh concurrent execution',async()=>{
+ const {executeWorkMission}=await import('../../src/revenue/work-mission-core.js');
+ const {sqliteD1}=await import('../helpers/sqlite-d1.mjs');
+ const db=sqliteD1(),mission={id:'stale-lease-1',description:'Prepare a safe draft'};
+ await db.prepare('CREATE TABLE mel_work_missions (id TEXT PRIMARY KEY,description TEXT NOT NULL,state TEXT NOT NULL,attempts INTEGER NOT NULL,last_error TEXT,artifact_id TEXT,updated_at TEXT NOT NULL)').run();
+ await db.prepare('INSERT INTO mel_work_missions (id,description,state,attempts,updated_at) VALUES (?,?,?,?,?)').bind(mission.id,mission.description,'RUNNING',1,'2026-10-17T08:00:00.000Z').run();
+ const recovered=await executeWorkMission({db,mission,now:()=> '2026-10-17T12:00:00.000Z',execute:async()=>({content:'Recovered safe draft'})});
+ assert.equal(recovered.status,'DRAFT_UNVERIFIED');
+ const state=await db.prepare('SELECT state,attempts FROM mel_work_missions WHERE id=?').bind(mission.id).first();
+ assert.equal(state.state,'DRAFT_READY');
+ assert.equal(state.attempts,2);
+ const active={id:'active-lease-1',description:'Another safe draft'};
+ await db.prepare('INSERT INTO mel_work_missions (id,description,state,attempts,updated_at) VALUES (?,?,?,?,?)').bind(active.id,active.description,'RUNNING',1,'2026-10-17T11:59:00.000Z').run();
+ await assert.rejects(()=>executeWorkMission({db,mission:active,now:()=> '2026-10-17T12:00:00.000Z',execute:async()=>({content:'NO'})}),/WORK_MISSION_ALREADY_RUNNING/);
+});
