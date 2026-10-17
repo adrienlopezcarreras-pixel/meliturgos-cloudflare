@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { inferenceGenerationOptions, runNativeInference, loadCognitiveMemory, compactInferenceMessages, voiceGenerationTokenBudget, completeTruncatedNativeInference } from '../src/api/native-chat.js';
+import { inferenceGenerationOptions, runNativeInference, loadCognitiveMemory, compactInferenceMessages, voiceGenerationTokenBudget, completeTruncatedNativeInference, runBoundedChatFallback } from '../src/api/native-chat.js';
 
 test('promoted inference generation settings reach the direct AI payload', async () => {
   const calls = [];
@@ -127,4 +127,23 @@ test('native chat removes direct overlapping continuation text',async()=>{
   const initial={text:'Un long morceau qui finit avec des mots répétés',truncated:true};
   const result=await completeTruncatedNativeInference(initial,[],async()=>({text:'avec des mots répétés et une vraie conclusion.',finish_reason:'stop'}));
   assert.equal(result.text,'Un long morceau qui finit avec des mots répétés et une vraie conclusion.');
+});
+
+test('bounded cloud fallback times out a hung provider and permits recovery', async () => {
+  let attempted = 0;
+  const hung = () => { attempted += 1; return new Promise(() => {}); };
+  await assert.rejects(
+    runBoundedChatFallback(hung, 'stalled', { messages: [] }, { timeoutMs: 12 }),
+    { code: 'CHAT_FALLBACK_TIMEOUT' },
+  );
+  const result = await runBoundedChatFallback(async () => ({ response: 'modèle de secours OK' }), 'fast', { messages: [] }, { timeoutMs: 12 });
+  assert.equal(result.response, 'modèle de secours OK');
+  assert.equal(attempted, 1);
+});
+
+test('bounded cloud fallback propagates real provider failures without hiding them', async () => {
+  await assert.rejects(
+    runBoundedChatFallback(async () => { throw Object.assign(Error('rate limited'), { code: '429' }); }, 'x', {}, { timeoutMs: 100 }),
+    { code: '429' },
+  );
 });
