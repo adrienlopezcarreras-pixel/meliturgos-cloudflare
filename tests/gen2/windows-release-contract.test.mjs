@@ -161,23 +161,24 @@ test('MINI USB chooses an installed esptool interpreter instead of blindly using
  assert.doesNotMatch(helper,/\$pythonArgs = @\('-3'\)\s*\n\s*} else/);
 });
 
-test('Companion dashboard preserves functional controls with refreshed visual hierarchy', async () => {
+test('Companion uses docked, responsive shell and wrapped device cards', async () => {
  const source=await read('windows-companion/MEL-Companion.cs');
- assert.match(source,/POSTE DE TRAVAIL/);
- assert.match(source,/Appareils connectés/);
- assert.match(source,/title=="Contrôle USB MINI"/);
- assert.match(source,/BorderStyle=BorderStyle.FixedSingle/);
- assert.doesNotMatch(source,/p\.Paint\+=delegate\(object sender,PaintEventArgs ev\)/);
- assert.match(source,/previousCards=cards\.Controls\.Cast<Control>\(\)\.ToArray\(\)/);
- assert.match(source,/oldCard\.Dispose\(\)/);
- assert.match(source,/card\.Anchor=AnchorStyles\.Top\|AnchorStyles\.Left/);
- assert.match(source,/status\.Name="DeviceStatus"/);
+ assert.match(source,/var shell=new TableLayoutPanel/);
+ assert.match(source,/Dock=DockStyle.Fill,ColumnCount=1,RowCount=5/);
+ assert.match(source,/AutoScaleMode=AutoScaleMode.Font/);
+ assert.match(source,/var workActions=new FlowLayoutPanel/);
+ assert.match(source,/var sectionActions=new FlowLayoutPanel/);
+ assert.match(source,/cards=new FlowLayoutPanel/);
+ assert.match(source,/WrapContents=true,AutoScroll=true/);
+ assert.match(source,/twoColumns=width>=1000/);
+ assert.match(source,/var layout=new TableLayoutPanel/);
+ assert.match(source,/layout.SetColumnSpan\(details,2\)/);
+ assert.match(source,/oldCard.Dispose\(\)/);
+ assert.match(source,/RunMiniUsbBackup/);
  assert.match(source,/ChooseMiniUsbAction/);
  assert.match(source,/RunAndroidWifiPairing/);
- assert.match(source,/void LayoutDashboard\(\)/);
- assert.match(source,/Resize\+=delegate \{LayoutDashboard\(\);\}/);
- assert.match(source,/cards\.VerticalScroll\.Visible/);
- assert.match(source,/pc\.ClientSize\.Width-usb\.Width-22/);
+ assert.doesNotMatch(source,/void LayoutDashboard\(\)/);
+ assert.doesNotMatch(source,/p\.Paint\+=delegate\(object sender,PaintEventArgs ev\)/);
 });
 
 test('Companion USB MINI preselects COM3 when present while retaining fallback', async () => {
