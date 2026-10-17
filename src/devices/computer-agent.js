@@ -165,6 +165,8 @@ export async function runComputerAgent({ env, goal, maxSteps = AGENT_MAX_STEPS, 
   const limit = Math.max(1, Math.min(AGENT_MAX_STEPS, Number(maxSteps) || AGENT_MAX_STEPS));
   let summary = '';
   let status = 'INCOMPLETE';
+  let pendingTypedText = null;
+  let typedTextVerified = false;
   for (let turn = 1; turn <= limit; turn += 1) {
     const look = await runCompanionCommand({ db, device, steps: [{ action: 'ui.snapshot' }], sessionId, sleep, now });
     if (!look.ok) {
@@ -185,6 +187,10 @@ export async function runComputerAgent({ env, goal, maxSteps = AGENT_MAX_STEPS, 
       status = 'FAILED'; summary = look.code; break;
     }
     const snapshot = look.outputs?.[0] || {};
+    if (pendingTypedText !== null) {
+      typedTextVerified = Array.isArray(snapshot.elements) && snapshot.elements.some(el =>
+        typeof el.value === 'string' && el.value.includes(pendingTypedText));
+    }
     const messages = [
       { role: 'system', content: systemPrompt(device) },
       { role: 'user', content: `Objectif d'Adrien : ${objective}\n\nActions déjà faites :\n${history.map((h, i) => `${i + 1}. ${h}`).join('\n') || '(aucune)'}\n\n${describeSnapshot(snapshot)}\n\nAction suivante (JSON uniquement) :` },
@@ -196,6 +202,11 @@ export async function runComputerAgent({ env, goal, maxSteps = AGENT_MAX_STEPS, 
     } catch (error) {
       decision = { action: 'fail', reason: 'AGENT_MODEL_FAILED:' + String(error?.code || error?.message || '').slice(0, 80) };
     }
+    if (decision.action === 'done' && pendingTypedText !== null && !typedTextVerified) {
+      status = 'FAILED'; summary = 'COMPUTER_TYPED_TEXT_NOT_VERIFIED';
+      onEvent({ type: 'step', n: turn, ok: false, text: 'Texte non vérifié dans la fenêtre', code: summary });
+      break;
+    }
     if (decision.action === 'done') { status = 'DONE'; summary = String(decision.summary || 'Terminé.').slice(0, 600); break; }
     if (decision.action === 'fail') { status = 'FAILED'; summary = String(decision.reason || 'Impossible.').slice(0, 600); onEvent({ type: 'step', n: turn, ok: false, text: 'MEL s’arrête', code: summary }); break; }
     const label = describeAction(decision, snapshot);
@@ -206,6 +217,10 @@ export async function runComputerAgent({ env, goal, maxSteps = AGENT_MAX_STEPS, 
       continue;
     }
     const done = await runCompanionCommand({ db, device, steps: plan.steps, sessionId, sleep, now });
+    if (done.ok && decision.action === 'type') {
+      pendingTypedText = String(decision.text || '').slice(0, 200);
+      typedTextVerified = false;
+    }
     history.push(`${label} → ${done.ok ? 'fait' : 'échec ' + done.code}`);
     onEvent({ type: 'step', n: turn, ok: done.ok, text: label, code: done.ok ? null : done.code });
     if (!done.ok && /HALT|REMOTE_ACCESS_DISABLED|STOP/i.test(String(done.code))) { status = 'STOPPED_BY_ADRIEN'; summary = done.code; break; }
