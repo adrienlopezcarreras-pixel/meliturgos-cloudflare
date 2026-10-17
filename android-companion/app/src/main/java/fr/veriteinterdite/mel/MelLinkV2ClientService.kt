@@ -1003,6 +1003,8 @@ class MelLinkV2ClientService : Service() {
 
     private fun sendAudioResponse(streamId: Int, pcm16: ShortArray, outputRate: Int): Boolean {
         if (pcm16.isEmpty()) return false
+        val intendedGatt = gatt ?: return false
+        if (!miniReady.value || !protocolReady.value) return false
 
         // Keep TTS frames comfortably below the negotiated MTU and use the
         // same credit-based flow control already used by the MINI uplink.
@@ -1010,7 +1012,7 @@ class MelLinkV2ClientService : Service() {
         // write queue while text/chat traffic still appears healthy.
         val audioBlockSamples = 128
         val credits = beginOutboundTransfer(streamId)
-        requestBlePriority(BluetoothGatt.CONNECTION_PRIORITY_HIGH)
+        requestBlePriority(BluetoothGatt.CONNECTION_PRIORITY_HIGH, intendedGatt)
         try {
             val meta = JSONObject()
                 .put("codec", "ima-adpcm")
@@ -1022,36 +1024,40 @@ class MelLinkV2ClientService : Service() {
                 .toString()
                 .toByteArray(Charsets.UTF_8)
 
+            if (!outboundTransferActive(streamId, credits, intendedGatt)) return false
             if (!sendControlBlocking(
                     MelLinkV2Protocol.encode(
                         MelLinkV2Protocol.AUDIO_BEGIN, 0, streamId, 0, meta
-                    )
+                    ), intendedGatt
                 )) return false
 
             var seq = 0
             var offset = 0
             while (offset < pcm16.size) {
-                if (outboundCancelled(streamId)) return false
+                if (!outboundTransferActive(streamId, credits, intendedGatt)) return false
                 if (!awaitOutboundCredit(streamId, credits)) return false
-                if (outboundCancelled(streamId)) return false
+                // clearSession() releases waiters during disconnect. Those credits
+                // do not authorize frames on a newly connected MINI.
+                if (!outboundTransferActive(streamId, credits, intendedGatt)) return false
                 val end = minOf(offset + audioBlockSamples, pcm16.size)
                 val encoded = MelImaAdpcm.encodeBlock(pcm16.copyOfRange(offset, end))
                 if (!sendBulkNoResponse(
                         MelLinkV2Protocol.encode(
                             MelLinkV2Protocol.AUDIO_DATA, 0, streamId, seq++, encoded
-                        )
+                        ), intendedGatt
                     )) return false
                 offset = end
             }
 
+            if (!outboundTransferActive(streamId, credits, intendedGatt)) return false
             return sendControlBlocking(
                 MelLinkV2Protocol.encode(
                     MelLinkV2Protocol.AUDIO_END, 0, streamId, seq
-                )
+                ), intendedGatt
             )
         } finally {
             endOutboundTransfer(streamId, credits)
-            requestBlePriority(BluetoothGatt.CONNECTION_PRIORITY_BALANCED)
+            requestBlePriority(BluetoothGatt.CONNECTION_PRIORITY_BALANCED, intendedGatt)
         }
     }
 
@@ -1301,8 +1307,8 @@ class MelLinkV2ClientService : Service() {
         }
     }
 
-    private fun sendControlBlocking(frame: ByteArray): Boolean =
-        writeGattBlocking(controlRx, frame, BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT)
+    private fun sendControlBlocking(frame: ByteArray, intendedGatt: BluetoothGatt? = null): Boolean =
+        writeGattBlocking(controlRx, frame, BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT, intendedGatt)
 
     private fun sendBulkBlocking(frame: ByteArray): Boolean =
         writeGattBlocking(bulkRx, frame, BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT)
@@ -1320,10 +1326,20 @@ class MelLinkV2ClientService : Service() {
 
     private fun endOutboundTransfer(streamId: Int, sem: Semaphore) {
         synchronized(outboundCredits) {
-            if (outboundCredits[streamId] === sem) outboundCredits.remove(streamId)
-            cancelledOutbound.remove(streamId)
+            // A late old transfer must not clear the cancellation of a new one
+            // that reused the same stream ID after reconnect.
+            if (outboundCredits[streamId] === sem) {
+                outboundCredits.remove(streamId)
+                cancelledOutbound.remove(streamId)
+            }
         }
     }
+
+    private fun outboundTransferActive(streamId: Int, sem: Semaphore, intendedGatt: BluetoothGatt): Boolean =
+        synchronized(outboundCredits) {
+            outboundCredits[streamId] === sem && !cancelledOutbound.contains(streamId) &&
+                gatt === intendedGatt && miniReady.value && protocolReady.value
+        }
 
     private fun awaitOutboundCredit(streamId: Int, sem: Semaphore): Boolean {
         val ok = sem.tryAcquire(5, TimeUnit.SECONDS)
@@ -1331,22 +1347,25 @@ class MelLinkV2ClientService : Service() {
         return ok
     }
 
-    private fun requestBlePriority(priority: Int) {
+    private fun requestBlePriority(priority: Int, intendedGatt: BluetoothGatt? = null) {
         val client = gatt ?: return
+        if (intendedGatt != null && client !== intendedGatt) return
         if (!hasBlePermissions()) return
         runCatching { client.requestConnectionPriority(priority) }
             .onFailure { Log.w(TAG, "BLE connection priority request failed", it) }
     }
 
-    private fun sendBulkNoResponse(frame: ByteArray): Boolean =
-        writeGattNoResponse(bulkRx, frame)
+    private fun sendBulkNoResponse(frame: ByteArray, intendedGatt: BluetoothGatt? = null): Boolean =
+        writeGattNoResponse(bulkRx, frame, intendedGatt)
 
     private fun writeGattNoResponse(
         characteristic: BluetoothGattCharacteristic?,
-        value: ByteArray
+        value: ByteArray,
+        intendedGatt: BluetoothGatt? = null
     ): Boolean {
         synchronized(writeLock) {
             val client = gatt ?: return false
+            if (intendedGatt != null && client !== intendedGatt) return false
             val target = characteristic ?: return false
             if (!hasBlePermissions()) return false
 
@@ -1376,10 +1395,12 @@ class MelLinkV2ClientService : Service() {
     private fun writeGattBlocking(
         characteristic: BluetoothGattCharacteristic?,
         value: ByteArray,
-        writeType: Int
+        writeType: Int,
+        intendedGatt: BluetoothGatt? = null
     ): Boolean {
         synchronized(writeLock) {
             val client = gatt ?: return false
+            if (intendedGatt != null && client !== intendedGatt) return false
             val target = characteristic ?: return false
             if (!hasBlePermissions()) return false
             while (writeAck.poll() != null) { }
