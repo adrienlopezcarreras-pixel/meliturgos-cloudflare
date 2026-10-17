@@ -6,13 +6,17 @@ import { readFile } from 'node:fs/promises';
 import { onRequestGet } from '../src/pages/revenue-interface.js';
 import { handleRevenueApi, normalizeRevenueTasks } from '../src/api/revenue-worker-api.js';
 
-test('MEL WORK page is simple: PC state, hand-ins, live work, nightly watch — nothing to approve', async () => {
+test('MEL WORK page exposes real owner-review controls and keeps autonomous work explicit', async () => {
   const response = await onRequestGet();
   assert.equal(response.status, 200);
   const html = await response.text();
-  for (const token of ['MEL WORK', 'id="workNow"', 'id="pcState"', 'id="submissionsList"', 'id="watchList"', 'id="live"', '/api/revenue/submissions', '/api/revenue/watch', '/api/revenue/direct-work?latest_cycle=1', '/api/computer/v1/status', "fetch('/api/revenue/direct-work',{method:'POST'})"]) assert.ok(html.includes(token), `missing ${token}`);
-  for (const gone of ['palier 0', 'pas encore disponible', 'autonomyToggle', 'Valider le brouillon', 'scanPcTaskmarket', 'Préparation à l']) assert.ok(!html.includes(gone), `obsolete ${gone}`);
+  for (const token of ['MEL WORK', 'id="workNow"', 'id="pcState"', 'id="submissionsList"', 'id="draftsList"', 'id="watchList"', 'id="live"', '/api/revenue/submissions', '/api/revenue/watch', '/api/revenue/direct-work?latest_cycle=1', '/api/revenue/direct-work/decision', '/api/computer/v1/status', "fetch('/api/revenue/direct-work',{method:'POST'})"]) assert.ok(html.includes(token), `missing ${token}`);
+  for (const gone of ['palier 0', 'pas encore disponible', 'autonomyToggle', 'scanPcTaskmarket', 'Préparation à l']) assert.ok(!html.includes(gone), `obsolete ${gone}`);
   assert.doesNotMatch(html, /privateKey|seedPhrase/i);
+  assert.match(html, /data-decision="approve"/);
+  assert.match(html, /data-decision="reject"/);
+  assert.match(html, /data-review-id/);
+  assert.match(html, /'Étapes réservées au propriétaire/);
   const script = html.slice(html.indexOf('<script>') + 8, html.lastIndexOf('</script>'));
   assert.doesNotThrow(() => new Function(script));
 });

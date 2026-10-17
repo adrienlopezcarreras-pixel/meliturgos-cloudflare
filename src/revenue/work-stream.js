@@ -171,8 +171,9 @@ async function recordCycle(db, id, state, result) {
     .bind(id, state, result ? JSON.stringify(result) : null, new Date().toISOString()).run();
 }
 
-// autonomous: only bounty offers MEL can complete with no human step; the
-// finished deliverable is handed in by MEL herself through the owner's PC.
+// Autonomous cycles discover real offers and prepare safe drafts. Only a
+// completed, human-free bounty can enter the independent submission queue;
+// owner-step drafts are retained for explicit review, never auto-submitted.
 export function streamDirectWork({ env, fetchImpl = fetch, now = () => Date.now(), maxAssessments, autonomous = false, queueSubmission = queueTaskmarketSubmission } = {}) {
   const cycleId = crypto.randomUUID();
   const body = new ReadableStream({
@@ -186,7 +187,7 @@ export function streamDirectWork({ env, fetchImpl = fetch, now = () => Date.now(
         if (!response.ok) throw new Error('TASKMARKET_UPSTREAM_ERROR');
         const tasks = normalizeRevenueTasks(await response.json(), now());
         const ranked = rankMissions(tasks, { now: now(), alreadyDrafted: await alreadyDraftedIds(env.DB) })
-          .filter(task => !autonomous || (task.mode === 'bounty' && !task.drafted));
+          .filter(task => !autonomous || !task.drafted);
         step(tasks.length + ' offre(s) ouverte(s), ' + ranked.length + ' avec assez de temps restant. Je commence par la concurrence la plus faible.');
         const byId = new Map(ranked.map(task => [task.id, task]));
         const assessor = createWorkAssessor({ env });
@@ -227,14 +228,20 @@ export function streamDirectWork({ env, fetchImpl = fetch, now = () => Date.now(
         }
         const mission = current || byId.get(result.missionId) || {};
         const full = { ...result, title: title(mission), reward: usdc(mission.reward), competitors: Number(mission.submissionCount || 0), expiryTime: mission.expiryTime || null, mode: mission.mode || null };
-        if (autonomous && result.artifactId) {
+        if (autonomous && result.artifactId && full.mode === 'bounty' && result.status !== 'DRAFT_FOR_OWNER' && (!Array.isArray(result.humanSteps) || result.humanSteps.length === 0)) {
           const queued = await queueSubmission(env, { artifactId: result.artifactId, taskId: result.missionId, mode: full.mode, status: result.status, now: now() })
             .catch(error => ({ status: 'QUEUE_FAILED', code: String(error?.message || '').slice(0, 80) }));
           full.submission = queued?.status || null;
           full.requiresOwnerApproval = false;
           step(SUBMISSION_STEP[full.submission] || ('Livrable enregistré, remise automatique : ' + full.submission + '.'));
         } else {
-          step(result.reused ? 'Brouillon déjà prêt pour cette mission, je le réaffiche.' : 'Brouillon enregistré. À toi de relire, valider, puis publier toi-même sur Taskmarket.');
+          // Do not erase the owner-approval requirement in autonomous mode:
+          // writing a draft is not publishing, claiming, or submitting a job.
+          full.requiresOwnerApproval = true;
+          step(result.reused ? 'Brouillon déjà prêt pour cette mission, je le réaffiche.' :
+            result.status === 'DRAFT_FOR_OWNER'
+              ? 'Brouillon enregistré pour validation. Étapes humaines : ' + (result.humanSteps || []).join(' ; ')
+              : 'Brouillon enregistré pour validation. Aucune remise automatique ne sera effectuée pour cette offre.');
         }
         await recordCycle(env.DB, cycleId, 'COMPLETE', full);
         send({ type: 'done', cycleId, result: full });

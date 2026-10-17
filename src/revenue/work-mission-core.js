@@ -92,8 +92,9 @@ export async function runDirectWork({db,listMissions,assess,execute,verify,maxAs
   if((assessment?.eligible!==true&&!draftable)||!Number.isSafeInteger(assessment.confidenceBps)||assessment.confidenceBps<9000||
     (assessment.requiresHuman!==false&&!draftable)||assessment.requiresPhysicalWorld!==false||
     assessment.requiresSecrets!==false||assessment.requestsUnsafeAction!==false)continue;
-  // Autonomous mode: MEL only keeps work she can hand in herself, end to end.
-  if(autonomous&&assessment.requiresHuman!==false)continue;
+  // Autonomy may produce owner-reviewable drafts even if the offer includes a
+  // human publication step. Publishing remains a separate, gated action.
+  // Eligibility and the explicit humanSteps below remain authoritative.
   const humanSteps=assessment.requiresHuman===true
     ? (Array.isArray(assessment.humanSteps)&&assessment.humanSteps.length
        ? assessment.humanSteps.filter(step=>typeof step==='string'&&step.trim()).slice(0,8).map(step=>step.slice(0,300))
