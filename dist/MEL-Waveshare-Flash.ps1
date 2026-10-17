@@ -80,13 +80,9 @@ try {
   }
   if ($ports.Count -eq 0) { throw "Toujours aucun port série/USB détecté." }
 
-  if ($ports.Count -eq 1) {
-    $port = $ports[0]
-  } else {
-    Write-Host "Ports détectés : $($ports -join ', ')"
-    $port = Read-Host "Port de la Waveshare (ex: COM7)"
-    if ([string]::IsNullOrWhiteSpace($port)) { throw "Port requis." }
-  }
+  Write-Host "Ports détectés : $($ports -join ', ')"
+  $port = (Read-Host "Confirmez le port physique de la MINI (ex: COM7)").Trim().ToUpperInvariant()
+  if ($port -notmatch '^COM[0-9]{1,3}
 
   Write-Host ""
   Write-Host "ATTENTION : PREMIÈRE INSTALLATION UNIQUEMENT — effacement TOTAL, données irrécupérables sans sauvegarde." -ForegroundColor Red
@@ -110,55 +106,11 @@ finally {
   $pass = $null
   $secure = $null
 }
-) {
-    throw "Empreinte SHA256 absente ou invalide : flashage interdit."
+ -or $port -notin $ports) {
+    throw "MINI_USB_PORT_NOT_CONFIRMED"
   }
-  $actual = (Get-FileHash -Algorithm SHA256 $bin).Hash.ToLowerInvariant()
-  if ($actual -ne $expected) { throw "Empreinte SHA256 invalide. Flashage annulé." }
-  Write-Host "Firmware vérifié : SHA256 OK." -ForegroundColor Green
-
-  $python = $null
-  foreach ($candidate in @("py.exe","python.exe","python3.exe")) {
-    $cmd = Get-Command $candidate -ErrorAction SilentlyContinue
-    if ($cmd) { $python = $cmd.Source; break }
-  }
-
-  if (-not $python) {
-    $winget = Get-Command winget.exe -ErrorAction SilentlyContinue
-    if (-not $winget) { throw "Python absent et winget indisponible. Installe Python 3 puis relance ce script." }
-    Write-Host "Installation de Python pour l'outil de flash..." -ForegroundColor Yellow
-    & $winget.Source install --id Python.Python.3.12 -e --scope user --accept-package-agreements --accept-source-agreements
-    $known = Join-Path $env:LOCALAPPDATA "Programs\Python\Python312\python.exe"
-    if (Test-Path $known) { $python = $known }
-    if (-not $python) { throw "Python vient d'être installé. Ferme puis relance ce script une fois." }
-  }
-
-  Write-Host "Préparation d'esptool..." -ForegroundColor Yellow
-  if ([IO.Path]::GetFileName($python).ToLowerInvariant() -eq "py.exe") {
-    & $python -3 -m pip install --user --disable-pip-version-check "esptool==5.4.0" | Out-Host
-    $pyArgs = @("-3")
-  } else {
-    & $python -m pip install --user --disable-pip-version-check "esptool==4.8.1" | Out-Host
-    $pyArgs = @()
-  }
-
-  $ports = @(Get-CimInstance Win32_SerialPort -ErrorAction SilentlyContinue | Select-Object -ExpandProperty DeviceID)
-  if ($ports.Count -eq 0) {
-    Write-Host ""
-    Write-Host "Aucun port détecté." -ForegroundColor Yellow
-    Write-Host "Maintiens BOOT sur la Waveshare, branche l'USB-C au PC, relâche BOOT, puis appuie sur Entrée."
-    Read-Host | Out-Null
-    $ports = @(Get-CimInstance Win32_SerialPort -ErrorAction SilentlyContinue | Select-Object -ExpandProperty DeviceID)
-  }
-  if ($ports.Count -eq 0) { throw "Toujours aucun port série/USB détecté." }
-
-  if ($ports.Count -eq 1) {
-    $port = $ports[0]
-  } else {
-    Write-Host "Ports détectés : $($ports -join ', ')"
-    $port = Read-Host "Port de la Waveshare (ex: COM7)"
-    if ([string]::IsNullOrWhiteSpace($port)) { throw "Port requis." }
-  }
+  & $python @pyArgs -m esptool --chip esp32s3 --port $port chip_id
+  if ($LASTEXITCODE -ne 0) { throw "MINI_ESP32S3_IDENTITY_UNVERIFIED" }
 
   Write-Host ""
   Write-Host "ATTENTION : PREMIÈRE INSTALLATION UNIQUEMENT — effacement TOTAL, données irrécupérables sans sauvegarde." -ForegroundColor Red
