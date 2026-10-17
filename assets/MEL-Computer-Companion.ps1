@@ -2447,7 +2447,7 @@ function Get-UiSnapshot([IntPtr]$hwnd = [IntPtr]::Zero, [int]$maxElements = 150,
       $rect = $cur.BoundingRectangle
       $name = [string]$cur.Name
       if ($name.Length -gt 120) { $name = $name.Substring(0, 120) }
-      $visible = (-not $cur.IsOffscreen) -and (-not $rect.IsEmpty) -and $rect.Width -gt 1 -and $rect.Height -gt 1
+      $visible = (-not $rect.IsEmpty) -and $rect.Width -gt 1 -and $rect.Height -gt 1
       $relevant = ($useful -contains $type) -and ($name.Length -gt 0 -or $type -in @('Edit','Document','ComboBox'))
       if ($visible -and $relevant -and -not ($type -eq 'Text' -and $name.Length -lt 2)) {
         $value = ''
