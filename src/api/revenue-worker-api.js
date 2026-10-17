@@ -82,7 +82,9 @@ export async function handleRevenueApi(request, env, ctx = null) {
       try{
         const artifact=await env.DB.prepare('SELECT id, mission_id, content, status, created_at FROM mel_work_artifacts WHERE id=?').bind(artifactId).first();
         if(!artifact)return json({ok:false,code:'WORK_ARTIFACT_NOT_FOUND'},404);
-        return json({ok:true,artifact,submitted:false,paid:false});
+        const cycle=await env.DB.prepare("SELECT result FROM mel_work_cycles WHERE json_valid(result) AND json_extract(result,'$.artifactId')=? ORDER BY updated_at DESC LIMIT 1").bind(artifactId).first();
+        const outcome=cycle?.result?JSON.parse(cycle.result):null;
+        return json({ok:true,artifact,humanSteps:Array.isArray(outcome?.humanSteps)?outcome.humanSteps:[],submitted:false,paid:false});
       }catch{return json({ok:false,code:'WORK_ARTIFACT_READ_UNAVAILABLE'},503)}
     }
     if(request.method==='GET'){
