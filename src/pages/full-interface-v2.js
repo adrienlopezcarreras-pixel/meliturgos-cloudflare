@@ -159,7 +159,10 @@ function renderRoadmapSummary(d){
   const total=setMetric('#rmTotal',s?.total),done=setMetric('#rmDone',s?.complete);
   const inProgress=finiteMetric(bs?.IN_PROGRESS),partial=finiteMetric(bs?.PARTIAL);
   qs('#rmActive').textContent=inProgress===null||partial===null?'—':String(inProgress+partial);
-  const percent=finiteMetric(s?.percent_complete);
+  // Real percentage: items proven by production executions in the last 7 days.
+  const truth=d?.truth&&d.truth.available===true?d.truth:null;
+  if(truth){setMetric('#rmDone',truth.counts?.VERIFIED_LIVE);const doneLabel=qs('#rmDone')?.previousElementSibling;if(doneLabel)doneLabel.textContent='Vérifié en production (7 j)';}
+  const percent=truth?finiteMetric(truth.verified_live_percent):finiteMetric(s?.percent_complete);
   qs('#rmPercent').textContent=percent===null?'—':percent+'%';
   qs('#roadPercent').textContent=percent===null?'—':String(percent);
   qs('#roadBar').style.width=percent===null?'0%':Math.max(0,Math.min(100,percent))+'%';
@@ -447,7 +450,16 @@ async function loadSkills(force=false){
 qs('#refreshSkills').onclick=()=>{panelLoadedAt.delete('skills');loadSkills(true).then(()=>panelLoadedAt.set('skills',Date.now())).catch(()=>{})};
 function esc(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
 async function loadRoadmap(force=false){const box=qs('#roadmapList');box.textContent='Chargement…';const d=await loadRoadmapData(force);renderRoadmapSummary(d);renderRoadmap();return d}
-function renderRoadmap(){if(!roadmapCache)return;const sf=qs('#rmStatus').value,pf=qs('#rmPriority').value,box=qs('#roadmapList');box.innerHTML='';const fragment=document.createDocumentFragment();let rendered=0;for(const phase of roadmapCache.phases||[]){const items=(phase.items||[]).filter(item=>(!sf||item.status===sf)&&(!pf||item.priority===pf));if(!items.length)continue;const ph=document.createElement('section');ph.className='phase';ph.innerHTML='<h3><span>'+esc(phase.title)+'</span><span class="tag">'+items.length+' étape(s)</span></h3>';for(const item of items){const row=document.createElement('div');row.className='road-item';row.innerHTML='<div class="road-id">'+esc(item.id)+' · '+esc(item.priority)+'</div><div><div class="road-title">'+esc(item.title)+'</div><div class="road-next">'+esc(item.next||'—')+'</div></div><div class="road-status">'+statusTag(item.status)+'</div>';ph.appendChild(row)}fragment.appendChild(ph);rendered+=items.length}box.appendChild(fragment);if(!rendered)box.textContent='Aucune étape pour ces filtres.'}
+function truthTag(t,declared){
+  if(!t)return statusTag(declared);
+  const labels={VERIFIED_LIVE:['good','Vérifié en production'],PARTIAL_LIVE:['warn','Partiellement prouvé'],BROKEN:['bad','En échec'],UNPROVEN:['warn','Jamais exécuté'],DECLARED:['warn','Déclaré, sans preuve']};
+  const [kind,label]=labels[t.truth]||['warn',String(t.truth||'?')];
+  const failed=(t.proofs||[]).filter(p=>p.ok===0&&p.ko>0).map(p=>p.id+(p.error?' ('+p.error+')':''));
+  const missing=(t.proofs||[]).filter(p=>p.ok===0&&p.ko===0).map(p=>p.id);
+  const title=[t.last_proof_at?'Dernière preuve : '+new Date(t.last_proof_at).toLocaleString('fr-FR'):'',failed.length?'Échecs : '+failed.join(', '):'',missing.length?'Jamais exécuté : '+missing.join(', '):'','Statut déclaré : '+declared].filter(Boolean).join(' · ');
+  return '<span class="tag '+kind+'" title="'+esc(title)+'">'+esc(label)+'</span>';
+}
+function renderRoadmap(){if(!roadmapCache)return;const sf=qs('#rmStatus').value,pf=qs('#rmPriority').value,box=qs('#roadmapList');box.innerHTML='';const fragment=document.createDocumentFragment();let rendered=0;for(const phase of roadmapCache.phases||[]){const items=(phase.items||[]).filter(item=>(!sf||item.status===sf)&&(!pf||item.priority===pf));if(!items.length)continue;const ph=document.createElement('section');ph.className='phase';ph.innerHTML='<h3><span>'+esc(phase.title)+'</span><span class="tag">'+items.length+' étape(s)</span></h3>';for(const item of items){const row=document.createElement('div');row.className='road-item';row.innerHTML='<div class="road-id">'+esc(item.id)+' · '+esc(item.priority)+'</div><div><div class="road-title">'+esc(item.title)+'</div><div class="road-next">'+esc(item.next||'—')+'</div></div><div class="road-status">'+truthTag(roadmapCache.truth?.items?.[item.id],item.status)+'</div>';ph.appendChild(row)}fragment.appendChild(ph);rendered+=items.length}box.appendChild(fragment);if(!rendered)box.textContent='Aucune étape pour ces filtres.'}
 qs('#rmStatus').onchange=renderRoadmap;qs('#rmPriority').onchange=renderRoadmap;
 async function codeCheck(){const btn=qs('#codeSelfCheck');btn.disabled=true;qs('#codeProof').textContent='Test en cours…';try{const d=await jfetch('/api/gen2/code/self-check');const ok=d?.ok===true&&d?.exact_deployment_identity_known===true&&Boolean(d?.repository)&&Boolean(d?.branch)&&Boolean(d?.path)&&Boolean(d?.deployed_sha);qs('#codeProof').textContent=ok?'LECTURE PROUVÉE · '+d.repository+' · '+d.branch+' · '+d.path+' · déployé '+String(d.deployed_sha||'').slice(0,10):'NON PROUVÉ · '+(d.error||d.code||(d?.exact_deployment_identity_known!==true?'identité exacte du déploiement indisponible':'preuve incomplète'));qs('#codeMetric').textContent=ok?'OK':'ERREUR';qs('#codeSummary').textContent=qs('#codeProof').textContent;return ok}catch(e){qs('#codeProof').textContent='Échec : '+e.message;qs('#codeMetric').textContent='ERREUR';qs('#codeSummary').textContent=e.message;return false}finally{btn.disabled=false}}
 qs('#codeSelfCheck').onclick=codeCheck;
