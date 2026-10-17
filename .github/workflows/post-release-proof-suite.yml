@@ -61,7 +61,7 @@ jobs:
     secrets: inherit
 
   persistent-stress:
-    needs: [resolve, platform]
+    needs: resolve
     if: always() && needs.resolve.result == 'success'
     uses: ./.github/workflows/persistent-capability-stress-live-proof.yml
     with:
@@ -69,13 +69,13 @@ jobs:
     secrets: inherit
 
   workers-ai-proof-refresh:
-    needs: [resolve, persistent-stress]
-    if: always() && needs.resolve.result == 'success' && needs.persistent-stress.result == 'success'
+    needs: resolve
+    if: always() && needs.resolve.result == 'success'
     uses: ./.github/workflows/workers-ai-zero-cost-proof-refresh.yml
     secrets: inherit
 
   council-rich-ui:
-    needs: [resolve, workers-ai-proof-refresh]
+    needs: resolve
     if: always() && needs.resolve.result == 'success'
     uses: ./.github/workflows/council-rich-ui-production-proof.yml
     with:
@@ -83,7 +83,7 @@ jobs:
     secrets: inherit
 
   connections:
-    needs: [resolve, council-rich-ui]
+    needs: resolve
     if: always() && needs.resolve.result == 'success'
     uses: ./.github/workflows/live-connections-production-proof.yml
     with:
@@ -91,7 +91,7 @@ jobs:
     secrets: inherit
 
   sovereignty:
-    needs: [resolve, connections]
+    needs: resolve
     if: always() && needs.resolve.result == 'success'
     uses: ./.github/workflows/mel-sov-01-live-proof.yml
     with:
