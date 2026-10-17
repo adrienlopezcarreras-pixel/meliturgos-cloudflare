@@ -430,7 +430,26 @@ $('runDraftCycle').onclick=async()=>{
   const proofResponse=await fetch('/api/revenue/direct-work?artifact_id='+encodeURIComponent(artifactId),{cache:'no-store'});
   const proof=await proofResponse.json().catch(()=>({}));
   if(!proofResponse.ok||proof.artifact?.id!==artifactId)throw new Error('WORK_ARTIFACT_READBACK_FAILED');
-  area.textContent='Brouillon D1 vérifié : '+artifactId+' · '+String(proof.artifact.status)+'. Non livré, non payé.'+String.fromCharCode(10,10)+String(proof.artifact.content||'');
+  area.replaceChildren();
+  const message=document.createElement('pre');message.style.whiteSpace='pre-wrap';message.style.overflowWrap='anywhere';
+  const steps=Array.isArray(data.result?.humanSteps)?data.result.humanSteps:[];
+  message.textContent='Mission Taskmarket : '+String(proof.artifact.mission_id||'')+'\\nStatut : '+String(data.result?.status||proof.artifact.status)+'\\nÉtapes humaines : '+(steps.length?steps.map((x,i)=>(i+1)+'. '+x).join(' ; '):'Vérifier le livrable avant toute publication.')+'\\nNon livré, non payé.\\n\\n'+String(proof.artifact.content||'');
+  area.appendChild(message);
+  const decisionBar=document.createElement('div');decisionBar.className='actions';
+  for(const [decision,label] of [['approve','✓ Valider le brouillon'],['reject','✗ Refuser le brouillon']]){
+    const b=document.createElement('button');b.type='button';b.textContent=label;
+    b.onclick=async()=>{
+      for(const child of decisionBar.children)child.disabled=true;
+      try{
+        const response=await fetch('/api/revenue/direct-work/decision',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({artifactId,decision}),cache:'no-store'});
+        const result=await response.json().catch(()=>({}));
+        if(!response.ok||result.ok!==true)throw new Error(result.code||'WORK_DECISION_FAILED');
+        message.textContent+='\\n\\nDécision enregistrée : '+result.status+'. Aucune soumission automatique.';
+      }catch(error){message.textContent+='\\nDécision non enregistrée : '+String(error.message||error);for(const child of decisionBar.children)child.disabled=false}
+    };
+    decisionBar.appendChild(b);
+  }
+  if(['DRAFT_UNVERIFIED','VERIFIED_LOCALLY'].includes(proof.artifact.status))area.appendChild(decisionBar);
   await refreshDirectArtifacts();
  }catch(e){area.textContent='Préparation impossible : '+String(e.message||e).slice(0,140)}
  finally{button.disabled=false}
