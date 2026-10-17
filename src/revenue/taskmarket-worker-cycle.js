@@ -192,9 +192,9 @@ export function createD1ValidatedDraftAdapter(db) {
     await db.prepare('CREATE TABLE IF NOT EXISTS mel_work_validated_drafts (id TEXT PRIMARY KEY, task_id TEXT NOT NULL, content TEXT NOT NULL, candidate_sha256 TEXT NOT NULL, validation TEXT, created_at TEXT NOT NULL)').run();
     await db.prepare('INSERT OR IGNORE INTO mel_work_validated_drafts (id,task_id,content,candidate_sha256,validation,created_at) VALUES (?,?,?,?,?,?)')
       .bind(draftId,taskId,content,candidateSha256.toLowerCase(),String(validation||'').slice(0,1000),new Date().toISOString()).run();
-    const stored=await db.prepare('SELECT id FROM mel_work_validated_drafts WHERE id=? AND task_id=? AND candidate_sha256=?')
+    const stored=await db.prepare('SELECT id, content FROM mel_work_validated_drafts WHERE id=? AND task_id=? AND candidate_sha256=?')
       .bind(draftId,taskId,candidateSha256.toLowerCase()).first();
-    if (stored?.id !== draftId) throw new Error('WORK_DRAFT_PERSISTENCE_UNCONFIRMED');
+    if (stored?.id !== draftId || stored.content !== content) throw new Error('WORK_DRAFT_PERSISTENCE_UNCONFIRMED');
     return {draftId};
   };
 }
