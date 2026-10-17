@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { runTaskmarketWorkerCycle, feedbackToLoraCandidate } from '../../src/revenue/taskmarket-worker-cycle.js';
+import { runTaskmarketWorkerCycle, feedbackToLoraCandidate, createD1ValidatedDraftAdapter } from '../../src/revenue/taskmarket-worker-cycle.js';
 
 const task = {
   id: '0x123',
@@ -142,4 +142,17 @@ test('never claims a durable draft exists when persistence is unconfirmed',async
  const result=await runTaskmarketWorkerCycle({...base,persistValidatedDraft:async()=>({})});
  assert.equal(result.decisions[0].status,'ERROR');
  assert.equal(result.decisions[0].reason,'WORK_DRAFT_PERSISTENCE_UNCONFIRMED');
+});
+
+test('D1 validated draft adapter confirms stored evidence before returning an id',async()=>{
+ const calls=[];let inserted=false;
+ const db={prepare(sql){calls.push(sql);return {bind(...values){return {run:async()=>{inserted=true;return {success:true}},first:async()=>inserted?{id:'melwork-draft-'+ 'a'.repeat(64)}:null}},run:async()=>({success:true})}}};
+ const save=createD1ValidatedDraftAdapter(db);
+ const stored=await save({taskId:'0x123',content:'verified sample',candidateSha256:'a'.repeat(64),validation:'schema-valid'});
+ assert.equal(stored.draftId,'melwork-draft-'+'a'.repeat(64));
+ assert.equal(calls.length,3);
+});
+test('D1 validated draft adapter never fabricates persistence confirmation',async()=>{
+ const db={prepare(sql){return {bind(){return {run:async()=>({success:true}),first:async()=>null}},run:async()=>({success:true})}}};
+ await assert.rejects(createD1ValidatedDraftAdapter(db)({taskId:'0x123',content:'verified sample',candidateSha256:'a'.repeat(64)}),/WORK_DRAFT_PERSISTENCE_UNCONFIRMED/);
 });
