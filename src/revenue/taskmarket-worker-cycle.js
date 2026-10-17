@@ -137,7 +137,7 @@ export async function runTaskmarketWorkerCycle({
         await recordOutcome({ taskId, stage: 'policy', ...decision });
         continue;
       }
-      const submission = await submitResult({ task, candidate, validation, economics });
+      const submission = await submitResult({ task, candidate: trustedCandidate, validation, economics });
       const submitted = record(submission) && submission.success === true && typeof submission.submissionId === 'string';
       const decision = { taskId, status: submitted ? 'SUBMITTED_PENDING_ACCEPTANCE' : 'SUBMISSION_UNCONFIRMED', submissionId: submitted ? submission.submissionId : null, economics };
       decisions.push(decision);
