@@ -306,7 +306,7 @@ export async function runBoundedTaskmarketDraftCycle({
    };
   },
   recordOutcome:typeof recordOutcome==='function'?recordOutcome:async()=>{},
-  policy:{...policy,submissionEnabled:false,spendCapApproved:false,maxTasksPerCycle:Math.min(1,policy.maxTasksPerCycle??1)},
+  policy:{...policy,submissionEnabled:false,spendCapApproved:false,maxTasksPerCycle:Number.isSafeInteger(policy.maxTasksPerCycle)?Math.max(0,Math.min(1,policy.maxTasksPerCycle)):1},
  });
 }
 
