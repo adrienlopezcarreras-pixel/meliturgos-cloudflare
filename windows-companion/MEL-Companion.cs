@@ -1477,51 +1477,168 @@ class MainForm : Form
         };
         parent.Controls.Add(p);return p;
     }
+
+    Label CellLabel(Control parent,string value,float size,bool bold=false,Color? color=null)
+    {
+        var label=new Label {
+            Text=value, Dock=DockStyle.Fill, AutoSize=false,
+            TextAlign=ContentAlignment.MiddleLeft,AutoEllipsis=false,
+            Font=new Font("Segoe UI",size,bold?FontStyle.Bold:FontStyle.Regular),
+            ForeColor=color??text, BackColor=Color.Transparent,
+            Margin=new Padding(0)
+        };
+        parent.Controls.Add(label);
+        return label;
+    }
+    TableLayoutPanel Stack(int rows)
+    {
+        var panel=new TableLayoutPanel {
+            Dock=DockStyle.Fill,ColumnCount=1,RowCount=rows,
+            BackColor=Color.Transparent,Margin=new Padding(0),
+            Padding=new Padding(0)
+        };
+        panel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100f));
+        return panel;
+    }
+    Button ActionButton(string caption,int width,EventHandler click,bool primary=false)
+    {
+        var b=ButtonAt(new Panel(),caption,0,0,width,click);
+        // Re-parent into the actual layout cell; buttons are never overlaid.
+        b.Parent.Controls.Remove(b);
+        b.Height=42;
+        b.Margin=new Padding(5,3,5,3);
+        if(primary){b.BackColor=blue;b.ForeColor=Color.White;b.FlatAppearance.BorderSize=0;}
+        return b;
+    }
+    Panel Surface()
+    {
+        return new Panel {
+            Dock=DockStyle.Fill, BackColor=Color.White,
+            BorderStyle=BorderStyle.FixedSingle,
+            Padding=new Padding(16),Margin=new Padding(0,4,0,4)
+        };
+    }
     public MainForm()
     {
         Text="MEL Companion — Windows";
         Icon=MelApp.MakeIcon();
-        ClientSize=new Size(1060,820);MinimumSize=new Size(790,650);
+        ClientSize=new Size(1100,800);
+        MinimumSize=new Size(790,650);
         StartPosition=FormStartPosition.CenterScreen;
-        AutoScaleMode=AutoScaleMode.None;
-        Font=new Font("Segoe UI",10f);BackColor=background;ForeColor=text;
-        AutoScroll=false;DoubleBuffered=true;
-        LabelAt(this,"MEL Companion",28,22,620,52,19,true);
-        connection=LabelAt(this,"Vérification de la connexion…",28,78,670,30,10,true,gray);
-        triadActivityStatus=LabelAt(this,"Android : activité non vérifiée",28,106,670,23,9,false,gray);
-        triadActivityStatus.Anchor=AnchorStyles.Top|AnchorStyles.Left|AnchorStyles.Right;
-        ButtonAt(this,"Ouvrir MEL",0,29,160,delegate{MelApp.OpenMel();}).Anchor=AnchorStyles.Top|AnchorStyles.Right;
-        var open=Controls.OfType<Button>().Last();
-        open.Left=ClientSize.Width-190;
-        var pc=Card(this,132,176);pc.Left=22;pc.Width=ClientSize.Width-44;
-        LabelAt(pc,"POSTE DE TRAVAIL",20,14,310,36,9,true,blue);
-        var miniUsb=ButtonAt(pc,"Contrôle USB MINI",pc.Width-227,54,205,ChooseMiniUsbAction);
-        var androidPair=ButtonAt(pc,"Configurer ADB Wi-Fi",pc.Width-446,54,205,RunAndroidWifiPairing);
-        LabelAt(pc,Environment.MachineName,20,52,260,32,12,true);
-        localAccessStatus=LabelAt(pc,"Accès PC : désactivé  |  Calcul local : désactivé",20,103,pc.Width-40,25,9,false,gray);
-        adbWifiStatus=LabelAt(pc,"ADB Wi-Fi : recherche du téléphone…",20,133,pc.Width-40,25,9,false,gray);
-        LabelAt(this,"Appareils connectés",28,330,410,47,15,true);
-        var permissions=ButtonAt(this,"Autorisations",0,334,174,delegate{using(var dlg=new PermissionsForm())dlg.ShowDialog(this);RefreshAll();});
-        var refresh=ButtonAt(this,"Actualiser",0,334,150,delegate{RefreshAll();RefreshAdbDiagnostics();});
-        LabelAt(this,"État des appareils liés à MEL",28,380,700,34,9,false,gray);
-        cards=new Panel {Left=22,Top=420,Width=ClientSize.Width-44,Height=ClientSize.Height-567,
-            BackColor=background,AutoScroll=true,Anchor=AnchorStyles.Top|AnchorStyles.Bottom|AnchorStyles.Left|AnchorStyles.Right};
-        Controls.Add(cards);
-        var repair=ButtonAt(this,"Réparer",22,0,120,delegate{
-            try{MelApp.InstallFiles(autostart.Checked);MelApp.StartCompanion();MessageBox.Show("Moteur relancé.","MEL Companion");}
-            catch(Exception ex){MessageBox.Show(ex.Message,"Erreur de réparation");}
-        });
-        var rep=ButtonAt(this,"Réappairer",154,0,145,RePair);
-        var uninstall=ButtonAt(this,"Désinstaller",311,0,145,delegate{MelApp.Uninstall();});
-        var aiTest=ButtonAt(this,"Tester IA locale",475,0,175,RunLocalAiBenchmark);
-        foreach(var btn in new[]{repair,rep,uninstall,aiTest})btn.Anchor=AnchorStyles.Bottom|AnchorStyles.Left;
-        autostart=new CheckBox{Text="Lancer MEL Companion avec Windows",Left=26,Width=520,Height=42,
-            Checked=MelApp.StartupEnabled(),Font=new Font("Segoe UI",9f),Anchor=AnchorStyles.Bottom|AnchorStyles.Left};
-        autostart.CheckedChanged+=delegate{MelApp.ConfigureStartup(autostart.Checked);};
-        Controls.Add(autostart);
-        Resize+=delegate {LayoutDashboard();};
+        AutoScaleMode=AutoScaleMode.Font;
+        Font=new Font("Segoe UI",10f);
+        BackColor=background;ForeColor=text;DoubleBuffered=true;
+        AutoScroll=false;
+
+        // Structural layout: proportional center, fixed minimum-height tool areas,
+        // no absolute coordinates on the window and no competing edge anchors.
+        var shell=new TableLayoutPanel {
+            Dock=DockStyle.Fill,ColumnCount=1,RowCount=5,
+            Padding=new Padding(22,14,22,14),Margin=new Padding(0),
+            BackColor=background
+        };
+        shell.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100f));
+        shell.RowStyles.Add(new RowStyle(SizeType.Absolute,104f));
+        shell.RowStyles.Add(new RowStyle(SizeType.Absolute,218f));
+        shell.RowStyles.Add(new RowStyle(SizeType.Absolute,84f));
+        shell.RowStyles.Add(new RowStyle(SizeType.Percent,100f));
+        shell.RowStyles.Add(new RowStyle(SizeType.Absolute,110f));
+        Controls.Add(shell);
+
+        var header=new TableLayoutPanel {Dock=DockStyle.Fill,ColumnCount=2,RowCount=1,
+            Margin=new Padding(0),BackColor=Color.Transparent};
+        header.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,78f));
+        header.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,22f));
+        shell.Controls.Add(header,0,0);
+        var brand=Stack(3);
+        brand.RowStyles.Add(new RowStyle(SizeType.Absolute,48f));
+        brand.RowStyles.Add(new RowStyle(SizeType.Absolute,29f));
+        brand.RowStyles.Add(new RowStyle(SizeType.Percent,100f));
+        header.Controls.Add(brand,0,0);
+        CellLabel(brand,"MEL Companion",21f,true);
+        connection=CellLabel(brand,"Vérification de la connexion…",10.5f,true,gray);
+        triadActivityStatus=CellLabel(brand,"Android : activité non vérifiée",9.5f,false,gray);
+        var open=ActionButton("Ouvrir MEL",156,delegate{MelApp.OpenMel();},true);
+        open.Anchor=AnchorStyles.Right;
+        header.Controls.Add(open,1,0);
+
+        var pc=Surface();
+        shell.Controls.Add(pc,0,1);
+        var work=Stack(5);
+        work.RowStyles.Add(new RowStyle(SizeType.Absolute,31f));
+        work.RowStyles.Add(new RowStyle(SizeType.Absolute,34f));
+        work.RowStyles.Add(new RowStyle(SizeType.Absolute,53f));
+        work.RowStyles.Add(new RowStyle(SizeType.Absolute,29f));
+        work.RowStyles.Add(new RowStyle(SizeType.Percent,100f));
+        pc.Controls.Add(work);
+        CellLabel(work,"POSTE DE TRAVAIL",10f,true,blue);
+        CellLabel(work,Environment.MachineName,13f,true);
+        var workActions=new FlowLayoutPanel {
+            Dock=DockStyle.Fill,FlowDirection=FlowDirection.RightToLeft,
+            WrapContents=false,AutoScroll=false,Margin=new Padding(0)
+        };
+        work.Controls.Add(workActions);
+        workActions.Controls.Add(ActionButton("Contrôle USB MINI",203,ChooseMiniUsbAction,true));
+        workActions.Controls.Add(ActionButton("Configurer ADB Wi-Fi",203,RunAndroidWifiPairing));
+        localAccessStatus=CellLabel(work,"Accès PC : état en attente",9.5f,false,gray);
+        adbWifiStatus=CellLabel(work,"ADB Wi-Fi : recherche du téléphone…",9.5f,false,gray);
+
+        var section=new TableLayoutPanel {Dock=DockStyle.Fill,ColumnCount=2,RowCount=1,
+            BackColor=Color.Transparent,Margin=new Padding(0)};
+        section.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100f));
+        section.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute,345f));
+        shell.Controls.Add(section,0,2);
+        var captions=Stack(2);
+        captions.RowStyles.Add(new RowStyle(SizeType.Absolute,43f));
+        captions.RowStyles.Add(new RowStyle(SizeType.Percent,100f));
+        section.Controls.Add(captions,0,0);
+        CellLabel(captions,"Appareils connectés",16f,true);
+        CellLabel(captions,"État des appareils liés à MEL",9.5f,false,gray);
+        var sectionActions=new FlowLayoutPanel {
+            Dock=DockStyle.Fill,FlowDirection=FlowDirection.RightToLeft,
+            WrapContents=false,Margin=new Padding(0),
+            Padding=new Padding(0,19,0,0)
+        };
+        section.Controls.Add(sectionActions,1,0);
+        sectionActions.Controls.Add(ActionButton("Actualiser",143,delegate{RefreshAll();RefreshAdbDiagnostics();},true));
+        sectionActions.Controls.Add(ActionButton("Autorisations",171,delegate{
+            using(var dlg=new PermissionsForm())dlg.ShowDialog(this);RefreshAll();
+        }));
+
+        cards=new FlowLayoutPanel {
+            Dock=DockStyle.Fill,FlowDirection=FlowDirection.LeftToRight,
+            WrapContents=true,AutoScroll=true,BackColor=background,
+            Padding=new Padding(0),Margin=new Padding(0)
+        };
+        shell.Controls.Add(cards,0,3);
         cards.Resize+=delegate{ResizeCards();};
-        LayoutDashboard();
+
+        var footer=Stack(2);
+        footer.RowStyles.Add(new RowStyle(SizeType.Absolute,54f));
+        footer.RowStyles.Add(new RowStyle(SizeType.Percent,100f));
+        shell.Controls.Add(footer,0,4);
+        var maintenance=new FlowLayoutPanel {
+            Dock=DockStyle.Fill,FlowDirection=FlowDirection.LeftToRight,
+            WrapContents=false,AutoScroll=true,BackColor=Color.Transparent,
+            Margin=new Padding(0),Padding=new Padding(0,3,0,0)
+        };
+        footer.Controls.Add(maintenance);
+        maintenance.Controls.Add(ActionButton("Réparer",115,delegate{
+            try{MelApp.InstallFiles(autostart.Checked);MelApp.StartCompanion();
+                MessageBox.Show("Moteur relancé.","MEL Companion");}
+            catch(Exception ex){MessageBox.Show(ex.Message,"Erreur de réparation");}
+        }));
+        maintenance.Controls.Add(ActionButton("Réappairer",132,RePair));
+        maintenance.Controls.Add(ActionButton("Désinstaller",148,delegate{MelApp.Uninstall();}));
+        maintenance.Controls.Add(ActionButton("Tester IA locale",166,RunLocalAiBenchmark));
+        autostart=new CheckBox {
+            Text="Lancer MEL Companion avec Windows",
+            Dock=DockStyle.Fill,AutoSize=false,Checked=MelApp.StartupEnabled(),
+            Font=new Font("Segoe UI",9.5f),Margin=new Padding(2,0,0,0)
+        };
+        autostart.CheckedChanged+=delegate{MelApp.ConfigureStartup(autostart.Checked);};
+        footer.Controls.Add(autostart);
+
         FormClosing+=delegate(object sender,FormClosingEventArgs ev){
             if(!MelApp.Exiting&&ev.CloseReason==CloseReason.UserClosing){ev.Cancel=true;Hide();}
         };
@@ -1529,7 +1646,9 @@ class MainForm : Form
         poll.Tick+=delegate{RefreshAll();};poll.Start();
         triadPoll=new System.Windows.Forms.Timer{Interval=10000};
         triadPoll.Tick+=delegate{RefreshTriadActivity();};triadPoll.Start();
-        Shown+=delegate{BeginInvoke((MethodInvoker)delegate{RefreshAll();RefreshTriadActivity();});};
+        Shown+=delegate{BeginInvoke((MethodInvoker)delegate{
+            RefreshAll();RefreshTriadActivity();
+        });};
     }
     void RefreshAdbDiagnostics()
     {
