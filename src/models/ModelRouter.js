@@ -203,7 +203,8 @@ export class ModelRouter {
         const result=await this.withinExecutionBudget(() => this.invoke(selected,messages,context));
         const text=extractModelText(result);
         if (typeof text!=='string' || !text.trim()) throw new DomainError('EMPTY_MODEL_RESPONSE',502);
-        await this.recordPerformance(selected,task,true,Date.now()-startedAt);
+        // Metrics are best-effort and must never delay the response.
+        void this.recordPerformance(selected,task,true,Date.now()-startedAt);
         return {
           text:text.trim(),
           model:selected.id,
@@ -216,7 +217,8 @@ export class ModelRouter {
         };
       } catch(error) {
         this.stats.failures++;
-        await this.recordPerformance(selected,task,false,Date.now()-startedAt);
+        // Do not stall the next model candidate on telemetry storage.
+        void this.recordPerformance(selected,task,false,Date.now()-startedAt);
         failure=error;
         reasons.push(error.reason||error.code||error.message||'unknown');
         if (!retryable(categorize(error))) break;
