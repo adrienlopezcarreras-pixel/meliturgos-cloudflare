@@ -2478,8 +2478,11 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+      # A routine release must not silently switch off an autonomy the owner had
+      # running: MAX on before a push deploy is restored after the same verified
+      # checks. An owner pause stays a pause.
       - name: Keep MAX disabled after hardening release
-        if: success() && env.OWNER_MAX_AUTORELEASE != 'true'
+        if: success() && !(env.OWNER_MAX_AUTORELEASE == 'true' || (github.event_name == 'push' && env.PREVIOUS_MAX_AUTONOMY == 'true'))
         shell: bash
         run: |
           set -euo pipefail
@@ -2505,7 +2508,7 @@ jobs:
           NODE
 
       - name: Re-enable MAX 100% after verified autonomous release
-        if: success() && env.OWNER_MAX_AUTORELEASE == 'true'
+        if: success() && (env.OWNER_MAX_AUTORELEASE == 'true' || (github.event_name == 'push' && env.PREVIOUS_MAX_AUTONOMY == 'true'))
         shell: bash
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -2532,7 +2535,7 @@ jobs:
           node -e 'const d=require("./owner-max-autorelease.json");if(d?.ok!==true||d?.max_autonomy!==true||d?.paused===true)throw new Error("OWNER_MAX_AUTORELEASE_RESTART_FAILED");console.log("MAX 100% restored after verified release.")'
 
       - name: Kick event-driven autonomy chain after MAX restore
-        if: success() && env.OWNER_MAX_AUTORELEASE == 'true'
+        if: success() && (env.OWNER_MAX_AUTORELEASE == 'true' || (github.event_name == 'push' && env.PREVIOUS_MAX_AUTONOMY == 'true'))
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}

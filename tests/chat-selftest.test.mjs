@@ -17,7 +17,8 @@ test('self-test calls the real chat as the owner, streaming, and measures each c
   const res = await runChatSelftest({ request, env: { MELITURGOS_PASSWORD: 'pw' }, handleChat });
   const body = await res.json();
   assert.equal(body.ok, true, JSON.stringify(body));
-  assert.deepEqual(body.results.map(r => r.case), CHAT_SELFTEST_CASES);
+  assert.deepEqual(body.results.map(r => r.case), ['short', 'plan', 'big', 'huge']);
+  assert.ok(CHAT_SELFTEST_CASES.includes('capabilities'), 'self-knowledge case available on demand');
   assert.ok(calls.every(c => c.auth === 'Bearer pw' && c.stream === true));
   const big = body.results.find(r => r.case === 'big');
   assert.ok(big.prompt_chars > 38000 && big.understood && big.streamed && big.archived && big.deltas === 2);
@@ -38,4 +39,17 @@ test('the self-test route accepts only the per-deployment proof key', () => {
   assert.equal(isReleaseSmokeRequest(make({ 'x-mel-release-smoke': '1', 'x-mel-parallel-proof': 't'.repeat(40) }), env), true);
   assert.equal(isReleaseSmokeRequest(make({ 'x-mel-release-smoke': '1', 'x-mel-parallel-proof': 'x'.repeat(40) }), env), false);
   assert.equal(isReleaseSmokeRequest(make({}), env), false);
+});
+
+test('self-knowledge case fails when MEL denies her real tools or asks for keys she does not need', async () => {
+  const run = async reply => {
+    const handleChat = async () => new Response([JSON.stringify({ type: 'delta', text: reply }), JSON.stringify({ type: 'done', model: 'm', archived: true })].join('\n') + '\n', { headers: { 'content-type': 'application/x-ndjson' } });
+    const request = new Request('https://mel.test/api/internal/chat-selftest', { method: 'POST' });
+    return (await (await runChatSelftest({ request, env: { MELITURGOS_PASSWORD: 'pw' }, handleChat, cases: ['capabilities'] })).json()).results[0];
+  };
+  const good = await run('Je recherche sur le web, je pilote ton PC Windows via Companion, je mets à jour la MINI et le téléphone, MEL WORK tourne toutes les 6 heures.');
+  assert.equal(good.ok, true);
+  const bad = await run('Je n’ai aucun accès réseau ; il me faut SEARCH_API_KEY et COMPANION_TOKEN pour ton PC.');
+  assert.equal(bad.ok, false);
+  assert.ok(bad.wrong_claim);
 });

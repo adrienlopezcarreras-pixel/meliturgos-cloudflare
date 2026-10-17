@@ -9,6 +9,14 @@
 const CASES = Object.freeze({
   short: () => ({ text: 'Bonjour MEL. En une seule phrase : qui es-tu et que peux-tu faire pour moi ?', expect: /mel/i }),
   plan: () => ({ text: 'Établis un plan d’action en 5 étapes numérotées pour lancer une petite activité de traduction en ligne. Pour chaque étape : objectif, actions concrètes, durée estimée.', expect: /(^|\n)\s*(?:#+\s*)?(?:\*\*)?(?:étape\s*)?5\b/im }),
+  // MEL must know her real tools: no "I have no network / PC / execution",
+  // and no request for keys she does not need.
+  capabilities: () => ({
+    text: 'MEL, liste précisément ce que tu peux faire toi-même aujourd’hui (réseau, recherche web, fichiers, PC Windows, exécution, MINI, téléphone, MEL WORK, travail en arrière-plan) et ce qui te manque vraiment pour travailler de bout en bout.',
+    expect: /(companion|ton pc|pc windows)/i,
+    reject: /aucun (?:accès réseau|navigateur|moteur d.exécution|accès à un os)|pas (?:d.|de )accès (?:au |à )?(?:internet|réseau|web)|SEARCH_API_KEY|COMPANION_TOKEN|ne (?:peux|pourrai) pas (?:poursuivre|travailler) en arrière-plan|uniquement à la demande/i,
+    excerptChars: 1500,
+  }),
   big: () => bigPrompt(38_000),
   huge: () => bigPrompt(90_000),
 });
@@ -71,13 +79,13 @@ async function readChatResponse(response, startedAt) {
   return { streamed: true, status: response.status, text, firstTextMs, deltas, model: done?.model || null, archived: done?.archived === true, truncated: done?.truncated === true, error: failure?.code || null };
 }
 
-export async function runChatSelftest({ request, env, handleChat, chatOptions = {}, cases = Object.keys(CASES) }) {
+export async function runChatSelftest({ request, env, handleChat, chatOptions = {}, cases = ['short', 'plan', 'big', 'huge'] }) {
   const origin = new URL(request.url).origin;
   const password = String(env.MELITURGOS_PASSWORD || '');
   if (!password) return Response.json({ ok: false, code: 'OWNER_AUTH_NOT_CONFIGURED' }, { status: 503 });
   const results = [];
-  for (const name of cases.filter(name => CASES[name]).slice(0, 4)) {
-    const { text, expect } = CASES[name]();
+  for (const name of cases.filter(name => CASES[name]).slice(0, 5)) {
+    const { text, expect, reject = null, excerptChars = 280 } = CASES[name]();
     const startedAt = Date.now();
     let outcome;
     try {
@@ -93,8 +101,9 @@ export async function runChatSelftest({ request, env, handleChat, chatOptions = 
     results.push({
       case: name,
       prompt_chars: text.length,
-      ok: outcome.status === 200 && !outcome.error && outcome.text.trim().length > 0 && expect.test(outcome.text),
-      understood: expect.test(outcome.text),
+      ok: outcome.status === 200 && !outcome.error && outcome.text.trim().length > 0 && expect.test(outcome.text) && !(reject && reject.test(outcome.text)),
+      understood: expect.test(outcome.text) && !(reject && reject.test(outcome.text)),
+      wrong_claim: reject ? (outcome.text.match(reject)?.[0] || null) : null,
       streamed: outcome.streamed,
       status: outcome.status,
       first_text_ms: outcome.firstTextMs ?? null,
@@ -105,7 +114,7 @@ export async function runChatSelftest({ request, env, handleChat, chatOptions = 
       archived: outcome.archived === true,
       truncated: outcome.truncated === true,
       error: outcome.error,
-      excerpt: outcome.text.replace(/\s+/g, ' ').trim().slice(0, 280),
+      excerpt: outcome.text.replace(/\s+/g, ' ').trim().slice(0, excerptChars),
     });
   }
   return Response.json({ ok: results.length > 0 && results.every(r => r.ok), results }, { headers: { 'cache-control': 'no-store' } });
