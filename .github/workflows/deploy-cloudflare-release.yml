@@ -102,8 +102,11 @@ jobs:
           test "$RELEASE_SHA" = "$EXPECTED_SHA"
           git fetch origin main
           SOURCE_SHA="$(git rev-parse FETCH_HEAD)"
-          if { [ "$GITHUB_EVENT_NAME" = "push" ] || [ "$AUTONOMOUS_DISPATCH" = "true" ]; } && [ "$SOURCE_SHA" != "$EXPECTED_SHA" ]; then
-            echo "::error title=Autonomous release rejected::Automatic releases must deploy the exact current main SHA."
+          # Automatic releases deploy main content only: the pointer must be main itself or a
+          # commit already in main history (main may have advanced while this run waited for
+          # the serialized deploy lock; the newer pointer deploys right after this one).
+          if { [ "$GITHUB_EVENT_NAME" = "push" ] || [ "$AUTONOMOUS_DISPATCH" = "true" ]; } && ! git merge-base --is-ancestor "$EXPECTED_SHA" "$SOURCE_SHA"; then
+            echo "::error title=Autonomous release rejected::Automatic releases must deploy a commit of the current main history."
             exit 2
           fi
           if [ "$SOURCE_SHA" != "$EXPECTED_SHA" ]; then

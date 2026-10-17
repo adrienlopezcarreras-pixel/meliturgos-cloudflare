@@ -4,14 +4,16 @@ import { readFileSync } from 'node:fs';
 
 const workflow = readFileSync(new URL('../.github/workflows/deploy-cloudflare-release.yml', import.meta.url), 'utf8');
 
-test('automatic production release requires the exact current main SHA before any backup or mutation', () => {
+test('automatic production release requires a commit of current main history before any backup or mutation', () => {
   const identity = workflow.indexOf('      - name: Prove release pointer belongs to the current main history');
-  const guard = workflow.indexOf('if { [ "$GITHUB_EVENT_NAME" = "push" ] || [ "$AUTONOMOUS_DISPATCH" = "true" ]; } && [ "$SOURCE_SHA" != "$EXPECTED_SHA" ]; then', identity);
+  const guard = workflow.indexOf('if { [ "$GITHUB_EVENT_NAME" = "push" ] || [ "$AUTONOMOUS_DISPATCH" = "true" ]; } && ! git merge-base --is-ancestor "$EXPECTED_SHA" "$SOURCE_SHA"; then', identity);
   const failure = workflow.indexOf('Autonomous release rejected', guard);
   const backup = workflow.indexOf('      - name: Refresh current production backup through ephemeral worker');
   assert.ok(identity >= 0, 'identity gate must exist');
-  assert.ok(guard > identity, 'push-only equality check must be in identity gate');
-  assert.ok(failure > guard && failure < backup, 'mismatched main SHA must fail closed before production backup');
+  assert.ok(guard > identity, 'automatic releases must prove the pointer is in main history inside the identity gate');
+  assert.ok(failure > guard && failure < backup, 'a pointer outside main history must fail closed before production backup');
+  const advance = workflow.indexOf('test "$MAIN_ADVANCE_COUNT" -le 25', guard);
+  assert.ok(advance > guard && advance < backup, 'the deployed commit may lag main by at most 25 commits');
 });
 
 test('manual release still requires explicit approval and autonomous policy is confined to the dedicated release branch', () => {
