@@ -153,6 +153,20 @@ async function ownerCommand(request,env){
  const id=safe(b.computer_id);const row=await env.DB.prepare("SELECT * FROM computer_devices WHERE id=? LIMIT 1").bind(id).first();const device=normalizeDevice(row);
  if(!device)return json({ok:false,code:"COMPUTER_NOT_FOUND"},404); if(device.halted)return json({ok:false,code:"OWNER_HALT_ACTIVE"},409);
  const session=safe(b.session_id)||crypto.randomUUID();const steps=(Array.isArray(b.steps)?b.steps:[]).map((x,i)=>({...x,id:String(x?.id||`step-${i+1}`)}));
+ // Desktop control is live only when the Windows command engine, not merely
+ // the Companion shell, has a recent heartbeat. Fail before queuing commands
+ // that would otherwise remain PENDING and time out after 30 seconds.
+ const desktopActions=new Set(["screen.capture","cursor.move","pointer.click","pointer.scroll","keyboard.press","keyboard.type"]);
+ if(steps.some(step=>desktopActions.has(String(step.action||"")))){
+  const now=Date.now();
+  if(!device.online||device.last_seen_at>now||now-device.last_seen_at>35_000)
+   return json({ok:false,code:"COMPUTER_DEVICE_OFFLINE"},409);
+  if(device.metadata?.remote_access_enabled!==true)
+   return json({ok:false,code:"REMOTE_ACCESS_DISABLED_LOCALLY"},403);
+  const engineSeen=Number(device.metadata?.engine_heartbeat_at);
+  if(!Number.isFinite(engineSeen)||engineSeen<=0||engineSeen>now||now-engineSeen>20_000)
+   return json({ok:false,code:"COMPUTER_ENGINE_OFFLINE"},409);
+ }
  const requestedPaths=Array.isArray(b.allowed_paths)&&b.allowed_paths.length?b.allowed_paths:device.allowed_paths;
  const pairedPaths=new Set(device.allowed_paths.map(x=>String(x).toLowerCase()));
  const effectivePaths=requestedPaths.filter(x=>pairedPaths.has(String(x).toLowerCase()));
