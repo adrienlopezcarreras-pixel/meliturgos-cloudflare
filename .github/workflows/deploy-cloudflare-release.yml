@@ -316,8 +316,17 @@ jobs:
           export MEL_SOURCE_SHA="${CURRENT_PRODUCTION_SHA}"
           export MEL_SOURCE_BRANCH="${RELEASE_BRANCH}"
 
-          if ! node release-tools/predeploy-backup-refresh/runner.mjs > predeploy-backup-refresh.json; then
+          set +e
+          timeout 300s node release-tools/predeploy-backup-refresh/runner.mjs > predeploy-backup-refresh.json 2>/tmp/predeploy-backup-refresh-runner.log
+          BACKUP_REFRESH_RC=$?
+          set -e
+          if [ "${BACKUP_REFRESH_RC}" -ne 0 ]; then
+            test ! -s /tmp/predeploy-backup-refresh-runner.log || cat /tmp/predeploy-backup-refresh-runner.log
             test ! -s predeploy-backup-refresh.json || cat predeploy-backup-refresh.json
+            if [ "${BACKUP_REFRESH_RC}" -eq 124 ]; then
+              echo "Encrypted backup runner exceeded its 300-second bound."
+              exit 54
+            fi
             exit 52
           fi
 

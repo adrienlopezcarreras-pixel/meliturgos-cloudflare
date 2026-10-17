@@ -129,7 +129,9 @@ test('predeploy refresh creates the backup on the GitHub runner and keeps the Wo
   assert.doesNotMatch(refreshBlock, /wrangler secret put MEL_BACKUP_ENCRYPTION_KEY_ID/);
   assert.doesNotMatch(refreshBlock, /MEL_D1_DATABASE_ID/);
   assert.match(refreshBlock, /MEL_R2_BUCKET_NAME/);
-  assert.match(refreshBlock, /predeploy-backup-refresh\/runner\.mjs/);
+  assert.match(refreshBlock, /timeout 300s node release-tools\/predeploy-backup-refresh\/runner\.mjs/);
+  assert.match(refreshBlock, /BACKUP_REFRESH_RC/);
+  assert.match(refreshBlock, /exceeded its 300-second bound/);
   assert.match(refreshBlock, /\/workers\/scripts\/\$\{REFRESH_NAME\}/);
   assert.match(refreshBlock, /SIDECAR_READY=0/);
   assert.match(refreshBlock, /SIDECAR_STABLE_PROBES=0/);
