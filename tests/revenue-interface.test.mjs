@@ -132,6 +132,23 @@ test('MEL WORK reloads saved preparation-plan state from the existing persistent
   assert.doesNotThrow(() => new Function(script));
 });
 
+test('MEL WORK requires a fresh local remote-access grant and engine heartbeat before claiming PC control is ready', async () => {
+  const response = await onRequestGet();
+  const html = await response.text();
+  assert.match(html, /function computerControlIssue\(pc,now=Date\.now\(\)\)/);
+  assert.match(html, /metadata\.remote_access_enabled!==true/);
+  assert.match(html, /engine_heartbeat_at/);
+  assert.match(html, /now-engine>20000/);
+  assert.match(html, /REMOTE_ACCESS_DISABLED_LOCALLY/);
+  assert.match(html, /COMPUTER_ENGINE_OFFLINE/);
+  assert.match(html, /OWNER_HALT_ACTIVE/);
+  assert.match(html, /currentPcIssue\|\|'COMPANION_WINDOWS_NOT_ONLINE'/);
+  assert.match(html, /Contrôle prêt/);
+  assert.match(html, /autorisation dans MEL Companion Windows/);
+  const script = html.match(/<script>([\s\S]*?)<\/script>/)?.[1] || '';
+  assert.doesNotThrow(() => new Function(script));
+});
+
 test('MEL WORK generated browser JavaScript is syntactically valid', async () => {
   const response = await (await import('../src/pages/revenue-interface.js')).onRequestGet();
   assert.equal(response.status, 200);
