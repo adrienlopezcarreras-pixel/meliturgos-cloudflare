@@ -18,6 +18,13 @@ on:
       - "wrangler.jsonc"
       - ".github/workflows/mel-work-free-validation.yml"
       - ".github/workflows/deploy-cloudflare-release.yml"
+      - "docs/REVENUE-RAW-JOB-WORKER.md"
+      - "scripts/revenue/taskmarket-scan.mjs"
+      - "src/revenue/taskmarket-task-policy.js"
+      - "src/revenue/taskmarket-worker-cycle.js"
+      - "tests/revenue/taskmarket-scan.test.mjs"
+      - "tests/revenue/taskmarket-task-policy.test.mjs"
+      - "tests/revenue/taskmarket-worker-cycle.test.mjs"
       - "tests/release-ai-planning-retry.test.mjs"
   workflow_dispatch:
 
@@ -54,4 +61,4 @@ jobs:
           node scripts/runtime-security-gate.mjs
 
       - name: MEL WORK route, API and Companion contracts
-        run: node --test tests/revenue-interface.test.mjs tests/taskmarket-readonly-companion.test.mjs tests/release-ai-planning-retry.test.mjs tests/gen2/companion-late-ollama-result.test.mjs tests/release-ai-planning-retry.test.mjs
+        run: node --test tests/revenue-interface.test.mjs tests/taskmarket-readonly-companion.test.mjs tests/release-ai-planning-retry.test.mjs tests/gen2/companion-late-ollama-result.test.mjs tests/revenue/taskmarket-scan.test.mjs tests/revenue/taskmarket-task-policy.test.mjs tests/revenue/taskmarket-worker-cycle.test.mjs

@@ -27,8 +27,11 @@ export function normalizeRevenueTasks(payload, nowMs = Date.now()) {
     submissionCount: Number.isSafeInteger(task.submissionCount) && task.submissionCount >= 0 ? task.submissionCount : 0,
     expiryTime: new Date(Date.parse(task.expiryTime)).toISOString(),
     platformFeeBps: Number.isSafeInteger(task.platformFeeBps) && task.platformFeeBps >= 0 && task.platformFeeBps <= 10000 ? task.platformFeeBps : null,
-    stakeRequired: task.stakeRequired === true,
-    claimedBy: typeof task.claimedBy === 'string' ? task.claimedBy.slice(0, 160) : null,
+    // Unknown source state stays unknown; never infer a no-stake/unclaimed offer.
+    stakeRequired: typeof task.stakeRequired === 'boolean' ? task.stakeRequired : null,
+    stakeStateKnown: typeof task.stakeRequired === 'boolean',
+    claimedBy: task.claimedBy === null ? null : typeof task.claimedBy === 'string' ? task.claimedBy.slice(0, 160) : undefined,
+    claimStateKnown: task.claimedBy === null || typeof task.claimedBy === 'string',
   }));
 }
 

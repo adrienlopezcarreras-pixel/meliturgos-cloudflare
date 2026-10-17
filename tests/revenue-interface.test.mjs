@@ -22,6 +22,15 @@ test('revenue task normalizer accepts only valid open, unexpired paid tasks', ()
   assert.equal(tasks[0].id, 'task-1');
   assert.equal(tasks[0].reward, '1000000');
   assert.equal(tasks[0].platformFeeBps, 750);
+  assert.equal(tasks[0].stakeRequired, null, 'missing stake data must remain unknown');
+  assert.equal(tasks[0].stakeStateKnown, false);
+  assert.equal(tasks[0].claimedBy, undefined, 'missing claim data must remain unknown');
+  assert.equal(tasks[0].claimStateKnown, false);
+  const explicitlySafe = normalizeRevenueTasks({ tasks: [{ ...valid, stakeRequired: false, claimedBy: null }] }, now)[0];
+  assert.equal(explicitlySafe.stakeRequired, false);
+  assert.equal(explicitlySafe.claimedBy, null);
+  assert.equal(explicitlySafe.stakeStateKnown, true);
+  assert.equal(explicitlySafe.claimStateKnown, true);
 });
 
 test('task normalizer supports CLI/API list envelope without inventing offer data', () => {
@@ -82,6 +91,10 @@ test('Taskmarket PC probe is fixed/read-only, owner-authenticated, and accepts o
   assert.match(page, /list_available!==true/);
   assert.match(page, /last_seen_at/);
   assert.match(page, /palier 0 — lecture seule/);
+  assert.match(page, /function taskLifecycle\(t\)/);
+  assert.match(page, /Stake inconnu — revue requise/);
+  assert.match(page, /Statut de réclamation inconnu — revue requise/);
+  assert.match(page, /Aucun stake · non réclamée confirmé/);
 });
 
 test('MEL WORK creates a durable candidate-only preparation plan without executing or submitting a Taskmarket mission', async () => {
