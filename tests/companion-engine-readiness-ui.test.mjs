@@ -18,7 +18,7 @@ test('Windows engine heartbeat, shell heartbeat and local consent have distinct 
  const {check}=await helper();
  const now=Date.now();
  const pc={id:'pc-win',online:true,halted:false,last_seen_at:now-2000,
-  metadata:{remote_access_enabled:true,engine_heartbeat_at:now-2000}};
+  metadata:{remote_access_enabled:true,engine_heartbeat_at:now-2000,engine_direct_heartbeat_at:now-2000}};
  assert.equal(check(pc,now).code,'READY');
  assert.equal(check({...pc,halted:true},now).code,'OWNER_HALT_ACTIVE');
  assert.equal(check({...pc,online:false},now).code,'COMPUTER_DEVICE_OFFLINE');
@@ -27,6 +27,9 @@ test('Windows engine heartbeat, shell heartbeat and local consent have distinct 
  assert.equal(check({...pc,metadata:{...pc.metadata,engine_heartbeat_at:now-60000}},now).code,'COMPUTER_ENGINE_OFFLINE');
  assert.equal(check({...pc,metadata:{...pc.metadata,engine_heartbeat_at:now+1000}},now).code,'COMPUTER_ENGINE_OFFLINE');
  assert.equal(check({...pc,metadata:{remote_access_enabled:true}},now).code,'COMPUTER_ENGINE_OFFLINE');
+ assert.equal(check({...pc,metadata:{...pc.metadata,engine_direct_heartbeat_at:undefined}},now).code,'COMPUTER_ENGINE_UNVERIFIED');
+ assert.equal(check({...pc,metadata:{...pc.metadata,engine_direct_heartbeat_at:now-60000}},now).code,'COMPUTER_ENGINE_UNVERIFIED');
+ assert.equal(check({...pc,metadata:{...pc.metadata,engine_direct_heartbeat_at:now+1000}},now).code,'COMPUTER_ENGINE_UNVERIFIED');
  assert.equal(check(null,now).code,'COMPUTER_NOT_PAIRED');
 });
 test('served PC interface never claims engine ready solely because the Companion shell is online',async()=>{
