@@ -4,27 +4,14 @@ name: mel-autonomous-production-release
 # another workflow by pushing a ref; the Node script dispatches production
 # explicitly after a verified, non-forced release-pointer update.
 on:
-  # Owner-authorized, protection-gated reconciliation of new main commits.
-  # Push-triggered releases require real GitHub protection on both refs;
-  # the dispatch script enforces these safeguards before any mutation.
-  push:
-    branches:
-      - main
-    paths-ignore:
-      - 'docs/**'
-      - '**/*.md'
+  # Releases are batched: at most one per hour, only when main has moved
+  # (exact-SHA deduplication in the dispatch script). Releasing on every merge,
+  # every 15 minutes and again after each deployment produced 61 production
+  # releases in one morning, each re-running Workers AI production proofs and
+  # exhausting the free daily AI allocation. Urgent fixes: workflow_dispatch.
   workflow_dispatch:
-  # Bounded catch-up safety net if GitHub does not deliver workflow_run.
-  # Every 15 minutes; exact-SHA and failed-SHA deduplication prevent blind retries.
   schedule:
-    - cron: '*/15 * * * *'
-  # After a completed release (success or failure), reconcile only newer
-  # main commits. Never retry the same failed SHA or a cancelled release.
-  workflow_run:
-    workflows:
-      - deploy-cloudflare-release
-    types:
-      - completed
+    - cron: '7 * * * *'
 
 permissions:
   contents: write
@@ -36,7 +23,7 @@ concurrency:
 
 jobs:
   promote-and-dispatch:
-    if: ${{ (github.actor == 'adrienlopezcarreras-pixel' || github.actor == 'github-actions[bot]') && (github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'schedule' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_run' && ((github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.event == 'workflow_dispatch') || (github.event.workflow_run.head_branch == 'release/mel-hardware-v0.1.0' && github.event.workflow_run.event == 'push')) && (github.event.workflow_run.conclusion == 'success' || github.event.workflow_run.conclusion == 'failure'))) }}
+    if: ${{ (github.actor == 'adrienlopezcarreras-pixel' || github.actor == 'github-actions[bot]') && (github.event_name == 'workflow_dispatch' || (github.event_name == 'schedule' && github.ref == 'refs/heads/main')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
