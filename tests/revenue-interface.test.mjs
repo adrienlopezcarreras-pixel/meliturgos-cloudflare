@@ -195,6 +195,20 @@ test('MEL WORK requires a fresh local remote-access grant and engine heartbeat b
   assert.doesNotThrow(() => new Function(script));
 });
 
+test('MEL WORK can refresh saved preparation plans independently of Taskmarket offers', async () => {
+  const response = await (await import('../src/pages/revenue-interface.js')).onRequestGet();
+  const html = await response.text();
+  assert.match(html, /id="refreshPrepPlans"/);
+  assert.match(html, /Actualiser les préparations/);
+  const script = html.match(/<script>([\s\S]*?)<\/script>/)?.[1] || '';
+  const refresh = script.slice(script.indexOf('async function refreshPersistentPrepPlans'), script.indexOf('async function refreshTasks'));
+  assert.match(refresh, /await loadPersistentPrepPlans\(\)/);
+  assert.match(script, /\$\('refreshPrepPlans'\)\.onclick=refreshPersistentPrepPlans/);
+  assert.doesNotMatch(refresh, /refreshTasks\(\)|\/api\/revenue\/tasks/, 'refreshing persisted plans must not depend on Taskmarket availability');
+  assert.doesNotMatch(refresh, /work\.run|work\.plan\.materialize/, 'refresh is read-only and must not start work');
+  assert.doesNotThrow(() => new Function(script));
+});
+
 test('MEL WORK generated browser JavaScript is syntactically valid', async () => {
   const response = await (await import('../src/pages/revenue-interface.js')).onRequestGet();
   assert.equal(response.status, 200);
