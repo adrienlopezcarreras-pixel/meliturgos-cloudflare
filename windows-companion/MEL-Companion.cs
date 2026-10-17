@@ -1761,7 +1761,7 @@ class MainForm : Form
         // Scrollbar allowance is applied before measuring to avoid wrap oscillation.
         int width=Math.Max(340,cards.ClientSize.Width-24);
         bool twoColumns=width>=1000;
-        int tileWidth=twoColumns?(width-14)/2:width;
+        int tileWidth=twoColumns?(width-24)/2:width;
         cards.SuspendLayout();
         foreach(Panel tile in cards.Controls.OfType<Panel>())
         {
