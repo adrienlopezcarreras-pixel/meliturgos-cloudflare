@@ -1,6 +1,5 @@
-import { listD1ValidatedDrafts, runBoundedTaskmarketDraftCycle, createExactJsonAcceptanceValidator } from '../revenue/taskmarket-worker-cycle.js';
+import { listD1ValidatedDrafts, createTaskmarketCouncilSolverAdapter } from '../revenue/taskmarket-worker-cycle.js';
 import { runDirectWork } from '../revenue/work-mission-core.js';
-import { createTaskmarketCouncilSolverAdapter } from '../revenue/taskmarket-worker-cycle.js';
 import { requireAuth } from '../core/security.js';
 import { maybeHandleComputerApi } from '../devices/computer-companion-api.js';
 
@@ -40,27 +39,9 @@ export function normalizeRevenueTasks(payload, nowMs = Date.now()) {
 
 export async function handleRevenueApi(request, env) {
   const url = new URL(request.url);
-  if (url.pathname !== '/api/revenue/tasks' && url.pathname !== '/api/revenue/taskmarket-pc-status' && url.pathname !== '/api/revenue/drafts' && url.pathname !== '/api/revenue/draft-cycle' && url.pathname !== '/api/revenue/draft-readiness' && url.pathname !== '/api/revenue/eligible-discovery' && url.pathname !== '/api/revenue/direct-work') return null;
+  if (url.pathname !== '/api/revenue/tasks' && url.pathname !== '/api/revenue/taskmarket-pc-status' && url.pathname !== '/api/revenue/drafts' && url.pathname !== '/api/revenue/direct-work') return null;
   const auth = requireAuth(request, env);
   if (!auth.ok) return auth.response;
-  if (url.pathname === '/api/revenue/eligible-discovery') {
-    if(request.method!=='GET')return json({ok:false,code:'METHOD_NOT_ALLOWED'},405);
-    let fixtures;
-    try{fixtures=JSON.parse(env?.MEL_WORK_TRUSTED_ACCEPTANCE_JSON||'null')}catch{}
-    if(!record(fixtures)||Object.keys(fixtures).length>20)return json({ok:false,code:'WORK_TRUSTED_ACCEPTANCE_NOT_CONFIGURED',matchingTaskCount:0},409);
-    try{
-      const url=new URL(TASKMARKET_API);
-      url.searchParams.set('status','open');url.searchParams.set('sort','reward_desc');url.searchParams.set('limit',String(MAX_LIMIT));
-      const response=await fetch(url,{headers:{accept:'application/json'},signal:AbortSignal.timeout(12000)});
-      if(!response.ok)return json({ok:false,code:'TASKMARKET_UPSTREAM_ERROR'},502);
-      const payload=await response.json();
-      if(!Array.isArray(payload?.data?.tasks)&&!Array.isArray(payload?.tasks))return json({ok:false,code:'TASKMARKET_RESPONSE_INVALID'},502);
-      const tasks=normalizeRevenueTasks(payload);
-      const ids=new Set(Object.keys(fixtures));
-      const matches=tasks.filter(t=>ids.has(t.id));
-      return json({ok:true,openTaskCount:tasks.length,matchingTaskCount:matches.length,matchingTaskIds:matches.map(t=>t.id),executionMode:'DISCOVER_ONLY',canClaim:false,canSubmit:false});
-    }catch{return json({ok:false,code:'TASKMARKET_UNAVAILABLE'},503)}
-  }
   if(url.pathname==='/api/revenue/direct-work'){
     if(typeof env?.DB?.prepare!=='function')return json({ok:false,code:'WORK_DRAFT_DB_REQUIRED'},503);
     if(request.method==='GET'&&url.searchParams.has('artifact_id')){
@@ -93,74 +74,6 @@ export async function handleRevenueApi(request, env) {
     }catch(error){
       const reason=String(error?.code||error?.message||'WORK_DIRECT_EXECUTION_FAILED');
       return json({ok:false,code:/^[A-Z_]{4,90}$/.test(reason)?reason:'WORK_DIRECT_EXECUTION_FAILED'},503);
-    }
-  }
-  if (url.pathname === '/api/revenue/draft-readiness') {
-    if(request.method!=='GET')return json({ok:false,code:'METHOD_NOT_ALLOWED'},405);
-    let trustedFixtureCount=0;
-    let configuredFixtureCount=0;
-    try{
-      const fixtures=JSON.parse(env?.MEL_WORK_TRUSTED_ACCEPTANCE_JSON||'null');
-      if(record(fixtures)&&Object.keys(fixtures).length<=20){
-        configuredFixtureCount=Object.keys(fixtures).length;
-        trustedFixtureCount=(await Promise.all(Object.values(fixtures).map(async item=>{if(!record(item)||typeof item.expectedJson!=='string'||!/^[a-f0-9]{64}$/i.test(String(item.sha256||'')))return false;const digest=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(item.expectedJson));const actual=Array.from(new Uint8Array(digest),x=>x.toString(16).padStart(2,'0')).join('');return actual===item.sha256.toLowerCase();}))).filter(Boolean).length;
-      }
-    }catch{}
-    const d1Ready=typeof env?.DB?.prepare==='function';
-    const ready=d1Ready&&trustedFixtureCount>0&&trustedFixtureCount===configuredFixtureCount;
-    return json({ok:true,d1Ready,trustedFixtureCount,ready,blockingReason:ready?null:!d1Ready?'WORK_DRAFT_DB_REQUIRED':typeof env?.MEL_WORK_TRUSTED_ACCEPTANCE_JSON==='string'?'WORK_TRUSTED_ACCEPTANCE_INVALID':'WORK_TRUSTED_ACCEPTANCE_NOT_CONFIGURED',executionMode:'DRAFT_ONLY',canClaim:false,canSubmit:false});
-  }
-  if (url.pathname === '/api/revenue/draft-cycle') {
-    if(request.method!=='POST')return json({ok:false,code:'METHOD_NOT_ALLOWED'},405);
-    // A trusted oracle must originate in the server environment, never in browser input.
-    // No fallback validator or automatic submission is allowed.
-    if(typeof env?.MEL_WORK_TRUSTED_ACCEPTANCE_JSON!=='string')return json({ok:false,code:'WORK_TRUSTED_ACCEPTANCE_NOT_CONFIGURED'},409);
-    let expectedByTaskId;
-    try { expectedByTaskId=JSON.parse(env.MEL_WORK_TRUSTED_ACCEPTANCE_JSON); }
-    catch { return json({ok:false,code:'WORK_TRUSTED_ACCEPTANCE_INVALID'},503); }
-    if(!record(expectedByTaskId)||Object.keys(expectedByTaskId).length>20)return json({ok:false,code:'WORK_TRUSTED_ACCEPTANCE_INVALID'},503);
-    if(typeof env?.DB?.prepare!=='function')return json({ok:false,code:'WORK_DRAFT_DB_REQUIRED'},503);
-    const fixtures=Object.entries(expectedByTaskId);
-    if(fixtures.length===0)return json({ok:false,code:'WORK_TRUSTED_ACCEPTANCE_NOT_CONFIGURED'},409);
-    for(const [taskId,item] of fixtures){
-      if(!taskId||taskId.length>160||!record(item)||typeof item.expectedJson!=='string'||item.expectedJson.length>12000||!/^[a-f0-9]{64}$/i.test(String(item.sha256||'')))
-        return json({ok:false,code:'WORK_TRUSTED_ACCEPTANCE_INVALID'},503);
-      let parsed;try{parsed=JSON.parse(item.expectedJson)}catch{return json({ok:false,code:'WORK_TRUSTED_ACCEPTANCE_INVALID'},503)}
-      const digest=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(item.expectedJson));
-      const actual=Array.from(new Uint8Array(digest),x=>x.toString(16).padStart(2,'0')).join('');
-      if(actual!==item.sha256.toLowerCase())return json({ok:false,code:'WORK_TRUSTED_ACCEPTANCE_TAMPERED'},409);
-    }
-    // Server-side live availability is authoritative; reuse the exact verified snapshot.
-    let liveTasks;
-    try{
-      const source=new URL(TASKMARKET_API);
-      source.searchParams.set('status','open');source.searchParams.set('sort','reward_desc');source.searchParams.set('limit',String(MAX_LIMIT));
-      const response=await fetch(source,{headers:{accept:'application/json'},signal:AbortSignal.timeout(12000)});
-      if(!response.ok)return json({ok:false,code:'TASKMARKET_UPSTREAM_ERROR'},502);
-      const payload=await response.json();
-      if(!Array.isArray(payload?.data?.tasks)&&!Array.isArray(payload?.tasks))return json({ok:false,code:'TASKMARKET_RESPONSE_INVALID'},502);
-      liveTasks=normalizeRevenueTasks(payload);
-      if(!liveTasks.some(task=>Object.prototype.hasOwnProperty.call(expectedByTaskId,task.id)))
-        return json({ok:false,code:'WORK_NO_VERIFIABLE_LIVE_TASK'},409);
-    }catch{return json({ok:false,code:'TASKMARKET_UNAVAILABLE'},503)}
-    try {
-      const cycle=await runBoundedTaskmarketDraftCycle({
-        db:env.DB,env,preloadedTasks:liveTasks,eligibleTaskIds:Object.keys(expectedByTaskId),validateArtifact:createExactJsonAcceptanceValidator({expectedByTaskId}),
-        policy:{minimumProfitMicros:0,minimumMarginBps:0,maxTasksPerCycle:1},
-      });
-      const decisions=Array.isArray(cycle?.decisions)?cycle.decisions:[];
-      let completed=cycle?.status==='COMPLETED' && decisions.length>0 && decisions.every(d=>d.status==='READY_NOT_SUBMITTED'&&typeof d.draftId==='string'&&d.draftId.length>0);
-      // Reconcile success with durable D1 storage, not only worker-reported identifiers.
-      if(completed){
-        for(const decision of decisions){
-          const stored=await env.DB.prepare('SELECT id, task_id FROM mel_work_validated_drafts WHERE id=? AND task_id=?').bind(decision.draftId,decision.taskId).first();
-          if(stored?.id!==decision.draftId||stored.task_id!==decision.taskId){completed=false;break}
-        }
-      }
-      return json({ok:completed,cycle,submissionEnabled:false,code:completed?null:'WORK_CYCLE_NO_VERIFIED_DRAFT'},completed?200:409);
-    } catch(error) {
-      const code=String(error?.code||error?.message||'WORK_CYCLE_FAILED');
-      return json({ok:false,code:/^[A-Z_]{4,90}$/.test(code)?code:'WORK_CYCLE_FAILED'},503);
     }
   }
   if (url.pathname === '/api/revenue/drafts') {
