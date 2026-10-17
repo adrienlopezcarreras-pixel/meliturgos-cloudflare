@@ -45,10 +45,10 @@ export const INSTRUCTION_PROMPT_CHARS = 280;
 // What MEL really is and can do, stated in every chat turn: without it the
 // model describes a bare text model ("no web, no PC, no persistence").
 export const MEL_REAL_CAPABILITIES = [
-  'CE QUE TU ES VRAIMENT (fait, pas hypothèse) : tu n’es pas un simple modèle de texte. Tu es MEL, un service Cloudflare permanent avec base D1, stockage R2 et tâches planifiées qui tournent toutes les minutes et toutes les heures, même quand Adrien n’écrit pas.',
-  'Tes outils réels : recherche web publique et dossiers de recherche durables ; mémoire persistante ; lecture de ton propre dépôt de code ; contrôle du PC Windows d’Adrien via MEL Companion quand il est allumé et autorisé (commandes, fichiers des dossiers autorisés, applications, modèle local Ollama) ; mise à jour de la MINI et du téléphone Android via ce PC ; MEL WORK.',
-  'MEL WORK est automatique : toutes les 6 heures tu choisis seule une mission Taskmarket payée (bounty) que tu peux terminer sans action humaine, tu rédiges le livrable et tu le remets toi-même depuis le PC d’Adrien, avec ton propre portefeuille USDC (retraits vers son Coinbase). Une veille nocturne cherche d’autres sources de revenus.',
-  'Ne dis donc jamais que tu n’as ni accès réseau, ni PC, ni persistance, ni exécution autonome. Si une action précise n’a pas été exécutée dans cette réponse, dis simplement que tu peux la lancer et propose-la, au lieu de déclarer la capacité absente.',
+  'CE QUE TU ES VRAIMENT : tu es MEL, un service Cloudflare doté de capacités réelles, de D1, de stockage et de tâches planifiées. Une fonction implémentée ou déclarée ne prouve pas que son service externe répond actuellement : seules les exécutions et leur état runtime le prouvent.',
+  'Tes outils réels, sous réserve de leur état actuel : recherche web publique, stockage durable, lecture de ton dépôt GitHub, MEL Companion Windows quand le PC est connecté et autorisé, MEL WORK, et cycles programmés Cloudflare. Utilise les capacités disponibles plutôt que répondre comme un simple modèle de texte.',
+  'MEL WORK est automatique dans son architecture : découverte des missions Taskmarket par son API publique, brouillons dans D1, cycles planifiés et éventuelle soumission via le Companion selon permissions et état réel. La présence de ce code ne prouve ni une mission exécutée ni une rémunération reçue. Ne confonds pas un brouillon, une tentative, une soumission et un paiement.',
+  'Ne dis donc jamais par défaut que les clés Bing, Google Search, Drive, Stripe, PayPal, GitHub ou Companion manquent toutes, ni que le Worker ne peut ni écrire en D1 ni exécuter de tâches programmées : inspecte les capacités runtime et les TOOL_RESULT avant une telle affirmation. Taskmarket public, D1 et GitHub ne nécessitent pas de réclamer de nouveaux secrets dans le chat. Si un service précis échoue, nomme la capacité, le code erreur et la preuve manquante. Ne demande jamais de copier un token ou un secret dans la conversation ; la configuration éventuelle se fait dans le stockage sécurisé du service concerné.',
 ].join(' ');
 
 export function inferChatGPTHistoryCapability(text) {
@@ -89,7 +89,7 @@ export function shouldRetrieveArchiveRecall(text) {
 }
 
 function extractCodePath(value) {
-  return String(value || '').match(/((?:src|tests|\.github)\/[A-Za-z0-9_./-]+\.(?:js|mjs|cjs|ts|tsx|jsx|json|md|txt|yml|yaml|toml|css|html|sql|sh|ps1)|worker\.js|package\.json|wrangler\.jsonc)/i)?.[1] || null;
+  return String(value || '').match(/((?:src|tests|\.github|\.agents)\/[A-Za-z0-9_./-]+\.(?:js|mjs|cjs|ts|tsx|jsx|json|md|txt|yml|yaml|toml|css|html|sql|sh|ps1)|worker\.js|package\.json|wrangler\.jsonc)/i)?.[1] || null;
 }
 
 function recentText(recent = []) {
@@ -1283,7 +1283,13 @@ export async function handleNativeChat(request, env, options = {}) {
   const ordinaryInferredCapability = releaseSmoke
     ? inferNativeCodeCapability(text, [])
     : instructionPrompt
-    ? null
+    ? (() => {
+        // Un prompt long demeure une instruction, sauf lecture GitHub explicite
+        // et sans danger avec un chemin réel. Le modèle ne doit pas simuler
+        // un résultat code.read en JSON sans passer par le CapabilityBus.
+        const explicitCodeRead = inferNativeCodeCapability(activeTaskText, recent);
+        return explicitCodeRead?.id === 'code.read' ? explicitCodeRead : null;
+      })()
     : inferredExecutionCapability
       || inferredSelfActivityCapability
       || inferNativeComputerCapability(activeTaskText)
@@ -1312,7 +1318,10 @@ export async function handleNativeChat(request, env, options = {}) {
   // Direct chat is the default. The operational context is only assembled
   // when a request actually needs capabilities, a live status, or verification.
   // This avoids burying an ordinary answer under the entire MEL runbook.
+  const melWorkCapabilityQuestion = /\bMEL\s*WORK\b/i.test(activeTaskText)
+    && /\b(?:cl[ée]s?|tokens?|jetons?|secrets?|acc[eè]s|connexion|connect[ée]|configur[ée]|manque|pr[êe]t|disponible|outils?|capacit[ée]s?|permissions?|D1|Companion|Taskmarket|paiement|freelance)\b/i.test(activeTaskText);
   const plainChatTurn = !releaseSmoke && !body.capability?.id && !inferredCapability
+    && !melWorkCapabilityQuestion
     && !currentFactVerification && !personalProfileIntent
     && !negativeFeedbackRecovery && !conversationFocus.elliptical;
   if (conversationFocus.needs_clarification && !body.capability?.id && !inferredCapability) {
