@@ -47,3 +47,51 @@ test('MEL WORK operational questions consult runtime instead of relying only on 
   assert.match(MEL_REAL_CAPABILITIES, /ne nécessitent pas de réclamer de nouveaux secrets/);
   assert.match(MEL_REAL_CAPABILITIES, /Ne demande jamais de copier un token/);
 });
+
+
+test('MEL WORK readiness is identified in short and long prompts, without hijacking ordinary execution', async () => {
+  const { isMelWorkReadinessQuestion } = await import('../src/api/native-chat.js');
+  assert.equal(isMelWorkReadinessQuestion('MEL WORK : vérifie tes connexions réelles et indique ce qui fonctionne'), true);
+  const detailed = 'MEL WORK, vérifie les accès dont tu disposes réellement, puis commence à travailler avec les outils déjà configurés. ' +
+    'Ne me demande pas de nouvelles clés sans avoir constaté une erreur précise. ' +
+    'Examine réellement D1, GitHub, le Companion Windows, les cycles et les services existants ; cite les erreurs et les preuves pour tout blocage.';
+  assert.ok(detailed.length > INSTRUCTION_PROMPT_CHARS);
+  assert.equal(isMelWorkReadinessQuestion(detailed), true);
+  assert.equal(isMelWorkReadinessQuestion('# MEL WORK — CONTINUATION AUTONOME. Produis des livrables concrets sur les missions.'), false);
+  assert.equal(isMelWorkReadinessQuestion('Vérifie les connexions du site de mon frère.'), false);
+});
+
+test('MEL WORK readiness response relies on observations and never requires generic marketplace or payment secrets', async () => {
+  const { formatVerifiedMelWorkReadiness } = await import('../src/api/native-chat.js');
+  const result = formatVerifiedMelWorkReadiness({
+    selfState: {
+      sections: {
+        code: { ok:true, data: { status:'OK', head:'abcdef0123456789' } },
+        work: { ok:true, data: { count:2 } },
+        autonomy: { ok:true, data: { status:'ACTIVE', control:{ paused:false } } },
+      },
+    },
+    companion: { ok:true, devices:[{platform:'windows',online:true,halted:false,remote_access_issue:null}] },
+    manifest:[{id:'web.research',status:'EXISTANT_NON_TESTE',tested_now:false}],
+  });
+  assert.match(result, /lecture\/intégrité observée/);
+  assert.match(result, /lecture réelle réussie ; 2 travaux ouverts/);
+  assert.match(result, /1 appareil\(s\) autorisé\(s\) et joignable\(s\)/);
+  assert.match(result, /non exécutée dans ce diagnostic/);
+  assert.match(result, /ne constituent pas des prérequis généraux/);
+  assert.doesNotMatch(result, /transmets?.*?(?:clé|jeton|token)/i);
+  const failed = formatVerifiedMelWorkReadiness({
+    selfError:'SELF_STATE_TIMEOUT',
+    companionError:'COMPUTER_DB_REQUIRED',
+  });
+  assert.match(failed, /SELF_STATE_TIMEOUT/);
+  assert.match(failed, /COMPUTER_DB_REQUIRED/);
+  assert.doesNotMatch(failed, /PRÊTE pour une mission réelle.*confirmé/);
+});
+
+test('MEL WORK readiness calls both the real self.state and computer.status, and bypasses model speculation', async () => {
+  const source = await readFile(new URL('../src/api/native-chat.js', import.meta.url), 'utf8');
+  assert.match(source, /melWorkReadiness \? \{ id: 'self\.state', input: \{\} \}/);
+  assert.match(source, /runtime\.bus\.execute\('computer\.status', \{\}/);
+  assert.match(source, /model:'deterministic-mel-work-readiness'/);
+});
