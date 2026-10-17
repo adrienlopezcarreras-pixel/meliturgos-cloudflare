@@ -12,6 +12,8 @@
 //   {"type":"done","model":"…","chars":N,"archived":true,"truncated":false}
 //   {"type":"error","code":"…","partial_chars":N}
 
+import { extractModelText } from '../models/ModelRouter.js';
+
 const encoder = new TextEncoder();
 
 // Contexte utile approximatif (caractères) au-delà duquel un modèle échoue.
@@ -41,11 +43,11 @@ export function streamOutputTokens(env = {}) {
 // Extrait le texte d'un événement SSE Workers AI, quel que soit le format du modèle.
 export function sseEventText(payload) {
   if (!payload || typeof payload !== 'object') return '';
-  if (typeof payload.response === 'string') return payload.response;
   const choice = Array.isArray(payload.choices) ? payload.choices[0] : null;
-  if (typeof choice?.delta?.content === 'string') return choice.delta.content;
-  if (typeof choice?.text === 'string') return choice.text;
-  return '';
+  // Streaming deltas take precedence; full-provider fields use the same
+  // nonempty text contract as sequential and parallel MEL Core inference.
+  if (typeof choice?.delta?.content === 'string' && choice.delta.content) return choice.delta.content;
+  return extractModelText(payload) || '';
 }
 
 function sseFinishReason(payload) {
