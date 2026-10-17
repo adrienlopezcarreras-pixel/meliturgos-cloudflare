@@ -15,7 +15,9 @@ $adb=@((Join-Path $env:LOCALAPPDATA 'Android\platform-tools\adb.exe'),(Join-Path
 if(-not $adb){throw 'ADB_NOT_INSTALLED_USE_CONFIGURER_ADB_WIFI'}
 function A([string[]]$a){$p=$ErrorActionPreference;$ErrorActionPreference='Continue';try{$o=@(& $adb @a 2>&1|ForEach-Object{[string]$_})}finally{$ErrorActionPreference=$p};return ($o -join [string][char]10)}
 $devs=@([regex]::Matches((A @('devices')),'(?m)^(\S+)\s+device\s*$')|ForEach-Object{$_.Groups[1].Value})
-if($devs.Count -ne 1){throw ('ANDROID_DEVICE_NOT_UNIQUE:'+$devs.Count)}
+if($devs.Count -lt 1){throw 'ANDROID_DEVICE_NOT_FOUND'}
+# The same phone can appear twice (IP:port and mDNS name): one is enough.
+$devs=@($devs|Sort-Object {$_ -notmatch '^\d'})
 $s=$devs[0]
 $ports=@(Get-CimInstance Win32_PnPEntity -ErrorAction SilentlyContinue|ForEach-Object{if(([string]$_.PNPDeviceID) -match '^USB\\VID_303A&PID_1001' -and ([string]$_.Name) -match '\((COM\d{1,3})\)'){$Matches[1]}}|Sort-Object -Unique)
 if($ports.Count -ne 1){throw ('MINI_USB_PORT_NOT_UNIQUE:'+$ports.Count)}
