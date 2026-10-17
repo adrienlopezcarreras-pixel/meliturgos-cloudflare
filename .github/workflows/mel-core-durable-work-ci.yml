@@ -12,6 +12,7 @@ on:
       - 'src/conversations/open-loop-service.js'
       - 'tests/conversations/open-loop-capabilities.test.mjs'
       - 'tests/conversations/open-loop-service.test.mjs'
+      - 'tests/conversations/work-open-loop-integration.test.mjs'
       - 'src/index.js'
       - 'src/pages/full-interface-v2.js'
       - 'tests/mel-general-durable-work.test.mjs'
@@ -39,6 +40,8 @@ jobs:
         run: node --test tests/conversations/open-loop-capabilities.test.mjs
       - name: Prove claim-owner compare-and-swap and expired resume recovery
         run: node --test tests/conversations/open-loop-service.test.mjs
+      - name: Verify claimed Work DAG integration with open-loop resume
+        run: node --test tests/conversations/work-open-loop-integration.test.mjs
       - name: Validate persistent task creation and bounded resume
         run: node --test tests/mel-general-durable-work.test.mjs
       - name: Validate atomic D1 work run leases
