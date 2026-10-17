@@ -396,3 +396,21 @@ test('draft readiness reflects real server bindings without exposing acceptance 
  assert.equal(ready.canSubmit,false);
  assert.equal(JSON.stringify(ready).includes('"answer"'),false);
 });
+
+test('MEL WORK draft-cycle API never reports false success for a blocked Council cycle',async()=>{
+ const url='https://mel.test/api/revenue/draft-cycle';
+ const expectedJson='{"result":true}';
+ const bytes=new TextEncoder().encode(expectedJson);
+ const digest=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes)),x=>x.toString(16).padStart(2,'0')).join('');
+ const env={MELITURGOS_USER:'adrien',MELITURGOS_PASSWORD:'test',DB:sqliteD1(),MEL_WORK_TRUSTED_ACCEPTANCE_JSON:JSON.stringify({job1:{expectedJson,sha256:digest}})};
+ const headers={authorization:'Basic '+Buffer.from('adrien:test').toString('base64')};
+ const prior=globalThis.fetch;
+ globalThis.fetch=async()=>({ok:true,json:async()=>({tasks:[]})});
+ try{
+  const response=await handleRevenueApi(new Request(url,{method:'POST',headers}),env);
+  assert.equal(response.status,409);
+  const payload=await response.json();
+  assert.equal(payload.ok,false);
+  assert.equal(payload.code,'WORK_CYCLE_NO_VERIFIED_DRAFT');
+ }finally{globalThis.fetch=prior}
+});
