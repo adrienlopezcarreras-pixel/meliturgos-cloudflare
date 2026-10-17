@@ -415,7 +415,24 @@ async function refreshDirectArtifacts(){
   const data=await response.json();
   if(!response.ok||data.ok!==true)throw new Error(data.code||'WORK_LIST_FAILED');
   const items=Array.isArray(data.artifacts)?data.artifacts:[];
-  area.textContent='Brouillons MEL WORK enregistrés : '+items.length+' · '+items.slice(0,3).map(x=>String(x.mission_id)+' ('+String(x.status)+')').join(', ');
+  const latestResponse=await fetch('/api/revenue/direct-work?latest_cycle=1',{cache:'no-store'});
+  const latest=await latestResponse.json().catch(()=>({}));
+  const cycle=latestResponse.ok&&latest.ok===true?latest.cycle:null;
+  area.replaceChildren();
+  const info=document.createElement('div');
+  info.textContent='Brouillons MEL WORK enregistrés : '+items.length+' · '+items.slice(0,3).map(x=>String(x.mission_id)+' ('+String(x.status)+')').join(', ')+(cycle?' · Dernier cycle : '+String(cycle.status):'');
+  area.appendChild(info);
+  const artifactId=String(cycle?.result?.artifactId||'');
+  if(/^work-[a-f0-9]{64}$/.test(artifactId)){
+    const button=document.createElement('button');button.type='button';button.textContent='Consulter le dernier livrable';
+    button.onclick=async()=>{
+      const response=await fetch('/api/revenue/direct-work?artifact_id='+encodeURIComponent(artifactId),{cache:'no-store'});
+      const data=await response.json().catch(()=>({}));
+      if(!response.ok||!data.artifact)throw new Error('WORK_ARTIFACT_READBACK_FAILED');
+      const display=document.createElement('pre');display.style.whiteSpace='pre-wrap';display.style.overflowWrap='anywhere';
+      display.textContent=String(data.artifact.content||'');$('draftList').replaceChildren(display);
+    };area.appendChild(button);
+  }
  }catch(e){area.textContent='Brouillons directs indisponibles : '+String(e.message||e).slice(0,100)}
 }
 $('runDraftCycle').onclick=async()=>{
