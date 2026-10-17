@@ -106,3 +106,26 @@ test('successful knowledge research prevents a false global incapacity answer', 
   assert.match(out,/référence mémorisée/i);
   assert.doesNotMatch(out,/je ne peux pas/i);
 });
+
+test('code capability presence alone does not prove that code was read', () => {
+  const out=finalizeEvidenceAlignedResponse({
+    text:"Je n'ai pas accès à mon code source.",
+    userText:"tu peux lire ton code source ?",
+    codeAccess:{available:true},
+    toolResults:[],
+  });
+  assert.match(out,/déclarée disponible/i);
+  assert.match(out,/aucune exécution réussie/i);
+  assert.doesNotMatch(out,/Oui, j’ai accès/i);
+});
+
+test('failed code read cannot be promoted into a successful code-access claim', () => {
+  const out=finalizeEvidenceAlignedResponse({
+    text:"Je n'ai pas accès à mon code source.",
+    userText:"tu peux lire ton code source ?",
+    codeAccess:{available:true},
+    toolResults:[{capability:'code.read',status:'FAILED',error:'UPSTREAM_TIMEOUT'}],
+  });
+  assert.match(out,/aucune exécution réussie/i);
+  assert.doesNotMatch(out,/Oui, j’ai accès/i);
+});
