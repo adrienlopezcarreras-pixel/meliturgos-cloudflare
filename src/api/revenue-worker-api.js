@@ -37,27 +37,43 @@ export function normalizeRevenueTasks(payload, nowMs = Date.now()) {
   }));
 }
 
-export async function handleRevenueApi(request, env) {
+export async function handleRevenueApi(request, env, ctx) {
   const url = new URL(request.url);
-  if (url.pathname !== '/api/revenue/tasks' && url.pathname !== '/api/revenue/taskmarket-pc-status' && url.pathname !== '/api/revenue/drafts' && url.pathname !== '/api/revenue/direct-work') return null;
+  if (url.pathname !== '/api/revenue/tasks' && url.pathname !== '/api/revenue/taskmarket-pc-status' && url.pathname !== '/api/revenue/drafts' && url.pathname !== '/api/revenue/direct-work' && !/^\/api\/revenue\/drafts\/work-[a-f0-9]{64}\/decision$/.test(url.pathname)) return null;
   const auth = requireAuth(request, env);
   if (!auth.ok) return auth.response;
+
+  if(/^\/api\/revenue\/drafts\/work-[a-f0-9]{64}\/decision$/.test(url.pathname)){
+    if(request.method!=='POST')return json({ok:false,code:'METHOD_NOT_ALLOWED'},405);
+    const id=url.pathname.split('/')[4];
+    const body=await request.json().catch(()=>({}));
+    if(!['APPROVED','REJECTED'].includes(body.decision))return json({ok:false,code:'WORK_OWNER_DECISION_INVALID'},400);
+    try{
+      const status=body.decision==='APPROVED'?'APPROVED_BY_OWNER':'REJECTED_BY_OWNER';
+      const changed=await env.DB.prepare("UPDATE mel_work_artifacts SET status=?,owner_note=?,decided_at=? WHERE id=? AND status='DRAFT_FOR_OWNER'")
+       .bind(status,String(body.note||'').slice(0,1000),new Date().toISOString(),id).run();
+      if(Number(changed?.meta?.changes)!==1)return json({ok:false,code:'WORK_DRAFT_NOT_PENDING'},409);
+      return json({ok:true,id,status,submitted:false,paid:false});
+    }catch{return json({ok:false,code:'WORK_OWNER_DECISION_UNAVAILABLE'},503)}
+  }
   if(url.pathname==='/api/revenue/direct-work'){
     if(typeof env?.DB?.prepare!=='function')return json({ok:false,code:'WORK_DRAFT_DB_REQUIRED'},503);
     if(request.method==='GET'&&url.searchParams.has('artifact_id')){
       const artifactId=url.searchParams.get('artifact_id')||'';
       if(!/^work-[a-f0-9]{64}$/.test(artifactId))return json({ok:false,code:'WORK_ARTIFACT_ID_INVALID'},400);
       try{
-        const artifact=await env.DB.prepare('SELECT id, mission_id, content, status, created_at FROM mel_work_artifacts WHERE id=?').bind(artifactId).first();
+        const artifact=await env.DB.prepare('SELECT id, mission_id, content, status, created_at, human_steps, owner_note, decided_at FROM mel_work_artifacts WHERE id=?').bind(artifactId).first();
         if(!artifact)return json({ok:false,code:'WORK_ARTIFACT_NOT_FOUND'},404);
-        return json({ok:true,artifact,submitted:false,paid:false});
+        return json({ok:true,artifact:{...artifact,humanSteps:JSON.parse(artifact.human_steps||'[]')},submitted:false,paid:false});
       }catch{return json({ok:false,code:'WORK_ARTIFACT_READ_UNAVAILABLE'},503)}
     }
     if(request.method==='GET'){
       try{
-        await env.DB.prepare('CREATE TABLE IF NOT EXISTS mel_work_artifacts (id TEXT PRIMARY KEY, mission_id TEXT NOT NULL, content TEXT NOT NULL, status TEXT NOT NULL, created_at TEXT NOT NULL)').run();
-        const rows=await env.DB.prepare('SELECT id, mission_id, status, created_at FROM mel_work_artifacts ORDER BY created_at DESC LIMIT 20').all();
-        return json({ok:true,artifacts:rows?.results||[],canSubmit:false});
+        await env.DB.prepare('CREATE TABLE IF NOT EXISTS mel_work_artifacts (id TEXT PRIMARY KEY, mission_id TEXT NOT NULL, content TEXT NOT NULL, status TEXT NOT NULL, created_at TEXT NOT NULL, human_steps TEXT NOT NULL DEFAULT \'[]\', owner_note TEXT, decided_at TEXT)').run();
+        for(const column of ["human_steps TEXT NOT NULL DEFAULT '[]'","owner_note TEXT","decided_at TEXT"]){try{await env.DB.prepare('ALTER TABLE mel_work_artifacts ADD COLUMN '+column).run()}catch(e){if(!/duplicate column/i.test(String(e)))throw e}}
+        const rows=await env.DB.prepare('SELECT id, mission_id, status, created_at, human_steps FROM mel_work_artifacts ORDER BY created_at DESC LIMIT 20').all();
+        const missions=await env.DB.prepare('SELECT id, state, last_error, updated_at FROM mel_work_missions ORDER BY updated_at DESC LIMIT 10').all().catch(()=>({results:[]}));
+        return json({ok:true,artifacts:(rows?.results||[]).map(x=>({...x,humanSteps:JSON.parse(x.human_steps||'[]')})),missions:missions.results||[],canSubmit:false});
       }catch{return json({ok:false,code:'WORK_ARTIFACT_LIST_UNAVAILABLE'},503)}
     }
     if(request.method!=='POST')return json({ok:false,code:'METHOD_NOT_ALLOWED'},405);
