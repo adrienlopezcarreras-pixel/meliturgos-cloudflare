@@ -9,5 +9,7 @@ test('full interface exposes the Waveshare terminal setup surface',async()=>{
   assert.match(html,/data-panel="terminal"/);
   assert.match(html,/Créer un code d’appairage/);
   assert.match(html,/\/api\/device\/v1\/pair-code/);
-  assert.match(html,/\/api\/device\/v1\/setup-script/);
+  // The manual flashing script is superseded by the one-click Companion update.
+  assert.match(html,/id="miniFlashCompanion"/);
+  assert.doesNotMatch(html,/href="\/api\/device\/v1\/setup-script"/);
 });
