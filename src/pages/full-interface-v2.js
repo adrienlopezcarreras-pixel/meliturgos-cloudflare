@@ -1,6 +1,7 @@
 import { CHAT_RICH_RENDERER_CSS, CHAT_RICH_RENDERER_SOURCE } from './chat-rich-renderer.js';
 import { MEL_AUTO_RELAUNCH_SOURCE } from './mel-auto-relaunch.js';
 import { MEL_CHAT_STREAM_SOURCE } from './mel-chat-stream.js';
+import { MEL_PAGE_NAME_SHIM } from './page-name-shim.js';
 import { MEL_CHAT_TRACE_SOURCE } from './mel-chat-trace.js';
 
 /** MEL full-control center v2. Contemporary, mobile-first, backed by real APIs. */
@@ -1563,6 +1564,7 @@ let canonicalRefreshTimer=setInterval(()=>{
 },60000);
 document.addEventListener('visibilitychange',()=>{if(!document.hidden&&document.querySelector('.view.active')?.dataset?.panel==='overview')loadLearningProgress().catch(()=>{})});
 window.addEventListener('beforeunload',()=>{if(canonicalRefreshTimer)clearInterval(canonicalRefreshTimer)},{once:true});
+${MEL_PAGE_NAME_SHIM}
 ${MEL_CHAT_STREAM_SOURCE}
 ${MEL_CHAT_TRACE_SOURCE}
 ${MEL_AUTO_RELAUNCH_SOURCE}
