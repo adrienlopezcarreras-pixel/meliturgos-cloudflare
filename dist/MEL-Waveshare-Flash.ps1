@@ -43,7 +43,12 @@ try {
   Invoke-WebRequest -Uri "$server/api/device/v1/firmware" -Headers $headers -UseBasicParsing -OutFile $bin -TimeoutSec 120
 
   $expected = ([string]$installInfo.sha256).Trim().ToLowerInvariant()
-  if ($expected -notmatch '^[0-9a-f]{64}
+  if ($expected -notmatch '^[0-9a-f]{64}$') {
+    throw "Empreinte SHA256 absente ou invalide : flashage interdit."
+  }
+  $actual = (Get-FileHash -Algorithm SHA256 $bin).Hash.ToLowerInvariant()
+  if ($actual -ne $expected) { throw "Empreinte SHA256 invalide. Flashage annulé." }
+  Write-Host "Firmware vérifié : SHA256 OK." -ForegroundColor Green
 
   $python = $null
   foreach ($candidate in @("py.exe","python.exe","python3.exe")) {
