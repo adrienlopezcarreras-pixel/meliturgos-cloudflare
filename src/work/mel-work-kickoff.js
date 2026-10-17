@@ -76,6 +76,29 @@ export function performMelWorkPractice(kind) {
   throw Object.assign(new Error('MEL_WORK_PRACTICE_KIND_UNKNOWN'), { code: 'MEL_WORK_PRACTICE_KIND_UNKNOWN' });
 }
 
+// Exact arithmetic on bounded chunks; Work DAG checkpoints each chunk so a
+// later worker can resume without repeating prior successful calculations.
+export function computeMelWorkChunk({ start, count } = {}) {
+  if (!Number.isSafeInteger(start) || start < 1 || start > 1000000000
+      || !Number.isSafeInteger(count) || count < 1 || count > 25000
+      || start + count > 1000025000) {
+    throw Object.assign(new Error('MEL_WORK_COMPUTE_RANGE_INVALID'), { code: 'MEL_WORK_COMPUTE_RANGE_INVALID' });
+  }
+  let sum = 0n;
+  const first = BigInt(start);
+  const last = BigInt(start + count - 1);
+  for (let i = start; i < start + count; i += 1) sum += BigInt(i) ** 2n;
+  const sumSquaresUpTo = n => n * (n + 1n) * (2n * n + 1n) / 6n;
+  const independentlyVerified = sum === sumSquaresUpTo(last) - sumSquaresUpTo(first - 1n);
+  if (!independentlyVerified) throw Object.assign(new Error('MEL_WORK_COMPUTE_CHECK_FAILED'), { code: 'MEL_WORK_COMPUTE_CHECK_FAILED' });
+  return {
+    kind: 'computation_sample', category: 'exact_bigint_arithmetic',
+    start, count, end: start + count - 1, sum_of_squares: sum.toString(),
+    quality_checks: { closed_form_match: independentlyVerified },
+    note: 'Calcul exact, vérifié et checkpointé sur un segment borné; aucun résultat client prétendu.',
+  };
+}
+
 export function registerMelWorkKickoffCapabilities(bus, { fetchImpl = fetch } = {}) {
   bus.discover({
     id: 'melwork.practice', name: 'Entraînement professionnel MEL WORK',
@@ -89,6 +112,17 @@ export function registerMelWorkKickoffCapabilities(bus, { fetchImpl = fetch } = 
     if (!Object.values(result.quality_checks).every(Boolean)) throw Object.assign(new Error('MEL_WORK_PRACTICE_FAILED'), { code: 'MEL_WORK_PRACTICE_FAILED' });
     return { ok: true, artifacts: [result] };
   });
+  bus.discover({
+    id: 'melwork.compute.chunk', name: 'Calcul complexe MEL WORK en étapes vérifiées',
+    category: 'work', version: '1.0.0', provider: 'mel',
+    description: 'Calcul arithmétique exact par chunk borné et vérification indépendante, avec reprise via Work DAG.',
+    input_schema: { type: 'object', properties: {
+      start: { type: 'integer', minimum: 1, maximum: 1000000000 },
+      count: { type: 'integer', minimum: 1, maximum: 25000 },
+    }, required: ['start', 'count'], additionalProperties: false },
+    output_schema: { type: 'object', additionalProperties: true },
+    risk: 'LOW', permissions: [], health: 'HEALTHY', enabled: true,
+  }, async input => ({ok: true, artifacts: [computeMelWorkChunk(input)]}));
   bus.discover({
     id: 'melwork.market.scan', name: 'Lire les offres publiques Taskmarket',
     category: 'work', version: '1.0.0', provider: 'mel',
@@ -134,7 +168,10 @@ export async function startMelWorkKickoff({ bus, text, conversationId, context }
     { id: 'writing-practice', title: 'Corriger un échantillon de rédaction professionnelle', capability: 'melwork.practice', input: { kind: 'writing' }, idempotent: true },
     { id: 'data-practice', title: 'Nettoyer et vérifier un échantillon de données', capability: 'melwork.practice', input: { kind: 'data' }, dependsOn: ['writing-practice'], idempotent: true },
     { id: 'code-practice', title: 'Corriger un petit programme et exécuter ses tests', capability: 'melwork.practice', input: { kind: 'code' }, dependsOn: ['data-practice'], idempotent: true },
-    { id: 'market-scan', title: 'Repérer les missions publiques disponibles, sans candidature', capability: 'melwork.market.scan', input: {}, dependsOn: ['code-practice'], idempotent: true },
+    { id: 'calculation-1', title: 'Calcul exact et contrôle indépendant — segment 1', capability: 'melwork.compute.chunk', input: { start: 1, count: 20000 }, dependsOn: ['code-practice'], idempotent: true },
+    { id: 'calculation-2', title: 'Calcul exact et contrôle indépendant — segment 2', capability: 'melwork.compute.chunk', input: { start: 20001, count: 20000 }, dependsOn: ['calculation-1'], idempotent: true },
+    { id: 'calculation-3', title: 'Calcul exact et contrôle indépendant — segment 3', capability: 'melwork.compute.chunk', input: { start: 40001, count: 20000 }, dependsOn: ['calculation-2'], idempotent: true },
+    { id: 'market-scan', title: 'Repérer les missions publiques disponibles, sans candidature', capability: 'melwork.market.scan', input: {}, dependsOn: ['calculation-3'], idempotent: true },
   ];
   const execute = async (name, input) => bus.execute(name, input, context);
   let saved = false;
@@ -165,11 +202,13 @@ export async function startMelWorkKickoff({ bus, text, conversationId, context }
     const evidence = await execute('work.artifacts', { id: workDagId });
     const artifacts = Array.isArray(evidence?.artifacts) ? evidence.artifacts : [];
     const trainingCount = artifacts.filter(row => row?.artifact?.kind === 'training_sample').length;
+    const computationCount = artifacts.filter(row => row?.artifact?.kind === 'computation_sample' && row.artifact.quality_checks?.closed_form_match === true).length;
     const market = artifacts.find(row => row?.artifact?.kind === 'market_observation')?.artifact || null;
     return {
       ok: true, persisted: true, plan_id: id, work_dag_id: workDagId,
       status: String(executed?.status || synced?.work?.status || 'UNKNOWN'),
       training_exercises_verified: trainingCount,
+      calculation_chunks_verified: computationCount,
       taskmarket_status: market?.status || 'NOT_EXECUTED',
       taskmarket_offer_count: market?.offer_count ?? null,
       external_actions: 0,
