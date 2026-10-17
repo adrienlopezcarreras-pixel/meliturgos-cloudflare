@@ -144,6 +144,21 @@ test('MEL WORK reloads saved preparation-plan state from the existing persistent
   assert.doesNotThrow(() => new Function(script));
 });
 
+test('MEL WORK renders a per-plan persistent status board without implying delivery or payment', async () => {
+  const response = await (await import('../src/pages/revenue-interface.js')).onRequestGet();
+  const html = await response.text();
+  assert.match(html, /id="savedPrepPlansSection"/);
+  assert.match(html, /id="prepPlanList"/);
+  assert.match(html, /function renderPersistentPrepPlans\(\)/);
+  assert.match(html, /savedPlanRecords\.set\(id,\{id,status:String\(row\?\.status/);
+  assert.match(html, /row\?\.work_dag_id/);
+  assert.match(html, /row\?\.updated_at/);
+  assert.match(html, /Dernière mise à jour/);
+  assert.match(html, /aucune réclamation, soumission, signature ou paiement n’est déduit de cet état/i);
+  const script = html.match(/<script>([\s\S]*?)<\/script>/)?.[1] || '';
+  assert.doesNotThrow(() => new Function(script));
+});
+
 test('MEL WORK requires a fresh local remote-access grant and engine heartbeat before claiming PC control is ready', async () => {
   const response = await onRequestGet();
   const html = await response.text();

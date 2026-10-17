@@ -8,9 +8,10 @@ return `<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="v
 <section class="grid"><article class="card third"><h2>Missions visibles</h2><div id="taskCount" class="metric">—</div><div class="mini">offres ouvertes récupérées en direct</div></article><article class="card third"><h2>Companion Windows</h2><div id="pcState" class="metric" style="font-size:24px">À vérifier</div><div id="pcDetail" class="mini">État non encore lu</div></article><article class="card third"><h2>Revenus confirmés</h2><div class="metric">0 <span style="font-size:15px">USDC vérifiés ici</span></div><div class="mini">Aucun paiement n'a été rapproché par cette interface.</div></article></section>
 <section class="card wide" style="margin-top:14px"><h2>Chaîne autonome MEL</h2><div class="muted">Chaque étape devra être raccordée et testée. Les statuts ci-dessous décrivent l'intégration, pas une exécution déjà réalisée.</div><div class="chain"><div class="step"><strong>1 · Veille</strong><span class="tag good">Consultation active</span><small>Liste publique des offres.</small></div><div class="step"><strong>2 · Sélection</strong><span class="tag warn">À raccorder</span><small>Rentabilité, difficulté, délai et risques.</small></div><div class="step"><strong>3 · Résolution</strong><span class="tag warn">À raccorder</span><small>MEL + compétences + Council.</small></div><div class="step"><strong>4 · Validation</strong><span class="tag warn">À raccorder</span><small>Vérification indépendante avant envoi.</small></div><div class="step"><strong>5 · Paiement</strong><span class="tag bad">Verrouillé</span><small>Identité, signature et rapprochement requis.</small></div></div><div class="actions" style="margin-top:14px"><button id="refreshPc">Vérifier le Companion</button><button id="scanPcTaskmarket">Lire Taskmarket sur ce PC</button><button id="autonomyToggle" disabled title="Disponible après raccordement et tests end-to-end">Activer le travail autonome — pas encore disponible</button></div><div id="pcMessage" class="footer">Preuve sur PC réel requise avant le palier 1 : démarrer MEL Companion Windows, cliquer sur « Vérifier le Companion », puis « Lire Taskmarket sur ce PC ». Résultat attendu : exécution prouvée de la sonde, source et horodatage, sans réclamer ni soumettre de mission.</div><div id="pcTaskmarketInfo" class="okbanner" role="status" aria-live="polite" style="display:none"></div></section>
 <section class="card wide" style="margin-top:14px"><div class="taskhead"><div><h2>Missions Taskmarket</h2><div class="muted">Filtre les offres qui pourraient être adaptées à un travail automatisé par MEL. La classification reste indicative.</div></div><span id="taskFetched" class="mini">Pas encore actualisé</span></div><div class="filters"><input id="taskSearch" placeholder="Rechercher dans les missions…" aria-label="Rechercher dans les missions"><select id="taskFit"><option value="all">Toutes les offres</option><option value="candidate">Candidats information / code / données</option><option value="exclude">Autres catégories</option></select><select id="taskSort"><option value="reward">Rémunération décroissante</option><option value="competition">Moins de soumissions</option><option value="expiry">Expiration la plus proche</option></select></div><div id="taskError" class="footer" role="status" aria-live="polite"></div><div id="prepPlanInfo" class="footer" role="status" aria-live="polite">Plans de préparation persistants : lecture en cours…</div><div id="taskList"><div class="empty">Clique sur Actualiser pour consulter les offres.</div></div></section>
+<section class="card wide" id="savedPrepPlansSection" style="margin-top:14px"><div class="taskhead"><div><h2>Mes préparations enregistrées</h2><div class="muted">État de chaque plan conservé en base, avec son dernier statut de travail. Un plan terminé n’est pas une mission livrée.</div></div><span class="mini">État persistant Work</span></div><div id="prepPlanList" aria-live="polite"><div class="empty">Lecture des plans persistants en cours…</div></div></section>
 <section class="card wide" style="margin-top:14px"><h2>Préparation à l'autonomie</h2><div class="row"><span>Identité Taskmarket / portefeuille</span><span class="tag warn">Non vérifié depuis MEL</span></div><div class="row"><span>Sonde locale Taskmarket depuis le Companion</span><span class="tag warn">Intégrée · preuve sur PC réel requise</span></div><div class="row"><span>Conseil de plusieurs modèles (Council)</span><span class="tag warn">Adaptateur à connecter</span></div><div class="row"><span>Amélioration LoRA depuis les retours</span><span class="tag warn">Pipeline à valider</span></div><div class="row"><span>Historique des résultats et paiement confirmé</span><span class="tag warn">Journal à connecter</span></div><div class="footer">Aucune clé privée ni phrase de récupération ne doit être saisie ou affichée dans cette page. Les frais, signatures et acceptations juridiques devront faire l'objet d'étapes explicites.</div></section>
 <div class="footer">MEL · Revenus autonomes · V1 d'observation. Pas de réclamation, soumission, signature ou dépense depuis cette version.</div></main><script>
-const $=id=>document.getElementById(id);let tasks=[];let lastFetch=null;let currentPcId=null;let currentPcIssue='COMPUTER_NOT_FOUND';let taskSource='server';const savedTaskPlans=new Map();const savingTaskPlans=new Set();const savedPlanIds=new Set();
+const $=id=>document.getElementById(id);let tasks=[];let lastFetch=null;let currentPcId=null;let currentPcIssue='COMPUTER_NOT_FOUND';let taskSource='server';const savedTaskPlans=new Map();const savingTaskPlans=new Set();const savedPlanIds=new Set();const savedPlanRecords=new Map();
 function esc(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
 function usdc(micros){try{return (Number(BigInt(String(micros||'0')))/1e6).toLocaleString('fr-FR',{minimumFractionDigits:2,maximumFractionDigits:6})}catch{return '—'}}
 function likelyCandidate(t){const d=String(t.description||'').toLowerCase();if(/create an original image|image generation|publish on x|publish on medium|animated infographic|video.*mp4|discord|social media|marketing campaign/.test(d))return false;return /json|csv|dataset|data processing|software|code|bug|implement|typescript|javascript|python|audit|benchmark|extract|classif|normalize|algorithm|api endpoint|technical analysis/.test(d)}
@@ -28,17 +29,40 @@ async function executeWorkCapability(id,input){
  if(!response.ok||payload.ok!==true)throw new Error(payload?.result?.code||payload.code||payload.error||'WORK_CAPABILITY_FAILED');
  return payload.result;
 }
+function renderPersistentPrepPlans(){
+ const element=$('prepPlanList');if(!element)return;
+ const rows=Array.from(savedPlanRecords.values()).sort((a,b)=>Number(b.updated_at||0)-Number(a.updated_at||0)).slice(0,100);
+ if(!rows.length){element.innerHTML='<div class="empty">Aucun plan Taskmarket trouvé dans les 100 derniers plans persistants récupérés. Actualise pour vérifier à nouveau.</div>';return;}
+ element.innerHTML=rows.map(row=>{
+  const id=String(row?.id||'');
+  const status=String(row?.status||'UNKNOWN').toUpperCase();
+  const labels={DRAFT:'Enregistré — à démarrer',PLANNED:'Enregistré — à démarrer',READY:'Prêt',RUNNING:'En cours',IN_PROGRESS:'En cours',MATERIALIZED:'Plan matérialisé',COMPLETED:'Préparation terminée',FAILED:'Échec enregistré',BLOCKED:'Bloqué',PAUSED:'En pause',CANCELLED:'Annulé'};
+  const label=labels[status]||('État enregistré : '+status);
+  const updated=Number(row?.updated_at||0);
+  const updatedText=Number.isFinite(updated)&&updated>0?new Date(updated).toLocaleString('fr-FR'):'date indisponible';
+  const title=String(row?.goal||row?.title||id).slice(0,260);
+  const dag=String(row?.work_dag_id||'');
+  const kind=status==='COMPLETED'?'good':status==='FAILED'?'bad':'warn';
+  return '<article class="task"><div class="taskhead"><div><h3>'+esc(title)+'</h3><div class="taskid">Plan '+esc(id)+'</div></div><span class="tag '+kind+'">'+esc(label)+'</span></div><div class="taskmeta"><span class="tag">Dernière mise à jour : '+esc(updatedText)+'</span>'+(dag?'<span class="tag">Work : '+esc(dag)+'</span>':'<span class="tag">Work : pas encore matérialisé</span>')+'</div><div class="mini">Statut lu depuis le registre persistant ; aucune réclamation, soumission, signature ou paiement n’est déduit de cet état.</div></article>';
+ }).join('');
+}
 function paintSavedPlanCount(){
- const element=$('prepPlanInfo');if(!element)return;
- const count=savedPlanIds.size;
- element.textContent='Plans de préparation persistants récupérés : '+count+'. Ce sont des plans enregistrés, pas des missions exécutées.';
+ const element=$('prepPlanInfo');
+ if(element){const count=savedPlanIds.size;element.textContent='Plans de préparation persistants récupérés : '+count+'. Les statuts individuels sont affichés ci-dessous ; ce ne sont pas des missions livrées.';}
+ renderPersistentPrepPlans();
 }
 async function loadPersistentPrepPlans(){
  try{
   const result=await executeWorkCapability('work.plan.list',{limit:100});
   const rows=Array.isArray(result?.plans)?result.plans:[];
-  savedPlanIds.clear();
-  for(const row of rows){const id=String(row?.id||'');if(id.startsWith('mw-task-'))savedPlanIds.add(id);}
+  savedPlanIds.clear();savedPlanRecords.clear();
+  for(const row of rows){
+   const id=String(row?.id||'');
+   if(id.startsWith('mw-task-')){
+    savedPlanIds.add(id);
+    savedPlanRecords.set(id,{id,status:String(row?.status||'UNKNOWN'),goal:String(row?.goal||''),work_dag_id:row?.work_dag_id||null,created_at:Number(row?.created_at||0)||null,updated_at:Number(row?.updated_at||0)||null});
+   }
+  }
   for(const task of tasks){const taskId=String(task?.id||'');const planId=taskPreparationPlanId(taskId);if(savedPlanIds.has(planId))savedTaskPlans.set(taskId,planId);}
   paintSavedPlanCount();renderTasks();
  }catch(error){
@@ -56,7 +80,10 @@ async function executeSavedReadOnlyPreparation(taskId,planId,title,button,safePr
  const executed=await executeWorkCapability('work.run',{id:dagId});
  const synced=await executeWorkCapability('work.plan.sync',{id:planId});
  const status=String(executed?.status||synced?.work?.status||'UNKNOWN').toUpperCase();
- savedTaskPlans.set(taskId,planId);savedPlanIds.add(planId);paintSavedPlanCount();
+ const currentPlan=synced?.plan||saved?.plan||saved||{};
+ savedTaskPlans.set(taskId,planId);savedPlanIds.add(planId);
+ savedPlanRecords.set(planId,{id:planId,goal:String(currentPlan?.goal||title||planId),status:String(currentPlan?.status||status),work_dag_id:dagId,created_at:Number(currentPlan?.created_at||0)||null,updated_at:Number(currentPlan?.updated_at||Date.now())||Date.now()});
+ paintSavedPlanCount();
  if(status==='COMPLETED'){
   button.textContent='Préparation terminée';
   const detail=generationMode==='GENERATED_READ_ONLY_PLAN'
@@ -141,8 +168,11 @@ async function createPersistentPrepPlan(task,button){
    if(String(existing?.id||existing?.plan?.id||'')!==planId)throw saveError;
    persisted=true;
   }
-  savedTaskPlans.set(taskId,planId);savedPlanIds.add(planId);paintSavedPlanCount();
+  savedTaskPlans.set(taskId,planId);savedPlanIds.add(planId);
+  savedPlanRecords.set(planId,{id:planId,goal,status:'PLANNED',work_dag_id:null,created_at:Date.now(),updated_at:Date.now()});
+  paintSavedPlanCount();
   await executeSavedReadOnlyPreparation(taskId,planId,title,button,safePreparationCapabilities,generationMode,generationReason);
+  await loadPersistentPrepPlans();
  }catch(error){
   if(persisted||savedTaskPlans.has(taskId)||savedPlanIds.has(planId)){
    button.textContent='Reprendre la préparation';
