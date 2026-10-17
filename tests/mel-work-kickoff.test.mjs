@@ -91,6 +91,7 @@ test('explicit MEL WORK chat runs kickoff before model inference', async () => {
 test('kickoff reports durable synchronized state if run response disagrees', async () => {
   const bus = { execute: async (id, input) => {
     if (id === 'work.plan.save') return { id: input.id };
+    if (id === 'work.plan.get') return {plan:{id:input.id}};
     if (id === 'work.plan.materialize') return { plan: { work_dag_id: 'durable-work' } };
     if (id === 'work.run') return { status: 'COMPLETED' };
     if (id === 'work.plan.sync') return { work: { status: 'RUNNING' } };
@@ -109,6 +110,7 @@ test('kickoff does not invent a Work DAG identifier when materialization returns
   const bus = { execute: async (id, input) => {
     calls.push(id);
     if (id === 'work.plan.save') return {id: input.id};
+    if (id === 'work.plan.get') return {plan:{id:input.id}};
     if (id === 'work.plan.materialize') return {plan: {}};
     throw new Error('UNEXPECTED_' + id);
   }};
