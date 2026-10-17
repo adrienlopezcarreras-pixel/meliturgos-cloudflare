@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { isMelWorkKickoff, performMelWorkPractice, registerMelWorkKickoffCapabilities, startMelWorkKickoff } from '../src/work/mel-work-kickoff.js';
+import { isMelWorkKickoff, performMelWorkPractice, computeMelWorkChunk, registerMelWorkKickoffCapabilities, startMelWorkKickoff } from '../src/work/mel-work-kickoff.js';
 
 const PROMPT = '# MEL WORK — DÉMARRER IMMÉDIATEMENT MA PRÉPARATION AU TRAVAIL RÉMUNÉRÉ MEL, à partir de maintenant, tu dois commencer concrètement à te préparer à exercer ton activité d’agente de travail numérique.';
 
@@ -20,6 +20,13 @@ test('first MEL WORK training exercises actually produce validated samples', () 
   }
   assert.equal(performMelWorkPractice('data').clean_rows.length, 2);
   assert.throws(() => performMelWorkPractice('payments'), /MEL_WORK_PRACTICE_KIND_UNKNOWN/);
+});
+
+test('complex exact calculation is chunked and cross-checked without floating point loss', () => {
+  const part = computeMelWorkChunk({ start: 40001, count: 20000 });
+  assert.equal(part.quality_checks.closed_form_match, true);
+  assert.ok(BigInt(part.sum_of_squares) > 0n);
+  assert.throws(() => computeMelWorkChunk({ start: 1, count: 100000000 }), /MEL_WORK_COMPUTE_RANGE_INVALID/);
 });
 
 test('kickoff resumes an existing durable plan instead of duplicating it', async () => {
@@ -44,9 +51,11 @@ test('kickoff resumes an existing durable plan instead of duplicating it', async
     if (id === 'work.plan.get') return saved.get(input.id) || null;
     if (id === 'work.plan.materialize') return { plan: { work_dag_id: 'work-' + input.id }, work: { id: 'work-' + input.id } };
     if (id === 'work.run') {
-      for (const capability of ['melwork.practice', 'melwork.practice', 'melwork.practice', 'melwork.market.scan']) {
+      for (const capability of ['melwork.practice', 'melwork.practice', 'melwork.practice', 'melwork.compute.chunk', 'melwork.compute.chunk', 'melwork.compute.chunk', 'melwork.market.scan']) {
         const input = capability === 'melwork.practice'
-          ? {kind: ['writing','data','code'][records.size] || 'code'} : {};
+          ? {kind: ['writing','data','code'][records.size] || 'code'}
+          : capability === 'melwork.compute.chunk'
+            ? {start: (records.size - 3) * 20000 + 1, count: 20000} : {};
         const result = await handlers.get(capability)(input);
         for (const artifact of result.artifacts) records.set(capability + '-' + records.size, artifact);
       }
@@ -62,6 +71,7 @@ test('kickoff resumes an existing durable plan instead of duplicating it', async
   assert.equal(first.ok, true);
   assert.equal(first.status, 'COMPLETED');
   assert.equal(first.training_exercises_verified, 3);
+  assert.equal(first.calculation_chunks_verified, 3);
   assert.equal(first.taskmarket_status, 'OBSERVED');
   assert.equal(second.ok, true);
   assert.equal(first.plan_id, second.plan_id);
