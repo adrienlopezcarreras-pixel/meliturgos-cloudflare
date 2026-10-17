@@ -1804,7 +1804,12 @@ class MainForm : Form
         try{
             MelApp.EnsureCompanion();
             var online=MelApp.Heartbeat();
-            connection.Text=online?"Connecté à MEL":"Serveur indisponible — reconnexion automatique";
+            var pcAccess=MelApp.ConfigBool("remote_access_enabled");
+            var computeAllowed=MelApp.ConfigBool("local_compute_enabled");
+            var computeProfile=MelApp.ConfigString("local_compute_profile");
+            connection.Text=(online?"Connecté à MEL":"Serveur indisponible — reconnexion automatique")
+                +"  |  Accès PC : "+(pcAccess?"autorisé":"désactivé")
+                +"  |  Calcul local : "+(computeAllowed?(String.IsNullOrWhiteSpace(computeProfile)?"activé":computeProfile):"désactivé");
             connection.ForeColor=online?Color.FromArgb(25,125,85):gray;
             if(MelApp.Tray!=null)MelApp.Tray.Text=online?"MEL Companion — connecté":"MEL Companion — reconnexion";
             var adbReport = Path.Combine(MelApp.MelDir, "android-adb-wifi.json");
