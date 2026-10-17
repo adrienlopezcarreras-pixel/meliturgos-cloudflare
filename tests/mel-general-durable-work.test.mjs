@@ -148,3 +148,58 @@ test('durable kickoff gives repeated captures a stable event ID so HTTP retries 
   assert.equal(stored.leaseToken, 'active-runner');
   assert.equal(stored.resumeAt, firstDue);
 });
+
+
+test('a failed or unverifiable work.status never creates or overwrites a durable job', async () => {
+  for (const problem of [
+    Object.assign(new Error('D1 unavailable'), { code: 'D1_UNAVAILABLE' }),
+    Object.assign(new Error('capability forbidden'), { code: 'CAPABILITY_FORBIDDEN' }),
+    Object.assign(new Error('WORK_DAG_STORE_CORRUPT'), { code: 'WORK_DAG_STORE_CORRUPT' }),
+  ]) {
+    const calls = [];
+    const bus = { execute: async name => {
+      calls.push(name);
+      if (name === 'work.status') throw problem;
+      throw new Error('SHOULD_NOT_BE_CALLED_' + name);
+    }};
+    const result = await launchSubstantialMelTask({ bus, text: GOAL, conversationId: 'failure', context: {} });
+    assert.equal(result.ok, false);
+    assert.equal(result.code, problem.code);
+    assert.deepEqual(calls, ['work.status']);
+  }
+  const calls = [];
+  const bus = { execute: async name => {
+    calls.push(name);
+    if (name === 'work.status') return null;
+    throw Error('SHOULD_NOT_CREATE');
+  }};
+  const result = await launchSubstantialMelTask({ bus, text: GOAL, conversationId: 'invalid-state', context: {} });
+  assert.equal(result.ok, false);
+  assert.equal(result.code, 'WORK_DAG_STATUS_INVALID');
+  assert.deepEqual(calls, ['work.status']);
+});
+
+test('only explicit WORK_DAG_NOT_FOUND permits creating a new durable job', async () => {
+  let createCount = 0;
+  let status = null;
+  const bus = { execute: async (name,input) => {
+    if (name === 'work.status') {
+      if (!status) throw Object.assign(new Error('not found'), { code: 'WORK_DAG_NOT_FOUND' });
+      return status;
+    }
+    if (name === 'work.create') {
+      createCount++;
+      status = { status:'RUNNING', completed:false, blocked:false, node_counts:{PENDING:1} };
+      return { id: input.id };
+    }
+    if (name === 'openloop.capture') return { ok:true };
+    throw Error('UNEXPECTED_' + name);
+  }};
+  const first = await launchSubstantialMelTask({ bus,text:GOAL,conversationId:'new-dag',context:{} });
+  assert.equal(first.ok,true);
+  assert.equal(first.created,true);
+  const repeated = await launchSubstantialMelTask({ bus,text:GOAL,conversationId:'new-dag',context:{} });
+  assert.equal(repeated.ok,true);
+  assert.equal(repeated.created,false);
+  assert.equal(createCount,1);
+});
