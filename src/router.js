@@ -14,6 +14,7 @@ import { onRequestGet as handleFullModeV2 } from "./pages/full-interface-v2.js";
 import { onRequestGet as handleWatchInterface } from "./pages/watch-interface.js";
 import { onRequestGet as handleRevenueInterface } from "./pages/revenue-interface.js";
 import { handleRevenueApi } from "./api/revenue-worker-api.js";
+import { handleX402Markdown } from "./revenue/x402-markdown.js";
 import { SERVICE_WORKER_SOURCE } from "./pages/service-worker.js";
 import { PWA_MANIFEST_JSON } from "./pages/pwa-manifest.js";
 import { handlePublicWordPressChat, publicWordPressChatCors } from "./api/public-wordpress-chat.js";
@@ -418,6 +419,8 @@ async function routeResolvedRequest(request, env, ctx) {
       });
     }
     if (url.pathname === "/api/public/fides/chat" && request.method === "POST") return handlePublicFidesChat(request, env);
+    // Public, paid per call by AI agents (x402). Fails closed until X402_PAY_TO is set.
+    if (url.pathname.startsWith("/x402/")) return (await handleX402Markdown(request, env)) || Response.json({ ok: false, code: "NOT_FOUND" }, { status: 404 });
 
     const auth = requireAuth(request, env);
     if (!auth.ok) return auth.response;
