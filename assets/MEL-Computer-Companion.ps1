@@ -2434,16 +2434,13 @@ function Get-UiSnapshot([IntPtr]$hwnd = [IntPtr]::Zero, [int]$maxElements = 150,
   if ($hwnd -eq [IntPtr]::Zero) { throw "UI_SNAPSHOT_NO_FOREGROUND_WINDOW" }
   $root = [System.Windows.Automation.AutomationElement]::FromHandle($hwnd)
   if ($null -eq $root) { throw "UI_SNAPSHOT_WINDOW_UNREADABLE" }
-  $walker = [System.Windows.Automation.TreeWalker]::RawViewWalker
   $clock = [System.Diagnostics.Stopwatch]::StartNew()
   $useful = @('Button','Edit','MenuItem','Hyperlink','ListItem','TabItem','CheckBox','RadioButton','ComboBox','TreeItem','Document','SplitButton','Slider','Spinner','DataItem','Text','HeaderItem','Menu','MenuBar','ToolBar')
   $items = New-Object System.Collections.Generic.List[object]
-  $queue = New-Object System.Collections.Generic.Queue[object]
-  $queue.Enqueue([object[]]@($root, 0))
-  while ($queue.Count -gt 0 -and $items.Count -lt $maxElements -and $clock.ElapsedMilliseconds -lt $budgetMs) {
-    $pair = $queue.Dequeue()
-    $el = $pair[0]
-    $depth = [int]$pair[1]
+  $condition = [System.Windows.Automation.Condition]::TrueCondition
+  $descendants = $root.FindAll([System.Windows.Automation.TreeScope]::Descendants, $condition)
+  foreach ($el in $descendants) {
+    if ($items.Count -ge $maxElements -or $clock.ElapsedMilliseconds -ge $budgetMs) { break }
     try {
       $cur = $el.Current
       $type = ([string]$cur.ControlType.ProgrammaticName) -replace '^ControlType\.', ''
@@ -2476,16 +2473,8 @@ function Get-UiSnapshot([IntPtr]$hwnd = [IntPtr]::Zero, [int]$maxElements = 150,
         })
       }
     } catch {}
-    if ($depth -lt 30) {
-      try {
-        $child = $walker.GetFirstChild($el)
-        while ($null -ne $child) {
-          $queue.Enqueue([object[]]@($child, ($depth + 1)))
-          $child = $walker.GetNextSibling($child)
-        }
-      } catch {}
-    }
   }
+  $truncated = ($descendants.Count -gt $items.Count -or $clock.ElapsedMilliseconds -ge $budgetMs)
   $title = ''
   $process = ''
   try {
@@ -2502,7 +2491,7 @@ function Get-UiSnapshot([IntPtr]$hwnd = [IntPtr]::Zero, [int]$maxElements = 150,
     window_title = $title
     process = $process
     elements = $items.ToArray()
-    truncated = ($queue.Count -gt 0)
+    truncated = $truncated
     elapsed_ms = [int]$clock.ElapsedMilliseconds
     open_windows = @($windows)
   }
