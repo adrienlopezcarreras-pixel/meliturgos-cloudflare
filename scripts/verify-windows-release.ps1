@@ -33,7 +33,7 @@ try {
   $androidPair = Join-Path $temp "MEL-Android-WiFi-Pairing.ps1"
   if (-not (Test-Path -LiteralPath $androidPair -PathType Leaf)) { throw "WINDOWS_ANDROID_WIFI_PAIRING_HELPER_MISSING" }
   foreach ($name in @('MEL-MINI-USB-Preflight.ps1','local_readonly_preflight.py',
-      'inspect_partitions.py','inspect_ota_state.py','inspect_image.py')) {
+      'inspect_partitions.py','inspect_ota_state.py','inspect_image.py','MEL-MINI-USB-Backup.ps1')) {
     if (!(Test-Path -LiteralPath (Join-Path $temp $name) -PathType Leaf)) {
       throw "WINDOWS_MINI_USB_PREFLIGHT_FILE_MISSING:$name"
     }
