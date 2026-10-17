@@ -21,6 +21,12 @@ class FakeD1Statement {
       this.db.leases.delete(id);
       return { success: true, meta: { changes: 1 } };
     }
+    if (this.sql.startsWith('INSERT OR IGNORE INTO work_dags')) {
+      const [id,job_id,status,record_json,created_at,updated_at] = this.args;
+      if (this.db.rows.has(id)) return { success:true, meta:{changes:0} };
+      this.db.rows.set(id,{id,job_id,status,record_json,created_at,updated_at});
+      return { success:true, meta:{changes:1} };
+    }
     if (this.sql.startsWith('INSERT INTO work_dags')) {
       const [id, job_id, status, record_json, created_at, updated_at] = this.args;
       this.db.rows.set(id, { id, job_id, status, record_json, created_at, updated_at });
@@ -259,4 +265,25 @@ test('concurrent work.run calls cannot execute the same DAG node twice', async (
   assert.equal(done.status,'COMPLETED');
   assert.equal(done.lease_busy,false);
   assert.equal(db.leases.size,0);
+});
+
+
+test('a duplicate Work create cannot overwrite a completed persistent DAG', async () => {
+  const db = new FakeD1();
+  const bus = createDefaultCapabilityBus({ env: { DB: db } });
+  const id = 'immutable-created-work';
+  const input = {
+    id, goal: 'preserve existing checkpoint',
+    nodes:[{id:'one',kind:'TASK',idempotent:true,payload:{capability:'echo',input:{value:'original'}}}],
+  };
+  await bus.execute('work.create', input, context);
+  const done = await bus.execute('work.run', { id }, context);
+  assert.equal(done.status,'COMPLETED');
+  const original = await new D1WorkDagStore(db,id).load();
+  await assert.rejects(
+    () => bus.execute('work.create', { ...input, goal:'malicious overwrite' }, context),
+    error => error?.code === 'WORK_DAG_ALREADY_EXISTS',
+  );
+  const after = await new D1WorkDagStore(db,id).load();
+  assert.deepEqual(after, original);
 });
