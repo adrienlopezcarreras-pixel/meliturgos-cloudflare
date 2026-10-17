@@ -1491,7 +1491,7 @@ class MainForm : Form
         var pc=Card(this,132,150);pc.Left=22;pc.Width=ClientSize.Width-44;
         pc.Anchor=AnchorStyles.Top|AnchorStyles.Left|AnchorStyles.Right;
         LabelAt(pc,"CET ORDINATEUR",20,14,310,36,10,true,blue);
-        var miniUsb=ButtonAt(pc,"MINI USB / Installer",Math.Max(350,pc.Width-232),43,205,ChooseMiniUsbAction);
+        var miniUsb=ButtonAt(pc,"Contrôle USB MINI",Math.Max(350,pc.Width-232),43,205,ChooseMiniUsbAction);
         miniUsb.Anchor=AnchorStyles.Top|AnchorStyles.Right;
         var androidPair=ButtonAt(pc,"Configurer ADB Wi-Fi",Math.Max(170,pc.Width-450),43,205,RunAndroidWifiPairing);
         androidPair.Anchor=AnchorStyles.Top|AnchorStyles.Right;
