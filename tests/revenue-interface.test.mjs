@@ -327,3 +327,13 @@ test('MEL WORK displays quality-verified evidence separately from artifact count
  assert.match(script,/contrôles de qualité explicitement réussis/);
  assert.doesNotThrow(()=>new Function(script));
 });
+
+
+test('MEL WORK exposes read-only D1 draft metadata panel',async()=>{
+ const html=await(await onRequestGet()).text();
+ assert.match(html,/id="savedDraftsSection"/);
+ assert.match(html,/\/api\/revenue\/drafts/);
+ assert.match(html,/item\.textContent=/);
+ const script=html.match(/<script>([\s\S]*?)<\/script>/)?.[1]||'';
+ assert.doesNotThrow(()=>new Function(script));
+});
