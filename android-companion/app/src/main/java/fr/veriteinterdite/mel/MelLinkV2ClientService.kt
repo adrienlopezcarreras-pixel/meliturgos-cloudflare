@@ -266,9 +266,15 @@ class MelLinkV2ClientService : Service() {
             val rawId = Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID)
             val androidDeviceId = "android-" + (rawId ?: "unknown").take(64)
             val ok = runCatching {
-                MelApiClient(BuildConfig.MEL_BASE_URL, androidDeviceId, TokenVault(this))
+                val response = MelApiClient(BuildConfig.MEL_BASE_URL, androidDeviceId, TokenVault(this))
                     .heartbeat(sdkInt = Build.VERSION.SDK_INT, phase = "MINI_LINK_V2_READY")
-            }.isSuccess
+                miniHeartbeatAccepted(
+                    acknowledged = response.optBoolean("ok", false),
+                    returnedDeviceId = response.optString("device_id", ""),
+                    expectedDeviceId = androidDeviceId,
+                    returnedPhase = response.optJSONObject("accepted")?.optString("phase", "").orEmpty()
+                )
+            }.getOrDefault(false)
             if (gatt !== sessionGatt || !miniReady.value || !protocolReady.value) return@execute
             melSessionReady = ok
             refreshInternetState()
