@@ -74,7 +74,7 @@ export async function runDirectWork({db,listMissions,assess,execute,verify,maxAs
  const missions=await listMissions();
  if(!Array.isArray(missions))throw new TypeError('WORK_MISSION_LIST_INVALID');
  // Selection belongs in the engine. Source metadata alone never approves an autonomous task.
- const candidates=missions.filter(m=>m?.eligibleForDraft===true&&typeof m?.description==='string'&&m.description.trim()&&m.description.length<=6000);
+ const candidates=missions.filter(m=>m?.eligibleForDraft===true&&typeof m?.description==='string'&&m.description.trim().length>=10&&m.description.length<=6000);
  const budget=Math.max(0,Math.min(3,Number.isSafeInteger(maxAssessments)?maxAssessments:3));
  let assessments=0;
  for(const mission of candidates){
