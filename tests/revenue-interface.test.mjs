@@ -309,3 +309,11 @@ test('MEL WORK discards stale evidence after a persisted-plan refresh',async()=>
  assert.match(script,/!area\.isConnected \|\| savedPlanRecords\.get\(planId\)\?\.work_dag_id!==record\.work_dag_id/);
  assert.doesNotThrow(()=>new Function(script));
 });
+
+
+test('MEL WORK ignores stale evidence errors after plan cards are refreshed',async()=>{
+ const html=await(await onRequestGet()).text();
+ const script=html.match(/<script>([\s\S]*?)<\/script>/)?.[1]||'';
+ assert.match(script,/catch\(error\)\{if\(area\.isConnected && savedPlanRecords\.get\(planId\)\?\.work_dag_id===record\.work_dag_id\)/);
+ assert.doesNotThrow(()=>new Function(script));
+});
