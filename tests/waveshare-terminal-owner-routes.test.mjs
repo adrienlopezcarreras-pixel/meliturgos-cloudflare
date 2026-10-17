@@ -68,3 +68,31 @@ test('owner firmware endpoint serves installer image when manifest exposes one',
   assert.equal(r.headers.get('x-mel-sha256'),'installer-sha');
   assert.deepEqual([...new Uint8Array(await r.arrayBuffer())],[1,2,3,4]);
 });
+
+test('USB firmware endpoint never returns an OTA-only image without a merged installer', async () => {
+  const manifest = {
+    firmware: {
+      available: true,
+      key: 'devices/waveshare-esp32-s3-touch-lcd-3.5-c/mel-terminal.bin',
+      sha256: 'ota-only'
+    },
+    installer: { available: false }
+  };
+  const fetched = [];
+  const bucket = {
+    async get(key) {
+      fetched.push(key);
+      if (key.endsWith('/manifest.json')) return { text: async () => JSON.stringify(manifest) };
+      if (key.endsWith('/mel-terminal.bin')) throw new Error('OTA image must never be fetched');
+      return null;
+    }
+  };
+  const authorization = 'Basic ' + Buffer.from('owner:secret').toString('base64');
+  const result = await maybeHandleWaveshareTerminalApi(
+    new Request('https://mel.test/api/device/v1/firmware', { headers: { authorization } }),
+    { ...env, MEDIA_BUCKET: bucket }
+  );
+  assert.equal(result.status, 404);
+  assert.equal((await result.json()).code, 'FIRMWARE_NOT_PUBLISHED');
+  assert.ok(fetched.every(key => !key.endsWith('/mel-terminal.bin')));
+});
