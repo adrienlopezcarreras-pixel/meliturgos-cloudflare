@@ -2470,11 +2470,10 @@ extern "C" void app_main(void) {
 
     // Start NimBLE synchronously before the Wi-Fi stack so Android discovery
     // cannot lose the boot race. The watcher below only maintains/reports link state.
-    // Screenless Bluetooth pairing: the passkey is also announced on USB.
-    mel_terminal_start_usb_passkey_relay();
-
     ESP_LOGI(TAG, "STEP 5.5: MEL MOBILE BLE PRIMARY");
     mel_mobile_bridge_start();
+    // Screenless Bluetooth pairing: the passkey is also announced on USB.
+    mel_terminal_start_usb_passkey_relay();
     xTaskCreatePinnedToCore(mobile_bridge_watch_task, "mel_mobile_watch", 4096, nullptr, 3, nullptr, 0);
     ESP_LOGI(TAG, "STEP 5.5 OK: MEL MOBILE SCANNING");
 

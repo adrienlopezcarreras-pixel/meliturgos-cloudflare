@@ -1,11 +1,11 @@
 // MINI with a broken screen: Bluetooth pairing with the phone through the PC.
-// Firmware ≥ 0.6.16 announces each pairing passkey on USB; the Companion types
+// Firmware ≥ 0.6.17 announces each pairing passkey on USB; the Companion types
 // it into the phone over adb. No Wi-Fi is involved: MINI talks to MEL through
 // the phone over Bluetooth.
 
-export const MINI_BLE_PASSKEY_FIRMWARE = '0.6.16-usb-ble-passkey';
+export const MINI_BLE_PASSKEY_FIRMWARE = '0.6.17-usb-ble-passkey';
 
-// Bluetooth pairing MINI ↔ phone without the MINI's screen (firmware ≥ 0.6.16):
+// Bluetooth pairing MINI ↔ phone without the MINI's screen (firmware ≥ 0.6.17):
 // the MINI announces each pairing passkey on USB ("MELBLE PASSKEY nnnnnn");
 // the Companion turns the phone's Bluetooth on, waits for the passkey and types
 // it into Android's pairing dialog through adb (already paired with this PC).

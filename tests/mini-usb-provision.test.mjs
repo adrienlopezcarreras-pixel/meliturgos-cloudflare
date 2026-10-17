@@ -43,6 +43,8 @@ test('firmware announces the Bluetooth passkey on USB for a MINI without a usabl
   const fn = src.slice(src.indexOf('static void usb_passkey_task'), src.indexOf('void mel_terminal_start_usb_passkey_relay'));
   assert.match(fn, /mel_link_v2_server_pairing_passkey\(&passkey\)/);
   assert.match(fn, /MELBLE PASSKEY %06lu/);
+  // 0.6.16 rebooted in a loop with its own usb_serial_jtag driver: the console carries it.
+  assert.doesNotMatch(src, /usb_serial_jtag_driver_install|driver\/usb_serial_jtag\.h/);
   assert.doesNotMatch(src, /MELPROV|save_string\("wifi_pass", (ssid|pass)->/);
   const main = await readFile(new URL('../firmware/waveshare-terminal/main/main.cpp', import.meta.url), 'utf8');
   assert.match(main, /mel_terminal_start_usb_passkey_relay\(\);/);
