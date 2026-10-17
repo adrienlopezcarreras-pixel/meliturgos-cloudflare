@@ -34,5 +34,7 @@ jobs:
         run: node --test tests/mel-general-durable-work.test.mjs
       - name: Validate existing Work DAG contracts
         run: node --test tests/mel-work-kickoff.test.mjs
+      - name: Preserve candidate-branch precondition for isolated Dev Bridge tests
+        run: git switch -c candidate/mel-core-durable-ci
       - name: Full regression suite
         run: npm test
