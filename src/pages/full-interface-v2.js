@@ -1168,6 +1168,11 @@ function companionDesktopReadiness(pc,now=Date.now()){
  const engine=Number(pc.metadata?.engine_heartbeat_at);
  if(!Number.isFinite(engine)||engine<=0||engine>now||now-engine>20000)
   return {ok:false,code:'COMPUTER_ENGINE_OFFLINE',label:'MOTEUR WINDOWS HORS LIGNE'};
+ // A Windows supervisor sees a running child process, but only an engine's
+ // own authenticated heartbeat proves that commands can reach that process.
+ const direct=Number(pc.metadata?.engine_direct_heartbeat_at);
+ if(!Number.isFinite(direct)||direct<=0||direct>now||now-direct>20000)
+  return {ok:false,code:'COMPUTER_ENGINE_UNVERIFIED',label:'MOTEUR NON CONFIRMÉ'};
  return {ok:true,code:'READY',label:'CONTRÔLE PC PRÊT'};
 }
 function renderComputer(d){
