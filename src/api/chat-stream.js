@@ -22,6 +22,8 @@ const encoder = new TextEncoder();
 // chère en neurones que llama-3.3-70b. Les suivants servent de secours.
 export const STREAM_MODELS = Object.freeze([
   { id: '@cf/openai/gpt-oss-120b', maxInputChars: 360_000 },
+  // Nemotron 3 Super (NVIDIA, 120B MoE, long context) : second choix gratuit.
+  { id: '@cf/nvidia/nemotron-3-120b-a12b', maxInputChars: 360_000 },
   { id: '@cf/meta/llama-3.3-70b-instruct-fp8-fast', maxInputChars: 48_000 },
   { id: '@cf/google/gemma-4-26b-a4b-it', maxInputChars: 360_000 },
 ]);
@@ -104,7 +106,7 @@ export async function readWorkersAiSse(stream, { onText, onFinish } = {}) {
  * `archive(fullText, meta)` est appelé une fois la réponse terminée (ou
  * interrompue avec du texte partiel) ; il doit renvoyer true si l'archivage a réussi.
  */
-export function streamChatResponse({ env, messages, archive = async () => false, model = null } = {}) {
+export function streamChatResponse({ env, messages, archive = async () => false, model = null, localFallback = null } = {}) {
   const candidates = model ? [model] : streamModelCandidates(messages, env);
   const maxTokens = streamOutputTokens(env);
   let fullText = '';
@@ -139,6 +141,14 @@ export function streamChatResponse({ env, messages, archive = async () => false,
             lastError = String(error?.code || error?.message || 'STREAM_FAILED').slice(0, 120);
             if (fullText) throw error;
           }
+        }
+        // Aucun modèle cloud n'a pu répondre (quota, panne, délai) : le modèle local
+        // du PC d'Adrien prend le relais si le Companion est en ligne et autorisé.
+        if (!fullText.trim() && typeof localFallback === 'function') {
+          send({ type: 'model', model: 'pc-local', fallback_from: usedModel, reason: lastError });
+          const local = await localFallback(messages).catch(error => ({ ok: false, code: String(error?.message || 'LOCAL_FAILED') }));
+          if (local?.ok && local.text) { usedModel = local.model || 'pc-local'; fullText = local.text; send({ type: 'delta', text: local.text }); }
+          else lastError = lastError || local?.code || 'LOCAL_FAILED';
         }
         if (!fullText.trim()) throw Object.assign(new Error(lastError || 'EMPTY_MODEL_RESPONSE'), { code: lastError || 'EMPTY_MODEL_RESPONSE' });
         const truncated = finishReason === 'length';

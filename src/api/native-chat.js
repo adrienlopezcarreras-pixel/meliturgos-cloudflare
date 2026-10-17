@@ -29,6 +29,7 @@ import { loadConversationFocusState, saveConversationFocusState } from './conver
 import { assessResponseQuality, enforceResponseQuality, persistResponseQualityEvent } from './response-quality-audit.js';
 import { inferKnowledgeCapability } from './knowledge-intent.js';
 import { streamChatResponse } from './chat-stream.js';
+import { runLocalPcModel } from '../models/local-pc-model.js';
 import { streamComputerAgent } from '../devices/computer-agent.js';
 import { inferComputerAgentGoal } from '../devices/computer-agent-intent.js';
 import { parisTimeWindow } from './assistant-time.js';
@@ -1696,6 +1697,7 @@ export async function handleNativeChat(request, env, options = {}) {
     return streamChatResponse({
       env,
       messages,
+      localFallback: msgs => runLocalPcModel({ env, messages: msgs }),
       archive: async (fullText, meta = {}) => {
         if (!service) return false;
         await service.archiveMessage({ conversationId, deviceId, role: 'user', content: text, timestamp: Date.now(), provenance: userProvenance, metadata: userMetadata });

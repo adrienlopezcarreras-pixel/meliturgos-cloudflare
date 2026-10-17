@@ -44,8 +44,8 @@ test('SSE parser handles Workers AI and OpenAI-style chunks', async () => {
 test('model selection keeps long prompts on a model whose context fits', () => {
   // gpt-oss-120b (128k context) leads; llama only fits short prompts; gemma is the last resort.
   assert.equal(selectStreamModel([{ content: 'x'.repeat(10_000) }]), '@cf/openai/gpt-oss-120b');
-  assert.deepEqual(streamModelCandidates([{ content: 'x'.repeat(10_000) }]), ['@cf/openai/gpt-oss-120b', '@cf/meta/llama-3.3-70b-instruct-fp8-fast', '@cf/google/gemma-4-26b-a4b-it']);
-  assert.deepEqual(streamModelCandidates([{ content: 'x'.repeat(120_000) }]), ['@cf/openai/gpt-oss-120b', '@cf/google/gemma-4-26b-a4b-it']);
+  assert.deepEqual(streamModelCandidates([{ content: 'x'.repeat(10_000) }]), ['@cf/openai/gpt-oss-120b', '@cf/nvidia/nemotron-3-120b-a12b', '@cf/meta/llama-3.3-70b-instruct-fp8-fast', '@cf/google/gemma-4-26b-a4b-it']);
+  assert.deepEqual(streamModelCandidates([{ content: 'x'.repeat(120_000) }]), ['@cf/openai/gpt-oss-120b', '@cf/nvidia/nemotron-3-120b-a12b', '@cf/google/gemma-4-26b-a4b-it']);
   assert.deepEqual(streamModelCandidates([{ content: 'x'.repeat(500_000) }]), ['@cf/google/gemma-4-26b-a4b-it']);
   assert.equal(selectStreamModel([{ content: 'x' }], { MEL_STREAM_MODEL: '@cf/test/forced' }), '@cf/test/forced');
 });
@@ -185,13 +185,26 @@ test('a model failing before writing anything is replaced silently by the next o
   } } };
   const text = await streamChatResponse({ env, messages: [{ role: 'user', content: 'salut' }] }).text();
   const events = text.trim().split('\n').map(line => JSON.parse(line));
-  assert.deepEqual(tried, ['@cf/openai/gpt-oss-120b', '@cf/meta/llama-3.3-70b-instruct-fp8-fast']);
+  assert.deepEqual(tried, ['@cf/openai/gpt-oss-120b', '@cf/nvidia/nemotron-3-120b-a12b']);
   assert.equal(events.find(e => e.type === 'model').fallback_from, '@cf/openai/gpt-oss-120b');
-  assert.equal(events.find(e => e.type === 'done').model, '@cf/meta/llama-3.3-70b-instruct-fp8-fast');
+  assert.equal(events.find(e => e.type === 'done').model, '@cf/nvidia/nemotron-3-120b-a12b');
   assert.equal(events.some(e => e.type === 'error'), false);
 });
 
 test('gpt-oss reasoning deltas never leak into the answer', () => {
   assert.equal(sseEventText({ choices: [{ delta: { reasoning_content: 'je réfléchis…' } }] }), '');
   assert.equal(sseEventText({ choices: [{ delta: { content: 'Réponse' } }] }), 'Réponse');
+});
+
+test('when no cloud model can answer, the local PC model takes over; never otherwise', async () => {
+  const down = { AI: { async run() { throw Object.assign(new Error('quota'), { code: 'QUOTA_EXCEEDED' }); } } };
+  let localCalls = 0;
+  const localFallback = async () => { localCalls += 1; return { ok: true, text: 'Réponse locale', model: 'pc:qwen3:8b' }; };
+  const events = (await streamChatResponse({ env: down, messages: [{ role: 'user', content: 'salut' }], localFallback }).text()).trim().split('\n').map(l => JSON.parse(l));
+  assert.equal(localCalls, 1);
+  assert.equal(events.find(e => e.type === 'done').model, 'pc:qwen3:8b');
+  assert.equal(events.filter(e => e.type === 'delta').map(e => e.text).join(''), 'Réponse locale');
+  const up = { AI: { async run() { return { response: 'Réponse cloud' }; } } };
+  await streamChatResponse({ env: up, messages: [{ role: 'user', content: 'salut' }], localFallback }).text();
+  assert.equal(localCalls, 1, 'local model untouched while the cloud answers');
 });
