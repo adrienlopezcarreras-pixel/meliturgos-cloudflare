@@ -4,6 +4,8 @@ on:
   pull_request:
     paths:
       - 'src/models/ModelRouter.js'
+      - 'src/api/chat-stream.js'
+      - 'tests/chat-stream.test.mjs'
       - 'src/models/refusal-analyzer.js'
       - 'tests/model-router-deadline-coverage.test.mjs'
       - 'tests/model-router-augmentio.test.mjs'
@@ -28,6 +30,8 @@ jobs:
         run: npm run check
       - name: Model router timeout and compatibility
         run: node --test tests/model-router-deadline-coverage.test.mjs tests/model-router-augmentio.test.mjs tests/phase5-model-router.test.mjs
+      - name: Streaming and model text compatibility
+        run: node --test tests/chat-stream.test.mjs
       - name: Full regression suite
         run: |
           git checkout -B candidate/mel-core-model-deadline-ci "$(git rev-parse HEAD)"
