@@ -37,7 +37,9 @@ jobs:
       - name: Official esptool is fetched, digest-checked and found; stops at the missing board
         shell: powershell
         run: |
-          $out = & powershell -NoProfile -ExecutionPolicy Bypass -File mini-flash.ps1 2>&1 | Out-String
+          $ErrorActionPreference = 'Continue'
+          $out = (& powershell -NoProfile -ExecutionPolicy Bypass -File mini-flash.ps1 2>&1 | ForEach-Object { [string]$_ }) -join "`n"
+          $ErrorActionPreference = 'Stop'
           Write-Host $out
           if ($out -notmatch 'MINI_USB_PORT_NOT_UNIQUE:0') { echo "::error title=mini.flash::unexpected stop: $($out.Trim() -replace '\s+',' ')"; throw 'MINI_FLASH_UNEXPECTED_STOP' }
           $exe = Get-ChildItem -LiteralPath (Join-Path $env:LOCALAPPDATA 'MEL\tools') -Filter esptool.exe -Recurse -File | Select-Object -First 1
