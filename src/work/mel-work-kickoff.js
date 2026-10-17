@@ -214,7 +214,7 @@ export async function startMelWorkKickoff({ bus, text, conversationId, context }
     const market = artifacts.find(row => row?.artifact?.kind === 'market_observation')?.artifact || null;
     const status = String(synced?.work?.status || executed?.status || 'UNKNOWN').toUpperCase();
     return {
-      ok: !['FAILED','CANCELLED','BLOCKED','ERROR'].includes(status), persisted: true, plan_id: id, work_dag_id: workDagId,
+      ok: status === 'COMPLETED', persisted: true, plan_id: id, work_dag_id: workDagId,
       status,
       training_exercises_verified: trainingCount,
       calculation_chunks_verified: computationCount,
