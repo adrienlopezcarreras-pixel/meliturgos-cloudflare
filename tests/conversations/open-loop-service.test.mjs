@@ -2,10 +2,12 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  D1OpenLoopStore,
   MemoryOpenLoopStore,
   OpenLoopService,
   openLoopId,
 } from '../../src/conversations/open-loop-service.js';
+import { sqliteD1 } from '../helpers/sqlite-d1.mjs';
 
 test('openLoopId requires and links conversation + task', () => {
   assert.equal(openLoopId({ conversationId: 'conv-1', taskId: 'task-9' }), 'conv-1::task-9');
@@ -138,3 +140,103 @@ test('resumeDue records failures and schedules a safe retry without losing check
   assert.equal(saved.metadata.lastError, 'temporary provider outage');
   assert.equal(saved.leaseToken, null);
 });
+
+
+for (const kind of ['memory', 'd1']) {
+  test(`expired ${kind} resume leases recover and a stale success cannot overwrite a newer worker`, async () => {
+    const DB = kind === 'd1' ? sqliteD1() : null;
+    const store = kind === 'd1' ? new D1OpenLoopStore(DB) : new MemoryOpenLoopStore();
+    let now = 1000;
+    let seq = 0;
+    const service = new OpenLoopService(store, { now: () => now, id: () => `lease-${++seq}` });
+    let entered;
+    const firstEntered = new Promise(resolve => { entered = resolve; });
+    let unblock;
+    const oldBlocked = new Promise(resolve => { unblock = resolve; });
+    try {
+      await service.capture({
+        conversationId: 'conv', taskId: 'task', status: 'resumable',
+        resumeAt: 0, metadata: { version: 'before' },
+      });
+      const first = service.resumeDue({
+        leaseMs: 1000,
+        execute: async () => {
+          entered();
+          await oldBlocked;
+          return { completed: true, metadata: { version: 'stale' } };
+        },
+      });
+      await firstEntered;
+      now = 1500;
+      const busy = await service.resumeDue({
+        leaseMs: 1000,
+        execute: async () => { throw Error('LIVE_LEASE_WAS_STOLEN'); },
+      });
+      assert.equal(busy.length, 0, 'an unexpired claim cannot be stolen');
+
+      now = 2001;
+      const recovered = await service.resumeDue({
+        leaseMs: 1000,
+        execute: async () => ({ completed: true, metadata: { version: 'new-worker' } }),
+      });
+      assert.equal(recovered.length, 1, 'expired resuming row must become runnable');
+      assert.equal(recovered[0].ok, true);
+      assert.equal(recovered[0].loop.metadata.version, 'new-worker');
+
+      unblock();
+      const stale = await first;
+      assert.equal(stale.length, 1);
+      assert.equal(stale[0].ok, false);
+      assert.equal(stale[0].deferred, true);
+      assert.equal(stale[0].error, 'OPEN_LOOP_CLAIM_SUPERSEDED');
+
+      const final = await store.get('conv::task');
+      assert.equal(final.status, 'completed');
+      assert.equal(final.metadata.version, 'new-worker');
+      assert.equal(final.leaseToken, null);
+    } finally {
+      unblock?.();
+      DB?.close();
+    }
+  });
+
+  test(`expired ${kind} failed worker cannot reset successor checkpoint`, async () => {
+    const DB = kind === 'd1' ? sqliteD1() : null;
+    const store = kind === 'd1' ? new D1OpenLoopStore(DB) : new MemoryOpenLoopStore();
+    let now = 4000;
+    let seq = 0;
+    const service = new OpenLoopService(store, { now: () => now, id: () => `lease-${++seq}` });
+    let entered;
+    const started = new Promise(resolve => { entered = resolve; });
+    let unblock;
+    const blocked = new Promise(resolve => { unblock = resolve; });
+    try {
+      await service.capture({ conversationId: 'conv', taskId: 'retry', status: 'resumable', resumeAt: 0 });
+      const first = service.resumeDue({
+        leaseMs: 1000, execute: async () => { entered(); await blocked; throw Error('stale failure'); },
+      });
+      await started;
+      now = 5001;
+      const next = await service.resumeDue({
+        leaseMs: 1000,
+        execute: async () => ({
+          status: 'resumable', resumeAt: 9000,
+          checkpoint: { cursor: 2 }, metadata: { version: 'newer' },
+        }),
+      });
+      assert.equal(next[0].ok, true);
+      unblock();
+      const stale = await first;
+      assert.equal(stale[0].deferred, true);
+      const saved = await store.get('conv::retry');
+      assert.equal(saved.status, 'resumable');
+      assert.equal(saved.resumeAt, 9000);
+      assert.deepEqual(saved.checkpoint, { cursor: 2 });
+      assert.equal(saved.metadata.version, 'newer');
+      assert.equal(saved.metadata.lastError, undefined);
+    } finally {
+      unblock?.();
+      DB?.close();
+    }
+  });
+}

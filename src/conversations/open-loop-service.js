@@ -1,4 +1,5 @@
 const ACTIVE_STATUSES = new Set(['open', 'waiting', 'resumable', 'failed']);
+const RECOVERABLE_STATUSES = new Set([...ACTIVE_STATUSES, 'resuming']);
 const TERMINAL_STATUSES = new Set(['completed', 'cancelled']);
 
 function asText(value) {
@@ -171,16 +172,36 @@ export class D1OpenLoopStore {
     return this.get(loop.id);
   }
 
+  // A completed resume may commit only while it still owns the exact D1
+  // claim. An expired/replaced worker cannot overwrite a successor's result.
+  async commitClaim(input, expectedToken) {
+    await this.ready();
+    const token = asText(expectedToken);
+    if (!token) throw new Error('commit claim token required');
+    const loop = normalizeLoop(input, input.updatedAt || Date.now());
+    const result = await this.db.prepare(`UPDATE mel_open_loops SET
+      status=?, next_action=?, resume_at=?, checkpoint_json=?, metadata_json=?,
+      updated_at=?, completed_at=?, lease_token=NULL, lease_until=NULL
+      WHERE id=? AND status='resuming' AND lease_token=?`).bind(
+      loop.status, loop.nextAction, loop.resumeAt,
+      JSON.stringify(loop.checkpoint || {}), JSON.stringify(loop.metadata || {}),
+      loop.updatedAt, loop.completedAt, loop.id, token,
+    ).run();
+    const changed = Number(result?.meta?.changes);
+    if (!Number.isFinite(changed)) throw new Error('OPEN_LOOP_CLAIM_COMMIT_UNVERIFIED');
+    return changed === 1 ? this.get(loop.id) : null;
+  }
+
   async listDue({ owner = '', now = Date.now(), limit = 25 } = {}) {
     await this.ready();
     const capped = Math.max(1, Math.min(100, Math.trunc(asNumber(limit, 25))));
     const result = owner
       ? await this.db.prepare(`SELECT * FROM mel_open_loops
-          WHERE owner=? AND status IN ('open','waiting','resumable','failed')
+          WHERE owner=? AND status IN ('open','waiting','resumable','failed','resuming')
             AND resume_at<=? AND (lease_until IS NULL OR lease_until<?)
           ORDER BY priority DESC, resume_at ASC, updated_at ASC LIMIT ?`).bind(owner, now, now, capped).all()
       : await this.db.prepare(`SELECT * FROM mel_open_loops
-          WHERE status IN ('open','waiting','resumable','failed')
+          WHERE status IN ('open','waiting','resumable','failed','resuming')
             AND resume_at<=? AND (lease_until IS NULL OR lease_until<?)
           ORDER BY priority DESC, resume_at ASC, updated_at ASC LIMIT ?`).bind(now, now, capped).all();
     return (result.results || []).map(rowToLoop);
@@ -193,7 +214,7 @@ export class D1OpenLoopStore {
     const leaseUntil = now + Math.max(1_000, asNumber(leaseMs, 60_000));
     const result = await this.db.prepare(`UPDATE mel_open_loops
       SET status='resuming', lease_token=?, lease_until=?, updated_at=?
-      WHERE id=? AND status IN ('open','waiting','resumable','failed')
+      WHERE id=? AND status IN ('open','waiting','resumable','failed','resuming')
         AND resume_at<=? AND (lease_until IS NULL OR lease_until<?)`).bind(
       leaseToken, leaseUntil, now, id, now, now,
     ).run();
@@ -219,10 +240,20 @@ export class MemoryOpenLoopStore {
     return this.get(loop.id);
   }
 
+  async commitClaim(input, expectedToken) {
+    const token = asText(expectedToken);
+    if (!token) throw new Error('commit claim token required');
+    const loop = normalizeLoop(input, input.updatedAt || Date.now());
+    const current = this.rows.get(loop.id);
+    if (!current || current.status !== 'resuming' || current.leaseToken !== token) return null;
+    this.rows.set(loop.id, clone(loop));
+    return this.get(loop.id);
+  }
+
   async listDue({ owner = '', now = Date.now(), limit = 25 } = {}) {
     return [...this.rows.values()]
       .filter((loop) => (!owner || loop.owner === owner)
-        && ACTIVE_STATUSES.has(loop.status)
+        && RECOVERABLE_STATUSES.has(loop.status)
         && loop.resumeAt <= now
         && (!loop.leaseUntil || loop.leaseUntil < now))
       .sort((a, b) => (b.priority - a.priority) || (a.resumeAt - b.resumeAt) || (a.updatedAt - b.updatedAt))
@@ -232,7 +263,7 @@ export class MemoryOpenLoopStore {
 
   async claim(id, { token, now = Date.now(), leaseMs = 60_000 } = {}) {
     const loop = this.rows.get(id);
-    if (!loop || !ACTIVE_STATUSES.has(loop.status) || loop.resumeAt > now || (loop.leaseUntil && loop.leaseUntil >= now)) return null;
+    if (!loop || !RECOVERABLE_STATUSES.has(loop.status) || loop.resumeAt > now || (loop.leaseUntil && loop.leaseUntil >= now)) return null;
     loop.status = 'resuming';
     loop.leaseToken = asText(token);
     loop.leaseUntil = now + leaseMs;
@@ -324,7 +355,7 @@ export class OpenLoopService {
         const result = await execute(clone(claimed));
         const completed = result?.completed === true;
         const status = completed ? 'completed' : normalizeStatus(result?.status || 'resumable');
-        const saved = await this.store.upsert(normalizeLoop({
+        const saved = await this.store.commitClaim(normalizeLoop({
           ...claimed,
           status,
           nextAction: result?.nextAction ?? claimed.nextAction,
@@ -335,10 +366,15 @@ export class OpenLoopService {
           completedAt: completed ? now : null,
           leaseToken: null,
           leaseUntil: null,
-        }, now));
+        }, now), token);
+        if (!saved) {
+          outcomes.push({ id: candidate.id, ok: false, advanced: false, deferred: true,
+            error: 'OPEN_LOOP_CLAIM_SUPERSEDED', loop: await this.store.get(candidate.id) });
+          continue;
+        }
         outcomes.push({ id: candidate.id, ok: true, advanced: result?.advanced === true, deferred: result?.deferred === true, loop: saved });
       } catch (error) {
-        const saved = await this.store.upsert(normalizeLoop({
+        const saved = await this.store.commitClaim(normalizeLoop({
           ...claimed,
           status: 'failed',
           resumeAt: now + Math.max(1_000, asNumber(retryDelayMs, 60_000)),
@@ -350,7 +386,12 @@ export class OpenLoopService {
           completedAt: null,
           leaseToken: null,
           leaseUntil: null,
-        }, now));
+        }, now), token);
+        if (!saved) {
+          outcomes.push({ id: candidate.id, ok: false, advanced: false, deferred: true,
+            error: 'OPEN_LOOP_CLAIM_SUPERSEDED', loop: await this.store.get(candidate.id) });
+          continue;
+        }
         outcomes.push({ id: candidate.id, ok: false, advanced: false, deferred: false, error: saved.metadata.lastError, loop: saved });
       }
     }

@@ -89,3 +89,38 @@ test('MEL-CONTEXT-03 plan handoff closes the plan loop and opens the Work checkp
     DB.close();
   }
 });
+
+
+test('openloop.resume owns the single checkpoint commit when Work run advances a node', async () => {
+  const DB = sqliteD1();
+  const bus = createDefaultCapabilityBus({ env: { DB, MELITURGOS_USER: 'adrien' } });
+  const loops = createOpenLoopService({ DB });
+  const conversationId = 'claimed-conversation';
+  const dagId = 'claimed-work';
+  try {
+    await bus.execute('work.create', {
+      id: dagId, conversationId, goal: 'Process two safe steps',
+      nodes: [
+        { id: 'one', kind: 'TASK', idempotent: true, payload: { capability:'echo', input:{value:'first'} } },
+        { id: 'two', kind: 'TASK', depends_on:['one'], idempotent: true, payload: { capability:'echo', input:{value:'second'} } },
+      ],
+    }, context);
+    await bus.execute('openloop.capture', {
+      taskId: dagId, conversationId, status:'resumable', resumeAt:0,
+      checkpoint:{work:{status:'RUNNING',node_counts:{PENDING:2,COMPLETED:0}}},
+      metadata:{workDagId:dagId},
+    }, context);
+    const result = await bus.execute('openloop.resume', {limit:1}, context);
+    assert.equal(result.attempted,1);
+    assert.equal(result.succeeded,1);
+    assert.equal(result.advanced,1,'verified node advancement must survive CAS commit');
+    assert.equal(result.deferred,0);
+    const persisted = await loops.store.get(`${conversationId}::${dagId}`);
+    assert.equal(persisted.status,'resumable');
+    assert.equal(persisted.leaseToken,null);
+    assert.equal(persisted.checkpoint.work.node_counts.COMPLETED,1);
+    assert.equal(persisted.metadata.last_work_advanced,true);
+    const due = await bus.execute('openloop.due',{limit:10},context);
+    assert.equal(due.count,0);
+  } finally {DB.close();}
+});
