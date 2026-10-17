@@ -207,8 +207,10 @@ export async function startMelWorkKickoff({ bus, text, conversationId, context }
     const synced = await execute('work.plan.sync', { id });
     const evidence = await execute('work.artifacts', { id: workDagId });
     const artifacts = Array.isArray(evidence?.artifacts) ? evidence.artifacts : [];
-    const trainingCount = artifacts.filter(row => row?.artifact?.kind === 'training_sample').length;
-    const computationCount = artifacts.filter(row => row?.artifact?.kind === 'computation_sample' && row.artifact.quality_checks?.closed_form_match === true).length;
+    const verifiedTrainingKinds = new Set(artifacts.filter(row => row?.artifact?.kind === 'training_sample' && Object.values(row.artifact.quality_checks || {}).length > 0 && Object.values(row.artifact.quality_checks).every(Boolean)).map(row => row.artifact.category));
+    const trainingCount = ['professional_writing', 'data_quality', 'software_testing'].filter(kind => verifiedTrainingKinds.has(kind)).length;
+    const verifiedChunks = new Set(artifacts.filter(row => row?.artifact?.kind === 'computation_sample' && row.artifact.quality_checks?.closed_form_match === true && [1,20001,40001].includes(row.artifact.start) && row.artifact.count === 20000).map(row => row.artifact.start));
+    const computationCount = verifiedChunks.size;
     const market = artifacts.find(row => row?.artifact?.kind === 'market_observation')?.artifact || null;
     return {
       ok: true, persisted: true, plan_id: id, work_dag_id: workDagId,

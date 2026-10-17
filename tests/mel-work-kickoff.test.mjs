@@ -139,3 +139,12 @@ test('kickoff reuses an already persisted DAG instead of rematerializing', async
   assert.equal(output.work_dag_id,'persisted-dag');
   assert.equal(calls.includes('work.plan.materialize'),false);
 });
+
+
+test('kickoff evidence requires distinct verified exercise kinds and calculation segments', async () => {
+  const source = await readFile(new URL('../src/work/mel-work-kickoff.js', import.meta.url), 'utf8');
+  assert.match(source, /const verifiedTrainingKinds = new Set/);
+  assert.match(source, /Object\.values\(row\.artifact\.quality_checks\)\.every\(Boolean\)/);
+  assert.match(source, /const verifiedChunks = new Set/);
+  assert.match(source, /\[1,20001,40001\]\.includes\(row\.artifact\.start\)/);
+});
