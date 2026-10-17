@@ -3,8 +3,8 @@
 // What it does on the PC (one fixed PowerShell command built here, never from
 // browser input):
 //   1. finds exactly one Espressif native-USB port (VID 303A, PID 1001);
-//   2. gets the official esptool Windows build from Espressif's GitHub release,
-//      checks the SHA-256 digest GitHub publishes for that asset, caches it;
+//   2. uses esptool through the PC's Python (pip, official Espressif package,
+//      pinned version) — a downloaded .exe was blocked by antivirus;
 //   3. downloads the published MEL application image through a single-use
 //      10-minute ticket, checks SHA-256, ESP image magic and that it fits ota_0;
 //   4. writes it to ota_0 (0x20000) and blanks otadata (0xF000) so the board
@@ -78,23 +78,15 @@ const FLASH = String.raw`
 $ErrorActionPreference='Stop';$ProgressPreference='SilentlyContinue'
 [Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12
 $sha='__SHA__';$url='__URL__';$tag='__TAG__'
-$root=Join-Path $env:LOCALAPPDATA ('MEL\tools\esptool-'+$tag)
-$exe=Get-ChildItem -LiteralPath $root -Filter esptool.exe -Recurse -File -ErrorAction SilentlyContinue | Select-Object -First 1
-if(-not $exe){
- $gh=@{'User-Agent'='MEL-Companion';'Accept'='application/vnd.github+json'};if($env:GITHUB_TOKEN){$gh.Authorization='Bearer '+$env:GITHUB_TOKEN}
- $rel=Invoke-RestMethod -Uri ('https://api.github.com/repos/espressif/esptool/releases/tags/'+$tag) -Headers $gh -TimeoutSec 20
- $asset=@($rel.assets | Where-Object { $_.name -match '\.zip$' -and $_.name -match 'win' -and $_.name -match '64' }) | Select-Object -First 1
- if(-not $asset){throw 'ESPTOOL_WINDOWS_ASSET_NOT_FOUND'}
- $digest=([string]$asset.digest).ToLowerInvariant()
- if($digest -notmatch '^sha256:[0-9a-f]{64}$'){throw 'ESPTOOL_DIGEST_UNAVAILABLE'}
- New-Item -ItemType Directory -Force -Path $root | Out-Null
- $zip=Join-Path $root 'esptool.zip'
- Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $zip -UseBasicParsing -TimeoutSec 90
- if(('sha256:'+(Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant()) -ne $digest){Remove-Item -LiteralPath $zip -Force;throw 'ESPTOOL_DIGEST_MISMATCH'}
- Expand-Archive -LiteralPath $zip -DestinationPath $root -Force
- Remove-Item -LiteralPath $zip -Force
- $exe=Get-ChildItem -LiteralPath $root -Filter esptool.exe -Recurse -File | Select-Object -First 1
- if(-not $exe){throw 'ESPTOOL_EXE_NOT_IN_ARCHIVE'}
+# esptool through the PC's Python and pip (official Espressif distribution); a
+# downloaded-and-launched .exe gets blocked by antivirus heuristics.
+$py=@(Get-ChildItem -LiteralPath (Join-Path $env:LOCALAPPDATA 'Python') -Filter python.exe -Recurse -File -ErrorAction SilentlyContinue|Where-Object{$_.FullName -notmatch 'WindowsApps'}|Sort-Object FullName -Descending|Select-Object -First 1).FullName
+if(-not $py){$py=@(Get-Command python.exe -All -ErrorAction SilentlyContinue|Where-Object{$_.Source -notmatch 'WindowsApps'}|Select-Object -First 1).Source}
+if(-not $py){throw 'PYTHON_NOT_FOUND'}
+function Py([string[]]$a){$p=$ErrorActionPreference;$ErrorActionPreference='Continue';try{$o=@(& $py @a 2>&1|ForEach-Object{[string]$_})}finally{$ErrorActionPreference=$p};return @{code=$LASTEXITCODE;out=($o -join [string][char]10)}}
+if((Py @('-m','esptool','version')).code -ne 0){
+ $i=Py @('-m','pip','install','--user','--disable-pip-version-check','--quiet','esptool=='+$tag.TrimStart('v'))
+ if($i.code -ne 0){throw 'ESPTOOL_PIP_INSTALL_FAILED'}
 }
 $ports=@(Get-CimInstance Win32_PnPEntity -ErrorAction SilentlyContinue | ForEach-Object { if(([string]$_.PNPDeviceID) -match '^USB\\VID_303A&PID_1001' -and ([string]$_.Name) -match '\((COM\d{1,3})\)'){ $Matches[1] } } | Sort-Object -Unique)
 if($ports.Count -ne 1){throw ('MINI_USB_PORT_NOT_UNIQUE:'+$ports.Count)}
@@ -113,15 +105,12 @@ $head=[IO.File]::ReadAllBytes($bin)[0]
 if($head -ne 0xE9 -or $size -lt 65536 -or $size -gt __MAX__){throw 'MINI_FIRMWARE_IMAGE_INVALID'}
 $blank=Join-Path $work 'otadata-blank.bin'
 [byte[]]$ff=@(255)*8192;[IO.File]::WriteAllBytes($blank,$ff)
-$log=Join-Path $work 'flash.log';$err=Join-Path $work 'flash.err'
-$arguments='--chip esp32s3 --port '+$port+' --baud 460800 --before default-reset --after hard-reset write-flash __OTA0__ "'+$bin+'" 0xF000 "'+$blank+'"'
-$p=Start-Process -FilePath $exe.FullName -ArgumentList $arguments -NoNewWindow -PassThru -RedirectStandardOutput $log -RedirectStandardError $err
-if(-not $p.WaitForExit(75000)){try{$p.Kill()}catch{};throw 'MINI_FLASH_TIMEOUT'}
-$out=(Get-Content -Raw -LiteralPath $log -ErrorAction SilentlyContinue)+(Get-Content -Raw -LiteralPath $err -ErrorAction SilentlyContinue)
-$verified=([regex]::Matches([string]$out,'Hash of data verified')).Count
+$r=Py @('-m','esptool','--chip','esp32s3','--port',$port,'--baud','460800','--before','default-reset','--after','hard-reset','write-flash','__OTA0__',$bin,'0xF000',$blank)
+$out=[string]$r.out
+$verified=([regex]::Matches($out,'Hash of data verified')).Count
 $tail=([string]$out); if($tail.Length -gt 1500){$tail=$tail.Substring($tail.Length-1500)}
-[ordered]@{action='mini.flash';port=$port;esptool=$tag;sha256=$sha;size_bytes=$size;exit_code=$p.ExitCode;verified_regions=$verified;flash_performed=($p.ExitCode -eq 0);flash_verified=($p.ExitCode -eq 0 -and $verified -ge 2);nvs_preserved=$true;log_tail=$tail}|ConvertTo-Json -Compress
-if($p.ExitCode -ne 0){exit 3}
+[ordered]@{action='mini.flash';port=$port;esptool=$tag;sha256=$sha;size_bytes=$size;exit_code=$r.code;verified_regions=$verified;flash_performed=($r.code -eq 0);flash_verified=($r.code -eq 0 -and $verified -ge 2);nvs_preserved=$true;log_tail=$tail}|ConvertTo-Json -Compress
+if($r.code -ne 0){exit 3}
 `;
 
 export function miniFlashCommand({ downloadUrl, sha256 }) {
