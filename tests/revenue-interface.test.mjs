@@ -301,3 +301,11 @@ test('MEL WORK refreshes persisted evidence automatically after a preparation ex
  assert.match(runner,/void viewPersistentWorkArtifacts\(planId,evidenceButton\)/);
  assert.doesNotThrow(()=>new Function(script));
 });
+
+
+test('MEL WORK discards stale evidence after a persisted-plan refresh',async()=>{
+ const html=await(await onRequestGet()).text();
+ const script=html.match(/<script>([\s\S]*?)<\/script>/)?.[1]||'';
+ assert.match(script,/!area\.isConnected \|\| savedPlanRecords\.get\(planId\)\?\.work_dag_id!==record\.work_dag_id/);
+ assert.doesNotThrow(()=>new Function(script));
+});
