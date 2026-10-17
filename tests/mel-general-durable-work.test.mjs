@@ -91,3 +91,16 @@ test('Work DAG yields at every bounded successful checkpoint and resumes', async
   assert.equal(final.status,'COMPLETED');
   assert.deepEqual(sequence,['a','b','c']);
 });
+
+test('bare continue resumes only the immediately preceding explicit MEL durable job', () => {
+  const latest = 'mel-goal-0123456789abcdef0123456789abcdef';
+  const older = 'mel-goal-11111111111111111111111111111111';
+  const oldMessage = {role:'assistant',content:'MEL — travail persistant ' + older};
+  const active = {role:'assistant',content:'MEL — travail persistant ' + latest + '\nRésultats complets : /api/work/goal?id=' + latest};
+  for (const input of ['continue', 'Continue !', 'poursuis', 'reprends']) {
+    assert.equal(findMelWorkReference(input,[oldMessage,active]),latest,input);
+  }
+  assert.equal(findMelWorkReference('continue',[active,{role:'assistant',content:'Autre réponse ordinaire.'}]),null);
+  assert.equal(findMelWorkReference('continue',[{role:'user',content:'MEL — travail persistant ' + latest}]),null);
+  assert.equal(findMelWorkReference('bonjour',[active]),null);
+});

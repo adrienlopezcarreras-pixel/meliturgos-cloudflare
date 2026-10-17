@@ -18,6 +18,16 @@ export function isSubstantialMelTask(text) {
 
 export function findMelWorkReference(text, recent = []) {
   const normalized = normalize(text);
+  // Bare continuation is only for the *immediately preceding* explicit MEL
+  // durable-work response. Never revive an old job from unrelated history.
+  if (/^(?:continue|poursuis|reprends?)(?:\s*[.!?])*$/.test(normalized)) {
+    const latest = Array.isArray(recent) ? recent.at(-1) : null;
+    if (String(latest?.role || '') !== 'assistant') return null;
+    const message = String(latest?.content || '');
+    const dedicated = /MEL\s*[—–-]\s*travail persistant\s+(mel-goal-[0-9a-f]{32})\b/i.exec(message)
+      || /\/api\/work\/goal\?id=(mel-goal-[0-9a-f]{32})\b/i.exec(message);
+    return dedicated?.[1]?.toLowerCase() || null;
+  }
   if (!/^(?:ou en es[- ]?tu|ou en est|avancement|statut|etat|progression|resultat|reprends?|continue|poursuis|montre|affiche|voir)/.test(normalized)
       || !/\b(?:travail|tache|job|demande|projet|mel|en es[- ]?tu|resultat|progression|avancement)\b/.test(normalized)) return null;
   const rows = [String(text || ''), ...(Array.isArray(recent) ? recent : []).slice(-20).reverse().map(row => String(row?.content || ''))];
