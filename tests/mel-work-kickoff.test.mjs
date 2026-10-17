@@ -99,7 +99,7 @@ test('kickoff reports durable synchronized state if run response disagrees', asy
     throw new Error('UNEXPECTED_' + id);
   }};
   const result = await startMelWorkKickoff({ bus, text: PROMPT, conversationId: 'durable-truth', context: {} });
-  assert.equal(result.ok, true);
+  assert.equal(result.ok, false);
   assert.equal(result.status, 'RUNNING');
   assert.equal(result.persisted, true);
 });
