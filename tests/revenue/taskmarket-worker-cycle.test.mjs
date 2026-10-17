@@ -145,14 +145,24 @@ test('never claims a durable draft exists when persistence is unconfirmed',async
 });
 
 test('D1 validated draft adapter confirms stored evidence before returning an id',async()=>{
- const calls=[];let inserted=false;
- const db={prepare(sql){calls.push(sql);return {bind(...values){return {run:async()=>{inserted=true;return {success:true}},first:async()=>inserted?{id:'melwork-draft-'+ 'a'.repeat(64)}:null}},run:async()=>({success:true})}}};
+ const calls=[];let inserted=false;let savedDraftId=null;
+ const db={prepare(sql){calls.push(sql);return {bind(...values){if(sql.startsWith('INSERT'))savedDraftId=values[0];return {run:async()=>{inserted=true;return {success:true}},first:async()=>inserted?{id:calls.find(x=>x.startsWith('SELECT'))?savedDraftId:null}:null}},run:async()=>({success:true})}}};
  const save=createD1ValidatedDraftAdapter(db);
  const stored=await save({taskId:'0x123',content:'verified sample',candidateSha256:'a'.repeat(64),validation:'schema-valid'});
- assert.equal(stored.draftId,'melwork-draft-'+'a'.repeat(64));
+ assert.match(stored.draftId,/^melwork-draft-[0-9a-f]+-a{64}$/);
  assert.equal(calls.length,3);
 });
 test('D1 validated draft adapter never fabricates persistence confirmation',async()=>{
  const db={prepare(sql){return {bind(){return {run:async()=>({success:true}),first:async()=>null}},run:async()=>({success:true})}}};
  await assert.rejects(createD1ValidatedDraftAdapter(db)({taskId:'0x123',content:'verified sample',candidateSha256:'a'.repeat(64)}),/WORK_DRAFT_PERSISTENCE_UNCONFIRMED/);
+});
+
+
+test('D1 draft IDs differ across tasks for the same candidate hash',async()=>{
+ const ids=[];
+ const db={prepare(sql){return {run:async()=>({success:true}),bind(...values){if(sql.startsWith('INSERT'))ids.push(values[0]);return {run:async()=>({success:true}),first:async()=>({id:ids.at(-1)})}}}}};
+ const save=createD1ValidatedDraftAdapter(db);
+ const a=await save({taskId:'task-a',content:'draft',candidateSha256:'a'.repeat(64)});
+ const b=await save({taskId:'task-b',content:'draft',candidateSha256:'a'.repeat(64)});
+ assert.notEqual(a.draftId,b.draftId);
 });
