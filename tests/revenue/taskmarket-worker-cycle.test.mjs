@@ -410,3 +410,29 @@ test('direct work rejects unsafe and unassessed public tasks instead of inventin
  assert.equal(executed,1);
  assert.equal(result.missionId,'unknown');
 });
+
+test('MEL WORK scans eligible missions before spending its bounded assessment budget',async()=>{
+ const {runDirectWork}=await import('../../src/revenue/work-mission-core.js');
+ const {sqliteD1}=await import('../helpers/sqlite-d1.mjs');
+ let assessed=0;
+ const missions=Array.from({length:12},(_,i)=>({id:'unsuitable-'+i,description:'Unavailable job',eligibleForDraft:false}));
+ missions.push({id:'real-candidate',description:'Summarize public non-sensitive data',eligibleForDraft:true});
+ const result=await runDirectWork({db:sqliteD1(),listMissions:async()=>missions,assess:async()=>{assessed++;return {eligible:true,confidenceBps:9500,requiresHuman:false,requiresPhysicalWorld:false,requiresSecrets:false,requestsUnsafeAction:false}},execute:async()=>({content:'Completed summary'})});
+ assert.equal(assessed,1);
+ assert.equal(result.missionId,'real-candidate');
+ assert.equal(result.status,'DRAFT_UNVERIFIED');
+});
+
+test('direct engine skips a failed solver and persists the next eligible mission',async()=>{
+ const {runDirectWork}=await import('../../src/revenue/work-mission-core.js');
+ const {sqliteD1}=await import('../helpers/sqlite-d1.mjs');
+ const calls=[];
+ const res=await runDirectWork({db:sqliteD1(),listMissions:async()=>[
+ {id:'first',description:'Draft one',eligibleForDraft:true},
+ {id:'second',description:'Draft two',eligibleForDraft:true}],
+ assess:async()=>({eligible:true,confidenceBps:9600,requiresHuman:false,requiresPhysicalWorld:false,requiresSecrets:false,requestsUnsafeAction:false}),
+ execute:async(_,m)=>{calls.push(m.id);if(m.id==='first')throw new Error('WORK_SOLVER_OUTPUT_INVALID');return {content:'completed second job'};}});
+ assert.deepEqual(calls,['first','second']);
+ assert.equal(res.missionId,'second');
+ assert.equal(res.status,'DRAFT_UNVERIFIED');
+});
