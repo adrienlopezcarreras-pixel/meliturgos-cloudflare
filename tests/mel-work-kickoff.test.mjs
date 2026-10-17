@@ -148,3 +148,20 @@ test('kickoff evidence requires distinct verified exercise kinds and calculation
   assert.match(source, /const verifiedChunks = new Set/);
   assert.match(source, /\[1,20001,40001\]\.includes\(row\.artifact\.start\)/);
 });
+
+
+test('kickoff does not report success when persisted execution failed', async () => {
+  const bus={execute:async (id,input)=>{
+    if(id==='work.plan.save') return {id:input.id};
+    if(id==='work.plan.get') return {plan:{id:input.id}};
+    if(id==='work.plan.materialize') return {plan:{work_dag_id:'failed-dag'}};
+    if(id==='work.run') return {status:'COMPLETED'};
+    if(id==='work.plan.sync') return {work:{status:'FAILED'}};
+    if(id==='work.artifacts') return {artifacts:[]};
+    throw new Error('UNKNOWN_'+id);
+  }};
+  const result=await startMelWorkKickoff({bus,text:PROMPT,conversationId:'failed-state',context:{}});
+  assert.equal(result.status,'FAILED');
+  assert.equal(result.ok,false);
+  assert.equal(result.persisted,true);
+});
