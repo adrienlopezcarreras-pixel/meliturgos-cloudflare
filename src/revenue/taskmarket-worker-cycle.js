@@ -1,3 +1,4 @@
+import { normalizeRevenueTasks } from '../api/revenue-worker-api.js';
 import { screenTaskmarketTask } from './taskmarket-task-policy.js';
 
 const record = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -207,4 +208,22 @@ export async function listD1ValidatedDrafts(db,{limit=20}={}) {
   const result=await db.prepare('SELECT id, task_id, candidate_sha256, validation, created_at FROM mel_work_validated_drafts ORDER BY created_at DESC LIMIT ?').bind(bounded).all();
   if(!Array.isArray(result?.results))throw new Error('WORK_DRAFT_LIST_UNAVAILABLE');
   return {drafts:result.results.map(row=>({id:String(row.id),taskId:String(row.task_id),candidateSha256:String(row.candidate_sha256),validation:String(row.validation||'').slice(0,1000),createdAt:String(row.created_at)}))};
+}
+
+/**
+ * Public-only Taskmarket discovery adapter. It cannot claim or submit jobs.
+ * A real Council and solver must still be supplied separately.
+ */
+export function createPublicTaskmarketListAdapter({ fetchImpl = fetch, now = () => Date.now() } = {}) {
+  if (typeof fetchImpl !== 'function') throw new TypeError('TASKMARKET_FETCH_REQUIRED');
+  return async () => {
+    const url = 'https://api.taskmarket.dev/api/tasks?status=open&sort=reward_desc&limit=50';
+    const response = await fetchImpl(url, {
+      method: 'GET', headers: { accept: 'application/json' }, signal: AbortSignal.timeout(12000),
+    });
+    if (!response?.ok) throw new Error('TASKMARKET_PUBLIC_API_UNAVAILABLE');
+    const payload = await response.json();
+    if (!Array.isArray(payload?.data?.tasks) && !Array.isArray(payload?.tasks)) throw new Error('TASKMARKET_PUBLIC_SCHEMA_INVALID');
+    return { tasks: normalizeRevenueTasks(payload, now()) };
+  };
 }
