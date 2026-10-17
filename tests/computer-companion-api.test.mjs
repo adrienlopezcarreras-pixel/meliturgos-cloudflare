@@ -287,6 +287,9 @@ test('authenticated native supervisor heartbeat keeps already-installed Windows 
     assert.equal(payload.ok,true);
     assert.equal(payload.engine_online,true);
     assert.ok(Number(payload.engine_last_seen_at)>=before);
+    const source=await DB.prepare('SELECT metadata FROM computer_devices WHERE id=?').bind('pc-native-supervisor').first();
+    assert.equal(JSON.parse(source.metadata).engine_direct_heartbeat_at,undefined,
+      'native process supervision must not be presented as an actual engine callback');
   }finally{DB.close();}
 });
 
@@ -319,6 +322,10 @@ test('Windows command engine heartbeat is independently fresh from the desktop U
     assert.equal(payload.engine_online,true);
     assert.equal(payload.engine_version,'1.3.0');
     assert.equal(payload.engine_last_seen_at,engineHeartbeatAt);
+    const direct=await DB.prepare('SELECT metadata FROM computer_devices WHERE id=?').bind('pc-engine-heartbeat').first();
+    const directSeen=Number(JSON.parse(direct.metadata).engine_direct_heartbeat_at);
+    assert.ok(directSeen>=engineHeartbeatAt-2000 && directSeen<=Date.now(),
+      'PowerShell heartbeat must be recorded independently from native supervisor');
   }finally{DB.close();}
 });
 
