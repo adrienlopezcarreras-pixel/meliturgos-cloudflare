@@ -422,3 +422,17 @@ test('MEL WORK scans eligible missions before spending its bounded assessment bu
  assert.equal(result.missionId,'real-candidate');
  assert.equal(result.status,'DRAFT_UNVERIFIED');
 });
+
+test('direct engine skips a failed solver and persists the next eligible mission',async()=>{
+ const {runDirectWork}=await import('../../src/revenue/work-mission-core.js');
+ const {sqliteD1}=await import('../helpers/sqlite-d1.mjs');
+ const calls=[];
+ const res=await runDirectWork({db:sqliteD1(),listMissions:async()=>[
+ {id:'first',description:'Draft one',eligibleForDraft:true},
+ {id:'second',description:'Draft two',eligibleForDraft:true}],
+ assess:async()=>({eligible:true,confidenceBps:9600,requiresHuman:false,requiresPhysicalWorld:false,requiresSecrets:false,requestsUnsafeAction:false}),
+ execute:async(_,m)=>{calls.push(m.id);if(m.id==='first')throw new Error('WORK_SOLVER_OUTPUT_INVALID');return {content:'completed second job'};}});
+ assert.deepEqual(calls,['first','second']);
+ assert.equal(res.missionId,'second');
+ assert.equal(res.status,'DRAFT_UNVERIFIED');
+});
