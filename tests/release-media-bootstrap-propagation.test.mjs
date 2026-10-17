@@ -116,6 +116,8 @@ test('MEDIA-02 retains the prior five-minute request timeout while auth propagat
 test('new release gate retains MEDIA-02 artifact evidence and automatic rollback', () => {
   const yaml = readFileSync(new URL('../.github/workflows/deploy-cloudflare-release.yml', import.meta.url), 'utf8');
   assert.ok(yaml.includes('node scripts/prove-media-02-release.mjs'));
+  const mediaStep = yaml.slice(yaml.indexOf('- name: Prove MEL-MEDIA-02 12/12 live on exact deployed SHA'), yaml.indexOf('- name: Upload MEL-MEDIA-02 exact-SHA evidence'));
+  assert.match(mediaStep, /^        timeout-minutes: 20$/m, 'live proof must be bounded at the workflow step level');
   assert.ok(yaml.includes('Upload MEL-MEDIA-02 exact-SHA evidence'));
   assert.ok(yaml.includes('Automatic rollback accepted to previous stable Cloudflare version.'));
   assert.ok(yaml.includes('MAX kept disabled'));
