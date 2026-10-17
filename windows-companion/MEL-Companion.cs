@@ -1423,6 +1423,7 @@ class PermissionsForm : Form
 class MainForm : Form
 {
     Label connection;
+    Label localAccessStatus;
     Label adbWifiStatus;
     Label triadActivityStatus;
     Panel cards;
@@ -1493,11 +1494,13 @@ class MainForm : Form
         miniUsb.Anchor=AnchorStyles.Top|AnchorStyles.Right;
         var androidPair=ButtonAt(pc,"Configurer ADB Wi-Fi",Math.Max(170,pc.Width-450),43,205,RunAndroidWifiPairing);
         androidPair.Anchor=AnchorStyles.Top|AnchorStyles.Right;
-        LabelAt(pc,Environment.MachineName,20,57,Math.Max(240,pc.Width-480),40,12,true).Anchor=AnchorStyles.Top|AnchorStyles.Left;
-        adbWifiStatus=LabelAt(pc,"ADB Wi-Fi : recherche du téléphone…",20,109,pc.Width-40,31,9,false,gray);
+        LabelAt(pc,Environment.MachineName,20,57,Math.Max(240,pc.Width-480),31,12,true).Anchor=AnchorStyles.Top|AnchorStyles.Left;
+        localAccessStatus=LabelAt(pc,"Accès PC : désactivé  |  Calcul local : désactivé",20,91,pc.Width-40,22,9,false,gray);
+        localAccessStatus.Anchor=AnchorStyles.Top|AnchorStyles.Left|AnchorStyles.Right;
+        adbWifiStatus=LabelAt(pc,"ADB Wi-Fi : recherche du téléphone…",20,118,pc.Width-40,22,9,false,gray);
         adbWifiStatus.Anchor=AnchorStyles.Top|AnchorStyles.Left|AnchorStyles.Right;
         LabelAt(this,"Appareils MEL",28,302,390,47,12,true);
-        var permissions=ButtonAt(this,"Autorisations",0,302,170,delegate{using(var dlg=new PermissionsForm())dlg.ShowDialog(this);});
+        var permissions=ButtonAt(this,"Autorisations",0,302,170,delegate{using(var dlg=new PermissionsForm())dlg.ShowDialog(this);RefreshAll();});
         var refresh=ButtonAt(this,"Actualiser",0,302,150,delegate{RefreshAll();RefreshAdbDiagnostics();});
         permissions.Anchor=AnchorStyles.Right|AnchorStyles.Top;refresh.Anchor=AnchorStyles.Right|AnchorStyles.Top;
         permissions.Left=ClientSize.Width-370;refresh.Left=ClientSize.Width-180;
@@ -1807,8 +1810,8 @@ class MainForm : Form
             var pcAccess=MelApp.ConfigBool("remote_access_enabled");
             var computeAllowed=MelApp.ConfigBool("local_compute_enabled");
             var computeProfile=MelApp.ConfigString("local_compute_profile");
-            connection.Text=(online?"Connecté à MEL":"Serveur indisponible — reconnexion automatique")
-                +"  |  Accès PC : "+(pcAccess?"autorisé":"désactivé")
+            connection.Text=online?"Connecté à MEL":"Serveur indisponible — reconnexion automatique";
+            localAccessStatus.Text="Accès PC : "+(pcAccess?"autorisé":"désactivé")
                 +"  |  Calcul local : "+(computeAllowed?(String.IsNullOrWhiteSpace(computeProfile)?"activé":computeProfile):"désactivé");
             connection.ForeColor=online?Color.FromArgb(25,125,85):gray;
             if(MelApp.Tray!=null)MelApp.Tray.Text=online?"MEL Companion — connecté":"MEL Companion — reconnexion";
