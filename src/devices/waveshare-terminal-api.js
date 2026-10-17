@@ -357,7 +357,7 @@ async function ownerFirmware(request, env) {
 
   // USB installation needs the merged image (bootloader + partitions + app).
   // OTA deliberately uses manifest.firmware.key, which must be app-only.
-  const installer = manifest?.installer?.available === true ? manifest.installer : manifest?.firmware;
+  const installer = manifest?.installer;
   const key = String(installer?.key || "");
   if (installer?.available !== true || !validDownloadKey(key)) {
     return json({ ok: false, code: "FIRMWARE_NOT_PUBLISHED" }, 404);
