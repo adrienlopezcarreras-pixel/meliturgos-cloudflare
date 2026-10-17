@@ -15,7 +15,7 @@ using System.Web.Script.Serialization;
 static class MelApp
 {
     public const string DefaultServer = "https://meliturgos.adrien-lopezcarreras.workers.dev";
-    public const string Version = "2.3.15";
+    public const string Version = "2.3.16";
     public static readonly string MelDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "MEL");
     public static readonly string ConfigPath = Path.Combine(MelDir, "computer.json");
     public static readonly string InstalledExe = Path.Combine(MelDir, "MEL-Companion.exe");
@@ -112,6 +112,13 @@ static class MelApp
     }
 
 
+
+    // Display scaling factor of the screen (1.0 at 100 %, 1.5 at 150 %).
+    public static float DpiScale()
+    {
+        try { using (var g = Graphics.FromHwnd(IntPtr.Zero)) return Math.Max(1f, g.DpiX / 96f); }
+        catch { return 1f; }
+    }
 
     public static void EnableDpiAwareness()
     {
@@ -1249,6 +1256,8 @@ class SetupForm : Form
         status = MelApp.Label("Prêt à appairer ce PC.",42,466,480,30,9.5f,MelApp.Muted,FontStyle.Bold); Controls.Add(status);
         var quit = MelApp.TechButton("ANNULER",548,462,98,40,false); quit.Click += delegate { Close(); }; Controls.Add(quit);
         var go = MelApp.TechButton("CONNECTER",658,462,104,40,true); go.Click += Connect; Controls.Add(go); AcceptButton = go;
+        // Layout is in 100 % pixels: grow everything with Windows display scaling.
+        float k = MelApp.DpiScale(); if (k > 1f) Scale(new SizeF(k, k));
     }
 
     void Connect(object sender, EventArgs e)
@@ -1399,6 +1408,7 @@ class PermissionsForm : Form
             foreach(var cb in pathBoxes)cb.Width=content.Width-48;
         };
         // Guarantee a nonzero extent and visible scroll range on first display.
+        float k=MelApp.DpiScale(); if(k>1f) Scale(new SizeF(k,k));
         Shown+=delegate {scroll.AutoScrollMinSize=new Size(0,content.Height+12);};
     }
     void Apply(object sender,EventArgs e)
@@ -1441,9 +1451,15 @@ class MainForm : Form
     readonly Color background=Color.FromArgb(246,248,252);
     readonly Color stroke=Color.FromArgb(220,228,239);
     readonly List<Control> cardRows=new List<Control>();
+    // Windows display scaling (125 %, 150 %…): every fixed pixel size below is
+    // multiplied by this factor, otherwise text grows but its boxes do not and
+    // titles and buttons are cut in half.
+    readonly float k=MelApp.DpiScale();
+    int S(float v){return (int)Math.Round(v*k);}
+    RowStyle Abs(float v){return new RowStyle(SizeType.Absolute,v*k);}
     Label LabelAt(Control parent,string value,int x,int y,int w,int h,float font=11f,bool bold=false,Color? ink=null)
     {
-        var label=new Label {Text=value,Location=new Point(x,y),Size=new Size(w,h),
+        var label=new Label {Text=value,Location=new Point(S(x),S(y)),Size=new Size(S(w),S(h)),
             Font=new Font("Segoe UI",font,bold?FontStyle.Bold:FontStyle.Regular),
             ForeColor=ink??text,BackColor=Color.Transparent,AutoSize=false,
             TextAlign=ContentAlignment.TopLeft,AutoEllipsis=true};
@@ -1453,7 +1469,8 @@ class MainForm : Form
     {
         var primary=title=="Ouvrir MEL" || title=="Actualiser" || title=="Contrôle USB MINI";
         var danger=title=="Désinstaller";
-        var button=new Button {Text=title,Location=new Point(x,y),Size=new Size(w,42),
+        var button=new Button {Text=title,Location=new Point(S(x),S(y)),Size=new Size(S(w),S(42)),
+            AutoSize=true,AutoSizeMode=AutoSizeMode.GrowOnly,MinimumSize=new Size(S(w),S(42)),Padding=new Padding(S(8),0,S(8),0),
             FlatStyle=FlatStyle.Flat,Font=new Font("Segoe UI Semibold",9.5f,FontStyle.Regular),
             UseVisualStyleBackColor=false,Cursor=Cursors.Hand,TabStop=true,
             BackColor=primary?blue:Color.White,
@@ -1505,7 +1522,7 @@ class MainForm : Form
         var b=ButtonAt(new Panel(),caption,0,0,width,click);
         // Re-parent into the actual layout cell; buttons are never overlaid.
         b.Parent.Controls.Remove(b);
-        b.Height=42;
+        b.Height=S(42);
         b.Margin=new Padding(5,3,5,3);
         if(primary){b.BackColor=blue;b.ForeColor=Color.White;b.FlatAppearance.BorderSize=0;}
         return b;
@@ -1521,7 +1538,7 @@ class MainForm : Form
     Panel NewDeviceSurface()
     {
         var tile=new Panel {
-            Width=440,Height=194,BackColor=Color.White,
+            Width=S(440),Height=S(194),BackColor=Color.White,
             BorderStyle=BorderStyle.FixedSingle,
             Padding=new Padding(16),
             Margin=new Padding(0,0,12,12),
@@ -1534,10 +1551,10 @@ class MainForm : Form
     {
         Text="MEL Companion — Windows";
         Icon=MelApp.MakeIcon();
-        ClientSize=new Size(1100,800);
-        MinimumSize=new Size(790,650);
+        ClientSize=new Size(S(1100),S(800));
+        MinimumSize=new Size(S(790),S(650));
         StartPosition=FormStartPosition.CenterScreen;
-        AutoScaleMode=AutoScaleMode.Font;
+        AutoScaleMode=AutoScaleMode.None; // sizes are scaled explicitly with k
         Font=new Font("Segoe UI",10f);
         BackColor=background;ForeColor=text;DoubleBuffered=true;
         AutoScroll=false;
@@ -1550,11 +1567,11 @@ class MainForm : Form
             BackColor=background
         };
         shell.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100f));
-        shell.RowStyles.Add(new RowStyle(SizeType.Absolute,104f));
-        shell.RowStyles.Add(new RowStyle(SizeType.Absolute,218f));
-        shell.RowStyles.Add(new RowStyle(SizeType.Absolute,84f));
+        shell.RowStyles.Add(Abs(104f));
+        shell.RowStyles.Add(Abs(218f));
+        shell.RowStyles.Add(Abs(84f));
         shell.RowStyles.Add(new RowStyle(SizeType.Percent,100f));
-        shell.RowStyles.Add(new RowStyle(SizeType.Absolute,110f));
+        shell.RowStyles.Add(Abs(110f));
         Controls.Add(shell);
 
         var header=new TableLayoutPanel {Dock=DockStyle.Fill,ColumnCount=2,RowCount=1,
@@ -1563,8 +1580,8 @@ class MainForm : Form
         header.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,22f));
         shell.Controls.Add(header,0,0);
         var brand=Stack(3);
-        brand.RowStyles.Add(new RowStyle(SizeType.Absolute,48f));
-        brand.RowStyles.Add(new RowStyle(SizeType.Absolute,29f));
+        brand.RowStyles.Add(Abs(48f));
+        brand.RowStyles.Add(Abs(29f));
         brand.RowStyles.Add(new RowStyle(SizeType.Percent,100f));
         header.Controls.Add(brand,0,0);
         CellLabel(brand,"MEL Companion",21f,true);
@@ -1577,10 +1594,10 @@ class MainForm : Form
         var pc=Surface();
         shell.Controls.Add(pc,0,1);
         var work=Stack(5);
-        work.RowStyles.Add(new RowStyle(SizeType.Absolute,31f));
-        work.RowStyles.Add(new RowStyle(SizeType.Absolute,34f));
-        work.RowStyles.Add(new RowStyle(SizeType.Absolute,53f));
-        work.RowStyles.Add(new RowStyle(SizeType.Absolute,29f));
+        work.RowStyles.Add(Abs(31f));
+        work.RowStyles.Add(Abs(34f));
+        work.RowStyles.Add(Abs(53f));
+        work.RowStyles.Add(Abs(29f));
         work.RowStyles.Add(new RowStyle(SizeType.Percent,100f));
         pc.Controls.Add(work);
         CellLabel(work,"POSTE DE TRAVAIL",10f,true,blue);
@@ -1598,10 +1615,10 @@ class MainForm : Form
         var section=new TableLayoutPanel {Dock=DockStyle.Fill,ColumnCount=2,RowCount=1,
             BackColor=Color.Transparent,Margin=new Padding(0)};
         section.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100f));
-        section.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute,345f));
+        section.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute,345f*k));
         shell.Controls.Add(section,0,2);
         var captions=Stack(2);
-        captions.RowStyles.Add(new RowStyle(SizeType.Absolute,43f));
+        captions.RowStyles.Add(Abs(43f));
         captions.RowStyles.Add(new RowStyle(SizeType.Percent,100f));
         section.Controls.Add(captions,0,0);
         CellLabel(captions,"Appareils connectés",16f,true);
@@ -1626,7 +1643,7 @@ class MainForm : Form
         cards.Resize+=delegate{ResizeCards();};
 
         var footer=Stack(2);
-        footer.RowStyles.Add(new RowStyle(SizeType.Absolute,54f));
+        footer.RowStyles.Add(Abs(54f));
         footer.RowStyles.Add(new RowStyle(SizeType.Percent,100f));
         shell.Controls.Add(footer,0,4);
         var maintenance=new FlowLayoutPanel {
@@ -1759,9 +1776,9 @@ class MainForm : Form
         if(cards==null || cards.IsDisposed)return;
         // Two fluid columns on desktop, one on narrow windows.
         // Scrollbar allowance is applied before measuring to avoid wrap oscillation.
-        int width=Math.Max(340,cards.ClientSize.Width-24);
-        bool twoColumns=width>=1000;
-        int tileWidth=twoColumns?(width-24)/2:width;
+        int width=Math.Max(S(340),cards.ClientSize.Width-S(24));
+        bool twoColumns=width>=S(1000);
+        int tileWidth=twoColumns?(width-S(24))/2:width;
         cards.SuspendLayout();
         foreach(Panel tile in cards.Controls.OfType<Panel>())
         {
@@ -1848,6 +1865,7 @@ class MainForm : Form
             dialog.Controls.Add(note);dialog.Controls.Add(portList);
             dialog.Controls.Add(cancel);dialog.Controls.Add(start);
             dialog.AcceptButton=start;dialog.CancelButton=cancel;
+            if(k>1f)dialog.Scale(new SizeF(k,k));
             if(dialog.ShowDialog(this)!=DialogResult.OK)return;
             var port=Convert.ToString(portList.SelectedItem);
             if(!System.Text.RegularExpressions.Regex.IsMatch(port??"",@"^COM[0-9]{1,3}$"))
@@ -1937,6 +1955,7 @@ class MainForm : Form
             dialog.Controls.Add(note);dialog.Controls.Add(portList);
             dialog.Controls.Add(cancel);dialog.Controls.Add(start);
             dialog.AcceptButton=start;dialog.CancelButton=cancel;
+            if(k>1f)dialog.Scale(new SizeF(k,k));
             if (dialog.ShowDialog(this)!=DialogResult.OK)return;
             var port=Convert.ToString(portList.SelectedItem);
             if (!System.Text.RegularExpressions.Regex.IsMatch(port??"", @"^COM[0-9]{1,3}$"))
@@ -2111,9 +2130,9 @@ class MainForm : Form
                     };
                     layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,70f));
                     layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,30f));
-                    layout.RowStyles.Add(new RowStyle(SizeType.Absolute,46f));
+                    layout.RowStyles.Add(Abs(46f));
                     layout.RowStyles.Add(new RowStyle(SizeType.Percent,100f));
-                    layout.RowStyles.Add(new RowStyle(SizeType.Absolute,46f));
+                    layout.RowStyles.Add(Abs(46f));
                     tile.Controls.Add(layout);
                     var kind=Get(d,"kind")=="android"?"Android":"MINI";
                     var title=new Label{
