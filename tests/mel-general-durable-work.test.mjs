@@ -62,6 +62,9 @@ test('large goal kickoff stores a real job and schedules a single background nod
   const same = await launchSubstantialMelTask({bus, text:GOAL, conversationId:'test', context: {}});
   assert.equal(same.created, false);
   assert.equal(same.id, result.id);
+  assert.equal(same.started, false);
+  assert.equal(scheduled.length, 1, 'repeated HTTP requests must not double-schedule the same work');
+  assert.equal(calls.filter(item => item === 'work.run').length, 1);
   assert.equal(calls.filter(item => item === 'work.create').length, 1);
 });
 
