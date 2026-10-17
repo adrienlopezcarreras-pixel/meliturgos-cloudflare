@@ -92,7 +92,8 @@ async function viewPersistentWorkArtifacts(planId,button){
   const rows=result.artifacts;
   const types=rows.slice(0,50).map(row=>String(row?.artifact?.kind||row?.kind||'type inconnu').slice(0,80));
   if(!area.isConnected || savedPlanRecords.get(planId)?.work_dag_id!==record.work_dag_id)return;
-  area.textContent=rows.length+' artefact(s) persistants. Types : '+(types.join(', ')||'aucun')+(rows.length>50?' (premiers 50 affichés)':'')+'. Aucun paiement ni livraison externe ne sont prouvés par cette lecture.';
+  const verified=rows.filter(row=>{const checks=row?.artifact?.quality_checks;return checks && typeof checks==='object' && Object.keys(checks).length>0 && Object.values(checks).every(value=>value===true)}).length;
+  area.textContent=rows.length+' artefact(s) persistants, dont '+verified+' avec contrôles de qualité explicitement réussis. Types : '+(types.join(', ')||'aucun')+(rows.length>50?' (premiers 50 affichés)':'')+'. Ce décompte ne prouve ni acceptation, ni paiement, ni livraison externe.';
  }catch(error){if(area.isConnected && savedPlanRecords.get(planId)?.work_dag_id===record.work_dag_id)area.textContent='Résultats indisponibles : '+String(error?.message||error).slice(0,160)}
  finally{button.disabled=false}
 }

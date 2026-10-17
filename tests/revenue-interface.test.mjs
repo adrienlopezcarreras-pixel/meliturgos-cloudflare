@@ -317,3 +317,13 @@ test('MEL WORK ignores stale evidence errors after plan cards are refreshed',asy
  assert.match(script,/catch\(error\)\{if\(area\.isConnected && savedPlanRecords\.get\(planId\)\?\.work_dag_id===record\.work_dag_id\)/);
  assert.doesNotThrow(()=>new Function(script));
 });
+
+
+test('MEL WORK displays quality-verified evidence separately from artifact count',async()=>{
+ const html=await(await onRequestGet()).text();
+ const script=html.match(/<script>([\s\S]*?)<\/script>/)?.[1]||'';
+ assert.match(script,/const verified=rows\.filter/);
+ assert.match(script,/Object\.values\(checks\)\.every\(value=>value===true\)/);
+ assert.match(script,/contrôles de qualité explicitement réussis/);
+ assert.doesNotThrow(()=>new Function(script));
+});
