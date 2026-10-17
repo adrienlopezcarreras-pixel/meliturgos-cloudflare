@@ -134,7 +134,8 @@ async function createPersistentPrepPlan(task,button){
   savingTaskPlans.delete(taskId);button.disabled=false;
  }
 }
-async function refreshTasks(){const b=$('refreshAll');b.disabled=true;$('taskError').textContent='Lecture des offres publiques…';try{const r=await fetch('/api/revenue/tasks',{cache:'no-store'});const d=await r.json();if(!r.ok||d.ok!==true)throw new Error(d.code||d.error||'TASKMARKET_UNAVAILABLE');tasks=Array.isArray(d.tasks)?d.tasks:[];lastFetch=d.retrievedAt||new Date().toISOString();$('taskFetched').textContent='Mis à jour '+new Date(lastFetch).toLocaleString('fr-FR');$('taskError').textContent='Source : Taskmarket · '+tasks.length+' offres lisibles. La catégorie « candidat » est un filtre indicatif, pas une promesse de réussite.';renderTasks();await loadPersistentPrepPlans();$('globalStatus').innerHTML='<span class="dot good"></span><span>Taskmarket répond · mode observation uniquement</span>'}catch(e){$('taskError').textContent='Impossible de lire les offres : '+String(e.message||e);$('globalStatus').innerHTML='<span class="dot bad"></span><span>Lecture des offres indisponfunction computerControlIssue(pc,now=Date.now()){
+async function refreshTasks(){const b=$('refreshAll');b.disabled=true;$('taskError').textContent='Lecture des offres publiques…';try{const r=await fetch('/api/revenue/tasks',{cache:'no-store'});const d=await r.json();if(!r.ok||d.ok!==true)throw new Error(d.code||d.error||'TASKMARKET_UNAVAILABLE');tasks=Array.isArray(d.tasks)?d.tasks:[];lastFetch=d.retrievedAt||new Date().toISOString();$('taskFetched').textContent='Mis à jour '+new Date(lastFetch).toLocaleString('fr-FR');$('taskError').textContent='Source : Taskmarket · '+tasks.length+' offres lisibles. La catégorie « candidat » est un filtre indicatif, pas une promesse de réussite.';renderTasks();await loadPersistentPrepPlans();$('globalStatus').innerHTML='<span class="dot good"></span><span>Taskmarket répond · mode observation uniquement</span>'}catch(e){$('taskError').textContent='Impossible de lire les offres : '+String(e.message||e);$('globalStatus').innerHTML='<span class="dot bad"></span><span>Lecture des offres indisponible</span>'}finally{b.disabled=false}}
+function computerControlIssue(pc,now=Date.now()){
  if(!pc)return 'COMPUTER_NOT_FOUND';
  if(pc.halted===true||Number(pc.halted)===1)return 'OWNER_HALT_ACTIVE';
  const seen=Number(pc.last_seen_at||0);
@@ -189,7 +190,6 @@ async function refreshPc(){
   $('pcState').style.color='var(--warn)';
  }finally{b.disabled=false}
 }
-var(--warn)'}finally{b.disabled=false}}
 async function scanLocalTaskmarket(){
  const button=$('scanPcTaskmarket'),info=$('pcTaskmarketInfo');
  button.disabled=true;info.style.display='block';info.textContent='Demande de lecture en lecture seule au Companion Windows…';
