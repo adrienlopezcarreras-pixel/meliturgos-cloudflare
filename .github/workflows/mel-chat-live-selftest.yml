@@ -1,0 +1,60 @@
+name: mel-chat-live-selftest
+
+# Live test of production MEL Chat: short reply, plan, streaming, very large
+# prompts. Uses the per-deployment proof key (derived from the deployed SHA);
+# the Worker calls its real chat in-process and returns metrics only.
+on:
+  workflow_dispatch:
+    inputs:
+      cases:
+        description: Comma-separated cases (short,plan,big,huge)
+        required: false
+        default: short,plan,big,huge
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  selftest:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      PROOF_KEY_B64: ${{ secrets.MEL_BACKUP_ENCRYPTION_KEY_B64 }}
+      BASE_URL: https://meliturgos.adrien-lopezcarreras.workers.dev
+      GH_TOKEN: ${{ github.token }}
+      CASES: ${{ inputs.cases }}
+    steps:
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '22'
+      - name: Find the deployed SHA and its proof key
+        shell: bash
+        run: |
+          set -euo pipefail
+          SHAS="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/deploy-cloudflare-release.yml/runs?per_page=15" --jq '.workflow_runs[].head_sha' | awk '!seen[$0]++')"
+          for SHA in $SHAS; do
+            TOKEN="$(SHA="$SHA" node -e "const c=require('node:crypto');const k=Buffer.from(process.env.PROOF_KEY_B64||'','base64');if(k.length!==32)process.exit(3);process.stdout.write(Buffer.from(c.hkdfSync('sha256',k,Buffer.from('meliturgos-parallel-proof-salt-v1'),Buffer.from('MEL_PARALLEL_PROOF_V1:'+process.env.SHA.toLowerCase()),32)).toString('base64url'))")"
+            echo "::add-mask::${TOKEN}"
+            CODE="$(curl -sS --max-time 35 -o identity.json -w '%{http_code}' -H "x-mel-parallel-proof: ${TOKEN}" -H 'content-type: application/json' --data '{"phase":"identity"}' "${BASE_URL}/api/internal/release-launch-bootstrap" || true)"
+            if [ "$CODE" = 200 ] && grep -q "\"deployed_sha\":\"${SHA}\"" identity.json; then
+              echo "TOKEN=${TOKEN}" >> "$GITHUB_ENV"; echo "::notice title=Deployed SHA::${SHA}"; exit 0
+            fi
+          done
+          echo "::error title=selftest::deployed SHA not found among recent deploy runs"; exit 1
+      - name: Run the live chat self-test
+        shell: bash
+        run: |
+          set -euo pipefail
+          BODY="$(node -e "process.stdout.write(JSON.stringify({cases:String(process.env.CASES||'short,plan,big,huge').split(',').map(s=>s.trim()).filter(Boolean)}))")"
+          CODE="$(curl -sS --max-time 600 -o selftest.json -w '%{http_code}' -H 'x-mel-release-smoke: 1' -H "x-mel-parallel-proof: ${TOKEN}" -H 'content-type: application/json' --data "$BODY" "${BASE_URL}/api/internal/chat-selftest" || true)"
+          echo "HTTP ${CODE}"
+          node -e "
+          const d=JSON.parse(require('fs').readFileSync('selftest.json','utf8'));
+          for(const r of d.results||[]){
+            const line=[r.case,r.ok?'OK':'ÉCHEC','prompt='+r.prompt_chars,'compris='+r.understood,'flux='+r.streamed,'1er_texte_ms='+r.first_text_ms,'total_ms='+r.total_ms,'réponse='+r.reply_chars,'modèle='+r.model,'archivé='+r.archived,r.error?'erreur='+r.error:''].join(' · ');
+            console.log((r.ok?'::notice':'::error')+' title=MEL chat '+r.case+'::'+line+' — « '+String(r.excerpt||'').replace(/[\r\n]+/g,' ')+' »');
+          }
+          if(d.ok!==true)process.exit(1);
+          " || { cat selftest.json | head -c 2000; exit 1; }

@@ -84,6 +84,7 @@ function safeEqual(left, right) {
 const RELEASE_SMOKE_ALLOWLIST = Object.freeze(new Map([
   ['POST', new Set([
     '/api/chat',
+    '/api/internal/chat-selftest',
     '/api/gen2/capabilities/execute',
     '/api/gen2/migration/gen1-backfill',
     '/api/gen2/migration/chatgpt-memory-backfill',
@@ -125,6 +126,8 @@ const PARALLEL_PROOF_ALLOWLIST = Object.freeze(new Map([
     // smoke path. handleNativeChat keeps release-smoke requests constrained to
     // inferred code.read/code.search and ignores injected body capabilities.
     '/api/chat',
+    // Live chat self-test: calls the real chat in-process, returns metrics only.
+    '/api/internal/chat-selftest',
     '/api/gen2/capabilities/execute',
     // Read-only/diagnostic connector probes used by the exact-SHA
     // post-release proof. Configuration mutation routes such as /save are

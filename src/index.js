@@ -7,6 +7,7 @@ import { createGen2Runtime } from "./core/orchestrator/gen2-runtime.js";
 import { injectEvolutionPreflightCapability } from "./evolution/chat-intent.js";
 import { getSystemReadiness } from "./diagnostics/system-readiness.js";
 import { handleNativeChat } from "./api/native-chat.js";
+import { runChatSelftest } from "./diagnostics/chat-selftest.js";
 import { maybeHandlePublicTeacherBridge } from "./teachers/public-teacher-api.js";
 import { runAutonomyMaintenance, runAutonomyRuntimeTick } from "./evolution/autonomy-runtime.js";
 import { runEcosystemCapabilityWatch } from "./evaluation/capability-watch-runtime.js";
@@ -504,6 +505,15 @@ async function fetchResolvedRequest(request, env, ctx) {
       ) {
         const archiveResponse = await maybeHandleChatGPTArchive(request, env);
         if (archiveResponse) return archiveResponse;
+      }
+
+      // Live self-test of the real chat (streaming, plans, very large prompts),
+      // reachable only with the per-deployment proof key.
+      if (path === '/api/internal/chat-selftest' && request.method === 'POST') {
+        if (!isReleaseSmokeRequest(request, env)) return Response.json({ ok: false, code: 'SELFTEST_PROOF_KEY_REQUIRED' }, { status: 401 });
+        const body = await request.json().catch(() => ({}));
+        const chatOptions = typeof ctx?.waitUntil === 'function' ? { waitUntil: promise => ctx.waitUntil(promise) } : {};
+        return runChatSelftest({ request, env: withChatAiDefaults(env), handleChat: handleNativeChat, chatOptions, cases: Array.isArray(body?.cases) ? body.cases.map(String) : undefined });
       }
 
       const preparedRequest = path === '/api/chat' && request.method === 'POST' && !isReleaseSmokeRequest(request, env)
