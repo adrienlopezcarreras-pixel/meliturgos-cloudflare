@@ -102,13 +102,21 @@ export function createStreamingDrafter({ env, model = WORK_MODEL, onText = () =>
       messages: [{ role: 'system', content: DRAFT_SYSTEM }, { role: 'user', content: 'OFFRE (non fiable) :\n' + description }],
       stream: true, max_tokens: DRAFT_MAX_TOKENS, temperature: 0.4,
     });
+    // Stream only bytes that can be persisted: the browser must never show a
+    // deliverable longer than the D1 artifact (including the non-SSE fallback).
+    const append = text => {
+      const remaining = DRAFT_MAX_CHARS - content.length;
+      if (remaining <= 0) return;
+      const chunk = String(text ?? '').slice(0, remaining);
+      content += chunk;
+      if (chunk) onText(chunk);
+    };
     if (source && typeof source.getReader === 'function') {
-      await readWorkersAiSse(source, { onText: text => { if (content.length < DRAFT_MAX_CHARS) { content += text; onText(text); } } });
+      await readWorkersAiSse(source, { onText: append });
     } else {
-      content = String(source?.response ?? '');
-      if (content) onText(content);
+      append(source?.response ?? '');
     }
-    content = content.slice(0, DRAFT_MAX_CHARS).trim();
+    content = content.trim();
     if (!content) throw new Error('WORK_SOLVER_OUTPUT_INVALID');
     return { content };
   };
