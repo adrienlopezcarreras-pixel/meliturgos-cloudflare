@@ -198,7 +198,7 @@ test('Android ignores delayed BLE scan callbacks after scan stop or a live GATT 
 test('Android never sends old AUDIO_DATA or AUDIO_END to a reconnected MINI after credit release', async () => {
   const client = await read('android-companion/app/src/main/java/fr/veriteinterdite/mel/MelLinkV2ClientService.kt');
   const audio = client.slice(client.indexOf('private fun sendAudioResponse('), client.indexOf('private fun executeRequest('));
-  assert.match(audio, /val intendedGatt = gatt \?: return false/);
+  assert.match(audio, /val intendedGatt = expectedGatt \?: \(gatt \?: return false\)/);
   assert.match(audio, /outboundTransferActive\(streamId, credits, intendedGatt\)/);
   assert.match(audio, /awaitOutboundCredit\(streamId, credits\)/);
   const afterCredit = audio.slice(audio.indexOf('if (!awaitOutboundCredit('));
@@ -258,7 +258,7 @@ test('Android queued Link V2 controls recheck original GATT under writeLock befo
 test('Android cannot finish an old MINI HTTP response on a new BLE session', async () => {
   const client = await read('android-companion/app/src/main/java/fr/veriteinterdite/mel/MelLinkV2ClientService.kt');
   const response = client.slice(client.indexOf('private fun sendResponse('), client.indexOf('private fun sendAudioResponse('));
-  assert.match(response, /val intendedGatt = gatt \?: return false/);
+  assert.match(response, /val intendedGatt = expectedGatt \?: \(gatt \?: return false\)/);
   assert.match(response, /if \(!miniReady\.value \|\| !protocolReady\.value\) return false/);
   assert.match(response, /MelLinkV2Protocol\.RESPONSE_BEGIN[\s\S]*?\), intendedGatt/);
   assert.match(response, /MelLinkV2Protocol\.RESPONSE_DATA[\s\S]*?\), intendedGatt/);
@@ -273,4 +273,29 @@ test('Android cannot finish an old MINI HTTP response on a new BLE session', asy
   assert.match(writer, /if \(intendedGatt != null && client !== intendedGatt\) return false/);
   assert.ok(writer.indexOf('if (intendedGatt != null && client !== intendedGatt) return false') <
     writer.indexOf('client.writeCharacteristic(target,'));
+});
+
+test('Android delayed MINI request, transcription and TTS workers preserve their originating GATT session', async () => {
+  const client = await read('android-companion/app/src/main/java/fr/veriteinterdite/mel/MelLinkV2ClientService.kt');
+  const incoming = client.slice(client.indexOf('private data class IncomingRequest('), client.indexOf('private var wakeLock:'));
+  assert.equal((incoming.match(/val sessionGatt: BluetoothGatt/g) || []).length, 2);
+  const onRequest = client.slice(client.indexOf('MelLinkV2Protocol.REQUEST_BEGIN ->'), client.indexOf('MelLinkV2Protocol.REQUEST_DATA ->'));
+  assert.match(onRequest, /IncomingRequest\(frame\.streamId, meta, gatt \?: return\)/);
+  const onAudio = client.slice(client.indexOf('MelLinkV2Protocol.AUDIO_BEGIN ->'), client.indexOf('MelLinkV2Protocol.AUDIO_DATA ->'));
+  assert.match(onAudio, /IncomingAudio\(frame\.streamId, meta, gatt \?: return\)/);
+  const request = client.slice(client.indexOf('private fun executeRequest('), client.indexOf('private fun sendCreditAsync('));
+  const audio = client.slice(client.indexOf('private fun executeAudio('), client.indexOf('private fun readHttpResponseBounded('));
+  for (const [block, session] of [[request, 'request'], [audio, 'audio']]) {
+    assert.ok(block.includes('if (gatt !== ' + session + '.sessionGatt || !miniReady.value || !protocolReady.value) return'));
+    assert.ok(block.includes('this.sendResponse(streamId, status, contentType, body, ' + session + '.sessionGatt)'));
+    assert.ok(block.includes('this.sendError(streamId, code, ' + session + '.sessionGatt)'));
+  }
+  const tts = request.match(/sendAudioResponse\(request\.streamId, [^\n]*expectedGatt = request\.sessionGatt\)/g) || [];
+  assert.equal(tts.length, 2, 'local French voice and cloud fallback are both session-bound');
+  const output = client.slice(client.indexOf('private fun sendResponse('), client.indexOf('private fun executeRequest('));
+  assert.match(output, /expectedGatt: BluetoothGatt\? = null/);
+  assert.match(output, /if \(gatt !== intendedGatt \|\| !miniReady\.value \|\| !protocolReady\.value\) return false/);
+  const sendError = client.slice(client.indexOf('private fun sendError('), client.indexOf('private fun sendErrorAsync('));
+  assert.match(sendError, /expectedGatt: BluetoothGatt\? = null/);
+  assert.match(sendError, /code\.toByteArray\(\)\),[\s\n]*expectedGatt/);
 });
