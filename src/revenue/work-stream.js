@@ -122,11 +122,10 @@ async function alreadyDraftedIds(db) {
 }
 
 async function recordCycle(db, id, state, result) {
-  try {
-    await db.prepare('CREATE TABLE IF NOT EXISTS mel_work_cycles (id TEXT PRIMARY KEY, state TEXT NOT NULL, result TEXT, updated_at TEXT NOT NULL)').run();
-    await db.prepare('INSERT INTO mel_work_cycles (id,state,result,updated_at) VALUES (?,?,?,?) ON CONFLICT(id) DO UPDATE SET state=excluded.state,result=excluded.result,updated_at=excluded.updated_at')
-      .bind(id, state, result ? JSON.stringify(result) : null, new Date().toISOString()).run();
-  } catch {}
+  if (typeof db?.prepare !== 'function') throw new Error('WORK_CYCLE_DB_REQUIRED');
+  await db.prepare('CREATE TABLE IF NOT EXISTS mel_work_cycles (id TEXT PRIMARY KEY, state TEXT NOT NULL, result TEXT, updated_at TEXT NOT NULL)').run();
+  await db.prepare('INSERT INTO mel_work_cycles (id,state,result,updated_at) VALUES (?,?,?,?) ON CONFLICT(id) DO UPDATE SET state=excluded.state,result=excluded.result,updated_at=excluded.updated_at')
+    .bind(id, state, result ? JSON.stringify(result) : null, new Date().toISOString()).run();
 }
 
 export function streamDirectWork({ env, fetchImpl = fetch, now = () => Date.now(), maxAssessments = 3 } = {}) {
@@ -135,8 +134,8 @@ export function streamDirectWork({ env, fetchImpl = fetch, now = () => Date.now(
     async start(controller) {
       const send = event => { try { controller.enqueue(encoder.encode(JSON.stringify(event) + '\n')); } catch {} };
       const step = text => send({ type: 'step', text });
-      await recordCycle(env.DB, cycleId, 'RUNNING', null);
       try {
+        await recordCycle(env.DB, cycleId, 'RUNNING', null);
         step('Lecture des offres Taskmarket ouvertes…');
         const response = await fetchImpl(TASKMARKET_TASKS_URL, { headers: { accept: 'application/json' }, signal: AbortSignal.timeout(12_000) });
         if (!response.ok) throw new Error('TASKMARKET_UPSTREAM_ERROR');
@@ -175,7 +174,7 @@ export function streamDirectWork({ env, fetchImpl = fetch, now = () => Date.now(
         send({ type: 'done', cycleId, result: full });
       } catch (error) {
         const code = String(error?.code || error?.message || 'WORK_DIRECT_EXECUTION_FAILED').slice(0, 120);
-        await recordCycle(env.DB, cycleId, 'FAILED', { code });
+        try { await recordCycle(env.DB, cycleId, 'FAILED', { code }); } catch { /* Report the original failure; D1 remains unavailable. */ }
         send({ type: 'error', code });
       } finally {
         try { controller.close(); } catch {}
