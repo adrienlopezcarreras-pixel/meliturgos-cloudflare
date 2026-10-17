@@ -58,7 +58,7 @@ test('MINI enforces an ephemeral MITM passkey without replacing MEL account pair
   assert.match(ui, /lv_obj_move_foreground\(pairing_passkey_label\)/);
   assert.match(ui, /pair_ui_create\(screen\)/);
   assert.ok(ui.includes('Entre le code genere dans MEL > MINI'));
-  assert.match(firmwareHeader, /MEL_FW_VERSION "0\.6\.16-usb-ble-passkey"/);
+  assert.match(firmwareHeader, /MEL_FW_VERSION "0\.6\.17-usb-ble-passkey"/);
   assert.match(readme, /0\.6\.15-secure-passkey/);
 });
 
