@@ -27,3 +27,15 @@ export async function executeWorkMission({db,mission,execute,verify=async()=>({p
  if(final?.id!==artifactId||final.content!==content||final.status!==(passed?'VERIFIED_LOCALLY':'DRAFT_UNVERIFIED'))throw new Error('WORK_ARTIFACT_PERSISTENCE_UNCONFIRMED');
  return {artifactId,missionId:id,status:final.status,submitted:false,paid:false};
 }
+
+/** Provider-independent orchestration: the source supplies missions, the executor produces
+ * content and D1 is the canonical record. Never claims or submits marketplace work. */
+export async function runDirectWork({db,listMissions,execute,verify}={}){
+ if(typeof listMissions!=='function'||typeof execute!=='function')throw new TypeError('WORK_SOURCE_OR_EXECUTOR_REQUIRED');
+ const missions=await listMissions();
+ if(!Array.isArray(missions))throw new TypeError('WORK_MISSION_LIST_INVALID');
+ // Do not equate a high reward with fitness for autonomous work.
+ const mission=missions.find(m=>m?.eligibleForDraft===true&&typeof m?.description==='string'&&m.description.trim()&&m.description.length<=6000);
+ if(!mission)return {status:'NO_ELIGIBLE_MISSION',artifactId:null,submitted:false,paid:false};
+ return executeWorkMission({db,mission,execute:args=>execute(args,mission),verify});
+}
