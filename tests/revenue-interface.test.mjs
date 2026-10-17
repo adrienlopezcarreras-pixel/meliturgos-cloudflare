@@ -84,6 +84,23 @@ test('Taskmarket PC probe is fixed/read-only, owner-authenticated, and accepts o
   assert.match(page, /palier 0 — lecture seule/);
 });
 
+test('MEL WORK creates a durable candidate-only preparation plan without executing or submitting a Taskmarket mission', async () => {
+  const response = await (await import('../src/pages/revenue-interface.js')).onRequestGet();
+  const html = await response.text();
+  assert.match(html, /data-create-work-plan/);
+  assert.match(html, /work\.plan\.save/);
+  assert.match(html, /work\.plan\.get/);
+  assert.match(html, /CANDIDATE_ONLY/);
+  assert.match(html, /OBSERVATION/);
+  assert.match(html, /aucune mission n’a été réclamée ou soumise/i);
+  assert.doesNotMatch(html, /task claim|task submit|submitResult\(/i, 'preparation must not expose external claim or submission operations');
+  const script = html.match(/<script>([\s\S]*?)<\/script>/)?.[1] || '';
+  const handler = script.slice(script.indexOf('async function createPersistentPrepPlan'), script.indexOf('async function refreshTasks'));
+  assert.match(handler, /executeWorkCapability\('work\.plan\.save'/);
+  assert.match(handler, /executeWorkCapability\('work\.plan\.get'/);
+  assert.doesNotMatch(handler, /work\.plan\.materialize|work\.run|task\.claim|task\.submit/i, 'saving the plan must not materialize or execute its DAG');
+});
+
 test('MEL WORK generated browser JavaScript is syntactically valid', async () => {
   const response = await (await import('../src/pages/revenue-interface.js')).onRequestGet();
   assert.equal(response.status, 200);
