@@ -411,7 +411,7 @@ test('MEL WORK draft-cycle API never reports false success for a blocked Council
   assert.equal(response.status,409);
   const payload=await response.json();
   assert.equal(payload.ok,false);
-  assert.equal(payload.code,'WORK_CYCLE_NO_VERIFIED_DRAFT');
+  assert.equal(payload.code,'WORK_NO_VERIFIABLE_LIVE_TASK');
  }finally{globalThis.fetch=prior}
 });
 
@@ -489,4 +489,16 @@ test('MEL WORK checks live matching tasks and readiness again before each cycle 
  assert.match(html,/await Promise\.all\(\[refreshDraftReadiness\(\),refreshDraftDiscovery\(\)\]\)/);
  assert.match(html,/WORK_NO_VERIFIABLE_LIVE_TASK/);
  assert.match(html,/if\(!\(workRuntimeReady&&workMatchingTaskCount>0\)\)/);
+});
+
+test('server blocks draft cycle without a matching live Taskmarket job before Council invocation',async()=>{
+ const url='https://mel.test/api/revenue/draft-cycle';
+ const expectedJson='{"answer":1}';
+ const digest=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(expectedJson))),n=>n.toString(16).padStart(2,'0')).join('');
+ const env={MELITURGOS_USER:'adrien',MELITURGOS_PASSWORD:'test',DB:{prepare(){throw new Error('MUST_NOT_WRITE_D1')}},MEL_WORK_TRUSTED_ACCEPTANCE_JSON:JSON.stringify({missing:{expectedJson,sha256:digest}})};
+ const headers={authorization:'Basic '+Buffer.from('adrien:test').toString('base64')};
+ const before=globalThis.fetch;
+ globalThis.fetch=async()=>({ok:true,json:async()=>({tasks:[]})});
+ try{const response=await handleRevenueApi(new Request(url,{method:'POST',headers}),env);assert.equal(response.status,409);assert.equal((await response.json()).code,'WORK_NO_VERIFIABLE_LIVE_TASK')}
+ finally{globalThis.fetch=before}
 });
