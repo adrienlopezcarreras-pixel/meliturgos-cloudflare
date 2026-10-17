@@ -45,7 +45,7 @@ try {
     }
   }
   # The owner-facing updater and its double-click entry point must both be in the ZIP.
-  foreach ($name in @('Update-MEL-Computer-Companion.ps1','Mettre-a-jour-MEL.cmd','MEL-Computer-Companion.ps1')) {
+  foreach ($name in @('Update-MEL-Computer-Companion.ps1','Mettre-a-jour-MEL.cmd','MEL-Computer-Companion.ps1','MEL-Companion.exe')) {
     if (!(Test-Path -LiteralPath (Join-Path $temp $name) -PathType Leaf)) {
       throw "WINDOWS_COMPANION_UPDATE_FILE_MISSING:$name"
     }
