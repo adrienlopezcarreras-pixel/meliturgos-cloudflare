@@ -455,3 +455,22 @@ test('MEL WORK persists solver failures and resumes execution on a later attempt
  assert.equal(final.state,'DRAFT_READY');
  assert.equal(final.attempts,2);
 });
+
+test('MEL WORK atomically claims a mission: concurrent solver calls cannot both execute',async()=>{
+ const {executeWorkMission}=await import('../../src/revenue/work-mission-core.js');
+ const {sqliteD1}=await import('../helpers/sqlite-d1.mjs');
+ const db=sqliteD1(),mission={id:'concurrent-1',description:'Summarize public text'};
+ let executions=0,releaseFirst;
+ const pending=new Promise(resolve=>{releaseFirst=resolve});
+ const first=executeWorkMission({db,mission,execute:async()=>{executions++;await pending;return {content:'A complete draft'}}});
+ // Let first call reach its in-flight executor, then attempt the second claim.
+ while(executions===0)await Promise.resolve();
+ await assert.rejects(()=>executeWorkMission({db,mission,execute:async()=>{executions++;return {content:'Duplicate'}}}),/WORK_MISSION_ALREADY_RUNNING/);
+ releaseFirst();
+ const result=await first;
+ assert.equal(result.status,'DRAFT_UNVERIFIED');
+ assert.equal(executions,1);
+ const saved=await db.prepare('SELECT state,attempts FROM mel_work_missions WHERE id=?').bind(mission.id).first();
+ assert.equal(saved.state,'DRAFT_READY');
+ assert.equal(saved.attempts,1);
+});
