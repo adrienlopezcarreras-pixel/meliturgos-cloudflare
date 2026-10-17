@@ -20,6 +20,7 @@ import { recordLearningXpCheckpoint } from '../learning/xp-journal.js';
 import { MEL_RUNTIME_OPERATING_EXPERIENCE } from '../learning/runtime-operating-experience.js';
 import { stripInternalCounters } from './chat-sanitization.js';
 import { formatPersonalProfileRecall, retrieveContext, retrievePersonalProfileContext } from '../core/orchestrator/conversation-context.js';
+import { isMelWorkKickoff, startMelWorkKickoff } from '../work/mel-work-kickoff.js';
 import { formatVerifiedSelfStateResponse, formatVerifiedCapabilityAuditResponse, formatCommunicationAuditResponse, formatVerifiedAutonomyActivityResponse, formatVerifiedDevBridgeStatusResponse, formatVerifiedAutonomyRuntimeResponse } from './response-grounding.js';
 import { buildResponseQualityInstruction, finalizeEvidenceAlignedResponse, inferResponseMode } from './response-quality.js';
 import { buildConversationFocusInstruction, deriveConversationFocus } from './conversation-focus.js';
@@ -1067,6 +1068,36 @@ export async function handleNativeChat(request, env, options = {}) {
   const conversationFocus = deriveConversationFocus(recent, text, persistedFocus);
   if (!releaseSmoke) await saveConversationFocusState(env, conversationId, conversationFocus);
   const conversationFocusInstruction = buildConversationFocusInstruction(recent, text, persistedFocus);
+
+  // Owner-authorized MEL WORK kickoff: persist and execute the first real,
+  // bounded preparation steps BEFORE the slow general model-inference path.
+  // Keep this narrow: ordinary chat, quotations and task-status questions
+  // still follow the standard native-chat logic.
+  if (!releaseSmoke && !body.capability?.id && inputSource === 'text' && isMelWorkKickoff(text)) {
+    const kickoff = await startMelWorkKickoff({
+      bus: runtime.bus, text, conversationId,
+      context: nativeCapabilityContext(env, request, options),
+    });
+    const details = kickoff.ok
+      ? `Plan persistant : ${kickoff.plan_id}. Work : ${kickoff.work_dag_id}. Statut réel : ${kickoff.status}. Exercices vérifiés : ${kickoff.training_exercises_verified}/3. Taskmarket : ${kickoff.taskmarket_status}${kickoff.taskmarket_offer_count == null ? '' : ' (' + kickoff.taskmarket_offer_count + ' offres observées)'}. Aucune mission réclamée, soumise ou payée.`
+      : `MEL WORK n’a pas pu terminer le premier cycle : ${kickoff.error_code}. ${kickoff.persisted ? 'Le plan ' + kickoff.plan_id + ' est conservé et peut être repris.' : 'Aucun plan persistant n’a été confirmé.'} Aucune mission réclamée ni soumise.`;
+    const responseText = `MEL WORK — préparation au travail numérique\n${details}\nLes exercices portent sur des données d’entraînement, pas sur des missions rémunérées. Le travail externe restera conditionné à une sélection et à des vérifications réelles.`;
+    let archiveSaved = false;
+    if (service) {
+      try {
+        await service.archiveMessage({ conversationId, deviceId, role: 'user', content: text, timestamp: Date.now(), provenance: userProvenance, metadata: userMetadata });
+        await service.archiveMessage({ conversationId, deviceId, role: 'assistant', content: responseText, timestamp: Date.now() + 1, provenance: 'native-chat:mel-work-kickoff', metadata: { work_plan_id: kickoff.plan_id, work_dag_id: kickoff.work_dag_id || null, status: kickoff.status } });
+        archiveSaved = true;
+      } catch {}
+    }
+    return Response.json({
+      ok: kickoff.ok, text: responseText,
+      code: kickoff.ok ? null : kickoff.error_code,
+      model: 'deterministic-mel-work-kickoff', provider: 'mel',
+      response_mode: 'mel-work-execution', mel_work: kickoff,
+      archive_saved: archiveSaved,
+    }, { status: kickoff.ok ? 200 : 503, headers: { 'cache-control': 'no-store' } });
+  }
 
   const negativeFeedbackRecovery = releaseSmoke ? null : inferNegativeFeedbackCouncilRecovery(text, recent);
   const activeTaskText = negativeFeedbackRecovery?.original_request || text;
