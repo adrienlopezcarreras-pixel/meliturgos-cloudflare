@@ -263,11 +263,12 @@ export function inferNativeComputerCapability(text) {
   if(!value)return null;
   const computer=/\b(?:pc|ordinateur|bureau|écran|ecran|windows)\b/i.test(value);
   const status=/(?:état|etat|statut|connecté|connecte|en ligne|hors ligne|disponible)/i.test(value);
-  if(computer&&status)return {id:'computer.status',input:{}};
-
+  // A connected Windows PC may be the target of an explicit screenshot.
+  // Do not let the incidental word connected swallow the capture command.
   if(computer&&/\b(?:capture|screenshot|photo|montre|affiche|regarde)\b/i.test(value)&&/\b(?:écran|ecran|bureau|pc|ordinateur)\b/i.test(value)){
     return {id:'computer.quick',input:{kind:'screenshot'}};
   }
+  if(computer&&status)return {id:'computer.status',input:{}};
 
   const open=value.match(/\b(?:ouvre|ouvrir|lance|lancer|démarre|demarre)\s+(?:le\s+|la\s+|l['’])?(bloc[- ]?notes|notepad|calculatrice|calculator|explorateur|explorer|edge|msedge|firefox|chrome)\b/i);
   if(open){
