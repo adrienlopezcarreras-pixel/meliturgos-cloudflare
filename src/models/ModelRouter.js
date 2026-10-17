@@ -17,12 +17,14 @@ export function classifyTask(text) {
 
 export function extractModelText(result) {
   if (typeof result === 'string') return result;
-  return result?.response
-    ?? result?.text
-    ?? result?.message?.content
-    ?? result?.choices?.[0]?.message?.content
-    ?? result?.choices?.[0]?.text
-    ?? null;
+  const candidates = [
+    result?.response,
+    result?.text,
+    result?.message?.content,
+    result?.choices?.[0]?.message?.content,
+    result?.choices?.[0]?.text,
+  ];
+  return candidates.find(value => typeof value === 'string' && value.trim()) ?? null;
 }
 
 export function extractFinishReason(result) {

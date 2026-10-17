@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ModelRouter } from '../src/models/ModelRouter.js';
+import { ModelRouter, extractModelText } from '../src/models/ModelRouter.js';
 
 const messages = [{ role: 'user', content: 'Réponds à la question' }];
 
@@ -112,4 +112,12 @@ test('parallel providers must satisfy the same nonempty response contract as seq
         /EMPTY_MODEL_RESPONSE/.test(String(error.reason||error.code||error.message)));
     }
   }
+});
+
+
+test('model text extraction skips empty alternate provider fields without converting non-text payloads', () => {
+  assert.equal(extractModelText({ response: '  ', text: 'real answer' }), 'real answer');
+  assert.equal(extractModelText({ response: null, choices: [{ message: { content: 'from choice' } }] }), 'from choice');
+  assert.equal(extractModelText({ response: { bad: true }, text: 'valid' }), 'valid');
+  assert.equal(extractModelText({ response: '  ', text: '' }), null);
 });
