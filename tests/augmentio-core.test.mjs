@@ -165,9 +165,10 @@ test('augmentio fans out, tolerates failure, ranks, caches, and skips paid, unkn
 });
 
 
-test('Council CODE registry prefers Llama and exposes the current free fallback pool', () => {
+test('Council CODE registry prefers GPT-OSS-120B and exposes the current free fallback pool', () => {
   const codeModels = standardRegistry.modelsByCapability('CODE');
-  assert.equal(codeModels[0]?.id, '@cf/meta/llama-3.3-70b-instruct-fp8-fast');
+  assert.equal(codeModels[0]?.id, '@cf/openai/gpt-oss-120b');
+  assert.ok(codeModels.some((model) => model.id === '@cf/meta/llama-3.3-70b-instruct-fp8-fast'));
   assert.ok(codeModels.some((model) => model.id === '@cf/google/gemma-4-26b-a4b-it'));
   assert.ok(codeModels.some((model) => model.id === '@cf/nvidia/nemotron-3-120b-a12b'));
   assert.ok(codeModels.some((model) => model.id === '@cf/zai-org/glm-4.7-flash'));

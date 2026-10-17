@@ -46,6 +46,8 @@ export class ModelRegistry {
 
 // Configured IDs only. Availability deliberately remains UNKNOWN until a real successful call.
 export const standardRegistry = new ModelRegistry([
+  // Best free Workers AI model (120B open-weight reasoning, ~128k context); the others remain the fallback chain.
+  { id: '@cf/openai/gpt-oss-120b', capabilities: ['GENERAL', 'REASONING', 'CODE', 'FALLBACK'], priority: 50, cost: 0 },
   { id: '@cf/meta/llama-3.3-70b-instruct-fp8-fast', capabilities: ['GENERAL', 'REASONING', 'CODE', 'FALLBACK'], priority: 40, cost: 0 },
   { id: '@cf/google/gemma-4-26b-a4b-it', capabilities: ['GENERAL', 'REASONING', 'VISION', 'CODE', 'FALLBACK'], priority: 35, cost: 0 },
   { id: '@cf/nvidia/nemotron-3-120b-a12b', capabilities: ['GENERAL', 'REASONING', 'CODE', 'FALLBACK'], priority: 32, cost: 0 },
