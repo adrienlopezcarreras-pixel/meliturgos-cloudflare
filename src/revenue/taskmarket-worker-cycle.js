@@ -1,14 +1,34 @@
-const noop = async () => {};
+import { screenTaskmarketTask } from './taskmarket-task-policy.js';
+
 const record = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 
 function result(status, reason, extra = {}) { return Object.freeze({ status, reason, ...extra }); }
+
+function toPolicyTask(task) {
+  return {
+    ...task,
+    reward: String(task?.reward ?? task?.rewardUsdcBaseUnits ?? ''),
+    claimedBy: task?.claimedBy ?? null,
+  };
+}
+
+function mapAssessmentToPolicy(assessment, validation) {
+  return {
+    ...assessment,
+    machineVerifiable: validation?.machineVerifiable === true,
+    requiresHuman: assessment?.requiresHuman === true,
+    requiresPhysicalWorld: assessment?.requiresPhysicalWorld === true,
+    requiresHostSecrets: assessment?.requiresSecrets === true || assessment?.requiresHostSecrets === true,
+    requiresUnsafeAction: assessment?.requestsUnsafeAction === true || assessment?.requiresUnsafeAction === true,
+  };
+}
 
 /**
  * One bounded headless worker cycle. Integrations are injected by the runtime:
  * taskmarket list/get/submit, Council assessment, MEL solver, validators,
  * LoRA example store. This module never sees private keys and cannot sign.
- * `submit` must be the official approved adapter and is never called unless
- * all explicit gates are true.
+ * A task must pass the deterministic economics and safety policy after
+ * independent validation before the submission adapter can be called.
  */
 export async function runTaskmarketWorkerCycle({
   listTasks,
@@ -32,13 +52,15 @@ export async function runTaskmarketWorkerCycle({
     const taskId = typeof task?.id === 'string' ? task.id : '';
     if (!taskId) { decisions.push({ taskId: null, status: 'REJECTED', reason: 'TASK_ID_MISSING' }); continue; }
     try {
-      // Task description is untrusted data, never treat it as system policy.
+      // Task descriptions are untrusted data, never system policy.
       const assessment = await assessWithCouncil({ task, untrustedDescription: String(task.description || '') });
       if (!record(assessment) || assessment.eligible !== true || assessment.confidenceBps < (policy.minimumConfidenceBps ?? 9000)) {
         decisions.push({ taskId, status: 'SKIPPED', reason: 'COUNCIL_DID_NOT_APPROVE', confidenceBps: assessment?.confidenceBps ?? null });
         continue;
       }
-      if (assessment.requiresSecrets === true || assessment.requestsUnsafeAction === true || assessment.requiresHuman === true) {
+      if (assessment.requiresSecrets === true || assessment.requiresHostSecrets === true ||
+          assessment.requestsUnsafeAction === true || assessment.requiresUnsafeAction === true ||
+          assessment.requiresHuman === true || assessment.requiresPhysicalWorld === true) {
         decisions.push({ taskId, status: 'SKIPPED', reason: 'TASK_OUTSIDE_AUTOMATION_BOUNDARY' });
         continue;
       }
@@ -55,21 +77,47 @@ export async function runTaskmarketWorkerCycle({
         await recordOutcome({ taskId, stage: 'validation', status: 'REJECTED', reason: 'OUTPUT_VALIDATION_FAILED', summary: validation?.summary ?? null });
         continue;
       }
-      const gate = {
-        submissionEnabled: policy.submissionEnabled === true,
-        legalAccepted: policy.legalAccepted === true,
+
+      // Apply deterministic task/economics policy after independent output validation.
+      // Missing minimum-profit/margin policy fails closed; it is never inferred from a model.
+      const screened = screenTaskmarketTask(toPolicyTask(task), mapAssessmentToPolicy(assessment, validation), {
+        minimumConfidenceBps: policy.minimumConfidenceBps ?? 9000,
+        minimumProfitMicros: policy.minimumProfitMicros,
+        minimumMarginBps: policy.minimumMarginBps,
+        automaticSubmissionEnabled: policy.submissionEnabled === true,
+        legalBundleReviewed: policy.legalAccepted === true,
         workerIdentityReady: policy.workerIdentityReady === true,
-        outputValidated: true,
-        spendCapApproved: policy.spendCapApproved === true,
+        outputValidatorVerified: policy.outputValidatorVerified === true,
+      });
+      const economics = {
+        expectedProfitMicros: screened.expectedProfitMicros ?? null,
+        marginBps: screened.marginBps ?? null,
+        grossRewardMicros: screened.grossRewardMicros ?? null,
+        netRewardMicros: screened.netRewardMicros ?? null,
       };
-      if (!Object.values(gate).every(Boolean)) {
-        decisions.push({ taskId, status: 'READY_NOT_SUBMITTED', reason: 'SUBMISSION_GATES_CLOSED', gate });
-        await recordOutcome({ taskId, stage: 'validation', status: 'READY_NOT_SUBMITTED', validation: validation.summary ?? null });
+      if (screened.decision === 'REJECT') {
+        const decision = { taskId, status: 'REJECTED', reason: 'TASK_POLICY_' + screened.reason, economics };
+        decisions.push(decision);
+        await recordOutcome({ taskId, stage: 'policy', ...decision });
         continue;
       }
-      const submission = await submitResult({ task, candidate, validation });
+      if (screened.decision !== 'ELIGIBLE_FOR_SUBMISSION') {
+        const decision = { taskId, status: 'READY_NOT_SUBMITTED', reason: screened.reason || 'SUBMISSION_GATES_CLOSED', economics };
+        decisions.push(decision);
+        await recordOutcome({ taskId, stage: 'policy', ...decision });
+        continue;
+      }
+
+      // Enforce a separate spend-cap gate in addition to the task economics policy.
+      if (policy.spendCapApproved !== true) {
+        const decision = { taskId, status: 'READY_NOT_SUBMITTED', reason: 'SPEND_CAP_NOT_APPROVED', economics };
+        decisions.push(decision);
+        await recordOutcome({ taskId, stage: 'policy', ...decision });
+        continue;
+      }
+      const submission = await submitResult({ task, candidate, validation, economics });
       const submitted = record(submission) && submission.success === true && typeof submission.submissionId === 'string';
-      const decision = { taskId, status: submitted ? 'SUBMITTED_PENDING_ACCEPTANCE' : 'SUBMISSION_UNCONFIRMED', submissionId: submitted ? submission.submissionId : null };
+      const decision = { taskId, status: submitted ? 'SUBMITTED_PENDING_ACCEPTANCE' : 'SUBMISSION_UNCONFIRMED', submissionId: submitted ? submission.submissionId : null, economics };
       decisions.push(decision);
       await recordOutcome({ taskId, stage: 'submission', ...decision, candidateSha256: candidate.sha256 ?? null, validation: validation.summary ?? null });
     } catch (error) {
