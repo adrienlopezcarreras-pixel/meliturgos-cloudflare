@@ -9,6 +9,7 @@ on:
       - "src/pages/chat-rich-renderer.js"
       - "src/pages/full-mode-control-enhancer.js"
       - "src/api/response-quality.js"
+      - "src/api/response-grounding.js"
       - "src/identity/mel-operating-manual.js"
       - "src/capabilities/**"
       - "src/router.js"
@@ -17,6 +18,7 @@ on:
       - "tests/ui-performance-ergonomics.test.mjs"
       - "tests/chat-rich-renderer.test.mjs"
       - "tests/response-quality.test.mjs"
+      - "tests/response-grounding.test.mjs"
       - "tests/mel-operating-manual.test.mjs"
       - "tests/capability-protected-health.test.mjs"
       - "tests/gen2/platform-read-capabilities.test.mjs"
@@ -46,6 +48,8 @@ jobs:
         run: node --test tests/ui-performance-ergonomics.test.mjs
       - name: Audit capability health semantics
         run: node --test tests/capability-protected-health.test.mjs tests/gen2/platform-read-capabilities.test.mjs
+      - name: Verify self-state chat grounding
+        run: node --test tests/response-grounding.test.mjs
       - name: Full test suite
         shell: bash
         run: |
