@@ -29,12 +29,14 @@ test('computer.status remains usable to explain offline/local-consent state with
   const status=await actions.get('computer.status')({});
   assert.equal(status.devices.length,1);
   assert.equal(status.devices[0].remote_access_issue,'REMOTE_ACCESS_DISABLED_LOCALLY');
-  assert.equal(await health.get('computer.quick')(),'OFFLINE');
-  assert.equal(await health.get('computer.execute')(),'OFFLINE');
+  assert.equal((await health.get('computer.quick')()).status,'OFFLINE');
+  assert.equal((await health.get('computer.quick')()).reason,'REMOTE_ACCESS_DISABLED_LOCALLY');
+  assert.equal((await health.get('computer.execute')()).status,'OFFLINE');
+  assert.equal((await health.get('computer.execute')()).reason,'REMOTE_ACCESS_DISABLED_LOCALLY');
   await set(db,'pc-status',{});
   const enabled=await actions.get('computer.status')({});
   assert.equal(enabled.devices[0].remote_access_issue,null);
-  assert.equal(await health.get('computer.quick')(),'ONLINE');
+  assert.equal((await health.get('computer.quick')()).status,'ONLINE');
  }finally{db.close();}
 });
 
@@ -58,7 +60,7 @@ test('quick and explicit chat commands fail closed without current Windows local
  try{
   await actions.get('computer.status')({});
   await device(db,{id:'pc-chat',grant:false});
-  assert.equal(await health.get('computer.quick')(),'OFFLINE');
+  assert.equal((await health.get('computer.quick')()).status,'OFFLINE');
   await assert.rejects(actions.get('computer.quick')({kind:'screenshot'}),
    x=>x.code==='COMPUTER_NO_AUTHORIZED_ONLINE_DEVICE');
   await assert.rejects(actions.get('computer.execute')({computer_id:'pc-chat',steps:[{action:'screen.capture'}]}),
