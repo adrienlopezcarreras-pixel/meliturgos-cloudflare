@@ -62,7 +62,9 @@ test('canonical Link V2 audio, timing, credit and cancellation values agree with
   assert.match(androidClient, new RegExp('audioBlockSamples = ' + contract.audio.androidTtsBlockSamples));
   assert.match(androidClient, /sessionAckTimeoutArmed[\s\S]*?10_000L/);
   assert.match(androidClient, /BLE_HANDSHAKE_TIMEOUT[\s\S]*?90_000L/);
-  assert.match(androidClient, /outboundCancelled\(streamId\)/);
+  assert.match(androidClient, /outboundTransferActive\(streamId, credits, intendedGatt\)/);
+  assert.match(androidClient, /!cancelledOutbound\.contains\(streamId\)/);
+  assert.match(androidClient, /gatt === intendedGatt/);
   assert.match(androidClient, /awaitOutboundCredit\(streamId, credits\)/);
   assert.equal(contract.audio.imaAdpcmMaximumEncodedBytes + contract.protocol.headerBytes + contract.protocol.gattAttOverheadBytes,
     contract.protocol.minimumAudioMtu);
