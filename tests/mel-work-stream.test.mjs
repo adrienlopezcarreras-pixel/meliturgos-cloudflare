@@ -125,28 +125,83 @@ test('owner POST streams NDJSON; anonymous POST is refused', async () => {
   await response.body.cancel();
 });
 
-test('autonomous cycle keeps only bounties MEL can finish alone and hands the deliverable in herself', async () => {
+test('autonomous cycle prepares a real human-step bounty draft and never submits or overrides owner approval', async () => {
   const db = sqliteD1();
-  const verdict = human => 'ok {"eligible":true,"draftable":true,"confidenceBps":9500,"category":"writing","requiresHuman":' + human + ',"requiresPhysicalWorld":false,"requiresSecrets":false,"requestsUnsafeAction":false,"humanSteps":' + (human ? '["Publier"]' : '[]') + ',"reason":"ok"}';
   const assessed = [];
-  const env = { DB: db, AI: { async run(model, input) {
-    if (input.messages[0].content.startsWith('Tu es MEL WORK')) return sseStream(['Livrable complet.']);
+  const env = { DB: db, AI: { async run(_model, input) {
+    if (input.messages[0].content.startsWith('Tu es MEL WORK')) return sseStream(['Livrable rédigé.']);
     const id = /# Mission (\w+)/.exec(input.messages[1].content)[1];
     assessed.push(id);
-    return { response: verdict(id === 'publish') };
+    return { response: JSON.stringify({
+      eligible: true, draftable: true, confidenceBps: 9500, category:'writing',
+      requiresHuman: true, requiresPhysicalWorld: false, requiresSecrets: false,
+      requestsUnsafeAction: false, humanSteps:['Publier sur le compte propriétaire'],
+    }) };
   } } };
-  const fetchImpl = async () => Response.json({ tasks: [task('publish', 9_000_000, 0), task('claimonly', 8_000_000, 0, 24, { mode: 'claim' }), task('solo', 2_000_000, 0)] });
   const queued = [];
-  const queueSubmission = async (_env, args) => { queued.push(args); return { status: 'QUEUED' }; };
-  const events = await readEvents(streamDirectWork({ env, fetchImpl, now: () => NOW, autonomous: true, queueSubmission }));
-  const done = events.find(e => e.type === 'done');
+  const events = await readEvents(streamDirectWork({
+    env, now:()=>NOW, autonomous:true,
+    fetchImpl:async()=>Response.json({tasks:[task('publish',9_000_000,0),task('solo',2_000_000,0)]}),
+    queueSubmission:async(_env,args)=>{queued.push(args);return {status:'QUEUED'};},
+  }));
+  const done = events.find(e=>e.type==='done');
   assert.ok(done, JSON.stringify(events));
-  assert.deepEqual(assessed, ['publish', 'solo']); // non-bounty never assessed; human-step offer skipped
-  assert.equal(done.result.missionId, 'solo');
-  assert.equal(done.result.submission, 'QUEUED');
-  assert.equal(done.result.requiresOwnerApproval, false);
-  assert.deepEqual(done.result.humanSteps, []);
-  assert.equal(queued.length, 1);
-  assert.equal(queued[0].mode, 'bounty');
-  assert.ok(events.some(e => e.type === 'step' && /remets moi-même/.test(e.text)));
+  assert.deepEqual(assessed,['publish']);
+  assert.equal(done.result.missionId,'publish');
+  assert.equal(done.result.status,'DRAFT_FOR_OWNER');
+  assert.equal(done.result.requiresOwnerApproval,true);
+  assert.deepEqual(done.result.humanSteps,['Publier sur le compte propriétaire']);
+  assert.equal(done.result.submitted,false);
+  assert.equal(done.result.paid,false);
+  assert.equal(done.result.submission,undefined);
+  assert.deepEqual(queued,[]);
+  const saved=await db.prepare('SELECT content FROM mel_work_artifacts WHERE id=?').bind(done.result.artifactId).first();
+  assert.equal(saved.content,'Livrable rédigé.');
+  assert.ok(events.some(e=>e.type==='step'&&/Brouillon enregistré pour validation/.test(e.text)));
+});
+
+test('autonomous bounty without human steps can still enter the independent submission queue', async () => {
+  const db = sqliteD1();
+  const env = { DB: db, AI:{ async run(_model,input) {
+    if(input.messages[0].content.startsWith('Tu es MEL WORK')) return sseStream(['Livrable autonome.']);
+    return {response:JSON.stringify({eligible:true,draftable:true,confidenceBps:9600,category:'writing',
+      requiresHuman:false,requiresPhysicalWorld:false,requiresSecrets:false,requestsUnsafeAction:false,humanSteps:[]})};
+  } } };
+  const queued=[];
+  const events=await readEvents(streamDirectWork({
+    env, now:()=>NOW, autonomous:true,
+    fetchImpl:async()=>Response.json({tasks:[task('solo',2_000_000,0)]}),
+    queueSubmission:async(_env,args)=>{queued.push(args);return {status:'QUEUED'};},
+  }));
+  const done=events.find(e=>e.type==='done');
+  assert.ok(done,JSON.stringify(events));
+  assert.equal(done.result.missionId,'solo');
+  assert.equal(done.result.submission,'QUEUED');
+  assert.equal(done.result.requiresOwnerApproval,false);
+  assert.deepEqual(done.result.humanSteps,[]);
+  assert.equal(queued.length,1);
+  assert.equal(queued[0].mode,'bounty');
+  assert.ok(events.some(e=>e.type==='step'&&/remets moi-même/.test(e.text)));
+});
+
+test('autonomous claim-style task may be drafted but cannot be claimed or queued for submission', async () => {
+  const db=sqliteD1();
+  const env={DB:db,AI:{async run(_model,input){
+    if(input.messages[0].content.startsWith('Tu es MEL WORK'))return sseStream(['Brouillon conservé.']);
+    return {response:JSON.stringify({eligible:true,draftable:true,confidenceBps:9800,category:'writing',
+      requiresHuman:false,requiresPhysicalWorld:false,requiresSecrets:false,requestsUnsafeAction:false,humanSteps:[]})};
+  }}};
+  let submitted=0;
+  const events=await readEvents(streamDirectWork({
+    env,now:()=>NOW,autonomous:true,
+    fetchImpl:async()=>Response.json({tasks:[task('claimable',2_000_000,0,24,{mode:'claim'})]}),
+    queueSubmission:async()=>{submitted++;return {status:'QUEUED'};},
+  }));
+  const done=events.find(e=>e.type==='done');
+  assert.ok(done,JSON.stringify(events));
+  assert.equal(done.result.missionId,'claimable');
+  assert.equal(done.result.requiresOwnerApproval,true);
+  assert.equal(done.result.submitted,false);
+  assert.equal(submitted,0);
+  assert.equal(done.result.submission,undefined);
 });
