@@ -879,6 +879,9 @@ export function registerWorkCapabilities(bus, { db } = {}) {
       return { ...publicState(observed), execution_started: false, lease_busy: true };
     }
     try {
+      // Bind checkpoint writes to this exact acquired token; a stalled Worker
+      // that loses its lease must fail closed rather than overwrite a retry.
+      store.bindRunLease(lease);
       const dag = await runner.run(null, { maxSteps: input.maxSteps ?? Infinity });
       await syncWorkOpenLoop(db, dag, context);
       return { ...publicState(dag), execution_started: true, lease_busy: false };
