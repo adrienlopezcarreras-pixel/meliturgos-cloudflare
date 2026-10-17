@@ -1434,11 +1434,11 @@ class MainForm : Form
     int triadRefreshing;
     int adbRefreshBusy;
     bool refreshing;
-    readonly Color text=Color.FromArgb(34,45,60);
-    readonly Color gray=Color.FromArgb(88,102,118);
-    readonly Color blue=Color.FromArgb(38,96,173);
-    readonly Color background=Color.FromArgb(245,247,250);
-    readonly Color stroke=Color.FromArgb(220,226,233);
+    readonly Color text=Color.FromArgb(27,39,59);
+    readonly Color gray=Color.FromArgb(99,113,133);
+    readonly Color blue=Color.FromArgb(40,88,178);
+    readonly Color background=Color.FromArgb(246,248,252);
+    readonly Color stroke=Color.FromArgb(220,228,239);
     readonly List<Control> cardRows=new List<Control>();
     Label LabelAt(Control parent,string value,int x,int y,int w,int h,float font=11f,bool bold=false,Color? ink=null)
     {
@@ -1450,15 +1450,15 @@ class MainForm : Form
     }
     Button ButtonAt(Control parent,string title,int x,int y,int w,EventHandler action)
     {
-        var primary=title=="Ouvrir MEL" || title=="Actualiser";
+        var primary=title=="Ouvrir MEL" || title=="Actualiser" || title=="Contrôle USB MINI";
         var danger=title=="Désinstaller";
-        var button=new Button {Text=title,Location=new Point(x,y),Size=new Size(w,44),
-            FlatStyle=FlatStyle.Flat,Font=new Font("Segoe UI",10f,FontStyle.Bold),
+        var button=new Button {Text=title,Location=new Point(x,y),Size=new Size(w,42),
+            FlatStyle=FlatStyle.Flat,Font=new Font("Segoe UI Semibold",9.5f,FontStyle.Regular),
             UseVisualStyleBackColor=false,Cursor=Cursors.Hand,TabStop=true,
             BackColor=primary?blue:Color.White,
             ForeColor=primary?Color.White:(danger?Color.FromArgb(154,39,51):text)};
-        button.FlatAppearance.BorderSize=1;
-        button.FlatAppearance.BorderColor=primary?blue:(danger?Color.FromArgb(216,163,169):stroke);
+        button.FlatAppearance.BorderSize=primary?0:1;
+        button.FlatAppearance.BorderColor=primary?blue:(danger?Color.FromArgb(232,188,191):stroke);
         button.FlatAppearance.MouseOverBackColor=primary?Color.FromArgb(28,80,150):Color.FromArgb(234,240,248);
         button.FlatAppearance.MouseDownBackColor=primary?Color.FromArgb(23,67,125):Color.FromArgb(222,232,245);
         button.Click+=action;parent.Controls.Add(button);return button;
@@ -1466,9 +1466,19 @@ class MainForm : Form
     Panel Card(Control parent,int y,int height)
     {
         var p=new Panel {Location=new Point(0,y),Size=new Size(Math.Max(350,parent.ClientSize.Width-26),height),
-            BackColor=Color.White};
+            BackColor=Color.White,Padding=new Padding(8)};
         p.Paint+=delegate(object sender,PaintEventArgs ev){
-            using(var pen=new Pen(stroke))ev.Graphics.DrawRectangle(pen,0,0,p.Width-1,p.Height-1);
+            ev.Graphics.SmoothingMode=System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+            using(var pen=new Pen(stroke,1f))
+            using(var path=new System.Drawing.Drawing2D.GraphicsPath()){
+                int radius=12, right=p.Width-1, bottom=p.Height-1;
+                path.AddArc(0,0,radius,radius,180,90);
+                path.AddArc(right-radius,0,radius,radius,270,90);
+                path.AddArc(right-radius,bottom-radius,radius,radius,0,90);
+                path.AddArc(0,bottom-radius,radius,radius,90,90);
+                path.CloseFigure();
+                ev.Graphics.DrawPath(pen,path);
+            }
         };
         parent.Controls.Add(p);return p;
     }
@@ -1481,8 +1491,8 @@ class MainForm : Form
         AutoScaleMode=AutoScaleMode.None;
         Font=new Font("Segoe UI",10f);BackColor=background;ForeColor=text;
         AutoScroll=false;
-        LabelAt(this,"MEL Companion",28,22,620,52,12,true);
-        connection=LabelAt(this,"Vérification de la connexion…",28,78,670,30,9,false,gray);
+        LabelAt(this,"MEL Companion",28,22,620,52,19,true);
+        connection=LabelAt(this,"Vérification de la connexion…",28,78,670,30,10,true,gray);
         triadActivityStatus=LabelAt(this,"Android : activité non vérifiée",28,106,670,23,9,false,gray);
         triadActivityStatus.Anchor=AnchorStyles.Top|AnchorStyles.Left|AnchorStyles.Right;
         ButtonAt(this,"Ouvrir MEL",0,29,160,delegate{MelApp.OpenMel();}).Anchor=AnchorStyles.Top|AnchorStyles.Right;
@@ -1490,7 +1500,7 @@ class MainForm : Form
         open.Left=ClientSize.Width-190;
         var pc=Card(this,132,150);pc.Left=22;pc.Width=ClientSize.Width-44;
         pc.Anchor=AnchorStyles.Top|AnchorStyles.Left|AnchorStyles.Right;
-        LabelAt(pc,"CET ORDINATEUR",20,14,310,36,10,true,blue);
+        LabelAt(pc,"POSTE DE TRAVAIL",20,14,310,36,9,true,blue);
         var miniUsb=ButtonAt(pc,"Contrôle USB MINI",Math.Max(350,pc.Width-232),43,205,ChooseMiniUsbAction);
         miniUsb.Anchor=AnchorStyles.Top|AnchorStyles.Right;
         var androidPair=ButtonAt(pc,"Configurer ADB Wi-Fi",Math.Max(170,pc.Width-450),43,205,RunAndroidWifiPairing);
@@ -1500,12 +1510,12 @@ class MainForm : Form
         localAccessStatus.Anchor=AnchorStyles.Top|AnchorStyles.Left|AnchorStyles.Right;
         adbWifiStatus=LabelAt(pc,"ADB Wi-Fi : recherche du téléphone…",20,118,pc.Width-40,22,9,false,gray);
         adbWifiStatus.Anchor=AnchorStyles.Top|AnchorStyles.Left|AnchorStyles.Right;
-        LabelAt(this,"Appareils MEL",28,302,390,47,12,true);
+        LabelAt(this,"Appareils connectés",28,302,390,47,15,true);
         var permissions=ButtonAt(this,"Autorisations",0,302,170,delegate{using(var dlg=new PermissionsForm())dlg.ShowDialog(this);RefreshAll();});
         var refresh=ButtonAt(this,"Actualiser",0,302,150,delegate{RefreshAll();RefreshAdbDiagnostics();});
         permissions.Anchor=AnchorStyles.Right|AnchorStyles.Top;refresh.Anchor=AnchorStyles.Right|AnchorStyles.Top;
         permissions.Left=ClientSize.Width-370;refresh.Left=ClientSize.Width-180;
-        LabelAt(this,"Appareils détectés et état transmis au serveur MEL",28,353,700,34,9,false,gray);
+        LabelAt(this,"État en temps réel des appareils liés à MEL",28,353,700,34,9,false,gray);
         cards=new Panel {Left=22,Top=398,Width=ClientSize.Width-44,Height=ClientSize.Height-545,
             BackColor=background,AutoScroll=true,Anchor=AnchorStyles.Top|AnchorStyles.Bottom|AnchorStyles.Left|AnchorStyles.Right};
         Controls.Add(cards);
