@@ -323,3 +323,18 @@ test('D1 persistence refuses a matching id whose stored body differs',async()=>{
  const db={prepare(sql){return {run:async()=>({success:true}),bind(...args){return {run:async()=>({success:true}),first:async()=>({id:args[0],content:'corrupted'})}}}}};
  await assert.rejects(createD1ValidatedDraftAdapter(db)({taskId:'job',content:'verified sample',candidateSha256:'a'.repeat(64)}),/WORK_DRAFT_PERSISTENCE_UNCONFIRMED/);
 });
+
+test('bounded cycle preserves an explicit zero task budget and rejects fractional count',async()=>{
+ let calls=0;
+ const run=async maxTasksPerCycle=>runBoundedTaskmarketDraftCycle({
+  db:{prepare(){throw new Error('DB_SHOULD_NOT_BE_USED')}},
+  eligibleTaskIds:['0x123'],
+  fetchImpl:async()=>({ok:true,json:async()=>({tasks:[task]})}),
+  council:async()=>{calls++;throw new Error('COUNCIL_SHOULD_NOT_RUN')},
+  validateArtifact:async()=>{throw new Error('VALIDATOR_SHOULD_NOT_RUN')},
+  policy:{minimumProfitMicros:0,minimumMarginBps:0,maxTasksPerCycle},
+ });
+ assert.equal((await run(0)).considered,0);
+ assert.equal(calls,0);
+ assert.equal((await run(-1)).considered,0);
+});
