@@ -1,3 +1,4 @@
+import { sqliteD1 } from '../helpers/sqlite-d1.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { runTaskmarketWorkerCycle, feedbackToLoraCandidate, createD1ValidatedDraftAdapter, runTaskmarketWorkerCycleWithD1, listD1ValidatedDrafts, createPublicTaskmarketListAdapter, createTaskmarketCouncilAssessmentAdapter, createTaskmarketCouncilSolverAdapter, runBoundedTaskmarketDraftCycle, createStrictJsonArtifactValidator, createExactJsonAcceptanceValidator } from '../../src/revenue/taskmarket-worker-cycle.js';
