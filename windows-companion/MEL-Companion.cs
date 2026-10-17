@@ -25,8 +25,9 @@ static class MelApp
     public static readonly string LocalAiBenchmarkPath = Path.Combine(MelDir, "MEL-Local-AI-Benchmark.ps1");
     public static readonly string MiniFirstInstallPath = Path.Combine(MelDir, "MEL-Waveshare-Flash.ps1");
     public static readonly string MiniUsbPreflightPath = Path.Combine(MelDir, "MEL-MINI-USB-Preflight.ps1");
+    public static readonly string MiniUsbBackupPath = Path.Combine(MelDir, "MEL-MINI-USB-Backup.ps1");
     public static readonly string[] MiniUsbPreflightFiles = new string[] {
-        "MEL-MINI-USB-Preflight.ps1", "local_readonly_preflight.py",
+        "MEL-MINI-USB-Preflight.ps1", "MEL-MINI-USB-Backup.ps1", "local_readonly_preflight.py",
         "inspect_partitions.py", "inspect_ota_state.py", "inspect_image.py"
     };
     public static bool MiniUsbPreflightInstalled()
@@ -1722,10 +1723,80 @@ class MainForm : Form
     void ChooseMiniUsbAction(object sender,EventArgs e)
     {
         var choice=MessageBox.Show(this,
-            "OUI : diagnostic USB en lecture seule.\nNON : première installation DESTRUCTIVE (effacement complet) avec confirmation locale supplémentaire.\nANNULER : ne rien faire.",
+            "OUI : diagnostic USB en lecture seule.\nNON : sauvegarde intégrale USB en lecture seule (deux lectures vérifiées).\nANNULER : ne rien faire.\n\nAucune de ces actions ne flashe la MINI.",
             "MEL MINI — opération locale",MessageBoxButtons.YesNoCancel,MessageBoxIcon.Warning);
         if(choice==DialogResult.Yes)RunMiniUsbPreflight(sender,e);
-        else if(choice==DialogResult.No)RunMiniFirstInstall(sender,e);
+        else if(choice==DialogResult.No)RunMiniUsbBackup(sender,e);
+    }
+    void RunMiniUsbBackup(object sender,EventArgs e)
+    {
+        // On-device confirmation and a second literal approval happen in the terminal.
+        // This is a read-only, double-read, full flash backup. No OTA write or erase.
+        if (!MelApp.MiniUsbPreflightInstalled() || !File.Exists(MelApp.MiniUsbBackupPath))
+        {
+            MessageBox.Show(this,"Outils USB de sauvegarde absents : installez le paquet Windows complet.",
+                "MEL MINI — sauvegarde",MessageBoxButtons.OK,MessageBoxIcon.Warning);
+            return;
+        }
+        var ports=System.IO.Ports.SerialPort.GetPortNames()
+            .Where(p=>System.Text.RegularExpressions.Regex.IsMatch(p,@"^COM[0-9]{1,3}$",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+            .Select(p=>p.ToUpperInvariant()).Distinct().OrderBy(p=>p).ToArray();
+        if (ports.Length==0)
+        {
+            MessageBox.Show(this,"Aucun port COM disponible. Branchez la MINI.",
+                "MEL MINI — sauvegarde",MessageBoxButtons.OK,MessageBoxIcon.Warning);
+            return;
+        }
+        using (var dialog=new Form())
+        {
+            dialog.Text="Sauvegarder la MINI par USB";
+            dialog.ClientSize=new Size(570,220);
+            dialog.FormBorderStyle=FormBorderStyle.FixedDialog;
+            dialog.StartPosition=FormStartPosition.CenterParent;
+            dialog.MaximizeBox=false;dialog.MinimizeBox=false;
+            var note=new Label {
+                Text="Sauvegarde complète en lecture seule. Le bootloader peut redémarrer la MINI. " +
+                    "Les fichiers contiennent des secrets Wi-Fi/NVS : gardez-les sur cet ordinateur. " +
+                    "Ne débranchez pas le câble pendant les deux lectures.",
+                Left=16,Top=12,Width=535,Height=91
+            };
+            var portList=new ComboBox {
+                Left=16,Top=109,Width=210,DropDownStyle=ComboBoxStyle.DropDownList
+            };
+            portList.Items.AddRange(ports.Cast<object>().ToArray());
+            int index=Array.IndexOf(ports,"COM3");
+            portList.SelectedIndex=index>=0?index:0;
+            var cancel=new Button {Text="Annuler",Left=333,Top=164,Width=100,DialogResult=DialogResult.Cancel};
+            var start=new Button {Text="Sauvegarder",Left=441,Top=164,Width=113,DialogResult=DialogResult.OK};
+            dialog.Controls.Add(note);dialog.Controls.Add(portList);
+            dialog.Controls.Add(cancel);dialog.Controls.Add(start);
+            dialog.AcceptButton=start;dialog.CancelButton=cancel;
+            if(dialog.ShowDialog(this)!=DialogResult.OK)return;
+            var port=Convert.ToString(portList.SelectedItem);
+            if(!System.Text.RegularExpressions.Regex.IsMatch(port??"",@"^COM[0-9]{1,3}$"))
+                throw new InvalidOperationException("Port USB invalide.");
+            if(MessageBox.Show(this,
+                "Lancer la sauvegarde intégrale sur "+port+" ? " +
+                "Cela peut durer plusieurs minutes et nécessite une alimentation stable. " +
+                "Aucune écriture sur la MINI ne sera effectuée.",
+                "MEL MINI — sauvegarde USB",MessageBoxButtons.YesNo,MessageBoxIcon.Warning)!=DialogResult.Yes)return;
+            try
+            {
+                var psi=new ProcessStartInfo("powershell.exe");
+                psi.UseShellExecute=true;
+                psi.WindowStyle=ProcessWindowStyle.Normal;
+                psi.WorkingDirectory=MelApp.MelDir;
+                psi.Arguments="-NoProfile -ExecutionPolicy Bypass -NoExit -File \"" +
+                    MelApp.MiniUsbBackupPath + "\" -Port " + port;
+                Process.Start(psi);
+            }
+            catch(Exception ex)
+            {
+                MessageBox.Show(this,"Impossible de démarrer la sauvegarde : "+ex.Message,
+                    "MEL MINI — sauvegarde",MessageBoxButtons.OK,MessageBoxIcon.Error);
+            }
+        }
     }
     void RunMiniFirstInstall(object sender,EventArgs e)
     {
