@@ -378,7 +378,11 @@ test('new MEL WORK core persists a real draft before independent verification ex
  const second=await executeWorkMission({db,mission,execute:exec,verify:async()=>({passed:true})});
  assert.equal(second.artifactId,first.artifactId);
  assert.equal(second.status,'VERIFIED_LOCALLY');
- assert.equal(executed,2);
+ assert.equal(executed,1);
+ assert.equal(second.reused,true);
+ const missionState=await db.prepare('SELECT state,attempts,artifact_id FROM mel_work_missions WHERE id=?').bind('mission-1').first();
+ assert.equal(missionState.state,'DRAFT_READY');
+ assert.equal(missionState.attempts,1);
  const stored=await db.prepare('SELECT content, status FROM mel_work_artifacts WHERE id=?').bind(first.artifactId).first();
  assert.equal(stored.content,'{"done":true}');
  assert.equal(stored.status,'VERIFIED_LOCALLY');
@@ -435,4 +439,19 @@ test('direct engine skips a failed solver and persists the next eligible mission
  assert.deepEqual(calls,['first','second']);
  assert.equal(res.missionId,'second');
  assert.equal(res.status,'DRAFT_UNVERIFIED');
+});
+
+test('MEL WORK persists solver failures and resumes execution on a later attempt',async()=>{
+ const {executeWorkMission}=await import('../../src/revenue/work-mission-core.js');
+ const {sqliteD1}=await import('../helpers/sqlite-d1.mjs');
+ const db=sqliteD1(),mission={id:'retry-1',description:'Safe text transformation'};
+ await assert.rejects(()=>executeWorkMission({db,mission,execute:async()=>{throw new Error('WORK_SOLVER_OUTPUT_INVALID')}}),/WORK_SOLVER_OUTPUT_INVALID/);
+ const failed=await db.prepare('SELECT state,attempts,last_error FROM mel_work_missions WHERE id=?').bind('retry-1').first();
+ assert.equal(failed.state,'FAILED');
+ assert.equal(failed.attempts,1);
+ const recovered=await executeWorkMission({db,mission,execute:async()=>({content:'Recovered result'})});
+ assert.equal(recovered.status,'DRAFT_UNVERIFIED');
+ const final=await db.prepare('SELECT state,attempts FROM mel_work_missions WHERE id=?').bind('retry-1').first();
+ assert.equal(final.state,'DRAFT_READY');
+ assert.equal(final.attempts,2);
 });
