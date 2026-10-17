@@ -2434,7 +2434,7 @@ function Get-UiSnapshot([IntPtr]$hwnd = [IntPtr]::Zero, [int]$maxElements = 150,
   if ($hwnd -eq [IntPtr]::Zero) { throw "UI_SNAPSHOT_NO_FOREGROUND_WINDOW" }
   $root = [System.Windows.Automation.AutomationElement]::FromHandle($hwnd)
   if ($null -eq $root) { throw "UI_SNAPSHOT_WINDOW_UNREADABLE" }
-  $walker = [System.Windows.Automation.TreeWalker]::ControlViewWalker
+  $walker = [System.Windows.Automation.TreeWalker]::RawViewWalker
   $clock = [System.Diagnostics.Stopwatch]::StartNew()
   $useful = @('Button','Edit','MenuItem','Hyperlink','ListItem','TabItem','CheckBox','RadioButton','ComboBox','TreeItem','Document','SplitButton','Slider','Spinner','DataItem','Text','HeaderItem','Menu','MenuBar','ToolBar')
   $items = New-Object System.Collections.Generic.List[object]
