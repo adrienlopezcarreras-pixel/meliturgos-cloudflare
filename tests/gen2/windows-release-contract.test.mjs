@@ -157,6 +157,10 @@ test('Companion dashboard preserves functional controls with refreshed visual hi
  assert.match(source,/Drawing2D\.GraphicsPath/);
  assert.match(source,/ChooseMiniUsbAction/);
  assert.match(source,/RunAndroidWifiPairing/);
+ assert.match(source,/void LayoutDashboard\(\)/);
+ assert.match(source,/Resize\+=delegate \{LayoutDashboard\(\);\}/);
+ assert.match(source,/cards\.VerticalScroll\.Visible/);
+ assert.match(source,/pc\.ClientSize\.Width-usb\.Width-22/);
 });
 
 test('Companion USB MINI preselects COM3 when present while retaining fallback', async () => {
