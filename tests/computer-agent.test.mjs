@@ -98,6 +98,29 @@ test('allowlisted Notepad launch works without initial UIA; result still require
   db.close();
 });
 
+test('F6 refuses model done when typed text has no observable readback', async () => {
+  const db = await setup();
+  const pc = fakeCompanion(db);
+  const ai = scriptedAi([
+    { action: 'open_app', app: 'notepad' },
+    { action: 'type', text: 'bonjour' },
+    { action: 'done', summary: 'affirmation sans preuve' },
+  ]);
+  // The model can claim success, but the actual UIA value is not the text typed.
+  const originalTick = pc.tick;
+  const result = await runComputerAgent({
+    env: { DB: db, AI: ai },
+    goal: 'ouvre le bloc-notes et écris bonjour',
+    sleep: async () => {
+      await originalTick();
+      pc.screen.text = '';
+    },
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.summary, 'COMPUTER_TYPED_TEXT_NOT_VERIFIED');
+  db.close();
+});
+
 test('apps outside Adrien’s allowlist and invented elements are refused without touching the PC', async () => {
   const device = { allowed_apps: ['notepad'] };
   assert.equal(actionToSteps({ action: 'open_app', app: 'cmd' }, {}, device).error, 'APP_NOT_ALLOWED_BY_ADRIEN');
