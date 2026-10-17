@@ -34,30 +34,39 @@ export async function readPublishedMiniFirmware(env) {
   return { key, sha256, version: String(firmware.version || ''), size: Number(firmware.size) || null };
 }
 
+// Single-use, 10-minute download tickets for files the Companion must fetch
+// without owner credentials (MINI firmware, Android APK). Only published device
+// files under these prefixes can ever be served.
+const TICKET_KEY_PREFIXES = ['devices/waveshare-esp32-s3-touch-lcd-3.5-c/', 'devices/android/'];
+
 async function ticketsTable(db) {
-  await db.prepare('CREATE TABLE IF NOT EXISTS mini_flash_tickets (ticket TEXT PRIMARY KEY, firmware_key TEXT NOT NULL, sha256 TEXT NOT NULL, expires_at INTEGER NOT NULL, used_at INTEGER)').run();
+  await db.prepare('CREATE TABLE IF NOT EXISTS device_file_tickets (ticket TEXT PRIMARY KEY, file_key TEXT NOT NULL, sha256 TEXT NOT NULL, expires_at INTEGER NOT NULL, used_at INTEGER)').run();
 }
 
-export async function createMiniFlashTicket(env, firmware, now = Date.now()) {
+export async function createDeviceFileTicket(env, file, now = Date.now()) {
+  if (!TICKET_KEY_PREFIXES.some(prefix => String(file?.key || '').startsWith(prefix))) throw new Error('DEVICE_FILE_KEY_NOT_ALLOWED');
   await ticketsTable(env.DB);
   const bytes = crypto.getRandomValues(new Uint8Array(24));
   const ticket = Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
-  await env.DB.prepare('INSERT INTO mini_flash_tickets (ticket,firmware_key,sha256,expires_at) VALUES (?,?,?,?)').bind(ticket, firmware.key, firmware.sha256, now + TICKET_TTL_MS).run();
+  await env.DB.prepare('INSERT INTO device_file_tickets (ticket,file_key,sha256,expires_at) VALUES (?,?,?,?)').bind(ticket, file.key, file.sha256, now + TICKET_TTL_MS).run();
   return ticket;
 }
+export const createMiniFlashTicket = createDeviceFileTicket;
 
-// GET /api/computer/v1/mini-firmware?ticket=…  (single use, 10 minutes)
-export async function serveMiniFirmwareByTicket(request, env, now = Date.now()) {
+// GET /api/computer/v1/device-file?ticket=…  (single use, 10 minutes)
+export async function serveDeviceFileByTicket(request, env, now = Date.now()) {
   const ticket = String(new URL(request.url).searchParams.get('ticket') || '');
-  if (!/^[a-f0-9]{48}$/.test(ticket)) return Response.json({ ok: false, code: 'MINI_TICKET_INVALID' }, { status: 400 });
+  if (!/^[a-f0-9]{48}$/.test(ticket)) return Response.json({ ok: false, code: 'DEVICE_FILE_TICKET_INVALID' }, { status: 400 });
   await ticketsTable(env.DB);
-  const claimed = await env.DB.prepare('UPDATE mini_flash_tickets SET used_at=? WHERE ticket=? AND used_at IS NULL AND expires_at>?').bind(now, ticket, now).run();
-  if (claimed?.meta?.changes !== 1) return Response.json({ ok: false, code: 'MINI_TICKET_EXPIRED_OR_USED' }, { status: 403 });
-  const row = await env.DB.prepare('SELECT firmware_key, sha256 FROM mini_flash_tickets WHERE ticket=?').bind(ticket).first();
-  const object = await env.MEDIA_BUCKET?.get(row.firmware_key);
-  if (!object) return Response.json({ ok: false, code: 'MINI_FIRMWARE_NOT_FOUND' }, { status: 404 });
+  const claimed = await env.DB.prepare('UPDATE device_file_tickets SET used_at=? WHERE ticket=? AND used_at IS NULL AND expires_at>?').bind(now, ticket, now).run();
+  if (claimed?.meta?.changes !== 1) return Response.json({ ok: false, code: 'DEVICE_FILE_TICKET_EXPIRED_OR_USED' }, { status: 403 });
+  const row = await env.DB.prepare('SELECT file_key, sha256 FROM device_file_tickets WHERE ticket=?').bind(ticket).first();
+  if (!TICKET_KEY_PREFIXES.some(prefix => row.file_key.startsWith(prefix))) return Response.json({ ok: false, code: 'DEVICE_FILE_KEY_NOT_ALLOWED' }, { status: 403 });
+  const object = await env.MEDIA_BUCKET?.get(row.file_key);
+  if (!object) return Response.json({ ok: false, code: 'DEVICE_FILE_NOT_FOUND' }, { status: 404 });
   return new Response(object.body, { headers: { 'content-type': 'application/octet-stream', 'content-length': String(object.size), 'cache-control': 'no-store', 'x-mel-sha256': row.sha256 } });
 }
+export const serveMiniFirmwareByTicket = serveDeviceFileByTicket;
 
 const FLASH = String.raw`
 $ErrorActionPreference='Stop';$ProgressPreference='SilentlyContinue'
@@ -66,7 +75,8 @@ $sha='__SHA__';$url='__URL__';$tag='__TAG__'
 $root=Join-Path $env:LOCALAPPDATA ('MEL\tools\esptool-'+$tag)
 $exe=Get-ChildItem -LiteralPath $root -Filter esptool.exe -Recurse -File -ErrorAction SilentlyContinue | Select-Object -First 1
 if(-not $exe){
- $rel=Invoke-RestMethod -Uri ('https://api.github.com/repos/espressif/esptool/releases/tags/'+$tag) -Headers @{'User-Agent'='MEL-Companion';'Accept'='application/vnd.github+json'} -TimeoutSec 20
+ $gh=@{'User-Agent'='MEL-Companion';'Accept'='application/vnd.github+json'};if($env:GITHUB_TOKEN){$gh.Authorization='Bearer '+$env:GITHUB_TOKEN}
+ $rel=Invoke-RestMethod -Uri ('https://api.github.com/repos/espressif/esptool/releases/tags/'+$tag) -Headers $gh -TimeoutSec 20
  $asset=@($rel.assets | Where-Object { $_.name -match '\.zip$' -and $_.name -match 'win' -and $_.name -match '64' }) | Select-Object -First 1
  if(-not $asset){throw 'ESPTOOL_WINDOWS_ASSET_NOT_FOUND'}
  $digest=([string]$asset.digest).ToLowerInvariant()
@@ -109,7 +119,7 @@ if($p.ExitCode -ne 0){exit 3}
 `;
 
 export function miniFlashCommand({ downloadUrl, sha256 }) {
-  if (!/^https:\/\/[^\s'"`]+\/api\/computer\/v1\/mini-firmware\?ticket=[a-f0-9]{48}$/.test(String(downloadUrl || ''))) throw new Error('MINI_FLASH_URL_INVALID');
+  if (!/^https:\/\/[^\s'"`]+\/api\/computer\/v1\/device-file\?ticket=[a-f0-9]{48}$/.test(String(downloadUrl || ''))) throw new Error('MINI_FLASH_URL_INVALID');
   if (!/^[a-f0-9]{64}$/.test(String(sha256 || ''))) throw new Error('MINI_FLASH_SHA256_INVALID');
   const command = FLASH.replaceAll('__SHA__', sha256).replaceAll('__URL__', downloadUrl).replaceAll('__TAG__', ESPTOOL_TAG)
     .replaceAll('__MAX__', String(OTA0_SIZE)).replaceAll('__OTA0__', OTA0_OFFSET);

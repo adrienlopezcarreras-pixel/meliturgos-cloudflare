@@ -16,7 +16,8 @@ import { miniReadOnlyPcCommand } from "./mini-readonly-companion.js";
 import { miniMaintenanceAssessCommand } from "./mini-maintenance-companion.js";
 import { companionBleDiagnosticsCommand } from "./companion-ble-diagnostics.js";
 import { miniFirmwareStageCommand } from "./mini-firmware-stage-companion.js";
-import { MINI_FLASH_CONFIRMATION, readPublishedMiniFirmware, createMiniFlashTicket, serveMiniFirmwareByTicket, miniFlashCommand } from "./mini-flash-companion.js";
+import { MINI_FLASH_CONFIRMATION, readPublishedMiniFirmware, createDeviceFileTicket, serveDeviceFileByTicket, miniFlashCommand } from "./mini-flash-companion.js";
+import { ANDROID_UPDATE_CONFIRMATION, readPublishedAndroidApk, validateAndroidUpdateInput, androidUpdateCommand } from "./android-update-companion.js";
 import { taskmarketReadonlyPcCommand } from "./taskmarket-readonly-companion.js";
 import { COMPUTER_COMMAND_STATUS } from "./computer-command-status.js";
 import { androidMaintenancePcCommand } from "./android-maintenance-companion.js";
@@ -43,7 +44,7 @@ export const COMPUTER_ROUTES=Object.freeze({
  sovereigntyArchive:"/api/computer/v1/sovereignty-code-archive",
  sovereigntyCommand:"/api/computer/v1/sovereignty-command",
  pcControl:"/api/computer/v1/pc-control",
- miniFirmware:"/api/computer/v1/mini-firmware"
+ deviceFile:"/api/computer/v1/device-file"
 });
 const DEFAULT_APPS=["notepad","calculator","explorer","msedge","firefox","chrome"];
 const PAIR_TTL_MS=10*60*1000;
@@ -257,7 +258,7 @@ const PC_CONTROL_ACTIONS=new Set([
  "serial.list","serial.read","serial.inspect","serial.hard_reset",
  "process.list","process.start","process.kill",
  "file.list","file.read_text","file.write_text",
- "system.info","taskmarket.readonly.probe","mini.readonly.discover","mini.readonly.security","mini.readonly.backup","mini.readonly.backup.status","mini.readonly.backup.audit","mini.maintenance.assess","mini.android.ble.diagnose","mini.maintenance.stage","mini.flash","android.maintenance.assess","android.maintenance.stage","android.maintenance.install"
+ "system.info","taskmarket.readonly.probe","mini.readonly.discover","mini.readonly.security","mini.readonly.backup","mini.readonly.backup.status","mini.readonly.backup.audit","mini.maintenance.assess","mini.android.ble.diagnose","mini.maintenance.stage","mini.flash","android.update","android.maintenance.assess","android.maintenance.stage","android.maintenance.install"
 ]);
 const PC_CONTROL_PROOF_ACTIONS=new Set(["system.info","serial.list","serial.read","serial.inspect","mini.readonly.discover","process.list","mini.readonly.backup.audit","mini.maintenance.assess","mini.android.ble.diagnose","android.maintenance.assess"]);
 
@@ -282,6 +283,8 @@ async function ownerPcControl(request,env){
  if(action.startsWith("mini.readonly.")&&a.kind!=="owner"&&!["mini.readonly.discover","mini.readonly.backup.audit"].includes(action))return json({ok:false,code:"MINI_READONLY_OWNER_ONLY"},403);
  if((action==="mini.readonly.security"||action==="mini.readonly.backup")&&payload.ack_bootloader_reset!==true)return json({ok:false,code:"MINI_BOOTLOADER_RESET_ACK_REQUIRED"},400);
  if(action==="mini.readonly.backup"&&payload.ack_local_backup!==true)return json({ok:false,code:"MINI_BACKUP_ACK_REQUIRED"},400);
+ if(action==="android.update"&&(a.kind!=="owner"||payload.confirmation!==ANDROID_UPDATE_CONFIRMATION))
+  return json({ok:false,code:"ANDROID_UPDATE_OWNER_CONFIRMATION_REQUIRED"},403);
  if(action==="mini.flash"&&(a.kind!=="owner"||payload.confirmation!==MINI_FLASH_CONFIRMATION))
   return json({ok:false,code:"MINI_FLASH_OWNER_CONFIRMATION_REQUIRED"},403);
  if(action==="mini.maintenance.stage"&&(a.kind!=="owner"||payload.ack_local_firmware_stage!==true))
@@ -377,14 +380,25 @@ async function ownerPcControl(request,env){
   effectiveAction="system.exec";
   effectivePayload=miniReadOnlyPcCommand(action,port,action==="mini.readonly.backup.status"?safe(payload.job_id,32).toLowerCase():null);
  }
+ if(action==="android.update"){
+  if(device.metadata?.remote_access_enabled!==true)return json({ok:false,code:"REMOTE_ACCESS_DISABLED_LOCALLY"},403);
+  let input;
+  try{input=validateAndroidUpdateInput(payload)}catch(error){return json({ok:false,code:String(error?.message||"ANDROID_UPDATE_INPUT_INVALID")},400)}
+  let apk;
+  try{apk=await readPublishedAndroidApk(env)}catch(error){return json({ok:false,code:String(error?.message||"ANDROID_APK_NOT_PUBLISHED")},error?.status||503)}
+  const ticket=await createDeviceFileTicket(env,apk);
+  effectiveAction="system.exec";
+  // No strict exit: a failed install must still return the adb log; success = installed.
+  effectivePayload=androidUpdateCommand({downloadUrl:new URL(request.url).origin+COMPUTER_ROUTES.deviceFile+"?ticket="+ticket,sha256:apk.sha256,pair:input.pair,code:input.code,connect:input.connect});
+ }
  if(action==="mini.flash"){
   if(device.metadata?.remote_access_enabled!==true)return json({ok:false,code:"REMOTE_ACCESS_DISABLED_LOCALLY"},403);
   let firmware;
   try{firmware=await readPublishedMiniFirmware(env)}catch(error){return json({ok:false,code:String(error?.message||"MINI_FIRMWARE_NOT_PUBLISHED")},error?.status||503)}
-  const ticket=await createMiniFlashTicket(env,firmware);
+  const ticket=await createDeviceFileTicket(env,firmware);
   effectiveAction="system.exec";
   // No strict exit: a failed flash must still return its esptool log; success = flash_verified.
-  effectivePayload=miniFlashCommand({downloadUrl:new URL(request.url).origin+COMPUTER_ROUTES.miniFirmware+"?ticket="+ticket,sha256:firmware.sha256});
+  effectivePayload=miniFlashCommand({downloadUrl:new URL(request.url).origin+COMPUTER_ROUTES.deviceFile+"?ticket="+ticket,sha256:firmware.sha256});
  }
  const session=safe(b.session_id)||crypto.randomUUID();
  const cid=crypto.randomUUID();
@@ -897,7 +911,7 @@ export async function maybeHandleComputerApi(request,env){
  if(url.pathname===COMPUTER_ROUTES.power&&request.method==="POST")return ownerPower(request,env);
  if(url.pathname===COMPUTER_ROUTES.sovereigntyCommand&&request.method==="POST")return ownerSovereigntyCommand(request,env);
  if(url.pathname===COMPUTER_ROUTES.pcControl&&request.method==="POST")return ownerPcControl(request,env);
- if(url.pathname===COMPUTER_ROUTES.miniFirmware&&request.method==="GET")return serveMiniFirmwareByTicket(request,env);
+ if(url.pathname===COMPUTER_ROUTES.deviceFile&&request.method==="GET")return serveDeviceFileByTicket(request,env);
  if(url.pathname===COMPUTER_ROUTES.installer&&request.method==="GET")return asset(request,env,"MEL-Computer-Setup.ps1");
  if(url.pathname===COMPUTER_ROUTES.companion&&request.method==="GET")return asset(request,env,"MEL-Computer-Companion.ps1",{allowDevice:true});
  if(url.pathname===COMPUTER_ROUTES.screenshot&&request.method==="GET")return screenshotView(request,env,url);

@@ -36,7 +36,7 @@ async function seededEnv({ manifest = PUBLISHED, remoteAccess = true } = {}) {
 const flash = (env, payload, authenticated = true) => maybeHandleComputerApi(request('/api/computer/v1/pc-control', 'POST', { computer_id: 'pc-1', action: 'mini.flash', payload }, authenticated), env);
 
 test('flash command writes only ota_0 and otadata, with official esptool checked by digest', () => {
-  const { command, timeout_ms } = miniFlashCommand({ downloadUrl: 'https://mel.test/api/computer/v1/mini-firmware?ticket=' + 'b'.repeat(48), sha256: SHA });
+  const { command, timeout_ms } = miniFlashCommand({ downloadUrl: 'https://mel.test/api/computer/v1/device-file?ticket=' + 'b'.repeat(48), sha256: SHA });
   assert.equal(timeout_ms, 120000);
   assert.ok(command.length <= 8192);
   assert.match(command, /write-flash 0x20000 "'\+\$bin\+'" 0xF000 "'\+\$blank\+'"/);
@@ -50,8 +50,8 @@ test('flash command writes only ota_0 and otadata, with official esptool checked
 
 test('flash command refuses forged URLs or hashes', () => {
   assert.throws(() => miniFlashCommand({ downloadUrl: 'https://evil.test/x.bin', sha256: SHA }), /MINI_FLASH_URL_INVALID/);
-  assert.throws(() => miniFlashCommand({ downloadUrl: "https://mel.test/api/computer/v1/mini-firmware?ticket=" + 'b'.repeat(48) + "';calc'", sha256: SHA }), /MINI_FLASH_URL_INVALID/);
-  assert.throws(() => miniFlashCommand({ downloadUrl: 'https://mel.test/api/computer/v1/mini-firmware?ticket=' + 'b'.repeat(48), sha256: 'zz' }), /MINI_FLASH_SHA256_INVALID/);
+  assert.throws(() => miniFlashCommand({ downloadUrl: "https://mel.test/api/computer/v1/device-file?ticket=" + 'b'.repeat(48) + "';calc'", sha256: SHA }), /MINI_FLASH_URL_INVALID/);
+  assert.throws(() => miniFlashCommand({ downloadUrl: 'https://mel.test/api/computer/v1/device-file?ticket=' + 'b'.repeat(48), sha256: 'zz' }), /MINI_FLASH_SHA256_INVALID/);
 });
 
 test('flashing requires the owner and the explicit confirmation', async () => {
@@ -82,7 +82,7 @@ test('confirmed flash queues the fixed command; its firmware ticket works once',
   assert.equal(step.payload.timeout_ms, 120000);
   assert.doesNotMatch(step.payload.command, /INJECTED/);
   const ticketUrl = step.payload.command.match(/\$url='([^']+)'/)[1];
-  assert.match(ticketUrl, /^https:\/\/mel\.test\/api\/computer\/v1\/mini-firmware\?ticket=[a-f0-9]{48}$/);
+  assert.match(ticketUrl, /^https:\/\/mel\.test\/api\/computer\/v1\/device-file\?ticket=[a-f0-9]{48}$/);
   const path = new URL(ticketUrl).pathname + new URL(ticketUrl).search;
   const download = await maybeHandleComputerApi(request(path, 'GET', null, false), env);
   assert.equal(download.status, 200);
@@ -90,5 +90,5 @@ test('confirmed flash queues the fixed command; its firmware ticket works once',
   assert.deepEqual([...new Uint8Array(await download.arrayBuffer())], [0xe9, 1, 2, 3]);
   const again = await maybeHandleComputerApi(request(path, 'GET', null, false), env);
   assert.equal(again.status, 403);
-  assert.equal((await maybeHandleComputerApi(request('/api/computer/v1/mini-firmware?ticket=' + 'c'.repeat(48), 'GET', null, false), env)).status, 403);
+  assert.equal((await maybeHandleComputerApi(request('/api/computer/v1/device-file?ticket=' + 'c'.repeat(48), 'GET', null, false), env)).status, 403);
 });
