@@ -61,7 +61,6 @@ test('MEL opens Notepad, types the text, verifies it and proves it with a screen
   const db = await setup();
   const pc = fakeCompanion(db);
   const ai = scriptedAi([
-    { action: 'open_app', app: 'notepad' },
     { action: 'click', element: 2 },
     { action: 'type', text: 'bonjour Adrien' },
     { action: 'done', summary: 'Bloc-notes ouvert, « bonjour Adrien » est écrit.' },
@@ -72,8 +71,8 @@ test('MEL opens Notepad, types the text, verifies it and proves it with a screen
   assert.equal(result.status, 'DONE');
   assert.equal(pc.screen.app, 'notepad');
   assert.equal(pc.screen.text, 'bonjour Adrien');
-  assert.deepEqual(pc.executed, ['ui.snapshot', 'app.open', 'ui.snapshot', 'cursor.move', 'pointer.click', 'ui.snapshot', 'keyboard.type', 'ui.snapshot', 'screen.capture']);
-  assert.ok(ai.prompts[3].includes('= « bonjour Adrien »'), 'the model verifies on the real field value before saying done');
+  assert.deepEqual(pc.executed, ['app.open', 'ui.snapshot', 'cursor.move', 'pointer.click', 'ui.snapshot', 'keyboard.type', 'ui.snapshot', 'screen.capture']);
+  assert.ok(ai.prompts[2].includes('= « bonjour Adrien »'), 'the model verifies on the real field value before saying done');
   assert.deepEqual(events.filter(e => e.type === 'step').map(e => e.text), ['Ouvrir notepad', 'Cliquer sur « Éditeur de texte »', 'Taper « bonjour Adrien »']);
   assert.equal(events.find(e => e.type === 'proof')?.url, 'https://mel.example/api/computer/v1/screenshot?key=k');
   assert.equal(events.at(-1).type, 'end');
@@ -91,10 +90,11 @@ test('allowlisted Notepad launch works without initial UIA; result still require
     env: { DB: db, AI: ai }, goal: 'ouvre le bloc-notes et écris bonjour',
     sleep: () => pc.tick(),
   });
-  assert.equal(result.ok, true, JSON.stringify(result));
-  assert.equal(pc.screen.text, 'bonjour');
-  assert.deepEqual(pc.executed.slice(0, 3), ['ui.snapshot', 'app.open', 'ui.snapshot']);
-  assert.ok(ai.prompts[1].includes('= « bonjour »'), 'done follows a readback of the edited field');
+  assert.equal(result.ok, false, JSON.stringify(result));
+  assert.equal(result.summary, 'UI_SNAPSHOT_NO_CONTROLS');
+  assert.equal(pc.screen.app, 'notepad');
+  assert.deepEqual(pc.executed.slice(0, 3), ['app.open', 'ui.snapshot', 'screen.capture']);
+  assert.equal(ai.prompts.length, 0, 'no model action without an observed window');
   db.close();
 });
 
@@ -102,7 +102,6 @@ test('F6 refuses model done when typed text has no observable readback', async (
   const db = await setup();
   const pc = fakeCompanion(db);
   const ai = scriptedAi([
-    { action: 'open_app', app: 'notepad' },
     { action: 'type', text: 'bonjour' },
     { action: 'done', summary: 'affirmation sans preuve' },
   ]);
@@ -180,7 +179,6 @@ test('MEL Chat streams each PC step live, then the proof and the summary, and ar
   const db = await setup();
   const pc = fakeCompanion(db);
   const ai = scriptedAi([
-    { action: 'open_app', app: 'notepad' },
     { action: 'type', text: 'bonjour' },
     { action: 'done', summary: 'Bloc-notes ouvert avec « bonjour ».' },
   ]);
