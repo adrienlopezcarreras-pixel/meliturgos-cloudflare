@@ -476,3 +476,10 @@ test('MEL WORK interface shows eligible public task discovery without claiming t
  assert.match(html,/\/api\/revenue\/eligible-discovery/);
  assert.match(html,/Aucune mission réclamée/);
 });
+
+test('draft action demands both readiness and a real matching public job',async()=>{
+ const html=await (await onRequestGet()).text();
+ assert.match(html,/workRuntimeReady&&workMatchingTaskCount>0/);
+ assert.match(html,/Aucune mission publique compatible actuellement/);
+ assert.match(html,/finally\{applyWorkCycleAvailability\(\)\}/);
+});
