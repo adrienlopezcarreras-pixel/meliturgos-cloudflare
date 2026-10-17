@@ -157,5 +157,7 @@ test('MINI destructive installer stays single, verified and explicitly addressed
   assert.match(script, /chip_id/);
   assert.match(script, /EFFACER_MINI/);
   assert.match(script, /Get-FileHash -Algorithm SHA256/);
+  assert.match(script, /\$installInfo = \$info\.installer/);
+  assert.doesNotMatch(script, /\$installInfo = \$info\.firmware/);
   assert.ok(script.indexOf('chip_id') < script.indexOf('erase_flash'));
 });
