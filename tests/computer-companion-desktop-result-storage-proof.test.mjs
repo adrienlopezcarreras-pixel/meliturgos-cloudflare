@@ -66,6 +66,8 @@ test('desktop view may report SUCCESS only after matching screenshot object exis
   assert.equal(row.status,'SUCCEEDED');
   assert.equal(JSON.parse(row.result_json).outputs[0].screenshot_key,key);
 
-  assert.equal((await report(success())).status,409);
+  // A lost HTTP response must not strand the persistent Windows result journal.
+  assert.equal((await report(success())).status,200);
+  assert.equal((await report(success({view_url:'https://untrusted.test/malicious'}))).status,409);
  }finally{DB.close();}
 });
