@@ -2441,7 +2441,22 @@ function Get-UiSnapshot([IntPtr]$hwnd = [IntPtr]::Zero, [int]$maxElements = 150,
   $observed = New-Object System.Collections.Generic.List[string]
   $condition = [System.Windows.Automation.Condition]::TrueCondition
   $descendants = $root.FindAll([System.Windows.Automation.TreeScope]::Descendants, $condition)
-  foreach ($el in $descendants) {
+  # The focused editor may be exposed by UIA independently of the window's
+  # descendant tree (e.g. modern, cross-process Windows app hosts).
+  $candidates = New-Object System.Collections.Generic.List[object]
+  foreach ($candidate in $descendants) { $candidates.Add($candidate) }
+  try {
+    $focused = [System.Windows.Automation.AutomationElement]::FocusedElement
+    if ($null -ne $focused) {
+      $focusedControl = $focused.Current
+      $focusedType = [string]$focusedControl.ControlType.ProgrammaticName
+      if ($focusedControl.ProcessId -eq $root.Current.ProcessId -and
+          $focusedType -in @('ControlType.Edit','ControlType.Document')) {
+        $candidates.Add($focused)
+      }
+    }
+  } catch {}
+  foreach ($el in $candidates) {
     if ($items.Count -ge $maxElements -or $clock.ElapsedMilliseconds -ge $budgetMs) { break }
     try {
       $cur = $el.Current
