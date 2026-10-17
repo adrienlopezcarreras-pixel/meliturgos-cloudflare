@@ -76,9 +76,13 @@ function benchmarkSourceSha(env = {}, options = {}) {
 export function extractOperatorBenchmarkText(result, extractText = extractModelText) {
   const value = extractText(result);
   if (typeof value === 'string' && value.trim()) return value.trim();
-  if (value && typeof value === 'object' && !Array.isArray(value) && Object.keys(value).length) {
+  // Structured benchmark evidence is deliberately separate from chat text.
+  // The shared model extractor rejects objects; this benchmark adapter alone
+  // may serialize a non-empty JSON response for the scoring engine.
+  const structured = value && typeof value === 'object' ? value : result?.response;
+  if (structured && typeof structured === 'object' && !Array.isArray(structured) && Object.keys(structured).length) {
     try {
-      const text = JSON.stringify(value);
+      const text = JSON.stringify(structured);
       if (text && text.length <= 16384) return text;
     } catch {
       // Circular or otherwise unserializable responses are not proof.
