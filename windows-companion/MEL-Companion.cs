@@ -1491,10 +1491,8 @@ class MainForm : Form
         var pc=Card(this,132,150);pc.Left=22;pc.Width=ClientSize.Width-44;
         pc.Anchor=AnchorStyles.Top|AnchorStyles.Left|AnchorStyles.Right;
         LabelAt(pc,"CET ORDINATEUR",20,14,310,36,10,true,blue);
-        var miniUsb=ButtonAt(pc,"Contrôle USB MINI",Math.Max(350,pc.Width-232),43,205,RunMiniUsbPreflight);
+        var miniUsb=ButtonAt(pc,"MINI USB / Installer",Math.Max(350,pc.Width-232),43,205,ChooseMiniUsbAction);
         miniUsb.Anchor=AnchorStyles.Top|AnchorStyles.Right;
-        var miniInstall=ButtonAt(this,"Première installation MINI",28,302,220,RunMiniFirstInstall);
-        miniInstall.Anchor=AnchorStyles.Top|AnchorStyles.Left;
         var androidPair=ButtonAt(pc,"Configurer ADB Wi-Fi",Math.Max(170,pc.Width-450),43,205,RunAndroidWifiPairing);
         androidPair.Anchor=AnchorStyles.Top|AnchorStyles.Right;
         LabelAt(pc,Environment.MachineName,20,57,Math.Max(240,pc.Width-480),31,12,true).Anchor=AnchorStyles.Top|AnchorStyles.Left;
@@ -1663,6 +1661,14 @@ class MainForm : Form
             MessageBox.Show(this,"Impossible d'ouvrir l'assistant ADB Wi-Fi : "+ex.Message,
                 "MEL — Android Wi-Fi",MessageBoxButtons.OK,MessageBoxIcon.Error);
         }
+    }
+    void ChooseMiniUsbAction(object sender,EventArgs e)
+    {
+        var choice=MessageBox.Show(this,
+            "OUI : diagnostic USB en lecture seule.\nNON : première installation DESTRUCTIVE (effacement complet) avec confirmation locale supplémentaire.\nANNULER : ne rien faire.",
+            "MEL MINI — opération locale",MessageBoxButtons.YesNoCancel,MessageBoxIcon.Warning);
+        if(choice==DialogResult.Yes)RunMiniUsbPreflight(sender,e);
+        else if(choice==DialogResult.No)RunMiniFirstInstall(sender,e);
     }
     void RunMiniFirstInstall(object sender,EventArgs e)
     {
