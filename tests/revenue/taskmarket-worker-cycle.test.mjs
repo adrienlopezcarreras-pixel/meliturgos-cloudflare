@@ -387,13 +387,26 @@ test('new MEL WORK core persists a real draft before independent verification ex
 test('direct work engine decouples marketplace and does not execute unsuitable missions',async()=>{
  const {runDirectWork}=await import('../../src/revenue/work-mission-core.js');
  let invoked=0;
- const empty=await runDirectWork({listMissions:async()=>[{id:'bad',description:'irrelevant',eligibleForDraft:false}],execute:async()=>{invoked++}});
+ const empty=await runDirectWork({listMissions:async()=>[{id:'bad',description:'irrelevant',eligibleForDraft:false}],assess:async()=>{throw new Error('NOT_CALLED')},execute:async()=>{invoked++}});
  assert.equal(empty.status,'NO_ELIGIBLE_MISSION');
  assert.equal(invoked,0);
  const {sqliteD1}=await import('../helpers/sqlite-d1.mjs');
  const db=sqliteD1();
- const outcome=await runDirectWork({db,listMissions:async()=>[{id:'job',description:'Produce a summary',eligibleForDraft:true}],execute:async()=>{invoked++;return {content:'A locally prepared summary'}}});
+ const outcome=await runDirectWork({db,listMissions:async()=>[{id:'job',description:'Produce a summary',eligibleForDraft:true}],assess:async()=>({eligible:true,confidenceBps:9500,requiresHuman:false,requiresPhysicalWorld:false,requiresSecrets:false,requestsUnsafeAction:false}),execute:async()=>{invoked++;return {content:'A locally prepared summary'}}});
  assert.equal(outcome.status,'DRAFT_UNVERIFIED');
  assert.equal(outcome.submitted,false);
  assert.equal(invoked,1);
+});
+
+test('direct work rejects unsafe and unassessed public tasks instead of inventing approval',async()=>{
+ const {runDirectWork}=await import('../../src/revenue/work-mission-core.js');
+ let executed=0;
+ const result=await runDirectWork({
+  listMissions:async()=>[{id:'unsafe',description:'Use private secrets',eligibleForDraft:true},{id:'unknown',description:'Write summary',eligibleForDraft:true}],
+  assess:async({mission})=>mission.id==='unsafe'?{eligible:true,confidenceBps:9999,requiresHuman:false,requiresPhysicalWorld:false,requiresSecrets:true,requestsUnsafeAction:false}:{eligible:true,confidenceBps:9999,requiresHuman:false,requiresPhysicalWorld:false,requiresSecrets:false,requestsUnsafeAction:false},
+  execute:async()=>{executed++;return {content:'text'}},
+  db:(await import('../helpers/sqlite-d1.mjs')).sqliteD1(),
+ });
+ assert.equal(executed,1);
+ assert.equal(result.missionId,'unknown');
 });
