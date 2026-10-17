@@ -118,3 +118,22 @@ test('kickoff does not invent a Work DAG identifier when materialization returns
   assert.equal(result.error_code,'MEL_WORK_DAG_ID_MISSING');
   assert.equal(calls.includes('work.run'),false);
 });
+
+
+test('kickoff reuses an already persisted DAG instead of rematerializing', async () => {
+  const calls = [];
+  const bus = { execute: async (id, input) => {
+    calls.push(id);
+    if (id === 'work.plan.save') throw new Error('WORK_PLAN_ALREADY_EXISTS');
+    if (id === 'work.plan.get') return { plan: {id: input.id, work_dag_id: 'persisted-dag'} };
+    if (id === 'work.plan.materialize') throw new Error('SHOULD_NOT_REMATERIALIZE');
+    if (id === 'work.run') return {status:'COMPLETED'};
+    if (id === 'work.plan.sync') return {work:{status:'COMPLETED'}};
+    if (id === 'work.artifacts') return {artifacts:[]};
+    throw new Error('UNKNOWN_' + id);
+  }};
+  const output = await startMelWorkKickoff({bus,text:PROMPT,conversationId:'resume-dag',context:{}});
+  assert.equal(output.ok,true);
+  assert.equal(output.work_dag_id,'persisted-dag');
+  assert.equal(calls.includes('work.plan.materialize'),false);
+});
