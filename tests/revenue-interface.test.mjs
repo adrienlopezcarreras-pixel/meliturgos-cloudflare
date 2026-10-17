@@ -122,12 +122,12 @@ test('MEL WORK executes its saved candidate-only preparation plan only after an 
   assert.match(handler, /GENERATED_READ_ONLY_PLAN/);
   assert.match(handler, /SAFE_LOCAL_DIAGNOSTICS_FALLBACK/);
   assert.match(handler, /function buildLocalDiagnosticFallback\(bindings\)/);
-  assert.match(handler, /capability:'roadmap\\.read'/);
-  assert.match(handler, /capability:'system\\.bindings'/);
-  assert.match(handler, /fallbackBindings=await executeWorkCapability\('system\\.bindings',\{\}\)/);
+  assert.match(handler, /capability:'roadmap\.read'/);
+  assert.match(handler, /capability:'system\.bindings'/);
+  assert.match(handler, /fallbackBindings=await executeWorkCapability\('system\.bindings',\{\}\)/);
   assert.match(handler, /bindings\?\.db===true/);
-  assert.match(handler, /capability:'system\\.integrity'/);
-  assert.match(handler, /capability:'system\\.maturity'/);
+  assert.match(handler, /capability:'system\.integrity'/);
+  assert.match(handler, /capability:'system\.maturity'/);
   assert.match(handler, /Les diagnostics locaux ne prouvent pas que ces exigences sont satisfaites/);
   const saveAt = handler.indexOf("executeWorkCapability('work.plan.save'");
   const runHelperAt = handler.indexOf('await executeSavedReadOnlyPreparation(taskId,planId,title,button,safePreparationCapabilities');
