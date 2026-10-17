@@ -1,3 +1,4 @@
+import { listD1ValidatedDrafts } from '../revenue/taskmarket-worker-cycle.js';
 import { requireAuth } from '../core/security.js';
 import { maybeHandleComputerApi } from '../devices/computer-companion-api.js';
 
@@ -37,9 +38,14 @@ export function normalizeRevenueTasks(payload, nowMs = Date.now()) {
 
 export async function handleRevenueApi(request, env) {
   const url = new URL(request.url);
-  if (url.pathname !== '/api/revenue/tasks' && url.pathname !== '/api/revenue/taskmarket-pc-status') return null;
+  if (url.pathname !== '/api/revenue/tasks' && url.pathname !== '/api/revenue/taskmarket-pc-status' && url.pathname !== '/api/revenue/drafts') return null;
   const auth = requireAuth(request, env);
   if (!auth.ok) return auth.response;
+  if (url.pathname === '/api/revenue/drafts') {
+    if (request.method !== 'GET') return json({ok:false,code:'METHOD_NOT_ALLOWED'},405);
+    try { return json({ok:true,...await listD1ValidatedDrafts(env?.DB,{limit:20})}); }
+    catch (error) { return json({ok:false,code:'WORK_DRAFT_LIST_UNAVAILABLE'},503); }
+  }
   if (url.pathname === '/api/revenue/taskmarket-pc-status') {
     if (request.method !== 'POST') return json({ ok: false, code: 'METHOD_NOT_ALLOWED' }, 405);
     const body = await request.json().catch(() => ({}));
