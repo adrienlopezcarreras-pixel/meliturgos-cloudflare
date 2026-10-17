@@ -58,7 +58,8 @@ jobs:
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
-          git fetch origin main --depth=1
+          # Deep enough to prove a validated build commit is in main history even after later merges.
+          git fetch origin main --depth=500
           git merge-base --is-ancestor "$EXPECTED_SHA" FETCH_HEAD
 
       - name: Prepare pinned Waveshare base
