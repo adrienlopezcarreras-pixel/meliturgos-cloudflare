@@ -111,6 +111,18 @@ test('native Companion installs the complete MINI read-only USB bundle and expos
   assert.ok(source.includes(file),'installation missing: '+file);
  }
  assert.match(verify,/WINDOWS_MINI_USB_PREFLIGHT_FILE_MISSING/);
+ const backup=await read('windows-companion/MEL-MINI-USB-Backup.ps1');
+ assert.match(source,/MiniUsbBackupPath/);
+ assert.match(source,/RunMiniUsbBackup/);
+ assert.match(source,/SAUVEGARDER_MINI_USB|Sauvegarder la MINI par USB/);
+ assert.match(build,/MEL-MINI-USB-Backup\.ps1/);
+ assert.match(verify,/MEL-MINI-USB-Backup\.ps1/);
+ assert.match(backup,/SAUVEGARDER_MINI_USB/);
+ assert.match(backup,/full-flash\.bin/);
+ assert.match(backup,/full-flash-verify\.bin/);
+ assert.match(backup,/MINI_BACKUP_DOUBLE_READ_HASH_MISMATCH/);
+ assert.match(backup,/flash_allowed=\$false/);
+ assert.doesNotMatch(backup,/\bwrite[_-]flash\b|\berase[_-]flash\b/i);
  assert.match(helper,/AUTORISER_LECTURE_USB_MINI/);
  assert.match(helper,/flash_allowed -ne \$false/);
  assert.doesNotMatch(helper,/\bwrite_flash\b|\berase_flash\b/);
