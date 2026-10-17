@@ -1,8 +1,8 @@
 name: companion-ui-snapshot-windows-ci
 
-# Functional proof on a real Windows desktop: the Companion engine's
-# ui.snapshot reads Notepad's accessible elements (text area, menus) with
-# screen coordinates, which the computer agent uses to click precisely.
+# Static PowerShell integrity on GitHub-hosted Windows. A hosted runner does
+# not expose a normal interactive Notepad UIA tree. F5/F6 functional acceptance
+# must run on the user's authorized, interactive Windows Companion.
 on:
   pull_request:
     branches: [main]
@@ -31,33 +31,16 @@ jobs:
           [void][System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path 'assets/MEL-Computer-Companion.ps1'), [ref]$tokens, [ref]$errors)
           if ($errors.Count) { $errors | ForEach-Object { Write-Host $_ }; throw "ENGINE_PARSE_FAILED" }
           if ((Get-FileHash assets/MEL-Computer-Companion.ps1).Hash -ne (Get-FileHash dist/MEL-Computer-Companion.ps1).Hash) { throw "ENGINE_COPIES_DIFFER" }
-      - name: ui.snapshot reads Notepad on a real Windows desktop
+      - name: Assert live Windows UIA scenario is reserved for interactive Companion acceptance
         shell: powershell
         run: |
+          # GitHub-hosted runners have a non-user desktop; their Notepad window
+          # exposes only anonymous Pane nodes. Do not mislabel CI as a real-PC test.
+          # This job validates engine syntax and distribution parity only.
           $tokens = $null; $errors = $null
           $ast = [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path 'assets/MEL-Computer-Companion.ps1'), [ref]$tokens, [ref]$errors)
-          $fn = $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Get-UiSnapshot' }, $true) | Select-Object -First 1
-          if (-not $fn) { throw "GET_UISNAPSHOT_MISSING" }
-          Invoke-Expression $fn.Extent.Text
-          $p = Start-Process notepad -PassThru
-          $hwnd = [IntPtr]::Zero
-          for ($i = 0; $i -lt 40 -and $hwnd -eq [IntPtr]::Zero; $i++) {
-            Start-Sleep -Milliseconds 250
-            $proc = Get-Process -Name notepad -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1
-            if ($proc) { $hwnd = $proc.MainWindowHandle }
+          $functions = @($ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $true) | ForEach-Object { $_.Name })
+          foreach ($required in @('Get-UiSnapshot', 'Perform-Step')) {
+            if ($required -notin $functions) { throw "COMPANION_ENTRYPOINT_MISSING:$required" }
           }
-          if ($hwnd -eq [IntPtr]::Zero) { throw "NOTEPAD_WINDOW_NOT_FOUND" }
-          # A GitHub-hosted desktop may present only anonymous Pane nodes.
-          # Capture one structural observation rather than polling a non-interactive
-          # editor repeatedly; a missing text control remains an explicit failure.
-          $snap = Get-UiSnapshot $hwnd 150 6000
-          $text = @($snap.elements) | Where-Object { $_.type -in @('Document','Edit') } | Select-Object -First 1
-          $count = @($snap.elements).Count
-          $types = (@($snap.elements) | ForEach-Object { $_.type } | Sort-Object -Unique) -join ','
-          Write-Host "::notice title=ui.snapshot Notepad::window='$($snap.window_title)' process=$($snap.process) elements=$count types=$types elapsed_ms=$($snap.elapsed_ms)"
-          $json = $snap | ConvertTo-Json -Depth 12 -Compress
-          if ($json.Length -lt 50) { throw "SNAPSHOT_JSON_EMPTY" }
-          $text = @($snap.elements) | Where-Object { $_.type -in @('Document','Edit') } | Select-Object -First 1
-          if (-not $text) { throw "NOTEPAD_TEXT_AREA_NOT_FOUND: $types" }
-          if ($text.x -le 0 -or $text.y -le 0) { throw "TEXT_AREA_COORDINATES_INVALID" }
-          Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
+          Write-Host "::notice title=Real PC acceptance still required::F5/F6 UIA, typing and screenshot need Windows Companion running on an interactive user desktop; this CI does not certify them."
