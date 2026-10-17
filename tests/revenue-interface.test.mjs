@@ -499,7 +499,7 @@ test('direct MEL WORK UI offers real draft creation without prior expected answe
  const html=await (await onRequestGet()).text();
  assert.match(html,/Créer un brouillon de mission/);
  assert.match(html,/\/api\/revenue\/direct-work/);
- assert.match(html,/proof\\.artifact\\.status/);
+ assert.match(html,/proof[.]artifact[.]status/);
 });
 test('direct MEL WORK API stays owner-only and fails closed without D1',async()=>{
  const url='https://mel.test/api/revenue/direct-work';
