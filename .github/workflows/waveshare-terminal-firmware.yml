@@ -205,6 +205,8 @@ jobs:
           }
           JSON
           sha256sum mel-terminal.bin mini-first-install.bin lvgl_system.elf lvgl_system.map ../firmware-manifest.json > ../SHA256SUMS.txt
+          # Readable in the run's annotations: the exact values the publish workflow requires.
+          echo "::notice title=MINI firmware identity::source_sha=${SOURCE_SHA} ota_sha256=${OTA_SHA256} installer_sha256=${INSTALL_SHA256} version=${FW_VERSION}"
           python - <<'PY'
           import hashlib, json
           from pathlib import Path
