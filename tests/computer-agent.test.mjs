@@ -228,3 +228,10 @@ test('MEL Chat streams each PC step live, then the proof and the summary, and ar
     db.close();
   }
 });
+
+test('the agent never types when no text field has focus (e.g. a browser page)', () => {
+  const firefox = { process: 'firefox', elements: [{ i: 1, type: 'Button', name: 'Retour', x: 10, y: 10 }, { i: 2, type: 'Document', name: 'Page', x: 50, y: 50, focused: false }] };
+  assert.deepEqual(actionToSteps({ action: 'type', text: 'bonjour' }, firefox, {}), { error: 'AGENT_NO_FOCUSED_TEXT_FIELD' });
+  const notepad = { process: 'notepad', elements: [{ i: 2, type: 'Document', name: 'Éditeur', x: 600, y: 400, focused: true }] };
+  assert.deepEqual(actionToSteps({ action: 'type', text: 'bonjour' }, notepad, {}).steps, [{ action: 'keyboard.type', text: 'bonjour' }]);
+});

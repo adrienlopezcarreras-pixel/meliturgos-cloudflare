@@ -101,6 +101,8 @@ export function parseAgentAction(text) {
 }
 
 // Traduit la décision du modèle en étapes Companion validées.
+const TEXT_FIELD_TYPES = /^(Edit|Document|ComboBox)$/i;
+
 export function actionToSteps(action, snapshot = {}, device = {}) {
   const elements = Array.isArray(snapshot.elements) ? snapshot.elements : [];
   const element = Number.isInteger(action.element) ? elements.find(el => el.i === action.element) : null;
@@ -119,6 +121,9 @@ export function actionToSteps(action, snapshot = {}, device = {}) {
     case 'type': {
       const text = String(action.text || '');
       if (!text) return { error: 'AGENT_TEXT_EMPTY' };
+      // keyboard.type pastes into whatever has focus: only into a text field the
+      // engine reports as focused, never into a page, a menu or another app's window.
+      if (!elements.some(el => el.focused === true && TEXT_FIELD_TYPES.test(String(el.type || '')))) return { error: 'AGENT_NO_FOCUSED_TEXT_FIELD' };
       return { steps: [{ action: 'keyboard.type', text: text.slice(0, 4000) }], settleMs: 300 };
     }
     case 'key': {
