@@ -408,27 +408,37 @@ async function refreshValidatedDrafts(){
   }
  }catch(error){area.textContent='Lecture des brouillons indisponible : '+String(error.message||error).slice(0,120)}
 }
+let workRuntimeReady=false;
+let workMatchingTaskCount=0;
+function applyWorkCycleAvailability(){
+ const button=$('runDraftCycle');
+ button.disabled=!(workRuntimeReady&&workMatchingTaskCount>0);
+ button.title=!workRuntimeReady?'D1 et validation indépendante requis':workMatchingTaskCount===0?'Aucune mission publique compatible actuellement':'Préparer une mission vérifiable, sans soumission';
+}
 async function refreshDraftDiscovery(){
  const area=$('draftDiscovery');
+ workMatchingTaskCount=0;applyWorkCycleAvailability();
  try{
   const response=await fetch('/api/revenue/eligible-discovery',{cache:'no-store'});
   const result=await response.json().catch(()=>({}));
   if(!response.ok||result.ok!==true){area.textContent='Découverte indisponible : '+String(result.code||'SERVICE_UNAVAILABLE');return}
-  area.textContent='Taskmarket : '+Number(result.openTaskCount||0)+' missions ouvertes examinées, '+Number(result.matchingTaskCount||0)+' correspondant aux références de validation. Aucune mission réclamée.';
+  workMatchingTaskCount=Number.isSafeInteger(result.matchingTaskCount)&&result.matchingTaskCount>0?result.matchingTaskCount:0;
+  area.textContent='Taskmarket : '+Number(result.openTaskCount||0)+' missions ouvertes examinées, '+workMatchingTaskCount+' correspondant aux références de validation. Aucune mission réclamée.';
  }catch{area.textContent='Découverte Taskmarket inaccessible.'}
+ finally{applyWorkCycleAvailability()}
 }
-refreshDraftDiscovery();
 async function refreshDraftReadiness(){
- const button=$('runDraftCycle');
+ workRuntimeReady=false;applyWorkCycleAvailability();
  try{
   const response=await fetch('/api/revenue/draft-readiness',{cache:'no-store'});
   const payload=await response.json();
   if(!response.ok||payload.ok!==true)throw new Error('READINESS_UNAVAILABLE');
-  button.disabled=payload.ready!==true;
-  button.title=payload.ready===true?'Préparation vérifiable autorisée':'Préparation indisponible : D1 et résultat de référence indépendant requis';
- }catch{button.disabled=true;button.title='État de préparation impossible à vérifier'}
+  workRuntimeReady=payload.ready===true;
+ }catch{workRuntimeReady=false}
+ finally{applyWorkCycleAvailability()}
 }
 refreshDraftReadiness();
+refreshDraftDiscovery();
 $('runDraftCycle').onclick=async()=>{
  const button=$('runDraftCycle');button.disabled=true;
  const area=$('draftList');area.textContent='Exécution bornée en cours : aucune soumission ni dépense autorisée.';
