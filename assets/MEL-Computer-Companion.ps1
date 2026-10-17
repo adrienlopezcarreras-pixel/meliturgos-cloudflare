@@ -3060,6 +3060,9 @@ function Process-Command($command) {
     $body = @{ command_id=$command.id; ok=$true; result=@{ outputs=$outputs; active_window=(Active-Window) } }
     [void](Submit-CommandResult $body)
   } catch {
+    # A delivery failure is not an execution failure. Preserve the durable terminal
+    # outcome and let the outer polling loop retry its acknowledgement.
+    if ([System.IO.File]::Exists($script:ResultJournal)) { throw }
     $code = [string]$_.Exception.Message
     $body = @{ command_id=$command.id; ok=$false; error_code=$code; result=@{ outputs=$outputs } }
     [void](Submit-CommandResult $body)
