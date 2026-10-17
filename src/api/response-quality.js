@@ -163,7 +163,9 @@ export function finalizeEvidenceAlignedResponse({
     if(codeEvidence?.path) proof.push(`fichier ${codeEvidence.path}`);
     if(codeEvidence?.branch) proof.push(`branche ${codeEvidence.branch}`);
     if(codeEvidence?.head) proof.push(`SHA ${String(codeEvidence.head).slice(0,8)}`);
-    out=`Oui, j’ai accès à mon dépôt/code MEL via mes capacités code${proof.length ? ` ; cette requête a vérifié ${proof.join(', ')}` : ''}. Une lecture précise n’est affirmée que lorsqu’un outil code l’a réellement exécutée sur la cible demandée.`;
+    out=codeEvidence
+      ? `Oui, j’ai accès à mon dépôt/code MEL via mes capacités code${proof.length ? ` ; cette requête a vérifié ${proof.join(', ')}` : ''}. Une lecture précise n’est affirmée que lorsqu’un outil code l’a réellement exécutée sur la cible demandée.`
+      : 'La capacité d’accès au code est déclarée disponible, mais aucune exécution réussie de lecture du dépôt n’est prouvée pour cette requête. Je ne peux donc pas certifier une lecture effective maintenant.';
   }
 
   if(developmentQueued && claimsCompletion(out)){

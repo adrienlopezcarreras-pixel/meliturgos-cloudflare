@@ -255,3 +255,13 @@ test('MEL WORK generated browser JavaScript is syntactically valid', async () =>
   assert.ok(script, 'MEL WORK inline browser script is present');
   assert.doesNotThrow(() => new Function(script), 'MEL WORK browser script must parse');
 });
+
+
+test('MEL WORK shows fetched offers without awaiting persistent preparation lookup', async () => {
+  const html = await (await onRequestGet()).text();
+  const script = html.match(/<script>([\s\S]*?)<\/script>/)?.[1] || '';
+  const refresh = script.slice(script.indexOf('async function refreshTasks'), script.indexOf('function computerControlIssue'));
+  assert.match(refresh, /renderTasks\(\);void loadPersistentPrepPlans\(\);/);
+  assert.doesNotMatch(refresh, /await loadPersistentPrepPlans\(\)/);
+  assert.doesNotThrow(() => new Function(script));
+});
