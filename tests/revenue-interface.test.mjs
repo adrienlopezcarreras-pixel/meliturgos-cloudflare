@@ -50,7 +50,7 @@ test('canonical MEL navigation and router expose MEL WORK without bypassing owne
   assert.match(router, /url\.pathname === "\/revenus"/);
   assert.match(router, /handleRevenueApi\(request, env, ctx\)/);
   assert.match(professor, /href="\/revenus"[\s\S]{0,120}MEL WORK/);
-  assert.match(router, /const auth = requireAuth\(request, env\);[\s\S]{0,120}handleRevenueApi\(request, env\)/);
+  assert.match(router, /const revenueResponse = await handleRevenueApi\(request, env, ctx\)/);
 });
 
 test('Taskmarket PC probe is fixed/read-only, owner-authenticated, and accepts only a PC identity', async () => {
