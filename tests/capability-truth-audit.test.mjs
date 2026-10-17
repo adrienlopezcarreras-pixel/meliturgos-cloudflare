@@ -663,7 +663,7 @@ test('targeted audit ranges only refresh and inspect requested capability ids', 
 });
 
 
-test('external connector reads stay inventoried in global stress without duplicate live execution', async () => {
+test('external connector reads are really executed by the global stress test', async () => {
   const calls=[];
   const records=[
     { id:'files.search', name:'OneDrive files search', category:'files', provider:'pipedream', risk:'LOW', enabled:true, health:'HEALTHY' },
@@ -680,13 +680,11 @@ test('external connector reads stay inventoried in global stress without duplica
       'device.policy.preview':{},
     },
   });
-  for(const id of ['files.search']){
-    const row=report.capabilities.find(item=>item.id===id);
-    assert.equal(row.tested_now,false);
-    assert.equal(row.auto_execution_blocked,'UNKNOWN_OR_EXTERNAL_COST');
-    assert.equal(row.truth_status,'EXISTANT_NON_TESTE');
-  }
-  assert.deepEqual(calls,['device.policy.preview']);
+  const row=report.capabilities.find(item=>item.id==='files.search');
+  assert.equal(row.tested_now,true);
+  assert.equal(row.auto_execution_blocked,null);
+  assert.equal(row.truth_status,'EXISTANT_ET_TESTE');
+  assert.deepEqual(calls.sort(),['device.policy.preview','files.search']);
 });
 
 test('conversation messages audit fixture honors the exact read schema without extra limit field', async () => {
@@ -718,7 +716,7 @@ test('automatic capability audit never supplies synthetic approval for recovery 
   assert.deepEqual(calls,[]);
 });
 
-test('Cloudflare read-only deployment fixture supplies required script but stays cost-guarded', async () => {
+test('Cloudflare read-only deployment fixture supplies the required script and is really executed', async () => {
   assert.deepEqual(SAFE_SAMPLES['cloudflare.deployments.read'],{script:'meliturgos',limit:1});
   let calls=0;
   const bus={
@@ -726,8 +724,8 @@ test('Cloudflare read-only deployment fixture supplies required script but stays
     execute:async()=>{calls++;return {};},
   };
   const report=await auditRuntimeCapabilities({bus},{deep:true});
-  assert.equal(report.capabilities[0].auto_execution_blocked,'UNKNOWN_OR_EXTERNAL_COST');
-  assert.equal(calls,0);
+  assert.equal(report.capabilities[0].auto_execution_blocked,null);
+  assert.equal(calls,1);
 });
 
 test('health refresh failures cannot silently reuse a stale HEALTHY registration', async () => {

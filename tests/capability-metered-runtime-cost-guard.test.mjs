@@ -9,7 +9,7 @@ const meteredReadRecords = [
   { id:'mentor.recent', name:'Mentor recent', category:'learning', provider:'mel', risk:'LOW', enabled:true, health:'HEALTHY' },
 ];
 
-test('deep truth audit refuses metered runtime reads until exact zero-added-cost proof is supplied', async () => {
+test('deep truth audit executes free D1 reads but keeps embedding-backed search behind an exact zero-cost proof', async () => {
   const calls = [];
   const healthCalls = [];
   const fake = {
@@ -22,7 +22,6 @@ test('deep truth audit refuses metered runtime reads until exact zero-added-cost
       execute: async id => { calls.push(id); return { ok:true }; },
     },
   };
-
   const samples = {
     'conversation.list': {},
     'rag.search': { query:'MELITURGOS', limit:1 },
@@ -30,25 +29,18 @@ test('deep truth audit refuses metered runtime reads until exact zero-added-cost
     'mentor.recent': { limit:1 },
   };
 
-  const blocked = await auditRuntimeCapabilities(fake, { deep:true, samples });
-  assert.deepEqual(healthCalls, []);
-  assert.deepEqual(calls, []);
-  for (const record of meteredReadRecords) {
-    const row = blocked.capabilities.find(item => item.id === record.id);
-    assert.equal(row.tested_now, false);
-    assert.equal(row.auto_execution_blocked, 'UNKNOWN_OR_EXTERNAL_COST');
-    assert.equal(row.truth_status, 'EXISTANT_NON_TESTE');
+  const report = await auditRuntimeCapabilities(fake, { deep:true, samples });
+  // Bounded D1 reads are free at MEL's volume: they are really executed now.
+  for (const id of ['conversation.list','autonomy.status','mentor.recent']) {
+    const row = report.capabilities.find(item => item.id === id);
+    assert.ok(calls.includes(id), id + ' must be executed');
+    assert.equal(row.truth_status, 'EXISTANT_ET_TESTE');
   }
+  // rag.search may call a metered embedding model: still blocked without proof.
+  const rag = report.capabilities.find(item => item.id === 'rag.search');
+  assert.equal(calls.includes('rag.search'), false);
+  assert.equal(rag.auto_execution_blocked, 'UNKNOWN_OR_EXTERNAL_COST');
 
-  const approved = await auditRuntimeCapabilities(fake, {
-    deep:true,
-    samples,
-    zeroCostCapabilityIds:['autonomy.status'],
-  });
-  assert.deepEqual(healthCalls, ['autonomy.status']);
-  assert.deepEqual(calls, ['autonomy.status']);
-  assert.equal(approved.capabilities.find(item => item.id === 'autonomy.status').truth_status, 'EXISTANT_ET_TESTE');
-  for (const id of ['conversation.list','rag.search','mentor.recent']) {
-    assert.equal(approved.capabilities.find(item => item.id === id).auto_execution_blocked, 'UNKNOWN_OR_EXTERNAL_COST');
-  }
+  const approved = await auditRuntimeCapabilities(fake, { deep:true, samples, zeroCostCapabilityIds:['rag.search'] });
+  assert.equal(approved.capabilities.find(item => item.id === 'rag.search').truth_status, 'EXISTANT_ET_TESTE');
 });

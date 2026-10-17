@@ -251,11 +251,16 @@ const SAFE_SAMPLES = Object.freeze({
   },
 });
 
-// Automatic deep audits must be zero-added-cost by proof, not assumption.
-// This includes obvious external/provider calls and reads backed by metered
-// Cloudflare resources such as D1. A capability in this set may still be
-// executed when the caller explicitly supplies its exact id in
-// zeroCostCapabilityIds for the current run.
+// Automatic deep audits must not spend money. Only capabilities that call a
+// metered model runtime (Workers AI generation, multi-model fan-out, Council,
+// transcription, web synthesis, embeddings) stay blocked unless the caller
+// proves zero added cost for this exact run through zeroCostCapabilityIds.
+//
+// Read-only connector calls (Google, Microsoft, GitHub, Cloudflare APIs) and
+// bounded D1 reads are free at MEL's volume. Keeping them blocked meant the
+// global stress test never executed calendar/mail/drive reads, so they stayed
+// "DEGRADED" forever while never being called (production audit_logs: 0
+// executions in 7 days). They are now really executed with bounded samples.
 const COST_SENSITIVE_CAPABILITIES = new Set([
   'augmentio.fanout',
   'model.council',
@@ -265,20 +270,19 @@ const COST_SENSITIVE_CAPABILITIES = new Set([
   'media.audio.transcribe',
   'evolution.enqueue',
   'web.research',
+  'rag.search',
+]);
+
+// Free, read-only external reads now executed by deep audits (see above).
+const FREE_EXTERNAL_READ_CAPABILITIES = new Set([
   'github.repository.read',
   'github.actions.runs.read',
   'code.read',
   'code.search',
   'code.integrity',
   'conversation.list',
-  'rag.search',
   'autonomy.status',
   'mentor.recent',
-
-  // Live external connectors are proved by the exact-SHA platform/connections
-  // production gates. The persistent global stress must inventory them
-  // truthfully without reissuing network calls that can outlive a Worker
-  // waitUntil and turn the global proof into a duplicate integration test.
   'cloudflare.workers.read',
   'cloudflare.deployments.read',
   'gmail.messages.search',
@@ -627,4 +631,4 @@ export async function auditRuntimeCapabilities(runtime, {
   };
 }
 
-export { SAFE_SAMPLES, COST_SENSITIVE_CAPABILITIES, DECLARED_IMPLEMENTATION_STATUSES };
+export { SAFE_SAMPLES, COST_SENSITIVE_CAPABILITIES, FREE_EXTERNAL_READ_CAPABILITIES, DECLARED_IMPLEMENTATION_STATUSES };

@@ -8,21 +8,16 @@ const githubCodeRecords = [
   { id:'code.integrity', name:'Code integrity', category:'code', provider:'mel', risk:'LOW', enabled:true, health:'HEALTHY' },
 ];
 
-test('deep truth audit refuses GitHub-backed execution and health probes until exact zero-added-cost proof is supplied', async () => {
+test('deep truth audit really executes free GitHub-backed code reads', async () => {
   const calls = [];
-  const healthCalls = [];
   const fake = {
     bus: {
       list: () => githubCodeRecords,
-      refreshHealth: async id => {
-        healthCalls.push(id);
-        return githubCodeRecords.find(record => record.id === id);
-      },
+      refreshHealth: async id => githubCodeRecords.find(record => record.id === id),
       execute: async id => { calls.push(id); return { ok:true }; },
     },
   };
-
-  const blocked = await auditRuntimeCapabilities(fake, {
+  const report = await auditRuntimeCapabilities(fake, {
     deep: true,
     samples: {
       'code.read': { path:'package.json' },
@@ -30,25 +25,19 @@ test('deep truth audit refuses GitHub-backed execution and health probes until e
       'code.integrity': { paths:['package.json'] },
     },
   });
-
-  assert.deepEqual(healthCalls, []);
-  assert.deepEqual(calls, []);
   for (const id of ['code.read','code.search','code.integrity']) {
-    const row = blocked.capabilities.find(item => item.id === id);
-    assert.equal(row.tested_now, false);
-    assert.equal(row.auto_execution_blocked, 'UNKNOWN_OR_EXTERNAL_COST');
-    assert.equal(row.truth_status, 'EXISTANT_NON_TESTE');
+    const row = report.capabilities.find(item => item.id === id);
+    assert.ok(calls.includes(id), id + ' must be executed');
+    assert.equal(row.auto_execution_blocked, null);
+    assert.equal(row.truth_status, 'EXISTANT_ET_TESTE');
   }
+});
 
-  const approved = await auditRuntimeCapabilities(fake, {
-    deep: true,
-    samples: { 'code.read': { path:'package.json' } },
-    zeroCostCapabilityIds: ['code.read'],
-  });
-
-  assert.deepEqual(healthCalls, ['code.read']);
-  assert.deepEqual(calls, ['code.read']);
-  assert.equal(approved.capabilities.find(item => item.id === 'code.read').truth_status, 'EXISTANT_ET_TESTE');
-  assert.equal(approved.capabilities.find(item => item.id === 'code.search').auto_execution_blocked, 'NO_BOUNDED_SAMPLE');
-  assert.equal(approved.capabilities.find(item => item.id === 'code.integrity').auto_execution_blocked, 'NO_BOUNDED_SAMPLE');
+test('deep truth audit still refuses metered model capabilities without exact zero-cost proof', async () => {
+  const calls = [];
+  const records = [{ id:'model.council', name:'Council', category:'orchestration', provider:'workers-ai', risk:'LOW', enabled:true, health:'HEALTHY' }];
+  const fake = { bus: { list: () => records, execute: async id => { calls.push(id); return { ok:true }; } } };
+  const report = await auditRuntimeCapabilities(fake, { deep:true, samples:{ 'model.council': { request:'x' } } });
+  assert.deepEqual(calls, []);
+  assert.equal(report.capabilities[0].auto_execution_blocked, 'UNKNOWN_OR_EXTERNAL_COST');
 });
