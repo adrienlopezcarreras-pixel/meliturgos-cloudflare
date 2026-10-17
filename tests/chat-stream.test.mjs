@@ -35,6 +35,9 @@ test('SSE parser handles Workers AI and OpenAI-style chunks', async () => {
     assert.equal(finish, 'length');
   }
   assert.equal(sseEventText({ response: 'a' }), 'a');
+  assert.equal(sseEventText({ response: '', choices: [{ delta: { content: 'stream fragment' } }] }), 'stream fragment');
+  assert.equal(sseEventText({ response: '', text: 'valid alternate' }), 'valid alternate');
+  assert.equal(sseEventText({ response: '  ', choices: [{ text: 'choice fallback' }] }), 'choice fallback');
   assert.equal(sseEventText(null), '');
 });
 
