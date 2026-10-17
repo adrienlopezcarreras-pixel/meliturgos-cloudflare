@@ -87,7 +87,7 @@ if(-not $cands){throw 'PYTHON_NOT_FOUND'}
 function Py([string[]]$a){$p=$ErrorActionPreference;$ErrorActionPreference='Continue';try{$o=@(& $py @a 2>&1|ForEach-Object{[string]$_})}finally{$ErrorActionPreference=$p};return @{code=$LASTEXITCODE;out=($o -join [string][char]10)}}
 $ready=$null;$i=$null
 foreach($py in $cands){if((Py @('-m','esptool','version')).code -eq 0){$ready=$py;break}}
-if(-not $ready){foreach($py in $cands){foreach($a in @(@('--user','--only-binary=:all:','esptool=='+$tag.TrimStart('v')),@('--user','--only-binary=:all:','esptool>=5'))){$i=Py (@('-m','pip','install','--disable-pip-version-check')+$a);if($i.code -eq 0){$ready=$py;break}};if($ready){break}}}
+if(-not $ready){foreach($py in $cands){foreach($a in @(@('--user','--prefer-binary','esptool=='+$tag.TrimStart('v')),@('--user','--prefer-binary','esptool>=5'))){$i=Py (@('-m','pip','install','--disable-pip-version-check')+$a);if($i.code -eq 0){$ready=$py;break}};if($ready){break}}}
 if(-not $ready){$t=[string]$i.out;throw ('ESPTOOL_PIP_INSTALL_FAILED:'+$t.Substring([Math]::Max(0,$t.Length-400)))}
 $py=$ready
 $ports=@(Get-CimInstance Win32_PnPEntity -ErrorAction SilentlyContinue | ForEach-Object { if(([string]$_.PNPDeviceID) -match '^USB\\VID_303A&PID_1001' -and ([string]$_.Name) -match '\((COM\d{1,3})\)'){ $Matches[1] } } | Sort-Object -Unique)
