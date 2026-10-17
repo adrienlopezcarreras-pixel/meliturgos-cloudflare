@@ -156,3 +156,28 @@ test('Android prevents queued control frames and delayed hotspot credentials cro
   assert.match(client, /sendErrorAsync\(streamId: Int, code: String\)/);
   assert.match(client, /sendControlAsync\(\s*MelLinkV2Protocol\.encode\(/);
 });
+
+test('Android reauthenticates MINI Internet after network loss, handover and stale HTTP completion', async () => {
+  const service = await read('android-companion/app/src/main/java/fr/veriteinterdite/mel/MelLinkV2ClientService.kt');
+  const network = service.slice(service.indexOf('private val networkCallback'), service.indexOf('override fun onCreate()'));
+  assert.match(network, /onLost\(network: Network\) = refreshInternetState\(lostNetwork = network\)/);
+  const refresh = service.slice(service.indexOf('private fun refreshInternetState('), service.indexOf('private fun validateMelSession()'));
+  assert.match(refresh, /network != lostNetwork/);
+  assert.match(refresh, /verifiedNetwork != nextNetwork/);
+  assert.match(refresh, /networkGeneration\+\+/);
+  assert.match(refresh, /melSessionReady = false/);
+  assert.match(refresh, /internetReady\.value = phoneOk && miniReady\.value && protocolReady\.value && melSessionReady/);
+  assert.match(refresh, /state\.value = "MINI V2 PRETE"/);
+  assert.match(refresh, /if \(revalidate\) validateMelSession\(\)/);
+  const validate = service.slice(service.indexOf('private fun validateMelSession()'), service.indexOf('private fun hasBlePermissions()'));
+  assert.match(validate, /requestGeneration = networkGeneration/);
+  assert.match(validate, /requestNetwork = verifiedNetwork/);
+  assert.match(validate, /refreshInternetState\(\)/);
+  assert.match(validate, /networkGeneration != requestGeneration/);
+  assert.match(validate, /verifiedNetwork != requestNetwork/);
+  assert.match(validate, /gatt !== sessionGatt/);
+  assert.match(validate, /miniHeartbeatAccepted\(/);
+  assert.ok(validate.indexOf('networkGeneration != requestGeneration') < validate.indexOf('melSessionReady = ok'),
+    'Do not publish the HTTP ACK before validating the network generation');
+  assert.doesNotMatch(validate, /}\.isSuccess/);
+});
