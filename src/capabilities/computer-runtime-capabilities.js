@@ -66,8 +66,15 @@ export function registerComputerRuntimeCapabilities(bus,{db}={}){
   try{await ensure(db);await db.prepare("SELECT id FROM computer_devices LIMIT 1").all();return "ONLINE"}catch{return "OFFLINE"}
  };
  const health=async()=>{
-  if(!db)return "OFFLINE";
-  try{await ensure(db);const r=await db.prepare("SELECT * FROM computer_devices ORDER BY last_seen_at DESC LIMIT 20").all();return (r.results||[]).some(row=>!remoteAccessIssue(normalizeDevice(row)))?"ONLINE":"OFFLINE"}catch{return "OFFLINE"}
+  if(!db)return {status:"OFFLINE",reason:"COMPUTER_DB_REQUIRED"};
+  try{
+   await ensure(db);
+   const r=await db.prepare("SELECT * FROM computer_devices ORDER BY last_seen_at DESC LIMIT 20").all();
+   const devices=(r.results||[]).map(normalizeDevice);
+   if(devices.some(device=>remoteAccessIssue(device)===null))return {status:"ONLINE"};
+   const preferred=devices.find(device=>String(device.platform||"").toLowerCase()==="windows")||devices[0]||null;
+   return {status:"OFFLINE",reason:remoteAccessIssue(preferred)||"COMPUTER_NO_AUTHORIZED_ONLINE_DEVICE"};
+  }catch{return {status:"OFFLINE",reason:"COMPUTER_STATUS_HEALTHCHECK_FAILED"}}
  };
  bus.discover({id:"computer.status",name:"État ordinateur MEL",category:"device",version:"1.0.0",provider:"mel",description:"Liste les ordinateurs appairés, leur présence récente et la raison exacte si le contrôle distant n’est pas autorisé. L’inspection ne donne jamais l’autorisation de contrôle.",input_schema:{type:"object",additionalProperties:false},output_schema:{type:"object",additionalProperties:true},risk:"LOW",permissions:[],health:db?"DEGRADED":"UNAVAILABLE",enabled:true},async()=>{await ensure(db);const rows=await db.prepare("SELECT * FROM computer_devices ORDER BY last_seen_at DESC LIMIT 20").all();return {ok:true,devices:(rows.results||[]).map(normalizeDevice)}},db?statusHealth:null);
  bus.discover({id:"computer.execute",name:"Contrôler ordinateur MEL",category:"device",version:"1.0.0",provider:"mel",description:"Met en file des actions visuelles bornées pour le compagnon Windows appairé. Les saisies, ouvertures d’applications et accès presse-papiers exigent une approbation explicite.",input_schema:{type:"object",properties:{computer_id:{type:"string",minLength:1,maxLength:200},session_id:{type:"string",maxLength:200},steps:{type:"array",minItems:1,maxItems:20,items:{type:"object",additionalProperties:true}},approve_sensitive:{type:"boolean"},allowed_paths:{type:"array",maxItems:32,items:{type:"string",maxLength:4096}},allowed_origins:{type:"array",maxItems:32,items:{type:"string",maxLength:2048}}},required:["computer_id","steps"],additionalProperties:false},output_schema:{type:"object",additionalProperties:true},risk:"HIGH",permissions:[],health:db?"DEGRADED":"UNAVAILABLE",enabled:true},async(input)=>{
