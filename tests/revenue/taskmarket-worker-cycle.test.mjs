@@ -275,3 +275,16 @@ test('exact JSON acceptance checks trusted nested answer, not mere syntax',async
  assert.equal((await verify({task,candidate:{content:'{"items":[1,2],"nested":{"value":5}}'}})).passed,false);
  assert.equal((await verify({task:{id:'unknown'},candidate:{content:expectedJson}})).machineVerifiable,false);
 });
+
+test('bounded draft cycle never assesses a public task without trusted acceptance fixture',async()=>{
+ let councilCalls=0;
+ const cycle=await runBoundedTaskmarketDraftCycle({
+  db:{prepare(){throw new Error('DB_NOT_USED')}},
+  eligibleTaskIds:['fixture-job'],
+  fetchImpl:async()=>({ok:true,json:async()=>({tasks:[{...task,id:'other-job'}]})}),
+  council:async()=>{councilCalls++;throw new Error('UNEXPECTED_COUNCIL')},
+  validateArtifact:async()=>{throw new Error('UNEXPECTED_VALIDATION')},
+ });
+ assert.equal(cycle.considered,0);
+ assert.equal(councilCalls,0);
+});
