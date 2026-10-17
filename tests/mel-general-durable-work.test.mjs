@@ -213,7 +213,7 @@ test('concurrent creation conflict reuses the winner and never launches a second
   const bus = { execute: async (capability, input) => {
     if (capability === 'work.status') {
       reads++;
-      if (reads <= 2) throw Object.assign(new Error('not found'), {code:'WORK_DAG_NOT_FOUND'});
+      if (reads === 1) throw Object.assign(new Error('not found'), {code:'WORK_DAG_NOT_FOUND'});
       return {status:'RUNNING',completed:false,blocked:false,node_counts:{PENDING:1}};
     }
     if (capability === 'work.create') {
