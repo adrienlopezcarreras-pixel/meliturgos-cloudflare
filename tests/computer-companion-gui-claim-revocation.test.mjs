@@ -26,7 +26,7 @@ test('queued GUI command is revoked before claim after local Companion access is
   const {token}=await paired.json();
   const bearer='Bearer '+token;
   const heartbeat=enabled=>call('heartbeat',{method:'POST',auth:bearer,device:true,
-   body:{remote_access_enabled:enabled,engine_version:'1.4.1'}});
+   body:{remote_access_enabled:enabled,engine_version:'1.4.1',engine_heartbeat_at:Date.now()}});
   const enqueue=()=>call('commands',{method:'POST',body:{
    computer_id:'gui-revoke-pc',steps:[{id:'move-1',action:'cursor.move',x:100,y:150}]
   }});

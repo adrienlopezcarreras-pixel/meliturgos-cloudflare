@@ -25,7 +25,7 @@ test('STOP cancels queued work permanently, without affecting other devices',asy
   };
   const t1=await pair('stop-pc'),t2=await pair('other-pc');
   for(const [id,token] of [['stop-pc',t1],['other-pc',t2]]){
-   const hb=await request('heartbeat',{method:'POST',auth:'Bearer '+token,device:id,body:{remote_access_enabled:true}});
+   const hb=await request('heartbeat',{method:'POST',auth:'Bearer '+token,device:id,body:{remote_access_enabled:true,engine_version:'1.4.1',engine_heartbeat_at:Date.now()}});
    assert.equal(hb.status,200);
   }
   const enqueue=async id=>{

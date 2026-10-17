@@ -26,7 +26,7 @@ test('STOP cancels RUNNING work, rejects stale results after RESUME, and keeps d
   const token=await pair('pc-running'),otherToken=await pair('another-pc');
   const deviceAuth='Bearer '+token;
   for(const [device,auth] of [['pc-running',deviceAuth],['another-pc','Bearer '+otherToken]]){
-   assert.equal((await call('heartbeat',{method:'POST',auth,device,body:{remote_access_enabled:true}})).status,200);
+   assert.equal((await call('heartbeat',{method:'POST',auth,device,body:{remote_access_enabled:true,engine_version:'1.4.1',engine_heartbeat_at:Date.now()}})).status,200);
   }
   const q=await call('commands',{method:'POST',body:{computer_id:'pc-running',
    steps:[{id:'s',action:'cursor.move',x:2,y:3}]}});
