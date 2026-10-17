@@ -265,3 +265,12 @@ test('MEL WORK shows fetched offers without awaiting persistent preparation look
   assert.doesNotMatch(refresh, /await loadPersistentPrepPlans\(\)/);
   assert.doesNotThrow(() => new Function(script));
 });
+
+
+test('MEL WORK prefers synchronized persisted status over transient run status', async () => {
+  const html = await (await onRequestGet()).text();
+  const script = html.match(/<script>([\s\S]*?)<\/script>/)?.[1] || '';
+  const runner = script.slice(script.indexOf('async function executeSavedReadOnlyPreparation'),script.indexOf('async function createPersistentPrepPlan'));
+  assert.match(runner, /const status=String\(synced\?\.work\?\.status\|\|executed\?\.status\|\|'UNKNOWN'\)/);
+  assert.doesNotThrow(() => new Function(script));
+});
