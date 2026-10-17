@@ -414,7 +414,7 @@ async function showDirectArtifact(artifactId,outcome,area){
   if(!proofResponse.ok||proof.artifact?.id!==artifactId)throw new Error('WORK_ARTIFACT_READBACK_FAILED');
   area.replaceChildren();
   const message=document.createElement('pre');message.style.whiteSpace='pre-wrap';message.style.overflowWrap='anywhere';
-  const steps=Array.isArray(outcome.result?.humanSteps)?outcome.result.humanSteps:[];
+  const steps=Array.isArray(proof.humanSteps)&&proof.humanSteps.length?proof.humanSteps:(Array.isArray(outcome.result?.humanSteps)?outcome.result.humanSteps:[]);
   message.textContent='Mission Taskmarket : '+String(proof.artifact.mission_id||'')+'\\nStatut : '+String(outcome.result?.status||proof.artifact.status)+'\\nÉtapes humaines : '+(steps.length?steps.map((x,i)=>(i+1)+'. '+x).join(' ; '):'Vérifier le livrable avant toute publication.')+'\\nNon livré, non payé.\\n\\n'+String(proof.artifact.content||'');
   area.appendChild(message);
   const decisionBar=document.createElement('div');decisionBar.className='actions';
