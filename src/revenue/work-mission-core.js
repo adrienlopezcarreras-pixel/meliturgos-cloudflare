@@ -26,33 +26,43 @@ export async function executeWorkMission({db,mission,execute,verify=async()=>({p
  // Atomic claim: concurrent invocations may not both execute the same mission.
  const timestamp=now();
  const cutoff=new Date(Date.parse(timestamp)-15*60*1000).toISOString();
- const claimed=await db.prepare("UPDATE mel_work_missions SET state=?,attempts=attempts+1,last_error=NULL,updated_at=? WHERE id=? AND (state IN ('NEW','FAILED') OR (state='RUNNING' AND updated_at<?))").bind('RUNNING',timestamp,id,cutoff).run();
+ const claimed=await db.prepare("UPDATE mel_work_missions SET state=?,attempts=attempts+1,last_error=NULL,updated_at=? WHERE id=? AND (state IN ('NEW','FAILED') OR (state IN ('RUNNING','COMMITTING') AND updated_at<?))").bind('RUNNING',timestamp,id,cutoff).run();
  if(claimed?.meta?.changes!==1)throw new Error('WORK_MISSION_ALREADY_RUNNING');
+ const owner=await db.prepare('SELECT attempts FROM mel_work_missions WHERE id=?').bind(id).first();
+ const attempt=owner?.attempts;
+ if(!Number.isSafeInteger(attempt))throw new Error('WORK_MISSION_OWNERSHIP_LOST');
  let response;
  try{response=await execute({id,description})}
  catch(error){
-  await db.prepare('UPDATE mel_work_missions SET state=?,last_error=?,updated_at=? WHERE id=?').bind('FAILED',String(error?.message||'EXECUTION_FAILED').slice(0,120),now(),id).run();
+  await db.prepare('UPDATE mel_work_missions SET state=?,last_error=?,updated_at=? WHERE id=? AND state=? AND attempts=?').bind('FAILED',String(error?.message||'EXECUTION_FAILED').slice(0,120),now(),id,'RUNNING',attempt).run();
   throw error;
  }
  const content=typeof response?.content==='string'?response.content:'';
  if(!content.trim()||content.length>12000){
-  await db.prepare('UPDATE mel_work_missions SET state=?,last_error=?,updated_at=? WHERE id=?').bind('FAILED','WORK_ARTIFACT_EMPTY',now(),id).run();
+  await db.prepare('UPDATE mel_work_missions SET state=?,last_error=?,updated_at=? WHERE id=? AND state=? AND attempts=?').bind('FAILED','WORK_ARTIFACT_EMPTY',now(),id,'RUNNING',attempt).run();
   throw new Error('WORK_ARTIFACT_EMPTY');
  }
+ const committed=await db.prepare("UPDATE mel_work_missions SET state=?,updated_at=? WHERE id=? AND state='RUNNING' AND attempts=?").bind('COMMITTING',now(),id,attempt).run();
+ if(committed?.meta?.changes!==1)throw new Error('WORK_MISSION_OWNERSHIP_LOST');
  const digest=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(id+'\n'+content));
  const artifactId='work-'+Array.from(new Uint8Array(digest),b=>b.toString(16).padStart(2,'0')).join('');
  await db.prepare('CREATE TABLE IF NOT EXISTS mel_work_artifacts (id TEXT PRIMARY KEY, mission_id TEXT NOT NULL, content TEXT NOT NULL, status TEXT NOT NULL, created_at TEXT NOT NULL, human_steps TEXT NOT NULL DEFAULT \'[]\', owner_note TEXT, decided_at TEXT)').run();
  for(const column of ["human_steps TEXT NOT NULL DEFAULT '[]'","owner_note TEXT","decided_at TEXT"]){try{await db.prepare('ALTER TABLE mel_work_artifacts ADD COLUMN '+column).run()}catch(error){if(!/duplicate column/i.test(String(error)))throw error}}
  // The result exists before validation; a validator is not a prerequisite for doing useful work.
- await db.prepare('INSERT OR IGNORE INTO mel_work_artifacts (id,mission_id,content,status,created_at,human_steps) VALUES (?,?,?,?,?,?)').bind(artifactId,id,content,'DRAFT_FOR_OWNER',now(),JSON.stringify(humanSteps)).run();
+ const written=await db.prepare("INSERT OR IGNORE INTO mel_work_artifacts (id,mission_id,content,status,created_at,human_steps) SELECT ?,?,?,?,?,? WHERE EXISTS (SELECT 1 FROM mel_work_missions WHERE id=? AND state='COMMITTING' AND attempts=?)").bind(artifactId,id,content,'DRAFT_FOR_OWNER',now(),JSON.stringify(humanSteps),id,attempt).run();
+ if(written?.meta?.changes!==1){
+  const ownerRow=await db.prepare('SELECT state,attempts FROM mel_work_missions WHERE id=?').bind(id).first();
+  if(ownerRow?.attempts!==attempt||ownerRow?.state!=='COMMITTING')throw new Error('WORK_MISSION_OWNERSHIP_LOST');
+ }
  const stored=await db.prepare('SELECT id, mission_id, content, status FROM mel_work_artifacts WHERE id=?').bind(artifactId).first();
  if(stored?.id!==artifactId||stored.mission_id!==id||stored.content!==content)throw new Error('WORK_ARTIFACT_PERSISTENCE_UNCONFIRMED');
  let passed=false;
  try{passed=(await verify({mission,content,artifactId}))?.passed===true}catch{}
- // Local validation does not replace the owner's accept/reject decision.
+ // Owner review remains required even when local validation passed.
  const final=await db.prepare('SELECT id, mission_id, content, status FROM mel_work_artifacts WHERE id=?').bind(artifactId).first();
  if(final?.id!==artifactId||final.content!==content||final.status!=='DRAFT_FOR_OWNER')throw new Error('WORK_ARTIFACT_PERSISTENCE_UNCONFIRMED');
- await db.prepare('UPDATE mel_work_missions SET state=?,artifact_id=?,last_error=NULL,updated_at=? WHERE id=?').bind('DRAFT_READY',artifactId,now(),id).run();
+ const finalized=await db.prepare("UPDATE mel_work_missions SET state=?,artifact_id=?,last_error=NULL,updated_at=? WHERE id=? AND state='COMMITTING' AND attempts=?").bind('DRAFT_READY',artifactId,now(),id,attempt).run();
+ if(finalized?.meta?.changes!==1)throw new Error('WORK_MISSION_OWNERSHIP_LOST');
  return {artifactId,missionId:id,status:final.status,humanSteps,submitted:false,paid:false};
 }
 
