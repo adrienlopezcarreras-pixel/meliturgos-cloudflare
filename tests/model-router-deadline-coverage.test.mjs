@@ -146,3 +146,29 @@ test('nonblocking performance persistence cannot hold a successful model reply',
   ]);
   assert.equal(result.text, 'ready');
 });
+
+
+test('final fallback reports actual attempted models when first provider stops retries', async () => {
+  const registry = {
+    modelsByCapability: () => [
+      { id: 'first', provider: 'test', capabilities: ['GENERAL'] },
+      { id: 'second', provider: 'test', capabilities: ['GENERAL'] },
+    ],
+    size: () => 2,
+    list: () => [],
+  };
+  let invokes = 0;
+  const router = new ModelRouter({
+    registry,
+    maxCalls: 2,
+    invoke: async () => {
+      invokes++;
+      const error = new Error('provider_unavailable');
+      error.reason = 'provider_unavailable';
+      throw error;
+    },
+    finalFallback: async () => ({ response: 'fallback succeeded' }),
+  });
+  const answer = await router.execute({ task: 'GENERAL', messages });
+  assert.equal(answer.attempts, invokes + 1);
+});
