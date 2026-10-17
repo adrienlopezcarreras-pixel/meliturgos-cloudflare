@@ -68,3 +68,27 @@ test('owner firmware endpoint serves installer image when manifest exposes one',
   assert.equal(r.headers.get('x-mel-sha256'),'installer-sha');
   assert.deepEqual([...new Uint8Array(await r.arrayBuffer())],[1,2,3,4]);
 });
+
+test('USB installer refuses an OTA-only manifest before opening firmware', async () => {
+  const manifest = {
+    model: 'waveshare-esp32-s3-touch-lcd-3.5-c',
+    firmware: { version: 'test', available: true, key: 'devices/waveshare-esp32-s3-touch-lcd-3.5-c/ota.bin', sha256: 'ota-sha' },
+    installer: { available: false }
+  };
+  let downloaded = false;
+  const bucket = {
+    async get(key) {
+      if (key.endsWith('/manifest.json')) return { text: async () => JSON.stringify(manifest) };
+      downloaded = true;
+      return { body: new Uint8Array([1]), size: 1 };
+    }
+  };
+  const auth = 'Basic ' + Buffer.from('owner:secret').toString('base64');
+  const response = await maybeHandleWaveshareTerminalApi(
+    new Request('https://mel.test/api/device/v1/firmware', { headers: { authorization: auth } }),
+    { ...env, MEDIA_BUCKET: bucket }
+  );
+  assert.equal(response.status, 404);
+  assert.equal((await response.json()).code, 'FIRMWARE_NOT_PUBLISHED');
+  assert.equal(downloaded, false, 'OTA application must never be opened for USB flashing');
+});
