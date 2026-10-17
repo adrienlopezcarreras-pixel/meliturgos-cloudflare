@@ -434,3 +434,14 @@ test('MEL WORK readiness gives precise blocking reason for missing D1 or trusted
  const missingOracle=await (await handleRevenueApi(new Request(url,{headers}),env)).json();
  assert.equal(missingOracle.blockingReason,'WORK_TRUSTED_ACCEPTANCE_NOT_CONFIGURED');
 });
+
+test('MEL WORK readiness distinguishes malformed oracle from missing configuration',async()=>{
+ const url='https://mel.test/api/revenue/draft-readiness';
+ const env={MELITURGOS_USER:'adrien',MELITURGOS_PASSWORD:'test',DB:{prepare(){}},MEL_WORK_TRUSTED_ACCEPTANCE_JSON:'not valid json'};
+ const headers={authorization:'Basic '+Buffer.from('adrien:test').toString('base64')};
+ const response=await handleRevenueApi(new Request(url,{headers}),env);
+ assert.equal(response.status,200);
+ const payload=await response.json();
+ assert.equal(payload.ready,false);
+ assert.equal(payload.blockingReason,'WORK_TRUSTED_ACCEPTANCE_INVALID');
+});

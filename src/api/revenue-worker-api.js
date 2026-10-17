@@ -51,7 +51,7 @@ export async function handleRevenueApi(request, env) {
     }catch{}
     const d1Ready=typeof env?.DB?.prepare==='function';
     const ready=d1Ready&&trustedFixtureCount>0;
-    return json({ok:true,d1Ready,trustedFixtureCount,ready,blockingReason:ready?null:!d1Ready?'WORK_DRAFT_DB_REQUIRED':'WORK_TRUSTED_ACCEPTANCE_NOT_CONFIGURED',executionMode:'DRAFT_ONLY',canClaim:false,canSubmit:false});
+    return json({ok:true,d1Ready,trustedFixtureCount,ready,blockingReason:ready?null:!d1Ready?'WORK_DRAFT_DB_REQUIRED':typeof env?.MEL_WORK_TRUSTED_ACCEPTANCE_JSON==='string'?'WORK_TRUSTED_ACCEPTANCE_INVALID':'WORK_TRUSTED_ACCEPTANCE_NOT_CONFIGURED',executionMode:'DRAFT_ONLY',canClaim:false,canSubmit:false});
   }
   if (url.pathname === '/api/revenue/draft-cycle') {
     if(request.method!=='POST')return json({ok:false,code:'METHOD_NOT_ALLOWED'},405);
