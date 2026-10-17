@@ -26,10 +26,10 @@ test('desktop navigation exposes every MEL destination without a nested More gro
     assert.ok(position > previous, 'missing or misordered desktop destination: ' + destination);
     previous = position;
   }
-  assert.match(nav, /<a class="nav-entry" href="\\/revenus">/);
+  assert.match(nav, /<a class="nav-entry" href="\/revenus">/);
   assert.match(nav, /id="mobileMoreNav"/, 'small-screen More control remains');
-  assert.match(source, /\\.nav \\.nav-entry\\{appearance:none;[^}]*text-decoration:none/);
-  assert.match(source, /\\.nav button\\.mobile-more-nav,\\.mobile-more-menu\\{display:none\\}/);
+  assert.match(source, /\.nav \.nav-entry\{appearance:none;[^}]*text-decoration:none/);
+  assert.match(source, /\.nav button\.mobile-more-nav,\.mobile-more-menu\{display:none\}/);
 });
 
 test('technical controls (MAX, cycle, pause…) are folded under « Avancé »', () => {
