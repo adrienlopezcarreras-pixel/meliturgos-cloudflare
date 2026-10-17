@@ -101,8 +101,22 @@ export async function launchSubstantialMelTask({ bus, text, conversationId, cont
   const id = await stableGoalId(conversationId, text);
   let created = false;
   try {
-    const existing = await bus.execute('work.status', { id }, context).catch(() => null);
-    if (!existing) {
+    let existing;
+    let genuinelyMissing = false;
+    try {
+      existing = await bus.execute('work.status', { id }, context);
+    } catch (error) {
+      // A transient D1/network/permission failure must not masquerade as an
+      // absent work DAG: work.create uses a persisted store and retrying it
+      // could overwrite a partially completed job.
+      const code = String(error?.code || error?.message || '');
+      if (code !== 'WORK_DAG_NOT_FOUND') throw error;
+      genuinelyMissing = true;
+    }
+    if (!genuinelyMissing && (!existing || typeof existing !== 'object')) {
+      throw Object.assign(new Error('WORK_DAG_STATUS_INVALID'), { code: 'WORK_DAG_STATUS_INVALID' });
+    }
+    if (genuinelyMissing) {
       await bus.execute('work.create', {
         id, jobId: id, conversationId,
         goal: ('MEL: travail utilisateur persistant (cycle de production). ' + text).slice(0, 3900),
