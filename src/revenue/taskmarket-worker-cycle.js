@@ -76,7 +76,16 @@ export async function runTaskmarketWorkerCycle({
         await recordOutcome({ taskId, stage: 'solve', status: 'FAILED', reason: 'SOLVER_EMPTY_OUTPUT' });
         continue;
       }
-      const validation = await validateWithCouncil({ task, assessment, candidate });
+      // Compute evidence from the actual candidate rather than trusting a model-supplied hash.
+      const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(candidate.content));
+      const contentSha256 = Array.from(new Uint8Array(digest), b => b.toString(16).padStart(2, '0')).join('');
+      if (candidate.sha256 != null && String(candidate.sha256).toLowerCase() !== contentSha256) {
+        decisions.push({ taskId, status: 'REJECTED', reason: 'CANDIDATE_HASH_MISMATCH' });
+        await recordOutcome({ taskId, stage: 'integrity', status: 'REJECTED', reason: 'CANDIDATE_HASH_MISMATCH' });
+        continue;
+      }
+      const trustedCandidate = { ...candidate, sha256: contentSha256 };
+      const validation = await validateWithCouncil({ task, assessment, candidate: trustedCandidate });
       if (!record(validation) || validation.passed !== true || validation.machineVerifiable !== true) {
         decisions.push({ taskId, status: 'REJECTED', reason: 'OUTPUT_VALIDATION_FAILED', validation: validation?.summary ?? null });
         await recordOutcome({ taskId, stage: 'validation', status: 'REJECTED', reason: 'OUTPUT_VALIDATION_FAILED', summary: validation?.summary ?? null });
@@ -111,7 +120,7 @@ export async function runTaskmarketWorkerCycle({
         // No marketplace claim, wallet action, or external submission occurs here.
         let draftId = null;
         if (typeof persistValidatedDraft === 'function') {
-          const saved = await persistValidatedDraft({ taskId, content: candidate.content, candidateSha256: candidate.sha256 ?? null, validation: validation.summary ?? null });
+          const saved = await persistValidatedDraft({ taskId, content: candidate.content, candidateSha256: contentSha256, validation: validation.summary ?? null });
           if (!record(saved) || typeof saved.draftId !== 'string' || !saved.draftId.trim()) throw new Error('WORK_DRAFT_PERSISTENCE_UNCONFIRMED');
           draftId = saved.draftId;
         }
