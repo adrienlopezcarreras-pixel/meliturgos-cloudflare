@@ -1079,7 +1079,17 @@ export async function handleNativeChat(request, env, options = {}) {
         archive_saved:false,
       }, { headers:{ 'cache-control':'no-store' } });
     } catch (error) {
-      const code = String(error?.code || error?.message || 'COMPUTER_CAPTURE_REQUEST_FAILED').slice(0,160);
+      let code = String(error?.code || error?.message || 'COMPUTER_CAPTURE_REQUEST_FAILED').slice(0,160);
+      if (code === 'CAPABILITY_UNAVAILABLE') {
+        // The capability bus can reject before reaching the queue handler.
+        // Read-only status provides a precise reason without granting control.
+        try {
+          const state = await runtime.bus.execute('computer.status', {},
+            nativeCapabilityContext(env, request, options));
+          const pc = (state?.devices || []).find(row => String(row.platform).toLowerCase() === 'windows');
+          code = String(pc?.remote_access_issue || 'COMPUTER_NO_AUTHORIZED_ONLINE_DEVICE');
+        } catch { /* Keep the generic fail-closed result if status is unavailable. */ }
+      }
       return Response.json({
         ok:false, code,
         text:'Capture non lancée : '+code+'. Vérifie le moteur Companion et ses autorisations.',
