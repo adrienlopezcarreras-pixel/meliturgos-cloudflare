@@ -149,7 +149,7 @@ test('MINI and Android require explicit SESSION_OK acknowledgment before reporti
 test('Android prevents queued control frames and delayed hotspot credentials crossing BLE reconnection', async () => {
   const client = await read('android-companion/app/src/main/java/fr/veriteinterdite/mel/MelLinkV2ClientService.kt');
   assert.match(client, /val intendedGatt = gatt \?: return/);
-  assert.match(client, /if \(gatt === intendedGatt\) sendControlBlocking\(frame\)/);
+  assert.match(client, /if \(gatt === intendedGatt\) sendControlBlocking\(frame, intendedGatt\)/);
   assert.match(client, /val mediaRequestGatt = gatt \?: return/);
   assert.match(client, /if \(gatt !== mediaRequestGatt \|\| !miniReady\.value \|\| !protocolReady\.value\)/);
   assert.match(client, /MEDIA_CONFIG_STALE_SESSION/);
@@ -241,4 +241,16 @@ test('Android Link V2 accepts event frames and CCCD readiness only from its nego
   assert.match(guard, /characteristic\.uuid == EVENT_TX_UUID/);
   assert.match(guard, /characteristic\.service\?\.uuid == SERVICE_UUID/);
   assert.doesNotMatch(callbacks, /if \(gatt !== client\) return\s+handleEventFrame/);
+});
+
+test('Android queued Link V2 controls recheck original GATT under writeLock before bytes are written', async () => {
+  const client = await read('android-companion/app/src/main/java/fr/veriteinterdite/mel/MelLinkV2ClientService.kt');
+  const queued = client.slice(client.indexOf('private fun sendControlAsync('), client.indexOf('private fun sendBulkBlocking('));
+  assert.match(queued, /val intendedGatt = gatt \?: return/);
+  assert.match(queued, /sendControlBlocking\(frame, intendedGatt\)/);
+  assert.match(queued, /writeGattBlocking\(controlRx, frame, BluetoothGattCharacteristic\.WRITE_TYPE_DEFAULT, intendedGatt\)/);
+  const writer = client.slice(client.indexOf('private fun writeGattBlocking('), client.indexOf('private fun failAndReconnect('));
+  assert.match(writer, /synchronized\(writeLock\) \{[\s\S]*?val client = gatt \?: return false[\s\S]*?if \(intendedGatt != null && client !== intendedGatt\) return false/);
+  assert.ok(writer.indexOf('if (intendedGatt != null && client !== intendedGatt) return false') <
+    writer.indexOf('client.writeCharacteristic(target,'), 'check must precede final GATT write');
 });
