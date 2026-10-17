@@ -180,9 +180,19 @@ test('D1-backed cycle persists a validated draft without submitting it',async()=
 
 test('D1 listing returns bounded metadata without confidential draft bodies',async()=>{
  let requestedLimit;
- const db={prepare(){return {bind(limit){requestedLimit=limit;return {all:async()=>({results:[{id:'draft1',task_id:'task1',candidate_sha256:'a'.repeat(64),validation:'OK',created_at:'2026-10-17',content:'PRIVATE'}]})}}}}};
+ const db={prepare(){return {run:async()=>({success:true}),bind(limit){requestedLimit=limit;return {all:async()=>({results:[{id:'draft1',task_id:'task1',candidate_sha256:'a'.repeat(64),validation:'OK',created_at:'2026-10-17',content:'PRIVATE'}]})}}}}};
  const result=await listD1ValidatedDrafts(db,{limit:999});
  assert.equal(requestedLimit,50);
  assert.equal(result.drafts[0].taskId,'task1');
  assert.equal('content' in result.drafts[0],false);
+});
+
+
+test('D1 draft listing initializes an empty database before the first stored work',async()=>{
+ const statements=[];
+ const db={prepare(sql){statements.push(sql);return {run:async()=>({success:true}),bind(){return {all:async()=>({results:[]})}}}}};
+ const output=await listD1ValidatedDrafts(db);
+ assert.deepEqual(output.drafts,[]);
+ assert.match(statements[0],/^CREATE TABLE IF NOT EXISTS mel_work_validated_drafts/);
+ assert.match(statements[1],/^SELECT id, task_id/);
 });
