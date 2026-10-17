@@ -9,6 +9,8 @@ on:
       - "src/devices/computer-command-status.js"
       - "src/devices/taskmarket-readonly-companion.js"
       - "src/pages/revenue-interface.js"
+      - "src/work/mel-work-kickoff.js"
+      - "tests/mel-work-kickoff.test.mjs"
       - "src/pages/full-interface-v2.js"
       - "src/router.js"
       - "tests/revenue-interface.test.mjs"
@@ -61,4 +63,4 @@ jobs:
           node scripts/runtime-security-gate.mjs
 
       - name: MEL WORK route, API and Companion contracts
-        run: node --test tests/revenue-interface.test.mjs tests/taskmarket-readonly-companion.test.mjs tests/release-ai-planning-retry.test.mjs tests/gen2/companion-late-ollama-result.test.mjs tests/revenue/taskmarket-scan.test.mjs tests/revenue/taskmarket-task-policy.test.mjs tests/revenue/taskmarket-worker-cycle.test.mjs
+        run: node --test tests/mel-work-kickoff.test.mjs tests/revenue-interface.test.mjs tests/taskmarket-readonly-companion.test.mjs tests/release-ai-planning-retry.test.mjs tests/gen2/companion-late-ollama-result.test.mjs tests/revenue/taskmarket-scan.test.mjs tests/revenue/taskmarket-task-policy.test.mjs tests/revenue/taskmarket-worker-cycle.test.mjs

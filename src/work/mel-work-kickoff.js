@@ -206,7 +206,7 @@ export async function startMelWorkKickoff({ bus, text, conversationId, context }
     const market = artifacts.find(row => row?.artifact?.kind === 'market_observation')?.artifact || null;
     return {
       ok: true, persisted: true, plan_id: id, work_dag_id: workDagId,
-      status: String(executed?.status || synced?.work?.status || 'UNKNOWN'),
+      status: String(synced?.work?.status || executed?.status || 'UNKNOWN'),
       training_exercises_verified: trainingCount,
       calculation_chunks_verified: computationCount,
       taskmarket_status: market?.status || 'NOT_EXECUTED',
