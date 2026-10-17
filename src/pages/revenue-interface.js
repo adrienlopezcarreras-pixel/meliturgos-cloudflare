@@ -408,6 +408,31 @@ async function refreshValidatedDrafts(){
   }
  }catch(error){area.textContent='Lecture des brouillons indisponible : '+String(error.message||error).slice(0,120)}
 }
+async function showDirectArtifact(artifactId,outcome,area){
+  const proofResponse=await fetch('/api/revenue/direct-work?artifact_id='+encodeURIComponent(artifactId),{cache:'no-store'});
+  const proof=await proofResponse.json().catch(()=>({}));
+  if(!proofResponse.ok||proof.artifact?.id!==artifactId)throw new Error('WORK_ARTIFACT_READBACK_FAILED');
+  area.replaceChildren();
+  const message=document.createElement('pre');message.style.whiteSpace='pre-wrap';message.style.overflowWrap='anywhere';
+  const steps=Array.isArray(outcome.result?.humanSteps)?outcome.result.humanSteps:[];
+  message.textContent='Mission Taskmarket : '+String(proof.artifact.mission_id||'')+'\\nStatut : '+String(outcome.result?.status||proof.artifact.status)+'\\nÉtapes humaines : '+(steps.length?steps.map((x,i)=>(i+1)+'. '+x).join(' ; '):'Vérifier le livrable avant toute publication.')+'\\nNon livré, non payé.\\n\\n'+String(proof.artifact.content||'');
+  area.appendChild(message);
+  const decisionBar=document.createElement('div');decisionBar.className='actions';
+  for(const [decision,label] of [['approve','✓ Valider le brouillon'],['reject','✗ Refuser le brouillon']]){
+    const b=document.createElement('button');b.type='button';b.textContent=label;
+    b.onclick=async()=>{
+      for(const child of decisionBar.children)child.disabled=true;
+      try{
+        const response=await fetch('/api/revenue/direct-work/decision',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({artifactId,decision}),cache:'no-store'});
+        const result=await response.json().catch(()=>({}));
+        if(!response.ok||result.ok!==true)throw new Error(result.code||'WORK_DECISION_FAILED');
+        message.textContent+='\\n\\nDécision enregistrée : '+result.status+'. Aucune soumission automatique.';
+      }catch(error){message.textContent+='\\nDécision non enregistrée : '+String(error.message||error);for(const child of decisionBar.children)child.disabled=false}
+    };
+    decisionBar.appendChild(b);
+  }
+  if(['DRAFT_UNVERIFIED','VERIFIED_LOCALLY'].includes(proof.artifact.status))area.appendChild(decisionBar);
+}
 async function refreshDirectArtifacts(){
  const area=$('draftDiscovery');
  try{
@@ -429,8 +454,7 @@ async function refreshDirectArtifacts(){
       const response=await fetch('/api/revenue/direct-work?artifact_id='+encodeURIComponent(artifactId),{cache:'no-store'});
       const data=await response.json().catch(()=>({}));
       if(!response.ok||!data.artifact)throw new Error('WORK_ARTIFACT_READBACK_FAILED');
-      const display=document.createElement('pre');display.style.whiteSpace='pre-wrap';display.style.overflowWrap='anywhere';
-      display.textContent=String(data.artifact.content||'');$('draftList').replaceChildren(display);
+      await showDirectArtifact(artifactId,{result:cycle.result||{}},$('draftList'));
     };area.appendChild(button);
   }
  }catch(e){area.textContent='Brouillons directs indisponibles : '+String(e.message||e).slice(0,100)}
@@ -458,29 +482,7 @@ $('runDraftCycle').onclick=async()=>{
   }
   const artifactId=String(outcome.result?.artifactId||'');
   if(!/^work-[a-f0-9]{64}$/.test(artifactId))throw new Error('WORK_ARTIFACT_ID_INVALID');
-  const proofResponse=await fetch('/api/revenue/direct-work?artifact_id='+encodeURIComponent(artifactId),{cache:'no-store'});
-  const proof=await proofResponse.json().catch(()=>({}));
-  if(!proofResponse.ok||proof.artifact?.id!==artifactId)throw new Error('WORK_ARTIFACT_READBACK_FAILED');
-  area.replaceChildren();
-  const message=document.createElement('pre');message.style.whiteSpace='pre-wrap';message.style.overflowWrap='anywhere';
-  const steps=Array.isArray(outcome.result?.humanSteps)?outcome.result.humanSteps:[];
-  message.textContent='Mission Taskmarket : '+String(proof.artifact.mission_id||'')+'\\nStatut : '+String(outcome.result?.status||proof.artifact.status)+'\\nÉtapes humaines : '+(steps.length?steps.map((x,i)=>(i+1)+'. '+x).join(' ; '):'Vérifier le livrable avant toute publication.')+'\\nNon livré, non payé.\\n\\n'+String(proof.artifact.content||'');
-  area.appendChild(message);
-  const decisionBar=document.createElement('div');decisionBar.className='actions';
-  for(const [decision,label] of [['approve','✓ Valider le brouillon'],['reject','✗ Refuser le brouillon']]){
-    const b=document.createElement('button');b.type='button';b.textContent=label;
-    b.onclick=async()=>{
-      for(const child of decisionBar.children)child.disabled=true;
-      try{
-        const response=await fetch('/api/revenue/direct-work/decision',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({artifactId,decision}),cache:'no-store'});
-        const result=await response.json().catch(()=>({}));
-        if(!response.ok||result.ok!==true)throw new Error(result.code||'WORK_DECISION_FAILED');
-        message.textContent+='\\n\\nDécision enregistrée : '+result.status+'. Aucune soumission automatique.';
-      }catch(error){message.textContent+='\\nDécision non enregistrée : '+String(error.message||error);for(const child of decisionBar.children)child.disabled=false}
-    };
-    decisionBar.appendChild(b);
-  }
-  if(['DRAFT_UNVERIFIED','VERIFIED_LOCALLY'].includes(proof.artifact.status))area.appendChild(decisionBar);
+  await showDirectArtifact(artifactId,outcome,area);
   await refreshDirectArtifacts();
  }catch(e){area.textContent='Préparation impossible : '+String(e.message||e).slice(0,140)}
  finally{button.disabled=false}
