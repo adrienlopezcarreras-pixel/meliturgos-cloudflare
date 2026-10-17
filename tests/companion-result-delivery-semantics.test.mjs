@@ -32,3 +32,12 @@ test('API acknowledges identical previously committed results',()=>{
  assert.match(fn,/saved\.result_json===JSON\.stringify\(b\.result\?\?null\)/);
  assert.match(fn,/saved\.status===\(b\.ok===true\?COMPUTER_COMMAND_STATUS\.SUCCEEDED:COMPUTER_COMMAND_STATUS\.FAILED\)/);
 });
+
+test('delivery errors cannot overwrite a persisted successful result with a failed one',()=>{
+ const ps=readFileSync(new URL('../dist/MEL-Computer-Companion.ps1',import.meta.url),'utf8');
+ const execution=ps.split('function Process-Command($command) {')[1]?.split('\n$trayResources')[0];
+ assert.ok(execution);
+ const caught=execution.split('  } catch {').at(-1);
+ assert.match(caught,/if \(\[System\.IO\.File\]::Exists\(\$script:ResultJournal\)\) \{ throw \}/);
+ assert.ok(caught.indexOf('ResultJournal') < caught.indexOf('ok=$false'));
+});
