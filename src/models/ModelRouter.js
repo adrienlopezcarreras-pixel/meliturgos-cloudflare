@@ -158,9 +158,11 @@ export class ModelRouter {
     const input=Array.isArray(messages) ? messages.map(m=>({role:m.role||'user',content:String(m.content||'')})) : String(messages||'');
     const result=await this.withinExecutionBudget(() => this.augmentio.fanOut({capability:this.normalizeTask(task),input,context,maxCandidates}));
     const best = result?.best || {};
+    const text = extractModelText(best);
+    if (typeof text !== 'string' || !text.trim()) throw new DomainError('EMPTY_MODEL_RESPONSE', 502);
     const finishReason = extractFinishReason(best);
     return {
-      text: best.text,
+      text: text.trim(),
       model: best.model,
       provider: best.provider,
       task,

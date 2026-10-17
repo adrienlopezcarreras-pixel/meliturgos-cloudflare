@@ -95,3 +95,21 @@ test('parallel Augmentio remains subject to per-provider timeout without global 
     return true;
   });
 });
+
+
+test('parallel providers must satisfy the same nonempty response contract as sequential inference', async () => {
+  for (const best of [{text:'  '}, {}, {response:'  valid parallel answer  '}]) {
+    const router = new ModelRouter({
+      registry:modelRegistry(),
+      invoke:async () => ({response:'unused'}),
+      augmentio:{fanOut:async () => ({best,providersAttempted:['provider']})},
+    });
+    if (best.response) {
+      const result=await router.execute({task:'GENERAL',messages,parallel:true});
+      assert.equal(result.text,'valid parallel answer');
+    } else {
+      await assert.rejects(router.execute({task:'GENERAL',messages,parallel:true}), error =>
+        /EMPTY_MODEL_RESPONSE/.test(String(error.reason||error.code||error.message)));
+    }
+  }
+});
