@@ -235,3 +235,35 @@ test('the agent never types when no text field has focus (e.g. a browser page)',
   const notepad = { process: 'notepad', elements: [{ i: 2, type: 'Document', name: 'Éditeur', x: 600, y: 400, focused: true }] };
   assert.deepEqual(actionToSteps({ action: 'type', text: 'bonjour' }, notepad, {}).steps, [{ action: 'keyboard.type', text: 'bonjour' }]);
 });
+
+test('web browsing: https pages open through browser.navigate, local or plain-http targets never', async () => {
+  const { safeWebUrl, websiteFromGoal } = await import('../src/devices/computer-agent.js');
+  assert.deepEqual(actionToSteps({ action: 'open_url', url: 'https://fr.wikipedia.org/wiki/Paris' }, {}, {}).steps, [{ action: 'browser.navigate', url: 'https://fr.wikipedia.org/wiki/Paris' }]);
+  for (const bad of ['http://example.com', 'https://localhost/x', 'https://192.168.1.1/', 'https://user:pw@example.com', 'https://example.com:8443/', 'file:///C:/x', 'javascript:alert(1)']) {
+    assert.deepEqual(actionToSteps({ action: 'open_url', url: bad }, {}, {}), { error: 'AGENT_URL_NOT_ALLOWED' }, bad);
+  }
+  assert.equal(safeWebUrl('https://duckduckgo.com/?q=m%C3%A9t%C3%A9o'), 'https://duckduckgo.com/?q=m%C3%A9t%C3%A9o');
+  assert.equal(websiteFromGoal('va sur leboncoin.fr et cherche un vélo'), 'https://leboncoin.fr/');
+  assert.equal(websiteFromGoal('ouvre https://github.com/anthropics'), 'https://github.com/anthropics');
+  assert.equal(websiteFromGoal('ouvre le bloc-notes'), null);
+});
+
+test('chat requests naming a website or the browser go to the agent', async () => {
+  const { inferComputerAgentGoal } = await import('../src/devices/computer-agent-intent.js');
+  assert.ok(inferComputerAgentGoal('va sur wikipedia.org et cherche la tour Eiffel'));
+  assert.ok(inferComputerAgentGoal('ouvre le navigateur et cherche la météo à Lyon'));
+  assert.equal(inferComputerAgentGoal('quelle est la capitale du Japon ?'), null);
+  assert.equal(inferComputerAgentGoal('comment aller sur wikipedia.org ?'), null);
+});
+
+test('the agent opens a named website first and the policy allows exactly that origin', async () => {
+  const db = await setup();
+  const pc = fakeCompanion(db);
+  const ai = scriptedAi([{ action: 'done', summary: 'La page est ouverte.' }]);
+  await runComputerAgent({ env: { DB: db, AI: ai }, goal: 'va sur wikipedia.org', sleep: () => pc.tick() });
+  assert.equal(pc.executed[0], 'browser.navigate');
+  const row = await db.prepare("SELECT plan_json FROM computer_commands WHERE plan_json LIKE '%browser.navigate%'").first();
+  const plan = JSON.parse(row.plan_json);
+  assert.deepEqual(plan.sandbox.allowed_origins, ['https://wikipedia.org']);
+  db.close();
+});
