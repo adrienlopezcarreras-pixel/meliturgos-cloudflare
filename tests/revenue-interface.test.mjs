@@ -13,8 +13,8 @@ test('MEL WORK page exposes real owner-review controls and keeps autonomous work
   for (const token of ['MEL WORK', 'id="workNow"', 'id="pcState"', 'id="submissionsList"', 'id="draftsList"', 'id="watchList"', 'id="live"', '/api/revenue/submissions', '/api/revenue/watch', '/api/revenue/direct-work?latest_cycle=1', '/api/revenue/direct-work/decision', '/api/computer/v1/status', "fetch('/api/revenue/direct-work',{method:'POST'})"]) assert.ok(html.includes(token), `missing ${token}`);
   for (const gone of ['palier 0', 'pas encore disponible', 'autonomyToggle', 'scanPcTaskmarket', 'Préparation à l']) assert.ok(!html.includes(gone), `obsolete ${gone}`);
   assert.doesNotMatch(html, /privateKey|seedPhrase/i);
-  assert.match(html, /data-decision=\\"approve\\"/);
-  assert.match(html, /data-decision=\\"reject\\"/);
+  assert.match(html, /data-decision="approve"/);
+  assert.match(html, /data-decision="reject"/);
   assert.match(html, /data-review-id/);
   assert.match(html, /'Étapes réservées au propriétaire/);
   const script = html.slice(html.indexOf('<script>') + 8, html.lastIndexOf('</script>'));
