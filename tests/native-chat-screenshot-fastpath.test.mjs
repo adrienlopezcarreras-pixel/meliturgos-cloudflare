@@ -61,6 +61,6 @@ test('full interface waits for SUCCEEDED and exact command before presenting the
  assert.match(html,/item\?\.id===commandId/);
  assert.match(html,/result\.status!=='SUCCEEDED'/);
  assert.match(html,/COMPUTER_CAPTURE_PROOF_MISSING/);
- assert.match(html,/verifiedUrl\.pathname!=='\\/api\\/computer\\/v1\\/screenshot'/);
+ assert.equal(html.includes("verifiedUrl.pathname!=='/api/computer/v1/screenshot'"),true);
  assert.match(html,/void followChatComputerScreenshot\(d\.computer_command\)/);
 });
