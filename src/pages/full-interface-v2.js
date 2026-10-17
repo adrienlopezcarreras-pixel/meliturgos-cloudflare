@@ -1,4 +1,5 @@
 import { CHAT_RICH_RENDERER_CSS, CHAT_RICH_RENDERER_SOURCE } from './chat-rich-renderer.js';
+import { MEL_AUTO_RELAUNCH_SOURCE } from './mel-auto-relaunch.js';
 
 /** MEL full-control center v2. Contemporary, mobile-first, backed by real APIs. */
 export async function onRequestGet() {
@@ -1375,6 +1376,7 @@ let canonicalRefreshTimer=setInterval(()=>{
 },60000);
 document.addEventListener('visibilitychange',()=>{if(!document.hidden&&document.querySelector('.view.active')?.dataset?.panel==='overview')loadLearningProgress().catch(()=>{})});
 window.addEventListener('beforeunload',()=>{if(canonicalRefreshTimer)clearInterval(canonicalRefreshTimer)},{once:true});
+${MEL_AUTO_RELAUNCH_SOURCE}
 </script></body></html>`;
   return new Response(body,{headers:{'content-type':'text/html; charset=utf-8','cache-control':'no-store'}});
 }
