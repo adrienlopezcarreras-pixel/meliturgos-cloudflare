@@ -18,7 +18,7 @@ test("native Windows Companion consumes only paired, passive Android phase endpo
 });
 
 test("native Windows UI polls on a worker thread, does not control the PC, and defaults unavailable",()=>{
-  assert.match(source,/triadActivityStatus=LabelAt\(this,"Android : activité non vérifiée"/);
+  assert.match(source,/triadActivityStatus=CellLabel\(brand,"Android : activité non vérifiée"/);
   assert.match(source,/triadPoll=new System\.Windows\.Forms\.Timer\{Interval=10000\}/);
   assert.match(source,/ThreadPool\.QueueUserWorkItem\(/);
   assert.match(source,/if \(!Visible \|\| IsDisposed \|\| Interlocked\.Exchange\(ref triadRefreshing, 1\) != 0\) return/);
