@@ -103,6 +103,9 @@ class MelLinkV2ClientService : Service() {
     private var connectivityManager: ConnectivityManager? = null
     private var networkCallbackRegistered = false
     @Volatile private var melSessionReady = false
+    private val internetStateLock = Any()
+    private var verifiedNetwork: Network? = null
+    private var networkGeneration = 0L
     @Volatile private var gatt: BluetoothGatt? = null
     private var controlRx: BluetoothGattCharacteristic? = null
     private var eventTx: BluetoothGattCharacteristic? = null
@@ -158,7 +161,7 @@ class MelLinkV2ClientService : Service() {
 
     private val networkCallback = object : ConnectivityManager.NetworkCallback() {
         override fun onAvailable(network: Network) = refreshInternetState()
-        override fun onLost(network: Network) = refreshInternetState()
+        override fun onLost(network: Network) = refreshInternetState(lostNetwork = network)
         override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) = refreshInternetState()
     }
 
@@ -246,22 +249,44 @@ class MelLinkV2ClientService : Service() {
         networkCallbackRegistered = false
     }
 
-    private fun refreshInternetState() {
+    private fun refreshInternetState(lostNetwork: Network? = null) {
         val cm = connectivityManager
         val network = cm?.activeNetwork
         val caps = network?.let { cm.getNetworkCapabilities(it) }
-        val phoneOk = caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true &&
+        // onLost may arrive before activeNetwork changes. Invalidate that route immediately.
+        val phoneOk = network != null && network != lostNetwork &&
+            caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true &&
             caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
-        phoneInternetAvailable.value = phoneOk
-        internetReady.value = phoneOk && miniReady.value && protocolReady.value && melSessionReady
+        var revalidate = false
+        synchronized(internetStateLock) {
+            val nextNetwork = if (phoneOk) network else null
+            val changed = verifiedNetwork != nextNetwork
+            val wasOnline = phoneInternetAvailable.value
+            if (changed || (!phoneOk && (wasOnline || melSessionReady))) {
+                networkGeneration++
+                melSessionReady = false
+            }
+            verifiedNetwork = nextNetwork
+            phoneInternetAvailable.value = phoneOk
+            internetReady.value = phoneOk && miniReady.value && protocolReady.value && melSessionReady
+            if (!internetReady.value && state.value == "MINI V2 · INTERNET OK")
+                state.value = "MINI V2 PRETE"
+            revalidate = phoneOk && (changed || !wasOnline) && miniReady.value && protocolReady.value
+        }
+        // A restored connection requires a new, device-scoped MEL heartbeat.
+        if (revalidate) validateMelSession()
     }
 
     private fun validateMelSession() {
-        if (!phoneInternetAvailable.value || !miniReady.value || !protocolReady.value || melSessionReady) return
         val sessionGatt = gatt ?: return
+        val requestGeneration: Long
+        val requestNetwork: Network?
+        synchronized(internetStateLock) {
+            if (!phoneInternetAvailable.value || !miniReady.value || !protocolReady.value || melSessionReady) return
+            requestGeneration = networkGeneration
+            requestNetwork = verifiedNetwork
+        }
         executor.execute {
-            // An HTTP heartbeat from a disconnected MINI must never mark a
-            // later Bluetooth session as authenticated.
             if (gatt !== sessionGatt || !miniReady.value || !protocolReady.value) return@execute
             val rawId = Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID)
             val androidDeviceId = "android-" + (rawId ?: "unknown").take(64)
@@ -275,11 +300,17 @@ class MelLinkV2ClientService : Service() {
                     returnedPhase = response.optJSONObject("accepted")?.optString("phase", "").orEmpty()
                 )
             }.getOrDefault(false)
-            if (gatt !== sessionGatt || !miniReady.value || !protocolReady.value) return@execute
-            melSessionReady = ok
+            // Catch a route loss/change even if the Android callback has not arrived yet.
             refreshInternetState()
-            if (ok) state.value = "MINI V2 · INTERNET OK"
-            else lastError.value = "MEL_SESSION"
+            synchronized(internetStateLock) {
+                if (gatt !== sessionGatt || !miniReady.value || !protocolReady.value ||
+                    !phoneInternetAvailable.value || networkGeneration != requestGeneration ||
+                    verifiedNetwork != requestNetwork) return@synchronized
+                melSessionReady = ok
+                internetReady.value = ok
+                if (ok) state.value = "MINI V2 · INTERNET OK"
+                else lastError.value = "MEL_SESSION"
+            }
         }
     }
 
