@@ -1,6 +1,7 @@
 import { createWorkDag, WorkDagRunner } from '../work/work-dag.js';
 import { summarizeWorkDag } from '../work/work-dag-state.js';
 import { D1WorkDagStore } from '../work/d1-work-dag-store.js';
+import { acquireD1WorkRunLease, releaseD1WorkRunLease } from '../work/d1-work-run-lease.js';
 import { createWorkPlan, compileWorkPlanNodes, summarizeWorkPlan } from '../work/planning-engine.js';
 import { D1PlanningStore, PLAN_STATUSES, TASK_STATUSES } from '../work/d1-planning-store.js';
 import { buildPlanningCatalog, buildWorkPlanningPrompt, parseCapabilityAwareWorkPlan } from '../work/ai-planning-engine.js';
@@ -864,10 +865,22 @@ export function registerWorkCapabilities(bus, { db } = {}) {
     risk: 'MEDIUM', permissions: [], health, enabled: true,
   }, async (input, context) => {
     assertDb(db);
-    const { runner } = runnerFor(bus, db, input.id, context);
-    const dag = await runner.run(null, { maxSteps: input.maxSteps ?? Infinity });
-    await syncWorkOpenLoop(db, dag, context);
-    return publicState(dag);
+    const { store, runner } = runnerFor(bus, db, input.id, context);
+    const lease = await acquireD1WorkRunLease(db, input.id);
+    if (!lease) {
+      // Do not claim work advanced while another authorized worker holds
+      // the lease. The open-loop scheduler may retry after its due time.
+      const observed = await store.load();
+      if (!observed) throw workError('WORK_DAG_NOT_FOUND');
+      return { ...publicState(observed), execution_started: false, lease_busy: true };
+    }
+    try {
+      const dag = await runner.run(null, { maxSteps: input.maxSteps ?? Infinity });
+      await syncWorkOpenLoop(db, dag, context);
+      return { ...publicState(dag), execution_started: true, lease_busy: false };
+    } finally {
+      await releaseD1WorkRunLease(db, lease);
+    }
   });
 
   bus.discover({

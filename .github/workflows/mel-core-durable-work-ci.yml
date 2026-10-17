@@ -6,11 +6,13 @@ on:
       - 'src/api/native-chat.js'
       - 'src/work/mel-general-kickoff.js'
       - 'src/work/work-dag.js'
+      - 'src/work/d1-work-run-lease.js'
       - 'src/capabilities/work-capabilities.js'
       - 'src/capabilities/open-loop-capabilities.js'
       - 'src/index.js'
       - 'src/pages/full-interface-v2.js'
       - 'tests/mel-general-durable-work.test.mjs'
+      - 'tests/d1-work-run-lease.test.mjs'
       - '.github/workflows/mel-core-durable-work-ci.yml'
   workflow_dispatch:
 
@@ -32,6 +34,8 @@ jobs:
         run: npm run check
       - name: Validate persistent task creation and bounded resume
         run: node --test tests/mel-general-durable-work.test.mjs
+      - name: Validate atomic D1 work run leases
+        run: node --test tests/d1-work-run-lease.test.mjs
       - name: Validate existing Work DAG contracts
         run: node --test tests/mel-work-kickoff.test.mjs
       - name: Preserve candidate-branch precondition for isolated Dev Bridge tests

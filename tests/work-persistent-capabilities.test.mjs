@@ -8,6 +8,19 @@ class FakeD1Statement {
   bind(...args) { this.args = args; return this; }
   async run() {
     if (this.sql.startsWith('CREATE TABLE')) return { success: true, meta: { changes: 0 } };
+    if (this.sql.startsWith('INSERT INTO work_dag_run_leases')) {
+      const [id, token, until, now] = this.args;
+      const previous = this.db.leases.get(id);
+      if (previous && previous.until > now) return { success: true, meta: { changes: 0 } };
+      this.db.leases.set(id, { token, until });
+      return { success: true, meta: { changes: 1 } };
+    }
+    if (this.sql.startsWith('DELETE FROM work_dag_run_leases')) {
+      const [id, token] = this.args;
+      if (this.db.leases.get(id)?.token !== token) return { success: true, meta: { changes: 0 } };
+      this.db.leases.delete(id);
+      return { success: true, meta: { changes: 1 } };
+    }
     if (this.sql.startsWith('INSERT INTO work_dags')) {
       const [id, job_id, status, record_json, created_at, updated_at] = this.args;
       this.db.rows.set(id, { id, job_id, status, record_json, created_at, updated_at });
@@ -25,7 +38,7 @@ class FakeD1Statement {
 }
 
 class FakeD1 {
-  constructor() { this.rows = new Map(); }
+  constructor() { this.rows = new Map(); this.leases = new Map(); }
   prepare(sql) { return new FakeD1Statement(this, sql); }
 }
 
@@ -208,4 +221,42 @@ test('MEL-WORK-03 Work DAG inherits exact trusted approval context for destructi
   assert.equal(result.status, 'COMPLETED');
   assert.equal(result.completed, true);
   assert.deepEqual(calls, ['approved-run']);
+});
+
+
+test('concurrent work.run calls cannot execute the same DAG node twice', async () => {
+  const db = new FakeD1();
+  const bus = createDefaultCapabilityBus({ env: { DB: db } });
+  let entered;
+  let release;
+  const started = new Promise(resolve => { entered = resolve; });
+  const wait = new Promise(resolve => { release = resolve; });
+  let executions = 0;
+  bus.discover({
+    id: 'fixture.slow', name: 'Slow fixture', category: 'test', version: '1.0.0', provider: 'test',
+    description: 'Emulates a slow but authorized work node',
+    input_schema: {type:'object',properties:{},additionalProperties:false},
+    output_schema: {type:'object',additionalProperties:true},
+    risk:'LOW',permissions:[],health:'HEALTHY',enabled:true,
+  }, async () => {
+    executions += 1;
+    entered();
+    await wait;
+    return { text:'finished' };
+  });
+  await bus.execute('work.create',{
+    id:'concurrent-run',goal:'one execution only',
+    nodes:[{id:'slow',kind:'TASK',idempotent:true,payload:{capability:'fixture.slow',input:{}}}],
+  },context);
+  const first=bus.execute('work.run',{id:'concurrent-run'},context);
+  await started;
+  const second=await bus.execute('work.run',{id:'concurrent-run'},context);
+  assert.equal(second.lease_busy,true);
+  assert.equal(second.execution_started,false);
+  assert.equal(executions,1);
+  release();
+  const done=await first;
+  assert.equal(done.status,'COMPLETED');
+  assert.equal(done.lease_busy,false);
+  assert.equal(db.leases.size,0);
 });

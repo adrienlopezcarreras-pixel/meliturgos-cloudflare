@@ -27,6 +27,19 @@ class Statement {
       const [work_dag_id,record_json,updated_at,id] = this.args;
       const row=this.db.plans.get(id); Object.assign(row,{work_dag_id,record_json,updated_at}); return { success:true };
     }
+    if (this.sql.startsWith('INSERT INTO work_dag_run_leases')) {
+      const [id,token,until,now] = this.args;
+      const previous = this.db.leases.get(id);
+      if (previous && previous.until > now) return { success:true, meta:{changes:0} };
+      this.db.leases.set(id,{token,until});
+      return { success:true, meta:{changes:1} };
+    }
+    if (this.sql.startsWith('DELETE FROM work_dag_run_leases')) {
+      const [id,token] = this.args;
+      if (this.db.leases.get(id)?.token !== token) return {success:true,meta:{changes:0}};
+      this.db.leases.delete(id);
+      return {success:true,meta:{changes:1}};
+    }
     if (this.sql.startsWith('INSERT INTO work_dags')) {
       const [id,job_id,status,record_json,created_at,updated_at] = this.args;
       this.db.dags.set(id,{id,job_id,status,record_json,created_at,updated_at}); return { success:true };
@@ -63,7 +76,7 @@ class Statement {
 }
 
 class FakeD1 {
-  constructor(){ this.plans=new Map(); this.events=[]; this.dags=new Map(); }
+  constructor(){ this.plans=new Map(); this.events=[]; this.dags=new Map(); this.leases=new Map(); }
   prepare(sql){ return new Statement(this,sql); }
 }
 
