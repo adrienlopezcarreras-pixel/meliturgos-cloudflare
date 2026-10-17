@@ -172,3 +172,26 @@ test('final fallback reports actual attempted models when first provider stops r
   const answer = await router.execute({ task: 'GENERAL', messages });
   assert.equal(answer.attempts, invokes + 1);
 });
+
+
+test('final fallback receives only providers actually invoked', async () => {
+  const models = [
+    { id: 'first', provider: 'test', capabilities: ['GENERAL'] },
+    { id: 'unused', provider: 'test', capabilities: ['GENERAL'] },
+  ];
+  let observed;
+  const router = new ModelRouter({
+    registry: { modelsByCapability: () => models, size: () => 2, list: () => models },
+    maxCalls: 2,
+    invoke: async () => {
+      const error = new Error('provider_unavailable');
+      error.reason = 'provider_unavailable';
+      throw error;
+    },
+    finalFallback: async input => { observed = input.previousModels; return { response: 'OK' }; },
+  });
+  const answer = await router.execute({ task: 'GENERAL', messages });
+  assert.deepEqual(observed, ['first']);
+  assert.deepEqual(answer.previous_models, ['first']);
+  assert.equal(answer.attempts, 2);
+});
