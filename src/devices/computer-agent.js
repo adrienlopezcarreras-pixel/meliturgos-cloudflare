@@ -168,6 +168,19 @@ export async function runComputerAgent({ env, goal, maxSteps = AGENT_MAX_STEPS, 
   for (let turn = 1; turn <= limit; turn += 1) {
     const look = await runCompanionCommand({ db, device, steps: [{ action: 'ui.snapshot' }], sessionId, sleep, now });
     if (!look.ok) {
+      // Launching an explicitly requested, locally allowlisted app does not
+      // depend on UI Automation. Keep all coordinate-based actions gated by
+      // a real snapshot, and never mark an unobserved action as verified.
+      const requestedApp = /\\b(?:bloc[- ]?notes|notepad)\\b/i.test(objective) ? 'notepad' : null;
+      const allowed = (device.allowed_apps || []).some(app => String(app).toLowerCase() === requestedApp);
+      if (turn === 1 && requestedApp && allowed && /\\b(?:ouvre|ouvrir|lance|lancer|d[ée]marre)\\b/i.test(objective)) {
+        const launch = await runCompanionCommand({ db, device, steps: [{ action: 'app.open', app: requestedApp }], sessionId, sleep, now });
+        history.push('Ouvrir ' + requestedApp + (launch.ok ? ' → fait' : ' → échec ' + launch.code));
+        onEvent({ type: 'step', n: turn, ok: launch.ok, text: 'Ouvrir ' + requestedApp, code: launch.ok ? null : launch.code });
+        if (!launch.ok) { status = 'FAILED'; summary = launch.code; break; }
+        await sleep(1500);
+        continue;
+      }
       onEvent({ type: 'step', n: turn, ok: false, text: 'Lecture de l’écran impossible', code: look.code });
       status = 'FAILED'; summary = look.code; break;
     }
