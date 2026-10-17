@@ -1,0 +1,71 @@
+name: mini-flash-windows-ci
+
+# Runs the exact MINI flash command on a hosted Windows runner (no board
+# attached): proves it parses, fetches the official esptool release, checks the
+# GitHub SHA-256 digest, finds esptool.exe, then stops at the USB port check.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/devices/mini-flash-companion.js'
+      - 'src/devices/android-update-companion.js'
+      - 'tests/android-update-companion.test.mjs'
+      - 'tests/mini-flash-companion.test.mjs'
+      - '.github/workflows/mini-flash-windows-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  mini-flash:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '22'
+      - name: Write the exact command the Companion receives
+        shell: bash
+        run: |
+          node -e "import('./src/devices/mini-flash-companion.js').then(m=>{const {command}=m.miniFlashCommand({downloadUrl:'https://mel.invalid/api/computer/v1/device-file?ticket='+'0'.repeat(48),sha256:'0'.repeat(64)});require('fs').writeFileSync('mini-flash.ps1',command)})"
+      - name: Command parses
+        shell: powershell
+        run: |
+          $tokens = $null; $errors = $null
+          [void][System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path 'mini-flash.ps1'), [ref]$tokens, [ref]$errors)
+          if ($errors.Count) { $errors | ForEach-Object { Write-Host $_ }; throw "MINI_FLASH_PARSE_FAILED" }
+      - name: Official esptool is fetched, digest-checked and found; stops at the missing board
+        shell: powershell
+        env:
+          # Hosted runners share an IP that hits GitHub's anonymous API limit; the owner's PC does not need this.
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $out = (& powershell -NoProfile -ExecutionPolicy Bypass -File mini-flash.ps1 2>&1 | ForEach-Object { [string]$_ }) -join "`n"
+          $ErrorActionPreference = 'Stop'
+          Write-Host $out
+          if ($out -notmatch 'MINI_USB_PORT_NOT_UNIQUE:0') { echo "::error title=mini.flash::unexpected stop: $($out.Trim() -replace '\s+',' ')"; throw 'MINI_FLASH_UNEXPECTED_STOP' }
+          $exe = Get-ChildItem -LiteralPath (Join-Path $env:LOCALAPPDATA 'MEL\tools') -Filter esptool.exe -Recurse -File | Select-Object -First 1
+          if (-not $exe) { throw 'ESPTOOL_NOT_INSTALLED' }
+          $version = & $exe.FullName version 2>&1 | Out-String
+          echo "::notice title=mini.flash esptool::$($exe.FullName) $($version.Trim() -replace '\s+',' ')"
+      - name: Android update command parses, fetches official adb with checksum, stops at the missing phone
+        shell: powershell
+        timeout-minutes: 6
+        run: |
+          node -e "import('./src/devices/android-update-companion.js').then(m=>{const {command}=m.androidUpdateCommand({downloadUrl:'https://mel.invalid/api/computer/v1/device-file?ticket='+'0'.repeat(48),sha256:'0'.repeat(64)});require('fs').writeFileSync('android-update.ps1',command)})"
+          $tokens = $null; $errors = $null
+          [void][System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path 'android-update.ps1'), [ref]$tokens, [ref]$errors)
+          if ($errors.Count) { $errors | ForEach-Object { Write-Host $_ }; throw "ANDROID_UPDATE_PARSE_FAILED" }
+          $ErrorActionPreference = 'Continue'
+          $out = (& powershell -NoProfile -ExecutionPolicy Bypass -File android-update.ps1 2>&1 | ForEach-Object { [string]$_ }) -join "`n"
+          $ErrorActionPreference = 'Stop'
+          Write-Host $out
+          if ($out -notmatch 'ANDROID_DEVICE_NOT_UNIQUE:0') { echo "::error title=android.update::unexpected stop: $($out.Trim() -replace '\s+',' ')"; throw 'ANDROID_UPDATE_UNEXPECTED_STOP' }
+          $adb = Join-Path $env:LOCALAPPDATA 'MEL\tools\platform-tools\adb.exe'
+          if (-not (Test-Path $adb)) { throw 'ADB_NOT_INSTALLED' }
+          $version = (& $adb version 2>&1 | Select-Object -First 1)
+          echo "::notice title=android.update adb::$version"
+          & $adb kill-server 2>$null | Out-Null

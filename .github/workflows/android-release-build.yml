@@ -126,6 +126,35 @@ jobs:
         shell: bash
         run: rm -f "$RUNNER_TEMP/mel-release.jks"
 
+      - name: Setup Node for private publication
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Publish signed APK privately for Windows Companion updates
+        # The owner's Companion installs it over Wi-Fi debugging (android.update);
+        # Android itself refuses another signing key or an older version.
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          npm ci
+          APK=android-companion/dist/MEL-Android-release.apk
+          BADGING=android-companion/dist/apk-badging.txt
+          CODE="$(sed -n "s/.*versionCode='\([0-9]*\)'.*/\1/p" "$BADGING" | head -1)"
+          NAME="$(sed -n "s/.*versionName='\([^']*\)'.*/\1/p" "$BADGING" | head -1)"
+          SHA="$(sha256sum "$APK" | awk '{print $1}')"
+          SIZE="$(stat -c '%s' "$APK")"
+          [[ "$CODE" =~ ^[0-9]+$ ]] && [[ "$SHA" =~ ^[0-9a-f]{64}$ ]]
+          KEY="devices/android/MEL-Android-${CODE}-${SHA:0:12}.apk"
+          npx wrangler r2 object put "meliturgos-private-media/${KEY}" --file "$APK" --content-type application/vnd.android.package-archive --cache-control no-store --remote --force
+          printf '{"available":true,"package":"fr.veriteinterdite.mel","version_code":%s,"version_name":"%s","key":"%s","sha256":"%s","size":%s,"source_sha":"%s"}\n' "$CODE" "$NAME" "$KEY" "$SHA" "$SIZE" "$GITHUB_SHA" > android-manifest.json
+          npx wrangler r2 object put "meliturgos-private-media/devices/android/manifest.json" --file android-manifest.json --content-type application/json --cache-control no-store --remote --force
+          echo "::notice title=MEL Android published::${NAME} (${CODE}) sha256=${SHA}"
+
       - name: Upload signed APK
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
