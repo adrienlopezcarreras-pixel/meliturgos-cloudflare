@@ -102,3 +102,19 @@ test('kickoff reports durable synchronized state if run response disagrees', asy
   assert.equal(result.status, 'RUNNING');
   assert.equal(result.persisted, true);
 });
+
+
+test('kickoff does not invent a Work DAG identifier when materialization returns none', async () => {
+  const calls = [];
+  const bus = { execute: async (id, input) => {
+    calls.push(id);
+    if (id === 'work.plan.save') return {id: input.id};
+    if (id === 'work.plan.materialize') return {plan: {}};
+    throw new Error('UNEXPECTED_' + id);
+  }};
+  const result = await startMelWorkKickoff({bus,text:PROMPT,conversationId:'missing-dag',context:{}});
+  assert.equal(result.ok,false);
+  assert.equal(result.persisted,true);
+  assert.equal(result.error_code,'MEL_WORK_DAG_ID_MISSING');
+  assert.equal(calls.includes('work.run'),false);
+});
