@@ -274,3 +274,13 @@ test('MEL WORK prefers synchronized persisted status over transient run status',
   assert.match(runner, /const status=String\(synced\?\.work\?\.status\|\|executed\?\.status\|\|'UNKNOWN'\)/);
   assert.doesNotThrow(() => new Function(script));
 });
+
+
+test('MEL WORK lets owner inspect persisted artifact summaries without exposing payloads', async()=>{
+ const html=await(await onRequestGet()).text();
+ const script=html.match(/<script>([\s\S]*?)<\/script>/)?.[1]||'';
+ assert.match(script,/data-view-work-artifacts/);
+ assert.match(script,/executeWorkCapability\('work\.artifacts'/);
+ assert.match(script,/area\.textContent=rows\.length/);
+ assert.doesNotThrow(()=>new Function(script));
+});
