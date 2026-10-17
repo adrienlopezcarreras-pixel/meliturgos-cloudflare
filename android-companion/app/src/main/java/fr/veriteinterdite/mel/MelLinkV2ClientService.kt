@@ -1311,7 +1311,7 @@ class MelLinkV2ClientService : Service() {
         if (!bleWriter.isShutdown) bleWriter.execute {
             // Commands and provisioning frames queued before a disconnect must
             // never be sent to a different MINI after a rapid reconnection.
-            if (gatt === intendedGatt) sendControlBlocking(frame)
+            if (gatt === intendedGatt) sendControlBlocking(frame, intendedGatt)
         }
     }
 
