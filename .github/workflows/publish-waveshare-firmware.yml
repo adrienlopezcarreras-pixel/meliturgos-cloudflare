@@ -75,6 +75,9 @@ jobs:
           cp firmware/waveshare-terminal/main/* build/waveshare-mel/main/
           cp firmware/waveshare-terminal/partitions.csv build/waveshare-mel/partitions.csv
           cp firmware/waveshare-terminal/sdkconfig.defaults build/waveshare-mel/sdkconfig.defaults
+          # Embedded app version from the firmware header, not from git describe (which differs per commit).
+          sed -n 's/^#define MEL_FW_VERSION "\([^"]*\)".*/\1/p' firmware/waveshare-terminal/main/mel_terminal.h > build/waveshare-mel/version.txt
+          test -s build/waveshare-mel/version.txt
           cp firmware/waveshare-terminal/vendor/esp_es8311_port.cpp build/waveshare-mel/components/esp_port/esp_es8311_port.cpp
           cp firmware/waveshare-terminal/vendor/esp_es8311_port.h build/waveshare-mel/components/esp_port/esp_es8311_port.h
 
@@ -96,6 +99,9 @@ jobs:
             printf '# %s is not set\n' "$key" >> sdkconfig
           }
           set_cfg_y CONFIG_COMPILER_OPTIMIZATION_PERF
+          # Byte-identical rebuilds: no build date/time or host paths in the image, so the
+          # publish rebuild matches the validated CI build exactly.
+          set_cfg_y CONFIG_APP_REPRODUCIBLE_BUILD
           set_cfg_y CONFIG_LV_ATTRIBUTE_FAST_MEM_USE_IRAM
           set_cfg_y CONFIG_LV_MEMCPY_MEMSET_STD
           set_cfg_y CONFIG_ESP_COEX_SW_COEXIST_ENABLE
