@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import { handleNativeChat } from '../src/api/native-chat.js';
-import { selectStreamModel, readWorkersAiSse, sseEventText } from '../src/api/chat-stream.js';
+import { selectStreamModel, streamModelCandidates, streamChatResponse, readWorkersAiSse, sseEventText } from '../src/api/chat-stream.js';
 import { melParseNdjsonLines } from '../src/pages/mel-chat-stream.js';
 import { onRequestGet as fullMode } from '../src/pages/full-interface-v2.js';
 import { sqliteD1 } from './helpers/sqlite-d1.mjs';
@@ -42,8 +42,11 @@ test('SSE parser handles Workers AI and OpenAI-style chunks', async () => {
 });
 
 test('model selection keeps long prompts on a model whose context fits', () => {
-  assert.equal(selectStreamModel([{ content: 'x'.repeat(10_000) }]), '@cf/meta/llama-3.3-70b-instruct-fp8-fast');
-  assert.equal(selectStreamModel([{ content: 'x'.repeat(120_000) }]), '@cf/google/gemma-4-26b-a4b-it');
+  // gpt-oss-120b (128k context) leads; llama only fits short prompts; gemma is the last resort.
+  assert.equal(selectStreamModel([{ content: 'x'.repeat(10_000) }]), '@cf/openai/gpt-oss-120b');
+  assert.deepEqual(streamModelCandidates([{ content: 'x'.repeat(10_000) }]), ['@cf/openai/gpt-oss-120b', '@cf/meta/llama-3.3-70b-instruct-fp8-fast', '@cf/google/gemma-4-26b-a4b-it']);
+  assert.deepEqual(streamModelCandidates([{ content: 'x'.repeat(120_000) }]), ['@cf/openai/gpt-oss-120b', '@cf/google/gemma-4-26b-a4b-it']);
+  assert.deepEqual(streamModelCandidates([{ content: 'x'.repeat(500_000) }]), ['@cf/google/gemma-4-26b-a4b-it']);
   assert.equal(selectStreamModel([{ content: 'x' }], { MEL_STREAM_MODEL: '@cf/test/forced' }), '@cf/test/forced');
 });
 
@@ -170,4 +173,25 @@ test('page modules survive Wrangler keepNames bundling (__name helper defined in
   for (const marker of ['function melChatFetch(', 'function melRenderTrace(', 'function melInstallAutoRelaunch(']) {
     assert.ok(html.indexOf(marker) > shimAt, marker + ' must come after the __name shim');
   }
+});
+
+test('a model failing before writing anything is replaced silently by the next one', async () => {
+  const tried = [];
+  const env = { AI: { async run(model) {
+    tried.push(model);
+    if (model === '@cf/openai/gpt-oss-120b') throw Object.assign(new Error('5007'), { code: 'MODEL_UNAVAILABLE' });
+    const enc = new TextEncoder();
+    return new ReadableStream({ start(c) { c.enqueue(enc.encode('data: {"response":"Bonjour"}\n\ndata: [DONE]\n\n')); c.close(); } });
+  } } };
+  const text = await streamChatResponse({ env, messages: [{ role: 'user', content: 'salut' }] }).text();
+  const events = text.trim().split('\n').map(line => JSON.parse(line));
+  assert.deepEqual(tried, ['@cf/openai/gpt-oss-120b', '@cf/meta/llama-3.3-70b-instruct-fp8-fast']);
+  assert.equal(events.find(e => e.type === 'model').fallback_from, '@cf/openai/gpt-oss-120b');
+  assert.equal(events.find(e => e.type === 'done').model, '@cf/meta/llama-3.3-70b-instruct-fp8-fast');
+  assert.equal(events.some(e => e.type === 'error'), false);
+});
+
+test('gpt-oss reasoning deltas never leak into the answer', () => {
+  assert.equal(sseEventText({ choices: [{ delta: { reasoning_content: 'je réfléchis…' } }] }), '');
+  assert.equal(sseEventText({ choices: [{ delta: { content: 'Réponse' } }] }), 'Réponse');
 });

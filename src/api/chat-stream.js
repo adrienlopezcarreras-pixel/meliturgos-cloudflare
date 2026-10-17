@@ -16,9 +16,12 @@ import { extractModelText } from '../models/ModelRouter.js';
 
 const encoder = new TextEncoder();
 
-// Contexte utile approximatif (caractères) au-delà duquel un modèle échoue.
-// llama-3.3-70b-fp8-fast accepte ≈24k tokens ; on garde de la marge pour la sortie.
+// Modèles du chat en flux, du plus capable au plus économe. Tous gratuits dans le
+// quota Workers AI (DeepSeek V4 / Kimi exigent un plan payant : exclus).
+// gpt-oss-120b : 120B, raisonnement, ≈128k tokens de contexte, sortie 3× moins
+// chère en neurones que llama-3.3-70b. Les suivants servent de secours.
 export const STREAM_MODELS = Object.freeze([
+  { id: '@cf/openai/gpt-oss-120b', maxInputChars: 360_000 },
   { id: '@cf/meta/llama-3.3-70b-instruct-fp8-fast', maxInputChars: 48_000 },
   { id: '@cf/google/gemma-4-26b-a4b-it', maxInputChars: 360_000 },
 ]);
@@ -27,12 +30,18 @@ export function messagesChars(messages) {
   return (Array.isArray(messages) ? messages : []).reduce((sum, m) => sum + String(m?.content || '').length, 0);
 }
 
-export function selectStreamModel(messages, env = {}) {
+// Ordre d'essai pour cette requête : un modèle forcé, sinon tous ceux dont le
+// contexte suffit (le dernier reste toujours en secours).
+export function streamModelCandidates(messages, env = {}) {
   const forced = String(env?.MEL_STREAM_MODEL || '').trim();
-  if (forced) return forced;
+  if (forced) return [forced];
   const size = messagesChars(messages);
-  const fit = STREAM_MODELS.find(model => size <= model.maxInputChars);
-  return (fit || STREAM_MODELS[STREAM_MODELS.length - 1]).id;
+  const fit = STREAM_MODELS.filter(model => size <= model.maxInputChars).map(model => model.id);
+  return fit.length ? fit : [STREAM_MODELS[STREAM_MODELS.length - 1].id];
+}
+
+export function selectStreamModel(messages, env = {}) {
+  return streamModelCandidates(messages, env)[0];
 }
 
 export function streamOutputTokens(env = {}) {
@@ -96,36 +105,50 @@ export async function readWorkersAiSse(stream, { onText, onFinish } = {}) {
  * interrompue avec du texte partiel) ; il doit renvoyer true si l'archivage a réussi.
  */
 export function streamChatResponse({ env, messages, archive = async () => false, model = null } = {}) {
-  const selectedModel = model || selectStreamModel(messages, env);
+  const candidates = model ? [model] : streamModelCandidates(messages, env);
   const maxTokens = streamOutputTokens(env);
   let fullText = '';
+  let usedModel = candidates[0];
   const body = new ReadableStream({
     async start(controller) {
       const send = event => controller.enqueue(encoder.encode(JSON.stringify(event) + '\n'));
-      send({ type: 'start', model: selectedModel });
+      send({ type: 'start', model: usedModel });
       let finishReason = null;
+      let lastError = null;
       try {
-        const source = await env.AI.run(selectedModel, { messages, stream: true, max_tokens: maxTokens });
-        if (!source || typeof source.getReader !== 'function') {
-          const text = sseEventText(source) || String(source?.result?.response || '');
-          if (!text) throw Object.assign(new Error('STREAM_UNSUPPORTED'), { code: 'STREAM_UNSUPPORTED' });
-          fullText = text;
-          send({ type: 'delta', text });
-        } else {
-          await readWorkersAiSse(source, {
-            onText: text => { fullText += text; send({ type: 'delta', text }); },
-            onFinish: reason => { finishReason = reason; },
-          });
+        // Un modèle qui échoue AVANT d'avoir écrit quoi que ce soit est remplacé par le
+        // suivant, sans que l'utilisateur ne voie d'erreur. Une fois du texte envoyé,
+        // on ne change plus de modèle.
+        for (const candidate of candidates) {
+          if (fullText) break;
+          if (candidate !== usedModel) send({ type: 'model', model: candidate, fallback_from: usedModel, reason: lastError });
+          usedModel = candidate;
+          try {
+            const source = await env.AI.run(candidate, { messages, stream: true, max_tokens: maxTokens });
+            if (!source || typeof source.getReader !== 'function') {
+              const text = sseEventText(source) || String(source?.result?.response || '');
+              if (text) { fullText = text; send({ type: 'delta', text }); }
+            } else {
+              await readWorkersAiSse(source, {
+                onText: text => { fullText += text; send({ type: 'delta', text }); },
+                onFinish: reason => { finishReason = reason; },
+              });
+            }
+            if (!fullText.trim()) lastError = 'EMPTY_MODEL_RESPONSE';
+          } catch (error) {
+            lastError = String(error?.code || error?.message || 'STREAM_FAILED').slice(0, 120);
+            if (fullText) throw error;
+          }
         }
-        if (!fullText.trim()) throw Object.assign(new Error('EMPTY_MODEL_RESPONSE'), { code: 'EMPTY_MODEL_RESPONSE' });
+        if (!fullText.trim()) throw Object.assign(new Error(lastError || 'EMPTY_MODEL_RESPONSE'), { code: lastError || 'EMPTY_MODEL_RESPONSE' });
         const truncated = finishReason === 'length';
         let archived = false;
-        try { archived = await archive(fullText, { model: selectedModel, truncated }); } catch {}
-        send({ type: 'done', model: selectedModel, chars: fullText.length, archived: archived === true, truncated });
+        try { archived = await archive(fullText, { model: usedModel, truncated }); } catch {}
+        send({ type: 'done', model: usedModel, chars: fullText.length, archived: archived === true, truncated });
       } catch (error) {
         const code = String(error?.code || error?.message || 'STREAM_FAILED').slice(0, 120);
         if (fullText.trim()) {
-          try { await archive(fullText, { model: selectedModel, truncated: true, error: code }); } catch {}
+          try { await archive(fullText, { model: usedModel, truncated: true, error: code }); } catch {}
         }
         send({ type: 'error', code, partial_chars: fullText.length });
       } finally {
@@ -137,7 +160,7 @@ export function streamChatResponse({ env, messages, archive = async () => false,
     headers: {
       'content-type': 'application/x-ndjson; charset=utf-8',
       'cache-control': 'no-store',
-      'x-mel-stream-model': selectedModel,
+      'x-mel-stream-model': candidates[0],
     },
   });
 }
