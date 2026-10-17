@@ -26,7 +26,7 @@ test('computer controls verify exact command completion before claiming success'
  assert.ok(controls.includes("command.status==='FAILED'||command.status==='CANCELLED'"),'failure must propagate');
  assert.ok(controls.includes("COMPUTER_COMMAND_NOT_CONFIRMED_WITHIN_30S"),'bounded proof window required');
  assert.ok(controls.includes("screenshotUrl.pathname!=='/api/computer/v1/screenshot'"),'image must be same-origin authorized route');
- assert.ok(controls.includes("img.onload=()=>{qs('#computerScreenState').textContent='CAPTURE CONFIRMÉE'"),'successful image load required');
+ assert.ok(controls.includes("img.onload=()=>{")&&controls.includes("showVerifiedComputerScreen(proof,current,command,'CAPTURE CONFIRMÉE')"),'success must wait for actual image load');
  assert.ok(controls.includes("computerCommand([{action:'keyboard.press',key:b.dataset.pcKey}],true)"),'owner button click approves keyboard action');
  assert.ok(!controls.includes("await new Promise(r=>setTimeout(r,1500))"),'single 1.5-second sleep is not proof of execution');
 });
