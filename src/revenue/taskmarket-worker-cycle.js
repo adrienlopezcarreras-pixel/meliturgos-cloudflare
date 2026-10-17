@@ -196,3 +196,12 @@ export async function runTaskmarketWorkerCycleWithD1({ db, ...options } = {}) {
     persistValidatedDraft: createD1ValidatedDraftAdapter(db),
   });
 }
+
+// Owner-side read-only listing of confirmed drafts; never expose the document body here.
+export async function listD1ValidatedDrafts(db,{limit=20}={}) {
+  if (!db || typeof db.prepare !== 'function') throw new TypeError('WORK_DRAFT_DB_REQUIRED');
+  const bounded=Number.isSafeInteger(limit)?Math.max(1,Math.min(limit,50)):20;
+  const result=await db.prepare('SELECT id, task_id, candidate_sha256, validation, created_at FROM mel_work_validated_drafts ORDER BY created_at DESC LIMIT ?').bind(bounded).all();
+  if(!Array.isArray(result?.results))throw new Error('WORK_DRAFT_LIST_UNAVAILABLE');
+  return {drafts:result.results.map(row=>({id:String(row.id),taskId:String(row.task_id),candidateSha256:String(row.candidate_sha256),validation:String(row.validation||'').slice(0,1000),createdAt:String(row.created_at)}))};
+}

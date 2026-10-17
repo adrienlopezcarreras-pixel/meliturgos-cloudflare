@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { runTaskmarketWorkerCycle, feedbackToLoraCandidate, createD1ValidatedDraftAdapter, runTaskmarketWorkerCycleWithD1 } from '../../src/revenue/taskmarket-worker-cycle.js';
+import { runTaskmarketWorkerCycle, feedbackToLoraCandidate, createD1ValidatedDraftAdapter, runTaskmarketWorkerCycleWithD1, listD1ValidatedDrafts } from '../../src/revenue/taskmarket-worker-cycle.js';
 
 const task = {
   id: '0x123',
@@ -175,4 +175,14 @@ test('D1-backed cycle persists a validated draft without submitting it',async()=
  assert.equal(result.decisions[0].status,'READY_NOT_SUBMITTED');
  assert.equal(result.decisions[0].draftId,insertedId);
  assert.equal(submits,0);
+});
+
+
+test('D1 listing returns bounded metadata without confidential draft bodies',async()=>{
+ let requestedLimit;
+ const db={prepare(){return {bind(limit){requestedLimit=limit;return {all:async()=>({results:[{id:'draft1',task_id:'task1',candidate_sha256:'a'.repeat(64),validation:'OK',created_at:'2026-10-17',content:'PRIVATE'}]})}}}}};
+ const result=await listD1ValidatedDrafts(db,{limit:999});
+ assert.equal(requestedLimit,50);
+ assert.equal(result.drafts[0].taskId,'task1');
+ assert.equal('content' in result.drafts[0],false);
 });
