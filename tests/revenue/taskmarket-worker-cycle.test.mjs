@@ -383,3 +383,17 @@ test('new MEL WORK core persists a real draft before independent verification ex
  assert.equal(stored.content,'{"done":true}');
  assert.equal(stored.status,'VERIFIED_LOCALLY');
 });
+
+test('direct work engine decouples marketplace and does not execute unsuitable missions',async()=>{
+ const {runDirectWork}=await import('../../src/revenue/work-mission-core.js');
+ let invoked=0;
+ const empty=await runDirectWork({listMissions:async()=>[{id:'bad',description:'irrelevant',eligibleForDraft:false}],execute:async()=>{invoked++}});
+ assert.equal(empty.status,'NO_ELIGIBLE_MISSION');
+ assert.equal(invoked,0);
+ const {sqliteD1}=await import('../helpers/sqlite-d1.mjs');
+ const db=sqliteD1();
+ const outcome=await runDirectWork({db,listMissions:async()=>[{id:'job',description:'Produce a summary',eligibleForDraft:true}],execute:async()=>{invoked++;return {content:'A locally prepared summary'}}});
+ assert.equal(outcome.status,'DRAFT_UNVERIFIED');
+ assert.equal(outcome.submitted,false);
+ assert.equal(invoked,1);
+});
