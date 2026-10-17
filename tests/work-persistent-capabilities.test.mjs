@@ -27,6 +27,16 @@ class FakeD1Statement {
       this.db.rows.set(id,{id,job_id,status,record_json,created_at,updated_at});
       return { success:true, meta:{changes:1} };
     }
+
+    if (this.sql.startsWith('UPDATE work_dags SET')) {
+      const [job_id, status, record_json, updated_at, id, leaseId, token, now] = this.args;
+      const current = this.db.leases.get(leaseId);
+      const row = this.db.rows.get(id);
+      if (!row || !current || current.token !== token || current.until <= now)
+        return { success: true, meta: { changes: 0 } };
+      this.db.rows.set(id, { ...row, job_id, status, record_json, updated_at });
+      return { success: true, meta: { changes: 1 } };
+    }
     if (this.sql.startsWith('INSERT INTO work_dags')) {
       const [id, job_id, status, record_json, created_at, updated_at] = this.args;
       this.db.rows.set(id, { id, job_id, status, record_json, created_at, updated_at });
