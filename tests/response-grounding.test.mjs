@@ -223,3 +223,40 @@ test('persistent capability stress formatter exposes job progress then final per
   assert.match(complete, /Capacités non auto-exécutées par garde-fou : 1/);
 });
 
+
+test('ordinary user prompts do not get replaced by self-state diagnostics', () => {
+  const state = {
+    observed_at: '2026-10-17T06:23:19.933Z',
+    sections: { autonomy: { ok: true, data: { status: 'BUILDING_AUTONOMY' } } },
+    capabilities: { registered: 165, enabled: 165, truth: { EXISTANT_NON_TESTE: 155, PARTIEL: 10 } },
+  };
+  for (const question of ['Bonjour', 'Raconte-moi une histoire', 'Aide-moi à écrire une lettre']) {
+    assert.equal(formatVerifiedSelfStateResponse(state, question, { fallback: 'Réponse naturelle du modèle' }), 'Réponse naturelle du modèle');
+  }
+  assert.match(formatVerifiedSelfStateResponse(state, 'Quel est ton état réel ?', { fallback: 'Réponse naturelle du modèle' }), /BUILDING_AUTONOMY/);
+});
+
+test('ordinary action prompts with system keywords preserve the model answer', () => {
+  const state = {
+    observed_at: '2026-10-17T06:23:19.933Z',
+    sections: {
+      code: { ok: true, data: { status: 'PASS', branch: 'main', head: 'a'.repeat(40) } },
+      work: { ok: true, data: { count: 1, work: [{ status: 'RUNNING' }] } },
+      communication_quality: { ok: true, data: { count: 0, events: [] } },
+    },
+    capabilities: { registered: 165, enabled: 165 },
+  };
+  const natural = 'Réponse normale du modèle';
+  for (const prompt of [
+    'Peux-tu corriger ton code ?',
+    'Déploie ton code et avance.',
+    'Continue tes travaux et rédige une réponse claire.',
+    'Aide-moi à rédiger une réponse sur les compétences.',
+    'Écris un programme sur les systèmes et les mémoires.',
+    'Raconte une histoire qui contient le mot autonomie.',
+  ]) {
+    assert.equal(formatVerifiedSelfStateResponse(state, prompt, { fallback: natural }), natural, prompt);
+  }
+  assert.match(formatVerifiedSelfStateResponse(state, 'Quel est le statut de ton code ?', { fallback: natural }), /Code :/);
+  assert.match(formatVerifiedSelfStateResponse(state, 'Quelles sont tes tâches en cours ?', { fallback: natural }), /Travaux persistants/);
+});

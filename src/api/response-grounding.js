@@ -31,8 +31,9 @@ function flags(question) {
   const autonomy = /autonom|roadmap|feuille\s+de\s+route|self[- ]?development/i.test(text);
   const system = /binding|runtime|syst[eè]me|connexion|acc[eè]s/i.test(text);
   const communication = /r[ée]ponse|coh[ée]ren|contradic|hors\s+sujet|communication|compr[ée]hension/i.test(text);
-  const broad = /[ée]tat\s+(?:r[ée]el|interne|actuel)|tout\s+ce\s+que\s+tu\s+vois|self[- ]?state/i.test(text)
-    || !(memory || code || work || capability || autonomy || system || communication);
+  // Never turn an unrelated chat prompt into a full internal runtime dump.
+  // A broad self-state report requires an explicit self-state question.
+  const broad = /[ée]tat\s+(?:r[ée]el|interne|actuel)|tout\s+ce\s+que\s+tu\s+vois|self[- ]?state/i.test(text);
   return { memory, code, work, capability, autonomy, system, communication, broad };
 }
 
@@ -41,9 +42,25 @@ function errorLine(label, row) {
   return `${label} indisponible pour cette vérification (${String(row.error || 'OBSERVATION_UNAVAILABLE')}).`;
 }
 
+function requestsVerifiedSelfState(question) {
+  const text = String(question || '').toLowerCase();
+  // A keyword inside an ordinary instruction (e.g. "corrige ton code") is
+  // not permission to replace the model's response with an internal report.
+  if (/[ée]tat\s+(?:r[ée]el|interne|actuel)|tout\s+ce\s+que\s+tu\s+vois|self[- ]?state/i.test(text)) return true;
+  const owned = /\b(?:ton|ta|tes)\b/i.test(text);
+  const status = /\b(?:[ée]tat|statut|status|bilan|audit|avancement|progression|en\s+cours|fonctionn\w*|disponib\w*|op[ée]rationnel\w*|activ[ée]s?|accessib\w*)\b/i.test(text);
+  if (owned && status) return true;
+  if (owned && /\b(?:quelles?\s+sont|liste|montre)\b/i.test(text)
+    && /capacit[ée]s?|comp[ée]tences?|t[âa]ches?|travaux/i.test(text)) return true;
+  return /\b(?:tu\s+vois|tu\s+as\s+acc[eè]s)\b/i.test(text)
+    && /\b(?:changement|modification|m[ée]moire|archive|conversation|d[ée]ploiement)s?\b|\b(?:code|travaux|t[âa]ches?)\b/i.test(text);
+}
+
 export function formatVerifiedSelfStateResponse(state, question = '', { fallback = '' } = {}) {
   if (!state || typeof state !== 'object') return String(fallback || '').trim();
+  if (!requestsVerifiedSelfState(question)) return String(fallback || '').trim();
   const wanted = flags(question);
+  if (!Object.values(wanted).some(Boolean)) return String(fallback || '').trim();
   const lines = [];
   const unavailable = [];
 
