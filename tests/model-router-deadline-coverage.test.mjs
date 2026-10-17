@@ -132,3 +132,17 @@ test('final fallback rejects whitespace output rather than reporting success', a
   await assert.rejects(router.execute({ task: 'GENERAL', messages }), error =>
     /EMPTY_MODEL_RESPONSE/.test(String(error.reason || error.code || error.message)));
 });
+
+
+test('nonblocking performance persistence cannot hold a successful model reply', async () => {
+  const router = new ModelRouter({
+    registry: modelRegistry(),
+    invoke: async () => ({ response: 'ready' }),
+    performanceStore: { recordAttempt: () => new Promise(() => {}) },
+  });
+  const result = await Promise.race([
+    router.execute({ task: 'GENERAL', messages }),
+    new Promise((_, reject) => setTimeout(() => reject(new Error('telemetry blocked reply')), 150)),
+  ]);
+  assert.equal(result.text, 'ready');
+});
