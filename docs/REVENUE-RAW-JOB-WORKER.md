@@ -66,3 +66,8 @@ Stage: read-only discovery + worker-cycle design. No task has been claimed, subm
 3. Review the current Terms, Privacy, Risk Disclosure and Acceptable Use policies; acceptance is an explicit operator attestation.
 4. Confirm the allowed spending/fee ceiling (submissions/claims can incur x402 fees in some task modes).
 5. Test read-only scan and dry-run solve/validation before enabling paid calls.
+
+
+## Bounded submission policy hardening
+
+The read-only Taskmarket scanner preserves unknown claim/stake state rather than assuming an offer is safe. The worker policy permits only direct `bounty` and `benchmark` modes; `claim` and `auction` stay out of automatic submission until their distinct lifecycle and spend requirements are implemented. An offer must explicitly report `stakeRequired:false` and `claimedBy:null`; missing/unknown state fails closed. The worker cycle runs the deterministic economics filter after independent output validation and will not call its submit adapter for missing profit/margin thresholds, a loss-making task, an unapproved validator, or closed legal/identity/spend gates.
