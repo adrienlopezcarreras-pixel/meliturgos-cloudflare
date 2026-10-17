@@ -387,9 +387,12 @@ test('draft readiness reflects real server bindings without exposing acceptance 
  const empty=await (await handleRevenueApi(new Request(url,{headers}),env)).json();
  assert.equal(empty.ready,false);
  assert.equal(empty.d1Ready,true);
- env.MEL_WORK_TRUSTED_ACCEPTANCE_JSON=JSON.stringify({sample:{expectedJson:'{"answer":1}',sha256:'f'.repeat(64)}});
+ env.MEL_WORK_TRUSTED_ACCEPTANCE_JSON=JSON.stringify({sample:{expectedJson:'{"answer":1}',sha256:'aed6cbbe621d94bd02a9b85bd636d371c2039ffdda7da09615ae28e8d19e51f7'}});
  const ready=await (await handleRevenueApi(new Request(url,{headers}),env)).json();
  assert.equal(ready.ready,true);
+ env.MEL_WORK_TRUSTED_ACCEPTANCE_JSON=JSON.stringify({sample:{expectedJson:'{\"answer\":1}',sha256:'f'.repeat(64)}});
+ const tampered=await (await handleRevenueApi(new Request(url,{headers}),env)).json();
+ assert.equal(tampered.ready,false);
  assert.equal(ready.canSubmit,false);
  assert.equal(JSON.stringify(ready).includes('"answer"'),false);
 });
