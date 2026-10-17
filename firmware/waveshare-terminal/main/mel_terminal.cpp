@@ -31,7 +31,6 @@
 #include "esp_crt_bundle.h"
 #include "esp_heap_caps.h"
 #include "esp_ota_ops.h"
-#include "driver/usb_serial_jtag.h"
 #include "esp_vfs_fat.h"
 #include "wear_levelling.h"
 #include "esp_camera.h"
@@ -3748,16 +3747,13 @@ void mel_terminal_refresh_mobile_identity(void) {
 }
 
 // MINI whose screen cannot be used: the Bluetooth pairing passkey normally read
-// on the screen is also announced on the USB port as "MELBLE PASSKEY nnnnnn".
+// on the screen is also printed on the USB console as "MELBLE PASSKEY nnnnnn".
 // The Windows Companion reads it and types it into the phone's pairing dialog
 // (adb). Only a PC the MINI is physically plugged into can read it.
+// It goes through the existing USB console (stdout): installing the
+// usb_serial_jtag driver next to that console made 0.6.16 reboot in a loop.
 static void usb_passkey_task(void *) {
-    usb_serial_jtag_driver_config_t cfg = USB_SERIAL_JTAG_DRIVER_CONFIG_DEFAULT();
-    if (!usb_serial_jtag_is_driver_installed() && usb_serial_jtag_driver_install(&cfg) != ESP_OK) {
-        ESP_LOGW(TAG, "USB passkey relay unavailable");
-        vTaskDelete(nullptr);
-        return;
-    }
+    vTaskDelay(pdMS_TO_TICKS(3000));  // let boot finish first
     uint32_t announced = UINT32_MAX;
     int repeat = 0;
     for (;;) {
@@ -3765,9 +3761,8 @@ static void usb_passkey_task(void *) {
         if (mel_link_v2_server_pairing_passkey(&passkey)) {
             // Repeat every ~2 s while visible: the reader may open the port late.
             if (passkey != announced || ++repeat >= 4) {
-                char msg[40];
-                snprintf(msg, sizeof(msg), "MELBLE PASSKEY %06lu\n", static_cast<unsigned long>(passkey));
-                usb_serial_jtag_write_bytes(msg, strlen(msg), pdMS_TO_TICKS(100));
+                printf("\nMELBLE PASSKEY %06lu\n", static_cast<unsigned long>(passkey));
+                fflush(stdout);
                 announced = passkey;
                 repeat = 0;
             }
@@ -3780,7 +3775,7 @@ static void usb_passkey_task(void *) {
 }
 
 void mel_terminal_start_usb_passkey_relay(void) {
-    xTaskCreate(usb_passkey_task, "mel_usb_passkey", 4096, nullptr, 3, nullptr);
+    xTaskCreate(usb_passkey_task, "mel_usb_passkey", 4096, nullptr, 2, nullptr);
 }
 
 void mel_terminal_start(bool force_setup) {
