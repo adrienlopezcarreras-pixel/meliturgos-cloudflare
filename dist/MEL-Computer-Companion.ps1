@@ -2985,6 +2985,39 @@ function Perform-Step($step, [string]$commandId, [string]$planSchema="") {
   }
 }
 
+# One command is executed at a time. Keep its terminal outcome until MEL confirms it.
+# DPAPI protects the local record for the signed-in Windows user.
+$script:ResultJournal = Join-Path (Join-Path $env:LOCALAPPDATA "MEL") ("result-" + ($ComputerId -replace '[^a-zA-Z0-9_.-]','_') + ".bin")
+function Save-CommandResult($body) {
+  $folder = Split-Path -Parent $script:ResultJournal
+  [void][System.IO.Directory]::CreateDirectory($folder)
+  $json = $body | ConvertTo-Json -Depth 12 -Compress
+  $bytes = [System.Text.Encoding]::UTF8.GetBytes($json)
+  $encrypted = [System.Security.Cryptography.ProtectedData]::Protect($bytes,$null,[System.Security.Cryptography.DataProtectionScope]::CurrentUser)
+  $temp = $script:ResultJournal + ".tmp"
+  [System.IO.File]::WriteAllBytes($temp,$encrypted)
+  if ([System.IO.File]::Exists($script:ResultJournal)) { throw "COMPUTER_RESULT_PENDING_ALREADY" }
+  [System.IO.File]::Move($temp,$script:ResultJournal)
+}
+function Flush-CommandResult {
+  if (-not [System.IO.File]::Exists($script:ResultJournal)) { return $true }
+  try {
+    $encrypted = [System.IO.File]::ReadAllBytes($script:ResultJournal)
+    $bytes = [System.Security.Cryptography.ProtectedData]::Unprotect($encrypted,$null,[System.Security.Cryptography.DataProtectionScope]::CurrentUser)
+    $body = [System.Text.Encoding]::UTF8.GetString($bytes) | ConvertFrom-Json
+    [void](Invoke-MelJson -Path "/api/computer/v1/result" -Method "POST" -Body $body)
+    [System.IO.File]::Delete($script:ResultJournal)
+    return $true
+  } catch {
+    Write-Warning "MEL_RESULT_DELIVERY_UNCONFIRMED"
+    return $false
+  }
+}
+function Submit-CommandResult($body) {
+  Save-CommandResult $body
+  return Flush-CommandResult
+}
+
 function Process-Command($command) {
   $outputs = @()
   $isRemoteGui = [string]$command.plan.schema -in @('mel.devices.computer-use.v1','mel.devices.pc-control.v1')
@@ -3010,7 +3043,7 @@ function Process-Command($command) {
       $outputs += ,@{ action='desktop.view.request'; screenshot_key=$shot.key; view_url=$shot.view_url; screen_bounds=$shot.screen_bounds }
       Assert-ActiveRemoteCommand ([string]$command.id)
       $body = @{ command_id=$command.id; ok=$true; result=@{ outputs=$outputs; capture_count=1 } }
-      [void](Invoke-MelJson -Path "/api/computer/v1/result" -Method "POST" -Body $body)
+      [void](Submit-CommandResult $body)
       return
     }
     foreach ($step in @($command.plan.steps)) {
@@ -3019,11 +3052,11 @@ function Process-Command($command) {
     }
     if ($isRemoteGui) { Assert-ActiveRemoteCommand ([string]$command.id) }
     $body = @{ command_id=$command.id; ok=$true; result=@{ outputs=$outputs; active_window=(Active-Window) } }
-    [void](Invoke-MelJson -Path "/api/computer/v1/result" -Method "POST" -Body $body)
+    [void](Submit-CommandResult $body)
   } catch {
     $code = [string]$_.Exception.Message
     $body = @{ command_id=$command.id; ok=$false; error_code=$code; result=@{ outputs=$outputs } }
-    try { [void](Invoke-MelJson -Path "/api/computer/v1/result" -Method "POST" -Body $body) } catch {}
+    [void](Submit-CommandResult $body)
   }
 }
 
@@ -3038,6 +3071,8 @@ while (-not $script:MelExitRequested) {
       Send-Heartbeat
       $lastHeartbeat = Get-Date
     }
+    # Do not claim another action while a completed action has no receipt.
+    if (-not (Flush-CommandResult)) { Start-Sleep -Seconds 2; continue }
     $reply = Invoke-MelJson -Path "/api/computer/v1/commands" -Method "GET"
     if ($reply.halted -eq $true) {
       Start-Sleep -Seconds 2

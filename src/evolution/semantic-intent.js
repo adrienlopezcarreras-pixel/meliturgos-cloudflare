@@ -27,7 +27,7 @@ export function shouldSemanticIntentCheck(text, context = '') {
   const explicitSystemNoun = /\b(?:mel|interface|ui|avatar|th[eè]me|bouton|menu|code|programme|syst[eè]me|runtime|commit|branche|branch|d[ée]ploiement|jobs?|travaux?|m[ée]moire|chat\s*gpt|r[ée]ponses?|roadmap|feuille\s+de\s+route|module|capacit[ée]|comp[ée]tence|outil|backend|frontend|api|worker|css|html|js|javascript|autonomie|auto[- ]?d[eé]veloppement)\b/i.test(value);
   // Conversational turns are never system commands just because the owner
   // addresses MEL or because a prior turn mentioned source code.
-  const explicitMutation = /\b(?:modifie|modifier|supprime|remplace|corrige|développe|developpe|implémente|implemente|ajoute|retire|répare|repare|déploie|deploie)\b/i.test(value);
+  const explicitMutation = /\b(?:modifie|modifier|supprime|supprimer|remplace|remplacer|corrige|corriger|développe|developpe|développer|developper|implémente|implemente|ajoute|ajouter|retire|retirer|répare|repare|réparer|reparer|déploie|deploie|déployer|deployer)\b/i.test(value);
   if (naturalConversation && !explicitMutation) return false;
 
   // Mentioning MEL (or code) is a subject, not authorization to run

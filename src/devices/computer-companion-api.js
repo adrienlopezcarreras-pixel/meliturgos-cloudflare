@@ -726,6 +726,12 @@ async function result(request,env,a){
  const b=await request.json().catch(()=>({}));
  const id=safe(b.command_id);
  if(!id)return json({ok:false,code:"COMPUTER_RESULT_ID_REQUIRED"},400);
+ // A lost HTTP acknowledgment must not turn an already recorded execution into a failure.
+ const saved=await env.DB.prepare("SELECT status,result_json,error_code,plan_json FROM computer_commands WHERE id=? AND device_id=? LIMIT 1").bind(id,a.device.id).first();
+ if(saved&&!((parse(saved.plan_json,{})?.steps||[]).some(x=>x?.action==="screen.capture")||parse(saved.plan_json,{})?.action==="desktop.view.request")&&saved.status===(b.ok===true?COMPUTER_COMMAND_STATUS.SUCCEEDED:COMPUTER_COMMAND_STATUS.FAILED)&&
+    saved.result_json===JSON.stringify(b.result??null)&&
+    (saved.error_code||null)===(b.error_code?safe(b.error_code):null))
+   return json({ok:true,already_recorded:true});
  if(b.ok===true){
   const current=await env.DB.prepare("SELECT status,plan_json FROM computer_commands WHERE id=? AND device_id=? LIMIT 1").bind(id,a.device.id).first();
   if(!current||current.status!=="RUNNING")return json({ok:false,code:"COMPUTER_RESULT_NOT_RUNNING"},409);
