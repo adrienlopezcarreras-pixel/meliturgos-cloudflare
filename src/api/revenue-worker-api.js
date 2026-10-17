@@ -1,4 +1,4 @@
-import { listD1ValidatedDrafts, createTaskmarketCouncilSolverAdapter } from '../revenue/taskmarket-worker-cycle.js';
+import { listD1ValidatedDrafts, createTaskmarketCouncilSolverAdapter, createTaskmarketCouncilAssessmentAdapter } from '../revenue/taskmarket-worker-cycle.js';
 import { runDirectWork } from '../revenue/work-mission-core.js';
 import { requireAuth } from '../core/security.js';
 import { maybeHandleComputerApi } from '../devices/computer-companion-api.js';
@@ -68,7 +68,8 @@ export async function handleRevenueApi(request, env) {
       if(!Array.isArray(payload?.data?.tasks)&&!Array.isArray(payload?.tasks))return json({ok:false,code:'TASKMARKET_RESPONSE_INVALID'},502);
       const tasks=normalizeRevenueTasks(payload).map(task=>({...task,eligibleForDraft:task.stakeRequired===false&&task.claimedBy===null&&task.description.length<=6000}));
       const solve=createTaskmarketCouncilSolverAdapter({env});
-      const result=await runDirectWork({db:env.DB,listMissions:async()=>tasks,execute:(_,mission)=>solve({task:mission,assessment:{eligible:true}})});
+      const assess=createTaskmarketCouncilAssessmentAdapter({env});
+      const result=await runDirectWork({db:env.DB,listMissions:async()=>tasks,assess:({mission})=>assess({task:mission,untrustedDescription:mission.description}),execute:(_,mission,assessment)=>solve({task:mission,assessment})});
       if(result.status==='NO_ELIGIBLE_MISSION')return json({ok:false,code:'WORK_NO_SAFE_OPEN_TASK'},409);
       return json({ok:true,result,submitted:false,paid:false});
     }catch(error){
