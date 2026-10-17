@@ -187,7 +187,8 @@ export function createD1ValidatedDraftAdapter(db) {
   return async ({taskId,content,candidateSha256,validation}) => {
     if (typeof taskId !== 'string' || !taskId || typeof content !== 'string' || !content || content.length > 12000
       || !/^[a-f0-9]{64}$/i.test(String(candidateSha256 || ''))) throw new Error('WORK_DRAFT_INVALID_INPUT');
-    const taskPart=Array.from(new TextEncoder().encode(taskId)).reduce((hash,byte)=>Math.imul(hash ^ byte,16777619)>>>0,2166136261).toString(16);
+    const taskDigest=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(taskId));
+    const taskPart=Array.from(new Uint8Array(taskDigest),byte=>byte.toString(16).padStart(2,'0')).join('');
     const draftId='melwork-draft-'+taskPart+'-'+candidateSha256.toLowerCase();
     await db.prepare('CREATE TABLE IF NOT EXISTS mel_work_validated_drafts (id TEXT PRIMARY KEY, task_id TEXT NOT NULL, content TEXT NOT NULL, candidate_sha256 TEXT NOT NULL, validation TEXT, created_at TEXT NOT NULL)').run();
     await db.prepare('INSERT OR IGNORE INTO mel_work_validated_drafts (id,task_id,content,candidate_sha256,validation,created_at) VALUES (?,?,?,?,?,?)')
