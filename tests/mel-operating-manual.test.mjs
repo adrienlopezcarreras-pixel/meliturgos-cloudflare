@@ -28,8 +28,11 @@ test('MEL operating manual keeps identity, experience and post-pass invariants e
   assert.match(prompt, /code\.read/);
   assert.match(prompt, /bootstrap-post-pass-reconcile-adapt-20260918/);
   assert.match(prompt, /QUALITÉ DE MES RÉPONSES/);
-  assert.match(prompt, /repo\.read/);
-  assert.match(prompt, /\"risk\":\"LOW\"/);
+  // Compact summary only: the full JSON manifest (permissions, risk…) is no longer
+  // copied into every prompt; details come from the capability-status route.
+  assert.match(prompt, /code\.read\[NT\]/);
+  assert.doesNotMatch(prompt, /"permissions"/);
+  assert.ok(prompt.length < 20000, 'operating manual must stay compact');
 });
 
 test('code access truth never turns missing current read proof into a false global incapacity', () => {
