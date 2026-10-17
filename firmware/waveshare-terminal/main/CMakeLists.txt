@@ -18,4 +18,5 @@ idf_component_register(
     esp_port
     esp32-camera
     bt
+    esp_driver_usb_serial_jtag
 )

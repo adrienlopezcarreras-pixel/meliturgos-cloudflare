@@ -8,6 +8,8 @@ on:
     branches: [main]
     paths:
       - 'src/devices/mini-flash-companion.js'
+      - 'src/devices/mini-usb-provision.js'
+      - 'tests/mini-usb-provision.test.mjs'
       - 'src/devices/android-update-companion.js'
       - 'tests/android-update-companion.test.mjs'
       - 'tests/mini-flash-companion.test.mjs'
@@ -51,6 +53,13 @@ jobs:
           $version = & $py -m esptool version 2>&1 | Out-String
           if ($LASTEXITCODE -ne 0) { throw 'ESPTOOL_NOT_INSTALLED' }
           echo "::notice title=mini.flash esptool::$($version.Trim() -replace '\s+',' ')"
+      - name: MINI Bluetooth passkey relay command parses
+        shell: powershell
+        run: |
+          node -e "import('./src/devices/mini-usb-provision.js').then(m=>{require('fs').writeFileSync('mini-ble-pair.ps1',m.miniBlePairCommand().command)})"
+          $tokens = $null; $errors = $null
+          [void][System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path 'mini-ble-pair.ps1'), [ref]$tokens, [ref]$errors)
+          if ($errors.Count) { $errors | ForEach-Object { Write-Host $_ }; throw "MINI_BLE_PAIR_PARSE_FAILED" }
       - name: Android update command parses, uses the PC's adb, stops at the missing phone
         shell: powershell
         timeout-minutes: 6
