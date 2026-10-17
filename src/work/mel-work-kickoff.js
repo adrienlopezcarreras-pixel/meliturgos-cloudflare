@@ -173,8 +173,9 @@ export async function startMelWorkKickoff({ bus, text, conversationId, context }
     { id: 'calculation-3', title: 'Calcul exact et contrôle indépendant — segment 3', capability: 'melwork.compute.chunk', input: { start: 40001, count: 20000 }, dependsOn: ['calculation-2'], idempotent: true },
     { id: 'market-scan', title: 'Repérer les missions publiques disponibles, sans candidature', capability: 'melwork.market.scan', input: {}, dependsOn: ['calculation-3'], idempotent: true },
   ];
-  const execute = async (name, input) => bus.execute(name, input, context);
+  const execute = (name, input) => bus.execute(name, input, context);
   let saved = false;
+  let created = false;
   try {
     try {
       await execute('work.plan.save', {
@@ -188,34 +189,61 @@ export async function startMelWorkKickoff({ bus, text, conversationId, context }
         steps,
       });
       saved = true;
+      created = true;
     } catch (error) {
-      // An HTTP retry of the same kickoff must resume, not duplicate a plan.
+      // A retry must reuse a verified persisted plan, never run it twice.
       const existing = await execute('work.plan.get', { id }).catch(() => null);
       const plan = existing?.plan || existing;
       if (String(plan?.id || '') !== id) throw error;
       saved = true;
     }
+
     const existingPlanResult = await execute('work.plan.get', { id });
     const existingPlan = existingPlanResult?.plan || existingPlanResult;
-    let workDagId = String(existingPlan?.work_dag_id || '').trim();
+    let workDagId = String(existingPlan?.work_dag_id || existingPlanResult?.work_dag_id || '').trim();
     if (!workDagId) {
       const materialized = await execute('work.plan.materialize', { id });
       workDagId = String(materialized?.plan?.work_dag_id || materialized?.work?.id || '').trim();
     }
     if (!workDagId) throw Object.assign(new Error('MEL_WORK_DAG_ID_MISSING'), { code: 'MEL_WORK_DAG_ID_MISSING' });
-    const executed = await execute('work.run', { id: workDagId });
-    const synced = await execute('work.plan.sync', { id });
-    const evidence = await execute('work.artifacts', { id: workDagId });
-    const artifacts = Array.isArray(evidence?.artifacts) ? evidence.artifacts : [];
-    const verifiedTrainingKinds = new Set(artifacts.filter(row => row?.artifact?.kind === 'training_sample' && Object.values(row.artifact.quality_checks || {}).length > 0 && Object.values(row.artifact.quality_checks).every(Boolean)).map(row => row.artifact.category));
-    const trainingCount = ['professional_writing', 'data_quality', 'software_testing'].filter(kind => verifiedTrainingKinds.has(kind)).length;
-    const verifiedChunks = new Set(artifacts.filter(row => row?.artifact?.kind === 'computation_sample' && row.artifact.quality_checks?.closed_form_match === true && [1,20001,40001].includes(row.artifact.start) && row.artifact.count === 20000).map(row => row.artifact.start));
-    const computationCount = verifiedChunks.size;
-    const market = artifacts.find(row => row?.artifact?.kind === 'market_observation')?.artifact || null;
-    const status = String(synced?.work?.status || executed?.status || 'UNKNOWN').toUpperCase();
+
+    // work.plan.materialize already creates a durable Work DAG and registers
+    // its existing open-loop recovery. Never execute all seven steps in this
+    // HTTP response: doing so caused CHAT_DEADLINE_EXCEEDED for the large prompt.
+    const observed = await execute('work.status', { id: workDagId });
+    const status = String(observed?.status || 'UNKNOWN').toUpperCase();
+    const terminal = status === 'COMPLETED' || status === 'BLOCKED' || status === 'FAILED';
+    const executionScheduled = created && !terminal && typeof context?.waitUntil === 'function';
+    if (executionScheduled) {
+      // A single checkpoint is bounded; subsequent steps run via the existing
+      // D1 open-loop scheduler, even if this HTTP connection disappears.
+      context.waitUntil(execute('work.run', { id: workDagId, maxSteps: 1 })
+        .catch(error => console.error('[MEL Chat] persisted kickoff step failed', String(error?.code || error?.message || 'UNKNOWN'))));
+    }
+
+    const verifiedSteps = Number(observed?.node_counts?.COMPLETED || 0);
+    let trainingCount = 0;
+    let computationCount = 0;
+    let market = null;
+    if (verifiedSteps > 0 || status === 'COMPLETED') {
+      const evidence = await execute('work.artifacts', { id: workDagId });
+      const artifacts = Array.isArray(evidence?.artifacts) ? evidence.artifacts : [];
+      const verifiedTrainingKinds = new Set(artifacts.filter(row => row?.artifact?.kind === 'training_sample'
+        && Object.values(row.artifact.quality_checks || {}).length > 0
+        && Object.values(row.artifact.quality_checks).every(Boolean)).map(row => row.artifact.category));
+      trainingCount = ['professional_writing', 'data_quality', 'software_testing']
+        .filter(kind => verifiedTrainingKinds.has(kind)).length;
+      const verifiedChunks = new Set(artifacts.filter(row => row?.artifact?.kind === 'computation_sample'
+        && row.artifact.quality_checks?.closed_form_match === true
+        && [1,20001,40001].includes(row.artifact.start)
+        && row.artifact.count === 20000).map(row => row.artifact.start));
+      computationCount = verifiedChunks.size;
+      market = artifacts.find(row => row?.artifact?.kind === 'market_observation')?.artifact || null;
+    }
     return {
-      ok: status === 'COMPLETED', persisted: true, plan_id: id, work_dag_id: workDagId,
-      status,
+      ok: true, persisted: true, created, execution_scheduled: executionScheduled,
+      completed: status === 'COMPLETED', plan_id: id, work_dag_id: workDagId,
+      status, verified_steps: verifiedSteps,
       training_exercises_verified: trainingCount,
       calculation_chunks_verified: computationCount,
       taskmarket_status: market?.status || 'NOT_EXECUTED',

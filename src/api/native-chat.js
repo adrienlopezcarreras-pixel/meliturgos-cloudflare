@@ -1211,7 +1211,7 @@ export async function handleNativeChat(request, env, options = {}) {
       context: nativeCapabilityContext(env, request, options),
     });
     const details = kickoff.ok
-      ? `Plan persistant : ${kickoff.plan_id}. Work : ${kickoff.work_dag_id}. Statut réel : ${kickoff.status}. Exercices vérifiés : ${kickoff.training_exercises_verified}/3. Taskmarket : ${kickoff.taskmarket_status}${kickoff.taskmarket_offer_count == null ? '' : ' (' + kickoff.taskmarket_offer_count + ' offres observées)'}. Aucune mission réclamée, soumise ou payée.`
+      ? `Plan enregistré : ${kickoff.plan_id}. Work : ${kickoff.work_dag_id}. Statut observé : ${kickoff.status}. Étapes terminées et vérifiées : ${kickoff.verified_steps || 0}. Exercices vérifiés : ${kickoff.training_exercises_verified}/3 ; calculs vérifiés : ${kickoff.calculation_chunks_verified}/3. ${kickoff.execution_scheduled ? 'Première étape programmée hors de cette réponse ; les suivantes seront reprises par le moteur persistant.' : kickoff.completed ? 'Cycle terminé selon Work ; consulte les artefacts.' : 'Exécution enregistrée pour reprise par la boucle persistante.'} Taskmarket : ${kickoff.taskmarket_status}. Aucune mission réclamée, soumise ou payée.`
       : `MEL WORK n’a pas pu terminer le premier cycle : ${kickoff.error_code}. ${kickoff.persisted ? 'Le plan ' + kickoff.plan_id + ' est conservé et peut être repris.' : 'Aucun plan persistant n’a été confirmé.'} Aucune mission réclamée ni soumise.`;
     const responseText = `MEL WORK — préparation au travail numérique\n${details}\nLes exercices portent sur des données d’entraînement, pas sur des missions rémunérées. Le travail externe restera conditionné à une sélection et à des vérifications réelles.`;
     let archiveSaved = false;
@@ -1228,7 +1228,7 @@ export async function handleNativeChat(request, env, options = {}) {
       model: 'deterministic-mel-work-kickoff', provider: 'mel',
       response_mode: 'mel-work-execution', mel_work: kickoff,
       archive_saved: archiveSaved,
-    }, { status: kickoff.ok ? 200 : 503, headers: { 'cache-control': 'no-store' } });
+    }, { status: kickoff.ok ? (kickoff.completed ? 200 : 202) : 503, headers: { 'cache-control': 'no-store' } });
   }
 
   const negativeFeedbackRecovery = releaseSmoke ? null : inferNegativeFeedbackCouncilRecovery(text, recent);
