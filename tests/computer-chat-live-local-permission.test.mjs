@@ -85,7 +85,7 @@ test('quick and explicit chat commands fail closed without current Windows local
   await assert.rejects(actions.get('computer.execute')({computer_id:'pc-chat',steps:[{action:'screen.capture'}]}),
    x=>x.code==='OWNER_HALT_ACTIVE');
   await set(db,'pc-chat',{});
-  assert.equal(await health.get('computer.quick')(),'ONLINE');
+  assert.equal((await health.get('computer.quick')()).status,'ONLINE');
   const executed=await actions.get('computer.execute')({computer_id:'pc-chat',steps:[{action:'screen.capture'}]});
   assert.equal(executed.status,'PENDING');
   const records=await db.prepare('SELECT * FROM computer_commands').all();
