@@ -147,7 +147,11 @@ async function collectCodeContext(env, job, bridge, { fetchImpl = fetch } = {}) 
   const { config, reader } = codeReader(env, fetchImpl, bridge);
   assertTeacherApprovedBranch(config, bridge);
   const headBefore = await readApprovedHead(reader, bridge);
-  const roadmapId = String(job?.optional_context?.roadmap_id || '').trim();
+  // A request typed by the owner in chat has no roadmap entry; it still needs a
+  // stable id, otherwise it blocked the whole autonomy queue forever
+  // (IMPLEMENTATION_ROADMAP_ID_REQUIRED on every tick).
+  const roadmapId = String(job?.optional_context?.roadmap_id || '').trim()
+    || (job?.optional_context?.source === 'owner-chat' && job?.id ? 'OWNER-CHAT-' + String(job.id).replace(/^owner-chat-/, '').slice(0, 8).toUpperCase() : '');
   if (!roadmapId) {
     throw Object.assign(new Error('IMPLEMENTATION_ROADMAP_ID_REQUIRED'), { code: 'IMPLEMENTATION_ROADMAP_ID_REQUIRED' });
   }
