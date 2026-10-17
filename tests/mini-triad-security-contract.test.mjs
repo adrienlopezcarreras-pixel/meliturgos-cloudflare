@@ -222,3 +222,23 @@ test('Android never sends old AUDIO_DATA or AUDIO_END to a reconnected MINI afte
     assert.match(writer, /if \(intendedGatt != null && client !== intendedGatt\) return false/);
   }
 });
+
+test('Android Link V2 accepts event frames and CCCD readiness only from its negotiated GATT event channel', async () => {
+  const service = await read('android-companion/app/src/main/java/fr/veriteinterdite/mel/MelLinkV2ClientService.kt');
+  const desc = service.slice(service.indexOf('override fun onDescriptorWrite('), service.indexOf('@Deprecated("Deprecated by Android")'));
+  assert.match(desc, /descriptor\.uuid != CCCD_UUID/);
+  assert.match(desc, /descriptor\.characteristic\?\.uuid != EVENT_TX_UUID/);
+  assert.match(desc, /descriptor\.characteristic\?\.service\?\.uuid != SERVICE_UUID/);
+  assert.match(desc, /eventTx == null/);
+  assert.ok(desc.indexOf('descriptor.characteristic?.uuid != EVENT_TX_UUID') < desc.indexOf('miniReady.value = true'));
+
+  const callbacks = service.slice(service.indexOf('override fun onCharacteristicChanged('), service.indexOf('override fun onCharacteristicWrite('));
+  const occurrences = callbacks.match(/if \(!isCurrentLinkEvent\(client, characteristic\)\) return/g) || [];
+  assert.equal(occurrences.length, 2, 'legacy and API 33 notification overloads must both check origin');
+  const guard = service.slice(service.indexOf('private fun isCurrentLinkEvent('), service.indexOf('private fun handleEventFrame('));
+  assert.match(guard, /gatt === client/);
+  assert.match(guard, /eventTx != null/);
+  assert.match(guard, /characteristic\.uuid == EVENT_TX_UUID/);
+  assert.match(guard, /characteristic\.service\?\.uuid == SERVICE_UUID/);
+  assert.doesNotMatch(callbacks, /if \(gatt !== client\) return\s+handleEventFrame/);
+});
