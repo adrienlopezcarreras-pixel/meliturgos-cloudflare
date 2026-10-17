@@ -223,6 +223,7 @@ export class ModelRouter {
         void this.recordPerformance(selected,task,false,Date.now()-startedAt);
         failure=error;
         reasons.push(error.reason||error.code||error.message||'unknown');
+        if (error?.code === 'CHAT_DEADLINE_EXCEEDED' || (this.deadlineAt != null && Date.now() >= this.deadlineAt)) break;
         if (!retryable(categorize(error))) break;
       }
     }
