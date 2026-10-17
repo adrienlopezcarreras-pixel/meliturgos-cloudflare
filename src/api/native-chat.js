@@ -264,11 +264,12 @@ export function inferNativeComputerCapability(text) {
   if(!value)return null;
   const computer=/\b(?:pc|ordinateur|bureau|écran|ecran|windows)\b/i.test(value);
   const status=/(?:état|etat|statut|connecté|connecte|en ligne|hors ligne|disponible)/i.test(value);
-  if(computer&&status)return {id:'computer.status',input:{}};
-
+  // A connected Windows PC may be the target of an explicit screenshot.
+  // Do not let the incidental word connected swallow the capture command.
   if(computer&&/\b(?:capture|screenshot|photo|montre|affiche|regarde)\b/i.test(value)&&/\b(?:écran|ecran|bureau|pc|ordinateur)\b/i.test(value)){
     return {id:'computer.quick',input:{kind:'screenshot'}};
   }
+  if(computer&&status)return {id:'computer.status',input:{}};
 
   const open=value.match(/\b(?:ouvre|ouvrir|lance|lancer|démarre|demarre)\s+(?:le\s+|la\s+|l['’])?(bloc[- ]?notes|notepad|calculatrice|calculator|explorateur|explorer|edge|msedge|firefox|chrome)\b/i);
   if(open){
@@ -1049,6 +1050,56 @@ export async function handleNativeChat(request, env, options = {}) {
   const userProvenance = inputSource === 'text' ? 'native-chat' : `native-chat:${inputSource}`;
   const userMetadata = inputSource === 'text' ? {} : { input_source: inputSource, transcribed_voice: true };
   const runtime = createGen2Runtime({ env });
+  // A screenshot is an asynchronous, owner-consented Companion command, not an
+  // AI inference request. Return the durable queue ID before the chat timeout;
+  // the UI must verify the exact command result before displaying an image.
+  const screenshotIntent = !releaseSmoke && !body.capability?.id
+    ? inferNativeComputerCapability(text) : null;
+  if (screenshotIntent?.id === 'computer.quick' && screenshotIntent.input?.kind === 'screenshot') {
+    try {
+      const queued = await runtime.bus.execute('computer.quick', { kind:'screenshot' },
+        nativeCapabilityContext(env, request, options));
+      if (queued?.ok !== true || queued.status !== 'PENDING'
+          || !queued.command_id || !queued.device_id) {
+        throw Object.assign(new Error('COMPUTER_CAPTURE_QUEUE_UNCONFIRMED'),
+          { code:'COMPUTER_CAPTURE_QUEUE_UNCONFIRMED' });
+      }
+      const command = {
+        command_id: String(queued.command_id),
+        computer_id: String(queued.device_id),
+        status: 'PENDING',
+      };
+      return Response.json({
+        ok:true,
+        text:'Capture demandée au Companion Windows. Vérification du résultat réel en cours…',
+        provider:'mel', model:'deterministic-computer-command',
+        response_mode:'computer-capture-pending',
+        computer_command:command,
+        capability_used:['computer.quick'],
+        tool_results:[{ capability:'computer.quick',status:'QUEUED',result:command }],
+        archive_saved:false,
+      }, { headers:{ 'cache-control':'no-store' } });
+    } catch (error) {
+      let code = String(error?.code || error?.message || 'COMPUTER_CAPTURE_REQUEST_FAILED').slice(0,160);
+      if (code === 'CAPABILITY_UNAVAILABLE') {
+        // The capability bus can reject before reaching the queue handler.
+        // Read-only status provides a precise reason without granting control.
+        try {
+          const state = await runtime.bus.execute('computer.status', {},
+            nativeCapabilityContext(env, request, options));
+          const pc = (state?.devices || []).find(row => String(row.platform).toLowerCase() === 'windows');
+          code = String(pc?.remote_access_issue || 'COMPUTER_NO_AUTHORIZED_ONLINE_DEVICE');
+        } catch { /* Keep the generic fail-closed result if status is unavailable. */ }
+      }
+      return Response.json({
+        ok:false, code,
+        text:'Capture non lancée : '+code+'. Vérifie le moteur Companion et ses autorisations.',
+        provider:'mel', model:'deterministic-computer-command',
+        response_mode:'computer-capture-failed',
+        capability_used:[], tool_results:[{capability:'computer.quick',status:'FAILED',error:code}],
+      }, {status:409,headers:{'cache-control':'no-store'}});
+    }
+  }
   let recent = [];
   let service = null;
   if (env.DB && !releaseSmoke) {
