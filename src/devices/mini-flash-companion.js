@@ -85,8 +85,8 @@ if(-not $py){$py=@(Get-Command python.exe -All -ErrorAction SilentlyContinue|Whe
 if(-not $py){throw 'PYTHON_NOT_FOUND'}
 function Py([string[]]$a){$p=$ErrorActionPreference;$ErrorActionPreference='Continue';try{$o=@(& $py @a 2>&1|ForEach-Object{[string]$_})}finally{$ErrorActionPreference=$p};return @{code=$LASTEXITCODE;out=($o -join [string][char]10)}}
 if((Py @('-m','esptool','version')).code -ne 0){
- $i=Py @('-m','pip','install','--user','--disable-pip-version-check','--quiet','esptool=='+$tag.TrimStart('v'))
- if($i.code -ne 0){throw 'ESPTOOL_PIP_INSTALL_FAILED'}
+ $i=$null;foreach($a in @(@('--user','esptool=='+$tag.TrimStart('v')),@('--user','esptool>=5'),@('esptool>=5'))){$i=Py (@('-m','pip','install','--disable-pip-version-check')+$a);if($i.code -eq 0){break}}
+ if($i.code -ne 0){$t=[string]$i.out;throw ('ESPTOOL_PIP_INSTALL_FAILED:'+$t.Substring([Math]::Max(0,$t.Length-400)))}
 }
 $ports=@(Get-CimInstance Win32_PnPEntity -ErrorAction SilentlyContinue | ForEach-Object { if(([string]$_.PNPDeviceID) -match '^USB\\VID_303A&PID_1001' -and ([string]$_.Name) -match '\((COM\d{1,3})\)'){ $Matches[1] } } | Sort-Object -Unique)
 if($ports.Count -ne 1){throw ('MINI_USB_PORT_NOT_UNIQUE:'+$ports.Count)}
