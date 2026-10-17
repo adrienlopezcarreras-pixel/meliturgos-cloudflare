@@ -1056,7 +1056,20 @@ function renderComputer(d){
   qs('#computerOut').textContent=JSON.stringify({ordinateur:pc,commandes:(computerCache.commands||[]).slice(0,12)},null,2);
   const latest=!pc.halted&&pc.metadata?.remote_access_enabled===true?(computerCache.commands||[]).find(c=>c?.status==='SUCCEEDED'&&c?.result?.outputs?.some(o=>o?.action==='screen.capture'&&o?.view_url)):null;
   const output=latest?.result?.outputs?.find(o=>o?.view_url);
-  if(output?.view_url){const img=qs('#computerScreen');img.src=output.view_url+'&v='+Date.now();img.style.display='block';qs('#computerScreenState').textContent='CAPTURE DISPONIBLE';qs('#computerScreenState').className='tag good'}
+  if(output?.view_url){
+   const screenUrl=new URL(output.view_url,location.origin);
+   if(screenUrl.origin===location.origin&&screenUrl.pathname==='/api/computer/v1/screenshot'){
+    screenUrl.searchParams.set('v',String(Date.now()));
+    const img=qs('#computerScreen');
+    img.onload=()=>{qs('#computerScreenState').textContent='CAPTURE DISPONIBLE';qs('#computerScreenState').className='tag good'};
+    img.onerror=()=>{img.style.display='none';qs('#computerScreenState').textContent='CAPTURE INACCESSIBLE';qs('#computerScreenState').className='tag bad'};
+    img.src=screenUrl.href;img.style.display='block';
+   }
+  }else{
+   const img=qs('#computerScreen');img.removeAttribute('src');img.style.display='none';
+   qs('#computerScreenState').textContent=pc.halted?'CONTRÔLE ARRÊTÉ':'AUCUNE CAPTURE';
+   qs('#computerScreenState').className='tag warn';
+  }
 }
 async function loadComputer(){try{const id=qs('#computerSelect')?.value||'';const d=await jfetch('/api/computer/v1/status'+(id?'?computer_id='+encodeURIComponent(id):''));renderComputer(d);return d}catch(e){qs('#computerState').textContent='INDISPONIBLE';qs('#computerState').className='tag bad';qs('#computerOut').textContent='Erreur : '+e.message;return null}}
 async function computerCommand(steps,approveSensitive=false){
@@ -1092,11 +1105,12 @@ async function computerCommand(steps,approveSensitive=false){
    if(screenshotUrl.origin!==location.origin||screenshotUrl.pathname!=='/api/computer/v1/screenshot')throw Error('COMPUTER_SCREENSHOT_URL_INVALID');
    screenshotUrl.searchParams.set('v',String(Date.now()));
    const img=qs('#computerScreen');
+   img.onload=()=>{qs('#computerScreenState').textContent='CAPTURE CONFIRMÉE';qs('#computerScreenState').className='tag good'};
    img.onerror=()=>{img.style.display='none';qs('#computerScreenState').textContent='IMAGE INACCESSIBLE';qs('#computerScreenState').className='tag bad'};
+   qs('#computerScreenState').textContent='CHARGEMENT IMAGE';
+   qs('#computerScreenState').className='tag warn';
    img.src=screenshotUrl.href;
    img.style.display='block';
-   qs('#computerScreenState').textContent='CAPTURE CONFIRMÉE';
-   qs('#computerScreenState').className='tag good';
   }
   output.textContent=JSON.stringify({command_id:queued.command_id,status:'SUCCEEDED',computer_id:pc.id,finished_at:command.finished_at},null,2);
   return command;
