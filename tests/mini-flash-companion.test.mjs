@@ -35,14 +35,16 @@ async function seededEnv({ manifest = PUBLISHED, remoteAccess = true } = {}) {
 
 const flash = (env, payload, authenticated = true) => maybeHandleComputerApi(request('/api/computer/v1/pc-control', 'POST', { computer_id: 'pc-1', action: 'mini.flash', payload }, authenticated), env);
 
-test('flash command writes only ota_0 and otadata, with official esptool checked by digest', () => {
+test('flash command writes only ota_0 and otadata, with pinned official esptool from pip', () => {
   const { command, timeout_ms } = miniFlashCommand({ downloadUrl: 'https://mel.test/api/computer/v1/device-file?ticket=' + 'b'.repeat(48), sha256: SHA });
   assert.equal(timeout_ms, 120000);
   assert.ok(command.length <= 8192);
-  assert.match(command, /write-flash 0x20000 "'\+\$bin\+'" 0xF000 "'\+\$blank\+'"/);
-  assert.match(command, new RegExp('api\\.github\\.com/repos/espressif/esptool/releases/tags/'));
+  assert.match(command, /'write-flash','0x20000',\$bin,'0xF000',\$blank/);
+  assert.match(command, /'pip','install'/);
+  assert.match(command, /'--user','esptool=='/);
   assert.match(command, new RegExp("\\$tag='" + ESPTOOL_TAG.replace(/\./g, '\\.') + "'"));
-  assert.match(command, /ESPTOOL_DIGEST_MISMATCH/);
+  assert.match(command, /'esptool=='\+\$tag\.TrimStart\('v'\)/);
+  assert.doesNotMatch(command, /esptool\.exe|Expand-Archive/, 'no downloaded executable (blocked by antivirus)');
   assert.match(command, /MINI_FIRMWARE_SHA256_MISMATCH/);
   assert.match(command, /VID_303A&PID_1001/);
   assert.doesNotMatch(command, /erase[-_]flash|write-flash 0x0 |0x9000/i, 'bootloader, partition table and NVS are never written');

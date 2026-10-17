@@ -36,7 +36,7 @@ jobs:
           $tokens = $null; $errors = $null
           [void][System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path 'mini-flash.ps1'), [ref]$tokens, [ref]$errors)
           if ($errors.Count) { $errors | ForEach-Object { Write-Host $_ }; throw "MINI_FLASH_PARSE_FAILED" }
-      - name: Official esptool is fetched, digest-checked and found; stops at the missing board
+      - name: Pinned esptool is installed through Python pip; stops at the missing board
         shell: powershell
         env:
           # Hosted runners share an IP that hits GitHub's anonymous API limit; the owner's PC does not need this.
@@ -47,10 +47,10 @@ jobs:
           $ErrorActionPreference = 'Stop'
           Write-Host $out
           if ($out -notmatch 'MINI_USB_PORT_NOT_UNIQUE:0') { echo "::error title=mini.flash::unexpected stop: $($out.Trim() -replace '\s+',' ')"; throw 'MINI_FLASH_UNEXPECTED_STOP' }
-          $exe = Get-ChildItem -LiteralPath (Join-Path $env:LOCALAPPDATA 'MEL\tools') -Filter esptool.exe -Recurse -File | Select-Object -First 1
-          if (-not $exe) { throw 'ESPTOOL_NOT_INSTALLED' }
-          $version = & $exe.FullName version 2>&1 | Out-String
-          echo "::notice title=mini.flash esptool::$($exe.FullName) $($version.Trim() -replace '\s+',' ')"
+          $py = (Get-Command python.exe | Select-Object -First 1).Source
+          $version = & $py -m esptool version 2>&1 | Out-String
+          if ($LASTEXITCODE -ne 0) { throw 'ESPTOOL_NOT_INSTALLED' }
+          echo "::notice title=mini.flash esptool::$($version.Trim() -replace '\s+',' ')"
       - name: Android update command parses, fetches official adb with checksum, stops at the missing phone
         shell: powershell
         timeout-minutes: 6
