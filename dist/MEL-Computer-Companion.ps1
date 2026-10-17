@@ -2989,6 +2989,7 @@ function Perform-Step($step, [string]$commandId, [string]$planSchema="") {
 # DPAPI protects the local record for the signed-in Windows user.
 $script:ResultJournal = Join-Path (Join-Path $env:LOCALAPPDATA "MEL") ("result-" + ($ComputerId -replace '[^a-zA-Z0-9_.-]','_') + ".bin")
 function Save-CommandResult($body) {
+  if ([System.IO.File]::Exists($script:ResultJournal)) { throw "COMPUTER_RESULT_PENDING_ALREADY" }
   $folder = Split-Path -Parent $script:ResultJournal
   [void][System.IO.Directory]::CreateDirectory($folder)
   $json = $body | ConvertTo-Json -Depth 12 -Compress
@@ -2996,8 +2997,12 @@ function Save-CommandResult($body) {
   $encrypted = [System.Security.Cryptography.ProtectedData]::Protect($bytes,$null,[System.Security.Cryptography.DataProtectionScope]::CurrentUser)
   $temp = $script:ResultJournal + ".tmp"
   [System.IO.File]::WriteAllBytes($temp,$encrypted)
-  if ([System.IO.File]::Exists($script:ResultJournal)) { throw "COMPUTER_RESULT_PENDING_ALREADY" }
-  [System.IO.File]::Move($temp,$script:ResultJournal)
+  try {
+    if ([System.IO.File]::Exists($script:ResultJournal)) { throw "COMPUTER_RESULT_PENDING_ALREADY" }
+    [System.IO.File]::Move($temp,$script:ResultJournal)
+  } finally {
+    if ([System.IO.File]::Exists($temp)) { [System.IO.File]::Delete($temp) }
+  }
 }
 function Flush-CommandResult {
   if (-not [System.IO.File]::Exists($script:ResultJournal)) { return $true }

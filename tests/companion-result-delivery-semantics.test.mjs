@@ -7,6 +7,11 @@ test('Windows companion journals a single encrypted terminal outcome and replays
  assert.match(ps,/ProtectedData]::Protect/);
  assert.match(ps,/ProtectedData]::Unprotect/);
  assert.match(ps,/function Save-CommandResult\(\$body\)/);
+ const save=ps.split('function Save-CommandResult($body) {')[1]?.split('\nfunction Flush-CommandResult')[0];
+ assert.ok(save);
+ assert.ok(save.indexOf('COMPUTER_RESULT_PENDING_ALREADY') < save.indexOf('[System.IO.File]::WriteAllBytes($temp,$encrypted)'));
+ assert.match(save,/finally \{/);
+ assert.match(save,/\[System.IO.File\]::Delete\(\$temp\)/);
  assert.match(ps,/function Flush-CommandResult/);
  const flush=ps.split('function Flush-CommandResult {')[1]?.split('\nfunction Submit-CommandResult')[0];
  assert.ok(flush);
