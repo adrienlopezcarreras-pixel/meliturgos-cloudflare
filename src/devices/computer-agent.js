@@ -233,6 +233,10 @@ export async function runComputerAgent({ env, goal, maxSteps = AGENT_MAX_STEPS, 
     screenshot = proof.outputs?.[0]?.view_url || null;
     if (screenshot) onEvent({ type: 'proof', url: screenshot });
   }
+  if (status === 'DONE' && !screenshot) {
+    status = 'FAILED';
+    summary = 'COMPUTER_SCREENSHOT_PROOF_MISSING';
+  }
   const text = status === 'DONE'
     ? `C’est fait sur ton PC : ${summary}`
     : status === 'INCOMPLETE'
