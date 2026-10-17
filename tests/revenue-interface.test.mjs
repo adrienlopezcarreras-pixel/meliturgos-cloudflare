@@ -445,3 +445,14 @@ test('MEL WORK readiness distinguishes malformed oracle from missing configurati
  assert.equal(payload.ready,false);
  assert.equal(payload.blockingReason,'WORK_TRUSTED_ACCEPTANCE_INVALID');
 });
+
+test('readiness stays disabled when one of two oracle fixtures is tampered',async()=>{
+ const url='https://mel.test/api/revenue/draft-readiness';
+ const expectedJson='{"answer":1}';
+ const digest=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(expectedJson))),b=>b.toString(16).padStart(2,'0')).join('');
+ const env={MELITURGOS_USER:'adrien',MELITURGOS_PASSWORD:'test',DB:{prepare(){}},MEL_WORK_TRUSTED_ACCEPTANCE_JSON:JSON.stringify({valid:{expectedJson,sha256:digest},tampered:{expectedJson,sha256:'f'.repeat(64)}})};
+ const headers={authorization:'Basic '+Buffer.from('adrien:test').toString('base64')};
+ const result=await (await handleRevenueApi(new Request(url,{headers}),env)).json();
+ assert.equal(result.trustedFixtureCount,1);
+ assert.equal(result.ready,false);
+});
