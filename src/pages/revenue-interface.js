@@ -91,6 +91,7 @@ async function viewPersistentWorkArtifacts(planId,button){
   if(!Array.isArray(result?.artifacts))throw new Error('WORK_ARTIFACTS_INVALID_RESPONSE');
   const rows=result.artifacts;
   const types=rows.slice(0,50).map(row=>String(row?.artifact?.kind||row?.kind||'type inconnu').slice(0,80));
+  if(!area.isConnected || savedPlanRecords.get(planId)?.work_dag_id!==record.work_dag_id)return;
   area.textContent=rows.length+' artefact(s) persistants. Types : '+(types.join(', ')||'aucun')+(rows.length>50?' (premiers 50 affichés)':'')+'. Aucun paiement ni livraison externe ne sont prouvés par cette lecture.';
  }catch(error){area.textContent='Résultats indisponibles : '+String(error?.message||error).slice(0,160)}
  finally{button.disabled=false}
