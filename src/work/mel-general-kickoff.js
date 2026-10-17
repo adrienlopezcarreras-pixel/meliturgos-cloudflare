@@ -112,7 +112,7 @@ export async function launchSubstantialMelTask({ bus, text, conversationId, cont
     }
     // The durable due loop is the recovery path if waitUntil gets interrupted.
     await bus.execute('openloop.capture', {
-      taskId: id, conversationId, status: 'resumable',
+      taskId: id, conversationId, sourceEventId: id, status: 'resumable',
       resumeAt: Date.now() + 180000,
       nextAction: 'work.run',
       checkpoint: { work_dag_id: id },

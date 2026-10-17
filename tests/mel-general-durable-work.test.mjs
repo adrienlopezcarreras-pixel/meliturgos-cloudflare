@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { isSubstantialMelTask, findMelWorkReference, buildSubstantialMelNodes, launchSubstantialMelTask } from '../src/work/mel-general-kickoff.js';
 import { createWorkDag, WorkDagRunner } from '../src/work/work-dag.js';
+import { OpenLoopService } from '../src/conversations/open-loop-service.js';
 
 const GOAL = 'Rédige une étude complète et détaillée sur la comparaison de trois méthodes documentaires. Décompose les preuves, vérifie les limites, conserve les notes en étapes et produis un véritable livrable en plusieurs parties, avec une vérification finale.';
 
@@ -106,4 +107,44 @@ test('bare continue resumes only the immediately preceding explicit MEL durable 
   assert.equal(findMelWorkReference('continue',[active,{role:'assistant',content:'Autre réponse ordinaire.'}]),null);
   assert.equal(findMelWorkReference('continue',[{role:'user',content:'MEL — travail persistant ' + latest}]),null);
   assert.equal(findMelWorkReference('bonjour',[active]),null);
+});
+
+
+test('durable kickoff gives repeated captures a stable event ID so HTTP retries cannot reset a running lease', async () => {
+  let stored = null;
+  let writes = 0;
+  let now = 1000;
+  const captureService = new OpenLoopService({
+    get: async () => stored,
+    upsert: async row => { stored = row; writes += 1; return row; },
+  }, { now: () => now });
+  const captures = [];
+  let created = false;
+  const bus = { execute: async (name, input) => {
+    if (name === 'work.status') {
+      if (!created) throw Error('WORK_DAG_NOT_FOUND');
+      return { status: 'RUNNING', completed: false, blocked: false, node_counts: { PENDING: 4 } };
+    }
+    if (name === 'work.create') { created = true; return { id: input.id }; }
+    if (name === 'openloop.capture') {
+      captures.push(input);
+      return captureService.capture({ ...input, owner: 'owner' });
+    }
+    if (name === 'work.run') return { status: 'RUNNING' };
+    throw Error('UNEXPECTED_' + name);
+  }};
+  const first = await launchSubstantialMelTask({ bus, text: GOAL, conversationId: 'owner-conversation', context: {} });
+  assert.equal(first.ok, true);
+  assert.equal(writes, 1);
+  assert.equal(captures[0].sourceEventId, first.id);
+  const firstDue = stored.resumeAt;
+  stored = { ...stored, status: 'resuming', leaseToken: 'active-runner', leaseUntil: 99999 };
+  now += 500;
+  const repeated = await launchSubstantialMelTask({ bus, text: GOAL, conversationId: 'owner-conversation', context: {} });
+  assert.equal(repeated.ok, true);
+  assert.equal(repeated.created, false);
+  assert.equal(captures[1].sourceEventId, first.id);
+  assert.equal(writes, 1, 'retry must not rewrite open-loop due time or lease');
+  assert.equal(stored.leaseToken, 'active-runner');
+  assert.equal(stored.resumeAt, firstDue);
 });
