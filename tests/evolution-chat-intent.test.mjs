@@ -65,7 +65,7 @@ test('ordinary MEL chat uses the real conversational path without pre-routing AI
     'Bonjour MEL, comment vas-tu ?',
     'Raconte-moi une histoire sur un personnage appelé MEL.',
     'Je voudrais comprendre pourquoi certains romans historiques sont émouvants.',
-    'Rédige une étude longue et détaillée de plusieurs pages sur une société imaginaire, la situation de ses habitants, leurs traditions et les conséquences sociales et économiques de leurs décisions. Présente une introduction, une première partie, plusieurs analyses distinctes, des exemples illustratifs cohérents et une conclusion, mais ne modifie pas les modules internes de MEL.',
+    'Rédige une étude longue et détaillée de plusieurs pages sur une société imaginaire, la situation de ses habitants, leurs traditions et les conséquences sociales et économiques de leurs décisions. Présente une introduction, une première partie, plusieurs analyses distinctes, des exemples illustratifs cohérents et une conclusion, Il s'agit uniquement de rédaction créative.',
   ]) {
     const request = new Request('https://mel.test/api/chat', {
       method: 'POST',
