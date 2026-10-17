@@ -201,6 +201,9 @@ export async function runTaskmarketWorkerCycleWithD1({ db, ...options } = {}) {
 export async function listD1ValidatedDrafts(db,{limit=20}={}) {
   if (!db || typeof db.prepare !== 'function') throw new TypeError('WORK_DRAFT_DB_REQUIRED');
   const bounded=Number.isSafeInteger(limit)?Math.max(1,Math.min(limit,50)):20;
+  // A fresh D1 database has no draft table until its first validated write.
+  // An empty dashboard must remain readable before the first job.
+  await db.prepare('CREATE TABLE IF NOT EXISTS mel_work_validated_drafts (id TEXT PRIMARY KEY, task_id TEXT NOT NULL, content TEXT NOT NULL, candidate_sha256 TEXT NOT NULL, validation TEXT, created_at TEXT NOT NULL)').run();
   const result=await db.prepare('SELECT id, task_id, candidate_sha256, validation, created_at FROM mel_work_validated_drafts ORDER BY created_at DESC LIMIT ?').bind(bounded).all();
   if(!Array.isArray(result?.results))throw new Error('WORK_DRAFT_LIST_UNAVAILABLE');
   return {drafts:result.results.map(row=>({id:String(row.id),taskId:String(row.task_id),candidateSha256:String(row.candidate_sha256),validation:String(row.validation||'').slice(0,1000),createdAt:String(row.created_at)}))};
