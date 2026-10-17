@@ -977,6 +977,10 @@ class MelLinkV2ClientService : Service() {
         MiniHttpResponseBounds.read(stream, maxBytes)
 
     private fun sendResponse(streamId: Int, status: Int, contentType: String, body: ByteArray): Boolean {
+        // A slow HTTP response may outlive its BLE connection. Capture the
+        // original GATT once and prohibit splitting one response across MINIs.
+        val intendedGatt = gatt ?: return false
+        if (!miniReady.value || !protocolReady.value) return false
         val begin = JSONObject()
             .put("status", status)
             .put("content_type", contentType)
@@ -986,26 +990,28 @@ class MelLinkV2ClientService : Service() {
         if (!sendControlBlocking(
                 MelLinkV2Protocol.encode(
                     MelLinkV2Protocol.RESPONSE_BEGIN, 0, streamId, 0, begin
-                )
+                ), intendedGatt
             )) return false
 
         var seq = 0
         var offset = 0
         val chunk = 150
         while (offset < body.size) {
+            if (gatt !== intendedGatt || !miniReady.value || !protocolReady.value) return false
             val end = minOf(offset + chunk, body.size)
             if (!sendBulkBlocking(
                     MelLinkV2Protocol.encode(
                         MelLinkV2Protocol.RESPONSE_DATA, 0, streamId, seq++,
                         body.copyOfRange(offset, end)
-                    )
+                    ), intendedGatt
                 )) return false
             offset = end
         }
+        if (gatt !== intendedGatt || !miniReady.value || !protocolReady.value) return false
         return sendControlBlocking(
             MelLinkV2Protocol.encode(
                 MelLinkV2Protocol.RESPONSE_END, 0, streamId, seq
-            )
+            ), intendedGatt
         )
     }
 
@@ -1318,8 +1324,8 @@ class MelLinkV2ClientService : Service() {
     private fun sendControlBlocking(frame: ByteArray, intendedGatt: BluetoothGatt? = null): Boolean =
         writeGattBlocking(controlRx, frame, BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT, intendedGatt)
 
-    private fun sendBulkBlocking(frame: ByteArray): Boolean =
-        writeGattBlocking(bulkRx, frame, BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT)
+    private fun sendBulkBlocking(frame: ByteArray, intendedGatt: BluetoothGatt? = null): Boolean =
+        writeGattBlocking(bulkRx, frame, BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT, intendedGatt)
 
     private fun beginOutboundTransfer(streamId: Int): Semaphore {
         val sem = Semaphore(0)
