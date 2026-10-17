@@ -73,13 +73,26 @@ function renderPersistentPrepPlans(){
   const dag=String(row?.work_dag_id||'');
   const kind=status==='COMPLETED'?'good':status==='FAILED'?'bad':'warn';
   const resumeButton=status!=='COMPLETED'&&status!=='CANCELLED' ? '<button type="button" data-resume-work-plan="'+esc(id)+'">Reprendre la préparation</button>' : '';
-  return '<article class="task"><div class="taskhead"><div><h3>'+esc(title)+'</h3><div class="taskid">Plan '+esc(id)+'</div></div><span class="tag '+kind+'">'+esc(label)+'</span></div><div class="taskmeta"><span class="tag">Dernière mise à jour : '+esc(updatedText)+'</span>'+(dag?'<span class="tag">Work : '+esc(dag)+'</span>':'<span class="tag">Work : pas encore matérialisé</span>')+resumeButton+'</div><div class="mini">Statut lu depuis le registre persistant ; aucune réclamation, soumission, signature ou paiement n’est déduit de cet état. Reprendre ne réclame ni ne soumet une mission et n’effectue aucun paiement.</div></article>';
+  return '<article class="task"><div class="taskhead"><div><h3>'+esc(title)+'</h3><div class="taskid">Plan '+esc(id)+'</div></div><span class="tag '+kind+'">'+esc(label)+'</span></div><div class="taskmeta"><span class="tag">Dernière mise à jour : '+esc(updatedText)+'</span>'+(dag?'<span class="tag">Work : '+esc(dag)+'</span>':'<span class="tag">Work : pas encore matérialisé</span>')+resumeButton+(dag?'<button type="button" data-view-work-artifacts="'+esc(id)+'">Voir les résultats</button>':'')+'</div><div class="mini" data-work-evidence="'+esc(id)+'"></div><div class="mini">Statut lu depuis le registre persistant ; aucune réclamation, soumission, signature ou paiement n’est déduit de cet état. Reprendre ne réclame ni ne soumet une mission et n’effectue aucun paiement.</div></article>';
  }).join('');
 }
 function paintSavedPlanCount(){
  const element=$('prepPlanInfo');
  if(element){const count=savedPlanIds.size;element.textContent='Plans de préparation persistants récupérés : '+count+'. Les statuts individuels sont affichés ci-dessous ; ce ne sont pas des missions livrées.';}
  renderPersistentPrepPlans();
+}
+async function viewPersistentWorkArtifacts(planId,button){
+ const record=savedPlanRecords.get(planId);
+ const area=Array.from(document.querySelectorAll('[data-work-evidence]')).find(el=>el.getAttribute('data-work-evidence')===planId);
+ if(!record?.work_dag_id||!area)return;
+ button.disabled=true;area.textContent='Lecture des résultats persistants…';
+ try{
+  const result=await executeWorkCapability('work.artifacts',{id:String(record.work_dag_id)});
+  const rows=Array.isArray(result?.artifacts)?result.artifacts:[];
+  const types=rows.slice(0,50).map(row=>String(row?.artifact?.kind||row?.kind||'type inconnu').slice(0,80));
+  area.textContent=rows.length+' artefact(s) persistants. Types : '+(types.join(', ')||'aucun')+(rows.length>50?' (premiers 50 affichés)':'')+'. Aucun paiement ni livraison externe ne sont prouvés par cette lecture.';
+ }catch(error){area.textContent='Résultats indisponibles : '+String(error?.message||error).slice(0,160)}
+ finally{button.disabled=false}
 }
 async function loadPersistentPrepPlans(){
  try{
@@ -375,7 +388,7 @@ async function scanLocalTaskmarket(){
  }catch(e){info.className='banner';info.textContent='Lecture locale non terminée : '+String(e.message||e)+'. La liste publique reste disponible séparément.'}
  finally{button.disabled=false}
 }
-$('refreshPrepPlans').onclick=refreshPersistentPrepPlans;$('prepPlanList').addEventListener('click',event=>{const button=event.target.closest('[data-resume-work-plan]');if(!button)return;const planId=button.getAttribute('data-resume-work-plan');if(planId)resumePersistentPrepPlan(planId,button)});$('taskList').addEventListener('click',event=>{const button=event.target.closest('[data-create-work-plan]');if(!button)return;const task=tasks.find(item=>String(item.id)===button.getAttribute('data-create-work-plan'));if(!task){$('taskError').textContent='Offre introuvable dans la liste actuelle. Actualise Taskmarket puis réessaie.';return}createPersistentPrepPlan(task,button)});$('refreshAll').onclick=()=>Promise.all([refreshTasks(),refreshPc()]);$('refreshPc').onclick=refreshPc;$('scanPcTaskmarket').onclick=scanLocalTaskmarket;$('taskSearch').addEventListener('input',renderTasks);$('taskFit').addEventListener('change',renderTasks);$('taskSort').addEventListener('change',renderTasks);
+$('refreshPrepPlans').onclick=refreshPersistentPrepPlans;$('prepPlanList').addEventListener('click',event=>{const evidenceButton=event.target.closest('[data-view-work-artifacts]');if(evidenceButton){viewPersistentWorkArtifacts(evidenceButton.getAttribute('data-view-work-artifacts'),evidenceButton);return}const button=event.target.closest('[data-resume-work-plan]');if(!button)return;const planId=button.getAttribute('data-resume-work-plan');if(planId)resumePersistentPrepPlan(planId,button)});$('taskList').addEventListener('click',event=>{const button=event.target.closest('[data-create-work-plan]');if(!button)return;const task=tasks.find(item=>String(item.id)===button.getAttribute('data-create-work-plan'));if(!task){$('taskError').textContent='Offre introuvable dans la liste actuelle. Actualise Taskmarket puis réessaie.';return}createPersistentPrepPlan(task,button)});$('refreshAll').onclick=()=>Promise.all([refreshTasks(),refreshPc()]);$('refreshPc').onclick=refreshPc;$('scanPcTaskmarket').onclick=scanLocalTaskmarket;$('taskSearch').addEventListener('input',renderTasks);$('taskFit').addEventListener('change',renderTasks);$('taskSort').addEventListener('change',renderTasks);
 Promise.all([refreshTasks(),refreshPc()]);
 </script></body></html>`;
 }
