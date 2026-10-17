@@ -16,6 +16,7 @@ export function normalizePublicTask(task, nowMs = Date.now()) {
   if (!Number.isFinite(expiryMs) || expiryMs <= nowMs) return null;
   return Object.freeze({
     id: task.id,
+    status: 'open',
     description: task.description.slice(0, 2000),
     rewardUsdcBaseUnits: String(reward),
     platformFeeBps: Number.isSafeInteger(task.platformFeeBps) ? task.platformFeeBps : null,
