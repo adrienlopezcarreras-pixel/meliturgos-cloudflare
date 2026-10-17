@@ -284,3 +284,11 @@ test('MEL WORK lets owner inspect persisted artifact summaries without exposing 
  assert.match(script,/area\.textContent=rows\.length/);
  assert.doesNotThrow(()=>new Function(script));
 });
+
+
+test('MEL WORK refuses to mistake malformed artifact API output for an empty result', async()=>{
+ const html=await(await onRequestGet()).text();
+ const script=html.match(/<script>([\s\S]*?)<\/script>/)?.[1]||'';
+ assert.match(script,/if\(!Array\.isArray\(result\?\.artifacts\)\)throw new Error\('WORK_ARTIFACTS_INVALID_RESPONSE'\)/);
+ assert.doesNotThrow(()=>new Function(script));
+});
