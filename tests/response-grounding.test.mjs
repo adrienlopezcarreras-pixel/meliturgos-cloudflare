@@ -223,3 +223,15 @@ test('persistent capability stress formatter exposes job progress then final per
   assert.match(complete, /Capacités non auto-exécutées par garde-fou : 1/);
 });
 
+
+test('ordinary user prompts do not get replaced by self-state diagnostics', () => {
+  const state = {
+    observed_at: '2026-10-17T06:23:19.933Z',
+    sections: { autonomy: { ok: true, data: { status: 'BUILDING_AUTONOMY' } } },
+    capabilities: { registered: 165, enabled: 165, truth: { EXISTANT_NON_TESTE: 155, PARTIEL: 10 } },
+  };
+  for (const question of ['Bonjour', 'Raconte-moi une histoire', 'Aide-moi à écrire une lettre']) {
+    assert.equal(formatVerifiedSelfStateResponse(state, question, { fallback: 'Réponse naturelle du modèle' }), 'Réponse naturelle du modèle');
+  }
+  assert.match(formatVerifiedSelfStateResponse(state, 'Quel est ton état réel ?', { fallback: 'Réponse naturelle du modèle' }), /BUILDING_AUTONOMY/);
+});
