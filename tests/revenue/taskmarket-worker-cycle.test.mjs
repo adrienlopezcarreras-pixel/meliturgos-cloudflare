@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { runTaskmarketWorkerCycle, feedbackToLoraCandidate, createD1ValidatedDraftAdapter, runTaskmarketWorkerCycleWithD1, listD1ValidatedDrafts, createPublicTaskmarketListAdapter, createTaskmarketCouncilAssessmentAdapter, createTaskmarketCouncilSolverAdapter, runBoundedTaskmarketDraftCycle } from '../../src/revenue/taskmarket-worker-cycle.js';
+import { runTaskmarketWorkerCycle, feedbackToLoraCandidate, createD1ValidatedDraftAdapter, runTaskmarketWorkerCycleWithD1, listD1ValidatedDrafts, createPublicTaskmarketListAdapter, createTaskmarketCouncilAssessmentAdapter, createTaskmarketCouncilSolverAdapter, runBoundedTaskmarketDraftCycle, createStrictJsonArtifactValidator } from '../../src/revenue/taskmarket-worker-cycle.js';
 
 const task = {
   id: '0x123',
@@ -253,4 +253,16 @@ test('bounded orchestrator rejects unavailable marketplace without claim or subm
   fetchImpl:async()=>({ok:false}),
   council:async()=>{throw new Error('COUNCIL_SHOULD_NOT_RUN')},
  }),/TASKMARKET_PUBLIC_API_UNAVAILABLE/);
+});
+
+test('independent JSON checker never mistakes syntax for semantic job completion',async()=>{
+ const validate=createStrictJsonArtifactValidator({requiredKeys:['answer']});
+ const job={description:'Normalize input to valid JSON object structure'};
+ const result=await validate({task:job,candidate:{content:'{"answer":42}'}});
+ assert.equal(result.passed,false);
+ assert.equal(result.machineVerifiable,true);
+ assert.equal(result.summary,'JSON_SYNTAX_VALID_SEMANTIC_VALIDATION_REQUIRED');
+ assert.equal((await validate({task:job,candidate:{content:'not-json'}})).summary,'JSON_PARSE_FAILED');
+ assert.equal((await validate({task:job,candidate:{content:'{}'}})).summary,'JSON_REQUIRED_KEYS_MISSING');
+ assert.equal((await validate({task:{description:'Write an essay'},candidate:{content:'{"answer":42}'}})).machineVerifiable,false);
 });

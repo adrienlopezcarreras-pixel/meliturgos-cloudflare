@@ -307,3 +307,25 @@ export async function runBoundedTaskmarketDraftCycle({
   policy:{...policy,submissionEnabled:false,spendCapApproved:false,maxTasksPerCycle:Math.min(1,policy.maxTasksPerCycle??1)},
  });
 }
+
+/** Deterministic validation for jobs explicitly contracted as JSON with an exact
+ * top-level shape. This is not a general-purpose semantic quality verdict.
+ */
+export function createStrictJsonArtifactValidator({requiredKeys=[]}={}){
+ if(!Array.isArray(requiredKeys)||requiredKeys.length>32||requiredKeys.some(k=>typeof k!=='string'||!/^[a-zA-Z_][a-zA-Z0-9_]{0,63}$/.test(k)))throw new TypeError('WORK_JSON_VALIDATOR_SCHEMA_INVALID');
+ const keys=[...new Set(requiredKeys)];
+ return async({task,candidate})=>{
+  const contract=String(task?.description||'');
+  if(!/\bjson\b/i.test(contract)||!/(?:valid|schema|object|format|structure|normalize|transform)/i.test(contract))
+   return {passed:false,machineVerifiable:false,summary:'JSON_CONTRACT_NOT_EXPLICIT'};
+  if(typeof candidate?.content!=='string'||candidate.content.length>12000)
+   return {passed:false,machineVerifiable:false,summary:'JSON_ARTIFACT_INVALID'};
+  let parsed;try{parsed=JSON.parse(candidate.content)}catch{return {passed:false,machineVerifiable:true,summary:'JSON_PARSE_FAILED'}}
+  if(!parsed||typeof parsed!=='object'||Array.isArray(parsed))
+   return {passed:false,machineVerifiable:true,summary:'JSON_OBJECT_REQUIRED'};
+  if(keys.some(k=>!Object.prototype.hasOwnProperty.call(parsed,k)))
+   return {passed:false,machineVerifiable:true,summary:'JSON_REQUIRED_KEYS_MISSING'};
+  // Syntax/shape alone cannot prove that a model solved an arbitrary paid task.
+  return {passed:false,machineVerifiable:true,summary:'JSON_SYNTAX_VALID_SEMANTIC_VALIDATION_REQUIRED'};
+ };
+}
