@@ -237,32 +237,21 @@ test('successful releases do not recursively re-dispatch when main is already cu
   assert.ok(touched.every(line => line.startsWith('GET ')));
 });
 
-test('completed main dispatches and release-pointer pushes safely catch up after success or failure', () => {
+test('production releases are batched: hourly schedule or manual dispatch, never per merge or self-retriggered', () => {
   const yaml = readFileSync(new URL('../.github/workflows/mel-autonomous-production-release.yml', import.meta.url), 'utf8');
-  assert.ok(yaml.includes('  workflow_run:'));
-  assert.ok(yaml.includes('      - completed'));
-  assert.ok(yaml.includes("github.event.workflow_run.head_branch == 'main'"));
-  assert.ok(yaml.includes("github.event.workflow_run.event == 'workflow_dispatch'"));
-  assert.ok(yaml.includes("github.event.workflow_run.head_branch == 'release/mel-hardware-v0.1.0'"));
-  assert.ok(yaml.includes("github.event.workflow_run.event == 'push'"));
-  assert.ok(yaml.includes("github.event.workflow_run.conclusion == 'success'"));
-  assert.ok(yaml.includes("github.event.workflow_run.conclusion == 'failure'"));
-  assert.ok(yaml.includes('MEL_CATCHUP_COMPLETED_SHA:'));
-  assert.ok(yaml.includes('github.event.workflow_run.head_sha'));
-});
-
-test('unattended main-push deployments require protected branches', () => {
-  const yaml = readFileSync(new URL('../.github/workflows/mel-autonomous-production-release.yml', import.meta.url), 'utf8');
-  assert.ok(yaml.includes('  push:'));
-  assert.ok(yaml.includes('      - main'));
-  assert.ok(!yaml.includes("vars.MEL_AUTONOMOUS_MAIN_PUSH_ENABLED == 'true'"));
+  const on = yaml.slice(yaml.indexOf('\non:\n'), yaml.indexOf('\npermissions:'));
+  assert.ok(on.includes('  workflow_dispatch:'));
+  assert.match(on, /- cron: '\d{1,2} \* \* \* \*'/, 'at most one scheduled release per hour');
+  assert.ok(!on.includes('  push:'), 'a merge on main must not start a production release by itself');
+  assert.ok(!on.includes('  workflow_run:'), 'a finished deployment must not re-trigger another release');
+  assert.ok(!on.includes('*/15'), 'no 15-minute release polling');
   assert.ok(yaml.includes("github.ref == 'refs/heads/main'"));
   assert.ok(yaml.includes("MEL_REQUIRE_PROTECTED_REFS: ${{ (github.event_name == 'push' || github.event_name == 'schedule') && 'true' || 'false' }}"));
 });
 
-test('15-minute promotion catch-up uses protected refs and deduplicates failed exact SHAs', () => {
+test('hourly promotion uses protected refs and deduplicates failed exact SHAs', () => {
   const yaml = readFileSync(new URL('../.github/workflows/mel-autonomous-production-release.yml', import.meta.url), 'utf8');
-  assert.ok(yaml.includes("  schedule:\\n    - cron: '*/15 * * * *'".replace('\\n','\n')));
+  assert.ok(yaml.includes("  schedule:\n    - cron: '7 * * * *'"));
   assert.ok(yaml.includes("github.event_name == 'schedule' && github.ref == 'refs/heads/main'"));
   assert.ok(yaml.includes("MEL_SKIP_ALREADY_ATTEMPTED_SHA: ${{ github.event_name == 'schedule' && 'true' || 'false' }}"));
   assert.ok(yaml.includes("MEL_REQUIRE_PROTECTED_REFS: ${{ (github.event_name == 'push' || github.event_name == 'schedule') && 'true' || 'false' }}"));
