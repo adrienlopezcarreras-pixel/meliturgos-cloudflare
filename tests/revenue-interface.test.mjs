@@ -423,3 +423,14 @@ test('draft cycle rejects tampered oracle before any external marketplace or Cou
  assert.equal(response.status,409);
  assert.equal((await response.json()).code,'WORK_TRUSTED_ACCEPTANCE_TAMPERED');
 });
+
+test('MEL WORK readiness gives precise blocking reason for missing D1 or trusted oracle',async()=>{
+ const url='https://mel.test/api/revenue/draft-readiness';
+ const env={MELITURGOS_USER:'adrien',MELITURGOS_PASSWORD:'test'};
+ const headers={authorization:'Basic '+Buffer.from('adrien:test').toString('base64')};
+ const missingDb=await (await handleRevenueApi(new Request(url,{headers}),env)).json();
+ assert.equal(missingDb.blockingReason,'WORK_DRAFT_DB_REQUIRED');
+ env.DB={prepare(){}};
+ const missingOracle=await (await handleRevenueApi(new Request(url,{headers}),env)).json();
+ assert.equal(missingOracle.blockingReason,'WORK_TRUSTED_ACCEPTANCE_NOT_CONFIGURED');
+});
