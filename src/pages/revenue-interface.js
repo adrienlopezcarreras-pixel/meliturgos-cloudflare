@@ -16,7 +16,36 @@ function esc(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&l
 function usdc(micros){try{return (Number(BigInt(String(micros||'0')))/1e6).toLocaleString('fr-FR',{minimumFractionDigits:2,maximumFractionDigits:6})}catch{return '—'}}
 function likelyCandidate(t){const d=String(t.description||'').toLowerCase();if(/create an original image|image generation|publish on x|publish on medium|animated infographic|video.*mp4|discord|social media|marketing campaign/.test(d))return false;return /json|csv|dataset|data processing|software|code|bug|implement|typescript|javascript|python|audit|benchmark|extract|classif|normalize|algorithm|api endpoint|technical analysis/.test(d)}
 function taskLifecycle(t){const stakeKnown=t.stakeStateKnown===true||typeof t.stakeRequired==='boolean';if(!stakeKnown||t.stakeRequired===null)return {text:'Stake inconnu — revue requise',kind:'warn'};if(t.stakeRequired===true)return {text:'Stake requis — exclu',kind:'bad'};if(t.stakeRequired!==false)return {text:'Stake inconnu — revue requise',kind:'warn'};const claimKnown=t.claimStateKnown===true||t.claimedBy===null||typeof t.claimedBy==='string';if(!claimKnown)return {text:'Statut de réclamation inconnu — revue requise',kind:'warn'};if(typeof t.claimedBy==='string'&&t.claimedBy)return {text:'Déjà réclamée — exclue',kind:'bad'};if(t.claimedBy!==null)return {text:'Statut de réclamation inconnu — revue requise',kind:'warn'};return {text:'Aucun stake · non réclamée confirmé',kind:'good'}}
-function renderTasks(){const q=$('taskSearch').value.trim().toLowerCase();const fit=$('taskFit').value;const sort=$('taskSort').value;let rows=tasks.filter(t=>!q||(t.referenceCode+' '+t.description).toLowerCase().includes(q));if(fit==='candidate')rows=rows.filter(likelyCandidate);if(fit==='exclude')rows=rows.filter(t=>!likelyCandidate(t));rows.sort((a,b)=>sort==='competition'?(Number(a.submissionCount||0)-Number(b.submissionCount||0)):sort==='expiry'?Date.parse(a.expiryTime||'9999')-Date.parse(b.expiryTime||'9999'):Number(b.reward||0)-Number(a.reward||0));$('taskCount').textContent=String(tasks.length);if(!rows.length){$('taskList').innerHTML='<div class="empty">Aucune offre ne correspond aux filtres actuels.</div>';return}$('taskList').innerHTML=rows.map(t=>{const candidate=likelyCandidate(t);const lifecycle=taskLifecycle(t);const desc=String(t.description||'');return '<article class="task"><div class="taskhead"><div><h3>'+esc(t.referenceCode||t.id||'Mission sans référence')+'</h3><div class="taskid">'+esc(t.mode||'mode inconnu')+' · '+esc(t.status||'statut inconnu')+'</div></div><div><strong>'+esc(usdc(t.reward))+' USDC</strong><div class="mini">brut, avant commission et coûts</div></div></div><p>'+esc(desc.slice(0,850))+(desc.length>850?'…':'')+'</p><div class="taskmeta"><span class="tag">'+Number(t.submissionCount||0)+' soumission(s)</span><span class="tag '+(candidate?'good':'warn')+'">'+(candidate?'Candidat possible — à valider':'Pas dans les premières priorités')+'</span><span class=\"tag '+lifecycle.kind+'\">'+esc(lifecycle.text)+'</span><span class="tag">'+esc(t.expiryTime?t.expiryTime.replace('T',' ').replace('Z',' UTC'):'expiration inconnue')+'</span><button class=\"plan-button\" type=\"button\" data-create-work-plan=\"'+esc(t.id)+'\">'+((savedTaskPlans.has(String(t.id))||savedPlanIds.has(taskPreparationPlanId(t.id)))?'Reprendre la préparation':'Préparer avec MEL')+'</button></div></article>'}).join('')}
+function taskQualification(t){
+ const candidate=likelyCandidate(t);
+ const lifecycle=taskLifecycle(t);
+ const mode=String(t.mode||'').toLowerCase();
+ const modeSupported=mode==='bounty'||mode==='benchmark';
+ const expiry=Date.parse(String(t.expiryTime||''));
+ const expiryValid=Number.isFinite(expiry)&&expiry>Date.now();
+ const blockers=[];
+ if(!candidate)blockers.push('catégorie hors premières priorités');
+ if(!modeSupported)blockers.push(mode?'mode non pris en charge pour le cycle sûr':'mode inconnu');
+ if(lifecycle.kind!=='good')blockers.push(lifecycle.text);
+ if(!expiryValid)blockers.push('expiration inconnue ou dépassée');
+ let economics='Commission inconnue : revenu après frais non calculé.';
+ try{
+  const reward=String(t.reward??'');
+  const fee=t.platformFeeBps;
+  if(/^[0-9]+$/.test(reward)&&BigInt(reward)>0n&&Number.isSafeInteger(fee)&&fee>=0&&fee<=10000){
+   const afterFee=(BigInt(reward)*BigInt(10000-fee))/10000n;
+   economics='Après frais plateforme uniquement : '+usdc(String(afterFee))+' USDC, avant coûts de calcul, temps de travail et risque de rejet.';
+  }
+ }catch{}
+ const ready=candidate&&modeSupported&&lifecycle.kind==='good'&&expiryValid;
+ return {
+  status:ready?'CANDIDAT À PRÉPARER':'QUALIFICATION INCOMPLÈTE',
+  kind:ready?'good':'warn',
+  detail:blockers.length?blockers.join(' · '):'Champs publics cohérents ; revue complète encore nécessaire.',
+  economics:economics+' Critères d’acceptation, coût de calcul et durée restent à vérifier par MEL.'
+ }
+}
+function renderTasks(){const q=$('taskSearch').value.trim().toLowerCase();const fit=$('taskFit').value;const sort=$('taskSort').value;let rows=tasks.filter(t=>!q||(t.referenceCode+' '+t.description).toLowerCase().includes(q));if(fit==='candidate')rows=rows.filter(likelyCandidate);if(fit==='exclude')rows=rows.filter(t=>!likelyCandidate(t));rows.sort((a,b)=>sort==='competition'?(Number(a.submissionCount||0)-Number(b.submissionCount||0)):sort==='expiry'?Date.parse(a.expiryTime||'9999')-Date.parse(b.expiryTime||'9999'):Number(b.reward||0)-Number(a.reward||0));$('taskCount').textContent=String(tasks.length);if(!rows.length){$('taskList').innerHTML='<div class="empty">Aucune offre ne correspond aux filtres actuels.</div>';return}$('taskList').innerHTML=rows.map(t=>{const candidate=likelyCandidate(t);const lifecycle=taskLifecycle(t);const qualification=taskQualification(t);const desc=String(t.description||'');return '<article class="task"><div class="taskhead"><div><h3>'+esc(t.referenceCode||t.id||'Mission sans référence')+'</h3><div class="taskid">'+esc(t.mode||'mode inconnu')+' · '+esc(t.status||'statut inconnu')+'</div></div><div><strong>'+esc(usdc(t.reward))+' USDC</strong><div class="mini">brut, avant commission et coûts</div></div></div><p>'+esc(desc.slice(0,850))+(desc.length>850?'…':'')+'</p><div class="taskmeta"><span class="tag">'+Number(t.submissionCount||0)+' soumission(s)</span><span class="tag '+(candidate?'good':'warn')+'">'+(candidate?'Candidat possible — à valider':'Pas dans les premières priorités')+'</span><span class="tag '+lifecycle.kind+'">'+esc(lifecycle.text)+'</span><span class="tag">'+esc(t.expiryTime?t.expiryTime.replace('T',' ').replace('Z',' UTC'):'expiration inconnue')+'</span><button class="plan-button" type="button" data-create-work-plan="'+esc(t.id)+'">'+((savedTaskPlans.has(String(t.id))||savedPlanIds.has(taskPreparationPlanId(t.id)))?'Reprendre la préparation':'Préparer avec MEL')+'</button></div><div class="mini" style="margin-top:8px"><span class="tag '+qualification.kind+'">'+esc(qualification.status)+'</span> '+esc(qualification.detail)+'<div>'+esc(qualification.economics)+'</div><div>Préqualification à partir des données publiques uniquement ; elle n’autorise aucune réclamation ni soumission.</div></div></article>'}).join('')}
 function taskPreparationPlanId(taskId){
  let hash=2166136261;const raw=String(taskId||'').slice(0,160);
  for(let i=0;i<raw.length;i++){hash^=raw.charCodeAt(i);hash=Math.imul(hash,16777619)}
