@@ -44,7 +44,7 @@ function renderPersistentPrepPlans(){
   const dag=String(row?.work_dag_id||'');
   const kind=status==='COMPLETED'?'good':status==='FAILED'?'bad':'warn';
   const resumeButton=status!=='COMPLETED'&&status!=='CANCELLED' ? '<button type="button" data-resume-work-plan="'+esc(id)+'">Reprendre la préparation</button>' : '';
-  return '<article class="task"><div class="taskhead"><div><h3>'+esc(title)+'</h3><div class="taskid">Plan '+esc(id)+'</div></div><span class="tag '+kind+'">'+esc(label)+'</span></div><div class="taskmeta"><span class="tag">Dernière mise à jour : '+esc(updatedText)+'</span>'+(dag?'<span class="tag">Work : '+esc(dag)+'</span>':'<span class="tag">Work : pas encore matérialisé</span>')+resumeButton+'</div><div class="mini">Statut lu depuis le registre persistant ; reprendre ne réclame ni ne soumet une mission et n’effectue aucun paiement.</div></article>';
+  return '<article class="task"><div class="taskhead"><div><h3>'+esc(title)+'</h3><div class="taskid">Plan '+esc(id)+'</div></div><span class="tag '+kind+'">'+esc(label)+'</span></div><div class="taskmeta"><span class="tag">Dernière mise à jour : '+esc(updatedText)+'</span>'+(dag?'<span class="tag">Work : '+esc(dag)+'</span>':'<span class="tag">Work : pas encore matérialisé</span>')+resumeButton+'</div><div class="mini">Statut lu depuis le registre persistant ; aucune réclamation, soumission, signature ou paiement n’est déduit de cet état. Reprendre ne réclame ni ne soumet une mission et n’effectue aucun paiement.</div></article>';
  }).join('');
 }
 function paintSavedPlanCount(){
