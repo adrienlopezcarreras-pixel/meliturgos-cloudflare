@@ -21,6 +21,7 @@ import { renderPublicWordPressChatPage } from "./pages/public-wordpress-chat-pag
 import { renderPrivacyPolicyPage } from "./pages/privacy-policy.js";
 import { renderPublicMelHomePage } from "./pages/public-mel-home.js";
 import { renderFidesGuestPage } from "./pages/fides-guest-page.js";
+import { servePublication } from "./revenue/work-publish.js";
 import { handlePublicFidesChat } from "./api/public-fides-chat.js";
 import { NORMAL_RUNTIME_SOURCE } from "./pages/mvp-runtime.js";
 import { devRuntime } from "./dev/runtime-api.js";
@@ -418,6 +419,8 @@ async function routeResolvedRequest(request, env, ctx) {
       });
     }
     if (url.pathname === "/api/public/fides/chat" && request.method === "POST") return handlePublicFidesChat(request, env);
+    // MEL WORK deliverables published for missions ("send the link"): public, read-only.
+    if (request.method === "GET" && /^\/p\/[a-z0-9]{12}$/.test(url.pathname)) return servePublication(request, env);
 
     const auth = requireAuth(request, env);
     if (!auth.ok) return auth.response;

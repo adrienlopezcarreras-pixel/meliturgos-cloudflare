@@ -47,8 +47,8 @@ test('one streamed request reads offers, assesses, writes and stores a draft (no
     DB: db,
     AI: {
       async run(model, input) {
-        calls.push(input.stream ? 'draft' : 'assess');
-        if (input.stream) return sseStream(['Titre\n', 'Corps du livrable.']);
+        calls.push(input.messages[0].content.startsWith('Tu es MEL WORK') ? 'draft' : 'assess');
+        if (input.messages[0].content.startsWith('Tu es MEL WORK')) return sseStream(['Titre\n', 'Corps du livrable.']);
         return { response: 'ok {"eligible":true,"draftable":true,"confidenceBps":9500,"category":"writing","requiresHuman":true,"requiresPhysicalWorld":false,"requiresSecrets":false,"requestsUnsafeAction":false,"humanSteps":["Publier le texte"],"reason":"Rédaction simple"}' };
       },
     },
@@ -77,7 +77,7 @@ test('oversized AI chunks never show content that is missing from the persisted 
     DB: db,
     AI: {
       async run(_model, input) {
-        if (input.stream) return sseStream([huge]);
+        if (input.messages[0].content.startsWith('Tu es MEL WORK')) return sseStream([huge]);
         return { response: JSON.stringify({
           eligible: true, draftable: true, confidenceBps: 9500, category: 'writing',
           requiresHuman: true, requiresPhysicalWorld: false, requiresSecrets: false,
@@ -94,13 +94,13 @@ test('oversized AI chunks never show content that is missing from the persisted 
   const shown = events.filter(e => e.type === 'delta').map(e => e.text).join('');
   const saved = await db.prepare('SELECT content FROM mel_work_artifacts WHERE id=?')
     .bind(done.result.artifactId).first();
-  assert.equal(shown.length, 11_800);
+  assert.equal(shown.length, 11_400);
   assert.equal(shown, saved.content);
 });
 
 test('unsafe or unreadable assessments are skipped and the cycle ends cleanly without a draft', async () => {
   const db = sqliteD1();
-  const env = { DB: db, AI: { async run(_m, input) { if (input.stream) throw new Error('must not draft'); return { response: '{"eligible":false,"confidenceBps":9800,"requiresSecrets":true,"requiresHuman":false,"requiresPhysicalWorld":false,"requestsUnsafeAction":false}' }; } } };
+  const env = { DB: db, AI: { async run(_m, input) { if (input.messages[0].content.startsWith('Tu es MEL WORK')) throw new Error('must not draft'); return { response: '{"eligible":false,"confidenceBps":9800,"requiresSecrets":true,"requiresHuman":false,"requiresPhysicalWorld":false,"requestsUnsafeAction":false}' }; } } };
   const fetchImpl = async () => Response.json({ tasks: [task('a', 1_000_000, 0), task('b', 1_000_000, 1)] });
   const events = await readEvents(streamDirectWork({ env, fetchImpl, now: () => NOW }));
   const done = events.find(e => e.type === 'done');
@@ -130,7 +130,7 @@ test('autonomous cycle keeps only bounties MEL can finish alone and hands the de
   const verdict = human => 'ok {"eligible":true,"draftable":true,"confidenceBps":9500,"category":"writing","requiresHuman":' + human + ',"requiresPhysicalWorld":false,"requiresSecrets":false,"requestsUnsafeAction":false,"humanSteps":' + (human ? '["Publier"]' : '[]') + ',"reason":"ok"}';
   const assessed = [];
   const env = { DB: db, AI: { async run(model, input) {
-    if (input.stream) return sseStream(['Livrable complet.']);
+    if (input.messages[0].content.startsWith('Tu es MEL WORK')) return sseStream(['Livrable complet.']);
     const id = /# Mission (\w+)/.exec(input.messages[1].content)[1];
     assessed.push(id);
     return { response: verdict(id === 'publish') };
