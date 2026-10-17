@@ -18,6 +18,7 @@ section.card{margin-top:14px}.row{display:flex;justify-content:space-between;gap
 #live{white-space:pre-wrap;font:13px/1.5 ui-monospace,Consolas,monospace;color:#cbd5e1;max-height:320px;overflow:auto;margin-top:10px}
 #live:empty{display:none}pre.doc{white-space:pre-wrap;background:#0b1626;border:1px solid var(--line);border-radius:12px;padding:12px;max-height:420px;overflow:auto}
 .review-actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center}.review-actions button{padding:6px 10px;min-height:36px}
+.chan{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:10px}.chan input{flex:1 1 220px;padding:9px 11px;border-radius:10px;border:1px solid var(--line);background:#0b1626;color:var(--text);font:inherit}
 @media(max-width:720px){.grid{grid-template-columns:1fr}.metric{font-size:24px}}
 </style></head><body><main class="wrap">
 <header class="top"><div class="brand"><img src="/assets/avatars/mel-full.webp" alt=""><div><h1>MEL WORK</h1><div class="sub">MEL travaille et remet ses missions toute seule.</div></div></div>
@@ -30,6 +31,9 @@ section.card{margin-top:14px}.row{display:flex;justify-content:space-between;gap
 <section class="card" id="liveSection"><h2>En ce moment</h2><div id="lastCycle" class="muted">Lecture…</div><div id="live" aria-live="polite"></div></section>
 <section class="card"><h2>Brouillons à valider</h2><p class="small">✓ approuve le brouillon ; ✗ le refuse. Aucune action ne réclame, ne publie ou ne soumet une mission externe.</p><div id="draftsList" class="muted">Lecture…</div></section>
 <section class="card"><h2>Dernières missions</h2><div id="submissionsList" class="muted">Lecture…</div></section>
+<section class="card" id="channelsSection"><h2>Comptes de publication de MEL</h2><p class="small">Avec ses propres comptes, MEL publie elle-même les missions « écris, illustre et publie ». Chaque publication indique qu’elle est rédigée par une IA. Les clés sont chiffrées dans son coffre.</p><div id="channelState" class="small">Lecture…</div>
+<form id="devtoForm" class="chan"><strong>dev.to</strong> <input name="api_key" placeholder="Clé API dev.to (Settings → Extensions)" autocomplete="off" required> <button type="submit">Enregistrer</button></form>
+<form id="blueskyForm" class="chan"><strong>Bluesky</strong> <input name="handle" placeholder="identifiant.bsky.social" autocomplete="off" required> <input name="app_password" placeholder="mot de passe d’application xxxx-xxxx-xxxx-xxxx" autocomplete="off" required> <button type="submit">Enregistrer</button></form></section>
 <section class="card"><h2>Nouvelles sources de revenus (veille de la nuit)</h2><div id="watchList" class="muted">Lecture…</div></section>
 <section class="card" id="docSection" hidden><h2 id="docTitle">Livrable</h2><pre class="doc" id="doc"></pre><div class="small" id="docHumanSteps"></div></section>
 </main><script>
@@ -77,7 +81,10 @@ $('workNow').onclick=async()=>{const b=$('workNow');b.disabled=true;b.textConten
    $('live').scrollTop=$('live').scrollHeight}}}
  catch(e){$('live').textContent+='⚠ '+e.message+'\\n'}
  finally{b.disabled=false;b.textContent='Travailler maintenant';refresh()}};
-function refresh(){const n=nextRun();$('next').textContent=n?n.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}):'—';loadPc();loadSubmissions();loadDrafts();loadWatch();loadCycle()}
+async function loadChannels(){try{const d=await getJson('/api/revenue/channels');const c=d.channels||{};$('channelState').innerHTML='Image : '+(c.image?'<span class="good">prête</span>':'<span class="warn">indisponible</span>')+' · dev.to : '+(c.devto?'<span class="good">connecté</span>':'<span class="warn">à connecter</span>')+' · Bluesky : '+(c.bluesky?'<span class="good">connecté'+(c.bluesky_handle?' ('+esc(c.bluesky_handle)+')':'')+'</span>':'<span class="warn">à connecter</span>')}catch{$('channelState').textContent='État des comptes indisponible.'}}
+async function saveChannel(e,channel){e.preventDefault();const f=e.target;const body={channel};for(const el of f.querySelectorAll('input'))body[el.name]=el.value.trim();const b=f.querySelector('button');b.disabled=true;try{await getJson('/api/revenue/channels',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});f.reset();loadChannels()}catch(err){alert('Enregistrement refusé ('+err.message+').')}finally{b.disabled=false}}
+$('devtoForm').onsubmit=e=>saveChannel(e,'devto');$('blueskyForm').onsubmit=e=>saveChannel(e,'bluesky');
+function refresh(){const n=nextRun();$('next').textContent=n?n.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}):'—';loadPc();loadSubmissions();loadDrafts();loadWatch();loadCycle();loadChannels()}
 refresh();setInterval(refresh,60000);
 </script></body></html>`;
 }
