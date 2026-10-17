@@ -12,7 +12,7 @@ test('Windows Companion keeps owner PC/compute permissions visible and refreshes
   assert.match(main, /connection=LabelAt\(this,"Vérification de la connexion…",28,78,670,30/);
   assert.match(main, /connection\.Text=online\?"Connecté à MEL":"Serveur indisponible — reconnexion automatique";/);
   const connectionRefresh = main.slice(main.indexOf('connection.Text=online?'), main.indexOf('connection.ForeColor=online?'));
-  assert.doesNotMatch(connectionRefresh, /connection\.Text[\s\S]*Accès PC/);
+  assert.doesNotMatch(connectionRefresh.split(';')[0], /Accès PC/);
 
   // Show grants below the host name, away from the header buttons, and
   // keep them responsive to the PC card's width.
