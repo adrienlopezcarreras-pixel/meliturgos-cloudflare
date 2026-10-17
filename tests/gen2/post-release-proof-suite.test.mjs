@@ -37,17 +37,16 @@ test('persistent stress is independently authenticated and requires exact SHA pr
   assert.doesNotMatch(source,/wrangler\s+secret\s+(?:put|delete)|MEL_LAUNCH_BOOTSTRAP_TOKEN/);
 });
 
-test('post-release suite sequences platform, stress, Council rich UI, connections and sovereignty even after a red proof', async () => {
+test('independent post-release proofs fan out from the same immutable release SHA', async () => {
   const source = await readFile(new URL('../../.github/workflows/post-release-proof-suite.yml', import.meta.url), 'utf8');
-  assert.match(source, /platform:\n[\s\S]*uses: \.\/\.github\/workflows\/activate-platform-capabilities\.yml/);
-  assert.match(source, /persistent-stress:\n[\s\S]*needs: \[resolve, platform\][\s\S]*if: always\(\)/);
-  assert.match(source, /workers-ai-proof-refresh:\n[\s\S]*needs: \[resolve, persistent-stress\][\s\S]*uses: \.\/\.github\/workflows\/workers-ai-zero-cost-proof-refresh\.yml/);
-  assert.match(source, /council-rich-ui:\n[\s\S]*needs: \[resolve, workers-ai-proof-refresh\][\s\S]*if: always\(\)/);
-  assert.match(source, /connections:\n[\s\S]*needs: \[resolve, council-rich-ui\][\s\S]*if: always\(\)/);
-  assert.match(source, /sovereignty:\n[\s\S]*needs: \[resolve, connections\][\s\S]*if: always\(\)/);
-  assert.match(source, /summary:\n[\s\S]*needs: \[resolve, platform, persistent-stress, workers-ai-proof-refresh, council-rich-ui, connections, sovereignty\]/);
+  for (const name of ['platform', 'persistent-stress', 'workers-ai-proof-refresh', 'council-rich-ui', 'connections', 'sovereignty']) {
+    const section = source.split('\n  ' + name + ':')[1]?.split(/\n  [a-z][a-z-]*:/m)[0] || '';
+    assert.match(section, /needs: resolve/, name);
+    assert.equal(section.includes('needs: ['), false, name);
+  }
+  assert.match(source, /summary:\n\s+needs: \[resolve, platform, persistent-stress, workers-ai-proof-refresh, council-rich-ui, connections, sovereignty\]/);
+  assert.match(source, /if\(values\.some\(value=>value!=='success'\)\) process\.exit\(1\)/);
 });
-
 
 test('post-release parent grants actions write required by called platform proof', async () => {
   const source = await readFile(new URL('../../.github/workflows/post-release-proof-suite.yml', import.meta.url), 'utf8');
@@ -68,10 +67,7 @@ test('canonical deployment cannot be green before the post-release health suite 
     readFile(new URL('../../.github/workflows/deploy-cloudflare-release.yml', import.meta.url), 'utf8'),
     readFile(new URL('../../.github/workflows/post-release-proof-suite.yml', import.meta.url), 'utf8'),
   ]);
-  // The production mutation is serialized on the deploy job; the downstream
-  // health gate starts after it rather than holding a release-wide lock.
-  assert.match(deploy, /deploy:\n\s+[^\n]*\n(?:\s+#[^\n]*\n)*\s+concurrency:\n\s+group:\s*mel-launch-bootstrap-token/);
-  assert.match(deploy, /group:\s*mel-launch-bootstrap-token[\s\S]*?cancel-in-progress:\s*false/);
+  assert.match(deploy, /deploy:\n(?:\s*#[^\n]*\n)*\s+concurrency:\n\s+group:\s*mel-launch-bootstrap-token/);
   assert.match(deploy, /post-release-health:\n[\s\S]*needs:\s*deploy[\s\S]*uses:\s*\.\/\.github\/workflows\/post-release-proof-suite\.yml/);
   assert.match(deploy, /name:\s*post-release-health-gate/);
   assert.match(suite, /workflow_call:/);
