@@ -231,7 +231,7 @@ export class ModelRouter {
     const deadlineExceeded=this.deadlineAt!=null && Date.now()>=this.deadlineAt;
     if (this.finalFallback && refusal.useFinalFallback && !deadlineExceeded) {
       try {
-        const result=await this.withinExecutionBudget(() => this.finalFallback({messages,task,reason:refusal.reason,previousModels:candidates.map(c=>c.id),previousFailureReasons:reasons,context}));
+        const result=await this.withinExecutionBudget(() => this.finalFallback({messages,task,reason:refusal.reason,previousModels:candidates.slice(0, attemptedModels).map(c=>c.id),previousFailureReasons:reasons,context}));
         const text=extractModelText(result);
         if (typeof text !== 'string' || !text.trim()) throw new DomainError('EMPTY_MODEL_RESPONSE', 502);
         return {
@@ -243,7 +243,7 @@ export class ModelRouter {
           fallback_used:true,
           ninjachat_used:true,
           ninjachat_reason:refusal.reason,
-          previous_models:candidates.map(c=>c.id),
+          previous_models:candidates.slice(0, attemptedModels).map(c=>c.id),
           previous_failure_reasons:reasons,
           tool_succeeded:true,
           ...completionMetadata(result),
