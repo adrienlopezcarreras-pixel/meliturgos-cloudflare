@@ -87,6 +87,7 @@ class MelLinkV2ClientService : Service() {
     private data class IncomingRequest(
         val streamId: Int,
         val meta: JSONObject,
+        val sessionGatt: BluetoothGatt,
         val body: ByteArrayOutputStream = ByteArrayOutputStream(),
         var nextSeq: Int = 0
     )
@@ -94,6 +95,7 @@ class MelLinkV2ClientService : Service() {
     private data class IncomingAudio(
         val streamId: Int,
         val meta: JSONObject,
+        val sessionGatt: BluetoothGatt,
         val pcm16: ByteArrayOutputStream = ByteArrayOutputStream(),
         var nextSeq: Int = 0,
         var creditsConsumed: Int = 0
@@ -726,7 +728,7 @@ class MelLinkV2ClientService : Service() {
                     sendErrorAsync(frame.streamId, "REQUEST_META")
                     return
                 }
-                synchronized(requests) { requests[frame.streamId] = IncomingRequest(frame.streamId, meta) }
+                synchronized(requests) { requests[frame.streamId] = IncomingRequest(frame.streamId, meta, gatt ?: return) }
                 sendCreditAsync(frame.streamId, MelLinkV2Protocol.CREDIT_WINDOW)
             }
             MelLinkV2Protocol.REQUEST_DATA -> {
@@ -775,7 +777,7 @@ class MelLinkV2ClientService : Service() {
                     return
                 }
                 synchronized(audioStreams) {
-                    audioStreams[frame.streamId] = IncomingAudio(frame.streamId, meta)
+                    audioStreams[frame.streamId] = IncomingAudio(frame.streamId, meta, gatt ?: return)
                 }
                 sendCreditAsync(frame.streamId, MelLinkV2Protocol.CREDIT_WINDOW)
             }
@@ -892,6 +894,11 @@ class MelLinkV2ClientService : Service() {
     }
 
     private fun executeAudio(audio: IncomingAudio) {
+        if (gatt !== audio.sessionGatt || !miniReady.value || !protocolReady.value) return
+        fun sendResponse(streamId: Int, status: Int, contentType: String, body: ByteArray): Boolean =
+            this.sendResponse(streamId, status, contentType, body, audio.sessionGatt)
+        fun sendError(streamId: Int, code: String) =
+            this.sendError(streamId, code, audio.sessionGatt)
         val miniDeviceId = audio.meta.optString("mini").trim()
         if (miniDeviceId.isBlank()) {
             sendError(audio.streamId, "MINI_DEVICE_ID_REQUIRED")
@@ -976,11 +983,13 @@ class MelLinkV2ClientService : Service() {
     private fun readHttpResponseBounded(stream: java.io.InputStream?, maxBytes: Int): ByteArray =
         MiniHttpResponseBounds.read(stream, maxBytes)
 
-    private fun sendResponse(streamId: Int, status: Int, contentType: String, body: ByteArray): Boolean {
-        // A slow HTTP response may outlive its BLE connection. Capture the
-        // original GATT once and prohibit splitting one response across MINIs.
-        val intendedGatt = gatt ?: return false
-        if (!miniReady.value || !protocolReady.value) return false
+    private fun sendResponse(
+        streamId: Int, status: Int, contentType: String, body: ByteArray,
+        expectedGatt: BluetoothGatt? = null
+    ): Boolean {
+        // Async workers must not begin replies on a new MINI after reconnect.
+        val intendedGatt = expectedGatt ?: (gatt ?: return false)
+        if (gatt !== intendedGatt || !miniReady.value || !protocolReady.value) return false
         val begin = JSONObject()
             .put("status", status)
             .put("content_type", contentType)
@@ -1015,10 +1024,13 @@ class MelLinkV2ClientService : Service() {
         )
     }
 
-    private fun sendAudioResponse(streamId: Int, pcm16: ShortArray, outputRate: Int): Boolean {
+    private fun sendAudioResponse(
+        streamId: Int, pcm16: ShortArray, outputRate: Int,
+        expectedGatt: BluetoothGatt? = null
+    ): Boolean {
         if (pcm16.isEmpty()) return false
-        val intendedGatt = gatt ?: return false
-        if (!miniReady.value || !protocolReady.value) return false
+        val intendedGatt = expectedGatt ?: (gatt ?: return false)
+        if (gatt !== intendedGatt || !miniReady.value || !protocolReady.value) return false
 
         // Keep TTS frames comfortably below the negotiated MTU and use the
         // same credit-based flow control already used by the MINI uplink.
@@ -1076,6 +1088,13 @@ class MelLinkV2ClientService : Service() {
     }
 
     private fun executeRequest(request: IncomingRequest) {
+        // The worker may run long after a reset/reconnect. Bind every reply,
+        // error and synthesized voice packet to the BLE session of REQUEST_BEGIN.
+        if (gatt !== request.sessionGatt || !miniReady.value || !protocolReady.value) return
+        fun sendResponse(streamId: Int, status: Int, contentType: String, body: ByteArray): Boolean =
+            this.sendResponse(streamId, status, contentType, body, request.sessionGatt)
+        fun sendError(streamId: Int, code: String) =
+            this.sendError(streamId, code, request.sessionGatt)
         val method = request.meta.optString("method", "POST").uppercase()
         val path = request.meta.optString("path")
         val contentType = request.meta.optString("content_type", "application/json")
@@ -1159,7 +1178,7 @@ class MelLinkV2ClientService : Service() {
                     }
                     Log.i(TAG, "MINI local fr-FR TTS -> PCM48 samples=" + pcm.size)
                     state.value = "MINI V2 · VOIX FR LOCALE"
-                    val sent = sendAudioResponse(request.streamId, pcm, outputRate = 48_000)
+                    val sent = sendAudioResponse(request.streamId, pcm, outputRate = 48_000, expectedGatt = request.sessionGatt)
                     if (!sent && !outboundCancelled(request.streamId)) {
                         lastError.value = "TTS_LOCAL_BLE_SEND"
                         sendError(request.streamId, "TTS_LOCAL_BLE_SEND")
@@ -1273,7 +1292,7 @@ class MelLinkV2ClientService : Service() {
                     )
                     return
                 }
-                val sent = sendAudioResponse(request.streamId, pcm48, outputRate = 48_000)
+                val sent = sendAudioResponse(request.streamId, pcm48, outputRate = 48_000, expectedGatt = request.sessionGatt)
                 if (!sent && !outboundCancelled(request.streamId)) {
                     lastError.value = "TTS_SERVER_BLE_SEND"
                     sendError(request.streamId, "TTS_SERVER_BLE_SEND")
@@ -1300,8 +1319,11 @@ class MelLinkV2ClientService : Service() {
         sendControlAsync(MelLinkV2Protocol.encode(MelLinkV2Protocol.CREDIT, 0, streamId, 0, payload))
     }
 
-    private fun sendError(streamId: Int, code: String) {
-        sendControlBlocking(MelLinkV2Protocol.encode(MelLinkV2Protocol.ERROR, 0, streamId, 0, code.toByteArray()))
+    private fun sendError(streamId: Int, code: String, expectedGatt: BluetoothGatt? = null) {
+        sendControlBlocking(
+            MelLinkV2Protocol.encode(MelLinkV2Protocol.ERROR, 0, streamId, 0, code.toByteArray()),
+            expectedGatt
+        )
     }
 
     private fun sendErrorAsync(streamId: Int, code: String) {
