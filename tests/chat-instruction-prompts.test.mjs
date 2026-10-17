@@ -23,3 +23,10 @@ test('a canned status sheet never replaces the model answer to a long instructio
   assert.match(source, /const groundedResponseText = instructionPrompt && modelResponseText\.trim\(\)\n\s*\? modelResponseText/);
   assert.match(source, /: instructionPrompt\n\s*\? null\n\s*: inferredExecutionCapability/);
 });
+
+test('an ordinary request mentioning « activité » is not routed to MEL\'s own activity log', async () => {
+  const { inferNativeSelfActivityCapability } = await import('../src/api/native-chat.js');
+  assert.equal(inferNativeSelfActivityCapability('Établis un plan d’action en 5 étapes numérotées pour lancer une petite activité de traduction en ligne.'), null);
+  assert.deepEqual(inferNativeSelfActivityCapability('qu’as-tu fait aujourd’hui ?'), { id: 'autonomy.activity', input: { limit: 30 } });
+  assert.deepEqual(inferNativeSelfActivityCapability('sur quoi avances-tu dans ton activité autonome ?'), { id: 'autonomy.activity', input: { limit: 30 } });
+});
