@@ -2501,7 +2501,7 @@ function Get-UiSnapshot([IntPtr]$hwnd = [IntPtr]::Zero, [int]$maxElements = 150,
   return [ordered]@{
     window_title = $title
     process = $process
-    elements = @($items)
+    elements = $items.ToArray()
     truncated = ($queue.Count -gt 0)
     elapsed_ms = [int]$clock.ElapsedMilliseconds
     open_windows = @($windows)
