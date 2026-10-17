@@ -92,6 +92,7 @@ jobs:
           $files = @(
             'assets/MEL-Computer-Setup.ps1',
             'assets/MEL-Computer-Companion.ps1',
+            'windows-companion/Update-MEL-Computer-Companion.ps1',
             'windows-companion/MEL-ADB-WiFi.ps1',
             'windows-companion/Start-MEL-Companion-MCP.ps1',
             'windows-companion/MEL-MINI-USB-Preflight.ps1',
