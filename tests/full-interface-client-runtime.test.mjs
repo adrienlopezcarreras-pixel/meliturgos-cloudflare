@@ -11,7 +11,7 @@ test('bundled browser name helper is initialized before any injected chat runtim
   const rich = runtime.indexOf('window.melRenderRichText=');
   const stream = runtime.indexOf('async function melChatFetch(');
   assert.ok(shim >= 0 && rich > shim && stream > shim, 'name helper must initialize before browser bundles');
-  const initial = runtime.slice(0, runtime.indexOf('const qs='));
+  const initial = runtime.slice(0, runtime.indexOf('\n', shim));
   const execute = new Function(initial + '\nreturn __name(function example() { return 42; }, "example")();');
   assert.equal(execute(), 42, 'bundled function name helper must run in an isolated browser context');
 });
