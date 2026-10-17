@@ -102,6 +102,24 @@ test('submits only with all setup, economics and spending gates explicitly enabl
   assert.equal(r.incomeStatus, 'NOT_SETTLED_UNTIL_ACCEPTED_AND_PAID');
 });
 
+test('unknown stake or claim state cannot reach the submission adapter', async () => {
+  const fullPolicy = { minimumProfitMicros: 100000, minimumMarginBps: 1000, submissionEnabled: true, legalAccepted: true, workerIdentityReady: true, outputValidatorVerified: true, spendCapApproved: true };
+  for (const [field, expectedReason] of [['stakeRequired', 'TASK_POLICY_STAKE_REQUIREMENT_UNVERIFIED'], ['claimedBy', 'TASK_POLICY_CLAIM_STATUS_UNVERIFIED']]) {
+    const unknown = { ...task };
+    delete unknown[field];
+    let submits = 0;
+    const r = await runTaskmarketWorkerCycle({
+      ...base,
+      listTasks: async () => ({ tasks: [unknown] }),
+      policy: fullPolicy,
+      submitResult: async () => { submits++; return { success: true, submissionId: 's1' }; },
+    });
+    assert.equal(r.decisions[0].status, 'REJECTED');
+    assert.equal(r.decisions[0].reason, expectedReason);
+    assert.equal(submits, 0);
+  }
+});
+
 test('only turns accepted and settled real feedback into a review-required LoRA candidate', () => {
   const evidence = { taskId: '0x123', candidateSha256: 'b'.repeat(64) };
   assert.equal(feedbackToLoraCandidate({ status: 'rejected', payoutSettled: false, rating: 30 }, evidence), null);
