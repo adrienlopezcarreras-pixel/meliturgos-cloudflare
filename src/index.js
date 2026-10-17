@@ -1,5 +1,6 @@
 // Canonical core Worker handler. The retired root worker.js stays inert;
 // deployment/auth/UI wrappers delegate here without owning a second runtime.
+import { runRevenueWatch } from "./revenue/revenue-watch.js";
 import { runScheduledMelWork } from "./revenue/work-schedule.js";
 import router from "./router.js";
 import { requireAuth, isReleaseSmokeRequest } from "./core/security.js";
@@ -580,6 +581,10 @@ export default {
 
     const tasks = dailySelfAuditCron
       ? [
+          runRevenueWatch(env).catch((error) => {
+            console.error('[MEL WORK] daily revenue watch failed:', error?.code || error?.message || error);
+            return null;
+          }),
           runSelfAudit('MONTHLY').then((result) => {
             if (result?.status === 'SELF_AUDIT_DEGRADED') {
               console.error('[MEL self-audit] daily supervisor detected anomalies.');
