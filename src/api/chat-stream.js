@@ -34,11 +34,15 @@ export function messagesChars(messages) {
 
 // Ordre d'essai pour cette requête : un modèle forcé, sinon tous ceux dont le
 // contexte suffit (le dernier reste toujours en secours).
-export function streamModelCandidates(messages, env = {}) {
+export function streamModelCandidates(messages, env = {}, order = null) {
   const forced = String(env?.MEL_STREAM_MODEL || '').trim();
   if (forced) return [forced];
   const size = messagesChars(messages);
-  const fit = STREAM_MODELS.filter(model => size <= model.maxInputChars).map(model => model.id);
+  // `order` = latest nightly tournament ranking (src/models/model-tournament.js);
+  // without it, the static order above applies.
+  const known = new Map(STREAM_MODELS.map(model => [model.id, model.maxInputChars]));
+  const ids = Array.isArray(order) && order.length ? order : STREAM_MODELS.map(model => model.id);
+  const fit = ids.filter(id => size <= (known.get(id) ?? 100_000));
   return fit.length ? fit : [STREAM_MODELS[STREAM_MODELS.length - 1].id];
 }
 
@@ -106,8 +110,8 @@ export async function readWorkersAiSse(stream, { onText, onFinish } = {}) {
  * `archive(fullText, meta)` est appelé une fois la réponse terminée (ou
  * interrompue avec du texte partiel) ; il doit renvoyer true si l'archivage a réussi.
  */
-export function streamChatResponse({ env, messages, archive = async () => false, model = null, localFallback = null } = {}) {
-  const candidates = model ? [model] : streamModelCandidates(messages, env);
+export function streamChatResponse({ env, messages, archive = async () => false, model = null, localFallback = null, modelOrder = null } = {}) {
+  const candidates = model ? [model] : streamModelCandidates(messages, env, modelOrder);
   const maxTokens = streamOutputTokens(env);
   let fullText = '';
   let usedModel = candidates[0];

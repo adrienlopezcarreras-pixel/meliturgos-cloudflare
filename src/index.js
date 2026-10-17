@@ -2,6 +2,7 @@
 // deployment/auth/UI wrappers delegate here without owning a second runtime.
 import { runRevenueWatch } from "./revenue/revenue-watch.js";
 import { runScheduledMelWork } from "./revenue/work-schedule.js";
+import { runModelTournament } from "./models/model-tournament.js";
 import router from "./router.js";
 import { requireAuth, isReleaseSmokeRequest } from "./core/security.js";
 import { approvedCapabilitiesFromRequest } from "./security/approval-gates.js";
@@ -583,6 +584,10 @@ export default {
       ? [
           runRevenueWatch(env).catch((error) => {
             console.error('[MEL WORK] daily revenue watch failed:', error?.code || error?.message || error);
+            return null;
+          }),
+          runModelTournament(env).catch((error) => {
+            console.error('[MEL models] nightly tournament failed:', error?.code || error?.message || error);
             return null;
           }),
           runSelfAudit('MONTHLY').then((result) => {
