@@ -3,6 +3,7 @@ import { registerGitHubCodeCapabilities } from './github-code-capabilities.js';
 import { registerPlatformReadCapabilities } from './platform-read-capabilities.js';
 import { registerPlatformControlCapabilities } from './platform-control-capabilities.js';
 import { registerWorkCapabilities } from './work-capabilities.js';
+import { registerMelWorkKickoffCapabilities } from '../work/mel-work-kickoff.js';
 import { registerPresentationCapabilities } from '../presentation/presentation-skill.js';
 import { registerOpenLoopCapabilities } from './open-loop-capabilities.js';
 import { registerPlanningCapabilities } from './planning-capabilities.js';
@@ -476,6 +477,7 @@ export function createDefaultCapabilityBus({ audit, env, repository, branch, tok
   });
   registerComputerRuntimeCapabilities(bus, { db: runtimeEnv.DB });
   registerWorkCapabilities(bus, { db: runtimeEnv.DB });
+  registerMelWorkKickoffCapabilities(bus, { fetchImpl: platformFetch });
   registerOpenLoopCapabilities(bus, { env: runtimeEnv });
   registerPlanningCapabilities(bus, { db: runtimeEnv.DB });
   registerEvolutionCapabilities(bus, { db: runtimeEnv.DB });
