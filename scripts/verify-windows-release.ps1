@@ -29,6 +29,7 @@ try {
   Expand-Archive -LiteralPath $zip -DestinationPath $temp -Force
   $manifestPath = Join-Path $temp "release-manifest.json"
   if (-not (Test-Path -LiteralPath $manifestPath)) { throw "WINDOWS_MANIFEST_MISSING" }
+  if (-not (Test-Path -LiteralPath (Join-Path $temp 'MEL-Waveshare-Flash.ps1') -PathType Leaf)) { throw 'WINDOWS_MINI_INSTALLER_MISSING' }
   $androidPair = Join-Path $temp "MEL-Android-WiFi-Pairing.ps1"
   if (-not (Test-Path -LiteralPath $androidPair -PathType Leaf)) { throw "WINDOWS_ANDROID_WIFI_PAIRING_HELPER_MISSING" }
   foreach ($name in @('MEL-MINI-USB-Preflight.ps1','local_readonly_preflight.py',
