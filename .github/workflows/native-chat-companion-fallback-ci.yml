@@ -5,6 +5,7 @@ on:
       - 'src/api/native-chat.js'
       - 'src/api/native-companion-fallback.js'
       - 'tests/native-chat-companion-fallback.test.mjs'
+      - 'tests/native-chat-augmentio.test.mjs'
       - '.github/workflows/native-chat-companion-fallback-ci.yml'
 permissions:
   contents: read
@@ -17,4 +18,4 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - run: node --test tests/native-chat-companion-fallback.test.mjs tests/native-chat-inference-settings.test.mjs
+      - run: node --test tests/native-chat-companion-fallback.test.mjs tests/native-chat-inference-settings.test.mjs tests/native-chat-augmentio.test.mjs
