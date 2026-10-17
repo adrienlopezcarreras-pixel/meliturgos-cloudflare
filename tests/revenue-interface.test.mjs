@@ -96,9 +96,15 @@ test('MEL WORK creates a durable candidate-only preparation plan without executi
   assert.doesNotMatch(html, /task claim|task submit|submitResult\(/i, 'preparation must not expose external claim or submission operations');
   const script = html.match(/<script>([\s\S]*?)<\/script>/)?.[1] || '';
   const handler = script.slice(script.indexOf('async function createPersistentPrepPlan'), script.indexOf('async function refreshTasks'));
+  assert.match(handler, /executeWorkCapability\('work\.plan\.generate'/);
   assert.match(handler, /executeWorkCapability\('work\.plan\.save'/);
   assert.match(handler, /executeWorkCapability\('work\.plan\.get'/);
+  assert.match(handler, /safePreparationCapabilities\.has/);
+  assert.match(handler, /GENERATED_READ_ONLY_PLAN/);
+  assert.match(handler, /SAFE_TEMPLATE_FALLBACK/);
+  assert.match(handler, /Do not materialize or execute this saved plan automatically/);
   assert.doesNotMatch(handler, /work\.plan\.materialize|work\.run|task\.claim|task\.submit/i, 'saving the plan must not materialize or execute its DAG');
+  assert.doesNotThrow(() => new Function(script));
 });
 
 test('MEL WORK reloads saved preparation-plan state from the existing persistent plan registry', async () => {
