@@ -15,7 +15,7 @@ async function setup({ remote = true, fresh = true } = {}) {
 }
 
 // Simulates the Windows Companion: executes queued commands against a tiny screen model.
-function fakeCompanion(db, { failFirstSnapshot = false } = {}) {
+function fakeCompanion(db, { failFirstSnapshot = false, noScreenshot = false } = {}) {
   let snapshotFailurePending = failFirstSnapshot;
   const screen = { app: 'firefox', text: '' };
   const executed = [];
@@ -43,7 +43,7 @@ function fakeCompanion(db, { failFirstSnapshot = false } = {}) {
           if (step.action === 'ui.snapshot') outputs.push({ action: step.action, ...snapshot() });
           else if (step.action === 'app.open') { screen.app = step.app; outputs.push({ action: step.action }); }
           else if (step.action === 'keyboard.type') { screen.text += step.text; outputs.push({ action: step.action }); }
-          else if (step.action === 'screen.capture') outputs.push({ action: step.action, view_url: 'https://mel.example/api/computer/v1/screenshot?key=k' });
+          else if (step.action === 'screen.capture') outputs.push({ action: step.action, view_url: noScreenshot ? null : 'https://mel.example/api/computer/v1/screenshot?key=k' });
           else outputs.push({ action: step.action });
         }
         await db.prepare("UPDATE computer_commands SET status='SUCCEEDED', result_json=? WHERE id=?").bind(JSON.stringify({ outputs }), row.id).run();
@@ -117,6 +117,19 @@ test('F6 refuses model done when typed text has no observable readback', async (
   });
   assert.equal(result.ok, false);
   assert.equal(result.summary, 'COMPUTER_TYPED_TEXT_NOT_VERIFIED');
+  db.close();
+});
+
+test('F5/F6 cannot report DONE when screenshot proof is absent', async () => {
+  const db = await setup();
+  const pc = fakeCompanion(db, { noScreenshot: true });
+  const ai = scriptedAi([{ action: 'done', summary: 'terminé' }]);
+  const result = await runComputerAgent({
+    env: { DB: db, AI: ai }, goal: 'sur mon PC, contrôle la fenêtre',
+    sleep: () => pc.tick(),
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.summary, 'COMPUTER_SCREENSHOT_PROOF_MISSING');
   db.close();
 });
 
