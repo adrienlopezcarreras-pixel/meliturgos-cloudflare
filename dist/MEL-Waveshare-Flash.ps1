@@ -29,8 +29,7 @@ try {
 
   Write-Host "Vérification du firmware publié..." -ForegroundColor Yellow
   $info = Invoke-RestMethod -Uri "$server/api/device/v1/firmware-info" -Headers $headers -TimeoutSec 30
-  $installInfo = $info.firmware
-  if ($info.installer -and $info.installer.available -eq $true) { $installInfo = $info.installer }
+  $installInfo = $info.installer
   if (-not $info.ok -or $installInfo.available -ne $true) {
     throw "Le firmware MEL n'est pas encore publié sur le serveur."
   }
