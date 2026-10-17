@@ -866,6 +866,7 @@ jobs:
           NODE
 
       - name: Prove MEL-MEDIA-02 12/12 live on exact deployed SHA
+        timeout-minutes: 20
         shell: bash
         run: |
           set -euo pipefail
