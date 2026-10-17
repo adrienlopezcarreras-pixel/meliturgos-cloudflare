@@ -34,7 +34,7 @@ Copy-Item -LiteralPath $enginePath -Destination $backup -Force
 # Stop only the existing engine running with this exact installed path.
 $escapedPath = [regex]::Escape($enginePath)
 $engines = @(Get-CimInstance Win32_Process -Filter "Name = 'powershell.exe'" |
-  Where-Object { $_.ProcessId -ne $PID -and [string]$_.CommandLine -match $escapedPath -and [string]$_.CommandLine -match '(?i)(?:^|\\s)-Run(?:\\s|$)' })
+  Where-Object { $_.ProcessId -ne $PID -and [string]$_.CommandLine -match $escapedPath -and [string]$_.CommandLine -match '(?i)(?:^|\s)-Run(?:\s|$)' })
 foreach ($engine in $engines) { Stop-Process -Id $engine.ProcessId -Force -ErrorAction Stop }
 try {
   Copy-Item -LiteralPath $staged -Destination $enginePath -Force
