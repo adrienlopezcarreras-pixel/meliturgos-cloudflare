@@ -39,12 +39,13 @@ test('owner pairing/connection values are strictly validated before reaching Pow
   }
 });
 
-test('update command uses official Google adb with checksum, installs with -r and reads the version back', () => {
+test('update command uses the PC\'s own adb (no in-command download), installs with -r and reads the version back', () => {
   const { command, timeout_ms } = androidUpdateCommand({ downloadUrl: URL_OK, sha256: SHA, pair: '192.168.1.20:37099', code: '123456' });
   assert.equal(timeout_ms, 120000);
   assert.ok(command.length <= 8192);
-  assert.match(command, /dl\.google\.com\/android\/repository\/repository2-3\.xml/);
-  assert.match(command, /ADB_CHECKSUM_MISMATCH/);
+  assert.doesNotMatch(command, /dl\.google\.com|Expand-Archive|repository2/, 'nothing is downloaded and unpacked in-command (Defender ClickFix heuristic)');
+  assert.match(command, /ADB_NOT_INSTALLED_USE_CONFIGURER_ADB_WIFI/);
+  assert.match(command, /if\(\$r -notmatch 'connected to'\)\{\$target=''\}/);
   assert.match(command, /'install','-r',\$apk/);
   assert.match(command, /ANDROID_APK_SHA256_MISMATCH/);
   assert.match(command, /\$pair='192\.168\.1\.20:37099';\$code='123456'/);

@@ -51,7 +51,7 @@ jobs:
           $version = & $py -m esptool version 2>&1 | Out-String
           if ($LASTEXITCODE -ne 0) { throw 'ESPTOOL_NOT_INSTALLED' }
           echo "::notice title=mini.flash esptool::$($version.Trim() -replace '\s+',' ')"
-      - name: Android update command parses, fetches official adb with checksum, stops at the missing phone
+      - name: Android update command parses, uses the PC's adb, stops at the missing phone
         shell: powershell
         timeout-minutes: 6
         run: |
@@ -64,8 +64,9 @@ jobs:
           $ErrorActionPreference = 'Stop'
           Write-Host $out
           if ($out -notmatch 'ANDROID_DEVICE_NOT_UNIQUE:0') { echo "::error title=android.update::unexpected stop: $($out.Trim() -replace '\s+',' ')"; throw 'ANDROID_UPDATE_UNEXPECTED_STOP' }
-          $adb = Join-Path $env:LOCALAPPDATA 'MEL\tools\platform-tools\adb.exe'
-          if (-not (Test-Path $adb)) { throw 'ADB_NOT_INSTALLED' }
+          # The command uses the runner's own adb (Android SDK on PATH): nothing is downloaded in-command.
+          if (Select-String -LiteralPath 'android-update.ps1' -Pattern 'dl\.google\.com|Expand-Archive' -Quiet) { throw 'ANDROID_UPDATE_DOWNLOADS_TOOLS' }
+          $adb = (Get-Command adb.exe -ErrorAction Stop).Source
           $version = (& $adb version 2>&1 | Select-Object -First 1)
           echo "::notice title=android.update adb::$version"
           & $adb kill-server 2>$null | Out-Null
