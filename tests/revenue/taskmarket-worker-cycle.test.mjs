@@ -490,3 +490,24 @@ test('MEL WORK reclaims stale RUNNING mission atomically but refuses fresh concu
  await db.prepare('INSERT INTO mel_work_missions (id,description,state,attempts,updated_at) VALUES (?,?,?,?,?)').bind(active.id,active.description,'RUNNING',1,'2026-10-17T11:59:00.000Z').run();
  await assert.rejects(()=>executeWorkMission({db,mission:active,now:()=> '2026-10-17T12:00:00.000Z',execute:async()=>({content:'NO'})}),/WORK_MISSION_ALREADY_RUNNING/);
 });
+
+test('stale worker cannot overwrite recovered mission after losing its D1 ownership',async()=>{
+ const {executeWorkMission}=await import('../../src/revenue/work-mission-core.js');
+ const {sqliteD1}=await import('../helpers/sqlite-d1.mjs');
+ const db=sqliteD1(), mission={id:'fence-1',description:'Prepare safe draft'};
+ let time='2026-10-17T08:00:00.000Z',release,started;
+ const start=new Promise(resolve=>{started=resolve});
+ const blocked=new Promise(resolve=>{release=resolve});
+ const old=executeWorkMission({db,mission,now:()=>time,execute:async()=>{started();await blocked;return {content:'STALE OUTPUT'}}});
+ await start;
+ time='2026-10-17T08:17:00.000Z';
+ const newer=await executeWorkMission({db,mission,now:()=>time,execute:async()=>({content:'CURRENT OUTPUT'})});
+ release();
+ await assert.rejects(old,/WORK_MISSION_OWNERSHIP_LOST/);
+ const saved=await db.prepare('SELECT artifact_id,state,attempts FROM mel_work_missions WHERE id=?').bind(mission.id).first();
+ assert.equal(saved.artifact_id,newer.artifactId);
+ assert.equal(saved.state,'DRAFT_READY');
+ assert.equal(saved.attempts,2);
+ const rows=await db.prepare('SELECT content FROM mel_work_artifacts WHERE mission_id=?').bind(mission.id).all();
+ assert.deepEqual(rows.results.map(r=>r.content),['CURRENT OUTPUT']);
+});
