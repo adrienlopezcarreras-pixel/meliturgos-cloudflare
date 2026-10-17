@@ -188,7 +188,8 @@ test('MINI spoken chat selects the bounded fast inference route', async () => {
   assert.match(source, /'@cf\/zai-org\/glm-4\.7-flash'/);
   assert.match(source, /timeoutMs: voiceReply \? 6000 : null/);
   assert.match(source, /maxCalls: voiceReply \? 1 : null/);
-  assert.match(source, /VOICE_FAST_FALLBACK_TIMEOUT/);
+  assert.match(source, /const fallbackResult = await runBoundedChatFallback\(/);
+  assert.match(source, /timeoutMs: Math\.min\(6000, Math\.max\(1, chatDeadlineAt - Date\.now\(\)\)\)/);
 });
 
 

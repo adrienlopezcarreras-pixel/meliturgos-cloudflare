@@ -68,8 +68,9 @@ test('canonical deployment cannot be green before the post-release health suite 
     readFile(new URL('../../.github/workflows/deploy-cloudflare-release.yml', import.meta.url), 'utf8'),
     readFile(new URL('../../.github/workflows/post-release-proof-suite.yml', import.meta.url), 'utf8'),
   ]);
-  assert.match(deploy, /group:\s*mel-production-deploy/);
-  assert.match(deploy, /deploy:\n\s+concurrency:\n\s+group:\s*mel-launch-bootstrap-token/);
+  assert.doesNotMatch(deploy, /group:\s*mel-production-deploy/);
+  assert.match(deploy, /deploy:\n[\s\S]*?concurrency:\n\s+group:\s*mel-launch-bootstrap-token/);
+  assert.match(deploy, /group:\s*mel-launch-bootstrap-token\n\s+cancel-in-progress:\s*false/);
   assert.match(deploy, /post-release-health:\n[\s\S]*needs:\s*deploy[\s\S]*uses:\s*\.\/\.github\/workflows\/post-release-proof-suite\.yml/);
   assert.match(deploy, /name:\s*post-release-health-gate/);
   assert.match(suite, /workflow_call:/);
