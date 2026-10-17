@@ -97,26 +97,35 @@ test('Taskmarket PC probe is fixed/read-only, owner-authenticated, and accepts o
   assert.match(page, /Aucun stake · non réclamée confirmé/);
 });
 
-test('MEL WORK creates a durable candidate-only preparation plan without executing or submitting a Taskmarket mission', async () => {
+test('MEL WORK executes its saved candidate-only preparation plan only after an owner click and never submits a mission', async () => {
   const response = await (await import('../src/pages/revenue-interface.js')).onRequestGet();
   const html = await response.text();
   assert.match(html, /data-create-work-plan/);
+  assert.match(html, /Préparer avec MEL/);
   assert.match(html, /work\.plan\.save/);
   assert.match(html, /work\.plan\.get/);
   assert.match(html, /CANDIDATE_ONLY/);
   assert.match(html, /OBSERVATION/);
   assert.match(html, /aucune mission n’a été réclamée ou soumise/i);
-  assert.doesNotMatch(html, /task claim|task submit|submitResult\(/i, 'preparation must not expose external claim or submission operations');
+  assert.doesNotMatch(html, /task claim|task submit|submitResult\(/i, 'preparation must not expose claim or submission operations');
   const script = html.match(/<script>([\s\S]*?)<\/script>/)?.[1] || '';
-  const handler = script.slice(script.indexOf('async function createPersistentPrepPlan'), script.indexOf('async function refreshTasks'));
+  const handler = script.slice(script.indexOf('async function executeSavedReadOnlyPreparation'), script.indexOf('async function refreshTasks'));
   assert.match(handler, /executeWorkCapability\('work\.plan\.generate'/);
   assert.match(handler, /executeWorkCapability\('work\.plan\.save'/);
   assert.match(handler, /executeWorkCapability\('work\.plan\.get'/);
+  assert.match(handler, /executeWorkCapability\('work\.plan\.materialize'/);
+  assert.match(handler, /executeWorkCapability\('work\.run'/);
+  assert.match(handler, /executeWorkCapability\('work\.plan\.sync'/);
   assert.match(handler, /safePreparationCapabilities\.has/);
+  assert.match(handler, /PERSISTED_PREP_PLAN_NOT_READ_ONLY/);
   assert.match(handler, /GENERATED_READ_ONLY_PLAN/);
   assert.match(handler, /SAFE_TEMPLATE_FALLBACK/);
-  assert.match(handler, /Do not materialize or execute this saved plan automatically/);
-  assert.doesNotMatch(handler, /work\.plan\.materialize|work\.run|task\.claim|task\.submit/i, 'saving the plan must not materialize or execute its DAG');
+  const saveAt = handler.indexOf("executeWorkCapability('work.plan.save'");
+  const materializeAt = handler.indexOf("executeWorkCapability('work.plan.materialize'");
+  const runAt = handler.indexOf("executeWorkCapability('work.run'");
+  assert.ok(saveAt >= 0 && saveAt < materializeAt && materializeAt < runAt, 'the plan must be persisted and materialized before run');
+  const pageLoad = script.slice(script.indexOf('Promise.all([refreshTasks(),refreshPc()])'));
+  assert.doesNotMatch(pageLoad, /work\.plan\.materialize|work\.run/, 'no preparation runs automatically on page load');
   assert.doesNotThrow(() => new Function(script));
 });
 
