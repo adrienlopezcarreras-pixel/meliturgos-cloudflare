@@ -33,6 +33,9 @@ $files = @(
 $updater = Join-Path $repoRoot 'windows-companion\\Update-MEL-Computer-Companion.ps1'
 if (!(Test-Path -LiteralPath $updater -PathType Leaf)) { throw 'COMPANION_UPDATER_SOURCE_MISSING' }
 Copy-Item -LiteralPath $updater -Destination (Join-Path $stage 'Update-MEL-Computer-Companion.ps1')
+$updateLauncher = Join-Path $repoRoot 'windows-companion\\Mettre-a-jour-MEL.cmd'
+if (!(Test-Path -LiteralPath $updateLauncher -PathType Leaf)) { throw 'COMPANION_UPDATE_LAUNCHER_MISSING' }
+Copy-Item -LiteralPath $updateLauncher -Destination (Join-Path $stage 'Mettre-a-jour-MEL.cmd')
 
 foreach ($name in $files) {
   $src = Join-Path $assetDir $name
