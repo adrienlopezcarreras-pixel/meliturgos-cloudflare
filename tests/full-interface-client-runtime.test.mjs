@@ -2,6 +2,20 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { onRequestGet } from '../src/pages/full-interface-v2.js';
 
+
+test('bundled browser name helper is initialized before any injected chat runtime', async () => {
+  const html = await (await onRequestGet()).text();
+  const runtime = html.match(/<script>([\\s\\S]*?)<\\/script>/)?.[1];
+  assert.ok(runtime);
+  const shim = runtime.indexOf('var __name =');
+  const rich = runtime.indexOf('window.melRenderRichText=');
+  const stream = runtime.indexOf('async function melChatFetch(');
+  assert.ok(shim >= 0 && rich > shim && stream > shim, 'name helper must initialize before browser bundles');
+  const initial = runtime.slice(0, runtime.indexOf('const qs='));
+  const execute = new Function(initial + '\\nreturn __name(function example() { return 42; }, "example")();');
+  assert.equal(execute(), 42, 'bundled function name helper must run in an isolated browser context');
+});
+
 test('full interface emits parseable browser runtime and keeps core navigation bindings', async () => {
   const response = await onRequestGet();
   assert.equal(response.status, 200);
