@@ -1,8 +1,10 @@
+import { sqliteD1 } from './helpers/sqlite-d1.mjs';
+import { createD1ValidatedDraftAdapter } from '../src/revenue/taskmarket-worker-cycle.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { onRequestGet } from '../src/pages/revenue-interface.js';
-import { normalizeRevenueTasks } from '../src/api/revenue-worker-api.js';
+import { handleRevenueApi, normalizeRevenueTasks } from '../src/api/revenue-worker-api.js';
 
 test('MEL WORK revenue page is an observation-only control center, not a claim/submit UI', async () => {
   const response = await onRequestGet();
@@ -336,4 +338,25 @@ test('MEL WORK exposes read-only D1 draft metadata panel',async()=>{
  assert.match(html,/item\.textContent=/);
  const script=html.match(/<script>([\s\S]*?)<\/script>/)?.[1]||'';
  assert.doesNotThrow(()=>new Function(script));
+});
+
+test('MEL WORK authenticated draft API roundtrips with real SQLite D1 adapter',async()=>{
+ const DB=sqliteD1();
+ const env={DB,MELITURGOS_USER:'adrien',MELITURGOS_PASSWORD:'test'};
+ const url='https://mel.test/api/revenue/drafts';
+ const unauth=await handleRevenueApi(new Request(url),env);
+ assert.notEqual(unauth.status,200);
+ const headers={authorization:'Basic '+Buffer.from('adrien:test').toString('base64')};
+ const first=await handleRevenueApi(new Request(url,{headers}),env);
+ assert.equal(first.status,200);
+ assert.deepEqual((await first.json()).drafts,[]);
+ const stored=await createD1ValidatedDraftAdapter(DB)({taskId:'market-job-1',content:'sample validated candidate',candidateSha256:'f'.repeat(64),validation:'schema OK'});
+ const listed=await handleRevenueApi(new Request(url,{headers}),env);
+ const payload=await listed.json();
+ assert.equal(listed.status,200);
+ assert.equal(payload.drafts.length,1);
+ assert.equal(payload.drafts[0].id,stored.draftId);
+ assert.equal(payload.drafts[0].taskId,'market-job-1');
+ assert.equal('content' in payload.drafts[0],false);
+ assert.equal(JSON.stringify(payload).includes('sample validated candidate'),false);
 });
