@@ -107,7 +107,7 @@ export async function handleRevenueApi(request, env, ctx = null) {
         if(!response.ok)throw new Error('TASKMARKET_UPSTREAM_ERROR');
         const payload=await response.json();
         if(!Array.isArray(payload?.data?.tasks)&&!Array.isArray(payload?.tasks))throw new Error('TASKMARKET_RESPONSE_INVALID');
-        const tasks=normalizeRevenueTasks(payload).map(task=>({...task,eligibleForDraft:task.stakeRequired===false&&task.claimedBy===null&&task.description.length<=6000}));
+        const tasks=normalizeRevenueTasks(payload).map(task=>({...task,eligibleForDraft:task.status==='open'&&task.description.trim().length>=10&&task.description.length<=6000}));
         const solve=createTaskmarketCouncilSolverAdapter({env});
         const assess=createTaskmarketCouncilAssessmentAdapter({env});
         result=await runDirectWork({db:env.DB,listMissions:async()=>tasks,assess:({mission})=>assess({task:mission,untrustedDescription:mission.description}),execute:(_,mission,assessment)=>solve({task:mission,assessment})});
