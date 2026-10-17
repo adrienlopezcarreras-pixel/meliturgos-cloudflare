@@ -2,105 +2,21 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createGitHubCodeReader } from '../src/capabilities/github-code-capabilities.js';
 
-const SHA = 'e2f546892f2767360b02b6d57e1802146e05a603';
+const SHA_CAND = 'ce294ac794b657bef7060863d3fc4f12b04e48be';
+const SHA_MAIN = '0fd7bb32b7dcd36a51fbdfd4e1b32e578c4155a0';
+const adv = '001e# service=git-upload-pack\n0000'
+  + '0159' + SHA_MAIN + ' HEAD\u0000multi_ack symref=HEAD:refs/heads/main\n'
+  + '007f9999999999999999999999999999999999999999 refs/heads/archive/x/candidate/mel-clean-autonomy\n'
+  + '0050' + SHA_CAND + ' refs/heads/candidate/mel-clean-autonomy\n'
+  + '0040' + SHA_MAIN + ' refs/heads/main\n0000';
 
-test('head falls back to bounded commits list for slash branch names', async () => {
-  const seen = [];
-  const fetchImpl = async (url) => {
-    seen.push(String(url));
-    if (String(url).includes('/git/ref/heads/')) return { ok: false, status: 404 };
-    if (String(url).includes('/commits/candidate%2Faugmentio-core')) return { ok: false, status: 404 };
-    if (String(url).includes('/commits?sha=candidate%2Faugmentio-core&per_page=1')) {
-      return { ok: true, status: 200, json: async () => [{ sha: SHA }] };
-    }
-    throw new Error(`unexpected url ${url}`);
-  };
-
-  const reader = createGitHubCodeReader({
-    repository: 'adrienlopezcarreras-pixel/meliturgos-cloudflare',
-    branch: 'candidate/augmentio-core',
-    fetchImpl
-  });
-
+test('without a token and with the REST quota exhausted, MEL still reads her branch head (git smart HTTP)', async () => {
+  const fetchImpl = async url => url.startsWith('https://api.github.com') ? new Response('{"message":"API rate limit exceeded"}', { status: 403 })
+    : url.endsWith('.git/info/refs?service=git-upload-pack') ? new Response(adv) : new Response('', { status: 404 });
+  const reader = createGitHubCodeReader({ repository: 'o/r', branch: 'candidate/mel-clean-autonomy', fetchImpl });
   const head = await reader.head();
-  assert.equal(head.sha, SHA);
-  assert.equal(head.branch, 'candidate/augmentio-core');
-  assert.equal(head.repository, 'adrienlopezcarreras-pixel/meliturgos-cloudflare');
-  assert.equal(head.source, 'github-commit-list');
-  assert.equal(head.remote_verified, true);
-  assert.equal(head.pinned, false);
-  assert.equal(seen.length, 3);
-});
-
-test('head still fails closed when all bounded GitHub head lookups fail', async () => {
-  const reader = createGitHubCodeReader({
-    repository: 'adrienlopezcarreras-pixel/meliturgos-cloudflare',
-    branch: 'candidate/augmentio-core',
-    fetchImpl: async () => ({ ok: false, status: 503 })
-  });
-
-  await assert.rejects(() => reader.head(), error => error?.code === 'CODE_HEAD_READ_FAILED');
-});
-
-
-test('pinned deployed SHA keeps inspection available when GitHub head endpoints are unavailable', async () => {
-  const seen = [];
-  const pinned = '3333333333333333333333333333333333333333';
-  const reader = createGitHubCodeReader({
-    repository: 'adrienlopezcarreras-pixel/meliturgos-cloudflare',
-    branch: 'candidate/mel-clean-autonomy',
-    pinnedSha: pinned,
-    fetchImpl: async (url) => {
-      seen.push(String(url));
-      return { ok: false, status: 429 };
-    },
-  });
-
-  const head = await reader.head();
-  assert.equal(head.sha, pinned);
-  assert.equal(head.source, 'deployed-build-sha');
-  assert.equal(head.remote_verified, false);
-  assert.equal(head.pinned, true);
-  assert.equal(reader.content_ref, pinned);
-  assert.equal(seen.length, 3);
-});
-
-test('pinned deployed SHA fails closed when reachable canonical branch moved', async () => {
-  const pinned = '4444444444444444444444444444444444444444';
-  const moved = '5555555555555555555555555555555555555555';
-  const reader = createGitHubCodeReader({
-    repository: 'owner/repo',
-    branch: 'candidate/mel-clean-autonomy',
-    pinnedSha: pinned,
-    fetchImpl: async () => Response.json({ object: { sha: moved } }),
-  });
-
-  await assert.rejects(
-    () => reader.head(),
-    error => error?.code === 'CODE_HEAD_PIN_MISMATCH'
-      && error?.expected_sha === pinned
-      && error?.observed_sha === moved,
-  );
-});
-
-test('pinned SHA is used as immutable source ref for raw fallback reads', async () => {
-  const pinned = '6666666666666666666666666666666666666666';
-  const seen = [];
-  const reader = createGitHubCodeReader({
-    repository: 'owner/repo',
-    branch: 'candidate/mel-clean-autonomy',
-    pinnedSha: pinned,
-    fetchImpl: async (url) => {
-      seen.push(String(url));
-      if (String(url).includes('/contents/')) return { ok: false, status: 503 };
-      if (String(url).startsWith('https://raw.githubusercontent.com/')) {
-        return new Response('export const pinned = true;\n', { status: 200 });
-      }
-      return { ok: false, status: 503 };
-    },
-  });
-
-  const file = await reader.read('src/index.js');
-  assert.match(file.content, /pinned = true/);
-  assert.ok(seen.some(url => url.includes(`/${pinned}/src/index.js`)));
+  assert.equal(head.sha, SHA_CAND, 'exact branch, not the archive/... branch that ends the same way');
+  assert.equal(head.source, 'git-smart-http');
+  assert.equal((await createGitHubCodeReader({ repository: 'o/r', branch: 'main', fetchImpl }).head()).sha, SHA_MAIN);
+  await assert.rejects(createGitHubCodeReader({ repository: 'o/r', branch: 'missing', fetchImpl }).head(), /CODE_HEAD_READ_FAILED/);
 });

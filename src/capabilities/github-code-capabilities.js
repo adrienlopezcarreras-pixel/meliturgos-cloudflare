@@ -162,6 +162,22 @@ export function createGitHubCodeReader({ repository, branch = DEFAULT_BRANCH, to
       return checked(Array.isArray(listBody) ? listBody[0]?.sha : '', 'github-commit-list');
     }
 
+    // No token in production: Cloudflare's shared egress IPs exhaust GitHub's
+    // anonymous REST quota (60/h), which stalled every self-development job on
+    // CODE_HEAD_READ_FAILED. Git's smart-HTTP ref advertisement has no such
+    // quota and is the same source of truth for a public repository.
+    if (!/^[0-9a-f]{40}$/i.test(ref)) {
+      try {
+        const adv = await fetchImpl(`https://github.com/${repo}.git/info/refs?service=git-upload-pack`, { headers: { 'user-agent': 'git/2.45 meliturgos-code-reader' } });
+        if (adv?.ok) {
+          const body = await adv.text();
+          const escaped = ref.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+          const match = body.match(new RegExp('([0-9a-f]{40}) refs/heads/' + escaped + '(?:\\u0000|\\n|$)'));
+          if (match) return checked(match[1], 'git-smart-http');
+        }
+      } catch {}
+    }
+
     // The Worker preview is itself immutable evidence of the exact candidate
     // commit deployed by CI. If GitHub REST is temporarily unavailable/rate
     // limited, continue inspecting that exact snapshot instead of inventing a
