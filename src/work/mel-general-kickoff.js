@@ -120,14 +120,16 @@ export async function launchSubstantialMelTask({ bus, text, conversationId, cont
     }, context);
     const status = await getSubstantialMelStatus({ bus, id, context, includeArtifacts: false });
     if (status.complete_cycle || status.blocked) return { ok: true, created, started: false, ...status };
-    if (typeof context?.waitUntil === 'function') {
+    if (created && typeof context?.waitUntil === 'function') {
+      // An HTTP retry must never launch an additional concurrent DAG runner.
+      // Existing work is resumed by the already-captured open-loop schedule.
       context.waitUntil(
         bus.execute('work.run', { id, maxSteps: 1 }, context).catch(error => {
           console.error('[MEL durable work] first background step failed', String(error?.code || error?.message || 'UNKNOWN'));
         }),
       );
     }
-    return { ok: true, created, started: typeof context?.waitUntil === 'function', ...status };
+    return { ok: true, created, started: created && typeof context?.waitUntil === 'function', ...status };
   } catch (error) {
     return { ok: false, id, created, code: String(error?.code || error?.message || 'MEL_WORK_START_FAILED').slice(0, 130) };
   }
