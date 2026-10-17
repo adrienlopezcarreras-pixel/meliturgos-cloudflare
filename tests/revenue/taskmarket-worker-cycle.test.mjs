@@ -226,7 +226,7 @@ test('rejects a solver-supplied hash that disagrees with actual content',async()
 });
 
 test('Council Taskmarket assessment accepts only complete independent structured assessments',async()=>{
- const content={eligible:true,confidenceBps:9500,category:'data',requiresHuman:false,requiresPhysicalWorld:false,requiresSecrets:false,requestsUnsafeAction:false,estimatedComputeCostMicros:12000};
+ const content={eligible:true,draftable:true,humanSteps:[],confidenceBps:9500,category:'data',requiresHuman:false,requiresPhysicalWorld:false,requiresSecrets:false,requestsUnsafeAction:false,estimatedComputeCostMicros:12000};
  const assess=createTaskmarketCouncilAssessmentAdapter({council:async()=>({status:'COMPLETE',independent_response_count:2,synthesis:{text:JSON.stringify(content)}})});
  assert.equal((await assess({task,untrustedDescription:task.description})).eligible,true);
  const degraded=createTaskmarketCouncilAssessmentAdapter({council:async()=>({status:'DEGRADED_SINGLE_MODEL',independent_response_count:1,synthesis:{text:JSON.stringify(content)}})});
@@ -300,7 +300,7 @@ test('full bounded Council cycle writes and reads an independently verified draf
   modelCalls++;
   const isSolve=typeof request?.prompt==='string';
   return {status:'COMPLETE',independent_response_count:2,synthesis:{text:isSolve?expectedJson:JSON.stringify({
-   eligible:true,confidenceBps:9600,category:'data-processing',requiresHuman:false,
+   eligible:true,draftable:true,humanSteps:[],confidenceBps:9600,category:'data-processing',requiresHuman:false,
    requiresPhysicalWorld:false,requiresSecrets:false,requestsUnsafeAction:false,estimatedComputeCostMicros:10000,
   })}};
  };
@@ -372,12 +372,12 @@ test('new MEL WORK core persists a real draft before independent verification ex
  let executed=0;
  const exec=async()=>{executed++;return {content:'{"done":true}'}};
  const first=await executeWorkMission({db,mission,execute:exec});
- assert.equal(first.status,'DRAFT_UNVERIFIED');
+ assert.equal(first.status,'DRAFT_FOR_OWNER');
  assert.equal(first.submitted,false);
  assert.equal(first.paid,false);
  const second=await executeWorkMission({db,mission,execute:exec,verify:async()=>({passed:true})});
  assert.equal(second.artifactId,first.artifactId);
- assert.equal(second.status,'VERIFIED_LOCALLY');
+ assert.equal(second.status,'DRAFT_FOR_OWNER');
  assert.equal(executed,1);
  assert.equal(second.reused,true);
  const missionState=await db.prepare('SELECT state,attempts,artifact_id FROM mel_work_missions WHERE id=?').bind('mission-1').first();
@@ -385,7 +385,7 @@ test('new MEL WORK core persists a real draft before independent verification ex
  assert.equal(missionState.attempts,1);
  const stored=await db.prepare('SELECT content, status FROM mel_work_artifacts WHERE id=?').bind(first.artifactId).first();
  assert.equal(stored.content,'{"done":true}');
- assert.equal(stored.status,'VERIFIED_LOCALLY');
+ assert.equal(stored.status,'DRAFT_FOR_OWNER');
 });
 
 test('direct work engine decouples marketplace and does not execute unsuitable missions',async()=>{
@@ -396,8 +396,8 @@ test('direct work engine decouples marketplace and does not execute unsuitable m
  assert.equal(invoked,0);
  const {sqliteD1}=await import('../helpers/sqlite-d1.mjs');
  const db=sqliteD1();
- const outcome=await runDirectWork({db,listMissions:async()=>[{id:'job',description:'Produce a summary',eligibleForDraft:true}],assess:async()=>({eligible:true,confidenceBps:9500,requiresHuman:false,requiresPhysicalWorld:false,requiresSecrets:false,requestsUnsafeAction:false}),execute:async()=>{invoked++;return {content:'A locally prepared summary'}}});
- assert.equal(outcome.status,'DRAFT_UNVERIFIED');
+ const outcome=await runDirectWork({db,listMissions:async()=>[{id:'job',description:'Produce a summary',eligibleForDraft:true}],assess:async()=>({eligible:true,draftable:true,humanSteps:[],confidenceBps:9500,requiresHuman:false,requiresPhysicalWorld:false,requiresSecrets:false,requestsUnsafeAction:false}),execute:async()=>{invoked++;return {content:'A locally prepared summary'}}});
+ assert.equal(outcome.status,'DRAFT_FOR_OWNER');
  assert.equal(outcome.submitted,false);
  assert.equal(invoked,1);
 });
@@ -407,7 +407,7 @@ test('direct work rejects unsafe and unassessed public tasks instead of inventin
  let executed=0;
  const result=await runDirectWork({
   listMissions:async()=>[{id:'unsafe',description:'Use private secrets',eligibleForDraft:true},{id:'unknown',description:'Write summary',eligibleForDraft:true}],
-  assess:async({mission})=>mission.id==='unsafe'?{eligible:true,confidenceBps:9999,requiresHuman:false,requiresPhysicalWorld:false,requiresSecrets:true,requestsUnsafeAction:false}:{eligible:true,confidenceBps:9999,requiresHuman:false,requiresPhysicalWorld:false,requiresSecrets:false,requestsUnsafeAction:false},
+  assess:async({mission})=>mission.id==='unsafe'?{eligible:true,draftable:true,humanSteps:[],confidenceBps:9999,requiresHuman:false,requiresPhysicalWorld:false,requiresSecrets:true,requestsUnsafeAction:false}:{eligible:true,draftable:true,humanSteps:[],confidenceBps:9999,requiresHuman:false,requiresPhysicalWorld:false,requiresSecrets:false,requestsUnsafeAction:false},
   execute:async()=>{executed++;return {content:'text'}},
   db:(await import('../helpers/sqlite-d1.mjs')).sqliteD1(),
  });
@@ -421,10 +421,10 @@ test('MEL WORK scans eligible missions before spending its bounded assessment bu
  let assessed=0;
  const missions=Array.from({length:12},(_,i)=>({id:'unsuitable-'+i,description:'Unavailable job',eligibleForDraft:false}));
  missions.push({id:'real-candidate',description:'Summarize public non-sensitive data',eligibleForDraft:true});
- const result=await runDirectWork({db:sqliteD1(),listMissions:async()=>missions,assess:async()=>{assessed++;return {eligible:true,confidenceBps:9500,requiresHuman:false,requiresPhysicalWorld:false,requiresSecrets:false,requestsUnsafeAction:false}},execute:async()=>({content:'Completed summary'})});
+ const result=await runDirectWork({db:sqliteD1(),listMissions:async()=>missions,assess:async()=>{assessed++;return {eligible:true,draftable:true,humanSteps:[],confidenceBps:9500,requiresHuman:false,requiresPhysicalWorld:false,requiresSecrets:false,requestsUnsafeAction:false}},execute:async()=>({content:'Completed summary'})});
  assert.equal(assessed,1);
  assert.equal(result.missionId,'real-candidate');
- assert.equal(result.status,'DRAFT_UNVERIFIED');
+ assert.equal(result.status,'DRAFT_FOR_OWNER');
 });
 
 test('direct engine skips a failed solver and persists the next eligible mission',async()=>{
@@ -434,11 +434,11 @@ test('direct engine skips a failed solver and persists the next eligible mission
  const res=await runDirectWork({db:sqliteD1(),listMissions:async()=>[
  {id:'first',description:'Draft one',eligibleForDraft:true},
  {id:'second',description:'Draft two',eligibleForDraft:true}],
- assess:async()=>({eligible:true,confidenceBps:9600,requiresHuman:false,requiresPhysicalWorld:false,requiresSecrets:false,requestsUnsafeAction:false}),
+ assess:async()=>({eligible:true,draftable:true,humanSteps:[],confidenceBps:9600,requiresHuman:false,requiresPhysicalWorld:false,requiresSecrets:false,requestsUnsafeAction:false}),
  execute:async(_,m)=>{calls.push(m.id);if(m.id==='first')throw new Error('WORK_SOLVER_OUTPUT_INVALID');return {content:'completed second job'};}});
  assert.deepEqual(calls,['first','second']);
  assert.equal(res.missionId,'second');
- assert.equal(res.status,'DRAFT_UNVERIFIED');
+ assert.equal(res.status,'DRAFT_FOR_OWNER');
 });
 
 test('MEL WORK persists solver failures and resumes execution on a later attempt',async()=>{
@@ -450,7 +450,7 @@ test('MEL WORK persists solver failures and resumes execution on a later attempt
  assert.equal(failed.state,'FAILED');
  assert.equal(failed.attempts,1);
  const recovered=await executeWorkMission({db,mission,execute:async()=>({content:'Recovered result'})});
- assert.equal(recovered.status,'DRAFT_UNVERIFIED');
+ assert.equal(recovered.status,'DRAFT_FOR_OWNER');
  const final=await db.prepare('SELECT state,attempts FROM mel_work_missions WHERE id=?').bind('retry-1').first();
  assert.equal(final.state,'DRAFT_READY');
  assert.equal(final.attempts,2);
@@ -468,7 +468,7 @@ test('MEL WORK atomically claims a mission: concurrent solver calls cannot both 
  await assert.rejects(()=>executeWorkMission({db,mission,execute:async()=>{executions++;return {content:'Duplicate'}}}),/WORK_MISSION_ALREADY_RUNNING/);
  releaseFirst();
  const result=await first;
- assert.equal(result.status,'DRAFT_UNVERIFIED');
+ assert.equal(result.status,'DRAFT_FOR_OWNER');
  assert.equal(executions,1);
  const saved=await db.prepare('SELECT state,attempts FROM mel_work_missions WHERE id=?').bind(mission.id).first();
  assert.equal(saved.state,'DRAFT_READY');
@@ -482,7 +482,7 @@ test('MEL WORK reclaims stale RUNNING mission atomically but refuses fresh concu
  await db.prepare('CREATE TABLE mel_work_missions (id TEXT PRIMARY KEY,description TEXT NOT NULL,state TEXT NOT NULL,attempts INTEGER NOT NULL,last_error TEXT,artifact_id TEXT,updated_at TEXT NOT NULL)').run();
  await db.prepare('INSERT INTO mel_work_missions (id,description,state,attempts,updated_at) VALUES (?,?,?,?,?)').bind(mission.id,mission.description,'RUNNING',1,'2026-10-17T08:00:00.000Z').run();
  const recovered=await executeWorkMission({db,mission,now:()=> '2026-10-17T12:00:00.000Z',execute:async()=>({content:'Recovered safe draft'})});
- assert.equal(recovered.status,'DRAFT_UNVERIFIED');
+ assert.equal(recovered.status,'DRAFT_FOR_OWNER');
  const state=await db.prepare('SELECT state,attempts FROM mel_work_missions WHERE id=?').bind(mission.id).first();
  assert.equal(state.state,'DRAFT_READY');
  assert.equal(state.attempts,2);
@@ -510,6 +510,23 @@ test('stale worker cannot overwrite recovered mission after losing its D1 owners
  assert.equal(saved.attempts,2);
  const rows=await db.prepare('SELECT content FROM mel_work_artifacts WHERE mission_id=?').bind(mission.id).all();
  assert.deepEqual(rows.results.map(r=>r.content),['CURRENT OUTPUT']);
+});
+
+test('[F4] real mission requiring human publication produces owner draft',async()=>{
+ const {runDirectWork}=await import('../../src/revenue/work-mission-core.js');
+ const {sqliteD1}=await import('../helpers/sqlite-d1.mjs');
+ const db=sqliteD1();
+ try{
+  const result=await runDirectWork({db,
+   listMissions:async()=>[{id:'open-medium-article',description:'Write an article and publish on Medium',eligibleForDraft:true}],
+   assess:async()=>({eligible:false,draftable:true,humanSteps:['Publier sur Medium avec ton compte'],confidenceBps:7900,requiresHuman:true,requiresPhysicalWorld:false,requiresSecrets:false,requestsUnsafeAction:false}),
+   execute:async()=>({content:'A useful completed article draft'})});
+  assert.equal(result.status,'DRAFT_FOR_OWNER');
+  assert.deepEqual(result.humanSteps,['Publier sur Medium avec ton compte']);
+  const row=await db.prepare('SELECT status,human_steps FROM mel_work_artifacts WHERE id=?').bind(result.artifactId).first();
+  assert.equal(row.status,'DRAFT_FOR_OWNER');
+  assert.deepEqual(JSON.parse(row.human_steps),result.humanSteps);
+ }finally{db.close()}
 });
 
 test('F4 prepares a human-assisted draft and returns owner steps without submitting', async()=>{

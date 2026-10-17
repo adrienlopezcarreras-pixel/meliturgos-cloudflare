@@ -408,6 +408,25 @@ async function refreshValidatedDrafts(){
   }
  }catch(error){area.textContent='Lecture des brouillons indisponible : '+String(error.message||error).slice(0,120)}
 }
+function appendOwnerDecisionButtons(area,artifactId,status){
+ if(!['DRAFT_FOR_OWNER','DRAFT_UNVERIFIED','VERIFIED_LOCALLY'].includes(status))return;
+ const row=document.createElement('div');row.className='actions';
+ for(const [decision,label] of [['approve','✓ Valider le brouillon'],['reject','✗ Refuser le brouillon']]){
+  const button=document.createElement('button');button.type='button';button.textContent=label;
+  button.onclick=async()=>{
+   for(const child of row.children)child.disabled=true;
+   try{
+    const response=await fetch('/api/revenue/direct-work/decision',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({artifactId,decision}),cache:'no-store'});
+    const result=await response.json().catch(()=>({}));
+    if(!response.ok||result.ok!==true)throw new Error(result.code||'WORK_DECISION_FAILED');
+    row.textContent='Décision enregistrée : '+result.status+'. Aucune soumission automatique.';
+    await refreshDirectArtifacts();
+   }catch(error){row.textContent='Décision non enregistrée : '+String(error.message||error)}
+  };
+  row.appendChild(button);
+ }
+ area.appendChild(row);
+}
 async function refreshDirectArtifacts(){
  const area=$('draftDiscovery');
  try{
@@ -430,7 +449,10 @@ async function refreshDirectArtifacts(){
       const data=await response.json().catch(()=>({}));
       if(!response.ok||!data.artifact)throw new Error('WORK_ARTIFACT_READBACK_FAILED');
       const display=document.createElement('pre');display.style.whiteSpace='pre-wrap';display.style.overflowWrap='anywhere';
-      display.textContent=String(data.artifact.content||'');$('draftList').replaceChildren(display);
+      const steps=Array.isArray(data.artifact.humanSteps)?data.artifact.humanSteps:[];
+      display.textContent='Mission Taskmarket : '+String(data.artifact.mission_id||'')+String.fromCharCode(10)+'Statut : '+String(data.artifact.status||'')+String.fromCharCode(10)+'Étapes à faire : '+(steps.length?steps.join(' ; '):'Vérifier avant toute publication.')+String.fromCharCode(10,10)+String(data.artifact.content||'');
+      const area=$('draftList');area.replaceChildren(display);
+      appendOwnerDecisionButtons(area,artifactId,data.artifact.status);
     };area.appendChild(button);
   }
  }catch(e){area.textContent='Brouillons directs indisponibles : '+String(e.message||e).slice(0,100)}
@@ -463,24 +485,10 @@ $('runDraftCycle').onclick=async()=>{
   if(!proofResponse.ok||proof.artifact?.id!==artifactId)throw new Error('WORK_ARTIFACT_READBACK_FAILED');
   area.replaceChildren();
   const message=document.createElement('pre');message.style.whiteSpace='pre-wrap';message.style.overflowWrap='anywhere';
-  const steps=Array.isArray(outcome.result?.humanSteps)?outcome.result.humanSteps:[];
+  const steps=Array.isArray(proof.artifact.humanSteps)?proof.artifact.humanSteps:Array.isArray(outcome.result?.humanSteps)?outcome.result.humanSteps:[];
   message.textContent='Mission Taskmarket : '+String(proof.artifact.mission_id||'')+'\\nStatut : '+String(outcome.result?.status||proof.artifact.status)+'\\nÉtapes humaines : '+(steps.length?steps.map((x,i)=>(i+1)+'. '+x).join(' ; '):'Vérifier le livrable avant toute publication.')+'\\nNon livré, non payé.\\n\\n'+String(proof.artifact.content||'');
   area.appendChild(message);
-  const decisionBar=document.createElement('div');decisionBar.className='actions';
-  for(const [decision,label] of [['approve','✓ Valider le brouillon'],['reject','✗ Refuser le brouillon']]){
-    const b=document.createElement('button');b.type='button';b.textContent=label;
-    b.onclick=async()=>{
-      for(const child of decisionBar.children)child.disabled=true;
-      try{
-        const response=await fetch('/api/revenue/direct-work/decision',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({artifactId,decision}),cache:'no-store'});
-        const result=await response.json().catch(()=>({}));
-        if(!response.ok||result.ok!==true)throw new Error(result.code||'WORK_DECISION_FAILED');
-        message.textContent+='\\n\\nDécision enregistrée : '+result.status+'. Aucune soumission automatique.';
-      }catch(error){message.textContent+='\\nDécision non enregistrée : '+String(error.message||error);for(const child of decisionBar.children)child.disabled=false}
-    };
-    decisionBar.appendChild(b);
-  }
-  if(['DRAFT_UNVERIFIED','VERIFIED_LOCALLY'].includes(proof.artifact.status))area.appendChild(decisionBar);
+  appendOwnerDecisionButtons(area,artifactId,proof.artifact.status);
   await refreshDirectArtifacts();
  }catch(e){area.textContent='Préparation impossible : '+String(e.message||e).slice(0,140)}
  finally{button.disabled=false}

@@ -51,7 +51,7 @@ export async function handleRevenueApi(request, env, ctx = null) {
     if(!/^work-[a-f0-9]{64}$/.test(id)||!['approve','reject'].includes(decision))return json({ok:false,code:'WORK_DECISION_INVALID'},400);
     try{
       const status=decision==='approve'?'APPROVED_BY_OWNER':'REJECTED_BY_OWNER';
-      const changed=await env.DB.prepare("UPDATE mel_work_artifacts SET status=? WHERE id=? AND status IN ('DRAFT_UNVERIFIED','VERIFIED_LOCALLY')").bind(status,id).run();
+      const changed=await env.DB.prepare("UPDATE mel_work_artifacts SET status=?,owner_note=?,decided_at=? WHERE id=? AND status IN ('DRAFT_FOR_OWNER','DRAFT_UNVERIFIED','VERIFIED_LOCALLY')").bind(status,String(body.note||'').slice(0,1000),new Date().toISOString(),id).run();
       const saved=await env.DB.prepare('SELECT id,status FROM mel_work_artifacts WHERE id=?').bind(id).first();
       if(saved?.id!==id)return json({ok:false,code:'WORK_ARTIFACT_NOT_FOUND'},404);
       if(saved.status!==status)return json({ok:false,code:'WORK_DECISION_CONFLICT'},409);
@@ -80,16 +80,17 @@ export async function handleRevenueApi(request, env, ctx = null) {
       const artifactId=url.searchParams.get('artifact_id')||'';
       if(!/^work-[a-f0-9]{64}$/.test(artifactId))return json({ok:false,code:'WORK_ARTIFACT_ID_INVALID'},400);
       try{
-        const artifact=await env.DB.prepare('SELECT id, mission_id, content, status, created_at FROM mel_work_artifacts WHERE id=?').bind(artifactId).first();
+        const artifact=await env.DB.prepare('SELECT id, mission_id, content, status, created_at, human_steps, owner_note, decided_at FROM mel_work_artifacts WHERE id=?').bind(artifactId).first();
         if(!artifact)return json({ok:false,code:'WORK_ARTIFACT_NOT_FOUND'},404);
-        return json({ok:true,artifact,submitted:false,paid:false});
+        return json({ok:true,artifact:{...artifact,humanSteps:JSON.parse(artifact.human_steps||'[]')},submitted:false,paid:false});
       }catch{return json({ok:false,code:'WORK_ARTIFACT_READ_UNAVAILABLE'},503)}
     }
     if(request.method==='GET'){
       try{
-        await env.DB.prepare('CREATE TABLE IF NOT EXISTS mel_work_artifacts (id TEXT PRIMARY KEY, mission_id TEXT NOT NULL, content TEXT NOT NULL, status TEXT NOT NULL, created_at TEXT NOT NULL)').run();
-        const rows=await env.DB.prepare('SELECT id, mission_id, status, created_at FROM mel_work_artifacts ORDER BY created_at DESC LIMIT 20').all();
-        return json({ok:true,artifacts:rows?.results||[],canSubmit:false});
+        await env.DB.prepare("CREATE TABLE IF NOT EXISTS mel_work_artifacts (id TEXT PRIMARY KEY, mission_id TEXT NOT NULL, content TEXT NOT NULL, status TEXT NOT NULL, created_at TEXT NOT NULL, human_steps TEXT NOT NULL DEFAULT '[]', owner_note TEXT, decided_at TEXT)").run();
+        for(const column of ["human_steps TEXT NOT NULL DEFAULT '[]'","owner_note TEXT","decided_at TEXT"]){try{await env.DB.prepare('ALTER TABLE mel_work_artifacts ADD COLUMN '+column).run()}catch(e){if(!/duplicate column/i.test(String(e)))throw e}}
+        const rows=await env.DB.prepare('SELECT id, mission_id, status, created_at, human_steps FROM mel_work_artifacts ORDER BY created_at DESC LIMIT 20').all();
+        return json({ok:true,artifacts:(rows?.results||[]).map(row=>({...row,humanSteps:JSON.parse(row.human_steps||'[]')})),canSubmit:false});
       }catch{return json({ok:false,code:'WORK_ARTIFACT_LIST_UNAVAILABLE'},503)}
     }
     if(request.method!=='POST')return json({ok:false,code:'METHOD_NOT_ALLOWED'},405);
@@ -107,7 +108,7 @@ export async function handleRevenueApi(request, env, ctx = null) {
         if(!response.ok)throw new Error('TASKMARKET_UPSTREAM_ERROR');
         const payload=await response.json();
         if(!Array.isArray(payload?.data?.tasks)&&!Array.isArray(payload?.tasks))throw new Error('TASKMARKET_RESPONSE_INVALID');
-        const tasks=normalizeRevenueTasks(payload).map(task=>({...task,eligibleForDraft:task.stakeRequired===false&&task.claimedBy===null&&task.description.length<=6000}));
+        const tasks=normalizeRevenueTasks(payload).map(task=>({...task,eligibleForDraft:task.description.length<=6000}));
         const solve=createTaskmarketCouncilSolverAdapter({env});
         const assess=createTaskmarketCouncilAssessmentAdapter({env});
         result=await runDirectWork({db:env.DB,listMissions:async()=>tasks,assess:({mission})=>assess({task:mission,untrustedDescription:mission.description}),execute:(_,mission,assessment)=>solve({task:mission,assessment})});
@@ -116,7 +117,22 @@ export async function handleRevenueApi(request, env, ctx = null) {
       await env.DB.prepare('UPDATE mel_work_cycles SET state=?,result=?,updated_at=? WHERE id=?').bind(state,JSON.stringify(result),new Date().toISOString(),id).run();
     })();
     ctx.waitUntil(job);
-    return json({ok:true,cycleId:id,status:'RUNNING',submitted:false,paid:false},202);
+    // The stream stays open while Council prepares the draft, avoiding a short
+    // post-response waitUntil lifetime. Lightweight whitespace keeps JSON valid.
+    const stream=new ReadableStream({
+      start(controller){
+        const encoder=new TextEncoder();
+        const ticker=setInterval(()=>{try{controller.enqueue(encoder.encode(' '))}catch{}},8000);
+        job.then(()=>{
+          clearInterval(ticker);
+          try{controller.enqueue(encoder.encode(JSON.stringify({ok:true,cycleId:id,status:'FINISHED',submitted:false,paid:false})));controller.close()}catch{}
+        },()=>{
+          clearInterval(ticker);
+          try{controller.enqueue(encoder.encode(JSON.stringify({ok:false,cycleId:id,code:'WORK_CYCLE_INTERRUPTED'})));controller.close()}catch{}
+        });
+      }
+    });
+    return new Response(stream,{status:202,headers:{'content-type':'application/json; charset=utf-8','cache-control':'no-store'}});
   }
   if (url.pathname === '/api/revenue/drafts') {
     if (request.method !== 'GET') return json({ok:false,code:'METHOD_NOT_ALLOWED'},405);
