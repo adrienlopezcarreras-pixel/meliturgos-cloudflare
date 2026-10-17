@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { runTaskmarketWorkerCycle, feedbackToLoraCandidate, createD1ValidatedDraftAdapter, runTaskmarketWorkerCycleWithD1, listD1ValidatedDrafts, createPublicTaskmarketListAdapter, createTaskmarketCouncilAssessmentAdapter, createTaskmarketCouncilSolverAdapter } from '../../src/revenue/taskmarket-worker-cycle.js';
+import { runTaskmarketWorkerCycle, feedbackToLoraCandidate, createD1ValidatedDraftAdapter, runTaskmarketWorkerCycleWithD1, listD1ValidatedDrafts, createPublicTaskmarketListAdapter, createTaskmarketCouncilAssessmentAdapter, createTaskmarketCouncilSolverAdapter, runBoundedTaskmarketDraftCycle } from '../../src/revenue/taskmarket-worker-cycle.js';
 
 const task = {
   id: '0x123',
@@ -241,4 +241,16 @@ test('Council solver returns bounded content only with independent responses',as
  const bad=createTaskmarketCouncilSolverAdapter({council:async()=>({status:'DEGRADED_SINGLE_MODEL',independent_response_count:1,synthesis:{text:'content'}})});
  await assert.rejects(bad({task,assessment:{eligible:true}}),/WORK_SOLVER_INDEPENDENCE_NOT_PROVEN/);
  await assert.rejects(solve({task,assessment:{eligible:false}}),/WORK_SOLVER_ASSESSMENT_REQUIRED/);
+});
+
+test('bounded orchestrator requires independently verified artifact validator',async()=>{
+ await assert.rejects(runBoundedTaskmarketDraftCycle({}),/WORK_INDEPENDENT_VALIDATOR_REQUIRED/);
+});
+test('bounded orchestrator rejects unavailable marketplace without claim or submission',async()=>{
+ const db={prepare(){return {run:async()=>({success:true}),bind(){return {all:async()=>({results:[]})}}}}};
+ await assert.rejects(runBoundedTaskmarketDraftCycle({
+  db,validateArtifact:async()=>({passed:true,machineVerifiable:true}),
+  fetchImpl:async()=>({ok:false}),
+  council:async()=>{throw new Error('COUNCIL_SHOULD_NOT_RUN')},
+ }),/TASKMARKET_PUBLIC_API_UNAVAILABLE/);
 });
