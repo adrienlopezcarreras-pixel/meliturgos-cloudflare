@@ -53,7 +53,7 @@ function requestsVerifiedSelfState(question) {
   if (owned && /\b(?:quelles?\s+sont|liste|montre)\b/i.test(text)
     && /capacit[ée]s?|comp[ée]tences?|t[âa]ches?|travaux/i.test(text)) return true;
   return /\b(?:tu\s+vois|tu\s+as\s+acc[eè]s)\b/i.test(text)
-    && /\b(?:changement|modification|m[ée]moire|archive|conversation|code|d[ée]ploiement|travaux|t[âa]ches?)\b/i.test(text);
+    && /\b(?:changement|modification|m[ée]moire|archive|conversation|d[ée]ploiement)s?\b|\b(?:code|travaux|t[âa]ches?)\b/i.test(text);
 }
 
 export function formatVerifiedSelfStateResponse(state, question = '', { fallback = '' } = {}) {
