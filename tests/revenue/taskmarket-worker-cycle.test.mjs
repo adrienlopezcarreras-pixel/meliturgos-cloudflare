@@ -363,3 +363,23 @@ test('bounded cycle reuses authenticated server marketplace snapshot without sec
  assert.equal(fetched,0);
  assert.equal(councilCalls,0);
 });
+
+test('new MEL WORK core persists a real draft before independent verification exists',async()=>{
+ const {executeWorkMission}=await import('../../src/revenue/work-mission-core.js');
+ const {sqliteD1}=await import('../helpers/sqlite-d1.mjs');
+ const db=sqliteD1();
+ const mission={id:'mission-1',description:'Produce a local JSON artifact'};
+ let executed=0;
+ const exec=async()=>{executed++;return {content:'{"done":true}'}};
+ const first=await executeWorkMission({db,mission,execute:exec});
+ assert.equal(first.status,'DRAFT_UNVERIFIED');
+ assert.equal(first.submitted,false);
+ assert.equal(first.paid,false);
+ const second=await executeWorkMission({db,mission,execute:exec,verify:async()=>({passed:true})});
+ assert.equal(second.artifactId,first.artifactId);
+ assert.equal(second.status,'VERIFIED_LOCALLY');
+ assert.equal(executed,2);
+ const stored=await db.prepare('SELECT content, status FROM mel_work_artifacts WHERE id=?').bind(first.artifactId).first();
+ assert.equal(stored.content,'{"done":true}');
+ assert.equal(stored.status,'VERIFIED_LOCALLY');
+});
