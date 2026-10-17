@@ -114,7 +114,7 @@ async function executeSavedReadOnlyPreparation(taskId,planId,title,button,safePr
  if(!dagId)throw new Error('WORK_PREP_DAG_ID_MISSING');
  const executed=await executeWorkCapability('work.run',{id:dagId});
  const synced=await executeWorkCapability('work.plan.sync',{id:planId});
- const status=String(executed?.status||synced?.work?.status||'UNKNOWN').toUpperCase();
+ const status=String(synced?.work?.status||executed?.status||'UNKNOWN').toUpperCase();
  const currentPlan=synced?.plan||saved?.plan||saved||{};
  savedTaskPlans.set(taskId,planId);savedPlanIds.add(planId);
  savedPlanRecords.set(planId,{id:planId,goal:String(currentPlan?.goal||title||planId),status:String(currentPlan?.status||status),work_dag_id:dagId,created_at:Number(currentPlan?.created_at||0)||null,updated_at:Number(currentPlan?.updated_at||Date.now())||Date.now()});
