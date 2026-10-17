@@ -146,3 +146,16 @@ test('Companion USB MINI preselects COM3 when present while retaining fallback',
  assert.match(source,/Array\.IndexOf\(ports,"COM3"\)/);
  assert.match(source,/SelectedIndex=miniPortIndex>=0\?miniPortIndex:0/);
 });
+
+test('MINI destructive installer stays single, verified and explicitly addressed', async () => {
+  const script = await read('dist/MEL-Waveshare-Flash.ps1');
+  const count = token => script.split(token).length - 1;
+  assert.equal(count('finally {'), 1, 'duplicate script tail');
+  assert.equal(count('erase_flash'), 1, 'duplicate erase operation');
+  assert.match(script, /MINI_USB_PORT_NOT_CONFIRMED/);
+  assert.match(script, /MINI_ESP32S3_IDENTITY_UNVERIFIED/);
+  assert.match(script, /chip_id/);
+  assert.match(script, /EFFACER_MINI/);
+  assert.match(script, /Get-FileHash -Algorithm SHA256/);
+  assert.ok(script.indexOf('chip_id') < script.indexOf('erase_flash'));
+});
