@@ -1,5 +1,3 @@
-import { createDefaultCapabilityBus } from '../capabilities/default-bus.js';
-
 const ALLOWED = new Set(['DEVELOPMENT_REQUEST', 'AUTONOMY_ADVANCE', 'AUTONOMY_STATUS', 'CAPABILITY_STATUS', 'SELF_STATE', 'WEB_RESEARCH', 'NONE']);
 
 function extractJson(text) {
@@ -41,7 +39,7 @@ export function shouldSemanticIntentCheck(text, context = '') {
   const devHistory = /\b(?:mel|interface|ui|avatar|th[eè]me|bouton|menu|code|programme|runtime|commit|branche|branch|d[ée]ploiement|jobs?|travaux?|m[ée]moire|chat\s*gpt|r[ée]ponses?|d[ée]veloppement|roadmap|feuille\s+de\s+route|module|capacit[ée]|comp[ée]tence|outil|backend|frontend|api|worker|css|html|javascript|dev\s*bridge|candidate)\b/i.test(history);
   const researchHistory = /\b(?:internet|web|en\s+ligne|actualit[ée]s?|news|recherche\s+web|sources?\s+web|derni[eè]res?\s+infos?)\b/i.test(history);
   const followUp = /\b(?:fais|fait|vas[- ]?y|go|oui|non|comme|ainsi|plut[oô]t|plus|moins|sans|avec|enl[eè]ve|garde|change|mets|rajoute|retire|corrige|continue|reprends|avance|je\s+veux|je\s+pr[eé]f[eè]re|devrait|pourrait|ceci|cela|[cç]a|celui|celle|lesquelles?|tout|toutes?|et\s+maintenant|et\s+aujourd['’]hui)\b/i.test(value);
-  const contextualStatus = /^(?:o[uù] en es[- ]?tu|o[uù] en est|et maintenant|et l[àa]|quel statut|quel avancement)\b/i.test(value);
+  const contextualStatus = /^(?:o[uù] en es[- ]?tu|o[uù] en est|et maintenant|et l[àa]|quel statut|quel avancement|et lesquelles?|et tes capacit[ée]s?|d[ée]veloppe[- ]toi)\b/i.test(value);
   const explicitEllipticalAction = actionSecondPerson && /(?:^|\s)(?:ça|ceci|cela)(?=\s|[?!.,]|$)/i.test(value) && !/\b(?:une?|mon|ma|mes|le|la|les|des)\s+\w+/i.test(value);
   return currentSelfSystem || currentResearch || explicitEllipticalAction || ((devHistory || researchHistory) && (actionSecondPerson || followUp || contextualStatus));
 }
@@ -72,19 +70,16 @@ export async function classifySemanticOwnerIntent({ text, context = '', env = {}
   ].join('\n');
 
   try {
-    const runtimeEnv = AI ? { ...env, AI } : env;
-    const bus = createDefaultCapabilityBus({ env: runtimeEnv });
-    const result = await bus.execute('augmentio.fanout', {
-      capability: 'FAST',
-      input: instruction,
-      context: { purpose: 'semantic-owner-intent-routing', untrusted_context: true },
-      maxCandidates: 1,
-    }, {
-      owner: 'owner',
-      permissions: [],
-      requestId: crypto.randomUUID(),
+    const model = AI || env?.AI;
+    if (!model || typeof model.run !== 'function') return null;
+    // One narrow classifier invocation, only for genuinely ambiguous turns.
+    // No CapabilityBus / Augmentio fanout / Council or tool catalogue before chat.
+    const result = await model.run('@cf/zai-org/glm-4.7-flash', {
+      messages: [{ role: 'user', content: instruction }],
+      max_tokens: 500,
     });
-    const parsed = extractJson(result?.best?.text);
+    const parsed = extractJson(typeof result === 'string' ? result :
+      result?.response ?? result?.text ?? result?.choices?.[0]?.message?.content ?? '');
     const intent = String(parsed?.intent || '').toUpperCase();
     const confidence = Number(parsed?.confidence);
     if (!ALLOWED.has(intent) || !Number.isFinite(confidence) || confidence < 0.72) return null;
