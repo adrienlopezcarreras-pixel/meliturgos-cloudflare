@@ -1531,9 +1531,9 @@ class MainForm : Form
             Checked=MelApp.StartupEnabled(),Font=new Font("Segoe UI",9f),Anchor=AnchorStyles.Bottom|AnchorStyles.Left};
         autostart.CheckedChanged+=delegate{MelApp.ConfigureStartup(autostart.Checked);};
         Controls.Add(autostart);
-        Resize+=delegate {PositionFooter();ResizeCards();};
+        Resize+=delegate {LayoutDashboard();};
         cards.Resize+=delegate{ResizeCards();};
-        PositionFooter();
+        LayoutDashboard();
         FormClosing+=delegate(object sender,FormClosingEventArgs ev){
             if(!MelApp.Exiting&&ev.CloseReason==CloseReason.UserClosing){ev.Cancel=true;Hide();}
         };
@@ -1638,7 +1638,45 @@ class MainForm : Form
     void ResizeCards()
     {
         if(cards==null)return;
-        foreach(Control c in cards.Controls)c.Width=Math.Max(350,cards.ClientSize.Width-36);
+        int width=Math.Max(350,cards.ClientSize.Width-(cards.VerticalScroll.Visible?25:10));
+        foreach(Control c in cards.Controls)
+        {
+            c.Width=width;
+            foreach(Control child in c.Controls)
+            {
+                if(child is Label && child.Left<35)
+                    child.Width=Math.Max(200,width-child.Left-20);
+            }
+        }
+    }
+    void LayoutDashboard()
+    {
+        // Keep controls aligned when Windows DPI or the available desktop size changes.
+        int width=ClientSize.Width;
+        var open=Controls.OfType<Button>().FirstOrDefault(b=>b.Text=="Ouvrir MEL");
+        if(open!=null)open.Left=width-open.Width-28;
+        var pc=Controls.OfType<Panel>().FirstOrDefault(p=>p!=cards && p.Top==132);
+        if(pc!=null)
+        {
+            pc.Width=width-44;
+            var usb=pc.Controls.OfType<Button>().FirstOrDefault(b=>b.Text=="Contrôle USB MINI");
+            var adb=pc.Controls.OfType<Button>().FirstOrDefault(b=>b.Text=="Configurer ADB Wi-Fi");
+            if(usb!=null)usb.Left=pc.ClientSize.Width-usb.Width-22;
+            if(adb!=null)adb.Left=pc.ClientSize.Width-(usb!=null?usb.Width+14:0)-adb.Width-22;
+            var machine=pc.Controls.OfType<Label>().FirstOrDefault(l=>l.Text==Environment.MachineName);
+            if(machine!=null)machine.Width=Math.Max(150,(adb!=null?adb.Left:pc.ClientSize.Width)-machine.Left-16);
+        }
+        var permissions=Controls.OfType<Button>().FirstOrDefault(b=>b.Text=="Autorisations");
+        var refresh=Controls.OfType<Button>().FirstOrDefault(b=>b.Text=="Actualiser");
+        if(refresh!=null)refresh.Left=width-refresh.Width-28;
+        if(permissions!=null)permissions.Left=width-(refresh!=null?refresh.Width+16:0)-permissions.Width-28;
+        if(cards!=null)
+        {
+            cards.Width=width-44;
+            cards.Height=Math.Max(80,ClientSize.Height-cards.Top-150);
+            ResizeCards();
+        }
+        PositionFooter();
     }
     void PositionFooter()
     {
