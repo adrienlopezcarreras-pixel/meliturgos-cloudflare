@@ -8,17 +8,16 @@ test('Windows Companion keeps owner PC/compute permissions visible and refreshes
   assert.ok(main.length > 0, 'MainForm must exist');
 
   // The connection banner has only the online state: never cram permission
-  // labels into its fixed-width 670px label next to the Open MEL button.
-  assert.match(main, /connection=LabelAt\(this,"Vérification de la connexion…",28,78,670,30/);
+  // labels into it.
+  assert.match(main, /connection=CellLabel\(brand,"Vérification de la connexion…"/);
   assert.match(main, /connection\.Text=online\?"Connecté à MEL":"Serveur indisponible — reconnexion automatique";/);
   const connectionRefresh = main.slice(main.indexOf('connection.Text=online?'), main.indexOf('connection.ForeColor=online?'));
   assert.doesNotMatch(connectionRefresh.split(';')[0], /Accès PC/);
 
-  // Show grants below the host name, away from the header buttons, and
-  // keep them responsive to the PC card's width.
+  // Show grants in their own row of the work-station card (a docked layout
+  // cell, so it follows the card's width).
   assert.match(main, /Label localAccessStatus;/);
-  assert.match(main, /localAccessStatus=LabelAt\(pc,"Accès PC : désactivé  \|  Calcul local : désactivé",20,91,pc\.Width-40,22/);
-  assert.match(main, /localAccessStatus\.Anchor=AnchorStyles\.Top\|AnchorStyles\.Left\|AnchorStyles\.Right/);
+  assert.match(main, /localAccessStatus=CellLabel\(work,"Accès PC : état en attente"/);
   assert.match(main, /localAccessStatus\.Text="Accès PC : "\+\(pcAccess\?"autorisé":"désactivé"\)/);
   assert.match(main, /"  \|  Calcul local : "\+\(computeAllowed\?/);
   assert.match(main, /var pcAccess=MelApp\.ConfigBool\("remote_access_enabled"\)/);
@@ -26,5 +25,5 @@ test('Windows Companion keeps owner PC/compute permissions visible and refreshes
 
   // Closing the local permissions dialog updates the display without
   // waiting for the 30-second polling tick.
-  assert.match(main, /delegate\{using\(var dlg=new PermissionsForm\(\)\)dlg\.ShowDialog\(this\);RefreshAll\(\);\}/);
+  assert.match(main, /using\(var dlg=new PermissionsForm\(\)\)dlg\.ShowDialog\(this\);RefreshAll\(\);/);
 });
