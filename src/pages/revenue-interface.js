@@ -461,30 +461,42 @@ async function refreshDirectArtifacts(){
 }
 $('runDraftCycle').onclick=async()=>{
  const button=$('runDraftCycle');button.disabled=true;
- const area=$('draftList');area.textContent='MEL WORK crée un brouillon, sans soumission ni paiement.';
+ const area=$('draftList');area.replaceChildren();
+ const log=document.createElement('div');log.className='mel-work-steps';
+ const live=document.createElement('pre');live.style.whiteSpace='pre-wrap';live.style.overflowWrap='anywhere';
+ area.append(log,live);
+ const addStep=text=>{const line=document.createElement('div');line.textContent='• '+String(text||'');log.appendChild(line)};
+ addStep('MEL WORK démarre : lecture, évaluation, rédaction. Rien n’est réclamé, soumis ni payé.');
  try{
-  const response=await fetch('/api/revenue/direct-work',{method:'POST',cache:'no-store'});
-  const data=await response.json().catch(()=>({}));
-  if(!response.ok||data.ok!==true)throw new Error(data.code||'WORK_DIRECT_EXECUTION_FAILED');
-  let outcome=data;
-  if(data.cycleId){
-    area.textContent='Cycle MEL WORK enregistré : '+String(data.cycleId)+'. Exécution en cours…';
-    for(let attempt=0;attempt<45;attempt++){
-      await new Promise(resolve=>setTimeout(resolve,2000));
-      const poll=await fetch('/api/revenue/direct-work?cycle_id='+encodeURIComponent(data.cycleId),{cache:'no-store'});
-      const state=await poll.json().catch(()=>({}));
-      if(!poll.ok||state.ok!==true)throw new Error(state.code||'WORK_CYCLE_STATUS_UNAVAILABLE');
-      if(state.status==='RUNNING')continue;
-      if(state.status!=='COMPLETE')throw new Error(state.result?.code||state.status||'WORK_CYCLE_FAILED');
-      outcome=state;break;
-    }
-    if(outcome===data)throw new Error('WORK_STILL_RUNNING_CHECK_AGAIN');
+  const response=await fetch('/api/revenue/direct-work',{method:'POST',cache:'no-store',headers:{accept:'application/x-ndjson'}});
+  if(!response.ok||!response.body){const data=await response.json().catch(()=>({}));throw new Error(data.code||('HTTP '+response.status))}
+  const reader=response.body.getReader();const decoder=new TextDecoder();let buffer='',done=null,failure=null;
+  for(;;){
+   const chunk=await reader.read();if(chunk.done)break;
+   buffer+=decoder.decode(chunk.value,{stream:true});
+   let index;
+   while((index=buffer.indexOf('\\n'))>=0){
+    const line=buffer.slice(0,index);buffer=buffer.slice(index+1);
+    if(!line.trim())continue;let event;try{event=JSON.parse(line)}catch{continue}
+    if(event.type==='step')addStep(event.text);
+    else if(event.type==='delta')live.textContent+=String(event.text||'');
+    else if(event.type==='done')done=event;
+    else if(event.type==='error')failure=event;
+   }
   }
-  const artifactId=String(outcome.result?.artifactId||'');
+  if(failure)throw new Error(failure.code||'WORK_DIRECT_EXECUTION_FAILED');
+  if(!done)throw new Error('WORK_STREAM_INTERRUPTED');
+  const artifactId=String(done.result?.artifactId||'');
+  if(done.result?.status==='NO_ELIGIBLE_MISSION'){addStep('Aucun brouillon cette fois. Réessaie plus tard : les offres changent souvent.');return}
   if(!/^work-[a-f0-9]{64}$/.test(artifactId))throw new Error('WORK_ARTIFACT_ID_INVALID');
-  await showDirectArtifact(artifactId,outcome,area);
+  const summary=log;const result=area;const view=document.createElement('div');
+  result.appendChild(view);
+  await showDirectArtifact(artifactId,{result:done.result},view);
+  view.prepend(summary);
+  if(done.result.title){const head=document.createElement('div');head.className='okbanner';head.textContent=String(done.result.title)+' · '+String(done.result.reward||'')+' · '+String(done.result.competitors??'?')+' concurrent(s)';view.prepend(head)}
+  live.remove();
   await refreshDirectArtifacts();
- }catch(e){area.textContent='Préparation impossible : '+String(e.message||e).slice(0,140)}
+ }catch(e){addStep('Préparation impossible : '+String(e.message||e).slice(0,140))}
  finally{button.disabled=false}
 };
 refreshDirectArtifacts();
