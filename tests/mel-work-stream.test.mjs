@@ -70,6 +70,34 @@ test('one streamed request reads offers, assesses, writes and stores a draft (no
   assert.equal(cycle.state, 'COMPLETE');
 });
 
+test('oversized AI chunks never show content that is missing from the persisted draft', async () => {
+  const db = sqliteD1();
+  const huge = 'A'.repeat(12_500);
+  const env = {
+    DB: db,
+    AI: {
+      async run(_model, input) {
+        if (input.stream) return sseStream([huge]);
+        return { response: JSON.stringify({
+          eligible: true, draftable: true, confidenceBps: 9500, category: 'writing',
+          requiresHuman: true, requiresPhysicalWorld: false, requiresSecrets: false,
+          requestsUnsafeAction: false, humanSteps: ['Publier le texte'],
+        }) };
+      },
+    },
+  };
+  const events = await readEvents(streamDirectWork({
+    env, fetchImpl: async () => Response.json({ tasks: [task('long', 1_000_000, 0)] }), now: () => NOW,
+  }));
+  const done = events.find(e => e.type === 'done');
+  assert.ok(done, JSON.stringify(events.filter(e => e.type !== 'delta')));
+  const shown = events.filter(e => e.type === 'delta').map(e => e.text).join('');
+  const saved = await db.prepare('SELECT content FROM mel_work_artifacts WHERE id=?')
+    .bind(done.result.artifactId).first();
+  assert.equal(shown.length, 11_800);
+  assert.equal(shown, saved.content);
+});
+
 test('unsafe or unreadable assessments are skipped and the cycle ends cleanly without a draft', async () => {
   const db = sqliteD1();
   const env = { DB: db, AI: { async run(_m, input) { if (input.stream) throw new Error('must not draft'); return { response: '{"eligible":false,"confidenceBps":9800,"requiresSecrets":true,"requiresHuman":false,"requiresPhysicalWorld":false,"requestsUnsafeAction":false}' }; } } };
