@@ -86,3 +86,19 @@ test('explicit MEL WORK chat runs kickoff before model inference', async () => {
   assert.match(text, /if \(!releaseSmoke && !body\.capability\?\.id && inputSource === 'text' && isMelWorkKickoff\(text\)\)/);
   assert.ok(text.indexOf('startMelWorkKickoff({') < text.indexOf('const [activeInferenceSettings, activeAdapter]'));
 });
+
+
+test('kickoff reports durable synchronized state if run response disagrees', async () => {
+  const bus = { execute: async (id, input) => {
+    if (id === 'work.plan.save') return { id: input.id };
+    if (id === 'work.plan.materialize') return { plan: { work_dag_id: 'durable-work' } };
+    if (id === 'work.run') return { status: 'COMPLETED' };
+    if (id === 'work.plan.sync') return { work: { status: 'RUNNING' } };
+    if (id === 'work.artifacts') return { artifacts: [] };
+    throw new Error('UNEXPECTED_' + id);
+  }};
+  const result = await startMelWorkKickoff({ bus, text: PROMPT, conversationId: 'durable-truth', context: {} });
+  assert.equal(result.ok, true);
+  assert.equal(result.status, 'RUNNING');
+  assert.equal(result.persisted, true);
+});
