@@ -38,9 +38,27 @@ export function normalizeRevenueTasks(payload, nowMs = Date.now()) {
 
 export async function handleRevenueApi(request, env) {
   const url = new URL(request.url);
-  if (url.pathname !== '/api/revenue/tasks' && url.pathname !== '/api/revenue/taskmarket-pc-status' && url.pathname !== '/api/revenue/drafts' && url.pathname !== '/api/revenue/draft-cycle' && url.pathname !== '/api/revenue/draft-readiness') return null;
+  if (url.pathname !== '/api/revenue/tasks' && url.pathname !== '/api/revenue/taskmarket-pc-status' && url.pathname !== '/api/revenue/drafts' && url.pathname !== '/api/revenue/draft-cycle' && url.pathname !== '/api/revenue/draft-readiness' && url.pathname !== '/api/revenue/eligible-discovery') return null;
   const auth = requireAuth(request, env);
   if (!auth.ok) return auth.response;
+  if (url.pathname === '/api/revenue/eligible-discovery') {
+    if(request.method!=='GET')return json({ok:false,code:'METHOD_NOT_ALLOWED'},405);
+    let fixtures;
+    try{fixtures=JSON.parse(env?.MEL_WORK_TRUSTED_ACCEPTANCE_JSON||'null')}catch{}
+    if(!record(fixtures)||Object.keys(fixtures).length>20)return json({ok:false,code:'WORK_TRUSTED_ACCEPTANCE_NOT_CONFIGURED',matchingTaskCount:0},409);
+    try{
+      const url=new URL(TASKMARKET_API);
+      url.searchParams.set('status','open');url.searchParams.set('sort','reward_desc');url.searchParams.set('limit',String(MAX_LIMIT));
+      const response=await fetch(url,{headers:{accept:'application/json'},signal:AbortSignal.timeout(12000)});
+      if(!response.ok)return json({ok:false,code:'TASKMARKET_UPSTREAM_ERROR'},502);
+      const payload=await response.json();
+      if(!Array.isArray(payload?.data?.tasks)&&!Array.isArray(payload?.tasks))return json({ok:false,code:'TASKMARKET_RESPONSE_INVALID'},502);
+      const tasks=normalizeRevenueTasks(payload);
+      const ids=new Set(Object.keys(fixtures));
+      const matches=tasks.filter(t=>ids.has(t.id));
+      return json({ok:true,openTaskCount:tasks.length,matchingTaskCount:matches.length,matchingTaskIds:matches.map(t=>t.id),executionMode:'DISCOVER_ONLY',canClaim:false,canSubmit:false});
+    }catch{return json({ok:false,code:'TASKMARKET_UNAVAILABLE'},503)}
+  }
   if (url.pathname === '/api/revenue/draft-readiness') {
     if(request.method!=='GET')return json({ok:false,code:'METHOD_NOT_ALLOWED'},405);
     let trustedFixtureCount=0;
