@@ -196,7 +196,8 @@ export async function startMelWorkKickoff({ bus, text, conversationId, context }
       saved = true;
     }
     const materialized = await execute('work.plan.materialize', { id });
-    const workDagId = String(materialized?.plan?.work_dag_id || materialized?.work?.id || 'work-' + id);
+    const workDagId = String(materialized?.plan?.work_dag_id || materialized?.work?.id || '').trim();
+    if (!workDagId) throw Object.assign(new Error('MEL_WORK_DAG_ID_MISSING'), { code: 'MEL_WORK_DAG_ID_MISSING' });
     const executed = await execute('work.run', { id: workDagId });
     const synced = await execute('work.plan.sync', { id });
     const evidence = await execute('work.artifacts', { id: workDagId });
