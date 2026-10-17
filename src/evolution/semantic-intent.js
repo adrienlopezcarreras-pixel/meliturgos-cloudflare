@@ -27,7 +27,7 @@ export function shouldSemanticIntentCheck(text, context = '') {
   const explicitSystemNoun = /\b(?:mel|interface|ui|avatar|th[eè]me|bouton|menu|code|programme|syst[eè]me|runtime|commit|branche|branch|d[ée]ploiement|jobs?|travaux?|m[ée]moire|chat\s*gpt|r[ée]ponses?|roadmap|feuille\s+de\s+route|module|capacit[ée]|comp[ée]tence|outil|backend|frontend|api|worker|css|html|js|javascript|autonomie|auto[- ]?d[eé]veloppement)\b/i.test(value);
   // Conversational turns are never system commands just because the owner
   // addresses MEL or because a prior turn mentioned source code.
-  const explicitMutation = /\b(?:modifie|supprime|remplace|corrige|développe|developpe|implémente|implemente|ajoute|retire|répare|repare|déploie|deploie)\b/i.test(value);
+  const explicitMutation = /\b(?:modifie|modifier|supprime|remplace|corrige|développe|developpe|implémente|implemente|ajoute|retire|répare|repare|déploie|deploie)\b/i.test(value);
   if (naturalConversation && !explicitMutation) return false;
 
   // Mentioning MEL (or code) is a subject, not authorization to run
@@ -39,7 +39,7 @@ export function shouldSemanticIntentCheck(text, context = '') {
   const devHistory = /\b(?:mel|interface|ui|avatar|th[eè]me|bouton|menu|code|programme|runtime|commit|branche|branch|d[ée]ploiement|jobs?|travaux?|m[ée]moire|chat\s*gpt|r[ée]ponses?|d[ée]veloppement|roadmap|feuille\s+de\s+route|module|capacit[ée]|comp[ée]tence|outil|backend|frontend|api|worker|css|html|javascript|dev\s*bridge|candidate)\b/i.test(history);
   const researchHistory = /\b(?:internet|web|en\s+ligne|actualit[ée]s?|news|recherche\s+web|sources?\s+web|derni[eè]res?\s+infos?)\b/i.test(history);
   const followUp = /\b(?:fais|fait|vas[- ]?y|go|oui|non|comme|ainsi|plut[oô]t|plus|moins|sans|avec|enl[eè]ve|garde|change|mets|rajoute|retire|corrige|continue|reprends|avance|je\s+veux|je\s+pr[eé]f[eè]re|devrait|pourrait|ceci|cela|[cç]a|celui|celle|lesquelles?|tout|toutes?|et\s+maintenant|et\s+aujourd['’]hui)\b/i.test(value);
-  const contextualStatus = /^(?:o[uù] en es[- ]?tu|o[uù] en est|et maintenant|et l[àa]|quel statut|quel avancement|et lesquelles?|et tes capacit[ée]s?|d[ée]veloppe[- ]toi)\b/i.test(value);
+  const contextualStatus = /^(?:o[uù] en es[- ]?tu|o[uù] en est|et maintenant|et l[àa](?=\s|[?!.,]|$)|quel statut|quel avancement|et lesquelles?|et tes capacit[ée]s?|d[ée]veloppe[- ]toi)(?=\W|$)/i.test(value);
   const explicitEllipticalAction = actionSecondPerson && /(?:^|\s)(?:ça|ceci|cela)(?=\s|[?!.,]|$)/i.test(value) && !/\b(?:une?|mon|ma|mes|le|la|les|des)\s+\w+/i.test(value);
   return currentSelfSystem || currentResearch || explicitEllipticalAction || ((devHistory || researchHistory) && (actionSecondPerson || followUp || contextualStatus));
 }

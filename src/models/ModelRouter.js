@@ -134,15 +134,16 @@ export class ModelRouter {
     // final provider fallback, not only sequential model invocations.
     const remaining = this.deadlineAt == null ? Infinity : this.deadlineAt - Date.now();
     if (remaining <= 0) throw new DomainError('CHAT_DEADLINE_EXCEEDED', 504);
-    const timeout = Math.min(Math.max(1, Number(this.timeoutMs) || 120000), remaining);
+    const configuredTimeout = Math.max(1, Number(this.timeoutMs) || 120000);
+    const timeout = Math.min(configuredTimeout, remaining);
+    const deadlineIsLimit = this.deadlineAt != null && remaining <= configuredTimeout;
     let timer;
     try {
       return await Promise.race([
         Promise.resolve().then(operation),
         new Promise((_, reject) => {
           timer = setTimeout(() => reject(new DomainError(
-            this.deadlineAt != null && Date.now() >= this.deadlineAt
-              ? 'CHAT_DEADLINE_EXCEEDED' : 'timeout', 504,
+            deadlineIsLimit ? 'CHAT_DEADLINE_EXCEEDED' : 'timeout', 504,
           )), timeout);
         }),
       ]);
