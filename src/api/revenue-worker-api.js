@@ -1,4 +1,4 @@
-import { listD1ValidatedDrafts } from '../revenue/taskmarket-worker-cycle.js';
+import { listD1ValidatedDrafts, runBoundedTaskmarketDraftCycle, createExactJsonAcceptanceValidator } from '../revenue/taskmarket-worker-cycle.js';
 import { requireAuth } from '../core/security.js';
 import { maybeHandleComputerApi } from '../devices/computer-companion-api.js';
 
@@ -38,9 +38,29 @@ export function normalizeRevenueTasks(payload, nowMs = Date.now()) {
 
 export async function handleRevenueApi(request, env) {
   const url = new URL(request.url);
-  if (url.pathname !== '/api/revenue/tasks' && url.pathname !== '/api/revenue/taskmarket-pc-status' && url.pathname !== '/api/revenue/drafts') return null;
+  if (url.pathname !== '/api/revenue/tasks' && url.pathname !== '/api/revenue/taskmarket-pc-status' && url.pathname !== '/api/revenue/drafts' && url.pathname !== '/api/revenue/draft-cycle') return null;
   const auth = requireAuth(request, env);
   if (!auth.ok) return auth.response;
+  if (url.pathname === '/api/revenue/draft-cycle') {
+    if(request.method!=='POST')return json({ok:false,code:'METHOD_NOT_ALLOWED'},405);
+    // A trusted oracle must originate in the server environment, never in browser input.
+    // No fallback validator or automatic submission is allowed.
+    if(typeof env?.MEL_WORK_TRUSTED_ACCEPTANCE_JSON!=='string')return json({ok:false,code:'WORK_TRUSTED_ACCEPTANCE_NOT_CONFIGURED'},409);
+    let expectedByTaskId;
+    try { expectedByTaskId=JSON.parse(env.MEL_WORK_TRUSTED_ACCEPTANCE_JSON); }
+    catch { return json({ok:false,code:'WORK_TRUSTED_ACCEPTANCE_INVALID'},503); }
+    if(!record(expectedByTaskId)||Object.keys(expectedByTaskId).length>20)return json({ok:false,code:'WORK_TRUSTED_ACCEPTANCE_INVALID'},503);
+    try {
+      const cycle=await runBoundedTaskmarketDraftCycle({
+        db:env.DB,env,validateArtifact:createExactJsonAcceptanceValidator({expectedByTaskId}),
+        policy:{minimumProfitMicros:0,minimumMarginBps:0,maxTasksPerCycle:1},
+      });
+      return json({ok:true,cycle,submissionEnabled:false});
+    } catch(error) {
+      const code=String(error?.code||error?.message||'WORK_CYCLE_FAILED');
+      return json({ok:false,code:/^[A-Z_]{4,90}$/.test(code)?code:'WORK_CYCLE_FAILED'},503);
+    }
+  }
   if (url.pathname === '/api/revenue/drafts') {
     if (request.method !== 'GET') return json({ok:false,code:'METHOD_NOT_ALLOWED'},405);
     try { return json({ok:true,...await listD1ValidatedDrafts(env?.DB,{limit:20})}); }

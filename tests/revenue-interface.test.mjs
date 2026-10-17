@@ -360,3 +360,20 @@ test('MEL WORK authenticated draft API roundtrips with real SQLite D1 adapter',a
  assert.equal('content' in payload.drafts[0],false);
  assert.equal(JSON.stringify(payload).includes('sample validated candidate'),false);
 });
+
+test('MEL WORK draft cycle requires owner auth and server-side trusted oracle',async()=>{
+ const url='https://mel.test/api/revenue/draft-cycle';
+ const env={MELITURGOS_USER:'adrien',MELITURGOS_PASSWORD:'test'};
+ const denied=await handleRevenueApi(new Request(url,{method:'POST'}),env);
+ assert.notEqual(denied.status,200);
+ const headers={authorization:'Basic '+Buffer.from('adrien:test').toString('base64')};
+ const response=await handleRevenueApi(new Request(url,{method:'POST',headers}),env);
+ assert.equal(response.status,409);
+ assert.equal((await response.json()).code,'WORK_TRUSTED_ACCEPTANCE_NOT_CONFIGURED');
+});
+test('MEL WORK draft-cycle button exists without claim or submit routes',async()=>{
+ const html=await (await onRequestGet()).text();
+ assert.match(html,/id="runDraftCycle"/);
+ assert.match(html,/api\/revenue\/draft-cycle/);
+ assert.doesNotMatch(html,/\/api\/revenue\/taskmarket-submit/);
+});
