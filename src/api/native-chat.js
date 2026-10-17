@@ -1683,7 +1683,6 @@ export async function handleNativeChat(request, env, options = {}) {
     });
   } catch (error) {
     if (voiceReply) {
-      let timer = null;
       try {
         const fallbackModel = '@cf/meta/llama-3.3-70b-instruct-fp8-fast';
         const compactedMessages = compactInferenceMessages(messages, {
@@ -1695,16 +1694,14 @@ export async function handleNativeChat(request, env, options = {}) {
           ...inferenceGenerationOptions(effectiveInferenceSettings),
           max_tokens: voiceGenerationTokenBudget(activeInferenceSettings, { fallback: true }),
         };
-        const fallbackResult = await Promise.race([
-          env.AI.run(fallbackModel, { messages: compactedMessages, ...generation }),
-          new Promise((_, reject) => {
-            timer = setTimeout(() => {
-              const timeout = new Error('VOICE_FAST_FALLBACK_TIMEOUT');
-              timeout.code = 'VOICE_FAST_FALLBACK_TIMEOUT';
-              reject(timeout);
-            }, 6000);
-          }),
-        ]);
+        // Reuse the chat fallback executor instead of maintaining a second
+        // independent timer/race implementation for voice.
+        const fallbackResult = await runBoundedChatFallback(
+          (model, payload) => env.AI.run(model, payload),
+          fallbackModel,
+          { messages: compactedMessages, ...generation },
+          { timeoutMs: Math.min(6000, Math.max(1, chatDeadlineAt - Date.now())) },
+        );
         const fallbackText = typeof fallbackResult === 'string'
           ? fallbackResult
           : fallbackResult?.response
@@ -1740,8 +1737,6 @@ export async function handleNativeChat(request, env, options = {}) {
           code: 'VOICE_CHAT_TIMEOUT',
           detail: String(voiceError?.code || voiceError?.message || 'VOICE_FAST_FAILED').slice(0, 180),
         }, { status: 504, headers: { 'cache-control': 'no-store' } });
-      } finally {
-        if (timer) clearTimeout(timer);
       }
     } else if (personalProfileIntent && personalProfileFallback) {
       ai = {
