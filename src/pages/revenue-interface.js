@@ -48,8 +48,8 @@ async function loadPersistentPrepPlans(){
 async function executeSavedReadOnlyPreparation(taskId,planId,title,button,safePreparationCapabilities,generationMode,generationReason){
  const saved=await executeWorkCapability('work.plan.get',{id:planId});
  const plan=saved?.plan||saved;
- const steps=Array.isArray(plan?.steps)?plan.steps:[];
- if(!steps.length||steps.length>8||!steps.every(step=>step&&typeof step==='object'&&safePreparationCapabilities.has(String(step.capability||''))&&step.input&&typeof step.input==='object'&&!Array.isArray(step.input)))throw new Error('PERSISTED_PREP_PLAN_NOT_READ_ONLY');
+ const tasks=Array.isArray(plan?.tasks)?plan.tasks:[];
+ if(!tasks.length||tasks.length>8||!tasks.every(task=>task&&safePreparationCapabilities.has(String(task.capability||''))))throw new Error('PERSISTED_PREP_PLAN_NOT_READ_ONLY');
  const materialized=await executeWorkCapability('work.plan.materialize',{id:planId});
  const dagId=String(materialized?.plan?.work_dag_id||materialized?.work?.id||'').trim();
  if(!dagId)throw new Error('WORK_PREP_DAG_ID_MISSING');
@@ -62,7 +62,7 @@ async function executeSavedReadOnlyPreparation(taskId,planId,title,button,safePr
   const detail=generationMode==='GENERATED_READ_ONLY_PLAN'
    ?'MEL a exécuté les étapes de préparation en lecture seule prévues par le plan généré et vérifié.'
    :'MEL a exécuté le plan de secours borné, qui conserve les critères et verrous mais ne remplace pas une analyse Council.';
-  $('taskError').textContent=detail+' Plan '+planId+' · Work '+dagId+' · '+steps.length+' étape(s). Aucune mission n’a été réclamée, soumise, signée ou payée.';
+  $('taskError').textContent=detail+' Plan '+planId+' · Work '+dagId+' · '+tasks.length+' étape(s). Aucune mission n’a été réclamée, soumise, signée ou payée.';
  }else{
   button.textContent='Reprendre la préparation';
   $('taskError').textContent='Le plan de préparation est persistant, mais son exécution n’est pas terminée. Work '+dagId+' · état '+status+'.'+(generationReason?' Génération : '+generationReason+'.':'')+' Aucune mission n’a été réclamée ou soumise.';
