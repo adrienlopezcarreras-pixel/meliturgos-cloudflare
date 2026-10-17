@@ -47,7 +47,21 @@ jobs:
             if ($proc) { $hwnd = $proc.MainWindowHandle }
           }
           if ($hwnd -eq [IntPtr]::Zero) { throw "NOTEPAD_WINDOW_NOT_FOUND" }
-          $snap = Get-UiSnapshot $hwnd 150 6000
+          # A visible top-level window can precede UI Automation editor readiness.
+          # Probe the actual control, not just MainWindowHandle, before asserting.
+          $snap = $null
+          $text = $null
+          for ($attempt = 0; $attempt -lt 16; $attempt++) {
+            try {
+              $snap = Get-UiSnapshot $hwnd 150 6000
+              $text = @($snap.elements) | Where-Object { $_.type -in @('Document','Edit') } | Select-Object -First 1
+              if ($text) { break }
+            } catch {
+              Write-Host "ui.snapshot attempt $($attempt+1): $($_.Exception.Message)"
+            }
+            Start-Sleep -Milliseconds 500
+          }
+          if (-not $snap) { throw "UI_SNAPSHOT_NEVER_READY" }
           $count = @($snap.elements).Count
           $types = (@($snap.elements) | ForEach-Object { $_.type } | Sort-Object -Unique) -join ','
           Write-Host "::notice title=ui.snapshot Notepad::window='$($snap.window_title)' process=$($snap.process) elements=$count types=$types elapsed_ms=$($snap.elapsed_ms)"
