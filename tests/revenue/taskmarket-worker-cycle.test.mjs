@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { runTaskmarketWorkerCycle, feedbackToLoraCandidate, createD1ValidatedDraftAdapter, runTaskmarketWorkerCycleWithD1, listD1ValidatedDrafts, createPublicTaskmarketListAdapter, createTaskmarketCouncilAssessmentAdapter, createTaskmarketCouncilSolverAdapter, runBoundedTaskmarketDraftCycle, createStrictJsonArtifactValidator } from '../../src/revenue/taskmarket-worker-cycle.js';
+import { runTaskmarketWorkerCycle, feedbackToLoraCandidate, createD1ValidatedDraftAdapter, runTaskmarketWorkerCycleWithD1, listD1ValidatedDrafts, createPublicTaskmarketListAdapter, createTaskmarketCouncilAssessmentAdapter, createTaskmarketCouncilSolverAdapter, runBoundedTaskmarketDraftCycle, createStrictJsonArtifactValidator, createExactJsonAcceptanceValidator } from '../../src/revenue/taskmarket-worker-cycle.js';
 
 const task = {
   id: '0x123',
@@ -265,4 +265,13 @@ test('independent JSON checker never mistakes syntax for semantic job completion
  assert.equal((await validate({task:job,candidate:{content:'not-json'}})).summary,'JSON_PARSE_FAILED');
  assert.equal((await validate({task:job,candidate:{content:'{}'}})).summary,'JSON_REQUIRED_KEYS_MISSING');
  assert.equal((await validate({task:{description:'Write an essay'},candidate:{content:'{"answer":42}'}})).machineVerifiable,false);
+});
+
+test('exact JSON acceptance checks trusted nested answer, not mere syntax',async()=>{
+ const expectedJson='{"nested":{"value":4},"items":[1,2]}';
+ const hash=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(expectedJson))),b=>b.toString(16).padStart(2,'0')).join('');
+ const verify=createExactJsonAcceptanceValidator({expectedByTaskId:{'0x123':{expectedJson,sha256:hash}}});
+ assert.equal((await verify({task,candidate:{content:'{"items":[1,2],"nested":{"value":4}}'}})).passed,true);
+ assert.equal((await verify({task,candidate:{content:'{"items":[1,2],"nested":{"value":5}}'}})).passed,false);
+ assert.equal((await verify({task:{id:'unknown'},candidate:{content:expectedJson}})).machineVerifiable,false);
 });
