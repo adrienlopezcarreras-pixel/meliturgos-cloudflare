@@ -170,8 +170,8 @@ export async function runComputerAgent({ env, goal, maxSteps = AGENT_MAX_STEPS, 
   for (let turn = 1; turn <= limit; turn += 1) {
     // Launch an explicitly requested allowlisted application immediately.
     // No UIA round-trip is needed to discover where a known application lives.
-    if (turn === 1 && /\\b(?:ouvre|ouvrir|lance|lancer|d[ée]marre)\\b/i.test(objective)) {
-      const app = /\\b(?:bloc[- ]?notes|notepad)\\b/i.test(objective) ? 'notepad' : null;
+    if (turn === 1 && /\b(?:ouvre|ouvrir|lance|lancer|d[ée]marre)\b/i.test(objective)) {
+      const app = /\b(?:bloc[- ]?notes|notepad)\b/i.test(objective) ? 'notepad' : null;
       if (app && (device.allowed_apps || []).some(value => String(value).toLowerCase() === app)) {
         const opened = await runCompanionCommand({ db, device, steps: [{ action: 'app.open', app }], sessionId, sleep, now });
         history.push('Ouvrir ' + app + (opened.ok ? ' → fait' : ' → échec ' + opened.code));
