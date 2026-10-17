@@ -1054,12 +1054,55 @@ function renderComputer(d){
   state.textContent=pc.halted?'ARRÊTÉ':pc.online?'EN LIGNE':'HORS LIGNE';state.className='tag '+(pc.halted?'bad':pc.online?'good':'warn');
   qs('#computerLastSeen').textContent=fmtSeen(pc.last_seen_at);qs('#computerActiveWindow').textContent=pc.metadata?.active_window||'—';
   qs('#computerOut').textContent=JSON.stringify({ordinateur:pc,commandes:(computerCache.commands||[]).slice(0,12)},null,2);
-  const latest=(computerCache.commands||[]).find(c=>c?.result?.outputs?.some(o=>o?.view_url));
+  const latest=!pc.halted&&pc.metadata?.remote_access_enabled===true?(computerCache.commands||[]).find(c=>c?.status==='SUCCEEDED'&&c?.result?.outputs?.some(o=>o?.action==='screen.capture'&&o?.view_url)):null;
   const output=latest?.result?.outputs?.find(o=>o?.view_url);
   if(output?.view_url){const img=qs('#computerScreen');img.src=output.view_url+'&v='+Date.now();img.style.display='block';qs('#computerScreenState').textContent='CAPTURE DISPONIBLE';qs('#computerScreenState').className='tag good'}
 }
 async function loadComputer(){try{const id=qs('#computerSelect')?.value||'';const d=await jfetch('/api/computer/v1/status'+(id?'?computer_id='+encodeURIComponent(id):''));renderComputer(d);return d}catch(e){qs('#computerState').textContent='INDISPONIBLE';qs('#computerState').className='tag bad';qs('#computerOut').textContent='Erreur : '+e.message;return null}}
-async function computerCommand(steps,approveSensitive=false){const pc=selectedComputer();if(!pc)throw Error('Aucun ordinateur appairé');const d=await jfetch('/api/computer/v1/commands',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({computer_id:pc.id,steps,approve_sensitive:approveSensitive})});qs('#computerOut').textContent=JSON.stringify(d,null,2);await new Promise(r=>setTimeout(r,1500));await loadComputer();return d}
+async function computerCommand(steps,approveSensitive=false){
+ const pc=selectedComputer();
+ if(!pc)throw Error('Aucun ordinateur appairé');
+ if(pc.halted)throw Error('OWNER_HALT_ACTIVE');
+ if(pc.metadata?.remote_access_enabled!==true)throw Error('REMOTE_ACCESS_DISABLED_LOCALLY');
+ const capture=steps.some(step=>step?.action==='screen.capture');
+ const output=qs('#computerOut');
+ const queued=await jfetch('/api/computer/v1/commands',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({computer_id:pc.id,steps,approve_sensitive:approveSensitive})});
+ if(queued?.ok!==true||!queued.command_id||queued.status!=='PENDING')throw Error(queued?.code||'COMPUTER_COMMAND_QUEUE_UNCONFIRMED');
+ output.textContent=JSON.stringify({command_id:queued.command_id,status:'PENDING',computer_id:pc.id},null,2);
+ if(capture){
+  const img=qs('#computerScreen');
+  img.style.display='none';
+  qs('#computerScreenState').textContent='CAPTURE EN COURS';
+  qs('#computerScreenState').className='tag warn';
+ }
+ for(let attempt=0;attempt<30;attempt++){
+  await new Promise(resolve=>setTimeout(resolve,1000));
+  const snapshot=await jfetch('/api/computer/v1/status?computer_id='+encodeURIComponent(pc.id)+'&command_poll='+Date.now());
+  const command=(snapshot?.commands||[]).find(entry=>entry?.id===queued.command_id);
+  if(!command)continue;
+  if(command.status==='FAILED'||command.status==='CANCELLED')throw Error(command.error_code||'COMPUTER_COMMAND_FAILED');
+  if(command.status!=='SUCCEEDED')continue;
+  const current=(snapshot?.devices||[]).find(device=>device?.id===pc.id);
+  if(!current||current.halted||current.metadata?.remote_access_enabled!==true)throw Error('COMPUTER_PERMISSION_REVOKED');
+  renderComputer(snapshot);
+  if(capture){
+   const proof=(command.result?.outputs||[]).find(entry=>entry?.action==='screen.capture'&&typeof entry?.view_url==='string');
+   if(!proof)throw Error('COMPUTER_CAPTURE_PROOF_MISSING');
+   const screenshotUrl=new URL(proof.view_url,location.origin);
+   if(screenshotUrl.origin!==location.origin||screenshotUrl.pathname!=='/api/computer/v1/screenshot')throw Error('COMPUTER_SCREENSHOT_URL_INVALID');
+   screenshotUrl.searchParams.set('v',String(Date.now()));
+   const img=qs('#computerScreen');
+   img.onerror=()=>{img.style.display='none';qs('#computerScreenState').textContent='IMAGE INACCESSIBLE';qs('#computerScreenState').className='tag bad'};
+   img.src=screenshotUrl.href;
+   img.style.display='block';
+   qs('#computerScreenState').textContent='CAPTURE CONFIRMÉE';
+   qs('#computerScreenState').className='tag good';
+  }
+  output.textContent=JSON.stringify({command_id:queued.command_id,status:'SUCCEEDED',computer_id:pc.id,finished_at:command.finished_at},null,2);
+  return command;
+ }
+ throw Error('COMPUTER_COMMAND_NOT_CONFIRMED_WITHIN_30S');
+}
 qs('#computerRefresh').onclick=()=>loadComputer();
 qs('#computerSelect').onchange=()=>loadComputer();
 qs('#computerHalt').onclick=async()=>{const pc=selectedComputer();if(!pc)return;await jfetch('/api/computer/v1/halt',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({computer_id:pc.id})});await loadComputer()};
@@ -1067,7 +1110,7 @@ qs('#computerResume').onclick=async()=>{const pc=selectedComputer();if(!pc)retur
 qs('#computerShot').onclick=()=>computerCommand([{action:'screen.capture'}]).catch(e=>qs('#computerOut').textContent='Erreur : '+e.message);
 qsa('[data-pc-app]').forEach(b=>b.onclick=()=>computerCommand([{action:'app.open',app:b.dataset.pcApp}],true).catch(e=>qs('#computerOut').textContent='Erreur : '+e.message));
 qs('#computerType').onclick=()=>{const t=qs('#computerText').value;if(!t)return;computerCommand([{action:'keyboard.type',text:t}],true).catch(e=>qs('#computerOut').textContent='Erreur : '+e.message)};
-qsa('[data-pc-key]').forEach(b=>b.onclick=()=>computerCommand([{action:'keyboard.press',key:b.dataset.pcKey}]).catch(e=>qs('#computerOut').textContent='Erreur : '+e.message));
+qsa('[data-pc-key]').forEach(b=>b.onclick=()=>computerCommand([{action:'keyboard.press',key:b.dataset.pcKey}],true).catch(e=>qs('#computerOut').textContent='Erreur : '+e.message));
 qs('#computerScrollUp').onclick=()=>computerCommand([{action:'pointer.scroll',delta_y:240}]).catch(e=>qs('#computerOut').textContent='Erreur : '+e.message);
 qs('#computerScrollDown').onclick=()=>computerCommand([{action:'pointer.scroll',delta_y:-240}]).catch(e=>qs('#computerOut').textContent='Erreur : '+e.message);
 qs('#computerScreen').onclick=async e=>{const pc=selectedComputer(),screen=pc?.metadata?.screen;if(!pc||!screen)return;const r=e.currentTarget.getBoundingClientRect();const x=Math.round((e.clientX-r.left)/r.width*Number(screen.width||0)+Number(screen.x||0));const y=Math.round((e.clientY-r.top)/r.height*Number(screen.height||0)+Number(screen.y||0));try{await computerCommand([{action:'cursor.move',x,y},{action:'pointer.click'}]);setTimeout(()=>computerCommand([{action:'screen.capture'}]).catch(()=>{}),700)}catch(err){qs('#computerOut').textContent='Erreur : '+err.message}};
