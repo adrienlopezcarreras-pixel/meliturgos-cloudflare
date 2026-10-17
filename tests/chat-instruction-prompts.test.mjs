@@ -21,7 +21,8 @@ test('a short explicit status question still gets its verified status tool', () 
 test('a canned status sheet never replaces the model answer to a long instruction', async () => {
   const source = await readFile(new URL('../src/api/native-chat.js', import.meta.url), 'utf8');
   assert.match(source, /const groundedResponseText = instructionPrompt && modelResponseText\.trim\(\)\n\s*\? modelResponseText/);
-  assert.match(source, /: instructionPrompt\n\s*\? null\n\s*: inferredExecutionCapability/);
+  assert.match(source, /: instructionPrompt\\n\\s*\\? \\(\\(\\) =>/);
+  assert.match(source, /explicitCodeRead\\?\\.id === 'code.read'/);
 });
 
 test('an ordinary request mentioning « activité » is not routed to MEL\'s own activity log', async () => {
@@ -36,4 +37,13 @@ test('every chat turn states MEL\'s real tools, so she never describes herself a
   for (const fact of ['recherche web', 'MEL Companion', 'MEL WORK est automatique', 'tâches planifiées', 'Ne dis donc jamais']) assert.ok(MEL_REAL_CAPABILITIES.includes(fact), fact);
   const source = await readFile(new URL('../src/api/native-chat.js', import.meta.url), 'utf8');
   assert.equal(source.match(/^\s+MEL_REAL_CAPABILITIES,$/gm)?.length, 2, 'in both the plain-chat and the tool-aware system prompts');
+});
+
+test('MEL WORK operational questions consult runtime instead of relying only on canned credentials lists', async () => {
+  const source = await readFile(new URL('../src/api/native-chat.js', import.meta.url), 'utf8');
+  const { MEL_REAL_CAPABILITIES } = await import('../src/api/native-chat.js');
+  assert.match(source, /melWorkCapabilityQuestion/);
+  assert.match(source, /!melWorkCapabilityQuestion/);
+  assert.match(MEL_REAL_CAPABILITIES, /ne nécessitent pas de réclamer de nouveaux secrets/);
+  assert.match(MEL_REAL_CAPABILITIES, /Ne demande jamais de copier un token/);
 });
