@@ -42,7 +42,7 @@ test('independent post-release proofs fan out from the same immutable release SH
   for (const name of ['platform', 'persistent-stress', 'workers-ai-proof-refresh', 'council-rich-ui', 'connections', 'sovereignty']) {
     const section = source.split('\n  ' + name + ':')[1]?.split(/\n  [a-z][a-z-]*:/m)[0] || '';
     assert.match(section, /needs: resolve/, name);
-    assert.doesNotMatch(section, /needs: \\[/, name);
+    assert.equal(section.includes('needs: ['), false, name);
   }
   assert.match(source, /summary:\n\s+needs: \[resolve, platform, persistent-stress, workers-ai-proof-refresh, council-rich-ui, connections, sovereignty\]/);
   assert.match(source, /if\(values\.some\(value=>value!=='success'\)\) process\.exit\(1\)/);
