@@ -51,7 +51,7 @@ export async function handleRevenueApi(request, env, ctx = null) {
     if(!/^work-[a-f0-9]{64}$/.test(id)||!['approve','reject'].includes(decision))return json({ok:false,code:'WORK_DECISION_INVALID'},400);
     try{
       const status=decision==='approve'?'APPROVED_BY_OWNER':'REJECTED_BY_OWNER';
-      const changed=await env.DB.prepare("UPDATE mel_work_artifacts SET status=? WHERE id=? AND status IN ('DRAFT_FOR_OWNER','DRAFT_UNVERIFIED','VERIFIED_LOCALLY')").bind(status,id).run();
+      const changed=await env.DB.prepare("UPDATE mel_work_artifacts SET status=?,owner_note=?,decided_at=? WHERE id=? AND status IN ('DRAFT_FOR_OWNER','DRAFT_UNVERIFIED','VERIFIED_LOCALLY')").bind(status,String(body.note||'').slice(0,1000),new Date().toISOString(),id).run();
       const saved=await env.DB.prepare('SELECT id,status FROM mel_work_artifacts WHERE id=?').bind(id).first();
       if(saved?.id!==id)return json({ok:false,code:'WORK_ARTIFACT_NOT_FOUND'},404);
       if(saved.status!==status)return json({ok:false,code:'WORK_DECISION_CONFLICT'},409);
