@@ -159,6 +159,25 @@ test('MEL WORK renders a per-plan persistent status board without implying deliv
   assert.doesNotThrow(() => new Function(script));
 });
 
+test('MEL WORK resumes a saved read-only preparation through its existing Work DAG without rematerializing it', async () => {
+  const response = await (await import('../src/pages/revenue-interface.js')).onRequestGet();
+  const html = await response.text();
+  assert.match(html, /data-resume-work-plan/);
+  assert.match(html, /async function resumePersistentPrepPlan\(planId,button\)/);
+  assert.match(html, /savedPlanRecords\.get\(planId\)/);
+  assert.match(html, /PERSISTED_READ_ONLY_PLAN/);
+  const script = html.match(/<script>([\s\S]*?)<\/script>/)?.[1] || '';
+  const runner = script.slice(script.indexOf('async function executeSavedReadOnlyPreparation'), script.indexOf('async function resumePersistentPrepPlan'));
+  const resume = script.slice(script.indexOf('async function resumePersistentPrepPlan'), script.indexOf('async function refreshTasks'));
+  assert.match(runner, /const existingDagId=String\(plan\?\.work_dag_id\|\|''\)\.trim\(\);/);
+  assert.match(runner, /if\(!dagId\)\{[\s\S]*?work\.plan\.materialize/);
+  assert.match(runner, /executeWorkCapability\('work\.run',\{id:dagId\}\)/);
+  assert.match(resume, /executeSavedReadOnlyPreparation\(planId,planId/);
+  assert.match(resume, /safePreparationCapabilities/);
+  assert.match(resume, /Aucune mission n’a été réclamée ou soumise/);
+  assert.doesNotThrow(() => new Function(script));
+});
+
 test('MEL WORK requires a fresh local remote-access grant and engine heartbeat before claiming PC control is ready', async () => {
   const response = await onRequestGet();
   const html = await response.text();

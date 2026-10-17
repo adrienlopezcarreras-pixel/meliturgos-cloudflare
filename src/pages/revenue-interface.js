@@ -43,7 +43,8 @@ function renderPersistentPrepPlans(){
   const title=String(row?.goal||row?.title||id).slice(0,260);
   const dag=String(row?.work_dag_id||'');
   const kind=status==='COMPLETED'?'good':status==='FAILED'?'bad':'warn';
-  return '<article class="task"><div class="taskhead"><div><h3>'+esc(title)+'</h3><div class="taskid">Plan '+esc(id)+'</div></div><span class="tag '+kind+'">'+esc(label)+'</span></div><div class="taskmeta"><span class="tag">Dernière mise à jour : '+esc(updatedText)+'</span>'+(dag?'<span class="tag">Work : '+esc(dag)+'</span>':'<span class="tag">Work : pas encore matérialisé</span>')+'</div><div class="mini">Statut lu depuis le registre persistant ; aucune réclamation, soumission, signature ou paiement n’est déduit de cet état.</div></article>';
+  const resumeButton=status!=='COMPLETED'&&status!=='CANCELLED' ? '<button type="button" data-resume-work-plan="'+esc(id)+'">Reprendre la préparation</button>' : '';
+  return '<article class="task"><div class="taskhead"><div><h3>'+esc(title)+'</h3><div class="taskid">Plan '+esc(id)+'</div></div><span class="tag '+kind+'">'+esc(label)+'</span></div><div class="taskmeta"><span class="tag">Dernière mise à jour : '+esc(updatedText)+'</span>'+(dag?'<span class="tag">Work : '+esc(dag)+'</span>':'<span class="tag">Work : pas encore matérialisé</span>')+resumeButton+'</div><div class="mini">Statut lu depuis le registre persistant ; aucune réclamation, soumission, signature ou paiement n’est déduit de cet état. Reprendre ne réclame ni ne soumet une mission et n’effectue aucun paiement.</div></article>';
  }).join('');
 }
 function paintSavedPlanCount(){
@@ -74,8 +75,13 @@ async function executeSavedReadOnlyPreparation(taskId,planId,title,button,safePr
  const plan=saved?.plan||saved;
  const tasks=Array.isArray(plan?.tasks)?plan.tasks:[];
  if(!tasks.length||tasks.length>8||!tasks.every(task=>task&&safePreparationCapabilities.has(String(task.capability||''))))throw new Error('PERSISTED_PREP_PLAN_NOT_READ_ONLY');
- const materialized=await executeWorkCapability('work.plan.materialize',{id:planId});
- const dagId=String(materialized?.plan?.work_dag_id||materialized?.work?.id||'').trim();
+ const existingDagId=String(plan?.work_dag_id||'').trim();
+ let materialized=null;
+ let dagId=existingDagId;
+ if(!dagId){
+  materialized=await executeWorkCapability('work.plan.materialize',{id:planId});
+  dagId=String(materialized?.plan?.work_dag_id||materialized?.work?.id||'').trim();
+ }
  if(!dagId)throw new Error('WORK_PREP_DAG_ID_MISSING');
  const executed=await executeWorkCapability('work.run',{id:dagId});
  const synced=await executeWorkCapability('work.plan.sync',{id:planId});
@@ -185,6 +191,26 @@ async function createPersistentPrepPlan(task,button){
   savingTaskPlans.delete(taskId);button.disabled=false;
  }
 }
+async function resumePersistentPrepPlan(planId,button){
+ const row=savedPlanRecords.get(planId);if(!row)return;
+ if(savingTaskPlans.has(planId))return;
+ const safePreparationCapabilities=new Set([
+  'echo','rag.search','roadmap.read','roadmap.human-actions-required',
+  'system.bindings','system.integrity','system.maturity',
+  'model.council','council.state-of-play','evolution.preflight'
+ ]);
+ savingTaskPlans.add(planId);button.disabled=true;const original=button.textContent;button.textContent='Reprise en cours…';
+ try{
+  await executeSavedReadOnlyPreparation(planId,planId,String(row.goal||planId).slice(0,260),button,safePreparationCapabilities,'PERSISTED_READ_ONLY_PLAN','Reprise explicite d’un plan persistant.');
+  await loadPersistentPrepPlans();
+ }catch(error){
+  button.textContent='Réessayer la préparation';
+  $('taskError').textContent='Le plan '+planId+' reste enregistré, mais sa reprise n’est pas confirmée : '+String(error?.message||error)+'. Aucune mission n’a été réclamée ou soumise.';
+ }finally{
+  savingTaskPlans.delete(planId);if(button.isConnected)button.disabled=false;
+  if(button.isConnected&&button.textContent==='Reprise en cours…')button.textContent=original;
+ }
+}
 async function refreshTasks(){const b=$('refreshAll');b.disabled=true;$('taskError').textContent='Lecture des offres publiques…';try{const r=await fetch('/api/revenue/tasks',{cache:'no-store'});const d=await r.json();if(!r.ok||d.ok!==true)throw new Error(d.code||d.error||'TASKMARKET_UNAVAILABLE');tasks=Array.isArray(d.tasks)?d.tasks:[];lastFetch=d.retrievedAt||new Date().toISOString();$('taskFetched').textContent='Mis à jour '+new Date(lastFetch).toLocaleString('fr-FR');$('taskError').textContent='Source : Taskmarket · '+tasks.length+' offres lisibles. La catégorie « candidat » est un filtre indicatif, pas une promesse de réussite.';renderTasks();await loadPersistentPrepPlans();$('globalStatus').innerHTML='<span class="dot good"></span><span>Taskmarket répond · mode observation uniquement</span>'}catch(e){$('taskError').textContent='Impossible de lire les offres : '+String(e.message||e);$('globalStatus').innerHTML='<span class="dot bad"></span><span>Lecture des offres indisponible</span>'}finally{b.disabled=false}}
 function computerControlIssue(pc,now=Date.now()){
  if(!pc)return 'COMPUTER_NOT_FOUND';
@@ -291,7 +317,7 @@ async function scanLocalTaskmarket(){
  }catch(e){info.className='banner';info.textContent='Lecture locale non terminée : '+String(e.message||e)+'. La liste publique reste disponible séparément.'}
  finally{button.disabled=false}
 }
-$('taskList').addEventListener('click',event=>{const button=event.target.closest('[data-create-work-plan]');if(!button)return;const task=tasks.find(item=>String(item.id)===button.getAttribute('data-create-work-plan'));if(!task){$('taskError').textContent='Offre introuvable dans la liste actuelle. Actualise Taskmarket puis réessaie.';return}createPersistentPrepPlan(task,button)});$('refreshAll').onclick=()=>Promise.all([refreshTasks(),refreshPc()]);$('refreshPc').onclick=refreshPc;$('scanPcTaskmarket').onclick=scanLocalTaskmarket;$('taskSearch').addEventListener('input',renderTasks);$('taskFit').addEventListener('change',renderTasks);$('taskSort').addEventListener('change',renderTasks);
+$('prepPlanList').addEventListener('click',event=>{const button=event.target.closest('[data-resume-work-plan]');if(!button)return;const planId=button.getAttribute('data-resume-work-plan');if(planId)resumePersistentPrepPlan(planId,button)});$('taskList').addEventListener('click',event=>{const button=event.target.closest('[data-create-work-plan]');if(!button)return;const task=tasks.find(item=>String(item.id)===button.getAttribute('data-create-work-plan'));if(!task){$('taskError').textContent='Offre introuvable dans la liste actuelle. Actualise Taskmarket puis réessaie.';return}createPersistentPrepPlan(task,button)});$('refreshAll').onclick=()=>Promise.all([refreshTasks(),refreshPc()]);$('refreshPc').onclick=refreshPc;$('scanPcTaskmarket').onclick=scanLocalTaskmarket;$('taskSearch').addEventListener('input',renderTasks);$('taskFit').addEventListener('change',renderTasks);$('taskSort').addEventListener('change',renderTasks);
 Promise.all([refreshTasks(),refreshPc()]);
 </script></body></html>`;
 }
