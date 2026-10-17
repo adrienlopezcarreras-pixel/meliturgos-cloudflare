@@ -129,11 +129,33 @@ export class ModelRouter {
     }
   }
 
+  async withinExecutionBudget(operation) {
+    // The shared chat deadline must also guard the parallel fan-out and
+    // final provider fallback, not only sequential model invocations.
+    const remaining = this.deadlineAt == null ? Infinity : this.deadlineAt - Date.now();
+    if (remaining <= 0) throw new DomainError('CHAT_DEADLINE_EXCEEDED', 504);
+    const timeout = Math.min(Math.max(1, Number(this.timeoutMs) || 120000), remaining);
+    let timer;
+    try {
+      return await Promise.race([
+        Promise.resolve().then(operation),
+        new Promise((_, reject) => {
+          timer = setTimeout(() => reject(new DomainError(
+            this.deadlineAt != null && Date.now() >= this.deadlineAt
+              ? 'CHAT_DEADLINE_EXCEEDED' : 'timeout', 504,
+          )), timeout);
+        }),
+      ]);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
   async executeParallel({task='GENERAL',messages,maxCandidates=this.maxCalls},context={}) {
     if (!this.augmentio?.fanOut) throw new DomainError('AUGMENTIO_UNCONFIGURED',503);
     this.stats.augmentioCalls++;
     const input=Array.isArray(messages) ? messages.map(m=>({role:m.role||'user',content:String(m.content||'')})) : String(messages||'');
-    const result=await this.augmentio.fanOut({capability:this.normalizeTask(task),input,context,maxCandidates});
+    const result=await this.withinExecutionBudget(() => this.augmentio.fanOut({capability:this.normalizeTask(task),input,context,maxCandidates}));
     const best = result?.best || {};
     const finishReason = extractFinishReason(best);
     return {
@@ -207,7 +229,7 @@ export class ModelRouter {
     const deadlineExceeded=this.deadlineAt!=null && Date.now()>=this.deadlineAt;
     if (this.finalFallback && refusal.useFinalFallback && !deadlineExceeded) {
       try {
-        const result=await this.finalFallback({messages,task,reason:refusal.reason,previousModels:candidates.map(c=>c.id),previousFailureReasons:reasons,context});
+        const result=await this.withinExecutionBudget(() => this.finalFallback({messages,task,reason:refusal.reason,previousModels:candidates.map(c=>c.id),previousFailureReasons:reasons,context}));
         const text=extractModelText(result);
         if(!text) throw new DomainError('provider_unavailable',502);
         return {
