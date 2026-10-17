@@ -77,7 +77,11 @@ export async function runDirectWork({db,listMissions,assess,execute,verify,maxAs
  const candidates=missions.filter(m=>m?.eligibleForDraft===true&&typeof m?.description==='string'&&m.description.trim().length>=10&&m.description.length<=6000);
  const budget=Math.max(0,Math.min(3,Number.isSafeInteger(maxAssessments)?maxAssessments:3));
  let assessments=0;
+ const seenMissionIds=new Set();
  for(const mission of candidates){
+  const missionId=typeof mission.id==='string'?mission.id:'';
+  if(missionId&&seenMissionIds.has(missionId))continue;
+  if(missionId)seenMissionIds.add(missionId);
   if(assessments>=budget)break;
   assessments++;
   let assessment;
