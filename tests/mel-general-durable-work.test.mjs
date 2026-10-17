@@ -137,6 +137,7 @@ test('durable kickoff gives repeated captures a stable event ID so HTTP retries 
   assert.equal(first.ok, true);
   assert.equal(writes, 1);
   assert.equal(captures[0].sourceEventId, first.id);
+  const firstDue = stored.resumeAt;
   stored = { ...stored, status: 'resuming', leaseToken: 'active-runner', leaseUntil: 99999 };
   now += 500;
   const repeated = await launchSubstantialMelTask({ bus, text: GOAL, conversationId: 'owner-conversation', context: {} });
@@ -145,5 +146,5 @@ test('durable kickoff gives repeated captures a stable event ID so HTTP retries 
   assert.equal(captures[1].sourceEventId, first.id);
   assert.equal(writes, 1, 'retry must not rewrite open-loop due time or lease');
   assert.equal(stored.leaseToken, 'active-runner');
-  assert.equal(stored.resumeAt, 181000);
+  assert.equal(stored.resumeAt, firstDue);
 });
