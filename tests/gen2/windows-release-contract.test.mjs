@@ -141,6 +141,24 @@ test('Companion USB preflight preserves Windows PowerShell UTF-8 and surfaces re
  assert.doesNotMatch(helper,/flash_allowed\s*=\s*\$true/);
 });
 
+test('MINI USB chooses an installed esptool interpreter instead of blindly using Python 3', async () => {
+ const helper=await read('windows-companion/MEL-MINI-USB-Preflight.ps1');
+ assert.match(helper,/foreach \(\$version in @\('3\.13','3\.12'/);
+ assert.match(helper,/-m esptool version/);
+ assert.match(helper,/MINI_USB_ESPTOOL_REQUIRED/);
+ assert.doesNotMatch(helper,/\$pythonArgs = @\('-3'\)\s*\n\s*} else/);
+});
+
+test('Companion dashboard preserves functional controls with refreshed visual hierarchy', async () => {
+ const source=await read('windows-companion/MEL-Companion.cs');
+ assert.match(source,/POSTE DE TRAVAIL/);
+ assert.match(source,/Appareils connectés/);
+ assert.match(source,/title=="Contrôle USB MINI"/);
+ assert.match(source,/Drawing2D\.GraphicsPath/);
+ assert.match(source,/ChooseMiniUsbAction/);
+ assert.match(source,/RunAndroidWifiPairing/);
+});
+
 test('Companion USB MINI preselects COM3 when present while retaining fallback', async () => {
  const source=await read('windows-companion/MEL-Companion.cs');
  assert.match(source,/Array\.IndexOf\(ports,"COM3"\)/);
