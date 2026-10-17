@@ -1919,7 +1919,7 @@ export async function handleNativeChat(request, env, options = {}) {
   let automaticRecoveredAssessment = null;
   let qualityCandidateText = evidenceAlignedResponseText;
 
-  if (!plainChatTurn && !negativeFeedbackRecovery && hasChatBudget(chatDeadlineAt, COUNCIL_RECOVERY_MIN_REMAINING_MS) && shouldEscalateNativeChatToCouncil({
+  if (!negativeFeedbackRecovery && hasChatBudget(chatDeadlineAt, COUNCIL_RECOVERY_MIN_REMAINING_MS) && shouldEscalateNativeChatToCouncil({
     userText:activeTaskText,
     responseText:evidenceAlignedResponseText,
     assessment:initialQualityAssessment,
