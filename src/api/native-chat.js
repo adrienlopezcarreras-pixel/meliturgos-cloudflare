@@ -51,6 +51,73 @@ export const MEL_REAL_CAPABILITIES = [
   'Ne dis donc jamais par défaut que les clés Bing, Google Search, Drive, Stripe, PayPal, GitHub ou Companion manquent toutes, ni que le Worker ne peut ni écrire en D1 ni exécuter de tâches programmées : inspecte les capacités runtime et les TOOL_RESULT avant une telle affirmation. Taskmarket public, D1 et GitHub ne nécessitent pas de réclamer de nouveaux secrets dans le chat. Si un service précis échoue, nomme la capacité, le code erreur et la preuve manquante. Ne demande jamais de copier un token ou un secret dans la conversation ; la configuration éventuelle se fait dans le stockage sécurisé du service concerné.',
 ].join(' ');
 
+
+/**
+ * A MEL WORK readiness question needs actual runtime observations, not a
+ * model-generated prerequisite checklist. This applies to long prompts too.
+ * It does not intercept an ordinary request to perform work.
+ */
+export function isMelWorkReadinessQuestion(input) {
+  const value = String(input || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  if (!/\bmel\s*work\b/.test(value)) return false;
+  return /\b(?:verifi\w*|controle\w*|diagnostic|pret\w*|readiness|connexion\w*|connect\w*|acces|disponib\w*|capacite\w*|outil\w*|permission\w*|configuration\w*|secret\w*|token\w*|jeton\w*|cle\w*|manqu\w*)\b/.test(value);
+}
+
+/** Build a bounded factual answer from current read-only CapabilityBus executions. */
+export function formatVerifiedMelWorkReadiness({ selfState, selfError, companion, companionError, manifest = [] } = {}) {
+  const lines = ['MEL WORK — diagnostic fondé sur les outils exécutés dans cette requête.'];
+  const sections = selfState?.sections || {};
+  const code = sections.code;
+  if (code?.ok === true) {
+    const data = code.data || {};
+    lines.push('Dépôt MEL : lecture/intégrité observée ; statut ' + String(data.status || 'UNKNOWN') +
+      (data.head ? ' ; HEAD ' + String(data.head).slice(0, 12) : '') + '.');
+  } else {
+    lines.push('Dépôt MEL : non vérifié pendant cette requête' +
+      (code?.error ? ' (' + String(code.error).slice(0, 100) + ')' : '') + '.');
+  }
+  const work = sections.work;
+  if (work?.ok === true) {
+    const count = Number(work.data?.count);
+    lines.push('Travaux persistants D1 : lecture réelle réussie ; ' +
+      (Number.isFinite(count) ? count + ' travaux ouverts' : 'nombre inconnu') +
+      '. Cette lecture ne prouve pas une nouvelle écriture.');
+  } else {
+    lines.push('Travaux persistants D1 : lecture non vérifiée' +
+      (work?.error ? ' (' + String(work.error).slice(0, 100) + ')' : '') + '.');
+  }
+  const autonomy = sections.autonomy;
+  if (autonomy?.ok === true) {
+    const control = autonomy.data?.control;
+    lines.push('Autonomie : état lu, ' + String(autonomy.data?.status || 'UNKNOWN') +
+      (control ? (control.paused === true ? ' ; en pause' : ' ; non suspendue selon le contrôle') : '') + '.');
+  } else {
+    lines.push('Autonomie : état non vérifié' +
+      (autonomy?.error ? ' (' + String(autonomy.error).slice(0, 100) + ')' : '') + '.');
+  }
+  if (selfError) lines.push('Observation interne : échec ' + String(selfError).slice(0, 100) + '.');
+  if (companion?.ok === true && Array.isArray(companion.devices)) {
+    const windows = companion.devices.filter(row => String(row?.platform || '').toLowerCase() === 'windows');
+    const online = windows.filter(row => row?.online === true && row?.remote_access_issue == null && row?.halted !== true);
+    lines.push('Companion Windows : ' + online.length + ' appareil(s) autorisé(s) et joignable(s) selon les battements de cœur ; ' +
+      windows.length + ' appareil(s) Windows appairé(s).' +
+      (online.length === 0 && windows.length > 0 ? ' Motif : ' + String(windows[0].remote_access_issue || 'NON_AUTORISE').slice(0, 90) + '.' : ''));
+  } else {
+    lines.push('Companion Windows : état non vérifié' +
+      (companionError ? ' (' + String(companionError).slice(0, 100) + ')' : '') + '.');
+  }
+  const byId = new Map((Array.isArray(manifest) ? manifest : []).map(row => [String(row?.id || ''), row]));
+  for (const id of ['web.research', 'knowledge.research', 'work.plan.list']) {
+    const row = byId.get(id);
+    if (row) lines.push(id + ' : capacité ' + String(row.status || 'UNKNOWN') +
+      (row.tested_now === true ? ' ; exécutée maintenant' : ' ; non exécutée dans ce diagnostic') + '.');
+  }
+  lines.push('Taskmarket : la découverte publique et les cycles de travail existent dans MEL, mais ce diagnostic ne prouve ni une mission ouverte récupérée ni une soumission ni un paiement.');
+  lines.push('Les clés Bing/Google Search, Drive, Stripe/PayPal et les comptes Upwork/Malt/Fiverr ne constituent pas des prérequis généraux pour MEL WORK/Taskmarket. Aucun jeton ne doit être copié dans le chat.');
+  lines.push('Diagnostic en lecture seule : aucun cycle rémunéré n’a été lancé ici. Le statut « PRÊTE pour une mission réelle » exige la preuve du cycle dans MEL WORK, pas une liste de secrets.');
+  return lines.join('\n\n');
+}
+
 export function inferChatGPTHistoryCapability(text) {
   const value = String(text || '').trim();
   if (!value) return null;
@@ -1278,6 +1345,7 @@ export async function handleNativeChat(request, env, options = {}) {
   const activeTaskText = negativeFeedbackRecovery?.original_request || text;
   const currentFactVerification = releaseSmoke ? null : inferCurrentFactVerificationPolicy(activeTaskText);
   const personalProfileIntent = isPersonalProfileRecall(activeTaskText);
+  const melWorkReadiness = !releaseSmoke && isMelWorkReadinessQuestion(activeTaskText);
   const inferredExecutionCapability = releaseSmoke ? null : inferNativeExecutionCapability(activeTaskText);
   const inferredSelfActivityCapability = releaseSmoke ? null : inferNativeSelfActivityCapability(activeTaskText);
   const ordinaryInferredCapability = releaseSmoke
@@ -1288,9 +1356,10 @@ export async function handleNativeChat(request, env, options = {}) {
         // et sans danger avec un chemin réel. Le modèle ne doit pas simuler
         // un résultat code.read en JSON sans passer par le CapabilityBus.
         const explicitCodeRead = inferNativeCodeCapability(activeTaskText, recent);
-        return explicitCodeRead?.id === 'code.read' ? explicitCodeRead : null;
+        return explicitCodeRead?.id === 'code.read' ? explicitCodeRead : (melWorkReadiness ? { id: 'self.state', input: {} } : null);
       })()
-    : inferredExecutionCapability
+    : (melWorkReadiness ? { id: 'self.state', input: {} } : null)
+      || inferredExecutionCapability
       || inferredSelfActivityCapability
       || inferNativeComputerCapability(activeTaskText)
       || inferConnectedDataCapability(activeTaskText)
@@ -1318,8 +1387,7 @@ export async function handleNativeChat(request, env, options = {}) {
   // Direct chat is the default. The operational context is only assembled
   // when a request actually needs capabilities, a live status, or verification.
   // This avoids burying an ordinary answer under the entire MEL runbook.
-  const melWorkCapabilityQuestion = /\bMEL\s*WORK\b/i.test(activeTaskText)
-    && /\b(?:cl[ée]s?|tokens?|jetons?|secrets?|acc[eè]s|connexion|connect[ée]|configur[ée]|manque|pr[êe]t|disponible|outils?|capacit[ée]s?|permissions?|D1|Companion|Taskmarket|paiement|freelance)\b/i.test(activeTaskText);
+  const melWorkCapabilityQuestion = melWorkReadiness;
   const plainChatTurn = !releaseSmoke && !body.capability?.id && !inferredCapability
     && !melWorkCapabilityQuestion
     && !currentFactVerification && !personalProfileIntent
@@ -1386,6 +1454,19 @@ export async function handleNativeChat(request, env, options = {}) {
           scope: String(error?.approval_scope || capability.id),
         };
       }
+    }
+  }
+
+
+  // A readiness claim must be based on a real read of the paired-device state.
+  // Do not infer Companion connectivity from the mere presence of its code.
+  if (!releaseSmoke && melWorkReadiness && !negativeFeedbackRecovery && !body.capability?.id) {
+    try {
+      const observed = await runtime.bus.execute('computer.status', {}, nativeCapabilityContext(env, request, options));
+      toolResults.push({ capability: 'computer.status', status: 'SUCCEEDED', result: summarizeToolResult(observed) });
+      capabilitiesUsed.push('computer.status');
+    } catch (error) {
+      toolResults.push({ capability: 'computer.status', status: 'FAILED', error: String(error?.code || error?.message || 'COMPUTER_STATUS_FAILED') });
     }
   }
 
@@ -1552,6 +1633,32 @@ export async function handleNativeChat(request, env, options = {}) {
   }
 
   if (!releaseSmoke) capabilityManifest = applyCapabilityExecutionEvidence(capabilityManifest, toolResults);
+
+
+  if (!releaseSmoke && melWorkReadiness && !negativeFeedbackRecovery && !body.capability?.id) {
+    const introspection = toolResults.find(row => row.capability === 'self.state');
+    const computer = toolResults.find(row => row.capability === 'computer.status');
+    const responseText = formatVerifiedMelWorkReadiness({
+      selfState: introspection?.status === 'SUCCEEDED' ? introspection.result : null,
+      selfError: introspection?.status === 'FAILED' ? introspection.error : null,
+      companion: computer?.status === 'SUCCEEDED' ? computer.result : null,
+      companionError: computer?.status === 'FAILED' ? computer.error : null,
+      manifest: capabilityManifest,
+    });
+    let archiveSaved = false;
+    if (service) {
+      try {
+        await service.archiveMessage({ conversationId, deviceId, role:'user', content:text, timestamp:Date.now(), provenance:userProvenance, metadata:userMetadata });
+        await service.archiveMessage({ conversationId, deviceId, role:'assistant', content:responseText, timestamp:Date.now()+1, provenance:'native-chat:mel-work-live-readiness' });
+        archiveSaved = true;
+      } catch {}
+    }
+    return Response.json({
+      ok: true, text: responseText, model:'deterministic-mel-work-readiness',
+      provider:'mel', response_mode:'mel-work-readiness', capability_used:capabilitiesUsed,
+      tool_results:toolResults, archive_saved:archiveSaved,
+    }, { headers: { 'cache-control':'no-store' } });
+  }
 
   if (!releaseSmoke && inferredExecutionCapability?.execution_intent === 'GLOBAL_CAPABILITY_STRESS_TEST') {
     const execution = toolResults.find(row => row.capability === 'capability.audit') || null;
