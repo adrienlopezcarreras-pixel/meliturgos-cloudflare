@@ -292,3 +292,12 @@ test('MEL WORK refuses to mistake malformed artifact API output for an empty res
  assert.match(script,/if\(!Array\.isArray\(result\?\.artifacts\)\)throw new Error\('WORK_ARTIFACTS_INVALID_RESPONSE'\)/);
  assert.doesNotThrow(()=>new Function(script));
 });
+
+
+test('MEL WORK refreshes persisted evidence automatically after a preparation execution',async()=>{
+ const html=await(await onRequestGet()).text();
+ const script=html.match(/<script>([\s\S]*?)<\/script>/)?.[1]||'';
+ const runner=script.slice(script.indexOf('async function executeSavedReadOnlyPreparation'),script.indexOf('async function createPersistentPrepPlan'));
+ assert.match(runner,/void viewPersistentWorkArtifacts\(planId,evidenceButton\)/);
+ assert.doesNotThrow(()=>new Function(script));
+});
