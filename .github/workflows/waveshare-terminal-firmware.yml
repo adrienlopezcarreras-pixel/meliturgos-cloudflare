@@ -66,6 +66,9 @@ jobs:
           # Byte-identical rebuilds: no build date/time or host paths in the image, so the
           # publish rebuild matches the validated CI build exactly.
           set_cfg_y CONFIG_APP_REPRODUCIBLE_BUILD
+          # Screenless pairing: the passkey goes out on the USB console (secondary console).
+          set_cfg_n CONFIG_ESP_CONSOLE_SECONDARY_NONE
+          set_cfg_y CONFIG_ESP_CONSOLE_SECONDARY_USB_SERIAL_JTAG
           set_cfg_y CONFIG_LV_ATTRIBUTE_FAST_MEM_USE_IRAM
           set_cfg_y CONFIG_LV_MEMCPY_MEMSET_STD
 
@@ -213,6 +216,8 @@ jobs:
           sha256sum mel-terminal.bin mini-first-install.bin lvgl_system.elf lvgl_system.map ../firmware-manifest.json > ../SHA256SUMS.txt
           # Readable in the run's annotations: the exact values the publish workflow requires.
           echo "::notice title=MINI firmware identity::source_sha=${SOURCE_SHA} ota_sha256=${OTA_SHA256} installer_sha256=${INSTALL_SHA256} version=${FW_VERSION}"
+          # The screenless pairing passkey needs the USB console: show the resolved setting.
+          echo "::notice title=MINI console::$(grep -hE '^CONFIG_ESP_CONSOLE_(UART_DEFAULT|USB_SERIAL_JTAG|SECONDARY_[A-Z_]+)=y' sdkconfig ../sdkconfig 2>/dev/null | tr '\n' ' ')"
           python - <<'PY'
           import hashlib, json
           from pathlib import Path
