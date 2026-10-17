@@ -62,7 +62,7 @@ export async function handleRevenueApi(request, env) {
     if(!record(expectedByTaskId)||Object.keys(expectedByTaskId).length>20)return json({ok:false,code:'WORK_TRUSTED_ACCEPTANCE_INVALID'},503);
     try {
       const cycle=await runBoundedTaskmarketDraftCycle({
-        db:env.DB,env,validateArtifact:createExactJsonAcceptanceValidator({expectedByTaskId}),
+        db:env.DB,env,eligibleTaskIds:Object.keys(expectedByTaskId),validateArtifact:createExactJsonAcceptanceValidator({expectedByTaskId}),
         policy:{minimumProfitMicros:0,minimumMarginBps:0,maxTasksPerCycle:1},
       });
       const decisions=Array.isArray(cycle?.decisions)?cycle.decisions:[];
