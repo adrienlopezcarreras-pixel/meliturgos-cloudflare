@@ -2985,6 +2985,17 @@ function Perform-Step($step, [string]$commandId, [string]$planSchema="") {
   }
 }
 
+function Submit-CommandResult($body) {
+  # Never reinterpret a successful PC action as failed solely because its receipt was lost.
+  # Retry the same immutable outcome; the server acknowledges identical terminal results.
+  for ($attempt=1; $attempt -le 3; $attempt++) {
+    try { [void](Submit-CommandResult $body); return $true }
+    catch { if ($attempt -lt 3) { Start-Sleep -Milliseconds (400 * $attempt) } }
+  }
+  Write-Warning "MEL_RESULT_DELIVERY_UNCONFIRMED command_id=$($body.command_id)"
+  return $false
+}
+
 function Process-Command($command) {
   $outputs = @()
   $isRemoteGui = [string]$command.plan.schema -in @('mel.devices.computer-use.v1','mel.devices.pc-control.v1')
@@ -3010,7 +3021,7 @@ function Process-Command($command) {
       $outputs += ,@{ action='desktop.view.request'; screenshot_key=$shot.key; view_url=$shot.view_url; screen_bounds=$shot.screen_bounds }
       Assert-ActiveRemoteCommand ([string]$command.id)
       $body = @{ command_id=$command.id; ok=$true; result=@{ outputs=$outputs; capture_count=1 } }
-      [void](Invoke-MelJson -Path "/api/computer/v1/result" -Method "POST" -Body $body)
+      [void](Submit-CommandResult $body)
       return
     }
     foreach ($step in @($command.plan.steps)) {
@@ -3019,11 +3030,11 @@ function Process-Command($command) {
     }
     if ($isRemoteGui) { Assert-ActiveRemoteCommand ([string]$command.id) }
     $body = @{ command_id=$command.id; ok=$true; result=@{ outputs=$outputs; active_window=(Active-Window) } }
-    [void](Invoke-MelJson -Path "/api/computer/v1/result" -Method "POST" -Body $body)
+    [void](Submit-CommandResult $body)
   } catch {
     $code = [string]$_.Exception.Message
     $body = @{ command_id=$command.id; ok=$false; error_code=$code; result=@{ outputs=$outputs } }
-    try { [void](Invoke-MelJson -Path "/api/computer/v1/result" -Method "POST" -Body $body) } catch {}
+    [void](Submit-CommandResult $body)
   }
 }
 
