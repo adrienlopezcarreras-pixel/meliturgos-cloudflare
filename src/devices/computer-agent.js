@@ -167,6 +167,7 @@ export async function runComputerAgent({ env, goal, maxSteps = AGENT_MAX_STEPS, 
   let status = 'INCOMPLETE';
   let pendingTypedText = null;
   let typedTextVerified = false;
+  let successfulActions = 0;
   for (let turn = 1; turn <= limit; turn += 1) {
     // Launch an explicitly requested allowlisted application immediately.
     // No UIA round-trip is needed to discover where a known application lives.
@@ -177,6 +178,7 @@ export async function runComputerAgent({ env, goal, maxSteps = AGENT_MAX_STEPS, 
         history.push('Ouvrir ' + app + (opened.ok ? ' → fait' : ' → échec ' + opened.code));
         onEvent({ type: 'step', n: turn, ok: opened.ok, text: 'Ouvrir ' + app, code: opened.ok ? null : opened.code });
         if (!opened.ok) { status = 'FAILED'; summary = opened.code; break; }
+        successfulActions += 1;
         await sleep(1500);
         continue;
       }
@@ -202,6 +204,11 @@ export async function runComputerAgent({ env, goal, maxSteps = AGENT_MAX_STEPS, 
     } catch (error) {
       decision = { action: 'fail', reason: 'AGENT_MODEL_FAILED:' + String(error?.code || error?.message || '').slice(0, 80) };
     }
+    if (decision.action === 'done' && successfulActions === 0) {
+      status = 'FAILED'; summary = 'COMPUTER_NO_ACTION_PERFORMED';
+      onEvent({ type: 'step', n: turn, ok: false, text: 'Aucune action effectuée sur le PC', code: summary });
+      break;
+    }
     if (decision.action === 'done' && pendingTypedText !== null && !typedTextVerified) {
       status = 'FAILED'; summary = 'COMPUTER_TYPED_TEXT_NOT_VERIFIED';
       onEvent({ type: 'step', n: turn, ok: false, text: 'Texte non vérifié dans la fenêtre', code: summary });
@@ -217,6 +224,7 @@ export async function runComputerAgent({ env, goal, maxSteps = AGENT_MAX_STEPS, 
       continue;
     }
     const done = await runCompanionCommand({ db, device, steps: plan.steps, sessionId, sleep, now });
+    if (done.ok) successfulActions += 1;
     if (done.ok && decision.action === 'type') {
       pendingTypedText = String(decision.text || '').slice(0, 200);
       typedTextVerified = false;
