@@ -97,6 +97,8 @@ test('CapabilityBus exposes safe actionable health detail for blocked desktop co
  const db=sqliteD1(),bus=new CapabilityBus();
  registerComputerRuntimeCapabilities(bus,{db});
  try{
+  // Initialize the D1 schema through the public capability before seeding fixtures.
+  await bus.execute('computer.status',{}, {owner:'owner'});
   await device(db,{id:'pc-health',grant:false});
   let row=await bus.refreshHealth('computer.execute');
   assert.equal(row.health,'UNAVAILABLE');
