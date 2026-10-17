@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { runTaskmarketWorkerCycle, feedbackToLoraCandidate, createD1ValidatedDraftAdapter, runTaskmarketWorkerCycleWithD1, listD1ValidatedDrafts, createPublicTaskmarketListAdapter } from '../../src/revenue/taskmarket-worker-cycle.js';
+import { runTaskmarketWorkerCycle, feedbackToLoraCandidate, createD1ValidatedDraftAdapter, runTaskmarketWorkerCycleWithD1, listD1ValidatedDrafts, createPublicTaskmarketListAdapter, createTaskmarketCouncilAssessmentAdapter } from '../../src/revenue/taskmarket-worker-cycle.js';
 
 const task = {
   id: '0x123',
@@ -223,4 +223,14 @@ test('public Taskmarket discovery refuses malformed upstream payload',async()=>{
 test('rejects a solver-supplied hash that disagrees with actual content',async()=>{
  const r=await runTaskmarketWorkerCycle({...base,solveWithMel:async()=>({content:'{}',sha256:'a'.repeat(64)})});
  assert.equal(r.decisions[0].reason,'CANDIDATE_HASH_MISMATCH');
+});
+
+test('Council Taskmarket assessment accepts only complete independent structured assessments',async()=>{
+ const content={eligible:true,confidenceBps:9500,category:'data',requiresHuman:false,requiresPhysicalWorld:false,requiresSecrets:false,requestsUnsafeAction:false,estimatedComputeCostMicros:12000};
+ const assess=createTaskmarketCouncilAssessmentAdapter({council:async()=>({status:'COMPLETE',independent_response_count:2,synthesis:{text:JSON.stringify(content)}})});
+ assert.equal((await assess({task,untrustedDescription:task.description})).eligible,true);
+ const degraded=createTaskmarketCouncilAssessmentAdapter({council:async()=>({status:'DEGRADED_SINGLE_MODEL',independent_response_count:1,synthesis:{text:JSON.stringify(content)}})});
+ await assert.rejects(degraded({task}),/WORK_COUNCIL_INDEPENDENCE_NOT_PROVEN/);
+ const malformed=createTaskmarketCouncilAssessmentAdapter({council:async()=>({status:'COMPLETE',independent_response_count:2,synthesis:{text:'not json'}})});
+ await assert.rejects(malformed({task}),/WORK_COUNCIL_ASSESSMENT_INVALID/);
 });
