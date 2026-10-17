@@ -123,13 +123,26 @@ test('F6 refuses model done when typed text has no observable readback', async (
 test('F5/F6 cannot report DONE when screenshot proof is absent', async () => {
   const db = await setup();
   const pc = fakeCompanion(db, { noScreenshot: true });
-  const ai = scriptedAi([{ action: 'done', summary: 'terminé' }]);
+  const ai = scriptedAi([{ action: 'key', key: 'TAB' }, { action: 'done', summary: 'terminé' }]);
   const result = await runComputerAgent({
     env: { DB: db, AI: ai }, goal: 'sur mon PC, contrôle la fenêtre',
     sleep: () => pc.tick(),
   });
   assert.equal(result.ok, false);
   assert.equal(result.summary, 'COMPUTER_SCREENSHOT_PROOF_MISSING');
+  db.close();
+});
+
+test('MEL cannot call a PC mission successful without performing any PC action', async () => {
+  const db = await setup();
+  const pc = fakeCompanion(db);
+  const ai = scriptedAi([{ action: 'done', summary: 'terminé' }]);
+  const result = await runComputerAgent({
+    env: { DB: db, AI: ai }, goal: 'sur mon PC, contrôle la fenêtre',
+    sleep: () => pc.tick(),
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.summary, 'COMPUTER_NO_ACTION_PERFORMED');
   db.close();
 });
 
