@@ -1,5 +1,5 @@
-import { listD1ValidatedDrafts, createTaskmarketCouncilSolverAdapter, createTaskmarketCouncilAssessmentAdapter } from '../revenue/taskmarket-worker-cycle.js';
-import { runDirectWork } from '../revenue/work-mission-core.js';
+import { listD1ValidatedDrafts } from '../revenue/taskmarket-worker-cycle.js';
+import { streamDirectWork } from '../revenue/work-stream.js';
 import { requireAuth } from '../core/security.js';
 import { maybeHandleComputerApi } from '../devices/computer-companion-api.js';
 
@@ -93,33 +93,8 @@ export async function handleRevenueApi(request, env, ctx = null) {
       }catch{return json({ok:false,code:'WORK_ARTIFACT_LIST_UNAVAILABLE'},503)}
     }
     if(request.method!=='POST')return json({ok:false,code:'METHOD_NOT_ALLOWED'},405);
-    if(typeof ctx?.waitUntil!=='function')return json({ok:false,code:'WORK_BACKGROUND_RUNTIME_REQUIRED'},503);
-    await env.DB.prepare("CREATE TABLE IF NOT EXISTS mel_work_cycles (id TEXT PRIMARY KEY, state TEXT NOT NULL, result TEXT, updated_at TEXT NOT NULL)").run();
-    const staleBefore=new Date(Date.now()-15*60*1000).toISOString();
-    await env.DB.prepare("UPDATE mel_work_cycles SET state='INTERRUPTED',result=?,updated_at=? WHERE state='RUNNING' AND updated_at<=?").bind(JSON.stringify({code:'WORK_EXECUTION_INTERRUPTED',retryable:true}),new Date().toISOString(),staleBefore).run();
-    const active=await env.DB.prepare("SELECT id FROM mel_work_cycles WHERE state='RUNNING' AND updated_at>? LIMIT 1").bind(staleBefore).first();
-    if(active)return json({ok:true,cycleId:active.id,status:'RUNNING',reused:true},202);
-    const id=crypto.randomUUID();
-    const startedAt=new Date().toISOString();
-    await env.DB.prepare('INSERT INTO mel_work_cycles (id,state,updated_at) VALUES (?,?,?)').bind(id,'RUNNING',startedAt).run();
-    const job=(async()=>{
-      let state='COMPLETE',result;
-      try{
-        const response=await fetch(TASKMARKET_API+'?status=open&sort=reward_desc&limit=50',{headers:{accept:'application/json'},signal:AbortSignal.timeout(12000)});
-        if(!response.ok)throw new Error('TASKMARKET_UPSTREAM_ERROR');
-        const payload=await response.json();
-        if(!Array.isArray(payload?.data?.tasks)&&!Array.isArray(payload?.tasks))throw new Error('TASKMARKET_RESPONSE_INVALID');
-        const tasks=normalizeRevenueTasks(payload).map(task=>({...task,eligibleForDraft:task.status==='open'&&task.description.trim().length>=10&&task.description.length<=6000}));
-        const solve=createTaskmarketCouncilSolverAdapter({env});
-        const assess=createTaskmarketCouncilAssessmentAdapter({env});
-        result=await runDirectWork({db:env.DB,listMissions:async()=>tasks,assess:({mission})=>assess({task:mission,untrustedDescription:mission.description}),execute:(_,mission,assessment)=>solve({task:mission,assessment})});
-        if(result.status==='NO_ELIGIBLE_MISSION')state='NO_ELIGIBLE_MISSION';
-        else if(result.status==='FAILED'||result.status==='ERROR')state='FAILED';
-      }catch(error){state='FAILED';result={code:String(error?.code||error?.message||'WORK_DIRECT_EXECUTION_FAILED').slice(0,120)}}
-      await env.DB.prepare("UPDATE mel_work_cycles SET state=?,result=?,updated_at=? WHERE id=? AND state='RUNNING'").bind(state,JSON.stringify(result),new Date().toISOString(),id).run();
-    })();
-    ctx.waitUntil(job);
-    return json({ok:true,cycleId:id,status:'RUNNING',submitted:false,paid:false},202);
+    // Streamed while the owner watches: no background job that the runtime cuts off after 30 s.
+    return streamDirectWork({env});
   }
   if (url.pathname === '/api/revenue/drafts') {
     if (request.method !== 'GET') return json({ok:false,code:'METHOD_NOT_ALLOWED'},405);
