@@ -40,7 +40,7 @@ test('persistent stress is independently authenticated and requires exact SHA pr
 test('independent post-release proofs fan out from the same immutable release SHA', async () => {
   const source = await readFile(new URL('../../.github/workflows/post-release-proof-suite.yml', import.meta.url), 'utf8');
   for (const name of ['platform', 'persistent-stress', 'workers-ai-proof-refresh', 'council-rich-ui', 'connections', 'sovereignty']) {
-    const section = source.split(new RegExp('^  ' + name + ':\\\\s*$', 'm'))[1]?.split(/^  [a-z][a-z-]*:/m)[0] || '';
+    const section = source.split('\n  ' + name + ':')[1]?.split(/\n  [a-z][a-z-]*:/m)[0] || '';
     assert.match(section, /needs: resolve/, name);
     assert.doesNotMatch(section, /needs: \\[/, name);
   }
