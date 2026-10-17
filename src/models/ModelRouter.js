@@ -188,6 +188,7 @@ export class ModelRouter {
     const candidates=(await this.orderedCandidates(task,{model})).slice(0,this.maxCalls);
     if (!candidates.length) throw new DomainError('capability_missing',422);
     let failure;
+    let attemptedModels = 0;
     const reasons=[];
     for (let i=0;i<candidates.length;i++) {
       const selected=candidates[i];
@@ -199,6 +200,7 @@ export class ModelRouter {
         break;
       }
       this.stats.calls++;
+      attemptedModels++;
       try {
         const result=await this.withinExecutionBudget(() => this.invoke(selected,messages,context));
         const text=extractModelText(result);
@@ -237,7 +239,7 @@ export class ModelRouter {
           model:result?.model||'ninjachat-default',
           provider:'ninjachat',
           task,
-          attempts:candidates.length+1,
+          attempts:attemptedModels+1,
           fallback_used:true,
           ninjachat_used:true,
           ninjachat_reason:refusal.reason,
