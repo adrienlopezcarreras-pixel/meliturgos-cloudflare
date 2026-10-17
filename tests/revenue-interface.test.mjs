@@ -502,3 +502,10 @@ test('server blocks draft cycle without a matching live Taskmarket job before Co
  try{const response=await handleRevenueApi(new Request(url,{method:'POST',headers}),env);assert.equal(response.status,409);assert.equal((await response.json()).code,'WORK_NO_VERIFIABLE_LIVE_TASK')}
  finally{globalThis.fetch=before}
 });
+
+test('MEL WORK API requires independent SQL readback to confirm persisted drafts',async()=>{
+ const file=await import('node:fs/promises');
+ const source=await file.readFile(new URL('../src/api/revenue-worker-api.js',import.meta.url),'utf8');
+ assert.match(source,/SELECT id, task_id FROM mel_work_validated_drafts WHERE id=\? AND task_id=\?/);
+ assert.match(source,/stored\.task_id!==decision\.taskId/);
+});
