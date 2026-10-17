@@ -430,7 +430,7 @@ $('runDraftCycle').onclick=async()=>{
   const proofResponse=await fetch('/api/revenue/direct-work?artifact_id='+encodeURIComponent(artifactId),{cache:'no-store'});
   const proof=await proofResponse.json().catch(()=>({}));
   if(!proofResponse.ok||proof.artifact?.id!==artifactId)throw new Error('WORK_ARTIFACT_READBACK_FAILED');
-  area.textContent='Brouillon D1 vérifié : '+artifactId+' · '+String(proof.artifact.status)+'. Non livré, non payé.\n\n'+String(proof.artifact.content||'');
+  area.textContent='Brouillon D1 vérifié : '+artifactId+' · '+String(proof.artifact.status)+'. Non livré, non payé.'+String.fromCharCode(10,10)+String(proof.artifact.content||'');
   await refreshDirectArtifacts();
  }catch(e){area.textContent='Préparation impossible : '+String(e.message||e).slice(0,140)}
  finally{button.disabled=false}
