@@ -371,10 +371,10 @@ test('MEL WORK draft cycle requires owner auth and server-side trusted oracle',a
  assert.equal(response.status,409);
  assert.equal((await response.json()).code,'WORK_TRUSTED_ACCEPTANCE_NOT_CONFIGURED');
 });
-test('MEL WORK draft-cycle button exists without claim or submit routes',async()=>{
+test('MEL WORK direct draft button uses owner-only route and no submission',async()=>{
  const html=await (await onRequestGet()).text();
  assert.match(html,/id="runDraftCycle"/);
- assert.match(html,/api\/revenue\/draft-cycle/);
+ assert.match(html,/\/api\/revenue\/direct-work/);
  assert.doesNotMatch(html,/\/api\/revenue\/taskmarket-submit/);
 });
 
