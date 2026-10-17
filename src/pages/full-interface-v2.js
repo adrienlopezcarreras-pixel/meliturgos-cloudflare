@@ -269,7 +269,7 @@ async function followChatComputerScreenshot(command){
  for(let attempt=0;attempt<30;attempt++){
   await new Promise(resolve=>setTimeout(resolve,1000));
   try{
-   const snapshot=await jfetch('/api/computer/v1/status?computer_id='+encodeURIComponent(computerId)+'&chat_capture_poll='+Date.now());
+   const snapshot=await jfetch('/api/computer/v1/status?computer_id='+encodeURIComponent(computerId)+'&command_id='+encodeURIComponent(commandId)+'&chat_capture_poll='+Date.now());
    const result=(snapshot?.commands||[]).find(item=>item?.id===commandId);
    if(!result)continue;
    if(result.status==='FAILED'||result.status==='CANCELLED'){
@@ -1119,7 +1119,7 @@ async function computerCommand(steps,approveSensitive=false){
  }
  for(let attempt=0;attempt<30;attempt++){
   await new Promise(resolve=>setTimeout(resolve,1000));
-  const snapshot=await jfetch('/api/computer/v1/status?computer_id='+encodeURIComponent(pc.id)+'&command_poll='+Date.now());
+  const snapshot=await jfetch('/api/computer/v1/status?computer_id='+encodeURIComponent(pc.id)+'&command_id='+encodeURIComponent(queued.command_id)+'&command_poll='+Date.now());
   const command=(snapshot?.commands||[]).find(entry=>entry?.id===queued.command_id);
   if(!command)continue;
   if(command.status==='FAILED'||command.status==='CANCELLED')throw Error(command.error_code||'COMPUTER_COMMAND_FAILED');

@@ -128,7 +128,21 @@ async function ownerStatus(request,env,url){
    ...device,local_compute_admission:getOwnerCompanionComputeReadiness(device,{now:statusAt})
  }));
  const id=url.searchParams.get("computer_id")||devices[0]?.id||"";let commands=[];
- if(id){const q=await env.DB.prepare("SELECT * FROM computer_commands WHERE device_id=? ORDER BY created_at DESC LIMIT 30").bind(id).all();commands=(q.results||[]).map(normalizeCommand)}
+ const exactId=url.searchParams.get("command_id");
+ if(exactId!==null&&!/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(exactId))
+  return json({ok:false,code:"COMPUTER_COMMAND_ID_INVALID"},400);
+ if(exactId!==null&&!url.searchParams.get("computer_id"))
+  return json({ok:false,code:"COMPUTER_ID_REQUIRED_FOR_COMMAND_LOOKUP"},400);
+ if(id&&exactId!==null){
+  // Exact owner-only command lookup: never lose a queued screenshot when more
+  // than 30 unrelated commands are created before the Companion returns proof.
+  // Match both device and command IDs so cross-device results never leak.
+  const row=await env.DB.prepare("SELECT * FROM computer_commands WHERE id=? AND device_id=? LIMIT 1").bind(exactId,id).first();
+  commands=row?[normalizeCommand(row)]:[];
+ }else if(id){
+  const q=await env.DB.prepare("SELECT * FROM computer_commands WHERE device_id=? ORDER BY created_at DESC LIMIT 30").bind(id).all();
+  commands=(q.results||[]).map(normalizeCommand);
+ }
  return json({ok:true,devices,selected_id:id||null,commands});
 }
 
