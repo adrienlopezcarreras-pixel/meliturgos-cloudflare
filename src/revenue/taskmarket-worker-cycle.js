@@ -40,6 +40,7 @@ export async function runTaskmarketWorkerCycle({
   validateWithCouncil,
   readLearningContext = async () => null,
   recordOutcome = async () => {},
+  persistValidatedDraft = null,
   submitResult = async () => { throw new Error('SUBMISSION_ADAPTER_NOT_CONFIGURED'); },
   policy = {},
 } = {}) {
@@ -105,7 +106,15 @@ export async function runTaskmarketWorkerCycle({
         continue;
       }
       if (screened.decision !== 'ELIGIBLE_FOR_SUBMISSION') {
-        const decision = { taskId, status: 'READY_NOT_SUBMITTED', reason: screened.reason || 'SUBMISSION_GATES_CLOSED', economics };
+        // Persist a locally validated deliverable only through an explicitly wired owner-controlled adapter.
+        // No marketplace claim, wallet action, or external submission occurs here.
+        let draftId = null;
+        if (typeof persistValidatedDraft === 'function') {
+          const saved = await persistValidatedDraft({ taskId, content: candidate.content, candidateSha256: candidate.sha256 ?? null, validation: validation.summary ?? null });
+          if (!record(saved) || typeof saved.draftId !== 'string' || !saved.draftId.trim()) throw new Error('WORK_DRAFT_PERSISTENCE_UNCONFIRMED');
+          draftId = saved.draftId;
+        }
+        const decision = { taskId, status: 'READY_NOT_SUBMITTED', reason: screened.reason || 'SUBMISSION_GATES_CLOSED', economics, draftId };
         decisions.push(decision);
         await recordOutcome({ taskId, stage: 'policy', ...decision });
         continue;
