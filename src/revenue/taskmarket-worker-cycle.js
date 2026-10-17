@@ -5,10 +5,13 @@ const record = (value) => value !== null && typeof value === 'object' && !Array.
 function result(status, reason, extra = {}) { return Object.freeze({ status, reason, ...extra }); }
 
 function toPolicyTask(task) {
+  const source = record(task) ? task : {};
   return {
-    ...task,
-    reward: String(task?.reward ?? task?.rewardUsdcBaseUnits ?? ''),
-    claimedBy: task?.claimedBy ?? null,
+    ...source,
+    reward: String(source.reward ?? source.rewardUsdcBaseUnits ?? ''),
+    // Missing keys remain unknown; do not turn absence into a safe null/false.
+    claimedBy: Object.prototype.hasOwnProperty.call(source, 'claimedBy') ? source.claimedBy : undefined,
+    stakeRequired: Object.prototype.hasOwnProperty.call(source, 'stakeRequired') ? source.stakeRequired : undefined,
   };
 }
 
