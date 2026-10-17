@@ -150,7 +150,7 @@ test('Companion USB MINI preselects COM3 when present while retaining fallback',
 test('MINI destructive installer stays single, verified and explicitly addressed', async () => {
   const script = await read('dist/MEL-Waveshare-Flash.ps1');
   const count = token => script.split(token).length - 1;
-  assert.equal(count('finally {'), 1, 'duplicate script tail');
+  assert.equal(count('finally {\n  $pass = $null'), 1, 'duplicate installer cleanup');
   assert.equal(count('erase_flash'), 1, 'duplicate erase operation');
   assert.match(script, /MINI_USB_PORT_NOT_CONFIRMED/);
   assert.match(script, /MINI_ESP32S3_IDENTITY_UNVERIFIED/);
