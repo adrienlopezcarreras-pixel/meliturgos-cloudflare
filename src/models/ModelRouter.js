@@ -63,12 +63,15 @@ function completionMetadata(result) {
 }
 
 export class ModelRouter {
-  constructor({registry=null, invoke, finalFallback, timeoutMs=120000, maxCalls=2, augmentio=null, performanceStore=null}={}) {
+  constructor({registry=null, invoke, finalFallback, timeoutMs=120000, maxCalls=2, augmentio=null, performanceStore=null, deadlineAt=null}={}) {
     this.registry=registry || new ModelRegistry(standardRegistry.list());
     this.invoke=invoke;
     this.finalFallback=finalFallback;
     this.timeoutMs=timeoutMs;
     this.maxCalls=Math.max(1,Number(maxCalls)||2);
+    // Absolute epoch-ms deadline shared by every sequential attempt. Without it each
+    // candidate gets the full per-call timeout, so N fallbacks can outlast the caller.
+    this.deadlineAt=Number.isFinite(Number(deadlineAt))&&Number(deadlineAt)>0?Number(deadlineAt):null;
     this.augmentio=augmentio;
     this.performanceStore=performanceStore;
     this.stats={calls:0,failures:0,augmentioCalls:0};
@@ -163,11 +166,18 @@ export class ModelRouter {
       let timer;
       const selected=candidates[i];
       const startedAt=Date.now();
+      const remainingMs=this.deadlineAt==null?Infinity:this.deadlineAt-startedAt;
+      if (remainingMs<=0) {
+        failure=new DomainError('CHAT_DEADLINE_EXCEEDED',504);
+        reasons.push('CHAT_DEADLINE_EXCEEDED');
+        break;
+      }
+      const callTimeoutMs=Math.min(this.timeoutMs,remainingMs);
       this.stats.calls++;
       try {
         const result=await Promise.race([
           this.invoke(selected,messages,context),
-          new Promise((_,reject)=>{timer=setTimeout(()=>reject(new DomainError('timeout',504)),this.timeoutMs);})
+          new Promise((_,reject)=>{timer=setTimeout(()=>reject(new DomainError(callTimeoutMs<this.timeoutMs?'CHAT_DEADLINE_EXCEEDED':'timeout',504)),callTimeoutMs);})
         ]);
         const text=extractModelText(result);
         if (typeof text!=='string' || !text.trim()) throw new DomainError('EMPTY_MODEL_RESPONSE',502);
@@ -194,7 +204,8 @@ export class ModelRouter {
     }
 
     const refusal=analyzeRefusal(failure);
-    if (this.finalFallback && refusal.useFinalFallback) {
+    const deadlineExceeded=this.deadlineAt!=null && Date.now()>=this.deadlineAt;
+    if (this.finalFallback && refusal.useFinalFallback && !deadlineExceeded) {
       try {
         const result=await this.finalFallback({messages,task,reason:refusal.reason,previousModels:candidates.map(c=>c.id),previousFailureReasons:reasons,context});
         const text=extractModelText(result);
