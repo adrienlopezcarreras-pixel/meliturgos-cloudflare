@@ -59,6 +59,30 @@ test('MEL WORK readiness is identified in short and long prompts, without hijack
   assert.equal(isMelWorkReadinessQuestion(detailed), true);
   assert.equal(isMelWorkReadinessQuestion('# MEL WORK — CONTINUATION AUTONOME. Produis des livrables concrets sur les missions.'), false);
   assert.equal(isMelWorkReadinessQuestion('Vérifie les connexions du site de mon frère.'), false);
+  // The owner's own short wording reaches the grounded answer, not a model checklist.
+  assert.equal(isMelWorkReadinessQuestion('il te manque quoi pour work'), true);
+  assert.equal(isMelWorkReadinessQuestion('pourquoi tu ne travailles pas'), true);
+  assert.equal(isMelWorkReadinessQuestion("j'ai besoin de travailler sur mon CV"), false);
+});
+
+test('MEL WORK readiness states the real cycles, channels and only what is truly missing', async () => {
+  const { formatVerifiedMelWorkReadiness, loadMelWorkState } = await import('../src/api/native-chat.js');
+  const ready = formatVerifiedMelWorkReadiness({
+    workState: { channels: { devto: true, bluesky: true, bluesky_handle: 'mel.bsky.social', image: true, mel_page: true },
+      cycles: [{ status: 'NO_ELIGIBLE_MISSION', at: '2026-10-18T00:19:14.361Z' }] },
+  });
+  assert.match(ready, /dev\.to connecté ; Bluesky connecté \(mel\.bsky\.social\)/);
+  assert.match(ready, /2026-10-18 00:19 UTC → NO_ELIGIBLE_MISSION/);
+  assert.match(ready, /Ce qui manque vraiment : rien de bloquant/);
+  const bare = formatVerifiedMelWorkReadiness({
+    workState: { channels: { devto: false, bluesky: false, image: true }, cycles: [{ status: 'DRAFTED', submission: 'COMPANION_OFFLINE', at: '2026-10-18T06:17:00Z' }] },
+  });
+  assert.match(bare, /Ce qui manque vraiment : aucun compte de publication/);
+  assert.match(bare, /PC \(Companion\) doit être allumé/);
+  const DB = { prepare: () => ({ all: async () => ({ results: [{ state: 'COMPLETE', result: '{"status":"NO_ELIGIBLE_MISSION"}', updated_at: '2026-10-18T00:19:14Z' }] }) }) };
+  const state = await loadMelWorkState({ DB }, { channels: { devto: true, bluesky: false } });
+  assert.equal(state.cycles[0].status, 'NO_ELIGIBLE_MISSION');
+  assert.equal(state.channels.devto, true);
 });
 
 test('MEL WORK readiness response relies on observations and never requires generic marketplace or payment secrets', async () => {

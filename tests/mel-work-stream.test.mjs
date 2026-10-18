@@ -40,7 +40,7 @@ test('model JSON is extracted even when wrapped in prose or fences', () => {
   assert.equal(extractJsonObject('pas de json'), null);
 });
 
-test('one streamed request reads offers, assesses, writes and stores a draft (nothing submitted)', async () => {
+test('one streamed request reads offers, assesses, writes the deliverable and hands it in by itself', async () => {
   const db = sqliteD1();
   const calls = [];
   const env = {
@@ -49,19 +49,20 @@ test('one streamed request reads offers, assesses, writes and stores a draft (no
       async run(model, input) {
         calls.push(input.messages[0].content.startsWith('Tu es MEL WORK') ? 'draft' : 'assess');
         if (input.messages[0].content.startsWith('Tu es MEL WORK')) return sseStream(['Titre\n', 'Corps du livrable.']);
-        return { response: 'ok {"eligible":true,"draftable":true,"confidenceBps":9500,"category":"writing","requiresHuman":true,"requiresPhysicalWorld":false,"requiresSecrets":false,"requestsUnsafeAction":false,"humanSteps":["Publier le texte"],"reason":"Rédaction simple"}' };
+        return { response: 'ok {"eligible":true,"confidenceBps":9500,"category":"writing","requiresHuman":false,"requiresPhysicalWorld":false,"requiresSecrets":false,"requestsUnsafeAction":false,"reason":"Rédaction simple"}' };
       },
     },
   };
   const fetchImpl = async () => Response.json({ tasks: [task('crowded', 10_000_000, 120), task('quiet', 2_000_000, 0)] });
-  const events = await readEvents(streamDirectWork({ env, fetchImpl, now: () => NOW }));
+  const queued = [];
+  const events = await readEvents(streamDirectWork({ env, fetchImpl, now: () => NOW, queueSubmission: async (_e, args) => { queued.push(args); return { status: 'QUEUED' }; } }));
   const done = events.find(e => e.type === 'done');
   assert.ok(done, JSON.stringify(events));
   assert.equal(done.result.missionId, 'quiet');
-  assert.equal(done.result.submitted, false);
   assert.equal(done.result.paid, false);
-  assert.equal(done.result.status, 'DRAFT_FOR_OWNER');
-  assert.deepEqual(done.result.humanSteps, ['Publier le texte']);
+  assert.equal(done.result.submission, 'QUEUED');
+  assert.equal(done.result.requiresOwnerApproval, false);
+  assert.equal(queued.length, 1);
   assert.equal(events.filter(e => e.type === 'delta').map(e => e.text).join(''), 'Titre\nCorps du livrable.');
   assert.deepEqual(calls, ['assess', 'draft']);
   const saved = await db.prepare('SELECT content,status FROM mel_work_artifacts WHERE id=?').bind(done.result.artifactId).first();
@@ -79,15 +80,16 @@ test('oversized AI chunks never show content that is missing from the persisted 
       async run(_model, input) {
         if (input.messages[0].content.startsWith('Tu es MEL WORK')) return sseStream([huge]);
         return { response: JSON.stringify({
-          eligible: true, draftable: true, confidenceBps: 9500, category: 'writing',
-          requiresHuman: true, requiresPhysicalWorld: false, requiresSecrets: false,
-          requestsUnsafeAction: false, humanSteps: ['Publier le texte'],
+          eligible: true, confidenceBps: 9500, category: 'writing',
+          requiresHuman: false, requiresPhysicalWorld: false, requiresSecrets: false,
+          requestsUnsafeAction: false,
         }) };
       },
     },
   };
   const events = await readEvents(streamDirectWork({
     env, fetchImpl: async () => Response.json({ tasks: [task('long', 1_000_000, 0)] }), now: () => NOW,
+    queueSubmission: async () => ({ status: 'QUEUED' }),
   }));
   const done = events.find(e => e.type === 'done');
   assert.ok(done, JSON.stringify(events.filter(e => e.type !== 'delta')));
@@ -125,7 +127,7 @@ test('owner POST streams NDJSON; anonymous POST is refused', async () => {
   await response.body.cancel();
 });
 
-test('autonomous cycle prepares a real human-step bounty draft and never submits or overrides owner approval', async () => {
+test('an offer that needs any human step is skipped: nothing is parked for owner validation', async () => {
   const db = sqliteD1();
   const assessed = [];
   const env = { DB: db, AI: { async run(_model, input) {
@@ -133,9 +135,8 @@ test('autonomous cycle prepares a real human-step bounty draft and never submits
     const id = /# Mission (\w+)/.exec(input.messages[1].content)[1];
     assessed.push(id);
     return { response: JSON.stringify({
-      eligible: true, draftable: true, confidenceBps: 9500, category:'writing',
-      requiresHuman: true, requiresPhysicalWorld: false, requiresSecrets: false,
-      requestsUnsafeAction: false, humanSteps:['Publier sur le compte propriétaire'],
+      eligible: true, confidenceBps: 9500, category:'writing',
+      requiresHuman: id === 'publish', requiresPhysicalWorld: false, requiresSecrets: false, requestsUnsafeAction: false,
     }) };
   } } };
   const queued = [];
@@ -146,26 +147,19 @@ test('autonomous cycle prepares a real human-step bounty draft and never submits
   }));
   const done = events.find(e=>e.type==='done');
   assert.ok(done, JSON.stringify(events));
-  assert.deepEqual(assessed,['publish']);
-  assert.equal(done.result.missionId,'publish');
-  assert.equal(done.result.status,'DRAFT_FOR_OWNER');
-  assert.equal(done.result.requiresOwnerApproval,true);
-  assert.deepEqual(done.result.humanSteps,['Publier sur le compte propriétaire']);
-  assert.equal(done.result.submitted,false);
-  assert.equal(done.result.paid,false);
-  assert.equal(done.result.submission,undefined);
-  assert.deepEqual(queued,[]);
-  const saved=await db.prepare('SELECT content FROM mel_work_artifacts WHERE id=?').bind(done.result.artifactId).first();
-  assert.equal(saved.content,'Livrable rédigé.');
-  assert.ok(events.some(e=>e.type==='step'&&/Brouillon enregistré pour validation/.test(e.text)));
+  assert.deepEqual(assessed,['publish','solo']);
+  assert.equal(done.result.missionId,'solo');
+  assert.equal(done.result.requiresOwnerApproval,false);
+  assert.equal(queued.length,1);
+  assert.ok(!events.some(e=>e.type==='step'&&/validation/.test(e.text)));
 });
 
 test('autonomous bounty without human steps can still enter the independent submission queue', async () => {
   const db = sqliteD1();
   const env = { DB: db, AI:{ async run(_model,input) {
     if(input.messages[0].content.startsWith('Tu es MEL WORK')) return sseStream(['Livrable autonome.']);
-    return {response:JSON.stringify({eligible:true,draftable:true,confidenceBps:9600,category:'writing',
-      requiresHuman:false,requiresPhysicalWorld:false,requiresSecrets:false,requestsUnsafeAction:false,humanSteps:[]})};
+    return {response:JSON.stringify({eligible:true,confidenceBps:9600,category:'writing',
+      requiresHuman:false,requiresPhysicalWorld:false,requiresSecrets:false,requestsUnsafeAction:false})};
   } } };
   const queued=[];
   const events=await readEvents(streamDirectWork({
@@ -184,24 +178,37 @@ test('autonomous bounty without human steps can still enter the independent subm
   assert.ok(events.some(e=>e.type==='step'&&/remets moi-même/.test(e.text)));
 });
 
-test('autonomous claim-style task may be drafted but cannot be claimed or queued for submission', async () => {
+test('claim-style tasks are never taken: MEL only does bounties she can hand in herself', async () => {
   const db=sqliteD1();
+  let drafted=0, submitted=0;
   const env={DB:db,AI:{async run(_model,input){
-    if(input.messages[0].content.startsWith('Tu es MEL WORK'))return sseStream(['Brouillon conservé.']);
-    return {response:JSON.stringify({eligible:true,draftable:true,confidenceBps:9800,category:'writing',
-      requiresHuman:false,requiresPhysicalWorld:false,requiresSecrets:false,requestsUnsafeAction:false,humanSteps:[]})};
+    if(input.messages[0].content.startsWith('Tu es MEL WORK')){drafted++;return sseStream(['x']);}
+    return {response:JSON.stringify({eligible:true,confidenceBps:9800,requiresHuman:false,requiresPhysicalWorld:false,requiresSecrets:false,requestsUnsafeAction:false})};
   }}};
-  let submitted=0;
   const events=await readEvents(streamDirectWork({
     env,now:()=>NOW,autonomous:true,
     fetchImpl:async()=>Response.json({tasks:[task('claimable',2_000_000,0,24,{mode:'claim'})]}),
     queueSubmission:async()=>{submitted++;return {status:'QUEUED'};},
   }));
   const done=events.find(e=>e.type==='done');
-  assert.ok(done,JSON.stringify(events));
-  assert.equal(done.result.missionId,'claimable');
-  assert.equal(done.result.requiresOwnerApproval,true);
-  assert.equal(done.result.submitted,false);
+  assert.equal(done.result.status,'NO_ELIGIBLE_MISSION');
+  assert.equal(drafted,0);
   assert.equal(submitted,0);
-  assert.equal(done.result.submission,undefined);
+});
+
+test('lessons from lost contracts are given to the assessor and the writer', async () => {
+  const db=sqliteD1();
+  await db.prepare('CREATE TABLE mel_work_outcomes (task_id TEXT PRIMARY KEY, outcome TEXT NOT NULL, lesson TEXT, reward TEXT, winner TEXT, competitors INTEGER, created_at INTEGER NOT NULL)').run();
+  await db.prepare("INSERT INTO mel_work_outcomes VALUES ('0x1','LOST','Donner un exemple chiffré dès le début.',null,null,9,1)").run();
+  const prompts=[];
+  const env={DB:db,AI:{async run(_model,input){
+    prompts.push(input.messages[1].content);
+    if(input.messages[0].content.startsWith('Tu es MEL WORK'))return sseStream(['Livrable.']);
+    return {response:JSON.stringify({eligible:true,confidenceBps:9800,requiresHuman:false,requiresPhysicalWorld:false,requiresSecrets:false,requestsUnsafeAction:false})};
+  }}};
+  const events=await readEvents(streamDirectWork({env,now:()=>NOW,autonomous:true,
+    fetchImpl:async()=>Response.json({tasks:[task('t1',1_000_000,0)]}),queueSubmission:async()=>({status:'QUEUED'})}));
+  assert.ok(events.some(e=>e.type==='step'&&/1 leçon/.test(e.text)));
+  assert.equal(prompts.length,2);
+  for(const p of prompts)assert.match(p,/LEÇONS DE TES CONTRATS PERDUS[\s\S]*exemple chiffré/);
 });

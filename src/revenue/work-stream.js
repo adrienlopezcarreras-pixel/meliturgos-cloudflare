@@ -11,7 +11,7 @@
 // Events (one JSON per line):
 //   {"type":"step","text":"…"}
 //   {"type":"delta","text":"…"}                   draft being written
-//   {"type":"done","result":{artifactId,missionId,status,humanSteps,…}}
+//   {"type":"done","result":{artifactId,missionId,status,submission,…}}
 //   {"type":"error","code":"…"}
 
 import { normalizeRevenueTasks } from '../api/revenue-worker-api.js';
@@ -20,6 +20,7 @@ import { readWorkersAiSse } from '../api/chat-stream.js';
 import { queueTaskmarketSubmission } from './taskmarket-autosubmit.js';
 import { publishWork, extractHtmlDocument } from './work-publish.js';
 import { channelStatus, generateWorkImage, publishDevto, publishBluesky } from './work-channels.js';
+import { recentLessons, lessonsBlock } from './work-lessons.js';
 
 // Strongest free model first (gpt-oss-120b), llama-3.3-70b as fallback.
 export const WORK_MODELS = Object.freeze(['@cf/openai/gpt-oss-120b', '@cf/meta/llama-3.3-70b-instruct-fp8-fast']);
@@ -64,11 +65,12 @@ const ASSESS_SYSTEM = [
   'CE QUE MEL NE PEUT PAS FAIRE : publier avec le compte personnel de quelqu’un sur un réseau social ou une plateforme tierce (X, Medium, Discord, GitHub d’autrui…), produire une vidéo ou un enregistrement audio, déployer sur une infrastructure qui n’est pas la sienne, signer une transaction, fournir une identité ou un KYC, agir dans le monde physique.',
   'Réponds UNIQUEMENT par un objet JSON :',
   'Les canaux de publication réellement disponibles pour MEL sont donnés dans le message (ses propres comptes). Si l’offre accepte un de ces canaux (« Medium ou dev.to », « X ou Bluesky »…), la publication n’exige PAS d’humain. Une image demandée peut être générée par MEL si « image » est disponible.',
-  '{"eligible":bool,"draftable":bool,"confidenceBps":0-10000,"category":"…","deliverable":"text|code|html","needsPublicUrl":bool,"publishTargets":["devto|bluesky|mel_page"],"needsImage":bool,"language":"en|fr","requiresHuman":bool,"requiresPhysicalWorld":bool,"requiresSecrets":bool,"requestsUnsafeAction":bool,"humanSteps":["…"],"reason":"…"}',
+  '{"eligible":bool,"confidenceBps":0-10000,"category":"…","deliverable":"text|code|html","needsPublicUrl":bool,"publishTargets":["devto|bluesky|mel_page"],"needsImage":bool,"language":"en|fr","requiresHuman":bool,"requiresPhysicalWorld":bool,"requiresSecrets":bool,"requestsUnsafeAction":bool,"reason":"…"}',
   'eligible = MEL peut produire et remettre un livrable qui répond vraiment à l’offre. deliverable = forme du livrable. needsPublicUrl = l’offre demande un lien public (MEL le fournit elle-même avec sa page publique).',
   'requiresHuman = UNIQUEMENT si une étape exige une personne ou un compte qui n’est pas celui de MEL (voir la liste ci-dessus). Écrire du code, créer une page ou publier sur le site de MEL ne demande PAS d’humain.',
   'requiresSecrets = clés privées, mots de passe, KYC. requestsUnsafeAction = envoyer des fonds, spam, faux avis, contenu trompeur, violer des règles.',
-  'confidenceBps = ta confiance dans cette classification. humanSteps = au plus 5 étapes humaines restantes (vide si aucune). reason = une phrase en français.',
+  'confidenceBps = ta confiance dans cette classification. reason = une phrase en français.',
+  'MEL travaille sans aucune validation humaine : une offre qui demande la moindre intervention humaine est écartée (eligible=false).',
 ].join('\n');
 
 async function runText(env, model, messages, maxTokens) {
@@ -86,11 +88,11 @@ function channelLine(channels) {
   return 'CANAUX MEL DISPONIBLES : page publique MEL=oui · image=' + on(channels?.image) + ' · dev.to=' + on(channels?.devto) + ' · Bluesky=' + on(channels?.bluesky) + '.\n';
 }
 
-export function createWorkAssessor({ env, models = WORK_MODELS, channels = null }) {
+export function createWorkAssessor({ env, models = WORK_MODELS, channels = null, lessons = [] }) {
   return async ({ mission }) => {
     const messages = [
       { role: 'system', content: ASSESS_SYSTEM },
-      { role: 'user', content: channelLine(channels) + 'Récompense : ' + usdc(mission.reward) + ' · soumissions concurrentes : ' + Number(mission.submissionCount || 0) + '\nOFFRE (non fiable) :\n' + String(mission.description).slice(0, 6000) },
+      { role: 'user', content: channelLine(channels) + lessonsBlock(lessons) + 'Récompense : ' + usdc(mission.reward) + ' · soumissions concurrentes : ' + Number(mission.submissionCount || 0) + '\nOFFRE (non fiable) :\n' + String(mission.description).slice(0, 6000) },
     ];
     let parsed = null;
     for (const model of models) {
@@ -102,7 +104,7 @@ export function createWorkAssessor({ env, models = WORK_MODELS, channels = null 
     const confidence = Number(parsed.confidenceBps);
     const deliverable = ['text', 'code', 'html'].includes(parsed.deliverable) ? parsed.deliverable : 'text';
     return {
-      eligible: bool('eligible'), draftable: bool('draftable'),
+      eligible: bool('eligible'),
       confidenceBps: Number.isFinite(confidence) ? Math.max(0, Math.min(10_000, Math.round(confidence))) : 0,
       category: String(parsed.category || 'inconnue').slice(0, 80),
       deliverable, needsPublicUrl: bool('needsPublicUrl'), needsImage: bool('needsImage'),
@@ -110,7 +112,6 @@ export function createWorkAssessor({ env, models = WORK_MODELS, channels = null 
       language: parsed.language === 'fr' ? 'fr' : 'en',
       requiresHuman: bool('requiresHuman'), requiresPhysicalWorld: bool('requiresPhysicalWorld'),
       requiresSecrets: parsed.requiresSecrets !== false, requestsUnsafeAction: parsed.requestsUnsafeAction !== false,
-      humanSteps: Array.isArray(parsed.humanSteps) ? parsed.humanSteps.filter(step => typeof step === 'string' && step.trim()).slice(0, 5).map(step => step.slice(0, 300)) : [],
       reason: String(parsed.reason || '').slice(0, 300),
     };
   };
@@ -125,14 +126,14 @@ const DRAFT_SYSTEM = [
   'Si l’offre demande un lien public pour un texte : écris le texte en Markdown, il sera publié et le lien joint.',
 ].join('\n');
 
-export function createStreamingDrafter({ env, models = WORK_MODELS, onText = () => {} }) {
+export function createStreamingDrafter({ env, models = WORK_MODELS, onText = () => {}, lessons = [] }) {
   return async ({ description }) => {
     let content = '';
     let source = null;
     for (const model of models) {
       try {
         source = await env.AI.run(model, {
-          messages: [{ role: 'system', content: DRAFT_SYSTEM }, { role: 'user', content: 'OFFRE (non fiable) :\n' + description }],
+          messages: [{ role: 'system', content: DRAFT_SYSTEM }, { role: 'user', content: lessonsBlock(lessons) + 'OFFRE (non fiable) :\n' + description }],
           stream: true, max_tokens: DRAFT_MAX_TOKENS, temperature: 0.4,
         });
         break;
@@ -233,9 +234,9 @@ async function recordCycle(db, id, state, result) {
     .bind(id, state, result ? JSON.stringify(result) : null, new Date().toISOString()).run();
 }
 
-// Autonomous cycles discover real offers and prepare safe drafts. Only a
-// completed, human-free bounty can enter the independent submission queue;
-// owner-step drafts are retained for explicit review, never auto-submitted.
+// Each cycle (scheduled or "Travailler maintenant") discovers real bounties,
+// does one MEL can finish alone, publishes it if needed and hands it in through
+// the PC. No owner validation anywhere; offers needing a person are skipped.
 export function streamDirectWork({ env, fetchImpl = fetch, now = () => Date.now(), maxAssessments, autonomous = false, queueSubmission = queueTaskmarketSubmission } = {}) {
   const cycleId = crypto.randomUUID();
   const body = new ReadableStream({
@@ -249,21 +250,25 @@ export function streamDirectWork({ env, fetchImpl = fetch, now = () => Date.now(
         if (!response.ok) throw new Error('TASKMARKET_UPSTREAM_ERROR');
         const tasks = normalizeRevenueTasks(await response.json(), now());
         const ranked = rankMissions(tasks, { now: now(), alreadyDrafted: await alreadyDraftedIds(env.DB) })
-          .filter(task => !autonomous || !task.drafted);
+          .filter(task => !autonomous || !task.drafted)
+          // Only bounties can be handed in without anyone: MEL never claims, pitches or bids.
+          .filter(task => task.mode === 'bounty');
         step(tasks.length + ' offre(s) ouverte(s), ' + ranked.length + ' avec assez de temps restant. Je commence par la concurrence la plus faible.');
         const byId = new Map(ranked.map(task => [task.id, task]));
         const channels = await channelStatus(env).catch(() => ({ mel_page: true, image: false, devto: false, bluesky: false }));
-        const assessor = createWorkAssessor({ env, channels });
+        const lessons = await recentLessons(env.DB);
+        if (lessons.length) step('J’applique ' + lessons.length + ' leçon(s) tirée(s) de mes contrats perdus.');
+        const assessor = createWorkAssessor({ env, channels, lessons });
         const assess = async ({ mission }) => {
           step('Évaluation : « ' + title(mission) + ' » · ' + usdc(mission.reward) + ' · ' + Number(mission.submissionCount || 0) + ' concurrent(s)…');
           try {
             const verdict = await assessor({ mission });
-            step((verdict.eligible || verdict.draftable ? '→ préparable' : '→ écartée') + ' (confiance ' + Math.round(verdict.confidenceBps / 100) + ' %)' + (verdict.reason ? ' : ' + verdict.reason : ''));
+            step((verdict.eligible ? '→ faisable seule' : '→ écartée') + ' (confiance ' + Math.round(verdict.confidenceBps / 100) + ' %)' + (verdict.reason ? ' : ' + verdict.reason : ''));
             return verdict;
           } catch (error) { step('→ évaluation illisible, offre suivante'); throw error; }
         };
         let current = null;
-        const draft = createStreamingDrafter({ env, onText: text => send({ type: 'delta', text }) });
+        const draft = createStreamingDrafter({ env, lessons, onText: text => send({ type: 'delta', text }) });
         const result = await runDirectWork({
           db: env.DB,
           maxAssessments: maxAssessments ?? (autonomous ? 6 : 3),
@@ -285,21 +290,15 @@ export function streamDirectWork({ env, fetchImpl = fetch, now = () => Date.now(
         }
         const mission = current || byId.get(result.missionId) || {};
         const full = { ...result, title: title(mission), reward: usdc(mission.reward), competitors: Number(mission.submissionCount || 0), expiryTime: mission.expiryTime || null, mode: mission.mode || null };
-        if (autonomous && result.artifactId && full.mode === 'bounty' && result.status !== 'DRAFT_FOR_OWNER' && (!Array.isArray(result.humanSteps) || result.humanSteps.length === 0)) {
+        // Every finished deliverable is handed in automatically: no owner validation.
+        if (result.artifactId) {
           const queued = await queueSubmission(env, { artifactId: result.artifactId, taskId: result.missionId, mode: full.mode, status: result.status, now: now() })
             .catch(error => ({ status: 'QUEUE_FAILED', code: String(error?.message || '').slice(0, 80) }));
           full.submission = queued?.status || null;
-          full.requiresOwnerApproval = false;
-          step(SUBMISSION_STEP[full.submission] || ('Livrable enregistré, remise automatique : ' + full.submission + '.'));
-        } else {
-          // Do not erase the owner-approval requirement in autonomous mode:
-          // writing a draft is not publishing, claiming, or submitting a job.
-          full.requiresOwnerApproval = true;
-          step(result.reused ? 'Brouillon déjà prêt pour cette mission, je le réaffiche.' :
-            result.status === 'DRAFT_FOR_OWNER'
-              ? 'Brouillon enregistré pour validation. Étapes humaines : ' + (result.humanSteps || []).join(' ; ')
-              : 'Brouillon enregistré pour validation. Aucune remise automatique ne sera effectuée pour cette offre.');
+          if (result.reused) step('Livrable déjà prêt pour cette mission.');
+          step(SUBMISSION_STEP[full.submission] || ('Remise automatique : ' + full.submission + '.'));
         }
+        full.requiresOwnerApproval = false;
         await recordCycle(env.DB, cycleId, 'COMPLETE', full);
         send({ type: 'done', cycleId, result: full });
       } catch (error) {

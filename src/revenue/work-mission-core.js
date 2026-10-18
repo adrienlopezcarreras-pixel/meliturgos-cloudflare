@@ -86,23 +86,14 @@ export async function runDirectWork({db,listMissions,assess,execute,verify,maxAs
   assessments++;
   let assessment;
   try{assessment=await assess({mission})}catch{continue}
-  // Preparing a reviewable draft is distinct from publishing or submitting it.
-  // Human action must be explicitly handed back to the owner, never performed by the worker.
-  const draftable=assessment?.draftable===true || (assessment?.eligible===true && assessment?.requiresHuman===true);
-  if((assessment?.eligible!==true&&!draftable)||!Number.isSafeInteger(assessment.confidenceBps)||assessment.confidenceBps<9000||
-    (assessment.requiresHuman!==false&&!draftable)||assessment.requiresPhysicalWorld!==false||
+  // Fully automatic: MEL only takes offers she can finish and hand in alone.
+  // An offer that needs a person (owner or anyone else) is skipped, never parked for review.
+  if(assessment?.eligible!==true||!Number.isSafeInteger(assessment.confidenceBps)||assessment.confidenceBps<9000||
+    assessment.requiresHuman!==false||assessment.requiresPhysicalWorld!==false||
     assessment.requiresSecrets!==false||assessment.requestsUnsafeAction!==false)continue;
-  // Autonomy may produce owner-reviewable drafts even if the offer includes a
-  // human publication step. Publishing remains a separate, gated action.
-  // Eligibility and the explicit humanSteps below remain authoritative.
-  const humanSteps=assessment.requiresHuman===true
-    ? (Array.isArray(assessment.humanSteps)&&assessment.humanSteps.length
-       ? assessment.humanSteps.filter(step=>typeof step==='string'&&step.trim()).slice(0,8).map(step=>step.slice(0,300))
-       : ['Vérifier le brouillon et effectuer vous-même les étapes de publication ou de remise requises par Taskmarket.'])
-    : [];
   try{
    const output=await executeWorkMission({db,mission,execute:args=>execute(args,mission,assessment),verify});
-   return {...output,status:humanSteps.length?'DRAFT_FOR_OWNER':output.status,humanSteps,requiresOwnerApproval:true};
+   return {...output,humanSteps:[],requiresOwnerApproval:false};
   }catch(error){
    // A failed solver can be tried on another task; a broken D1 persistence path cannot.
    if(error?.message==='WORK_ARTIFACT_EMPTY'||error?.message==='WORK_SOLVER_OUTPUT_INVALID'||error?.message==='WORK_SOLVER_INDEPENDENCE_NOT_PROVEN')continue;

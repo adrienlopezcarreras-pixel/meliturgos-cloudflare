@@ -47,7 +47,7 @@ export const INSTRUCTION_PROMPT_CHARS = 280;
 export const MEL_REAL_CAPABILITIES = [
   'CE QUE TU ES VRAIMENT : tu es MEL, un service Cloudflare doté de capacités réelles, de D1, de stockage et de tâches planifiées. Une fonction implémentée ou déclarée ne prouve pas que son service externe répond actuellement : seules les exécutions et leur état runtime le prouvent.',
   'Tes outils réels, sous réserve de leur état actuel : recherche web publique, stockage durable, lecture de ton dépôt GitHub, MEL Companion Windows quand le PC est connecté et autorisé, MEL WORK, et cycles programmés Cloudflare. Utilise les capacités disponibles plutôt que répondre comme un simple modèle de texte.',
-  'MEL WORK est automatique dans son architecture : découverte des missions Taskmarket par son API publique, brouillons dans D1, cycles planifiés et éventuelle soumission via le Companion selon permissions et état réel. La présence de ce code ne prouve ni une mission exécutée ni une rémunération reçue. Ne confonds pas un brouillon, une tentative, une soumission et un paiement.',
+  'MEL WORK est automatique dans son architecture : découverte des missions Taskmarket par son API publique, brouillons dans D1, cycles planifiés et éventuelle soumission via le Companion selon permissions et état réel. Elle publie elle-même ses livrables (page publique MEL, dev.to et Bluesky une fois connectés dans /revenus, avec image générée si utile), toujours avec la mention IA et mission rémunérée ; la remise Taskmarket passe par le Companion du PC. Pour dire ce qui manque à MEL WORK, appuie-toi sur ses cycles réels, jamais sur une liste générique. La présence de ce code ne prouve ni une mission exécutée ni une rémunération reçue. Ne confonds pas un brouillon, une tentative, une soumission et un paiement.',
   'Ne dis donc jamais par défaut que les clés Bing, Google Search, Drive, Stripe, PayPal, GitHub ou Companion manquent toutes, ni que le Worker ne peut ni écrire en D1 ni exécuter de tâches programmées : inspecte les capacités runtime et les TOOL_RESULT avant une telle affirmation. Taskmarket public, D1 et GitHub ne nécessitent pas de réclamer de nouveaux secrets dans le chat. Si un service précis échoue, nomme la capacité, le code erreur et la preuve manquante. Ne demande jamais de copier un token ou un secret dans la conversation ; la configuration éventuelle se fait dans le stockage sécurisé du service concerné.',
 ].join(' ');
 
@@ -59,13 +59,56 @@ export const MEL_REAL_CAPABILITIES = [
  */
 export function isMelWorkReadinessQuestion(input) {
   const value = String(input || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
-  if (!/\bmel\s*work\b/.test(value)) return false;
-  return /\b(?:verifi\w*|controle\w*|diagnostic|pret\w*|readiness|connexion\w*|connect\w*|acces|disponib\w*|capacite\w*|outil\w*|permission\w*|configuration\w*|secret\w*|token\w*|jeton\w*|cle\w*|manqu\w*)\b/.test(value);
+  // "MEL WORK", or plain "work"/"travailler"/"bosser" as the owner says it in chat.
+  const named = /\bmel\s*work\b/.test(value);
+  if (!named && !/\b(?:work|travaill\w*|bosse\w*)\b/.test(value)) return false;
+  const asks = /\b(?:verifi\w*|controle\w*|diagnostic|pret\w*|readiness|connexion\w*|connect\w*|acces|disponib\w*|capacite\w*|outil\w*|permission\w*|configuration\w*|secret\w*|token\w*|jeton\w*|cle\w*|manqu\w*|besoin\w*|bloqu\w*|pourquoi|statut|etat|ou en)\b/.test(value);
+  if (named) return asks;
+  // Without the product name, only a question about what is missing/blocked;
+  // "travailler"/"bosser" must be about MEL herself ("te manque", "tu es prête").
+  if (!/\b(?:manqu\w*|besoin\w*|bloqu\w*|pourquoi|pret\w*|statut|ou en)\b/.test(value)) return false;
+  return /\bwork\b/.test(value) || /(?:^|[^a-z])(?:te|tu|t')\s*(?:\w+\s+)?(?:manqu|besoin|bloqu|es|est|faut|travaill|bosse)/.test(value);
+}
+
+/** What MEL WORK really did and what it really lacks, read from D1 and the vault. */
+export async function loadMelWorkState(env, { channels } = {}) {
+  const state = { cycles: [], channels: null };
+  try {
+    const rows = await env.DB.prepare('SELECT state, result, updated_at FROM mel_work_cycles ORDER BY updated_at DESC LIMIT 3').all();
+    state.cycles = (rows?.results || []).map(row => {
+      let result = {};
+      try { result = JSON.parse(row.result || '{}') || {}; } catch {}
+      return { state: row.state, status: result.status || row.state, submission: result.submission || null, at: row.updated_at };
+    });
+  } catch {}
+  try {
+    state.channels = channels || await (await import('../revenue/work-channels.js')).channelStatus(env);
+  } catch {}
+  return state;
 }
 
 /** Build a bounded factual answer from current read-only CapabilityBus executions. */
-export function formatVerifiedMelWorkReadiness({ selfState, selfError, companion, companionError, manifest = [] } = {}) {
+export function formatVerifiedMelWorkReadiness({ selfState, selfError, companion, companionError, manifest = [], workState = null } = {}) {
   const lines = ['MEL WORK — diagnostic fondé sur les outils exécutés dans cette requête.'];
+  const missing = [];
+  if (workState) {
+    const ch = workState.channels;
+    if (ch) {
+      lines.push('Comptes de publication : dev.to ' + (ch.devto ? 'connecté' : 'non connecté') +
+        ' ; Bluesky ' + (ch.bluesky ? 'connecté' + (ch.bluesky_handle ? ' (' + String(ch.bluesky_handle).slice(0, 60) + ')' : '') : 'non connecté') +
+        ' ; page publique MEL disponible' + (ch.image ? ' ; génération d’images disponible.' : '.'));
+      if (!ch.devto && !ch.bluesky) missing.push('aucun compte de publication (dev.to ou Bluesky) : à connecter dans /revenus, « Comptes de publication de MEL »');
+    }
+    const cycles = Array.isArray(workState.cycles) ? workState.cycles : [];
+    if (cycles.length) {
+      lines.push('Derniers cycles automatiques (toutes les 6 h, 0 h/6 h/12 h/18 h UTC) : ' + cycles.map(c =>
+        String(c.at || '').slice(0, 16).replace('T', ' ') + ' UTC → ' + String(c.status || '?') + (c.submission ? ' (remise : ' + c.submission + ')' : '')).join(' ; ') + '.');
+      if (String(cycles[0].status) === 'NO_ELIGIBLE_MISSION') lines.push('Le dernier cycle n’a trouvé aucune mission ouverte que MEL peut faire seule ; le prochain cycle réessaie automatiquement.');
+      if (cycles.some(c => c.submission === 'COMPANION_OFFLINE')) missing.push('le PC (Companion) doit être allumé pour remettre un livrable terminé ; la remise est retentée chaque heure');
+    } else {
+      lines.push('Aucun cycle MEL WORK enregistré pour l’instant.');
+    }
+  }
   const sections = selfState?.sections || {};
   const code = sections.code;
   if (code?.ok === true) {
@@ -114,6 +157,11 @@ export function formatVerifiedMelWorkReadiness({ selfState, selfError, companion
   }
   lines.push('Taskmarket : la découverte publique et les cycles de travail existent dans MEL, mais ce diagnostic ne prouve ni une mission ouverte récupérée ni une soumission ni un paiement.');
   lines.push('Les clés Bing/Google Search, Drive, Stripe/PayPal et les comptes Upwork/Malt/Fiverr ne constituent pas des prérequis généraux pour MEL WORK/Taskmarket. Aucun jeton ne doit être copié dans le chat.');
+  if (workState) {
+    lines.push(missing.length
+      ? 'Ce qui manque vraiment : ' + missing.join(' ; ') + '.'
+      : 'Ce qui manque vraiment : rien de bloquant côté configuration. MEL WORK tourne seul ; il ne manque que des missions ouvertes compatibles.');
+  }
   lines.push('Diagnostic en lecture seule : aucun cycle rémunéré n’a été lancé ici. Le statut « PRÊTE pour une mission réelle » exige la preuve du cycle dans MEL WORK, pas une liste de secrets.');
   return lines.join('\n\n');
 }
@@ -1644,6 +1692,7 @@ export async function handleNativeChat(request, env, options = {}) {
       companion: computer?.status === 'SUCCEEDED' ? computer.result : null,
       companionError: computer?.status === 'FAILED' ? computer.error : null,
       manifest: capabilityManifest,
+      workState: env?.DB?.prepare ? await loadMelWorkState(env).catch(() => null) : null,
     });
     let archiveSaved = false;
     if (service) {
