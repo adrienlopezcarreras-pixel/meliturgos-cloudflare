@@ -11,7 +11,8 @@ import { proposeModuleDraft } from '../capabilities/module-proposal-capability.j
 import { actionForGap, alternativesOf, roadmapMatches } from '../evaluation/ecosystem-discovery-planner.js';
 
 export const WORK_GAP_WINDOW_DAYS = 14;
-const MIN_OFFERS = 2;
+// One skipped paid offer is enough to propose: the market is small, waiting costs missions.
+const MIN_OFFERS = 1;
 
 async function ensureTable(db) {
   await db.prepare('CREATE TABLE IF NOT EXISTS mel_work_rejections (task_id TEXT PRIMARY KEY, title TEXT, reward_usdc REAL, category TEXT, missing TEXT, reason TEXT, created_at INTEGER NOT NULL)').run();

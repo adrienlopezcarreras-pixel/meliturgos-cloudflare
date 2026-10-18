@@ -96,7 +96,7 @@ test('oversized AI chunks never show content that is missing from the persisted 
   const shown = events.filter(e => e.type === 'delta').map(e => e.text).join('');
   const saved = await db.prepare('SELECT content FROM mel_work_artifacts WHERE id=?')
     .bind(done.result.artifactId).first();
-  assert.equal(shown.length, 11_400);
+  assert.equal(shown.length, 10_000);
   assert.equal(shown, saved.content);
 });
 

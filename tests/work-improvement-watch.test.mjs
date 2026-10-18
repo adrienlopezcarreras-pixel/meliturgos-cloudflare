@@ -16,9 +16,10 @@ test('skipped paid offers become justified, sourced improvement proposals', asyn
   await recordWorkRejection(db, mission('a', 5_000_000), { missingCapability: 'video.generate', reason: 'Vidéo requise', category: 'video' }, { now });
   await recordWorkRejection(db, mission('b', 3_000_000), { missingCapability: 'Video Generate', reason: 'Clip demandé' }, { now });
   await recordWorkRejection(db, mission('c', 9_000_000), { missingCapability: 'aucune', reason: 'n/a' }, { now });
-  await recordWorkRejection(db, mission('d', 1_000_000), { missingCapability: 'x.post', reason: 'Compte X' }, { now }); // single offer: below threshold
+  await recordWorkRejection(db, mission('d', 1_000_000), { missingCapability: 'x.post', reason: 'Compte X' }, { now });
   const items = await workGapDiscoveries({ db, capabilities: caps, now });
-  assert.equal(items.length, 1);
+  // Ranked by USDC at stake: video (8 USDC, 2 offers) before x.post (1 USDC).
+  assert.deepEqual(items.map(i => i.fingerprint), ['work:video.generate', 'work:x.post']);
   const item = items[0];
   assert.equal(item.fingerprint, 'work:video.generate');
   assert.deepEqual(item.work_demand.offers, 2);
