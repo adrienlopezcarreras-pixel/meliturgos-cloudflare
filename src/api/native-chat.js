@@ -351,6 +351,29 @@ export function inferNativeCodeCapability(text, recent = []) {
 }
 
 
+/**
+ * Let the owner address any actually registered low-risk tool by its exact id.
+ * This is a chat routing convenience, not a second executor or permission gate:
+ * input, authorization, health and output are still checked by CapabilityBus.
+ * Never infer a mutation from a vague conversational sentence.
+ */
+export function inferExplicitRegisteredCapability(text, runtime) {
+  const value = String(text || '').trim();
+  const match = value.match(/^(?:utilise|exécute|execute|lance|appelle|teste)\s+(?:(?:la|le)\s+|l['’])?(?:capabilit[eé]|capability|comp[eé]tence|outil)\s+[`"']?([a-z][a-z0-9_-]*(?:\.[a-z][a-z0-9_-]*)+)[`"']?(?:\s+(?:avec|input|param[eè]tres?)\s+(\{[\s\S]*\}))?\s*$/i);
+  if (!match || !runtime?.bus?.describe) return null;
+  let record;
+  try { record = runtime.bus.describe(match[1]); } catch { return null; }
+  // General text cannot opt in to sensitive work; structured capability calls
+  // and the existing explicit approvals handle those cases instead.
+  if (record?.enabled !== true || String(record?.risk).toUpperCase() !== 'LOW' || record?.approval?.required === true) return null;
+  let input = {};
+  if (match[2]) {
+    try { input = JSON.parse(match[2]); } catch { return null; }
+    if (!input || typeof input !== 'object' || Array.isArray(input)) return null;
+  }
+  return { id: String(record.id), input, execution_intent: 'EXPLICIT_REGISTERED_CAPABILITY' };
+}
+
 export function inferNativeExecutionCapability(text, recent = []) {
   const value = String(text || '').trim();
   if (!value) return null;
@@ -462,7 +485,7 @@ export async function buildRuntimeCapabilityManifest(runtime) {
   let rows = [];
   try { rows = await runtime.bus.refreshHealthAll(); }
   catch { try { rows = runtime.bus.list(); } catch { rows = []; } }
-  return rows.slice(0, 96).map(row => ({
+  return rows.map(row => ({
     id: String(row.id),
     name: String(row.name || row.id || '').slice(0, 160),
     category: String(row.category || String(row.id || '').split('.')[0] || 'other').slice(0, 80),
@@ -1431,6 +1454,7 @@ export async function handleNativeChat(request, env, options = {}) {
         return explicitCodeRead?.id === 'code.read' ? explicitCodeRead : (melWorkReadiness ? { id: 'self.state', input: {} } : null);
       })()
     : (melWorkReadiness ? { id: 'self.state', input: {} } : null)
+      || inferExplicitRegisteredCapability(activeTaskText, runtime)
       || inferredExecutionCapability
       || inferredSelfActivityCapability
       || inferNativeComputerCapability(activeTaskText)

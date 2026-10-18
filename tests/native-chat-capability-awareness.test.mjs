@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { inferNativeCodeCapability, inferConnectedDataCapability, buildRuntimeCapabilityManifest, applyCapabilityExecutionEvidence } from '../src/api/native-chat.js';
+import { inferNativeCodeCapability, inferConnectedDataCapability, inferExplicitRegisteredCapability, buildRuntimeCapabilityManifest, applyCapabilityExecutionEvidence } from '../src/api/native-chat.js';
 
 test('follow-up access question reuses recent code context and path', () => {
   const recent = [
@@ -123,4 +123,49 @@ test('connected private-data routing only plans an email mutation when recipient
     inferConnectedDataCapability('Envoie un mail Outlook à test@example.com'),
     null,
   );
+});
+
+
+test('all registered capabilities remain visible to MEL chat, including IDs beyond index 96', async () => {
+  const rows = Array.from({length: 164}, (_, i) => ({
+    id: 'fixture.' + i, name: 'Fixture ' + i, category:'fixture',
+    enabled:true, health:'HEALTHY', risk:'LOW', permissions:[],
+  }));
+  rows.push({
+    id:'media.video.generate', name:'Video generation', category:'media',
+    enabled:true, health:'UNAVAILABLE', risk:'MEDIUM', permissions:[],
+  });
+  const manifest = await buildRuntimeCapabilityManifest({
+    bus: { refreshHealthAll: async () => rows },
+  });
+  assert.equal(manifest.length, 165);
+  assert.equal(manifest[164].id, 'media.video.generate');
+  assert.equal(manifest[164].status, 'BLOCKED_EXTERNAL');
+  assert.equal(manifest[164].tested_now, false);
+});
+
+test('explicit low-risk capability requests route through the normal runtime bus', () => {
+  const descriptors = {
+    'skill.list': { id:'skill.list', enabled:true, risk:'LOW', approval:{required:false} },
+    'd1.schema.read': { id:'d1.schema.read', enabled:true, risk:'LOW' },
+    'd1.sql.write': { id:'d1.sql.write', enabled:true, risk:'HIGH' },
+    'danger.approval': { id:'danger.approval', enabled:true, risk:'LOW', approval:{required:true} },
+    'offline.tool': { id:'offline.tool', enabled:false, risk:'LOW' },
+  };
+  const runtime = { bus: { describe(id) {
+    if (!descriptors[id]) throw new Error('CAPABILITY_NOT_FOUND');
+    return descriptors[id];
+  } } };
+  assert.deepEqual(inferExplicitRegisteredCapability('utilise la compétence skill.list', runtime), {
+    id:'skill.list', input:{}, execution_intent:'EXPLICIT_REGISTERED_CAPABILITY',
+  });
+  assert.deepEqual(inferExplicitRegisteredCapability('exécute l’outil d1.schema.read avec {"table":"jobs"}', runtime), {
+    id:'d1.schema.read', input:{table:'jobs'}, execution_intent:'EXPLICIT_REGISTERED_CAPABILITY',
+  });
+  assert.equal(inferExplicitRegisteredCapability('utilise la compétence d1.sql.write', runtime), null);
+  assert.equal(inferExplicitRegisteredCapability('utilise la compétence danger.approval', runtime), null);
+  assert.equal(inferExplicitRegisteredCapability('utilise la compétence offline.tool', runtime), null);
+  assert.equal(inferExplicitRegisteredCapability('utilise la compétence invented.tool', runtime), null);
+  assert.equal(inferExplicitRegisteredCapability('utilise la compétence skill.list avec {oops}', runtime), null);
+  assert.equal(inferExplicitRegisteredCapability('parle-moi de skill.list', runtime), null);
 });

@@ -28,6 +28,7 @@ import { maybeHandleReleaseLaunchBootstrap } from "./evolution/release-launch-bo
 import { maybeHandleSovBackupDownload } from "./portability/google-drive-backup-restore-prevalidation-runtime.js";
 import { runLoraTrainingHeartbeat } from "./learning/lora-training-heartbeat.js";
 import { runMelSelfAuditSupervisor } from "./diagnostics/self-audit-supervisor.js";
+import { resumeActivePersistentCapabilityStress } from "./diagnostics/persistent-capability-stress.js";
 import { handleVoiceTranscription } from "./api/voice-transcribe.js";
 import { handleFileUpload } from "./api/file-upload.js";
 import { runExpiredMediaCleanup } from "./media/media-vault-cleanup.js";
@@ -54,6 +55,23 @@ export async function runOpenLoopResumeTick(env = {}) {
     owner: String(env.MELITURGOS_USER).trim(),
     permissions: [],
     requestId: crypto.randomUUID(),
+  });
+}
+
+// Complete one bounded, already-started stress chunk on each ordinary cron
+// tick. Never launch a new audit, alter MAX, or bypass the D1 stale-lease gate.
+export async function runPersistentCapabilityStressResumeTick(env = {}, { waitUntil } = {}) {
+  if (!env?.DB) return { ok: true, skipped: true, reason: 'CAPABILITY_STRESS_DB_NOT_CONFIGURED' };
+  const runtime = createGen2Runtime({ env });
+  return resumeActivePersistentCapabilityStress({
+    bus: runtime.bus,
+    db: env.DB,
+    context: {
+      owner: String(env.MELITURGOS_USER || 'owner'),
+      permissions: [],
+      requestId: crypto.randomUUID(),
+      ...(typeof waitUntil === 'function' ? { waitUntil } : {}),
+    },
   });
 }
 
@@ -706,6 +724,10 @@ export default {
           }),
         ]
       : [
+          runPersistentCapabilityStressResumeTick(env, { waitUntil: auditWaitUntil }).catch((error) => {
+            console.error('[MEL stress] scheduled D1 continuation failed:', error?.code || error?.message || error);
+            return null;
+          }),
           runAutonomyRuntimeTick(env)
             // A READY change with the PC offline: MEL queues her cloud bridge herself.
             .then(tick => maybeDispatchCloudBridge(env, tick).catch(() => null).then(() => tick))

@@ -508,25 +508,38 @@ async function executePersistentStress({ bus, store, job, context = {} }) {
   }
 }
 
+// Share the same atomic D1 lease and bounded execution path between an
+// explicit owner launch and the cron continuation of an existing job.
+async function claimAndRunPersistentStress({ bus, store, job, context, reused }) {
+  const claimed = await store.claimRunnable(job.job_id);
+  if (!claimed) return { ...job, reused, resumed: false };
+  const promise = executePersistentStress({ bus, store, job: claimed, context });
+  if (typeof context.waitUntil === 'function') {
+    context.waitUntil(promise);
+    return { ...claimed, status: 'RUNNING', reused, resumed: reused };
+  }
+  const completed = await promise;
+  return { ...completed, reused, resumed: reused };
+}
+
 export async function startPersistentCapabilityStress({ bus, db, context = {} } = {}) {
   if (!bus) throw stressError('CAPABILITY_STRESS_BUS_REQUIRED');
   const store = new D1CapabilityStressStore(db);
   const active = await store.latestActive();
   const job = active || await store.create({ total: bus.list().length });
+  return claimAndRunPersistentStress({ bus, store, job, context, reused: Boolean(active) });
+}
 
-  const claimed = await store.claimRunnable(job.job_id);
-  if (!claimed) {
-    return { ...job, reused: Boolean(active), resumed: false };
-  }
-
-  const promise = executePersistentStress({ bus, store, job: claimed, context });
-  const resumed = Boolean(active);
-  if (typeof context.waitUntil === 'function') {
-    context.waitUntil(promise);
-    return { ...claimed, status: 'RUNNING', reused: resumed, resumed };
-  }
-  const completed = await promise;
-  return { ...completed, reused: resumed, resumed };
+// Cron continuation MUST NOT start a new audit if there is no active D1 job.
+// Only explicit owner/weekly audit launches create new jobs. This is the
+// production missing link: six-record chunks persist as QUEUED but no cron
+// previously claimed their next chunk once the HTTP caller went away.
+export async function resumeActivePersistentCapabilityStress({ bus, db, context = {} } = {}) {
+  if (!bus) throw stressError('CAPABILITY_STRESS_BUS_REQUIRED');
+  const store = new D1CapabilityStressStore(db);
+  const active = await store.latestActive();
+  if (!active) return { ok: true, skipped: true, reason: 'NO_ACTIVE_CAPABILITY_STRESS' };
+  return claimAndRunPersistentStress({ bus, store, job: active, context, reused: true });
 }
 
 export async function readPersistentCapabilityStress({ db, jobId = null } = {}) {

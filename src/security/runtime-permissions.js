@@ -18,6 +18,9 @@ export const PERSONAL_AGENT_OWNER_PERMISSIONS = Object.freeze([
   'microsoft.files.write',
   'microsoft.files.delete',
   'roadmap.write',
+  // Read-only database diagnostics for the authenticated personal agent.
+  // D1 mutations are never included: owner approval and explicit permission required.
+  'd1.read',
 ]);
 
 function normalize(value) {
