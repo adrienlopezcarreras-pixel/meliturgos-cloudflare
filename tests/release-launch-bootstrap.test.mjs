@@ -1541,3 +1541,43 @@ test('SOV auto-close OIDC is limited to proof phases and main workflow identity'
   assert.equal((await denied.json()).code,'BOOTSTRAP_AUTH_REQUIRED');
   assert.equal(deniedOidcCalls,0);
 });
+
+
+test('release handoff API accepts proven progress with mixed backlog and rejects incomplete evidence', async () => {
+  const proof = {
+    ok: true,
+    status: 'GEN2_42_TEACHER_HANDOFF_PROGRESS_VERIFIED',
+    progress_verified: true,
+    open_handoff_count: 3,
+    active_teacher_handoff_count: 0,
+    teacher_proven_handoff_count: 1,
+    blocked_open_handoff_count: 2,
+    job_id: 'ecosystem-watch-approved',
+    teacher_request_id: 'req-approved',
+  };
+  for (const [override, expected] of [
+    [{}, 200],
+    [{ok: false}, 409],
+    [{progress_verified: false}, 409],
+    [{teacher_proven_handoff_count: 0, blocked_open_handoff_count: 3}, 409],
+    [{teacher_request_id: null}, 409],
+    [{open_handoff_count: 4}, 409],
+    [{blocked_open_handoff_count: -1, open_handoff_count: 0}, 409],
+  ]) {
+    const response = await maybeHandleReleaseLaunchBootstrap(new Request('https://mel.test/api/internal/release-launch-bootstrap', {
+      method: 'POST',
+      headers: {'x-mel-launch-bootstrap': TOKEN, 'content-type': 'application/json'},
+      body: JSON.stringify({phase: 'capability-watch-proof'}),
+    }), {MEL_LAUNCH_BOOTSTRAP_TOKEN: TOKEN, DB: {}}, {
+      setControl: async () => {},
+      proveCapabilityWatch: async () => ({...proof, ...override}),
+    });
+    assert.equal(response.status, expected, JSON.stringify(override));
+    const body = await response.json();
+    assert.equal(body.ok, expected === 200);
+    assert.equal(body.production_activation_allowed, false);
+    assert.equal(body.auto_approval_allowed, false);
+    assert.equal(body.autonomy_started, false);
+    if (expected === 200) assert.equal(body.blocked_open_handoff_count, 2);
+  }
+});
