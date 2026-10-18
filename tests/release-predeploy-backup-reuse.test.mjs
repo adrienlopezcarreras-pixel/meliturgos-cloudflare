@@ -230,14 +230,14 @@ test('predeploy refresh creates the backup on the GitHub runner and keeps the Wo
   assert.doesNotMatch(binderBlock, /release-launch-bootstrap/);
 });
 
-test('a release keeps MAX off unless the owner had it on before (push) or explicitly opts in (dispatch)', async () => {
+test('a release keeps MAX off unless the owner had it on before (any trigger, incl. automatic releases) or explicitly opts in', async () => {
   const source = await readFile(new URL('../.github/workflows/deploy-cloudflare-release.yml', import.meta.url), 'utf8');
   assert.match(source, /OWNER_MAX_AUTORELEASE: \$\{\{ github\.event_name == 'workflow_dispatch' && inputs\.owner_max_autorelease && 'true' \|\| 'false' \}\}/);
   const browser = source.indexOf('      - name: Prove real production browser.execute');
   const safeStop = source.indexOf('      - name: Keep MAX disabled after hardening release');
   const max = source.indexOf('      - name: Re-enable MAX 100% after verified autonomous release');
   assert.ok(browser >= 0 && safeStop > browser && max > safeStop, 'safe-stop must run after live proofs and before any optional MAX re-enable');
-  const restore = "(env.OWNER_MAX_AUTORELEASE == 'true' || (github.event_name == 'push' && env.PREVIOUS_MAX_AUTONOMY == 'true'))";
+  const restore = "(env.OWNER_MAX_AUTORELEASE == 'true' || env.PREVIOUS_MAX_AUTONOMY == 'true')";
   assert.ok(source.includes("if: success() && !" + restore), 'safe stop unless MAX is restored');
   assert.equal(source.split("if: success() && " + restore).length - 1, 2, 'MAX restore and autonomy kick share the same condition');
   assert.match(source, /'PREVIOUS_MAX_AUTONOMY='\+String\(maxAutonomy\)/, 'pre-deploy MAX state comes from the captured control (a paused owner stays paused)');
