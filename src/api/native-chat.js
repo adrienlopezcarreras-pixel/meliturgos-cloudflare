@@ -387,8 +387,18 @@ export function inferNativeExecutionCapability(text, recent = []) {
 
   const stressStatus = /\b(?:statut|progression|rapport|resultat|resultats|ou\s+en\s+est|ou\s+en\s+sont).*\b(?:stress\s*test|stresstest|stress-test|audit\s+global)\b/.test(normalized)
     || /\b(?:stress\s*test|stresstest|stress-test|audit\s+global).*\b(?:statut|progression|rapport|resultat|resultats|termine|fini)\b/.test(normalized);
-  if (stressStatus) {
-    const jobMatch = value.match(/\bcap-stress-[a-f0-9-]{20,}\b/i);
+  // Elliptical updates belong to the latest actual conversation subject, not
+  // the model's guess from remembered figures. Only specialize when the last
+  // assistant reply explicitly concerns the persistent capability stress.
+  const briefUpdate = /^(?:maj|mise\s+a\s+jour|update|du\s+nouveau|des\s+nouvelles|alors)[\s.!?]*$/.test(normalized.trim());
+  const latestAssistant = briefUpdate && Array.isArray(recent)
+    ? recent.slice().reverse().find(row => row?.role === 'assistant')
+    : null;
+  const lastSubject = String(latestAssistant?.content || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  const stressFollowup = briefUpdate && /\b(?:stress[- ]?test|stresstest|audit\s+(?:global|persistant)|cap-stress-[a-f0-9-]{20,})\b/.test(lastSubject);
+  if (stressStatus || stressFollowup) {
+    const recentJob = stressFollowup ? String(latestAssistant?.content || '').match(/\bcap-stress-[a-f0-9-]{20,}\b/i) : null;
+    const jobMatch = value.match(/\bcap-stress-[a-f0-9-]{20,}\b/i) || recentJob;
     return {
       id: 'capability.audit.status',
       input: jobMatch ? { job_id: jobMatch[0] } : {},
@@ -1764,6 +1774,38 @@ export async function handleNativeChat(request, env, options = {}) {
       tool_results:toolResults,
       archive_saved:archiveSaved,
     }, {status: observed ? 200 : 404, headers:{'cache-control':'no-store'}});
+  }
+
+  // Reading a persisted stress status must be evidence-based even when D1 is
+  // unavailable: do not let a language model invent progress or a stuck lease.
+  if (!releaseSmoke && inferredExecutionCapability?.execution_intent === 'GLOBAL_CAPABILITY_STRESS_STATUS') {
+    const evidence = toolResults.find(row => row.capability === 'capability.audit.status') || null;
+    const observed = evidence?.status === 'SUCCEEDED' ? evidence.result : null;
+    const verified = observed?.persistent === true;
+    const responseText = verified
+      ? formatVerifiedCapabilityAuditResponse(observed)
+      : 'Je ne peux pas vérifier maintenant la progression du stress test dans D1 ('
+        + String(evidence?.error || 'CAPABILITY_STRESS_STATUS_UNAVAILABLE').slice(0, 160)
+        + '). Je ne peux confirmer ni un verrou actif ni une avancée sans cette lecture.';
+    let archiveSaved = false;
+    if (service) {
+      try {
+        await service.archiveMessage({ conversationId, deviceId, role:'user', content:text, timestamp:Date.now(), provenance:userProvenance, metadata:userMetadata });
+        await service.archiveMessage({ conversationId, deviceId, role:'assistant', content:responseText, timestamp:Date.now()+1, provenance:'native-chat:capability-stress-status', metadata:{ source:'D1', job_id:verified ? observed.job_id : null, status:verified ? observed.status : null } });
+        archiveSaved = true;
+      } catch {}
+    }
+    return Response.json({
+      ok: verified,
+      text: responseText,
+      model: 'deterministic-capability-stress-status',
+      provider: 'mel',
+      response_mode: 'capability-stress-status',
+      response_grounding: verified ? { mode:'deterministic-capability-audit', source:'capability.audit.status', observed_at:observed.updated_at || null } : null,
+      capability_used:capabilitiesUsed,
+      tool_results:toolResults,
+      archive_saved:archiveSaved,
+    }, { status: verified ? 200 : 503, headers: { 'cache-control':'no-store' } });
   }
 
   if (!releaseSmoke && inferredExecutionCapability?.execution_intent === 'GLOBAL_CAPABILITY_STRESS_TEST') {

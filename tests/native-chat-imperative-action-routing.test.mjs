@@ -94,3 +94,37 @@ test('never substitutes arbitrary GitHub job IDs or unrelated context for a stre
     { role:'assistant', content:'https://github.com/adrienlopezcarreras-pixel/meliturgos-cloudflare' },
   ]), null);
 });
+
+test('short maj uses D1 stress status only when the latest assistant discussed that stress test', () => {
+  const jobId = 'cap-stress-52ebd31d-4806-4d13-a973-d7e93eaf54b8';
+  const recent = [
+    { role:'user', content:'où en est ton stress test ?' },
+    { role:'assistant', content:'L’audit reste à 36 / 168 étapes ; le lot 48 (stress-test) attend. job_id=' + jobId },
+  ];
+  assert.deepEqual(inferNativeExecutionCapability('maj', recent), {
+    id: 'capability.audit.status',
+    input: { job_id:jobId },
+    execution_intent: 'GLOBAL_CAPABILITY_STRESS_STATUS',
+  });
+  assert.deepEqual(inferNativeExecutionCapability('maj', [
+    { role:'assistant', content:'Le stress-test de mes capacités est toujours en cours.' },
+  ]), {
+    id: 'capability.audit.status', input: {}, execution_intent: 'GLOBAL_CAPABILITY_STRESS_STATUS',
+  });
+  assert.equal(inferNativeExecutionCapability('maj'), null);
+  assert.equal(inferNativeExecutionCapability('maj', [
+    { role:'assistant', content:'Le stress-test était hier.' },
+    { role:'user', content:'Passons au roman.' },
+    { role:'assistant', content:'Je travaille sur les chapitres du roman.' },
+  ]), null);
+});
+
+test('persistent stress status has deterministic D1-only response and fail-closed fallback', async () => {
+  const { readFileSync } = await import('node:fs');
+  const source = readFileSync(new URL('../src/api/native-chat.js', import.meta.url), 'utf8');
+  const branch = source.slice(source.indexOf("execution_intent === 'GLOBAL_CAPABILITY_STRESS_STATUS'"));
+  assert.match(branch, /evidence\?\.status === 'SUCCEEDED'/);
+  assert.match(branch, /formatVerifiedCapabilityAuditResponse\(observed\)/);
+  assert.match(branch, /Je ne peux pas v[eé]rifier maintenant la progression du stress test dans D1/);
+  assert.match(branch, /status: verified \? 200 : 503/);
+});
