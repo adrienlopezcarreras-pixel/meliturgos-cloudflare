@@ -1,6 +1,6 @@
 import app from './ui-entry.js';
 import { requireAuth } from './core/security.js';
-import { authorizeDevBridge } from './core/dev-bridge-auth.js';
+import { authorizeDevBridge, isOidcBridgeCall } from './core/dev-bridge-auth.js';
 import { createLearningEngine } from './learning/learning-engine.js';
 import { getLiveLearningProgress } from './learning/live-progress.js';
 import { ensureZeroCostBenchmarkBaseline, prepareOperatorLora, runOperatorBenchmark, runOperatorLoraBenchmark } from './learning/operator-actions.js';
@@ -370,7 +370,7 @@ export default {
     const url = new URL(request.url);
     const loraTraceInternal=await maybeHandleLoraTraceInternal(request,env);
     if(loraTraceInternal)return loraTraceInternal;
-    if (url.pathname.startsWith('/api/dev-bridge/')) {
+    if (url.pathname.startsWith('/api/dev-bridge/') && !isOidcBridgeCall(request)) {
       const denied = authorizeDevBridge(request, env);
       if (denied) return denied;
     }

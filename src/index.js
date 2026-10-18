@@ -1,6 +1,7 @@
 // Canonical core Worker handler. The retired root worker.js stays inert;
 // deployment/auth/UI wrappers delegate here without owning a second runtime.
 import { withChatProgress } from './api/chat-progress.js';
+import { maybeDispatchCloudBridge } from './evolution/cloud-bridge-dispatch.js';
 import { handleTaskmarketWalletImport } from './revenue/taskmarket-cloud.js';
 import { runRevenueWatch } from "./revenue/revenue-watch.js";
 import { runScheduledMelWork } from "./revenue/work-schedule.js";
@@ -705,10 +706,13 @@ export default {
           }),
         ]
       : [
-          runAutonomyRuntimeTick(env).catch((error) => {
-            console.error('[MEL autonomy] scheduled tick failed:', error?.code || error?.message || error);
-            return null;
-          }),
+          runAutonomyRuntimeTick(env)
+            // A READY change with the PC offline: MEL queues her cloud bridge herself.
+            .then(tick => maybeDispatchCloudBridge(env, tick).catch(() => null).then(() => tick))
+            .catch((error) => {
+              console.error('[MEL autonomy] scheduled tick failed:', error?.code || error?.message || error);
+              return null;
+            }),
           runOpenLoopResumeTick(env).catch((error) => {
             console.error('[MEL open loops] scheduled resume failed:', error?.code || error?.message || error);
             return null;

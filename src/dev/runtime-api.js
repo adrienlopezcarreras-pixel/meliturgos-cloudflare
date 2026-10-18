@@ -1,5 +1,5 @@
 import { requireValue } from '../core/contracts.js';
-import { authorizeDevBridge } from '../core/dev-bridge-auth.js';
+import { authorizeDevBridge, isOidcBridgeCall } from '../core/dev-bridge-auth.js';
 import { authorizeGitHubActionsOidcRequest } from '../security/github-actions-oidc.js';
 import { DevAgent } from './dev-agent.js';
 import { D1DevJobRepository } from './d1-dev-job-repository.js';
@@ -129,8 +129,7 @@ export function devRuntime(request, env, { repository = null, bridgeRepository =
 
   const bridge = path.startsWith('/api/dev-bridge');
   // Only the cloud bridge workflow's claim/result calls may use OIDC.
-  const oidcBridge = bridge && (path === '/api/dev-bridge/claim' || path === '/api/dev-bridge/result')
-    && !request.headers.get('authorization') && String(request.headers.get('x-mel-github-oidc') || '').trim() !== '';
+  const oidcBridge = bridge && isOidcBridgeCall(request);
   if (bridge && !oidcBridge) {
     const denied = authorizeDevBridge(request, env || {});
     if (denied) return denied;

@@ -1,5 +1,5 @@
 import { requireAuth } from '../core/security.js';
-import { authorizeDevBridge } from '../core/dev-bridge-auth.js';
+import { authorizeDevBridge, isOidcBridgeCall } from '../core/dev-bridge-auth.js';
 
 const PUBLIC_GET_PREFIXES = Object.freeze(['/api/teacher/']);
 const PUBLIC_GET_EXACT = Object.freeze(new Set(['/api/gen2/autonomy/control']));
@@ -71,7 +71,7 @@ export function enforceHttpAuthPolicy(request, env) {
   if (policy.kind === 'DEV_BRIDGE_TOKEN') {
     // The cloud bridge workflow proves itself with a GitHub Actions OIDC token;
     // the dev-bridge route verifies it (asynchronously) before doing anything.
-    if ((policy.path === '/api/dev-bridge/claim' || policy.path === '/api/dev-bridge/result') && String(request.headers.get('x-mel-github-oidc') || '').trim() && !request.headers.get('authorization')) return null;
+    if (isOidcBridgeCall(request)) return null;
     return authorizeDevBridge(request, env);
   }
 
