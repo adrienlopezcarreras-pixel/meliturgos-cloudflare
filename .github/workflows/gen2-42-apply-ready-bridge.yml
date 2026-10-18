@@ -202,8 +202,23 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          git fetch origin "$CANDIDATE_BRANCH" --depth=100
+          git fetch origin "$CANDIDATE_BRANCH" --depth=200
           git clean -fd
+          HEAD_SHA="$(git rev-parse FETCH_HEAD)"
+          if [ "$HEAD_SHA" != "$CANDIDATE_SHA" ]; then
+            # The candidate moved forward (kept in sync with main). Apply on the
+            # new head only if none of the package files changed in between;
+            # otherwise the exact approved base is used and the push will refuse.
+            git fetch origin "$CANDIDATE_SHA" --depth=200 || true
+            FILES="$(node -e 'const j=JSON.parse(require("fs").readFileSync(process.env.BRIDGE_JOB_FILE,"utf8"));process.stdout.write((j.files_json||[]).map(f=>typeof f==="string"?f:f.path).filter(Boolean).join("\n"))')"
+            if git cat-file -e "${CANDIDATE_SHA}^{commit}" 2>/dev/null \
+              && git merge-base --is-ancestor "$CANDIDATE_SHA" "$HEAD_SHA" \
+              && printf '%s\n' "$FILES" | xargs -r git diff --quiet "$CANDIDATE_SHA" "$HEAD_SHA" --; then
+              echo "CANDIDATE_ADVANCED_FILES_UNCHANGED from=$CANDIDATE_SHA to=$HEAD_SHA"
+              echo "CANDIDATE_SHA=$HEAD_SHA" >> "$GITHUB_ENV"
+              CANDIDATE_SHA="$HEAD_SHA"
+            fi
+          fi
           git checkout -B "$CANDIDATE_BRANCH" "$CANDIDATE_SHA"
           test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
           test "$(git branch --show-current)" = "$CANDIDATE_BRANCH"
@@ -279,6 +294,7 @@ jobs:
         shell: bash
         env:
           JOB_ID: ${{ inputs.job_id }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           git config user.name "MEL Cloud Dev Bridge"
@@ -326,6 +342,13 @@ jobs:
           git commit -m "GEN2-42: apply approved bridge package $JOB_ID"
           NEW_SHA="$(git rev-parse HEAD)"
           git push origin "HEAD:$CANDIDATE_BRANCH"
+          # A push made with the workflow token does not start other workflows:
+          # run the full candidate suite explicitly on the exact new head.
+          code="$(curl --silent --show-error --max-time 30 --request POST \
+            --header "Authorization: Bearer $GH_TOKEN" --header "Accept: application/vnd.github+json" \
+            --data "{\"ref\":\"$CANDIDATE_BRANCH\"}" --output /dev/null --write-out '%{http_code}' \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/workflows/full-candidate-ci.yml/dispatches" || true)"
+          echo "FULL_CANDIDATE_CI_DISPATCH http=$code sha=$NEW_SHA"
           echo "candidate_sha=$NEW_SHA" >> "$GITHUB_OUTPUT"
           echo "candidate_branch=$CANDIDATE_BRANCH" >> "$GITHUB_OUTPUT"
           echo "no_changes=false" >> "$GITHUB_OUTPUT"

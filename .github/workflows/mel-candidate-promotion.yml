@@ -1,0 +1,85 @@
+name: mel-candidate-promotion
+
+# The last link of MEL's self-development:
+#   - keeps candidate/mel-clean-autonomy in sync with main (fast-forward, or a
+#     merge of main when MEL has unpromoted work);
+#   - under MAX only, promotes a candidate that is strictly ahead of main and
+#     whose exact SHA passed full-candidate-ci, by fast-forwarding main.
+# The hourly mel-autonomous-production-release then deploys main.
+# MAX off or paused: MEL's verified work waits on the candidate branch.
+on:
+  schedule:
+    - cron: '37 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: mel-candidate-promotion
+  cancel-in-progress: false
+
+env:
+  CANDIDATE: candidate/mel-clean-autonomy
+  CONTROL_URL: https://meliturgos.adrien-lopezcarreras.workers.dev/api/gen2/autonomy/control
+
+jobs:
+  promote:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          ref: main
+
+      - name: Sync candidate with main and promote verified work under MAX
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git config user.name "mel-autonomy[bot]"
+          git config user.email "mel-autonomy@users.noreply.github.com"
+          git fetch origin main "$CANDIDATE"
+          MAIN="$(git rev-parse origin/main)"
+          CAND="$(git rev-parse "origin/$CANDIDATE")"
+          dispatch_ci() {
+            curl --silent --show-error --max-time 30 --request POST \
+              --header "Authorization: Bearer $GH_TOKEN" --header "Accept: application/vnd.github+json" \
+              --data "{\"ref\":\"$CANDIDATE\"}" --output /dev/null --write-out '%{http_code}' \
+              "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/workflows/full-candidate-ci.yml/dispatches" || true
+          }
+          if [ "$MAIN" = "$CAND" ]; then echo "IN_SYNC $MAIN"; exit 0; fi
+          if git merge-base --is-ancestor "$CAND" "$MAIN"; then
+            git push origin "$MAIN:refs/heads/$CANDIDATE"
+            echo "CANDIDATE_FAST_FORWARDED_TO_MAIN $CAND -> $MAIN"
+            exit 0
+          fi
+          if ! git merge-base --is-ancestor "$MAIN" "$CAND"; then
+            git checkout -B sync "$CAND"
+            if ! git merge --no-edit -m "Sync main into $CANDIDATE" "$MAIN"; then
+              git merge --abort || true
+              echo "::warning title=MEL candidate::CANDIDATE_MAIN_CONFLICT — MEL's unpromoted work conflicts with main; next tick re-plans it."
+              exit 0
+            fi
+            git push origin "HEAD:refs/heads/$CANDIDATE"
+            echo "MAIN_MERGED_INTO_CANDIDATE ci_dispatch=$(dispatch_ci)"
+            exit 0
+          fi
+          # Candidate strictly ahead of main: MEL has work waiting for promotion.
+          CONTROL="$(curl --silent --show-error --max-time 20 "$CONTROL_URL" || echo '{}')"
+          MAX="$(printf '%s' "$CONTROL" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{let j={};try{j=JSON.parse(s)}catch{};process.stdout.write(j.max_autonomy===true&&j.paused!==true?"true":"false")})')"
+          AHEAD="$(git rev-list --count "$MAIN..$CAND")"
+          if [ "$MAX" != "true" ]; then
+            echo "::notice title=MEL candidate::$AHEAD commit(s) of MEL wait for promotion (MAX off or paused)."
+            exit 0
+          fi
+          RUNS="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/full-candidate-ci.yml/runs?head_sha=$CAND&per_page=20" --jq '[.workflow_runs[]|{s:.status,c:.conclusion}]')"
+          OK="$(printf '%s' "$RUNS" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const r=JSON.parse(s||"[]");process.stdout.write(r.some(x=>x.s==="completed"&&x.c==="success")?"success":r.some(x=>x.s!=="completed")?"running":"none")})')"
+          if [ "$OK" = "running" ]; then echo "FULL_CANDIDATE_CI_RUNNING $CAND"; exit 0; fi
+          if [ "$OK" != "success" ]; then echo "FULL_CANDIDATE_CI_REQUESTED $CAND http=$(dispatch_ci)"; exit 0; fi
+          git push origin "$CAND:refs/heads/main"
+          echo "::notice title=MEL promoted::main $MAIN -> $CAND ($AHEAD commit(s), full-candidate-ci green). Production release follows within the hour."
