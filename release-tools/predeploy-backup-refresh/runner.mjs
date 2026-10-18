@@ -19,6 +19,7 @@ const SIDECAR_REQUEST_TIMEOUT_MS = 30_000;
 const WRANGLER_ATTEMPT_TIMEOUT_MS = 180_000;
 const MULTIPART_PART_BYTES = 16 * 1024 * 1024;
 const MULTIPART_MAX_PARTS = 10_000;
+const MULTIPART_UPLOAD_CONCURRENCY = 4;
 
 function reportProgress(stage, details = '') {
   process.stderr.write(`[predeploy-backup] ${stage}${details ? ` ${details}` : ''}\n`);
@@ -138,8 +139,16 @@ async function uploadEncryptedBackupMultipart(sidecar, { objectKey, uploadPath, 
     }
 
     fileHandle = await open(uploadPath, 'r');
-    const parts = [];
-    for (let partNumber = 1; partNumber <= partCount; partNumber += 1) {
+    // R2 parts are independent. Bound concurrent 16 MiB buffers and keep
+    // the original part ordering for the verified multipart completion.
+    const parts = Array(partCount).fill(null);
+    let nextPartNumber = 1;
+    let firstFailure = null;
+    async function uploadNextPart() {
+      while (!firstFailure) {
+        const partNumber = nextPartNumber++;
+        if (partNumber > partCount) return;
+        try {
       const position = (partNumber - 1) * MULTIPART_PART_BYTES;
       const length = Math.min(MULTIPART_PART_BYTES, info.size - position);
       const bytes = Buffer.allocUnsafe(length);
@@ -159,9 +168,20 @@ async function uploadEncryptedBackupMultipart(sidecar, { objectKey, uploadPath, 
           Number(result?.part?.partNumber) !== partNumber || !String(result?.part?.etag || '')) {
         throw new Error('BACKUP_MULTIPART_PART_NOT_CONFIRMED:' + partNumber);
       }
-      parts.push({ partNumber, etag: String(result.part.etag) });
+      parts[partNumber - 1] = { partNumber, etag: String(result.part.etag) };
       reportProgress('encrypted-r2-upload:part', `${partNumber}/${partCount} bytes=${length}`);
+        } catch (error) {
+          firstFailure ??= error;
+        }
+      }
     }
+    // Drain all transfers before aborting so uploads cannot race the abort.
+    await Promise.all(Array.from(
+      { length: Math.min(MULTIPART_UPLOAD_CONCURRENCY, partCount) },
+      () => uploadNextPart(),
+    ));
+    if (firstFailure) throw firstFailure;
+    if (parts.some(part => part === null)) throw new Error('BACKUP_MULTIPART_PARTS_INCOMPLETE');
 
     const completed = await sidecarJson(sidecar, '/upload/complete', {
       method: 'POST',
