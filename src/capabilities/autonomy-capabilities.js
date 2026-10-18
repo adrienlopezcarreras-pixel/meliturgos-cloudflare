@@ -2,6 +2,7 @@ import { D1DevJobRepository } from '../dev/d1-dev-job-repository.js';
 import { getAutonomyReadiness } from '../evolution/autonomy-readiness.js';
 import { runAutonomyRuntimeTick } from '../evolution/autonomy-runtime.js';
 import { getAutonomyControl, setAutonomyControl } from '../evolution/autonomy-control.js';
+import { applyOwnerMaxAutonomy } from '../evolution/autonomy-api.js';
 import { D1EvolutionLedger } from '../evolution/evolution-ledger.js';
 import { buildAutonomyActivity } from '../evolution/autonomy-activity.js';
 
@@ -278,6 +279,33 @@ export function registerAutonomyCapabilities(bus, env = {}) {
   }, async () => {
     if (!env.DB) throw capabilityError('DB_BINDING_MISSING');
     return setAutonomyControl(env.DB, { paused: false, source: 'mel-capability', reason: 'owner-resume' });
+  });
+
+  bus.discover({
+    id: 'autonomy.max',
+    name: 'Activation propriétaire du mode MAX',
+    category: 'evolution',
+    version: '1.0.0',
+    provider: 'mel',
+    description: 'Activates MAX only after the existing exact-SHA launch gate, then runs a real bounded autonomy tick. Does not bypass a release pause.',
+    input_schema: {
+      type: 'object',
+      properties: { enabled: { type: 'boolean' } },
+      additionalProperties: false,
+    },
+    output_schema: { type: 'object', additionalProperties: true },
+    risk: 'MEDIUM',
+    permissions: [],
+    health: env.DB ? 'HEALTHY' : 'DEGRADED',
+    enabled: true,
+  }, async (input = {}) => {
+    if (!env.DB) throw capabilityError('DB_BINDING_MISSING');
+    return applyOwnerMaxAutonomy(env, {
+      enabled: input.enabled !== false,
+      repository: new D1DevJobRepository(env.DB),
+      fetchImpl: env.MEL_GITHUB_FETCH || fetch,
+      source: 'owner-chat-launch-gate',
+    });
   });
 
   bus.discover({
