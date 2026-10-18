@@ -1,5 +1,6 @@
 // Canonical core Worker handler. The retired root worker.js stays inert;
 // deployment/auth/UI wrappers delegate here without owning a second runtime.
+import { withChatProgress } from './api/chat-progress.js';
 import { runRevenueWatch } from "./revenue/revenue-watch.js";
 import { runScheduledMelWork } from "./revenue/work-schedule.js";
 import { runModelTournament } from "./models/model-tournament.js";
@@ -526,7 +527,8 @@ async function fetchResolvedRequest(request, env, ctx) {
         const chatOptions = typeof ctx?.waitUntil === 'function'
           ? { waitUntil: promise => ctx.waitUntil(promise) }
           : {};
-        return await handleNativeChat(preparedRequest, withChatAiDefaults(env), chatOptions);
+        // Streamed progress (steps, tools used, outputs) while MEL works, then her answer.
+        return await withChatProgress(preparedRequest, withChatAiDefaults(env), chatOptions, handleNativeChat);
       }
 
       const response = await router.fetch(preparedRequest, env, ctx);
