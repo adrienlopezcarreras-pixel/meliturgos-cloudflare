@@ -177,7 +177,16 @@ export class D1CapabilityStressStore {
     const now = Math.max(Date.now(), Number(current.updated_at || 0) + 1);
     const status = patch.status ?? current.status;
     const progress = { ...(current.progress || {}), ...(patch.progress || {}) };
-    const summary = patch.summary ?? current.summary ?? {};
+    const proposedSummary = patch.summary ?? current.summary ?? {};
+    // The registry snapshot is immutable for the lifetime of a job. Later
+    // QUEUED/RUNNING/RETRY summaries are transient, but the checkpoint's
+    // identity order must survive every D1 write and deployment.
+    const registryIds = Array.isArray(current.summary?.registry_ids)
+      ? current.summary.registry_ids
+      : Array.isArray(proposedSummary.registry_ids) ? proposedSummary.registry_ids : null;
+    const summary = registryIds
+      ? { ...proposedSummary, registry_ids: registryIds }
+      : proposedSummary;
     const report = patch.report === undefined ? current.report : patch.report;
     const error = patch.error === undefined ? current.error : patch.error;
     const completedAt = patch.completed_at === undefined ? current.completed_at : patch.completed_at;
@@ -388,8 +397,29 @@ async function executePersistentStress({ bus, store, job, context = {} }) {
     // Runs created by the pre-resumable implementation may have a non-zero
     // cursor without a partial report. Restart those once from zero rather than
     // silently skipping rows.
-    const chunkStart = previousRows.length === persistedDone ? persistedDone : 0;
-    const totalCapabilities = bus.list().length;
+    const intactCheckpoint = previousRows.length === persistedDone
+      && previousRows.every(row => typeof row?.id === 'string' && row.id.length > 0);
+    const chunkStart = intactCheckpoint ? persistedDone : 0;
+
+    const liveIds = bus.list().map(row => String(row.id));
+    const previousIds = intactCheckpoint ? previousRows.map(row => row.id) : [];
+    // Existing jobs predate registry snapshots. Rebuild their initial prefix
+    // from the actual persisted evidence, then append all still-unseen IDs.
+    // Never interpret a numerical cursor against a newly reordered registry.
+    const registryIds = Array.isArray(job?.summary?.registry_ids) && job.summary.registry_ids.length
+      ? job.summary.registry_ids
+      : [...new Set([...previousIds, ...liveIds])];
+    if (registryIds.length !== new Set(registryIds).size ||
+        previousIds.some((id, index) => registryIds[index] !== id)) {
+      throw stressError('CAPABILITY_STRESS_CHECKPOINT_IDENTITY_MISMATCH');
+    }
+    const liveSet = new Set(liveIds);
+    if (registryIds.slice(chunkStart).some(id => !liveSet.has(id))) {
+      // A capability removed mid-run cannot be marked tested; preserve the
+      // existing job and surface a genuine incompatibility for reconciliation.
+      throw stressError('CAPABILITY_STRESS_REGISTRY_CHANGED');
+    }
+    const totalCapabilities = registryIds.length;
 
     await store.update(id, {
       status: 'RUNNING',
@@ -404,6 +434,7 @@ async function executePersistentStress({ bus, store, job, context = {} }) {
         retryable_failures: 0,
         chunk_start: chunkStart,
         chunk_size: STRESS_CHUNK_SIZE,
+        registry_ids: registryIds,
       },
       report: chunkStart === 0 ? null : job.report,
       error: null,
@@ -421,6 +452,7 @@ async function executePersistentStress({ bus, store, job, context = {} }) {
       context: executionContext(context),
       executionTimeoutMs: 4_000,
       samples: persistentStressSamples,
+      recordIds: registryIds,
       startIndex: chunkStart,
       maxRecords: STRESS_CHUNK_SIZE,
       onProgress: async ({ index, total, row }) => {
