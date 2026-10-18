@@ -147,8 +147,8 @@ test('all registered capabilities remain visible to MEL chat, including IDs beyo
 test('explicit low-risk capability requests route through the normal runtime bus', () => {
   const descriptors = {
     'skill.list': { id:'skill.list', enabled:true, risk:'LOW', approval:{required:false} },
-    'd1.schema.read': { id:'d1.schema.read', enabled:true, risk:'LOW' },
-    'd1.sql.write': { id:'d1.sql.write', enabled:true, risk:'HIGH' },
+    'd1.read': { id:'d1.read', enabled:true, risk:'LOW' },
+    'd1.write': { id:'d1.write', enabled:true, risk:'HIGH' },
     'danger.approval': { id:'danger.approval', enabled:true, risk:'LOW', approval:{required:true} },
     'offline.tool': { id:'offline.tool', enabled:false, risk:'LOW' },
   };
@@ -159,10 +159,10 @@ test('explicit low-risk capability requests route through the normal runtime bus
   assert.deepEqual(inferExplicitRegisteredCapability('utilise la compétence skill.list', runtime), {
     id:'skill.list', input:{}, execution_intent:'EXPLICIT_REGISTERED_CAPABILITY',
   });
-  assert.deepEqual(inferExplicitRegisteredCapability('exécute l’outil d1.schema.read avec {"table":"jobs"}', runtime), {
-    id:'d1.schema.read', input:{table:'jobs'}, execution_intent:'EXPLICIT_REGISTERED_CAPABILITY',
+  assert.deepEqual(inferExplicitRegisteredCapability('exécute l’outil d1.read avec {"table":"jobs"}', runtime), {
+    id:'d1.read', input:{table:'jobs'}, execution_intent:'EXPLICIT_REGISTERED_CAPABILITY',
   });
-  assert.equal(inferExplicitRegisteredCapability('utilise la compétence d1.sql.write', runtime), null);
+  assert.equal(inferExplicitRegisteredCapability('utilise la compétence d1.write', runtime), null);
   assert.equal(inferExplicitRegisteredCapability('utilise la compétence danger.approval', runtime), null);
   assert.equal(inferExplicitRegisteredCapability('utilise la compétence offline.tool', runtime), null);
   assert.equal(inferExplicitRegisteredCapability('utilise la compétence invented.tool', runtime), null);
