@@ -105,6 +105,95 @@ export async function readWorkersAiSse(stream, { onText, onFinish } = {}) {
   onFinish?.(finishReason);
 }
 
+// The stream path offers the model no tools. gpt-oss still sometimes "calls"
+// one in plain text ({"tool":"code.search",…}), narrates its reasoning in
+// English ("We need to see TOOL_RESULT.") and then claims actions it never
+// ran. The note forbids it; the filter removes what slips through.
+export const STREAM_NO_TOOLS_NOTE = 'DANS CETTE RÉPONSE TU N’AS AUCUN OUTIL À APPELER : n’écris jamais d’appel d’outil en JSON ("tool": …), de TOOL_RESULT, ni ton raisonnement interne. Ne prétends jamais avoir lancé, déclenché, modifié ou déployé quoi que ce soit pendant cette réponse : aucune action n’a été exécutée. Si une action est nécessaire, dis précisément laquelle et ce qui la prouvera.';
+
+export function withNoToolsNote(messages) {
+  const list = Array.isArray(messages) ? messages.slice() : [];
+  const i = list.findIndex(m => m?.role === 'system');
+  if (i >= 0) list[i] = { ...list[i], content: String(list[i].content || '') + ' ' + STREAM_NO_TOOLS_NOTE };
+  else list.unshift({ role: 'system', content: STREAM_NO_TOOLS_NOTE });
+  return list;
+}
+
+const REASONING_STARTER = /^\s*(?:We|Let's|Let us|Attempt|Attempting|Possibly|Maybe|Might|Given|But we|Now we|Need to|I need|I should|Search(?:ing)? (?:code|the)|The user|Should|So we|Probably)\b/;
+const FRENCH = /[àâçéèêëîïôûùüÿœ«»’]|\b(?:je|tu|il|elle|le|la|les|des|est|pas|pour|avec|une|dans|mon|ton|sur|qui|que)\b/i;
+
+function closingBrace(text) {
+  let depth = 0, inString = false, escaped = false;
+  for (let i = 0; i < text.length; i += 1) {
+    const ch = text[i];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (ch === '\\') escaped = true;
+      else if (ch === '"') inString = false;
+    } else if (ch === '"') inString = true;
+    else if (ch === '{') depth += 1;
+    else if (ch === '}' && --depth === 0) return i;
+  }
+  return -1;
+}
+
+/** Stateful filter: push(text) → text safe to show; flush() at the end. */
+export function createToolLeakFilter({ holdLimit = 4000 } = {}) {
+  let buf = '';
+  let answerStarted = false;
+  let dropped = 0;
+  const sentences = (text, final) => {
+    // Before the real (French) answer begins, English agent narration is dropped
+    // sentence by sentence; afterwards text passes unchanged.
+    if (answerStarted) return text;
+    let out = '';
+    let rest = text;
+    for (;;) {
+      const m = /[.!?\n:](?=\s|$|[A-Z{À-Ý])/.exec(rest);
+      if (!m) break;
+      const sentence = rest.slice(0, m.index + 1);
+      rest = rest.slice(m.index + 1);
+      if (!answerStarted && REASONING_STARTER.test(sentence) && !FRENCH.test(sentence)) { dropped += 1; continue; }
+      if (sentence.trim()) answerStarted = answerStarted || FRENCH.test(sentence);
+      out += sentence;
+      if (answerStarted) { out += rest; rest = ''; break; }
+    }
+    if (final || answerStarted) {
+      if (!answerStarted && REASONING_STARTER.test(rest) && !FRENCH.test(rest)) { dropped += 1; rest = ''; }
+      return out + rest;
+    }
+    pending = rest + pending;
+    return out;
+  };
+  let pending = '';
+  const drain = final => {
+    let out = '';
+    for (;;) {
+      const start = buf.indexOf('{');
+      if (start < 0) { out += buf; buf = ''; break; }
+      out += buf.slice(0, start);
+      buf = buf.slice(start);
+      const end = closingBrace(buf);
+      if (end < 0) {
+        if (final || buf.length > holdLimit) { out += buf; buf = ''; }
+        break;
+      }
+      const block = buf.slice(0, end + 1);
+      buf = buf.slice(end + 1);
+      if (/^\{\s*"(?:tool|action|name|function)"\s*:/.test(block) && /"tool"\s*:|"function"\s*:/.test(block)) { dropped += 1; continue; }
+      out += block;
+    }
+    const text = pending + out;
+    pending = '';
+    return sentences(text, final);
+  };
+  return {
+    push(text) { buf += String(text || ''); return drain(false); },
+    flush() { return drain(true); },
+    get dropped() { return dropped; },
+  };
+}
+
 /**
  * Lance l'inférence en flux et renvoie la Response NDJSON.
  * `archive(fullText, meta)` est appelé une fois la réponse terminée (ou
@@ -130,16 +219,18 @@ export function streamChatResponse({ env, messages, archive = async () => false,
           if (candidate !== usedModel) send({ type: 'model', model: candidate, fallback_from: usedModel, reason: lastError });
           usedModel = candidate;
           try {
-            const source = await env.AI.run(candidate, { messages, stream: true, max_tokens: maxTokens });
+            const filter = createToolLeakFilter();
+            const emit = text => { if (text) { fullText += text; send({ type: 'delta', text }); } };
+            const source = await env.AI.run(candidate, { messages: withNoToolsNote(messages), stream: true, max_tokens: maxTokens });
             if (!source || typeof source.getReader !== 'function') {
-              const text = sseEventText(source) || String(source?.result?.response || '');
-              if (text) { fullText = text; send({ type: 'delta', text }); }
+              emit(filter.push(sseEventText(source) || String(source?.result?.response || '')));
             } else {
               await readWorkersAiSse(source, {
-                onText: text => { fullText += text; send({ type: 'delta', text }); },
+                onText: text => emit(filter.push(text)),
                 onFinish: reason => { finishReason = reason; },
               });
             }
+            emit(filter.flush());
             if (!fullText.trim()) lastError = 'EMPTY_MODEL_RESPONSE';
           } catch (error) {
             lastError = String(error?.code || error?.message || 'STREAM_FAILED').slice(0, 120);
