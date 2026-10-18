@@ -1514,10 +1514,6 @@ export async function handleNativeChat(request, env, options = {}) {
     }, { headers:{'cache-control':'no-store'} });
   }
 
-  if (!releaseSmoke && (!env.AI || typeof env.AI.run !== 'function')) {
-    return Response.json({ error: 'AI_BINDING_MISSING', code: 'AI_BINDING_MISSING' }, { status: 503 });
-  }
-
   let capabilityManifest = releaseSmoke || plainChatTurn ? [] : await buildRuntimeCapabilityManifest(runtime);
   const capability = releaseSmoke
     ? inferredCapability
@@ -1834,6 +1830,40 @@ export async function handleNativeChat(request, env, options = {}) {
       status: succeeded ? 200 : 502,
       headers: { 'cache-control': 'no-store' },
     });
+  }
+
+  // Execution belongs to CapabilityBus, not to the text-generation provider.
+  // If Workers AI is offline, an already authorized tool still returns its
+  // actual receipt; ordinary conversation still requires inference.
+  if (!env?.AI || typeof env.AI.run !== 'function') {
+    const executed = capability?.id
+      ? toolResults.find(row => String(row.capability) === String(capability.id))
+      : null;
+    if (!executed) {
+      return Response.json({ ok:false, error:'AI_BINDING_MISSING', code:'AI_BINDING_MISSING' },
+        { status:503, headers:{'cache-control':'no-store'} });
+    }
+    const succeeded = executed.status === 'SUCCEEDED';
+    const code = String(executed.error || 'CAPABILITY_FAILED');
+    const data = succeeded ? JSON.stringify(executed.result ?? null) : '';
+    const responseText = succeeded
+      ? 'Compétence ' + String(executed.capability) + ' exécutée et vérifiée par le bus. Résultat :\\n'
+        + data.slice(0, 7000) + (data.length > 7000 ? '\\n[Résultat abrégé, données structurées dans tool_results]' : '')
+      : 'La compétence ' + String(executed.capability) + ' n’a pas été exécutée avec succès : ' + code + '.';
+    let archiveSaved = false;
+    if (service) {
+      try {
+        await service.archiveMessage({ conversationId, deviceId, role:'user', content:text, timestamp:Date.now(), provenance:userProvenance, metadata:userMetadata });
+        await service.archiveMessage({ conversationId, deviceId, role:'assistant', content:responseText, timestamp:Date.now()+1, provenance:'native-chat:capability-receipt', metadata:{ capability:executed.capability, status:executed.status, error_code:succeeded ? null : code } });
+        archiveSaved = true;
+      } catch {}
+    }
+    return Response.json({
+      ok:succeeded, text:responseText,
+      model:'deterministic-capability-receipt', provider:'mel',
+      response_mode:'capability-receipt', capability_used:capabilitiesUsed,
+      tool_results:toolResults, archive_saved:archiveSaved,
+    }, { status:succeeded ? 200 : 502, headers:{'cache-control':'no-store'} });
   }
 
   const knowledgeMemory = toolResults.find(row => row.capability === 'knowledge.research' && row.status === 'SUCCEEDED')?.result?.memory || null;
