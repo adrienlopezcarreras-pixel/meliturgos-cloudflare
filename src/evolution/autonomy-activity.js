@@ -166,7 +166,13 @@ export async function buildAutonomyActivity(env, { now = Date.now(), limit = 30,
     byStatus[s] = (byStatus[s] || 0) + 1;
   }
   const terminal = new Set(['COMPLETED', 'COMMITTED', 'FAILED', 'CANCELLED']);
-  const jobs = supervised.slice(0, Math.max(1, Math.min(60, limit))).map(job => describeJob(job, now));
+  // Keep actionable jobs visible even when many recent terminal records exist.
+  // Terminal rows stay in D1 and remain readable as history.
+  const orderedJobs = [
+    ...supervised.filter(job => !terminal.has(String(job?.status || '').toUpperCase())),
+    ...supervised.filter(job => terminal.has(String(job?.status || '').toUpperCase())),
+  ];
+  const jobs = orderedJobs.slice(0, Math.max(1, Math.min(60, limit))).map(job => describeJob(job, now));
   const executorAge = executor ? now - Number(executor.last_seen || 0) : null;
   return {
     ok: true,
