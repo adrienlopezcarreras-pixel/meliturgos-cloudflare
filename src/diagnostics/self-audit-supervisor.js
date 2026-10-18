@@ -11,6 +11,7 @@ import { runScheduledSystemBackup } from '../backup/system-backup-runtime.js';
 import { readPersistentCapabilityStress } from './persistent-capability-stress.js';
 import { getAutonomyControl } from '../evolution/autonomy-control.js';
 import { enqueueSupervisedDevelopmentRequest } from '../evolution/owner-development-queue.js';
+import { evaluateCouncilReleaseProof } from '../models/model-council-evidence.js';
 
 export const MEL_SELF_AUDIT_STATE_ID = 'mel-self-audit-supervisor';
 export const MEL_SELF_AUDIT_LEVELS = Object.freeze(['HEARTBEAT','DAILY','WEEKLY','MONTHLY']);
@@ -437,29 +438,14 @@ async function runCouncilRepairAnalysis(bus, context, problem) {
       maxCandidates: 4,
       timeoutMs: 30000,
     }, context);
-    // A Council response is advisory evidence only when independent, uniquely
-    // attributed, zero-added-cost critiques and a real synthesis exist.
-    // Do not certify a partial/fallback result as successful repair advice.
-    const critiques = Array.isArray(result?.critiques) ? result.critiques : [];
-    const pairs = new Set(critiques
-      .map(row => [String(row?.provenance?.provider || '').trim(), String(row?.provenance?.model || '').trim()])
-      .filter(([provider, model]) => provider && model)
-      .map(([provider, model]) => provider + '::' + model));
-    const verified = result?.status === 'COMPLETE'
-      && critiques.length >= 2
-      && Number(result?.independent_response_count || 0) >= 2
-      && Number(result?.unique_model_count || 0) >= 2
-      && pairs.size >= 2
-      && critiques.every(row => row?.identity && row?.provenance?.provider && row?.provenance?.model
-        && row?.cost?.allowed === true && row?.cost?.policy === 'MEL_ZERO_EURO_V1')
-      && result?.synthesis?.status === 'COMPLETE'
-      && Boolean(String(result?.synthesis?.text || '').trim());
+    // The release and self-audit must agree on exactly the same evidence.
+    const proof = evaluateCouncilReleaseProof({ ok: true, capability: 'model.council', result });
     return {
-      ok: verified,
+      ok: proof.ok,
       status: clean(result?.status || 'UNKNOWN', 120),
-      reason: verified ? null : 'COUNCIL_INDEPENDENCE_NOT_PROVEN',
-      independent_response_count: Number(result?.independent_response_count || 0),
-      unique_model_count: Number(result?.unique_model_count || 0),
+      reason: proof.ok ? null : proof.code,
+      independent_response_count: proof.summary.reported_independent_count,
+      unique_model_count: proof.summary.reported_unique_model_count,
       synthesis_status: clean(result?.synthesis?.status || '', 120) || null,
     };
   } catch (error) {
