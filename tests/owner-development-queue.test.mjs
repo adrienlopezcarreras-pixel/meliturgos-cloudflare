@@ -367,3 +367,51 @@ test('exact blocked target wins over generic available matches in a sourced ecos
   assert.equal(stored.optional_context.extension_proposal.gap_classification, 'MATCHED_BUT_BLOCKED');
   assert.equal(stored.optional_context.extension_proposal.matched_capability, 'media.video.generate');
 });
+
+
+test('owner development is durably accepted before Council providers are available, with one scheduled existing preflight', async () => {
+  const f = fixture();
+  const waiting = [];
+  const input = {
+    env: { ...f.env, AI: null },
+    goal:'Développe une compétence de spectrométrie stellaire inconnue',
+    conversationId:'queue-before-council',
+    requestKey:'message-same-id',
+    repository:f.repository,
+    capabilities:[],
+    waitUntil:promise=>waiting.push(promise),
+    fetchImpl:f.fetchImpl,
+  };
+  const first=await enqueueOwnerDevelopmentRequest(input);
+  assert.equal(first.ok,true);
+  assert.equal(first.status,'QUEUED');
+  assert.equal(first.created,true);
+  assert.equal(first.preflight_scheduled,true);
+  assert.equal(waiting.length,1);
+  assert.equal((await f.repository.get(first.job_id)).status,'QUEUED');
+  const again=await enqueueOwnerDevelopmentRequest(input);
+  assert.equal(again.created,false);
+  assert.equal(again.job_id,first.job_id);
+  assert.equal(waiting.length,1,'retry cannot launch duplicate Council preflight');
+  await Promise.all(waiting);
+  assert.equal((await f.repository.list()).length,1);
+});
+
+test('deferred development still validates the canonical candidate branch before persisting any work', async () => {
+  const f=fixture();
+  const waiting=[];
+  await assert.rejects(
+    enqueueOwnerDevelopmentRequest({
+      env:{...f.env,MEL_TEACHER_BRANCH:'main'},
+      goal:'Développe un outil de spectrométrie stellaire',
+      conversationId:'reject-wrong-branch',
+      requestKey:'reject',
+      repository:f.repository,
+      capabilities:[],
+      waitUntil:promise=>waiting.push(promise),
+    }),
+    error=>error.code==='TEACHER_BRANCH_NOT_CANDIDATE'||error.code==='AUTONOMY_CANDIDATE_BRANCH_DIVERGENCE',
+  );
+  assert.equal((await f.repository.list()).length,0);
+  assert.equal(waiting.length,0);
+});

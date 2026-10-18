@@ -131,7 +131,7 @@ function mustFailClosed(error) {
   return FATAL_RUNTIME_CONFIGURATION_ERRORS.has(String(error?.code || error?.message || '').toUpperCase());
 }
 
-function validateCandidateBranches(env = {}) {
+export function validateCandidateBranches(env = {}) {
   const canonicalBranch = String(env?.MEL_GITHUB_BRANCH || CANONICAL_CANDIDATE_BRANCH).trim();
   const teacherBranch = String(env?.MEL_TEACHER_BRANCH || canonicalBranch).trim();
   if (!canonicalBranch.startsWith('candidate/')) {
