@@ -200,7 +200,7 @@ test('work.plan.generate retries once with a strict zero-cost repair prompt when
 });
 
 
-test('work.plan.generate repair prompt constrains the model to a small low-risk catalog', async () => {
+test('work.plan.generate repair reuses original capability catalog and validations', async () => {
   const bus=new CapabilityBus();
   let calls=0;
   bus.discover({
@@ -238,10 +238,11 @@ test('work.plan.generate repair prompt constrains the model to a small low-risk 
       return {candidates:[{provider:'fixture',model:'bad',text:'{"steps":[{"capability":"invented.tool","input":{}}]}'}],failures:0};
     }
     assert.equal(input.context.purpose,'work-plan-generation-repair');
-    assert.match(input.input,/REPAIR_CAPABILITIES/);
+    assert.match(input.input,/AVAILABLE_CAPABILITIES/);
+    assert.match(input.input,/sans remplacer l’objectif original/);
     assert.match(input.input,/"id":"echo"/);
-    assert.doesNotMatch(input.input,/"id":"danger.write"/);
-    assert.doesNotMatch(input.input,/"id":"augmentio.fanout"/);
+    assert.match(input.input,/"id":"danger.write"/);
+    assert.match(input.input,/"id":"augmentio.fanout"/);
     return {candidates:[{provider:'fixture',model:'fixed',text:'{"steps":[{"id":"step-1","title":"Echo","capability":"echo","input":{"value":"ok"},"dependsOn":[],"idempotent":true}],"constraints":[]}'}],failures:0};
   });
   registerWorkCapabilities(bus,{});
@@ -252,40 +253,37 @@ test('work.plan.generate repair prompt constrains the model to a small low-risk 
 });
 
 
-test('work.plan.generate falls back to AI capability selection and synthesizes schema-valid input', async () => {
+test('invalid generation and invalid repair fail closed without fabricated capability steps', async () => {
   const calls = [];
   const bus = new CapabilityBus();
   bus.discover({
     id:'augmentio.fanout', name:'Fixture multi-AI', category:'test', version:'1.0.0', provider:'fixture',
-    description:'Returns invalid free-form plans first, then a deterministic capability selection.',
+    description:'Returns invalid free-form plans on both attempts',
     input_schema:{type:'object',properties:{capability:{type:'string'},input:{type:'string'},context:{type:'object',additionalProperties:true},maxCandidates:{type:'integer'}},required:['input'],additionalProperties:false},
     output_schema:{type:'object',additionalProperties:true},
     risk:'LOW', permissions:[], health:'HEALTHY', enabled:true,
-  }, async (input) => {
+  }, async input => {
     calls.push(input);
     if (calls.length === 1) return {candidates:[{provider:'fixture',model:'bad-1',text:'{"steps":[{"capability":"invented.cap","input":{}}]}'}],failures:0};
-    if (calls.length === 2) return {candidates:[{provider:'fixture',model:'bad-2',text:'not-json'}],failures:0};
-    return {candidates:[{provider:'fixture',model:'selector',text:'echo'}],failures:0};
+    return {candidates:[{provider:'fixture',model:'bad-2',text:'echo'}],failures:0};
   });
   bus.discover({
     id:'echo', name:'Echo', category:'test', version:'1.0.0', provider:'fixture',
-    description:'Echo fixture capability for structured selection fallback.',
+    description:'Unrelated echo must not replace owner goal',
     input_schema:{type:'object',properties:{value:{type:'string',minLength:1,maxLength:100}},required:['value'],additionalProperties:false},
     output_schema:{type:'object',additionalProperties:true},
     risk:'LOW', permissions:[], health:'HEALTHY', enabled:true,
-  }, async (input) => input);
+  }, async input => input);
   registerWorkCapabilities(bus,{});
-  const result = await bus.execute('work.plan.generate',{goal:'diagnostic simple',maxCandidates:1},{owner:'adrien',requestId:'structured-selection-test',permissions:[]});
-  assert.equal(result.ok,true);
-  assert.equal(result.plan.steps[0].capability,'echo');
-  assert.equal(typeof result.plan.steps[0].input.value,'string');
-  assert.ok(result.plan.steps[0].input.value.length >= 1);
-  assert.equal(result.generator.model,'selector');
-  assert.equal(result.generator.execution_started,false);
-  assert.equal(result.generator.persisted,false);
-  assert.equal(calls[2].context.purpose,'work-plan-generation-capability-selection');
-  assert.match(calls[2].input,/IDS_AUTORISES:/);
-  assert.match(calls[2].input,/echo/);
+  await assert.rejects(
+    () => bus.execute('work.plan.generate',{goal:'Écris un document complet',maxCandidates:1},{owner:'owner',requestId:'fail-closed-plan-test',permissions:[]}),
+    error => error.code === 'WORK_PLAN_GENERATION_NO_VALID_CANDIDATE'
+      && error.validation_failures.length === 2,
+  );
+  assert.equal(calls.length,2,'a third fabricated selection request is forbidden');
+  assert.equal(calls[1].context.purpose,'work-plan-generation-repair');
+  assert.match(calls[1].input,/Écris un document complet/);
+  assert.match(calls[1].input,/AVAILABLE_CAPABILITIES/);
 });
 
 
@@ -368,8 +366,8 @@ test('GEN2-38 release smoke keeps real planner bounded and surfaces curl transpo
   assert.match(source, /const planningDeadline = Date\.now\(\) \+ 105_000/);
   assert.match(source, /WORK_PLAN_GENERATION_BUDGET_EXHAUSTED/);
   assert.match(source, /Promise\.race\(/, 'all planner fan-outs share a cumulative deadline');
-  assert.equal((source.match(/executeBoundedPlanningFanout\(/g) || []).length, 3,
-    'initial generation, repair and capability selection share one deadline');
+  assert.equal((source.match(/executeBoundedPlanningFanout\(/g) || []).length, 2,
+    'initial generation and one repair share one deadline');
 });
 
 test('GEN2-38 release diagnostic creates a bounded local plan without waiting on AI providers', async () => {
