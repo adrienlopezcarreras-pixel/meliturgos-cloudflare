@@ -7,10 +7,11 @@
 import { streamDirectWork } from './work-stream.js';
 import { queueTaskmarketSubmission, refreshTaskmarketSubmissions } from './taskmarket-autosubmit.js';
 import { reviewSubmissionOutcomes } from './work-lessons.js';
+import { ensureTaskmarketWalletImport } from './taskmarket-cloud.js';
 
 export const MEL_WORK_SCHEDULE_HOURS = Object.freeze([0, 6, 12, 18]);
 export const MEL_WORK_MAX_DAILY_DRAFTS = 4;
-const RETRYABLE = new Set(['COMPANION_OFFLINE', 'DAILY_LIMIT_REACHED', 'QUEUE_FAILED']);
+const RETRYABLE = new Set(['COMPANION_OFFLINE', 'DAILY_LIMIT_REACHED', 'QUEUE_FAILED', 'LEGAL_ACCEPTANCE_REQUIRED', 'CLOUD_SUBMIT_FAILED']);
 
 async function draftsLast24h(db, now) {
   try {
@@ -36,7 +37,7 @@ export async function retryPendingSubmissions(env, { now = Date.now(), queue = q
     result.submission = queued?.status || 'QUEUE_FAILED';
     await db.prepare('UPDATE mel_work_cycles SET result=?, updated_at=? WHERE id=?').bind(JSON.stringify(result), new Date(now).toISOString(), row.id).run();
     retried += 1;
-    if (result.submission === 'COMPANION_OFFLINE' || result.submission === 'DAILY_LIMIT_REACHED') break;
+    if (['COMPANION_OFFLINE', 'DAILY_LIMIT_REACHED', 'LEGAL_ACCEPTANCE_REQUIRED'].includes(result.submission)) break;
   }
   return { retried };
 }
@@ -44,6 +45,8 @@ export async function retryPendingSubmissions(env, { now = Date.now(), queue = q
 export async function runScheduledMelWork(env, { now = new Date(), run = streamDirectWork } = {}) {
   if (String(env?.MEL_WORK_AUTONOMOUS || 'on').toLowerCase() === 'off') return { status: 'DISABLED' };
   if (!env?.DB?.prepare || typeof env?.AI?.run !== 'function') return { status: 'RUNTIME_UNAVAILABLE' };
+  // Once: copy the PC Taskmarket keystore to the vault so hand-ins work PC off.
+  await ensureTaskmarketWalletImport(env, { now: now.getTime() }).catch(() => null);
   await refreshTaskmarketSubmissions(env, { now: now.getTime() }).catch(() => null);
   await retryPendingSubmissions(env, { now: now.getTime() }).catch(() => null);
   // Won or lost? Each lost contract becomes a lesson for the next cycles.

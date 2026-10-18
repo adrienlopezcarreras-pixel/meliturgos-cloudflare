@@ -42,7 +42,7 @@ export function normalizeRevenueTasks(payload, nowMs = Date.now()) {
 
 export async function handleRevenueApi(request, env, ctx = null) {
   const url = new URL(request.url);
-  if (url.pathname !== '/api/revenue/channels' && url.pathname !== '/api/revenue/submissions' && url.pathname !== '/api/revenue/watch' && url.pathname !== '/api/revenue/tasks' && url.pathname !== '/api/revenue/taskmarket-pc-status' && url.pathname !== '/api/revenue/drafts' && url.pathname !== '/api/revenue/direct-work') return null;
+  if (url.pathname !== '/api/revenue/channels' && url.pathname !== '/api/revenue/submissions' && url.pathname !== '/api/revenue/watch' && url.pathname !== '/api/revenue/tasks' && url.pathname !== '/api/revenue/taskmarket-pc-status' && url.pathname !== '/api/revenue/drafts' && url.pathname !== '/api/revenue/direct-work' && url.pathname !== '/api/revenue/taskmarket' && url.pathname !== '/api/revenue/taskmarket/legal-accept') return null;
   const auth = requireAuth(request, env);
   if (!auth.ok) return auth.response;
   if (url.pathname === '/api/revenue/channels') {
@@ -66,6 +66,22 @@ export async function handleRevenueApi(request, env, ctx = null) {
       return json({ ok: true, submissions: submissions.map(r => ({ ...r, outcome: outcomes[r.task_id] || null })), outcomes: await outcomeSummary(env.DB), lessons: await recentLessons(env.DB) });
     }
     catch { return json({ ok: false, code: 'SUBMISSIONS_UNAVAILABLE' }, 503); }
+  }
+  if (url.pathname === '/api/revenue/taskmarket') {
+    if (request.method !== 'GET') return json({ ok: false, code: 'METHOD_NOT_ALLOWED' }, 405);
+    const { taskmarketWalletStatus, taskmarketLegalCurrent } = await import('../revenue/taskmarket-cloud.js');
+    const wallet = await taskmarketWalletStatus(env).catch(() => ({ cloud: false }));
+    const legal = wallet.cloud && !wallet.legal_accepted ? await taskmarketLegalCurrent().catch(() => null) : null;
+    return json({ ok: true, wallet, legal });
+  }
+  if (url.pathname === '/api/revenue/taskmarket/legal-accept') {
+    if (request.method !== 'POST') return json({ ok: false, code: 'METHOD_NOT_ALLOWED' }, 405);
+    const body = await request.json().catch(() => ({}));
+    // The owner has been shown the policies and explicitly accepts them.
+    if (body?.accept !== true) return json({ ok: false, code: 'EXPLICIT_ACCEPTANCE_REQUIRED' }, 400);
+    const { acceptTaskmarketLegal } = await import('../revenue/taskmarket-cloud.js');
+    try { return json({ ok: true, ...(await acceptTaskmarketLegal(env)) }); }
+    catch (error) { return json({ ok: false, code: String(error?.message || 'LEGAL_ACCEPT_FAILED').slice(0, 120) }, error?.status || 502); }
   }
   if (url.pathname === '/api/revenue/watch') {
     if (request.method !== 'GET') return json({ ok: false, code: 'METHOD_NOT_ALLOWED' }, 405);

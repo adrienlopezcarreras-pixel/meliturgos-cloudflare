@@ -163,6 +163,10 @@ export function createStreamingDrafter({ env, models = WORK_MODELS, onText = () 
 }
 
 const SUBMISSION_STEP = Object.freeze({
+  SUBMITTED: 'Livrable remis sur Taskmarket, directement depuis le cloud.',
+  LEGAL_ACCEPTANCE_REQUIRED: 'Livrable prêt. Taskmarket demande que tu acceptes une fois ses conditions (bouton sur /revenus) ; je le remets juste après.',
+  WINDOW_CLOSED: 'La mission a fermé avant la remise.',
+  PAYMENT_REQUIRED_REFUSED: 'Remise payante au-delà du quota gratuit : refusée (je ne dépense rien).',
   QUEUED: 'Livrable terminé. Je le remets moi-même sur Taskmarket depuis ton PC.',
   COMPANION_OFFLINE: 'Livrable terminé. Je le remettrai dès que ton PC (Companion) sera allumé.',
   DAILY_LIMIT_REACHED: 'Livrable terminé. Limite de remises du jour atteinte, je continue demain.',

@@ -30,6 +30,7 @@ section.card{margin-top:14px}.row{display:flex;justify-content:space-between;gap
 <section class="card" id="liveSection"><h2>En ce moment</h2><div id="lastCycle" class="muted">Lecture…</div><div id="live" aria-live="polite"></div></section>
 <section class="card"><h2>Dernières missions</h2><div id="submissionsList" class="muted">Lecture…</div></section>
 <section class="card"><h2>Ce que MEL apprend</h2><p class="small">Quand elle ne gagne pas un contrat, MEL compare son livrable avec celui du gagnant et en tire des règles qu’elle applique ensuite.</p><div id="outcomes" class="small">Lecture…</div><div id="lessons" class="muted"></div></section>
+<section class="card" id="taskmarketSection"><h2>Remise Taskmarket sans ton PC</h2><div id="tmWallet" class="small">Lecture…</div><div id="tmLegal"></div></section>
 <section class="card" id="channelsSection"><h2>Comptes de publication de MEL</h2><p class="small">Avec ses propres comptes, MEL publie elle-même les missions « écris, illustre et publie ». Chaque publication indique qu’elle est rédigée par une IA. Les clés sont chiffrées dans son coffre.</p><div id="channelState" class="small">Lecture…</div>
 <form id="devtoForm" class="chan"><strong>dev.to</strong> <input name="api_key" placeholder="Clé API dev.to (Settings → Extensions)" autocomplete="off" required> <button type="submit">Enregistrer</button></form>
 <form id="blueskyForm" class="chan"><strong>Bluesky</strong> <input name="handle" placeholder="identifiant.bsky.social" autocomplete="off" required> <input name="app_password" placeholder="mot de passe d’application xxxx-xxxx-xxxx-xxxx" autocomplete="off" required> <button type="submit">Enregistrer</button></form></section>
@@ -73,10 +74,16 @@ $('workNow').onclick=async()=>{const b=$('workNow');b.disabled=true;b.textConten
    $('live').scrollTop=$('live').scrollHeight}}}
  catch(e){$('live').textContent+='⚠ '+e.message+'\\n'}
  finally{b.disabled=false;b.textContent='Travailler maintenant';refresh()}};
+async function loadTaskmarket(){try{const d=await getJson('/api/revenue/taskmarket');const w=d.wallet||{};
+ $('tmWallet').innerHTML=w.cloud?'<span class="good">Portefeuille dans le coffre de MEL</span> · '+esc(w.address||'')+(w.legal_accepted?' · conditions acceptées : MEL remet ses missions même PC éteint.':''):'<span class="warn">Copie en attente</span> : MEL copie son portefeuille Taskmarket depuis ton PC au prochain allumage (une seule fois).';
+ const L=d.legal;if(w.cloud&&!w.legal_accepted){const links=[];const walk=o=>{if(!o||typeof o!=='object')return;for(const v of Object.values(o)){if(typeof v==='string'&&v.startsWith('https://'))links.push(v);else if(typeof v==='object')walk(v)}};walk(L);
+  $('tmLegal').innerHTML='<p class="small">Taskmarket exige que tu acceptes une fois ses conditions pour ce portefeuille. Lis-les :</p>'+[...new Set(links)].slice(0,8).map(u=>'<div class="small">• <a href="'+esc(u)+'" target="_blank" rel="noopener">'+esc(u)+'</a></div>').join('')+'<button id="tmAccept" type="button" class="primary" style="margin-top:8px">J’accepte les conditions Taskmarket</button>';
+  $('tmAccept').onclick=async()=>{const b=$('tmAccept');b.disabled=true;try{await getJson('/api/revenue/taskmarket/legal-accept',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({accept:true})});loadTaskmarket()}catch(e){alert('Acceptation refusée ('+e.message+').');b.disabled=false}}}
+ else $('tmLegal').textContent=''}catch{$('tmWallet').textContent='État Taskmarket indisponible.'}}
 async function loadChannels(){try{const d=await getJson('/api/revenue/channels');const c=d.channels||{};$('channelState').innerHTML='Image : '+(c.image?'<span class="good">prête</span>':'<span class="warn">indisponible</span>')+' · dev.to : '+(c.devto?'<span class="good">connecté</span>':'<span class="warn">à connecter</span>')+' · Bluesky : '+(c.bluesky?'<span class="good">connecté'+(c.bluesky_handle?' ('+esc(c.bluesky_handle)+')':'')+'</span>':'<span class="warn">à connecter</span>')}catch{$('channelState').textContent='État des comptes indisponible.'}}
 async function saveChannel(e,channel){e.preventDefault();const f=e.target;const body={channel};for(const el of f.querySelectorAll('input'))body[el.name]=el.value.trim();const b=f.querySelector('button');b.disabled=true;try{await getJson('/api/revenue/channels',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});f.reset();loadChannels()}catch(err){alert('Enregistrement refusé ('+err.message+').')}finally{b.disabled=false}}
 $('devtoForm').onsubmit=e=>saveChannel(e,'devto');$('blueskyForm').onsubmit=e=>saveChannel(e,'bluesky');
-function refresh(){const n=nextRun();$('next').textContent=n?n.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}):'—';loadPc();loadSubmissions();loadWatch();loadCycle();loadChannels()}
+function refresh(){const n=nextRun();$('next').textContent=n?n.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}):'—';loadPc();loadSubmissions();loadWatch();loadTaskmarket();loadCycle();loadChannels()}
 refresh();setInterval(refresh,60000);
 </script></body></html>`;
 }
