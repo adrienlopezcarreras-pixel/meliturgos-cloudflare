@@ -71,7 +71,7 @@ function sseFinishReason(payload) {
 }
 
 // Parcourt un flux SSE (octets) et appelle onText pour chaque morceau de texte.
-export async function readWorkersAiSse(stream, { onText, onFinish } = {}) {
+export async function readWorkersAiSse(stream, { onText, onFinish, idleTimeoutMs = 0 } = {}) {
   const reader = stream.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
@@ -90,19 +90,33 @@ export async function readWorkersAiSse(stream, { onText, onFinish } = {}) {
     } catch {}
     return false;
   };
-  for (;;) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
+  try {
+    for (;;) {
+      let timer;
+      const { value, done } = await (idleTimeoutMs > 0
+        ? Promise.race([
+            reader.read(),
+            new Promise((_, reject) => {
+              timer = setTimeout(() => reject(Object.assign(new Error('MODEL_STREAM_IDLE_TIMEOUT'), { code:'MODEL_STREAM_IDLE_TIMEOUT' })), idleTimeoutMs);
+            }),
+          ]).finally(() => clearTimeout(timer))
+        : reader.read());
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
     let index;
     while ((index = buffer.indexOf('\n')) >= 0) {
       const line = buffer.slice(0, index);
       buffer = buffer.slice(index + 1);
       if (handleLine(line)) { onFinish?.(finishReason); return; }
+      }
     }
+    if (buffer) handleLine(buffer);
+    onFinish?.(finishReason);
+  } catch (error) {
+    // Cancel a stalled upstream reader before moving to the next provider.
+    void reader.cancel().catch(() => {});
+    throw error;
   }
-  if (buffer) handleLine(buffer);
-  onFinish?.(finishReason);
 }
 
 // The stream path offers the model no tools. gpt-oss still sometimes "calls"
@@ -219,14 +233,30 @@ export function streamChatResponse({ env, messages, archive = async () => false,
           if (candidate !== usedModel) send({ type: 'model', model: candidate, fallback_from: usedModel, reason: lastError });
           usedModel = candidate;
           try {
+            const modelAttemptStarted = Date.now();
             const filter = createToolLeakFilter();
             const emit = text => { if (text) { fullText += text; send({ type: 'delta', text }); } };
-            const source = await env.AI.run(candidate, { messages: withNoToolsNote(messages), stream: true, max_tokens: maxTokens });
+            // A silent provider must not occupy the 45-second browser idle
+            // window. Give it 28 seconds to produce visible text, then fail
+            // over using the existing ranked model list.
+            let startupTimer;
+            const source = await Promise.race([
+              Promise.resolve().then(() => env.AI.run(candidate, { messages: withNoToolsNote(messages), stream: true, max_tokens: maxTokens })),
+              new Promise((_, reject) => {
+                startupTimer = setTimeout(() => reject(Object.assign(new Error('MODEL_STREAM_START_TIMEOUT'), { code:'MODEL_STREAM_START_TIMEOUT' })), 28000);
+              }),
+            ]).finally(() => clearTimeout(startupTimer));
             if (!source || typeof source.getReader !== 'function') {
               emit(filter.push(sseEventText(source) || String(source?.result?.response || '')));
             } else {
               await readWorkersAiSse(source, {
-                onText: text => emit(filter.push(text)),
+                idleTimeoutMs: 28000,
+                onText: text => {
+                  if (!fullText && Date.now() - modelAttemptStarted > 28000) {
+                    throw Object.assign(new Error('MODEL_NO_VISIBLE_TEXT'), { code:'MODEL_NO_VISIBLE_TEXT' });
+                  }
+                  emit(filter.push(text));
+                },
                 onFinish: reason => { finishReason = reason; },
               });
             }

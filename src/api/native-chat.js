@@ -22,7 +22,7 @@ import { stripInternalCounters } from './chat-sanitization.js';
 import { formatPersonalProfileRecall, retrieveContext, retrievePersonalProfileContext } from '../core/orchestrator/conversation-context.js';
 import { isMelWorkKickoff, startMelWorkKickoff } from '../work/mel-work-kickoff.js';
 import { isSubstantialMelTask, findMelWorkReference, launchSubstantialMelTask, getSubstantialMelStatus } from '../work/mel-general-kickoff.js';
-import { isMaxModeMention } from '../evolution/chat-intent.js';
+import { isMaxModeMention, isGlobalCapabilityAuditRequest } from '../evolution/chat-intent.js';
 import { formatVerifiedSelfStateResponse, formatVerifiedCapabilityAuditResponse, formatCommunicationAuditResponse, formatVerifiedAutonomyActivityResponse, formatVerifiedDevBridgeStatusResponse, formatVerifiedAutonomyRuntimeResponse, MAX_MODE_EXPLANATION } from './response-grounding.js';
 import { buildResponseQualityInstruction, finalizeEvidenceAlignedResponse, inferResponseMode } from './response-quality.js';
 import { buildConversationFocusInstruction, deriveConversationFocus } from './conversation-focus.js';
@@ -406,7 +406,7 @@ export function inferNativeExecutionCapability(text, recent = []) {
     };
   }
 
-  const globalStress = /\b(?:stress\s*test|stresstest|stress-test|audit(?:e|er)?\s+(?:global|complet|toutes?\s+(?:tes|les)\s+capacites)|test(?:e|er)?\s+toutes?\s+(?:tes|les)\s+capacites|verifi(?:e|er)\s+que\s+tout\s+fonctionne|verifi(?:e|er)\s+toutes?\s+(?:tes|les)\s+capacites)\b/.test(normalized);
+  const globalStress = isGlobalCapabilityAuditRequest(value);
   if (!globalStress) return null;
 
   return {
@@ -1810,7 +1810,25 @@ export async function handleNativeChat(request, env, options = {}) {
 
   if (!releaseSmoke && inferredExecutionCapability?.execution_intent === 'GLOBAL_CAPABILITY_STRESS_TEST') {
     const execution = toolResults.find(row => row.capability === 'capability.audit') || null;
-    if (!execution || execution.status !== 'SUCCEEDED') {
+    const observed = execution?.status === 'SUCCEEDED' ? execution.result : null;
+    if (observed?.persistent === true && observed?.job_id) {
+      const responseText = formatVerifiedCapabilityAuditResponse(observed)
+        + '\nCet audit mesure les capacités : il ne constitue pas encore une correction de code validée par le Council.';
+      if (service) {
+        try {
+          await service.archiveMessage({ conversationId, deviceId, role:'user', content:text, timestamp:Date.now(), provenance:userProvenance, metadata:userMetadata });
+          await service.archiveMessage({ conversationId, deviceId, role:'assistant', content:responseText, timestamp:Date.now()+1, provenance:'native-chat:persistent-audit-start', metadata:{ job_id:observed.job_id, status:observed.status, reused:observed.reused === true } });
+        } catch {}
+      }
+      return Response.json({
+        ok:true, text:responseText, model:'deterministic-capability-audit', provider:'mel',
+        response_mode:'capability-stress-start',
+        execution_intent:'GLOBAL_CAPABILITY_STRESS_TEST',
+        job_id:observed.job_id, status:observed.status, reused:observed.reused === true,
+        capability_used:capabilitiesUsed, tool_results:toolResults,
+      }, { status: 200, headers:{ 'cache-control':'no-store' } });
+    }
+    if (!execution || execution.status !== 'SUCCEEDED' || !observed) {
       const code = String(execution?.error || 'GLOBAL_CAPABILITY_STRESS_TEST_NOT_EXECUTED');
       const responseText = `Le stress test n'a pas pu être exécuté : ${code}.`;
       let archiveSaved = false;

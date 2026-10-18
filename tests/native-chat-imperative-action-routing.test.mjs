@@ -128,3 +128,10 @@ test('persistent stress status has deterministic D1-only response and fail-close
   assert.match(branch, /Je ne peux pas v[eé]rifier maintenant la progression du stress test dans D1/);
   assert.match(branch, /status: verified \? 200 : 503/);
 });
+
+test('full audit with repair request uses durable audit execution instead of a development placeholder', () => {
+  const action = inferNativeExecutionCapability("essaye de relancer l'audit de toutes tes capacités, et corrige les cassées en développant avec le council");
+  assert.equal(action?.id,'capability.audit');
+  assert.equal(action?.execution_intent,'GLOBAL_CAPABILITY_STRESS_TEST');
+  assert.equal(inferNativeExecutionCapability('où en est le stress test ?')?.id, 'capability.audit.status');
+});

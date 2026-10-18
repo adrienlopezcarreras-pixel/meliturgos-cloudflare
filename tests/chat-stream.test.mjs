@@ -227,3 +227,11 @@ test('stream drops fake tool calls and English agent narration, keeps the French
   assert.equal(messages.length, 2);
   assert.ok(messages[0].content.endsWith(STREAM_NO_TOOLS_NOTE));
 });
+
+test('a silent provider stream is cancelled after its bounded idle window', async () => {
+  let cancelled=false;
+  const stalled=new ReadableStream({pull() {}, cancel(){cancelled=true;}});
+  await assert.rejects(readWorkersAiSse(stalled,{idleTimeoutMs:10}), /MODEL_STREAM_IDLE_TIMEOUT/);
+  await Promise.resolve();
+  assert.equal(cancelled,true);
+});

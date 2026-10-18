@@ -76,3 +76,20 @@ test('ordinary MEL chat uses the real conversational path without pre-routing AI
     assert.equal(routed, request, 'ordinary chat must bypass preprocessing without rebuilding the request: ' + text.slice(0, 80));
   }
 });
+
+test('a full capability audit with a request to repair defects executes the real audit, not module-gap enqueue', async () => {
+  for (const text of [
+    "essaye de relancer l'audit de toutes tes capacités, et corrige les cassées en développant avec le council",
+    'relance un stress test global',
+    'audite toutes tes capacités',
+  ]) {
+    const prepared = await injectEvolutionPreflightCapability(new Request('https://mel.test/api/chat', {
+      method:'POST',headers:{'content-type':'application/json'},
+      body:JSON.stringify({text}),
+    }));
+    const body = await prepared.json();
+    assert.equal(body.capability.id, 'capability.audit', text);
+    assert.deepEqual(body.capability.input, {deep:true});
+    assert.equal(body.intent_routing.intent, 'GLOBAL_CAPABILITY_STRESS_TEST');
+  }
+});
