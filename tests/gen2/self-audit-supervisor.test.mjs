@@ -70,9 +70,14 @@ function fakeBus(overrides = {}) {
       };
       if (id === 'model.council') return {
         status: 'COMPLETE',
+        critiques: ['first', 'second'].map(model => ({
+          identity: 'workers-ai::' + model,
+          provenance: { provider: 'workers-ai', model },
+          cost: { allowed: true, policy: 'MEL_ZERO_EURO_V1' },
+        })),
         independent_response_count: 2,
         unique_model_count: 2,
-        synthesis: { status: 'COMPLETE' },
+        synthesis: { status: 'COMPLETE', text: 'Verified safe corrective analysis.' },
       };
       throw new Error('UNEXPECTED_CAPABILITY:' + id);
     },
@@ -302,6 +307,79 @@ test('two consecutive anomalies trigger Council and one idempotent MAX repair ha
   assert.equal(second.report.repair, null);
 });
 
+
+test('Council fallback never starts a correction or consumes its repair fingerprint', async () => {
+  const store = new MemoryStateStore({
+    schema: 'mel.self-audit-supervisor/v1',
+    last_runs: { HEARTBEAT: 0, DAILY: 0, WEEKLY: Date.now(), MONTHLY: Date.now() },
+    failure_streaks: { 'lora-heartbeat': 1 },
+    repair_fingerprints: [],
+    last_report: null,
+    updated_at: 0,
+  });
+  const bus = fakeBus();
+  const originalExecute = bus.execute;
+  bus.execute = (id, input) => id === 'model.council'
+    ? Promise.resolve({
+        status: 'DEGRADED_SINGLE_MODEL',
+        critiques: [{ identity: 'workers-ai::single', provenance: { provider: 'workers-ai', model: 'single' },
+          cost: { allowed: true, policy: 'MEL_ZERO_EURO_V1' } }],
+        independent_response_count: 1, unique_model_count: 1,
+        synthesis: { status: 'COMPLETE', text: 'Not independent.' },
+      })
+    : originalExecute(id, input);
+  let queued = 0;
+  const result = await runMelSelfAuditSupervisor({}, {
+    bus,
+    stateStore: store,
+    forceLevel: 'DAILY',
+    maxLevel: 'DAILY',
+    deps: baseDeps({
+      getAutonomyControl: async () => ({ max_autonomy: true, paused: false }),
+      runLoraTrainingHeartbeat: async () => ({ ok: false, status: 'HEARTBEAT_ERROR' }),
+      enqueueDevelopment: async () => { queued += 1; return { job_id: 'should-not-be-created' }; },
+    }),
+  });
+  assert.equal(result.report.council.ok, false);
+  assert.equal(result.report.council.reason, 'COUNCIL_INDEPENDENCE_NOT_PROVEN');
+  assert.equal(result.report.repair.queued, false);
+  assert.equal(result.report.repair.reason, 'COUNCIL_INDEPENDENCE_NOT_PROVEN');
+  assert.equal(queued, 0);
+  assert.deepEqual(store.state.repair_fingerprints, []);
+});
+
+test('a release pause defers verified Council correction and permits a later retry', async () => {
+  const store = new MemoryStateStore({
+    schema: 'mel.self-audit-supervisor/v1',
+    last_runs: { HEARTBEAT: 0, DAILY: 0, WEEKLY: Date.now(), MONTHLY: Date.now() },
+    failure_streaks: { 'lora-heartbeat': 1 },
+    repair_fingerprints: [],
+    last_report: null,
+    updated_at: 0,
+  });
+  let paused = true;
+  let queued = 0;
+  const deps = baseDeps({
+    getAutonomyControl: async () => ({ max_autonomy: true, paused }),
+    runLoraTrainingHeartbeat: async () => ({ ok: false, status: 'HEARTBEAT_ERROR' }),
+    enqueueDevelopment: async () => { queued += 1; return { job_id: 'repair-after-pause', status: 'WAITING_TEACHER' }; },
+  });
+  const first = await runMelSelfAuditSupervisor({}, {
+    bus: fakeBus(), stateStore: store, forceLevel: 'DAILY', maxLevel: 'DAILY', deps,
+  });
+  assert.equal(first.report.council.ok, true);
+  assert.equal(first.report.repair.reason, 'AUTONOMY_PAUSED');
+  assert.equal(queued, 0);
+  assert.deepEqual(store.state.repair_fingerprints, []);
+
+  paused = false;
+  const second = await runMelSelfAuditSupervisor({}, {
+    bus: fakeBus(), stateStore: store, forceLevel: 'DAILY', maxLevel: 'DAILY', deps,
+  });
+  assert.equal(second.report.repair.queued, true);
+  assert.equal(queued, 1);
+  assert.equal(store.state.repair_fingerprints.length, 1);
+});
 
 test('a previous runtime stress failure keeps the supervisor degraded until disproven', async () => {
   const store = new MemoryStateStore();
