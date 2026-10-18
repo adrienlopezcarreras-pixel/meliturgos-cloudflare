@@ -1364,7 +1364,10 @@ export async function handleNativeChat(request, env, options = {}) {
       }
       const count = Number(outcome.completed_steps || 0);
       const lastSection = Array.isArray(outcome.sections) ? outcome.sections.at(-1) : null;
-      const responseText = outcome.ok
+      const responseText = outcome?.status === 'TOOL_DEVELOPMENT_QUEUED'
+        ? 'MEL — développement d’outil manquant enregistré : ' + outcome.development_job_id
+          + '. La demande est transmise au pipeline de développement supervisé (Council, inspection et tests avant activation). Aucun nouvel outil n’est encore disponible ni validé.'
+        : outcome.ok
         ? [
             'MEL — travail persistant ' + outcome.id,
             'État observé : ' + String(outcome.status || 'ENREGISTRÉ')

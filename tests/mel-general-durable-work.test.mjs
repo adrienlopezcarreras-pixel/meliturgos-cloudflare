@@ -324,3 +324,49 @@ test('tool-dependent very long instructions fail visibly rather than dropping co
   assert.equal(result.code,'MEL_OPERATIONAL_GOAL_TOO_LONG');
   assert.equal(planningCalled,false);
 });
+
+
+test('confirmed owner-requested missing tool enters existing Council development queue instead of a fake Work DAG', async () => {
+  const goal='Développe un outil manquant de spectrométrie infrarouge astronomique pour mes données, avec un module fiable et des tests réels, sans inventer les résultats ni activer le code sans validation.';
+  assert.equal(requiresOperationalMelWork(goal),true);
+  const calls=[];
+  const bus={async execute(id,input) {
+    calls.push(id);
+    if(id==='work.status')throw Object.assign(new Error('WORK_DAG_NOT_FOUND'),{code:'WORK_DAG_NOT_FOUND'});
+    if(id==='evolution.module.propose')return {decision:'PROPOSE_MODULE',gap:{classification:'POSSIBLE_GAP'}};
+    if(id==='evolution.enqueue')return {ok:true,created:true,job_id:'owner-chat-new-tool-123',status:'WAITING_TEACHER',teacher:{status:'WAITING_TEACHER'}};
+    throw Error('UNEXPECTED_'+id);
+  }};
+  const result=await launchSubstantialMelTask({bus,text:goal,conversationId:'gap-conversation',context:{}});
+  assert.equal(result.ok,true);
+  assert.equal(result.status,'TOOL_DEVELOPMENT_QUEUED');
+  assert.equal(result.development_job_id,'owner-chat-new-tool-123');
+  assert.equal(result.tool_gap_verified,true);
+  assert.ok(calls.includes('evolution.enqueue'));
+  assert.ok(!calls.includes('work.create'));
+  assert.ok(!calls.includes('work.plan.generate'));
+});
+
+test('existing matching tool must use Work planning, not start duplicate Module Lab work', async () => {
+  const goal='Développe un outil pour inspecter le code source du dépôt GitHub et vérifier les tests dans la branche candidate en utilisant les compétences déjà enregistrées.';
+  let created=null;
+  const calls=[];
+  const bus={
+    describe(id){return {id,enabled:true,health:'HEALTHY',risk:'LOW'};},
+    async execute(id,input) {
+      calls.push(id);
+      if(id==='work.status'&&!created)throw Object.assign(new Error('WORK_DAG_NOT_FOUND'),{code:'WORK_DAG_NOT_FOUND'});
+      if(id==='evolution.module.propose')return {decision:'REUSE_EXISTING',gap:{classification:'MATCHED_AVAILABLE'}};
+      if(id==='work.plan.generate')return {plan:{steps:[{capability:'code.search'}]},nodes:[{id:'read',kind:'TASK',idempotent:true,payload:{capability:'code.search',input:{query:'source'}}}]};
+      if(id==='work.create'){created=input;return {id:input.id};}
+      if(id==='openloop.capture')return {ok:true};
+      if(id==='work.status')return {status:'RUNNING',node_counts:{PENDING:1,COMPLETED:0},completed:false,blocked:false};
+      throw Error('UNEXPECTED_'+id);
+    },
+  };
+  const result=await launchSubstantialMelTask({bus,text:goal,conversationId:'reuse-conversation',context:{}});
+  assert.equal(result.ok,true,JSON.stringify(result));
+  assert.ok(created);
+  assert.ok(calls.includes('work.plan.generate'));
+  assert.ok(!calls.includes('evolution.enqueue'));
+});

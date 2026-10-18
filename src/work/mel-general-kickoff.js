@@ -53,6 +53,14 @@ async function operationalWorkNodes(bus, text, id, context) {
   return generated.nodes;
 }
 
+function explicitlyRequestsMissingToolDevelopment(text) {
+  const goal = normalize(text);
+  // The owner, not an untrusted model's invented capability id, must request
+  // development. Reuse Module Lab's existing gap classifier and Council.
+  return /\b(?:outil|competence|capacite|connecteur|module|plugin)\b/.test(goal)
+    && /\b(?:manquant|manquante|manque|absent|inexistant|n.existe\s+pas|developpe|developper|cree|creer|ajoute|ajouter)\b/.test(goal);
+}
+
 export function findMelWorkReference(text, recent = []) {
   const normalized = normalize(text);
   // Bare continuation is only for the *immediately preceding* explicit MEL
@@ -152,6 +160,29 @@ export async function launchSubstantialMelTask({ bus, text, conversationId, cont
     }
     if (!genuinelyMissing && (!existing || typeof existing !== 'object')) {
       throw Object.assign(new Error('WORK_DAG_STATUS_INVALID'), { code: 'WORK_DAG_STATUS_INVALID' });
+    }
+    if (genuinelyMissing && requiresOperationalMelWork(text)
+        && explicitlyRequestsMissingToolDevelopment(text)) {
+      if (text.length > 4000) throw Object.assign(new Error('MEL_OPERATIONAL_GOAL_TOO_LONG'), { code:'MEL_OPERATIONAL_GOAL_TOO_LONG' });
+      const proposal = await bus.execute('evolution.module.propose', { goal:text }, context);
+      if (proposal?.decision === 'PROPOSE_MODULE' && proposal?.gap?.classification === 'POSSIBLE_GAP') {
+        const development = await bus.execute('evolution.enqueue', {
+          goal:text, conversationId, requestKey:id,
+        }, context);
+        if (!development?.job_id) throw Object.assign(new Error('MEL_TOOL_DEVELOPMENT_NOT_QUEUED'), { code:'MEL_TOOL_DEVELOPMENT_NOT_QUEUED' });
+        return {
+          ok:true,
+          id:development.job_id,
+          development_job_id:development.job_id,
+          status:'TOOL_DEVELOPMENT_QUEUED',
+          created:development.created === true,
+          started:false,
+          completed_steps:0,
+          remaining_steps:null,
+          tool_gap_verified:true,
+          teacher_status:development.teacher?.status || null,
+        };
+      }
     }
     if (genuinelyMissing) {
       try {
