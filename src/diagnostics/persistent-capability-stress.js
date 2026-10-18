@@ -74,6 +74,8 @@ export class D1CapabilityStressStore {
     if (!db || typeof db.prepare !== 'function') throw stressError('CAPABILITY_STRESS_DB_REQUIRED');
     this.db = db;
     this.ready = null;
+    // Local ownership fence: an old Worker must never overwrite a successor.
+    this.lease = null;
   }
 
   async init() {
@@ -151,7 +153,7 @@ export class D1CapabilityStressStore {
     await this.init();
     const now = Date.now();
     const result = await this.db.prepare(`UPDATE capability_stress_runs
-      SET status='RUNNING', updated_at=?
+      SET status='RUNNING', updated_at=MAX(updated_at+1, ?)
       WHERE id=? AND (
         status='QUEUED'
         OR (status IN ('RUNNING','RETRYING') AND updated_at<=?)
@@ -159,23 +161,29 @@ export class D1CapabilityStressStore {
       .bind(now, String(id || ''), Number(staleBefore || 0))
       .run();
     if (Number(result?.meta?.changes || 0) < 1) return null;
-    return this.get(id);
+    const claimed = await this.get(id);
+    this.lease = { id: String(id || ''), version: claimed.updated_at };
+    return claimed;
   }
 
   async update(id, patch = {}) {
     await this.init();
     const current = await this.get(id);
     if (!current) throw stressError('CAPABILITY_STRESS_JOB_NOT_FOUND');
-    const now = Date.now();
+    // Fencing requires the version acquired by THIS executor, never the
+    // current row's version. A reclaimed worker can read the new row but
+    // cannot use that information to impersonate the new owner.
+    const fence = this.lease?.id === String(id || '') ? this.lease : null;
+    const now = Math.max(Date.now(), Number(current.updated_at || 0) + 1);
     const status = patch.status ?? current.status;
     const progress = { ...(current.progress || {}), ...(patch.progress || {}) };
     const summary = patch.summary ?? current.summary ?? {};
     const report = patch.report === undefined ? current.report : patch.report;
     const error = patch.error === undefined ? current.error : patch.error;
     const completedAt = patch.completed_at === undefined ? current.completed_at : patch.completed_at;
-    await this.db.prepare(`UPDATE capability_stress_runs SET
+    const result = await this.db.prepare(`UPDATE capability_stress_runs SET
       status=?,total=?,completed=?,pass=?,current_capability=?,summary_json=?,report_json=?,error=?,updated_at=?,completed_at=?
-      WHERE id=?`)
+      WHERE id=?${fence ? ' AND updated_at=?' : ''}`)
       .bind(
         status,
         Number(progress.total || 0),
@@ -188,7 +196,10 @@ export class D1CapabilityStressStore {
         now,
         completedAt,
         id,
+        ...(fence ? [fence.version] : []),
       ).run();
+    if (fence && Number(result?.meta?.changes || 0) !== 1) throw stressError('CAPABILITY_STRESS_LEASE_LOST');
+    if (fence) this.lease.version = now;
     return this.get(id);
   }
 }
