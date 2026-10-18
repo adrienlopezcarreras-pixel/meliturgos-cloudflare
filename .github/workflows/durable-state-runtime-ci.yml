@@ -7,12 +7,15 @@ on:
       - 'src/capabilities/planning-capabilities.js'
       - 'src/capabilities/event-bus-capabilities.js'
       - 'src/capabilities/default-bus.js'
+      - 'src/capabilities/d1-console-capabilities.js'
+      - 'src/security/runtime-permissions.js'
       - 'src/router.js'
       - 'src/roadmap/master-roadmap.js'
       - 'tests/gen2/durable-state-capabilities.test.mjs'
       - 'tests/gen2/timeline-d1.test.mjs'
       - 'tests/gen2/projects-decisions-d1.test.mjs'
       - 'tests/gen2/event-bus-d1.test.mjs'
+      - 'tests/d1-console-capabilities.test.mjs'
       - 'tests/release-production-smoke-routes.test.mjs'
       - '.github/workflows/deploy-cloudflare-release.yml'
       - '.github/workflows/durable-state-runtime-ci.yml'
@@ -40,6 +43,7 @@ jobs:
           node --check src/capabilities/planning-capabilities.js &&
           node --check src/capabilities/event-bus-capabilities.js &&
           node --check src/capabilities/default-bus.js &&
+          node --check src/capabilities/d1-console-capabilities.js &&
           node --check src/router.js
       - name: GEN2-12/13/40 targeted tests
         run: >
@@ -48,6 +52,7 @@ jobs:
           tests/gen2/timeline-d1.test.mjs
           tests/gen2/projects-decisions-d1.test.mjs
           tests/gen2/event-bus-d1.test.mjs
+          tests/d1-console-capabilities.test.mjs
           tests/release-production-smoke-routes.test.mjs
 
   durable-state-full-suite:
