@@ -22,6 +22,8 @@ async function fixture() {
 
 test('registered in the existing runtime bus with accurate health and approval contract', () => {
   const bus = createDefaultCapabilityBus({ env: {} });
+  assert.deepEqual(bus.list().slice(0, 96).filter(row => row.id.startsWith('d1.')).map(row => row.id),
+    ['d1.schema', 'd1.read', 'd1.write']);
   assert.equal(bus.describe('d1.schema').health, 'UNAVAILABLE');
   assert.equal(bus.describe('d1.read').permissions[0], 'd1.read');
   assert.equal(bus.describe('d1.write').approval.required, true);
