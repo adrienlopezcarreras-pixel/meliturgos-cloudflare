@@ -64,3 +64,22 @@ test('deployed entrypoint gates every internal Dev Bridge route before delegatio
   assert.ok(auth > gate, 'every dev bridge route must invoke the dedicated bridge auth');
   assert.ok(delegate > auth, 'bridge auth must run before application delegation');
 });
+
+test('cloud bridge OIDC claim/result pass every synchronous gate of the deployed entry', async () => {
+  const { isOidcBridgeCall } = await import('../src/core/dev-bridge-auth.js');
+  const oidc = (path, extra = {}) => new Request('https://mel.example' + path, { method: 'POST', headers: { 'x-mel-github-oidc': 'tok', ...extra } });
+  assert.equal(isOidcBridgeCall(oidc('/api/dev-bridge/claim')), true);
+  assert.equal(isOidcBridgeCall(oidc('/api/dev-bridge/result')), true);
+  assert.equal(isOidcBridgeCall(oidc('/api/dev-bridge/heartbeat')), false);
+  assert.equal(isOidcBridgeCall(oidc('/api/dev-bridge/claim', { authorization: 'Bearer x' })), false);
+
+  // Real entry, no bridge secret installed: a malformed OIDC token must reach
+  // the OIDC verifier (401), never stop at BRIDGE_NOT_CONFIGURED (503).
+  const entry = (await import('../src/professor-live-learning-entry.js')).default;
+  const response = await entry.fetch(new Request('https://mel.example/api/dev-bridge/claim', {
+    method: 'POST', headers: { 'x-mel-github-oidc': 'a.b.c', 'content-type': 'application/json' }, body: '{"job_id":"x"}',
+  }), { MEL_GITHUB_REPOSITORY: 'o/r', DB: { prepare() { throw new Error('no db'); } } }, { waitUntil() {} });
+  const payload = await response.json().catch(() => ({}));
+  assert.notEqual(payload.code, 'BRIDGE_NOT_CONFIGURED');
+  assert.match(String(payload.code || ''), /^GITHUB_OIDC_/);
+});

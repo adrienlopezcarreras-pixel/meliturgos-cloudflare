@@ -23,6 +23,20 @@ function jsonError(code, status) {
   );
 }
 
+/**
+ * The cloud bridge workflow's claim/result calls carry a GitHub Actions OIDC
+ * token instead of a bearer secret; the dev-bridge route verifies that token
+ * (asynchronously) before doing anything. Every synchronous gate in front of
+ * the route must let exactly these calls through.
+ */
+export function isOidcBridgeCall(request) {
+  let path = '';
+  try { path = new URL(request.url).pathname; } catch { return false; }
+  return (path === '/api/dev-bridge/claim' || path === '/api/dev-bridge/result')
+    && !request.headers.get('authorization')
+    && String(request.headers.get('x-mel-github-oidc') || '').trim() !== '';
+}
+
 export function authorizeDevBridge(request, env = {}) {
   const secrets = [
     typeof env.MEL_DEV_BRIDGE_TOKEN === 'string' ? env.MEL_DEV_BRIDGE_TOKEN.trim() : '',
