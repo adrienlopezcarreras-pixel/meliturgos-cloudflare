@@ -235,3 +235,21 @@ test('a silent provider stream is cancelled after its bounded idle window', asyn
   await Promise.resolve();
   assert.equal(cancelled,true);
 });
+
+test('non-visible SSE fragments do not keep a stalled provider alive indefinitely', async () => {
+  let closed=false;
+  const encoder=new TextEncoder();
+  const upstream=new ReadableStream({
+    start(controller) {
+      const id=setInterval(() => controller.enqueue(encoder.encode('data: '+JSON.stringify({choices:[{delta:{content:''}}]})+'\\n\\n')), 2);
+      this.stop=()=>clearInterval(id);
+    },
+    cancel(){this.stop();closed=true;}
+  });
+  await assert.rejects(readWorkersAiSse(upstream,{
+    firstTextTimeoutMs:15,
+    idleTimeoutMs:100,
+    hasVisibleText:()=>false,
+  }), /MODEL_NO_VISIBLE_TEXT/);
+  assert.equal(closed,true);
+});
