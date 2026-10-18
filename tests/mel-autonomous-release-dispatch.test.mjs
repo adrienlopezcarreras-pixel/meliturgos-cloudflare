@@ -66,7 +66,7 @@ test('queued older releases defer promotion without cancelling or replacing anot
     assert.equal(result.blocking_run_id, 101);
     assert.equal(result.blocking_run_status, status);
     assert.ok(calls.length > 0 && calls.every(call=>call.startsWith('GET ')));
-    assert.ok(!calls.some(call=>/\\/cancel|\\/dispatches/.test(call)));
+    assert.ok(!calls.some(call=>call.includes('/cancel') || call.includes('/dispatches')));
   }
 });
 
