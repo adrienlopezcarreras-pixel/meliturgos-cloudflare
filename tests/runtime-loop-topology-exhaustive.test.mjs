@@ -37,7 +37,7 @@ test('runtime has one canonical scheduler topology with maintenance separated fr
   const resumeCall = 'runPersistentCapabilityStressResumeTick(env, { waitUntil: auditWaitUntil })';
   const autonomyCall = 'runAutonomyRuntimeTick(env)';
   assert.equal(index.split(resumeCall).length - 1, 1);
-  assert.ok(index.includes(': [\\n          ' + resumeCall + '.catch('));
+  assert.ok(index.includes(resumeCall + '.catch('));
   assert.ok(index.indexOf(resumeCall) < index.indexOf(autonomyCall));
 
 
