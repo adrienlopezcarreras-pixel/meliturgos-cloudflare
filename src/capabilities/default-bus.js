@@ -10,6 +10,7 @@ import { registerOpenLoopCapabilities } from './open-loop-capabilities.js';
 import { registerPlanningCapabilities } from './planning-capabilities.js';
 import { registerEvolutionCapabilities } from './evolution-capabilities.js';
 import { registerEventBusCapabilities } from './event-bus-capabilities.js';
+import { registerD1ConsoleCapabilities } from './d1-console-capabilities.js';
 import { registerSkillRegistryCapabilities } from './skill-registry-capabilities.js';
 import { registerSelfAuditCapabilities } from './self-audit-capability.js';
 import { registerBrowserRuntimeCapabilities } from './browser-runtime-capabilities.js';
@@ -489,6 +490,7 @@ export function createDefaultCapabilityBus({ audit, env, repository, branch, tok
   registerPlanningCapabilities(bus, { db: runtimeEnv.DB });
   registerEvolutionCapabilities(bus, { db: runtimeEnv.DB });
   registerEventBusCapabilities(bus, { db: runtimeEnv.DB });
+  registerD1ConsoleCapabilities(bus, { db: runtimeEnv.DB });
   registerSkillRegistryCapabilities(bus, { env: runtimeEnv });
   registerSelfAuditCapabilities(bus, runtimeEnv);
   return bus;
