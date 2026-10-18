@@ -208,3 +208,22 @@ test('when no cloud model can answer, the local PC model takes over; never other
   await streamChatResponse({ env: up, messages: [{ role: 'user', content: 'salut' }], localFallback }).text();
   assert.equal(localCalls, 1, 'local model untouched while the cloud answers');
 });
+
+test('stream drops fake tool calls and English agent narration, keeps the French answer', async () => {
+  const { createToolLeakFilter, withNoToolsNote, STREAM_NO_TOOLS_NOTE } = await import('../src/api/chat-stream.js');
+  const leaked = 'Search code for "refactor".{\n  "tool": "code.search",\n  "parameters": {"query": "refactor"}\n}We need to see TOOL_RESULT.{"tool":"code.read","parameters":{"path":"x"}}Given constraints, respond that actions are being executed.J’ai regardé : voici ma proposition. Le JSON {"a":1} reste.';
+  for (const size of [1, 4, 33, 10_000]) {
+    const filter = createToolLeakFilter();
+    let out = '';
+    for (let i = 0; i < leaked.length; i += size) out += filter.push(leaked.slice(i, i + size));
+    out += filter.flush();
+    assert.equal(out, 'J’ai regardé : voici ma proposition. Le JSON {"a":1} reste.', 'chunk ' + size);
+  }
+  for (const text of ['Oui.', 'Bonjour Adrien ! Voici la réponse.', '## Titre\n\n| a | b |\nTexte']) {
+    const filter = createToolLeakFilter();
+    assert.equal(filter.push(text) + filter.flush(), text);
+  }
+  const messages = withNoToolsNote([{ role: 'system', content: 'S' }, { role: 'user', content: 'go' }]);
+  assert.equal(messages.length, 2);
+  assert.ok(messages[0].content.endsWith(STREAM_NO_TOOLS_NOTE));
+});
