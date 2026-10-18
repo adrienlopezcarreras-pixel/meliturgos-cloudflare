@@ -72,14 +72,20 @@ test('MINI recovery keeps hardware diagnostics, camera bring-up and Wi-Fi fallba
   assert.match(workflow, /set_cfg_n CONFIG_SCCB_HARDWARE_I2C_PORT1/);
 });
 
-test('MINI BLE TTS playback requires a bounded queue with explicit allocation diagnostics', async () => {
+test('MINI BLE TTS playback is reserved once at boot in PSRAM, never per utterance', async () => {
   const runtime = await readFile(
     new URL('../firmware/waveshare-terminal/main/mel_terminal.cpp', import.meta.url), 'utf8'
   );
   assert.match(runtime, /MOBILE_TTS_QUEUE_DEPTH = 6/);
-  assert.match(runtime, /xQueueCreate\(MOBILE_TTS_QUEUE_DEPTH, sizeof\(MobileTtsPacket\)\)/);
+  // Field log 18/10: after STT+chat, largest internal block was 1536 bytes, so
+  // a per-utterance queue could not be created and MEL stayed silent.
+  assert.match(runtime, /xQueueCreateWithCaps\(MOBILE_TTS_QUEUE_DEPTH, sizeof\(MobileTtsPacket\), MALLOC_CAP_SPIRAM/);
+  assert.match(runtime, /xTaskCreatePinnedToCoreWithCaps\(\s*mobile_tts_playback_task/);
+  assert.match(runtime, /xSemaphoreCreateBinaryStatic\(&g_tts_drained_buf\)/);
+  assert.match(runtime, /mel_terminal_prepare_tts_playback\(\);\n    return true;/);
+  assert.match(runtime, /TTS PLAYBACK %s queue=%d semaphore=%d task=%d/);
   assert.match(runtime, /xQueueSend\(ctx->queue, &packet, pdMS_TO_TICKS\(1000\)\)/);
-  assert.match(runtime, /TTS playback init: queue=/);
-  assert.match(runtime, /TTS playback task create failed/);
+  const finish = runtime.slice(runtime.indexOf('static bool mobile_tts_finish'), runtime.indexOf('static bool mobile_tts_chunk'));
+  assert.doesNotMatch(finish, /vQueueDelete|vSemaphoreDelete/);
   assert.doesNotMatch(runtime, /xQueueCreate\(24, sizeof\(MobileTtsPacket\)\)/);
 });

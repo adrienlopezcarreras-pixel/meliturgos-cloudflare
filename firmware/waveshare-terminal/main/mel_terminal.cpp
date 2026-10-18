@@ -845,13 +845,29 @@ struct MobileTtsContext {
     SemaphoreHandle_t drained = nullptr;
 };
 
-static void mobile_tts_playback_task(void *arg) {
-    auto *ctx = static_cast<MobileTtsContext *>(arg);
-    MobileTtsPacket packet;
-    while (ctx && ctx->queue && xQueueReceive(ctx->queue, &packet, portMAX_DELAY) == pdTRUE) {
-        if (packet.len == 0) break;
-        if (g_tts_stop_requested) continue;
+// TTS playback resources are reserved ONCE at boot, like the voice worker.
+// Creating them per utterance failed in the field: after STT and chat the
+// internal heap was down to ~4.8 KiB with a 1.5 KiB largest block, so even a
+// 3 KiB queue could not be allocated and MEL stayed silent
+// ("TTS playback init: queue=0 ... largest_internal=1536"). The queue storage
+// and the task stack live in PSRAM; only the tiny semaphore is static.
+static constexpr UBaseType_t MOBILE_TTS_QUEUE_DEPTH = 6;
+static QueueHandle_t g_tts_queue = nullptr;
+static SemaphoreHandle_t g_tts_drained = nullptr;
+static StaticSemaphore_t g_tts_drained_buf;
+static TaskHandle_t g_tts_task = nullptr;
+static MobileTtsContext *volatile g_tts_active = nullptr;
 
+static void mobile_tts_playback_task(void *) {
+    MobileTtsPacket packet;
+    for (;;) {
+        if (xQueueReceive(g_tts_queue, &packet, portMAX_DELAY) != pdTRUE) continue;
+        MobileTtsContext *ctx = g_tts_active;
+        if (packet.len == 0) {
+            xSemaphoreGive(g_tts_drained);
+            continue;
+        }
+        if (!ctx || g_tts_stop_requested) continue;
         if (ctx->first_audio) {
             ctx->first_audio = false;
             ESP_LOGI(TAG, "VOICE PERF: TTS first-audio=%lld ms (AUDIO TASK)",
@@ -863,56 +879,43 @@ static void mobile_tts_playback_task(void *arg) {
             ctx->ok = false;
         }
     }
-    if (ctx && ctx->drained) xSemaphoreGive(ctx->drained);
-    vTaskDelete(nullptr);
 }
 
-// Playback consumes packets while the BLE callback is producing them. Keeping
-// 24 x 522-byte packets per utterance used over 12 KiB of *contiguous* heap
-// before the playback task could even start. A six-packet bounded queue uses
-// about 3 KiB instead; xQueueSend already applies backpressure when it fills.
-static constexpr UBaseType_t MOBILE_TTS_QUEUE_DEPTH = 6;
+bool mel_terminal_prepare_tts_playback(void) {
+    if (g_tts_queue && g_tts_drained && g_tts_task) return true;
+    if (!g_tts_queue) {
+        g_tts_queue = xQueueCreateWithCaps(MOBILE_TTS_QUEUE_DEPTH, sizeof(MobileTtsPacket), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        if (!g_tts_queue) g_tts_queue = xQueueCreate(MOBILE_TTS_QUEUE_DEPTH, sizeof(MobileTtsPacket));
+    }
+    if (!g_tts_drained) g_tts_drained = xSemaphoreCreateBinaryStatic(&g_tts_drained_buf);
+    if (g_tts_queue && g_tts_drained && !g_tts_task) {
+        const BaseType_t created = xTaskCreatePinnedToCoreWithCaps(
+            mobile_tts_playback_task, "mel_tts_play", 4096, nullptr, 6, &g_tts_task, 1,
+            MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT
+        );
+        if (created != pdPASS) g_tts_task = nullptr;
+    }
+    const bool ok = g_tts_queue && g_tts_drained && g_tts_task;
+    ESP_LOGI(
+        TAG, "TTS PLAYBACK %s queue=%d semaphore=%d task=%d free_internal=%u largest_internal=%u",
+        ok ? "RESERVED" : "RESERVE FAILED", g_tts_queue ? 1 : 0, g_tts_drained ? 1 : 0, g_tts_task ? 1 : 0,
+        (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
+        (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)
+    );
+    return ok;
+}
 
 static bool mobile_tts_start(MobileTtsContext *ctx) {
     if (!ctx) return false;
-    ctx->queue = xQueueCreate(MOBILE_TTS_QUEUE_DEPTH, sizeof(MobileTtsPacket));
-    ctx->drained = xSemaphoreCreateBinary();
-    if (!ctx->queue || !ctx->drained) {
-        ESP_LOGE(
-            TAG, "TTS playback init: queue=%d semaphore=%d free_internal=%u largest_internal=%u",
-            ctx->queue ? 1 : 0, ctx->drained ? 1 : 0,
-            (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
-            (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)
-        );
-        if (ctx->queue) vQueueDelete(ctx->queue);
-        if (ctx->drained) vSemaphoreDelete(ctx->drained);
-        ctx->queue = nullptr;
-        ctx->drained = nullptr;
+    if (!mel_terminal_prepare_tts_playback()) {
         ctx->ok = false;
         return false;
     }
-    const BaseType_t created = xTaskCreatePinnedToCore(
-        mobile_tts_playback_task,
-        "mel_tts_play",
-        4096,
-        ctx,
-        6,
-        nullptr,
-        1
-    );
-    if (created != pdPASS) {
-        ESP_LOGE(
-            TAG, "TTS playback task create failed free_internal=%u largest_internal=%u",
-            (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
-            (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)
-        );
-        vQueueDelete(ctx->queue);
-        vSemaphoreDelete(ctx->drained);
-        ctx->queue = nullptr;
-        ctx->drained = nullptr;
-        ctx->ok = false;
-        return false;
-    }
+    xQueueReset(g_tts_queue);
+    xSemaphoreTake(g_tts_drained, 0);
+    ctx->queue = g_tts_queue;
+    ctx->drained = g_tts_drained;
+    g_tts_active = ctx;
     return true;
 }
 
@@ -923,8 +926,8 @@ static bool mobile_tts_finish(MobileTtsContext *ctx) {
     const bool queued = xQueueSend(ctx->queue, &end, pdMS_TO_TICKS(2000)) == pdTRUE;
     const bool drained = queued && xSemaphoreTake(ctx->drained, pdMS_TO_TICKS(5000)) == pdTRUE;
     const bool ok = ctx->ok && drained;
-    vQueueDelete(ctx->queue);
-    vSemaphoreDelete(ctx->drained);
+    g_tts_active = nullptr;
+    // The reserved queue and task are kept for the next utterance.
     ctx->queue = nullptr;
     ctx->drained = nullptr;
     return ok;
@@ -1915,6 +1918,9 @@ bool mel_terminal_prepare_voice_worker(void) {
         (unsigned)esp_get_free_heap_size(),
         (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)
     );
+    // Voice output is reserved with voice input: a reply must never depend on
+    // how much internal heap is left after STT and chat.
+    mel_terminal_prepare_tts_playback();
     return true;
 }
 
