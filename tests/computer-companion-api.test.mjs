@@ -337,7 +337,7 @@ test('Windows Companion 2.3.16 adds interactive desktop geometry and keeps engin
   assert.match(desktop,/CompanionRunning/);
   assert.match(desktop,/StartBackgroundSupervisor/);
   assert.match(desktop,/System\.Threading\.Timer/);
-  assert.match(companion,/\$Version = "1\.5\.0"/);
+  assert.match(companion,/\$Version = "1\.5\.1"/);
   // Heartbeat must report the current on-disk owner switch, not a cached startup flag.
   assert.match(companion,/remote_access_enabled\s*=\s*\$remoteEnabled/);
   assert.match(companion,/try \{ Assert-LocalRemoteAccess; \$remoteEnabled = \$true \} catch \{\}/);

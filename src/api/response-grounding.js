@@ -278,8 +278,14 @@ export function formatVerifiedAutonomyRuntimeResponse(result, { fallback = '', o
   const events = Array.isArray(progress.events) ? progress.events : [];
   const activeJob = progress.job_id || result.job?.id || result.job_id || null;
   const jobStatus = progress.job_status || result.job?.status || result.job_status || null;
-  const maxText = control.max_autonomy === true ? 'MAX est activé' : 'MAX est désactivé';
-  const pauseText = control.paused === true ? 'le contrôle d’autonomie est en pause' : 'le contrôle d’autonomie n’est pas en pause';
+  const releasePause = control.paused === true && (control.reason === 'predeploy-release-safety' || /^release-/.test(String(control.source || '')));
+  const maxText = control.max_autonomy === true ? 'MAX est activé'
+    : control.paused === true && control.max_remembered === true ? 'MAX reste choisi et reprendra à la fin de la pause'
+    : 'MAX est désactivé';
+  const pauseText = releasePause
+    ? 'pause temporaire posée par la mise en production en cours (sécurité de release) ; elle est levée automatiquement quand toutes les vérifications de production passent'
+    : control.paused === true ? 'le contrôle d’autonomie est en pause' + (control.reason ? ' (raison : ' + String(control.reason).slice(0, 80) + ')' : '')
+    : 'le contrôle d’autonomie n’est pas en pause';
   const lines = [];
 
   if (operation === 'status') {
@@ -296,6 +302,21 @@ export function formatVerifiedAutonomyRuntimeResponse(result, { fallback = '', o
     if (result.blockers && Array.isArray(result.blockers) && result.blockers.length) {
       lines.push('- Blocages : ' + result.blockers.slice(0, 6).map(row => typeof row === 'string' ? row : row.code || row.reason || row.id || 'blocage').join(', ') + '.');
     }
+    const work = result.work && typeof result.work === 'object' ? result.work : null;
+    if (work?.watchdog?.status) {
+      lines.push('- Garde-fou de progression : ' + String(work.watchdog.status) + (work.watchdog.tripped ? ' (bloqué après ' + (work.watchdog.consecutive_stalls ?? '?') + ' cycles sans progrès)' : '')
+        + (work.watchdog.last_block_reason ? ' ; dernière raison : ' + String(work.watchdog.last_block_reason).slice(0, 120) : '') + '.');
+    }
+    for (const job of Array.isArray(work?.active_jobs) ? work.active_jobs : []) {
+      lines.push('- Travail ' + String(job.id).slice(0, 80) + ' (' + job.origin + ') : ' + job.status_text
+        + (job.current_step ? ' Étape en attente : ' + job.current_step + '.' : '')
+        + (job.done_steps?.length ? ' Déjà fait : ' + job.done_steps.join(', ') + '.' : '')
+        + (job.idle_minutes != null ? ' Sans changement depuis ' + job.idle_minutes + ' min.' : '')
+        + (job.diagnostics?.length ? ' Diagnostic : ' + job.diagnostics[0] + '.' : '')
+        + (job.error ? ' Erreur : ' + String(job.error).slice(0, 160) + '.' : ''));
+    }
+    if (work && Array.isArray(work.active_jobs) && !work.active_jobs.length) lines.push('- Aucun travail autonome en cours.');
+    if (work?.last_cloud_bridge_dispatch?.at) lines.push('- Dernier pont cloud demandé pour ' + String(work.last_cloud_bridge_dispatch.job_id).slice(0, 80) + ' à ' + new Date(Number(work.last_cloud_bridge_dispatch.at)).toISOString().slice(11, 16) + ' UTC.');
     lines.push('Cet état décrit la readiness et les contrôles, pas la preuve qu’une tâche vient d’être exécutée.');
     return lines.join('\n');
   }
@@ -304,7 +325,9 @@ export function formatVerifiedAutonomyRuntimeResponse(result, { fallback = '', o
     lines.push('Le cycle n’a pas lancé de nouveau travail : le garde-fou de lancement bloque l’exécution.');
     lines.push('L’approbation de lancement ne correspond pas au SHA actuellement déployé. Il faut réconcilier puis approuver explicitement le SHA exact avant de reprendre l’exécution.');
   } else if (status === 'PAUSED' || (status === 'UNKNOWN' && control.paused === true)) {
-    lines.push('Le cycle n’a exécuté aucune nouvelle tâche : l’autonomie est en pause.');
+    lines.push(releasePause
+      ? 'Le cycle n’a exécuté aucune nouvelle tâche : une mise en production est en cours et met l’autonomie en pause le temps de ses vérifications.'
+      : 'Le cycle n’a exécuté aucune nouvelle tâche : l’autonomie est en pause.');
   } else if (status === 'DEPLOYED_SHA_UNAVAILABLE') {
     lines.push('Le cycle est bloqué : le runtime ne peut pas établir l’identité SHA exacte du déploiement. Aucune nouvelle tâche n’est déclarée exécutée.');
   } else if (status === 'SKIPPED_LEASE_BUSY') {

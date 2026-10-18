@@ -31,7 +31,7 @@ function Unprotect-Text([string]$value) {
 $Token = Unprotect-Text $config.token_protected
 $Server = ([string]$config.server_url).TrimEnd("/")
 $ComputerId = [string]$config.computer_id
-$Version = "1.5.0"
+$Version = "1.5.1"
 $Headless = $env:MEL_COMPANION_HEADLESS -eq "1"
 $ParentPid = 0
 [void][int]::TryParse([string]$env:MEL_COMPANION_PARENT_PID,[ref]$ParentPid)
@@ -2265,9 +2265,14 @@ function PcControl-SystemExec($payload) {
   $psi.RedirectStandardError = $true
   $p = [Diagnostics.Process]::Start($psi)
   if ($null -eq $p) { throw "SYSTEM_EXEC_START_FAILED" }
+  # Drain both pipes while the command runs: reading only after exit blocks a
+  # command whose output exceeds the pipe buffer (~4 KB) until the timeout.
+  $outTask = $p.StandardOutput.ReadToEndAsync()
+  $errTask = $p.StandardError.ReadToEndAsync()
   if (-not $p.WaitForExit($timeoutMs)) { try { $p.Kill() } catch {}; throw "SYSTEM_EXEC_TIMEOUT" }
-  $out = $p.StandardOutput.ReadToEnd()
-  $err = $p.StandardError.ReadToEnd()
+  $p.WaitForExit()
+  $out = $outTask.Result
+  $err = $errTask.Result
   if ($payload.require_success_exit -eq $true -and $p.ExitCode -ne 0) { throw "SYSTEM_EXEC_NONZERO_EXIT_CODE_$($p.ExitCode)" }
   return @{ action="system.exec"; exit_code=$p.ExitCode; stdout=(PcControl-LimitText $out 65536); stderr=(PcControl-LimitText $err 32768) }
 }

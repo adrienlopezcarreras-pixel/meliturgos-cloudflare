@@ -1,5 +1,11 @@
 const BASE_URL = String(process.env.MEL_RELAY_BASE_URL || 'https://meliturgos.adrien-lopezcarreras.workers.dev').replace(/\/$/, '');
-const OIDC_TOKEN = String(process.env.MEL_GITHUB_OIDC_TOKEN || '');
+let OIDC_TOKEN = String(process.env.MEL_GITHUB_OIDC_TOKEN || '');
+let OIDC_AT = Date.now();
+// GitHub's schedule fires only a few times a day on this repository, so a run
+// keeps watching the queue (free on a public repository) and then hands over
+// to the next run: MEL's queued workflows (cloud bridge…) start within ~20 s.
+const WATCH_SECONDS = Math.max(0, Math.min(3300, Number(process.env.MEL_RELAY_WATCH_SECONDS || 0)));
+const POLL_MS = 20_000;
 const GH_TOKEN = String(process.env.GITHUB_TOKEN || process.env.GH_TOKEN || '');
 const REPOSITORY = String(process.env.GITHUB_REPOSITORY || '');
 const RUN_ID = Number(process.env.GITHUB_RUN_ID || 0);
@@ -63,7 +69,18 @@ async function readSnapshot() {
   };
 }
 
+async function freshOidc() {
+  const url = process.env.ACTIONS_ID_TOKEN_REQUEST_URL;
+  const bearer = process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN;
+  if (!url || !bearer || Date.now() - OIDC_AT < 4 * 60_000) return OIDC_TOKEN;
+  const response = await fetch(url + '&audience=meliturgos-worker', { headers: { authorization: 'bearer ' + bearer }, signal: AbortSignal.timeout(20_000) });
+  const data = await response.json().catch(() => ({}));
+  if (response.ok && typeof data?.value === 'string' && data.value.split('.').length === 3) { OIDC_TOKEN = data.value; OIDC_AT = Date.now(); }
+  return OIDC_TOKEN;
+}
+
 async function worker(path, body = {}) {
+  await freshOidc();
   const response = await fetch(BASE_URL + path, {
     method: 'POST',
     headers: {
@@ -140,36 +157,59 @@ async function main() {
   let processed = 0;
   let dispatched = 0;
   let failed = 0;
-  for (let index = 0; index < 5; index += 1) {
-    const claim = await worker('/api/internal/github-action-relay/claim');
-    const job = claim?.job || null;
-    if (!job) break;
-    processed += 1;
-    try {
-      const result = await dispatch(job);
-      await worker('/api/internal/github-action-relay/result', {
-        job_id: job.id,
-        status: 'DISPATCHED',
-        result,
-      });
-      dispatched += 1;
-      console.log(`GitHub relay dispatched ${job.id} -> ${job.workflow}@${job.ref}`);
-    } catch (error) {
-      failed += 1;
-      await worker('/api/internal/github-action-relay/result', {
-        job_id: job.id,
-        status: 'FAILED',
-        error: String(error?.code || error?.message || 'GITHUB_RELAY_DISPATCH_FAILED').slice(0, 180),
-        result: {
-          http_status: Number(error?.status || 0) || null,
-          repository: REPOSITORY,
-          workflow: job.workflow,
-          ref: job.ref,
-          relay_run_id: RUN_ID || null,
-        },
-      }).catch(() => {});
-      console.error(`GitHub relay failed ${job.id}: ${String(error?.code || error?.message || error)}`);
+  const drain = async () => {
+    for (let index = 0; index < 5; index += 1) {
+      const claim = await worker('/api/internal/github-action-relay/claim');
+      const job = claim?.job || null;
+      if (!job) break;
+      processed += 1;
+      try {
+        const result = await dispatch(job);
+        await worker('/api/internal/github-action-relay/result', {
+          job_id: job.id,
+          status: 'DISPATCHED',
+          result,
+        });
+        dispatched += 1;
+        console.log(`GitHub relay dispatched ${job.id} -> ${job.workflow}@${job.ref}`);
+      } catch (error) {
+        failed += 1;
+        await worker('/api/internal/github-action-relay/result', {
+          job_id: job.id,
+          status: 'FAILED',
+          error: String(error?.code || error?.message || 'GITHUB_RELAY_DISPATCH_FAILED').slice(0, 180),
+          result: {
+            http_status: Number(error?.status || 0) || null,
+            repository: REPOSITORY,
+            workflow: job.workflow,
+            ref: job.ref,
+            relay_run_id: RUN_ID || null,
+          },
+        }).catch(() => {});
+        console.error(`GitHub relay failed ${job.id}: ${String(error?.code || error?.message || error)}`);
+      }
     }
+  };
+  await drain();
+  const until = Date.now() + WATCH_SECONDS * 1000;
+  let lastBeat = Date.now();
+  while (WATCH_SECONDS > 0 && Date.now() + POLL_MS < until) {
+    await new Promise(resolve => setTimeout(resolve, POLL_MS));
+    try {
+      if (Date.now() - lastBeat > 5 * 60_000) {
+        await worker('/api/internal/github-action-relay/heartbeat', { run_id: RUN_ID, repository: REPOSITORY, snapshot_at: new Date().toISOString() });
+        lastBeat = Date.now();
+      }
+      await drain();
+    } catch (error) {
+      console.error(`GitHub relay watch degraded: ${String(error?.code || error?.message || error)}`);
+    }
+  }
+  if (WATCH_SECONDS > 0) {
+    // Hand over to the next watcher (workflow_dispatch from GITHUB_TOKEN is allowed).
+    await dispatch({ workflow: 'github-action-relay.yml', ref: 'main', inputs: { target: 'production' } })
+      .then(() => console.log('GitHub relay handed over to the next watcher'))
+      .catch(error => console.error(`GitHub relay handover failed: ${String(error?.code || error?.message || error)}`));
   }
 
   console.log(JSON.stringify({ ok: failed === 0, processed, dispatched, failed, relay_run_id: RUN_ID || null }));

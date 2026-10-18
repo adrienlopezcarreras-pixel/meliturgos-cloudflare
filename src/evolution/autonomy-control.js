@@ -53,6 +53,8 @@ export async function getAutonomyControl(db, { memoryState = null } = {}) {
     paused,
     max_autonomy: maxAutonomy,
     owner_override: maxAutonomy,
+    // MAX chosen by the owner, kept while a pause (e.g. a release) is in force.
+    max_remembered: storedMaxAutonomy,
     status: paused ? 'PAUSED' : (maxAutonomy ? 'MAX_AUTONOMY' : 'RUNNING'),
     updated_at: metadata.updated_at ?? row.last_seen ?? null,
     source: metadata.source || 'runtime',

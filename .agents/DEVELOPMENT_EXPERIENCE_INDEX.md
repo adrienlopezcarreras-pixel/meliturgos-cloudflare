@@ -166,3 +166,9 @@ Chronologie technique et éditoriale datée : `.agents/WEEKLY_HANDOFF_20260927.m
 - `bootstrap-release-bound-recovery-drill-20260927` — un snapshot historique ne vaut pour une release plus récente que via un binding exact vérifié; le snapshot lié doit être retrouvé par identifiant exact, pas seulement dans une fenêtre récente; tout mismatch SHA/snapshot/intégrité reste fail-closed.
 
 - `work-device-evidence-server-resolved-20261016` — une capture Companion transmise à Work est une référence, jamais une preuve client ; résolution serveur contre commande/plan/clé canonique/objet stocké, HALT/révocation/expiration fail-closed, partage du texte d’écran au Council uniquement avec consentement explicite.
+
+- `alt-auth-every-sync-gate-20261018` — une seconde preuve d’identité (OIDC) doit passer par un prédicat unique partagé par toutes les gardes synchrones devant la route (entrée déployée comprise) ; le test passe par l’entrée réelle.
+
+- `stream-without-tools-leaks-fake-calls-20261018` — un modèle diffusé sans outils écrit de faux appels JSON et s’invente des actions : le dire explicitement et filtrer avant affichage.
+
+- `self-knowledge-of-autonomy-modes-20261018` — chaque mode d’autonomie (MAX) a une description factuelle unique dans les capacités réelles ; les questions à son sujet sont ancrées sur autonomy.status.
