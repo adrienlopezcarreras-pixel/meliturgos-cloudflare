@@ -43,7 +43,7 @@ test('schema and bounded rows are accessible to authenticated agent, protected f
       table:'mel_jobs', where:{ status:'RUNNING' }, columns:['job_id','status'],
       order_by:'job_id', descending:true, limit:1, offset:0,
     }, OWNER);
-    assert.deepEqual(rows.rows, [{ job_id:'b', status:'RUNNING' }]);
+    assert.deepEqual(rows.rows.map(row => ({ ...row })), [{ job_id:'b', status:'RUNNING' }]);
     assert.equal(rows.count,1);
     const defaults = await bus.execute('d1.read', {table:'mel_jobs'}, OWNER);
     assert.equal(defaults.rows[0].secret_token, undefined);
