@@ -69,6 +69,9 @@ export function enforceHttpAuthPolicy(request, env) {
   }
 
   if (policy.kind === 'DEV_BRIDGE_TOKEN') {
+    // The cloud bridge workflow proves itself with a GitHub Actions OIDC token;
+    // the dev-bridge route verifies it (asynchronously) before doing anything.
+    if ((policy.path === '/api/dev-bridge/claim' || policy.path === '/api/dev-bridge/result') && String(request.headers.get('x-mel-github-oidc') || '').trim() && !request.headers.get('authorization')) return null;
     return authorizeDevBridge(request, env);
   }
 

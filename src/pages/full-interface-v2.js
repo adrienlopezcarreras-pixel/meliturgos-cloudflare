@@ -651,8 +651,8 @@ function renderAutonomy(state){
     :'—';
   const next=state?.next;
   qs('#autonomyNext').textContent=next?.id?(next.id+' · '+next.title):'Aucune nouvelle étape sélectionnée';
-  const max=qs('#melFullMax');if(max){max.classList.toggle('max-active',maxEnabled);max.textContent=maxEnabled?'Désactiver MAX':'MAX 100%';}
-  if(qs('#mobileMaxAutonomy'))qs('#mobileMaxAutonomy').textContent=maxEnabled?'Désactiver MAX':'MAX 100%';
+  const max=qs('#melFullMax');if(max){max.classList.toggle('max-active',maxEnabled);max.textContent=maxEnabled?'MAX actif · Arrêter':'Activer MAX 100%';max.title=maxEnabled?'MAX est actif. Cliquer l’arrête.':'MAX est arrêté. Cliquer l’active.';}
+  if(qs('#mobileMaxAutonomy'))qs('#mobileMaxAutonomy').textContent=maxEnabled?'MAX actif · Arrêter':'Activer MAX 100%';
   const pause=qs('#melFullStop');if(pause)pause.textContent=autonomyControl.paused===true?'Reprendre MEL':'Mettre MEL en pause';
   const mobilePause=qs('#mobilePauseAutonomy');if(mobilePause)mobilePause.textContent=autonomyControl.paused===true?'Reprendre MEL':'Mettre MEL en pause';
 }
