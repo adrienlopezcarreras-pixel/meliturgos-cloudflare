@@ -60,7 +60,8 @@ test('MAX UI never equates permission with proven progress', async()=>{
   assert.match(source,/MAX ARMÉ/);
   assert.match(source,/progress_watchdog/);
   assert.match(source,/Jobs créés \/ terminés \/ bloqués/);
-  assert.match(source,/Désactiver MAX/);
+  assert.match(source,/MAX actif · Arrêter/);
+  assert.match(source,/Activer MAX 100%/);
   assert.doesNotMatch(source,/badge\.textContent=active\?'ACTIVE'/);
 });
 

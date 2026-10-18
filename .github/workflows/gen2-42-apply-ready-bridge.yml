@@ -14,6 +14,7 @@ on:
 permissions:
   contents: write
   actions: write
+  id-token: write
 
 concurrency:
   group: gen2-42-cloud-bridge
@@ -39,20 +40,26 @@ jobs:
       - name: Install exact lockfile
         run: npm ci
 
-      - name: Install ephemeral cloud bridge token
+      - name: Prepare GitHub OIDC bridge identity
         shell: bash
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           set -euo pipefail
-          CLOUD_TOKEN="$(openssl rand -hex 32)"
-          echo "::add-mask::${CLOUD_TOKEN}"
-          echo "MEL_CLOUD_BRIDGE_TOKEN=${CLOUD_TOKEN}" >> "$GITHUB_ENV"
+          # No Worker secret is installed: Cloudflare refuses secret edits while a
+          # newer Worker version is pending (10215). Each bridge call carries a fresh
+          # GitHub Actions OIDC token for this exact workflow instead.
+          test -n "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" && test -n "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}"
+          HELPER="${RUNNER_TEMP}/mel-oidc.sh"
+          cat > "$HELPER" <<'SH'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          curl --silent --show-error --fail --max-time 20 -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=meliturgos-worker" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const j=JSON.parse(s);if(!j.value)process.exit(2);process.stdout.write(j.value)})'
+          SH
+          chmod +x "$HELPER"
+          echo "MEL_OIDC_HELPER=${HELPER}" >> "$GITHUB_ENV"
           BRIDGE_JOB_FILE="${RUNNER_TEMP}/mel-cloud-bridge-job-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.json"
           echo "BRIDGE_JOB_FILE=${BRIDGE_JOB_FILE}" >> "$GITHUB_ENV"
-          printf '%s' "${CLOUD_TOKEN}" | node scripts/cf-worker-secret.mjs put MEL_CLOUD_BRIDGE_TOKEN
-          echo "Ephemeral cloud bridge token installed."
+          test -n "$("$HELPER")"
+          echo "GitHub OIDC bridge identity ready."
 
       - name: Claim exact READY bridge package atomically
         id: claim
@@ -62,12 +69,12 @@ jobs:
         run: |
           set -euo pipefail
           BASE_URL="https://meliturgos.adrien-lopezcarreras.workers.dev"
-          test -n "$MEL_CLOUD_BRIDGE_TOKEN"
+          test -x "$MEL_OIDC_HELPER"
           [[ "$JOB_ID" =~ ^[A-Za-z0-9_.:-]+$ ]]
           JOB_ID="$JOB_ID" node -e "process.stdout.write(JSON.stringify({job_id:process.env.JOB_ID}))" > claim-request.json
           CLAIM_READY=0
           for ATTEMPT in $(seq 1 12); do
-            CODE="$(curl --silent --show-error --max-time 45               --request POST               --header "Authorization: Bearer $MEL_CLOUD_BRIDGE_TOKEN"               --header "Content-Type: application/json"               --data-binary @claim-request.json               --output "$BRIDGE_JOB_FILE"               --write-out '%{http_code}'               "$BASE_URL/api/dev-bridge/claim" || true)"
+            CODE="$(curl --silent --show-error --max-time 45               --request POST               --header "x-mel-github-oidc: $("$MEL_OIDC_HELPER")"               --header "Content-Type: application/json"               --data-binary @claim-request.json               --output "$BRIDGE_JOB_FILE"               --write-out '%{http_code}'               "$BASE_URL/api/dev-bridge/claim" || true)"
             if [ "$CODE" = "200" ]; then
               CLAIM_READY=1
               break
@@ -182,7 +189,7 @@ jobs:
           NODE
           REPORT_READY=0
           for ATTEMPT in $(seq 1 12); do
-            CODE="$(curl --silent --show-error --max-time 45               --request POST               --header "Authorization: Bearer $MEL_CLOUD_BRIDGE_TOKEN"               --header "Content-Type: application/json"               --data-binary @bridge-result-request.json               --output bridge-result-response.json               --write-out '%{http_code}'               "https://meliturgos.adrien-lopezcarreras.workers.dev/api/dev-bridge/result" || true)"
+            CODE="$(curl --silent --show-error --max-time 45               --request POST               --header "x-mel-github-oidc: $("$MEL_OIDC_HELPER")"               --header "Content-Type: application/json"               --data-binary @bridge-result-request.json               --output bridge-result-response.json               --write-out '%{http_code}'               "https://meliturgos.adrien-lopezcarreras.workers.dev/api/dev-bridge/result" || true)"
             if [ "$CODE" = "200" ]; then REPORT_READY=1; break; fi
             echo "Cloud bridge result propagation attempt $ATTEMPT/12 returned HTTP $CODE."
             test ! -s bridge-result-response.json || cat bridge-result-response.json
@@ -372,7 +379,7 @@ jobs:
           NODE
           REPORT_READY=0
           for ATTEMPT in $(seq 1 12); do
-            CODE="$(curl --silent --show-error --max-time 45               --request POST               --header "Authorization: Bearer $MEL_CLOUD_BRIDGE_TOKEN"               --header "Content-Type: application/json"               --data-binary @bridge-result-request.json               --output bridge-result-response.json               --write-out '%{http_code}'               "https://meliturgos.adrien-lopezcarreras.workers.dev/api/dev-bridge/result" || true)"
+            CODE="$(curl --silent --show-error --max-time 45               --request POST               --header "x-mel-github-oidc: $("$MEL_OIDC_HELPER")"               --header "Content-Type: application/json"               --data-binary @bridge-result-request.json               --output bridge-result-response.json               --write-out '%{http_code}'               "https://meliturgos.adrien-lopezcarreras.workers.dev/api/dev-bridge/result" || true)"
             if [ "$CODE" = "200" ]; then REPORT_READY=1; break; fi
             echo "Cloud bridge result propagation attempt $ATTEMPT/12 returned HTTP $CODE."
             test ! -s bridge-result-response.json || cat bridge-result-response.json
@@ -414,27 +421,12 @@ jobs:
           NODE
           REPORT_READY=0
           for ATTEMPT in $(seq 1 12); do
-            CODE="$(curl --silent --show-error --max-time 45               --request POST               --header "Authorization: Bearer $MEL_CLOUD_BRIDGE_TOKEN"               --header "Content-Type: application/json"               --data-binary @bridge-result-request.json               --output bridge-result-response.json               --write-out '%{http_code}'               "https://meliturgos.adrien-lopezcarreras.workers.dev/api/dev-bridge/result" || true)"
+            CODE="$(curl --silent --show-error --max-time 45               --request POST               --header "x-mel-github-oidc: $("$MEL_OIDC_HELPER")"               --header "Content-Type: application/json"               --data-binary @bridge-result-request.json               --output bridge-result-response.json               --write-out '%{http_code}'               "https://meliturgos.adrien-lopezcarreras.workers.dev/api/dev-bridge/result" || true)"
             if [ "$CODE" = "200" ]; then REPORT_READY=1; break; fi
             echo "Emergency bridge result attempt $ATTEMPT/12 returned HTTP $CODE."
             sleep 2
           done
           test "$REPORT_READY" = "1"
-
-      - name: Remove ephemeral cloud bridge token
-        if: always()
-        shell: bash
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: |
-          set +e
-          node scripts/cf-worker-secret.mjs delete MEL_CLOUD_BRIDGE_TOKEN >/tmp/cloud-bridge-token-delete.log 2>&1
-          CODE=$?
-          if [ "$CODE" -ne 0 ]; then
-            cat /tmp/cloud-bridge-token-delete.log || true
-          fi
-          exit 0
 
       - name: Continue autonomy after persisted bridge result
         if: always() && steps.claim.outputs.claimed == 'true' && (steps.report_satisfied.outcome == 'success' || steps.report_result.outcome == 'success' || steps.report_emergency.outcome == 'success')

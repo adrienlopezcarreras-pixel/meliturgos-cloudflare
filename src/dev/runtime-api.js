@@ -1,5 +1,6 @@
 import { requireValue } from '../core/contracts.js';
 import { authorizeDevBridge } from '../core/dev-bridge-auth.js';
+import { authorizeGitHubActionsOidcRequest } from '../security/github-actions-oidc.js';
 import { DevAgent } from './dev-agent.js';
 import { D1DevJobRepository } from './d1-dev-job-repository.js';
 import { D1BridgeRepository } from './d1-bridge-repository.js';
@@ -127,16 +128,27 @@ export function devRuntime(request, env, { repository = null, bridgeRepository =
   if (!path.startsWith('/api/professor/dev') && !path.startsWith('/api/dev-bridge')) return null;
 
   const bridge = path.startsWith('/api/dev-bridge');
-  if (bridge) {
+  // Only the cloud bridge workflow's claim/result calls may use OIDC.
+  const oidcBridge = bridge && (path === '/api/dev-bridge/claim' || path === '/api/dev-bridge/result')
+    && !request.headers.get('authorization') && String(request.headers.get('x-mel-github-oidc') || '').trim() !== '';
+  if (bridge && !oidcBridge) {
     const denied = authorizeDevBridge(request, env || {});
     if (denied) return denied;
   }
-
   if (!env?.DB && !repository && !bridgeRepository) {
     return Response.json({ error: 'DEV_RUNTIME_DB_REQUIRED', code: 'DEV_RUNTIME_DB_REQUIRED' }, { status: 503 });
   }
 
   return (async () => {
+    // Cloud bridge: no Worker secret to install (Cloudflare refuses secret edits
+    // while a newer Worker version is pending); the exact workflow proves itself.
+    if (oidcBridge) {
+      const oidc = await authorizeGitHubActionsOidcRequest(request, env || {}, {
+        allowedWorkflows: ['gen2-42-apply-ready-bridge.yml'],
+        allowedEvents: ['workflow_dispatch'],
+      });
+      if (!oidc.ok) return Response.json({ error: oidc.code || 'BRIDGE_AUTH_REQUIRED', code: oidc.code || 'BRIDGE_AUTH_REQUIRED' }, { status: oidc.status || 401, headers: { 'cache-control': 'no-store' } });
+    }
     const body = await request.json().catch(() => ({}));
     const repo = repository || new D1DevJobRepository(env?.DB);
     const bridges = bridgeRepository || new D1BridgeRepository(env?.DB);
