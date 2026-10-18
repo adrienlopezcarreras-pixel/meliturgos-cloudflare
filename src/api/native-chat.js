@@ -414,8 +414,8 @@ export function inferNativeExecutionCapability(text, recent = []) {
   // it starts or resumes the durable stress job, evaluates failures via
   // Council, and keeps repair gated by the current production/MAX controls.
   // A standalone stress request continues through capability.audit.
-  const supervisedAudit = /\\baudit(?:e|er)?\\s+(?:complet|global)\\b/.test(normalized)
-    && /\\b(?:council|correction(?:s)?|corrig(?:e|er)|repar(?:e|er)|stress\\s*test|stress-test|stresstest)\\b/.test(normalized);
+  const supervisedAudit = /\baudit(?:e|er)?\s+(?:complet|global)\b/.test(normalized)
+    && /\b(?:council|correction(?:s)?|corrig(?:e|er)|repar(?:e|er)|stress\s*test|stress-test|stresstest)\b/.test(normalized);
   if (supervisedAudit) {
     return {
       id: 'self.audit.run',
