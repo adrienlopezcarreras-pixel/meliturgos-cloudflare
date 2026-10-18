@@ -62,3 +62,35 @@ test('routes one exact persistent stress job id when present', () => {
   });
 });
 
+
+test('resolves follow-up asking exact link of an internal stress job from recent assistant message', () => {
+  const id = 'cap-stress-52ebd31d-4806-4d13-a973-d7e93eaf54b8';
+  const recent = [
+    { role:'user', content:'Lance un stress test global.' },
+    { role:'assistant', content:'Audit enregistré. job_id=' + id + '. Le test suit son cours.' },
+  ];
+  assert.deepEqual(inferNativeExecutionCapability('donne moi le lien exact', recent), {
+    id: 'capability.audit.status',
+    input: { job_id:id },
+    execution_intent: 'GLOBAL_CAPABILITY_STRESS_LINK',
+  });
+});
+
+test('resolves explicit cap-stress URL question without prior conversation', () => {
+  const id = 'cap-stress-52ebd31d-4806-4d13-a973-d7e93eaf54b8';
+  assert.deepEqual(inferNativeExecutionCapability('où est le lien exact ' + id), {
+    id: 'capability.audit.status',
+    input: { job_id:id },
+    execution_intent: 'GLOBAL_CAPABILITY_STRESS_LINK',
+  });
+});
+
+test('never substitutes arbitrary GitHub job IDs or unrelated context for a stress job', () => {
+  assert.equal(inferNativeExecutionCapability('donne moi le lien exact'), null);
+  assert.equal(inferNativeExecutionCapability('donne moi le lien exact', [
+    { role:'assistant', content:'Workflow GitHub run_id 39118774567.' },
+  ]), null);
+  assert.equal(inferNativeExecutionCapability('ouvre le lien de mon dépôt', [
+    { role:'assistant', content:'https://github.com/adrienlopezcarreras-pixel/meliturgos-cloudflare' },
+  ]), null);
+});
