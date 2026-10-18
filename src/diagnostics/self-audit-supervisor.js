@@ -437,9 +437,27 @@ async function runCouncilRepairAnalysis(bus, context, problem) {
       maxCandidates: 4,
       timeoutMs: 30000,
     }, context);
+    // A Council response is advisory evidence only when independent, uniquely
+    // attributed, zero-added-cost critiques and a real synthesis exist.
+    // Do not certify a partial/fallback result as successful repair advice.
+    const critiques = Array.isArray(result?.critiques) ? result.critiques : [];
+    const pairs = new Set(critiques
+      .map(row => [String(row?.provenance?.provider || '').trim(), String(row?.provenance?.model || '').trim()])
+      .filter(([provider, model]) => provider && model)
+      .map(([provider, model]) => provider + '::' + model));
+    const verified = result?.status === 'COMPLETE'
+      && critiques.length >= 2
+      && Number(result?.independent_response_count || 0) >= 2
+      && Number(result?.unique_model_count || 0) >= 2
+      && pairs.size >= 2
+      && critiques.every(row => row?.identity && row?.provenance?.provider && row?.provenance?.model
+        && row?.cost?.allowed === true && row?.cost?.policy === 'MEL_ZERO_EURO_V1')
+      && result?.synthesis?.status === 'COMPLETE'
+      && Boolean(String(result?.synthesis?.text || '').trim());
     return {
-      ok: true,
-      status: clean(result?.status || 'COMPLETE', 120),
+      ok: verified,
+      status: clean(result?.status || 'UNKNOWN', 120),
+      reason: verified ? null : 'COUNCIL_INDEPENDENCE_NOT_PROVEN',
       independent_response_count: Number(result?.independent_response_count || 0),
       unique_model_count: Number(result?.unique_model_count || 0),
       synthesis_status: clean(result?.synthesis?.status || '', 120) || null,
@@ -461,6 +479,9 @@ async function maybeQueueRepair({
 } = {}) {
   if (!fingerprint || previousFingerprints.includes(fingerprint)) {
     return { queued: false, reason: 'ALREADY_HANDLED' };
+  }
+  if (control?.paused === true) {
+    return { queued: false, reason: 'AUTONOMY_PAUSED' };
   }
   if (control?.max_autonomy !== true) {
     return { queued: false, reason: 'MAX_AUTONOMY_REQUIRED' };
@@ -660,17 +681,21 @@ export async function runMelSelfAuditSupervisor(env = {}, {
       capability_failures: previousStressFailures,
       recurring_task_failures: recurring,
     });
-    repair = await maybeQueueRepair({
-      env,
-      bus,
-      control,
-      failures: previousStressFailures,
-      recurring,
-      fingerprint,
-      previousFingerprints: repairFingerprints,
-      enqueueDevelopment: deps.enqueueDevelopment || enqueueSupervisedDevelopmentRequest,
-    });
-    if (council?.ok === true || repair?.queued === true) {
+    repair = council?.ok === true
+      ? await maybeQueueRepair({
+          env,
+          bus,
+          control,
+          failures: previousStressFailures,
+          recurring,
+          fingerprint,
+          previousFingerprints: repairFingerprints,
+          enqueueDevelopment: deps.enqueueDevelopment || enqueueSupervisedDevelopmentRequest,
+        })
+      : { queued: false, reason: 'COUNCIL_INDEPENDENCE_NOT_PROVEN' };
+    // A paused or unapproved handoff is not repaired. Preserve the fingerprint
+    // for a future audit after release unpauses, rather than losing the retry.
+    if (repair?.queued === true) {
       repairFingerprints.push(fingerprint);
       repairFingerprints = repairFingerprints.slice(-MAX_REPAIR_HISTORY);
     }
