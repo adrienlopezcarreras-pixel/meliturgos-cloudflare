@@ -129,7 +129,7 @@ function zeroCostHealth(runtimeEnv, minimum = 1) {
 export function createDefaultCapabilityBus({ audit, env, repository, branch, token, fetchImpl, googleAccessTokenResolver = null, vercelConfigResolver = null, pipedreamRuntime = null } = {}) {
   const runtimeEnv = env || {};
   const bus = new CapabilityBus({ audit });
-  // Register D1 early: native chat advertises only the first 96 capabilities.
+  // Register D1 in the canonical bus so the full chat manifest can discover it.
   registerD1ConsoleCapabilities(bus, { db: runtimeEnv.DB });
 
   bus.discover({
@@ -203,7 +203,7 @@ export function createDefaultCapabilityBus({ audit, env, repository, branch, tok
     if (!runtimeEnv.AI) throw capabilityError('AI_BINDING_MISSING');
     const purpose = String(input.context?.purpose || '');
     // Work-plan generation has a shared 105s HTTP/proof deadline and may
-    // make up to three serial fan-outs (generate, repair, select). Bound each
+    // make up to two serial fan-outs (generate, repair). Bound each
     // fan-out below 30s including health refresh, without retrying the same
     // slow provider; independent zero-cost providers still run concurrently.
     // Other Augmentio callers retain their established scheduler defaults.

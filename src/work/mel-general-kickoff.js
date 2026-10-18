@@ -19,8 +19,10 @@ export function isSubstantialMelTask(text) {
 // A large request involving external systems must not be downgraded to a
 // text-only writing DAG that can never invoke the requested tools.
 export function requiresOperationalMelWork(text) {
-  if (!isSubstantialMelTask(text)) return false;
-  const normalized = normalize(text);
+  const source = String(text || '').trim();
+  if (source.length < 120 || source.length > MAX_PROMPT) return false;
+  const normalized = normalize(source);
+  if (!START_VERBS.test(normalized.slice(0, 400))) return false;
   const operation = /\b(?:utilise|utiliser|execute|executer|effectue|effectuer|lance|lancer|cherche|chercher|inspecte|inspecter|controle|controler|corrige|corriger|developpe|developper|modifie|modifier|deploie|deployer|teste|tester|verifie|verifier|telecharge|telecharger)\b/.test(normalized);
   const target = /\b(?:github|depot|repository|repo|code\s+source|fichiers?\s+(?:prives?|google|drive)|google\s+drive|onedrive|gmail|outlook|cloudflare|d1|companion|ordinateur|pc|api|base\s+de\s+donnees|connecteurs?|competences?|outils?|workflow|ci|pull\s+request)\b/.test(normalized);
   return operation && target;

@@ -21,7 +21,7 @@ import { MEL_RUNTIME_OPERATING_EXPERIENCE } from '../learning/runtime-operating-
 import { stripInternalCounters } from './chat-sanitization.js';
 import { formatPersonalProfileRecall, retrieveContext, retrievePersonalProfileContext } from '../core/orchestrator/conversation-context.js';
 import { isMelWorkKickoff, startMelWorkKickoff } from '../work/mel-work-kickoff.js';
-import { isSubstantialMelTask, findMelWorkReference, launchSubstantialMelTask, getSubstantialMelStatus } from '../work/mel-general-kickoff.js';
+import { isSubstantialMelTask, requiresOperationalMelWork, findMelWorkReference, launchSubstantialMelTask, getSubstantialMelStatus } from '../work/mel-general-kickoff.js';
 import { isMaxModeMention } from '../evolution/chat-intent.js';
 import { formatVerifiedSelfStateResponse, formatVerifiedCapabilityAuditResponse, formatCommunicationAuditResponse, formatVerifiedAutonomyActivityResponse, formatVerifiedDevBridgeStatusResponse, formatVerifiedAutonomyRuntimeResponse, MAX_MODE_EXPLANATION } from './response-grounding.js';
 import { buildResponseQualityInstruction, finalizeEvidenceAlignedResponse, inferResponseMode } from './response-quality.js';
@@ -1344,7 +1344,7 @@ export async function handleNativeChat(request, env, options = {}) {
   // existing cron/open-loop mechanism resumes remaining checkpoints.
   if (!releaseSmoke && !body.capability?.id && inputSource === 'text') {
     const refId = findMelWorkReference(text, recent);
-    const goalRequested = !refId && isSubstantialMelTask(text);
+    const goalRequested = !refId && (isSubstantialMelTask(text) || requiresOperationalMelWork(text));
     if (refId || goalRequested) {
       const workContext = nativeCapabilityContext(env, request, options);
       let outcome;
