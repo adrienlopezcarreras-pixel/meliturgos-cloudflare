@@ -1,6 +1,7 @@
 // Canonical core Worker handler. The retired root worker.js stays inert;
 // deployment/auth/UI wrappers delegate here without owning a second runtime.
 import { withChatProgress } from './api/chat-progress.js';
+import { handleTaskmarketWalletImport } from './revenue/taskmarket-cloud.js';
 import { runRevenueWatch } from "./revenue/revenue-watch.js";
 import { runScheduledMelWork } from "./revenue/work-schedule.js";
 import { runModelTournament } from "./models/model-tournament.js";
@@ -442,6 +443,9 @@ async function fetchResolvedRequest(request, env, ctx) {
       }
 
       if (path.startsWith('/api/computer/v1/')) {
+        // One-time, ticket-gated copy of the PC Taskmarket keystore into MEL's vault.
+        const walletImport = await handleTaskmarketWalletImport(request, env);
+        if (walletImport) return walletImport;
         const computerResponse = await maybeHandleComputerApi(request, env);
         if (computerResponse) return computerResponse;
       }

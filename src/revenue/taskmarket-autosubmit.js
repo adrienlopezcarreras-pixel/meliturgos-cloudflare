@@ -10,6 +10,7 @@
 
 import { selectAgentDevice } from '../devices/computer-agent.js';
 import { createDeviceFileTicket } from '../devices/mini-flash-companion.js';
+import { submitTaskmarketCloud } from './taskmarket-cloud.js';
 
 const DEFAULT_ORIGIN = 'https://meliturgos.adrien-lopezcarreras.workers.dev';
 const TASK_ID = /^0x[0-9a-f]{64}$/i;
@@ -56,6 +57,18 @@ export async function queueTaskmarketSubmission(env, { artifactId, taskId, mode,
   const limit = Math.max(0, Math.min(10, Number(env.MEL_WORK_DAILY_SUBMISSIONS) || 3));
   const today = (await db.prepare('SELECT COUNT(*) AS n FROM mel_work_submissions WHERE created_at > ?').bind(now - 86_400_000).first())?.n || 0;
   if (today >= limit) return { status: 'DAILY_LIMIT_REACHED', limit };
+  // PC off is no longer a blocker: with the keystore in MEL's vault the hand-in
+  // is signed and sent from the cloud. Without it, the PC route below is used.
+  const draft = await db.prepare('SELECT content FROM mel_work_artifacts WHERE id=?').bind(artifactId).first();
+  if (!draft?.content) return { status: 'DRAFT_NOT_FOUND' };
+  const cloud = await submitTaskmarketCloud(env, { taskId, content: draft.content }).catch(error => ({ status: 'CLOUD_SUBMIT_FAILED', code: String(error?.code || error?.message || '').slice(0, 80) }));
+  if (cloud.status !== 'NO_CLOUD_WALLET' && cloud.status !== 'CLOUD_SUBMIT_FAILED') {
+    if (['SUBMITTED', 'REJECTED', 'WINDOW_CLOSED', 'PAYMENT_REQUIRED_REFUSED'].includes(cloud.status)) {
+      await db.prepare('INSERT INTO mel_work_submissions (task_id,artifact_id,command_id,status,detail,created_at,updated_at) VALUES (?,?,?,?,?,?,?)')
+        .bind(taskId.toLowerCase(), artifactId, 'cloud', cloud.status, JSON.stringify(cloud).slice(0, 2000), now, now).run();
+    }
+    return cloud;
+  }
   const device = await selectAgentDevice(db, now).catch(() => null);
   if (!device) return { status: 'COMPANION_OFFLINE' };
   const artifact = await db.prepare('SELECT content FROM mel_work_artifacts WHERE id=?').bind(artifactId).first();
