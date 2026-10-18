@@ -49,7 +49,7 @@ export function inferAutonomyControlIntent(text, context = '') {
 export function isGlobalCapabilityAuditRequest(value) {
   const normalized = String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
   const action = /\b(?:lance|lancer|relance|relancer|demarre|demarrer|redemarre|redemarrer|essaye|essaie|effectue|effectuer|execute|executer|audit(?:e|er)|teste|tester|verifie|verifier|fais|faire)\b/.test(normalized);
-  const target = /\b(?:stress[ -]?test|stresstest|audit\s+(?:(?:global|complet|profond)\b|(?:de\s+)?toutes?\s+(?:tes|les)\s+capacites\b)|test(?:e|er)?\s+toutes?\s+(?:tes|les)\s+capacites|verifi(?:e|er)\s+(?:que\s+tout\s+fonctionne|toutes?\s+(?:tes|les)\s+capacites))\b/.test(normalized);
+  const target = /\b(?:stress[ -]?test|stresstest|audit(?:e|er)?\s+(?:(?:global|complet|profond)\b|(?:de\s+)?toutes?\s+(?:tes|les)\s+capacites\b)|test(?:e|er)?\s+toutes?\s+(?:tes|les)\s+capacites|verifi(?:e|er)\s+(?:que\s+tout\s+fonctionne|toutes?\s+(?:tes|les)\s+capacites))\b/.test(normalized);
   const refusal = /\b(?:ne\s+.{0,22}\bpas|n['’]\s*.{0,22}\bpas)\b/.test(normalized);
   return action && target && !refusal;
 }
