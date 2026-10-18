@@ -1,6 +1,6 @@
-// MEL WORK — real Taskmarket drafts, owner review and separate submission.
-// Read and write through the existing authenticated revenue API; only the
-// owner's explicit click may approve or reject a human-step draft.
+// MEL WORK — fully automatic: MEL finds a bounty, does it, publishes it if
+// needed, hands it in from the PC and learns from the contracts she loses.
+// Nothing here asks the owner to validate anything.
 
 function page() {
 return `<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>MEL WORK</title><link rel="icon" href="/assets/avatars/mel-full.webp"><style>
@@ -17,7 +17,6 @@ section.card{margin-top:14px}.row{display:flex;justify-content:space-between;gap
 .tag{font-size:12px;border-radius:999px;padding:2px 9px;border:1px solid var(--line);white-space:nowrap}.good{color:var(--good)}.warn{color:var(--warn)}.bad{color:var(--bad)}
 #live{white-space:pre-wrap;font:13px/1.5 ui-monospace,Consolas,monospace;color:#cbd5e1;max-height:320px;overflow:auto;margin-top:10px}
 #live:empty{display:none}pre.doc{white-space:pre-wrap;background:#0b1626;border:1px solid var(--line);border-radius:12px;padding:12px;max-height:420px;overflow:auto}
-.review-actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center}.review-actions button{padding:6px 10px;min-height:36px}
 .chan{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:10px}.chan input{flex:1 1 220px;padding:9px 11px;border-radius:10px;border:1px solid var(--line);background:#0b1626;color:var(--text);font:inherit}
 @media(max-width:720px){.grid{grid-template-columns:1fr}.metric{font-size:24px}}
 </style></head><body><main class="wrap">
@@ -29,19 +28,20 @@ section.card{margin-top:14px}.row{display:flex;justify-content:space-between;gap
 <article class="card"><h2>Prochain travail</h2><div id="next" class="metric">…</div><div class="small">Toutes les 6 heures, sans rien faire de ta part.</div></article>
 </div>
 <section class="card" id="liveSection"><h2>En ce moment</h2><div id="lastCycle" class="muted">Lecture…</div><div id="live" aria-live="polite"></div></section>
-<section class="card"><h2>Brouillons à valider</h2><p class="small">✓ approuve le brouillon ; ✗ le refuse. Aucune action ne réclame, ne publie ou ne soumet une mission externe.</p><div id="draftsList" class="muted">Lecture…</div></section>
 <section class="card"><h2>Dernières missions</h2><div id="submissionsList" class="muted">Lecture…</div></section>
+<section class="card"><h2>Ce que MEL apprend</h2><p class="small">Quand elle ne gagne pas un contrat, MEL compare son livrable avec celui du gagnant et en tire des règles qu’elle applique ensuite.</p><div id="outcomes" class="small">Lecture…</div><div id="lessons" class="muted"></div></section>
 <section class="card" id="channelsSection"><h2>Comptes de publication de MEL</h2><p class="small">Avec ses propres comptes, MEL publie elle-même les missions « écris, illustre et publie ». Chaque publication indique qu’elle est rédigée par une IA. Les clés sont chiffrées dans son coffre.</p><div id="channelState" class="small">Lecture…</div>
 <form id="devtoForm" class="chan"><strong>dev.to</strong> <input name="api_key" placeholder="Clé API dev.to (Settings → Extensions)" autocomplete="off" required> <button type="submit">Enregistrer</button></form>
 <form id="blueskyForm" class="chan"><strong>Bluesky</strong> <input name="handle" placeholder="identifiant.bsky.social" autocomplete="off" required> <input name="app_password" placeholder="mot de passe d’application xxxx-xxxx-xxxx-xxxx" autocomplete="off" required> <button type="submit">Enregistrer</button></form></section>
 <section class="card"><h2>Nouvelles sources de revenus (veille de la nuit)</h2><div id="watchList" class="muted">Lecture…</div></section>
-<section class="card" id="docSection" hidden><h2 id="docTitle">Livrable</h2><pre class="doc" id="doc"></pre><div class="small" id="docHumanSteps"></div></section>
+<section class="card" id="docSection" hidden><h2 id="docTitle">Livrable</h2><pre class="doc" id="doc"></pre></section>
 </main><script>
 const $=id=>document.getElementById(id);
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const when=v=>{const t=typeof v==='number'?v:Date.parse(v);return Number.isFinite(t)?new Date(t).toLocaleString('fr-FR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):'—'};
 const SUB={QUEUED:['Remise en cours','warn'],SUBMITTED:['Remise ✓','good'],WINDOW_CLOSED:['Fermée avant remise','bad'],REJECTED:['Refusée','bad'],FAILED:['Échec, réessai','bad']};
-const NEXT_SUB={QUEUED:'Remise en cours depuis ton PC.',COMPANION_OFFLINE:'Terminé — sera remis quand ton PC sera allumé.',DAILY_LIMIT_REACHED:'Terminé — remis demain (limite du jour).',NOT_A_BOUNTY:'Terminé.',NEEDS_OWNER:'Terminé.'};
+const NEXT_SUB={QUEUED:'Remise en cours depuis ton PC.',COMPANION_OFFLINE:'Terminé — sera remis quand ton PC sera allumé.',DAILY_LIMIT_REACHED:'Terminé — remis demain (limite du jour).'};
+const OUT={WON:['Gagnée 🎉','good'],LOST:['Perdue · leçon tirée','bad'],NO_AWARD:['Sans gagnant','warn'],NOT_FOUND:['Non retrouvée','warn']};
 async function getJson(url,opts){const r=await fetch(url,{cache:'no-store',...opts});const d=await r.json().catch(()=>({}));if(!r.ok||d.ok===false)throw new Error(d.code||('HTTP '+r.status));return d}
 function nextRun(){const n=new Date();for(let i=0;i<30;i++){const t=new Date(n.getTime()+i*3600e3);t.setUTCMinutes(17,0,0);if(t>n&&t.getUTCHours()%6===0)return t}return null}
 async function loadPc(){try{const d=await getJson('/api/computer/v1/status');const pcs=(d.devices||[]).filter(x=>/win/i.test(String(x.platform||''))).sort((a,b)=>Number(b.last_seen_at||0)-Number(a.last_seen_at||0));const pc=pcs[0];
@@ -50,12 +50,10 @@ async function loadPc(){try{const d=await getJson('/api/computer/v1/status');con
  catch{$('pcState').textContent='—';$('pcDetail').textContent='État du PC indisponible.'}}
 async function loadSubmissions(){try{const d=await getJson('/api/revenue/submissions');const rows=d.submissions||[];const ok=rows.filter(r=>r.status==='SUBMITTED').length;
  $('submitted').textContent=String(ok);$('submittedDetail').textContent=rows.length?rows.length+' tentée(s) au total · au plus 3 par jour.':'Aucune pour le moment · au plus 3 par jour.';
- $('submissionsList').innerHTML=rows.length?rows.map(r=>{const s=SUB[r.status]||[r.status,''];return '<div class="row"><span>'+when(r.created_at)+' · <a href="#" data-artifact="'+esc(r.artifact_id)+'">mission '+esc(String(r.task_id).slice(0,10))+'…</a></span><span class="tag '+s[1]+'">'+esc(s[0])+'</span></div>'}).join(''):'MEL n’a encore rien remis. Elle choisit seulement des missions qu’elle peut terminer seule.'}
+ $('submissionsList').innerHTML=rows.length?rows.map(r=>{const s=OUT[r.outcome]||SUB[r.status]||[r.status,''];return '<div class="row"><span>'+when(r.created_at)+' · <a href="#" data-artifact="'+esc(r.artifact_id)+'">mission '+esc(String(r.task_id).slice(0,10))+'…</a></span><span class="tag '+s[1]+'">'+esc(s[0])+'</span></div>'}).join(''):'MEL n’a encore rien remis. Elle choisit seulement des missions qu’elle peut terminer seule.';
+ const o=d.outcomes||{};$('outcomes').textContent='Gagnées : '+(o.WON||0)+' · perdues : '+(o.LOST||0)+' · sans gagnant : '+(o.NO_AWARD||0)+'.';
+ const l=d.lessons||[];$('lessons').innerHTML=l.length?l.map(x=>'<div class="row"><span>'+esc(x)+'</span></div>').join(''):'Pas encore de leçon : aucune mission remise n’a encore été départagée.'}
  catch(e){$('submitted').textContent='—';$('submissionsList').textContent='Liste indisponible ('+e.message+').'}}
-async function loadDrafts(){try{const d=await getJson('/api/revenue/direct-work');const rows=d.artifacts||[];
- const pending=rows.filter(r=>r.status==='DRAFT_UNVERIFIED'||r.status==='VERIFIED_LOCALLY');
- $('draftsList').innerHTML=pending.length?pending.map(r=>'<div class="row"><span><a href="#" data-artifact="'+esc(r.id)+'">Mission '+esc(String(r.mission_id||'').slice(0,30))+'</a><br><span class="small">'+when(r.created_at)+' · '+esc(r.status)+'</span></span><span class="review-actions"><button type="button" data-decision="approve" data-review-id="'+esc(r.id)+'" aria-label="Approuver ce brouillon">✓ Approuver</button><button type="button" data-decision="reject" data-review-id="'+esc(r.id)+'" aria-label="Refuser ce brouillon">✗ Refuser</button></span></div>').join(''):'Aucun brouillon en attente de validation.';
- }catch(e){$('draftsList').textContent='Brouillons indisponibles ('+e.message+').'}}
 async function loadWatch(){try{const d=await getJson('/api/revenue/watch');const rows=(d.opportunities||[]).slice(0,8);
  $('watchList').innerHTML=rows.length?rows.map(o=>'<div class="row"><span><a href="'+esc(o.url)+'" target="_blank" rel="noopener">'+esc(o.title||o.name||o.url)+'</a>'+(o.summary?'<br><span class="small">'+esc(String(o.summary).slice(0,220))+'</span>':'')+'</span>'+(o.status==='NEW'?'<span class="tag good">Nouveau</span>':'')+'</div>').join(''):'La veille tourne chaque nuit ; rien de nouveau pour l’instant.'}
  catch{$('watchList').textContent='Veille indisponible.'}}
@@ -64,14 +62,8 @@ async function loadCycle(){try{const d=await getJson('/api/revenue/direct-work?l
  if(c.status==='RUNNING')text+='en cours…';else if(c.status==='FAILED')text+='interrompu ('+(r.code||'erreur')+'), elle réessaiera.';else if(c.status==='NO_ELIGIBLE_MISSION')text+='aucune mission faisable seule, elle réessaiera.';
  else text+=(r.title?'« '+r.title+' »'+(r.reward?' · '+r.reward:'')+'. ':'')+(NEXT_SUB[r.submission]||'Terminé.');
  $('lastCycle').textContent=text}catch{$('lastCycle').textContent='État du dernier travail indisponible.'}}
-async function showArtifact(id){try{const d=await getJson('/api/revenue/direct-work?artifact_id='+encodeURIComponent(id));$('docSection').hidden=false;$('docTitle').textContent='Livrable du '+when(d.artifact.created_at);$('doc').textContent=d.artifact.content;$('docHumanSteps').textContent=(d.humanSteps||[]).length?'Étapes réservées au propriétaire : '+d.humanSteps.join(' ; '):'Aucune étape humaine indiquée pour ce brouillon.';$('docSection').scrollIntoView({behavior:'smooth'})}catch(e){alert('Livrable indisponible ('+e.message+').')}}
+async function showArtifact(id){try{const d=await getJson('/api/revenue/direct-work?artifact_id='+encodeURIComponent(id));$('docSection').hidden=false;$('docTitle').textContent='Livrable du '+when(d.artifact.created_at);$('doc').textContent=d.artifact.content;$('docSection').scrollIntoView({behavior:'smooth'})}catch(e){alert('Livrable indisponible ('+e.message+').')}}
 document.addEventListener('click',async e=>{
- const decision=e.target.closest('[data-decision]');
- if(decision){e.preventDefault();decision.disabled=true;
-  try{await getJson('/api/revenue/direct-work/decision',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({artifactId:decision.dataset.reviewId,decision:decision.dataset.decision})});await loadDrafts();}
-  catch(error){alert('Décision non enregistrée ('+error.message+').');decision.disabled=false}
-  return;
- }
  const a=e.target.closest('[data-artifact]');if(a){e.preventDefault();showArtifact(a.dataset.artifact)}
 });
 $('workNow').onclick=async()=>{const b=$('workNow');b.disabled=true;b.textContent='MEL travaille…';$('live').textContent='';
@@ -84,7 +76,7 @@ $('workNow').onclick=async()=>{const b=$('workNow');b.disabled=true;b.textConten
 async function loadChannels(){try{const d=await getJson('/api/revenue/channels');const c=d.channels||{};$('channelState').innerHTML='Image : '+(c.image?'<span class="good">prête</span>':'<span class="warn">indisponible</span>')+' · dev.to : '+(c.devto?'<span class="good">connecté</span>':'<span class="warn">à connecter</span>')+' · Bluesky : '+(c.bluesky?'<span class="good">connecté'+(c.bluesky_handle?' ('+esc(c.bluesky_handle)+')':'')+'</span>':'<span class="warn">à connecter</span>')}catch{$('channelState').textContent='État des comptes indisponible.'}}
 async function saveChannel(e,channel){e.preventDefault();const f=e.target;const body={channel};for(const el of f.querySelectorAll('input'))body[el.name]=el.value.trim();const b=f.querySelector('button');b.disabled=true;try{await getJson('/api/revenue/channels',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});f.reset();loadChannels()}catch(err){alert('Enregistrement refusé ('+err.message+').')}finally{b.disabled=false}}
 $('devtoForm').onsubmit=e=>saveChannel(e,'devto');$('blueskyForm').onsubmit=e=>saveChannel(e,'bluesky');
-function refresh(){const n=nextRun();$('next').textContent=n?n.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}):'—';loadPc();loadSubmissions();loadDrafts();loadWatch();loadCycle();loadChannels()}
+function refresh(){const n=nextRun();$('next').textContent=n?n.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}):'—';loadPc();loadSubmissions();loadWatch();loadCycle();loadChannels()}
 refresh();setInterval(refresh,60000);
 </script></body></html>`;
 }

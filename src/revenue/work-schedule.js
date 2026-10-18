@@ -2,10 +2,11 @@
 // runs one autonomous cycle (bounty offers only, no human step). MEL writes the
 // deliverable and hands it in herself through the owner's PC (Companion). A
 // deliverable that could not be handed in yet (PC off, daily limit) is retried
-// every hour. Nothing here can move funds; rewards land in MEL's wallet.
+// every hour, and every resolved contract MEL lost is turned into a lesson. Nothing here can move funds; rewards land in MEL's wallet.
 
 import { streamDirectWork } from './work-stream.js';
 import { queueTaskmarketSubmission, refreshTaskmarketSubmissions } from './taskmarket-autosubmit.js';
+import { reviewSubmissionOutcomes } from './work-lessons.js';
 
 export const MEL_WORK_SCHEDULE_HOURS = Object.freeze([0, 6, 12, 18]);
 export const MEL_WORK_MAX_DAILY_DRAFTS = 4;
@@ -45,6 +46,8 @@ export async function runScheduledMelWork(env, { now = new Date(), run = streamD
   if (!env?.DB?.prepare || typeof env?.AI?.run !== 'function') return { status: 'RUNTIME_UNAVAILABLE' };
   await refreshTaskmarketSubmissions(env, { now: now.getTime() }).catch(() => null);
   await retryPendingSubmissions(env, { now: now.getTime() }).catch(() => null);
+  // Won or lost? Each lost contract becomes a lesson for the next cycles.
+  await reviewSubmissionOutcomes(env, { now: now.getTime() }).catch(() => null);
   if (!MEL_WORK_SCHEDULE_HOURS.includes(now.getUTCHours())) return { status: 'NOT_SCHEDULED_HOUR' };
   const drafts = await draftsLast24h(env.DB, now);
   if (drafts >= MEL_WORK_MAX_DAILY_DRAFTS) return { status: 'DAILY_DRAFT_LIMIT', drafts };
