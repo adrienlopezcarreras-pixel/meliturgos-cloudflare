@@ -237,6 +237,97 @@ test('persistent stress advances in durable chunks instead of restarting from ze
   }
 });
 
+test('durable snapshot keeps identity and order stable when the runtime registry is reordered', async () => {
+  const db = sqliteD1();
+  try {
+    const original = Array.from({ length: 13 }, (_, i) => ({
+      ...echoRecord(), id: 'stable-' + i, name: 'Stable ' + i,
+    }));
+    let visible = original;
+    const bus = {
+      list: () => visible,
+      contract: () => ({ valid: true }),
+      execute: async () => ({ value: 'ok' }),
+    };
+    const first = await startPersistentCapabilityStress({ bus, db, context: { owner: 'test' } });
+    assert.equal(first.progress.done, 6);
+    assert.equal(first.progress.total, 13);
+    assert.deepEqual(first.summary.registry_ids, original.map(row => row.id));
+
+    // Another Worker deployment may insert new tools at the beginning.
+    visible = [{ ...echoRecord(), id: 'new-d1-tool' }, ...original.slice().reverse()];
+    const second = await resumeActivePersistentCapabilityStress({ bus, db, context: { owner: 'test' } });
+    assert.equal(second.progress.done, 12);
+    assert.equal(second.progress.total, 13);
+    assert.deepEqual(second.summary.registry_ids, original.map(row => row.id));
+
+    const third = await resumeActivePersistentCapabilityStress({ bus, db, context: { owner: 'test' } });
+    assert.equal(third.status, 'COMPLETE');
+    assert.equal(third.progress.done, 13);
+    assert.deepEqual(third.report.capabilities.map(row => row.id), original.map(row => row.id));
+    assert.equal(third.report.capabilities.some(row => row.id === 'new-d1-tool'), false);
+  } finally { db.close(); }
+});
+
+test('old D1 checkpoint without snapshot resumes from persisted identities, not shifted numeric indices', async () => {
+  const db = sqliteD1();
+  try {
+    const records = Array.from({ length: 8 }, (_, i) => ({
+      ...echoRecord(), id: 'legacy-ordered-' + i, name: 'Legacy ' + i,
+    }));
+    const store = new D1CapabilityStressStore(db);
+    const old = await store.create({ total: 8 });
+    const completedPrefix = records.slice(0, 3).map(row => ({
+      id: row.id, truth_status: 'EXISTANT_NON_TESTE', contract_valid: true,
+    }));
+    // Historic jobs kept report rows and cursor, but had no registry_ids.
+    await store.update(old.job_id, {
+      status: 'QUEUED',
+      progress: { done: 3, total: 8, pass: 1 },
+      summary: { phase: 'QUEUED', next_index: 3 },
+      report: { total: 8, capabilities: completedPrefix, partial: true },
+    });
+    const live = [{ ...echoRecord(), id: 'd1-new' }, ...records.slice().reverse()];
+    const bus = {
+      list: () => live,
+      contract: () => ({ valid: true }),
+      execute: async () => ({ value: 'ok' }),
+    };
+    const result = await resumeActivePersistentCapabilityStress({ bus, db, context: { owner: 'test' } });
+    assert.equal(result.job_id, old.job_id);
+    assert.equal(result.status, 'COMPLETE');
+    assert.equal(result.progress.done, 9);
+    assert.deepEqual(result.report.capabilities.map(row => row.id), [
+      ...records.slice(0, 3).map(row => row.id),
+      'd1-new',
+      ...records.slice(3).reverse().map(row => row.id),
+    ]);
+  } finally { db.close(); }
+});
+
+test('audit refuses to skip an unprocessed capability removed between releases', async () => {
+  const db = sqliteD1();
+  try {
+    const records = Array.from({ length: 9 }, (_, i) => ({
+      ...echoRecord(), id: 'removed-' + i, name: 'Capability ' + i,
+    }));
+    let visible = records;
+    const bus = {
+      list: () => visible,
+      contract: () => ({ valid: true }),
+      execute: async () => ({ value: 'ok' }),
+    };
+    const first = await startPersistentCapabilityStress({ bus, db, context: { owner: 'test' } });
+    assert.equal(first.progress.done, 6);
+    visible = records.filter(row => row.id !== 'removed-7');
+    const failed = await resumeActivePersistentCapabilityStress({ bus, db, context: { owner: 'test' } });
+    assert.equal(failed.status, 'FAILED');
+    assert.equal(failed.error, 'CAPABILITY_STRESS_REGISTRY_CHANGED');
+    assert.equal(failed.progress.done, 6);
+    assert.equal(failed.report.capabilities.length, 6);
+  } finally { db.close(); }
+});
+
 test('legacy non-zero cursor without a partial report restarts safely from zero', async () => {
   const db = sqliteD1();
   try {
