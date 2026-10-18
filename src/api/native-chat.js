@@ -1808,6 +1808,44 @@ export async function handleNativeChat(request, env, options = {}) {
     }, { status: verified ? 200 : 503, headers: { 'cache-control':'no-store' } });
   }
 
+  // An explicit owner MAX command must report the actual persisted D1 state
+  // and the launch gate verdict. Do not replace a refused or paused execution
+  // with a language-model tutorial or a fabricated "running" claim.
+  if (!releaseSmoke && capability?.id === 'autonomy.max') {
+    const evidence = toolResults.find(row => row.capability === 'autonomy.max') || null;
+    const observed = evidence?.status === 'SUCCEEDED' ? evidence.result : null;
+    const activated = observed?.ok === true && observed?.control?.max_autonomy === true
+      && observed?.control?.paused === false;
+    const disabled = observed?.ok === true && capability.input?.enabled === false
+      && observed?.control?.max_autonomy === false;
+    const success = activated || disabled;
+    const code = observed?.code || evidence?.error || 'AUTONOMY_MAX_UNVERIFIED';
+    const gateBlockers = Array.isArray(observed?.readiness?.blockers)
+      ? observed.readiness.blockers.slice(0, 6).map(row => String(typeof row === 'string' ? row : row?.code || row?.reason || 'BLOCKED').slice(0, 100))
+      : [];
+    const responseText = activated
+      ? 'MAX est activé et confirmé dans le contrôle D1. '
+        + 'Premier cycle : ' + String(observed?.tick?.status || 'NON_CONFIRMÉ') + '. '
+        + 'Une activation n’est pas une preuve de travail accompli.'
+      : disabled
+        ? 'MAX est désactivé et cet état est confirmé dans D1.'
+        : 'MAX n’a pas été réactivé : ' + String(code).slice(0, 120) + '.'
+          + (gateBlockers.length ? ' Blocages : ' + gateBlockers.join(', ') + '.' : '');
+    return Response.json({
+      ok: success,
+      text: responseText,
+      code: success ? null : String(code),
+      model: 'deterministic-autonomy-control',
+      provider: 'mel',
+      response_mode: 'autonomy-control',
+      control: observed?.control || null,
+      tick: observed?.tick || null,
+      launch: observed?.launch || null,
+      capability_used: capabilitiesUsed,
+      tool_results: toolResults,
+    }, { status: success ? 200 : observed?.ok === false ? 409 : 502, headers: { 'cache-control': 'no-store' } });
+  }
+
   if (!releaseSmoke && inferredExecutionCapability?.execution_intent === 'GLOBAL_CAPABILITY_STRESS_TEST') {
     const execution = toolResults.find(row => row.capability === 'capability.audit') || null;
     if (!execution || execution.status !== 'SUCCEEDED') {
