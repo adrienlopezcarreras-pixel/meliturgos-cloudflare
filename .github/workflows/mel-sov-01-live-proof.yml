@@ -19,6 +19,7 @@ permissions:
 concurrency:
   group: mel-launch-bootstrap-token
   cancel-in-progress: false
+  queue: max
 
 jobs:
   production-proof:

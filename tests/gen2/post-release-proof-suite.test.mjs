@@ -99,3 +99,21 @@ test('Council proof refresh is short-lived, fail-closed and not silently cancell
   assert.match(suite, /WORKERS_AI_PROOF_REFRESH: \$\{\{ needs\.workers-ai-proof-refresh\.result \}\}/);
   assert.match(suite, /proof\.workers_ai_proof_refresh/);
 });
+
+test('all production mutation workflows retain one shared FIFO queue instead of cancelling pending releases', async () => {
+  // GitHub Actions defaults to one pending job per concurrency group, silently
+  // cancelling the previous one. The canonical release + autonomous/proof
+  // workflows must use the same protected lane with the supported queue:max.
+  const protectedWorkflows = [
+    'deploy-cloudflare-release.yml',
+    'gen2-42-runtime-tick.yml',
+    'mel-sov-01-live-proof.yml',
+    'persistent-capability-stress-live-proof.yml',
+    'activate-platform-capabilities.yml',
+    'council-rich-ui-production-proof.yml',
+  ];
+  for (const name of protectedWorkflows) {
+    const source = await readFile(new URL('../../.github/workflows/' + name, import.meta.url), 'utf8');
+    assert.match(source, /concurrency:\s*\n\s+group:[^\n]*mel-launch-bootstrap-token[^\n]*\n\s+cancel-in-progress:\s*false\n\s+queue:\s*max\b/, name);
+  }
+});
