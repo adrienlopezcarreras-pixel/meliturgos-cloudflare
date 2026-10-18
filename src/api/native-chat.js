@@ -29,6 +29,7 @@ import { loadConversationFocusState, saveConversationFocusState } from './conver
 import { assessResponseQuality, enforceResponseQuality, persistResponseQualityEvent } from './response-quality-audit.js';
 import { inferKnowledgeCapability } from './knowledge-intent.js';
 import { streamChatResponse } from './chat-stream.js';
+import { instrumentBus } from './chat-progress.js';
 import { runLocalPcModel } from '../models/local-pc-model.js';
 import { rankedStreamModels } from '../models/model-tournament.js';
 import { streamComputerAgent } from '../devices/computer-agent.js';
@@ -1217,6 +1218,8 @@ export async function handleNativeChat(request, env, options = {}) {
   const userProvenance = inputSource === 'text' ? 'native-chat' : `native-chat:${inputSource}`;
   const userMetadata = inputSource === 'text' ? {} : { input_source: inputSource, transcribed_voice: true };
   const runtime = createGen2Runtime({ env });
+  // Live progress panel: every capability run in this request is reported.
+  if (typeof options?.onProgress === 'function') instrumentBus(runtime, options.onProgress);
   // A screenshot is an asynchronous, owner-consented Companion command, not an
   // AI inference request. Return the durable queue ID before the chat timeout;
   // the UI must verify the exact command result before displaying an image.
@@ -1893,6 +1896,7 @@ export async function handleNativeChat(request, env, options = {}) {
       },
     });
   }
+  try { options?.onProgress?.({ id: 'write', kind: 'step', label: 'Rédaction de la réponse', status: 'running' }); } catch {}
   let ai;
   try {
     // Explicit opt-in to PC-first for ordinary text answers. This is NOT a

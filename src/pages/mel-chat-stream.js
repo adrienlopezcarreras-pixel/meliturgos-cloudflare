@@ -63,6 +63,21 @@ async function melChatFetch(payload, { firstByteMs = 90000, idleMs = 45000 } = {
     if (!stepsBox && bubble) { stepsBox = document.createElement('div'); stepsBox.className = 'mel-agent-steps'; bubble.insertBefore(stepsBox, textBox); }
     return stepsBox;
   };
+  // Live panel: what MEL is doing right now (steps and tools), like an agent's progress view.
+  const progress = new Map();
+  let liveBox = null;
+  const renderLive = () => {
+    if (!bubble) return;
+    if (!liveBox) { liveBox = document.createElement('div'); liveBox.className = 'mel-live'; bubble.insertBefore(liveBox, bubble.firstChild); }
+    liveBox.textContent = '';
+    for (const step of progress.values()) {
+      const line = document.createElement('div');
+      line.className = 'mel-live-' + step.status;
+      const icon = step.status === 'done' ? '✓' : step.status === 'failed' ? '✗' : '⏳';
+      line.textContent = icon + ' ' + step.label + (step.detail ? ' — ' + step.detail : '') + (step.ms ? ' · ' + (step.ms / 1000).toFixed(1).replace('.', ',') + ' s' : '');
+      liveBox.appendChild(line);
+    }
+  };
   let text = '';
   let meta = {};
   let failure = null;
@@ -78,7 +93,13 @@ async function melChatFetch(payload, { firstByteMs = 90000, idleMs = 45000 } = {
       const parsed = melParseNdjsonLines(buffer);
       buffer = parsed.rest;
       for (const event of parsed.events) {
-        if (event.type === 'start') { if (status) status.textContent = 'MEL écrit…'; }
+        if (event.type === 'progress') {
+          progress.set(String(event.id || progress.size), { label: String(event.label || ''), status: String(event.status || 'running'), detail: String(event.detail || ''), ms: Number(event.ms) || 0, kind: String(event.kind || 'step'), tool: event.tool ? String(event.tool) : '' });
+          renderLive();
+          if (status && event.status === 'running') status.textContent = String(event.label || 'MEL travaille…') + '…';
+          if (log) log.scrollTop = log.scrollHeight;
+        }
+        else if (event.type === 'start') { if (status) status.textContent = 'MEL écrit…'; }
         else if (event.type === 'step') {
           const box = ensureSteps();
           if (box) { const line = document.createElement('div'); line.textContent = String(event.text || ''); box.appendChild(line); }
@@ -107,6 +128,7 @@ async function melChatFetch(payload, { firstByteMs = 90000, idleMs = 45000 } = {
     clearTimeout(timer);
     if (bubble) bubble.classList.remove('streaming');
   }
+  if (liveBox) liveBox.remove();
   if (text && typeof melRenderRichText === 'function') { textBox.textContent = ''; melRenderRichText(textBox, text); }
   if (failure && !text) {
     if (bubble) bubble.remove();
@@ -118,7 +140,8 @@ async function melChatFetch(payload, { firstByteMs = 90000, idleMs = 45000 } = {
     note.textContent = 'Réponse interrompue : ' + String(failure.code || 'STREAM_FAILED') + (meta.archived ? '' : ' · partie reçue conservée');
     bubble.appendChild(note);
   }
-  return { ok: !failure, text, model: meta.model || null, streamed: true, agent_steps: meta.steps || 0, proof_url: meta.proof_url || null, archive_saved: meta.archived === true, response_truncated: meta.truncated === true, elapsed_ms: Date.now() - startedAt, stream_error: failure ? String(failure.code || 'STREAM_FAILED') : null };
+  const result = meta.result && typeof meta.result === 'object' ? meta.result : {};
+  return { ...result, ok: !failure && result.ok !== false, text, model: meta.model || result.model || null, streamed: true, progress: [...progress.values()], agent_steps: meta.steps || 0, proof_url: meta.proof_url || null, archive_saved: meta.archived === true, response_truncated: meta.truncated === true, elapsed_ms: Date.now() - startedAt, stream_error: failure ? String(failure.code || 'STREAM_FAILED') : null };
 }
 
 export const MEL_CHAT_STREAM_SOURCE = [melParseNdjsonLines, melChatFetch].map(fn => fn.toString()).join('\n') + '\n';
