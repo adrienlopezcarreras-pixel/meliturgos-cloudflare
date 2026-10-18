@@ -407,6 +407,45 @@ function clip(value, limit = 220) {
   return text.length <= limit ? text : text.slice(0, Math.max(0, limit - 1)) + '…';
 }
 
+// Report exactly what the existing self-audit supervisor persisted. A queued
+// D1 stress and a queued repair are never evidence that either has finished.
+export function formatVerifiedSupervisedAuditRun(result, { fallback = '' } = {}) {
+  if (!result || typeof result !== 'object') return String(fallback || '').trim();
+  if (result.skipped === true) {
+    return 'Superviseur : aucune exécution (' + String(result.status || 'SKIPPED') + ').';
+  }
+  const report = result.report && typeof result.report === 'object' ? result.report : null;
+  if (!report) return 'Superviseur : rapport non disponible (' + String(result.status || 'UNKNOWN') + ').';
+  const lines = [
+    'Audit supervisé : ' + String(result.status || 'UNKNOWN') + '.',
+    'Contrôles exécutés : ' + (Array.isArray(report.levels) ? report.levels.join(', ') : 'non renseignés')
+      + '. Contrôles en échec : ' + Number(report.task_failure_count || 0)
+      + '. Anomalies non résolues : ' + Number(report.unresolved_failure_count || 0) + '.',
+  ];
+  const stress = report.started_stress || report.previous_stress || null;
+  lines.push(stress
+    ? 'Stress test D1 : job_id=' + String(stress.job_id || 'UNKNOWN')
+      + ', statut=' + String(stress.status || 'UNKNOWN')
+      + '. Aucun achèvement n’est présumé.'
+    : 'Stress test D1 : aucun identifiant confirmé par ce cycle.');
+  const council = report.council;
+  lines.push(council
+    ? 'Council : ' + (council.ok === true ? 'preuve indépendante vérifiée' : 'non vérifié')
+      + (council.reason || council.error ? ' (' + String(council.reason || council.error).slice(0, 120) + ')' : '') + '.'
+    : 'Council : non exécuté dans ce cycle.');
+  const repair = report.repair;
+  lines.push(repair?.queued === true
+    ? 'Correction : job supervisé enregistré (' + String(repair.job_id || 'UNKNOWN') + '), pas encore prouvé terminé.'
+    : repair
+      ? 'Correction non lancée : ' + String(repair.reason || 'UNKNOWN') + '.'
+      : 'Correction : aucun lancement constaté dans ce cycle.');
+  if (report.paused === true || report.max_autonomy !== true) {
+    lines.push('Autonomie : ' + (report.paused === true ? 'en pause' : 'non suspendue')
+      + ' ; MAX ' + (report.max_autonomy === true ? 'activé' : 'désactivé') + '.');
+  }
+  return lines.join('\n');
+}
+
 export function formatVerifiedCapabilityAuditResponse(audit, { fallback = '' } = {}) {
   if (!audit || typeof audit !== 'object') return String(fallback || '').trim();
 
