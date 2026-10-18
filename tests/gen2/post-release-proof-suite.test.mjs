@@ -37,12 +37,21 @@ test('persistent stress is independently authenticated and requires exact SHA pr
   assert.doesNotMatch(source,/wrangler\s+secret\s+(?:put|delete)|MEL_LAUNCH_BOOTSTRAP_TOKEN/);
 });
 
-test('independent post-release proofs fan out from the same immutable release SHA', async () => {
+test('post-release proofs use the same immutable release SHA; shared-lease proofs run in turn', async () => {
   const source = await readFile(new URL('../../.github/workflows/post-release-proof-suite.yml', import.meta.url), 'utf8');
-  for (const name of ['platform', 'persistent-stress', 'workers-ai-proof-refresh', 'council-rich-ui', 'connections', 'sovereignty']) {
-    const section = source.split('\n  ' + name + ':')[1]?.split(/\n  [a-z][a-z-]*:/m)[0] || '';
-    assert.match(section, /needs: resolve/, name);
-    assert.equal(section.includes('needs: ['), false, name);
+  const section = name => source.split('\n  ' + name + ':')[1]?.split(/\n  [a-z][a-z-]*:/m)[0] || '';
+  // Independent proofs fan out directly from the resolved SHA.
+  for (const name of ['platform', 'workers-ai-proof-refresh', 'connections']) {
+    assert.match(section(name), /needs: resolve\n/, name);
+  }
+  // Proofs sharing the production lease group are chained (GitHub cancels
+  // all but one pending run of a concurrency group), each still runs always().
+  assert.match(section('persistent-stress'), /needs: \[resolve, platform\]/);
+  assert.match(section('council-rich-ui'), /needs: \[resolve, persistent-stress\]/);
+  assert.match(section('sovereignty'), /needs: \[resolve, council-rich-ui\]/);
+  for (const name of ['persistent-stress', 'council-rich-ui', 'sovereignty']) {
+    assert.match(section(name), /if: always\(\) && needs\.resolve\.result == 'success'/, name);
+    assert.match(section(name), /expected_sha: \$\{\{ needs\.resolve\.outputs\.expected_sha \}\}/, name);
   }
   assert.match(source, /summary:\n\s+needs: \[resolve, platform, persistent-stress, workers-ai-proof-refresh, council-rich-ui, connections, sovereignty\]/);
   assert.match(source, /if\(values\.some\(value=>value!=='success'\)\) process\.exit\(1\)/);
