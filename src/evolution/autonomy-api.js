@@ -115,6 +115,48 @@ export async function getAutonomyState(env, { repository = null, autonomyControl
   };
 }
 
+// The owner UI and MEL Chat must use this exact same launch gate and control
+// transaction. MAX is not a tick: a tick never grants MAX authorization.
+export async function applyOwnerMaxAutonomy(env, {
+  enabled = true,
+  repository = null,
+  fetchImpl = fetch,
+  autonomyControlState = null,
+  roadmap = null,
+  source = 'owner-ui-launch-gate',
+} = {}) {
+  const repo = repository || new D1DevJobRepository(env.DB);
+  let prepared = null;
+  if (enabled) {
+    prepared = await prepareAutonomyLaunch(env, { repository: repo });
+    if (!prepared.ok || prepared.readiness?.launch_ready !== true) {
+      return {
+        ok: false,
+        code: 'AUTONOMY_LAUNCH_GATE_BLOCKED',
+        readiness: prepared.readiness || null,
+      };
+    }
+  }
+  const control = await setOwnerMaxAutonomy(env.DB, {
+    enabled,
+    paused: enabled ? false : undefined,
+    source: enabled ? source : 'owner-ui',
+    reason: enabled ? 'owner-max-autonomy' : null,
+    launch_approved_sha: prepared?.readiness?.candidate_sha,
+    launch_approved_at: prepared?.readiness?.evaluated_at,
+    launch_gate_digest: prepared?.readiness?.gate_digest,
+    memoryState: autonomyControlState,
+  });
+  if (!enabled) {
+    await resetAutonomyProgressWatchdog(env.DB, { status: 'DISABLED' }).catch(() => null);
+  }
+  const tick = enabled
+    ? await runAutonomyRuntimeTick(env, { repository: repo, fetchImpl, autonomyControlState, roadmap })
+    : null;
+  const state = await getAutonomyState(env, { repository: repo, autonomyControlState, roadmap });
+  return { ok: true, launch: prepared, control, tick, state };
+}
+
 export async function maybeHandleAutonomyApi(request, env, { repository = null, fetchImpl = fetch, autonomyControlState = null, roadmap = null } = {}) {
   const url = new URL(request.url);
   const isPublicControl = url.pathname === '/api/gen2/autonomy/control';
@@ -322,37 +364,17 @@ export async function maybeHandleAutonomyApi(request, env, { repository = null, 
 
   if (isMax) {
     const body = await request.clone().json().catch(() => ({}));
-    const enabled = body?.enabled !== false;
-    let prepared = null;
-    if (enabled) {
-      prepared = await prepareAutonomyLaunch(env, { repository: repo });
-      if (!prepared.ok || prepared.readiness?.launch_ready !== true) {
-        return Response.json({
-          ok: false,
-          code: 'AUTONOMY_LAUNCH_GATE_BLOCKED',
-          readiness: prepared.readiness || null,
-        }, { status: 409, headers: { 'cache-control': 'no-store' } });
-      }
-    }
-    const control = await setOwnerMaxAutonomy(env.DB, {
-      enabled,
-      paused: enabled ? false : undefined,
-      source: enabled ? 'owner-ui-launch-gate' : 'owner-ui',
-      reason: enabled ? 'owner-max-autonomy' : null,
-      launch_approved_sha: prepared?.readiness?.candidate_sha,
-      launch_approved_at: prepared?.readiness?.evaluated_at,
-      launch_gate_digest: prepared?.readiness?.gate_digest,
-      memoryState: autonomyControlState,
+    const result = await applyOwnerMaxAutonomy(env, {
+      enabled: body?.enabled !== false,
+      repository: repo,
+      fetchImpl,
+      autonomyControlState,
+      roadmap,
     });
-    if (!enabled) {
-      await resetAutonomyProgressWatchdog(env.DB, { status: 'DISABLED' }).catch(() => null);
-    }
-    let tick = null;
-    if (enabled) {
-      tick = await runAutonomyRuntimeTick(env, { repository: repo, fetchImpl, autonomyControlState, roadmap });
-    }
-    const state = await getAutonomyState(env, { repository: repo, autonomyControlState, roadmap });
-    return Response.json({ ok: true, launch: prepared, control, tick, state }, { headers: { 'cache-control': 'no-store' } });
+    return Response.json(result, {
+      status: result.ok ? 200 : 409,
+      headers: { 'cache-control': 'no-store' },
+    });
   }
 
   const tick = await runAutonomyRuntimeTick(env, { repository: repo, fetchImpl, autonomyControlState, roadmap });
