@@ -31,6 +31,7 @@ test('MAX owner commands are actions, never advice or a one-shot tick', () => {
     'désactive MAX', 'arrête le mode MAX',
   ]) assert.deepEqual(inferAutonomyControlIntent(command), off, command);
   assert.equal(inferAutonomyControlIntent('réactive Firefox'), null);
+  assert.equal(inferAutonomyControlIntent('comment réactiver MAX ?')?.id, 'autonomy.status');
 });
 
 test('reactivate MAX chat request directly executes the existing guarded capability', async () => {
