@@ -341,7 +341,7 @@ test('Council fallback never starts a correction or consumes its repair fingerpr
     }),
   });
   assert.equal(result.report.council.ok, false);
-  assert.equal(result.report.council.reason, 'COUNCIL_INDEPENDENCE_NOT_PROVEN');
+  assert.equal(result.report.council.reason, 'MEL_COUNCIL_02_STATUS_NOT_COMPLETE');
   assert.equal(result.report.repair.queued, false);
   assert.equal(result.report.repair.reason, 'COUNCIL_INDEPENDENCE_NOT_PROVEN');
   assert.equal(queued, 0);
