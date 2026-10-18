@@ -169,3 +169,45 @@ test('explicit low-risk capability requests route through the normal runtime bus
   assert.equal(inferExplicitRegisteredCapability('utilise la compétence skill.list avec {oops}', runtime), null);
   assert.equal(inferExplicitRegisteredCapability('parle-moi de skill.list', runtime), null);
 });
+
+
+test('registered deterministic tools execute through CapabilityBus even with no AI binding', async () => {
+  const {handleNativeChat} = await import('../src/api/native-chat.js');
+  const request = new Request('https://mel.test/api/chat', {
+    method:'POST', headers:{'content-type':'application/json'},
+    body:JSON.stringify({text:'Utilise la compétence echo avec une valeur vérifiable',
+      capability:{id:'echo', input:{value:'OUTIL_EXECUTE_SANS_MODELE'}},
+      conversation_id:'no-ai-capability'}),
+  });
+  const response=await handleNativeChat(request,{},{authorized:true});
+  const payload=await response.json();
+  assert.equal(response.status,200,JSON.stringify(payload));
+  assert.equal(payload.ok,true);
+  assert.equal(payload.response_mode,'capability-receipt');
+  assert.equal(payload.model,'deterministic-capability-receipt');
+  assert.equal(payload.tool_results[0].capability,'echo');
+  assert.equal(payload.tool_results[0].status,'SUCCEEDED');
+  assert.equal(payload.tool_results[0].result.value,'OUTIL_EXECUTE_SANS_MODELE');
+  assert.match(payload.text,/OUTIL_EXECUTE_SANS_MODELE/);
+});
+
+test('without AI a failed tool remains failed, and ordinary chat still requires inference', async () => {
+  const {handleNativeChat} = await import('../src/api/native-chat.js');
+  const send=async (body)=> {
+    const response=await handleNativeChat(new Request('https://mel.test/api/chat',{
+      method:'POST', headers:{'content-type':'application/json'},body:JSON.stringify(body),
+    }),{}, {authorized:true});
+    return {status:response.status,payload:await response.json()};
+  };
+  const invalid=await send({text:'Test de validation',capability:{id:'echo',input:{wrong:'bad'}}});
+  assert.equal(invalid.status,502);
+  assert.equal(invalid.payload.ok,false);
+  assert.equal(invalid.payload.response_mode,'capability-receipt');
+  assert.equal(invalid.payload.tool_results[0].status,'FAILED');
+  assert.equal(invalid.payload.capability_used.length,0);
+  assert.doesNotMatch(invalid.payload.text,/exécutée et vérifiée/);
+  const plain=await send({text:'Bonjour'});
+  assert.equal(plain.status,503);
+  assert.equal(plain.payload.code,'AI_BINDING_MISSING');
+  assert.equal(plain.payload.tool_results,undefined);
+});
