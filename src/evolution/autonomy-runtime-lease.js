@@ -1,5 +1,8 @@
 const LEASE_KEY = 'runtime-lease:autonomy-heartbeat';
-const DEFAULT_LEASE_MS = 5 * 60 * 1000;
+// The heartbeat runs every minute; an invocation killed before release used to
+// block the next 4 ticks (41 of 56 ticks LEASE_BUSY on 18/10). 90 s covers a
+// normal tick and frees the lease for the next minute.
+const DEFAULT_LEASE_MS = 90 * 1000;
 const MIN_LEASE_MS = 60 * 1000;
 const MAX_LEASE_MS = 10 * 60 * 1000;
 
