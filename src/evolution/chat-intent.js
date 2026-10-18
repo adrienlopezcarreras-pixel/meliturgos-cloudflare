@@ -23,13 +23,13 @@ export function inferAutonomyControlIntent(text, context = '') {
   const value = String(text || '').trim();
   if (!value) return null;
   const history = String(context || '').slice(-8000);
-  const normalized = value.normalize('NFD').replace(/[\\u0300-\\u036f]/g, '').toLowerCase();
+  const normalized = value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
 
   // Explicit owner MAX changes take precedence over a generic "relance"
   // tick or a status question. A tick cannot enable the mode.
-  const namesMax = /\\bmax\\b/.test(normalized);
-  const enablesMax = /\\b(?:active|activer|reactive|reactiver|relance|relancer|remets|remettre|redemarre|redemarrer)\\b/.test(normalized);
-  const disablesMax = /\\b(?:desactive|desactiver|arrete|arreter|coupe|couper|stoppe|stopper)\\b/.test(normalized);
+  const namesMax = /\bmax\b/.test(normalized);
+  const enablesMax = /\b(?:active|activer|reactive|reactiver|relance|relancer|remets|remettre|redemarre|redemarrer)\b/.test(normalized);
+  const disablesMax = /\b(?:desactive|desactiver|arrete|arreter|coupe|couper|stoppe|stopper)\b/.test(normalized);
   if (namesMax && (enablesMax || disablesMax)) {
     return { id: 'autonomy.max', input: { enabled: enablesMax && !disablesMax } };
   }
