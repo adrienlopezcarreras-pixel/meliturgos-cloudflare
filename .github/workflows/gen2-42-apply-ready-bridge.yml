@@ -51,7 +51,7 @@ jobs:
           echo "MEL_CLOUD_BRIDGE_TOKEN=${CLOUD_TOKEN}" >> "$GITHUB_ENV"
           BRIDGE_JOB_FILE="${RUNNER_TEMP}/mel-cloud-bridge-job-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.json"
           echo "BRIDGE_JOB_FILE=${BRIDGE_JOB_FILE}" >> "$GITHUB_ENV"
-          printf '%s' "${CLOUD_TOKEN}" | npx wrangler secret put MEL_CLOUD_BRIDGE_TOKEN --env=""
+          printf '%s' "${CLOUD_TOKEN}" | node scripts/cf-worker-secret.mjs put MEL_CLOUD_BRIDGE_TOKEN
           echo "Ephemeral cloud bridge token installed."
 
       - name: Claim exact READY bridge package atomically
@@ -429,7 +429,7 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           set +e
-          printf 'y\n' | npx wrangler secret delete MEL_CLOUD_BRIDGE_TOKEN --env="" >/tmp/cloud-bridge-token-delete.log 2>&1
+          node scripts/cf-worker-secret.mjs delete MEL_CLOUD_BRIDGE_TOKEN >/tmp/cloud-bridge-token-delete.log 2>&1
           CODE=$?
           if [ "$CODE" -ne 0 ]; then
             cat /tmp/cloud-bridge-token-delete.log || true
