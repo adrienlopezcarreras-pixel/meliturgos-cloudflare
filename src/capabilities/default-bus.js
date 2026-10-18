@@ -129,6 +129,8 @@ function zeroCostHealth(runtimeEnv, minimum = 1) {
 export function createDefaultCapabilityBus({ audit, env, repository, branch, token, fetchImpl, googleAccessTokenResolver = null, vercelConfigResolver = null, pipedreamRuntime = null } = {}) {
   const runtimeEnv = env || {};
   const bus = new CapabilityBus({ audit });
+  // Register D1 early: native chat advertises only the first 96 capabilities.
+  registerD1ConsoleCapabilities(bus, { db: runtimeEnv.DB });
 
   bus.discover({
     id: 'echo', name: 'Diagnostic echo', category: 'diagnostic', version: '1.0.0', provider: 'core',
@@ -490,7 +492,6 @@ export function createDefaultCapabilityBus({ audit, env, repository, branch, tok
   registerPlanningCapabilities(bus, { db: runtimeEnv.DB });
   registerEvolutionCapabilities(bus, { db: runtimeEnv.DB });
   registerEventBusCapabilities(bus, { db: runtimeEnv.DB });
-  registerD1ConsoleCapabilities(bus, { db: runtimeEnv.DB });
   registerSkillRegistryCapabilities(bus, { env: runtimeEnv });
   registerSelfAuditCapabilities(bus, runtimeEnv);
   return bus;
