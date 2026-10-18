@@ -173,7 +173,9 @@ test('work.plan.generate retries once with a strict zero-cost repair prompt when
       };
     }
     assert.equal(input.context.purpose,'work-plan-generation-repair');
-    assert.match(input.input,/REPAIR_CAPABILITIES/);
+    assert.match(input.input,/AVAILABLE_CAPABILITIES/);
+    assert.match(input.input,/Créer un plan simple/);
+    assert.match(input.input,/sans remplacer l’objectif original/);
     return {
       candidates:[{provider:'fixture',model:'planner-fixed',text:JSON.stringify({steps:[
         {id:'only',title:'Echo goal',capability:'echo',input:{value:'planned'},dependsOn:[],idempotent:true},
