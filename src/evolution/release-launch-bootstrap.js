@@ -895,8 +895,12 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
       && Boolean(proof?.teacher_request_id);
     const progress = status === 'GEN2_42_TEACHER_HANDOFF_PROGRESS_VERIFIED'
       && proof?.progress_verified === true
-      && Number(proof?.blocked_open_handoff_count || 0) === 0
-      && Number(proof?.teacher_proven_handoff_count || 0) >= 1;
+      && Number(proof?.open_handoff_count || 0) > 0
+      && Number(proof?.teacher_proven_handoff_count || 0) >= 1
+      && Number(proof?.blocked_open_handoff_count || 0) >= 0
+      && Number(proof?.teacher_proven_handoff_count || 0)
+        + Number(proof?.blocked_open_handoff_count || 0) === Number(proof?.open_handoff_count || 0)
+      && Boolean(proof?.teacher_request_id);
     const idle = status === 'GEN2_42_TEACHER_HANDOFF_IDLE_VERIFIED'
       && proof?.idle_verified === true
       && Number(proof?.open_handoff_count || 0) === 0;
