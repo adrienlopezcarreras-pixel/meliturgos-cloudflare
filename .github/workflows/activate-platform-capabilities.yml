@@ -25,6 +25,7 @@ permissions:
 concurrency:
   group: ${{ github.event_name == 'pull_request' && format('platform-auth-contract-{0}', github.event.pull_request.number) || 'mel-launch-bootstrap-token' }}
   cancel-in-progress: false
+  queue: max
 
 jobs:
   auth-diagnostics-contract:

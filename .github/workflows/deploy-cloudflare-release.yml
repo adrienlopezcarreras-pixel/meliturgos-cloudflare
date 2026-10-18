@@ -41,6 +41,7 @@ jobs:
     concurrency:
       group: mel-launch-bootstrap-token
       cancel-in-progress: false
+      queue: max
     runs-on: ubuntu-latest
     timeout-minutes: 90
     env:

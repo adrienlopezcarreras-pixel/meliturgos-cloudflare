@@ -22,6 +22,50 @@ function echoRecord() {
   };
 }
 
+test('simultaneous owner/cron requests create one durable stress job, not two', async () => {
+  const db = sqliteD1();
+  try {
+    const a = new D1CapabilityStressStore(db);
+    const b = new D1CapabilityStressStore(db);
+    const creations = await Promise.all([
+      a.createIfNoActive({ total: 168 }),
+      b.createIfNoActive({ total: 168 }),
+    ]);
+    assert.equal(creations.filter(x => x.created).length, 1);
+    assert.equal(creations[0].job.job_id, creations[1].job.job_id);
+    assert.equal(creations[0].job.progress.total, 168);
+    const row = await db.prepare('SELECT COUNT(*) AS count FROM capability_stress_runs').first();
+    assert.equal(Number(row.count), 1);
+  } finally { db.close(); }
+});
+
+test('concurrent explicit launchers reuse a running stress and never duplicate it', async () => {
+  const db = sqliteD1();
+  let finish;
+  const gate = new Promise(resolve => { finish = resolve; });
+  const backgrounds = [];
+  try {
+    const bus = {
+      list: () => [echoRecord()],
+      contract: () => ({ valid: true }),
+      execute: async () => { await gate; return { ok: true }; },
+    };
+    const context = { owner:'test', waitUntil(promise) { backgrounds.push(promise); } };
+    const [first, second] = await Promise.all([
+      startPersistentCapabilityStress({ bus, db, context }),
+      startPersistentCapabilityStress({ bus, db, context }),
+    ]);
+    assert.equal(first.job_id, second.job_id);
+    assert.equal([first, second].filter(x => x.reused === false).length, 1);
+    const row = await db.prepare('SELECT COUNT(*) AS count FROM capability_stress_runs').first();
+    assert.equal(Number(row.count), 1);
+  } finally {
+    finish();
+    await Promise.allSettled(backgrounds);
+    db.close();
+  }
+});
+
 test('persistent capability stress stores one job and retries a safe runtime failure once', async () => {
   const db = sqliteD1();
   try {

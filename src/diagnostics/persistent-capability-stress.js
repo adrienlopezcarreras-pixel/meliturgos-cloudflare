@@ -131,6 +131,25 @@ export class D1CapabilityStressStore {
     return this.get(id);
   }
 
+  // Single D1 statement arbitrates concurrent owner/cron launches. A separate
+  // latestActive() read followed by unconditional INSERT is a TOCTOU race and
+  // may create two competing stress jobs after the same idle observation.
+  async createIfNoActive({ id = `cap-stress-${crypto.randomUUID()}`, total = 0 } = {}) {
+    await this.init();
+    const now = Date.now();
+    const result = await this.db.prepare(`INSERT INTO capability_stress_runs
+      (id,status,total,completed,pass,current_capability,summary_json,report_json,error,created_at,updated_at,completed_at)
+      SELECT ?, 'QUEUED', ?, 0, 1, NULL, '{}', NULL, NULL, ?, ?, NULL
+      WHERE NOT EXISTS (
+        SELECT 1 FROM capability_stress_runs WHERE status IN ('QUEUED','RUNNING','RETRYING')
+      )`)
+      .bind(id, Number(total || 0), now, now)
+      .run();
+    const job = await this.latestActive();
+    if (!job) throw stressError('CAPABILITY_STRESS_ACTIVE_JOB_NOT_FOUND');
+    return { job, created: Number(result?.meta?.changes || 0) === 1 };
+  }
+
   async get(id) {
     await this.init();
     const row = await this.db.prepare('SELECT * FROM capability_stress_runs WHERE id=?').bind(String(id || '')).first();
@@ -568,9 +587,8 @@ async function claimAndRunPersistentStress({ bus, store, job, context, reused })
 export async function startPersistentCapabilityStress({ bus, db, context = {} } = {}) {
   if (!bus) throw stressError('CAPABILITY_STRESS_BUS_REQUIRED');
   const store = new D1CapabilityStressStore(db);
-  const active = await store.latestActive();
-  const job = active || await store.create({ total: bus.list().length });
-  return claimAndRunPersistentStress({ bus, store, job, context, reused: Boolean(active) });
+  const { job, created } = await store.createIfNoActive({ total: bus.list().length });
+  return claimAndRunPersistentStress({ bus, store, job, context, reused: !created });
 }
 
 // Cron continuation MUST NOT start a new audit if there is no active D1 job.
