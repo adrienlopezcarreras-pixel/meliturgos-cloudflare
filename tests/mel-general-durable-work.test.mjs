@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { isSubstantialMelTask, findMelWorkReference, buildSubstantialMelNodes, launchSubstantialMelTask } from '../src/work/mel-general-kickoff.js';
+import { isSubstantialMelTask, requiresOperationalMelWork, findMelWorkReference, buildSubstantialMelNodes, launchSubstantialMelTask } from '../src/work/mel-general-kickoff.js';
 import { createWorkDag, WorkDagRunner } from '../src/work/work-dag.js';
 import { OpenLoopService } from '../src/conversations/open-loop-service.js';
 
@@ -250,4 +250,77 @@ test('concurrent create conflict fails closed if winning DAG cannot be read', as
   assert.equal(result.ok,false);
   assert.equal(result.code,'D1_UNAVAILABLE');
   assert.deepEqual(calls,['work.status','work.create','work.status']);
+});
+
+
+test('operational long tasks use the registered Work planner and persist executable TASK nodes', async () => {
+  const goal = 'Inspecte le dépôt GitHub avec tes outils et vérifie les fichiers source, les tests et les dépendances pour trouver les anomalies avant de proposer une correction.';
+  assert.equal(requiresOperationalMelWork(goal), true);
+  assert.equal(requiresOperationalMelWork(GOAL), false);
+  let created = null;
+  const used = [];
+  const bus = {
+    describe(id) {
+      assert.equal(id,'code.search');
+      return {id,enabled:true,health:'HEALTHY',risk:'LOW',approval:null};
+    },
+    async execute(id, input) {
+      used.push(id);
+      if (id === 'work.status' && !created) throw Object.assign(new Error('WORK_DAG_NOT_FOUND'),{code:'WORK_DAG_NOT_FOUND'});
+      if (id === 'work.plan.generate') {
+        assert.equal(input.goal,goal);
+        return {plan:{steps:[{capability:'code.search'}]},
+          nodes:[{id:'inspect-code',kind:'TASK',idempotent:true,payload:{capability:'code.search',input:{query:'source'}}}]};
+      }
+      if (id === 'work.create') {created=input;return {id:input.id};}
+      if (id === 'openloop.capture') return {ok:true};
+      if (id === 'work.status') return {status:'RUNNING',node_counts:{PENDING:1,COMPLETED:0},completed:false,blocked:false};
+      if (id === 'work.run') return {status:'RUNNING'};
+      throw new Error('Unexpected capability '+id);
+    },
+  };
+  const background=[];
+  const result=await launchSubstantialMelTask({bus,text:goal,conversationId:'tools-work',context:{waitUntil:p=>background.push(p)}});
+  assert.equal(result.ok,true,JSON.stringify(result));
+  assert.equal(created.nodes[0].kind,'TASK');
+  assert.equal(created.nodes[0].payload.capability,'code.search');
+  assert.ok(used.includes('work.plan.generate'));
+  assert.equal(background.length,1);
+  await Promise.all(background);
+  assert.ok(used.includes('work.run'));
+});
+
+test('operational work never substitutes fake echo or automatically authorizes writes', async () => {
+  const goal='Corrige le code source du dépôt GitHub avec tes outils et vérifie les tests pour résoudre réellement le problème dans le projet.';
+  for(const capability of ['echo','danger.write']) {
+    let created=false;
+    const bus={
+      describe(id){return {id,enabled:true,health:'HEALTHY',risk:id==='echo'?'LOW':'HIGH',approval:null};},
+      async execute(id) {
+        if(id==='work.status')throw Object.assign(new Error('WORK_DAG_NOT_FOUND'),{code:'WORK_DAG_NOT_FOUND'});
+        if(id==='work.plan.generate')return {plan:{steps:[{capability}]},nodes:[{id:'step-1',kind:'TASK',payload:{capability,input:{}}}]};
+        if(id==='work.create'){created=true;return {};}
+        throw Error('Unexpected '+id);
+      },
+    };
+    const result=await launchSubstantialMelTask({bus,text:goal,conversationId:'blocked-'+capability,context:{}});
+    assert.equal(result.ok,false);
+    assert.equal(result.code,'MEL_OPERATIONAL_PLAN_REQUIRES_REAL_SAFE_TOOL');
+    assert.equal(created,false);
+  }
+});
+
+test('tool-dependent very long instructions fail visibly rather than dropping constraints', async () => {
+  const goal='Inspecte le dépôt GitHub avec tes outils et vérifie les fichiers sources et dépendances. ' + 'Exigence opérationnelle détaillée. '.repeat(140);
+  assert.ok(goal.length>4000);
+  let planningCalled=false;
+  const bus={async execute(id) {
+    if(id==='work.status')throw Object.assign(new Error('WORK_DAG_NOT_FOUND'),{code:'WORK_DAG_NOT_FOUND'});
+    if(id==='work.plan.generate')planningCalled=true;
+    throw Error('UNEXPECTED_'+id);
+  }};
+  const result=await launchSubstantialMelTask({bus,text:goal,conversationId:'long-tool-work',context:{}});
+  assert.equal(result.ok,false);
+  assert.equal(result.code,'MEL_OPERATIONAL_GOAL_TOO_LONG');
+  assert.equal(planningCalled,false);
 });

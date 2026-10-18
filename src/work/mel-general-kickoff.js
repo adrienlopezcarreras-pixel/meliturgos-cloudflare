@@ -16,6 +16,43 @@ export function isSubstantialMelTask(text) {
   return value.length >= 550 || LONG_SIGNALS.test(normalized.slice(0, 1500));
 }
 
+// A large request involving external systems must not be downgraded to a
+// text-only writing DAG that can never invoke the requested tools.
+export function requiresOperationalMelWork(text) {
+  if (!isSubstantialMelTask(text)) return false;
+  const normalized = normalize(text);
+  const operation = /\b(?:utilise|utiliser|execute|executer|effectue|effectuer|lance|lancer|cherche|chercher|inspecte|inspecter|controle|controler|corrige|corriger|developpe|developper|modifie|modifier|deploie|deployer|teste|tester|verifie|verifier|telecharge|telecharger)\b/.test(normalized);
+  const target = /\b(?:github|depot|repository|repo|code\s+source|fichiers?\s+(?:prives?|google|drive)|google\s+drive|onedrive|gmail|outlook|cloudflare|d1|companion|ordinateur|pc|api|base\s+de\s+donnees|connecteurs?|competences?|outils?|workflow|ci|pull\s+request)\b/.test(normalized);
+  return operation && target;
+}
+
+async function operationalWorkNodes(bus, text, id, context) {
+  // The canonical multi-AI Work planner resolves real CapabilityBus contracts.
+  // Never truncate an operational instruction and silently omit constraints.
+  if (text.length > 4000) throw Object.assign(new Error('MEL_OPERATIONAL_GOAL_TOO_LONG'), { code:'MEL_OPERATIONAL_GOAL_TOO_LONG' });
+  const generated = await bus.execute('work.plan.generate', {
+    id,
+    goal: text,
+    constraints: ['Réutiliser les compétences enregistrées du CapabilityBus.', 'Aucune action sensible ou écriture externe sans confirmation explicite.'],
+    maxCandidates: 3,
+  }, context);
+  if (!Array.isArray(generated?.nodes) || !generated.nodes.length || !Array.isArray(generated?.plan?.steps)) {
+    throw Object.assign(new Error('MEL_OPERATIONAL_PLAN_INVALID'), { code:'MEL_OPERATIONAL_PLAN_INVALID' });
+  }
+  for (const step of generated.plan.steps) {
+    const descriptor = bus.describe(step.capability);
+    // Non-mutating autonomous work may proceed. Sensitive operations remain
+    // on their existing per-capability owner approval workflow, never on a
+    // synthetic fallback or a broad text instruction.
+    if (descriptor.enabled !== true || String(descriptor.health).toUpperCase() === 'UNAVAILABLE'
+        || String(descriptor.risk).toUpperCase() !== 'LOW' || descriptor.approval?.required === true
+        || ['echo','augmentio.fanout'].includes(String(step.capability || ''))) {
+      throw Object.assign(new Error('MEL_OPERATIONAL_PLAN_REQUIRES_REAL_SAFE_TOOL'), { code:'MEL_OPERATIONAL_PLAN_REQUIRES_REAL_SAFE_TOOL' });
+    }
+  }
+  return generated.nodes;
+}
+
 export function findMelWorkReference(text, recent = []) {
   const normalized = normalize(text);
   // Bare continuation is only for the *immediately preceding* explicit MEL
@@ -121,7 +158,9 @@ export async function launchSubstantialMelTask({ bus, text, conversationId, cont
         await bus.execute('work.create', {
           id, jobId: id, conversationId,
           goal: ('MEL: travail utilisateur persistant (cycle de production). ' + text).slice(0, 3900),
-          nodes: buildSubstantialMelNodes(text),
+          nodes: requiresOperationalMelWork(text)
+            ? await operationalWorkNodes(bus, text, id, context)
+            : buildSubstantialMelNodes(text),
         }, context);
         created = true;
       } catch (error) {
