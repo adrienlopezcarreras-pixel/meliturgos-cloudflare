@@ -3,6 +3,7 @@ import { getAutonomyReadiness } from '../evolution/autonomy-readiness.js';
 import { runAutonomyRuntimeTick } from '../evolution/autonomy-runtime.js';
 import { getAutonomyControl, setAutonomyControl } from '../evolution/autonomy-control.js';
 import { D1EvolutionLedger } from '../evolution/evolution-ledger.js';
+import { buildAutonomyActivity } from '../evolution/autonomy-activity.js';
 
 function capabilityError(message, code = message) {
   const error = new Error(message);
@@ -28,11 +29,31 @@ export function registerAutonomyCapabilities(bus, env = {}) {
     enabled: true,
   }, async () => {
     if (!env.DB) throw capabilityError('DB_BINDING_MISSING');
-    const [readiness, control] = await Promise.all([
+    const [readiness, control, activity] = await Promise.all([
       getAutonomyReadiness({ repository: new D1DevJobRepository(env.DB) }),
       getAutonomyControl(env.DB),
+      buildAutonomyActivity(env, { limit: 10 }).catch(() => null),
     ]);
-    return { ...readiness, control };
+    // What MAX is doing right now, so answers come from facts, not imagination.
+    const terminal = new Set(['COMPLETED', 'COMMITTED', 'FAILED', 'CANCELLED']);
+    const work = activity ? {
+      watchdog: activity.watchdog ? {
+        status: activity.watchdog.status || null,
+        tripped: activity.watchdog.tripped === true,
+        consecutive_stalls: activity.watchdog.consecutive_stalls ?? null,
+        last_block_reason: activity.watchdog.last_block_reason || null,
+        last_tick_at: activity.watchdog.last_tick_at || null,
+      } : null,
+      active_jobs: activity.jobs.filter(job => !terminal.has(job.status)).slice(0, 3).map(job => ({
+        id: job.id, status: job.status, status_text: job.status_text, origin: job.origin,
+        goal: String(job.goal || '').slice(0, 200), idle_minutes: job.idle_minutes,
+        current_step: (job.pipeline.find(step => step.state !== 'done') || {}).label || null,
+        done_steps: job.pipeline.filter(step => step.state === 'done').map(step => step.label),
+        diagnostics: job.diagnostics, error: job.error,
+      })),
+      last_cloud_bridge_dispatch: activity.cloud_bridge_dispatches[0] || null,
+    } : null;
+    return { ...readiness, control, work };
   });
 
   bus.discover({

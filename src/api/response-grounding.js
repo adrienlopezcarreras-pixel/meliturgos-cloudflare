@@ -302,6 +302,21 @@ export function formatVerifiedAutonomyRuntimeResponse(result, { fallback = '', o
     if (result.blockers && Array.isArray(result.blockers) && result.blockers.length) {
       lines.push('- Blocages : ' + result.blockers.slice(0, 6).map(row => typeof row === 'string' ? row : row.code || row.reason || row.id || 'blocage').join(', ') + '.');
     }
+    const work = result.work && typeof result.work === 'object' ? result.work : null;
+    if (work?.watchdog?.status) {
+      lines.push('- Garde-fou de progression : ' + String(work.watchdog.status) + (work.watchdog.tripped ? ' (bloqué après ' + (work.watchdog.consecutive_stalls ?? '?') + ' cycles sans progrès)' : '')
+        + (work.watchdog.last_block_reason ? ' ; dernière raison : ' + String(work.watchdog.last_block_reason).slice(0, 120) : '') + '.');
+    }
+    for (const job of Array.isArray(work?.active_jobs) ? work.active_jobs : []) {
+      lines.push('- Travail ' + String(job.id).slice(0, 80) + ' (' + job.origin + ') : ' + job.status_text
+        + (job.current_step ? ' Étape en attente : ' + job.current_step + '.' : '')
+        + (job.done_steps?.length ? ' Déjà fait : ' + job.done_steps.join(', ') + '.' : '')
+        + (job.idle_minutes != null ? ' Sans changement depuis ' + job.idle_minutes + ' min.' : '')
+        + (job.diagnostics?.length ? ' Diagnostic : ' + job.diagnostics[0] + '.' : '')
+        + (job.error ? ' Erreur : ' + String(job.error).slice(0, 160) + '.' : ''));
+    }
+    if (work && Array.isArray(work.active_jobs) && !work.active_jobs.length) lines.push('- Aucun travail autonome en cours.');
+    if (work?.last_cloud_bridge_dispatch?.at) lines.push('- Dernier pont cloud demandé pour ' + String(work.last_cloud_bridge_dispatch.job_id).slice(0, 80) + ' à ' + new Date(Number(work.last_cloud_bridge_dispatch.at)).toISOString().slice(11, 16) + ' UTC.');
     lines.push('Cet état décrit la readiness et les contrôles, pas la preuve qu’une tâche vient d’être exécutée.');
     return lines.join('\n');
   }

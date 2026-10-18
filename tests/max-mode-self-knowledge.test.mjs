@@ -87,3 +87,18 @@ test('a release pause is explained, and the chosen MAX is said to come back', ()
   assert.match(text, /MAX reste choisi et reprendra/);
   assert.doesNotMatch(text, /MAX est désactivé/);
 });
+
+test('MAX status answers name the real job, its waiting step and the guard state', () => {
+  const text = formatVerifiedAutonomyRuntimeResponse({
+    status: 'READY', control: { paused: false, max_autonomy: true },
+    work: {
+      watchdog: { status: 'STALLED', tripped: true, consecutive_stalls: 45, last_block_reason: 'NO_ZERO_COST_PROVIDER_AVAILABLE' },
+      active_jobs: [{ id: 'ecosystem-watch-88b5', origin: 'veille des capacités', status_text: 'Plan validé ; code écrit puis paquet préparé pour le pont cloud.', current_step: 'Appliqué sur la candidate', done_steps: ['Chantier choisi', 'Plan validé (par MAX)', 'Code écrit', 'Paquet prêt pour le pont'], idle_minutes: 12, diagnostics: [], error: null }],
+      last_cloud_bridge_dispatch: { job_id: 'ecosystem-watch-88b5', at: Date.UTC(2026, 9, 18, 12, 30) },
+    },
+  }, { operation: 'status' });
+  assert.match(text, /STALLED \(bloqué après 45 cycles/);
+  assert.match(text, /Étape en attente : Appliqué sur la candidate/);
+  assert.match(text, /Dernier pont cloud demandé .* 12:30 UTC/);
+  assert.match(MEL_REAL_CAPABILITIES, /N’invente jamais de fonction, d’endpoint, de flag/);
+});
