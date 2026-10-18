@@ -817,6 +817,17 @@ export function registerWorkCapabilities(bus, { db } = {}) {
       id: dag.id,
       status: dag.status,
       artifacts: Array.isArray(dag.artifacts) ? dag.artifacts.slice(0, 100) : [],
+      // TASK results are already sanitized, signed and durably checkpointed
+      // as node.result. Expose those receipts directly instead of manufacturing
+      // duplicate artifacts or reporting a successful job with no output.
+      tool_results: (Array.isArray(dag.nodes) ? dag.nodes : [])
+        .filter(node => node.kind === 'TASK' && node.status === 'COMPLETED' && node.result !== null)
+        .slice(0, 32)
+        .map(node => ({
+          node_id: node.id,
+          capability: String(node.payload?.capability || ''),
+          result: node.result,
+        })),
     };
   });
 }

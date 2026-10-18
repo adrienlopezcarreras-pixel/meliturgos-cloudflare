@@ -370,3 +370,21 @@ test('existing matching tool must use Work planning, not start duplicate Module 
   assert.ok(calls.includes('work.plan.generate'));
   assert.ok(!calls.includes('evolution.enqueue'));
 });
+
+
+test('durable status surfaces persisted TASK receipts rather than hiding results of real tools', async () => {
+  const {getSubstantialMelStatus}=await import('../src/work/mel-general-kickoff.js');
+  const bus={async execute(id) {
+    if(id==='work.status')return {status:'COMPLETED',completed:true,blocked:false,node_counts:{COMPLETED:1}};
+    if(id==='work.artifacts')return {artifacts:[],tool_results:[{
+      node_id:'search',capability:'code.search',result:{matches:[{path:'src/index.js',line:12}]},
+    }]};
+    throw Error('UNEXPECTED_'+id);
+  }};
+  const state=await getSubstantialMelStatus({bus,id:'verified-task',context:{}});
+  assert.equal(state.sections.length,1);
+  assert.equal(state.sections[0].node_id,'search');
+  assert.match(state.sections[0].text,/code.search/);
+  assert.match(state.sections[0].text,/src\/index.js/);
+  assert.equal(state.complete_cycle,true);
+});

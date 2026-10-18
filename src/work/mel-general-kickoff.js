@@ -138,8 +138,14 @@ export async function getSubstantialMelStatus({ bus, id, context, includeArtifac
     blocked: result.blocked === true, complete_cycle: result.completed === true, updated_at: result.updated_at || null };
   if (includeArtifacts) {
     const page = await bus.execute('work.artifacts', { id }, context);
-    output.sections = (page?.artifacts || []).filter(row => row?.artifact?.kind === 'work_draft_section')
+    const drafts = (page?.artifacts || []).filter(row => row?.artifact?.kind === 'work_draft_section')
       .map(row => ({ node_id: String(row.node_id || ''), text: String(row.artifact.text || '').slice(0, 12000) }));
+    const tools = (page?.tool_results || []).map(row => ({
+      node_id: String(row.node_id || ''),
+      text: 'Outil exécuté : ' + String(row.capability || '') + '\n'
+        + JSON.stringify(row.result ?? null).slice(0, 4000),
+    }));
+    output.sections = [...drafts, ...tools].slice(-100);
   }
   return output;
 }
