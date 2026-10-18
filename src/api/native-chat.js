@@ -40,6 +40,7 @@ import { privateConnectedDataRequest } from './connected-data-intent.js';
 import { createChatDeadline, hasChatBudget, raceChatDeadline, chatDeadlineError, COUNCIL_RECOVERY_MIN_REMAINING_MS, CONTINUATION_MIN_REMAINING_MS, FALLBACK_ATTEMPT_MIN_REMAINING_MS } from './chat-deadline.js';
 import { inferCurrentFactVerificationPolicy, hasAuthoritativeCurrentFactEvidence, currentFactReliabilityInstruction } from './current-fact-reliability.js';
 import { buildPresentationInstruction } from '../presentation/presentation-skill.js';
+import { runAgentToolLoop } from './agent-tools.js';
 
 // Beyond this length a chat message is treated as an instruction (see handleNativeChat).
 export const INSTRUCTION_PROMPT_CHARS = 280;
@@ -52,6 +53,7 @@ export const MEL_REAL_CAPABILITIES = [
   'MEL WORK est automatique dans son architecture : découverte des missions Taskmarket par son API publique, brouillons dans D1, cycles planifiés et éventuelle soumission via le Companion selon permissions et état réel. Elle publie elle-même ses livrables (page publique MEL, dev.to et Bluesky une fois connectés dans /revenus, avec image générée si utile), toujours avec la mention IA et mission rémunérée ; la remise Taskmarket passe par le Companion du PC. Pour dire ce qui manque à MEL WORK, appuie-toi sur ses cycles réels, jamais sur une liste générique. La présence de ce code ne prouve ni une mission exécutée ni une rémunération reçue. Ne confonds pas un brouillon, une tentative, une soumission et un paiement.',
   'MODE MAX (vérité, pas une hypothèse) : ' + MAX_MODE_EXPLANATION + ' Ne décris jamais MAX comme un simple mode verbeux ou de journalisation, ne dis jamais que tu ne peux pas t’auto-développer, et ne réclame pas de PAT GitHub, token Companion, clé Stripe, webhook ou scheduler pour cela. N’invente jamais de fonction, d’endpoint, de flag, de fichier ou de workflow pour expliquer ou relancer MAX : il n’y a aucun réglage à « activer » en dehors du bouton MAX, et pour son état actuel (activé, en pause, chantier en cours, étape bloquante), appuie-toi uniquement sur autonomy.status ou la page Activité.',
   'Ne dis donc jamais par défaut que les clés Bing, Google Search, Drive, Stripe, PayPal, GitHub ou Companion manquent toutes, ni que le Worker ne peut ni écrire en D1 ni exécuter de tâches programmées : inspecte les capacités runtime et les TOOL_RESULT avant une telle affirmation. Taskmarket public, D1 et GitHub ne nécessitent pas de réclamer de nouveaux secrets dans le chat. Si un service précis échoue, nomme la capacité, le code erreur et la preuve manquante. Ne demande jamais de copier un token ou un secret dans la conversation ; la configuration éventuelle se fait dans le stockage sécurisé du service concerné.',
+  'Tu exécutes toi-même tes outils (boucle d’outils native) : ne réponds jamais « je ne peux pas exécuter » ni en donnant des curl à lancer ; appuie-toi sur les TOOL_RESULT de cette requête.',
 ].join(' ');
 
 
@@ -1536,6 +1538,20 @@ export async function handleNativeChat(request, env, options = {}) {
           scope: String(error?.approval_scope || capability.id),
         };
       }
+    }
+  }
+
+  // Native tool use: when no deterministic route chose a capability, the model
+  // calls its own tools; the grounded answer below is then built from them.
+  if (!releaseSmoke && !capability?.id && !voiceReply && runtime?.bus) {
+    const agentResults = await runAgentToolLoop({
+      env, bus: runtime.bus, text: activeTaskText, recent,
+      context: nativeCapabilityContext(env, request, options),
+      summarize: summarizeToolResult,
+    }).catch(() => []);
+    for (const row of agentResults) {
+      toolResults.push(row);
+      if (row.status === 'SUCCEEDED') capabilitiesUsed.push(row.capability);
     }
   }
 
