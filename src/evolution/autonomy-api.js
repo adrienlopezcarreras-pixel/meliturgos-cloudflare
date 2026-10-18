@@ -14,6 +14,7 @@ import { SovereigntyCandidateStore } from '../portability/sovereignty-candidate-
 import { parseHttpChatProviderDescriptors } from '../augmentio/http-chat-adapter.js';
 import { evaluateCandidateReadiness, readinessRequirementsForDescriptor } from '../portability/sovereignty-candidate-readiness.js';
 import { localSovereigntyProfile } from '../portability/local-sovereignty-profile.js';
+import { buildAutonomyActivity } from './autonomy-activity.js';
 import { readAutonomyProgressWatchdog, resetAutonomyProgressWatchdog } from './autonomy-progress-watchdog.js';
 
 const TERMINAL = new Set(['COMPLETED', 'COMMITTED', 'CANCELLED', 'FAILED']);
@@ -125,7 +126,8 @@ export async function maybeHandleAutonomyApi(request, env, { repository = null, 
   const isLaunchReadiness = url.pathname === '/api/gen2/autonomy/launch-readiness';
   const isLaunchPrepare = url.pathname === '/api/gen2/autonomy/launch-prepare';
   const isSovereignty = url.pathname === '/api/gen2/autonomy/sovereignty';
-  if (!isPublicControl && !isState && !isTick && !isPause && !isResume && !isMax && !isLaunchReadiness && !isLaunchPrepare && !isSovereignty) return null;
+  const isActivity = url.pathname === '/api/gen2/autonomy/activity';
+  if (!isPublicControl && !isState && !isActivity && !isTick && !isPause && !isResume && !isMax && !isLaunchReadiness && !isLaunchPrepare && !isSovereignty) return null;
 
   if (isPublicControl) {
     if (request.method !== 'GET') return Response.json({ ok: false, code: 'METHOD_NOT_ALLOWED' }, { status: 405, headers: { allow: 'GET' } });
@@ -146,6 +148,11 @@ export async function maybeHandleAutonomyApi(request, env, { repository = null, 
   if (isState) {
     if (request.method !== 'GET') return Response.json({ ok: false, code: 'METHOD_NOT_ALLOWED' }, { status: 405, headers: { allow: 'GET' } });
     return Response.json(await getAutonomyState(env, { repository, autonomyControlState, roadmap }), { headers: { 'cache-control': 'no-store' } });
+  }
+
+  if (isActivity) {
+    if (request.method !== 'GET') return Response.json({ ok: false, code: 'METHOD_NOT_ALLOWED' }, { status: 405, headers: { allow: 'GET' } });
+    return Response.json(await buildAutonomyActivity(env, { repository }), { headers: { 'cache-control': 'no-store' } });
   }
 
   if (isSovereignty) {
