@@ -84,3 +84,19 @@ test('a WORK cycle cut mid-way is marked interrupted, not left running', async (
   const rows = (await db.prepare('SELECT id, state FROM mel_work_cycles ORDER BY id').all()).results;
   assert.deepEqual(rows.map(r => r.id + ':' + r.state), ['fresh:RUNNING', 'old:INTERRUPTED']);
 });
+
+test('a skipped paid offer reaches development within the hour, without waiting for the 6-hour watch', async () => {
+  const { runEcosystemCapabilityWatch } = await import('../src/evaluation/capability-watch-runtime.js');
+  const db = sqliteD1();
+  const now = Date.parse('2026-10-18T09:17:00Z');
+  const env = { DB: db, MELITURGOS_USER: 'adrien' };
+  // First call runs the ecosystem watch (offline sources), the second is within the 6 h interval.
+  await runEcosystemCapabilityWatch(env, { now: now - 3_600_000, fetchImpl: async () => new Response('', { status: 503 }), developmentEnqueue: async () => ({ status: 'QUEUED', job_id: null }) }).catch(() => null);
+  for (const [id, reward] of [['c', '6000000'], ['d', '2000000']]) await recordWorkRejection(db, { id: '0x' + id.repeat(64), reward, description: '# Promo video' }, { missingCapability: 'video.generate', reason: 'Vidéo requise' }, { now });
+  const queued = [];
+  const r = await runEcosystemCapabilityWatch(env, { now, fetchImpl: async () => new Response('', { status: 503 }), developmentEnqueue: async args => { queued.push(args); return { status: 'QUEUED', job_id: 'job-1', created: true }; } });
+  assert.notEqual(r.status, 'RAN');
+  assert.equal(queued.length, 1);
+  assert.match(queued[0].goal, /^Priorité revenus MEL WORK : 2 offre\(s\) rémunérée\(s\) \(8\.00 USDC\)/);
+  assert.equal(queued[0].requestedBy, 'mel-autonomy');
+});

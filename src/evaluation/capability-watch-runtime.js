@@ -558,6 +558,17 @@ export async function runEcosystemCapabilityWatch(
     await discoveryStore.save(discoveryLedger);
   }
   let discoveryPlan = null;
+  // Paid offers MEL had to skip do not wait for the 6-hour ecosystem pass:
+  // they join the ledger every hour and may be handed to development at once.
+  let workItems = [];
+  if (result.status !== 'RAN') {
+    workItems = await workGapDiscoveries({ db: env.DB, capabilities: createGen2Runtime({ env }).bus.list(), now }).catch(() => []);
+    if (workItems.length) {
+      const runCount = discoveryLedger?.run_count;
+      discoveryLedger = { ...mergeEcosystemDiscoveryLedger(discoveryLedger, { items: workItems, generated_at: new Date(now).toISOString() }, now), run_count: runCount ?? 0 };
+      await discoveryStore.save(discoveryLedger);
+    }
+  }
   if (result.status === 'RAN') {
     const runtime = createGen2Runtime({ env });
     discoveryPlan = planEcosystemDiscoveries({
@@ -573,7 +584,7 @@ export async function runEcosystemCapabilityWatch(
   }
 
   let handoff = null;
-  if (allowHandoff && result.status === 'RAN' && discoveryLedger?.items?.length) {
+  if (allowHandoff && (result.status === 'RAN' || workItems.length > 0) && discoveryLedger?.items?.length) {
     const candidate = selectEcosystemDiscoveryCandidate(discoveryLedger);
     if (candidate) {
       try {

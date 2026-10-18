@@ -38,7 +38,7 @@ test('test-all endpoint disables discovery handoff while reusing the canonical w
   assert.match(ui, /\/api\/mel\/capability-watch\/test-all/);
   assert.match(ui, /allowHandoff:\s*false/);
   assert.match(runtime, /allowHandoff\s*=\s*true/);
-  assert.match(runtime, /if \(allowHandoff && result\.status === 'RAN'/);
+  assert.match(runtime, /if \(allowHandoff && \(result\.status === 'RAN' \|\| workItems\.length > 0\)/);
   assert.match(router, /url\.pathname === "\/veille"/);
   assert.match(preview, /'\/veille'/);
 });
