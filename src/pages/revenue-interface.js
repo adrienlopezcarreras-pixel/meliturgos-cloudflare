@@ -60,7 +60,7 @@ async function loadWatch(){try{const d=await getJson('/api/revenue/watch');const
  catch{$('watchList').textContent='Veille indisponible.'}}
 async function loadCycle(){try{const d=await getJson('/api/revenue/direct-work?latest_cycle=1');const c=d.cycle;if(!c){$('lastCycle').textContent='MEL n’a pas encore travaillé.';return}
  const r=c.result||{};let text='Dernier travail : '+when(c.updatedAt)+' — ';
- if(c.status==='RUNNING')text+='en cours…';else if(c.status==='FAILED')text+='interrompu ('+(r.code||'erreur')+'), elle réessaiera.';else if(c.status==='NO_ELIGIBLE_MISSION')text+='aucune mission faisable seule, elle réessaiera.';
+ if(c.status==='RUNNING')text+='en cours…';else if(c.status==='FAILED')text+='interrompu ('+(r.code||'erreur')+'), elle réessaiera.';else if(c.status==='NO_ELIGIBLE_MISSION')text+='aucune mission faisable seule, elle réessaiera.';else if(c.status==='INTERRUPTED')text+='interrompu, elle reprendra au prochain cycle.';
  else text+=(r.title?'« '+r.title+' »'+(r.reward?' · '+r.reward:'')+'. ':'')+(NEXT_SUB[r.submission]||'Terminé.');
  $('lastCycle').textContent=text}catch{$('lastCycle').textContent='État du dernier travail indisponible.'}}
 async function showArtifact(id){try{const d=await getJson('/api/revenue/direct-work?artifact_id='+encodeURIComponent(id));$('docSection').hidden=false;$('docTitle').textContent='Livrable du '+when(d.artifact.created_at);$('doc').textContent=d.artifact.content;$('docSection').scrollIntoView({behavior:'smooth'})}catch(e){alert('Livrable indisponible ('+e.message+').')}}

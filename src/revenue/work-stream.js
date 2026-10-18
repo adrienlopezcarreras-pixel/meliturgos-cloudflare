@@ -244,10 +244,18 @@ async function recordCycle(db, id, state, result) {
 // Each cycle (scheduled or "Travailler maintenant") discovers real bounties,
 // does one MEL can finish alone, publishes it if needed and hands it in through
 // the PC. No owner validation anywhere; offers needing a person are skipped.
-export function streamDirectWork({ env, fetchImpl = fetch, now = () => Date.now(), maxAssessments, autonomous = false, queueSubmission = queueTaskmarketSubmission } = {}) {
+export function streamDirectWork({ env, fetchImpl = fetch, now = () => Date.now(), maxAssessments, autonomous = false, queueSubmission = queueTaskmarketSubmission, waitUntil = null } = {}) {
   const cycleId = crypto.randomUUID();
   const body = new ReadableStream({
-    async start(controller) {
+    start(controller) {
+      // The cycle must finish even if the page that started it is closed.
+      const job = runCycle(controller);
+      if (typeof waitUntil === 'function') waitUntil(job.catch(() => null));
+      return undefined;
+    },
+  });
+  async function runCycle(controller) {
+    {
       const send = event => { try { controller.enqueue(encoder.encode(JSON.stringify(event) + '\n')); } catch {} };
       const step = text => send({ type: 'step', text });
       try {
@@ -318,7 +326,7 @@ export function streamDirectWork({ env, fetchImpl = fetch, now = () => Date.now(
       } finally {
         try { controller.close(); } catch {}
       }
-    },
-  });
+    }
+  }
   return new Response(body, { headers: { 'content-type': 'application/x-ndjson; charset=utf-8', 'cache-control': 'no-store' } });
 }

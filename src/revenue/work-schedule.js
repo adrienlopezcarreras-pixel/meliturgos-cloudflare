@@ -49,6 +49,9 @@ export async function runScheduledMelWork(env, { now = new Date(), run = streamD
   await ensureTaskmarketWalletImport(env, { now: now.getTime() }).catch(() => null);
   await refreshTaskmarketSubmissions(env, { now: now.getTime() }).catch(() => null);
   await retryPendingSubmissions(env, { now: now.getTime() }).catch(() => null);
+  // A cycle still RUNNING after 30 min was cut (deploy, limit): say so.
+  await env.DB.prepare("UPDATE mel_work_cycles SET state='INTERRUPTED', result=?, updated_at=? WHERE state='RUNNING' AND updated_at < ?")
+    .bind(JSON.stringify({ status: 'INTERRUPTED' }), now.toISOString(), new Date(now.getTime() - 30 * 60_000).toISOString()).run().catch(() => null);
   // Won or lost? Each lost contract becomes a lesson for the next cycles.
   await reviewSubmissionOutcomes(env, { now: now.getTime() }).catch(() => null);
   if (!MEL_WORK_SCHEDULE_HOURS.includes(now.getUTCHours())) return { status: 'NOT_SCHEDULED_HOUR' };
