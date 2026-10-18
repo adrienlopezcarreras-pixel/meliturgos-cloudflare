@@ -91,3 +91,14 @@ test('the PC keystore is copied once through a single-use ticket', async () => {
   assert.equal((await post('f'.repeat(48))).status, 403);
   assert.deepEqual(await status(env), { cloud: true, address: ADDRESS, legal_accepted: false });
 });
+
+test('draft Taskmarket terms cannot be accepted: no acceptance is attempted', async () => {
+  const { acceptTaskmarketLegal } = await import('../src/revenue/taskmarket-cloud.js');
+  const vaults = memoryVaults();
+  const dek = crypto.getRandomValues(new Uint8Array(32));
+  await saveTaskmarketWallet({}, { 'keystore.json': JSON.stringify({ encryptedKey: await encrypt(dek, 'colon'), walletAddress: ADDRESS, deviceId: 'd', apiToken: 't' }) }, { vaults });
+  const calls = [];
+  const fetchImpl = async url => { calls.push(url); return url.endsWith('/key') ? Response.json({ deviceEncryptionKey: hex(dek) }) : Response.json({ acceptanceAvailable: false }); };
+  assert.deepEqual(await acceptTaskmarketLegal({}, { fetchImpl, vaults }), { status: 'NOT_AVAILABLE_YET' });
+  assert.ok(!calls.some(u => u.includes('/challenge')));
+});

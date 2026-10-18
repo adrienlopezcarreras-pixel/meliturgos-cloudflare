@@ -71,8 +71,10 @@ export async function handleRevenueApi(request, env, ctx = null) {
     if (request.method !== 'GET') return json({ ok: false, code: 'METHOD_NOT_ALLOWED' }, 405);
     const { taskmarketWalletStatus, taskmarketLegalCurrent } = await import('../revenue/taskmarket-cloud.js');
     const wallet = await taskmarketWalletStatus(env).catch(() => ({ cloud: false }));
-    const legal = wallet.cloud && !wallet.legal_accepted ? await taskmarketLegalCurrent().catch(() => null) : null;
-    return json({ ok: true, wallet, legal });
+    const current = wallet.cloud && !wallet.legal_accepted ? await taskmarketLegalCurrent().catch(() => null) : null;
+    // Only offer an acceptance Taskmarket actually opens (draft terms cannot be accepted).
+    const legal = current && current.acceptanceAvailable !== false ? current : null;
+    return json({ ok: true, wallet, legal, legal_pending_publication: current?.acceptanceAvailable === false });
   }
   if (url.pathname === '/api/revenue/taskmarket/legal-accept') {
     if (request.method !== 'POST') return json({ ok: false, code: 'METHOD_NOT_ALLOWED' }, 405);

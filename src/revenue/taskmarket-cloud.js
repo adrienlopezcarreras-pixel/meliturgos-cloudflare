@@ -192,6 +192,9 @@ export async function acceptTaskmarketLegal(env, { fetchImpl = fetch, vaults } =
   return withKey(env, { fetchImpl, vaults }, async (key, wallet) => {
     const address = wallet.keystore.walletAddress;
     const current = await taskmarketLegalCurrent({ fetchImpl }).catch(() => ({}));
+    // Taskmarket's terms can still be a draft awaiting counsel approval: then
+    // nothing can (or needs to) be accepted.
+    if (current?.acceptanceAvailable === false) return { status: 'NOT_AVAILABLE_YET' };
     const challengeResponse = await fetchImpl(TASKMARKET_API + '/api/legal/challenge', {
       method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ walletAddress: address }), signal: AbortSignal.timeout(12_000),
     });
