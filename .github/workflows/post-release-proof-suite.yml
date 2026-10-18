@@ -60,9 +60,9 @@ jobs:
       expected_sha: ${{ needs.resolve.outputs.expected_sha }}
     secrets: inherit
 
-  # platform, persistent-stress, council-rich-ui and sovereignty share the
-  # production lease group 'mel-launch-bootstrap-token'. Queued together, GitHub
-  # keeps one pending run per group and cancels the others: run them in turn.
+  # Platform, persistent-stress, Council, and sovereignty share the protected
+  # mel-launch-bootstrap-token lane (queue:max). Sequence dependent proofs
+  # within each release; never cancel queued proof or deployment runs.
   persistent-stress:
     needs: [resolve, platform]
     if: always() && needs.resolve.result == 'success'

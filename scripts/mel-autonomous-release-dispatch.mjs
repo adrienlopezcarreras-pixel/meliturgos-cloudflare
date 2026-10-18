@@ -4,21 +4,6 @@ import { appendFileSync } from 'node:fs';
 export const RELEASE_BRANCH = 'release/mel-hardware-v0.1.0';
 export const REPO = 'adrienlopezcarreras-pixel/meliturgos-cloudflare';
 const SHA40 = /^[0-9a-f]{40}$/i;
-const STALE_PENDING_STATUSES = new Set(['queued', 'pending', 'waiting', 'requested']);
-
-export function findStaleQueuedDeploys(runs, mainSha) {
-  if (!Array.isArray(runs)) throw new Error('RELEASE_RUN_LIST_MISSING');
-  if (!SHA40.test(String(mainSha || ''))) throw new Error('CANONICAL_MAIN_SHA_INVALID');
-  return runs.filter(row =>
-    row?.name === 'deploy-cloudflare-release' &&
-    row?.head_branch === RELEASE_BRANCH &&
-    STALE_PENDING_STATUSES.has(String(row?.status || '').toLowerCase()) &&
-    SHA40.test(String(row?.head_sha || '')) &&
-    row.head_sha !== mainSha &&
-    Number.isSafeInteger(row?.id) && row.id > 0
-  );
-}
-
 
 export function assertNoActiveDeploy(runs) {
   if (!Array.isArray(runs)) throw new Error('RELEASE_RUN_LIST_MISSING');
@@ -67,66 +52,18 @@ export async function requestAutonomousRelease({ token, fetchImpl = fetch, repo 
   // Workflow_dispatch runs use head_branch=main, while push runs use the
   // release branch. Scan recent runs across both events, not only release pushes.
   const activeRunsRoute = '/actions/workflows/deploy-cloudflare-release.yml/runs?per_page=100';
-  const verifiedTerminalStaleRunIds = new Set();
+  // The shared production lane already owns ordering (queue:max). A newer
+  // canonical commit must not cancel pending releases: doing so destroys the
+  // FIFO guarantee and can erase an exact-SHA proof before it runs.
+  // Leave older work to the existing release SHA gates; defer promotion until
+  // there are no unfinished deploy workflows.
   async function readActiveReleaseRuns() {
     const rows = (await api(activeRunsRoute))?.workflow_runs;
-    if (!Array.isArray(rows)) {
-      assertNoActiveDeploy(rows);
-      return rows;
-    }
-    // GitHub's workflow-run list can briefly lag a successful cancel request.
-    // Only omit a row after the individual run endpoint has confirmed a
-    // terminal state; unrelated/current active deployments remain blocking.
-    return rows.filter(row => !verifiedTerminalStaleRunIds.has(row?.id));
+    if (!Array.isArray(rows)) throw new Error('RELEASE_RUN_LIST_MISSING');
+    return rows;
   }
-  let releaseRuns = await readActiveReleaseRuns();
+  const releaseRuns = await readActiveReleaseRuns();
 
-  // A concurrency-queued release can become stale when main advances while
-  // an older deployment is active. Cancel only known stale runs that are still
-  // queued, after re-reading each run immediately before cancellation.
-  const cancelledStaleQueuedRunIds = [];
-  for (const candidate of findStaleQueuedDeploys(releaseRuns, mainSha)) {
-    const latest = await api('/actions/runs/' + candidate.id);
-    const latestStatus = String(latest?.status || '').toLowerCase();
-    const latestSha = String(latest?.head_sha || '');
-    if (!STALE_PENDING_STATUSES.has(latestStatus) || !SHA40.test(latestSha) || latestSha === mainSha ||
-        latest?.name !== 'deploy-cloudflare-release' || latest?.head_branch !== RELEASE_BRANCH) continue;
-    await api('/actions/runs/' + candidate.id + '/cancel', { method: 'POST' });
-    cancelledStaleQueuedRunIds.push(candidate.id);
-  }
-  if (cancelledStaleQueuedRunIds.length) {
-    const unconfirmed = [];
-    for (const runId of cancelledStaleQueuedRunIds) {
-      let latest = null;
-      for (let attempt = 0; attempt < 6; attempt++) {
-        latest = await api('/actions/runs/' + runId);
-        if (String(latest?.status || '').toLowerCase() === 'completed') {
-          verifiedTerminalStaleRunIds.add(runId);
-          break;
-        }
-        if (attempt < 5) await sleepImpl(500 * (attempt + 1));
-      }
-      if (!verifiedTerminalStaleRunIds.has(runId)) unconfirmed.push(latest);
-    }
-    if (unconfirmed.length) {
-      const active = unconfirmed[0] || {};
-      return {
-        accepted: false,
-        reason: 'STALE_RELEASE_CANCELLATION_NOT_VERIFIED',
-        main_sha: mainSha,
-        release_branch: RELEASE_BRANCH,
-        blocking_run_id: Number.isSafeInteger(active?.id) ? active.id : cancelledStaleQueuedRunIds[0],
-        blocking_run_sha: SHA40.test(String(active?.head_sha || '')) ? active.head_sha : null,
-        blocking_run_status: String(active?.status || 'unknown').toLowerCase(),
-        cancelled_stale_queued_run_ids: cancelledStaleQueuedRunIds,
-      };
-    }
-    releaseRuns = await readActiveReleaseRuns();
-  }
-
-  // An active production deployment still owns the lock. Defer and let its
-  // workflow_run completion trigger catch-up; stale queued releases are not
-  // allowed to consume the next slot with an outdated SHA.
   try {
     assertNoActiveDeploy(releaseRuns);
   } catch (error) {
@@ -136,7 +73,7 @@ export async function requestAutonomousRelease({ token, fetchImpl = fetch, repo 
       blocking_run_id: Number.isSafeInteger(active?.id) ? active.id : null,
       blocking_run_sha: SHA40.test(String(active?.head_sha || '')) ? active.head_sha : null,
       blocking_run_status: ['queued', 'in_progress', 'waiting', 'pending', 'requested'].includes(String(active?.status || '').toLowerCase()) ? String(active.status).toLowerCase() : 'unknown',
-      ...(cancelledStaleQueuedRunIds.length ? { cancelled_stale_queued_run_ids: cancelledStaleQueuedRunIds } : {}) };
+    };
   }
   // A previous completed attempt for the latest SHA means a catch-up event
   // must not schedule a duplicate after that SHA failed. A manual dispatch
