@@ -23,6 +23,7 @@ test('fourth candidate remains subject to exact zero-euro provenance and cannot 
   assert.ok(candidates.length >= 4);
   // The first three replies may fail: a single fourth reply is still insufficient.
   const sample = { ok:true, capability:'model.council', result: {
+    status:'COMPLETE',
     critiques:[{identity:'workers-ai::fourth',provenance:{provider:'workers-ai',model:'fourth'},cost:{allowed:true,policy:'MEL_ZERO_EURO_V1'}}],
     independent_response_count:1, unique_model_count:1, provider_failure_count:3,
     synthesis:{status:'COMPLETE',text:'one response'}
