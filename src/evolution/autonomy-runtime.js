@@ -11,6 +11,7 @@ import { tryAcquireAutonomyRuntimeLease, releaseAutonomyRuntimeLease } from './a
 import { createZeroCostBenchmarkEvaluator } from '../learning/operator-actions.js';
 import { reconcileRuntimeCompletions } from '../teachers/github-completion-reconciler.js';
 import { recordAutonomyProgressWatchdog, resetAutonomyProgressWatchdog } from './autonomy-progress-watchdog.js';
+import { D1EvolutionLedger } from './evolution-ledger.js';
 
 export * from './autonomy-runtime-core.js';
 
@@ -610,8 +611,32 @@ function augmentTickProgress(tick = {}) {
   };
 }
 
+// Reuse the existing append-only, SHA-256 chained D1 evolution ledger instead
+// of introducing a second MAX log table. Callers never log secrets or prompts.
+export async function logCycleStep(db, cycleId, step, evidence = {}) {
+  if (!db?.prepare || !cycleId) return { status: 'SKIPPED_NO_DB' };
+  const entry = await new D1EvolutionLedger(db).append({
+    evolution_id: 'max-cycle:' + cycleId,
+    stage: String(step).slice(0, 120),
+    status: 'OBSERVED',
+    actor: 'mel-autonomy-runtime',
+    evidence: {
+      job_id: String(evidence.job_id || '').slice(0, 120) || null,
+      reason: String(evidence.reason || '').slice(0, 160) || null,
+      events: Array.isArray(evidence.events) ? evidence.events.slice(0, 20).map(v => String(v).slice(0, 80)) : [],
+    },
+  });
+  return { status: 'RECORDED', hash: entry.entry.entry_hash, seq: entry.entry.seq };
+}
+
 export async function runAutonomyRuntimeTick(env, options = {}) {
   const control = await getAutonomyControl(env?.DB, { memoryState: options.autonomyControlState || null });
+  const cycleId = control.max_autonomy === true && !control.paused ? crypto.randomUUID() : null;
+  const cycleLog = async (step, evidence = {}) => {
+    if (!cycleId) return;
+    try { await logCycleStep(env?.DB, cycleId, step, evidence); }
+    catch (error) { console.error('[MEL MAX] cycle ledger failure:', String(error?.code || error?.message || error)); }
+  };
   const repository = options.repository || (env?.DB ? new D1DevJobRepository(env.DB) : null);
 
   if (control.paused) {
@@ -633,8 +658,10 @@ export async function runAutonomyRuntimeTick(env, options = {}) {
     };
   }
 
+  await cycleLog('CYCLE_STARTED');
   const launchApproval = launchApprovalValid(env, control, options);
   if (!launchApproval.ok) {
+    await cycleLog('LAUNCH_GATE_BLOCKED', { reason: launchApproval.code });
     let passiveCompletions;
     if (typeof options.waitUntil === 'function') {
       // The stale launch gate must fail closed immediately. Reconciling old,
@@ -708,6 +735,7 @@ export async function runAutonomyRuntimeTick(env, options = {}) {
   });
 
   if (!lease.acquired) {
+    await cycleLog('LEASE_BUSY', { reason: 'AUTONOMY_RUNTIME_LEASE_BUSY' });
     const snapshot = repository ? await autonomyProgressSnapshot(repository, options.roadmap || null) : {};
     const base = {
       ok: true,
@@ -741,6 +769,14 @@ export async function runAutonomyRuntimeTick(env, options = {}) {
   try {
     const raw = await runAutonomyRuntimeTickUnlocked(env, { ...options, repository: repository || options.repository }, control);
     const tick = augmentTickProgress(raw);
+    for (const event of tick.progress?.events || []) {
+      await cycleLog(event, { job_id: tick.progress?.job_id });
+    }
+    await cycleLog(tick.advanced === true ? 'CYCLE_ADVANCED' : 'CYCLE_NO_PROGRESS', {
+      job_id: tick.progress?.job_id,
+      reason: tick.progress?.block_reason,
+      events: tick.progress?.events,
+    });
     const watchdog = await recordAutonomyProgressWatchdog(env?.DB || null, tick, {
       maxAutonomy: control.max_autonomy === true,
     }).catch(() => null);
@@ -757,6 +793,9 @@ export async function runAutonomyRuntimeTick(env, options = {}) {
       };
     }
     return { ...tick, watchdog };
+  } catch (error) {
+    await cycleLog('CYCLE_FAILED', { reason: error?.code || error?.message });
+    throw error;
   } finally {
     await releaseAutonomyRuntimeLease({
       db: env?.DB || null,
