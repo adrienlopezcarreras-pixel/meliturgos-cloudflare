@@ -82,12 +82,13 @@ export async function readWorkersAiSse(stream, { onText, onFinish, idleTimeoutMs
     const data = trimmed.slice(5).trim();
     if (!data) return false;
     if (data === '[DONE]') return true;
-    try {
-      const payload = JSON.parse(data);
-      const text = sseEventText(payload);
-      if (text) onText?.(text);
-      finishReason = sseFinishReason(payload) || finishReason;
-    } catch {}
+    let payload;
+    try { payload = JSON.parse(data); } catch { return false; }
+    // Do not swallow callbacks' timeout/errors as malformed provider JSON.
+    // The caller must be able to fail over when a model produces no answer.
+    const text = sseEventText(payload);
+    if (text) onText?.(text);
+    finishReason = sseFinishReason(payload) || finishReason;
     return false;
   };
   try {
@@ -103,11 +104,11 @@ export async function readWorkersAiSse(stream, { onText, onFinish, idleTimeoutMs
         : reader.read());
       if (done) break;
       buffer += decoder.decode(value, { stream: true });
-    let index;
-    while ((index = buffer.indexOf('\n')) >= 0) {
-      const line = buffer.slice(0, index);
-      buffer = buffer.slice(index + 1);
-      if (handleLine(line)) { onFinish?.(finishReason); return; }
+      let index;
+      while ((index = buffer.indexOf('\n')) >= 0) {
+        const line = buffer.slice(0, index);
+        buffer = buffer.slice(index + 1);
+        if (handleLine(line)) { onFinish?.(finishReason); return; }
       }
     }
     if (buffer) handleLine(buffer);
