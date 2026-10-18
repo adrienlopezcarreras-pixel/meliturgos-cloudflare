@@ -25,7 +25,7 @@ function wordSet(value) {
   );
 }
 
-function roadmapMatches(hint, target = {}, evidence = {}) {
+export function roadmapMatches(hint, target = {}, evidence = {}) {
   const query = wordSet([
     hint,
     target?.metadata?.label || '',
@@ -91,11 +91,64 @@ function evidenceFor(result = {}) {
   };
 }
 
-function actionForGap(gap) {
+export function actionForGap(gap) {
   if (gap.classification === 'MATCHED_AVAILABLE') return 'REUSE_EXISTING';
   if (gap.classification === 'MATCHED_BUT_BLOCKED') return 'UNBLOCK_EXISTING';
   if (gap.classification === 'AMBIGUOUS') return 'REVIEW_EXISTING';
   return 'PROPOSE_EXTENSION';
+}
+
+export function alternativesOf(gap) {
+  return (Array.isArray(gap?.candidates) ? gap.candidates : []).slice(0, 4).map(row => ({
+    id: text(row?.id, 160), name: text(row?.name, 160), state: text(row?.state, 40),
+    score: Number(row?.score) || 0, matched_terms: Array.isArray(row?.matched_terms) ? row.matched_terms.slice(0, 6) : [],
+  }));
+}
+
+const STATE_FR = { AVAILABLE: 'disponible', DEGRADED: 'dégradée (non testée récemment)', BLOCKED: 'bloquée', UNAVAILABLE: 'indisponible' };
+
+/**
+ * Why MEL proposes this and how it compares with what she already has.
+ * Built only from recorded evidence (sources, WORK offers, capability matches,
+ * roadmap) so the owner can judge the proposal without trusting the model.
+ */
+export function explainDiscovery(item = {}) {
+  const why = [];
+  const demand = item?.work_demand;
+  if (demand && Number(demand.offers) > 0) {
+    why.push('MEL WORK : ' + demand.offers + ' offre(s) rémunérée(s) écartée(s) faute de cette capacité' +
+      (Number(demand.reward_usdc) > 0 ? ', soit ' + Number(demand.reward_usdc).toFixed(2) + ' USDC manqués' : '') +
+      (demand.days ? ' en ' + demand.days + ' jours' : '') + '.');
+    for (const reason of (Array.isArray(demand.reasons) ? demand.reasons : []).slice(0, 2)) why.push('Exemple : ' + text(reason, 200));
+  }
+  if (Number(demand?.lost_lessons) > 0) why.push(demand.lost_lessons + ' contrat(s) perdu(s) pointent aussi vers ce manque.');
+  const sources = Array.isArray(item?.sources) ? item.sources : [];
+  const observed = Array.isArray(item?.observed_on) ? item.observed_on.filter(x => x !== 'mel-work') : [];
+  if (observed.length) why.push('Observé dans ' + observed.length + ' veille(s) (' + observed.slice(0, 3).join(', ') + ') avec ' + (Number(item?.citations_count) || sources.length) + ' citation(s).');
+  if (Number(item?.seen_count) > 1) why.push('Revu ' + item.seen_count + ' fois par la veille.');
+  if (item?.cross_ai?.best?.text) why.push('Avis multi-IA : ' + text(item.cross_ai.best.text, 240));
+  if (!why.length) why.push('Découverte sourcée sans signal de revenu pour l’instant.');
+
+  const comparison = [];
+  const best = item?.best_match;
+  if (best?.id) {
+    comparison.push('Existant le plus proche : ' + best.id + ' (' + (STATE_FR[best.state] || String(best.state || 'état inconnu').toLowerCase()) + ', score ' + (Number(best.score) || 0) +
+      (Array.isArray(best.matched_terms) && best.matched_terms.length ? ', termes communs : ' + best.matched_terms.slice(0, 5).join(', ') : '') + ').');
+  } else {
+    comparison.push('Aucune capacité existante ne correspond : ce serait réellement nouveau.');
+  }
+  const others = (Array.isArray(item?.alternatives) ? item.alternatives : []).filter(row => row?.id && row.id !== best?.id).slice(0, 3);
+  if (others.length) comparison.push('Autres options déjà présentes : ' + others.map(row => row.id + ' (' + (STATE_FR[row.state] || row.state || '?') + ')').join(', ') + '.');
+  const roadmap = (Array.isArray(item?.roadmap_matches) ? item.roadmap_matches : []).slice(0, 2);
+  if (roadmap.length) comparison.push('Feuille de route liée : ' + roadmap.map(row => row.id + ' « ' + text(row.title, 70) + ' » [' + row.status + ']').join(' ; ') + '.');
+
+  const verdict = {
+    REUSE_EXISTING: 'Réutiliser ' + (best?.id || 'l’existant') + ' : ne rien remplacer sans test montrant un gain net.',
+    UNBLOCK_EXISTING: 'Débloquer ' + (best?.id || 'l’existant') + ' plutôt que créer un doublon.',
+    REVIEW_EXISTING: 'Proche de l’existant mais ambigu : comparer avant toute décision.',
+    PROPOSE_EXTENSION: 'Nouvelle extension à proposer, testée avant toute activation.',
+  }[item?.action] || 'À examiner.';
+  return { why, comparison, verdict };
 }
 
 export function planEcosystemDiscoveries({ watchResult = {}, catalog = {}, capabilities = [], generatedAt = new Date().toISOString() } = {}) {
@@ -150,6 +203,7 @@ export function planEcosystemDiscoveries({ watchResult = {}, catalog = {}, capab
         action,
         optimization_action: action === 'REUSE_EXISTING' ? 'COMPARE_EXISTING_WITH_ALTERNATIVE' : null,
         best_match: gap.best_match,
+        alternatives: alternativesOf(gap),
         roadmap_matches: roadmapMatches(hint, target, evidence),
         source_class: evidence.source_class,
         verification_policy: evidence.verification_policy,
@@ -225,7 +279,19 @@ function handoffAlreadyOwnsItem(item) {
   return false;
 }
 
+function workDemandLine(item) {
+  const demand = item?.work_demand;
+  if (!demand || !(Number(demand.offers) > 0)) return '';
+  return 'Priorité revenus MEL WORK : ' + demand.offers + ' offre(s) rémunérée(s)' +
+    (Number(demand.reward_usdc) > 0 ? ' (' + Number(demand.reward_usdc).toFixed(2) + ' USDC)' : '') +
+    ' écartée(s) faute de « ' + text(item?.capability_hint, 80) + ' ». Le résultat doit permettre à MEL d’obtenir et de réaliser seule ce type de mission, sans étape humaine ni nouveau secret.';
+}
+
 function developmentGoal(item) {
+  return [workDemandLine(item), developmentGoalCore(item)].filter(Boolean).join(' ');
+}
+
+function developmentGoalCore(item) {
   const hint = text(item?.capability_hint, 160);
   const target = text(item?.best_match?.id, 160);
   const roadmap = (Array.isArray(item?.roadmap_matches) ? item.roadmap_matches : [])
@@ -269,10 +335,12 @@ function candidateRank(item) {
     PROPOSE_EXTENSION: 2,
   };
   const action = actionRank[item?.action] ?? 3;
+  // Paid work MEL could not take comes first: it is the most direct value.
+  const paid = -Math.max(0, Number(item?.work_demand?.reward_usdc) || 0);
   const creative = item?.category === 'creative' ? 0 : 1;
   const citations = -Math.max(0, Number(item?.citations_count) || 0);
   const seen = -Math.max(0, Number(item?.seen_count) || 0);
-  return [action, creative, citations, seen, String(item?.fingerprint || '')];
+  return [paid, action, creative, citations, seen, String(item?.fingerprint || '')];
 }
 
 export function selectEcosystemDiscoveryCandidate(ledger = {}) {
