@@ -18,12 +18,12 @@ test('follow-up access question without code context does not invent code intent
   assert.equal(inferNativeCodeCapability("Tu m'as dit que tu avais accès ?", recent), null);
 });
 
-test('runtime capability manifest refreshes health and uses the same strict truth vocabulary as audits', async () => {
-  let refreshed = false;
+test('runtime capability manifest reads registry truth without probing providers', async () => {
+  let listed = false;
   const runtime = {
     bus: {
-      async refreshHealthAll() {
-        refreshed = true;
+      list() {
+        listed = true;
         return [
           { id: 'code.read', enabled: true, health: 'HEALTHY', provider: 'github', risk: 'LOW', permissions: ['code.read'] },
           { id: 'code.search', enabled: true, health: 'DEGRADED', implementation_status: 'PARTIAL', provider: 'github', risk: 'LOW', permissions: ['code.read'] },
@@ -35,7 +35,7 @@ test('runtime capability manifest refreshes health and uses the same strict trut
     }
   };
   const manifest = await buildRuntimeCapabilityManifest(runtime);
-  assert.equal(refreshed, true);
+  assert.equal(listed, true);
   assert.deepEqual(manifest.map(x => [x.id, x.status]), [
     ['code.read', 'EXISTANT_NON_TESTE'],
     ['code.search', 'PARTIEL'],
@@ -52,7 +52,7 @@ test('runtime capability manifest refreshes health and uses the same strict trut
 test('successful tool execution upgrades only that capability to EXISTANT_ET_TESTE for this request', async () => {
   const manifest = await buildRuntimeCapabilityManifest({
     bus: {
-      refreshHealthAll: async () => [
+      list: () => [
         { id:'code.read', enabled:true, health:'HEALTHY', provider:'github', risk:'LOW', permissions:[] },
         { id:'web.research', enabled:true, health:'HEALTHY', provider:'web', risk:'LOW', permissions:[] },
       ],
@@ -136,7 +136,7 @@ test('all registered capabilities remain visible to MEL chat, including IDs beyo
     enabled:true, health:'UNAVAILABLE', risk:'MEDIUM', permissions:[],
   });
   const manifest = await buildRuntimeCapabilityManifest({
-    bus: { refreshHealthAll: async () => rows },
+    bus: { list: () => rows },
   });
   assert.equal(manifest.length, 165);
   assert.equal(manifest[164].id, 'media.video.generate');
@@ -218,7 +218,7 @@ test('direct tool discovery never scans health of all unrelated connectors', asy
   const manifest=await buildRuntimeCapabilityManifest({bus:{
     list(){calls.push('list');return [{id:'echo',enabled:true,health:'HEALTHY',risk:'LOW',permissions:[]}];},
     refreshHealthAll(){calls.push('refresh-all');throw new Error('unrelated external health call');},
-  }},{refreshHealth:false});
+  }});
   assert.deepEqual(calls,['list']);
   assert.equal(manifest[0].id,'echo');
   assert.equal(manifest[0].tested_now,false);

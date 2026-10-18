@@ -490,15 +490,12 @@ export function inferNativeComputerCapability(text) {
   return null;
 }
 
-export async function buildRuntimeCapabilityManifest(runtime, { refreshHealth = true } = {}) {
+export function buildRuntimeCapabilityManifest(runtime) {
   if (!runtime?.bus) return [];
-  let rows = [];
-  // The registry is canonical for discovery; do not health-probe every unrelated
-  // connector before one tool call. CapabilityBus.execute refreshes and validates
-  // the selected capability itself. Full refresh stays available for diagnostics.
-  try { rows = refreshHealth ? await runtime.bus.refreshHealthAll() : runtime.bus.list(); }
-  catch { try { rows = runtime.bus.list(); } catch { rows = []; } }
-  return rows.map(row => ({
+  // Discovery is a projection of the canonical registry, never a connector
+  // health sweep. The selected tool gets its own live preflight in bus.execute;
+  // dedicated diagnostic capabilities own full health audits.
+  return runtime.bus.list().map(row => ({
     id: String(row.id),
     name: String(row.name || row.id || '').slice(0, 160),
     category: String(row.category || String(row.id || '').split('.')[0] || 'other').slice(0, 80),
@@ -1530,9 +1527,7 @@ export async function handleNativeChat(request, env, options = {}) {
   const capability = releaseSmoke
     ? inferredCapability
     : (body.capability?.id ? body.capability : inferredCapability);
-  let capabilityManifest = releaseSmoke || plainChatTurn ? [] : await buildRuntimeCapabilityManifest(runtime, {
-    refreshHealth: !capability?.id,
-  });
+  let capabilityManifest = releaseSmoke || plainChatTurn ? [] : buildRuntimeCapabilityManifest(runtime);
   const toolResults = [];
   const capabilitiesUsed = [];
   let approvalRequired = null;
