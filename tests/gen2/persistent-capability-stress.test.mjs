@@ -6,6 +6,7 @@ import {
   readPersistentCapabilityStress,
   startPersistentCapabilityStress,
   resumeActivePersistentCapabilityStress,
+  D1CapabilityStressStore,
 } from '../../src/diagnostics/persistent-capability-stress.js';
 import { validateStart, validateTerminal, validateProgressTransition, summarizeStressCoverage } from '../../scripts/persistent-capability-stress-live-proof.mjs';
 
@@ -439,6 +440,51 @@ test('runtime blocker breakdown rejects stale or contradictory row evidence', ()
       ] },
   };
   assert.throws(() => summarizeStressCoverage(base), /CAPABILITY_COVERAGE_EXECUTION_COUNT_MISMATCH/);
+});
+
+
+test('stale Worker cannot overwrite another Worker after D1 lease is reclaimed', async () => {
+  const db = sqliteD1();
+  try {
+    const first = new D1CapabilityStressStore(db);
+    const second = new D1CapabilityStressStore(db);
+    const job = await first.create({ total: 168 });
+    const claimedFirst = await first.claimRunnable(job.job_id);
+    assert.equal(claimedFirst.status, 'RUNNING');
+
+    const firstProgress = await first.update(job.job_id, {
+      status: 'RUNNING',
+      progress: { done: 36, total: 168, current_capability: 'chunk-36' },
+    });
+    assert.equal(firstProgress.progress.done, 36);
+
+    // Simulate expiration without sleeping or weakening the production TTL.
+    // The second claimant atomically supersedes the first lease generation.
+    const reclaimed = await second.claimRunnable(job.job_id, {
+      staleBefore: Date.now() + 60_000,
+    });
+    assert.ok(reclaimed);
+    assert.ok(reclaimed.updated_at > firstProgress.updated_at);
+    await second.update(job.job_id, {
+      status: 'QUEUED',
+      progress: { done: 42, total: 168, current_capability: null },
+      summary: { phase:'QUEUED', next_index:42 },
+    });
+    await assert.rejects(first.update(job.job_id, {
+      status: 'FAILED',
+      progress: { done: 36, total: 168 },
+      summary: { phase:'FAILED', next_index:36 },
+      error: 'STALE_WORKER_ATTEMPTED_OVERWRITE',
+    }), /CAPABILITY_STRESS_LEASE_LOST/);
+
+    const persisted = await second.get(job.job_id);
+    assert.equal(persisted.status, 'QUEUED');
+    assert.equal(persisted.progress.done, 42);
+    assert.equal(persisted.summary.next_index, 42);
+    assert.equal(persisted.error, null);
+  } finally {
+    db.close();
+  }
 });
 
 test('scheduled continuation does not create any audit when D1 has no active job', async () => {
