@@ -13,12 +13,19 @@ export function isEvolutionDevelopmentIntent(text) {
   return action && target;
 }
 
+/** "mode MAX" / "MAX" (upper case) names MEL's autonomous self-development. */
+export function isMaxModeMention(text) {
+  const value = String(text || '');
+  return /\b(?:mode|autonomie)\s+max(?:imale|imum)?\b|\bmax\s+(?:mode|autonomy)\b/i.test(value) || /\bMAX\b/.test(value);
+}
+
 export function inferAutonomyControlIntent(text, context = '') {
   const value = String(text || '').trim();
   if (!value) return null;
   const history = String(context || '').slice(-8000);
 
-  const currentAutonomyDomain = /\b(autonom(?:e|ie|isation)|auto[- ]?d[ée]veloppement|self[- ]?development|feuille\s+de\s+route|roadmap|d[ée]veloppement\s+(?:de\s+)?(?:mel|ton|tes|du\s+programme)|programme\s+mel)\b/i.test(value);
+  const currentAutonomyDomain = /\b(autonom(?:e|ie|isation)|auto[- ]?d[ée]veloppement|self[- ]?development|feuille\s+de\s+route|roadmap|d[ée]veloppement\s+(?:de\s+)?(?:mel|ton|tes|du\s+programme)|programme\s+mel)\b/i.test(value)
+    || isMaxModeMention(value);
   // Elliptical follow-ups inherit only an explicit autonomy/release context.
   // Generic MEL/code/branch context must still reach semantic task routing.
   const contextualAutonomyDomain = /\b(?:autonomie|auto[- ]?d[ée]veloppement|self[- ]?development|feuille\s+de\s+route|roadmap|launch\s+gate|DEPLOY_APPROVED|release|d[ée]ploiement|workflow\s+de\s+release|PR\s*#?\d+)\b/i.test(history);
@@ -29,6 +36,8 @@ export function inferAutonomyControlIntent(text, context = '') {
   if (asksAdvance) return { id: 'autonomy.tick', input: {} };
 
   const asksStatus = /\b(o[uù]\s+en\s+(?:es|est|sommes)|statut|status|[ée]tat|pr[êe]te?|ready|bloqu[ée]e?|reste|avancement|progression|niveau)\b/i.test(value)
+    // A question about what MAX is/does is answered from the real runtime, not model memory.
+    || (isMaxModeMention(value) && /(?:\bexpliqu\w*|c['’]est\s+quoi|qu['’]est[- ]ce|\bque\s+fait|\bsert\b|\bpermet\w*|\bfonctionne\w*|\bcomment\b|\bcapable\b|\bpeux\b|\bpouvoir\b|\br[ôo]le\b|\bmarche\b|\?)/i.test(value))
     || /\b(es[- ]tu|est[- ]elle)\b[^.!?]{0,80}\b(autonome|pr[êe]te?|capable)\b/i.test(value);
   if (asksStatus) return { id: 'autonomy.status', input: {} };
 

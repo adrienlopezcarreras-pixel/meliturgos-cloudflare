@@ -22,7 +22,8 @@ import { stripInternalCounters } from './chat-sanitization.js';
 import { formatPersonalProfileRecall, retrieveContext, retrievePersonalProfileContext } from '../core/orchestrator/conversation-context.js';
 import { isMelWorkKickoff, startMelWorkKickoff } from '../work/mel-work-kickoff.js';
 import { isSubstantialMelTask, findMelWorkReference, launchSubstantialMelTask, getSubstantialMelStatus } from '../work/mel-general-kickoff.js';
-import { formatVerifiedSelfStateResponse, formatVerifiedCapabilityAuditResponse, formatCommunicationAuditResponse, formatVerifiedAutonomyActivityResponse, formatVerifiedDevBridgeStatusResponse, formatVerifiedAutonomyRuntimeResponse } from './response-grounding.js';
+import { isMaxModeMention } from '../evolution/chat-intent.js';
+import { formatVerifiedSelfStateResponse, formatVerifiedCapabilityAuditResponse, formatCommunicationAuditResponse, formatVerifiedAutonomyActivityResponse, formatVerifiedDevBridgeStatusResponse, formatVerifiedAutonomyRuntimeResponse, MAX_MODE_EXPLANATION } from './response-grounding.js';
 import { buildResponseQualityInstruction, finalizeEvidenceAlignedResponse, inferResponseMode } from './response-quality.js';
 import { buildConversationFocusInstruction, deriveConversationFocus } from './conversation-focus.js';
 import { loadConversationFocusState, saveConversationFocusState } from './conversation-focus-store.js';
@@ -49,6 +50,7 @@ export const MEL_REAL_CAPABILITIES = [
   'CE QUE TU ES VRAIMENT : tu es MEL, un service Cloudflare doté de capacités réelles, de D1, de stockage et de tâches planifiées. Une fonction implémentée ou déclarée ne prouve pas que son service externe répond actuellement : seules les exécutions et leur état runtime le prouvent.',
   'Tes outils réels, sous réserve de leur état actuel : recherche web publique, stockage durable, lecture de ton dépôt GitHub, MEL Companion Windows quand le PC est connecté et autorisé, MEL WORK, et cycles programmés Cloudflare. Utilise les capacités disponibles plutôt que répondre comme un simple modèle de texte.',
   'MEL WORK est automatique dans son architecture : découverte des missions Taskmarket par son API publique, brouillons dans D1, cycles planifiés et éventuelle soumission via le Companion selon permissions et état réel. Elle publie elle-même ses livrables (page publique MEL, dev.to et Bluesky une fois connectés dans /revenus, avec image générée si utile), toujours avec la mention IA et mission rémunérée ; la remise Taskmarket passe par le Companion du PC. Pour dire ce qui manque à MEL WORK, appuie-toi sur ses cycles réels, jamais sur une liste générique. La présence de ce code ne prouve ni une mission exécutée ni une rémunération reçue. Ne confonds pas un brouillon, une tentative, une soumission et un paiement.',
+  'MODE MAX (vérité, pas une hypothèse) : ' + MAX_MODE_EXPLANATION + ' Ne décris jamais MAX comme un simple mode verbeux ou de journalisation, ne dis jamais que tu ne peux pas t’auto-développer, et ne réclame pas de PAT GitHub, token Companion, clé Stripe, webhook ou scheduler pour cela. Pour son état actuel (activé, en pause, chantier en cours), appuie-toi sur autonomy.status.',
   'Ne dis donc jamais par défaut que les clés Bing, Google Search, Drive, Stripe, PayPal, GitHub ou Companion manquent toutes, ni que le Worker ne peut ni écrire en D1 ni exécuter de tâches programmées : inspecte les capacités runtime et les TOOL_RESULT avant une telle affirmation. Taskmarket public, D1 et GitHub ne nécessitent pas de réclamer de nouveaux secrets dans le chat. Si un service précis échoue, nomme la capacité, le code erreur et la preuve manquante. Ne demande jamais de copier un token ou un secret dans la conversation ; la configuration éventuelle se fait dans le stockage sécurisé du service concerné.',
 ].join(' ');
 
@@ -1640,6 +1642,7 @@ export async function handleNativeChat(request, env, options = {}) {
     const responseText = capabilitySucceeded
       ? formatVerifiedAutonomyRuntimeResponse(runtimeResult, {
           operation: autonomyRuntimeObservedRow.capability === 'autonomy.status' ? 'status' : 'tick',
+          explainMax: isMaxModeMention(text),
         })
       : 'Le cycle d’autonomie n’a pas pu s’exécuter : ' + String(autonomyRuntimeObservedRow.error || 'AUTONOMY_RUNTIME_FAILED').slice(0, 180) + '.';
     let archiveSaved = false;

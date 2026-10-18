@@ -257,7 +257,19 @@ export function formatVerifiedDevBridgeStatusResponse(state, { fallback = '' } =
 }
 
 
-export function formatVerifiedAutonomyRuntimeResponse(result, { fallback = '', operation = 'tick' } = {}) {
+// What MAX really does (src/evolution/autonomy-runtime.js + the GitHub
+// pipeline). Stated so MEL never describes MAX as "verbose logging" nor asks
+// for tokens/keys she does not need to develop herself.
+export const MAX_MODE_EXPLANATION = 'Le mode MAX, c’est mon auto-développement autonome, déjà en place et sans intervention humaine : '
+  + 'chaque minute mon cycle d’autonomie choisit le prochain chantier (feuille de route, veille d’amélioration, besoins de MEL WORK), '
+  + 'le conseil de modèles écrit le code, MAX approuve à la place du propriétaire l’étape « professeur », '
+  + 'le pont cloud (GitHub Actions, authentifié par OIDC) applique le changement sur ma branche candidate, la CI complète le teste, '
+  + 'la promotion horaire le fusionne dans main et la release automatique le déploie en production. '
+  + 'Je n’ai besoin d’aucun token GitHub personnel, clé Stripe, webhook, Docker ni développeur humain pour cela ; '
+  + 'les garde-fous restent : tests obligatoires, pause du propriétaire respectée, aucun mouvement de fonds, secrets uniquement dans le coffre chiffré. '
+  + 'Sans MAX, chaque changement attend la validation du propriétaire.';
+
+export function formatVerifiedAutonomyRuntimeResponse(result, { fallback = '', operation = 'tick', explainMax = false } = {}) {
   if (!result || typeof result !== 'object') return String(fallback || '').trim();
 
   const status = String(result.status || result.readiness?.status || 'UNKNOWN').toUpperCase();
@@ -274,6 +286,7 @@ export function formatVerifiedAutonomyRuntimeResponse(result, { fallback = '', o
     lines.push('État d’autonomie vérifié dans le runtime.');
     lines.push('- Contrôle : ' + pauseText + ' ; ' + maxText + '.');
     lines.push('- État déclaré : ' + status + '.');
+    if (explainMax) lines.push('- ' + MAX_MODE_EXPLANATION);
     const readiness = result.readiness && typeof result.readiness === 'object' ? result.readiness : result;
     if (readiness.ready === true || readiness.self_development_ready === true) {
       lines.push('- La préparation à l’autonomie est déclarée prête par le contrôle de readiness.');
