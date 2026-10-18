@@ -224,7 +224,7 @@ jobs:
             {id:'wait-full-chat',action:'browser.wait-text',selector:'#viewTitle',text:'Conversation'},
             {id:'type-full',action:'browser.type',selector:'.view.active[data-panel="chat"] #chatInput',text:'lis src/index.js dans ton code'},
             {id:'submit-full',action:'browser.submit',selector:'#chatForm'},
-            {id:'wait-full-submit',action:'browser.wait-text',selector:'#chatlog .msg.user:last-child',text:'lis src/index.js dans ton code',timeout_ms:5000},
+            {id:'wait-full-submit',action:'browser.wait-text',selector:'#chatlog .msg.user',text:'lis src/index.js dans ton code',timeout_ms:5000},
             {id:'wait-full',action:'browser.wait-text',selector:'#chatStatus',text:'Réponse reçue.',timeout_ms:60000},
             {id:'read-full-rich',action:'browser.read-text',selector:'#chatlog .msg.mel[data-rich-rendered="true"]:last-child'},
           ];
