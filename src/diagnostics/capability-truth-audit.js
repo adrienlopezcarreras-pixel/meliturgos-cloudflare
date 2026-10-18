@@ -400,11 +400,15 @@ export async function auditRuntimeCapabilities(runtime, {
   );
 
   const allRecords = runtime.bus.list();
-  const wantedIds = Array.isArray(recordIds) && recordIds.length
-    ? new Set(recordIds.map(value => String(value)))
+  // A durable caller supplies the canonical job-specific order. Filtering
+  // the current registry would silently shift its numeric checkpoint whenever
+  // capabilities are added/reordered between Worker deployments.
+  const orderedIds = Array.isArray(recordIds) && recordIds.length
+    ? [...new Set(recordIds.map(value => String(value)))]
     : null;
-  const recordUniverse = wantedIds
-    ? allRecords.filter(record => wantedIds.has(String(record?.id || '')))
+  const byId = orderedIds ? new Map(allRecords.map(record => [String(record.id), record])) : null;
+  const recordUniverse = orderedIds
+    ? orderedIds.map(id => byId.get(id)).filter(Boolean)
     : allRecords;
   const totalRecords = recordUniverse.length;
   const rangeStart = Math.max(0, Math.min(totalRecords, Number(startIndex) || 0));
