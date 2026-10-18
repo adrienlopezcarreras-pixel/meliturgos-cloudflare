@@ -272,7 +272,7 @@ function inferCapabilityForRecovery(text, recent = [], intentContext = {}) {
   const value = String(text || '').trim();
   if (!value) return null;
   const personalProfileIntent = isPersonalProfileRecall(value);
-  return inferNativeExecutionCapability(value)
+  return inferNativeExecutionCapability(value, recent)
     || inferNativeSelfActivityCapability(value)
     || inferNativeComputerCapability(value)
     || (!personalProfileIntent ? inferChatGPTHistoryCapability(value) : null)
@@ -351,10 +351,29 @@ export function inferNativeCodeCapability(text, recent = []) {
 }
 
 
-export function inferNativeExecutionCapability(text) {
+export function inferNativeExecutionCapability(text, recent = []) {
   const value = String(text || '').trim();
   if (!value) return null;
   const normalized = value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+
+  // A cap-stress-* ID is a durable D1 job, NOT a GitHub Actions run id.
+  // Resolve elliptical link requests from the immediately preceding exchange,
+  // then read the exact job through capability.audit.status instead of
+  // allowing a model to invent an /actions/runs/<uuid> URL.
+  const linkQuestion = /\b(?:lien|url|adresse)\b/.test(normalized)
+    && /\b(?:donne|montre|quel|quelle|exact|ouvre|voir|trouve|retrouve|envoie|as[- ]tu)\b/.test(normalized);
+  const directJob = value.match(/\bcap-stress-[a-f0-9-]{20,}\b/i)?.[0] || null;
+  const recentAssistant = Array.isArray(recent)
+    ? recent.slice(-3).reverse().find(row => String(row?.role || '') === 'assistant' && /\bcap-stress-[a-f0-9-]{20,}\b/i.test(String(row?.content || '')))
+    : null;
+  const referencedJob = directJob || String(recentAssistant?.content || '').match(/\bcap-stress-[a-f0-9-]{20,}\b/i)?.[0] || null;
+  if (linkQuestion && referencedJob) {
+    return {
+      id: 'capability.audit.status',
+      input: { job_id: referencedJob },
+      execution_intent: 'GLOBAL_CAPABILITY_STRESS_LINK',
+    };
+  }
 
   const bridgeSubject = /\b(?:dev\s*bridge|bridge\s+local|poller|packages?\s+ready|paquets?\s+ready)\b/.test(normalized);
   const bridgeAction = /\b(?:verifi(?:e|er)|inspect(?:e|er)|controle(?:r)?|etat|statut|poll(?:e|er)?|consomm(?:e|er)|claim(?:e|er)?)\b/.test(normalized);
@@ -1399,7 +1418,7 @@ export async function handleNativeChat(request, env, options = {}) {
   const currentFactVerification = releaseSmoke ? null : inferCurrentFactVerificationPolicy(activeTaskText);
   const personalProfileIntent = isPersonalProfileRecall(activeTaskText);
   const melWorkReadiness = !releaseSmoke && isMelWorkReadinessQuestion(activeTaskText);
-  const inferredExecutionCapability = releaseSmoke ? null : inferNativeExecutionCapability(activeTaskText);
+  const inferredExecutionCapability = releaseSmoke ? null : inferNativeExecutionCapability(activeTaskText, recent);
   const inferredSelfActivityCapability = releaseSmoke ? null : inferNativeSelfActivityCapability(activeTaskText);
   const ordinaryInferredCapability = releaseSmoke
     ? inferNativeCodeCapability(text, [])
@@ -1713,6 +1732,38 @@ export async function handleNativeChat(request, env, options = {}) {
       provider:'mel', response_mode:'mel-work-readiness', capability_used:capabilitiesUsed,
       tool_results:toolResults, archive_saved:archiveSaved,
     }, { headers: { 'cache-control':'no-store' } });
+  }
+
+  // The owner asked for the link to a cap-stress job from the last exchange.
+  // This work lives in D1, not GitHub Actions; return its actual recorded state
+  // and never synthesize a GitHub URL from an internal UUID.
+  if (!releaseSmoke && inferredExecutionCapability?.execution_intent === 'GLOBAL_CAPABILITY_STRESS_LINK') {
+    const evidence = toolResults.find(row => row.capability === 'capability.audit.status') || null;
+    const observed = evidence?.status === 'SUCCEEDED' ? evidence.result : null;
+    const responseText = observed?.persistent === true
+      ? 'Ce travail est un stress test interne MEL enregistré dans Cloudflare D1, pas un run GitHub Actions : il ne possède donc pas de lien GitHub Actions exact.\n'
+        + formatVerifiedCapabilityAuditResponse(observed)
+      : 'Je ne peux pas confirmer le statut de ce travail interne dans D1 : '
+        + String(evidence?.error || 'CAPABILITY_STRESS_STATUS_UNAVAILABLE').slice(0, 160)
+        + '. Je ne fabriquerai pas de lien GitHub Actions.';
+    let archiveSaved = false;
+    if (service) {
+      try {
+        await service.archiveMessage({ conversationId, deviceId, role:'user', content:text, timestamp:Date.now(), provenance:userProvenance, metadata:userMetadata });
+        await service.archiveMessage({ conversationId, deviceId, role:'assistant', content:responseText, timestamp:Date.now()+1, provenance:'native-chat:capability-stress-link', metadata:{ job_id:inferredExecutionCapability.input.job_id, source:'D1', status:observed?.status || null } });
+        archiveSaved = true;
+      } catch {}
+    }
+    return Response.json({
+      ok: Boolean(observed),
+      text: responseText,
+      model:'deterministic-capability-stress-reference',
+      provider:'mel',
+      response_mode:'capability-stress-reference',
+      capability_used:capabilitiesUsed,
+      tool_results:toolResults,
+      archive_saved:archiveSaved,
+    }, {status: observed ? 200 : 404, headers:{'cache-control':'no-store'}});
   }
 
   if (!releaseSmoke && inferredExecutionCapability?.execution_intent === 'GLOBAL_CAPABILITY_STRESS_TEST') {
