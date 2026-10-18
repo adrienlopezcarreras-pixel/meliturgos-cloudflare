@@ -266,6 +266,13 @@ jobs:
           const job=JSON.parse(await fs.readFile(process.env.BRIDGE_JOB_FILE,'utf8'));
           const results=[];
           let failed=false;
+          // Mandatory gate before any requested test: every module parses and
+          // every import resolves (a requested smoke test does not load new files).
+          {
+            const r=spawnSync('npm',['run','check'],{stdio:'inherit',shell:false});
+            results.push({name:'syntax-and-imports',command:'check',passed:r.status===0,exit_code:r.status??1});
+            if(r.status!==0) failed=true;
+          }
           for(const spec of job.tests_json){
             const name=String(spec?.command||'').trim();
             if(!allowed.has(name)) throw new Error('APPLY_TEST_NOT_ALLOWED:'+name);
@@ -299,6 +306,8 @@ jobs:
           set -euo pipefail
           git config user.name "MEL Cloud Dev Bridge"
           git config user.email "mel-cloud-bridge@localhost"
+          # The bridge's own result file is evidence, never part of the change.
+          echo 'bridge-apply-result.json' >> .git/info/exclude
           git add --all
           set +e
           HYGIENE_OUTPUT="$(git diff --cached --check 2>&1)"
