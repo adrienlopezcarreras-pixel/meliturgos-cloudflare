@@ -867,11 +867,23 @@ static void mobile_tts_playback_task(void *arg) {
     vTaskDelete(nullptr);
 }
 
+// Playback consumes packets while the BLE callback is producing them. Keeping
+// 24 x 522-byte packets per utterance used over 12 KiB of *contiguous* heap
+// before the playback task could even start. A six-packet bounded queue uses
+// about 3 KiB instead; xQueueSend already applies backpressure when it fills.
+static constexpr UBaseType_t MOBILE_TTS_QUEUE_DEPTH = 6;
+
 static bool mobile_tts_start(MobileTtsContext *ctx) {
     if (!ctx) return false;
-    ctx->queue = xQueueCreate(24, sizeof(MobileTtsPacket));
+    ctx->queue = xQueueCreate(MOBILE_TTS_QUEUE_DEPTH, sizeof(MobileTtsPacket));
     ctx->drained = xSemaphoreCreateBinary();
     if (!ctx->queue || !ctx->drained) {
+        ESP_LOGE(
+            TAG, "TTS playback init: queue=%d semaphore=%d free_internal=%u largest_internal=%u",
+            ctx->queue ? 1 : 0, ctx->drained ? 1 : 0,
+            (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
+            (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)
+        );
         if (ctx->queue) vQueueDelete(ctx->queue);
         if (ctx->drained) vSemaphoreDelete(ctx->drained);
         ctx->queue = nullptr;
@@ -889,6 +901,11 @@ static bool mobile_tts_start(MobileTtsContext *ctx) {
         1
     );
     if (created != pdPASS) {
+        ESP_LOGE(
+            TAG, "TTS playback task create failed free_internal=%u largest_internal=%u",
+            (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
+            (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)
+        );
         vQueueDelete(ctx->queue);
         vSemaphoreDelete(ctx->drained);
         ctx->queue = nullptr;
