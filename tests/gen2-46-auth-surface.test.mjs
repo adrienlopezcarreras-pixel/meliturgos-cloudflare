@@ -55,6 +55,7 @@ test('GEN2-46 keeps only explicit read-only public and delegated strong-auth exc
   assert.deepEqual(HTTP_AUTH_POLICY.delegated_exact, [
     '/api/internal/release-launch-bootstrap',
     '/api/internal/sov-backup-download',
+    '/api/internal/council-review',
   ]);
 });
 

@@ -12,6 +12,7 @@ import handleAugmentio from "./api/augmentio-api.js";
 import { onRequestGet as handleMvp } from "./pages/mvp-interface-v3.js";
 import { onRequestGet as handleFullModeV2 } from "./pages/full-interface-v2.js";
 import { onRequestGet as handleWatchInterface } from "./pages/watch-interface.js";
+import { handleCouncilReviewRequest } from "./evolution/council-review.js";
 import { onRequestGet as handleRevenueInterface } from "./pages/revenue-interface.js";
 import { handleRevenueApi } from "./api/revenue-worker-api.js";
 import { SERVICE_WORKER_SOURCE } from "./pages/service-worker.js";
@@ -373,6 +374,7 @@ async function handleConversationApi(request, env, url = new URL(request.url), c
 
 async function routeResolvedRequest(request, env, ctx) {
     const url = new URL(request.url);
+    if (url.pathname === '/api/internal/council-review' && request.method === 'POST') return handleCouncilReviewRequest(request, env);
     const githubRelayResponse = githubActionRelayApi(request, env);
     if (githubRelayResponse) return await githubRelayResponse;
     const cloudflareRelayResponse = cloudflareApiRelay(request, env);
