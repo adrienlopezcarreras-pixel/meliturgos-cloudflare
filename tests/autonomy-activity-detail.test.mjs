@@ -48,6 +48,17 @@ test('activity report gathers jobs, ledger, dispatches and WORK from D1', async 
   assert.equal(a.work_cycles[0].status, 'NO_ELIGIBLE_MISSION');
 });
 
+test('activity cleans the visible job list while preserving failure history in D1', async () => {
+  const api = await readFile(new URL('../src/evolution/autonomy-activity.js', import.meta.url), 'utf8');
+  const page = await readFile(new URL('../src/pages/full-interface-v2.js', import.meta.url), 'utf8');
+  assert.match(api, /const orderedJobs = \[/);
+  assert.match(api, /\.\.\.supervised\.filter\(job => !terminal\.has/);
+  assert.match(page, /Travaux en cours/);
+  assert.match(page, /activeJobs\.slice\(0,20\)/);
+  assert.match(page, /Historique terminé ou en échec/);
+  assert.match(page, /historicalJobs\.slice\(0,8\)/);
+});
+
 test('the Activité panel reads the detailed feed and the top buttons report their result', async () => {
   const page = await readFile(new URL('../src/pages/full-interface-v2.js', import.meta.url), 'utf8');
   assert.match(page, /jfetch\('\/api\/gen2\/autonomy\/activity'\)/);
