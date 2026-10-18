@@ -30,7 +30,8 @@ export function inferAutonomyControlIntent(text, context = '') {
   const namesMax = /\bmax\b/.test(normalized);
   const enablesMax = /\b(?:active|activer|reactive|reactiver|relance|relancer|remets|remettre|redemarre|redemarrer)\b/.test(normalized);
   const disablesMax = /\b(?:desactive|desactiver|arrete|arreter|coupe|couper|stoppe|stopper)\b/.test(normalized);
-  if (namesMax && (enablesMax || disablesMax)) {
+  const asksHow = /\b(?:comment|explique|expliquer|procedure|tutoriel)\b/.test(normalized);
+  if (namesMax && (enablesMax || disablesMax) && !asksHow) {
     return { id: 'autonomy.max', input: { enabled: enablesMax && !disablesMax } };
   }
 
